@@ -602,6 +602,15 @@ impl Default for Nbt {
     }
 }
 
+impl Nbt {
+    /// Decodes the fixed-width little-endian NBT variant used inside item
+    /// stack extra data. Most other Bedrock network NBT uses variable-width
+    /// network little endian and should continue to use [`BedrockCodec`].
+    pub fn decode_little_endian<B: Buf>(buf: &mut B) -> Result<Self, DecodeError> {
+        decode_nbt(buf, NbtEncoding::LittleEndian)
+    }
+}
+
 impl super::codec::BedrockCodec for Nbt {
     type Args = ();
 
@@ -612,25 +621,7 @@ impl super::codec::BedrockCodec for Nbt {
     }
 
     fn decode<B: Buf>(buf: &mut B, _args: Self::Args) -> Result<Self, DecodeError> {
-        let chunk = buf.chunk();
-
-        let mut cursor = Cursor::new(chunk);
-
-        let root_tag = read_u8(&mut cursor)?;
-
-        // 2. Read the Root Name
-        // Even if empty, the root tag has a name field (2 bytes for length 0)
-        skip_string(&mut cursor)?;
-
-        // 3. Scan ONLY the payload of the root tag
-        // If root is Compound (10), this calls scan_compound recursively
-        // to handle the inner list, which is correct.
-        scan_payload(root_tag, &mut cursor)?;
-        // --- FIXED LOGIC END ---
-
-        let len = cursor.position() as usize;
-        let data = buf.copy_to_bytes(len);
-        Ok(Nbt(data))
+        decode_nbt(buf, NbtEncoding::NetworkLittleEndian)
     }
 }
 
@@ -658,9 +649,34 @@ impl<T: BedrockSized, const N: usize> BedrockSized for [T; N] {
     }
 }
 
-// --- The Scanner Logic (Little Endian) ---
+#[derive(Debug, Clone, Copy)]
+enum NbtEncoding {
+    NetworkLittleEndian,
+    LittleEndian,
+}
 
-fn scan_compound(cursor: &mut Cursor<&[u8]>) -> Result<(), DecodeError> {
+const MAX_NBT_DEPTH: usize = 512;
+
+fn decode_nbt<B: Buf>(buf: &mut B, encoding: NbtEncoding) -> Result<Nbt, DecodeError> {
+    let mut cursor = Cursor::new(buf.chunk());
+    let root_tag = read_u8(&mut cursor)?;
+
+    // Root tags are named in both Bedrock little-endian variants. Network
+    // little endian uses a VarUInt length; fixed little endian uses an i16.
+    skip_string(&mut cursor, encoding)?;
+    scan_payload(root_tag, &mut cursor, encoding, 0)?;
+
+    let len = cursor.position() as usize;
+    Ok(Nbt(buf.copy_to_bytes(len)))
+}
+
+// --- NBT scanner logic ---
+
+fn scan_compound(
+    cursor: &mut Cursor<&[u8]>,
+    encoding: NbtEncoding,
+    depth: usize,
+) -> Result<(), DecodeError> {
     // A Compound is just a list of tags terminated by End (0x00)
     loop {
         let tag_id = read_u8(cursor)?;
@@ -671,66 +687,65 @@ fn scan_compound(cursor: &mut Cursor<&[u8]>) -> Result<(), DecodeError> {
 
         // Tags in a compound are named.
         // Read Name (Short Length + Bytes)
-        skip_string(cursor)?;
+        skip_string(cursor, encoding)?;
 
         // Skip the payload based on ID
-        scan_payload(tag_id, cursor)?;
+        scan_payload(tag_id, cursor, encoding, depth)?;
     }
     Ok(())
 }
 
-fn scan_payload(tag_id: u8, cursor: &mut Cursor<&[u8]>) -> Result<(), DecodeError> {
-    use crate::protocol::wire;
+fn scan_payload(
+    tag_id: u8,
+    cursor: &mut Cursor<&[u8]>,
+    encoding: NbtEncoding,
+    depth: usize,
+) -> Result<(), DecodeError> {
     match tag_id {
         1 => skip(cursor, 1), // Byte
         2 => skip(cursor, 2), // Short
-        3 => {
-            // Int (ZigZag32)
-            wire::read_zigzag32(cursor)?;
-            Ok(())
-        }
-        4 => {
-            // Long (ZigZag64)
-            wire::read_zigzag64(cursor)?;
-            Ok(())
-        }
+        3 => skip_i32(cursor, encoding),
+        4 => skip_i64(cursor, encoding),
         5 => skip(cursor, 4), // Float
         6 => skip(cursor, 8), // Double
         7 => {
-            // Byte Array (ZigZag32 Length + Bytes)
-            let len = wire::read_zigzag32(cursor)?;
+            let len = nonnegative_len(read_i32(cursor, encoding)?)?;
             skip(cursor, len as usize)
         }
-        8 => skip_string(cursor), // String
+        8 => skip_string(cursor, encoding), // String
         9 => {
-            // List (TagId + ZigZag32 Length + Payloads)
+            let depth = enter_nbt_container(depth)?;
             let inner_id = read_u8(cursor)?;
-            let count = wire::read_zigzag32(cursor)?;
-            if count > 0 {
-                for _ in 0..count {
-                    scan_payload(inner_id, cursor)?;
-                }
+            let count = nonnegative_len(read_i32(cursor, encoding)?)?;
+            for _ in 0..count {
+                scan_payload(inner_id, cursor, encoding, depth)?;
             }
             Ok(())
         }
-        10 => scan_compound(cursor), // Compound (Recursion)
+        10 => scan_compound(cursor, encoding, enter_nbt_container(depth)?),
         11 => {
-            // Int Array (ZigZag32 Length + ZigZag32s)
-            let len = wire::read_zigzag32(cursor)?;
+            let len = nonnegative_len(read_i32(cursor, encoding)?)?;
             for _ in 0..len {
-                wire::read_zigzag32(cursor)?;
+                skip_i32(cursor, encoding)?;
             }
             Ok(())
         }
         12 => {
-            // Long Array (ZigZag32 Length + ZigZag64s)
-            let len = wire::read_zigzag32(cursor)?;
+            let len = nonnegative_len(read_i32(cursor, encoding)?)?;
             for _ in 0..len {
-                wire::read_zigzag64(cursor)?;
+                skip_i64(cursor, encoding)?;
             }
             Ok(())
         }
         _ => Err(DecodeError::UnknownNbtTag { tag_id }),
+    }
+}
+
+fn enter_nbt_container(depth: usize) -> Result<usize, DecodeError> {
+    if depth >= MAX_NBT_DEPTH {
+        Err(DecodeError::NbtDepthExceeded { max: MAX_NBT_DEPTH })
+    } else {
+        Ok(depth + 1)
     }
 }
 
@@ -746,9 +761,65 @@ fn read_u8(cursor: &mut Cursor<&[u8]>) -> Result<u8, DecodeError> {
     Ok(cursor.get_u8())
 }
 
-fn skip_string(cursor: &mut Cursor<&[u8]>) -> Result<(), DecodeError> {
-    let len = crate::protocol::wire::read_var_u32(cursor)? as usize;
+fn skip_string(cursor: &mut Cursor<&[u8]>, encoding: NbtEncoding) -> Result<(), DecodeError> {
+    let len = match encoding {
+        NbtEncoding::NetworkLittleEndian => crate::protocol::wire::read_var_u32(cursor)? as usize,
+        NbtEncoding::LittleEndian => {
+            if cursor.remaining() < 2 {
+                return Err(DecodeError::UnexpectedEof {
+                    needed: 2,
+                    available: cursor.remaining(),
+                });
+            }
+            nonnegative_len(cursor.get_i16_le() as i32)? as usize
+        }
+    };
     skip(cursor, len)
+}
+
+fn read_i32(cursor: &mut Cursor<&[u8]>, encoding: NbtEncoding) -> Result<i32, DecodeError> {
+    match encoding {
+        NbtEncoding::NetworkLittleEndian => Ok(crate::protocol::wire::read_zigzag32(cursor)?),
+        NbtEncoding::LittleEndian => {
+            if cursor.remaining() < 4 {
+                return Err(DecodeError::UnexpectedEof {
+                    needed: 4,
+                    available: cursor.remaining(),
+                });
+            }
+            Ok(cursor.get_i32_le())
+        }
+    }
+}
+
+fn skip_i32(cursor: &mut Cursor<&[u8]>, encoding: NbtEncoding) -> Result<(), DecodeError> {
+    match encoding {
+        NbtEncoding::NetworkLittleEndian => {
+            crate::protocol::wire::read_zigzag32(cursor)?;
+            Ok(())
+        }
+        NbtEncoding::LittleEndian => skip(cursor, 4),
+    }
+}
+
+fn skip_i64(cursor: &mut Cursor<&[u8]>, encoding: NbtEncoding) -> Result<(), DecodeError> {
+    match encoding {
+        NbtEncoding::NetworkLittleEndian => {
+            crate::protocol::wire::read_zigzag64(cursor)?;
+            Ok(())
+        }
+        NbtEncoding::LittleEndian => skip(cursor, 8),
+    }
+}
+
+fn nonnegative_len(value: i32) -> Result<i32, DecodeError> {
+    if value < 0 {
+        Err(DecodeError::NegativeLength {
+            value: value as i64,
+        })
+    } else {
+        Ok(value)
+    }
 }
 
 fn skip(cursor: &mut Cursor<&[u8]>, n: usize) -> Result<(), DecodeError> {
@@ -1172,5 +1243,85 @@ mod tests {
         let mut reader = buf.freeze();
         let decoded = Nbt::decode(&mut reader, ()).unwrap();
         assert_eq!(nbt.0, decoded.0);
+    }
+
+    fn nested_compounds(depth: usize, encoding: NbtEncoding) -> bytes::Bytes {
+        assert!(depth > 0);
+
+        let name_length = match encoding {
+            NbtEncoding::NetworkLittleEndian => &[0x00][..],
+            NbtEncoding::LittleEndian => &[0x00, 0x00][..],
+        };
+        let mut data = BytesMut::new();
+        data.put_u8(10);
+        data.put_slice(name_length);
+        for _ in 1..depth {
+            data.put_u8(10);
+            data.put_slice(name_length);
+        }
+        for _ in 0..depth {
+            data.put_u8(0);
+        }
+        data.freeze()
+    }
+
+    fn nested_lists(depth: usize, encoding: NbtEncoding) -> bytes::Bytes {
+        assert!(depth > 0);
+
+        let name_length = match encoding {
+            NbtEncoding::NetworkLittleEndian => &[0x00][..],
+            NbtEncoding::LittleEndian => &[0x00, 0x00][..],
+        };
+        let mut data = BytesMut::new();
+        data.put_u8(9);
+        data.put_slice(name_length);
+        for _ in 1..depth {
+            data.put_u8(9);
+            match encoding {
+                NbtEncoding::NetworkLittleEndian => {
+                    crate::protocol::wire::write_zigzag32(&mut data, 1)
+                }
+                NbtEncoding::LittleEndian => data.put_i32_le(1),
+            }
+        }
+        data.put_u8(1);
+        match encoding {
+            NbtEncoding::NetworkLittleEndian => crate::protocol::wire::write_zigzag32(&mut data, 0),
+            NbtEncoding::LittleEndian => data.put_i32_le(0),
+        }
+        data.freeze()
+    }
+
+    #[test]
+    fn network_nbt_allows_512_nested_containers_and_rejects_513() {
+        let mut boundary = nested_compounds(512, NbtEncoding::NetworkLittleEndian);
+        Nbt::decode(&mut boundary, ()).expect("512 nested containers should be accepted");
+        assert!(!boundary.has_remaining());
+
+        let mut over_limit = nested_compounds(513, NbtEncoding::NetworkLittleEndian);
+        let err = Nbt::decode(&mut over_limit, ()).unwrap_err();
+        assert!(matches!(err, DecodeError::NbtDepthExceeded { max: 512 }));
+    }
+
+    #[test]
+    fn little_endian_nbt_allows_512_nested_containers_and_rejects_513() {
+        let mut boundary = nested_compounds(512, NbtEncoding::LittleEndian);
+        Nbt::decode_little_endian(&mut boundary).expect("512 nested containers should be accepted");
+        assert!(!boundary.has_remaining());
+
+        let mut over_limit = nested_compounds(513, NbtEncoding::LittleEndian);
+        let err = Nbt::decode_little_endian(&mut over_limit).unwrap_err();
+        assert!(matches!(err, DecodeError::NbtDepthExceeded { max: 512 }));
+    }
+
+    #[test]
+    fn nbt_depth_limit_counts_lists() {
+        let mut boundary = nested_lists(512, NbtEncoding::NetworkLittleEndian);
+        Nbt::decode(&mut boundary, ()).expect("512 nested lists should be accepted");
+        assert!(!boundary.has_remaining());
+
+        let mut over_limit = nested_lists(513, NbtEncoding::NetworkLittleEndian);
+        let err = Nbt::decode(&mut over_limit, ()).unwrap_err();
+        assert!(matches!(err, DecodeError::NbtDepthExceeded { max: 512 }));
     }
 }

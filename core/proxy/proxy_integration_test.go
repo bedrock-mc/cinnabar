@@ -26,6 +26,120 @@ import (
 )
 
 func TestProxyJoin(t *testing.T) {
+	socketDir := filepath.Join(t.TempDir(), "socket")
+	harness := startLiveProxyHarness(t, socketDir)
+	defer harness.cancel()
+
+	client, err := (minecraft.Dialer{
+		IdentityData: login.IdentityData{DisplayName: "RustMCBEPhase0"},
+		Protocol:     minecraft.DefaultProtocol,
+	}).DialContextNetwork(harness.ctx, streamnet.New(socketDir), "")
+	if err != nil {
+		t.Fatalf("dial core: %v\nCore status: %s\nBDS output:\n%s", err, harness.core.status(), harness.bds.output())
+	}
+	defer client.Close()
+	if err := client.DoSpawnContext(harness.ctx); err != nil {
+		t.Fatalf("complete spawn: %v\nBDS output:\n%s", err, harness.bds.output())
+	}
+	if got := client.Proto().ID(); got != 1001 {
+		t.Fatalf("protocol ID = %d, want %d", got, 1001)
+	}
+	if got := client.GameData().EntityRuntimeID; got == 0 {
+		t.Fatal("StartGame runtime entity ID = 0, want non-zero")
+	}
+
+	_ = client.Close()
+	harness.stopAndValidate(t)
+}
+
+func TestProxyHelperProcess(t *testing.T) {
+	if os.Getenv("RUST_MCBE_PROXY_HELPER") != "1" {
+		t.Skip("proxy subprocess helper")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		_, _ = io.Copy(io.Discard, os.Stdin)
+		cancel()
+	}()
+	if err := Serve(ctx, Config{
+		SocketDir: os.Getenv("RUST_MCBE_PROXY_SOCKET_DIR"),
+		Upstream:  os.Getenv("RUST_MCBE_PROXY_UPSTREAM"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestExternalRustClientSocketDirectory(t *testing.T) {
+	t.Run("accepts absolute directory", func(t *testing.T) {
+		want := t.TempDir()
+		t.Setenv("RUST_MCBE_PROXY_SOCKET_DIR", want)
+
+		got, err := externalRustClientSocketDir()
+		if err != nil {
+			t.Fatalf("externalRustClientSocketDir() error = %v", err)
+		}
+		if got != filepath.Clean(want) {
+			t.Fatalf("externalRustClientSocketDir() = %q, want %q", got, filepath.Clean(want))
+		}
+	})
+
+	t.Run("rejects missing directory", func(t *testing.T) {
+		t.Setenv("RUST_MCBE_PROXY_SOCKET_DIR", "")
+
+		if _, err := externalRustClientSocketDir(); err == nil {
+			t.Fatal("externalRustClientSocketDir() accepted an empty directory")
+		}
+	})
+
+	t.Run("rejects relative directory", func(t *testing.T) {
+		t.Setenv("RUST_MCBE_PROXY_SOCKET_DIR", filepath.Join("relative", "socket"))
+
+		if _, err := externalRustClientSocketDir(); err == nil {
+			t.Fatal("externalRustClientSocketDir() accepted a relative directory")
+		}
+	})
+}
+
+func TestProxyExternalRustClientHarness(t *testing.T) {
+	if os.Getenv("RUST_MCBE_EXTERNAL_RUST_CLIENT") != "1" {
+		t.Skip("external Rust client harness")
+	}
+	socketDir, err := externalRustClientSocketDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	harness := startLiveProxyHarness(t, socketDir)
+	fmt.Printf("RUST_MCBE_EXTERNAL_READY=%s\n", socketDir)
+	if _, err := io.Copy(io.Discard, os.Stdin); err != nil {
+		t.Fatalf("wait for external Rust client EOF: %v", err)
+	}
+	harness.stopAndValidate(t)
+}
+
+func externalRustClientSocketDir() (string, error) {
+	directory := os.Getenv("RUST_MCBE_PROXY_SOCKET_DIR")
+	if directory == "" {
+		return "", errors.New("RUST_MCBE_PROXY_SOCKET_DIR is required")
+	}
+	if !filepath.IsAbs(directory) {
+		return "", fmt.Errorf("RUST_MCBE_PROXY_SOCKET_DIR must be absolute: %s", directory)
+	}
+	return filepath.Clean(directory), nil
+}
+
+type liveProxyHarness struct {
+	sourceDir string
+	runDir    string
+	ctx       context.Context
+	cancel    context.CancelFunc
+	bds       *testBDS
+	core      *testCore
+}
+
+func startLiveProxyHarness(t *testing.T, socketDir string) *liveProxyHarness {
+	t.Helper()
 	sourceDir := os.Getenv("BEDROCK_BDS_DIR")
 	if sourceDir == "" {
 		t.Skip("BEDROCK_BDS_DIR is not set")
@@ -68,8 +182,7 @@ func TestProxyJoin(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	socketDir := filepath.Join(t.TempDir(), "socket")
+	t.Cleanup(cancel)
 	core := startTestCore(t, socketDir, net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 	t.Cleanup(func() {
 		if err := core.stop(10 * time.Second); err != nil {
@@ -78,32 +191,25 @@ func TestProxyJoin(t *testing.T) {
 	})
 	waitForEndpoint(t, ctx, socketDir, core)
 
-	client, err := (minecraft.Dialer{
-		IdentityData: login.IdentityData{DisplayName: "RustMCBEPhase0"},
-		Protocol:     minecraft.DefaultProtocol,
-	}).DialContextNetwork(ctx, streamnet.New(socketDir), "")
-	if err != nil {
-		t.Fatalf("dial core: %v\nCore status: %s\nBDS output:\n%s", err, core.status(), bds.output())
+	return &liveProxyHarness{
+		sourceDir: sourceDir,
+		runDir:    runDir,
+		ctx:       ctx,
+		cancel:    cancel,
+		bds:       bds,
+		core:      core,
 	}
-	defer client.Close()
-	if err := client.DoSpawnContext(ctx); err != nil {
-		t.Fatalf("complete spawn: %v\nBDS output:\n%s", err, bds.output())
-	}
-	if got := client.Proto().ID(); got != 1001 {
-		t.Fatalf("protocol ID = %d, want %d", got, 1001)
-	}
-	if got := client.GameData().EntityRuntimeID; got == 0 {
-		t.Fatal("StartGame runtime entity ID = 0, want non-zero")
-	}
+}
 
-	_ = client.Close()
-	if err := core.stop(10 * time.Second); err != nil {
-		t.Fatalf("stop core cleanly: %v\nCore output:\n%s", err, core.output.String())
+func (h *liveProxyHarness) stopAndValidate(t *testing.T) {
+	t.Helper()
+	if err := h.core.stop(10 * time.Second); err != nil {
+		t.Fatalf("stop core cleanly: %v\nCore output:\n%s", err, h.core.output.String())
 	}
-	if err := bds.stop(20 * time.Second); err != nil {
-		t.Fatalf("stop BDS cleanly: %v\nBDS output:\n%s", err, bds.output())
+	if err := h.bds.stop(20 * time.Second); err != nil {
+		t.Fatalf("stop BDS cleanly: %v\nBDS output:\n%s", err, h.bds.output())
 	}
-	canonicalSource, canonicalRuntime, err := validateRuntimeSeparation(sourceDir, runDir)
+	canonicalSource, canonicalRuntime, err := validateRuntimeSeparation(h.sourceDir, h.runDir)
 	if err != nil {
 		t.Fatalf("revalidate stable runtime paths after BDS shutdown: %v", err)
 	}
@@ -112,24 +218,6 @@ func TestProxyJoin(t *testing.T) {
 		runtimeOwnershipMarker(canonicalSource),
 	); err != nil {
 		t.Fatalf("revalidate stable runtime ownership after BDS shutdown: %v", err)
-	}
-}
-
-func TestProxyHelperProcess(t *testing.T) {
-	if os.Getenv("RUST_MCBE_PROXY_HELPER") != "1" {
-		t.Skip("proxy subprocess helper")
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() {
-		_, _ = io.Copy(io.Discard, os.Stdin)
-		cancel()
-	}()
-	if err := Serve(ctx, Config{
-		SocketDir: os.Getenv("RUST_MCBE_PROXY_SOCKET_DIR"),
-		Upstream:  os.Getenv("RUST_MCBE_PROXY_UPSTREAM"),
-	}); err != nil {
-		t.Fatal(err)
 	}
 }
 

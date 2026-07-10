@@ -14,8 +14,10 @@ use tokio_raknet::RaknetStream;
 use tracing::instrument;
 use uuid::Uuid;
 
+use crate::batch::BatchCompression;
 use crate::error::{JolyneError, ProtocolError};
 use crate::gamedata::GameData;
+use crate::raw::{MAX_RAW_BATCH_PACKETS, RawPacket};
 #[cfg(feature = "raknet")]
 use crate::stream::transport::RakNetTransport;
 use crate::stream::{
@@ -24,13 +26,69 @@ use crate::stream::{
 };
 use crate::valentine::BorrowedMcpePacketData;
 use crate::valentine::{
-    AvailableEntityIdentifiersPacket, BiomeDefinitionListPacket, ClientCacheStatusPacket,
-    ClientToServerHandshakePacket, CreativeContentPacket, ItemRegistryPacket, LoginPacket,
+    ClientCacheStatusPacket, ClientToServerHandshakePacket, ItemRegistryPacket, LoginPacket,
     PlayStatusPacketStatus, RequestChunkRadiusPacket, RequestNetworkSettingsPacket,
     ResourcePackClientResponsePacket, ResourcePackClientResponsePacketResponseStatus,
     ServerboundLoadingScreenPacket, SetLocalPlayerAsInitializedPacket, StartGamePacket,
 };
-use crate::valentine::{McpePacket, McpePacketData, NetworkSettingsPacketCompressionAlgorithm};
+use crate::valentine::{
+    McpePacket, McpePacketData, McpePacketName, NetworkSettingsPacketCompressionAlgorithm,
+};
+
+const DEFAULT_LOGIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+const MAX_DEFERRED_PACKET_BYTES: usize = 16 * 1024 * 1024;
+const EXEMPTED_RESOURCE_PACKS: &[(&str, &str)] = &[
+    ("0fba4063-dba1-4281-9b89-ff9390653530", "1.0.0"),
+    ("b41c2785-c512-4a49-af56-3a87afd47c57", "1.21.30"),
+    ("a4df0cb3-17be-4163-88d7-fcf7002b935d", "1.21.20"),
+    ("d19adffe-a2e1-4b02-8436-ca4583368c89", "1.21.10"),
+    ("85d5603d-2824-4b21-8044-34f441f4fce1", "1.21.0"),
+    ("e977cd13-0a11-4618-96fb-03dfe9c43608", "1.20.60"),
+    ("0674721c-a0aa-41a1-9ba8-1ed33ea3e7ed", "1.20.50"),
+];
+
+fn is_exempted_resource_pack(uuid: &str, version: &str) -> bool {
+    EXEMPTED_RESOURCE_PACKS
+        .iter()
+        .any(|&(known_uuid, known_version)| uuid == known_uuid && version == known_version)
+}
+
+#[derive(Default)]
+struct DeferredPackets {
+    packets: Vec<RawPacket>,
+    bytes: usize,
+}
+
+impl DeferredPackets {
+    fn push(&mut self, packet: RawPacket) -> Result<(), JolyneError> {
+        if self.packets.len() == MAX_RAW_BATCH_PACKETS {
+            return Err(ProtocolError::TooManyPackets {
+                max: MAX_RAW_BATCH_PACKETS,
+            }
+            .into());
+        }
+
+        let bytes = self
+            .bytes
+            .checked_add(packet.inner_frame().len())
+            .unwrap_or(usize::MAX);
+        if bytes > MAX_DEFERRED_PACKET_BYTES {
+            return Err(ProtocolError::BatchTooLarge {
+                actual: bytes,
+                max: MAX_DEFERRED_PACKET_BYTES,
+            }
+            .into());
+        }
+
+        self.bytes = bytes;
+        self.packets.push(packet.into_compact());
+        Ok(())
+    }
+
+    fn into_packets(self) -> Vec<RawPacket> {
+        self.packets
+    }
+}
 
 // --- Config ---
 
@@ -143,20 +201,44 @@ impl<T: Transport> BedrockStream<Handshake, Client, T> {
         };
         self.transport.send_raw(McpePacket::from(req)).await?;
 
-        let settings_pkt = self.transport.recv_packet_borrowed().await?;
+        let settings_raw = self.transport.recv_packet_raw().await?;
+        if settings_raw.id != McpePacketName::PacketNetworkSettings {
+            return Err(ProtocolError::UnexpectedHandshake(format!(
+                "Expected NetworkSettings, got {:?}",
+                settings_raw.id
+            ))
+            .into());
+        }
+        let settings_pkt = settings_raw.decode_borrowed()?;
 
         match settings_pkt.data {
             BorrowedMcpePacketData::PacketNetworkSettings(settings) => {
                 match settings.compression_algorithm {
                     NetworkSettingsPacketCompressionAlgorithm::Deflate => {
-                        self.transport
-                            .set_compression(true, 7, settings.compression_threshold);
+                        self.transport.set_compression_algorithm(
+                            true,
+                            BatchCompression::Deflate,
+                            7,
+                            settings.compression_threshold,
+                        );
                     }
                     NetworkSettingsPacketCompressionAlgorithm::Snappy => {
-                        return Err(ProtocolError::UnexpectedHandshake(
-                            "Snappy compression is not supported".into(),
-                        )
-                        .into());
+                        self.transport.set_compression_algorithm(
+                            true,
+                            BatchCompression::Snappy,
+                            1,
+                            settings.compression_threshold,
+                        );
+                    }
+                    NetworkSettingsPacketCompressionAlgorithm::Unknown(value)
+                        if value == u16::MAX =>
+                    {
+                        self.transport.set_compression_algorithm(
+                            true,
+                            BatchCompression::None,
+                            0,
+                            settings.compression_threshold,
+                        );
                     }
                     NetworkSettingsPacketCompressionAlgorithm::Unknown(value) => {
                         return Err(ProtocolError::UnexpectedHandshake(format!(
@@ -185,6 +267,28 @@ impl<T: Transport> BedrockStream<Handshake, Client, T> {
     ///
     /// Returns both the stream in Play state and the captured [`GameData`].
     pub async fn join(
+        self,
+        config: ClientHandshakeConfig,
+    ) -> Result<(BedrockStream<Play, Client, T>, GameData), JolyneError> {
+        self.join_with_timeout(config, DEFAULT_LOGIN_TIMEOUT).await
+    }
+
+    /// Orchestrates login with one deadline spanning every protocol phase.
+    pub async fn join_with_timeout(
+        self,
+        config: ClientHandshakeConfig,
+        timeout: std::time::Duration,
+    ) -> Result<(BedrockStream<Play, Client, T>, GameData), JolyneError> {
+        tokio::time::timeout(timeout, self.join_inner(config))
+            .await
+            .map_err(|_| {
+                ProtocolError::UnexpectedHandshake(format!(
+                    "login deadline exceeded after {timeout:?}"
+                ))
+            })?
+    }
+
+    async fn join_inner(
         self,
         config: ClientHandshakeConfig,
     ) -> Result<(BedrockStream<Play, Client, T>, GameData), JolyneError> {
@@ -272,6 +376,33 @@ struct ServerHandshakeClaims {
     salt: String,
 }
 
+fn observe_login_success_packet(
+    packet: McpePacket,
+    early_resource_packs_info: &mut Option<McpePacket>,
+) -> Result<bool, JolyneError> {
+    if let McpePacketData::PacketPlayStatus(status) = &packet.data {
+        if status.status != PlayStatusPacketStatus::LoginSuccess {
+            return Err(ProtocolError::UnexpectedHandshake(format!(
+                "Login failed: {:?}",
+                status.status
+            ))
+            .into());
+        }
+        return Ok(true);
+    }
+    if let McpePacketData::PacketDisconnect(disconnect) = &packet.data {
+        return Err(ProtocolError::UnexpectedHandshake(format!(
+            "Server disconnected during login: {:?}",
+            disconnect.reason
+        ))
+        .into());
+    }
+    if matches!(&packet.data, McpePacketData::PacketResourcePacksInfo(_)) {
+        *early_resource_packs_info = Some(packet);
+    }
+    Ok(false)
+}
+
 impl<T: Transport> BedrockStream<SecurePending, Client, T> {
     #[instrument(skip_all, level = "trace")]
     pub async fn await_handshake(
@@ -279,7 +410,20 @@ impl<T: Transport> BedrockStream<SecurePending, Client, T> {
         client_identity_key: &SecretKey,
     ) -> Result<BedrockStream<ResourcePacks, Client, T>, JolyneError> {
         tracing::debug!("Waiting for ServerToClientHandshake...");
-        let next_pkt = self.transport.recv_packet().await?;
+        let next_raw = self.transport.recv_packet_raw().await?;
+        if !matches!(
+            next_raw.id,
+            McpePacketName::PacketServerToClientHandshake
+                | McpePacketName::PacketPlayStatus
+                | McpePacketName::PacketDisconnect
+        ) {
+            return Err(ProtocolError::UnexpectedHandshake(format!(
+                "Expected ServerToClientHandshake or LoginSuccess, got {:?}",
+                next_raw.id
+            ))
+            .into());
+        }
+        let next_pkt = next_raw.decode(&self.transport.session)?;
         tracing::debug!("Received packet ID: {:?}", next_pkt.data.packet_id());
 
         match next_pkt.data {
@@ -305,15 +449,25 @@ impl<T: Transport> BedrockStream<SecurePending, Client, T> {
                 })?;
 
                 // 2. Verify Token (Manually using p384, as jsonwebtoken fails with these keys)
-                let parts: Vec<&str> = hs.token.split('.').collect();
-                if parts.len() != 3 {
+                let mut parts = hs.token.split('.');
+                let protected = parts.next();
+                let claims = parts.next();
+                let signature = parts.next();
+                if protected.is_none()
+                    || claims.is_none()
+                    || signature.is_none()
+                    || parts.next().is_some()
+                {
                     return Err(
                         ProtocolError::UnexpectedHandshake("Invalid JWT format".into()).into(),
                     );
                 }
+                let protected = protected.expect("checked above");
+                let claims = claims.expect("checked above");
+                let signature = signature.expect("checked above");
 
-                let signed_part = format!("{}.{}", parts[0], parts[1]);
-                let signature_bytes = URL_SAFE_NO_PAD.decode(parts[2]).map_err(|e| {
+                let signed_part = format!("{protected}.{claims}");
+                let signature_bytes = URL_SAFE_NO_PAD.decode(signature).map_err(|e| {
                     ProtocolError::UnexpectedHandshake(format!("Invalid signature base64: {}", e))
                 })?;
 
@@ -333,7 +487,7 @@ impl<T: Transport> BedrockStream<SecurePending, Client, T> {
                 }
 
                 // Decode Payload
-                let payload_json = URL_SAFE_NO_PAD.decode(parts[1]).map_err(|e| {
+                let payload_json = URL_SAFE_NO_PAD.decode(claims).map_err(|e| {
                     ProtocolError::UnexpectedHandshake(format!("Invalid payload base64: {}", e))
                 })?;
 
@@ -408,33 +562,19 @@ impl<T: Transport> BedrockStream<SecurePending, Client, T> {
 
                 // Loop until we get PlayStatus (LoginSuccess)
                 while !received_play_status {
-                    let pkt = self.transport.recv_packet().await?;
-                    tracing::debug!("Received packet: {:?}", pkt.data.packet_id());
-
-                    match &pkt.data {
-                        McpePacketData::PacketPlayStatus(status) => {
-                            tracing::debug!("Received PlayStatus: {:?}", status.status);
-                            if status.status != PlayStatusPacketStatus::LoginSuccess {
-                                return Err(ProtocolError::UnexpectedHandshake(format!(
-                                    "Login failed: {:?}",
-                                    status.status
-                                ))
-                                .into());
-                            }
-                            received_play_status = true;
-                        }
-                        McpePacketData::PacketResourcePacksInfo(_) => {
-                            // LBSG sends ResourcePacksInfo before PlayStatus
-                            tracing::debug!("Received early ResourcePacksInfo (before PlayStatus)");
-                            early_resource_packs_info = Some(pkt);
-                        }
-                        _ => {
-                            // Ignore other packets during handshake
-                            tracing::debug!(
-                                "Ignoring packet during handshake: {:?}",
-                                pkt.data.packet_id()
-                            );
-                        }
+                    let raw = self.transport.recv_packet_raw().await?;
+                    tracing::debug!("Received packet: {:?}", raw.id);
+                    if matches!(
+                        raw.id,
+                        McpePacketName::PacketPlayStatus
+                            | McpePacketName::PacketResourcePacksInfo
+                            | McpePacketName::PacketDisconnect
+                    ) {
+                        let packet = raw.decode(&self.transport.session)?;
+                        received_play_status =
+                            observe_login_success_packet(packet, &mut early_resource_packs_info)?;
+                    } else {
+                        tracing::debug!("Ignoring packet ID during login handshake: {:?}", raw.id);
                     }
                 }
 
@@ -471,6 +611,13 @@ impl<T: Transport> BedrockStream<SecurePending, Client, T> {
                     .send_batch(&[McpePacket::from(ClientCacheStatusPacket { enabled: false })])
                     .await?;
             }
+            McpePacketData::PacketDisconnect(disconnect) => {
+                return Err(ProtocolError::UnexpectedHandshake(format!(
+                    "Server disconnected during login: {:?}",
+                    disconnect.reason
+                ))
+                .into());
+            }
             _ => {
                 return Err(ProtocolError::UnexpectedHandshake(
                     "Expected ServerToClientHandshake or LoginSuccess".into(),
@@ -492,7 +639,7 @@ mod tests {
     use super::*;
     use crate::batch::{decode_batch, encode_batch_multi};
     use crate::stream::transport::{BedrockTransport, TransportMessage, TransportRecvMessage};
-    use bytes::Bytes;
+    use bytes::{BufMut, Bytes, BytesMut};
     use std::collections::VecDeque;
     use std::io;
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -543,8 +690,83 @@ mod tests {
         }
     }
 
+    struct PendingTransport;
+
+    impl Transport for PendingTransport {
+        type Error = io::Error;
+
+        const USES_BATCH_PREFIX: bool = true;
+
+        fn poll_send(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+            _msg: TransportMessage,
+        ) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_recv(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Option<Result<TransportRecvMessage, Self::Error>>> {
+            Poll::Pending
+        }
+
+        fn peer_addr(&self) -> SocketAddr {
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)
+        }
+    }
+
     fn compressed_frame(packet: McpePacket) -> Bytes {
         encode_batch_multi(&[packet], true, 0, 0, true).expect("encode packet")
+    }
+
+    fn uncompressed_frame(packets: &[McpePacket]) -> Bytes {
+        encode_batch_multi(packets, false, 0, 0, true).expect("encode packet batch")
+    }
+
+    fn malformed_uncompressed_frame(packet_id: crate::valentine::McpePacketName) -> Bytes {
+        use valentine::bedrock::codec::BedrockCodec;
+        use valentine::protocol::wire;
+
+        let mut header = BytesMut::new();
+        packet_id.encode(&mut header).expect("encode packet ID");
+
+        let mut frame = BytesMut::new();
+        frame.put_u8(crate::batch::BATCH_PACKET_ID);
+        wire::write_var_u32(&mut frame, header.len() as u32);
+        frame.extend_from_slice(&header);
+        frame.freeze()
+    }
+
+    fn start_game_stream(
+        inbound: Vec<Bytes>,
+    ) -> BedrockStream<StartGame, Client, ScriptedTransport> {
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let mut transport = BedrockTransport::new(ScriptedTransport::new(inbound, sent));
+        transport.set_max_decompressed_batch_size(Some(16 * 1024 * 1024));
+        BedrockStream {
+            transport,
+            state: StartGame,
+            _role: PhantomData,
+        }
+    }
+
+    fn start_game_packet() -> McpePacket {
+        McpePacket::from(StartGamePacket {
+            runtime_entity_id: 42,
+            ..Default::default()
+        })
+    }
+
+    fn spawn_completion_packets() -> [McpePacket; 3] {
+        [
+            McpePacket::from(ItemRegistryPacket::default()),
+            McpePacket::from(crate::valentine::ChunkRadiusUpdatePacket { chunk_radius: 16 }),
+            McpePacket::from(crate::valentine::PlayStatusPacket {
+                status: PlayStatusPacketStatus::PlayerSpawn,
+            }),
+        ]
     }
 
     #[tokio::test]
@@ -589,6 +811,226 @@ mod tests {
             }] if !status.enabled
         ));
     }
+
+    #[tokio::test]
+    async fn request_settings_rejects_an_unexpected_raw_id_without_decoding_its_body() {
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let inbound = vec![malformed_uncompressed_frame(
+            crate::valentine::McpePacketName::PacketSetTitle,
+        )];
+        let transport = BedrockTransport::new(ScriptedTransport::new(inbound, sent));
+        let stream = BedrockStream {
+            transport,
+            state: Handshake { config: None },
+            _role: PhantomData,
+        };
+
+        let error = match stream.request_settings().await {
+            Ok(_) => panic!("an unexpected settings packet ID must fail"),
+            Err(error) => error,
+        };
+        assert!(matches!(
+            error,
+            JolyneError::Protocol(ProtocolError::UnexpectedHandshake(ref message))
+                if message.contains("PacketSetTitle")
+        ));
+    }
+
+    #[tokio::test]
+    async fn optional_start_game_packets_are_fifo_deferred_compact_frames() {
+        let mut packets = vec![
+            start_game_packet(),
+            McpePacket::from(crate::valentine::SetTimePacket { time: 11 }),
+            McpePacket::from(crate::valentine::BiomeDefinitionListPacket::default()),
+            McpePacket::from(crate::valentine::AvailableEntityIdentifiersPacket::default()),
+            McpePacket::from(crate::valentine::CreativeContentPacket::default()),
+            McpePacket::from(crate::valentine::SetTimePacket { time: 22 }),
+        ];
+        packets.extend(spawn_completion_packets());
+        let frame = uncompressed_frame(&packets);
+        let allocation_start = frame.as_ptr() as usize;
+        let allocation_end = allocation_start + frame.len();
+
+        let stream = start_game_stream(vec![frame.clone()]);
+        let (mut play, game_data) = stream.await_start_game().await.expect("spawn sequence");
+        assert!(game_data.biome_definitions.is_none());
+        assert!(game_data.entity_identifiers.is_none());
+        assert!(game_data.creative_content.is_none());
+
+        let expected = [
+            crate::valentine::McpePacketName::PacketSetTime,
+            crate::valentine::McpePacketName::PacketBiomeDefinitionList,
+            crate::valentine::McpePacketName::PacketAvailableEntityIdentifiers,
+            crate::valentine::McpePacketName::PacketCreativeContent,
+            crate::valentine::McpePacketName::PacketSetTime,
+        ];
+        for expected_id in expected {
+            let raw = play
+                .transport
+                .recv_packet_raw()
+                .await
+                .expect("deferred packet");
+            assert_eq!(raw.id, expected_id, "deferred FIFO order changed");
+            let pointer = raw.inner_frame().as_ptr() as usize;
+            assert!(
+                pointer < allocation_start || pointer >= allocation_end,
+                "deferred frame still retains the full incoming batch allocation"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn start_game_caps_aggregate_deferred_packet_count() {
+        let deferred = McpePacket::from(crate::valentine::SetTimePacket { time: 1 });
+        let mut first = vec![start_game_packet()];
+        first.extend(std::iter::repeat_n(deferred.clone(), 800));
+        let mut second = Vec::new();
+        second.extend(std::iter::repeat_n(deferred, 801));
+        second.extend(spawn_completion_packets());
+
+        let stream = start_game_stream(vec![
+            uncompressed_frame(&first),
+            uncompressed_frame(&second),
+        ]);
+        let error = match stream.await_start_game().await {
+            Ok(_) => panic!("more than 1,600 deferred packets must fail"),
+            Err(error) => error,
+        };
+        assert!(matches!(
+            error,
+            JolyneError::Protocol(ProtocolError::TooManyPackets { max: 1_600 })
+        ));
+    }
+
+    #[tokio::test]
+    async fn start_game_caps_aggregate_deferred_frame_bytes() {
+        const HALF_LIMIT: usize = 8 * 1024 * 1024;
+        let level_chunk = || {
+            McpePacket::from(crate::valentine::LevelChunkPacket {
+                payload: vec![0; HALF_LIMIT],
+                ..Default::default()
+            })
+        };
+        let first = uncompressed_frame(&[start_game_packet(), level_chunk()]);
+        let mut second = vec![level_chunk()];
+        second.extend(spawn_completion_packets());
+
+        let stream = start_game_stream(vec![first, uncompressed_frame(&second)]);
+        let error = match stream.await_start_game().await {
+            Ok(_) => panic!("more than 16 MiB of deferred frames must fail"),
+            Err(error) => error,
+        };
+        assert!(matches!(
+            error,
+            JolyneError::Protocol(ProtocolError::BatchTooLarge {
+                max: 16_777_216,
+                ..
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn non_empty_resource_pack_stack_is_rejected() {
+        let info = McpePacket::from(crate::valentine::ResourcePacksInfoPacket::default());
+        let stack = McpePacket::from(crate::valentine::ResourcePackStackPacket {
+            resource_packs: vec![crate::valentine::ResourcePackIdVersionsItem {
+                uuid: "pack-id".into(),
+                version: "1.0.0".into(),
+                name: "test pack".into(),
+            }],
+            ..Default::default()
+        });
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let transport = BedrockTransport::new(ScriptedTransport::new(
+            vec![uncompressed_frame(&[info]), uncompressed_frame(&[stack])],
+            sent,
+        ));
+        let stream = BedrockStream {
+            transport,
+            state: ResourcePacks { early_packet: None },
+            _role: PhantomData,
+        };
+
+        let error = match stream.handle_packs().await {
+            Ok(_) => panic!("a non-empty server pack stack must not be accepted"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("Resource pack downloads are not implemented")
+        );
+    }
+
+    #[tokio::test]
+    async fn pinned_gophertunnel_exempt_pack_stack_is_accepted() {
+        let info = McpePacket::from(crate::valentine::ResourcePacksInfoPacket::default());
+        let (uuid, version) = EXEMPTED_RESOURCE_PACKS[0];
+        let stack = McpePacket::from(crate::valentine::ResourcePackStackPacket {
+            resource_packs: vec![crate::valentine::ResourcePackIdVersionsItem {
+                uuid: uuid.into(),
+                version: version.into(),
+                name: "client built-in".into(),
+            }],
+            ..Default::default()
+        });
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let transport = BedrockTransport::new(ScriptedTransport::new(
+            vec![uncompressed_frame(&[info]), uncompressed_frame(&[stack])],
+            sent.clone(),
+        ));
+        let stream = BedrockStream {
+            transport,
+            state: ResourcePacks { early_packet: None },
+            _role: PhantomData,
+        };
+
+        stream
+            .handle_packs()
+            .await
+            .expect("client built-in packs do not require a download");
+        assert_eq!(
+            sent.lock().expect("sent lock").len(),
+            2,
+            "HaveAllPacks and Completed must both be sent"
+        );
+    }
+
+    #[tokio::test]
+    async fn join_deadline_bounds_pending_network_settings() {
+        let transport = BedrockTransport::new(PendingTransport);
+        let stream = BedrockStream {
+            transport,
+            state: Handshake { config: None },
+            _role: PhantomData,
+        };
+        let config = ClientHandshakeConfig::random(
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+            "deadline-test",
+        );
+
+        let error = match stream
+            .join_with_timeout(config, std::time::Duration::from_millis(10))
+            .await
+        {
+            Ok(_) => panic!("pending settings must hit the login deadline"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("login deadline"));
+    }
+
+    #[test]
+    fn disconnect_while_waiting_for_login_success_is_an_error() {
+        let mut early = None;
+        let error = observe_login_success_packet(
+            McpePacket::from(crate::valentine::DisconnectPacket::default()),
+            &mut early,
+        )
+        .expect_err("Disconnect must stop login");
+
+        assert!(error.to_string().contains("disconnected during login"));
+        assert!(early.is_none());
+    }
 }
 
 // --- State: ResourcePacks ---
@@ -603,75 +1045,32 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
             tracing::debug!("Using early ResourcePacksInfo received during handshake");
             early
         } else {
-            tracing::debug!("Waiting for ResourcePacksInfo (with 30s timeout)...");
-            // Loop to handle any unexpected packets, with a timeout
-            let timeout_duration = std::time::Duration::from_secs(30);
-            let start = std::time::Instant::now();
-
-            loop {
-                // Check timeout
-                if start.elapsed() > timeout_duration {
-                    tracing::error!(
-                        "Timeout waiting for ResourcePacksInfo after {:?}",
-                        start.elapsed()
-                    );
-                    return Err(ProtocolError::UnexpectedHandshake(
-                        "Timeout waiting for ResourcePacksInfo".into(),
-                    )
+            let raw = tokio::time::timeout(
+                std::time::Duration::from_secs(30),
+                self.transport.recv_packet_raw(),
+            )
+            .await
+            .map_err(|_| {
+                ProtocolError::UnexpectedHandshake("Timeout waiting for ResourcePacksInfo".into())
+            })??;
+            match raw.id {
+                McpePacketName::PacketResourcePacksInfo => raw.decode(&self.transport.session)?,
+                McpePacketName::PacketDisconnect => {
+                    let packet = raw.decode(&self.transport.session)?;
+                    let McpePacketData::PacketDisconnect(disconnect) = packet.data else {
+                        unreachable!("packet ID and decoded variant must agree")
+                    };
+                    return Err(ProtocolError::UnexpectedHandshake(format!(
+                        "Server disconnected during resource packs: {:?}",
+                        disconnect.reason
+                    ))
                     .into());
                 }
-
-                // Use tokio timeout for the recv - use raw packet to catch any packets
-                let recv_result = tokio::time::timeout(
-                    std::time::Duration::from_secs(5),
-                    self.transport.recv_packet_raw(),
-                )
-                .await;
-
-                match recv_result {
-                    Ok(Ok(raw_pkt)) => {
-                        let packet_id = raw_pkt.id;
-                        let body_len = raw_pkt.body().len();
-                        tracing::debug!(
-                            "Received raw packet: {:?} (body_len={})",
-                            packet_id,
-                            body_len
-                        );
-
-                        // Try to decode
-                        let pkt = match raw_pkt.decode(&self.transport.session) {
-                            Ok(pkt) => pkt,
-                            Err(e) => {
-                                tracing::warn!("Failed to decode packet {:?}: {:?}", packet_id, e);
-                                continue;
-                            }
-                        };
-
-                        match &pkt.data {
-                            McpePacketData::PacketResourcePacksInfo(_) => break pkt,
-                            McpePacketData::PacketDisconnect(dc) => {
-                                tracing::warn!("Server disconnected: {:?}", dc.reason);
-                                return Err(ProtocolError::UnexpectedHandshake(format!(
-                                    "Server disconnected: {:?}",
-                                    dc.reason
-                                ))
-                                .into());
-                            }
-                            _ => {
-                                tracing::debug!(
-                                    "Ignoring unexpected packet while waiting for ResourcePacksInfo: {:?}",
-                                    pkt.data.packet_id()
-                                );
-                            }
-                        }
-                    }
-                    Ok(Err(e)) => {
-                        tracing::error!("Error receiving packet: {:?}", e);
-                        return Err(e);
-                    }
-                    Err(_) => {
-                        tracing::debug!("No packet received in 5s, still waiting...");
-                    }
+                other => {
+                    return Err(ProtocolError::UnexpectedHandshake(format!(
+                        "Expected ResourcePacksInfo, got {other:?}"
+                    ))
+                    .into());
                 }
             }
         };
@@ -687,12 +1086,16 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
                 tracing::debug!("  Pack: {} v{}", pack.uuid, pack.version);
             }
 
-            if info.must_accept && !info.texture_packs.is_empty() {
+            if !info.texture_packs.is_empty() {
                 return Err(ProtocolError::UnexpectedHandshake(
-                    "Required resource pack downloads are not implemented".into(),
+                    "Resource pack downloads are not implemented".into(),
                 )
                 .into());
             }
+        } else {
+            return Err(
+                ProtocolError::UnexpectedHandshake("Expected ResourcePacksInfo".into()).into(),
+            );
         }
 
         // For now, claim we have all packs (don't download any)
@@ -706,14 +1109,34 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
 
         // Wait for ResourcePackStack
         tracing::debug!("Waiting for ResourcePackStack...");
-        let stack_pkt = tokio::time::timeout(
+        let stack_raw = tokio::time::timeout(
             std::time::Duration::from_secs(30),
-            self.transport.recv_packet(),
+            self.transport.recv_packet_raw(),
         )
         .await
         .map_err(|_| {
             ProtocolError::UnexpectedHandshake("Timeout waiting for ResourcePackStack".into())
         })??;
+        let stack_pkt = match stack_raw.id {
+            McpePacketName::PacketResourcePackStack => stack_raw.decode(&self.transport.session)?,
+            McpePacketName::PacketDisconnect => {
+                let packet = stack_raw.decode(&self.transport.session)?;
+                let McpePacketData::PacketDisconnect(disconnect) = packet.data else {
+                    unreachable!("packet ID and decoded variant must agree")
+                };
+                return Err(ProtocolError::UnexpectedHandshake(format!(
+                    "Server disconnected during resource packs: {:?}",
+                    disconnect.reason
+                ))
+                .into());
+            }
+            other => {
+                return Err(ProtocolError::UnexpectedHandshake(format!(
+                    "Expected ResourcePackStack, got {other:?}"
+                ))
+                .into());
+            }
+        };
 
         if let McpePacketData::PacketResourcePackStack(ref stack) = stack_pkt.data {
             tracing::debug!(
@@ -725,11 +1148,23 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
             for pack in &stack.resource_packs {
                 tracing::debug!("  Stack pack: {} v{}", pack.uuid, pack.version);
             }
+            if let Some(pack) = stack
+                .resource_packs
+                .iter()
+                .find(|pack| !is_exempted_resource_pack(&pack.uuid, &pack.version))
+            {
+                return Err(ProtocolError::UnexpectedHandshake(format!(
+                    "Resource pack downloads are not implemented for {}_{}",
+                    pack.uuid, pack.version
+                ))
+                .into());
+            }
         } else {
-            tracing::warn!(
-                "Expected ResourcePackStack, got: {:?}",
+            return Err(ProtocolError::UnexpectedHandshake(format!(
+                "Expected ResourcePackStack, got {:?}",
                 stack_pkt.data.packet_id()
-            );
+            ))
+            .into());
         }
 
         // Send Completed to finish resource pack negotiation
@@ -764,30 +1199,18 @@ impl<T: Transport> BedrockStream<StartGame, Client, T> {
     ) -> Result<(BedrockStream<Play, Client, T>, GameData), JolyneError> {
         let mut runtime_entity_id: Option<i64> = None;
         let mut sent_chunk_radius = false;
+        let mut received_chunk_radius = false;
+        let mut received_player_spawn = false;
+        let mut deferred_packets = DeferredPackets::default();
 
         // Captured game data
         let mut start_game: Option<StartGamePacket> = None;
         let mut item_registry: Option<ItemRegistryPacket> = None;
-        let mut biome_definitions: Option<BiomeDefinitionListPacket> = None;
-        let mut entity_identifiers: Option<AvailableEntityIdentifiersPacket> = None;
-        let mut creative_content: Option<CreativeContentPacket> = None;
 
         tracing::debug!("Waiting for StartGame sequence...");
 
-        // 1. Receive StartGame -> Request Radius -> Receive Spawn
-        // Use raw packet receiving to handle decode errors gracefully
         let start_time = std::time::Instant::now();
         loop {
-            // Log periodic status
-            if start_time.elapsed().as_secs().is_multiple_of(10)
-                && start_time.elapsed().as_secs() > 0
-            {
-                tracing::debug!(
-                    "Still waiting for StartGame... elapsed={:?}",
-                    start_time.elapsed()
-                );
-            }
-
             if start_time.elapsed() > std::time::Duration::from_secs(120) {
                 return Err(ProtocolError::UnexpectedHandshake(
                     "Timeout waiting for PlayerSpawn during StartGame".into(),
@@ -795,78 +1218,80 @@ impl<T: Transport> BedrockStream<StartGame, Client, T> {
                 .into());
             }
 
-            // Use timeout to prevent individual receives from blocking forever
-            let recv_result = tokio::time::timeout(
+            let raw = match tokio::time::timeout(
                 std::time::Duration::from_secs(5),
                 self.transport.recv_packet_raw(),
             )
-            .await;
-
-            let raw_pkt = match recv_result {
-                Ok(Ok(pkt)) => pkt,
+            .await
+            {
+                Ok(Ok(raw)) => raw,
                 Ok(Err(e)) => return Err(e),
-                Err(_) => {
-                    tracing::debug!("No packet received in 5s during StartGame, still waiting...");
-                    continue;
-                }
+                Err(_) => continue,
             };
-
-            // Try to decode the packet - skip on decode errors for non-essential packets
-            let packet_id = raw_pkt.id;
-            let pkt = match raw_pkt.decode(&self.transport.session) {
-                Ok(pkt) => pkt,
-                Err(e) => {
-                    tracing::warn!(
-                        packet_id = ?packet_id,
-                        "Skipping packet due to decode error: {:?}",
-                        e
-                    );
-                    continue;
-                }
-            };
-
-            match pkt.data {
-                McpePacketData::PacketStartGame(start) => {
+            match raw.id {
+                McpePacketName::PacketStartGame => {
+                    let packet = raw.decode(&self.transport.session)?;
+                    let McpePacketData::PacketStartGame(start) = packet.data else {
+                        unreachable!("packet ID and decoded variant must agree")
+                    };
                     tracing::debug!(runtime_id = %start.runtime_entity_id, "StartGame received");
-                    runtime_entity_id = Some(start.runtime_entity_id);
-                    start_game = Some(*start);
-                }
-                McpePacketData::PacketItemRegistry(registry) => {
-                    tracing::debug!(items = %registry.itemstates.len(), "ItemRegistry received");
-                    item_registry = Some(registry);
-                    if !sent_chunk_radius {
-                        let req = RequestChunkRadiusPacket {
-                            chunk_radius: 4,
-                            max_radius: 32,
-                        };
-                        self.transport.send_batch(&[McpePacket::from(req)]).await?;
-                        sent_chunk_radius = true;
+                    if let Some(existing) = runtime_entity_id {
+                        if existing != start.runtime_entity_id {
+                            return Err(ProtocolError::UnexpectedHandshake(format!(
+                                "conflicting StartGame runtime entity ID: first {existing}, then {}",
+                                start.runtime_entity_id
+                            ))
+                            .into());
+                        }
+                    } else {
+                        runtime_entity_id = Some(start.runtime_entity_id);
+                        start_game = Some(*start);
                     }
                 }
-                McpePacketData::PacketBiomeDefinitionList(biomes) => {
-                    tracing::debug!(biomes = %biomes.biome_definitions.len(), "BiomeDefinitionList received");
-                    biome_definitions = Some(biomes);
+                McpePacketName::PacketItemRegistry => {
+                    let packet = raw.decode(&self.transport.session)?;
+                    let McpePacketData::PacketItemRegistry(registry) = packet.data else {
+                        unreachable!("packet ID and decoded variant must agree")
+                    };
+                    tracing::debug!(items = %registry.itemstates.len(), "ItemRegistry received");
+                    if let Some(shield) = registry
+                        .itemstates
+                        .iter()
+                        .find(|item| item.name == "minecraft:shield")
+                    {
+                        self.transport.session.shield_item_id = i32::from(shield.runtime_id);
+                    }
+                    item_registry = Some(registry);
                 }
-                McpePacketData::PacketAvailableEntityIdentifiers(entities) => {
-                    tracing::debug!("AvailableEntityIdentifiers received");
-                    entity_identifiers = Some(entities);
-                }
-                McpePacketData::PacketCreativeContent(content) => {
-                    tracing::debug!(
-                        groups = %content.groups.len(),
-                        items = %content.items.len(),
-                        "CreativeContent received"
-                    );
-                    creative_content = Some(content);
-                }
-                McpePacketData::PacketPlayStatus(status) => {
+                McpePacketName::PacketPlayStatus => {
+                    let packet = raw.decode(&self.transport.session)?;
+                    let McpePacketData::PacketPlayStatus(status) = packet.data else {
+                        unreachable!("packet ID and decoded variant must agree")
+                    };
                     tracing::debug!("PlayStatus received: {:?}", status.status);
                     if status.status == PlayStatusPacketStatus::PlayerSpawn {
-                        tracing::debug!("PlayerSpawn received");
-                        break;
+                        received_player_spawn = true;
                     }
                 }
-                McpePacketData::PacketDisconnect(dc) => {
+                McpePacketName::PacketChunkRadiusUpdate => {
+                    let packet = raw.decode(&self.transport.session)?;
+                    let McpePacketData::PacketChunkRadiusUpdate(update) = packet.data else {
+                        unreachable!("packet ID and decoded variant must agree")
+                    };
+                    if update.chunk_radius < 1 {
+                        return Err(ProtocolError::UnexpectedHandshake(format!(
+                            "invalid updated chunk radius {}",
+                            update.chunk_radius
+                        ))
+                        .into());
+                    }
+                    received_chunk_radius = true;
+                }
+                McpePacketName::PacketDisconnect => {
+                    let packet = raw.decode(&self.transport.session)?;
+                    let McpePacketData::PacketDisconnect(dc) = packet.data else {
+                        unreachable!("packet ID and decoded variant must agree")
+                    };
                     tracing::warn!("Server disconnected: {:?}", dc.reason);
                     return Err(ProtocolError::UnexpectedHandshake(format!(
                         "Server disconnected during StartGame: {:?}",
@@ -874,34 +1299,50 @@ impl<T: Transport> BedrockStream<StartGame, Client, T> {
                     ))
                     .into());
                 }
-                _ => {
-                    tracing::debug!("StartGame: ignoring packet {:?}", pkt.data.packet_id());
+                packet_id => {
+                    tracing::debug!("StartGame: deferring packet {:?}", packet_id);
+                    deferred_packets.push(raw)?;
                 }
+            }
+
+            if !sent_chunk_radius && start_game.is_some() {
+                self.transport
+                    .send_batch(&[
+                        McpePacket::from(ServerboundLoadingScreenPacket {
+                            type_: 1,
+                            loading_screen_id: None,
+                        }),
+                        McpePacket::from(RequestChunkRadiusPacket {
+                            chunk_radius: 16,
+                            max_radius: 16,
+                        }),
+                    ])
+                    .await?;
+                sent_chunk_radius = true;
+            }
+
+            if sent_chunk_radius
+                && received_chunk_radius
+                && received_player_spawn
+                && item_registry.is_some()
+            {
+                break;
             }
         }
 
-        // 2. Send Loading Screen (Start & End)
+        let runtime_entity_id = runtime_entity_id.ok_or_else(|| {
+            ProtocolError::UnexpectedHandshake("Never received StartGame runtime entity ID".into())
+        })?;
+
         self.transport
             .send_batch(&[
-                McpePacket::from(ServerboundLoadingScreenPacket {
-                    type_: 1,
-                    loading_screen_id: None,
-                }),
                 McpePacket::from(ServerboundLoadingScreenPacket {
                     type_: 2,
                     loading_screen_id: None,
                 }),
+                McpePacket::from(SetLocalPlayerAsInitializedPacket { runtime_entity_id }),
             ])
             .await?;
-
-        // 3. Send Initialized
-        if let Some(rid) = runtime_entity_id {
-            self.transport
-                .send_batch(&[McpePacket::from(SetLocalPlayerAsInitializedPacket {
-                    runtime_entity_id: rid,
-                })])
-                .await?;
-        }
 
         // Build GameData from captured packets
         let game_data = GameData {
@@ -911,10 +1352,13 @@ impl<T: Transport> BedrockStream<StartGame, Client, T> {
             item_registry: item_registry.ok_or_else(|| {
                 ProtocolError::UnexpectedHandshake("Never received ItemRegistry packet".into())
             })?,
-            biome_definitions,
-            entity_identifiers,
-            creative_content,
+            biome_definitions: None,
+            entity_identifiers: None,
+            creative_content: None,
         };
+
+        self.transport
+            .prepend_recv_queue(deferred_packets.into_packets());
 
         tracing::debug!("Game initialization complete, entering Play state");
 

@@ -36,6 +36,9 @@ pub enum DecodeError {
     #[error("unknown NBT tag: {tag_id}")]
     UnknownNbtTag { tag_id: u8 },
 
+    #[error("NBT nesting depth exceeds maximum of {max}")]
+    NbtDepthExceeded { max: usize },
+
     #[error("utf8 decode error: {0}")]
     Utf8Error(#[from] std::string::FromUtf8Error),
 

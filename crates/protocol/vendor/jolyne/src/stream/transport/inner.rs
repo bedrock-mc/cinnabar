@@ -17,8 +17,8 @@ use valentine::bedrock::codec::BedrockSized;
 
 use super::{Transport, TransportMessage, TransportRecvMessage};
 use crate::batch::{
-    decode_batch_no_prefix_raw, decode_batch_raw, decode_batch_raw_split, encode_batch_multi_into,
-    encode_batch_raw_into,
+    BatchCompression, decode_batch_no_prefix_raw, decode_batch_raw, decode_batch_raw_split,
+    encode_batch_multi_into, encode_batch_raw_into,
 };
 use crate::error::{JolyneError, ProtocolError};
 use crate::raw::{RawPacket, decode_packet_raw, decode_packet_raw_split};
@@ -61,6 +61,7 @@ pub struct BedrockTransport<T: Transport> {
 
     // Compression State
     pub(crate) compression_enabled: bool,
+    pub(crate) compression_algorithm: BatchCompression,
     pub(crate) compression_level: u32,
     pub(crate) compression_threshold: u16,
     max_decompressed_batch_size: Option<usize>,
@@ -88,6 +89,7 @@ impl<T: Transport> BedrockTransport<T> {
             send_counter: 0,
             recv_counter: 0,
             compression_enabled: false,
+            compression_algorithm: BatchCompression::Deflate,
             compression_level: 7,
             compression_threshold: 0,
             max_decompressed_batch_size: Some(1024 * 1024 * 4),
@@ -120,7 +122,19 @@ impl<T: Transport> BedrockTransport<T> {
 
     /// Sets compression parameters.
     pub fn set_compression(&mut self, enabled: bool, level: u32, threshold: u16) {
+        self.set_compression_algorithm(enabled, BatchCompression::Deflate, level, threshold);
+    }
+
+    /// Sets the negotiated compression algorithm and parameters.
+    pub fn set_compression_algorithm(
+        &mut self,
+        enabled: bool,
+        algorithm: BatchCompression,
+        level: u32,
+        threshold: u16,
+    ) {
         self.compression_enabled = enabled;
+        self.compression_algorithm = algorithm;
         self.compression_level = level;
         self.compression_threshold = threshold;
     }
@@ -198,6 +212,7 @@ impl<T: Transport> BedrockTransport<T> {
         encode_batch_multi_into(
             packets,
             self.compression_enabled,
+            self.compression_algorithm,
             self.compression_level,
             self.compression_threshold,
             T::USES_BATCH_PREFIX,
@@ -344,6 +359,15 @@ impl<T: Transport> BedrockTransport<T> {
         }
     }
 
+    /// Restores packets consumed by an internal state machine so callers can
+    /// observe them after the state transition. Restored packets retain their
+    /// original order and precede unread packets from the same network batch.
+    pub(crate) fn prepend_recv_queue(&mut self, packets: impl IntoIterator<Item = RawPacket>) {
+        let mut deferred: VecDeque<_> = packets.into_iter().collect();
+        deferred.append(&mut self.recv_queue);
+        self.recv_queue = deferred;
+    }
+
     /// Returns the next packet as a borrowed protocol view.
     ///
     /// This is the preferred ingress path for handshake and other hot packet
@@ -484,6 +508,7 @@ impl<T: Transport> BedrockTransport<T> {
         encode_batch_raw_into(
             packets,
             self.compression_enabled,
+            self.compression_algorithm,
             self.compression_level,
             self.compression_threshold,
             T::USES_BATCH_PREFIX,

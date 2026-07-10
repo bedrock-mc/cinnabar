@@ -290,10 +290,10 @@ func relayPackets(ctx context.Context, downstream, upstream packetSession) error
 	}
 	results := make(chan result, 2)
 	go func() {
-		results <- result{"downstream to upstream", pumpPackets(downstream, upstream)}
+		results <- result{"downstream to upstream", pumpPackets(downstream, upstream, true)}
 	}()
 	go func() {
-		results <- result{"upstream to downstream", pumpPackets(upstream, downstream)}
+		results <- result{"upstream to downstream", pumpPackets(upstream, downstream, false)}
 	}()
 
 	var first result
@@ -346,21 +346,60 @@ func shutdownSession(session packetSession) error {
 	return errors.Join(abortSession(session), closeSession(session))
 }
 
-func pumpPackets(source, destination packetSession) (err error) {
+func pumpPackets(source, destination packetSession, dropInitialSpawnLoadingScreens bool) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = fmt.Errorf("panic while relaying packets: %v", recovered)
 		}
 	}()
+	var pendingInitialStart packet.Packet
 	for {
 		value, err := source.ReadPacket()
 		if err != nil {
+			if pendingInitialStart != nil {
+				return errors.Join(err, destination.WritePacket(pendingInitialStart))
+			}
 			return err
+		}
+		// Each gophertunnel side performs its own initial spawn handshake. The
+		// downstream listener defers ServerBoundLoadingScreen packets because it
+		// does not handle them internally; forwarding those two acknowledgements
+		// after the spawn barrier repeats the upstream client's acknowledgements
+		// and BDS disconnects with UnexpectedPacket. The Phase-0 clients emit an
+		// adjacent no-ID Start/End pair. Buffer Start until End proves that exact
+		// pair; any mismatch disables the filter and preserves FIFO.
+		if dropInitialSpawnLoadingScreens {
+			if pendingInitialStart == nil {
+				if isLoadingScreen(value, packet.LoadingScreenTypeStart) {
+					pendingInitialStart = value
+					continue
+				}
+				dropInitialSpawnLoadingScreens = false
+			} else if isLoadingScreen(value, packet.LoadingScreenTypeEnd) {
+				pendingInitialStart = nil
+				dropInitialSpawnLoadingScreens = false
+				continue
+			} else {
+				if err := destination.WritePacket(pendingInitialStart); err != nil {
+					return err
+				}
+				pendingInitialStart = nil
+				dropInitialSpawnLoadingScreens = false
+			}
 		}
 		if err := destination.WritePacket(value); err != nil {
 			return err
 		}
 	}
+}
+
+func isLoadingScreen(value packet.Packet, loadingType int32) bool {
+	loading, ok := value.(*packet.ServerBoundLoadingScreen)
+	if !ok || loading.Type != loadingType {
+		return false
+	}
+	_, hasID := loading.LoadingScreenID.Value()
+	return !hasID
 }
 
 func callWithoutPanic(call func() error) (err error) {

@@ -13,6 +13,12 @@ const MAX_BATCH_PACKETS: usize = 1_600;
 /// Errors produced by raw Bedrock batch encoding and decoding.
 #[derive(Debug, Error)]
 pub enum ProtocolError {
+    #[error("bridge connection failed: {0}")]
+    Bridge(#[source] anyhow::Error),
+
+    #[error("Bedrock session failed: {0}")]
+    Session(#[from] jolyne::error::JolyneError),
+
     #[error("invalid raw batch header: expected 0xfe, got {actual:?}")]
     InvalidBatchHeader { actual: Option<u8> },
 
@@ -96,6 +102,19 @@ pub fn decode_batch(
 
 /// Encodes one packet as an uncompressed gophertunnel raw batch.
 pub fn encode(packet: &Packet, _session: &BedrockSession) -> Result<Bytes, ProtocolError> {
+    validate_packet(packet)?;
+
+    let mut bytes = BytesMut::new();
+    bytes.put_u8(BATCH_HEADER);
+    packet.data.encode_inner_bytes_mut(
+        &mut bytes,
+        packet.header.from_subclient,
+        packet.header.to_subclient,
+    )?;
+    Ok(bytes.freeze())
+}
+
+pub(crate) fn validate_packet(packet: &Packet) -> Result<(), ProtocolError> {
     let payload_id = packet.data.packet_id();
     if packet.header.id != payload_id {
         return Err(ProtocolError::HeaderIdMismatch {
@@ -109,13 +128,5 @@ pub fn encode(packet: &Packet, _session: &BedrockSession) -> Result<Bytes, Proto
             target: packet.header.to_subclient,
         });
     }
-
-    let mut bytes = BytesMut::new();
-    bytes.put_u8(BATCH_HEADER);
-    packet.data.encode_inner_bytes_mut(
-        &mut bytes,
-        packet.header.from_subclient,
-        packet.header.to_subclient,
-    )?;
-    Ok(bytes.freeze())
+    Ok(())
 }

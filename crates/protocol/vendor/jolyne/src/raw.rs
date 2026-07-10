@@ -16,6 +16,8 @@ use crate::error::{JolyneError, ProtocolError};
 use crate::valentine::BorrowedMcpePacket;
 use crate::valentine::mcpe::{GameHeader, McpePacket, McpePacketData, McpePacketName};
 
+pub(crate) const MAX_RAW_BATCH_PACKETS: usize = 1_600;
+
 /// A packet with only the header parsed, body kept as raw bytes.
 ///
 /// Useful for proxies that need to peek at packet IDs without full decode,
@@ -49,35 +51,51 @@ impl RawPacket {
     /// This is useful when you decide you need the full packet contents
     /// after initially receiving it as raw bytes.
     pub fn decode(self, session: &BedrockSession) -> Result<McpePacket, JolyneError> {
-        // Debug: Log raw bytes for TextPacket
-        if self.id == McpePacketName::PacketText {
-            let body_preview: Vec<u8> = self.body.iter().take(64).copied().collect();
-            tracing::warn!(
-                packet_id = ?self.id,
-                body_len = self.body.len(),
-                body_hex = ?body_preview,
-                "TextPacket raw bytes before decode"
-            );
-        }
-
+        let packet_id = self.id;
+        let body_len = self.body.len();
+        let body_preview = self.body.iter().take(32).copied().collect::<Vec<_>>();
         let mut buf = self.inner_frame;
         let (header, data) =
-            McpePacketData::decode_inner(&mut buf, session.into()).map_err(|e| {
-                tracing::error!(
-                    packet_id = ?self.id,
-                    body_len = self.body.len(),
-                    "Failed to decode packet: {:?}",
-                    e
-                );
-                e
+            McpePacketData::decode_inner(&mut buf, session.into()).map_err(|source| {
+                JolyneError::PacketDecode {
+                    packet_id,
+                    body_len,
+                    body_preview,
+                    source,
+                }
             })?;
+        if buf.has_remaining() {
+            return Err(JolyneError::PacketTrailingBytes {
+                packet_id,
+                body_len,
+                remaining: buf.remaining(),
+            });
+        }
         Ok(McpePacket::new(header, data))
     }
 
     /// Decode the inner frame into a borrowed packet view.
     pub fn decode_borrowed(self) -> Result<BorrowedMcpePacket, JolyneError> {
+        let packet_id = self.id;
+        let body_len = self.body.len();
+        let body_preview = self.body.iter().take(32).copied().collect::<Vec<_>>();
         let mut buf = self.inner_frame;
-        Ok(BorrowedMcpePacket::decode_inner(&mut buf)?)
+        let (packet, payload_remaining) = BorrowedMcpePacket::decode_inner_with_remaining(&mut buf)
+            .map_err(|source| JolyneError::PacketDecode {
+                packet_id,
+                body_len,
+                body_preview,
+                source,
+            })?;
+        let remaining = buf.remaining() + payload_remaining;
+        if remaining != 0 {
+            return Err(JolyneError::PacketTrailingBytes {
+                packet_id,
+                body_len,
+                remaining,
+            });
+        }
+        Ok(packet)
     }
 
     /// Returns the raw body bytes (payload after header).
@@ -96,6 +114,23 @@ impl RawPacket {
     /// Returns a reference to the inner frame bytes.
     pub fn inner_frame(&self) -> &Bytes {
         &self.inner_frame
+    }
+
+    /// Copies this packet into an allocation sized for this frame alone.
+    ///
+    /// Raw packets decoded from a batch are slices of the decompressed batch
+    /// allocation. Long-lived queues must compact those slices or one small
+    /// packet can keep the entire batch resident.
+    pub(crate) fn into_compact(self) -> Self {
+        let body_start = self.inner_frame.len() - self.body.len();
+        let inner_frame = Bytes::copy_from_slice(&self.inner_frame);
+        let body = inner_frame.slice(body_start..);
+        Self {
+            header: self.header,
+            id: self.id,
+            body,
+            inner_frame,
+        }
     }
 }
 
@@ -183,6 +218,12 @@ pub fn decode_packet_raw_split(first: u8, rest: Bytes) -> Result<RawPacket, Joly
 pub(crate) fn decode_packets_raw(mut cursor: Bytes) -> Result<Vec<RawPacket>, JolyneError> {
     let mut packets = Vec::new();
     while cursor.has_remaining() {
+        if packets.len() == MAX_RAW_BATCH_PACKETS {
+            return Err(ProtocolError::TooManyPackets {
+                max: MAX_RAW_BATCH_PACKETS,
+            }
+            .into());
+        }
         packets.push(decode_packet_raw(&mut cursor)?);
     }
     Ok(packets)
@@ -361,6 +402,52 @@ mod tests {
     }
 
     #[test]
+    fn full_decode_error_preserves_packet_identity_and_bounded_preview() {
+        // Text/Raw declares a 127-byte message but only carries 36 bytes. Keeping
+        // the malformed body over 32 bytes proves diagnostics cannot expose more
+        // than the preview cap.
+        let mut body = vec![0x00, 0x00, 0x00, 0x7f];
+        body.extend(0u8..36);
+        let frame = create_test_frame(0x09, 0, 0, &body);
+        let mut cursor = frame;
+        let raw = decode_packet_raw(&mut cursor).expect("raw header decode");
+
+        let error = raw
+            .decode(&BedrockSession { shield_item_id: 0 })
+            .expect_err("truncated Text must fail full decode");
+        match &error {
+            JolyneError::PacketDecode {
+                packet_id,
+                body_len,
+                body_preview,
+                ..
+            } => {
+                assert_eq!(*packet_id, McpePacketName::PacketText);
+                assert_eq!(*body_len, body.len());
+                assert_eq!(body_preview, &body[..32]);
+            }
+            other => panic!("expected packet-aware decode error, got {other:?}"),
+        }
+        let message = error.to_string();
+        assert!(message.contains("PacketText"));
+        assert!(message.contains("body_len=40"));
+        assert!(message.contains("7f"));
+    }
+
+    #[test]
+    fn full_decode_rejects_trailing_declared_body_bytes() {
+        let frame = create_test_frame(0x02, 0, 0, &[0x00, 0x00, 0x00, 0x00, 0xaa]);
+        let mut cursor = frame;
+        let raw = decode_packet_raw(&mut cursor).expect("raw header decode");
+
+        raw.clone()
+            .decode(&BedrockSession { shield_item_id: 0 })
+            .expect_err("owned decode must reject a trailing body byte");
+        raw.decode_borrowed()
+            .expect_err("borrowed decode must reject a trailing body byte");
+    }
+
+    #[test]
     fn decode_packet_raw_advances_cursor() {
         let frame1 = create_test_frame(0x02, 0, 0, &[0x01]); // PacketPlayStatus = 2
         let frame2 = create_test_frame(0x02, 0, 0, &[0x02]);
@@ -425,6 +512,27 @@ mod tests {
         assert_eq!(packets[0].body().as_ref(), &[0x01]);
         assert_eq!(packets[1].header.from_subclient, 1);
         assert_eq!(packets[2].header.to_subclient, 2);
+    }
+
+    #[test]
+    fn decode_packets_raw_caps_packet_count() {
+        let frame = create_test_frame(0x02, 0, 0, &[]);
+        let mut at_limit = BytesMut::with_capacity(frame.len() * 1_600);
+        for _ in 0..1_600 {
+            at_limit.extend_from_slice(&frame);
+        }
+        assert_eq!(
+            decode_packets_raw(at_limit.freeze())
+                .expect("packet count at limit")
+                .len(),
+            1_600
+        );
+
+        let mut over_limit = BytesMut::with_capacity(frame.len() * 1_601);
+        for _ in 0..1_601 {
+            over_limit.extend_from_slice(&frame);
+        }
+        decode_packets_raw(over_limit.freeze()).expect_err("packet count over limit must fail");
     }
 
     // ========== encode_packets_raw Tests ==========

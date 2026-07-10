@@ -61,6 +61,10 @@ pub enum ProtocolError {
     },
     #[error("Unexpected packet during handshake: {0}")]
     UnexpectedHandshake(String),
+    #[error("batch payload exceeds max decompressed size ({actual} > {max})")]
+    BatchTooLarge { actual: usize, max: usize },
+    #[error("batch contains more than {max} packets")]
+    TooManyPackets { max: usize },
     #[error("Missing expected Login packet after NetworkSettings")]
     MissingLoginPacket,
     #[error("Empty packet during initial handshake")]
@@ -79,6 +83,26 @@ pub enum JolyneError {
 
     #[error("Decode error: {0}")]
     Decode(#[from] valentine::bedrock::error::DecodeError),
+
+    #[error(
+        "decode packet {packet_id:?} (body_len={body_len}, body_preview={body_preview:02x?}): {source}"
+    )]
+    PacketDecode {
+        packet_id: crate::valentine::McpePacketName,
+        body_len: usize,
+        body_preview: Vec<u8>,
+        #[source]
+        source: valentine::bedrock::error::DecodeError,
+    },
+
+    #[error(
+        "decode packet {packet_id:?} (body_len={body_len}) left {remaining} trailing body bytes"
+    )]
+    PacketTrailingBytes {
+        packet_id: crate::valentine::McpePacketName,
+        body_len: usize,
+        remaining: usize,
+    },
 
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),

@@ -1015,9 +1015,23 @@ dependencies = [
 name = "protocol"
 version = "0.1.0"
 dependencies = [
+ "aes",
+ "anyhow",
+ "base64",
+ "bridge",
  "bytes",
+ "ctr",
+ "flate2",
+ "futures",
  "jolyne",
+ "jsonwebtoken",
+ "p384",
+ "serde",
+ "serde_json",
+ "sha2",
+ "snap",
  "thiserror 2.0.18",
+ "tokio",
  "valentine",
 ]
 

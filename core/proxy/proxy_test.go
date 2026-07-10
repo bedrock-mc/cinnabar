@@ -122,6 +122,85 @@ func TestRelayFIFO(t *testing.T) {
 	}
 }
 
+func TestRelayDoesNotForwardDownstreamSpawnLoadingScreens(t *testing.T) {
+	down := newFakeDownstream(nil)
+	up := newFakeUpstream(nil)
+	wantFirst := &packet.NetworkStackLatency{Timestamp: 7}
+	wantLaterLoading := &packet.ServerBoundLoadingScreen{Type: packet.LoadingScreenTypeStart}
+	wantLast := &packet.NetworkStackLatency{Timestamp: 8}
+	down.reads <- packetResult{packet: &packet.ServerBoundLoadingScreen{Type: packet.LoadingScreenTypeStart}}
+	down.reads <- packetResult{packet: &packet.ServerBoundLoadingScreen{Type: packet.LoadingScreenTypeEnd}}
+	down.reads <- packetResult{packet: wantFirst}
+	down.reads <- packetResult{packet: wantLaterLoading}
+	down.reads <- packetResult{packet: wantLast}
+	down.reads <- packetResult{err: io.EOF}
+
+	err := pumpPackets(down, up, true)
+	if !errors.Is(err, io.EOF) {
+		t.Fatalf("pumpPackets() error = %v, want EOF", err)
+	}
+	got := up.written()
+	want := []packet.Packet{wantFirst, wantLaterLoading, wantLast}
+	if len(got) != len(want) {
+		t.Fatalf("forwarded packets = %#v, want %#v", got, want)
+	}
+	for index := range want {
+		if got[index] != want[index] {
+			t.Fatalf("forwarded packet %d = %#v, want %#v", index, got[index], want[index])
+		}
+	}
+}
+
+func TestRelayPreservesNonAdjacentLoadingScreens(t *testing.T) {
+	down := newFakeDownstream(nil)
+	up := newFakeUpstream(nil)
+	want := []packet.Packet{
+		&packet.ServerBoundLoadingScreen{Type: packet.LoadingScreenTypeStart},
+		&packet.NetworkStackLatency{Timestamp: 7},
+		&packet.ServerBoundLoadingScreen{Type: packet.LoadingScreenTypeEnd},
+	}
+	for _, value := range want {
+		down.reads <- packetResult{packet: value}
+	}
+	down.reads <- packetResult{err: io.EOF}
+
+	err := pumpPackets(down, up, true)
+	if !errors.Is(err, io.EOF) {
+		t.Fatalf("pumpPackets() error = %v, want EOF", err)
+	}
+	got := up.written()
+	if len(got) != len(want) {
+		t.Fatalf("forwarded packets = %#v, want %#v", got, want)
+	}
+	for index := range want {
+		if got[index] != want[index] {
+			t.Fatalf("forwarded packet %d out of order", index)
+		}
+	}
+}
+
+func TestRelayNeverFiltersUpstreamLoadingScreens(t *testing.T) {
+	up := newFakeUpstream(nil)
+	down := newFakeDownstream(nil)
+	want := []packet.Packet{
+		&packet.ServerBoundLoadingScreen{Type: packet.LoadingScreenTypeStart},
+		&packet.ServerBoundLoadingScreen{Type: packet.LoadingScreenTypeEnd},
+	}
+	for _, value := range want {
+		up.reads <- packetResult{packet: value}
+	}
+	up.reads <- packetResult{err: io.EOF}
+
+	err := pumpPackets(up, down, false)
+	if !errors.Is(err, io.EOF) {
+		t.Fatalf("pumpPackets() error = %v, want EOF", err)
+	}
+	got := down.written()
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("forwarded packets = %#v, want %#v", got, want)
+	}
+}
+
 func TestRelayDisconnectClosesBothSides(t *testing.T) {
 	down := newFakeDownstream(nil)
 	up := newFakeUpstream(nil)

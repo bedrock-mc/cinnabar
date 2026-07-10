@@ -90,9 +90,19 @@ fn decompress_snappy_with_guard(
         .map_err(|e| ProtocolError::DecompressionFailed(e.to_string()))
 }
 
+fn ensure_decompressed_size(
+    actual: usize,
+    max_decompressed_size: Option<usize>,
+) -> Result<(), JolyneError> {
+    if let Some(max) = max_decompressed_size
+        && actual > max
+    {
+        return Err(ProtocolError::BatchTooLarge { actual, max }.into());
+    }
+    Ok(())
+}
+
 fn log_payload_probe(compressed_len: Option<usize>, payload: &Bytes) {
-    let preview_len = payload.len().min(16);
-    let preview: Vec<u8> = payload.iter().take(preview_len).copied().collect();
     let first_declared_len = {
         let mut tmp = payload.clone();
         bedrock_wire::read_var_u32(&mut tmp).ok()
@@ -100,7 +110,6 @@ fn log_payload_probe(compressed_len: Option<usize>, payload: &Bytes) {
     trace!(
         compressed_len,
         decompressed_len = payload.len(),
-        first_bytes = ?preview,
         first_declared_packet_len = first_declared_len,
         "decode_batch payload probe"
     );
@@ -181,6 +190,7 @@ pub fn decode_batch(
                 decode_payload(payload, session)
             }
             BatchCompression::None => {
+                ensure_decompressed_size(compressed.len(), max_decompressed_size)?;
                 log_payload_probe(Some(compressed.len()), &compressed);
                 decode_payload(compressed, session)
             }
@@ -195,17 +205,7 @@ pub fn decode_batch(
     } else {
         // raw packets (before NetworkSettings) are just [0xFE] [Payload].
 
-        if let Some(max) = max_decompressed_size
-            && payload_raw.len() > max
-        {
-            return Err(JolyneError::Protocol(ProtocolError::UnexpectedHandshake(
-                format!(
-                    "Batch payload exceeds max decompressed size ({} > {})",
-                    payload_raw.len(),
-                    max
-                ),
-            )));
-        }
+        ensure_decompressed_size(payload_raw.len(), max_decompressed_size)?;
         log_payload_probe(None, &payload_raw);
         decode_payload(payload_raw, session)
     }
@@ -256,6 +256,7 @@ pub fn decode_batch_no_prefix(
             decode_payload(payload, session)
         }
         BatchCompression::None => {
+            ensure_decompressed_size(compressed.len(), max_decompressed_size)?;
             log_payload_probe(Some(compressed.len()), &compressed);
             decode_payload(compressed, session)
         }
@@ -316,6 +317,7 @@ pub(crate) fn encode_batch_multi_bytes_mut(
     encode_batch_multi_into(
         packets,
         compression_enabled,
+        BatchCompression::Deflate,
         compression_level,
         compression_threshold,
         use_batch_prefix,
@@ -327,6 +329,7 @@ pub(crate) fn encode_batch_multi_bytes_mut(
 pub(crate) fn encode_batch_multi_into(
     packets: &[McpePacket],
     compression_enabled: bool,
+    compression_algorithm: BatchCompression,
     compression_level: u32,
     compression_threshold: u16,
     use_batch_prefix: bool,
@@ -348,14 +351,23 @@ pub(crate) fn encode_batch_multi_into(
 
     let payload = if compression_enabled {
         let should_compress = compression_level > 0 && out.len() >= compression_threshold as usize;
-        if should_compress {
-            // Deflate (0x00)
-            let mut encoder = DeflateEncoder::new(Vec::new(), Compression::new(compression_level));
-            std::io::Write::write_all(&mut encoder, out.as_ref()).map_err(JolyneError::Io)?;
-            let compressed = encoder.finish().map_err(JolyneError::Io)?;
+        if should_compress && compression_algorithm != BatchCompression::None {
+            let compressed = match compression_algorithm {
+                BatchCompression::Deflate => {
+                    let mut encoder =
+                        DeflateEncoder::new(Vec::new(), Compression::new(compression_level));
+                    std::io::Write::write_all(&mut encoder, out.as_ref())
+                        .map_err(JolyneError::Io)?;
+                    encoder.finish().map_err(JolyneError::Io)?
+                }
+                BatchCompression::Snappy => snap::raw::Encoder::new()
+                    .compress_vec(out.as_ref())
+                    .map_err(|error| ProtocolError::DecompressionFailed(error.to_string()))?,
+                BatchCompression::None => unreachable!(),
+            };
 
             let mut out = BytesMut::with_capacity(1 + compressed.len());
-            out.put_u8(BatchCompression::Deflate as u8);
+            out.put_u8(compression_algorithm as u8);
             out.extend_from_slice(&compressed);
             out
         } else {
@@ -464,7 +476,10 @@ pub fn decode_batch_raw_split(
                 .map_err(|e| ProtocolError::DecompressionFailed(e.to_string()))?;
                 decode_packets_raw(Bytes::from(decompressed))
             }
-            BatchCompression::None => decode_packets_raw(compressed),
+            BatchCompression::None => {
+                ensure_decompressed_size(compressed.len(), max_decompressed_size)?;
+                decode_packets_raw(compressed)
+            }
             BatchCompression::Snappy => {
                 let decompressed =
                     decompress_snappy_with_guard(compressed.as_ref(), max_decompressed_size)?;
@@ -472,17 +487,7 @@ pub fn decode_batch_raw_split(
             }
         }
     } else {
-        if let Some(max) = max_decompressed_size
-            && payload_raw.len() > max
-        {
-            return Err(JolyneError::Protocol(ProtocolError::UnexpectedHandshake(
-                format!(
-                    "Batch payload exceeds max decompressed size ({} > {})",
-                    payload_raw.len(),
-                    max
-                ),
-            )));
-        }
+        ensure_decompressed_size(payload_raw.len(), max_decompressed_size)?;
         decode_packets_raw(payload_raw)
     }
 }
@@ -534,7 +539,10 @@ fn decode_batch_payload_raw(
 
                 decode_packets_raw(Bytes::from(decompressed))
             }
-            BatchCompression::None => decode_packets_raw(compressed),
+            BatchCompression::None => {
+                ensure_decompressed_size(compressed.len(), max_decompressed_size)?;
+                decode_packets_raw(compressed)
+            }
             BatchCompression::Snappy => {
                 let decompressed =
                     decompress_snappy_with_guard(compressed.as_ref(), max_decompressed_size)?;
@@ -542,6 +550,7 @@ fn decode_batch_payload_raw(
             }
         }
     } else {
+        ensure_decompressed_size(payload_raw.len(), max_decompressed_size)?;
         decode_packets_raw(payload_raw)
     }
 }
@@ -577,6 +586,7 @@ pub(crate) fn encode_batch_raw_bytes_mut(
     encode_batch_raw_into(
         packets,
         compression_enabled,
+        BatchCompression::Deflate,
         compression_level,
         compression_threshold,
         use_batch_prefix,
@@ -588,6 +598,7 @@ pub(crate) fn encode_batch_raw_bytes_mut(
 pub(crate) fn encode_batch_raw_into(
     packets: &[RawPacket],
     compression_enabled: bool,
+    compression_algorithm: BatchCompression,
     compression_level: u32,
     compression_threshold: u16,
     use_batch_prefix: bool,
@@ -600,13 +611,23 @@ pub(crate) fn encode_batch_raw_into(
         && uncompressed.len() >= compression_threshold as usize;
 
     let payload = if compression_enabled {
-        if should_compress {
-            let mut encoder = DeflateEncoder::new(Vec::new(), Compression::new(compression_level));
-            std::io::Write::write_all(&mut encoder, &uncompressed).map_err(JolyneError::Io)?;
-            let compressed = encoder.finish().map_err(JolyneError::Io)?;
+        if should_compress && compression_algorithm != BatchCompression::None {
+            let compressed = match compression_algorithm {
+                BatchCompression::Deflate => {
+                    let mut encoder =
+                        DeflateEncoder::new(Vec::new(), Compression::new(compression_level));
+                    std::io::Write::write_all(&mut encoder, &uncompressed)
+                        .map_err(JolyneError::Io)?;
+                    encoder.finish().map_err(JolyneError::Io)?
+                }
+                BatchCompression::Snappy => snap::raw::Encoder::new()
+                    .compress_vec(uncompressed.as_ref())
+                    .map_err(|error| ProtocolError::DecompressionFailed(error.to_string()))?,
+                BatchCompression::None => unreachable!(),
+            };
 
             let mut out = BytesMut::with_capacity(1 + compressed.len());
-            out.put_u8(BatchCompression::Deflate as u8);
+            out.put_u8(compression_algorithm as u8);
             out.extend_from_slice(&compressed);
             out
         } else {
@@ -871,6 +892,25 @@ mod tests {
         // Very small max size
         let result = decode_batch(&mut buf, &session, true, Some(1));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn raw_batch_size_guard_covers_none_and_pre_compression_payloads() {
+        let packet = McpePacket::from(PlayStatusPacket {
+            status: PlayStatusPacketStatus::LoginSuccess,
+        });
+
+        let mut none = encode_batch(&packet, true, 0, u16::MAX).expect("encode None batch");
+        decode_batch_raw(&mut none, true, Some(1))
+            .expect_err("None payload over the configured limit must fail");
+
+        let clear = encode_batch(&packet, false, 0, 0).expect("encode clear batch");
+        let mut contiguous = clear.clone();
+        decode_batch_raw(&mut contiguous, false, Some(1))
+            .expect_err("pre-compression contiguous payload over the limit must fail");
+
+        decode_batch_raw_split(BATCH_PACKET_ID, clear.slice(1..), false, Some(1))
+            .expect_err("pre-compression split payload over the limit must fail");
     }
 
     // ========== Snappy Tests ==========

@@ -1,7 +1,8 @@
 //! Game data captured during client login sequence.
 //!
-//! This module contains the [`GameData`] struct which holds all the game definition
-//! packets received from the server during the login/spawn sequence.
+//! This module contains the bounded subset of game definition packets required
+//! to complete the login/spawn sequence. Optional definition packets remain in
+//! the play queue so callers can decode them under their normal work budgets.
 
 use crate::valentine::{
     AvailableEntityIdentifiersPacket, BiomeDefinitionListPacket, CreativeContentPacket,
@@ -10,23 +11,26 @@ use crate::valentine::{
 
 /// Game data captured during the login sequence.
 ///
-/// This struct contains all the game definition packets sent by the server
-/// during the start game sequence. This data is essential for:
+/// This struct contains the mandatory game definition packets decoded during
+/// the start game sequence. This data is essential for:
 /// - Block runtime ID mappings (`block_properties` in `start_game`)
 /// - Item registry definitions
-/// - Creative inventory content
-/// - Biome definitions
-/// - Entity identifiers
+///
+/// Optional creative, biome, and entity-definition packets are preserved in
+/// FIFO order for the play session instead of being eagerly decoded at login.
 #[derive(Debug, Clone)]
 pub struct GameData {
     /// StartGame packet containing world settings and block properties.
     pub start_game: StartGamePacket,
     /// Item registry with all vanilla and custom items.
     pub item_registry: ItemRegistryPacket,
-    /// Biome definitions (if received).
+    /// Reserved for callers that choose to capture biome definitions later.
+    /// Client login leaves this unset and queues the packet for play.
     pub biome_definitions: Option<BiomeDefinitionListPacket>,
-    /// Available entity identifiers (if received).
+    /// Reserved for callers that choose to capture entity identifiers later.
+    /// Client login leaves this unset and queues the packet for play.
     pub entity_identifiers: Option<AvailableEntityIdentifiersPacket>,
-    /// Creative content for the creative inventory (if received).
+    /// Reserved for callers that choose to capture creative content later.
+    /// Client login leaves this unset and queues the packet for play.
     pub creative_content: Option<CreativeContentPacket>,
 }
