@@ -1,0 +1,6 @@
+/target/
+/.local/
+/.superpowers/
+/.worktrees/
+*.log
+
