@@ -156,7 +156,7 @@ sockets = [socket.socket(socket.AF_INET, socket.SOCK_DGRAM) for _ in range(2)]
 for item in sockets: item.bind(("127.0.0.1", 0))
 print(*(item.getsockname()[1] for item in sockets), flush=True)
 sys.stdin.readline()
-' <"$control_path" >"$output_path" 2>"$error_path" 7>&- &
+' <"$control_path" >"$output_path" 2>"$error_path" 6>&- 7>&- &
     port_helper_pid=$!
     port_deadline=$(( $(date +%s) + 10 ))
     while [[ ! -s $output_path ]]; do
