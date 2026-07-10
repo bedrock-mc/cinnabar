@@ -18,11 +18,24 @@ if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
 }
 
 $source = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
-foreach ($property in @("archive", "url", "sha256", "artifact_policy", "cache_dir")) {
+foreach ($property in @("url", "sha256", "artifact_policy", "cache_dir")) {
     if (-not ($source.PSObject.Properties.Name -contains $property) -or
         [string]::IsNullOrWhiteSpace([string]$source.$property)) {
         throw "vanilla source manifest is missing '$property'"
     }
+}
+if (-not ($source.PSObject.Properties.Name -contains "archive")) {
+    throw "vanilla source manifest is missing 'archive'"
+}
+$archive = [string]$source.archive
+if ([string]::IsNullOrEmpty($archive) -or
+    $archive -eq "." -or
+    $archive -eq ".." -or
+    $archive.Contains("/") -or
+    $archive.Contains("\") -or
+    $archive -match "^[A-Za-z]:" -or
+    [System.IO.Path]::IsPathRooted($archive)) {
+    throw "archive must be exactly one nonempty basename"
 }
 if ([int]$source.schema -ne 1) {
     throw "unsupported vanilla source manifest schema: $($source.schema)"
@@ -46,7 +59,7 @@ if (-not $cachePath.StartsWith($assetPrefix, $pathComparison)) {
 }
 
 $downloadDirectory = Join-Path $assetRoot "downloads"
-$archivePath = Join-Path $downloadDirectory ([string]$source.archive)
+$archivePath = Join-Path $downloadDirectory $archive
 $partialPath = "$archivePath.partial"
 $cacheParent = Split-Path -Parent $cachePath
 $temporaryExtract = "$cachePath.extracting-$PID-$([guid]::NewGuid().ToString('N'))"

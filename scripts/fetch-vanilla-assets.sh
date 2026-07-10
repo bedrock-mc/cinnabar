@@ -25,9 +25,15 @@ manifest_path="$repo_root/assets/vanilla-source.json"
 
 manifest_string() {
     local key="$1"
+    local allow_empty="${2:-false}"
     local value
-    value="$(sed -n 's/^[[:space:]]*"'"$key"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*$/\1/p' "$manifest_path" | head -n 1)"
-    if [[ -z "$value" ]]; then
+    value="$(sed -n 's/^[[:space:]]*"'"$key"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*$/__manifest_value__\1/p' "$manifest_path" | head -n 1)"
+    if [[ "$value" != __manifest_value__* ]]; then
+        printf "vanilla source manifest is missing '%s'\n" "$key" >&2
+        exit 1
+    fi
+    value="${value#__manifest_value__}"
+    if [[ -z "$value" && "$allow_empty" != true ]]; then
         printf "vanilla source manifest is missing '%s'\n" "$key" >&2
         exit 1
     fi
@@ -39,11 +45,17 @@ if [[ ! -f "$manifest_path" ]]; then
     exit 1
 fi
 
-archive="$(manifest_string archive)"
+archive="$(manifest_string archive true)"
 url="$(manifest_string url)"
 expected_sha256="$(manifest_string sha256 | tr '[:upper:]' '[:lower:]')"
 artifact_policy="$(manifest_string artifact_policy)"
 cache_relative="$(manifest_string cache_dir)"
+case "$archive" in
+    ''|.|..|[A-Za-z]:*|*/*|*\\*)
+        printf 'archive must be exactly one nonempty basename\n' >&2
+        exit 1
+        ;;
+esac
 if [[ "$artifact_policy" != local-only ]]; then
     printf "vanilla source manifest must declare artifact_policy 'local-only'\n" >&2
     exit 1
