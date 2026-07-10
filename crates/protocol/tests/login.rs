@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use jolyne::valentine::McpePacketData;
 use protocol::{GAME_VERSION, LoginSequence, PROTOCOL_VERSION};
 
 const EXTERNAL_HARNESS_TEST: &str = "^TestProxyExternalRustClientHarness$";
@@ -28,7 +29,7 @@ async fn login_reaches_start_game_through_bds() {
         .await
         .unwrap_or_else(|error| panic!("{error}\nGo harness output:\n{}", harness.output()));
 
-    let (session, game_data) = tokio::time::timeout(
+    let (mut session, game_data) = tokio::time::timeout(
         LOGIN_TIMEOUT,
         LoginSequence::connect(socket_dir.path(), "RustMCBEPhase0"),
     )
@@ -53,6 +54,35 @@ async fn login_reaches_start_game_through_bds() {
         "StartGame runtime entity ID must be non-zero"
     );
     assert_eq!(game_data.start_game.engine, GAME_VERSION);
+
+    let available_commands = tokio::time::timeout(LOGIN_TIMEOUT, async {
+        loop {
+            let packet = session.recv().await?;
+            if matches!(packet.data, McpePacketData::PacketAvailableCommands(_)) {
+                return Ok::<_, protocol::ProtocolError>(packet);
+            }
+        }
+    })
+    .await
+    .unwrap_or_else(|_| {
+        panic!(
+            "timed out waiting for AvailableCommands after StartGame\nGo harness output:\n{}",
+            harness.output()
+        )
+    })
+    .unwrap_or_else(|error| {
+        panic!(
+            "decoding play packets through AvailableCommands failed: {error}\nGo harness output:\n{}",
+            harness.output()
+        )
+    });
+    let McpePacketData::PacketAvailableCommands(commands) = available_commands.data else {
+        unreachable!("loop returns only AvailableCommands")
+    };
+    assert!(
+        !commands.enum_values.is_empty(),
+        "live AvailableCommands must include enum values"
+    );
 
     assert_eq!(
         session.decode_error_count(),

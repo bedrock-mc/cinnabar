@@ -44,9 +44,27 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 	if err := json.Unmarshal(firstManifestBytes, &manifest); err != nil {
 		t.Fatalf("decode manifest: %v", err)
 	}
-	wantNames := []string{"NetworkSettings", "StartGame", "LevelChunk", "MovePlayer", "AddActor"}
-	wantIDs := []uint32{143, 11, 58, 19, 13}
-	wantHeaders := [][]byte{{0x8f, 0x49}, {0x8b, 0x48}, {0xba, 0x48}, {0x93, 0x48}, {0x8d, 0x48}}
+	wantNames := []string{
+		"NetworkSettings",
+		"StartGame",
+		"LevelChunk",
+		"MovePlayer",
+		"AddActor",
+		"AvailableCommands",
+		"AvailableCommandsLive356513",
+		"CraftingDataMaterialReducer",
+	}
+	wantIDs := []uint32{143, 11, 58, 19, 13, 76, 76, 52}
+	wantHeaders := [][]byte{
+		{0x8f, 0x49},
+		{0x8b, 0x48},
+		{0xba, 0x48},
+		{0x93, 0x48},
+		{0x8d, 0x48},
+		{0xcc, 0x48},
+		{0xcc, 0x48},
+		{0xb4, 0x48},
+	}
 	if len(manifest) != len(wantNames) {
 		t.Fatalf("manifest entries = %d, want %d", len(manifest), len(wantNames))
 	}
@@ -81,6 +99,12 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 		}
 		if got := payload.Bytes()[:2]; !reflect.DeepEqual(got, wantHeaders[i]) {
 			t.Fatalf("%s header bytes = %x, want %x", entry.Name, got, wantHeaders[i])
+		}
+		if entry.Name == "AvailableCommandsLive356513" {
+			const packetHeaderBytes = 2
+			if got := payload.Len() - packetHeaderBytes; got != 356_513 {
+				t.Fatalf("live AvailableCommands body length = %d, want 356513", got)
+			}
 		}
 	}
 }
