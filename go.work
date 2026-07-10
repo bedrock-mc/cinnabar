@@ -4,4 +4,5 @@ use (
 	./core
 	./tools/chunkfix
 	./tools/fixturegen
+	./tools/registrygen
 )
