@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+script="$project_root/scripts/acceptance.sh"
+temp_root="$(mktemp -d "${TMPDIR:-/tmp}/rust-mcbe-acceptance.XXXXXX")"
+trap 'rm -rf "$temp_root"' EXIT
+
+bds_dir="$temp_root/bds source"
+metrics_out="$temp_root/metrics output/metrics.json"
+mkdir -p "$bds_dir"
+printf fixture >"$bds_dir/bedrock_server"
+chmod +x "$bds_dir/bedrock_server"
+rm -rf "$project_root/.local/acceptance/dry-run"
+
+output="$(bash "$script" --dry-run --duration 900 --bds-dir "$bds_dir" --metrics-out "$metrics_out")"
+commands=()
+while IFS= read -r line; do
+    case "$line" in
+        BDS_COMMAND=*|CORE_COMMAND=*|APP_COMMAND=*) commands[${#commands[@]}]=$line ;;
+    esac
+done <<<"$output"
+[[ ${#commands[@]} -eq 3 ]]
+[[ ${commands[0]} == BDS_COMMAND=* ]]
+[[ ${commands[1]} == CORE_COMMAND=* ]]
+[[ ${commands[2]} == APP_COMMAND=* ]]
+for flag in --socket-dir '--acceptance-seconds 900' --metrics-out --auto-fly --no-vsync; do
+    [[ ${commands[2]} == *"$flag"* ]]
+done
+[[ ${commands[0]} == *"'"* ]]
+[[ ! -e "$project_root/.local/acceptance/dry-run" ]]
+[[ ! -e "$metrics_out" ]]
+
+if bash "$script" --dry-run --duration 59 --bds-dir "$bds_dir" --metrics-out "$metrics_out" >/dev/null 2>&1; then
+    echo 'duration below 60 seconds was accepted' >&2
+    exit 1
+fi
+if bash "$script" --dry-run --duration 900 --bds-dir "$temp_root/missing" --metrics-out "$metrics_out" >/dev/null 2>&1; then
+    echo 'missing BDS directory was accepted' >&2
+    exit 1
+fi
+if bash "$script" --dry-run --duration 900 --bds-dir "$bds_dir" --upstream 127.0.0.1:19132 --metrics-out "$metrics_out" >/dev/null 2>&1; then
+    echo 'conflicting BDS inputs were accepted' >&2
+    exit 1
+fi
+for invalid_upstream in 127.0.0.1:0 127.0.0.1:65536; do
+    if bash "$script" --dry-run --duration 900 --upstream "$invalid_upstream" --metrics-out "$metrics_out" >/dev/null 2>&1; then
+        echo "invalid upstream was accepted: $invalid_upstream" >&2
+        exit 1
+    fi
+done
+
+case $(uname -s) in
+    MINGW*|MSYS*) ;;
+    *)
+        chmod -x "$bds_dir/bedrock_server"
+        if bash "$script" --dry-run --duration 900 --bds-dir "$bds_dir" --metrics-out "$metrics_out" >/dev/null 2>&1; then
+            echo 'non-executable BDS was accepted' >&2
+            exit 1
+        fi
+        chmod +x "$bds_dir/bedrock_server"
+        ;;
+esac
+
+upstream="$(bash "$script" --dry-run --duration 900 --upstream 127.0.0.1:19132 --metrics-out "$metrics_out")"
+[[ $(printf '%s\n' "$upstream" | grep -Ec '^(BDS|CORE|APP)_COMMAND=') -eq 3 ]]
+if bash "$script" --duration 60 --upstream 127.0.0.1:19132 --metrics-out "$metrics_out" >/dev/null 2>&1; then
+    echo 'live external upstream without a mutation command was accepted' >&2
+    exit 1
+fi
+
+grep -Fq 'fcntl.flock' "$script"
+grep -Fq -- "--mutation-command is required for a live --upstream run" "$script"
+grep -Fq 'metrics["publisher_radius_chunks"] == 16' "$script"
+grep -Fq 'metrics["frame_count"] > 0' "$script"
+grep -Fq 'math.isfinite(metrics["p99_frame_ms"])' "$script"
+metadata_line=$(grep -n '^write_metadata preparing$' "$script" | cut -d: -f1)
+build_line=$(grep -n 'cargo build --release' "$script" | tail -1 | cut -d: -f1)
+[[ -n $metadata_line && -n $build_line && $metadata_line -lt $build_line ]]
+
+printf '%s\n' 'acceptance.sh dry-run tests: PASS'
