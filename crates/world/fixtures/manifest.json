@@ -1,0 +1,641 @@
+{
+  "source": {
+    "module": "github.com/df-mc/dragonfly",
+    "version": "v0.10.15-0.20260709170650-b85c56ffea6b",
+    "commit": "b85c56ffea6b306798a935f14cc941c76618be52"
+  },
+  "fixtures": [
+    {
+      "file": "uniform_non_air.bin",
+      "version": 9,
+      "y_index": -4,
+      "storages": [
+        {
+          "bits_per_index": 0,
+          "palette_len": 1
+        }
+      ],
+      "samples": [
+        {
+          "name": "corner",
+          "layer": 0,
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "runtime_id": 42
+        },
+        {
+          "name": "centre",
+          "layer": 0,
+          "x": 8,
+          "y": 8,
+          "z": 8,
+          "runtime_id": 42
+        },
+        {
+          "name": "opposite_corner",
+          "layer": 0,
+          "x": 15,
+          "y": 15,
+          "z": 15,
+          "runtime_id": 42
+        }
+      ]
+    },
+    {
+      "file": "checkerboard.bin",
+      "version": 9,
+      "y_index": -4,
+      "storages": [
+        {
+          "bits_per_index": 1,
+          "palette_len": 2
+        }
+      ],
+      "samples": [
+        {
+          "name": "even",
+          "layer": 0,
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "runtime_id": 7
+        },
+        {
+          "name": "odd_x",
+          "layer": 0,
+          "x": 1,
+          "y": 0,
+          "z": 0,
+          "runtime_id": 11
+        },
+        {
+          "name": "odd_xyz",
+          "layer": 0,
+          "x": 15,
+          "y": 15,
+          "z": 15,
+          "runtime_id": 11
+        }
+      ]
+    },
+    {
+      "file": "vertical_layers.bin",
+      "version": 9,
+      "y_index": -4,
+      "storages": [
+        {
+          "bits_per_index": 4,
+          "palette_len": 16
+        }
+      ],
+      "samples": [
+        {
+          "name": "bottom",
+          "layer": 0,
+          "x": 3,
+          "y": 0,
+          "z": 12,
+          "runtime_id": 100
+        },
+        {
+          "name": "middle",
+          "layer": 0,
+          "x": 8,
+          "y": 7,
+          "z": 8,
+          "runtime_id": 107
+        },
+        {
+          "name": "top",
+          "layer": 0,
+          "x": 12,
+          "y": 15,
+          "z": 3,
+          "runtime_id": 115
+        }
+      ]
+    },
+    {
+      "file": "two_storage_layers.bin",
+      "version": 9,
+      "y_index": -4,
+      "storages": [
+        {
+          "bits_per_index": 0,
+          "palette_len": 1
+        },
+        {
+          "bits_per_index": 1,
+          "palette_len": 2
+        }
+      ],
+      "samples": [
+        {
+          "name": "base",
+          "layer": 0,
+          "x": 4,
+          "y": 5,
+          "z": 6,
+          "runtime_id": 21
+        },
+        {
+          "name": "overlay_even",
+          "layer": 1,
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "runtime_id": 22
+        },
+        {
+          "name": "overlay_odd",
+          "layer": 1,
+          "x": 0,
+          "y": 1,
+          "z": 0,
+          "runtime_id": 23
+        }
+      ]
+    },
+    {
+      "file": "bits_1.bin",
+      "version": 9,
+      "y_index": -4,
+      "storages": [
+        {
+          "bits_per_index": 1,
+          "palette_len": 2
+        }
+      ],
+      "samples": [
+        {
+          "name": "first_non_air",
+          "layer": 0,
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "runtime_id": 1
+        },
+        {
+          "name": "end_word_before_boundary",
+          "layer": 0,
+          "x": 0,
+          "y": 15,
+          "z": 1,
+          "runtime_id": 1
+        },
+        {
+          "name": "start_word_after_boundary",
+          "layer": 0,
+          "x": 0,
+          "y": 0,
+          "z": 2,
+          "runtime_id": 1
+        },
+        {
+          "name": "air_after_boundary",
+          "layer": 0,
+          "x": 0,
+          "y": 1,
+          "z": 2,
+          "runtime_id": 0
+        },
+        {
+          "name": "last_block",
+          "layer": 0,
+          "x": 15,
+          "y": 15,
+          "z": 15,
+          "runtime_id": 1
+        }
+      ]
+    },
+    {
+      "file": "bits_2.bin",
+      "version": 9,
+      "y_index": -4,
+      "storages": [
+        {
+          "bits_per_index": 2,
+          "palette_len": 3
+        }
+      ],
+      "samples": [
+        {
+          "name": "first_non_air",
+          "layer": 0,
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "runtime_id": 1
+        },
+        {
+          "name": "last_non_air",
+          "layer": 0,
+          "x": 0,
+          "y": 1,
+          "z": 0,
+          "runtime_id": 2
+        },
+        {
+          "name": "end_word_before_boundary",
+          "layer": 0,
+          "x": 0,
+          "y": 15,
+          "z": 0,
+          "runtime_id": 1
+        },
+        {
+          "name": "start_word_after_boundary",
+          "layer": 0,
+          "x": 0,
+          "y": 0,
+          "z": 1,
+          "runtime_id": 2
+        },
+        {
+          "name": "air_after_boundary",
+          "layer": 0,
+          "x": 0,
+          "y": 1,
+          "z": 1,
+          "runtime_id": 0
+        },
+        {
+          "name": "last_block",
+          "layer": 0,
+          "x": 15,
+          "y": 15,
+          "z": 15,
+          "runtime_id": 1
+        }
+      ]
+    },
+    {
+      "file": "bits_3.bin",
+      "version": 9,
+      "y_index": -4,
+      "storages": [
+        {
+          "bits_per_index": 3,
+          "palette_len": 5
+        }
+      ],
+      "samples": [
+        {
+          "name": "first_non_air",
+          "layer": 0,
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "runtime_id": 1
+        },
+        {
+          "name": "last_non_air",
+          "layer": 0,
+          "x": 0,
+          "y": 3,
+          "z": 0,
+          "runtime_id": 4
+        },
+        {
+          "name": "end_word_before_boundary",
+          "layer": 0,
+          "x": 0,
+          "y": 9,
+          "z": 0,
+          "runtime_id": 1
+        },
+        {
+          "name": "start_word_after_boundary",
+          "layer": 0,
+          "x": 0,
+          "y": 10,
+          "z": 0,
+          "runtime_id": 4
+        },
+        {
+          "name": "air_after_boundary",
+          "layer": 0,
+          "x": 0,
+          "y": 11,
+          "z": 0,
+          "runtime_id": 0
+        },
+        {
+          "name": "last_block",
+          "layer": 0,
+          "x": 15,
+          "y": 15,
+          "z": 15,
+          "runtime_id": 1
+        }
+      ]
+    },
+    {
+      "file": "bits_4.bin",
+      "version": 9,
+      "y_index": -4,
+      "storages": [
+        {
+          "bits_per_index": 4,
+          "palette_len": 9
+        }
+      ],
+      "samples": [
+        {
+          "name": "first_non_air",
+          "layer": 0,
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "runtime_id": 1
+        },
+        {
+          "name": "last_non_air",
+          "layer": 0,
+          "x": 0,
+          "y": 7,
+          "z": 0,
+          "runtime_id": 8
+        },
+        {
+          "name": "end_word_before_boundary",
+          "layer": 0,
+          "x": 0,
+          "y": 7,
+          "z": 0,
+          "runtime_id": 8
+        },
+        {
+          "name": "start_word_after_boundary",
+          "layer": 0,
+          "x": 0,
+          "y": 8,
+          "z": 0,
+          "runtime_id": 8
+        },
+        {
+          "name": "air_after_boundary",
+          "layer": 0,
+          "x": 0,
+          "y": 9,
+          "z": 0,
+          "runtime_id": 0
+        },
+        {
+          "name": "last_block",
+          "layer": 0,
+          "x": 15,
+          "y": 15,
+          "z": 15,
+          "runtime_id": 1
+        }
+      ]
+    },
+    {
+      "file": "bits_5.bin",
+      "version": 9,
+      "y_index": -4,
+      "storages": [
+        {
+          "bits_per_index": 5,
+          "palette_len": 17
+        }
+      ],
+      "samples": [
+        {
+          "name": "first_non_air",
+          "layer": 0,
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "runtime_id": 1
+        },
+        {
+          "name": "last_non_air",
+          "layer": 0,
+          "x": 0,
+          "y": 15,
+          "z": 0,
+          "runtime_id": 16
+        },
+        {
+          "name": "end_word_before_boundary",
+          "layer": 0,
+          "x": 0,
+          "y": 1,
+          "z": 1,
+          "runtime_id": 1
+        },
+        {
+          "name": "start_word_after_boundary",
+          "layer": 0,
+          "x": 0,
+          "y": 2,
+          "z": 1,
+          "runtime_id": 16
+        },
+        {
+          "name": "air_after_boundary",
+          "layer": 0,
+          "x": 0,
+          "y": 3,
+          "z": 1,
+          "runtime_id": 0
+        },
+        {
+          "name": "last_block",
+          "layer": 0,
+          "x": 15,
+          "y": 15,
+          "z": 15,
+          "runtime_id": 1
+        }
+      ]
+    },
+    {
+      "file": "bits_6.bin",
+      "version": 9,
+      "y_index": -4,
+      "storages": [
+        {
+          "bits_per_index": 6,
+          "palette_len": 33
+        }
+      ],
+      "samples": [
+        {
+          "name": "first_non_air",
+          "layer": 0,
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "runtime_id": 1
+        },
+        {
+          "name": "last_non_air",
+          "layer": 0,
+          "x": 0,
+          "y": 15,
+          "z": 1,
+          "runtime_id": 32
+        },
+        {
+          "name": "end_word_before_boundary",
+          "layer": 0,
+          "x": 0,
+          "y": 2,
+          "z": 2,
+          "runtime_id": 1
+        },
+        {
+          "name": "start_word_after_boundary",
+          "layer": 0,
+          "x": 0,
+          "y": 3,
+          "z": 2,
+          "runtime_id": 32
+        },
+        {
+          "name": "air_after_boundary",
+          "layer": 0,
+          "x": 0,
+          "y": 4,
+          "z": 2,
+          "runtime_id": 0
+        },
+        {
+          "name": "last_block",
+          "layer": 0,
+          "x": 15,
+          "y": 15,
+          "z": 15,
+          "runtime_id": 1
+        }
+      ]
+    },
+    {
+      "file": "bits_8.bin",
+      "version": 9,
+      "y_index": -4,
+      "storages": [
+        {
+          "bits_per_index": 8,
+          "palette_len": 65
+        }
+      ],
+      "samples": [
+        {
+          "name": "first_non_air",
+          "layer": 0,
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "runtime_id": 1
+        },
+        {
+          "name": "last_non_air",
+          "layer": 0,
+          "x": 0,
+          "y": 15,
+          "z": 3,
+          "runtime_id": 64
+        },
+        {
+          "name": "end_word_before_boundary",
+          "layer": 0,
+          "x": 0,
+          "y": 15,
+          "z": 3,
+          "runtime_id": 64
+        },
+        {
+          "name": "start_word_after_boundary",
+          "layer": 0,
+          "x": 0,
+          "y": 0,
+          "z": 4,
+          "runtime_id": 64
+        },
+        {
+          "name": "air_after_boundary",
+          "layer": 0,
+          "x": 0,
+          "y": 1,
+          "z": 4,
+          "runtime_id": 0
+        },
+        {
+          "name": "last_block",
+          "layer": 0,
+          "x": 15,
+          "y": 15,
+          "z": 15,
+          "runtime_id": 1
+        }
+      ]
+    },
+    {
+      "file": "bits_16.bin",
+      "version": 9,
+      "y_index": -4,
+      "storages": [
+        {
+          "bits_per_index": 16,
+          "palette_len": 257
+        }
+      ],
+      "samples": [
+        {
+          "name": "first_non_air",
+          "layer": 0,
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "runtime_id": 1
+        },
+        {
+          "name": "last_non_air",
+          "layer": 0,
+          "x": 0,
+          "y": 15,
+          "z": 15,
+          "runtime_id": 256
+        },
+        {
+          "name": "end_word_before_boundary",
+          "layer": 0,
+          "x": 0,
+          "y": 15,
+          "z": 15,
+          "runtime_id": 256
+        },
+        {
+          "name": "start_word_after_boundary",
+          "layer": 0,
+          "x": 1,
+          "y": 0,
+          "z": 0,
+          "runtime_id": 256
+        },
+        {
+          "name": "air_after_boundary",
+          "layer": 0,
+          "x": 1,
+          "y": 1,
+          "z": 0,
+          "runtime_id": 0
+        },
+        {
+          "name": "last_block",
+          "layer": 0,
+          "x": 15,
+          "y": 15,
+          "z": 15,
+          "runtime_id": 1
+        }
+      ]
+    }
+  ]
+}

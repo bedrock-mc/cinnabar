@@ -1,0 +1,106 @@
+use std::{collections::BTreeMap, sync::Arc};
+
+use crate::SubChunk;
+
+/// Key for one horizontal chunk column.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ChunkKey {
+    pub dimension: i32,
+    pub x: i32,
+    pub z: i32,
+}
+
+impl ChunkKey {
+    #[must_use]
+    pub const fn new(dimension: i32, x: i32, z: i32) -> Self {
+        Self { dimension, x, z }
+    }
+}
+
+/// Key for one vertical sub-chunk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SubChunkKey {
+    pub dimension: i32,
+    pub x: i32,
+    pub y: i32,
+    pub z: i32,
+}
+
+impl SubChunkKey {
+    #[must_use]
+    pub const fn new(dimension: i32, x: i32, y: i32, z: i32) -> Self {
+        Self { dimension, x, y, z }
+    }
+
+    #[must_use]
+    pub const fn from_chunk(chunk: ChunkKey, y: i32) -> Self {
+        Self::new(chunk.dimension, chunk.x, y, chunk.z)
+    }
+
+    #[must_use]
+    pub const fn chunk(self) -> ChunkKey {
+        ChunkKey::new(self.dimension, self.x, self.z)
+    }
+
+    /// Meshes invalidated when this sub-chunk's block data changes.
+    ///
+    /// Face culling crosses sub-chunk boundaries, so the changed key and all
+    /// six face-adjacent keys must be considered for remeshing. Coordinates at
+    /// the `i32` edge omit the overflowing neighbour.
+    pub fn mesh_dependents(self) -> impl Iterator<Item = Self> {
+        let x_minus = self
+            .x
+            .checked_sub(1)
+            .map(|x| Self::new(self.dimension, x, self.y, self.z));
+        let x_plus = self
+            .x
+            .checked_add(1)
+            .map(|x| Self::new(self.dimension, x, self.y, self.z));
+        let y_minus = self
+            .y
+            .checked_sub(1)
+            .map(|y| Self::new(self.dimension, self.x, y, self.z));
+        let y_plus = self
+            .y
+            .checked_add(1)
+            .map(|y| Self::new(self.dimension, self.x, y, self.z));
+        let z_minus = self
+            .z
+            .checked_sub(1)
+            .map(|z| Self::new(self.dimension, self.x, self.y, z));
+        let z_plus = self
+            .z
+            .checked_add(1)
+            .map(|z| Self::new(self.dimension, self.x, self.y, z));
+        [
+            Some(self),
+            x_minus,
+            x_plus,
+            y_minus,
+            y_plus,
+            z_minus,
+            z_plus,
+        ]
+        .into_iter()
+        .flatten()
+    }
+}
+
+/// Sparse block data for one chunk column.
+#[derive(Debug, Default)]
+pub struct Chunk {
+    pub(crate) sub_chunks: BTreeMap<i32, Arc<SubChunk>>,
+}
+
+impl Chunk {
+    #[must_use]
+    pub fn sub_chunk(&self, y: i32) -> Option<Arc<SubChunk>> {
+        self.sub_chunks.get(&y).cloned()
+    }
+
+    pub fn sub_chunks(&self) -> impl ExactSizeIterator<Item = (i32, Arc<SubChunk>)> + '_ {
+        self.sub_chunks
+            .iter()
+            .map(|(&y, sub_chunk)| (y, Arc::clone(sub_chunk)))
+    }
+}
