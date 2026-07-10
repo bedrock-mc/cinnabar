@@ -105,7 +105,7 @@ case $(uname -s) in
                 "$helper_root/port.out" \
                 "$helper_root/port.err"
             printf '%s %s\n' "$lease_pid" "$port_helper_pid" >"$helper_root/pids"
-            sleep 30
+            wait
         ) &
         helper_parent=$!
         helper_deadline=$(( $(date +%s) + 10 ))
