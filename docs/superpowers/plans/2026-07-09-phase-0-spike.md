@@ -329,35 +329,35 @@
 - Produces `SubChunk::runtime_id(layer: usize, x: u8, y: u8, z: u8) -> Option<u32>`.
 - Produces `ChunkStore::apply_level_chunk(...)` and `ChunkStore::apply_sub_chunk(...)` with dimension/chunk/sub-chunk keys.
 
-- [ ] **Step 1: Generate Dragonfly goldens**
+- [x] **Step 1: Generate Dragonfly goldens**
 
   Use pinned Dragonfly `chunk.EncodeSubChunk(..., chunk.NetworkEncoding, index)` to emit version-9 sub-chunks for uniform, checkerboard, vertical layers, two storage layers, and palette widths crossing 1/2/3/4/5/6/8/16 bits. The manifest lists expected runtime IDs at named coordinates.
 
-- [ ] **Step 2: Write failing Rust golden tests**
+- [x] **Step 2: Write failing Rust golden tests**
 
   Assert every named coordinate, storage count, Y index, palette size, and malformed-input error. Add hand-built version-1 and version-8 compatibility fixtures and unsupported-version rejection.
 
-- [ ] **Step 3: Verify RED**
+- [x] **Step 3: Verify RED**
 
   Run: `go run ./tools/chunkfix -out ./crates/world/fixtures`
 
   Run: `cargo test -p world --test sub_chunk -- --nocapture`
   Expected: compile failure because the decoder does not exist.
 
-- [ ] **Step 4: Implement palette and sub-chunk decoding**
+- [x] **Step 4: Implement palette and sub-chunk decoding**
 
   Port the version 1/8/9 network layout and paletted-storage bit packing from pinned Dragonfly. Enforce coordinate bounds, storage count bounds, palette-length bounds, checked word arithmetic, exact EOF handling, and no panics on arbitrary input.
 
-- [ ] **Step 5: Implement minimal chunk store ingestion**
+- [x] **Step 5: Implement minimal chunk store ingestion**
 
   Store chunk/sub-chunk data keyed by dimension and coordinates, replace changed sub-chunks atomically, and return a dirty-sub-chunk key for remeshing. Support full LevelChunk block payloads and individual SubChunk responses.
 
-- [ ] **Step 6: Verify GREEN**
+- [x] **Step 6: Verify GREEN**
 
   Run: `cargo test -p world -- --nocapture`
   Expected: all goldens and malformed-input tests pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
   Commit message: `feat: decode bedrock sub chunks`
 
@@ -376,6 +376,9 @@
 - Create: `app/src/metrics.rs`
 - Modify: `app/src/main.rs`
 - Modify: `crates/render/src/lib.rs`
+- Modify: `crates/world/src/palette.rs`
+- Modify: `crates/world/src/store.rs`
+- Modify: `crates/world/tests/store.rs`
 
 **Interfaces:**
 - Produces `mesh_sub_chunk(neighbours: &Neighbourhood, sub: &SubChunk) -> ChunkMesh`.
@@ -402,7 +405,7 @@
 
 - [ ] **Step 5: Integrate the live app**
 
-  Keep Bevy/winit on the main thread. Run Tokio login/packet receive on a dedicated thread and deliver decoded world updates through bounded channels. Apply LevelChunk, SubChunk, UpdateBlock, and UpdateSubChunkBlocks to `ChunkStore`; queue only affected sub-chunks; upload completed meshes on the main thread. Add WASD/space/shift fly camera, mouse look, no-vsync acceptance mode, fog-free debug materials, and radius-16 request through the login session.
+  First add failing `world` tests and packed-palette mutation APIs for UpdateBlock/UpdateSubChunkBlocks plus full-column eviction; retain sparse/all-air storage and expand changed keys through `mesh_dependents`. Keep Bevy/winit on the main thread. Run Tokio login/packet receive on a dedicated thread and deliver decoded world updates through bounded channels. Apply LevelChunk, SubChunk, UpdateBlock, and UpdateSubChunkBlocks to `ChunkStore`; queue only affected sub-chunks; upload completed meshes on the main thread. Add WASD/space/shift fly camera, mouse look, no-vsync acceptance mode, fog-free debug materials, and radius-16 request through the login session.
 
 - [ ] **Step 6: Add metrics**
 
