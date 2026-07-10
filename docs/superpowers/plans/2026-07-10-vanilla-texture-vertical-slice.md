@@ -26,6 +26,8 @@
 
 ### Task 1: Pinned Local-Only Vanilla Source Contract
 
+**Complete at `ee1b1ce`** (PowerShell/Git Bash offline contracts green; path-safety review approved; no Mojang payload tracked).
+
 **Files:**
 - Create: `assets/vanilla-source.json`
 - Create: `scripts/fetch-vanilla-assets.ps1`
@@ -40,7 +42,7 @@
   - `scripts/fetch-vanilla-assets.sh --accept-eula [--dry-run]`
 - Does not produce or stage any Mojang-owned file under a tracked path.
 
-- [ ] **Step 1: Write the provenance manifest and failing script contract test**
+- [x] **Step 1: Write the provenance manifest and failing script contract test**
 
   Add this exact checked-in metadata:
 
@@ -72,13 +74,13 @@
   }
   ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
   Run: `powershell -NoProfile -File scripts/tests/vanilla-assets.ps1`
 
   Expected: FAIL because `scripts/fetch-vanilla-assets.ps1` does not exist.
 
-- [ ] **Step 3: Implement local-only fetch scripts**
+- [x] **Step 3: Implement local-only fetch scripts**
 
   Both scripts must:
 
@@ -101,7 +103,7 @@
 
   Bash uses `curl --fail --location`, `sha256sum` (or `shasum -a 256` on macOS), `unzip`, and `mv` within the same parent directory.
 
-- [ ] **Step 4: Verify GREEN and the no-assets boundary**
+- [x] **Step 4: Verify GREEN and the no-assets boundary**
 
   Run:
 
@@ -113,7 +115,7 @@
 
   Expected: the test passes, `.local/assets/example` is ignored, and no downloaded/generated asset appears in Git status.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   ```text
   git add .gitignore assets/vanilla-source.json scripts/fetch-vanilla-assets.ps1 scripts/fetch-vanilla-assets.sh scripts/tests/vanilla-assets.ps1
