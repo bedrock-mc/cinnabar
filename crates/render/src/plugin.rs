@@ -133,7 +133,10 @@ pub struct ChunkUploadAcknowledgement {
 }
 
 enum AcknowledgementSlot {
-    Reserved(ChunkUploadToken),
+    Reserved {
+        token: ChunkUploadToken,
+        prior_ready: Option<ChunkUploadAcknowledgement>,
+    },
     Ready(ChunkUploadAcknowledgement),
 }
 
@@ -179,7 +182,7 @@ impl ChunkUploadAcknowledgements {
             .into_iter()
             .filter_map(|key| match state.slots.remove(&key) {
                 Some(AcknowledgementSlot::Ready(acknowledgement)) => Some(acknowledgement),
-                Some(AcknowledgementSlot::Reserved(_)) | None => None,
+                Some(AcknowledgementSlot::Reserved { .. }) | None => None,
             })
             .collect()
     }
@@ -200,15 +203,48 @@ impl ChunkUploadAcknowledgements {
         let at_capacity = state.slots.len() >= state.capacity;
         match state.slots.entry(key) {
             Entry::Occupied(mut entry) => {
-                entry.insert(AcknowledgementSlot::Reserved(token));
+                let prior_ready = match entry.get() {
+                    AcknowledgementSlot::Reserved { prior_ready, .. } => *prior_ready,
+                    AcknowledgementSlot::Ready(acknowledgement) => Some(*acknowledgement),
+                };
+                entry.insert(AcknowledgementSlot::Reserved { token, prior_ready });
                 true
             }
             Entry::Vacant(entry) if !at_capacity => {
-                entry.insert(AcknowledgementSlot::Reserved(token));
+                entry.insert(AcknowledgementSlot::Reserved {
+                    token,
+                    prior_ready: None,
+                });
                 true
             }
             Entry::Vacant(_) => false,
         }
+    }
+
+    fn cancel(&self, key: SubChunkKey, token: ChunkUploadToken) -> bool {
+        let mut state = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let Entry::Occupied(mut entry) = state.slots.entry(key) else {
+            return false;
+        };
+        let AcknowledgementSlot::Reserved {
+            token: reserved,
+            prior_ready,
+        } = entry.get()
+        else {
+            return false;
+        };
+        if *reserved != token {
+            return false;
+        }
+        if let Some(acknowledgement) = *prior_ready {
+            entry.insert(AcknowledgementSlot::Ready(acknowledgement));
+        } else {
+            entry.remove();
+        }
+        true
     }
 
     fn complete(&self, key: SubChunkKey, token: ChunkUploadToken, applied_at: Instant) -> bool {
@@ -226,12 +262,19 @@ impl ChunkUploadAcknowledgements {
             .inner
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
-        let Some(AcknowledgementSlot::Reserved(reserved)) = state.slots.get(&key) else {
+        let Some(AcknowledgementSlot::Reserved {
+            token: reserved,
+            prior_ready,
+        }) = state.slots.get(&key)
+        else {
             return false;
         };
         if *reserved != token {
             return false;
         }
+        let uploaded_bytes = prior_ready
+            .map_or(0, |acknowledgement| acknowledgement.uploaded_bytes)
+            .saturating_add(uploaded_bytes);
         state.slots.insert(
             key,
             AcknowledgementSlot::Ready(ChunkUploadAcknowledgement {
@@ -561,15 +604,11 @@ fn apply_chunk_render_queue(
         if applied >= budget.max_per_frame {
             break;
         }
-        let token = if removal {
-            queue.removals.get(&key).and_then(|pending| pending.token)
-        } else {
-            queue.pending.get(&key).and_then(|pending| pending.token)
-        };
-        if token.is_some_and(|token| !acknowledgements.try_reserve(key, token)) {
-            continue;
-        }
         if removal {
+            let token = queue.removals.get(&key).and_then(|pending| pending.token);
+            if token.is_some_and(|token| !acknowledgements.try_reserve(key, token)) {
+                continue;
+            }
             queue.removals.remove(&key);
             if let Some(entity) = entities.0.remove(&key) {
                 commands.entity(entity).despawn();
@@ -578,6 +617,16 @@ fn apply_chunk_render_queue(
                 acknowledgements.complete(key, token, Instant::now());
             }
             applied += 1;
+            continue;
+        }
+        let Some(pending) = queue.pending.get(&key) else {
+            continue;
+        };
+        if pending.mesh.is_empty()
+            && pending
+                .token
+                .is_some_and(|token| !acknowledgements.try_reserve(key, token))
+        {
             continue;
         }
         let Some(pending) = queue.pending.remove(&key) else {
@@ -1029,9 +1078,18 @@ fn prepare_gpu_chunks(
             bevy::log::warn!("chunk origin arena is at the adapter storage-buffer limit");
             continue;
         }
+        if instance
+            .token
+            .is_some_and(|token| !acknowledgements.try_reserve(instance.key, token))
+        {
+            continue;
+        }
         let Some((quad_start, quad_capacity)) =
             allocate_for_chunk_update(&mut arena, required, old.as_ref())
         else {
+            if let Some(token) = instance.token {
+                acknowledgements.cancel(instance.key, token);
+            }
             bevy::log::warn!("chunk quad arena is at the adapter storage-buffer limit");
             continue;
         };
@@ -2051,6 +2109,171 @@ mod tests {
         assert!(acknowledgements.complete(first, first_token, now));
         assert_eq!(acknowledgements.drain().len(), 1);
         assert!(acknowledgements.try_reserve(second, second_token));
+    }
+
+    #[test]
+    fn adapter_failure_releases_capacity_for_later_fitting_extracted_instance() {
+        fn encode_zig_zag_i32(value: i32) -> Vec<u8> {
+            let mut value = ((value as u32) << 1) ^ ((value >> 31) as u32);
+            let mut encoded = Vec::new();
+            loop {
+                let mut byte = (value & 0x7f) as u8;
+                value >>= 7;
+                if value != 0 {
+                    byte |= 0x80;
+                }
+                encoded.push(byte);
+                if value == 0 {
+                    return encoded;
+                }
+            }
+        }
+
+        fn solid_sub_chunk(runtime_id: u32) -> world::SubChunk {
+            let mut encoded = vec![9, 1, 0, 1];
+            encoded.extend(encode_zig_zag_i32(runtime_id as i32));
+            world::SubChunk::decode(&encoded).expect("uniform solid sub-chunk")
+        }
+
+        let impossible_key = SubChunkKey::new(0, 0, 0, 0);
+        let fitting_key = SubChunkKey::new(0, 10, 0, 0);
+        let now = Instant::now();
+        let impossible_token = ChunkUploadToken {
+            generation: 1,
+            dirty_since: now,
+        };
+        let fitting_token = ChunkUploadToken {
+            generation: 2,
+            dirty_since: now,
+        };
+        let solid = solid_sub_chunk(1);
+        let classifier = crate::BlockClassifier::new(0);
+        let impossible_mesh =
+            crate::mesh_sub_chunk(&classifier, &crate::Neighbourhood::empty(), &solid);
+        let fitting_mesh = crate::mesh_sub_chunk(
+            &classifier,
+            &crate::Neighbourhood::empty()
+                .with_negative_x(&solid)
+                .with_positive_x(&solid)
+                .with_negative_y(&solid)
+                .with_positive_y(&solid)
+                .with_negative_z(&solid),
+            &solid,
+        );
+        assert_eq!(impossible_mesh.quad_count(), 6);
+        assert_eq!(fitting_mesh.quad_count(), 1);
+
+        let acknowledgements = ChunkUploadAcknowledgements::with_capacity(1);
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(acknowledgements.clone())
+            .add_plugins(DebugWorldPlugin::new(2));
+        {
+            let mut queue = app.world_mut().resource_mut::<ChunkRenderQueue>();
+            queue
+                .try_update_tracked(
+                    impossible_key,
+                    impossible_mesh,
+                    ChunkUploadPriority::new(0.0),
+                    impossible_token,
+                )
+                .unwrap();
+            queue
+                .try_update_tracked(
+                    fitting_key,
+                    fitting_mesh,
+                    ChunkUploadPriority::new(1.0),
+                    fitting_token,
+                )
+                .unwrap();
+        }
+        app.update();
+
+        let extracted = app
+            .world_mut()
+            .query::<(Entity, &ChunkRenderInstance)>()
+            .iter(app.world())
+            .map(|(entity, instance)| (entity, instance.clone()))
+            .collect::<HashMap<_, _>>();
+        assert_eq!(
+            extracted.len(),
+            2,
+            "acknowledgement capacity must not block main-to-render extraction"
+        );
+
+        let candidates = extracted
+            .iter()
+            .map(|(&entity, instance)| GpuUpdateCandidate {
+                entity,
+                key: instance.key,
+                generation: instance.generation,
+            })
+            .collect::<Vec<_>>();
+        let selected = plan_gpu_chunk_updates(candidates, &HashMap::new(), Vec3::ZERO);
+        let mut quad_len = 0;
+        let mut free_quads = Vec::new();
+        let mut failed = Vec::new();
+        let mut successful = Vec::new();
+        for entity in selected {
+            let instance = &extracted[&entity];
+            let required = u32::try_from(instance.quads.len()).unwrap();
+            let token = instance.token.expect("tracked upload token");
+            assert!(acknowledgements.try_reserve(instance.key, token));
+            if allocate_quad_range(&mut quad_len, &mut free_quads, required, 5).is_none() {
+                assert!(acknowledgements.cancel(instance.key, token));
+                failed.push(instance.key);
+                continue;
+            }
+            let uploaded_bytes = buffer_byte_len(instance.quads.len(), PACKED_QUAD_BYTES)
+                .saturating_add(CHUNK_ORIGIN_BYTES);
+            assert!(
+                acknowledgements.complete_with_bytes(instance.key, token, now, uploaded_bytes,)
+            );
+            successful.push(instance.key);
+        }
+
+        assert_eq!(failed, [impossible_key]);
+        assert_eq!(successful, [fitting_key]);
+        let applied = acknowledgements.drain();
+        assert_eq!(applied.len(), 1);
+        assert_eq!(applied[0].key, fitting_key);
+        assert_eq!(applied[0].token, fitting_token);
+        assert_eq!(
+            applied[0].uploaded_bytes,
+            PACKED_QUAD_BYTES + CHUNK_ORIGIN_BYTES
+        );
+        assert!(
+            extracted
+                .values()
+                .any(|instance| instance.key == impossible_key)
+        );
+    }
+
+    #[test]
+    fn same_key_ready_supersession_preserves_bytes_and_latest_token() {
+        let acknowledgements = ChunkUploadAcknowledgements::with_capacity(1);
+        let key = SubChunkKey::new(0, 1, 2, 3);
+        let now = Instant::now();
+        let first = ChunkUploadToken {
+            generation: 1,
+            dirty_since: now,
+        };
+        let latest = ChunkUploadToken {
+            generation: 2,
+            dirty_since: now,
+        };
+
+        assert!(acknowledgements.try_reserve(key, first));
+        assert!(acknowledgements.complete_with_bytes(key, first, now, 40));
+        assert!(acknowledgements.try_reserve(key, latest));
+        assert!(acknowledgements.complete_with_bytes(key, latest, now, 24));
+
+        let drained = acknowledgements.drain();
+        assert_eq!(drained.len(), 1);
+        assert_eq!(drained[0].key, key);
+        assert_eq!(drained[0].token, latest);
+        assert_eq!(drained[0].uploaded_bytes, 64);
+        assert!(acknowledgements.drain().is_empty());
     }
 
     #[test]
