@@ -363,55 +363,76 @@
 
 ---
 
-### Task 7: Bevy Debug Renderer and Live Remeshing
+### Task 7: Packed Bevy Chunk Renderer and Live Remeshing
+
+**Complete at `f2a6a1c`** (400 workspace tests, strict all-target Clippy, and independent review approved).
 
 **Files:**
 - Create: `crates/render/src/color.rs`
 - Create: `crates/render/src/mesh.rs`
 - Create: `crates/render/src/plugin.rs`
+- Create: `crates/render/src/chunk.wgsl`
 - Create: `crates/render/tests/mesh.rs`
+- Create: `crates/render/tests/plugin.rs`
 - Create: `app/src/args.rs`
 - Create: `app/src/camera.rs`
+- Create: `app/src/culling.rs`
 - Create: `app/src/network.rs`
 - Create: `app/src/metrics.rs`
+- Create: `app/src/world_stream.rs`
 - Modify: `app/src/main.rs`
 - Modify: `crates/render/src/lib.rs`
+- Modify: `crates/world/src/mutation.rs`
 - Modify: `crates/world/src/palette.rs`
 - Modify: `crates/world/src/store.rs`
+- Create: `crates/world/tests/mutation.rs`
 - Modify: `crates/world/tests/store.rs`
 
 **Interfaces:**
-- Produces `mesh_sub_chunk(neighbours: &Neighbourhood, sub: &SubChunk) -> ChunkMesh`.
-- Produces `DebugWorldPlugin` consuming dirty sub-chunk events and updating Bevy meshes/materials.
+- Produces `mesh_sub_chunk(classifier: &BlockClassifier, neighbours: &Neighbourhood<'_>, sub_chunk: &SubChunk) -> ChunkMesh`, where `ChunkMesh` retains one 8-byte `PackedQuad` record per greedy quad plus face-to-face cave connectivity.
+- Produces `ChunkRenderQueue::{insert, update, remove}` with nearest-first priorities and a per-frame upload cap.
+- Produces `DebugWorldPlugin`, a custom non-`Mesh` chunk render path backed by global packed-quad/origin/indirect buffers, one pipeline, and one bind group.
+- Produces `WorldStream`, which applies ordered world events, dispatches bounded decode/mesh work to Rayon, and emits deduplicated mesh changes and sub-chunk requests.
 - App flags: `--socket-dir`, `--acceptance-seconds`, `--metrics-out`, and `--auto-fly`.
 
-- [ ] **Step 1: Write meshing tests**
+- [x] **Step 1: Write packed-meshing, connectivity, and render-queue tests**
 
-  Assert: one opaque block emits six quads/24 vertices/36 indices; two adjacent blocks emit ten quads; boundary faces cull against neighbour sub-chunks; air emits no geometry; two storage layers choose the first non-air runtime ID; runtime-ID colours are deterministic and non-transparent.
+  Assert: `PackedQuad` is exactly 8 bytes; one opaque block emits six packed quads; identical adjacent blocks greedy-merge into six rectangular-prism quads; differing runtime IDs split coplanar merges while internal faces remain culled; all six boundary directions cull against neighbouring sub-chunks; uniform air emits no geometry and remains fully traversable; a uniform solid sub-chunk emits six 16x16 quads; storage layers preserve first-non-air selection; high-bit runtime IDs remain intact; empty tunnels and sealed cavities produce the expected face-to-face connectivity; runtime-ID debug colours are deterministic and opaque. Add plugin tests for nearest-first capped uploads, update/removal deduplication, frustum-cullable sub-chunk bounds, shader parsing, indirect-command construction, and capability-selected MDI/direct draw modes.
 
-- [ ] **Step 2: Verify RED**
-
-  Run: `cargo test -p render --test mesh -- --nocapture`
-  Expected: compile failure because meshing functions do not exist.
-
-- [ ] **Step 3: Implement cull meshing and colour mapping**
-
-  Iterate 16³ blocks, test all six neighbours including cross-sub-chunk boundaries, emit indexed triangles with flat normals, and derive stable HSV-like debug colours from runtime IDs. Use Rayon jobs per dirty sub-chunk; no Bevy asset access occurs off the main thread.
-
-- [ ] **Step 4: Verify mesh GREEN**
+- [x] **Step 2: Verify RED**
 
   Run: `cargo test -p render --test mesh -- --nocapture`
-  Expected: all geometry counts pass.
+  Run: `cargo test -p render --test plugin -- --nocapture`
+  Expected: compile failure because the packed mesher, render queue, and custom draw path do not exist.
 
-- [ ] **Step 5: Integrate the live app**
+- [x] **Step 3: Implement packed-palette binary greedy meshing**
 
-  First add failing `world` tests and packed-palette mutation APIs for UpdateBlock/UpdateSubChunkBlocks plus full-column eviction; retain sparse/all-air storage and expand changed keys through `mesh_dependents`. Keep Bevy/winit on the main thread. Run Tokio login/packet receive on a dedicated thread and deliver decoded world updates through bounded channels. Apply LevelChunk, SubChunk, UpdateBlock, and UpdateSubChunkBlocks to `ChunkStore`; queue only affected sub-chunks; upload completed meshes on the main thread. Add WASD/space/shift fly camera, mouse look, no-vsync acceptance mode, fog-free debug materials, and radius-16 request through the login session.
+  Mesh directly from each sub-chunk's palette and packed indices without expanding to a flat per-block array. Keep uniform sub-chunks as one palette entry, skip uniform air immediately, and handle uniform solids without materializing 4096 values. Build per-axis-column `u64` occupancy masks; compute exposed faces with shifts and bitwise AND-NOT operations; greedy-merge equal-runtime-ID coplanar runs, splitting at material boundaries and culling against all six neighbouring sub-chunks. Emit one 8-byte `PackedQuad` containing local position, face, extents, and complete runtime ID, and compute the sub-chunk's six-face cave-connectivity matrix during the same worker job.
 
-- [ ] **Step 6: Add metrics**
+- [x] **Step 4: Verify mesh GREEN**
 
-  Record per-frame duration, packet/decode errors, chunk counts, mesh job duration, and update-to-visible latency. On timed acceptance exit, write deterministic JSON containing p50/p95/p99/max frame milliseconds, max remesh latency, decode-error count, rendered chunks, and session seconds.
+  Run: `cargo test -p render --test mesh -- --nocapture`
+  Expected: all packing, greedy merge, boundary culling, uniform fast-path, runtime-ID, and connectivity assertions pass.
 
-- [ ] **Step 7: Verify workspace**
+- [x] **Step 5: Implement the custom packed chunk render phase**
+
+  Add one chunk render path/phase instead of allocating a Bevy `Mesh`, `StandardMaterial`, vertex buffer, or bind group per sub-chunk. Store all packed quads and per-draw origins in global GPU arenas, use one shared six-index buffer, and reconstruct quad corners and normals in `chunk.wgsl` with vertex pulling. Maintain one pipeline and bind group. Build one indexed-indirect command per visible sub-chunk and issue `multi_draw_indexed_indirect` when the adapter supports indirect execution and first-instance indexing; select a tested `draw_indexed` direct fallback otherwise. Account arena growth/reallocation against the upload budget and coalesce freed ranges so churn does not force unbounded buffers or unbudgeted full-buffer uploads.
+
+- [x] **Step 6: Add bounded streaming, visibility, and live app integration**
+
+  First add failing `world` tests and packed-palette mutation APIs for UpdateBlock/UpdateSubChunkBlocks plus full-column eviction; retain sparse/all-air storage and expand changed keys through `mesh_dependents`. Keep Bevy/winit and all GPU access on the main thread. Run Tokio login/packet receive on a dedicated thread, preserve FIFO world-event order, and deliver events through bounded channels. Apply LevelChunk, SubChunk, UpdateBlock, and UpdateSubChunkBlocks to `ChunkStore`; deduplicate dirty keys; run decode and binary-greedy mesh jobs only on bounded Rayon workers; discard stale completions by revision; and cap nearest-first GPU uploads each frame. Retain logical all-air nodes in the connectivity graph, perform per-sub-chunk frustum culling plus camera-rooted face-connectivity BFS, and fall back to frustum-only visibility when the camera sub-chunk is absent. Add WASD/space/shift fly camera, mouse look, no-vsync acceptance mode, and radius-16 request through the login session.
+
+- [x] **Step 7: Add metrics**
+
+  Record per-frame duration, packet/decode errors, resident/visible chunk counts, bounded queue depths, decode/mesh job duration, GPU upload volume, and update-to-visible latency. On timed acceptance exit, write deterministic JSON containing p50/p95/p99/max frame milliseconds, max decode/mesh/remesh latency, decode-error count, rendered chunks, peak queue depths, and session seconds.
+
+- [x] **Step 8: Verify focused tests and workspace**
+
+  Run: `cargo test -p world -- --nocapture`
+  Expected: packed mutation, eviction, dependency, and world-store tests pass.
+
+  Run: `cargo test -p render -- --nocapture`
+  Expected: binary-greedy packing, custom render queue, shader, MDI selection, and direct-fallback tests pass.
 
   Run: `cargo test --workspace`
   Expected: all Rust tests pass.
@@ -419,9 +440,9 @@
   Run: `cargo run -p bedrock-client -- --help`
   Expected: documents all four app flags and exits zero.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 9: Commit**
 
-  Commit message: `feat: render live debug chunks`
+  Commit message: `feat: render packed live chunks`
 
 ---
 
