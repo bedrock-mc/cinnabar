@@ -163,7 +163,7 @@ fn upload_budget_is_nearest_first_and_queue_supports_update_remove() {
         app.world()
             .resource::<ChunkRenderQueue>()
             .gpu_upload_bytes(),
-        64
+        0
     );
     assert_eq!(
         app.world_mut()
@@ -185,7 +185,7 @@ fn upload_budget_is_nearest_first_and_queue_supports_update_remove() {
         app.world()
             .resource::<ChunkRenderQueue>()
             .gpu_upload_bytes(),
-        128
+        0
     );
 
     {
@@ -195,6 +195,7 @@ fn upload_budget_is_nearest_first_and_queue_supports_update_remove() {
             .unwrap();
         queue.try_remove(near).unwrap();
     }
+    app.update();
     app.update();
 
     let rendered = app
@@ -214,7 +215,7 @@ fn upload_budget_is_nearest_first_and_queue_supports_update_remove() {
         app.world()
             .resource::<ChunkRenderQueue>()
             .gpu_upload_bytes(),
-        192
+        0
     );
 
     assert!(

@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashMap, hash_map::Entry},
     ops::Range,
     sync::{Arc, Mutex},
     time::Instant,
@@ -21,6 +21,7 @@ use bevy::{
     prelude::*,
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
+        camera::ExtractedCamera,
         extract_component::{ExtractComponent, ExtractComponentPlugin},
         render_phase::{
             AddRenderCommand, BinnedRenderPhaseType, DrawFunctions, InputUniformIndex, PhaseItem,
@@ -55,6 +56,7 @@ const CHUNK_ORIGIN_BYTES: u64 = 16;
 const INDEXED_INDIRECT_BYTES: u64 = 20;
 const DEFAULT_RENDER_QUEUE_ITEMS: usize = 256;
 const DEFAULT_RENDER_QUEUE_BYTES: u64 = 64 * 1024 * 1024;
+const DEFAULT_ACKNOWLEDGEMENT_CAPACITY: usize = DEFAULT_RENDER_QUEUE_ITEMS;
 
 /// Maximum number of new or changed sub-chunks transferred to the render
 /// world in one main-world update.
@@ -111,6 +113,11 @@ struct PendingUpload {
     token: Option<ChunkUploadToken>,
 }
 
+struct PendingRemoval {
+    priority: ChunkUploadPriority,
+    token: Option<ChunkUploadToken>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ChunkUploadToken {
     pub generation: u64,
@@ -122,29 +129,135 @@ pub struct ChunkUploadAcknowledgement {
     pub key: SubChunkKey,
     pub token: ChunkUploadToken,
     pub applied_at: Instant,
+    pub uploaded_bytes: u64,
 }
 
-#[derive(Resource, Clone, Default)]
+enum AcknowledgementSlot {
+    Reserved(ChunkUploadToken),
+    Ready(ChunkUploadAcknowledgement),
+}
+
+struct AcknowledgementState {
+    capacity: usize,
+    slots: HashMap<SubChunkKey, AcknowledgementSlot>,
+}
+
+#[derive(Resource, Clone)]
 pub struct ChunkUploadAcknowledgements {
-    inner: Arc<Mutex<VecDeque<ChunkUploadAcknowledgement>>>,
+    inner: Arc<Mutex<AcknowledgementState>>,
+}
+
+impl Default for ChunkUploadAcknowledgements {
+    fn default() -> Self {
+        Self::with_capacity(DEFAULT_ACKNOWLEDGEMENT_CAPACITY)
+    }
 }
 
 impl ChunkUploadAcknowledgements {
     #[must_use]
-    pub fn drain(&self) -> Vec<ChunkUploadAcknowledgement> {
-        let mut pending = self
-            .inner
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
-        pending.drain(..).collect()
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(AcknowledgementState {
+                capacity,
+                slots: HashMap::with_capacity(capacity),
+            })),
+        }
     }
 
-    fn record(&self, acknowledgement: ChunkUploadAcknowledgement) {
-        let mut pending = self
+    #[must_use]
+    pub fn drain(&self) -> Vec<ChunkUploadAcknowledgement> {
+        let mut state = self
             .inner
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
-        pending.push_back(acknowledgement);
+        let ready = state
+            .slots
+            .iter()
+            .filter_map(|(&key, slot)| matches!(slot, AcknowledgementSlot::Ready(_)).then_some(key))
+            .collect::<Vec<_>>();
+        ready
+            .into_iter()
+            .filter_map(|key| match state.slots.remove(&key) {
+                Some(AcknowledgementSlot::Ready(acknowledgement)) => Some(acknowledgement),
+                Some(AcknowledgementSlot::Reserved(_)) | None => None,
+            })
+            .collect()
+    }
+
+    pub fn clear(&self) {
+        let mut state = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        state.slots.clear();
+    }
+
+    fn try_reserve(&self, key: SubChunkKey, token: ChunkUploadToken) -> bool {
+        let mut state = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let at_capacity = state.slots.len() >= state.capacity;
+        match state.slots.entry(key) {
+            Entry::Occupied(mut entry) => {
+                entry.insert(AcknowledgementSlot::Reserved(token));
+                true
+            }
+            Entry::Vacant(entry) if !at_capacity => {
+                entry.insert(AcknowledgementSlot::Reserved(token));
+                true
+            }
+            Entry::Vacant(_) => false,
+        }
+    }
+
+    fn complete(&self, key: SubChunkKey, token: ChunkUploadToken, applied_at: Instant) -> bool {
+        self.complete_with_bytes(key, token, applied_at, 0)
+    }
+
+    fn complete_with_bytes(
+        &self,
+        key: SubChunkKey,
+        token: ChunkUploadToken,
+        applied_at: Instant,
+        uploaded_bytes: u64,
+    ) -> bool {
+        let mut state = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let Some(AcknowledgementSlot::Reserved(reserved)) = state.slots.get(&key) else {
+            return false;
+        };
+        if *reserved != token {
+            return false;
+        }
+        state.slots.insert(
+            key,
+            AcknowledgementSlot::Ready(ChunkUploadAcknowledgement {
+                key,
+                token,
+                applied_at,
+                uploaded_bytes,
+            }),
+        );
+        true
+    }
+
+    #[cfg(test)]
+    fn record(&self, acknowledgement: ChunkUploadAcknowledgement) -> bool {
+        let mut state = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        if !state.slots.contains_key(&acknowledgement.key) && state.slots.len() >= state.capacity {
+            return false;
+        }
+        state.slots.insert(
+            acknowledgement.key,
+            AcknowledgementSlot::Ready(acknowledgement),
+        );
+        true
     }
 }
 
@@ -170,7 +283,7 @@ impl Default for ChunkRenderQueueLimits {
 #[derive(Resource)]
 pub struct ChunkRenderQueue {
     pending: HashMap<SubChunkKey, PendingUpload>,
-    removals: HashSet<SubChunkKey>,
+    removals: HashMap<SubChunkKey, PendingRemoval>,
     next_generation: u64,
     pending_bytes: u64,
     limits: ChunkRenderQueueLimits,
@@ -188,7 +301,7 @@ impl ChunkRenderQueue {
     pub fn with_limits(limits: ChunkRenderQueueLimits) -> Self {
         Self {
             pending: HashMap::new(),
-            removals: HashSet::new(),
+            removals: HashMap::new(),
             next_generation: 0,
             pending_bytes: 0,
             limits,
@@ -225,7 +338,25 @@ impl ChunkRenderQueue {
     }
 
     pub fn try_remove(&mut self, key: SubChunkKey) -> Result<(), SubChunkKey> {
-        let replaces_existing = self.pending.contains_key(&key) || self.removals.contains(&key);
+        self.try_remove_inner(key, ChunkUploadPriority::new(0.0), None)
+    }
+
+    pub fn try_remove_tracked(
+        &mut self,
+        key: SubChunkKey,
+        priority: ChunkUploadPriority,
+        token: ChunkUploadToken,
+    ) -> Result<(), SubChunkKey> {
+        self.try_remove_inner(key, priority, Some(token))
+    }
+
+    fn try_remove_inner(
+        &mut self,
+        key: SubChunkKey,
+        priority: ChunkUploadPriority,
+        token: Option<ChunkUploadToken>,
+    ) -> Result<(), SubChunkKey> {
+        let replaces_existing = self.pending.contains_key(&key) || self.removals.contains_key(&key);
         if !replaces_existing && self.retained_len() >= self.limits.max_items {
             return Err(key);
         }
@@ -234,7 +365,8 @@ impl ChunkRenderQueue {
                 .pending_bytes
                 .saturating_sub(mesh_byte_len(&pending.mesh));
         }
-        self.removals.insert(key);
+        self.removals
+            .insert(key, PendingRemoval { priority, token });
         Ok(())
     }
 
@@ -258,6 +390,10 @@ impl ChunkRenderQueue {
         self.gpu_upload_bytes
     }
 
+    pub fn record_gpu_upload_bytes(&mut self, bytes: u64) {
+        self.gpu_upload_bytes = self.gpu_upload_bytes.saturating_add(bytes);
+    }
+
     fn try_enqueue(
         &mut self,
         key: SubChunkKey,
@@ -269,7 +405,7 @@ impl ChunkRenderQueue {
             .pending
             .get(&key)
             .map_or(0, |pending| mesh_byte_len(&pending.mesh));
-        let replaces_existing = self.pending.contains_key(&key) || self.removals.contains(&key);
+        let replaces_existing = self.pending.contains_key(&key) || self.removals.contains_key(&key);
         let next_items = self
             .retained_len()
             .saturating_add(usize::from(!replaces_existing));
@@ -401,26 +537,49 @@ fn apply_chunk_render_queue(
     mut queue: ResMut<ChunkRenderQueue>,
     budget: Res<ChunkUploadBudget>,
     mut entities: ResMut<ChunkEntities>,
+    acknowledgements: Res<ChunkUploadAcknowledgements>,
 ) {
-    for key in queue.removals.drain() {
-        if let Some(entity) = entities.0.remove(&key) {
-            commands.entity(entity).despawn();
-        }
-    }
-
     let mut ready = queue
         .pending
         .iter()
-        .map(|(&key, pending)| (key, pending.priority))
+        .map(|(&key, pending)| (key, pending.priority, false))
+        .chain(
+            queue
+                .removals
+                .iter()
+                .map(|(&key, pending)| (key, pending.priority, true)),
+        )
         .collect::<Vec<_>>();
-    ready.sort_by(|(left_key, left), (right_key, right)| {
+    ready.sort_by(|(left_key, left, _), (right_key, right, _)| {
         left.distance_squared()
             .total_cmp(&right.distance_squared())
             .then_with(|| left_key.cmp(right_key))
     });
-    ready.truncate(budget.max_per_frame);
 
-    for (key, _) in ready {
+    let mut applied = 0;
+    for (key, _, removal) in ready {
+        if applied >= budget.max_per_frame {
+            break;
+        }
+        let token = if removal {
+            queue.removals.get(&key).and_then(|pending| pending.token)
+        } else {
+            queue.pending.get(&key).and_then(|pending| pending.token)
+        };
+        if token.is_some_and(|token| !acknowledgements.try_reserve(key, token)) {
+            continue;
+        }
+        if removal {
+            queue.removals.remove(&key);
+            if let Some(entity) = entities.0.remove(&key) {
+                commands.entity(entity).despawn();
+            }
+            if let Some(token) = token {
+                acknowledgements.complete(key, token, Instant::now());
+            }
+            applied += 1;
+            continue;
+        }
         let Some(pending) = queue.pending.remove(&key) else {
             continue;
         };
@@ -431,12 +590,12 @@ fn apply_chunk_render_queue(
             if let Some(entity) = entities.0.remove(&key) {
                 commands.entity(entity).despawn();
             }
+            if let Some(token) = pending.token {
+                acknowledgements.complete(key, token, Instant::now());
+            }
+            applied += 1;
             continue;
         }
-        queue.gpu_upload_bytes = queue.gpu_upload_bytes.saturating_add(
-            buffer_byte_len(pending.mesh.quad_count(), PACKED_QUAD_BYTES)
-                .saturating_add(CHUNK_ORIGIN_BYTES),
-        );
 
         let origin = chunk_origin(key);
         let instance = ChunkRenderInstance {
@@ -462,6 +621,7 @@ fn apply_chunk_render_queue(
                 .id();
             entities.0.insert(key, entity);
         }
+        applied += 1;
     }
 }
 
@@ -790,15 +950,21 @@ struct GpuUpdateCandidate {
 fn plan_gpu_chunk_updates(
     mut candidates: Vec<GpuUpdateCandidate>,
     allocations: &HashMap<Entity, ArenaAllocation>,
-    budget: usize,
+    camera_position: Vec3,
 ) -> Vec<Entity> {
     candidates.retain(|candidate| {
         allocations
             .get(&candidate.entity)
             .is_none_or(|allocation| allocation.generation != candidate.generation)
     });
-    candidates.sort_by_key(|candidate| candidate.key);
-    candidates.truncate(budget);
+    candidates.sort_by(|left, right| {
+        ChunkUploadPriority::from_camera(left.key, camera_position)
+            .distance_squared()
+            .total_cmp(
+                &ChunkUploadPriority::from_camera(right.key, camera_position).distance_squared(),
+            )
+            .then_with(|| left.key.cmp(&right.key))
+    });
     candidates
         .into_iter()
         .map(|candidate| candidate.entity)
@@ -809,6 +975,7 @@ fn plan_gpu_chunk_updates(
 fn prepare_gpu_chunks(
     mut commands: Commands,
     instances: Query<(Entity, &ChunkRenderInstance)>,
+    views: Query<&ExtractedView, With<ExtractedCamera>>,
     mut removed_instances: RemovedComponents<ChunkRenderInstance>,
     mut arena: ResMut<ChunkGpuArena>,
     budget: Res<ChunkUploadBudget>,
@@ -825,7 +992,12 @@ fn prepare_gpu_chunks(
             generation: instance.generation,
         })
         .collect();
-    let selected = plan_gpu_chunk_updates(candidates, &arena.allocations, budget.max_per_frame);
+    let camera_position = views
+        .iter()
+        .next()
+        .map(|view| view.world_from_view.translation())
+        .unwrap_or(Vec3::ZERO);
+    let selected = plan_gpu_chunk_updates(candidates, &arena.allocations, camera_position);
 
     for entity in removed_instances.read() {
         free_allocation(&mut arena, entity);
@@ -836,6 +1008,9 @@ fn prepare_gpu_chunks(
     let mut applied_tokens = Vec::new();
     let mut chunk_updates = 0;
     for entity in selected {
+        if chunk_updates >= budget.max_per_frame {
+            break;
+        }
         let Ok((_, instance)) = instances.get(entity) else {
             continue;
         };
@@ -893,7 +1068,9 @@ fn prepare_gpu_chunks(
             },
         );
         if let Some(token) = instance.token {
-            applied_tokens.push((instance.key, token));
+            let uploaded_bytes = buffer_byte_len(instance.quads.len(), PACKED_QUAD_BYTES)
+                .saturating_add(CHUNK_ORIGIN_BYTES);
+            applied_tokens.push((instance.key, token, uploaded_bytes));
         }
         chunk_updates += 1;
     }
@@ -921,12 +1098,8 @@ fn prepare_gpu_chunks(
         );
     }
     let applied_at = Instant::now();
-    for (key, token) in applied_tokens {
-        acknowledgements.record(ChunkUploadAcknowledgement {
-            key,
-            token,
-            applied_at,
-        });
+    for (key, token, uploaded_bytes) in applied_tokens {
+        acknowledgements.complete_with_bytes(key, token, applied_at, uploaded_bytes);
     }
 
     *upload_stats = account_chunk_gpu_uploads(
@@ -1708,10 +1881,176 @@ mod tests {
             .collect::<Vec<_>>();
         let allocations = HashMap::new();
 
-        let selected = plan_gpu_chunk_updates(candidates, &allocations, 2);
+        let selected = plan_gpu_chunk_updates(candidates, &allocations, Vec3::ZERO);
 
-        assert_eq!(selected.len(), 2);
+        assert_eq!(selected.into_iter().take(2).count(), 2);
         assert!(allocations.is_empty());
+    }
+
+    #[test]
+    fn failing_candidates_do_not_starve_a_later_fitting_candidate() {
+        let mut world = World::new();
+        let failing = world.spawn_empty().id();
+        let fitting = world.spawn_empty().id();
+        let candidates = vec![
+            GpuUpdateCandidate {
+                entity: failing,
+                key: SubChunkKey::new(0, -10, 0, 0),
+                generation: 1,
+            },
+            GpuUpdateCandidate {
+                entity: fitting,
+                key: SubChunkKey::new(0, 10, 0, 0),
+                generation: 1,
+            },
+        ];
+        let selected = plan_gpu_chunk_updates(candidates, &HashMap::new(), Vec3::ZERO);
+        let mut len = 2;
+        let mut free = std::iter::once(0..2).collect::<Vec<_>>();
+        let successful = selected
+            .into_iter()
+            .filter(|entity| {
+                let required = if *entity == failing { 3 } else { 2 };
+                allocate_quad_range(&mut len, &mut free, required, 2).is_some()
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(successful, [fitting]);
+    }
+
+    #[test]
+    fn recovery_planner_prefers_near_high_key_over_far_low_key() {
+        let mut world = World::new();
+        let far = world.spawn_empty().id();
+        let near = world.spawn_empty().id();
+        let far_key = SubChunkKey::new(0, -100, 0, 0);
+        let near_key = SubChunkKey::new(0, 100, 0, 0);
+        let candidates = vec![
+            GpuUpdateCandidate {
+                entity: far,
+                key: far_key,
+                generation: 1,
+            },
+            GpuUpdateCandidate {
+                entity: near,
+                key: near_key,
+                generation: 1,
+            },
+        ];
+
+        let selected =
+            plan_gpu_chunk_updates(candidates, &HashMap::new(), Vec3::new(1_608.0, 8.0, 8.0));
+
+        assert_eq!(selected[0], near);
+        assert!(
+            ChunkUploadPriority::from_camera(near_key, Vec3::new(1_608.0, 8.0, 8.0))
+                < ChunkUploadPriority::from_camera(far_key, Vec3::new(1_608.0, 8.0, 8.0))
+        );
+    }
+
+    #[test]
+    fn tracked_empty_mesh_acknowledges_only_after_bounded_application() {
+        let key = SubChunkKey::new(0, 1, 2, 3);
+        let token = ChunkUploadToken {
+            generation: 7,
+            dirty_since: Instant::now(),
+        };
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_plugins(DebugWorldPlugin::new(1));
+        let acknowledgements = app
+            .world()
+            .resource::<ChunkUploadAcknowledgements>()
+            .clone();
+        app.world_mut()
+            .resource_mut::<ChunkRenderQueue>()
+            .try_update_tracked(
+                key,
+                ChunkMesh::default(),
+                ChunkUploadPriority::new(0.0),
+                token,
+            )
+            .unwrap();
+
+        assert!(acknowledgements.drain().is_empty());
+        app.update();
+        let applied = acknowledgements.drain();
+
+        assert_eq!(applied.len(), 1);
+        assert_eq!(applied[0].key, key);
+        assert_eq!(applied[0].token, token);
+    }
+
+    #[test]
+    fn acknowledgement_surface_is_bounded_and_coalesces_same_key() {
+        let acknowledgements = ChunkUploadAcknowledgements::default();
+        let now = Instant::now();
+        let repeated = SubChunkKey::new(0, 0, 0, 0);
+        for generation in 1..=2 {
+            acknowledgements.record(ChunkUploadAcknowledgement {
+                key: repeated,
+                token: ChunkUploadToken {
+                    generation,
+                    dirty_since: now,
+                },
+                applied_at: now,
+                uploaded_bytes: 0,
+            });
+        }
+        for index in 1..=DEFAULT_RENDER_QUEUE_ITEMS {
+            acknowledgements.record(ChunkUploadAcknowledgement {
+                key: SubChunkKey::new(0, index as i32, 0, 0),
+                token: ChunkUploadToken {
+                    generation: 1,
+                    dirty_since: now,
+                },
+                applied_at: now,
+                uploaded_bytes: 0,
+            });
+        }
+
+        let pending = acknowledgements.drain();
+
+        assert!(pending.len() <= DEFAULT_RENDER_QUEUE_ITEMS);
+        assert_eq!(
+            pending
+                .iter()
+                .filter(|acknowledgement| acknowledgement.key == repeated)
+                .count(),
+            1
+        );
+        assert_eq!(
+            pending
+                .iter()
+                .find(|acknowledgement| acknowledgement.key == repeated)
+                .unwrap()
+                .token
+                .generation,
+            2
+        );
+    }
+
+    #[test]
+    fn acknowledgement_reservation_defers_when_full_and_retries_after_drain() {
+        let acknowledgements = ChunkUploadAcknowledgements::with_capacity(1);
+        let first = SubChunkKey::new(0, 1, 0, 0);
+        let second = SubChunkKey::new(0, 2, 0, 0);
+        let now = Instant::now();
+        let first_token = ChunkUploadToken {
+            generation: 1,
+            dirty_since: now,
+        };
+        let second_token = ChunkUploadToken {
+            generation: 2,
+            dirty_since: now,
+        };
+
+        assert!(acknowledgements.try_reserve(first, first_token));
+        assert!(!acknowledgements.try_reserve(second, second_token));
+        assert!(!acknowledgements.complete(first, second_token, now));
+        assert!(acknowledgements.complete(first, first_token, now));
+        assert_eq!(acknowledgements.drain().len(), 1);
+        assert!(acknowledgements.try_reserve(second, second_token));
     }
 
     #[test]

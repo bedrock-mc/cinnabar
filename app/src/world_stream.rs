@@ -173,6 +173,8 @@ pub enum WorldMeshChange {
     },
     Remove {
         key: SubChunkKey,
+        generation: u64,
+        dirty_since: Instant,
     },
 }
 
@@ -193,7 +195,7 @@ impl WorldMeshChange {
     #[must_use]
     pub const fn key(&self) -> SubChunkKey {
         match self {
-            Self::Upsert { key, .. } | Self::Remove { key } => *key,
+            Self::Upsert { key, .. } | Self::Remove { key, .. } => *key,
         }
     }
 }
@@ -1480,7 +1482,7 @@ impl WorldStream {
         });
 
         let mut dispatched = 0;
-        for (_, key, revision, _) in candidates {
+        for (_, key, revision, dirty_since) in candidates {
             if self.mesh_changes.len() >= MAX_PENDING_MESH_CHANGES {
                 break;
             }
@@ -1489,13 +1491,16 @@ impl WorldStream {
             }
             let Some(center) = self.store.sub_chunk(key) else {
                 self.pending_mesh.remove(&key);
-                self.revisions.clear_if_current(key, revision);
                 if self.known_air.contains(&key) {
                     self.set_connectivity(key, Some(FaceConnectivity::all()));
                 } else {
                     self.set_connectivity(key, None);
                 }
-                self.mesh_changes.push_back(WorldMeshChange::Remove { key });
+                self.mesh_changes.push_back(WorldMeshChange::Remove {
+                    key,
+                    generation: revision,
+                    dirty_since,
+                });
                 continue;
             };
             if dispatched >= worker_budget || self.in_flight.contains_key(&key) {
@@ -2350,10 +2355,18 @@ mod tests {
         let second = SubChunkKey::new(0, 4, 5, 6);
         stream
             .mesh_changes
-            .push_back(super::WorldMeshChange::Remove { key: first });
+            .push_back(super::WorldMeshChange::Remove {
+                key: first,
+                generation: 1,
+                dirty_since: Instant::now(),
+            });
         stream
             .mesh_changes
-            .push_back(super::WorldMeshChange::Remove { key: second });
+            .push_back(super::WorldMeshChange::Remove {
+                key: second,
+                generation: 2,
+                dirty_since: Instant::now(),
+            });
 
         let blocked = stream.pop_mesh_change().unwrap();
         stream.retry_mesh_change_front(blocked).unwrap();
@@ -2917,6 +2930,56 @@ mod tests {
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0].key(), removed);
         assert!(matches!(changes[0], super::WorldMeshChange::Remove { .. }));
+    }
+
+    #[test]
+    fn final_block_removal_latency_waits_for_exact_applied_acknowledgement() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+        });
+        let key = SubChunkKey::new(0, 0, -4, 0);
+        stream
+            .store
+            .update_block(key, BlockUpdate::new(0, 0, 0, 0, 99), 12_530)
+            .unwrap();
+        stream
+            .store
+            .update_block(key, BlockUpdate::new(0, 0, 0, 0, 12_530), 12_530)
+            .unwrap();
+        let dirty_since = Instant::now();
+        stream.mark_dirty_exact(key, dirty_since);
+        let generation = stream.revisions.dirty(key).unwrap().revision;
+
+        stream.dispatch_mesh_jobs([0.0; 3], 0);
+
+        assert_eq!(stream.stats().max_remesh_latency, std::time::Duration::ZERO);
+        assert!(
+            stream.revisions.is_current(key, generation),
+            "queued removal must retain its dirty revision until render application"
+        );
+        let change = stream.pop_mesh_change().unwrap();
+        assert_eq!(change.key(), key);
+        stream.acknowledge_mesh_upload(
+            key,
+            generation + 1,
+            dirty_since,
+            dirty_since + std::time::Duration::from_millis(40),
+        );
+        assert_eq!(stream.stats().max_remesh_latency, std::time::Duration::ZERO);
+        stream.acknowledge_mesh_upload(
+            key,
+            generation,
+            dirty_since,
+            dirty_since + std::time::Duration::from_millis(40),
+        );
+        assert_eq!(
+            stream.stats().max_remesh_latency,
+            std::time::Duration::from_millis(40)
+        );
     }
 
     #[test]

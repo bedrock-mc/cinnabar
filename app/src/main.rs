@@ -224,6 +224,7 @@ fn bridge_endpoint_exists(directory: &Path) -> bool {
 fn receive_network_events(
     mut network: ResMut<NetworkHandle>,
     mut client_world: ResMut<ClientWorld>,
+    acknowledgements: Res<ChunkUploadAcknowledgements>,
     mut cameras: Query<&mut Transform, With<FlyCamera>>,
 ) {
     let admission_capacity = client_world.stream.as_ref().map_or(
@@ -237,6 +238,7 @@ fn receive_network_events(
     for event in events {
         match event {
             NetworkEvent::Bootstrap(bootstrap) => {
+                acknowledgements.clear();
                 info!(
                     runtime_id = bootstrap.local_player_runtime_id,
                     position = ?bootstrap.player_position,
@@ -306,21 +308,26 @@ fn drive_world_stream(
     acknowledgements: Res<ChunkUploadAcknowledgements>,
     mut camera: Query<&mut Transform, With<FlyCamera>>,
 ) {
+    let Some(stream) = client_world.stream.as_mut() else {
+        return;
+    };
+    for acknowledgement in acknowledgements.drain() {
+        render_queue.record_gpu_upload_bytes(acknowledgement.uploaded_bytes);
+        stream.acknowledge_mesh_upload(
+            acknowledgement.key,
+            acknowledgement.token.generation,
+            acknowledgement.token.dirty_since,
+            acknowledgement.applied_at,
+        );
+    }
     let Ok(mut camera) = camera.single_mut() else {
         return;
     };
     let controls = {
-        let Some(stream) = client_world.stream.as_mut() else {
-            return;
-        };
-        for acknowledgement in acknowledgements.drain() {
-            stream.acknowledge_mesh_upload(
-                acknowledgement.key,
-                acknowledgement.token.generation,
-                acknowledgement.token.dirty_since,
-                acknowledgement.applied_at,
-            );
-        }
+        let stream = client_world
+            .stream
+            .as_mut()
+            .expect("stream presence was checked before camera access");
         stream.poll(camera.translation.to_array(), MESH_JOB_BUDGET_PER_FRAME);
         stream.take_committed_controls()
     };
@@ -373,10 +380,25 @@ fn drive_world_stream(
                         generation,
                         dirty_since,
                     }),
-                WorldMeshChange::Remove { key } => render_queue
-                    .try_remove(key)
+                WorldMeshChange::Remove {
+                    key,
+                    generation,
+                    dirty_since,
+                } => render_queue
+                    .try_remove_tracked(
+                        key,
+                        ChunkUploadPriority::from_camera(key, camera_position),
+                        ChunkUploadToken {
+                            generation,
+                            dirty_since,
+                        },
+                    )
                     .err()
-                    .map(|key| WorldMeshChange::Remove { key }),
+                    .map(|key| WorldMeshChange::Remove {
+                        key,
+                        generation,
+                        dirty_since,
+                    }),
             };
             let Some(retry) = retry else {
                 continue;
