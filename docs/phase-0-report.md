@@ -38,7 +38,7 @@ scripts/acceptance.sh \
   --metrics-out .local/acceptance/mac-metrics.json
 ```
 
-The shell harness also accepts `--upstream host:port`. A live external-upstream run must additionally pass `--mutation-command <executable>`; the harness gives that executable each complete `setblock` console command as one argument, allowing an SSH or host-specific wrapper to relay the deterministic mutation to the upstream BDS console. Dry-run command resolution does not require the relay.
+The shell harness also accepts `--upstream host:port`. It waits for a valid RakNet unconnected pong before starting core. A live external-upstream run must additionally pass `--mutation-command <executable>`; the harness gives that executable each complete `setblock` console command as one argument, allowing an SSH or host-specific wrapper to relay the deterministic mutation to the upstream BDS console. Dry-run command resolution does not require the relay.
 
 Each live run writes its command/commit manifest before mutable preparation or builds, builds exact release binaries, prints and records the resolved BDS/core/app commands, waits for BDS/core/world readiness in order, and only then starts the timed 900-second metrics window. It alternates gold/diamond blocks at the app-emitted absolute coordinate through owned BDS stdin or the external relay, validates the metrics schema and gates, and streams stdout/stderr directly to artifact files under `.local/acceptance/<timestamp>-<pid>/`. Graceful shutdown is bounded and reaped before any forced-termination fallback completes.
 

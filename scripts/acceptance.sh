@@ -81,6 +81,43 @@ wait_for_exit() {
     return 0
 }
 
+wait_for_external_bds() {
+    local address=$1 stdout_log=$2 stderr_log=$3
+    python3 -u -c 'import random, socket, struct, sys, time
+host, port_text = sys.argv[1].rsplit(":", 1)
+port = int(port_text)
+magic = bytes.fromhex("00ffff00fefefefefdfdfdfd12345678")
+deadline = time.monotonic() + 120
+last_error = "no response"
+while time.monotonic() < deadline:
+    try:
+        targets = socket.getaddrinfo(host, port, type=socket.SOCK_DGRAM)
+    except OSError as error:
+        last_error = str(error)
+        time.sleep(0.2)
+        continue
+    for family, kind, protocol, _, target in targets:
+        probe = socket.socket(family, kind, protocol)
+        probe.settimeout(1.0)
+        try:
+            sent_at = int(time.time() * 1000)
+            guid = random.getrandbits(63)
+            probe.sendto(b"\x01" + struct.pack(">q", sent_at) + magic + struct.pack(">q", guid), target)
+            response, _ = probe.recvfrom(65535)
+            if response[:1] == b"\x1c" and magic in response:
+                print(f"External Bedrock upstream ready: {host}:{port}", flush=True)
+                raise SystemExit(0)
+            last_error = "unexpected RakNet response"
+        except OSError as error:
+            last_error = str(error)
+        finally:
+            probe.close()
+    time.sleep(0.2)
+print(f"timed out waiting for external Bedrock upstream: {last_error}", file=sys.stderr)
+raise SystemExit(1)
+' "$address" >"$stdout_log" 2>"$stderr_log"
+}
+
 configure_server_properties() {
     local path=$1 port=$2 port_v6=$3 temporary="$1.tmp.$$"
     awk -v port="$port" -v port_v6="$port_v6" '
@@ -532,8 +569,7 @@ if [[ -n $bds_dir ]]; then
     bds_fd_open=true
     wait_for_marker "$run_dir/bds.stdout.log" 'Server started.' 120 "$bds_pid"
 else
-    printf 'external upstream treated as ready: %s\n' "$upstream" >"$run_dir/bds.stdout.log"
-    : >"$run_dir/bds.stderr.log"
+    wait_for_external_bds "$upstream" "$run_dir/bds.stdout.log" "$run_dir/bds.stderr.log" || die "external BDS did not become ready (log: $run_dir/bds.stderr.log)"
 fi
 
 core_stdin="$run_dir/core.stdin"

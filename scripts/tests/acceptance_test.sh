@@ -73,6 +73,7 @@ if bash "$script" --duration 60 --upstream 127.0.0.1:19132 --metrics-out "$metri
 fi
 
 grep -Fq 'fcntl.flock' "$script"
+grep -Fq 'External Bedrock upstream ready' "$script"
 grep -Fq -- "--mutation-command is required for a live --upstream run" "$script"
 grep -Fq 'metrics["publisher_radius_chunks"] == 16' "$script"
 grep -Fq 'metrics["frame_count"] > 0' "$script"
