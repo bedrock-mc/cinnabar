@@ -4,3 +4,22 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish = false
+
+[dependencies]
+bevy = { workspace = true, default-features = false, features = [
+    "bevy_asset",
+    "bevy_camera",
+    "bevy_color",
+    "bevy_core_pipeline",
+    "bevy_log",
+    "bevy_mesh",
+    "bevy_render",
+    "bevy_shader",
+    "multi_threaded",
+    "std",
+] }
+bytemuck = { version = "1", features = ["derive"] }
+world = { path = "../world" }
+
+[dev-dependencies]
+naga = { version = "27.0.3", features = ["wgsl-in"] }

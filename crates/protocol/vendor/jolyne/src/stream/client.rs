@@ -1376,6 +1376,17 @@ impl<T: Transport> BedrockStream<StartGame, Client, T> {
 // --- State: Play ---
 
 impl<T: Transport> BedrockStream<Play, Client, T> {
+    /// Receive the next packet with only its header decoded.
+    #[instrument(skip_all, level = "trace")]
+    pub async fn recv_packet_raw(&mut self) -> Result<RawPacket, JolyneError> {
+        self.transport.recv_packet_raw().await
+    }
+
+    /// Materialize a raw packet using this stream's negotiated codec context.
+    pub fn decode_raw_packet(&self, packet: RawPacket) -> Result<McpePacket, JolyneError> {
+        packet.decode(&self.transport.session)
+    }
+
     /// Receive the next packet as a borrowed protocol view.
     #[instrument(skip_all, level = "trace")]
     pub async fn recv_packet_borrowed(

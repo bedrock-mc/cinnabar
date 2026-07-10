@@ -1,0 +1,417 @@
+use jolyne::GameData;
+use thiserror::Error;
+use valentine::bedrock::version::v1_26_30::{
+    McpePacketData, StartGamePacketDimension, SubChunkEntryWithoutCachingItemResult,
+    SubchunkPacketEntries, SubchunkRequestPacket, Vec3I8, Vec3Li,
+};
+
+use crate::Packet;
+
+/// Sequential palette state ID generated for `minecraft:air` in 1.26.30.
+pub const SEQUENTIAL_AIR_NETWORK_ID: u32 = 12_530;
+
+/// Canonical block-state network hash for `minecraft:air`.
+pub const HASHED_AIR_NETWORK_ID: u32 = 0xdbf4_4120;
+
+/// Client safety limit for block storage layers in update packets.
+pub const MAX_BLOCK_LAYERS: usize = 16;
+
+/// Maximum Y offsets emitted in one column SubChunkRequest.
+pub const MAX_SUB_CHUNK_REQUESTS: usize = 128;
+
+/// StartGame data reduced to the fields required by the renderer and world streamer.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WorldBootstrap {
+    pub dimension: i32,
+    pub local_player_runtime_id: u64,
+    pub player_position: [f32; 3],
+    pub world_spawn_position: [i32; 3],
+    pub air_network_id: u32,
+}
+
+impl WorldBootstrap {
+    #[must_use]
+    pub fn from_game_data(game_data: &GameData) -> Self {
+        let start_game = &game_data.start_game;
+        Self {
+            dimension: match start_game.dimension {
+                StartGamePacketDimension::Overworld => 0,
+                StartGamePacketDimension::Nether => 1,
+                StartGamePacketDimension::End => 2,
+                StartGamePacketDimension::Unknown(value) => value,
+            },
+            local_player_runtime_id: start_game.runtime_entity_id as u64,
+            player_position: [
+                start_game.player_position.x,
+                start_game.player_position.y,
+                start_game.player_position.z,
+            ],
+            world_spawn_position: [
+                start_game.spawn_position.x,
+                start_game.spawn_position.y,
+                start_game.spawn_position.z,
+            ],
+            air_network_id: air_network_id(start_game.block_network_ids_are_hashes),
+        }
+    }
+}
+
+/// Vertical sub-chunk span for one dimension.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DimensionRange {
+    pub base_sub_chunk_y: i32,
+    pub sub_chunk_count: usize,
+}
+
+/// Phase-zero dimension ranges matching the vanilla Bedrock dimensions.
+#[must_use]
+pub const fn vanilla_dimension_range(dimension: i32) -> Option<DimensionRange> {
+    match dimension {
+        0 => Some(DimensionRange {
+            base_sub_chunk_y: -4,
+            sub_chunk_count: 24,
+        }),
+        1 => Some(DimensionRange {
+            base_sub_chunk_y: 0,
+            sub_chunk_count: 8,
+        }),
+        2 => Some(DimensionRange {
+            base_sub_chunk_y: 0,
+            sub_chunk_count: 16,
+        }),
+        _ => None,
+    }
+}
+
+/// Returns the raw network value that represents air for this StartGame mode.
+#[must_use]
+pub const fn air_network_id(block_network_ids_are_hashes: bool) -> u32 {
+    if block_network_ids_are_hashes {
+        HASHED_AIR_NETWORK_ID
+    } else {
+        SEQUENTIAL_AIR_NETWORK_ID
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LevelChunkMode {
+    Inline { count: usize },
+    LimitedRequests { highest: u16 },
+    LimitlessRequests,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LevelChunkEvent {
+    pub dimension: i32,
+    pub x: i32,
+    pub z: i32,
+    pub mode: LevelChunkMode,
+    pub payload: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubChunkUnavailable {
+    Undefined,
+    ChunkNotFound,
+    InvalidDimension,
+    PlayerNotFound,
+    YIndexOutOfBounds,
+    Unknown(u8),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SubChunkResult {
+    Success { payload: Vec<u8> },
+    AllAir,
+    Unavailable(SubChunkUnavailable),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubChunkEntryEvent {
+    /// Absolute sub-chunk coordinates in X/Y/Z order.
+    pub position: [i32; 3],
+    pub result: SubChunkResult,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubChunkBatchEvent {
+    pub dimension: i32,
+    pub entries: Vec<SubChunkEntryEvent>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BlockUpdateEvent {
+    pub dimension: i32,
+    /// Absolute block coordinates in X/Y/Z order.
+    pub position: [i32; 3],
+    pub layer: usize,
+    pub network_id: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PublisherUpdateEvent {
+    /// Absolute block coordinates in X/Y/Z order.
+    pub center: [i32; 3],
+    pub radius_blocks: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ChangeDimensionEvent {
+    pub dimension: i32,
+    pub position: [f32; 3],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MovePlayerEvent {
+    pub runtime_id: u64,
+    pub position: [f32; 3],
+    pub pitch: f32,
+    pub yaw: f32,
+}
+
+/// Small, vendor-independent world events consumed by the Bevy app.
+#[derive(Debug, Clone, PartialEq)]
+pub enum WorldEvent {
+    LevelChunk(LevelChunkEvent),
+    SubChunks(SubChunkBatchEvent),
+    BlockUpdates(Vec<BlockUpdateEvent>),
+    ChunkRadiusUpdated(i32),
+    PublisherUpdate(PublisherUpdateEvent),
+    ChangeDimension(ChangeDimensionEvent),
+    MovePlayer(MovePlayerEvent),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum WorldPacketError {
+    #[error("unsupported LevelChunk sub-chunk count {0}")]
+    InvalidSubChunkCount(i32),
+
+    #[error("limited LevelChunk omitted HighestSubChunk")]
+    MissingHighestSubChunk,
+
+    #[error("inline LevelChunk count {count} exceeds dimension {dimension} maximum {max}")]
+    InlineSubChunkCountExceedsDimension {
+        dimension: i32,
+        count: usize,
+        max: usize,
+    },
+
+    #[error("client cache chunk blobs are disabled in the phase-zero client")]
+    CachedChunksUnsupported,
+
+    #[error("sub-chunk origin {origin:?} plus offset {offset:?} overflows i32")]
+    SubChunkPositionOverflow { origin: [i32; 3], offset: [i8; 3] },
+
+    #[error("block update layer {0} is outside 0..{MAX_BLOCK_LAYERS}")]
+    InvalidBlockLayer(i32),
+
+    #[error("publisher radius {0} is not a valid unsigned block radius")]
+    InvalidPublisherRadius(i32),
+
+    #[error("SubChunkRequest has {count} offsets, exceeding {max}")]
+    TooManySubChunkRequests { count: usize, max: usize },
+
+    #[error("SubChunkRequest base Y {base_y} plus offset {offset} overflows i32")]
+    SubChunkRequestYOverflow { base_y: i32, offset: usize },
+}
+
+/// Converts a generated packet into the bounded world surface used by the app.
+/// Packets unrelated to world streaming return `Ok(None)`.
+pub fn into_world_event(
+    packet: Packet,
+    current_dimension: i32,
+) -> Result<Option<WorldEvent>, WorldPacketError> {
+    let event = match packet.data {
+        McpePacketData::PacketLevelChunk(packet) => {
+            if packet.blobs.is_some() {
+                return Err(WorldPacketError::CachedChunksUnsupported);
+            }
+            let mode = match packet.sub_chunk_count {
+                count if count >= 0 => {
+                    let count = count as usize;
+                    let max = vanilla_dimension_range(packet.dimension)
+                        .map_or(MAX_SUB_CHUNK_REQUESTS, |range| range.sub_chunk_count);
+                    if count > max {
+                        return Err(WorldPacketError::InlineSubChunkCountExceedsDimension {
+                            dimension: packet.dimension,
+                            count,
+                            max,
+                        });
+                    }
+                    LevelChunkMode::Inline { count }
+                }
+                -2 => LevelChunkMode::LimitedRequests {
+                    highest: packet
+                        .highest_subchunk_count
+                        .ok_or(WorldPacketError::MissingHighestSubChunk)?,
+                },
+                -1 => LevelChunkMode::LimitlessRequests,
+                count => return Err(WorldPacketError::InvalidSubChunkCount(count)),
+            };
+            WorldEvent::LevelChunk(LevelChunkEvent {
+                dimension: packet.dimension,
+                x: packet.x,
+                z: packet.z,
+                mode,
+                payload: packet.payload,
+            })
+        }
+        McpePacketData::PacketSubchunk(packet) => {
+            let SubchunkPacketEntries::SubChunkEntryWithoutCaching(entries) = packet.entries else {
+                return Err(WorldPacketError::CachedChunksUnsupported);
+            };
+            let origin = [packet.origin.x, packet.origin.y, packet.origin.z];
+            let mut normalized = Vec::with_capacity(entries.len());
+            for entry in entries {
+                let offset = [entry.dx, entry.dy, entry.dz];
+                let position = checked_sub_chunk_position(origin, offset)?;
+                let result = match entry.result {
+                    SubChunkEntryWithoutCachingItemResult::Success => SubChunkResult::Success {
+                        payload: entry.payload,
+                    },
+                    SubChunkEntryWithoutCachingItemResult::SuccessAllAir => SubChunkResult::AllAir,
+                    SubChunkEntryWithoutCachingItemResult::Undefined => {
+                        SubChunkResult::Unavailable(SubChunkUnavailable::Undefined)
+                    }
+                    SubChunkEntryWithoutCachingItemResult::ChunkNotFound => {
+                        SubChunkResult::Unavailable(SubChunkUnavailable::ChunkNotFound)
+                    }
+                    SubChunkEntryWithoutCachingItemResult::InvalidDimension => {
+                        SubChunkResult::Unavailable(SubChunkUnavailable::InvalidDimension)
+                    }
+                    SubChunkEntryWithoutCachingItemResult::PlayerNotFound => {
+                        SubChunkResult::Unavailable(SubChunkUnavailable::PlayerNotFound)
+                    }
+                    SubChunkEntryWithoutCachingItemResult::YIndexOutOfBounds => {
+                        SubChunkResult::Unavailable(SubChunkUnavailable::YIndexOutOfBounds)
+                    }
+                    SubChunkEntryWithoutCachingItemResult::Unknown(value) => {
+                        SubChunkResult::Unavailable(SubChunkUnavailable::Unknown(value))
+                    }
+                };
+                normalized.push(SubChunkEntryEvent { position, result });
+            }
+            WorldEvent::SubChunks(SubChunkBatchEvent {
+                dimension: packet.dimension,
+                entries: normalized,
+            })
+        }
+        McpePacketData::PacketUpdateBlock(packet) => {
+            let layer = normalize_layer(packet.layer)?;
+            WorldEvent::BlockUpdates(vec![BlockUpdateEvent {
+                dimension: current_dimension,
+                position: [packet.position.x, packet.position.y, packet.position.z],
+                layer,
+                network_id: packet.block_runtime_id as u32,
+            }])
+        }
+        McpePacketData::PacketUpdateSubchunkBlocks(packet) => {
+            let mut updates = Vec::with_capacity(packet.blocks.len() + packet.extra.len());
+            updates.extend(packet.blocks.into_iter().map(|update| BlockUpdateEvent {
+                dimension: current_dimension,
+                position: [update.position.x, update.position.y, update.position.z],
+                layer: 0,
+                network_id: update.runtime_id as u32,
+            }));
+            updates.extend(packet.extra.into_iter().map(|update| BlockUpdateEvent {
+                dimension: current_dimension,
+                position: [update.position.x, update.position.y, update.position.z],
+                layer: 1,
+                network_id: update.runtime_id as u32,
+            }));
+            WorldEvent::BlockUpdates(updates)
+        }
+        McpePacketData::PacketChunkRadiusUpdate(packet) => {
+            WorldEvent::ChunkRadiusUpdated(packet.chunk_radius)
+        }
+        McpePacketData::PacketNetworkChunkPublisherUpdate(packet) => {
+            let radius_blocks = u32::try_from(packet.radius)
+                .map_err(|_| WorldPacketError::InvalidPublisherRadius(packet.radius))?;
+            WorldEvent::PublisherUpdate(PublisherUpdateEvent {
+                center: [
+                    packet.coordinates.x,
+                    packet.coordinates.y,
+                    packet.coordinates.z,
+                ],
+                radius_blocks,
+            })
+        }
+        McpePacketData::PacketChangeDimension(packet) => {
+            WorldEvent::ChangeDimension(ChangeDimensionEvent {
+                dimension: packet.dimension,
+                position: [packet.position.x, packet.position.y, packet.position.z],
+            })
+        }
+        McpePacketData::PacketMovePlayer(packet) => WorldEvent::MovePlayer(MovePlayerEvent {
+            runtime_id: packet.runtime_id,
+            position: [packet.position.x, packet.position.y, packet.position.z],
+            pitch: packet.pitch,
+            yaw: packet.yaw,
+        }),
+        _ => return Ok(None),
+    };
+    Ok(Some(event))
+}
+
+/// Builds one bounded vertical-column SubChunkRequest.
+pub fn request_sub_chunk_column(
+    dimension: i32,
+    chunk_x: i32,
+    chunk_z: i32,
+    base_sub_chunk_y: i32,
+    count: usize,
+) -> Result<Packet, WorldPacketError> {
+    if count > MAX_SUB_CHUNK_REQUESTS {
+        return Err(WorldPacketError::TooManySubChunkRequests {
+            count,
+            max: MAX_SUB_CHUNK_REQUESTS,
+        });
+    }
+    let mut requests = Vec::with_capacity(count);
+    for offset in 0..count {
+        let offset_i32 = i32::try_from(offset).expect("request count is capped at 128");
+        base_sub_chunk_y.checked_add(offset_i32).ok_or(
+            WorldPacketError::SubChunkRequestYOverflow {
+                base_y: base_sub_chunk_y,
+                offset,
+            },
+        )?;
+        requests.push(Vec3I8 {
+            x: 0,
+            y: offset as i8,
+            z: 0,
+        });
+    }
+    Ok(SubchunkRequestPacket {
+        dimension,
+        requests,
+        origin: Vec3Li {
+            x: chunk_x,
+            y: base_sub_chunk_y,
+            z: chunk_z,
+        },
+    }
+    .into())
+}
+
+fn normalize_layer(layer: i32) -> Result<usize, WorldPacketError> {
+    let normalized =
+        usize::try_from(layer).map_err(|_| WorldPacketError::InvalidBlockLayer(layer))?;
+    if normalized >= MAX_BLOCK_LAYERS {
+        return Err(WorldPacketError::InvalidBlockLayer(layer));
+    }
+    Ok(normalized)
+}
+
+fn checked_sub_chunk_position(
+    origin: [i32; 3],
+    offset: [i8; 3],
+) -> Result<[i32; 3], WorldPacketError> {
+    let mut position = [0; 3];
+    for axis in 0..3 {
+        position[axis] = origin[axis]
+            .checked_add(i32::from(offset[axis]))
+            .ok_or(WorldPacketError::SubChunkPositionOverflow { origin, offset })?;
+    }
+    Ok(position)
+}

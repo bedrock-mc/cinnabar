@@ -24395,6 +24395,11 @@ impl crate::bedrock::codec::BedrockCodec for SubChunkEntryWithCachingItem {
                         });
                     }
                     let len = raw as usize;
+                    crate::proto::validate_collection_len(
+                        len,
+                        crate::proto::MAX_PACKET_BYTE_ARRAY_BYTES,
+                        buf.remaining(),
+                    )?;
                     let mut tmp_vec = Vec::with_capacity(len);
                     for _ in 0..len {
                         tmp_vec.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
@@ -24606,6 +24611,11 @@ impl crate::bedrock::codec::BedrockCodec for SubChunkEntryWithoutCachingItem {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
                 let len = raw as usize;
+                crate::proto::validate_collection_len(
+                    len,
+                    crate::proto::MAX_PACKET_BYTE_ARRAY_BYTES,
+                    buf.remaining(),
+                )?;
                 let mut tmp_vec = Vec::with_capacity(len);
                 for _ in 0..len {
                     tmp_vec.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
@@ -30334,6 +30344,11 @@ impl crate::bedrock::codec::BedrockCodec for LevelChunkPacketBlobs {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
             let len = raw as usize;
+            crate::proto::validate_collection_len(
+                len,
+                crate::proto::MAX_WORLD_COLLECTION_ELEMENTS,
+                buf.remaining() / 8,
+            )?;
             let mut tmp_vec = Vec::with_capacity(len);
             for _ in 0..len {
                 tmp_vec.push(

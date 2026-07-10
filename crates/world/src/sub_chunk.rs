@@ -1,6 +1,7 @@
 use crate::{
+    BlockUpdate, PalettedStorage,
     error::DecodeError,
-    palette::{BLOCKS_PER_SUB_CHUNK, PalettedStorage},
+    palette::{BLOCKS_PER_SUB_CHUNK, SUPPORTED_BITS, word_count},
 };
 
 /// Deliberate client safety limit for block storage layers in one sub-chunk.
@@ -12,8 +13,6 @@ pub const MAX_STORAGE_COUNT: usize = 16;
 
 /// At most one distinct value can be used by each block position.
 pub const MAX_PALETTE_ENTRIES: usize = BLOCKS_PER_SUB_CHUNK;
-
-const SUPPORTED_BITS: [u8; 9] = [0, 1, 2, 3, 4, 5, 6, 8, 16];
 
 /// A decoded 16×16×16 Bedrock sub-chunk.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,7 +33,12 @@ impl SubChunk {
         Ok(sub_chunk)
     }
 
-    pub(crate) fn decode_prefix(bytes: &[u8]) -> Result<(Self, usize), DecodeError> {
+    /// Prefix-decodes one network sub-chunk and reports the number of bytes
+    /// consumed. Block-entity NBT and other packet data may follow the prefix.
+    ///
+    /// This function is pure and suitable for a decode worker. Use
+    /// [`crate::ChunkStore::commit_sub_chunk`] to apply its result later.
+    pub fn decode_prefix(bytes: &[u8]) -> Result<(Self, usize), DecodeError> {
         let mut reader = Reader::new(bytes);
         let version = reader.read_u8("sub-chunk version")?;
 
@@ -109,6 +113,43 @@ impl SubChunk {
     pub fn has_no_storages(&self) -> bool {
         self.storages.is_empty()
     }
+
+    pub(crate) fn for_block_updates(y: i32) -> Self {
+        let y_index = i8::try_from(y).ok();
+        Self {
+            // Modern in-range columns retain the v9 Y metadata so a later
+            // identical network snapshot can reuse this Arc. The sparse store
+            // still supports synthetic i32 Y values through the v8 shape.
+            version: if y_index.is_some() { 9 } else { 8 },
+            y_index,
+            storages: Box::new([]),
+        }
+    }
+
+    pub(crate) fn apply_block_updates(&mut self, updates: &[BlockUpdate], air_runtime_id: u32) {
+        let mut storages = std::mem::take(&mut self.storages).into_vec();
+        let mut changed_layers = [false; MAX_STORAGE_COUNT];
+        for update in updates {
+            let layer = update.layer as usize;
+            while storages.len() <= layer {
+                storages.push(PalettedStorage::uniform(air_runtime_id));
+            }
+            changed_layers[layer] |=
+                storages[layer].set_runtime_id(update.x, update.y, update.z, update.runtime_id);
+        }
+        for (layer, changed) in changed_layers.into_iter().enumerate() {
+            if changed {
+                storages[layer].compact();
+            }
+        }
+        while storages
+            .last()
+            .is_some_and(|storage| storage.contains_only(air_runtime_id))
+        {
+            storages.pop();
+        }
+        self.storages = storages.into_boxed_slice();
+    }
 }
 
 fn decode_storage(reader: &mut Reader<'_>) -> Result<PalettedStorage, DecodeError> {
@@ -169,14 +210,6 @@ fn decode_storage(reader: &mut Reader<'_>) -> Result<PalettedStorage, DecodeErro
         }
     }
     Ok(storage)
-}
-
-fn word_count(bits_per_index: u8) -> usize {
-    if bits_per_index == 0 {
-        return 0;
-    }
-    let values_per_word = 32 / usize::from(bits_per_index);
-    BLOCKS_PER_SUB_CHUNK.div_ceil(values_per_word)
 }
 
 struct Reader<'a> {

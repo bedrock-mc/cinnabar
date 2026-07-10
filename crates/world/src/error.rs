@@ -54,3 +54,16 @@ pub enum DecodeError {
     #[error("sub-chunk Y index overflow for first index {first} and offset {offset}")]
     SubChunkYOverflow { first: i32, offset: usize },
 }
+
+/// Errors produced before mutating packed block storage.
+///
+/// All updates in a batch are validated before the store is changed, so these
+/// errors never leave a partially-applied sub-chunk behind.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum MutationError {
+    #[error("local block coordinates ({x}, {y}, {z}) are outside a 16x16x16 sub-chunk")]
+    LocalCoordinatesOutOfBounds { x: u8, y: u8, z: u8 },
+
+    #[error("block storage layer {layer} exceeds the client limit of {max}")]
+    LayerOutOfBounds { layer: u32, max: usize },
+}

@@ -5,6 +5,7 @@ use valentine::bedrock::version::v1_26_30::{McpePacketData, McpePacketName};
 use valentine::protocol::wire;
 
 use crate::Packet;
+use crate::world::WorldPacketError;
 
 const BATCH_HEADER: u8 = 0xfe;
 const MAX_BATCH_BYTES: usize = 16 * 1024 * 1024;
@@ -48,6 +49,9 @@ pub enum ProtocolError {
 
     #[error("packet encode failed: {0}")]
     Encode(#[from] std::io::Error),
+
+    #[error("world packet normalization failed: {0}")]
+    World(#[from] WorldPacketError),
 }
 
 /// Decodes an uncompressed gophertunnel raw batch into owned protocol packets.

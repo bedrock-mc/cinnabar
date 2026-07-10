@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use crate::{Chunk, ChunkKey, DecodeError, SubChunk, SubChunkKey};
+use crate::{BlockUpdate, Chunk, ChunkKey, DecodeError, MutationError, SubChunk, SubChunkKey};
 
 /// Maximum sub-chunks accepted in one full inline LevelChunk payload.
 pub const MAX_LEVEL_SUBCHUNKS: usize = 64;
@@ -16,6 +16,84 @@ pub struct ApplyLevelChunk {
     pub dirty: Vec<SubChunkKey>,
     /// Bytes occupied by block sub-chunks before biome/border/entity data.
     pub bytes_consumed: usize,
+}
+
+/// A completely validated full-column block decode ready for a cheap commit.
+///
+/// Packed sub-chunks are wrapped in `Arc`s during decode so this value can be
+/// produced on a worker and transferred to the main thread without copying
+/// chunk data.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DecodedLevelChunk {
+    sub_chunks: BTreeMap<i32, Arc<SubChunk>>,
+    bytes_consumed: usize,
+}
+
+impl DecodedLevelChunk {
+    /// Purely decodes and validates every block sub-chunk in a LevelChunk
+    /// prefix. No [`ChunkStore`] is touched if any later sub-chunk is malformed.
+    pub fn decode(
+        first_sub_chunk_y: i32,
+        sub_chunk_count: usize,
+        payload: &[u8],
+    ) -> Result<Self, DecodeError> {
+        if sub_chunk_count > MAX_LEVEL_SUBCHUNKS {
+            return Err(DecodeError::TooManySubChunks {
+                count: sub_chunk_count,
+                max: MAX_LEVEL_SUBCHUNKS,
+            });
+        }
+
+        let mut sub_chunks = BTreeMap::new();
+        let mut consumed = 0;
+        for offset in 0..sub_chunk_count {
+            let offset_i32 = i32::try_from(offset).map_err(|_| DecodeError::SubChunkYOverflow {
+                first: first_sub_chunk_y,
+                offset,
+            })?;
+            let expected_y = first_sub_chunk_y.checked_add(offset_i32).ok_or(
+                DecodeError::SubChunkYOverflow {
+                    first: first_sub_chunk_y,
+                    offset,
+                },
+            )?;
+            let (sub_chunk, used) = SubChunk::decode_prefix(&payload[consumed..])?;
+            if let Some(actual) = sub_chunk.y_index() {
+                let actual = i32::from(actual);
+                if actual != expected_y {
+                    return Err(DecodeError::SubChunkIndexMismatch {
+                        expected: expected_y,
+                        actual,
+                    });
+                }
+            }
+            consumed += used;
+            if !sub_chunk.has_no_storages() {
+                sub_chunks.insert(expected_y, Arc::new(sub_chunk));
+            }
+        }
+        Ok(Self {
+            sub_chunks,
+            bytes_consumed: consumed,
+        })
+    }
+
+    #[must_use]
+    pub fn bytes_consumed(&self) -> usize {
+        self.bytes_consumed
+    }
+
+    /// Returns an immutable worker-produced snapshot for one Y index.
+    #[must_use]
+    pub fn sub_chunk(&self, y: i32) -> Option<Arc<SubChunk>> {
+        self.sub_chunks.get(&y).cloned()
+    }
+
+    pub fn sub_chunks(&self) -> impl ExactSizeIterator<Item = (i32, Arc<SubChunk>)> + '_ {
+        self.sub_chunks
+            .iter()
+            .map(|(&y, sub_chunk)| (y, Arc::clone(sub_chunk)))
+    }
 }
 
 /// Sparse client-side chunk store.
@@ -54,6 +132,16 @@ impl ChunkStore {
         payload: &[u8],
     ) -> Result<Option<SubChunkKey>, DecodeError> {
         let (decoded, _) = SubChunk::decode_prefix(payload)?;
+        self.commit_sub_chunk(key, decoded)
+    }
+
+    /// Commits a previously decoded SubChunk response without decoding on the
+    /// calling thread.
+    pub fn commit_sub_chunk(
+        &mut self,
+        key: SubChunkKey,
+        decoded: SubChunk,
+    ) -> Result<Option<SubChunkKey>, DecodeError> {
         if let Some(actual) = decoded.y_index() {
             let actual = i32::from(actual);
             if actual != key.y {
@@ -89,6 +177,75 @@ impl ChunkStore {
         self.remove_sub_chunk(key)
     }
 
+    /// Applies one `UpdateBlock`-style change without expanding block data.
+    ///
+    /// `air_runtime_id` comes from the active registry because raw IDs may be
+    /// sequential runtime IDs or network hashes. Callers expand a returned key
+    /// through [`SubChunkKey::mesh_dependents`] before remeshing.
+    pub fn update_block(
+        &mut self,
+        key: SubChunkKey,
+        update: BlockUpdate,
+        air_runtime_id: u32,
+    ) -> Result<Option<SubChunkKey>, MutationError> {
+        Ok(self
+            .update_sub_chunk_blocks(key, std::slice::from_ref(&update), air_runtime_id)?
+            .into_iter()
+            .next())
+    }
+
+    /// Atomically applies an `UpdateSubChunkBlocks`-style batch.
+    ///
+    /// Every entry is validated before the stored `Arc` is replaced. Packed
+    /// words are repacked directly; no flat 4,096-block array is created.
+    pub fn update_sub_chunk_blocks(
+        &mut self,
+        key: SubChunkKey,
+        updates: &[BlockUpdate],
+        air_runtime_id: u32,
+    ) -> Result<Vec<SubChunkKey>, MutationError> {
+        for &update in updates {
+            update.validate()?;
+        }
+        if updates.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let previous = self
+            .chunks
+            .get(&key.chunk())
+            .and_then(|chunk| chunk.sub_chunks.get(&key.y));
+        let mut replacement = previous
+            .map(|sub_chunk| sub_chunk.as_ref().clone())
+            .unwrap_or_else(|| SubChunk::for_block_updates(key.y));
+        replacement.apply_block_updates(updates, air_runtime_id);
+
+        if replacement.has_no_storages() {
+            return Ok(self.remove_sub_chunk(key).into_iter().collect());
+        }
+        if previous.is_some_and(|sub_chunk| sub_chunk.as_ref() == &replacement) {
+            return Ok(Vec::new());
+        }
+
+        self.chunks
+            .entry(key.chunk())
+            .or_default()
+            .sub_chunks
+            .insert(key.y, Arc::new(replacement));
+        Ok(vec![key])
+    }
+
+    /// Removes a complete column and returns its stored sub-chunk keys sorted
+    /// by Y. External `Arc<SubChunk>` snapshots remain valid.
+    pub fn evict_chunk(&mut self, key: ChunkKey) -> Vec<SubChunkKey> {
+        self.chunks
+            .remove(&key)
+            .into_iter()
+            .flat_map(|chunk| chunk.sub_chunks.into_keys())
+            .map(|y| SubChunkKey::from_chunk(key, y))
+            .collect()
+    }
+
     fn remove_sub_chunk(&mut self, key: SubChunkKey) -> Option<SubChunkKey> {
         let chunk_key = key.chunk();
         let chunk = self.chunks.get_mut(&chunk_key)?;
@@ -108,62 +265,42 @@ impl ChunkStore {
         sub_chunk_count: usize,
         payload: &[u8],
     ) -> Result<ApplyLevelChunk, DecodeError> {
-        if sub_chunk_count > MAX_LEVEL_SUBCHUNKS {
-            return Err(DecodeError::TooManySubChunks {
-                count: sub_chunk_count,
-                max: MAX_LEVEL_SUBCHUNKS,
-            });
-        }
+        let decoded = DecodedLevelChunk::decode(first_sub_chunk_y, sub_chunk_count, payload)?;
+        Ok(self.commit_level_chunk(key, decoded))
+    }
 
+    /// Atomically swaps a fully worker-decoded column into the store.
+    pub fn commit_level_chunk(
+        &mut self,
+        key: ChunkKey,
+        decoded: DecodedLevelChunk,
+    ) -> ApplyLevelChunk {
         let old = self.chunks.get(&key);
-        let mut decoded = BTreeMap::new();
-        let mut consumed = 0;
-        for offset in 0..sub_chunk_count {
-            let offset_i32 = i32::try_from(offset).map_err(|_| DecodeError::SubChunkYOverflow {
-                first: first_sub_chunk_y,
-                offset,
-            })?;
-            let expected_y = first_sub_chunk_y.checked_add(offset_i32).ok_or(
-                DecodeError::SubChunkYOverflow {
-                    first: first_sub_chunk_y,
-                    offset,
-                },
-            )?;
-            let (sub_chunk, used) = SubChunk::decode_prefix(&payload[consumed..])?;
-            if let Some(actual) = sub_chunk.y_index() {
-                let actual = i32::from(actual);
-                if actual != expected_y {
-                    return Err(DecodeError::SubChunkIndexMismatch {
-                        expected: expected_y,
-                        actual,
-                    });
-                }
-            }
-            consumed += used;
-            if !sub_chunk.has_no_storages() {
-                let sub_chunk = old
-                    .and_then(|chunk| chunk.sub_chunks.get(&expected_y))
-                    .filter(|previous| previous.as_ref() == &sub_chunk)
-                    .cloned()
-                    .unwrap_or_else(|| Arc::new(sub_chunk));
-                decoded.insert(expected_y, sub_chunk);
+        let DecodedLevelChunk {
+            mut sub_chunks,
+            bytes_consumed,
+        } = decoded;
+        for (&y, replacement) in &mut sub_chunks {
+            if let Some(previous) = old
+                .and_then(|chunk| chunk.sub_chunks.get(&y))
+                .filter(|previous| previous.as_ref() == replacement.as_ref())
+            {
+                *replacement = Arc::clone(previous);
             }
         }
 
         let ys = old
             .into_iter()
             .flat_map(|chunk| chunk.sub_chunks.keys().copied())
-            .chain(decoded.keys().copied())
+            .chain(sub_chunks.keys().copied())
             .collect::<BTreeSet<_>>();
         let changed = ys
             .into_iter()
             .filter(|y| {
                 let previous = old.and_then(|chunk| chunk.sub_chunks.get(y));
-                let replacement = decoded.get(y);
+                let replacement = sub_chunks.get(y);
                 match (previous, replacement) {
-                    (Some(previous), Some(replacement)) => {
-                        previous.as_ref() != replacement.as_ref()
-                    }
+                    (Some(previous), Some(replacement)) => !Arc::ptr_eq(previous, replacement),
                     (None, None) => false,
                     _ => true,
                 }
@@ -172,20 +309,15 @@ impl ChunkStore {
             .collect::<Vec<_>>();
         let dirty = expand_mesh_dependents(changed);
 
-        if decoded.is_empty() {
+        if sub_chunks.is_empty() {
             self.chunks.remove(&key);
         } else {
-            self.chunks.insert(
-                key,
-                Chunk {
-                    sub_chunks: decoded,
-                },
-            );
+            self.chunks.insert(key, Chunk { sub_chunks });
         }
-        Ok(ApplyLevelChunk {
+        ApplyLevelChunk {
             dirty,
-            bytes_consumed: consumed,
-        })
+            bytes_consumed,
+        }
     }
 }
 
