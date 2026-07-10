@@ -157,6 +157,11 @@ impl MetricsCollector {
             .record(duration.as_secs_f64() * 1_000.0);
     }
 
+    pub fn begin_timed_session(&mut self, started: Instant) {
+        self.started = started;
+        self.frame_histogram = FrameHistogram::default();
+    }
+
     pub fn record_remesh_latency(&mut self, duration: Duration) {
         self.max_remesh_milliseconds = self
             .max_remesh_milliseconds
@@ -323,6 +328,16 @@ mod tests {
     #[test]
     fn empty_percentiles_are_zero() {
         assert_eq!(percentile(&[], 0.99), 0.0);
+    }
+
+    #[test]
+    fn timed_session_discards_pre_ready_frame_samples() {
+        let mut metrics = MetricsCollector::new();
+        metrics.record_frame(Duration::from_millis(250));
+
+        metrics.begin_timed_session(std::time::Instant::now());
+
+        assert_eq!(metrics.report().frame_count, 0);
     }
 
     #[test]

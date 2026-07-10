@@ -69,6 +69,7 @@ struct AppMetrics(MetricsCollector);
 
 #[derive(Resource)]
 struct AcceptanceRun {
+    duration: Option<Duration>,
     deadline: Option<Instant>,
     metrics_out: Option<PathBuf>,
     mutation_surface_anchor: Option<[i32; 2]>,
@@ -80,7 +81,8 @@ struct AcceptanceRun {
 impl AcceptanceRun {
     fn new(seconds: Option<u64>, metrics_out: Option<PathBuf>) -> Self {
         Self {
-            deadline: seconds.map(|seconds| Instant::now() + Duration::from_secs(seconds)),
+            duration: seconds.map(Duration::from_secs),
+            deadline: None,
             metrics_out,
             mutation_surface_anchor: None,
             mutation: None,
@@ -90,7 +92,12 @@ impl AcceptanceRun {
     }
 
     fn enabled(&self) -> bool {
-        self.deadline.is_some()
+        self.duration.is_some()
+    }
+
+    fn begin_world_ready(&mut self, ready_at: Instant) {
+        self.deadline = self.duration.map(|duration| ready_at + duration);
+        self.world_ready = true;
     }
 
     fn set_mutation_surface_anchor(&mut self, anchor: [i32; 2]) {
@@ -219,12 +226,14 @@ fn deterministic_mutation_coordinate(
 fn world_ready_markers(
     mutation_coordinate: Option<[i32; 3]>,
     received_radius_chunks: Option<i32>,
+    publisher_radius_chunks: Option<i32>,
     rendered_sub_chunks: usize,
     resident_sub_chunks: usize,
     visible_sub_chunks: usize,
 ) -> Option<[String; 2]> {
     let coordinate = mutation_coordinate?;
     if received_radius_chunks != Some(PHASE0_REQUESTED_RADIUS_CHUNKS)
+        || publisher_radius_chunks != Some(PHASE0_REQUESTED_RADIUS_CHUNKS)
         || rendered_sub_chunks == 0
         || resident_sub_chunks == 0
         || visible_sub_chunks == 0
@@ -613,6 +622,7 @@ fn emit_world_ready(
     cache: Res<CaveVisibilityCache>,
     mut acceptance: ResMut<AcceptanceRun>,
     mut auto_fly: ResMut<camera::AutoFly>,
+    mut metrics: ResMut<AppMetrics>,
 ) {
     if acceptance.world_ready {
         return;
@@ -624,6 +634,7 @@ fn emit_world_ready(
     let Some(markers) = world_ready_markers(
         acceptance.mutation_coordinate(),
         stats.received_radius_chunks,
+        stats.publisher_radius_chunks,
         cache.rendered.len(),
         stats.resident_sub_chunks,
         cache.visible_rendered,
@@ -643,7 +654,9 @@ fn emit_world_ready(
         let _ = writeln!(stdout, "{marker}");
     }
     let _ = stdout.flush();
-    acceptance.world_ready = true;
+    let ready_at = Instant::now();
+    metrics.0.begin_timed_session(ready_at);
+    acceptance.begin_world_ready(ready_at);
 }
 
 fn flush_sub_chunk_requests(
@@ -942,6 +955,21 @@ mod tests {
     }
 
     #[test]
+    fn timed_acceptance_deadline_begins_only_when_the_world_is_ready() {
+        let mut acceptance = AcceptanceRun::new(Some(900), None);
+        assert_eq!(acceptance.deadline, None);
+
+        let world_ready_at = Instant::now() + Duration::from_secs(60);
+        acceptance.begin_world_ready(world_ready_at);
+
+        assert!(acceptance.world_ready);
+        assert_eq!(
+            acceptance.deadline,
+            Some(world_ready_at + Duration::from_secs(900))
+        );
+    }
+
+    #[test]
     fn deterministic_mutation_coordinate_is_visible_above_the_surface_anchor() {
         assert_eq!(
             deterministic_mutation_coordinate([10.5, 72.62, -5.5], [10, -6]),
@@ -952,15 +980,19 @@ mod tests {
     #[test]
     fn world_ready_markers_require_radius_rendering_and_include_the_exact_coordinate() {
         assert_eq!(
-            world_ready_markers(Some([14, 71, -6]), Some(15), 2, 3, 1),
+            world_ready_markers(Some([14, 71, -6]), Some(15), Some(16), 2, 3, 1),
             None
         );
         assert_eq!(
-            world_ready_markers(Some([14, 71, -6]), Some(16), 0, 3, 1),
+            world_ready_markers(Some([14, 71, -6]), Some(16), Some(15), 2, 3, 1),
             None
         );
         assert_eq!(
-            world_ready_markers(Some([14, 71, -6]), Some(16), 2, 3, 1),
+            world_ready_markers(Some([14, 71, -6]), Some(16), Some(16), 0, 3, 1),
+            None
+        );
+        assert_eq!(
+            world_ready_markers(Some([14, 71, -6]), Some(16), Some(16), 2, 3, 1),
             Some([
                 "RUST_MCBE_MUTATION_COORDINATE=14,71,-6".to_owned(),
                 "RUST_MCBE_WORLD_READY radius=16 rendered=2 resident=3 visible=1".to_owned(),
