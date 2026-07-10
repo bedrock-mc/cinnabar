@@ -674,11 +674,15 @@ func canonicalPathThroughExistingParent(path string) (string, error) {
 }
 
 func pathsOverlap(first, second string) bool {
-	if runtime.GOOS == "windows" {
+	if runtimePathsCaseInsensitive() {
 		first = strings.ToLower(first)
 		second = strings.ToLower(second)
 	}
 	return pathContains(first, second) || pathContains(second, first)
+}
+
+func runtimePathsCaseInsensitive() bool {
+	return runtime.GOOS == "windows" || runtime.GOOS == "darwin"
 }
 
 func pathContains(parent, candidate string) bool {
@@ -796,7 +800,7 @@ func validateRuntimeOwnershipMarker(path, want string) error {
 
 func runtimeOwnershipMarker(canonicalSource string) string {
 	identity := filepath.Clean(canonicalSource)
-	if runtime.GOOS == "windows" {
+	if runtimePathsCaseInsensitive() {
 		identity = strings.ToLower(identity)
 	}
 	return "rust-mcbe-bds-runtime-v1\nsource=" + identity + "\n"
