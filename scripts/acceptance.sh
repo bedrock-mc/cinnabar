@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-pinned_gophertunnel_commit='9948b37346db597c3bd9f9579893be49134a1311'
-pinned_valentine_commit='6f6805a2dc8009b1f7b7d3706069dd163dc5c625'
+pinned_gophertunnel_commit='9948b1729395d2e819fce28e079d4a7bfc67716c'
+pinned_valentine_commit='6f6806e821a579c183c44d786f76d9b358a2b825'
 
 usage() {
     cat >&2 <<'EOF'
@@ -118,6 +118,55 @@ raise SystemExit(1)
 ' "$address" >"$stdout_log" 2>"$stderr_log"
 }
 
+start_runtime_lease_helper() {
+    local lock_path=$1 control_path=$2 output_path=$3 error_path=$4
+    local lease_deadline
+    mkfifo -- "$control_path"
+    exec 6<>"$control_path"
+    lease_fd_open=true
+    python3 -u -c 'import fcntl, sys
+lock = open(sys.argv[1], "a+b")
+try:
+    fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    print("stable BDS runtime is already leased", file=sys.stderr, flush=True)
+    raise SystemExit(73)
+print("LEASED", flush=True)
+sys.stdin.readline()
+' "$lock_path" <"$control_path" >"$output_path" 2>"$error_path" 6>&- &
+    lease_pid=$!
+    lease_deadline=$(( $(date +%s) + 10 ))
+    while ! grep -Fq 'LEASED' "$output_path" 2>/dev/null; do
+        if ! kill -0 "$lease_pid" 2>/dev/null; then
+            die "failed to acquire stable BDS runtime lease (log: $error_path)"
+        fi
+        (( $(date +%s) < lease_deadline )) || die 'timed out acquiring stable BDS runtime lease'
+        sleep 0.05
+    done
+}
+
+start_udp_port_helper() {
+    local control_path=$1 output_path=$2 error_path=$3
+    local port_deadline
+    mkfifo -- "$control_path"
+    exec 7<>"$control_path"
+    port_fd_open=true
+    python3 -u -c 'import socket, sys
+sockets = [socket.socket(socket.AF_INET, socket.SOCK_DGRAM) for _ in range(2)]
+for item in sockets: item.bind(("127.0.0.1", 0))
+print(*(item.getsockname()[1] for item in sockets), flush=True)
+sys.stdin.readline()
+' <"$control_path" >"$output_path" 2>"$error_path" 7>&- &
+    port_helper_pid=$!
+    port_deadline=$(( $(date +%s) + 10 ))
+    while [[ ! -s $output_path ]]; do
+        kill -0 "$port_helper_pid" 2>/dev/null || die "UDP port reservation helper exited early (log: $error_path)"
+        (( $(date +%s) < port_deadline )) || die 'timed out reserving UDP ports'
+        sleep 0.05
+    done
+    read -r port port_v6 <"$output_path"
+}
+
 configure_server_properties() {
     local path=$1 port=$2 port_v6=$3 temporary="$1.tmp.$$"
     awk -v port="$port" -v port_v6="$port_v6" '
@@ -196,6 +245,10 @@ prepare_stable_runtime() {
     shopt -u dotglob nullglob
     printf '%s/%s\n' "$runtime_full" "$executable"
 }
+
+if [[ ${RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY:-} == 1 ]]; then
+    return 0 2>/dev/null || exit 0
+fi
 
 duration=''
 bds_dir=''
@@ -496,49 +549,13 @@ if [[ -n $bds_dir ]]; then
     lease_control="$run_dir/bds-runtime-lease.control"
     lease_output="$run_dir/bds-runtime-lease.out"
     lease_error="$run_dir/bds-runtime-lease.stderr.log"
-    mkfifo -- "$lease_control"
-    exec 6<>"$lease_control"
-    lease_fd_open=true
-    python3 -u -c 'import fcntl, sys
-lock = open(sys.argv[1], "a+b")
-try:
-    fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-except BlockingIOError:
-    print("stable BDS runtime is already leased", file=sys.stderr, flush=True)
-    raise SystemExit(73)
-print("LEASED", flush=True)
-sys.stdin.readline()
-' "$runtime_dir.lock" <"$lease_control" >"$lease_output" 2>"$lease_error" &
-    lease_pid=$!
-    lease_deadline=$(( $(date +%s) + 10 ))
-    while ! grep -Fq 'LEASED' "$lease_output" 2>/dev/null; do
-        if ! kill -0 "$lease_pid" 2>/dev/null; then
-            die "failed to acquire stable BDS runtime lease (log: $lease_error)"
-        fi
-        (( $(date +%s) < lease_deadline )) || die 'timed out acquiring stable BDS runtime lease'
-        sleep 0.05
-    done
+    start_runtime_lease_helper "$runtime_dir.lock" "$lease_control" "$lease_output" "$lease_error"
     bds_executable=$(prepare_stable_runtime "$bds_dir" "$runtime_dir" "$bds_executable_name")
 
     port_control="$run_dir/port-reservation.control"
     port_output="$run_dir/port-reservation.out"
-    mkfifo -- "$port_control"
-    exec 7<>"$port_control"
-    port_fd_open=true
-    python3 -u -c 'import socket, sys
-sockets = [socket.socket(socket.AF_INET, socket.SOCK_DGRAM) for _ in range(2)]
-for item in sockets: item.bind(("127.0.0.1", 0))
-print(*(item.getsockname()[1] for item in sockets), flush=True)
-sys.stdin.readline()
-' <"$port_control" >"$port_output" &
-    port_helper_pid=$!
-    port_deadline=$(( $(date +%s) + 10 ))
-    while [[ ! -s $port_output ]]; do
-        kill -0 "$port_helper_pid" 2>/dev/null || die 'UDP port reservation helper exited early'
-        (( $(date +%s) < port_deadline )) || die 'timed out reserving UDP ports'
-        sleep 0.05
-    done
-    read -r port port_v6 <"$port_output"
+    port_error="$run_dir/port-reservation.stderr.log"
+    start_udp_port_helper "$port_control" "$port_output" "$port_error"
     upstream="127.0.0.1:$port"
     configure_server_properties "$runtime_dir/server.properties" "$port" "$port_v6"
     core_command=("$core_executable" -socket-dir "$socket_dir" -upstream "$upstream")
@@ -574,7 +591,7 @@ fi
 
 core_stdin="$run_dir/core.stdin"
 mkfifo -- "$core_stdin"
-(cd "$project_root" && exec "$core_executable" -socket-dir "$socket_dir" -upstream "$upstream" <"$core_stdin" >"$run_dir/core.stdout.log" 2>"$run_dir/core.stderr.log") &
+(cd "$project_root" && exec "$core_executable" -socket-dir "$socket_dir" -upstream "$upstream" <"$core_stdin" >"$run_dir/core.stdout.log" 2>"$run_dir/core.stderr.log" 6>&- 9>&-) &
 core_pid=$!
 exec 8>"$core_stdin"
 core_fd_open=true
@@ -586,7 +603,7 @@ while [[ ! -S $endpoint ]]; do
     sleep 0.1
 done
 
-(cd "$project_root" && exec "$app_executable" --socket-dir "$socket_dir" --acceptance-seconds "$duration" --metrics-out "$canonical_metrics" --auto-fly --no-vsync >"$run_dir/app.stdout.log" 2>"$run_dir/app.stderr.log") &
+(cd "$project_root" && exec "$app_executable" --socket-dir "$socket_dir" --acceptance-seconds "$duration" --metrics-out "$canonical_metrics" --auto-fly --no-vsync >"$run_dir/app.stdout.log" 2>"$run_dir/app.stderr.log" 6>&- 8>&- 9>&-) &
 app_pid=$!
 wait_for_marker "$run_dir/app.stdout.log" 'RUST_MCBE_MUTATION_COORDINATE=' 180 "$app_pid"
 wait_for_marker "$run_dir/app.stdout.log" 'RUST_MCBE_WORLD_READY ' 180 "$app_pid"
@@ -608,7 +625,7 @@ while kill -0 "$app_pid" 2>/dev/null; do
         if [[ -n $bds_pid ]]; then
             printf '%s\n' "$command" >&9
         else
-            "$mutation_command" "$command" >>"$run_dir/mutation-command.stdout.log" 2>>"$run_dir/mutation-command.stderr.log" &
+            "$mutation_command" "$command" >>"$run_dir/mutation-command.stdout.log" 2>>"$run_dir/mutation-command.stderr.log" 6>&- 8>&- 9>&- &
             mutation_pid=$!
             if ! wait_for_exit "$mutation_pid" 5; then
                 kill -TERM "$mutation_pid" 2>/dev/null

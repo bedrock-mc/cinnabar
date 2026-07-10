@@ -73,13 +73,73 @@ if bash "$script" --duration 60 --upstream 127.0.0.1:19132 --metrics-out "$metri
 fi
 
 grep -Fq 'fcntl.flock' "$script"
+grep -Fq '6>&- 9>&-' "$script"
+grep -Fq '6>&- 8>&- 9>&-' "$script"
 grep -Fq 'External Bedrock upstream ready' "$script"
 grep -Fq -- "--mutation-command is required for a live --upstream run" "$script"
 grep -Fq 'metrics["publisher_radius_chunks"] == 16' "$script"
 grep -Fq 'metrics["frame_count"] > 0' "$script"
 grep -Fq 'math.isfinite(metrics["p99_frame_ms"])' "$script"
+grep -Fq "pinned_gophertunnel_commit='9948b1729395d2e819fce28e079d4a7bfc67716c'" "$script"
+grep -Fq "pinned_valentine_commit='6f6806e821a579c183c44d786f76d9b358a2b825'" "$script"
 metadata_line=$(grep -n '^write_metadata preparing$' "$script" | cut -d: -f1)
 build_line=$(grep -n 'cargo build --release' "$script" | tail -1 | cut -d: -f1)
 [[ -n $metadata_line && -n $build_line && $metadata_line -lt $build_line ]]
+
+case $(uname -s) in
+    MINGW*|MSYS*) ;;
+    *)
+        helper_root="$temp_root/helper-parent-death"
+        mkdir -p "$helper_root"
+        (
+            export RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY=1
+            # shellcheck source=/dev/null
+            source "$script"
+            start_runtime_lease_helper \
+                "$helper_root/runtime.lock" \
+                "$helper_root/lease.control" \
+                "$helper_root/lease.out" \
+                "$helper_root/lease.err"
+            start_udp_port_helper \
+                "$helper_root/port.control" \
+                "$helper_root/port.out" \
+                "$helper_root/port.err"
+            printf '%s %s\n' "$lease_pid" "$port_helper_pid" >"$helper_root/pids"
+            sleep 30
+        ) &
+        helper_parent=$!
+        helper_deadline=$(( $(date +%s) + 10 ))
+        while [[ ! -s $helper_root/pids ]]; do
+            kill -0 "$helper_parent" 2>/dev/null || {
+                echo 'helper parent exited before publishing child PIDs' >&2
+                exit 1
+            }
+            (( $(date +%s) < helper_deadline )) || {
+                kill -KILL "$helper_parent" 2>/dev/null || true
+                echo 'timed out starting helper parent-death test' >&2
+                exit 1
+            }
+            sleep 0.05
+        done
+        read -r lease_helper port_helper <"$helper_root/pids"
+        kill -KILL "$helper_parent"
+        wait "$helper_parent" 2>/dev/null || true
+        for helper_pid in "$lease_helper" "$port_helper"; do
+            helper_deadline=$(( $(date +%s) + 5 ))
+            while kill -0 "$helper_pid" 2>/dev/null; do
+                if (( $(date +%s) >= helper_deadline )); then
+                    kill -KILL "$helper_pid" 2>/dev/null || true
+                    echo "orphaned acceptance helper retained its control FIFO: $helper_pid" >&2
+                    exit 1
+                fi
+                sleep 0.05
+            done
+        done
+        python3 -c 'import fcntl, sys
+lock = open(sys.argv[1], "a+b")
+fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+' "$helper_root/runtime.lock"
+        ;;
+esac
 
 printf '%s\n' 'acceptance.sh dry-run tests: PASS'

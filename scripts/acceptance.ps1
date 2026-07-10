@@ -13,8 +13,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$PinnedGophertunnelCommit = '9948b37346db597c3bd9f9579893be49134a1311'
-$PinnedValentineCommit = '6f6805a2dc8009b1f7b7d3706069dd163dc5c625'
+$PinnedGophertunnelCommit = '9948b1729395d2e819fce28e079d4a7bfc67716c'
+$PinnedValentineCommit = '6f6806e821a579c183c44d786f76d9b358a2b825'
 
 function ConvertTo-CommandArgument {
     param([Parameter(Mandatory = $true)][string]$Value)
