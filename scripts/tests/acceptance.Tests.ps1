@@ -45,9 +45,7 @@ $DryRunDirectory = Join-Path $ProjectRoot '.local\acceptance\dry-run'
 try {
     New-Item -ItemType Directory -Path $BdsDir -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $BdsDir 'bedrock_server.exe') -Value 'fixture' -NoNewline
-    if (Test-Path -LiteralPath $DryRunDirectory) {
-        Remove-Item -LiteralPath $DryRunDirectory -Recurse -Force
-    }
+    Assert-True (-not (Test-Path -LiteralPath $DryRunDirectory)) "pre-existing dry-run artifact prevents an immutability assertion: $DryRunDirectory"
 
     $success = Invoke-Acceptance -Arguments @(
         '-DryRun',

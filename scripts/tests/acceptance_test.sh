@@ -11,7 +11,10 @@ metrics_out="$temp_root/metrics output/metrics.json"
 mkdir -p "$bds_dir"
 printf fixture >"$bds_dir/bedrock_server"
 chmod +x "$bds_dir/bedrock_server"
-rm -rf "$project_root/.local/acceptance/dry-run"
+[[ ! -e "$project_root/.local/acceptance/dry-run" ]] || {
+    echo 'pre-existing dry-run artifact prevents the immutability assertion' >&2
+    exit 1
+}
 
 output="$(bash "$script" --dry-run --duration 900 --bds-dir "$bds_dir" --metrics-out "$metrics_out")"
 commands=()
