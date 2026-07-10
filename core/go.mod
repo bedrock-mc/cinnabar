@@ -1,12 +1,49 @@
 module github.com/hashimthearab/rust-mcbe/core
 
-go 1.26.0
+go 1.26.1
 
 require github.com/sandertv/gophertunnel v1.57.0
 
+require (
+	github.com/coder/websocket v1.8.14 // indirect
+	github.com/coreos/go-oidc/v3 v3.17.0 // indirect
+	github.com/df-mc/go-nethernet v1.0.18 // indirect
+	github.com/df-mc/go-playfab/v2 v2.0.2-0.20260618232935-6d86fc87875f // indirect
+	github.com/df-mc/go-xsapi/v2 v2.0.2 // indirect
+	github.com/df-mc/jsonc v1.0.5 // indirect
+	github.com/go-gl/mathgl v1.1.0 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
+	github.com/google/uuid v1.6.0 // indirect
+	github.com/klauspost/compress v1.18.1 // indirect
+	github.com/pion/datachannel v1.6.2 // indirect
+	github.com/pion/dtls/v3 v3.1.4 // indirect
+	github.com/pion/ice/v4 v4.2.7 // indirect
+	github.com/pion/interceptor v0.1.45 // indirect
+	github.com/pion/logging v0.2.4 // indirect
+	github.com/pion/mdns/v2 v2.1.0 // indirect
+	github.com/pion/randutil v0.1.0 // indirect
+	github.com/pion/rtcp v1.2.16 // indirect
+	github.com/pion/rtp v1.10.2 // indirect
+	github.com/pion/sctp v1.10.2 // indirect
+	github.com/pion/sdp/v3 v3.0.19 // indirect
+	github.com/pion/srtp/v3 v3.0.12 // indirect
+	github.com/pion/stun/v3 v3.1.6 // indirect
+	github.com/pion/transport/v4 v4.0.2 // indirect
+	github.com/pion/turn/v5 v5.0.10 // indirect
+	github.com/pion/webrtc/v4 v4.2.16-0.20260627075746-7a223a6f4d4f // indirect
+	github.com/sandertv/go-raknet v1.15.0 // indirect
+	github.com/wlynxg/anet v0.0.5 // indirect
+	golang.org/x/crypto v0.48.0 // indirect
+	golang.org/x/exp v0.0.0-20260611194520-c48552f49976 // indirect
+	golang.org/x/image v0.21.0 // indirect
+	golang.org/x/net v0.50.0 // indirect
+	golang.org/x/oauth2 v0.36.0 // indirect
+	golang.org/x/sys v0.41.0 // indirect
+	golang.org/x/text v0.35.0 // indirect
+	golang.org/x/time v0.14.0 // indirect
+)
+
 replace (
-	github.com/df-mc/go-nethernet => github.com/HashimTheArab/go-nethernet v0.0.0-20260621185016-ac3e14475524
-	github.com/df-mc/go-xsapi/v2 => github.com/HashimTheArab/go-xsapi/v2 v2.0.0-20260620084425-d4a68a0fa178
 	github.com/sandertv/go-raknet => github.com/hashimthearab/go-raknet v1.14.2-0.20260625072737-109968c5e6ff
-	github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20260707023624-0635cd9a2ee8
+	github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20260710055430-15b036a88a50
 )

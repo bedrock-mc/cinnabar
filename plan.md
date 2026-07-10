@@ -19,7 +19,7 @@ Local worlds run dragonfly behind the same core, over the same client path.
 
 **Tech Stack:**
 - Client: Rust, Bevy (wgpu), rayon (meshing), axolotl-stack `valentine` packet defs (1.26.30)
-- Core: Go, `lunar` (gophertunnel, go-raknet, go-nethernet, go-xsapi/v2), dragonfly
+- Core: Go, `lunar` gophertunnel + go-raknet fork; upstream `df-mc/go-nethernet` and `df-mc/go-xsapi/v2`; dragonfly
 - Boundary: socket-file transport already implemented in `bedrock-mc/plugin` (reference impl)
 - Assets: Mojang/bedrock-samples (full vanilla resource pack); `refs/pocketmine/bds-data`
   for server data (`definitions/`, `blocks.json`) and a live BDS test server

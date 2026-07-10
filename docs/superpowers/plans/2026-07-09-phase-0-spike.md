@@ -6,7 +6,7 @@
 
 **Architecture:** The Go core terminates an encrypted Bedrock session on each side and relays decoded gophertunnel packet values after the upstream/downstream spawn barrier completes. Rust connects to the core over a local length-framed byte stream, uses vendored Valentine/Jolyne 1.26.30 code for Bedrock batches and login, decodes sub-chunks into a small world store, meshes them on Rayon, and uploads debug-colour geometry to Bevy.
 
-**Tech Stack:** Rust 1.93.1, Bevy 0.18.1, Tokio 1.52.x, Rayon 1.11.x, Valentine/Jolyne from axolotl-stack commit `6f6806e821a579c183c44d786f76d9b358a2b825`, Go 1.26.x, gophertunnel `lunar` commit `0635cd9a2ee8a6878c15467cf111523e7fd1dc37`, Dragonfly commit `b85c56ffea6b306798a935f14cc941c76618be52`, BDS 1.26.32.2.
+**Tech Stack:** Rust 1.93.1, Bevy 0.18.1, Tokio 1.52.x, Rayon 1.11.x, Valentine/Jolyne from axolotl-stack commit `6f6806e821a579c183c44d786f76d9b358a2b825`, Go 1.26.1, gophertunnel `lunar` commit `15b036a88a50dd3947599a4fe368d034996c028a`, Dragonfly commit `b85c56ffea6b306798a935f14cc941c76618be52`, BDS 1.26.32.2.
 
 ## Global Constraints
 
@@ -60,7 +60,7 @@
 
 - [ ] **Step 2: Pin Go sources**
 
-  In `core/go.mod`, require `github.com/sandertv/gophertunnel` and replace it with `github.com/hashimthearab/gophertunnel v1.25.3-0.20260707023624-0635cd9a2ee8`. Repeat the fork replacements from the pinned gophertunnel `go.mod` for go-raknet, go-nethernet, and go-xsapi because dependency replacements are not inherited.
+  In `core/go.mod`, require `github.com/sandertv/gophertunnel` and replace it with `github.com/hashimthearab/gophertunnel v1.25.3-0.20260710055430-15b036a88a50`. Repeat only the go-raknet fork replacement from the pinned gophertunnel `go.mod`, because dependency replacements are not inherited. Use the upstream `df-mc/go-nethernet v1.0.18` and `df-mc/go-xsapi/v2 v2.0.2` selected by that commit.
 
 - [ ] **Step 3: Add CI commands**
 
@@ -476,4 +476,3 @@
 - [ ] **Step 7: Commit**
 
   Commit message: `test: record phase zero acceptance`
-
