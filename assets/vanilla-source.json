@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "tag": "v1.26.30.32-preview",
+  "commit": "020f1cf4b2baef78e635d4ce7498eb16a429dcbb",
+  "archive": "bedrock-samples-v1.26.30.32-preview-full.zip",
+  "url": "https://github.com/Mojang/bedrock-samples/releases/download/v1.26.30.32-preview/bedrock-samples-v1.26.30.32-preview-full.zip",
+  "sha256": "12d5cddc03acd507e9e0bd412f2e94d34d0a1a855758af7a9eef61b03630ad7c",
+  "artifact_policy": "local-only",
+  "cache_dir": ".local/assets/bedrock-samples/v1.26.30.32-preview/full"
+}
