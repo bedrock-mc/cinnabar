@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"flag"
+	"io"
 	"log"
+	"os"
 	"os/signal"
 	"syscall"
 
@@ -15,9 +17,20 @@ func main() {
 	upstream := flag.String("upstream", "", "upstream Bedrock server address (host:port)")
 	flag.Parse()
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
+	signalCtx, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stopSignals()
+	ctx, stopStdin := contextWithStdinEOF(signalCtx, os.Stdin)
+	defer stopStdin()
 	if err := proxy.Serve(ctx, proxy.Config{SocketDir: *socketDir, Upstream: *upstream}); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func contextWithStdinEOF(parent context.Context, stdin io.Reader) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(parent)
+	go func() {
+		_, _ = io.Copy(io.Discard, stdin)
+		cancel()
+	}()
+	return ctx, cancel
 }
