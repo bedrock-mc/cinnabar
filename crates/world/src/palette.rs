@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Number of block positions in a 16×16×16 sub-chunk.
 pub const BLOCKS_PER_SUB_CHUNK: usize = 16 * 16 * 16;
@@ -131,92 +131,61 @@ impl PalettedStorage {
         Self::new(0, Vec::new(), vec![runtime_id])
     }
 
-    /// Changes one packed entry, growing only through legal Bedrock widths.
-    /// Coordinates have already been validated by the store boundary.
-    pub(crate) fn set_runtime_id(&mut self, x: u8, y: u8, z: u8, runtime_id: u32) -> bool {
-        let linear = (usize::from(x) << 8) | (usize::from(z) << 4) | usize::from(y);
-        let current_index = self
-            .palette_index(linear)
-            .expect("validated local coordinates have a packed index");
-        if self.palette.get(current_index) == Some(runtime_id) {
+    /// Applies a whole layer's final mutations with one palette-map build and
+    /// one packed-word allocation, regardless of duplicate coordinates.
+    pub(crate) fn apply_runtime_updates(&mut self, updates: &[(usize, u32)]) -> bool {
+        let mut final_updates = HashMap::with_capacity(updates.len());
+        for &(linear, runtime_id) in updates {
+            final_updates.insert(linear, runtime_id);
+        }
+
+        let mut changed = false;
+        let mut used_values = HashSet::with_capacity(self.palette.len().min(BLOCKS_PER_SUB_CHUNK));
+        for linear in 0..BLOCKS_PER_SUB_CHUNK {
+            let current = self
+                .palette_index(linear)
+                .and_then(|index| self.palette.get(index))
+                .expect("valid packed storage has a runtime value");
+            let value = final_updates.get(&linear).copied().unwrap_or(current);
+            changed |= value != current;
+            used_values.insert(value);
+        }
+        if !changed {
             return false;
         }
 
-        let palette_index = if let Some(index) = self
-            .palette
-            .values
-            .iter()
-            .position(|&value| value == runtime_id)
-        {
-            index
-        } else {
-            if self.palette.len() == BLOCKS_PER_SUB_CHUNK {
-                let current_is_unique = (0..BLOCKS_PER_SUB_CHUNK).all(|other| {
-                    other == linear || self.palette_index(other) != Some(current_index)
-                });
-                if current_is_unique {
-                    let mut values = self.palette.values.to_vec();
-                    values[current_index] = runtime_id;
-                    self.palette.values = values.into_boxed_slice();
-                    return true;
-                }
-                // A repeated current index in a full-sized palette guarantees
-                // that at least one palette slot is unused. Compact it away
-                // before appending the replacement value.
-                self.compact();
-            }
-
-            let index = self.palette.len();
-            debug_assert!(index < BLOCKS_PER_SUB_CHUNK);
-            let required_bits = bits_for_palette_len(index + 1);
-            if required_bits != self.bits_per_index {
-                self.repack(required_bits, None);
-            }
-            let mut values = self.palette.values.to_vec();
-            values.push(runtime_id);
-            self.palette.values = values.into_boxed_slice();
-            index
-        };
-        write_palette_index(&mut self.words, self.bits_per_index, linear, palette_index);
-        true
-    }
-
-    /// Removes unused and duplicate palette entries and selects the smallest
-    /// legal width. The temporary maps are palette-sized, never block-sized.
-    pub(crate) fn compact(&mut self) {
-        let mut used = vec![false; self.palette.len()];
-        for linear in 0..BLOCKS_PER_SUB_CHUNK {
-            let index = self
-                .palette_index(linear)
-                .expect("valid storage has every packed index");
-            used[index] = true;
-        }
-
-        let mut values = Vec::with_capacity(self.palette.len());
-        let mut value_indices = HashMap::with_capacity(self.palette.len());
-        let mut remap = vec![0; self.palette.len()];
-        for (old_index, (&value, is_used)) in
-            self.palette.values.iter().zip(used.into_iter()).enumerate()
-        {
-            if !is_used {
-                continue;
-            }
-            let next_index = values.len();
-            let new_index = *value_indices.entry(value).or_insert_with(|| {
+        let mut values = Vec::with_capacity(used_values.len());
+        let mut value_indices = HashMap::with_capacity(used_values.len());
+        for &value in self.palette.values.iter() {
+            if used_values.contains(&value) && !value_indices.contains_key(&value) {
+                let index = values.len();
                 values.push(value);
-                next_index
-            });
-            remap[old_index] = new_index;
+                value_indices.insert(value, index);
+            }
+        }
+        for &(linear, value) in updates {
+            if final_updates.get(&linear) == Some(&value) && !value_indices.contains_key(&value) {
+                let index = values.len();
+                values.push(value);
+                value_indices.insert(value, index);
+            }
         }
 
-        debug_assert!(!values.is_empty());
-        let bits = bits_for_palette_len(values.len());
-        let identity = values.len() == self.palette.len()
-            && remap.iter().enumerate().all(|(old, &new)| old == new);
-        if bits != self.bits_per_index || !identity {
-            self.repack(bits, Some(&remap));
+        let bits_per_index = bits_for_palette_len(values.len());
+        let mut words = vec![0; word_count(bits_per_index)];
+        for linear in 0..BLOCKS_PER_SUB_CHUNK {
+            let current = self
+                .palette_index(linear)
+                .and_then(|index| self.palette.get(index))
+                .expect("valid packed storage has a runtime value");
+            let value = final_updates.get(&linear).copied().unwrap_or(current);
+            let index = value_indices[&value];
+            write_palette_index(&mut words, bits_per_index, linear, index);
         }
+        self.bits_per_index = bits_per_index;
+        self.words = words.into_boxed_slice();
         self.palette.values = values.into_boxed_slice();
+        true
     }
 
     pub(crate) fn contains_only(&self, runtime_id: u32) -> bool {
@@ -225,19 +194,6 @@ impl PalettedStorage {
                 .and_then(|index| self.palette.get(index))
                 == Some(runtime_id)
         })
-    }
-
-    fn repack(&mut self, bits_per_index: u8, remap: Option<&[usize]>) {
-        let mut words = vec![0; word_count(bits_per_index)];
-        for linear in 0..BLOCKS_PER_SUB_CHUNK {
-            let old_index = self
-                .palette_index(linear)
-                .expect("valid storage has every packed index");
-            let index = remap.map_or(old_index, |indices| indices[old_index]);
-            write_palette_index(&mut words, bits_per_index, linear, index);
-        }
-        self.bits_per_index = bits_per_index;
-        self.words = words.into_boxed_slice();
     }
 }
 

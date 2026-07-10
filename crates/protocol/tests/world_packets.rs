@@ -122,6 +122,26 @@ fn move_player_uses_varuint64_for_runtime_and_ridden_ids_above_u32() {
 }
 
 #[test]
+fn move_player_rejects_overflowing_runtime_and_ridden_varuint64_fields() {
+    let packet = MovePlayerPacket::default();
+    let mut valid = BytesMut::new();
+    packet.encode(&mut valid).unwrap();
+    let overflow = [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x02];
+
+    let mut malformed_runtime = BytesMut::new();
+    malformed_runtime.extend_from_slice(&overflow);
+    malformed_runtime.extend_from_slice(&valid[1..]);
+    assert!(MovePlayerPacket::decode(&mut malformed_runtime.freeze(), ()).is_err());
+
+    let ridden_offset = 1 + 12 + 12 + 1 + 1;
+    let mut malformed_ridden = BytesMut::new();
+    malformed_ridden.extend_from_slice(&valid[..ridden_offset]);
+    malformed_ridden.extend_from_slice(&overflow);
+    malformed_ridden.extend_from_slice(&valid[ridden_offset + 1..]);
+    assert!(MovePlayerPacket::decode(&mut malformed_ridden.freeze(), ()).is_err());
+}
+
+#[test]
 fn exposes_vanilla_dimension_subchunk_ranges() {
     assert_eq!(
         vanilla_dimension_range(0),

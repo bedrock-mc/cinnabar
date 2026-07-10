@@ -131,8 +131,10 @@ fn subchunk_rejects_oversized_uncached_entry_count_before_allocation() {
 
 #[test]
 fn subchunk_rejects_oversized_cached_entry_count_before_allocation() {
-    let mut empty = SubchunkPacket::default();
-    empty.entries = SubchunkPacketEntries::SubChunkEntryWithCaching(Vec::new());
+    let empty = SubchunkPacket {
+        entries: SubchunkPacketEntries::SubChunkEntryWithCaching(Vec::new()),
+        ..Default::default()
+    };
     let mut one = empty.clone();
     one.entries =
         SubchunkPacketEntries::SubChunkEntryWithCaching(vec![SubChunkEntryWithCachingItem {

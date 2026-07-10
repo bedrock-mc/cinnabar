@@ -1,7 +1,8 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     ops::Range,
-    sync::Arc,
+    sync::{Arc, Mutex},
+    time::Instant,
 };
 
 use bevy::{
@@ -52,6 +53,8 @@ const STATIC_QUAD_INDICES: [u32; 6] = [0, 1, 2, 0, 2, 3];
 const PACKED_QUAD_BYTES: u64 = 8;
 const CHUNK_ORIGIN_BYTES: u64 = 16;
 const INDEXED_INDIRECT_BYTES: u64 = 20;
+const DEFAULT_RENDER_QUEUE_ITEMS: usize = 256;
+const DEFAULT_RENDER_QUEUE_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Maximum number of new or changed sub-chunks transferred to the render
 /// world in one main-world update.
@@ -105,32 +108,134 @@ struct PendingUpload {
     mesh: ChunkMesh,
     priority: ChunkUploadPriority,
     generation: u64,
+    token: Option<ChunkUploadToken>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChunkUploadToken {
+    pub generation: u64,
+    pub dirty_since: Instant,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChunkUploadAcknowledgement {
+    pub key: SubChunkKey,
+    pub token: ChunkUploadToken,
+    pub applied_at: Instant,
+}
+
+#[derive(Resource, Clone, Default)]
+pub struct ChunkUploadAcknowledgements {
+    inner: Arc<Mutex<VecDeque<ChunkUploadAcknowledgement>>>,
+}
+
+impl ChunkUploadAcknowledgements {
+    #[must_use]
+    pub fn drain(&self) -> Vec<ChunkUploadAcknowledgement> {
+        let mut pending = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        pending.drain(..).collect()
+    }
+
+    fn record(&self, acknowledgement: ChunkUploadAcknowledgement) {
+        let mut pending = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        pending.push_back(acknowledgement);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChunkRenderQueueLimits {
+    pub max_items: usize,
+    pub max_bytes: u64,
+}
+
+impl Default for ChunkRenderQueueLimits {
+    fn default() -> Self {
+        Self {
+            max_items: DEFAULT_RENDER_QUEUE_ITEMS,
+            max_bytes: DEFAULT_RENDER_QUEUE_BYTES,
+        }
+    }
 }
 
 /// Main-world insertion/update/removal API for packed sub-chunk meshes.
 ///
 /// Re-enqueuing a key replaces its pending value, so rapid block updates are
 /// deduplicated before they consume the per-frame GPU upload budget.
-#[derive(Resource, Default)]
+#[derive(Resource)]
 pub struct ChunkRenderQueue {
     pending: HashMap<SubChunkKey, PendingUpload>,
     removals: HashSet<SubChunkKey>,
     next_generation: u64,
+    pending_bytes: u64,
+    limits: ChunkRenderQueueLimits,
     gpu_upload_bytes: u64,
 }
 
+impl Default for ChunkRenderQueue {
+    fn default() -> Self {
+        Self::with_limits(ChunkRenderQueueLimits::default())
+    }
+}
+
 impl ChunkRenderQueue {
-    pub fn insert(&mut self, key: SubChunkKey, mesh: ChunkMesh, priority: ChunkUploadPriority) {
-        self.enqueue(key, mesh, priority);
+    #[must_use]
+    pub fn with_limits(limits: ChunkRenderQueueLimits) -> Self {
+        Self {
+            pending: HashMap::new(),
+            removals: HashSet::new(),
+            next_generation: 0,
+            pending_bytes: 0,
+            limits,
+            gpu_upload_bytes: 0,
+        }
     }
 
-    pub fn update(&mut self, key: SubChunkKey, mesh: ChunkMesh, priority: ChunkUploadPriority) {
-        self.enqueue(key, mesh, priority);
+    pub fn try_insert(
+        &mut self,
+        key: SubChunkKey,
+        mesh: ChunkMesh,
+        priority: ChunkUploadPriority,
+    ) -> Result<(), ChunkMesh> {
+        self.try_enqueue(key, mesh, priority, None)
     }
 
-    pub fn remove(&mut self, key: SubChunkKey) {
-        self.pending.remove(&key);
+    pub fn try_update(
+        &mut self,
+        key: SubChunkKey,
+        mesh: ChunkMesh,
+        priority: ChunkUploadPriority,
+    ) -> Result<(), ChunkMesh> {
+        self.try_enqueue(key, mesh, priority, None)
+    }
+
+    pub fn try_update_tracked(
+        &mut self,
+        key: SubChunkKey,
+        mesh: ChunkMesh,
+        priority: ChunkUploadPriority,
+        token: ChunkUploadToken,
+    ) -> Result<(), ChunkMesh> {
+        self.try_enqueue(key, mesh, priority, Some(token))
+    }
+
+    pub fn try_remove(&mut self, key: SubChunkKey) -> Result<(), SubChunkKey> {
+        let replaces_existing = self.pending.contains_key(&key) || self.removals.contains(&key);
+        if !replaces_existing && self.retained_len() >= self.limits.max_items {
+            return Err(key);
+        }
+        if let Some(pending) = self.pending.remove(&key) {
+            self.pending_bytes = self
+                .pending_bytes
+                .saturating_sub(mesh_byte_len(&pending.mesh));
+        }
         self.removals.insert(key);
+        Ok(())
     }
 
     #[must_use]
@@ -139,22 +244,60 @@ impl ChunkRenderQueue {
     }
 
     #[must_use]
+    pub fn retained_len(&self) -> usize {
+        self.pending.len().saturating_add(self.removals.len())
+    }
+
+    #[must_use]
+    pub const fn pending_bytes(&self) -> u64 {
+        self.pending_bytes
+    }
+
+    #[must_use]
     pub const fn gpu_upload_bytes(&self) -> u64 {
         self.gpu_upload_bytes
     }
 
-    fn enqueue(&mut self, key: SubChunkKey, mesh: ChunkMesh, priority: ChunkUploadPriority) {
+    fn try_enqueue(
+        &mut self,
+        key: SubChunkKey,
+        mesh: ChunkMesh,
+        priority: ChunkUploadPriority,
+        token: Option<ChunkUploadToken>,
+    ) -> Result<(), ChunkMesh> {
+        let old_bytes = self
+            .pending
+            .get(&key)
+            .map_or(0, |pending| mesh_byte_len(&pending.mesh));
+        let replaces_existing = self.pending.contains_key(&key) || self.removals.contains(&key);
+        let next_items = self
+            .retained_len()
+            .saturating_add(usize::from(!replaces_existing));
+        let next_bytes = self
+            .pending_bytes
+            .saturating_sub(old_bytes)
+            .saturating_add(mesh_byte_len(&mesh));
+        if next_items > self.limits.max_items || next_bytes > self.limits.max_bytes {
+            return Err(mesh);
+        }
         self.removals.remove(&key);
-        self.next_generation = self.next_generation.wrapping_add(1);
+        self.next_generation = self.next_generation.wrapping_add(1).max(1);
+        self.pending_bytes = next_bytes;
         self.pending.insert(
             key,
             PendingUpload {
                 mesh,
                 priority,
                 generation: self.next_generation,
+                token,
             },
         );
+        Ok(())
     }
+}
+
+fn mesh_byte_len(mesh: &ChunkMesh) -> u64 {
+    buffer_byte_len(mesh.quad_count(), PACKED_QUAD_BYTES)
 }
 
 /// Extracted packed geometry for one visible, frustum-cullable sub-chunk.
@@ -165,6 +308,7 @@ pub struct ChunkRenderInstance {
     key: SubChunkKey,
     quads: Arc<[PackedQuad]>,
     generation: u64,
+    token: Option<ChunkUploadToken>,
     origin: [i32; 3],
 }
 
@@ -192,7 +336,7 @@ struct ChunkEntities(HashMap<SubChunkKey, Entity>);
 /// draw path. The renderer adds non-mesh items to Bevy's built-in opaque
 /// phase, sharing its depth attachment without allocating a `Mesh` or
 /// `StandardMaterial` per sub-chunk.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct DebugWorldPlugin {
     upload_budget: ChunkUploadBudget,
 }
@@ -208,17 +352,10 @@ impl DebugWorldPlugin {
     }
 }
 
-impl Default for DebugWorldPlugin {
-    fn default() -> Self {
-        Self {
-            upload_budget: ChunkUploadBudget::default(),
-        }
-    }
-}
-
 impl Plugin for DebugWorldPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ChunkRenderQueue>()
+            .init_resource::<ChunkUploadAcknowledgements>()
             .init_resource::<ChunkEntities>()
             .insert_resource(self.upload_budget)
             .add_systems(Update, apply_chunk_render_queue);
@@ -231,8 +368,14 @@ impl Plugin for DebugWorldPlugin {
 
         load_internal_asset!(app, CHUNK_SHADER_HANDLE, "chunk.wgsl", Shader::from_wgsl);
 
+        let acknowledgements = app
+            .world()
+            .resource::<ChunkUploadAcknowledgements>()
+            .clone();
+
         app.sub_app_mut(RenderApp)
             .insert_resource(self.upload_budget)
+            .insert_resource(acknowledgements)
             .init_resource::<ChunkPipeline>()
             .init_resource::<ChunkGpuUploadStats>()
             .init_resource::<ChunkIndirectBatches>()
@@ -281,6 +424,9 @@ fn apply_chunk_render_queue(
         let Some(pending) = queue.pending.remove(&key) else {
             continue;
         };
+        queue.pending_bytes = queue
+            .pending_bytes
+            .saturating_sub(mesh_byte_len(&pending.mesh));
         if pending.mesh.is_empty() {
             if let Some(entity) = entities.0.remove(&key) {
                 commands.entity(entity).despawn();
@@ -297,6 +443,7 @@ fn apply_chunk_render_queue(
             key,
             quads: Arc::from(pending.mesh.into_quads()),
             generation: pending.generation,
+            token: pending.token,
             origin,
         };
         if let Some(&entity) = entities.0.get(&key) {
@@ -502,6 +649,7 @@ struct ChunkIndirectBatch {
 #[derive(Resource, Default)]
 struct ChunkIndirectBatches(HashMap<Entity, ChunkIndirectBatch>);
 
+#[derive(Clone)]
 struct ArenaAllocation {
     generation: u64,
     quad_capacity: u32,
@@ -527,6 +675,31 @@ struct ChunkGpuUploadStats {
     total_bytes: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ArenaLimits {
+    max_quad_items: usize,
+    max_origin_items: usize,
+}
+
+fn arena_limits_from_device_limits(
+    max_buffer_size: u64,
+    max_storage_buffer_binding_size: u64,
+) -> ArenaLimits {
+    let storage_bytes = max_buffer_size.min(max_storage_buffer_binding_size);
+    let max_quad_items = (storage_bytes / PACKED_QUAD_BYTES)
+        .min(u64::from(u32::MAX))
+        .try_into()
+        .unwrap_or(usize::MAX);
+    let max_origin_items = (storage_bytes / CHUNK_ORIGIN_BYTES)
+        .min((i32::MAX as u64) / 4)
+        .try_into()
+        .unwrap_or(usize::MAX);
+    ArenaLimits {
+        max_quad_items,
+        max_origin_items,
+    }
+}
+
 #[derive(Resource)]
 struct ChunkGpuArena {
     quad_buffer: Buffer,
@@ -538,8 +711,9 @@ struct ChunkGpuArena {
     quad_capacity: usize,
     origin_capacity: usize,
     indirect_capacity: usize,
-    quad_words: Vec<[u32; 2]>,
-    origins: Vec<[i32; 4]>,
+    quad_len: usize,
+    origin_len: usize,
+    limits: ArenaLimits,
     free_quads: Vec<Range<u32>>,
     free_origins: Vec<u32>,
     allocations: HashMap<Entity, ArenaAllocation>,
@@ -551,6 +725,11 @@ fn init_chunk_gpu_arena(mut commands: Commands, render_device: Res<RenderDevice>
 
 impl ChunkGpuArena {
     fn new(render_device: &RenderDevice) -> Self {
+        let device_limits = render_device.limits();
+        let limits = arena_limits_from_device_limits(
+            device_limits.max_buffer_size,
+            u64::from(device_limits.max_storage_buffer_binding_size),
+        );
         Self {
             quad_buffer: create_storage_buffer(
                 render_device,
@@ -573,8 +752,9 @@ impl ChunkGpuArena {
             quad_capacity: 1,
             origin_capacity: 1,
             indirect_capacity: 1,
-            quad_words: Vec::new(),
-            origins: Vec::new(),
+            quad_len: 0,
+            origin_len: 0,
+            limits,
             free_quads: Vec::new(),
             free_origins: Vec::new(),
             allocations: HashMap::new(),
@@ -600,6 +780,32 @@ fn create_indirect_buffer(render_device: &RenderDevice, command_capacity: usize)
     })
 }
 
+#[derive(Debug, Clone, Copy)]
+struct GpuUpdateCandidate {
+    entity: Entity,
+    key: SubChunkKey,
+    generation: u64,
+}
+
+fn plan_gpu_chunk_updates(
+    mut candidates: Vec<GpuUpdateCandidate>,
+    allocations: &HashMap<Entity, ArenaAllocation>,
+    budget: usize,
+) -> Vec<Entity> {
+    candidates.retain(|candidate| {
+        allocations
+            .get(&candidate.entity)
+            .is_none_or(|allocation| allocation.generation != candidate.generation)
+    });
+    candidates.sort_by_key(|candidate| candidate.key);
+    candidates.truncate(budget);
+    candidates
+        .into_iter()
+        .map(|candidate| candidate.entity)
+        .collect()
+}
+
+#[allow(clippy::too_many_arguments)]
 fn prepare_gpu_chunks(
     mut commands: Commands,
     instances: Query<(Entity, &ChunkRenderInstance)>,
@@ -607,24 +813,33 @@ fn prepare_gpu_chunks(
     mut arena: ResMut<ChunkGpuArena>,
     budget: Res<ChunkUploadBudget>,
     mut upload_stats: ResMut<ChunkGpuUploadStats>,
+    acknowledgements: Res<ChunkUploadAcknowledgements>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
 ) {
+    let candidates = instances
+        .iter()
+        .map(|(entity, instance)| GpuUpdateCandidate {
+            entity,
+            key: instance.key,
+            generation: instance.generation,
+        })
+        .collect();
+    let selected = plan_gpu_chunk_updates(candidates, &arena.allocations, budget.max_per_frame);
+
     for entity in removed_instances.read() {
         free_allocation(&mut arena, entity);
     }
 
     let mut quad_writes = Vec::new();
     let mut origin_writes = Vec::new();
+    let mut applied_tokens = Vec::new();
     let mut chunk_updates = 0;
-    for (entity, instance) in &instances {
-        if let Some(allocation) = arena.allocations.get(&entity) {
-            if allocation.generation == instance.generation {
-                continue;
-            }
-        }
-
-        let old = arena.allocations.remove(&entity);
+    for entity in selected {
+        let Ok((_, instance)) = instances.get(entity) else {
+            continue;
+        };
+        let old = arena.allocations.get(&entity).cloned();
         let required = match u32::try_from(instance.quads.len()) {
             Ok(required) => required,
             Err(_) => {
@@ -632,22 +847,23 @@ fn prepare_gpu_chunks(
                 continue;
             }
         };
-        let (quad_start, quad_capacity) = match old.as_ref() {
-            Some(old) if required <= old.quad_capacity => {
-                (old.gpu.quad_range.start, old.quad_capacity)
-            }
-            _ => {
-                if let Some(old) = &old {
-                    let freed =
-                        old.gpu.quad_range.start..old.gpu.quad_range.start + old.quad_capacity;
-                    insert_free_quad_range(&mut arena.free_quads, freed);
-                }
-                (allocate_quads(&mut arena, required), required)
-            }
+        if old.is_none()
+            && arena.free_origins.is_empty()
+            && arena.origin_len >= arena.limits.max_origin_items
+        {
+            bevy::log::warn!("chunk origin arena is at the adapter storage-buffer limit");
+            continue;
+        }
+        let Some((quad_start, quad_capacity)) =
+            allocate_for_chunk_update(&mut arena, required, old.as_ref())
+        else {
+            bevy::log::warn!("chunk quad arena is at the adapter storage-buffer limit");
+            continue;
         };
         let metadata_index = match old {
             Some(old) => old.gpu.metadata_index,
-            None => allocate_origin(&mut arena),
+            None => allocate_origin(&mut arena)
+                .expect("origin capacity was checked before quad allocation"),
         };
         let quad_end = quad_start + required;
         let words = instance
@@ -655,16 +871,14 @@ fn prepare_gpu_chunks(
             .iter()
             .map(PackedQuad::words)
             .collect::<Vec<_>>();
-        let start = quad_start as usize;
-        arena.quad_words[start..start + words.len()].copy_from_slice(&words);
-        arena.origins[metadata_index as usize] = [
+        let origin = [
             instance.origin[0],
             instance.origin[1],
             instance.origin[2],
             0,
         ];
         quad_writes.push((quad_start, words));
-        origin_writes.push(metadata_index);
+        origin_writes.push((metadata_index, origin));
         let gpu = GpuChunkAllocation {
             quad_range: quad_start..quad_end,
             metadata_index,
@@ -678,6 +892,9 @@ fn prepare_gpu_chunks(
                 gpu,
             },
         );
+        if let Some(token) = instance.token {
+            applied_tokens.push((instance.key, token));
+        }
         chunk_updates += 1;
     }
 
@@ -696,12 +913,20 @@ fn prepare_gpu_chunks(
             );
         }
     }
-    for index in origin_writes {
+    for (index, origin) in origin_writes {
         render_queue.write_buffer(
             &arena.origin_buffer,
             u64::from(index) * CHUNK_ORIGIN_BYTES,
-            bytemuck::bytes_of(&arena.origins[index as usize]),
+            bytemuck::bytes_of(&origin),
         );
+    }
+    let applied_at = Instant::now();
+    for (key, token) in applied_tokens {
+        acknowledgements.record(ChunkUploadAcknowledgement {
+            key,
+            token,
+            applied_at,
+        });
     }
 
     *upload_stats = account_chunk_gpu_uploads(
@@ -721,15 +946,63 @@ fn prepare_gpu_chunks(
     }
 }
 
-fn allocate_quads(arena: &mut ChunkGpuArena, required: u32) -> u32 {
-    if let Some(start) = take_free_quad_range(&mut arena.free_quads, required) {
-        return start;
+fn allocate_for_chunk_update(
+    arena: &mut ChunkGpuArena,
+    required: u32,
+    old: Option<&ArenaAllocation>,
+) -> Option<(u32, u32)> {
+    if let Some(old) = old
+        && required <= old.quad_capacity
+    {
+        return Some((old.gpu.quad_range.start, old.quad_capacity));
     }
-    let start = arena.quad_words.len() as u32;
-    arena
-        .quad_words
-        .resize(arena.quad_words.len() + required as usize, [0; 2]);
-    start
+
+    let mut next_len = arena.quad_len;
+    let mut next_free = arena.free_quads.clone();
+    if let Some(old) = old {
+        let freed =
+            old.gpu.quad_range.start..old.gpu.quad_range.start.saturating_add(old.quad_capacity);
+        release_quad_range(&mut next_len, &mut next_free, freed);
+    }
+    let start = allocate_quad_range(
+        &mut next_len,
+        &mut next_free,
+        required,
+        arena.limits.max_quad_items,
+    )?;
+    arena.quad_len = next_len;
+    arena.free_quads = next_free;
+    Some((start, required))
+}
+
+fn allocate_quad_range(
+    len: &mut usize,
+    free: &mut Vec<Range<u32>>,
+    required: u32,
+    max_items: usize,
+) -> Option<u32> {
+    if let Some(start) = take_free_quad_range(free, required) {
+        return Some(start);
+    }
+    let required = required as usize;
+    let next = len.checked_add(required)?;
+    if next > max_items || *len > u32::MAX as usize {
+        return None;
+    }
+    let start = *len as u32;
+    *len = next;
+    Some(start)
+}
+
+fn release_quad_range(len: &mut usize, free: &mut Vec<Range<u32>>, freed: Range<u32>) {
+    insert_free_quad_range(free, freed);
+    while let Some(last) = free.last() {
+        if last.end as usize != *len {
+            break;
+        }
+        *len = last.start as usize;
+        free.pop();
+    }
 }
 
 fn insert_free_quad_range(free: &mut Vec<Range<u32>>, mut freed: Range<u32>) {
@@ -758,21 +1031,36 @@ fn take_free_quad_range(free: &mut Vec<Range<u32>>, required: u32) -> Option<u32
     Some(start)
 }
 
-fn allocate_origin(arena: &mut ChunkGpuArena) -> u32 {
+fn allocate_origin(arena: &mut ChunkGpuArena) -> Option<u32> {
     if let Some(index) = arena.free_origins.pop() {
-        return index;
+        return Some(index);
     }
-    let index = arena.origins.len() as u32;
-    arena.origins.push([0; 4]);
-    index
+    if arena.origin_len >= arena.limits.max_origin_items || arena.origin_len > u32::MAX as usize {
+        return None;
+    }
+    let index = arena.origin_len as u32;
+    arena.origin_len += 1;
+    Some(index)
+}
+
+fn release_origin(arena: &mut ChunkGpuArena, index: u32) {
+    arena.free_origins.push(index);
+    while arena.origin_len > 0 {
+        let tail = (arena.origin_len - 1) as u32;
+        let Some(position) = arena.free_origins.iter().position(|free| *free == tail) else {
+            break;
+        };
+        arena.free_origins.swap_remove(position);
+        arena.origin_len -= 1;
+    }
 }
 
 fn free_allocation(arena: &mut ChunkGpuArena, entity: Entity) {
     if let Some(allocation) = arena.allocations.remove(&entity) {
         let freed = allocation.gpu.quad_range.start
             ..allocation.gpu.quad_range.start + allocation.quad_capacity;
-        insert_free_quad_range(&mut arena.free_quads, freed);
-        arena.free_origins.push(allocation.gpu.metadata_index);
+        release_quad_range(&mut arena.quad_len, &mut arena.free_quads, freed);
+        release_origin(arena, allocation.gpu.metadata_index);
     }
 }
 
@@ -808,18 +1096,29 @@ struct ArenaGrowthPlan {
     gpu_copy_bytes: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ArenaGrowthError;
+
 fn plan_arena_growth(
     current_capacity: usize,
     required_len: usize,
     item_bytes: u64,
-) -> Option<ArenaGrowthPlan> {
-    if required_len <= current_capacity {
-        return None;
+    max_items: usize,
+) -> Result<Option<ArenaGrowthPlan>, ArenaGrowthError> {
+    if required_len > max_items {
+        return Err(ArenaGrowthError);
     }
-    Some(ArenaGrowthPlan {
-        new_capacity: required_len.next_power_of_two(),
+    if required_len <= current_capacity {
+        return Ok(None);
+    }
+    let new_capacity = required_len
+        .checked_next_power_of_two()
+        .unwrap_or(max_items)
+        .min(max_items);
+    Ok(Some(ArenaGrowthPlan {
+        new_capacity,
         gpu_copy_bytes: buffer_byte_len(current_capacity, item_bytes),
-    })
+    }))
 }
 
 fn ensure_quad_capacity(
@@ -827,10 +1126,11 @@ fn ensure_quad_capacity(
     render_device: &RenderDevice,
     render_queue: &RenderQueue,
 ) -> u64 {
-    let Some(growth) = plan_arena_growth(
+    let Ok(Some(growth)) = plan_arena_growth(
         arena.quad_capacity,
-        arena.quad_words.len(),
+        arena.quad_len,
         PACKED_QUAD_BYTES,
+        arena.limits.max_quad_items,
     ) else {
         return 0;
     };
@@ -856,10 +1156,11 @@ fn ensure_origin_capacity(
     render_device: &RenderDevice,
     render_queue: &RenderQueue,
 ) -> u64 {
-    let Some(growth) = plan_arena_growth(
+    let Ok(Some(growth)) = plan_arena_growth(
         arena.origin_capacity,
-        arena.origins.len(),
+        arena.origin_len,
         CHUNK_ORIGIN_BYTES,
+        arena.limits.max_origin_items,
     ) else {
         return 0;
     };
@@ -1000,6 +1301,7 @@ fn sorted_visible_entities<T>(visible: impl IntoIterator<Item = (Entity, T)>) ->
     visible
 }
 
+#[allow(clippy::too_many_arguments)]
 fn queue_chunks(
     pipeline_cache: Res<PipelineCache>,
     mut pipeline: ResMut<ChunkPipeline>,
@@ -1342,15 +1644,18 @@ mod tests {
         insert_free_quad_range(&mut free, 0..4);
         insert_free_quad_range(&mut free, 8..12);
         insert_free_quad_range(&mut free, 4..8);
-        assert_eq!(free, [0..16]);
+        assert_eq!(free.len(), 1);
+        assert_eq!(free[0], 0..16);
 
         assert_eq!(take_free_quad_range(&mut free, 3), Some(0));
         assert_eq!(take_free_quad_range(&mut free, 5), Some(3));
-        assert_eq!(free, [8..16]);
+        assert_eq!(free.len(), 1);
+        assert_eq!(free[0], 8..16);
 
         insert_free_quad_range(&mut free, 0..3);
         insert_free_quad_range(&mut free, 3..8);
-        assert_eq!(free, [0..16]);
+        assert_eq!(free.len(), 1);
+        assert_eq!(free[0], 0..16);
         assert_eq!(take_free_quad_range(&mut free, 16), Some(0));
         assert!(free.is_empty());
     }
@@ -1368,7 +1673,9 @@ mod tests {
 
     #[test]
     fn gpu_growth_plan_copies_the_old_allocation_without_a_host_shadow_upload() {
-        let growth = plan_arena_growth(8, 9, PACKED_QUAD_BYTES).unwrap();
+        let growth = plan_arena_growth(8, 9, PACKED_QUAD_BYTES, 16)
+            .unwrap()
+            .unwrap();
         assert_eq!(growth.new_capacity, 16);
         assert_eq!(growth.gpu_copy_bytes, 64);
 
@@ -1387,6 +1694,66 @@ mod tests {
         assert_eq!(stats.gpu_copy_bytes, 64);
         assert_eq!(stats.full_shadow_bytes, 0);
         assert_eq!(stats.total_bytes, 72);
+    }
+
+    #[test]
+    fn render_world_update_plan_is_capped_before_arena_mutation() {
+        let mut world = World::new();
+        let candidates = (0..5)
+            .map(|index| GpuUpdateCandidate {
+                entity: world.spawn_empty().id(),
+                key: SubChunkKey::new(0, index, 0, 0),
+                generation: 1,
+            })
+            .collect::<Vec<_>>();
+        let allocations = HashMap::new();
+
+        let selected = plan_gpu_chunk_updates(candidates, &allocations, 2);
+
+        assert_eq!(selected.len(), 2);
+        assert!(allocations.is_empty());
+    }
+
+    #[test]
+    fn arena_growth_clamps_to_adapter_limits_and_rejects_one_past() {
+        let limits = arena_limits_from_device_limits(64, 32);
+        assert_eq!(limits.max_quad_items, 4);
+        assert_eq!(limits.max_origin_items, 2);
+
+        assert_eq!(
+            plan_arena_growth(1, 4, PACKED_QUAD_BYTES, 4).unwrap(),
+            Some(ArenaGrowthPlan {
+                new_capacity: 4,
+                gpu_copy_bytes: 8,
+            })
+        );
+        assert_eq!(
+            plan_arena_growth(1, 3, PACKED_QUAD_BYTES, 3).unwrap(),
+            Some(ArenaGrowthPlan {
+                new_capacity: 3,
+                gpu_copy_bytes: 8,
+            })
+        );
+        assert!(plan_arena_growth(1, 5, PACKED_QUAD_BYTES, 4).is_err());
+    }
+
+    #[test]
+    fn quad_allocator_reuses_and_trims_high_water_without_a_cpu_shadow() {
+        let mut len = 0;
+        let mut free = Vec::new();
+        let first = allocate_quad_range(&mut len, &mut free, 4, 16).unwrap();
+        let second = allocate_quad_range(&mut len, &mut free, 6, 16).unwrap();
+        assert_eq!((first, second, len), (0, 4, 10));
+
+        release_quad_range(&mut len, &mut free, 0..4);
+        assert_eq!(len, 10);
+        assert_eq!(free.len(), 1);
+        assert_eq!(free[0], 0..4);
+        release_quad_range(&mut len, &mut free, 4..10);
+        assert_eq!(len, 0);
+        assert!(free.is_empty());
+        assert_eq!(allocate_quad_range(&mut len, &mut free, 16, 16), Some(0));
+        assert_eq!(allocate_quad_range(&mut len, &mut free, 1, 16), None);
     }
 
     #[derive(Component)]

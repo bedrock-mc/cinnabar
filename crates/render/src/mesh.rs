@@ -335,8 +335,8 @@ pub fn mesh_sub_chunk(
         for slice in 0..SIDE {
             let mut rows = [0_u64; SIDE];
             for (v, row) in rows.iter_mut().enumerate() {
-                for u in 0..SIDE {
-                    *row |= ((columns[v][u] >> slice) & 1) << u;
+                for (u, column) in columns[v].iter().enumerate() {
+                    *row |= ((*column >> slice) & 1) << u;
                 }
             }
             greedy_slice(*classifier, source, face, slice, &mut rows, &mut quads);
@@ -449,8 +449,8 @@ fn exposed_columns(
     };
     let mut exposed = [[0_u64; SIDE]; SIDE];
 
-    for v in 0..SIDE {
-        for u in 0..SIDE {
+    for (v, exposed_row) in exposed.iter_mut().enumerate() {
+        for (u, exposed_cell) in exposed_row.iter_mut().enumerate() {
             let column = match face {
                 Face::NegativeX | Face::PositiveX => occupancy.x[v][u],
                 Face::NegativeY | Face::PositiveY => occupancy.y[u][v],
@@ -466,7 +466,7 @@ fn exposed_columns(
             if !classifier.is_air(neighbour.at(classifier, x, y, z)) {
                 faces &= !boundary_bit;
             }
-            exposed[v][u] = faces;
+            *exposed_cell = faces;
         }
     }
     exposed

@@ -128,18 +128,20 @@ impl SubChunk {
 
     pub(crate) fn apply_block_updates(&mut self, updates: &[BlockUpdate], air_runtime_id: u32) {
         let mut storages = std::mem::take(&mut self.storages).into_vec();
-        let mut changed_layers = [false; MAX_STORAGE_COUNT];
+        let mut updates_by_layer: [Vec<(usize, u32)>; MAX_STORAGE_COUNT] =
+            std::array::from_fn(|_| Vec::new());
         for update in updates {
             let layer = update.layer as usize;
             while storages.len() <= layer {
                 storages.push(PalettedStorage::uniform(air_runtime_id));
             }
-            changed_layers[layer] |=
-                storages[layer].set_runtime_id(update.x, update.y, update.z, update.runtime_id);
+            let linear =
+                (usize::from(update.x) << 8) | (usize::from(update.z) << 4) | usize::from(update.y);
+            updates_by_layer[layer].push((linear, update.runtime_id));
         }
-        for (layer, changed) in changed_layers.into_iter().enumerate() {
-            if changed {
-                storages[layer].compact();
+        for (layer, layer_updates) in updates_by_layer.iter().enumerate() {
+            if !layer_updates.is_empty() {
+                storages[layer].apply_runtime_updates(layer_updates);
             }
         }
         while storages

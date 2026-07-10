@@ -192,16 +192,26 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                         _ = wait_for_shutdown(&mut shutdown_rx) => break,
                         command = command_rx.recv() => match command {
                             Some(NetworkCommand::Send(packet)) => {
-                                if let Err(error) = session.send(packet).await {
-                                    let _ = send_event_or_cancel(
-                                        &event_tx,
-                                        &mut shutdown_rx,
-                                        NetworkEvent::Failed {
-                                            message: error.to_string(),
-                                            decode_error_count: session.decode_error_count(),
-                                        },
-                                    ).await;
-                                    return;
+                                match wait_for_send_or_cancel(
+                                    session.send(packet),
+                                    &mut shutdown_rx,
+                                ).await {
+                                    None | Some(Ok(())) => {
+                                        if *shutdown_rx.borrow() {
+                                            break;
+                                        }
+                                    }
+                                    Some(Err(error)) => {
+                                        let _ = send_event_or_cancel(
+                                            &event_tx,
+                                            &mut shutdown_rx,
+                                            NetworkEvent::Failed {
+                                                message: error.to_string(),
+                                                decode_error_count: session.decode_error_count(),
+                                            },
+                                        ).await;
+                                        return;
+                                    }
                                 }
                             }
                             None => break,
@@ -279,6 +289,23 @@ where
     }
 }
 
+async fn wait_for_send_or_cancel<F>(
+    send: F,
+    shutdown: &mut watch::Receiver<bool>,
+) -> Option<F::Output>
+where
+    F: Future,
+{
+    if *shutdown.borrow() {
+        return None;
+    }
+    tokio::select! {
+        biased;
+        _ = wait_for_shutdown(shutdown) => None,
+        result = send => Some(result),
+    }
+}
+
 async fn send_event_or_cancel(
     events: &mpsc::Sender<NetworkEvent>,
     shutdown: &mut watch::Receiver<bool>,
@@ -340,11 +367,11 @@ mod tests {
     };
 
     use protocol::{ChangeDimensionEvent, MovePlayerEvent, WorldEvent};
-    use tokio::sync::{mpsc, watch};
+    use tokio::sync::{mpsc, oneshot, watch};
 
     use super::{
         COMMAND_CAPACITY, NetworkCommand, NetworkEvent, NetworkHandle, NetworkSequencer,
-        PacketSendError, send_event_or_cancel, wait_for_login_or_cancel,
+        PacketSendError, send_event_or_cancel, wait_for_login_or_cancel, wait_for_send_or_cancel,
     };
 
     #[test]
@@ -422,6 +449,31 @@ mod tests {
             &mut shutdown_rx,
         )
         .await;
+
+        assert_eq!(result, None);
+    }
+
+    #[tokio::test]
+    async fn transport_send_observes_shutdown_after_the_send_is_pending() {
+        let (shutdown, mut shutdown_rx) = watch::channel(false);
+        let (started_tx, started_rx) = oneshot::channel();
+        let task = tokio::spawn(async move {
+            wait_for_send_or_cancel(
+                async move {
+                    let _ = started_tx.send(());
+                    future::pending::<Result<(), &'static str>>().await
+                },
+                &mut shutdown_rx,
+            )
+            .await
+        });
+
+        started_rx.await.unwrap();
+        shutdown.send_replace(true);
+        let result = tokio::time::timeout(Duration::from_millis(100), task)
+            .await
+            .expect("pending transport send should be cancelled")
+            .unwrap();
 
         assert_eq!(result, None);
     }

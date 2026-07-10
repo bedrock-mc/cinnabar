@@ -68,8 +68,7 @@ pub fn var_u64_len(mut v: u64) -> usize {
 #[inline]
 pub fn read_var_u64<B: Buf>(buf: &mut B) -> Result<u64, std::io::Error> {
     let mut result: u64 = 0;
-    let mut shift = 0u32;
-    loop {
+    for index in 0..10_u32 {
         if !buf.has_remaining() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::UnexpectedEof,
@@ -77,19 +76,28 @@ pub fn read_var_u64<B: Buf>(buf: &mut B) -> Result<u64, std::io::Error> {
             ));
         }
         let byte = buf.get_u8();
-        result |= ((byte & 0x7F) as u64) << shift;
-        if (byte & 0x80) == 0 {
-            break;
-        }
-        shift += 7;
-        if shift >= 70 {
+        let payload = byte & 0x7f;
+        if index == 9 && (byte & 0xfe) != 0 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                "varu64 too long",
+                "varu64 overflow",
             ));
         }
+        result |= u64::from(payload) << (index * 7);
+        if (byte & 0x80) == 0 {
+            if index > 0 && payload == 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "varu64 overlong",
+                ));
+            }
+            return Ok(result);
+        }
     }
-    Ok(result)
+    Err(std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        "varu64 too long",
+    ))
 }
 
 #[inline]
@@ -298,6 +306,26 @@ mod tests {
         let data = [0x80; 11];
         let mut reader = &data[..];
         let err = read_var_u64(&mut reader).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn varu64_rejects_tenth_byte_payload_above_one() {
+        let mut data = vec![0xff; 9];
+        data.push(0x02);
+        let mut reader = data.as_slice();
+
+        let err = read_var_u64(&mut reader).unwrap_err();
+
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn varu64_rejects_non_canonical_overlong_encoding() {
+        let mut reader = &[0x80, 0x00][..];
+
+        let err = read_var_u64(&mut reader).unwrap_err();
+
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
     }
 

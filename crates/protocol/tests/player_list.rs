@@ -2,7 +2,7 @@ use bytes::{Bytes, BytesMut};
 use jolyne::batch::{decode_batch_raw, encode_batch_multi};
 use jolyne::valentine::{
     McpePacketArgs, McpePacketData, PlayerRecords, PlayerRecordsRecordsItem,
-    PlayerRecordsRecordsItemAdd, PlayerRecordsRecordsItemRemove, PlayerRecordsType,
+    PlayerRecordsRecordsItemRemove, PlayerRecordsType,
     bedrock::{
         codec::{BedrockCodec, VarInt},
         error::DecodeError,
@@ -114,9 +114,7 @@ fn remove_record() -> Option<PlayerRecordsRecordsItem> {
 }
 
 fn add_record() -> Option<PlayerRecordsRecordsItem> {
-    Some(PlayerRecordsRecordsItem::Add(Box::new(
-        PlayerRecordsRecordsItemAdd::default(),
-    )))
+    Some(PlayerRecordsRecordsItem::Add(Box::default()))
 }
 
 #[test]

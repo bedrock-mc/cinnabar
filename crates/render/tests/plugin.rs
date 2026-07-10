@@ -3,8 +3,8 @@ use bevy::{
     prelude::{App, MinimalPlugins, Vec3, Visibility},
 };
 use render::{
-    BlockClassifier, ChunkRenderInstance, ChunkRenderQueue, ChunkUploadPriority, DebugWorldPlugin,
-    Neighbourhood, mesh_sub_chunk,
+    BlockClassifier, ChunkRenderInstance, ChunkRenderQueue, ChunkRenderQueueLimits,
+    ChunkUploadPriority, DebugWorldPlugin, Neighbourhood, mesh_sub_chunk,
 };
 use world::{SubChunk, SubChunkKey};
 
@@ -24,6 +24,96 @@ fn zig_zag_i32(value: i32) -> Vec<u8> {
             return encoded;
         }
     }
+}
+
+#[test]
+fn render_queue_enforces_item_and_byte_limits_without_losing_replacements() {
+    let first = SubChunkKey::new(0, 0, 0, 0);
+    let second = SubChunkKey::new(0, 1, 0, 0);
+    let third = SubChunkKey::new(0, 2, 0, 0);
+    let mut queue = ChunkRenderQueue::with_limits(ChunkRenderQueueLimits {
+        max_items: 2,
+        max_bytes: 48,
+    });
+
+    queue
+        .try_insert(first, solid_mesh(1), ChunkUploadPriority::new(0.0))
+        .unwrap();
+    queue
+        .try_insert(
+            second,
+            render::ChunkMesh::default(),
+            ChunkUploadPriority::new(1.0),
+        )
+        .unwrap();
+    assert_eq!(queue.retained_len(), 2);
+    assert_eq!(queue.pending_bytes(), 48);
+
+    let rejected = queue
+        .try_insert(third, solid_mesh(3), ChunkUploadPriority::new(2.0))
+        .unwrap_err();
+    assert_eq!(rejected.quad_count(), 6);
+    assert_eq!(queue.retained_len(), 2);
+    assert_eq!(queue.pending_bytes(), 48);
+
+    queue
+        .try_update(
+            first,
+            render::ChunkMesh::default(),
+            ChunkUploadPriority::new(0.0),
+        )
+        .unwrap();
+    queue
+        .try_update(second, solid_mesh(2), ChunkUploadPriority::new(1.0))
+        .unwrap();
+    let superseding = queue
+        .try_update(first, solid_mesh(4), ChunkUploadPriority::new(0.0))
+        .unwrap_err();
+    assert_eq!(superseding.quad_count(), 6);
+    assert_eq!(queue.pending_bytes(), 48);
+
+    queue.try_remove(first).unwrap();
+    assert_eq!(queue.retained_len(), 2, "removal remains losslessly queued");
+    assert!(queue.try_remove(third).is_err());
+}
+
+#[test]
+fn rejected_mesh_is_eventually_delivered_after_the_capped_queue_drains() {
+    let first = SubChunkKey::new(0, 0, 0, 0);
+    let second = SubChunkKey::new(0, 1, 0, 0);
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .insert_resource(ChunkRenderQueue::with_limits(ChunkRenderQueueLimits {
+            max_items: 1,
+            max_bytes: 48,
+        }))
+        .add_plugins(DebugWorldPlugin::new(1));
+
+    let rejected = {
+        let mut queue = app.world_mut().resource_mut::<ChunkRenderQueue>();
+        queue
+            .try_insert(first, solid_mesh(1), ChunkUploadPriority::new(0.0))
+            .unwrap();
+        queue
+            .try_insert(second, solid_mesh(2), ChunkUploadPriority::new(1.0))
+            .unwrap_err()
+    };
+
+    app.update();
+    app.world_mut()
+        .resource_mut::<ChunkRenderQueue>()
+        .try_insert(second, rejected, ChunkUploadPriority::new(1.0))
+        .unwrap();
+    app.update();
+
+    let mut keys = app
+        .world_mut()
+        .query::<&ChunkRenderInstance>()
+        .iter(app.world())
+        .map(ChunkRenderInstance::key)
+        .collect::<Vec<_>>();
+    keys.sort_unstable();
+    assert_eq!(keys, [first, second]);
 }
 
 fn solid_mesh(runtime_id: u32) -> render::ChunkMesh {
@@ -47,8 +137,12 @@ fn upload_budget_is_nearest_first_and_queue_supports_update_remove() {
 
     {
         let mut queue = app.world_mut().resource_mut::<ChunkRenderQueue>();
-        queue.insert(far, solid_mesh(7), ChunkUploadPriority::new(100.0));
-        queue.insert(near, solid_mesh(11), ChunkUploadPriority::new(1.0));
+        queue
+            .try_insert(far, solid_mesh(7), ChunkUploadPriority::new(100.0))
+            .unwrap();
+        queue
+            .try_insert(near, solid_mesh(11), ChunkUploadPriority::new(1.0))
+            .unwrap();
     }
     app.update();
 
@@ -96,8 +190,10 @@ fn upload_budget_is_nearest_first_and_queue_supports_update_remove() {
 
     {
         let mut queue = app.world_mut().resource_mut::<ChunkRenderQueue>();
-        queue.update(far, solid_mesh(13), ChunkUploadPriority::new(0.0));
-        queue.remove(near);
+        queue
+            .try_update(far, solid_mesh(13), ChunkUploadPriority::new(0.0))
+            .unwrap();
+        queue.try_remove(near).unwrap();
     }
     app.update();
 

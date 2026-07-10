@@ -9,5 +9,7 @@ pub use mesh::{
     BlockClassifier, ChunkMesh, Face, FaceConnectivity, Neighbourhood, PackedQuad, mesh_sub_chunk,
 };
 pub use plugin::{
-    ChunkRenderInstance, ChunkRenderQueue, ChunkUploadBudget, ChunkUploadPriority, DebugWorldPlugin,
+    ChunkRenderInstance, ChunkRenderQueue, ChunkRenderQueueLimits, ChunkUploadAcknowledgement,
+    ChunkUploadAcknowledgements, ChunkUploadBudget, ChunkUploadPriority, ChunkUploadToken,
+    DebugWorldPlugin,
 };

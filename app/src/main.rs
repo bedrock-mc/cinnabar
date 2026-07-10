@@ -22,8 +22,11 @@ use bevy::{
 use camera::{FlyCamera, FlyCameraPlugin};
 use metrics::{MetricsCollector, PipelineMetricsSnapshot};
 use network::{NetworkConfig, NetworkEvent, NetworkHandle, spawn_network};
-use render::{ChunkRenderInstance, ChunkRenderQueue, ChunkUploadPriority, DebugWorldPlugin};
-use server_position::{SAFE_SERVER_HEIGHT, resolve_server_position};
+use render::{
+    ChunkRenderInstance, ChunkRenderQueue, ChunkUploadAcknowledgements, ChunkUploadPriority,
+    ChunkUploadToken, DebugWorldPlugin,
+};
+use server_position::SAFE_SERVER_HEIGHT;
 use world::SubChunkKey;
 use world_stream::{CommittedControlEvent, WorldMeshChange, WorldStream};
 
@@ -113,7 +116,7 @@ fn bedrock_camera_rotation(yaw_degrees: f32, pitch_degrees: f32) -> Quat {
 }
 
 fn main() {
-    let result = match args::ClientArgs::parse_env() {
+    match args::ClientArgs::parse_env() {
         Ok(args::ParseOutcome::Help) => print!("{}", args::HELP),
         Ok(args::ParseOutcome::Run(args)) => {
             if let Err(error) = run(args) {
@@ -125,8 +128,7 @@ fn main() {
             eprintln!("{error}");
             std::process::exit(2);
         }
-    };
-    result
+    }
 }
 
 fn run(args: args::ClientArgs) -> Result<()> {
@@ -249,16 +251,17 @@ fn receive_network_events(
                         SAFE_SERVER_HEIGHT,
                         bootstrap.world_spawn_position[2] as f32 + 0.5,
                     ]);
-                let resolved = resolve_server_position(
-                    bootstrap.player_position,
+                let stream = WorldStream::new_with_recovery(
+                    bootstrap,
                     current,
                     client_world.pending_surface_spawn,
                 );
+                let resolved = stream.resolved_server_position();
                 if let Ok(mut camera) = cameras.single_mut() {
                     camera.translation = Vec3::from_array(resolved.position);
                 }
                 client_world.pending_surface_spawn = resolved.surface_anchor;
-                client_world.stream = Some(WorldStream::new(bootstrap));
+                client_world.stream = Some(stream);
             }
             NetworkEvent::World(sequenced) => {
                 let Some(stream) = client_world.stream.as_mut() else {
@@ -300,17 +303,26 @@ fn drive_world_stream(
     network: Res<NetworkHandle>,
     mut client_world: ResMut<ClientWorld>,
     mut render_queue: ResMut<ChunkRenderQueue>,
+    acknowledgements: Res<ChunkUploadAcknowledgements>,
     mut camera: Query<&mut Transform, With<FlyCamera>>,
 ) {
     let Ok(mut camera) = camera.single_mut() else {
         return;
     };
-    let (mesh_changes, controls) = {
+    let controls = {
         let Some(stream) = client_world.stream.as_mut() else {
             return;
         };
+        for acknowledgement in acknowledgements.drain() {
+            stream.acknowledge_mesh_upload(
+                acknowledgement.key,
+                acknowledgement.token.generation,
+                acknowledgement.token.dirty_since,
+                acknowledgement.applied_at,
+            );
+        }
         stream.poll(camera.translation.to_array(), MESH_JOB_BUDGET_PER_FRAME);
-        (stream.take_mesh_changes(), stream.take_committed_controls())
+        stream.take_committed_controls()
     };
     for control in controls {
         apply_committed_control(
@@ -336,14 +348,45 @@ fn drive_world_stream(
         })
         .err()
     });
-    for change in mesh_changes {
-        match change {
-            WorldMeshChange::Upsert { key, mesh } => render_queue.update(
-                key,
-                mesh,
-                ChunkUploadPriority::from_camera(key, camera_position),
-            ),
-            WorldMeshChange::Remove { key } => render_queue.remove(key),
+    if let Some(stream) = client_world.stream.as_mut() {
+        while let Some(change) = stream.pop_mesh_change() {
+            let retry = match change {
+                WorldMeshChange::Upsert {
+                    key,
+                    mesh,
+                    generation,
+                    dirty_since,
+                } => render_queue
+                    .try_update_tracked(
+                        key,
+                        mesh,
+                        ChunkUploadPriority::from_camera(key, camera_position),
+                        ChunkUploadToken {
+                            generation,
+                            dirty_since,
+                        },
+                    )
+                    .err()
+                    .map(|mesh| WorldMeshChange::Upsert {
+                        key,
+                        mesh,
+                        generation,
+                        dirty_since,
+                    }),
+                WorldMeshChange::Remove { key } => render_queue
+                    .try_remove(key)
+                    .err()
+                    .map(|key| WorldMeshChange::Remove { key }),
+            };
+            let Some(retry) = retry else {
+                continue;
+            };
+            if stream.retry_mesh_change_front(retry).is_err() {
+                client_world.fatal_error = Some(
+                    "failed to restore a render update to the bounded world retry FIFO".to_owned(),
+                );
+            }
+            break;
         }
     }
     if let Some(error) = send_error {
@@ -387,13 +430,19 @@ fn flush_sub_chunk_requests(
             }
             Err(error) => {
                 let closed = error.is_closed();
-                stream.retry_request_front(world_stream::PendingSubChunkRequest {
+                let retry = world_stream::PendingSubChunkRequest {
                     packet: error.into_packet(),
                     dimension,
                     chunk,
                     base_sub_chunk_y,
                     count,
-                });
+                };
+                if stream.retry_request_front(retry).is_err() {
+                    return Err(
+                        "failed to restore an unsent SubChunkRequest to the bounded FIFO"
+                            .to_owned(),
+                    );
+                }
                 if closed {
                     return Err(
                         "failed to send SubChunkRequest: network command channel is closed"
@@ -412,8 +461,8 @@ fn apply_committed_control(
     camera: &mut Transform,
     pending_surface_spawn: &mut Option<[i32; 2]>,
 ) {
-    let position = match control {
-        CommittedControlEvent::MovePlayer(movement) => {
+    let resolved = match control {
+        CommittedControlEvent::MovePlayer { movement, resolved } => {
             info!(
                 runtime_id = movement.runtime_id,
                 position = ?movement.position,
@@ -422,15 +471,10 @@ fn apply_committed_control(
             if movement.yaw.is_finite() && movement.pitch.is_finite() {
                 camera.rotation = bedrock_camera_rotation(movement.yaw, movement.pitch);
             }
-            movement.position
+            resolved
         }
-        CommittedControlEvent::ChangeDimension(change) => change.position,
+        CommittedControlEvent::ChangeDimension { resolved, .. } => resolved,
     };
-    let resolved = resolve_server_position(
-        position,
-        camera.translation.to_array(),
-        *pending_surface_spawn,
-    );
     camera.translation = Vec3::from_array(resolved.position);
     *pending_surface_spawn = resolved.surface_anchor;
 }
@@ -506,6 +550,7 @@ fn remove_chunk_visibility(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn record_metrics_and_title(
     time: Res<Time>,
     mut client_world: ResMut<ClientWorld>,

@@ -1,3 +1,5 @@
+#![allow(clippy::items_after_test_module)]
+
 use std::marker::PhantomData;
 use std::net::SocketAddr;
 
@@ -68,10 +70,7 @@ impl DeferredPackets {
             .into());
         }
 
-        let bytes = self
-            .bytes
-            .checked_add(packet.inner_frame().len())
-            .unwrap_or(usize::MAX);
+        let bytes = self.bytes.saturating_add(packet.inner_frame().len());
         if bytes > MAX_DEFERRED_PACKET_BYTES {
             return Err(ProtocolError::BatchTooLarge {
                 actual: bytes,

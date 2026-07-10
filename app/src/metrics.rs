@@ -6,10 +6,61 @@ use std::{
 
 use serde::Serialize;
 
+const FRAME_HISTOGRAM_RESOLUTION_MS: f64 = 0.1;
+const FRAME_HISTOGRAM_BUCKETS: usize = 20_001;
+
+#[derive(Debug)]
+struct FrameHistogram {
+    counts: Box<[u64]>,
+    sample_count: u64,
+    max_milliseconds: f64,
+}
+
+impl Default for FrameHistogram {
+    fn default() -> Self {
+        Self {
+            counts: vec![0; FRAME_HISTOGRAM_BUCKETS].into_boxed_slice(),
+            sample_count: 0,
+            max_milliseconds: 0.0,
+        }
+    }
+}
+
+impl FrameHistogram {
+    fn record(&mut self, milliseconds: f64) {
+        let milliseconds = if milliseconds.is_finite() {
+            milliseconds.max(0.0)
+        } else {
+            (FRAME_HISTOGRAM_BUCKETS - 1) as f64 * FRAME_HISTOGRAM_RESOLUTION_MS
+        };
+        let bucket = (milliseconds / FRAME_HISTOGRAM_RESOLUTION_MS)
+            .ceil()
+            .clamp(0.0, (FRAME_HISTOGRAM_BUCKETS - 1) as f64) as usize;
+        self.counts[bucket] = self.counts[bucket].saturating_add(1);
+        self.sample_count = self.sample_count.saturating_add(1);
+        self.max_milliseconds = self.max_milliseconds.max(milliseconds);
+    }
+
+    fn quantile(&self, percentile: f64) -> f64 {
+        if self.sample_count == 0 {
+            return 0.0;
+        }
+        let target = ((self.sample_count - 1) as f64 * percentile).ceil() as u64;
+        let mut cumulative = 0_u64;
+        for (index, count) in self.counts.iter().copied().enumerate() {
+            cumulative = cumulative.saturating_add(count);
+            if cumulative > target {
+                return index as f64 * FRAME_HISTOGRAM_RESOLUTION_MS;
+            }
+        }
+        (FRAME_HISTOGRAM_BUCKETS - 1) as f64 * FRAME_HISTOGRAM_RESOLUTION_MS
+    }
+}
+
 #[derive(Debug)]
 pub struct MetricsCollector {
     started: Instant,
-    frame_milliseconds: Vec<f64>,
+    frame_histogram: FrameHistogram,
     max_remesh_milliseconds: f64,
     max_decode_milliseconds: f64,
     max_mesh_milliseconds: f64,
@@ -58,7 +109,7 @@ impl MetricsCollector {
     pub fn new() -> Self {
         Self {
             started: Instant::now(),
-            frame_milliseconds: Vec::new(),
+            frame_histogram: FrameHistogram::default(),
             max_remesh_milliseconds: 0.0,
             max_decode_milliseconds: 0.0,
             max_mesh_milliseconds: 0.0,
@@ -79,8 +130,8 @@ impl MetricsCollector {
     }
 
     pub fn record_frame(&mut self, duration: Duration) {
-        self.frame_milliseconds
-            .push(duration.as_secs_f64() * 1_000.0);
+        self.frame_histogram
+            .record(duration.as_secs_f64() * 1_000.0);
     }
 
     pub fn record_remesh_latency(&mut self, duration: Duration) {
@@ -131,15 +182,13 @@ impl MetricsCollector {
 
     #[must_use]
     pub fn report(&self) -> MetricsReport {
-        let mut frames = self.frame_milliseconds.clone();
-        frames.sort_by(f64::total_cmp);
         MetricsReport {
             session_seconds: self.started.elapsed().as_secs_f64(),
-            frame_count: frames.len(),
-            p50_frame_ms: percentile(&frames, 0.50),
-            p95_frame_ms: percentile(&frames, 0.95),
-            p99_frame_ms: percentile(&frames, 0.99),
-            max_frame_ms: frames.last().copied().unwrap_or(0.0),
+            frame_count: usize::try_from(self.frame_histogram.sample_count).unwrap_or(usize::MAX),
+            p50_frame_ms: self.frame_histogram.quantile(0.50),
+            p95_frame_ms: self.frame_histogram.quantile(0.95),
+            p99_frame_ms: self.frame_histogram.quantile(0.99),
+            max_frame_ms: self.frame_histogram.max_milliseconds,
             max_decode_ms: self.max_decode_milliseconds,
             max_mesh_ms: self.max_mesh_milliseconds,
             max_remesh_ms: self.max_remesh_milliseconds,
@@ -157,6 +206,11 @@ impl MetricsCollector {
             peak_in_flight_mesh_jobs: self.peak_in_flight_mesh_jobs,
             gpu_upload_bytes: self.gpu_upload_bytes,
         }
+    }
+
+    #[cfg(test)]
+    fn frame_sample_capacity(&self) -> usize {
+        self.frame_histogram.counts.len()
     }
 }
 
@@ -200,6 +254,7 @@ impl MetricsReport {
     }
 }
 
+#[cfg(test)]
 fn percentile(sorted: &[f64], percentile: f64) -> f64 {
     if sorted.is_empty() {
         return 0.0;
@@ -266,6 +321,30 @@ mod tests {
         assert_eq!(report.peak_pending_mesh_jobs, 9);
         assert_eq!(report.peak_in_flight_mesh_jobs, 8);
         assert_eq!(report.gpu_upload_bytes, 12_345);
+    }
+
+    #[test]
+    fn frame_quantiles_use_constant_memory_and_are_deterministic_at_large_sample_counts() {
+        let mut first = MetricsCollector::new();
+        let mut second = MetricsCollector::new();
+        let capacity = first.frame_sample_capacity();
+
+        for sample in 0..100_000 {
+            let duration = Duration::from_micros((sample % 2_000 + 1) as u64 * 100);
+            first.record_frame(duration);
+            second.record_frame(duration);
+        }
+
+        assert_eq!(first.frame_sample_capacity(), capacity);
+        assert_eq!(second.frame_sample_capacity(), capacity);
+        assert!(capacity < 100_000);
+        let first = first.report();
+        let second = second.report();
+        assert_eq!(first.frame_count, 100_000);
+        assert_eq!(first.p50_frame_ms, second.p50_frame_ms);
+        assert_eq!(first.p95_frame_ms, second.p95_frame_ms);
+        assert_eq!(first.p99_frame_ms, second.p99_frame_ms);
+        assert_eq!(first.max_frame_ms, second.max_frame_ms);
     }
 
     #[test]

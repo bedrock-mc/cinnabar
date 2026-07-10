@@ -14,8 +14,11 @@ use protocol::{
 use render::{BlockClassifier, ChunkMesh, Face, FaceConnectivity, Neighbourhood, mesh_sub_chunk};
 use thiserror::Error;
 use world::{
-    BlockUpdate, ChunkKey, ChunkStore, DecodeError, DecodedLevelChunk, SubChunk, SubChunkKey,
+    BlockUpdate, ChunkKey, ChunkStore, DecodeError, DecodedLevelChunk, MutationError,
+    PreparedSubChunkMutation, SubChunk, SubChunkKey,
 };
+
+use crate::server_position::{ResolvedServerPosition, resolve_server_position};
 
 /// Decode and mesh workers may each have at most this many completed results
 /// waiting for the main thread. A full channel applies backpressure to Rayon.
@@ -29,6 +32,7 @@ pub const COMMITTED_CONTROL_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;
 pub const OUTBOUND_REQUEST_CAPACITY: usize = 64;
 pub const DEFERRED_RETRY_CAPACITY: usize = 64;
 pub const MAX_SUB_CHUNK_RETRIES: u8 = 2;
+pub const MAX_PENDING_MESH_CHANGES: usize = 256;
 
 #[derive(Debug)]
 struct SequenceBuffer<T> {
@@ -153,17 +157,35 @@ pub struct PendingSubChunkRequest {
     pub count: usize,
 }
 
+enum OutboundRequestSlot {
+    Reserved(u64),
+    Ready(PendingSubChunkRequest),
+}
+
 /// A current packed mesh update, or removal, ready for `ChunkRenderQueue`.
 #[derive(Debug)]
 pub enum WorldMeshChange {
-    Upsert { key: SubChunkKey, mesh: ChunkMesh },
-    Remove { key: SubChunkKey },
+    Upsert {
+        key: SubChunkKey,
+        mesh: ChunkMesh,
+        generation: u64,
+        dirty_since: Instant,
+    },
+    Remove {
+        key: SubChunkKey,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CommittedControlEvent {
-    MovePlayer(MovePlayerEvent),
-    ChangeDimension(ChangeDimensionEvent),
+    MovePlayer {
+        movement: MovePlayerEvent,
+        resolved: ResolvedServerPosition,
+    },
+    ChangeDimension {
+        change: ChangeDimensionEvent,
+        resolved: ResolvedServerPosition,
+    },
 }
 
 #[cfg(test)]
@@ -249,6 +271,10 @@ enum PreparedWorldEvent {
         entries: Vec<PreparedSubChunk>,
         duration: Duration,
     },
+    BlockUpdates {
+        result: Result<Vec<PreparedSubChunkMutation>, MutationError>,
+        duration: Duration,
+    },
     Immediate(WorldEvent),
     NormalizationFailure,
 }
@@ -284,6 +310,18 @@ enum DecodeJob {
         sequence: u64,
         batch: SubChunkBatchEvent,
     },
+    BlockUpdates {
+        sequence: u64,
+        batches: Vec<BlockMutationBatch>,
+        air_runtime_id: u32,
+    },
+}
+
+#[derive(Debug)]
+struct BlockMutationBatch {
+    key: SubChunkKey,
+    previous: Option<Arc<SubChunk>>,
+    updates: Vec<BlockUpdate>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -351,6 +389,7 @@ pub struct WorldStream {
     heavy_sequences: HashSet<u64>,
     pending_decode: VecDeque<DecodeJob>,
     in_flight_decode_jobs: usize,
+    blocking_block_updates: Option<u64>,
     decode_tx: Sender<DecodeCompletion>,
     decode_rx: Receiver<DecodeCompletion>,
     mesh_tx: Sender<MeshCompletion>,
@@ -367,25 +406,53 @@ pub struct WorldStream {
     deferred_retry_set: HashSet<SubChunkKey>,
     connectivity: HashMap<SubChunkKey, FaceConnectivity>,
     connectivity_generation: u64,
-    requests: VecDeque<PendingSubChunkRequest>,
-    mesh_changes: Vec<WorldMeshChange>,
+    requests: VecDeque<OutboundRequestSlot>,
+    mesh_changes: VecDeque<WorldMeshChange>,
     committed_controls: VecDeque<CommittedControlEvent>,
     publisher_center: Option<[i32; 3]>,
     publisher_radius_chunks: Option<i32>,
     chunk_radius: Option<i32>,
+    resolved_server_position: ResolvedServerPosition,
     stats: WorldStreamStats,
 }
 
 impl WorldStream {
+    #[cfg(test)]
     #[must_use]
     pub fn new(bootstrap: WorldBootstrap) -> Self {
         Self::with_first_sequence(bootstrap, 1)
     }
 
     #[must_use]
+    pub fn new_with_recovery(
+        bootstrap: WorldBootstrap,
+        current_position: [f32; 3],
+        existing_anchor: Option<[i32; 2]>,
+    ) -> Self {
+        Self::with_first_sequence_and_recovery(bootstrap, 1, current_position, existing_anchor)
+    }
+
+    #[cfg(test)]
+    #[must_use]
     pub fn with_first_sequence(bootstrap: WorldBootstrap, first_sequence: u64) -> Self {
+        Self::with_first_sequence_and_recovery(
+            bootstrap,
+            first_sequence,
+            [0.0, crate::server_position::SAFE_SERVER_HEIGHT, 0.0],
+            None,
+        )
+    }
+
+    fn with_first_sequence_and_recovery(
+        bootstrap: WorldBootstrap,
+        first_sequence: u64,
+        current_position: [f32; 3],
+        existing_anchor: Option<[i32; 2]>,
+    ) -> Self {
         let (decode_tx, decode_rx) = bounded(WORK_RESULT_CAPACITY);
         let (mesh_tx, mesh_rx) = bounded(WORK_RESULT_CAPACITY);
+        let resolved_server_position =
+            resolve_server_position(bootstrap.player_position, current_position, existing_anchor);
         Self {
             store: ChunkStore::new(),
             classifier: BlockClassifier::new(bootstrap.air_network_id),
@@ -395,6 +462,7 @@ impl WorldStream {
             heavy_sequences: HashSet::new(),
             pending_decode: VecDeque::new(),
             in_flight_decode_jobs: 0,
+            blocking_block_updates: None,
             decode_tx,
             decode_rx,
             mesh_tx,
@@ -412,15 +480,16 @@ impl WorldStream {
             connectivity: HashMap::new(),
             connectivity_generation: 0,
             requests: VecDeque::new(),
-            mesh_changes: Vec::new(),
+            mesh_changes: VecDeque::new(),
             committed_controls: VecDeque::new(),
             publisher_center: Some([
-                floor_to_i32(bootstrap.player_position[0]),
-                floor_to_i32(bootstrap.player_position[1]),
-                floor_to_i32(bootstrap.player_position[2]),
+                floor_to_i32(resolved_server_position.position[0]),
+                floor_to_i32(resolved_server_position.position[1]),
+                floor_to_i32(resolved_server_position.position[2]),
             ]),
             publisher_radius_chunks: None,
             chunk_radius: None,
+            resolved_server_position,
             stats: WorldStreamStats::default(),
         }
     }
@@ -442,6 +511,7 @@ impl WorldStream {
                 mode: LevelChunkMode::Inline { .. },
                 ..
             }) | WorldEvent::SubChunks(_)
+                | WorldEvent::BlockUpdates(_)
         );
         let creates_request = matches!(
             &event,
@@ -473,6 +543,10 @@ impl WorldStream {
         if heavy {
             self.heavy_sequences.insert(sequence);
         }
+        if creates_request {
+            self.requests
+                .push_back(OutboundRequestSlot::Reserved(sequence));
+        }
 
         match event {
             WorldEvent::LevelChunk(
@@ -490,14 +564,6 @@ impl WorldStream {
                     self.apply_ready();
                     return Ok(());
                 };
-                let key = ChunkKey::new(event.dimension, event.x, event.z);
-                if !self.column_is_active(key) {
-                    self.heavy_sequences.remove(&sequence);
-                    self.ordered
-                        .insert(sequence, PreparedWorldEvent::NormalizationFailure)?;
-                    self.apply_ready();
-                    return Ok(());
-                }
                 self.pending_decode.push_back(DecodeJob::InlineLevelChunk {
                     sequence,
                     event,
@@ -505,24 +571,7 @@ impl WorldStream {
                     count,
                 });
             }
-            WorldEvent::SubChunks(mut batch) => {
-                if batch.dimension != self.current_dimension {
-                    self.heavy_sequences.remove(&sequence);
-                    self.ordered
-                        .insert(sequence, PreparedWorldEvent::NormalizationFailure)?;
-                    self.apply_ready();
-                    return Ok(());
-                }
-                let dimension = batch.dimension;
-                batch.entries.retain(|entry| {
-                    let key = SubChunkKey::new(
-                        dimension,
-                        entry.position[0],
-                        entry.position[1],
-                        entry.position[2],
-                    );
-                    self.is_expected_sub_chunk(key) && self.column_is_active(key.chunk())
-                });
+            WorldEvent::SubChunks(batch) => {
                 if batch.entries.is_empty() {
                     self.heavy_sequences.remove(&sequence);
                     self.ordered
@@ -534,8 +583,13 @@ impl WorldStream {
                     .push_back(DecodeJob::SubChunks { sequence, batch });
             }
             immediate => {
-                self.ordered
-                    .insert(sequence, PreparedWorldEvent::Immediate(immediate))?;
+                if let Err(error) = self
+                    .ordered
+                    .insert(sequence, PreparedWorldEvent::Immediate(immediate))
+                {
+                    self.cancel_request_reservation(sequence);
+                    return Err(error.into());
+                }
                 self.apply_ready();
             }
         }
@@ -548,31 +602,34 @@ impl WorldStream {
         let mut report = WorldStreamPoll::default();
         while let Ok(completion) = self.decode_rx.try_recv() {
             report.decoded_results += 1;
-            self.in_flight_decode_jobs = self.in_flight_decode_jobs.saturating_sub(1);
-            if self
-                .ordered
-                .insert(completion.sequence, completion.event)
-                .is_err()
-            {
-                self.heavy_sequences.remove(&completion.sequence);
-                self.stats.normalization_errors = self.stats.normalization_errors.saturating_add(1);
-            }
+            self.accept_decode_completion(completion);
         }
         self.apply_ready();
         self.pump_deferred_retries();
         self.dispatch_decode_jobs();
 
-        while let Ok(completion) = self.mesh_rx.try_recv() {
+        while self.mesh_changes.len() < MAX_PENDING_MESH_CHANGES {
+            let Ok(completion) = self.mesh_rx.try_recv() else {
+                break;
+            };
             report.mesh_results += 1;
             self.accept_mesh_completion(completion);
         }
-        report.mesh_jobs_dispatched = self.dispatch_mesh_jobs(camera_position, max_mesh_jobs);
+        report.mesh_jobs_dispatched = self.dispatch_mesh_jobs(
+            camera_position,
+            max_mesh_jobs.min(MAX_PENDING_MESH_CHANGES.saturating_sub(self.mesh_changes.len())),
+        );
         report
     }
 
     #[must_use]
     pub const fn current_dimension(&self) -> i32 {
         self.current_dimension
+    }
+
+    #[must_use]
+    pub const fn resolved_server_position(&self) -> ResolvedServerPosition {
+        self.resolved_server_position
     }
 
     #[must_use]
@@ -657,25 +714,88 @@ impl WorldStream {
 
     #[cfg(test)]
     pub fn take_requests(&mut self) -> Vec<PendingSubChunkRequest> {
-        self.requests.drain(..).collect()
+        let mut ready = Vec::new();
+        let mut reserved = VecDeque::new();
+        while let Some(slot) = self.requests.pop_front() {
+            match slot {
+                OutboundRequestSlot::Reserved(sequence) => {
+                    reserved.push_back(OutboundRequestSlot::Reserved(sequence));
+                }
+                OutboundRequestSlot::Ready(request) => ready.push(request),
+            }
+        }
+        self.requests = reserved;
+        ready
     }
 
     pub fn pop_next_request(&mut self) -> Option<PendingSubChunkRequest> {
-        self.requests.pop_front()
+        if !matches!(self.requests.front(), Some(OutboundRequestSlot::Ready(_))) {
+            return None;
+        }
+        match self.requests.pop_front() {
+            Some(OutboundRequestSlot::Ready(request)) => Some(request),
+            Some(OutboundRequestSlot::Reserved(_)) | None => None,
+        }
     }
 
-    pub fn retry_request_front(&mut self, request: PendingSubChunkRequest) {
-        assert!(self.requests.len() < OUTBOUND_REQUEST_CAPACITY);
-        self.requests.push_front(request);
+    pub fn retry_request_front(
+        &mut self,
+        request: PendingSubChunkRequest,
+    ) -> Result<(), Box<PendingSubChunkRequest>> {
+        if self.requests.len() >= OUTBOUND_REQUEST_CAPACITY {
+            return Err(Box::new(request));
+        }
+        self.requests
+            .push_front(OutboundRequestSlot::Ready(request));
+        Ok(())
     }
 
     #[must_use]
     pub fn pending_request_count(&self) -> usize {
-        self.requests.len()
+        self.requests
+            .iter()
+            .filter(|slot| matches!(slot, OutboundRequestSlot::Ready(_)))
+            .count()
     }
 
+    #[cfg(test)]
     pub fn take_mesh_changes(&mut self) -> Vec<WorldMeshChange> {
-        std::mem::take(&mut self.mesh_changes)
+        self.mesh_changes.drain(..).collect()
+    }
+
+    pub fn pop_mesh_change(&mut self) -> Option<WorldMeshChange> {
+        self.mesh_changes.pop_front()
+    }
+
+    pub fn retry_mesh_change_front(
+        &mut self,
+        change: WorldMeshChange,
+    ) -> Result<(), WorldMeshChange> {
+        if self.mesh_changes.len() >= MAX_PENDING_MESH_CHANGES {
+            return Err(change);
+        }
+        self.mesh_changes.push_front(change);
+        Ok(())
+    }
+
+    pub fn acknowledge_mesh_upload(
+        &mut self,
+        key: SubChunkKey,
+        generation: u64,
+        dirty_since: Instant,
+        applied_at: Instant,
+    ) {
+        let Some(dirty) = self.revisions.dirty(key) else {
+            return;
+        };
+        if dirty.revision != generation || dirty.since != dirty_since {
+            return;
+        }
+        self.stats.max_remesh_latency = self
+            .stats
+            .max_remesh_latency
+            .max(applied_at.saturating_duration_since(dirty_since));
+        self.revisions.clear_if_current(key, generation);
     }
 
     pub fn take_committed_controls(&mut self) -> Vec<CommittedControlEvent> {
@@ -704,12 +824,83 @@ impl WorldStream {
     }
 
     fn apply_ready(&mut self) {
+        if self.blocking_block_updates.is_some() {
+            return;
+        }
         while let Some(event) = self.ordered.pop_next() {
             let sequence = self.ordered.next_sequence().saturating_sub(1);
-            self.submitted.remove(&sequence);
-            self.heavy_sequences.remove(&sequence);
-            self.apply_prepared(event);
+            match event {
+                PreparedWorldEvent::Immediate(WorldEvent::BlockUpdates(events)) => {
+                    let batches = self.snapshot_block_mutation_batches(events);
+                    if batches.is_empty() {
+                        self.submitted.remove(&sequence);
+                        self.heavy_sequences.remove(&sequence);
+                        continue;
+                    }
+                    self.pending_decode.push_back(DecodeJob::BlockUpdates {
+                        sequence,
+                        batches,
+                        air_runtime_id: self.classifier.air_network_id(),
+                    });
+                    self.blocking_block_updates = Some(sequence);
+                    break;
+                }
+                event => {
+                    self.submitted.remove(&sequence);
+                    self.heavy_sequences.remove(&sequence);
+                    self.apply_prepared_with_sequence(event, Some(sequence));
+                    self.cancel_request_reservation(sequence);
+                }
+            }
         }
+    }
+
+    fn accept_decode_completion(&mut self, completion: DecodeCompletion) {
+        self.in_flight_decode_jobs = self.in_flight_decode_jobs.saturating_sub(1);
+        if self.blocking_block_updates == Some(completion.sequence)
+            && matches!(&completion.event, PreparedWorldEvent::BlockUpdates { .. })
+        {
+            self.blocking_block_updates = None;
+            self.submitted.remove(&completion.sequence);
+            self.heavy_sequences.remove(&completion.sequence);
+            self.apply_prepared(completion.event);
+            self.apply_ready();
+            return;
+        }
+        if self
+            .ordered
+            .insert(completion.sequence, completion.event)
+            .is_err()
+        {
+            self.heavy_sequences.remove(&completion.sequence);
+            self.stats.normalization_errors = self.stats.normalization_errors.saturating_add(1);
+        }
+    }
+
+    fn snapshot_block_mutation_batches(
+        &mut self,
+        events: Vec<BlockUpdateEvent>,
+    ) -> Vec<BlockMutationBatch> {
+        let mut grouped = BTreeMap::<SubChunkKey, Vec<BlockUpdate>>::new();
+        for event in events {
+            match split_block_update(event) {
+                Ok((key, update)) if self.column_is_active(key.chunk()) => {
+                    grouped.entry(key).or_default().push(update);
+                }
+                Ok(_) | Err(_) => {
+                    self.stats.normalization_errors =
+                        self.stats.normalization_errors.saturating_add(1);
+                }
+            }
+        }
+        grouped
+            .into_iter()
+            .map(|(key, updates)| BlockMutationBatch {
+                key,
+                previous: self.store.sub_chunk(key),
+                updates,
+            })
+            .collect()
     }
 
     fn dispatch_decode_jobs(&mut self) {
@@ -753,6 +944,30 @@ impl WorldStream {
                             },
                         }
                     }
+                    DecodeJob::BlockUpdates {
+                        sequence,
+                        batches,
+                        air_runtime_id,
+                    } => {
+                        let result = batches
+                            .into_iter()
+                            .map(|batch| {
+                                ChunkStore::prepare_sub_chunk_blocks(
+                                    batch.key,
+                                    batch.previous.as_deref(),
+                                    &batch.updates,
+                                    air_runtime_id,
+                                )
+                            })
+                            .collect();
+                        DecodeCompletion {
+                            sequence,
+                            event: PreparedWorldEvent::BlockUpdates {
+                                result,
+                                duration: started.elapsed(),
+                            },
+                        }
+                    }
                 };
                 let _ = tx.send(completion);
             });
@@ -760,6 +975,10 @@ impl WorldStream {
     }
 
     fn apply_prepared(&mut self, event: PreparedWorldEvent) {
+        self.apply_prepared_with_sequence(event, None);
+    }
+
+    fn apply_prepared_with_sequence(&mut self, event: PreparedWorldEvent, sequence: Option<u64>) {
         match event {
             PreparedWorldEvent::InlineLevelChunk {
                 event,
@@ -917,17 +1136,36 @@ impl WorldStream {
                     }
                 }
             }
-            PreparedWorldEvent::Immediate(event) => self.apply_immediate(event),
+            PreparedWorldEvent::BlockUpdates { result, duration } => {
+                self.stats.max_decode_duration = self.stats.max_decode_duration.max(duration);
+                match result {
+                    Ok(prepared) => {
+                        let changed = self.store.commit_prepared_block_updates(prepared);
+                        let now = Instant::now();
+                        for key in changed {
+                            self.sync_resident(key);
+                            self.mark_changed(key, now);
+                        }
+                    }
+                    Err(_) => {
+                        self.stats.normalization_errors =
+                            self.stats.normalization_errors.saturating_add(1);
+                    }
+                }
+            }
+            PreparedWorldEvent::Immediate(event) => self.apply_immediate(event, sequence),
             PreparedWorldEvent::NormalizationFailure => {
                 self.stats.normalization_errors = self.stats.normalization_errors.saturating_add(1);
             }
         }
     }
 
-    fn apply_immediate(&mut self, event: WorldEvent) {
+    fn apply_immediate(&mut self, event: WorldEvent, sequence: Option<u64>) {
         match event {
-            WorldEvent::LevelChunk(event) => self.apply_request_level_chunk(event),
-            WorldEvent::BlockUpdates(events) => self.apply_block_updates(events),
+            WorldEvent::LevelChunk(event) => self.apply_request_level_chunk(event, sequence),
+            WorldEvent::BlockUpdates(_) => {
+                unreachable!("block-update batches are prepared on workers")
+            }
             WorldEvent::ChunkRadiusUpdated(radius) => {
                 if radius < 0 {
                     self.stats.normalization_errors =
@@ -950,22 +1188,40 @@ impl WorldStream {
             WorldEvent::ChangeDimension(change) => {
                 self.evict_all_resident();
                 self.current_dimension = change.dimension;
+                let resolved = resolve_server_position(
+                    change.position,
+                    self.resolved_server_position.position,
+                    self.resolved_server_position.surface_anchor,
+                );
+                self.resolved_server_position = resolved;
                 self.publisher_center = Some([
-                    floor_to_i32(change.position[0]),
-                    floor_to_i32(change.position[1]),
-                    floor_to_i32(change.position[2]),
+                    floor_to_i32(resolved.position[0]),
+                    floor_to_i32(resolved.position[1]),
+                    floor_to_i32(resolved.position[2]),
                 ]);
                 self.publisher_radius_chunks = None;
-                self.push_committed_control(CommittedControlEvent::ChangeDimension(change));
+                self.push_committed_control(CommittedControlEvent::ChangeDimension {
+                    change,
+                    resolved,
+                });
             }
             WorldEvent::MovePlayer(movement) => {
-                self.push_committed_control(CommittedControlEvent::MovePlayer(movement));
+                let resolved = resolve_server_position(
+                    movement.position,
+                    self.resolved_server_position.position,
+                    self.resolved_server_position.surface_anchor,
+                );
+                self.resolved_server_position = resolved;
+                self.push_committed_control(CommittedControlEvent::MovePlayer {
+                    movement,
+                    resolved,
+                });
             }
             WorldEvent::SubChunks(_) => unreachable!("sub-chunk batches are prepared on workers"),
         }
     }
 
-    fn apply_request_level_chunk(&mut self, event: LevelChunkEvent) {
+    fn apply_request_level_chunk(&mut self, event: LevelChunkEvent, sequence: Option<u64>) {
         let key = ChunkKey::new(event.dimension, event.x, event.z);
         if !self.column_is_active(key) {
             self.stats.normalization_errors = self.stats.normalization_errors.saturating_add(1);
@@ -980,7 +1236,7 @@ impl WorldStream {
                 };
                 self.evict_column(key);
                 let count = usize::from(highest).min(range.sub_chunk_count);
-                self.enqueue_request(key, range.base_sub_chunk_y, count);
+                self.enqueue_request(key, range.base_sub_chunk_y, count, sequence);
             }
             LevelChunkMode::LimitlessRequests => {
                 let Some(range) = vanilla_dimension_range(event.dimension) else {
@@ -989,7 +1245,7 @@ impl WorldStream {
                     return;
                 };
                 self.evict_column(key);
-                self.enqueue_request(key, range.base_sub_chunk_y, range.sub_chunk_count);
+                self.enqueue_request(key, range.base_sub_chunk_y, range.sub_chunk_count, sequence);
             }
             LevelChunkMode::Inline { .. } => {
                 unreachable!("inline LevelChunk packets are prepared on workers")
@@ -1005,9 +1261,27 @@ impl WorldStream {
         self.committed_controls.push_back(event);
     }
 
-    fn enqueue_request(&mut self, key: ChunkKey, base_sub_chunk_y: i32, count: usize) {
+    fn enqueue_request(
+        &mut self,
+        key: ChunkKey,
+        base_sub_chunk_y: i32,
+        count: usize,
+        sequence: Option<u64>,
+    ) {
         match request_sub_chunk_column(key.dimension, key.x, key.z, base_sub_chunk_y, count) {
             Ok(packet) => {
+                let request = PendingSubChunkRequest {
+                    packet,
+                    dimension: key.dimension,
+                    chunk: key,
+                    base_sub_chunk_y,
+                    count,
+                };
+                if !self.place_outbound_request(sequence, request) {
+                    self.stats.normalization_errors =
+                        self.stats.normalization_errors.saturating_add(1);
+                    return;
+                }
                 let expected = (0..count)
                     .map(|offset| base_sub_chunk_y.saturating_add(offset as i32))
                     .collect::<BTreeSet<_>>();
@@ -1016,14 +1290,6 @@ impl WorldStream {
                 } else {
                     self.requested_sub_chunks.insert(key, expected);
                 }
-                assert!(self.requests.len() < OUTBOUND_REQUEST_CAPACITY);
-                self.requests.push_back(PendingSubChunkRequest {
-                    packet,
-                    dimension: key.dimension,
-                    chunk: key,
-                    base_sub_chunk_y,
-                    count,
-                });
             }
             Err(_) => {
                 self.stats.normalization_errors = self.stats.normalization_errors.saturating_add(1)
@@ -1031,41 +1297,30 @@ impl WorldStream {
         }
     }
 
-    fn apply_block_updates(&mut self, events: Vec<BlockUpdateEvent>) {
-        let mut grouped = BTreeMap::<SubChunkKey, Vec<BlockUpdate>>::new();
-        for event in events {
-            match split_block_update(event) {
-                Ok((key, update)) if self.column_is_active(key.chunk()) => {
-                    grouped.entry(key).or_default().push(update)
-                }
-                Ok(_) => {
-                    self.stats.normalization_errors =
-                        self.stats.normalization_errors.saturating_add(1)
-                }
-                Err(_) => {
-                    self.stats.normalization_errors =
-                        self.stats.normalization_errors.saturating_add(1)
-                }
-            }
+    fn place_outbound_request(
+        &mut self,
+        sequence: Option<u64>,
+        request: PendingSubChunkRequest,
+    ) -> bool {
+        if let Some(sequence) = sequence
+            && let Some(slot) = self.requests.iter_mut().find(|slot| {
+                matches!(slot, OutboundRequestSlot::Reserved(reserved) if *reserved == sequence)
+            })
+        {
+            *slot = OutboundRequestSlot::Ready(request);
+            return true;
         }
-        for (key, updates) in grouped {
-            match self.store.update_sub_chunk_blocks(
-                key,
-                &updates,
-                self.classifier.air_network_id(),
-            ) {
-                Ok(changed) => {
-                    for key in changed {
-                        self.sync_resident(key);
-                        self.mark_changed(key, Instant::now());
-                    }
-                }
-                Err(_) => {
-                    self.stats.normalization_errors =
-                        self.stats.normalization_errors.saturating_add(1)
-                }
-            }
+        if self.requests.len() >= OUTBOUND_REQUEST_CAPACITY {
+            return false;
         }
+        self.requests.push_back(OutboundRequestSlot::Ready(request));
+        true
+    }
+
+    fn cancel_request_reservation(&mut self, sequence: u64) {
+        self.requests.retain(|slot| {
+            !matches!(slot, OutboundRequestSlot::Reserved(reserved) if *reserved == sequence)
+        });
     }
 
     fn sync_resident(&mut self, key: SubChunkKey) {
@@ -1099,7 +1354,10 @@ impl WorldStream {
     fn evict_column(&mut self, key: ChunkKey) {
         self.loaded_columns.remove(&key);
         self.requested_sub_chunks.remove(&key);
-        self.requests.retain(|request| request.chunk != key);
+        self.requests.retain(|slot| match slot {
+            OutboundRequestSlot::Reserved(_) => true,
+            OutboundRequestSlot::Ready(request) => request.chunk != key,
+        });
         self.retry_attempts
             .retain(|sub_chunk, _| sub_chunk.chunk() != key);
         self.deferred_retries
@@ -1223,6 +1481,9 @@ impl WorldStream {
 
         let mut dispatched = 0;
         for (_, key, revision, _) in candidates {
+            if self.mesh_changes.len() >= MAX_PENDING_MESH_CHANGES {
+                break;
+            }
             if !self.revisions.is_current(key, revision) {
                 continue;
             }
@@ -1234,7 +1495,7 @@ impl WorldStream {
                 } else {
                     self.set_connectivity(key, None);
                 }
-                self.mesh_changes.push(WorldMeshChange::Remove { key });
+                self.mesh_changes.push_back(WorldMeshChange::Remove { key });
                 continue;
             };
             if dispatched >= worker_budget || self.in_flight.contains_key(&key) {
@@ -1297,16 +1558,16 @@ impl WorldStream {
             return;
         }
         self.stats.max_mesh_duration = self.stats.max_mesh_duration.max(completion.duration);
-        if let Some(dirty) = self.revisions.dirty(completion.key) {
-            self.stats.max_remesh_latency =
-                self.stats.max_remesh_latency.max(dirty.since.elapsed());
-        }
-        self.revisions
-            .clear_if_current(completion.key, completion.revision);
+        let dirty = self
+            .revisions
+            .dirty(completion.key)
+            .expect("current mesh completion has a dirty revision");
         self.set_connectivity(completion.key, Some(completion.mesh.connectivity()));
-        self.mesh_changes.push(WorldMeshChange::Upsert {
+        self.mesh_changes.push_back(WorldMeshChange::Upsert {
             key: completion.key,
             mesh: completion.mesh,
+            generation: completion.revision,
+            dirty_since: dirty.since,
         });
     }
 
@@ -1349,10 +1610,11 @@ impl WorldStream {
 
     fn retry_is_queued(&self, key: SubChunkKey) -> bool {
         self.deferred_retry_set.contains(&key)
-            || self.requests.iter().any(|request| {
-                request.chunk == key.chunk()
-                    && request.base_sub_chunk_y == key.y
-                    && request.count == 1
+            || self.requests.iter().any(|slot| {
+                matches!(slot, OutboundRequestSlot::Ready(request)
+                    if request.chunk == key.chunk()
+                        && request.base_sub_chunk_y == key.y
+                        && request.count == 1)
             })
     }
 
@@ -1361,14 +1623,16 @@ impl WorldStream {
             self.stats.normalization_errors = self.stats.normalization_errors.saturating_add(1);
             return false;
         };
-        self.requests.push_back(PendingSubChunkRequest {
-            packet,
-            dimension: key.dimension,
-            chunk: key.chunk(),
-            base_sub_chunk_y: key.y,
-            count: 1,
-        });
-        true
+        self.place_outbound_request(
+            None,
+            PendingSubChunkRequest {
+                packet,
+                dimension: key.dimension,
+                chunk: key.chunk(),
+                base_sub_chunk_y: key.y,
+                count: 1,
+            },
+        )
     }
 
     fn pump_deferred_retries(&mut self) {
@@ -1391,10 +1655,11 @@ impl WorldStream {
         if self.deferred_retry_set.remove(&key) {
             self.deferred_retries.retain(|pending| *pending != key);
         }
-        self.requests.retain(|request| {
-            !(request.chunk == key.chunk()
-                && request.base_sub_chunk_y == key.y
-                && request.count == 1)
+        self.requests.retain(|slot| {
+            !matches!(slot, OutboundRequestSlot::Ready(request)
+                if request.chunk == key.chunk()
+                    && request.base_sub_chunk_y == key.y
+                    && request.count == 1)
         });
     }
 
@@ -1499,14 +1764,281 @@ mod tests {
 
     use super::{MeshCompletion, RevisionTracker, SequenceBuffer, WorldStream, split_block_update};
 
-    fn inline_air_event(_x: i32) -> WorldEvent {
+    fn inline_air_event(x: i32) -> WorldEvent {
         WorldEvent::LevelChunk(LevelChunkEvent {
             dimension: 0,
-            x: 0,
+            x,
             z: 0,
             mode: LevelChunkMode::Inline { count: 1 },
             payload: vec![9, 0, (-4_i8) as u8],
         })
+    }
+
+    fn complete_pending_decode_jobs(stream: &mut WorldStream) {
+        while let Some(job) = stream.pending_decode.pop_front() {
+            let (sequence, event) = match job {
+                super::DecodeJob::InlineLevelChunk {
+                    sequence,
+                    mut event,
+                    base_sub_chunk_y,
+                    count,
+                } => {
+                    let payload = std::mem::take(&mut event.payload);
+                    (
+                        sequence,
+                        super::PreparedWorldEvent::InlineLevelChunk {
+                            event,
+                            decoded: DecodedLevelChunk::decode(base_sub_chunk_y, count, &payload),
+                            duration: std::time::Duration::ZERO,
+                        },
+                    )
+                }
+                super::DecodeJob::SubChunks { sequence, batch } => (
+                    sequence,
+                    super::PreparedWorldEvent::SubChunks {
+                        dimension: batch.dimension,
+                        entries: super::prepare_sub_chunks(batch),
+                        duration: std::time::Duration::ZERO,
+                    },
+                ),
+                super::DecodeJob::BlockUpdates {
+                    sequence,
+                    batches,
+                    air_runtime_id,
+                } => (
+                    sequence,
+                    super::PreparedWorldEvent::BlockUpdates {
+                        result: batches
+                            .into_iter()
+                            .map(|batch| {
+                                ChunkStore::prepare_sub_chunk_blocks(
+                                    batch.key,
+                                    batch.previous.as_deref(),
+                                    &batch.updates,
+                                    air_runtime_id,
+                                )
+                            })
+                            .collect(),
+                        duration: std::time::Duration::ZERO,
+                    },
+                ),
+            };
+            stream.accept_decode_completion(super::DecodeCompletion { sequence, event });
+        }
+        stream.apply_ready();
+    }
+
+    #[test]
+    fn bootstrap_non_finite_horizontal_position_uses_the_shared_finite_scope_anchor() {
+        let bootstrap = WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [f32::NAN, 80.0, f32::INFINITY],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+        };
+        let expected = crate::server_position::resolve_server_position(
+            bootstrap.player_position,
+            [0.0, crate::server_position::SAFE_SERVER_HEIGHT, 0.0],
+            None,
+        );
+
+        let stream = WorldStream::new(bootstrap);
+
+        assert_eq!(stream.resolved_server_position(), expected);
+        let anchor = expected.surface_anchor.unwrap();
+        assert!(stream.column_is_active(ChunkKey::new(
+            0,
+            anchor[0].div_euclid(16),
+            anchor[1].div_euclid(16),
+        )));
+    }
+
+    #[test]
+    fn change_dimension_non_finite_horizontal_position_keeps_camera_and_scope_together() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [7.25, 70.0, -8.75],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+        });
+        let change = ChangeDimensionEvent {
+            dimension: 1,
+            position: [f32::NAN, 32_000.0, f32::INFINITY],
+        };
+        let expected = crate::server_position::resolve_server_position(
+            change.position,
+            stream.resolved_server_position().position,
+            stream.resolved_server_position().surface_anchor,
+        );
+
+        stream
+            .submit(1, WorldEvent::ChangeDimension(change))
+            .unwrap();
+
+        assert_eq!(stream.resolved_server_position(), expected);
+        let anchor = expected.surface_anchor.unwrap();
+        assert!(stream.column_is_active(ChunkKey::new(
+            1,
+            anchor[0].div_euclid(16),
+            anchor[1].div_euclid(16),
+        )));
+        assert!(matches!(
+            stream.take_committed_controls().as_slice(),
+            [super::CommittedControlEvent::ChangeDimension { resolved, .. }]
+                if *resolved == expected
+        ));
+    }
+
+    #[test]
+    fn newer_inline_chunk_is_validated_after_fifo_blocked_publisher_update_commits() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+        });
+
+        stream.submit(1, inline_air_event(0)).unwrap();
+        stream
+            .submit(
+                2,
+                WorldEvent::PublisherUpdate(PublisherUpdateEvent {
+                    center: [1_600, 64, 0],
+                    radius_blocks: 256,
+                }),
+            )
+            .unwrap();
+        stream.submit(3, inline_air_event(100)).unwrap();
+
+        assert_eq!(stream.pending_decode.len(), 2);
+        complete_pending_decode_jobs(&mut stream);
+
+        let key = SubChunkKey::new(0, 100, -4, 0);
+        assert_eq!(stream.publisher_center, Some([1_600, 64, 0]));
+        assert!(stream.resident.contains(&key) || stream.known_air.contains(&key));
+    }
+
+    #[test]
+    fn newer_subchunk_is_validated_after_fifo_blocked_dimension_change_commits() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+        });
+
+        stream.submit(1, inline_air_event(0)).unwrap();
+        stream
+            .submit(
+                2,
+                WorldEvent::ChangeDimension(ChangeDimensionEvent {
+                    dimension: 1,
+                    position: [1_600.0, 80.0, 0.0],
+                }),
+            )
+            .unwrap();
+        stream
+            .submit(
+                3,
+                WorldEvent::LevelChunk(LevelChunkEvent {
+                    dimension: 1,
+                    x: 100,
+                    z: 0,
+                    mode: LevelChunkMode::LimitedRequests { highest: 1 },
+                    payload: Vec::new(),
+                }),
+            )
+            .unwrap();
+        stream
+            .submit(
+                4,
+                WorldEvent::SubChunks(SubChunkBatchEvent {
+                    dimension: 1,
+                    entries: vec![SubChunkEntryEvent {
+                        position: [100, 0, 0],
+                        result: SubChunkResult::AllAir,
+                    }],
+                }),
+            )
+            .unwrap();
+
+        assert_eq!(stream.pending_decode.len(), 2);
+        complete_pending_decode_jobs(&mut stream);
+
+        let key = SubChunkKey::new(1, 100, 0, 0);
+        assert_eq!(stream.current_dimension(), 1);
+        assert!(stream.known_air.contains(&key));
+        assert!(stream.loaded_columns.contains(&key.chunk()));
+    }
+
+    #[test]
+    fn deferred_request_events_reserve_outbound_capacity_at_admission() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+        });
+
+        for sequence in 1..=62_u64 {
+            let index = sequence as i32 - 1;
+            stream
+                .submit(
+                    sequence,
+                    WorldEvent::LevelChunk(LevelChunkEvent {
+                        dimension: 0,
+                        x: index.rem_euclid(9) - 4,
+                        z: index.div_euclid(9) - 4,
+                        mode: LevelChunkMode::LimitedRequests { highest: 1 },
+                        payload: Vec::new(),
+                    }),
+                )
+                .unwrap();
+        }
+        stream.submit(63, inline_air_event(0)).unwrap();
+        for (sequence, x) in [(64, 10), (65, 11)] {
+            stream
+                .submit(
+                    sequence,
+                    WorldEvent::LevelChunk(LevelChunkEvent {
+                        dimension: 0,
+                        x,
+                        z: 1,
+                        mode: LevelChunkMode::LimitedRequests { highest: 1 },
+                        payload: Vec::new(),
+                    }),
+                )
+                .unwrap();
+        }
+
+        let error = stream
+            .submit(
+                66,
+                WorldEvent::LevelChunk(LevelChunkEvent {
+                    dimension: 0,
+                    x: 12,
+                    z: 10,
+                    mode: LevelChunkMode::LimitedRequests { highest: 1 },
+                    payload: Vec::new(),
+                }),
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            super::WorldStreamError::OutboundFull { .. }
+        ));
+        assert_eq!(stream.pending_request_count(), 62);
+
+        complete_pending_decode_jobs(&mut stream);
+        assert_eq!(
+            stream.pending_request_count(),
+            super::OUTBOUND_REQUEST_CAPACITY
+        );
     }
 
     #[test]
@@ -1587,16 +2119,8 @@ mod tests {
                 }),
             )
             .unwrap();
-        assert_eq!(stream.stats().queued_decode_jobs, 0);
-
-        stream.apply_prepared(super::PreparedWorldEvent::SubChunks {
-            dimension: 0,
-            entries: vec![super::PreparedSubChunk {
-                position: [key.x, key.y, key.z],
-                result: super::PreparedSubChunkResult::AllAir,
-            }],
-            duration: std::time::Duration::ZERO,
-        });
+        assert_eq!(stream.stats().queued_decode_jobs, 1);
+        complete_pending_decode_jobs(&mut stream);
         assert!(!stream.resident.contains(&key));
         assert!(stream.store.sub_chunk(key).is_none());
     }
@@ -1656,6 +2180,8 @@ mod tests {
             .unwrap();
         stream.submit(5, inline_air_event(0)).unwrap();
         assert_eq!(stream.current_dimension(), 1);
+        assert_eq!(stream.stats().queued_decode_jobs, 1);
+        complete_pending_decode_jobs(&mut stream);
         assert_eq!(stream.stats().queued_decode_jobs, 0);
     }
 
@@ -1693,6 +2219,8 @@ mod tests {
             )
             .unwrap();
 
+        assert_eq!(stream.stats().queued_decode_jobs, 1);
+        complete_pending_decode_jobs(&mut stream);
         assert_eq!(stream.stats().queued_decode_jobs, 0);
         assert!(!stream.resident.contains(&SubChunkKey::new(0, 0, -3, 0)));
         assert_eq!(
@@ -1757,8 +2285,20 @@ mod tests {
         assert_eq!(
             stream.take_committed_controls(),
             vec![
-                super::CommittedControlEvent::MovePlayer(movement),
-                super::CommittedControlEvent::ChangeDimension(change),
+                super::CommittedControlEvent::MovePlayer {
+                    movement,
+                    resolved: crate::server_position::ResolvedServerPosition {
+                        position: movement.position,
+                        surface_anchor: None,
+                    },
+                },
+                super::CommittedControlEvent::ChangeDimension {
+                    change,
+                    resolved: crate::server_position::ResolvedServerPosition {
+                        position: change.position,
+                        surface_anchor: None,
+                    },
+                },
             ]
         );
     }
@@ -1798,6 +2338,32 @@ mod tests {
     }
 
     #[test]
+    fn render_backpressure_retry_preserves_change_order_for_eventual_delivery() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+        });
+        let first = SubChunkKey::new(0, 1, 2, 3);
+        let second = SubChunkKey::new(0, 4, 5, 6);
+        stream
+            .mesh_changes
+            .push_back(super::WorldMeshChange::Remove { key: first });
+        stream
+            .mesh_changes
+            .push_back(super::WorldMeshChange::Remove { key: second });
+
+        let blocked = stream.pop_mesh_change().unwrap();
+        stream.retry_mesh_change_front(blocked).unwrap();
+
+        assert_eq!(stream.pop_mesh_change().unwrap().key(), first);
+        assert_eq!(stream.pop_mesh_change().unwrap().key(), second);
+        assert!(stream.pop_mesh_change().is_none());
+    }
+
+    #[test]
     fn stale_mesh_revision_is_rejected() {
         let key = SubChunkKey::new(0, -1, 2, 3);
         let mut revisions = RevisionTracker::default();
@@ -1806,6 +2372,69 @@ mod tests {
 
         assert!(!revisions.is_current(key, old));
         assert!(revisions.is_current(key, current));
+    }
+
+    #[test]
+    fn remesh_latency_closes_only_when_the_exact_generation_is_applied() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+        });
+        let key = SubChunkKey::new(0, 0, -4, 0);
+        let decoded = DecodedLevelChunk::decode(
+            -4,
+            1,
+            include_bytes!("../../crates/world/fixtures/uniform_non_air.bin"),
+        )
+        .unwrap();
+        stream
+            .store
+            .commit_level_chunk(ChunkKey::new(0, 0, 0), decoded);
+        let source = stream.store.sub_chunk(key).unwrap();
+        let dirty_since = Instant::now();
+        let generation = stream.revisions.mark_dirty(key, dirty_since);
+        stream.in_flight.insert(key, generation);
+        let mesh = mesh_sub_chunk(&stream.classifier, &Neighbourhood::empty(), source.as_ref());
+        stream.accept_mesh_completion(MeshCompletion {
+            key,
+            revision: generation,
+            source,
+            mesh,
+            duration: std::time::Duration::from_millis(5),
+        });
+
+        assert_eq!(
+            stream.stats().max_remesh_latency,
+            std::time::Duration::ZERO,
+            "worker-ready mesh must not close update-to-visible latency"
+        );
+        let change = stream.pop_mesh_change().unwrap();
+        let super::WorldMeshChange::Upsert {
+            generation: queued_generation,
+            dirty_since: queued_since,
+            ..
+        } = change
+        else {
+            panic!("expected queued mesh upload")
+        };
+        assert_eq!(queued_generation, generation);
+        assert_eq!(queued_since, dirty_since);
+
+        let applied_at = dirty_since + std::time::Duration::from_millis(75);
+
+        stream.acknowledge_mesh_upload(key, generation + 1, dirty_since, applied_at);
+        assert_eq!(stream.stats().max_remesh_latency, std::time::Duration::ZERO);
+        assert!(stream.revisions.is_current(key, generation));
+
+        stream.acknowledge_mesh_upload(key, generation, dirty_since, applied_at);
+        assert_eq!(
+            stream.stats().max_remesh_latency,
+            std::time::Duration::from_millis(75)
+        );
+        assert!(!stream.revisions.is_current(key, generation));
     }
 
     #[test]
@@ -1820,6 +2449,68 @@ mod tests {
 
         assert_eq!(key, SubChunkKey::new(2, -1, -5, 1));
         assert_eq!(update, BlockUpdate::new(15, 15, 0, 1, 0xdead_beef));
+    }
+
+    #[test]
+    fn max_block_update_batch_prepares_off_thread_and_commits_atomically_in_fifo() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+        });
+        let mut updates = (0..4_095)
+            .map(|linear| BlockUpdateEvent {
+                dimension: 0,
+                position: [linear >> 8, linear & 15, (linear >> 4) & 15],
+                layer: 0,
+                network_id: linear as u32 + 1,
+            })
+            .collect::<Vec<_>>();
+        updates.push(BlockUpdateEvent {
+            dimension: 0,
+            position: [0, 0, 0],
+            layer: 0,
+            network_id: 99_999,
+        });
+        let movement = MovePlayerEvent {
+            runtime_id: 1,
+            position: [1.0, 70.0, 2.0],
+            pitch: 0.0,
+            yaw: 0.0,
+        };
+
+        stream.submit(1, WorldEvent::BlockUpdates(updates)).unwrap();
+        stream.submit(2, WorldEvent::MovePlayer(movement)).unwrap();
+
+        assert_eq!(stream.stats().queued_decode_jobs, 1);
+        assert!(stream.take_committed_controls().is_empty());
+        assert!(
+            stream
+                .store
+                .sub_chunk(SubChunkKey::new(0, 0, 0, 0))
+                .is_none()
+        );
+
+        complete_pending_decode_jobs(&mut stream);
+
+        let committed = stream
+            .store
+            .sub_chunk(SubChunkKey::new(0, 0, 0, 0))
+            .unwrap();
+        assert_eq!(committed.runtime_id(0, 0, 0, 0), Some(99_999));
+        assert_eq!(committed.runtime_id(0, 15, 14, 15), Some(4_095));
+        assert_eq!(
+            stream.take_committed_controls(),
+            vec![super::CommittedControlEvent::MovePlayer {
+                movement,
+                resolved: crate::server_position::ResolvedServerPosition {
+                    position: movement.position,
+                    surface_anchor: None,
+                },
+            }]
+        );
     }
 
     #[test]

@@ -18,6 +18,15 @@ pub struct ApplyLevelChunk {
     pub bytes_consumed: usize,
 }
 
+/// A fully validated packed sub-chunk replacement prepared off the gameplay
+/// thread and ready for an infallible FIFO commit.
+#[derive(Debug)]
+pub struct PreparedSubChunkMutation {
+    key: SubChunkKey,
+    replacement: Option<SubChunk>,
+    changed: bool,
+}
+
 /// A completely validated full-column block decode ready for a cheap commit.
 ///
 /// Packed sub-chunks are wrapped in `Arc`s during decode so this value can be
@@ -204,35 +213,74 @@ impl ChunkStore {
         updates: &[BlockUpdate],
         air_runtime_id: u32,
     ) -> Result<Vec<SubChunkKey>, MutationError> {
+        let previous = self.sub_chunk(key);
+        let prepared =
+            Self::prepare_sub_chunk_blocks(key, previous.as_deref(), updates, air_runtime_id)?;
+        Ok(self.commit_prepared_block_updates(vec![prepared]))
+    }
+
+    /// Builds one packed replacement without mutating a store. Duplicate
+    /// coordinates use their final value and each affected layer repacks once.
+    pub fn prepare_sub_chunk_blocks(
+        key: SubChunkKey,
+        previous: Option<&SubChunk>,
+        updates: &[BlockUpdate],
+        air_runtime_id: u32,
+    ) -> Result<PreparedSubChunkMutation, MutationError> {
         for &update in updates {
             update.validate()?;
         }
         if updates.is_empty() {
-            return Ok(Vec::new());
+            return Ok(PreparedSubChunkMutation {
+                key,
+                replacement: previous.cloned(),
+                changed: false,
+            });
         }
 
-        let previous = self
-            .chunks
-            .get(&key.chunk())
-            .and_then(|chunk| chunk.sub_chunks.get(&key.y));
         let mut replacement = previous
-            .map(|sub_chunk| sub_chunk.as_ref().clone())
+            .cloned()
             .unwrap_or_else(|| SubChunk::for_block_updates(key.y));
         replacement.apply_block_updates(updates, air_runtime_id);
+        let replacement = (!replacement.has_no_storages()).then_some(replacement);
+        let changed = match (previous, replacement.as_ref()) {
+            (Some(previous), Some(replacement)) => previous != replacement,
+            (None, None) => false,
+            (Some(_), None) | (None, Some(_)) => true,
+        };
+        Ok(PreparedSubChunkMutation {
+            key,
+            replacement,
+            changed,
+        })
+    }
 
-        if replacement.has_no_storages() {
-            return Ok(self.remove_sub_chunk(key).into_iter().collect());
+    /// Commits a completely prepared batch without validation or allocation
+    /// failure points, so observers can only see the state before or after it.
+    pub fn commit_prepared_block_updates(
+        &mut self,
+        prepared: Vec<PreparedSubChunkMutation>,
+    ) -> Vec<SubChunkKey> {
+        let mut changed = Vec::new();
+        for mutation in prepared {
+            if !mutation.changed {
+                continue;
+            }
+            match mutation.replacement {
+                Some(replacement) => {
+                    self.chunks
+                        .entry(mutation.key.chunk())
+                        .or_default()
+                        .sub_chunks
+                        .insert(mutation.key.y, Arc::new(replacement));
+                }
+                None => {
+                    self.remove_sub_chunk(mutation.key);
+                }
+            }
+            changed.push(mutation.key);
         }
-        if previous.is_some_and(|sub_chunk| sub_chunk.as_ref() == &replacement) {
-            return Ok(Vec::new());
-        }
-
-        self.chunks
-            .entry(key.chunk())
-            .or_default()
-            .sub_chunks
-            .insert(key.y, Arc::new(replacement));
-        Ok(vec![key])
+        changed
     }
 
     /// Removes a complete column and returns its stored sub-chunk keys sorted
