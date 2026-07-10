@@ -219,12 +219,19 @@ function Invoke-CheckedBuild {
         [Parameter(Mandatory = $true)][string]$WorkingDirectory
     )
 
+    $previousErrorAction = $ErrorActionPreference
     Push-Location -LiteralPath $WorkingDirectory
     try {
-        & $Executable @Arguments 2>&1 | Tee-Object -FilePath $LogPath
+        # Windows PowerShell 5.1 represents a native process's stderr as non-terminating
+        # ErrorRecords. Compilers routinely use stderr for progress even when they exit 0.
+        $ErrorActionPreference = 'Continue'
+        & $Executable @Arguments 2>&1 |
+            ForEach-Object { $_.ToString() } |
+            Tee-Object -FilePath $LogPath
         $exitCode = $LASTEXITCODE
     }
     finally {
+        $ErrorActionPreference = $previousErrorAction
         Pop-Location
     }
     if ($exitCode -ne 0) {

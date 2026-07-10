@@ -165,6 +165,14 @@ try {
         -LogPath (Join-Path $TempRoot 'working-directory.log') `
         -WorkingDirectory $TempRoot
 
+    $stderrBuildLog = Join-Path $TempRoot 'successful-stderr-build.log'
+    Invoke-CheckedBuild `
+        -Executable (Join-Path $PSHOME 'powershell.exe') `
+        -Arguments @('-NoProfile', '-Command', "[Console]::Error.WriteLine('compiler-progress'); exit 0") `
+        -LogPath $stderrBuildLog `
+        -WorkingDirectory $TempRoot
+    Assert-True ((Get-Content -Raw -LiteralPath $stderrBuildLog).Contains('compiler-progress')) 'successful native stderr was not retained in the build log'
+
     $helper = Start-LoggedProcess `
         -Executable (Join-Path $PSHOME 'powershell.exe') `
         -Arguments @('-NoProfile', '-Command', "Write-Output 'TEST_READY'; [Console]::Error.WriteLine('error-line')") `
