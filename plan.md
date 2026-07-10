@@ -199,3 +199,56 @@ server, a Realm, and a friend's world (NetherNet) → play survival basics (move
 chest, craft, chat, forms) with vanilla look and feel at 60fps on the dev MacBook → create a
 local dragonfly world, play it offline, reload it. Server resource packs render. No Rust-side
 auth/transport code exists.
+
+---
+
+## Appendix: Rendering Performance Playbook (binding for Phases 0 and 2)
+
+FPS and memory in this client are dominated by chunk meshes; these techniques stack
+multiplicatively and are the required approach, not suggestions:
+
+1. **Paletted chunk data stays paletted at runtime.** Mesh directly from palette + packed
+   indices; never expand to flat per-block arrays (the naeast2 lesson, client-side). Uniform
+   subchunks (all air/all one block) store one palette entry and skip meshing entirely.
+2. **Binary greedy meshing.** Per-axis-column `u64` bitmasks; face culling and coplanar
+   merging via bitwise ops (target: tens of µs per subchunk, making remesh-on-update ~free).
+   Merges split where baked AO/light values differ. References: `block-mesh` crate and
+   TanTanDev binary-greedy-meshing demos.
+3. **Packed vertices / per-quad vertex pulling.** Local position 5+5+5 bits, face ID 3 bits
+   (normal from LUT), texture-array layer index, AO 2 bits, light 8 bits → 1–2 `u32` per
+   vertex, subchunk origin as a per-draw push constant. Preferred form: one ~8-byte record
+   per quad in a storage buffer, corners reconstructed in the vertex shader, and one shared
+   static index buffer for all chunks. This targets roughly 20–40× less mesh memory than
+   naive 32-byte vertices.
+4. **Custom Bevy render phase for chunks.** No per-subchunk `Mesh`/`StandardMaterial`; use
+   one pipeline + one bind group (texture array), with `multi_draw_indirect` where available.
+5. **Visibility culling.** Per-subchunk frustum culling + cave/connectivity culling
+   (Checchi-style: face-to-face connectivity flood-filled at mesh time, then BFS from the
+   camera through the chunk graph—the approach used by vanilla).
+6. **Budget spiky work.** Decode/mesh/light only on Rayon workers; GPU uploads capped per
+   frame and nearest-first; light updates deduplicated and queued; block + sky light baked
+   per vertex at mesh time so lighting cost rides the remesh budget.
+7. **2D texture array, not a stitched atlas.** This avoids mip bleeding, permits greedy-quad
+   UV wrapping, and implements flipbooks as layer swaps; mipmaps are generated per layer.
+
+Explicitly deferred past v1: distant-chunk LODs (not needed at a 16-chunk radius), GPU
+occlusion queries (cave culling suffices), and mesh shaders.
+
+Resource budget (tracked from Phase 2 onward; reference machine class = Ryzen 5 3600 / mid
+Apple Silicon, 16-chunk radius, capped 60fps): combined RSS (client + core) ≤ 650MB
+steady-state; steady-state CPU ≤ 15% total; join/teleport bursts may saturate cores but must
+settle within ~2 seconds. Baseline for comparison: vanilla Bedrock client on the same
+machine runs at 800MB–2GB and 30%+ CPU.
+
+Binding Phase 2 scope: block registry + block-state → model/texture mapping (generated
+export from dragonfly's registry via `tools/registrygen`, shipped as a binary asset);
+vanilla asset ingestion from **Mojang/bedrock-samples** pinned to the matching game version
+(block models, terrain textures, `blocks.json`, flipbooks). BDS
+`resource_packs/vanilla` is server-minimal (`blocks.json` + texts only): it is a data
+reference, not the texture source. Use a 2D texture array + per-layer mipmaps; meshing per
+this playbook with opaque/cutout/blend layers; a client-side block + sky flood-fill light
+engine with per-vertex light baked at mesh time and day/night; biome tinting for
+grass/foliage/water; sky, fog, and clouds; chunk streaming/eviction tied to
+`ChunkRadiusUpdated` + `SubChunk` request flow. Custom block-entity renderers remain
+deferred; chests/signs receive static models in this phase. The Phase 0 performance budget
+carries forward, with full remesh of view distance after teleport ≤ 2 seconds.
