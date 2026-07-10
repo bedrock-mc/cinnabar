@@ -1,0 +1,19 @@
+[package]
+name = "valentine"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+bitflags = { version = "2", features = ["serde"] }
+bytes = "1.11"
+uuid = { version = "1", features = ["v4"] }
+valentine_bedrock_core = { version = "0.1.0", path = "bedrock_core" }
+valentine_bedrock_1_26_0 = { version = "0.1.0", path = "bedrock_versions/v1_26_0", optional = true }
+valentine_bedrock_1_26_30 = { version = "0.1.0", path = "bedrock_versions/v1_26_30", optional = true }
+
+[features]
+default = ["bedrock_1_26_30"]
+bedrock_1_26_0 = ["dep:valentine_bedrock_1_26_0"]
+bedrock_1_26_30 = ["dep:valentine_bedrock_1_26_30"]

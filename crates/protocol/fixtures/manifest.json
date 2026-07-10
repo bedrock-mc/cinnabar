@@ -1,0 +1,37 @@
+[
+  {
+    "name": "NetworkSettings",
+    "file": "network_settings.bin",
+    "id": 143,
+    "byte_length": 14,
+    "sha256": "7e1b4572e30817d3c1acdbd9d961d74172d01ee33c80e9694f46b866ac8381d6"
+  },
+  {
+    "name": "StartGame",
+    "file": "start_game.bin",
+    "id": 11,
+    "byte_length": 270,
+    "sha256": "7fe3bfcbc387735bec148fba9b6838a3a1ac641832d5a510ea7c8f316d57b980"
+  },
+  {
+    "name": "LevelChunk",
+    "file": "level_chunk.bin",
+    "id": 58,
+    "byte_length": 20,
+    "sha256": "552a9bfae75f262b240afaab1e807062c0a648f645e0227154b9d896fa9c6c87"
+  },
+  {
+    "name": "MovePlayer",
+    "file": "move_player.bin",
+    "id": 19,
+    "byte_length": 42,
+    "sha256": "d8ea552cba9f22fdf35af9c14431640abee23163c4a58e2ba28071eae9b42734"
+  },
+  {
+    "name": "AddActor",
+    "file": "add_actor.bin",
+    "id": 13,
+    "byte_length": 66,
+    "sha256": "94488d2f25a50e01e1bcaa57f83200af36495605f299004b946c145d1d73d2a5"
+  }
+]

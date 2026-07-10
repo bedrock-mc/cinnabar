@@ -4,3 +4,9 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish = false
+
+[dependencies]
+bytes.workspace = true
+thiserror.workspace = true
+valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_30"] }
+jolyne = { path = "vendor/jolyne", default-features = false, features = ["client"] }

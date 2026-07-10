@@ -1,0 +1,223 @@
+package main
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"github.com/go-gl/mathgl/mgl32"
+	"github.com/sandertv/gophertunnel/minecraft"
+	"github.com/sandertv/gophertunnel/minecraft/protocol"
+	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
+)
+
+const (
+	gameVersion     = "1.26.30"
+	protocolID      = 1001
+	senderSubClient = 1
+	targetSubClient = 2
+)
+
+type fixture struct {
+	name string
+	file string
+	pk   packet.Packet
+}
+
+type manifestEntry struct {
+	Name       string `json:"name"`
+	File       string `json:"file"`
+	ID         uint32 `json:"id"`
+	ByteLength int    `json:"byte_length"`
+	SHA256     string `json:"sha256"`
+}
+
+func main() {
+	out := flag.String("out", "", "directory to write protocol fixtures")
+	flag.Parse()
+	if *out == "" {
+		fmt.Fprintln(os.Stderr, "fixturegen: -out is required")
+		os.Exit(2)
+	}
+	if err := generate(*out); err != nil {
+		fmt.Fprintf(os.Stderr, "fixturegen: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func generate(out string) error {
+	if minecraft.DefaultProtocol.ID() != protocolID || minecraft.DefaultProtocol.Ver() != gameVersion {
+		return fmt.Errorf(
+			"gophertunnel protocol drift: got %d/%s, want %d/%s",
+			minecraft.DefaultProtocol.ID(), minecraft.DefaultProtocol.Ver(), protocolID, gameVersion,
+		)
+	}
+	if out == "" {
+		return errors.New("output directory is empty")
+	}
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		return fmt.Errorf("create output directory: %w", err)
+	}
+
+	manifest := make([]manifestEntry, 0, len(fixtures()))
+	for _, fixture := range fixtures() {
+		encoded, err := encode(fixture.pk)
+		if err != nil {
+			return fmt.Errorf("encode %s: %w", fixture.name, err)
+		}
+		path := filepath.Join(out, fixture.file)
+		if err := os.WriteFile(path, encoded, 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", path, err)
+		}
+		digest := sha256.Sum256(encoded)
+		manifest = append(manifest, manifestEntry{
+			Name:       fixture.name,
+			File:       fixture.file,
+			ID:         fixture.pk.ID(),
+			ByteLength: len(encoded),
+			SHA256:     hex.EncodeToString(digest[:]),
+		})
+	}
+
+	encodedManifest, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode manifest: %w", err)
+	}
+	encodedManifest = append(encodedManifest, '\n')
+	manifestPath := filepath.Join(out, "manifest.json")
+	if err := os.WriteFile(manifestPath, encodedManifest, 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", manifestPath, err)
+	}
+	return nil
+}
+
+func fixtures() []fixture {
+	return []fixture{
+		{
+			name: "NetworkSettings",
+			file: "network_settings.bin",
+			pk: &packet.NetworkSettings{
+				CompressionThreshold:    512,
+				CompressionAlgorithm:    packet.CompressionAlgorithmFlate,
+				ClientThrottle:          true,
+				ClientThrottleThreshold: 8,
+				ClientThrottleScalar:    0.5,
+			},
+		},
+		{
+			name: "StartGame",
+			file: "start_game.bin",
+			pk: &packet.StartGame{
+				EntityUniqueID:        1,
+				EntityRuntimeID:       2,
+				PlayerGameMode:        1,
+				PlayerPosition:        mgl32.Vec3{1.25, 64, -2.5},
+				Pitch:                 10.5,
+				Yaw:                   20.25,
+				WorldSeed:             12345,
+				SpawnBiomeType:        packet.SpawnBiomeTypeDefault,
+				UserDefinedBiomeName:  "plains",
+				Dimension:             0,
+				Generator:             1,
+				WorldGameMode:         0,
+				Hardcore:              false,
+				Difficulty:            1,
+				WorldSpawn:            protocol.BlockPos{8, 64, -8},
+				AchievementsDisabled:  false,
+				EditorWorldType:       packet.EditorWorldTypeNotEditor,
+				MultiPlayerGame:       true,
+				LANBroadcastEnabled:   true,
+				CommandsEnabled:       true,
+				PlayerPermissions:     1,
+				ServerChunkTickRadius: 4,
+				BaseGameVersion:       protocol.CurrentVersion,
+				NewNether:             true,
+				ChatRestrictionLevel:  packet.ChatRestrictionLevelNone,
+				LevelID:               "fixture-level",
+				WorldName:             "Fixture World",
+				PlayerMovementSettings: protocol.PlayerMovementSettings{
+					RewindHistorySize:                20,
+					ServerAuthoritativeBlockBreaking: true,
+				},
+				Time:                         123456789,
+				EnchantmentSeed:              12345,
+				MultiPlayerCorrelationID:     "00000000-0000-0000-0000-000000000001",
+				ServerAuthoritativeInventory: true,
+				GameVersion:                  protocol.CurrentVersion,
+				PropertyData: map[string]any{
+					"gophertunnel:test": int32(1),
+				},
+				UseBlockNetworkIDHashes: true,
+			},
+		},
+		{
+			name: "LevelChunk",
+			file: "level_chunk.bin",
+			pk: &packet.LevelChunk{
+				Position:        protocol.ChunkPos{3, -4},
+				Dimension:       0,
+				SubChunkCount:   protocol.SubChunkRequestModeLimited,
+				HighestSubChunk: 24,
+				CacheEnabled:    false,
+				RawPayload:      []byte{0xde, 0xad, 0xbe, 0xef},
+			},
+		},
+		{
+			name: "MovePlayer",
+			file: "move_player.bin",
+			pk: &packet.MovePlayer{
+				EntityRuntimeID:          42,
+				Position:                 mgl32.Vec3{1.25, 64, -2.5},
+				Pitch:                    10.5,
+				Yaw:                      20.25,
+				HeadYaw:                  30.75,
+				Mode:                     packet.MoveModeTeleport,
+				OnGround:                 true,
+				RiddenEntityRuntimeID:    0,
+				TeleportCause:            packet.TeleportCauseCommand,
+				TeleportSourceEntityType: 87,
+				Tick:                     1234,
+			},
+		},
+		{
+			name: "AddActor",
+			file: "add_actor.bin",
+			pk: &packet.AddActor{
+				EntityUniqueID:  -77,
+				EntityRuntimeID: 77,
+				EntityType:      "minecraft:pig",
+				Position:        mgl32.Vec3{2, 65, -3},
+				Velocity:        mgl32.Vec3{0.1, 0.2, 0.3},
+				Pitch:           1,
+				Yaw:             2,
+				HeadYaw:         3,
+				BodyYaw:         4,
+				EntityMetadata:  protocol.EntityMetadata{},
+			},
+		},
+	}
+}
+
+func encode(pk packet.Packet) ([]byte, error) {
+	var entry bytes.Buffer
+	if err := (&packet.Header{
+		PacketID:        pk.ID(),
+		SenderSubClient: senderSubClient,
+		TargetSubClient: targetSubClient,
+	}).Write(&entry); err != nil {
+		return nil, err
+	}
+	pk.Marshal(protocol.NewWriter(&entry, 0))
+
+	var batch bytes.Buffer
+	if err := packet.NewEncoder(&batch).Encode([][]byte{entry.Bytes()}); err != nil {
+		return nil, err
+	}
+	return append([]byte(nil), batch.Bytes()...), nil
+}
