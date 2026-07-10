@@ -35,3 +35,44 @@ func TestValidateRuntimeSeparationRejectsDarwinCaseVariantParent(t *testing.T) {
 		t.Fatal("case-variant source descendant was accepted as a separate runtime")
 	}
 }
+
+func TestRuntimeOwnershipMarkerDistinguishesDarwinCaseSensitiveSources(t *testing.T) {
+	root := t.TempDir()
+	firstSource := filepath.Join(root, "BedrockSource")
+	secondSource := filepath.Join(root, "bedrocksource")
+	if err := os.Mkdir(firstSource, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(secondSource, 0o700); os.IsExist(err) {
+		t.Skip("test volume is case-insensitive")
+	} else if err != nil {
+		t.Fatalf("create case-only source: %v", err)
+	}
+
+	canonicalFirst, err := canonicalExistingPath(firstSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalSecond, err := canonicalExistingPath(secondSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtimeOwnershipMarker(canonicalFirst) == runtimeOwnershipMarker(canonicalSecond) {
+		t.Fatal("distinct case-sensitive Darwin sources produced the same ownership marker")
+	}
+
+	name := "bedrock_server.test"
+	if err := os.WriteFile(filepath.Join(firstSource, name), []byte("first source"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(secondSource, name), []byte("second source"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	runtimeDir := filepath.Join(root, "runtime")
+	if _, err := prepareStableRuntime(firstSource, runtimeDir, name); err != nil {
+		t.Fatalf("prepare first source: %v", err)
+	}
+	if _, err := prepareStableRuntime(secondSource, runtimeDir, name); err == nil {
+		t.Fatal("runtime ownership marker accepted a distinct case-only Darwin source")
+	}
+}

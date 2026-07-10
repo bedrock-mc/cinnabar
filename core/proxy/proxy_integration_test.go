@@ -800,7 +800,7 @@ func validateRuntimeOwnershipMarker(path, want string) error {
 
 func runtimeOwnershipMarker(canonicalSource string) string {
 	identity := filepath.Clean(canonicalSource)
-	if runtimePathsCaseInsensitive() {
+	if runtime.GOOS == "windows" {
 		identity = strings.ToLower(identity)
 	}
 	return "rust-mcbe-bds-runtime-v1\nsource=" + identity + "\n"
