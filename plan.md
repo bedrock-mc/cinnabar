@@ -101,8 +101,8 @@ any other phase proceeds.
 - [x] **0.4 Protocol crate: vendored defs + decode smoke.** Complete at `a7bbfac` (five exact gophertunnel fixtures; review approved). Vendor valentine 1.26.30 generated output. Test: decode a fixture corpus of gophertunnel-encoded packets (generate fixtures with a small Go tool in `tools/fixturegen` — encode one of each: NetworkSettings, StartGame, LevelChunk, MovePlayer, AddActor). Any decode failure here = defs/gophertunnel drift: adjudicate against bedrock-protocol-docs, fix gophertunnel upstream or patch defs, record in `crates/protocol/DEVIATIONS.md`.
 - [ ] **0.5 Login sequence.** Implement `LoginSequence`; test = drive it against the spike core to StartGame. `cargo test -p protocol --test login -- --nocapture` with core+BDS running.
 - [ ] **0.6 Sub-chunk decode.** Port paletted-storage decode (reference: dragonfly `chunk` package). Test: golden fixtures exported from dragonfly (`tools/chunkfix` encodes known block patterns; Rust asserts exact block runtime IDs at coordinates).
-- [ ] **0.7 Spike renderer.** Bevy app: consume LevelChunk and SubChunk responses → decode → cull-meshing on rayon → vertex buffers → draw untextured (per-runtime-ID debug colors); fly camera. No end-to-end renderer test — acceptance run below; pure meshing remains unit-tested.
-- [ ] **0.8 Acceptance run.** Connect to BDS world, render 16-chunk radius, fly at speed, break/place blocks from a second client to force live remeshing. **Gate: p99 frame time ≤ 8ms on the dev MacBook at 16 chunks; remesh of a modified sub-chunk visible ≤ 100ms; zero decode errors over a 15-minute session (or all errors adjudicated as 0.4-style findings and fixed).** Record numbers in the phase report.
+- [ ] **0.7 Spike renderer.** Bevy app: consume LevelChunk and SubChunk responses → decode → cull-meshing on rayon → vertex buffers → draw untextured (per-runtime-ID debug colors); fly camera. Pure meshing remains unit-tested. Use Computer Use for a live interaction pass covering window focus/capture, keyboard inputs, fly movement on every axis, mouse-look yaw/pitch, and clean input release (no stuck movement or rotation); the acceptance run below remains the end-to-end renderer gate.
+- [ ] **0.8 Acceptance run.** Connect to BDS world, render 16-chunk radius, fly at speed, break/place blocks from a second client to force live remeshing. Repeat the Task 0.7 Computer Use interaction checklist in the live streamed world and record the result. **Gate: p99 frame time ≤ 8ms on the dev MacBook at 16 chunks; remesh of a modified sub-chunk visible ≤ 100ms; zero decode errors over a 15-minute session (or all errors adjudicated as 0.4-style findings and fixed).** Record numbers in the phase report.
 
 **Exit criteria:** acceptance gate met; deviations documented; go/no-go written up. Everything after this phase is "build the game", with the architecture de-risked.
 
@@ -134,8 +134,17 @@ Exit: `corectl join --friend <gamertag>` works from a clean machine; conformance
 **Goal:** the spike renderer becomes the real world pipeline. Deliverable: fly through any
 live server world and it *looks like Minecraft*.
 
-Scope: block registry + block-state → model/texture mapping (generated export from dragonfly's registry via `tools/registrygen`, shipped as a binary asset); vanilla asset ingestion from **Mojang/bedrock-samples** pinned to the matching game version (block models, terrain textures, `blocks.json`, flipbooks) — NOTE: BDS `resource_packs/vanilla` is server-minimal (blocks.json + texts only), it is a data reference, not the texture source; texture atlas + mipmaps; greedy/culled meshing with transparency layers (opaque/cutout/blend) and per-face culling; **client-side light engine** (block + sky flood-fill, per-vertex light, day/night); biome tinting (grass/foliage/water); sky, fog, clouds; chunk streaming/eviction tied to `ChunkRadiusUpdated` + `SubChunk` request flow; block entities with custom renderers deferred (chests/signs get static models in this phase).
+Scope: block registry + block-state → model/texture mapping (generated export from dragonfly's registry via `tools/registrygen`, shipped as a binary asset); vanilla asset ingestion from **Mojang/bedrock-samples** pinned to the matching game version (block models, terrain textures, `blocks.json`, flipbooks) — NOTE: BDS `resource_packs/vanilla` is server-minimal (blocks.json + texts only), it is a data reference, not the texture source; 2D texture array + per-layer mipmaps; greedy/culled meshing with transparency layers (opaque/cutout/blend) and per-face culling; **client-side light engine** (block + sky flood-fill, per-vertex light, day/night); biome tinting (grass/foliage/water); sky, fog, clouds; chunk streaming/eviction tied to `ChunkRadiusUpdated` + `SubChunk` request flow; block entities with custom renderers deferred (chests/signs get static models in this phase).
 Perf budget carried from Phase 0 gate; add: full remesh of view distance after teleport ≤ 2s.
+
+**Live visual acceptance (Computer Use):** run the Bevy app in representative vanilla
+world scenes and compare visible results against the matching Mojang vanilla assets/reference
+client at multiple distances and view angles. Verify exact texture/model selection, UV orientation
+and wrapping, per-layer mip quality, opaque/cutout/blend behavior, flipbooks, biome tints,
+block/sky lighting across day/night, fog, sky, and clouds. Exercise focus, keyboard input,
+movement, and mouse-look/rotation during the pass. No placeholder/debug texture or visibly
+non-vanilla rendering ships past this phase; record screenshots and any adjudicated parity gaps
+in the phase report.
 
 ## Phase 3 — Movement and the local player
 
