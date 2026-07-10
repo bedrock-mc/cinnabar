@@ -98,6 +98,32 @@ try {
         Remove-Item Env:RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY -ErrorAction SilentlyContinue
     }
 
+    $serverPropertiesPath = Join-Path $TempRoot 'server.properties'
+    [IO.File]::WriteAllLines(
+        $serverPropertiesPath,
+        @(
+            'server-port=19132'
+            'server-portv6=19133'
+            'online-mode=true'
+            'allow-list=true'
+            'enable-lan-visibility=true'
+            'server-name=fixture'
+        ),
+        [Text.UTF8Encoding]::new($false)
+    )
+    Set-ServerProperties -Path $serverPropertiesPath -Port 20000 -PortV6 20001
+    $serverProperties = @([IO.File]::ReadAllLines($serverPropertiesPath))
+    foreach ($expectedProperty in @(
+        'server-port=20000',
+        'server-portv6=20001',
+        'online-mode=false',
+        'allow-list=false',
+        'enable-lan-visibility=false',
+        'server-name=fixture'
+    )) {
+        Assert-True ($serverProperties -contains $expectedProperty) "missing rewritten property: $expectedProperty"
+    }
+
     $runtimeSource = (Resolve-Path -LiteralPath $BdsDir).Path.TrimEnd('\', '/')
     if ($runtimeSource.StartsWith('\\')) {
         $goRuntimeSource = '\\?\UNC\' + $runtimeSource.TrimStart('\')

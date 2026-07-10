@@ -189,16 +189,16 @@ function Set-ServerProperties {
     }
     $lines = @([IO.File]::ReadAllLines($Path))
     foreach ($key in $wanted.Keys) {
-        $matches = @()
+        $matchingIndices = @()
         for ($index = 0; $index -lt $lines.Count; $index++) {
             if ($lines[$index] -match ('^' + [regex]::Escape($key) + '=')) {
-                $matches += $index
+                $matchingIndices += $index
             }
         }
-        if ($matches.Count -ne 1) {
+        if ($matchingIndices.Count -ne 1) {
             throw "server.properties must contain exactly one $key entry"
         }
-        $lines[$matches[0]] = "$key=$($wanted[$key])"
+        $lines[$matchingIndices[0]] = "$key=$($wanted[$key])"
     }
     [IO.File]::WriteAllLines($Path, $lines, [Text.UTF8Encoding]::new($false))
 }
