@@ -207,6 +207,8 @@ pub struct WorldStreamStats {
     pub normalization_errors: u64,
     pub unavailable_sub_chunks: u64,
     pub stale_mesh_jobs: u64,
+    pub received_radius_chunks: Option<i32>,
+    pub publisher_radius_chunks: Option<i32>,
     pub resident_sub_chunks: usize,
     pub pending_mesh_jobs: usize,
     pub in_flight_mesh_jobs: usize,
@@ -812,6 +814,8 @@ impl WorldStream {
             .saturating_sub(self.pending_decode.len())
             .saturating_sub(self.in_flight_decode_jobs);
         WorldStreamStats {
+            received_radius_chunks: self.chunk_radius,
+            publisher_radius_chunks: self.publisher_radius_chunks,
             resident_sub_chunks: self.resident.len(),
             pending_mesh_jobs: self.pending_mesh.len(),
             in_flight_mesh_jobs: self.in_flight.len(),
@@ -2158,6 +2162,15 @@ mod tests {
         assert_eq!(
             stream.publisher_radius_chunks,
             Some(super::PHASE0_MAX_VIEW_RADIUS_CHUNKS)
+        );
+        let stats = format!("{:?}", stream.stats());
+        assert!(
+            stats.contains("received_radius_chunks: Some(16)"),
+            "{stats}"
+        );
+        assert!(
+            stats.contains("publisher_radius_chunks: Some(16)"),
+            "{stats}"
         );
 
         stream

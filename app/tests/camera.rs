@@ -28,6 +28,23 @@ fn auto_fly_path_repeats_and_stays_within_the_loaded_radius() {
     }
 }
 
+#[test]
+fn auto_fly_keeps_the_mutation_target_in_view() {
+    let anchor = Vec3::new(100.5, 70.62, -30.5);
+    let target = Vec3::new(104.5, 69.5, -30.5);
+    let mut auto_fly = AutoFly::new(true);
+    auto_fly.set_look_target(target);
+    assert!(auto_fly.enabled());
+    for sample in 0..=2_000 {
+        let seconds = camera::AUTO_FLY_PERIOD_SECONDS * sample as f32 / 2_000.0;
+        let position = anchor + camera::auto_fly_offset(seconds);
+        assert!(position.distance(target) < 16.0 * 16.0);
+        let rotation = camera::look_at_target(position, target);
+        let forward = rotation * Vec3::NEG_Z;
+        assert!(forward.dot((target - position).normalize()) > 0.999);
+    }
+}
+
 fn axes_for(key: KeyCode) -> Vec3 {
     let mut keys = ButtonInput::default();
     keys.press(key);

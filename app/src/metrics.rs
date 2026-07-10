@@ -61,10 +61,18 @@ impl FrameHistogram {
 pub struct MetricsCollector {
     started: Instant,
     frame_histogram: FrameHistogram,
+    world_ready: bool,
+    requested_radius_chunks: i32,
+    received_radius_chunks: Option<i32>,
+    publisher_radius_chunks: Option<i32>,
+    mutation_coordinate: Option<[i32; 3]>,
+    visible_mutation_count: u64,
     max_remesh_milliseconds: f64,
+    max_mutation_to_visible_milliseconds: f64,
     max_decode_milliseconds: f64,
     max_mesh_milliseconds: f64,
     decode_errors: u64,
+    rendered_sub_chunks: usize,
     resident_sub_chunks: usize,
     visible_sub_chunks: usize,
     peak_admitted_world_events: usize,
@@ -81,9 +89,16 @@ pub struct MetricsCollector {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PipelineMetricsSnapshot {
+    pub world_ready: bool,
+    pub requested_radius_chunks: i32,
+    pub received_radius_chunks: Option<i32>,
+    pub publisher_radius_chunks: Option<i32>,
+    pub mutation_coordinate: Option<[i32; 3]>,
+    pub visible_mutation_count: u64,
     pub max_decode: Duration,
     pub max_mesh: Duration,
     pub max_remesh: Duration,
+    pub rendered_sub_chunks: usize,
     pub resident_sub_chunks: usize,
     pub visible_sub_chunks: usize,
     pub admitted_world_events: usize,
@@ -110,10 +125,18 @@ impl MetricsCollector {
         Self {
             started: Instant::now(),
             frame_histogram: FrameHistogram::default(),
+            world_ready: false,
+            requested_radius_chunks: 0,
+            received_radius_chunks: None,
+            publisher_radius_chunks: None,
+            mutation_coordinate: None,
+            visible_mutation_count: 0,
             max_remesh_milliseconds: 0.0,
+            max_mutation_to_visible_milliseconds: 0.0,
             max_decode_milliseconds: 0.0,
             max_mesh_milliseconds: 0.0,
             decode_errors: 0,
+            rendered_sub_chunks: 0,
             resident_sub_chunks: 0,
             visible_sub_chunks: 0,
             peak_admitted_world_events: 0,
@@ -140,11 +163,23 @@ impl MetricsCollector {
             .max(duration.as_secs_f64() * 1_000.0);
     }
 
+    pub fn record_mutation_to_visible(&mut self, duration: Duration) {
+        self.max_mutation_to_visible_milliseconds = self
+            .max_mutation_to_visible_milliseconds
+            .max(duration.as_secs_f64() * 1_000.0);
+    }
+
     pub fn add_decode_errors(&mut self, count: u64) {
         self.decode_errors = self.decode_errors.saturating_add(count);
     }
 
     pub fn record_pipeline_snapshot(&mut self, snapshot: PipelineMetricsSnapshot) {
+        self.world_ready |= snapshot.world_ready;
+        self.requested_radius_chunks = snapshot.requested_radius_chunks;
+        self.received_radius_chunks = snapshot.received_radius_chunks;
+        self.publisher_radius_chunks = snapshot.publisher_radius_chunks;
+        self.mutation_coordinate = snapshot.mutation_coordinate;
+        self.visible_mutation_count = snapshot.visible_mutation_count;
         self.max_decode_milliseconds = self
             .max_decode_milliseconds
             .max(snapshot.max_decode.as_secs_f64() * 1_000.0);
@@ -152,6 +187,7 @@ impl MetricsCollector {
             .max_mesh_milliseconds
             .max(snapshot.max_mesh.as_secs_f64() * 1_000.0);
         self.record_remesh_latency(snapshot.max_remesh);
+        self.rendered_sub_chunks = snapshot.rendered_sub_chunks;
         self.resident_sub_chunks = snapshot.resident_sub_chunks;
         self.visible_sub_chunks = snapshot.visible_sub_chunks;
         self.peak_admitted_world_events = self
@@ -184,6 +220,12 @@ impl MetricsCollector {
     pub fn report(&self) -> MetricsReport {
         MetricsReport {
             session_seconds: self.started.elapsed().as_secs_f64(),
+            world_ready: self.world_ready,
+            requested_radius_chunks: self.requested_radius_chunks,
+            received_radius_chunks: self.received_radius_chunks,
+            publisher_radius_chunks: self.publisher_radius_chunks,
+            mutation_coordinate: self.mutation_coordinate,
+            visible_mutation_count: self.visible_mutation_count,
             frame_count: usize::try_from(self.frame_histogram.sample_count).unwrap_or(usize::MAX),
             p50_frame_ms: self.frame_histogram.quantile(0.50),
             p95_frame_ms: self.frame_histogram.quantile(0.95),
@@ -192,7 +234,9 @@ impl MetricsCollector {
             max_decode_ms: self.max_decode_milliseconds,
             max_mesh_ms: self.max_mesh_milliseconds,
             max_remesh_ms: self.max_remesh_milliseconds,
+            max_mutation_to_visible_ms: self.max_mutation_to_visible_milliseconds,
             decode_error_count: self.decode_errors,
+            rendered_sub_chunks: self.rendered_sub_chunks,
             resident_sub_chunks: self.resident_sub_chunks,
             visible_sub_chunks: self.visible_sub_chunks,
             peak_admitted_world_events: self.peak_admitted_world_events,
@@ -217,6 +261,12 @@ impl MetricsCollector {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct MetricsReport {
     pub session_seconds: f64,
+    pub world_ready: bool,
+    pub requested_radius_chunks: i32,
+    pub received_radius_chunks: Option<i32>,
+    pub publisher_radius_chunks: Option<i32>,
+    pub mutation_coordinate: Option<[i32; 3]>,
+    pub visible_mutation_count: u64,
     pub frame_count: usize,
     pub p50_frame_ms: f64,
     pub p95_frame_ms: f64,
@@ -225,7 +275,9 @@ pub struct MetricsReport {
     pub max_decode_ms: f64,
     pub max_mesh_ms: f64,
     pub max_remesh_ms: f64,
+    pub max_mutation_to_visible_ms: f64,
     pub decode_error_count: u64,
+    pub rendered_sub_chunks: usize,
     pub resident_sub_chunks: usize,
     pub visible_sub_chunks: usize,
     pub peak_admitted_world_events: usize,
@@ -280,11 +332,19 @@ mod tests {
             metrics.record_frame(Duration::from_secs_f64(milliseconds as f64 / 1_000.0));
         }
         metrics.record_remesh_latency(Duration::from_millis(42));
+        metrics.record_mutation_to_visible(Duration::from_millis(75));
         metrics.add_decode_errors(3);
         metrics.record_pipeline_snapshot(PipelineMetricsSnapshot {
+            world_ready: true,
+            requested_radius_chunks: 16,
+            received_radius_chunks: Some(16),
+            publisher_radius_chunks: Some(16),
+            mutation_coordinate: Some([4, 65, -2]),
+            visible_mutation_count: 3,
             max_decode: Duration::from_millis(11),
             max_mesh: Duration::from_millis(22),
             max_remesh: Duration::from_millis(42),
+            rendered_sub_chunks: 13,
             resident_sub_chunks: 19,
             visible_sub_chunks: 17,
             admitted_world_events: 7,
@@ -301,6 +361,12 @@ mod tests {
 
         let report = metrics.report();
         assert_eq!(report.frame_count, 100);
+        assert!(report.world_ready);
+        assert_eq!(report.requested_radius_chunks, 16);
+        assert_eq!(report.received_radius_chunks, Some(16));
+        assert_eq!(report.publisher_radius_chunks, Some(16));
+        assert_eq!(report.mutation_coordinate, Some([4, 65, -2]));
+        assert_eq!(report.visible_mutation_count, 3);
         assert_eq!(report.p50_frame_ms, 51.0);
         assert_eq!(report.p95_frame_ms, 96.0);
         assert_eq!(report.p99_frame_ms, 100.0);
@@ -308,7 +374,9 @@ mod tests {
         assert_eq!(report.max_decode_ms, 11.0);
         assert_eq!(report.max_mesh_ms, 22.0);
         assert_eq!(report.max_remesh_ms, 42.0);
+        assert_eq!(report.max_mutation_to_visible_ms, 75.0);
         assert_eq!(report.decode_error_count, 3);
+        assert_eq!(report.rendered_sub_chunks, 13);
         assert_eq!(report.resident_sub_chunks, 19);
         assert_eq!(report.visible_sub_chunks, 17);
         assert_eq!(report.peak_admitted_world_events, 7);
@@ -351,6 +419,12 @@ mod tests {
     fn json_output_is_pretty_deterministic_and_newline_terminated() {
         let report = MetricsReport {
             session_seconds: 15.0,
+            world_ready: true,
+            requested_radius_chunks: 16,
+            received_radius_chunks: Some(16),
+            publisher_radius_chunks: Some(16),
+            mutation_coordinate: Some([4, 65, -2]),
+            visible_mutation_count: 3,
             frame_count: 2,
             p50_frame_ms: 4.0,
             p95_frame_ms: 5.0,
@@ -359,7 +433,9 @@ mod tests {
             max_decode_ms: 6.0,
             max_mesh_ms: 7.0,
             max_remesh_ms: 20.0,
+            max_mutation_to_visible_ms: 75.0,
             decode_error_count: 0,
+            rendered_sub_chunks: 13,
             resident_sub_chunks: 14,
             visible_sub_chunks: 12,
             peak_admitted_world_events: 8,
@@ -387,6 +463,16 @@ mod tests {
             concat!(
                 "{\n",
                 "  \"session_seconds\": 15.0,\n",
+                "  \"world_ready\": true,\n",
+                "  \"requested_radius_chunks\": 16,\n",
+                "  \"received_radius_chunks\": 16,\n",
+                "  \"publisher_radius_chunks\": 16,\n",
+                "  \"mutation_coordinate\": [\n",
+                "    4,\n",
+                "    65,\n",
+                "    -2\n",
+                "  ],\n",
+                "  \"visible_mutation_count\": 3,\n",
                 "  \"frame_count\": 2,\n",
                 "  \"p50_frame_ms\": 4.0,\n",
                 "  \"p95_frame_ms\": 5.0,\n",
@@ -395,7 +481,9 @@ mod tests {
                 "  \"max_decode_ms\": 6.0,\n",
                 "  \"max_mesh_ms\": 7.0,\n",
                 "  \"max_remesh_ms\": 20.0,\n",
+                "  \"max_mutation_to_visible_ms\": 75.0,\n",
                 "  \"decode_error_count\": 0,\n",
+                "  \"rendered_sub_chunks\": 13,\n",
                 "  \"resident_sub_chunks\": 14,\n",
                 "  \"visible_sub_chunks\": 12,\n",
                 "  \"peak_admitted_world_events\": 8,\n",

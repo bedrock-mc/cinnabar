@@ -8,6 +8,7 @@ mod world_stream;
 
 use std::{
     collections::{BTreeSet, HashSet},
+    io::Write,
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
@@ -35,6 +36,8 @@ const GPU_UPLOAD_BUDGET_PER_FRAME: usize = 8;
 const NETWORK_INGRESS_BUDGET_PER_FRAME: usize = 8;
 const OUTBOUND_SEND_BUDGET_PER_FRAME: usize = 16;
 const TITLE_REFRESH_INTERVAL: Duration = Duration::from_millis(100);
+const PHASE0_REQUESTED_RADIUS_CHUNKS: i32 = 16;
+const MUTATION_X_OFFSET_BLOCKS: i32 = 4;
 
 #[derive(Resource, Default)]
 struct ClientWorld {
@@ -68,6 +71,9 @@ struct AppMetrics(MetricsCollector);
 struct AcceptanceRun {
     deadline: Option<Instant>,
     metrics_out: Option<PathBuf>,
+    mutation_surface_anchor: Option<[i32; 2]>,
+    mutation: Option<MutationTracker>,
+    world_ready: bool,
     finished: bool,
 }
 
@@ -76,9 +82,165 @@ impl AcceptanceRun {
         Self {
             deadline: seconds.map(|seconds| Instant::now() + Duration::from_secs(seconds)),
             metrics_out,
+            mutation_surface_anchor: None,
+            mutation: None,
+            world_ready: false,
             finished: false,
         }
     }
+
+    fn enabled(&self) -> bool {
+        self.deadline.is_some()
+    }
+
+    fn set_mutation_surface_anchor(&mut self, anchor: [i32; 2]) {
+        self.mutation_surface_anchor = Some(anchor);
+    }
+
+    fn mutation_surface_anchor(&self) -> Option<[i32; 2]> {
+        self.mutation_surface_anchor
+    }
+
+    fn set_mutation_coordinate(&mut self, coordinate: [i32; 3]) {
+        self.mutation_surface_anchor = None;
+        self.mutation = Some(MutationTracker::new(coordinate));
+    }
+
+    fn observe_mutation(&mut self, event: &protocol::WorldEvent, observed_at: Instant) {
+        if let Some(mutation) = &mut self.mutation {
+            mutation.observe(event, observed_at);
+        }
+    }
+
+    fn acknowledge_mutation(
+        &mut self,
+        key: SubChunkKey,
+        dirty_since: Instant,
+        applied_at: Instant,
+    ) -> Option<Duration> {
+        self.mutation
+            .as_mut()
+            .and_then(|mutation| mutation.acknowledge(key, dirty_since, applied_at))
+    }
+
+    fn mutation_coordinate(&self) -> Option<[i32; 3]> {
+        self.mutation.as_ref().map(MutationTracker::coordinate)
+    }
+
+    fn visible_mutation_count(&self) -> u64 {
+        self.mutation
+            .as_ref()
+            .map_or(0, MutationTracker::visible_count)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PendingMutation {
+    key: SubChunkKey,
+    observed_at: Instant,
+}
+
+#[derive(Debug)]
+struct MutationTracker {
+    coordinate: [i32; 3],
+    pending: Option<PendingMutation>,
+    visible_count: u64,
+}
+
+impl MutationTracker {
+    const fn new(coordinate: [i32; 3]) -> Self {
+        Self {
+            coordinate,
+            pending: None,
+            visible_count: 0,
+        }
+    }
+
+    const fn coordinate(&self) -> [i32; 3] {
+        self.coordinate
+    }
+
+    fn observe(&mut self, event: &protocol::WorldEvent, observed_at: Instant) -> bool {
+        let protocol::WorldEvent::BlockUpdates(updates) = event else {
+            return false;
+        };
+        let Some(update) = updates
+            .iter()
+            .find(|update| update.position == self.coordinate)
+        else {
+            return false;
+        };
+        self.pending = Some(PendingMutation {
+            key: SubChunkKey::new(
+                update.dimension,
+                update.position[0].div_euclid(16),
+                update.position[1].div_euclid(16),
+                update.position[2].div_euclid(16),
+            ),
+            observed_at,
+        });
+        true
+    }
+
+    fn acknowledge(
+        &mut self,
+        key: SubChunkKey,
+        dirty_since: Instant,
+        applied_at: Instant,
+    ) -> Option<Duration> {
+        let pending = self.pending?;
+        if pending.key != key || dirty_since < pending.observed_at {
+            return None;
+        }
+        self.pending = None;
+        self.visible_count = self.visible_count.saturating_add(1);
+        Some(applied_at.saturating_duration_since(pending.observed_at))
+    }
+
+    const fn visible_count(&self) -> u64 {
+        self.visible_count
+    }
+}
+
+fn deterministic_mutation_coordinate(
+    surface_eye_position: [f32; 3],
+    surface_anchor: [i32; 2],
+) -> [i32; 3] {
+    let surface_y = surface_eye_position[1]
+        .floor()
+        .clamp(i32::MIN as f32, i32::MAX as f32) as i32;
+    [
+        surface_anchor[0].saturating_add(MUTATION_X_OFFSET_BLOCKS),
+        surface_y.saturating_sub(1),
+        surface_anchor[1],
+    ]
+}
+
+fn world_ready_markers(
+    mutation_coordinate: Option<[i32; 3]>,
+    received_radius_chunks: Option<i32>,
+    rendered_sub_chunks: usize,
+    resident_sub_chunks: usize,
+    visible_sub_chunks: usize,
+) -> Option<[String; 2]> {
+    let coordinate = mutation_coordinate?;
+    if received_radius_chunks != Some(PHASE0_REQUESTED_RADIUS_CHUNKS)
+        || rendered_sub_chunks == 0
+        || resident_sub_chunks == 0
+        || visible_sub_chunks == 0
+    {
+        return None;
+    }
+    Some([
+        format!(
+            "RUST_MCBE_MUTATION_COORDINATE={},{},{}",
+            coordinate[0], coordinate[1], coordinate[2]
+        ),
+        format!(
+            "RUST_MCBE_WORLD_READY radius={} rendered={rendered_sub_chunks} resident={resident_sub_chunks} visible={visible_sub_chunks}",
+            PHASE0_REQUESTED_RADIUS_CHUNKS
+        ),
+    ])
 }
 
 fn camera_sub_chunk_key(dimension: i32, position: Vec3) -> SubChunkKey {
@@ -174,6 +336,7 @@ fn run(args: args::ClientArgs) -> Result<()> {
             receive_network_events,
             drive_world_stream,
             refresh_cave_visibility,
+            emit_world_ready,
             record_metrics_and_title,
             finish_acceptance_run,
         )
@@ -224,6 +387,7 @@ fn bridge_endpoint_exists(directory: &Path) -> bool {
 fn receive_network_events(
     mut network: ResMut<NetworkHandle>,
     mut client_world: ResMut<ClientWorld>,
+    mut acceptance: ResMut<AcceptanceRun>,
     acknowledgements: Res<ChunkUploadAcknowledgements>,
     mut cameras: Query<&mut Transform, With<FlyCamera>>,
 ) {
@@ -245,6 +409,12 @@ fn receive_network_events(
                     world_spawn = ?bootstrap.world_spawn_position,
                     "received StartGame bootstrap"
                 );
+                if acceptance.enabled() {
+                    acceptance.set_mutation_surface_anchor([
+                        bootstrap.world_spawn_position[0],
+                        bootstrap.world_spawn_position[2],
+                    ]);
+                }
                 let current = cameras
                     .single()
                     .map(|camera| camera.translation.to_array())
@@ -271,6 +441,7 @@ fn receive_network_events(
                         Some("received world data before StartGame bootstrap".to_owned());
                     continue;
                 };
+                acceptance.observe_mutation(&sequenced.event, Instant::now());
                 if let Err(error) = stream.submit(sequenced.sequence, sequenced.event) {
                     client_world.fatal_error = Some(format!("world FIFO rejected data: {error}"));
                 }
@@ -304,6 +475,8 @@ fn drain_network_ingress<T>(
 fn drive_world_stream(
     network: Res<NetworkHandle>,
     mut client_world: ResMut<ClientWorld>,
+    mut acceptance: ResMut<AcceptanceRun>,
+    mut metrics: ResMut<AppMetrics>,
     mut render_queue: ResMut<ChunkRenderQueue>,
     acknowledgements: Res<ChunkUploadAcknowledgements>,
     mut camera: Query<&mut Transform, With<FlyCamera>>,
@@ -313,6 +486,13 @@ fn drive_world_stream(
     };
     for acknowledgement in acknowledgements.drain() {
         render_queue.record_gpu_upload_bytes(acknowledgement.uploaded_bytes);
+        if let Some(latency) = acceptance.acknowledge_mutation(
+            acknowledgement.key,
+            acknowledgement.token.dirty_since,
+            acknowledgement.applied_at,
+        ) {
+            metrics.0.record_mutation_to_visible(latency);
+        }
         stream.acknowledge_mesh_upload(
             acknowledgement.key,
             acknowledgement.token.generation,
@@ -339,15 +519,19 @@ fn drive_world_stream(
         );
     }
     let camera_position = camera.translation;
-    let resolved_surface_spawn =
+    let resolved_surface_spawn = client_world.pending_surface_spawn.and_then(|anchor| {
         client_world
-            .pending_surface_spawn
-            .and_then(|[block_x, block_z]| {
-                client_world
-                    .stream
-                    .as_ref()
-                    .and_then(|stream| stream.surface_eye_position(block_x, block_z))
-            });
+            .stream
+            .as_ref()
+            .and_then(|stream| stream.surface_eye_position(anchor[0], anchor[1]))
+    });
+    let resolved_mutation_coordinate = acceptance.mutation_surface_anchor().and_then(|anchor| {
+        client_world.stream.as_ref().and_then(|stream| {
+            stream
+                .surface_eye_position(anchor[0], anchor[1])
+                .map(|position| deterministic_mutation_coordinate(position, anchor))
+        })
+    });
 
     let send_error = client_world.stream.as_mut().and_then(|stream| {
         flush_sub_chunk_requests(stream, OUTBOUND_SEND_BUDGET_PER_FRAME, |_, packet| {
@@ -419,6 +603,47 @@ fn drive_world_stream(
         client_world.pending_surface_spawn = None;
         info!(position = ?position, "resolved temporary Bedrock spawn from packed terrain");
     }
+    if let Some(coordinate) = resolved_mutation_coordinate {
+        acceptance.set_mutation_coordinate(coordinate);
+    }
+}
+
+fn emit_world_ready(
+    client_world: Res<ClientWorld>,
+    cache: Res<CaveVisibilityCache>,
+    mut acceptance: ResMut<AcceptanceRun>,
+    mut auto_fly: ResMut<camera::AutoFly>,
+) {
+    if acceptance.world_ready {
+        return;
+    }
+    let Some(stream) = client_world.stream.as_ref() else {
+        return;
+    };
+    let stats = stream.stats();
+    let Some(markers) = world_ready_markers(
+        acceptance.mutation_coordinate(),
+        stats.received_radius_chunks,
+        cache.rendered.len(),
+        stats.resident_sub_chunks,
+        cache.visible_rendered,
+    ) else {
+        return;
+    };
+    let coordinate = acceptance
+        .mutation_coordinate()
+        .expect("world-ready markers require a mutation coordinate");
+    auto_fly.set_look_target(Vec3::new(
+        coordinate[0] as f32 + 0.5,
+        coordinate[1] as f32 + 0.5,
+        coordinate[2] as f32 + 0.5,
+    ));
+    let mut stdout = std::io::stdout().lock();
+    for marker in markers {
+        let _ = writeln!(stdout, "{marker}");
+    }
+    let _ = stdout.flush();
+    acceptance.world_ready = true;
 }
 
 fn flush_sub_chunk_requests(
@@ -576,6 +801,7 @@ fn remove_chunk_visibility(
 fn record_metrics_and_title(
     time: Res<Time>,
     mut client_world: ResMut<ClientWorld>,
+    acceptance: Res<AcceptanceRun>,
     cache: Res<CaveVisibilityCache>,
     mut metrics: ResMut<AppMetrics>,
     render_queue: Res<ChunkRenderQueue>,
@@ -587,9 +813,16 @@ fn record_metrics_and_title(
     let stream_errors = client_world.stream.as_ref().map_or(0, |stream| {
         let stats = stream.stats();
         metrics.0.record_pipeline_snapshot(PipelineMetricsSnapshot {
+            world_ready: acceptance.world_ready,
+            requested_radius_chunks: PHASE0_REQUESTED_RADIUS_CHUNKS,
+            received_radius_chunks: stats.received_radius_chunks,
+            publisher_radius_chunks: stats.publisher_radius_chunks,
+            mutation_coordinate: acceptance.mutation_coordinate(),
+            visible_mutation_count: acceptance.visible_mutation_count(),
             max_decode: stats.max_decode_duration,
             max_mesh: stats.max_mesh_duration,
             max_remesh: stats.max_remesh_latency,
+            rendered_sub_chunks: cache.rendered.len(),
             resident_sub_chunks: stats.resident_sub_chunks,
             visible_sub_chunks: cache.visible_rendered,
             admitted_world_events: stats.admitted_world_events,
@@ -686,14 +919,95 @@ fn cumulative_counter_delta(current: u64, previous: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use bevy::prelude::{Quat, Transform, Vec3};
-    use protocol::{LevelChunkEvent, LevelChunkMode, WorldBootstrap, WorldEvent};
+    use protocol::{BlockUpdateEvent, LevelChunkEvent, LevelChunkMode, WorldBootstrap, WorldEvent};
+    use std::time::{Duration, Instant};
     use world::SubChunkKey;
 
     use crate::{
-        NETWORK_INGRESS_BUDGET_PER_FRAME, bedrock_camera_rotation, camera_sub_chunk_key,
-        cumulative_counter_delta, drain_network_ingress, flush_sub_chunk_requests,
-        resolve_socket_dir_from, status_title,
+        AcceptanceRun, MutationTracker, NETWORK_INGRESS_BUDGET_PER_FRAME, bedrock_camera_rotation,
+        camera_sub_chunk_key, cumulative_counter_delta, deterministic_mutation_coordinate,
+        drain_network_ingress, flush_sub_chunk_requests, resolve_socket_dir_from, status_title,
+        world_ready_markers,
     };
+
+    #[test]
+    fn acceptance_run_retains_the_spawn_surface_anchor_until_coordinate_resolution() {
+        let mut acceptance = AcceptanceRun::new(Some(900), None);
+        assert!(acceptance.enabled());
+        acceptance.set_mutation_surface_anchor([10, -6]);
+        assert_eq!(acceptance.mutation_surface_anchor(), Some([10, -6]));
+        acceptance.set_mutation_coordinate([14, 71, -6]);
+        assert_eq!(acceptance.mutation_surface_anchor(), None);
+        assert_eq!(acceptance.mutation_coordinate(), Some([14, 71, -6]));
+    }
+
+    #[test]
+    fn deterministic_mutation_coordinate_is_visible_above_the_surface_anchor() {
+        assert_eq!(
+            deterministic_mutation_coordinate([10.5, 72.62, -5.5], [10, -6]),
+            [14, 71, -6]
+        );
+    }
+
+    #[test]
+    fn world_ready_markers_require_radius_rendering_and_include_the_exact_coordinate() {
+        assert_eq!(
+            world_ready_markers(Some([14, 71, -6]), Some(15), 2, 3, 1),
+            None
+        );
+        assert_eq!(
+            world_ready_markers(Some([14, 71, -6]), Some(16), 0, 3, 1),
+            None
+        );
+        assert_eq!(
+            world_ready_markers(Some([14, 71, -6]), Some(16), 2, 3, 1),
+            Some([
+                "RUST_MCBE_MUTATION_COORDINATE=14,71,-6".to_owned(),
+                "RUST_MCBE_WORLD_READY radius=16 rendered=2 resident=3 visible=1".to_owned(),
+            ])
+        );
+    }
+
+    #[test]
+    fn mutation_tracker_closes_latency_only_on_the_target_gpu_acknowledgement() {
+        let coordinate = [14, 71, -6];
+        let observed_at = Instant::now();
+        let mut tracker = MutationTracker::new(coordinate);
+        let target_update = WorldEvent::BlockUpdates(vec![BlockUpdateEvent {
+            dimension: 0,
+            position: coordinate,
+            layer: 0,
+            network_id: 7,
+        }]);
+        assert!(tracker.observe(&target_update, observed_at));
+
+        let target_key = SubChunkKey::new(0, 0, 4, -1);
+        assert_eq!(
+            tracker.acknowledge(
+                SubChunkKey::new(0, 1, 4, -1),
+                observed_at,
+                observed_at + Duration::from_millis(25),
+            ),
+            None
+        );
+        assert_eq!(
+            tracker.acknowledge(
+                target_key,
+                observed_at - Duration::from_millis(1),
+                observed_at + Duration::from_millis(25),
+            ),
+            None
+        );
+        assert_eq!(
+            tracker.acknowledge(
+                target_key,
+                observed_at + Duration::from_millis(1),
+                observed_at + Duration::from_millis(75),
+            ),
+            Some(Duration::from_millis(75))
+        );
+        assert_eq!(tracker.visible_count(), 1);
+    }
 
     #[test]
     fn full_outbound_queue_retries_the_same_request_then_preserves_fifo_order() {
