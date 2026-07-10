@@ -98,6 +98,41 @@ try {
         Remove-Item Env:RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY -ErrorAction SilentlyContinue
     }
 
+    $runtimeSource = (Resolve-Path -LiteralPath $BdsDir).Path.TrimEnd('\', '/')
+    if ($runtimeSource.StartsWith('\\')) {
+        $goRuntimeSource = '\\?\UNC\' + $runtimeSource.TrimStart('\')
+    }
+    else {
+        $goRuntimeSource = '\\?\' + $runtimeSource
+    }
+    $goRuntimeOwner = "rust-mcbe-bds-runtime-v1`nsource=$($goRuntimeSource.ToLowerInvariant())`n"
+    $goOwnedRuntime = Join-Path $TempRoot 'go-owned stable runtime'
+    New-Item -ItemType Directory -Path $goOwnedRuntime -Force | Out-Null
+    [IO.File]::WriteAllText(
+        (Join-Path $goOwnedRuntime '.rust-mcbe-runtime-owner'),
+        $goRuntimeOwner,
+        [Text.UTF8Encoding]::new($false)
+    )
+    $goOwnedExecutable = Set-StableRuntime `
+        -SourceDirectory $BdsDir `
+        -RuntimeDirectory $goOwnedRuntime `
+        -ExecutableName 'bedrock_server.exe'
+    Assert-True (Test-Path -LiteralPath $goOwnedExecutable) 'Go-style extended owner path was rejected for the same BDS source'
+
+    $differentRuntime = Join-Path $TempRoot 'different-owned stable runtime'
+    New-Item -ItemType Directory -Path $differentRuntime -Force | Out-Null
+    [IO.File]::WriteAllText(
+        (Join-Path $differentRuntime '.rust-mcbe-runtime-owner'),
+        "rust-mcbe-bds-runtime-v1`nsource=\\?\c:\definitely-different-bds-source`n",
+        [Text.UTF8Encoding]::new($false)
+    )
+    Assert-Throws {
+        Set-StableRuntime `
+            -SourceDirectory $BdsDir `
+            -RuntimeDirectory $differentRuntime `
+            -ExecutableName 'bedrock_server.exe'
+    } 'different Go-style BDS owner marker was accepted'
+
     Invoke-CheckedBuild `
         -Executable (Join-Path $PSHOME 'powershell.exe') `
         -Arguments @('-NoProfile', '-Command', "if ((Get-Location).Path -ne '$TempRoot') { exit 9 }") `

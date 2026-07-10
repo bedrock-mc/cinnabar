@@ -50,6 +50,46 @@ function Assert-SafeRuntimeChild {
     }
 }
 
+function ConvertTo-RuntimeSourceIdentity {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $identity = [IO.Path]::GetFullPath($Path).TrimEnd('\', '/')
+    $isWindows = [Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
+        [Runtime.InteropServices.OSPlatform]::Windows
+    )
+    if ($isWindows) {
+        if ($identity.StartsWith('\\?\UNC\', [StringComparison]::OrdinalIgnoreCase)) {
+            $identity = '\\' + $identity.Substring(8)
+        }
+        elseif ($identity.StartsWith('\\?\', [StringComparison]::OrdinalIgnoreCase)) {
+            $identity = $identity.Substring(4)
+        }
+        return $identity.ToLowerInvariant()
+    }
+    return $identity
+}
+
+function Get-RuntimeOwnershipMarker {
+    param(
+        [Parameter(Mandatory = $true)][string]$SourcePath,
+        [switch]$Legacy
+    )
+
+    $identity = ConvertTo-RuntimeSourceIdentity -Path $SourcePath
+    $isWindows = [Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
+        [Runtime.InteropServices.OSPlatform]::Windows
+    )
+    if ($isWindows -and -not $Legacy) {
+        if ($identity.StartsWith('\\')) {
+            $identity = '\\?\UNC\' + $identity.Substring(2)
+        }
+        else {
+            $identity = '\\?\' + $identity
+        }
+    }
+    return "rust-mcbe-bds-runtime-v1`nsource=$identity`n"
+}
+
 function Set-StableRuntime {
     param(
         [Parameter(Mandatory = $true)][string]$SourceDirectory,
@@ -75,11 +115,12 @@ function Set-StableRuntime {
     }
 
     $markerPath = Join-Path $runtimeFull '.rust-mcbe-runtime-owner'
-    $owner = "rust-mcbe-bds-runtime-v1`nsource=$($sourceFull.ToLowerInvariant())`n"
+    $owner = Get-RuntimeOwnershipMarker -SourcePath $sourceFull
+    $legacyOwner = Get-RuntimeOwnershipMarker -SourcePath $sourceFull -Legacy
     $entries = @(Get-ChildItem -LiteralPath $runtimeFull -Force)
     if (Test-Path -LiteralPath $markerPath) {
         $currentOwner = [IO.File]::ReadAllText($markerPath)
-        if ($currentOwner -ne $owner) {
+        if ($currentOwner -ne $owner -and $currentOwner -ne $legacyOwner) {
             throw "stable runtime belongs to a different BDS source: $markerPath"
         }
     }
