@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/lockfile"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
@@ -101,6 +102,16 @@ func TestProxyJoin(t *testing.T) {
 	}
 	if err := bds.stop(20 * time.Second); err != nil {
 		t.Fatalf("stop BDS cleanly: %v\nBDS output:\n%s", err, bds.output())
+	}
+	canonicalSource, canonicalRuntime, err := validateRuntimeSeparation(sourceDir, runDir)
+	if err != nil {
+		t.Fatalf("revalidate stable runtime paths after BDS shutdown: %v", err)
+	}
+	if err := validateRuntimeOwnershipMarker(
+		filepath.Join(canonicalRuntime, runtimeOwnerMarker),
+		runtimeOwnershipMarker(canonicalSource),
+	); err != nil {
+		t.Fatalf("revalidate stable runtime ownership after BDS shutdown: %v", err)
 	}
 }
 
@@ -402,6 +413,10 @@ func TestPrepareStableRuntimeKeepsExecutableIdentityAndResetsMutableData(t *test
 	if err != nil {
 		t.Fatalf("prepareStableRuntime() first call: %v", err)
 	}
+	markerBefore, err := os.ReadFile(filepath.Join(runtimeDir, runtimeOwnerMarker))
+	if err != nil {
+		t.Fatalf("read runtime ownership marker: %v", err)
+	}
 	firstExecutableInfo, err := os.Stat(executable)
 	if err != nil {
 		t.Fatal(err)
@@ -423,6 +438,10 @@ func TestPrepareStableRuntimeKeepsExecutableIdentityAndResetsMutableData(t *test
 	if executableAgain != executable || !os.SameFile(firstExecutableInfo, secondExecutableInfo) {
 		t.Fatal("stable runtime replaced or moved an unchanged executable")
 	}
+	markerAfter, err := os.ReadFile(filepath.Join(runtimeDir, runtimeOwnerMarker))
+	if err != nil || !bytes.Equal(markerBefore, markerAfter) {
+		t.Fatalf("runtime ownership marker changed: before=%q after=%q err=%v", markerBefore, markerAfter, err)
+	}
 	if _, err := os.Stat(filepath.Join(runtimeDir, "generated.log")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("generated runtime file survived reset: %v", err)
 	}
@@ -432,6 +451,9 @@ func TestPrepareStableRuntimeKeepsExecutableIdentityAndResetsMutableData(t *test
 	}
 	if data, err := os.ReadFile(source); err != nil || string(data) != "stable executable" {
 		t.Fatalf("source executable changed: %q, %v", data, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(sourceDir, "server.properties")); err != nil || string(data) != "source properties" {
+		t.Fatalf("source mutable data changed: %q, %v", data, err)
 	}
 }
 
@@ -457,6 +479,119 @@ func TestRuntimeLeaseIsExclusiveAndReleased(t *testing.T) {
 	}
 }
 
+func TestValidateRuntimeSeparationRejectsRelatedPaths(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "source", "install")
+	if err := os.MkdirAll(source, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, runtimeDir := range map[string]string{
+		"equal":              source,
+		"runtime ancestor":   filepath.Join(root, "source"),
+		"runtime descendant": filepath.Join(source, "cache", "not-yet-created"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, _, err := validateRuntimeSeparation(source, runtimeDir); err == nil {
+				t.Fatalf("validateRuntimeSeparation(%q, %q) succeeded", source, runtimeDir)
+			}
+		})
+	}
+}
+
+func TestPrepareStableRuntimeRejectsRelatedPathsWithoutMutation(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "source", "install")
+	if err := os.MkdirAll(source, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	name := "bedrock_server.test"
+	executable := filepath.Join(source, name)
+	if err := os.WriteFile(executable, []byte("source executable"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ancestorSentinel := filepath.Join(root, "source", "keep.txt")
+	if err := os.WriteFile(ancestorSentinel, []byte("keep ancestor"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for testName, runtimeDir := range map[string]string{
+		"equal":              source,
+		"runtime ancestor":   filepath.Join(root, "source"),
+		"runtime descendant": filepath.Join(source, "cache", "not-yet-created"),
+	} {
+		t.Run(testName, func(t *testing.T) {
+			if _, err := prepareStableRuntime(source, runtimeDir, name); err == nil {
+				t.Fatalf("prepareStableRuntime(%q, %q) succeeded", source, runtimeDir)
+			}
+			if data, err := os.ReadFile(executable); err != nil || string(data) != "source executable" {
+				t.Fatalf("source executable changed: %q, %v", data, err)
+			}
+			if data, err := os.ReadFile(ancestorSentinel); err != nil || string(data) != "keep ancestor" {
+				t.Fatalf("ancestor sentinel changed: %q, %v", data, err)
+			}
+		})
+	}
+}
+
+func TestValidateRuntimeSeparationResolvesNonExistingAliasParent(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
+	if err := os.Mkdir(source, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(root, "source-alias")
+	if err := os.Symlink(source, alias); err != nil {
+		t.Skipf("directory symlink unavailable: %v", err)
+	}
+	runtimeDir := filepath.Join(alias, "non-existing-cache")
+	if _, _, err := validateRuntimeSeparation(source, runtimeDir); err == nil {
+		t.Fatal("symlink alias descendant was accepted")
+	}
+}
+
+func TestPrepareStableRuntimeRefusesUnmarkedNonEmptyDirectory(t *testing.T) {
+	sourceDir := t.TempDir()
+	runtimeDir := t.TempDir()
+	name := "bedrock_server.test"
+	if err := os.WriteFile(filepath.Join(sourceDir, name), []byte("source executable"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := filepath.Join(runtimeDir, "do-not-delete.txt")
+	if err := os.WriteFile(sentinel, []byte("owned by somebody else"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := prepareStableRuntime(sourceDir, runtimeDir, name); err == nil {
+		t.Fatal("prepareStableRuntime() claimed an unmarked non-empty directory")
+	}
+	if data, err := os.ReadFile(sentinel); err != nil || string(data) != "owned by somebody else" {
+		t.Fatalf("unmarked sentinel changed: %q, %v", data, err)
+	}
+}
+
+func TestPrepareStableRuntimeRejectsMarkerSourceMismatch(t *testing.T) {
+	root := t.TempDir()
+	firstSource := filepath.Join(root, "source-one")
+	secondSource := filepath.Join(root, "source-two")
+	runtimeDir := filepath.Join(root, "runtime")
+	for _, source := range []string{firstSource, secondSource} {
+		if err := os.Mkdir(source, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(source, "bedrock_server.test"), []byte(source), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := prepareStableRuntime(firstSource, runtimeDir, "bedrock_server.test"); err != nil {
+		t.Fatalf("first prepareStableRuntime(): %v", err)
+	}
+	if _, err := prepareStableRuntime(secondSource, runtimeDir, "bedrock_server.test"); err == nil {
+		t.Fatal("runtime ownership marker accepted a different source")
+	}
+	data, err := os.ReadFile(filepath.Join(runtimeDir, "bedrock_server.test"))
+	if err != nil || string(data) != firstSource {
+		t.Fatalf("stable executable changed after marker mismatch: %q, %v", data, err)
+	}
+}
+
 func bedrockExecutableName() string {
 	if runtime.GOOS == "windows" {
 		return "bedrock_server.exe"
@@ -477,57 +612,194 @@ func stableRuntimeDirectory(sourceDir string) (string, error) {
 }
 
 func acquireRuntimeLease(path string, timeout time.Duration) (io.Closer, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, err
+	return lockfile.Acquire(path, timeout)
+}
+
+const runtimeOwnerMarker = ".rust-mcbe-runtime-owner"
+
+func validateRuntimeSeparation(sourceDir, runtimeDir string) (string, string, error) {
+	canonicalSource, err := filepath.Abs(sourceDir)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve BDS source: %w", err)
 	}
-	deadline := time.Now().Add(timeout)
+	canonicalSource, err = canonicalExistingPath(canonicalSource)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve BDS source links: %w", err)
+	}
+	sourceInfo, err := os.Stat(canonicalSource)
+	if err != nil {
+		return "", "", fmt.Errorf("stat BDS source: %w", err)
+	}
+	if !sourceInfo.IsDir() {
+		return "", "", fmt.Errorf("BDS source is not a directory: %s", canonicalSource)
+	}
+
+	canonicalRuntime, err := canonicalPathThroughExistingParent(runtimeDir)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve stable runtime: %w", err)
+	}
+	if pathsOverlap(canonicalSource, canonicalRuntime) {
+		return "", "", fmt.Errorf("BDS source and stable runtime overlap: source=%s runtime=%s", canonicalSource, canonicalRuntime)
+	}
+	return filepath.Clean(canonicalSource), filepath.Clean(canonicalRuntime), nil
+}
+
+func canonicalPathThroughExistingParent(path string) (string, error) {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	current := filepath.Clean(absolute)
+	missing := make([]string, 0, 4)
 	for {
-		lease, busy, err := tryRuntimeLease(path)
-		if err != nil {
-			return nil, err
+		if _, err := os.Lstat(current); err == nil {
+			resolved, err := canonicalExistingPath(current)
+			if err != nil {
+				return "", err
+			}
+			for index := len(missing) - 1; index >= 0; index-- {
+				resolved = filepath.Join(resolved, missing[index])
+			}
+			return filepath.Clean(resolved), nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return "", err
 		}
-		if !busy {
-			return lease, nil
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", fmt.Errorf("no existing parent for %s", absolute)
 		}
-		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("timed out waiting for exclusive runtime lease %s", path)
-		}
-		time.Sleep(20 * time.Millisecond)
+		missing = append(missing, filepath.Base(current))
+		current = parent
 	}
 }
 
+func pathsOverlap(first, second string) bool {
+	if runtime.GOOS == "windows" {
+		first = strings.ToLower(first)
+		second = strings.ToLower(second)
+	}
+	return pathContains(first, second) || pathContains(second, first)
+}
+
+func pathContains(parent, candidate string) bool {
+	relative, err := filepath.Rel(parent, candidate)
+	if err != nil || filepath.IsAbs(relative) {
+		return false
+	}
+	return relative == "." || (relative != ".." && !strings.HasPrefix(relative, ".."+string(os.PathSeparator)))
+}
+
 func prepareStableRuntime(sourceDir, runtimeDir, executable string) (string, error) {
-	if err := os.MkdirAll(runtimeDir, 0o700); err != nil {
+	canonicalSource, canonicalRuntime, err := validateRuntimeSeparation(sourceDir, runtimeDir)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(canonicalRuntime, 0o700); err != nil {
 		return "", fmt.Errorf("create stable runtime: %w", err)
 	}
-	info, err := os.Lstat(runtimeDir)
+	info, err := os.Lstat(canonicalRuntime)
 	if err != nil {
 		return "", err
 	}
 	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return "", fmt.Errorf("stable runtime is not a real directory: %s", runtimeDir)
+		return "", fmt.Errorf("stable runtime is not a real directory: %s", canonicalRuntime)
 	}
-	sourceExecutable := filepath.Join(sourceDir, executable)
-	runtimeExecutable := filepath.Join(runtimeDir, executable)
+	if err := claimRuntimeOwnership(canonicalRuntime, canonicalSource); err != nil {
+		return "", err
+	}
+	sourceExecutable := filepath.Join(canonicalSource, executable)
+	runtimeExecutable := filepath.Join(canonicalRuntime, executable)
 	if err := ensureStableExecutable(sourceExecutable, runtimeExecutable); err != nil {
 		return "", err
 	}
-	entries, err := os.ReadDir(runtimeDir)
+	entries, err := os.ReadDir(canonicalRuntime)
 	if err != nil {
 		return "", err
 	}
 	for _, entry := range entries {
-		if entry.Name() == executable {
+		if entry.Name() == executable || entry.Name() == runtimeOwnerMarker {
 			continue
 		}
-		if err := os.RemoveAll(filepath.Join(runtimeDir, entry.Name())); err != nil {
+		if err := os.RemoveAll(filepath.Join(canonicalRuntime, entry.Name())); err != nil {
 			return "", fmt.Errorf("reset runtime entry %q: %w", entry.Name(), err)
 		}
 	}
-	if err := copyTree(sourceDir, runtimeDir, executable); err != nil {
+	if err := copyTree(canonicalSource, canonicalRuntime, executable); err != nil {
 		return "", fmt.Errorf("copy mutable BDS runtime data: %w", err)
 	}
 	return runtimeExecutable, nil
+}
+
+func claimRuntimeOwnership(runtimeDir, canonicalSource string) error {
+	markerPath := filepath.Join(runtimeDir, runtimeOwnerMarker)
+	want := runtimeOwnershipMarker(canonicalSource)
+	entries, err := os.ReadDir(runtimeDir)
+	if err != nil {
+		return fmt.Errorf("inspect stable runtime ownership: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.Name() == runtimeOwnerMarker {
+			return validateRuntimeOwnershipMarker(markerPath, want)
+		}
+	}
+	if len(entries) != 0 {
+		return fmt.Errorf("refuse unmarked non-empty stable runtime: %s", runtimeDir)
+	}
+
+	marker, err := os.OpenFile(markerPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if errors.Is(err, os.ErrExist) {
+		return validateRuntimeOwnershipMarker(markerPath, want)
+	}
+	if err != nil {
+		return fmt.Errorf("claim stable runtime ownership: %w", err)
+	}
+	claimed := false
+	defer func() {
+		if !claimed {
+			_ = os.Remove(markerPath)
+		}
+	}()
+	_, writeErr := io.WriteString(marker, want)
+	syncErr := marker.Sync()
+	closeErr := marker.Close()
+	if err := errors.Join(writeErr, syncErr, closeErr); err != nil {
+		return fmt.Errorf("write stable runtime ownership marker: %w", err)
+	}
+	entries, err = os.ReadDir(runtimeDir)
+	if err != nil {
+		return fmt.Errorf("verify stable runtime ownership: %w", err)
+	}
+	if len(entries) != 1 || entries[0].Name() != runtimeOwnerMarker {
+		return fmt.Errorf("stable runtime changed while ownership was claimed: %s", runtimeDir)
+	}
+	claimed = true
+	return nil
+}
+
+func validateRuntimeOwnershipMarker(path, want string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("inspect stable runtime ownership marker: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("stable runtime ownership marker is not a regular file: %s", path)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read stable runtime ownership marker: %w", err)
+	}
+	if string(data) != want {
+		return fmt.Errorf("stable runtime belongs to a different BDS source: %s", path)
+	}
+	return nil
+}
+
+func runtimeOwnershipMarker(canonicalSource string) string {
+	identity := filepath.Clean(canonicalSource)
+	if runtime.GOOS == "windows" {
+		identity = strings.ToLower(identity)
+	}
+	return "rust-mcbe-bds-runtime-v1\nsource=" + identity + "\n"
 }
 
 func ensureStableExecutable(source, destination string) error {
@@ -657,7 +929,7 @@ func copyTree(source, destination, skippedRootFile string) error {
 			return err
 		}
 		target := filepath.Join(destination, relative)
-		if relative == skippedRootFile {
+		if relative == skippedRootFile || relative == runtimeOwnerMarker {
 			return nil
 		}
 		info, err := entry.Info()

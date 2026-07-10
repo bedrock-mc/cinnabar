@@ -23,6 +23,15 @@ type Config struct {
 	Upstream  string
 }
 
+type acceptResult struct {
+	conn net.Conn
+	err  error
+}
+
+type connectionAcceptor interface {
+	Accept() (net.Conn, error)
+}
+
 // Serve listens for local bridge clients until ctx is cancelled. Session
 // setup failures are returned; ordinary peer disconnects leave the listener
 // available for another client.
@@ -44,26 +53,10 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 
 	serveCtx, cancel := context.WithCancel(ctx)
 
-	type acceptResult struct {
-		conn net.Conn
-		err  error
-	}
 	accepted := make(chan acceptResult)
+	acceptDone := make(chan error, 1)
 	go func() {
-		for {
-			conn, err := listener.Accept()
-			select {
-			case accepted <- acceptResult{conn: conn, err: err}:
-			case <-serveCtx.Done():
-				if conn != nil {
-					_ = conn.Close()
-				}
-				return
-			}
-			if err != nil {
-				return
-			}
-		}
+		acceptDone <- runAcceptLoop(serveCtx, listener, accepted)
 	}()
 
 	sessionErr := make(chan error, 1)
@@ -72,7 +65,7 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 	var stopErr error
 	stop := func() error {
 		stopOnce.Do(func() {
-			stopErr = stopServer(cancel, listener, &sessions)
+			stopErr = stopServer(cancel, listener, &sessions, acceptDone)
 		})
 		return stopErr
 	}
@@ -90,8 +83,8 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 			}
 			downstream, ok := result.conn.(*minecraft.Conn)
 			if !ok {
-				_ = result.conn.Close()
-				return fmt.Errorf("proxy: accepted unexpected connection type %T", result.conn)
+				cleanupErr := cleanupHandoffConnection(result.conn)
+				return errors.Join(fmt.Errorf("proxy: accepted unexpected connection type %T", result.conn), cleanupErr)
 			}
 			sessions.Add(1)
 			go func() {
@@ -112,11 +105,55 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 	}
 }
 
-func stopServer(cancel context.CancelFunc, listener io.Closer, sessions *sync.WaitGroup) error {
+func runAcceptLoop(ctx context.Context, listener connectionAcceptor, accepted chan<- acceptResult) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("panic in accept loop: %v", recovered)
+		}
+	}()
+	for {
+		conn, acceptErr := listener.Accept()
+		if acceptErr != nil && conn != nil {
+			acceptErr = errors.Join(acceptErr, cleanupHandoffConnection(conn))
+			conn = nil
+		}
+		select {
+		case accepted <- acceptResult{conn: conn, err: acceptErr}:
+		case <-ctx.Done():
+			return cleanupHandoffConnection(conn)
+		}
+		if acceptErr != nil {
+			return nil
+		}
+	}
+}
+
+func stopServer(cancel context.CancelFunc, listener io.Closer, sessions *sync.WaitGroup, acceptDone <-chan error) error {
 	cancel()
 	closeErr := listener.Close()
+	acceptErr := <-acceptDone
 	sessions.Wait()
-	return closeErr
+	return errors.Join(closeErr, acceptErr)
+}
+
+func cleanupHandoffConnection(conn net.Conn) error {
+	if conn == nil {
+		return nil
+	}
+	var abortErr error
+	if abortable, ok := conn.(interface{ Abort() error }); ok {
+		abortErr = callConnectionLifecycle("aborting", abortable.Abort)
+	}
+	return errors.Join(abortErr, callConnectionLifecycle("closing", conn.Close))
+}
+
+func callConnectionLifecycle(operation string, call func() error) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("panic while %s accepted connection: %v", operation, recovered)
+		}
+	}()
+	return call()
 }
 
 func handleConnection(ctx context.Context, downstream *minecraft.Conn, upstreamAddress string) error {

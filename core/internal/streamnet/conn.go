@@ -29,12 +29,30 @@ var (
 // Each Write is one complete frame and ReadPacket reads one complete frame.
 type FramedConn struct {
 	net.Conn
-	writeMu sync.Mutex
+	writeMu   sync.Mutex
+	closeOnce sync.Once
+	closeErr  error
+	onClose   func()
 }
 
 // NewFramedConn wraps conn in the local bridge framing contract.
 func NewFramedConn(conn net.Conn) *FramedConn {
 	return &FramedConn{Conn: conn}
+}
+
+func newTrackedFramedConn(conn net.Conn, onClose func()) *FramedConn {
+	return &FramedConn{Conn: conn, onClose: onClose}
+}
+
+// Close closes the underlying transport once and unregisters tracked server connections.
+func (c *FramedConn) Close() error {
+	c.closeOnce.Do(func() {
+		c.closeErr = c.Conn.Close()
+		if c.onClose != nil {
+			c.onClose()
+		}
+	})
+	return c.closeErr
 }
 
 // ReadPacket reads exactly one framed payload. A clean EOF is only returned

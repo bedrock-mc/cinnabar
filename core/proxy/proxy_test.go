@@ -1,11 +1,13 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net"
+	"runtime/pprof"
 	"strings"
 	"sync"
 	"testing"
@@ -205,9 +207,128 @@ func TestIsOrdinaryCloseRecognizesClassifiedTerminalTransportError(t *testing.T)
 func TestStopServerPropagatesListenerCleanupError(t *testing.T) {
 	wantErr := errors.New("endpoint identity changed")
 	var sessions sync.WaitGroup
-	err := stopServer(func() {}, errorCloser{err: wantErr}, &sessions)
+	acceptDone := make(chan error, 1)
+	acceptDone <- nil
+	err := stopServer(func() {}, errorCloser{err: wantErr}, &sessions, acceptDone)
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("stopServer() error = %v, want cleanup error", err)
+	}
+}
+
+func TestBackpressuredAcceptHandoffAbortsBeforePanickingClose(t *testing.T) {
+	server, client := net.Pipe()
+	defer client.Close()
+	conn := &handoffTestConn{Conn: server}
+	listener := &singleAcceptListener{conn: conn, returned: make(chan struct{})}
+	accepted := make(chan acceptResult)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- runAcceptLoop(ctx, listener, accepted) }()
+	<-listener.returned
+	cancel()
+
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "panic while closing accepted connection") {
+			t.Fatalf("runAcceptLoop() error = %v, want recovered Close panic", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("backpressured handoff cleanup blocked")
+	}
+	if got := conn.events(); len(got) != 2 || got[0] != "abort" || got[1] != "close" {
+		t.Fatalf("handoff lifecycle = %v, want abort before close", got)
+	}
+}
+
+func TestServeCancellationClosesRawPreLoginConnection(t *testing.T) {
+	dir := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- Serve(ctx, Config{SocketDir: dir, Upstream: "127.0.0.1:1"})
+	}()
+
+	var networkName, address string
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		var err error
+		networkName, address, err = streamnet.Resolve(dir)
+		if err == nil {
+			break
+		}
+		select {
+		case serveErr := <-done:
+			t.Fatalf("Serve() stopped before publishing endpoint: %v", serveErr)
+		default:
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if networkName == "" {
+		cancel()
+		t.Fatal("proxy endpoint was not published")
+	}
+	client, err := net.DialTimeout(networkName, address, time.Second)
+	if err != nil {
+		cancel()
+		t.Fatalf("dial raw proxy endpoint: %v", err)
+	}
+	defer client.Close()
+	waitForGoroutineStack(t, "minecraft.(*Listener).handleConn", true, time.Second)
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatalf("Serve() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Serve() remained blocked by raw pre-login connection")
+	}
+
+	if err := client.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	readErr := make(chan error, 1)
+	go func() {
+		_, err := client.Read(make([]byte, 1))
+		readErr <- err
+	}()
+	select {
+	case err := <-readErr:
+		if err == nil {
+			t.Fatal("raw client remained readable after proxy shutdown")
+		}
+		var netErr net.Error
+		if errors.As(err, &netErr) && netErr.Timeout() {
+			t.Fatalf("raw client closed only by deadline: %v", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("raw client remained open after proxy shutdown")
+	}
+	waitForGoroutineStack(t, "minecraft.(*Listener).handleConn", false, time.Second)
+
+	successor, err := streamnet.New(dir).Listen("")
+	if err != nil {
+		t.Fatalf("endpoint lease leaked after proxy shutdown: %v", err)
+	}
+	_ = successor.Close()
+}
+
+func waitForGoroutineStack(t *testing.T, substring string, want bool, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		var stacks bytes.Buffer
+		if err := pprof.Lookup("goroutine").WriteTo(&stacks, 1); err != nil {
+			t.Fatalf("read goroutine profile: %v", err)
+		}
+		present := bytes.Contains(stacks.Bytes(), []byte(substring))
+		if present == want {
+			return
+		}
+		if !time.Now().Before(deadline) {
+			t.Fatalf("goroutine stack %q presence = %v, want %v\n%s", substring, present, want, stacks.String())
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
@@ -386,6 +507,44 @@ func (s *fakeUpstream) GameData() minecraft.GameData             { return s.data
 type errorCloser struct{ err error }
 
 func (c errorCloser) Close() error { return c.err }
+
+type singleAcceptListener struct {
+	conn     net.Conn
+	returned chan struct{}
+}
+
+func (listener *singleAcceptListener) Accept() (net.Conn, error) {
+	close(listener.returned)
+	return listener.conn, nil
+}
+
+type handoffTestConn struct {
+	net.Conn
+	mu        sync.Mutex
+	lifecycle []string
+}
+
+func (conn *handoffTestConn) Abort() error {
+	conn.record("abort")
+	return conn.Conn.Close()
+}
+
+func (conn *handoffTestConn) Close() error {
+	conn.record("close")
+	panic("close after abort")
+}
+
+func (conn *handoffTestConn) record(event string) {
+	conn.mu.Lock()
+	conn.lifecycle = append(conn.lifecycle, event)
+	conn.mu.Unlock()
+}
+
+func (conn *handoffTestConn) events() []string {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	return append([]string(nil), conn.lifecycle...)
+}
 
 type terminalWriteConn struct{ err error }
 
