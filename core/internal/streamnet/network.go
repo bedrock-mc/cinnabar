@@ -60,7 +60,9 @@ func (n *network) Listen(string) (minecraft.NetworkListener, error) {
 		err     error
 	)
 	if runtime.GOOS == "windows" {
-		inner, err = net.Listen("tcp", "127.0.0.1:0")
+		if err = preparePublishedAddress(n.socketDir); err == nil {
+			inner, err = net.Listen("tcp", "127.0.0.1:0")
+		}
 		if err == nil {
 			address := inner.Addr().String()
 			var path string
@@ -73,12 +75,23 @@ func (n *network) Listen(string) (minecraft.NetworkListener, error) {
 			inner, err = net.Listen("unix", path)
 		}
 		if err == nil {
+			unix, ok := inner.(*net.UnixListener)
+			if !ok {
+				_ = inner.Close()
+				return nil, fmt.Errorf("streamnet: Unix listener has type %T", inner)
+			}
+			unix.SetUnlinkOnClose(false)
+			identity, identityErr := unixEndpointIdentityAt(path)
+			if identityErr != nil {
+				_ = inner.Close()
+				return nil, identityErr
+			}
 			if chmodErr := os.Chmod(path, 0o600); chmodErr != nil {
 				_ = inner.Close()
-				_ = removeUnixEndpoint(path)
+				_ = removeUnixEndpoint(path, identity)
 				return nil, fmt.Errorf("streamnet: secure Unix endpoint: %w", chmodErr)
 			}
-			cleanup = func() error { return removeUnixEndpoint(path) }
+			cleanup = func() error { return removeUnixEndpoint(path, identity) }
 		}
 	}
 	if err != nil {

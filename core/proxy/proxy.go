@@ -17,8 +17,6 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
-const pinnedProtocol = 1001
-
 // Config configures a local bridge listener and its upstream Bedrock server.
 type Config struct {
 	SocketDir string
@@ -28,17 +26,13 @@ type Config struct {
 // Serve listens for local bridge clients until ctx is cancelled. Session
 // setup failures are returned; ordinary peer disconnects leave the listener
 // available for another client.
-func Serve(ctx context.Context, cfg Config) error {
+func Serve(ctx context.Context, cfg Config) (err error) {
 	if cfg.SocketDir == "" {
 		return errors.New("proxy: socket directory is required")
 	}
 	if cfg.Upstream == "" {
 		return errors.New("proxy: upstream address is required")
 	}
-	if got := minecraft.DefaultProtocol.ID(); got != pinnedProtocol {
-		return fmt.Errorf("proxy: protocol drift: got %d, want %d", got, pinnedProtocol)
-	}
-
 	listener, err := (minecraft.ListenConfig{
 		AuthenticationDisabled: true,
 		AllowUnknownPackets:    true,
@@ -49,8 +43,6 @@ func Serve(ctx context.Context, cfg Config) error {
 	}
 
 	serveCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	defer listener.Close()
 
 	type acceptResult struct {
 		conn net.Conn
@@ -76,29 +68,29 @@ func Serve(ctx context.Context, cfg Config) error {
 
 	sessionErr := make(chan error, 1)
 	var sessions sync.WaitGroup
-	stop := func() {
-		cancel()
-		_ = listener.Close()
-		sessions.Wait()
+	var stopOnce sync.Once
+	var stopErr error
+	stop := func() error {
+		stopOnce.Do(func() {
+			stopErr = stopServer(cancel, listener, &sessions)
+		})
+		return stopErr
 	}
+	defer func() { err = errors.Join(err, stop()) }()
 	for {
 		select {
 		case <-ctx.Done():
-			stop()
 			return nil
 		case result := <-accepted:
 			if result.err != nil {
 				if serveCtx.Err() != nil || errors.Is(result.err, net.ErrClosed) {
-					stop()
 					return nil
 				}
-				stop()
 				return fmt.Errorf("proxy: accept: %w", result.err)
 			}
 			downstream, ok := result.conn.(*minecraft.Conn)
 			if !ok {
 				_ = result.conn.Close()
-				stop()
 				return fmt.Errorf("proxy: accepted unexpected connection type %T", result.conn)
 			}
 			sessions.Add(1)
@@ -115,10 +107,16 @@ func Serve(ctx context.Context, cfg Config) error {
 				}
 			}()
 		case err := <-sessionErr:
-			stop()
 			return err
 		}
 	}
+}
+
+func stopServer(cancel context.CancelFunc, listener io.Closer, sessions *sync.WaitGroup) error {
+	cancel()
+	closeErr := listener.Close()
+	sessions.Wait()
+	return closeErr
 }
 
 func handleConnection(ctx context.Context, downstream *minecraft.Conn, upstreamAddress string) error {
@@ -127,25 +125,55 @@ func handleConnection(ctx context.Context, downstream *minecraft.Conn, upstreamA
 		Identity:    identity.Identity,
 		DisplayName: identity.DisplayName,
 	}
-	upstream, err := (minecraft.Dialer{
+	dialer := minecraft.Dialer{
 		ClientData:   downstream.ClientData(),
 		ErrorLog:     slog.Default().With("component", "upstream-dialer"),
 		IdentityData: offlineIdentity,
 		Protocol:     downstream.Proto(),
-	}).DialContextNetwork(ctx, minecraft.RakNet{}, upstreamAddress)
-	if err != nil {
-		return finishDialFailure(downstream, err)
 	}
-	return serveConnections(ctx, downstream, upstream)
+	return dialAndServe(ctx, downstream, func(ctx context.Context) (upstreamSession, error) {
+		return dialer.DialContextNetwork(ctx, minecraft.RakNet{}, upstreamAddress)
+	})
+}
+
+func dialAndServe(ctx context.Context, downstream downstreamSession, dial func(context.Context) (upstreamSession, error)) error {
+	type result struct {
+		upstream upstreamSession
+		err      error
+	}
+	results := make(chan result, 1)
+	go func() {
+		var upstream upstreamSession
+		err := callWithoutPanic(func() (err error) {
+			upstream, err = dial(ctx)
+			return err
+		})
+		if ctx.Err() != nil && upstream != nil {
+			err = errors.Join(err, shutdownSession(upstream))
+			upstream = nil
+		}
+		results <- result{upstream: upstream, err: err}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return errors.Join(ctx.Err(), shutdownSession(downstream))
+	case result := <-results:
+		if result.err != nil {
+			return finishDialFailure(downstream, result.err)
+		}
+		return serveConnections(ctx, downstream, result.upstream)
+	}
 }
 
 func finishDialFailure(downstream packetSession, dialErr error) error {
-	return errors.Join(fmt.Errorf("proxy: dial upstream: %w", dialErr), closeSession(downstream))
+	return errors.Join(fmt.Errorf("proxy: dial upstream: %w", dialErr), shutdownSession(downstream))
 }
 
 type packetSession interface {
 	ReadPacket() (packet.Packet, error)
 	WritePacket(packet.Packet) error
+	Abort() error
 	Close() error
 }
 
@@ -162,7 +190,7 @@ type upstreamSession interface {
 
 func serveConnections(ctx context.Context, downstream downstreamSession, upstream upstreamSession) (err error) {
 	defer func() {
-		err = errors.Join(err, closeSession(downstream), closeSession(upstream))
+		err = errors.Join(err, shutdownSession(downstream), shutdownSession(upstream))
 	}()
 
 	if err := spawnBarrier(ctx, downstream, upstream); err != nil {
@@ -237,7 +265,7 @@ func relayPackets(ctx context.Context, downstream, upstream packetSession) error
 	case <-ctx.Done():
 		first = result{direction: "relay context", err: ctx.Err()}
 	}
-	closeErr := errors.Join(closeSession(downstream), closeSession(upstream))
+	closeErr := errors.Join(shutdownSession(downstream), shutdownSession(upstream))
 
 	var second result
 	if first.direction == "relay context" {
@@ -268,6 +296,19 @@ func closeSession(session packetSession) (err error) {
 	return session.Close()
 }
 
+func abortSession(session packetSession) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("panic while aborting session: %v", recovered)
+		}
+	}()
+	return session.Abort()
+}
+
+func shutdownSession(session packetSession) error {
+	return errors.Join(abortSession(session), closeSession(session))
+}
+
 func pumpPackets(source, destination packetSession) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -295,7 +336,28 @@ func callWithoutPanic(call func() error) (err error) {
 }
 
 func isOrdinaryClose(err error) bool {
-	return errors.Is(err, io.EOF) ||
-		errors.Is(err, net.ErrClosed) ||
-		errors.Is(err, context.Canceled)
+	if err == nil {
+		return false
+	}
+	if terminal, ok := err.(interface{ TerminalClose() bool }); ok && terminal.TerminalClose() {
+		return true
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		children := joined.Unwrap()
+		if len(children) == 0 {
+			return false
+		}
+		for _, child := range children {
+			if !isOrdinaryClose(child) {
+				return false
+			}
+		}
+		return true
+	}
+	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
+		if child := wrapped.Unwrap(); child != nil {
+			return isOrdinaryClose(child)
+		}
+	}
+	return errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) || errors.Is(err, context.Canceled)
 }

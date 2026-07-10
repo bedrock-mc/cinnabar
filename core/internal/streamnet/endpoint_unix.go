@@ -5,9 +5,16 @@ package streamnet
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"syscall"
+	"time"
 )
+
+type unixEndpointIdentity struct {
+	device uint64
+	inode  uint64
+}
 
 func validateSocketDirOwner(info os.FileInfo) error {
 	stat, ok := info.Sys().(*syscall.Stat_t)
@@ -39,21 +46,51 @@ func prepareUnixEndpoint(path string) error {
 		}
 		return err
 	}
-	if err := os.Remove(path); err != nil {
-		return fmt.Errorf("streamnet: remove stale Unix endpoint: %w", err)
+	identity, err := unixEndpointIdentityAt(path)
+	if err != nil {
+		return err
 	}
-	return nil
+	conn, dialErr := net.DialTimeout("unix", path, 250*time.Millisecond)
+	if dialErr == nil {
+		_ = conn.Close()
+		return fmt.Errorf("streamnet: Unix endpoint is active: %s", path)
+	}
+	if !isConnectionRefused(dialErr) {
+		return fmt.Errorf("streamnet: cannot prove Unix endpoint stale: %w", dialErr)
+	}
+	return removeUnixEndpoint(path, identity)
 }
 
-func removeUnixEndpoint(path string) error {
+func unixEndpointIdentityAt(path string) (unixEndpointIdentity, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return unixEndpointIdentity{}, fmt.Errorf("streamnet: inspect Unix endpoint identity: %w", err)
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return unixEndpointIdentity{}, fmt.Errorf("streamnet: Unix endpoint identity is unavailable")
+	}
+	return unixEndpointIdentity{device: uint64(stat.Dev), inode: uint64(stat.Ino)}, nil
+}
+
+func removeUnixEndpoint(path string, expected unixEndpointIdentity) error {
 	if err := validateUnixEndpoint(path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
 		}
 		return err
 	}
+	actual, err := unixEndpointIdentityAt(path)
+	if err != nil {
+		return err
+	}
+	if actual != expected {
+		return fmt.Errorf("streamnet: Unix endpoint identity changed before cleanup")
+	}
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("streamnet: remove Unix endpoint: %w", err)
 	}
 	return nil
 }
+
+func isConnectionRefused(err error) bool { return errors.Is(err, syscall.ECONNREFUSED) }

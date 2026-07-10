@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
@@ -154,6 +156,89 @@ func TestDialFailureClosePanicIsReturned(t *testing.T) {
 	}
 }
 
+func TestRelayCancellationAbortsBeforePanickingClose(t *testing.T) {
+	down := newFakeDownstream(nil)
+	up := newFakeUpstream(nil)
+	down.closePanicBeforeUnblock = true
+	up.closePanicBeforeUnblock = true
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- serveConnections(ctx, down, up) }()
+	cancel()
+
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "panic while closing session") {
+			t.Fatalf("serveConnections() error = %v, want recovered close panic", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancellation remained blocked by panicking Close")
+	}
+	for name, session := range map[string]*fakeSession{"downstream": &down.fakeSession, "upstream": &up.fakeSession} {
+		if got := session.lifecycleEvents(); len(got) < 2 || got[0] != "abort" || got[1] != "close" {
+			t.Fatalf("%s lifecycle = %v, want abort before close", name, got)
+		}
+	}
+}
+
+func TestIsOrdinaryCloseRequiresEveryJoinedLeaf(t *testing.T) {
+	if isOrdinaryClose(errors.Join(errors.New("decode failed"), net.ErrClosed)) {
+		t.Fatal("mixed joined error classified as ordinary")
+	}
+	if !isOrdinaryClose(errors.Join(fmt.Errorf("wrapped: %w", io.EOF), context.Canceled, net.ErrClosed)) {
+		t.Fatal("all-ordinary joined error classified as non-ordinary")
+	}
+}
+
+func TestIsOrdinaryCloseRecognizesClassifiedTerminalTransportError(t *testing.T) {
+	framed := streamnet.NewFramedConn(&terminalWriteConn{err: io.ErrClosedPipe})
+	_, err := framed.Write([]byte{0xfe})
+	if !isOrdinaryClose(err) {
+		t.Fatalf("classified terminal transport error considered non-ordinary: %v", err)
+	}
+	if isOrdinaryClose(errors.Join(errors.New("decode failed"), err)) {
+		t.Fatal("mixed application and classified terminal errors considered ordinary")
+	}
+}
+
+func TestStopServerPropagatesListenerCleanupError(t *testing.T) {
+	wantErr := errors.New("endpoint identity changed")
+	var sessions sync.WaitGroup
+	err := stopServer(func() {}, errorCloser{err: wantErr}, &sessions)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("stopServer() error = %v, want cleanup error", err)
+	}
+}
+
+func TestDialCancellationReturnsWithoutWaitingForDialer(t *testing.T) {
+	down := newFakeDownstream(nil)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	dial := func(context.Context) (upstreamSession, error) {
+		close(started)
+		<-release
+		return newFakeUpstream(nil), nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- dialAndServe(ctx, down, dial) }()
+	<-started
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("dialAndServe() error = %v, want context cancellation", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("dialAndServe waited for a dialer that ignored cancellation")
+	}
+	close(release)
+	if got := down.lifecycleEvents(); len(got) < 2 || got[0] != "abort" || got[1] != "close" {
+		t.Fatalf("downstream lifecycle = %v, want abort before close", got)
+	}
+}
+
 func assertNoWrites(t *testing.T, session *fakeUpstream) {
 	t.Helper()
 	time.Sleep(30 * time.Millisecond)
@@ -180,12 +265,17 @@ type packetResult struct {
 }
 
 type fakeSession struct {
-	reads      chan packetResult
-	closed     chan struct{}
-	closeOnce  sync.Once
-	writesMu   sync.Mutex
-	writes     []packet.Packet
-	closePanic bool
+	reads                   chan packetResult
+	closed                  chan struct{}
+	abortOnce               sync.Once
+	closeOnce               sync.Once
+	unblockOnce             sync.Once
+	writesMu                sync.Mutex
+	writes                  []packet.Packet
+	lifecycleMu             sync.Mutex
+	lifecycle               []string
+	closePanic              bool
+	closePanicBeforeUnblock bool
 }
 
 func newFakeSession() fakeSession {
@@ -217,11 +307,33 @@ func (s *fakeSession) WritePacket(p packet.Packet) error {
 }
 
 func (s *fakeSession) Close() error {
-	s.closeOnce.Do(func() { close(s.closed) })
+	s.recordLifecycle("close")
+	if s.closePanicBeforeUnblock {
+		panic("close failed before unblock")
+	}
+	s.closeOnce.Do(func() { s.unblockOnce.Do(func() { close(s.closed) }) })
 	if s.closePanic {
 		panic("close failed")
 	}
 	return nil
+}
+
+func (s *fakeSession) Abort() error {
+	s.recordLifecycle("abort")
+	s.abortOnce.Do(func() { s.unblockOnce.Do(func() { close(s.closed) }) })
+	return nil
+}
+
+func (s *fakeSession) recordLifecycle(event string) {
+	s.lifecycleMu.Lock()
+	s.lifecycle = append(s.lifecycle, event)
+	s.lifecycleMu.Unlock()
+}
+
+func (s *fakeSession) lifecycleEvents() []string {
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+	return append([]string(nil), s.lifecycle...)
 }
 
 func (s *fakeSession) written() []packet.Packet {
@@ -270,3 +382,23 @@ func newFakeUpstream(spawn func(context.Context) error) *fakeUpstream {
 
 func (s *fakeUpstream) DoSpawnContext(ctx context.Context) error { return s.spawn(ctx) }
 func (s *fakeUpstream) GameData() minecraft.GameData             { return s.data }
+
+type errorCloser struct{ err error }
+
+func (c errorCloser) Close() error { return c.err }
+
+type terminalWriteConn struct{ err error }
+
+func (c *terminalWriteConn) Read([]byte) (int, error)         { return 0, io.EOF }
+func (c *terminalWriteConn) Write([]byte) (int, error)        { return 0, c.err }
+func (c *terminalWriteConn) Close() error                     { return nil }
+func (c *terminalWriteConn) LocalAddr() net.Addr              { return proxyTestAddr("local") }
+func (c *terminalWriteConn) RemoteAddr() net.Addr             { return proxyTestAddr("remote") }
+func (c *terminalWriteConn) SetDeadline(time.Time) error      { return nil }
+func (c *terminalWriteConn) SetReadDeadline(time.Time) error  { return nil }
+func (c *terminalWriteConn) SetWriteDeadline(time.Time) error { return nil }
+
+type proxyTestAddr string
+
+func (a proxyTestAddr) Network() string { return "test" }
+func (a proxyTestAddr) String() string  { return string(a) }

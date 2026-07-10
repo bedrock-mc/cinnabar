@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -33,14 +34,26 @@ func TestProxyJoin(t *testing.T) {
 		t.Fatalf("BEDROCK_BDS_DIR %q is not a directory: %v", sourceDir, err)
 	}
 
-	runDir := filepath.Join(t.TempDir(), "bds")
-	if err := copyTree(sourceDir, runDir); err != nil {
-		t.Fatalf("copy BDS: %v", err)
+	runDir, err := stableRuntimeDirectory(sourceDir)
+	if err != nil {
+		t.Fatalf("resolve stable BDS runtime: %v", err)
+	}
+	lease, err := acquireRuntimeLease(runDir+".lock", 30*time.Second)
+	if err != nil {
+		t.Fatalf("acquire stable BDS runtime lease: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := lease.Close(); err != nil {
+			t.Errorf("release stable BDS runtime lease: %v", err)
+		}
+	})
+	if _, err := prepareStableRuntime(sourceDir, runDir, bedrockExecutableName()); err != nil {
+		t.Fatalf("prepare stable BDS runtime: %v", err)
 	}
 	port := reserveUDPPort(t)
 	portV6 := reserveUDPPort(t)
-	if err := setServerPorts(filepath.Join(runDir, "server.properties"), port, portV6); err != nil {
-		t.Fatalf("configure BDS ports: %v", err)
+	if err := configureServerProperties(filepath.Join(runDir, "server.properties"), port, portV6); err != nil {
+		t.Fatalf("configure BDS properties: %v", err)
 	}
 
 	bds := startTestBDS(t, runDir)
@@ -75,8 +88,8 @@ func TestProxyJoin(t *testing.T) {
 	if err := client.DoSpawnContext(ctx); err != nil {
 		t.Fatalf("complete spawn: %v\nBDS output:\n%s", err, bds.output())
 	}
-	if got := client.Proto().ID(); got != pinnedProtocol {
-		t.Fatalf("protocol ID = %d, want %d", got, pinnedProtocol)
+	if got := client.Proto().ID(); got != 1001 {
+		t.Fatalf("protocol ID = %d, want %d", got, 1001)
 	}
 	if got := client.GameData().EntityRuntimeID; got == 0 {
 		t.Fatal("StartGame runtime entity ID = 0, want non-zero")
@@ -214,14 +227,7 @@ type testBDS struct {
 
 func startTestBDS(t *testing.T, runDir string) *testBDS {
 	t.Helper()
-	executable := "bedrock_server"
-	if runtime.GOOS == "windows" {
-		executable += ".exe"
-	}
-	path := filepath.Join(runDir, executable)
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("BDS executable %q: %v", path, err)
-	}
+	path := filepath.Join(runDir, bedrockExecutableName())
 
 	cmd := exec.Command(path)
 	cmd.Dir = runDir
@@ -333,24 +339,315 @@ func reserveUDPPort(t *testing.T) int {
 	return port
 }
 
-func setServerPorts(path string, port, portV6 int) error {
+func TestConfigureServerProperties(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server.properties")
+	input := strings.Join([]string{
+		"server-port=19132",
+		"server-portv6=19133",
+		"online-mode=true",
+		"allow-list=true",
+		"enable-lan-visibility=true",
+		"motd=keep me",
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(input), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := configureServerProperties(path, 20001, 20002); err != nil {
+		t.Fatalf("configureServerProperties(): %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(data)
+	for _, line := range []string{
+		"server-port=20001",
+		"server-portv6=20002",
+		"online-mode=false",
+		"allow-list=false",
+		"enable-lan-visibility=false",
+		"motd=keep me",
+	} {
+		if !strings.Contains(got, line+"\n") {
+			t.Errorf("configured properties missing %q:\n%s", line, got)
+		}
+	}
+}
+
+func TestConfigureServerPropertiesRequiresEveryProperty(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server.properties")
+	input := "server-port=19132\nserver-portv6=19133\nonline-mode=true\nallow-list=true\n"
+	if err := os.WriteFile(path, []byte(input), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := configureServerProperties(path, 20001, 20002)
+	if err == nil || !strings.Contains(err.Error(), "enable-lan-visibility") {
+		t.Fatalf("configureServerProperties() error = %v, want missing-property error", err)
+	}
+}
+
+func TestPrepareStableRuntimeKeepsExecutableIdentityAndResetsMutableData(t *testing.T) {
+	sourceDir := t.TempDir()
+	runtimeDir := filepath.Join(t.TempDir(), "stable-runtime")
+	name := "bedrock_server.test"
+	source := filepath.Join(sourceDir, name)
+	if err := os.WriteFile(source, []byte("stable executable"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceDir, "server.properties"), []byte("source properties"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	executable, err := prepareStableRuntime(sourceDir, runtimeDir, name)
+	if err != nil {
+		t.Fatalf("prepareStableRuntime() first call: %v", err)
+	}
+	firstExecutableInfo, err := os.Stat(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(runtimeDir, "generated.log"), []byte("remove me"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(runtimeDir, "server.properties"), []byte("mutated"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	executableAgain, err := prepareStableRuntime(sourceDir, runtimeDir, name)
+	if err != nil {
+		t.Fatalf("prepareStableRuntime() second call: %v", err)
+	}
+	secondExecutableInfo, err := os.Stat(executableAgain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if executableAgain != executable || !os.SameFile(firstExecutableInfo, secondExecutableInfo) {
+		t.Fatal("stable runtime replaced or moved an unchanged executable")
+	}
+	if _, err := os.Stat(filepath.Join(runtimeDir, "generated.log")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("generated runtime file survived reset: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(runtimeDir, "server.properties"))
+	if err != nil || string(data) != "source properties" {
+		t.Fatalf("runtime mutable data = %q, %v", data, err)
+	}
+	if data, err := os.ReadFile(source); err != nil || string(data) != "stable executable" {
+		t.Fatalf("source executable changed: %q, %v", data, err)
+	}
+}
+
+func TestRuntimeLeaseIsExclusiveAndReleased(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bds-runtime.lock")
+	first, err := acquireRuntimeLease(path, time.Second)
+	if err != nil {
+		t.Fatalf("first acquireRuntimeLease(): %v", err)
+	}
+	if second, err := acquireRuntimeLease(path, 50*time.Millisecond); err == nil {
+		_ = second.Close()
+		t.Fatal("second acquireRuntimeLease() succeeded while first held lease")
+	}
+	if err := first.Close(); err != nil {
+		t.Fatalf("release first lease: %v", err)
+	}
+	third, err := acquireRuntimeLease(path, time.Second)
+	if err != nil {
+		t.Fatalf("acquire after release: %v", err)
+	}
+	if err := third.Close(); err != nil {
+		t.Fatalf("release third lease: %v", err)
+	}
+}
+
+func bedrockExecutableName() string {
+	if runtime.GOOS == "windows" {
+		return "bedrock_server.exe"
+	}
+	return "bedrock_server"
+}
+
+func stableRuntimeDirectory(sourceDir string) (string, error) {
+	if configured := os.Getenv("RUST_MCBE_BDS_RUNTIME_DIR"); configured != "" {
+		return filepath.Abs(configured)
+	}
+	source, err := filepath.Abs(sourceDir)
+	if err != nil {
+		return "", err
+	}
+	localDir := filepath.Dir(filepath.Dir(source))
+	return filepath.Join(localDir, "bds-runtime", filepath.Base(source)), nil
+}
+
+func acquireRuntimeLease(path string, timeout time.Duration) (io.Closer, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, err
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		lease, busy, err := tryRuntimeLease(path)
+		if err != nil {
+			return nil, err
+		}
+		if !busy {
+			return lease, nil
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("timed out waiting for exclusive runtime lease %s", path)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func prepareStableRuntime(sourceDir, runtimeDir, executable string) (string, error) {
+	if err := os.MkdirAll(runtimeDir, 0o700); err != nil {
+		return "", fmt.Errorf("create stable runtime: %w", err)
+	}
+	info, err := os.Lstat(runtimeDir)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("stable runtime is not a real directory: %s", runtimeDir)
+	}
+	sourceExecutable := filepath.Join(sourceDir, executable)
+	runtimeExecutable := filepath.Join(runtimeDir, executable)
+	if err := ensureStableExecutable(sourceExecutable, runtimeExecutable); err != nil {
+		return "", err
+	}
+	entries, err := os.ReadDir(runtimeDir)
+	if err != nil {
+		return "", err
+	}
+	for _, entry := range entries {
+		if entry.Name() == executable {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(runtimeDir, entry.Name())); err != nil {
+			return "", fmt.Errorf("reset runtime entry %q: %w", entry.Name(), err)
+		}
+	}
+	if err := copyTree(sourceDir, runtimeDir, executable); err != nil {
+		return "", fmt.Errorf("copy mutable BDS runtime data: %w", err)
+	}
+	return runtimeExecutable, nil
+}
+
+func ensureStableExecutable(source, destination string) error {
+	equal, err := filesEqual(source, destination)
+	if err == nil && equal {
+		return nil
+	}
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("compare stable executable: %w", err)
+	}
+	temp, err := os.CreateTemp(filepath.Dir(destination), "bedrock-server-exe-")
+	if err != nil {
+		return err
+	}
+	tempName := temp.Name()
+	defer os.Remove(tempName)
+	sourceFile, err := os.Open(source)
+	if err != nil {
+		_ = temp.Close()
+		return err
+	}
+	_, copyErr := io.Copy(temp, sourceFile)
+	sourceCloseErr := sourceFile.Close()
+	closeErr := temp.Close()
+	if err := errors.Join(copyErr, sourceCloseErr, closeErr); err != nil {
+		return err
+	}
+	if sourceInfo, err := os.Stat(source); err == nil {
+		if err := os.Chmod(tempName, sourceInfo.Mode().Perm()); err != nil {
+			return err
+		}
+	}
+	if err := os.Remove(destination); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := os.Rename(tempName, destination); err != nil {
+		return err
+	}
+	return nil
+}
+
+func filesEqual(first, second string) (bool, error) {
+	firstFile, err := os.Open(first)
+	if err != nil {
+		return false, err
+	}
+	defer firstFile.Close()
+	secondFile, err := os.Open(second)
+	if err != nil {
+		return false, err
+	}
+	defer secondFile.Close()
+	firstHash, secondHash := sha256.New(), sha256.New()
+	if _, err := io.Copy(firstHash, firstFile); err != nil {
+		return false, err
+	}
+	if _, err := io.Copy(secondHash, secondFile); err != nil {
+		return false, err
+	}
+	return bytes.Equal(firstHash.Sum(nil), secondHash.Sum(nil)), nil
+}
+
+func configureServerProperties(path string, port, portV6 int) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
+	required := []string{"server-port", "server-portv6", "online-mode", "allow-list", "enable-lan-visibility"}
+	want := map[string]string{
+		"server-port":           strconv.Itoa(port),
+		"server-portv6":         strconv.Itoa(portV6),
+		"online-mode":           "false",
+		"allow-list":            "false",
+		"enable-lan-visibility": "false",
+	}
+	found := make(map[string]int, len(required))
 	lines := strings.Split(string(data), "\n")
 	for index, line := range lines {
-		switch {
-		case strings.HasPrefix(line, "server-port="):
-			lines[index] = "server-port=" + strconv.Itoa(port)
-		case strings.HasPrefix(line, "server-portv6="):
-			lines[index] = "server-portv6=" + strconv.Itoa(portV6)
+		key, _, ok := strings.Cut(strings.TrimSuffix(line, "\r"), "=")
+		value, requiredProperty := want[key]
+		if !ok || !requiredProperty {
+			continue
+		}
+		found[key]++
+		if found[key] > 1 {
+			return fmt.Errorf("duplicate required server property %q", key)
+		}
+		lines[index] = key + "=" + value
+	}
+	for _, key := range required {
+		if found[key] != 1 {
+			return fmt.Errorf("required server property %q is missing", key)
 		}
 	}
-	return os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o600)
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o600); err != nil {
+		return err
+	}
+	verified, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("verify server properties: %w", err)
+	}
+	for _, key := range required {
+		line := key + "=" + want[key]
+		if !containsPropertyLine(string(verified), line) {
+			return fmt.Errorf("verify server property %q failed", key)
+		}
+	}
+	return nil
 }
 
-func copyTree(source, destination string) error {
+func containsPropertyLine(properties, want string) bool {
+	for _, line := range strings.Split(properties, "\n") {
+		if strings.TrimSuffix(line, "\r") == want {
+			return true
+		}
+	}
+	return false
+}
+
+func copyTree(source, destination, skippedRootFile string) error {
 	return filepath.WalkDir(source, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -360,6 +657,9 @@ func copyTree(source, destination string) error {
 			return err
 		}
 		target := filepath.Join(destination, relative)
+		if relative == skippedRootFile {
+			return nil
+		}
 		info, err := entry.Info()
 		if err != nil {
 			return err

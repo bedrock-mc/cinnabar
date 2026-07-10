@@ -76,6 +76,9 @@ func TestFramePartialHeaderEOF(t *testing.T) {
 	if !errors.Is(err, io.ErrUnexpectedEOF) {
 		t.Fatalf("ReadPacket() error = %v, want io.ErrUnexpectedEOF", err)
 	}
+	if !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("ReadPacket() error = %v, want terminal net.ErrClosed classification", err)
+	}
 }
 
 func TestFramePartialPayloadEOF(t *testing.T) {
@@ -83,6 +86,9 @@ func TestFramePartialPayloadEOF(t *testing.T) {
 	_, err := conn.ReadPacket()
 	if !errors.Is(err, io.ErrUnexpectedEOF) {
 		t.Fatalf("ReadPacket() error = %v, want io.ErrUnexpectedEOF", err)
+	}
+	if !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("ReadPacket() error = %v, want terminal net.ErrClosed classification", err)
 	}
 }
 
@@ -142,6 +148,36 @@ func TestFrameWriteNormalizesTerminalPeerError(t *testing.T) {
 	}
 }
 
+func TestFrameWritePreservesTemporaryNonTimeoutError(t *testing.T) {
+	wantErr := temporaryError{}
+	conn := NewFramedConn(&writeErrorConn{
+		readConn: readConn{Reader: bytes.NewReader(nil)},
+		err:      wantErr,
+	})
+	_, err := conn.Write([]byte{0xfe})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("Write() error = %v, want original temporary error", err)
+	}
+	if errors.Is(err, net.ErrClosed) {
+		t.Fatalf("Write() error = %v, must not be classified net.ErrClosed", err)
+	}
+}
+
+func TestFrameWriteDoesNotHideMixedTerminalError(t *testing.T) {
+	wantErr := errors.New("application write failure")
+	conn := NewFramedConn(&writeErrorConn{
+		readConn: readConn{Reader: bytes.NewReader(nil)},
+		err:      errors.Join(wantErr, io.ErrClosedPipe),
+	})
+	_, err := conn.Write([]byte{0xfe})
+	if !errors.Is(err, wantErr) || !errors.Is(err, io.ErrClosedPipe) {
+		t.Fatalf("Write() error = %v, want both original causes", err)
+	}
+	if errors.Is(err, net.ErrClosed) {
+		t.Fatalf("Write() error = %v, mixed failure must not be classified net.ErrClosed", err)
+	}
+}
+
 func TestFrameBlockedPeerCancellation(t *testing.T) {
 	server, client := net.Pipe()
 	defer client.Close()
@@ -191,6 +227,19 @@ func TestFrameWriteBytes(t *testing.T) {
 type readConn struct {
 	io.Reader
 }
+
+type writeErrorConn struct {
+	readConn
+	err error
+}
+
+func (c *writeErrorConn) Write([]byte) (int, error) { return 0, c.err }
+
+type temporaryError struct{}
+
+func (temporaryError) Error() string   { return "temporary transport failure" }
+func (temporaryError) Timeout() bool   { return false }
+func (temporaryError) Temporary() bool { return true }
 
 func (c *readConn) Write([]byte) (int, error)        { return 0, io.ErrClosedPipe }
 func (c *readConn) Close() error                     { return nil }

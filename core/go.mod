@@ -2,7 +2,10 @@ module github.com/hashimthearab/rust-mcbe/core
 
 go 1.26.1
 
-require github.com/sandertv/gophertunnel v1.57.0
+require (
+	github.com/sandertv/gophertunnel v1.57.0
+	golang.org/x/sys v0.41.0
+)
 
 require (
 	github.com/coder/websocket v1.8.14 // indirect
@@ -38,12 +41,11 @@ require (
 	golang.org/x/image v0.21.0 // indirect
 	golang.org/x/net v0.50.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
-	golang.org/x/sys v0.41.0 // indirect
 	golang.org/x/text v0.35.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 )
 
 replace (
 	github.com/sandertv/go-raknet => github.com/hashimthearab/go-raknet v1.14.2-0.20260625072737-109968c5e6ff
-	github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20260710055430-15b036a88a50
+	github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20260710063825-9948b1729395
 )
