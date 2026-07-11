@@ -163,7 +163,10 @@ Scope: block registry + block-state → model/texture mapping (generated export 
   evidence remain open; close those findings before completing Task 8.
 - [ ] **2.4 Cutout cube materials and leaves.** Preserve independent geometry,
   occlusion, and cave-connectivity semantics; keep the packed subchunk/quad and
-  shared GPU architecture.
+  shared GPU architecture. Task 1/5 is complete at `f768cfa`: the versioned
+  registry now exports independent air, cube-geometry, full-face-occlusion,
+  and leaf-model facts with exact pinned counts and no Mojang payload. Cutout
+  material/mip, mesher, shader, and live-evidence tasks remain open.
 - [ ] **2.5 Biome palettes and tinting.** Decode/store biome data and apply
   grass/foliage/water tint without widening the eight-byte quad record.
 - [ ] **2.6 Static/non-cube models, blend/water, and flipbooks.** Complete the
