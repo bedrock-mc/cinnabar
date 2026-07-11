@@ -93,12 +93,12 @@ fn startup_biome_tints(runtime_assets: &RuntimeAssets) -> ChunkBiomeTints {
 }
 
 fn synchronize_biome_tints(stream: &WorldStream, active: &mut ChunkBiomeTints) -> bool {
-    let revision = stream.biome_tint_revision();
-    if active.revision() == revision {
+    let identity = stream.biome_tint_identity();
+    if active.table_identity() == identity {
         return false;
     }
     let resolved = stream.resolved_biome_tints_snapshot();
-    *active = ChunkBiomeTints::from_resolved(&resolved, revision);
+    *active = ChunkBiomeTints::from_resolved_with_identity(&resolved, identity);
     true
 }
 
@@ -2225,7 +2225,7 @@ fn drive_world_stream(
                     key,
                     mesh,
                     biome,
-                    tint_revision,
+                    tint_identity,
                     generation,
                     dirty_since,
                 } => {
@@ -2236,11 +2236,11 @@ fn drive_world_stream(
                             .count(),
                     )
                     .unwrap_or(u64::MAX);
-                    match render_queue.try_update_tracked_with_biome_revision(
+                    match render_queue.try_update_tracked_with_biome_identity(
                         key,
                         mesh,
                         biome,
-                        tint_revision,
+                        tint_identity,
                         ChunkUploadPriority::from_camera(key, camera_position),
                         ChunkUploadToken {
                             generation,
@@ -2255,7 +2255,7 @@ fn drive_world_stream(
                             key,
                             mesh,
                             biome,
-                            tint_revision,
+                            tint_identity,
                             generation,
                             dirty_since,
                         }),
@@ -2920,7 +2920,7 @@ mod tests {
         LevelChunkMode, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkResult, WorldBootstrap,
         WorldEvent,
     };
-    use render::{PresentedFrameAck, RenderViewCohort, TargetRenderExpectation};
+    use render::{ChunkBiomeTints, PresentedFrameAck, RenderViewCohort, TargetRenderExpectation};
     use std::{
         sync::Arc,
         time::{Duration, Instant},
@@ -3007,6 +3007,59 @@ mod tests {
         assert_eq!(active.revision(), stream.biome_tint_revision());
         assert_eq!(active.entries().len(), 2);
         assert!(!synchronize_biome_tints(&stream, &mut active));
+    }
+
+    #[test]
+    fn equal_numeric_revisions_from_different_streams_replace_the_active_table() {
+        fn stream_with_live_temperature(
+            runtime_assets: Arc<RuntimeAssets>,
+            temperature: f32,
+        ) -> WorldStream {
+            let mut stream = WorldStream::new_with_assets(
+                WorldBootstrap {
+                    dimension: 0,
+                    local_player_runtime_id: 1,
+                    player_position: [0.0; 3],
+                    world_spawn_position: [0; 3],
+                    air_network_id: 12_530,
+                    block_network_ids_are_hashes: false,
+                },
+                runtime_assets,
+                [0.0, 96.0, 0.0],
+                None,
+            );
+            stream
+                .submit(
+                    1,
+                    WorldEvent::BiomeDefinitions(BiomeDefinitionsEvent {
+                        definitions: Arc::from([BiomeDefinitionEvent {
+                            biome_id: Some(42),
+                            name: Arc::from("example:live"),
+                            temperature,
+                            downfall: 0.4,
+                            snow_foliage: 0.0,
+                            map_water_color: if temperature > 0.5 {
+                                0xff11_2233
+                            } else {
+                                0xffaa_bbcc
+                            },
+                        }]),
+                    }),
+                )
+                .unwrap();
+            stream
+        }
+
+        let runtime_assets = Arc::new(RuntimeAssets::diagnostic());
+        let first = stream_with_live_temperature(Arc::clone(&runtime_assets), 0.8);
+        let second = stream_with_live_temperature(runtime_assets, 0.2);
+        assert_eq!(first.biome_tint_revision(), second.biome_tint_revision());
+
+        let mut active = ChunkBiomeTints::default();
+        assert!(synchronize_biome_tints(&first, &mut active));
+        let first_entries = active.entries().to_vec();
+        assert!(synchronize_biome_tints(&second, &mut active));
+        assert_ne!(active.entries(), first_entries);
     }
 
     fn settled_world_snapshot() -> WorldReadySnapshot {

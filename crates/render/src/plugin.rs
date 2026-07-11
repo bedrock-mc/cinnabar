@@ -103,17 +103,40 @@ impl Default for BiomeTint {
 
 /// Immutable dense biome tint table. Palette-native chunk records reference
 /// these entries by index; entry zero is always a deterministic fallback.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct ChunkBiomeTintIdentity {
+    stream: u64,
+    revision: u64,
+}
+
+impl ChunkBiomeTintIdentity {
+    #[must_use]
+    pub const fn new(stream: u64, revision: u64) -> Self {
+        Self { stream, revision }
+    }
+
+    #[must_use]
+    pub const fn stream(self) -> u64 {
+        self.stream
+    }
+
+    #[must_use]
+    pub const fn revision(self) -> u64 {
+        self.revision
+    }
+}
+
 #[derive(Resource, Clone)]
 pub struct ChunkBiomeTints {
     entries: Arc<[BiomeTint]>,
-    revision: u64,
+    identity: ChunkBiomeTintIdentity,
 }
 
 impl Default for ChunkBiomeTints {
     fn default() -> Self {
         Self {
             entries: Arc::from([BiomeTint::default()]),
-            revision: 0,
+            identity: ChunkBiomeTintIdentity::default(),
         }
     }
 }
@@ -121,6 +144,14 @@ impl Default for ChunkBiomeTints {
 impl ChunkBiomeTints {
     #[must_use]
     pub fn from_resolved(resolved: &ResolvedBiomeTints, revision: u64) -> Self {
+        Self::from_resolved_with_identity(resolved, ChunkBiomeTintIdentity::new(0, revision))
+    }
+
+    #[must_use]
+    pub fn from_resolved_with_identity(
+        resolved: &ResolvedBiomeTints,
+        identity: ChunkBiomeTintIdentity,
+    ) -> Self {
         let entries = resolved
             .records
             .iter()
@@ -140,7 +171,7 @@ impl ChunkBiomeTints {
                 flags: record.flags,
             })
             .collect::<Vec<_>>();
-        Self::with_revision(Arc::from(entries), revision)
+        Self::with_identity(Arc::from(entries), identity)
     }
 
     /// Replaces tint colours while retaining the dense index contract used by
@@ -148,12 +179,17 @@ impl ChunkBiomeTints {
     /// assignments must enqueue replacement records with the same revision.
     #[must_use]
     pub fn with_revision(entries: Arc<[BiomeTint]>, revision: u64) -> Self {
+        Self::with_identity(entries, ChunkBiomeTintIdentity::new(0, revision))
+    }
+
+    #[must_use]
+    pub fn with_identity(entries: Arc<[BiomeTint]>, identity: ChunkBiomeTintIdentity) -> Self {
         let entries = if entries.is_empty() {
             Arc::from([BiomeTint::default()])
         } else {
             entries
         };
-        Self { entries, revision }
+        Self { entries, identity }
     }
 
     #[must_use]
@@ -163,13 +199,18 @@ impl ChunkBiomeTints {
 
     #[must_use]
     pub const fn revision(&self) -> u64 {
-        self.revision
+        self.identity.revision()
     }
 
-    fn identity(&self) -> ChunkBiomeTintIdentity {
-        ChunkBiomeTintIdentity {
+    #[must_use]
+    pub const fn table_identity(&self) -> ChunkBiomeTintIdentity {
+        self.identity
+    }
+
+    fn resource_identity(&self) -> ChunkBiomeTintResourceIdentity {
+        ChunkBiomeTintResourceIdentity {
             pointer: Arc::as_ptr(&self.entries) as *const BiomeTint as usize,
-            revision: self.revision,
+            table: self.identity,
         }
     }
 }
@@ -183,9 +224,9 @@ impl bevy::render::extract_resource::ExtractResource for ChunkBiomeTints {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ChunkBiomeTintIdentity {
+struct ChunkBiomeTintResourceIdentity {
     pointer: usize,
-    revision: u64,
+    table: ChunkBiomeTintIdentity,
 }
 
 /// Immutable assets selected for the single global chunk texture array.
@@ -466,7 +507,7 @@ impl PartialOrd for ChunkUploadPriority {
 struct PendingUpload {
     mesh: ChunkMesh,
     biome: PackedBiomeRecord,
-    tint_revision: u64,
+    tint_identity: ChunkBiomeTintIdentity,
     priority: ChunkUploadPriority,
     generation: u64,
     token: Option<ChunkUploadToken>,
@@ -1206,8 +1247,15 @@ impl ChunkRenderQueue {
         mesh: ChunkMesh,
         priority: ChunkUploadPriority,
     ) -> Result<(), ChunkMesh> {
-        self.try_enqueue(key, mesh, PackedBiomeRecord::fallback(), 0, priority, None)
-            .map_err(|(mesh, _)| mesh)
+        self.try_enqueue(
+            key,
+            mesh,
+            PackedBiomeRecord::fallback(),
+            ChunkBiomeTintIdentity::default(),
+            priority,
+            None,
+        )
+        .map_err(|(mesh, _)| mesh)
     }
 
     pub fn try_insert_with_biome(
@@ -1217,7 +1265,14 @@ impl ChunkRenderQueue {
         biome: PackedBiomeRecord,
         priority: ChunkUploadPriority,
     ) -> Result<(), (ChunkMesh, PackedBiomeRecord)> {
-        self.try_enqueue(key, mesh, biome, 0, priority, None)
+        self.try_enqueue(
+            key,
+            mesh,
+            biome,
+            ChunkBiomeTintIdentity::default(),
+            priority,
+            None,
+        )
     }
 
     pub fn try_insert_with_biome_revision(
@@ -1228,7 +1283,24 @@ impl ChunkRenderQueue {
         tint_revision: u64,
         priority: ChunkUploadPriority,
     ) -> Result<(), (ChunkMesh, PackedBiomeRecord)> {
-        self.try_enqueue(key, mesh, biome, tint_revision, priority, None)
+        self.try_insert_with_biome_identity(
+            key,
+            mesh,
+            biome,
+            ChunkBiomeTintIdentity::new(0, tint_revision),
+            priority,
+        )
+    }
+
+    pub fn try_insert_with_biome_identity(
+        &mut self,
+        key: SubChunkKey,
+        mesh: ChunkMesh,
+        biome: PackedBiomeRecord,
+        tint_identity: ChunkBiomeTintIdentity,
+        priority: ChunkUploadPriority,
+    ) -> Result<(), (ChunkMesh, PackedBiomeRecord)> {
+        self.try_enqueue(key, mesh, biome, tint_identity, priority, None)
     }
 
     pub fn try_update(
@@ -1237,8 +1309,15 @@ impl ChunkRenderQueue {
         mesh: ChunkMesh,
         priority: ChunkUploadPriority,
     ) -> Result<(), ChunkMesh> {
-        self.try_enqueue(key, mesh, PackedBiomeRecord::fallback(), 0, priority, None)
-            .map_err(|(mesh, _)| mesh)
+        self.try_enqueue(
+            key,
+            mesh,
+            PackedBiomeRecord::fallback(),
+            ChunkBiomeTintIdentity::default(),
+            priority,
+            None,
+        )
+        .map_err(|(mesh, _)| mesh)
     }
 
     pub fn try_update_with_biome(
@@ -1248,7 +1327,14 @@ impl ChunkRenderQueue {
         biome: PackedBiomeRecord,
         priority: ChunkUploadPriority,
     ) -> Result<(), (ChunkMesh, PackedBiomeRecord)> {
-        self.try_enqueue(key, mesh, biome, 0, priority, None)
+        self.try_enqueue(
+            key,
+            mesh,
+            biome,
+            ChunkBiomeTintIdentity::default(),
+            priority,
+            None,
+        )
     }
 
     pub fn try_update_tracked(
@@ -1262,7 +1348,7 @@ impl ChunkRenderQueue {
             key,
             mesh,
             PackedBiomeRecord::fallback(),
-            0,
+            ChunkBiomeTintIdentity::default(),
             priority,
             Some(token),
         )
@@ -1277,7 +1363,14 @@ impl ChunkRenderQueue {
         priority: ChunkUploadPriority,
         token: ChunkUploadToken,
     ) -> Result<(), (ChunkMesh, PackedBiomeRecord)> {
-        self.try_enqueue(key, mesh, biome, 0, priority, Some(token))
+        self.try_enqueue(
+            key,
+            mesh,
+            biome,
+            ChunkBiomeTintIdentity::default(),
+            priority,
+            Some(token),
+        )
     }
 
     pub fn try_update_tracked_with_biome_revision(
@@ -1289,7 +1382,26 @@ impl ChunkRenderQueue {
         priority: ChunkUploadPriority,
         token: ChunkUploadToken,
     ) -> Result<(), (ChunkMesh, PackedBiomeRecord)> {
-        self.try_enqueue(key, mesh, biome, tint_revision, priority, Some(token))
+        self.try_update_tracked_with_biome_identity(
+            key,
+            mesh,
+            biome,
+            ChunkBiomeTintIdentity::new(0, tint_revision),
+            priority,
+            token,
+        )
+    }
+
+    pub fn try_update_tracked_with_biome_identity(
+        &mut self,
+        key: SubChunkKey,
+        mesh: ChunkMesh,
+        biome: PackedBiomeRecord,
+        tint_identity: ChunkBiomeTintIdentity,
+        priority: ChunkUploadPriority,
+        token: ChunkUploadToken,
+    ) -> Result<(), (ChunkMesh, PackedBiomeRecord)> {
+        self.try_enqueue(key, mesh, biome, tint_identity, priority, Some(token))
     }
 
     pub fn try_remove(&mut self, key: SubChunkKey) -> Result<(), SubChunkKey> {
@@ -1377,7 +1489,7 @@ impl ChunkRenderQueue {
         key: SubChunkKey,
         mesh: ChunkMesh,
         biome: PackedBiomeRecord,
-        tint_revision: u64,
+        tint_identity: ChunkBiomeTintIdentity,
         priority: ChunkUploadPriority,
         token: Option<ChunkUploadToken>,
     ) -> Result<(), (ChunkMesh, PackedBiomeRecord)> {
@@ -1408,7 +1520,7 @@ impl ChunkRenderQueue {
             PendingUpload {
                 mesh,
                 biome,
-                tint_revision,
+                tint_identity,
                 priority,
                 generation,
                 token,
@@ -1446,7 +1558,7 @@ pub struct ChunkRenderInstance {
     key: SubChunkKey,
     quads: Arc<[PackedQuad]>,
     biome: PackedBiomeRecord,
-    tint_revision: u64,
+    tint_identity: ChunkBiomeTintIdentity,
     generation: u64,
     token: Option<ChunkUploadToken>,
     origin: [i32; 3],
@@ -1475,7 +1587,12 @@ impl ChunkRenderInstance {
 
     #[must_use]
     pub const fn tint_revision(&self) -> u64 {
-        self.tint_revision
+        self.tint_identity.revision()
+    }
+
+    #[must_use]
+    pub const fn tint_identity(&self) -> ChunkBiomeTintIdentity {
+        self.tint_identity
     }
 }
 
@@ -1640,7 +1757,7 @@ fn apply_chunk_render_queue(
             key,
             quads: Arc::from(pending.mesh.into_quads()),
             biome: pending.biome,
-            tint_revision: pending.tint_revision,
+            tint_identity: pending.tint_identity,
             generation: pending.generation,
             token: pending.token,
             origin,
@@ -1832,7 +1949,7 @@ impl Specializer<RenderPipeline> for ChunkPipelineSpecializer {
 struct GpuChunkAllocation {
     key: SubChunkKey,
     generation: u64,
-    tint_revision: u64,
+    tint_identity: ChunkBiomeTintIdentity,
     quad_range: Range<u32>,
     metadata_index: u32,
 }
@@ -1915,7 +2032,7 @@ struct ChunkIndirectBatches(HashMap<Entity, ChunkIndirectBatch>);
 #[derive(Clone)]
 struct ArenaAllocation {
     generation: u64,
-    tint_revision: u64,
+    tint_identity: ChunkBiomeTintIdentity,
     quad_capacity: u32,
     biome_range: Range<u32>,
     biome_capacity: u32,
@@ -1930,6 +2047,7 @@ struct ChunkBindGroupBuffers {
     biomes: BufferId,
     materials: BufferId,
     biome_tints: BufferId,
+    biome_tint_table: ChunkBiomeTintResourceIdentity,
     textures: ChunkTextureAssetIdentity,
 }
 
@@ -1983,7 +2101,7 @@ fn prepare_biome_tint_entries(entries: &[BiomeTint]) -> Vec<BiomeTintGpu> {
 }
 
 struct PreparedChunkBiomeTints {
-    identity: ChunkBiomeTintIdentity,
+    identity: ChunkBiomeTintResourceIdentity,
     buffer: Buffer,
 }
 
@@ -1993,17 +2111,30 @@ struct ChunkGpuBiomeTints {
     _retained_entries: Option<Arc<[BiomeTint]>>,
 }
 
+fn biome_tint_gpu_buffer_needs_rebuild(
+    current: Option<ChunkBiomeTintResourceIdentity>,
+    next: ChunkBiomeTintResourceIdentity,
+) -> bool {
+    current != Some(next)
+}
+
+fn biome_tint_bind_group_needs_rebuild(
+    current: Option<ChunkBiomeTintResourceIdentity>,
+    next: ChunkBiomeTintResourceIdentity,
+) -> bool {
+    current != Some(next)
+}
+
 fn prepare_chunk_biome_tints(
     render_device: Res<RenderDevice>,
     source: Res<ChunkBiomeTints>,
     mut gpu: ResMut<ChunkGpuBiomeTints>,
 ) {
-    let identity = source.identity();
-    if gpu
-        .prepared
-        .as_ref()
-        .is_some_and(|prepared| prepared.identity == identity)
-    {
+    let identity = source.resource_identity();
+    if !biome_tint_gpu_buffer_needs_rebuild(
+        gpu.prepared.as_ref().map(|prepared| prepared.identity),
+        identity,
+    ) {
         return;
     }
     let entries = prepare_biome_tint_entries(source.entries());
@@ -2339,23 +2470,28 @@ struct GpuUpdateCandidate {
     entity: Entity,
     key: SubChunkKey,
     generation: u64,
-    tint_revision: u64,
+    tint_identity: ChunkBiomeTintIdentity,
 }
 
-const fn chunk_tint_revision_is_active(record_revision: u64, active_revision: u64) -> bool {
-    record_revision == active_revision
+const fn chunk_tint_identity_is_active(
+    record: ChunkBiomeTintIdentity,
+    active: ChunkBiomeTintIdentity,
+) -> bool {
+    record.stream == active.stream && record.revision == active.revision
 }
 
 fn plan_gpu_chunk_updates(
     mut candidates: Vec<GpuUpdateCandidate>,
     allocations: &HashMap<Entity, ArenaAllocation>,
     camera_position: Vec3,
+    active_tint_identity: ChunkBiomeTintIdentity,
 ) -> Vec<Entity> {
     candidates.retain(|candidate| {
-        allocations.get(&candidate.entity).is_none_or(|allocation| {
-            allocation.generation != candidate.generation
-                || allocation.tint_revision != candidate.tint_revision
-        })
+        chunk_tint_identity_is_active(candidate.tint_identity, active_tint_identity)
+            && allocations.get(&candidate.entity).is_none_or(|allocation| {
+                allocation.generation != candidate.generation
+                    || allocation.tint_identity != candidate.tint_identity
+            })
     });
     candidates.sort_by(|left, right| {
         ChunkUploadPriority::from_camera(left.key, camera_position)
@@ -2387,14 +2523,11 @@ fn prepare_gpu_chunks(
 ) {
     let candidates = instances
         .iter()
-        .filter(|(_, instance)| {
-            chunk_tint_revision_is_active(instance.tint_revision, biome_tints.revision())
-        })
         .map(|(entity, instance)| GpuUpdateCandidate {
             entity,
             key: instance.key,
             generation: instance.generation,
-            tint_revision: instance.tint_revision,
+            tint_identity: instance.tint_identity,
         })
         .collect();
     let camera_position = views
@@ -2402,7 +2535,12 @@ fn prepare_gpu_chunks(
         .next()
         .map(|view| view.world_from_view.translation())
         .unwrap_or(Vec3::ZERO);
-    let selected = plan_gpu_chunk_updates(candidates, &arena.allocations, camera_position);
+    let selected = plan_gpu_chunk_updates(
+        candidates,
+        &arena.allocations,
+        camera_position,
+        biome_tints.table_identity(),
+    );
 
     for entity in removed_instances.read() {
         free_allocation(&mut arena, entity);
@@ -2482,7 +2620,7 @@ fn prepare_gpu_chunks(
         let gpu = GpuChunkAllocation {
             key: instance.key,
             generation: instance.generation,
-            tint_revision: instance.tint_revision,
+            tint_identity: instance.tint_identity,
             quad_range: quad_start..quad_end,
             metadata_index,
         };
@@ -2491,7 +2629,7 @@ fn prepare_gpu_chunks(
             entity,
             ArenaAllocation {
                 generation: instance.generation,
-                tint_revision: instance.tint_revision,
+                tint_identity: instance.tint_identity,
                 quad_capacity,
                 biome_range: biome_start..biome_start + biome_required,
                 biome_capacity,
@@ -2974,12 +3112,19 @@ fn prepare_chunk_bind_group(
         biomes: arena.biome_buffer.id(),
         materials: texture_assets.material_buffer.id(),
         biome_tints: biome_tints.buffer.id(),
+        biome_tint_table: biome_tints.identity,
         textures: texture_assets.identity,
     };
     if !bind_group_needs_rebuild(
         arena.bind_group.is_some(),
         arena.bind_group_buffers.as_ref(),
         &buffers,
+    ) && !biome_tint_bind_group_needs_rebuild(
+        arena
+            .bind_group_buffers
+            .as_ref()
+            .map(|buffers| buffers.biome_tint_table),
+        biome_tints.identity,
     ) {
         return;
     }
@@ -3030,6 +3175,48 @@ fn prepare_chunk_bind_group(
     arena.bind_group_buffers = Some(buffers);
 }
 
+fn drawable_allocation_identity(
+    frame_probe: &ActiveFrameProbe,
+    entity: Entity,
+    allocation: &GpuChunkAllocation,
+    active_tint_identity: ChunkBiomeTintIdentity,
+) -> Option<FrameAllocationIdentity> {
+    if !chunk_tint_identity_is_active(allocation.tint_identity, active_tint_identity) {
+        return None;
+    }
+    let identity = FrameAllocationIdentity {
+        entity,
+        key: allocation.key,
+        generation: allocation.generation,
+    };
+    frame_probe.accepts(entity, identity).then_some(identity)
+}
+
+fn prepare_indirect_batch_draws<'a>(
+    allocations: impl IntoIterator<Item = (Entity, &'a GpuChunkAllocation)>,
+    frame_probe: &ActiveFrameProbe,
+    active_tint_identity: ChunkBiomeTintIdentity,
+) -> (
+    Vec<DrawIndexedIndirectArgs>,
+    Vec<(Entity, FrameAllocationIdentity)>,
+) {
+    let mut commands = Vec::new();
+    let mut drawn = Vec::new();
+    for (entity, allocation) in allocations {
+        let Some(identity) =
+            drawable_allocation_identity(frame_probe, entity, allocation, active_tint_identity)
+        else {
+            continue;
+        };
+        let Some(command) = indexed_indirect_command(allocation) else {
+            continue;
+        };
+        commands.push(command);
+        drawn.push((entity, identity));
+    }
+    (commands, drawn)
+}
+
 fn prepare_chunk_indirect_batches(
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
@@ -3041,29 +3228,15 @@ fn prepare_chunk_indirect_batches(
 ) {
     let mut all_commands = Vec::new();
     for batch in batches.0.values_mut() {
-        let mut indirect_commands = Vec::new();
-        batch.drawn_allocations.clear();
-        for &entity in &batch.visible_entities {
-            let Ok(allocation) = allocations.get(entity) else {
-                continue;
-            };
-            if !chunk_tint_revision_is_active(allocation.tint_revision, biome_tints.revision()) {
-                continue;
-            }
-            let identity = FrameAllocationIdentity {
-                entity,
-                key: allocation.key,
-                generation: allocation.generation,
-            };
-            if !frame_probe.accepts(entity, identity) {
-                continue;
-            }
-            let Some(command) = indexed_indirect_command(allocation) else {
-                continue;
-            };
-            indirect_commands.push(command);
-            batch.drawn_allocations.push((entity, identity));
-        }
+        let (indirect_commands, drawn_allocations) = prepare_indirect_batch_draws(
+            batch
+                .visible_entities
+                .iter()
+                .filter_map(|&entity| allocations.get(entity).ok().map(|item| (entity, item))),
+            &frame_probe,
+            biome_tints.table_identity(),
+        );
+        batch.drawn_allocations = drawn_allocations;
         batch.indirect_offset = all_commands.len() as u64 * INDEXED_INDIRECT_BYTES;
         let Ok(command_count) = u32::try_from(indirect_commands.len()) else {
             batch.command_count = 0;
@@ -3183,15 +3356,13 @@ fn queue_chunks(
             .into_iter()
             .filter(|(entity, _)| {
                 allocations.get(*entity).is_ok_and(|allocation| {
-                    chunk_tint_revision_is_active(allocation.tint_revision, biome_tints.revision())
-                        && frame_probe.accepts(
-                            *entity,
-                            FrameAllocationIdentity {
-                                entity: *entity,
-                                key: allocation.key,
-                                generation: allocation.generation,
-                            },
-                        )
+                    drawable_allocation_identity(
+                        &frame_probe,
+                        *entity,
+                        allocation,
+                        biome_tints.table_identity(),
+                    )
+                    .is_some()
                 })
             })
             .collect::<Vec<_>>();
@@ -3238,17 +3409,14 @@ fn queue_chunks(
             let Ok(allocation) = allocations.get(render_entity) else {
                 continue;
             };
-            if !chunk_tint_revision_is_active(allocation.tint_revision, biome_tints.revision()) {
-                continue;
-            }
-            if !frame_probe.accepts(
+            if drawable_allocation_identity(
+                &frame_probe,
                 render_entity,
-                FrameAllocationIdentity {
-                    entity: render_entity,
-                    key: allocation.key,
-                    generation: allocation.generation,
-                },
-            ) {
+                allocation,
+                biome_tints.table_identity(),
+            )
+            .is_none()
+            {
                 continue;
             }
             let this_tick = next_tick.get() + 1;
@@ -4099,14 +4267,14 @@ mod tests {
             GpuChunkAllocation {
                 key: SubChunkKey::new(0, 0, 0, 0),
                 generation: 1,
-                tint_revision: 0,
+                tint_identity: ChunkBiomeTintIdentity::default(),
                 quad_range: 17..23,
                 metadata_index: 4,
             },
             GpuChunkAllocation {
                 key: SubChunkKey::new(0, 1, 0, 0),
                 generation: 2,
-                tint_revision: 0,
+                tint_identity: ChunkBiomeTintIdentity::default(),
                 quad_range: 4..9,
                 metadata_index: 1,
             },
@@ -4276,7 +4444,7 @@ mod tests {
         let shared_entries = Arc::from([BiomeTint::default()]);
         let first = ChunkBiomeTints::with_revision(Arc::clone(&shared_entries), 7);
         let replacement = ChunkBiomeTints::with_revision(shared_entries, 8);
-        assert_ne!(first.identity(), replacement.identity());
+        assert_ne!(first.resource_identity(), replacement.resource_identity());
 
         assert_eq!(pack_linear_rgb10([0.0, 0.0, 0.0]), 0);
         assert_eq!(pack_linear_rgb10([1.0, 1.0, 1.0]), 0x3fff_ffff);
@@ -4305,19 +4473,154 @@ mod tests {
     }
 
     #[test]
-    fn direct_and_mdi_revision_filters_hide_only_mismatched_tint_records() {
-        let direct = [7, 8, 7]
-            .into_iter()
-            .filter(|revision| chunk_tint_revision_is_active(*revision, 7))
-            .collect::<Vec<_>>();
-        let mdi = [7, 8, 7]
-            .into_iter()
-            .filter(|revision| chunk_tint_revision_is_active(*revision, 7))
-            .collect::<Vec<_>>();
+    fn tint_table_identity_rebuilds_the_gpu_buffer_and_shared_bind_group() {
+        let entries = Arc::from([BiomeTint::default()]);
+        let first =
+            ChunkBiomeTints::with_identity(Arc::clone(&entries), ChunkBiomeTintIdentity::new(4, 7));
+        let replacement =
+            ChunkBiomeTints::with_identity(entries, ChunkBiomeTintIdentity::new(5, 7));
+        let first_identity = first.resource_identity();
+        let replacement_identity = replacement.resource_identity();
 
-        assert_eq!(direct, vec![7, 7]);
-        assert_eq!(mdi, direct);
-        assert!(!chunk_tint_revision_is_active(8, 7));
+        assert!(!biome_tint_gpu_buffer_needs_rebuild(
+            Some(first_identity),
+            first_identity,
+        ));
+        assert!(biome_tint_gpu_buffer_needs_rebuild(
+            Some(first_identity),
+            replacement_identity,
+        ));
+        assert!(biome_tint_bind_group_needs_rebuild(
+            Some(first_identity),
+            replacement_identity,
+        ));
+    }
+
+    #[test]
+    fn matching_identity_uploads_acks_and_queues_direct_and_mdi_draws() {
+        fn solid_sub_chunk() -> world::SubChunk {
+            world::SubChunk::decode(&[9, 1, 0, 1, 2]).expect("uniform solid sub-chunk")
+        }
+
+        let active = ChunkBiomeTintIdentity::new(4, 7);
+        let mismatched = ChunkBiomeTintIdentity::new(5, 7);
+        let matching_key = SubChunkKey::new(0, 0, 0, 0);
+        let mismatched_key = SubChunkKey::new(0, 1, 0, 0);
+        let now = Instant::now();
+        let matching_token = ChunkUploadToken {
+            generation: 1,
+            dirty_since: now,
+        };
+        let mismatched_token = ChunkUploadToken {
+            generation: 2,
+            dirty_since: now,
+        };
+        let solid = solid_sub_chunk();
+        let mesh = || {
+            crate::mesh_sub_chunk(
+                &crate::BlockClassifier::new(0),
+                opaque_runtime_assets(),
+                assets::NetworkIdMode::Sequential,
+                &crate::Neighbourhood::empty(),
+                &solid,
+            )
+        };
+        let acknowledgements = ChunkUploadAcknowledgements::default();
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(acknowledgements.clone())
+            .insert_resource(ChunkBiomeTints::with_identity(
+                Arc::from([BiomeTint::default()]),
+                active,
+            ))
+            .add_plugins(DebugWorldPlugin::new(2));
+        {
+            let mut queue = app.world_mut().resource_mut::<ChunkRenderQueue>();
+            queue
+                .try_update_tracked_with_biome_identity(
+                    matching_key,
+                    mesh(),
+                    PackedBiomeRecord::fallback(),
+                    active,
+                    ChunkUploadPriority::new(0.0),
+                    matching_token,
+                )
+                .unwrap();
+            queue
+                .try_update_tracked_with_biome_identity(
+                    mismatched_key,
+                    mesh(),
+                    PackedBiomeRecord::fallback(),
+                    mismatched,
+                    ChunkUploadPriority::new(1.0),
+                    mismatched_token,
+                )
+                .unwrap();
+        }
+        app.update();
+        let instances = app
+            .world_mut()
+            .query::<(Entity, &ChunkRenderInstance)>()
+            .iter(app.world())
+            .map(|(entity, instance)| (entity, instance.clone()))
+            .collect::<HashMap<_, _>>();
+        let candidates = instances
+            .iter()
+            .map(|(&entity, instance)| GpuUpdateCandidate {
+                entity,
+                key: instance.key,
+                generation: instance.generation,
+                tint_identity: instance.tint_identity,
+            })
+            .collect::<Vec<_>>();
+        let selected = plan_gpu_chunk_updates(candidates, &HashMap::new(), Vec3::ZERO, active);
+        assert_eq!(selected.len(), 1);
+        let selected_entity = selected[0];
+        let selected_instance = &instances[&selected_entity];
+        assert_eq!(selected_instance.key, matching_key);
+        assert!(acknowledgements.try_reserve(matching_key, matching_token));
+        assert!(acknowledgements.complete_with_bytes(matching_key, matching_token, now, 64,));
+        let acked = acknowledgements.drain();
+        assert_eq!(acked.len(), 1);
+        assert_eq!(acked[0].key, matching_key);
+
+        let allocations = instances
+            .iter()
+            .enumerate()
+            .map(|(index, (&entity, instance))| {
+                (
+                    entity,
+                    GpuChunkAllocation {
+                        key: instance.key,
+                        generation: instance.generation,
+                        tint_identity: instance.tint_identity,
+                        quad_range: (index as u32 * 6)..(index as u32 * 6 + 6),
+                        metadata_index: index as u32,
+                    },
+                )
+            })
+            .collect::<HashMap<_, _>>();
+        let frame_probe = ActiveFrameProbe::default();
+        let direct = allocations
+            .iter()
+            .filter_map(|(&entity, allocation)| {
+                drawable_allocation_identity(&frame_probe, entity, allocation, active)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(direct.len(), 1);
+        assert_eq!(direct[0].key, matching_key);
+
+        let (commands, drawn) = prepare_indirect_batch_draws(
+            allocations
+                .iter()
+                .map(|(&entity, allocation)| (entity, allocation)),
+            &frame_probe,
+            active,
+        );
+        assert_eq!(commands.len(), 1);
+        assert_eq!(drawn.len(), 1);
+        assert_eq!(drawn[0].1.key, matching_key);
+        assert!(acknowledgements.drain().is_empty());
     }
 
     #[test]
@@ -4355,12 +4658,17 @@ mod tests {
                 entity: world.spawn_empty().id(),
                 key: SubChunkKey::new(0, index, 0, 0),
                 generation: 1,
-                tint_revision: 0,
+                tint_identity: ChunkBiomeTintIdentity::default(),
             })
             .collect::<Vec<_>>();
         let allocations = HashMap::new();
 
-        let selected = plan_gpu_chunk_updates(candidates, &allocations, Vec3::ZERO);
+        let selected = plan_gpu_chunk_updates(
+            candidates,
+            &allocations,
+            Vec3::ZERO,
+            ChunkBiomeTintIdentity::default(),
+        );
 
         assert_eq!(selected.into_iter().take(2).count(), 2);
         assert!(allocations.is_empty());
@@ -4376,16 +4684,21 @@ mod tests {
                 entity: failing,
                 key: SubChunkKey::new(0, -10, 0, 0),
                 generation: 1,
-                tint_revision: 0,
+                tint_identity: ChunkBiomeTintIdentity::default(),
             },
             GpuUpdateCandidate {
                 entity: fitting,
                 key: SubChunkKey::new(0, 10, 0, 0),
                 generation: 1,
-                tint_revision: 0,
+                tint_identity: ChunkBiomeTintIdentity::default(),
             },
         ];
-        let selected = plan_gpu_chunk_updates(candidates, &HashMap::new(), Vec3::ZERO);
+        let selected = plan_gpu_chunk_updates(
+            candidates,
+            &HashMap::new(),
+            Vec3::ZERO,
+            ChunkBiomeTintIdentity::default(),
+        );
         let mut len = 2;
         let mut free = std::iter::once(0..2).collect::<Vec<_>>();
         let successful = selected
@@ -4411,18 +4724,22 @@ mod tests {
                 entity: far,
                 key: far_key,
                 generation: 1,
-                tint_revision: 0,
+                tint_identity: ChunkBiomeTintIdentity::default(),
             },
             GpuUpdateCandidate {
                 entity: near,
                 key: near_key,
                 generation: 1,
-                tint_revision: 0,
+                tint_identity: ChunkBiomeTintIdentity::default(),
             },
         ];
 
-        let selected =
-            plan_gpu_chunk_updates(candidates, &HashMap::new(), Vec3::new(1_608.0, 8.0, 8.0));
+        let selected = plan_gpu_chunk_updates(
+            candidates,
+            &HashMap::new(),
+            Vec3::new(1_608.0, 8.0, 8.0),
+            ChunkBiomeTintIdentity::default(),
+        );
 
         assert_eq!(selected[0], near);
         assert!(
@@ -4642,10 +4959,15 @@ mod tests {
                 entity,
                 key: instance.key,
                 generation: instance.generation,
-                tint_revision: instance.tint_revision,
+                tint_identity: instance.tint_identity,
             })
             .collect::<Vec<_>>();
-        let selected = plan_gpu_chunk_updates(candidates, &HashMap::new(), Vec3::ZERO);
+        let selected = plan_gpu_chunk_updates(
+            candidates,
+            &HashMap::new(),
+            Vec3::ZERO,
+            ChunkBiomeTintIdentity::default(),
+        );
         let mut quad_len = 0;
         let mut free_quads = Vec::new();
         let mut failed = Vec::new();

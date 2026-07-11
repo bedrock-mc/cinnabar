@@ -1,6 +1,9 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -13,8 +16,8 @@ use protocol::{
     request_sub_chunk_column, vanilla_dimension_range,
 };
 use render::{
-    BlockClassifier, ChunkMesh, Face, FaceConnectivity, Neighbourhood, PackedBiomeRecord,
-    mesh_sub_chunk,
+    BlockClassifier, ChunkBiomeTintIdentity, ChunkMesh, Face, FaceConnectivity, Neighbourhood,
+    PackedBiomeRecord, mesh_sub_chunk,
 };
 use thiserror::Error;
 use world::{
@@ -32,6 +35,7 @@ pub const MAX_ADMITTED_HEAVY_EVENTS: usize = 32;
 pub const MAX_IN_FLIGHT_DECODE_JOBS: usize = 4;
 pub const DECODE_DISPATCH_BUDGET_PER_POLL: usize = 4;
 pub const PHASE0_MAX_VIEW_RADIUS_CHUNKS: i32 = 16;
+static NEXT_BIOME_TINT_STREAM_ID: AtomicU64 = AtomicU64::new(1);
 pub const COMMITTED_CONTROL_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;
 pub const OUTBOUND_REQUEST_CAPACITY: usize = 64;
 pub const DEFERRED_RETRY_CAPACITY: usize = 64;
@@ -284,7 +288,7 @@ pub enum WorldMeshChange {
         key: SubChunkKey,
         mesh: ChunkMesh,
         biome: PackedBiomeRecord,
-        tint_revision: u64,
+        tint_identity: ChunkBiomeTintIdentity,
         generation: u64,
         dirty_since: Instant,
     },
@@ -360,6 +364,7 @@ pub struct WorldStreamNormalizationStats {
     pub deferred_retry_capacity_failures: u64,
     pub retry_request_encoding_failures: u64,
     pub biome_definition_resolution_failures: u64,
+    pub biome_tint_revision_overflows: u64,
 }
 
 impl WorldStreamNormalizationStats {
@@ -383,6 +388,7 @@ impl WorldStreamNormalizationStats {
             self.deferred_retry_capacity_failures,
             self.retry_request_encoding_failures,
             self.biome_definition_resolution_failures,
+            self.biome_tint_revision_overflows,
         ]
         .into_iter()
         .fold(0, u64::saturating_add)
@@ -407,6 +413,7 @@ enum NormalizationErrorReason {
     DeferredRetryCapacityFailure,
     RetryRequestEncodingFailure,
     BiomeDefinitionResolutionFailure,
+    BiomeTintRevisionOverflow,
 }
 
 impl WorldStreamNormalizationStats {
@@ -441,6 +448,9 @@ impl WorldStreamNormalizationStats {
             }
             NormalizationErrorReason::BiomeDefinitionResolutionFailure => {
                 &mut self.biome_definition_resolution_failures
+            }
+            NormalizationErrorReason::BiomeTintRevisionOverflow => {
+                &mut self.biome_tint_revision_overflows
             }
         };
         *counter = counter.saturating_add(1);
@@ -609,7 +619,7 @@ struct MeshCompletion {
     source: Arc<SubChunk>,
     biome_source: Option<Arc<BiomeStorage>>,
     biome: PackedBiomeRecord,
-    tint_revision: u64,
+    tint_identity: ChunkBiomeTintIdentity,
     mesh: ChunkMesh,
     duration: Duration,
 }
@@ -683,6 +693,7 @@ pub struct WorldStream {
     runtime_assets: Arc<RuntimeAssets>,
     biome_definitions: Arc<[BiomeDefinitionEvent]>,
     resolved_biome_tints: Arc<ResolvedBiomeTints>,
+    biome_tint_stream_id: u64,
     biome_tint_revision: u64,
     current_dimension: i32,
     local_player_runtime_id: u64,
@@ -769,6 +780,11 @@ impl WorldStream {
                 .resolve_live(&[])
                 .expect("validated runtime biome assets resolve without live definitions"),
         );
+        let biome_tint_stream_id = NEXT_BIOME_TINT_STREAM_ID
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                current.checked_add(1)
+            })
+            .expect("biome tint stream identity space exhausted");
         Self {
             store: ChunkStore::new(),
             classifier: BlockClassifier::new(bootstrap.air_network_id),
@@ -780,6 +796,7 @@ impl WorldStream {
             runtime_assets,
             biome_definitions: Arc::from([]),
             resolved_biome_tints,
+            biome_tint_stream_id,
             biome_tint_revision: 0,
             current_dimension: bootstrap.dimension,
             local_player_runtime_id: bootstrap.local_player_runtime_id,
@@ -995,9 +1012,15 @@ impl WorldStream {
         Arc::clone(&self.resolved_biome_tints)
     }
 
+    #[cfg(test)]
     #[must_use]
     pub const fn biome_tint_revision(&self) -> u64 {
         self.biome_tint_revision
+    }
+
+    #[must_use]
+    pub const fn biome_tint_identity(&self) -> ChunkBiomeTintIdentity {
+        ChunkBiomeTintIdentity::new(self.biome_tint_stream_id, self.biome_tint_revision)
     }
 
     #[must_use]
@@ -1872,7 +1895,13 @@ impl WorldStream {
                     );
                     return;
                 };
-                self.biome_tint_revision = self.biome_tint_revision.wrapping_add(1).max(1);
+                let Some(next_revision) = self.biome_tint_revision.checked_add(1) else {
+                    self.record_normalization_error(
+                        NormalizationErrorReason::BiomeTintRevisionOverflow,
+                    );
+                    return;
+                };
+                self.biome_tint_revision = next_revision;
                 self.biome_definitions = event.definitions;
                 self.resolved_biome_tints = Arc::new(resolved);
                 self.invalidate_resident_biome_tints(Instant::now());
@@ -2272,7 +2301,7 @@ impl WorldStream {
             let network_id_mode = self.network_id_mode;
             let runtime_assets = Arc::clone(&self.runtime_assets);
             let resolved_biome_tints = Arc::clone(&self.resolved_biome_tints);
-            let tint_revision = self.biome_tint_revision;
+            let tint_identity = self.biome_tint_identity();
             rayon::spawn(move || {
                 let started = Instant::now();
                 let source = Arc::clone(&snapshot.center);
@@ -2285,7 +2314,7 @@ impl WorldStream {
                     source,
                     biome_source,
                     biome,
-                    tint_revision,
+                    tint_identity,
                     mesh,
                     duration: started.elapsed(),
                 });
@@ -2334,7 +2363,7 @@ impl WorldStream {
             .is_current(completion.key, completion.revision)
             || !source_is_current
             || !biome_source_is_current
-            || completion.tint_revision != self.biome_tint_revision
+            || completion.tint_identity != self.biome_tint_identity()
         {
             self.stats.stale_mesh_jobs = self.stats.stale_mesh_jobs.saturating_add(1);
             return;
@@ -2350,7 +2379,7 @@ impl WorldStream {
             key: completion.key,
             mesh: completion.mesh,
             biome: completion.biome,
-            tint_revision: completion.tint_revision,
+            tint_identity: completion.tint_identity,
             generation: completion.revision,
             dirty_since: dirty.since,
         });
@@ -2959,6 +2988,50 @@ mod tests {
     }
 
     #[test]
+    fn biome_tint_revision_overflow_keeps_the_previous_atomic_snapshot() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        stream.biome_tint_revision = u64::MAX;
+        let previous = stream.resolved_biome_tints_snapshot();
+
+        stream
+            .submit(
+                1,
+                WorldEvent::BiomeDefinitions(BiomeDefinitionsEvent {
+                    definitions: Arc::from([BiomeDefinitionEvent {
+                        biome_id: Some(42),
+                        name: Arc::from("example:overflow"),
+                        temperature: 0.8,
+                        downfall: 0.4,
+                        snow_foliage: 0.0,
+                        map_water_color: 0xff44_6688,
+                    }]),
+                }),
+            )
+            .unwrap();
+
+        assert_eq!(stream.biome_tint_revision(), u64::MAX);
+        assert!(stream.biome_definitions_snapshot().is_empty());
+        assert!(Arc::ptr_eq(
+            &previous,
+            &stream.resolved_biome_tints_snapshot()
+        ));
+        assert_eq!(
+            stream
+                .stats()
+                .normalization_reasons
+                .biome_tint_revision_overflows,
+            1
+        );
+    }
+
+    #[test]
     fn palette_native_biome_packing_uses_exact_lookup_and_safe_fallbacks() {
         let mut stream = WorldStream::new(WorldBootstrap {
             dimension: 0,
@@ -3052,7 +3125,8 @@ mod tests {
         let biome_source = stream.store.biome_storage(key).unwrap();
         let old_generation = stream.revisions.mark_dirty(key, Instant::now());
         stream.in_flight.insert(key, old_generation);
-        let old_tint_revision = stream.biome_tint_revision();
+        let old_tint_identity = stream.biome_tint_identity();
+        let old_tint_revision = old_tint_identity.revision();
         let old_resolved = stream.resolved_biome_tints_snapshot();
         let queued_mesh = mesh_sub_chunk(
             &stream.classifier,
@@ -3075,7 +3149,7 @@ mod tests {
             source: Arc::clone(&source),
             biome_source: Some(Arc::clone(&biome_source)),
             biome: super::pack_biome_record(Some(&biome_source), &old_resolved),
-            tint_revision: old_tint_revision,
+            tint_identity: old_tint_identity,
             mesh: queued_mesh,
             duration: Duration::ZERO,
         });
@@ -3103,7 +3177,7 @@ mod tests {
             source,
             biome_source: Some(biome_source),
             biome: super::pack_biome_record(None, &old_resolved),
-            tint_revision: old_tint_revision,
+            tint_identity: old_tint_identity,
             mesh: in_flight_mesh,
             duration: Duration::ZERO,
         });
@@ -4419,6 +4493,7 @@ mod tests {
             &source,
         );
         let biome = PackedBiomeRecord::from_storage(&biome_source, |id| id + 1_000);
+        let tint_identity = stream.biome_tint_identity();
 
         stream.accept_mesh_completion(MeshCompletion {
             key,
@@ -4426,7 +4501,7 @@ mod tests {
             source,
             biome_source: Some(biome_source),
             biome,
-            tint_revision: 0,
+            tint_identity,
             mesh,
             duration: Duration::ZERO,
         });
@@ -4478,13 +4553,14 @@ mod tests {
             key.chunk(),
             DecodedBiomeColumn::decode(-4, 1, &[1, 86]).unwrap(),
         );
+        let tint_identity = stream.biome_tint_identity();
         stream.accept_mesh_completion(MeshCompletion {
             key,
             revision: generation,
             source,
             biome_source: Some(old_biome),
             biome: old_record,
-            tint_revision: 0,
+            tint_identity,
             mesh,
             duration: Duration::ZERO,
         });
@@ -4532,13 +4608,14 @@ mod tests {
             &Neighbourhood::empty(),
             source.as_ref(),
         );
+        let tint_identity = stream.biome_tint_identity();
         stream.accept_mesh_completion(MeshCompletion {
             key,
             revision: generation,
             source,
             biome_source: None,
             biome: PackedBiomeRecord::fallback(),
-            tint_revision: 0,
+            tint_identity,
             mesh,
             duration: std::time::Duration::from_millis(5),
         });
@@ -5726,6 +5803,7 @@ mod tests {
             &Neighbourhood::empty(),
             &source,
         );
+        let tint_identity = stream.biome_tint_identity();
 
         stream.accept_mesh_completion(MeshCompletion {
             key,
@@ -5733,7 +5811,7 @@ mod tests {
             source: Arc::clone(&source),
             biome_source: None,
             biome: PackedBiomeRecord::fallback(),
-            tint_revision: 0,
+            tint_identity,
             mesh,
             duration: std::time::Duration::ZERO,
         });

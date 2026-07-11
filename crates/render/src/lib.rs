@@ -11,8 +11,8 @@ pub use mesh::{
     BlockClassifier, ChunkMesh, Face, FaceConnectivity, Neighbourhood, PackedQuad, mesh_sub_chunk,
 };
 pub use plugin::{
-    BiomeTint, ChunkBiomeTints, ChunkRenderInstance, ChunkRenderQueue, ChunkRenderQueueLimits,
-    ChunkTextureAssetIdentity, ChunkTextureAssets, ChunkTextureUploadStats,
+    BiomeTint, ChunkBiomeTintIdentity, ChunkBiomeTints, ChunkRenderInstance, ChunkRenderQueue,
+    ChunkRenderQueueLimits, ChunkTextureAssetIdentity, ChunkTextureAssets, ChunkTextureUploadStats,
     ChunkUploadAcknowledgement, ChunkUploadAcknowledgements, ChunkUploadBudget,
     ChunkUploadPriority, ChunkUploadToken, DebugWorldPlugin, MATERIAL_UV_REFLECT_U,
     MATERIAL_UV_REFLECT_V, MATERIAL_UV_ROTATE_90, MATERIAL_UV_ROTATE_180, MATERIAL_UV_ROTATE_270,
