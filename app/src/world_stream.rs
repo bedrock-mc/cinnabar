@@ -762,6 +762,18 @@ impl WorldStream {
             .count()
     }
 
+    #[must_use]
+    pub fn pending_request_work_count(&self) -> usize {
+        self.requests.len()
+    }
+
+    #[must_use]
+    pub fn outstanding_sub_chunk_count(&self) -> usize {
+        self.requested_sub_chunks
+            .values()
+            .fold(0, |total, pending| total.saturating_add(pending.len()))
+    }
+
     #[cfg(test)]
     pub fn take_mesh_changes(&mut self) -> Vec<WorldMeshChange> {
         self.mesh_changes.drain(..).collect()
@@ -769,6 +781,21 @@ impl WorldStream {
 
     pub fn pop_mesh_change(&mut self) -> Option<WorldMeshChange> {
         self.mesh_changes.pop_front()
+    }
+
+    #[must_use]
+    pub fn pending_mesh_change_count(&self) -> usize {
+        self.mesh_changes.len()
+    }
+
+    #[must_use]
+    pub fn unacknowledged_mesh_count(&self) -> usize {
+        self.revisions.entries.len()
+    }
+
+    #[must_use]
+    pub fn is_mesh_clean(&self, key: SubChunkKey) -> bool {
+        self.resident.contains(&key) && self.revisions.dirty(key).is_none()
     }
 
     pub fn retry_mesh_change_front(
@@ -2422,6 +2449,14 @@ mod tests {
         let source = stream.store.sub_chunk(key).unwrap();
         let dirty_since = Instant::now();
         let generation = stream.revisions.mark_dirty(key, dirty_since);
+        stream.resident.insert(key);
+        assert_eq!(stream.unacknowledged_mesh_count(), 1);
+        assert!(!stream.is_mesh_clean(key));
+        stream
+            .requested_sub_chunks
+            .insert(key.chunk(), BTreeSet::from([key.y]));
+        assert_eq!(stream.outstanding_sub_chunk_count(), 1);
+        stream.requested_sub_chunks.clear();
         stream.in_flight.insert(key, generation);
         let mesh = mesh_sub_chunk(&stream.classifier, &Neighbourhood::empty(), source.as_ref());
         stream.accept_mesh_completion(MeshCompletion {
@@ -2448,6 +2483,7 @@ mod tests {
         };
         assert_eq!(queued_generation, generation);
         assert_eq!(queued_since, dirty_since);
+        assert_eq!(stream.pending_mesh_change_count(), 0);
 
         let applied_at = dirty_since + std::time::Duration::from_millis(75);
 
@@ -2461,6 +2497,8 @@ mod tests {
             std::time::Duration::from_millis(75)
         );
         assert!(!stream.revisions.is_current(key, generation));
+        assert_eq!(stream.unacknowledged_mesh_count(), 0);
+        assert!(stream.is_mesh_clean(key));
     }
 
     #[test]

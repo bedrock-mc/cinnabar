@@ -36,6 +36,7 @@ const GPU_UPLOAD_BUDGET_PER_FRAME: usize = 8;
 const NETWORK_INGRESS_BUDGET_PER_FRAME: usize = 8;
 const OUTBOUND_SEND_BUDGET_PER_FRAME: usize = 16;
 const TITLE_REFRESH_INTERVAL: Duration = Duration::from_millis(100);
+const WORLD_READY_QUIET_INTERVAL: Duration = Duration::from_secs(2);
 const PHASE0_REQUESTED_RADIUS_CHUNKS: i32 = 16;
 const MUTATION_X_OFFSET_BLOCKS: i32 = 4;
 
@@ -67,6 +68,69 @@ impl CaveVisibilityCache {
 #[derive(Resource)]
 struct AppMetrics(MetricsCollector);
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct WorldReadyWork {
+    network_events: usize,
+    network_commands: usize,
+    admitted_world_events: usize,
+    queued_decode_jobs: usize,
+    in_flight_decode_jobs: usize,
+    completed_decode_results: usize,
+    pending_mesh_jobs: usize,
+    in_flight_mesh_jobs: usize,
+    pending_mesh_changes: usize,
+    outbound_requests: usize,
+    outstanding_sub_chunks: usize,
+    pending_retry_requests: usize,
+    render_queue_items: usize,
+    pending_gpu_acknowledgements: usize,
+    unacknowledged_meshes: usize,
+}
+
+impl WorldReadyWork {
+    fn is_empty(self) -> bool {
+        self == Self::default()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct WorldReadySnapshot {
+    mutation_coordinate: Option<[i32; 3]>,
+    received_radius_chunks: Option<i32>,
+    publisher_radius_chunks: Option<i32>,
+    rendered_sub_chunks: usize,
+    resident_sub_chunks: usize,
+    visible_sub_chunks: usize,
+    mutation_target_rendered: bool,
+    mutation_target_visible: bool,
+    mutation_target_clean: bool,
+    work: WorldReadyWork,
+}
+
+#[derive(Debug, Default)]
+struct WorldReadySettler {
+    candidate: Option<(WorldReadySnapshot, Instant)>,
+}
+
+impl WorldReadySettler {
+    fn observe(&mut self, snapshot: WorldReadySnapshot, now: Instant) -> Option<[String; 2]> {
+        let markers = world_ready_markers(snapshot);
+        if markers.is_none() {
+            self.candidate = None;
+            return None;
+        }
+        match self.candidate {
+            Some((stable, since)) if stable == snapshot => (now.saturating_duration_since(since)
+                >= WORLD_READY_QUIET_INTERVAL)
+                .then_some(markers.expect("settled snapshots have markers")),
+            _ => {
+                self.candidate = Some((snapshot, now));
+                None
+            }
+        }
+    }
+}
+
 #[derive(Resource)]
 struct AcceptanceRun {
     duration: Option<Duration>,
@@ -74,6 +138,7 @@ struct AcceptanceRun {
     metrics_out: Option<PathBuf>,
     mutation_surface_anchor: Option<[i32; 2]>,
     mutation: Option<MutationTracker>,
+    world_ready_settler: WorldReadySettler,
     world_ready: bool,
     finished: bool,
 }
@@ -86,6 +151,7 @@ impl AcceptanceRun {
             metrics_out,
             mutation_surface_anchor: None,
             mutation: None,
+            world_ready_settler: WorldReadySettler::default(),
             world_ready: false,
             finished: false,
         }
@@ -223,20 +289,17 @@ fn deterministic_mutation_coordinate(
     ]
 }
 
-fn world_ready_markers(
-    mutation_coordinate: Option<[i32; 3]>,
-    received_radius_chunks: Option<i32>,
-    publisher_radius_chunks: Option<i32>,
-    rendered_sub_chunks: usize,
-    resident_sub_chunks: usize,
-    visible_sub_chunks: usize,
-) -> Option<[String; 2]> {
-    let coordinate = mutation_coordinate?;
-    if received_radius_chunks != Some(PHASE0_REQUESTED_RADIUS_CHUNKS)
-        || publisher_radius_chunks != Some(PHASE0_REQUESTED_RADIUS_CHUNKS)
-        || rendered_sub_chunks == 0
-        || resident_sub_chunks == 0
-        || visible_sub_chunks == 0
+fn world_ready_markers(snapshot: WorldReadySnapshot) -> Option<[String; 2]> {
+    let coordinate = snapshot.mutation_coordinate?;
+    if snapshot.received_radius_chunks != Some(PHASE0_REQUESTED_RADIUS_CHUNKS)
+        || snapshot.publisher_radius_chunks != Some(PHASE0_REQUESTED_RADIUS_CHUNKS)
+        || snapshot.rendered_sub_chunks == 0
+        || snapshot.resident_sub_chunks == 0
+        || snapshot.visible_sub_chunks == 0
+        || !snapshot.mutation_target_rendered
+        || !snapshot.mutation_target_visible
+        || !snapshot.mutation_target_clean
+        || !snapshot.work.is_empty()
     {
         return None;
     }
@@ -246,8 +309,11 @@ fn world_ready_markers(
             coordinate[0], coordinate[1], coordinate[2]
         ),
         format!(
-            "RUST_MCBE_WORLD_READY radius={} rendered={rendered_sub_chunks} resident={resident_sub_chunks} visible={visible_sub_chunks}",
-            PHASE0_REQUESTED_RADIUS_CHUNKS
+            "RUST_MCBE_WORLD_READY radius={} rendered={} resident={} visible={}",
+            PHASE0_REQUESTED_RADIUS_CHUNKS,
+            snapshot.rendered_sub_chunks,
+            snapshot.resident_sub_chunks,
+            snapshot.visible_sub_chunks,
         ),
     ])
 }
@@ -617,9 +683,13 @@ fn drive_world_stream(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_world_ready(
+    network: Res<NetworkHandle>,
     client_world: Res<ClientWorld>,
     cache: Res<CaveVisibilityCache>,
+    render_queue: Res<ChunkRenderQueue>,
+    acknowledgements: Res<ChunkUploadAcknowledgements>,
     mut acceptance: ResMut<AcceptanceRun>,
     mut auto_fly: ResMut<camera::AutoFly>,
     mut metrics: ResMut<AppMetrics>,
@@ -631,18 +701,50 @@ fn emit_world_ready(
         return;
     };
     let stats = stream.stats();
-    let Some(markers) = world_ready_markers(
-        acceptance.mutation_coordinate(),
-        stats.received_radius_chunks,
-        stats.publisher_radius_chunks,
-        cache.rendered.len(),
-        stats.resident_sub_chunks,
-        cache.visible_rendered,
-    ) else {
+    let mutation_coordinate = acceptance.mutation_coordinate();
+    let mutation_target = mutation_coordinate.map(|coordinate| {
+        SubChunkKey::new(
+            stream.current_dimension(),
+            coordinate[0].div_euclid(16),
+            coordinate[1].div_euclid(16),
+            coordinate[2].div_euclid(16),
+        )
+    });
+    let snapshot = WorldReadySnapshot {
+        mutation_coordinate,
+        received_radius_chunks: stats.received_radius_chunks,
+        publisher_radius_chunks: stats.publisher_radius_chunks,
+        rendered_sub_chunks: cache.rendered.len(),
+        resident_sub_chunks: stats.resident_sub_chunks,
+        visible_sub_chunks: cache.visible_rendered,
+        mutation_target_rendered: mutation_target
+            .is_some_and(|target| cache.rendered.contains(&target)),
+        mutation_target_visible: mutation_target.is_some_and(|target| cache.is_visible(target)),
+        mutation_target_clean: mutation_target.is_some_and(|target| stream.is_mesh_clean(target)),
+        work: WorldReadyWork {
+            network_events: network.pending_event_count(),
+            network_commands: network.pending_command_count(),
+            admitted_world_events: stats.admitted_world_events,
+            queued_decode_jobs: stats.queued_decode_jobs,
+            in_flight_decode_jobs: stats.in_flight_decode_jobs,
+            completed_decode_results: stats.completed_decode_results,
+            pending_mesh_jobs: stats.pending_mesh_jobs,
+            in_flight_mesh_jobs: stats.in_flight_mesh_jobs,
+            pending_mesh_changes: stream.pending_mesh_change_count(),
+            outbound_requests: stream.pending_request_work_count(),
+            outstanding_sub_chunks: stream.outstanding_sub_chunk_count(),
+            pending_retry_requests: stats.pending_retry_requests,
+            render_queue_items: render_queue.retained_len(),
+            pending_gpu_acknowledgements: usize::from(!acknowledgements.is_empty()),
+            unacknowledged_meshes: stream.unacknowledged_mesh_count(),
+        },
+    };
+    let ready_at = Instant::now();
+    let Some(markers) = acceptance.world_ready_settler.observe(snapshot, ready_at) else {
         return;
     };
-    let coordinate = acceptance
-        .mutation_coordinate()
+    let coordinate = snapshot
+        .mutation_coordinate
         .expect("world-ready markers require a mutation coordinate");
     auto_fly.set_look_target(Vec3::new(
         coordinate[0] as f32 + 0.5,
@@ -654,7 +756,6 @@ fn emit_world_ready(
         let _ = writeln!(stdout, "{marker}");
     }
     let _ = stdout.flush();
-    let ready_at = Instant::now();
     metrics.0.begin_timed_session(ready_at);
     acceptance.begin_world_ready(ready_at);
 }
@@ -937,11 +1038,27 @@ mod tests {
     use world::SubChunkKey;
 
     use crate::{
-        AcceptanceRun, MutationTracker, NETWORK_INGRESS_BUDGET_PER_FRAME, bedrock_camera_rotation,
-        camera_sub_chunk_key, cumulative_counter_delta, deterministic_mutation_coordinate,
-        drain_network_ingress, flush_sub_chunk_requests, resolve_socket_dir_from, status_title,
-        world_ready_markers,
+        AcceptanceRun, MutationTracker, NETWORK_INGRESS_BUDGET_PER_FRAME,
+        WORLD_READY_QUIET_INTERVAL, WorldReadySettler, WorldReadySnapshot, WorldReadyWork,
+        bedrock_camera_rotation, camera_sub_chunk_key, cumulative_counter_delta,
+        deterministic_mutation_coordinate, drain_network_ingress, flush_sub_chunk_requests,
+        resolve_socket_dir_from, status_title, world_ready_markers,
     };
+
+    fn settled_world_snapshot() -> WorldReadySnapshot {
+        WorldReadySnapshot {
+            mutation_coordinate: Some([14, 71, -6]),
+            received_radius_chunks: Some(16),
+            publisher_radius_chunks: Some(16),
+            rendered_sub_chunks: 2,
+            resident_sub_chunks: 3,
+            visible_sub_chunks: 1,
+            mutation_target_rendered: true,
+            mutation_target_visible: true,
+            mutation_target_clean: true,
+            work: WorldReadyWork::default(),
+        }
+    }
 
     #[test]
     fn acceptance_run_retains_the_spawn_surface_anchor_until_coordinate_resolution() {
@@ -979,24 +1096,187 @@ mod tests {
 
     #[test]
     fn world_ready_markers_require_radius_rendering_and_include_the_exact_coordinate() {
+        let mut snapshot = settled_world_snapshot();
+        snapshot.received_radius_chunks = Some(15);
+        assert_eq!(world_ready_markers(snapshot), None);
+        snapshot.received_radius_chunks = Some(16);
+        snapshot.publisher_radius_chunks = Some(15);
+        assert_eq!(world_ready_markers(snapshot), None);
+        snapshot.publisher_radius_chunks = Some(16);
+        snapshot.rendered_sub_chunks = 0;
+        assert_eq!(world_ready_markers(snapshot), None);
+        snapshot.rendered_sub_chunks = 2;
         assert_eq!(
-            world_ready_markers(Some([14, 71, -6]), Some(15), Some(16), 2, 3, 1),
-            None
-        );
-        assert_eq!(
-            world_ready_markers(Some([14, 71, -6]), Some(16), Some(15), 2, 3, 1),
-            None
-        );
-        assert_eq!(
-            world_ready_markers(Some([14, 71, -6]), Some(16), Some(16), 0, 3, 1),
-            None
-        );
-        assert_eq!(
-            world_ready_markers(Some([14, 71, -6]), Some(16), Some(16), 2, 3, 1),
+            world_ready_markers(snapshot),
             Some([
                 "RUST_MCBE_MUTATION_COORDINATE=14,71,-6".to_owned(),
                 "RUST_MCBE_WORLD_READY radius=16 rendered=2 resident=3 visible=1".to_owned(),
             ])
+        );
+    }
+
+    #[test]
+    fn world_ready_markers_are_withheld_for_every_pending_stage_and_an_unclean_target() {
+        let pending_stages = [
+            (
+                "network ingress",
+                WorldReadyWork {
+                    network_events: 1,
+                    ..Default::default()
+                },
+            ),
+            (
+                "network commands",
+                WorldReadyWork {
+                    network_commands: 1,
+                    ..Default::default()
+                },
+            ),
+            (
+                "admitted world events",
+                WorldReadyWork {
+                    admitted_world_events: 1,
+                    ..Default::default()
+                },
+            ),
+            (
+                "queued decode",
+                WorldReadyWork {
+                    queued_decode_jobs: 1,
+                    ..Default::default()
+                },
+            ),
+            (
+                "in-flight decode",
+                WorldReadyWork {
+                    in_flight_decode_jobs: 1,
+                    ..Default::default()
+                },
+            ),
+            (
+                "completed decode",
+                WorldReadyWork {
+                    completed_decode_results: 1,
+                    ..Default::default()
+                },
+            ),
+            (
+                "pending mesh",
+                WorldReadyWork {
+                    pending_mesh_jobs: 1,
+                    ..Default::default()
+                },
+            ),
+            (
+                "in-flight mesh",
+                WorldReadyWork {
+                    in_flight_mesh_jobs: 1,
+                    ..Default::default()
+                },
+            ),
+            (
+                "mesh changes",
+                WorldReadyWork {
+                    pending_mesh_changes: 1,
+                    ..Default::default()
+                },
+            ),
+            (
+                "outbound requests",
+                WorldReadyWork {
+                    outbound_requests: 1,
+                    ..Default::default()
+                },
+            ),
+            (
+                "outstanding sub-chunks",
+                WorldReadyWork {
+                    outstanding_sub_chunks: 1,
+                    ..Default::default()
+                },
+            ),
+            (
+                "retry requests",
+                WorldReadyWork {
+                    pending_retry_requests: 1,
+                    ..Default::default()
+                },
+            ),
+            (
+                "render queue",
+                WorldReadyWork {
+                    render_queue_items: 1,
+                    ..Default::default()
+                },
+            ),
+            (
+                "GPU acknowledgements",
+                WorldReadyWork {
+                    pending_gpu_acknowledgements: 1,
+                    ..Default::default()
+                },
+            ),
+            (
+                "unacknowledged meshes",
+                WorldReadyWork {
+                    unacknowledged_meshes: 1,
+                    ..Default::default()
+                },
+            ),
+        ];
+        for (stage, work) in pending_stages {
+            let mut snapshot = settled_world_snapshot();
+            snapshot.work = work;
+            assert_eq!(world_ready_markers(snapshot), None, "pending {stage}");
+        }
+
+        let mut target_not_rendered = settled_world_snapshot();
+        target_not_rendered.mutation_target_rendered = false;
+        assert_eq!(world_ready_markers(target_not_rendered), None);
+
+        let mut target_not_visible = settled_world_snapshot();
+        target_not_visible.mutation_target_visible = false;
+        assert_eq!(world_ready_markers(target_not_visible), None);
+
+        let mut target_not_clean = settled_world_snapshot();
+        target_not_clean.mutation_target_clean = false;
+        assert_eq!(world_ready_markers(target_not_clean), None);
+    }
+
+    #[test]
+    fn world_ready_requires_a_stable_quiet_interval_and_resets_when_work_reappears() {
+        let started = Instant::now();
+        let snapshot = settled_world_snapshot();
+        let mut settler = WorldReadySettler::default();
+
+        assert_eq!(settler.observe(snapshot, started), None);
+        assert_eq!(
+            settler.observe(
+                snapshot,
+                started + WORLD_READY_QUIET_INTERVAL - Duration::from_millis(1)
+            ),
+            None
+        );
+
+        let mut busy = snapshot;
+        busy.work.pending_mesh_jobs = 1;
+        assert_eq!(
+            settler.observe(busy, started + WORLD_READY_QUIET_INTERVAL),
+            None
+        );
+
+        let restarted = started + WORLD_READY_QUIET_INTERVAL + Duration::from_millis(1);
+        assert_eq!(settler.observe(snapshot, restarted), None);
+        let mut changed = snapshot;
+        changed.rendered_sub_chunks += 1;
+        assert_eq!(
+            settler.observe(changed, restarted + WORLD_READY_QUIET_INTERVAL),
+            None,
+            "a changing candidate is not yet stable"
+        );
+        assert_eq!(
+            settler.observe(changed, restarted + WORLD_READY_QUIET_INTERVAL * 2),
+            world_ready_markers(changed)
         );
     }
 
