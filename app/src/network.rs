@@ -241,12 +241,14 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                 }
                 let mut sequencer =
                     NetworkSequencer::new(bootstrap.dimension, bootstrap.local_player_runtime_id);
+                let mut pump_preference = NetworkPumpPreference::Inbound;
 
                 loop {
                     match wait_for_network_work_or_cancel(
                         session.recv_world_event(sequencer.current_dimension()),
                         command_rx.recv(),
                         &mut shutdown_rx,
+                        &mut pump_preference,
                     )
                     .await
                     {
@@ -396,10 +398,17 @@ enum NetworkPumpWork<I, C> {
     Command(C),
 }
 
+#[derive(Clone, Copy)]
+enum NetworkPumpPreference {
+    Inbound,
+    Command,
+}
+
 async fn wait_for_network_work_or_cancel<I, C>(
     inbound: I,
     command: C,
     shutdown: &mut watch::Receiver<bool>,
+    preference: &mut NetworkPumpPreference,
 ) -> NetworkPumpWork<I::Output, C::Output>
 where
     I: Future,
@@ -408,12 +417,26 @@ where
     if *shutdown.borrow() {
         return NetworkPumpWork::Shutdown;
     }
-    tokio::select! {
-        biased;
-        _ = wait_for_shutdown(shutdown) => NetworkPumpWork::Shutdown,
-        inbound = inbound => NetworkPumpWork::Inbound(inbound),
-        command = command => NetworkPumpWork::Command(command),
+    let work = match preference {
+        NetworkPumpPreference::Inbound => tokio::select! {
+            biased;
+            _ = wait_for_shutdown(shutdown) => NetworkPumpWork::Shutdown,
+            inbound = inbound => NetworkPumpWork::Inbound(inbound),
+            command = command => NetworkPumpWork::Command(command),
+        },
+        NetworkPumpPreference::Command => tokio::select! {
+            biased;
+            _ = wait_for_shutdown(shutdown) => NetworkPumpWork::Shutdown,
+            command = command => NetworkPumpWork::Command(command),
+            inbound = inbound => NetworkPumpWork::Inbound(inbound),
+        },
+    };
+    match &work {
+        NetworkPumpWork::Shutdown => {}
+        NetworkPumpWork::Inbound(_) => *preference = NetworkPumpPreference::Command,
+        NetworkPumpWork::Command(_) => *preference = NetworkPumpPreference::Inbound,
     }
+    work
 }
 
 async fn send_event_or_cancel(
@@ -480,9 +503,9 @@ mod tests {
     use tokio::sync::{mpsc, oneshot, watch};
 
     use super::{
-        COMMAND_CAPACITY, NetworkCommand, NetworkEvent, NetworkHandle, NetworkPumpWork,
-        NetworkSequencer, PacketSendError, send_event_or_cancel, wait_for_login_or_cancel,
-        wait_for_network_work_or_cancel, wait_for_send_or_cancel,
+        COMMAND_CAPACITY, NetworkCommand, NetworkEvent, NetworkHandle, NetworkPumpPreference,
+        NetworkPumpWork, NetworkSequencer, PacketSendError, send_event_or_cancel,
+        wait_for_login_or_cancel, wait_for_network_work_or_cancel, wait_for_send_or_cancel,
     };
 
     #[test]
@@ -590,35 +613,93 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn network_pump_prioritizes_ready_inbound_and_preserves_command_fifo() {
+    async fn network_pump_round_robins_repeated_ready_work_and_preserves_command_fifo() {
         let (_shutdown, mut shutdown_rx) = watch::channel(false);
-        let (commands, mut command_rx) = mpsc::channel(2);
+        let (commands, mut command_rx) = mpsc::channel(4);
+        let mut preference = NetworkPumpPreference::Inbound;
         commands.try_send(10).unwrap();
         commands.try_send(20).unwrap();
 
-        let selected = wait_for_network_work_or_cancel(
-            future::ready("inbound"),
+        let first = wait_for_network_work_or_cancel(
+            future::ready("inbound-1"),
             command_rx.recv(),
             &mut shutdown_rx,
+            &mut preference,
         )
         .await;
-        assert!(matches!(selected, NetworkPumpWork::Inbound("inbound")));
+        assert!(matches!(first, NetworkPumpWork::Inbound("inbound-1")));
         assert_eq!(command_rx.len(), 2);
 
-        let first_command = wait_for_network_work_or_cancel(
+        let second = wait_for_network_work_or_cancel(
+            future::ready("inbound-2"),
+            command_rx.recv(),
+            &mut shutdown_rx,
+            &mut preference,
+        )
+        .await;
+        assert!(matches!(second, NetworkPumpWork::Command(Some(10))));
+
+        let third = wait_for_network_work_or_cancel(
+            future::ready("inbound-3"),
+            command_rx.recv(),
+            &mut shutdown_rx,
+            &mut preference,
+        )
+        .await;
+        assert!(matches!(third, NetworkPumpWork::Inbound("inbound-3")));
+
+        let fourth = wait_for_network_work_or_cancel(
+            future::ready("inbound-4"),
+            command_rx.recv(),
+            &mut shutdown_rx,
+            &mut preference,
+        )
+        .await;
+        assert!(matches!(fourth, NetworkPumpWork::Command(Some(20))));
+
+        commands.try_send(30).unwrap();
+        let inbound_pending = wait_for_network_work_or_cancel(
             future::pending::<&'static str>(),
             command_rx.recv(),
             &mut shutdown_rx,
+            &mut preference,
         )
         .await;
-        assert!(matches!(first_command, NetworkPumpWork::Command(Some(10))));
-        let second_command = wait_for_network_work_or_cancel(
+        assert!(matches!(
+            inbound_pending,
+            NetworkPumpWork::Command(Some(30))
+        ));
+
+        commands.try_send(40).unwrap();
+        let fifth = wait_for_network_work_or_cancel(
+            future::ready("inbound-5"),
+            command_rx.recv(),
+            &mut shutdown_rx,
+            &mut preference,
+        )
+        .await;
+        assert!(matches!(fifth, NetworkPumpWork::Inbound("inbound-5")));
+
+        let command_pending = wait_for_network_work_or_cancel(
+            future::ready("inbound-6"),
+            future::pending::<Option<i32>>(),
+            &mut shutdown_rx,
+            &mut preference,
+        )
+        .await;
+        assert!(matches!(
+            command_pending,
+            NetworkPumpWork::Inbound("inbound-6")
+        ));
+
+        let final_command = wait_for_network_work_or_cancel(
             future::pending::<&'static str>(),
             command_rx.recv(),
             &mut shutdown_rx,
+            &mut preference,
         )
         .await;
-        assert!(matches!(second_command, NetworkPumpWork::Command(Some(20))));
+        assert!(matches!(final_command, NetworkPumpWork::Command(Some(40))));
     }
 
     #[test]
