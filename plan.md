@@ -226,6 +226,15 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     second-page fallback, atomic asset-revision replacement, derivative-safe
     WGSL sampling, and no per-frame texture upload; 82 render tests, strict
     Clippy, and independent spec/quality review are green.
+  - [x] Generalize bounded chunk rendering to named cube, model,
+    model-lighting, liquid, and liquid-lighting streams while preserving the
+    eight-byte greedy cube record. Commit `5734872` adds exact combined byte
+    accounting, one consolidated word-addressed geometry arena, transactional
+    all-stream allocation/rollback/retry, generation/tint gates, expected/drawn
+    presentation masks, and identical direct/MDI addressing. The projected
+    vertex storage-binding count including future templates is seven of the
+    common minimum eight; 89 render tests, strict Clippy, and independent
+    re-review are green.
   - [ ] Add palette-native multi-layer contributor resolution, retaining the
     eight-byte greedy cube record and adding compact model/liquid streams with
     atomic queue/GPU generation accounting and direct/MDI parity.
