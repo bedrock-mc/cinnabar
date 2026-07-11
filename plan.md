@@ -53,7 +53,7 @@ Local worlds run dragonfly behind the same core, over the same client path.
   - `crates/ui/` — menus, HUD, inventory, forms, chat
   - `crates/bridge/` — socket transport (from `bedrock-mc/plugin`) + control-channel client
   - `app/` — the Bevy application binary
-  - `core/` — **Go module**: the core service (imports `lunar`; donor code: `platform/pc-client`)
+  - `core/` — **Go module**: the core service; copy/adapt Lunar's relay package and logic as donor code, but never import Lunar as a module dependency
   - `tools/` — Go: registry/asset exporters, conformance fixture generator
 - **`platform/Lunar`** — small additions only: anything the core needs exposed through the facade; conformance fixture corpus generator may live in `cmd/`.
 - **Decision log** (settled in design discussion, 2026-07-09/10): hybrid over pure-Rust (single protocol treadmill, reuse of auth/NetherNet/Realms/physics estate) and over pure-Go (renderer ecosystem); docs-generated codec over gophertunnel-AST codegen (docs are machine-emitted wire descriptions; gophertunnel Marshal funcs are not generatable); socket file over TCP loopback (permissions, no ports); valentine defs adopted as-is for v1 (Hashim PR'd 1.26.30 to axolotl) — vendor/fork decision deferred until Phase 1; conformance harness deferred to Phase 1 (Phase 0 spike acts as the manual conformance test).
@@ -64,6 +64,7 @@ Local worlds run dragonfly behind the same core, over the same client path.
 |---|---|---|
 | Bevy meshing/frame-pacing insufficient | 0 | Spike acceptance gates the whole program |
 | valentine defs drift from gophertunnel bytes | 0→1 | Spike surfaces; Phase 1 builds automated conformance harness |
+| Dragonfly registry sequential IDs differ from valentine protocol-1001 palette IDs | 1→2 | Keep hashed mode explicit for current sessions; Phase 1 conformance must reject or translate sequential mode before claiming arbitrary-server support |
 | Client-side lighting (Bedrock sends no light data) is a full subsystem | 2 | Scoped task; flood-fill block/sky light, correctness vs vanilla screenshots |
 | Molang/entity animation scope explosion | 4 | v1 = molang subset for vanilla mobs; static fallback pose; explicit cut-line |
 | Sound binaries not fully in bedrock-samples | 8 | Audit early (Phase 2 asset task); fallback = user-supplied client assets import step |
@@ -151,9 +152,15 @@ Scope: block registry + block-state → model/texture mapping (generated export 
 - [ ] **2.3 Close the opaque texture slice.** The deterministic named-block BDS
   gallery now passes with all faces/log axes, greedy repetition, mips, supported
   and diagnostic cases recorded, and the clean no-assets full gate passes. The
-  blocker-only review remains open on fail-closed deferred materials, the
-  two-second teleport/full-view remesh gate, and fresh combined RSS/steady-CPU
-  evidence; close those findings before completing Task 8 in the detailed plan.
+  fail-closed material path, local relay 1,600-packet ceiling, and deterministic
+  inbound/command network arbitration are implemented and independently reviewed.
+  A 2026-07-11 interactive radius-16 run reached world-ready with zero missing
+  mappings, but is diagnostic rather than acceptance evidence: 508,385 rendered
+  quads used material zero, and exact blob inspection found only 616 of 16,913
+  registry visuals currently mapped to real materials. Most of that visible gap
+  belongs to Tasks 2.4–2.7 (leaves, tint/grass, water/blend, and models). The exact
+  two-second teleport/full-view remesh gate and fresh combined RSS/steady-CPU
+  evidence remain open; close those findings before completing Task 8.
 - [ ] **2.4 Cutout cube materials and leaves.** Preserve independent geometry,
   occlusion, and cave-connectivity semantics; keep the packed subchunk/quad and
   shared GPU architecture.
