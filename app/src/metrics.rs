@@ -1,13 +1,94 @@
 use std::{
+    collections::BTreeMap,
     fs, io,
     path::Path,
     time::{Duration, Instant},
 };
 
 use serde::Serialize;
+use world::SubChunkKey;
 
 const FRAME_HISTOGRAM_RESOLUTION_MS: f64 = 0.1;
 const FRAME_HISTOGRAM_BUCKETS: usize = 20_001;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AssetMetrics {
+    pub source_tag: String,
+    pub source_sha256: String,
+    pub blob_sha256: String,
+    pub texture_layers: u32,
+    pub texture_bytes_including_mips: u64,
+    pub material_count: u32,
+    pub missing_mapping_count: u64,
+    pub diagnostic_quad_count: u64,
+}
+
+impl Default for AssetMetrics {
+    fn default() -> Self {
+        Self {
+            source_tag: "diagnostic".to_owned(),
+            source_sha256: "diagnostic".to_owned(),
+            blob_sha256: "diagnostic".to_owned(),
+            texture_layers: 1,
+            texture_bytes_including_mips: 1_364,
+            material_count: 1,
+            missing_mapping_count: 0,
+            diagnostic_quad_count: 0,
+        }
+    }
+}
+
+impl AssetMetrics {
+    #[must_use]
+    pub fn world_ready_marker(
+        &self,
+        resident_sub_chunks: usize,
+        visible_sub_chunks: usize,
+    ) -> String {
+        format!(
+            "WORLD_READY source_tag={} source_sha256={} blob_sha256={} texture_layers={} \
+             texture_bytes_including_mips={} material_count={} missing_mapping_count={} \
+             diagnostic_quad_count={} resident_sub_chunks={resident_sub_chunks} \
+             visible_sub_chunks={visible_sub_chunks}",
+            self.source_tag,
+            self.source_sha256,
+            self.blob_sha256,
+            self.texture_layers,
+            self.texture_bytes_including_mips,
+            self.material_count,
+            self.missing_mapping_count,
+            self.diagnostic_quad_count,
+        )
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct DiagnosticQuadTracker {
+    by_sub_chunk: BTreeMap<SubChunkKey, u64>,
+    total: u64,
+}
+
+impl DiagnosticQuadTracker {
+    pub fn upsert(&mut self, key: SubChunkKey, count: u64) {
+        if count == 0 {
+            self.remove(key);
+            return;
+        }
+        let previous = self.by_sub_chunk.insert(key, count).unwrap_or(0);
+        self.total = self.total.saturating_sub(previous).saturating_add(count);
+    }
+
+    pub fn remove(&mut self, key: SubChunkKey) {
+        if let Some(previous) = self.by_sub_chunk.remove(&key) {
+            self.total = self.total.saturating_sub(previous);
+        }
+    }
+
+    #[must_use]
+    pub const fn total(&self) -> u64 {
+        self.total
+    }
+}
 
 #[derive(Debug)]
 struct FrameHistogram {
@@ -60,6 +141,7 @@ impl FrameHistogram {
 #[derive(Debug)]
 pub struct MetricsCollector {
     started: Instant,
+    assets: AssetMetrics,
     frame_histogram: FrameHistogram,
     max_remesh_milliseconds: f64,
     max_decode_milliseconds: f64,
@@ -109,6 +191,7 @@ impl MetricsCollector {
     pub fn new() -> Self {
         Self {
             started: Instant::now(),
+            assets: AssetMetrics::default(),
             frame_histogram: FrameHistogram::default(),
             max_remesh_milliseconds: 0.0,
             max_decode_milliseconds: 0.0,
@@ -127,6 +210,28 @@ impl MetricsCollector {
             peak_in_flight_mesh_jobs: 0,
             gpu_upload_bytes: 0,
         }
+    }
+
+    #[must_use]
+    pub fn with_asset_metrics(assets: AssetMetrics) -> Self {
+        Self {
+            assets,
+            ..Self::new()
+        }
+    }
+
+    pub fn record_asset_counters(
+        &mut self,
+        missing_mapping_count: u64,
+        diagnostic_quad_count: u64,
+    ) {
+        self.assets.missing_mapping_count = missing_mapping_count;
+        self.assets.diagnostic_quad_count = diagnostic_quad_count;
+    }
+
+    #[must_use]
+    pub const fn asset_metrics(&self) -> &AssetMetrics {
+        &self.assets
     }
 
     pub fn record_frame(&mut self, duration: Duration) {
@@ -205,6 +310,7 @@ impl MetricsCollector {
             peak_pending_mesh_jobs: self.peak_pending_mesh_jobs,
             peak_in_flight_mesh_jobs: self.peak_in_flight_mesh_jobs,
             gpu_upload_bytes: self.gpu_upload_bytes,
+            assets: self.assets.clone(),
         }
     }
 
@@ -238,6 +344,7 @@ pub struct MetricsReport {
     pub peak_pending_mesh_jobs: usize,
     pub peak_in_flight_mesh_jobs: usize,
     pub gpu_upload_bytes: u64,
+    pub assets: AssetMetrics,
 }
 
 impl MetricsReport {
@@ -265,7 +372,9 @@ fn percentile(sorted: &[f64], percentile: f64) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{MetricsCollector, MetricsReport, PipelineMetricsSnapshot, percentile};
+    use super::{
+        AssetMetrics, MetricsCollector, MetricsReport, PipelineMetricsSnapshot, percentile,
+    };
     use std::{fs, time::Duration};
 
     #[test]
@@ -372,6 +481,7 @@ mod tests {
             peak_pending_mesh_jobs: 9,
             peak_in_flight_mesh_jobs: 8,
             gpu_upload_bytes: 4_096,
+            assets: AssetMetrics::default(),
         };
         let unique = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -407,7 +517,17 @@ mod tests {
                 "  \"peak_outbound_requests\": 5,\n",
                 "  \"peak_pending_mesh_jobs\": 9,\n",
                 "  \"peak_in_flight_mesh_jobs\": 8,\n",
-                "  \"gpu_upload_bytes\": 4096\n",
+                "  \"gpu_upload_bytes\": 4096,\n",
+                "  \"assets\": {\n",
+                "    \"source_tag\": \"diagnostic\",\n",
+                "    \"source_sha256\": \"diagnostic\",\n",
+                "    \"blob_sha256\": \"diagnostic\",\n",
+                "    \"texture_layers\": 1,\n",
+                "    \"texture_bytes_including_mips\": 1364,\n",
+                "    \"material_count\": 1,\n",
+                "    \"missing_mapping_count\": 0,\n",
+                "    \"diagnostic_quad_count\": 0\n",
+                "  }\n",
                 "}\n",
             )
         );

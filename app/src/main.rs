@@ -1,4 +1,5 @@
 mod args;
+mod asset_startup;
 mod camera;
 mod culling;
 mod metrics;
@@ -14,7 +15,8 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use assets::RuntimeAssets;
+use asset_startup::{LoadedAssetKind, load_runtime_assets, select_asset_path_from_environment};
+use assets::{DIAGNOSTIC_MATERIAL, RuntimeAssets};
 use bevy::{
     app::AppExit,
     prelude::*,
@@ -22,11 +24,11 @@ use bevy::{
     winit::WinitSettings,
 };
 use camera::{FlyCamera, FlyCameraPlugin};
-use metrics::{MetricsCollector, PipelineMetricsSnapshot};
+use metrics::{DiagnosticQuadTracker, MetricsCollector, PipelineMetricsSnapshot};
 use network::{NetworkConfig, NetworkEvent, NetworkHandle, spawn_network};
 use render::{
-    ChunkRenderInstance, ChunkRenderQueue, ChunkUploadAcknowledgements, ChunkUploadPriority,
-    ChunkUploadToken, DebugWorldPlugin,
+    ChunkRenderInstance, ChunkRenderQueue, ChunkTextureAssets, ChunkUploadAcknowledgements,
+    ChunkUploadPriority, ChunkUploadToken, DebugWorldPlugin,
 };
 use server_position::SAFE_SERVER_HEIGHT;
 use world::SubChunkKey;
@@ -50,9 +52,15 @@ struct ClientWorld {
 
 impl Default for ClientWorld {
     fn default() -> Self {
+        Self::new(Arc::new(RuntimeAssets::diagnostic()))
+    }
+}
+
+impl ClientWorld {
+    fn new(runtime_assets: Arc<RuntimeAssets>) -> Self {
         Self {
             stream: None,
-            runtime_assets: Arc::new(RuntimeAssets::diagnostic()),
+            runtime_assets,
             pending_surface_spawn: None,
             fatal_error: None,
             network_decode_errors: 0,
@@ -79,6 +87,9 @@ impl CaveVisibilityCache {
 
 #[derive(Resource)]
 struct AppMetrics(MetricsCollector);
+
+#[derive(Resource, Default)]
+struct DiagnosticQuads(DiagnosticQuadTracker);
 
 #[derive(Resource)]
 struct AcceptanceRun {
@@ -148,6 +159,21 @@ fn main() {
 }
 
 fn run(args: args::ClientArgs) -> Result<()> {
+    let selected_assets = select_asset_path_from_environment(args.assets.as_deref());
+    let loaded_assets =
+        load_runtime_assets(selected_assets).context("load startup block assets")?;
+    if let Some(notice) = &loaded_assets.notice {
+        eprintln!("{notice}");
+    } else if loaded_assets.kind == LoadedAssetKind::CompiledBlob {
+        eprintln!(
+            "loaded compiled block assets from {} (sha256 {})",
+            loaded_assets.selected_path.display(),
+            loaded_assets.metrics.blob_sha256
+        );
+    }
+    let runtime_assets = loaded_assets.runtime;
+    let asset_metrics = loaded_assets.metrics;
+
     let network = spawn_network(NetworkConfig {
         socket_dir: resolve_socket_dir(&args.socket_dir),
         display_name: args.display_name.clone(),
@@ -171,9 +197,13 @@ fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(WinitSettings::continuous())
     .insert_resource(ClearColor(Color::srgb(0.46, 0.70, 0.92)))
     .insert_resource(network)
-    .insert_resource(ClientWorld::default())
+    .insert_resource(ClientWorld::new(Arc::clone(&runtime_assets)))
+    .insert_resource(ChunkTextureAssets::new(runtime_assets))
     .insert_resource(CaveVisibilityCache::default())
-    .insert_resource(AppMetrics(MetricsCollector::new()))
+    .insert_resource(AppMetrics(MetricsCollector::with_asset_metrics(
+        asset_metrics,
+    )))
+    .insert_resource(DiagnosticQuads::default())
     .insert_resource(AcceptanceRun::new(
         args.acceptance_seconds,
         args.metrics_out,
@@ -322,6 +352,7 @@ fn drive_world_stream(
     network: Res<NetworkHandle>,
     mut client_world: ResMut<ClientWorld>,
     mut render_queue: ResMut<ChunkRenderQueue>,
+    mut diagnostic_quads: ResMut<DiagnosticQuads>,
     acknowledgements: Res<ChunkUploadAcknowledgements>,
     mut camera: Query<&mut Transform, With<FlyCamera>>,
 ) {
@@ -380,8 +411,15 @@ fn drive_world_stream(
                     mesh,
                     generation,
                     dirty_since,
-                } => render_queue
-                    .try_update_tracked(
+                } => {
+                    let diagnostic_count = u64::try_from(
+                        mesh.quads()
+                            .iter()
+                            .filter(|quad| quad.material_id() == DIAGNOSTIC_MATERIAL)
+                            .count(),
+                    )
+                    .unwrap_or(u64::MAX);
+                    match render_queue.try_update_tracked(
                         key,
                         mesh,
                         ChunkUploadPriority::from_camera(key, camera_position),
@@ -389,33 +427,41 @@ fn drive_world_stream(
                             generation,
                             dirty_since,
                         },
-                    )
-                    .err()
-                    .map(|mesh| WorldMeshChange::Upsert {
-                        key,
-                        mesh,
-                        generation,
-                        dirty_since,
-                    }),
+                    ) {
+                        Ok(()) => {
+                            diagnostic_quads.0.upsert(key, diagnostic_count);
+                            None
+                        }
+                        Err(mesh) => Some(WorldMeshChange::Upsert {
+                            key,
+                            mesh,
+                            generation,
+                            dirty_since,
+                        }),
+                    }
+                }
                 WorldMeshChange::Remove {
                     key,
                     generation,
                     dirty_since,
-                } => render_queue
-                    .try_remove_tracked(
-                        key,
-                        ChunkUploadPriority::from_camera(key, camera_position),
-                        ChunkUploadToken {
-                            generation,
-                            dirty_since,
-                        },
-                    )
-                    .err()
-                    .map(|key| WorldMeshChange::Remove {
+                } => match render_queue.try_remove_tracked(
+                    key,
+                    ChunkUploadPriority::from_camera(key, camera_position),
+                    ChunkUploadToken {
+                        generation,
+                        dirty_since,
+                    },
+                ) {
+                    Ok(()) => {
+                        diagnostic_quads.0.remove(key);
+                        None
+                    }
+                    Err(key) => Some(WorldMeshChange::Remove {
                         key,
                         generation,
                         dirty_since,
                     }),
+                },
             };
             let Some(retry) = retry else {
                 continue;
@@ -595,12 +641,18 @@ fn record_metrics_and_title(
     mut client_world: ResMut<ClientWorld>,
     cache: Res<CaveVisibilityCache>,
     mut metrics: ResMut<AppMetrics>,
+    diagnostic_quads: Res<DiagnosticQuads>,
     render_queue: Res<ChunkRenderQueue>,
     camera: Query<&Transform, With<FlyCamera>>,
     mut window: Query<(&mut Window, &CursorOptions), With<PrimaryWindow>>,
     mut title_elapsed: Local<Duration>,
+    mut world_ready_logged: Local<bool>,
 ) {
     metrics.0.record_frame(time.delta());
+    metrics.0.record_asset_counters(
+        client_world.runtime_assets.missing_count(),
+        diagnostic_quads.0.total(),
+    );
     let stream_errors = client_world.stream.as_ref().map_or(0, |stream| {
         let stats = stream.stats();
         metrics.0.record_pipeline_snapshot(PipelineMetricsSnapshot {
@@ -630,6 +682,35 @@ fn record_metrics_and_title(
     let error_delta = cumulative_counter_delta(total_errors, client_world.reported_decode_errors);
     metrics.0.add_decode_errors(error_delta);
     client_world.reported_decode_errors = total_errors;
+
+    if !*world_ready_logged {
+        let ready = client_world.stream.as_ref().and_then(|stream| {
+            let stats = stream.stats();
+            (stats.resident_sub_chunks != 0
+                && cache.visible_rendered != 0
+                && stats.admitted_world_events == 0
+                && stats.admitted_heavy_events == 0
+                && stats.queued_decode_jobs == 0
+                && stats.in_flight_decode_jobs == 0
+                && stats.completed_decode_results == 0
+                && stats.pending_retry_requests == 0
+                && stats.pending_mesh_jobs == 0
+                && stats.in_flight_mesh_jobs == 0
+                && stream.pending_request_count() == 0
+                && render_queue.retained_len() == 0)
+                .then_some(stats.resident_sub_chunks)
+        });
+        if let Some(resident) = ready {
+            info!(
+                "{}",
+                metrics
+                    .0
+                    .asset_metrics()
+                    .world_ready_marker(resident, cache.visible_rendered)
+            );
+            *world_ready_logged = true;
+        }
+    }
 
     *title_elapsed += time.delta();
     if *title_elapsed < TITLE_REFRESH_INTERVAL {
