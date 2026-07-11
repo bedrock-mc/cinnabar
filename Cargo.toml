@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "app",
+    "crates/assets",
     "crates/bridge",
     "crates/protocol",
     "crates/render",
