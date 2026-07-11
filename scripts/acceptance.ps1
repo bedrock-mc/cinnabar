@@ -679,6 +679,7 @@ function New-VisualFixturePlan {
     )
     $galleryCommands.Add("fill $($mx - 3) $($my + 1) $($mz - 11) $($mx + 3) $($my + 1) $($mz + 3) minecraft:oak_planks")
     $galleryCommands.Add("setblock $mx $($my + 1) $mz minecraft:air")
+    $galleryCommands.Add("fill $($mx + 14) $my $($mz + 5) $($mx + 15) $my $($mz + 6) minecraft:stone")
 
     $blockDefinitions = @(
         [pscustomobject][ordered]@{ label = 'stone'; block = 'minecraft:stone'; x_offset = -21 },

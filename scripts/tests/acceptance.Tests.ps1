@@ -252,6 +252,26 @@ try {
     Assert-True ($clearVolume -le 32768) "fixture clear volume exceeded BDS fill limit: $clearVolume"
     Assert-True (([int]$clear.min.y) -gt $mutationCoordinate[1]) 'fixture clear volume did not preserve the mutation surface block'
 
+    $sandMinX = $mutationCoordinate[0] + 14
+    $sandMaxX = $mutationCoordinate[0] + 15
+    $sandMinZ = $mutationCoordinate[2] + 5
+    $sandMaxZ = $mutationCoordinate[2] + 6
+    $expectedSandSupport = "fill $sandMinX $($mutationCoordinate[1]) $sandMinZ $sandMaxX $($mutationCoordinate[1]) $sandMaxZ minecraft:stone"
+    $expectedSandCube = "fill $sandMinX $($mutationCoordinate[1] + 1) $sandMinZ $sandMaxX $($mutationCoordinate[1] + 2) $sandMaxZ minecraft:sand"
+    $sandSupportIndexes = @(for ($index = 0; $index -lt $frontPlan.Commands.Count; $index++) {
+        if ($frontPlan.Commands[$index] -ceq $expectedSandSupport) {
+            $index
+        }
+    })
+    $sandCubeIndexes = @(for ($index = 0; $index -lt $frontPlan.Commands.Count; $index++) {
+        if ($frontPlan.Commands[$index] -ceq $expectedSandCube) {
+            $index
+        }
+    })
+    Assert-Equal 1 $sandSupportIndexes.Count 'fixture did not contain exactly one deterministic hidden sand support'
+    Assert-Equal 1 $sandCubeIndexes.Count 'fixture did not contain exactly one sand cube fill'
+    Assert-True ($sandSupportIndexes[0] -lt $sandCubeIndexes[0]) 'fixture built the sand cube before its hidden support'
+
     $requiredBlocks = @(
         'minecraft:stone',
         'minecraft:dirt',
