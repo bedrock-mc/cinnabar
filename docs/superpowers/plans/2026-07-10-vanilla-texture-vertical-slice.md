@@ -140,7 +140,7 @@
 - Each record contains `sequential_id: u32`, `network_hash: u32`, `flags: u8`, `name_len: u16`, `state_len: u32`, UTF-8 name, and canonical UTF-8 JSON state properties.
 - Flag bit 0 is air; bit 1 is Dragonfly `model.Solid` full cube.
 
-- [ ] **Step 1: Write deterministic exporter tests**
+- [x] **Step 1: Write deterministic exporter tests**
 
   Tests call a pure `encode(records []Record) ([]byte, error)` and assert exact bytes for two out-of-order records, duplicate sequential/hash rejection, canonical property-key ordering, and stable output across 100 shuffled inputs. An integration test finalizes `world.DefaultBlockRegistry`, imports `github.com/df-mc/dragonfly/server/block` for registrations, and asserts:
 
@@ -152,13 +152,13 @@
   if air.NetworkHash != 0xdbf44120 { t.Fatalf("air hash = %#x", air.NetworkHash) }
   ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
   Run: `go -C tools/registrygen test ./... -count=1`
 
   Expected: FAIL because the package and encoder do not exist.
 
-- [ ] **Step 3: Implement the pinned exporter**
+- [x] **Step 3: Implement the pinned exporter**
 
   Pin:
 
@@ -188,7 +188,7 @@
 
   Use checked length conversions and reject duplicate sequential IDs, hashes, names longer than `u16::MAX`, state payloads over 1 MiB, or more than 65,536 records.
 
-- [ ] **Step 4: Generate and verify the committed registry metadata**
+- [x] **Step 4: Generate and verify the committed registry metadata**
 
   Run:
 
@@ -200,7 +200,7 @@
 
   Expected: both generated files have identical SHA-256, the checked-in `.sha256` matches, and the binary contains no Mojang PNG/JSON asset payload.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   ```text
   git add tools/registrygen crates/assets/data/block-registry-v1001.bin crates/assets/data/block-registry-v1001.sha256
