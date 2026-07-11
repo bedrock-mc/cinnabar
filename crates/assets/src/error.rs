@@ -81,11 +81,11 @@ pub enum AssetError {
     #[error("source contains {count} texture keys, exceeding the limit of {max}")]
     TooManyTextureKeys { count: usize, max: usize },
 
-    #[error("duplicate block key {0}")]
-    DuplicateBlockKey(Box<str>),
+    #[error("duplicate block key {key} in {path}")]
+    DuplicateBlockKey { path: PathBuf, key: Box<str> },
 
-    #[error("duplicate terrain texture key {0}")]
-    DuplicateTerrainTextureKey(Box<str>),
+    #[error("duplicate terrain texture key {key} in {path}")]
+    DuplicateTerrainTextureKey { path: PathBuf, key: Box<str> },
 
     #[error("texture key {key} has {count} variants, exceeding the limit of {max}")]
     TooManyTextureVariants {
