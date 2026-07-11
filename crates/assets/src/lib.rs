@@ -28,8 +28,8 @@ pub use compiler::{
 pub use error::AssetError;
 pub use image::{MIP_COUNT, TILE_SIZE, TextureArray, TextureMip};
 pub use pack::{
-    BlockFace, BlockTextureMap, FlipbookSource, PackSources, TerrainTextureMap, TextureKey,
-    read_pack, resolve_texture_key,
+    BlockFace, BlockTextureMap, FlipbookSource, MAX_FLIPBOOK_FRAMES, MAX_FLIPBOOKS, PackSources,
+    TerrainTextureMap, TextureKey, read_pack, resolve_texture_key,
 };
 pub use registry::{BlockFlags, RegistryRecord, read_registry};
 pub use runtime::{NetworkIdMode, ResolvedBlock, ResolvedFace, RuntimeAssets};

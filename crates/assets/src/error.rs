@@ -116,6 +116,44 @@ pub enum AssetError {
     #[error("source has {count} flipbooks, exceeding the limit of {max}")]
     TooManyFlipbooks { count: usize, max: usize },
 
+    #[error("flipbook {index} field {field} has the wrong type; expected {expected}")]
+    InvalidFlipbookFieldType {
+        index: usize,
+        field: &'static str,
+        expected: &'static str,
+    },
+
+    #[error(
+        "flipbook {index} field {field} contains an invalid unsigned 32-bit integer at element {element:?}"
+    )]
+    InvalidFlipbookInteger {
+        index: usize,
+        field: &'static str,
+        element: Option<usize>,
+    },
+
+    #[error("flipbook {index} field {field} must be non-zero")]
+    ZeroFlipbookValue { index: usize, field: &'static str },
+
+    #[error("flipbook {index} has {count} explicit frames, exceeding the limit of {max}")]
+    TooManyFlipbookFrames {
+        index: usize,
+        count: usize,
+        max: usize,
+    },
+
+    #[error(
+        "duplicate flipbook selector ({atlas_tile}, atlas index {atlas_index}, tile variant {atlas_tile_variant})"
+    )]
+    DuplicateFlipbookSelector {
+        atlas_tile: Box<str>,
+        atlas_index: u32,
+        atlas_tile_variant: u32,
+    },
+
+    #[error("flipbook {index} timeline duration overflows its bounded u32 representation")]
+    FlipbookTimelineOverflow { index: usize },
+
     #[error("failed to read texture key {key} from {path}: {source}")]
     TextureIo {
         key: Box<str>,
