@@ -10,7 +10,10 @@ use bevy::{
 };
 use render::{
     BlockClassifier, ChunkRenderInstance, ChunkRenderQueue, ChunkRenderQueueLimits,
-    ChunkUploadPriority, DebugWorldPlugin, Neighbourhood, mesh_sub_chunk,
+    ChunkTextureAssetIdentity, ChunkUploadPriority, DebugWorldPlugin, Face, MATERIAL_UV_REFLECT_U,
+    MATERIAL_UV_REFLECT_V, MATERIAL_UV_ROTATE_90, MATERIAL_UV_ROTATE_180, MATERIAL_UV_ROTATE_270,
+    Neighbourhood, TextureArrayLimits, TextureLimitError, greedy_texture_uv, mesh_sub_chunk,
+    plan_texture_mip_uploads, texture_asset_needs_rebuild,
 };
 use world::{SubChunk, SubChunkKey};
 
@@ -283,4 +286,157 @@ fn packed_chunk_shader_parses_and_validates() {
     )
     .validate(&module)
     .expect("validate packed chunk WGSL");
+
+    for binding in 3..=5 {
+        assert!(
+            shader.contains(&format!("@group(0) @binding({binding})")),
+            "packed chunk shader is missing global texture binding {binding}"
+        );
+    }
+    assert!(shader.contains("textureSample(block_textures, block_sampler"));
+    assert!(shader.contains("@interpolate(flat) layer: u32"));
+    assert!(shader.contains("greedy_uv"));
+    assert!(!shader.contains("debug_color"));
+}
+
+#[test]
+fn greedy_uvs_match_every_face_and_repeat_once_per_block() {
+    let standard = [[0.0, 0.0], [16.0, 0.0], [16.0, 1.0], [0.0, 1.0]];
+    let transposed = [[0.0, 0.0], [0.0, 1.0], [16.0, 1.0], [16.0, 0.0]];
+
+    for face in [Face::NegativeX, Face::NegativeY, Face::PositiveZ] {
+        assert_eq!(
+            std::array::from_fn(|corner| greedy_texture_uv(face, corner as u32, 16, 1, 0)),
+            standard,
+            "unexpected UV corners for {face:?}"
+        );
+    }
+    for face in [Face::PositiveX, Face::PositiveY, Face::NegativeZ] {
+        assert_eq!(
+            std::array::from_fn(|corner| greedy_texture_uv(face, corner as u32, 16, 1, 0)),
+            transposed,
+            "unexpected UV corners for {face:?}"
+        );
+    }
+
+    assert_eq!(
+        std::array::from_fn(|corner| greedy_texture_uv(Face::PositiveZ, corner as u32, 1, 1, 0)),
+        [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]
+    );
+    assert_eq!(
+        std::array::from_fn(|corner| greedy_texture_uv(Face::PositiveZ, corner as u32, 16, 16, 0)),
+        [[0.0, 0.0], [16.0, 0.0], [16.0, 16.0], [0.0, 16.0]]
+    );
+}
+
+#[test]
+fn material_uv_flags_rotate_and_reflect_greedy_coordinates() {
+    let face = Face::PositiveZ;
+    let base = greedy_texture_uv(face, 1, 4, 2, 0);
+    assert_eq!(base, [4.0, 0.0]);
+    assert_eq!(
+        greedy_texture_uv(face, 1, 4, 2, MATERIAL_UV_ROTATE_90),
+        [0.0, 0.0]
+    );
+    assert_eq!(
+        greedy_texture_uv(face, 1, 4, 2, MATERIAL_UV_ROTATE_180),
+        [0.0, 2.0]
+    );
+    assert_eq!(
+        greedy_texture_uv(face, 1, 4, 2, MATERIAL_UV_ROTATE_270),
+        [2.0, 4.0]
+    );
+    assert_eq!(
+        greedy_texture_uv(face, 1, 4, 2, MATERIAL_UV_REFLECT_U),
+        [0.0, 0.0]
+    );
+    assert_eq!(
+        greedy_texture_uv(face, 1, 4, 2, MATERIAL_UV_REFLECT_V),
+        [4.0, 2.0]
+    );
+}
+
+#[test]
+fn adapter_limits_reject_oversized_texture_arrays() {
+    assert_eq!(
+        TextureArrayLimits {
+            max_layers: 4,
+            max_dimension_2d: 16,
+        }
+        .validate(5, 16),
+        Err(TextureLimitError::Layers {
+            requested: 5,
+            supported: 4,
+        })
+    );
+    assert_eq!(
+        TextureArrayLimits {
+            max_layers: 4,
+            max_dimension_2d: 8,
+        }
+        .validate(4, 16),
+        Err(TextureLimitError::Dimension {
+            requested: 16,
+            supported: 8,
+        })
+    );
+}
+
+#[test]
+fn mip_upload_plan_preserves_exact_layer_offsets_and_row_padding() {
+    let plans = plan_texture_mip_uploads(runtime_assets().texture_array(), 256)
+        .expect("plan synthetic texture upload");
+    assert_eq!(plans.len(), 5);
+    assert_eq!(
+        plans
+            .iter()
+            .map(|plan| (
+                plan.mip_level,
+                plan.size,
+                plan.bytes_per_row,
+                plan.rows_per_image,
+                plan.layer_source_offsets.as_ref(),
+                plan.layer_staging_offsets.as_ref(),
+                plan.staging_bytes,
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (0, 16, 256, 16, &[0][..], &[0][..], 4096),
+            (1, 8, 256, 8, &[0][..], &[0][..], 2048),
+            (2, 4, 256, 4, &[0][..], &[0][..], 1024),
+            (3, 2, 256, 2, &[0][..], &[0][..], 512),
+            (4, 1, 256, 1, &[0][..], &[0][..], 256),
+        ]
+    );
+    assert_eq!(runtime_assets().materials().len(), 14);
+
+    let two_layers = TextureArray {
+        layers: 2,
+        mips: vec![TextureMip {
+            size: 2,
+            rgba8: vec![0; 2 * 2 * 4 * 2].into_boxed_slice(),
+        }]
+        .into_boxed_slice(),
+    };
+    let plan = plan_texture_mip_uploads(&two_layers, 256)
+        .expect("plan two-layer texture upload")
+        .remove(0);
+    assert_eq!(plan.layer_source_offsets.as_ref(), [0, 16]);
+    assert_eq!(plan.layer_staging_offsets.as_ref(), [0, 512]);
+    assert_eq!(plan.staging_bytes, 1024);
+}
+
+#[test]
+fn global_texture_bind_group_rebuilds_only_for_new_asset_identity_or_revision() {
+    let current = ChunkTextureAssetIdentity::for_test(0x1000, 7);
+    assert!(!texture_asset_needs_rebuild(Some(current), current));
+    assert!(texture_asset_needs_rebuild(
+        Some(current),
+        ChunkTextureAssetIdentity::for_test(0x2000, 7)
+    ));
+    assert!(texture_asset_needs_rebuild(
+        Some(current),
+        ChunkTextureAssetIdentity::for_test(0x1000, 8)
+    ));
+    assert!(texture_asset_needs_rebuild(None, current));
 }

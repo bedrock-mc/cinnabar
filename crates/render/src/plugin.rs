@@ -5,6 +5,7 @@ use std::{
     time::Instant,
 };
 
+use assets::{RuntimeAssets, TextureArray};
 use bevy::{
     asset::{AssetId, load_internal_asset, uuid_handle},
     camera::{
@@ -23,19 +24,24 @@ use bevy::{
         Render, RenderApp, RenderStartup, RenderSystems,
         camera::ExtractedCamera,
         extract_component::{ExtractComponent, ExtractComponentPlugin},
+        extract_resource::ExtractResourcePlugin,
         render_phase::{
             AddRenderCommand, BinnedRenderPhaseType, DrawFunctions, InputUniformIndex, PhaseItem,
             RenderCommand, RenderCommandResult, SetItemPipeline, TrackedRenderPass,
             ViewBinnedRenderPhases,
         },
         render_resource::{
-            BindGroup, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
-            BindingType, Buffer, BufferBindingType, BufferDescriptor, BufferId,
-            BufferInitDescriptor, BufferUsages, Canonical, ColorTargetState, ColorWrites,
-            CommandEncoderDescriptor, CompareFunction, DepthStencilState, DownlevelFlags,
-            DrawIndexedIndirectArgs, Face as CullFace, FragmentState, IndexFormat, PipelineCache,
-            PrimitiveState, RenderPipeline, RenderPipelineDescriptor, ShaderStages, ShaderType,
-            Specializer, SpecializerKey, TextureFormat, Variants, VertexState, WgpuFeatures,
+            AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
+            BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBindingType,
+            BufferDescriptor, BufferId, BufferInitDescriptor, BufferUsages, Canonical,
+            ColorTargetState, ColorWrites, CommandEncoderDescriptor, CompareFunction,
+            DepthStencilState, DownlevelFlags, DrawIndexedIndirectArgs, Extent3d, Face as CullFace,
+            FilterMode, FragmentState, IndexFormat, Origin3d, PipelineCache, PrimitiveState,
+            RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType,
+            SamplerDescriptor, ShaderStages, ShaderType, Specializer, SpecializerKey,
+            TexelCopyBufferLayout, TexelCopyTextureInfo, Texture, TextureDescriptor,
+            TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView,
+            TextureViewDescriptor, TextureViewDimension, Variants, VertexState, WgpuFeatures,
         },
         renderer::{RenderAdapter, RenderDevice, RenderQueue},
         sync_world::MainEntity,
@@ -57,6 +63,239 @@ const INDEXED_INDIRECT_BYTES: u64 = 20;
 const DEFAULT_RENDER_QUEUE_ITEMS: usize = 256;
 const DEFAULT_RENDER_QUEUE_BYTES: u64 = 64 * 1024 * 1024;
 const DEFAULT_ACKNOWLEDGEMENT_CAPACITY: usize = DEFAULT_RENDER_QUEUE_ITEMS;
+
+pub const MATERIAL_UV_ROTATE_90: u32 = 1;
+pub const MATERIAL_UV_ROTATE_180: u32 = 2;
+pub const MATERIAL_UV_ROTATE_270: u32 = 3;
+pub const MATERIAL_UV_REFLECT_U: u32 = 1 << 2;
+pub const MATERIAL_UV_REFLECT_V: u32 = 1 << 3;
+const MATERIAL_UV_ROTATION_MASK: u32 = 0b11;
+
+/// Immutable assets selected for the single global chunk texture array.
+#[derive(Resource, Clone)]
+pub struct ChunkTextureAssets {
+    assets: Arc<RuntimeAssets>,
+    revision: u64,
+}
+
+impl Default for ChunkTextureAssets {
+    fn default() -> Self {
+        Self::new(Arc::new(RuntimeAssets::diagnostic()))
+    }
+}
+
+impl ChunkTextureAssets {
+    #[must_use]
+    pub const fn new(assets: Arc<RuntimeAssets>) -> Self {
+        Self {
+            assets,
+            revision: 0,
+        }
+    }
+
+    #[must_use]
+    pub const fn with_revision(assets: Arc<RuntimeAssets>, revision: u64) -> Self {
+        Self { assets, revision }
+    }
+
+    #[must_use]
+    pub fn assets(&self) -> &Arc<RuntimeAssets> {
+        &self.assets
+    }
+
+    #[must_use]
+    pub fn identity(&self) -> ChunkTextureAssetIdentity {
+        ChunkTextureAssetIdentity {
+            pointer: Arc::as_ptr(&self.assets) as usize,
+            revision: self.revision,
+        }
+    }
+}
+
+impl bevy::render::extract_resource::ExtractResource for ChunkTextureAssets {
+    type Source = Self;
+
+    fn extract_resource(source: &Self::Source) -> Self {
+        Self {
+            assets: Arc::clone(&source.assets),
+            revision: source.revision,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChunkTextureAssetIdentity {
+    pointer: usize,
+    revision: u64,
+}
+
+impl ChunkTextureAssetIdentity {
+    #[doc(hidden)]
+    #[must_use]
+    pub const fn for_test(pointer: usize, revision: u64) -> Self {
+        Self { pointer, revision }
+    }
+}
+
+#[must_use]
+pub fn texture_asset_needs_rebuild(
+    current: Option<ChunkTextureAssetIdentity>,
+    next: ChunkTextureAssetIdentity,
+) -> bool {
+    current != Some(next)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TextureArrayLimits {
+    pub max_layers: u32,
+    pub max_dimension_2d: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextureLimitError {
+    Layers { requested: u32, supported: u32 },
+    Dimension { requested: u32, supported: u32 },
+}
+
+impl TextureArrayLimits {
+    pub fn validate(self, layers: u32, dimension: u32) -> Result<(), TextureLimitError> {
+        if layers > self.max_layers {
+            return Err(TextureLimitError::Layers {
+                requested: layers,
+                supported: self.max_layers,
+            });
+        }
+        if dimension > self.max_dimension_2d {
+            return Err(TextureLimitError::Dimension {
+                requested: dimension,
+                supported: self.max_dimension_2d,
+            });
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextureMipUploadPlan {
+    pub mip_level: u32,
+    pub size: u32,
+    pub bytes_per_row: u32,
+    pub rows_per_image: u32,
+    pub layer_source_offsets: Box<[usize]>,
+    pub layer_staging_offsets: Box<[usize]>,
+    pub staging_bytes: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextureUploadPlanError {
+    ZeroAlignment,
+    SizeOverflow,
+    InvalidMipBytes,
+}
+
+pub fn plan_texture_mip_uploads(
+    texture: &TextureArray,
+    row_alignment: usize,
+) -> Result<Vec<TextureMipUploadPlan>, TextureUploadPlanError> {
+    if row_alignment == 0 {
+        return Err(TextureUploadPlanError::ZeroAlignment);
+    }
+    let layers =
+        usize::try_from(texture.layers).map_err(|_| TextureUploadPlanError::SizeOverflow)?;
+    texture
+        .mips
+        .iter()
+        .enumerate()
+        .map(|(mip_level, mip)| {
+            let size =
+                usize::try_from(mip.size).map_err(|_| TextureUploadPlanError::SizeOverflow)?;
+            let row_bytes = size
+                .checked_mul(4)
+                .ok_or(TextureUploadPlanError::SizeOverflow)?;
+            let bytes_per_row = row_bytes
+                .checked_add(row_alignment - 1)
+                .map(|value| value / row_alignment * row_alignment)
+                .ok_or(TextureUploadPlanError::SizeOverflow)?;
+            let source_layer_bytes = row_bytes
+                .checked_mul(size)
+                .ok_or(TextureUploadPlanError::SizeOverflow)?;
+            let staging_layer_bytes = bytes_per_row
+                .checked_mul(size)
+                .ok_or(TextureUploadPlanError::SizeOverflow)?;
+            let expected = source_layer_bytes
+                .checked_mul(layers)
+                .ok_or(TextureUploadPlanError::SizeOverflow)?;
+            if mip.rgba8.len() != expected {
+                return Err(TextureUploadPlanError::InvalidMipBytes);
+            }
+            let layer_source_offsets = (0..layers)
+                .map(|layer| layer * source_layer_bytes)
+                .collect::<Vec<_>>()
+                .into_boxed_slice();
+            let layer_staging_offsets = (0..layers)
+                .map(|layer| layer * staging_layer_bytes)
+                .collect::<Vec<_>>()
+                .into_boxed_slice();
+            Ok(TextureMipUploadPlan {
+                mip_level: u32::try_from(mip_level)
+                    .map_err(|_| TextureUploadPlanError::SizeOverflow)?,
+                size: mip.size,
+                bytes_per_row: u32::try_from(bytes_per_row)
+                    .map_err(|_| TextureUploadPlanError::SizeOverflow)?,
+                rows_per_image: mip.size,
+                layer_source_offsets,
+                layer_staging_offsets,
+                staging_bytes: staging_layer_bytes
+                    .checked_mul(layers)
+                    .ok_or(TextureUploadPlanError::SizeOverflow)?,
+            })
+        })
+        .collect()
+}
+
+#[must_use]
+pub fn greedy_texture_uv(
+    face: crate::Face,
+    corner: u32,
+    width: u32,
+    height: u32,
+    flags: u32,
+) -> [f32; 2] {
+    let width = width as f32;
+    let height = height as f32;
+    let standard = [[0.0, 0.0], [width, 0.0], [width, height], [0.0, height]];
+    let transposed = [[0.0, 0.0], [0.0, height], [width, height], [width, 0.0]];
+    let [mut u, mut v] = if matches!(
+        face,
+        crate::Face::PositiveX | crate::Face::PositiveY | crate::Face::NegativeZ
+    ) {
+        transposed[(corner & 3) as usize]
+    } else {
+        standard[(corner & 3) as usize]
+    };
+    let (extent_u, extent_v) = match flags & MATERIAL_UV_ROTATION_MASK {
+        MATERIAL_UV_ROTATE_90 => {
+            (u, v) = (v, width - u);
+            (height, width)
+        }
+        MATERIAL_UV_ROTATE_180 => {
+            (u, v) = (width - u, height - v);
+            (width, height)
+        }
+        MATERIAL_UV_ROTATE_270 => {
+            (u, v) = (height - v, u);
+            (height, width)
+        }
+        _ => (width, height),
+    };
+    if flags & MATERIAL_UV_REFLECT_U != 0 {
+        u = extent_u - u;
+    }
+    if flags & MATERIAL_UV_REFLECT_V != 0 {
+        v = extent_v - v;
+    }
+    [u, v]
+}
 
 /// Maximum number of new or changed sub-chunks transferred to the render
 /// world in one main-world update.
@@ -536,6 +775,7 @@ impl Plugin for DebugWorldPlugin {
         app.init_resource::<ChunkRenderQueue>()
             .init_resource::<ChunkUploadAcknowledgements>()
             .init_resource::<ChunkEntities>()
+            .init_resource::<ChunkTextureAssets>()
             .insert_resource(self.upload_budget)
             .add_systems(Update, apply_chunk_render_queue);
 
@@ -543,7 +783,10 @@ impl Plugin for DebugWorldPlugin {
             return;
         }
 
-        app.add_plugins(ExtractComponentPlugin::<ChunkRenderInstance>::default());
+        app.add_plugins((
+            ExtractComponentPlugin::<ChunkRenderInstance>::default(),
+            ExtractResourcePlugin::<ChunkTextureAssets>::default(),
+        ));
 
         load_internal_asset!(app, CHUNK_SHADER_HANDLE, "chunk.wgsl", Shader::from_wgsl);
 
@@ -557,6 +800,8 @@ impl Plugin for DebugWorldPlugin {
             .insert_resource(acknowledgements)
             .init_resource::<ChunkPipeline>()
             .init_resource::<ChunkGpuUploadStats>()
+            .init_resource::<ChunkGpuTextureAssets>()
+            .init_resource::<ChunkTextureUploadStats>()
             .init_resource::<ChunkIndirectBatches>()
             .add_render_command::<Opaque3d, DrawChunkCommands>()
             .add_render_command::<Opaque3d, DrawChunkIndirectCommands>()
@@ -565,6 +810,7 @@ impl Plugin for DebugWorldPlugin {
                 Render,
                 (
                     queue_chunks.in_set(RenderSystems::Queue),
+                    prepare_chunk_texture_assets.in_set(RenderSystems::PrepareResources),
                     prepare_gpu_chunks.in_set(RenderSystems::PrepareResources),
                     prepare_chunk_indirect_batches
                         .in_set(RenderSystems::PrepareResources)
@@ -725,6 +971,32 @@ impl FromWorld for ChunkPipeline {
                     },
                     count: None,
                 },
+                BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: ShaderStages::VERTEX,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Texture {
+                        sample_type: TextureSampleType::Float { filterable: true },
+                        view_dimension: TextureViewDimension::D2Array,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                    count: None,
+                },
             ],
         );
         let descriptor = RenderPipelineDescriptor {
@@ -870,6 +1142,198 @@ struct ChunkBindGroupBuffers {
     view: BufferId,
     quads: BufferId,
     origins: BufferId,
+    materials: BufferId,
+    textures: ChunkTextureAssetIdentity,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct MaterialGpu {
+    layer: u32,
+    flags: u32,
+}
+
+struct PreparedChunkTextureAssets {
+    identity: ChunkTextureAssetIdentity,
+    material_buffer: Buffer,
+    _texture: Texture,
+    view: TextureView,
+    sampler: Sampler,
+}
+
+#[derive(Resource, Default)]
+struct ChunkGpuTextureAssets {
+    attempted_identity: Option<ChunkTextureAssetIdentity>,
+    _attempted_assets: Option<Arc<RuntimeAssets>>,
+    prepared: Option<PreparedChunkTextureAssets>,
+}
+
+#[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ChunkTextureUploadStats {
+    pub upload_count: u64,
+    pub material_bytes: u64,
+    pub texture_bytes_including_mips: u64,
+    pub padded_upload_bytes: u64,
+}
+
+fn prepare_chunk_texture_assets(
+    assets: Res<ChunkTextureAssets>,
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+    mut gpu_assets: ResMut<ChunkGpuTextureAssets>,
+    mut stats: ResMut<ChunkTextureUploadStats>,
+) {
+    let identity = assets.identity();
+    if !texture_asset_needs_rebuild(gpu_assets.attempted_identity, identity) {
+        return;
+    }
+    gpu_assets.attempted_identity = Some(identity);
+    gpu_assets._attempted_assets = Some(Arc::clone(assets.assets()));
+    gpu_assets.prepared = None;
+    *stats = ChunkTextureUploadStats::default();
+
+    let texture_array = assets.assets().texture_array();
+    let device_limits = render_device.limits();
+    let limits = TextureArrayLimits {
+        max_layers: device_limits.max_texture_array_layers,
+        max_dimension_2d: device_limits.max_texture_dimension_2d,
+    };
+    if let Err(error) = limits.validate(texture_array.layers, assets::TILE_SIZE) {
+        bevy::log::error!(?error, "chunk texture array exceeds adapter limits");
+        return;
+    }
+    let upload_plans =
+        match plan_texture_mip_uploads(texture_array, RenderDevice::align_copy_bytes_per_row(1)) {
+            Ok(plans) => plans,
+            Err(error) => {
+                bevy::log::error!(?error, "invalid chunk texture upload layout");
+                return;
+            }
+        };
+
+    let material_words = assets
+        .assets()
+        .materials()
+        .iter()
+        .map(|material| MaterialGpu {
+            layer: material.layer,
+            flags: material.flags,
+        })
+        .collect::<Vec<_>>();
+    let material_bytes = material_words
+        .len()
+        .saturating_mul(std::mem::size_of::<MaterialGpu>());
+    if u64::try_from(material_bytes).map_or(true, |bytes| {
+        bytes > device_limits.max_buffer_size
+            || bytes > u64::from(device_limits.max_storage_buffer_binding_size)
+    }) {
+        bevy::log::error!(
+            material_bytes,
+            "chunk material table exceeds adapter limits"
+        );
+        return;
+    }
+    let material_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("global chunk materials"),
+        contents: bytemuck::cast_slice(&material_words),
+        usage: BufferUsages::STORAGE,
+    });
+    let mip_level_count = match u32::try_from(texture_array.mips.len()) {
+        Ok(count) => count,
+        Err(_) => {
+            bevy::log::error!("chunk texture array has too many mip levels");
+            return;
+        }
+    };
+    let texture = render_device.create_texture(&TextureDescriptor {
+        label: Some("global chunk texture array"),
+        size: Extent3d {
+            width: assets::TILE_SIZE,
+            height: assets::TILE_SIZE,
+            depth_or_array_layers: texture_array.layers,
+        },
+        mip_level_count,
+        sample_count: 1,
+        dimension: TextureDimension::D2,
+        format: TextureFormat::Rgba8UnormSrgb,
+        usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+
+    let mut padded_upload_bytes = 0_u64;
+    for (mip, plan) in texture_array.mips.iter().zip(&upload_plans) {
+        let staging = padded_mip_bytes(mip.rgba8.as_ref(), texture_array.layers, plan);
+        padded_upload_bytes = padded_upload_bytes.saturating_add(staging.len() as u64);
+        render_queue.write_texture(
+            TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: plan.mip_level,
+                origin: Origin3d::default(),
+                aspect: Default::default(),
+            },
+            &staging,
+            TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(plan.bytes_per_row),
+                rows_per_image: Some(plan.rows_per_image),
+            },
+            Extent3d {
+                width: plan.size,
+                height: plan.size,
+                depth_or_array_layers: texture_array.layers,
+            },
+        );
+    }
+    let view = texture.create_view(&TextureViewDescriptor {
+        label: Some("global chunk texture array view"),
+        dimension: Some(TextureViewDimension::D2Array),
+        mip_level_count: Some(mip_level_count),
+        array_layer_count: Some(texture_array.layers),
+        ..Default::default()
+    });
+    let sampler = render_device.create_sampler(&SamplerDescriptor {
+        label: Some("global chunk repeat sampler"),
+        address_mode_u: AddressMode::Repeat,
+        address_mode_v: AddressMode::Repeat,
+        address_mode_w: AddressMode::Repeat,
+        mag_filter: FilterMode::Linear,
+        min_filter: FilterMode::Linear,
+        mipmap_filter: FilterMode::Linear,
+        ..Default::default()
+    });
+
+    stats.upload_count = 1;
+    stats.material_bytes = material_bytes as u64;
+    stats.texture_bytes_including_mips = texture_array
+        .mips
+        .iter()
+        .map(|mip| mip.rgba8.len() as u64)
+        .sum();
+    stats.padded_upload_bytes = padded_upload_bytes;
+    gpu_assets.prepared = Some(PreparedChunkTextureAssets {
+        identity,
+        material_buffer,
+        _texture: texture,
+        view,
+        sampler,
+    });
+}
+
+fn padded_mip_bytes(rgba8: &[u8], layers: u32, plan: &TextureMipUploadPlan) -> Vec<u8> {
+    let mut staging = vec![0; plan.staging_bytes];
+    let row_bytes = plan.size as usize * 4;
+    let padded_row_bytes = plan.bytes_per_row as usize;
+    for layer in 0..layers as usize {
+        let source_layer = plan.layer_source_offsets[layer];
+        let staging_layer = plan.layer_staging_offsets[layer];
+        for row in 0..plan.size as usize {
+            let source = source_layer + row * row_bytes;
+            let destination = staging_layer + row * padded_row_bytes;
+            staging[destination..destination + row_bytes]
+                .copy_from_slice(&rgba8[source..source + row_bytes]);
+        }
+    }
+    staging
 }
 
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -1442,8 +1906,14 @@ fn prepare_chunk_bind_group(
     pipeline_cache: Res<PipelineCache>,
     view_uniforms: Res<ViewUniforms>,
     render_device: Res<RenderDevice>,
+    texture_assets: Res<ChunkGpuTextureAssets>,
     mut arena: ResMut<ChunkGpuArena>,
 ) {
+    let Some(texture_assets) = texture_assets.prepared.as_ref() else {
+        arena.bind_group = None;
+        arena.bind_group_buffers = None;
+        return;
+    };
     let Some(view_buffer) = view_uniforms.uniforms.buffer() else {
         arena.bind_group = None;
         arena.bind_group_buffers = None;
@@ -1453,6 +1923,8 @@ fn prepare_chunk_bind_group(
         view: view_buffer.id(),
         quads: arena.quad_buffer.id(),
         origins: arena.origin_buffer.id(),
+        materials: texture_assets.material_buffer.id(),
+        textures: texture_assets.identity,
     };
     if !bind_group_needs_rebuild(
         arena.bind_group.is_some(),
@@ -1481,6 +1953,18 @@ fn prepare_chunk_bind_group(
             BindGroupEntry {
                 binding: 2,
                 resource: arena.origin_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 3,
+                resource: texture_assets.material_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 4,
+                resource: BindingResource::TextureView(&texture_assets.view),
+            },
+            BindGroupEntry {
+                binding: 5,
+                resource: BindingResource::Sampler(&texture_assets.sampler),
             },
         ],
     );

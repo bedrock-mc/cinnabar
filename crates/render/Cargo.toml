@@ -12,6 +12,7 @@ bevy = { workspace = true, default-features = false, features = [
     "bevy_camera",
     "bevy_color",
     "bevy_core_pipeline",
+    "bevy_image",
     "bevy_log",
     "bevy_mesh",
     "bevy_render",
