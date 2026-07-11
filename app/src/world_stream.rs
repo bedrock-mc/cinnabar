@@ -254,7 +254,6 @@ enum NormalizationErrorReason {
     InactiveBlockUpdate,
     MalformedBlockUpdate,
     InactiveInlineChunk,
-    InactiveSubChunk,
     UnexpectedSubChunk,
     InvalidDimensionSubChunk,
     BlockMutationFailure,
@@ -277,7 +276,6 @@ impl WorldStreamNormalizationStats {
             NormalizationErrorReason::InactiveBlockUpdate => &mut self.inactive_block_updates,
             NormalizationErrorReason::MalformedBlockUpdate => &mut self.malformed_block_updates,
             NormalizationErrorReason::InactiveInlineChunk => &mut self.inactive_inline_chunks,
-            NormalizationErrorReason::InactiveSubChunk => &mut self.inactive_sub_chunks,
             NormalizationErrorReason::UnexpectedSubChunk => &mut self.unexpected_sub_chunks,
             NormalizationErrorReason::InvalidDimensionSubChunk => {
                 &mut self.invalid_dimension_sub_chunks
@@ -1230,7 +1228,6 @@ impl WorldStream {
                         entry.position[2],
                     );
                     if !self.column_is_active(key.chunk()) {
-                        self.record_normalization_error(NormalizationErrorReason::InactiveSubChunk);
                         continue;
                     }
                     if !self.is_expected_sub_chunk(key) {
@@ -2334,6 +2331,71 @@ mod tests {
     }
 
     #[test]
+    fn valid_late_inactive_subchunk_reply_is_ignored_without_side_effects() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        let chunk = ChunkKey::new(0, 1, 0);
+        let key = SubChunkKey::from_chunk(chunk, -4);
+        stream
+            .submit(
+                1,
+                WorldEvent::LevelChunk(LevelChunkEvent {
+                    dimension: 0,
+                    x: chunk.x,
+                    z: chunk.z,
+                    mode: LevelChunkMode::LimitedRequests { highest: 1 },
+                    payload: Vec::new(),
+                }),
+            )
+            .unwrap();
+        assert!(stream.column_is_active(chunk));
+        assert_eq!(stream.take_requests().len(), 1);
+        assert!(stream.requested_sub_chunks.contains_key(&chunk));
+
+        stream
+            .submit(
+                2,
+                WorldEvent::PublisherUpdate(PublisherUpdateEvent {
+                    center: [1_600, 64, 0],
+                    radius_blocks: 0,
+                }),
+            )
+            .unwrap();
+        assert!(!stream.column_is_active(chunk));
+        assert!(stream.store.sub_chunk(key).is_none());
+
+        let resident_before = stream.resident.clone();
+        let known_air_before = stream.known_air.clone();
+        let loaded_columns_before = stream.loaded_columns.clone();
+        let requested_sub_chunks_before = stream.requested_sub_chunks.clone();
+        let retry_attempts_before = stream.retry_attempts.clone();
+        let deferred_retries_before = stream.deferred_retries.clone();
+        let deferred_retry_set_before = stream.deferred_retry_set.clone();
+        let requests_before = stream.requests.len();
+        let stats_before = stream.stats();
+
+        apply_sub_chunk_result(&mut stream, key, super::PreparedSubChunkResult::AllAir);
+
+        assert!(stream.store.sub_chunk(key).is_none());
+        assert_eq!(stream.resident, resident_before);
+        assert_eq!(stream.known_air, known_air_before);
+        assert_eq!(stream.loaded_columns, loaded_columns_before);
+        assert_eq!(stream.requested_sub_chunks, requested_sub_chunks_before);
+        assert_eq!(stream.retry_attempts, retry_attempts_before);
+        assert_eq!(stream.deferred_retries, deferred_retries_before);
+        assert_eq!(stream.deferred_retry_set, deferred_retry_set_before);
+        assert_eq!(stream.requests.len(), requests_before);
+        assert_eq!(stream.stats(), stats_before);
+        assert_eq!(stream.stats().normalization_reasons.inactive_sub_chunks, 0);
+    }
+
+    #[test]
     fn old_dimension_and_out_of_radius_chunks_are_rejected_and_radii_are_clamped() {
         let mut stream = WorldStream::new(WorldBootstrap {
             dimension: 0,
@@ -2742,12 +2804,12 @@ mod tests {
         });
 
         let stats = stream.stats();
-        assert_eq!(stats.normalization_errors, 4);
+        assert_eq!(stats.normalization_errors, 3);
         assert_eq!(stats.normalization_reasons.inactive_block_updates, 1);
         assert_eq!(stats.normalization_reasons.malformed_block_updates, 1);
         assert_eq!(stats.normalization_reasons.unexpected_sub_chunks, 1);
-        assert_eq!(stats.normalization_reasons.inactive_sub_chunks, 1);
-        assert_eq!(stats.normalization_reasons.total(), 4);
+        assert_eq!(stats.normalization_reasons.inactive_sub_chunks, 0);
+        assert_eq!(stats.normalization_reasons.total(), 3);
     }
 
     #[test]
