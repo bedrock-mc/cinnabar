@@ -323,7 +323,7 @@
 - Blob magic `MCBEAS01`, format version 1, tile size 16, mip count 5.
 - `Material` is two `u32` GPU words: layer and flags.
 
-- [ ] **Step 1: Write compiler and mip RED tests**
+- [x] **Step 1: Write compiler and mip RED tests**
 
   Generate synthetic 16x16 RGBA images in test memory; do not check in PNGs. Assert:
 
@@ -337,13 +337,13 @@
   - sequential and high-hash lookup tables resolve to the same `BlockVisual`;
   - missing PNG, malformed PNG, wrong dimensions, more than 2,048 layers, or more than 65,536 materials fails with the source key/path.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
   Run: `cargo test -p assets --test compiler --test blob --locked -- --nocapture`
 
   Expected: FAIL because compiler/blob APIs do not exist.
 
-- [ ] **Step 3: Implement the compiler**
+- [x] **Step 3: Implement the compiler**
 
   Add `image = { version = "0.25", default-features = false, features = ["png"] }`, `sha2 = "0.10"`, and `clap = { version = "4", features = ["derive"] }`.
 
@@ -370,11 +370,11 @@
 
   Resolve only referenced full-cube texture paths. Require static images to be exactly 16x16 for this slice; recognize flipbook paths and map them to diagnostic rather than treating a vertical strip as a static layer. Sort canonical texture-path + UV/material flags before assigning IDs.
 
-- [ ] **Step 4: Implement per-layer mip generation and checked blob encoding**
+- [x] **Step 4: Implement per-layer mip generation and checked blob encoding**
 
   Convert sRGB channels to linear floats, average each 2x2 footprint with premultiplied alpha, unpremultiply, convert back to sRGB, and clamp. Serialize every integer little-endian with checked section sizes. Append a SHA-256 of all preceding blob bytes and validate it before any large runtime allocation.
 
-- [ ] **Step 5: Verify GREEN and local-only output**
+- [x] **Step 5: Verify GREEN and local-only output**
 
   Run:
 
@@ -387,7 +387,7 @@
 
   Expected: all tests pass, help documents the compile inputs, and no runtime blob is tracked.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   ```text
   git add Cargo.lock crates/assets
