@@ -2,73 +2,30 @@
 
 struct PackedQuad {
     geometry: u32,
-    runtime_id: u32,
+    material_id: u32,
 }
 
 struct ChunkOrigin {
     value: vec4<i32>,
 }
 
+struct MaterialGpu {
+    layer: u32,
+    flags: u32,
+}
+
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> quads: array<PackedQuad>;
 @group(0) @binding(2) var<storage, read> chunk_origins: array<ChunkOrigin>;
+@group(0) @binding(3) var<storage, read> materials: array<MaterialGpu>;
+@group(0) @binding(4) var block_textures: texture_2d_array<f32>;
+@group(0) @binding(5) var block_sampler: sampler;
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
-    @location(0) color: vec3<f32>,
-    @location(1) normal: vec3<f32>,
-}
-
-fn mixed_runtime_id(input: u32) -> u32 {
-    var value = input;
-    value ^= value >> 16u;
-    value *= 0x7feb352du;
-    value ^= value >> 15u;
-    value *= 0x846ca68bu;
-    return value ^ (value >> 16u);
-}
-
-// This is the exact integer debug_color algorithm in color.rs. The returned
-// channels are converted from sRGB to linear only because render attachments
-// perform the inverse conversion when storing the final byte values.
-fn debug_color_srgb(runtime_id: u32) -> vec3<f32> {
-    let hash = mixed_runtime_id(runtime_id);
-    let hue = hash % (6u * 256u);
-    let sector = hue / 256u;
-    let offset = hue % 256u;
-    let saturation = 160u + ((hash >> 16u) & 0x3fu);
-    let value = 192u + ((hash >> 24u) & 0x3fu);
-    let chroma = value * saturation / 255u;
-    var secondary = chroma * (255u - offset) / 255u;
-    if ((sector & 1u) == 0u) {
-        secondary = chroma * offset / 255u;
-    }
-    let minimum = value - chroma;
-    var rgb = vec3<u32>(chroma, secondary, 0u);
-    switch sector {
-        case 1u: { rgb = vec3<u32>(secondary, chroma, 0u); }
-        case 2u: { rgb = vec3<u32>(0u, chroma, secondary); }
-        case 3u: { rgb = vec3<u32>(0u, secondary, chroma); }
-        case 4u: { rgb = vec3<u32>(secondary, 0u, chroma); }
-        case 5u: { rgb = vec3<u32>(chroma, 0u, secondary); }
-        default: {}
-    }
-    return vec3<f32>(rgb + vec3<u32>(minimum)) / 255.0;
-}
-
-fn srgb_to_linear_channel(channel: f32) -> f32 {
-    if (channel <= 0.04045) {
-        return channel / 12.92;
-    }
-    return pow((channel + 0.055) / 1.055, 2.4);
-}
-
-fn srgb_to_linear(color: vec3<f32>) -> vec3<f32> {
-    return vec3<f32>(
-        srgb_to_linear_channel(color.r),
-        srgb_to_linear_channel(color.g),
-        srgb_to_linear_channel(color.b),
-    );
+    @location(0) uv: vec2<f32>,
+    @location(1) @interpolate(flat) layer: u32,
+    @location(2) normal: vec3<f32>,
 }
 
 fn quad_corner(face: u32, corner: u32, origin: vec3<f32>, width: f32, height: f32) -> vec3<f32> {
@@ -140,6 +97,44 @@ fn face_normal(face: u32) -> vec3<f32> {
     }
 }
 
+fn greedy_uv(face: u32, corner: u32, width: f32, height: f32, flags: u32) -> vec2<f32> {
+    let standard = array<vec2<f32>, 4>(
+        vec2(0.0, 0.0), vec2(width, 0.0),
+        vec2(width, height), vec2(0.0, height),
+    );
+    let transposed = array<vec2<f32>, 4>(
+        vec2(0.0, 0.0), vec2(0.0, height),
+        vec2(width, height), vec2(width, 0.0),
+    );
+    var uv = standard[corner];
+    if (face == 1u || face == 3u || face == 4u) {
+        uv = transposed[corner];
+    }
+
+    var extents = vec2(width, height);
+    switch flags & 3u {
+        case 1u: {
+            uv = vec2(uv.y, width - uv.x);
+            extents = vec2(height, width);
+        }
+        case 2u: {
+            uv = vec2(width - uv.x, height - uv.y);
+        }
+        case 3u: {
+            uv = vec2(height - uv.y, uv.x);
+            extents = vec2(height, width);
+        }
+        default: {}
+    }
+    if ((flags & 4u) != 0u) {
+        uv.x = extents.x - uv.x;
+    }
+    if ((flags & 8u) != 0u) {
+        uv.y = extents.y - uv.y;
+    }
+    return uv;
+}
+
 @vertex
 fn vertex(
     @builtin(vertex_index) vertex_index: u32,
@@ -159,15 +154,17 @@ fn vertex(
     let corner = vertex_index & 3u;
     let chunk_origin = vec3<f32>(chunk_origins[metadata_index].value.xyz);
     let world_position = chunk_origin + quad_corner(face, corner, local_origin, width, height);
+    let material = materials[quad.material_id];
 
     var out: VertexOutput;
     out.clip_position = view.clip_from_world * vec4(world_position, 1.0);
-    out.color = srgb_to_linear(debug_color_srgb(quad.runtime_id));
+    out.uv = greedy_uv(face, corner, width, height, material.flags);
+    out.layer = material.layer;
     out.normal = face_normal(face);
     return out;
 }
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    return vec4(in.color, 1.0);
+    return textureSample(block_textures, block_sampler, in.uv, i32(in.layer));
 }
