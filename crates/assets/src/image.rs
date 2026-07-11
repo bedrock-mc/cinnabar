@@ -11,7 +11,7 @@ use crate::AssetError;
 pub const TILE_SIZE: u32 = 16;
 pub const MIP_COUNT: u32 = 5;
 
-const MAX_PNG_BYTES: usize = 1024 * 1024;
+const MAX_TEXTURE_BYTES: usize = 1024 * 1024;
 const MAX_DECODE_ALLOC: u64 = 256 * 1024;
 
 /// One mip level containing every array layer in layer-major RGBA8 order.
@@ -43,30 +43,31 @@ pub(crate) fn diagnostic_pixels() -> Box<[u8]> {
     pixels.into_boxed_slice()
 }
 
-pub(crate) fn decode_static_png(path: &Path, key: &str) -> Result<Box<[u8]>, AssetError> {
+pub(crate) fn decode_static_texture(path: &Path, key: &str) -> Result<Box<[u8]>, AssetError> {
+    let format = static_texture_format(path, key)?;
     let file = File::open(path).map_err(|source| AssetError::TextureIo {
         key: key.into(),
         path: path.to_path_buf(),
         source,
     })?;
     let mut bytes = Vec::new();
-    file.take((MAX_PNG_BYTES + 1) as u64)
+    file.take((MAX_TEXTURE_BYTES + 1) as u64)
         .read_to_end(&mut bytes)
         .map_err(|source| AssetError::TextureIo {
             key: key.into(),
             path: path.to_path_buf(),
             source,
         })?;
-    if bytes.len() > MAX_PNG_BYTES {
+    if bytes.len() > MAX_TEXTURE_BYTES {
         return Err(AssetError::TextureTooLarge {
             key: key.into(),
             path: path.to_path_buf(),
             size: bytes.len(),
-            max: MAX_PNG_BYTES,
+            max: MAX_TEXTURE_BYTES,
         });
     }
 
-    let dimensions = ImageReader::with_format(Cursor::new(&bytes), ImageFormat::Png)
+    let dimensions = ImageReader::with_format(Cursor::new(&bytes), format)
         .into_dimensions()
         .map_err(|source| AssetError::TextureDecode {
             key: key.into(),
@@ -82,7 +83,7 @@ pub(crate) fn decode_static_png(path: &Path, key: &str) -> Result<Box<[u8]>, Ass
         });
     }
 
-    let mut reader = ImageReader::with_format(Cursor::new(&bytes), ImageFormat::Png);
+    let mut reader = ImageReader::with_format(Cursor::new(&bytes), format);
     let mut limits = Limits::default();
     limits.max_image_width = Some(TILE_SIZE);
     limits.max_image_height = Some(TILE_SIZE);
@@ -96,6 +97,17 @@ pub(crate) fn decode_static_png(path: &Path, key: &str) -> Result<Box<[u8]>, Ass
             source,
         })?;
     Ok(decoded.into_rgba8().into_raw().into_boxed_slice())
+}
+
+fn static_texture_format(path: &Path, key: &str) -> Result<ImageFormat, AssetError> {
+    match path.extension().and_then(|extension| extension.to_str()) {
+        Some(extension) if extension.eq_ignore_ascii_case("png") => Ok(ImageFormat::Png),
+        Some(extension) if extension.eq_ignore_ascii_case("tga") => Ok(ImageFormat::Tga),
+        _ => Err(AssetError::UnsupportedTextureFormat {
+            key: key.into(),
+            path: path.to_path_buf(),
+        }),
+    }
 }
 
 pub(crate) fn build_texture_array(base_layers: &[Box<[u8]>]) -> Result<TextureArray, AssetError> {

@@ -140,6 +140,9 @@ pub enum AssetError {
         source: ::image::ImageError,
     },
 
+    #[error("unsupported static texture format for key {key} at {path}; expected .png or .tga")]
+    UnsupportedTextureFormat { key: Box<str>, path: PathBuf },
+
     #[error(
         "texture key {key} at {path} is {width}x{height}; this compiler requires exactly 16x16"
     )]
