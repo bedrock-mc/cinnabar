@@ -1037,14 +1037,25 @@ fn record_metrics_and_title(
         .network_decode_errors
         .saturating_add(stream_errors);
     if total_errors != client_world.reported_decode_errors {
-        let (world_decode_errors, world_normalization_errors) =
-            client_world.stream.as_ref().map_or((0, 0), |stream| {
-                let stats = stream.stats();
-                (stats.decode_errors, stats.normalization_errors)
-            });
+        let (world_decode_errors, world_normalization_errors, normalization_reasons) =
+            client_world.stream.as_ref().map_or_else(
+                || (0, 0, Default::default()),
+                |stream| {
+                    let stats = stream.stats();
+                    (
+                        stats.decode_errors,
+                        stats.normalization_errors,
+                        stats.normalization_reasons,
+                    )
+                },
+            );
+        let normalization_reason_total = normalization_reasons.total();
         eprintln!(
-            "RUST_MCBE_ERROR_COUNTERS network={} world_decode={} world_normalization={}",
-            client_world.network_decode_errors, world_decode_errors, world_normalization_errors,
+            "RUST_MCBE_ERROR_COUNTERS network={} world_decode={} world_normalization={} reason_total={} reasons={normalization_reasons:?}",
+            client_world.network_decode_errors,
+            world_decode_errors,
+            world_normalization_errors,
+            normalization_reason_total,
         );
     }
     let error_delta = cumulative_counter_delta(total_errors, client_world.reported_decode_errors);

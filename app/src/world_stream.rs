@@ -201,11 +201,115 @@ impl WorldMeshChange {
     }
 }
 
+/// Cumulative reasons behind [`WorldStreamStats::normalization_errors`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct WorldStreamNormalizationStats {
+    pub ordered_completion_rejections: u64,
+    pub inactive_block_updates: u64,
+    pub malformed_block_updates: u64,
+    pub inactive_inline_chunks: u64,
+    pub inactive_sub_chunks: u64,
+    pub unexpected_sub_chunks: u64,
+    pub invalid_dimension_sub_chunks: u64,
+    pub block_mutation_failures: u64,
+    pub empty_sub_chunk_batches: u64,
+    pub invalid_chunk_radii: u64,
+    pub inactive_level_chunks: u64,
+    pub unsupported_level_chunk_dimensions: u64,
+    pub outbound_request_placement_failures: u64,
+    pub request_encoding_failures: u64,
+    pub deferred_retry_capacity_failures: u64,
+    pub retry_request_encoding_failures: u64,
+}
+
+impl WorldStreamNormalizationStats {
+    #[must_use]
+    pub fn total(self) -> u64 {
+        [
+            self.ordered_completion_rejections,
+            self.inactive_block_updates,
+            self.malformed_block_updates,
+            self.inactive_inline_chunks,
+            self.inactive_sub_chunks,
+            self.unexpected_sub_chunks,
+            self.invalid_dimension_sub_chunks,
+            self.block_mutation_failures,
+            self.empty_sub_chunk_batches,
+            self.invalid_chunk_radii,
+            self.inactive_level_chunks,
+            self.unsupported_level_chunk_dimensions,
+            self.outbound_request_placement_failures,
+            self.request_encoding_failures,
+            self.deferred_retry_capacity_failures,
+            self.retry_request_encoding_failures,
+        ]
+        .into_iter()
+        .fold(0, u64::saturating_add)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum NormalizationErrorReason {
+    OrderedCompletionRejection,
+    InactiveBlockUpdate,
+    MalformedBlockUpdate,
+    InactiveInlineChunk,
+    InactiveSubChunk,
+    UnexpectedSubChunk,
+    InvalidDimensionSubChunk,
+    BlockMutationFailure,
+    EmptySubChunkBatch,
+    InvalidChunkRadius,
+    InactiveLevelChunk,
+    UnsupportedLevelChunkDimension,
+    OutboundRequestPlacementFailure,
+    RequestEncodingFailure,
+    DeferredRetryCapacityFailure,
+    RetryRequestEncodingFailure,
+}
+
+impl WorldStreamNormalizationStats {
+    fn record(&mut self, reason: NormalizationErrorReason) {
+        let counter = match reason {
+            NormalizationErrorReason::OrderedCompletionRejection => {
+                &mut self.ordered_completion_rejections
+            }
+            NormalizationErrorReason::InactiveBlockUpdate => &mut self.inactive_block_updates,
+            NormalizationErrorReason::MalformedBlockUpdate => &mut self.malformed_block_updates,
+            NormalizationErrorReason::InactiveInlineChunk => &mut self.inactive_inline_chunks,
+            NormalizationErrorReason::InactiveSubChunk => &mut self.inactive_sub_chunks,
+            NormalizationErrorReason::UnexpectedSubChunk => &mut self.unexpected_sub_chunks,
+            NormalizationErrorReason::InvalidDimensionSubChunk => {
+                &mut self.invalid_dimension_sub_chunks
+            }
+            NormalizationErrorReason::BlockMutationFailure => &mut self.block_mutation_failures,
+            NormalizationErrorReason::EmptySubChunkBatch => &mut self.empty_sub_chunk_batches,
+            NormalizationErrorReason::InvalidChunkRadius => &mut self.invalid_chunk_radii,
+            NormalizationErrorReason::InactiveLevelChunk => &mut self.inactive_level_chunks,
+            NormalizationErrorReason::UnsupportedLevelChunkDimension => {
+                &mut self.unsupported_level_chunk_dimensions
+            }
+            NormalizationErrorReason::OutboundRequestPlacementFailure => {
+                &mut self.outbound_request_placement_failures
+            }
+            NormalizationErrorReason::RequestEncodingFailure => &mut self.request_encoding_failures,
+            NormalizationErrorReason::DeferredRetryCapacityFailure => {
+                &mut self.deferred_retry_capacity_failures
+            }
+            NormalizationErrorReason::RetryRequestEncodingFailure => {
+                &mut self.retry_request_encoding_failures
+            }
+        };
+        *counter = counter.saturating_add(1);
+    }
+}
+
 /// Cumulative diagnostics and current bounded-work gauges.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct WorldStreamStats {
     pub decode_errors: u64,
     pub normalization_errors: u64,
+    pub normalization_reasons: WorldStreamNormalizationStats,
     pub unavailable_sub_chunks: u64,
     pub stale_mesh_jobs: u64,
     pub received_radius_chunks: Option<i32>,
@@ -878,6 +982,11 @@ impl WorldStream {
         }
     }
 
+    fn record_normalization_error(&mut self, reason: NormalizationErrorReason) {
+        self.stats.normalization_errors = self.stats.normalization_errors.saturating_add(1);
+        self.stats.normalization_reasons.record(reason);
+    }
+
     fn apply_ready(&mut self) {
         if self.blocking_block_updates.is_some() {
             return;
@@ -928,7 +1037,7 @@ impl WorldStream {
             .is_err()
         {
             self.heavy_sequences.remove(&completion.sequence);
-            self.stats.normalization_errors = self.stats.normalization_errors.saturating_add(1);
+            self.record_normalization_error(NormalizationErrorReason::OrderedCompletionRejection);
         }
     }
 
@@ -942,9 +1051,11 @@ impl WorldStream {
                 Ok((key, update)) if self.column_is_active(key.chunk()) => {
                     grouped.entry(key).or_default().push(update);
                 }
-                Ok(_) | Err(_) => {
-                    self.stats.normalization_errors =
-                        self.stats.normalization_errors.saturating_add(1);
+                Ok(_) => {
+                    self.record_normalization_error(NormalizationErrorReason::InactiveBlockUpdate)
+                }
+                Err(_) => {
+                    self.record_normalization_error(NormalizationErrorReason::MalformedBlockUpdate)
                 }
             }
         }
@@ -1043,8 +1154,7 @@ impl WorldStream {
                 self.stats.max_decode_duration = self.stats.max_decode_duration.max(duration);
                 let key = ChunkKey::new(event.dimension, event.x, event.z);
                 if !self.column_is_active(key) {
-                    self.stats.normalization_errors =
-                        self.stats.normalization_errors.saturating_add(1);
+                    self.record_normalization_error(NormalizationErrorReason::InactiveInlineChunk);
                     return;
                 }
                 match decoded {
@@ -1119,9 +1229,14 @@ impl WorldStream {
                         entry.position[1],
                         entry.position[2],
                     );
-                    if !self.is_expected_sub_chunk(key) || !self.column_is_active(key.chunk()) {
-                        self.stats.normalization_errors =
-                            self.stats.normalization_errors.saturating_add(1);
+                    if !self.column_is_active(key.chunk()) {
+                        self.record_normalization_error(NormalizationErrorReason::InactiveSubChunk);
+                        continue;
+                    }
+                    if !self.is_expected_sub_chunk(key) {
+                        self.record_normalization_error(
+                            NormalizationErrorReason::UnexpectedSubChunk,
+                        );
                         continue;
                     }
                     let completed = match entry.result {
@@ -1173,8 +1288,9 @@ impl WorldStream {
                                     true
                                 }
                                 protocol::SubChunkUnavailable::InvalidDimension => {
-                                    self.stats.normalization_errors =
-                                        self.stats.normalization_errors.saturating_add(1);
+                                    self.record_normalization_error(
+                                        NormalizationErrorReason::InvalidDimensionSubChunk,
+                                    );
                                     true
                                 }
                                 protocol::SubChunkUnavailable::ChunkNotFound
@@ -1203,14 +1319,15 @@ impl WorldStream {
                         }
                     }
                     Err(_) => {
-                        self.stats.normalization_errors =
-                            self.stats.normalization_errors.saturating_add(1);
+                        self.record_normalization_error(
+                            NormalizationErrorReason::BlockMutationFailure,
+                        );
                     }
                 }
             }
             PreparedWorldEvent::Immediate(event) => self.apply_immediate(event, sequence),
             PreparedWorldEvent::NormalizationFailure => {
-                self.stats.normalization_errors = self.stats.normalization_errors.saturating_add(1);
+                self.record_normalization_error(NormalizationErrorReason::EmptySubChunkBatch);
             }
         }
     }
@@ -1223,8 +1340,7 @@ impl WorldStream {
             }
             WorldEvent::ChunkRadiusUpdated(radius) => {
                 if radius < 0 {
-                    self.stats.normalization_errors =
-                        self.stats.normalization_errors.saturating_add(1);
+                    self.record_normalization_error(NormalizationErrorReason::InvalidChunkRadius);
                     return;
                 }
                 self.chunk_radius = Some(radius.min(PHASE0_MAX_VIEW_RADIUS_CHUNKS));
@@ -1279,14 +1395,15 @@ impl WorldStream {
     fn apply_request_level_chunk(&mut self, event: LevelChunkEvent, sequence: Option<u64>) {
         let key = ChunkKey::new(event.dimension, event.x, event.z);
         if !self.column_is_active(key) {
-            self.stats.normalization_errors = self.stats.normalization_errors.saturating_add(1);
+            self.record_normalization_error(NormalizationErrorReason::InactiveLevelChunk);
             return;
         }
         match event.mode {
             LevelChunkMode::LimitedRequests { highest } => {
                 let Some(range) = vanilla_dimension_range(event.dimension) else {
-                    self.stats.normalization_errors =
-                        self.stats.normalization_errors.saturating_add(1);
+                    self.record_normalization_error(
+                        NormalizationErrorReason::UnsupportedLevelChunkDimension,
+                    );
                     return;
                 };
                 self.evict_column(key);
@@ -1295,8 +1412,9 @@ impl WorldStream {
             }
             LevelChunkMode::LimitlessRequests => {
                 let Some(range) = vanilla_dimension_range(event.dimension) else {
-                    self.stats.normalization_errors =
-                        self.stats.normalization_errors.saturating_add(1);
+                    self.record_normalization_error(
+                        NormalizationErrorReason::UnsupportedLevelChunkDimension,
+                    );
                     return;
                 };
                 self.evict_column(key);
@@ -1333,8 +1451,9 @@ impl WorldStream {
                     count,
                 };
                 if !self.place_outbound_request(sequence, request) {
-                    self.stats.normalization_errors =
-                        self.stats.normalization_errors.saturating_add(1);
+                    self.record_normalization_error(
+                        NormalizationErrorReason::OutboundRequestPlacementFailure,
+                    );
                     return;
                 }
                 let expected = (0..count)
@@ -1347,7 +1466,7 @@ impl WorldStream {
                 }
             }
             Err(_) => {
-                self.stats.normalization_errors = self.stats.normalization_errors.saturating_add(1)
+                self.record_normalization_error(NormalizationErrorReason::RequestEncodingFailure)
             }
         }
     }
@@ -1664,7 +1783,7 @@ impl WorldStream {
             self.deferred_retry_set.insert(key);
             return false;
         }
-        self.stats.normalization_errors = self.stats.normalization_errors.saturating_add(1);
+        self.record_normalization_error(NormalizationErrorReason::DeferredRetryCapacityFailure);
         true
     }
 
@@ -1680,7 +1799,7 @@ impl WorldStream {
 
     fn enqueue_exact_retry(&mut self, key: SubChunkKey) -> bool {
         let Ok(packet) = request_sub_chunk_column(key.dimension, key.x, key.z, key.y, 1) else {
-            self.stats.normalization_errors = self.stats.normalization_errors.saturating_add(1);
+            self.record_normalization_error(NormalizationErrorReason::RetryRequestEncodingFailure);
             return false;
         };
         self.place_outbound_request(
@@ -2577,6 +2696,58 @@ mod tests {
 
         assert_eq!(key, SubChunkKey::new(2, -1, -5, 1));
         assert_eq!(update, BlockUpdate::new(15, 15, 0, 1, 0xdead_beef));
+    }
+
+    #[test]
+    fn normalization_breakdown_distinguishes_inactive_and_malformed_world_traffic() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        stream.chunk_radius = Some(0);
+
+        let batches = stream.snapshot_block_mutation_batches(vec![
+            BlockUpdateEvent {
+                dimension: 0,
+                position: [16, 0, 0],
+                layer: 0,
+                network_id: 1,
+            },
+            BlockUpdateEvent {
+                dimension: 0,
+                position: [0, 0, 0],
+                layer: usize::MAX,
+                network_id: 2,
+            },
+        ]);
+        assert!(batches.is_empty());
+
+        stream.apply_prepared(super::PreparedWorldEvent::SubChunks {
+            dimension: 0,
+            entries: vec![
+                super::PreparedSubChunk {
+                    position: [0, 0, 0],
+                    result: super::PreparedSubChunkResult::AllAir,
+                },
+                super::PreparedSubChunk {
+                    position: [1, 0, 0],
+                    result: super::PreparedSubChunkResult::AllAir,
+                },
+            ],
+            duration: std::time::Duration::ZERO,
+        });
+
+        let stats = stream.stats();
+        assert_eq!(stats.normalization_errors, 4);
+        assert_eq!(stats.normalization_reasons.inactive_block_updates, 1);
+        assert_eq!(stats.normalization_reasons.malformed_block_updates, 1);
+        assert_eq!(stats.normalization_reasons.unexpected_sub_chunks, 1);
+        assert_eq!(stats.normalization_reasons.inactive_sub_chunks, 1);
+        assert_eq!(stats.normalization_reasons.total(), 4);
     }
 
     #[test]
