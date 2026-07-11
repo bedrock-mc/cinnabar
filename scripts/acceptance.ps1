@@ -30,6 +30,8 @@ $PinnedAssetSourceSha256 = '12d5cddc03acd507e9e0bd412f2e94d34d0a1a855758af7a9eef
 $LeafStateSuffix = '["persistent_bit"=true,"update_bit"=false]'
 $LeafForestOffsetChunks = 65
 $LeafForestMutationZOffset = 12
+$LeafForestLoadAreaName = 'rust_mcbe_leaf_forest'
+$LeafForestLoadAreaSettleMilliseconds = 8000
 
 function ConvertTo-CommandArgument {
     param([Parameter(Mandatory = $true)][string]$Value)
@@ -697,6 +699,127 @@ function Set-ServerProperties {
     [IO.File]::WriteAllLines($Path, $lines, [Text.UTF8Encoding]::new($false))
 }
 
+function Get-BdsSourceWorldIdentity {
+    param([Parameter(Mandatory = $true)][string]$SourceDirectory)
+
+    $sourceInputInfo = Get-Item -LiteralPath $SourceDirectory -Force -ErrorAction Stop
+    if (-not $sourceInputInfo.PSIsContainer -or
+        (($sourceInputInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) {
+        throw "BDS source must be a non-reparse directory: $SourceDirectory"
+    }
+    $sourceFull = Get-CanonicalExistingDirectoryPath -Path $SourceDirectory
+    $propertiesPath = [IO.Path]::Combine($sourceFull, 'server.properties')
+    $propertiesInfo = Get-Item -LiteralPath $propertiesPath -Force -ErrorAction Stop
+    if ($propertiesInfo.PSIsContainer -or
+        (($propertiesInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) {
+        throw "invalid BDS source server.properties: $propertiesPath"
+    }
+    $levelNameValues = [Collections.Generic.List[string]]::new()
+    foreach ($line in [IO.File]::ReadAllLines($propertiesPath)) {
+        if ($line.StartsWith('level-name=', [StringComparison]::Ordinal)) {
+            $levelNameValues.Add($line.Substring('level-name='.Length))
+        }
+    }
+    if ($levelNameValues.Count -ne 1 -or
+        [string]::IsNullOrWhiteSpace($levelNameValues[0]) -or
+        $levelNameValues[0] -in @('.', '..') -or
+        $levelNameValues[0].IndexOfAny([char[]]@('\', '/')) -ge 0) {
+        throw 'BDS source server.properties must contain exactly one safe nonempty level-name'
+    }
+    $levelName = $levelNameValues[0]
+    $worldsPath = [IO.Path]::Combine($sourceFull, 'worlds')
+    $worldsInfo = Get-Item -LiteralPath $worldsPath -Force -ErrorAction Stop
+    if (-not $worldsInfo.PSIsContainer -or
+        (($worldsInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) {
+        throw "invalid BDS source worlds directory: $worldsPath"
+    }
+    $worldPath = [IO.Path]::Combine($worldsPath, $levelName)
+    $worldInfo = Get-Item -LiteralPath $worldPath -Force -ErrorAction Stop
+    if (-not $worldInfo.PSIsContainer -or
+        (($worldInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) {
+        throw "invalid BDS source world directory: $worldPath"
+    }
+    $worldFull = Get-CanonicalExistingDirectoryPath -Path $worldPath
+    if (-not (Test-RuntimePathContains -Parent $worldsPath -Candidate $worldFull)) {
+        throw "BDS source world escaped the worlds directory: $worldFull"
+    }
+
+    $entriesByPath = [Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
+    $directories = [Collections.Generic.Queue[string]]::new()
+    $directories.Enqueue($worldFull)
+    $fileCount = [uint64]0
+    $totalBytes = [uint64]0
+    while ($directories.Count -ne 0) {
+        $directory = $directories.Dequeue()
+        foreach ($entry in @(Get-ChildItem -LiteralPath $directory -Force)) {
+            if (($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "BDS source world must not contain reparse points: $($entry.FullName)"
+            }
+            $relativePath = $entry.FullName.Substring($worldFull.Length).TrimStart([char[]]@('\', '/')).Replace('\', '/')
+            if ([string]::IsNullOrWhiteSpace($relativePath) -or $entriesByPath.ContainsKey($relativePath)) {
+                throw "invalid or duplicate BDS source world entry: $($entry.FullName)"
+            }
+            if ($entry.PSIsContainer) {
+                $entriesByPath.Add($relativePath, [pscustomobject][ordered]@{
+                    path = $relativePath
+                    kind = 'directory'
+                })
+                $directories.Enqueue($entry.FullName)
+            }
+            else {
+                $length = [uint64]$entry.Length
+                $sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $entry.FullName).Hash.ToLowerInvariant()
+                $entriesByPath.Add($relativePath, [pscustomobject][ordered]@{
+                    path = $relativePath
+                    kind = 'file'
+                    length = $length
+                    sha256 = $sha256
+                })
+                $fileCount = $fileCount + 1
+                $totalBytes = $totalBytes + $length
+            }
+        }
+    }
+    $relativePaths = [string[]]@($entriesByPath.Keys)
+    [Array]::Sort($relativePaths, [StringComparer]::Ordinal)
+    $canonicalEntries = @($relativePaths | ForEach-Object { $entriesByPath[$_] })
+    $levelDatPath = [IO.Path]::Combine($worldFull, 'level.dat')
+    $levelDatInfo = Get-Item -LiteralPath $levelDatPath -Force -ErrorAction Stop
+    if ($levelDatInfo.PSIsContainer -or
+        (($levelDatInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) {
+        throw "invalid BDS source level.dat: $levelDatPath"
+    }
+    $levelDatSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $levelDatPath).Hash.ToLowerInvariant()
+    $canonicalTree = [pscustomobject][ordered]@{
+        schema = 'rust-mcbe-bds-source-world-tree-v1'
+        level_name = $levelName
+        entries = $canonicalEntries
+    }
+    return [pscustomobject][ordered]@{
+        schema = 'rust-mcbe-bds-source-world-identity-v1'
+        level_name = $levelName
+        world_path = $worldFull
+        file_count = $fileCount
+        total_bytes = $totalBytes
+        level_dat_sha256 = $levelDatSha256
+        sha256 = Get-CanonicalObjectHash -Value $canonicalTree
+    }
+}
+
+function Assert-BdsSourceWorldIdentityUnchanged {
+    param(
+        [Parameter(Mandatory = $true)]$Expected,
+        [Parameter(Mandatory = $true)][string]$SourceDirectory
+    )
+
+    $actual = Get-BdsSourceWorldIdentity -SourceDirectory $SourceDirectory
+    foreach ($field in @('schema', 'level_name', 'file_count', 'total_bytes', 'level_dat_sha256', 'sha256')) {
+        if ([string]$actual.$field -cne [string]$Expected.$field) {
+            throw "BDS source world identity changed: field=$field expected=$($Expected.$field) actual=$($actual.$field)"
+        }
+    }
+}
+
 function New-ReservedUdpPort {
     $client = [Net.Sockets.UdpClient]::new(0)
     [pscustomobject]@{
@@ -850,6 +973,7 @@ function Wait-ProcessOutputMarker {
         [Parameter(Mandatory = $true)][string]$Marker,
         [Parameter(Mandatory = $true)][int]$TimeoutSeconds,
         [scriptblock]$ReadinessProbe,
+        [string]$RejectMarker,
         [switch]$PassThruEvidence
     )
 
@@ -864,6 +988,7 @@ function Wait-ProcessOutputMarker {
     }
     $cursor = $Handle.StdoutMarkerCursor
     $buffer = [byte[]]::new(65536)
+    $skippedLines = [Collections.Generic.List[string]]::new()
     while ([DateTime]::UtcNow -lt $deadline) {
         while (($newline = $cursor.PartialLine.IndexOf("`n", [StringComparison]::Ordinal)) -ge 0) {
             $line = $cursor.PartialLine.Substring(0, $newline).TrimEnd("`r")
@@ -876,12 +1001,17 @@ function Wait-ProcessOutputMarker {
                     LineNumber = [uint64]$cursor.LineNumber
                     ReadOffset = [long]$cursor.Offset
                     ObservedAtUtc = [DateTime]::UtcNow.ToString('o')
+                    SkippedLines = @($skippedLines)
                 }
                 if ($PassThruEvidence) {
                     return $evidence
                 }
                 return $line
             }
+            if (-not [string]::IsNullOrEmpty($RejectMarker) -and $line.Contains($RejectMarker)) {
+                throw "observed rejected process output while waiting for '$Marker': $line"
+            }
+            $skippedLines.Add($line)
         }
         $reader = [IO.FileStream]::new(
             $Handle.StdoutPath,
@@ -918,16 +1048,31 @@ function Wait-ProcessOutputMarker {
                     LineNumber = [uint64]$cursor.LineNumber
                     ReadOffset = [long]$cursor.Offset
                     ObservedAtUtc = [DateTime]::UtcNow.ToString('o')
+                    SkippedLines = @($skippedLines)
                 }
                 if ($PassThruEvidence) {
                     return $evidence
                 }
                 return $line
             }
+            if (-not [string]::IsNullOrEmpty($RejectMarker) -and $line.Contains($RejectMarker)) {
+                throw "observed rejected process output while waiting for '$Marker': $line"
+            }
+            $skippedLines.Add($line)
         }
         if (-not $Handle.Process.HasExited -and
             $null -ne $ReadinessProbe -and
             (& $ReadinessProbe)) {
+            if ($PassThruEvidence) {
+                return [pscustomobject][ordered]@{
+                    Line = $Marker
+                    Marker = $Marker
+                    LineNumber = [uint64]$cursor.LineNumber
+                    ReadOffset = [long]$cursor.Offset
+                    ObservedAtUtc = [DateTime]::UtcNow.ToString('o')
+                    SkippedLines = @($skippedLines)
+                }
+            }
             return $Marker
         }
         if ($Handle.Process.HasExited -and $Handle.StdoutCopy.IsCompleted) {
@@ -936,6 +1081,124 @@ function Wait-ProcessOutputMarker {
         Start-Sleep -Milliseconds 100
     }
     throw "timed out waiting for '$Marker'; process exit=$($Handle.Process.HasExited) log=$($Handle.StdoutPath)"
+}
+
+function Assert-BdsTickingAreaPreloadResult {
+    param(
+        [Parameter(Mandatory = $true)][string]$Line,
+        [Parameter(Mandatory = $true)]$ExpectedMinimum,
+        [Parameter(Mandatory = $true)]$ExpectedMaximum
+    )
+
+    $pattern = '^\[[^\]\r\n]+ INFO\] Added ticking area from (-?\d+), (-?\d+), (-?\d+) to (-?\d+), (-?\d+), (-?\d+) marked for preload\.$'
+    if ($Line -notmatch $pattern) {
+        throw "invalid ticking-area preload acknowledgement: $Line"
+    }
+    $area = [pscustomobject][ordered]@{
+        min_x = [int]$Matches[1]
+        min_y = [int]$Matches[2]
+        min_z = [int]$Matches[3]
+        max_x = [int]$Matches[4]
+        max_y = [int]$Matches[5]
+        max_z = [int]$Matches[6]
+        stdout = $Line
+    }
+    $expectedMinX = [int]([Math]::Floor([double][int]$ExpectedMinimum.x / 16.0) * 16.0)
+    $expectedMinZ = [int]([Math]::Floor([double][int]$ExpectedMinimum.z / 16.0) * 16.0)
+    $expectedMaxX = [int]([Math]::Floor([double][int]$ExpectedMaximum.x / 16.0) * 16.0 + 15.0)
+    $expectedMaxZ = [int]([Math]::Floor([double][int]$ExpectedMaximum.z / 16.0) * 16.0 + 15.0)
+    if ($area.min_x -ne $expectedMinX -or
+        $area.min_z -ne $expectedMinZ -or
+        $area.max_x -ne $expectedMaxX -or
+        $area.max_z -ne $expectedMaxZ) {
+        throw "ticking-area acknowledgement did not match exact chunk-snapped fixture bounds: expected=$expectedMinX,$expectedMinZ..$expectedMaxX,$expectedMaxZ requested=$($ExpectedMinimum.x),$($ExpectedMinimum.z)..$($ExpectedMaximum.x),$($ExpectedMaximum.z) acknowledged=$($area.min_x),$($area.min_z)..$($area.max_x),$($area.max_z)"
+    }
+    return $area
+}
+
+function Assert-BdsFixtureCommandResults {
+    param(
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][string[]]$Commands,
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][string[]]$Lines
+    )
+
+    $results = [Collections.Generic.List[object]]::new()
+    foreach ($line in $Lines) {
+        if ($line.Contains(' ERROR] ')) {
+            throw "BDS fixture command failed: $line"
+        }
+        if ($line -notmatch '^\[[^\]\r\n]+ (?<level>INFO|ERROR)\] (?<message>.*)$') {
+            continue
+        }
+        $level = [string]$Matches['level']
+        $message = [string]$Matches['message']
+        if ($level -ceq 'ERROR') {
+            throw "BDS fixture command failed: $line"
+        }
+        if ($message -ceq 'Block placed') {
+            $results.Add([pscustomobject][ordered]@{
+                kind = 'setblock'
+                changed_count = $null
+                stdout = $line
+            })
+        }
+        elseif ($message -match '^(?<count>\d+) blocks filled$') {
+            $results.Add([pscustomobject][ordered]@{
+                kind = 'fill'
+                changed_count = [uint64]$Matches['count']
+                stdout = $line
+            })
+        }
+    }
+    if ($results.Count -ne $Commands.Count) {
+        throw "BDS fixture result count mismatch: expected=$($Commands.Count) actual=$($results.Count)"
+    }
+    for ($index = 0; $index -lt $Commands.Count; $index++) {
+        $command = $Commands[$index]
+        $result = $results[$index]
+        $number = $index + 1
+        if ($command -match '^setblock -?\d+ -?\d+ -?\d+ ') {
+            if ([string]$result.kind -cne 'setblock') {
+                throw "BDS fixture result did not match command ${number}: expected=setblock actual=$($result.kind) command=$command stdout=$($result.stdout)"
+            }
+            continue
+        }
+        if ($command -notmatch '^fill (-?\d+) (-?\d+) (-?\d+) (-?\d+) (-?\d+) (-?\d+) ') {
+            throw "unsupported schema-v2 fixture command ${number}: $command"
+        }
+        if ([string]$result.kind -cne 'fill') {
+            throw "BDS fixture result did not match command ${number}: expected=fill actual=$($result.kind) command=$command stdout=$($result.stdout)"
+        }
+        $volume = ([Math]::Abs([int64]$Matches[4] - [int64]$Matches[1]) + 1) *
+            ([Math]::Abs([int64]$Matches[5] - [int64]$Matches[2]) + 1) *
+            ([Math]::Abs([int64]$Matches[6] - [int64]$Matches[3]) + 1)
+        if ([uint64]$result.changed_count -gt [uint64]$volume) {
+            throw "BDS fill result exceeded declared command volume: command=$number volume=$volume changed=$($result.changed_count) stdout=$($result.stdout)"
+        }
+    }
+    return [pscustomobject][ordered]@{
+        result_count = $results.Count
+        results = @($results)
+        stdout_sha256 = Get-Utf8Sha256 -Text ($Lines -join "`n")
+    }
+}
+
+function Get-RequiredBdsMarkerEvidence {
+    param(
+        [Parameter(Mandatory = $true)]$Evidence,
+        [Parameter(Mandatory = $true)][string]$Context,
+        [switch]$RequireSkippedLines
+    )
+
+    if ($null -eq $Evidence -or
+        $null -eq $Evidence.PSObject.Properties['Line'] -or
+        [string]::IsNullOrWhiteSpace([string]$Evidence.Line)) {
+        throw "$Context did not return marker-line evidence"
+    }
+    if ($RequireSkippedLines -and $null -eq $Evidence.PSObject.Properties['SkippedLines']) {
+        throw "$Context did not retain the exact stdout interval before its marker"
+    }
+    return $Evidence
 }
 
 function New-OpaqueVisualFixturePlan {
@@ -1345,8 +1608,13 @@ function New-LeafForestPlan {
     }
     $fenceCommand = 'list'
     $fenceMarker = 'players online:'
+    $loadAreaName = $LeafForestLoadAreaName
+    $loadAreaCommand = "tickingarea add $($clearMin.x) $($clearMin.y) $($clearMin.z) $($clearMax.x) $($clearMax.y) $($clearMax.z) $loadAreaName true"
+    $loadAreaMarker = 'marked for preload.'
+    $cleanupCommand = "tickingarea remove $loadAreaName"
+    $cleanupMarker = 'Removed ticking area(s)'
     $teleportCommand = "tp @a[name=RustMCBE] $($camera.x) $($camera.y) $($camera.z) facing $($targetMutation.x) $($targetMutation.y + 4) $($targetMutation.z)"
-    $commands = @($fixtureCommands) + @($fenceCommand, $teleportCommand)
+    $commands = @($loadAreaCommand) + @($fixtureCommands) + @($fenceCommand, $teleportCommand)
     if ($commands.Count -gt 64) {
         throw "leaf forest command list is not bounded: $($commands.Count)"
     }
@@ -1375,6 +1643,17 @@ function New-LeafForestPlan {
         }
         offset_chunks = $LeafForestOffsetChunks
         radius_chunks = 16
+        load_area = [pscustomobject][ordered]@{
+            name = $loadAreaName
+            requested_min = $clearMin
+            requested_max = $clearMax
+            preload = $true
+            command = $loadAreaCommand
+            acknowledgement_marker = $loadAreaMarker
+            settle_milliseconds = $LeafForestLoadAreaSettleMilliseconds
+            cleanup_command = $cleanupCommand
+            cleanup_acknowledgement_marker = $cleanupMarker
+        }
         processing_fence = [pscustomobject][ordered]@{ command = $fenceCommand; stdout_marker = $fenceMarker }
         fixture_commands = @($fixtureCommands)
         commands = $commands
@@ -1387,6 +1666,12 @@ function New-LeafForestPlan {
         Target = $camera
         TargetMutation = $targetMutation
         OffsetChunks = $LeafForestOffsetChunks
+        LoadAreaName = $loadAreaName
+        LoadAreaCommand = $loadAreaCommand
+        LoadAreaMarker = $loadAreaMarker
+        LoadAreaSettleMilliseconds = $LeafForestLoadAreaSettleMilliseconds
+        CleanupCommand = $cleanupCommand
+        CleanupMarker = $cleanupMarker
         FixtureCommands = @($fixtureCommands)
         GalleryCommands = @($fixtureCommands)
         FenceMarker = $fenceMarker
@@ -1471,6 +1756,243 @@ function Write-BdsConsoleCommand {
     [IO.File]::AppendAllText($LogPath, $Command + [Environment]::NewLine)
 }
 
+function Set-BdsSourceWorldIdentityOnPlan {
+    param(
+        [Parameter(Mandatory = $true)]$Plan,
+        [Parameter(Mandatory = $true)]$Identity
+    )
+
+    if ([string]$Plan.Manifest.schema -cne 'rust-mcbe-visual-fixture-v2') {
+        return
+    }
+    if ($null -ne $Plan.Manifest.PSObject.Properties['source_world_identity']) {
+        throw 'schema-v2 fixture plan already contains source_world_identity'
+    }
+    $Plan.Manifest | Add-Member -MemberType NoteProperty -Name source_world_identity -Value ([pscustomobject][ordered]@{
+        schema = [string]$Identity.schema
+        level_name = [string]$Identity.level_name
+        file_count = [uint64]$Identity.file_count
+        total_bytes = [uint64]$Identity.total_bytes
+        level_dat_sha256 = [string]$Identity.level_dat_sha256
+        sha256 = [string]$Identity.sha256
+    })
+}
+
+function Get-BdsFixtureLoadAreaPlanIdentity {
+    param([Parameter(Mandatory = $true)]$Plan)
+
+    foreach ($propertyName in @(
+        'LoadAreaName', 'LoadAreaCommand', 'LoadAreaMarker', 'LoadAreaSettleMilliseconds',
+        'CleanupCommand', 'CleanupMarker'
+    )) {
+        if ($null -eq $Plan.PSObject.Properties[$propertyName]) {
+            throw "fixture load-area plan is missing $propertyName"
+        }
+    }
+    if ($null -eq $Plan.Manifest.PSObject.Properties['clear'] -or $null -eq $Plan.Manifest.clear) {
+        throw 'fixture load-area plan is missing exact clear bounds'
+    }
+    $clear = $Plan.Manifest.clear
+    return Get-CanonicalObjectHash -Value ([pscustomobject][ordered]@{
+        schema = 'rust-mcbe-fixture-load-area-plan-v1'
+        name = [string]$Plan.LoadAreaName
+        command = [string]$Plan.LoadAreaCommand
+        acknowledgement_marker = [string]$Plan.LoadAreaMarker
+        configured_settle_milliseconds = [int]$Plan.LoadAreaSettleMilliseconds
+        cleanup_command = [string]$Plan.CleanupCommand
+        cleanup_acknowledgement_marker = [string]$Plan.CleanupMarker
+        clear_min = @([int]$clear.min.x, [int]$clear.min.y, [int]$clear.min.z)
+        clear_max = @([int]$clear.max.x, [int]$clear.max.y, [int]$clear.max.z)
+    })
+}
+
+function Start-BdsFixtureLoadArea {
+    param(
+        [Parameter(Mandatory = $true)]$Handle,
+        [Parameter(Mandatory = $true)]$Plan,
+        [Parameter(Mandatory = $true)][string]$RunDirectory,
+        [ValidateRange(-1, 10000)][int]$SettleMilliseconds = -1,
+        [scriptblock]$WaitForLoadArea
+    )
+
+    $loadCommandProperty = $Plan.PSObject.Properties['LoadAreaCommand']
+    if ($null -eq $loadCommandProperty) {
+        return $null
+    }
+    $planIdentitySha256 = Get-BdsFixtureLoadAreaPlanIdentity -Plan $Plan
+    $activeProperty = $Handle.PSObject.Properties['ActiveTickingArea']
+    if ($null -ne $activeProperty -and $null -ne $activeProperty.Value) {
+        $active = $activeProperty.Value
+        if ([string]$active.PlanIdentitySha256 -cne $planIdentitySha256) {
+            throw "BDS handle already owns a different exact ticking-area plan: active=$($active.PlanIdentitySha256) requested=$planIdentitySha256 name=$($active.Name)"
+        }
+        if ([string]$active.Status -cne 'ready' -or $null -eq $active.Acknowledgement) {
+            throw "BDS handle ticking area is not ready for exact-plan reuse: status=$($active.Status) name=$($active.Name)"
+        }
+        $area = Assert-BdsTickingAreaPreloadResult `
+            -Line ([string]$active.Acknowledgement.stdout) `
+            -ExpectedMinimum $Plan.Manifest.clear.min `
+            -ExpectedMaximum $Plan.Manifest.clear.max
+        Write-AcceptanceEvent -RunDirectory $RunDirectory -Event 'load_area_reused' -Fields ([ordered]@{
+            name = [string]$active.Name
+            plan_identity_sha256 = $planIdentitySha256
+            initial_settle_milliseconds = [int]$active.SettleMilliseconds
+        })
+        return $area
+    }
+    $effectiveSettleMilliseconds = if ($SettleMilliseconds -ge 0) {
+        $SettleMilliseconds
+    }
+    else {
+        [int]$Plan.LoadAreaSettleMilliseconds
+    }
+    $activeState = [pscustomobject][ordered]@{
+        Name = [string]$Plan.LoadAreaName
+        PlanIdentitySha256 = $planIdentitySha256
+        Command = [string]$Plan.LoadAreaCommand
+        Marker = [string]$Plan.LoadAreaMarker
+        CleanupCommand = [string]$Plan.CleanupCommand
+        CleanupMarker = [string]$Plan.CleanupMarker
+        SettleMilliseconds = $effectiveSettleMilliseconds
+        Status = 'pending'
+        Acknowledgement = $null
+    }
+    $Handle | Add-Member -MemberType NoteProperty -Name ActiveTickingArea -Value $activeState -Force
+    $consoleLogPath = Join-Path $RunDirectory 'bds.console.log'
+    Write-BdsConsoleCommand -Handle $Handle -Command $Plan.LoadAreaCommand -LogPath $consoleLogPath
+    $rawEvidence = if ($null -eq $WaitForLoadArea) {
+        Wait-ProcessOutputMarker `
+            -Handle $Handle `
+            -Marker $Plan.LoadAreaMarker `
+            -TimeoutSeconds 30 `
+            -RejectMarker ' ERROR] ' `
+            -PassThruEvidence
+    }
+    else {
+        & $WaitForLoadArea $Handle $Plan.LoadAreaMarker 30
+    }
+    $markerEvidence = Get-RequiredBdsMarkerEvidence `
+        -Evidence $rawEvidence `
+        -Context 'fixture load-area wait'
+    $area = Assert-BdsTickingAreaPreloadResult `
+        -Line ([string]$markerEvidence.Line) `
+        -ExpectedMinimum $Plan.Manifest.clear.min `
+        -ExpectedMaximum $Plan.Manifest.clear.max
+    $activeState.Status = 'ready'
+    $activeState.Acknowledgement = $area
+    Write-AcceptanceEvent -RunDirectory $RunDirectory -Event 'load_area_ready' -Fields ([ordered]@{
+        name = [string]$Plan.LoadAreaName
+        command = [string]$Plan.LoadAreaCommand
+        plan_identity_sha256 = $planIdentitySha256
+        settle_milliseconds = $effectiveSettleMilliseconds
+        acknowledged_min_x = [int]$area.min_x
+        acknowledged_min_z = [int]$area.min_z
+        acknowledged_max_x = [int]$area.max_x
+        acknowledged_max_z = [int]$area.max_z
+    })
+    if ($effectiveSettleMilliseconds -gt 0) {
+        Start-Sleep -Milliseconds $effectiveSettleMilliseconds
+    }
+    return $area
+}
+
+function Complete-BdsFixtureCommandBatch {
+    param(
+        [Parameter(Mandatory = $true)]$Handle,
+        [Parameter(Mandatory = $true)]$Plan,
+        [Parameter(Mandatory = $true)][string]$RunDirectory,
+        [scriptblock]$WaitForFence
+    )
+
+    $fixtureCommands = @($Plan.FixtureCommands)
+    $consoleLogPath = Join-Path $RunDirectory 'bds.console.log'
+    foreach ($command in $fixtureCommands) {
+        Write-BdsConsoleCommand -Handle $Handle -Command $command -LogPath $consoleLogPath
+    }
+    Write-BdsConsoleCommand -Handle $Handle -Command $Plan.FenceCommand -LogPath $consoleLogPath
+    $rawEvidence = if ($null -eq $WaitForFence) {
+        Wait-ProcessOutputMarker `
+            -Handle $Handle `
+            -Marker $Plan.FenceMarker `
+            -TimeoutSeconds 30 `
+            -PassThruEvidence
+    }
+    else {
+        & $WaitForFence $Handle $Plan.FenceMarker 30
+    }
+    $markerEvidence = Get-RequiredBdsMarkerEvidence `
+        -Evidence $rawEvidence `
+        -Context 'schema-v2 fixture fence wait' `
+        -RequireSkippedLines
+    $resultEvidence = Assert-BdsFixtureCommandResults `
+        -Commands $fixtureCommands `
+        -Lines @($markerEvidence.SkippedLines)
+    Write-AcceptanceEvent -RunDirectory $RunDirectory -Event 'fixture_commands_completed' -Fields ([ordered]@{
+        command_count = $fixtureCommands.Count
+        result_count = [int]$resultEvidence.result_count
+        result_stdout_sha256 = [string]$resultEvidence.stdout_sha256
+        pose = [string]$Plan.Pose
+    })
+    Write-AcceptanceEvent -RunDirectory $RunDirectory -Event 'processing_fence_observed' -Fields ([ordered]@{
+        command = [string]$Plan.FenceCommand
+        marker = [string]$Plan.FenceMarker
+        stdout = [string]$markerEvidence.Line
+    })
+    return $resultEvidence
+}
+
+function Remove-BdsTickingArea {
+    param(
+        [Parameter(Mandatory = $true)]$Handle,
+        [Parameter(Mandatory = $true)][string]$RunDirectory,
+        [scriptblock]$WaitForAck
+    )
+
+    $activeProperty = $Handle.PSObject.Properties['ActiveTickingArea']
+    if ($null -eq $activeProperty -or $null -eq $activeProperty.Value) {
+        return $null
+    }
+    $active = $activeProperty.Value
+    $hasExitedProperty = $Handle.Process.PSObject.Properties['HasExited']
+    if ($null -ne $hasExitedProperty -and [bool]$hasExitedProperty.Value) {
+        throw "BDS exited before ticking-area cleanup: $($active.Name)"
+    }
+    Write-BdsConsoleCommand `
+        -Handle $Handle `
+        -Command $active.CleanupCommand `
+        -LogPath (Join-Path $RunDirectory 'bds.console.log')
+    $rawEvidence = if ($null -eq $WaitForAck) {
+        Wait-ProcessOutputMarker `
+            -Handle $Handle `
+            -Marker $active.CleanupMarker `
+            -TimeoutSeconds 30 `
+            -RejectMarker ' ERROR] ' `
+            -PassThruEvidence
+    }
+    else {
+        & $WaitForAck $Handle $active.CleanupMarker 30
+    }
+    $markerEvidence = Get-RequiredBdsMarkerEvidence `
+        -Evidence $rawEvidence `
+        -Context 'ticking-area cleanup wait'
+    $expectedPattern = '^\[[^\]\r\n]+ INFO\] ' + [regex]::Escape([string]$active.CleanupMarker) + '$'
+    if ([string]$markerEvidence.Line -notmatch $expectedPattern) {
+        throw "invalid ticking-area cleanup acknowledgement: $($markerEvidence.Line)"
+    }
+    $result = [pscustomobject][ordered]@{
+        name = [string]$active.Name
+        command = [string]$active.CleanupCommand
+        stdout = [string]$markerEvidence.Line
+    }
+    Write-AcceptanceEvent -RunDirectory $RunDirectory -Event 'load_area_removed' -Fields ([ordered]@{
+        name = [string]$active.Name
+        command = [string]$active.CleanupCommand
+        stdout = [string]$markerEvidence.Line
+    })
+    $Handle.PSObject.Properties.Remove('ActiveTickingArea')
+    return $result
+}
+
 function Publish-BaselineSourceMutation {
     param(
         [Parameter(Mandatory = $true)]$Handle,
@@ -1499,6 +2021,8 @@ function Publish-VisualFixture {
         [Parameter(Mandatory = $true)]$Plan,
         [Parameter(Mandatory = $true)][string]$RunDirectory,
         [ValidateRange(0, 10000)][int]$SettleMilliseconds = 3000,
+        [ValidateRange(-1, 10000)][int]$PreloadSettleMilliseconds = -1,
+        [scriptblock]$WaitForLoadArea,
         [scriptblock]$WaitForFence
     )
 
@@ -1511,27 +2035,30 @@ function Publish-VisualFixture {
         @($fixtureCommandsProperty.Value)
     }
     $isV2 = [string]$Plan.Manifest.schema -ceq 'rust-mcbe-visual-fixture-v2'
-    foreach ($command in $fixtureCommands) {
-        Write-BdsConsoleCommand -Handle $Handle -Command $command -LogPath $consoleLogPath
-    }
     if ($isV2) {
-        Write-AcceptanceEvent -RunDirectory $RunDirectory -Event 'fixture_commands_completed' -Fields ([ordered]@{
-            command_count = $fixtureCommands.Count
-            pose = [string]$Plan.Pose
-        })
-    }
-    Write-BdsConsoleCommand -Handle $Handle -Command $Plan.FenceCommand -LogPath $consoleLogPath
-    if ($null -eq $WaitForFence) {
-        $null = Wait-ProcessOutputMarker -Handle $Handle -Marker $Plan.FenceMarker -TimeoutSeconds 30
+        $null = Start-BdsFixtureLoadArea `
+            -Handle $Handle `
+            -Plan $Plan `
+            -RunDirectory $RunDirectory `
+            -SettleMilliseconds $PreloadSettleMilliseconds `
+            -WaitForLoadArea $WaitForLoadArea
+        $null = Complete-BdsFixtureCommandBatch `
+            -Handle $Handle `
+            -Plan $Plan `
+            -RunDirectory $RunDirectory `
+            -WaitForFence $WaitForFence
     }
     else {
-        $null = & $WaitForFence $Handle $Plan.FenceMarker 30
-    }
-    if ($isV2) {
-        Write-AcceptanceEvent -RunDirectory $RunDirectory -Event 'processing_fence_observed' -Fields ([ordered]@{
-            command = [string]$Plan.FenceCommand
-            marker = [string]$Plan.FenceMarker
-        })
+        foreach ($command in $fixtureCommands) {
+            Write-BdsConsoleCommand -Handle $Handle -Command $command -LogPath $consoleLogPath
+        }
+        Write-BdsConsoleCommand -Handle $Handle -Command $Plan.FenceCommand -LogPath $consoleLogPath
+        if ($null -eq $WaitForFence) {
+            $null = Wait-ProcessOutputMarker -Handle $Handle -Marker $Plan.FenceMarker -TimeoutSeconds 30
+        }
+        else {
+            $null = & $WaitForFence $Handle $Plan.FenceMarker 30
+        }
     }
 
     $readyPath = Join-Path $RunDirectory 'visual-fixture-ready.json'
@@ -1574,6 +2101,8 @@ function Publish-FullViewTeleport {
         [Parameter(Mandatory = $true)]$Handle,
         [Parameter(Mandatory = $true)]$Plan,
         [Parameter(Mandatory = $true)][string]$RunDirectory,
+        [ValidateRange(-1, 10000)][int]$PreloadSettleMilliseconds = -1,
+        [scriptblock]$WaitForLoadArea,
         [scriptblock]$WaitForFence
     )
 
@@ -1582,26 +2111,17 @@ function Publish-FullViewTeleport {
     $isLeafForest = [string]$Plan.Manifest.schema -ceq 'rust-mcbe-visual-fixture-v2' -and
         $null -ne $fixtureCommandsProperty
     if ($isLeafForest) {
-        foreach ($command in @($fixtureCommandsProperty.Value)) {
-            Write-BdsConsoleCommand -Handle $Handle -Command $command -LogPath $consoleLogPath
-        }
-        Write-AcceptanceEvent -RunDirectory $RunDirectory -Event 'fixture_commands_completed' -Fields ([ordered]@{
-            command_count = @($fixtureCommandsProperty.Value).Count
-            pose = [string]$Plan.Pose
-        })
-    }
-    Write-BdsConsoleCommand -Handle $Handle -Command $Plan.FenceCommand -LogPath $consoleLogPath
-    if ($null -eq $WaitForFence) {
-        $null = Wait-ProcessOutputMarker -Handle $Handle -Marker $Plan.FenceMarker -TimeoutSeconds 30
-    }
-    else {
-        $null = & $WaitForFence $Handle $Plan.FenceMarker 30
-    }
-    if ($isLeafForest) {
-        Write-AcceptanceEvent -RunDirectory $RunDirectory -Event 'processing_fence_observed' -Fields ([ordered]@{
-            command = [string]$Plan.FenceCommand
-            marker = [string]$Plan.FenceMarker
-        })
+        $null = Start-BdsFixtureLoadArea `
+            -Handle $Handle `
+            -Plan $Plan `
+            -RunDirectory $RunDirectory `
+            -SettleMilliseconds $PreloadSettleMilliseconds `
+            -WaitForLoadArea $WaitForLoadArea
+        $null = Complete-BdsFixtureCommandBatch `
+            -Handle $Handle `
+            -Plan $Plan `
+            -RunDirectory $RunDirectory `
+            -WaitForFence $WaitForFence
         $readyPath = Join-Path $RunDirectory 'visual-fixture-ready.json'
         $publication = Publish-FixtureManifest -Plan $Plan -Path $readyPath
         $targetMutation = $Plan.TargetMutation
@@ -1619,6 +2139,13 @@ function Publish-FullViewTeleport {
         return $publication
     }
 
+    Write-BdsConsoleCommand -Handle $Handle -Command $Plan.FenceCommand -LogPath $consoleLogPath
+    if ($null -eq $WaitForFence) {
+        $null = Wait-ProcessOutputMarker -Handle $Handle -Marker $Plan.FenceMarker -TimeoutSeconds 30
+    }
+    else {
+        $null = & $WaitForFence $Handle $Plan.FenceMarker 30
+    }
     Write-BdsConsoleCommand -Handle $Handle -Command $Plan.TeleportCommand -LogPath $consoleLogPath
 
     $planPath = Join-Path $RunDirectory 'full-view-teleport-plan.json'
@@ -2524,14 +3051,21 @@ function Assert-AcceptanceMetrics {
         [string]$SteadyResourceArtifactPath,
         $ExpectedMutationCoordinate,
         [switch]$RequireAssets,
-        [string]$ExpectedAssetBlobSha256
+        [string]$ExpectedAssetBlobSha256,
+        [switch]$OpaqueBaselineSchema
     )
 
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
         throw "app did not write acceptance metrics: $Path"
     }
     $metrics = Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json
-    $required = @(
+    if ($OpaqueBaselineSchema -and $RequireFullViewTeleport) {
+        throw 'OpaqueBaselineSchema cannot be combined with full-view validation'
+    }
+    if ($OpaqueBaselineSchema -and (-not $RequireAssets -or $null -eq $ExpectedMutationCoordinate)) {
+        throw 'OpaqueBaselineSchema requires exact asset and mutation evidence'
+    }
+    $currentRequired = @(
         'session_seconds', 'world_ready', 'requested_radius_chunks', 'received_radius_chunks',
         'publisher_radius_chunks', 'mutation_coordinate', 'visible_mutation_count', 'frame_count',
         'p50_frame_ms', 'p95_frame_ms', 'p99_frame_ms', 'max_frame_ms', 'max_decode_ms',
@@ -2543,6 +3077,28 @@ function Assert-AcceptanceMetrics {
         'peak_outbound_requests', 'peak_pending_mesh_jobs', 'peak_in_flight_mesh_jobs',
         'gpu_upload_bytes'
     )
+    $opaqueBaselineRequired = @(
+        'session_seconds', 'world_ready', 'requested_radius_chunks', 'received_radius_chunks',
+        'publisher_radius_chunks', 'mutation_coordinate', 'visible_mutation_count', 'frame_count',
+        'p50_frame_ms', 'p95_frame_ms', 'p99_frame_ms', 'max_frame_ms', 'max_decode_ms',
+        'max_mesh_ms', 'max_remesh_ms', 'max_mutation_to_visible_ms', 'decode_error_count',
+        'rendered_sub_chunks', 'resident_sub_chunks', 'visible_sub_chunks',
+        'peak_admitted_world_events', 'peak_admitted_heavy_events', 'peak_queued_decode_jobs',
+        'peak_in_flight_decode_jobs', 'peak_completed_decode_results', 'peak_pending_retry_requests',
+        'peak_outbound_requests', 'peak_pending_mesh_jobs', 'peak_in_flight_mesh_jobs',
+        'gpu_upload_bytes', 'assets'
+    )
+    $required = if ($OpaqueBaselineSchema) { $opaqueBaselineRequired } else { $currentRequired }
+    if ($OpaqueBaselineSchema) {
+        $actualFields = @($metrics.PSObject.Properties.Name)
+        $missingFields = @($required | Where-Object { -not ($actualFields -ccontains $_) } | Sort-Object)
+        $extraFields = @($actualFields | Where-Object { -not ($required -ccontains $_) } | Sort-Object)
+        if ($missingFields.Count -ne 0 -or $extraFields.Count -ne 0) {
+            $missing = if ($missingFields.Count -eq 0) { '<none>' } else { $missingFields -join ',' }
+            $extra = if ($extraFields.Count -eq 0) { '<none>' } else { $extraFields -join ',' }
+            throw "opaque baseline metrics schema mismatch: missing=$missing extra=$extra"
+        }
+    }
     foreach ($field in $required) {
         if ($null -eq $metrics.PSObject.Properties[$field]) {
             throw "acceptance metrics are missing $field"
@@ -2562,6 +3118,17 @@ function Assert-AcceptanceMetrics {
     if ([uint64]$metrics.frame_count -eq 0) {
         throw 'frame_count was zero'
     }
+    if ($OpaqueBaselineSchema) {
+        foreach ($field in @(
+            'session_seconds', 'p50_frame_ms', 'p95_frame_ms', 'p99_frame_ms', 'max_frame_ms',
+            'max_decode_ms', 'max_mesh_ms', 'max_remesh_ms', 'max_mutation_to_visible_ms'
+        )) {
+            $value = ConvertTo-EvidenceDouble -Value $metrics.$field -Field "opaque baseline $field"
+            if ($value -lt 0.0) {
+                throw "opaque baseline $field was negative: $value"
+            }
+        }
+    }
     $p99 = [double]$metrics.p99_frame_ms
     if ([double]::IsNaN($p99) -or [double]::IsInfinity($p99)) {
         throw "p99_frame_ms was not finite: $($metrics.p99_frame_ms)"
@@ -2573,6 +3140,9 @@ function Assert-AcceptanceMetrics {
         if ([uint64]$metrics.$field -eq 0) {
             throw "$field was zero"
         }
+    }
+    if ($OpaqueBaselineSchema -and [uint64]$metrics.gpu_upload_bytes -eq 0) {
+        throw 'gpu_upload_bytes was zero for opaque baseline'
     }
     if ($null -ne $ExpectedMutationCoordinate) {
         $expectedMutation = @($ExpectedMutationCoordinate)
@@ -2601,11 +3171,22 @@ function Assert-AcceptanceMetrics {
             throw 'acceptance metrics are missing assets'
         }
         $assetMetrics = $assetsProperty.Value
-        foreach ($field in @(
+        $requiredAssetFields = @(
             'source_tag', 'source_sha256', 'blob_sha256', 'texture_layers',
             'texture_bytes_including_mips', 'material_count', 'missing_mapping_count',
             'diagnostic_quad_count'
-        )) {
+        )
+        if ($OpaqueBaselineSchema) {
+            $actualAssetFields = @($assetMetrics.PSObject.Properties.Name)
+            $missingAssetFields = @($requiredAssetFields | Where-Object { -not ($actualAssetFields -ccontains $_) } | Sort-Object)
+            $extraAssetFields = @($actualAssetFields | Where-Object { -not ($requiredAssetFields -ccontains $_) } | Sort-Object)
+            if ($missingAssetFields.Count -ne 0 -or $extraAssetFields.Count -ne 0) {
+                $missing = if ($missingAssetFields.Count -eq 0) { '<none>' } else { $missingAssetFields -join ',' }
+                $extra = if ($extraAssetFields.Count -eq 0) { '<none>' } else { $extraAssetFields -join ',' }
+                throw "opaque baseline asset schema mismatch: missing=$missing extra=$extra"
+            }
+        }
+        foreach ($field in $requiredAssetFields) {
             if ($null -eq $assetMetrics.PSObject.Properties[$field]) {
                 throw "acceptance asset metrics are missing $field"
             }
@@ -2928,9 +3509,16 @@ $forcedRemeshMarkerOutputEvidence = $null
 $targetMutationMarkerOutputEvidence = $null
 $activeMutationCoordinate = $null
 $baselineSourceMutationCommand = $null
+$baselineForestPlan = $null
+$sourceWorldIdentity = $null
+$metrics = $null
 
 try {
     New-Item -ItemType Directory -Path $RunDirectory -Force | Out-Null
+
+    if ($isLeafEvidence) {
+        $sourceWorldIdentity = Get-BdsSourceWorldIdentity -SourceDirectory $BdsDir
+    }
 
     $repoCommit = (& git -C $ProjectRoot rev-parse HEAD).Trim()
     if ($LASTEXITCODE -ne 0) {
@@ -2959,6 +3547,9 @@ try {
         cpu = Get-OptionalCimValue 'Win32_Processor' 'Name'
         gpu = Get-OptionalCimValue 'Win32_VideoController' 'Name'
         display = Get-OptionalCimValue 'Win32_VideoController' 'VideoModeDescription'
+    }
+    if ($null -ne $sourceWorldIdentity) {
+        $metadata['source_world_identity'] = $sourceWorldIdentity
     }
     if ($PSBoundParameters.ContainsKey('Assets')) {
         $metadata['assets'] = $Assets
@@ -3072,6 +3663,13 @@ try {
             -Handle $bdsHandle `
             -Coordinate $coordinate `
             -RunDirectory $RunDirectory
+        $baselineForestPlan = New-LeafForestPlan -MutationCoordinate $coordinate -Mode Baseline
+        Set-BdsSourceWorldIdentityOnPlan -Plan $baselineForestPlan -Identity $sourceWorldIdentity
+        $null = Start-BdsFixtureLoadArea `
+            -Handle $bdsHandle `
+            -Plan $baselineForestPlan `
+            -RunDirectory $RunDirectory `
+            -SettleMilliseconds 0
         $activeMutationCoordinate = $null
         $blockIndex = 1
         $metadata['baseline_source_mutation_command'] = $baselineSourceMutationCommand
@@ -3106,6 +3704,7 @@ try {
         else {
             New-FullViewTeleportPlan -MutationCoordinate $coordinate
         }
+        Set-BdsSourceWorldIdentityOnPlan -Plan $teleportPlan -Identity $sourceWorldIdentity
         $fixturePublication = Publish-FullViewTeleport `
             -Handle $bdsHandle `
             -Plan $teleportPlan `
@@ -3241,7 +3840,10 @@ try {
         $metadata | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $RunDirectory 'metadata.json') -Encoding UTF8
     }
     elseif ($LeafForestBaseline) {
-        $fixturePlan = New-LeafForestPlan -MutationCoordinate $coordinate -Mode Baseline
+        $fixturePlan = $baselineForestPlan
+        if ($null -eq $fixturePlan) {
+            throw 'baseline forest plan was not prepared before the WorldReady observation window'
+        }
         $fixturePublication = Publish-VisualFixture `
             -Handle $bdsHandle `
             -Plan $fixturePlan `
@@ -3252,6 +3854,7 @@ try {
     }
     elseif ($VisualFixturePose -ne 'None') {
         $fixturePlan = New-VisualFixturePlan -MutationCoordinate $coordinate -Pose $VisualFixturePose
+        Set-BdsSourceWorldIdentityOnPlan -Plan $fixturePlan -Identity $sourceWorldIdentity
         $fixturePublication = Publish-VisualFixture `
             -Handle $bdsHandle `
             -Plan $fixturePlan `
@@ -3317,7 +3920,15 @@ try {
         $metrics = Assert-AcceptanceMetrics @fullViewMetricArguments
     }
     else {
-        if ($isLeafEvidence) {
+        if ($LeafForestBaseline) {
+            $metrics = Assert-AcceptanceMetrics `
+                -Path $CanonicalMetrics `
+                -OpaqueBaselineSchema `
+                -ExpectedMutationCoordinate $coordinate `
+                -RequireAssets `
+                -ExpectedAssetBlobSha256 $AssetBlobSha256
+        }
+        elseif ($isLeafEvidence) {
             $metrics = Assert-AcceptanceMetrics `
                 -Path $CanonicalMetrics `
                 -RequireAssets `
@@ -3328,11 +3939,6 @@ try {
         }
     }
     $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $RunDirectory 'validated-metrics.json') -Encoding UTF8
-    $metadata['status'] = 'passed'
-    $metadata['completed_utc'] = [DateTime]::UtcNow.ToString('o')
-    $metadata | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $RunDirectory 'metadata.json') -Encoding UTF8
-    Write-Output "ACCEPTANCE_ARTIFACTS=$RunDirectory"
-    Write-Output "ACCEPTANCE_P99_FRAME_MS=$($metrics.p99_frame_ms)"
 }
 catch {
     $runFailure = $_
@@ -3353,8 +3959,7 @@ finally {
     $cleanupErrors = [Collections.Generic.List[string]]::new()
     foreach ($child in @(
         [pscustomobject]@{ Handle = $appHandle; Kind = 'app' },
-        [pscustomobject]@{ Handle = $coreHandle; Kind = 'core' },
-        [pscustomobject]@{ Handle = $bdsHandle; Kind = 'bds' }
+        [pscustomobject]@{ Handle = $coreHandle; Kind = 'core' }
     )) {
         try {
             Stop-BoundedProcess `
@@ -3364,6 +3969,46 @@ finally {
         }
         catch {
             $cleanupErrors.Add("stop $($child.Kind): $($_.Exception.Message)")
+            Write-Warning $cleanupErrors[$cleanupErrors.Count - 1]
+        }
+    }
+    if ($null -ne $bdsHandle) {
+        try {
+            $loadAreaCleanup = Remove-BdsTickingArea `
+                -Handle $bdsHandle `
+                -RunDirectory $RunDirectory
+            if ($null -ne $loadAreaCleanup -and $null -ne $metadata) {
+                $metadata['load_area_cleanup'] = $loadAreaCleanup
+                $metadata | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $RunDirectory 'metadata.json') -Encoding UTF8
+            }
+        }
+        catch {
+            $cleanupErrors.Add("remove BDS ticking area: $($_.Exception.Message)")
+            Write-Warning $cleanupErrors[$cleanupErrors.Count - 1]
+        }
+    }
+    try {
+        Stop-BoundedProcess `
+            -Handle $bdsHandle `
+            -Kind 'bds' `
+            -BdsConsoleLogPath (Join-Path $RunDirectory 'bds.console.log')
+    }
+    catch {
+        $cleanupErrors.Add("stop bds: $($_.Exception.Message)")
+        Write-Warning $cleanupErrors[$cleanupErrors.Count - 1]
+    }
+    if ($null -ne $sourceWorldIdentity) {
+        try {
+            Assert-BdsSourceWorldIdentityUnchanged `
+                -Expected $sourceWorldIdentity `
+                -SourceDirectory $BdsDir
+            if ($null -ne $metadata) {
+                $metadata['source_world_identity_verified_after_run'] = $true
+                $metadata | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $RunDirectory 'metadata.json') -Encoding UTF8
+            }
+        }
+        catch {
+            $cleanupErrors.Add("verify BDS source world identity: $($_.Exception.Message)")
             Write-Warning $cleanupErrors[$cleanupErrors.Count - 1]
         }
     }
@@ -3440,3 +4085,12 @@ finally {
         throw "acceptance cleanup failed: $($cleanupErrors -join '; ')"
     }
 }
+
+if ($null -eq $metrics) {
+    throw 'acceptance metrics were unavailable after successful finalization'
+}
+$metadata['status'] = 'passed'
+$metadata['completed_utc'] = [DateTime]::UtcNow.ToString('o')
+$metadata | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $RunDirectory 'metadata.json') -Encoding UTF8
+Write-Output "ACCEPTANCE_ARTIFACTS=$RunDirectory"
+Write-Output "ACCEPTANCE_P99_FRAME_MS=$($metrics.p99_frame_ms)"

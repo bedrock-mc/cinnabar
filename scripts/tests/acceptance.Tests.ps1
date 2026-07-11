@@ -43,6 +43,38 @@ function Assert-ThrowsLike {
     Assert-True ($observed -like $Pattern) "$Message`nexpected error like: $Pattern`nactual error:        $observed"
 }
 
+function New-TestBdsFixtureResultLines {
+    param([Parameter(Mandatory = $true)][string[]]$Commands)
+
+    $lines = [Collections.Generic.List[string]]::new()
+    foreach ($command in $Commands) {
+        if ($command -match '^setblock ') {
+            $lines.Add('[2026-07-11 12:00:00:000 INFO] Block placed')
+            continue
+        }
+        if ($command -notmatch '^fill (-?\d+) (-?\d+) (-?\d+) (-?\d+) (-?\d+) (-?\d+) ') {
+            throw "test helper cannot model fixture command: $command"
+        }
+        $volume = ([Math]::Abs([int]$Matches[4] - [int]$Matches[1]) + 1) *
+            ([Math]::Abs([int]$Matches[5] - [int]$Matches[2]) + 1) *
+            ([Math]::Abs([int]$Matches[6] - [int]$Matches[3]) + 1)
+        $lines.Add("[2026-07-11 12:00:00:000 INFO] $volume blocks filled")
+    }
+    return @($lines)
+}
+
+function New-TestBdsMarkerEvidence {
+    param(
+        [Parameter(Mandatory = $true)][string]$Line,
+        [AllowEmptyCollection()][string[]]$SkippedLines = @()
+    )
+
+    return [pscustomobject][ordered]@{
+        Line = $Line
+        SkippedLines = @($SkippedLines)
+    }
+}
+
 function ConvertTo-TestCommandArgument {
     param([Parameter(Mandatory = $true)][string]$Value)
 
@@ -79,6 +111,68 @@ function Invoke-Acceptance {
     }
 }
 
+function Complete-TestLoggedProcess {
+    param(
+        $Handle,
+        [ValidateSet('app', 'core', 'bds')][string]$Kind = 'core'
+    )
+
+    if ($null -eq $Handle) {
+        return
+    }
+
+    $cleanupFailures = [Collections.Generic.List[string]]::new()
+    try {
+        if (-not $Handle.Process.HasExited) {
+            Stop-BoundedProcess -Handle $Handle -Kind $Kind
+        }
+        if (-not $Handle.Process.WaitForExit(10000)) {
+            throw 'test helper remained alive after bounded cleanup'
+        }
+    }
+    catch {
+        $cleanupFailures.Add("bounded process cleanup failed: $($_.Exception.Message)")
+        try {
+            if (-not $Handle.Process.HasExited) {
+                $Handle.Process.Kill()
+            }
+            if (-not $Handle.Process.WaitForExit(10000)) {
+                throw 'test helper remained alive after forced termination'
+            }
+        }
+        catch {
+            $cleanupFailures.Add("forced process cleanup failed: $($_.Exception.Message)")
+        }
+    }
+
+    try {
+        Complete-ProcessLogs $Handle
+    }
+    catch {
+        $cleanupFailures.Add("log cleanup failed: $($_.Exception.Message)")
+        foreach ($stream in @($Handle.StdoutStream, $Handle.StderrStream)) {
+            try {
+                $stream.Dispose()
+            }
+            catch {
+                $cleanupFailures.Add("fallback log stream disposal failed: $($_.Exception.Message)")
+            }
+        }
+    }
+    finally {
+        try {
+            $Handle.Process.Dispose()
+        }
+        catch {
+            $cleanupFailures.Add("process disposal failed: $($_.Exception.Message)")
+        }
+    }
+
+    if ($cleanupFailures.Count -ne 0) {
+        throw "test logged-process cleanup failed: $($cleanupFailures -join '; ')"
+    }
+}
+
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $AcceptanceScript = Join-Path $ProjectRoot 'scripts\acceptance.ps1'
 $TempRoot = Join-Path ([IO.Path]::GetTempPath()) ("rust-mcbe acceptance tests {0}" -f [guid]::NewGuid().ToString('N'))
@@ -87,6 +181,8 @@ $MetricsOut = Join-Path $TempRoot 'metrics output\metrics.json'
 $Assets = Join-Path $TempRoot 'vanilla assets with spaces.mcpack'
 $PrebuiltClient = Join-Path $TempRoot 'opaque base client\bedrock-client.exe'
 $DryRunDirectory = Join-Path $ProjectRoot '.local\acceptance\dry-run'
+$testFailure = $null
+$tempRootCleanupFailure = $null
 
 try {
     New-Item -ItemType Directory -Path $BdsDir -Force | Out-Null
@@ -96,6 +192,7 @@ try {
     Set-Content -LiteralPath $PrebuiltClient -Value 'pinned opaque client fixture' -NoNewline
     $prebuiltHashBefore = (Get-FileHash -Algorithm SHA256 -LiteralPath $PrebuiltClient).Hash
     Assert-True (-not (Test-Path -LiteralPath $DryRunDirectory)) "pre-existing dry-run artifact prevents an immutability assertion: $DryRunDirectory"
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $BdsDir 'worlds'))) 'generic dry-run fixture unexpectedly contains a pre-created BDS world'
 
     $success = Invoke-Acceptance -Arguments @(
         '-DryRun',
@@ -348,16 +445,48 @@ try {
     Assert-True ($source.Contains('ConvertFrom-MovePlayerIngressMarker')) 'live harness does not parse binding MovePlayer ingress evidence'
     Assert-True ($source.Contains('-PassThruEvidence')) 'binding marker waits do not retain stdout positions'
     Assert-True ($source.Contains('Write-AcceptanceEvent')) 'live harness does not persist ordered fixture/teleport events'
+    Assert-True `
+        ([regex]::IsMatch(
+            $source,
+            'if \(\$isLeafEvidence\) \{\s*\$sourceWorldIdentity = Get-BdsSourceWorldIdentity',
+            [Text.RegularExpressions.RegexOptions]::CultureInvariant
+        )) `
+        'generic live smoke runs still require a pre-created source world identity'
     Assert-True ($source.Contains('Move-Item -LiteralPath $temporaryPath -Destination $Path')) 'fixture manifest publication is not an atomic sibling rename'
     Assert-True ($source.Contains('$cpuPercent = 100.0 * $cpuDelta / ($wallDelta * [Environment]::ProcessorCount)')) 'steady CPU normalization formula changed'
     Assert-True (([regex]::Matches($source, '\.Refresh\(\)')).Count -ge 4) 'resource sampling does not refresh both process handles before/during sampling'
     $baselineSourceMutationIndex = $source.IndexOf('$baselineSourceMutationCommand = Publish-BaselineSourceMutation', [StringComparison]::Ordinal)
     $resourceSamplingIndex = $source.IndexOf('$resourceDocument = Measure-SteadyResources', [StringComparison]::Ordinal)
-    $baselineForestPublishIndex = $source.IndexOf('$fixturePlan = New-LeafForestPlan -MutationCoordinate $coordinate -Mode Baseline', [StringComparison]::Ordinal)
+    $baselineForestPlanIndex = $source.IndexOf(
+        '$baselineForestPlan = New-LeafForestPlan -MutationCoordinate $coordinate -Mode Baseline',
+        [Math]::Max(0, $baselineSourceMutationIndex),
+        [StringComparison]::Ordinal
+    )
+    $baselinePreloadIndex = $source.IndexOf(
+        '$null = Start-BdsFixtureLoadArea',
+        [Math]::Max(0, $baselineForestPlanIndex),
+        [StringComparison]::Ordinal
+    )
+    $baselineForestPublishIndex = $source.IndexOf('$fixturePlan = $baselineForestPlan', [StringComparison]::Ordinal)
     Assert-True ($baselineSourceMutationIndex -ge 0 -and $resourceSamplingIndex -gt $baselineSourceMutationIndex) 'baseline did not issue its source mutation immediately before the WorldReady observation window'
+    Assert-True ($baselineForestPlanIndex -gt $baselineSourceMutationIndex) 'baseline did not derive its exact far preload plan after source mutation'
+    Assert-True ($baselinePreloadIndex -gt $baselineForestPlanIndex -and $baselinePreloadIndex -lt $resourceSamplingIndex) 'baseline did not start its ticking-area preload before the 30s WorldReady observation window'
+    Assert-True `
+        ([regex]::IsMatch(
+            $source.Substring($baselinePreloadIndex, $resourceSamplingIndex - $baselinePreloadIndex),
+            'Start-BdsFixtureLoadArea[\s\S]*?-SettleMilliseconds 0',
+            [Text.RegularExpressions.RegexOptions]::CultureInvariant
+        )) `
+        'baseline added an extra preload settle instead of using the existing 30s WorldReady sample'
     Assert-True ($baselineForestPublishIndex -gt $resourceSamplingIndex) 'baseline far forest could publish before the source mutation observation window'
     $metricsValidationIndex = $source.IndexOf('$metrics = Assert-AcceptanceMetrics', [StringComparison]::Ordinal)
     Assert-True ($resourceSamplingIndex -ge 0 -and $metricsValidationIndex -gt $resourceSamplingIndex) 'full-view metrics SLA validation can run before steady-resource sampling/artifact publication'
+    $cleanupFailureThrowIndex = $source.LastIndexOf('throw "acceptance cleanup failed:', [StringComparison]::Ordinal)
+    $passedStatusIndex = $source.LastIndexOf('$metadata[''status''] = ''passed''', [StringComparison]::Ordinal)
+    $successArtifactOutputIndex = $source.LastIndexOf('Write-Output "ACCEPTANCE_ARTIFACTS=', [StringComparison]::Ordinal)
+    Assert-True ($cleanupFailureThrowIndex -ge 0) 'main finalizer omitted its cleanup-failure barrier'
+    Assert-True ($passedStatusIndex -gt $cleanupFailureThrowIndex) 'metadata could claim passed before required cleanup/source verification succeeded'
+    Assert-True ($successArtifactOutputIndex -gt $cleanupFailureThrowIndex) 'acceptance success markers could be emitted before required cleanup/source verification succeeded'
 
     $env:RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY = '1'
     try {
@@ -513,7 +642,22 @@ try {
         Assert-Equal 31213 $forestPlan.Manifest.clear.volume 'forest clear volume changed from the bounded 49x13x49 scene'
         Assert-True (@($forestPlan.Manifest.fill_volumes) -contains 31213) 'forest fill-volume evidence omitted the exact clear volume'
         Assert-Equal 0 $forestPlan.Manifest.layout.clear_min_offset[1] 'forest canonical layout did not own the ground layer'
+        Assert-Equal 'rust_mcbe_leaf_forest' $forestPlan.LoadAreaName 'forest ticking-area name changed'
+        Assert-Equal `
+            'tickingarea add 1117 64 991 1165 76 1039 rust_mcbe_leaf_forest true' `
+            $forestPlan.LoadAreaCommand `
+            'forest did not request an exact deterministic preload rectangle around its clear bounds'
+        Assert-Equal 'marked for preload.' $forestPlan.LoadAreaMarker 'forest waited for the wrong preload acknowledgement'
+        Assert-Equal 8000 $forestPlan.LoadAreaSettleMilliseconds 'forest preload settle bound changed'
+        Assert-Equal 'tickingarea remove rust_mcbe_leaf_forest' $forestPlan.CleanupCommand 'forest cleanup command changed'
+        Assert-Equal 'Removed ticking area(s)' $forestPlan.CleanupMarker 'forest cleanup waited for the wrong acknowledgement'
+        Assert-Equal $forestPlan.LoadAreaCommand $forestPlan.Commands[0] 'forest preload was not the first planned command'
+        Assert-Equal 23 $forestPlan.Manifest.command_count 'forest command count omitted preload/fence/teleport'
+        Assert-Equal 'rust_mcbe_leaf_forest' $forestPlan.Manifest.load_area.name 'forest manifest omitted the deterministic ticking-area name'
+        Assert-True ([bool]$forestPlan.Manifest.load_area.preload) 'forest manifest did not require ticking-area preload'
+        Assert-Equal 8000 $forestPlan.Manifest.load_area.settle_milliseconds 'forest manifest omitted preload settle evidence'
     }
+    Assert-True ($null -eq $leafFrontPlan.PSObject.Properties['LoadAreaCommand']) 'near leaf gallery unexpectedly acquired a ticking area'
     $expectedFarCamera = @(($mutationCoordinate[0] + 1040), ($mutationCoordinate[1] + 12), ($mutationCoordinate[2] + 1040))
     $expectedTargetMutation = @(($mutationCoordinate[0] + 1040), $mutationCoordinate[1], ($mutationCoordinate[2] + 1052))
     Assert-Equal ($expectedFarCamera -join ',') (@($baselineForestPlan.Target.x, $baselineForestPlan.Target.y, $baselineForestPlan.Target.z) -join ',') 'baseline forest did not use the identical far camera/cohort'
@@ -528,6 +672,63 @@ try {
     Assert-Equal 'minecraft:gold_block,minecraft:diamond_block' (@($fullViewForestPlan.Manifest.mutation_blocks) -join ',') 'target mutation alternation changed'
     Assert-Equal ($mutationCoordinate -join ',') (@($fullViewForestPlan.Manifest.source_mutation.x, $fullViewForestPlan.Manifest.source_mutation.y, $fullViewForestPlan.Manifest.source_mutation.z) -join ',') 'forest manifest lost source mutation identity'
     Assert-Equal ($expectedTargetMutation -join ',') (@($fullViewForestPlan.Manifest.target_mutation.x, $fullViewForestPlan.Manifest.target_mutation.y, $fullViewForestPlan.Manifest.target_mutation.z) -join ',') 'forest manifest lost target mutation identity'
+
+    $preloadResult = Assert-BdsTickingAreaPreloadResult `
+        -Line '[2026-07-11 12:00:00:000 INFO] Added ticking area from 1104, 0, 976 to 1167, 0, 1039 marked for preload.' `
+        -ExpectedMinimum $fullViewForestPlan.Manifest.clear.min `
+        -ExpectedMaximum $fullViewForestPlan.Manifest.clear.max
+    Assert-Equal '1104,976,1167,1039' (@($preloadResult.min_x, $preloadResult.min_z, $preloadResult.max_x, $preloadResult.max_z) -join ',') 'preload acknowledgement lost snapped X/Z bounds'
+    Assert-ThrowsLike {
+        Assert-BdsTickingAreaPreloadResult `
+            -Line '[2026-07-11 12:00:00:000 INFO] Added ticking area from 1120, 0, 992 to 1151, 0, 1023 marked for preload.' `
+            -ExpectedMinimum $fullViewForestPlan.Manifest.clear.min `
+            -ExpectedMaximum $fullViewForestPlan.Manifest.clear.max
+    } 'ticking-area acknowledgement did not match exact chunk-snapped fixture bounds:*' 'forest accepted a snapped ticking area that did not cover its clear bounds'
+    Assert-ThrowsLike {
+        Assert-BdsTickingAreaPreloadResult `
+            -Line '[2026-07-11 12:00:00:000 INFO] Added ticking area from 1088, 0, 960 to 1183, 0, 1055 marked for preload.' `
+            -ExpectedMinimum $fullViewForestPlan.Manifest.clear.min `
+            -ExpectedMaximum $fullViewForestPlan.Manifest.clear.max
+    } 'ticking-area acknowledgement did not match exact chunk-snapped fixture bounds:*' 'forest accepted an overbroad stale ticking area that merely covered its clear bounds'
+    Assert-ThrowsLike {
+        Assert-BdsTickingAreaPreloadResult `
+            -Line '[2026-07-11 12:00:00:000 INFO] Added ticking area from 1104, 0, 976 to 1167, 0, 1039.' `
+            -ExpectedMinimum $fullViewForestPlan.Manifest.clear.min `
+            -ExpectedMaximum $fullViewForestPlan.Manifest.clear.max
+    } 'invalid ticking-area preload acknowledgement:*' 'forest accepted a non-preloaded ticking area acknowledgement'
+
+    foreach ($resultPlan in @($leafFrontPlan, $leafBackPlan, $baselineForestPlan, $fullViewForestPlan)) {
+        $resultLines = New-TestBdsFixtureResultLines -Commands $resultPlan.FixtureCommands
+        $resultEvidence = Assert-BdsFixtureCommandResults -Commands $resultPlan.FixtureCommands -Lines $resultLines
+        Assert-Equal $resultPlan.FixtureCommands.Count $resultEvidence.result_count 'schema-v2 fixture result evidence lost a command result'
+    }
+    $zeroFillLines = @(New-TestBdsFixtureResultLines -Commands $leafFrontPlan.FixtureCommands)
+    $zeroFillIndex = [Array]::FindIndex([string[]]$leafFrontPlan.FixtureCommands, [Predicate[string]]{ param($command) $command.StartsWith('fill ', [StringComparison]::Ordinal) })
+    $zeroFillLines[$zeroFillIndex] = '[2026-07-11 12:00:00:000 INFO] 0 blocks filled'
+    $null = Assert-BdsFixtureCommandResults -Commands $leafFrontPlan.FixtureCommands -Lines $zeroFillLines
+    $outsideWorldLines = @(New-TestBdsFixtureResultLines -Commands $fullViewForestPlan.FixtureCommands)
+    $outsideWorldLines[0] = '[2026-07-11 12:00:00:000 ERROR] Cannot place blocks outside of the world'
+    Assert-ThrowsLike {
+        Assert-BdsFixtureCommandResults -Commands $fullViewForestPlan.FixtureCommands -Lines $outsideWorldLines
+    } 'BDS fixture command failed:*outside of the world*' 'schema-v2 fixture accepted the live-observed outside-world failure'
+    $missingResultLines = @(New-TestBdsFixtureResultLines -Commands $leafFrontPlan.FixtureCommands | Select-Object -Skip 1)
+    Assert-ThrowsLike {
+        Assert-BdsFixtureCommandResults -Commands $leafFrontPlan.FixtureCommands -Lines $missingResultLines
+    } 'BDS fixture result count mismatch:*' 'schema-v2 fixture accepted a missing command result'
+    $extraResultLines = @(New-TestBdsFixtureResultLines -Commands $leafFrontPlan.FixtureCommands) + @('[2026-07-11 12:00:00:000 INFO] Block placed')
+    Assert-ThrowsLike {
+        Assert-BdsFixtureCommandResults -Commands $leafFrontPlan.FixtureCommands -Lines $extraResultLines
+    } 'BDS fixture result count mismatch:*' 'schema-v2 fixture accepted an extra command result'
+    $outOfOrderLines = @(New-TestBdsFixtureResultLines -Commands $fullViewForestPlan.FixtureCommands)
+    $outOfOrderLines[0] = '[2026-07-11 12:00:00:000 INFO] Block placed'
+    Assert-ThrowsLike {
+        Assert-BdsFixtureCommandResults -Commands $fullViewForestPlan.FixtureCommands -Lines $outOfOrderLines
+    } 'BDS fixture result did not match command 1:*' 'schema-v2 fixture accepted an out-of-order result type'
+    $tooManyFilledLines = @(New-TestBdsFixtureResultLines -Commands $fullViewForestPlan.FixtureCommands)
+    $tooManyFilledLines[0] = '[2026-07-11 12:00:00:000 INFO] 31214 blocks filled'
+    Assert-ThrowsLike {
+        Assert-BdsFixtureCommandResults -Commands $fullViewForestPlan.FixtureCommands -Lines $tooManyFilledLines
+    } 'BDS fill result exceeded declared command volume:*' 'schema-v2 fixture accepted an impossible fill count'
 
     $armedMarker = ConvertFrom-TargetMutationArmedMarker -Line 'RUST_MCBE_TARGET_MUTATION_ARMED source=101,64,-37 target=1141,64,1015 view_generation=9'
     Assert-Equal '101,64,-37' (@($armedMarker.source) -join ',') 'target-mutation marker lost source coordinate'
@@ -684,19 +885,32 @@ try {
     $forestHandle = [pscustomobject]@{
         Process = [pscustomobject]@{ StandardInput = $forestInput }
     }
+    $forestResultLines = New-TestBdsFixtureResultLines -Commands $fullViewForestPlan.FixtureCommands
     $script:ObservedForestFence = $null
+    $script:ObservedForestLoadAreaMarker = $null
     $forestRunDirectory = Join-Path $TempRoot 'forest full view run'
     New-Item -ItemType Directory -Path $forestRunDirectory | Out-Null
     $forestPublication = Publish-FullViewTeleport `
         -Handle $forestHandle `
         -Plan $fullViewForestPlan `
         -RunDirectory $forestRunDirectory `
+        -PreloadSettleMilliseconds 0 `
+        -WaitForLoadArea {
+            param($Handle, $Marker, $TimeoutSeconds)
+            $script:ObservedForestLoadAreaMarker = $Marker
+            return New-TestBdsMarkerEvidence `
+                -Line '[2026-07-11 12:00:00:000 INFO] Added ticking area from 1104, 0, 976 to 1167, 0, 1039 marked for preload.'
+        } `
         -WaitForFence {
             param($Handle, $Marker, $TimeoutSeconds)
             $script:ObservedForestFence = $Marker
-            return $Marker
+            return New-TestBdsMarkerEvidence `
+                -Line '[2026-07-11 12:00:00:000 INFO] There are 1/10 players online:' `
+                -SkippedLines $forestResultLines
         }
+    Assert-Equal $fullViewForestPlan.LoadAreaMarker $script:ObservedForestLoadAreaMarker 'forest publisher did not observe the preload acknowledgement'
     Assert-Equal $fullViewForestPlan.FenceMarker $script:ObservedForestFence 'forest publisher did not observe the list fence'
+    Assert-Equal $fullViewForestPlan.LoadAreaName $forestHandle.ActiveTickingArea.Name 'forest publisher did not retain active ticking-area cleanup state'
     Assert-True (Test-Path -LiteralPath $forestPublication.Path -PathType Leaf) 'forest publisher did not atomically publish its manifest'
     Assert-Equal $fullViewForestPlan.Manifest.fixture_layout_hash $forestPublication.LayoutHash 'forest publication lost layout hash'
     $forestManifestHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $forestPublication.Path).Hash.ToLowerInvariant()
@@ -717,7 +931,7 @@ try {
     Assert-Equal ($fullViewForestPlan.Commands -join [Environment]::NewLine) $forestInput.ToString().TrimEnd("`r", "`n") 'forest owned-stdin order changed'
     $forestEvents = @(Get-Content -LiteralPath (Join-Path $forestRunDirectory 'acceptance-events.jsonl') | ForEach-Object { ConvertFrom-Json $_ })
     Assert-Equal `
-        'fixture_commands_completed,processing_fence_observed,visual_fixture_ready,teleport_issued' `
+        'load_area_ready,fixture_commands_completed,processing_fence_observed,visual_fixture_ready,teleport_issued' `
         (@($forestEvents | ForEach-Object { $_.event }) -join ',') `
         'forest evidence event order changed'
     $forestReadyEvent = @($forestEvents | Where-Object { $_.event -ceq 'visual_fixture_ready' })[0]
@@ -739,20 +953,174 @@ try {
         -Handle $baselineHandle `
         -Coordinate $mutationCoordinate `
         -RunDirectory $baselineRunDirectory
+    $null = Start-BdsFixtureLoadArea `
+        -Handle $baselineHandle `
+        -Plan $baselineForestPlan `
+        -RunDirectory $baselineRunDirectory `
+        -SettleMilliseconds 0 `
+        -WaitForLoadArea {
+            param($Handle, $Marker, $TimeoutSeconds)
+            return New-TestBdsMarkerEvidence `
+                -Line '[2026-07-11 12:00:00:000 INFO] Added ticking area from 1104, 0, 976 to 1167, 0, 1039 marked for preload.'
+        }
+    $script:BaselineReuseWaitInvoked = $false
     $null = Publish-VisualFixture `
         -Handle $baselineHandle `
         -Plan $baselineForestPlan `
         -RunDirectory $baselineRunDirectory `
         -SettleMilliseconds 0 `
-        -WaitForFence { param($Handle, $Marker, $TimeoutSeconds); return $Marker }
+        -WaitForLoadArea {
+            param($Handle, $Marker, $TimeoutSeconds)
+            $script:BaselineReuseWaitInvoked = $true
+            throw 'publisher attempted to wait for an already-ready exact ticking area'
+        } `
+        -WaitForFence {
+            param($Handle, $Marker, $TimeoutSeconds)
+            return New-TestBdsMarkerEvidence `
+                -Line '[2026-07-11 12:00:00:000 INFO] There are 1/10 players online:' `
+                -SkippedLines (New-TestBdsFixtureResultLines -Commands $baselineForestPlan.FixtureCommands)
+        }
     Assert-Equal 'setblock 101 64 -37 minecraft:gold_block' $baselineSourceCommand 'baseline source mutation prelude changed'
+    Assert-True (-not $script:BaselineReuseWaitInvoked) 'baseline publisher did not reuse its ready ticking area'
     $expectedBaselineConsole = @($baselineSourceCommand) + @($baselineForestPlan.Commands)
     Assert-Equal ($expectedBaselineConsole -join "`n") ((Get-Content -LiteralPath (Join-Path $baselineRunDirectory 'bds.console.log')) -join "`n") 'baseline source mutation did not precede the far forest fence/teleport'
+    Assert-Equal 1 @((Get-Content -LiteralPath (Join-Path $baselineRunDirectory 'bds.console.log')) | Where-Object { $_ -ceq $baselineForestPlan.LoadAreaCommand }).Count 'baseline exact-plan reuse issued the ticking-area add more than once'
     $baselineEvents = @(Get-Content -LiteralPath (Join-Path $baselineRunDirectory 'acceptance-events.jsonl') | ForEach-Object { ConvertFrom-Json $_ })
     Assert-Equal `
-        'source_mutation_command,fixture_commands_completed,processing_fence_observed,visual_fixture_ready,teleport_issued' `
+        'source_mutation_command,load_area_ready,load_area_reused,fixture_commands_completed,processing_fence_observed,visual_fixture_ready,teleport_issued' `
         (@($baselineEvents | ForEach-Object { $_.event }) -join ',') `
         'baseline event evidence did not order source mutation before the far forest'
+    $mismatchedLoadAreaPlan = New-LeafForestPlan -MutationCoordinate $mutationCoordinate -Mode Baseline
+    $mismatchedLoadAreaPlan.LoadAreaCommand = $mismatchedLoadAreaPlan.LoadAreaCommand.Replace(' true', ' false')
+    Assert-ThrowsLike {
+        Start-BdsFixtureLoadArea `
+            -Handle $baselineHandle `
+            -Plan $mismatchedLoadAreaPlan `
+            -RunDirectory $baselineRunDirectory `
+            -SettleMilliseconds 0 `
+            -WaitForLoadArea { throw 'mismatched plan attempted a second BDS command' }
+    } 'BDS handle already owns a different exact ticking-area plan:*' 'baseline reused an active ticking area for a non-identical plan'
+    Assert-Equal 1 @((Get-Content -LiteralPath (Join-Path $baselineRunDirectory 'bds.console.log')) | Where-Object { $_ -ceq $baselineForestPlan.LoadAreaCommand }).Count 'mismatched-plan rejection issued a second ticking-area add'
+
+    $failedForestInput = [IO.StringWriter]::new([Globalization.CultureInfo]::InvariantCulture)
+    $failedForestHandle = [pscustomobject]@{
+        Process = [pscustomobject]@{ StandardInput = $failedForestInput }
+    }
+    $failedForestRunDirectory = Join-Path $TempRoot 'forest rejected results run'
+    New-Item -ItemType Directory -Path $failedForestRunDirectory | Out-Null
+    $failedForestLines = @(New-TestBdsFixtureResultLines -Commands $fullViewForestPlan.FixtureCommands)
+    $failedForestLines[0] = '[2026-07-11 12:00:00:000 ERROR] Cannot place blocks outside of the world'
+    Assert-ThrowsLike {
+        Publish-FullViewTeleport `
+            -Handle $failedForestHandle `
+            -Plan $fullViewForestPlan `
+            -RunDirectory $failedForestRunDirectory `
+            -PreloadSettleMilliseconds 0 `
+            -WaitForLoadArea {
+                param($Handle, $Marker, $TimeoutSeconds)
+                return New-TestBdsMarkerEvidence `
+                    -Line '[2026-07-11 12:00:00:000 INFO] Added ticking area from 1104, 0, 976 to 1167, 0, 1039 marked for preload.'
+            } `
+            -WaitForFence {
+                param($Handle, $Marker, $TimeoutSeconds)
+                return New-TestBdsMarkerEvidence `
+                    -Line '[2026-07-11 12:00:00:000 INFO] There are 1/10 players online:' `
+                    -SkippedLines $failedForestLines
+            }
+    } 'BDS fixture command failed:*outside of the world*' 'forest publisher did not fail closed on the live-observed outside-world result'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $failedForestRunDirectory 'visual-fixture-ready.json'))) 'failed forest published a fixture manifest'
+    Assert-True (-not $failedForestInput.ToString().Contains($fullViewForestPlan.TeleportCommand)) 'failed forest teleported after a rejected fixture command'
+    Assert-Equal $fullViewForestPlan.LoadAreaName $failedForestHandle.ActiveTickingArea.Name 'failed forest lost cleanup ownership for its active ticking area'
+    $failedForestEvents = @(Get-Content -LiteralPath (Join-Path $failedForestRunDirectory 'acceptance-events.jsonl') | ForEach-Object { ConvertFrom-Json $_ })
+    Assert-Equal 'load_area_ready' (@($failedForestEvents | ForEach-Object { $_.event }) -join ',') 'failed forest claimed fixture command completion or publication'
+
+    $leafGalleryInput = [IO.StringWriter]::new([Globalization.CultureInfo]::InvariantCulture)
+    $leafGalleryHandle = [pscustomobject]@{
+        Process = [pscustomobject]@{ StandardInput = $leafGalleryInput }
+    }
+    $leafGalleryRunDirectory = Join-Path $TempRoot 'leaf gallery validated run'
+    New-Item -ItemType Directory -Path $leafGalleryRunDirectory | Out-Null
+    $leafGalleryPublication = Publish-VisualFixture `
+        -Handle $leafGalleryHandle `
+        -Plan $leafFrontPlan `
+        -RunDirectory $leafGalleryRunDirectory `
+        -SettleMilliseconds 0 `
+        -WaitForFence {
+            param($Handle, $Marker, $TimeoutSeconds)
+            return New-TestBdsMarkerEvidence `
+                -Line '[2026-07-11 12:00:00:000 INFO] There are 1/10 players online:' `
+                -SkippedLines (New-TestBdsFixtureResultLines -Commands $leafFrontPlan.FixtureCommands)
+        }
+    Assert-True (Test-Path -LiteralPath $leafGalleryPublication.Path -PathType Leaf) 'leaf gallery did not publish after every command result succeeded'
+    Assert-Equal ($leafFrontPlan.Commands -join [Environment]::NewLine) $leafGalleryInput.ToString().TrimEnd("`r", "`n") 'leaf gallery result validation changed command/fence/teleport order'
+
+    $failedGalleryInput = [IO.StringWriter]::new([Globalization.CultureInfo]::InvariantCulture)
+    $failedGalleryHandle = [pscustomobject]@{
+        Process = [pscustomobject]@{ StandardInput = $failedGalleryInput }
+    }
+    $failedGalleryRunDirectory = Join-Path $TempRoot 'leaf gallery rejected results run'
+    New-Item -ItemType Directory -Path $failedGalleryRunDirectory | Out-Null
+    $failedGalleryLines = @(New-TestBdsFixtureResultLines -Commands $leafFrontPlan.FixtureCommands)
+    $failedGalleryLines[0] = '[2026-07-11 12:00:00:000 ERROR] No blocks filled'
+    Assert-ThrowsLike {
+        Publish-VisualFixture `
+            -Handle $failedGalleryHandle `
+            -Plan $leafFrontPlan `
+            -RunDirectory $failedGalleryRunDirectory `
+            -SettleMilliseconds 0 `
+            -WaitForFence {
+                param($Handle, $Marker, $TimeoutSeconds)
+                return New-TestBdsMarkerEvidence `
+                    -Line '[2026-07-11 12:00:00:000 INFO] There are 1/10 players online:' `
+                    -SkippedLines $failedGalleryLines
+            }
+    } 'BDS fixture command failed:*No blocks filled*' 'leaf gallery publisher did not fail closed on an ERROR result'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $failedGalleryRunDirectory 'visual-fixture-ready.json'))) 'failed leaf gallery published a fixture manifest'
+    Assert-True (-not $failedGalleryInput.ToString().Contains($leafFrontPlan.TeleportCommand)) 'failed leaf gallery teleported after a rejected fixture command'
+
+    $cleanupResult = Remove-BdsTickingArea `
+        -Handle $forestHandle `
+        -RunDirectory $forestRunDirectory `
+        -WaitForAck {
+            param($Handle, $Marker, $TimeoutSeconds)
+            return New-TestBdsMarkerEvidence `
+                -Line '[2026-07-11 12:00:00:000 INFO] Removed ticking area(s)'
+        }
+    Assert-Equal $fullViewForestPlan.CleanupCommand $cleanupResult.command 'ticking-area cleanup issued the wrong command'
+    $activeTickingAreaProperty = $forestHandle.PSObject.Properties['ActiveTickingArea']
+    Assert-True ($null -eq $activeTickingAreaProperty -or $null -eq $activeTickingAreaProperty.Value) 'acknowledged ticking-area cleanup left active ownership state'
+    Assert-Equal $fullViewForestPlan.CleanupCommand ((Get-Content -LiteralPath (Join-Path $forestRunDirectory 'bds.console.log'))[-1]) 'cleanup command was not persisted in the BDS console log'
+    $cleanupEvents = @(Get-Content -LiteralPath (Join-Path $forestRunDirectory 'acceptance-events.jsonl') | ForEach-Object { ConvertFrom-Json $_ })
+    Assert-Equal 'load_area_removed' $cleanupEvents[-1].event 'cleanup acknowledgement was not recorded as the final forest event'
+
+    $failedCleanupInput = [IO.StringWriter]::new([Globalization.CultureInfo]::InvariantCulture)
+    $failedCleanupHandle = [pscustomobject]@{
+        Process = [pscustomobject]@{ StandardInput = $failedCleanupInput }
+    }
+    $failedCleanupRunDirectory = Join-Path $TempRoot 'ticking area cleanup failure run'
+    New-Item -ItemType Directory -Path $failedCleanupRunDirectory | Out-Null
+    $null = Start-BdsFixtureLoadArea `
+        -Handle $failedCleanupHandle `
+        -Plan $fullViewForestPlan `
+        -RunDirectory $failedCleanupRunDirectory `
+        -SettleMilliseconds 0 `
+        -WaitForLoadArea {
+            return New-TestBdsMarkerEvidence `
+                -Line '[2026-07-11 12:00:00:000 INFO] Added ticking area from 1104, 0, 976 to 1167, 0, 1039 marked for preload.'
+        }
+    Assert-ThrowsLike {
+        Remove-BdsTickingArea `
+            -Handle $failedCleanupHandle `
+            -RunDirectory $failedCleanupRunDirectory `
+            -WaitForAck {
+                return New-TestBdsMarkerEvidence `
+                    -Line '[2026-07-11 12:00:00:000 INFO] Removed ticking areas'
+            }
+    } 'invalid ticking-area cleanup acknowledgement:*' 'cleanup accepted a non-exact acknowledgement'
+    Assert-Equal $fullViewForestPlan.LoadAreaName $failedCleanupHandle.ActiveTickingArea.Name 'failed cleanup discarded active ticking-area ownership state'
+    $failedCleanupEvents = @(Get-Content -LiteralPath (Join-Path $failedCleanupRunDirectory 'acceptance-events.jsonl') | ForEach-Object { ConvertFrom-Json $_ })
+    Assert-Equal 'load_area_ready' (@($failedCleanupEvents | ForEach-Object { $_.event }) -join ',') 'failed cleanup falsely recorded load_area_removed'
+    Assert-Equal $fullViewForestPlan.CleanupCommand ($failedCleanupInput.ToString().TrimEnd("`r", "`n").Split([Environment]::NewLine)[-1]) 'failed cleanup did not issue the owned exact removal command'
 
     $serverPropertiesPath = Join-Path $TempRoot 'server.properties'
     [IO.File]::WriteAllLines(
@@ -764,6 +1132,8 @@ try {
             'allow-list=true'
             'enable-lan-visibility=true'
             'server-name=fixture'
+            'level-name=Bedrock level'
+            'level-seed=unchanged-seed'
         ),
         [Text.UTF8Encoding]::new($false)
     )
@@ -775,10 +1145,47 @@ try {
         'online-mode=false',
         'allow-list=false',
         'enable-lan-visibility=false',
-        'server-name=fixture'
+        'server-name=fixture',
+        'level-name=Bedrock level',
+        'level-seed=unchanged-seed'
     )) {
         Assert-True ($serverProperties -contains $expectedProperty) "missing rewritten property: $expectedProperty"
     }
+
+    $worldIdentitySource = Join-Path $TempRoot 'world identity source'
+    $worldIdentitySourceReverse = Join-Path $TempRoot 'world identity source reverse'
+    foreach ($identityRoot in @($worldIdentitySource, $worldIdentitySourceReverse)) {
+        $identityWorld = Join-Path $identityRoot 'worlds\Bedrock level'
+        New-Item -ItemType Directory -Path (Join-Path $identityWorld 'db') -Force | Out-Null
+        [IO.File]::WriteAllLines(
+            (Join-Path $identityRoot 'server.properties'),
+            @('server-name=identity fixture', 'level-name=Bedrock level'),
+            [Text.UTF8Encoding]::new($false)
+        )
+    }
+    [IO.File]::WriteAllBytes((Join-Path $worldIdentitySource 'worlds\Bedrock level\level.dat'), [byte[]]@(1, 2, 3, 4))
+    [IO.File]::WriteAllBytes((Join-Path $worldIdentitySource 'worlds\Bedrock level\db\CURRENT'), [byte[]]@(5, 6))
+    [IO.File]::WriteAllBytes((Join-Path $worldIdentitySource 'worlds\Bedrock level\db\MANIFEST-000001'), [byte[]]@(7, 8, 9))
+    [IO.File]::WriteAllBytes((Join-Path $worldIdentitySourceReverse 'worlds\Bedrock level\db\MANIFEST-000001'), [byte[]]@(7, 8, 9))
+    [IO.File]::WriteAllBytes((Join-Path $worldIdentitySourceReverse 'worlds\Bedrock level\db\CURRENT'), [byte[]]@(5, 6))
+    [IO.File]::WriteAllBytes((Join-Path $worldIdentitySourceReverse 'worlds\Bedrock level\level.dat'), [byte[]]@(1, 2, 3, 4))
+    $worldIdentity = Get-BdsSourceWorldIdentity -SourceDirectory $worldIdentitySource
+    $worldIdentityAgain = Get-BdsSourceWorldIdentity -SourceDirectory $worldIdentitySource
+    $worldIdentityReverse = Get-BdsSourceWorldIdentity -SourceDirectory $worldIdentitySourceReverse
+    Assert-Equal 'Bedrock level' $worldIdentity.level_name 'source-world identity lost level-name'
+    Assert-Equal 3 $worldIdentity.file_count 'source-world identity did not cover level.dat plus the full DB tree'
+    Assert-Equal 9 $worldIdentity.total_bytes 'source-world identity byte count changed'
+    Assert-True ([string]$worldIdentity.level_dat_sha256 -match '^[0-9a-f]{64}$') 'source-world identity omitted level.dat SHA-256'
+    Assert-Equal $worldIdentity.sha256 $worldIdentityAgain.sha256 'source-world identity was not deterministic'
+    Assert-Equal $worldIdentity.sha256 $worldIdentityReverse.sha256 'source-world identity depended on filesystem enumeration or root path'
+    Assert-BdsSourceWorldIdentityUnchanged -Expected $worldIdentity -SourceDirectory $worldIdentitySource
+    [IO.File]::WriteAllBytes((Join-Path $worldIdentitySource 'worlds\Bedrock level\db\CURRENT'), [byte[]]@(5, 7))
+    Assert-ThrowsLike {
+        Assert-BdsSourceWorldIdentityUnchanged -Expected $worldIdentity -SourceDirectory $worldIdentitySource
+    } 'BDS source world identity changed:*' 'source-world mutation was not detected after the acceptance copy/run boundary'
+    Assert-True `
+        ([regex]::IsMatch($source, "source_world_identity[\s\S]*Assert-BdsSourceWorldIdentityUnchanged", [Text.RegularExpressions.RegexOptions]::CultureInvariant)) `
+        'live flow did not record source-world identity before verifying it after the run'
 
     $runtimeSource = (Resolve-Path -LiteralPath $BdsDir).Path.TrimEnd('\', '/')
     if ($runtimeSource.StartsWith('\\')) {
@@ -846,47 +1253,122 @@ try {
         -WorkingDirectory $TempRoot
     Assert-True ((Get-Content -Raw -LiteralPath $stderrBuildLog).Contains('compiler-progress')) 'successful native stderr was not retained in the build log'
 
-    $helper = Start-LoggedProcess `
-        -Executable (Join-Path $PSHOME 'powershell.exe') `
-        -Arguments @('-NoProfile', '-Command', "Write-Output 'TEST_READY'; [Console]::Error.WriteLine('error-line')") `
-        -WorkingDirectory $TempRoot `
-        -StdoutPath (Join-Path $TempRoot 'helper.stdout.log') `
-        -StderrPath (Join-Path $TempRoot 'helper.stderr.log')
-    Assert-True ((Wait-ProcessOutputMarker -Handle $helper -Marker 'TEST_READY' -TimeoutSeconds 10) -eq 'TEST_READY') 'direct log stream did not expose readiness marker'
-    Assert-True ($helper.Process.WaitForExit(10000)) 'logging helper did not exit'
-    Complete-ProcessLogs $helper
+    $helper = $null
+    $helperCleanupFailure = $null
+    try {
+        $helper = Start-LoggedProcess `
+            -Executable (Join-Path $PSHOME 'powershell.exe') `
+            -Arguments @('-NoProfile', '-Command', "Write-Output 'TEST_READY'; [Console]::Error.WriteLine('error-line')") `
+            -WorkingDirectory $TempRoot `
+            -StdoutPath (Join-Path $TempRoot 'helper.stdout.log') `
+            -StderrPath (Join-Path $TempRoot 'helper.stderr.log')
+        Assert-True ((Wait-ProcessOutputMarker -Handle $helper -Marker 'TEST_READY' -TimeoutSeconds 10) -eq 'TEST_READY') 'direct log stream did not expose readiness marker'
+        Assert-True ($helper.Process.WaitForExit(10000)) 'logging helper did not exit'
+    }
+    finally {
+        try {
+            Complete-TestLoggedProcess -Handle $helper
+        }
+        catch {
+            $helperCleanupFailure = $_
+        }
+    }
+    if ($null -ne $helperCleanupFailure) {
+        throw $helperCleanupFailure
+    }
+
+    $evidenceHelper = $null
+    $evidenceHelperCleanupFailure = $null
+    try {
+        $evidenceHelper = Start-LoggedProcess `
+            -Executable (Join-Path $PSHOME 'powershell.exe') `
+            -Arguments @('-NoProfile', '-Command', "Write-Output '[2026-07-11 12:00:00:000 INFO] 4 blocks filled'; Write-Output '[2026-07-11 12:00:00:001 INFO] Block placed'; Write-Output '[2026-07-11 12:00:00:002 INFO] There are 1/10 players online:'") `
+            -WorkingDirectory $TempRoot `
+            -StdoutPath (Join-Path $TempRoot 'evidence-helper.stdout.log') `
+            -StderrPath (Join-Path $TempRoot 'evidence-helper.stderr.log')
+        $markerEvidence = Wait-ProcessOutputMarker `
+            -Handle $evidenceHelper `
+            -Marker 'players online:' `
+            -TimeoutSeconds 10 `
+            -PassThruEvidence
+        Assert-Equal 2 @($markerEvidence.SkippedLines).Count 'marker evidence did not retain the exact stdout interval before its fence'
+        Assert-True ([string]$markerEvidence.SkippedLines[0] -like '*4 blocks filled') 'marker evidence lost the first skipped result line'
+        Assert-True ([string]$markerEvidence.SkippedLines[1] -like '*Block placed') 'marker evidence lost the second skipped result line'
+        Assert-True ($evidenceHelper.Process.WaitForExit(10000)) 'marker-evidence helper did not exit'
+    }
+    finally {
+        try {
+            Complete-TestLoggedProcess -Handle $evidenceHelper
+        }
+        catch {
+            $evidenceHelperCleanupFailure = $_
+        }
+    }
+    if ($null -ne $evidenceHelperCleanupFailure) {
+        throw $evidenceHelperCleanupFailure
+    }
     Assert-True ((Get-Content -Raw -LiteralPath $helper.StdoutPath).Contains('TEST_READY')) 'stdout was not preserved'
     Assert-True ((Get-Content -Raw -LiteralPath $helper.StderrPath).Contains('error-line')) 'stderr was not preserved'
 
-    $orderedMarkerHelper = Start-LoggedProcess `
-        -Executable (Join-Path $PSHOME 'powershell.exe') `
-        -Arguments @('-NoProfile', '-Command', "[Console]::Out.WriteLine('CURSOR_FIRST'); [Console]::Out.WriteLine('CURSOR_SECOND')") `
-        -WorkingDirectory $TempRoot `
-        -StdoutPath (Join-Path $TempRoot 'ordered-markers.stdout.log') `
-        -StderrPath (Join-Path $TempRoot 'ordered-markers.stderr.log')
-    $firstMarkerEvidence = Wait-ProcessOutputMarker -Handle $orderedMarkerHelper -Marker 'CURSOR_FIRST' -TimeoutSeconds 10 -PassThruEvidence
-    $secondMarkerEvidence = Wait-ProcessOutputMarker -Handle $orderedMarkerHelper -Marker 'CURSOR_SECOND' -TimeoutSeconds 10 -PassThruEvidence
-    Assert-Equal 'CURSOR_FIRST' $firstMarkerEvidence.Line 'marker cursor returned the wrong first line'
-    Assert-Equal 'CURSOR_SECOND' $secondMarkerEvidence.Line 'marker cursor lost the buffered second line'
-    Assert-True ([uint64]$secondMarkerEvidence.LineNumber -gt [uint64]$firstMarkerEvidence.LineNumber) 'marker cursor did not preserve increasing stdout line positions'
-    Assert-True ($orderedMarkerHelper.Process.WaitForExit(10000)) 'ordered marker helper did not exit'
-    Complete-ProcessLogs $orderedMarkerHelper
+    $orderedMarkerHelper = $null
+    $orderedMarkerCleanupFailure = $null
+    try {
+        $orderedMarkerHelper = Start-LoggedProcess `
+            -Executable (Join-Path $PSHOME 'powershell.exe') `
+            -Arguments @('-NoProfile', '-Command', "[Console]::Out.WriteLine('CURSOR_FIRST'); [Console]::Out.WriteLine('CURSOR_SECOND')") `
+            -WorkingDirectory $TempRoot `
+            -StdoutPath (Join-Path $TempRoot 'ordered-markers.stdout.log') `
+            -StderrPath (Join-Path $TempRoot 'ordered-markers.stderr.log')
+        $firstMarkerEvidence = Wait-ProcessOutputMarker -Handle $orderedMarkerHelper -Marker 'CURSOR_FIRST' -TimeoutSeconds 10 -PassThruEvidence
+        $secondMarkerEvidence = Wait-ProcessOutputMarker -Handle $orderedMarkerHelper -Marker 'CURSOR_SECOND' -TimeoutSeconds 10 -PassThruEvidence
+        Assert-Equal 'CURSOR_FIRST' $firstMarkerEvidence.Line 'marker cursor returned the wrong first line'
+        Assert-Equal 'CURSOR_SECOND' $secondMarkerEvidence.Line 'marker cursor lost the buffered second line'
+        Assert-True ([uint64]$secondMarkerEvidence.LineNumber -gt [uint64]$firstMarkerEvidence.LineNumber) 'marker cursor did not preserve increasing stdout line positions'
+        Assert-True ($orderedMarkerHelper.Process.WaitForExit(10000)) 'ordered marker helper did not exit'
+    }
+    finally {
+        try {
+            Complete-TestLoggedProcess -Handle $orderedMarkerHelper
+        }
+        catch {
+            $orderedMarkerCleanupFailure = $_
+        }
+    }
+    if ($null -ne $orderedMarkerCleanupFailure) {
+        throw $orderedMarkerCleanupFailure
+    }
 
-    $reversedMarkerHelper = Start-LoggedProcess `
-        -Executable (Join-Path $PSHOME 'powershell.exe') `
-        -Arguments @('-NoProfile', '-Command', "[Console]::Out.WriteLine('HISTORICAL_MARKER'); [Console]::Out.WriteLine('CURRENT_MARKER')") `
-        -WorkingDirectory $TempRoot `
-        -StdoutPath (Join-Path $TempRoot 'reversed-markers.stdout.log') `
-        -StderrPath (Join-Path $TempRoot 'reversed-markers.stderr.log')
-    $null = Wait-ProcessOutputMarker -Handle $reversedMarkerHelper -Marker 'CURRENT_MARKER' -TimeoutSeconds 10 -PassThruEvidence
-    Assert-ThrowsLike {
-        Wait-ProcessOutputMarker -Handle $reversedMarkerHelper -Marker 'HISTORICAL_MARKER' -TimeoutSeconds 1 -PassThruEvidence
-    } "timed out waiting for 'HISTORICAL_MARKER'*" 'marker wait rescanned and accepted an earlier stdout line'
-    Assert-True ($reversedMarkerHelper.Process.WaitForExit(10000)) 'reversed marker helper did not exit'
-    Complete-ProcessLogs $reversedMarkerHelper
+    $reversedMarkerHelper = $null
+    $reversedMarkerCleanupFailure = $null
+    try {
+        $reversedMarkerHelper = Start-LoggedProcess `
+            -Executable (Join-Path $PSHOME 'powershell.exe') `
+            -Arguments @('-NoProfile', '-Command', "[Console]::Out.WriteLine('HISTORICAL_MARKER'); [Console]::Out.WriteLine('CURRENT_MARKER')") `
+            -WorkingDirectory $TempRoot `
+            -StdoutPath (Join-Path $TempRoot 'reversed-markers.stdout.log') `
+            -StderrPath (Join-Path $TempRoot 'reversed-markers.stderr.log')
+        $null = Wait-ProcessOutputMarker -Handle $reversedMarkerHelper -Marker 'CURRENT_MARKER' -TimeoutSeconds 10 -PassThruEvidence
+        Assert-ThrowsLike {
+            Wait-ProcessOutputMarker -Handle $reversedMarkerHelper -Marker 'HISTORICAL_MARKER' -TimeoutSeconds 1 -PassThruEvidence
+        } "timed out waiting for 'HISTORICAL_MARKER'*" 'marker wait rescanned and accepted an earlier stdout line'
+        Assert-True ($reversedMarkerHelper.Process.WaitForExit(10000)) 'reversed marker helper did not exit'
+    }
+    finally {
+        try {
+            Complete-TestLoggedProcess -Handle $reversedMarkerHelper
+        }
+        catch {
+            $reversedMarkerCleanupFailure = $_
+        }
+    }
+    if ($null -ne $reversedMarkerCleanupFailure) {
+        throw $reversedMarkerCleanupFailure
+    }
 
     $udpHelper = $null
     $bufferedHelper = $null
+    $udpHelperCleanupFailure = $null
+    $bufferedHelperCleanupFailure = $null
     try {
         $udpReservation = New-ReservedUdpPort
         $udpPort = $udpReservation.Port
@@ -961,26 +1443,50 @@ $writer.Dispose()
         Assert-True ($udpHelper.Process.WaitForExit(2000)) 'invalid RakNet responses were accepted before the valid pong'
     }
     finally {
-        if ($null -ne $bufferedHelper) {
-            Stop-BoundedProcess -Handle $bufferedHelper -Kind 'core'
-            Complete-ProcessLogs $bufferedHelper
+        try {
+            Complete-TestLoggedProcess -Handle $bufferedHelper
         }
-        if ($null -ne $udpHelper) {
-            Stop-BoundedProcess -Handle $udpHelper -Kind 'core'
-            Complete-ProcessLogs $udpHelper
+        catch {
+            $bufferedHelperCleanupFailure = $_
         }
+        try {
+            Complete-TestLoggedProcess -Handle $udpHelper
+        }
+        catch {
+            $udpHelperCleanupFailure = $_
+        }
+    }
+    if ($null -ne $bufferedHelperCleanupFailure) {
+        throw $bufferedHelperCleanupFailure
+    }
+    if ($null -ne $udpHelperCleanupFailure) {
+        throw $udpHelperCleanupFailure
     }
     Assert-True ((Get-Content -Raw -LiteralPath $bufferedHelper.StdoutPath).Contains('BUFFERED_READY')) 'alternate readiness lost continuously captured stdout'
 
-    $eofHelper = Start-LoggedProcess `
-        -Executable (Join-Path $PSHOME 'powershell.exe') `
-        -Arguments @('-NoProfile', '-Command', '[Console]::In.ReadToEnd() | Out-Null') `
-        -WorkingDirectory $TempRoot `
-        -StdoutPath (Join-Path $TempRoot 'eof.stdout.log') `
-        -StderrPath (Join-Path $TempRoot 'eof.stderr.log')
-    Stop-BoundedProcess -Handle $eofHelper -Kind 'core'
-    Assert-True $eofHelper.Process.HasExited 'core-style EOF cleanup left its child running'
-    Complete-ProcessLogs $eofHelper
+    $eofHelper = $null
+    $eofHelperCleanupFailure = $null
+    try {
+        $eofHelper = Start-LoggedProcess `
+            -Executable (Join-Path $PSHOME 'powershell.exe') `
+            -Arguments @('-NoProfile', '-Command', '[Console]::In.ReadToEnd() | Out-Null') `
+            -WorkingDirectory $TempRoot `
+            -StdoutPath (Join-Path $TempRoot 'eof.stdout.log') `
+            -StderrPath (Join-Path $TempRoot 'eof.stderr.log')
+        Stop-BoundedProcess -Handle $eofHelper -Kind 'core'
+        Assert-True $eofHelper.Process.HasExited 'core-style EOF cleanup left its child running'
+    }
+    finally {
+        try {
+            Complete-TestLoggedProcess -Handle $eofHelper
+        }
+        catch {
+            $eofHelperCleanupFailure = $_
+        }
+    }
+    if ($null -ne $eofHelperCleanupFailure) {
+        throw $eofHelperCleanupFailure
+    }
 
     $bdsStopState = [pscustomobject]@{
         Commands = [Collections.Generic.List[string]]::new()
@@ -1108,6 +1614,171 @@ $writer.Dispose()
     )
     $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
     $null = Assert-AcceptanceMetrics -Path $metricsPath
+
+    $approvedOpaqueBlobSha256 = 'af98e5ddd5532972bf99b9fc3bdd3819bb06b1d8696198f135a9d96ae27ca7ba'
+    $opaqueBaselineMetrics = [ordered]@{
+        session_seconds = 60.0095326
+        world_ready = $true
+        requested_radius_chunks = 16
+        received_radius_chunks = 16
+        publisher_radius_chunks = 16
+        mutation_coordinate = @(27, 73, 91)
+        visible_mutation_count = 1
+        frame_count = 5732
+        p50_frame_ms = 10.1
+        p95_frame_ms = 14.3
+        p99_frame_ms = 17.0
+        max_frame_ms = 96.7656
+        max_decode_ms = 1.6392
+        max_mesh_ms = 10.3533
+        max_remesh_ms = 27701.8793
+        max_mutation_to_visible_ms = 48.663
+        decode_error_count = 0
+        rendered_sub_chunks = 9495
+        resident_sub_chunks = 10445
+        visible_sub_chunks = 4802
+        peak_admitted_world_events = 27
+        peak_admitted_heavy_events = 27
+        peak_queued_decode_jobs = 3
+        peak_in_flight_decode_jobs = 4
+        peak_completed_decode_results = 20
+        peak_pending_retry_requests = 0
+        peak_outbound_requests = 3
+        peak_pending_mesh_jobs = 20646
+        peak_in_flight_mesh_jobs = 64
+        gpu_upload_bytes = 25976256
+        assets = [ordered]@{
+            source_tag = 'v1.26.30.32-preview'
+            source_sha256 = '12d5cddc03acd507e9e0bd412f2e94d34d0a1a855758af7a9eef61b03630ad7c'
+            blob_sha256 = $approvedOpaqueBlobSha256
+            texture_layers = 388
+            texture_bytes_including_mips = 529232
+            material_count = 421
+            missing_mapping_count = 0
+            diagnostic_quad_count = 588885
+        }
+    }
+    $approvedOpaqueKeys = @(
+        'session_seconds', 'world_ready', 'requested_radius_chunks', 'received_radius_chunks',
+        'publisher_radius_chunks', 'mutation_coordinate', 'visible_mutation_count', 'frame_count',
+        'p50_frame_ms', 'p95_frame_ms', 'p99_frame_ms', 'max_frame_ms', 'max_decode_ms',
+        'max_mesh_ms', 'max_remesh_ms', 'max_mutation_to_visible_ms', 'decode_error_count',
+        'rendered_sub_chunks', 'resident_sub_chunks', 'visible_sub_chunks',
+        'peak_admitted_world_events', 'peak_admitted_heavy_events', 'peak_queued_decode_jobs',
+        'peak_in_flight_decode_jobs', 'peak_completed_decode_results', 'peak_pending_retry_requests',
+        'peak_outbound_requests', 'peak_pending_mesh_jobs', 'peak_in_flight_mesh_jobs',
+        'gpu_upload_bytes', 'assets'
+    )
+    $approvedOpaqueAssetKeys = @(
+        'source_tag', 'source_sha256', 'blob_sha256', 'texture_layers',
+        'texture_bytes_including_mips', 'material_count', 'missing_mapping_count',
+        'diagnostic_quad_count'
+    )
+    Assert-Equal 31 @($opaqueBaselineMetrics.Keys).Count 'approved opaque fixture did not have exactly 31 top-level keys'
+    Assert-Equal (($approvedOpaqueKeys | Sort-Object) -join ',') (@($opaqueBaselineMetrics.Keys | Sort-Object) -join ',') 'approved opaque fixture key set changed'
+    Assert-Equal 8 @($opaqueBaselineMetrics.assets.Keys).Count 'approved opaque fixture did not have exactly eight asset keys'
+    Assert-Equal (($approvedOpaqueAssetKeys | Sort-Object) -join ',') (@($opaqueBaselineMetrics.assets.Keys | Sort-Object) -join ',') 'approved opaque asset key set changed'
+    Assert-True (-not $opaqueBaselineMetrics.Contains('teleport_settle_ms')) 'approved opaque fixture unexpectedly gained teleport_settle_ms'
+    Assert-True (-not $opaqueBaselineMetrics.Contains('forced_full_view_remesh_ms')) 'approved opaque fixture unexpectedly gained forced_full_view_remesh_ms'
+    Assert-True (-not $opaqueBaselineMetrics.Contains('teleport_proof')) 'approved opaque fixture unexpectedly gained teleport_proof'
+    Assert-True (-not $opaqueBaselineMetrics.Contains('forced_full_view_remesh_proof')) 'approved opaque fixture unexpectedly gained forced_full_view_remesh_proof'
+
+    $opaqueBaselineMetricsPath = Join-Path $TempRoot 'opaque-baseline-validation-metrics.json'
+    $opaqueBaselineMetrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $opaqueBaselineMetricsPath
+    Assert-ThrowsLike {
+        Assert-AcceptanceMetrics -Path $opaqueBaselineMetricsPath
+    } 'acceptance metrics are missing teleport_settle_ms' 'approved base schema unexpectedly passed the current metrics path'
+    $opaqueBaselineArguments = @{
+        Path = $opaqueBaselineMetricsPath
+        OpaqueBaselineSchema = $true
+        ExpectedMutationCoordinate = @(27, 73, 91)
+        RequireAssets = $true
+        ExpectedAssetBlobSha256 = $approvedOpaqueBlobSha256
+    }
+    $originalDurationSeconds = $DurationSeconds
+    $DurationSeconds = 60
+    try {
+        $null = Assert-AcceptanceMetrics @opaqueBaselineArguments
+
+        $missingOpaqueField = $opaqueBaselineMetrics | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+        $missingOpaqueField.PSObject.Properties.Remove('gpu_upload_bytes')
+        $missingOpaqueField | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $opaqueBaselineMetricsPath
+        Assert-ThrowsLike { Assert-AcceptanceMetrics @opaqueBaselineArguments } 'opaque baseline metrics schema mismatch:*missing=gpu_upload_bytes*' 'opaque baseline schema accepted a missing approved key'
+
+        $extraOpaqueField = $opaqueBaselineMetrics | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+        $extraOpaqueField | Add-Member -MemberType NoteProperty -Name unexpected_field -Value 1
+        $extraOpaqueField | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $opaqueBaselineMetricsPath
+        Assert-ThrowsLike { Assert-AcceptanceMetrics @opaqueBaselineArguments } 'opaque baseline metrics schema mismatch:*extra=unexpected_field*' 'opaque baseline schema accepted an unknown key'
+
+        $currentSchemaAsOpaque = $metrics | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+        $currentSchemaAsOpaque | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $opaqueBaselineMetricsPath
+        Assert-ThrowsLike { Assert-AcceptanceMetrics @opaqueBaselineArguments } 'opaque baseline metrics schema mismatch:*extra=*teleport_settle_ms*' 'opaque baseline switch accepted the current metrics schema'
+
+        $missingOpaqueAssetField = $opaqueBaselineMetrics | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+        $missingOpaqueAssetField.assets.PSObject.Properties.Remove('diagnostic_quad_count')
+        $missingOpaqueAssetField | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $opaqueBaselineMetricsPath
+        Assert-ThrowsLike { Assert-AcceptanceMetrics @opaqueBaselineArguments } 'opaque baseline asset schema mismatch:*missing=diagnostic_quad_count*' 'opaque baseline schema accepted a missing asset key'
+
+        $extraOpaqueAssetField = $opaqueBaselineMetrics | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+        $extraOpaqueAssetField.assets | Add-Member -MemberType NoteProperty -Name unexpected_asset_field -Value 1
+        $extraOpaqueAssetField | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $opaqueBaselineMetricsPath
+        Assert-ThrowsLike { Assert-AcceptanceMetrics @opaqueBaselineArguments } 'opaque baseline asset schema mismatch:*extra=unexpected_asset_field*' 'opaque baseline schema accepted an unknown asset key'
+
+        $opaqueSafetyCases = @(
+            [pscustomobject]@{ Name = 'short session'; Pattern = 'session_seconds=*expected at least 60'; Mutate = { param($m) $m.session_seconds = 59.0 } },
+            [pscustomobject]@{ Name = 'world not ready'; Pattern = 'world_ready was false'; Mutate = { param($m) $m.world_ready = $false } },
+            [pscustomobject]@{ Name = 'requested radius'; Pattern = 'radius gate failed:*'; Mutate = { param($m) $m.requested_radius_chunks = 15 } },
+            [pscustomobject]@{ Name = 'received radius'; Pattern = 'radius gate failed:*'; Mutate = { param($m) $m.received_radius_chunks = 15 } },
+            [pscustomobject]@{ Name = 'publisher radius'; Pattern = 'radius gate failed:*'; Mutate = { param($m) $m.publisher_radius_chunks = 15 } },
+            [pscustomobject]@{ Name = 'wrong mutation coordinate'; Pattern = 'mutation_coordinate did not match manifested target:*'; Mutate = { param($m) $m.mutation_coordinate = @(27, 73, 92) } },
+            [pscustomobject]@{ Name = 'no visible mutation'; Pattern = 'visible_mutation_count was zero for target mutation evidence'; Mutate = { param($m) $m.visible_mutation_count = 0 } },
+            [pscustomobject]@{ Name = 'no frames'; Pattern = 'frame_count was zero'; Mutate = { param($m) $m.frame_count = 0 } },
+            [pscustomobject]@{ Name = 'no rendered chunks'; Pattern = 'rendered_sub_chunks was zero'; Mutate = { param($m) $m.rendered_sub_chunks = 0 } },
+            [pscustomobject]@{ Name = 'no resident chunks'; Pattern = 'resident_sub_chunks was zero'; Mutate = { param($m) $m.resident_sub_chunks = 0 } },
+            [pscustomobject]@{ Name = 'no visible chunks'; Pattern = 'visible_sub_chunks was zero'; Mutate = { param($m) $m.visible_sub_chunks = 0 } },
+            [pscustomobject]@{ Name = 'no GPU uploads'; Pattern = 'gpu_upload_bytes was zero for opaque baseline'; Mutate = { param($m) $m.gpu_upload_bytes = 0 } },
+            [pscustomobject]@{ Name = 'decode errors'; Pattern = 'decode_error_count=1, expected zero'; Mutate = { param($m) $m.decode_error_count = 1 } },
+            [pscustomobject]@{ Name = 'missing mapping'; Pattern = 'asset missing_mapping_count=1, expected zero'; Mutate = { param($m) $m.assets.missing_mapping_count = 1 } },
+            [pscustomobject]@{ Name = 'wrong source tag'; Pattern = 'asset source_tag did not match pinned source:*'; Mutate = { param($m) $m.assets.source_tag = 'wrong' } },
+            [pscustomobject]@{ Name = 'wrong source hash'; Pattern = 'asset source_sha256 did not match pinned source:*'; Mutate = { param($m) $m.assets.source_sha256 = ('0' * 64) } },
+            [pscustomobject]@{ Name = 'wrong blob hash'; Pattern = 'asset blob_sha256 did not match supplied blob:*'; Mutate = { param($m) $m.assets.blob_sha256 = ('0' * 64) } },
+            [pscustomobject]@{ Name = 'no texture layers'; Pattern = 'asset metrics were not populated:*'; Mutate = { param($m) $m.assets.texture_layers = 0 } },
+            [pscustomobject]@{ Name = 'no mip bytes'; Pattern = 'asset metrics were not populated:*'; Mutate = { param($m) $m.assets.texture_bytes_including_mips = 0 } },
+            [pscustomobject]@{ Name = 'no materials'; Pattern = 'asset metrics were not populated:*'; Mutate = { param($m) $m.assets.material_count = 0 } }
+        )
+        foreach ($case in $opaqueSafetyCases) {
+            $candidate = $opaqueBaselineMetrics | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+            & $case.Mutate $candidate
+            $candidate | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $opaqueBaselineMetricsPath
+            Assert-ThrowsLike { Assert-AcceptanceMetrics @opaqueBaselineArguments } $case.Pattern "opaque baseline accepted unsafe $($case.Name)"
+        }
+
+        foreach ($field in @(
+            'p50_frame_ms', 'p95_frame_ms', 'p99_frame_ms', 'max_frame_ms',
+            'max_decode_ms', 'max_mesh_ms', 'max_remesh_ms', 'max_mutation_to_visible_ms'
+        )) {
+            $candidate = $opaqueBaselineMetrics | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+            $candidate.$field = 'NaN'
+            $candidate | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $opaqueBaselineMetricsPath
+            Assert-ThrowsLike { Assert-AcceptanceMetrics @opaqueBaselineArguments } "opaque baseline $field was not finite:*" "opaque baseline accepted nonfinite $field"
+        }
+
+        $opaqueBaselineMetrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $opaqueBaselineMetricsPath
+        $opaqueFullViewArguments = @{}
+        foreach ($key in $opaqueBaselineArguments.Keys) { $opaqueFullViewArguments[$key] = $opaqueBaselineArguments[$key] }
+        $opaqueFullViewArguments['RequireFullViewTeleport'] = $true
+        Assert-ThrowsLike { Assert-AcceptanceMetrics @opaqueFullViewArguments } 'OpaqueBaselineSchema cannot be combined with full-view validation' 'opaque baseline schema weakened the full-view gate'
+        Assert-True `
+            ([regex]::IsMatch(
+                $source,
+                'if \(\$LeafForestBaseline\)[\s\S]*?OpaqueBaselineSchema',
+                [Text.RegularExpressions.RegexOptions]::CultureInvariant
+            )) `
+            'live LeafForestBaseline path did not select the explicit opaque baseline schema'
+    }
+    finally {
+        $DurationSeconds = $originalDurationSeconds
+    }
 
     $metrics.teleport_settle_ms = 1500.0
     $metrics.forced_full_view_remesh_ms = 1500.0
@@ -1425,10 +2096,32 @@ $writer.Dispose()
     $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
     Assert-Throws { Assert-AcceptanceMetrics -Path $metricsPath } 'nonnumeric p99 passed validation'
 
-    Write-Output 'acceptance.ps1 dry-run tests: PASS'
+}
+catch {
+    $testFailure = $_
 }
 finally {
-    if (Test-Path -LiteralPath $TempRoot) {
-        Remove-Item -LiteralPath $TempRoot -Recurse -Force
+    try {
+        if (Test-Path -LiteralPath $TempRoot) {
+            Remove-Item -LiteralPath $TempRoot -Recurse -Force -ErrorAction Stop
+        }
+        if (Test-Path -LiteralPath $TempRoot) {
+            throw "acceptance test temporary directory still exists after cleanup: $TempRoot"
+        }
+    }
+    catch {
+        $tempRootCleanupFailure = $_
     }
 }
+
+if ($null -ne $testFailure) {
+    if ($null -ne $tempRootCleanupFailure) {
+        Write-Warning "temporary-directory cleanup also failed: $($tempRootCleanupFailure.Exception.Message)"
+    }
+    throw $testFailure
+}
+if ($null -ne $tempRootCleanupFailure) {
+    throw $tempRootCleanupFailure
+}
+
+Write-Output 'acceptance.ps1 dry-run tests: PASS'
