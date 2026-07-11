@@ -1,4 +1,6 @@
-use world::{ChunkKey, ChunkStore, DecodeError, MAX_LEVEL_SUBCHUNKS, SubChunkKey};
+use world::{
+    ChunkKey, ChunkStore, DecodeError, DecodedBiomeColumn, MAX_LEVEL_SUBCHUNKS, SubChunkKey,
+};
 
 fn zig_zag_i32(value: i32) -> Vec<u8> {
     let mut value = ((value as u32) << 1) ^ ((value >> 31) as u32);
@@ -26,6 +28,12 @@ fn uniform(version: u8, y_index: Option<i8>, runtime_id: u32) -> Vec<u8> {
     }
     bytes.push(1);
     bytes.extend(zig_zag_i32(runtime_id as i32));
+    bytes
+}
+
+fn uniform_biome(biome_id: u32) -> Vec<u8> {
+    let mut bytes = vec![1];
+    bytes.extend(zig_zag_i32(biome_id as i32));
     bytes
 }
 
@@ -106,6 +114,23 @@ fn all_air_responses_remove_stale_data_without_a_flat_storage() {
 }
 
 #[test]
+fn biome_only_column_survives_all_air_subchunk_removal() {
+    let mut store = ChunkStore::new();
+    let chunk = ChunkKey::new(0, 1, 2);
+    let key = SubChunkKey::from_chunk(chunk, -4);
+    let biomes = DecodedBiomeColumn::decode(-4, 1, &uniform_biome(42)).unwrap();
+    store.commit_biome_column(chunk, biomes);
+    store
+        .apply_sub_chunk(key, &uniform(9, Some(-4), 12))
+        .unwrap();
+
+    assert_eq!(store.apply_all_air(key), Some(key));
+    assert!(store.sub_chunk(key).is_none());
+    assert_eq!(store.biome_id(key, 3, 4, 5), Some(42));
+    assert!(store.chunk(chunk).is_some());
+}
+
+#[test]
 fn external_key_supplies_the_y_index_for_legacy_sub_chunks() {
     let mut store = ChunkStore::new();
     let key = SubChunkKey::new(1, 2, 7, 3);
@@ -181,6 +206,64 @@ fn level_chunk_decode_is_atomic_and_reports_payload_consumption() {
         store.sub_chunk(upper_key).unwrap().runtime_id(0, 0, 0, 0),
         Some(30)
     );
+}
+
+#[test]
+fn inline_level_chunk_decodes_biomes_after_blocks_atomically() {
+    let mut store = ChunkStore::new();
+    let chunk = ChunkKey::new(0, 8, 9);
+    let key = SubChunkKey::from_chunk(chunk, -4);
+    let block = uniform(9, Some(-4), 20);
+    let mut payload = block.clone();
+    payload.extend(uniform_biome(7));
+    payload.push(0xff);
+
+    let applied = store
+        .apply_level_chunk_with_biomes(chunk, -4, 1, -4, 2, &payload)
+        .unwrap();
+    assert_eq!(applied.block_bytes_consumed, block.len());
+    assert_eq!(applied.bytes_consumed, payload.len());
+    assert_eq!(store.biome_id(key, 0, 0, 0), Some(7));
+    assert_eq!(
+        store.biome_id(SubChunkKey::from_chunk(chunk, -3), 15, 15, 15),
+        Some(7)
+    );
+
+    let mut malformed = uniform(9, Some(-4), 99);
+    malformed.extend(uniform_biome(9));
+    malformed.push(0xff);
+    malformed.push(0xff); // Unexpected third storage is irrelevant; require a bad second instead.
+    malformed.truncate(block.len() + 1);
+    assert!(
+        store
+            .apply_level_chunk_with_biomes(chunk, -4, 1, -4, 2, &malformed)
+            .is_err()
+    );
+    assert_eq!(
+        store.sub_chunk(key).unwrap().runtime_id(0, 0, 0, 0),
+        Some(20)
+    );
+    assert_eq!(store.biome_id(key, 0, 0, 0), Some(7));
+}
+
+#[test]
+fn identical_biome_snapshots_reuse_arcs() {
+    let mut store = ChunkStore::new();
+    let chunk = ChunkKey::new(0, 1, 2);
+    let key = SubChunkKey::from_chunk(chunk, -4);
+    store.commit_biome_column(
+        chunk,
+        DecodedBiomeColumn::decode(-4, 1, &uniform_biome(5)).unwrap(),
+    );
+    let before = store.biome_storage(key).unwrap();
+
+    let dirty = store.commit_biome_column(
+        chunk,
+        DecodedBiomeColumn::decode(-4, 1, &uniform_biome(5)).unwrap(),
+    );
+    let after = store.biome_storage(key).unwrap();
+    assert!(dirty.is_empty());
+    assert!(std::sync::Arc::ptr_eq(&before, &after));
 }
 
 #[test]

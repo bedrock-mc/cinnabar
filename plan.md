@@ -174,6 +174,15 @@ Scope: block registry + block-state → model/texture mapping (generated export 
   tracked. The deterministic live-evidence task remains open.
 - [ ] **2.5 Biome palettes and tinting.** Decode/store biome data and apply
   grass/foliage/water tint without widening the eight-byte quad record.
+  - [x] Palette-native v1001 biome storage/column decoding, including padded
+    Bedrock words, `0xff` previous-storage reuse, strict malformed-input
+    rejection, atomic inline block+biome commits, and biome-only column
+    lifetime independent of all-air block subchunks.
+  - [ ] Carry request-mode and inline `LevelChunk` biome payloads through the
+    Rayon/FIFO streaming path and retain the live biome definition mapping.
+  - [ ] Compile grass/foliage/water tint classifications and biome color rules,
+    upload palette-native biome/tint tables, and apply them in the chunk shader
+    without widening the eight-byte quad record.
 - [ ] **2.6 Static/non-cube models, blend/water, and flipbooks.** Complete the
   remaining block visual classes and animation path.
 - [ ] **2.7 Client lighting and atmosphere.** Block/sky flood fill, baked vertex

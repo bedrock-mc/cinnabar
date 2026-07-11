@@ -3,7 +3,10 @@ use std::{
     sync::Arc,
 };
 
-use crate::{BlockUpdate, Chunk, ChunkKey, DecodeError, MutationError, SubChunk, SubChunkKey};
+use crate::{
+    BiomeStorage, BlockUpdate, Chunk, ChunkKey, DecodeError, DecodedBiomeColumn, MutationError,
+    SubChunk, SubChunkKey,
+};
 
 /// Maximum sub-chunks accepted in one full inline LevelChunk payload.
 pub const MAX_LEVEL_SUBCHUNKS: usize = 64;
@@ -16,6 +19,8 @@ pub struct ApplyLevelChunk {
     pub dirty: Vec<SubChunkKey>,
     /// Bytes occupied by block sub-chunks before biome/border/entity data.
     pub bytes_consumed: usize,
+    /// Bytes occupied by block sub-chunks before the biome prefix.
+    pub block_bytes_consumed: usize,
 }
 
 /// A fully validated packed sub-chunk replacement prepared off the gameplay
@@ -35,6 +40,8 @@ pub struct PreparedSubChunkMutation {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecodedLevelChunk {
     sub_chunks: BTreeMap<i32, Arc<SubChunk>>,
+    biomes: Option<DecodedBiomeColumn>,
+    block_bytes_consumed: usize,
     bytes_consumed: usize,
 }
 
@@ -83,13 +90,44 @@ impl DecodedLevelChunk {
         }
         Ok(Self {
             sub_chunks,
+            biomes: None,
+            block_bytes_consumed: consumed,
             bytes_consumed: consumed,
         })
+    }
+
+    /// Decodes a complete inline LevelChunk block prefix followed by its full
+    /// dense biome column, committing neither if any storage is malformed.
+    pub fn decode_with_biomes(
+        first_sub_chunk_y: i32,
+        sub_chunk_count: usize,
+        biome_base_sub_chunk_y: i32,
+        biome_storage_count: usize,
+        payload: &[u8],
+    ) -> Result<Self, DecodeError> {
+        let mut decoded = Self::decode(first_sub_chunk_y, sub_chunk_count, payload)?;
+        let biomes = DecodedBiomeColumn::decode(
+            biome_base_sub_chunk_y,
+            biome_storage_count,
+            &payload[decoded.block_bytes_consumed..],
+        )?;
+        decoded.bytes_consumed = decoded
+            .block_bytes_consumed
+            .checked_add(biomes.bytes_consumed())
+            .expect("decoded prefixes cannot exceed the input slice");
+        decoded.biomes = Some(biomes);
+        Ok(decoded)
     }
 
     #[must_use]
     pub fn bytes_consumed(&self) -> usize {
         self.bytes_consumed
+    }
+
+    /// Bytes occupied only by serialized block sub-chunks.
+    #[must_use]
+    pub fn block_bytes_consumed(&self) -> usize {
+        self.block_bytes_consumed
     }
 
     /// Returns an immutable worker-produced snapshot for one Y index.
@@ -127,6 +165,18 @@ impl ChunkStore {
     #[must_use]
     pub fn sub_chunk(&self, key: SubChunkKey) -> Option<Arc<SubChunk>> {
         self.chunk(key.chunk())?.sub_chunk(key.y)
+    }
+
+    /// Returns a palette-native biome storage snapshot for a mesh worker.
+    #[must_use]
+    pub fn biome_storage(&self, key: SubChunkKey) -> Option<Arc<BiomeStorage>> {
+        self.chunk(key.chunk())?.biome_storage(key.y)
+    }
+
+    /// Looks up one raw biome ID without expanding its packed storage.
+    #[must_use]
+    pub fn biome_id(&self, key: SubChunkKey, x: u8, y: u8, z: u8) -> Option<u32> {
+        self.biome_storage(key)?.biome_id(x, y, z)
     }
 
     /// Prefix-decodes and applies one successful SubChunk response payload.
@@ -298,7 +348,7 @@ impl ChunkStore {
         let chunk_key = key.chunk();
         let chunk = self.chunks.get_mut(&chunk_key)?;
         let removed = chunk.sub_chunks.remove(&key.y).is_some();
-        if chunk.sub_chunks.is_empty() {
+        if chunk.sub_chunks.is_empty() && chunk.biomes.is_none() {
             self.chunks.remove(&chunk_key);
         }
         removed.then_some(key)
@@ -317,6 +367,46 @@ impl ChunkStore {
         Ok(self.commit_level_chunk(key, decoded))
     }
 
+    /// Decodes and atomically applies an inline LevelChunk including biomes.
+    pub fn apply_level_chunk_with_biomes(
+        &mut self,
+        key: ChunkKey,
+        first_sub_chunk_y: i32,
+        sub_chunk_count: usize,
+        biome_base_sub_chunk_y: i32,
+        biome_storage_count: usize,
+        payload: &[u8],
+    ) -> Result<ApplyLevelChunk, DecodeError> {
+        let decoded = DecodedLevelChunk::decode_with_biomes(
+            first_sub_chunk_y,
+            sub_chunk_count,
+            biome_base_sub_chunk_y,
+            biome_storage_count,
+            payload,
+        )?;
+        Ok(self.commit_level_chunk(key, decoded))
+    }
+
+    /// Atomically replaces only the dense biome column received by a
+    /// request-mode LevelChunk and returns affected mesh dependents.
+    pub fn commit_biome_column(
+        &mut self,
+        key: ChunkKey,
+        mut replacement: DecodedBiomeColumn,
+    ) -> Vec<SubChunkKey> {
+        let previous = self
+            .chunks
+            .get(&key)
+            .and_then(|chunk| chunk.biomes.as_ref());
+        reuse_equal_biome_arcs(&mut replacement, previous);
+        let changed = changed_biome_ys(previous, Some(&replacement))
+            .into_iter()
+            .map(|y| SubChunkKey::from_chunk(key, y))
+            .collect();
+        self.chunks.entry(key).or_default().biomes = Some(replacement);
+        expand_mesh_dependents(changed)
+    }
+
     /// Atomically swaps a fully worker-decoded column into the store.
     pub fn commit_level_chunk(
         &mut self,
@@ -326,6 +416,8 @@ impl ChunkStore {
         let old = self.chunks.get(&key);
         let DecodedLevelChunk {
             mut sub_chunks,
+            mut biomes,
+            block_bytes_consumed,
             bytes_consumed,
         } = decoded;
         for (&y, replacement) in &mut sub_chunks {
@@ -336,13 +428,18 @@ impl ChunkStore {
                 *replacement = Arc::clone(previous);
             }
         }
+        if biomes.is_none() {
+            biomes = old.and_then(|chunk| chunk.biomes.clone());
+        } else if let Some(replacement) = biomes.as_mut() {
+            reuse_equal_biome_arcs(replacement, old.and_then(|chunk| chunk.biomes.as_ref()));
+        }
 
         let ys = old
             .into_iter()
             .flat_map(|chunk| chunk.sub_chunks.keys().copied())
             .chain(sub_chunks.keys().copied())
             .collect::<BTreeSet<_>>();
-        let changed = ys
+        let mut changed = ys
             .into_iter()
             .filter(|y| {
                 let previous = old.and_then(|chunk| chunk.sub_chunks.get(y));
@@ -355,18 +452,72 @@ impl ChunkStore {
             })
             .map(|y| SubChunkKey::from_chunk(key, y))
             .collect::<Vec<_>>();
+        changed.extend(
+            changed_biome_ys(old.and_then(|chunk| chunk.biomes.as_ref()), biomes.as_ref())
+                .into_iter()
+                .map(|y| SubChunkKey::from_chunk(key, y)),
+        );
         let dirty = expand_mesh_dependents(changed);
 
-        if sub_chunks.is_empty() {
+        if sub_chunks.is_empty() && biomes.is_none() {
             self.chunks.remove(&key);
         } else {
-            self.chunks.insert(key, Chunk { sub_chunks });
+            self.chunks.insert(key, Chunk { sub_chunks, biomes });
         }
         ApplyLevelChunk {
             dirty,
             bytes_consumed,
+            block_bytes_consumed,
         }
     }
+}
+
+fn reuse_equal_biome_arcs(
+    replacement: &mut DecodedBiomeColumn,
+    previous: Option<&DecodedBiomeColumn>,
+) {
+    let Some(previous) = previous else {
+        return;
+    };
+    for (offset, storage) in replacement.storages.iter_mut().enumerate() {
+        let Some(y) = replacement
+            .base_sub_chunk_y
+            .checked_add(i32::try_from(offset).expect("biome columns are bounded"))
+        else {
+            continue;
+        };
+        let Some(previous) = previous.storage(y) else {
+            continue;
+        };
+        if previous.as_ref() == storage.as_ref() {
+            *storage = previous;
+        }
+    }
+}
+
+fn changed_biome_ys(
+    previous: Option<&DecodedBiomeColumn>,
+    replacement: Option<&DecodedBiomeColumn>,
+) -> BTreeSet<i32> {
+    let ys = |column: &DecodedBiomeColumn| {
+        let base = column.base_sub_chunk_y();
+        let len = column.len();
+        (0..len).filter_map(move |offset| base.checked_add(i32::try_from(offset).ok()?))
+    };
+    previous
+        .into_iter()
+        .flat_map(ys)
+        .chain(replacement.into_iter().flat_map(ys))
+        .filter(|&y| {
+            let before = previous.and_then(|column| column.storage(y));
+            let after = replacement.and_then(|column| column.storage(y));
+            match (before, after) {
+                (Some(before), Some(after)) => !Arc::ptr_eq(&before, &after),
+                (None, None) => false,
+                _ => true,
+            }
+        })
+        .collect()
 }
 
 fn expand_mesh_dependents(changed: Vec<SubChunkKey>) -> Vec<SubChunkKey> {

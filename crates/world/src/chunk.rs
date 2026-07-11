@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, sync::Arc};
 
-use crate::SubChunk;
+use crate::{BiomeStorage, DecodedBiomeColumn, SubChunk};
 
 /// Key for one horizontal chunk column.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -90,6 +90,7 @@ impl SubChunkKey {
 #[derive(Debug, Default)]
 pub struct Chunk {
     pub(crate) sub_chunks: BTreeMap<i32, Arc<SubChunk>>,
+    pub(crate) biomes: Option<DecodedBiomeColumn>,
 }
 
 impl Chunk {
@@ -102,5 +103,11 @@ impl Chunk {
         self.sub_chunks
             .iter()
             .map(|(&y, sub_chunk)| (y, Arc::clone(sub_chunk)))
+    }
+
+    /// Returns the packed biome storage for one absolute sub-chunk Y.
+    #[must_use]
+    pub fn biome_storage(&self, y: i32) -> Option<Arc<BiomeStorage>> {
+        self.biomes.as_ref()?.storage(y)
     }
 }

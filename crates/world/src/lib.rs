@@ -3,6 +3,7 @@
 //! Chunk block data remains palette + packed indices at runtime. The decoder
 //! intentionally never creates flat per-block arrays.
 
+mod biome;
 mod chunk;
 mod error;
 mod mutation;
@@ -10,6 +11,7 @@ mod palette;
 mod store;
 mod sub_chunk;
 
+pub use biome::{BiomeStorage, DecodedBiomeColumn};
 pub use chunk::{Chunk, ChunkKey, SubChunkKey};
 pub use error::{DecodeError, MutationError};
 pub use mutation::BlockUpdate;

@@ -21,6 +21,9 @@ pub enum DecodeError {
     #[error("network sub-chunk contains a disk palette header {header:#04x}")]
     DiskPaletteInNetworkData { header: u8 },
 
+    #[error("biome storage {index} copies a previous storage, but none exists")]
+    BiomeCopyWithoutPrevious { index: usize },
+
     #[error("unsupported palette width {0} bits per index")]
     UnsupportedBitsPerIndex(u8),
 

@@ -156,6 +156,13 @@ impl SubChunk {
 
 fn decode_storage(reader: &mut Reader<'_>) -> Result<PalettedStorage, DecodeError> {
     let header = reader.read_u8("palette header")?;
+    decode_storage_with_header(reader, header)
+}
+
+pub(crate) fn decode_storage_with_header(
+    reader: &mut Reader<'_>,
+    header: u8,
+) -> Result<PalettedStorage, DecodeError> {
     if header & 1 == 0 {
         return Err(DecodeError::DiskPaletteInNetworkData { header });
     }
@@ -214,21 +221,21 @@ fn decode_storage(reader: &mut Reader<'_>) -> Result<PalettedStorage, DecodeErro
     Ok(storage)
 }
 
-struct Reader<'a> {
+pub(crate) struct Reader<'a> {
     bytes: &'a [u8],
     position: usize,
 }
 
 impl<'a> Reader<'a> {
-    fn new(bytes: &'a [u8]) -> Self {
+    pub(crate) fn new(bytes: &'a [u8]) -> Self {
         Self { bytes, position: 0 }
     }
 
-    fn position(&self) -> usize {
+    pub(crate) fn position(&self) -> usize {
         self.position
     }
 
-    fn read_u8(&mut self, context: &'static str) -> Result<u8, DecodeError> {
+    pub(crate) fn read_u8(&mut self, context: &'static str) -> Result<u8, DecodeError> {
         Ok(self.read_exact(1, context)?[0])
     }
 
