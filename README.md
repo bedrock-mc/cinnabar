@@ -28,6 +28,24 @@ go vet ./core/...
 
 Live BDS tests are enabled when `BEDROCK_BDS_DIR` is set and otherwise skip.
 
+## Local protocol-1001 block data
+
+The generated block catalog uses pinned, non-Mojang metadata from PMMP BedrockData and
+PrismarineJS minecraft-data. Acquire and hash-check those inputs, plus the applicable
+upstream license evidence, into the ignored local cache:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/acquire-block-data.ps1
+```
+
+The command validates Bedrock `1.26.30` / protocol `1001` and atomically publishes the
+resolved inputs below `.local/assets/block-data/pmmp` and
+`.local/assets/block-data/prismarine`. Axolotl and Dragonfly license evidence is retained
+below `.local/assets/block-data/licenses`; the bounded verified download cache stays in the
+sibling `.local/assets/block-data.downloads/` directory. The application never fetches these inputs at
+startup. Pins, file hashes, source repositories, and the Prismarine license-evidence
+exception are recorded in `assets/block-data-sources.json` and `THIRD_PARTY_NOTICES.md`.
+
 ## Local vanilla block textures
 
 The client never downloads or embeds Mojang assets. Fetch the pinned

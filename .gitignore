@@ -1,4 +1,7 @@
 /target/
+# Hash-verified protocol metadata and license inputs acquired for local generation.
+/.local/assets/block-data/
+/.local/assets/block-data.downloads/
 /.local/
 /.superpowers/
 /.worktrees/
