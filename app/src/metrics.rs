@@ -11,6 +11,78 @@ use world::SubChunkKey;
 const FRAME_HISTOGRAM_RESOLUTION_MS: f64 = 0.1;
 const FRAME_HISTOGRAM_BUCKETS: usize = 20_001;
 
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ExactFullViewProof {
+    pub target: String,
+    pub committed: String,
+    pub ms: f64,
+    pub view_generation: u64,
+    pub render_ready_ms: f64,
+    pub first_frame_sequence: u64,
+    pub stable_frame_sequence: u64,
+    pub first_present_ms: f64,
+    pub first_gpu_ms: f64,
+    pub stable_present_ms: f64,
+    pub stable_gpu_ms: f64,
+    pub frame_count: u64,
+    pub expected_manifest_count: usize,
+    pub expected_manifest_hash: String,
+    pub first_presented_manifest_count: usize,
+    pub first_presented_manifest_hash: String,
+    pub stable_presented_manifest_count: usize,
+    pub stable_presented_manifest_hash: String,
+    pub expected: usize,
+    pub loaded_target: usize,
+    pub missing_target: usize,
+    pub foreign_loaded: usize,
+    pub foreign_requested: usize,
+    pub foreign_resident: usize,
+    pub source_leftover: usize,
+    pub resident_count: usize,
+    pub resident_hash: String,
+    pub known_air_count: usize,
+    pub known_air_hash: String,
+    pub missing_target_instances: usize,
+    pub unexpected_target_instances: usize,
+    pub source_instances: usize,
+    pub foreign_instances: usize,
+    pub stale_generation_instances: usize,
+    pub orphan_allocations: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct TeleportProof {
+    #[serde(flatten)]
+    pub exact: ExactFullViewProof,
+    pub publisher_ms: Option<f64>,
+    pub first_level_ms: Option<f64>,
+    pub last_level_ms: Option<f64>,
+    pub level_events: u64,
+    pub first_sub_ms: Option<f64>,
+    pub last_sub_ms: Option<f64>,
+    pub sub_events: u64,
+}
+
+#[must_use]
+pub fn deterministic_manifest_hash(manifest: &[(SubChunkKey, u64)]) -> u64 {
+    const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+    const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+
+    let mut entries = manifest.to_vec();
+    entries.sort_unstable();
+    let mut hash = FNV_OFFSET_BASIS;
+    for (key, generation) in entries {
+        for byte in [key.dimension, key.x, key.y, key.z]
+            .into_iter()
+            .flat_map(i32::to_le_bytes)
+            .chain(generation.to_le_bytes())
+        {
+            hash = (hash ^ u64::from(byte)).wrapping_mul(FNV_PRIME);
+        }
+    }
+    hash
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AssetMetrics {
     pub source_tag: String,
@@ -152,6 +224,8 @@ pub struct MetricsCollector {
     max_remesh_milliseconds: f64,
     teleport_settle_milliseconds: Option<f64>,
     forced_full_view_remesh_milliseconds: Option<f64>,
+    teleport_proof: Option<TeleportProof>,
+    forced_full_view_remesh_proof: Option<ExactFullViewProof>,
     max_mutation_to_visible_milliseconds: f64,
     max_decode_milliseconds: f64,
     max_mesh_milliseconds: f64,
@@ -219,6 +293,8 @@ impl MetricsCollector {
             max_remesh_milliseconds: 0.0,
             teleport_settle_milliseconds: None,
             forced_full_view_remesh_milliseconds: None,
+            teleport_proof: None,
+            forced_full_view_remesh_proof: None,
             max_mutation_to_visible_milliseconds: 0.0,
             max_decode_milliseconds: 0.0,
             max_mesh_milliseconds: 0.0,
@@ -266,6 +342,11 @@ impl MetricsCollector {
             .record(duration.as_secs_f64() * 1_000.0);
     }
 
+    #[must_use]
+    pub const fn frame_count(&self) -> u64 {
+        self.frame_histogram.sample_count
+    }
+
     pub fn begin_timed_session(&mut self, started: Instant) {
         self.started = started;
         self.frame_histogram = FrameHistogram::default();
@@ -275,6 +356,8 @@ impl MetricsCollector {
         self.max_mesh_milliseconds = 0.0;
         self.teleport_settle_milliseconds = None;
         self.forced_full_view_remesh_milliseconds = None;
+        self.teleport_proof = None;
+        self.forced_full_view_remesh_proof = None;
     }
 
     pub fn record_remesh_latency(&mut self, duration: Duration) {
@@ -289,12 +372,24 @@ impl MetricsCollector {
             .max(duration.as_secs_f64() * 1_000.0);
     }
 
+    #[cfg(test)]
     pub fn record_teleport_settle(&mut self, duration: Duration) {
         self.teleport_settle_milliseconds = Some(duration.as_secs_f64() * 1_000.0);
     }
 
+    #[cfg(test)]
     pub fn record_forced_full_view_remesh(&mut self, duration: Duration) {
         self.forced_full_view_remesh_milliseconds = Some(duration.as_secs_f64() * 1_000.0);
+    }
+
+    pub fn record_teleport_proof(&mut self, proof: TeleportProof) {
+        self.teleport_settle_milliseconds = Some(proof.exact.ms);
+        self.teleport_proof = Some(proof);
+    }
+
+    pub fn record_forced_full_view_remesh_proof(&mut self, proof: ExactFullViewProof) {
+        self.forced_full_view_remesh_milliseconds = Some(proof.ms);
+        self.forced_full_view_remesh_proof = Some(proof);
     }
 
     pub fn add_decode_errors(&mut self, count: u64) {
@@ -364,6 +459,8 @@ impl MetricsCollector {
             max_remesh_ms: self.max_remesh_milliseconds,
             teleport_settle_ms: self.teleport_settle_milliseconds,
             forced_full_view_remesh_ms: self.forced_full_view_remesh_milliseconds,
+            teleport_proof: self.teleport_proof.clone(),
+            forced_full_view_remesh_proof: self.forced_full_view_remesh_proof.clone(),
             max_mutation_to_visible_ms: self.max_mutation_to_visible_milliseconds,
             decode_error_count: self.decode_errors,
             rendered_sub_chunks: self.rendered_sub_chunks,
@@ -408,6 +505,8 @@ pub struct MetricsReport {
     pub max_remesh_ms: f64,
     pub teleport_settle_ms: Option<f64>,
     pub forced_full_view_remesh_ms: Option<f64>,
+    pub teleport_proof: Option<TeleportProof>,
+    pub forced_full_view_remesh_proof: Option<ExactFullViewProof>,
     pub max_mutation_to_visible_ms: f64,
     pub decode_error_count: u64,
     pub rendered_sub_chunks: usize,
@@ -452,9 +551,11 @@ fn percentile(sorted: &[f64], percentile: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        AssetMetrics, MetricsCollector, MetricsReport, PipelineMetricsSnapshot, percentile,
+        AssetMetrics, ExactFullViewProof, MetricsCollector, MetricsReport, PipelineMetricsSnapshot,
+        TeleportProof, deterministic_manifest_hash, percentile,
     };
     use std::{fs, time::Duration};
+    use world::SubChunkKey;
 
     #[test]
     fn empty_percentiles_are_zero() {
@@ -570,6 +671,122 @@ mod tests {
         assert_eq!(first.max_frame_ms, second.max_frame_ms);
     }
 
+    fn exact_full_view_proof(
+        milliseconds: f64,
+        view_generation: u64,
+        manifest_hash: &str,
+    ) -> ExactFullViewProof {
+        ExactFullViewProof {
+            target: "0:65:65:16".to_owned(),
+            committed: "0:65:65:16".to_owned(),
+            ms: milliseconds,
+            view_generation,
+            render_ready_ms: 100.0,
+            first_frame_sequence: 41,
+            stable_frame_sequence: 42,
+            first_present_ms: 110.0,
+            first_gpu_ms: 120.0,
+            stable_present_ms: 130.0,
+            stable_gpu_ms: milliseconds,
+            frame_count: 12,
+            expected_manifest_count: 4,
+            expected_manifest_hash: manifest_hash.to_owned(),
+            first_presented_manifest_count: 4,
+            first_presented_manifest_hash: manifest_hash.to_owned(),
+            stable_presented_manifest_count: 4,
+            stable_presented_manifest_hash: manifest_hash.to_owned(),
+            expected: 1_089,
+            loaded_target: 1_089,
+            missing_target: 0,
+            foreign_loaded: 0,
+            foreign_requested: 0,
+            foreign_resident: 0,
+            source_leftover: 0,
+            resident_count: 3,
+            resident_hash: "aaaabbbbccccdddd".to_owned(),
+            known_air_count: 1,
+            known_air_hash: "eeeeffff00001111".to_owned(),
+            missing_target_instances: 0,
+            unexpected_target_instances: 0,
+            source_instances: 0,
+            foreign_instances: 0,
+            stale_generation_instances: 0,
+            orphan_allocations: 0,
+        }
+    }
+
+    #[test]
+    fn binding_and_secondary_metrics_remain_distinct() {
+        let mut metrics = MetricsCollector::new();
+        let teleport = TeleportProof {
+            exact: exact_full_view_proof(2_400.0, 7, "1111222233334444"),
+            publisher_ms: Some(10.0),
+            first_level_ms: Some(20.0),
+            last_level_ms: Some(30.0),
+            level_events: 1_089,
+            first_sub_ms: Some(40.0),
+            last_sub_ms: Some(50.0),
+            sub_events: 1_089,
+        };
+        let remesh = exact_full_view_proof(150.0, 8, "5555666677778888");
+
+        metrics.record_teleport_proof(teleport.clone());
+        metrics.record_forced_full_view_remesh_proof(remesh.clone());
+
+        let report = metrics.report();
+        assert_eq!(report.teleport_settle_ms, Some(2_400.0));
+        assert_eq!(report.forced_full_view_remesh_ms, Some(150.0));
+        assert_eq!(report.teleport_proof, Some(teleport));
+        assert_eq!(report.forced_full_view_remesh_proof, Some(remesh));
+    }
+
+    #[test]
+    fn cohort_stage_and_frame_evidence_serializes_deterministically_with_missing_stages_as_null() {
+        let key_a = SubChunkKey::new(0, 1, -4, 2);
+        let key_b = SubChunkKey::new(0, 0, -4, 0);
+        assert_eq!(
+            deterministic_manifest_hash(&[(key_a, 9), (key_b, 7)]),
+            deterministic_manifest_hash(&[(key_b, 7), (key_a, 9)])
+        );
+
+        let mut metrics = MetricsCollector::new();
+        metrics.record_teleport_proof(TeleportProof {
+            exact: exact_full_view_proof(1_500.0, 7, "1111222233334444"),
+            publisher_ms: None,
+            first_level_ms: None,
+            last_level_ms: None,
+            level_events: 0,
+            first_sub_ms: None,
+            last_sub_ms: None,
+            sub_events: 0,
+        });
+        metrics.record_forced_full_view_remesh_proof(exact_full_view_proof(
+            1_500.0,
+            8,
+            "5555666677778888",
+        ));
+        let report = metrics.report();
+        let first = serde_json::to_string_pretty(&report).unwrap();
+        let second = serde_json::to_string_pretty(&report).unwrap();
+        assert_eq!(first, second);
+
+        let document = serde_json::to_value(report).unwrap();
+        let teleport = &document["teleport_proof"];
+        assert_eq!(teleport["target"], "0:65:65:16");
+        assert_eq!(teleport["expected"], 1_089);
+        assert_eq!(teleport["frame_count"], 12);
+        for stage in [
+            "publisher_ms",
+            "first_level_ms",
+            "last_level_ms",
+            "first_sub_ms",
+            "last_sub_ms",
+        ] {
+            assert!(teleport[stage].is_null(), "{stage} was not JSON null");
+        }
+        assert!(!first.contains(": -1"));
+    }
+
     #[test]
     fn json_output_is_pretty_deterministic_and_newline_terminated() {
         let report = MetricsReport {
@@ -590,6 +807,8 @@ mod tests {
             max_remesh_ms: 20.0,
             teleport_settle_ms: Some(23_400.0),
             forced_full_view_remesh_ms: Some(1_234.0),
+            teleport_proof: None,
+            forced_full_view_remesh_proof: None,
             max_mutation_to_visible_ms: 75.0,
             decode_error_count: 0,
             rendered_sub_chunks: 13,
@@ -641,6 +860,8 @@ mod tests {
                 "  \"max_remesh_ms\": 20.0,\n",
                 "  \"teleport_settle_ms\": 23400.0,\n",
                 "  \"forced_full_view_remesh_ms\": 1234.0,\n",
+                "  \"teleport_proof\": null,\n",
+                "  \"forced_full_view_remesh_proof\": null,\n",
                 "  \"max_mutation_to_visible_ms\": 75.0,\n",
                 "  \"decode_error_count\": 0,\n",
                 "  \"rendered_sub_chunks\": 13,\n",

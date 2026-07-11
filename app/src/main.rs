@@ -25,7 +25,10 @@ use bevy::{
     winit::{UpdateMode, WinitSettings},
 };
 use camera::{FlyCamera, FlyCameraPlugin};
-use metrics::{DiagnosticQuadTracker, MetricsCollector, PipelineMetricsSnapshot};
+use metrics::{
+    DiagnosticQuadTracker, ExactFullViewProof, MetricsCollector, PipelineMetricsSnapshot,
+    TeleportProof, deterministic_manifest_hash,
+};
 use network::{NetworkConfig, NetworkEvent, NetworkHandle, spawn_network};
 use render::{
     ChunkRenderInstance, ChunkRenderQueue, ChunkTextureAssets, ChunkUploadAcknowledgements,
@@ -214,6 +217,7 @@ struct TeleportPresentedCandidate {
 #[derive(Debug, Clone)]
 struct PendingFullViewTeleport {
     started: Instant,
+    started_frame_count: u64,
     move_sequence: u64,
     target: ViewCohort,
     source: ViewCohort,
@@ -230,7 +234,7 @@ struct PendingFullViewTeleport {
     last_progress_at: Option<Instant>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct FullViewTeleportCompletion {
     settle_latency: Duration,
     render_ready_latency: Duration,
@@ -251,6 +255,10 @@ struct FullViewTeleportCompletion {
     last_mesh_completion_latency: Option<Duration>,
     last_mesh_ack_latency: Option<Duration>,
     peak_network_events: usize,
+    expectation: TargetRenderExpectation,
+    first_frame: PresentedFrameAck,
+    stable_frame: PresentedFrameAck,
+    frame_count: u64,
 }
 
 #[derive(Debug)]
@@ -259,11 +267,12 @@ struct FullViewTeleportTracker {
     origin_chunk: Option<[i32; 2]>,
     local_player_runtime_id: Option<u64>,
     latest_publisher_ingress: Option<(u64, ViewCohort, Instant)>,
-    pending_move_ingress: Option<(u64, Instant)>,
+    pending_move_ingress: Option<(u64, Instant, u64)>,
     pending: Option<PendingFullViewTeleport>,
     completed: Option<Duration>,
     completed_target: Option<ViewCohort>,
     next_view_generation: u64,
+    current_frame_count: u64,
     #[cfg(test)]
     next_test_sequence: u64,
 }
@@ -280,6 +289,7 @@ impl FullViewTeleportTracker {
             completed: None,
             completed_target: None,
             next_view_generation: 0,
+            current_frame_count: 0,
             #[cfg(test)]
             next_test_sequence: 0,
         }
@@ -298,6 +308,7 @@ impl FullViewTeleportTracker {
         sequence: u64,
         observed_at: Instant,
         current_dimension: i32,
+        frame_count: u64,
     ) -> bool {
         if !self.enabled || self.completed.is_some() {
             return false;
@@ -343,9 +354,9 @@ impl FullViewTeleportTracker {
                 }
                 if self
                     .pending_move_ingress
-                    .is_none_or(|(pending_sequence, _)| sequence < pending_sequence)
+                    .is_none_or(|(pending_sequence, _, _)| sequence < pending_sequence)
                 {
-                    self.pending_move_ingress = Some((sequence, observed_at));
+                    self.pending_move_ingress = Some((sequence, observed_at, frame_count));
                     return true;
                 }
                 false
@@ -416,7 +427,8 @@ impl FullViewTeleportTracker {
         if !self.enabled || self.completed.is_some() || self.pending.is_some() {
             return false;
         }
-        let Some((pending_sequence, started)) = self.pending_move_ingress else {
+        let Some((pending_sequence, started, started_frame_count)) = self.pending_move_ingress
+        else {
             return false;
         };
         if pending_sequence != sequence {
@@ -458,6 +470,7 @@ impl FullViewTeleportTracker {
                 });
         self.pending = Some(PendingFullViewTeleport {
             started,
+            started_frame_count,
             move_sequence: sequence,
             target,
             source,
@@ -491,7 +504,13 @@ impl FullViewTeleportTracker {
             center,
             radius: PHASE0_REQUESTED_RADIUS_CHUNKS,
         });
-        let capture = self.observe_ingress(event, sequence, observed_at, current_dimension);
+        let capture = self.observe_ingress(
+            event,
+            sequence,
+            observed_at,
+            current_dimension,
+            self.next_test_sequence,
+        );
         if capture && let protocol::WorldEvent::MovePlayer(movement) = event {
             return self.commit_move(sequence, *movement, source);
         }
@@ -612,9 +631,17 @@ impl FullViewTeleportTracker {
                 ),
                 last_mesh_ack_latency: latency_after(started, candidate.snapshot.last_mesh_ack_at),
                 peak_network_events: pending.peak_network_events,
+                expectation: candidate.expectation.clone(),
+                first_frame: first,
+                stable_frame: acknowledgement,
+                frame_count: self
+                    .current_frame_count
+                    .saturating_sub(pending.started_frame_count)
+                    .saturating_add(1)
+                    .max(2),
             })
         };
-        if let Some(completion) = completion {
+        if let Some(completion) = &completion {
             self.completed_target = self.pending.as_ref().map(|pending| pending.target);
             self.pending = None;
             self.completed = Some(completion.settle_latency);
@@ -653,6 +680,10 @@ impl FullViewTeleportTracker {
             .as_ref()
             .map(|pending| pending.target)
             .or(self.completed_target)
+    }
+
+    fn note_frame(&mut self, frame_count: u64) {
+        self.current_frame_count = frame_count;
     }
 
     fn cohort_progress_line(
@@ -760,15 +791,23 @@ fn cohort_tag(cohort: ViewCohort) -> String {
 
 fn teleport_global_stage_diagnostic_marker(
     target: ViewCohort,
-    completion: FullViewTeleportCompletion,
+    completion: &FullViewTeleportCompletion,
 ) -> String {
     format!(
-        "RUST_MCBE_TELEPORT_GLOBAL_STAGE_DIAGNOSTIC target={} global_commit_ms={:.4} global_mesh_dispatch_ms={:.4} global_mesh_complete_ms={:.4} global_mesh_ack_ms={:.4}",
+        "RUST_MCBE_TELEPORT_GLOBAL_STAGE_DIAGNOSTIC target={} global_commit_ms={} global_mesh_dispatch_ms={} global_mesh_complete_ms={} global_mesh_ack_ms={}",
         cohort_tag(target),
-        optional_milliseconds(completion.last_chunk_commit_latency),
-        optional_milliseconds(completion.last_mesh_dispatch_latency),
-        optional_milliseconds(completion.last_mesh_completion_latency),
-        optional_milliseconds(completion.last_mesh_ack_latency),
+        optional_milliseconds_token(optional_duration_milliseconds(
+            completion.last_chunk_commit_latency,
+        )),
+        optional_milliseconds_token(optional_duration_milliseconds(
+            completion.last_mesh_dispatch_latency,
+        )),
+        optional_milliseconds_token(optional_duration_milliseconds(
+            completion.last_mesh_completion_latency,
+        )),
+        optional_milliseconds_token(optional_duration_milliseconds(
+            completion.last_mesh_ack_latency,
+        )),
     )
 }
 
@@ -776,39 +815,465 @@ fn latency_after(started: Instant, observed: Option<Instant>) -> Option<Duration
     observed.and_then(|observed| observed.checked_duration_since(started))
 }
 
+#[derive(Debug, Clone)]
+struct FullViewRemeshPresentedCandidate {
+    expectation: TargetRenderExpectation,
+    first_frame: Option<PresentedFrameAck>,
+}
+
+#[derive(Debug, Clone)]
+struct PendingFullViewRemesh {
+    manifest: world_stream::ForcedRemeshManifest,
+    cohort: ViewCohortStatus,
+    source_cohort: Option<RenderViewCohort>,
+    binding_manifest: Arc<[(SubChunkKey, u64)]>,
+    binding_view_generation: u64,
+    started_frame_count: u64,
+    candidate: Option<FullViewRemeshPresentedCandidate>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FullViewRemeshCompletion {
+    settle_latency: Duration,
+    render_ready_latency: Duration,
+    first_present_return_latency: Duration,
+    first_gpu_completion_latency: Duration,
+    stable_present_return_latency: Duration,
+    stable_gpu_completion_latency: Duration,
+    view_generation: u64,
+    expectation: TargetRenderExpectation,
+    first_frame: PresentedFrameAck,
+    stable_frame: PresentedFrameAck,
+    frame_count: u64,
+}
+
 #[derive(Debug, Default)]
 struct FullViewRemeshTracker {
-    pending: Option<(Instant, usize)>,
-    queued_sub_chunks: Option<usize>,
-    completed: bool,
+    pending: Option<PendingFullViewRemesh>,
+    completed: Option<FullViewRemeshCompletion>,
+    invalidated: bool,
 }
 
 impl FullViewRemeshTracker {
-    fn start(&mut self, started: Instant, queued_sub_chunks: usize) -> bool {
-        if queued_sub_chunks == 0 || self.pending.is_some() || self.completed {
+    fn start(
+        &mut self,
+        binding: Option<&FullViewTeleportCompletion>,
+        cohort: ViewCohortStatus,
+        manifest: world_stream::ForcedRemeshManifest,
+        frame_count: u64,
+    ) -> bool {
+        let Some(binding) = binding else {
+            return false;
+        };
+        let manifest_keys = manifest
+            .entries
+            .iter()
+            .map(|(key, _)| *key)
+            .collect::<BTreeSet<_>>();
+        if manifest.is_empty()
+            || binding.expectation.manifest.is_empty()
+            || manifest.started_at < binding.stable_frame.gpu_completed_at
+            || !cohort.is_exact()
+            || render_view_cohort(cohort.target) != binding.expectation.cohort
+            || !binding
+                .expectation
+                .manifest
+                .iter()
+                .all(|(key, _)| manifest_keys.contains(key))
+            || self.pending.is_some()
+            || self.completed.is_some()
+            || self.invalidated
+        {
             return false;
         }
-        self.pending = Some((started, queued_sub_chunks));
-        self.queued_sub_chunks = Some(queued_sub_chunks);
+        self.pending = Some(PendingFullViewRemesh {
+            manifest,
+            cohort,
+            source_cohort: binding.expectation.source_cohort,
+            binding_manifest: Arc::clone(&binding.expectation.manifest),
+            binding_view_generation: binding.view_generation,
+            started_frame_count: frame_count,
+            candidate: None,
+        });
         true
     }
 
-    fn observe_snapshot(
+    fn reconcile_presented_expectation(
         &mut self,
         snapshot: TeleportReadySnapshot,
+        manifest_state: world_stream::ForcedRemeshManifestState,
+        proposed: Option<TargetRenderExpectation>,
         now: Instant,
-    ) -> Option<Duration> {
-        if !snapshot.is_ready() {
+        _frame_count: u64,
+    ) -> Option<TargetRenderExpectation> {
+        if manifest_state == world_stream::ForcedRemeshManifestState::Invalid {
+            self.invalidate();
             return None;
         }
-        let (started, _) = self.pending.take()?;
-        self.completed = true;
-        Some(now.saturating_duration_since(started))
+        let pending = self.pending.as_ref()?;
+        if snapshot.received_radius_chunks != Some(PHASE0_REQUESTED_RADIUS_CHUNKS)
+            || snapshot.publisher_radius_chunks != Some(PHASE0_REQUESTED_RADIUS_CHUNKS)
+            || snapshot.cohort != Some(pending.cohort)
+        {
+            self.invalidate();
+            return None;
+        }
+        if manifest_state == world_stream::ForcedRemeshManifestState::Pending
+            || !snapshot.is_ready()
+        {
+            self.pending
+                .as_mut()
+                .expect("validated forced remesh remains pending")
+                .candidate = None;
+            return None;
+        }
+        let Some(mut proposed) = proposed else {
+            self.invalidate();
+            return None;
+        };
+
+        if let Some(candidate) = &pending.candidate {
+            if proposed.cohort != candidate.expectation.cohort
+                || proposed.source_cohort != candidate.expectation.source_cohort
+                || proposed.manifest != candidate.expectation.manifest
+            {
+                self.invalidate();
+                return None;
+            }
+            return Some(candidate.expectation.clone());
+        }
+
+        let binding_keys = pending
+            .binding_manifest
+            .iter()
+            .map(|(key, _)| *key)
+            .collect::<BTreeSet<_>>();
+        let proposed_keys = proposed
+            .manifest
+            .iter()
+            .map(|(key, _)| *key)
+            .collect::<BTreeSet<_>>();
+        let proposal_is_forced = !proposed.manifest.is_empty()
+            && proposed.cohort == render_view_cohort(pending.cohort.target)
+            && proposed.source_cohort == pending.source_cohort
+            && proposed.manifest.len() == pending.binding_manifest.len()
+            && proposed_keys == binding_keys
+            && proposed.manifest != pending.binding_manifest
+            && proposed
+                .manifest
+                .iter()
+                .all(|entry| pending.manifest.entries.contains(entry));
+        if !proposal_is_forced {
+            self.invalidate();
+            return None;
+        }
+
+        proposed.view_generation = pending.binding_view_generation.wrapping_add(1).max(1);
+        proposed.render_ready_at = now;
+        let expectation = proposed.clone();
+        self.pending
+            .as_mut()
+            .expect("validated forced remesh remains pending")
+            .candidate = Some(FullViewRemeshPresentedCandidate {
+            expectation,
+            first_frame: None,
+        });
+        Some(proposed)
     }
 
-    const fn queued_sub_chunks(&self) -> Option<usize> {
-        self.queued_sub_chunks
+    fn observe_presented_frame(
+        &mut self,
+        acknowledgement: PresentedFrameAck,
+        frame_count: u64,
+    ) -> Option<FullViewRemeshCompletion> {
+        let invalid_current_evidence = {
+            let pending = self.pending.as_ref()?;
+            let candidate = pending.candidate.as_ref()?;
+            acknowledgement.cohort == candidate.expectation.cohort
+                && acknowledgement.view_generation == candidate.expectation.view_generation
+                && acknowledgement.render_ready_at == candidate.expectation.render_ready_at
+                && !presented_ack_matches(
+                    pending.manifest.started_at,
+                    &candidate.expectation,
+                    &acknowledgement,
+                )
+        };
+        if invalid_current_evidence {
+            self.invalidate();
+            return None;
+        }
+        let completion = {
+            let pending = self.pending.as_mut()?;
+            let candidate = pending.candidate.as_mut()?;
+            if !presented_ack_matches(
+                pending.manifest.started_at,
+                &candidate.expectation,
+                &acknowledgement,
+            ) {
+                candidate.first_frame = None;
+                return None;
+            }
+            let Some(first) = candidate.first_frame.take() else {
+                candidate.first_frame = Some(acknowledgement);
+                return None;
+            };
+            if !first.forms_stable_exact_pair_with(&acknowledgement)
+                || first.present_returned_at > acknowledgement.present_returned_at
+            {
+                candidate.first_frame = Some(acknowledgement);
+                return None;
+            }
+
+            let started = pending.manifest.started_at;
+            Some(FullViewRemeshCompletion {
+                settle_latency: acknowledgement
+                    .gpu_completed_at
+                    .checked_duration_since(started)?,
+                render_ready_latency: candidate
+                    .expectation
+                    .render_ready_at
+                    .checked_duration_since(started)?,
+                first_present_return_latency: first
+                    .present_returned_at
+                    .checked_duration_since(started)?,
+                first_gpu_completion_latency: first
+                    .gpu_completed_at
+                    .checked_duration_since(started)?,
+                stable_present_return_latency: acknowledgement
+                    .present_returned_at
+                    .checked_duration_since(started)?,
+                stable_gpu_completion_latency: acknowledgement
+                    .gpu_completed_at
+                    .checked_duration_since(started)?,
+                view_generation: candidate.expectation.view_generation,
+                expectation: candidate.expectation.clone(),
+                first_frame: first,
+                stable_frame: acknowledgement,
+                frame_count: frame_count
+                    .saturating_sub(pending.started_frame_count)
+                    .saturating_add(1)
+                    .max(2),
+            })
+        };
+        if let Some(completion) = &completion {
+            self.completed = Some(completion.clone());
+            self.pending = None;
+        }
+        completion
     }
+
+    fn invalidate(&mut self) {
+        self.pending = None;
+        self.invalidated = true;
+    }
+
+    #[cfg(test)]
+    fn is_pending(&self) -> bool {
+        self.pending.is_some()
+    }
+
+    #[cfg(test)]
+    const fn is_invalidated(&self) -> bool {
+        self.invalidated
+    }
+}
+
+struct FullViewCompletionEvidence<'a> {
+    settle_latency: Duration,
+    render_ready_latency: Duration,
+    first_present_return_latency: Duration,
+    first_gpu_completion_latency: Duration,
+    stable_present_return_latency: Duration,
+    stable_gpu_completion_latency: Duration,
+    view_generation: u64,
+    expectation: &'a TargetRenderExpectation,
+    first_frame: &'a PresentedFrameAck,
+    stable_frame: &'a PresentedFrameAck,
+    frame_count: u64,
+}
+
+fn exact_full_view_proof(
+    status: ViewCohortStatus,
+    evidence: FullViewCompletionEvidence<'_>,
+) -> ExactFullViewProof {
+    let manifest_evidence = |manifest: &[(SubChunkKey, u64)]| {
+        (
+            manifest.len(),
+            format!("{:016x}", deterministic_manifest_hash(manifest)),
+        )
+    };
+    let (expected_manifest_count, expected_manifest_hash) =
+        manifest_evidence(&evidence.expectation.manifest);
+    let (first_presented_manifest_count, first_presented_manifest_hash) =
+        manifest_evidence(&evidence.first_frame.allocation_manifest);
+    let (stable_presented_manifest_count, stable_presented_manifest_hash) =
+        manifest_evidence(&evidence.stable_frame.allocation_manifest);
+    ExactFullViewProof {
+        target: cohort_tag(status.target),
+        committed: status
+            .committed
+            .map_or_else(|| "none".to_owned(), cohort_tag),
+        ms: duration_milliseconds(evidence.settle_latency),
+        view_generation: evidence.view_generation,
+        render_ready_ms: duration_milliseconds(evidence.render_ready_latency),
+        first_frame_sequence: evidence.first_frame.frame_sequence,
+        stable_frame_sequence: evidence.stable_frame.frame_sequence,
+        first_present_ms: duration_milliseconds(evidence.first_present_return_latency),
+        first_gpu_ms: duration_milliseconds(evidence.first_gpu_completion_latency),
+        stable_present_ms: duration_milliseconds(evidence.stable_present_return_latency),
+        stable_gpu_ms: duration_milliseconds(evidence.stable_gpu_completion_latency),
+        frame_count: evidence.frame_count,
+        expected_manifest_count,
+        expected_manifest_hash,
+        first_presented_manifest_count,
+        first_presented_manifest_hash,
+        stable_presented_manifest_count,
+        stable_presented_manifest_hash,
+        expected: status.expected,
+        loaded_target: status.loaded_target,
+        missing_target: status.missing_target,
+        foreign_loaded: status.foreign_loaded,
+        foreign_requested: status.foreign_requested,
+        foreign_resident: status.foreign_resident,
+        source_leftover: status.source_leftover,
+        resident_count: status.resident_count,
+        resident_hash: format!("{:016x}", status.resident_hash),
+        known_air_count: status.known_air_count,
+        known_air_hash: format!("{:016x}", status.known_air_hash),
+        missing_target_instances: evidence.stable_frame.missing_target_instances,
+        unexpected_target_instances: evidence.stable_frame.unexpected_target_instances,
+        source_instances: evidence.stable_frame.source_instances,
+        foreign_instances: evidence.stable_frame.foreign_instances,
+        stale_generation_instances: evidence.stable_frame.stale_generation_instances,
+        orphan_allocations: evidence.stable_frame.orphan_allocations,
+    }
+}
+
+fn teleport_proof(
+    status: ViewCohortStatus,
+    completion: &FullViewTeleportCompletion,
+) -> TeleportProof {
+    TeleportProof {
+        exact: exact_full_view_proof(
+            status,
+            FullViewCompletionEvidence {
+                settle_latency: completion.settle_latency,
+                render_ready_latency: completion.render_ready_latency,
+                first_present_return_latency: completion.first_present_return_latency,
+                first_gpu_completion_latency: completion.first_gpu_completion_latency,
+                stable_present_return_latency: completion.stable_present_return_latency,
+                stable_gpu_completion_latency: completion.stable_gpu_completion_latency,
+                view_generation: completion.view_generation,
+                expectation: &completion.expectation,
+                first_frame: &completion.first_frame,
+                stable_frame: &completion.stable_frame,
+                frame_count: completion.frame_count,
+            },
+        ),
+        publisher_ms: optional_duration_milliseconds(completion.publisher_latency),
+        first_level_ms: optional_duration_milliseconds(completion.first_level_chunk_latency),
+        last_level_ms: optional_duration_milliseconds(completion.last_level_chunk_latency),
+        level_events: completion.level_chunk_events,
+        first_sub_ms: optional_duration_milliseconds(completion.first_sub_chunk_latency),
+        last_sub_ms: optional_duration_milliseconds(completion.last_sub_chunk_latency),
+        sub_events: completion.sub_chunk_events,
+    }
+}
+
+fn forced_remesh_proof(
+    status: ViewCohortStatus,
+    completion: &FullViewRemeshCompletion,
+) -> ExactFullViewProof {
+    exact_full_view_proof(
+        status,
+        FullViewCompletionEvidence {
+            settle_latency: completion.settle_latency,
+            render_ready_latency: completion.render_ready_latency,
+            first_present_return_latency: completion.first_present_return_latency,
+            first_gpu_completion_latency: completion.first_gpu_completion_latency,
+            stable_present_return_latency: completion.stable_present_return_latency,
+            stable_gpu_completion_latency: completion.stable_gpu_completion_latency,
+            view_generation: completion.view_generation,
+            expectation: &completion.expectation,
+            first_frame: &completion.first_frame,
+            stable_frame: &completion.stable_frame,
+            frame_count: completion.frame_count,
+        },
+    )
+}
+
+fn exact_full_view_proof_marker_fields(proof: &ExactFullViewProof) -> String {
+    format!(
+        "target={} committed={} ms={:.4} view_generation={} render_ready_ms={:.4} first_frame_sequence={} stable_frame_sequence={} first_present_ms={:.4} first_gpu_ms={:.4} stable_present_ms={:.4} stable_gpu_ms={:.4} frame_count={} expected_manifest_count={} expected_manifest_hash={} first_presented_manifest_count={} first_presented_manifest_hash={} stable_presented_manifest_count={} stable_presented_manifest_hash={} expected={} loaded_target={} missing_target={} foreign_loaded={} foreign_requested={} foreign_resident={} source_leftover={} resident_count={} resident_hash={} known_air_count={} known_air_hash={} missing_target_instances={} unexpected_target_instances={} source_instances={} foreign_instances={} stale_generation_instances={} orphan_allocations={}",
+        proof.target,
+        proof.committed,
+        proof.ms,
+        proof.view_generation,
+        proof.render_ready_ms,
+        proof.first_frame_sequence,
+        proof.stable_frame_sequence,
+        proof.first_present_ms,
+        proof.first_gpu_ms,
+        proof.stable_present_ms,
+        proof.stable_gpu_ms,
+        proof.frame_count,
+        proof.expected_manifest_count,
+        proof.expected_manifest_hash,
+        proof.first_presented_manifest_count,
+        proof.first_presented_manifest_hash,
+        proof.stable_presented_manifest_count,
+        proof.stable_presented_manifest_hash,
+        proof.expected,
+        proof.loaded_target,
+        proof.missing_target,
+        proof.foreign_loaded,
+        proof.foreign_requested,
+        proof.foreign_resident,
+        proof.source_leftover,
+        proof.resident_count,
+        proof.resident_hash,
+        proof.known_air_count,
+        proof.known_air_hash,
+        proof.missing_target_instances,
+        proof.unexpected_target_instances,
+        proof.source_instances,
+        proof.foreign_instances,
+        proof.stale_generation_instances,
+        proof.orphan_allocations,
+    )
+}
+
+fn teleport_settled_marker(proof: &TeleportProof) -> String {
+    format!(
+        "RUST_MCBE_TELEPORT_SETTLED {} publisher_ms={} first_level_ms={} last_level_ms={} level_events={} first_sub_ms={} last_sub_ms={} sub_events={}",
+        exact_full_view_proof_marker_fields(&proof.exact),
+        optional_milliseconds_token(proof.publisher_ms),
+        optional_milliseconds_token(proof.first_level_ms),
+        optional_milliseconds_token(proof.last_level_ms),
+        proof.level_events,
+        optional_milliseconds_token(proof.first_sub_ms),
+        optional_milliseconds_token(proof.last_sub_ms),
+        proof.sub_events,
+    )
+}
+
+fn forced_remesh_settled_marker(proof: &ExactFullViewProof) -> String {
+    format!(
+        "RUST_MCBE_FORCED_FULL_VIEW_REMESH_SETTLED {}",
+        exact_full_view_proof_marker_fields(proof)
+    )
+}
+
+fn duration_milliseconds(duration: Duration) -> f64 {
+    duration.as_secs_f64() * 1_000.0
+}
+
+fn optional_duration_milliseconds(duration: Option<Duration>) -> Option<f64> {
+    duration.map(duration_milliseconds)
+}
+
+fn optional_milliseconds_token(milliseconds: Option<f64>) -> String {
+    milliseconds.map_or_else(|| "null".to_owned(), |value| format!("{value:.4}"))
 }
 
 fn horizontal_chunk(position: [f32; 3]) -> Option<[i32; 2]> {
@@ -896,6 +1361,7 @@ impl AcceptanceRun {
         sequence: u64,
         observed_at: Instant,
         current_dimension: i32,
+        frame_count: u64,
     ) -> bool {
         self.world_ready
             && self.full_view_teleport.observe_ingress(
@@ -903,6 +1369,7 @@ impl AcceptanceRun {
                 sequence,
                 observed_at,
                 current_dimension,
+                frame_count,
             )
     }
 
@@ -1224,6 +1691,7 @@ fn receive_network_events(
     mut network: ResMut<NetworkHandle>,
     mut client_world: ResMut<ClientWorld>,
     mut acceptance: ResMut<AcceptanceRun>,
+    metrics: Res<AppMetrics>,
     acknowledgements: Res<ChunkUploadAcknowledgements>,
     mut cameras: Query<&mut Transform, With<FlyCamera>>,
 ) {
@@ -1285,6 +1753,7 @@ fn receive_network_events(
                     sequenced.sequence,
                     observed_at,
                     stream.current_dimension(),
+                    metrics.0.frame_count(),
                 ) {
                     stream.schedule_source_capture(sequenced.sequence);
                 }
@@ -1536,99 +2005,62 @@ fn emit_world_ready(
             work,
         };
         let observed_at = Instant::now();
-        let proposed = acceptance
-            .full_view_teleport
-            .pending
-            .as_ref()
-            .map(|pending| {
-                render_queue.freeze_target_expectation(
-                    render_view_cohort(pending.target),
-                    Some(render_view_cohort(pending.source)),
-                    0,
-                    observed_at,
-                )
-            });
-        let expectation = proposed.and_then(|proposed| {
-            acceptance
+        let frame_count = metrics.0.frame_count();
+        acceptance.full_view_teleport.note_frame(frame_count);
+        let teleport = if let Some(pending) = acceptance.full_view_teleport.pending.as_ref() {
+            let proposed = render_queue.freeze_target_expectation(
+                render_view_cohort(pending.target),
+                Some(render_view_cohort(pending.source)),
+                0,
+                observed_at,
+            );
+            let expectation = acceptance
                 .full_view_teleport
-                .reconcile_presented_expectation(snapshot, proposed, observed_at)
-        });
-        if let Some(expectation) = expectation {
-            presented_frames.set_expectation(expectation);
+                .reconcile_presented_expectation(snapshot, proposed, observed_at);
+            if let Some(expectation) = expectation {
+                presented_frames.set_expectation(expectation);
+            } else {
+                presented_frames.clear();
+            }
+            presented_frames
+                .drain()
+                .into_iter()
+                .find_map(|acknowledgement| {
+                    acceptance
+                        .full_view_teleport
+                        .observe_presented_frame(acknowledgement)
+                })
         } else {
-            presented_frames.clear();
-        }
-        let teleport = presented_frames
-            .drain()
-            .into_iter()
-            .find_map(|acknowledgement| {
-                acceptance
-                    .full_view_teleport
-                    .observe_presented_frame(acknowledgement)
-            });
+            None
+        };
         if let Some(teleport) = teleport {
             presented_frames.clear();
             let cohort = snapshot
                 .cohort
                 .expect("teleport completion requires an exact cohort");
-            let remesh_started = Instant::now();
-            let queued_sub_chunks = stream.remesh_all_resident(remesh_started);
-            if !acceptance
-                .full_view_remesh
-                .start(remesh_started, queued_sub_chunks)
-            {
-                error!(queued_sub_chunks, "could not start full-view remesh gate");
+            let remesh_manifest = stream.remesh_all_resident(Instant::now());
+            if !acceptance.full_view_remesh.start(
+                Some(&teleport),
+                cohort,
+                remesh_manifest,
+                frame_count,
+            ) {
+                error!("could not start exact full-view remesh gate after binding teleport");
                 return;
             }
-            metrics.0.record_teleport_settle(teleport.settle_latency);
+            let proof = teleport_proof(cohort, &teleport);
+            metrics.0.record_teleport_proof(proof.clone());
             let mut stdout = std::io::stdout().lock();
-            let _ = writeln!(
-                stdout,
-                "RUST_MCBE_TELEPORT_SETTLED target={} committed={} ms={:.4} view_generation={} render_ready_ms={:.4} first_present_ms={:.4} first_gpu_ms={:.4} stable_present_ms={:.4} stable_gpu_ms={:.4} publisher_ms={:.4} first_level_ms={:.4} last_level_ms={:.4} level_events={} first_sub_ms={:.4} last_sub_ms={:.4} sub_events={} peak_network_events={} queued={} columns={} expected={} loaded_target={} missing_target={} foreign_loaded={} foreign_requested={} foreign_resident={} source_leftover={} resident_count={} resident_hash={:016x} known_air_count={} known_air_hash={:016x} rendered={} resident={} visible={}",
-                cohort_tag(cohort.target),
-                cohort
-                    .committed
-                    .map_or_else(|| "none".to_owned(), cohort_tag),
-                teleport.settle_latency.as_secs_f64() * 1_000.0,
-                teleport.view_generation,
-                teleport.render_ready_latency.as_secs_f64() * 1_000.0,
-                teleport.first_present_return_latency.as_secs_f64() * 1_000.0,
-                teleport.first_gpu_completion_latency.as_secs_f64() * 1_000.0,
-                teleport.stable_present_return_latency.as_secs_f64() * 1_000.0,
-                teleport.stable_gpu_completion_latency.as_secs_f64() * 1_000.0,
-                optional_milliseconds(teleport.publisher_latency),
-                optional_milliseconds(teleport.first_level_chunk_latency),
-                optional_milliseconds(teleport.last_level_chunk_latency),
-                teleport.level_chunk_events,
-                optional_milliseconds(teleport.first_sub_chunk_latency),
-                optional_milliseconds(teleport.last_sub_chunk_latency),
-                teleport.sub_chunk_events,
-                teleport.peak_network_events,
-                queued_sub_chunks,
-                snapshot.loaded_columns,
-                cohort.expected,
-                cohort.loaded_target,
-                cohort.missing_target,
-                cohort.foreign_loaded,
-                cohort.foreign_requested,
-                cohort.foreign_resident,
-                cohort.source_leftover,
-                cohort.resident_count,
-                cohort.resident_hash,
-                cohort.known_air_count,
-                cohort.known_air_hash,
-                snapshot.rendered_sub_chunks,
-                snapshot.resident_sub_chunks,
-                snapshot.visible_sub_chunks,
-            );
+            let _ = writeln!(stdout, "{}", teleport_settled_marker(&proof));
             let _ = writeln!(
                 stdout,
                 "{}",
-                teleport_global_stage_diagnostic_marker(cohort.target, teleport)
+                teleport_global_stage_diagnostic_marker(cohort.target, &teleport)
             );
             let _ = stdout.flush();
             return;
         }
+
         if let Some(status) = snapshot.cohort
             && let Some(marker) = acceptance.full_view_teleport.cohort_progress_line(
                 status,
@@ -1641,28 +2073,60 @@ fn emit_world_ready(
             let _ = writeln!(stdout, "{marker}");
             let _ = stdout.flush();
         }
-        if let Some(remesh_latency) = acceptance
+
+        let remesh_manifest = acceptance
             .full_view_remesh
-            .observe_snapshot(snapshot, observed_at)
-        {
-            metrics.0.record_forced_full_view_remesh(remesh_latency);
-            let mut stdout = std::io::stdout().lock();
-            let _ = writeln!(
-                stdout,
-                "RUST_MCBE_FORCED_FULL_VIEW_REMESH_SETTLED target={} ms={:.4} queued={} rendered={} resident={} visible={}",
-                snapshot
-                    .cohort
-                    .map_or_else(|| "none".to_owned(), |status| cohort_tag(status.target)),
-                remesh_latency.as_secs_f64() * 1_000.0,
-                acceptance
-                    .full_view_remesh
-                    .queued_sub_chunks()
-                    .unwrap_or_default(),
-                snapshot.rendered_sub_chunks,
-                snapshot.resident_sub_chunks,
-                snapshot.visible_sub_chunks,
+            .pending
+            .as_ref()
+            .map(|pending| pending.manifest.clone());
+        if let Some(remesh_manifest) = remesh_manifest {
+            let manifest_state = stream.forced_remesh_manifest_state(&remesh_manifest);
+            let proposal_target = acceptance.full_view_remesh.pending.as_ref().map(|pending| {
+                (
+                    render_view_cohort(pending.cohort.target),
+                    pending.source_cohort,
+                )
+            });
+            let proposed = if manifest_state == world_stream::ForcedRemeshManifestState::Complete {
+                proposal_target.map(|(target, source)| {
+                    render_queue.freeze_target_expectation(target, source, 0, observed_at)
+                })
+            } else {
+                None
+            };
+            let expectation = acceptance.full_view_remesh.reconcile_presented_expectation(
+                snapshot,
+                manifest_state,
+                proposed,
+                observed_at,
+                frame_count,
             );
-            let _ = stdout.flush();
+            if let Some(expectation) = expectation {
+                presented_frames.set_expectation(expectation);
+            } else {
+                presented_frames.clear();
+            }
+            let completion = presented_frames
+                .drain()
+                .into_iter()
+                .find_map(|acknowledgement| {
+                    acceptance
+                        .full_view_remesh
+                        .observe_presented_frame(acknowledgement, frame_count)
+                });
+            if let Some(completion) = completion {
+                presented_frames.clear();
+                let cohort = snapshot
+                    .cohort
+                    .expect("forced remesh completion requires the frozen exact cohort");
+                let proof = forced_remesh_proof(cohort, &completion);
+                metrics
+                    .0
+                    .record_forced_full_view_remesh_proof(proof.clone());
+                let mut stdout = std::io::stdout().lock();
+                let _ = writeln!(stdout, "{}", forced_remesh_settled_marker(&proof));
+                let _ = stdout.flush();
+            }
         }
         return;
     }
@@ -1720,10 +2184,6 @@ fn emit_world_ready(
         stream.resolved_server_position().position,
         stream.local_player_runtime_id(),
     );
-}
-
-fn optional_milliseconds(duration: Option<Duration>) -> f64 {
-    duration.map_or(-1.0, |duration| duration.as_secs_f64() * 1_000.0)
 }
 
 fn flush_sub_chunk_requests(
@@ -2045,12 +2505,14 @@ mod tests {
     };
     use world::SubChunkKey;
 
-    use crate::world_stream::{ViewCohort, ViewCohortStatus, WorldStream};
+    use crate::world_stream::{
+        ForcedRemeshManifest, ForcedRemeshManifestState, ViewCohort, ViewCohortStatus, WorldStream,
+    };
     use crate::{
-        AcceptanceRun, FullViewRemeshTracker, FullViewTeleportTracker, MutationTracker,
-        NETWORK_INGRESS_BUDGET_PER_FRAME, SubChunkTimeoutProgress, TeleportReadySnapshot,
-        WORLD_READY_QUIET_INTERVAL, WorldReadySettler, WorldReadySnapshot, WorldReadyWork,
-        bedrock_camera_rotation, camera_sub_chunk_key, cumulative_counter_delta,
+        AcceptanceRun, FullViewRemeshTracker, FullViewTeleportCompletion, FullViewTeleportTracker,
+        MutationTracker, NETWORK_INGRESS_BUDGET_PER_FRAME, SubChunkTimeoutProgress,
+        TeleportReadySnapshot, WORLD_READY_QUIET_INTERVAL, WorldReadySettler, WorldReadySnapshot,
+        WorldReadyWork, bedrock_camera_rotation, camera_sub_chunk_key, cumulative_counter_delta,
         deterministic_mutation_coordinate, drain_network_ingress, flush_sub_chunk_requests,
         resolve_socket_dir_from, status_title, world_ready_markers,
     };
@@ -2212,6 +2674,42 @@ mod tests {
         }
     }
 
+    fn binding_teleport_completion(
+        started: Instant,
+        settle_latency: Duration,
+    ) -> FullViewTeleportCompletion {
+        let mut tracker = destination_tracker(started);
+        let key = SubChunkKey::new(0, 64, 65, 65);
+        let render_ready = Duration::from_millis(200);
+        let expectation = tracker
+            .reconcile_presented_expectation(
+                settled_teleport_snapshot(),
+                proposed_render_expectation(started + render_ready, [(key, 7)]),
+                started + render_ready,
+            )
+            .unwrap();
+        let stable_gpu_after_ready = settle_latency.saturating_sub(render_ready);
+        let first_gpu_after_ready =
+            stable_gpu_after_ready.saturating_sub(Duration::from_millis(20));
+        assert_eq!(
+            tracker.observe_presented_frame(presented_acknowledgement(
+                &expectation,
+                41,
+                first_gpu_after_ready.saturating_sub(Duration::from_millis(10)),
+                first_gpu_after_ready,
+            )),
+            None
+        );
+        tracker
+            .observe_presented_frame(presented_acknowledgement(
+                &expectation,
+                42,
+                stable_gpu_after_ready.saturating_sub(Duration::from_millis(10)),
+                stable_gpu_after_ready,
+            ))
+            .unwrap()
+    }
+
     #[test]
     fn full_view_teleport_arms_only_with_a_fifo_committed_source_cohort() {
         let started = Instant::now();
@@ -2224,14 +2722,14 @@ mod tests {
         let mut tracker = FullViewTeleportTracker::new(true);
         tracker.begin_world_ready([0.5, 70.0, 0.5], 1);
 
-        assert!(tracker.observe_ingress(&movement, 1, started, 0));
+        assert!(tracker.observe_ingress(&movement, 1, started, 0, 10));
         let WorldEvent::MovePlayer(move_player) = &movement else {
             unreachable!();
         };
         let move_player = *move_player;
         assert!(!tracker.commit_move(1, move_player, None));
         assert!(tracker.pending.is_none());
-        assert!(tracker.observe_ingress(&movement, 2, started + Duration::from_millis(1), 0,));
+        assert!(tracker.observe_ingress(&movement, 2, started + Duration::from_millis(1), 0, 11,));
         assert!(tracker.commit_move(2, move_player, Some(SOURCE_COHORT)));
         assert_eq!(
             tracker.pending.as_ref().map(|pending| pending.source),
@@ -2259,7 +2757,7 @@ mod tests {
             block_network_ids_are_hashes: false,
         });
 
-        assert!(tracker.observe_ingress(&WorldEvent::MovePlayer(movement), 2, started, 0,));
+        assert!(tracker.observe_ingress(&WorldEvent::MovePlayer(movement), 2, started, 0, 10,));
         stream.schedule_source_capture(2);
         stream.submit(2, WorldEvent::MovePlayer(movement)).unwrap();
         assert!(stream.take_committed_controls().is_empty());
@@ -2836,30 +3334,14 @@ mod tests {
 
     #[test]
     fn global_stream_timestamps_are_emitted_as_separate_target_tagged_diagnostics() {
-        let marker = super::teleport_global_stage_diagnostic_marker(
-            DESTINATION_COHORT,
-            super::FullViewTeleportCompletion {
-                settle_latency: Duration::ZERO,
-                render_ready_latency: Duration::ZERO,
-                first_present_return_latency: Duration::ZERO,
-                first_gpu_completion_latency: Duration::ZERO,
-                stable_present_return_latency: Duration::ZERO,
-                stable_gpu_completion_latency: Duration::ZERO,
-                view_generation: 1,
-                publisher_latency: None,
-                first_level_chunk_latency: None,
-                last_level_chunk_latency: None,
-                level_chunk_events: 0,
-                first_sub_chunk_latency: None,
-                last_sub_chunk_latency: None,
-                sub_chunk_events: 0,
-                last_chunk_commit_latency: Some(Duration::from_millis(10)),
-                last_mesh_dispatch_latency: Some(Duration::from_millis(20)),
-                last_mesh_completion_latency: Some(Duration::from_millis(30)),
-                last_mesh_ack_latency: Some(Duration::from_millis(40)),
-                peak_network_events: 0,
-            },
-        );
+        let mut completion =
+            binding_teleport_completion(Instant::now(), Duration::from_millis(1_500));
+        completion.last_chunk_commit_latency = Some(Duration::from_millis(10));
+        completion.last_mesh_dispatch_latency = Some(Duration::from_millis(20));
+        completion.last_mesh_completion_latency = Some(Duration::from_millis(30));
+        completion.last_mesh_ack_latency = Some(Duration::from_millis(40));
+        let marker =
+            super::teleport_global_stage_diagnostic_marker(DESTINATION_COHORT, &completion);
 
         assert_eq!(
             marker,
@@ -3215,32 +3697,267 @@ mod tests {
     }
 
     #[test]
-    fn full_view_remesh_closes_only_after_all_bounded_work_and_gpu_acknowledgements_clear() {
-        let started = Instant::now();
+    fn forced_remesh_starts_only_after_binding_teleport_completion() {
+        let teleport_started = Instant::now();
+        let binding = binding_teleport_completion(teleport_started, Duration::from_millis(1_500));
+        let started = teleport_started + Duration::from_millis(1_501);
+        let key = SubChunkKey::new(0, 64, 65, 65);
+        let manifest = ForcedRemeshManifest {
+            started_at: started,
+            entries: Arc::from([(key, 8)]),
+        };
         let mut tracker = FullViewRemeshTracker::default();
-        assert!(tracker.start(started, 8_000));
 
-        let mut busy = settled_teleport_snapshot();
-        busy.work.unacknowledged_meshes = 1;
+        assert!(!tracker.start(None, exact_destination_status(), manifest.clone(), 90,));
+        assert!(tracker.start(Some(&binding), exact_destination_status(), manifest, 90,));
+        assert!(tracker.is_pending());
+    }
+
+    #[test]
+    fn fast_forced_remesh_does_not_replace_or_fix_a_slow_binding_teleport() {
+        let teleport_started = Instant::now();
+        let binding = binding_teleport_completion(teleport_started, Duration::from_millis(2_400));
+        let started = teleport_started + Duration::from_millis(2_401);
+        let key = SubChunkKey::new(0, 64, 65, 65);
+        let manifest = ForcedRemeshManifest {
+            started_at: started,
+            entries: Arc::from([(key, 8)]),
+        };
+        let mut tracker = FullViewRemeshTracker::default();
+        assert!(tracker.start(Some(&binding), exact_destination_status(), manifest, 145,));
+        let expectation = tracker
+            .reconcile_presented_expectation(
+                settled_teleport_snapshot(),
+                ForcedRemeshManifestState::Complete,
+                Some(proposed_render_expectation(
+                    started + Duration::from_millis(10),
+                    [(key, 8)],
+                )),
+                started + Duration::from_millis(10),
+                146,
+            )
+            .unwrap();
         assert_eq!(
-            tracker.observe_snapshot(busy, started + Duration::from_millis(900)),
+            tracker.observe_presented_frame(
+                presented_acknowledgement(
+                    &expectation,
+                    43,
+                    Duration::from_millis(20),
+                    Duration::from_millis(40),
+                ),
+                148,
+            ),
             None
         );
-        assert_eq!(
-            tracker.observe_snapshot(
+        let forced = tracker
+            .observe_presented_frame(
+                presented_acknowledgement(
+                    &expectation,
+                    44,
+                    Duration::from_millis(80),
+                    Duration::from_millis(90),
+                ),
+                151,
+            )
+            .unwrap();
+
+        assert_eq!(binding.settle_latency, Duration::from_millis(2_400));
+        assert_eq!(forced.settle_latency, Duration::from_millis(100));
+        assert!(binding.settle_latency > Duration::from_secs(2));
+        assert!(forced.settle_latency < Duration::from_secs(2));
+    }
+
+    #[test]
+    fn forced_remesh_busy_gap_resets_the_presented_pair() {
+        let teleport_started = Instant::now();
+        let binding = binding_teleport_completion(teleport_started, Duration::from_millis(1_500));
+        let started = teleport_started + Duration::from_millis(1_501);
+        let key = SubChunkKey::new(0, 64, 65, 65);
+        let manifest = ForcedRemeshManifest {
+            started_at: started,
+            entries: Arc::from([(key, 8)]),
+        };
+        let mut tracker = FullViewRemeshTracker::default();
+        assert!(tracker.start(Some(&binding), exact_destination_status(), manifest, 90,));
+        let first_expectation = tracker
+            .reconcile_presented_expectation(
                 settled_teleport_snapshot(),
-                started + Duration::from_millis(1_500),
+                ForcedRemeshManifestState::Complete,
+                Some(proposed_render_expectation(
+                    started + Duration::from_millis(10),
+                    [(key, 8)],
+                )),
+                started + Duration::from_millis(10),
+                91,
+            )
+            .unwrap();
+        assert_eq!(
+            tracker.observe_presented_frame(
+                presented_acknowledgement(
+                    &first_expectation,
+                    43,
+                    Duration::from_millis(20),
+                    Duration::from_millis(40),
+                ),
+                92,
             ),
-            Some(Duration::from_millis(1_500))
+            None
         );
-        assert_eq!(tracker.queued_sub_chunks(), Some(8_000));
+
+        let mut busy = settled_teleport_snapshot();
+        busy.work.pending_mesh_jobs = 1;
         assert_eq!(
-            tracker.observe_snapshot(
+            tracker.reconcile_presented_expectation(
+                busy,
+                ForcedRemeshManifestState::Complete,
+                Some(proposed_render_expectation(
+                    started + Duration::from_millis(50),
+                    [(key, 8)],
+                )),
+                started + Duration::from_millis(50),
+                93,
+            ),
+            None
+        );
+
+        let resumed_expectation = tracker
+            .reconcile_presented_expectation(
                 settled_teleport_snapshot(),
-                started + Duration::from_millis(1_600),
+                ForcedRemeshManifestState::Complete,
+                Some(proposed_render_expectation(
+                    started + Duration::from_millis(60),
+                    [(key, 8)],
+                )),
+                started + Duration::from_millis(60),
+                94,
+            )
+            .unwrap();
+        assert_ne!(
+            resumed_expectation.render_ready_at, first_expectation.render_ready_at,
+            "resumed proof reused the pre-gap render-ready boundary"
+        );
+        assert_eq!(
+            tracker.observe_presented_frame(
+                presented_acknowledgement(
+                    &resumed_expectation,
+                    44,
+                    Duration::from_millis(20),
+                    Duration::from_millis(40),
+                ),
+                95,
             ),
             None,
-            "a completed gate emitted twice"
+            "the first post-gap exact frame paired with the pre-gap frame"
+        );
+    }
+
+    #[test]
+    fn cohort_or_manifest_change_invalidates_forced_remesh() {
+        let teleport_started = Instant::now();
+        let binding = binding_teleport_completion(teleport_started, Duration::from_millis(1_500));
+        let started = teleport_started + Duration::from_millis(1_501);
+        let key = SubChunkKey::new(0, 64, 65, 65);
+        let manifest = ForcedRemeshManifest {
+            started_at: started,
+            entries: Arc::from([(key, 8)]),
+        };
+        let proposal = proposed_render_expectation(started + Duration::from_millis(10), [(key, 8)]);
+
+        let mut cohort_changed = FullViewRemeshTracker::default();
+        assert!(cohort_changed.start(
+            Some(&binding),
+            exact_destination_status(),
+            manifest.clone(),
+            90,
+        ));
+        assert!(
+            cohort_changed
+                .reconcile_presented_expectation(
+                    settled_teleport_snapshot(),
+                    ForcedRemeshManifestState::Complete,
+                    Some(proposal.clone()),
+                    started + Duration::from_millis(10),
+                    91,
+                )
+                .is_some()
+        );
+        let mut replacement = settled_teleport_snapshot();
+        replacement.cohort.as_mut().unwrap().resident_hash ^= 0x55aa;
+        assert!(
+            cohort_changed
+                .reconcile_presented_expectation(
+                    replacement,
+                    ForcedRemeshManifestState::Complete,
+                    Some(proposal.clone()),
+                    started + Duration::from_millis(20),
+                    92,
+                )
+                .is_none()
+        );
+        assert!(cohort_changed.is_invalidated());
+
+        let mut manifest_changed = FullViewRemeshTracker::default();
+        assert!(manifest_changed.start(Some(&binding), exact_destination_status(), manifest, 90,));
+        assert!(
+            manifest_changed
+                .reconcile_presented_expectation(
+                    settled_teleport_snapshot(),
+                    ForcedRemeshManifestState::Complete,
+                    Some(proposal),
+                    started + Duration::from_millis(10),
+                    91,
+                )
+                .is_some()
+        );
+        assert!(
+            manifest_changed
+                .reconcile_presented_expectation(
+                    settled_teleport_snapshot(),
+                    ForcedRemeshManifestState::Complete,
+                    Some(proposed_render_expectation(
+                        started + Duration::from_millis(20),
+                        [(key, 9)],
+                    )),
+                    started + Duration::from_millis(20),
+                    92,
+                )
+                .is_none()
+        );
+        assert!(manifest_changed.is_invalidated());
+
+        let mut presented_changed = FullViewRemeshTracker::default();
+        let manifest = ForcedRemeshManifest {
+            started_at: started,
+            entries: Arc::from([(key, 8)]),
+        };
+        assert!(presented_changed.start(Some(&binding), exact_destination_status(), manifest, 90,));
+        let expectation = presented_changed
+            .reconcile_presented_expectation(
+                settled_teleport_snapshot(),
+                ForcedRemeshManifestState::Complete,
+                Some(proposed_render_expectation(
+                    started + Duration::from_millis(10),
+                    [(key, 8)],
+                )),
+                started + Duration::from_millis(10),
+                91,
+            )
+            .unwrap();
+        let mut changed_ack = presented_acknowledgement(
+            &expectation,
+            43,
+            Duration::from_millis(20),
+            Duration::from_millis(40),
+        );
+        changed_ack.allocation_manifest = Arc::from([(key, 9)]);
+        changed_ack.drawn_manifest = Arc::clone(&changed_ack.allocation_manifest);
+        assert_eq!(
+            presented_changed.observe_presented_frame(changed_ack, 92),
+            None
+        );
+        assert!(
+            presented_changed.is_invalidated(),
+            "a forced-generation change in presented evidence did not invalidate the benchmark"
         );
     }
 
