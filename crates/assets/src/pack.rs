@@ -1,12 +1,17 @@
 use std::{
     collections::BTreeMap,
+    fmt,
     fs::File,
     io::Read,
+    marker::PhantomData,
     path::{Component, Path},
     str,
 };
 
-use serde::{Deserialize, de::DeserializeOwned};
+use serde::{
+    Deserialize,
+    de::{DeserializeOwned, IgnoredAny, MapAccess, Visitor},
+};
 use serde_json::{Map, Value};
 
 use crate::{AssetError, RegistryRecord};
@@ -15,6 +20,72 @@ const MAX_JSON_BYTES: usize = 16 * 1024 * 1024;
 const MAX_TEXTURE_KEYS: usize = 8_192;
 const MAX_TEXTURE_VARIANTS: usize = 256;
 const MAX_TEXTURE_PATH_BYTES: usize = 4 * 1024;
+
+struct BoundedUniqueMap<V, const MAX: usize> {
+    entries: BTreeMap<String, V>,
+    issue: Option<BoundedMapIssue>,
+}
+
+enum BoundedMapIssue {
+    Duplicate(Box<str>),
+    TooMany { count: usize },
+}
+
+impl<'de, V, const MAX: usize> Deserialize<'de> for BoundedUniqueMap<V, MAX>
+where
+    V: Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_map(BoundedUniqueMapVisitor::<V, MAX>(PhantomData))
+    }
+}
+
+struct BoundedUniqueMapVisitor<V, const MAX: usize>(PhantomData<V>);
+
+impl<'de, V, const MAX: usize> Visitor<'de> for BoundedUniqueMapVisitor<V, MAX>
+where
+    V: Deserialize<'de>,
+{
+    type Value = BoundedUniqueMap<V, MAX>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a JSON object with unique bounded keys")
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        let mut entries = BTreeMap::new();
+        let mut issue = None;
+        let mut count = 0;
+        while let Some(key) = map.next_key::<String>()? {
+            count += 1;
+            if issue.is_some() {
+                map.next_value::<IgnoredAny>()?;
+                continue;
+            }
+            if entries.contains_key(&key) {
+                map.next_value::<IgnoredAny>()?;
+                issue = Some(BoundedMapIssue::Duplicate(key.into_boxed_str()));
+                continue;
+            }
+            if count > MAX {
+                map.next_value::<IgnoredAny>()?;
+                issue = Some(BoundedMapIssue::TooMany { count });
+                continue;
+            }
+            entries.insert(key, map.next_value()?);
+        }
+        if let Some(BoundedMapIssue::TooMany { count: issue_count }) = &mut issue {
+            *issue_count = count;
+        }
+        Ok(BoundedUniqueMap { entries, issue })
+    }
+}
 
 /// Bedrock block-face order, matching the packed renderer's face discriminants.
 #[repr(u8)]
@@ -178,12 +249,13 @@ impl FaceKeys {
 
 #[derive(Deserialize)]
 struct BlockEntry {
-    textures: TextureValue,
+    #[serde(default)]
+    textures: Option<TextureValue>,
 }
 
 #[derive(Deserialize)]
 struct TerrainDocument {
-    texture_data: BTreeMap<String, TerrainEntry>,
+    texture_data: BoundedUniqueMap<TerrainEntry, MAX_TEXTURE_KEYS>,
 }
 
 #[derive(Deserialize)]
@@ -280,7 +352,19 @@ pub fn resolve_texture_key(
 }
 
 fn read_blocks(path: &Path) -> Result<BlockTextureMap, AssetError> {
-    let mut document: Map<String, Value> = read_json(path, false)?;
+    let document: BoundedUniqueMap<Value, { MAX_TEXTURE_KEYS + 1 }> = read_json(path, false)?;
+    let mut document = match document.issue {
+        Some(BoundedMapIssue::Duplicate(key)) => {
+            return Err(AssetError::DuplicateBlockKey(key));
+        }
+        Some(BoundedMapIssue::TooMany { count }) => {
+            return Err(AssetError::TooManyTextureKeys {
+                count,
+                max: MAX_TEXTURE_KEYS,
+            });
+        }
+        None => document.entries,
+    };
     document.remove("format_version");
     if document.len() > MAX_TEXTURE_KEYS {
         return Err(AssetError::TooManyTextureKeys {
@@ -292,29 +376,39 @@ fn read_blocks(path: &Path) -> Result<BlockTextureMap, AssetError> {
     let mut entries = BTreeMap::new();
     for (name, value) in document {
         let entry: BlockEntry =
-            serde_json::from_value(value).map_err(|source| AssetError::Json {
+            serde_json::from_value(value).map_err(|source| AssetError::InvalidBlockEntry {
                 path: path.to_path_buf(),
+                block: name.clone().into_boxed_str(),
                 source,
             })?;
-        if !entry.textures.has_keys() {
+        let Some(textures) = entry.textures else {
+            continue;
+        };
+        if !textures.has_keys() {
             return Err(AssetError::MissingBlockTextureKeys(name.into_boxed_str()));
         }
-        entries.insert(name.into_boxed_str(), entry.textures);
+        entries.insert(name.into_boxed_str(), textures);
     }
     Ok(BlockTextureMap { entries })
 }
 
 fn read_terrain(path: &Path) -> Result<TerrainTextureMap, AssetError> {
     let document: TerrainDocument = read_json(path, true)?;
-    if document.texture_data.len() > MAX_TEXTURE_KEYS {
-        return Err(AssetError::TooManyTextureKeys {
-            count: document.texture_data.len(),
-            max: MAX_TEXTURE_KEYS,
-        });
-    }
+    let texture_data = match document.texture_data.issue {
+        Some(BoundedMapIssue::Duplicate(key)) => {
+            return Err(AssetError::DuplicateTerrainTextureKey(key));
+        }
+        Some(BoundedMapIssue::TooMany { count }) => {
+            return Err(AssetError::TooManyTextureKeys {
+                count,
+                max: MAX_TEXTURE_KEYS,
+            });
+        }
+        None => document.texture_data.entries,
+    };
 
     let mut entries = BTreeMap::new();
-    for (key, entry) in document.texture_data {
+    for (key, entry) in texture_data {
         let selected = select_terrain_path(&key, entry.textures)?;
         entries.insert(key.into_boxed_str(), selected.into_boxed_str());
     }
