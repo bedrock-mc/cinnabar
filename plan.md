@@ -199,10 +199,23 @@ Scope: block registry + block-state → model/texture mapping (generated export 
 - [ ] **2.6 Static/non-cube models, blend/water, and flipbooks.** Complete the
   remaining block visual classes and animation path per
   `docs/superpowers/specs/2026-07-11-phase-2-6-noncube-water-design.md`.
+  - [x] Pin and securely acquire the exact local-only PMMP, PrismarineJS,
+    Axolotl, and Dragonfly evidence bundle. Whole-bundle atomic publication,
+    byte/hash/time bounds, junction rejection, concurrent-winner handling,
+    exact license notices, and the no-tracked-payload contract are complete at
+    `c44de03`.
+  - [x] Preserve complete bounded flipbook metadata and compile the real pinned
+    pack's physical frames into deterministic page-aware staging data without
+    changing the v3 runtime schema. Commits `143c68d` and `e6e49e1` cover 83
+    animations, 1,209 physical frames, 1,323 timeline references, and 1,901
+    deduplicated layers on one 2,048-layer page.
   - [ ] Version the bounded runtime asset schema to `MCBEAS04`; export typed
     model/liquid state selectors, template tables, full flipbook metadata, and
     attributable per-family diagnostics without committing Mojang payloads;
-    prove the PMMP/Dragonfly/Valentine canonical-state join is a full bijection.
+    prove the PMMP/Dragonfly/Prismarine canonical-state join is a full 16,913-
+    state bijection and audit every joinable state in Valentine's evidenced
+    15,845-entry catalog without synthesizing its 1,068-entry cardinality
+    deficit.
   - [ ] Add palette-native multi-layer contributor resolution, retaining the
     eight-byte greedy cube record and adding compact model/liquid streams with
     atomic queue/GPU generation accounting and direct/MDI parity.

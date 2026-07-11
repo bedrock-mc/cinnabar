@@ -39,7 +39,11 @@ format:
   collision/occlusion shapes, not a complete state-to-render-model catalog.
 - Axolotl Stack commit `6f6806e821a579c183c44d786f76d9b358a2b825`
   has no renderer, texture-pack reader, water pipeline, or block meshes. It does
-  provide a useful versioned, typed state-selector pattern in Valentine.
+  provide a useful versioned, typed state-selector pattern in Valentine. Its
+  generated `v1_26_30` data is not a complete protocol-1001 palette authority:
+  it contains 15,845 palette entries and 1,321 block definitions, versus the
+  canonical 16,913 states and 1,356 names below. This is the current upstream
+  `main` commit (merged PR #3), not a stale local checkout.
 - PMMP BedrockData commit `bdb44a48fb6beffb6e9f6864f06d2232eb62b6a3`
   targets Bedrock 1.26.30 / protocol 1001 exactly. Its 1,356 block-property
   records, 16,913 canonical state metadata entries, and 88 biome definitions
@@ -65,7 +69,7 @@ Source responsibilities are therefore explicit:
 
 | Concern | Authority |
 |---|---|
-| Runtime palette and canonical state ordering | pinned PMMP `canonical_block_states.nbt`/`block_state_meta_map.json`, joined to the current Dragonfly export and cross-checked against Axolotl Valentine typed state ranges |
+| Runtime palette and canonical state ordering | pinned PMMP `canonical_block_states.nbt`/`block_state_meta_map.json`, joined state-for-state to the current Dragonfly export and pinned Prismarine state catalog; every joinable Axolotl Valentine typed range is cross-checked as an explicitly incomplete overlap catalog |
 | State selectors and family classification | generated, versioned registry metadata following Axolotl's typed mixed-radix approach and checked against PMMP's exact canonical span |
 | Collision/selection bounds and cuboid-template seeds | pinned PrismarineJS Bedrock collision shapes plus Dragonfly `BBox` results, retaining source and confidence per family |
 | Visible model geometry, neighbor rules, and UVs | deterministic local family generators, Mojang texture mappings, Dragonfly behavior rules, and per-family vanilla-reference review; collision boxes alone are never labeled render-authoritative |
@@ -156,13 +160,17 @@ real compiled asset and selecting a documented bounded ceiling.
 
 The generator follows Axolotl Valentine's state-range and mixed-radix validation
 concepts, but the project owns its generated schema. PMMP, Dragonfly, and
-Valentine records join by canonical namespace-qualified name plus a canonical
+Prismarine records join by canonical namespace-qualified name plus a canonical
 typed state compound whose keys are sorted and whose scalar types and values are
-preserved. Generation requires a state-by-state bijection: duplicate keys,
-unmatched records, hash collisions, order-only matches, or unequal state values
-fail with attributable diagnostics. Cardinality equality alone is never accepted
-as identity. Generation also fails if a selector cardinality disagrees with its
-canonical state span.
+preserved. Generation requires a complete 16,913-state bijection across those
+three sources: duplicate keys, unmatched records, hash collisions, order-only
+matches, or unequal state values fail with attributable diagnostics. Cardinality
+equality alone is never accepted as identity. The pinned Valentine catalog is a
+separately reported overlap audit: every joinable Valentine record must match the
+same canonical typed state exactly, but its evidenced 15,845-entry/1,321-block
+scope is not misrepresented as complete and its missing canonical states are not
+synthesized. Generation also fails if any selector cardinality disagrees with
+the canonical state span it claims to cover.
 
 ### Palette-native contributor resolution
 
@@ -369,7 +377,8 @@ Required automated evidence includes:
 - water corner-height, same-liquid culling, diagonal invalidation, tint, and
   transparent ordering tests;
 - model transform/UV/culling fixtures for every added family;
-- exact PMMP/Dragonfly/Valentine state-by-state bijection fixtures;
+- exact PMMP/Dragonfly/Prismarine state-by-state bijection fixtures plus an
+  attributable Valentine overlap/cardinality-deficit audit;
 - exhaustive 16,913-state visual coverage with every non-air state assigned a
   non-diagnostic visual kind; source-backed vanilla-invisible/engine-only kinds
   may intentionally emit no geometry but cannot use the diagnostic fallback;

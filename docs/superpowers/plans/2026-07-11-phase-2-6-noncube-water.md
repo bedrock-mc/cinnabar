@@ -87,7 +87,7 @@ Commit: `build: pin protocol 1001 block data sources`
 
 ---
 
-## Task 2: Generate typed `BREG1003` metadata with a full source bijection
+## Task 2: Generate typed `BREG1003` metadata with a full canonical bijection
 
 **Files:**
 
@@ -106,7 +106,10 @@ Add Go tests for synthetic PMMP NBT, Prismarine states/shapes, and Dragonfly
 records. Require a join by namespace-qualified name plus canonical sorted typed
 state compound. Cover duplicate keys, scalar-type mismatch, unequal values,
 missing records, extra records, order-only equality, and deliberate hash
-collision. Require a complete bijection and exact protocol/cardinality metadata.
+collision. Require a complete 16,913-state PMMP/Dragonfly/Prismarine bijection
+and exact protocol/cardinality metadata. Add a separate Valentine subset fixture:
+every joinable typed record must match exactly, while its pinned incomplete
+cardinality and attributable canonical gap are reported rather than synthesized.
 
 Add exact fixtures for:
 
@@ -118,8 +121,9 @@ Add exact fixtures for:
 - Prismarine shape IDs/boxes with source confidence.
 
 Name the focused tests `TestJoinSourcesBijection`,
-`TestJoinSourcesRejectsTypedStateMismatch`, `TestSelectorCardinality`, and
-`TestEncodeBREG1003Canonical`. The exporter produces a bounded `Record` carrying
+`TestJoinSourcesRejectsTypedStateMismatch`, `TestValentineSubsetAudit`,
+`TestSelectorCardinality`, and `TestEncodeBREG1003Canonical`. The exporter
+produces a bounded `Record` carrying
 `ModelFamily`, `ContributorRole`, typed `ModelState`, `FaceCoverage`, and
 `CollisionSeed`; the Rust decoder exposes equivalent `RegistryRecord` fields.
 The expected RED failure is missing types/fields or old `BREG1002` magic, never
@@ -147,8 +151,12 @@ Update Rust decoding with equivalent bounds and exact fixture assertions. Reject
 ### 2.3 Regenerate and prove determinism
 
 Run the exporter twice from the pinned local source paths and compare bytes and
-SHA-256. Require exactly 1,356 names and 16,913 states and a complete source
-bijection.
+SHA-256. Require exactly 1,356 names and 16,913 states and a complete
+PMMP/Dragonfly/Prismarine bijection. Record and verify the pinned Valentine's
+15,845 palette entries and 1,321 block definitions, require exact equality for
+every joinable overlap record, and emit the attributable 1,068-entry/35-name
+cardinality deficit plus exact joined, missing, extra, and mismatched counts in
+the deterministic report. Any mismatch inside the joinable overlap still fails.
 
 Run:
 
