@@ -39,10 +39,18 @@ pub const MAX_PENDING_MESH_CHANGES: usize = 256;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct PendingSubChunk {
     retry_attempts: u8,
+    pending_transport_attempts: u8,
+    confirmed_attempts: u8,
     response_deadline: Option<Instant>,
 }
 
 type PendingSubChunkColumn = BTreeMap<i32, PendingSubChunk>;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct CorrelatedSubChunkAttempts {
+    pending_transport_attempts: u8,
+    confirmed_attempts: u8,
+}
 
 /// One exact horizontal publisher view, expressed in chunk columns.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -658,6 +666,8 @@ pub struct WorldStream {
     loaded_columns: BTreeSet<ChunkKey>,
     requested_sub_chunks: HashMap<ChunkKey, PendingSubChunkColumn>,
     sub_chunk_deadlines: BTreeSet<(Instant, SubChunkKey)>,
+    correlated_sub_chunk_attempts: HashMap<SubChunkKey, CorrelatedSubChunkAttempts>,
+    admitted_sub_chunk_replies: HashMap<SubChunkKey, u8>,
     deferred_retries: VecDeque<SubChunkKey>,
     deferred_retry_set: HashSet<SubChunkKey>,
     connectivity: HashMap<SubChunkKey, FaceConnectivity>,
@@ -744,6 +754,8 @@ impl WorldStream {
             loaded_columns: BTreeSet::new(),
             requested_sub_chunks: HashMap::new(),
             sub_chunk_deadlines: BTreeSet::new(),
+            correlated_sub_chunk_attempts: HashMap::new(),
+            admitted_sub_chunk_replies: HashMap::new(),
             deferred_retries: VecDeque::new(),
             deferred_retry_set: HashSet::new(),
             connectivity: HashMap::new(),
@@ -851,6 +863,7 @@ impl WorldStream {
                     self.apply_ready();
                     return Ok(());
                 }
+                self.record_sub_chunk_reply_admissions(&batch);
                 self.pending_decode
                     .push_back(DecodeJob::SubChunks { sequence, batch });
             }
@@ -1033,8 +1046,31 @@ impl WorldStream {
         Ok(())
     }
 
+    /// Records command admission without starting a response deadline. The
+    /// network worker will confirm the transport send separately.
+    pub fn record_sub_chunk_request_transport_pending(
+        &mut self,
+        chunk: ChunkKey,
+        base_sub_chunk_y: i32,
+        count: usize,
+    ) {
+        for offset in 0..count {
+            let y = base_sub_chunk_y.saturating_add(offset as i32);
+            if let Some(pending) = self
+                .requested_sub_chunks
+                .get_mut(&chunk)
+                .and_then(|column| column.get_mut(&y))
+            {
+                pending.pending_transport_attempts = pending
+                    .pending_transport_attempts
+                    .saturating_add(1)
+                    .min(MAX_SUB_CHUNK_RETRIES.saturating_add(1));
+            }
+        }
+    }
+
     /// Starts the response timeout only after the network layer confirms that
-    /// a SubChunkRequest was accepted for sending.
+    /// the SubChunkRequest transport send completed successfully.
     pub fn acknowledge_sub_chunk_request_sent(
         &mut self,
         chunk: ChunkKey,
@@ -1048,17 +1084,44 @@ impl WorldStream {
         for offset in 0..count {
             let y = base_sub_chunk_y.saturating_add(offset as i32);
             let key = SubChunkKey::from_chunk(chunk, y);
-            let previous = self
+            let reply_admitted = self
+                .admitted_sub_chunk_replies
+                .get(&key)
+                .is_some_and(|admitted| *admitted != 0);
+            let pending = self
                 .requested_sub_chunks
                 .get_mut(&chunk)
-                .and_then(|pending| pending.get_mut(&y))
-                .and_then(|pending| pending.response_deadline.replace(deadline));
+                .and_then(|column| column.get_mut(&y));
+            let Some(pending) = pending else {
+                if let Some(correlated) = self.correlated_sub_chunk_attempts.get_mut(&key)
+                    && correlated.pending_transport_attempts != 0
+                {
+                    correlated.pending_transport_attempts =
+                        correlated.pending_transport_attempts.saturating_sub(1);
+                    correlated.confirmed_attempts = correlated
+                        .confirmed_attempts
+                        .saturating_add(1)
+                        .min(MAX_SUB_CHUNK_RETRIES.saturating_add(1));
+                }
+                continue;
+            };
+            pending.pending_transport_attempts =
+                pending.pending_transport_attempts.saturating_sub(1);
+            pending.confirmed_attempts = pending
+                .confirmed_attempts
+                .saturating_add(1)
+                .min(MAX_SUB_CHUNK_RETRIES.saturating_add(1));
+            if reply_admitted {
+                if let Some(previous) = pending.response_deadline.take() {
+                    self.sub_chunk_deadlines.remove(&(previous, key));
+                }
+                continue;
+            }
+            let previous = pending.response_deadline.replace(deadline);
             if let Some(previous) = previous {
                 self.sub_chunk_deadlines.remove(&(previous, key));
             }
-            if self.is_expected_sub_chunk(key) {
-                self.sub_chunk_deadlines.insert((deadline, key));
-            }
+            self.sub_chunk_deadlines.insert((deadline, key));
         }
         debug_assert!(self.sub_chunk_deadlines.len() <= self.outstanding_sub_chunk_count());
     }
@@ -1551,12 +1614,17 @@ impl WorldStream {
                     if !self.column_is_active(key.chunk()) {
                         continue;
                     }
+                    let admitted = self.consume_admitted_sub_chunk_reply(key);
                     if !self.is_expected_sub_chunk(key) {
+                        if admitted && self.consume_correlated_sub_chunk_attempt(key) {
+                            continue;
+                        }
                         self.record_normalization_error(
                             NormalizationErrorReason::UnexpectedSubChunk,
                         );
                         continue;
                     }
+                    self.consume_confirmed_sub_chunk_attempt(key);
                     self.disarm_sub_chunk_deadline(key);
                     let (completed, committed) = match entry.result {
                         PreparedSubChunkResult::Decoded(Ok(decoded)) => {
@@ -2110,17 +2178,103 @@ impl WorldStream {
     fn complete_requested_sub_chunk(&mut self, key: SubChunkKey) {
         self.cancel_sub_chunk_retry(key);
         let chunk = key.chunk();
-        let completed = self
-            .requested_sub_chunks
-            .get_mut(&chunk)
-            .is_some_and(|expected| {
-                expected.remove(&key.y);
-                expected.is_empty()
-            });
+        let (removed, completed) =
+            self.requested_sub_chunks
+                .get_mut(&chunk)
+                .map_or((None, false), |expected| {
+                    let removed = expected.remove(&key.y);
+                    (removed, expected.is_empty())
+                });
+        if let Some(pending) = removed
+            && (pending.pending_transport_attempts != 0 || pending.confirmed_attempts != 0)
+        {
+            self.correlated_sub_chunk_attempts.insert(
+                key,
+                CorrelatedSubChunkAttempts {
+                    pending_transport_attempts: pending.pending_transport_attempts,
+                    confirmed_attempts: pending.confirmed_attempts,
+                },
+            );
+        }
         if completed {
             self.requested_sub_chunks.remove(&chunk);
             self.loaded_columns.insert(chunk);
         }
+    }
+
+    fn consume_confirmed_sub_chunk_attempt(&mut self, key: SubChunkKey) {
+        let Some(pending) = self
+            .requested_sub_chunks
+            .get_mut(&key.chunk())
+            .and_then(|column| column.get_mut(&key.y))
+        else {
+            return;
+        };
+        pending.confirmed_attempts = pending.confirmed_attempts.saturating_sub(1);
+    }
+
+    fn record_sub_chunk_reply_admissions(&mut self, batch: &SubChunkBatchEvent) {
+        for entry in &batch.entries {
+            let key = SubChunkKey::new(
+                batch.dimension,
+                entry.position[0],
+                entry.position[1],
+                entry.position[2],
+            );
+            if !self.column_is_active(key.chunk()) {
+                continue;
+            }
+            let expected = self.is_expected_sub_chunk(key);
+            let available = self
+                .requested_sub_chunks
+                .get(&key.chunk())
+                .and_then(|column| column.get(&key.y))
+                .map_or_else(
+                    || {
+                        self.correlated_sub_chunk_attempts
+                            .get(&key)
+                            .map_or(0, |attempts| attempts.confirmed_attempts)
+                    },
+                    |pending| pending.confirmed_attempts.max(1),
+                );
+            let admitted = self
+                .admitted_sub_chunk_replies
+                .get(&key)
+                .copied()
+                .unwrap_or(0);
+            if admitted < available {
+                if expected {
+                    self.cancel_sub_chunk_retry(key);
+                }
+                self.admitted_sub_chunk_replies
+                    .insert(key, admitted.saturating_add(1));
+            }
+        }
+    }
+
+    fn consume_admitted_sub_chunk_reply(&mut self, key: SubChunkKey) -> bool {
+        let Some(admitted) = self.admitted_sub_chunk_replies.get_mut(&key) else {
+            return false;
+        };
+        *admitted = admitted.saturating_sub(1);
+        if *admitted == 0 {
+            self.admitted_sub_chunk_replies.remove(&key);
+        }
+        true
+    }
+
+    fn consume_correlated_sub_chunk_attempt(&mut self, key: SubChunkKey) -> bool {
+        let Some(attempts) = self.correlated_sub_chunk_attempts.get_mut(&key) else {
+            return false;
+        };
+        if attempts.confirmed_attempts == 0 {
+            return false;
+        }
+        attempts.confirmed_attempts = attempts.confirmed_attempts.saturating_sub(1);
+        if attempts.confirmed_attempts == 0 && attempts.pending_transport_attempts == 0 {
+            self.correlated_sub_chunk_attempts.remove(&key);
+        }
+        true
     }
 
     fn retry_or_complete_sub_chunk(&mut self, key: SubChunkKey) -> bool {
@@ -2324,6 +2478,10 @@ impl WorldStream {
             .retain(|sub_chunk| sub_chunk.chunk() != chunk);
         self.deferred_retry_set
             .retain(|sub_chunk| sub_chunk.chunk() != chunk);
+        self.correlated_sub_chunk_attempts
+            .retain(|sub_chunk, _| sub_chunk.chunk() != chunk);
+        self.admitted_sub_chunk_replies
+            .retain(|sub_chunk, _| sub_chunk.chunk() != chunk);
     }
 
     fn queued_retry_request_count(&self) -> usize {
@@ -4099,6 +4257,139 @@ mod tests {
         assert_eq!(stream.stats().sub_chunk_timeouts, 0);
         stream.expire_sub_chunk_deadlines(sent_at + super::SUB_CHUNK_RESPONSE_TIMEOUT);
         assert_eq!(stream.stats().sub_chunk_timeouts, 1);
+    }
+
+    #[test]
+    fn reply_from_already_sent_retry_is_not_unexpected_after_first_attempt_completes() {
+        let started = Instant::now();
+        let (mut stream, keys, initial) = stream_with_unsent_sub_chunks(1);
+        let key = keys[0];
+        acknowledge_request_sent(&mut stream, &initial, started);
+
+        let retry_sent_at = started + super::SUB_CHUNK_RESPONSE_TIMEOUT;
+        stream.expire_sub_chunk_deadlines(retry_sent_at);
+        let retry = stream
+            .pop_next_request()
+            .expect("the expired initial attempt should queue an exact retry");
+        acknowledge_request_sent(&mut stream, &retry, retry_sent_at);
+
+        stream
+            .submit(
+                2,
+                WorldEvent::SubChunks(SubChunkBatchEvent {
+                    dimension: key.dimension,
+                    entries: vec![SubChunkEntryEvent {
+                        position: [key.x, key.y, key.z],
+                        result: SubChunkResult::AllAir,
+                    }],
+                }),
+            )
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+        let unexpected_before = stream.stats().normalization_reasons.unexpected_sub_chunks;
+        stream
+            .submit(
+                3,
+                WorldEvent::SubChunks(SubChunkBatchEvent {
+                    dimension: key.dimension,
+                    entries: vec![SubChunkEntryEvent {
+                        position: [key.x, key.y, key.z],
+                        result: SubChunkResult::AllAir,
+                    }],
+                }),
+            )
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+
+        assert_eq!(
+            stream.stats().normalization_reasons.unexpected_sub_chunks,
+            unexpected_before
+        );
+    }
+
+    #[test]
+    fn timely_sub_chunk_admission_disarms_and_cancels_before_decode_or_expiry() {
+        let started = Instant::now();
+        let (mut stream, keys, initial) = stream_with_unsent_sub_chunks(2);
+        acknowledge_request_sent(&mut stream, &initial, started);
+
+        let first_deadline = started + super::SUB_CHUNK_RESPONSE_TIMEOUT;
+        stream.expire_sub_chunk_deadlines(first_deadline);
+        let sent_retry = stream
+            .pop_next_request()
+            .expect("the first exact retry should retain FIFO order");
+        acknowledge_request_sent(&mut stream, &sent_retry, first_deadline);
+        assert_eq!(stream.pending_request_count(), 1);
+        assert_eq!(stream.sub_chunk_deadlines.len(), 1);
+
+        stream
+            .submit(
+                2,
+                WorldEvent::SubChunks(SubChunkBatchEvent {
+                    dimension: 0,
+                    entries: keys
+                        .iter()
+                        .map(|key| SubChunkEntryEvent {
+                            position: [key.x, key.y, key.z],
+                            result: SubChunkResult::AllAir,
+                        })
+                        .collect(),
+                }),
+            )
+            .unwrap();
+
+        assert_eq!(stream.pending_decode.len(), 1);
+        assert!(stream.sub_chunk_deadlines.is_empty());
+        assert_eq!(stream.pending_request_count(), 0);
+        let retry_deadline = first_deadline + super::SUB_CHUNK_RESPONSE_TIMEOUT;
+        stream.expire_sub_chunk_deadlines(retry_deadline);
+        assert_eq!(stream.stats().sub_chunk_timeouts, 2);
+        assert_eq!(stream.outstanding_sub_chunk_count(), 2);
+
+        stream.dispatch_decode_jobs();
+        assert!(stream.pending_decode.is_empty());
+        assert_eq!(stream.in_flight_decode_jobs, 1);
+        stream.expire_sub_chunk_deadlines(retry_deadline);
+        assert_eq!(stream.stats().sub_chunk_timeouts, 2);
+        assert_eq!(stream.outstanding_sub_chunk_count(), 2);
+    }
+
+    #[test]
+    fn transport_ack_after_reply_admission_cannot_rearm_expiry_during_decode() {
+        let acknowledged_at = Instant::now();
+        let (mut stream, keys, initial) = stream_with_unsent_sub_chunks(1);
+        let key = keys[0];
+        stream.record_sub_chunk_request_transport_pending(
+            initial.chunk,
+            initial.base_sub_chunk_y,
+            initial.count,
+        );
+        stream
+            .submit(
+                2,
+                WorldEvent::SubChunks(SubChunkBatchEvent {
+                    dimension: key.dimension,
+                    entries: vec![SubChunkEntryEvent {
+                        position: [key.x, key.y, key.z],
+                        result: SubChunkResult::AllAir,
+                    }],
+                }),
+            )
+            .unwrap();
+        assert_eq!(stream.pending_decode.len(), 1);
+        assert!(stream.sub_chunk_deadlines.is_empty());
+
+        stream.acknowledge_sub_chunk_request_sent(
+            initial.chunk,
+            initial.base_sub_chunk_y,
+            initial.count,
+            acknowledged_at,
+        );
+
+        assert!(stream.sub_chunk_deadlines.is_empty());
+        stream.expire_sub_chunk_deadlines(acknowledged_at + super::SUB_CHUNK_RESPONSE_TIMEOUT);
+        assert_eq!(stream.stats().sub_chunk_timeouts, 0);
+        assert_eq!(stream.outstanding_sub_chunk_count(), 1);
     }
 
     #[test]

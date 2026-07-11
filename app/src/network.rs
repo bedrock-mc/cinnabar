@@ -2,11 +2,13 @@ use std::{
     future::Future,
     path::PathBuf,
     thread::{self, JoinHandle},
+    time::Instant,
 };
 
 use bevy::prelude::Resource;
 use protocol::{LoginSequence, Packet, WorldBootstrap, WorldEvent};
 use tokio::sync::{mpsc, watch};
+use world::ChunkKey;
 
 const WORLD_EVENT_CAPACITY: usize = 4;
 const COMMAND_CAPACITY: usize = 64;
@@ -21,6 +23,12 @@ pub struct NetworkConfig {
 pub enum NetworkEvent {
     Bootstrap(WorldBootstrap),
     World(SequencedWorldEvent),
+    SubChunkRequestSent {
+        chunk: ChunkKey,
+        base_sub_chunk_y: i32,
+        count: usize,
+        sent_at: Instant,
+    },
     Failed {
         message: String,
         decode_error_count: u64,
@@ -38,7 +46,17 @@ pub struct SequencedWorldEvent {
 
 #[derive(Debug)]
 enum NetworkCommand {
-    Send(Packet),
+    Send {
+        packet: Packet,
+        sub_chunk: Option<SubChunkRequestSend>,
+    },
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SubChunkRequestSend {
+    chunk: ChunkKey,
+    base_sub_chunk_y: i32,
+    count: usize,
 }
 
 #[derive(Debug)]
@@ -97,14 +115,40 @@ impl NetworkHandle {
             .saturating_sub(self.commands.capacity())
     }
 
+    #[cfg(test)]
     pub fn send_packet(&self, packet: Packet) -> Result<(), PacketSendError> {
+        self.send_packet_with_confirmation(packet, None)
+    }
+
+    pub fn send_sub_chunk_request(
+        &self,
+        chunk: ChunkKey,
+        base_sub_chunk_y: i32,
+        count: usize,
+        packet: Packet,
+    ) -> Result<(), PacketSendError> {
+        self.send_packet_with_confirmation(
+            packet,
+            Some(SubChunkRequestSend {
+                chunk,
+                base_sub_chunk_y,
+                count,
+            }),
+        )
+    }
+
+    fn send_packet_with_confirmation(
+        &self,
+        packet: Packet,
+        sub_chunk: Option<SubChunkRequestSend>,
+    ) -> Result<(), PacketSendError> {
         self.commands
-            .try_send(NetworkCommand::Send(packet))
+            .try_send(NetworkCommand::Send { packet, sub_chunk })
             .map_err(|error| match error {
-                mpsc::error::TrySendError::Full(NetworkCommand::Send(packet)) => {
+                mpsc::error::TrySendError::Full(NetworkCommand::Send { packet, .. }) => {
                     PacketSendError::Full(packet)
                 }
-                mpsc::error::TrySendError::Closed(NetworkCommand::Send(packet)) => {
+                mpsc::error::TrySendError::Closed(NetworkCommand::Send { packet, .. }) => {
                     PacketSendError::Closed(packet)
                 }
             })
@@ -199,18 +243,44 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                     NetworkSequencer::new(bootstrap.dimension, bootstrap.local_player_runtime_id);
 
                 loop {
-                    tokio::select! {
-                        biased;
-                        _ = wait_for_shutdown(&mut shutdown_rx) => break,
-                        command = command_rx.recv() => match command {
-                            Some(NetworkCommand::Send(packet)) => {
+                    match wait_for_network_work_or_cancel(
+                        session.recv_world_event(sequencer.current_dimension()),
+                        command_rx.recv(),
+                        &mut shutdown_rx,
+                    )
+                    .await
+                    {
+                        NetworkPumpWork::Shutdown => break,
+                        NetworkPumpWork::Command(command) => match command {
+                            Some(NetworkCommand::Send { packet, sub_chunk }) => {
                                 match wait_for_send_or_cancel(
                                     session.send(packet),
                                     &mut shutdown_rx,
-                                ).await {
-                                    None | Some(Ok(())) => {
+                                )
+                                .await
+                                {
+                                    None => {
                                         if *shutdown_rx.borrow() {
                                             break;
+                                        }
+                                    }
+                                    Some(Ok(())) => {
+                                        if let Some(sub_chunk) = sub_chunk {
+                                            let sent_at = Instant::now();
+                                            if !send_event_or_cancel(
+                                                &event_tx,
+                                                &mut shutdown_rx,
+                                                NetworkEvent::SubChunkRequestSent {
+                                                    chunk: sub_chunk.chunk,
+                                                    base_sub_chunk_y: sub_chunk.base_sub_chunk_y,
+                                                    count: sub_chunk.count,
+                                                    sent_at,
+                                                },
+                                            )
+                                            .await
+                                            {
+                                                return;
+                                            }
                                         }
                                     }
                                     Some(Err(error)) => {
@@ -221,41 +291,43 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                                                 message: error.to_string(),
                                                 decode_error_count: session.decode_error_count(),
                                             },
-                                        ).await;
+                                        )
+                                        .await;
                                         return;
                                     }
                                 }
                             }
                             None => break,
                         },
-                        event = session.recv_world_event(sequencer.current_dimension()) => {
-                            match event {
-                                Ok(event) => {
-                                    if !sequencer.should_forward(&event) {
-                                        continue;
-                                    }
-                                    let event = sequencer.wrap(event);
-                                    if !send_event_or_cancel(
-                                        &event_tx,
-                                        &mut shutdown_rx,
-                                        NetworkEvent::World(event),
-                                    ).await {
-                                        return;
-                                    }
+                        NetworkPumpWork::Inbound(event) => match event {
+                            Ok(event) => {
+                                if !sequencer.should_forward(&event) {
+                                    continue;
                                 }
-                                Err(error) => {
-                                    let _ = send_event_or_cancel(
-                                        &event_tx,
-                                        &mut shutdown_rx,
-                                        NetworkEvent::Failed {
-                                            message: error.to_string(),
-                                            decode_error_count: session.decode_error_count(),
-                                        },
-                                    ).await;
+                                let event = sequencer.wrap(event);
+                                if !send_event_or_cancel(
+                                    &event_tx,
+                                    &mut shutdown_rx,
+                                    NetworkEvent::World(event),
+                                )
+                                .await
+                                {
                                     return;
                                 }
                             }
-                        }
+                            Err(error) => {
+                                let _ = send_event_or_cancel(
+                                    &event_tx,
+                                    &mut shutdown_rx,
+                                    NetworkEvent::Failed {
+                                        message: error.to_string(),
+                                        decode_error_count: session.decode_error_count(),
+                                    },
+                                )
+                                .await;
+                                return;
+                            }
+                        },
                     }
                 }
                 let _ = send_event_or_cancel(
@@ -315,6 +387,32 @@ where
         biased;
         _ = wait_for_shutdown(shutdown) => None,
         result = send => Some(result),
+    }
+}
+
+enum NetworkPumpWork<I, C> {
+    Shutdown,
+    Inbound(I),
+    Command(C),
+}
+
+async fn wait_for_network_work_or_cancel<I, C>(
+    inbound: I,
+    command: C,
+    shutdown: &mut watch::Receiver<bool>,
+) -> NetworkPumpWork<I::Output, C::Output>
+where
+    I: Future,
+    C: Future,
+{
+    if *shutdown.borrow() {
+        return NetworkPumpWork::Shutdown;
+    }
+    tokio::select! {
+        biased;
+        _ = wait_for_shutdown(shutdown) => NetworkPumpWork::Shutdown,
+        inbound = inbound => NetworkPumpWork::Inbound(inbound),
+        command = command => NetworkPumpWork::Command(command),
     }
 }
 
@@ -382,8 +480,9 @@ mod tests {
     use tokio::sync::{mpsc, oneshot, watch};
 
     use super::{
-        COMMAND_CAPACITY, NetworkCommand, NetworkEvent, NetworkHandle, NetworkSequencer,
-        PacketSendError, send_event_or_cancel, wait_for_login_or_cancel, wait_for_send_or_cancel,
+        COMMAND_CAPACITY, NetworkCommand, NetworkEvent, NetworkHandle, NetworkPumpWork,
+        NetworkSequencer, PacketSendError, send_event_or_cancel, wait_for_login_or_cancel,
+        wait_for_network_work_or_cancel, wait_for_send_or_cancel,
     };
 
     #[test]
@@ -490,12 +589,47 @@ mod tests {
         assert_eq!(result, None);
     }
 
+    #[tokio::test]
+    async fn network_pump_prioritizes_ready_inbound_and_preserves_command_fifo() {
+        let (_shutdown, mut shutdown_rx) = watch::channel(false);
+        let (commands, mut command_rx) = mpsc::channel(2);
+        commands.try_send(10).unwrap();
+        commands.try_send(20).unwrap();
+
+        let selected = wait_for_network_work_or_cancel(
+            future::ready("inbound"),
+            command_rx.recv(),
+            &mut shutdown_rx,
+        )
+        .await;
+        assert!(matches!(selected, NetworkPumpWork::Inbound("inbound")));
+        assert_eq!(command_rx.len(), 2);
+
+        let first_command = wait_for_network_work_or_cancel(
+            future::pending::<&'static str>(),
+            command_rx.recv(),
+            &mut shutdown_rx,
+        )
+        .await;
+        assert!(matches!(first_command, NetworkPumpWork::Command(Some(10))));
+        let second_command = wait_for_network_work_or_cancel(
+            future::pending::<&'static str>(),
+            command_rx.recv(),
+            &mut shutdown_rx,
+        )
+        .await;
+        assert!(matches!(second_command, NetworkPumpWork::Command(Some(20))));
+    }
+
     #[test]
     fn saturated_command_queue_preserves_packet_and_shutdown_does_not_join_on_ui_thread() {
         let (commands, _command_rx) = mpsc::channel(COMMAND_CAPACITY);
         for _ in 0..COMMAND_CAPACITY {
             commands
-                .try_send(NetworkCommand::Send(test_packet()))
+                .try_send(NetworkCommand::Send {
+                    packet: test_packet(),
+                    sub_chunk: None,
+                })
                 .unwrap();
         }
         let (event_tx, events) = mpsc::channel(1);

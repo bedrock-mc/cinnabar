@@ -1687,6 +1687,12 @@ fn bridge_endpoint_exists(directory: &Path) -> bool {
     directory.join("game.addr").is_file() || directory.join("game.sock").exists()
 }
 
+fn record_fatal_error(fatal_error: &mut Option<String>, error: String) {
+    if fatal_error.is_none() {
+        *fatal_error = Some(error);
+    }
+}
+
 fn receive_network_events(
     mut network: ResMut<NetworkHandle>,
     mut client_world: ResMut<ClientWorld>,
@@ -1761,12 +1767,31 @@ fn receive_network_events(
                     client_world.fatal_error = Some(format!("world FIFO rejected data: {error}"));
                 }
             }
+            NetworkEvent::SubChunkRequestSent {
+                chunk,
+                base_sub_chunk_y,
+                count,
+                sent_at,
+            } => {
+                if let Some(stream) = client_world.stream.as_mut() {
+                    stream.acknowledge_sub_chunk_request_sent(
+                        chunk,
+                        base_sub_chunk_y,
+                        count,
+                        sent_at,
+                    );
+                }
+            }
             NetworkEvent::Failed {
                 message,
                 decode_error_count,
             } => {
+                error!(decode_error_count, "network session failed: {message}");
                 client_world.network_decode_errors = decode_error_count;
-                client_world.fatal_error = Some(format!("network session failed: {message}"));
+                record_fatal_error(
+                    &mut client_world.fatal_error,
+                    format!("network session failed: {message}"),
+                );
             }
             NetworkEvent::Stopped { decode_error_count } => {
                 client_world.network_decode_errors = decode_error_count;
@@ -1852,9 +1877,13 @@ fn drive_world_stream(
     });
 
     let send_error = client_world.stream.as_mut().and_then(|stream| {
-        flush_sub_chunk_requests(stream, OUTBOUND_SEND_BUDGET_PER_FRAME, |_, packet| {
-            network.send_packet(packet)
-        })
+        flush_sub_chunk_requests(
+            stream,
+            OUTBOUND_SEND_BUDGET_PER_FRAME,
+            |chunk, base_sub_chunk_y, count, packet| {
+                network.send_sub_chunk_request(chunk, base_sub_chunk_y, count, packet)
+            },
+        )
         .err()
     });
     if let Some(stream) = client_world.stream.as_mut() {
@@ -1929,7 +1958,7 @@ fn drive_world_stream(
         }
     }
     if let Some(error) = send_error {
-        client_world.fatal_error = Some(error);
+        record_fatal_error(&mut client_world.fatal_error, error);
     }
     if let Some(position) = resolved_surface_spawn {
         camera.translation = Vec3::from_array(position);
@@ -2189,7 +2218,12 @@ fn emit_world_ready(
 fn flush_sub_chunk_requests(
     stream: &mut WorldStream,
     budget: usize,
-    mut send: impl FnMut(world::ChunkKey, protocol::Packet) -> Result<(), network::PacketSendError>,
+    mut send: impl FnMut(
+        world::ChunkKey,
+        i32,
+        usize,
+        protocol::Packet,
+    ) -> Result<(), network::PacketSendError>,
 ) -> Result<usize, String> {
     let mut sent = 0;
     for _ in 0..budget {
@@ -2203,14 +2237,9 @@ fn flush_sub_chunk_requests(
             base_sub_chunk_y,
             count,
         } = request;
-        match send(chunk, packet) {
+        match send(chunk, base_sub_chunk_y, count, packet) {
             Ok(()) => {
-                stream.acknowledge_sub_chunk_request_sent(
-                    chunk,
-                    base_sub_chunk_y,
-                    count,
-                    Instant::now(),
-                );
+                stream.record_sub_chunk_request_transport_pending(chunk, base_sub_chunk_y, count);
                 debug!(
                     dimension,
                     chunk_x = chunk.x,
@@ -2514,7 +2543,7 @@ mod tests {
         TeleportReadySnapshot, WORLD_READY_QUIET_INTERVAL, WorldReadySettler, WorldReadySnapshot,
         WorldReadyWork, bedrock_camera_rotation, camera_sub_chunk_key, cumulative_counter_delta,
         deterministic_mutation_coordinate, drain_network_ingress, flush_sub_chunk_requests,
-        resolve_socket_dir_from, status_title, world_ready_markers,
+        record_fatal_error, resolve_socket_dir_from, status_title, world_ready_markers,
     };
 
     fn settled_world_snapshot() -> WorldReadySnapshot {
@@ -4223,7 +4252,7 @@ mod tests {
 
         let mut attempts = Vec::new();
         let mut calls = 0;
-        let sent = flush_sub_chunk_requests(&mut stream, 8, |chunk, packet| {
+        let sent = flush_sub_chunk_requests(&mut stream, 8, |chunk, _, _, packet| {
             attempts.push(chunk.x);
             calls += 1;
             if calls == 2 {
@@ -4235,9 +4264,15 @@ mod tests {
         .unwrap();
         assert_eq!(sent, 1);
         assert_eq!(stream.pending_request_count(), 2);
+        stream.acknowledge_sub_chunk_request_sent(
+            SubChunkKey::new(0, 0, -4, 0).chunk(),
+            -4,
+            1,
+            Instant::now(),
+        );
         assert_eq!(stream.stats().awaiting_sub_chunk_responses, 1);
 
-        let sent = flush_sub_chunk_requests(&mut stream, 8, |chunk, _packet| {
+        let sent = flush_sub_chunk_requests(&mut stream, 8, |chunk, _, _, _packet| {
             attempts.push(chunk.x);
             Ok(())
         })
@@ -4245,7 +4280,102 @@ mod tests {
         assert_eq!(sent, 2);
         assert_eq!(attempts, [0, 1, 1, 2]);
         assert_eq!(stream.pending_request_count(), 0);
+        for x in [1, 2] {
+            stream.acknowledge_sub_chunk_request_sent(
+                SubChunkKey::new(0, x, -4, 0).chunk(),
+                -4,
+                1,
+                Instant::now(),
+            );
+        }
         assert_eq!(stream.stats().awaiting_sub_chunk_responses, 3);
+    }
+
+    #[test]
+    fn command_admission_leaves_deadline_unarmed_until_transport_success_acknowledgement() {
+        let request_stream = || {
+            let mut stream = crate::world_stream::WorldStream::new(WorldBootstrap {
+                dimension: 0,
+                local_player_runtime_id: 1,
+                player_position: [0.0; 3],
+                world_spawn_position: [0; 3],
+                air_network_id: 12_530,
+                block_network_ids_are_hashes: false,
+            });
+            stream
+                .submit(
+                    1,
+                    WorldEvent::LevelChunk(LevelChunkEvent {
+                        dimension: 0,
+                        x: 0,
+                        z: 0,
+                        mode: LevelChunkMode::LimitedRequests { highest: 1 },
+                        payload: Vec::new(),
+                    }),
+                )
+                .unwrap();
+            stream
+        };
+        let key = SubChunkKey::new(0, 0, -4, 0);
+        let mut stream = request_stream();
+
+        assert_eq!(
+            flush_sub_chunk_requests(&mut stream, 1, |_, _, _, _| Ok(())).unwrap(),
+            1
+        );
+        assert_eq!(stream.stats().awaiting_sub_chunk_responses, 0);
+        let acknowledged_at = Instant::now() + Duration::from_secs(100);
+
+        stream.acknowledge_sub_chunk_request_sent(key.chunk(), key.y, 1, acknowledged_at);
+        assert_eq!(stream.stats().awaiting_sub_chunk_responses, 1);
+
+        let mut failed = request_stream();
+        assert_eq!(
+            flush_sub_chunk_requests(&mut failed, 1, |_, _, _, packet| {
+                Err(crate::network::PacketSendError::Full(packet))
+            })
+            .unwrap(),
+            0
+        );
+        assert_eq!(failed.stats().awaiting_sub_chunk_responses, 0);
+        assert_eq!(failed.stats().sub_chunk_timeouts, 0);
+    }
+
+    #[test]
+    fn network_session_fatal_is_retained_when_command_sender_closes_in_same_frame() {
+        let mut stream = crate::world_stream::WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        stream
+            .submit(
+                1,
+                WorldEvent::LevelChunk(LevelChunkEvent {
+                    dimension: 0,
+                    x: 0,
+                    z: 0,
+                    mode: LevelChunkMode::LimitedRequests { highest: 1 },
+                    payload: Vec::new(),
+                }),
+            )
+            .unwrap();
+        let original = "network session failed: Protocol error: original fatal";
+        let mut fatal_error = None;
+        record_fatal_error(&mut fatal_error, original.to_owned());
+
+        let closed = flush_sub_chunk_requests(&mut stream, 1, |_, _, _, packet| {
+            Err(crate::network::PacketSendError::Closed(packet))
+        })
+        .unwrap_err();
+        record_fatal_error(&mut fatal_error, closed);
+
+        assert_eq!(fatal_error.as_deref(), Some(original));
+        assert_eq!(stream.pending_request_count(), 1);
+        assert_eq!(stream.stats().awaiting_sub_chunk_responses, 0);
     }
 
     #[test]
