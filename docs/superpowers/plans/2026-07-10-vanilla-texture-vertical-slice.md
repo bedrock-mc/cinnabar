@@ -566,17 +566,17 @@
   - binding 5: filtering repeat sampler.
 - The texture array is uploaded once per asset revision; chunk uploads never duplicate it.
 
-- [ ] **Step 1: Write shader/plugin RED tests**
+- [x] **Step 1: Write shader/plugin RED tests**
 
   Assert WGSL parses and contains bindings 3-5, `textureSample`, flat array-layer interpolation, and block-scale greedy UV reconstruction. Add pure tests for every face's four UV corners, 1x1 versus 16x16 repetition, 90/180/270 rotation, U/V reflection, array-layer limit rejection, exact mip upload offsets, bind-group rebuild only on resource identity change, and unchanged MDI/direct capability selection.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
   Run: `cargo test -p render --test plugin --locked -- --nocapture`
 
   Expected: FAIL because the current pipeline exposes only view/quad/origin buffers and debug colours.
 
-- [ ] **Step 3: Add the one global texture/material resources**
+- [x] **Step 3: Add the one global texture/material resources**
 
   Add Bevy's `bevy_image` feature. Extract an immutable `ChunkTextureAssets` resource backed by `Arc<RuntimeAssets>` to the render world, so extraction clones only the `Arc` and never the texture bytes. During prepare:
 
@@ -587,7 +587,7 @@
 
   Create one `Rgba8UnormSrgb` 2D array with all five mip levels, upload each layer/mip with correctly padded `bytes_per_row`, create one repeat/filtering sampler, and upload the two-word material table once. Account these bytes in texture metrics, not per-frame chunk upload bytes.
 
-- [ ] **Step 4: Replace debug colour with vertex-pulled texture sampling**
+- [x] **Step 4: Replace debug colour with vertex-pulled texture sampling**
 
   WGSL output:
 
@@ -607,7 +607,7 @@
 
   Derive UV magnitude from greedy width/height so repeat addressing tiles once per block. Apply rotation/reflection from material flags in the vertex shader. Remove shader debug-colour code only after the diagnostic checker texture is bound.
 
-- [ ] **Step 5: Verify GREEN**
+- [x] **Step 5: Verify GREEN**
 
   Run:
 
@@ -619,7 +619,7 @@
 
   Expected: shader/bind-group/upload tests pass, one pipeline/bind group remains, and MDI/direct tests are unchanged.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   ```text
   git add app/Cargo.toml crates/render Cargo.lock
