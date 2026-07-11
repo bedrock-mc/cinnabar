@@ -15,8 +15,8 @@ use protocol::{
 use render::{BlockClassifier, ChunkMesh, Face, FaceConnectivity, Neighbourhood, mesh_sub_chunk};
 use thiserror::Error;
 use world::{
-    BlockUpdate, ChunkKey, ChunkStore, DecodeError, DecodedLevelChunk, MutationError,
-    PreparedSubChunkMutation, SubChunk, SubChunkKey,
+    BlockUpdate, ChunkKey, ChunkStore, DecodeError, DecodedBiomeColumn, DecodedLevelChunk,
+    MutationError, PreparedSubChunkMutation, SubChunk, SubChunkKey,
 };
 
 use crate::server_position::{ResolvedServerPosition, resolve_server_position};
@@ -515,6 +515,11 @@ enum PreparedWorldEvent {
         decoded: Result<DecodedLevelChunk, DecodeError>,
         duration: Duration,
     },
+    RequestLevelChunk {
+        event: LevelChunkEvent,
+        decoded: Result<DecodedBiomeColumn, DecodeError>,
+        duration: Duration,
+    },
     SubChunks {
         dimension: i32,
         entries: Vec<PreparedSubChunk>,
@@ -554,6 +559,13 @@ enum DecodeJob {
         event: LevelChunkEvent,
         base_sub_chunk_y: i32,
         count: usize,
+        biome_storage_count: usize,
+    },
+    RequestLevelChunk {
+        sequence: u64,
+        event: LevelChunkEvent,
+        biome_base_sub_chunk_y: i32,
+        biome_storage_count: usize,
     },
     SubChunks {
         sequence: u64,
@@ -791,11 +803,7 @@ impl WorldStream {
 
         let heavy = matches!(
             event,
-            WorldEvent::LevelChunk(LevelChunkEvent {
-                mode: LevelChunkMode::Inline { .. },
-                ..
-            }) | WorldEvent::SubChunks(_)
-                | WorldEvent::BlockUpdates(_)
+            WorldEvent::LevelChunk(_) | WorldEvent::SubChunks(_) | WorldEvent::BlockUpdates(_)
         );
         let creates_request = matches!(
             &event,
@@ -853,6 +861,27 @@ impl WorldStream {
                     event,
                     base_sub_chunk_y: range.base_sub_chunk_y,
                     count,
+                    biome_storage_count: range.sub_chunk_count,
+                });
+            }
+            WorldEvent::LevelChunk(
+                event @ LevelChunkEvent {
+                    mode: LevelChunkMode::LimitedRequests { .. } | LevelChunkMode::LimitlessRequests,
+                    ..
+                },
+            ) => {
+                let Some(range) = vanilla_dimension_range(event.dimension) else {
+                    self.heavy_sequences.remove(&sequence);
+                    self.ordered
+                        .insert(sequence, PreparedWorldEvent::NormalizationFailure)?;
+                    self.apply_ready();
+                    return Ok(());
+                };
+                self.pending_decode.push_back(DecodeJob::RequestLevelChunk {
+                    sequence,
+                    event,
+                    biome_base_sub_chunk_y: range.base_sub_chunk_y,
+                    biome_storage_count: range.sub_chunk_count,
                 });
             }
             WorldEvent::SubChunks(batch) => {
@@ -1466,12 +1495,40 @@ impl WorldStream {
                         mut event,
                         base_sub_chunk_y,
                         count,
+                        biome_storage_count,
                     } => {
                         let payload = std::mem::take(&mut event.payload);
-                        let decoded = DecodedLevelChunk::decode(base_sub_chunk_y, count, &payload);
+                        let decoded = DecodedLevelChunk::decode_with_biomes(
+                            base_sub_chunk_y,
+                            count,
+                            base_sub_chunk_y,
+                            biome_storage_count,
+                            &payload,
+                        );
                         DecodeCompletion {
                             sequence,
                             event: PreparedWorldEvent::InlineLevelChunk {
+                                event,
+                                decoded,
+                                duration: started.elapsed(),
+                            },
+                        }
+                    }
+                    DecodeJob::RequestLevelChunk {
+                        sequence,
+                        mut event,
+                        biome_base_sub_chunk_y,
+                        biome_storage_count,
+                    } => {
+                        let payload = std::mem::take(&mut event.payload);
+                        let decoded = DecodedBiomeColumn::decode(
+                            biome_base_sub_chunk_y,
+                            biome_storage_count,
+                            &payload,
+                        );
+                        DecodeCompletion {
+                            sequence,
+                            event: PreparedWorldEvent::RequestLevelChunk {
                                 event,
                                 decoded,
                                 duration: started.elapsed(),
@@ -1594,6 +1651,17 @@ impl WorldStream {
                         }
                         self.stats.last_chunk_commit_at = Some(now);
                     }
+                    Err(_) => self.stats.decode_errors = self.stats.decode_errors.saturating_add(1),
+                }
+            }
+            PreparedWorldEvent::RequestLevelChunk {
+                event,
+                decoded,
+                duration,
+            } => {
+                self.stats.max_decode_duration = self.stats.max_decode_duration.max(duration);
+                match decoded {
+                    Ok(decoded) => self.apply_request_level_chunk(event, decoded, sequence),
                     Err(_) => self.stats.decode_errors = self.stats.decode_errors.saturating_add(1),
                 }
             }
@@ -1728,7 +1796,9 @@ impl WorldStream {
 
     fn apply_immediate(&mut self, event: WorldEvent, sequence: Option<u64>) {
         match event {
-            WorldEvent::LevelChunk(event) => self.apply_request_level_chunk(event, sequence),
+            WorldEvent::LevelChunk(_) => {
+                unreachable!("LevelChunk packets are prepared on workers")
+            }
             WorldEvent::BlockUpdates(_) => {
                 unreachable!("block-update batches are prepared on workers")
             }
@@ -1797,38 +1867,35 @@ impl WorldStream {
         }
     }
 
-    fn apply_request_level_chunk(&mut self, event: LevelChunkEvent, sequence: Option<u64>) {
+    fn apply_request_level_chunk(
+        &mut self,
+        event: LevelChunkEvent,
+        decoded: DecodedBiomeColumn,
+        sequence: Option<u64>,
+    ) {
         let key = ChunkKey::new(event.dimension, event.x, event.z);
         if !self.column_is_active(key) {
             self.record_normalization_error(NormalizationErrorReason::InactiveLevelChunk);
             return;
         }
-        match event.mode {
+        let Some(range) = vanilla_dimension_range(event.dimension) else {
+            self.record_normalization_error(
+                NormalizationErrorReason::UnsupportedLevelChunkDimension,
+            );
+            return;
+        };
+        let count = match event.mode {
             LevelChunkMode::LimitedRequests { highest } => {
-                let Some(range) = vanilla_dimension_range(event.dimension) else {
-                    self.record_normalization_error(
-                        NormalizationErrorReason::UnsupportedLevelChunkDimension,
-                    );
-                    return;
-                };
-                self.evict_column(key);
-                let count = usize::from(highest).min(range.sub_chunk_count);
-                self.enqueue_request(key, range.base_sub_chunk_y, count, sequence);
+                usize::from(highest).min(range.sub_chunk_count)
             }
-            LevelChunkMode::LimitlessRequests => {
-                let Some(range) = vanilla_dimension_range(event.dimension) else {
-                    self.record_normalization_error(
-                        NormalizationErrorReason::UnsupportedLevelChunkDimension,
-                    );
-                    return;
-                };
-                self.evict_column(key);
-                self.enqueue_request(key, range.base_sub_chunk_y, range.sub_chunk_count, sequence);
-            }
+            LevelChunkMode::LimitlessRequests => range.sub_chunk_count,
             LevelChunkMode::Inline { .. } => {
                 unreachable!("inline LevelChunk packets are prepared on workers")
             }
-        }
+        };
+        self.evict_column(key);
+        let _ = self.store.commit_biome_column(key, decoded);
+        self.enqueue_request(key, range.base_sub_chunk_y, count, sequence);
     }
 
     fn push_committed_control(&mut self, event: CommittedControlEvent) {
@@ -2645,14 +2712,200 @@ mod tests {
         assert!(Arc::ptr_eq(&stream.runtime_assets, &runtime_assets));
     }
 
+    fn zig_zag_i32(value: i32) -> Vec<u8> {
+        let mut value = ((value << 1) ^ (value >> 31)) as u32;
+        let mut encoded = Vec::new();
+        loop {
+            let mut byte = (value & 0x7f) as u8;
+            value >>= 7;
+            if value != 0 {
+                byte |= 0x80;
+            }
+            encoded.push(byte);
+            if value == 0 {
+                return encoded;
+            }
+        }
+    }
+
+    fn biome_payload(dimension: i32, biome_id: i32) -> Vec<u8> {
+        let storage_count = protocol::vanilla_dimension_range(dimension)
+            .expect("test dimension should have a vanilla range")
+            .sub_chunk_count;
+        let mut payload = vec![1];
+        payload.extend(zig_zag_i32(biome_id));
+        payload.extend(std::iter::repeat_n(0xff, usize::from(storage_count - 1)));
+        payload.push(0); // border-block count
+        payload
+    }
+
+    fn request_level_chunk_event(
+        dimension: i32,
+        x: i32,
+        z: i32,
+        mode: LevelChunkMode,
+        biome_id: i32,
+    ) -> WorldEvent {
+        WorldEvent::LevelChunk(LevelChunkEvent {
+            dimension,
+            x,
+            z,
+            mode,
+            payload: biome_payload(dimension, biome_id),
+        })
+    }
+
     fn inline_air_event(x: i32) -> WorldEvent {
+        let mut payload = vec![9, 0, (-4_i8) as u8];
+        payload.extend(biome_payload(0, 1));
         WorldEvent::LevelChunk(LevelChunkEvent {
             dimension: 0,
             x,
             z: 0,
             mode: LevelChunkMode::Inline { count: 1 },
-            payload: vec![9, 0, (-4_i8) as u8],
+            payload,
         })
+    }
+
+    #[test]
+    fn inline_level_chunk_decodes_full_dimension_biomes_independent_of_block_count() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        let mut payload = vec![9, 0, (-4_i8) as u8];
+        payload.extend(biome_payload(0, 7));
+
+        stream
+            .submit(
+                1,
+                WorldEvent::LevelChunk(LevelChunkEvent {
+                    dimension: 0,
+                    x: 0,
+                    z: 0,
+                    mode: LevelChunkMode::Inline { count: 1 },
+                    payload,
+                }),
+            )
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+
+        assert_eq!(
+            stream
+                .store
+                .biome_id(SubChunkKey::new(0, 0, -4, 0), 0, 0, 0),
+            Some(7)
+        );
+        assert_eq!(
+            stream
+                .store
+                .biome_id(SubChunkKey::new(0, 0, 19, 0), 0, 0, 0),
+            Some(7)
+        );
+    }
+
+    #[test]
+    fn request_level_chunk_decodes_biomes_before_enqueuing_sub_chunk_requests() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+
+        stream
+            .submit(
+                1,
+                request_level_chunk_event(
+                    0,
+                    0,
+                    0,
+                    LevelChunkMode::LimitedRequests { highest: 1 },
+                    9,
+                ),
+            )
+            .unwrap();
+
+        assert_eq!(stream.pending_decode.len(), 1);
+        assert!(stream.take_requests().is_empty());
+
+        complete_pending_decode_jobs(&mut stream);
+
+        assert_eq!(
+            stream
+                .store
+                .biome_id(SubChunkKey::new(0, 0, -4, 0), 0, 0, 0),
+            Some(9)
+        );
+        assert_eq!(
+            stream
+                .store
+                .biome_id(SubChunkKey::new(0, 0, 19, 0), 0, 0, 0),
+            Some(9)
+        );
+        assert_eq!(stream.take_requests().len(), 1);
+    }
+
+    #[test]
+    fn malformed_request_level_chunk_neither_commits_nor_enqueues() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+
+        stream
+            .submit(
+                1,
+                request_level_chunk_event(
+                    0,
+                    0,
+                    0,
+                    LevelChunkMode::LimitedRequests { highest: 1 },
+                    5,
+                ),
+            )
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+        assert_eq!(stream.take_requests().len(), 1);
+
+        stream
+            .submit(
+                2,
+                WorldEvent::LevelChunk(LevelChunkEvent {
+                    dimension: 0,
+                    x: 0,
+                    z: 0,
+                    mode: LevelChunkMode::LimitedRequests { highest: 1 },
+                    payload: vec![1, 18],
+                }),
+            )
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+
+        assert_eq!(stream.stats().decode_errors, 1);
+        assert!(stream.take_requests().is_empty());
+        assert_eq!(
+            stream
+                .store
+                .biome_id(SubChunkKey::new(0, 0, -4, 0), 0, 0, 0),
+            Some(5)
+        );
+        assert_eq!(
+            stream
+                .store
+                .biome_id(SubChunkKey::new(0, 0, 19, 0), 0, 0, 0),
+            Some(5)
+        );
     }
 
     fn complete_pending_decode_jobs(stream: &mut WorldStream) {
@@ -2663,13 +2916,40 @@ mod tests {
                     mut event,
                     base_sub_chunk_y,
                     count,
+                    biome_storage_count,
                 } => {
                     let payload = std::mem::take(&mut event.payload);
                     (
                         sequence,
                         super::PreparedWorldEvent::InlineLevelChunk {
                             event,
-                            decoded: DecodedLevelChunk::decode(base_sub_chunk_y, count, &payload),
+                            decoded: DecodedLevelChunk::decode_with_biomes(
+                                base_sub_chunk_y,
+                                count,
+                                base_sub_chunk_y,
+                                biome_storage_count,
+                                &payload,
+                            ),
+                            duration: std::time::Duration::ZERO,
+                        },
+                    )
+                }
+                super::DecodeJob::RequestLevelChunk {
+                    sequence,
+                    mut event,
+                    biome_base_sub_chunk_y,
+                    biome_storage_count,
+                } => {
+                    let payload = std::mem::take(&mut event.payload);
+                    (
+                        sequence,
+                        super::PreparedWorldEvent::RequestLevelChunk {
+                            event,
+                            decoded: world::DecodedBiomeColumn::decode(
+                                biome_base_sub_chunk_y,
+                                biome_storage_count,
+                                &payload,
+                            ),
                             duration: std::time::Duration::ZERO,
                         },
                     )
@@ -3157,7 +3437,7 @@ mod tests {
                     x: 100,
                     z: 0,
                     mode: LevelChunkMode::LimitedRequests { highest: 1 },
-                    payload: Vec::new(),
+                    payload: biome_payload(1, 1),
                 }),
             )
             .unwrap();
@@ -3174,7 +3454,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(stream.pending_decode.len(), 2);
+        assert_eq!(stream.pending_decode.len(), 3);
         complete_pending_decode_jobs(&mut stream);
 
         let key = SubChunkKey::new(1, 100, 0, 0);
@@ -3204,10 +3484,13 @@ mod tests {
                         x: index.rem_euclid(9) - 4,
                         z: index.div_euclid(9) - 4,
                         mode: LevelChunkMode::LimitedRequests { highest: 1 },
-                        payload: Vec::new(),
+                        payload: biome_payload(0, 1),
                     }),
                 )
                 .unwrap();
+            if sequence == 32 || sequence == 62 {
+                complete_pending_decode_jobs(&mut stream);
+            }
         }
         // Keep the FIFO blocker on a column that does not supersede one of
         // the 62 queued request-mode columns under test.
@@ -3221,7 +3504,7 @@ mod tests {
                         x,
                         z: 1,
                         mode: LevelChunkMode::LimitedRequests { highest: 1 },
-                        payload: Vec::new(),
+                        payload: biome_payload(0, 1),
                     }),
                 )
                 .unwrap();
@@ -3235,7 +3518,7 @@ mod tests {
                     x: 12,
                     z: 10,
                     mode: LevelChunkMode::LimitedRequests { highest: 1 },
-                    payload: Vec::new(),
+                    payload: biome_payload(0, 1),
                 }),
             )
             .unwrap_err();
@@ -3312,10 +3595,11 @@ mod tests {
                     x: chunk.x,
                     z: chunk.z,
                     mode: LevelChunkMode::LimitedRequests { highest: 1 },
-                    payload: Vec::new(),
+                    payload: biome_payload(0, 1),
                 }),
             )
             .unwrap();
+        complete_pending_decode_jobs(&mut stream);
         assert_eq!(stream.requests.len(), 1);
 
         stream.evict_column(chunk);
@@ -3358,10 +3642,11 @@ mod tests {
                     x: chunk.x,
                     z: chunk.z,
                     mode: LevelChunkMode::LimitedRequests { highest: 1 },
-                    payload: Vec::new(),
+                    payload: biome_payload(0, 1),
                 }),
             )
             .unwrap();
+        complete_pending_decode_jobs(&mut stream);
         assert!(stream.column_is_active(chunk));
         assert_eq!(stream.take_requests().len(), 1);
         assert!(stream.requested_sub_chunks.contains_key(&chunk));
@@ -3451,10 +3736,11 @@ mod tests {
                     x: super::PHASE0_MAX_VIEW_RADIUS_CHUNKS + 1,
                     z: 0,
                     mode: LevelChunkMode::LimitlessRequests,
-                    payload: Vec::new(),
+                    payload: biome_payload(0, 1),
                 }),
             )
             .unwrap();
+        complete_pending_decode_jobs(&mut stream);
         assert!(stream.requests.is_empty());
 
         stream
@@ -3491,7 +3777,7 @@ mod tests {
                     x: 0,
                     z: 0,
                     mode: LevelChunkMode::LimitedRequests { highest: 1 },
-                    payload: Vec::new(),
+                    payload: biome_payload(0, 1),
                 }),
             )
             .unwrap();
@@ -3508,7 +3794,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(stream.stats().queued_decode_jobs, 1);
+        assert_eq!(stream.stats().queued_decode_jobs, 2);
         complete_pending_decode_jobs(&mut stream);
         assert_eq!(stream.stats().queued_decode_jobs, 0);
         assert!(!stream.resident.contains(&SubChunkKey::new(0, 0, -3, 0)));
@@ -4070,10 +4356,11 @@ mod tests {
                     x: -2,
                     z: 5,
                     mode: LevelChunkMode::LimitedRequests { highest: u16::MAX },
-                    payload: Vec::new(),
+                    payload: biome_payload(0, 1),
                 }),
             )
             .unwrap();
+        complete_pending_decode_jobs(&mut stream);
         let overworld_requests = stream.take_requests();
         assert_eq!(overworld_requests.len(), 1);
         assert_eq!(overworld_requests[0].dimension, 0);
@@ -4097,10 +4384,11 @@ mod tests {
                     x: 7,
                     z: -9,
                     mode: LevelChunkMode::LimitlessRequests,
-                    payload: Vec::new(),
+                    payload: biome_payload(1, 1),
                 }),
             )
             .unwrap();
+        complete_pending_decode_jobs(&mut stream);
 
         let requests = stream.take_requests();
         assert_eq!(requests.len(), 1);
@@ -4130,10 +4418,13 @@ mod tests {
                         x,
                         z,
                         mode: LevelChunkMode::LimitedRequests { highest: 1 },
-                        payload: Vec::new(),
+                        payload: biome_payload(0, 1),
                     }),
                 )
                 .unwrap();
+            if (index + 1) % super::MAX_ADMITTED_HEAVY_EVENTS == 0 {
+                complete_pending_decode_jobs(&mut stream);
+            }
         }
         assert_eq!(
             stream.pending_request_count(),
@@ -4149,7 +4440,7 @@ mod tests {
                         x: 9,
                         z: 9,
                         mode: LevelChunkMode::LimitlessRequests,
-                        payload: Vec::new(),
+                        payload: biome_payload(0, 1),
                     }),
                 )
                 .unwrap_err(),
@@ -4175,10 +4466,11 @@ mod tests {
                     x: 0,
                     z: 0,
                     mode: LevelChunkMode::LimitedRequests { highest: 1 },
-                    payload: Vec::new(),
+                    payload: biome_payload(0, 1),
                 }),
             )
             .unwrap();
+        complete_pending_decode_jobs(&mut stream);
         assert_eq!(stream.take_requests().len(), 1);
         (stream, key)
     }
@@ -4218,10 +4510,11 @@ mod tests {
                     x: chunk.x,
                     z: chunk.z,
                     mode: LevelChunkMode::LimitedRequests { highest: count },
-                    payload: Vec::new(),
+                    payload: biome_payload(0, 1),
                 }),
             )
             .unwrap();
+        complete_pending_decode_jobs(&mut stream);
         let request = stream
             .pop_next_request()
             .expect("request-mode LevelChunk should enqueue one request");
@@ -4823,10 +5116,11 @@ mod tests {
                     x: key.x,
                     z: key.z,
                     mode: LevelChunkMode::LimitedRequests { highest: 1 },
-                    payload: Vec::new(),
+                    payload: biome_payload(0, 1),
                 }),
             )
             .unwrap();
+        complete_pending_decode_jobs(&mut stream);
 
         assert!(stream.store.sub_chunk(key).is_none());
         assert!(!stream.resident.contains(&key));

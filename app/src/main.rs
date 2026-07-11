@@ -2914,6 +2914,28 @@ mod tests {
         write_move_player_ingress_before_source_capture,
     };
 
+    fn overworld_biome_payload() -> Vec<u8> {
+        let mut payload = vec![1, 2];
+        payload.extend(std::iter::repeat_n(0xff, 23));
+        payload.push(0);
+        payload
+    }
+
+    fn complete_world_stream_decodes(stream: &mut WorldStream) {
+        for _ in 0..10_000 {
+            stream.poll([0.0; 3], 0);
+            let stats = stream.stats();
+            if stats.queued_decode_jobs == 0
+                && stats.in_flight_decode_jobs == 0
+                && stats.completed_decode_results == 0
+            {
+                return;
+            }
+            std::thread::yield_now();
+        }
+        panic!("world stream decode did not complete");
+    }
+
     fn settled_world_snapshot() -> WorldReadySnapshot {
         WorldReadySnapshot {
             mutation_coordinate: Some([14, 71, -6]),
@@ -5018,11 +5040,12 @@ mod tests {
                         x,
                         z: 0,
                         mode: LevelChunkMode::LimitedRequests { highest: 1 },
-                        payload: Vec::new(),
+                        payload: overworld_biome_payload(),
                     }),
                 )
                 .unwrap();
         }
+        complete_world_stream_decodes(&mut stream);
 
         let mut attempts = Vec::new();
         let mut calls = 0;
@@ -5084,10 +5107,11 @@ mod tests {
                         x: 0,
                         z: 0,
                         mode: LevelChunkMode::LimitedRequests { highest: 1 },
-                        payload: Vec::new(),
+                        payload: overworld_biome_payload(),
                     }),
                 )
                 .unwrap();
+            complete_world_stream_decodes(&mut stream);
             stream
         };
         let key = SubChunkKey::new(0, 0, -4, 0);
@@ -5133,10 +5157,11 @@ mod tests {
                     x: 0,
                     z: 0,
                     mode: LevelChunkMode::LimitedRequests { highest: 1 },
-                    payload: Vec::new(),
+                    payload: overworld_biome_payload(),
                 }),
             )
             .unwrap();
+        complete_world_stream_decodes(&mut stream);
         let original = "network session failed: Protocol error: original fatal";
         let mut fatal_error = None;
         record_fatal_error(&mut fatal_error, original.to_owned());

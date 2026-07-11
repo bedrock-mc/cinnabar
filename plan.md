@@ -178,8 +178,11 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     Bedrock words, `0xff` previous-storage reuse, strict malformed-input
     rejection, atomic inline block+biome commits, and biome-only column
     lifetime independent of all-air block subchunks.
-  - [ ] Carry request-mode and inline `LevelChunk` biome payloads through the
-    Rayon/FIFO streaming path and retain the live biome definition mapping.
+  - [x] Carry request-mode and inline `LevelChunk` biome payloads through the
+    Rayon/FIFO streaming path, decode the full dimension column independently
+    of requested block count, and commit it before subchunk requests.
+  - [ ] Retain the live biome definition mapping needed to resolve palette IDs
+    to climate and vanilla tint rules, including bounded custom-biome fallback.
   - [x] Remove the grass-block diagnostic fallback: compile bottom/top/side
     independently, preserve grass-side alpha as an opaque tint mask through
     mip generation, and apply the pinned pack's deterministic default grass
