@@ -14,21 +14,21 @@ struct MaterialGpu {
     flags: u32,
 }
 
+struct BiomeTintGpu {
+    grass: u32,
+    foliage: u32,
+    water: u32,
+    flags: u32,
+}
+
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> quads: array<PackedQuad>;
 @group(0) @binding(2) var<storage, read> chunk_origins: array<ChunkOrigin>;
 @group(0) @binding(3) var<storage, read> materials: array<MaterialGpu>;
 @group(0) @binding(4) var block_textures: texture_2d_array<f32>;
 @group(0) @binding(5) var block_sampler: sampler;
-
-// Variant-zero Bedrock grass overlay (#79c05a), converted from sRGB because
-// the texture array is sampled as linear colour. Live biome lookup replaces
-// this deterministic fallback as the palette-native tint arena lands.
-const DEFAULT_GRASS_TINT_LINEAR: vec3<f32> = vec3<f32>(
-    0.191201683,
-    0.527115126,
-    0.102241733,
-);
+@group(0) @binding(6) var<storage, read> biome_records: array<u32>;
+@group(0) @binding(7) var<storage, read> biome_tints: array<BiomeTintGpu>;
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
@@ -36,6 +36,8 @@ struct VertexOutput {
     @location(1) @interpolate(flat) layer: u32,
     @location(2) normal: vec3<f32>,
     @location(3) @interpolate(flat) material_flags: u32,
+    @location(4) local_position: vec3<f32>,
+    @location(5) @interpolate(flat) biome_record: u32,
 }
 
 fn quad_corner(face: u32, corner: u32, origin: vec3<f32>, width: f32, height: f32) -> vec3<f32> {
@@ -173,8 +175,9 @@ fn vertex(
     let height = f32(((geometry >> 22u) & 0xfu) + 1u);
     let metadata_index = vertex_index / 4u;
     let corner = vertex_index & 3u;
-    let chunk_origin = vec3<f32>(chunk_origins[metadata_index].value.xyz);
-    let world_position = chunk_origin + quad_corner(face, corner, local_origin, width, height);
+    let chunk_origin = chunk_origins[metadata_index];
+    let local_position = quad_corner(face, corner, local_origin, width, height);
+    let world_position = vec3<f32>(chunk_origin.value.xyz) + local_position;
     let material = materials[quad.material_id];
 
     var out: VertexOutput;
@@ -183,13 +186,75 @@ fn vertex(
     out.layer = material.layer;
     out.normal = face_normal(face);
     out.material_flags = material.flags;
+    out.local_position = local_position;
+    out.biome_record = u32(chunk_origin.value.w);
     return out;
 }
 
-fn apply_material_tint(sampled: vec4<f32>, material_flags: u32) -> vec4<f32> {
-    let tint_kind = material_flags & 0x30u;
+fn unpack_linear_rgb10(packed: u32) -> vec3<f32> {
+    return vec3<f32>(
+        f32(packed & 0x3ffu),
+        f32((packed >> 10u) & 0x3ffu),
+        f32((packed >> 20u) & 0x3ffu),
+    ) / 1023.0;
+}
+
+fn packed_biome_tint_index(record: u32, coordinate: vec3<u32>) -> u32 {
+    let header = biome_records[record];
+    let bits = header & 0xffu;
+    let palette_len = (header >> 8u) & 0x1fffu;
+    if (palette_len == 0u) {
+        return 0u;
+    }
+
+    var packed_word_count = 0u;
+    var palette_index = 0u;
+    if (bits != 0u) {
+        let values_per_word = 32u / bits;
+        packed_word_count = (4096u + values_per_word - 1u) / values_per_word;
+        let linear = (coordinate.x << 8u) | (coordinate.z << 4u) | coordinate.y;
+        let word = biome_records[record + 1u + linear / values_per_word];
+        let shift = (linear % values_per_word) * bits;
+        let mask = (1u << bits) - 1u;
+        palette_index = (word >> shift) & mask;
+    }
+    if (palette_index >= palette_len) {
+        return 0u;
+    }
+    return biome_records[record + 1u + packed_word_count + palette_index];
+}
+
+fn biome_tint(
+    tint_kind: u32,
+    record: u32,
+    local_position: vec3<f32>,
+    normal: vec3<f32>,
+) -> vec3<f32> {
+    let inward_position = floor(local_position - normal * 0.001);
+    let coordinate = vec3<u32>(clamp(inward_position, vec3(0.0), vec3(15.0)));
+    let requested = packed_biome_tint_index(record, coordinate);
+    let tint_count = arrayLength(&biome_tints);
+    let tint_index = select(0u, requested, requested < tint_count);
+    let tint = biome_tints[tint_index];
     if (tint_kind == 0x10u) {
-        let tinted = sampled.rgb * DEFAULT_GRASS_TINT_LINEAR;
+        return unpack_linear_rgb10(tint.grass);
+    }
+    if (tint_kind == 0x20u) {
+        return unpack_linear_rgb10(tint.foliage);
+    }
+    return unpack_linear_rgb10(tint.water);
+}
+
+fn apply_material_tint(
+    sampled: vec4<f32>,
+    material_flags: u32,
+    biome_record: u32,
+    local_position: vec3<f32>,
+    normal: vec3<f32>,
+) -> vec4<f32> {
+    let tint_kind = material_flags & 0x30u;
+    if (tint_kind != 0u) {
+        let tinted = sampled.rgb * biome_tint(tint_kind, biome_record, local_position, normal);
         if ((material_flags & (1u << 6u)) != 0u) {
             // Grass-side alpha is an overlay weight, not transparency. Its
             // alpha-zero RGB contains the opaque dirt base.
@@ -206,5 +271,11 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if ((in.material_flags & (1u << 8u)) != 0u && sampled.a < 0.5) {
         discard;
     }
-    return apply_material_tint(sampled, in.material_flags);
+    return apply_material_tint(
+        sampled,
+        in.material_flags,
+        in.biome_record,
+        in.local_position,
+        in.normal,
+    );
 }

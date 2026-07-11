@@ -16,11 +16,11 @@ use render::{
     BlockClassifier, ChunkRenderInstance, ChunkRenderQueue, ChunkRenderQueueLimits,
     ChunkTextureAssetIdentity, ChunkUploadPriority, DebugWorldPlugin, Face, MATERIAL_UV_REFLECT_U,
     MATERIAL_UV_REFLECT_V, MATERIAL_UV_ROTATE_90, MATERIAL_UV_ROTATE_180, MATERIAL_UV_ROTATE_270,
-    Neighbourhood, PackedQuad, PresentedFrameAck, RenderViewCohort, TextureArrayLimits,
-    TextureLimitError, greedy_texture_uv, mesh_sub_chunk, plan_texture_mip_uploads,
-    texture_asset_needs_rebuild,
+    Neighbourhood, PackedBiomeRecord, PackedQuad, PresentedFrameAck, RenderViewCohort,
+    TextureArrayLimits, TextureLimitError, greedy_texture_uv, mesh_sub_chunk,
+    plan_texture_mip_uploads, texture_asset_needs_rebuild,
 };
-use world::{SubChunk, SubChunkKey};
+use world::{DecodedBiomeColumn, SubChunk, SubChunkKey};
 
 const AIR: u32 = 12_530;
 
@@ -316,8 +316,8 @@ fn packed_chunk_shader_parses_and_validates() {
     .validate(&module)
     .expect("validate packed chunk WGSL");
 
-    assert_eq!(shader.matches("@group(0) @binding(").count(), 6);
-    for binding in 0..=5 {
+    assert_eq!(shader.matches("@group(0) @binding(").count(), 8);
+    for binding in 0..=7 {
         assert!(
             shader.contains(&format!("@group(0) @binding({binding})")),
             "packed chunk shader is missing global texture binding {binding}"
@@ -339,14 +339,77 @@ fn packed_chunk_shader_parses_and_validates() {
     assert!(shader.contains("material_flags & (1u << 8u)"));
     assert!(shader.contains("sampled.a < 0.5"));
     assert_eq!(shader.matches("discard").count(), 1);
-    assert!(shader.contains("const DEFAULT_GRASS_TINT_LINEAR"));
     assert!(shader.contains("material_flags & 0x30u"));
     assert!(shader.contains("material_flags & (1u << 6u)"));
     assert!(shader.contains("mix(sampled.rgb, tinted, sampled.a)"));
-    assert!(shader.contains("return apply_material_tint(sampled, in.material_flags);"));
+    assert!(shader.contains("in.biome_record,"));
     assert!(shader.contains("if ((in.material_flags & (1u << 8u)) != 0u && sampled.a < 0.5) {"));
     assert!(shader.contains("greedy_uv"));
+    assert!(shader.contains("var<storage, read> biome_records: array<u32>"));
+    assert!(shader.contains("var<storage, read> biome_tints: array<BiomeTintGpu>"));
+    assert!(shader.contains("out.biome_record = u32(chunk_origin.value.w);"));
+    assert!(shader.contains("local_position - normal * 0.001"));
+    assert!(shader.contains("(coordinate.x << 8u) | (coordinate.z << 4u) | coordinate.y"));
+    assert!(shader.contains("fn packed_biome_tint_index"));
+    assert!(shader.contains("fn unpack_linear_rgb10"));
     assert!(!shader.contains("debug_color"));
+}
+
+fn uniform_biome_record(tint_index: u32) -> PackedBiomeRecord {
+    let mut encoded = vec![1];
+    encoded.extend(zig_zag_i32(42));
+    let storage = DecodedBiomeColumn::decode(0, 1, &encoded)
+        .expect("uniform biome column")
+        .storage(0)
+        .expect("uniform biome storage");
+    PackedBiomeRecord::from_storage(&storage, |_| tint_index)
+}
+
+#[test]
+fn render_queue_counts_and_extracts_non_fallback_biome_records() {
+    let key = SubChunkKey::new(0, 0, 0, 0);
+    let mesh = solid_mesh(1);
+    let biome = uniform_biome_record(7);
+    let expected_bytes = 6 * size_of::<PackedQuad>() as u64 + biome.byte_len();
+    let mut queue = ChunkRenderQueue::with_limits(ChunkRenderQueueLimits {
+        max_items: 1,
+        max_bytes: expected_bytes - 1,
+    });
+
+    let (rejected_mesh, rejected_biome) = queue
+        .try_insert_with_biome(key, mesh, biome.clone(), ChunkUploadPriority::new(0.0))
+        .expect_err("biome bytes must participate in queue limits");
+    assert_eq!(rejected_mesh.quad_count(), 6);
+    assert_eq!(rejected_biome, biome);
+
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .insert_resource(ChunkRenderQueue::with_limits(ChunkRenderQueueLimits {
+            max_items: 1,
+            max_bytes: expected_bytes,
+        }))
+        .add_plugins(DebugWorldPlugin::new(1));
+    app.world_mut()
+        .resource_mut::<ChunkRenderQueue>()
+        .try_insert_with_biome(
+            key,
+            rejected_mesh,
+            rejected_biome,
+            ChunkUploadPriority::new(0.0),
+        )
+        .unwrap();
+    assert_eq!(
+        app.world().resource::<ChunkRenderQueue>().pending_bytes(),
+        expected_bytes
+    );
+
+    app.update();
+    let instance = app
+        .world_mut()
+        .query::<&ChunkRenderInstance>()
+        .single(app.world())
+        .unwrap();
+    assert_eq!(instance.biome_record(), &biome);
 }
 
 #[test]
@@ -370,15 +433,16 @@ fn packed_chunk_pipeline_remains_one_opaque_depth_writing_path() {
     assert!(plugin.contains("layout: vec![bind_group_layout.clone()]"));
     assert!(plugin.contains("blend: None"));
     assert!(plugin.contains("depth_write_enabled: true"));
-    assert_eq!(plugin.matches("binding: ").count(), 12);
-    for binding in 0..=5 {
+    assert_eq!(plugin.matches("binding: ").count(), 16);
+    for binding in 0..=7 {
         assert_eq!(
             plugin.matches(&format!("binding: {binding},")).count(),
             2,
             "packed chunk pipeline changed binding {binding}"
         );
     }
-    assert!(!plugin.contains("binding: 6,"));
+    assert_eq!(plugin.matches("binding: 6,").count(), 2);
+    assert_eq!(plugin.matches("binding: 7,").count(), 2);
     assert_eq!(
         plugin
             .matches("resource: texture_assets.material_buffer.as_entire_binding()")

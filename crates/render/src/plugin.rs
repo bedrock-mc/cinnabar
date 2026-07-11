@@ -53,12 +53,15 @@ use bevy::{
 };
 use world::SubChunkKey;
 
-use crate::{ChunkMesh, PackedQuad};
+use crate::{ChunkMesh, PackedBiomeRecord, PackedQuad};
 
 const CHUNK_SHADER_HANDLE: Handle<Shader> = uuid_handle!("b5664c91-763f-4e5c-9310-d12659f70cd4");
 const STATIC_QUAD_INDICES: [u32; 6] = [0, 1, 2, 0, 2, 3];
 const PACKED_QUAD_BYTES: u64 = 8;
 const CHUNK_ORIGIN_BYTES: u64 = 16;
+const BIOME_WORD_BYTES: u64 = 4;
+const FALLBACK_BIOME_WORDS: usize = 2;
+const FALLBACK_BIOME_RECORD: [u32; FALLBACK_BIOME_WORDS] = [1 << 8, 0];
 const INDEXED_INDIRECT_BYTES: u64 = 20;
 const DEFAULT_RENDER_QUEUE_ITEMS: usize = 256;
 const DEFAULT_RENDER_QUEUE_BYTES: u64 = 64 * 1024 * 1024;
@@ -71,6 +74,87 @@ pub const MATERIAL_UV_ROTATE_270: u32 = 3;
 pub const MATERIAL_UV_REFLECT_U: u32 = 1 << 2;
 pub const MATERIAL_UV_REFLECT_V: u32 = 1 << 3;
 const MATERIAL_UV_ROTATION_MASK: u32 = 0b11;
+
+/// Linear-space tint colours resolved from one live biome definition.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BiomeTint {
+    pub grass: [f32; 3],
+    pub foliage: [f32; 3],
+    pub water: [f32; 3],
+}
+
+impl Default for BiomeTint {
+    fn default() -> Self {
+        Self {
+            grass: [0.191_201_69, 0.527_115_1, 0.102_241_73],
+            foliage: [0.191_201_69, 0.527_115_1, 0.102_241_73],
+            water: [1.0; 3],
+        }
+    }
+}
+
+/// Immutable dense biome tint table. Palette-native chunk records reference
+/// these entries by index; entry zero is always a deterministic fallback.
+#[derive(Resource, Clone)]
+pub struct ChunkBiomeTints {
+    entries: Arc<[BiomeTint]>,
+    revision: u64,
+}
+
+impl Default for ChunkBiomeTints {
+    fn default() -> Self {
+        Self {
+            entries: Arc::from([BiomeTint::default()]),
+            revision: 0,
+        }
+    }
+}
+
+impl ChunkBiomeTints {
+    /// Replaces tint colours while retaining the dense index contract used by
+    /// queued [`PackedBiomeRecord`] palettes. Callers that change index
+    /// assignments must enqueue replacement records with the same revision.
+    #[must_use]
+    pub fn with_revision(entries: Arc<[BiomeTint]>, revision: u64) -> Self {
+        let entries = if entries.is_empty() {
+            Arc::from([BiomeTint::default()])
+        } else {
+            entries
+        };
+        Self { entries, revision }
+    }
+
+    #[must_use]
+    pub fn entries(&self) -> &[BiomeTint] {
+        &self.entries
+    }
+
+    #[must_use]
+    pub const fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    fn identity(&self) -> ChunkBiomeTintIdentity {
+        ChunkBiomeTintIdentity {
+            pointer: Arc::as_ptr(&self.entries) as *const BiomeTint as usize,
+            revision: self.revision,
+        }
+    }
+}
+
+impl bevy::render::extract_resource::ExtractResource for ChunkBiomeTints {
+    type Source = Self;
+
+    fn extract_resource(source: &Self::Source) -> Self {
+        source.clone()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ChunkBiomeTintIdentity {
+    pointer: usize,
+    revision: u64,
+}
 
 /// Immutable assets selected for the single global chunk texture array.
 #[derive(Resource, Clone)]
@@ -349,6 +433,7 @@ impl PartialOrd for ChunkUploadPriority {
 
 struct PendingUpload {
     mesh: ChunkMesh,
+    biome: PackedBiomeRecord,
     priority: ChunkUploadPriority,
     generation: u64,
     token: Option<ChunkUploadToken>,
@@ -1088,7 +1173,18 @@ impl ChunkRenderQueue {
         mesh: ChunkMesh,
         priority: ChunkUploadPriority,
     ) -> Result<(), ChunkMesh> {
-        self.try_enqueue(key, mesh, priority, None)
+        self.try_enqueue(key, mesh, PackedBiomeRecord::fallback(), priority, None)
+            .map_err(|(mesh, _)| mesh)
+    }
+
+    pub fn try_insert_with_biome(
+        &mut self,
+        key: SubChunkKey,
+        mesh: ChunkMesh,
+        biome: PackedBiomeRecord,
+        priority: ChunkUploadPriority,
+    ) -> Result<(), (ChunkMesh, PackedBiomeRecord)> {
+        self.try_enqueue(key, mesh, biome, priority, None)
     }
 
     pub fn try_update(
@@ -1097,7 +1193,18 @@ impl ChunkRenderQueue {
         mesh: ChunkMesh,
         priority: ChunkUploadPriority,
     ) -> Result<(), ChunkMesh> {
-        self.try_enqueue(key, mesh, priority, None)
+        self.try_enqueue(key, mesh, PackedBiomeRecord::fallback(), priority, None)
+            .map_err(|(mesh, _)| mesh)
+    }
+
+    pub fn try_update_with_biome(
+        &mut self,
+        key: SubChunkKey,
+        mesh: ChunkMesh,
+        biome: PackedBiomeRecord,
+        priority: ChunkUploadPriority,
+    ) -> Result<(), (ChunkMesh, PackedBiomeRecord)> {
+        self.try_enqueue(key, mesh, biome, priority, None)
     }
 
     pub fn try_update_tracked(
@@ -1107,7 +1214,25 @@ impl ChunkRenderQueue {
         priority: ChunkUploadPriority,
         token: ChunkUploadToken,
     ) -> Result<(), ChunkMesh> {
-        self.try_enqueue(key, mesh, priority, Some(token))
+        self.try_enqueue(
+            key,
+            mesh,
+            PackedBiomeRecord::fallback(),
+            priority,
+            Some(token),
+        )
+        .map_err(|(mesh, _)| mesh)
+    }
+
+    pub fn try_update_tracked_with_biome(
+        &mut self,
+        key: SubChunkKey,
+        mesh: ChunkMesh,
+        biome: PackedBiomeRecord,
+        priority: ChunkUploadPriority,
+        token: ChunkUploadToken,
+    ) -> Result<(), (ChunkMesh, PackedBiomeRecord)> {
+        self.try_enqueue(key, mesh, biome, priority, Some(token))
     }
 
     pub fn try_remove(&mut self, key: SubChunkKey) -> Result<(), SubChunkKey> {
@@ -1136,7 +1261,7 @@ impl ChunkRenderQueue {
         if let Some(pending) = self.pending.remove(&key) {
             self.pending_bytes = self
                 .pending_bytes
-                .saturating_sub(mesh_byte_len(&pending.mesh));
+                .saturating_sub(pending_upload_byte_len(&pending));
         }
         self.removals
             .insert(key, PendingRemoval { priority, token });
@@ -1194,13 +1319,11 @@ impl ChunkRenderQueue {
         &mut self,
         key: SubChunkKey,
         mesh: ChunkMesh,
+        biome: PackedBiomeRecord,
         priority: ChunkUploadPriority,
         token: Option<ChunkUploadToken>,
-    ) -> Result<(), ChunkMesh> {
-        let old_bytes = self
-            .pending
-            .get(&key)
-            .map_or(0, |pending| mesh_byte_len(&pending.mesh));
+    ) -> Result<(), (ChunkMesh, PackedBiomeRecord)> {
+        let old_bytes = self.pending.get(&key).map_or(0, pending_upload_byte_len);
         let replaces_existing = self.pending.contains_key(&key) || self.removals.contains_key(&key);
         let next_items = self
             .retained_len()
@@ -1208,9 +1331,10 @@ impl ChunkRenderQueue {
         let next_bytes = self
             .pending_bytes
             .saturating_sub(old_bytes)
-            .saturating_add(mesh_byte_len(&mesh));
+            .saturating_add(mesh_byte_len(&mesh))
+            .saturating_add(biome_record_byte_len(&biome));
         if next_items > self.limits.max_items || next_bytes > self.limits.max_bytes {
-            return Err(mesh);
+            return Err((mesh, biome));
         }
         self.removals.remove(&key);
         self.next_generation = self.next_generation.wrapping_add(1).max(1);
@@ -1225,6 +1349,7 @@ impl ChunkRenderQueue {
             key,
             PendingUpload {
                 mesh,
+                biome,
                 priority,
                 generation,
                 token,
@@ -1238,6 +1363,22 @@ fn mesh_byte_len(mesh: &ChunkMesh) -> u64 {
     buffer_byte_len(mesh.quad_count(), PACKED_QUAD_BYTES)
 }
 
+fn biome_record_is_fallback(record: &PackedBiomeRecord) -> bool {
+    record.words() == FALLBACK_BIOME_RECORD
+}
+
+fn biome_record_byte_len(record: &PackedBiomeRecord) -> u64 {
+    if biome_record_is_fallback(record) {
+        0
+    } else {
+        record.byte_len()
+    }
+}
+
+fn pending_upload_byte_len(pending: &PendingUpload) -> u64 {
+    mesh_byte_len(&pending.mesh).saturating_add(biome_record_byte_len(&pending.biome))
+}
+
 /// Extracted packed geometry for one visible, frustum-cullable sub-chunk.
 #[derive(Component, Clone, ExtractComponent)]
 #[require(VisibilityClass)]
@@ -1245,6 +1386,7 @@ fn mesh_byte_len(mesh: &ChunkMesh) -> u64 {
 pub struct ChunkRenderInstance {
     key: SubChunkKey,
     quads: Arc<[PackedQuad]>,
+    biome: PackedBiomeRecord,
     generation: u64,
     token: Option<ChunkUploadToken>,
     origin: [i32; 3],
@@ -1264,6 +1406,11 @@ impl ChunkRenderInstance {
     #[must_use]
     pub fn quads(&self) -> &[PackedQuad] {
         &self.quads
+    }
+
+    #[must_use]
+    pub const fn biome_record(&self) -> &PackedBiomeRecord {
+        &self.biome
     }
 }
 
@@ -1297,6 +1444,7 @@ impl Plugin for DebugWorldPlugin {
             .init_resource::<PresentedFrameGate>()
             .init_resource::<ChunkEntities>()
             .init_resource::<ChunkTextureAssets>()
+            .init_resource::<ChunkBiomeTints>()
             .insert_resource(self.upload_budget)
             .add_systems(Update, apply_chunk_render_queue);
 
@@ -1307,6 +1455,7 @@ impl Plugin for DebugWorldPlugin {
         app.add_plugins((
             ExtractComponentPlugin::<ChunkRenderInstance>::default(),
             ExtractResourcePlugin::<ChunkTextureAssets>::default(),
+            ExtractResourcePlugin::<ChunkBiomeTints>::default(),
         ));
 
         load_internal_asset!(app, CHUNK_SHADER_HANDLE, "chunk.wgsl", Shader::from_wgsl);
@@ -1324,6 +1473,7 @@ impl Plugin for DebugWorldPlugin {
             .init_resource::<ChunkPipeline>()
             .init_resource::<ChunkGpuUploadStats>()
             .init_resource::<ChunkGpuTextureAssets>()
+            .init_resource::<ChunkGpuBiomeTints>()
             .init_resource::<ChunkTextureUploadStats>()
             .init_resource::<ChunkIndirectBatches>()
             .init_resource::<ActiveFrameProbe>()
@@ -1335,6 +1485,7 @@ impl Plugin for DebugWorldPlugin {
                 (
                     queue_chunks.in_set(RenderSystems::Queue),
                     prepare_chunk_texture_assets.in_set(RenderSystems::PrepareResources),
+                    prepare_chunk_biome_tints.in_set(RenderSystems::PrepareResources),
                     prepare_gpu_chunks.in_set(RenderSystems::PrepareResources),
                     prepare_chunk_indirect_batches
                         .in_set(RenderSystems::PrepareResources)
@@ -1407,7 +1558,7 @@ fn apply_chunk_render_queue(
         };
         queue.pending_bytes = queue
             .pending_bytes
-            .saturating_sub(mesh_byte_len(&pending.mesh));
+            .saturating_sub(pending_upload_byte_len(&pending));
         if pending.mesh.is_empty() {
             if let Some(entity) = entities.0.remove(&key) {
                 commands.entity(entity).despawn();
@@ -1423,6 +1574,7 @@ fn apply_chunk_render_queue(
         let instance = ChunkRenderInstance {
             key,
             quads: Arc::from(pending.mesh.into_quads()),
+            biome: pending.biome,
             generation: pending.generation,
             token: pending.token,
             origin,
@@ -1522,6 +1674,26 @@ impl FromWorld for ChunkPipeline {
                     binding: 5,
                     visibility: ShaderStages::FRAGMENT,
                     ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 6,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 7,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
                     count: None,
                 },
             ],
@@ -1628,10 +1800,7 @@ fn indexed_indirect_command(allocation: &GpuChunkAllocation) -> Option<DrawIndex
     if instance_count == 0 {
         return None;
     }
-    let base_vertex = allocation
-        .metadata_index
-        .checked_mul(4)
-        .and_then(|value| i32::try_from(value).ok())?;
+    let base_vertex = metadata_base_vertex(allocation.metadata_index)?;
     Some(DrawIndexedIndirectArgs {
         index_count: STATIC_QUAD_INDICES.len() as u32,
         instance_count,
@@ -1639,6 +1808,21 @@ fn indexed_indirect_command(allocation: &GpuChunkAllocation) -> Option<DrawIndex
         base_vertex,
         first_instance: allocation.quad_range.start,
     })
+}
+
+fn metadata_base_vertex(metadata_index: u32) -> Option<i32> {
+    metadata_index
+        .checked_mul(4)
+        .and_then(|value| i32::try_from(value).ok())
+}
+
+fn gpu_chunk_origin(origin: [i32; 3], biome_start: u32) -> [i32; 4] {
+    [
+        origin[0],
+        origin[1],
+        origin[2],
+        i32::try_from(biome_start).expect("biome arena is limited to i32 offsets"),
+    ]
 }
 
 #[cfg(test)]
@@ -1665,6 +1849,8 @@ struct ChunkIndirectBatches(HashMap<Entity, ChunkIndirectBatch>);
 struct ArenaAllocation {
     generation: u64,
     quad_capacity: u32,
+    biome_range: Range<u32>,
+    biome_capacity: u32,
     gpu: GpuChunkAllocation,
 }
 
@@ -1673,7 +1859,9 @@ struct ChunkBindGroupBuffers {
     view: BufferId,
     quads: BufferId,
     origins: BufferId,
+    biomes: BufferId,
     materials: BufferId,
+    biome_tints: BufferId,
     textures: ChunkTextureAssetIdentity,
 }
 
@@ -1682,6 +1870,74 @@ struct ChunkBindGroupBuffers {
 struct MaterialGpu {
     layer: u32,
     flags: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct BiomeTintGpu {
+    grass: u32,
+    foliage: u32,
+    water: u32,
+    flags: u32,
+}
+
+const _: () = assert!(std::mem::size_of::<BiomeTintGpu>() == 16);
+
+fn pack_linear_rgb10(rgb: [f32; 3]) -> u32 {
+    let component = |value: f32| {
+        if value.is_finite() {
+            (value.clamp(0.0, 1.0) * 1023.0).round() as u32
+        } else {
+            0
+        }
+    };
+    component(rgb[0]) | (component(rgb[1]) << 10) | (component(rgb[2]) << 20)
+}
+
+fn prepare_biome_tint_entries(entries: &[BiomeTint]) -> Vec<BiomeTintGpu> {
+    entries
+        .iter()
+        .map(|entry| BiomeTintGpu {
+            grass: pack_linear_rgb10(entry.grass),
+            foliage: pack_linear_rgb10(entry.foliage),
+            water: pack_linear_rgb10(entry.water),
+            flags: 0,
+        })
+        .collect()
+}
+
+struct PreparedChunkBiomeTints {
+    identity: ChunkBiomeTintIdentity,
+    buffer: Buffer,
+}
+
+#[derive(Resource, Default)]
+struct ChunkGpuBiomeTints {
+    prepared: Option<PreparedChunkBiomeTints>,
+    _retained_entries: Option<Arc<[BiomeTint]>>,
+}
+
+fn prepare_chunk_biome_tints(
+    render_device: Res<RenderDevice>,
+    source: Res<ChunkBiomeTints>,
+    mut gpu: ResMut<ChunkGpuBiomeTints>,
+) {
+    let identity = source.identity();
+    if gpu
+        .prepared
+        .as_ref()
+        .is_some_and(|prepared| prepared.identity == identity)
+    {
+        return;
+    }
+    let entries = prepare_biome_tint_entries(source.entries());
+    let buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("packed chunk biome tints"),
+        contents: bytemuck::cast_slice(&entries),
+        usage: BufferUsages::STORAGE,
+    });
+    gpu._retained_entries = Some(Arc::clone(&source.entries));
+    gpu.prepared = Some(PreparedChunkBiomeTints { identity, buffer });
 }
 
 struct PreparedChunkTextureAssets {
@@ -1883,6 +2139,7 @@ struct ChunkGpuUploadStats {
 struct ArenaLimits {
     max_quad_items: usize,
     max_origin_items: usize,
+    max_biome_words: usize,
 }
 
 fn arena_limits_from_device_limits(
@@ -1898,9 +2155,14 @@ fn arena_limits_from_device_limits(
         .min((i32::MAX as u64) / 4)
         .try_into()
         .unwrap_or(usize::MAX);
+    let max_biome_words = (storage_bytes / BIOME_WORD_BYTES)
+        .min(i32::MAX as u64)
+        .try_into()
+        .unwrap_or(usize::MAX);
     ArenaLimits {
         max_quad_items,
         max_origin_items,
+        max_biome_words,
     }
 }
 
@@ -1908,18 +2170,22 @@ fn arena_limits_from_device_limits(
 struct ChunkGpuArena {
     quad_buffer: Buffer,
     origin_buffer: Buffer,
+    biome_buffer: Buffer,
     index_buffer: Buffer,
     indirect_buffer: Buffer,
     bind_group: Option<BindGroup>,
     bind_group_buffers: Option<ChunkBindGroupBuffers>,
     quad_capacity: usize,
     origin_capacity: usize,
+    biome_capacity: usize,
     indirect_capacity: usize,
     quad_len: usize,
     origin_len: usize,
+    biome_len: usize,
     limits: ArenaLimits,
     free_quads: Vec<Range<u32>>,
     free_origins: Vec<u32>,
+    free_biomes: Vec<Range<u32>>,
     allocations: HashMap<Entity, ArenaAllocation>,
 }
 
@@ -1945,6 +2211,11 @@ impl ChunkGpuArena {
                 "packed chunk origins",
                 CHUNK_ORIGIN_BYTES,
             ),
+            biome_buffer: render_device.create_buffer_with_data(&BufferInitDescriptor {
+                label: Some("packed chunk biome records"),
+                contents: bytemuck::cast_slice(&FALLBACK_BIOME_RECORD),
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
+            }),
             index_buffer: render_device.create_buffer_with_data(&BufferInitDescriptor {
                 label: Some("shared chunk quad indices"),
                 contents: bytemuck::cast_slice(&STATIC_QUAD_INDICES),
@@ -1955,12 +2226,15 @@ impl ChunkGpuArena {
             bind_group_buffers: None,
             quad_capacity: 1,
             origin_capacity: 1,
+            biome_capacity: FALLBACK_BIOME_WORDS,
             indirect_capacity: 1,
             quad_len: 0,
             origin_len: 0,
+            biome_len: FALLBACK_BIOME_WORDS,
             limits,
             free_quads: Vec::new(),
             free_origins: Vec::new(),
+            free_biomes: Vec::new(),
             allocations: HashMap::new(),
         }
     }
@@ -2048,6 +2322,7 @@ fn prepare_gpu_chunks(
     }
 
     let mut quad_writes = Vec::new();
+    let mut biome_writes = Vec::new();
     let mut origin_writes = Vec::new();
     let mut applied_tokens = Vec::new();
     let mut chunk_updates = 0;
@@ -2066,6 +2341,18 @@ fn prepare_gpu_chunks(
                 continue;
             }
         };
+        let biome_words = if biome_record_is_fallback(&instance.biome) {
+            Vec::new()
+        } else {
+            instance.biome.words().to_vec()
+        };
+        let biome_required = match u32::try_from(biome_words.len()) {
+            Ok(required) => required,
+            Err(_) => {
+                bevy::log::error!("sub-chunk biome record exceeds the u32 word range");
+                continue;
+            }
+        };
         if old.is_none()
             && arena.free_origins.is_empty()
             && arena.origin_len >= arena.limits.max_origin_items
@@ -2079,8 +2366,8 @@ fn prepare_gpu_chunks(
         {
             continue;
         }
-        let Some((quad_start, quad_capacity)) =
-            allocate_for_chunk_update(&mut arena, required, old.as_ref())
+        let Some((quad_start, quad_capacity, biome_start, biome_capacity)) =
+            allocate_for_chunk_update(&mut arena, required, biome_required, old.as_ref())
         else {
             if let Some(token) = instance.token {
                 acknowledgements.cancel(instance.key, token);
@@ -2099,13 +2386,11 @@ fn prepare_gpu_chunks(
             .iter()
             .map(PackedQuad::words)
             .collect::<Vec<_>>();
-        let origin = [
-            instance.origin[0],
-            instance.origin[1],
-            instance.origin[2],
-            0,
-        ];
+        let origin = gpu_chunk_origin(instance.origin, biome_start);
         quad_writes.push((quad_start, words));
+        if !biome_words.is_empty() {
+            biome_writes.push((biome_start, biome_words));
+        }
         origin_writes.push((metadata_index, origin));
         let gpu = GpuChunkAllocation {
             key: instance.key,
@@ -2119,12 +2404,15 @@ fn prepare_gpu_chunks(
             ArenaAllocation {
                 generation: instance.generation,
                 quad_capacity,
+                biome_range: biome_start..biome_start + biome_required,
+                biome_capacity,
                 gpu,
             },
         );
         if let Some(token) = instance.token {
             let uploaded_bytes = buffer_byte_len(instance.quads.len(), PACKED_QUAD_BYTES)
-                .saturating_add(CHUNK_ORIGIN_BYTES);
+                .saturating_add(CHUNK_ORIGIN_BYTES)
+                .saturating_add(biome_record_byte_len(&instance.biome));
             applied_tokens.push((instance.key, token, uploaded_bytes));
         }
         chunk_updates += 1;
@@ -2134,8 +2422,12 @@ fn prepare_gpu_chunks(
         total.saturating_add(buffer_byte_len(words.len(), PACKED_QUAD_BYTES))
     });
     let origin_incremental_bytes = buffer_byte_len(origin_writes.len(), CHUNK_ORIGIN_BYTES);
+    let biome_incremental_bytes = biome_writes.iter().fold(0_u64, |total, (_, words)| {
+        total.saturating_add(buffer_byte_len(words.len(), BIOME_WORD_BYTES))
+    });
     let quad_gpu_copy_bytes = ensure_quad_capacity(&mut arena, &render_device, &render_queue);
     let origin_gpu_copy_bytes = ensure_origin_capacity(&mut arena, &render_device, &render_queue);
+    let biome_gpu_copy_bytes = ensure_biome_capacity(&mut arena, &render_device, &render_queue);
     for (offset, words) in quad_writes {
         if !words.is_empty() {
             render_queue.write_buffer(
@@ -2152,6 +2444,13 @@ fn prepare_gpu_chunks(
             bytemuck::bytes_of(&origin),
         );
     }
+    for (offset, words) in biome_writes {
+        render_queue.write_buffer(
+            &arena.biome_buffer,
+            u64::from(offset) * BIOME_WORD_BYTES,
+            bytemuck::cast_slice(&words),
+        );
+    }
     let applied_at = Instant::now();
     for (key, token, uploaded_bytes) in applied_tokens {
         acknowledgements.complete_with_bytes(key, token, applied_at, uploaded_bytes);
@@ -2162,8 +2461,10 @@ fn prepare_gpu_chunks(
         chunk_updates,
         quad_incremental_bytes,
         origin_incremental_bytes,
+        biome_incremental_bytes,
         quad_gpu_copy_bytes,
         origin_gpu_copy_bytes,
+        biome_gpu_copy_bytes,
     );
     if upload_stats.chunk_updates > upload_stats.chunk_budget {
         bevy::log::warn!(
@@ -2176,31 +2477,108 @@ fn prepare_gpu_chunks(
 
 fn allocate_for_chunk_update(
     arena: &mut ChunkGpuArena,
-    required: u32,
+    quad_required: u32,
+    biome_required: u32,
     old: Option<&ArenaAllocation>,
-) -> Option<(u32, u32)> {
-    if let Some(old) = old
-        && required <= old.quad_capacity
-    {
-        return Some((old.gpu.quad_range.start, old.quad_capacity));
-    }
-
-    let mut next_len = arena.quad_len;
-    let mut next_free = arena.free_quads.clone();
-    if let Some(old) = old {
-        let freed =
-            old.gpu.quad_range.start..old.gpu.quad_range.start.saturating_add(old.quad_capacity);
-        release_quad_range(&mut next_len, &mut next_free, freed);
-    }
-    let start = allocate_quad_range(
-        &mut next_len,
-        &mut next_free,
-        required,
-        arena.limits.max_quad_items,
+) -> Option<(u32, u32, u32, u32)> {
+    let plan = plan_chunk_range_update(
+        arena.quad_len,
+        &arena.free_quads,
+        arena.biome_len,
+        &arena.free_biomes,
+        quad_required,
+        biome_required,
+        old,
+        arena.limits,
     )?;
-    arena.quad_len = next_len;
-    arena.free_quads = next_free;
-    Some((start, required))
+    arena.quad_len = plan.quad_len;
+    arena.free_quads = plan.free_quads;
+    arena.biome_len = plan.biome_len;
+    arena.free_biomes = plan.free_biomes;
+    Some((
+        plan.quad_start,
+        plan.quad_capacity,
+        plan.biome_start,
+        plan.biome_capacity,
+    ))
+}
+
+struct ChunkRangePlan {
+    quad_start: u32,
+    quad_capacity: u32,
+    biome_start: u32,
+    biome_capacity: u32,
+    quad_len: usize,
+    free_quads: Vec<Range<u32>>,
+    biome_len: usize,
+    free_biomes: Vec<Range<u32>>,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn plan_chunk_range_update(
+    mut quad_len: usize,
+    current_free_quads: &[Range<u32>],
+    mut biome_len: usize,
+    current_free_biomes: &[Range<u32>],
+    quad_required: u32,
+    biome_required: u32,
+    old: Option<&ArenaAllocation>,
+    limits: ArenaLimits,
+) -> Option<ChunkRangePlan> {
+    let mut free_quads = current_free_quads.to_vec();
+    let (quad_start, quad_capacity) = allocate_range_for_update(
+        &mut quad_len,
+        &mut free_quads,
+        quad_required,
+        old.map(|old| (old.gpu.quad_range.start, old.quad_capacity)),
+        limits.max_quad_items,
+        0,
+    )?;
+
+    let mut free_biomes = current_free_biomes.to_vec();
+    let (biome_start, biome_capacity) = allocate_range_for_update(
+        &mut biome_len,
+        &mut free_biomes,
+        biome_required,
+        old.map(|old| (old.biome_range.start, old.biome_capacity)),
+        limits.max_biome_words,
+        0,
+    )?;
+    Some(ChunkRangePlan {
+        quad_start,
+        quad_capacity,
+        biome_start,
+        biome_capacity,
+        quad_len,
+        free_quads,
+        biome_len,
+        free_biomes,
+    })
+}
+
+fn allocate_range_for_update(
+    len: &mut usize,
+    free: &mut Vec<Range<u32>>,
+    required: u32,
+    old: Option<(u32, u32)>,
+    max_items: usize,
+    empty_start: u32,
+) -> Option<(u32, u32)> {
+    if let Some((start, capacity)) = old
+        && required != 0
+        && required <= capacity
+    {
+        return Some((start, capacity));
+    }
+    if let Some((start, capacity)) = old
+        && capacity != 0
+    {
+        release_quad_range(len, free, start..start.saturating_add(capacity));
+    }
+    if required == 0 {
+        return Some((empty_start, 0));
+    }
+    allocate_quad_range(len, free, required, max_items).map(|start| (start, required))
 }
 
 fn allocate_quad_range(
@@ -2288,6 +2666,11 @@ fn free_allocation(arena: &mut ChunkGpuArena, entity: Entity) {
         let freed = allocation.gpu.quad_range.start
             ..allocation.gpu.quad_range.start + allocation.quad_capacity;
         release_quad_range(&mut arena.quad_len, &mut arena.free_quads, freed);
+        if allocation.biome_capacity != 0 {
+            let freed = allocation.biome_range.start
+                ..allocation.biome_range.start + allocation.biome_capacity;
+            release_quad_range(&mut arena.biome_len, &mut arena.free_biomes, freed);
+        }
         release_origin(arena, allocation.gpu.metadata_index);
     }
 }
@@ -2303,11 +2686,17 @@ fn account_chunk_gpu_uploads(
     chunk_updates: usize,
     quad_incremental_bytes: u64,
     origin_incremental_bytes: u64,
+    biome_incremental_bytes: u64,
     quad_gpu_copy_bytes: u64,
     origin_gpu_copy_bytes: u64,
+    biome_gpu_copy_bytes: u64,
 ) -> ChunkGpuUploadStats {
-    let incremental_bytes = quad_incremental_bytes.saturating_add(origin_incremental_bytes);
-    let gpu_copy_bytes = quad_gpu_copy_bytes.saturating_add(origin_gpu_copy_bytes);
+    let incremental_bytes = quad_incremental_bytes
+        .saturating_add(origin_incremental_bytes)
+        .saturating_add(biome_incremental_bytes);
+    let gpu_copy_bytes = quad_gpu_copy_bytes
+        .saturating_add(origin_gpu_copy_bytes)
+        .saturating_add(biome_gpu_copy_bytes);
     ChunkGpuUploadStats {
         chunk_updates,
         chunk_budget: budget.max_per_frame,
@@ -2409,6 +2798,36 @@ fn ensure_origin_capacity(
     growth.gpu_copy_bytes
 }
 
+fn ensure_biome_capacity(
+    arena: &mut ChunkGpuArena,
+    render_device: &RenderDevice,
+    render_queue: &RenderQueue,
+) -> u64 {
+    let Ok(Some(growth)) = plan_arena_growth(
+        arena.biome_capacity,
+        arena.biome_len,
+        BIOME_WORD_BYTES,
+        arena.limits.max_biome_words,
+    ) else {
+        return 0;
+    };
+    let next = create_storage_buffer(
+        render_device,
+        "packed chunk biome records",
+        growth.new_capacity as u64 * BIOME_WORD_BYTES,
+    );
+    copy_gpu_buffer(
+        render_device,
+        render_queue,
+        &arena.biome_buffer,
+        &next,
+        growth.gpu_copy_bytes,
+    );
+    arena.biome_capacity = growth.new_capacity;
+    arena.biome_buffer = next;
+    growth.gpu_copy_bytes
+}
+
 fn copy_gpu_buffer(
     render_device: &RenderDevice,
     render_queue: &RenderQueue,
@@ -2440,6 +2859,7 @@ fn prepare_chunk_bind_group(
     view_uniforms: Res<ViewUniforms>,
     render_device: Res<RenderDevice>,
     texture_assets: Res<ChunkGpuTextureAssets>,
+    biome_tints: Res<ChunkGpuBiomeTints>,
     mut arena: ResMut<ChunkGpuArena>,
 ) {
     let Some(texture_assets) = texture_assets.prepared.as_ref() else {
@@ -2452,11 +2872,18 @@ fn prepare_chunk_bind_group(
         arena.bind_group_buffers = None;
         return;
     };
+    let Some(biome_tints) = biome_tints.prepared.as_ref() else {
+        arena.bind_group = None;
+        arena.bind_group_buffers = None;
+        return;
+    };
     let buffers = ChunkBindGroupBuffers {
         view: view_buffer.id(),
         quads: arena.quad_buffer.id(),
         origins: arena.origin_buffer.id(),
+        biomes: arena.biome_buffer.id(),
         materials: texture_assets.material_buffer.id(),
+        biome_tints: biome_tints.buffer.id(),
         textures: texture_assets.identity,
     };
     if !bind_group_needs_rebuild(
@@ -2498,6 +2925,14 @@ fn prepare_chunk_bind_group(
             BindGroupEntry {
                 binding: 5,
                 resource: BindingResource::Sampler(&texture_assets.sampler),
+            },
+            BindGroupEntry {
+                binding: 6,
+                resource: arena.biome_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 7,
+                resource: biome_tints.buffer.as_entire_binding(),
             },
         ],
     );
@@ -2773,11 +3208,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedChunk {
         if !frame_probe.accepts(item.entity(), identity) {
             return RenderCommandResult::Skip;
         }
-        let Some(base_vertex) = allocation
-            .metadata_index
-            .checked_mul(4)
-            .and_then(|value| i32::try_from(value).ok())
-        else {
+        let Some(base_vertex) = metadata_base_vertex(allocation.metadata_index) else {
             return RenderCommandResult::Skip;
         };
         pass.set_bind_group(0, bind_group, &[view_offset.offset]);
@@ -3596,6 +4027,14 @@ mod tests {
             bytemuck::cast_slice::<DrawIndexedIndirectArgs, u32>(&commands),
             &[6, 6, 0, 16, 17, 6, 5, 0, 4, 4],
         );
+        assert_eq!(metadata_base_vertex(4), Some(commands[0].base_vertex));
+        assert_eq!(metadata_base_vertex(1), Some(commands[1].base_vertex));
+    }
+
+    #[test]
+    fn origin_metadata_preserves_the_palette_record_pointer() {
+        assert_eq!(gpu_chunk_origin([16, -64, 32], 27), [16, -64, 32, 27]);
+        assert_eq!(gpu_chunk_origin([0, 0, 0], 0), [0, 0, 0, 0]);
     }
 
     #[test]
@@ -3721,6 +4160,21 @@ mod tests {
     }
 
     #[test]
+    fn biome_tint_table_is_revisioned_and_keeps_a_fallback_entry() {
+        let fallback = ChunkBiomeTints::default();
+        assert_eq!(fallback.entries().len(), 1);
+        assert_eq!(fallback.revision(), 0);
+        assert_eq!(prepare_biome_tint_entries(fallback.entries()).len(), 1);
+
+        let empty = ChunkBiomeTints::with_revision(Arc::from([]), 7);
+        assert_eq!(empty.entries().len(), 1);
+        assert_eq!(empty.revision(), 7);
+
+        assert_eq!(pack_linear_rgb10([0.0, 0.0, 0.0]), 0);
+        assert_eq!(pack_linear_rgb10([1.0, 1.0, 1.0]), 0x3fff_ffff);
+    }
+
+    #[test]
     fn gpu_growth_plan_copies_the_old_allocation_without_a_host_shadow_upload() {
         let growth = plan_arena_growth(8, 9, PACKED_QUAD_BYTES, 16)
             .unwrap()
@@ -3733,7 +4187,9 @@ mod tests {
             2,
             40,
             32,
+            0,
             growth.gpu_copy_bytes,
+            0,
             0,
         );
 
@@ -4109,6 +4565,7 @@ mod tests {
         let limits = arena_limits_from_device_limits(64, 32);
         assert_eq!(limits.max_quad_items, 4);
         assert_eq!(limits.max_origin_items, 2);
+        assert_eq!(limits.max_biome_words, 8);
 
         assert_eq!(
             plan_arena_growth(1, 4, PACKED_QUAD_BYTES, 4).unwrap(),
@@ -4144,6 +4601,54 @@ mod tests {
         assert!(free.is_empty());
         assert_eq!(allocate_quad_range(&mut len, &mut free, 16, 16), Some(0));
         assert_eq!(allocate_quad_range(&mut len, &mut free, 1, 16), None);
+    }
+
+    #[test]
+    fn biome_range_planning_reserves_zero_and_rolls_back_as_one_transaction() {
+        let limits = ArenaLimits {
+            max_quad_items: 8,
+            max_origin_items: 8,
+            max_biome_words: 8,
+        };
+        let fallback =
+            plan_chunk_range_update(0, &[], FALLBACK_BIOME_WORDS, &[], 1, 0, None, limits).unwrap();
+        assert_eq!(fallback.biome_start, 0);
+        assert_eq!(fallback.biome_capacity, 0);
+        assert_eq!(fallback.biome_len, FALLBACK_BIOME_WORDS);
+
+        let real =
+            plan_chunk_range_update(0, &[], FALLBACK_BIOME_WORDS, &[], 1, 2, None, limits).unwrap();
+        assert_eq!(real.biome_start, FALLBACK_BIOME_WORDS as u32);
+        assert_eq!(real.biome_len, FALLBACK_BIOME_WORDS + 2);
+
+        assert!(
+            plan_chunk_range_update(
+                4,
+                &[],
+                FALLBACK_BIOME_WORDS,
+                &[],
+                1,
+                1,
+                None,
+                ArenaLimits {
+                    max_quad_items: 8,
+                    max_origin_items: 8,
+                    max_biome_words: FALLBACK_BIOME_WORDS,
+                },
+            )
+            .is_none(),
+            "a successful temporary quad allocation must not escape when biome allocation fails"
+        );
+
+        let mut len = real.biome_len;
+        let mut free = real.free_biomes;
+        release_quad_range(
+            &mut len,
+            &mut free,
+            real.biome_start..real.biome_start + real.biome_capacity,
+        );
+        assert_eq!(len, FALLBACK_BIOME_WORDS);
+        assert!(free.is_empty());
     }
 
     #[derive(Component)]
