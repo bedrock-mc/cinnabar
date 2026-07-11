@@ -2,13 +2,34 @@ package main
 
 import (
 	"bytes"
+	"math"
 	"math/rand"
 	"strings"
 	"testing"
 
 	_ "github.com/df-mc/dragonfly/server/block"
+	"github.com/df-mc/dragonfly/server/block/model"
 	"github.com/df-mc/dragonfly/server/world"
 )
+
+type classifierBlock struct {
+	name       string
+	properties map[string]any
+	stateHash  uint64
+	model      world.BlockModel
+}
+
+func (b classifierBlock) EncodeBlock() (string, map[string]any) {
+	return b.name, b.properties
+}
+
+func (b classifierBlock) Hash() (uint64, uint64) {
+	return 1, b.stateHash
+}
+
+func (b classifierBlock) Model() world.BlockModel {
+	return b.model
+}
 
 func TestEncodeSortsRecordsAndMatchesExactBytes(t *testing.T) {
 	records := []Record{
@@ -95,6 +116,85 @@ func TestCanonicalJSONSortsPropertyKeys(t *testing.T) {
 	}
 }
 
+func TestApprovedUnknownFullCubeStateAcceptsOnlyExactPinnedSchemas(t *testing.T) {
+	accepted := []struct {
+		name       string
+		properties map[string]any
+	}{
+		{name: "minecraft:mycelium", properties: nil},
+		{name: "minecraft:mycelium", properties: map[string]any{}},
+		{name: "minecraft:red_mushroom_block", properties: map[string]any{"huge_mushroom_bits": int32(0)}},
+		{name: "minecraft:red_mushroom_block", properties: map[string]any{"huge_mushroom_bits": int32(15)}},
+		{name: "minecraft:brown_mushroom_block", properties: map[string]any{"huge_mushroom_bits": int32(7)}},
+		{name: "minecraft:mushroom_stem", properties: map[string]any{"huge_mushroom_bits": int32(12)}},
+	}
+	for _, test := range accepted {
+		if !approvedUnknownFullCubeState(test.name, test.properties) {
+			t.Errorf("approvedUnknownFullCubeState(%q, %#v) = false, want true", test.name, test.properties)
+		}
+	}
+
+	rejected := []struct {
+		name       string
+		properties map[string]any
+	}{
+		{name: "minecraft:stone", properties: map[string]any{}},
+		{name: "minecraft:red_mushroom", properties: map[string]any{"huge_mushroom_bits": int32(0)}},
+		{name: "minecraft:mycelium", properties: map[string]any{"unexpected": int32(0)}},
+		{name: "minecraft:red_mushroom_block", properties: nil},
+		{name: "minecraft:red_mushroom_block", properties: map[string]any{}},
+		{name: "minecraft:red_mushroom_block", properties: map[string]any{"huge_mushroom_bits": int32(0), "unexpected": int32(0)}},
+		{name: "minecraft:red_mushroom_block", properties: map[string]any{"huge_mushroom_bits": int32(-1)}},
+		{name: "minecraft:red_mushroom_block", properties: map[string]any{"huge_mushroom_bits": int32(16)}},
+		{name: "minecraft:red_mushroom_block", properties: map[string]any{"huge_mushroom_bits": uint8(0)}},
+		{name: "minecraft:red_mushroom_block", properties: map[string]any{"huge_mushroom_bits": int(0)}},
+		{name: "minecraft:red_mushroom_block", properties: map[string]any{"huge_mushroom_bits": float64(0)}},
+		{name: "minecraft:red_mushroom_block", properties: map[string]any{"huge_mushroom_bits": "0"}},
+		{name: "minecraft:red_mushroom_block", properties: map[string]any{"huge_mushroom_bits": false}},
+	}
+	for _, test := range rejected {
+		if approvedUnknownFullCubeState(test.name, test.properties) {
+			t.Errorf("approvedUnknownFullCubeState(%q, %#v) = true, want false", test.name, test.properties)
+		}
+	}
+}
+
+func TestFullCubeClassificationPreservesSolidAndFailsClosedOverrides(t *testing.T) {
+	tests := []struct {
+		name  string
+		block classifierBlock
+		want  bool
+	}{
+		{
+			name:  "implemented solid",
+			block: classifierBlock{name: "minecraft:stone", stateHash: 1, model: model.Solid{}},
+			want:  true,
+		},
+		{
+			name:  "approved unknown",
+			block: classifierBlock{name: "minecraft:mycelium", stateHash: math.MaxUint64, model: model.Empty{}},
+			want:  true,
+		},
+		{
+			name:  "implemented non-solid target",
+			block: classifierBlock{name: "minecraft:mycelium", stateHash: 1, model: model.Empty{}},
+			want:  false,
+		},
+		{
+			name:  "unapproved unknown",
+			block: classifierBlock{name: "minecraft:acacia_sapling", stateHash: math.MaxUint64, model: model.Empty{}},
+			want:  false,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := fullCube(test.block); got != test.want {
+				t.Fatalf("fullCube() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
 func TestEncodeIsStableAcrossShuffledInputs(t *testing.T) {
 	records := make([]Record, 16)
 	for i := range records {
@@ -175,8 +275,8 @@ func TestCollectDefaultBlockRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("collect registry: %v", err)
 	}
-	if len(records) < 1000 {
-		t.Fatalf("registry too small: %d", len(records))
+	if len(records) != 16_913 {
+		t.Fatalf("registry record count = %d, want 16913", len(records))
 	}
 	air := findByName(t, records, "minecraft:air")
 	if air.Flags&flagAir == 0 {
@@ -188,6 +288,43 @@ func TestCollectDefaultBlockRegistry(t *testing.T) {
 	stone := findByName(t, records, "minecraft:stone")
 	if stone.Flags&flagFullCube == 0 {
 		t.Fatal("stone full-cube flag missing")
+	}
+
+	for name, wantCount := range map[string]int{
+		"minecraft:mycelium":             1,
+		"minecraft:red_mushroom_block":   16,
+		"minecraft:brown_mushroom_block": 16,
+		"minecraft:mushroom_stem":        16,
+	} {
+		matches := findAllByName(records, name)
+		if len(matches) != wantCount {
+			t.Errorf("%s state count = %d, want %d", name, len(matches), wantCount)
+			continue
+		}
+		for _, record := range matches {
+			if record.Flags&flagFullCube == 0 {
+				t.Errorf("%s state %s is missing the full-cube flag", name, record.StateJSON)
+			}
+		}
+	}
+
+	for _, name := range []string{
+		"minecraft:acacia_sapling",
+		"minecraft:cactus_flower",
+		"minecraft:flower_pot",
+		"minecraft:iron_door",
+		"minecraft:iron_trapdoor",
+	} {
+		matches := findAllByName(records, name)
+		if len(matches) == 0 {
+			t.Errorf("negative-control block %s is absent", name)
+			continue
+		}
+		for _, record := range matches {
+			if record.Flags&flagFullCube != 0 {
+				t.Errorf("negative-control block %s state %s was marked full cube", name, record.StateJSON)
+			}
+		}
 	}
 }
 
@@ -209,4 +346,14 @@ func findByName(t *testing.T, records []Record, name string) Record {
 	}
 	t.Fatalf("record %q not found", name)
 	return Record{}
+}
+
+func findAllByName(records []Record, name string) []Record {
+	var matches []Record
+	for _, record := range records {
+		if record.Name == name {
+			matches = append(matches, record)
+		}
+	}
+	return matches
 }
