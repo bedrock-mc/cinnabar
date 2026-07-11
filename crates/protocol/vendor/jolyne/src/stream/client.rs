@@ -1273,7 +1273,7 @@ impl<T: Transport> BedrockStream<StartGame, Client, T> {
                     }
                 }
                 McpePacketName::PacketChunkRadiusUpdate => {
-                    let packet = raw.decode(&self.transport.session)?;
+                    let packet = raw.clone().decode(&self.transport.session)?;
                     let McpePacketData::PacketChunkRadiusUpdate(update) = packet.data else {
                         unreachable!("packet ID and decoded variant must agree")
                     };
@@ -1284,6 +1284,7 @@ impl<T: Transport> BedrockStream<StartGame, Client, T> {
                         ))
                         .into());
                     }
+                    deferred_packets.push(raw)?;
                     received_chunk_radius = true;
                 }
                 McpePacketName::PacketDisconnect => {
