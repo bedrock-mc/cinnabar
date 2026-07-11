@@ -26,6 +26,23 @@ function Assert-Throws {
     Assert-True $threw $Message
 }
 
+function Assert-ThrowsLike {
+    param(
+        [scriptblock]$Action,
+        [string]$Pattern,
+        [string]$Message
+    )
+    $observed = $null
+    try {
+        & $Action
+    }
+    catch {
+        $observed = $_.Exception.Message
+    }
+    Assert-True ($null -ne $observed) $Message
+    Assert-True ($observed -like $Pattern) "$Message`nexpected error like: $Pattern`nactual error:        $observed"
+}
+
 function ConvertTo-TestCommandArgument {
     param([Parameter(Mandatory = $true)][string]$Value)
 
@@ -217,6 +234,17 @@ try {
     Assert-True ($source.Contains('-WorkingDirectory $ProjectRoot')) 'builds are not rooted at the project directory'
     Assert-True ($source.Contains("'9948b1729395d2e819fce28e079d4a7bfc67716c'")) 'gophertunnel metadata commit is not the repository pin'
     Assert-True ($source.Contains("'6f6806e821a579c183c44d786f76d9b358a2b825'")) 'Valentine metadata commit is not the repository pin'
+    Assert-True (-not $source.Contains("'^RUST_MCBE_TELEPORT_SETTLED ms=")) 'live teleport path still assumes ms precedes target'
+    Assert-True (-not $source.Contains("'^RUST_MCBE_FORCED_FULL_VIEW_REMESH_SETTLED ms=")) 'live forced-remesh path still assumes ms precedes target'
+    Assert-True ($source.Contains('-TeleportMarker $teleportMarkerEvidence')) 'live metrics validation does not receive parsed teleport evidence'
+    Assert-True ($source.Contains('-ForcedRemeshMarker $forcedRemeshMarkerEvidence')) 'live metrics validation does not receive parsed forced-remesh evidence'
+    Assert-True ($source.Contains('-ExpectedTargetCohort $expectedTargetCohort')) 'live metrics validation does not receive the planned target cohort'
+    Assert-True ($source.Contains('-SteadyResourceArtifactPath $steadyResourceArtifactPath')) 'live metrics validation does not require the steady-resource artifact'
+    Assert-True (([regex]::Matches($source, '-TeleportMarker \$teleportMarkerEvidence')).Count -ge 2) 'steady-resource sampler does not receive teleport trigger evidence'
+    Assert-True (([regex]::Matches($source, '-ForcedRemeshMarker \$forcedRemeshMarkerEvidence')).Count -ge 2) 'steady-resource sampler does not receive forced-remesh trigger evidence'
+    $resourceSamplingIndex = $source.IndexOf('$resourceDocument = Measure-SteadyResources', [StringComparison]::Ordinal)
+    $metricsValidationIndex = $source.IndexOf('$metrics = Assert-AcceptanceMetrics', [StringComparison]::Ordinal)
+    Assert-True ($resourceSamplingIndex -ge 0 -and $metricsValidationIndex -gt $resourceSamplingIndex) 'full-view metrics SLA validation can run before steady-resource sampling/artifact publication'
 
     $env:RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY = '1'
     try {
@@ -231,6 +259,19 @@ try {
     finally {
         Remove-Item Env:RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY -ErrorAction SilentlyContinue
     }
+
+    $teleportMarkerLine = 'RUST_MCBE_TELEPORT_SETTLED target=0:65:65:16 committed=0:65:65:16 ms=1500.0000 view_generation=7 render_ready_ms=1200.0000 publisher_ms=100.0000 first_level_ms=200.0000 last_level_ms=600.0000 level_events=1089 first_sub_ms=250.0000 last_sub_ms=900.0000 sub_events=1089 first_frame_sequence=41 stable_frame_sequence=42 first_present_ms=1300.0000 first_gpu_ms=1350.0000 stable_present_ms=1400.0000 stable_gpu_ms=1500.0000 expected_manifest_count=4 expected_manifest_hash=1111222233334444 first_presented_manifest_count=4 first_presented_manifest_hash=1111222233334444 stable_presented_manifest_count=4 stable_presented_manifest_hash=1111222233334444 expected=1089 loaded_target=1089 missing_target=0 foreign_loaded=0 foreign_requested=0 foreign_resident=0 source_leftover=0 resident_count=3 resident_hash=aaaabbbbccccdddd known_air_count=1 known_air_hash=eeeeffff00001111 missing_target_instances=0 unexpected_target_instances=0 source_instances=0 foreign_instances=0 stale_generation_instances=0 orphan_allocations=0 frame_count=90'
+    $forcedMarkerLine = 'RUST_MCBE_FORCED_FULL_VIEW_REMESH_SETTLED target=0:65:65:16 committed=0:65:65:16 ms=1500.0000 view_generation=8 render_ready_ms=0.0000 first_frame_sequence=43 stable_frame_sequence=44 first_present_ms=1200.0000 first_gpu_ms=1300.0000 stable_present_ms=1400.0000 stable_gpu_ms=1500.0000 expected_manifest_count=4 expected_manifest_hash=5555666677778888 first_presented_manifest_count=4 first_presented_manifest_hash=5555666677778888 stable_presented_manifest_count=4 stable_presented_manifest_hash=5555666677778888 expected=1089 loaded_target=1089 missing_target=0 foreign_loaded=0 foreign_requested=0 foreign_resident=0 source_leftover=0 resident_count=3 resident_hash=aaaabbbbccccdddd known_air_count=1 known_air_hash=eeeeffff00001111 missing_target_instances=0 unexpected_target_instances=0 source_instances=0 foreign_instances=0 stale_generation_instances=0 orphan_allocations=0 frame_count=90'
+    $teleportMarker = ConvertFrom-FullViewSettleMarker `
+        -Line $teleportMarkerLine `
+        -Kind Teleport
+    $forcedMarker = ConvertFrom-FullViewSettleMarker `
+        -Line $forcedMarkerLine `
+        -Kind ForcedRemesh
+    Assert-Equal '0:65:65:16' $teleportMarker.target 'target-prefixed teleport marker lost its cohort'
+    Assert-Equal 1500.0 $teleportMarker.ms 'target-prefixed teleport marker did not parse milliseconds'
+    Assert-Equal '0:65:65:16' $forcedMarker.target 'target-prefixed forced-remesh marker lost its cohort'
+    Assert-Equal 1500.0 $forcedMarker.ms 'target-prefixed forced-remesh marker did not parse milliseconds'
 
     $mutationCoordinate = @(101, 64, -37)
     $frontPlan = New-VisualFixturePlan -MutationCoordinate $mutationCoordinate -Pose Front
@@ -542,23 +583,323 @@ try {
         peak_completed_decode_results = 1; peak_pending_retry_requests = 1
         peak_outbound_requests = 1; peak_pending_mesh_jobs = 1
         peak_in_flight_mesh_jobs = 1; gpu_upload_bytes = 1
+        teleport_proof = [ordered]@{
+            target = '0:65:65:16'; committed = '0:65:65:16'; ms = 1500.0
+            view_generation = 7; render_ready_ms = 1200.0; publisher_ms = 100.0
+            first_level_ms = 200.0; last_level_ms = 600.0; level_events = 1089
+            first_sub_ms = 250.0; last_sub_ms = 900.0; sub_events = 1089
+            first_frame_sequence = 41; stable_frame_sequence = 42
+            first_present_ms = 1300.0; first_gpu_ms = 1350.0
+            stable_present_ms = 1400.0; stable_gpu_ms = 1500.0; frame_count = 90
+            expected_manifest_count = 4; expected_manifest_hash = '1111222233334444'
+            first_presented_manifest_count = 4; first_presented_manifest_hash = '1111222233334444'
+            stable_presented_manifest_count = 4; stable_presented_manifest_hash = '1111222233334444'
+            expected = 1089; loaded_target = 1089; missing_target = 0
+            foreign_loaded = 0; foreign_requested = 0; foreign_resident = 0; source_leftover = 0
+            resident_count = 3; resident_hash = 'aaaabbbbccccdddd'
+            known_air_count = 1; known_air_hash = 'eeeeffff00001111'
+            missing_target_instances = 0; unexpected_target_instances = 0; source_instances = 0
+            foreign_instances = 0; stale_generation_instances = 0; orphan_allocations = 0
+        }
+        forced_full_view_remesh_proof = [ordered]@{
+            target = '0:65:65:16'; committed = '0:65:65:16'; ms = 1500.0
+            view_generation = 8; render_ready_ms = 0.0
+            first_frame_sequence = 43; stable_frame_sequence = 44
+            first_present_ms = 1200.0; first_gpu_ms = 1300.0
+            stable_present_ms = 1400.0; stable_gpu_ms = 1500.0; frame_count = 90
+            expected_manifest_count = 4; expected_manifest_hash = '5555666677778888'
+            first_presented_manifest_count = 4; first_presented_manifest_hash = '5555666677778888'
+            stable_presented_manifest_count = 4; stable_presented_manifest_hash = '5555666677778888'
+            expected = 1089; loaded_target = 1089; missing_target = 0
+            foreign_loaded = 0; foreign_requested = 0; foreign_resident = 0; source_leftover = 0
+            resident_count = 3; resident_hash = 'aaaabbbbccccdddd'
+            known_air_count = 1; known_air_hash = 'eeeeffff00001111'
+            missing_target_instances = 0; unexpected_target_instances = 0; source_instances = 0
+            foreign_instances = 0; stale_generation_instances = 0; orphan_allocations = 0
+        }
     }
     $metricsPath = Join-Path $TempRoot 'validation-metrics.json'
-    $metrics | ConvertTo-Json | Set-Content -LiteralPath $metricsPath
+    $steadyResourceArtifactPath = Join-Path $TempRoot 'steady-resources.json'
+    $steadyArtifactSamples = @(1..30 | ForEach-Object {
+        [pscustomobject]@{
+            elapsed_seconds = [double]$_
+            combined_rss_bytes = 350MB
+            cpu_percent = 10.0
+        }
+    })
+    $steadyArtifactTrigger = New-FullViewResourceTrigger `
+        -TeleportMarker $teleportMarker `
+        -ForcedRemeshMarker $forcedMarker
+    $steadyArtifact = New-SteadyResourceDocument `
+        -Samples $steadyArtifactSamples `
+        -DurationSeconds 30 `
+        -Trigger $steadyArtifactTrigger
+    [IO.File]::WriteAllText(
+        $steadyResourceArtifactPath,
+        ($steadyArtifact | ConvertTo-Json -Depth 10),
+        [Text.UTF8Encoding]::new($false)
+    )
+    $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
     $null = Assert-AcceptanceMetrics -Path $metricsPath
 
     $metrics.teleport_settle_ms = 1500.0
     $metrics.forced_full_view_remesh_ms = 1500.0
-    $metrics | ConvertTo-Json | Set-Content -LiteralPath $metricsPath
-    $null = Assert-AcceptanceMetrics -Path $metricsPath -RequireFullViewTeleport
+    $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    $fullViewArguments = @{
+        Path = $metricsPath
+        RequireFullViewTeleport = $true
+        TeleportMarker = $teleportMarker
+        ForcedRemeshMarker = $forcedMarker
+        ExpectedTargetCohort = '0:65:65:16'
+        SteadyResourceArtifactPath = $steadyResourceArtifactPath
+    }
+    $null = Assert-AcceptanceMetrics @fullViewArguments
+
+    $staleResourceArtifact = $steadyArtifact | ConvertTo-Json -Depth 10 | ConvertFrom-Json
+    $staleResourceArtifact.trigger.target = '0:66:65:16'
+    [IO.File]::WriteAllText(
+        $steadyResourceArtifactPath,
+        ($staleResourceArtifact | ConvertTo-Json -Depth 10),
+        [Text.UTF8Encoding]::new($false)
+    )
+    Assert-ThrowsLike { Assert-AcceptanceMetrics @fullViewArguments } 'steady resource artifact trigger mismatch for target*' 'stale steady-resource trigger provenance passed validation'
+    [IO.File]::WriteAllText(
+        $steadyResourceArtifactPath,
+        ($steadyArtifact | ConvertTo-Json -Depth 10),
+        [Text.UTF8Encoding]::new($false)
+    )
+    $tamperedResourceArtifact = $steadyArtifact | ConvertTo-Json -Depth 10 | ConvertFrom-Json
+    $tamperedResourceArtifact.summary.max_combined_rss_bytes = 1
+    $tamperedResourceArtifact.summary.mean_cpu_percent = 0.0
+    $tamperedResourceArtifact.summary.p95_cpu_percent = 0.0
+    [IO.File]::WriteAllText(
+        $steadyResourceArtifactPath,
+        ($tamperedResourceArtifact | ConvertTo-Json -Depth 10),
+        [Text.UTF8Encoding]::new($false)
+    )
+    Assert-ThrowsLike { Assert-AcceptanceMetrics @fullViewArguments } 'steady resource artifact summary did not match samples*' 'tampered steady-resource summary passed validation'
+    [IO.File]::WriteAllText(
+        $steadyResourceArtifactPath,
+        ($steadyArtifact | ConvertTo-Json -Depth 10),
+        [Text.UTF8Encoding]::new($false)
+    )
+
+    $singleFrameTeleportMarker = ConvertFrom-FullViewSettleMarker `
+        -Line $teleportMarkerLine.Replace('frame_count=90', 'frame_count=1') `
+        -Kind Teleport
+    $singleFrameArguments = $fullViewArguments.Clone()
+    $singleFrameArguments.TeleportMarker = $singleFrameTeleportMarker
+    $metrics.teleport_proof.frame_count = 1
+    $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    Assert-ThrowsLike { Assert-AcceptanceMetrics @singleFrameArguments } 'teleport_proof.frame_count must cover at least two presented frames*' 'a one-frame presented interval passed validation'
+    $metrics.teleport_proof.frame_count = 90
+
+    $changedCohortRemeshMarker = ConvertFrom-FullViewSettleMarker `
+        -Line $forcedMarkerLine.Replace('resident_hash=aaaabbbbccccdddd', 'resident_hash=0000000000000001') `
+        -Kind ForcedRemesh
+    $changedCohortArguments = $fullViewArguments.Clone()
+    $changedCohortArguments.ForcedRemeshMarker = $changedCohortRemeshMarker
+    $metrics.forced_full_view_remesh_proof.resident_hash = '0000000000000001'
+    $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    Assert-ThrowsLike { Assert-AcceptanceMetrics @changedCohortArguments } 'full-view proof cohort changed between teleport and forced remesh at resident_hash*' 'forced remesh silently accepted a changed resident cohort'
+    $metrics.forced_full_view_remesh_proof.resident_hash = 'aaaabbbbccccdddd'
+
+    $changedManifestCountMarker = ConvertFrom-FullViewSettleMarker `
+        -Line $forcedMarkerLine.Replace('manifest_count=4', 'manifest_count=5') `
+        -Kind ForcedRemesh
+    $changedManifestCountArguments = $fullViewArguments.Clone()
+    $changedManifestCountArguments.ForcedRemeshMarker = $changedManifestCountMarker
+    $metrics.forced_full_view_remesh_proof.expected_manifest_count = 5
+    $metrics.forced_full_view_remesh_proof.first_presented_manifest_count = 5
+    $metrics.forced_full_view_remesh_proof.stable_presented_manifest_count = 5
+    $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    Assert-ThrowsLike { Assert-AcceptanceMetrics @changedManifestCountArguments } 'forced remesh expected manifest count changed from teleport*' 'forced remesh silently changed its mesh-bearing key count'
+    $metrics.forced_full_view_remesh_proof.expected_manifest_count = 4
+    $metrics.forced_full_view_remesh_proof.first_presented_manifest_count = 4
+    $metrics.forced_full_view_remesh_proof.stable_presented_manifest_count = 4
+
+    $earlyRemeshMarker = ConvertFrom-FullViewSettleMarker `
+        -Line $forcedMarkerLine.Replace('first_frame_sequence=43 stable_frame_sequence=44', 'first_frame_sequence=42 stable_frame_sequence=43') `
+        -Kind ForcedRemesh
+    $earlyRemeshArguments = $fullViewArguments.Clone()
+    $earlyRemeshArguments.ForcedRemeshMarker = $earlyRemeshMarker
+    $metrics.forced_full_view_remesh_proof.first_frame_sequence = 42
+    $metrics.forced_full_view_remesh_proof.stable_frame_sequence = 43
+    $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    Assert-ThrowsLike { Assert-AcceptanceMetrics @earlyRemeshArguments } 'forced remesh frames were not later than teleport frames*' 'forced remesh reused the teleport stable frame'
+    $metrics.forced_full_view_remesh_proof.first_frame_sequence = 43
+    $metrics.forced_full_view_remesh_proof.stable_frame_sequence = 44
+
+    $staleGenerationRemeshMarker = ConvertFrom-FullViewSettleMarker `
+        -Line $forcedMarkerLine.Replace('view_generation=8', 'view_generation=7') `
+        -Kind ForcedRemesh
+    $staleGenerationArguments = $fullViewArguments.Clone()
+    $staleGenerationArguments.ForcedRemeshMarker = $staleGenerationRemeshMarker
+    $metrics.forced_full_view_remesh_proof.view_generation = 7
+    $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    Assert-ThrowsLike { Assert-AcceptanceMetrics @staleGenerationArguments } 'forced remesh view generation did not advance beyond teleport*' 'forced remesh reused the teleport view generation'
+    $metrics.forced_full_view_remesh_proof.view_generation = 8
+
+    $unchangedManifestRemeshMarker = ConvertFrom-FullViewSettleMarker `
+        -Line $forcedMarkerLine.Replace('5555666677778888', '1111222233334444') `
+        -Kind ForcedRemesh
+    $unchangedManifestArguments = $fullViewArguments.Clone()
+    $unchangedManifestArguments.ForcedRemeshMarker = $unchangedManifestRemeshMarker
+    $metrics.forced_full_view_remesh_proof.expected_manifest_hash = '1111222233334444'
+    $metrics.forced_full_view_remesh_proof.first_presented_manifest_hash = '1111222233334444'
+    $metrics.forced_full_view_remesh_proof.stable_presented_manifest_hash = '1111222233334444'
+    $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    Assert-ThrowsLike { Assert-AcceptanceMetrics @unchangedManifestArguments } 'forced remesh expected manifest hash did not change from teleport*' 'forced remesh did not prove new mesh generations'
+    $metrics.forced_full_view_remesh_proof.expected_manifest_hash = '5555666677778888'
+    $metrics.forced_full_view_remesh_proof.first_presented_manifest_hash = '5555666677778888'
+    $metrics.forced_full_view_remesh_proof.stable_presented_manifest_hash = '5555666677778888'
+
     $metrics.teleport_settle_ms = 2000.1
-    $metrics | ConvertTo-Json | Set-Content -LiteralPath $metricsPath
-    Assert-Throws { Assert-AcceptanceMetrics -Path $metricsPath -RequireFullViewTeleport } 'over-budget end-to-end teleport passed validation'
+    $metrics.teleport_proof.ms = 2000.1
+    $metrics.teleport_proof.stable_gpu_ms = 2000.1
+    $slowTeleportMarker = ConvertFrom-FullViewSettleMarker `
+        -Line $teleportMarkerLine.Replace('ms=1500.0000', 'ms=2000.1000') `
+        -Kind Teleport
+    $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    $slowTeleportArguments = $fullViewArguments.Clone()
+    $slowTeleportArguments.TeleportMarker = $slowTeleportMarker
+    Assert-ThrowsLike `
+        { Assert-AcceptanceMetrics @slowTeleportArguments } `
+        'teleport_settle_ms failed the 2000ms gate*' `
+        'over-budget end-to-end teleport with a fast remesh passed validation'
+    Assert-True (Test-Path -LiteralPath $steadyResourceArtifactPath -PathType Leaf) 'resource artifact was not retained before the teleport SLA failure surfaced'
+
     $metrics.teleport_settle_ms = 1500.0
+    $metrics.teleport_proof.ms = 1500.0
+    $metrics.teleport_proof.stable_gpu_ms = 1500.0
     $metrics.forced_full_view_remesh_ms = 2000.1
-    $metrics | ConvertTo-Json | Set-Content -LiteralPath $metricsPath
-    Assert-Throws { Assert-AcceptanceMetrics -Path $metricsPath -RequireFullViewTeleport } 'over-budget forced full-view remesh passed validation'
+    $metrics.forced_full_view_remesh_proof.ms = 2000.1
+    $metrics.forced_full_view_remesh_proof.stable_gpu_ms = 2000.1
+    $slowRemeshMarker = ConvertFrom-FullViewSettleMarker `
+        -Line $forcedMarkerLine.Replace('ms=1500.0000', 'ms=2000.1000') `
+        -Kind ForcedRemesh
+    $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    $slowRemeshArguments = $fullViewArguments.Clone()
+    $slowRemeshArguments.ForcedRemeshMarker = $slowRemeshMarker
+    Assert-ThrowsLike `
+        { Assert-AcceptanceMetrics @slowRemeshArguments } `
+        'forced_full_view_remesh_ms failed the 2000ms gate*' `
+        'over-budget forced full-view remesh with a fast teleport passed validation'
     $metrics.forced_full_view_remesh_ms = $null
+    $metrics.forced_full_view_remesh_proof.ms = 1500.0
+    $metrics.forced_full_view_remesh_proof.stable_gpu_ms = 1500.0
+
+    $metrics.teleport_settle_ms = 1500.0
+    $metrics.forced_full_view_remesh_ms = 1500.0
+    foreach ($field in @('missing_target', 'foreign_loaded', 'foreign_requested', 'foreign_resident', 'source_leftover')) {
+        $metrics.teleport_proof[$field] = 1
+        $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+        Assert-ThrowsLike `
+            { Assert-AcceptanceMetrics @fullViewArguments } `
+            "teleport_proof.$field*expected zero*" `
+            "non-exact teleport cohort field $field passed validation"
+        $metrics.teleport_proof[$field] = 0
+    }
+    $metrics.teleport_proof.loaded_target = 1088
+    $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    Assert-ThrowsLike { Assert-AcceptanceMetrics @fullViewArguments } 'teleport_proof loaded/expected cohort counts were not exact*' 'missing destination column passed validation'
+    $metrics.teleport_proof.loaded_target = 1089
+
+    $wrongCenterArguments = $fullViewArguments.Clone()
+    $wrongCenterArguments.ExpectedTargetCohort = '0:66:65:16'
+    $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    Assert-ThrowsLike { Assert-AcceptanceMetrics @wrongCenterArguments } 'teleport_proof target cohort mismatch*' 'wrong destination center passed validation'
+    $wrongRadiusArguments = $fullViewArguments.Clone()
+    $wrongRadiusArguments.ExpectedTargetCohort = '0:65:65:15'
+    Assert-ThrowsLike { Assert-AcceptanceMetrics @wrongRadiusArguments } 'teleport_proof target cohort mismatch*' 'wrong destination radius passed validation'
+
+    $metrics.teleport_proof.committed = $null
+    $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    Assert-ThrowsLike { Assert-AcceptanceMetrics @fullViewArguments } 'teleport_proof.committed was missing*' 'missing committed cohort passed validation'
+    $metrics.teleport_proof.committed = '0:65:65:16'
+
+    $overlappingCallbackMarker = ConvertFrom-FullViewSettleMarker `
+        -Line $teleportMarkerLine.Replace('first_gpu_ms=1350.0000', 'first_gpu_ms=1450.0000') `
+        -Kind Teleport
+    $overlappingCallbackArguments = $fullViewArguments.Clone()
+    $overlappingCallbackArguments.TeleportMarker = $overlappingCallbackMarker
+    $metrics.teleport_proof.first_gpu_ms = 1450.0
+    $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    $null = Assert-AcceptanceMetrics @overlappingCallbackArguments
+    $metrics.teleport_proof.first_gpu_ms = 1350.0
+
+    $metrics.teleport_proof.stable_gpu_ms = 'NaN'
+    $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    Assert-ThrowsLike { Assert-AcceptanceMetrics @fullViewArguments } 'teleport_proof.stable_gpu_ms was not finite*' 'nonfinite GPU-completion timestamp passed validation'
+    $metrics.teleport_proof.stable_gpu_ms = 1390.0
+    $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    Assert-ThrowsLike { Assert-AcceptanceMetrics @fullViewArguments } 'teleport_proof presentation timestamps were not monotonic*' 'nonmonotonic presentation timestamps passed validation'
+    $metrics.teleport_proof.stable_gpu_ms = 1500.0
+
+    $metrics.teleport_proof.stable_frame_sequence = 43
+    $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    Assert-ThrowsLike { Assert-AcceptanceMetrics @fullViewArguments } 'teleport_proof frame sequences were not adjacent*' 'non-adjacent presented frames passed validation'
+    $metrics.teleport_proof.stable_frame_sequence = 42
+
+    $metrics.teleport_proof.first_presented_manifest_count = 3
+    $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    Assert-ThrowsLike { Assert-AcceptanceMetrics @fullViewArguments } 'teleport_proof presented manifest count did not equal expected*' 'partial presented manifest count passed validation'
+    $metrics.teleport_proof.first_presented_manifest_count = 4
+    $metrics.teleport_proof.stable_presented_manifest_hash = '9999000011112222'
+    $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    Assert-ThrowsLike { Assert-AcceptanceMetrics @fullViewArguments } 'teleport_proof presented manifest hash did not equal expected*' 'wrong presented manifest hash passed validation'
+    $metrics.teleport_proof.stable_presented_manifest_hash = '1111222233334444'
+
+    foreach ($field in @('missing_target_instances', 'unexpected_target_instances', 'source_instances', 'foreign_instances', 'stale_generation_instances', 'orphan_allocations')) {
+        $metrics.forced_full_view_remesh_proof[$field] = 1
+        $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+        Assert-ThrowsLike `
+            { Assert-AcceptanceMetrics @fullViewArguments } `
+            "forced_full_view_remesh_proof.$field*expected zero*" `
+            "forced-remesh render counter $field passed validation"
+        $metrics.forced_full_view_remesh_proof[$field] = 0
+    }
+
+    $mismatchedTeleportMarker = ConvertFrom-FullViewSettleMarker `
+        -Line $teleportMarkerLine.Replace('resident_hash=aaaabbbbccccdddd', 'resident_hash=0000000000000001') `
+        -Kind Teleport
+    $mismatchedMarkerArguments = $fullViewArguments.Clone()
+    $mismatchedMarkerArguments.TeleportMarker = $mismatchedTeleportMarker
+    $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    Assert-ThrowsLike { Assert-AcceptanceMetrics @mismatchedMarkerArguments } 'teleport marker/metrics mismatch for resident_hash*' 'marker/metrics mismatch passed validation'
+
+    $overCapTeleportMarker = ConvertFrom-FullViewSettleMarker `
+        -Line $teleportMarkerLine.Replace('frame_count=90', 'frame_count=92') `
+        -Kind Teleport
+    $overCapArguments = $fullViewArguments.Clone()
+    $overCapArguments.TeleportMarker = $overCapTeleportMarker
+    $metrics.teleport_proof.frame_count = 92
+    $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    Assert-ThrowsLike { Assert-AcceptanceMetrics @overCapArguments } 'teleport_proof exceeded its 60fps cap*' 'per-teleport interval frame cap was not enforced'
+    $metrics.teleport_proof.frame_count = 90
+
+    $lateDecodeStageMarker = ConvertFrom-FullViewSettleMarker `
+        -Line $teleportMarkerLine.Replace('last_sub_ms=900.0000', 'last_sub_ms=1250.0000') `
+        -Kind Teleport
+    $lateDecodeStageArguments = $fullViewArguments.Clone()
+    $lateDecodeStageArguments.TeleportMarker = $lateDecodeStageMarker
+    $metrics.teleport_proof.last_sub_ms = 1250.0
+    $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    Assert-ThrowsLike { Assert-AcceptanceMetrics @lateDecodeStageArguments } 'teleport_proof.last_sub_ms must be JSON null or a nonnegative finite value*' 'a target decode stage after render readiness passed validation'
+    $metrics.teleport_proof.last_sub_ms = 900.0
+
+    $missingStageMarker = ConvertFrom-FullViewSettleMarker `
+        -Line $teleportMarkerLine.Replace('publisher_ms=100.0000', 'publisher_ms=null') `
+        -Kind Teleport
+    $metrics.teleport_proof.publisher_ms = $null
+    $missingStageArguments = $fullViewArguments.Clone()
+    $missingStageArguments.TeleportMarker = $missingStageMarker
+    $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    $null = Assert-AcceptanceMetrics @missingStageArguments
+    $metrics.teleport_proof.publisher_ms = -1.0
+    $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    Assert-ThrowsLike { Assert-AcceptanceMetrics @missingStageArguments } 'teleport_proof.publisher_ms must be JSON null or a nonnegative finite value*' 'missing stage was serialized as -1 without failing'
+    $metrics.teleport_proof.publisher_ms = 100.0
 
     $resourceSamples = @(
         [pscustomobject]@{ combined_rss_bytes = 300MB; cpu_percent = 5.0 },
@@ -569,17 +910,31 @@ try {
     Assert-Equal (400MB) $resourceSummary.max_combined_rss_bytes 'resource summary chose the wrong RSS maximum'
     Assert-Equal 10.0 $resourceSummary.mean_cpu_percent 'resource summary chose the wrong CPU mean'
     Assert-Equal 15.0 $resourceSummary.p95_cpu_percent 'resource summary chose the wrong CPU p95'
+    $resourceTrigger = New-FullViewResourceTrigger `
+        -TeleportMarker $teleportMarker `
+        -ForcedRemeshMarker $forcedMarker
+    $resourceDocument = New-SteadyResourceDocument `
+        -Samples $resourceSamples `
+        -DurationSeconds 30 `
+        -Trigger $resourceTrigger
+    Assert-Equal 'rust-mcbe-steady-resources-v2' $resourceDocument.schema 'steady-resource schema did not identify trigger provenance'
+    Assert-Equal 'FullViewPresented' $resourceDocument.trigger.kind 'steady-resource trigger kind changed'
+    Assert-Equal '0:65:65:16' $resourceDocument.trigger.target 'steady-resource trigger lost its exact target'
+    Assert-Equal 7 $resourceDocument.trigger.teleport_view_generation 'steady-resource trigger lost teleport generation'
+    Assert-Equal 42 $resourceDocument.trigger.teleport_stable_frame_sequence 'steady-resource trigger lost teleport stable frame'
+    Assert-Equal 8 $resourceDocument.trigger.forced_remesh_view_generation 'steady-resource trigger lost forced-remesh generation'
+    Assert-Equal 44 $resourceDocument.trigger.forced_remesh_stable_frame_sequence 'steady-resource trigger lost forced-remesh stable frame'
 
     $metrics.publisher_radius_chunks = 4
-    $metrics | ConvertTo-Json | Set-Content -LiteralPath $metricsPath
+    $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
     Assert-Throws { Assert-AcceptanceMetrics -Path $metricsPath } 'publisher radius below 16 passed validation'
     $metrics.publisher_radius_chunks = 16
     $metrics.frame_count = 0
-    $metrics | ConvertTo-Json | Set-Content -LiteralPath $metricsPath
+    $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
     Assert-Throws { Assert-AcceptanceMetrics -Path $metricsPath } 'zero frame_count passed validation'
     $metrics.frame_count = 1
     $metrics.p99_frame_ms = 'not-finite'
-    $metrics | ConvertTo-Json | Set-Content -LiteralPath $metricsPath
+    $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
     Assert-Throws { Assert-AcceptanceMetrics -Path $metricsPath } 'nonnumeric p99 passed validation'
 
     Write-Output 'acceptance.ps1 dry-run tests: PASS'
