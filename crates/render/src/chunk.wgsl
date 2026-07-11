@@ -98,17 +98,28 @@ fn face_normal(face: u32) -> vec3<f32> {
 }
 
 fn greedy_uv(face: u32, corner: u32, width: f32, height: f32, flags: u32) -> vec2<f32> {
-    let standard = array<vec2<f32>, 4>(
+    let horizontal_standard = array<vec2<f32>, 4>(
         vec2(0.0, 0.0), vec2(width, 0.0),
         vec2(width, height), vec2(0.0, height),
     );
-    let transposed = array<vec2<f32>, 4>(
+    let horizontal_transposed = array<vec2<f32>, 4>(
         vec2(0.0, 0.0), vec2(0.0, height),
         vec2(width, height), vec2(width, 0.0),
     );
-    var uv = standard[corner];
-    if (face == 1u || face == 3u || face == 4u) {
-        uv = transposed[corner];
+    let vertical_standard = array<vec2<f32>, 4>(
+        vec2(0.0, height), vec2(width, height),
+        vec2(width, 0.0), vec2(0.0, 0.0),
+    );
+    let vertical_transposed = array<vec2<f32>, 4>(
+        vec2(0.0, height), vec2(0.0, 0.0),
+        vec2(width, 0.0), vec2(width, height),
+    );
+    var uv = horizontal_standard[corner];
+    switch face {
+        case 0u, 5u: { uv = vertical_standard[corner]; }
+        case 1u, 4u: { uv = vertical_transposed[corner]; }
+        case 3u: { uv = horizontal_transposed[corner]; }
+        default: {}
     }
 
     var extents = vec2(width, height);

@@ -301,31 +301,47 @@ fn packed_chunk_shader_parses_and_validates() {
 
 #[test]
 fn greedy_uvs_match_every_face_and_repeat_once_per_block() {
-    let standard = [[0.0, 0.0], [16.0, 0.0], [16.0, 1.0], [0.0, 1.0]];
-    let transposed = [[0.0, 0.0], [0.0, 1.0], [16.0, 1.0], [16.0, 0.0]];
+    // Resource-pack PNGs and WGPU both treat v=0 as the top row. Vertical
+    // faces must therefore assign v=0 to their upper-Y geometry corners.
+    let vertical_standard = [[0.0, 1.0], [16.0, 1.0], [16.0, 0.0], [0.0, 0.0]];
+    let vertical_transposed = [[0.0, 1.0], [0.0, 0.0], [16.0, 0.0], [16.0, 1.0]];
+    let horizontal_standard = [[0.0, 0.0], [16.0, 0.0], [16.0, 1.0], [0.0, 1.0]];
+    let horizontal_transposed = [[0.0, 0.0], [0.0, 1.0], [16.0, 1.0], [16.0, 0.0]];
 
-    for face in [Face::NegativeX, Face::NegativeY, Face::PositiveZ] {
+    for face in [Face::NegativeX, Face::PositiveZ] {
         assert_eq!(
             std::array::from_fn(|corner| greedy_texture_uv(face, corner as u32, 16, 1, 0)),
-            standard,
+            vertical_standard,
             "unexpected UV corners for {face:?}"
         );
     }
-    for face in [Face::PositiveX, Face::PositiveY, Face::NegativeZ] {
+    for face in [Face::PositiveX, Face::NegativeZ] {
         assert_eq!(
             std::array::from_fn(|corner| greedy_texture_uv(face, corner as u32, 16, 1, 0)),
-            transposed,
+            vertical_transposed,
             "unexpected UV corners for {face:?}"
         );
     }
+    assert_eq!(
+        std::array::from_fn(|corner| {
+            greedy_texture_uv(Face::NegativeY, corner as u32, 16, 1, 0)
+        }),
+        horizontal_standard
+    );
+    assert_eq!(
+        std::array::from_fn(|corner| {
+            greedy_texture_uv(Face::PositiveY, corner as u32, 16, 1, 0)
+        }),
+        horizontal_transposed
+    );
 
     assert_eq!(
         std::array::from_fn(|corner| greedy_texture_uv(Face::PositiveZ, corner as u32, 1, 1, 0)),
-        [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]
+        [[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]]
     );
     assert_eq!(
         std::array::from_fn(|corner| greedy_texture_uv(Face::PositiveZ, corner as u32, 16, 16, 0)),
-        [[0.0, 0.0], [16.0, 0.0], [16.0, 16.0], [0.0, 16.0]]
+        [[0.0, 16.0], [16.0, 16.0], [16.0, 0.0], [0.0, 0.0]]
     );
 }
 
@@ -333,26 +349,26 @@ fn greedy_uvs_match_every_face_and_repeat_once_per_block() {
 fn material_uv_flags_rotate_and_reflect_greedy_coordinates() {
     let face = Face::PositiveZ;
     let base = greedy_texture_uv(face, 1, 4, 2, 0);
-    assert_eq!(base, [4.0, 0.0]);
+    assert_eq!(base, [4.0, 2.0]);
     assert_eq!(
         greedy_texture_uv(face, 1, 4, 2, MATERIAL_UV_ROTATE_90),
-        [0.0, 0.0]
+        [2.0, 0.0]
     );
     assert_eq!(
         greedy_texture_uv(face, 1, 4, 2, MATERIAL_UV_ROTATE_180),
-        [0.0, 2.0]
-    );
-    assert_eq!(
-        greedy_texture_uv(face, 1, 4, 2, MATERIAL_UV_ROTATE_270),
-        [2.0, 4.0]
-    );
-    assert_eq!(
-        greedy_texture_uv(face, 1, 4, 2, MATERIAL_UV_REFLECT_U),
         [0.0, 0.0]
     );
     assert_eq!(
+        greedy_texture_uv(face, 1, 4, 2, MATERIAL_UV_ROTATE_270),
+        [0.0, 4.0]
+    );
+    assert_eq!(
+        greedy_texture_uv(face, 1, 4, 2, MATERIAL_UV_REFLECT_U),
+        [0.0, 2.0]
+    );
+    assert_eq!(
         greedy_texture_uv(face, 1, 4, 2, MATERIAL_UV_REFLECT_V),
-        [4.0, 2.0]
+        [4.0, 0.0]
     );
 }
 

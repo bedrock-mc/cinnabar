@@ -263,15 +263,16 @@ pub fn greedy_texture_uv(
 ) -> [f32; 2] {
     let width = width as f32;
     let height = height as f32;
-    let standard = [[0.0, 0.0], [width, 0.0], [width, height], [0.0, height]];
-    let transposed = [[0.0, 0.0], [0.0, height], [width, height], [width, 0.0]];
-    let [mut u, mut v] = if matches!(
-        face,
-        crate::Face::PositiveX | crate::Face::PositiveY | crate::Face::NegativeZ
-    ) {
-        transposed[(corner & 3) as usize]
-    } else {
-        standard[(corner & 3) as usize]
+    let horizontal_standard = [[0.0, 0.0], [width, 0.0], [width, height], [0.0, height]];
+    let horizontal_transposed = [[0.0, 0.0], [0.0, height], [width, height], [width, 0.0]];
+    let vertical_standard = [[0.0, height], [width, height], [width, 0.0], [0.0, 0.0]];
+    let vertical_transposed = [[0.0, height], [0.0, 0.0], [width, 0.0], [width, height]];
+    let corner = (corner & 3) as usize;
+    let [mut u, mut v] = match face {
+        crate::Face::NegativeX | crate::Face::PositiveZ => vertical_standard[corner],
+        crate::Face::PositiveX | crate::Face::NegativeZ => vertical_transposed[corner],
+        crate::Face::NegativeY => horizontal_standard[corner],
+        crate::Face::PositiveY => horizontal_transposed[corner],
     };
     let (extent_u, extent_v) = match flags & MATERIAL_UV_ROTATION_MASK {
         MATERIAL_UV_ROTATE_90 => {
