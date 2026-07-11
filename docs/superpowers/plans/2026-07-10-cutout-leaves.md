@@ -27,7 +27,7 @@
 - Validate self-colored cherry, azalea, and flowered-azalea leaves first. Common-leaf foliage tint and color parity are explicitly deferred.
 - Preserve the app budgets: mesh dispatch 64/frame, GPU uploads 8/frame, network ingress 8/frame, outbound sends 16/frame; world result capacity 128; render queue 256 items/64 MiB.
 - At radius 16, carry the gates: combined client+core RSS at most 650 MB, steady normalized CPU at most 15%, join/teleport settle and full-view remesh at most 2 seconds, modified-subchunk visibility at most 100 ms, dev-MacBook p99 at most 8 ms, and zero unadjudicated decode errors/missing mappings.
-- Full-view proof binds the exact 1,089-column radius-16 target cohort, excludes the captured source cohort, and requires two identical GPU-completed presented-frame manifests for one view generation; loaded counts or upload acknowledgements alone never settle it.
+- Full-view proof binds the exact 1,089-column radius-16 target cohort, excludes the captured source cohort, and requires two identical GPU-completed presented-frame manifests that each equal an independently frozen exact target `(SubChunkKey, mesh_generation)` manifest for one view generation; loaded counts, upload acknowledgements, or two identical partial frames never settle it.
 - Steady resource sampling uses independent triggers: baseline world-ready, near gallery fixture-ready, or far forest bound-present completion. Baseline and near gallery modes never arm far teleport.
 - The far forest retargets both BDS `setblock` and app mutation tracking to a loaded target coordinate only after observable fixture-load, teleport, cohort, and presented-frame sequencing.
 - The pre-feature evidence base is `5933209fe053aff0f2164262f129635b947a636b`; diagnostic reduction must compare the same deterministic forest fixture against that revision and the final revision.
@@ -45,7 +45,7 @@
 - `crates/assets/tests/{pack,compiler,blob,runtime}.rs`: schema, compiler, mip, and compatibility regressions.
 - `crates/render/src/mesh.rs`: palette facts, independent `u64` masks, asymmetric culling, and open leaf connectivity.
 - `crates/render/src/chunk.wgsl`: one-sample bit-8 discard and alpha-one output.
-- `crates/render/src/plugin.rs`: retain the one opaque pipeline and publish exact direct/MDI presented-frame generation manifests after GPU completion.
+- `crates/render/src/plugin.rs`: retain the one opaque pipeline, freeze the independently expected target generation manifest, and compare it with exact direct/MDI presented-frame manifests after GPU completion.
 - `crates/render/tests/{mesh,plugin}.rs`: culling/connectivity, record-size, shader, phase, bind-group, MDI, and present-fence regressions.
 - `app/src/world_stream.rs`: retain bounded job plumbing, update leaf connectivity, and report exact target/source cohort status.
 - `app/src/{main,metrics}.rs`: bind and serialize exact cohort/presented-frame teleport and forced-remesh proof, then retarget mutation tracking.
@@ -625,7 +625,9 @@
 - Adds `-SteadyResourceTrigger WorldReady|VisualFixtureReady|FullViewPresented`; exactly one trigger owns each 30-second sampler and only `FullViewPresented` requires the far tracker.
 - Produces `ViewCohort { dimension: i32, center: [i32; 2], radius: i32 }`; radius 16 expands to exactly 1,089 `ChunkKey`s.
 - Produces `WorldStream::cohort_status(&self, target: ViewCohort, source: &BTreeSet<ChunkKey>) -> CohortStatus` with target/committed cohort identity; `expected`, `loaded_target`, `missing_target`, `foreign_loaded`, `foreign_requested`, `foreign_resident`, and `source_leftover`; resident/known-air count+hash identities; and bounded-work emptiness.
-- Produces `PresentedFrameAck { cohort: ViewCohort, manifest: Arc<[(SubChunkKey, u64)]>, view_generation: u64, render_ready_at: Instant, present_returned_at: Instant, gpu_completed_at: Instant, source_instances: usize, foreign_instances: usize, stale_generation_instances: usize, orphan_allocations: usize }`.
+- Produces `TargetRenderExpectation { cohort: ViewCohort, manifest: Arc<[(SubChunkKey, u64)]>, view_generation: u64, render_ready_at: Instant }`, frozen from the authoritative main-world mesh-handoff expectation table before `ChunkRenderInstance` extraction.
+- Produces `ChunkRenderQueue::freeze_target_expectation(&self, cohort: ViewCohort, view_generation: u64, render_ready_at: Instant) -> TargetRenderExpectation`; LeafForest rejects an empty result.
+- Produces `PresentedFrameAck { cohort: ViewCohort, presented_manifest: Arc<[(SubChunkKey, u64)]>, view_generation: u64, present_returned_at: Instant, gpu_completed_at: Instant, missing_target_instances: usize, unexpected_target_instances: usize, source_instances: usize, foreign_instances: usize, stale_generation_instances: usize, orphan_allocations: usize }` after exact comparison with that independent expectation.
 - Produces `MetricsReport::{teleport_settle_ms, forced_full_view_remesh_ms}: Option<f64>` from the binding GPU-completion timestamps, not from upload acknowledgement or a quiet timer.
 - Produces `AcceptanceRun::retarget_mutation(&mut self, coordinate: [i32; 3], armed_at: Instant)` and a deterministic target-forest mutation coordinate shared with the PowerShell manifest.
 - Keeps owned BDS stdin, command-length/newline checks, observable `list` fence, fresh runtime copy, and 64-command/32,768-block fixture bounds.
@@ -662,8 +664,14 @@
   - requested/resident keys outside target or any source-column intersection fail;
   - write-buffer/upload acknowledgement without a present-return plus submitted-work callback
     never settles;
+  - an empty `TargetRenderExpectation` fails for the non-empty LeafForest fixture;
+  - `identical_subset_presented_manifests_do_not_settle` freezes independently expected entries
+    `[(a, 7), (b, 7)]`, submits two consecutive GPU-completed presented manifests that are both
+    the identical subset `[(a, 7)]`, asserts `missing_target_instances == 1`, and asserts the
+    consecutive-frame pair never advances;
   - two consecutive GPU-completed frames with identical sorted manifest and view generation are
-    required; manifest/generation changes reset the pair;
+    required only after each actual manifest equals the frozen expectation; expectation,
+    manifest, or generation changes reset the pair;
   - source/foreign/stale-generation instances or orphan allocations block completion;
   - a newly prepared generation waits for a later queue/draw pass; direct and MDI manifests match;
   - forced remesh starts after teleport binding, returns an exact key/generation manifest, and
@@ -689,8 +697,9 @@
   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/acceptance.Tests.ps1
   ```
 
-  Expected: FAIL because exact cohort/source status, presented-frame GPU fences, leaf evidence
-  modes, target mutation retargeting, and independent resource triggers do not exist.
+  Expected: FAIL because exact cohort/source status, independent expected-manifest equality,
+  presented-frame GPU fences, leaf evidence modes, target mutation retargeting, and independent
+  resource triggers do not exist.
 
 - [ ] **Step 3: Implement deterministic leaf fixtures and the binding full-view proof**
 
@@ -756,26 +765,39 @@
   counts cannot hide a foreign resident, stale known-air identity, or source remainder.
 
   Carry mesh generation into `ChunkRenderInstance` and increment a monotonic `view_generation`
-  when the bound cohort changes and when forced remesh begins. Build the exact sorted
-  `Arc<[(SubChunkKey, u64)]>` manifest from instances actually queued/drawn by both direct and MDI
-  paths. In `RenderApp`, add the acknowledgement system to `RenderSystems::Render` after Bevy's
+  when the bound cohort changes and when forced remesh begins. Once the exact cohort is bound and
+  all target uploads are committed, freeze `TargetRenderExpectation.manifest` from an
+  authoritative main-world expectation map populated when each `WorldMeshChange::Upsert/Remove`
+  is accepted by `ChunkRenderQueue` and reconciled with its upload acknowledgement. Sort by
+  `(SubChunkKey, mesh_generation)` and reject an empty LeafForest expectation. Never derive this
+  expected set from `ChunkRenderInstance` extraction, render-phase items, or a presented frame.
+  Independently build
+  `PresentedFrameAck.presented_manifest` from instances actually queued/drawn by both direct and
+  MDI paths. Compute `missing_target_instances = expected - presented` and
+  `unexpected_target_instances = presented - expected` over the full pairs, so a key at the wrong
+  generation contributes to the mismatch. Require sorted-array equality and both counts zero.
+
+  In `RenderApp`, add the acknowledgement system to `RenderSystems::Render` after Bevy's
   `render_system`. After present returns, submit an empty sentinel command buffer, attach
   `on_submitted_work_done`, and poll nonblocking. Only then publish `PresentedFrameAck`; an upload
   acknowledgement cannot substitute. A generation prepared this frame is eligible only after a
   later queue/draw pass observes it.
 
   Bind teleport completion to two consecutive GPU-completed acknowledgements with identical
-  cohort, manifest, and `view_generation`, with all source/foreign/stale-generation/orphan counts
-  zero.
+  cohort, `presented_manifest`, and `view_generation`, each exactly equal to the same frozen
+  `TargetRenderExpectation`, with missing/unexpected/source/foreign/stale-generation/orphan counts
+  all zero. Two identical empty or partial actual manifests therefore cannot settle the gate.
   `teleport_settle_ms` is
   `second_identical_ack.gpu_completed_at - move_player_ingress_at`. Only after that completion,
   call `WorldStream::remesh_all_resident(started)` and return its exact sorted key/new-generation
-  manifest. Apply the same presented/GPU fence; `forced_full_view_remesh_ms` is
+  manifest as the independently expected remesh set. Apply the same equality and presented/GPU
+  fence; `forced_full_view_remesh_ms` is
   `gpu_completed_at - started`. Emit distinct `RUST_MCBE_TELEPORT_SETTLED` and
   `RUST_MCBE_FORCED_FULL_VIEW_REMESH_SETTLED` markers only after these proofs. Their metrics
-  records carry the exact `CohortStatus`, sorted manifest hash and length, view generation,
-  present-return timestamp, GPU-completion timestamp, and source/foreign/stale-generation/orphan
-  counts; the harness validates those fields instead of treating marker text alone as proof.
+  records carry the exact `CohortStatus`, expected and presented manifest hashes and lengths, view
+  generation, present-return timestamp, GPU-completion timestamp, and
+  missing/unexpected/source/foreign/stale-generation/orphan counts; the harness validates those
+  fields instead of treating marker text alone as proof.
 
   After the binding teleport marker, recompute the deterministic target mutation coordinate in
   Rust and compare it with the already-published PowerShell forest manifest. Only on equality,
@@ -938,7 +960,8 @@
 
   Require the forest artifact to report 1,089 expected/loaded target columns, zero missing,
   foreign loaded/requested/resident, and source-leftover columns; resident and known-air
-  count+hash identities; two identical GPU-completed presented-frame manifests/generations; zero
+  count+hash identities; independently expected and actually presented manifest hashes/lengths;
+  exact equality for both GPU-completed frames; zero missing/unexpected target and
   source/foreign/stale-generation/orphan render state; and post-teleport target mutation
   visibility at most 100 ms. Record p50/p95/p99/max frame,
   max decode/mesh/remesh/mutation latency, both binding full-view timings,
@@ -985,10 +1008,11 @@
   `5933209fe053aff0f2164262f129635b947a636b..HEAD`. The reviewer must verify schema rejection,
   flag counts, mip coverage, asymmetric culling/connectivity, one opaque pipeline/bind group/MDI,
   exact eight-byte records, no flat arrays, no tracked Mojang payload, same-fixture evidence,
-  1,089-column/source-exclusion and resident/known-air identities, direct/MDI render-generation
-  manifests, the present-return/submitted-work GPU fence, target mutation retargeting,
-  mode-specific resource triggers, resource budgets, tint deferral, and Computer
-  Use/passive-capture wording. Fix and re-review all Critical and Important findings.
+  1,089-column/source-exclusion and resident/known-air identities, the independently expected
+  target render-generation manifest, identical-subset rejection, direct/MDI actual manifests, the
+  present-return/submitted-work GPU fence, target mutation retargeting, mode-specific resource
+  triggers, resource budgets, tint deferral, and Computer Use/passive-capture wording. Fix and
+  re-review all Critical and Important findings.
 
   Re-run the full Step 6 gate plus:
 

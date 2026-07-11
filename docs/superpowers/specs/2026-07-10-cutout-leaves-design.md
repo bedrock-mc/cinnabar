@@ -193,12 +193,17 @@ The far forest uses the binding Task 8 proof, not a loaded-count or upload-ack a
 1,089 columns around the committed publisher center. Completion requires that exact target set,
 no missing or foreign loaded/requested/resident column, no intersection with the source-column
 set captured at `MovePlayer` ingress, stable resident/known-air count+hash identities, and empty
-bounded work. Rendering is proven by two
-consecutive GPU-completed presented frames with the same sorted `(SubChunkKey, mesh_generation)`
-manifest and view generation, zero source/foreign/stale-generation render instances, and zero
-orphan arena allocations. A write-buffer/upload acknowledgement alone cannot satisfy this fence.
-The forced full-view remesh begins only after the bound teleport proof and must pass the same
-presented/GPU fence with an exact remesh manifest.
+bounded work. Before `ChunkRenderInstance` extraction, the renderer freezes an independently
+expected exact target `(SubChunkKey, mesh_generation)` set from the authoritative main-world
+mesh-handoff expectation table; the non-empty LeafForest fixture rejects an empty expectation.
+Rendering is proven by two consecutive GPU-completed presented frames whose actual sorted
+manifests each equal that frozen expectation and share its view generation, with zero
+missing/unexpected target,
+source/foreign/stale-generation render instances, and orphan arena allocations. Two identical
+empty or partial actual manifests cannot satisfy the gate. A write-buffer/upload acknowledgement
+alone cannot satisfy this fence. The forced full-view remesh begins only after the bound teleport
+proof, freezes the remesh result as a new independent expectation, and must pass the same exact
+equality and presented/GPU fence.
 
 Resource sampling has independent mode-specific triggers. The pinned opaque baseline starts its
 steady window from its compatible world-ready marker; near gallery Front/Back runs start after
