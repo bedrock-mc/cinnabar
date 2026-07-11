@@ -33,6 +33,14 @@ pub enum AssetError {
         source: serde_json::Error,
     },
 
+    #[error("invalid JSON for block {block} in {path}: {source}")]
+    InvalidBlockEntry {
+        path: PathBuf,
+        block: Box<str>,
+        #[source]
+        source: serde_json::Error,
+    },
+
     #[error("invalid block registry magic")]
     InvalidRegistryMagic,
 
@@ -72,6 +80,12 @@ pub enum AssetError {
 
     #[error("source contains {count} texture keys, exceeding the limit of {max}")]
     TooManyTextureKeys { count: usize, max: usize },
+
+    #[error("duplicate block key {0}")]
+    DuplicateBlockKey(Box<str>),
+
+    #[error("duplicate terrain texture key {0}")]
+    DuplicateTerrainTextureKey(Box<str>),
 
     #[error("texture key {key} has {count} variants, exceeding the limit of {max}")]
     TooManyTextureVariants {

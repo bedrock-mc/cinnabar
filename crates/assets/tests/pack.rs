@@ -290,6 +290,101 @@ fn pack_reader_strips_leading_comments_and_selects_first_terrain_variant() {
 }
 
 #[test]
+fn pack_reader_skips_untextured_and_carried_only_block_entries() {
+    let directory = tempfile::tempdir().expect("create fixture");
+    let blocks = r#"{
+        "air": { "sound": "air" },
+        "light_block": { "carried_textures": "stone" },
+        "stone": { "textures": "stone" }
+    }"#;
+    write_pack(directory.path(), blocks, MINIMAL_TERRAIN, EMPTY_FLIPBOOKS);
+
+    let pack = read_pack(directory.path()).expect("untextured entries are valid");
+
+    for name in ["minecraft:air", "minecraft:light_block"] {
+        assert!(
+            resolve_texture_key(&pack.blocks, &record(name, "{}"), BlockFace::Up)
+                .key
+                .is_none(),
+            "{name} must resolve to the diagnostic texture"
+        );
+    }
+    assert_key(
+        resolve_texture_key(
+            &pack.blocks,
+            &record("minecraft:stone", "{}"),
+            BlockFace::Up,
+        ),
+        "stone",
+        false,
+    );
+}
+
+#[test]
+fn pack_reader_rejects_an_explicit_empty_face_map() {
+    let directory = minimal_pack();
+    write_file(
+        directory.path().join("blocks.json"),
+        r#"{"empty": {"textures": {}}}"#,
+    );
+
+    assert!(matches!(
+        read_pack(directory.path()),
+        Err(AssetError::MissingBlockTextureKeys(ref key)) if &**key == "empty"
+    ));
+}
+
+#[test]
+fn pack_reader_rejects_duplicate_top_level_block_names() {
+    let directory = minimal_pack();
+    write_file(
+        directory.path().join("blocks.json"),
+        r#"{
+            "stone": {"textures": "stone"},
+            "stone": {"textures": "stone"}
+        }"#,
+    );
+
+    assert!(matches!(
+        read_pack(directory.path()),
+        Err(AssetError::DuplicateBlockKey(ref key)) if &**key == "stone"
+    ));
+}
+
+#[test]
+fn malformed_block_entries_report_the_block_key() {
+    let directory = minimal_pack();
+    write_file(
+        directory.path().join("blocks.json"),
+        r#"{"broken_block": {"textures": 42}}"#,
+    );
+
+    assert!(matches!(
+        read_pack(directory.path()),
+        Err(AssetError::InvalidBlockEntry { ref block, .. }) if &**block == "broken_block"
+    ));
+}
+
+#[test]
+fn pack_reader_rejects_duplicate_terrain_texture_data_keys() {
+    let directory = minimal_pack();
+    write_file(
+        directory.path().join("textures/terrain_texture.json"),
+        r#"{
+            "texture_data": {
+                "stone": {"textures": "textures/blocks/stone"},
+                "stone": {"textures": "textures/blocks/stone"}
+            }
+        }"#,
+    );
+
+    assert!(matches!(
+        read_pack(directory.path()),
+        Err(AssetError::DuplicateTerrainTextureKey(ref key)) if &**key == "stone"
+    ));
+}
+
+#[test]
 fn pillar_axis_permutations_move_caps_and_rotate_horizontal_sides() {
     let directory = tempfile::tempdir().expect("create fixture");
     let blocks = r#"{
