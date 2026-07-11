@@ -7,7 +7,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     AssetError, BlockFace, BlockFlags, PackSources, RegistryRecord, TextureKey,
-    image::{TextureArray, build_texture_array, decode_static_png, diagnostic_pixels},
+    image::{TextureArray, build_texture_array, decode_static_texture, diagnostic_pixels},
     read_pack, resolve_texture_key,
 };
 
@@ -177,8 +177,8 @@ fn compile_layers(
     layers_by_digest.insert(diagnostic_digest, vec![0]);
 
     for (path, key) in key_by_path {
-        let source_path = png_path(root, &path);
-        let pixels = decode_static_png(&source_path, &key)?;
+        let source_path = static_texture_path(root, &path, &key)?;
+        let pixels = decode_static_texture(&source_path, &key)?;
         let digest: [u8; 32] = Sha256::digest(&pixels).into();
         let existing = layers_by_digest.get(&digest).and_then(|candidates| {
             candidates
@@ -209,16 +209,29 @@ fn compile_layers(
     Ok((layers, layer_by_path))
 }
 
-fn png_path(root: &Path, source: &str) -> PathBuf {
+fn static_texture_path(root: &Path, source: &str, key: &str) -> Result<PathBuf, AssetError> {
     let source_path = Path::new(source);
-    if source_path
-        .extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("png"))
-    {
-        root.join(source_path)
-    } else {
-        root.join(format!("{source}.png"))
+    if source_path.extension().is_some() {
+        return Ok(root.join(source_path));
     }
+
+    let png = root.join(format!("{source}.png"));
+    if png.try_exists().map_err(|source| AssetError::TextureIo {
+        key: key.into(),
+        path: png.clone(),
+        source,
+    })? {
+        return Ok(png);
+    }
+    let tga = root.join(format!("{source}.tga"));
+    if tga.try_exists().map_err(|source| AssetError::TextureIo {
+        key: key.into(),
+        path: tga.clone(),
+        source,
+    })? {
+        return Ok(tga);
+    }
+    Ok(png)
 }
 
 fn compile_materials(

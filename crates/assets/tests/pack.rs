@@ -321,6 +321,71 @@ fn pack_reader_skips_untextured_and_carried_only_block_entries() {
 }
 
 #[test]
+fn explicit_legacy_block_aliases_preserve_face_keys_and_unknowns_stay_diagnostic() {
+    let directory = tempfile::tempdir().expect("create fixture");
+    write_pack(
+        directory.path(),
+        r#"{
+            "grass": {"textures": {
+                "down": "grass_bottom", "side": "grass_side", "up": "grass_top"
+            }},
+            "seaLantern": {"textures": "sea_lantern"}
+        }"#,
+        r#"{"texture_data": {
+            "grass_bottom": {"textures": "textures/blocks/grass_bottom"},
+            "grass_side": {"textures": "textures/blocks/grass_side"},
+            "grass_top": {"textures": "textures/blocks/grass_top"},
+            "sea_lantern": {"textures": "textures/blocks/sea_lantern"}
+        }}"#,
+        EMPTY_FLIPBOOKS,
+    );
+    let pack = read_pack(directory.path()).expect("valid legacy-name pack");
+    let grass = record("minecraft:grass_block", "null");
+
+    assert_key(
+        resolve_texture_key(&pack.blocks, &grass, BlockFace::Down),
+        "grass_bottom",
+        false,
+    );
+    assert_key(
+        resolve_texture_key(&pack.blocks, &grass, BlockFace::Up),
+        "grass_top",
+        false,
+    );
+    for face in [
+        BlockFace::West,
+        BlockFace::East,
+        BlockFace::North,
+        BlockFace::South,
+    ] {
+        assert_key(
+            resolve_texture_key(&pack.blocks, &grass, face),
+            "grass_side",
+            false,
+        );
+    }
+
+    let sea_lantern = record("minecraft:sea_lantern", "null");
+    for face in BlockFace::ALL {
+        assert_key(
+            resolve_texture_key(&pack.blocks, &sea_lantern, face),
+            "sea_lantern",
+            false,
+        );
+    }
+
+    let invisible = record("minecraft:invisible_bedrock", "null");
+    for face in BlockFace::ALL {
+        assert!(
+            resolve_texture_key(&pack.blocks, &invisible, face)
+                .key
+                .is_none(),
+            "unlisted blocks must not acquire a legacy alias"
+        );
+    }
+}
+
+#[test]
 fn pack_reader_rejects_an_explicit_empty_face_map() {
     let directory = minimal_pack();
     write_file(

@@ -334,7 +334,8 @@ pub fn resolve_texture_key(
         .name
         .strip_prefix("minecraft:")
         .unwrap_or(&record.name);
-    let Some(texture) = blocks.entries.get(block_name) else {
+    let resource_pack_name = legacy_resource_pack_block_alias(block_name).unwrap_or(block_name);
+    let Some(texture) = blocks.entries.get(resource_pack_name) else {
         return TextureKey::diagnostic();
     };
 
@@ -348,6 +349,14 @@ pub fn resolve_texture_key(
                     TextureKey::resolved(key, rotate_uv)
                 })
         }
+    }
+}
+
+fn legacy_resource_pack_block_alias(block_name: &str) -> Option<&'static str> {
+    match block_name {
+        "grass_block" => Some("grass"),
+        "sea_lantern" => Some("seaLantern"),
+        _ => None,
     }
 }
 

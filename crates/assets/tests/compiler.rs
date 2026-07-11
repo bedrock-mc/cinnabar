@@ -6,8 +6,9 @@ use std::{
 };
 
 use assets::{
-    AssetError, BlockFace, BlockFlags, CompiledAssets, MATERIAL_FLAG_ROTATE_UV, MAX_TEXTURE_LAYERS,
-    Material, RegistryRecord, compile_pack, encode_blob,
+    AssetError, BlockFace, BlockFlags, CompiledAssets, DIAGNOSTIC_MATERIAL,
+    MATERIAL_FLAG_ROTATE_UV, MAX_TEXTURE_LAYERS, Material, RegistryRecord, compile_pack,
+    encode_blob,
 };
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 use tempfile::TempDir;
@@ -54,6 +55,20 @@ fn png_bytes(width: u32, height: u32, pixels: &[[u8; 4]]) -> Vec<u8> {
     png
 }
 
+fn tga_bytes(width: u16, height: u16, pixels: &[[u8; 4]]) -> Vec<u8> {
+    assert_eq!(pixels.len(), usize::from(width) * usize::from(height));
+    let mut tga = vec![0; 18];
+    tga[2] = 2;
+    tga[12..14].copy_from_slice(&width.to_le_bytes());
+    tga[14..16].copy_from_slice(&height.to_le_bytes());
+    tga[16] = 32;
+    tga[17] = 0x28;
+    for &[red, green, blue, alpha] in pixels {
+        tga.extend_from_slice(&[blue, green, red, alpha]);
+    }
+    tga
+}
+
 fn solid(width: u32, height: u32, color: [u8; 4]) -> Vec<[u8; 4]> {
     vec![color; (width * height) as usize]
 }
@@ -62,6 +77,13 @@ fn write_png(root: &Path, source_path: &str, width: u32, height: u32, pixels: &[
     write_file(
         root.join(format!("{source_path}.png")),
         png_bytes(width, height, pixels),
+    );
+}
+
+fn write_tga(root: &Path, source_path: &str, width: u16, height: u16, pixels: &[[u8; 4]]) {
+    write_file(
+        root.join(format!("{source_path}.tga")),
+        tga_bytes(width, height, pixels),
     );
 }
 
@@ -379,6 +401,109 @@ fn compiler_only_loads_full_cubes_and_builds_equivalent_lookup_tables() {
 }
 
 #[test]
+fn compiler_materializes_grass_alias_and_keeps_flipbooks_and_unlisted_blocks_diagnostic() {
+    let directory = tempfile::tempdir().expect("create fixture");
+    write_pack(
+        directory.path(),
+        r#"{
+            "grass": {"textures": {
+                "down": "grass_bottom", "side": "grass_side", "up": "grass_top"
+            }},
+            "seaLantern": {"textures": "sea_lantern"}
+        }"#,
+        r#"{"texture_data": {
+            "grass_bottom": {"textures": "textures/blocks/grass_bottom"},
+            "grass_side": {"textures": "textures/blocks/grass_side"},
+            "grass_top": {"textures": "textures/blocks/grass_top"},
+            "sea_lantern": {"textures": "textures/blocks/sea_lantern"}
+        }}"#,
+        r#"[{
+            "flipbook_texture": "textures/blocks/sea_lantern",
+            "atlas_tile": "sea_lantern",
+            "ticks_per_frame": 5
+        }]"#,
+    );
+    for (path, colour) in [
+        ("textures/blocks/grass_bottom", [80, 50, 20, 255]),
+        ("textures/blocks/grass_top", [70, 190, 50, 255]),
+    ] {
+        write_png(
+            directory.path(),
+            path,
+            TILE_SIZE,
+            TILE_SIZE,
+            &solid(TILE_SIZE, TILE_SIZE, colour),
+        );
+    }
+    write_tga(
+        directory.path(),
+        "textures/blocks/grass_side",
+        TILE_SIZE as u16,
+        TILE_SIZE as u16,
+        &solid(TILE_SIZE, TILE_SIZE, [100, 150, 60, 255]),
+    );
+    let records = [
+        record(
+            0,
+            0xde31_28b4,
+            "minecraft:grass_block",
+            "null",
+            BlockFlags::FULL_CUBE,
+        ),
+        record(
+            1,
+            0x1111_1111,
+            "minecraft:sea_lantern",
+            "null",
+            BlockFlags::FULL_CUBE,
+        ),
+        record(
+            2,
+            0x2222_2222,
+            "minecraft:invisible_bedrock",
+            "null",
+            BlockFlags::FULL_CUBE,
+        ),
+    ];
+
+    let compiled = compile_pack(directory.path(), &records).expect("compile legacy aliases");
+    let grass = compiled.visuals[0];
+    let sea_lantern = compiled.visuals[1];
+
+    assert_ne!(grass.faces[BlockFace::Down as usize], DIAGNOSTIC_MATERIAL);
+    assert_ne!(grass.faces[BlockFace::Up as usize], DIAGNOSTIC_MATERIAL);
+    assert_ne!(grass.faces[BlockFace::West as usize], DIAGNOSTIC_MATERIAL);
+    assert_ne!(
+        grass.faces[BlockFace::Down as usize],
+        grass.faces[BlockFace::Up as usize]
+    );
+    assert_eq!(
+        grass.faces[BlockFace::West as usize],
+        grass.faces[BlockFace::East as usize]
+    );
+    assert_eq!(
+        grass.faces[BlockFace::West as usize],
+        grass.faces[BlockFace::North as usize]
+    );
+    assert_eq!(
+        grass.faces[BlockFace::West as usize],
+        grass.faces[BlockFace::South as usize]
+    );
+    let bottom = material_for_face(&compiled, 0, BlockFace::Down);
+    let side = material_for_face(&compiled, 0, BlockFace::West);
+    assert_eq!(
+        mip_pixel(&compiled, 0, bottom.layer, 0, 0),
+        [80, 50, 20, 255]
+    );
+    assert_eq!(
+        mip_pixel(&compiled, 0, side.layer, 0, 0),
+        [100, 150, 60, 255]
+    );
+    assert_eq!(sea_lantern.faces, [DIAGNOSTIC_MATERIAL; 6]);
+    assert_eq!(compiled.visuals[2].faces, [DIAGNOSTIC_MATERIAL; 6]);
+}
+
+#[test]
 fn compiler_maps_recognized_flipbooks_to_diagnostic_without_loading_the_strip() {
     let directory = tempfile::tempdir().expect("create fixture");
     write_pack(
@@ -456,6 +581,65 @@ fn compiler_reports_missing_malformed_and_wrong_size_png_sources() {
         }
     ));
     assert_source_context(&error, &sized_path);
+}
+
+#[test]
+fn compiler_reports_malformed_and_wrong_size_tga_with_source_context() {
+    let fixture = || {
+        let directory = tempfile::tempdir().expect("create fixture");
+        write_pack(
+            directory.path(),
+            r#"{"broken":{"textures":"broken_key"}}"#,
+            r#"{"texture_data":{"broken_key":{"textures":"textures/blocks/broken.tga"}}}"#,
+            "[]",
+        );
+        let path = directory.path().join("textures/blocks/broken.tga");
+        let record = record(0, 901, "minecraft:broken", "{}", BlockFlags::FULL_CUBE);
+        (directory, record, path)
+    };
+
+    let (malformed_root, malformed_record, malformed_path) = fixture();
+    write_file(&malformed_path, b"not a tga");
+    let error =
+        compile_pack(malformed_root.path(), &[malformed_record]).expect_err("malformed TGA");
+    assert!(matches!(error, AssetError::TextureDecode { .. }));
+    assert_source_context(&error, &malformed_path);
+
+    let (sized_root, sized_record, sized_path) = fixture();
+    write_file(&sized_path, tga_bytes(8, 16, &solid(8, 16, [1, 2, 3, 255])));
+    let error = compile_pack(sized_root.path(), &[sized_record]).expect_err("wrong TGA size");
+    assert!(matches!(
+        error,
+        AssetError::WrongTextureDimensions {
+            width: 8,
+            height: 16,
+            ..
+        }
+    ));
+    assert_source_context(&error, &sized_path);
+}
+
+#[test]
+fn compiler_rejects_unsupported_static_texture_formats_with_source_context() {
+    let directory = tempfile::tempdir().expect("create fixture");
+    write_pack(
+        directory.path(),
+        r#"{"broken":{"textures":"broken_key"}}"#,
+        r#"{"texture_data":{"broken_key":{"textures":"textures/blocks/broken.jpg"}}}"#,
+        "[]",
+    );
+    let path = directory.path().join("textures/blocks/broken.jpg");
+    write_file(&path, b"not a supported static texture");
+    let record = record(0, 902, "minecraft:broken", "{}", BlockFlags::FULL_CUBE);
+
+    let error = compile_pack(directory.path(), &[record]).expect_err("unsupported texture format");
+    let rendered = error.to_string();
+    assert!(rendered.contains("unsupported"), "{rendered}");
+    assert!(rendered.contains("broken_key"), "{rendered}");
+    assert!(
+        rendered.contains(path.to_string_lossy().as_ref()),
+        "{rendered}"
+    );
 }
 
 #[test]
