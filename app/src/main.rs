@@ -166,6 +166,11 @@ struct TeleportReadySnapshot {
     rendered_sub_chunks: usize,
     resident_sub_chunks: usize,
     visible_sub_chunks: usize,
+    loaded_columns: usize,
+    last_chunk_commit_at: Option<Instant>,
+    last_mesh_dispatch_at: Option<Instant>,
+    last_mesh_completion_at: Option<Instant>,
+    last_mesh_ack_at: Option<Instant>,
     work: WorldReadyWork,
 }
 
@@ -192,7 +197,32 @@ struct PendingFullViewTeleport {
     started: Instant,
     target_chunk: [i32; 2],
     publisher_seen: bool,
+    publisher_latency: Option<Duration>,
+    first_level_chunk_latency: Option<Duration>,
+    last_level_chunk_latency: Option<Duration>,
+    level_chunk_events: u64,
+    first_sub_chunk_latency: Option<Duration>,
+    last_sub_chunk_latency: Option<Duration>,
+    sub_chunk_events: u64,
+    peak_network_events: usize,
     clean_candidate: Option<TeleportCleanCandidate>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FullViewTeleportCompletion {
+    settle_latency: Duration,
+    publisher_latency: Option<Duration>,
+    first_level_chunk_latency: Option<Duration>,
+    last_level_chunk_latency: Option<Duration>,
+    level_chunk_events: u64,
+    first_sub_chunk_latency: Option<Duration>,
+    last_sub_chunk_latency: Option<Duration>,
+    sub_chunk_events: u64,
+    last_chunk_commit_latency: Option<Duration>,
+    last_mesh_dispatch_latency: Option<Duration>,
+    last_mesh_completion_latency: Option<Duration>,
+    last_mesh_ack_latency: Option<Duration>,
+    peak_network_events: usize,
 }
 
 #[derive(Debug)]
@@ -200,6 +230,7 @@ struct FullViewTeleportTracker {
     enabled: bool,
     origin_chunk: Option<[i32; 2]>,
     latest_publisher_chunk: Option<[i32; 2]>,
+    minimum_loaded_columns: Option<usize>,
     pending: Option<PendingFullViewTeleport>,
     completed: Option<Duration>,
 }
@@ -210,14 +241,16 @@ impl FullViewTeleportTracker {
             enabled,
             origin_chunk: None,
             latest_publisher_chunk: None,
+            minimum_loaded_columns: None,
             pending: None,
             completed: None,
         }
     }
 
-    fn begin_world_ready(&mut self, position: [f32; 3]) {
+    fn begin_world_ready(&mut self, position: [f32; 3], loaded_columns: usize) {
         if self.enabled {
             self.origin_chunk = horizontal_chunk(position);
+            self.minimum_loaded_columns = Some(loaded_columns);
         }
     }
 
@@ -234,8 +267,11 @@ impl FullViewTeleportTracker {
                 self.latest_publisher_chunk = Some(publisher);
                 if let Some(pending) = &mut self.pending
                     && publisher == pending.target_chunk
+                    && !pending.publisher_seen
                 {
                     pending.publisher_seen = true;
+                    pending.publisher_latency =
+                        Some(observed_at.saturating_duration_since(pending.started));
                 }
             }
             protocol::WorldEvent::MovePlayer(movement) if self.pending.is_none() => {
@@ -255,8 +291,33 @@ impl FullViewTeleportTracker {
                     started: observed_at,
                     target_chunk: target,
                     publisher_seen: self.latest_publisher_chunk == Some(target),
+                    publisher_latency: (self.latest_publisher_chunk == Some(target))
+                        .then_some(Duration::ZERO),
+                    first_level_chunk_latency: None,
+                    last_level_chunk_latency: None,
+                    level_chunk_events: 0,
+                    first_sub_chunk_latency: None,
+                    last_sub_chunk_latency: None,
+                    sub_chunk_events: 0,
+                    peak_network_events: 0,
                     clean_candidate: None,
                 });
+            }
+            protocol::WorldEvent::LevelChunk(_) => {
+                if let Some(pending) = &mut self.pending {
+                    let latency = observed_at.saturating_duration_since(pending.started);
+                    pending.first_level_chunk_latency.get_or_insert(latency);
+                    pending.last_level_chunk_latency = Some(latency);
+                    pending.level_chunk_events = pending.level_chunk_events.saturating_add(1);
+                }
+            }
+            protocol::WorldEvent::SubChunks(_) => {
+                if let Some(pending) = &mut self.pending {
+                    let latency = observed_at.saturating_duration_since(pending.started);
+                    pending.first_sub_chunk_latency.get_or_insert(latency);
+                    pending.last_sub_chunk_latency = Some(latency);
+                    pending.sub_chunk_events = pending.sub_chunk_events.saturating_add(1);
+                }
             }
             _ => {}
         }
@@ -266,17 +327,51 @@ impl FullViewTeleportTracker {
         &mut self,
         snapshot: TeleportReadySnapshot,
         now: Instant,
-    ) -> Option<Duration> {
+    ) -> Option<FullViewTeleportCompletion> {
         let completion = {
             let pending = self.pending.as_mut()?;
-            if !pending.publisher_seen || !snapshot.is_ready() {
+            pending.peak_network_events = pending
+                .peak_network_events
+                .max(snapshot.work.network_events);
+            if !pending.publisher_seen
+                || !snapshot.is_ready()
+                || self
+                    .minimum_loaded_columns
+                    .is_none_or(|minimum| snapshot.loaded_columns < minimum)
+            {
                 pending.clean_candidate = None;
                 return None;
             }
             match pending.clean_candidate {
                 Some(candidate) if candidate.snapshot == snapshot => {
                     (now.saturating_duration_since(candidate.since) >= WORLD_READY_QUIET_INTERVAL)
-                        .then_some(candidate.first_clean_latency)
+                        .then_some(FullViewTeleportCompletion {
+                            settle_latency: candidate.first_clean_latency,
+                            publisher_latency: pending.publisher_latency,
+                            first_level_chunk_latency: pending.first_level_chunk_latency,
+                            last_level_chunk_latency: pending.last_level_chunk_latency,
+                            level_chunk_events: pending.level_chunk_events,
+                            first_sub_chunk_latency: pending.first_sub_chunk_latency,
+                            last_sub_chunk_latency: pending.last_sub_chunk_latency,
+                            sub_chunk_events: pending.sub_chunk_events,
+                            last_chunk_commit_latency: latency_after(
+                                pending.started,
+                                snapshot.last_chunk_commit_at,
+                            ),
+                            last_mesh_dispatch_latency: latency_after(
+                                pending.started,
+                                snapshot.last_mesh_dispatch_at,
+                            ),
+                            last_mesh_completion_latency: latency_after(
+                                pending.started,
+                                snapshot.last_mesh_completion_at,
+                            ),
+                            last_mesh_ack_latency: latency_after(
+                                pending.started,
+                                snapshot.last_mesh_ack_at,
+                            ),
+                            peak_network_events: pending.peak_network_events,
+                        })
                 }
                 _ => {
                     pending.clean_candidate = Some(TeleportCleanCandidate {
@@ -288,9 +383,9 @@ impl FullViewTeleportTracker {
                 }
             }
         };
-        if let Some(duration) = completion {
+        if let Some(completion) = completion {
             self.pending = None;
-            self.completed = Some(duration);
+            self.completed = Some(completion.settle_latency);
         }
         completion
     }
@@ -298,6 +393,45 @@ impl FullViewTeleportTracker {
     #[cfg(test)]
     const fn is_pending(&self) -> bool {
         self.pending.is_some()
+    }
+}
+
+fn latency_after(started: Instant, observed: Option<Instant>) -> Option<Duration> {
+    observed.and_then(|observed| observed.checked_duration_since(started))
+}
+
+#[derive(Debug, Default)]
+struct FullViewRemeshTracker {
+    pending: Option<(Instant, usize)>,
+    queued_sub_chunks: Option<usize>,
+    completed: bool,
+}
+
+impl FullViewRemeshTracker {
+    fn start(&mut self, started: Instant, queued_sub_chunks: usize) -> bool {
+        if queued_sub_chunks == 0 || self.pending.is_some() || self.completed {
+            return false;
+        }
+        self.pending = Some((started, queued_sub_chunks));
+        self.queued_sub_chunks = Some(queued_sub_chunks);
+        true
+    }
+
+    fn observe_snapshot(
+        &mut self,
+        snapshot: TeleportReadySnapshot,
+        now: Instant,
+    ) -> Option<Duration> {
+        if !snapshot.is_ready() {
+            return None;
+        }
+        let (started, _) = self.pending.take()?;
+        self.completed = true;
+        Some(now.saturating_duration_since(started))
+    }
+
+    const fn queued_sub_chunks(&self) -> Option<usize> {
+        self.queued_sub_chunks
     }
 }
 
@@ -320,6 +454,7 @@ struct AcceptanceRun {
     mutation: Option<MutationTracker>,
     world_ready_settler: WorldReadySettler,
     full_view_teleport: FullViewTeleportTracker,
+    full_view_remesh: FullViewRemeshTracker,
     world_ready: bool,
     finished: bool,
 }
@@ -338,6 +473,7 @@ impl AcceptanceRun {
             mutation: None,
             world_ready_settler: WorldReadySettler::default(),
             full_view_teleport: FullViewTeleportTracker::new(full_view_teleport_gate),
+            full_view_remesh: FullViewRemeshTracker::default(),
             world_ready: false,
             finished: false,
         }
@@ -347,10 +483,11 @@ impl AcceptanceRun {
         self.duration.is_some()
     }
 
-    fn begin_world_ready(&mut self, ready_at: Instant, position: [f32; 3]) {
+    fn begin_world_ready(&mut self, ready_at: Instant, position: [f32; 3], loaded_columns: usize) {
         self.deadline = self.duration.map(|duration| ready_at + duration);
         self.world_ready = true;
-        self.full_view_teleport.begin_world_ready(position);
+        self.full_view_teleport
+            .begin_world_ready(position, loaded_columns);
     }
 
     fn set_mutation_surface_anchor(&mut self, anchor: [i32; 2]) {
@@ -973,18 +1110,68 @@ fn emit_world_ready(
             rendered_sub_chunks: cache.rendered.len(),
             resident_sub_chunks: stats.resident_sub_chunks,
             visible_sub_chunks: cache.visible_rendered,
+            loaded_columns: stream.loaded_column_count(),
+            last_chunk_commit_at: stats.last_chunk_commit_at,
+            last_mesh_dispatch_at: stats.last_mesh_dispatch_at,
+            last_mesh_completion_at: stats.last_mesh_completion_at,
+            last_mesh_ack_at: stats.last_mesh_ack_at,
             work,
         };
-        if let Some(latency) = acceptance
+        let observed_at = Instant::now();
+        if let Some(teleport) = acceptance
             .full_view_teleport
-            .observe_snapshot(snapshot, Instant::now())
+            .observe_snapshot(snapshot, observed_at)
         {
-            metrics.0.record_full_view_teleport(latency);
+            let remesh_started = Instant::now();
+            let queued_sub_chunks = stream.remesh_all_resident(remesh_started);
+            if !acceptance
+                .full_view_remesh
+                .start(remesh_started, queued_sub_chunks)
+            {
+                error!(queued_sub_chunks, "could not start full-view remesh gate");
+                return;
+            }
+            metrics.0.record_teleport_settle(teleport.settle_latency);
             let mut stdout = std::io::stdout().lock();
             let _ = writeln!(
                 stdout,
-                "RUST_MCBE_FULL_VIEW_TELEPORT_SETTLED ms={:.4} rendered={} resident={} visible={}",
-                latency.as_secs_f64() * 1_000.0,
+                "RUST_MCBE_TELEPORT_SETTLED ms={:.4} publisher_ms={:.4} first_level_ms={:.4} last_level_ms={:.4} level_events={} first_sub_ms={:.4} last_sub_ms={:.4} sub_events={} commit_ms={:.4} mesh_dispatch_ms={:.4} mesh_complete_ms={:.4} mesh_ack_ms={:.4} peak_network_events={} queued={} columns={} rendered={} resident={} visible={}",
+                teleport.settle_latency.as_secs_f64() * 1_000.0,
+                optional_milliseconds(teleport.publisher_latency),
+                optional_milliseconds(teleport.first_level_chunk_latency),
+                optional_milliseconds(teleport.last_level_chunk_latency),
+                teleport.level_chunk_events,
+                optional_milliseconds(teleport.first_sub_chunk_latency),
+                optional_milliseconds(teleport.last_sub_chunk_latency),
+                teleport.sub_chunk_events,
+                optional_milliseconds(teleport.last_chunk_commit_latency),
+                optional_milliseconds(teleport.last_mesh_dispatch_latency),
+                optional_milliseconds(teleport.last_mesh_completion_latency),
+                optional_milliseconds(teleport.last_mesh_ack_latency),
+                teleport.peak_network_events,
+                queued_sub_chunks,
+                snapshot.loaded_columns,
+                snapshot.rendered_sub_chunks,
+                snapshot.resident_sub_chunks,
+                snapshot.visible_sub_chunks,
+            );
+            let _ = stdout.flush();
+            return;
+        }
+        if let Some(remesh_latency) = acceptance
+            .full_view_remesh
+            .observe_snapshot(snapshot, observed_at)
+        {
+            metrics.0.record_forced_full_view_remesh(remesh_latency);
+            let mut stdout = std::io::stdout().lock();
+            let _ = writeln!(
+                stdout,
+                "RUST_MCBE_FORCED_FULL_VIEW_REMESH_SETTLED ms={:.4} queued={} rendered={} resident={} visible={}",
+                remesh_latency.as_secs_f64() * 1_000.0,
+                acceptance
+                    .full_view_remesh
+                    .queued_sub_chunks()
+                    .unwrap_or_default(),
                 snapshot.rendered_sub_chunks,
                 snapshot.resident_sub_chunks,
                 snapshot.visible_sub_chunks,
@@ -1042,7 +1229,15 @@ fn emit_world_ready(
     let _ = stdout.flush();
     stream.begin_timed_session();
     metrics.0.begin_timed_session(ready_at);
-    acceptance.begin_world_ready(ready_at, stream.resolved_server_position().position);
+    acceptance.begin_world_ready(
+        ready_at,
+        stream.resolved_server_position().position,
+        stream.loaded_column_count(),
+    );
+}
+
+fn optional_milliseconds(duration: Option<Duration>) -> f64 {
+    duration.map_or(-1.0, |duration| duration.as_secs_f64() * 1_000.0)
 }
 
 fn flush_sub_chunk_requests(
@@ -1350,11 +1545,12 @@ mod tests {
     use world::SubChunkKey;
 
     use crate::{
-        AcceptanceRun, FullViewTeleportTracker, MutationTracker, NETWORK_INGRESS_BUDGET_PER_FRAME,
-        TeleportReadySnapshot, WORLD_READY_QUIET_INTERVAL, WorldReadySettler, WorldReadySnapshot,
-        WorldReadyWork, bedrock_camera_rotation, camera_sub_chunk_key, cumulative_counter_delta,
-        deterministic_mutation_coordinate, drain_network_ingress, flush_sub_chunk_requests,
-        resolve_socket_dir_from, status_title, world_ready_markers,
+        AcceptanceRun, FullViewRemeshTracker, FullViewTeleportTracker, MutationTracker,
+        NETWORK_INGRESS_BUDGET_PER_FRAME, TeleportReadySnapshot, WORLD_READY_QUIET_INTERVAL,
+        WorldReadySettler, WorldReadySnapshot, WorldReadyWork, bedrock_camera_rotation,
+        camera_sub_chunk_key, cumulative_counter_delta, deterministic_mutation_coordinate,
+        drain_network_ingress, flush_sub_chunk_requests, resolve_socket_dir_from, status_title,
+        world_ready_markers,
     };
 
     fn settled_world_snapshot() -> WorldReadySnapshot {
@@ -1389,7 +1585,7 @@ mod tests {
         assert_eq!(acceptance.deadline, None);
 
         let world_ready_at = Instant::now() + Duration::from_secs(60);
-        acceptance.begin_world_ready(world_ready_at, [0.5, 70.0, 0.5]);
+        acceptance.begin_world_ready(world_ready_at, [0.5, 70.0, 0.5], 1_000);
 
         assert!(acceptance.world_ready);
         assert_eq!(
@@ -1405,6 +1601,11 @@ mod tests {
             rendered_sub_chunks: 8_000,
             resident_sub_chunks: 9_000,
             visible_sub_chunks: 7_000,
+            loaded_columns: 1_000,
+            last_chunk_commit_at: None,
+            last_mesh_dispatch_at: None,
+            last_mesh_completion_at: None,
+            last_mesh_ack_at: None,
             work: WorldReadyWork::default(),
         }
     }
@@ -1413,7 +1614,7 @@ mod tests {
     fn full_view_teleport_requires_far_motion_matching_publisher_and_stable_clean_work() {
         let started = Instant::now();
         let mut tracker = FullViewTeleportTracker::new(true);
-        tracker.begin_world_ready([0.5, 70.0, 0.5]);
+        tracker.begin_world_ready([0.5, 70.0, 0.5], 1_000);
 
         tracker.observe(
             &WorldEvent::MovePlayer(protocol::MovePlayerEvent {
@@ -1462,7 +1663,44 @@ mod tests {
             ),
             None
         );
-        let mut busy = settled_teleport_snapshot();
+        tracker.observe(
+            &WorldEvent::LevelChunk(LevelChunkEvent {
+                dimension: 0,
+                x: 65,
+                z: 65,
+                mode: LevelChunkMode::LimitlessRequests,
+                payload: Vec::new(),
+            }),
+            started + Duration::from_millis(1_150),
+        );
+        tracker.observe(
+            &WorldEvent::SubChunks(protocol::SubChunkBatchEvent {
+                dimension: 0,
+                entries: Vec::new(),
+            }),
+            started + Duration::from_millis(1_300),
+        );
+        tracker.observe(
+            &WorldEvent::SubChunks(protocol::SubChunkBatchEvent {
+                dimension: 0,
+                entries: Vec::new(),
+            }),
+            started + Duration::from_millis(1_500),
+        );
+        tracker.observe(
+            &WorldEvent::PublisherUpdate(protocol::PublisherUpdateEvent {
+                center: [1_040, 70, 1_040],
+                radius_blocks: 256,
+            }),
+            started + Duration::from_millis(1_600),
+        );
+        let mut clean = settled_teleport_snapshot();
+        clean.last_chunk_commit_at = Some(started + Duration::from_millis(1_650));
+        clean.last_mesh_dispatch_at = Some(started + Duration::from_millis(1_700));
+        clean.last_mesh_completion_at = Some(started + Duration::from_millis(1_800));
+        clean.last_mesh_ack_at = Some(started + Duration::from_millis(1_900));
+        let mut busy = clean;
+        busy.work.network_events = 4;
         busy.work.pending_mesh_jobs = 1;
         assert_eq!(
             tracker.observe_snapshot(busy, started + Duration::from_secs(2)),
@@ -1470,19 +1708,117 @@ mod tests {
             "late work did not reset the clean candidate"
         );
         assert_eq!(
-            tracker.observe_snapshot(
-                settled_teleport_snapshot(),
-                started + Duration::from_millis(2_100),
-            ),
+            tracker.observe_snapshot(clean, started + Duration::from_millis(2_100),),
+            None
+        );
+        let completion = tracker
+            .observe_snapshot(clean, started + Duration::from_millis(4_100))
+            .expect("stable clean target should complete");
+        assert_eq!(completion.settle_latency, Duration::from_millis(2_100));
+        assert_eq!(
+            completion.publisher_latency,
+            Some(Duration::from_millis(1_100))
+        );
+        assert_eq!(
+            completion.first_level_chunk_latency,
+            Some(Duration::from_millis(1_150))
+        );
+        assert_eq!(
+            completion.last_level_chunk_latency,
+            Some(Duration::from_millis(1_150))
+        );
+        assert_eq!(completion.level_chunk_events, 1);
+        assert_eq!(
+            completion.first_sub_chunk_latency,
+            Some(Duration::from_millis(1_300))
+        );
+        assert_eq!(
+            completion.last_sub_chunk_latency,
+            Some(Duration::from_millis(1_500))
+        );
+        assert_eq!(completion.sub_chunk_events, 2);
+        assert_eq!(
+            completion.last_chunk_commit_latency,
+            Some(Duration::from_millis(1_650))
+        );
+        assert_eq!(
+            completion.last_mesh_dispatch_latency,
+            Some(Duration::from_millis(1_700))
+        );
+        assert_eq!(
+            completion.last_mesh_completion_latency,
+            Some(Duration::from_millis(1_800))
+        );
+        assert_eq!(
+            completion.last_mesh_ack_latency,
+            Some(Duration::from_millis(1_900))
+        );
+        assert_eq!(completion.peak_network_events, 4);
+    }
+
+    #[test]
+    fn partial_target_column_coverage_never_settles_the_teleport_stream() {
+        let started = Instant::now();
+        let mut tracker = FullViewTeleportTracker::new(true);
+        tracker.begin_world_ready([0.5, 70.0, 0.5], 1_000);
+        tracker.observe(
+            &WorldEvent::MovePlayer(protocol::MovePlayerEvent {
+                runtime_id: 1,
+                position: [1_040.5, 70.0, 1_040.5],
+                pitch: 0.0,
+                yaw: 0.0,
+            }),
+            started,
+        );
+        tracker.observe(
+            &WorldEvent::PublisherUpdate(protocol::PublisherUpdateEvent {
+                center: [1_040, 70, 1_040],
+                radius_blocks: 256,
+            }),
+            started + Duration::from_millis(100),
+        );
+        let mut partial = settled_teleport_snapshot();
+        partial.loaded_columns = 999;
+
+        assert_eq!(
+            tracker.observe_snapshot(partial, started + Duration::from_millis(200)),
+            None
+        );
+        assert_eq!(
+            tracker.observe_snapshot(partial, started + Duration::from_secs(5)),
+            None,
+            "a quiet partial target view passed the coverage gate"
+        );
+        assert!(tracker.is_pending());
+    }
+
+    #[test]
+    fn full_view_remesh_closes_only_after_all_bounded_work_and_gpu_acknowledgements_clear() {
+        let started = Instant::now();
+        let mut tracker = FullViewRemeshTracker::default();
+        assert!(tracker.start(started, 8_000));
+
+        let mut busy = settled_teleport_snapshot();
+        busy.work.unacknowledged_meshes = 1;
+        assert_eq!(
+            tracker.observe_snapshot(busy, started + Duration::from_millis(900)),
             None
         );
         assert_eq!(
             tracker.observe_snapshot(
                 settled_teleport_snapshot(),
-                started + Duration::from_millis(4_100),
+                started + Duration::from_millis(1_500),
             ),
-            Some(Duration::from_millis(2_100)),
-            "confirmation must report first-clean latency, not include its two-second hold"
+            Some(Duration::from_millis(1_500))
+        );
+        assert_eq!(tracker.queued_sub_chunks(), Some(8_000));
+        assert_eq!(
+            tracker.observe_snapshot(
+                settled_teleport_snapshot(),
+                started + Duration::from_millis(1_600),
+            ),
+            None,
+            "a completed gate emitted twice"
         );
     }
 

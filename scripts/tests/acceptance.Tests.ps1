@@ -534,7 +534,7 @@ try {
         mutation_coordinate = @(1, 2, 3); visible_mutation_count = 1; frame_count = 1
         p50_frame_ms = 1.0; p95_frame_ms = 2.0; p99_frame_ms = 3.0; max_frame_ms = 4.0
         max_decode_ms = 1.0; max_mesh_ms = 1.0; max_remesh_ms = 1.0
-        full_view_teleport_ms = $null
+        teleport_settle_ms = $null; forced_full_view_remesh_ms = $null
         max_mutation_to_visible_ms = 50.0; decode_error_count = 0
         rendered_sub_chunks = 1; resident_sub_chunks = 1; visible_sub_chunks = 1
         peak_admitted_world_events = 1; peak_admitted_heavy_events = 1
@@ -547,13 +547,18 @@ try {
     $metrics | ConvertTo-Json | Set-Content -LiteralPath $metricsPath
     $null = Assert-AcceptanceMetrics -Path $metricsPath
 
-    $metrics.full_view_teleport_ms = 1500.0
+    $metrics.teleport_settle_ms = 1500.0
+    $metrics.forced_full_view_remesh_ms = 1500.0
     $metrics | ConvertTo-Json | Set-Content -LiteralPath $metricsPath
     $null = Assert-AcceptanceMetrics -Path $metricsPath -RequireFullViewTeleport
-    $metrics.full_view_teleport_ms = 2000.1
+    $metrics.teleport_settle_ms = 2000.1
     $metrics | ConvertTo-Json | Set-Content -LiteralPath $metricsPath
-    Assert-Throws { Assert-AcceptanceMetrics -Path $metricsPath -RequireFullViewTeleport } 'over-budget full-view teleport passed validation'
-    $metrics.full_view_teleport_ms = $null
+    Assert-Throws { Assert-AcceptanceMetrics -Path $metricsPath -RequireFullViewTeleport } 'over-budget end-to-end teleport passed validation'
+    $metrics.teleport_settle_ms = 1500.0
+    $metrics.forced_full_view_remesh_ms = 2000.1
+    $metrics | ConvertTo-Json | Set-Content -LiteralPath $metricsPath
+    Assert-Throws { Assert-AcceptanceMetrics -Path $metricsPath -RequireFullViewTeleport } 'over-budget forced full-view remesh passed validation'
+    $metrics.forced_full_view_remesh_ms = $null
 
     $resourceSamples = @(
         [pscustomobject]@{ combined_rss_bytes = 300MB; cpu_percent = 5.0 },

@@ -1076,7 +1076,7 @@ function Assert-AcceptanceMetrics {
         'session_seconds', 'world_ready', 'requested_radius_chunks', 'received_radius_chunks',
         'publisher_radius_chunks', 'mutation_coordinate', 'visible_mutation_count', 'frame_count',
         'p50_frame_ms', 'p95_frame_ms', 'p99_frame_ms', 'max_frame_ms', 'max_decode_ms',
-        'max_mesh_ms', 'max_remesh_ms', 'full_view_teleport_ms',
+        'max_mesh_ms', 'max_remesh_ms', 'teleport_settle_ms', 'forced_full_view_remesh_ms',
         'max_mutation_to_visible_ms', 'decode_error_count',
         'rendered_sub_chunks', 'resident_sub_chunks', 'visible_sub_chunks',
         'peak_admitted_world_events', 'peak_admitted_heavy_events', 'peak_queued_decode_jobs',
@@ -1119,12 +1119,19 @@ function Assert-AcceptanceMetrics {
         throw 'visible_mutation_count was zero'
     }
     if ($RequireFullViewTeleport) {
-        if ($null -eq $metrics.full_view_teleport_ms) {
-            throw 'full_view_teleport_ms was not recorded'
+        if ($null -eq $metrics.teleport_settle_ms) {
+            throw 'teleport_settle_ms was not recorded'
         }
-        $teleport = [double]$metrics.full_view_teleport_ms
+        $teleport = [double]$metrics.teleport_settle_ms
         if ([double]::IsNaN($teleport) -or [double]::IsInfinity($teleport) -or $teleport -gt 2000.0) {
-            throw "full_view_teleport_ms failed the 2000ms gate: $($metrics.full_view_teleport_ms)"
+            throw "teleport_settle_ms failed the 2000ms gate: $($metrics.teleport_settle_ms)"
+        }
+        if ($null -eq $metrics.forced_full_view_remesh_ms) {
+            throw 'forced_full_view_remesh_ms was not recorded'
+        }
+        $remesh = [double]$metrics.forced_full_view_remesh_ms
+        if ([double]::IsNaN($remesh) -or [double]::IsInfinity($remesh) -or $remesh -gt 2000.0) {
+            throw "forced_full_view_remesh_ms failed the 2000ms gate: $($metrics.forced_full_view_remesh_ms)"
         }
         $averageFps = [double]$metrics.frame_count / [double]$metrics.session_seconds
         if ($averageFps -gt 65.0) {
@@ -1326,21 +1333,27 @@ try {
         Publish-FullViewTeleport -Handle $bdsHandle -Plan $teleportPlan -RunDirectory $RunDirectory
         $teleportMarker = Wait-ProcessOutputMarker `
             -Handle $appHandle `
-            -Marker 'RUST_MCBE_FULL_VIEW_TELEPORT_SETTLED ' `
+            -Marker 'RUST_MCBE_TELEPORT_SETTLED ' `
             -TimeoutSeconds 180
-        if ($teleportMarker -notmatch '^RUST_MCBE_FULL_VIEW_TELEPORT_SETTLED ms=([0-9]+(?:\.[0-9]+)?) ') {
-            throw "invalid full-view teleport marker: $teleportMarker"
+        if ($teleportMarker -notmatch '^RUST_MCBE_TELEPORT_SETTLED ms=([0-9]+(?:\.[0-9]+)?) ') {
+            throw "invalid teleport settle marker: $teleportMarker"
         }
         $teleportMilliseconds = [double]::Parse($Matches[1], [Globalization.CultureInfo]::InvariantCulture)
-        if ($teleportMilliseconds -gt 2000.0) {
-            throw "full-view teleport exceeded 2000ms: $teleportMilliseconds"
+        $remeshMarker = Wait-ProcessOutputMarker `
+            -Handle $appHandle `
+            -Marker 'RUST_MCBE_FORCED_FULL_VIEW_REMESH_SETTLED ' `
+            -TimeoutSeconds 30
+        if ($remeshMarker -notmatch '^RUST_MCBE_FORCED_FULL_VIEW_REMESH_SETTLED ms=([0-9]+(?:\.[0-9]+)?) ') {
+            throw "invalid forced full-view remesh marker: $remeshMarker"
         }
+        $remeshMilliseconds = [double]::Parse($Matches[1], [Globalization.CultureInfo]::InvariantCulture)
         $resourceDocument = Measure-SteadyResources `
             -ClientHandle $appHandle `
             -CoreHandle $coreHandle `
             -RunDirectory $RunDirectory `
             -DurationSeconds 30
-        $metadata['full_view_teleport_ms'] = $teleportMilliseconds
+        $metadata['teleport_settle_ms'] = $teleportMilliseconds
+        $metadata['forced_full_view_remesh_ms'] = $remeshMilliseconds
         $metadata['steady_resources'] = $resourceDocument.summary
         $metadata | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $RunDirectory 'metadata.json') -Encoding UTF8
     }

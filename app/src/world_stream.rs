@@ -324,6 +324,10 @@ pub struct WorldStreamStats {
     pub max_decode_duration: Duration,
     pub max_mesh_duration: Duration,
     pub max_remesh_latency: Duration,
+    pub last_chunk_commit_at: Option<Instant>,
+    pub last_mesh_dispatch_at: Option<Instant>,
+    pub last_mesh_completion_at: Option<Instant>,
+    pub last_mesh_ack_at: Option<Instant>,
 }
 
 /// Work performed by one call to [`WorldStream::poll`].
@@ -950,6 +954,11 @@ impl WorldStream {
             .stats
             .max_remesh_latency
             .max(applied_at.saturating_duration_since(dirty_since));
+        self.stats.last_mesh_ack_at = Some(
+            self.stats
+                .last_mesh_ack_at
+                .map_or(applied_at, |latest| latest.max(applied_at)),
+        );
         self.revisions.clear_if_current(key, generation);
     }
 
@@ -984,6 +993,23 @@ impl WorldStream {
         self.stats.max_decode_duration = Duration::ZERO;
         self.stats.max_mesh_duration = Duration::ZERO;
         self.stats.max_remesh_latency = Duration::ZERO;
+        self.stats.last_chunk_commit_at = None;
+        self.stats.last_mesh_dispatch_at = None;
+        self.stats.last_mesh_completion_at = None;
+        self.stats.last_mesh_ack_at = None;
+    }
+
+    #[must_use]
+    pub fn loaded_column_count(&self) -> usize {
+        self.loaded_columns.len()
+    }
+
+    pub fn remesh_all_resident(&mut self, now: Instant) -> usize {
+        let keys = self.resident.iter().copied().collect::<Vec<_>>();
+        for key in &keys {
+            self.mark_dirty_exact(*key, now);
+        }
+        keys.len()
     }
 
     fn record_normalization_error(&mut self, reason: NormalizationErrorReason) {
@@ -1216,6 +1242,7 @@ impl WorldStream {
                         for removed in old_keys.difference(&new_keys) {
                             self.mark_changed(*removed, now);
                         }
+                        self.stats.last_chunk_commit_at = Some(now);
                     }
                     Err(_) => self.stats.decode_errors = self.stats.decode_errors.saturating_add(1),
                 }
@@ -1226,6 +1253,7 @@ impl WorldStream {
                 duration,
             } => {
                 self.stats.max_decode_duration = self.stats.max_decode_duration.max(duration);
+                let mut committed_any = false;
                 for entry in entries {
                     let key = SubChunkKey::new(
                         dimension,
@@ -1242,10 +1270,10 @@ impl WorldStream {
                         );
                         continue;
                     }
-                    let completed = match entry.result {
+                    let (completed, committed) = match entry.result {
                         PreparedSubChunkResult::Decoded(Ok(decoded)) => {
                             let decoded_air = decoded.has_no_storages();
-                            match self.store.commit_sub_chunk(key, decoded) {
+                            let committed = match self.store.commit_sub_chunk(key, decoded) {
                                 Ok(Some(changed)) => {
                                     if decoded_air {
                                         self.record_known_air(changed);
@@ -1253,22 +1281,25 @@ impl WorldStream {
                                         self.sync_resident(changed);
                                     }
                                     self.mark_changed(changed, Instant::now());
+                                    true
                                 }
                                 Ok(None) => {
                                     if decoded_air {
                                         self.record_known_air(key);
                                     }
+                                    true
                                 }
                                 Err(_) => {
                                     self.stats.decode_errors =
                                         self.stats.decode_errors.saturating_add(1);
+                                    false
                                 }
-                            }
-                            true
+                            };
+                            (true, committed)
                         }
                         PreparedSubChunkResult::Decoded(Err(_)) => {
                             self.stats.decode_errors = self.stats.decode_errors.saturating_add(1);
-                            self.retry_or_complete_sub_chunk(key)
+                            (self.retry_or_complete_sub_chunk(key), false)
                         }
                         PreparedSubChunkResult::AllAir => {
                             let changed = self.store.apply_all_air(key);
@@ -1276,7 +1307,7 @@ impl WorldStream {
                             if let Some(changed) = changed {
                                 self.mark_changed(changed, Instant::now());
                             }
-                            true
+                            (true, true)
                         }
                         PreparedSubChunkResult::Unavailable(unavailable) => {
                             self.stats.unavailable_sub_chunks =
@@ -1288,26 +1319,30 @@ impl WorldStream {
                                     if let Some(changed) = changed {
                                         self.mark_changed(changed, Instant::now());
                                     }
-                                    true
+                                    (true, true)
                                 }
                                 protocol::SubChunkUnavailable::InvalidDimension => {
                                     self.record_normalization_error(
                                         NormalizationErrorReason::InvalidDimensionSubChunk,
                                     );
-                                    true
+                                    (true, false)
                                 }
                                 protocol::SubChunkUnavailable::ChunkNotFound
                                 | protocol::SubChunkUnavailable::PlayerNotFound => {
-                                    self.retry_or_complete_sub_chunk(key)
+                                    (self.retry_or_complete_sub_chunk(key), false)
                                 }
                                 protocol::SubChunkUnavailable::Undefined
-                                | protocol::SubChunkUnavailable::Unknown(_) => true,
+                                | protocol::SubChunkUnavailable::Unknown(_) => (true, false),
                             }
                         }
                     };
+                    committed_any |= committed;
                     if completed {
                         self.complete_requested_sub_chunk(key);
                     }
+                }
+                if committed_any {
+                    self.stats.last_chunk_commit_at = Some(Instant::now());
                 }
             }
             PreparedWorldEvent::BlockUpdates { result, duration } => {
@@ -1700,6 +1735,7 @@ impl WorldStream {
                     duration: started.elapsed(),
                 });
             });
+            self.stats.last_mesh_dispatch_at = Some(Instant::now());
             dispatched += 1;
         }
         dispatched
@@ -1740,6 +1776,7 @@ impl WorldStream {
             return;
         }
         self.stats.max_mesh_duration = self.stats.max_mesh_duration.max(completion.duration);
+        self.stats.last_mesh_completion_at = Some(Instant::now());
         let dirty = self
             .revisions
             .dirty(completion.key)
@@ -2776,6 +2813,56 @@ mod tests {
         assert_eq!(stream.stats().max_mesh_duration, std::time::Duration::ZERO);
         assert_eq!(stream.stats().max_remesh_latency, std::time::Duration::ZERO);
         assert_eq!(stream.stats().decode_errors, 7);
+    }
+
+    #[test]
+    fn mesh_ack_diagnostic_retains_latest_timestamp_when_acks_arrive_out_of_order() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        let started = Instant::now();
+        let newer_key = SubChunkKey::new(0, 0, 0, 0);
+        let older_key = SubChunkKey::new(0, 0, 1, 0);
+        let newer_generation = stream.revisions.mark_dirty(newer_key, started);
+        let older_generation = stream.revisions.mark_dirty(older_key, started);
+        let newest = started + std::time::Duration::from_millis(100);
+        let older = started + std::time::Duration::from_millis(50);
+
+        stream.acknowledge_mesh_upload(newer_key, newer_generation, started, newest);
+        stream.acknowledge_mesh_upload(older_key, older_generation, started, older);
+
+        assert_eq!(stream.stats().last_mesh_ack_at, Some(newest));
+    }
+
+    #[test]
+    fn full_view_remesh_requeues_every_resident_subchunk_with_one_timestamp() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        let keys = [
+            SubChunkKey::new(0, -1, 3, 2),
+            SubChunkKey::new(0, 0, 4, 0),
+            SubChunkKey::new(0, 1, 5, -2),
+        ];
+        stream.resident.extend(keys);
+        let started = std::time::Instant::now();
+
+        assert_eq!(stream.remesh_all_resident(started), keys.len());
+        assert_eq!(stream.pending_mesh.len(), keys.len());
+        assert_eq!(stream.revisions.entries.len(), keys.len());
+        for key in keys {
+            assert_eq!(stream.revisions.dirty(key).unwrap().since, started);
+        }
     }
 
     #[test]
