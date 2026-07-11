@@ -215,6 +215,11 @@ does not widen or replace the model streams. Direct and MDI use identical
 reference/quad-light indexing. Every stream and sidecar has explicit byte
 accounting in the pending queue and GPU arenas.
 
+Before Phase 2.7 installs block/sky flood-fill values, Phase 2.6 uses the explicit
+temporary input block light 0 and sky light 15 while still baking face-specific
+AO. Phase 2.7 changes only those inputs and invalidates/remeshes affected chunks;
+the sidecar format, ordering, and GPU addressing remain unchanged.
+
 The presented-frame contract changes from one draw bit to an expected/drawn
 stream mask. A subchunk generation is acknowledged only after every non-empty
 stream for that generation has been emitted. Direct and MDI paths consume the
@@ -365,8 +370,9 @@ Required automated evidence includes:
   transparent ordering tests;
 - model transform/UV/culling fixtures for every added family;
 - exact PMMP/Dragonfly/Valentine state-by-state bijection fixtures;
-- exhaustive 16,913-state visual coverage with only canonical air allowed to
-  have no drawable visual;
+- exhaustive 16,913-state visual coverage with every non-air state assigned a
+  non-diagnostic visual kind; source-backed vanilla-invisible/engine-only kinds
+  may intentionally emit no geometry but cannot use the diagnostic fallback;
 - unchanged eight-byte `PackedQuad` assertion and bounded record-size assertions;
 - model/light-sidecar and liquid-light addressing parity in direct and MDI paths;
 - texture-page codec validation and same-page/cross-page animation sampling;
