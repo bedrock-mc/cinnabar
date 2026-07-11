@@ -15,8 +15,9 @@ use std::{
 };
 
 use ::assets::{
-    BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, Material, NetworkIdMode,
-    TextureArray, TextureMip, encode_blob,
+    BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, Material, NO_ANIMATION,
+    NO_MODEL_TEMPLATE, NetworkIdMode, TextureArray, TextureMip, TexturePage, TextureRef,
+    VisualKind, encode_blob,
 };
 use args::{ClientArgs, ParseOutcome};
 use asset_startup::{
@@ -58,18 +59,45 @@ fn synthetic_blob() -> Box<[u8]> {
         visuals: vec![BlockVisual {
             faces: [1; 6],
             flags: BlockFlags::CUBE_GEOMETRY,
+            kind: VisualKind::Cube,
+            contributor_role: ::assets::ContributorRole::Primary,
+            model_template: NO_MODEL_TEMPLATE,
+            animation: NO_ANIMATION,
+            variant: 0,
         }]
         .into_boxed_slice(),
         hashed: vec![(0xdbf4_4120, 0)].into_boxed_slice(),
         materials: vec![
-            Material { layer: 0, flags: 0 },
-            Material { layer: 1, flags: 0 },
+            Material {
+                texture: TextureRef::DIAGNOSTIC,
+                flags: 0,
+                animation: NO_ANIMATION,
+            },
+            Material {
+                texture: TextureRef::new(0, 1).unwrap(),
+                flags: 0,
+                animation: NO_ANIMATION,
+            },
         ]
         .into_boxed_slice(),
-        textures: TextureArray { layers: 2, mips },
+        model_templates: Box::new([]),
+        model_quads: Box::new([]),
+        animations: Box::new([]),
+        animation_frames: Box::new([]),
+        texture_pages: vec![TexturePage::new(TextureArray { layers: 2, mips })].into_boxed_slice(),
         biomes: CompiledBiomeAssets::diagnostic(),
     })
     .unwrap()
+}
+
+#[test]
+fn workspace_consumers_accept_empty_new_tables() {
+    let runtime = ::assets::RuntimeAssets::decode(&synthetic_blob()).expect("decode MCBEAS04");
+    assert!(runtime.model_templates().is_empty());
+    assert!(runtime.model_quads().is_empty());
+    assert!(runtime.animations().is_empty());
+    assert!(runtime.animation_frames().is_empty());
+    assert_eq!(runtime.texture_pages().len(), 1);
 }
 
 #[test]

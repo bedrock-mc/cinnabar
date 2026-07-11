@@ -135,6 +135,209 @@ fn assetc_animation_inventory_records_the_full_deterministic_contract() {
     );
 }
 
+#[test]
+fn compile_pack_installs_flipbook_pages_frames_and_material_animation() {
+    let directory = tempfile::tempdir().expect("create runtime animation fixture");
+    write_pack(
+        directory.path(),
+        r#"{"animated_block":{"textures":"animated"}}"#,
+        r#"{"texture_data":{"animated":{"textures":"textures/blocks/animated"}}}"#,
+        r#"[{"flipbook_texture":"textures/blocks/animated","atlas_tile":"animated","ticks_per_frame":3,"blend_frames":true}]"#,
+    );
+    let mut strip = solid(TILE_SIZE, TILE_SIZE, [10, 20, 30, 255]);
+    strip.extend(solid(TILE_SIZE, TILE_SIZE, [40, 50, 60, 255]));
+    write_png(
+        directory.path(),
+        "textures/blocks/animated",
+        TILE_SIZE,
+        TILE_SIZE * 2,
+        &strip,
+    );
+    let compiled = compile_pack(
+        directory.path(),
+        &[record(
+            0,
+            1,
+            "minecraft:animated_block",
+            "minecraft:animated_block[]",
+            BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
+        )],
+    )
+    .expect("compile flipbook into MCBEAS04 tables");
+
+    assert_eq!(compiled.animations.len(), 1);
+    assert_eq!(compiled.animations[0].frame_count, 2);
+    assert_eq!(compiled.animations[0].ticks_per_frame, 3);
+    assert_eq!(compiled.animation_frames.len(), 2);
+    assert_ne!(compiled.animation_frames[0], compiled.animation_frames[1]);
+    assert_eq!(compiled.materials.len(), 2);
+    assert_eq!(compiled.materials[1].animation, 0);
+    assert_eq!(compiled.materials[1].texture, compiled.animation_frames[0]);
+    assert_eq!(compiled.texture_pages.len(), 1);
+    let runtime = assets::RuntimeAssets::decode(&encode_blob(&compiled).unwrap())
+        .expect("decode installed animation tables");
+    assert_eq!(runtime.animations(), compiled.animations.as_ref());
+    assert_eq!(
+        runtime.animation_frames(),
+        compiled.animation_frames.as_ref()
+    );
+}
+
+#[test]
+fn compile_pack_uses_compact_exact_flipbook_selector_and_preserves_metadata() {
+    let directory = tempfile::tempdir().expect("create selector fixture");
+    write_pack(
+        directory.path(),
+        r#"{"chosen_block":{"textures":"chosen"}}"#,
+        r#"{"texture_data":{
+            "unselected":{"textures":"textures/blocks/unselected"},
+            "chosen":{"textures":"textures/blocks/chosen"}
+        }}"#,
+        r#"[
+            {"flipbook_texture":"textures/blocks/unselected","atlas_tile":"unselected"},
+            {"flipbook_texture":"textures/blocks/chosen","atlas_tile":"chosen","atlas_index":4,"atlas_tile_variant":5,"replicate":2},
+            {"flipbook_texture":"textures/blocks/chosen","atlas_tile":"chosen","ticks_per_frame":7,"atlas_index":0,"atlas_tile_variant":0,"replicate":3}
+        ]"#,
+    );
+    let mut chosen = solid(TILE_SIZE, TILE_SIZE, [1, 2, 3, 255]);
+    chosen.extend(solid(TILE_SIZE, TILE_SIZE, [4, 5, 6, 255]));
+    write_png(
+        directory.path(),
+        "textures/blocks/chosen",
+        TILE_SIZE,
+        TILE_SIZE * 2,
+        &chosen,
+    );
+    let compiled = compile_pack(
+        directory.path(),
+        &[record(
+            0,
+            2,
+            "minecraft:chosen_block",
+            "minecraft:chosen_block[]",
+            BlockFlags::CUBE_GEOMETRY,
+        )],
+    )
+    .expect("compile selected flipbooks without loading unselected strip");
+
+    assert_eq!(compiled.animations.len(), 2);
+    assert_eq!(
+        compiled.materials[1].animation, 1,
+        "default selector is compact index one"
+    );
+    assert_eq!(compiled.animations[0].atlas_index, 4);
+    assert_eq!(compiled.animations[0].atlas_tile_variant, 5);
+    assert_eq!(compiled.animations[0].replicate, 2);
+    assert_eq!(compiled.animations[1].atlas_index, 0);
+    assert_eq!(compiled.animations[1].atlas_tile_variant, 0);
+    assert_eq!(compiled.animations[1].replicate, 3);
+    assert_eq!(compiled.animations[1].ticks_per_frame, 7);
+}
+
+#[test]
+fn compile_pack_uses_first_strip_frame_for_non_flipbook_path_alias() {
+    let directory = tempfile::tempdir().expect("create animated path alias fixture");
+    write_pack(
+        directory.path(),
+        r#"{"flattened_prismarine":{"textures":"flattened_prismarine"}}"#,
+        r#"{"texture_data":{
+            "prismarine":{"textures":"textures/blocks/prismarine_rough"},
+            "flattened_prismarine":{"textures":"textures/blocks/prismarine_rough"}
+        }}"#,
+        r#"[{"flipbook_texture":"textures/blocks/prismarine_rough","atlas_tile":"prismarine","ticks_per_frame":2}]"#,
+    );
+    let mut strip = solid(TILE_SIZE, TILE_SIZE, [11, 22, 33, 255]);
+    strip.extend(solid(TILE_SIZE, TILE_SIZE, [44, 55, 66, 255]));
+    write_png(
+        directory.path(),
+        "textures/blocks/prismarine_rough",
+        TILE_SIZE,
+        TILE_SIZE * 2,
+        &strip,
+    );
+    let compiled = compile_pack(
+        directory.path(),
+        &[record(
+            0,
+            3,
+            "minecraft:flattened_prismarine",
+            "minecraft:flattened_prismarine[]",
+            BlockFlags::CUBE_GEOMETRY,
+        )],
+    )
+    .expect("compile alias without decoding the strip as a static 16x64 image");
+
+    assert_eq!(compiled.animations.len(), 1, "strip remains compiled once");
+    assert_eq!(compiled.materials.len(), 2);
+    assert_eq!(compiled.materials[1].animation, assets::NO_ANIMATION);
+    assert_eq!(compiled.materials[1].texture, compiled.animation_frames[0]);
+    assert!(
+        compiled.visuals[0]
+            .faces
+            .into_iter()
+            .all(|material| material == 1)
+    );
+}
+
+#[test]
+fn compile_pack_keeps_static_and_animated_keys_distinct_on_one_strip_path() {
+    let directory = tempfile::tempdir().expect("create shared strip-key fixture");
+    write_pack(
+        directory.path(),
+        r#"{
+            "static_block":{"textures":"a_static"},
+            "animated_block":{"textures":"z_anim"}
+        }"#,
+        r#"{"texture_data":{
+            "a_static":{"textures":"textures/blocks/shared_strip"},
+            "z_anim":{"textures":"textures/blocks/shared_strip"}
+        }}"#,
+        r#"[{"flipbook_texture":"textures/blocks/shared_strip","atlas_tile":"z_anim"}]"#,
+    );
+    let mut strip = solid(TILE_SIZE, TILE_SIZE, [1, 10, 100, 255]);
+    strip.extend(solid(TILE_SIZE, TILE_SIZE, [2, 20, 200, 255]));
+    write_png(
+        directory.path(),
+        "textures/blocks/shared_strip",
+        TILE_SIZE,
+        TILE_SIZE * 2,
+        &strip,
+    );
+    let compiled = compile_pack(
+        directory.path(),
+        &[
+            record(
+                0,
+                4,
+                "minecraft:static_block",
+                "{}",
+                BlockFlags::CUBE_GEOMETRY,
+            ),
+            record(
+                1,
+                5,
+                "minecraft:animated_block",
+                "{}",
+                BlockFlags::CUBE_GEOMETRY,
+            ),
+        ],
+    )
+    .expect("compile distinct atlas-key semantics on one source strip");
+
+    let static_material = compiled.visuals[0].faces[0] as usize;
+    let animated_material = compiled.visuals[1].faces[0] as usize;
+    assert_ne!(static_material, animated_material);
+    assert_eq!(
+        compiled.materials[static_material].animation,
+        assets::NO_ANIMATION
+    );
+    assert_eq!(compiled.materials[animated_material].animation, 0);
+    assert_eq!(
+        compiled.materials[static_material].texture, compiled.materials[animated_material].texture,
+        "both begin on the same deduplicated physical frame"
+    );
+}
+
 fn write_file(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) {
     let path = path.as_ref();
     if let Some(parent) = path.parent() {
@@ -433,7 +636,7 @@ fn shuffled_records(records: &[RegistryRecord], mut state: u64) -> Vec<RegistryR
 }
 
 fn mip_layer(compiled: &CompiledAssets, mip_index: usize, layer: u32) -> &[u8] {
-    let mip = &compiled.textures.mips[mip_index];
+    let mip = &compiled.texture_pages[0].texture.mips[mip_index];
     let layer_bytes = usize::try_from(mip.size * mip.size * 4).expect("small mip");
     let start = usize::try_from(layer).expect("small layer") * layer_bytes;
     &mip.rgba8[start..start + layer_bytes]
@@ -541,8 +744,8 @@ fn compiler_marks_only_leaf_faces_as_alpha_cutout() {
 
     assert_eq!(MATERIAL_FLAG_UV_MASK, 0x0f);
     assert_eq!(MATERIAL_FLAG_ALPHA_CUTOUT, 0x100);
-    assert_eq!(MATERIAL_FLAGS_MASK, 0x77f);
-    assert_eq!(std::mem::size_of::<Material>(), 8);
+    assert_eq!(MATERIAL_FLAGS_MASK, 0x7ff);
+    assert_eq!(std::mem::size_of::<Material>(), 12);
     let opaque_id = compiled.visuals[0].faces[BlockFace::Up as usize];
     let opaque = compiled.materials[opaque_id as usize];
     assert_eq!(opaque.flags & MATERIAL_FLAG_ALPHA_CUTOUT, 0);
@@ -561,7 +764,8 @@ fn compiler_marks_only_leaf_faces_as_alpha_cutout() {
     let cherry_id = compiled.visuals[1].faces[BlockFace::Up as usize];
     let cherry = compiled.materials[cherry_id as usize];
     assert_eq!(
-        opaque.layer, cherry.layer,
+        opaque.texture.layer(),
+        cherry.texture.layer(),
         "pixels must remain deduplicated"
     );
     assert_ne!(
@@ -700,8 +904,12 @@ fn cutout_mips_preserve_each_layer_coverage_without_cross_layer_bleed() {
         record(2, 202, "minecraft:azalea_leaves_flowered", "{}", flags),
     ];
     let compiled = compile_pack(directory.path(), &records).expect("compile coverage fixture");
-    let red_layer = material_for_face(&compiled, 0, BlockFace::Up).layer;
-    let blue_layer = material_for_face(&compiled, 1, BlockFace::Up).layer;
+    let red_layer = material_for_face(&compiled, 0, BlockFace::Up)
+        .texture
+        .layer();
+    let blue_layer = material_for_face(&compiled, 1, BlockFace::Up)
+        .texture
+        .layer();
     assert_eq!(
         blue_layer,
         red_layer + 1,
@@ -714,10 +922,12 @@ fn cutout_mips_preserve_each_layer_coverage_without_cross_layer_bleed() {
         (1, blue.as_slice(), [0, 0, 255], false),
         (2, green.as_slice(), [0, 255, 0], true),
     ] {
-        let layer = material_for_face(&compiled, record_id, BlockFace::Up).layer;
+        let layer = material_for_face(&compiled, record_id, BlockFace::Up)
+            .texture
+            .layer();
         let raw_mips = reference_raw_mips(base, colour);
         let base_survivors = alpha_survivors(&raw_mips[0]);
-        for (mip_index, mip) in compiled.textures.mips.iter().enumerate() {
+        for (mip_index, mip) in compiled.texture_pages[0].texture.mips.iter().enumerate() {
             let actual = mip_layer(&compiled, mip_index, layer);
             let raw = &raw_mips[mip_index];
             let pixels = usize::try_from(mip.size * mip.size).expect("small mip");
@@ -791,7 +1001,7 @@ fn mip_pixel(
     x: usize,
     y: usize,
 ) -> [u8; 4] {
-    let mip = &compiled.textures.mips[mip_index];
+    let mip = &compiled.texture_pages[0].texture.mips[mip_index];
     let size = mip.size as usize;
     let layer_bytes = size * size * 4;
     let offset = layer as usize * layer_bytes + (y * size + x) * 4;
@@ -855,7 +1065,10 @@ fn compiler_deduplicates_pixels_without_conflating_uv_flags() {
 
     let compiled = compile_pack(directory.path(), &records).expect("compile synthetic pack");
 
-    assert_eq!(compiled.textures.layers, 3, "diagnostic + red + blue");
+    assert_eq!(
+        compiled.texture_pages[0].texture.layers, 3,
+        "diagnostic + red + blue"
+    );
     assert_eq!(
         compiled.materials.len(),
         4,
@@ -866,11 +1079,11 @@ fn compiler_deduplicates_pixels_without_conflating_uv_flags() {
     let red_plain = material_for_face(&compiled, 0, BlockFace::Up);
     let red_rotated = material_for_face(&compiled, 2, BlockFace::North);
     let blue = material_for_face(&compiled, 3, BlockFace::Up);
-    assert_eq!(red_plain.layer, red_rotated.layer);
+    assert_eq!(red_plain.texture.layer(), red_rotated.texture.layer());
     assert_eq!(red_plain.flags, 0);
     assert_eq!(red_rotated.flags, MATERIAL_FLAG_ROTATE_UV);
     assert_ne!(red_plain, red_rotated);
-    assert_ne!(red_plain.layer, blue.layer);
+    assert_ne!(red_plain.texture.layer(), blue.texture.layer());
 }
 
 #[test]
@@ -909,13 +1122,20 @@ fn compiler_builds_diagnostic_and_layer_isolated_linear_mips() {
 
     let compiled = compile_pack(directory.path(), &records).expect("compile synthetic pack");
 
-    assert_eq!(compiled.materials[0], Material { layer: 0, flags: 0 });
+    assert_eq!(
+        compiled.materials[0],
+        Material {
+            texture: assets::TextureRef::DIAGNOSTIC,
+            flags: 0,
+            animation: assets::NO_ANIMATION
+        }
+    );
     assert_eq!(mip_pixel(&compiled, 0, 0, 0, 0), [255, 0, 255, 255]);
     assert_eq!(mip_pixel(&compiled, 0, 0, 1, 0), [0, 0, 0, 255]);
-    assert_eq!(compiled.textures.mips.len(), 5);
+    assert_eq!(compiled.texture_pages[0].texture.mips.len(), 5);
     assert_eq!(
-        compiled
-            .textures
+        compiled.texture_pages[0]
+            .texture
             .mips
             .iter()
             .map(|mip| mip.size)
@@ -923,9 +1143,13 @@ fn compiler_builds_diagnostic_and_layer_isolated_linear_mips() {
         [16, 8, 4, 2, 1]
     );
 
-    let red_layer = material_for_face(&compiled, 0, BlockFace::Up).layer;
-    let blue_layer = material_for_face(&compiled, 1, BlockFace::Up).layer;
-    for (mip_index, mip) in compiled.textures.mips.iter().enumerate() {
+    let red_layer = material_for_face(&compiled, 0, BlockFace::Up)
+        .texture
+        .layer();
+    let blue_layer = material_for_face(&compiled, 1, BlockFace::Up)
+        .texture
+        .layer();
+    for (mip_index, mip) in compiled.texture_pages[0].texture.mips.iter().enumerate() {
         for y in 0..mip.size as usize {
             for x in 0..mip.size as usize {
                 assert_eq!(
@@ -1268,7 +1492,7 @@ fn compiler_selects_huge_mushroom_face_variants_and_keeps_other_arrays_at_zero()
                     bits
                 };
                 assert_eq!(
-                    mip_pixel(&compiled, 0, material.layer, 0, 0),
+                    mip_pixel(&compiled, 0, material.texture.layer(), 0, 0),
                     colour(family_index, face_index, expected_bits),
                     "wrong {bits} texture for {} {face:?}",
                     families[family_index].0
@@ -1288,7 +1512,7 @@ fn compiler_selects_huge_mushroom_face_variants_and_keeps_other_arrays_at_zero()
     );
     let unrelated = material_for_face(&compiled, unrelated_id as usize, BlockFace::Up);
     assert_eq!(
-        mip_pixel(&compiled, 0, unrelated.layer, 0, 0),
+        mip_pixel(&compiled, 0, unrelated.texture.layer(), 0, 0),
         [240, 120, 60, 255],
         "unrelated terrain arrays must retain variant-zero selection"
     );
@@ -1332,7 +1556,7 @@ fn compiler_fails_closed_for_noncanonical_mushroom_variant_counts() {
 
     assert_eq!(compiled.visuals[0].faces, [0; 6]);
     assert_eq!(compiled.materials.len(), 1);
-    assert_eq!(compiled.textures.layers, 1);
+    assert_eq!(compiled.texture_pages[0].texture.layers, 1);
 }
 
 #[test]
@@ -1399,7 +1623,7 @@ fn compiler_only_loads_full_cubes_and_builds_equivalent_lookup_tables() {
 }
 
 #[test]
-fn compiler_compiles_grass_faces_but_keeps_flipbooks_and_unlisted_blocks_diagnostic() {
+fn compiler_compiles_grass_and_flipbook_faces_but_keeps_unlisted_blocks_diagnostic() {
     let directory = tempfile::tempdir().expect("create fixture");
     write_pack(
         directory.path(),
@@ -1440,6 +1664,15 @@ fn compiler_compiles_grass_faces_but_keeps_flipbooks_and_unlisted_blocks_diagnos
         TILE_SIZE as u16,
         &solid(TILE_SIZE, TILE_SIZE, [100, 150, 60, 255]),
     );
+    let mut sea_lantern_strip = solid(TILE_SIZE, TILE_SIZE, [30, 180, 200, 255]);
+    sea_lantern_strip.extend(solid(TILE_SIZE, TILE_SIZE, [50, 210, 230, 255]));
+    write_png(
+        directory.path(),
+        "textures/blocks/sea_lantern",
+        TILE_SIZE,
+        TILE_SIZE * 2,
+        &sea_lantern_strip,
+    );
     let records = [
         record(
             0,
@@ -1478,14 +1711,23 @@ fn compiler_compiles_grass_faces_but_keeps_flipbooks_and_unlisted_blocks_diagnos
         material_for_face(&compiled, 0, BlockFace::North).flags,
         MATERIAL_FLAG_GRASS_TINT | MATERIAL_FLAG_OVERLAY_MASK
     );
-    assert_eq!(sea_lantern.faces, [DIAGNOSTIC_MATERIAL; 6]);
+    assert!(
+        sea_lantern
+            .faces
+            .into_iter()
+            .all(|material| material != DIAGNOSTIC_MATERIAL)
+    );
+    assert_eq!(
+        compiled.materials[sea_lantern.faces[0] as usize].animation,
+        0
+    );
     assert_eq!(compiled.visuals[2].faces, [DIAGNOSTIC_MATERIAL; 6]);
-    assert_eq!(compiled.materials.len(), 4);
-    assert_eq!(compiled.textures.layers, 4);
+    assert_eq!(compiled.materials.len(), 5);
+    assert_eq!(compiled.texture_pages[0].texture.layers, 6);
 }
 
 #[test]
-fn compiler_maps_recognized_flipbooks_to_diagnostic_without_loading_the_strip() {
+fn compiler_installs_recognized_flipbooks_after_loading_the_strip() {
     let directory = tempfile::tempdir().expect("create fixture");
     write_pack(
         directory.path(),
@@ -1500,12 +1742,28 @@ fn compiler_maps_recognized_flipbooks_to_diagnostic_without_loading_the_strip() 
         "{}",
         BlockFlags::CUBE_GEOMETRY,
     )];
+    let mut water = solid(TILE_SIZE, TILE_SIZE, [20, 80, 200, 180]);
+    water.extend(solid(TILE_SIZE, TILE_SIZE, [30, 100, 220, 180]));
+    write_png(
+        directory.path(),
+        "textures/blocks/water",
+        TILE_SIZE,
+        TILE_SIZE * 2,
+        &water,
+    );
 
     let compiled = compile_pack(directory.path(), &records).expect("compile flipbook reference");
 
-    assert_eq!(compiled.visuals[0].faces, [0; 6]);
-    assert_eq!(compiled.materials.len(), 1);
-    assert_eq!(compiled.textures.layers, 1);
+    assert!(
+        compiled.visuals[0]
+            .faces
+            .into_iter()
+            .all(|material| material != 0)
+    );
+    assert_eq!(compiled.materials.len(), 2);
+    assert_eq!(compiled.animations.len(), 1);
+    assert_eq!(compiled.animation_frames.len(), 2);
+    assert_eq!(compiled.texture_pages[0].texture.layers, 3);
 }
 
 fn one_texture_fixture() -> (TempDir, RegistryRecord, PathBuf) {
@@ -1624,7 +1882,7 @@ fn compiler_rejects_unsupported_static_texture_formats_with_source_context() {
 }
 
 #[test]
-fn compiler_rejects_more_than_the_bounded_layer_count_with_source_context() {
+fn compiler_rolls_reachable_layers_into_the_bounded_second_page() {
     let directory = tempfile::tempdir().expect("create fixture");
     let mut blocks = String::from("{");
     let mut terrain = String::from(r#"{"texture_data":{"#);
@@ -1661,20 +1919,11 @@ fn compiler_rejects_more_than_the_bounded_layer_count_with_source_context() {
     terrain.push_str("}}");
     write_pack(directory.path(), &blocks, &terrain, "[]");
 
-    let error = compile_pack(directory.path(), &records).expect_err("layer bound");
-
-    match error {
-        AssetError::TooManyTextureLayers {
-            count,
-            max,
-            key: Some(key),
-            path: Some(path),
-        } => {
-            assert_eq!(count, MAX_TEXTURE_LAYERS + 1);
-            assert_eq!(max, MAX_TEXTURE_LAYERS);
-            assert!(key.starts_with("key_"));
-            assert!(path.to_string_lossy().ends_with(".png"));
-        }
-        other => panic!("unexpected error: {other}"),
-    }
+    let compiled = compile_pack(directory.path(), &records).expect("two-page asset set");
+    assert_eq!(compiled.texture_pages.len(), 2);
+    assert_eq!(
+        compiled.texture_pages[0].texture.layers,
+        MAX_TEXTURE_LAYERS as u32
+    );
+    assert_eq!(compiled.texture_pages[1].texture.layers, 1);
 }

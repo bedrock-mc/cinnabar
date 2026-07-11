@@ -108,7 +108,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 compiled.visuals.len(),
                 compiled.materials.len(),
                 cutout_materials,
-                compiled.textures.layers,
+                compiled
+                    .texture_pages
+                    .iter()
+                    .map(|page| page.texture.layers)
+                    .sum::<u32>(),
                 compiled.biomes.rules.len(),
                 out.display()
             );

@@ -130,7 +130,7 @@ pub enum ContributorRole {
 }
 
 impl ContributorRole {
-    fn read(raw: u8) -> Result<Self, AssetError> {
+    pub(crate) fn read(raw: u8) -> Result<Self, AssetError> {
         match raw {
             0 => Ok(Self::Primary),
             1 => Ok(Self::LiquidAdditional),

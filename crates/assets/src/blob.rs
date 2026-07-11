@@ -7,74 +7,108 @@ use std::{
 use sha2::{Digest, Sha256};
 
 use crate::{
-    AssetError, BlockFlags, CompiledAssets, DIAGNOSTIC_MATERIAL, MAX_MATERIALS, MAX_TEXTURE_LAYERS,
-    Material,
+    AssetError, BlockFlags, CompiledAssets, DIAGNOSTIC_MATERIAL, MAX_ANIMATION_FRAMES,
+    MAX_ANIMATIONS, MAX_MATERIALS, MAX_MODEL_QUADS, MAX_MODEL_TEMPLATES, MAX_TEXTURE_LAYERS,
+    MAX_TEXTURE_PAGES, MIP_COUNT, NO_ANIMATION, NO_MODEL_TEMPLATE, TILE_SIZE, TextureRef,
+    VisualKind,
     biome::{TINT_MAP_BYTES, TINT_MAP_COUNT, TINT_MAP_SIZE, validate_biome_assets},
-    compiler::material_flags_are_valid,
-    image::MIP_COUNT,
-    image::TILE_SIZE,
+    compiler::{material_flags_are_valid, visual_semantics_are_valid},
+    model::{ANIMATION_FLAGS_MASK, model_quad_flags_are_valid},
 };
 
-pub const BLOB_MAGIC: [u8; 8] = *b"MCBEAS03";
-pub const BLOB_VERSION: u32 = 3;
+pub const BLOB_MAGIC: [u8; 8] = *b"MCBEAS04";
+pub const BLOB_VERSION: u32 = 4;
+pub(crate) const HEADER_BYTES: usize = 200;
+pub(crate) const HASH_BYTES: usize = 32;
+pub(crate) const VISUAL_BYTES: usize = 40;
+pub(crate) const HASH_ENTRY_BYTES: usize = 8;
+pub(crate) const MATERIAL_BYTES: usize = 12;
+pub(crate) const TEMPLATE_BYTES: usize = 12;
+pub(crate) const QUAD_BYTES: usize = 48;
+pub(crate) const ANIMATION_BYTES: usize = 28;
+pub(crate) const FRAME_BYTES: usize = 4;
+pub(crate) const PAGE_BYTES: usize = 64;
+pub(crate) const BIOME_RULE_BYTES: usize = 36;
+pub(crate) const MAX_VISUALS: usize = 65_536;
 
-const HEADER_BYTES: usize = 128;
-const HASH_BYTES: usize = 32;
-const VISUAL_BYTES: usize = 28;
-const HASH_ENTRY_BYTES: usize = 8;
-const MATERIAL_BYTES: usize = 8;
-const BIOME_RULE_BYTES: usize = 36;
-const MAX_VISUALS: usize = 65_536;
-
-/// Serializes deterministic compiler output with checked offsets and a trailing SHA-256.
+/// Serializes canonical, bounded `MCBEAS04` compiler output with a trailing SHA-256.
 pub fn encode_blob(compiled: &CompiledAssets) -> Result<Box<[u8]>, AssetError> {
-    let texture_bytes = validate_compiled(compiled)?;
-    let visual_bytes = section_size(compiled.visuals.len(), VISUAL_BYTES, "visual")?;
-    let hash_bytes = section_size(compiled.hashed.len(), HASH_ENTRY_BYTES, "hash lookup")?;
-    let material_bytes = section_size(compiled.materials.len(), MATERIAL_BYTES, "material")?;
-    let biome_rule_bytes =
-        section_size(compiled.biomes.rules.len(), BIOME_RULE_BYTES, "biome rule")?;
+    validate_compiled(compiled)?;
+    let sizes = [
+        size(compiled.visuals.len(), VISUAL_BYTES, "visual")?,
+        size(compiled.hashed.len(), HASH_ENTRY_BYTES, "hash")?,
+        size(compiled.materials.len(), MATERIAL_BYTES, "material")?,
+        size(
+            compiled.model_templates.len(),
+            TEMPLATE_BYTES,
+            "model template",
+        )?,
+        size(compiled.model_quads.len(), QUAD_BYTES, "model quad")?,
+        size(compiled.animations.len(), ANIMATION_BYTES, "animation")?,
+        size(
+            compiled.animation_frames.len(),
+            FRAME_BYTES,
+            "animation frame",
+        )?,
+        size(compiled.texture_pages.len(), PAGE_BYTES, "texture page")?,
+    ];
+    let texture_bytes = compiled
+        .texture_pages
+        .iter()
+        .try_fold(0usize, |sum, page| {
+            add(sum, texture_length(&page.texture)?, "texture payload")
+        })?;
+    let biome_rule_bytes = size(compiled.biomes.rules.len(), BIOME_RULE_BYTES, "biome rule")?;
     let biome_name_bytes = compiled
         .biomes
         .rules
         .iter()
-        .try_fold(0_usize, |total, rule| {
-            add_section(total, rule.name.len(), "biome names")
-        })?;
-
-    let visuals_offset = HEADER_BYTES;
-    let hashes_offset = add_section(visuals_offset, visual_bytes, "visual")?;
-    let materials_offset = add_section(hashes_offset, hash_bytes, "hash lookup")?;
-    let textures_offset = add_section(materials_offset, material_bytes, "material")?;
-    let tint_maps_offset = add_section(textures_offset, texture_bytes, "texture")?;
-    let biome_rules_offset = add_section(tint_maps_offset, TINT_MAP_BYTES, "tint maps")?;
-    let biome_names_offset = add_section(biome_rules_offset, biome_rule_bytes, "biome rules")?;
-    let payload_length = add_section(biome_names_offset, biome_name_bytes, "biome names")?;
-    let total_length = add_section(payload_length, HASH_BYTES, "blob hash")?;
-
+        .try_fold(0usize, |sum, rule| add(sum, rule.name.len(), "biome names"))?;
+    let section_sizes = [
+        sizes[0],
+        sizes[1],
+        sizes[2],
+        sizes[3],
+        sizes[4],
+        sizes[5],
+        sizes[6],
+        sizes[7],
+        texture_bytes,
+        TINT_MAP_BYTES,
+        biome_rule_bytes,
+        biome_name_bytes,
+    ];
+    let mut offsets = [0usize; 13];
+    offsets[0] = HEADER_BYTES;
+    for (index, length) in section_sizes.iter().copied().enumerate() {
+        offsets[index + 1] = add(offsets[index], length, "blob section")?;
+    }
+    let payload_length = offsets[12];
+    let total_length = add(payload_length, HASH_BYTES, "blob hash")?;
     let mut bytes = Vec::with_capacity(total_length);
     bytes.extend_from_slice(&BLOB_MAGIC);
-    push_u32(&mut bytes, BLOB_VERSION);
-    push_u32(&mut bytes, TILE_SIZE);
-    push_u32(&mut bytes, MIP_COUNT);
-    push_count(&mut bytes, compiled.visuals.len(), "visual count")?;
-    push_count(&mut bytes, compiled.hashed.len(), "hash count")?;
-    push_count(&mut bytes, compiled.materials.len(), "material count")?;
-    push_u32(&mut bytes, compiled.textures.layers);
-    push_u32(&mut bytes, TINT_MAP_COUNT as u32);
-    push_u32(&mut bytes, TINT_MAP_SIZE);
-    push_count(&mut bytes, compiled.biomes.rules.len(), "biome rule count")?;
-    push_u32(&mut bytes, 0);
-    push_u32(&mut bytes, 0);
-    push_offset(&mut bytes, visuals_offset, "visual offset")?;
-    push_offset(&mut bytes, hashes_offset, "hash offset")?;
-    push_offset(&mut bytes, materials_offset, "material offset")?;
-    push_offset(&mut bytes, textures_offset, "texture offset")?;
-    push_offset(&mut bytes, texture_bytes, "texture length")?;
-    push_offset(&mut bytes, tint_maps_offset, "tint maps offset")?;
-    push_offset(&mut bytes, biome_rules_offset, "biome rules offset")?;
-    push_offset(&mut bytes, biome_names_offset, "biome names offset")?;
-    push_offset(&mut bytes, payload_length, "payload length")?;
+    for value in [
+        BLOB_VERSION,
+        TILE_SIZE,
+        MIP_COUNT,
+        count(compiled.visuals.len(), "visual count")?,
+        count(compiled.hashed.len(), "hash count")?,
+        count(compiled.materials.len(), "material count")?,
+        count(compiled.model_templates.len(), "template count")?,
+        count(compiled.model_quads.len(), "quad count")?,
+        count(compiled.animations.len(), "animation count")?,
+        count(compiled.animation_frames.len(), "frame count")?,
+        count(compiled.texture_pages.len(), "page count")?,
+        TINT_MAP_COUNT as u32,
+        TINT_MAP_SIZE,
+        count(compiled.biomes.rules.len(), "biome count")?,
+    ] {
+        push_u32(&mut bytes, value);
+    }
+    bytes.extend_from_slice(&[0; 32]);
+    for offset in offsets {
+        push_offset(&mut bytes, offset, "section offset")?;
+    }
     debug_assert_eq!(bytes.len(), HEADER_BYTES);
 
     for visual in &compiled.visuals {
@@ -82,34 +116,78 @@ pub fn encode_blob(compiled: &CompiledAssets) -> Result<Box<[u8]>, AssetError> {
             push_u32(&mut bytes, material);
         }
         bytes.push(visual.flags.bits());
-        bytes.extend_from_slice(&[0; 3]);
+        bytes.push(visual.kind as u8);
+        bytes.push(visual.contributor_role as u8);
+        bytes.push(0);
+        push_u32(&mut bytes, visual.model_template);
+        push_u32(&mut bytes, visual.animation);
+        push_u32(&mut bytes, visual.variant);
     }
-    debug_assert_eq!(bytes.len(), hashes_offset);
     for &(hash, visual) in &compiled.hashed {
         push_u32(&mut bytes, hash);
         push_u32(&mut bytes, visual);
     }
-    debug_assert_eq!(bytes.len(), materials_offset);
     for material in &compiled.materials {
-        push_u32(&mut bytes, material.layer);
+        push_u32(&mut bytes, material.texture.raw());
         push_u32(&mut bytes, material.flags);
+        push_u32(&mut bytes, material.animation);
     }
-    debug_assert_eq!(bytes.len(), textures_offset);
-    for mip in &compiled.textures.mips {
-        bytes.extend_from_slice(&mip.rgba8);
+    for template in &compiled.model_templates {
+        push_u32(&mut bytes, template.quad_start);
+        push_u32(&mut bytes, template.quad_count);
+        push_u32(&mut bytes, template.flags);
     }
-    debug_assert_eq!(bytes.len(), tint_maps_offset);
+    for quad in &compiled.model_quads {
+        for position in quad.positions {
+            for coordinate in position {
+                bytes.extend_from_slice(&coordinate.to_le_bytes());
+            }
+        }
+        for uv in quad.uvs {
+            for coordinate in uv {
+                bytes.extend_from_slice(&coordinate.to_le_bytes());
+            }
+        }
+        push_u32(&mut bytes, quad.material);
+        push_u32(&mut bytes, quad.flags);
+    }
+    for animation in &compiled.animations {
+        push_u32(&mut bytes, animation.frame_start);
+        push_u32(&mut bytes, animation.frame_count);
+        push_u32(&mut bytes, animation.ticks_per_frame);
+        push_u32(&mut bytes, animation.atlas_index);
+        push_u32(&mut bytes, animation.atlas_tile_variant);
+        push_u32(&mut bytes, animation.replicate);
+        push_u32(&mut bytes, animation.flags);
+    }
+    for frame in &compiled.animation_frames {
+        push_u32(&mut bytes, frame.raw());
+    }
+
+    let mut texture_offset = offsets[8];
+    for (index, page) in compiled.texture_pages.iter().enumerate() {
+        let length = texture_length(&page.texture)?;
+        let digest = texture_digest(&page.texture);
+        push_u32(&mut bytes, index as u32);
+        push_u32(&mut bytes, page.texture.layers);
+        push_u32(&mut bytes, MIP_COUNT);
+        push_u32(&mut bytes, 0);
+        push_offset(&mut bytes, texture_offset, "page payload offset")?;
+        push_offset(&mut bytes, length, "page payload length")?;
+        bytes.extend_from_slice(&digest);
+        texture_offset = add(texture_offset, length, "page payload")?;
+    }
+    debug_assert_eq!(bytes.len(), offsets[8]);
+    for page in &compiled.texture_pages {
+        for mip in &page.texture.mips {
+            bytes.extend_from_slice(&mip.rgba8);
+        }
+    }
     bytes.extend_from_slice(&compiled.biomes.tint_maps_rgb8);
-    debug_assert_eq!(bytes.len(), biome_rules_offset);
-    let mut name_offset = 0_usize;
+    let mut name_offset = 0usize;
     for rule in &compiled.biomes.rules {
         push_u32(&mut bytes, rule.id);
-        push_u32(
-            &mut bytes,
-            u32::try_from(name_offset).map_err(|_| AssetError::BlobSizeOverflow {
-                section: "biome name offset",
-            })?,
-        );
+        push_u32(&mut bytes, count(name_offset, "biome name offset")?);
         bytes.extend_from_slice(
             &u16::try_from(rule.name.len())
                 .map_err(|_| AssetError::BlobSizeOverflow {
@@ -123,131 +201,243 @@ pub fn encode_blob(compiled: &CompiledAssets) -> Result<Box<[u8]>, AssetError> {
         }
         push_u32(&mut bytes, rule.temperature_bits);
         push_u32(&mut bytes, rule.downfall_bits);
-        name_offset = add_section(name_offset, rule.name.len(), "biome names")?;
+        name_offset = add(name_offset, rule.name.len(), "biome names")?;
     }
-    debug_assert_eq!(bytes.len(), biome_names_offset);
     for rule in &compiled.biomes.rules {
         bytes.extend_from_slice(rule.name.as_bytes());
     }
     debug_assert_eq!(bytes.len(), payload_length);
-
-    let hash = Sha256::digest(&bytes);
-    bytes.extend_from_slice(&hash);
-    debug_assert_eq!(bytes.len(), total_length);
+    let digest = Sha256::digest(&bytes);
+    bytes.extend_from_slice(&digest);
     Ok(bytes.into_boxed_slice())
 }
 
-fn validate_compiled(compiled: &CompiledAssets) -> Result<usize, AssetError> {
+fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
     validate_biome_assets(&compiled.biomes)?;
-    if compiled.visuals.len() > MAX_VISUALS {
-        return Err(AssetError::TooManyRegistryRecords {
-            count: compiled.visuals.len(),
-            max: MAX_VISUALS,
-        });
-    }
-    if compiled.hashed.len() > MAX_VISUALS {
-        return Err(AssetError::TooManyRegistryRecords {
-            count: compiled.hashed.len(),
-            max: MAX_VISUALS,
-        });
-    }
+    bounded("visual", compiled.visuals.len(), MAX_VISUALS)?;
+    bounded("hash", compiled.hashed.len(), MAX_VISUALS)?;
     if compiled.materials.len() > MAX_MATERIALS {
         return Err(AssetError::TooManyMaterials {
             count: compiled.materials.len(),
             max: MAX_MATERIALS,
         });
     }
-    let layers = compiled.textures.layers as usize;
-    if layers > MAX_TEXTURE_LAYERS {
-        return Err(AssetError::TooManyTextureLayers {
-            count: layers,
-            max: MAX_TEXTURE_LAYERS,
-            key: None,
-            path: None,
-        });
+    bounded(
+        "model template",
+        compiled.model_templates.len(),
+        MAX_MODEL_TEMPLATES,
+    )?;
+    bounded("model quad", compiled.model_quads.len(), MAX_MODEL_QUADS)?;
+    bounded("animation", compiled.animations.len(), MAX_ANIMATIONS)?;
+    bounded(
+        "animation frame",
+        compiled.animation_frames.len(),
+        MAX_ANIMATION_FRAMES,
+    )?;
+    if compiled.texture_pages.is_empty() || compiled.texture_pages.len() > MAX_TEXTURE_PAGES {
+        return Err(invalid("texture page count must be one or two"));
     }
-    if layers == 0 {
-        return Err(invalid("texture array has no diagnostic layer"));
+    for (page_index, page) in compiled.texture_pages.iter().enumerate() {
+        if page.texture.layers as usize > MAX_TEXTURE_LAYERS {
+            return Err(AssetError::TooManyTextureLayers {
+                count: page.texture.layers as usize,
+                max: MAX_TEXTURE_LAYERS,
+                key: None,
+                path: None,
+            });
+        }
+        validate_texture(page_index, &page.texture)?;
     }
-    if compiled.materials.first() != Some(&Material { layer: 0, flags: 0 }) {
-        return Err(invalid("material 0 is not the diagnostic layer"));
+    let diagnostic = compiled
+        .materials
+        .first()
+        .ok_or_else(|| invalid("missing diagnostic material"))?;
+    if diagnostic.texture != TextureRef::DIAGNOSTIC
+        || diagnostic.flags != 0
+        || diagnostic.animation != NO_ANIMATION
+    {
+        return Err(invalid("material 0 is not canonical diagnostic material"));
     }
     for (index, material) in compiled.materials.iter().enumerate() {
+        validate_texture_ref(material.texture, &compiled.texture_pages, "material")?;
         if !material_flags_are_valid(material.flags) {
-            return Err(invalid(format!(
-                "material {index} has unsupported flags {:#010x}",
-                material.flags
-            )));
+            return Err(invalid(format!("material {index} has unsupported flags")));
         }
-        if material.layer >= compiled.textures.layers {
-            return Err(invalid(format!(
-                "material {index} references layer {}, but there are {layers} layers",
-                material.layer
-            )));
-        }
+        optional_id(
+            material.animation,
+            compiled.animations.len(),
+            "material animation",
+        )?;
     }
     for (index, visual) in compiled.visuals.iter().enumerate() {
-        let flags_are_valid =
-            BlockFlags::from_bits(visual.flags.bits()).is_some_and(BlockFlags::has_valid_semantics);
-        if !flags_are_valid {
+        if BlockFlags::from_bits(visual.flags.bits())
+            .is_none_or(|flags| !flags.has_valid_semantics())
+        {
+            return Err(invalid(format!("visual {index} has invalid flags")));
+        }
+        if !visual_semantics_are_valid(visual.kind, visual.flags, visual.contributor_role) {
             return Err(invalid(format!(
-                "visual {index} has invalid block flags {:#04x}",
-                visual.flags.bits()
+                "visual {index} kind, flags, and contributor role disagree"
             )));
         }
-        if let Some(material) = visual
+        if visual
             .faces
             .iter()
-            .copied()
-            .find(|&material| material as usize >= compiled.materials.len())
+            .any(|&id| id as usize >= compiled.materials.len())
         {
             return Err(invalid(format!(
-                "visual {index} references material {material}, but there are {} materials",
-                compiled.materials.len()
+                "visual {index} references invalid material"
             )));
+        }
+        optional_id(
+            visual.model_template,
+            compiled.model_templates.len(),
+            "visual template",
+        )?;
+        optional_id(
+            visual.animation,
+            compiled.animations.len(),
+            "visual animation",
+        )?;
+        match visual.kind {
+            VisualKind::Diagnostic if visual.model_template != NO_MODEL_TEMPLATE => {
+                return Err(invalid("diagnostic visual has model reference"));
+            }
+            VisualKind::Model | VisualKind::Cross if visual.model_template == NO_MODEL_TEMPLATE => {
+                return Err(invalid("model visual has no template"));
+            }
+            VisualKind::Cube | VisualKind::Liquid | VisualKind::Invisible
+                if visual.model_template != NO_MODEL_TEMPLATE =>
+            {
+                return Err(invalid("non-model visual has template"));
+            }
+            _ => {}
         }
     }
     let mut previous = None;
     for &(hash, visual) in &compiled.hashed {
-        if previous.is_some_and(|previous| previous >= hash) {
-            return Err(invalid("hashed lookup keys are not strictly increasing"));
-        }
-        if visual as usize >= compiled.visuals.len() {
-            return Err(invalid(format!(
-                "hash {hash:#010x} references visual {visual}, but there are {} visuals",
-                compiled.visuals.len()
-            )));
+        if previous.is_some_and(|value| value >= hash) || visual as usize >= compiled.visuals.len()
+        {
+            return Err(invalid("hash table is not canonical"));
         }
         previous = Some(hash);
     }
+    let mut expected_quad = 0usize;
+    for template in &compiled.model_templates {
+        if template.flags != 0
+            || template.quad_start as usize != expected_quad
+            || template.quad_count > 32
+        {
+            return Err(invalid("model template spans are not canonical"));
+        }
+        expected_quad = add(
+            expected_quad,
+            template.quad_count as usize,
+            "template quads",
+        )?;
+    }
+    if expected_quad != compiled.model_quads.len() {
+        return Err(invalid("model templates do not cover all quads"));
+    }
+    for quad in &compiled.model_quads {
+        if quad.material as usize >= compiled.materials.len()
+            || !model_quad_flags_are_valid(quad.flags)
+        {
+            return Err(invalid("model quad has invalid material or flags"));
+        }
+    }
+    let mut expected_frame = 0usize;
+    for animation in &compiled.animations {
+        if animation.frame_start as usize != expected_frame
+            || animation.frame_count == 0
+            || animation.ticks_per_frame == 0
+            || animation.replicate == 0
+            || animation.flags & !ANIMATION_FLAGS_MASK != 0
+        {
+            return Err(invalid("animation spans are not canonical"));
+        }
+        expected_frame = add(
+            expected_frame,
+            animation.frame_count as usize,
+            "animation frames",
+        )?;
+    }
+    if expected_frame != compiled.animation_frames.len() {
+        return Err(invalid("animations do not cover all frames"));
+    }
+    for &frame in &compiled.animation_frames {
+        validate_texture_ref(frame, &compiled.texture_pages, "animation frame")?;
+    }
+    Ok(())
+}
 
-    if compiled.textures.mips.len() != MIP_COUNT as usize {
+fn validate_texture(index: usize, texture: &crate::TextureArray) -> Result<(), AssetError> {
+    let layers = texture.layers as usize;
+    if layers == 0 || layers > MAX_TEXTURE_LAYERS {
         return Err(invalid(format!(
-            "texture array has {} mip levels, expected {MIP_COUNT}",
-            compiled.textures.mips.len()
+            "texture page {index} has invalid layer count"
         )));
     }
-    let mut total = 0_usize;
-    for (level, mip) in compiled.textures.mips.iter().enumerate() {
-        let expected_size = TILE_SIZE >> level;
-        if mip.size != expected_size {
-            return Err(invalid(format!(
-                "mip {level} is {}x{}, expected {expected_size}x{expected_size}",
-                mip.size, mip.size
-            )));
-        }
-        let pixels = section_size(expected_size as usize, expected_size as usize, "mip pixels")?;
-        let rgba = section_size(pixels, 4, "mip RGBA")?;
-        let expected_bytes = section_size(rgba, layers, "mip layers")?;
-        if mip.rgba8.len() != expected_bytes {
-            return Err(invalid(format!(
-                "mip {level} has {} bytes, expected {expected_bytes}",
-                mip.rgba8.len()
-            )));
-        }
-        total = add_section(total, expected_bytes, "texture")?;
+    if texture.mips.len() != MIP_COUNT as usize {
+        return Err(invalid(format!(
+            "texture page {index} has invalid mip count"
+        )));
     }
-    Ok(total)
+    for (level, mip) in texture.mips.iter().enumerate() {
+        let side = TILE_SIZE >> level;
+        if mip.size != side || mip.rgba8.len() != side as usize * side as usize * 4 * layers {
+            return Err(invalid(format!(
+                "texture page {index} mip {level} is malformed"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_texture_ref(
+    reference: TextureRef,
+    pages: &[crate::TexturePage],
+    context: &str,
+) -> Result<(), AssetError> {
+    let page = reference.page() as usize;
+    if page >= pages.len() || reference.layer() >= pages[page].texture.layers {
+        return Err(invalid(format!(
+            "{context} has invalid texture reference {:#010x}",
+            reference.raw()
+        )));
+    }
+    Ok(())
+}
+
+fn optional_id(id: u32, len: usize, context: &str) -> Result<(), AssetError> {
+    if id != u32::MAX && id as usize >= len {
+        return Err(invalid(format!("{context} {id} is out of range")));
+    }
+    Ok(())
+}
+
+fn texture_digest(texture: &crate::TextureArray) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    for mip in &texture.mips {
+        hasher.update(&mip.rgba8);
+    }
+    hasher.finalize().into()
+}
+
+fn texture_length(texture: &crate::TextureArray) -> Result<usize, AssetError> {
+    texture
+        .mips
+        .iter()
+        .try_fold(0usize, |sum, mip| add(sum, mip.rgba8.len(), "texture page"))
+}
+
+fn bounded(section: &'static str, count: usize, max: usize) -> Result<(), AssetError> {
+    if count > max {
+        return Err(invalid(format!(
+            "{section} count {count} exceeds limit {max}"
+        )));
+    }
+    Ok(())
 }
 
 /// Writes a blob through a unique sibling temporary file and an atomic rename.
@@ -261,7 +451,6 @@ pub fn write_blob_atomic(path: &Path, bytes: &[u8]) -> Result<(), AssetError> {
         path: path.to_path_buf(),
         source: io::Error::new(io::ErrorKind::InvalidInput, "output path has no file name"),
     })?;
-
     let mut temporary = None;
     for attempt in 0..64_u32 {
         let candidate = parent.join(format!(
@@ -295,15 +484,14 @@ pub fn write_blob_atomic(path: &Path, bytes: &[u8]) -> Result<(), AssetError> {
             "could not reserve an atomic output file",
         ),
     })?;
-
-    let write_result = (|| -> io::Result<()> {
+    let result = (|| -> io::Result<()> {
         file.write_all(bytes)?;
         file.flush()?;
         file.sync_all()?;
         drop(file);
         fs::rename(&temporary_path, path)
     })();
-    if let Err(source) = write_result {
+    if let Err(source) = result {
         let _ = fs::remove_file(&temporary_path);
         return Err(AssetError::Io {
             path: path.to_path_buf(),
@@ -313,38 +501,29 @@ pub fn write_blob_atomic(path: &Path, bytes: &[u8]) -> Result<(), AssetError> {
     Ok(())
 }
 
-fn section_size(count: usize, width: usize, section: &'static str) -> Result<usize, AssetError> {
+fn size(count: usize, width: usize, section: &'static str) -> Result<usize, AssetError> {
     count
         .checked_mul(width)
         .ok_or(AssetError::BlobSizeOverflow { section })
 }
-
-fn add_section(offset: usize, length: usize, section: &'static str) -> Result<usize, AssetError> {
-    offset
-        .checked_add(length)
+fn add(left: usize, right: usize, section: &'static str) -> Result<usize, AssetError> {
+    left.checked_add(right)
         .ok_or(AssetError::BlobSizeOverflow { section })
 }
-
-fn push_count(bytes: &mut Vec<u8>, count: usize, section: &'static str) -> Result<(), AssetError> {
-    let count = u32::try_from(count).map_err(|_| AssetError::BlobSizeOverflow { section })?;
-    push_u32(bytes, count);
-    Ok(())
+fn count(value: usize, section: &'static str) -> Result<u32, AssetError> {
+    u32::try_from(value).map_err(|_| AssetError::BlobSizeOverflow { section })
 }
-
-fn push_offset(
-    bytes: &mut Vec<u8>,
-    offset: usize,
-    section: &'static str,
-) -> Result<(), AssetError> {
-    let offset = u64::try_from(offset).map_err(|_| AssetError::BlobSizeOverflow { section })?;
-    bytes.extend_from_slice(&offset.to_le_bytes());
-    Ok(())
-}
-
 fn push_u32(bytes: &mut Vec<u8>, value: u32) {
     bytes.extend_from_slice(&value.to_le_bytes());
 }
-
+fn push_offset(bytes: &mut Vec<u8>, value: usize, section: &'static str) -> Result<(), AssetError> {
+    bytes.extend_from_slice(
+        &u64::try_from(value)
+            .map_err(|_| AssetError::BlobSizeOverflow { section })?
+            .to_le_bytes(),
+    );
+    Ok(())
+}
 fn invalid(detail: impl Into<Box<str>>) -> AssetError {
     AssetError::InvalidCompiledAssets {
         detail: detail.into(),

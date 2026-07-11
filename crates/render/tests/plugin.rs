@@ -6,7 +6,8 @@ use std::{
 
 use assets::{
     BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, DIAGNOSTIC_MATERIAL, Material,
-    NetworkIdMode, RuntimeAssets, TextureArray, TextureMip, encode_blob,
+    NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TextureArray, TextureMip,
+    TexturePage, TextureRef, VisualKind, encode_blob,
 };
 use bevy::{
     camera::primitives::Aabb,
@@ -55,6 +56,11 @@ fn runtime_assets() -> &'static RuntimeAssets {
             BlockVisual {
                 faces: [DIAGNOSTIC_MATERIAL; 6],
                 flags: BlockFlags::empty(),
+                kind: VisualKind::Diagnostic,
+                contributor_role: assets::ContributorRole::Primary,
+                model_template: NO_MODEL_TEMPLATE,
+                animation: NO_ANIMATION,
+                variant: 0,
             };
             14
         ];
@@ -62,13 +68,30 @@ fn runtime_assets() -> &'static RuntimeAssets {
             visuals[material_id as usize] = BlockVisual {
                 faces: [material_id; 6],
                 flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
+                kind: VisualKind::Cube,
+                contributor_role: assets::ContributorRole::Primary,
+                model_template: NO_MODEL_TEMPLATE,
+                animation: NO_ANIMATION,
+                variant: 0,
             };
         }
         let compiled = CompiledAssets {
             visuals: visuals.into_boxed_slice(),
             hashed: Box::new([]),
-            materials: vec![Material { layer: 0, flags: 0 }; 14].into_boxed_slice(),
-            textures: TextureArray {
+            materials: vec![
+                Material {
+                    texture: TextureRef::DIAGNOSTIC,
+                    flags: 0,
+                    animation: NO_ANIMATION
+                };
+                14
+            ]
+            .into_boxed_slice(),
+            model_templates: Box::new([]),
+            model_quads: Box::new([]),
+            animations: Box::new([]),
+            animation_frames: Box::new([]),
+            texture_pages: vec![TexturePage::new(TextureArray {
                 layers: 1,
                 mips: [16_u32, 8, 4, 2, 1]
                     .into_iter()
@@ -78,7 +101,8 @@ fn runtime_assets() -> &'static RuntimeAssets {
                     })
                     .collect::<Vec<_>>()
                     .into_boxed_slice(),
-            },
+            })]
+            .into_boxed_slice(),
             biomes: CompiledBiomeAssets::diagnostic(),
         };
         let blob = encode_blob(&compiled).expect("encode synthetic plugin assets");

@@ -89,8 +89,13 @@ pub struct AssetMetrics {
     pub source_sha256: String,
     pub blob_sha256: String,
     pub texture_layers: u32,
+    pub texture_pages: u32,
     pub texture_bytes_including_mips: u64,
     pub material_count: u32,
+    pub model_template_count: u32,
+    pub model_quad_count: u32,
+    pub animation_count: u32,
+    pub animation_frame_count: u32,
     pub missing_mapping_count: u64,
     pub diagnostic_quad_count: u64,
 }
@@ -102,8 +107,13 @@ impl Default for AssetMetrics {
             source_sha256: "diagnostic".to_owned(),
             blob_sha256: "diagnostic".to_owned(),
             texture_layers: 1,
+            texture_pages: 1,
             texture_bytes_including_mips: 1_364,
             material_count: 1,
+            model_template_count: 0,
+            model_quad_count: 0,
+            animation_count: 0,
+            animation_frame_count: 0,
             missing_mapping_count: 0,
             diagnostic_quad_count: 0,
         }
@@ -118,16 +128,22 @@ impl AssetMetrics {
         visible_sub_chunks: usize,
     ) -> String {
         format!(
-            "WORLD_READY source_tag={} source_sha256={} blob_sha256={} texture_layers={} \
-             texture_bytes_including_mips={} material_count={} missing_mapping_count={} \
+            "WORLD_READY source_tag={} source_sha256={} blob_sha256={} texture_layers={} texture_pages={} \
+             texture_bytes_including_mips={} material_count={} model_template_count={} model_quad_count={} \
+             animation_count={} animation_frame_count={} missing_mapping_count={} \
              diagnostic_quad_count={} resident_sub_chunks={resident_sub_chunks} \
              visible_sub_chunks={visible_sub_chunks}",
             self.source_tag,
             self.source_sha256,
             self.blob_sha256,
             self.texture_layers,
+            self.texture_pages,
             self.texture_bytes_including_mips,
             self.material_count,
+            self.model_template_count,
+            self.model_quad_count,
+            self.animation_count,
+            self.animation_frame_count,
             self.missing_mapping_count,
             self.diagnostic_quad_count,
         )
@@ -882,8 +898,13 @@ mod tests {
                 "    \"source_sha256\": \"diagnostic\",\n",
                 "    \"blob_sha256\": \"diagnostic\",\n",
                 "    \"texture_layers\": 1,\n",
+                "    \"texture_pages\": 1,\n",
                 "    \"texture_bytes_including_mips\": 1364,\n",
                 "    \"material_count\": 1,\n",
+                "    \"model_template_count\": 0,\n",
+                "    \"model_quad_count\": 0,\n",
+                "    \"animation_count\": 0,\n",
+                "    \"animation_frame_count\": 0,\n",
                 "    \"missing_mapping_count\": 0,\n",
                 "    \"diagnostic_quad_count\": 0\n",
                 "  }\n",

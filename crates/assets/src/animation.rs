@@ -4,12 +4,13 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use crate::{
-    AssetError, FlipbookSource, PackSources, TextureMip,
+    AssetError, FlipbookSource, PackSources, TextureMip, TextureRef,
     image::{build_texture_mip_chain, diagnostic_pixels, normalize_texture_tile},
 };
 
 #[cfg(test)]
 const TEXTURE_PAGE_BIT: u32 = 1 << 31;
+#[cfg(test)]
 const TEXTURE_LAYER_MASK: u32 = 0x7ff;
 const MAX_LAYERS_PER_PAGE: u32 = 2_048;
 const MAX_TEXTURE_PAGES: u32 = 2;
@@ -40,41 +41,21 @@ impl AnimationLimits {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub(crate) struct TextureRef(u32);
-
-impl TextureRef {
-    pub(crate) fn from_linear_index(
-        index: usize,
-        limits: AnimationLimits,
-    ) -> Result<Self, AssetError> {
-        let limits = limits.validate()?;
-        if index >= limits.capacity() {
-            return Err(AssetError::TooManyAnimationTexturePages {
-                required_layers: index.saturating_add(1),
-                max_layers_per_page: limits.max_layers_per_page,
-                max_pages: limits.max_pages,
-            });
-        }
-        let page = index / limits.max_layers_per_page as usize;
-        let layer = index % limits.max_layers_per_page as usize;
-        debug_assert!(page < MAX_TEXTURE_PAGES as usize);
-        debug_assert!(layer <= TEXTURE_LAYER_MASK as usize);
-        Ok(Self((page as u32) << 31 | layer as u32))
+fn texture_ref_from_linear_index(
+    index: usize,
+    limits: AnimationLimits,
+) -> Result<TextureRef, AssetError> {
+    let limits = limits.validate()?;
+    if index >= limits.capacity() {
+        return Err(AssetError::TooManyAnimationTexturePages {
+            required_layers: index.saturating_add(1),
+            max_layers_per_page: limits.max_layers_per_page,
+            max_pages: limits.max_pages,
+        });
     }
-
-    #[cfg(test)]
-    pub(crate) const fn raw(self) -> u32 {
-        self.0
-    }
-
-    pub(crate) const fn page(self) -> u32 {
-        self.0 >> 31
-    }
-
-    pub(crate) const fn layer(self) -> u32 {
-        self.0 & TEXTURE_LAYER_MASK
-    }
+    let page = index / limits.max_layers_per_page as usize;
+    let layer = index % limits.max_layers_per_page as usize;
+    TextureRef::new(page as u32, layer as u32)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -128,6 +109,8 @@ pub(crate) struct AnimationPlan {
     pub animations: Box<[AnimationDescriptor]>,
     pub frames: Box<[TextureRef]>,
     pub layers: Box<[AnimationLayer]>,
+    pub static_refs: BTreeMap<Box<str>, TextureRef>,
+    pub strip_first_refs: BTreeMap<Box<str>, TextureRef>,
     pub inventory: AnimationInventory,
     limits: AnimationLimits,
 }
@@ -174,10 +157,10 @@ impl LayerDeduper {
                 .copied()
                 .find(|&index| self.layers[index].mips == mips)
         }) {
-            return TextureRef::from_linear_index(index, self.limits);
+            return texture_ref_from_linear_index(index, self.limits);
         }
         let index = self.layers.len();
-        let texture = TextureRef::from_linear_index(index, self.limits)?;
+        let texture = texture_ref_from_linear_index(index, self.limits)?;
         self.layers.push(AnimationLayer { mips });
         self.candidates.entry(digest).or_default().push(index);
         Ok(texture)
@@ -200,6 +183,15 @@ pub(crate) fn compile_animation_plan(
     decoded_images: &[DecodedImage],
     limits: AnimationLimits,
 ) -> Result<AnimationPlan, AssetError> {
+    compile_animation_plan_selected(pack, decoded_images, limits, None)
+}
+
+pub(crate) fn compile_animation_plan_selected(
+    pack: &PackSources,
+    decoded_images: &[DecodedImage],
+    limits: AnimationLimits,
+    selected_atlas_tiles: Option<&BTreeSet<Box<str>>>,
+) -> Result<AnimationPlan, AssetError> {
     let limits = limits.validate()?;
     let mut decoded = BTreeMap::<Box<str>, &DecodedImage>::new();
     for image in decoded_images {
@@ -210,8 +202,14 @@ pub(crate) fn compile_animation_plan(
             });
         }
     }
-    let animation_sources = pack
+    let selected_flipbooks = pack
         .flipbooks
+        .iter()
+        .filter(|flipbook| {
+            selected_atlas_tiles.is_none_or(|selected| selected.contains(&flipbook.atlas_tile))
+        })
+        .collect::<Vec<_>>();
+    let animation_sources = selected_flipbooks
         .iter()
         .map(|flipbook| flipbook.texture_path.clone())
         .collect::<BTreeSet<_>>();
@@ -235,6 +233,7 @@ pub(crate) fn compile_animation_plan(
     debug_assert_eq!((diagnostic_ref.page(), diagnostic_ref.layer()), (0, 0));
 
     let mut static_refs = BTreeSet::new();
+    let mut static_refs_by_source = BTreeMap::new();
     let mut static_sources = 0_usize;
     let mut non_tile_static_sources = 0_usize;
     for source_path in &catalog_static_sources {
@@ -250,7 +249,9 @@ pub(crate) fn compile_animation_plan(
         }
         static_sources += 1;
         let base = normalize_texture_tile(image.rgba8.clone(), image.width, source_path)?;
-        static_refs.insert(layers.add(build_texture_mip_chain(base)?)?);
+        let texture = layers.add(build_texture_mip_chain(base)?)?;
+        static_refs.insert(texture);
+        static_refs_by_source.insert(source_path.clone(), texture);
     }
 
     let mut physical_by_source = BTreeMap::<Box<str>, Box<[TextureRef]>>::new();
@@ -279,9 +280,9 @@ pub(crate) fn compile_animation_plan(
         physical_by_source.insert(source_path.clone(), refs.into_boxed_slice());
     }
 
-    let mut animations = Vec::with_capacity(pack.flipbooks.len());
+    let mut animations = Vec::with_capacity(selected_flipbooks.len());
     let mut timeline_frames = Vec::new();
-    for (animation_index, flipbook) in pack.flipbooks.iter().enumerate() {
+    for (animation_index, flipbook) in selected_flipbooks.iter().enumerate() {
         let physical = physical_by_source
             .get(&flipbook.texture_path)
             .expect("animation source was compiled");
@@ -348,7 +349,7 @@ pub(crate) fn compile_animation_plan(
                 section: "non-tile static source count",
             }
         })?,
-        reachable_animations: u32::try_from(pack.flipbooks.len()).map_err(|_| {
+        reachable_animations: u32::try_from(selected_flipbooks.len()).map_err(|_| {
             AssetError::BlobSizeOverflow {
                 section: "reachable animation count",
             }
@@ -373,11 +374,17 @@ pub(crate) fn compile_animation_plan(
         max_layers_per_page: limits.max_layers_per_page,
         max_pages: limits.max_pages,
     };
+    let strip_first_refs = physical_by_source
+        .iter()
+        .filter_map(|(path, frames)| frames.first().copied().map(|frame| (path.clone(), frame)))
+        .collect();
 
     Ok(AnimationPlan {
         animations: animations.into_boxed_slice(),
         frames: timeline_frames.into_boxed_slice(),
         layers: layers.layers.into_boxed_slice(),
+        static_refs: static_refs_by_source,
+        strip_first_refs,
         inventory,
         limits,
     })
@@ -471,7 +478,10 @@ mod tests {
 
     use tempfile::TempDir;
 
-    use super::{AnimationLimits, DecodedImage, TextureRef, compile_animation_plan};
+    use super::{
+        AnimationLimits, DecodedImage, compile_animation_plan, texture_ref_from_linear_index,
+    };
+    use crate::TextureRef;
     use crate::{AssetError, MIP_COUNT, TILE_SIZE, read_pack};
 
     fn write(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) {
@@ -751,8 +761,8 @@ mod tests {
     #[test]
     fn texture_page_ref_encodes_page_and_layer_and_rolls_at_2048() {
         let limits = limits(2_048, 2);
-        let last_first_page = TextureRef::from_linear_index(2_047, limits).expect("page zero");
-        let first_second_page = TextureRef::from_linear_index(2_048, limits).expect("page one");
+        let last_first_page = texture_ref_from_linear_index(2_047, limits).expect("page zero");
+        let first_second_page = texture_ref_from_linear_index(2_048, limits).expect("page one");
 
         assert_eq!(
             (last_first_page.page(), last_first_page.layer()),
@@ -764,7 +774,7 @@ mod tests {
             (1, 0)
         );
         assert_eq!(first_second_page.raw(), 1_u32 << 31);
-        assert!(TextureRef::from_linear_index(4_096, limits).is_err());
+        assert!(texture_ref_from_linear_index(4_096, limits).is_err());
     }
 
     #[test]

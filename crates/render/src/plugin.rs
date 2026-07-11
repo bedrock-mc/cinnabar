@@ -2210,7 +2210,9 @@ fn prepare_chunk_texture_assets(
         .materials()
         .iter()
         .map(|material| MaterialGpu {
-            layer: material.layer,
+            // Task 6 installs page-aware GPU records. Until then the legacy
+            // renderer safely consumes only the in-page layer component.
+            layer: material.texture.layer(),
             flags: material.flags,
         })
         .collect::<Vec<_>>();
@@ -3587,8 +3589,9 @@ mod tests {
     };
 
     use assets::{
-        BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, Material, NetworkIdMode,
-        TextureMip, encode_blob,
+        BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, Material, NO_ANIMATION,
+        NO_MODEL_TEMPLATE, NetworkIdMode, TextureMip, TexturePage, TextureRef, VisualKind,
+        encode_blob,
     };
     use bevy::{
         prelude::*,
@@ -3619,16 +3622,38 @@ mod tests {
                     BlockVisual {
                         faces: [0; 6],
                         flags: BlockFlags::AIR,
+                        kind: VisualKind::Invisible,
+                        contributor_role: assets::ContributorRole::Air,
+                        model_template: NO_MODEL_TEMPLATE,
+                        animation: NO_ANIMATION,
+                        variant: 0,
                     },
                     BlockVisual {
                         faces: [1; 6],
                         flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
+                        kind: VisualKind::Cube,
+                        contributor_role: assets::ContributorRole::Primary,
+                        model_template: NO_MODEL_TEMPLATE,
+                        animation: NO_ANIMATION,
+                        variant: 0,
                     },
                 ]
                 .into_boxed_slice(),
                 hashed: Box::new([]),
-                materials: vec![Material { layer: 0, flags: 0 }; 2].into_boxed_slice(),
-                textures: TextureArray {
+                materials: vec![
+                    Material {
+                        texture: TextureRef::DIAGNOSTIC,
+                        flags: 0,
+                        animation: NO_ANIMATION
+                    };
+                    2
+                ]
+                .into_boxed_slice(),
+                model_templates: Box::new([]),
+                model_quads: Box::new([]),
+                animations: Box::new([]),
+                animation_frames: Box::new([]),
+                texture_pages: vec![TexturePage::new(TextureArray {
                     layers: 1,
                     mips: [16_u32, 8, 4, 2, 1]
                         .into_iter()
@@ -3638,7 +3663,8 @@ mod tests {
                         })
                         .collect::<Vec<_>>()
                         .into_boxed_slice(),
-                },
+                })]
+                .into_boxed_slice(),
                 biomes: CompiledBiomeAssets::diagnostic(),
             };
             let blob = encode_blob(&compiled).expect("encode opaque plugin test assets");

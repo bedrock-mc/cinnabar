@@ -2,7 +2,8 @@ use std::{mem::size_of, sync::OnceLock};
 
 use assets::{
     BlockFace, BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, DIAGNOSTIC_MATERIAL,
-    Material, NetworkIdMode, RuntimeAssets, TextureArray, TextureMip, encode_blob,
+    Material, NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TextureArray,
+    TextureMip, TexturePage, TextureRef, VisualKind, encode_blob,
 };
 use render::{BlockClassifier, Face, Neighbourhood, PackedQuad, debug_color, mesh_sub_chunk};
 use world::SubChunk;
@@ -25,6 +26,11 @@ fn runtime_assets() -> &'static RuntimeAssets {
             BlockVisual {
                 faces: [DIAGNOSTIC_MATERIAL; 6],
                 flags: BlockFlags::empty(),
+                kind: VisualKind::Diagnostic,
+                contributor_role: assets::ContributorRole::Primary,
+                model_template: NO_MODEL_TEMPLATE,
+                animation: NO_ANIMATION,
+                variant: 0,
             };
             AIR as usize + 1
         ];
@@ -40,20 +46,40 @@ fn runtime_assets() -> &'static RuntimeAssets {
         visuals[53] = BlockVisual {
             faces: [61, 62, 63, 64, 65, 66],
             flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
+            kind: VisualKind::Cube,
+            contributor_role: assets::ContributorRole::Primary,
+            model_template: NO_MODEL_TEMPLATE,
+            animation: NO_ANIMATION,
+            variant: 0,
         };
         // A non-full-cube record intentionally carries non-zero face IDs. The
         // mesher must still route it to the diagnostic material.
         visuals[54] = BlockVisual {
             faces: [66; 6],
             flags: BlockFlags::empty(),
+            kind: VisualKind::Diagnostic,
+            contributor_role: assets::ContributorRole::Primary,
+            model_template: NO_MODEL_TEMPLATE,
+            animation: NO_ANIMATION,
+            variant: 0,
         };
         visuals[LEAF_A as usize] = BlockVisual {
             faces: [LEAF_A; 6],
             flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::LEAF_MODEL,
+            kind: VisualKind::Cube,
+            contributor_role: assets::ContributorRole::Primary,
+            model_template: NO_MODEL_TEMPLATE,
+            animation: NO_ANIMATION,
+            variant: 0,
         };
         visuals[LEAF_B as usize] = BlockVisual {
             faces: [LEAF_B; 6],
             flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::LEAF_MODEL,
+            kind: VisualKind::Cube,
+            contributor_role: assets::ContributorRole::Primary,
+            model_template: NO_MODEL_TEMPLATE,
+            animation: NO_ANIMATION,
+            variant: 0,
         };
 
         let textures = TextureArray {
@@ -72,8 +98,20 @@ fn runtime_assets() -> &'static RuntimeAssets {
             // Hash 7 deliberately collides with sequential ID 7, but points
             // at the non-full-cube diagnostic record instead.
             hashed: vec![(7, 54), (0xdbf4_4120, 53)].into_boxed_slice(),
-            materials: vec![Material { layer: 0, flags: 0 }; 67].into_boxed_slice(),
-            textures,
+            materials: vec![
+                Material {
+                    texture: TextureRef::DIAGNOSTIC,
+                    flags: 0,
+                    animation: NO_ANIMATION
+                };
+                67
+            ]
+            .into_boxed_slice(),
+            model_templates: Box::new([]),
+            model_quads: Box::new([]),
+            animations: Box::new([]),
+            animation_frames: Box::new([]),
+            texture_pages: vec![TexturePage::new(textures)].into_boxed_slice(),
             biomes: CompiledBiomeAssets::diagnostic(),
         };
         let blob = encode_blob(&compiled).expect("encode synthetic mesher assets");

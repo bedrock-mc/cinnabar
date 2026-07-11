@@ -1,18 +1,19 @@
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
 };
 
-use sha2::{Digest, Sha256};
-
 use crate::{
-    AnimationInventory, AssetError, BiomeRegistryRecord, BlockFace, BlockFlags,
-    CompiledBiomeAssets, PackSources, RegistryRecord, TextureKey,
-    animation::{AnimationLimits, DecodedImage, compile_animation_plan},
-    compile_biome_assets,
-    image::{
-        TextureArray, build_texture_array, decode_static_texture, decode_texture, diagnostic_pixels,
+    Animation, AnimationInventory, AssetError, BiomeRegistryRecord, BlockFace, BlockFlags,
+    CompiledBiomeAssets, ContributorRole, ModelQuad, ModelTemplate, NO_ANIMATION,
+    NO_MODEL_TEMPLATE, PackSources, RegistryRecord, TextureKey, TexturePage, TextureRef,
+    VisualKind,
+    animation::{
+        AnimationLimits, AnimationPlan, DecodedImage, compile_animation_plan,
+        compile_animation_plan_selected,
     },
+    compile_biome_assets,
+    image::{TextureArray, decode_static_texture, decode_texture},
     read_pack, resolve_texture_key,
 };
 
@@ -26,6 +27,7 @@ pub const MATERIAL_FLAG_GRASS_TINT: u32 = 1 << 4;
 pub const MATERIAL_FLAG_FOLIAGE_TINT: u32 = 1 << 5;
 pub const MATERIAL_FLAG_WATER_TINT: u32 = MATERIAL_FLAG_GRASS_TINT | MATERIAL_FLAG_FOLIAGE_TINT;
 pub const MATERIAL_FLAG_OVERLAY_MASK: u32 = 1 << 6;
+pub const MATERIAL_FLAG_ALPHA_BLEND: u32 = 1 << 7;
 pub const MATERIAL_FLAG_ALPHA_CUTOUT: u32 = 1 << 8;
 pub const MATERIAL_FLAG_FOLIAGE_CLASS_MASK: u32 = 0x0000_0600;
 pub const MATERIAL_FLAG_BIRCH_FOLIAGE: u32 = 1 << 9;
@@ -34,11 +36,14 @@ pub const MATERIAL_FLAG_DRY_FOLIAGE: u32 = MATERIAL_FLAG_FOLIAGE_CLASS_MASK;
 pub const MATERIAL_FLAGS_MASK: u32 = MATERIAL_FLAG_UV_MASK
     | MATERIAL_FLAG_TINT_MASK
     | MATERIAL_FLAG_OVERLAY_MASK
+    | MATERIAL_FLAG_ALPHA_BLEND
     | MATERIAL_FLAG_ALPHA_CUTOUT
     | MATERIAL_FLAG_FOLIAGE_CLASS_MASK;
 
 pub(crate) const fn material_flags_are_valid(flags: u32) -> bool {
     flags & !MATERIAL_FLAGS_MASK == 0
+        && flags & (MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_ALPHA_CUTOUT)
+            != MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_ALPHA_CUTOUT
         && (flags & MATERIAL_FLAG_FOLIAGE_CLASS_MASK == 0
             || flags & MATERIAL_FLAG_TINT_MASK == MATERIAL_FLAG_FOLIAGE_TINT)
 }
@@ -49,24 +54,61 @@ const MAX_VISUALS: usize = 65_536;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Material {
-    pub layer: u32,
+    pub texture: TextureRef,
     pub flags: u32,
+    pub animation: u32,
 }
 
-const _: () = assert!(std::mem::size_of::<Material>() == 8);
+const _: () = assert!(std::mem::size_of::<Material>() == 12);
 
 /// Per-face material IDs and registry facts for one sequential block ID.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BlockVisual {
     pub faces: [u32; 6],
     pub flags: BlockFlags,
+    pub kind: VisualKind,
+    pub contributor_role: ContributorRole,
+    pub model_template: u32,
+    pub animation: u32,
+    pub variant: u32,
 }
 
 impl BlockVisual {
-    fn diagnostic(flags: BlockFlags) -> Self {
+    fn diagnostic(flags: BlockFlags, contributor_role: ContributorRole) -> Self {
         Self {
             faces: [DIAGNOSTIC_MATERIAL; 6],
             flags,
+            kind: VisualKind::Diagnostic,
+            contributor_role,
+            model_template: NO_MODEL_TEMPLATE,
+            animation: NO_ANIMATION,
+            variant: 0,
+        }
+    }
+}
+
+pub(crate) fn visual_semantics_are_valid(
+    kind: VisualKind,
+    flags: BlockFlags,
+    role: ContributorRole,
+) -> bool {
+    match kind {
+        VisualKind::Diagnostic => true,
+        VisualKind::Cube => {
+            matches!(role, ContributorRole::Primary) && flags.contains(BlockFlags::CUBE_GEOMETRY)
+        }
+        VisualKind::Cross | VisualKind::Model => {
+            matches!(role, ContributorRole::Primary)
+                && !flags.intersects(BlockFlags::AIR | BlockFlags::CUBE_GEOMETRY)
+        }
+        VisualKind::Liquid => {
+            matches!(role, ContributorRole::LiquidAdditional)
+                && !flags.intersects(BlockFlags::AIR | BlockFlags::CUBE_GEOMETRY)
+        }
+        VisualKind::Invisible => {
+            !matches!(role, ContributorRole::LiquidAdditional)
+                && !flags.contains(BlockFlags::CUBE_GEOMETRY)
+                && (matches!(role, ContributorRole::Air) == flags.contains(BlockFlags::AIR))
         }
     }
 }
@@ -77,19 +119,24 @@ pub struct CompiledAssets {
     pub visuals: Box<[BlockVisual]>,
     pub hashed: Box<[(u32, u32)]>,
     pub materials: Box<[Material]>,
-    pub textures: TextureArray,
+    pub model_templates: Box<[ModelTemplate]>,
+    pub model_quads: Box<[ModelQuad]>,
+    pub animations: Box<[Animation]>,
+    pub animation_frames: Box<[TextureRef]>,
+    pub texture_pages: Box<[TexturePage]>,
     pub biomes: CompiledBiomeAssets,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct Descriptor {
     path: Box<str>,
+    texture_key: Box<str>,
     flags: u32,
 }
 
-type CompiledLayers = (Vec<Box<[u8]>>, BTreeMap<Box<str>, u32>);
 type CompiledMaterials = (Box<[Material]>, BTreeMap<Descriptor, u32>);
 type CompiledVisuals = (Box<[BlockVisual]>, Box<[(u32, u32)]>);
+type CompiledAnimations = (Box<[Animation]>, Box<[TextureRef]>);
 
 /// Compiles the cube-geometry subset of a bounded Bedrock resource pack.
 pub fn compile_pack(root: &Path, records: &[RegistryRecord]) -> Result<CompiledAssets, AssetError> {
@@ -181,26 +228,21 @@ fn compile_pack_inner(
         }
     }
 
-    let (layers, layer_by_path) = compile_layers(root, &descriptor_keys)?;
-    let cutout_layers = descriptor_keys
-        .keys()
-        .filter(|descriptor| descriptor.flags & MATERIAL_FLAG_ALPHA_CUTOUT != 0)
-        .filter_map(|descriptor| layer_by_path.get(&descriptor.path).copied())
-        .collect::<BTreeSet<_>>();
-    let overlay_mask_layers = descriptor_keys
-        .keys()
-        .filter(|descriptor| descriptor.flags & MATERIAL_FLAG_OVERLAY_MASK != 0)
-        .filter_map(|descriptor| layer_by_path.get(&descriptor.path).copied())
-        .collect::<BTreeSet<_>>();
-    let textures = build_texture_array(&layers, &cutout_layers, &overlay_mask_layers)?;
-    let (materials, material_by_descriptor) = compile_materials(&descriptor_keys, &layer_by_path)?;
+    let animation_plan = compile_runtime_animation_plan(root, &pack, &descriptor_keys)?;
+    let texture_pages = animation_plan_pages(&animation_plan)?;
+    let (animations, animation_frames) = runtime_animation_tables(&animation_plan)?;
+    let (materials, material_by_descriptor) = compile_materials(&descriptor_keys, &animation_plan)?;
     let (visuals, hashed) = compile_visuals(records, &pack, &material_by_descriptor)?;
 
     Ok(CompiledAssets {
         visuals,
         hashed,
         materials,
-        textures,
+        model_templates: Box::new([]),
+        model_quads: Box::new([]),
+        animations,
+        animation_frames,
+        texture_pages,
         biomes,
     })
 }
@@ -276,6 +318,7 @@ fn descriptor_for(
     Some((
         Descriptor {
             path: path.into(),
+            texture_key: key.clone(),
             flags,
         },
         key,
@@ -308,82 +351,148 @@ fn record_has_deferred_material(pack: &PackSources, record: &RegistryRecord) -> 
     })
 }
 
-fn source_is_deferred(pack: &PackSources, record: &RegistryRecord, key: &str, path: &str) -> bool {
-    (record.name.as_ref() != "minecraft:grass_block" && pack.terrain.requires_tint(key))
-        || pack.flipbooks.iter().any(|flipbook| {
-            flipbook.atlas_tile.as_ref() == key || flipbook.texture_path.as_ref() == path
-        })
+fn source_is_deferred(pack: &PackSources, record: &RegistryRecord, key: &str, _path: &str) -> bool {
+    record.name.as_ref() != "minecraft:grass_block" && pack.terrain.requires_tint(key)
 }
 
-fn compile_layers(
+fn compile_runtime_animation_plan(
     root: &Path,
+    pack: &PackSources,
     descriptor_keys: &BTreeMap<Descriptor, Box<str>>,
-) -> Result<CompiledLayers, AssetError> {
-    let cutout_paths = descriptor_keys
+) -> Result<AnimationPlan, AssetError> {
+    let referenced_paths = descriptor_keys
         .keys()
-        .filter(|descriptor| descriptor.flags & MATERIAL_FLAG_ALPHA_CUTOUT != 0)
         .map(|descriptor| descriptor.path.clone())
         .collect::<BTreeSet<_>>();
-    let overlay_mask_paths = descriptor_keys
-        .keys()
-        .filter(|descriptor| descriptor.flags & MATERIAL_FLAG_OVERLAY_MASK != 0)
-        .map(|descriptor| descriptor.path.clone())
+    let selected_atlas_tiles = pack
+        .flipbooks
+        .iter()
+        .filter(|flipbook| {
+            descriptor_keys
+                .values()
+                .any(|key| flipbook.atlas_tile.as_ref() == key.as_ref())
+                || referenced_paths.contains(&flipbook.texture_path)
+        })
+        .map(|flipbook| flipbook.atlas_tile.clone())
         .collect::<BTreeSet<_>>();
-    let mut key_by_path = BTreeMap::<Box<str>, Box<str>>::new();
-    for (descriptor, key) in descriptor_keys {
-        key_by_path
-            .entry(descriptor.path.clone())
-            .and_modify(|current| {
-                if key.as_ref() < current.as_ref() {
-                    *current = key.clone();
-                }
-            })
-            .or_insert_with(|| key.clone());
-    }
-
-    let mut layers = vec![diagnostic_pixels()];
-    let mut layer_by_path = BTreeMap::new();
-    let mut layers_by_digest = HashMap::<[u8; 32], Vec<u32>>::new();
-    let diagnostic_digest: [u8; 32] = Sha256::digest(&layers[0]).into();
-    layers_by_digest.insert(diagnostic_digest, vec![0]);
-
-    for (path, key) in key_by_path {
-        let source_path = static_texture_path(root, &path, &key)?;
-        let pixels = decode_static_texture(&source_path, &key)?;
-        if pixels.chunks_exact(4).any(|pixel| pixel[3] != u8::MAX)
-            && !cutout_paths.contains(&path)
-            && !overlay_mask_paths.contains(&path)
-        {
+    let animation_paths = pack
+        .flipbooks
+        .iter()
+        .filter(|flipbook| selected_atlas_tiles.contains(&flipbook.atlas_tile))
+        .map(|flipbook| flipbook.texture_path.clone())
+        .collect::<BTreeSet<_>>();
+    let mut decoded_images = Vec::new();
+    let mut decoded_paths = BTreeSet::new();
+    for descriptor in descriptor_keys
+        .keys()
+        .filter(|descriptor| !animation_paths.contains(&descriptor.path))
+    {
+        if !decoded_paths.insert(descriptor.path.clone()) {
             continue;
         }
-        let digest: [u8; 32] = Sha256::digest(&pixels).into();
-        let existing = layers_by_digest.get(&digest).and_then(|candidates| {
-            candidates
-                .iter()
-                .copied()
-                .find(|&layer| layers[layer as usize].as_ref() == pixels.as_ref())
+        let source_path = descriptor.path.clone();
+        let key = descriptor_keys
+            .iter()
+            .filter(|(candidate, _)| candidate.path == source_path)
+            .map(|(_, key)| key)
+            .min()
+            .expect("descriptor path has a source key");
+        let path = static_texture_path(root, &source_path, key)?;
+        let rgba8 = decode_static_texture(&path, key)?;
+        let has_alpha = rgba8.chunks_exact(4).any(|pixel| pixel[3] != u8::MAX);
+        let supports_alpha = descriptor_keys
+            .keys()
+            .filter(|candidate| candidate.path == source_path)
+            .any(|candidate| {
+                candidate.flags & (MATERIAL_FLAG_ALPHA_CUTOUT | MATERIAL_FLAG_OVERLAY_MASK) != 0
+            });
+        if has_alpha && !supports_alpha {
+            continue;
+        }
+        decoded_images.push(DecodedImage {
+            source_path,
+            width: crate::TILE_SIZE,
+            height: crate::TILE_SIZE,
+            rgba8,
         });
-        let layer = if let Some(layer) = existing {
-            layer
-        } else {
-            if layers.len() >= MAX_TEXTURE_LAYERS {
-                return Err(AssetError::TooManyTextureLayers {
-                    count: layers.len() + 1,
-                    max: MAX_TEXTURE_LAYERS,
-                    key: Some(key),
-                    path: Some(source_path),
-                });
-            }
-            let layer = u32::try_from(layers.len()).map_err(|_| AssetError::BlobSizeOverflow {
-                section: "texture layer",
-            })?;
-            layers.push(pixels);
-            layers_by_digest.entry(digest).or_default().push(layer);
-            layer
-        };
-        layer_by_path.insert(path, layer);
     }
-    Ok((layers, layer_by_path))
+    for source_path in animation_paths {
+        if !decoded_paths.insert(source_path.clone()) {
+            continue;
+        }
+        let path = static_texture_path(root, &source_path, &source_path)?;
+        let decoded = decode_texture(&path, &source_path)?;
+        decoded_images.push(DecodedImage {
+            source_path,
+            width: decoded.width,
+            height: decoded.height,
+            rgba8: decoded.rgba8,
+        });
+    }
+    compile_animation_plan_selected(
+        pack,
+        &decoded_images,
+        AnimationLimits {
+            max_layers_per_page: MAX_TEXTURE_LAYERS as u32,
+            max_pages: 2,
+        },
+        Some(&selected_atlas_tiles),
+    )
+}
+
+fn animation_plan_pages(plan: &AnimationPlan) -> Result<Box<[TexturePage]>, AssetError> {
+    let mut pages = Vec::new();
+    for chunk in plan.layers.chunks(MAX_TEXTURE_LAYERS) {
+        let mut mips = Vec::with_capacity(crate::MIP_COUNT as usize);
+        for level in 0..crate::MIP_COUNT as usize {
+            let size = crate::TILE_SIZE >> level;
+            let mut rgba8 = Vec::new();
+            for layer in chunk {
+                let mip =
+                    layer
+                        .mips
+                        .get(level)
+                        .ok_or_else(|| AssetError::InvalidCompiledAssets {
+                            detail: "animation layer has a noncanonical mip count".into(),
+                        })?;
+                if mip.size != size {
+                    return Err(AssetError::InvalidCompiledAssets {
+                        detail: "animation layer has a noncanonical mip size".into(),
+                    });
+                }
+                rgba8.extend_from_slice(&mip.rgba8);
+            }
+            mips.push(crate::TextureMip {
+                size,
+                rgba8: rgba8.into_boxed_slice(),
+            });
+        }
+        pages.push(TexturePage::new(TextureArray {
+            layers: u32::try_from(chunk.len()).map_err(|_| AssetError::BlobSizeOverflow {
+                section: "texture page layers",
+            })?,
+            mips: mips.into_boxed_slice(),
+        }));
+    }
+    Ok(pages.into_boxed_slice())
+}
+
+fn runtime_animation_tables(plan: &AnimationPlan) -> Result<CompiledAnimations, AssetError> {
+    let animations = plan
+        .animations
+        .iter()
+        .map(|source| Animation {
+            frame_start: source.frame_start,
+            frame_count: source.frame_count,
+            ticks_per_frame: source.ticks_per_frame,
+            atlas_index: source.atlas_index,
+            atlas_tile_variant: source.atlas_tile_variant,
+            replicate: source.replicate,
+            flags: u32::from(source.blend_frames),
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+    Ok((animations, plan.frames.clone()))
 }
 
 fn static_texture_path(root: &Path, source: &str, key: &str) -> Result<PathBuf, AssetError> {
@@ -413,18 +522,62 @@ fn static_texture_path(root: &Path, source: &str, key: &str) -> Result<PathBuf, 
 
 fn compile_materials(
     descriptor_keys: &BTreeMap<Descriptor, Box<str>>,
-    layer_by_path: &BTreeMap<Box<str>, u32>,
+    plan: &AnimationPlan,
 ) -> Result<CompiledMaterials, AssetError> {
-    let mut materials = vec![Material { layer: 0, flags: 0 }];
-    let mut material_by_value = BTreeMap::<(u32, u32), u32>::new();
-    material_by_value.insert((0, 0), DIAGNOSTIC_MATERIAL);
+    let mut materials = vec![Material {
+        texture: TextureRef::DIAGNOSTIC,
+        flags: 0,
+        animation: NO_ANIMATION,
+    }];
+    let mut material_by_value = BTreeMap::<(TextureRef, u32, u32), u32>::new();
+    material_by_value.insert(
+        (TextureRef::DIAGNOSTIC, 0, NO_ANIMATION),
+        DIAGNOSTIC_MATERIAL,
+    );
     let mut material_by_descriptor = BTreeMap::new();
 
     for descriptor in descriptor_keys.keys() {
-        let Some(&layer) = layer_by_path.get(&descriptor.path) else {
+        let key = &descriptor.texture_key;
+        let candidates = plan
+            .animations
+            .iter()
+            .enumerate()
+            .filter(|(_, source)| {
+                source.atlas_tile.as_ref() == key.as_ref() && source.source_path == descriptor.path
+            })
+            .collect::<Vec<_>>();
+        let animation = match candidates.as_slice() {
+            [] => None,
+            [(index, _)] => Some(*index),
+            _ => Some(
+                candidates
+                    .iter()
+                    .find(|(_, source)| source.atlas_index == 0 && source.atlas_tile_variant == 0)
+                    .map(|(index, _)| *index)
+                    .ok_or_else(|| AssetError::InvalidCompiledAssets {
+                        detail: format!(
+                            "texture {} has multiple flipbook selectors and no canonical selector (0, 0)",
+                            descriptor.path
+                        )
+                        .into(),
+                    })?,
+            ),
+        }
+        .map(|index| u32::try_from(index).expect("bounded flipbook count"));
+        let texture = if let Some(animation) = animation {
+            let source = &plan.animations[animation as usize];
+            plan.frames[source.frame_start as usize]
+        } else if let Some(&texture) = plan
+            .static_refs
+            .get(&descriptor.path)
+            .or_else(|| plan.strip_first_refs.get(&descriptor.path))
+        {
+            texture
+        } else {
             continue;
         };
-        let value = (layer, descriptor.flags);
+        let animation = animation.unwrap_or(NO_ANIMATION);
+        let value = (texture, descriptor.flags, animation);
         let material = if let Some(&material) = material_by_value.get(&value) {
             material
         } else {
@@ -439,8 +592,9 @@ fn compile_materials(
                     section: "material",
                 })?;
             materials.push(Material {
-                layer,
+                texture,
                 flags: descriptor.flags,
+                animation,
             });
             material_by_value.insert(value, material);
             material
@@ -460,11 +614,12 @@ fn compile_visuals(
         .map(|record| record.sequential_id as usize + 1)
         .max()
         .unwrap_or(0);
-    let mut visuals = vec![BlockVisual::diagnostic(BlockFlags::empty()); visual_count];
+    let mut visuals =
+        vec![BlockVisual::diagnostic(BlockFlags::empty(), ContributorRole::Primary); visual_count];
     let mut hashed = Vec::with_capacity(records.len());
 
     for record in records {
-        let mut visual = BlockVisual::diagnostic(record.flags);
+        let mut visual = BlockVisual::diagnostic(record.flags, record.contributor_role);
         if record.flags.contains(BlockFlags::CUBE_GEOMETRY)
             && !record_has_deferred_material(pack, record)
         {
@@ -483,6 +638,7 @@ fn compile_visuals(
             }
             if supported {
                 visual.faces = faces;
+                visual.kind = VisualKind::Cube;
             }
         }
         visuals[record.sequential_id as usize] = visual;

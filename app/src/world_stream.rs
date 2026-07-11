@@ -2821,8 +2821,9 @@ mod tests {
     };
 
     use assets::{
-        BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, Material, NetworkIdMode,
-        RuntimeAssets, TextureArray, TextureMip, encode_blob,
+        BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, Material, NO_ANIMATION,
+        NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TextureArray, TextureMip, TexturePage,
+        TextureRef, VisualKind, encode_blob,
     };
     use protocol::{
         BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockUpdateEvent, ChangeDimensionEvent,
@@ -3489,20 +3490,47 @@ mod tests {
                 BlockVisual {
                     faces: [0; 6],
                     flags: BlockFlags::AIR,
+                    kind: VisualKind::Invisible,
+                    contributor_role: assets::ContributorRole::Air,
+                    model_template: NO_MODEL_TEMPLATE,
+                    animation: NO_ANIMATION,
+                    variant: 0,
                 },
                 BlockVisual {
                     faces: [1; 6],
                     flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::LEAF_MODEL,
+                    kind: VisualKind::Cube,
+                    contributor_role: assets::ContributorRole::Primary,
+                    model_template: NO_MODEL_TEMPLATE,
+                    animation: NO_ANIMATION,
+                    variant: 0,
                 },
                 BlockVisual {
                     faces: [2; 6],
                     flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
+                    kind: VisualKind::Cube,
+                    contributor_role: assets::ContributorRole::Primary,
+                    model_template: NO_MODEL_TEMPLATE,
+                    animation: NO_ANIMATION,
+                    variant: 0,
                 },
             ]
             .into_boxed_slice(),
             hashed: Box::new([]),
-            materials: vec![Material { layer: 0, flags: 0 }; 3].into_boxed_slice(),
-            textures: TextureArray {
+            materials: vec![
+                Material {
+                    texture: TextureRef::DIAGNOSTIC,
+                    flags: 0,
+                    animation: NO_ANIMATION
+                };
+                3
+            ]
+            .into_boxed_slice(),
+            model_templates: Box::new([]),
+            model_quads: Box::new([]),
+            animations: Box::new([]),
+            animation_frames: Box::new([]),
+            texture_pages: vec![TexturePage::new(TextureArray {
                 layers: 1,
                 mips: [16_u32, 8, 4, 2, 1]
                     .into_iter()
@@ -3512,7 +3540,8 @@ mod tests {
                     })
                     .collect::<Vec<_>>()
                     .into_boxed_slice(),
-            },
+            })]
+            .into_boxed_slice(),
             biomes: CompiledBiomeAssets::diagnostic(),
         };
         let blob = encode_blob(&compiled).expect("encode cave-connectivity test assets");

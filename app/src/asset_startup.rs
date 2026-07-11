@@ -206,14 +206,23 @@ fn runtime_metrics(
     source: VanillaSource,
     blob_sha256: String,
 ) -> AssetMetrics {
-    let textures = runtime.texture_array();
+    let pages = runtime.texture_pages();
     AssetMetrics {
         source_tag: source.tag,
         source_sha256: source.sha256,
         blob_sha256,
-        texture_layers: textures.layers,
-        texture_bytes_including_mips: textures.mips.iter().map(|mip| mip.rgba8.len() as u64).sum(),
+        texture_layers: pages.iter().map(|page| page.texture.layers).sum(),
+        texture_pages: u32::try_from(pages.len()).unwrap_or(u32::MAX),
+        texture_bytes_including_mips: pages
+            .iter()
+            .flat_map(|page| page.texture.mips.iter())
+            .map(|mip| mip.rgba8.len() as u64)
+            .sum(),
         material_count: u32::try_from(runtime.materials().len()).unwrap_or(u32::MAX),
+        model_template_count: u32::try_from(runtime.model_templates().len()).unwrap_or(u32::MAX),
+        model_quad_count: u32::try_from(runtime.model_quads().len()).unwrap_or(u32::MAX),
+        animation_count: u32::try_from(runtime.animations().len()).unwrap_or(u32::MAX),
+        animation_frame_count: u32::try_from(runtime.animation_frames().len()).unwrap_or(u32::MAX),
         missing_mapping_count: runtime.missing_count(),
         diagnostic_quad_count: 0,
     }
