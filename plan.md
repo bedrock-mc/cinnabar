@@ -181,7 +181,7 @@ Scope: block registry + block-state → model/texture mapping (generated export 
   - [x] Carry request-mode and inline `LevelChunk` biome payloads through the
     Rayon/FIFO streaming path, decode the full dimension column independently
     of requested block count, and commit it before subchunk requests.
-  - [ ] Retain the live biome definition mapping needed to resolve palette IDs
+  - [x] Retain the live biome definition mapping needed to resolve palette IDs
     to climate and vanilla tint rules, including bounded custom-biome fallback.
   - [x] Remove the grass-block diagnostic fallback: compile bottom/top/side
     independently, preserve grass-side alpha as an opaque tint mask through
@@ -189,7 +189,9 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     tint until live per-biome color lookup replaces it.
   - [ ] Compile grass/foliage/water tint classifications and biome color rules,
     upload palette-native biome/tint tables, and apply them in the chunk shader
-    without widening the eight-byte quad record.
+    without widening the eight-byte quad record. Grass plus generic/birch/
+    evergreen/dry foliage are now resolved from `MCBEAS03`, revision-gated,
+    and applied palette-natively; real water-material production remains in 2.6.
 - [ ] **2.6 Static/non-cube models, blend/water, and flipbooks.** Complete the
   remaining block visual classes and animation path.
 - [ ] **2.7 Client lighting and atmosphere.** Block/sky flood fill, baked vertex
