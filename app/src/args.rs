@@ -9,6 +9,7 @@ Usage: bedrock-client [OPTIONS]
 
 Options:
   --socket-dir <PATH>          Core socket directory (default: .local/run)
+  --assets <PATH>              Compiled vanilla asset blob
   --display-name <NAME>        Offline display name (default: RustMCBE)
   --acceptance-seconds <N>     Exit after N seconds and write metrics
   --metrics-out <PATH>         Deterministic JSON metrics output path
@@ -20,6 +21,7 @@ Options:
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientArgs {
     pub socket_dir: PathBuf,
+    pub assets: Option<PathBuf>,
     pub display_name: String,
     pub acceptance_seconds: Option<u64>,
     pub metrics_out: Option<PathBuf>,
@@ -31,6 +33,7 @@ impl Default for ClientArgs {
     fn default() -> Self {
         Self {
             socket_dir: PathBuf::from(".local/run"),
+            assets: None,
             display_name: "RustMCBE".to_owned(),
             acceptance_seconds: None,
             metrics_out: None,
@@ -86,6 +89,9 @@ impl ClientArgs {
                 Some("--socket-dir") => {
                     parsed.socket_dir = PathBuf::from(next_value(&mut arguments, "--socket-dir")?);
                 }
+                Some("--assets") => {
+                    parsed.assets = Some(PathBuf::from(next_value(&mut arguments, "--assets")?));
+                }
                 Some("--metrics-out") => {
                     parsed.metrics_out =
                         Some(PathBuf::from(next_value(&mut arguments, "--metrics-out")?));
@@ -140,6 +146,7 @@ mod tests {
             panic!("expected run args")
         };
         assert_eq!(args.socket_dir, PathBuf::from(".local/run"));
+        assert_eq!(args.assets, None);
         assert_eq!(args.display_name, "RustMCBE");
         assert_eq!(args.acceptance_seconds, None);
         assert!(!args.auto_fly);
@@ -152,6 +159,8 @@ mod tests {
             "client",
             "--socket-dir",
             "run/socket",
+            "--assets",
+            "assets/vanilla.mcbea",
             "--display-name",
             "TestBot",
             "--acceptance-seconds",
@@ -165,6 +174,7 @@ mod tests {
             panic!("expected run args")
         };
         assert_eq!(args.socket_dir, PathBuf::from("run/socket"));
+        assert_eq!(args.assets, Some(PathBuf::from("assets/vanilla.mcbea")));
         assert_eq!(args.display_name, "TestBot");
         assert_eq!(args.acceptance_seconds, Some(900));
         assert_eq!(args.metrics_out, Some(PathBuf::from("metrics.json")));
@@ -180,6 +190,7 @@ mod tests {
         );
         for flag in [
             "--socket-dir",
+            "--assets",
             "--acceptance-seconds",
             "--metrics-out",
             "--auto-fly",
