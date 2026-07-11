@@ -159,6 +159,12 @@ impl TerrainTextureMap {
         self.entries.get(key).map(TerrainPaths::first)
     }
 
+    pub(crate) fn requires_tint(&self, key: &str) -> bool {
+        self.entries
+            .get(key)
+            .is_some_and(TerrainPaths::requires_tint)
+    }
+
     pub(crate) fn get_for_record(&self, key: &str, record: &RegistryRecord) -> Option<&str> {
         let paths = self.entries.get(key)?;
         if !is_mushroom_face_key(key, &record.name) {
@@ -166,26 +172,40 @@ impl TerrainTextureMap {
         }
         let selected = mushroom_variant_index(record)?;
         match paths {
-            TerrainPaths::Static(path) => Some(path),
-            TerrainPaths::Variants(variants) if variants.len() == 16 => {
-                variants.get(selected).map(AsRef::as_ref)
+            TerrainPaths::Static { path, .. } => Some(path),
+            TerrainPaths::Variants { paths, .. } if paths.len() == 16 => {
+                paths.get(selected).map(AsRef::as_ref)
             }
-            TerrainPaths::Variants(_) => None,
+            TerrainPaths::Variants { .. } => None,
         }
     }
 }
 
 #[derive(Debug)]
 enum TerrainPaths {
-    Static(Box<str>),
-    Variants(Box<[Box<str>]>),
+    Static {
+        path: Box<str>,
+        requires_tint: bool,
+    },
+    Variants {
+        paths: Box<[Box<str>]>,
+        requires_tint: bool,
+    },
 }
 
 impl TerrainPaths {
     fn first(&self) -> &str {
         match self {
-            Self::Static(path) => path,
-            Self::Variants(paths) => &paths[0],
+            Self::Static { path, .. } => path,
+            Self::Variants { paths, .. } => &paths[0],
+        }
+    }
+
+    const fn requires_tint(&self) -> bool {
+        match self {
+            Self::Static { requires_tint, .. } | Self::Variants { requires_tint, .. } => {
+                *requires_tint
+            }
         }
     }
 }
@@ -317,16 +337,13 @@ enum TerrainVariant {
 }
 
 impl TerrainVariant {
-    fn into_path(self) -> String {
+    fn into_path_and_tint(self) -> (String, bool) {
         match self {
-            Self::Path(path) => path,
+            Self::Path(path) => (path, false),
             Self::Entry {
                 path,
                 overlay_color,
-            } => {
-                drop(overlay_color);
-                path
-            }
+            } => (path, overlay_color.is_some()),
         }
     }
 }
@@ -466,15 +483,20 @@ fn collect_terrain_paths(key: &str, value: TerrainValue) -> Result<TerrainPaths,
     match value {
         TerrainValue::Path(path) => {
             validate_texture_path(&path)?;
-            Ok(TerrainPaths::Static(path.into_boxed_str()))
+            Ok(TerrainPaths::Static {
+                path: path.into_boxed_str(),
+                requires_tint: false,
+            })
         }
         TerrainValue::Entry {
             path,
             overlay_color,
         } => {
-            drop(overlay_color);
             validate_texture_path(&path)?;
-            Ok(TerrainPaths::Static(path.into_boxed_str()))
+            Ok(TerrainPaths::Static {
+                path: path.into_boxed_str(),
+                requires_tint: overlay_color.is_some(),
+            })
         }
         TerrainValue::Variants(variants) => {
             if variants.len() > MAX_TEXTURE_VARIANTS {
@@ -485,15 +507,20 @@ fn collect_terrain_paths(key: &str, value: TerrainValue) -> Result<TerrainPaths,
                 });
             }
             let mut paths = Vec::with_capacity(variants.len());
+            let mut requires_tint = false;
             for variant in variants {
-                let path = variant.into_path();
+                let (path, variant_requires_tint) = variant.into_path_and_tint();
                 validate_texture_path(&path)?;
                 paths.push(path.into_boxed_str());
+                requires_tint |= variant_requires_tint;
             }
             if paths.is_empty() {
                 return Err(AssetError::EmptyTextureVariants(key.into()));
             }
-            Ok(TerrainPaths::Variants(paths.into_boxed_slice()))
+            Ok(TerrainPaths::Variants {
+                paths: paths.into_boxed_slice(),
+                requires_tint,
+            })
         }
     }
 }

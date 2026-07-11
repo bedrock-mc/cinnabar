@@ -4,9 +4,10 @@
 
 The opaque full-cube texture slice is implemented. Normal and deterministic
 Front/Back gallery runs pass for 60 seconds at radius 16 with zero errors and
-zero missing mappings. Task 8 is pending only its clean no-assets full gate and
-final independent review. This report does not claim full vanilla parity or
-completion of Phase 2.
+zero missing mappings. The clean no-assets full gate passed, but final review
+left Task 8 open on fail-closed deferred materials, the two-second
+teleport/full-view remesh gate, and fresh combined RSS/steady-CPU evidence. This
+report does not claim full vanilla parity or completion of Phase 2.
 
 Phase 0 remains a conditional go because its authoritative dev-MacBook p99 run is
 still outstanding. The results below are from the Windows reference machine and
@@ -90,9 +91,10 @@ mutations. Every run uses a fresh BDS 1.26.32.2 runtime copy.
 All five rows report zero missing mappings. The gallery runs' p99 frame time is
 3.8--3.9 ms; the final run's maximum frame/decode/mesh times are
 47.001/0.8121/0.8387 ms. The gallery deliberately changes hundreds of blocks and
-teleports the camera after initial readiness; its full-view remesh maxima remain
-14.2--15.1 seconds. The later Phase 2 teleport/full-remesh target of at most two
-seconds is therefore not claimed by this slice.
+teleports the camera after initial readiness. Its current `max_remesh_ms`
+observations are 14.2--15.1 seconds, so the binding teleport/full-view remesh
+target of at most two seconds remains open pending a correctly isolated
+measurement and any required scheduling fix.
 
 The intermittent 132-event failure was reproduced with reason counters at
 `.local/acceptance/20260711T050537Z-17708` on `58bac3d`. All 132 events were
@@ -135,7 +137,7 @@ is made for it here.
 
 ## Remaining work
 
-1. Complete Task 8's independent blocker-only review and closure commit.
+1. Close Task 8's three Important review findings and rerun the live gate.
 2. Add cutout-cube leaves, then decode biome palettes and apply grass/foliage/
    water tinting. These are the next largest visual improvements.
 3. Continue the rest of Phase 2: static/non-cube models, blend/water, flipbooks,

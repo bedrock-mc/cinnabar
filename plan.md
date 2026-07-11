@@ -150,9 +150,10 @@ Scope: block registry + block-state → model/texture mapping (generated export 
   p99 4.1 ms and zero errors; see `docs/phase-2-texture-slice-report.md`.
 - [ ] **2.3 Close the opaque texture slice.** The deterministic named-block BDS
   gallery now passes with all faces/log axes, greedy repetition, mips, supported
-  and diagnostic cases recorded, and the clean no-assets full gate passes.
-  Finish the blocker-only review, then close Task 8 in the detailed
-  vertical-slice plan.
+  and diagnostic cases recorded, and the clean no-assets full gate passes. The
+  blocker-only review remains open on fail-closed deferred materials, the
+  two-second teleport/full-view remesh gate, and fresh combined RSS/steady-CPU
+  evidence; close those findings before completing Task 8 in the detailed plan.
 - [ ] **2.4 Cutout cube materials and leaves.** Preserve independent geometry,
   occlusion, and cave-connectivity semantics; keep the packed subchunk/quad and
   shared GPU architecture.

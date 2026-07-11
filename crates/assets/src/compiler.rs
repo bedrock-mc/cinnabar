@@ -69,10 +69,9 @@ pub fn compile_pack(root: &Path, records: &[RegistryRecord]) -> Result<CompiledA
     validate_records(records)?;
 
     let mut descriptor_keys = BTreeMap::<Descriptor, Box<str>>::new();
-    for record in records
-        .iter()
-        .filter(|record| record.flags.contains(BlockFlags::FULL_CUBE))
-    {
+    for record in records.iter().filter(|record| {
+        record.flags.contains(BlockFlags::FULL_CUBE) && !record_has_deferred_material(&pack, record)
+    }) {
         for face in BlockFace::ALL {
             if let Some((descriptor, key)) = descriptor_for(&pack, record, face) {
                 descriptor_keys
@@ -135,9 +134,7 @@ fn descriptor_for(
     let TextureKey { key, rotate_uv } = resolve_texture_key(&pack.blocks, record, face);
     let key = key?;
     let path = pack.terrain.get_for_record(&key, record)?;
-    if pack.flipbooks.iter().any(|flipbook| {
-        flipbook.atlas_tile.as_ref() == key.as_ref() || flipbook.texture_path.as_ref() == path
-    }) {
+    if source_is_deferred(pack, record, &key, path) {
         return None;
     }
     let flags = if rotate_uv {
@@ -152,6 +149,27 @@ fn descriptor_for(
         },
         key,
     ))
+}
+
+fn record_has_deferred_material(pack: &PackSources, record: &RegistryRecord) -> bool {
+    BlockFace::ALL.into_iter().any(|face| {
+        let TextureKey { key, .. } = resolve_texture_key(&pack.blocks, record, face);
+        let Some(key) = key else {
+            return false;
+        };
+        let Some(path) = pack.terrain.get_for_record(&key, record) else {
+            return false;
+        };
+        source_is_deferred(pack, record, &key, path)
+    })
+}
+
+fn source_is_deferred(pack: &PackSources, record: &RegistryRecord, key: &str, path: &str) -> bool {
+    record.name.as_ref() == "minecraft:grass_block"
+        || pack.terrain.requires_tint(key)
+        || pack.flipbooks.iter().any(|flipbook| {
+            flipbook.atlas_tile.as_ref() == key || flipbook.texture_path.as_ref() == path
+        })
 }
 
 fn compile_layers(
@@ -179,6 +197,9 @@ fn compile_layers(
     for (path, key) in key_by_path {
         let source_path = static_texture_path(root, &path, &key)?;
         let pixels = decode_static_texture(&source_path, &key)?;
+        if pixels.chunks_exact(4).any(|pixel| pixel[3] != u8::MAX) {
+            continue;
+        }
         let digest: [u8; 32] = Sha256::digest(&pixels).into();
         let existing = layers_by_digest.get(&digest).and_then(|candidates| {
             candidates
@@ -244,7 +265,9 @@ fn compile_materials(
     let mut material_by_descriptor = BTreeMap::new();
 
     for descriptor in descriptor_keys.keys() {
-        let layer = layer_by_path[&descriptor.path];
+        let Some(&layer) = layer_by_path.get(&descriptor.path) else {
+            continue;
+        };
         let value = (layer, descriptor.flags);
         let material = if let Some(&material) = material_by_value.get(&value) {
             material
@@ -286,11 +309,24 @@ fn compile_visuals(
 
     for record in records {
         let mut visual = BlockVisual::diagnostic(record.flags);
-        if record.flags.contains(BlockFlags::FULL_CUBE) {
+        if record.flags.contains(BlockFlags::FULL_CUBE)
+            && !record_has_deferred_material(pack, record)
+        {
+            let mut faces = [DIAGNOSTIC_MATERIAL; 6];
+            let mut supported = true;
             for face in BlockFace::ALL {
-                if let Some((descriptor, _)) = descriptor_for(pack, record, face) {
-                    visual.faces[face as usize] = material_by_descriptor[&descriptor];
-                }
+                let Some((descriptor, _)) = descriptor_for(pack, record, face) else {
+                    supported = false;
+                    break;
+                };
+                let Some(&material) = material_by_descriptor.get(&descriptor) else {
+                    supported = false;
+                    break;
+                };
+                faces[face as usize] = material;
+            }
+            if supported {
+                visual.faces = faces;
             }
         }
         visuals[record.sequential_id as usize] = visual;

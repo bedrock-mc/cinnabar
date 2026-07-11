@@ -203,13 +203,11 @@ fn compiler_builds_diagnostic_and_layer_isolated_linear_mips() {
         directory.path(),
         r#"{
             "red": {"textures": "red"},
-            "blue": {"textures": "blue"},
-            "alpha": {"textures": "alpha"}
+            "blue": {"textures": "blue"}
         }"#,
         r#"{"texture_data": {
             "red": {"textures": "textures/blocks/a_red"},
-            "blue": {"textures": "textures/blocks/b_blue"},
-            "alpha": {"textures": "textures/blocks/c_alpha"}
+            "blue": {"textures": "textures/blocks/b_blue"}
         }}"#,
         "[]",
     );
@@ -227,19 +225,9 @@ fn compiler_builds_diagnostic_and_layer_isolated_linear_mips() {
         TILE_SIZE,
         &solid(TILE_SIZE, TILE_SIZE, [0, 0, 255, 255]),
     );
-    let mut alpha = solid(TILE_SIZE, TILE_SIZE, [0, 0, 255, 0]);
-    alpha[0] = [255, 0, 0, 255];
-    write_png(
-        directory.path(),
-        "textures/blocks/c_alpha",
-        TILE_SIZE,
-        TILE_SIZE,
-        &alpha,
-    );
     let records = [
         record(0, 200, "minecraft:red", "{}", BlockFlags::FULL_CUBE),
         record(1, 201, "minecraft:blue", "{}", BlockFlags::FULL_CUBE),
-        record(2, 202, "minecraft:alpha", "{}", BlockFlags::FULL_CUBE),
     ];
 
     let compiled = compile_pack(directory.path(), &records).expect("compile synthetic pack");
@@ -260,7 +248,6 @@ fn compiler_builds_diagnostic_and_layer_isolated_linear_mips() {
 
     let red_layer = material_for_face(&compiled, 0, BlockFace::Up).layer;
     let blue_layer = material_for_face(&compiled, 1, BlockFace::Up).layer;
-    let alpha_layer = material_for_face(&compiled, 2, BlockFace::Up).layer;
     for (mip_index, mip) in compiled.textures.mips.iter().enumerate() {
         for y in 0..mip.size as usize {
             for x in 0..mip.size as usize {
@@ -275,10 +262,88 @@ fn compiler_builds_diagnostic_and_layer_isolated_linear_mips() {
             }
         }
     }
+}
+
+#[test]
+fn compiler_fails_closed_for_transparent_and_tinted_full_cubes() {
+    let directory = tempfile::tempdir().expect("create fixture");
+    write_pack(
+        directory.path(),
+        r#"{
+            "stone": {"textures": "stone"},
+            "glass": {"textures": "glass"},
+            "tinted_cube": {"textures": "tinted_cube"},
+            "grass": {"textures": {
+                "down": "grass_bottom", "side": "grass_side", "up": "grass_top"
+            }}
+        }"#,
+        r##"{"texture_data": {
+            "stone": {"textures": "textures/blocks/stone"},
+            "glass": {"textures": "textures/blocks/glass"},
+            "tinted_cube": {"textures": {
+                "path": "textures/blocks/tinted_cube", "overlay_color": "#79c05a"
+            }},
+            "grass_bottom": {"textures": "textures/blocks/grass_bottom"},
+            "grass_side": {"textures": "textures/blocks/grass_side"},
+            "grass_top": {"textures": "textures/blocks/grass_top"}
+        }}"##,
+        "[]",
+    );
+    write_png(
+        directory.path(),
+        "textures/blocks/stone",
+        TILE_SIZE,
+        TILE_SIZE,
+        &solid(TILE_SIZE, TILE_SIZE, [100, 100, 100, 255]),
+    );
+    let mut glass = solid(TILE_SIZE, TILE_SIZE, [210, 230, 255, 0]);
+    glass[0] = [210, 230, 255, 255];
+    write_png(
+        directory.path(),
+        "textures/blocks/glass",
+        TILE_SIZE,
+        TILE_SIZE,
+        &glass,
+    );
+    for path in [
+        "textures/blocks/tinted_cube",
+        "textures/blocks/grass_bottom",
+        "textures/blocks/grass_side",
+        "textures/blocks/grass_top",
+    ] {
+        write_png(
+            directory.path(),
+            path,
+            TILE_SIZE,
+            TILE_SIZE,
+            &solid(TILE_SIZE, TILE_SIZE, [80, 160, 60, 255]),
+        );
+    }
+    let records = [
+        record(0, 300, "minecraft:stone", "{}", BlockFlags::FULL_CUBE),
+        record(1, 301, "minecraft:glass", "{}", BlockFlags::FULL_CUBE),
+        record(2, 302, "minecraft:tinted_cube", "{}", BlockFlags::FULL_CUBE),
+        record(3, 303, "minecraft:grass_block", "{}", BlockFlags::FULL_CUBE),
+    ];
+
+    let compiled = compile_pack(directory.path(), &records).expect("compile synthetic pack");
+
+    assert!(
+        compiled.visuals[0]
+            .faces
+            .into_iter()
+            .all(|material| material != 0)
+    );
+    for deferred in 1..=3 {
+        assert_eq!(
+            compiled.visuals[deferred].faces, [DIAGNOSTIC_MATERIAL; 6],
+            "deferred transparent/tinted record {deferred} must fail closed"
+        );
+    }
+    assert_eq!(compiled.materials.len(), 2, "diagnostic + opaque stone");
     assert_eq!(
-        mip_pixel(&compiled, 1, alpha_layer, 0, 0),
-        [255, 0, 0, 64],
-        "transparent blue must not bleed into the premultiplied-alpha result"
+        compiled.textures.layers, 2,
+        "deferred sources stay out of the blob"
     );
 }
 
@@ -632,7 +697,7 @@ fn compiler_only_loads_full_cubes_and_builds_equivalent_lookup_tables() {
 }
 
 #[test]
-fn compiler_materializes_grass_alias_and_keeps_flipbooks_and_unlisted_blocks_diagnostic() {
+fn compiler_keeps_tinted_grass_flipbooks_and_unlisted_blocks_diagnostic() {
     let directory = tempfile::tempdir().expect("create fixture");
     write_pack(
         directory.path(),
@@ -697,41 +762,15 @@ fn compiler_materializes_grass_alias_and_keeps_flipbooks_and_unlisted_blocks_dia
         ),
     ];
 
-    let compiled = compile_pack(directory.path(), &records).expect("compile legacy aliases");
+    let compiled = compile_pack(directory.path(), &records).expect("compile deferred visuals");
     let grass = compiled.visuals[0];
     let sea_lantern = compiled.visuals[1];
 
-    assert_ne!(grass.faces[BlockFace::Down as usize], DIAGNOSTIC_MATERIAL);
-    assert_ne!(grass.faces[BlockFace::Up as usize], DIAGNOSTIC_MATERIAL);
-    assert_ne!(grass.faces[BlockFace::West as usize], DIAGNOSTIC_MATERIAL);
-    assert_ne!(
-        grass.faces[BlockFace::Down as usize],
-        grass.faces[BlockFace::Up as usize]
-    );
-    assert_eq!(
-        grass.faces[BlockFace::West as usize],
-        grass.faces[BlockFace::East as usize]
-    );
-    assert_eq!(
-        grass.faces[BlockFace::West as usize],
-        grass.faces[BlockFace::North as usize]
-    );
-    assert_eq!(
-        grass.faces[BlockFace::West as usize],
-        grass.faces[BlockFace::South as usize]
-    );
-    let bottom = material_for_face(&compiled, 0, BlockFace::Down);
-    let side = material_for_face(&compiled, 0, BlockFace::West);
-    assert_eq!(
-        mip_pixel(&compiled, 0, bottom.layer, 0, 0),
-        [80, 50, 20, 255]
-    );
-    assert_eq!(
-        mip_pixel(&compiled, 0, side.layer, 0, 0),
-        [100, 150, 60, 255]
-    );
+    assert_eq!(grass.faces, [DIAGNOSTIC_MATERIAL; 6]);
     assert_eq!(sea_lantern.faces, [DIAGNOSTIC_MATERIAL; 6]);
     assert_eq!(compiled.visuals[2].faces, [DIAGNOSTIC_MATERIAL; 6]);
+    assert_eq!(compiled.materials.len(), 1);
+    assert_eq!(compiled.textures.layers, 1);
 }
 
 #[test]

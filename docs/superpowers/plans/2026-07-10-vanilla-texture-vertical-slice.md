@@ -703,7 +703,7 @@
 
   Expected: source/archive hashes match the manifest, compiler reports counts/hashes, output remains ignored, and `git status --short` contains no asset payload.
 
-- [x] **Step 6: Run the live visual/performance pass**
+- [ ] **Step 6: Run the live visual/performance pass**
 
   Launch BDS/core and:
 

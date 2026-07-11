@@ -224,3 +224,18 @@ fn invalid(detail: impl Into<Box<str>>) -> AssetError {
         detail: detail.into(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::downsample_linear_premultiplied;
+
+    #[test]
+    fn transparent_colour_does_not_bleed_into_linear_mips() {
+        let source = [255, 0, 0, 255, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0];
+
+        assert_eq!(
+            downsample_linear_premultiplied(&source, 2).as_ref(),
+            [255, 0, 0, 64]
+        );
+    }
+}
