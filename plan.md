@@ -209,13 +209,16 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     changing the v3 runtime schema. Commits `143c68d` and `e6e49e1` cover 83
     animations, 1,209 physical frames, 1,323 timeline references, and 1,901
     deduplicated layers on one 2,048-layer page.
-  - [ ] Version the bounded runtime asset schema to `MCBEAS04`; export typed
-    model/liquid state selectors, template tables, full flipbook metadata, and
-    attributable per-family diagnostics without committing Mojang payloads;
-    prove the PMMP/Dragonfly/Prismarine canonical-state join is a full 16,913-
-    state bijection and audit every joinable state in Valentine's evidenced
-    15,845-entry catalog without synthesizing its 1,068-entry cardinality
-    deficit.
+  - [x] Export and strictly decode `BREG1003` typed model/contributor/selectors,
+    face coverage, collision seeds, and per-state provenance at `e58d083`.
+    PMMP/Dragonfly/Prismarine form a full 16,913-state/1,356-name bijection;
+    Valentine is an exact ordered 15,845-state subset with 1,068 attributable
+    missing states across 35 wholly absent names and zero extra/mismatched
+    states. The deterministic registry SHA-256 is
+    `3669be82850824af8592276afe864d903495e743b8af81dfcf1d3aa1586231a4`.
+  - [ ] Version the bounded runtime asset schema to `MCBEAS04`; compile the
+    typed registry selectors, template tables, page-aware flipbook data, and
+    attributable per-family diagnostics without committing Mojang payloads.
   - [ ] Add palette-native multi-layer contributor resolution, retaining the
     eight-byte greedy cube record and adding compact model/liquid streams with
     atomic queue/GPU generation accounting and direct/MDI parity.
