@@ -696,9 +696,9 @@ impl CompiledBiomeAssets {
         let mut climates = BTreeMap::<u32, (f32, f32)>::new();
         let mut custom = BTreeMap::<u32, LiveBiomeDefinition<'_>>::new();
         for definition in live {
-            validate_biome_name(definition.name)?;
-            validate_climate(definition.temperature, definition.downfall)?;
             if let Some(rule) = by_name.get(definition.name) {
+                validate_biome_name(definition.name)?;
+                validate_climate(definition.temperature, definition.downfall)?;
                 if climates
                     .insert(rule.id, (definition.temperature, definition.downfall))
                     .is_some()
@@ -709,6 +709,8 @@ impl CompiledBiomeAssets {
                     )));
                 }
             } else if let Some(id) = definition.biome_id {
+                validate_biome_name(definition.name)?;
+                validate_climate(definition.temperature, definition.downfall)?;
                 let id = u32::from(id);
                 if by_name.values().any(|rule| rule.id == id)
                     || custom.insert(id, *definition).is_some()

@@ -7,9 +7,11 @@ use std::{
 
 use assets::{
     AssetError, BlockFace, BlockFlags, CompiledAssets, DIAGNOSTIC_MATERIAL,
-    MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_GRASS_TINT, MATERIAL_FLAG_OVERLAY_MASK,
-    MATERIAL_FLAG_ROTATE_UV, MATERIAL_FLAG_UV_MASK, MATERIAL_FLAGS_MASK, MAX_TEXTURE_LAYERS,
-    Material, RegistryRecord, compile_pack, encode_blob,
+    MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_BIRCH_FOLIAGE, MATERIAL_FLAG_EVERGREEN_FOLIAGE,
+    MATERIAL_FLAG_FOLIAGE_CLASS_MASK, MATERIAL_FLAG_FOLIAGE_TINT, MATERIAL_FLAG_GRASS_TINT,
+    MATERIAL_FLAG_OVERLAY_MASK, MATERIAL_FLAG_ROTATE_UV, MATERIAL_FLAG_TINT_MASK,
+    MATERIAL_FLAG_UV_MASK, MATERIAL_FLAGS_MASK, MAX_TEXTURE_LAYERS, Material, RegistryRecord,
+    compile_pack, encode_blob,
 };
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 use tempfile::TempDir;
@@ -402,6 +404,54 @@ fn compiler_marks_only_leaf_faces_as_alpha_cutout() {
         let actual = compile_pack(&resource_pack, &shuffled).expect("compile shuffled cutout pack");
         assert_eq!(encode_blob(&actual).expect("encode shuffle"), baseline);
     }
+}
+
+#[test]
+fn compiler_assigns_generic_birch_evergreen_and_self_colored_leaf_flags() {
+    let directory = tempfile::tempdir().expect("create leaf class fixture");
+    write_pack(
+        directory.path(),
+        r#"{
+            "oak_leaves":{"textures":"leaves"},
+            "birch_leaves":{"textures":"leaves"},
+            "spruce_leaves":{"textures":"leaves"},
+            "cherry_leaves":{"textures":"leaves"}
+        }"#,
+        r#"{"texture_data":{"leaves":{"textures":"textures/blocks/leaves"}}}"#,
+        "[]",
+    );
+    write_png(
+        directory.path(),
+        "textures/blocks/leaves",
+        TILE_SIZE,
+        TILE_SIZE,
+        &solid(TILE_SIZE, TILE_SIZE, [80, 160, 40, 255]),
+    );
+    let leaf = BlockFlags::CUBE_GEOMETRY | BlockFlags::LEAF_MODEL;
+    let records = [
+        record(0, 100, "minecraft:oak_leaves", "{}", leaf),
+        record(1, 101, "minecraft:birch_leaves", "{}", leaf),
+        record(2, 102, "minecraft:spruce_leaves", "{}", leaf),
+        record(3, 103, "minecraft:cherry_leaves", "{}", leaf),
+    ];
+    let compiled = compile_pack(directory.path(), &records).expect("compile leaf classes");
+    let flags = |record_id| material_for_face(&compiled, record_id, BlockFace::Up).flags;
+
+    assert_eq!(
+        flags(0),
+        MATERIAL_FLAG_ALPHA_CUTOUT | MATERIAL_FLAG_FOLIAGE_TINT
+    );
+    assert_eq!(
+        flags(1),
+        MATERIAL_FLAG_ALPHA_CUTOUT | MATERIAL_FLAG_FOLIAGE_TINT | MATERIAL_FLAG_BIRCH_FOLIAGE
+    );
+    assert_eq!(
+        flags(2),
+        MATERIAL_FLAG_ALPHA_CUTOUT | MATERIAL_FLAG_FOLIAGE_TINT | MATERIAL_FLAG_EVERGREEN_FOLIAGE
+    );
+    assert_eq!(flags(3), MATERIAL_FLAG_ALPHA_CUTOUT);
+    assert_eq!(flags(3) & MATERIAL_FLAG_TINT_MASK, 0);
+    assert_eq!(flags(3) & MATERIAL_FLAG_FOLIAGE_CLASS_MASK, 0);
 }
 
 #[test]
