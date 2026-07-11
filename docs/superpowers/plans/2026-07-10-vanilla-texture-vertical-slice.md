@@ -482,7 +482,7 @@
 - Occupancy/air decisions still use the live `BlockClassifier`; face merge identity uses resolved material ID.
 - `WorldBootstrap` exposes `block_network_ids_are_hashes: bool`; `WorldStream` converts it once to `assets::NetworkIdMode`.
 
-- [ ] **Step 1: Write mesher RED tests**
+- [x] **Step 1: Write mesher RED tests**
 
   Build a synthetic `RuntimeAssets` fixture and assert:
 
@@ -496,13 +496,13 @@
   - unknown and non-full-cube entries use diagnostic material 0;
   - all existing uniform-air, uniform-solid, neighbour culling, connectivity, and packed-position tests remain green.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
   Run: `cargo test -p render --test mesh --locked -- --nocapture`
 
   Expected: FAIL because `PackedQuad` and `mesh_sub_chunk` still use runtime IDs.
 
-- [ ] **Step 3: Implement face-material masks without flat blocks**
+- [x] **Step 3: Implement face-material masks without flat blocks**
 
   Resolve each palette entry once per face into a small palette-material table, then read packed palette indices while building the existing `u64` occupancy/face masks. Replace only the merge-key value:
 
@@ -521,11 +521,11 @@
 
   Do not materialize `[u32; 4096]`, do not allocate per visible face, and preserve uniform-air/solid fast paths.
 
-- [ ] **Step 4: Thread immutable assets through bounded mesh jobs**
+- [x] **Step 4: Thread immutable assets through bounded mesh jobs**
 
   Add `block_network_ids_are_hashes` to `WorldBootstrap::from_game_data` and its protocol tests. Store `NetworkIdMode` plus `Arc<RuntimeAssets>` in `WorldStream`; clone only the `Arc` into Rayon jobs. Scope/revision cancellation and queue bounds remain unchanged.
 
-- [ ] **Step 5: Verify GREEN and performance invariants**
+- [x] **Step 5: Verify GREEN and performance invariants**
 
   Run:
 
@@ -538,7 +538,7 @@
 
   Expected: all existing and material-aware meshing/streaming tests pass; `PackedQuad` remains 8 bytes.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   ```text
   git add crates/protocol crates/render app/src/world_stream.rs Cargo.lock
