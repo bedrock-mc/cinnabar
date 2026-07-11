@@ -7,6 +7,7 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
+assets = { path = "../crates/assets" }
 bevy = { workspace = true, default-features = false, features = [
     "bevy_camera",
     "bevy_winit",

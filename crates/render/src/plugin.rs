@@ -2148,10 +2148,18 @@ mod tests {
         };
         let solid = solid_sub_chunk(1);
         let classifier = crate::BlockClassifier::new(0);
-        let impossible_mesh =
-            crate::mesh_sub_chunk(&classifier, &crate::Neighbourhood::empty(), &solid);
+        let runtime_assets = assets::RuntimeAssets::diagnostic();
+        let impossible_mesh = crate::mesh_sub_chunk(
+            &classifier,
+            &runtime_assets,
+            assets::NetworkIdMode::Sequential,
+            &crate::Neighbourhood::empty(),
+            &solid,
+        );
         let fitting_mesh = crate::mesh_sub_chunk(
             &classifier,
+            &runtime_assets,
+            assets::NetworkIdMode::Sequential,
             &crate::Neighbourhood::empty()
                 .with_negative_x(&solid)
                 .with_positive_x(&solid)

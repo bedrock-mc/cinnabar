@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
-use world::SubChunk;
+use assets::{BlockFace, BlockFlags, DIAGNOSTIC_MATERIAL, NetworkIdMode, RuntimeAssets};
+use world::{PalettedStorage, SubChunk};
 
 const SIDE: usize = 16;
 const FULL_COLUMN: u64 = (1_u64 << SIDE) - 1;
@@ -69,7 +70,7 @@ impl Face {
 /// `geometry` packs local block origin X/Y/Z into bits 0..14 (five bits each),
 /// face into bits 15..17, `(width - 1)` into bits 18..21, and
 /// `(height - 1)` into bits 22..25. Bits 26..31 are reserved. The second word
-/// preserves the complete raw runtime value for debug material lookup.
+/// stores the compact material-table ID resolved from the active asset set.
 ///
 /// Width/height axes are Z/Y for X faces, X/Z for Y faces, and X/Y for Z
 /// faces. A vertex shader can reconstruct all four corners from these fields
@@ -78,7 +79,7 @@ impl Face {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PackedQuad {
     geometry: u32,
-    runtime_id: u32,
+    material_id: u32,
 }
 
 impl PackedQuad {
@@ -91,7 +92,7 @@ impl PackedQuad {
     const POSITION_MASK: u32 = 0x1f;
     const EXTENT_MASK: u32 = 0x0f;
 
-    fn new(origin: [u8; 3], face: Face, width: u8, height: u8, runtime_id: u32) -> Self {
+    fn new(origin: [u8; 3], face: Face, width: u8, height: u8, material_id: u32) -> Self {
         debug_assert!(origin.into_iter().all(|coordinate| coordinate < SIDE as u8));
         debug_assert!((1..=SIDE as u8).contains(&width));
         debug_assert!((1..=SIDE as u8).contains(&height));
@@ -104,7 +105,7 @@ impl PackedQuad {
             | (u32::from(height - 1) << Self::HEIGHT_SHIFT);
         Self {
             geometry,
-            runtime_id,
+            material_id,
         }
     }
 
@@ -141,14 +142,14 @@ impl PackedQuad {
     }
 
     #[must_use]
-    pub const fn runtime_id(&self) -> u32 {
-        self.runtime_id
+    pub const fn material_id(&self) -> u32 {
+        self.material_id
     }
 
     /// Raw words ready for upload to a storage buffer.
     #[must_use]
     pub const fn words(&self) -> [u32; 2] {
-        [self.geometry, self.runtime_id]
+        [self.geometry, self.material_id]
     }
 }
 
@@ -312,10 +313,12 @@ impl ChunkMesh {
 ///
 /// Occupancy is represented as three sets of 16x16 `u64` axis columns. Face
 /// masks are calculated with shifts/AND-NOT operations, then coplanar runs of
-/// equal runtime value are merged before emitting one 8-byte record per quad.
+/// equal face material are merged before emitting one 8-byte record per quad.
 #[must_use]
 pub fn mesh_sub_chunk(
     classifier: &BlockClassifier,
+    visuals: &RuntimeAssets,
+    network_id_mode: NetworkIdMode,
     neighbours: &Neighbourhood<'_>,
     sub_chunk: &SubChunk,
 ) -> ChunkMesh {
@@ -331,6 +334,7 @@ pub fn mesh_sub_chunk(
     let occupancy = Occupancy::from_source(*classifier, source);
     let mut quads = Vec::new();
     for face in Face::ALL {
+        let materials = FaceMaterials::new(*classifier, visuals, network_id_mode, source, face);
         let columns = exposed_columns(*classifier, *neighbours, face, &occupancy);
         for slice in 0..SIDE {
             let mut rows = [0_u64; SIDE];
@@ -339,13 +343,120 @@ pub fn mesh_sub_chunk(
                     *row |= ((*column >> slice) & 1) << u;
                 }
             }
-            greedy_slice(*classifier, source, face, slice, &mut rows, &mut quads);
+            greedy_slice(&materials, face, slice, &mut rows, &mut quads);
         }
     }
 
     ChunkMesh {
         quads: quads.into_boxed_slice(),
         connectivity,
+    }
+}
+
+/// Face material IDs parallel to each storage palette, never to 4,096 blocks.
+///
+/// A table is built once per face because a block state may map each face to a
+/// different material. Packed palette indices are then read directly while
+/// merging, keeping the paletted runtime representation intact.
+struct FaceMaterials<'a> {
+    classifier: BlockClassifier,
+    source: MaterialSource<'a>,
+    uniform: u32,
+    palettes: Vec<Box<[u32]>>,
+}
+
+impl<'a> FaceMaterials<'a> {
+    fn new(
+        classifier: BlockClassifier,
+        visuals: &RuntimeAssets,
+        network_id_mode: NetworkIdMode,
+        source: MaterialSource<'a>,
+        face: Face,
+    ) -> Self {
+        let resolve = |network_value| {
+            let block = visuals.resolve(network_id_mode, network_value);
+            if block.flags().contains(BlockFlags::FULL_CUBE) {
+                block.face(block_face(face)).material_id()
+            } else {
+                DIAGNOSTIC_MATERIAL
+            }
+        };
+        let uniform = match source {
+            MaterialSource::Uniform(network_value) => resolve(network_value),
+            MaterialSource::Air | MaterialSource::Mixed(_) => DIAGNOSTIC_MATERIAL,
+        };
+        let palettes = match source {
+            MaterialSource::Mixed(sub_chunk) => sub_chunk
+                .storages()
+                .iter()
+                .map(|storage| {
+                    storage
+                        .palette()
+                        .values()
+                        .iter()
+                        .copied()
+                        .map(resolve)
+                        .collect::<Vec<_>>()
+                        .into_boxed_slice()
+                })
+                .collect(),
+            MaterialSource::Air | MaterialSource::Uniform(_) => Vec::new(),
+        };
+        Self {
+            classifier,
+            source,
+            uniform,
+            palettes,
+        }
+    }
+
+    fn at(&self, x: usize, y: usize, z: usize) -> u32 {
+        match self.source {
+            MaterialSource::Air => DIAGNOSTIC_MATERIAL,
+            MaterialSource::Uniform(_) => self.uniform,
+            MaterialSource::Mixed(sub_chunk) => {
+                for (storage, palette) in sub_chunk.storages().iter().zip(&self.palettes) {
+                    let Some(index) = packed_palette_index(storage, x, y, z) else {
+                        return DIAGNOSTIC_MATERIAL;
+                    };
+                    let Some(&network_value) = storage.palette().values().get(index) else {
+                        return DIAGNOSTIC_MATERIAL;
+                    };
+                    if !self.classifier.is_air(network_value) {
+                        return palette.get(index).copied().unwrap_or(DIAGNOSTIC_MATERIAL);
+                    }
+                }
+                DIAGNOSTIC_MATERIAL
+            }
+        }
+    }
+}
+
+fn packed_palette_index(storage: &PalettedStorage, x: usize, y: usize, z: usize) -> Option<usize> {
+    if x >= SIDE || y >= SIDE || z >= SIDE {
+        return None;
+    }
+    if storage.bits_per_index() == 0 {
+        return Some(0);
+    }
+
+    let linear = (x << 8) | (z << 4) | y;
+    let bits = usize::from(storage.bits_per_index());
+    let values_per_word = 32 / bits;
+    let word = *storage.packed_words().get(linear / values_per_word)?;
+    let shift = (linear % values_per_word) * bits;
+    let mask = (1_u32 << storage.bits_per_index()) - 1;
+    Some(((word >> shift) & mask) as usize)
+}
+
+const fn block_face(face: Face) -> BlockFace {
+    match face {
+        Face::NegativeX => BlockFace::West,
+        Face::PositiveX => BlockFace::East,
+        Face::NegativeY => BlockFace::Down,
+        Face::PositiveY => BlockFace::Up,
+        Face::NegativeZ => BlockFace::North,
+        Face::PositiveZ => BlockFace::South,
     }
 }
 
@@ -484,8 +595,7 @@ const fn neighbour_boundary_coordinate(face: Face, u: usize, v: usize) -> [usize
 }
 
 fn greedy_slice(
-    classifier: BlockClassifier,
-    source: MaterialSource<'_>,
+    materials: &FaceMaterials<'_>,
     face: Face,
     slice: usize,
     rows: &mut [u64; SIDE],
@@ -495,7 +605,7 @@ fn greedy_slice(
         while rows[v] != 0 {
             let u = rows[v].trailing_zeros() as usize;
             let origin = block_coordinate(face, slice, u, v);
-            let runtime_id = source.at(classifier, origin[0], origin[1], origin[2]);
+            let material_id = materials.at(origin[0], origin[1], origin[2]);
 
             let shifted = rows[v] >> u;
             let binary_width = (!shifted).trailing_zeros() as usize;
@@ -503,7 +613,7 @@ fn greedy_slice(
             let mut width = 1;
             while width < binary_width && {
                 let [x, y, z] = block_coordinate(face, slice, u + width, v);
-                source.at(classifier, x, y, z) == runtime_id
+                materials.at(x, y, z) == material_id
             } {
                 width += 1;
             }
@@ -513,7 +623,7 @@ fn greedy_slice(
             'height: while v + height < SIDE && rows[v + height] & span == span {
                 for offset in 0..width {
                     let [x, y, z] = block_coordinate(face, slice, u + offset, v + height);
-                    if source.at(classifier, x, y, z) != runtime_id {
+                    if materials.at(x, y, z) != material_id {
                         break 'height;
                     }
                 }
@@ -528,7 +638,7 @@ fn greedy_slice(
                 face,
                 width as u8,
                 height as u8,
-                runtime_id,
+                material_id,
             ));
         }
     }

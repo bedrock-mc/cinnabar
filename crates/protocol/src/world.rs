@@ -27,6 +27,7 @@ pub struct WorldBootstrap {
     pub player_position: [f32; 3],
     pub world_spawn_position: [i32; 3],
     pub air_network_id: u32,
+    pub block_network_ids_are_hashes: bool,
 }
 
 impl WorldBootstrap {
@@ -52,6 +53,7 @@ impl WorldBootstrap {
                 start_game.spawn_position.z,
             ],
             air_network_id: air_network_id(start_game.block_network_ids_are_hashes),
+            block_network_ids_are_hashes: start_game.block_network_ids_are_hashes,
         }
     }
 }

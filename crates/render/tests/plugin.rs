@@ -1,3 +1,9 @@
+use std::sync::OnceLock;
+
+use assets::{
+    BlockFlags, BlockVisual, CompiledAssets, DIAGNOSTIC_MATERIAL, Material, NetworkIdMode,
+    RuntimeAssets, TextureArray, TextureMip, encode_blob,
+};
 use bevy::{
     camera::primitives::Aabb,
     prelude::{App, MinimalPlugins, Vec3, Visibility},
@@ -9,6 +15,43 @@ use render::{
 use world::{SubChunk, SubChunkKey};
 
 const AIR: u32 = 12_530;
+
+fn runtime_assets() -> &'static RuntimeAssets {
+    static ASSETS: OnceLock<RuntimeAssets> = OnceLock::new();
+    ASSETS.get_or_init(|| {
+        let mut visuals = vec![
+            BlockVisual {
+                faces: [DIAGNOSTIC_MATERIAL; 6],
+                flags: BlockFlags::empty(),
+            };
+            14
+        ];
+        for material_id in 1..14_u32 {
+            visuals[material_id as usize] = BlockVisual {
+                faces: [material_id; 6],
+                flags: BlockFlags::FULL_CUBE,
+            };
+        }
+        let compiled = CompiledAssets {
+            visuals: visuals.into_boxed_slice(),
+            hashed: Box::new([]),
+            materials: vec![Material { layer: 0, flags: 0 }; 14].into_boxed_slice(),
+            textures: TextureArray {
+                layers: 1,
+                mips: [16_u32, 8, 4, 2, 1]
+                    .into_iter()
+                    .map(|size| TextureMip {
+                        size,
+                        rgba8: vec![0xff; size as usize * size as usize * 4].into_boxed_slice(),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            },
+        };
+        let blob = encode_blob(&compiled).expect("encode synthetic plugin assets");
+        RuntimeAssets::decode(&blob).expect("decode synthetic plugin assets")
+    })
+}
 
 fn zig_zag_i32(value: i32) -> Vec<u8> {
     let mut value = ((value as u32) << 1) ^ ((value >> 31) as u32);
@@ -122,6 +165,8 @@ fn solid_mesh(runtime_id: u32) -> render::ChunkMesh {
     let sub_chunk = SubChunk::decode(&encoded).expect("uniform sub-chunk");
     mesh_sub_chunk(
         &BlockClassifier::new(AIR),
+        runtime_assets(),
+        NetworkIdMode::Sequential,
         &Neighbourhood::empty(),
         &sub_chunk,
     )
@@ -154,7 +199,7 @@ fn upload_budget_is_nearest_first_and_queue_supports_update_remove() {
             (
                 instance.key(),
                 instance.quad_count(),
-                instance.quads()[0].runtime_id(),
+                instance.quads()[0].material_id(),
             )
         })
         .collect::<Vec<_>>();
@@ -206,7 +251,7 @@ fn upload_budget_is_nearest_first_and_queue_supports_update_remove() {
             (
                 instance.key(),
                 instance.quad_count(),
-                instance.quads()[0].runtime_id(),
+                instance.quads()[0].material_id(),
             )
         })
         .collect::<Vec<_>>();

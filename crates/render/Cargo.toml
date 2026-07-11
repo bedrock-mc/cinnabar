@@ -6,6 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+assets = { path = "../assets" }
 bevy = { workspace = true, default-features = false, features = [
     "bevy_asset",
     "bevy_camera",

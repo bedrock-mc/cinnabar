@@ -9,10 +9,12 @@ mod world_stream;
 use std::{
     collections::{BTreeSet, HashSet},
     path::{Path, PathBuf},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result, bail};
+use assets::RuntimeAssets;
 use bevy::{
     app::AppExit,
     prelude::*,
@@ -36,13 +38,27 @@ const NETWORK_INGRESS_BUDGET_PER_FRAME: usize = 8;
 const OUTBOUND_SEND_BUDGET_PER_FRAME: usize = 16;
 const TITLE_REFRESH_INTERVAL: Duration = Duration::from_millis(100);
 
-#[derive(Resource, Default)]
+#[derive(Resource)]
 struct ClientWorld {
     stream: Option<WorldStream>,
+    runtime_assets: Arc<RuntimeAssets>,
     pending_surface_spawn: Option<[i32; 2]>,
     fatal_error: Option<String>,
     network_decode_errors: u64,
     reported_decode_errors: u64,
+}
+
+impl Default for ClientWorld {
+    fn default() -> Self {
+        Self {
+            stream: None,
+            runtime_assets: Arc::new(RuntimeAssets::diagnostic()),
+            pending_surface_spawn: None,
+            fatal_error: None,
+            network_decode_errors: 0,
+            reported_decode_errors: 0,
+        }
+    }
 }
 
 #[derive(Resource, Default)]
@@ -253,8 +269,9 @@ fn receive_network_events(
                         SAFE_SERVER_HEIGHT,
                         bootstrap.world_spawn_position[2] as f32 + 0.5,
                     ]);
-                let stream = WorldStream::new_with_recovery(
+                let stream = WorldStream::new_with_assets(
                     bootstrap,
+                    Arc::clone(&client_world.runtime_assets),
                     current,
                     client_world.pending_surface_spawn,
                 );
@@ -703,6 +720,7 @@ mod tests {
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
             air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
         });
         for (sequence, x) in [(1, 0), (2, 1), (3, 2)] {
             stream

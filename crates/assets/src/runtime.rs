@@ -87,6 +87,48 @@ pub struct RuntimeAssets {
 }
 
 impl RuntimeAssets {
+    /// Builds the process-local fallback used before a validated asset blob is selected.
+    ///
+    /// The fallback is deliberately tiny: one diagnostic visual, one material,
+    /// and one programmatically generated texture-array layer. It contains no
+    /// Mojang asset payload and does not blur the two network-ID namespaces.
+    #[must_use]
+    pub fn diagnostic() -> Self {
+        let mips = [16_u32, 8, 4, 2, 1]
+            .into_iter()
+            .map(|size| {
+                let mut rgba8 = Vec::with_capacity(size as usize * size as usize * 4);
+                for y in 0..size {
+                    for x in 0..size {
+                        let colour = if (x + y) & 1 == 0 {
+                            [255, 0, 255, 255]
+                        } else {
+                            [0, 0, 0, 255]
+                        };
+                        rgba8.extend_from_slice(&colour);
+                    }
+                }
+                TextureMip {
+                    size,
+                    rgba8: rgba8.into_boxed_slice(),
+                }
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+
+        Self {
+            visuals: vec![BlockVisual {
+                faces: [DIAGNOSTIC_MATERIAL; 6],
+                flags: BlockFlags::empty(),
+            }]
+            .into_boxed_slice(),
+            hashed: Box::new([]),
+            materials: vec![Material { layer: 0, flags: 0 }].into_boxed_slice(),
+            textures: TextureArray { layers: 1, mips },
+            missing: AtomicU64::new(0),
+        }
+    }
+
     /// Decodes and validates a complete `MCBEAS01` blob before allocating runtime sections.
     pub fn decode(bytes: &[u8]) -> Result<Self, AssetError> {
         let header = Header::decode(bytes)?;
