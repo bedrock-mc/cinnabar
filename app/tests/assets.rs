@@ -182,6 +182,8 @@ fn asset_metrics_flow_into_json_and_the_world_ready_marker() {
     assert_eq!(report.assets.diagnostic_quad_count, 11);
     let marker = report.assets.world_ready_marker(19, 17);
     assert!(marker.starts_with("WORLD_READY "));
+    let expected_blob_hash = format!("blob_sha256={}", report.assets.blob_sha256);
+    assert!(marker.contains(&expected_blob_hash), "{marker}");
     for expected in [
         "source_tag=v1.26.30.32-preview",
         "source_sha256=12d5cddc03acd507e9e0bd412f2e94d34d0a1a855758af7a9eef61b03630ad7c",

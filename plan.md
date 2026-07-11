@@ -136,6 +136,33 @@ Exit: `corectl join --friend <gamertag>` works from a clean machine; conformance
 live server world and it *looks like Minecraft*.
 
 Scope: block registry + block-state → model/texture mapping (generated export from dragonfly's registry via `tools/registrygen`, shipped as a binary asset); vanilla asset ingestion from **Mojang/bedrock-samples** pinned to the matching game version (block models, terrain textures, `blocks.json`, flipbooks) — NOTE: BDS `resource_packs/vanilla` is server-minimal (blocks.json + texts only), it is a data reference, not the texture source; 2D texture array + per-layer mipmaps; greedy/culled meshing with transparency layers (opaque/cutout/blend) and per-face culling; **client-side light engine** (block + sky flood-fill, per-vertex light, day/night); biome tinting (grass/foliage/water); sky, fog, clouds; chunk streaming/eviction tied to `ChunkRadiusUpdated` + `SubChunk` request flow; block entities with custom renderers deferred (chests/signs get static models in this phase).
+
+**Phase 2 progress (kept current as work lands):**
+
+- [x] **2.1 Local-only vanilla source and deterministic asset pipeline.** Pinned
+  `bedrock-samples` provenance, Dragonfly registry export, pack parsing, bounded
+  compiler, per-layer mips, versioned runtime blob, and diagnostic fallback are
+  implemented; Mojang payloads remain ignored.
+- [x] **2.2 Opaque full-cube render path.** Material-aware binary greedy meshing,
+  exact eight-byte quads, one shared material buffer/texture array/bind group,
+  vertex-pulled repeating UVs, oriented faces, and live asset selection are
+  implemented. Two current-HEAD 60-second Windows radius-16 runs passed with
+  p99 4.1 ms and zero errors; see `docs/phase-2-texture-slice-report.md`.
+- [ ] **2.3 Close the opaque texture slice.** Capture the deterministic named-block
+  BDS gallery (all faces/log axes, greedy repetition, mips, supported and
+  diagnostic cases), finish the blocker-only review, and close Task 8 in the
+  detailed vertical-slice plan.
+- [ ] **2.4 Cutout cube materials and leaves.** Preserve independent geometry,
+  occlusion, and cave-connectivity semantics; keep the packed subchunk/quad and
+  shared GPU architecture.
+- [ ] **2.5 Biome palettes and tinting.** Decode/store biome data and apply
+  grass/foliage/water tint without widening the eight-byte quad record.
+- [ ] **2.6 Static/non-cube models, blend/water, and flipbooks.** Complete the
+  remaining block visual classes and animation path.
+- [ ] **2.7 Client lighting and atmosphere.** Block/sky flood fill, baked vertex
+  light and day/night, then sky, fog, and clouds; finish the Phase 2 parity and
+  teleport-remesh acceptance gates.
+
 Perf budget carried from Phase 0 gate; add: full remesh of view distance after teleport ≤ 2s.
 
 **Live visual acceptance (Computer Use):** run the Bevy app in representative vanilla

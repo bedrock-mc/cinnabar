@@ -644,7 +644,7 @@
 - Final fallback: ignored default `.local/assets/compiled/vanilla-v1001.mcbea`.
 - If no valid local blob exists, the app starts with the synthetic diagnostic texture and prints the exact fetch/compile commands; it never embeds or downloads Mojang content silently.
 
-- [ ] **Step 1: Write app selection/readiness RED tests**
+- [x] **Step 1: Write app selection/readiness RED tests**
 
   Assert CLI-over-environment-over-default precedence, malformed blob failure with exact path, missing blob diagnostic startup, and metrics fields:
 
@@ -669,7 +669,7 @@
 
   Expected: FAIL because `--assets` and asset metrics do not exist.
 
-- [ ] **Step 3: Implement startup selection and diagnostic fallback**
+- [x] **Step 3: Implement startup selection and diagnostic fallback**
 
   Load and validate the blob before constructing `WorldStream` and `DebugWorldPlugin`. Never read Mojang JSON/PNG files from the frame loop. The fallback uses a programmatically generated 16x16 magenta/black checker and material 0 only.
 
@@ -689,7 +689,7 @@
 
   Expected: every command exits zero with no warnings and no Mojang payload appears in `git status`.
 
-- [ ] **Step 5: Fetch and compile the user's local vanilla copy**
+- [x] **Step 5: Fetch and compile the user's local vanilla copy**
 
   Run:
 
