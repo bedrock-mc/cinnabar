@@ -190,6 +190,12 @@ impl RuntimeAssets {
         })
     }
 
+    /// Returns the immutable, validated material table in GPU word order.
+    #[must_use]
+    pub const fn materials(&self) -> &[Material] {
+        &self.materials
+    }
+
     #[must_use]
     pub const fn texture_array(&self) -> &TextureArray {
         &self.textures
