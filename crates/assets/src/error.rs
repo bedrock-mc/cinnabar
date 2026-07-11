@@ -154,6 +154,55 @@ pub enum AssetError {
     #[error("flipbook {index} timeline duration overflows its bounded u32 representation")]
     FlipbookTimelineOverflow { index: usize },
 
+    #[error(
+        "invalid animation texture limits: max_layers_per_page={max_layers_per_page}, max_pages={max_pages}; limits are 1..=2048 layers and 1..=2 pages"
+    )]
+    InvalidAnimationLimits {
+        max_layers_per_page: u32,
+        max_pages: u32,
+    },
+
+    #[error("decoded texture source {source_path} was supplied more than once")]
+    DuplicateDecodedTexture { source_path: Box<str> },
+
+    #[error("animation texture source {source_path} was not decoded")]
+    MissingAnimationTexture { source_path: Box<str> },
+
+    #[error("animation texture {source_path} is {width}x{height}: {detail}")]
+    AnimationTextureDimensions {
+        source_path: Box<str>,
+        width: u32,
+        height: u32,
+        detail: Box<str>,
+    },
+
+    #[error(
+        "animation texture {source_path} decoded to {actual} bytes, expected exactly {expected}"
+    )]
+    AnimationTextureByteLength {
+        source_path: Box<str>,
+        actual: usize,
+        expected: usize,
+    },
+
+    #[error(
+        "animation {animation} references physical frame {frame}, but its strip has {physical_frames} frames"
+    )]
+    FlipbookFrameOutOfRange {
+        animation: usize,
+        frame: u32,
+        physical_frames: u32,
+    },
+
+    #[error(
+        "animation layers require {required_layers} layers, exceeding {max_pages} pages of {max_layers_per_page} layers"
+    )]
+    TooManyAnimationTexturePages {
+        required_layers: usize,
+        max_layers_per_page: u32,
+        max_pages: u32,
+    },
+
     #[error("failed to read texture key {key} from {path}: {source}")]
     TextureIo {
         key: Box<str>,

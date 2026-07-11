@@ -184,6 +184,10 @@ impl TerrainTextureMap {
             TerrainPaths::Variants { .. } => None,
         }
     }
+
+    pub(crate) fn source_paths(&self) -> impl Iterator<Item = &str> {
+        self.entries.values().flat_map(TerrainPaths::paths)
+    }
 }
 
 #[derive(Debug)]
@@ -211,6 +215,13 @@ impl TerrainPaths {
             Self::Static { requires_tint, .. } | Self::Variants { requires_tint, .. } => {
                 *requires_tint
             }
+        }
+    }
+
+    fn paths(&self) -> Box<dyn Iterator<Item = &str> + '_> {
+        match self {
+            Self::Static { path, .. } => Box::new(std::iter::once(path.as_ref())),
+            Self::Variants { paths, .. } => Box::new(paths.iter().map(AsRef::as_ref)),
         }
     }
 }

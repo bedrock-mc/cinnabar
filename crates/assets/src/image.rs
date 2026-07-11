@@ -14,6 +14,7 @@ pub const MIP_COUNT: u32 = 5;
 
 const MAX_TEXTURE_BYTES: usize = 1024 * 1024;
 const MAX_DECODE_ALLOC: u64 = 256 * 1024;
+const MAX_TEXTURE_DIMENSION: u32 = 4_096;
 const ALPHA_TEST_THRESHOLD: u8 = 128;
 const ALPHA_SCALE_FRACTION_BITS: u32 = 16;
 const ALPHA_SCALE_MAX: u32 = 16 << ALPHA_SCALE_FRACTION_BITS;
@@ -33,6 +34,13 @@ pub struct TextureArray {
     pub mips: Box<[TextureMip]>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct DecodedTexture {
+    pub width: u32,
+    pub height: u32,
+    pub rgba8: Box<[u8]>,
+}
+
 pub(crate) fn diagnostic_pixels() -> Box<[u8]> {
     let mut pixels = Vec::with_capacity((TILE_SIZE * TILE_SIZE * 4) as usize);
     for y in 0..TILE_SIZE {
@@ -49,6 +57,19 @@ pub(crate) fn diagnostic_pixels() -> Box<[u8]> {
 }
 
 pub(crate) fn decode_static_texture(path: &Path, key: &str) -> Result<Box<[u8]>, AssetError> {
+    let decoded = decode_texture(path, key)?;
+    if (decoded.width, decoded.height) != (TILE_SIZE, TILE_SIZE) {
+        return Err(AssetError::WrongTextureDimensions {
+            key: key.into(),
+            path: path.to_path_buf(),
+            width: decoded.width,
+            height: decoded.height,
+        });
+    }
+    Ok(decoded.rgba8)
+}
+
+pub(crate) fn decode_texture(path: &Path, key: &str) -> Result<DecodedTexture, AssetError> {
     let format = static_texture_format(path, key)?;
     let file = File::open(path).map_err(|source| AssetError::TextureIo {
         key: key.into(),
@@ -79,19 +100,23 @@ pub(crate) fn decode_static_texture(path: &Path, key: &str) -> Result<Box<[u8]>,
             path: path.to_path_buf(),
             source,
         })?;
-    if dimensions != (TILE_SIZE, TILE_SIZE) {
-        return Err(AssetError::WrongTextureDimensions {
-            key: key.into(),
-            path: path.to_path_buf(),
+    if dimensions.0 == 0
+        || dimensions.1 == 0
+        || dimensions.0 > MAX_TEXTURE_DIMENSION
+        || dimensions.1 > MAX_TEXTURE_DIMENSION
+    {
+        return Err(AssetError::AnimationTextureDimensions {
+            source_path: key.into(),
             width: dimensions.0,
             height: dimensions.1,
+            detail: format!("dimensions must be within 1..={MAX_TEXTURE_DIMENSION}").into(),
         });
     }
 
     let mut reader = ImageReader::with_format(Cursor::new(&bytes), format);
     let mut limits = Limits::default();
-    limits.max_image_width = Some(TILE_SIZE);
-    limits.max_image_height = Some(TILE_SIZE);
+    limits.max_image_width = Some(MAX_TEXTURE_DIMENSION);
+    limits.max_image_height = Some(MAX_TEXTURE_DIMENSION);
     limits.max_alloc = Some(MAX_DECODE_ALLOC);
     reader.limits(limits);
     let decoded = reader
@@ -101,7 +126,61 @@ pub(crate) fn decode_static_texture(path: &Path, key: &str) -> Result<Box<[u8]>,
             path: path.to_path_buf(),
             source,
         })?;
-    Ok(decoded.into_rgba8().into_raw().into_boxed_slice())
+    Ok(DecodedTexture {
+        width: dimensions.0,
+        height: dimensions.1,
+        rgba8: decoded.into_rgba8().into_raw().into_boxed_slice(),
+    })
+}
+
+pub(crate) fn normalize_texture_tile(
+    mut rgba8: Box<[u8]>,
+    mut size: u32,
+    source_path: &str,
+) -> Result<Box<[u8]>, AssetError> {
+    let expected = size
+        .checked_mul(size)
+        .and_then(|pixels| pixels.checked_mul(4))
+        .and_then(|bytes| usize::try_from(bytes).ok())
+        .ok_or(AssetError::BlobSizeOverflow {
+            section: "animation frame",
+        })?;
+    if rgba8.len() != expected {
+        return Err(AssetError::AnimationTextureByteLength {
+            source_path: source_path.into(),
+            actual: rgba8.len(),
+            expected,
+        });
+    }
+    if size < TILE_SIZE || !size.is_power_of_two() {
+        return Err(AssetError::AnimationTextureDimensions {
+            source_path: source_path.into(),
+            width: size,
+            height: size,
+            detail: format!("frame size must be a power of two at least {TILE_SIZE}").into(),
+        });
+    }
+    while size > TILE_SIZE {
+        rgba8 = downsample_linear_premultiplied(&rgba8, size);
+        size /= 2;
+    }
+    Ok(rgba8)
+}
+
+pub(crate) fn build_texture_mip_chain(base: Box<[u8]>) -> Result<Box<[TextureMip]>, AssetError> {
+    let has_covered = base
+        .chunks_exact(4)
+        .any(|pixel| pixel[3] >= ALPHA_TEST_THRESHOLD);
+    let has_uncovered = base
+        .chunks_exact(4)
+        .any(|pixel| pixel[3] < ALPHA_TEST_THRESHOLD);
+    let cutout_layers = if has_covered && has_uncovered {
+        BTreeSet::from([0])
+    } else {
+        BTreeSet::new()
+    };
+    let texture = build_texture_array(&[base], &cutout_layers, &BTreeSet::new())?;
+    Ok(texture.mips)
 }
 
 fn static_texture_format(path: &Path, key: &str) -> Result<ImageFormat, AssetError> {

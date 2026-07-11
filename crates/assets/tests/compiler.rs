@@ -14,6 +14,7 @@ use assets::{
     compile_pack, encode_blob,
 };
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
+use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 
 const TILE_SIZE: u32 = 16;
@@ -26,9 +27,111 @@ fn assetc_root_help_documents_all_compile_inputs() {
         .expect("run assetc help");
     assert!(output.status.success());
     let help = String::from_utf8(output.stdout).expect("UTF-8 help");
-    for required in ["compile", "--pack", "--registry", "--out"] {
+    for required in [
+        "compile",
+        "animation-inventory",
+        "--pack",
+        "--registry",
+        "--out",
+    ] {
         assert!(help.contains(required), "help omitted {required}:\n{help}");
     }
+}
+
+#[test]
+fn assetc_animation_inventory_records_the_full_deterministic_contract() {
+    let directory = tempfile::tempdir().expect("create CLI inventory fixture");
+    let pack = directory.path().join("resource pack");
+    write_pack(
+        &pack,
+        "{}",
+        r#"{"texture_data":{
+            "still":{"textures":"textures/blocks/still"},
+            "animated":{"textures":"textures/blocks/animated"}
+        }}"#,
+        r#"[{
+            "flipbook_texture":"textures/blocks/animated",
+            "atlas_tile":"animated",
+            "ticks_per_frame":2,
+            "blend_frames":true
+        }]"#,
+    );
+    write_png(
+        &pack,
+        "textures/blocks/still",
+        TILE_SIZE,
+        TILE_SIZE,
+        &solid(TILE_SIZE, TILE_SIZE, [5, 10, 15, 255]),
+    );
+    let mut animation = solid(TILE_SIZE, TILE_SIZE, [20, 30, 40, 255]);
+    animation.extend(solid(TILE_SIZE, TILE_SIZE, [50, 60, 70, 255]));
+    write_png(
+        &pack,
+        "textures/blocks/animated",
+        TILE_SIZE,
+        TILE_SIZE * 2,
+        &animation,
+    );
+    let manifest = directory.path().join("vanilla-source.json");
+    let manifest_bytes = br#"{"schema":1,"commit":"synthetic"}
+"#;
+    write_file(&manifest, manifest_bytes);
+    let first = directory.path().join("first.json");
+    let second = directory.path().join("second.json");
+
+    for out in [&first, &second] {
+        let output = Command::new(env!("CARGO_BIN_EXE_assetc"))
+            .args([
+                "animation-inventory",
+                "--pack",
+                pack.to_str().expect("UTF-8 pack path"),
+                "--source-manifest",
+                manifest.to_str().expect("UTF-8 manifest path"),
+                "--max-layers-per-page",
+                "3",
+                "--max-pages",
+                "2",
+                "--out",
+                out.to_str().expect("UTF-8 output path"),
+            ])
+            .output()
+            .expect("run animation inventory CLI");
+        assert!(
+            output.status.success(),
+            "assetc failed:\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let first_bytes = fs::read(&first).expect("read first report");
+    let second_bytes = fs::read(&second).expect("read second report");
+    assert_eq!(
+        first_bytes, second_bytes,
+        "report bytes must be deterministic"
+    );
+    assert_eq!(first_bytes.last(), Some(&b'\n'));
+    let report: serde_json::Value =
+        serde_json::from_slice(&first_bytes).expect("parse inventory report");
+    let manifest_sha = format!("{:x}", Sha256::digest(manifest_bytes));
+    let canonical_pack = fs::canonicalize(&pack).expect("canonical pack path");
+
+    assert_eq!(report["schema"], 1);
+    assert_eq!(report["source_manifest_sha256"], manifest_sha);
+    assert_eq!(
+        report["canonical_pack_path"],
+        canonical_pack.to_string_lossy().as_ref()
+    );
+    assert_eq!(report["limits"]["max_layers_per_page"], 3);
+    assert_eq!(report["limits"]["max_pages"], 2);
+    assert_eq!(report["inventory"]["static_sources"], 1);
+    assert_eq!(report["inventory"]["reachable_animations"], 1);
+    assert_eq!(report["inventory"]["physical_animation_frames"], 2);
+    assert_eq!(report["inventory"]["deduplicated_layers"], 4);
+    assert_eq!(
+        report["inventory"]["page_layers"],
+        serde_json::json!([3, 1])
+    );
 }
 
 fn write_file(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) {

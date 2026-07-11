@@ -1,5 +1,6 @@
 //! Bounded Bedrock resource-pack source readers.
 
+mod animation;
 mod biome;
 mod blob;
 mod compiler;
@@ -9,6 +10,7 @@ mod pack;
 mod registry;
 mod runtime;
 
+pub use animation::AnimationInventory;
 pub use biome::{
     BIOME_REGISTRY_MAGIC, BIOME_RULE_FLAG_GRASS_SHADED, BiomeRegistryRecord, BiomeRule,
     CompiledBiomeAssets, LinearBiomeTints, LiveBiomeDefinition, MAX_BIOME_NAME_BYTES,
@@ -24,6 +26,7 @@ pub use compiler::{
     MATERIAL_FLAG_OVERLAY_MASK, MATERIAL_FLAG_ROTATE_UV, MATERIAL_FLAG_TINT_MASK,
     MATERIAL_FLAG_UV_MASK, MATERIAL_FLAG_WATER_TINT, MATERIAL_FLAGS_MASK, MAX_MATERIALS,
     MAX_TEXTURE_LAYERS, Material, compile_pack, compile_pack_with_biomes,
+    inspect_animation_inventory,
 };
 pub use error::AssetError;
 pub use image::{MIP_COUNT, TILE_SIZE, TextureArray, TextureMip};
