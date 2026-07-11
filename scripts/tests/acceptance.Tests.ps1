@@ -7,6 +7,13 @@ function Assert-True {
     }
 }
 
+function Assert-Equal {
+    param($Expected, $Actual, [string]$Message)
+    if ($Expected -cne $Actual) {
+        throw "$Message`nexpected: $Expected`nactual:   $Actual"
+    }
+}
+
 function Assert-Throws {
     param([scriptblock]$Action, [string]$Message)
     $threw = $false
@@ -40,11 +47,13 @@ $AcceptanceScript = Join-Path $ProjectRoot 'scripts\acceptance.ps1'
 $TempRoot = Join-Path ([IO.Path]::GetTempPath()) ("rust-mcbe acceptance tests {0}" -f [guid]::NewGuid().ToString('N'))
 $BdsDir = Join-Path $TempRoot 'bds source'
 $MetricsOut = Join-Path $TempRoot 'metrics output\metrics.json'
+$Assets = Join-Path $TempRoot 'vanilla assets with spaces.mcpack'
 $DryRunDirectory = Join-Path $ProjectRoot '.local\acceptance\dry-run'
 
 try {
     New-Item -ItemType Directory -Path $BdsDir -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $BdsDir 'bedrock_server.exe') -Value 'fixture' -NoNewline
+    Set-Content -LiteralPath $Assets -Value 'assets fixture' -NoNewline
     Assert-True (-not (Test-Path -LiteralPath $DryRunDirectory)) "pre-existing dry-run artifact prevents an immutability assertion: $DryRunDirectory"
 
     $success = Invoke-Acceptance -Arguments @(
@@ -59,12 +68,60 @@ try {
     Assert-True ($commands[0] -match '^BDS_COMMAND=') 'BDS command was not first'
     Assert-True ($commands[1] -match '^CORE_COMMAND=') 'core command was not second'
     Assert-True ($commands[2] -match '^APP_COMMAND=') 'app command was not third'
+    Assert-True ($success.Output.Count -eq 3) 'default dry-run output changed'
     foreach ($flag in @('--socket-dir', '--acceptance-seconds 900', '--metrics-out', '--auto-fly', '--no-vsync')) {
         Assert-True ($commands[2].Contains($flag)) "app command is missing $flag"
     }
+    Assert-True (-not $commands[2].Contains('--assets')) 'default app command unexpectedly gained --assets'
+    Assert-True (-not ($success.Output -match '^VISUAL_FIXTURE_POSE=')) 'default dry-run recorded a fixture pose'
     Assert-True ($commands[0].Contains('"')) 'path containing spaces was not quoted'
     Assert-True (-not (Test-Path -LiteralPath $DryRunDirectory)) 'dry-run created its run directory'
     Assert-True (-not (Test-Path -LiteralPath $MetricsOut)) 'dry-run wrote metrics'
+
+    $frontDryRun = Invoke-Acceptance -Arguments @(
+        '-DryRun',
+        '-DurationSeconds', '900',
+        '-BdsDir', $BdsDir,
+        '-MetricsOut', $MetricsOut,
+        '-Assets', $Assets,
+        '-VisualFixturePose', 'Front'
+    )
+    Assert-True ($frontDryRun.ExitCode -eq 0) "front fixture dry-run failed: $($frontDryRun.Output -join [Environment]::NewLine)"
+    $frontAppCommand = @($frontDryRun.Output | Where-Object { $_ -match '^APP_COMMAND=' })
+    Assert-True ($frontAppCommand.Count -eq 1) 'front fixture dry-run did not emit one app command'
+    Assert-True ($frontAppCommand[0].Contains("--assets `"$((Resolve-Path -LiteralPath $Assets).Path)`"")) 'front fixture app command did not include the resolved assets path'
+    Assert-True (-not $frontAppCommand[0].Contains('--auto-fly')) 'front fixture app command retained --auto-fly'
+    Assert-True ($frontAppCommand[0].Contains('--no-vsync')) 'front fixture app command lost --no-vsync'
+    Assert-True ($frontDryRun.Output -contains 'VISUAL_FIXTURE_POSE=Front') 'front fixture dry-run did not record its pose'
+
+    $backDryRun = Invoke-Acceptance -Arguments @(
+        '-DryRun',
+        '-DurationSeconds', '900',
+        '-BdsDir', $BdsDir,
+        '-MetricsOut', $MetricsOut,
+        '-Assets', $Assets,
+        '-VisualFixturePose', 'Back'
+    )
+    Assert-True ($backDryRun.ExitCode -eq 0) "back fixture dry-run failed: $($backDryRun.Output -join [Environment]::NewLine)"
+    Assert-True ($backDryRun.Output -contains 'VISUAL_FIXTURE_POSE=Back') 'back fixture dry-run did not record its pose'
+
+    $missingAssets = Invoke-Acceptance -Arguments @(
+        '-DryRun',
+        '-DurationSeconds', '900',
+        '-BdsDir', $BdsDir,
+        '-MetricsOut', $MetricsOut,
+        '-Assets', (Join-Path $TempRoot 'missing.mcpack')
+    )
+    Assert-True ($missingAssets.ExitCode -ne 0) 'missing assets file was accepted'
+
+    $directoryAssets = Invoke-Acceptance -Arguments @(
+        '-DryRun',
+        '-DurationSeconds', '900',
+        '-BdsDir', $BdsDir,
+        '-MetricsOut', $MetricsOut,
+        '-Assets', $BdsDir
+    )
+    Assert-True ($directoryAssets.ExitCode -ne 0) 'assets directory was accepted as a file'
 
     $short = Invoke-Acceptance -Arguments @(
         '-DryRun',
@@ -92,11 +149,100 @@ try {
 
     $env:RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY = '1'
     try {
-        . $AcceptanceScript -DryRun -DurationSeconds 900 -BdsDir $BdsDir -MetricsOut $MetricsOut
+        . $AcceptanceScript `
+            -DryRun `
+            -DurationSeconds 900 `
+            -BdsDir $BdsDir `
+            -MetricsOut $MetricsOut `
+            -Assets $Assets `
+            -VisualFixturePose Front
     }
     finally {
         Remove-Item Env:RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY -ErrorAction SilentlyContinue
     }
+
+    $mutationCoordinate = @(101, 64, -37)
+    $frontPlan = New-VisualFixturePlan -MutationCoordinate $mutationCoordinate -Pose Front
+    $frontPlanAgain = New-VisualFixturePlan -MutationCoordinate $mutationCoordinate -Pose Front
+    $backPlan = New-VisualFixturePlan -MutationCoordinate $mutationCoordinate -Pose Back
+
+    Assert-Equal ($frontPlan.Commands -join "`n") ($frontPlanAgain.Commands -join "`n") 'front fixture commands were not deterministic'
+    Assert-True ($frontPlan.TeleportCommand -cne $backPlan.TeleportCommand) 'front and back fixture teleports were identical'
+    Assert-True ($frontPlan.Commands[-2] -ceq 'say RUST_MCBE_TEXTURE_FIXTURE_READY_FRONT') 'front processing fence was not immediately before teleport'
+    Assert-True ($frontPlan.Commands[-1] -ceq $frontPlan.TeleportCommand) 'front teleport was not the final fixture command'
+    Assert-True ($backPlan.Commands[-2] -ceq 'say RUST_MCBE_TEXTURE_FIXTURE_READY_BACK') 'back processing fence was not immediately before teleport'
+    Assert-True ($backPlan.Commands[-1] -ceq $backPlan.TeleportCommand) 'back teleport was not the final fixture command'
+    Assert-True ($frontPlan.TeleportCommand.Contains('@a[name=RustMCBE]')) 'fixture teleport did not target the stable offline player name'
+
+    $clear = $frontPlan.Manifest.clear
+    $clearVolume = ([int]$clear.max.x - [int]$clear.min.x + 1) *
+        ([int]$clear.max.y - [int]$clear.min.y + 1) *
+        ([int]$clear.max.z - [int]$clear.min.z + 1)
+    Assert-True ($clearVolume -le 32768) "fixture clear volume exceeded BDS fill limit: $clearVolume"
+    Assert-True (([int]$clear.min.y) -gt $mutationCoordinate[1]) 'fixture clear volume did not preserve the mutation surface block'
+
+    $requiredBlocks = @(
+        'minecraft:stone',
+        'minecraft:dirt',
+        'minecraft:grass_block',
+        'minecraft:oak_planks',
+        'minecraft:coal_ore',
+        'minecraft:iron_ore',
+        'minecraft:diamond_ore',
+        'minecraft:sand',
+        'minecraft:glass'
+    )
+    $fixtureCommands = $frontPlan.Commands -join "`n"
+    foreach ($requiredBlock in $requiredBlocks) {
+        Assert-True ($fixtureCommands.Contains($requiredBlock)) "fixture commands are missing $requiredBlock"
+    }
+    foreach ($axis in @('x', 'y', 'z')) {
+        Assert-True ($fixtureCommands.Contains("minecraft:oak_log [`"pillar_axis`"=`"$axis`"]")) "fixture commands are missing the Bedrock-state $axis oak-log beam"
+    }
+    Assert-True ($fixtureCommands.Contains('minecraft:oak_stairs')) 'fixture commands are missing oak stairs'
+    Assert-True ($fixtureCommands.Contains('minecraft:glass_pane')) 'fixture commands are missing glass panes'
+
+    $expectedLabels = @('stone', 'dirt', 'grass', 'oak_planks', 'coal_ore', 'iron_ore', 'diamond_ore', 'sand', 'glass')
+    $manifestLabels = @($frontPlan.Manifest.blocks | ForEach-Object { $_.label })
+    Assert-Equal ($expectedLabels -join ',') ($manifestLabels -join ',') 'fixture manifest labels changed'
+    Assert-Equal 'Front' $frontPlan.Manifest.pose 'fixture manifest did not record its pose'
+    Assert-Equal ($mutationCoordinate -join ',') (@($frontPlan.Manifest.mutation.x, $frontPlan.Manifest.mutation.y, $frontPlan.Manifest.mutation.z) -join ',') 'fixture manifest did not derive from the mutation coordinate'
+    Assert-True ($null -ne $frontPlan.Manifest.camera) 'fixture manifest omitted expected camera coordinates'
+    Assert-True ($null -ne $frontPlan.Manifest.gallery_center) 'fixture manifest omitted expected gallery coordinates'
+
+    foreach ($fixtureCommand in $frontPlan.Commands) {
+        Assert-True ($fixtureCommand -match '^(fill|setblock|say|tp) ') "fixture contains an unexpected server command: $fixtureCommand"
+        Assert-True (-not $fixtureCommand.Contains($BdsDir)) 'fixture command targeted the source BDS directory'
+        Assert-True (-not $fixtureCommand.Contains("`r") -and -not $fixtureCommand.Contains("`n")) 'fixture command contains an injected newline'
+    }
+
+    $fixtureInput = [IO.StringWriter]::new([Globalization.CultureInfo]::InvariantCulture)
+    $fixtureHandle = [pscustomobject]@{
+        Process = [pscustomobject]@{ StandardInput = $fixtureInput }
+    }
+    $script:ObservedFixtureFence = $null
+    $fixtureRunDirectory = Join-Path $TempRoot 'fixture run'
+    New-Item -ItemType Directory -Path $fixtureRunDirectory | Out-Null
+    Publish-VisualFixture `
+        -Handle $fixtureHandle `
+        -Plan $frontPlan `
+        -RunDirectory $fixtureRunDirectory `
+        -SettleMilliseconds 0 `
+        -WaitForFence {
+            param($Handle, $Marker, $TimeoutSeconds)
+            $script:ObservedFixtureFence = $Marker
+            return $Marker
+        }
+    $fixtureLogPath = Join-Path $fixtureRunDirectory 'bds.console.log'
+    $fixtureReadyPath = Join-Path $fixtureRunDirectory 'visual-fixture-ready.json'
+    Assert-True (Test-Path -LiteralPath $fixtureReadyPath -PathType Leaf) 'fixture ready artifact was not published'
+    Assert-Equal ($frontPlan.Commands -join "`n") ((Get-Content -LiteralPath $fixtureLogPath) -join "`n") 'fixture console log did not record every command in order'
+    Assert-Equal ($frontPlan.Commands -join [Environment]::NewLine) $fixtureInput.ToString().TrimEnd("`r", "`n") 'fixture commands were not sent through the owned standard input in order'
+    Assert-Equal $frontPlan.FenceMarker $script:ObservedFixtureFence 'fixture publisher did not wait for the processing fence'
+    $fixtureReady = Get-Content -Raw -LiteralPath $fixtureReadyPath | ConvertFrom-Json
+    Assert-Equal 'Front' $fixtureReady.pose 'fixture ready artifact recorded the wrong pose'
+    Assert-Equal 3000 $fixtureReady.settle_milliseconds 'fixture ready artifact did not record the production settle duration'
+    Assert-Equal $frontPlan.TeleportCommand $fixtureReady.teleport_command 'fixture ready artifact recorded the wrong teleport'
 
     $serverPropertiesPath = Join-Path $TempRoot 'server.properties'
     [IO.File]::WriteAllLines(
