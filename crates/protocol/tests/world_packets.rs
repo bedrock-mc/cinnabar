@@ -53,6 +53,7 @@ fn normalizes_start_game_bootstrap_without_generated_types() {
             player_position: [1.25, 72.0, -8.5],
             world_spawn_position: [-104, 114, 61],
             air_network_id: HASHED_AIR_NETWORK_ID,
+            block_network_ids_are_hashes: true,
         }
     );
 }

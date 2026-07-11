@@ -1,5 +1,9 @@
-use std::mem::size_of;
+use std::{mem::size_of, sync::OnceLock};
 
+use assets::{
+    BlockFace, BlockFlags, BlockVisual, CompiledAssets, DIAGNOSTIC_MATERIAL, Material,
+    NetworkIdMode, RuntimeAssets, TextureArray, TextureMip, encode_blob,
+};
 use render::{BlockClassifier, Face, Neighbourhood, PackedQuad, debug_color, mesh_sub_chunk};
 use world::SubChunk;
 
@@ -7,6 +11,68 @@ const AIR: u32 = 12_530;
 
 fn classifier() -> BlockClassifier {
     BlockClassifier::new(AIR)
+}
+
+fn runtime_assets() -> &'static RuntimeAssets {
+    static ASSETS: OnceLock<RuntimeAssets> = OnceLock::new();
+    ASSETS.get_or_init(|| {
+        let mut visuals = vec![
+            BlockVisual {
+                faces: [DIAGNOSTIC_MATERIAL; 6],
+                flags: BlockFlags::empty(),
+            };
+            AIR as usize + 1
+        ];
+        for runtime_id in [7, 11, 13, 17, 23, 29, 31, 37, 41, 43, 47] {
+            visuals[runtime_id].faces = [runtime_id as u32; 6];
+            visuals[runtime_id].flags = BlockFlags::FULL_CUBE;
+        }
+        for runtime_id in [51, 52] {
+            visuals[runtime_id].faces = [51; 6];
+            visuals[runtime_id].flags = BlockFlags::FULL_CUBE;
+        }
+        visuals[53] = BlockVisual {
+            faces: [61, 62, 63, 64, 65, 66],
+            flags: BlockFlags::FULL_CUBE,
+        };
+        // A non-full-cube record intentionally carries non-zero face IDs. The
+        // mesher must still route it to the diagnostic material.
+        visuals[54] = BlockVisual {
+            faces: [66; 6],
+            flags: BlockFlags::empty(),
+        };
+
+        let textures = TextureArray {
+            layers: 1,
+            mips: [16_u32, 8, 4, 2, 1]
+                .into_iter()
+                .map(|size| TextureMip {
+                    size,
+                    rgba8: vec![0xff; size as usize * size as usize * 4].into_boxed_slice(),
+                })
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
+        };
+        let compiled = CompiledAssets {
+            visuals: visuals.into_boxed_slice(),
+            // Hash 7 deliberately collides with sequential ID 7, but points
+            // at the non-full-cube diagnostic record instead.
+            hashed: vec![(7, 54), (0xdbf4_4120, 53)].into_boxed_slice(),
+            materials: vec![Material { layer: 0, flags: 0 }; 67].into_boxed_slice(),
+            textures,
+        };
+        let blob = encode_blob(&compiled).expect("encode synthetic mesher assets");
+        RuntimeAssets::decode(&blob).expect("decode synthetic mesher assets")
+    })
+}
+
+fn mesh<'a>(
+    classifier: &BlockClassifier,
+    mode: NetworkIdMode,
+    neighbours: &Neighbourhood<'a>,
+    sub_chunk: &SubChunk,
+) -> render::ChunkMesh {
+    mesh_sub_chunk(classifier, runtime_assets(), mode, neighbours, sub_chunk)
 }
 
 fn zig_zag_i32(value: i32) -> Vec<u8> {
@@ -82,7 +148,12 @@ fn uniform(runtime_id: u32) -> SubChunk {
 #[test]
 fn one_opaque_block_emits_six_packed_quads() {
     let sub = blocks(7, &[[1, 2, 3]]);
-    let mesh = mesh_sub_chunk(&classifier(), &Neighbourhood::empty(), &sub);
+    let mesh = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &sub,
+    );
 
     assert_eq!(size_of::<PackedQuad>(), 8);
     assert_eq!(mesh.quad_count(), 6);
@@ -90,7 +161,7 @@ fn one_opaque_block_emits_six_packed_quads() {
     assert!(mesh.quads().iter().all(|quad| quad.origin() == [1, 2, 3]));
     assert!(mesh.quads().iter().all(|quad| quad.width() == 1));
     assert!(mesh.quads().iter().all(|quad| quad.height() == 1));
-    assert!(mesh.quads().iter().all(|quad| quad.runtime_id() == 7));
+    assert!(mesh.quads().iter().all(|quad| quad.material_id() == 7));
     assert_eq!(mesh.quads()[0].face(), Face::NegativeX);
     assert_eq!(mesh.quads()[0].words(), [1 | (2 << 5) | (3 << 10), 7]);
 }
@@ -98,7 +169,12 @@ fn one_opaque_block_emits_six_packed_quads() {
 #[test]
 fn equal_adjacent_blocks_greedy_merge_into_six_prism_quads() {
     let sub = blocks(11, &[[0, 0, 0], [1, 0, 0]]);
-    let mesh = mesh_sub_chunk(&classifier(), &Neighbourhood::empty(), &sub);
+    let mesh = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &sub,
+    );
 
     assert_eq!(mesh.quad_count(), 6);
     assert_eq!(
@@ -112,20 +188,25 @@ fn equal_adjacent_blocks_greedy_merge_into_six_prism_quads() {
 fn different_materials_split_coplanar_runs_but_still_cull_internal_faces() {
     let placements = [([0, 0, 0], 1), ([1, 0, 0], 2)];
     let sub = sub_chunk(vec![packed_storage(2, &[AIR, 13, 17], &placements)]);
-    let mesh = mesh_sub_chunk(&classifier(), &Neighbourhood::empty(), &sub);
+    let mesh = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &sub,
+    );
 
     assert_eq!(mesh.quad_count(), 10);
     assert_eq!(
         mesh.quads()
             .iter()
-            .filter(|quad| quad.runtime_id() == 13)
+            .filter(|quad| quad.material_id() == 13)
             .count(),
         5
     );
     assert_eq!(
         mesh.quads()
             .iter()
-            .filter(|quad| quad.runtime_id() == 17)
+            .filter(|quad| quad.material_id() == 17)
             .count(),
         5
     );
@@ -154,7 +235,12 @@ fn every_boundary_face_culls_against_its_cross_sub_chunk_neighbour() {
             Face::PositiveZ => Neighbourhood::empty().with_positive_z(&neighbour),
         };
 
-        let mesh = mesh_sub_chunk(&classifier(), &neighbourhood, &sub);
+        let mesh = mesh(
+            &classifier(),
+            NetworkIdMode::Sequential,
+            &neighbourhood,
+            &sub,
+        );
 
         assert_eq!(mesh.quad_count(), 5, "failed to cull {face:?}");
         assert!(
@@ -169,8 +255,18 @@ fn zero_storage_and_uniform_air_emit_no_geometry() {
     let no_storage = sub_chunk(Vec::new());
     let uniform_air = uniform(AIR);
 
-    let no_storage_mesh = mesh_sub_chunk(&classifier(), &Neighbourhood::empty(), &no_storage);
-    let uniform_air_mesh = mesh_sub_chunk(&classifier(), &Neighbourhood::empty(), &uniform_air);
+    let no_storage_mesh = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &no_storage,
+    );
+    let uniform_air_mesh = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &uniform_air,
+    );
 
     assert!(no_storage_mesh.is_empty());
     assert!(uniform_air_mesh.is_empty());
@@ -188,11 +284,16 @@ fn first_non_air_storage_layer_selects_the_debug_material() {
     let layer_one = packed_storage(1, &[AIR, 31], &[([0, 0, 0], 1), ([2, 0, 0], 1)]);
     let sub = sub_chunk(vec![layer_zero, layer_one]);
 
-    let mesh = mesh_sub_chunk(&classifier(), &Neighbourhood::empty(), &sub);
+    let mesh = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &sub,
+    );
     let materials = mesh
         .quads()
         .iter()
-        .map(PackedQuad::runtime_id)
+        .map(PackedQuad::material_id)
         .collect::<Vec<_>>();
 
     assert_eq!(mesh.quad_count(), 12);
@@ -211,7 +312,12 @@ fn debug_colours_are_deterministic_distinct_and_opaque() {
 #[test]
 fn uniform_solid_fast_path_merges_planes_and_respects_boundary_neighbours() {
     let sub = uniform(37);
-    let empty_mesh = mesh_sub_chunk(&classifier(), &Neighbourhood::empty(), &sub);
+    let empty_mesh = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &sub,
+    );
 
     assert_eq!(empty_mesh.quad_count(), 6);
     assert!(
@@ -224,7 +330,12 @@ fn uniform_solid_fast_path_merges_planes_and_respects_boundary_neighbours() {
 
     let positive_x = uniform(41);
     let neighbourhood = Neighbourhood::empty().with_positive_x(&positive_x);
-    let culled_mesh = mesh_sub_chunk(&classifier(), &neighbourhood, &sub);
+    let culled_mesh = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &neighbourhood,
+        &sub,
+    );
 
     assert_eq!(culled_mesh.quad_count(), 5);
     assert!(
@@ -244,7 +355,12 @@ fn configured_high_bit_air_is_empty_in_every_storage_layer() {
         uniform_storage(HASHED_AIR),
     ]);
 
-    let mesh = mesh_sub_chunk(&classifier, &Neighbourhood::empty(), &sub);
+    let mesh = mesh(
+        &classifier,
+        NetworkIdMode::Hashed,
+        &Neighbourhood::empty(),
+        &sub,
+    );
 
     assert!(mesh.is_empty());
     assert!(mesh.connectivity().is_all_connected());
@@ -255,7 +371,12 @@ fn empty_tunnel_connects_only_the_two_faces_it_reaches() {
     let tunnel = (0..16).map(|x| ([x, 8, 8], 1)).collect::<Vec<_>>();
     let sub = sub_chunk(vec![packed_storage(1, &[43, AIR], &tunnel)]);
 
-    let mesh = mesh_sub_chunk(&classifier(), &Neighbourhood::empty(), &sub);
+    let mesh = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &sub,
+    );
     let connectivity = mesh.connectivity();
 
     assert!(connectivity.is_connected(Face::NegativeX, Face::PositiveX));
@@ -268,7 +389,104 @@ fn empty_tunnel_connects_only_the_two_faces_it_reaches() {
 fn sealed_empty_cavity_has_no_face_connectivity() {
     let sub = sub_chunk(vec![packed_storage(1, &[47, AIR], &[([8, 8, 8], 1)])]);
 
-    let mesh = mesh_sub_chunk(&classifier(), &Neighbourhood::empty(), &sub);
+    let mesh = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &sub,
+    );
 
     assert!(mesh.connectivity().is_empty());
+}
+
+#[test]
+fn explicit_network_mode_preserves_high_hashes_and_isolates_low_collisions() {
+    let high_hash = runtime_assets().resolve(NetworkIdMode::Hashed, 0xdbf4_4120);
+    assert!(high_hash.is_known());
+    assert_eq!(high_hash.face(BlockFace::Up).material_id(), 64);
+
+    let sequential = runtime_assets().resolve(NetworkIdMode::Sequential, 7);
+    let colliding_hash = runtime_assets().resolve(NetworkIdMode::Hashed, 7);
+    assert_eq!(sequential.face(BlockFace::West).material_id(), 7);
+    assert_eq!(colliding_hash.face(BlockFace::West).material_id(), 66);
+
+    let sub = blocks(7, &[[1, 2, 3]]);
+    let hashed_mesh = mesh(
+        &BlockClassifier::new(0xdbf4_4120),
+        NetworkIdMode::Hashed,
+        &Neighbourhood::empty(),
+        &sub,
+    );
+    assert!(
+        hashed_mesh
+            .quads()
+            .iter()
+            .all(|quad| quad.material_id() == DIAGNOSTIC_MATERIAL)
+    );
+}
+
+#[test]
+fn greedy_merge_identity_is_face_material_not_network_value() {
+    let same_material = sub_chunk(vec![packed_storage(
+        2,
+        &[AIR, 51, 52],
+        &[([0, 0, 0], 1), ([1, 0, 0], 2)],
+    )]);
+    let merged = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &same_material,
+    );
+    assert_eq!(merged.quad_count(), 6);
+    assert!(merged.quads().iter().all(|quad| quad.material_id() == 51));
+
+    let different_materials = sub_chunk(vec![packed_storage(
+        2,
+        &[AIR, 13, 17],
+        &[([0, 0, 0], 1), ([1, 0, 0], 2)],
+    )]);
+    let split = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &different_materials,
+    );
+    assert_eq!(split.quad_count(), 10);
+}
+
+#[test]
+fn exact_face_materials_and_diagnostic_fallback_are_packed() {
+    let face_mapped = blocks(53, &[[4, 5, 6]]);
+    let face_mesh = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &face_mapped,
+    );
+    let expected = [61, 62, 63, 64, 65, 66];
+    for face in Face::ALL {
+        let quad = face_mesh
+            .quads()
+            .iter()
+            .find(|quad| quad.face() == face)
+            .expect("one quad per face");
+        assert_eq!(quad.material_id(), expected[face as usize]);
+    }
+
+    for runtime_id in [54, 50_000] {
+        let sub = blocks(runtime_id, &[[4, 5, 6]]);
+        let mesh = mesh(
+            &classifier(),
+            NetworkIdMode::Sequential,
+            &Neighbourhood::empty(),
+            &sub,
+        );
+        assert!(
+            mesh.quads()
+                .iter()
+                .all(|quad| quad.material_id() == DIAGNOSTIC_MATERIAL),
+            "runtime value {runtime_id} bypassed diagnostic material"
+        );
+    }
 }

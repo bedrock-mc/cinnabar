@@ -232,3 +232,24 @@ fn decoded_texture_mips_are_exposed_without_lookup_mutation() {
     assert_eq!(textures.mips[4].rgba8.len(), 4 * 2);
     assert_eq!(runtime.missing_count(), 0);
 }
+
+#[test]
+fn programmatic_diagnostic_runtime_is_minimal_and_self_contained() {
+    let runtime = RuntimeAssets::diagnostic();
+
+    let diagnostic = runtime.resolve(NetworkIdMode::Sequential, 0);
+    assert!(diagnostic.is_known());
+    assert_eq!(
+        diagnostic.face(BlockFace::Up).material_id(),
+        DIAGNOSTIC_MATERIAL
+    );
+    assert_eq!(runtime.material(0), Material { layer: 0, flags: 0 });
+    assert_eq!(runtime.texture_array().layers, 1);
+    assert_eq!(runtime.texture_array().mips.len(), 5);
+    assert_eq!(runtime.texture_array().mips[0].rgba8.len(), 16 * 16 * 4);
+
+    assert!(
+        !runtime.resolve(NetworkIdMode::Hashed, 0).is_known(),
+        "diagnostic fallback must not blur sequential and hashed namespaces"
+    );
+}

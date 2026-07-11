@@ -4,6 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use assets::{NetworkIdMode, RuntimeAssets};
 use bevy::prelude::Resource;
 use crossbeam_channel::{Receiver, Sender, bounded};
 use protocol::{
@@ -352,7 +353,12 @@ struct MeshSnapshot {
 }
 
 impl MeshSnapshot {
-    fn mesh(&self, classifier: BlockClassifier) -> ChunkMesh {
+    fn mesh(
+        &self,
+        classifier: BlockClassifier,
+        runtime_assets: &RuntimeAssets,
+        network_id_mode: NetworkIdMode,
+    ) -> ChunkMesh {
         let mut neighbours = Neighbourhood::empty();
         if let Some(neighbour) = self.negative_x.as_deref() {
             neighbours = neighbours.with_negative_x(neighbour);
@@ -372,7 +378,13 @@ impl MeshSnapshot {
         if let Some(neighbour) = self.positive_z.as_deref() {
             neighbours = neighbours.with_positive_z(neighbour);
         }
-        mesh_sub_chunk(&classifier, &neighbours, &self.center)
+        mesh_sub_chunk(
+            &classifier,
+            runtime_assets,
+            network_id_mode,
+            &neighbours,
+            &self.center,
+        )
     }
 }
 
@@ -385,6 +397,8 @@ impl MeshSnapshot {
 pub struct WorldStream {
     store: ChunkStore,
     classifier: BlockClassifier,
+    network_id_mode: NetworkIdMode,
+    runtime_assets: Arc<RuntimeAssets>,
     current_dimension: i32,
     ordered: SequenceBuffer<PreparedWorldEvent>,
     submitted: HashSet<u64>,
@@ -422,31 +436,33 @@ impl WorldStream {
     #[cfg(test)]
     #[must_use]
     pub fn new(bootstrap: WorldBootstrap) -> Self {
-        Self::with_first_sequence(bootstrap, 1)
-    }
-
-    #[must_use]
-    pub fn new_with_recovery(
-        bootstrap: WorldBootstrap,
-        current_position: [f32; 3],
-        existing_anchor: Option<[i32; 2]>,
-    ) -> Self {
-        Self::with_first_sequence_and_recovery(bootstrap, 1, current_position, existing_anchor)
-    }
-
-    #[cfg(test)]
-    #[must_use]
-    pub fn with_first_sequence(bootstrap: WorldBootstrap, first_sequence: u64) -> Self {
-        Self::with_first_sequence_and_recovery(
+        Self::new_with_assets(
             bootstrap,
-            first_sequence,
+            Arc::new(RuntimeAssets::diagnostic()),
             [0.0, crate::server_position::SAFE_SERVER_HEIGHT, 0.0],
             None,
         )
     }
 
+    #[must_use]
+    pub fn new_with_assets(
+        bootstrap: WorldBootstrap,
+        runtime_assets: Arc<RuntimeAssets>,
+        current_position: [f32; 3],
+        existing_anchor: Option<[i32; 2]>,
+    ) -> Self {
+        Self::with_first_sequence_and_recovery(
+            bootstrap,
+            runtime_assets,
+            1,
+            current_position,
+            existing_anchor,
+        )
+    }
+
     fn with_first_sequence_and_recovery(
         bootstrap: WorldBootstrap,
+        runtime_assets: Arc<RuntimeAssets>,
         first_sequence: u64,
         current_position: [f32; 3],
         existing_anchor: Option<[i32; 2]>,
@@ -458,6 +474,12 @@ impl WorldStream {
         Self {
             store: ChunkStore::new(),
             classifier: BlockClassifier::new(bootstrap.air_network_id),
+            network_id_mode: if bootstrap.block_network_ids_are_hashes {
+                NetworkIdMode::Hashed
+            } else {
+                NetworkIdMode::Sequential
+            },
+            runtime_assets,
             current_dimension: bootstrap.dimension,
             ordered: SequenceBuffer::new(first_sequence),
             submitted: HashSet::new(),
@@ -1511,10 +1533,12 @@ impl WorldStream {
             self.in_flight.insert(key, revision);
             let tx = self.mesh_tx.clone();
             let classifier = self.classifier;
+            let network_id_mode = self.network_id_mode;
+            let runtime_assets = Arc::clone(&self.runtime_assets);
             rayon::spawn(move || {
                 let started = Instant::now();
                 let source = Arc::clone(&snapshot.center);
-                let mesh = snapshot.mesh(classifier);
+                let mesh = snapshot.mesh(classifier, &runtime_assets, network_id_mode);
                 let _ = tx.send(MeshCompletion {
                     key,
                     revision,
@@ -1759,6 +1783,7 @@ fn floor_to_i32(value: f32) -> i32 {
 mod tests {
     use std::{collections::BTreeSet, sync::Arc, time::Instant};
 
+    use assets::{NetworkIdMode, RuntimeAssets};
     use protocol::{
         BlockUpdateEvent, ChangeDimensionEvent, LevelChunkEvent, LevelChunkMode, MovePlayerEvent,
         PublisherUpdateEvent, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkResult,
@@ -1768,6 +1793,27 @@ mod tests {
     use world::{BlockUpdate, ChunkKey, ChunkStore, DecodedLevelChunk, SubChunkKey};
 
     use super::{MeshCompletion, RevisionTracker, SequenceBuffer, WorldStream, split_block_update};
+
+    #[test]
+    fn network_mode_and_runtime_assets_are_selected_once_per_stream() {
+        let runtime_assets = Arc::new(RuntimeAssets::diagnostic());
+        let stream = WorldStream::new_with_assets(
+            WorldBootstrap {
+                dimension: 0,
+                local_player_runtime_id: 1,
+                player_position: [0.0; 3],
+                world_spawn_position: [0; 3],
+                air_network_id: 0xdbf4_4120,
+                block_network_ids_are_hashes: true,
+            },
+            Arc::clone(&runtime_assets),
+            [0.0, crate::server_position::SAFE_SERVER_HEIGHT, 0.0],
+            None,
+        );
+
+        assert_eq!(stream.network_id_mode, NetworkIdMode::Hashed);
+        assert!(Arc::ptr_eq(&stream.runtime_assets, &runtime_assets));
+    }
 
     fn inline_air_event(x: i32) -> WorldEvent {
         WorldEvent::LevelChunk(LevelChunkEvent {
@@ -1841,6 +1887,7 @@ mod tests {
             player_position: [f32::NAN, 80.0, f32::INFINITY],
             world_spawn_position: [0; 3],
             air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
         };
         let expected = crate::server_position::resolve_server_position(
             bootstrap.player_position,
@@ -1867,6 +1914,7 @@ mod tests {
             player_position: [7.25, 70.0, -8.75],
             world_spawn_position: [0; 3],
             air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
         });
         let change = ChangeDimensionEvent {
             dimension: 1,
@@ -1904,6 +1952,7 @@ mod tests {
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
             air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
         });
 
         stream.submit(1, inline_air_event(0)).unwrap();
@@ -1934,6 +1983,7 @@ mod tests {
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
             air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
         });
 
         stream.submit(1, inline_air_event(0)).unwrap();
@@ -1988,6 +2038,7 @@ mod tests {
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
             air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
         });
 
         for sequence in 1..=62_u64 {
@@ -2054,6 +2105,7 @@ mod tests {
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
             air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
         });
 
         for sequence in 1..=super::MAX_ADMITTED_HEAVY_EVENTS as u64 {
@@ -2093,6 +2145,7 @@ mod tests {
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
             air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
         });
         let chunk = ChunkKey::new(0, 1, 0);
         let key = SubChunkKey::from_chunk(chunk, -4);
@@ -2138,6 +2191,7 @@ mod tests {
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
             air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
         });
         stream
             .submit(1, WorldEvent::ChunkRadiusUpdated(999))
@@ -2198,6 +2252,7 @@ mod tests {
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
             air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
         });
         stream
             .submit(
@@ -2242,6 +2297,7 @@ mod tests {
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
             air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
         });
         let movement = MovePlayerEvent {
             runtime_id: 1,
@@ -2350,6 +2406,7 @@ mod tests {
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
             air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
         });
         let first = SubChunkKey::new(0, 1, 2, 3);
         let second = SubChunkKey::new(0, 4, 5, 6);
@@ -2395,6 +2452,7 @@ mod tests {
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
             air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
         });
         let key = SubChunkKey::new(0, 0, -4, 0);
         let decoded = DecodedLevelChunk::decode(
@@ -2410,7 +2468,13 @@ mod tests {
         let dirty_since = Instant::now();
         let generation = stream.revisions.mark_dirty(key, dirty_since);
         stream.in_flight.insert(key, generation);
-        let mesh = mesh_sub_chunk(&stream.classifier, &Neighbourhood::empty(), source.as_ref());
+        let mesh = mesh_sub_chunk(
+            &stream.classifier,
+            &stream.runtime_assets,
+            stream.network_id_mode,
+            &Neighbourhood::empty(),
+            source.as_ref(),
+        );
         stream.accept_mesh_completion(MeshCompletion {
             key,
             revision: generation,
@@ -2472,6 +2536,7 @@ mod tests {
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
             air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
         });
         let mut updates = (0..4_095)
             .map(|linear| BlockUpdateEvent {
@@ -2534,6 +2599,7 @@ mod tests {
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
             air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
         });
 
         stream
@@ -2591,6 +2657,7 @@ mod tests {
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
             air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
         });
         for index in 0..super::OUTBOUND_REQUEST_CAPACITY {
             let x = index as i32 % 17 - 8;
@@ -2637,6 +2704,7 @@ mod tests {
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
             air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
         });
         let key = SubChunkKey::new(0, 0, -4, 0);
         stream
@@ -2690,6 +2758,7 @@ mod tests {
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
             air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
         });
         let chunk = ChunkKey::new(0, 0, 0);
         stream
@@ -2777,6 +2846,7 @@ mod tests {
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
             air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
         });
         let key = SubChunkKey::new(0, 3, -4, -2);
         let decoded = DecodedLevelChunk::decode(
@@ -2822,6 +2892,7 @@ mod tests {
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
             air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
         });
         let key = SubChunkKey::new(0, 4, -2, 9);
 
@@ -2847,6 +2918,7 @@ mod tests {
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
             air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
         });
         let key = SubChunkKey::new(0, 0, -4, 0);
         let decoded = DecodedLevelChunk::decode(
@@ -2864,7 +2936,13 @@ mod tests {
         let current_revision = stream.revisions.mark_dirty(key, Instant::now());
         stream.in_flight.insert(key, old_revision);
         let classifier = BlockClassifier::new(12_530);
-        let mesh = mesh_sub_chunk(&classifier, &Neighbourhood::empty(), &source);
+        let mesh = mesh_sub_chunk(
+            &classifier,
+            &stream.runtime_assets,
+            stream.network_id_mode,
+            &Neighbourhood::empty(),
+            &source,
+        );
 
         stream.accept_mesh_completion(MeshCompletion {
             key,
@@ -2887,6 +2965,7 @@ mod tests {
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
             air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
         });
         let key = SubChunkKey::new(0, 0, -4, 0);
         let decoded = DecodedLevelChunk::decode(
@@ -2916,6 +2995,7 @@ mod tests {
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
             air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
         });
         let removed = SubChunkKey::new(0, 0, -4, 0);
         stream.mark_dirty_exact(removed, Instant::now());
@@ -2940,6 +3020,7 @@ mod tests {
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
             air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
         });
         let key = SubChunkKey::new(0, 0, -4, 0);
         stream
@@ -2990,6 +3071,7 @@ mod tests {
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
             air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
         });
         let left = SubChunkKey::new(0, -1, 0, 0);
         let air = SubChunkKey::new(0, 0, 0, 0);
@@ -3022,6 +3104,7 @@ mod tests {
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
             air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
         });
         let chunk = ChunkKey::new(0, 2, -3);
         let key = SubChunkKey::from_chunk(chunk, -4);
@@ -3061,6 +3144,7 @@ mod tests {
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
             air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
         });
         let key = SubChunkKey::new(1, -8, 3, 12);
         stream
@@ -3092,6 +3176,7 @@ mod tests {
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
             air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
         });
         let key = SubChunkKey::new(0, 2, -1, 4);
 
@@ -3115,6 +3200,7 @@ mod tests {
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
             air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
         });
         let chunk = ChunkKey::new(0, 2, -3);
         let block_x = chunk.x * 16 + 5;
