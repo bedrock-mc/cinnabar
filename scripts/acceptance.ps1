@@ -667,10 +667,10 @@ function New-VisualFixturePlan {
 
     $galleryCenter = [pscustomobject][ordered]@{ x = $mx; y = $my + 3; z = $mz + 4 }
     $camera = if ($Pose -eq 'Front') {
-        [pscustomobject][ordered]@{ x = $mx; y = $my + 8; z = $mz - 14 }
+        [pscustomobject][ordered]@{ x = $mx; y = $my + 12; z = $mz - 24 }
     }
     else {
-        [pscustomobject][ordered]@{ x = $mx; y = $my + 4; z = $mz + 14 }
+        [pscustomobject][ordered]@{ x = $mx; y = $my + 10; z = $mz + 32 }
     }
 
     $galleryCommands = [Collections.Generic.List[string]]::new()
