@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -89,7 +90,7 @@ func collect(registry world.BlockRegistry) ([]Record, error) {
 		if name == "minecraft:air" {
 			flags |= flagAir
 		}
-		if _, ok := value.Model().(model.Solid); ok {
+		if fullCube(value) {
 			flags |= flagFullCube
 		}
 		records = append(records, Record{
@@ -101,6 +102,38 @@ func collect(registry world.BlockRegistry) ([]Record, error) {
 		})
 	}
 	return records, nil
+}
+
+func fullCube(value world.Block) bool {
+	if _, ok := value.Model().(model.Solid); ok {
+		return true
+	}
+
+	// BasicBlockRegistry uses the high half returned by Hash as its public
+	// unknownBlock discriminator: math.MaxUint64 means no concrete block
+	// implementation is registered. Its unknownModel deliberately looks like a
+	// full cube, so model geometry cannot safely classify these states.
+	_, stateHash := value.Hash()
+	if stateHash != math.MaxUint64 {
+		return false
+	}
+	name, properties := value.EncodeBlock()
+	return approvedUnknownFullCubeState(name, properties)
+}
+
+func approvedUnknownFullCubeState(name string, properties map[string]any) bool {
+	switch name {
+	case "minecraft:mycelium":
+		return len(properties) == 0
+	case "minecraft:red_mushroom_block", "minecraft:brown_mushroom_block", "minecraft:mushroom_stem":
+		if len(properties) != 1 {
+			return false
+		}
+		bits, ok := properties["huge_mushroom_bits"].(int32)
+		return ok && bits >= 0 && bits <= 15
+	default:
+		return false
+	}
 }
 
 func canonicalJSON(properties map[string]any) ([]byte, error) {
