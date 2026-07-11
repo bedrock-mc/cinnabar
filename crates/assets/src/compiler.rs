@@ -63,14 +63,15 @@ type CompiledLayers = (Vec<Box<[u8]>>, BTreeMap<Box<str>, u32>);
 type CompiledMaterials = (Box<[Material]>, BTreeMap<Descriptor, u32>);
 type CompiledVisuals = (Box<[BlockVisual]>, Box<[(u32, u32)]>);
 
-/// Compiles the full-cube subset of a bounded Bedrock resource pack.
+/// Compiles the cube-geometry subset of a bounded Bedrock resource pack.
 pub fn compile_pack(root: &Path, records: &[RegistryRecord]) -> Result<CompiledAssets, AssetError> {
     let pack = read_pack(root)?;
     validate_records(records)?;
 
     let mut descriptor_keys = BTreeMap::<Descriptor, Box<str>>::new();
     for record in records.iter().filter(|record| {
-        record.flags.contains(BlockFlags::FULL_CUBE) && !record_has_deferred_material(&pack, record)
+        record.flags.contains(BlockFlags::CUBE_GEOMETRY)
+            && !record_has_deferred_material(&pack, record)
     }) {
         for face in BlockFace::ALL {
             if let Some((descriptor, key)) = descriptor_for(&pack, record, face) {
@@ -110,6 +111,18 @@ fn validate_records(records: &[RegistryRecord]) -> Result<(), AssetError> {
     let mut sequential = BTreeSet::new();
     let mut hashes = BTreeSet::new();
     for record in records {
+        let flags_are_valid =
+            BlockFlags::from_bits(record.flags.bits()).is_some_and(BlockFlags::has_valid_semantics);
+        if !flags_are_valid {
+            return Err(AssetError::InvalidCompiledAssets {
+                detail: format!(
+                    "registry record {} has invalid block flags {:#04x}",
+                    record.sequential_id,
+                    record.flags.bits()
+                )
+                .into(),
+            });
+        }
         if record.sequential_id as usize >= MAX_VISUALS {
             return Err(AssetError::SequentialIdOutOfRange {
                 id: record.sequential_id,
@@ -309,7 +322,7 @@ fn compile_visuals(
 
     for record in records {
         let mut visual = BlockVisual::diagnostic(record.flags);
-        if record.flags.contains(BlockFlags::FULL_CUBE)
+        if record.flags.contains(BlockFlags::CUBE_GEOMETRY)
             && !record_has_deferred_material(pack, record)
         {
             let mut faces = [DIAGNOSTIC_MATERIAL; 6];

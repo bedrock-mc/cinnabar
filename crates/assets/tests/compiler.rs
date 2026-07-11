@@ -107,6 +107,31 @@ fn material_for_face(compiled: &CompiledAssets, sequential_id: usize, face: Bloc
     compiled.materials[compiled.visuals[sequential_id].faces[face as usize] as usize]
 }
 
+#[test]
+fn compiler_rejects_invalid_block_flag_semantics() {
+    let directory = tempfile::tempdir().expect("create fixture");
+    write_pack(
+        directory.path(),
+        r#"{"format_version":[1,1,0]}"#,
+        r#"{"texture_data":{}}"#,
+        "[]",
+    );
+
+    for invalid in [
+        BlockFlags::from_bits_retain(0x10),
+        BlockFlags::AIR | BlockFlags::CUBE_GEOMETRY,
+        BlockFlags::OCCLUDES_FULL_FACE,
+        BlockFlags::LEAF_MODEL,
+        BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE | BlockFlags::LEAF_MODEL,
+    ] {
+        let records = [record(0, 1, "minecraft:test", "{}", invalid)];
+        assert!(matches!(
+            compile_pack(directory.path(), &records),
+            Err(AssetError::InvalidCompiledAssets { .. })
+        ));
+    }
+}
+
 fn mip_pixel(
     compiled: &CompiledAssets,
     mip_index: usize,
@@ -164,16 +189,16 @@ fn compiler_deduplicates_pixels_without_conflating_uv_flags() {
         &solid(TILE_SIZE, TILE_SIZE, [0, 0, 255, 255]),
     );
     let records = [
-        record(0, 100, "minecraft:same_a", "{}", BlockFlags::FULL_CUBE),
-        record(1, 101, "minecraft:same_b", "{}", BlockFlags::FULL_CUBE),
+        record(0, 100, "minecraft:same_a", "{}", BlockFlags::CUBE_GEOMETRY),
+        record(1, 101, "minecraft:same_b", "{}", BlockFlags::CUBE_GEOMETRY),
         record(
             2,
             102,
             "minecraft:pillar",
             r#"{"pillar_axis":"x"}"#,
-            BlockFlags::FULL_CUBE,
+            BlockFlags::CUBE_GEOMETRY,
         ),
-        record(3, 103, "minecraft:blue", "{}", BlockFlags::FULL_CUBE),
+        record(3, 103, "minecraft:blue", "{}", BlockFlags::CUBE_GEOMETRY),
     ];
 
     let compiled = compile_pack(directory.path(), &records).expect("compile synthetic pack");
@@ -226,8 +251,8 @@ fn compiler_builds_diagnostic_and_layer_isolated_linear_mips() {
         &solid(TILE_SIZE, TILE_SIZE, [0, 0, 255, 255]),
     );
     let records = [
-        record(0, 200, "minecraft:red", "{}", BlockFlags::FULL_CUBE),
-        record(1, 201, "minecraft:blue", "{}", BlockFlags::FULL_CUBE),
+        record(0, 200, "minecraft:red", "{}", BlockFlags::CUBE_GEOMETRY),
+        record(1, 201, "minecraft:blue", "{}", BlockFlags::CUBE_GEOMETRY),
     ];
 
     let compiled = compile_pack(directory.path(), &records).expect("compile synthetic pack");
@@ -320,10 +345,22 @@ fn compiler_fails_closed_for_transparent_and_tinted_full_cubes() {
         );
     }
     let records = [
-        record(0, 300, "minecraft:stone", "{}", BlockFlags::FULL_CUBE),
-        record(1, 301, "minecraft:glass", "{}", BlockFlags::FULL_CUBE),
-        record(2, 302, "minecraft:tinted_cube", "{}", BlockFlags::FULL_CUBE),
-        record(3, 303, "minecraft:grass_block", "{}", BlockFlags::FULL_CUBE),
+        record(0, 300, "minecraft:stone", "{}", BlockFlags::CUBE_GEOMETRY),
+        record(1, 301, "minecraft:glass", "{}", BlockFlags::CUBE_GEOMETRY),
+        record(
+            2,
+            302,
+            "minecraft:tinted_cube",
+            "{}",
+            BlockFlags::CUBE_GEOMETRY,
+        ),
+        record(
+            3,
+            303,
+            "minecraft:grass_block",
+            "{}",
+            BlockFlags::CUBE_GEOMETRY,
+        ),
     ];
 
     let compiled = compile_pack(directory.path(), &records).expect("compile synthetic pack");
@@ -382,14 +419,14 @@ fn compiler_output_is_identical_across_shuffled_sources_and_records() {
         0xffff_fff0,
         "minecraft:alpha",
         "{}",
-        BlockFlags::FULL_CUBE,
+        BlockFlags::CUBE_GEOMETRY,
     );
     let zeta = record(
         1,
         0x8000_0001,
         "minecraft:zeta",
         "{}",
-        BlockFlags::FULL_CUBE,
+        BlockFlags::CUBE_GEOMETRY,
     );
 
     let first = compile_pack(first.path(), &[alpha.clone(), zeta.clone()]).expect("first compile");
@@ -515,7 +552,7 @@ fn compiler_selects_huge_mushroom_face_variants_and_keeps_other_arrays_at_zero()
                 0x8000_1000 + sequential_id,
                 &format!("minecraft:{block_name}"),
                 &format!(r#"{{"huge_mushroom_bits":{bits}}}"#),
-                BlockFlags::FULL_CUBE,
+                BlockFlags::CUBE_GEOMETRY,
             ));
         }
     }
@@ -534,7 +571,7 @@ fn compiler_selects_huge_mushroom_face_variants_and_keeps_other_arrays_at_zero()
             0x8000_1000 + sequential_id,
             "minecraft:brown_mushroom_block",
             state,
-            BlockFlags::FULL_CUBE,
+            BlockFlags::CUBE_GEOMETRY,
         ));
     }
     let invalid_stem_id = records.len() as u32;
@@ -543,7 +580,7 @@ fn compiler_selects_huge_mushroom_face_variants_and_keeps_other_arrays_at_zero()
         0x8000_1000 + invalid_stem_id,
         "minecraft:mushroom_stem",
         "{}",
-        BlockFlags::FULL_CUBE,
+        BlockFlags::CUBE_GEOMETRY,
     ));
     let unrelated_id = records.len() as u32;
     records.push(record(
@@ -551,7 +588,7 @@ fn compiler_selects_huge_mushroom_face_variants_and_keeps_other_arrays_at_zero()
         0x8000_1000 + unrelated_id,
         "minecraft:unrelated",
         r#"{"huge_mushroom_bits":15}"#,
-        BlockFlags::FULL_CUBE,
+        BlockFlags::CUBE_GEOMETRY,
     ));
 
     let compiled = compile_pack(directory.path(), &records).expect("compile mushroom variants");
@@ -622,7 +659,7 @@ fn compiler_fails_closed_for_noncanonical_mushroom_variant_counts() {
         0x8000_2000,
         "minecraft:brown_mushroom_block",
         r#"{"huge_mushroom_bits":14}"#,
-        BlockFlags::FULL_CUBE,
+        BlockFlags::CUBE_GEOMETRY,
     )];
 
     let compiled = compile_pack(directory.path(), &records)
@@ -661,7 +698,7 @@ fn compiler_only_loads_full_cubes_and_builds_equivalent_lookup_tables() {
             0xf000_0005,
             "minecraft:stone",
             "{}",
-            BlockFlags::FULL_CUBE,
+            BlockFlags::CUBE_GEOMETRY,
         ),
         record(
             2,
@@ -744,21 +781,21 @@ fn compiler_keeps_tinted_grass_flipbooks_and_unlisted_blocks_diagnostic() {
             0xde31_28b4,
             "minecraft:grass_block",
             "null",
-            BlockFlags::FULL_CUBE,
+            BlockFlags::CUBE_GEOMETRY,
         ),
         record(
             1,
             0x1111_1111,
             "minecraft:sea_lantern",
             "null",
-            BlockFlags::FULL_CUBE,
+            BlockFlags::CUBE_GEOMETRY,
         ),
         record(
             2,
             0x2222_2222,
             "minecraft:invisible_bedrock",
             "null",
-            BlockFlags::FULL_CUBE,
+            BlockFlags::CUBE_GEOMETRY,
         ),
     ];
 
@@ -787,7 +824,7 @@ fn compiler_maps_recognized_flipbooks_to_diagnostic_without_loading_the_strip() 
         700,
         "minecraft:water",
         "{}",
-        BlockFlags::FULL_CUBE,
+        BlockFlags::CUBE_GEOMETRY,
     )];
 
     let compiled = compile_pack(directory.path(), &records).expect("compile flipbook reference");
@@ -808,7 +845,7 @@ fn one_texture_fixture() -> (TempDir, RegistryRecord, PathBuf) {
     let expected = directory.path().join("textures/blocks/broken.png");
     (
         directory,
-        record(0, 900, "minecraft:broken", "{}", BlockFlags::FULL_CUBE),
+        record(0, 900, "minecraft:broken", "{}", BlockFlags::CUBE_GEOMETRY),
         expected,
     )
 }
@@ -864,7 +901,7 @@ fn compiler_reports_malformed_and_wrong_size_tga_with_source_context() {
             "[]",
         );
         let path = directory.path().join("textures/blocks/broken.tga");
-        let record = record(0, 901, "minecraft:broken", "{}", BlockFlags::FULL_CUBE);
+        let record = record(0, 901, "minecraft:broken", "{}", BlockFlags::CUBE_GEOMETRY);
         (directory, record, path)
     };
 
@@ -900,7 +937,7 @@ fn compiler_rejects_unsupported_static_texture_formats_with_source_context() {
     );
     let path = directory.path().join("textures/blocks/broken.jpg");
     write_file(&path, b"not a supported static texture");
-    let record = record(0, 902, "minecraft:broken", "{}", BlockFlags::FULL_CUBE);
+    let record = record(0, 902, "minecraft:broken", "{}", BlockFlags::CUBE_GEOMETRY);
 
     let error = compile_pack(directory.path(), &[record]).expect_err("unsupported texture format");
     let rendered = error.to_string();
@@ -943,7 +980,7 @@ fn compiler_rejects_more_than_the_bounded_layer_count_with_source_context() {
             0x8000_0000 + index as u32,
             &format!("minecraft:block_{index}"),
             "{}",
-            BlockFlags::FULL_CUBE,
+            BlockFlags::CUBE_GEOMETRY,
         ));
     }
     blocks.push('}');

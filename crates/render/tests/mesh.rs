@@ -25,15 +25,15 @@ fn runtime_assets() -> &'static RuntimeAssets {
         ];
         for runtime_id in [7, 11, 13, 17, 23, 29, 31, 37, 41, 43, 47] {
             visuals[runtime_id].faces = [runtime_id as u32; 6];
-            visuals[runtime_id].flags = BlockFlags::FULL_CUBE;
+            visuals[runtime_id].flags = BlockFlags::CUBE_GEOMETRY;
         }
         for runtime_id in [51, 52] {
             visuals[runtime_id].faces = [51; 6];
-            visuals[runtime_id].flags = BlockFlags::FULL_CUBE;
+            visuals[runtime_id].flags = BlockFlags::CUBE_GEOMETRY;
         }
         visuals[53] = BlockVisual {
             faces: [61, 62, 63, 64, 65, 66],
-            flags: BlockFlags::FULL_CUBE,
+            flags: BlockFlags::CUBE_GEOMETRY,
         };
         // A non-full-cube record intentionally carries non-zero face IDs. The
         // mesher must still route it to the diagnostic material.

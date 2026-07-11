@@ -44,7 +44,7 @@ fn minimal_pack() -> TempDir {
 }
 
 fn registry_bytes(records: &[RegistryFixture<'_>]) -> Vec<u8> {
-    let mut bytes = b"BREG1001".to_vec();
+    let mut bytes = b"BREG1002".to_vec();
     bytes.extend_from_slice(&(records.len() as u32).to_le_bytes());
     for &(sequential_id, network_hash, flags, name, state) in records {
         bytes.extend_from_slice(&sequential_id.to_le_bytes());
@@ -64,7 +64,7 @@ fn record(name: &str, canonical_state: &str) -> RegistryRecord {
         network_hash: 0x8000_0007,
         name: name.into(),
         canonical_state: canonical_state.into(),
-        flags: BlockFlags::FULL_CUBE,
+        flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
     }
 }
 
@@ -94,7 +94,7 @@ fn registry_reader_decodes_dragonfly_records_and_flags() {
         (
             1,
             0x9123_4567,
-            2,
+            6,
             b"minecraft:stone",
             br#"{"stone_type":"stone"}"#,
         ),
@@ -108,7 +108,53 @@ fn registry_reader_decodes_dragonfly_records_and_flags() {
     assert_eq!(&*records[0].name, "minecraft:air");
     assert_eq!(&*records[0].canonical_state, "{}");
     assert_eq!(records[0].flags, BlockFlags::AIR);
-    assert_eq!(records[1].flags, BlockFlags::FULL_CUBE);
+    assert_eq!(
+        records[1].flags,
+        BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE
+    );
+}
+
+#[test]
+fn block_flag_semantics_accept_only_independent_valid_combinations() {
+    for valid in [
+        BlockFlags::empty(),
+        BlockFlags::AIR,
+        BlockFlags::CUBE_GEOMETRY,
+        BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
+        BlockFlags::CUBE_GEOMETRY | BlockFlags::LEAF_MODEL,
+    ] {
+        assert!(valid.has_valid_semantics(), "rejected {valid:?}");
+    }
+
+    for invalid in [
+        BlockFlags::AIR | BlockFlags::CUBE_GEOMETRY,
+        BlockFlags::OCCLUDES_FULL_FACE,
+        BlockFlags::LEAF_MODEL,
+        BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE | BlockFlags::LEAF_MODEL,
+    ] {
+        assert!(!invalid.has_valid_semantics(), "accepted {invalid:?}");
+    }
+}
+
+#[test]
+fn registry_reader_rejects_unknown_and_invalid_semantic_flags() {
+    for raw in [0x10, 0x03, 0x04, 0x08, 0x0e] {
+        let bytes = registry_bytes(&[(3, 11, raw, b"minecraft:test", b"{}")]);
+        assert!(matches!(
+            read_registry(&bytes),
+            Err(AssetError::InvalidRegistryFlags(actual)) if actual == raw
+        ));
+    }
+}
+
+#[test]
+fn registry_reader_rejects_old_schema_magic() {
+    let mut bytes = registry_bytes(&[]);
+    bytes[..8].copy_from_slice(b"BREG1001");
+    assert!(matches!(
+        read_registry(&bytes),
+        Err(AssetError::InvalidRegistryMagic)
+    ));
 }
 
 #[test]
@@ -139,7 +185,7 @@ fn registry_reader_rejects_duplicate_network_hashes() {
 
 #[test]
 fn registry_reader_rejects_oversized_counts_before_record_allocation() {
-    let mut bytes = b"BREG1001".to_vec();
+    let mut bytes = b"BREG1002".to_vec();
     bytes.extend_from_slice(&65_537_u32.to_le_bytes());
 
     assert!(matches!(

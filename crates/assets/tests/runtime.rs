@@ -46,7 +46,7 @@ fn compiled_assets() -> CompiledAssets {
             },
             BlockVisual {
                 faces: [1, 1, 1, 1, 1, 1],
-                flags: BlockFlags::FULL_CUBE,
+                flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
             },
         ]
         .into_boxed_slice(),
@@ -120,6 +120,26 @@ fn decode_rejects_bad_magic_version_hash_and_truncation() {
 }
 
 #[test]
+fn decode_rejects_resealed_old_schema_magic_and_version() {
+    let mut old_schema = valid_blob();
+    old_schema[..8].copy_from_slice(b"MCBEAS01");
+    write_u32(&mut old_schema, VERSION_OFFSET, 1);
+    reseal(&mut old_schema);
+    assert_rejected(&old_schema, "resealed MCBEAS01 version 1 blob");
+}
+
+#[test]
+fn decode_rejects_invalid_visual_flag_semantics() {
+    for raw in [0x10, 0x03, 0x04, 0x08, 0x0e] {
+        let mut blob = valid_blob();
+        let visuals_offset = read_u64(&blob, VISUALS_OFFSET_OFFSET) as usize;
+        blob[visuals_offset + 24] = raw;
+        reseal(&mut blob);
+        assert_rejected(&blob, &format!("invalid visual flags {raw:#x}"));
+    }
+}
+
+#[test]
 fn decode_rejects_non_monotonic_or_out_of_range_references() {
     let mut non_monotonic = valid_blob();
     let hashes_offset = read_u64(&non_monotonic, HASHES_OFFSET_OFFSET) as usize;
@@ -186,7 +206,10 @@ fn explicit_network_id_mode_keeps_sequential_and_hash_lookups_isolated() {
 
     let sequential = runtime.resolve(NetworkIdMode::Sequential, 1);
     assert!(sequential.is_known());
-    assert_eq!(sequential.flags(), BlockFlags::FULL_CUBE);
+    assert_eq!(
+        sequential.flags(),
+        BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE
+    );
     assert_eq!(sequential.face(BlockFace::West).material_id(), 1);
 
     let hashed = runtime.resolve(NetworkIdMode::Hashed, 0xdbf4_4120);

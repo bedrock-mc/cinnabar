@@ -129,7 +129,7 @@ impl RuntimeAssets {
         }
     }
 
-    /// Decodes and validates a complete `MCBEAS01` blob before allocating runtime sections.
+    /// Decodes and validates a complete `MCBEAS02` blob before allocating runtime sections.
     pub fn decode(bytes: &[u8]) -> Result<Self, AssetError> {
         let header = Header::decode(bytes)?;
         header.validate_layout(bytes.len())?;
@@ -237,7 +237,7 @@ impl Header {
         }
         let mut reader = HeaderReader::new(&bytes[..HEADER_BYTES]);
         if reader.read_exact(8)? != BLOB_MAGIC {
-            return Err(invalid("invalid MCBEAS01 magic"));
+            return Err(invalid("invalid MCBEAS02 magic"));
         }
         let version = reader.read_u32()?;
         if version != BLOB_VERSION {
@@ -391,8 +391,13 @@ fn validate_visuals(bytes: &[u8], material_count: usize) -> Result<(), AssetErro
                 )));
             }
         }
-        BlockFlags::from_bits(record[24])
+        let flags = BlockFlags::from_bits(record[24])
             .ok_or_else(|| invalid(format!("visual {index} has unsupported flags")))?;
+        if !flags.has_valid_semantics() {
+            return Err(invalid(format!(
+                "visual {index} has invalid block flag semantics"
+            )));
+        }
         if record[25..] != [0; 3] {
             return Err(invalid(format!(
                 "visual {index} reserved bytes are not zero"

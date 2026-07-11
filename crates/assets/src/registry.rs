@@ -4,7 +4,7 @@ use bitflags::bitflags;
 
 use crate::AssetError;
 
-const REGISTRY_MAGIC: &[u8; 8] = b"BREG1001";
+const REGISTRY_MAGIC: &[u8; 8] = b"BREG1002";
 const RECORD_HEADER_BYTES: usize = 4 + 4 + 1 + 2 + 4;
 const MAX_REGISTRY_RECORDS: usize = 65_536;
 const MAX_REGISTRY_STATE_BYTES: usize = 1024 * 1024;
@@ -14,7 +14,22 @@ bitflags! {
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
     pub struct BlockFlags: u8 {
         const AIR = 1 << 0;
-        const FULL_CUBE = 1 << 1;
+        const CUBE_GEOMETRY = 1 << 1;
+        const OCCLUDES_FULL_FACE = 1 << 2;
+        const LEAF_MODEL = 1 << 3;
+    }
+}
+
+impl BlockFlags {
+    #[must_use]
+    pub const fn has_valid_semantics(self) -> bool {
+        let air = self.contains(Self::AIR);
+        let cube = self.contains(Self::CUBE_GEOMETRY);
+        let occludes = self.contains(Self::OCCLUDES_FULL_FACE);
+        let leaf = self.contains(Self::LEAF_MODEL);
+        (!air || self.bits() == Self::AIR.bits())
+            && (!occludes || cube)
+            && (!leaf || (cube && !occludes))
     }
 }
 
@@ -28,7 +43,7 @@ pub struct RegistryRecord {
     pub flags: BlockFlags,
 }
 
-/// Reads the version-1001 Dragonfly registry export with allocation bounds.
+/// Reads the protocol-v1001 Dragonfly registry export with allocation bounds.
 pub fn read_registry(bytes: &[u8]) -> Result<Box<[RegistryRecord]>, AssetError> {
     let mut reader = Reader::new(bytes);
     if reader.read_exact(REGISTRY_MAGIC.len(), "registry magic")? != REGISTRY_MAGIC {
@@ -70,6 +85,9 @@ pub fn read_registry(bytes: &[u8]) -> Result<Box<[RegistryRecord]>, AssetError> 
         }
         let flags =
             BlockFlags::from_bits(raw_flags).ok_or(AssetError::InvalidRegistryFlags(raw_flags))?;
+        if !flags.has_valid_semantics() {
+            return Err(AssetError::InvalidRegistryFlags(raw_flags));
+        }
         if state_len > MAX_REGISTRY_STATE_BYTES {
             return Err(AssetError::RegistryStateTooLarge {
                 size: state_len,

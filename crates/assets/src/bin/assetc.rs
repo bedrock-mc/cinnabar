@@ -26,7 +26,7 @@ enum Command {
         /// Root containing blocks.json and the textures directory.
         #[arg(long)]
         pack: PathBuf,
-        /// BREG1001 registry exported by tools/registrygen.
+        /// BREG1002 registry exported by tools/registrygen.
         #[arg(long)]
         registry: PathBuf,
         /// Ignored/local output path, conventionally ending in .mcbea.

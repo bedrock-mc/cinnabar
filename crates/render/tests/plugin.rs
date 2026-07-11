@@ -32,7 +32,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
         for material_id in 1..14_u32 {
             visuals[material_id as usize] = BlockVisual {
                 faces: [material_id; 6],
-                flags: BlockFlags::FULL_CUBE,
+                flags: BlockFlags::CUBE_GEOMETRY,
             };
         }
         let compiled = CompiledAssets {

@@ -7,12 +7,12 @@ use std::{
 use sha2::{Digest, Sha256};
 
 use crate::{
-    AssetError, CompiledAssets, DIAGNOSTIC_MATERIAL, MAX_MATERIALS, MAX_TEXTURE_LAYERS, Material,
-    image::MIP_COUNT, image::TILE_SIZE,
+    AssetError, BlockFlags, CompiledAssets, DIAGNOSTIC_MATERIAL, MAX_MATERIALS, MAX_TEXTURE_LAYERS,
+    Material, image::MIP_COUNT, image::TILE_SIZE,
 };
 
-pub const BLOB_MAGIC: [u8; 8] = *b"MCBEAS01";
-pub const BLOB_VERSION: u32 = 1;
+pub const BLOB_MAGIC: [u8; 8] = *b"MCBEAS02";
+pub const BLOB_VERSION: u32 = 2;
 
 const HEADER_BYTES: usize = 88;
 const HASH_BYTES: usize = 32;
@@ -125,6 +125,14 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<usize, AssetError> {
         }
     }
     for (index, visual) in compiled.visuals.iter().enumerate() {
+        let flags_are_valid =
+            BlockFlags::from_bits(visual.flags.bits()).is_some_and(BlockFlags::has_valid_semantics);
+        if !flags_are_valid {
+            return Err(invalid(format!(
+                "visual {index} has invalid block flags {:#04x}",
+                visual.flags.bits()
+            )));
+        }
         if let Some(material) = visual
             .faces
             .iter()

@@ -17,10 +17,13 @@ import (
 )
 
 const (
-	registryHeader = "BREG1001"
+	registryHeader = "BREG1002"
 
-	flagAir      uint8 = 1 << 0
-	flagFullCube uint8 = 1 << 1
+	flagAir              uint8 = 1 << 0
+	flagCubeGeometry     uint8 = 1 << 1
+	flagOccludesFullFace uint8 = 1 << 2
+	flagLeafModel        uint8 = 1 << 3
+	allBlockFlags              = flagAir | flagCubeGeometry | flagOccludesFullFace | flagLeafModel
 
 	maxNameBytes   = 1<<16 - 1
 	maxStateBytes  = 1 << 20
@@ -86,17 +89,10 @@ func collect(registry world.BlockRegistry) ([]Record, error) {
 			return nil, fmt.Errorf("encode state properties for runtime ID %d: %w", rid, err)
 		}
 
-		flags := uint8(0)
-		if name == "minecraft:air" {
-			flags |= flagAir
-		}
-		if fullCube(value) {
-			flags |= flagFullCube
-		}
 		records = append(records, Record{
 			SequentialID: uint32(rid),
 			NetworkHash:  networkHash,
-			Flags:        flags,
+			Flags:        classifyFlags(value),
 			Name:         name,
 			StateJSON:    stateJSON,
 		})
@@ -104,9 +100,27 @@ func collect(registry world.BlockRegistry) ([]Record, error) {
 	return records, nil
 }
 
-func fullCube(value world.Block) bool {
-	if _, ok := value.Model().(model.Solid); ok {
-		return true
+func validRecordFlags(flags uint8) bool {
+	if flags&^allBlockFlags != 0 {
+		return false
+	}
+	air := flags&flagAir != 0
+	cube := flags&flagCubeGeometry != 0
+	occludes := flags&flagOccludesFullFace != 0
+	leaf := flags&flagLeafModel != 0
+	return (!air || flags == flagAir) && (!occludes || cube) && (!leaf || (cube && !occludes))
+}
+
+func classifyFlags(value world.Block) uint8 {
+	name, properties := value.EncodeBlock()
+	if name == "minecraft:air" {
+		return flagAir
+	}
+	switch value.Model().(type) {
+	case model.Leaves:
+		return flagCubeGeometry | flagLeafModel
+	case model.Solid:
+		return flagCubeGeometry | flagOccludesFullFace
 	}
 
 	// BasicBlockRegistry uses the high half returned by Hash as its public
@@ -114,11 +128,10 @@ func fullCube(value world.Block) bool {
 	// implementation is registered. Its unknownModel deliberately looks like a
 	// full cube, so model geometry cannot safely classify these states.
 	_, stateHash := value.Hash()
-	if stateHash != math.MaxUint64 {
-		return false
+	if stateHash == math.MaxUint64 && approvedUnknownFullCubeState(name, properties) {
+		return flagCubeGeometry | flagOccludesFullFace
 	}
-	name, properties := value.EncodeBlock()
-	return approvedUnknownFullCubeState(name, properties)
+	return 0
 }
 
 func approvedUnknownFullCubeState(name string, properties map[string]any) bool {
@@ -153,6 +166,9 @@ func encode(records []Record) ([]byte, error) {
 	seenSequentialIDs := make(map[uint32]struct{}, len(sorted))
 	seenNetworkHashes := make(map[uint32]struct{}, len(sorted))
 	for _, record := range sorted {
+		if !validRecordFlags(record.Flags) {
+			return nil, fmt.Errorf("invalid flags %#x for sequential ID %d", record.Flags, record.SequentialID)
+		}
 		if _, exists := seenSequentialIDs[record.SequentialID]; exists {
 			return nil, fmt.Errorf("duplicate sequential ID: %d", record.SequentialID)
 		}

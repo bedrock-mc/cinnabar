@@ -57,7 +57,7 @@ fn synthetic_blob() -> Box<[u8]> {
     encode_blob(&CompiledAssets {
         visuals: vec![BlockVisual {
             faces: [1; 6],
-            flags: BlockFlags::FULL_CUBE,
+            flags: BlockFlags::CUBE_GEOMETRY,
         }]
         .into_boxed_slice(),
         hashed: vec![(0xdbf4_4120, 0)].into_boxed_slice(),

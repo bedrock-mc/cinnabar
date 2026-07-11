@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	_ "github.com/df-mc/dragonfly/server/block"
+	"github.com/df-mc/dragonfly/server/block"
 	"github.com/df-mc/dragonfly/server/block/model"
 	"github.com/df-mc/dragonfly/server/world"
 )
@@ -36,7 +36,7 @@ func TestEncodeSortsRecordsAndMatchesExactBytes(t *testing.T) {
 		{
 			SequentialID: 2,
 			NetworkHash:  0xaabbccdd,
-			Flags:        flagFullCube,
+			Flags:        flagCubeGeometry | flagOccludesFullFace,
 			Name:         "zeta",
 			StateJSON:    []byte(`{}`),
 		},
@@ -54,7 +54,7 @@ func TestEncodeSortsRecordsAndMatchesExactBytes(t *testing.T) {
 		t.Fatalf("encode: %v", err)
 	}
 	want := []byte{
-		'B', 'R', 'E', 'G', '1', '0', '0', '1',
+		'B', 'R', 'E', 'G', '1', '0', '0', '2',
 		0x02, 0x00, 0x00, 0x00,
 		0x01, 0x00, 0x00, 0x00,
 		0x44, 0x33, 0x22, 0x11,
@@ -65,7 +65,7 @@ func TestEncodeSortsRecordsAndMatchesExactBytes(t *testing.T) {
 		'{', '"', 'a', '"', ':', '1', '}',
 		0x02, 0x00, 0x00, 0x00,
 		0xdd, 0xcc, 0xbb, 0xaa,
-		0x02,
+		0x06,
 		0x04, 0x00,
 		0x02, 0x00, 0x00, 0x00,
 		'z', 'e', 't', 'a',
@@ -98,6 +98,34 @@ func TestEncodeRejectsDuplicateNetworkHashes(t *testing.T) {
 	_, err := encode(records)
 	if err == nil || !strings.Contains(err.Error(), "duplicate network hash") {
 		t.Fatalf("encode error = %v, want duplicate network hash", err)
+	}
+}
+
+func TestEncodeRejectsInvalidFlagSemantics(t *testing.T) {
+	tests := []struct {
+		name     string
+		flags    uint8
+		wantFlag string
+	}{
+		{name: "unknown bit", flags: 1 << 4, wantFlag: "0x10"},
+		{name: "air and cube", flags: flagAir | flagCubeGeometry, wantFlag: "0x3"},
+		{name: "occluder without cube", flags: flagOccludesFullFace, wantFlag: "0x4"},
+		{name: "leaf without cube", flags: flagLeafModel, wantFlag: "0x8"},
+		{
+			name:     "leaf and occluder",
+			flags:    flagCubeGeometry | flagOccludesFullFace | flagLeafModel,
+			wantFlag: "0xe",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			record := testRecord(77, 100)
+			record.Flags = test.flags
+			_, err := encode([]Record{record})
+			if err == nil || !strings.Contains(err.Error(), "sequential ID 77") || !strings.Contains(err.Error(), test.wantFlag) {
+				t.Fatalf("encode error = %v, want sequential ID 77 and flag %s", err, test.wantFlag)
+			}
+		})
 	}
 }
 
@@ -159,49 +187,69 @@ func TestApprovedUnknownFullCubeStateAcceptsOnlyExactPinnedSchemas(t *testing.T)
 	}
 }
 
-func TestFullCubeClassificationPreservesSolidAndFailsClosedOverrides(t *testing.T) {
+func TestClassifyFlagsSeparatesSolidLeavesAndOtherModels(t *testing.T) {
+	if got := classifyFlags(block.Stone{}); got != flagCubeGeometry|flagOccludesFullFace {
+		t.Fatalf("stone flags = %#x", got)
+	}
+	leaf := block.Leaves{Type: block.CherryLeaves(), Persistent: true}
+	if got := classifyFlags(leaf); got != flagCubeGeometry|flagLeafModel {
+		t.Fatalf("cherry leaf flags = %#x", got)
+	}
+	if got := classifyFlags(block.Torch{}); got != 0 {
+		t.Fatalf("torch flags = %#x", got)
+	}
+}
+
+func TestClassifyFlagsPreservesSolidAndFailsClosedOverrides(t *testing.T) {
 	tests := []struct {
 		name  string
 		block classifierBlock
-		want  bool
+		want  uint8
 	}{
 		{
 			name:  "implemented solid",
 			block: classifierBlock{name: "minecraft:stone", stateHash: 1, model: model.Solid{}},
-			want:  true,
+			want:  flagCubeGeometry | flagOccludesFullFace,
 		},
 		{
 			name:  "approved unknown",
 			block: classifierBlock{name: "minecraft:mycelium", stateHash: math.MaxUint64, model: model.Empty{}},
-			want:  true,
+			want:  flagCubeGeometry | flagOccludesFullFace,
 		},
 		{
 			name:  "implemented non-solid target",
 			block: classifierBlock{name: "minecraft:mycelium", stateHash: 1, model: model.Empty{}},
-			want:  false,
+			want:  0,
 		},
 		{
 			name:  "unapproved unknown",
 			block: classifierBlock{name: "minecraft:acacia_sapling", stateHash: math.MaxUint64, model: model.Empty{}},
-			want:  false,
+			want:  0,
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := fullCube(test.block); got != test.want {
-				t.Fatalf("fullCube() = %v, want %v", got, test.want)
+			if got := classifyFlags(test.block); got != test.want {
+				t.Fatalf("classifyFlags() = %#x, want %#x", got, test.want)
 			}
 		})
 	}
 }
 
 func TestEncodeIsStableAcrossShuffledInputs(t *testing.T) {
+	validFlags := []uint8{
+		0,
+		flagAir,
+		flagCubeGeometry,
+		flagCubeGeometry | flagOccludesFullFace,
+		flagCubeGeometry | flagLeafModel,
+	}
 	records := make([]Record, 16)
 	for i := range records {
 		records[i] = Record{
 			SequentialID: uint32(i),
 			NetworkHash:  uint32(10_000 + i),
-			Flags:        uint8(i % 4),
+			Flags:        validFlags[i%len(validFlags)],
 			Name:         "minecraft:block_" + string(rune('a'+i)),
 			StateJSON:    []byte(`{"value":1}`),
 		}
@@ -279,15 +327,64 @@ func TestCollectDefaultBlockRegistry(t *testing.T) {
 		t.Fatalf("registry record count = %d, want 16913", len(records))
 	}
 	air := findByName(t, records, "minecraft:air")
-	if air.Flags&flagAir == 0 {
-		t.Fatal("air flag missing")
+	if air.Flags != flagAir {
+		t.Fatalf("air flags = %#x, want %#x", air.Flags, flagAir)
 	}
 	if air.NetworkHash != 0xdbf44120 {
 		t.Fatalf("air hash = %#x", air.NetworkHash)
 	}
 	stone := findByName(t, records, "minecraft:stone")
-	if stone.Flags&flagFullCube == 0 {
-		t.Fatal("stone full-cube flag missing")
+	if stone.Flags != flagCubeGeometry|flagOccludesFullFace {
+		t.Fatalf("stone flags = %#x, want cube+occluder", stone.Flags)
+	}
+
+	var cubeCount, occluderCount, leafCount, airCount int
+	leafNames := map[string]struct{}{}
+	for _, record := range records {
+		if !validRecordFlags(record.Flags) {
+			t.Fatalf("record %d has invalid flags %#x", record.SequentialID, record.Flags)
+		}
+		if record.Flags&flagCubeGeometry != 0 {
+			cubeCount++
+		}
+		if record.Flags&flagOccludesFullFace != 0 {
+			occluderCount++
+		}
+		if record.Flags&flagLeafModel != 0 {
+			leafCount++
+			leafNames[record.Name] = struct{}{}
+			want := flagCubeGeometry | flagLeafModel
+			if record.Flags != want {
+				t.Errorf("leaf %s state %s flags = %#x, want %#x", record.Name, record.StateJSON, record.Flags, want)
+			}
+		}
+		if record.Flags&flagAir != 0 {
+			airCount++
+		}
+	}
+	if cubeCount != 713 || occluderCount != 669 || leafCount != 44 || airCount != 1 {
+		t.Fatalf("flag counts cube=%d occluder=%d leaf=%d air=%d, want 713/669/44/1", cubeCount, occluderCount, leafCount, airCount)
+	}
+	wantLeafNames := []string{
+		"minecraft:acacia_leaves",
+		"minecraft:azalea_leaves",
+		"minecraft:azalea_leaves_flowered",
+		"minecraft:birch_leaves",
+		"minecraft:cherry_leaves",
+		"minecraft:dark_oak_leaves",
+		"minecraft:jungle_leaves",
+		"minecraft:mangrove_leaves",
+		"minecraft:oak_leaves",
+		"minecraft:pale_oak_leaves",
+		"minecraft:spruce_leaves",
+	}
+	if len(leafNames) != len(wantLeafNames) {
+		t.Fatalf("distinct leaf names = %d, want %d: %#v", len(leafNames), len(wantLeafNames), leafNames)
+	}
+	for _, name := range wantLeafNames {
+		if _, ok := leafNames[name]; !ok {
+			t.Errorf("leaf name %s is absent", name)
+		}
 	}
 
 	for name, wantCount := range map[string]int{
@@ -302,8 +399,8 @@ func TestCollectDefaultBlockRegistry(t *testing.T) {
 			continue
 		}
 		for _, record := range matches {
-			if record.Flags&flagFullCube == 0 {
-				t.Errorf("%s state %s is missing the full-cube flag", name, record.StateJSON)
+			if record.Flags != flagCubeGeometry|flagOccludesFullFace {
+				t.Errorf("%s state %s flags = %#x, want cube+occluder", name, record.StateJSON, record.Flags)
 			}
 		}
 	}
@@ -321,8 +418,8 @@ func TestCollectDefaultBlockRegistry(t *testing.T) {
 			continue
 		}
 		for _, record := range matches {
-			if record.Flags&flagFullCube != 0 {
-				t.Errorf("negative-control block %s state %s was marked full cube", name, record.StateJSON)
+			if record.Flags&flagCubeGeometry != 0 {
+				t.Errorf("negative-control block %s state %s was marked cube geometry", name, record.StateJSON)
 			}
 		}
 	}

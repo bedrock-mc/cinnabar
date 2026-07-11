@@ -375,7 +375,7 @@ impl<'a> FaceMaterials<'a> {
     ) -> Self {
         let resolve = |network_value| {
             let block = visuals.resolve(network_id_mode, network_value);
-            if block.flags().contains(BlockFlags::FULL_CUBE) {
+            if block.flags().contains(BlockFlags::CUBE_GEOMETRY) {
                 block.face(block_face(face)).material_id()
             } else {
                 DIAGNOSTIC_MATERIAL

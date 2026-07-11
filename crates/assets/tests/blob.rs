@@ -26,7 +26,7 @@ fn valid_assets() -> CompiledAssets {
     CompiledAssets {
         visuals: vec![BlockVisual {
             faces: [0; 6],
-            flags: BlockFlags::FULL_CUBE,
+            flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
         }]
         .into_boxed_slice(),
         hashed: vec![(0x8000_0000, 0)].into_boxed_slice(),
@@ -111,6 +111,21 @@ fn blob_rejects_material_layer_visual_and_mip_invariants() {
         encode_blob(&bad_mip_count),
         Err(AssetError::InvalidCompiledAssets { .. })
     ));
+
+    for invalid in [
+        BlockFlags::from_bits_retain(0x10),
+        BlockFlags::AIR | BlockFlags::CUBE_GEOMETRY,
+        BlockFlags::OCCLUDES_FULL_FACE,
+        BlockFlags::LEAF_MODEL,
+        BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE | BlockFlags::LEAF_MODEL,
+    ] {
+        let mut bad_flags = valid_assets();
+        bad_flags.visuals[0].flags = invalid;
+        assert!(matches!(
+            encode_blob(&bad_flags),
+            Err(AssetError::InvalidCompiledAssets { .. })
+        ));
+    }
 }
 
 #[test]
