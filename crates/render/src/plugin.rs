@@ -5,7 +5,10 @@ use std::{
     time::Instant,
 };
 
-use assets::{ResolvedBiomeTints, RuntimeAssets, TextureArray};
+use assets::{
+    ANIMATION_FLAG_BLEND, Animation, Material, NO_ANIMATION, ResolvedBiomeTints, RuntimeAssets,
+    TextureArray, TextureMip, TextureRef,
+};
 use bevy::{
     asset::{AssetId, load_internal_asset, uuid_handle},
     camera::{
@@ -301,6 +304,188 @@ pub fn texture_asset_needs_rebuild(
     next: ChunkTextureAssetIdentity,
 ) -> bool {
     current != Some(next)
+}
+
+const ANIMATION_TICKS_PER_SECOND: f64 = 20.0;
+const ANIMATION_TICK_MODULUS: f64 = u32::MAX as f64 + 1.0;
+
+/// Global Bedrock flipbook clock. Only this 16-byte value changes per frame;
+/// texture pages and animation tables remain immutable for an asset revision.
+#[repr(C)]
+#[derive(
+    Resource, Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable, ShaderType,
+)]
+pub struct ChunkAnimationClock {
+    tick: u32,
+    partial_tick: f32,
+    _padding_0: u32,
+    _padding_1: u32,
+}
+
+const _: () = assert!(std::mem::size_of::<ChunkAnimationClock>() == 16);
+
+impl Default for ChunkAnimationClock {
+    fn default() -> Self {
+        Self::from_parts(0, 0.0)
+    }
+}
+
+impl ChunkAnimationClock {
+    #[must_use]
+    pub fn from_parts(tick: u32, partial_tick: f32) -> Self {
+        Self {
+            tick,
+            partial_tick: if partial_tick.is_finite() {
+                partial_tick.clamp(0.0, 0.999_999_94)
+            } else {
+                0.0
+            },
+            _padding_0: 0,
+            _padding_1: 0,
+        }
+    }
+
+    #[must_use]
+    pub fn from_elapsed_seconds(elapsed_seconds: f64) -> Self {
+        let elapsed_seconds = if elapsed_seconds.is_finite() {
+            elapsed_seconds.max(0.0)
+        } else {
+            0.0
+        };
+        let elapsed_ticks = elapsed_seconds * ANIMATION_TICKS_PER_SECOND;
+        let whole_ticks = elapsed_ticks.floor();
+        Self::from_parts(
+            whole_ticks.rem_euclid(ANIMATION_TICK_MODULUS) as u32,
+            elapsed_ticks.fract() as f32,
+        )
+    }
+
+    #[must_use]
+    pub const fn tick(self) -> u32 {
+        self.tick
+    }
+
+    #[must_use]
+    pub const fn partial_tick(self) -> f32 {
+        self.partial_tick
+    }
+}
+
+impl bevy::render::extract_resource::ExtractResource for ChunkAnimationClock {
+    type Source = Self;
+
+    fn extract_resource(source: &Self::Source) -> Self {
+        *source
+    }
+}
+
+/// Resolved current/next physical texture references for one material.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AnimationFrameSample {
+    pub current: TextureRef,
+    pub next: TextureRef,
+    pub blend: f32,
+}
+
+impl AnimationFrameSample {
+    #[must_use]
+    pub const fn new(current: TextureRef, next: TextureRef, blend: f32) -> Self {
+        Self {
+            current,
+            next,
+            blend,
+        }
+    }
+}
+
+/// CPU oracle for the exact bounded frame-selection arithmetic used by WGSL.
+#[must_use]
+pub fn select_animation_frames(
+    material: Material,
+    animations: &[Animation],
+    frames: &[TextureRef],
+    clock: ChunkAnimationClock,
+) -> AnimationFrameSample {
+    let static_sample = || AnimationFrameSample::new(material.texture, material.texture, 0.0);
+    if material.animation == NO_ANIMATION {
+        return static_sample();
+    }
+    let Some(animation) = animations.get(material.animation as usize) else {
+        return static_sample();
+    };
+    if animation.frame_count == 0 || animation.ticks_per_frame == 0 {
+        return static_sample();
+    }
+    let current_index = (clock.tick / animation.ticks_per_frame) % animation.frame_count;
+    let Some(current_offset) = animation.frame_start.checked_add(current_index) else {
+        return static_sample();
+    };
+    let Some(&current) = frames.get(current_offset as usize) else {
+        return static_sample();
+    };
+    if animation.flags & ANIMATION_FLAG_BLEND == 0 || animation.frame_count == 1 {
+        return AnimationFrameSample::new(current, current, 0.0);
+    }
+    let next_index = (current_index + 1) % animation.frame_count;
+    let Some(next_offset) = animation.frame_start.checked_add(next_index) else {
+        return static_sample();
+    };
+    let Some(&next) = frames.get(next_offset as usize) else {
+        return static_sample();
+    };
+    let blend = (clock.tick % animation.ticks_per_frame) as f32 + clock.partial_tick;
+    AnimationFrameSample::new(current, next, blend / animation.ticks_per_frame as f32)
+}
+
+/// Source assigned to each of the two physical texture bindings.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TexturePageBinding {
+    Asset(usize),
+    DiagnosticFallback,
+}
+
+#[must_use]
+pub const fn plan_texture_page_bindings(page_count: usize) -> Option<[TexturePageBinding; 2]> {
+    match page_count {
+        1 => Some([
+            TexturePageBinding::Asset(0),
+            TexturePageBinding::DiagnosticFallback,
+        ]),
+        2 => Some([TexturePageBinding::Asset(0), TexturePageBinding::Asset(1)]),
+        _ => None,
+    }
+}
+
+/// Copies physical layer zero from every mip into the real one-layer page bound
+/// as page one when an asset contains only page zero.
+pub fn diagnostic_texture_page(
+    texture: &TextureArray,
+) -> Result<TextureArray, TextureUploadPlanError> {
+    if texture.layers == 0 {
+        return Err(TextureUploadPlanError::InvalidMipBytes);
+    }
+    let mut mips = Vec::with_capacity(texture.mips.len());
+    for mip in &texture.mips {
+        let side = usize::try_from(mip.size).map_err(|_| TextureUploadPlanError::SizeOverflow)?;
+        let layer_bytes = side
+            .checked_mul(side)
+            .and_then(|pixels| pixels.checked_mul(4))
+            .ok_or(TextureUploadPlanError::SizeOverflow)?;
+        let expected = layer_bytes
+            .checked_mul(texture.layers as usize)
+            .ok_or(TextureUploadPlanError::SizeOverflow)?;
+        if mip.rgba8.len() != expected {
+            return Err(TextureUploadPlanError::InvalidMipBytes);
+        }
+        mips.push(TextureMip {
+            size: mip.size,
+            rgba8: mip.rgba8[..layer_bytes].to_vec().into_boxed_slice(),
+        });
+    }
+    Ok(TextureArray {
+        layers: 1,
+        mips: mips.into_boxed_slice(),
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1626,9 +1811,13 @@ impl Plugin for DebugWorldPlugin {
             .init_resource::<PresentedFrameGate>()
             .init_resource::<ChunkEntities>()
             .init_resource::<ChunkTextureAssets>()
+            .init_resource::<ChunkAnimationClock>()
             .init_resource::<ChunkBiomeTints>()
             .insert_resource(self.upload_budget)
-            .add_systems(Update, apply_chunk_render_queue);
+            .add_systems(
+                Update,
+                (apply_chunk_render_queue, update_chunk_animation_clock),
+            );
 
         if app.get_sub_app(RenderApp).is_none() {
             return;
@@ -1637,6 +1826,7 @@ impl Plugin for DebugWorldPlugin {
         app.add_plugins((
             ExtractComponentPlugin::<ChunkRenderInstance>::default(),
             ExtractResourcePlugin::<ChunkTextureAssets>::default(),
+            ExtractResourcePlugin::<ChunkAnimationClock>::default(),
             ExtractResourcePlugin::<ChunkBiomeTints>::default(),
         ));
 
@@ -1661,12 +1851,16 @@ impl Plugin for DebugWorldPlugin {
             .init_resource::<ActiveFrameProbe>()
             .add_render_command::<Opaque3d, DrawChunkCommands>()
             .add_render_command::<Opaque3d, DrawChunkIndirectCommands>()
-            .add_systems(RenderStartup, init_chunk_gpu_arena)
+            .add_systems(
+                RenderStartup,
+                (init_chunk_gpu_arena, init_chunk_gpu_animation_clock),
+            )
             .add_systems(
                 Render,
                 (
                     queue_chunks.in_set(RenderSystems::Queue),
                     prepare_chunk_texture_assets.in_set(RenderSystems::PrepareResources),
+                    prepare_chunk_animation_clock.in_set(RenderSystems::PrepareResources),
                     prepare_chunk_biome_tints.in_set(RenderSystems::PrepareResources),
                     prepare_gpu_chunks.in_set(RenderSystems::PrepareResources),
                     prepare_chunk_indirect_batches
@@ -1679,6 +1873,11 @@ impl Plugin for DebugWorldPlugin {
                 ),
             );
     }
+}
+
+fn update_chunk_animation_clock(time: Option<Res<Time>>, mut clock: ResMut<ChunkAnimationClock>) {
+    let elapsed_seconds = time.map_or(0.0, |time| time.elapsed_secs_f64());
+    *clock = ChunkAnimationClock::from_elapsed_seconds(elapsed_seconds);
 }
 
 fn apply_chunk_render_queue(
@@ -1856,17 +2055,17 @@ impl FromWorld for ChunkPipeline {
                 BindGroupLayoutEntry {
                     binding: 5,
                     visibility: ShaderStages::FRAGMENT,
-                    ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                    ty: BindingType::Texture {
+                        sample_type: TextureSampleType::Float { filterable: true },
+                        view_dimension: TextureViewDimension::D2Array,
+                        multisampled: false,
+                    },
                     count: None,
                 },
                 BindGroupLayoutEntry {
                     binding: 6,
                     visibility: ShaderStages::FRAGMENT,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
+                    ty: BindingType::Sampler(SamplerBindingType::Filtering),
                     count: None,
                 },
                 BindGroupLayoutEntry {
@@ -1876,6 +2075,46 @@ impl FromWorld for ChunkPipeline {
                         ty: BufferBindingType::Storage { read_only: true },
                         has_dynamic_offset: false,
                         min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 8,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 9,
+                    visibility: ShaderStages::VERTEX,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 10,
+                    visibility: ShaderStages::VERTEX,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 11,
+                    visibility: ShaderStages::VERTEX,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: Some(ChunkAnimationClock::min_size()),
                     },
                     count: None,
                 },
@@ -2046,6 +2285,9 @@ struct ChunkBindGroupBuffers {
     origins: BufferId,
     biomes: BufferId,
     materials: BufferId,
+    animations: BufferId,
+    animation_frames: BufferId,
+    animation_clock: BufferId,
     biome_tints: BufferId,
     biome_tint_table: ChunkBiomeTintResourceIdentity,
     textures: ChunkTextureAssetIdentity,
@@ -2054,9 +2296,23 @@ struct ChunkBindGroupBuffers {
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct MaterialGpu {
-    layer: u32,
+    texture: u32,
+    flags: u32,
+    animation: u32,
+}
+
+const _: () = assert!(std::mem::size_of::<MaterialGpu>() == 12);
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct AnimationGpu {
+    frame_start: u32,
+    frame_count: u32,
+    ticks_per_frame: u32,
     flags: u32,
 }
+
+const _: () = assert!(std::mem::size_of::<AnimationGpu>() == 16);
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -2150,9 +2406,33 @@ fn prepare_chunk_biome_tints(
 struct PreparedChunkTextureAssets {
     identity: ChunkTextureAssetIdentity,
     material_buffer: Buffer,
-    _texture: Texture,
-    view: TextureView,
+    animation_buffer: Buffer,
+    animation_frame_buffer: Buffer,
+    _textures: [Texture; 2],
+    views: [TextureView; 2],
     sampler: Sampler,
+}
+
+#[derive(Resource)]
+struct ChunkGpuAnimationClock {
+    buffer: Buffer,
+}
+
+fn init_chunk_gpu_animation_clock(mut commands: Commands, render_device: Res<RenderDevice>) {
+    let buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("global chunk animation clock"),
+        contents: bytemuck::bytes_of(&ChunkAnimationClock::default()),
+        usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+    });
+    commands.insert_resource(ChunkGpuAnimationClock { buffer });
+}
+
+fn prepare_chunk_animation_clock(
+    clock: Res<ChunkAnimationClock>,
+    gpu_clock: Res<ChunkGpuAnimationClock>,
+    render_queue: Res<RenderQueue>,
+) {
+    render_queue.write_buffer(&gpu_clock.buffer, 0, bytemuck::bytes_of(&*clock));
 }
 
 #[derive(Resource, Default)]
@@ -2166,6 +2446,8 @@ struct ChunkGpuTextureAssets {
 pub struct ChunkTextureUploadStats {
     pub upload_count: u64,
     pub material_bytes: u64,
+    pub animation_bytes: u64,
+    pub animation_frame_bytes: u64,
     pub texture_bytes_including_mips: u64,
     pub padded_upload_bytes: u64,
 }
@@ -2183,66 +2465,203 @@ fn prepare_chunk_texture_assets(
     }
     gpu_assets.attempted_identity = Some(identity);
     gpu_assets._attempted_assets = Some(Arc::clone(assets.assets()));
-    gpu_assets.prepared = None;
-    *stats = ChunkTextureUploadStats::default();
 
-    let texture_array = assets.assets().texture_array();
+    let pages = assets.assets().texture_pages();
+    let Some(page_bindings) = plan_texture_page_bindings(pages.len()) else {
+        bevy::log::error!(
+            page_count = pages.len(),
+            "chunk assets require one or two texture pages"
+        );
+        return;
+    };
+    let diagnostic_fallback = if page_bindings.contains(&TexturePageBinding::DiagnosticFallback) {
+        match diagnostic_texture_page(&pages[0].texture) {
+            Ok(texture) => Some(texture),
+            Err(error) => {
+                bevy::log::error!(?error, "invalid diagnostic texture-page fallback");
+                return;
+            }
+        }
+    } else {
+        None
+    };
+    let bound_pages = page_bindings.map(|binding| match binding {
+        TexturePageBinding::Asset(index) => &pages[index].texture,
+        TexturePageBinding::DiagnosticFallback => diagnostic_fallback
+            .as_ref()
+            .expect("binding plan includes a diagnostic fallback"),
+    });
     let device_limits = render_device.limits();
+    if device_limits.max_sampled_textures_per_shader_stage < 2 {
+        bevy::log::error!(
+            supported = device_limits.max_sampled_textures_per_shader_stage,
+            "chunk renderer requires two sampled texture bindings"
+        );
+        return;
+    }
     let limits = TextureArrayLimits {
         max_layers: device_limits.max_texture_array_layers,
         max_dimension_2d: device_limits.max_texture_dimension_2d,
     };
-    if let Err(error) = limits.validate(texture_array.layers, assets::TILE_SIZE) {
-        bevy::log::error!(?error, "chunk texture array exceeds adapter limits");
-        return;
+    let mut upload_plans = Vec::with_capacity(2);
+    for texture in bound_pages {
+        if let Err(error) = limits.validate(texture.layers, assets::TILE_SIZE) {
+            bevy::log::error!(?error, "chunk texture page exceeds adapter limits");
+            return;
+        }
+        let plans =
+            match plan_texture_mip_uploads(texture, RenderDevice::align_copy_bytes_per_row(1)) {
+                Ok(plans) => plans,
+                Err(error) => {
+                    bevy::log::error!(?error, "invalid chunk texture-page upload layout");
+                    return;
+                }
+            };
+        upload_plans.push(plans);
     }
-    let upload_plans =
-        match plan_texture_mip_uploads(texture_array, RenderDevice::align_copy_bytes_per_row(1)) {
-            Ok(plans) => plans,
-            Err(error) => {
-                bevy::log::error!(?error, "invalid chunk texture upload layout");
-                return;
-            }
-        };
 
     let material_words = assets
         .assets()
         .materials()
         .iter()
         .map(|material| MaterialGpu {
-            // Task 6 installs page-aware GPU records. Until then the legacy
-            // renderer safely consumes only the in-page layer component.
-            layer: material.texture.layer(),
+            texture: material.texture.raw(),
             flags: material.flags,
+            animation: material.animation,
         })
+        .collect::<Vec<_>>();
+    let animation_words = assets
+        .assets()
+        .animations()
+        .iter()
+        .map(|animation| AnimationGpu {
+            frame_start: animation.frame_start,
+            frame_count: animation.frame_count,
+            ticks_per_frame: animation.ticks_per_frame,
+            flags: animation.flags,
+        })
+        .collect::<Vec<_>>();
+    let animation_frame_words = assets
+        .assets()
+        .animation_frames()
+        .iter()
+        .map(|frame| frame.raw())
         .collect::<Vec<_>>();
     let material_bytes = material_words
         .len()
         .saturating_mul(std::mem::size_of::<MaterialGpu>());
-    if u64::try_from(material_bytes).map_or(true, |bytes| {
-        bytes > device_limits.max_buffer_size
-            || bytes > u64::from(device_limits.max_storage_buffer_binding_size)
-    }) {
-        bevy::log::error!(
-            material_bytes,
-            "chunk material table exceeds adapter limits"
-        );
-        return;
+    let animation_bytes = animation_words
+        .len()
+        .saturating_mul(std::mem::size_of::<AnimationGpu>());
+    let animation_frame_bytes = animation_frame_words
+        .len()
+        .saturating_mul(std::mem::size_of::<u32>());
+    for (label, bytes) in [
+        ("material", material_bytes),
+        ("animation", animation_bytes),
+        ("animation frame", animation_frame_bytes),
+    ] {
+        if !storage_table_fits(
+            bytes,
+            device_limits.max_buffer_size,
+            device_limits.max_storage_buffer_binding_size,
+        ) {
+            bevy::log::error!(label, bytes, "chunk asset table exceeds adapter limits");
+            return;
+        }
     }
     let material_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
         label: Some("global chunk materials"),
         contents: bytemuck::cast_slice(&material_words),
         usage: BufferUsages::STORAGE,
     });
-    let mip_level_count = match u32::try_from(texture_array.mips.len()) {
-        Ok(count) => count,
-        Err(_) => {
-            bevy::log::error!("chunk texture array has too many mip levels");
-            return;
-        }
-    };
+    let animation_sentinel = [AnimationGpu {
+        frame_start: 0,
+        frame_count: 1,
+        ticks_per_frame: 1,
+        flags: 0,
+    }];
+    let animation_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("global chunk animations"),
+        contents: if animation_words.is_empty() {
+            bytemuck::cast_slice(&animation_sentinel)
+        } else {
+            bytemuck::cast_slice(&animation_words)
+        },
+        usage: BufferUsages::STORAGE,
+    });
+    let animation_frame_sentinel = [TextureRef::DIAGNOSTIC.raw()];
+    let animation_frame_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("global chunk animation frames"),
+        contents: bytemuck::cast_slice(if animation_frame_words.is_empty() {
+            &animation_frame_sentinel
+        } else {
+            &animation_frame_words
+        }),
+        usage: BufferUsages::STORAGE,
+    });
+    let (texture_0, view_0, padded_0) = upload_texture_page(
+        &render_device,
+        &render_queue,
+        bound_pages[0],
+        &upload_plans[0],
+        "global chunk texture page 0",
+    );
+    let (texture_1, view_1, padded_1) = upload_texture_page(
+        &render_device,
+        &render_queue,
+        bound_pages[1],
+        &upload_plans[1],
+        "global chunk texture page 1",
+    );
+    let sampler = render_device.create_sampler(&SamplerDescriptor {
+        label: Some("global chunk repeat sampler"),
+        address_mode_u: AddressMode::Repeat,
+        address_mode_v: AddressMode::Repeat,
+        address_mode_w: AddressMode::Repeat,
+        mag_filter: FilterMode::Linear,
+        min_filter: FilterMode::Linear,
+        mipmap_filter: FilterMode::Linear,
+        ..Default::default()
+    });
+
+    stats.upload_count = 1;
+    stats.material_bytes = material_bytes as u64;
+    stats.animation_bytes = animation_bytes as u64;
+    stats.animation_frame_bytes = animation_frame_bytes as u64;
+    stats.texture_bytes_including_mips = bound_pages
+        .iter()
+        .flat_map(|texture| texture.mips.iter())
+        .map(|mip| mip.rgba8.len() as u64)
+        .sum();
+    stats.padded_upload_bytes = padded_0.saturating_add(padded_1);
+    gpu_assets.prepared = Some(PreparedChunkTextureAssets {
+        identity,
+        material_buffer,
+        animation_buffer,
+        animation_frame_buffer,
+        _textures: [texture_0, texture_1],
+        views: [view_0, view_1],
+        sampler,
+    });
+}
+
+fn storage_table_fits(bytes: usize, max_buffer_size: u64, max_binding_size: u32) -> bool {
+    u64::try_from(bytes)
+        .is_ok_and(|bytes| bytes <= max_buffer_size && bytes <= u64::from(max_binding_size))
+}
+
+fn upload_texture_page(
+    render_device: &RenderDevice,
+    render_queue: &RenderQueue,
+    texture_array: &TextureArray,
+    upload_plans: &[TextureMipUploadPlan],
+    label: &'static str,
+) -> (Texture, TextureView, u64) {
+    let mip_level_count = u32::try_from(texture_array.mips.len())
+        .expect("validated texture pages have a bounded mip count");
     let texture = render_device.create_texture(&TextureDescriptor {
-        label: Some("global chunk texture array"),
+        label: Some(label),
         size: Extent3d {
             width: assets::TILE_SIZE,
             height: assets::TILE_SIZE,
@@ -2255,9 +2674,8 @@ fn prepare_chunk_texture_assets(
         usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
         view_formats: &[],
     });
-
     let mut padded_upload_bytes = 0_u64;
-    for (mip, plan) in texture_array.mips.iter().zip(&upload_plans) {
+    for (mip, plan) in texture_array.mips.iter().zip(upload_plans) {
         let staging = padded_mip_bytes(mip.rgba8.as_ref(), texture_array.layers, plan);
         padded_upload_bytes = padded_upload_bytes.saturating_add(staging.len() as u64);
         render_queue.write_texture(
@@ -2281,38 +2699,13 @@ fn prepare_chunk_texture_assets(
         );
     }
     let view = texture.create_view(&TextureViewDescriptor {
-        label: Some("global chunk texture array view"),
+        label: Some(label),
         dimension: Some(TextureViewDimension::D2Array),
         mip_level_count: Some(mip_level_count),
         array_layer_count: Some(texture_array.layers),
         ..Default::default()
     });
-    let sampler = render_device.create_sampler(&SamplerDescriptor {
-        label: Some("global chunk repeat sampler"),
-        address_mode_u: AddressMode::Repeat,
-        address_mode_v: AddressMode::Repeat,
-        address_mode_w: AddressMode::Repeat,
-        mag_filter: FilterMode::Linear,
-        min_filter: FilterMode::Linear,
-        mipmap_filter: FilterMode::Linear,
-        ..Default::default()
-    });
-
-    stats.upload_count = 1;
-    stats.material_bytes = material_bytes as u64;
-    stats.texture_bytes_including_mips = texture_array
-        .mips
-        .iter()
-        .map(|mip| mip.rgba8.len() as u64)
-        .sum();
-    stats.padded_upload_bytes = padded_upload_bytes;
-    gpu_assets.prepared = Some(PreparedChunkTextureAssets {
-        identity,
-        material_buffer,
-        _texture: texture,
-        view,
-        sampler,
-    });
+    (texture, view, padded_upload_bytes)
 }
 
 fn padded_mip_bytes(rgba8: &[u8], layers: u32, plan: &TextureMipUploadPlan) -> Vec<u8> {
@@ -3083,12 +3476,14 @@ fn bind_group_needs_rebuild<K: PartialEq>(
     !bind_group_exists || cached != Some(next)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn prepare_chunk_bind_group(
     pipeline: Res<ChunkPipeline>,
     pipeline_cache: Res<PipelineCache>,
     view_uniforms: Res<ViewUniforms>,
     render_device: Res<RenderDevice>,
     texture_assets: Res<ChunkGpuTextureAssets>,
+    clock: Res<ChunkGpuAnimationClock>,
     biome_tints: Res<ChunkGpuBiomeTints>,
     mut arena: ResMut<ChunkGpuArena>,
 ) {
@@ -3113,6 +3508,9 @@ fn prepare_chunk_bind_group(
         origins: arena.origin_buffer.id(),
         biomes: arena.biome_buffer.id(),
         materials: texture_assets.material_buffer.id(),
+        animations: texture_assets.animation_buffer.id(),
+        animation_frames: texture_assets.animation_frame_buffer.id(),
+        animation_clock: clock.buffer.id(),
         biome_tints: biome_tints.buffer.id(),
         biome_tint_table: biome_tints.identity,
         textures: texture_assets.identity,
@@ -3157,19 +3555,35 @@ fn prepare_chunk_bind_group(
             },
             BindGroupEntry {
                 binding: 4,
-                resource: BindingResource::TextureView(&texture_assets.view),
+                resource: BindingResource::TextureView(&texture_assets.views[0]),
             },
             BindGroupEntry {
                 binding: 5,
-                resource: BindingResource::Sampler(&texture_assets.sampler),
+                resource: BindingResource::TextureView(&texture_assets.views[1]),
             },
             BindGroupEntry {
                 binding: 6,
-                resource: arena.biome_buffer.as_entire_binding(),
+                resource: BindingResource::Sampler(&texture_assets.sampler),
             },
             BindGroupEntry {
                 binding: 7,
+                resource: arena.biome_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 8,
                 resource: biome_tints.buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 9,
+                resource: texture_assets.animation_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 10,
+                resource: texture_assets.animation_frame_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 11,
+                resource: clock.buffer.as_entire_binding(),
             },
         ],
     );

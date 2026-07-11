@@ -5,21 +5,22 @@ use std::{
 };
 
 use assets::{
-    BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, DIAGNOSTIC_MATERIAL, Material,
-    NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TextureArray, TextureMip,
-    TexturePage, TextureRef, VisualKind, encode_blob,
+    ANIMATION_FLAG_BLEND, Animation, BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets,
+    DIAGNOSTIC_MATERIAL, Material, NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets,
+    TextureArray, TextureMip, TexturePage, TextureRef, VisualKind, encode_blob,
 };
 use bevy::{
     camera::primitives::Aabb,
     prelude::{App, MinimalPlugins, Vec3, Visibility},
 };
 use render::{
-    BlockClassifier, ChunkRenderInstance, ChunkRenderQueue, ChunkRenderQueueLimits,
-    ChunkTextureAssetIdentity, ChunkUploadPriority, DebugWorldPlugin, Face, MATERIAL_UV_REFLECT_U,
-    MATERIAL_UV_REFLECT_V, MATERIAL_UV_ROTATE_90, MATERIAL_UV_ROTATE_180, MATERIAL_UV_ROTATE_270,
-    Neighbourhood, PackedBiomeRecord, PackedQuad, PresentedFrameAck, RenderViewCohort,
-    TextureArrayLimits, TextureLimitError, greedy_texture_uv, mesh_sub_chunk,
-    plan_texture_mip_uploads, texture_asset_needs_rebuild,
+    AnimationFrameSample, BlockClassifier, ChunkAnimationClock, ChunkRenderInstance,
+    ChunkRenderQueue, ChunkRenderQueueLimits, ChunkTextureAssetIdentity, ChunkUploadPriority,
+    DebugWorldPlugin, Face, MATERIAL_UV_REFLECT_U, MATERIAL_UV_REFLECT_V, MATERIAL_UV_ROTATE_90,
+    MATERIAL_UV_ROTATE_180, MATERIAL_UV_ROTATE_270, Neighbourhood, PackedBiomeRecord, PackedQuad,
+    PresentedFrameAck, RenderViewCohort, TextureArrayLimits, TextureLimitError, TexturePageBinding,
+    diagnostic_texture_page, greedy_texture_uv, mesh_sub_chunk, plan_texture_mip_uploads,
+    plan_texture_page_bindings, select_animation_frames, texture_asset_needs_rebuild,
 };
 use world::{DecodedBiomeColumn, SubChunk, SubChunkKey};
 
@@ -341,18 +342,25 @@ fn packed_chunk_shader_parses_and_validates() {
     .validate(&module)
     .expect("validate packed chunk WGSL");
 
-    assert_eq!(shader.matches("@group(0) @binding(").count(), 8);
-    for binding in 0..=7 {
+    assert_eq!(shader.matches("@group(0) @binding(").count(), 12);
+    for binding in 0..=11 {
         assert!(
             shader.contains(&format!("@group(0) @binding({binding})")),
             "packed chunk shader is missing global texture binding {binding}"
         );
     }
-    assert_eq!(shader.matches("textureSample(").count(), 1);
-    assert!(shader.contains(
-        "let sampled = textureSample(block_textures, block_sampler, in.uv, i32(in.layer));"
-    ));
-    assert!(shader.contains("@interpolate(flat) layer: u32"));
+    assert_eq!(shader.matches("textureSample(").count(), 0);
+    assert_eq!(shader.matches("textureSampleGrad(").count(), 2);
+    assert!(shader.contains("fn sample_texture_ref("));
+    assert!(shader.contains("texture_ref >> 31u"));
+    assert!(shader.contains("texture_ref & 0x7ffu"));
+    assert!(shader.contains("let uv_dx = dpdx(in.uv);"));
+    assert!(shader.contains("let uv_dy = dpdy(in.uv);"));
+    assert!(shader.contains("if (in.frame_blend > 0.0)"));
+    assert!(shader.contains("mix(current_sample, next_sample, in.frame_blend)"));
+    assert!(shader.contains("@interpolate(flat) current_texture: u32"));
+    assert!(shader.contains("@interpolate(flat) next_texture: u32"));
+    assert!(shader.contains("@interpolate(flat) frame_blend: f32"));
     assert!(shader.contains("@location(3) @interpolate(flat) material_flags: u32"));
     assert!(shader.contains("@interpolate(flat) material_flags: u32"));
     assert_eq!(
@@ -383,6 +391,16 @@ fn packed_chunk_shader_parses_and_validates() {
     assert!(shader.contains("case 0x200u"));
     assert!(shader.contains("case 0x400u"));
     assert!(shader.contains("case 0x600u"));
+    assert!(shader.contains("clock.tick / animation.ticks_per_frame"));
+    assert!(shader.contains("clock.tick % animation.ticks_per_frame"));
+    assert!(shader.contains("(current_index + 1u) % animation.frame_count"));
+    assert!(shader.contains("animation.flags & 1u"));
+    assert!(shader.contains("material.animation == 0xffffffffu"));
+    assert!(shader.contains("var block_textures_page_0: texture_2d_array<f32>"));
+    assert!(shader.contains("var block_textures_page_1: texture_2d_array<f32>"));
+    assert!(shader.contains("var<storage, read> animations: array<AnimationGpu>"));
+    assert!(shader.contains("var<storage, read> animation_frames: array<u32>"));
+    assert!(shader.contains("var<uniform> clock: AnimationClockGpu"));
     assert!(!shader.contains("debug_color"));
 }
 
@@ -490,16 +508,14 @@ fn packed_chunk_pipeline_remains_one_opaque_depth_writing_path() {
     assert!(plugin.contains("layout: vec![bind_group_layout.clone()]"));
     assert!(plugin.contains("blend: None"));
     assert!(plugin.contains("depth_write_enabled: true"));
-    assert_eq!(plugin.matches("binding: ").count(), 16);
-    for binding in 0..=7 {
+    assert_eq!(plugin.matches("binding: ").count(), 24);
+    for binding in 0..=11 {
         assert_eq!(
             plugin.matches(&format!("binding: {binding},")).count(),
             2,
             "packed chunk pipeline changed binding {binding}"
         );
     }
-    assert_eq!(plugin.matches("binding: 6,").count(), 2);
-    assert_eq!(plugin.matches("binding: 7,").count(), 2);
     assert_eq!(
         plugin
             .matches("resource: texture_assets.material_buffer.as_entire_binding()")
@@ -508,9 +524,9 @@ fn packed_chunk_pipeline_remains_one_opaque_depth_writing_path() {
     );
     assert_eq!(
         plugin
-            .matches("BindingResource::TextureView(&texture_assets.view)")
+            .matches("BindingResource::TextureView(&texture_assets.views[")
             .count(),
-        1
+        2
     );
     assert_eq!(
         plugin
@@ -520,8 +536,15 @@ fn packed_chunk_pipeline_remains_one_opaque_depth_writing_path() {
     );
     assert!(!plugin.contains("AlphaMask3d"));
     assert!(!plugin.contains("Transparent3d"));
-    assert_eq!(size_of::<Material>(), 8);
+    assert_eq!(size_of::<Material>(), 12);
     assert_eq!(size_of::<PackedQuad>(), 8);
+    assert_eq!(
+        plugin
+            .matches("pass.set_bind_group(0, bind_group, &[view_offset.offset]);")
+            .count(),
+        2,
+        "direct and MDI must share the same global bind group"
+    );
 }
 
 #[test]
@@ -680,4 +703,194 @@ fn global_texture_bind_group_rebuilds_only_for_new_asset_identity_or_revision() 
         ChunkTextureAssetIdentity::for_test(0x1000, 8)
     ));
     assert!(texture_asset_needs_rebuild(None, current));
+}
+
+fn texture_ref(page: u32, layer: u32) -> TextureRef {
+    TextureRef::new(page, layer).expect("valid synthetic texture reference")
+}
+
+fn animation(flags: u32) -> Animation {
+    Animation {
+        frame_start: 0,
+        frame_count: 3,
+        ticks_per_frame: 2,
+        atlas_index: 0,
+        atlas_tile_variant: 0,
+        replicate: 1,
+        flags,
+    }
+}
+
+#[test]
+fn animation_selects_current_next_cross_page_wrap_and_non_blended_frames() {
+    let frames = [texture_ref(0, 7), texture_ref(0, 8), texture_ref(1, 3)];
+    let material = Material {
+        texture: frames[0],
+        flags: 0,
+        animation: 0,
+    };
+    let sample = |tick, partial_tick, flags| {
+        select_animation_frames(
+            material,
+            &[animation(flags)],
+            &frames,
+            ChunkAnimationClock::from_parts(tick, partial_tick),
+        )
+    };
+
+    assert_eq!(
+        sample(0, 0.0, ANIMATION_FLAG_BLEND),
+        AnimationFrameSample::new(frames[0], frames[1], 0.0)
+    );
+    assert_eq!(
+        sample(1, 0.5, ANIMATION_FLAG_BLEND),
+        AnimationFrameSample::new(frames[0], frames[1], 0.75)
+    );
+    assert_eq!(
+        sample(2, 0.0, ANIMATION_FLAG_BLEND),
+        AnimationFrameSample::new(frames[1], frames[2], 0.0)
+    );
+    assert_eq!(
+        sample(5, 0.5, ANIMATION_FLAG_BLEND),
+        AnimationFrameSample::new(frames[2], frames[0], 0.75)
+    );
+    assert_eq!(
+        sample(6, 0.0, ANIMATION_FLAG_BLEND),
+        AnimationFrameSample::new(frames[0], frames[1], 0.0)
+    );
+    assert_eq!(
+        sample(3, 0.9, 0),
+        AnimationFrameSample::new(frames[1], frames[1], 0.0)
+    );
+
+    let static_material = Material {
+        texture: texture_ref(1, 4),
+        flags: 0,
+        animation: NO_ANIMATION,
+    };
+    assert_eq!(
+        select_animation_frames(
+            static_material,
+            &[],
+            &[],
+            ChunkAnimationClock::from_parts(123, 0.75),
+        ),
+        AnimationFrameSample::new(static_material.texture, static_material.texture, 0.0)
+    );
+
+    let one_frame = Animation {
+        frame_count: 1,
+        ..animation(ANIMATION_FLAG_BLEND)
+    };
+    assert_eq!(
+        select_animation_frames(
+            material,
+            &[one_frame],
+            &frames[..1],
+            ChunkAnimationClock::from_parts(1, 0.5),
+        ),
+        AnimationFrameSample::new(frames[0], frames[0], 0.0)
+    );
+}
+
+#[test]
+fn one_and_two_page_assets_have_one_stable_shared_binding_shape() {
+    assert_eq!(
+        plan_texture_page_bindings(1),
+        Some([
+            TexturePageBinding::Asset(0),
+            TexturePageBinding::DiagnosticFallback,
+        ])
+    );
+    assert_eq!(
+        plan_texture_page_bindings(2),
+        Some([TexturePageBinding::Asset(0), TexturePageBinding::Asset(1)])
+    );
+    assert_eq!(plan_texture_page_bindings(0), None);
+    assert_eq!(plan_texture_page_bindings(3), None);
+}
+
+#[test]
+fn one_page_fallback_is_a_real_one_layer_copy_of_diagnostic_mips() {
+    let source = TextureArray {
+        layers: 2,
+        mips: [4_u32, 2, 1]
+            .into_iter()
+            .map(|size| {
+                let layer_bytes = size as usize * size as usize * 4;
+                let mut rgba8 = vec![0x11; layer_bytes];
+                rgba8.extend(vec![0x22; layer_bytes]);
+                TextureMip {
+                    size,
+                    rgba8: rgba8.into_boxed_slice(),
+                }
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice(),
+    };
+
+    let fallback = diagnostic_texture_page(&source).expect("extract diagnostic page");
+    assert_eq!(fallback.layers, 1);
+    assert_eq!(fallback.mips.len(), source.mips.len());
+    for (source_mip, fallback_mip) in source.mips.iter().zip(&fallback.mips) {
+        let layer_bytes = source_mip.size as usize * source_mip.size as usize * 4;
+        assert_eq!(
+            fallback_mip.rgba8.as_ref(),
+            &source_mip.rgba8[..layer_bytes]
+        );
+    }
+}
+
+#[test]
+fn animation_clock_updates_do_not_rebuild_or_reupload_texture_assets() {
+    let identity = ChunkTextureAssetIdentity::for_test(0x1000, 7);
+    let mut current = None;
+    let mut immutable_uploads = 0;
+    let mut clock_bytes = 0;
+    for frame in 0..120_u32 {
+        if texture_asset_needs_rebuild(current, identity) {
+            immutable_uploads += 1;
+            current = Some(identity);
+        }
+        let clock = ChunkAnimationClock::from_elapsed_seconds(f64::from(frame) / 60.0);
+        assert!(clock.partial_tick() >= 0.0 && clock.partial_tick() < 1.0);
+        clock_bytes += size_of::<ChunkAnimationClock>();
+    }
+    assert_eq!(immutable_uploads, 1);
+    assert_eq!(clock_bytes, 120 * 16);
+
+    let plugin = include_str!("../src/plugin.rs");
+    assert_eq!(plugin.matches("render_queue.write_texture(").count(), 1);
+    assert_eq!(plugin.matches("render_queue.write_buffer(").count(), 5);
+    assert!(plugin.contains("render_queue.write_buffer(&gpu_clock.buffer"));
+}
+
+#[test]
+fn asset_revision_replacement_is_atomic_and_retains_the_previous_prepared_set_on_failure() {
+    let plugin = include_str!("../src/plugin.rs");
+    let start = plugin
+        .find("fn prepare_chunk_texture_assets(")
+        .expect("texture preparation system");
+    let end = plugin[start..]
+        .find("\nfn storage_table_fits(")
+        .map(|offset| start + offset)
+        .expect("end of texture preparation system");
+    let prepare = &plugin[start..end];
+
+    assert!(
+        !prepare.contains("gpu_assets.prepared = None"),
+        "a rejected new revision must retain the previous complete GPU asset set"
+    );
+    let second_page = prepare
+        .find("let (texture_1, view_1, padded_1) = upload_texture_page(")
+        .expect("second page is prepared before publication");
+    let publish = prepare
+        .find("gpu_assets.prepared = Some(PreparedChunkTextureAssets {")
+        .expect("complete revision publication");
+    assert!(second_page < publish);
+    assert!(prepare.contains("material.texture.raw()"));
+    assert!(prepare.contains(".animations()"));
+    assert!(prepare.contains(".animation_frames()"));
+    assert!(prepare.contains("_textures: [texture_0, texture_1]"));
+    assert!(prepare.contains("views: [view_0, view_1]"));
 }

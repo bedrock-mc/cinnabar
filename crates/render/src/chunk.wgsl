@@ -10,8 +10,23 @@ struct ChunkOrigin {
 }
 
 struct MaterialGpu {
-    layer: u32,
+    texture: u32,
     flags: u32,
+    animation: u32,
+}
+
+struct AnimationGpu {
+    frame_start: u32,
+    frame_count: u32,
+    ticks_per_frame: u32,
+    flags: u32,
+}
+
+struct AnimationClockGpu {
+    tick: u32,
+    partial_tick: f32,
+    padding_0: u32,
+    padding_1: u32,
 }
 
 struct BiomeTintGpu {
@@ -29,19 +44,50 @@ struct BiomeTintGpu {
 @group(0) @binding(1) var<storage, read> quads: array<PackedQuad>;
 @group(0) @binding(2) var<storage, read> chunk_origins: array<ChunkOrigin>;
 @group(0) @binding(3) var<storage, read> materials: array<MaterialGpu>;
-@group(0) @binding(4) var block_textures: texture_2d_array<f32>;
-@group(0) @binding(5) var block_sampler: sampler;
-@group(0) @binding(6) var<storage, read> biome_records: array<u32>;
-@group(0) @binding(7) var<storage, read> biome_tints: array<BiomeTintGpu>;
+@group(0) @binding(4) var block_textures_page_0: texture_2d_array<f32>;
+@group(0) @binding(5) var block_textures_page_1: texture_2d_array<f32>;
+@group(0) @binding(6) var block_sampler: sampler;
+@group(0) @binding(7) var<storage, read> biome_records: array<u32>;
+@group(0) @binding(8) var<storage, read> biome_tints: array<BiomeTintGpu>;
+@group(0) @binding(9) var<storage, read> animations: array<AnimationGpu>;
+@group(0) @binding(10) var<storage, read> animation_frames: array<u32>;
+@group(0) @binding(11) var<uniform> clock: AnimationClockGpu;
+
+struct AnimationFrameSampleGpu {
+    current_texture: u32,
+    next_texture: u32,
+    blend: f32,
+}
+
+fn select_animation_frames_gpu(material: MaterialGpu) -> AnimationFrameSampleGpu {
+    if (material.animation == 0xffffffffu) {
+        return AnimationFrameSampleGpu(material.texture, material.texture, 0.0);
+    }
+    let animation = animations[material.animation];
+    let current_index =
+        (clock.tick / animation.ticks_per_frame) % animation.frame_count;
+    let current_texture = animation_frames[animation.frame_start + current_index];
+    if ((animation.flags & 1u) == 0u || animation.frame_count == 1u) {
+        return AnimationFrameSampleGpu(current_texture, current_texture, 0.0);
+    }
+    let next_index = (current_index + 1u) % animation.frame_count;
+    let next_texture = animation_frames[animation.frame_start + next_index];
+    let frame_tick = clock.tick % animation.ticks_per_frame;
+    let blend = (f32(frame_tick) + clamp(clock.partial_tick, 0.0, 0.99999994)) /
+        f32(animation.ticks_per_frame);
+    return AnimationFrameSampleGpu(current_texture, next_texture, blend);
+}
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) uv: vec2<f32>,
-    @location(1) @interpolate(flat) layer: u32,
+    @location(1) @interpolate(flat) current_texture: u32,
     @location(2) normal: vec3<f32>,
     @location(3) @interpolate(flat) material_flags: u32,
     @location(4) local_position: vec3<f32>,
     @location(5) @interpolate(flat) biome_record: u32,
+    @location(6) @interpolate(flat) next_texture: u32,
+    @location(7) @interpolate(flat) frame_blend: f32,
 }
 
 fn quad_corner(face: u32, corner: u32, origin: vec3<f32>, width: f32, height: f32) -> vec3<f32> {
@@ -183,15 +229,18 @@ fn vertex(
     let local_position = quad_corner(face, corner, local_origin, width, height);
     let world_position = vec3<f32>(chunk_origin.value.xyz) + local_position;
     let material = materials[quad.material_id];
+    let animation_sample = select_animation_frames_gpu(material);
 
     var out: VertexOutput;
     out.clip_position = view.clip_from_world * vec4(world_position, 1.0);
     out.uv = greedy_uv(face, corner, width, height, material.flags);
-    out.layer = material.layer;
+    out.current_texture = animation_sample.current_texture;
     out.normal = face_normal(face);
     out.material_flags = material.flags;
     out.local_position = local_position;
     out.biome_record = u32(chunk_origin.value.w);
+    out.next_texture = animation_sample.next_texture;
+    out.frame_blend = animation_sample.blend;
     return out;
 }
 
@@ -281,9 +330,30 @@ fn apply_material_tint(
     return vec4(sampled.rgb, 1.0);
 }
 
+fn sample_texture_ref(
+    texture_ref: u32,
+    uv: vec2<f32>,
+    uv_dx: vec2<f32>,
+    uv_dy: vec2<f32>,
+) -> vec4<f32> {
+    let page = texture_ref >> 31u;
+    let layer = i32(texture_ref & 0x7ffu);
+    if (page == 0u) {
+        return textureSampleGrad(block_textures_page_0, block_sampler, uv, layer, uv_dx, uv_dy);
+    }
+    return textureSampleGrad(block_textures_page_1, block_sampler, uv, layer, uv_dx, uv_dy);
+}
+
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    let sampled = textureSample(block_textures, block_sampler, in.uv, i32(in.layer));
+    let uv_dx = dpdx(in.uv);
+    let uv_dy = dpdy(in.uv);
+    let current_sample = sample_texture_ref(in.current_texture, in.uv, uv_dx, uv_dy);
+    var sampled = current_sample;
+    if (in.frame_blend > 0.0) {
+        let next_sample = sample_texture_ref(in.next_texture, in.uv, uv_dx, uv_dy);
+        sampled = mix(current_sample, next_sample, in.frame_blend);
+    }
     if ((in.material_flags & (1u << 8u)) != 0u && sampled.a < 0.5) {
         discard;
     }
