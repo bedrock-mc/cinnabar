@@ -219,6 +219,13 @@ Scope: block registry + block-state → model/texture mapping (generated export 
   - [ ] Version the bounded runtime asset schema to `MCBEAS04`; compile the
     typed registry selectors, template tables, page-aware flipbook data, and
     attributable per-family diagnostics without committing Mojang payloads.
+  - [x] Upload the bounded one/two-page `MCBEAS04` texture resource, immutable
+    material/animation/frame tables, and a stable 16-byte animation clock in
+    one shared chunk bind group. Commit `a30a0ef` adds page-aware current/next
+    frame selection, cross-page interpolation and wraparound, a real diagnostic
+    second-page fallback, atomic asset-revision replacement, derivative-safe
+    WGSL sampling, and no per-frame texture upload; 82 render tests, strict
+    Clippy, and independent spec/quality review are green.
   - [ ] Add palette-native multi-layer contributor resolution, retaining the
     eight-byte greedy cube record and adding compact model/liquid streams with
     atomic queue/GPU generation accounting and direct/MDI parity.
