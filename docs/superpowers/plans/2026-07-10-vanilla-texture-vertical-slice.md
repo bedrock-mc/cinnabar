@@ -227,7 +227,7 @@
 - `pub fn read_pack(root: &Path) -> Result<PackSources, AssetError>`.
 - `pub fn resolve_texture_key(blocks: &BlockTextureMap, record: &RegistryRecord, face: BlockFace) -> TextureKey`.
 
-- [ ] **Step 1: Write synthetic parser tests**
+- [x] **Step 1: Write synthetic parser tests**
 
   Tests create JSON in a temporary directory and cover:
 
@@ -249,13 +249,13 @@
   ]
   ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
   Run: `cargo test -p assets --test pack --locked -- --nocapture`
 
   Expected: FAIL because the `assets` crate and parsers do not exist.
 
-- [ ] **Step 3: Implement bounded source models**
+- [x] **Step 3: Implement bounded source models**
 
   Add `serde = { version = "1", features = ["derive"] }`, `serde_json = "1"`, `bitflags = "2"`, and `thiserror.workspace = true`.
 
@@ -280,11 +280,11 @@
 
   Enforce: at most 65,536 registry records, 8,192 texture keys, 256 variants per key, 4 KiB path length, and 16 MiB per JSON file. Strip only complete leading comment lines before `serde_json`; do not implement a permissive JavaScript parser.
 
-- [ ] **Step 4: Implement face fallback and pillar permutation**
+- [x] **Step 4: Implement face fallback and pillar permutation**
 
   Strip only the exact `minecraft:` namespace when looking up vanilla `blocks.json` keys. Resolution order is explicit face -> `side` for horizontal faces -> `up`/`down` -> scalar -> diagnostic. For records whose canonical state contains `pillar_axis` or `axis`, map the original up/down texture pair onto the selected axis while preserving a deterministic UV-rotation flag.
 
-- [ ] **Step 5: Verify GREEN**
+- [x] **Step 5: Verify GREEN**
 
   Run:
 
@@ -296,7 +296,7 @@
 
   Expected: all bounded parser, registry, face, and path-safety tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   ```text
   git add Cargo.toml Cargo.lock crates/assets
