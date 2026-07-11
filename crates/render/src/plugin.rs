@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, hash_map::Entry},
+    collections::{BTreeMap, BTreeSet, HashMap, VecDeque, hash_map::Entry},
     ops::Range,
     sync::{Arc, Mutex},
     time::Instant,
@@ -36,8 +36,8 @@ use bevy::{
             BufferDescriptor, BufferId, BufferInitDescriptor, BufferUsages, Canonical,
             ColorTargetState, ColorWrites, CommandEncoderDescriptor, CompareFunction,
             DepthStencilState, DownlevelFlags, DrawIndexedIndirectArgs, Extent3d, Face as CullFace,
-            FilterMode, FragmentState, IndexFormat, Origin3d, PipelineCache, PrimitiveState,
-            RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType,
+            FilterMode, FragmentState, IndexFormat, Origin3d, PipelineCache, PollType,
+            PrimitiveState, RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType,
             SamplerDescriptor, ShaderStages, ShaderType, Specializer, SpecializerKey,
             TexelCopyBufferLayout, TexelCopyTextureInfo, Texture, TextureDescriptor,
             TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView,
@@ -63,6 +63,7 @@ const INDEXED_INDIRECT_BYTES: u64 = 20;
 const DEFAULT_RENDER_QUEUE_ITEMS: usize = 256;
 const DEFAULT_RENDER_QUEUE_BYTES: u64 = 64 * 1024 * 1024;
 const DEFAULT_ACKNOWLEDGEMENT_CAPACITY: usize = DEFAULT_RENDER_QUEUE_ITEMS;
+const DEFAULT_PRESENTED_FRAME_ACK_CAPACITY: usize = 8;
 
 pub const MATERIAL_UV_ROTATE_90: u32 = 1;
 pub const MATERIAL_UV_ROTATE_180: u32 = 2;
@@ -372,6 +373,483 @@ pub struct ChunkUploadAcknowledgement {
     pub uploaded_bytes: u64,
 }
 
+/// Horizontal view identity attached to render-frame evidence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RenderViewCohort {
+    pub dimension: i32,
+    pub center: [i32; 2],
+    pub radius: i32,
+}
+
+impl RenderViewCohort {
+    #[must_use]
+    pub const fn new(dimension: i32, center: [i32; 2], radius: i32) -> Self {
+        Self {
+            dimension,
+            center,
+            radius,
+        }
+    }
+
+    #[must_use]
+    pub fn contains(self, key: SubChunkKey) -> bool {
+        key.dimension == self.dimension
+            && i64::from(key.x).abs_diff(i64::from(self.center[0])) <= self.radius.max(0) as u64
+            && i64::from(key.z).abs_diff(i64::from(self.center[1])) <= self.radius.max(0) as u64
+    }
+}
+
+/// Independently frozen main-world target for one render view generation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TargetRenderExpectation {
+    pub cohort: RenderViewCohort,
+    pub source_cohort: Option<RenderViewCohort>,
+    pub manifest: Arc<[(SubChunkKey, u64)]>,
+    pub view_generation: u64,
+    pub render_ready_at: Instant,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CompletedFrameProbe {
+    expectation: TargetRenderExpectation,
+    frame_sequence: u64,
+    allocation_manifest: Arc<[(SubChunkKey, u64)]>,
+    drawn_manifest: Arc<[(SubChunkKey, u64)]>,
+    missing_target_instances: usize,
+    unexpected_target_instances: usize,
+    source_instances: usize,
+    foreign_instances: usize,
+    stale_generation_instances: usize,
+    orphan_allocations: usize,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct FrameCompletionEvidence {
+    present_returned_at: Option<Instant>,
+    submitted_work_done_at: Option<Instant>,
+}
+
+/// Exact frame evidence published only after present returns and the sentinel
+/// submission's GPU-completion callback runs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PresentedFrameAck {
+    pub cohort: RenderViewCohort,
+    pub frame_sequence: u64,
+    /// Every target GPU allocation observed before `PrepareResources`.
+    pub allocation_manifest: Arc<[(SubChunkKey, u64)]>,
+    /// Target allocations actually emitted by the direct or MDI draw path.
+    pub drawn_manifest: Arc<[(SubChunkKey, u64)]>,
+    pub view_generation: u64,
+    pub render_ready_at: Instant,
+    pub present_returned_at: Instant,
+    pub gpu_completed_at: Instant,
+    pub missing_target_instances: usize,
+    pub unexpected_target_instances: usize,
+    pub source_instances: usize,
+    pub foreign_instances: usize,
+    pub stale_generation_instances: usize,
+    pub orphan_allocations: usize,
+}
+
+impl PresentedFrameAck {
+    #[must_use]
+    pub fn is_exact(&self) -> bool {
+        !self.allocation_manifest.is_empty()
+            && self.missing_target_instances == 0
+            && self.unexpected_target_instances == 0
+            && self.source_instances == 0
+            && self.foreign_instances == 0
+            && self.stale_generation_instances == 0
+            && self.orphan_allocations == 0
+    }
+
+    #[must_use]
+    pub fn forms_stable_exact_pair_with(&self, next: &Self) -> bool {
+        self.is_exact()
+            && next.is_exact()
+            && self.cohort == next.cohort
+            && self.allocation_manifest == next.allocation_manifest
+            && self.view_generation == next.view_generation
+            && self.render_ready_at == next.render_ready_at
+            && self.frame_sequence.checked_add(1) == Some(next.frame_sequence)
+            && self.gpu_completed_at <= next.gpu_completed_at
+    }
+}
+
+#[derive(Default)]
+struct PresentedFrameGateState {
+    expectation: Option<TargetRenderExpectation>,
+    acknowledgements: VecDeque<PresentedFrameAck>,
+    in_flight_callbacks: usize,
+}
+
+/// Shared main/render-world target and bounded GPU-completed frame evidence.
+#[derive(Resource, Clone)]
+pub struct PresentedFrameGate {
+    inner: Arc<Mutex<PresentedFrameGateState>>,
+}
+
+impl Default for PresentedFrameGate {
+    fn default() -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(PresentedFrameGateState::default())),
+        }
+    }
+}
+
+impl PresentedFrameGate {
+    pub fn set_expectation(&self, expectation: TargetRenderExpectation) {
+        let mut state = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        if state.expectation.as_ref() != Some(&expectation) {
+            state.acknowledgements.clear();
+        }
+        state.expectation = Some(expectation);
+    }
+
+    pub fn clear(&self) {
+        let mut state = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        state.expectation = None;
+        state.acknowledgements.clear();
+    }
+
+    #[must_use]
+    pub fn expectation(&self) -> Option<TargetRenderExpectation> {
+        self.inner
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .expectation
+            .clone()
+    }
+
+    #[must_use]
+    pub fn drain(&self) -> Vec<PresentedFrameAck> {
+        self.inner
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .acknowledgements
+            .drain(..)
+            .collect()
+    }
+
+    fn try_reserve_callback(&self, expectation: &TargetRenderExpectation) -> bool {
+        let mut state = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        if state.expectation.as_ref() != Some(expectation)
+            || state.in_flight_callbacks >= DEFAULT_PRESENTED_FRAME_ACK_CAPACITY
+        {
+            return false;
+        }
+        state.in_flight_callbacks += 1;
+        true
+    }
+
+    fn publish_reserved_probe(
+        &self,
+        probe: CompletedFrameProbe,
+        present_returned_at: Instant,
+        gpu_completed_at: Instant,
+    ) -> bool {
+        let mut state = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        if state.in_flight_callbacks == 0 {
+            return false;
+        }
+        state.in_flight_callbacks -= 1;
+        if state.expectation.as_ref() != Some(&probe.expectation) {
+            return false;
+        }
+        let Some(acknowledgement) = build_presented_frame_ack(
+            probe,
+            FrameCompletionEvidence {
+                present_returned_at: Some(present_returned_at),
+                submitted_work_done_at: Some(gpu_completed_at),
+            },
+        ) else {
+            return false;
+        };
+        if state.acknowledgements.len() >= DEFAULT_PRESENTED_FRAME_ACK_CAPACITY {
+            state.acknowledgements.pop_front();
+        }
+        state.acknowledgements.push_back(acknowledgement);
+        true
+    }
+}
+
+fn build_presented_frame_ack(
+    probe: CompletedFrameProbe,
+    evidence: FrameCompletionEvidence,
+) -> Option<PresentedFrameAck> {
+    let present_returned_at = evidence.present_returned_at?;
+    let gpu_completed_at = evidence.submitted_work_done_at?;
+    if probe.expectation.render_ready_at > present_returned_at
+        || present_returned_at > gpu_completed_at
+    {
+        return None;
+    }
+    Some(PresentedFrameAck {
+        cohort: probe.expectation.cohort,
+        frame_sequence: probe.frame_sequence,
+        allocation_manifest: probe.allocation_manifest,
+        drawn_manifest: probe.drawn_manifest,
+        view_generation: probe.expectation.view_generation,
+        render_ready_at: probe.expectation.render_ready_at,
+        present_returned_at,
+        gpu_completed_at,
+        missing_target_instances: probe.missing_target_instances,
+        unexpected_target_instances: probe.unexpected_target_instances,
+        source_instances: probe.source_instances,
+        foreign_instances: probe.foreign_instances,
+        stale_generation_instances: probe.stale_generation_instances,
+        orphan_allocations: probe.orphan_allocations,
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FrameInstanceIdentity {
+    entity: Entity,
+    key: SubChunkKey,
+    generation: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FrameAllocationIdentity {
+    entity: Entity,
+    key: SubChunkKey,
+    generation: u64,
+}
+
+struct FrameProbe {
+    expectation: TargetRenderExpectation,
+    frame_sequence: u64,
+    eligible: HashMap<Entity, FrameAllocationIdentity>,
+    allocation_manifest: BTreeSet<(SubChunkKey, u64)>,
+    target_allocation_count: usize,
+    duplicate_target_instances: usize,
+    drawn: Mutex<BTreeSet<(SubChunkKey, u64)>>,
+    source_instances: usize,
+    foreign_instances: usize,
+    stale_generation_instances: usize,
+    orphan_allocations: usize,
+}
+
+impl FrameProbe {
+    fn begin(
+        expectation: TargetRenderExpectation,
+        instances: impl IntoIterator<Item = FrameInstanceIdentity>,
+        allocations: impl IntoIterator<Item = FrameAllocationIdentity>,
+    ) -> Self {
+        let expected = expectation
+            .manifest
+            .iter()
+            .copied()
+            .collect::<BTreeMap<_, _>>();
+        let instances = instances
+            .into_iter()
+            .map(|instance| (instance.entity, instance))
+            .collect::<HashMap<_, _>>();
+        let source_instances = instances
+            .values()
+            .filter(|instance| {
+                expectation
+                    .source_cohort
+                    .is_some_and(|source| source.contains(instance.key))
+            })
+            .count();
+        let foreign_instances = instances
+            .values()
+            .filter(|instance| {
+                !expectation.cohort.contains(instance.key)
+                    && expectation
+                        .source_cohort
+                        .is_none_or(|source| !source.contains(instance.key))
+            })
+            .count();
+        let target_instance_count = instances
+            .values()
+            .filter(|instance| expectation.cohort.contains(instance.key))
+            .count();
+        let unique_target_instance_keys = instances
+            .values()
+            .filter(|instance| expectation.cohort.contains(instance.key))
+            .map(|instance| instance.key)
+            .collect::<BTreeSet<_>>()
+            .len();
+        let duplicate_target_instances =
+            target_instance_count.saturating_sub(unique_target_instance_keys);
+        let mut stale_entities = instances
+            .values()
+            .filter_map(|instance| {
+                expected
+                    .get(&instance.key)
+                    .is_some_and(|generation| *generation != instance.generation)
+                    .then_some(instance.entity)
+            })
+            .collect::<BTreeSet<_>>();
+        let mut eligible = HashMap::new();
+        let mut allocation_manifest = BTreeSet::new();
+        let mut target_allocation_count = 0;
+        let mut orphan_allocations = 0;
+        for allocation in allocations {
+            let Some(instance) = instances.get(&allocation.entity) else {
+                orphan_allocations += 1;
+                continue;
+            };
+            if instance.key != allocation.key || instance.generation != allocation.generation {
+                stale_entities.insert(allocation.entity);
+                continue;
+            }
+            if expectation.cohort.contains(allocation.key) {
+                target_allocation_count += 1;
+                allocation_manifest.insert((allocation.key, allocation.generation));
+            }
+            eligible.insert(allocation.entity, allocation);
+        }
+        Self {
+            expectation,
+            frame_sequence: 0,
+            eligible,
+            allocation_manifest,
+            target_allocation_count,
+            duplicate_target_instances,
+            drawn: Mutex::new(BTreeSet::new()),
+            source_instances,
+            foreign_instances,
+            stale_generation_instances: stale_entities.len(),
+            orphan_allocations,
+        }
+    }
+
+    fn record_direct_draw(&self, entity: Entity, allocation: FrameAllocationIdentity) -> bool {
+        if self.eligible.get(&entity) != Some(&allocation) {
+            return false;
+        }
+        let identity = (allocation.key, allocation.generation);
+        if self.allocation_manifest.contains(&identity) {
+            self.drawn
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner())
+                .insert(identity);
+        }
+        true
+    }
+
+    fn record_mdi_draws(
+        &self,
+        draws: impl IntoIterator<Item = (Entity, FrameAllocationIdentity)>,
+    ) -> usize {
+        draws
+            .into_iter()
+            .filter(|(entity, allocation)| self.record_direct_draw(*entity, *allocation))
+            .count()
+    }
+
+    fn complete(self) -> CompletedFrameProbe {
+        let expected = self
+            .expectation
+            .manifest
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>();
+        let drawn = self
+            .drawn
+            .into_inner()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let matched_target_instances = expected.intersection(&self.allocation_manifest).count();
+        let missing_target_instances = expected.len().saturating_sub(matched_target_instances);
+        let unexpected_target_instances = self
+            .target_allocation_count
+            .saturating_sub(matched_target_instances)
+            .max(self.duplicate_target_instances);
+        CompletedFrameProbe {
+            expectation: self.expectation,
+            frame_sequence: self.frame_sequence,
+            allocation_manifest: Arc::from(
+                self.allocation_manifest.into_iter().collect::<Vec<_>>(),
+            ),
+            drawn_manifest: Arc::from(drawn.into_iter().collect::<Vec<_>>()),
+            missing_target_instances,
+            unexpected_target_instances,
+            source_instances: self.source_instances,
+            foreign_instances: self.foreign_instances,
+            stale_generation_instances: self.stale_generation_instances,
+            orphan_allocations: self.orphan_allocations,
+        }
+    }
+}
+
+#[derive(Default)]
+struct ActiveFrameProbeState {
+    current: Option<FrameProbe>,
+    next_frame_sequence: u64,
+}
+
+#[derive(Resource, Default)]
+struct ActiveFrameProbe(Mutex<ActiveFrameProbeState>);
+
+impl ActiveFrameProbe {
+    fn begin(&self, mut probe: FrameProbe) {
+        let mut state = self.0.lock().unwrap_or_else(|poison| poison.into_inner());
+        state.next_frame_sequence = state.next_frame_sequence.wrapping_add(1).max(1);
+        probe.frame_sequence = state.next_frame_sequence;
+        state.current = Some(probe);
+    }
+
+    fn clear(&self) {
+        self.0
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .current = None;
+    }
+
+    fn accepts(&self, entity: Entity, allocation: FrameAllocationIdentity) -> bool {
+        self.0
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .current
+            .as_ref()
+            .is_none_or(|probe| probe.eligible.get(&entity) == Some(&allocation))
+    }
+
+    fn record_direct_draw(&self, entity: Entity, allocation: FrameAllocationIdentity) -> bool {
+        self.0
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .current
+            .as_ref()
+            .is_none_or(|probe| probe.record_direct_draw(entity, allocation))
+    }
+
+    fn record_mdi_draws(
+        &self,
+        draws: impl IntoIterator<Item = (Entity, FrameAllocationIdentity)>,
+    ) -> usize {
+        let state = self.0.lock().unwrap_or_else(|poison| poison.into_inner());
+        let draws = draws.into_iter().collect::<Vec<_>>();
+        state.current.as_ref().map_or(draws.len(), |probe| {
+            probe.record_mdi_draws(draws.iter().copied())
+        })
+    }
+
+    fn take_completed(&self) -> Option<CompletedFrameProbe> {
+        self.0
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .current
+            .take()
+            .map(FrameProbe::complete)
+    }
+}
+
 enum AcknowledgementSlot {
     Reserved {
         token: ChunkUploadToken,
@@ -576,6 +1054,7 @@ impl Default for ChunkRenderQueueLimits {
 pub struct ChunkRenderQueue {
     pending: HashMap<SubChunkKey, PendingUpload>,
     removals: HashMap<SubChunkKey, PendingRemoval>,
+    render_manifest: BTreeMap<SubChunkKey, u64>,
     next_generation: u64,
     pending_bytes: u64,
     limits: ChunkRenderQueueLimits,
@@ -594,6 +1073,7 @@ impl ChunkRenderQueue {
         Self {
             pending: HashMap::new(),
             removals: HashMap::new(),
+            render_manifest: BTreeMap::new(),
             next_generation: 0,
             pending_bytes: 0,
             limits,
@@ -659,6 +1139,7 @@ impl ChunkRenderQueue {
         }
         self.removals
             .insert(key, PendingRemoval { priority, token });
+        self.render_manifest.remove(&key);
         Ok(())
     }
 
@@ -686,6 +1167,28 @@ impl ChunkRenderQueue {
         self.gpu_upload_bytes = self.gpu_upload_bytes.saturating_add(bytes);
     }
 
+    #[must_use]
+    pub fn freeze_target_expectation(
+        &self,
+        cohort: RenderViewCohort,
+        source_cohort: Option<RenderViewCohort>,
+        view_generation: u64,
+        render_ready_at: Instant,
+    ) -> TargetRenderExpectation {
+        let manifest = self
+            .render_manifest
+            .iter()
+            .filter_map(|(&key, &generation)| cohort.contains(key).then_some((key, generation)))
+            .collect::<Vec<_>>();
+        TargetRenderExpectation {
+            cohort,
+            source_cohort,
+            manifest: Arc::from(manifest),
+            view_generation,
+            render_ready_at,
+        }
+    }
+
     fn try_enqueue(
         &mut self,
         key: SubChunkKey,
@@ -710,13 +1213,19 @@ impl ChunkRenderQueue {
         }
         self.removals.remove(&key);
         self.next_generation = self.next_generation.wrapping_add(1).max(1);
+        let generation = token.map_or(self.next_generation, |token| token.generation);
+        if mesh.is_empty() {
+            self.render_manifest.remove(&key);
+        } else {
+            self.render_manifest.insert(key, generation);
+        }
         self.pending_bytes = next_bytes;
         self.pending.insert(
             key,
             PendingUpload {
                 mesh,
                 priority,
-                generation: self.next_generation,
+                generation,
                 token,
             },
         );
@@ -784,6 +1293,7 @@ impl Plugin for DebugWorldPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ChunkRenderQueue>()
             .init_resource::<ChunkUploadAcknowledgements>()
+            .init_resource::<PresentedFrameGate>()
             .init_resource::<ChunkEntities>()
             .init_resource::<ChunkTextureAssets>()
             .insert_resource(self.upload_budget)
@@ -804,15 +1314,18 @@ impl Plugin for DebugWorldPlugin {
             .world()
             .resource::<ChunkUploadAcknowledgements>()
             .clone();
+        let presented_frame_gate = app.world().resource::<PresentedFrameGate>().clone();
 
         app.sub_app_mut(RenderApp)
             .insert_resource(self.upload_budget)
             .insert_resource(acknowledgements)
+            .insert_resource(presented_frame_gate)
             .init_resource::<ChunkPipeline>()
             .init_resource::<ChunkGpuUploadStats>()
             .init_resource::<ChunkGpuTextureAssets>()
             .init_resource::<ChunkTextureUploadStats>()
             .init_resource::<ChunkIndirectBatches>()
+            .init_resource::<ActiveFrameProbe>()
             .add_render_command::<Opaque3d, DrawChunkCommands>()
             .add_render_command::<Opaque3d, DrawChunkIndirectCommands>()
             .add_systems(RenderStartup, init_chunk_gpu_arena)
@@ -826,6 +1339,9 @@ impl Plugin for DebugWorldPlugin {
                         .in_set(RenderSystems::PrepareResources)
                         .after(prepare_gpu_chunks),
                     prepare_chunk_bind_group.in_set(RenderSystems::PrepareBindGroups),
+                    submit_presented_frame_probe
+                        .in_set(RenderSystems::Render)
+                        .after(bevy::render::renderer::render_system),
                 ),
             );
     }
@@ -1075,6 +1591,8 @@ impl Specializer<RenderPipeline> for ChunkPipelineSpecializer {
 
 #[derive(Component, Clone)]
 struct GpuChunkAllocation {
+    key: SubChunkKey,
+    generation: u64,
     quad_range: Range<u32>,
     metadata_index: u32,
 }
@@ -1122,6 +1640,7 @@ fn indexed_indirect_command(allocation: &GpuChunkAllocation) -> Option<DrawIndex
     })
 }
 
+#[cfg(test)]
 fn build_indexed_indirect_commands<'a>(
     allocations: impl IntoIterator<Item = &'a GpuChunkAllocation>,
 ) -> Vec<DrawIndexedIndirectArgs> {
@@ -1133,6 +1652,7 @@ fn build_indexed_indirect_commands<'a>(
 
 struct ChunkIndirectBatch {
     visible_entities: Vec<Entity>,
+    drawn_allocations: Vec<(Entity, FrameAllocationIdentity)>,
     indirect_offset: u64,
     command_count: u32,
 }
@@ -1587,6 +2107,8 @@ fn prepare_gpu_chunks(
         quad_writes.push((quad_start, words));
         origin_writes.push((metadata_index, origin));
         let gpu = GpuChunkAllocation {
+            key: instance.key,
+            generation: instance.generation,
             quad_range: quad_start..quad_end,
             metadata_index,
         };
@@ -1986,17 +2508,32 @@ fn prepare_chunk_indirect_batches(
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     allocations: Query<&GpuChunkAllocation>,
+    frame_probe: Res<ActiveFrameProbe>,
     mut batches: ResMut<ChunkIndirectBatches>,
     mut arena: ResMut<ChunkGpuArena>,
 ) {
     let mut all_commands = Vec::new();
     for batch in batches.0.values_mut() {
-        let indirect_commands = build_indexed_indirect_commands(
-            batch
-                .visible_entities
-                .iter()
-                .filter_map(|entity| allocations.get(*entity).ok()),
-        );
+        let mut indirect_commands = Vec::new();
+        batch.drawn_allocations.clear();
+        for &entity in &batch.visible_entities {
+            let Ok(allocation) = allocations.get(entity) else {
+                continue;
+            };
+            let identity = FrameAllocationIdentity {
+                entity,
+                key: allocation.key,
+                generation: allocation.generation,
+            };
+            if !frame_probe.accepts(entity, identity) {
+                continue;
+            }
+            let Some(command) = indexed_indirect_command(allocation) else {
+                continue;
+            };
+            indirect_commands.push(command);
+            batch.drawn_allocations.push((entity, identity));
+        }
         batch.indirect_offset = all_commands.len() as u64 * INDEXED_INDIRECT_BYTES;
         let Ok(command_count) = u32::try_from(indirect_commands.len()) else {
             batch.command_count = 0;
@@ -2041,7 +2578,11 @@ fn queue_chunks(
         &RenderVisibleEntities,
         &Msaa,
     )>,
-    allocations: Query<(), With<GpuChunkAllocation>>,
+    instances: Query<(Entity, &ChunkRenderInstance)>,
+    allocations: Query<&GpuChunkAllocation>,
+    arena: Res<ChunkGpuArena>,
+    presented_frame_gate: Res<PresentedFrameGate>,
+    frame_probe: Res<ActiveFrameProbe>,
     mut indirect_batches: ResMut<ChunkIndirectBatches>,
     mut next_tick: Local<Tick>,
     mut unsupported_reported: Local<bool>,
@@ -2055,6 +2596,7 @@ fn queue_chunks(
     let indirect_draw = draw_functions.id::<DrawChunkIndirectCommands>();
     indirect_batches.0.clear();
     if draw_mode == ChunkDrawMode::Unsupported {
+        frame_probe.clear();
         if !*unsupported_reported {
             bevy::log::error!(
                 "packed chunk renderer requires DownlevelFlags::BASE_VERTEX; this adapter is unsupported"
@@ -2064,6 +2606,28 @@ fn queue_chunks(
         return;
     }
     *unsupported_reported = false;
+    if let Some(expectation) = presented_frame_gate.expectation() {
+        frame_probe.begin(FrameProbe::begin(
+            expectation,
+            instances
+                .iter()
+                .map(|(entity, instance)| FrameInstanceIdentity {
+                    entity,
+                    key: instance.key,
+                    generation: instance.generation,
+                }),
+            arena
+                .allocations
+                .iter()
+                .map(|(&entity, allocation)| FrameAllocationIdentity {
+                    entity,
+                    key: allocation.gpu.key,
+                    generation: allocation.gpu.generation,
+                }),
+        ));
+    } else {
+        frame_probe.clear();
+    }
     for (view_entity, view_main_entity, view, visible_entities, msaa) in &views {
         let Some(phase) = opaque_phases.get_mut(&view.retained_view_entity) else {
             continue;
@@ -2084,7 +2648,21 @@ fn queue_chunks(
                     .get::<ChunkRenderInstance>()
                     .iter()
                     .copied(),
-            );
+            )
+            .into_iter()
+            .filter(|(entity, _)| {
+                allocations.get(*entity).is_ok_and(|allocation| {
+                    frame_probe.accepts(
+                        *entity,
+                        FrameAllocationIdentity {
+                            entity: *entity,
+                            key: allocation.key,
+                            generation: allocation.generation,
+                        },
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
 
             if visible.is_empty() {
                 continue;
@@ -2096,6 +2674,7 @@ fn queue_chunks(
                         .iter()
                         .map(|(render_entity, _)| *render_entity)
                         .collect(),
+                    drawn_allocations: Vec::new(),
                     indirect_offset: 0,
                     command_count: 0,
                 },
@@ -2124,7 +2703,17 @@ fn queue_chunks(
         }
 
         for &(render_entity, main_entity) in visible_entities.get::<ChunkRenderInstance>() {
-            if allocations.get(render_entity).is_err() {
+            let Ok(allocation) = allocations.get(render_entity) else {
+                continue;
+            };
+            if !frame_probe.accepts(
+                render_entity,
+                FrameAllocationIdentity {
+                    entity: render_entity,
+                    key: allocation.key,
+                    generation: allocation.generation,
+                },
+            ) {
                 continue;
             }
             let this_tick = next_tick.get() + 1;
@@ -2159,21 +2748,30 @@ type DrawChunkIndirectCommands = (SetItemPipeline, DrawPackedChunksIndirect);
 struct DrawPackedChunk;
 
 impl<P: PhaseItem> RenderCommand<P> for DrawPackedChunk {
-    type Param = SRes<ChunkGpuArena>;
+    type Param = (SRes<ChunkGpuArena>, SRes<ActiveFrameProbe>);
     type ViewQuery = Read<ViewUniformOffset>;
     type ItemQuery = Read<GpuChunkAllocation>;
 
     fn render<'w>(
-        _item: &P,
+        item: &P,
         view_offset: ROQueryItem<'w, '_, Self::ViewQuery>,
         allocation: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
-        arena: SystemParamItem<'w, '_, Self::Param>,
+        (arena, frame_probe): SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
         let arena = arena.into_inner();
+        let frame_probe = frame_probe.into_inner();
         let (Some(bind_group), Some(allocation)) = (&arena.bind_group, allocation) else {
             return RenderCommandResult::Skip;
         };
+        let identity = FrameAllocationIdentity {
+            entity: item.entity(),
+            key: allocation.key,
+            generation: allocation.generation,
+        };
+        if !frame_probe.accepts(item.entity(), identity) {
+            return RenderCommandResult::Skip;
+        }
         let Some(base_vertex) = allocation
             .metadata_index
             .checked_mul(4)
@@ -2188,6 +2786,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedChunk {
             base_vertex,
             allocation.quad_range.clone(),
         );
+        frame_probe.record_direct_draw(item.entity(), identity);
         RenderCommandResult::Success
     }
 }
@@ -2203,7 +2802,11 @@ fn indirect_batch_draw_args(
 }
 
 impl<P: PhaseItem> RenderCommand<P> for DrawPackedChunksIndirect {
-    type Param = (SRes<ChunkGpuArena>, SRes<ChunkIndirectBatches>);
+    type Param = (
+        SRes<ChunkGpuArena>,
+        SRes<ChunkIndirectBatches>,
+        SRes<ActiveFrameProbe>,
+    );
     type ViewQuery = Read<ViewUniformOffset>;
     type ItemQuery = ();
 
@@ -2211,11 +2814,12 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedChunksIndirect {
         item: &P,
         view_offset: ROQueryItem<'w, '_, Self::ViewQuery>,
         _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
-        (arena, batches): SystemParamItem<'w, '_, Self::Param>,
+        (arena, batches, frame_probe): SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
         let arena = arena.into_inner();
         let batches = batches.into_inner();
+        let frame_probe = frame_probe.into_inner();
         let Some((indirect_offset, command_count)) =
             indirect_batch_draw_args(batches, item.entity())
         else {
@@ -2227,29 +2831,669 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedChunksIndirect {
         pass.set_bind_group(0, bind_group, &[view_offset.offset]);
         pass.set_index_buffer(arena.index_buffer.slice(..), IndexFormat::Uint32);
         pass.multi_draw_indexed_indirect(&arena.indirect_buffer, indirect_offset, command_count);
+        if let Some(batch) = batches.0.get(&item.entity()) {
+            frame_probe.record_mdi_draws(batch.drawn_allocations.iter().copied());
+        }
         RenderCommandResult::Success
+    }
+}
+
+fn submit_presented_frame_probe(
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+    frame_probe: Res<ActiveFrameProbe>,
+    presented_frame_gate: Res<PresentedFrameGate>,
+) {
+    let Some(completed_probe) = frame_probe.take_completed() else {
+        if let Err(error) = render_device.poll(PollType::Poll) {
+            bevy::log::warn!(
+                ?error,
+                "could not nonblockingly poll presented-frame fences"
+            );
+        }
+        return;
+    };
+    if !presented_frame_gate.try_reserve_callback(&completed_probe.expectation) {
+        if let Err(error) = render_device.poll(PollType::Poll) {
+            bevy::log::warn!(
+                ?error,
+                "could not nonblockingly poll presented-frame fences"
+            );
+        }
+        return;
+    }
+    let present_returned_at = Instant::now();
+    let encoder = render_device.create_command_encoder(&CommandEncoderDescriptor {
+        label: Some("presented frame completion sentinel"),
+    });
+    let command_buffer = encoder.finish();
+    let callback_gate = presented_frame_gate.clone();
+    command_buffer.on_submitted_work_done(move || {
+        callback_gate.publish_reserved_probe(completed_probe, present_returned_at, Instant::now());
+    });
+    render_queue.submit([command_buffer]);
+    if let Err(error) = render_device.poll(PollType::Poll) {
+        bevy::log::warn!(
+            ?error,
+            "could not nonblockingly poll presented-frame fences"
+        );
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::mem::size_of;
+    use std::{mem::size_of, sync::Arc};
 
+    use assets::NetworkIdMode;
     use bevy::{
         prelude::*,
         render::render_resource::{DownlevelFlags, DrawIndexedIndirectArgs, WgpuFeatures},
     };
+    use world::SubChunk;
 
     use super::*;
+
+    fn target_expectation(
+        now: Instant,
+        manifest: impl IntoIterator<Item = (SubChunkKey, u64)>,
+    ) -> TargetRenderExpectation {
+        TargetRenderExpectation {
+            cohort: RenderViewCohort::new(0, [65, 65], 16),
+            source_cohort: Some(RenderViewCohort::new(0, [0, 0], 16)),
+            manifest: Arc::from(manifest.into_iter().collect::<Vec<_>>()),
+            view_generation: 1,
+            render_ready_at: now,
+        }
+    }
+
+    fn solid_test_mesh() -> ChunkMesh {
+        let sub_chunk = SubChunk::decode(&[9, 1, 0, 1, 2]).expect("uniform test sub-chunk");
+        crate::mesh_sub_chunk(
+            &crate::BlockClassifier::new(0),
+            &RuntimeAssets::diagnostic(),
+            NetworkIdMode::Sequential,
+            &crate::Neighbourhood::empty(),
+            &sub_chunk,
+        )
+    }
+
+    #[test]
+    fn gpu_write_does_not_complete_a_frame_probe() {
+        let now = Instant::now();
+        let key = SubChunkKey::new(0, 65, 0, 65);
+        let expectation = target_expectation(now, [(key, 7)]);
+        let probe = CompletedFrameProbe {
+            frame_sequence: 1,
+            allocation_manifest: Arc::clone(&expectation.manifest),
+            drawn_manifest: Arc::clone(&expectation.manifest),
+            expectation,
+            missing_target_instances: 0,
+            unexpected_target_instances: 0,
+            source_instances: 0,
+            foreign_instances: 0,
+            stale_generation_instances: 0,
+            orphan_allocations: 0,
+        };
+
+        assert!(
+            build_presented_frame_ack(probe, FrameCompletionEvidence::default()).is_none(),
+            "a PrepareResources write is not post-present GPU completion evidence"
+        );
+    }
+
+    #[test]
+    fn frame_probe_rejects_stale_allocation_generation() {
+        let now = Instant::now();
+        let key = SubChunkKey::new(0, 65, 0, 65);
+        let entity = Entity::from_bits(1);
+        let instance = FrameInstanceIdentity {
+            entity,
+            key,
+            generation: 7,
+        };
+        let stale_allocation = FrameAllocationIdentity {
+            entity,
+            key,
+            generation: 7,
+        };
+        let probe = FrameProbe::begin(
+            target_expectation(now, [(key, 8)]),
+            [instance],
+            [stale_allocation],
+        );
+
+        assert!(probe.record_direct_draw(entity, stale_allocation));
+        let completed = probe.complete();
+        assert_eq!(completed.stale_generation_instances, 1);
+        assert_eq!(completed.missing_target_instances, 1);
+        assert_eq!(completed.unexpected_target_instances, 1);
+    }
+
+    #[test]
+    fn frame_probe_rejects_source_foreign_and_orphan_allocations() {
+        let now = Instant::now();
+        let target_key = SubChunkKey::new(0, 65, 0, 65);
+        let source_key = SubChunkKey::new(0, 0, 0, 0);
+        let foreign_key = SubChunkKey::new(1, 65, 0, 65);
+        let target = Entity::from_bits(1);
+        let source = Entity::from_bits(2);
+        let foreign = Entity::from_bits(3);
+        let orphan = Entity::from_bits(4);
+        let instances = [
+            FrameInstanceIdentity {
+                entity: target,
+                key: target_key,
+                generation: 7,
+            },
+            FrameInstanceIdentity {
+                entity: source,
+                key: source_key,
+                generation: 1,
+            },
+            FrameInstanceIdentity {
+                entity: foreign,
+                key: foreign_key,
+                generation: 1,
+            },
+        ];
+        let allocations = [
+            FrameAllocationIdentity {
+                entity: target,
+                key: target_key,
+                generation: 7,
+            },
+            FrameAllocationIdentity {
+                entity: source,
+                key: source_key,
+                generation: 1,
+            },
+            FrameAllocationIdentity {
+                entity: foreign,
+                key: foreign_key,
+                generation: 1,
+            },
+            FrameAllocationIdentity {
+                entity: orphan,
+                key: target_key,
+                generation: 7,
+            },
+        ];
+
+        let completed = FrameProbe::begin(
+            target_expectation(now, [(target_key, 7)]),
+            instances,
+            allocations,
+        )
+        .complete();
+
+        assert_eq!(completed.source_instances, 1);
+        assert_eq!(completed.foreign_instances, 1);
+        assert_eq!(completed.orphan_allocations, 1);
+        assert_eq!(
+            completed.missing_target_instances, 0,
+            "the hidden target allocation belongs to the complete allocation manifest"
+        );
+    }
+
+    #[test]
+    fn newly_prepared_generation_is_not_acknowledged_until_a_later_draw_frame() {
+        let now = Instant::now();
+        let key = SubChunkKey::new(0, 65, 0, 65);
+        let entity = Entity::from_bits(1);
+        let instance = FrameInstanceIdentity {
+            entity,
+            key,
+            generation: 9,
+        };
+        let prepared = FrameAllocationIdentity {
+            entity,
+            key,
+            generation: 9,
+        };
+
+        let same_frame = FrameProbe::begin(target_expectation(now, [(key, 9)]), [instance], []);
+        assert!(
+            !same_frame.record_direct_draw(entity, prepared),
+            "an allocation created after Queue was eligible in its PrepareResources frame"
+        );
+        assert_eq!(same_frame.complete().missing_target_instances, 1);
+
+        let later_frame =
+            FrameProbe::begin(target_expectation(now, [(key, 9)]), [instance], [prepared]);
+        assert!(later_frame.record_direct_draw(entity, prepared));
+        assert_eq!(later_frame.complete().missing_target_instances, 0);
+    }
+
+    #[test]
+    fn direct_and_mdi_draws_publish_the_same_exact_manifest() {
+        let now = Instant::now();
+        let key_a = SubChunkKey::new(0, 64, 0, 65);
+        let key_b = SubChunkKey::new(0, 65, 0, 65);
+        let entity_a = Entity::from_bits(1);
+        let entity_b = Entity::from_bits(2);
+        let instances = [
+            FrameInstanceIdentity {
+                entity: entity_b,
+                key: key_b,
+                generation: 8,
+            },
+            FrameInstanceIdentity {
+                entity: entity_a,
+                key: key_a,
+                generation: 7,
+            },
+        ];
+        let allocations = [
+            FrameAllocationIdentity {
+                entity: entity_b,
+                key: key_b,
+                generation: 8,
+            },
+            FrameAllocationIdentity {
+                entity: entity_a,
+                key: key_a,
+                generation: 7,
+            },
+        ];
+        let expectation = target_expectation(now, [(key_a, 7), (key_b, 8)]);
+
+        let direct = FrameProbe::begin(expectation.clone(), instances, allocations);
+        assert!(direct.record_direct_draw(entity_b, allocations[0]));
+        assert!(direct.record_direct_draw(entity_a, allocations[1]));
+        let direct_manifest = direct.complete().drawn_manifest;
+
+        let mdi = FrameProbe::begin(expectation, instances, allocations);
+        assert_eq!(
+            mdi.record_mdi_draws([(entity_b, allocations[0]), (entity_a, allocations[1]),]),
+            2
+        );
+        let mdi_manifest = mdi.complete().drawn_manifest;
+
+        assert_eq!(direct_manifest.as_ref(), &[(key_a, 7), (key_b, 8)]);
+        assert_eq!(mdi_manifest, direct_manifest);
+    }
+
+    #[test]
+    fn frame_ack_requires_present_return_and_submitted_work_done_callback() {
+        let render_ready_at = Instant::now();
+        let present_returned_at = render_ready_at + std::time::Duration::from_millis(1);
+        let gpu_completed_at = present_returned_at + std::time::Duration::from_millis(1);
+        let key = SubChunkKey::new(0, 65, 0, 65);
+        let entity = Entity::from_bits(1);
+        let allocation = FrameAllocationIdentity {
+            entity,
+            key,
+            generation: 7,
+        };
+        let probe = FrameProbe::begin(
+            target_expectation(render_ready_at, [(key, 7)]),
+            [FrameInstanceIdentity {
+                entity,
+                key,
+                generation: 7,
+            }],
+            [allocation],
+        );
+        assert!(probe.record_direct_draw(entity, allocation));
+        let completed = probe.complete();
+
+        assert!(
+            build_presented_frame_ack(
+                completed.clone(),
+                FrameCompletionEvidence {
+                    present_returned_at: Some(present_returned_at),
+                    submitted_work_done_at: None,
+                },
+            )
+            .is_none()
+        );
+        assert!(
+            build_presented_frame_ack(
+                completed.clone(),
+                FrameCompletionEvidence {
+                    present_returned_at: None,
+                    submitted_work_done_at: Some(gpu_completed_at),
+                },
+            )
+            .is_none()
+        );
+        assert!(
+            build_presented_frame_ack(
+                completed.clone(),
+                FrameCompletionEvidence {
+                    present_returned_at: Some(gpu_completed_at),
+                    submitted_work_done_at: Some(present_returned_at),
+                },
+            )
+            .is_none(),
+            "GPU completion cannot precede present return"
+        );
+        let acknowledgement = build_presented_frame_ack(
+            completed,
+            FrameCompletionEvidence {
+                present_returned_at: Some(present_returned_at),
+                submitted_work_done_at: Some(gpu_completed_at),
+            },
+        )
+        .expect("both post-render signals should publish the frame");
+        assert_eq!(acknowledgement.render_ready_at, render_ready_at);
+        assert_eq!(acknowledgement.present_returned_at, present_returned_at);
+        assert_eq!(acknowledgement.gpu_completed_at, gpu_completed_at);
+    }
+
+    #[test]
+    fn shared_frame_gate_publishes_only_the_current_expectation_callback() {
+        let render_ready_at = Instant::now();
+        let key = SubChunkKey::new(0, 65, 0, 65);
+        let entity = Entity::from_bits(1);
+        let allocation = FrameAllocationIdentity {
+            entity,
+            key,
+            generation: 7,
+        };
+        let expectation = target_expectation(render_ready_at, [(key, 7)]);
+        let gate = PresentedFrameGate::default();
+        gate.set_expectation(expectation.clone());
+        assert_eq!(gate.expectation(), Some(expectation.clone()));
+
+        let probe = FrameProbe::begin(
+            expectation.clone(),
+            [FrameInstanceIdentity {
+                entity,
+                key,
+                generation: 7,
+            }],
+            [allocation],
+        );
+        assert!(probe.record_direct_draw(entity, allocation));
+        let completed = probe.complete();
+        assert!(gate.try_reserve_callback(&expectation));
+        assert!(gate.publish_reserved_probe(
+            completed.clone(),
+            render_ready_at + std::time::Duration::from_millis(1),
+            render_ready_at + std::time::Duration::from_millis(2),
+        ));
+        assert_eq!(gate.drain().len(), 1);
+
+        let mut replacement = expectation;
+        replacement.view_generation = 2;
+        assert!(gate.try_reserve_callback(&completed.expectation));
+        gate.set_expectation(replacement);
+        assert!(!gate.publish_reserved_probe(
+            completed,
+            render_ready_at + std::time::Duration::from_millis(3),
+            render_ready_at + std::time::Duration::from_millis(4),
+        ));
+        assert!(gate.drain().is_empty());
+    }
+
+    #[test]
+    fn frame_gate_bounds_in_flight_gpu_callbacks() {
+        let render_ready_at = Instant::now();
+        let key = SubChunkKey::new(0, 65, 0, 65);
+        let entity = Entity::from_bits(1);
+        let allocation = FrameAllocationIdentity {
+            entity,
+            key,
+            generation: 7,
+        };
+        let expectation = target_expectation(render_ready_at, [(key, 7)]);
+        let gate = PresentedFrameGate::default();
+        gate.set_expectation(expectation.clone());
+        let completed = FrameProbe::begin(
+            expectation.clone(),
+            [FrameInstanceIdentity {
+                entity,
+                key,
+                generation: 7,
+            }],
+            [allocation],
+        )
+        .complete();
+
+        for _ in 0..DEFAULT_PRESENTED_FRAME_ACK_CAPACITY {
+            assert!(gate.try_reserve_callback(&expectation));
+        }
+        assert!(
+            !gate.try_reserve_callback(&expectation),
+            "a stalled GPU allowed an unbounded callback reservation"
+        );
+
+        assert!(gate.publish_reserved_probe(
+            completed,
+            render_ready_at + std::time::Duration::from_millis(1),
+            render_ready_at + std::time::Duration::from_millis(2),
+        ));
+        assert!(gate.try_reserve_callback(&expectation));
+    }
+
+    #[test]
+    fn duplicate_target_allocations_cannot_satisfy_exact_manifest() {
+        let now = Instant::now();
+        let key = SubChunkKey::new(0, 65, 0, 65);
+        let first = Entity::from_bits(1);
+        let duplicate = Entity::from_bits(2);
+        let completed = FrameProbe::begin(
+            target_expectation(now, [(key, 7)]),
+            [
+                FrameInstanceIdentity {
+                    entity: first,
+                    key,
+                    generation: 7,
+                },
+                FrameInstanceIdentity {
+                    entity: duplicate,
+                    key,
+                    generation: 7,
+                },
+            ],
+            [
+                FrameAllocationIdentity {
+                    entity: first,
+                    key,
+                    generation: 7,
+                },
+                FrameAllocationIdentity {
+                    entity: duplicate,
+                    key,
+                    generation: 7,
+                },
+            ],
+        )
+        .complete();
+
+        assert_eq!(completed.allocation_manifest.as_ref(), &[(key, 7)]);
+        assert_eq!(completed.missing_target_instances, 0);
+        assert_eq!(
+            completed.unexpected_target_instances, 1,
+            "duplicate target allocation multiplicity was collapsed into an exact set"
+        );
+    }
+
+    #[test]
+    fn two_identical_partial_manifests_do_not_satisfy_the_expected_target_manifest() {
+        let render_ready_at = Instant::now();
+        let key_a = SubChunkKey::new(0, 64, 0, 65);
+        let key_b = SubChunkKey::new(0, 65, 0, 65);
+        let entity_a = Entity::from_bits(1);
+        let allocation_a = FrameAllocationIdentity {
+            entity: entity_a,
+            key: key_a,
+            generation: 7,
+        };
+        let expectation = target_expectation(render_ready_at, [(key_a, 7), (key_b, 7)]);
+        let probe = FrameProbe::begin(
+            expectation,
+            [FrameInstanceIdentity {
+                entity: entity_a,
+                key: key_a,
+                generation: 7,
+            }],
+            [allocation_a],
+        );
+        assert!(probe.record_direct_draw(entity_a, allocation_a));
+        let completed = probe.complete();
+        let first = build_presented_frame_ack(
+            completed.clone(),
+            FrameCompletionEvidence {
+                present_returned_at: Some(render_ready_at + std::time::Duration::from_millis(1)),
+                submitted_work_done_at: Some(render_ready_at + std::time::Duration::from_millis(2)),
+            },
+        )
+        .unwrap();
+        let second = build_presented_frame_ack(
+            completed,
+            FrameCompletionEvidence {
+                present_returned_at: Some(render_ready_at + std::time::Duration::from_millis(3)),
+                submitted_work_done_at: Some(render_ready_at + std::time::Duration::from_millis(4)),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(first.allocation_manifest.as_ref(), &[(key_a, 7)]);
+        assert_eq!(second.allocation_manifest, first.allocation_manifest);
+        assert_eq!(first.missing_target_instances, 1);
+        assert_eq!(second.missing_target_instances, 1);
+        assert!(!first.is_exact());
+        assert!(!first.forms_stable_exact_pair_with(&second));
+    }
+
+    #[test]
+    fn skipped_render_frame_sequence_cannot_form_a_stable_pair() {
+        let render_ready_at = Instant::now();
+        let key = SubChunkKey::new(0, 65, 0, 65);
+        let entity = Entity::from_bits(1);
+        let allocation = FrameAllocationIdentity {
+            entity,
+            key,
+            generation: 7,
+        };
+        let frame_probe = ActiveFrameProbe::default();
+        let completed_frame = || {
+            frame_probe.begin(FrameProbe::begin(
+                target_expectation(render_ready_at, [(key, 7)]),
+                [FrameInstanceIdentity {
+                    entity,
+                    key,
+                    generation: 7,
+                }],
+                [allocation],
+            ));
+            frame_probe.take_completed().unwrap()
+        };
+        let acknowledgement = |probe, present_offset, gpu_offset| {
+            build_presented_frame_ack(
+                probe,
+                FrameCompletionEvidence {
+                    present_returned_at: Some(
+                        render_ready_at + std::time::Duration::from_millis(present_offset),
+                    ),
+                    submitted_work_done_at: Some(
+                        render_ready_at + std::time::Duration::from_millis(gpu_offset),
+                    ),
+                },
+            )
+            .unwrap()
+        };
+        let first_probe = completed_frame();
+        let adjacent_probe = completed_frame();
+        let skipped_probe = completed_frame();
+        assert_eq!(first_probe.frame_sequence, 1);
+        assert_eq!(adjacent_probe.frame_sequence, 2);
+        assert_eq!(skipped_probe.frame_sequence, 3);
+        let first = acknowledgement(first_probe, 1, 2);
+        let adjacent = acknowledgement(adjacent_probe, 3, 4);
+        let skipped = acknowledgement(skipped_probe, 5, 6);
+
+        assert!(first.forms_stable_exact_pair_with(&adjacent));
+        assert!(
+            !first.forms_stable_exact_pair_with(&skipped),
+            "non-adjacent target render frames formed a consecutive stable pair"
+        );
+    }
+
+    #[test]
+    fn target_expectation_freezes_a_sorted_independent_complete_manifest() {
+        let now = Instant::now();
+        let target_a = SubChunkKey::new(0, 64, 0, 65);
+        let target_b = SubChunkKey::new(0, 65, 0, 65);
+        let foreign = SubChunkKey::new(0, 100, 0, 100);
+        let mut queue = ChunkRenderQueue::default();
+        queue
+            .render_manifest
+            .extend([(target_b, 8), (foreign, 99), (target_a, 7)]);
+
+        let expectation = queue.freeze_target_expectation(
+            RenderViewCohort::new(0, [65, 65], 16),
+            Some(RenderViewCohort::new(0, [0, 0], 16)),
+            4,
+            now,
+        );
+
+        assert_eq!(
+            expectation.manifest.as_ref(),
+            &[(target_a, 7), (target_b, 8)]
+        );
+        assert_eq!(expectation.view_generation, 4);
+        assert_eq!(expectation.render_ready_at, now);
+    }
+
+    #[test]
+    fn accepted_tracked_queue_changes_maintain_the_expected_generation_manifest() {
+        let now = Instant::now();
+        let key = SubChunkKey::new(0, 65, 0, 65);
+        let cohort = RenderViewCohort::new(0, [65, 65], 16);
+        let mut queue = ChunkRenderQueue::default();
+        queue
+            .try_update_tracked(
+                key,
+                solid_test_mesh(),
+                ChunkUploadPriority::new(0.0),
+                ChunkUploadToken {
+                    generation: 7,
+                    dirty_since: now,
+                },
+            )
+            .unwrap();
+
+        assert_eq!(
+            queue
+                .freeze_target_expectation(cohort, None, 1, now)
+                .manifest
+                .as_ref(),
+            &[(key, 7)]
+        );
+
+        queue
+            .try_remove_tracked(
+                key,
+                ChunkUploadPriority::new(0.0),
+                ChunkUploadToken {
+                    generation: 8,
+                    dirty_since: now,
+                },
+            )
+            .unwrap();
+        assert!(
+            queue
+                .freeze_target_expectation(cohort, None, 1, now)
+                .manifest
+                .is_empty()
+        );
+    }
 
     #[test]
     fn indexed_indirect_commands_preserve_order_and_encode_quad_and_origin_ranges() {
         let allocations = [
             GpuChunkAllocation {
+                key: SubChunkKey::new(0, 0, 0, 0),
+                generation: 1,
                 quad_range: 17..23,
                 metadata_index: 4,
             },
             GpuChunkAllocation {
+                key: SubChunkKey::new(0, 1, 0, 0),
+                generation: 2,
                 quad_range: 4..9,
                 metadata_index: 1,
             },
@@ -2351,6 +3595,7 @@ mod tests {
             view,
             ChunkIndirectBatch {
                 visible_entities: Vec::new(),
+                drawn_allocations: Vec::new(),
                 indirect_offset: 40,
                 command_count: 0,
             },
