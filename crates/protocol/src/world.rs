@@ -184,13 +184,13 @@ pub struct MovePlayerEvent {
 
 /// One live biome definition reduced to the fields required by tint lookup.
 ///
-/// `id` is the signed wire value. In particular, Dragonfly uses `-1` for
-/// vanilla biomes and expects clients to resolve those entries by `name`.
+/// `biome_id` preserves the unsigned wire value except that `0xffff` is the
+/// vanilla name-resolved sentinel and is represented as `None`.
 /// Dragonfly's chunk palettes contain the separate stable `EncodeBiome()`
 /// value; neither definition packet order nor `name_index` is that palette ID.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BiomeDefinitionEvent {
-    pub id: i16,
+    pub biome_id: Option<u16>,
     pub name: Arc<str>,
     pub temperature: f32,
     pub downfall: f32,
@@ -312,7 +312,7 @@ pub fn into_world_event(
                 }
                 let name = canonical_biome_name(name);
                 definitions.push(BiomeDefinitionEvent {
-                    id: definition.biome_id as i16,
+                    biome_id: (definition.biome_id != u16::MAX).then_some(definition.biome_id),
                     name,
                     temperature: definition.temperature,
                     downfall: definition.downfall,

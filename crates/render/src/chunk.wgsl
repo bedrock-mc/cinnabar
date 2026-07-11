@@ -17,8 +17,12 @@ struct MaterialGpu {
 struct BiomeTintGpu {
     grass: u32,
     foliage: u32,
+    birch: u32,
+    evergreen: u32,
+    dry_foliage: u32,
     water: u32,
     flags: u32,
+    padding: u32,
 }
 
 @group(0) @binding(0) var<uniform> view: View;
@@ -226,6 +230,7 @@ fn packed_biome_tint_index(record: u32, coordinate: vec3<u32>) -> u32 {
 
 fn biome_tint(
     tint_kind: u32,
+    material_flags: u32,
     record: u32,
     local_position: vec3<f32>,
     normal: vec3<f32>,
@@ -239,10 +244,15 @@ fn biome_tint(
     if (tint_kind == 0x10u) {
         return unpack_linear_rgb10(tint.grass);
     }
-    if (tint_kind == 0x20u) {
-        return unpack_linear_rgb10(tint.foliage);
+    if (tint_kind == 0x30u) {
+        return unpack_linear_rgb10(tint.water);
     }
-    return unpack_linear_rgb10(tint.water);
+    switch material_flags & 0x600u {
+        case 0x200u: { return unpack_linear_rgb10(tint.birch); }
+        case 0x400u: { return unpack_linear_rgb10(tint.evergreen); }
+        case 0x600u: { return unpack_linear_rgb10(tint.dry_foliage); }
+        default: { return unpack_linear_rgb10(tint.foliage); }
+    }
 }
 
 fn apply_material_tint(
@@ -254,7 +264,13 @@ fn apply_material_tint(
 ) -> vec4<f32> {
     let tint_kind = material_flags & 0x30u;
     if (tint_kind != 0u) {
-        let tinted = sampled.rgb * biome_tint(tint_kind, biome_record, local_position, normal);
+        let tinted = sampled.rgb * biome_tint(
+            tint_kind,
+            material_flags,
+            biome_record,
+            local_position,
+            normal,
+        );
         if ((material_flags & (1u << 6u)) != 0u) {
             // Grass-side alpha is an overlay weight, not transparency. Its
             // alpha-zero RGB contains the opaque dirt base.

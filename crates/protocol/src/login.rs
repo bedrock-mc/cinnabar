@@ -286,7 +286,7 @@ mod tests {
         let WorldEvent::BiomeDefinitions(event) = event.expect("biome definitions event") else {
             panic!("expected biome definitions")
         };
-        assert_eq!(event.definitions[0].id, -1);
+        assert_eq!(event.definitions[0].biome_id, None);
         assert_eq!(event.definitions[0].name.as_ref(), "minecraft:plains");
     }
 }

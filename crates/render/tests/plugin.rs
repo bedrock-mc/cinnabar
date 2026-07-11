@@ -353,6 +353,12 @@ fn packed_chunk_shader_parses_and_validates() {
     assert!(shader.contains("(coordinate.x << 8u) | (coordinate.z << 4u) | coordinate.y"));
     assert!(shader.contains("fn packed_biome_tint_index"));
     assert!(shader.contains("fn unpack_linear_rgb10"));
+    assert!(shader.contains("if (tint_kind == 0x10u)"));
+    assert!(shader.contains("if (tint_kind == 0x30u)"));
+    assert!(shader.contains("switch material_flags & 0x600u"));
+    assert!(shader.contains("case 0x200u"));
+    assert!(shader.contains("case 0x400u"));
+    assert!(shader.contains("case 0x600u"));
     assert!(!shader.contains("debug_color"));
 }
 
@@ -411,6 +417,32 @@ fn render_queue_counts_and_extracts_non_fallback_biome_records() {
         .single(app.world())
         .unwrap();
     assert_eq!(instance.biome_record(), &biome);
+}
+
+#[test]
+fn render_queue_carries_biome_tint_revision_to_the_instance() {
+    let key = SubChunkKey::new(0, 0, 0, 0);
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .add_plugins(DebugWorldPlugin::new(1));
+    app.world_mut()
+        .resource_mut::<ChunkRenderQueue>()
+        .try_insert_with_biome_revision(
+            key,
+            solid_mesh(1),
+            uniform_biome_record(7),
+            9,
+            ChunkUploadPriority::new(0.0),
+        )
+        .unwrap();
+
+    app.update();
+    let instance = app
+        .world_mut()
+        .query::<&ChunkRenderInstance>()
+        .single(app.world())
+        .unwrap();
+    assert_eq!(instance.tint_revision(), 9);
 }
 
 #[test]

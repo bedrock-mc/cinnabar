@@ -29,6 +29,42 @@ fn biome_definition(name_index: i16, biome_id: i16) -> BiomeDefinition {
 }
 
 #[test]
+fn biome_definition_ids_preserve_the_u16_wire_contract() {
+    let packet = BiomeDefinitionListPacket {
+        biome_definitions: vec![
+            BiomeDefinition {
+                name_index: 0,
+                biome_id: u16::MAX,
+                ..biome_definition(0, 0)
+            },
+            BiomeDefinition {
+                name_index: 1,
+                biome_id: 0xfffe,
+                ..biome_definition(0, 0)
+            },
+            BiomeDefinition {
+                name_index: 2,
+                biome_id: 600,
+                ..biome_definition(0, 0)
+            },
+        ],
+        string_list: vec![
+            "plains".into(),
+            "custom:high".into(),
+            "custom:normal".into(),
+        ],
+    };
+
+    let WorldEvent::BiomeDefinitions(event) = into_world_event(packet.into(), 0).unwrap().unwrap()
+    else {
+        panic!("expected biome definitions")
+    };
+    assert_eq!(event.definitions[0].biome_id, None);
+    assert_eq!(event.definitions[1].biome_id, Some(0xfffe));
+    assert_eq!(event.definitions[2].biome_id, Some(600));
+}
+
+#[test]
 fn normalizes_live_biomes_by_name_without_synthesizing_packet_order_ids() {
     let packet = BiomeDefinitionListPacket {
         biome_definitions: vec![biome_definition(1, -1), biome_definition(0, 600)],
@@ -41,7 +77,7 @@ fn normalizes_live_biomes_by_name_without_synthesizing_packet_order_ids() {
         WorldEvent::BiomeDefinitions(BiomeDefinitionsEvent {
             definitions: vec![
                 BiomeDefinitionEvent {
-                    id: -1,
+                    biome_id: None,
                     name: "minecraft:plains".into(),
                     temperature: 0.8,
                     downfall: 0.4,
@@ -49,7 +85,7 @@ fn normalizes_live_biomes_by_name_without_synthesizing_packet_order_ids() {
                     map_water_color: 0xff11_2233,
                 },
                 BiomeDefinitionEvent {
-                    id: 600,
+                    biome_id: Some(600),
                     name: "violet_marsh".into(),
                     temperature: 0.8,
                     downfall: 0.4,
@@ -67,9 +103,9 @@ fn normalizes_live_biomes_by_name_without_synthesizing_packet_order_ids() {
         event
             .definitions
             .iter()
-            .map(|definition| definition.id)
+            .map(|definition| definition.biome_id)
             .collect::<Vec<_>>(),
-        [-1, 600],
+        [None, Some(600)],
         "random definition packet order/name_index must not become palette IDs"
     );
 }

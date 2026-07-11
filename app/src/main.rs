@@ -31,9 +31,9 @@ use metrics::{
 };
 use network::{NetworkConfig, NetworkControlEvent, NetworkHandle, spawn_network};
 use render::{
-    ChunkRenderInstance, ChunkRenderQueue, ChunkTextureAssets, ChunkUploadAcknowledgements,
-    ChunkUploadPriority, ChunkUploadToken, DebugWorldPlugin, PresentedFrameAck, PresentedFrameGate,
-    RenderViewCohort, TargetRenderExpectation,
+    ChunkBiomeTints, ChunkRenderInstance, ChunkRenderQueue, ChunkTextureAssets,
+    ChunkUploadAcknowledgements, ChunkUploadPriority, ChunkUploadToken, DebugWorldPlugin,
+    PresentedFrameAck, PresentedFrameGate, RenderViewCohort, TargetRenderExpectation,
 };
 use server_position::SAFE_SERVER_HEIGHT;
 use world::SubChunkKey;
@@ -82,6 +82,24 @@ impl ClientWorld {
             reported_decode_errors: 0,
         }
     }
+}
+
+fn startup_biome_tints(runtime_assets: &RuntimeAssets) -> ChunkBiomeTints {
+    let resolved = runtime_assets
+        .biome_assets()
+        .resolve_live(&[])
+        .expect("validated startup biome assets resolve without live definitions");
+    ChunkBiomeTints::from_resolved(&resolved, 0)
+}
+
+fn synchronize_biome_tints(stream: &WorldStream, active: &mut ChunkBiomeTints) -> bool {
+    let revision = stream.biome_tint_revision();
+    if active.revision() == revision {
+        return false;
+    }
+    let resolved = stream.resolved_biome_tints_snapshot();
+    *active = ChunkBiomeTints::from_resolved(&resolved, revision);
+    true
 }
 
 #[derive(Resource, Default)]
@@ -1902,6 +1920,7 @@ fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(ClearColor(Color::srgb(0.46, 0.70, 0.92)))
     .insert_resource(network)
     .insert_resource(ClientWorld::new(Arc::clone(&runtime_assets)))
+    .insert_resource(startup_biome_tints(&runtime_assets))
     .insert_resource(ChunkTextureAssets::new(runtime_assets))
     .insert_resource(CaveVisibilityCache::default())
     .insert_resource(AppMetrics(MetricsCollector::with_asset_metrics(
@@ -2129,6 +2148,7 @@ fn drive_world_stream(
     mut acceptance: ResMut<AcceptanceRun>,
     mut metrics: ResMut<AppMetrics>,
     mut render_queue: ResMut<ChunkRenderQueue>,
+    mut biome_tints: ResMut<ChunkBiomeTints>,
     mut diagnostic_quads: ResMut<DiagnosticQuads>,
     acknowledgements: Res<ChunkUploadAcknowledgements>,
     mut camera: Query<&mut Transform, With<FlyCamera>>,
@@ -2136,6 +2156,7 @@ fn drive_world_stream(
     let Some(stream) = client_world.stream.as_mut() else {
         return;
     };
+    synchronize_biome_tints(stream, &mut biome_tints);
     for acknowledgement in acknowledgements.drain() {
         render_queue.record_gpu_upload_bytes(acknowledgement.uploaded_bytes);
         if let Some(latency) = acceptance.acknowledge_mutation(
@@ -2203,6 +2224,8 @@ fn drive_world_stream(
                 WorldMeshChange::Upsert {
                     key,
                     mesh,
+                    biome,
+                    tint_revision,
                     generation,
                     dirty_since,
                 } => {
@@ -2213,9 +2236,11 @@ fn drive_world_stream(
                             .count(),
                     )
                     .unwrap_or(u64::MAX);
-                    match render_queue.try_update_tracked(
+                    match render_queue.try_update_tracked_with_biome_revision(
                         key,
                         mesh,
+                        biome,
+                        tint_revision,
                         ChunkUploadPriority::from_camera(key, camera_position),
                         ChunkUploadToken {
                             generation,
@@ -2226,9 +2251,11 @@ fn drive_world_stream(
                             diagnostic_quads.0.upsert(key, diagnostic_count);
                             None
                         }
-                        Err(mesh) => Some(WorldMeshChange::Upsert {
+                        Err((mesh, biome)) => Some(WorldMeshChange::Upsert {
                             key,
                             mesh,
+                            biome,
+                            tint_revision,
                             generation,
                             dirty_since,
                         }),
@@ -2886,10 +2913,12 @@ fn cumulative_counter_delta(current: u64, previous: u64) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    use assets::RuntimeAssets;
     use bevy::prelude::{Quat, Transform, Vec3};
     use protocol::{
-        BlockUpdateEvent, LevelChunkEvent, LevelChunkMode, SubChunkBatchEvent, SubChunkEntryEvent,
-        SubChunkResult, WorldBootstrap, WorldEvent,
+        BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockUpdateEvent, LevelChunkEvent,
+        LevelChunkMode, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkResult, WorldBootstrap,
+        WorldEvent,
     };
     use render::{PresentedFrameAck, RenderViewCohort, TargetRenderExpectation};
     use std::{
@@ -2910,7 +2939,8 @@ mod tests {
         bedrock_camera_rotation, camera_sub_chunk_key, cumulative_counter_delta,
         deterministic_mutation_coordinate, drain_network_controls, drain_network_ingress,
         flush_sub_chunk_requests, leaf_forest_target_mutation_coordinate, record_fatal_error,
-        resolve_socket_dir_from, status_title, target_mutation_armed_marker, world_ready_markers,
+        resolve_socket_dir_from, startup_biome_tints, status_title, synchronize_biome_tints,
+        target_mutation_armed_marker, world_ready_markers,
         write_move_player_ingress_before_source_capture,
     };
 
@@ -2934,6 +2964,49 @@ mod tests {
             std::thread::yield_now();
         }
         panic!("world stream decode did not complete");
+    }
+
+    #[test]
+    fn compiled_and_live_biome_tables_synchronize_without_a_revision_gap() {
+        let runtime_assets = Arc::new(RuntimeAssets::diagnostic());
+        let mut active = startup_biome_tints(&runtime_assets);
+        let initial = runtime_assets.biome_assets().resolve_live(&[]).unwrap();
+        assert_eq!(active.entries().len(), initial.records.len());
+        assert_eq!(active.revision(), 0);
+
+        let mut stream = WorldStream::new_with_assets(
+            WorldBootstrap {
+                dimension: 0,
+                local_player_runtime_id: 1,
+                player_position: [0.0; 3],
+                world_spawn_position: [0; 3],
+                air_network_id: 12_530,
+                block_network_ids_are_hashes: false,
+            },
+            runtime_assets,
+            [0.0, 96.0, 0.0],
+            None,
+        );
+        stream
+            .submit(
+                1,
+                WorldEvent::BiomeDefinitions(BiomeDefinitionsEvent {
+                    definitions: Arc::from([BiomeDefinitionEvent {
+                        biome_id: Some(42),
+                        name: Arc::from("example:live"),
+                        temperature: 0.8,
+                        downfall: 0.4,
+                        snow_foliage: 0.0,
+                        map_water_color: 0xff44_6688,
+                    }]),
+                }),
+            )
+            .unwrap();
+
+        assert!(synchronize_biome_tints(&stream, &mut active));
+        assert_eq!(active.revision(), stream.biome_tint_revision());
+        assert_eq!(active.entries().len(), 2);
+        assert!(!synchronize_biome_tints(&stream, &mut active));
     }
 
     fn settled_world_snapshot() -> WorldReadySnapshot {

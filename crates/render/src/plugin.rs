@@ -5,7 +5,7 @@ use std::{
     time::Instant,
 };
 
-use assets::{RuntimeAssets, TextureArray};
+use assets::{ResolvedBiomeTints, RuntimeAssets, TextureArray};
 use bevy::{
     asset::{AssetId, load_internal_asset, uuid_handle},
     camera::{
@@ -80,7 +80,11 @@ const MATERIAL_UV_ROTATION_MASK: u32 = 0b11;
 pub struct BiomeTint {
     pub grass: [f32; 3],
     pub foliage: [f32; 3],
+    pub birch: [f32; 3],
+    pub evergreen: [f32; 3],
+    pub dry_foliage: [f32; 3],
     pub water: [f32; 3],
+    pub flags: u32,
 }
 
 impl Default for BiomeTint {
@@ -88,7 +92,11 @@ impl Default for BiomeTint {
         Self {
             grass: [0.191_201_69, 0.527_115_1, 0.102_241_73],
             foliage: [0.191_201_69, 0.527_115_1, 0.102_241_73],
+            birch: [0.191_201_69, 0.527_115_1, 0.102_241_73],
+            evergreen: [0.191_201_69, 0.527_115_1, 0.102_241_73],
+            dry_foliage: [0.191_201_69, 0.527_115_1, 0.102_241_73],
             water: [1.0; 3],
+            flags: 0,
         }
     }
 }
@@ -111,6 +119,30 @@ impl Default for ChunkBiomeTints {
 }
 
 impl ChunkBiomeTints {
+    #[must_use]
+    pub fn from_resolved(resolved: &ResolvedBiomeTints, revision: u64) -> Self {
+        let entries = resolved
+            .records
+            .iter()
+            .map(|record| BiomeTint {
+                grass: record.grass[..3].try_into().expect("three grass channels"),
+                foliage: record.foliage[..3]
+                    .try_into()
+                    .expect("three foliage channels"),
+                birch: record.birch[..3].try_into().expect("three birch channels"),
+                evergreen: record.evergreen[..3]
+                    .try_into()
+                    .expect("three evergreen channels"),
+                dry_foliage: record.dry_foliage[..3]
+                    .try_into()
+                    .expect("three dry foliage channels"),
+                water: record.water[..3].try_into().expect("three water channels"),
+                flags: record.flags,
+            })
+            .collect::<Vec<_>>();
+        Self::with_revision(Arc::from(entries), revision)
+    }
+
     /// Replaces tint colours while retaining the dense index contract used by
     /// queued [`PackedBiomeRecord`] palettes. Callers that change index
     /// assignments must enqueue replacement records with the same revision.
@@ -434,6 +466,7 @@ impl PartialOrd for ChunkUploadPriority {
 struct PendingUpload {
     mesh: ChunkMesh,
     biome: PackedBiomeRecord,
+    tint_revision: u64,
     priority: ChunkUploadPriority,
     generation: u64,
     token: Option<ChunkUploadToken>,
@@ -1173,7 +1206,7 @@ impl ChunkRenderQueue {
         mesh: ChunkMesh,
         priority: ChunkUploadPriority,
     ) -> Result<(), ChunkMesh> {
-        self.try_enqueue(key, mesh, PackedBiomeRecord::fallback(), priority, None)
+        self.try_enqueue(key, mesh, PackedBiomeRecord::fallback(), 0, priority, None)
             .map_err(|(mesh, _)| mesh)
     }
 
@@ -1184,7 +1217,18 @@ impl ChunkRenderQueue {
         biome: PackedBiomeRecord,
         priority: ChunkUploadPriority,
     ) -> Result<(), (ChunkMesh, PackedBiomeRecord)> {
-        self.try_enqueue(key, mesh, biome, priority, None)
+        self.try_enqueue(key, mesh, biome, 0, priority, None)
+    }
+
+    pub fn try_insert_with_biome_revision(
+        &mut self,
+        key: SubChunkKey,
+        mesh: ChunkMesh,
+        biome: PackedBiomeRecord,
+        tint_revision: u64,
+        priority: ChunkUploadPriority,
+    ) -> Result<(), (ChunkMesh, PackedBiomeRecord)> {
+        self.try_enqueue(key, mesh, biome, tint_revision, priority, None)
     }
 
     pub fn try_update(
@@ -1193,7 +1237,7 @@ impl ChunkRenderQueue {
         mesh: ChunkMesh,
         priority: ChunkUploadPriority,
     ) -> Result<(), ChunkMesh> {
-        self.try_enqueue(key, mesh, PackedBiomeRecord::fallback(), priority, None)
+        self.try_enqueue(key, mesh, PackedBiomeRecord::fallback(), 0, priority, None)
             .map_err(|(mesh, _)| mesh)
     }
 
@@ -1204,7 +1248,7 @@ impl ChunkRenderQueue {
         biome: PackedBiomeRecord,
         priority: ChunkUploadPriority,
     ) -> Result<(), (ChunkMesh, PackedBiomeRecord)> {
-        self.try_enqueue(key, mesh, biome, priority, None)
+        self.try_enqueue(key, mesh, biome, 0, priority, None)
     }
 
     pub fn try_update_tracked(
@@ -1218,6 +1262,7 @@ impl ChunkRenderQueue {
             key,
             mesh,
             PackedBiomeRecord::fallback(),
+            0,
             priority,
             Some(token),
         )
@@ -1232,7 +1277,19 @@ impl ChunkRenderQueue {
         priority: ChunkUploadPriority,
         token: ChunkUploadToken,
     ) -> Result<(), (ChunkMesh, PackedBiomeRecord)> {
-        self.try_enqueue(key, mesh, biome, priority, Some(token))
+        self.try_enqueue(key, mesh, biome, 0, priority, Some(token))
+    }
+
+    pub fn try_update_tracked_with_biome_revision(
+        &mut self,
+        key: SubChunkKey,
+        mesh: ChunkMesh,
+        biome: PackedBiomeRecord,
+        tint_revision: u64,
+        priority: ChunkUploadPriority,
+        token: ChunkUploadToken,
+    ) -> Result<(), (ChunkMesh, PackedBiomeRecord)> {
+        self.try_enqueue(key, mesh, biome, tint_revision, priority, Some(token))
     }
 
     pub fn try_remove(&mut self, key: SubChunkKey) -> Result<(), SubChunkKey> {
@@ -1320,6 +1377,7 @@ impl ChunkRenderQueue {
         key: SubChunkKey,
         mesh: ChunkMesh,
         biome: PackedBiomeRecord,
+        tint_revision: u64,
         priority: ChunkUploadPriority,
         token: Option<ChunkUploadToken>,
     ) -> Result<(), (ChunkMesh, PackedBiomeRecord)> {
@@ -1350,6 +1408,7 @@ impl ChunkRenderQueue {
             PendingUpload {
                 mesh,
                 biome,
+                tint_revision,
                 priority,
                 generation,
                 token,
@@ -1387,6 +1446,7 @@ pub struct ChunkRenderInstance {
     key: SubChunkKey,
     quads: Arc<[PackedQuad]>,
     biome: PackedBiomeRecord,
+    tint_revision: u64,
     generation: u64,
     token: Option<ChunkUploadToken>,
     origin: [i32; 3],
@@ -1411,6 +1471,11 @@ impl ChunkRenderInstance {
     #[must_use]
     pub const fn biome_record(&self) -> &PackedBiomeRecord {
         &self.biome
+    }
+
+    #[must_use]
+    pub const fn tint_revision(&self) -> u64 {
+        self.tint_revision
     }
 }
 
@@ -1575,6 +1640,7 @@ fn apply_chunk_render_queue(
             key,
             quads: Arc::from(pending.mesh.into_quads()),
             biome: pending.biome,
+            tint_revision: pending.tint_revision,
             generation: pending.generation,
             token: pending.token,
             origin,
@@ -1766,6 +1832,7 @@ impl Specializer<RenderPipeline> for ChunkPipelineSpecializer {
 struct GpuChunkAllocation {
     key: SubChunkKey,
     generation: u64,
+    tint_revision: u64,
     quad_range: Range<u32>,
     metadata_index: u32,
 }
@@ -1848,6 +1915,7 @@ struct ChunkIndirectBatches(HashMap<Entity, ChunkIndirectBatch>);
 #[derive(Clone)]
 struct ArenaAllocation {
     generation: u64,
+    tint_revision: u64,
     quad_capacity: u32,
     biome_range: Range<u32>,
     biome_capacity: u32,
@@ -1877,11 +1945,15 @@ struct MaterialGpu {
 struct BiomeTintGpu {
     grass: u32,
     foliage: u32,
+    birch: u32,
+    evergreen: u32,
+    dry_foliage: u32,
     water: u32,
     flags: u32,
+    _padding: u32,
 }
 
-const _: () = assert!(std::mem::size_of::<BiomeTintGpu>() == 16);
+const _: () = assert!(std::mem::size_of::<BiomeTintGpu>() == 32);
 
 fn pack_linear_rgb10(rgb: [f32; 3]) -> u32 {
     let component = |value: f32| {
@@ -1900,8 +1972,12 @@ fn prepare_biome_tint_entries(entries: &[BiomeTint]) -> Vec<BiomeTintGpu> {
         .map(|entry| BiomeTintGpu {
             grass: pack_linear_rgb10(entry.grass),
             foliage: pack_linear_rgb10(entry.foliage),
+            birch: pack_linear_rgb10(entry.birch),
+            evergreen: pack_linear_rgb10(entry.evergreen),
+            dry_foliage: pack_linear_rgb10(entry.dry_foliage),
             water: pack_linear_rgb10(entry.water),
-            flags: 0,
+            flags: entry.flags,
+            _padding: 0,
         })
         .collect()
 }
@@ -2263,6 +2339,11 @@ struct GpuUpdateCandidate {
     entity: Entity,
     key: SubChunkKey,
     generation: u64,
+    tint_revision: u64,
+}
+
+const fn chunk_tint_revision_is_active(record_revision: u64, active_revision: u64) -> bool {
+    record_revision == active_revision
 }
 
 fn plan_gpu_chunk_updates(
@@ -2271,9 +2352,10 @@ fn plan_gpu_chunk_updates(
     camera_position: Vec3,
 ) -> Vec<Entity> {
     candidates.retain(|candidate| {
-        allocations
-            .get(&candidate.entity)
-            .is_none_or(|allocation| allocation.generation != candidate.generation)
+        allocations.get(&candidate.entity).is_none_or(|allocation| {
+            allocation.generation != candidate.generation
+                || allocation.tint_revision != candidate.tint_revision
+        })
     });
     candidates.sort_by(|left, right| {
         ChunkUploadPriority::from_camera(left.key, camera_position)
@@ -2298,16 +2380,21 @@ fn prepare_gpu_chunks(
     mut arena: ResMut<ChunkGpuArena>,
     budget: Res<ChunkUploadBudget>,
     mut upload_stats: ResMut<ChunkGpuUploadStats>,
+    biome_tints: Res<ChunkBiomeTints>,
     acknowledgements: Res<ChunkUploadAcknowledgements>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
 ) {
     let candidates = instances
         .iter()
+        .filter(|(_, instance)| {
+            chunk_tint_revision_is_active(instance.tint_revision, biome_tints.revision())
+        })
         .map(|(entity, instance)| GpuUpdateCandidate {
             entity,
             key: instance.key,
             generation: instance.generation,
+            tint_revision: instance.tint_revision,
         })
         .collect();
     let camera_position = views
@@ -2395,6 +2482,7 @@ fn prepare_gpu_chunks(
         let gpu = GpuChunkAllocation {
             key: instance.key,
             generation: instance.generation,
+            tint_revision: instance.tint_revision,
             quad_range: quad_start..quad_end,
             metadata_index,
         };
@@ -2403,6 +2491,7 @@ fn prepare_gpu_chunks(
             entity,
             ArenaAllocation {
                 generation: instance.generation,
+                tint_revision: instance.tint_revision,
                 quad_capacity,
                 biome_range: biome_start..biome_start + biome_required,
                 biome_capacity,
@@ -2681,6 +2770,7 @@ fn buffer_byte_len(item_count: usize, item_bytes: u64) -> u64 {
         .saturating_mul(item_bytes)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn account_chunk_gpu_uploads(
     budget: ChunkUploadBudget,
     chunk_updates: usize,
@@ -2944,6 +3034,7 @@ fn prepare_chunk_indirect_batches(
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     allocations: Query<&GpuChunkAllocation>,
+    biome_tints: Res<ChunkBiomeTints>,
     frame_probe: Res<ActiveFrameProbe>,
     mut batches: ResMut<ChunkIndirectBatches>,
     mut arena: ResMut<ChunkGpuArena>,
@@ -2956,6 +3047,9 @@ fn prepare_chunk_indirect_batches(
             let Ok(allocation) = allocations.get(entity) else {
                 continue;
             };
+            if !chunk_tint_revision_is_active(allocation.tint_revision, biome_tints.revision()) {
+                continue;
+            }
             let identity = FrameAllocationIdentity {
                 entity,
                 key: allocation.key,
@@ -3017,6 +3111,7 @@ fn queue_chunks(
     instances: Query<(Entity, &ChunkRenderInstance)>,
     allocations: Query<&GpuChunkAllocation>,
     arena: Res<ChunkGpuArena>,
+    biome_tints: Res<ChunkBiomeTints>,
     presented_frame_gate: Res<PresentedFrameGate>,
     frame_probe: Res<ActiveFrameProbe>,
     mut indirect_batches: ResMut<ChunkIndirectBatches>,
@@ -3088,14 +3183,15 @@ fn queue_chunks(
             .into_iter()
             .filter(|(entity, _)| {
                 allocations.get(*entity).is_ok_and(|allocation| {
-                    frame_probe.accepts(
-                        *entity,
-                        FrameAllocationIdentity {
-                            entity: *entity,
-                            key: allocation.key,
-                            generation: allocation.generation,
-                        },
-                    )
+                    chunk_tint_revision_is_active(allocation.tint_revision, biome_tints.revision())
+                        && frame_probe.accepts(
+                            *entity,
+                            FrameAllocationIdentity {
+                                entity: *entity,
+                                key: allocation.key,
+                                generation: allocation.generation,
+                            },
+                        )
                 })
             })
             .collect::<Vec<_>>();
@@ -3142,6 +3238,9 @@ fn queue_chunks(
             let Ok(allocation) = allocations.get(render_entity) else {
                 continue;
             };
+            if !chunk_tint_revision_is_active(allocation.tint_revision, biome_tints.revision()) {
+                continue;
+            }
             if !frame_probe.accepts(
                 render_entity,
                 FrameAllocationIdentity {
@@ -4000,12 +4099,14 @@ mod tests {
             GpuChunkAllocation {
                 key: SubChunkKey::new(0, 0, 0, 0),
                 generation: 1,
+                tint_revision: 0,
                 quad_range: 17..23,
                 metadata_index: 4,
             },
             GpuChunkAllocation {
                 key: SubChunkKey::new(0, 1, 0, 0),
                 generation: 2,
+                tint_revision: 0,
                 quad_range: 4..9,
                 metadata_index: 1,
             },
@@ -4172,8 +4273,51 @@ mod tests {
         assert_eq!(empty.entries().len(), 1);
         assert_eq!(empty.revision(), 7);
 
+        let shared_entries = Arc::from([BiomeTint::default()]);
+        let first = ChunkBiomeTints::with_revision(Arc::clone(&shared_entries), 7);
+        let replacement = ChunkBiomeTints::with_revision(shared_entries, 8);
+        assert_ne!(first.identity(), replacement.identity());
+
         assert_eq!(pack_linear_rgb10([0.0, 0.0, 0.0]), 0);
         assert_eq!(pack_linear_rgb10([1.0, 1.0, 1.0]), 0x3fff_ffff);
+    }
+
+    #[test]
+    fn biome_gpu_entries_pack_all_six_tint_classes_and_flags() {
+        let entry = BiomeTint {
+            grass: [0.1, 0.2, 0.3],
+            foliage: [0.2, 0.3, 0.4],
+            birch: [0.3, 0.4, 0.5],
+            evergreen: [0.4, 0.5, 0.6],
+            dry_foliage: [0.5, 0.6, 0.7],
+            water: [0.6, 0.7, 0.8],
+            flags: 0x5a,
+        };
+        let gpu = prepare_biome_tint_entries(&[entry])[0];
+
+        assert_eq!(gpu.grass, pack_linear_rgb10(entry.grass));
+        assert_eq!(gpu.foliage, pack_linear_rgb10(entry.foliage));
+        assert_eq!(gpu.birch, pack_linear_rgb10(entry.birch));
+        assert_eq!(gpu.evergreen, pack_linear_rgb10(entry.evergreen));
+        assert_eq!(gpu.dry_foliage, pack_linear_rgb10(entry.dry_foliage));
+        assert_eq!(gpu.water, pack_linear_rgb10(entry.water));
+        assert_eq!(gpu.flags, entry.flags);
+    }
+
+    #[test]
+    fn direct_and_mdi_revision_filters_hide_only_mismatched_tint_records() {
+        let direct = [7, 8, 7]
+            .into_iter()
+            .filter(|revision| chunk_tint_revision_is_active(*revision, 7))
+            .collect::<Vec<_>>();
+        let mdi = [7, 8, 7]
+            .into_iter()
+            .filter(|revision| chunk_tint_revision_is_active(*revision, 7))
+            .collect::<Vec<_>>();
+
+        assert_eq!(direct, vec![7, 7]);
+        assert_eq!(mdi, direct);
+        assert!(!chunk_tint_revision_is_active(8, 7));
     }
 
     #[test]
@@ -4211,6 +4355,7 @@ mod tests {
                 entity: world.spawn_empty().id(),
                 key: SubChunkKey::new(0, index, 0, 0),
                 generation: 1,
+                tint_revision: 0,
             })
             .collect::<Vec<_>>();
         let allocations = HashMap::new();
@@ -4231,11 +4376,13 @@ mod tests {
                 entity: failing,
                 key: SubChunkKey::new(0, -10, 0, 0),
                 generation: 1,
+                tint_revision: 0,
             },
             GpuUpdateCandidate {
                 entity: fitting,
                 key: SubChunkKey::new(0, 10, 0, 0),
                 generation: 1,
+                tint_revision: 0,
             },
         ];
         let selected = plan_gpu_chunk_updates(candidates, &HashMap::new(), Vec3::ZERO);
@@ -4264,11 +4411,13 @@ mod tests {
                 entity: far,
                 key: far_key,
                 generation: 1,
+                tint_revision: 0,
             },
             GpuUpdateCandidate {
                 entity: near,
                 key: near_key,
                 generation: 1,
+                tint_revision: 0,
             },
         ];
 
@@ -4493,6 +4642,7 @@ mod tests {
                 entity,
                 key: instance.key,
                 generation: instance.generation,
+                tint_revision: instance.tint_revision,
             })
             .collect::<Vec<_>>();
         let selected = plan_gpu_chunk_updates(candidates, &HashMap::new(), Vec3::ZERO);
