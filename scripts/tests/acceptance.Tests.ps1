@@ -212,6 +212,29 @@ try {
 
     Assert-Equal ($frontPlan.Commands -join "`n") ($frontPlanAgain.Commands -join "`n") 'front fixture commands were not deterministic'
     Assert-True ($frontPlan.TeleportCommand -cne $backPlan.TeleportCommand) 'front and back fixture teleports were identical'
+    $expectedGalleryCenter = @($mutationCoordinate[0], ($mutationCoordinate[1] + 3), ($mutationCoordinate[2] + 4))
+    $expectedFrontCamera = @($mutationCoordinate[0], ($mutationCoordinate[1] + 12), ($mutationCoordinate[2] - 24))
+    $expectedBackCamera = @($mutationCoordinate[0], ($mutationCoordinate[1] + 10), ($mutationCoordinate[2] + 32))
+    $frontCamera = $frontPlan.Manifest.camera.position
+    $backCamera = $backPlan.Manifest.camera.position
+    Assert-Equal `
+        ($expectedFrontCamera -join ',') `
+        (@($frontCamera.x, $frontCamera.y, $frontCamera.z) -join ',') `
+        'front camera did not use the live-proven framing offset'
+    Assert-Equal `
+        ($expectedBackCamera -join ',') `
+        (@($backCamera.x, $backCamera.y, $backCamera.z) -join ',') `
+        'back camera did not use the live-proven framing offset'
+    Assert-Equal 28 ([Math]::Abs([int]$frontCamera.z - [int]$frontPlan.Manifest.gallery_center.z)) 'front camera was not 28 Z blocks from gallery center'
+    Assert-Equal 28 ([Math]::Abs([int]$backCamera.z - [int]$backPlan.Manifest.gallery_center.z)) 'back camera was not 28 Z blocks from gallery center'
+    Assert-Equal `
+        "tp @a[name=RustMCBE] $($expectedFrontCamera -join ' ') facing $($expectedGalleryCenter -join ' ')" `
+        $frontPlan.TeleportCommand `
+        'front teleport did not preserve the exact widened pose and gallery target'
+    Assert-Equal `
+        "tp @a[name=RustMCBE] $($expectedBackCamera -join ' ') facing $($expectedGalleryCenter -join ' ')" `
+        $backPlan.TeleportCommand `
+        'back teleport did not preserve the exact widened pose and gallery target'
     Assert-Equal 'list' $frontPlan.FenceCommand 'front fixture did not use the observable BDS list fence'
     Assert-Equal 'players online:' $frontPlan.FenceMarker 'front fixture waited for the wrong BDS list output'
     Assert-True ($frontPlan.Commands[-2] -ceq 'list') 'front processing fence was not immediately before teleport'
