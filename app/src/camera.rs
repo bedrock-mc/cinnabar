@@ -231,10 +231,6 @@ fn update_movement(
     mut cameras: Query<(&mut Transform, &FlyCamera)>,
 ) {
     let (window, cursor) = window.into_inner();
-    if !input_is_active(window, cursor) {
-        return;
-    }
-
     if auto_fly.enabled() {
         for (mut transform, _) in &mut cameras {
             let externally_moved = auto_fly
@@ -256,6 +252,11 @@ fn update_movement(
         }
         return;
     }
+
+    if !input_is_active(window, cursor) {
+        return;
+    }
+
     let axes = movement_axes(&keys);
     let axes = axes.normalize_or_zero();
     if axes == Vec3::ZERO {
