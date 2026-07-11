@@ -2610,14 +2610,17 @@ mod tests {
         time::{Duration, Instant},
     };
 
-    use assets::{NetworkIdMode, RuntimeAssets};
+    use assets::{
+        BlockFlags, BlockVisual, CompiledAssets, Material, NetworkIdMode, RuntimeAssets,
+        TextureArray, TextureMip, encode_blob,
+    };
     use protocol::{
         BlockUpdateEvent, ChangeDimensionEvent, LevelChunkEvent, LevelChunkMode, MovePlayerEvent,
         PublisherUpdateEvent, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkResult,
         SubChunkUnavailable, WorldBootstrap, WorldEvent,
     };
     use render::{BlockClassifier, Neighbourhood, mesh_sub_chunk};
-    use world::{BlockUpdate, ChunkKey, ChunkStore, DecodedLevelChunk, SubChunkKey};
+    use world::{BlockUpdate, ChunkKey, ChunkStore, DecodedLevelChunk, SubChunk, SubChunkKey};
 
     use super::{MeshCompletion, RevisionTracker, SequenceBuffer, WorldStream, split_block_update};
 
@@ -2704,6 +2707,58 @@ mod tests {
             stream.accept_decode_completion(super::DecodeCompletion { sequence, event });
         }
         stream.apply_ready();
+    }
+
+    fn cave_test_assets() -> RuntimeAssets {
+        let compiled = CompiledAssets {
+            visuals: vec![
+                BlockVisual {
+                    faces: [0; 6],
+                    flags: BlockFlags::AIR,
+                },
+                BlockVisual {
+                    faces: [1; 6],
+                    flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::LEAF_MODEL,
+                },
+                BlockVisual {
+                    faces: [2; 6],
+                    flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
+                },
+            ]
+            .into_boxed_slice(),
+            hashed: Box::new([]),
+            materials: vec![Material { layer: 0, flags: 0 }; 3].into_boxed_slice(),
+            textures: TextureArray {
+                layers: 1,
+                mips: [16_u32, 8, 4, 2, 1]
+                    .into_iter()
+                    .map(|size| TextureMip {
+                        size,
+                        rgba8: vec![0xff; size as usize * size as usize * 4].into_boxed_slice(),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            },
+        };
+        let blob = encode_blob(&compiled).expect("encode cave-connectivity test assets");
+        RuntimeAssets::decode(&blob).expect("decode cave-connectivity test assets")
+    }
+
+    fn cave_test_slab(runtime_id: u8) -> SubChunk {
+        let mut words = vec![0_u32; 128];
+        for y in 0..16 {
+            for z in 0..16 {
+                let linear = (8 << 8) | (z << 4) | y;
+                words[linear / 32] |= 1 << (linear % 32);
+            }
+        }
+
+        let mut encoded = vec![9, 1, 0, 3];
+        for word in words {
+            encoded.extend_from_slice(&word.to_le_bytes());
+        }
+        encoded.extend([4, 0, runtime_id << 1]);
+        SubChunk::decode(&encoded).expect("decode cave-connectivity slab")
     }
 
     #[test]
@@ -4996,6 +5051,63 @@ mod tests {
         let visible = stream.cave_visible_sub_chunks(left);
         assert!(visible.contains(&air));
         assert!(visible.contains(&right));
+    }
+
+    #[test]
+    fn leaf_slab_connectivity_crosses_world_cave_graph_but_opaque_slab_stops_it() {
+        let runtime_assets = Arc::new(cave_test_assets());
+        let classifier = BlockClassifier::new(0);
+        let leaf = cave_test_slab(1);
+        let opaque = cave_test_slab(2);
+        let leaf_mesh = mesh_sub_chunk(
+            &classifier,
+            &runtime_assets,
+            NetworkIdMode::Sequential,
+            &Neighbourhood::empty(),
+            &leaf,
+        );
+        let opaque_mesh = mesh_sub_chunk(
+            &classifier,
+            &runtime_assets,
+            NetworkIdMode::Sequential,
+            &Neighbourhood::empty(),
+            &opaque,
+        );
+        assert!(leaf_mesh.connectivity().is_all_connected());
+        assert!(
+            !opaque_mesh
+                .connectivity()
+                .is_connected(render::Face::NegativeX, render::Face::PositiveX)
+        );
+
+        let mut stream = WorldStream::new_with_assets(
+            WorldBootstrap {
+                dimension: 0,
+                local_player_runtime_id: 1,
+                player_position: [0.0; 3],
+                world_spawn_position: [0; 3],
+                air_network_id: 0,
+                block_network_ids_are_hashes: false,
+            },
+            runtime_assets,
+            [0.0; 3],
+            None,
+        );
+        let left = SubChunkKey::new(0, -1, 0, 0);
+        let middle = SubChunkKey::new(0, 0, 0, 0);
+        let right = SubChunkKey::new(0, 1, 0, 0);
+        stream.set_connectivity(left, Some(render::FaceConnectivity::all()));
+        stream.set_connectivity(right, Some(render::FaceConnectivity::all()));
+        stream.set_connectivity(middle, Some(leaf_mesh.connectivity()));
+
+        let through_leaf = stream.cave_visible_sub_chunks(left);
+        assert!(through_leaf.contains(&middle));
+        assert!(through_leaf.contains(&right));
+
+        stream.set_connectivity(middle, Some(opaque_mesh.connectivity()));
+        let stopped_by_opaque = stream.cave_visible_sub_chunks(left);
+        assert!(stopped_by_opaque.contains(&middle));
+        assert!(!stopped_by_opaque.contains(&right));
     }
 
     #[test]

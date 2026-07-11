@@ -322,20 +322,27 @@ pub fn mesh_sub_chunk(
     neighbours: &Neighbourhood<'_>,
     sub_chunk: &SubChunk,
 ) -> ChunkMesh {
-    let source = MaterialSource::classify(*classifier, sub_chunk);
-    let connectivity = cave_connectivity(*classifier, source);
-    if matches!(source, MaterialSource::Air) {
+    let facts = PaletteFacts::new(*classifier, visuals, network_id_mode, sub_chunk);
+    let connectivity = cave_connectivity(&facts);
+    if facts.is_air() {
         return ChunkMesh {
             quads: Box::new([]),
             connectivity,
         };
     }
 
-    let occupancy = Occupancy::from_source(*classifier, source);
+    let masks = VisibilityMasks::from_facts(&facts);
     let mut quads = Vec::new();
     for face in Face::ALL {
-        let materials = FaceMaterials::new(*classifier, visuals, network_id_mode, source, face);
-        let columns = exposed_columns(*classifier, *neighbours, face, &occupancy);
+        let columns = exposed_columns(
+            *classifier,
+            visuals,
+            network_id_mode,
+            *neighbours,
+            face,
+            &facts,
+            &masks,
+        );
         for slice in 0..SIDE {
             let mut rows = [0_u64; SIDE];
             for (v, row) in rows.iter_mut().enumerate() {
@@ -343,7 +350,7 @@ pub fn mesh_sub_chunk(
                     *row |= ((*column >> slice) & 1) << u;
                 }
             }
-            greedy_slice(&materials, face, slice, &mut rows, &mut quads);
+            greedy_slice(&facts, face, slice, &mut rows, &mut quads);
         }
     }
 
@@ -353,83 +360,148 @@ pub fn mesh_sub_chunk(
     }
 }
 
-/// Face material IDs parallel to each storage palette, never to 4,096 blocks.
-///
-/// A table is built once per face because a block state may map each face to a
-/// different material. Packed palette indices are then read directly while
-/// merging, keeping the paletted runtime representation intact.
-struct FaceMaterials<'a> {
-    classifier: BlockClassifier,
-    source: MaterialSource<'a>,
-    uniform: u32,
-    palettes: Vec<Box<[u32]>>,
+#[derive(Clone, Copy)]
+struct ResolvedPaletteEntry {
+    flags: BlockFlags,
+    faces: [u32; Face::ALL.len()],
 }
 
-impl<'a> FaceMaterials<'a> {
+impl ResolvedPaletteEntry {
+    const AIR: Self = Self {
+        flags: BlockFlags::AIR,
+        faces: [DIAGNOSTIC_MATERIAL; Face::ALL.len()],
+    };
+    const DIAGNOSTIC: Self = Self {
+        flags: BlockFlags::empty(),
+        faces: [DIAGNOSTIC_MATERIAL; Face::ALL.len()],
+    };
+
+    const fn emits_geometry(self) -> bool {
+        !self.flags.contains(BlockFlags::AIR)
+    }
+}
+
+struct StoragePaletteFacts<'a> {
+    storage: &'a PalettedStorage,
+    entries: Box<[ResolvedPaletteEntry]>,
+}
+
+enum PaletteSource<'a> {
+    Air,
+    Uniform(ResolvedPaletteEntry),
+    Mixed(Box<[StoragePaletteFacts<'a>]>),
+}
+
+/// Block flags and six-face materials parallel to storage palettes, never to
+/// the 4,096 voxel positions.
+struct PaletteFacts<'a> {
+    source: PaletteSource<'a>,
+}
+
+impl<'a> PaletteFacts<'a> {
     fn new(
         classifier: BlockClassifier,
         visuals: &RuntimeAssets,
         network_id_mode: NetworkIdMode,
-        source: MaterialSource<'a>,
-        face: Face,
+        sub_chunk: &'a SubChunk,
     ) -> Self {
-        let resolve = |network_value| {
-            let block = visuals.resolve(network_id_mode, network_value);
-            if block.flags().contains(BlockFlags::CUBE_GEOMETRY) {
-                block.face(block_face(face)).material_id()
-            } else {
-                DIAGNOSTIC_MATERIAL
+        for storage in sub_chunk.storages() {
+            match storage.uniform_runtime_id() {
+                Some(network_value) if classifier.is_air(network_value) => {}
+                Some(network_value) => {
+                    return Self {
+                        source: PaletteSource::Uniform(resolve_palette_entry(
+                            classifier,
+                            visuals,
+                            network_id_mode,
+                            network_value,
+                        )),
+                    };
+                }
+                None => return Self::mixed(classifier, visuals, network_id_mode, sub_chunk),
             }
-        };
-        let uniform = match source {
-            MaterialSource::Uniform(network_value) => resolve(network_value),
-            MaterialSource::Air | MaterialSource::Mixed(_) => DIAGNOSTIC_MATERIAL,
-        };
-        let palettes = match source {
-            MaterialSource::Mixed(sub_chunk) => sub_chunk
-                .storages()
-                .iter()
-                .map(|storage| {
-                    storage
-                        .palette()
-                        .values()
-                        .iter()
-                        .copied()
-                        .map(resolve)
-                        .collect::<Vec<_>>()
-                        .into_boxed_slice()
-                })
-                .collect(),
-            MaterialSource::Air | MaterialSource::Uniform(_) => Vec::new(),
-        };
+        }
+
         Self {
-            classifier,
-            source,
-            uniform,
-            palettes,
+            source: PaletteSource::Air,
         }
     }
 
-    fn at(&self, x: usize, y: usize, z: usize) -> u32 {
-        match self.source {
-            MaterialSource::Air => DIAGNOSTIC_MATERIAL,
-            MaterialSource::Uniform(_) => self.uniform,
-            MaterialSource::Mixed(sub_chunk) => {
-                for (storage, palette) in sub_chunk.storages().iter().zip(&self.palettes) {
-                    let Some(index) = packed_palette_index(storage, x, y, z) else {
-                        return DIAGNOSTIC_MATERIAL;
+    fn mixed(
+        classifier: BlockClassifier,
+        visuals: &RuntimeAssets,
+        network_id_mode: NetworkIdMode,
+        sub_chunk: &'a SubChunk,
+    ) -> Self {
+        let storages = sub_chunk
+            .storages()
+            .iter()
+            .map(|storage| StoragePaletteFacts {
+                storage,
+                entries: storage
+                    .palette()
+                    .values()
+                    .iter()
+                    .copied()
+                    .map(|network_value| {
+                        resolve_palette_entry(classifier, visuals, network_id_mode, network_value)
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        Self {
+            source: PaletteSource::Mixed(storages),
+        }
+    }
+
+    const fn is_air(&self) -> bool {
+        matches!(self.source, PaletteSource::Air)
+    }
+
+    fn at(&self, x: usize, y: usize, z: usize) -> ResolvedPaletteEntry {
+        match &self.source {
+            PaletteSource::Air => ResolvedPaletteEntry::AIR,
+            PaletteSource::Uniform(entry) => *entry,
+            PaletteSource::Mixed(storages) => {
+                for storage in storages {
+                    let Some(index) = packed_palette_index(storage.storage, x, y, z) else {
+                        return ResolvedPaletteEntry::DIAGNOSTIC;
                     };
-                    let Some(&network_value) = storage.palette().values().get(index) else {
-                        return DIAGNOSTIC_MATERIAL;
+                    let Some(&entry) = storage.entries.get(index) else {
+                        return ResolvedPaletteEntry::DIAGNOSTIC;
                     };
-                    if !self.classifier.is_air(network_value) {
-                        return palette.get(index).copied().unwrap_or(DIAGNOSTIC_MATERIAL);
+                    if !entry.flags.contains(BlockFlags::AIR) {
+                        return entry;
                     }
                 }
-                DIAGNOSTIC_MATERIAL
+                ResolvedPaletteEntry::AIR
             }
         }
     }
+}
+
+fn resolve_palette_entry(
+    classifier: BlockClassifier,
+    visuals: &RuntimeAssets,
+    network_id_mode: NetworkIdMode,
+    network_value: u32,
+) -> ResolvedPaletteEntry {
+    if classifier.is_air(network_value) {
+        return ResolvedPaletteEntry::AIR;
+    }
+
+    let block = visuals.resolve(network_id_mode, network_value);
+    let mut flags = block.flags();
+    flags.remove(BlockFlags::AIR);
+    let faces = if flags.contains(BlockFlags::CUBE_GEOMETRY) {
+        Face::ALL.map(|face| block.face(block_face(face)).material_id())
+    } else {
+        flags.remove(BlockFlags::OCCLUDES_FULL_FACE | BlockFlags::LEAF_MODEL);
+        [DIAGNOSTIC_MATERIAL; Face::ALL.len()]
+    };
+    ResolvedPaletteEntry { flags, faces }
 }
 
 fn packed_palette_index(storage: &PalettedStorage, x: usize, y: usize, z: usize) -> Option<usize> {
@@ -460,99 +532,117 @@ const fn block_face(face: Face) -> BlockFace {
     }
 }
 
-#[derive(Clone, Copy)]
-enum MaterialSource<'a> {
-    Air,
-    Uniform(u32),
-    Mixed(&'a SubChunk),
-}
-
-impl<'a> MaterialSource<'a> {
-    fn classify(classifier: BlockClassifier, sub_chunk: &'a SubChunk) -> Self {
-        for storage in sub_chunk.storages() {
-            match storage.uniform_runtime_id() {
-                Some(runtime_id) if classifier.is_air(runtime_id) => {}
-                Some(runtime_id) => return Self::Uniform(runtime_id),
-                None => return Self::Mixed(sub_chunk),
-            }
-        }
-        Self::Air
-    }
-
-    fn at(self, classifier: BlockClassifier, x: usize, y: usize, z: usize) -> u32 {
-        match self {
-            Self::Air => classifier.air_network_id(),
-            Self::Uniform(runtime_id) => runtime_id,
-            Self::Mixed(sub_chunk) => visible_runtime_id(classifier, sub_chunk, x, y, z),
-        }
-    }
-}
-
-fn visible_runtime_id(
-    classifier: BlockClassifier,
-    sub_chunk: &SubChunk,
-    x: usize,
-    y: usize,
-    z: usize,
-) -> u32 {
-    sub_chunk
-        .storages()
-        .iter()
-        .filter_map(|storage| storage.runtime_id(x as u8, y as u8, z as u8))
-        .find(|&runtime_id| !classifier.is_air(runtime_id))
-        .unwrap_or_else(|| classifier.air_network_id())
-}
-
 type Columns = [[u64; SIDE]; SIDE];
 
-struct Occupancy {
+struct AxisColumns {
     x: Columns,
     y: Columns,
     z: Columns,
 }
 
-impl Occupancy {
-    fn from_source(classifier: BlockClassifier, source: MaterialSource<'_>) -> Self {
-        if matches!(source, MaterialSource::Uniform(_)) {
-            return Self {
-                x: [[FULL_COLUMN; SIDE]; SIDE],
-                y: [[FULL_COLUMN; SIDE]; SIDE],
-                z: [[FULL_COLUMN; SIDE]; SIDE],
-            };
-        }
-
-        let mut occupancy = Self {
+impl AxisColumns {
+    const fn empty() -> Self {
+        Self {
             x: [[0; SIDE]; SIDE],
             y: [[0; SIDE]; SIDE],
             z: [[0; SIDE]; SIDE],
-        };
-        for x in 0..SIDE {
-            for y in 0..SIDE {
-                for z in 0..SIDE {
-                    if classifier.is_air(source.at(classifier, x, y, z)) {
-                        continue;
+        }
+    }
+
+    const fn full() -> Self {
+        Self {
+            x: [[FULL_COLUMN; SIDE]; SIDE],
+            y: [[FULL_COLUMN; SIDE]; SIDE],
+            z: [[FULL_COLUMN; SIDE]; SIDE],
+        }
+    }
+
+    fn set(&mut self, x: usize, y: usize, z: usize) {
+        self.x[y][z] |= 1 << x;
+        self.y[x][z] |= 1 << y;
+        self.z[x][y] |= 1 << z;
+    }
+
+    const fn column(&self, face: Face, u: usize, v: usize) -> u64 {
+        match face {
+            Face::NegativeX | Face::PositiveX => self.x[v][u],
+            Face::NegativeY | Face::PositiveY => self.y[u][v],
+            Face::NegativeZ | Face::PositiveZ => self.z[u][v],
+        }
+    }
+}
+
+struct VisibilityMasks {
+    geometry: AxisColumns,
+    occluders: AxisColumns,
+    leaves: AxisColumns,
+}
+
+impl VisibilityMasks {
+    fn from_facts(facts: &PaletteFacts<'_>) -> Self {
+        match &facts.source {
+            PaletteSource::Air => Self {
+                geometry: AxisColumns::empty(),
+                occluders: AxisColumns::empty(),
+                leaves: AxisColumns::empty(),
+            },
+            PaletteSource::Uniform(entry) => Self {
+                geometry: if entry.emits_geometry() {
+                    AxisColumns::full()
+                } else {
+                    AxisColumns::empty()
+                },
+                occluders: if entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE) {
+                    AxisColumns::full()
+                } else {
+                    AxisColumns::empty()
+                },
+                leaves: if entry.flags.contains(BlockFlags::LEAF_MODEL) {
+                    AxisColumns::full()
+                } else {
+                    AxisColumns::empty()
+                },
+            },
+            PaletteSource::Mixed(_) => {
+                let mut masks = Self {
+                    geometry: AxisColumns::empty(),
+                    occluders: AxisColumns::empty(),
+                    leaves: AxisColumns::empty(),
+                };
+                for x in 0..SIDE {
+                    for y in 0..SIDE {
+                        for z in 0..SIDE {
+                            let entry = facts.at(x, y, z);
+                            if entry.emits_geometry() {
+                                masks.geometry.set(x, y, z);
+                            }
+                            if entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE) {
+                                masks.occluders.set(x, y, z);
+                            }
+                            if entry.flags.contains(BlockFlags::LEAF_MODEL) {
+                                masks.leaves.set(x, y, z);
+                            }
+                        }
                     }
-                    occupancy.x[y][z] |= 1 << x;
-                    occupancy.y[x][z] |= 1 << y;
-                    occupancy.z[x][y] |= 1 << z;
                 }
+                masks
             }
         }
-        occupancy
     }
 }
 
 fn exposed_columns(
     classifier: BlockClassifier,
+    visuals: &RuntimeAssets,
+    network_id_mode: NetworkIdMode,
     neighbours: Neighbourhood<'_>,
     face: Face,
-    occupancy: &Occupancy,
+    facts: &PaletteFacts<'_>,
+    masks: &VisibilityMasks,
 ) -> Columns {
     let neighbour = neighbours
         .get(face)
-        .map_or(MaterialSource::Air, |sub_chunk| {
-            MaterialSource::classify(classifier, sub_chunk)
-        });
+        .map(|sub_chunk| PaletteFacts::new(classifier, visuals, network_id_mode, sub_chunk));
     let boundary_bit = if face.is_negative() {
         1_u64
     } else {
@@ -562,25 +652,49 @@ fn exposed_columns(
 
     for (v, exposed_row) in exposed.iter_mut().enumerate() {
         for (u, exposed_cell) in exposed_row.iter_mut().enumerate() {
-            let column = match face {
-                Face::NegativeX | Face::PositiveX => occupancy.x[v][u],
-                Face::NegativeY | Face::PositiveY => occupancy.y[u][v],
-                Face::NegativeZ | Face::PositiveZ => occupancy.z[u][v],
-            };
-            let mut faces = if face.is_negative() {
-                column & !(column << 1)
+            let geometry_column = masks.geometry.column(face, u, v);
+            let occluder_column = masks.occluders.column(face, u, v);
+            let leaf_column = masks.leaves.column(face, u, v);
+            let neighbour_occluders = if face.is_negative() {
+                occluder_column << 1
             } else {
-                column & !(column >> 1)
-            } & FULL_COLUMN;
+                occluder_column >> 1
+            };
+            let neighbour_leaves = if face.is_negative() {
+                leaf_column << 1
+            } else {
+                leaf_column >> 1
+            };
+            let leaf_pairs = leaf_column & neighbour_leaves;
+            let mut faces = geometry_column & !neighbour_occluders & !leaf_pairs & FULL_COLUMN;
 
-            let [x, y, z] = neighbour_boundary_coordinate(face, u, v);
-            if !classifier.is_air(neighbour.at(classifier, x, y, z)) {
-                faces &= !boundary_bit;
+            if faces & boundary_bit != 0 {
+                let slice = if face.is_negative() { 0 } else { SIDE - 1 };
+                let [source_x, source_y, source_z] = block_coordinate(face, slice, u, v);
+                let source = facts.at(source_x, source_y, source_z);
+                let neighbour = neighbour
+                    .as_ref()
+                    .map_or(ResolvedPaletteEntry::AIR, |facts| {
+                        let [x, y, z] = neighbour_boundary_coordinate(face, u, v);
+                        facts.at(x, y, z)
+                    });
+                if culls_face(source.flags, neighbour.flags) {
+                    faces &= !boundary_bit;
+                }
             }
             *exposed_cell = faces;
         }
     }
     exposed
+}
+
+const fn culls_face(source: BlockFlags, neighbour: BlockFlags) -> bool {
+    neighbour.contains(BlockFlags::OCCLUDES_FULL_FACE)
+        || (source.contains(BlockFlags::LEAF_MODEL) && neighbour.contains(BlockFlags::LEAF_MODEL))
+}
+
+const fn connectivity_open(entry: ResolvedPaletteEntry) -> bool {
+    !entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
 }
 
 const fn neighbour_boundary_coordinate(face: Face, u: usize, v: usize) -> [usize; 3] {
@@ -595,7 +709,7 @@ const fn neighbour_boundary_coordinate(face: Face, u: usize, v: usize) -> [usize
 }
 
 fn greedy_slice(
-    materials: &FaceMaterials<'_>,
+    facts: &PaletteFacts<'_>,
     face: Face,
     slice: usize,
     rows: &mut [u64; SIDE],
@@ -605,7 +719,7 @@ fn greedy_slice(
         while rows[v] != 0 {
             let u = rows[v].trailing_zeros() as usize;
             let origin = block_coordinate(face, slice, u, v);
-            let material_id = materials.at(origin[0], origin[1], origin[2]);
+            let material_id = facts.at(origin[0], origin[1], origin[2]).faces[face.index()];
 
             let shifted = rows[v] >> u;
             let binary_width = (!shifted).trailing_zeros() as usize;
@@ -613,7 +727,7 @@ fn greedy_slice(
             let mut width = 1;
             while width < binary_width && {
                 let [x, y, z] = block_coordinate(face, slice, u + width, v);
-                materials.at(x, y, z) == material_id
+                facts.at(x, y, z).faces[face.index()] == material_id
             } {
                 width += 1;
             }
@@ -623,7 +737,7 @@ fn greedy_slice(
             'height: while v + height < SIDE && rows[v + height] & span == span {
                 for offset in 0..width {
                     let [x, y, z] = block_coordinate(face, slice, u + offset, v + height);
-                    if materials.at(x, y, z) != material_id {
+                    if facts.at(x, y, z).faces[face.index()] != material_id {
                         break 'height;
                     }
                 }
@@ -652,11 +766,17 @@ const fn block_coordinate(face: Face, slice: usize, u: usize, v: usize) -> [usiz
     }
 }
 
-fn cave_connectivity(classifier: BlockClassifier, source: MaterialSource<'_>) -> FaceConnectivity {
-    match source {
-        MaterialSource::Air => return FaceConnectivity::all(),
-        MaterialSource::Uniform(_) => return FaceConnectivity::none(),
-        MaterialSource::Mixed(_) => {}
+fn cave_connectivity(facts: &PaletteFacts<'_>) -> FaceConnectivity {
+    match &facts.source {
+        PaletteSource::Air => return FaceConnectivity::all(),
+        PaletteSource::Uniform(entry) => {
+            return if connectivity_open(*entry) {
+                FaceConnectivity::all()
+            } else {
+                FaceConnectivity::none()
+            };
+        }
+        PaletteSource::Mixed(_) => {}
     }
 
     let mut connectivity = FaceConnectivity::none();
@@ -668,7 +788,7 @@ fn cave_connectivity(classifier: BlockClassifier, source: MaterialSource<'_>) ->
             continue;
         }
         let coordinate = coordinate_from_linear(seed);
-        if !classifier.is_air(source.at(classifier, coordinate[0], coordinate[1], coordinate[2])) {
+        if !connectivity_open(facts.at(coordinate[0], coordinate[1], coordinate[2])) {
             continue;
         }
 
@@ -683,12 +803,7 @@ fn cave_connectivity(classifier: BlockClassifier, source: MaterialSource<'_>) ->
             for neighbour in adjacent_coordinates(x, y, z).into_iter().flatten() {
                 let neighbour_linear = linear_from_coordinate(neighbour);
                 if bit_is_set(&visited, neighbour_linear)
-                    || !classifier.is_air(source.at(
-                        classifier,
-                        neighbour[0],
-                        neighbour[1],
-                        neighbour[2],
-                    ))
+                    || !connectivity_open(facts.at(neighbour[0], neighbour[1], neighbour[2]))
                 {
                     continue;
                 }

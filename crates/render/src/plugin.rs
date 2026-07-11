@@ -2882,9 +2882,14 @@ fn submit_presented_frame_probe(
 
 #[cfg(test)]
 mod tests {
-    use std::{mem::size_of, sync::Arc};
+    use std::{
+        mem::size_of,
+        sync::{Arc, OnceLock},
+    };
 
-    use assets::NetworkIdMode;
+    use assets::{
+        BlockFlags, BlockVisual, CompiledAssets, Material, NetworkIdMode, TextureMip, encode_blob,
+    };
     use bevy::{
         prelude::*,
         render::render_resource::{DownlevelFlags, DrawIndexedIndirectArgs, WgpuFeatures},
@@ -2906,11 +2911,45 @@ mod tests {
         }
     }
 
+    fn opaque_runtime_assets() -> &'static RuntimeAssets {
+        static ASSETS: OnceLock<RuntimeAssets> = OnceLock::new();
+        ASSETS.get_or_init(|| {
+            let compiled = CompiledAssets {
+                visuals: vec![
+                    BlockVisual {
+                        faces: [0; 6],
+                        flags: BlockFlags::AIR,
+                    },
+                    BlockVisual {
+                        faces: [1; 6],
+                        flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
+                    },
+                ]
+                .into_boxed_slice(),
+                hashed: Box::new([]),
+                materials: vec![Material { layer: 0, flags: 0 }; 2].into_boxed_slice(),
+                textures: TextureArray {
+                    layers: 1,
+                    mips: [16_u32, 8, 4, 2, 1]
+                        .into_iter()
+                        .map(|size| TextureMip {
+                            size,
+                            rgba8: vec![0xff; size as usize * size as usize * 4].into_boxed_slice(),
+                        })
+                        .collect::<Vec<_>>()
+                        .into_boxed_slice(),
+                },
+            };
+            let blob = encode_blob(&compiled).expect("encode opaque plugin test assets");
+            RuntimeAssets::decode(&blob).expect("decode opaque plugin test assets")
+        })
+    }
+
     fn solid_test_mesh() -> ChunkMesh {
         let sub_chunk = SubChunk::decode(&[9, 1, 0, 1, 2]).expect("uniform test sub-chunk");
         crate::mesh_sub_chunk(
             &crate::BlockClassifier::new(0),
-            &RuntimeAssets::diagnostic(),
+            opaque_runtime_assets(),
             NetworkIdMode::Sequential,
             &crate::Neighbourhood::empty(),
             &sub_chunk,
@@ -3890,17 +3929,16 @@ mod tests {
         };
         let solid = solid_sub_chunk(1);
         let classifier = crate::BlockClassifier::new(0);
-        let runtime_assets = assets::RuntimeAssets::diagnostic();
         let impossible_mesh = crate::mesh_sub_chunk(
             &classifier,
-            &runtime_assets,
+            opaque_runtime_assets(),
             assets::NetworkIdMode::Sequential,
             &crate::Neighbourhood::empty(),
             &solid,
         );
         let fitting_mesh = crate::mesh_sub_chunk(
             &classifier,
-            &runtime_assets,
+            opaque_runtime_assets(),
             assets::NetworkIdMode::Sequential,
             &crate::Neighbourhood::empty()
                 .with_negative_x(&solid)

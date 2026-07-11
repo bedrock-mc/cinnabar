@@ -8,6 +8,11 @@ use render::{BlockClassifier, Face, Neighbourhood, PackedQuad, debug_color, mesh
 use world::SubChunk;
 
 const AIR: u32 = 12_530;
+const OPAQUE_A: u32 = 7;
+const OPAQUE_B: u32 = 13;
+const DIAGNOSTIC: u32 = 54;
+const LEAF_A: u32 = 55;
+const LEAF_B: u32 = 56;
 
 fn classifier() -> BlockClassifier {
     BlockClassifier::new(AIR)
@@ -23,23 +28,32 @@ fn runtime_assets() -> &'static RuntimeAssets {
             };
             AIR as usize + 1
         ];
+        visuals[AIR as usize].flags = BlockFlags::AIR;
         for runtime_id in [7, 11, 13, 17, 23, 29, 31, 37, 41, 43, 47] {
             visuals[runtime_id].faces = [runtime_id as u32; 6];
-            visuals[runtime_id].flags = BlockFlags::CUBE_GEOMETRY;
+            visuals[runtime_id].flags = BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE;
         }
         for runtime_id in [51, 52] {
             visuals[runtime_id].faces = [51; 6];
-            visuals[runtime_id].flags = BlockFlags::CUBE_GEOMETRY;
+            visuals[runtime_id].flags = BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE;
         }
         visuals[53] = BlockVisual {
             faces: [61, 62, 63, 64, 65, 66],
-            flags: BlockFlags::CUBE_GEOMETRY,
+            flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
         };
         // A non-full-cube record intentionally carries non-zero face IDs. The
         // mesher must still route it to the diagnostic material.
         visuals[54] = BlockVisual {
             faces: [66; 6],
             flags: BlockFlags::empty(),
+        };
+        visuals[LEAF_A as usize] = BlockVisual {
+            faces: [LEAF_A; 6],
+            flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::LEAF_MODEL,
+        };
+        visuals[LEAF_B as usize] = BlockVisual {
+            faces: [LEAF_B; 6],
+            flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::LEAF_MODEL,
         };
 
         let textures = TextureArray {
@@ -145,6 +159,38 @@ fn uniform(runtime_id: u32) -> SubChunk {
     sub_chunk(vec![uniform_storage(runtime_id)])
 }
 
+fn adjacent_blocks(left: u32, right: u32) -> SubChunk {
+    sub_chunk(vec![packed_storage(
+        2,
+        &[AIR, left, right],
+        &[([7, 8, 8], 1), ([8, 8, 8], 2)],
+    )])
+}
+
+fn slab(runtime_id: u32) -> SubChunk {
+    let placements = (0..16)
+        .flat_map(|y| (0..16).map(move |z| ([8, y, z], 1)))
+        .collect::<Vec<_>>();
+    sub_chunk(vec![packed_storage(1, &[AIR, runtime_id], &placements)])
+}
+
+fn has_face(mesh: &render::ChunkMesh, origin: [u8; 3], face: Face) -> bool {
+    mesh.quads()
+        .iter()
+        .any(|quad| quad.origin() == origin && quad.face() == face)
+}
+
+fn neighbourhood_for<'a>(face: Face, neighbour: &'a SubChunk) -> Neighbourhood<'a> {
+    match face {
+        Face::NegativeX => Neighbourhood::empty().with_negative_x(neighbour),
+        Face::PositiveX => Neighbourhood::empty().with_positive_x(neighbour),
+        Face::NegativeY => Neighbourhood::empty().with_negative_y(neighbour),
+        Face::PositiveY => Neighbourhood::empty().with_positive_y(neighbour),
+        Face::NegativeZ => Neighbourhood::empty().with_negative_z(neighbour),
+        Face::PositiveZ => Neighbourhood::empty().with_positive_z(neighbour),
+    }
+}
+
 #[test]
 fn one_opaque_block_emits_six_packed_quads() {
     let sub = blocks(7, &[[1, 2, 3]]);
@@ -210,6 +256,92 @@ fn different_materials_split_coplanar_runs_but_still_cull_internal_faces() {
             .count(),
         5
     );
+}
+
+#[test]
+fn asymmetric_internal_culling_uses_ordered_occluder_and_leaf_facts() {
+    let cases = [
+        (OPAQUE_A, OPAQUE_B, false, false, 10),
+        (OPAQUE_A, LEAF_A, true, false, 11),
+        (LEAF_A, OPAQUE_A, false, true, 11),
+        (LEAF_A, LEAF_B, false, false, 10),
+        (DIAGNOSTIC, LEAF_A, true, true, 12),
+        (DIAGNOSTIC, OPAQUE_A, false, true, 11),
+    ];
+
+    for (source, neighbour, source_face, neighbour_face, total) in cases {
+        let sub = adjacent_blocks(source, neighbour);
+        let mesh = mesh(
+            &classifier(),
+            NetworkIdMode::Sequential,
+            &Neighbourhood::empty(),
+            &sub,
+        );
+
+        assert_eq!(
+            has_face(&mesh, [7, 8, 8], Face::PositiveX),
+            source_face,
+            "source={source} neighbour={neighbour}"
+        );
+        assert_eq!(
+            has_face(&mesh, [8, 8, 8], Face::NegativeX),
+            neighbour_face,
+            "source={source} neighbour={neighbour}"
+        );
+        assert_eq!(
+            mesh.quad_count(),
+            total,
+            "source={source} neighbour={neighbour}"
+        );
+    }
+}
+
+#[test]
+fn asymmetric_boundary_culling_matches_internal_semantics_on_every_face() {
+    let boundaries = [
+        (Face::NegativeX, [0, 5, 6], [15, 5, 6]),
+        (Face::PositiveX, [15, 5, 6], [0, 5, 6]),
+        (Face::NegativeY, [5, 0, 6], [5, 15, 6]),
+        (Face::PositiveY, [5, 15, 6], [5, 0, 6]),
+        (Face::NegativeZ, [5, 6, 0], [5, 6, 15]),
+        (Face::PositiveZ, [5, 6, 15], [5, 6, 0]),
+    ];
+    let pairs = [
+        (OPAQUE_A, OPAQUE_B, 5),
+        (OPAQUE_A, LEAF_A, 6),
+        (LEAF_A, OPAQUE_A, 5),
+        (LEAF_A, LEAF_B, 5),
+        (DIAGNOSTIC, OPAQUE_A, 5),
+        (DIAGNOSTIC, LEAF_A, 6),
+        (DIAGNOSTIC, DIAGNOSTIC, 6),
+        (OPAQUE_A, DIAGNOSTIC, 6),
+        (LEAF_A, DIAGNOSTIC, 6),
+    ];
+
+    for (face, current_coordinate, neighbour_coordinate) in boundaries {
+        for (source, neighbour_value, expected) in pairs {
+            let sub = blocks(source, &[current_coordinate]);
+            let neighbour = blocks(neighbour_value, &[neighbour_coordinate]);
+            let neighbourhood = neighbourhood_for(face, &neighbour);
+            let mesh = mesh(
+                &classifier(),
+                NetworkIdMode::Sequential,
+                &neighbourhood,
+                &sub,
+            );
+
+            assert_eq!(
+                mesh.quad_count(),
+                expected,
+                "face={face:?} source={source} neighbour={neighbour_value}"
+            );
+            assert_eq!(
+                has_face(&mesh, current_coordinate, face),
+                expected == 6,
+                "face={face:?} source={source} neighbour={neighbour_value}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -344,6 +476,155 @@ fn uniform_solid_fast_path_merges_planes_and_respects_boundary_neighbours() {
             .iter()
             .all(|quad| quad.face() != Face::PositiveX)
     );
+}
+
+#[test]
+fn uniform_leaf_meshes_outer_planes_but_is_cave_open() {
+    let mesh = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &uniform(LEAF_A),
+    );
+
+    assert_eq!(mesh.quad_count(), 6);
+    assert!(
+        mesh.quads()
+            .iter()
+            .all(|quad| quad.width() == 16 && quad.height() == 16)
+    );
+    assert!(mesh.quads().iter().all(|quad| quad.material_id() == LEAF_A));
+    assert!(mesh.connectivity().is_all_connected());
+    assert_eq!(size_of::<PackedQuad>(), 8);
+}
+
+#[test]
+fn uniform_diagnostic_emits_each_unculled_slice_and_is_cave_open() {
+    let mesh = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &uniform(DIAGNOSTIC),
+    );
+
+    assert_eq!(mesh.quad_count(), 96);
+    assert!(
+        mesh.quads()
+            .iter()
+            .all(|quad| quad.width() == 16 && quad.height() == 16)
+    );
+    assert!(
+        mesh.quads()
+            .iter()
+            .all(|quad| quad.material_id() == DIAGNOSTIC_MATERIAL)
+    );
+    assert!(mesh.connectivity().is_all_connected());
+}
+
+#[test]
+fn leaf_slab_is_cave_open_while_opaque_slab_separates_opposite_faces() {
+    let leaf = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &slab(LEAF_A),
+    );
+    assert!(leaf.connectivity().is_all_connected());
+
+    let opaque = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &slab(OPAQUE_A),
+    );
+    assert!(
+        !opaque
+            .connectivity()
+            .is_connected(Face::NegativeX, Face::PositiveX)
+    );
+}
+
+#[test]
+fn first_non_air_palette_layer_controls_leaf_facts_and_face_material() {
+    let layer_zero = packed_storage(1, &[AIR, LEAF_A], &[([1, 1, 1], 1)]);
+    let layer_one = packed_storage(1, &[AIR, OPAQUE_A], &[([1, 1, 1], 1), ([2, 1, 1], 1)]);
+    let sub = sub_chunk(vec![layer_zero, layer_one]);
+    let mesh = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &sub,
+    );
+
+    assert_eq!(mesh.quad_count(), 11);
+    assert!(!has_face(&mesh, [1, 1, 1], Face::PositiveX));
+    assert!(has_face(&mesh, [2, 1, 1], Face::NegativeX));
+    assert_eq!(
+        mesh.quads()
+            .iter()
+            .filter(|quad| quad.material_id() == LEAF_A)
+            .count(),
+        5
+    );
+    assert_eq!(
+        mesh.quads()
+            .iter()
+            .filter(|quad| quad.material_id() == OPAQUE_A)
+            .count(),
+        6
+    );
+}
+
+#[test]
+fn classifier_air_collision_with_known_opaque_visual_remains_air_in_mixed_storage() {
+    let collision_classifier = BlockClassifier::new(OPAQUE_A);
+    let layer_zero = packed_storage(1, &[OPAQUE_A, OPAQUE_B], &[([8, 8, 8], 1)]);
+    let layer_one = packed_storage(1, &[OPAQUE_A, LEAF_A], &[([1, 1, 1], 1)]);
+    let sub = sub_chunk(vec![layer_zero, layer_one]);
+    let mesh = mesh(
+        &collision_classifier,
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &sub,
+    );
+
+    assert_eq!(mesh.quad_count(), 12);
+    assert_eq!(
+        mesh.quads()
+            .iter()
+            .filter(|quad| quad.material_id() == LEAF_A)
+            .count(),
+        6
+    );
+    assert_eq!(
+        mesh.quads()
+            .iter()
+            .filter(|quad| quad.material_id() == OPAQUE_B)
+            .count(),
+        6
+    );
+}
+
+#[test]
+fn classifier_non_air_collision_with_air_visual_stays_diagnostic_and_owns_the_voxel() {
+    let collision_classifier = BlockClassifier::new(AIR - 1);
+    let layer_zero = packed_storage(1, &[AIR - 1, AIR], &[([1, 1, 1], 1)]);
+    let layer_one = packed_storage(1, &[AIR - 1, OPAQUE_A], &[([1, 1, 1], 1)]);
+    let sub = sub_chunk(vec![layer_zero, layer_one]);
+    let mesh = mesh(
+        &collision_classifier,
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &sub,
+    );
+
+    assert_eq!(mesh.quad_count(), 6);
+    assert!(
+        mesh.quads()
+            .iter()
+            .all(|quad| quad.material_id() == DIAGNOSTIC_MATERIAL)
+    );
+    assert!(mesh.connectivity().is_all_connected());
 }
 
 #[test]
