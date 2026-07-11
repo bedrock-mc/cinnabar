@@ -7,6 +7,198 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+function ConvertTo-ExtendedLengthPath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    if ([System.IO.Path]::DirectorySeparatorChar -ne [char]92 -or
+        $fullPath.StartsWith("\\?\", [System.StringComparison]::Ordinal)) {
+        return $fullPath
+    }
+    if ($fullPath.StartsWith("\\", [System.StringComparison]::Ordinal)) {
+        return "\\?\UNC\$($fullPath.Substring(2))"
+    }
+    return "\\?\$fullPath"
+}
+
+function Remove-ExtractionTree {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    $extendedPath = ConvertTo-ExtendedLengthPath -Path $Path
+    if ([System.IO.Directory]::Exists($extendedPath)) {
+        [System.IO.Directory]::Delete($extendedPath, $true)
+    }
+}
+
+function Expand-ZipArchiveBounded {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ArchivePath,
+        [Parameter(Mandatory = $true)]
+        [string]$DestinationPath
+    )
+
+    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+    $destinationRoot = [System.IO.Path]::GetFullPath($DestinationPath)
+    $destinationPrefix = $destinationRoot.TrimEnd(
+        [System.IO.Path]::DirectorySeparatorChar,
+        [System.IO.Path]::AltDirectorySeparatorChar
+    ) + [System.IO.Path]::DirectorySeparatorChar
+    $pathComparison = if ([System.IO.Path]::DirectorySeparatorChar -eq [char]92) {
+        [System.StringComparison]::OrdinalIgnoreCase
+    } else {
+        [System.StringComparison]::Ordinal
+    }
+    $invalidFileNameCharacters = [System.IO.Path]::GetInvalidFileNameChars()
+    $nodes = @{}
+    $plannedEntries = [System.Collections.Generic.List[object]]::new()
+
+    $archiveStream = [System.IO.File]::OpenRead($ArchivePath)
+    try {
+        $zip = [System.IO.Compression.ZipArchive]::new(
+            $archiveStream,
+            [System.IO.Compression.ZipArchiveMode]::Read,
+            $false
+        )
+        try {
+            foreach ($entry in $zip.Entries) {
+                $rawName = [string]$entry.FullName
+                if ([string]::IsNullOrWhiteSpace($rawName) -or
+                    $rawName.IndexOf([char]0) -ge 0) {
+                    throw "unsafe ZIP entry '$rawName': path is empty or contains a null character"
+                }
+                if ($rawName.StartsWith("/", [System.StringComparison]::Ordinal) -or
+                    $rawName.StartsWith("\", [System.StringComparison]::Ordinal)) {
+                    throw "unsafe ZIP entry '$rawName': absolute and UNC paths are not allowed"
+                }
+
+                $normalizedName = $rawName.Replace("\", "/")
+                if ($normalizedName.Contains("//")) {
+                    throw "unsafe ZIP entry '$rawName': empty path components are not allowed"
+                }
+                $isDirectory = $normalizedName.EndsWith("/", [System.StringComparison]::Ordinal)
+                if ($isDirectory -and $entry.Length -ne 0) {
+                    throw "unsafe ZIP entry '$rawName': directory entries must be empty"
+                }
+                $trimmedName = $normalizedName.TrimEnd([char]47)
+                if ([string]::IsNullOrWhiteSpace($trimmedName)) {
+                    throw "unsafe ZIP entry '$rawName': path is empty"
+                }
+
+                $parts = $trimmedName.Split([char]47)
+                foreach ($part in $parts) {
+                    if ([string]::IsNullOrEmpty($part)) {
+                        throw "unsafe ZIP entry '$rawName': empty path components are not allowed"
+                    }
+                    if ($part -eq "." -or $part -eq "..") {
+                        throw "unsafe ZIP entry '$rawName': traversal components are not allowed"
+                    }
+                    if ($part.Contains(":")) {
+                        throw "unsafe ZIP entry '$rawName': drive and alternate-stream paths are not allowed"
+                    }
+                    if ($part.IndexOfAny($invalidFileNameCharacters) -ge 0 -or
+                        $part.EndsWith(" ", [System.StringComparison]::Ordinal) -or
+                        $part.EndsWith(".", [System.StringComparison]::Ordinal)) {
+                        throw "unsafe ZIP entry '$rawName': invalid filename component '$part'"
+                    }
+                    $deviceBaseName = $part.Split([char]46)[0]
+                    if ($deviceBaseName -match "^(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$") {
+                        throw "unsafe ZIP entry '$rawName': reserved filename component '$part'"
+                    }
+                }
+
+                $relativePath = $parts -join [string][System.IO.Path]::DirectorySeparatorChar
+                $entryDestination = [System.IO.Path]::GetFullPath(
+                    (Join-Path $destinationRoot $relativePath)
+                )
+                if (-not $entryDestination.StartsWith($destinationPrefix, $pathComparison)) {
+                    throw "unsafe ZIP entry '$rawName': path escapes the extraction root"
+                }
+
+                $currentPath = ""
+                for ($index = 0; $index -lt $parts.Count; $index++) {
+                    $currentPath = if ($index -eq 0) {
+                        $parts[$index]
+                    } else {
+                        "$currentPath/$($parts[$index])"
+                    }
+                    $isLeaf = $index -eq ($parts.Count - 1)
+                    $kind = if ($isLeaf -and -not $isDirectory) { "file" } else { "directory" }
+                    if ($nodes.ContainsKey($currentPath)) {
+                        $node = $nodes[$currentPath]
+                        if (-not [string]::Equals(
+                            [string]$node.Path,
+                            $currentPath,
+                            [System.StringComparison]::Ordinal
+                        ) -or [string]$node.Kind -ne $kind) {
+                            throw "unsafe ZIP entry '$rawName': ZIP entry path collision at '$currentPath'"
+                        }
+                        if ($isLeaf) {
+                            if ($kind -eq "file" -or [bool]$node.Explicit) {
+                                throw "unsafe ZIP entry '$rawName': duplicate ZIP entry path '$currentPath'"
+                            }
+                            $node.Explicit = $true
+                        }
+                    } else {
+                        $nodes[$currentPath] = [pscustomobject]@{
+                            Path = $currentPath
+                            Kind = $kind
+                            Explicit = $isLeaf
+                        }
+                    }
+                }
+
+                $plannedEntries.Add([pscustomobject]@{
+                    Entry = $entry
+                    Destination = $entryDestination
+                    Directory = $isDirectory
+                })
+            }
+
+            foreach ($planned in $plannedEntries) {
+                $extendedDestination = ConvertTo-ExtendedLengthPath -Path ([string]$planned.Destination)
+                if ([bool]$planned.Directory) {
+                    [System.IO.Directory]::CreateDirectory($extendedDestination) | Out-Null
+                    continue
+                }
+
+                $parent = [System.IO.Path]::GetDirectoryName([string]$planned.Destination)
+                [System.IO.Directory]::CreateDirectory(
+                    (ConvertTo-ExtendedLengthPath -Path $parent)
+                ) | Out-Null
+                $inputStream = $planned.Entry.Open()
+                try {
+                    $outputStream = [System.IO.FileStream]::new(
+                        $extendedDestination,
+                        [System.IO.FileMode]::CreateNew,
+                        [System.IO.FileAccess]::Write,
+                        [System.IO.FileShare]::None
+                    )
+                    try {
+                        $inputStream.CopyTo($outputStream)
+                    } finally {
+                        $outputStream.Dispose()
+                    }
+                } finally {
+                    $inputStream.Dispose()
+                }
+            }
+        } finally {
+            $zip.Dispose()
+        }
+    } finally {
+        $archiveStream.Dispose()
+    }
+}
+
 if (-not $AcceptEula) {
     Write-Error "Refusing to fetch Mojang assets without the explicit -AcceptEula flag."
 }
@@ -118,7 +310,7 @@ if (-not $archiveVerified) {
 
 try {
     New-Item -ItemType Directory -Path $temporaryExtract | Out-Null
-    Expand-Archive -LiteralPath $archivePath -DestinationPath $temporaryExtract
+    Expand-ZipArchiveBounded -ArchivePath $archivePath -DestinationPath $temporaryExtract
 
     $directSource = Join-Path $temporaryExtract "resource_pack\blocks.json"
     if (Test-Path -LiteralPath $directSource -PathType Leaf) {
@@ -137,12 +329,10 @@ try {
 
     Move-Item -LiteralPath $normalizedRoot -Destination $cachePath
     if (Test-Path -LiteralPath $temporaryExtract) {
-        Remove-Item -Recurse -Force -LiteralPath $temporaryExtract
+        Remove-ExtractionTree -Path $temporaryExtract
     }
 } catch {
-    if (Test-Path -LiteralPath $temporaryExtract) {
-        Remove-Item -Recurse -Force -LiteralPath $temporaryExtract
-    }
+    Remove-ExtractionTree -Path $temporaryExtract
     throw
 }
 

@@ -44,7 +44,8 @@ function Write-TestManifest {
         [AllowEmptyString()]
         [string]$Archive,
         [Parameter(Mandatory = $true)]
-        [string]$CacheDirectory
+        [string]$CacheDirectory,
+        [string]$Sha256 = ""
     )
 
     $manifest = [ordered]@{}
@@ -53,7 +54,64 @@ function Write-TestManifest {
     }
     $manifest["archive"] = $Archive
     $manifest["cache_dir"] = $CacheDirectory
+    if (-not [string]::IsNullOrWhiteSpace($Sha256)) {
+        $manifest["sha256"] = $Sha256
+    }
     $manifest | ConvertTo-Json | Set-Content -LiteralPath $Path -Encoding UTF8
+}
+
+function New-TestZipArchive {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        [Parameter(Mandatory = $true)]
+        [object[]]$Entries
+    )
+
+    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $parent = Split-Path -Parent $Path
+    New-Item -ItemType Directory -Force -Path $parent | Out-Null
+    $stream = [System.IO.File]::Open(
+        $Path,
+        [System.IO.FileMode]::CreateNew,
+        [System.IO.FileAccess]::ReadWrite,
+        [System.IO.FileShare]::None
+    )
+    try {
+        $zip = [System.IO.Compression.ZipArchive]::new(
+            $stream,
+            [System.IO.Compression.ZipArchiveMode]::Create,
+            $true
+        )
+        try {
+            foreach ($entrySpec in $Entries) {
+                $entry = $zip.CreateEntry([string]$entrySpec.Name)
+                if ($null -ne $entrySpec.Content) {
+                    $entryStream = $entry.Open()
+                    try {
+                        $writer = [System.IO.StreamWriter]::new(
+                            $entryStream,
+                            [System.Text.UTF8Encoding]::new($false),
+                            1024,
+                            $true
+                        )
+                        try {
+                            $writer.Write([string]$entrySpec.Content)
+                        } finally {
+                            $writer.Dispose()
+                        }
+                    } finally {
+                        $entryStream.Dispose()
+                    }
+                }
+            }
+        } finally {
+            $zip.Dispose()
+        }
+    } finally {
+        $stream.Dispose()
+    }
 }
 
 $downloadDirectory = Join-Path $repoRoot ".local\assets\downloads"
@@ -200,6 +258,77 @@ try {
         if ($powerShellArchive.Output -notmatch [regex]::Escape($archiveDiagnostic)) {
             $sandboxFailures += "PowerShell archive failure omitted exact diagnostic '$archiveDiagnostic': $($powerShellArchive.Output.Trim())"
         }
+    }
+
+    $syntheticArchiveName = "synthetic-vanilla.zip"
+    $syntheticArchivePath = Join-Path $sandboxRoot ".local\assets\downloads\$syntheticArchiveName"
+    $syntheticCacheRelative = ".local/assets/synthetic-vanilla"
+    $syntheticCache = Join-Path $sandboxRoot ".local\assets\synthetic-vanilla"
+    $longMetadataPath = "metadata/json_schemas/server/entity/1.26.30/NearestPrioritizedAttackableTargetGoalDefinition.json"
+    New-TestZipArchive -Path $syntheticArchivePath -Entries @(
+        [pscustomobject]@{ Name = "behavior_pack/"; Content = $null },
+        [pscustomobject]@{ Name = "behavior_pack/items/"; Content = $null },
+        [pscustomobject]@{ Name = "behavior_pack/items/rabbit.json"; Content = "{}" },
+        [pscustomobject]@{ Name = "resource_pack/"; Content = $null },
+        [pscustomobject]@{ Name = "resource_pack/blocks.json"; Content = "{}" },
+        [pscustomobject]@{ Name = $longMetadataPath; Content = "{}" }
+    )
+    $syntheticSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $syntheticArchivePath).Hash.ToLowerInvariant()
+    Write-TestManifest -Template $source -Path $sandboxManifest `
+        -Archive $syntheticArchiveName -CacheDirectory $syntheticCacheRelative -Sha256 $syntheticSha256
+    $syntheticResult = Invoke-NativeCapture -FilePath $childPowerShell -ArgumentList @(
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        $sandboxPowerShellFetcher,
+        "-AcceptEula"
+    )
+    if ($syntheticResult.ExitCode -ne 0) {
+        $sandboxFailures += "PowerShell failed to extract the synthetic pinned-archive layout: $($syntheticResult.Output.Trim())"
+    } else {
+        foreach ($relativePath in @(
+            "behavior_pack\items\rabbit.json",
+            "resource_pack\blocks.json",
+            $longMetadataPath.Replace("/", "\")
+        )) {
+            if (-not (Test-Path -LiteralPath (Join-Path $syntheticCache $relativePath) -PathType Leaf)) {
+                $sandboxFailures += "PowerShell extraction omitted '$relativePath'"
+            }
+        }
+    }
+
+    if (Test-Path -LiteralPath $syntheticCache) {
+        Remove-Item -Recurse -Force -LiteralPath $syntheticCache
+    }
+    Remove-Item -Force -LiteralPath $syntheticArchivePath
+    New-TestZipArchive -Path $syntheticArchivePath -Entries @(
+        [pscustomobject]@{ Name = "resource_pack/blocks.json"; Content = "{}" },
+        [pscustomobject]@{ Name = "../escaped.txt"; Content = "must not escape" }
+    )
+    $traversalSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $syntheticArchivePath).Hash.ToLowerInvariant()
+    Write-TestManifest -Template $source -Path $sandboxManifest `
+        -Archive $syntheticArchiveName -CacheDirectory $syntheticCacheRelative -Sha256 $traversalSha256
+    $traversalResult = Invoke-NativeCapture -FilePath $childPowerShell -ArgumentList @(
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        $sandboxPowerShellFetcher,
+        "-AcceptEula"
+    )
+    if ($traversalResult.ExitCode -eq 0) {
+        $sandboxFailures += "PowerShell accepted a traversing ZIP entry"
+    }
+    if ($traversalResult.Output -notmatch [regex]::Escape("unsafe ZIP entry '../escaped.txt'")) {
+        $sandboxFailures += "PowerShell traversal failure omitted the bounded-extraction diagnostic: $($traversalResult.Output.Trim())"
+    }
+    if (Test-Path -LiteralPath $syntheticCache) {
+        $sandboxFailures += "PowerShell published a cache after rejecting a traversing ZIP entry"
+    }
+    $escapedFiles = @(Get-ChildItem -Force -Recurse -LiteralPath $sandboxRoot -Filter "escaped.txt" -ErrorAction SilentlyContinue)
+    if ($escapedFiles.Count -ne 0) {
+        $sandboxFailures += "PowerShell wrote outside the extraction root: $($escapedFiles.FullName -join ', ')"
     }
 
     if ($sandboxFailures.Count -ne 0) {
