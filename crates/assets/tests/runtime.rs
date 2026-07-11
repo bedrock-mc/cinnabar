@@ -146,9 +146,9 @@ fn decode_rejects_invalid_visual_flag_semantics() {
 fn decode_rejects_material_flags_outside_supported_mask() {
     let mut blob = valid_blob();
     let materials_offset = read_u64(&blob, MATERIALS_OFFSET_OFFSET) as usize;
-    write_u32(&mut blob, materials_offset + 12, MATERIAL_FLAGS_MASK | 0x10);
+    write_u32(&mut blob, materials_offset + 12, MATERIAL_FLAGS_MASK | 0x80);
     reseal(&mut blob);
-    assert_rejected(&blob, "material flags outside 0x10f");
+    assert_rejected(&blob, "material flags outside 0x17f");
 }
 
 #[test]

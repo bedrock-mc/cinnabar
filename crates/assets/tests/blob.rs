@@ -132,7 +132,7 @@ fn blob_rejects_material_layer_visual_and_mip_invariants() {
         Material { layer: 0, flags: 0 },
         Material {
             layer: 0,
-            flags: MATERIAL_FLAGS_MASK | 0x10,
+            flags: MATERIAL_FLAGS_MASK | 0x80,
         },
     ]
     .into_boxed_slice();

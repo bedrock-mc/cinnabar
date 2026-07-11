@@ -16,8 +16,14 @@ pub const MAX_TEXTURE_LAYERS: usize = 2_048;
 pub const MAX_MATERIALS: usize = 65_536;
 pub const MATERIAL_FLAG_ROTATE_UV: u32 = 1 << 0;
 pub const MATERIAL_FLAG_UV_MASK: u32 = 0x0000_000f;
+pub const MATERIAL_FLAG_TINT_MASK: u32 = 0x0000_0030;
+pub const MATERIAL_FLAG_GRASS_TINT: u32 = 1 << 4;
+pub const MATERIAL_FLAG_OVERLAY_MASK: u32 = 1 << 6;
 pub const MATERIAL_FLAG_ALPHA_CUTOUT: u32 = 1 << 8;
-pub const MATERIAL_FLAGS_MASK: u32 = MATERIAL_FLAG_UV_MASK | MATERIAL_FLAG_ALPHA_CUTOUT;
+pub const MATERIAL_FLAGS_MASK: u32 = MATERIAL_FLAG_UV_MASK
+    | MATERIAL_FLAG_TINT_MASK
+    | MATERIAL_FLAG_OVERLAY_MASK
+    | MATERIAL_FLAG_ALPHA_CUTOUT;
 
 const MAX_VISUALS: usize = 65_536;
 
@@ -96,7 +102,12 @@ pub fn compile_pack(root: &Path, records: &[RegistryRecord]) -> Result<CompiledA
         .filter(|descriptor| descriptor.flags & MATERIAL_FLAG_ALPHA_CUTOUT != 0)
         .filter_map(|descriptor| layer_by_path.get(&descriptor.path).copied())
         .collect::<BTreeSet<_>>();
-    let textures = build_texture_array(&layers, &cutout_layers)?;
+    let overlay_mask_layers = descriptor_keys
+        .keys()
+        .filter(|descriptor| descriptor.flags & MATERIAL_FLAG_OVERLAY_MASK != 0)
+        .filter_map(|descriptor| layer_by_path.get(&descriptor.path).copied())
+        .collect::<BTreeSet<_>>();
+    let textures = build_texture_array(&layers, &cutout_layers, &overlay_mask_layers)?;
     let (materials, material_by_descriptor) = compile_materials(&descriptor_keys, &layer_by_path)?;
     let (visuals, hashed) = compile_visuals(records, &pack, &material_by_descriptor)?;
 
@@ -166,6 +177,15 @@ fn descriptor_for(
     if record.flags.contains(BlockFlags::LEAF_MODEL) {
         flags |= MATERIAL_FLAG_ALPHA_CUTOUT;
     }
+    if record.name.as_ref() == "minecraft:grass_block" {
+        flags |= match face {
+            BlockFace::Down => 0,
+            BlockFace::Up => MATERIAL_FLAG_GRASS_TINT,
+            BlockFace::West | BlockFace::East | BlockFace::North | BlockFace::South => {
+                MATERIAL_FLAG_GRASS_TINT | MATERIAL_FLAG_OVERLAY_MASK
+            }
+        };
+    }
     Some((
         Descriptor {
             path: path.into(),
@@ -189,8 +209,7 @@ fn record_has_deferred_material(pack: &PackSources, record: &RegistryRecord) -> 
 }
 
 fn source_is_deferred(pack: &PackSources, record: &RegistryRecord, key: &str, path: &str) -> bool {
-    record.name.as_ref() == "minecraft:grass_block"
-        || pack.terrain.requires_tint(key)
+    (record.name.as_ref() != "minecraft:grass_block" && pack.terrain.requires_tint(key))
         || pack.flipbooks.iter().any(|flipbook| {
             flipbook.atlas_tile.as_ref() == key || flipbook.texture_path.as_ref() == path
         })
@@ -203,6 +222,11 @@ fn compile_layers(
     let cutout_paths = descriptor_keys
         .keys()
         .filter(|descriptor| descriptor.flags & MATERIAL_FLAG_ALPHA_CUTOUT != 0)
+        .map(|descriptor| descriptor.path.clone())
+        .collect::<BTreeSet<_>>();
+    let overlay_mask_paths = descriptor_keys
+        .keys()
+        .filter(|descriptor| descriptor.flags & MATERIAL_FLAG_OVERLAY_MASK != 0)
         .map(|descriptor| descriptor.path.clone())
         .collect::<BTreeSet<_>>();
     let mut key_by_path = BTreeMap::<Box<str>, Box<str>>::new();
@@ -226,7 +250,9 @@ fn compile_layers(
     for (path, key) in key_by_path {
         let source_path = static_texture_path(root, &path, &key)?;
         let pixels = decode_static_texture(&source_path, &key)?;
-        if pixels.chunks_exact(4).any(|pixel| pixel[3] != u8::MAX) && !cutout_paths.contains(&path)
+        if pixels.chunks_exact(4).any(|pixel| pixel[3] != u8::MAX)
+            && !cutout_paths.contains(&path)
+            && !overlay_mask_paths.contains(&path)
         {
             continue;
         }

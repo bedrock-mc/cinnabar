@@ -339,7 +339,11 @@ fn packed_chunk_shader_parses_and_validates() {
     assert!(shader.contains("material_flags & (1u << 8u)"));
     assert!(shader.contains("sampled.a < 0.5"));
     assert_eq!(shader.matches("discard").count(), 1);
-    assert!(shader.contains("vec4(sampled.rgb, 1.0)"));
+    assert!(shader.contains("const DEFAULT_GRASS_TINT_LINEAR"));
+    assert!(shader.contains("material_flags & 0x30u"));
+    assert!(shader.contains("material_flags & (1u << 6u)"));
+    assert!(shader.contains("mix(sampled.rgb, tinted, sampled.a)"));
+    assert!(shader.contains("return apply_material_tint(sampled, in.material_flags);"));
     assert!(shader.contains("if ((in.material_flags & (1u << 8u)) != 0u && sampled.a < 0.5) {"));
     assert!(shader.contains("greedy_uv"));
     assert!(!shader.contains("debug_color"));

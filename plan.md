@@ -180,6 +180,10 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     lifetime independent of all-air block subchunks.
   - [ ] Carry request-mode and inline `LevelChunk` biome payloads through the
     Rayon/FIFO streaming path and retain the live biome definition mapping.
+  - [x] Remove the grass-block diagnostic fallback: compile bottom/top/side
+    independently, preserve grass-side alpha as an opaque tint mask through
+    mip generation, and apply the pinned pack's deterministic default grass
+    tint until live per-biome color lookup replaces it.
   - [ ] Compile grass/foliage/water tint classifications and biome color rules,
     upload palette-native biome/tint tables, and apply them in the chunk shader
     without widening the eight-byte quad record.

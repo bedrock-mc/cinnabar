@@ -21,6 +21,15 @@ struct MaterialGpu {
 @group(0) @binding(4) var block_textures: texture_2d_array<f32>;
 @group(0) @binding(5) var block_sampler: sampler;
 
+// Variant-zero Bedrock grass overlay (#79c05a), converted from sRGB because
+// the texture array is sampled as linear colour. Live biome lookup replaces
+// this deterministic fallback as the palette-native tint arena lands.
+const DEFAULT_GRASS_TINT_LINEAR: vec3<f32> = vec3<f32>(
+    0.191201683,
+    0.527115126,
+    0.102241733,
+);
+
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) uv: vec2<f32>,
@@ -177,11 +186,25 @@ fn vertex(
     return out;
 }
 
+fn apply_material_tint(sampled: vec4<f32>, material_flags: u32) -> vec4<f32> {
+    let tint_kind = material_flags & 0x30u;
+    if (tint_kind == 0x10u) {
+        let tinted = sampled.rgb * DEFAULT_GRASS_TINT_LINEAR;
+        if ((material_flags & (1u << 6u)) != 0u) {
+            // Grass-side alpha is an overlay weight, not transparency. Its
+            // alpha-zero RGB contains the opaque dirt base.
+            return vec4(mix(sampled.rgb, tinted, sampled.a), 1.0);
+        }
+        return vec4(tinted, 1.0);
+    }
+    return vec4(sampled.rgb, 1.0);
+}
+
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let sampled = textureSample(block_textures, block_sampler, in.uv, i32(in.layer));
     if ((in.material_flags & (1u << 8u)) != 0u && sampled.a < 0.5) {
         discard;
     }
-    return vec4(sampled.rgb, 1.0);
+    return apply_material_tint(sampled, in.material_flags);
 }

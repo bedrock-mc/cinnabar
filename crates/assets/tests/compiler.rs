@@ -7,8 +7,9 @@ use std::{
 
 use assets::{
     AssetError, BlockFace, BlockFlags, CompiledAssets, DIAGNOSTIC_MATERIAL,
-    MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_ROTATE_UV, MATERIAL_FLAG_UV_MASK,
-    MATERIAL_FLAGS_MASK, MAX_TEXTURE_LAYERS, Material, RegistryRecord, compile_pack, encode_blob,
+    MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_GRASS_TINT, MATERIAL_FLAG_OVERLAY_MASK,
+    MATERIAL_FLAG_ROTATE_UV, MATERIAL_FLAG_UV_MASK, MATERIAL_FLAGS_MASK, MAX_TEXTURE_LAYERS,
+    Material, RegistryRecord, compile_pack, encode_blob,
 };
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 use tempfile::TempDir;
@@ -302,7 +303,7 @@ fn compiler_marks_only_leaf_faces_as_alpha_cutout() {
 
     assert_eq!(MATERIAL_FLAG_UV_MASK, 0x0f);
     assert_eq!(MATERIAL_FLAG_ALPHA_CUTOUT, 0x100);
-    assert_eq!(MATERIAL_FLAGS_MASK, 0x10f);
+    assert_eq!(MATERIAL_FLAGS_MASK, 0x17f);
     assert_eq!(std::mem::size_of::<Material>(), 8);
     let opaque_id = compiled.visuals[0].faces[BlockFace::Up as usize];
     let opaque = compiled.materials[opaque_id as usize];
@@ -731,17 +732,30 @@ fn compiler_fails_closed_for_transparent_and_tinted_full_cubes() {
             .into_iter()
             .all(|material| material != 0)
     );
-    for deferred in 1..=3 {
+    for deferred in 1..=2 {
         assert_eq!(
             compiled.visuals[deferred].faces, [DIAGNOSTIC_MATERIAL; 6],
             "deferred transparent/tinted record {deferred} must fail closed"
         );
     }
-    assert_eq!(compiled.materials.len(), 2, "diagnostic + opaque stone");
+    let grass = compiled.visuals[3];
+    assert!(grass.faces.into_iter().all(|material| material != 0));
+    assert_eq!(material_for_face(&compiled, 3, BlockFace::Down).flags, 0);
     assert_eq!(
-        compiled.textures.layers, 2,
-        "deferred sources stay out of the blob"
+        material_for_face(&compiled, 3, BlockFace::Up).flags,
+        MATERIAL_FLAG_GRASS_TINT
     );
+    for face in [
+        BlockFace::West,
+        BlockFace::East,
+        BlockFace::North,
+        BlockFace::South,
+    ] {
+        assert_eq!(
+            material_for_face(&compiled, 3, face).flags,
+            MATERIAL_FLAG_GRASS_TINT | MATERIAL_FLAG_OVERLAY_MASK
+        );
+    }
 }
 
 #[test]
@@ -1094,7 +1108,7 @@ fn compiler_only_loads_full_cubes_and_builds_equivalent_lookup_tables() {
 }
 
 #[test]
-fn compiler_keeps_tinted_grass_flipbooks_and_unlisted_blocks_diagnostic() {
+fn compiler_compiles_grass_faces_but_keeps_flipbooks_and_unlisted_blocks_diagnostic() {
     let directory = tempfile::tempdir().expect("create fixture");
     write_pack(
         directory.path(),
@@ -1163,11 +1177,20 @@ fn compiler_keeps_tinted_grass_flipbooks_and_unlisted_blocks_diagnostic() {
     let grass = compiled.visuals[0];
     let sea_lantern = compiled.visuals[1];
 
-    assert_eq!(grass.faces, [DIAGNOSTIC_MATERIAL; 6]);
+    assert!(grass.faces.into_iter().all(|material| material != 0));
+    assert_eq!(material_for_face(&compiled, 0, BlockFace::Down).flags, 0);
+    assert_eq!(
+        material_for_face(&compiled, 0, BlockFace::Up).flags,
+        MATERIAL_FLAG_GRASS_TINT
+    );
+    assert_eq!(
+        material_for_face(&compiled, 0, BlockFace::North).flags,
+        MATERIAL_FLAG_GRASS_TINT | MATERIAL_FLAG_OVERLAY_MASK
+    );
     assert_eq!(sea_lantern.faces, [DIAGNOSTIC_MATERIAL; 6]);
     assert_eq!(compiled.visuals[2].faces, [DIAGNOSTIC_MATERIAL; 6]);
-    assert_eq!(compiled.materials.len(), 1);
-    assert_eq!(compiled.textures.layers, 1);
+    assert_eq!(compiled.materials.len(), 4);
+    assert_eq!(compiled.textures.layers, 4);
 }
 
 #[test]

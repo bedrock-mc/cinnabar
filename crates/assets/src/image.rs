@@ -118,6 +118,7 @@ fn static_texture_format(path: &Path, key: &str) -> Result<ImageFormat, AssetErr
 pub(crate) fn build_texture_array(
     base_layers: &[Box<[u8]>],
     cutout_layers: &BTreeSet<u32>,
+    overlay_mask_layers: &BTreeSet<u32>,
 ) -> Result<TextureArray, AssetError> {
     let expected_base = (TILE_SIZE * TILE_SIZE * 4) as usize;
     if base_layers.is_empty() {
@@ -137,6 +138,15 @@ pub(crate) fn build_texture_array(
     {
         return Err(invalid(format!(
             "cutout layer {layer} is outside {} base layers",
+            base_layers.len()
+        )));
+    }
+    if let Some(&layer) = overlay_mask_layers
+        .iter()
+        .find(|&&layer| layer as usize >= base_layers.len())
+    {
+        return Err(invalid(format!(
+            "overlay-mask layer {layer} is outside {} base layers",
             base_layers.len()
         )));
     }
@@ -189,7 +199,15 @@ pub(crate) fn build_texture_array(
         let target_size = size / 2;
         per_layer = per_layer
             .iter()
-            .map(|pixels| downsample_linear_premultiplied(pixels, size))
+            .enumerate()
+            .map(|(layer, pixels)| {
+                let layer = u32::try_from(layer).expect("texture layer count is bounded");
+                if overlay_mask_layers.contains(&layer) {
+                    downsample_linear_unassociated(pixels, size)
+                } else {
+                    downsample_linear_premultiplied(pixels, size)
+                }
+            })
             .collect();
         size = target_size;
     }
@@ -295,6 +313,33 @@ fn downsample_linear_premultiplied(source: &[u8], source_size: u32) -> Box<[u8]>
     target.into_boxed_slice()
 }
 
+fn downsample_linear_unassociated(source: &[u8], source_size: u32) -> Box<[u8]> {
+    let target_size = source_size / 2;
+    let mut target = Vec::with_capacity((target_size * target_size * 4) as usize);
+    for y in 0..target_size {
+        for x in 0..target_size {
+            let mut linear_sum = [0.0_f32; 3];
+            let mut alpha_sum = 0.0_f32;
+            for offset_y in 0..2 {
+                for offset_x in 0..2 {
+                    let source_x = x * 2 + offset_x;
+                    let source_y = y * 2 + offset_y;
+                    let offset = ((source_y * source_size + source_x) * 4) as usize;
+                    alpha_sum += f32::from(source[offset + 3]) / 255.0;
+                    for channel in 0..3 {
+                        linear_sum[channel] += srgb_to_linear(source[offset + channel]);
+                    }
+                }
+            }
+            for value in linear_sum {
+                target.push(linear_to_srgb(value / 4.0));
+            }
+            target.push(float_to_byte(alpha_sum / 4.0));
+        }
+    }
+    target.into_boxed_slice()
+}
+
 fn srgb_to_linear(value: u8) -> f32 {
     let value = f32::from(value) / 255.0;
     if value <= 0.040_45 {
@@ -326,7 +371,7 @@ fn invalid(detail: impl Into<Box<str>>) -> AssetError {
 
 #[cfg(test)]
 mod tests {
-    use super::downsample_linear_premultiplied;
+    use super::{downsample_linear_premultiplied, downsample_linear_unassociated};
 
     #[test]
     fn transparent_colour_does_not_bleed_into_linear_mips() {
@@ -336,5 +381,19 @@ mod tests {
             downsample_linear_premultiplied(&source, 2).as_ref(),
             [255, 0, 0, 64]
         );
+    }
+
+    #[test]
+    fn tint_mask_mips_preserve_rgb_where_alpha_is_zero() {
+        let source = [
+            100, 50, 25, 0, 100, 50, 25, 0, 200, 200, 200, 255, 200, 200, 200, 255,
+        ];
+
+        let mip = downsample_linear_unassociated(&source, 2);
+        assert!(
+            mip[0] > 100,
+            "both base and overlay RGB contribute to the mip"
+        );
+        assert_eq!(mip[3], 128, "alpha remains only the overlay weight");
     }
 }
