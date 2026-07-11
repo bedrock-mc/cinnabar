@@ -148,10 +148,11 @@ Scope: block registry + block-state → model/texture mapping (generated export 
   vertex-pulled repeating UVs, oriented faces, and live asset selection are
   implemented. Two current-HEAD 60-second Windows radius-16 runs passed with
   p99 4.1 ms and zero errors; see `docs/phase-2-texture-slice-report.md`.
-- [ ] **2.3 Close the opaque texture slice.** Capture the deterministic named-block
-  BDS gallery (all faces/log axes, greedy repetition, mips, supported and
-  diagnostic cases), finish the blocker-only review, and close Task 8 in the
-  detailed vertical-slice plan.
+- [ ] **2.3 Close the opaque texture slice.** The deterministic named-block BDS
+  gallery now passes with all faces/log axes, greedy repetition, mips, supported
+  and diagnostic cases recorded, and the clean no-assets full gate passes.
+  Finish the blocker-only review, then close Task 8 in the detailed
+  vertical-slice plan.
 - [ ] **2.4 Cutout cube materials and leaves.** Preserve independent geometry,
   occlusion, and cave-connectivity semantics; keep the packed subchunk/quad and
   shared GPU architecture.

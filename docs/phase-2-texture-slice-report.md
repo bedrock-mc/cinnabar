@@ -2,11 +2,11 @@
 
 ## Status
 
-The opaque full-cube texture slice is implemented and has passed two consecutive
-60-second Windows acceptance runs at radius 16. Task 8 is not closed yet: the
-deterministic named-block visual gallery and the final independent review remain
-open. This report therefore does not claim full vanilla parity or completion of
-Phase 2.
+The opaque full-cube texture slice is implemented. Normal and deterministic
+Front/Back gallery runs pass for 60 seconds at radius 16 with zero errors and
+zero missing mappings. Task 8 is pending only its clean no-assets full gate and
+final independent review. This report does not claim full vanilla parity or
+completion of Phase 2.
 
 Phase 0 remains a conditional go because its authoritative dev-MacBook p99 run is
 still outstanding. The results below are from the Windows reference machine and
@@ -47,12 +47,21 @@ diagnostic material where appropriate.
 
 ## Verification
 
-At current commit `a03605e`, the normalization instrumentation was verified with
-70 app unit tests, 16 asset integration tests, 10 camera tests, strict client
-Clippy, formatting, and `git diff --check`. The original Task 8 RED output and
-the prescribed post-implementation/pre-ingestion full-workspace gate do not have
-durable artifacts, so detailed-plan Steps 2 and 4 remain open. The complete
-current workspace/Go gate will be rerun and recorded before Task 8 closure.
+At commit `dedca94`, the stale-reply fix was verified with 71 app unit tests,
+16 asset integration tests, 10 camera tests, strict client Clippy, formatting,
+and `git diff --check`. A reconstructed RED run applies the exact
+`b72c53b:app/tests/assets.rs` test blob to its pre-Task-8 parent `266114e`; the
+command exits 101 because `app/src/asset_startup.rs` does not yet exist. The
+durable evidence is `.worktrees/task8-red-repro/.superpowers/sdd/
+task8-red-repro-report.md`.
+
+The clean no-assets full-workspace/Go gate passed at `1604788`: 494 Rust tests,
+60 core Go tests, and nine registrygen tests passed; strict all-target Clippy had
+zero warnings; formatting, Go vet, and `git diff --check` passed. The worktree
+contained no `.local/assets` before or after any command. Its 236 tracked files
+contain zero `.png`, `.tga`, `.zip`, or `.mcbea` files and zero
+`bedrock-samples` paths. The ignored verification report SHA-256 is
+`c55d8a3c36c8102524c9b65b39e78816f4aa2deec554a2809ca020d2615870c2`.
 
 The local fetch and compiler reproduced the pinned source hash and the counts and
 blob hash above. Audits found zero runtime-hash collisions and zero missing
@@ -65,29 +74,34 @@ Machine: AMD Ryzen 5 3600, Radeon RX 570, Windows 10 Pro, 3440x1440 display.
 BDS source executable SHA-256:
 `10c680f00faffecdfb3743c5a8a71d6c73f176d148173ca19a99b0c80e40a83f`.
 
-Both passing runs used commit `a03605e`, the blob hash above, a fresh runtime copy
-of BDS 1.26.32.2, radius 16, automated flight, and alternating visible
-gold/diamond mutations.
+The first two rows are normal automated-flight passes at the instrumentation
+commit. The final rows use the deterministic runtime-only BDS gallery, fixed
+server camera poses, the same blob, and alternating visible gold/diamond
+mutations. Every run uses a fresh BDS 1.26.32.2 runtime copy.
 
 | Artifact | Result | p99 frame | Mutation visible | Errors | Resident / visible | Diagnostic quads |
 |---|---:|---:|---:|---:|---:|---:|
 | `.local/acceptance/20260711T041205Z-47388` | pass, 60.0008 s | 4.1 ms | 17.6009 ms | 0 | 8,979 / 6,600 | 395,183 |
 | `.local/acceptance/20260711T041438Z-20996` | pass, 60.0007 s | 4.1 ms | 27.2172 ms | 0 | 9,040 / 6,681 | 397,720 |
+| `.local/acceptance/20260711T052706Z-46768` (Front, `65e0da2`) | pass, 60.0013 s | 3.8 ms | 17.5303 ms | 0 | 9,305 / 6,869 | 411,282 |
+| `.local/acceptance/20260711T052936Z-18688` (Back, `65e0da2`) | pass, 60.0001 s | 3.9 ms | 17.5489 ms | 0 | 9,490 / 8,136 | 414,249 |
+| `.local/acceptance/20260711T054240Z-45652` (Back + sand support, `1604788`) | pass, 60.0011 s | 3.8 ms | 18.8554 ms | 0 | 9,583 / 8,207 | 419,383 |
 
-The first run's maximum decode/mesh/frame times were 1.6438/3.2234/28.4076 ms;
-the second run's were 2.5187/2.1042/26.9586 ms. Both reported zero missing
-mappings. Their initial full-view remesh maxima were 4,936.9038 and 7,306.2238
-ms, so the later Phase 2 teleport/full-remesh target of at most two seconds is
-not claimed by this slice.
+All five rows report zero missing mappings. The gallery runs' p99 frame time is
+3.8--3.9 ms; the final run's maximum frame/decode/mesh times are
+47.001/0.8121/0.8387 ms. The gallery deliberately changes hundreds of blocks and
+teleports the camera after initial readiness; its full-view remesh maxima remain
+14.2--15.1 seconds. The later Phase 2 teleport/full-remesh target of at most two
+seconds is therefore not claimed by this slice.
 
-An earlier otherwise equivalent run at
-`.local/acceptance/20260711T035509Z-45484` failed because the legacy aggregate
-counter reached 132 normalization events. Network and world decode counters were
-both zero. The run had a much heavier world-stream backlog, but its aggregate-only
-log could not identify the source. Commit `a03605e` split every normalization
-increment into durable reason counters without changing behavior. The two runs
-above then passed consecutively with zero events. No speculative semantic change
-was made; a future recurrence will identify the exact path.
+The intermittent 132-event failure was reproduced with reason counters at
+`.local/acceptance/20260711T050537Z-17708` on `58bac3d`. All 132 events were
+`inactive_sub_chunks`; every network, world decode, malformed, unexpected,
+invalid-dimension, request, retry, and mutation-failure counter was zero. These
+are valid replies to requests whose columns left the active radius before the
+reply arrived. Commit `dedca94` discards that stale traffic without touching the
+store, resident/air state, request/retry state, or error counters. Its TDD suite
+and independent review passed; all subsequent gallery runs report zero errors.
 
 ## Visual inspection
 
@@ -98,28 +112,31 @@ snapshot then failed with the exact Windows error:
 SetIsBorderRequired failed: No such interface supported (0x80004002)
 ```
 
-No app input was sent after that observation failure. A passive GDI capture was
-saved at
-`.local/acceptance/20260711T041205Z-47388/frame-instrumented.bmp`; it does not
-modify app state. The frame shows correctly loaded stone, dirt, ore, log, snow,
-and other opaque terrain textures at multiple depths. Large vegetation volumes
-and other unsupported shapes remain magenta diagnostic geometry, which matches
-the slice's current scope rather than indicating a failed texture-array load.
+No app input was sent after that observation failure. Passive GDI capture does
+not modify app state. The final evidence frames are:
 
-The landscape frame is not enough to prove the complete Step 6 checklist. A
-runtime-only BDS gallery still needs to capture named stone/dirt/grass/planks/
-ores/sand/glass cases, all three log axes, opposite cube faces, greedy repetition,
-near/far mips, and explicit non-cube fallbacks from fixed camera poses. Glass is
-also expected to expose the current lack of blend semantics. Keyboard/mouse
-capture and release were verified in the Phase 0 renderer pass, but the focused
-texture-gallery pass remains open because Computer Use could not snapshot safely.
+- Front: `.local/acceptance/20260711T052706Z-46768/frame-fixture-front-final.bmp`.
+- Back with stable sand support:
+  `.local/acceptance/20260711T054240Z-45652/frame-fixture-back-tight2.bmp`.
+
+Together they show stone, dirt, grass, oak planks, coal/iron/diamond ore, sand,
+and glass; x/y/z oak-log beams; opposite cube faces; and repeating plank/glass
+UVs at near and far distances without stitched-atlas bleeding. Log ends and bark
+remain correctly oriented. The glass texture resolves but renders opaque because
+blend semantics are not implemented yet. Oak stairs and glass panes remain the
+explicit non-full diagnostic cases. The window title confirms the fixed server
+poses and released input state; keyboard/mouse capture and clean release were
+already verified in the Phase 0 renderer pass.
+
+Large vegetation volumes outside the cleared gallery remain magenta. The audit
+shows these are predominantly leaves/cutout and other non-full states, not missing
+asset lookups. This is the next Phase 2 render class and no vanilla-parity claim
+is made for it here.
 
 ## Remaining work
 
-1. Run and record the deterministic local BDS texture gallery, without changing
-   or committing the source world or Mojang assets.
-2. Complete Task 8's independent blocker-only review and closure commit.
-3. Add cutout-cube leaves, then decode biome palettes and apply grass/foliage/
+1. Complete Task 8's independent blocker-only review and closure commit.
+2. Add cutout-cube leaves, then decode biome palettes and apply grass/foliage/
    water tinting. These are the next largest visual improvements.
-4. Continue the rest of Phase 2: static/non-cube models, blend/water, flipbooks,
+3. Continue the rest of Phase 2: static/non-cube models, blend/water, flipbooks,
    client lighting, sky, fog, and clouds.

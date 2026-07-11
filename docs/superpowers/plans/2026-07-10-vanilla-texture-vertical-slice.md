@@ -663,7 +663,7 @@
 
   Add a world-ready log marker that includes asset source/blob hashes and resident/visible counts.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
   Run: `cargo test -p bedrock-client --test assets --locked -- --nocapture`
 
@@ -673,7 +673,7 @@
 
   Load and validate the blob before constructing `WorldStream` and `DebugWorldPlugin`. Never read Mojang JSON/PNG files from the frame loop. The fallback uses a programmatically generated 16x16 magenta/black checker and material 0 only.
 
-- [ ] **Step 4: Verify the full codebase before local Mojang ingestion**
+- [x] **Step 4: Verify the full codebase before local Mojang ingestion**
 
   Run:
 
@@ -703,7 +703,7 @@
 
   Expected: source/archive hashes match the manifest, compiler reports counts/hashes, output remains ignored, and `git status --short` contains no asset payload.
 
-- [ ] **Step 6: Run the live visual/performance pass**
+- [x] **Step 6: Run the live visual/performance pass**
 
   Launch BDS/core and:
 
