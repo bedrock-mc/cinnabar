@@ -727,8 +727,8 @@ function New-VisualFixturePlan {
     $galleryCommands.Add("fill $($mx - 2) $($my + 7) $($mz - 15) $($mx + 2) $($my + 7) $($mz - 13) minecraft:glass")
     $galleryCommands.Add("fill $($mx - 2) $($my + 3) $($mz + 13) $($mx + 2) $($my + 3) $($mz + 15) minecraft:glass")
 
-    $fenceMarker = "RUST_MCBE_TEXTURE_FIXTURE_READY_$($Pose.ToUpperInvariant())"
-    $fenceCommand = "say $fenceMarker"
+    $fenceMarker = 'players online:'
+    $fenceCommand = 'list'
     $teleportCommand = "tp @a[name=RustMCBE] $($camera.x) $($camera.y) $($camera.z) facing $($galleryCenter.x) $($galleryCenter.y) $($galleryCenter.z)"
     $commands = @($galleryCommands) + @($fenceCommand, $teleportCommand)
     if ($commands.Count -gt 64) {
@@ -759,7 +759,10 @@ function New-VisualFixturePlan {
             non_full_blocks = @('minecraft:oak_stairs', 'minecraft:glass_pane')
             log_axes = @('x', 'y', 'z')
         }
-        processing_fence = $fenceMarker
+        processing_fence = [pscustomobject][ordered]@{
+            command = $fenceCommand
+            stdout_marker = $fenceMarker
+        }
         teleport_command = $teleportCommand
         settle_milliseconds = 3000
     }
