@@ -32,6 +32,10 @@ and multi-draw-indirect parity, and deterministic fail-closed diagnostics.
 The design is based on current pinned inputs rather than an assumed Bedrock model
 format:
 
+The exact family/state counts, selector domains, collision topology, classifier
+pitfalls, and Mojang mapping gaps are recorded in
+[`docs/phase-2-family-inventory.md`](../../phase-2-family-inventory.md).
+
 - The pinned Mojang resource pack has 1,231 `blocks.json` entries, 1,300 terrain
   texture keys, and 83 flipbooks. It has no block-render model JSON. Its `models`
   directory contains entity geometry only.
