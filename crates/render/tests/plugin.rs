@@ -1,4 +1,4 @@
-use std::sync::OnceLock;
+use std::{mem::size_of, sync::OnceLock};
 
 use assets::{
     BlockFlags, BlockVisual, CompiledAssets, DIAGNOSTIC_MATERIAL, Material, NetworkIdMode,
@@ -12,8 +12,8 @@ use render::{
     BlockClassifier, ChunkRenderInstance, ChunkRenderQueue, ChunkRenderQueueLimits,
     ChunkTextureAssetIdentity, ChunkUploadPriority, DebugWorldPlugin, Face, MATERIAL_UV_REFLECT_U,
     MATERIAL_UV_REFLECT_V, MATERIAL_UV_ROTATE_90, MATERIAL_UV_ROTATE_180, MATERIAL_UV_ROTATE_270,
-    Neighbourhood, TextureArrayLimits, TextureLimitError, greedy_texture_uv, mesh_sub_chunk,
-    plan_texture_mip_uploads, texture_asset_needs_rebuild,
+    Neighbourhood, PackedQuad, TextureArrayLimits, TextureLimitError, greedy_texture_uv,
+    mesh_sub_chunk, plan_texture_mip_uploads, texture_asset_needs_rebuild,
 };
 use world::{SubChunk, SubChunkKey};
 
@@ -287,16 +287,87 @@ fn packed_chunk_shader_parses_and_validates() {
     .validate(&module)
     .expect("validate packed chunk WGSL");
 
-    for binding in 3..=5 {
+    assert_eq!(shader.matches("@group(0) @binding(").count(), 6);
+    for binding in 0..=5 {
         assert!(
             shader.contains(&format!("@group(0) @binding({binding})")),
             "packed chunk shader is missing global texture binding {binding}"
         );
     }
-    assert!(shader.contains("textureSample(block_textures, block_sampler"));
+    assert_eq!(shader.matches("textureSample(").count(), 1);
+    assert!(shader.contains(
+        "let sampled = textureSample(block_textures, block_sampler, in.uv, i32(in.layer));"
+    ));
     assert!(shader.contains("@interpolate(flat) layer: u32"));
+    assert!(shader.contains("@location(3) @interpolate(flat) material_flags: u32"));
+    assert!(shader.contains("@interpolate(flat) material_flags: u32"));
+    assert_eq!(
+        shader
+            .matches("out.material_flags = material.flags;")
+            .count(),
+        1
+    );
+    assert!(shader.contains("material_flags & (1u << 8u)"));
+    assert!(shader.contains("sampled.a < 0.5"));
+    assert_eq!(shader.matches("discard").count(), 1);
+    assert!(shader.contains("vec4(sampled.rgb, 1.0)"));
+    assert!(shader.contains("if ((in.material_flags & (1u << 8u)) != 0u && sampled.a < 0.5) {"));
     assert!(shader.contains("greedy_uv"));
     assert!(!shader.contains("debug_color"));
+}
+
+#[test]
+fn packed_chunk_pipeline_remains_one_opaque_depth_writing_path() {
+    let plugin = include_str!("../src/plugin.rs");
+
+    assert_eq!(
+        plugin
+            .matches("let descriptor = RenderPipelineDescriptor {")
+            .count(),
+        1
+    );
+    assert_eq!(plugin.matches(".add_render_command::<Opaque3d").count(), 2);
+    assert_eq!(plugin.matches("BindGroupLayoutDescriptor::new(").count(), 1);
+    assert_eq!(
+        plugin.matches("render_device.create_bind_group(").count(),
+        1
+    );
+    assert_eq!(plugin.matches("render_device.create_texture(").count(), 1);
+    assert_eq!(plugin.matches("render_device.create_sampler(").count(), 1);
+    assert!(plugin.contains("layout: vec![bind_group_layout.clone()]"));
+    assert!(plugin.contains("blend: None"));
+    assert!(plugin.contains("depth_write_enabled: true"));
+    assert_eq!(plugin.matches("binding: ").count(), 12);
+    for binding in 0..=5 {
+        assert_eq!(
+            plugin.matches(&format!("binding: {binding},")).count(),
+            2,
+            "packed chunk pipeline changed binding {binding}"
+        );
+    }
+    assert!(!plugin.contains("binding: 6,"));
+    assert_eq!(
+        plugin
+            .matches("resource: texture_assets.material_buffer.as_entire_binding()")
+            .count(),
+        1
+    );
+    assert_eq!(
+        plugin
+            .matches("BindingResource::TextureView(&texture_assets.view)")
+            .count(),
+        1
+    );
+    assert_eq!(
+        plugin
+            .matches("BindingResource::Sampler(&texture_assets.sampler)")
+            .count(),
+        1
+    );
+    assert!(!plugin.contains("AlphaMask3d"));
+    assert!(!plugin.contains("Transparent3d"));
+    assert_eq!(size_of::<Material>(), 8);
+    assert_eq!(size_of::<PackedQuad>(), 8);
 }
 
 #[test]

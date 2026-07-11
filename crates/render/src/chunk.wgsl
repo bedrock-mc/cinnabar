@@ -26,6 +26,7 @@ struct VertexOutput {
     @location(0) uv: vec2<f32>,
     @location(1) @interpolate(flat) layer: u32,
     @location(2) normal: vec3<f32>,
+    @location(3) @interpolate(flat) material_flags: u32,
 }
 
 fn quad_corner(face: u32, corner: u32, origin: vec3<f32>, width: f32, height: f32) -> vec3<f32> {
@@ -172,10 +173,15 @@ fn vertex(
     out.uv = greedy_uv(face, corner, width, height, material.flags);
     out.layer = material.layer;
     out.normal = face_normal(face);
+    out.material_flags = material.flags;
     return out;
 }
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    return textureSample(block_textures, block_sampler, in.uv, i32(in.layer));
+    let sampled = textureSample(block_textures, block_sampler, in.uv, i32(in.layer));
+    if ((in.material_flags & (1u << 8u)) != 0u && sampled.a < 0.5) {
+        discard;
+    }
+    return vec4(sampled.rgb, 1.0);
 }
