@@ -338,6 +338,237 @@ fn compiler_output_is_identical_across_shuffled_sources_and_records() {
 }
 
 #[test]
+fn compiler_selects_huge_mushroom_face_variants_and_keeps_other_arrays_at_zero() {
+    let directory = tempfile::tempdir().expect("create fixture");
+    let families = [
+        ("brown_mushroom_block", "mushroom_brown"),
+        ("red_mushroom_block", "mushroom_red"),
+        ("mushroom_stem", "mushroom_stem"),
+    ];
+    let faces = [
+        (BlockFace::West, "west", "west"),
+        (BlockFace::East, "east", "east"),
+        (BlockFace::Down, "down", "bottom"),
+        (BlockFace::Up, "up", "top"),
+        (BlockFace::North, "north", "north"),
+        (BlockFace::South, "south", "south"),
+    ];
+    let colour = |family: usize, face: usize, bits: u8| {
+        let discriminator = 1 + family as u8 * 36 + face as u8 * 2 + u8::from(bits == 15);
+        [discriminator, 255 - discriminator, bits, 255]
+    };
+    let is_static_stem_face = |family: usize, face: BlockFace| {
+        family == 2
+            && matches!(
+                face,
+                BlockFace::West | BlockFace::East | BlockFace::North | BlockFace::South
+            )
+    };
+
+    let mut block_entries = serde_json::Map::new();
+    let mut terrain_entries = serde_json::Map::new();
+    for (family_index, (block_name, texture_prefix)) in families.iter().enumerate() {
+        let mut face_entries = serde_json::Map::new();
+        for (face_index, (face, block_face, texture_suffix)) in faces.iter().enumerate() {
+            let key = format!("{texture_prefix}_{texture_suffix}");
+            face_entries.insert((*block_face).into(), serde_json::Value::String(key.clone()));
+            let selected_bits: &[u8] = if is_static_stem_face(family_index, *face) {
+                terrain_entries.insert(
+                    key,
+                    serde_json::json!({
+                        "textures": format!(
+                            "textures/blocks/{texture_prefix}_{texture_suffix}_static"
+                        )
+                    }),
+                );
+                &[0]
+            } else {
+                let variants = (0..16)
+                    .map(|bits| {
+                        serde_json::Value::String(format!(
+                            "textures/blocks/{texture_prefix}_{texture_suffix}_{bits}"
+                        ))
+                    })
+                    .collect::<Vec<_>>();
+                terrain_entries.insert(key, serde_json::json!({ "textures": variants }));
+                &[0, 15]
+            };
+
+            for &bits in selected_bits {
+                let source = if is_static_stem_face(family_index, *face) {
+                    format!("textures/blocks/{texture_prefix}_{texture_suffix}_static")
+                } else {
+                    format!("textures/blocks/{texture_prefix}_{texture_suffix}_{bits}")
+                };
+                write_png(
+                    directory.path(),
+                    &source,
+                    TILE_SIZE,
+                    TILE_SIZE,
+                    &solid(TILE_SIZE, TILE_SIZE, colour(family_index, face_index, bits)),
+                );
+            }
+        }
+        block_entries.insert(
+            (*block_name).into(),
+            serde_json::json!({ "textures": face_entries }),
+        );
+    }
+
+    let unrelated_variants = (0..16)
+        .map(|bits| serde_json::Value::String(format!("textures/blocks/unrelated_{bits}")))
+        .collect::<Vec<_>>();
+    block_entries.insert(
+        "unrelated".into(),
+        serde_json::json!({ "textures": "unrelated" }),
+    );
+    terrain_entries.insert(
+        "unrelated".into(),
+        serde_json::json!({ "textures": unrelated_variants }),
+    );
+    write_png(
+        directory.path(),
+        "textures/blocks/unrelated_0",
+        TILE_SIZE,
+        TILE_SIZE,
+        &solid(TILE_SIZE, TILE_SIZE, [240, 120, 60, 255]),
+    );
+
+    write_pack(
+        directory.path(),
+        &serde_json::Value::Object(block_entries).to_string(),
+        &serde_json::json!({ "texture_data": terrain_entries }).to_string(),
+        "[]",
+    );
+
+    let mut records = Vec::new();
+    for (family_index, (block_name, _)) in families.iter().enumerate() {
+        for (state_index, bits) in [0_u8, 15].into_iter().enumerate() {
+            let sequential_id = (family_index * 2 + state_index) as u32;
+            records.push(record(
+                sequential_id,
+                0x8000_1000 + sequential_id,
+                &format!("minecraft:{block_name}"),
+                &format!(r#"{{"huge_mushroom_bits":{bits}}}"#),
+                BlockFlags::FULL_CUBE,
+            ));
+        }
+    }
+    let fallback_states = [
+        "{}",
+        "null",
+        "not JSON",
+        r#"{"huge_mushroom_bits":-1}"#,
+        r#"{"huge_mushroom_bits":16}"#,
+        r#"{"huge_mushroom_bits":"15"}"#,
+    ];
+    for state in fallback_states {
+        let sequential_id = records.len() as u32;
+        records.push(record(
+            sequential_id,
+            0x8000_1000 + sequential_id,
+            "minecraft:brown_mushroom_block",
+            state,
+            BlockFlags::FULL_CUBE,
+        ));
+    }
+    let invalid_stem_id = records.len() as u32;
+    records.push(record(
+        invalid_stem_id,
+        0x8000_1000 + invalid_stem_id,
+        "minecraft:mushroom_stem",
+        "{}",
+        BlockFlags::FULL_CUBE,
+    ));
+    let unrelated_id = records.len() as u32;
+    records.push(record(
+        unrelated_id,
+        0x8000_1000 + unrelated_id,
+        "minecraft:unrelated",
+        r#"{"huge_mushroom_bits":15}"#,
+        BlockFlags::FULL_CUBE,
+    ));
+
+    let compiled = compile_pack(directory.path(), &records).expect("compile mushroom variants");
+    for (family_index, _) in families.iter().enumerate() {
+        for (state_index, bits) in [0_u8, 15].into_iter().enumerate() {
+            let sequential_id = family_index * 2 + state_index;
+            for (face_index, (face, _, _)) in faces.iter().enumerate() {
+                let material = material_for_face(&compiled, sequential_id, *face);
+                let expected_bits = if is_static_stem_face(family_index, *face) {
+                    0
+                } else {
+                    bits
+                };
+                assert_eq!(
+                    mip_pixel(&compiled, 0, material.layer, 0, 0),
+                    colour(family_index, face_index, expected_bits),
+                    "wrong {bits} texture for {} {face:?}",
+                    families[family_index].0
+                );
+            }
+        }
+    }
+    for sequential_id in 6..6 + fallback_states.len() {
+        assert_eq!(
+            compiled.visuals[sequential_id].faces, [0; 6],
+            "invalid or absent mushroom selector must fail closed"
+        );
+    }
+    assert_eq!(
+        compiled.visuals[invalid_stem_id as usize].faces, [0; 6],
+        "invalid selector must also fail closed for static mushroom face paths"
+    );
+    let unrelated = material_for_face(&compiled, unrelated_id as usize, BlockFace::Up);
+    assert_eq!(
+        mip_pixel(&compiled, 0, unrelated.layer, 0, 0),
+        [240, 120, 60, 255],
+        "unrelated terrain arrays must retain variant-zero selection"
+    );
+
+    let mut reversed = records.clone();
+    reversed.reverse();
+    let reversed = compile_pack(directory.path(), &reversed).expect("compile reversed records");
+    assert_eq!(
+        encode_blob(&compiled).expect("encode mushroom variants"),
+        encode_blob(&reversed).expect("encode reversed mushroom variants")
+    );
+}
+
+#[test]
+fn compiler_fails_closed_for_noncanonical_mushroom_variant_counts() {
+    let directory = tempfile::tempdir().expect("create fixture");
+    let variants = (0..15)
+        .map(|bits| format!("textures/blocks/mushroom_brown_top_{bits}"))
+        .collect::<Vec<_>>();
+    write_pack(
+        directory.path(),
+        r#"{"brown_mushroom_block":{"textures":"mushroom_brown_top"}}"#,
+        &serde_json::json!({
+            "texture_data": {
+                "mushroom_brown_top": { "textures": variants }
+            }
+        })
+        .to_string(),
+        "[]",
+    );
+    let records = [record(
+        0,
+        0x8000_2000,
+        "minecraft:brown_mushroom_block",
+        r#"{"huge_mushroom_bits":14}"#,
+        BlockFlags::FULL_CUBE,
+    )];
+
+    let compiled = compile_pack(directory.path(), &records)
+        .expect("a malformed mushroom variant table must fail closed without loading a texture");
+
+    assert_eq!(compiled.visuals[0].faces, [0; 6]);
+    assert_eq!(compiled.materials.len(), 1);
+    assert_eq!(compiled.textures.layers, 1);
+}
+
+#[test]
 fn compiler_only_loads_full_cubes_and_builds_equivalent_lookup_tables() {
     let directory = tempfile::tempdir().expect("create fixture");
     write_pack(
