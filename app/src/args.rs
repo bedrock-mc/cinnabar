@@ -15,6 +15,8 @@ Options:
   --metrics-out <PATH>         Deterministic JSON metrics output path
   --auto-fly                   Fly the camera automatically for acceptance
   --no-vsync                   Use immediate presentation when supported
+  --frame-cap <FPS>            Cap acceptance updates to 1-1000 FPS
+  --full-view-teleport-gate    Measure a dedicated no-overlap teleport
   -h, --help                   Print this help
 ";
 
@@ -27,6 +29,8 @@ pub struct ClientArgs {
     pub metrics_out: Option<PathBuf>,
     pub auto_fly: bool,
     pub no_vsync: bool,
+    pub frame_cap: Option<u32>,
+    pub full_view_teleport_gate: bool,
 }
 
 impl Default for ClientArgs {
@@ -39,6 +43,8 @@ impl Default for ClientArgs {
             metrics_out: None,
             auto_fly: false,
             no_vsync: false,
+            frame_cap: None,
+            full_view_teleport_gate: false,
         }
     }
 }
@@ -63,6 +69,9 @@ pub enum ArgsError {
     #[error("--acceptance-seconds must be a positive integer, got {0:?}")]
     InvalidAcceptanceSeconds(String),
 
+    #[error("--frame-cap must be an integer from 1 through 1000, got {0:?}")]
+    InvalidFrameCap(String),
+
     #[error("--display-name cannot be empty")]
     EmptyDisplayName,
 }
@@ -86,6 +95,7 @@ impl ClientArgs {
                 Some("-h" | "--help") => return Ok(ParseOutcome::Help),
                 Some("--auto-fly") => parsed.auto_fly = true,
                 Some("--no-vsync") => parsed.no_vsync = true,
+                Some("--full-view-teleport-gate") => parsed.full_view_teleport_gate = true,
                 Some("--socket-dir") => {
                     parsed.socket_dir = PathBuf::from(next_value(&mut arguments, "--socket-dir")?);
                 }
@@ -121,6 +131,20 @@ impl ClientArgs {
                             .ok_or_else(|| ArgsError::InvalidAcceptanceSeconds(value.clone()))?,
                     );
                 }
+                Some("--frame-cap") => {
+                    let value = next_value(&mut arguments, "--frame-cap")?
+                        .into_string()
+                        .map_err(|_| ArgsError::InvalidUtf8 {
+                            flag: "--frame-cap",
+                        })?;
+                    parsed.frame_cap = Some(
+                        value
+                            .parse::<u32>()
+                            .ok()
+                            .filter(|fps| (1..=1_000).contains(fps))
+                            .ok_or_else(|| ArgsError::InvalidFrameCap(value.clone()))?,
+                    );
+                }
                 _ => return Err(ArgsError::Unknown(argument)),
             }
         }
@@ -151,6 +175,8 @@ mod tests {
         assert_eq!(args.acceptance_seconds, None);
         assert!(!args.auto_fly);
         assert!(!args.no_vsync);
+        assert_eq!(args.frame_cap, None);
+        assert!(!args.full_view_teleport_gate);
     }
 
     #[test]
@@ -180,6 +206,21 @@ mod tests {
         assert_eq!(args.metrics_out, Some(PathBuf::from("metrics.json")));
         assert!(args.auto_fly);
         assert!(args.no_vsync);
+        assert_eq!(args.frame_cap, None);
+        assert!(!args.full_view_teleport_gate);
+    }
+
+    #[test]
+    fn parses_full_view_teleport_gate_and_frame_cap() {
+        let ParseOutcome::Run(args) =
+            ClientArgs::parse_from(["client", "--full-view-teleport-gate", "--frame-cap", "60"])
+                .unwrap()
+        else {
+            panic!("expected run args")
+        };
+
+        assert!(args.full_view_teleport_gate);
+        assert_eq!(args.frame_cap, Some(60));
     }
 
     #[test]
@@ -194,6 +235,8 @@ mod tests {
             "--acceptance-seconds",
             "--metrics-out",
             "--auto-fly",
+            "--frame-cap",
+            "--full-view-teleport-gate",
         ] {
             assert!(HELP.contains(flag));
         }
@@ -210,6 +253,10 @@ mod tests {
         assert!(matches!(
             ClientArgs::parse_from(["client", "--acceptance-seconds", "0"]),
             Err(ArgsError::InvalidAcceptanceSeconds(_))
+        ));
+        assert!(matches!(
+            ClientArgs::parse_from(["client", "--frame-cap", "0"]),
+            Err(ArgsError::InvalidFrameCap(_))
         ));
         assert!(matches!(
             ClientArgs::parse_from(["client", "--unknown"]),

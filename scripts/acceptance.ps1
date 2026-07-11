@@ -10,7 +10,8 @@ param(
     [string]$MetricsOut,
     [string]$Assets,
     [ValidateSet('None', 'Front', 'Back')]
-    [string]$VisualFixturePose = 'None'
+    [string]$VisualFixturePose = 'None',
+    [switch]$FullViewTeleportGate
 )
 
 Set-StrictMode -Version Latest
@@ -779,6 +780,44 @@ function New-VisualFixturePlan {
     }
 }
 
+function New-FullViewTeleportPlan {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateCount(3, 3)]
+        [int[]]$MutationCoordinate
+    )
+
+    $offsetChunks = 65
+    $offsetBlocks = $offsetChunks * 16
+    $target = [pscustomobject][ordered]@{
+        x = [int]$MutationCoordinate[0] + $offsetBlocks
+        y = [int]$MutationCoordinate[1] + 12
+        z = [int]$MutationCoordinate[2] + $offsetBlocks
+    }
+    $fenceCommand = 'list'
+    $fenceMarker = 'players online:'
+    $teleportCommand = "tp @a[name=RustMCBE] $($target.x) $($target.y) $($target.z) facing $($target.x) $($target.y) $($target.z + 1)"
+    return [pscustomobject][ordered]@{
+        Target = $target
+        OffsetChunks = $offsetChunks
+        FenceCommand = $fenceCommand
+        FenceMarker = $fenceMarker
+        TeleportCommand = $teleportCommand
+        Manifest = [pscustomobject][ordered]@{
+            schema = 'rust-mcbe-full-view-teleport-v1'
+            origin = [pscustomobject][ordered]@{
+                x = [int]$MutationCoordinate[0]
+                y = [int]$MutationCoordinate[1]
+                z = [int]$MutationCoordinate[2]
+            }
+            target = $target
+            offset_chunks = $offsetChunks
+            radius_chunks = 16
+            teleport_command = $teleportCommand
+        }
+    }
+}
+
 function Write-BdsConsoleCommand {
     param(
         [Parameter(Mandatory = $true)]$Handle,
@@ -823,6 +862,24 @@ function Publish-VisualFixture {
     $json = $Plan.Manifest | ConvertTo-Json -Depth 8
     [IO.File]::WriteAllText($readyPath, $json, [Text.UTF8Encoding]::new($false))
     Write-Output "VISUAL_FIXTURE_READY=$readyPath"
+}
+
+function Publish-FullViewTeleport {
+    param(
+        [Parameter(Mandatory = $true)]$Handle,
+        [Parameter(Mandatory = $true)]$Plan,
+        [Parameter(Mandatory = $true)][string]$RunDirectory
+    )
+
+    $consoleLogPath = Join-Path $RunDirectory 'bds.console.log'
+    Write-BdsConsoleCommand -Handle $Handle -Command $Plan.FenceCommand -LogPath $consoleLogPath
+    $null = Wait-ProcessOutputMarker -Handle $Handle -Marker $Plan.FenceMarker -TimeoutSeconds 30
+    Write-BdsConsoleCommand -Handle $Handle -Command $Plan.TeleportCommand -LogPath $consoleLogPath
+
+    $planPath = Join-Path $RunDirectory 'full-view-teleport-plan.json'
+    $json = $Plan.Manifest | ConvertTo-Json -Depth 6
+    [IO.File]::WriteAllText($planPath, $json, [Text.UTF8Encoding]::new($false))
+    Write-Output "FULL_VIEW_TELEPORT_PLAN=$planPath"
 }
 
 function Complete-ProcessLogs {
@@ -930,8 +987,86 @@ function Get-OptionalCimValue {
     }
 }
 
+function Get-SteadyResourceSummary {
+    param([Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][object[]]$Samples)
+
+    $rssValues = @($Samples | ForEach-Object { [uint64]$_.combined_rss_bytes })
+    $cpuValues = @($Samples | ForEach-Object { [double]$_.cpu_percent } | Sort-Object)
+    $p95Index = [Math]::Ceiling(($cpuValues.Count - 1) * 0.95)
+    return [pscustomobject][ordered]@{
+        sample_count = $Samples.Count
+        max_combined_rss_bytes = [uint64](($rssValues | Measure-Object -Maximum).Maximum)
+        mean_cpu_percent = [double](($cpuValues | Measure-Object -Average).Average)
+        p95_cpu_percent = [double]$cpuValues[$p95Index]
+    }
+}
+
+function Measure-SteadyResources {
+    param(
+        [Parameter(Mandatory = $true)]$ClientHandle,
+        [Parameter(Mandatory = $true)]$CoreHandle,
+        [Parameter(Mandatory = $true)][string]$RunDirectory,
+        [ValidateRange(1, 300)][int]$DurationSeconds = 30
+    )
+
+    $client = $ClientHandle.Process
+    $core = $CoreHandle.Process
+    $client.Refresh()
+    $core.Refresh()
+    $previousCpuSeconds = $client.TotalProcessorTime.TotalSeconds + $core.TotalProcessorTime.TotalSeconds
+    $previousWallSeconds = 0.0
+    $stopwatch = [Diagnostics.Stopwatch]::StartNew()
+    $samples = [Collections.Generic.List[object]]::new()
+    for ($index = 0; $index -lt $DurationSeconds; $index++) {
+        Start-Sleep -Seconds 1
+        if ($client.HasExited -or $core.HasExited) {
+            throw 'client or core exited during steady resource sampling'
+        }
+        $client.Refresh()
+        $core.Refresh()
+        $wallSeconds = $stopwatch.Elapsed.TotalSeconds
+        $cpuSeconds = $client.TotalProcessorTime.TotalSeconds + $core.TotalProcessorTime.TotalSeconds
+        $wallDelta = $wallSeconds - $previousWallSeconds
+        $cpuDelta = $cpuSeconds - $previousCpuSeconds
+        $cpuPercent = 100.0 * $cpuDelta / ($wallDelta * [Environment]::ProcessorCount)
+        $samples.Add([pscustomobject][ordered]@{
+            elapsed_seconds = $wallSeconds
+            combined_rss_bytes = [uint64]($client.WorkingSet64 + $core.WorkingSet64)
+            cpu_percent = [Math]::Max(0.0, $cpuPercent)
+        })
+        $previousWallSeconds = $wallSeconds
+        $previousCpuSeconds = $cpuSeconds
+    }
+    $stopwatch.Stop()
+
+    $summary = Get-SteadyResourceSummary -Samples @($samples)
+    $document = [pscustomobject][ordered]@{
+        schema = 'rust-mcbe-steady-resources-v1'
+        duration_seconds = $DurationSeconds
+        processor_count = [Environment]::ProcessorCount
+        samples = @($samples)
+        summary = $summary
+    }
+    $path = Join-Path $RunDirectory 'steady-resources.json'
+    [IO.File]::WriteAllText(
+        $path,
+        ($document | ConvertTo-Json -Depth 6),
+        [Text.UTF8Encoding]::new($false)
+    )
+    if ([uint64]$summary.max_combined_rss_bytes -gt 650MB) {
+        throw "combined steady RSS exceeded 650 MiB: $($summary.max_combined_rss_bytes) bytes"
+    }
+    if ([double]$summary.mean_cpu_percent -gt 15.0 -or [double]$summary.p95_cpu_percent -gt 15.0) {
+        throw "steady CPU exceeded 15%: mean=$($summary.mean_cpu_percent) p95=$($summary.p95_cpu_percent)"
+    }
+    return $document
+}
+
 function Assert-AcceptanceMetrics {
-    param([Parameter(Mandatory = $true)][string]$Path)
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [switch]$RequireFullViewTeleport
+    )
 
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
         throw "app did not write acceptance metrics: $Path"
@@ -941,7 +1076,8 @@ function Assert-AcceptanceMetrics {
         'session_seconds', 'world_ready', 'requested_radius_chunks', 'received_radius_chunks',
         'publisher_radius_chunks', 'mutation_coordinate', 'visible_mutation_count', 'frame_count',
         'p50_frame_ms', 'p95_frame_ms', 'p99_frame_ms', 'max_frame_ms', 'max_decode_ms',
-        'max_mesh_ms', 'max_remesh_ms', 'max_mutation_to_visible_ms', 'decode_error_count',
+        'max_mesh_ms', 'max_remesh_ms', 'full_view_teleport_ms',
+        'max_mutation_to_visible_ms', 'decode_error_count',
         'rendered_sub_chunks', 'resident_sub_chunks', 'visible_sub_chunks',
         'peak_admitted_world_events', 'peak_admitted_heavy_events', 'peak_queued_decode_jobs',
         'peak_in_flight_decode_jobs', 'peak_completed_decode_results', 'peak_pending_retry_requests',
@@ -974,9 +1110,25 @@ function Assert-AcceptanceMetrics {
     if ([uint64]$metrics.decode_error_count -ne 0) {
         throw "decode_error_count=$($metrics.decode_error_count), expected zero"
     }
-    foreach ($field in @('rendered_sub_chunks', 'resident_sub_chunks', 'visible_sub_chunks', 'visible_mutation_count')) {
+    foreach ($field in @('rendered_sub_chunks', 'resident_sub_chunks', 'visible_sub_chunks')) {
         if ([uint64]$metrics.$field -eq 0) {
             throw "$field was zero"
+        }
+    }
+    if (-not $RequireFullViewTeleport -and [uint64]$metrics.visible_mutation_count -eq 0) {
+        throw 'visible_mutation_count was zero'
+    }
+    if ($RequireFullViewTeleport) {
+        if ($null -eq $metrics.full_view_teleport_ms) {
+            throw 'full_view_teleport_ms was not recorded'
+        }
+        $teleport = [double]$metrics.full_view_teleport_ms
+        if ([double]::IsNaN($teleport) -or [double]::IsInfinity($teleport) -or $teleport -gt 2000.0) {
+            throw "full_view_teleport_ms failed the 2000ms gate: $($metrics.full_view_teleport_ms)"
+        }
+        $averageFps = [double]$metrics.frame_count / [double]$metrics.session_seconds
+        if ($averageFps -gt 65.0) {
+            throw "full-view acceptance exceeded its 60fps cap: average_fps=$averageFps"
         }
     }
     if ([double]$metrics.max_mutation_to_visible_ms -gt 100.0) {
@@ -991,6 +1143,9 @@ if ($env:RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY -eq '1') {
 
 if ($DurationSeconds -lt 60) {
     throw 'DurationSeconds must be at least 60'
+}
+if ($FullViewTeleportGate -and $VisualFixturePose -ne 'None') {
+    throw 'FullViewTeleportGate and VisualFixturePose cannot be combined'
 }
 if ([string]::IsNullOrWhiteSpace($MetricsOut)) {
     throw 'MetricsOut must not be empty'
@@ -1032,10 +1187,15 @@ $AppArguments = @(
 if ($PSBoundParameters.ContainsKey('Assets')) {
     $AppArguments += @('--assets', $Assets)
 }
-if ($VisualFixturePose -eq 'None') {
+if ($VisualFixturePose -eq 'None' -and -not $FullViewTeleportGate) {
     $AppArguments += '--auto-fly'
 }
-$AppArguments += '--no-vsync'
+if ($FullViewTeleportGate) {
+    $AppArguments += @('--full-view-teleport-gate', '--frame-cap', '60')
+}
+else {
+    $AppArguments += '--no-vsync'
+}
 $BdsCommand = Format-ResolvedCommand $BdsExecutable $BdsArguments
 $CoreCommand = Format-ResolvedCommand $CoreExecutable $CoreArguments
 $AppCommand = Format-ResolvedCommand $AppExecutable $AppArguments
@@ -1046,6 +1206,9 @@ if ($DryRun) {
     Write-Output "APP_COMMAND=$AppCommand"
     if ($VisualFixturePose -ne 'None') {
         Write-Output "VISUAL_FIXTURE_POSE=$VisualFixturePose"
+    }
+    if ($FullViewTeleportGate) {
+        Write-Output 'FULL_VIEW_TELEPORT_GATE=1'
     }
     exit 0
 }
@@ -1091,6 +1254,10 @@ try {
     }
     if ($VisualFixturePose -ne 'None') {
         $metadata['visual_fixture_pose'] = $VisualFixturePose
+    }
+    if ($FullViewTeleportGate) {
+        $metadata['full_view_teleport_gate'] = $true
+        $metadata['frame_cap'] = 60
     }
     $metadata | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $RunDirectory 'metadata.json') -Encoding UTF8
 
@@ -1154,7 +1321,30 @@ try {
         throw "invalid mutation marker: $coordinateMarker"
     }
     $coordinate = @([int]$Matches[1], [int]$Matches[2], [int]$Matches[3])
-    if ($VisualFixturePose -ne 'None') {
+    if ($FullViewTeleportGate) {
+        $teleportPlan = New-FullViewTeleportPlan -MutationCoordinate $coordinate
+        Publish-FullViewTeleport -Handle $bdsHandle -Plan $teleportPlan -RunDirectory $RunDirectory
+        $teleportMarker = Wait-ProcessOutputMarker `
+            -Handle $appHandle `
+            -Marker 'RUST_MCBE_FULL_VIEW_TELEPORT_SETTLED ' `
+            -TimeoutSeconds 180
+        if ($teleportMarker -notmatch '^RUST_MCBE_FULL_VIEW_TELEPORT_SETTLED ms=([0-9]+(?:\.[0-9]+)?) ') {
+            throw "invalid full-view teleport marker: $teleportMarker"
+        }
+        $teleportMilliseconds = [double]::Parse($Matches[1], [Globalization.CultureInfo]::InvariantCulture)
+        if ($teleportMilliseconds -gt 2000.0) {
+            throw "full-view teleport exceeded 2000ms: $teleportMilliseconds"
+        }
+        $resourceDocument = Measure-SteadyResources `
+            -ClientHandle $appHandle `
+            -CoreHandle $coreHandle `
+            -RunDirectory $RunDirectory `
+            -DurationSeconds 30
+        $metadata['full_view_teleport_ms'] = $teleportMilliseconds
+        $metadata['steady_resources'] = $resourceDocument.summary
+        $metadata | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $RunDirectory 'metadata.json') -Encoding UTF8
+    }
+    elseif ($VisualFixturePose -ne 'None') {
         $fixturePlan = New-VisualFixturePlan -MutationCoordinate $coordinate -Pose $VisualFixturePose
         Publish-VisualFixture -Handle $bdsHandle -Plan $fixturePlan -RunDirectory $RunDirectory
     }
@@ -1166,7 +1356,7 @@ try {
         if ([DateTime]::UtcNow -ge $appDeadline) {
             throw "app exceeded acceptance deadline of $($DurationSeconds + 90) seconds"
         }
-        if ([DateTime]::UtcNow -ge $nextMutation) {
+        if (-not $FullViewTeleportGate -and [DateTime]::UtcNow -ge $nextMutation) {
             $command = "setblock $($coordinate[0]) $($coordinate[1]) $($coordinate[2]) $($blocks[$blockIndex])"
             Write-BdsConsoleCommand `
                 -Handle $bdsHandle `
@@ -1181,7 +1371,9 @@ try {
         throw "app exited with code $($appHandle.Process.ExitCode)"
     }
 
-    $metrics = Assert-AcceptanceMetrics -Path $CanonicalMetrics
+    $metrics = Assert-AcceptanceMetrics `
+        -Path $CanonicalMetrics `
+        -RequireFullViewTeleport:$FullViewTeleportGate
     $metrics | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $RunDirectory 'validated-metrics.json') -Encoding UTF8
     $metadata['status'] = 'passed'
     $metadata['completed_utc'] = [DateTime]::UtcNow.ToString('o')

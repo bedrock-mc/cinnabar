@@ -980,6 +980,12 @@ impl WorldStream {
         }
     }
 
+    pub fn begin_timed_session(&mut self) {
+        self.stats.max_decode_duration = Duration::ZERO;
+        self.stats.max_mesh_duration = Duration::ZERO;
+        self.stats.max_remesh_latency = Duration::ZERO;
+    }
+
     fn record_normalization_error(&mut self, reason: NormalizationErrorReason) {
         self.stats.normalization_errors = self.stats.normalization_errors.saturating_add(1);
         self.stats.normalization_reasons.record(reason);
@@ -2744,6 +2750,32 @@ mod tests {
         assert!(!stream.revisions.is_current(key, generation));
         assert_eq!(stream.unacknowledged_mesh_count(), 0);
         assert!(stream.is_mesh_clean(key));
+    }
+
+    #[test]
+    fn timed_session_resets_pre_ready_duration_high_water_marks_only() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        stream.stats.max_decode_duration = std::time::Duration::from_secs(3);
+        stream.stats.max_mesh_duration = std::time::Duration::from_secs(4);
+        stream.stats.max_remesh_latency = std::time::Duration::from_secs(12);
+        stream.stats.decode_errors = 7;
+
+        stream.begin_timed_session();
+
+        assert_eq!(
+            stream.stats().max_decode_duration,
+            std::time::Duration::ZERO
+        );
+        assert_eq!(stream.stats().max_mesh_duration, std::time::Duration::ZERO);
+        assert_eq!(stream.stats().max_remesh_latency, std::time::Duration::ZERO);
+        assert_eq!(stream.stats().decode_errors, 7);
     }
 
     #[test]

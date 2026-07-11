@@ -149,6 +149,33 @@ try {
     Assert-True ($backDryRun.ExitCode -eq 0) "back fixture dry-run failed: $($backDryRun.Output -join [Environment]::NewLine)"
     Assert-True ($backDryRun.Output -contains 'VISUAL_FIXTURE_POSE=Back') 'back fixture dry-run did not record its pose'
 
+    $teleportDryRun = Invoke-Acceptance -Arguments @(
+        '-DryRun',
+        '-DurationSeconds', '900',
+        '-BdsDir', $BdsDir,
+        '-MetricsOut', $MetricsOut,
+        '-Assets', $Assets,
+        '-FullViewTeleportGate'
+    )
+    Assert-True ($teleportDryRun.ExitCode -eq 0) "full-view dry-run failed: $($teleportDryRun.Output -join [Environment]::NewLine)"
+    $teleportAppCommand = @($teleportDryRun.Output | Where-Object { $_ -match '^APP_COMMAND=' })
+    Assert-Equal 1 $teleportAppCommand.Count 'full-view dry-run did not emit one app command'
+    Assert-True ($teleportAppCommand[0].Contains('--full-view-teleport-gate')) 'full-view app command omitted its gate flag'
+    Assert-True ($teleportAppCommand[0].Contains('--frame-cap 60')) 'full-view app command omitted the deterministic 60fps cap'
+    Assert-True (-not $teleportAppCommand[0].Contains('--auto-fly')) 'full-view app command retained auto-fly'
+    Assert-True (-not $teleportAppCommand[0].Contains('--no-vsync')) 'full-view app command bypassed its capped presentation mode'
+    Assert-True ($teleportDryRun.Output -contains 'FULL_VIEW_TELEPORT_GATE=1') 'full-view dry-run did not record its mode'
+
+    $conflictingModes = Invoke-Acceptance -Arguments @(
+        '-DryRun',
+        '-DurationSeconds', '900',
+        '-BdsDir', $BdsDir,
+        '-MetricsOut', $MetricsOut,
+        '-FullViewTeleportGate',
+        '-VisualFixturePose', 'Front'
+    )
+    Assert-True ($conflictingModes.ExitCode -ne 0) 'full-view and visual-fixture modes were accepted together'
+
     $missingAssets = Invoke-Acceptance -Arguments @(
         '-DryRun',
         '-DurationSeconds', '900',
@@ -209,6 +236,7 @@ try {
     $frontPlan = New-VisualFixturePlan -MutationCoordinate $mutationCoordinate -Pose Front
     $frontPlanAgain = New-VisualFixturePlan -MutationCoordinate $mutationCoordinate -Pose Front
     $backPlan = New-VisualFixturePlan -MutationCoordinate $mutationCoordinate -Pose Back
+    $teleportPlan = New-FullViewTeleportPlan -MutationCoordinate $mutationCoordinate
 
     Assert-Equal ($frontPlan.Commands -join "`n") ($frontPlanAgain.Commands -join "`n") 'front fixture commands were not deterministic'
     Assert-True ($frontPlan.TeleportCommand -cne $backPlan.TeleportCommand) 'front and back fixture teleports were identical'
@@ -244,6 +272,10 @@ try {
     Assert-True ($backPlan.Commands[-2] -ceq 'list') 'back processing fence was not immediately before teleport'
     Assert-True ($backPlan.Commands[-1] -ceq $backPlan.TeleportCommand) 'back teleport was not the final fixture command'
     Assert-True ($frontPlan.TeleportCommand.Contains('@a[name=RustMCBE]')) 'fixture teleport did not target the stable offline player name'
+    $teleportDeltaChunks = [Math]::Abs([int]$teleportPlan.Target.x - $mutationCoordinate[0]) / 16
+    Assert-True ($teleportDeltaChunks -gt 64) 'full-view teleport did not exceed two radius-16 view diameters'
+    Assert-Equal 'list' $teleportPlan.FenceCommand 'full-view teleport did not use the observable BDS fence'
+    Assert-True ($teleportPlan.TeleportCommand.Contains('@a[name=RustMCBE]')) 'full-view teleport did not target the stable offline player name'
 
     $clear = $frontPlan.Manifest.clear
     $clearVolume = ([int]$clear.max.x - [int]$clear.min.x + 1) *
@@ -502,6 +534,7 @@ try {
         mutation_coordinate = @(1, 2, 3); visible_mutation_count = 1; frame_count = 1
         p50_frame_ms = 1.0; p95_frame_ms = 2.0; p99_frame_ms = 3.0; max_frame_ms = 4.0
         max_decode_ms = 1.0; max_mesh_ms = 1.0; max_remesh_ms = 1.0
+        full_view_teleport_ms = $null
         max_mutation_to_visible_ms = 50.0; decode_error_count = 0
         rendered_sub_chunks = 1; resident_sub_chunks = 1; visible_sub_chunks = 1
         peak_admitted_world_events = 1; peak_admitted_heavy_events = 1
@@ -513,6 +546,24 @@ try {
     $metricsPath = Join-Path $TempRoot 'validation-metrics.json'
     $metrics | ConvertTo-Json | Set-Content -LiteralPath $metricsPath
     $null = Assert-AcceptanceMetrics -Path $metricsPath
+
+    $metrics.full_view_teleport_ms = 1500.0
+    $metrics | ConvertTo-Json | Set-Content -LiteralPath $metricsPath
+    $null = Assert-AcceptanceMetrics -Path $metricsPath -RequireFullViewTeleport
+    $metrics.full_view_teleport_ms = 2000.1
+    $metrics | ConvertTo-Json | Set-Content -LiteralPath $metricsPath
+    Assert-Throws { Assert-AcceptanceMetrics -Path $metricsPath -RequireFullViewTeleport } 'over-budget full-view teleport passed validation'
+    $metrics.full_view_teleport_ms = $null
+
+    $resourceSamples = @(
+        [pscustomobject]@{ combined_rss_bytes = 300MB; cpu_percent = 5.0 },
+        [pscustomobject]@{ combined_rss_bytes = 400MB; cpu_percent = 10.0 },
+        [pscustomobject]@{ combined_rss_bytes = 350MB; cpu_percent = 15.0 }
+    )
+    $resourceSummary = Get-SteadyResourceSummary -Samples $resourceSamples
+    Assert-Equal (400MB) $resourceSummary.max_combined_rss_bytes 'resource summary chose the wrong RSS maximum'
+    Assert-Equal 10.0 $resourceSummary.mean_cpu_percent 'resource summary chose the wrong CPU mean'
+    Assert-Equal 15.0 $resourceSummary.p95_cpu_percent 'resource summary chose the wrong CPU p95'
 
     $metrics.publisher_radius_chunks = 4
     $metrics | ConvertTo-Json | Set-Content -LiteralPath $metricsPath

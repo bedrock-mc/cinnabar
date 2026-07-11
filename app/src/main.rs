@@ -22,7 +22,7 @@ use bevy::{
     app::AppExit,
     prelude::*,
     window::{CursorOptions, PresentMode, PrimaryWindow, WindowPlugin},
-    winit::WinitSettings,
+    winit::{UpdateMode, WinitSettings},
 };
 use camera::{FlyCamera, FlyCameraPlugin};
 use metrics::{DiagnosticQuadTracker, MetricsCollector, PipelineMetricsSnapshot};
@@ -35,14 +35,15 @@ use server_position::SAFE_SERVER_HEIGHT;
 use world::SubChunkKey;
 use world_stream::{CommittedControlEvent, WorldMeshChange, WorldStream};
 
-const MESH_JOB_BUDGET_PER_FRAME: usize = 64;
-const GPU_UPLOAD_BUDGET_PER_FRAME: usize = 8;
+const MESH_JOB_BUDGET_PER_FRAME: usize = 128;
+const GPU_UPLOAD_BUDGET_PER_FRAME: usize = 128;
 const NETWORK_INGRESS_BUDGET_PER_FRAME: usize = 8;
 const OUTBOUND_SEND_BUDGET_PER_FRAME: usize = 16;
 const TITLE_REFRESH_INTERVAL: Duration = Duration::from_millis(100);
 const WORLD_READY_QUIET_INTERVAL: Duration = Duration::from_secs(2);
 const PHASE0_REQUESTED_RADIUS_CHUNKS: i32 = 16;
 const MUTATION_X_OFFSET_BLOCKS: i32 = 4;
+const FULL_VIEW_TELEPORT_MIN_CHUNK_DELTA: u64 = (PHASE0_REQUESTED_RADIUS_CHUNKS as u64) * 2 + 1;
 
 #[derive(Resource)]
 struct ClientWorld {
@@ -158,6 +159,158 @@ impl WorldReadySettler {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TeleportReadySnapshot {
+    received_radius_chunks: Option<i32>,
+    publisher_radius_chunks: Option<i32>,
+    rendered_sub_chunks: usize,
+    resident_sub_chunks: usize,
+    visible_sub_chunks: usize,
+    work: WorldReadyWork,
+}
+
+impl TeleportReadySnapshot {
+    fn is_ready(self) -> bool {
+        self.received_radius_chunks == Some(PHASE0_REQUESTED_RADIUS_CHUNKS)
+            && self.publisher_radius_chunks == Some(PHASE0_REQUESTED_RADIUS_CHUNKS)
+            && self.rendered_sub_chunks != 0
+            && self.resident_sub_chunks != 0
+            && self.visible_sub_chunks != 0
+            && self.work.is_empty()
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct TeleportCleanCandidate {
+    snapshot: TeleportReadySnapshot,
+    since: Instant,
+    first_clean_latency: Duration,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PendingFullViewTeleport {
+    started: Instant,
+    target_chunk: [i32; 2],
+    publisher_seen: bool,
+    clean_candidate: Option<TeleportCleanCandidate>,
+}
+
+#[derive(Debug)]
+struct FullViewTeleportTracker {
+    enabled: bool,
+    origin_chunk: Option<[i32; 2]>,
+    latest_publisher_chunk: Option<[i32; 2]>,
+    pending: Option<PendingFullViewTeleport>,
+    completed: Option<Duration>,
+}
+
+impl FullViewTeleportTracker {
+    const fn new(enabled: bool) -> Self {
+        Self {
+            enabled,
+            origin_chunk: None,
+            latest_publisher_chunk: None,
+            pending: None,
+            completed: None,
+        }
+    }
+
+    fn begin_world_ready(&mut self, position: [f32; 3]) {
+        if self.enabled {
+            self.origin_chunk = horizontal_chunk(position);
+        }
+    }
+
+    fn observe(&mut self, event: &protocol::WorldEvent, observed_at: Instant) {
+        if !self.enabled || self.completed.is_some() {
+            return;
+        }
+        match event {
+            protocol::WorldEvent::PublisherUpdate(update) => {
+                let publisher = [
+                    update.center[0].div_euclid(16),
+                    update.center[2].div_euclid(16),
+                ];
+                self.latest_publisher_chunk = Some(publisher);
+                if let Some(pending) = &mut self.pending
+                    && publisher == pending.target_chunk
+                {
+                    pending.publisher_seen = true;
+                }
+            }
+            protocol::WorldEvent::MovePlayer(movement) if self.pending.is_none() => {
+                let (Some(origin), Some(target)) =
+                    (self.origin_chunk, horizontal_chunk(movement.position))
+                else {
+                    return;
+                };
+                let far_enough = i64::from(origin[0]).abs_diff(i64::from(target[0]))
+                    >= FULL_VIEW_TELEPORT_MIN_CHUNK_DELTA
+                    || i64::from(origin[1]).abs_diff(i64::from(target[1]))
+                        >= FULL_VIEW_TELEPORT_MIN_CHUNK_DELTA;
+                if !far_enough {
+                    return;
+                }
+                self.pending = Some(PendingFullViewTeleport {
+                    started: observed_at,
+                    target_chunk: target,
+                    publisher_seen: self.latest_publisher_chunk == Some(target),
+                    clean_candidate: None,
+                });
+            }
+            _ => {}
+        }
+    }
+
+    fn observe_snapshot(
+        &mut self,
+        snapshot: TeleportReadySnapshot,
+        now: Instant,
+    ) -> Option<Duration> {
+        let completion = {
+            let pending = self.pending.as_mut()?;
+            if !pending.publisher_seen || !snapshot.is_ready() {
+                pending.clean_candidate = None;
+                return None;
+            }
+            match pending.clean_candidate {
+                Some(candidate) if candidate.snapshot == snapshot => {
+                    (now.saturating_duration_since(candidate.since) >= WORLD_READY_QUIET_INTERVAL)
+                        .then_some(candidate.first_clean_latency)
+                }
+                _ => {
+                    pending.clean_candidate = Some(TeleportCleanCandidate {
+                        snapshot,
+                        since: now,
+                        first_clean_latency: now.saturating_duration_since(pending.started),
+                    });
+                    None
+                }
+            }
+        };
+        if let Some(duration) = completion {
+            self.pending = None;
+            self.completed = Some(duration);
+        }
+        completion
+    }
+
+    #[cfg(test)]
+    const fn is_pending(&self) -> bool {
+        self.pending.is_some()
+    }
+}
+
+fn horizontal_chunk(position: [f32; 3]) -> Option<[i32; 2]> {
+    if !position[0].is_finite() || !position[2].is_finite() {
+        return None;
+    }
+    Some([
+        (position[0].floor() as i32).div_euclid(16),
+        (position[2].floor() as i32).div_euclid(16),
+    ])
+}
+
 #[derive(Resource)]
 struct AcceptanceRun {
     duration: Option<Duration>,
@@ -166,12 +319,17 @@ struct AcceptanceRun {
     mutation_surface_anchor: Option<[i32; 2]>,
     mutation: Option<MutationTracker>,
     world_ready_settler: WorldReadySettler,
+    full_view_teleport: FullViewTeleportTracker,
     world_ready: bool,
     finished: bool,
 }
 
 impl AcceptanceRun {
-    fn new(seconds: Option<u64>, metrics_out: Option<PathBuf>) -> Self {
+    fn new(
+        seconds: Option<u64>,
+        metrics_out: Option<PathBuf>,
+        full_view_teleport_gate: bool,
+    ) -> Self {
         Self {
             duration: seconds.map(Duration::from_secs),
             deadline: None,
@@ -179,6 +337,7 @@ impl AcceptanceRun {
             mutation_surface_anchor: None,
             mutation: None,
             world_ready_settler: WorldReadySettler::default(),
+            full_view_teleport: FullViewTeleportTracker::new(full_view_teleport_gate),
             world_ready: false,
             finished: false,
         }
@@ -188,9 +347,10 @@ impl AcceptanceRun {
         self.duration.is_some()
     }
 
-    fn begin_world_ready(&mut self, ready_at: Instant) {
+    fn begin_world_ready(&mut self, ready_at: Instant, position: [f32; 3]) {
         self.deadline = self.duration.map(|duration| ready_at + duration);
         self.world_ready = true;
+        self.full_view_teleport.begin_world_ready(position);
     }
 
     fn set_mutation_surface_anchor(&mut self, anchor: [i32; 2]) {
@@ -209,6 +369,12 @@ impl AcceptanceRun {
     fn observe_mutation(&mut self, event: &protocol::WorldEvent, observed_at: Instant) {
         if let Some(mutation) = &mut self.mutation {
             mutation.observe(event, observed_at);
+        }
+    }
+
+    fn observe_full_view_teleport(&mut self, event: &protocol::WorldEvent, observed_at: Instant) {
+        if self.world_ready {
+            self.full_view_teleport.observe(event, observed_at);
         }
     }
 
@@ -354,6 +520,22 @@ fn camera_sub_chunk_key(dimension: i32, position: Vec3) -> SubChunkKey {
     )
 }
 
+fn frame_limited_winit_settings(frame_cap: Option<u32>) -> WinitSettings {
+    let Some(frame_cap) = frame_cap else {
+        return WinitSettings::continuous();
+    };
+    let mode = UpdateMode::Reactive {
+        wait: Duration::from_secs_f64(1.0 / f64::from(frame_cap)),
+        react_to_device_events: false,
+        react_to_user_events: false,
+        react_to_window_events: false,
+    };
+    WinitSettings {
+        focused_mode: mode,
+        unfocused_mode: mode,
+    }
+}
+
 fn status_title(
     camera: &Transform,
     resident_sub_chunks: usize,
@@ -431,7 +613,7 @@ fn run(args: args::ClientArgs) -> Result<()> {
         }),
         ..default()
     }))
-    .insert_resource(WinitSettings::continuous())
+    .insert_resource(frame_limited_winit_settings(args.frame_cap))
     .insert_resource(ClearColor(Color::srgb(0.46, 0.70, 0.92)))
     .insert_resource(network)
     .insert_resource(ClientWorld::new(Arc::clone(&runtime_assets)))
@@ -444,6 +626,7 @@ fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(AcceptanceRun::new(
         args.acceptance_seconds,
         args.metrics_out,
+        args.full_view_teleport_gate,
     ))
     .add_plugins((
         DebugWorldPlugin::new(GPU_UPLOAD_BUDGET_PER_FRAME),
@@ -563,7 +746,9 @@ fn receive_network_events(
                         Some("received world data before StartGame bootstrap".to_owned());
                     continue;
                 };
-                acceptance.observe_mutation(&sequenced.event, Instant::now());
+                let observed_at = Instant::now();
+                acceptance.observe_mutation(&sequenced.event, observed_at);
+                acceptance.observe_full_view_teleport(&sequenced.event, observed_at);
                 if let Err(error) = stream.submit(sequenced.sequence, sequenced.event) {
                     client_world.fatal_error = Some(format!("world FIFO rejected data: {error}"));
                 }
@@ -750,7 +935,7 @@ fn drive_world_stream(
 #[allow(clippy::too_many_arguments)]
 fn emit_world_ready(
     network: Res<NetworkHandle>,
-    client_world: Res<ClientWorld>,
+    mut client_world: ResMut<ClientWorld>,
     cache: Res<CaveVisibilityCache>,
     diagnostic_quads: Res<DiagnosticQuads>,
     render_queue: Res<ChunkRenderQueue>,
@@ -759,13 +944,55 @@ fn emit_world_ready(
     mut auto_fly: ResMut<camera::AutoFly>,
     mut metrics: ResMut<AppMetrics>,
 ) {
-    if acceptance.world_ready {
-        return;
-    }
-    let Some(stream) = client_world.stream.as_ref() else {
+    let missing_mapping_count = client_world.runtime_assets.missing_count();
+    let Some(stream) = client_world.stream.as_mut() else {
         return;
     };
     let stats = stream.stats();
+    let work = WorldReadyWork {
+        network_events: network.pending_event_count(),
+        network_commands: network.pending_command_count(),
+        admitted_world_events: stats.admitted_world_events,
+        queued_decode_jobs: stats.queued_decode_jobs,
+        in_flight_decode_jobs: stats.in_flight_decode_jobs,
+        completed_decode_results: stats.completed_decode_results,
+        pending_mesh_jobs: stats.pending_mesh_jobs,
+        in_flight_mesh_jobs: stats.in_flight_mesh_jobs,
+        pending_mesh_changes: stream.pending_mesh_change_count(),
+        outbound_requests: stream.pending_request_work_count(),
+        outstanding_sub_chunks: stream.outstanding_sub_chunk_count(),
+        pending_retry_requests: stats.pending_retry_requests,
+        render_queue_items: render_queue.retained_len(),
+        pending_gpu_acknowledgements: usize::from(!acknowledgements.is_empty()),
+        unacknowledged_meshes: stream.unacknowledged_mesh_count(),
+    };
+    if acceptance.world_ready {
+        let snapshot = TeleportReadySnapshot {
+            received_radius_chunks: stats.received_radius_chunks,
+            publisher_radius_chunks: stats.publisher_radius_chunks,
+            rendered_sub_chunks: cache.rendered.len(),
+            resident_sub_chunks: stats.resident_sub_chunks,
+            visible_sub_chunks: cache.visible_rendered,
+            work,
+        };
+        if let Some(latency) = acceptance
+            .full_view_teleport
+            .observe_snapshot(snapshot, Instant::now())
+        {
+            metrics.0.record_full_view_teleport(latency);
+            let mut stdout = std::io::stdout().lock();
+            let _ = writeln!(
+                stdout,
+                "RUST_MCBE_FULL_VIEW_TELEPORT_SETTLED ms={:.4} rendered={} resident={} visible={}",
+                latency.as_secs_f64() * 1_000.0,
+                snapshot.rendered_sub_chunks,
+                snapshot.resident_sub_chunks,
+                snapshot.visible_sub_chunks,
+            );
+            let _ = stdout.flush();
+        }
+        return;
+    }
     let mutation_coordinate = acceptance.mutation_coordinate();
     let mutation_target = mutation_coordinate.map(|coordinate| {
         SubChunkKey::new(
@@ -786,32 +1013,15 @@ fn emit_world_ready(
             .is_some_and(|target| cache.rendered.contains(&target)),
         mutation_target_visible: mutation_target.is_some_and(|target| cache.is_visible(target)),
         mutation_target_clean: mutation_target.is_some_and(|target| stream.is_mesh_clean(target)),
-        work: WorldReadyWork {
-            network_events: network.pending_event_count(),
-            network_commands: network.pending_command_count(),
-            admitted_world_events: stats.admitted_world_events,
-            queued_decode_jobs: stats.queued_decode_jobs,
-            in_flight_decode_jobs: stats.in_flight_decode_jobs,
-            completed_decode_results: stats.completed_decode_results,
-            pending_mesh_jobs: stats.pending_mesh_jobs,
-            in_flight_mesh_jobs: stats.in_flight_mesh_jobs,
-            pending_mesh_changes: stream.pending_mesh_change_count(),
-            outbound_requests: stream.pending_request_work_count(),
-            outstanding_sub_chunks: stream.outstanding_sub_chunk_count(),
-            pending_retry_requests: stats.pending_retry_requests,
-            render_queue_items: render_queue.retained_len(),
-            pending_gpu_acknowledgements: usize::from(!acknowledgements.is_empty()),
-            unacknowledged_meshes: stream.unacknowledged_mesh_count(),
-        },
+        work,
     };
     let ready_at = Instant::now();
     let Some(markers) = acceptance.world_ready_settler.observe(snapshot, ready_at) else {
         return;
     };
-    metrics.0.record_asset_counters(
-        client_world.runtime_assets.missing_count(),
-        diagnostic_quads.0.total(),
-    );
+    metrics
+        .0
+        .record_asset_counters(missing_mapping_count, diagnostic_quads.0.total());
     let asset_marker = metrics
         .0
         .asset_metrics()
@@ -830,8 +1040,9 @@ fn emit_world_ready(
     }
     let _ = writeln!(stdout, "{asset_marker}");
     let _ = stdout.flush();
+    stream.begin_timed_session();
     metrics.0.begin_timed_session(ready_at);
-    acceptance.begin_world_ready(ready_at);
+    acceptance.begin_world_ready(ready_at, stream.resolved_server_position().position);
 }
 
 fn flush_sub_chunk_requests(
@@ -1139,9 +1350,9 @@ mod tests {
     use world::SubChunkKey;
 
     use crate::{
-        AcceptanceRun, MutationTracker, NETWORK_INGRESS_BUDGET_PER_FRAME,
-        WORLD_READY_QUIET_INTERVAL, WorldReadySettler, WorldReadySnapshot, WorldReadyWork,
-        bedrock_camera_rotation, camera_sub_chunk_key, cumulative_counter_delta,
+        AcceptanceRun, FullViewTeleportTracker, MutationTracker, NETWORK_INGRESS_BUDGET_PER_FRAME,
+        TeleportReadySnapshot, WORLD_READY_QUIET_INTERVAL, WorldReadySettler, WorldReadySnapshot,
+        WorldReadyWork, bedrock_camera_rotation, camera_sub_chunk_key, cumulative_counter_delta,
         deterministic_mutation_coordinate, drain_network_ingress, flush_sub_chunk_requests,
         resolve_socket_dir_from, status_title, world_ready_markers,
     };
@@ -1163,7 +1374,7 @@ mod tests {
 
     #[test]
     fn acceptance_run_retains_the_spawn_surface_anchor_until_coordinate_resolution() {
-        let mut acceptance = AcceptanceRun::new(Some(900), None);
+        let mut acceptance = AcceptanceRun::new(Some(900), None, false);
         assert!(acceptance.enabled());
         acceptance.set_mutation_surface_anchor([10, -6]);
         assert_eq!(acceptance.mutation_surface_anchor(), Some([10, -6]));
@@ -1174,16 +1385,104 @@ mod tests {
 
     #[test]
     fn timed_acceptance_deadline_begins_only_when_the_world_is_ready() {
-        let mut acceptance = AcceptanceRun::new(Some(900), None);
+        let mut acceptance = AcceptanceRun::new(Some(900), None, false);
         assert_eq!(acceptance.deadline, None);
 
         let world_ready_at = Instant::now() + Duration::from_secs(60);
-        acceptance.begin_world_ready(world_ready_at);
+        acceptance.begin_world_ready(world_ready_at, [0.5, 70.0, 0.5]);
 
         assert!(acceptance.world_ready);
         assert_eq!(
             acceptance.deadline,
             Some(world_ready_at + Duration::from_secs(900))
+        );
+    }
+
+    fn settled_teleport_snapshot() -> TeleportReadySnapshot {
+        TeleportReadySnapshot {
+            received_radius_chunks: Some(16),
+            publisher_radius_chunks: Some(16),
+            rendered_sub_chunks: 8_000,
+            resident_sub_chunks: 9_000,
+            visible_sub_chunks: 7_000,
+            work: WorldReadyWork::default(),
+        }
+    }
+
+    #[test]
+    fn full_view_teleport_requires_far_motion_matching_publisher_and_stable_clean_work() {
+        let started = Instant::now();
+        let mut tracker = FullViewTeleportTracker::new(true);
+        tracker.begin_world_ready([0.5, 70.0, 0.5]);
+
+        tracker.observe(
+            &WorldEvent::MovePlayer(protocol::MovePlayerEvent {
+                runtime_id: 1,
+                position: [32.5, 70.0, 0.5],
+                pitch: 0.0,
+                yaw: 0.0,
+            }),
+            started,
+        );
+        assert!(
+            !tracker.is_pending(),
+            "near movement armed a full-view gate"
+        );
+
+        tracker.observe(
+            &WorldEvent::MovePlayer(protocol::MovePlayerEvent {
+                runtime_id: 1,
+                position: [1_040.5, 70.0, 1_040.5],
+                pitch: 0.0,
+                yaw: 0.0,
+            }),
+            started,
+        );
+        assert!(tracker.is_pending());
+        assert_eq!(
+            tracker.observe_snapshot(
+                settled_teleport_snapshot(),
+                started + Duration::from_secs(1)
+            ),
+            None,
+            "clean work settled before the matching publisher update"
+        );
+
+        tracker.observe(
+            &WorldEvent::PublisherUpdate(protocol::PublisherUpdateEvent {
+                center: [1_040, 70, 1_040],
+                radius_blocks: 256,
+            }),
+            started + Duration::from_millis(1_100),
+        );
+        assert_eq!(
+            tracker.observe_snapshot(
+                settled_teleport_snapshot(),
+                started + Duration::from_millis(1_200),
+            ),
+            None
+        );
+        let mut busy = settled_teleport_snapshot();
+        busy.work.pending_mesh_jobs = 1;
+        assert_eq!(
+            tracker.observe_snapshot(busy, started + Duration::from_secs(2)),
+            None,
+            "late work did not reset the clean candidate"
+        );
+        assert_eq!(
+            tracker.observe_snapshot(
+                settled_teleport_snapshot(),
+                started + Duration::from_millis(2_100),
+            ),
+            None
+        );
+        assert_eq!(
+            tracker.observe_snapshot(
+                settled_teleport_snapshot(),
+                started + Duration::from_millis(4_100),
+            ),
+            Some(Duration::from_millis(2_100)),
+            "confirmation must report first-clean latency, not include its two-second hold"
         );
     }
 

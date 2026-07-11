@@ -150,6 +150,7 @@ pub struct MetricsCollector {
     mutation_coordinate: Option<[i32; 3]>,
     visible_mutation_count: u64,
     max_remesh_milliseconds: f64,
+    full_view_teleport_milliseconds: Option<f64>,
     max_mutation_to_visible_milliseconds: f64,
     max_decode_milliseconds: f64,
     max_mesh_milliseconds: f64,
@@ -215,6 +216,7 @@ impl MetricsCollector {
             mutation_coordinate: None,
             visible_mutation_count: 0,
             max_remesh_milliseconds: 0.0,
+            full_view_teleport_milliseconds: None,
             max_mutation_to_visible_milliseconds: 0.0,
             max_decode_milliseconds: 0.0,
             max_mesh_milliseconds: 0.0,
@@ -265,6 +267,11 @@ impl MetricsCollector {
     pub fn begin_timed_session(&mut self, started: Instant) {
         self.started = started;
         self.frame_histogram = FrameHistogram::default();
+        self.max_remesh_milliseconds = 0.0;
+        self.max_mutation_to_visible_milliseconds = 0.0;
+        self.max_decode_milliseconds = 0.0;
+        self.max_mesh_milliseconds = 0.0;
+        self.full_view_teleport_milliseconds = None;
     }
 
     pub fn record_remesh_latency(&mut self, duration: Duration) {
@@ -277,6 +284,10 @@ impl MetricsCollector {
         self.max_mutation_to_visible_milliseconds = self
             .max_mutation_to_visible_milliseconds
             .max(duration.as_secs_f64() * 1_000.0);
+    }
+
+    pub fn record_full_view_teleport(&mut self, duration: Duration) {
+        self.full_view_teleport_milliseconds = Some(duration.as_secs_f64() * 1_000.0);
     }
 
     pub fn add_decode_errors(&mut self, count: u64) {
@@ -344,6 +355,7 @@ impl MetricsCollector {
             max_decode_ms: self.max_decode_milliseconds,
             max_mesh_ms: self.max_mesh_milliseconds,
             max_remesh_ms: self.max_remesh_milliseconds,
+            full_view_teleport_ms: self.full_view_teleport_milliseconds,
             max_mutation_to_visible_ms: self.max_mutation_to_visible_milliseconds,
             decode_error_count: self.decode_errors,
             rendered_sub_chunks: self.rendered_sub_chunks,
@@ -386,6 +398,7 @@ pub struct MetricsReport {
     pub max_decode_ms: f64,
     pub max_mesh_ms: f64,
     pub max_remesh_ms: f64,
+    pub full_view_teleport_ms: Option<f64>,
     pub max_mutation_to_visible_ms: f64,
     pub decode_error_count: u64,
     pub rendered_sub_chunks: usize,
@@ -443,10 +456,15 @@ mod tests {
     fn timed_session_discards_pre_ready_frame_samples() {
         let mut metrics = MetricsCollector::new();
         metrics.record_frame(Duration::from_millis(250));
+        metrics.record_remesh_latency(Duration::from_secs(12));
+        metrics.record_mutation_to_visible(Duration::from_secs(1));
 
         metrics.begin_timed_session(std::time::Instant::now());
 
-        assert_eq!(metrics.report().frame_count, 0);
+        let report = metrics.report();
+        assert_eq!(report.frame_count, 0);
+        assert_eq!(report.max_remesh_ms, 0.0);
+        assert_eq!(report.max_mutation_to_visible_ms, 0.0);
     }
 
     #[test]
@@ -457,6 +475,7 @@ mod tests {
         }
         metrics.record_remesh_latency(Duration::from_millis(42));
         metrics.record_mutation_to_visible(Duration::from_millis(75));
+        metrics.record_full_view_teleport(Duration::from_millis(1_234));
         metrics.add_decode_errors(3);
         metrics.record_pipeline_snapshot(PipelineMetricsSnapshot {
             world_ready: true,
@@ -499,6 +518,7 @@ mod tests {
         assert_eq!(report.max_mesh_ms, 22.0);
         assert_eq!(report.max_remesh_ms, 42.0);
         assert_eq!(report.max_mutation_to_visible_ms, 75.0);
+        assert_eq!(report.full_view_teleport_ms, Some(1_234.0));
         assert_eq!(report.decode_error_count, 3);
         assert_eq!(report.rendered_sub_chunks, 13);
         assert_eq!(report.resident_sub_chunks, 19);
@@ -557,6 +577,7 @@ mod tests {
             max_decode_ms: 6.0,
             max_mesh_ms: 7.0,
             max_remesh_ms: 20.0,
+            full_view_teleport_ms: Some(1_234.0),
             max_mutation_to_visible_ms: 75.0,
             decode_error_count: 0,
             rendered_sub_chunks: 13,
@@ -606,6 +627,7 @@ mod tests {
                 "  \"max_decode_ms\": 6.0,\n",
                 "  \"max_mesh_ms\": 7.0,\n",
                 "  \"max_remesh_ms\": 20.0,\n",
+                "  \"full_view_teleport_ms\": 1234.0,\n",
                 "  \"max_mutation_to_visible_ms\": 75.0,\n",
                 "  \"decode_error_count\": 0,\n",
                 "  \"rendered_sub_chunks\": 13,\n",
