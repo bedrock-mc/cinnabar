@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use jolyne::GameData;
 use thiserror::Error;
 use valentine::bedrock::version::v1_26_30::{
@@ -18,6 +20,15 @@ pub const MAX_BLOCK_LAYERS: usize = 16;
 
 /// Maximum Y offsets emitted in one column SubChunkRequest.
 pub const MAX_SUB_CHUNK_REQUESTS: usize = 128;
+
+/// Maximum live biome definitions retained from one server packet.
+///
+/// This matches the generated v1001 packet decoder's collection ceiling, and
+/// is repeated here because callers may construct generated packets directly.
+pub const MAX_BIOME_DEFINITIONS: usize = 4_096;
+
+/// Maximum UTF-8 bytes accepted for one live biome identifier.
+pub const MAX_BIOME_NAME_BYTES: usize = 256;
 
 /// StartGame data reduced to the fields required by the renderer and world streamer.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -171,9 +182,35 @@ pub struct MovePlayerEvent {
     pub yaw: f32,
 }
 
+/// One live biome definition reduced to the fields required by tint lookup.
+///
+/// `id` is the signed wire value. In particular, Dragonfly uses `-1` for
+/// vanilla biomes and expects clients to resolve those entries by `name`.
+/// Dragonfly's chunk palettes contain the separate stable `EncodeBiome()`
+/// value; neither definition packet order nor `name_index` is that palette ID.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BiomeDefinitionEvent {
+    pub id: i16,
+    pub name: Arc<str>,
+    pub temperature: f32,
+    pub downfall: f32,
+    pub snow_foliage: f32,
+    pub map_water_color: u32,
+}
+
+/// Bounded, packet-order-preserving live biome definition snapshot.
+///
+/// Packet order is retained for deterministic diagnostics only. It must never
+/// be treated as the runtime biome registry order.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BiomeDefinitionsEvent {
+    pub definitions: Arc<[BiomeDefinitionEvent]>,
+}
+
 /// Small, vendor-independent world events consumed by the Bevy app.
 #[derive(Debug, Clone, PartialEq)]
 pub enum WorldEvent {
+    BiomeDefinitions(BiomeDefinitionsEvent),
     LevelChunk(LevelChunkEvent),
     SubChunks(SubChunkBatchEvent),
     BlockUpdates(Vec<BlockUpdateEvent>),
@@ -185,6 +222,21 @@ pub enum WorldEvent {
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum WorldPacketError {
+    #[error("BiomeDefinitionList has {count} definitions, exceeding {max}")]
+    TooManyBiomeDefinitions { count: usize, max: usize },
+
+    #[error("biome definition name index {index} is outside string table of length {string_count}")]
+    InvalidBiomeNameIndex { index: i16, string_count: usize },
+
+    #[error("biome name has {bytes} UTF-8 bytes, exceeding {max}")]
+    BiomeNameTooLong { bytes: usize, max: usize },
+
+    #[error("biome definition {definition} has non-finite {field}")]
+    NonFiniteBiomeClimate {
+        definition: usize,
+        field: &'static str,
+    },
+
     #[error("unsupported LevelChunk sub-chunk count {0}")]
     InvalidSubChunkCount(i32),
 
@@ -224,6 +276,54 @@ pub fn into_world_event(
     current_dimension: i32,
 ) -> Result<Option<WorldEvent>, WorldPacketError> {
     let event = match packet.data {
+        McpePacketData::PacketBiomeDefinitionList(packet) => {
+            if packet.biome_definitions.len() > MAX_BIOME_DEFINITIONS {
+                return Err(WorldPacketError::TooManyBiomeDefinitions {
+                    count: packet.biome_definitions.len(),
+                    max: MAX_BIOME_DEFINITIONS,
+                });
+            }
+            let mut definitions = Vec::with_capacity(packet.biome_definitions.len());
+            for (definition_index, definition) in packet.biome_definitions.into_iter().enumerate() {
+                let name = usize::try_from(definition.name_index)
+                    .ok()
+                    .and_then(|index| packet.string_list.get(index))
+                    .ok_or(WorldPacketError::InvalidBiomeNameIndex {
+                        index: definition.name_index,
+                        string_count: packet.string_list.len(),
+                    })?;
+                if name.len() > MAX_BIOME_NAME_BYTES {
+                    return Err(WorldPacketError::BiomeNameTooLong {
+                        bytes: name.len(),
+                        max: MAX_BIOME_NAME_BYTES,
+                    });
+                }
+                for (field, value) in [
+                    ("temperature", definition.temperature),
+                    ("downfall", definition.downfall),
+                    ("snow_foliage", definition.snow_foliage),
+                ] {
+                    if !value.is_finite() {
+                        return Err(WorldPacketError::NonFiniteBiomeClimate {
+                            definition: definition_index,
+                            field,
+                        });
+                    }
+                }
+                let name = canonical_biome_name(name);
+                definitions.push(BiomeDefinitionEvent {
+                    id: definition.biome_id as i16,
+                    name,
+                    temperature: definition.temperature,
+                    downfall: definition.downfall,
+                    snow_foliage: definition.snow_foliage,
+                    map_water_color: definition.map_water_colour as u32,
+                });
+            }
+            WorldEvent::BiomeDefinitions(BiomeDefinitionsEvent {
+                definitions: Arc::from(definitions),
+            })
+        }
         McpePacketData::PacketLevelChunk(packet) => {
             if packet.blobs.is_some() {
                 return Err(WorldPacketError::CachedChunksUnsupported);
@@ -353,6 +453,20 @@ pub fn into_world_event(
         _ => return Ok(None),
     };
     Ok(Some(event))
+}
+
+fn canonical_biome_name(name: &str) -> Arc<str> {
+    if name.contains(':') {
+        return Arc::from(name);
+    }
+    let known_vanilla = valentine::bedrock::version::v1_26_30::biomes::ALL_BIOMES
+        .iter()
+        .any(|biome| biome.string_id.strip_prefix("minecraft:") == Some(name));
+    if known_vanilla {
+        Arc::from(format!("minecraft:{name}"))
+    } else {
+        Arc::from(name)
+    }
 }
 
 /// Builds one bounded vertical-column SubChunkRequest.

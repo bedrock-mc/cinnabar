@@ -1,18 +1,131 @@
 use bytes::{Buf, BytesMut};
 use protocol::{
-    DimensionRange, GameData, HASHED_AIR_NETWORK_ID, LevelChunkMode, MovePlayerEvent,
+    BiomeDefinitionEvent, BiomeDefinitionsEvent, DimensionRange, GameData, HASHED_AIR_NETWORK_ID,
+    LevelChunkMode, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES, MovePlayerEvent,
     SEQUENTIAL_AIR_NETWORK_ID, SubChunkResult, WorldBootstrap, WorldEvent, WorldPacketError,
     air_network_id, into_world_event, request_sub_chunk_column, vanilla_dimension_range,
 };
 use valentine::bedrock::codec::{BedrockCodec, BedrockSized};
 use valentine::bedrock::version::v1_26_30::{
-    BlockCoordinates, BlockUpdate, BlockUpdateTransitionType, ChangeDimensionPacket,
-    ChunkRadiusUpdatePacket, LevelChunkPacket, McpePacketData, MovePlayerPacket,
-    NetworkChunkPublisherUpdatePacket, StartGamePacketDimension, SubChunkEntryWithCachingItem,
-    SubChunkEntryWithCachingItemResult, SubChunkEntryWithoutCachingItem,
-    SubChunkEntryWithoutCachingItemResult, SubchunkPacket, SubchunkPacketEntries, UpdateBlockFlags,
-    UpdateBlockPacket, UpdateSubchunkBlocksPacket, Vec3F, Vec3I,
+    BiomeDefinition, BiomeDefinitionListPacket, BlockCoordinates, BlockUpdate,
+    BlockUpdateTransitionType, ChangeDimensionPacket, ChunkRadiusUpdatePacket, LevelChunkPacket,
+    McpePacketData, MovePlayerPacket, NetworkChunkPublisherUpdatePacket, StartGamePacketDimension,
+    SubChunkEntryWithCachingItem, SubChunkEntryWithCachingItemResult,
+    SubChunkEntryWithoutCachingItem, SubChunkEntryWithoutCachingItemResult, SubchunkPacket,
+    SubchunkPacketEntries, UpdateBlockFlags, UpdateBlockPacket, UpdateSubchunkBlocksPacket, Vec3F,
+    Vec3I,
 };
+
+fn biome_definition(name_index: i16, biome_id: i16) -> BiomeDefinition {
+    BiomeDefinition {
+        name_index,
+        biome_id: biome_id as u16,
+        temperature: 0.8,
+        downfall: 0.4,
+        snow_foliage: 0.125,
+        map_water_colour: 0xff11_2233_u32 as i32,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn normalizes_live_biomes_by_name_without_synthesizing_packet_order_ids() {
+    let packet = BiomeDefinitionListPacket {
+        biome_definitions: vec![biome_definition(1, -1), biome_definition(0, 600)],
+        string_list: vec!["violet_marsh".into(), "plains".into()],
+    };
+
+    let event = into_world_event(packet.into(), 0).unwrap().unwrap();
+    assert_eq!(
+        event,
+        WorldEvent::BiomeDefinitions(BiomeDefinitionsEvent {
+            definitions: vec![
+                BiomeDefinitionEvent {
+                    id: -1,
+                    name: "minecraft:plains".into(),
+                    temperature: 0.8,
+                    downfall: 0.4,
+                    snow_foliage: 0.125,
+                    map_water_color: 0xff11_2233,
+                },
+                BiomeDefinitionEvent {
+                    id: 600,
+                    name: "violet_marsh".into(),
+                    temperature: 0.8,
+                    downfall: 0.4,
+                    snow_foliage: 0.125,
+                    map_water_color: 0xff11_2233,
+                },
+            ]
+            .into(),
+        })
+    );
+    let WorldEvent::BiomeDefinitions(event) = event else {
+        unreachable!("equality above proves the event variant")
+    };
+    assert_eq!(
+        event
+            .definitions
+            .iter()
+            .map(|definition| definition.id)
+            .collect::<Vec<_>>(),
+        [-1, 600],
+        "random definition packet order/name_index must not become palette IDs"
+    );
+}
+
+#[test]
+fn rejects_invalid_or_unbounded_live_biome_definitions() {
+    let invalid_index = BiomeDefinitionListPacket {
+        biome_definitions: vec![biome_definition(-1, 1)],
+        string_list: vec!["minecraft:plains".into()],
+    };
+    assert_eq!(
+        into_world_event(invalid_index.into(), 0).unwrap_err(),
+        WorldPacketError::InvalidBiomeNameIndex {
+            index: -1,
+            string_count: 1,
+        }
+    );
+
+    let long_name = BiomeDefinitionListPacket {
+        biome_definitions: vec![biome_definition(0, 1)],
+        string_list: vec!["x".repeat(MAX_BIOME_NAME_BYTES + 1)],
+    };
+    assert_eq!(
+        into_world_event(long_name.into(), 0).unwrap_err(),
+        WorldPacketError::BiomeNameTooLong {
+            bytes: MAX_BIOME_NAME_BYTES + 1,
+            max: MAX_BIOME_NAME_BYTES,
+        }
+    );
+
+    let mut non_finite = biome_definition(0, 1);
+    non_finite.downfall = f32::NAN;
+    let non_finite = BiomeDefinitionListPacket {
+        biome_definitions: vec![non_finite],
+        string_list: vec!["minecraft:plains".into()],
+    };
+    assert_eq!(
+        into_world_event(non_finite.into(), 0).unwrap_err(),
+        WorldPacketError::NonFiniteBiomeClimate {
+            definition: 0,
+            field: "downfall",
+        }
+    );
+
+    let oversized = BiomeDefinitionListPacket {
+        biome_definitions: vec![biome_definition(0, 1); MAX_BIOME_DEFINITIONS + 1],
+        string_list: vec!["minecraft:plains".into()],
+    };
+    assert_eq!(
+        into_world_event(oversized.into(), 0).unwrap_err(),
+        WorldPacketError::TooManyBiomeDefinitions {
+            count: MAX_BIOME_DEFINITIONS + 1,
+            max: MAX_BIOME_DEFINITIONS,
+        }
+    );
+}
 
 #[test]
 fn chooses_air_value_from_start_game_hash_mode() {

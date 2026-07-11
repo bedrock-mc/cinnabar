@@ -8,8 +8,8 @@ use assets::{NetworkIdMode, RuntimeAssets};
 use bevy::prelude::Resource;
 use crossbeam_channel::{Receiver, Sender, bounded};
 use protocol::{
-    BlockUpdateEvent, ChangeDimensionEvent, LevelChunkEvent, LevelChunkMode, MovePlayerEvent,
-    Packet, SubChunkBatchEvent, SubChunkResult, WorldBootstrap, WorldEvent,
+    BiomeDefinitionEvent, BlockUpdateEvent, ChangeDimensionEvent, LevelChunkEvent, LevelChunkMode,
+    MovePlayerEvent, Packet, SubChunkBatchEvent, SubChunkResult, WorldBootstrap, WorldEvent,
     request_sub_chunk_column, vanilla_dimension_range,
 };
 use render::{BlockClassifier, ChunkMesh, Face, FaceConnectivity, Neighbourhood, mesh_sub_chunk};
@@ -657,6 +657,7 @@ pub struct WorldStream {
     classifier: BlockClassifier,
     network_id_mode: NetworkIdMode,
     runtime_assets: Arc<RuntimeAssets>,
+    biome_definitions: Arc<[BiomeDefinitionEvent]>,
     current_dimension: i32,
     local_player_runtime_id: u64,
     ordered: SequenceBuffer<PreparedWorldEvent>,
@@ -745,6 +746,7 @@ impl WorldStream {
                 NetworkIdMode::Sequential
             },
             runtime_assets,
+            biome_definitions: Arc::from([]),
             current_dimension: bootstrap.dimension,
             local_player_runtime_id: bootstrap.local_player_runtime_id,
             ordered: SequenceBuffer::new(first_sequence),
@@ -940,6 +942,18 @@ impl WorldStream {
     #[must_use]
     pub const fn current_dimension(&self) -> i32 {
         self.current_dimension
+    }
+
+    /// Returns the latest FIFO-committed live biome definitions for mesh/tint
+    /// table construction. The Arc keeps worker snapshots immutable when a
+    /// server later replaces the definition list.
+    #[must_use]
+    #[allow(
+        dead_code,
+        reason = "Phase 2.5 tint-table consumer lands after ingestion"
+    )]
+    pub fn biome_definitions_snapshot(&self) -> Arc<[BiomeDefinitionEvent]> {
+        Arc::clone(&self.biome_definitions)
     }
 
     #[must_use]
@@ -1796,6 +1810,9 @@ impl WorldStream {
 
     fn apply_immediate(&mut self, event: WorldEvent, sequence: Option<u64>) {
         match event {
+            WorldEvent::BiomeDefinitions(event) => {
+                self.biome_definitions = event.definitions;
+            }
             WorldEvent::LevelChunk(_) => {
                 unreachable!("LevelChunk packets are prepared on workers")
             }
@@ -2682,14 +2699,119 @@ mod tests {
         TextureArray, TextureMip, encode_blob,
     };
     use protocol::{
-        BlockUpdateEvent, ChangeDimensionEvent, LevelChunkEvent, LevelChunkMode, MovePlayerEvent,
-        PublisherUpdateEvent, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkResult,
-        SubChunkUnavailable, WorldBootstrap, WorldEvent,
+        BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockUpdateEvent, ChangeDimensionEvent,
+        LevelChunkEvent, LevelChunkMode, MovePlayerEvent, PublisherUpdateEvent, SubChunkBatchEvent,
+        SubChunkEntryEvent, SubChunkResult, SubChunkUnavailable, WorldBootstrap, WorldEvent,
     };
     use render::{BlockClassifier, Neighbourhood, mesh_sub_chunk};
     use world::{BlockUpdate, ChunkKey, ChunkStore, DecodedLevelChunk, SubChunk, SubChunkKey};
 
     use super::{MeshCompletion, RevisionTracker, SequenceBuffer, WorldStream, split_block_update};
+
+    #[test]
+    fn biome_definition_snapshot_commits_in_fifo_and_survives_dimension_changes() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        let definitions: Arc<[BiomeDefinitionEvent]> = Arc::from(vec![BiomeDefinitionEvent {
+            id: -1,
+            name: Arc::from("minecraft:plains"),
+            temperature: 0.8,
+            downfall: 0.4,
+            snow_foliage: 0.0,
+            map_water_color: 0xff44_6688,
+        }]);
+
+        assert!(stream.biome_definitions_snapshot().is_empty());
+        stream
+            .submit(
+                2,
+                WorldEvent::BiomeDefinitions(BiomeDefinitionsEvent {
+                    definitions: Arc::clone(&definitions),
+                }),
+            )
+            .unwrap();
+        assert!(
+            stream.biome_definitions_snapshot().is_empty(),
+            "sequence two must wait for sequence one"
+        );
+
+        stream.submit(1, WorldEvent::ChunkRadiusUpdated(8)).unwrap();
+        let committed = stream.biome_definitions_snapshot();
+        assert!(Arc::ptr_eq(&committed, &definitions));
+
+        stream
+            .submit(
+                3,
+                WorldEvent::ChangeDimension(ChangeDimensionEvent {
+                    dimension: 1,
+                    position: [0.0, 64.0, 0.0],
+                }),
+            )
+            .unwrap();
+        let after_dimension_change = stream.biome_definitions_snapshot();
+        assert!(Arc::ptr_eq(&after_dimension_change, &definitions));
+    }
+
+    #[test]
+    fn stale_biome_definition_event_cannot_replace_the_committed_snapshot() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        let committed: Arc<[BiomeDefinitionEvent]> = Arc::from(vec![BiomeDefinitionEvent {
+            id: -1,
+            name: Arc::from("minecraft:plains"),
+            temperature: 0.8,
+            downfall: 0.4,
+            snow_foliage: 0.0,
+            map_water_color: 0xff44_6688,
+        }]);
+        stream
+            .submit(
+                1,
+                WorldEvent::BiomeDefinitions(BiomeDefinitionsEvent {
+                    definitions: Arc::clone(&committed),
+                }),
+            )
+            .unwrap();
+
+        let stale: Arc<[BiomeDefinitionEvent]> = Arc::from(vec![BiomeDefinitionEvent {
+            id: 600,
+            name: Arc::from("example:stale"),
+            temperature: 0.0,
+            downfall: 0.0,
+            snow_foliage: 0.0,
+            map_water_color: 0,
+        }]);
+        let error = stream
+            .submit(
+                1,
+                WorldEvent::BiomeDefinitions(BiomeDefinitionsEvent { definitions: stale }),
+            )
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            super::WorldStreamError::DuplicateOrPast {
+                sequence: 1,
+                next: 2
+            }
+        ));
+        assert!(Arc::ptr_eq(
+            &stream.biome_definitions_snapshot(),
+            &committed
+        ));
+    }
 
     #[test]
     fn network_mode_and_runtime_assets_are_selected_once_per_stream() {

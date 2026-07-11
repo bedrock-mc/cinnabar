@@ -133,7 +133,8 @@ fn decode_world_raw_with(
 ) -> Result<Option<WorldEvent>, ProtocolError> {
     if !matches!(
         raw.id,
-        McpePacketName::PacketLevelChunk
+        McpePacketName::PacketBiomeDefinitionList
+            | McpePacketName::PacketLevelChunk
             | McpePacketName::PacketSubchunk
             | McpePacketName::PacketUpdateBlock
             | McpePacketName::PacketUpdateSubchunkBlocks
@@ -156,7 +157,8 @@ mod tests {
     use jolyne::raw::decode_packet_raw;
     use valentine::bedrock::context::BedrockSession;
     use valentine::bedrock::version::v1_26_30::{
-        BlockCoordinates, McpePacketName, MovePlayerPacket, UpdateBlockPacket, Vec3F,
+        BiomeDefinition, BiomeDefinitionListPacket, BlockCoordinates, McpePacketName,
+        MovePlayerPacket, UpdateBlockPacket, Vec3F,
     };
     use valentine::protocol::wire;
 
@@ -251,5 +253,40 @@ mod tests {
                 yaw: -120.25,
             })
         );
+    }
+
+    #[test]
+    fn allowlisted_biome_definitions_are_materialized_and_normalized() {
+        let session = BedrockSession { shield_item_id: 0 };
+        let packet: Packet = BiomeDefinitionListPacket {
+            biome_definitions: vec![BiomeDefinition {
+                name_index: 0,
+                biome_id: u16::MAX,
+                temperature: 0.8,
+                downfall: 0.4,
+                snow_foliage: 0.0,
+                map_water_colour: 0xff44_6688_u32 as i32,
+                ..Default::default()
+            }],
+            string_list: vec!["plains".into()],
+        }
+        .into();
+        let mut batch = crate::encode(&packet, &session).expect("encode biome definitions");
+        batch.advance(1);
+        let raw = decode_packet_raw(&mut batch).expect("raw biome definitions");
+        let decoder_called = Cell::new(false);
+
+        let event = decode_world_raw_with(raw, 0, |raw| {
+            decoder_called.set(true);
+            raw.decode(&session)
+        })
+        .expect("decode biome definitions");
+
+        assert!(decoder_called.get());
+        let WorldEvent::BiomeDefinitions(event) = event.expect("biome definitions event") else {
+            panic!("expected biome definitions")
+        };
+        assert_eq!(event.definitions[0].id, -1);
+        assert_eq!(event.definitions[0].name.as_ref(), "minecraft:plains");
     }
 }
