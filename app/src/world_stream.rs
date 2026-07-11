@@ -16,13 +16,14 @@ use protocol::{
     request_sub_chunk_column, vanilla_dimension_range,
 };
 use render::{
-    BlockClassifier, ChunkBiomeTintIdentity, ChunkMesh, Face, FaceConnectivity, Neighbourhood,
-    PackedBiomeRecord, mesh_sub_chunk,
+    BlockClassifier, ChunkBiomeTintIdentity, ChunkMesh, FaceConnectivity, PackedBiomeRecord,
+    mesh_dependency_mask, mesh_sub_chunk_in_neighbourhood,
 };
 use thiserror::Error;
 use world::{
     BiomeStorage, BlockUpdate, ChunkKey, ChunkStore, DecodeError, DecodedBiomeColumn,
-    DecodedLevelChunk, MutationError, PreparedSubChunkMutation, SubChunk, SubChunkKey,
+    DecodedLevelChunk, MeshDependencyMask, MeshNeighbourhood, MutationError,
+    PreparedSubChunkMutation, SubChunk, SubChunkKey,
 };
 
 use crate::server_position::{ResolvedServerPosition, resolve_server_position};
@@ -621,18 +622,14 @@ struct MeshCompletion {
     biome: PackedBiomeRecord,
     tint_identity: ChunkBiomeTintIdentity,
     mesh: ChunkMesh,
+    dependency_mask: MeshDependencyMask,
     duration: Duration,
 }
 
 struct MeshSnapshot {
     center: Arc<SubChunk>,
     biome: Option<Arc<BiomeStorage>>,
-    negative_x: Option<Arc<SubChunk>>,
-    positive_x: Option<Arc<SubChunk>>,
-    negative_y: Option<Arc<SubChunk>>,
-    positive_y: Option<Arc<SubChunk>>,
-    negative_z: Option<Arc<SubChunk>>,
-    positive_z: Option<Arc<SubChunk>>,
+    adjacent: [Option<Arc<SubChunk>>; 27],
 }
 
 fn pack_biome_record(
@@ -645,39 +642,51 @@ fn pack_biome_record(
 }
 
 impl MeshSnapshot {
+    fn neighbourhood(&self) -> MeshNeighbourhood<'_> {
+        let mut neighbourhood = MeshNeighbourhood::new(&self.center);
+        for dx in -1_i8..=1 {
+            for dy in -1_i8..=1 {
+                for dz in -1_i8..=1 {
+                    let offset = [dx, dy, dz];
+                    if offset == [0, 0, 0] {
+                        continue;
+                    }
+                    if let Some(sub_chunk) = self.adjacent[mesh_offset_index(offset)].as_deref() {
+                        let inserted = neighbourhood.insert(offset, sub_chunk);
+                        debug_assert!(inserted);
+                    }
+                }
+            }
+        }
+        neighbourhood
+    }
+
     fn mesh(
         &self,
         classifier: BlockClassifier,
         runtime_assets: &RuntimeAssets,
         network_id_mode: NetworkIdMode,
     ) -> ChunkMesh {
-        let mut neighbours = Neighbourhood::empty();
-        if let Some(neighbour) = self.negative_x.as_deref() {
-            neighbours = neighbours.with_negative_x(neighbour);
-        }
-        if let Some(neighbour) = self.positive_x.as_deref() {
-            neighbours = neighbours.with_positive_x(neighbour);
-        }
-        if let Some(neighbour) = self.negative_y.as_deref() {
-            neighbours = neighbours.with_negative_y(neighbour);
-        }
-        if let Some(neighbour) = self.positive_y.as_deref() {
-            neighbours = neighbours.with_positive_y(neighbour);
-        }
-        if let Some(neighbour) = self.negative_z.as_deref() {
-            neighbours = neighbours.with_negative_z(neighbour);
-        }
-        if let Some(neighbour) = self.positive_z.as_deref() {
-            neighbours = neighbours.with_positive_z(neighbour);
-        }
-        mesh_sub_chunk(
+        mesh_sub_chunk_in_neighbourhood(
             &classifier,
             runtime_assets,
             network_id_mode,
-            &neighbours,
-            &self.center,
+            &self.neighbourhood(),
         )
     }
+
+    fn dependency_mask(
+        &self,
+        classifier: BlockClassifier,
+        runtime_assets: &RuntimeAssets,
+        network_id_mode: NetworkIdMode,
+    ) -> MeshDependencyMask {
+        mesh_dependency_mask(&classifier, runtime_assets, network_id_mode, &self.center)
+    }
+}
+
+fn mesh_offset_index([x, y, z]: [i8; 3]) -> usize {
+    (usize::from((x + 1) as u8) * 3 + usize::from((y + 1) as u8)) * 3 + usize::from((z + 1) as u8)
 }
 
 /// Ordered Bedrock world ingestion and bounded background meshing.
@@ -709,6 +718,7 @@ pub struct WorldStream {
     mesh_rx: Receiver<MeshCompletion>,
     revisions: RevisionTracker,
     applied_mesh_generations: HashMap<SubChunkKey, u64>,
+    mesh_dependency_masks: HashMap<SubChunkKey, (u64, MeshDependencyMask)>,
     pending_mesh: HashMap<SubChunkKey, PendingMesh>,
     in_flight: HashMap<SubChunkKey, u64>,
     resident: BTreeSet<SubChunkKey>,
@@ -812,6 +822,7 @@ impl WorldStream {
             mesh_rx,
             revisions: RevisionTracker::default(),
             applied_mesh_generations: HashMap::new(),
+            mesh_dependency_masks: HashMap::new(),
             pending_mesh: HashMap::new(),
             in_flight: HashMap::new(),
             resident: BTreeSet::new(),
@@ -1280,6 +1291,10 @@ impl WorldStream {
         self.resident.contains(&key) && self.revisions.dirty(key).is_none()
     }
 
+    // A rejected change must be returned intact so the caller can retry it
+    // without cloning or dropping any packed stream. Boxing would move this
+    // established hot-path ownership contract behind an allocation.
+    #[allow(clippy::result_large_err)]
     pub fn retry_mesh_change_front(
         &mut self,
         change: WorldMeshChange,
@@ -1724,12 +1739,10 @@ impl WorldStream {
                             self.record_known_air(air);
                         }
                         let now = Instant::now();
-                        for dirty in applied.dirty {
-                            self.mark_dirty_exact(dirty, now);
-                        }
-                        for removed in old_keys.difference(&new_keys) {
-                            self.mark_changed(*removed, now);
-                        }
+                        let mut changed_sources =
+                            applied.changed.into_iter().collect::<BTreeSet<_>>();
+                        changed_sources.extend(old_keys.difference(&new_keys).copied());
+                        self.mark_changed_sources(changed_sources, now);
                         self.stats.last_chunk_commit_at = Some(now);
                     }
                     Err(_) => self.stats.decode_errors = self.stats.decode_errors.saturating_add(1),
@@ -2095,14 +2108,68 @@ impl WorldStream {
 
     fn record_known_air(&mut self, key: SubChunkKey) {
         self.resident.insert(key);
-        self.known_air.insert(key);
+        if self.known_air.insert(key) {
+            self.mesh_dependency_masks.remove(&key);
+        }
         self.set_connectivity(key, Some(FaceConnectivity::all()));
     }
 
     fn mark_changed(&mut self, key: SubChunkKey, now: Instant) {
-        for dependent in key.mesh_dependents() {
+        self.mark_changed_sources(std::iter::once(key), now);
+    }
+
+    fn mark_changed_sources(
+        &mut self,
+        sources: impl IntoIterator<Item = SubChunkKey>,
+        now: Instant,
+    ) {
+        let mut dirty = BTreeSet::new();
+        for key in sources {
+            for dependent in key.mesh_neighbourhood_dependents() {
+                let distance = key.x.abs_diff(dependent.x)
+                    + key.y.abs_diff(dependent.y)
+                    + key.z.abs_diff(dependent.z);
+                let face_dependent = distance <= 1;
+                let diagonal_needed = self.resident.contains(&dependent)
+                    && self
+                        .current_mesh_dependency_mask(dependent)
+                        .is_none_or(MeshDependencyMask::needs_diagonal_samples);
+                if face_dependent || diagonal_needed {
+                    dirty.insert(dependent);
+                }
+            }
+        }
+        for dependent in dirty {
             self.mark_dirty_exact(dependent, now);
         }
+    }
+
+    fn current_mesh_dependency_mask(&self, key: SubChunkKey) -> Option<MeshDependencyMask> {
+        let (generation, mask) = self.mesh_dependency_masks.get(&key).copied()?;
+        let current_generation = self
+            .revisions
+            .dirty(key)
+            .map(|dirty| dirty.revision)
+            .or_else(|| self.applied_mesh_generations.get(&key).copied())?;
+        (generation == current_generation).then_some(mask)
+    }
+
+    fn register_mesh_dependency_mask(
+        &mut self,
+        key: SubChunkKey,
+        generation: u64,
+        mask: MeshDependencyMask,
+    ) -> bool {
+        if !self.resident.contains(&key) || !self.revisions.is_current(key, generation) {
+            return false;
+        }
+        self.mesh_dependency_masks.insert(key, (generation, mask));
+        true
+    }
+
+    #[cfg(test)]
+    fn mesh_dependency_mask(&self, key: SubChunkKey) -> Option<(u64, MeshDependencyMask)> {
+        self.mesh_dependency_masks.get(&key).copied()
     }
 
     fn mark_dirty_exact(&mut self, key: SubChunkKey, now: Instant) -> u64 {
@@ -2153,6 +2220,8 @@ impl WorldStream {
         self.resident.retain(|resident| resident.chunk() != key);
         self.known_air.retain(|resident| resident.chunk() != key);
         self.applied_mesh_generations
+            .retain(|resident, _| resident.chunk() != key);
+        self.mesh_dependency_masks
             .retain(|resident, _| resident.chunk() != key);
         let old_connectivity_len = self.connectivity.len();
         self.connectivity
@@ -2280,8 +2349,15 @@ impl WorldStream {
                 self.pending_mesh.remove(&key);
                 if self.known_air.contains(&key) {
                     self.set_connectivity(key, Some(FaceConnectivity::all()));
+                    let registered = self.register_mesh_dependency_mask(
+                        key,
+                        revision,
+                        MeshDependencyMask::default(),
+                    );
+                    debug_assert!(registered);
                 } else {
                     self.set_connectivity(key, None);
+                    self.mesh_dependency_masks.remove(&key);
                 }
                 self.mesh_changes.push_back(WorldMeshChange::Remove {
                     key,
@@ -2308,6 +2384,8 @@ impl WorldStream {
                 let biome_source = snapshot.biome.clone();
                 let biome = pack_biome_record(biome_source.as_deref(), &resolved_biome_tints);
                 let mesh = snapshot.mesh(classifier, &runtime_assets, network_id_mode);
+                let dependency_mask =
+                    snapshot.dependency_mask(classifier, &runtime_assets, network_id_mode);
                 let _ = tx.send(MeshCompletion {
                     key,
                     revision,
@@ -2316,6 +2394,7 @@ impl WorldStream {
                     biome,
                     tint_identity,
                     mesh,
+                    dependency_mask,
                     duration: started.elapsed(),
                 });
             });
@@ -2326,21 +2405,31 @@ impl WorldStream {
     }
 
     fn mesh_snapshot(&self, key: SubChunkKey, center: Arc<SubChunk>) -> MeshSnapshot {
+        let mut adjacent = std::array::from_fn(|_| None);
+        for dx in -1_i8..=1 {
+            for dy in -1_i8..=1 {
+                for dz in -1_i8..=1 {
+                    let offset = [dx, dy, dz];
+                    if offset == [0, 0, 0] {
+                        continue;
+                    }
+                    let neighbour = key
+                        .x
+                        .checked_add(i32::from(dx))
+                        .zip(key.y.checked_add(i32::from(dy)))
+                        .zip(key.z.checked_add(i32::from(dz)))
+                        .and_then(|((x, y), z)| {
+                            self.store
+                                .sub_chunk(SubChunkKey::new(key.dimension, x, y, z))
+                        });
+                    adjacent[mesh_offset_index(offset)] = neighbour;
+                }
+            }
+        }
         MeshSnapshot {
             center,
             biome: self.store.biome_storage(key),
-            negative_x: adjacent_key(key, Face::NegativeX)
-                .and_then(|key| self.store.sub_chunk(key)),
-            positive_x: adjacent_key(key, Face::PositiveX)
-                .and_then(|key| self.store.sub_chunk(key)),
-            negative_y: adjacent_key(key, Face::NegativeY)
-                .and_then(|key| self.store.sub_chunk(key)),
-            positive_y: adjacent_key(key, Face::PositiveY)
-                .and_then(|key| self.store.sub_chunk(key)),
-            negative_z: adjacent_key(key, Face::NegativeZ)
-                .and_then(|key| self.store.sub_chunk(key)),
-            positive_z: adjacent_key(key, Face::PositiveZ)
-                .and_then(|key| self.store.sub_chunk(key)),
+            adjacent,
         }
     }
 
@@ -2375,6 +2464,14 @@ impl WorldStream {
             .dirty(completion.key)
             .expect("current mesh completion has a dirty revision");
         self.set_connectivity(completion.key, Some(completion.mesh.connectivity()));
+        if self.resident.contains(&completion.key) {
+            let registered = self.register_mesh_dependency_mask(
+                completion.key,
+                completion.revision,
+                completion.dependency_mask,
+            );
+            debug_assert!(registered);
+        }
         self.mesh_changes.push_back(WorldMeshChange::Upsert {
             key: completion.key,
             mesh: completion.mesh,
@@ -2747,35 +2844,6 @@ fn prepare_sub_chunks(batch: SubChunkBatchEvent) -> Vec<PreparedSubChunk> {
         .collect()
 }
 
-fn adjacent_key(key: SubChunkKey, face: Face) -> Option<SubChunkKey> {
-    match face {
-        Face::NegativeX => key
-            .x
-            .checked_sub(1)
-            .map(|x| SubChunkKey::new(key.dimension, x, key.y, key.z)),
-        Face::PositiveX => key
-            .x
-            .checked_add(1)
-            .map(|x| SubChunkKey::new(key.dimension, x, key.y, key.z)),
-        Face::NegativeY => key
-            .y
-            .checked_sub(1)
-            .map(|y| SubChunkKey::new(key.dimension, key.x, y, key.z)),
-        Face::PositiveY => key
-            .y
-            .checked_add(1)
-            .map(|y| SubChunkKey::new(key.dimension, key.x, y, key.z)),
-        Face::NegativeZ => key
-            .z
-            .checked_sub(1)
-            .map(|z| SubChunkKey::new(key.dimension, key.x, key.y, z)),
-        Face::PositiveZ => key
-            .z
-            .checked_add(1)
-            .map(|z| SubChunkKey::new(key.dimension, key.x, key.y, z)),
-    }
-}
-
 fn distance_squared(key: SubChunkKey, camera: [f32; 3]) -> f32 {
     let center = [
         key.x as f32 * 16.0 + 8.0,
@@ -2832,11 +2900,215 @@ mod tests {
     };
     use render::{BlockClassifier, Neighbourhood, PackedBiomeRecord, mesh_sub_chunk};
     use world::{
-        BlockUpdate, ChunkKey, ChunkStore, DecodedBiomeColumn, DecodedLevelChunk, SubChunk,
-        SubChunkKey,
+        BlockUpdate, ChunkKey, ChunkStore, DecodedBiomeColumn, DecodedLevelChunk,
+        MeshDependencyMask, SubChunk, SubChunkKey,
     };
 
     use super::{MeshCompletion, RevisionTracker, SequenceBuffer, WorldStream, split_block_update};
+
+    mod mesh_dependency {
+        use std::time::Instant;
+
+        use protocol::WorldBootstrap;
+        use world::{DecodedLevelChunk, MeshDependencyMask, SubChunkKey};
+
+        use super::WorldStream;
+
+        fn stream() -> WorldStream {
+            WorldStream::new(WorldBootstrap {
+                dimension: 0,
+                local_player_runtime_id: 1,
+                player_position: [0.0; 3],
+                world_spawn_position: [0; 3],
+                air_network_id: 12_530,
+                block_network_ids_are_hashes: false,
+            })
+        }
+
+        #[test]
+        fn diagonal_change_invalidates_ao_dependents() {
+            let mut stream = stream();
+            let source = SubChunkKey::new(0, 0, 0, 0);
+            let dependent = SubChunkKey::new(0, 1, 1, 0);
+            stream.resident.insert(dependent);
+            let generation = stream.mark_dirty_exact(dependent, Instant::now());
+            assert!(stream.register_mesh_dependency_mask(
+                dependent,
+                generation,
+                MeshDependencyMask::new(true, false),
+            ));
+            stream.pending_mesh.clear();
+
+            stream.mark_changed(source, Instant::now());
+
+            assert_ne!(
+                stream.revisions.dirty(dependent).unwrap().revision,
+                generation
+            );
+            assert!(stream.pending_mesh.contains_key(&dependent));
+        }
+
+        #[test]
+        fn known_empty_mask_skips_diagonal_change() {
+            let mut stream = stream();
+            let source = SubChunkKey::new(0, 0, 0, 0);
+            let diagonal = SubChunkKey::new(0, 1, 1, 0);
+            stream.resident.insert(diagonal);
+            let generation = stream.mark_dirty_exact(diagonal, Instant::now());
+            assert!(stream.register_mesh_dependency_mask(
+                diagonal,
+                generation,
+                MeshDependencyMask::default(),
+            ));
+            stream.pending_mesh.clear();
+
+            stream.mark_changed(source, Instant::now());
+
+            assert_eq!(
+                stream.revisions.dirty(diagonal).unwrap().revision,
+                generation
+            );
+            assert!(!stream.pending_mesh.contains_key(&diagonal));
+        }
+
+        #[test]
+        fn unknown_new_mask_dirties_diagonal_conservatively() {
+            let mut stream = stream();
+            let source = SubChunkKey::new(0, 0, 0, 0);
+            let diagonal = SubChunkKey::new(0, 1, 1, 0);
+            stream.resident.insert(diagonal);
+
+            stream.mark_changed(source, Instant::now());
+
+            assert!(stream.pending_mesh.contains_key(&diagonal));
+        }
+
+        #[test]
+        fn inline_full_column_change_invalidates_registered_corner_dependency() {
+            let mut stream = stream();
+            let source = SubChunkKey::new(0, 0, -4, 0);
+            let corner = SubChunkKey::new(0, 1, -4, 1);
+            let decoded = DecodedLevelChunk::decode(
+                source.y,
+                1,
+                include_bytes!("../../crates/world/fixtures/uniform_non_air.bin"),
+            )
+            .unwrap();
+            stream.store.commit_level_chunk(source.chunk(), decoded);
+            stream.resident.insert(source);
+            stream.resident.insert(corner);
+            let generation = stream.mark_dirty_exact(corner, Instant::now());
+            assert!(stream.register_mesh_dependency_mask(
+                corner,
+                generation,
+                MeshDependencyMask::new(true, false),
+            ));
+            stream.pending_mesh.clear();
+
+            stream.submit(1, super::inline_air_event(0)).unwrap();
+            super::complete_pending_decode_jobs(&mut stream);
+
+            assert_ne!(stream.revisions.dirty(corner).unwrap().revision, generation);
+            assert!(stream.pending_mesh.contains_key(&corner));
+            assert_eq!(
+                stream.revisions.next_revision - generation,
+                stream.pending_mesh.len() as u64,
+                "one inline batch must assign exactly one revision per dirty target"
+            );
+        }
+
+        #[test]
+        fn known_air_removal_replaces_stale_mask_and_skips_later_diagonal_change() {
+            let mut stream = stream();
+            let target = SubChunkKey::new(0, 1, -4, 0);
+            let diagonal_source = SubChunkKey::new(0, 0, -4, 1);
+            let decoded = DecodedLevelChunk::decode(
+                target.y,
+                1,
+                include_bytes!("../../crates/world/fixtures/uniform_non_air.bin"),
+            )
+            .unwrap();
+            stream.store.commit_level_chunk(target.chunk(), decoded);
+            stream.resident.insert(target);
+            let stale_generation = stream.mark_dirty_exact(target, Instant::now());
+            assert!(stream.register_mesh_dependency_mask(
+                target,
+                stale_generation,
+                MeshDependencyMask::new(true, true),
+            ));
+            stream.pending_mesh.clear();
+
+            stream.submit(1, super::inline_air_event(target.x)).unwrap();
+            super::complete_pending_decode_jobs(&mut stream);
+
+            assert!(stream.known_air.contains(&target));
+            assert_eq!(
+                stream.mesh_dependency_mask(target),
+                None,
+                "transitioning to known air must clear the stale non-empty mask"
+            );
+            let empty_generation = stream.revisions.dirty(target).unwrap().revision;
+            stream.dispatch_mesh_jobs([24.0, -56.0, 8.0], 0);
+            assert_eq!(
+                stream.mesh_dependency_mask(target),
+                Some((empty_generation, MeshDependencyMask::default())),
+                "the exact queued removal generation must register known-empty dependencies"
+            );
+
+            stream.mark_changed(diagonal_source, Instant::now());
+
+            assert_eq!(
+                stream.revisions.dirty(target).unwrap().revision,
+                empty_generation
+            );
+            assert!(!stream.pending_mesh.contains_key(&target));
+        }
+
+        #[test]
+        fn mask_generation_replacement() {
+            let mut stream = stream();
+            let key = SubChunkKey::new(0, 3, 4, 5);
+            stream.resident.insert(key);
+            let first = stream.mark_dirty_exact(key, Instant::now());
+            assert!(stream.register_mesh_dependency_mask(
+                key,
+                first,
+                MeshDependencyMask::new(false, false),
+            ));
+            let second = stream.mark_dirty_exact(key, Instant::now());
+            assert!(stream.register_mesh_dependency_mask(
+                key,
+                second,
+                MeshDependencyMask::new(true, false),
+            ));
+
+            assert_eq!(
+                stream.mesh_dependency_mask(key),
+                Some((second, MeshDependencyMask::new(true, false)))
+            );
+        }
+
+        #[test]
+        fn stale_mask_rejection() {
+            let mut stream = stream();
+            let key = SubChunkKey::new(0, 3, 4, 5);
+            stream.resident.insert(key);
+            let stale = stream.mark_dirty_exact(key, Instant::now());
+            let current = stream.mark_dirty_exact(key, Instant::now());
+
+            assert!(!stream.register_mesh_dependency_mask(
+                key,
+                stale,
+                MeshDependencyMask::new(true, true),
+            ));
+            assert_eq!(stream.mesh_dependency_mask(key), None);
+            assert!(stream.register_mesh_dependency_mask(
+                key,
+                current,
+                MeshDependencyMask::new(false, true),
+            ));
+        }
+    }
 
     #[test]
     fn biome_definition_snapshot_commits_in_fifo_and_survives_dimension_changes() {
@@ -3152,6 +3424,7 @@ mod tests {
             biome: super::pack_biome_record(Some(&biome_source), &old_resolved),
             tint_identity: old_tint_identity,
             mesh: queued_mesh,
+            dependency_mask: MeshDependencyMask::default(),
             duration: Duration::ZERO,
         });
         assert_eq!(stream.pending_mesh_change_count(), 1);
@@ -3180,6 +3453,7 @@ mod tests {
             biome: super::pack_biome_record(None, &old_resolved),
             tint_identity: old_tint_identity,
             mesh: in_flight_mesh,
+            dependency_mask: MeshDependencyMask::default(),
             duration: Duration::ZERO,
         });
         assert_eq!(stream.stats().stale_mesh_jobs, 1);
@@ -4532,6 +4806,7 @@ mod tests {
             biome,
             tint_identity,
             mesh,
+            dependency_mask: MeshDependencyMask::default(),
             duration: Duration::ZERO,
         });
 
@@ -4591,6 +4866,7 @@ mod tests {
             biome: old_record,
             tint_identity,
             mesh,
+            dependency_mask: MeshDependencyMask::default(),
             duration: Duration::ZERO,
         });
 
@@ -4646,6 +4922,7 @@ mod tests {
             biome: PackedBiomeRecord::fallback(),
             tint_identity,
             mesh,
+            dependency_mask: MeshDependencyMask::default(),
             duration: std::time::Duration::from_millis(5),
         });
 
@@ -5842,6 +6119,7 @@ mod tests {
             biome: PackedBiomeRecord::fallback(),
             tint_identity,
             mesh,
+            dependency_mask: MeshDependencyMask::default(),
             duration: std::time::Duration::ZERO,
         });
 

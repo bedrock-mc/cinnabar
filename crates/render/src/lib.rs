@@ -2,14 +2,20 @@
 
 mod biome;
 mod color;
+mod lighting;
 mod mesh;
 mod plugin;
 
 pub use biome::PackedBiomeRecord;
 pub use color::debug_color;
+pub use lighting::{
+    PHASE26_BLOCK_LIGHT, PHASE26_SKY_LIGHT, bake_quad_lighting, bake_template_lighting,
+    mesh_dependency_mask,
+};
 pub use mesh::{
     BlockClassifier, ChunkMesh, ChunkMeshStreams, Face, FaceConnectivity, Neighbourhood,
     PackedLiquidQuad, PackedModelRef, PackedQuad, PackedQuadLighting, mesh_sub_chunk,
+    mesh_sub_chunk_in_neighbourhood,
 };
 pub use plugin::{
     AnimationFrameSample, BiomeTint, ChunkAnimationClock, ChunkBiomeTintIdentity, ChunkBiomeTints,

@@ -84,6 +84,23 @@ impl SubChunkKey {
         .into_iter()
         .flatten()
     }
+
+    /// Every bounded sub-chunk whose AO or liquid geometry can sample this
+    /// sub-chunk, including face, edge, and corner offsets.
+    pub fn mesh_neighbourhood_dependents(self) -> impl Iterator<Item = Self> {
+        (-1_i32..=1).flat_map(move |dx| {
+            (-1_i32..=1).flat_map(move |dy| {
+                (-1_i32..=1).filter_map(move |dz| {
+                    Some(Self::new(
+                        self.dimension,
+                        self.x.checked_add(dx)?,
+                        self.y.checked_add(dy)?,
+                        self.z.checked_add(dz)?,
+                    ))
+                })
+            })
+        })
+    }
 }
 
 /// Sparse block data for one chunk column.

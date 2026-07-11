@@ -14,6 +14,9 @@ pub const MAX_LEVEL_SUBCHUNKS: usize = 64;
 /// Result of atomically replacing a full inline chunk column.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApplyLevelChunk {
+    /// Exact changed source keys before mesh-dependency expansion, sorted and
+    /// deduplicated for dependency-aware invalidation by the app.
+    pub changed: Vec<SubChunkKey>,
     /// Changed keys plus their face-adjacent mesh dependents, deduplicated and
     /// sorted. These keys are ready to enqueue without another expansion.
     pub dirty: Vec<SubChunkKey>,
@@ -451,13 +454,14 @@ impl ChunkStore {
                 }
             })
             .map(|y| SubChunkKey::from_chunk(key, y))
-            .collect::<Vec<_>>();
+            .collect::<BTreeSet<_>>();
         changed.extend(
             changed_biome_ys(old.and_then(|chunk| chunk.biomes.as_ref()), biomes.as_ref())
                 .into_iter()
                 .map(|y| SubChunkKey::from_chunk(key, y)),
         );
-        let dirty = expand_mesh_dependents(changed);
+        let changed = changed.into_iter().collect::<Vec<_>>();
+        let dirty = expand_mesh_dependents(changed.clone());
 
         if sub_chunks.is_empty() && biomes.is_none() {
             self.chunks.remove(&key);
@@ -465,6 +469,7 @@ impl ChunkStore {
             self.chunks.insert(key, Chunk { sub_chunks, biomes });
         }
         ApplyLevelChunk {
+            changed,
             dirty,
             bytes_consumed,
             block_bytes_consumed,

@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use assets::{BlockFace, BlockFlags, DIAGNOSTIC_MATERIAL, NetworkIdMode, RuntimeAssets};
-use world::{PalettedStorage, SubChunk};
+use world::{MeshNeighbourhood, PalettedStorage, SubChunk};
 
 const SIDE: usize = 16;
 const FULL_COLUMN: u64 = (1_u64 << SIDE) - 1;
@@ -478,6 +478,26 @@ pub fn mesh_sub_chunk(
     neighbours: &Neighbourhood<'_>,
     sub_chunk: &SubChunk,
 ) -> ChunkMesh {
+    let mut neighbourhood = MeshNeighbourhood::new(sub_chunk);
+    for face in Face::ALL {
+        if let Some(neighbour) = neighbours.get(face) {
+            let _ = neighbourhood.insert(face_offset(face), neighbour);
+        }
+    }
+    mesh_sub_chunk_in_neighbourhood(classifier, visuals, network_id_mode, &neighbourhood)
+}
+
+/// Greedy-mesh from the shared bounded 3x3x3 palette-native snapshot.
+#[must_use]
+pub fn mesh_sub_chunk_in_neighbourhood(
+    classifier: &BlockClassifier,
+    visuals: &RuntimeAssets,
+    network_id_mode: NetworkIdMode,
+    neighbourhood: &MeshNeighbourhood<'_>,
+) -> ChunkMesh {
+    let sub_chunk = neighbourhood
+        .sub_chunk([0, 0, 0])
+        .expect("MeshNeighbourhood always contains its center");
     let facts = PaletteFacts::new(*classifier, visuals, network_id_mode, sub_chunk);
     let connectivity = cave_connectivity(&facts);
     if facts.is_air() {
@@ -498,7 +518,7 @@ pub fn mesh_sub_chunk(
             *classifier,
             visuals,
             network_id_mode,
-            *neighbours,
+            neighbourhood,
             face,
             &facts,
             &masks,
@@ -799,13 +819,13 @@ fn exposed_columns(
     classifier: BlockClassifier,
     visuals: &RuntimeAssets,
     network_id_mode: NetworkIdMode,
-    neighbours: Neighbourhood<'_>,
+    neighbourhood: &MeshNeighbourhood<'_>,
     face: Face,
     facts: &PaletteFacts<'_>,
     masks: &VisibilityMasks,
 ) -> Columns {
-    let neighbour = neighbours
-        .get(face)
+    let neighbour = neighbourhood
+        .sub_chunk(face_offset(face))
         .map(|sub_chunk| PaletteFacts::new(classifier, visuals, network_id_mode, sub_chunk));
     let boundary_bit = if face.is_negative() {
         1_u64
@@ -850,6 +870,17 @@ fn exposed_columns(
         }
     }
     exposed
+}
+
+const fn face_offset(face: Face) -> [i8; 3] {
+    match face {
+        Face::NegativeX => [-1, 0, 0],
+        Face::PositiveX => [1, 0, 0],
+        Face::NegativeY => [0, -1, 0],
+        Face::PositiveY => [0, 1, 0],
+        Face::NegativeZ => [0, 0, -1],
+        Face::PositiveZ => [0, 0, 1],
+    }
 }
 
 const fn culls_face(source: BlockFlags, neighbour: BlockFlags) -> bool {

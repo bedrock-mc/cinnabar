@@ -279,6 +279,11 @@ fn a_full_level_chunk_removes_stale_sub_chunks_and_marks_them_dirty() {
     let applied = store
         .apply_level_chunk(chunk_key, -4, 1, &replacement)
         .unwrap();
+    assert_eq!(
+        applied.changed,
+        vec![upper_key],
+        "full-column commits must expose unexpanded changed sources"
+    );
     assert_eq!(applied.dirty.len(), 7);
     assert!(applied.dirty.contains(&upper_key));
     assert!(
