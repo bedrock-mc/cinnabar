@@ -2,8 +2,10 @@ package main
 
 import (
 	"bytes"
+	"image/color"
 	"math"
 	"math/rand"
+	"slices"
 	"strings"
 	"testing"
 
@@ -11,6 +13,141 @@ import (
 	"github.com/df-mc/dragonfly/server/block/model"
 	"github.com/df-mc/dragonfly/server/world"
 )
+
+type registryBiome struct {
+	id   int
+	name string
+}
+
+func (b registryBiome) Temperature() float64    { return 0.8 }
+func (b registryBiome) Rainfall() float64       { return 0.4 }
+func (b registryBiome) Depth() float64          { return 0.1 }
+func (b registryBiome) Scale() float64          { return 0.2 }
+func (b registryBiome) WaterColour() color.RGBA { return color.RGBA{} }
+func (b registryBiome) Tags() []string          { return nil }
+func (b registryBiome) String() string          { return b.name }
+func (b registryBiome) EncodeBiome() int        { return b.id }
+
+func TestEncodeBiomeRegistrySortsByStableEncodeBiomeID(t *testing.T) {
+	records := []BiomeRecord{
+		{ID: 48, Name: "minecraft:bamboo_jungle"},
+		{ID: 1, Name: "minecraft:plains"},
+	}
+
+	got, err := encodeBiomeRegistry(records)
+	if err != nil {
+		t.Fatalf("encode biome registry: %v", err)
+	}
+	want := []byte{
+		'B', 'I', 'O', 'R', 'E', 'G', '0', '1',
+		0x02, 0x00, 0x00, 0x00,
+		0x01, 0x00, 0x00, 0x00,
+		0x10, 0x00,
+		'm', 'i', 'n', 'e', 'c', 'r', 'a', 'f', 't', ':', 'p', 'l', 'a', 'i', 'n', 's',
+		0x30, 0x00, 0x00, 0x00,
+		0x17, 0x00,
+		'm', 'i', 'n', 'e', 'c', 'r', 'a', 'f', 't', ':', 'b', 'a', 'm', 'b', 'o', 'o', '_', 'j', 'u', 'n', 'g', 'l', 'e',
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("encoded biome bytes:\n got: %x\nwant: %x", got, want)
+	}
+	if records[0].ID != 48 || records[1].ID != 1 {
+		t.Fatal("encodeBiomeRegistry mutated input order")
+	}
+}
+
+func TestEncodeBiomeRegistryRejectsDuplicatesAndBounds(t *testing.T) {
+	tests := []struct {
+		name    string
+		records []BiomeRecord
+		wantErr string
+	}{
+		{
+			name:    "duplicate id",
+			records: []BiomeRecord{{ID: 1, Name: "minecraft:plains"}, {ID: 1, Name: "minecraft:other"}},
+			wantErr: "duplicate biome ID",
+		},
+		{
+			name:    "duplicate name",
+			records: []BiomeRecord{{ID: 1, Name: "minecraft:plains"}, {ID: 2, Name: "minecraft:plains"}},
+			wantErr: "duplicate biome name",
+		},
+		{
+			name:    "name bound",
+			records: []BiomeRecord{{ID: 1, Name: strings.Repeat("x", maxBiomeNameBytes+1)}},
+			wantErr: "biome name too long",
+		},
+		{
+			name:    "empty name",
+			records: []BiomeRecord{{ID: 1}},
+			wantErr: "biome name is empty",
+		},
+		{
+			name:    "record count",
+			records: make([]BiomeRecord, maxBiomeRecordCount+1),
+			wantErr: "too many biome records",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := encodeBiomeRegistry(test.records)
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("encode error = %v, want %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestCollectBiomesCanonicalizesNamesAndRejectsInvalidIDs(t *testing.T) {
+	records, err := collectBiomes([]world.Biome{
+		registryBiome{id: 48, name: "bamboo_jungle"},
+		registryBiome{id: 900, name: "example:violet_marsh"},
+	})
+	if err != nil {
+		t.Fatalf("collect biomes: %v", err)
+	}
+	want := []BiomeRecord{
+		{ID: 48, Name: "minecraft:bamboo_jungle"},
+		{ID: 900, Name: "example:violet_marsh"},
+	}
+	if !slices.Equal(records, want) {
+		t.Fatalf("records = %#v, want %#v", records, want)
+	}
+
+	for _, id := range []int{-1, math.MaxUint16 + 1} {
+		_, err := collectBiomes([]world.Biome{registryBiome{id: id, name: "invalid"}})
+		if err == nil || !strings.Contains(err.Error(), "biome ID") {
+			t.Fatalf("collect biome ID %d error = %v", id, err)
+		}
+	}
+}
+
+func TestCollectRegisteredDragonflyBiomesUsesStableNetworkIDs(t *testing.T) {
+	records, err := collectBiomes(world.Biomes())
+	if err != nil {
+		t.Fatalf("collect registered biomes: %v", err)
+	}
+	if len(records) != 88 {
+		t.Fatalf("biome record count = %d, want 88", len(records))
+	}
+	for _, want := range []BiomeRecord{
+		{ID: 0, Name: "minecraft:ocean"},
+		{ID: 1, Name: "minecraft:plains"},
+		{ID: 48, Name: "minecraft:bamboo_jungle"},
+		{ID: 194, Name: "minecraft:sulfur_caves"},
+	} {
+		found := false
+		for _, record := range records {
+			if record == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("missing Dragonfly biome %#v", want)
+		}
+	}
+}
 
 type classifierBlock struct {
 	name       string
