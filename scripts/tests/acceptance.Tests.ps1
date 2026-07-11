@@ -159,6 +159,23 @@ try {
             -ExecutableName 'bedrock_server.exe'
     } 'different Go-style BDS owner marker was accepted'
 
+    $runtimeSafetyScript = Join-Path $PSScriptRoot 'acceptance.RuntimeSafety.Tests.ps1'
+    $previousErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $runtimeSafetyOutput = & powershell `
+            -NoProfile `
+            -ExecutionPolicy Bypass `
+            -File $runtimeSafetyScript `
+            -Case All 2>&1
+        $runtimeSafetyExitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorAction
+    }
+    Assert-True ($runtimeSafetyExitCode -eq 0) "runtime safety tests failed: $($runtimeSafetyOutput -join [Environment]::NewLine)"
+    Assert-True (@($runtimeSafetyOutput | Where-Object { $_.ToString().Contains('acceptance runtime safety tests (All): PASS') }).Count -eq 1) 'runtime safety test success marker was missing'
+
     Invoke-CheckedBuild `
         -Executable (Join-Path $PSHOME 'powershell.exe') `
         -Arguments @('-NoProfile', '-Command', "if ((Get-Location).Path -ne '$TempRoot') { exit 9 }") `
