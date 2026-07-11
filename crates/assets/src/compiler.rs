@@ -134,7 +134,7 @@ fn descriptor_for(
 ) -> Option<(Descriptor, Box<str>)> {
     let TextureKey { key, rotate_uv } = resolve_texture_key(&pack.blocks, record, face);
     let key = key?;
-    let path = pack.terrain.get(&key)?;
+    let path = pack.terrain.get_for_record(&key, record)?;
     if pack.flipbooks.iter().any(|flipbook| {
         flipbook.atlas_tile.as_ref() == key.as_ref() || flipbook.texture_path.as_ref() == path
     }) {

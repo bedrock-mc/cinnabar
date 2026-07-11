@@ -145,16 +145,48 @@ pub struct BlockTextureMap {
     entries: BTreeMap<Box<str>, TextureValue>,
 }
 
-/// Deterministically selected terrain paths indexed by texture key.
+/// Bounded terrain path variants indexed by texture key.
 #[derive(Debug)]
 pub struct TerrainTextureMap {
-    entries: BTreeMap<Box<str>, Box<str>>,
+    entries: BTreeMap<Box<str>, TerrainPaths>,
 }
 
 impl TerrainTextureMap {
+    /// Returns the deterministic variant-zero path used for terrain arrays
+    /// without a documented block-state selector.
     #[must_use]
     pub fn get(&self, key: &str) -> Option<&str> {
-        self.entries.get(key).map(AsRef::as_ref)
+        self.entries.get(key).map(TerrainPaths::first)
+    }
+
+    pub(crate) fn get_for_record(&self, key: &str, record: &RegistryRecord) -> Option<&str> {
+        let paths = self.entries.get(key)?;
+        if !is_mushroom_face_key(key, &record.name) {
+            return Some(paths.first());
+        }
+        let selected = mushroom_variant_index(record)?;
+        match paths {
+            TerrainPaths::Static(path) => Some(path),
+            TerrainPaths::Variants(variants) if variants.len() == 16 => {
+                variants.get(selected).map(AsRef::as_ref)
+            }
+            TerrainPaths::Variants(_) => None,
+        }
+    }
+}
+
+#[derive(Debug)]
+enum TerrainPaths {
+    Static(Box<str>),
+    Variants(Box<[Box<str>]>),
+}
+
+impl TerrainPaths {
+    fn first(&self) -> &str {
+        match self {
+            Self::Static(path) => path,
+            Self::Variants(paths) => &paths[0],
+        }
     }
 }
 
@@ -424,17 +456,17 @@ fn read_terrain(path: &Path) -> Result<TerrainTextureMap, AssetError> {
 
     let mut entries = BTreeMap::new();
     for (key, entry) in texture_data {
-        let selected = select_terrain_path(&key, entry.textures)?;
-        entries.insert(key.into_boxed_str(), selected.into_boxed_str());
+        let variants = collect_terrain_paths(&key, entry.textures)?;
+        entries.insert(key.into_boxed_str(), variants);
     }
     Ok(TerrainTextureMap { entries })
 }
 
-fn select_terrain_path(key: &str, value: TerrainValue) -> Result<String, AssetError> {
+fn collect_terrain_paths(key: &str, value: TerrainValue) -> Result<TerrainPaths, AssetError> {
     match value {
         TerrainValue::Path(path) => {
             validate_texture_path(&path)?;
-            Ok(path)
+            Ok(TerrainPaths::Static(path.into_boxed_str()))
         }
         TerrainValue::Entry {
             path,
@@ -442,7 +474,7 @@ fn select_terrain_path(key: &str, value: TerrainValue) -> Result<String, AssetEr
         } => {
             drop(overlay_color);
             validate_texture_path(&path)?;
-            Ok(path)
+            Ok(TerrainPaths::Static(path.into_boxed_str()))
         }
         TerrainValue::Variants(variants) => {
             if variants.len() > MAX_TEXTURE_VARIANTS {
@@ -452,17 +484,35 @@ fn select_terrain_path(key: &str, value: TerrainValue) -> Result<String, AssetEr
                     max: MAX_TEXTURE_VARIANTS,
                 });
             }
-            let mut selected = None;
+            let mut paths = Vec::with_capacity(variants.len());
             for variant in variants {
                 let path = variant.into_path();
                 validate_texture_path(&path)?;
-                if selected.is_none() {
-                    selected = Some(path);
-                }
+                paths.push(path.into_boxed_str());
             }
-            selected.ok_or_else(|| AssetError::EmptyTextureVariants(key.into()))
+            if paths.is_empty() {
+                return Err(AssetError::EmptyTextureVariants(key.into()));
+            }
+            Ok(TerrainPaths::Variants(paths.into_boxed_slice()))
         }
     }
+}
+
+fn mushroom_variant_index(record: &RegistryRecord) -> Option<usize> {
+    let properties = serde_json::from_str::<Map<String, Value>>(&record.canonical_state).ok()?;
+    let bits = properties.get("huge_mushroom_bits")?.as_u64()?;
+    usize::try_from(bits).ok().filter(|&bits| bits <= 15)
+}
+
+fn is_mushroom_face_key(key: &str, block_name: &str) -> bool {
+    let prefix = match block_name {
+        "minecraft:brown_mushroom_block" => "mushroom_brown_",
+        "minecraft:red_mushroom_block" => "mushroom_red_",
+        "minecraft:mushroom_stem" => "mushroom_stem_",
+        _ => return false,
+    };
+    key.strip_prefix(prefix)
+        .is_some_and(|face| matches!(face, "west" | "east" | "bottom" | "top" | "north" | "south"))
 }
 
 fn read_flipbooks(
