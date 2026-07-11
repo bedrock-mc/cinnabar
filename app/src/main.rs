@@ -8,7 +8,7 @@ mod server_position;
 mod world_stream;
 
 use std::{
-    collections::{BTreeSet, HashSet},
+    collections::{BTreeSet, HashSet, VecDeque},
     io::Write,
     path::{Path, PathBuf},
     sync::Arc,
@@ -45,7 +45,7 @@ const MESH_JOB_BUDGET_PER_FRAME: usize = 128;
 const GPU_UPLOAD_BUDGET_PER_FRAME: usize = 128;
 const NETWORK_INGRESS_BUDGET_PER_FRAME: usize = 8;
 const OUTBOUND_SEND_BUDGET_PER_FRAME: usize = 16;
-const TITLE_REFRESH_INTERVAL: Duration = Duration::from_millis(100);
+const TITLE_REFRESH_INTERVAL: Duration = Duration::from_millis(250);
 const WORLD_READY_QUIET_INTERVAL: Duration = Duration::from_secs(2);
 const TELEPORT_COHORT_PROGRESS_INTERVAL: Duration = Duration::from_secs(1);
 const PHASE0_REQUESTED_RADIUS_CHUNKS: i32 = 16;
@@ -1791,15 +1791,45 @@ fn frame_limited_winit_settings(frame_cap: Option<u32>) -> WinitSettings {
     }
 }
 
+#[derive(Default)]
+struct RollingFps {
+    frame_times: VecDeque<Duration>,
+    elapsed: Duration,
+}
+
+impl RollingFps {
+    fn record(&mut self, frame_time: Duration) {
+        if frame_time.is_zero() {
+            return;
+        }
+        self.frame_times.push_back(frame_time);
+        self.elapsed += frame_time;
+        while self.elapsed > Duration::from_secs(1) {
+            let Some(oldest) = self.frame_times.pop_front() else {
+                break;
+            };
+            self.elapsed = self.elapsed.saturating_sub(oldest);
+        }
+    }
+
+    fn value(&self) -> f64 {
+        if self.elapsed.is_zero() {
+            return 0.0;
+        }
+        self.frame_times.len() as f64 / self.elapsed.as_secs_f64()
+    }
+}
+
 fn status_title(
     camera: &Transform,
     resident_sub_chunks: usize,
     visible_sub_chunks: usize,
     captured: bool,
+    fps: f64,
 ) -> String {
     let (yaw, pitch, _) = camera.rotation.to_euler(EulerRot::YXZ);
     format!(
-        "Rust MCBE | pos {:.2} {:.2} {:.2} | yaw {yaw:.2} pitch {pitch:.2} | chunks {visible_sub_chunks}/{resident_sub_chunks} | {}",
+        "Rust MCBE | {fps:.1} FPS | pos {:.2} {:.2} {:.2} | yaw {yaw:.2} pitch {pitch:.2} | chunks {visible_sub_chunks}/{resident_sub_chunks} | {}",
         camera.translation.x,
         camera.translation.y,
         camera.translation.z,
@@ -2716,8 +2746,11 @@ fn record_metrics_and_title(
     camera: Query<&Transform, With<FlyCamera>>,
     mut window: Query<(&mut Window, &CursorOptions), With<PrimaryWindow>>,
     mut title_elapsed: Local<Duration>,
+    mut rolling_fps: Local<RollingFps>,
 ) {
-    metrics.0.record_frame(time.delta());
+    let frame_time = time.delta();
+    metrics.0.record_frame(frame_time);
+    rolling_fps.record(frame_time);
     metrics.0.record_asset_counters(
         client_world.runtime_assets.missing_count(),
         diagnostic_quads.0.total(),
@@ -2798,6 +2831,7 @@ fn record_metrics_and_title(
         resident,
         cache.visible_rendered,
         camera::input_is_active(&window, cursor),
+        rolling_fps.value(),
     );
     if let Some(error) = &client_world.fatal_error {
         title.push_str(" | ERROR: ");
@@ -2871,7 +2905,7 @@ mod tests {
     use crate::{
         AcceptanceRun, FullViewRemeshTracker, FullViewTeleportCompletion, FullViewTeleportTracker,
         MutationTracker, NETWORK_INGRESS_BUDGET_PER_FRAME, OUTBOUND_SEND_BUDGET_PER_FRAME,
-        SubChunkTimeoutProgress, TeleportReadySnapshot, WORLD_READY_QUIET_INTERVAL,
+        RollingFps, SubChunkTimeoutProgress, TeleportReadySnapshot, WORLD_READY_QUIET_INTERVAL,
         WorldReadySettler, WorldReadySnapshot, WorldReadyWork, accepted_move_player_ingress_marker,
         bedrock_camera_rotation, camera_sub_chunk_key, cumulative_counter_delta,
         deterministic_mutation_coordinate, drain_network_controls, drain_network_ingress,
@@ -5217,12 +5251,27 @@ mod tests {
             rotation: Quat::from_rotation_y(0.5),
             ..Default::default()
         };
-        let title = status_title(&transform, 42, 37, true);
+        let title = status_title(&transform, 42, 37, true, 59.94);
 
+        assert!(title.contains("59.9 FPS"));
         assert!(title.contains("pos 1.25 72.00 -8.50"));
         assert!(title.contains("yaw 0.50"));
         assert!(title.contains("chunks 37/42"));
         assert!(title.contains("captured"));
+    }
+
+    #[test]
+    fn rolling_fps_uses_only_the_most_recent_second() {
+        let mut fps = RollingFps::default();
+        for _ in 0..60 {
+            fps.record(Duration::from_secs_f64(1.0 / 60.0));
+        }
+        assert!((fps.value() - 60.0).abs() < 0.01);
+
+        for _ in 0..30 {
+            fps.record(Duration::from_secs_f64(1.0 / 30.0));
+        }
+        assert!((fps.value() - 30.0).abs() < 0.01);
     }
 
     #[test]
