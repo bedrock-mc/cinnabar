@@ -435,6 +435,15 @@ impl ChunkUploadAcknowledgements {
         state.slots.clear();
     }
 
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        let state = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        state.slots.is_empty()
+    }
+
     fn try_reserve(&self, key: SubChunkKey, token: ChunkUploadToken) -> bool {
         let mut state = self
             .inner
@@ -2588,11 +2597,14 @@ mod tests {
             dirty_since: now,
         };
 
+        assert!(acknowledgements.is_empty());
         assert!(acknowledgements.try_reserve(first, first_token));
+        assert!(!acknowledgements.is_empty());
         assert!(!acknowledgements.try_reserve(second, second_token));
         assert!(!acknowledgements.complete(first, second_token, now));
         assert!(acknowledgements.complete(first, first_token, now));
         assert_eq!(acknowledgements.drain().len(), 1);
+        assert!(acknowledgements.is_empty());
         assert!(acknowledgements.try_reserve(second, second_token));
     }
 

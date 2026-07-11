@@ -6511,7 +6511,6 @@ impl crate::bedrock::codec::BedrockCodec for ShowCreditsPacket {
 }
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct AvailableCommandsPacket {
-    pub values_len: i32,
     pub enum_values: Vec<String>,
     pub chained_subcommand_values: Vec<String>,
     pub suffixes: Vec<String>,
@@ -6524,9 +6523,6 @@ pub struct AvailableCommandsPacket {
 impl crate::bedrock::codec::BedrockSized for AvailableCommandsPacket {
     fn encoded_size(&self) -> usize {
         let mut size = 0usize;
-        size += crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-            self.values_len,
-        ));
         size += {
             let _len = (&self.enum_values).len();
             crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
@@ -6621,9 +6617,22 @@ impl crate::bedrock::codec::BedrockCodec for AvailableCommandsPacket {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
-        crate::bedrock::codec::VarInt(self.values_len).encode(buf)?;
         let len = self.enum_values.len();
-        crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
+        if len > MAX_LOGIN_COLLECTION_ELEMENTS {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!(
+                    "AvailableCommands enum value count {len} exceeds maximum {MAX_LOGIN_COLLECTION_ELEMENTS}"
+                ),
+            ));
+        }
+        let len = i32::try_from(len).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "AvailableCommands enum value count does not fit VarUInt32",
+            )
+        })?;
+        crate::bedrock::codec::VarInt(len).encode(buf)?;
         for item in &self.enum_values {
             let bytes = (item).as_bytes();
             let len = bytes.len();
@@ -6678,12 +6687,6 @@ impl crate::bedrock::codec::BedrockCodec for AvailableCommandsPacket {
         _args: Self::Args,
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let _ = buf;
-        let values_len =
-            <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
         let enum_values = {
             let raw =
                 <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
@@ -6695,7 +6698,14 @@ impl crate::bedrock::codec::BedrockCodec for AvailableCommandsPacket {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
             let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            validate_collection_len(len, MAX_LOGIN_COLLECTION_ELEMENTS, buf.remaining())?;
+            let mut tmp_vec = Vec::new();
+            tmp_vec.try_reserve_exact(len).map_err(|_| {
+                crate::bedrock::error::DecodeError::ArrayLengthExceeded {
+                    declared: len,
+                    available: 0,
+                }
+            })?;
             for _ in 0..len {
                 tmp_vec
                     .push({
@@ -6917,7 +6927,6 @@ impl crate::bedrock::codec::BedrockCodec for AvailableCommandsPacket {
             tmp_vec
         };
         Ok(Self {
-            values_len,
             enum_values,
             chained_subcommand_values,
             suffixes,

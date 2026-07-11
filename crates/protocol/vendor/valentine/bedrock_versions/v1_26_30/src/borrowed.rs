@@ -9,6 +9,7 @@
 use crate::bedrock::codec::BedrockCodec;
 use crate::proto::*;
 use crate::types::*;
+use bytes::Buf;
 #[derive(Debug, Clone, PartialEq)]
 pub struct AbilityLayersView {
     pub type_: AbilityLayersType,
@@ -4540,11 +4541,11 @@ impl From<MapDecorationView> for MapDecoration {
     }
 }
 #[derive(Debug, Clone, PartialEq)]
-pub struct MaterialReducerItemsView {
+pub struct MaterialReducerOutputView {
     pub network_id: i32,
     pub count: i32,
 }
-impl crate::bedrock::codec::BedrockSized for MaterialReducerItemsView {
+impl crate::bedrock::codec::BedrockSized for MaterialReducerOutputView {
     fn encoded_size(&self) -> usize {
         0usize
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
@@ -4555,7 +4556,7 @@ impl crate::bedrock::codec::BedrockSized for MaterialReducerItemsView {
             ))
     }
 }
-impl crate::bedrock::borrowed::BedrockBorrowDecode for MaterialReducerItemsView {
+impl crate::bedrock::borrowed::BedrockBorrowDecode for MaterialReducerOutputView {
     type Args = ();
     fn borrow_decode(
         buf: &mut bytes::Bytes,
@@ -4578,7 +4579,7 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for MaterialReducerItemsView 
         Ok(Self { network_id, count })
     }
 }
-impl MaterialReducerItemsView {
+impl MaterialReducerOutputView {
     pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
         <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
     }
@@ -4589,8 +4590,8 @@ impl MaterialReducerItemsView {
         Ok(())
     }
 }
-impl From<MaterialReducerItemsView> for MaterialReducerItems {
-    fn from(value: MaterialReducerItemsView) -> Self {
+impl From<MaterialReducerOutputView> for MaterialReducerOutput {
+    fn from(value: MaterialReducerOutputView) -> Self {
         let _ = &value;
         Self {
             network_id: value.network_id,
@@ -4601,7 +4602,7 @@ impl From<MaterialReducerItemsView> for MaterialReducerItems {
 #[derive(Debug, Clone, PartialEq)]
 pub struct MaterialReducerView {
     pub mix: i32,
-    pub items: MaterialReducerItemsView,
+    pub outputs: Vec<MaterialReducerOutputView>,
 }
 impl crate::bedrock::codec::BedrockSized for MaterialReducerView {
     fn encoded_size(&self) -> usize {
@@ -4609,7 +4610,14 @@ impl crate::bedrock::codec::BedrockSized for MaterialReducerView {
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
                 *&self.mix,
             ))
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.items)
+            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
+                self.outputs.len() as i32,
+            ))
+            + self
+                .outputs
+                .iter()
+                .map(crate::bedrock::codec::BedrockSized::encoded_size)
+                .sum::<usize>()
     }
 }
 impl crate::bedrock::borrowed::BedrockBorrowDecode for MaterialReducerView {
@@ -4625,11 +4633,36 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for MaterialReducerView {
             (),
         )?
         .0;
-        let items = <MaterialReducerItemsView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+        let raw = <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
             buf,
             (),
+        )?
+        .0 as i64;
+        if raw < 0 {
+            return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
+        }
+        let len = raw as usize;
+        crate::proto::validate_collection_len(
+            len,
+            crate::proto::MAX_LOGIN_COLLECTION_ELEMENTS,
+            buf.remaining(),
         )?;
-        Ok(Self { mix, items })
+        let mut outputs = Vec::new();
+        outputs.try_reserve_exact(len).map_err(|_| {
+            crate::bedrock::error::DecodeError::ArrayLengthExceeded {
+                declared: len,
+                available: 0,
+            }
+        })?;
+        for _ in 0..len {
+            outputs.push(
+                <MaterialReducerOutputView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                    buf,
+                    (),
+                )?,
+            );
+        }
+        Ok(Self { mix, outputs })
     }
 }
 impl MaterialReducerView {
@@ -4639,7 +4672,26 @@ impl MaterialReducerView {
     pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
         crate::bedrock::codec::ZigZag32(*&self.mix).encode(buf)?;
-        (&self.items).encode(buf)?;
+        let len = self.outputs.len();
+        if len > crate::proto::MAX_LOGIN_COLLECTION_ELEMENTS {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!(
+                    "material reducer output count {len} exceeds maximum {}",
+                    crate::proto::MAX_LOGIN_COLLECTION_ELEMENTS
+                ),
+            ));
+        }
+        let len = i32::try_from(len).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "material reducer output count does not fit VarUInt32",
+            )
+        })?;
+        crate::bedrock::codec::VarInt(len).encode(buf)?;
+        for output in &self.outputs {
+            output.encode(buf)?;
+        }
         Ok(())
     }
 }
@@ -4648,7 +4700,7 @@ impl From<MaterialReducerView> for MaterialReducer {
         let _ = &value;
         Self {
             mix: value.mix,
-            items: (value.items).into(),
+            outputs: value.outputs.into_iter().map(Into::into).collect(),
         }
     }
 }

@@ -85,6 +85,18 @@ impl NetworkHandle {
         &mut self.events
     }
 
+    #[must_use]
+    pub fn pending_event_count(&self) -> usize {
+        self.events.len()
+    }
+
+    #[must_use]
+    pub fn pending_command_count(&self) -> usize {
+        self.commands
+            .max_capacity()
+            .saturating_sub(self.commands.capacity())
+    }
+
     pub fn send_packet(&self, packet: Packet) -> Result<(), PacketSendError> {
         self.commands
             .try_send(NetworkCommand::Send(packet))
@@ -505,6 +517,35 @@ mod tests {
 
         assert!(started.elapsed() < Duration::from_millis(100));
         assert!(*handle.shutdown.borrow());
+    }
+
+    #[test]
+    fn network_pending_counts_include_ingress_and_outbound_queues() {
+        let (event_tx, events) = mpsc::channel(2);
+        let (commands, mut command_rx) = mpsc::channel(2);
+        let (shutdown, _shutdown_rx) = watch::channel(false);
+        let mut handle = NetworkHandle {
+            events,
+            commands,
+            shutdown,
+            thread: None,
+        };
+
+        assert_eq!(handle.pending_event_count(), 0);
+        assert_eq!(handle.pending_command_count(), 0);
+        event_tx
+            .try_send(NetworkEvent::Stopped {
+                decode_error_count: 0,
+            })
+            .unwrap();
+        assert_eq!(handle.pending_event_count(), 1);
+        handle.events_mut().try_recv().unwrap();
+        assert_eq!(handle.pending_event_count(), 0);
+
+        handle.send_packet(test_packet()).unwrap();
+        assert_eq!(handle.pending_command_count(), 1);
+        command_rx.try_recv().unwrap();
+        assert_eq!(handle.pending_command_count(), 0);
     }
 
     fn test_packet() -> protocol::Packet {

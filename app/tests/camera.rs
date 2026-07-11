@@ -28,6 +28,23 @@ fn auto_fly_path_repeats_and_stays_within_the_loaded_radius() {
     }
 }
 
+#[test]
+fn auto_fly_keeps_the_mutation_target_in_view() {
+    let anchor = Vec3::new(100.5, 70.62, -30.5);
+    let target = Vec3::new(104.5, 69.5, -30.5);
+    let mut auto_fly = AutoFly::new(true);
+    auto_fly.set_look_target(target);
+    assert!(auto_fly.enabled());
+    for sample in 0..=2_000 {
+        let seconds = camera::AUTO_FLY_PERIOD_SECONDS * sample as f32 / 2_000.0;
+        let position = anchor + camera::auto_fly_offset(seconds);
+        assert!(position.distance(target) < 16.0 * 16.0);
+        let rotation = camera::look_at_target(position, target);
+        let forward = rotation * Vec3::NEG_Z;
+        assert!(forward.dot((target - position).normalize()) > 0.999);
+    }
+}
+
 fn axes_for(key: KeyCode) -> Vec3 {
     let mut keys = ButtonInput::default();
     keys.press(key);
@@ -242,4 +259,58 @@ fn plugin_spawns_camera_and_auto_fly_uses_delta_seconds() {
         .translation;
     let expected = start + camera::auto_fly_offset(0.5);
     assert!(end.abs_diff_eq(expected, 1.0e-4));
+}
+
+#[test]
+fn auto_fly_moves_and_rotates_while_unfocused_with_a_released_cursor() {
+    let target = Vec3::new(4.5, 70.0, -3.5);
+    let mut app = App::new();
+    app.init_resource::<Time>()
+        .add_plugins(FlyCameraPlugin::new(true));
+    app.world_mut()
+        .resource_mut::<AutoFly>()
+        .set_look_target(target);
+    let window = app
+        .world_mut()
+        .spawn((
+            Window {
+                focused: false,
+                ..default()
+            },
+            CursorOptions::default(),
+            PrimaryWindow,
+        ))
+        .id();
+
+    app.update();
+    let start = app
+        .world_mut()
+        .query_filtered::<&Transform, (With<Camera3d>, With<FlyCamera>)>()
+        .single(app.world())
+        .unwrap()
+        .translation;
+    let cursor = app.world().get::<CursorOptions>(window).unwrap();
+    assert_eq!(cursor.grab_mode, CursorGrabMode::None);
+    assert!(cursor.visible);
+
+    app.world_mut()
+        .resource_mut::<Time>()
+        .advance_by(Duration::from_secs_f32(0.5));
+    app.update();
+
+    let end = *app
+        .world_mut()
+        .query_filtered::<&Transform, (With<Camera3d>, With<FlyCamera>)>()
+        .single(app.world())
+        .unwrap();
+    let expected = start + camera::auto_fly_offset(0.5);
+    assert!(
+        end.translation.abs_diff_eq(expected, 1.0e-4),
+        "auto-fly stayed at {:?} instead of advancing to {expected:?}",
+        end.translation,
+    );
+    assert!(
+        (end.rotation * Vec3::NEG_Z).dot((target - end.translation).normalize()) > 0.999,
+        "auto-fly did not keep the target in view while unfocused"
+    );
 }

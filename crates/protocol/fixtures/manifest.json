@@ -33,5 +33,26 @@
     "id": 13,
     "byte_length": 66,
     "sha256": "94488d2f25a50e01e1bcaa57f83200af36495605f299004b946c145d1d73d2a5"
+  },
+  {
+    "name": "AvailableCommands",
+    "file": "available_commands.bin",
+    "id": 76,
+    "byte_length": 165,
+    "sha256": "3d6e1870c49d643fe3f3b901cbbba40f49768cfe408c8b6ee136b5304ac1c98f"
+  },
+  {
+    "name": "AvailableCommandsLive356513",
+    "file": "available_commands_live_356513.bin",
+    "id": 76,
+    "byte_length": 356519,
+    "sha256": "08dea656b782928828fa79fc004166220f14d0459e259717bb537c5a11f6b39a"
+  },
+  {
+    "name": "CraftingDataMaterialReducer",
+    "file": "material_reducer.bin",
+    "id": 52,
+    "byte_length": 18,
+    "sha256": "b73c651ccf07ece21aea4b186be3780875ce7cacef04f9327e3c968636d43a39"
   }
 ]

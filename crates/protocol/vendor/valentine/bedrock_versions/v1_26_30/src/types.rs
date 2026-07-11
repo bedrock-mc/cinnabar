@@ -14929,11 +14929,11 @@ impl crate::bedrock::codec::BedrockCodec for MapDecoration {
 }
 pub type MapInfo = Vec<u8>;
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct MaterialReducerItems {
+pub struct MaterialReducerOutput {
     pub network_id: i32,
     pub count: i32,
 }
-impl crate::bedrock::codec::BedrockSized for MaterialReducerItems {
+impl crate::bedrock::codec::BedrockSized for MaterialReducerOutput {
     fn encoded_size(&self) -> usize {
         let mut size = 0usize;
         size += crate::bedrock::codec::BedrockSized::encoded_size(
@@ -14945,7 +14945,7 @@ impl crate::bedrock::codec::BedrockSized for MaterialReducerItems {
         size
     }
 }
-impl crate::bedrock::codec::BedrockCodec for MaterialReducerItems {
+impl crate::bedrock::codec::BedrockCodec for MaterialReducerOutput {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
@@ -14976,7 +14976,7 @@ impl crate::bedrock::codec::BedrockCodec for MaterialReducerItems {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct MaterialReducer {
     pub mix: i32,
-    pub items: MaterialReducerItems,
+    pub outputs: Vec<MaterialReducerOutput>,
 }
 impl crate::bedrock::codec::BedrockSized for MaterialReducer {
     fn encoded_size(&self) -> usize {
@@ -14984,7 +14984,14 @@ impl crate::bedrock::codec::BedrockSized for MaterialReducer {
         size += crate::bedrock::codec::BedrockSized::encoded_size(
             &crate::bedrock::codec::ZigZag32(self.mix),
         );
-        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.items);
+        size += crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
+            self.outputs.len() as i32,
+        ));
+        size += self
+            .outputs
+            .iter()
+            .map(crate::bedrock::codec::BedrockSized::encoded_size)
+            .sum::<usize>();
         size
     }
 }
@@ -14993,7 +15000,26 @@ impl crate::bedrock::codec::BedrockCodec for MaterialReducer {
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
         crate::bedrock::codec::ZigZag32(self.mix).encode(buf)?;
-        self.items.encode(buf)?;
+        let len = self.outputs.len();
+        if len > crate::proto::MAX_LOGIN_COLLECTION_ELEMENTS {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!(
+                    "material reducer output count {len} exceeds maximum {}",
+                    crate::proto::MAX_LOGIN_COLLECTION_ELEMENTS
+                ),
+            ));
+        }
+        let len = i32::try_from(len).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "material reducer output count does not fit VarUInt32",
+            )
+        })?;
+        crate::bedrock::codec::VarInt(len).encode(buf)?;
+        for output in &self.outputs {
+            output.encode(buf)?;
+        }
         Ok(())
     }
     fn decode<B: bytes::Buf>(
@@ -15006,8 +15032,33 @@ impl crate::bedrock::codec::BedrockCodec for MaterialReducer {
             (),
         )?
         .0;
-        let items = <MaterialReducerItems as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        Ok(Self { mix, items })
+        let raw = <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
+            buf,
+            (),
+        )?
+        .0 as i64;
+        if raw < 0 {
+            return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
+        }
+        let len = raw as usize;
+        crate::proto::validate_collection_len(
+            len,
+            crate::proto::MAX_LOGIN_COLLECTION_ELEMENTS,
+            buf.remaining(),
+        )?;
+        let mut outputs = Vec::new();
+        outputs.try_reserve_exact(len).map_err(|_| {
+            crate::bedrock::error::DecodeError::ArrayLengthExceeded {
+                declared: len,
+                available: 0,
+            }
+        })?;
+        for _ in 0..len {
+            outputs.push(
+                <MaterialReducerOutput as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
+            );
+        }
+        Ok(Self { mix, outputs })
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

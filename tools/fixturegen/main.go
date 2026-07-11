@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/go-gl/mathgl/mgl32"
 	"github.com/sandertv/gophertunnel/minecraft"
@@ -201,7 +202,113 @@ func fixtures() []fixture {
 				EntityMetadata:  protocol.EntityMetadata{},
 			},
 		},
+		{
+			name: "AvailableCommands",
+			file: "available_commands.bin",
+			pk:   availableCommandsFixture(),
+		},
+		{
+			name: "AvailableCommandsLive356513",
+			file: "available_commands_live_356513.bin",
+			pk:   availableCommandsLiveRegression(),
+		},
+		{
+			name: "CraftingDataMaterialReducer",
+			file: "material_reducer.bin",
+			pk: &packet.CraftingData{
+				MaterialReducers: []protocol.MaterialReducer{
+					{
+						InputItem: protocol.ItemType{NetworkID: 42, MetadataValue: 3},
+						Outputs: []protocol.MaterialReducerOutput{
+							{NetworkID: 7, Count: 2},
+							{NetworkID: -9, Count: 4},
+						},
+					},
+				},
+				ClearRecipes: true,
+			},
+		},
 	}
+}
+
+func availableCommandsFixture() *packet.AvailableCommands {
+	return &packet.AvailableCommands{
+		EnumValues:              []string{"alpha", "beta"},
+		ChainedSubcommandValues: []string{"chain"},
+		Suffixes:                []string{"suffix"},
+		Enums: []protocol.CommandEnum{
+			{Type: "fixture_enum", ValueIndices: []uint32{0, 1}},
+		},
+		ChainedSubcommands: []protocol.ChainedSubcommand{
+			{
+				Name: "fixture_chain",
+				Values: []protocol.ChainedSubcommandValue{
+					{Index: 0, Value: protocol.CommandArgTypeString},
+				},
+			},
+		},
+		Commands: []protocol.Command{
+			{
+				Name:                     "fixture",
+				Description:              "fixture command",
+				Flags:                    1,
+				PermissionLevel:          protocol.CommandPermissionLevelAny,
+				AliasesOffset:            0,
+				ChainedSubcommandOffsets: []uint32{0},
+				Overloads: []protocol.CommandOverload{
+					{
+						Chaining: true,
+						Parameters: []protocol.CommandParameter{
+							{
+								Name:     "value",
+								Type:     protocol.CommandArgTypeString | protocol.CommandArgValid | protocol.CommandArgEnum,
+								Optional: false,
+								Options:  protocol.ParamOptionCollapseEnum,
+							},
+						},
+					},
+				},
+			},
+		},
+		DynamicEnums: []protocol.DynamicEnum{
+			{Type: "fixture_dynamic", Values: []string{"one", "two"}},
+		},
+		Constraints: []protocol.CommandEnumConstraint{
+			{
+				EnumValueIndex: 0,
+				EnumIndex:      0,
+				Constraints:    []byte{protocol.CommandEnumConstraintCheatsEnabled},
+			},
+		},
+	}
+}
+
+func availableCommandsLiveRegression() *packet.AvailableCommands {
+	const observedLiveBodyLength = 356_513
+
+	fixture := availableCommandsFixture()
+	fixture.EnumValues = append(fixture.EnumValues, "")
+	paddingIndex := len(fixture.EnumValues) - 1
+	paddingLength := observedLiveBodyLength - availableCommandsBodyLength(fixture)
+	if paddingLength < 0 {
+		panic("AvailableCommands fixture exceeds observed live body length")
+	}
+	fixture.EnumValues[paddingIndex] = strings.Repeat("x", paddingLength)
+	for availableCommandsBodyLength(fixture) != observedLiveBodyLength {
+		delta := observedLiveBodyLength - availableCommandsBodyLength(fixture)
+		paddingLength += delta
+		if paddingLength < 0 {
+			panic("cannot size AvailableCommands live regression fixture")
+		}
+		fixture.EnumValues[paddingIndex] = strings.Repeat("x", paddingLength)
+	}
+	return fixture
+}
+
+func availableCommandsBodyLength(fixture *packet.AvailableCommands) int {
+	var body bytes.Buffer
+	fixture.Marshal(protocol.NewWriter(&body, 0))
+	return body.Len()
 }
 
 func encode(pk packet.Packet) ([]byte, error) {

@@ -27,7 +27,7 @@ use jolyne::valentine::{
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use p384::pkcs8::{DecodePublicKey, EncodePrivateKey, EncodePublicKey};
 use p384::{PublicKey, SecretKey};
-use protocol::{BedrockSession, LoginSequence, Packet, ProtocolError};
+use protocol::{BedrockSession, LoginSequence, Packet, ProtocolError, WorldEvent};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
@@ -576,6 +576,15 @@ async fn assert_success(mode: CompressionMode, order: SpawnOrder) {
         deferred.data,
         McpePacketData::PacketSetTime(SetTimePacket { time: 12_345 })
     ));
+
+    let initial_radius = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        session.recv_world_event(0),
+    )
+    .await
+    .expect("initial chunk radius acknowledgement was discarded")
+    .expect("initial chunk radius acknowledgement must decode in Play");
+    assert!(matches!(initial_radius, WorldEvent::ChunkRadiusUpdated(16)));
 
     let mut invalid = Packet::from(ClientCacheStatusPacket { enabled: true });
     invalid.header.id = McpePacketName::PacketPlayStatus;

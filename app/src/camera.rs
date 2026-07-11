@@ -37,6 +37,7 @@ pub struct AutoFly {
     capture_pending: bool,
     path_anchor: Option<Vec3>,
     last_path_position: Option<Vec3>,
+    look_target: Option<Vec3>,
     elapsed_seconds: f32,
 }
 
@@ -48,6 +49,7 @@ impl AutoFly {
             capture_pending: enabled,
             path_anchor: None,
             last_path_position: None,
+            look_target: None,
             elapsed_seconds: 0.0,
         }
     }
@@ -55,6 +57,10 @@ impl AutoFly {
     #[must_use]
     pub const fn enabled(&self) -> bool {
         self.enabled
+    }
+
+    pub fn set_look_target(&mut self, target: Vec3) {
+        self.look_target = Some(target);
     }
 }
 
@@ -67,6 +73,16 @@ pub fn auto_fly_offset(seconds: f32) -> Vec3 {
         AUTO_FLY_VERTICAL_BLOCKS * (angle * 2.0).sin(),
         AUTO_FLY_RADIUS_BLOCKS * angle.sin(),
     )
+}
+
+#[must_use]
+pub fn look_at_target(position: Vec3, target: Vec3) -> Quat {
+    if position.distance_squared(target) <= f32::EPSILON {
+        return Quat::IDENTITY;
+    }
+    Transform::from_translation(position)
+        .looking_at(target, Vec3::Y)
+        .rotation
 }
 
 /// Spawns and drives one [`Camera3d`] fly camera.
@@ -215,10 +231,6 @@ fn update_movement(
     mut cameras: Query<(&mut Transform, &FlyCamera)>,
 ) {
     let (window, cursor) = window.into_inner();
-    if !input_is_active(window, cursor) {
-        return;
-    }
-
     if auto_fly.enabled() {
         for (mut transform, _) in &mut cameras {
             let externally_moved = auto_fly
@@ -233,10 +245,18 @@ fn update_movement(
             let next = auto_fly.path_anchor.expect("auto-fly anchor initialized")
                 + auto_fly_offset(auto_fly.elapsed_seconds);
             transform.translation = next;
+            if let Some(target) = auto_fly.look_target {
+                transform.rotation = look_at_target(next, target);
+            }
             auto_fly.last_path_position = Some(next);
         }
         return;
     }
+
+    if !input_is_active(window, cursor) {
+        return;
+    }
+
     let axes = movement_axes(&keys);
     let axes = axes.normalize_or_zero();
     if axes == Vec3::ZERO {
