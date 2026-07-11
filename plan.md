@@ -234,11 +234,13 @@ first-run experience.
 
 **Final Go relay/batching polish:** adopt the batch-boundary API from
 [`HashimTheArab/gophertunnel` PR #80](https://github.com/HashimTheArab/gophertunnel/pull/80)
-after it lands on the pinned `lunar` line. Enable `Dialer.EnableBatchReading` and
+after it lands on the pinned `lunar` line. The integration commit must retain the pinned
+`Conn.Abort` work as well as the PR's batch API. Enable `Dialer.EnableBatchReading` and
 `ListenConfig.EnableBatchReading` on the two core legs, replace the relay's single-packet
-`ReadPacket` pumps with `ReadPackets`, and forward each returned slice as exactly one downstream
-batch (`WritePacketDirect(batch...)` or a tested equivalent single flush). Never mix
-`ReadPackets` with `ReadPacket`/`ReadBytes`/`Read` on a batch-reading connection. Port the PR's
+`ReadPacket` pumps with `ReadBatch`, and forward each returned slice as exactly one downstream
+batch using `WritePacketImmediate(batch...)` (or a tested `WritePacket` + single `Flush`
+equivalent that preserves buffered ordering). Never mix `ReadBatch` with
+`ReadPacket`/`ReadBytes`/`Read` on a batch-reading connection. Port the PR's
 ordering, slow-reader, mid-batch decode-error, deferred-login-boundary, and pre-disconnect flush
 regressions into `core/internal/relay`; retain bounded lossless backpressure and verify that the
 change improves batching without regressing join latency, memory, or shutdown behavior.
