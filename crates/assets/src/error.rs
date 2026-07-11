@@ -115,4 +115,60 @@ pub enum AssetError {
 
     #[error("source has {count} flipbooks, exceeding the limit of {max}")]
     TooManyFlipbooks { count: usize, max: usize },
+
+    #[error("failed to read texture key {key} from {path}: {source}")]
+    TextureIo {
+        key: Box<str>,
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+
+    #[error("texture key {key} at {path} is {size} bytes, exceeding the {max}-byte limit")]
+    TextureTooLarge {
+        key: Box<str>,
+        path: PathBuf,
+        size: usize,
+        max: usize,
+    },
+
+    #[error("failed to decode texture key {key} from {path}: {source}")]
+    TextureDecode {
+        key: Box<str>,
+        path: PathBuf,
+        #[source]
+        source: ::image::ImageError,
+    },
+
+    #[error(
+        "texture key {key} at {path} is {width}x{height}; this compiler requires exactly 16x16"
+    )]
+    WrongTextureDimensions {
+        key: Box<str>,
+        path: PathBuf,
+        width: u32,
+        height: u32,
+    },
+
+    #[error(
+        "texture array has {count} layers, exceeding the limit of {max} (source key {key:?}, path {path:?})"
+    )]
+    TooManyTextureLayers {
+        count: usize,
+        max: usize,
+        key: Option<Box<str>>,
+        path: Option<PathBuf>,
+    },
+
+    #[error("compiled assets have {count} materials, exceeding the limit of {max}")]
+    TooManyMaterials { count: usize, max: usize },
+
+    #[error("registry sequential ID {id} exceeds the direct lookup limit of {max}")]
+    SequentialIdOutOfRange { id: u32, max: usize },
+
+    #[error("invalid compiled assets: {detail}")]
+    InvalidCompiledAssets { detail: Box<str> },
+
+    #[error("compiled {section} section size overflowed")]
+    BlobSizeOverflow { section: &'static str },
 }
