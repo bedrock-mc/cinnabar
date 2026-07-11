@@ -23,6 +23,8 @@ type Config struct {
 	Upstream  string
 }
 
+const localRelayBatchPacketLimit = 1600
+
 type acceptResult struct {
 	conn net.Conn
 	err  error
@@ -210,6 +212,7 @@ func finishDialFailure(downstream packetSession, dialErr error) error {
 type packetSession interface {
 	ReadPacket() (packet.Packet, error)
 	WritePacket(packet.Packet) error
+	Flush() error
 	Abort() error
 	Close() error
 }
@@ -346,18 +349,45 @@ func shutdownSession(session packetSession) error {
 	return errors.Join(abortSession(session), closeSession(session))
 }
 
-func pumpPackets(source, destination packetSession, dropInitialSpawnLoadingScreens bool) (err error) {
+func pumpPackets(source, destination packetSession, fromDownstream bool) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = fmt.Errorf("panic while relaying packets: %v", recovered)
 		}
 	}()
+	dropInitialSpawnLoadingScreens := fromDownstream
+	capLocalBatches := !fromDownstream
+	localBatchStarted := false
+	localBatchPackets := 0
+	writePacket := func(value packet.Packet) error {
+		if capLocalBatches && !localBatchStarted {
+			if err := destination.Flush(); err != nil {
+				return err
+			}
+			localBatchStarted = true
+		}
+		if err := destination.WritePacket(value); err != nil {
+			return err
+		}
+		if !capLocalBatches {
+			return nil
+		}
+		localBatchPackets++
+		if localBatchPackets != localRelayBatchPacketLimit {
+			return nil
+		}
+		if err := destination.Flush(); err != nil {
+			return err
+		}
+		localBatchPackets = 0
+		return nil
+	}
 	var pendingInitialStart packet.Packet
 	for {
 		value, err := source.ReadPacket()
 		if err != nil {
 			if pendingInitialStart != nil {
-				return errors.Join(err, destination.WritePacket(pendingInitialStart))
+				return errors.Join(err, writePacket(pendingInitialStart))
 			}
 			return err
 		}
@@ -380,14 +410,14 @@ func pumpPackets(source, destination packetSession, dropInitialSpawnLoadingScree
 				dropInitialSpawnLoadingScreens = false
 				continue
 			} else {
-				if err := destination.WritePacket(pendingInitialStart); err != nil {
+				if err := writePacket(pendingInitialStart); err != nil {
 					return err
 				}
 				pendingInitialStart = nil
 				dropInitialSpawnLoadingScreens = false
 			}
 		}
-		if err := destination.WritePacket(value); err != nil {
+		if err := writePacket(value); err != nil {
 			return err
 		}
 	}

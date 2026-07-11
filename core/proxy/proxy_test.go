@@ -201,6 +201,82 @@ func TestRelayNeverFiltersUpstreamLoadingScreens(t *testing.T) {
 	}
 }
 
+func TestRelayCapsUpstreamToDownstreamBatches(t *testing.T) {
+	const packetLimit = 1600
+	up := newFakeUpstream(nil)
+	down := newFakeDownstream(nil)
+	handshake := &packet.NetworkStackLatency{Timestamp: -1}
+	if err := down.WritePacket(handshake); err != nil {
+		t.Fatalf("prequeue handshake packet: %v", err)
+	}
+
+	relayed := make([]packet.Packet, packetLimit*2+1)
+	go func() {
+		for index := range relayed {
+			relayed[index] = &packet.NetworkStackLatency{Timestamp: int64(index)}
+			up.reads <- packetResult{packet: relayed[index]}
+		}
+		up.reads <- packetResult{err: io.EOF}
+	}()
+
+	if err := pumpPackets(up, down, false); !errors.Is(err, io.EOF) {
+		t.Fatalf("pumpPackets() error = %v, want EOF", err)
+	}
+	if err := down.Flush(); err != nil {
+		t.Fatalf("flush remaining packets: %v", err)
+	}
+
+	batches := down.flushedBatches()
+	wantSizes := []int{1, packetLimit, packetLimit, 1}
+	if len(batches) != len(wantSizes) {
+		t.Fatalf("batch count = %d, want %d; sizes = %v", len(batches), len(wantSizes), batchSizes(batches))
+	}
+	for index, batch := range batches {
+		if len(batch) != wantSizes[index] {
+			t.Fatalf("batch %d size = %d, want %d", index, len(batch), wantSizes[index])
+		}
+		if len(batch) > packetLimit {
+			t.Fatalf("batch %d size = %d, exceeds %d", index, len(batch), packetLimit)
+		}
+	}
+
+	wantPackets := append([]packet.Packet{handshake}, relayed...)
+	gotPackets := make([]packet.Packet, 0, len(wantPackets))
+	for _, batch := range batches {
+		gotPackets = append(gotPackets, batch...)
+	}
+	if len(gotPackets) != len(wantPackets) {
+		t.Fatalf("flattened packet count = %d, want %d", len(gotPackets), len(wantPackets))
+	}
+	for index := range wantPackets {
+		if gotPackets[index] != wantPackets[index] {
+			t.Fatalf("flattened packet %d = %T %p, want %T %p", index, gotPackets[index], gotPackets[index], wantPackets[index], wantPackets[index])
+		}
+	}
+}
+
+func TestRelayPropagatesUpstreamBatchBoundaryFlushError(t *testing.T) {
+	const packetLimit = 1600
+	wantErr := errors.New("batch boundary flush failed")
+	up := newFakeUpstream(nil)
+	down := newFakeDownstream(nil)
+	down.flushErr = wantErr
+	go func() {
+		for index := 0; index < packetLimit; index++ {
+			up.reads <- packetResult{packet: &packet.NetworkStackLatency{Timestamp: int64(index)}}
+		}
+		up.reads <- packetResult{err: io.EOF}
+	}()
+
+	err := pumpPackets(up, down, false)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("pumpPackets() error = %v, want %v", err, wantErr)
+	}
+	if got := len(down.written()); got != packetLimit {
+		t.Fatalf("written packet count = %d, want %d", got, packetLimit)
+	}
+}
+
 func TestRelayDisconnectClosesBothSides(t *testing.T) {
 	down := newFakeDownstream(nil)
 	up := newFakeUpstream(nil)
@@ -472,6 +548,10 @@ type fakeSession struct {
 	unblockOnce             sync.Once
 	writesMu                sync.Mutex
 	writes                  []packet.Packet
+	batchesMu               sync.Mutex
+	pendingBatch            []packet.Packet
+	batches                 [][]packet.Packet
+	flushErr                error
 	lifecycleMu             sync.Mutex
 	lifecycle               []string
 	closePanic              bool
@@ -503,6 +583,23 @@ func (s *fakeSession) WritePacket(p packet.Packet) error {
 	s.writesMu.Lock()
 	s.writes = append(s.writes, p)
 	s.writesMu.Unlock()
+	s.batchesMu.Lock()
+	s.pendingBatch = append(s.pendingBatch, p)
+	s.batchesMu.Unlock()
+	return nil
+}
+
+func (s *fakeSession) Flush() error {
+	s.batchesMu.Lock()
+	defer s.batchesMu.Unlock()
+	if len(s.pendingBatch) == 0 {
+		return nil
+	}
+	if s.flushErr != nil {
+		return s.flushErr
+	}
+	s.batches = append(s.batches, append([]packet.Packet(nil), s.pendingBatch...))
+	s.pendingBatch = s.pendingBatch[:0]
 	return nil
 }
 
@@ -540,6 +637,24 @@ func (s *fakeSession) written() []packet.Packet {
 	s.writesMu.Lock()
 	defer s.writesMu.Unlock()
 	return append([]packet.Packet(nil), s.writes...)
+}
+
+func (s *fakeSession) flushedBatches() [][]packet.Packet {
+	s.batchesMu.Lock()
+	defer s.batchesMu.Unlock()
+	batches := make([][]packet.Packet, len(s.batches))
+	for index := range s.batches {
+		batches[index] = append([]packet.Packet(nil), s.batches[index]...)
+	}
+	return batches
+}
+
+func batchSizes(batches [][]packet.Packet) []int {
+	sizes := make([]int, len(batches))
+	for index := range batches {
+		sizes[index] = len(batches[index])
+	}
+	return sizes
 }
 
 func (s *fakeSession) isClosed() bool {
