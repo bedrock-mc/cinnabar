@@ -411,17 +411,17 @@
 - `pub fn RuntimeAssets::texture_array(&self) -> &TextureArray`.
 - Sequential IDs use direct indexed lookup; hashes use a sorted slice and binary search.
 
-- [ ] **Step 1: Write malformed/runtime lookup tests**
+- [x] **Step 1: Write malformed/runtime lookup tests**
 
   Cover bad magic/version/hash, truncated sections, non-monotonic hash keys, out-of-range material/layer IDs, mismatched mip byte lengths, allocation limits, direct sequential lookup, binary-search hash lookup, mode isolation for numerically colliding sequential/hash keys, and unknown-value diagnostic counting. Prove 10,000 repeated misses keep one atomic counter and no per-ID unbounded map.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
   Run: `cargo test -p assets --test runtime --locked -- --nocapture`
 
   Expected: FAIL because `RuntimeAssets` does not exist.
 
-- [ ] **Step 3: Implement immutable lookup**
+- [x] **Step 3: Implement immutable lookup**
 
   ```rust
   pub struct RuntimeAssets {
@@ -449,13 +449,13 @@
 
   Avoid cloning texture bytes after decode: retain one boxed backing allocation or move decoded sections directly into their final boxed slices.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
   Run: `cargo test -p assets --locked -- --nocapture`
 
   Expected: all source, compiler, blob, malformed, and lookup tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   ```text
   git add crates/assets
