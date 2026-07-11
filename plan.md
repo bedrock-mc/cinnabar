@@ -136,7 +136,7 @@ Exit: `corectl join --friend <gamertag>` works from a clean machine; conformance
 **Goal:** the spike renderer becomes the real world pipeline. Deliverable: fly through any
 live server world and it *looks like Minecraft*.
 
-Scope: block registry + block-state → model/texture mapping (generated export from dragonfly's registry via `tools/registrygen`, shipped as a binary asset); vanilla asset ingestion from **Mojang/bedrock-samples** pinned to the matching game version (block models, terrain textures, `blocks.json`, flipbooks) — NOTE: BDS `resource_packs/vanilla` is server-minimal (blocks.json + texts only), it is a data reference, not the texture source; 2D texture array + per-layer mipmaps; greedy/culled meshing with transparency layers (opaque/cutout/blend) and per-face culling; **client-side light engine** (block + sky flood-fill, per-vertex light, day/night); biome tinting (grass/foliage/water); sky, fog, clouds; chunk streaming/eviction tied to `ChunkRadiusUpdated` + `SubChunk` request flow; block entities with custom renderers deferred (chests/signs get static models in this phase).
+Scope: block registry + block-state → model/texture mapping (generated export from Dragonfly's registry via `tools/registrygen`, shipped as a binary asset, pinned PMMP BedrockData as the exact protocol-1001 canonical palette/property/biome cross-check, Axolotl Valentine's versioned typed-state approach as a state-selector/catalog reference, and Axolotl's exact pinned PrismarineJS Bedrock collision shapes as reviewed cuboid-template/occlusion inputs—not render/UV authority); vanilla asset ingestion from **Mojang/bedrock-samples** pinned to the matching game version (terrain textures, `blocks.json`, flipbooks, and biome colors) — NOTE: the pinned samples contain no block-render model JSON, so deterministic reviewed family generators combine these sources and vanilla-reference evidence; BDS `resource_packs/vanilla` is server-minimal (blocks.json + texts only), a data reference rather than the texture source; 2D texture array pages + per-layer mipmaps; greedy/culled meshing with transparency layers (opaque/cutout/blend) and per-face culling; **client-side light engine** (block + sky flood-fill, per-vertex light, day/night); biome tinting (grass/foliage/water); sky, fog, clouds; chunk streaming/eviction tied to `ChunkRadiusUpdated` + `SubChunk` request flow; block entities with custom renderers deferred (chests/signs get static models in this phase). Zuri is not a rendering or asset-system input.
 
 **Phase 2 progress (kept current as work lands):**
 
@@ -154,10 +154,14 @@ Scope: block registry + block-state → model/texture mapping (generated export 
   and diagnostic cases recorded, and the clean no-assets full gate passes. The
   fail-closed material path, local relay 1,600-packet ceiling, and deterministic
   inbound/command network arbitration are implemented and independently reviewed.
-  A 2026-07-11 interactive radius-16 run reached world-ready with zero missing
-  mappings, but is diagnostic rather than acceptance evidence: 508,385 rendered
-  quads used material zero, and exact blob inspection found only 616 of 16,913
-  registry visuals currently mapped to real materials. Most of that visible gap
+  A 2026-07-11 interactive radius-16 run at `00b7a32` reached world-ready with
+  zero missing mappings, but is diagnostic rather than acceptance evidence:
+  849,117 rendered quads used material zero across 9,040 resident/7,093 visible
+  subchunks, and exact inspection of blob SHA-256
+  `1fbd361c489d3cf90edb49c0056b83ffd9a2a114a36ac1eaf28cfd1103ecf508`
+  found only 661 of 16,913 registry visuals
+  mapped to real materials. Evidence is in
+  `.local/acceptance/20260711T192110Z-16912/app.stdout.log`. Most of that visible gap
   belongs to Tasks 2.4–2.7 (leaves, tint/grass, water/blend, and models). The exact
   two-second teleport/full-view remesh gate and fresh combined RSS/steady-CPU
   evidence remain open; close those findings before completing Task 8.
@@ -193,7 +197,30 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     evergreen/dry foliage are now resolved from `MCBEAS03`, revision-gated,
     and applied palette-natively; real water-material production remains in 2.6.
 - [ ] **2.6 Static/non-cube models, blend/water, and flipbooks.** Complete the
-  remaining block visual classes and animation path.
+  remaining block visual classes and animation path per
+  `docs/superpowers/specs/2026-07-11-phase-2-6-noncube-water-design.md`.
+  - [ ] Version the bounded runtime asset schema to `MCBEAS04`; export typed
+    model/liquid state selectors, template tables, full flipbook metadata, and
+    attributable per-family diagnostics without committing Mojang payloads;
+    prove the PMMP/Dragonfly/Valentine canonical-state join is a full bijection.
+  - [ ] Add palette-native multi-layer contributor resolution, retaining the
+    eight-byte greedy cube record and adding compact model/liquid streams with
+    atomic queue/GPU generation accounting and direct/MDI parity.
+  - [ ] Compile crossed cutout plants/crops with exact variants and biome tint;
+    compile all physical flipbook frames into texture-array layers and animate
+    them from immutable descriptors without per-frame texture uploads.
+  - [ ] Mesh animated, biome-tinted water with same-liquid culling, vanilla-like
+    corner heights, diagonal invalidation, and a correctly ordered transparent
+    phase with depth testing and no depth writes.
+  - [ ] Add compact static templates in impact order: slabs/stairs,
+    doors/trapdoors, connection-aware panes/fences/gates, then static
+    chest/sign models; retain conservative culling/connectivity for partial
+    models until exact face-coverage optimization is separately verified.
+  - [ ] Complete the exhaustive residual-family report so every non-air one of
+    the 16,913 canonical states has a non-diagnostic visual; close deterministic
+    galleries and live acceptance with globally zero diagnostic counters,
+    vanilla-reference screenshots, upload/memory/CPU metrics, and
+    teleport-remesh evidence.
 - [ ] **2.7 Client lighting and atmosphere.** Block/sky flood fill, baked vertex
   light and day/night, then sky, fog, and clouds; finish the Phase 2 parity and
   teleport-remesh acceptance gates.
@@ -316,15 +343,20 @@ multiplicatively and are the required approach, not suggestions:
    static index buffer for all chunks. This targets roughly 20–40× less mesh memory than
    naive 32-byte vertices.
 4. **Custom Bevy render phase for chunks.** No per-subchunk `Mesh`/`StandardMaterial`; use
-   one pipeline + one bind group (texture array), with `multi_draw_indirect` where available.
+   one chunk pipeline family with at most two immutable state variants
+   (opaque/cutout with depth writes, blend without depth writes) and one shared bind group,
+   with `multi_draw_indirect` where available.
 5. **Visibility culling.** Per-subchunk frustum culling + cave/connectivity culling
    (Checchi-style: face-to-face connectivity flood-filled at mesh time, then BFS from the
    camera through the chunk graph—the approach used by vanilla).
 6. **Budget spiky work.** Decode/mesh/light only on Rayon workers; GPU uploads capped per
    frame and nearest-first; light updates deduplicated and queued; block + sky light baked
    per vertex at mesh time so lighting cost rides the remesh budget.
-7. **2D texture array, not a stitched atlas.** This avoids mip bleeding, permits greedy-quad
+7. **2D texture arrays, not a stitched atlas.** This avoids mip bleeding, permits greedy-quad
    UV wrapping, and implements flipbooks as layer swaps; mipmaps are generated per layer.
+   Use one measured physical array when the reachable deduplicated layer inventory fits the
+   minimum target adapter, otherwise at most two equal-format array pages in the same shared
+   bind group. More pages, frame dropping, or silent animation degradation are forbidden.
 
 Explicitly deferred past v1: distant-chunk LODs (not needed at a 16-chunk radius), GPU
 occlusion queries (cave culling suffices), and mesh shaders.
@@ -336,11 +368,19 @@ settle within ~2 seconds. Baseline for comparison: vanilla Bedrock client on the
 machine runs at 800MB–2GB and 30%+ CPU.
 
 Binding Phase 2 scope: block registry + block-state → model/texture mapping (generated
-export from dragonfly's registry via `tools/registrygen`, shipped as a binary asset);
-vanilla asset ingestion from **Mojang/bedrock-samples** pinned to the matching game version
-(block models, terrain textures, `blocks.json`, flipbooks). BDS
+export from Dragonfly's registry via `tools/registrygen`, shipped as a binary asset, with
+pinned PMMP BedrockData as the exact protocol-1001 canonical palette/property/biome
+cross-check, Axolotl Valentine's typed state catalog as a versioned selector reference, and
+Axolotl's exact pinned PrismarineJS Bedrock collision shapes as reviewed cuboid-template and
+occlusion inputs rather than render/UV authority); vanilla
+asset ingestion from **Mojang/bedrock-samples** pinned to the matching game version
+(terrain textures, `blocks.json`, flipbooks, and biome colors). The pinned samples have no
+block-render model JSON, so deterministic reviewed family generators combine collision
+bounds, Dragonfly behavior rules, Mojang texture mappings, and vanilla-reference evidence.
+Zuri is not a rendering or asset-system input. BDS
 `resource_packs/vanilla` is server-minimal (`blocks.json` + texts only): it is a data
-reference, not the texture source. Use a 2D texture array + per-layer mipmaps; meshing per
+reference, not the texture source. Use the bounded one-or-two-page 2D texture-array scheme
+above with per-layer mipmaps; meshing per
 this playbook with opaque/cutout/blend layers; a client-side block + sky flood-fill light
 engine with per-vertex light baked at mesh time and day/night; biome tinting for
 grass/foliage/water; sky, fog, and clouds; chunk streaming/eviction tied to
