@@ -355,7 +355,10 @@ fn read_blocks(path: &Path) -> Result<BlockTextureMap, AssetError> {
     let document: BoundedUniqueMap<Value, { MAX_TEXTURE_KEYS + 1 }> = read_json(path, false)?;
     let mut document = match document.issue {
         Some(BoundedMapIssue::Duplicate(key)) => {
-            return Err(AssetError::DuplicateBlockKey(key));
+            return Err(AssetError::DuplicateBlockKey {
+                path: path.to_path_buf(),
+                key,
+            });
         }
         Some(BoundedMapIssue::TooMany { count }) => {
             return Err(AssetError::TooManyTextureKeys {
@@ -396,7 +399,10 @@ fn read_terrain(path: &Path) -> Result<TerrainTextureMap, AssetError> {
     let document: TerrainDocument = read_json(path, true)?;
     let texture_data = match document.texture_data.issue {
         Some(BoundedMapIssue::Duplicate(key)) => {
-            return Err(AssetError::DuplicateTerrainTextureKey(key));
+            return Err(AssetError::DuplicateTerrainTextureKey {
+                path: path.to_path_buf(),
+                key,
+            });
         }
         Some(BoundedMapIssue::TooMany { count }) => {
             return Err(AssetError::TooManyTextureKeys {

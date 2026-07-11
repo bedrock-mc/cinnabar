@@ -337,18 +337,26 @@ fn pack_reader_rejects_an_explicit_empty_face_map() {
 #[test]
 fn pack_reader_rejects_duplicate_top_level_block_names() {
     let directory = minimal_pack();
+    let expected_path = directory.path().join("blocks.json");
     write_file(
-        directory.path().join("blocks.json"),
+        &expected_path,
         r#"{
             "stone": {"textures": "stone"},
             "stone": {"textures": "stone"}
         }"#,
     );
 
-    assert!(matches!(
-        read_pack(directory.path()),
-        Err(AssetError::DuplicateBlockKey(ref key)) if &**key == "stone"
-    ));
+    let error = read_pack(directory.path()).expect_err("duplicate block name must fail");
+    match &error {
+        AssetError::DuplicateBlockKey { path, key } => {
+            assert_eq!(path, &expected_path);
+            assert_eq!(&**key, "stone");
+        }
+        other => panic!("unexpected error: {other}"),
+    }
+    let display = error.to_string();
+    assert!(display.contains(expected_path.to_string_lossy().as_ref()));
+    assert!(display.contains("stone"));
 }
 
 #[test]
@@ -368,8 +376,9 @@ fn malformed_block_entries_report_the_block_key() {
 #[test]
 fn pack_reader_rejects_duplicate_terrain_texture_data_keys() {
     let directory = minimal_pack();
+    let expected_path = directory.path().join("textures/terrain_texture.json");
     write_file(
-        directory.path().join("textures/terrain_texture.json"),
+        &expected_path,
         r#"{
             "texture_data": {
                 "stone": {"textures": "textures/blocks/stone"},
@@ -378,10 +387,17 @@ fn pack_reader_rejects_duplicate_terrain_texture_data_keys() {
         }"#,
     );
 
-    assert!(matches!(
-        read_pack(directory.path()),
-        Err(AssetError::DuplicateTerrainTextureKey(ref key)) if &**key == "stone"
-    ));
+    let error = read_pack(directory.path()).expect_err("duplicate terrain key must fail");
+    match &error {
+        AssetError::DuplicateTerrainTextureKey { path, key } => {
+            assert_eq!(path, &expected_path);
+            assert_eq!(&**key, "stone");
+        }
+        other => panic!("unexpected error: {other}"),
+    }
+    let display = error.to_string();
+    assert!(display.contains(expected_path.to_string_lossy().as_ref()));
+    assert!(display.contains("stone"));
 }
 
 #[test]
