@@ -27,3 +27,6 @@ sha2 = "0.10"
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
 world = { path = "../crates/world" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+bevy = { workspace = true, default-features = false, features = ["x11"] }
