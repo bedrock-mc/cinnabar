@@ -56,11 +56,17 @@ use bevy::{
 };
 use world::SubChunkKey;
 
-use crate::{ChunkMesh, PackedBiomeRecord, PackedQuad};
+use crate::{
+    ChunkMesh, PackedBiomeRecord, PackedLiquidQuad, PackedModelRef, PackedQuad, PackedQuadLighting,
+};
 
 const CHUNK_SHADER_HANDLE: Handle<Shader> = uuid_handle!("b5664c91-763f-4e5c-9310-d12659f70cd4");
 const STATIC_QUAD_INDICES: [u32; 6] = [0, 1, 2, 0, 2, 3];
 const PACKED_QUAD_BYTES: u64 = 8;
+const PACKED_MODEL_REF_BYTES: u64 = 16;
+const PACKED_QUAD_LIGHTING_BYTES: u64 = 8;
+const PACKED_LIQUID_QUAD_BYTES: u64 = 16;
+const GEOMETRY_STREAM_WORD_BYTES: u64 = 4;
 const CHUNK_ORIGIN_BYTES: u64 = 16;
 const BIOME_WORD_BYTES: u64 = 4;
 const FALLBACK_BIOME_WORDS: usize = 2;
@@ -973,14 +979,53 @@ struct FrameAllocationIdentity {
     generation: u64,
 }
 
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+struct ChunkStreamMask(u8);
+
+impl ChunkStreamMask {
+    const CUBE: Self = Self(1 << 0);
+    const MODEL: Self = Self(1 << 1);
+    const LIQUID: Self = Self(1 << 2);
+
+    const fn contains(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+}
+
+impl std::ops::BitOr for ChunkStreamMask {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self(self.0 | rhs.0)
+    }
+}
+
+trait IntoFrameAllocationEvidence {
+    fn into_evidence(self) -> (FrameAllocationIdentity, ChunkStreamMask);
+}
+
+impl IntoFrameAllocationEvidence for FrameAllocationIdentity {
+    fn into_evidence(self) -> (FrameAllocationIdentity, ChunkStreamMask) {
+        (self, ChunkStreamMask::CUBE)
+    }
+}
+
+impl IntoFrameAllocationEvidence for (FrameAllocationIdentity, ChunkStreamMask) {
+    fn into_evidence(self) -> (FrameAllocationIdentity, ChunkStreamMask) {
+        self
+    }
+}
+
 struct FrameProbe {
     expectation: TargetRenderExpectation,
     frame_sequence: u64,
-    eligible: HashMap<Entity, FrameAllocationIdentity>,
+    eligible: HashMap<Entity, (FrameAllocationIdentity, ChunkStreamMask)>,
+    expected_streams: BTreeMap<(SubChunkKey, u64), ChunkStreamMask>,
     allocation_manifest: BTreeSet<(SubChunkKey, u64)>,
     target_allocation_count: usize,
     duplicate_target_instances: usize,
-    drawn: Mutex<BTreeSet<(SubChunkKey, u64)>>,
+    drawn: Mutex<BTreeMap<(SubChunkKey, u64), ChunkStreamMask>>,
     source_instances: usize,
     foreign_instances: usize,
     stale_generation_instances: usize,
@@ -991,7 +1036,7 @@ impl FrameProbe {
     fn begin(
         expectation: TargetRenderExpectation,
         instances: impl IntoIterator<Item = FrameInstanceIdentity>,
-        allocations: impl IntoIterator<Item = FrameAllocationIdentity>,
+        allocations: impl IntoIterator<Item = impl IntoFrameAllocationEvidence>,
     ) -> Self {
         let expected = expectation
             .manifest
@@ -1041,10 +1086,12 @@ impl FrameProbe {
             })
             .collect::<BTreeSet<_>>();
         let mut eligible = HashMap::new();
+        let mut expected_streams_by_identity = BTreeMap::new();
         let mut allocation_manifest = BTreeSet::new();
         let mut target_allocation_count = 0;
         let mut orphan_allocations = 0;
         for allocation in allocations {
+            let (allocation, expected_streams) = allocation.into_evidence();
             let Some(instance) = instances.get(&allocation.entity) else {
                 orphan_allocations += 1;
                 continue;
@@ -1057,16 +1104,20 @@ impl FrameProbe {
                 target_allocation_count += 1;
                 allocation_manifest.insert((allocation.key, allocation.generation));
             }
-            eligible.insert(allocation.entity, allocation);
+            let identity = (allocation.key, allocation.generation);
+            let mask = expected_streams_by_identity.entry(identity).or_default();
+            *mask = *mask | expected_streams;
+            eligible.insert(allocation.entity, (allocation, expected_streams));
         }
         Self {
             expectation,
             frame_sequence: 0,
             eligible,
+            expected_streams: expected_streams_by_identity,
             allocation_manifest,
             target_allocation_count,
             duplicate_target_instances,
-            drawn: Mutex::new(BTreeSet::new()),
+            drawn: Mutex::new(BTreeMap::new()),
             source_instances,
             foreign_instances,
             stale_generation_instances: stale_entities.len(),
@@ -1075,15 +1126,29 @@ impl FrameProbe {
     }
 
     fn record_direct_draw(&self, entity: Entity, allocation: FrameAllocationIdentity) -> bool {
-        if self.eligible.get(&entity) != Some(&allocation) {
+        self.record_direct_streams(entity, allocation, ChunkStreamMask::CUBE)
+    }
+
+    fn record_direct_streams(
+        &self,
+        entity: Entity,
+        allocation: FrameAllocationIdentity,
+        streams: ChunkStreamMask,
+    ) -> bool {
+        let Some(&(eligible, _expected_streams)) = self.eligible.get(&entity) else {
+            return false;
+        };
+        if eligible != allocation {
             return false;
         }
         let identity = (allocation.key, allocation.generation);
         if self.allocation_manifest.contains(&identity) {
-            self.drawn
+            let mut drawn = self
+                .drawn
                 .lock()
-                .unwrap_or_else(|poison| poison.into_inner())
-                .insert(identity);
+                .unwrap_or_else(|poison| poison.into_inner());
+            let mask = drawn.entry(identity).or_default();
+            *mask = *mask | streams;
         }
         true
     }
@@ -1108,7 +1173,13 @@ impl FrameProbe {
         let drawn = self
             .drawn
             .into_inner()
-            .unwrap_or_else(|poison| poison.into_inner());
+            .unwrap_or_else(|poison| poison.into_inner())
+            .into_iter()
+            .filter_map(|(identity, drawn)| {
+                let expected = self.expected_streams.get(&identity).copied()?;
+                drawn.contains(expected).then_some(identity)
+            })
+            .collect::<BTreeSet<_>>();
         let matched_target_instances = expected.intersection(&self.allocation_manifest).count();
         let missing_target_instances = expected.len().saturating_sub(matched_target_instances);
         let unexpected_target_instances = self
@@ -1162,7 +1233,12 @@ impl ActiveFrameProbe {
             .unwrap_or_else(|poison| poison.into_inner())
             .current
             .as_ref()
-            .is_none_or(|probe| probe.eligible.get(&entity) == Some(&allocation))
+            .is_none_or(|probe| {
+                probe
+                    .eligible
+                    .get(&entity)
+                    .is_some_and(|(eligible, _)| *eligible == allocation)
+            })
     }
 
     fn record_direct_draw(&self, entity: Entity, allocation: FrameAllocationIdentity) -> bool {
@@ -1716,7 +1792,23 @@ impl ChunkRenderQueue {
 }
 
 fn mesh_byte_len(mesh: &ChunkMesh) -> u64 {
-    buffer_byte_len(mesh.quad_count(), PACKED_QUAD_BYTES)
+    buffer_byte_len(mesh.cube_quads().len(), PACKED_QUAD_BYTES)
+        .saturating_add(buffer_byte_len(
+            mesh.model_refs().len(),
+            PACKED_MODEL_REF_BYTES,
+        ))
+        .saturating_add(buffer_byte_len(
+            mesh.model_lighting().len(),
+            PACKED_QUAD_LIGHTING_BYTES,
+        ))
+        .saturating_add(buffer_byte_len(
+            mesh.liquid_quads().len(),
+            PACKED_LIQUID_QUAD_BYTES,
+        ))
+        .saturating_add(buffer_byte_len(
+            mesh.liquid_lighting().len(),
+            PACKED_QUAD_LIGHTING_BYTES,
+        ))
 }
 
 fn biome_record_is_fallback(record: &PackedBiomeRecord) -> bool {
@@ -1741,7 +1833,11 @@ fn pending_upload_byte_len(pending: &PendingUpload) -> u64 {
 #[component(on_add = visibility::add_visibility_class::<ChunkRenderInstance>)]
 pub struct ChunkRenderInstance {
     key: SubChunkKey,
-    quads: Arc<[PackedQuad]>,
+    cube_quads: Arc<[PackedQuad]>,
+    model_refs: Arc<[PackedModelRef]>,
+    model_lighting: Arc<[PackedQuadLighting]>,
+    liquid_quads: Arc<[PackedLiquidQuad]>,
+    liquid_lighting: Arc<[PackedQuadLighting]>,
     biome: PackedBiomeRecord,
     tint_identity: ChunkBiomeTintIdentity,
     generation: u64,
@@ -1757,12 +1853,32 @@ impl ChunkRenderInstance {
 
     #[must_use]
     pub fn quad_count(&self) -> usize {
-        self.quads.len()
+        self.cube_quads.len()
     }
 
     #[must_use]
     pub fn quads(&self) -> &[PackedQuad] {
-        &self.quads
+        &self.cube_quads
+    }
+
+    #[must_use]
+    pub fn model_refs(&self) -> &[PackedModelRef] {
+        &self.model_refs
+    }
+
+    #[must_use]
+    pub fn model_lighting(&self) -> &[PackedQuadLighting] {
+        &self.model_lighting
+    }
+
+    #[must_use]
+    pub fn liquid_quads(&self) -> &[PackedLiquidQuad] {
+        &self.liquid_quads
+    }
+
+    #[must_use]
+    pub fn liquid_lighting(&self) -> &[PackedQuadLighting] {
+        &self.liquid_lighting
     }
 
     #[must_use]
@@ -1952,9 +2068,15 @@ fn apply_chunk_render_queue(
         }
 
         let origin = chunk_origin(key);
+        let (cube_quads, model_refs, model_lighting, liquid_quads, liquid_lighting) =
+            pending.mesh.into_streams();
         let instance = ChunkRenderInstance {
             key,
-            quads: Arc::from(pending.mesh.into_quads()),
+            cube_quads: Arc::from(cube_quads),
+            model_refs: Arc::from(model_refs),
+            model_lighting: Arc::from(model_lighting),
+            liquid_quads: Arc::from(liquid_quads),
+            liquid_lighting: Arc::from(liquid_lighting),
             biome: pending.biome,
             tint_identity: pending.tint_identity,
             generation: pending.generation,
@@ -2190,7 +2312,34 @@ struct GpuChunkAllocation {
     generation: u64,
     tint_identity: ChunkBiomeTintIdentity,
     quad_range: Range<u32>,
+    model_range: Option<Range<u32>>,
+    model_lighting_range: Option<Range<u32>>,
+    liquid_range: Option<Range<u32>>,
+    liquid_lighting_range: Option<Range<u32>>,
     metadata_index: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct StreamAddresses {
+    cube: Option<Range<u32>>,
+    model: Option<Range<u32>>,
+    model_lighting: Option<Range<u32>>,
+    liquid: Option<Range<u32>>,
+    liquid_lighting: Option<Range<u32>>,
+}
+
+fn direct_stream_addresses(allocation: &GpuChunkAllocation) -> StreamAddresses {
+    StreamAddresses {
+        cube: (!allocation.quad_range.is_empty()).then(|| allocation.quad_range.clone()),
+        model: allocation.model_range.clone(),
+        model_lighting: allocation.model_lighting_range.clone(),
+        liquid: allocation.liquid_range.clone(),
+        liquid_lighting: allocation.liquid_lighting_range.clone(),
+    }
+}
+
+fn mdi_stream_addresses(allocation: &GpuChunkAllocation) -> StreamAddresses {
+    direct_stream_addresses(allocation)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2216,10 +2365,9 @@ fn select_chunk_draw_mode(
 }
 
 fn indexed_indirect_command(allocation: &GpuChunkAllocation) -> Option<DrawIndexedIndirectArgs> {
-    let instance_count = allocation
-        .quad_range
-        .end
-        .checked_sub(allocation.quad_range.start)?;
+    let addresses = mdi_stream_addresses(allocation);
+    let cube = addresses.cube?;
+    let instance_count = cube.end.checked_sub(cube.start)?;
     if instance_count == 0 {
         return None;
     }
@@ -2229,7 +2377,7 @@ fn indexed_indirect_command(allocation: &GpuChunkAllocation) -> Option<DrawIndex
         instance_count,
         first_index: 0,
         base_vertex,
-        first_instance: allocation.quad_range.start,
+        first_instance: cube.start,
     })
 }
 
@@ -2272,10 +2420,33 @@ struct ChunkIndirectBatches(HashMap<Entity, ChunkIndirectBatch>);
 struct ArenaAllocation {
     generation: u64,
     tint_identity: ChunkBiomeTintIdentity,
+    cube_range: Option<Range<u32>>,
+    model_range: Option<Range<u32>>,
+    model_lighting_range: Option<Range<u32>>,
+    liquid_range: Option<Range<u32>>,
+    liquid_lighting_range: Option<Range<u32>>,
     quad_capacity: u32,
+    geometry_stream_range: Option<Range<u32>>,
+    geometry_stream_capacity: u32,
     biome_range: Range<u32>,
     biome_capacity: u32,
     gpu: GpuChunkAllocation,
+}
+
+impl ArenaAllocation {
+    fn expected_streams(&self) -> ChunkStreamMask {
+        let mut mask = ChunkStreamMask::default();
+        if self.cube_range.is_some() {
+            mask = mask | ChunkStreamMask::CUBE;
+        }
+        if self.model_range.is_some() || self.model_lighting_range.is_some() {
+            mask = mask | ChunkStreamMask::MODEL;
+        }
+        if self.liquid_range.is_some() || self.liquid_lighting_range.is_some() {
+            mask = mask | ChunkStreamMask::LIQUID;
+        }
+        mask
+    }
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -2740,6 +2911,7 @@ struct ChunkGpuUploadStats {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ArenaLimits {
     max_quad_items: usize,
+    max_geometry_stream_words: usize,
     max_origin_items: usize,
     max_biome_words: usize,
 }
@@ -2753,6 +2925,10 @@ fn arena_limits_from_device_limits(
         .min(u64::from(u32::MAX))
         .try_into()
         .unwrap_or(usize::MAX);
+    let max_geometry_stream_words = (storage_bytes / GEOMETRY_STREAM_WORD_BYTES)
+        .min(u64::from(u32::MAX))
+        .try_into()
+        .unwrap_or(usize::MAX);
     let max_origin_items = (storage_bytes / CHUNK_ORIGIN_BYTES)
         .min((i32::MAX as u64) / 4)
         .try_into()
@@ -2763,6 +2939,7 @@ fn arena_limits_from_device_limits(
         .unwrap_or(usize::MAX);
     ArenaLimits {
         max_quad_items,
+        max_geometry_stream_words,
         max_origin_items,
         max_biome_words,
     }
@@ -2771,6 +2948,7 @@ fn arena_limits_from_device_limits(
 #[derive(Resource)]
 struct ChunkGpuArena {
     quad_buffer: Buffer,
+    geometry_stream_buffer: Buffer,
     origin_buffer: Buffer,
     biome_buffer: Buffer,
     index_buffer: Buffer,
@@ -2778,14 +2956,17 @@ struct ChunkGpuArena {
     bind_group: Option<BindGroup>,
     bind_group_buffers: Option<ChunkBindGroupBuffers>,
     quad_capacity: usize,
+    geometry_stream_capacity: usize,
     origin_capacity: usize,
     biome_capacity: usize,
     indirect_capacity: usize,
     quad_len: usize,
+    geometry_stream_len: usize,
     origin_len: usize,
     biome_len: usize,
     limits: ArenaLimits,
     free_quads: Vec<Range<u32>>,
+    free_geometry_stream_words: Vec<Range<u32>>,
     free_origins: Vec<u32>,
     free_biomes: Vec<Range<u32>>,
     allocations: HashMap<Entity, ArenaAllocation>,
@@ -2808,6 +2989,11 @@ impl ChunkGpuArena {
                 "packed chunk quads",
                 PACKED_QUAD_BYTES,
             ),
+            geometry_stream_buffer: create_storage_buffer(
+                render_device,
+                "packed chunk geometry streams",
+                GEOMETRY_STREAM_WORD_BYTES,
+            ),
             origin_buffer: create_storage_buffer(
                 render_device,
                 "packed chunk origins",
@@ -2827,14 +3013,17 @@ impl ChunkGpuArena {
             bind_group: None,
             bind_group_buffers: None,
             quad_capacity: 1,
+            geometry_stream_capacity: 1,
             origin_capacity: 1,
             biome_capacity: FALLBACK_BIOME_WORDS,
             indirect_capacity: 1,
             quad_len: 0,
+            geometry_stream_len: 0,
             origin_len: 0,
             biome_len: FALLBACK_BIOME_WORDS,
             limits,
             free_quads: Vec::new(),
+            free_geometry_stream_words: Vec::new(),
             free_origins: Vec::new(),
             free_biomes: Vec::new(),
             allocations: HashMap::new(),
@@ -2942,6 +3131,10 @@ fn prepare_gpu_chunks(
     }
 
     let mut quad_writes = Vec::new();
+    let mut model_writes = Vec::new();
+    let mut model_lighting_writes = Vec::new();
+    let mut liquid_writes = Vec::new();
+    let mut liquid_lighting_writes = Vec::new();
     let mut biome_writes = Vec::new();
     let mut origin_writes = Vec::new();
     let mut applied_tokens = Vec::new();
@@ -2954,12 +3147,28 @@ fn prepare_gpu_chunks(
             continue;
         };
         let old = arena.allocations.get(&entity).cloned();
-        let required = match u32::try_from(instance.quads.len()) {
+        let required = match u32::try_from(instance.cube_quads.len()) {
             Ok(required) => required,
             Err(_) => {
                 bevy::log::error!("sub-chunk mesh exceeds the u32 instance range");
                 continue;
             }
+        };
+        let Ok(model_required) = u32::try_from(instance.model_refs.len()) else {
+            bevy::log::error!("sub-chunk model stream exceeds the u32 instance range");
+            continue;
+        };
+        let Ok(model_lighting_required) = u32::try_from(instance.model_lighting.len()) else {
+            bevy::log::error!("sub-chunk model-lighting stream exceeds the u32 instance range");
+            continue;
+        };
+        let Ok(liquid_required) = u32::try_from(instance.liquid_quads.len()) else {
+            bevy::log::error!("sub-chunk liquid stream exceeds the u32 instance range");
+            continue;
+        };
+        let Ok(liquid_lighting_required) = u32::try_from(instance.liquid_lighting.len()) else {
+            bevy::log::error!("sub-chunk liquid-lighting stream exceeds the u32 instance range");
+            continue;
         };
         let biome_words = if biome_record_is_fallback(&instance.biome) {
             Vec::new()
@@ -2986,9 +3195,18 @@ fn prepare_gpu_chunks(
         {
             continue;
         }
-        let Some((quad_start, quad_capacity, biome_start, biome_capacity)) =
-            allocate_for_chunk_update(&mut arena, required, biome_required, old.as_ref())
-        else {
+        let Some(plan) = allocate_for_chunk_update(
+            &mut arena,
+            GeometryStreamCounts {
+                cube: required,
+                model: model_required,
+                model_lighting: model_lighting_required,
+                liquid: liquid_required,
+                liquid_lighting: liquid_lighting_required,
+            },
+            biome_required,
+            old.as_ref(),
+        ) else {
             if let Some(token) = instance.token {
                 acknowledgements.cancel(instance.key, token);
             }
@@ -3000,23 +3218,76 @@ fn prepare_gpu_chunks(
             None => allocate_origin(&mut arena)
                 .expect("origin capacity was checked before quad allocation"),
         };
-        let quad_end = quad_start + required;
+        let cube_range = checked_geometry_range(plan.quad_start, required);
+        let model_range = checked_geometry_range(
+            plan.model_start,
+            model_required * (PACKED_MODEL_REF_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32,
+        );
+        let model_lighting_range = checked_geometry_range(
+            plan.model_lighting_start,
+            model_lighting_required
+                * (PACKED_QUAD_LIGHTING_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32,
+        );
+        let liquid_range = checked_geometry_range(
+            plan.liquid_start,
+            liquid_required * (PACKED_LIQUID_QUAD_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32,
+        );
+        let liquid_lighting_range = checked_geometry_range(
+            plan.liquid_lighting_start,
+            liquid_lighting_required
+                * (PACKED_QUAD_LIGHTING_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32,
+        );
+        let quad_range = cube_range
+            .clone()
+            .unwrap_or(plan.quad_start..plan.quad_start);
         let words = instance
-            .quads
+            .cube_quads
             .iter()
             .map(PackedQuad::words)
             .collect::<Vec<_>>();
-        let origin = gpu_chunk_origin(instance.origin, biome_start);
-        quad_writes.push((quad_start, words));
+        let model_words = instance
+            .model_refs
+            .iter()
+            .copied()
+            .map(PackedModelRef::words)
+            .collect::<Vec<_>>();
+        let model_lighting_words = instance
+            .model_lighting
+            .iter()
+            .copied()
+            .map(PackedQuadLighting::samples)
+            .collect::<Vec<_>>();
+        let liquid_words = instance
+            .liquid_quads
+            .iter()
+            .copied()
+            .map(PackedLiquidQuad::words)
+            .collect::<Vec<_>>();
+        let liquid_lighting_words = instance
+            .liquid_lighting
+            .iter()
+            .copied()
+            .map(PackedQuadLighting::samples)
+            .collect::<Vec<_>>();
+        let origin = gpu_chunk_origin(instance.origin, plan.biome_start);
+        quad_writes.push((plan.quad_start, words));
+        model_writes.push((plan.model_start, model_words));
+        model_lighting_writes.push((plan.model_lighting_start, model_lighting_words));
+        liquid_writes.push((plan.liquid_start, liquid_words));
+        liquid_lighting_writes.push((plan.liquid_lighting_start, liquid_lighting_words));
         if !biome_words.is_empty() {
-            biome_writes.push((biome_start, biome_words));
+            biome_writes.push((plan.biome_start, biome_words));
         }
         origin_writes.push((metadata_index, origin));
         let gpu = GpuChunkAllocation {
             key: instance.key,
             generation: instance.generation,
             tint_identity: instance.tint_identity,
-            quad_range: quad_start..quad_end,
+            quad_range,
+            model_range,
+            model_lighting_range,
+            liquid_range,
+            liquid_lighting_range,
             metadata_index,
         };
         commands.entity(entity).insert(gpu.clone());
@@ -3025,14 +3296,48 @@ fn prepare_gpu_chunks(
             ArenaAllocation {
                 generation: instance.generation,
                 tint_identity: instance.tint_identity,
-                quad_capacity,
-                biome_range: biome_start..biome_start + biome_required,
-                biome_capacity,
+                cube_range,
+                model_range: gpu.model_range.clone(),
+                model_lighting_range: gpu.model_lighting_range.clone(),
+                liquid_range: gpu.liquid_range.clone(),
+                liquid_lighting_range: gpu.liquid_lighting_range.clone(),
+                quad_capacity: plan.quad_capacity,
+                geometry_stream_range: checked_geometry_range(
+                    plan.geometry_stream_start,
+                    GeometryStreamCounts {
+                        cube: required,
+                        model: model_required,
+                        model_lighting: model_lighting_required,
+                        liquid: liquid_required,
+                        liquid_lighting: liquid_lighting_required,
+                    }
+                    .shared_word_count()
+                    .expect("stream counts were checked before allocation"),
+                ),
+                geometry_stream_capacity: plan.geometry_stream_capacity,
+                biome_range: plan.biome_start..plan.biome_start + biome_required,
+                biome_capacity: plan.biome_capacity,
                 gpu,
             },
         );
         if let Some(token) = instance.token {
-            let uploaded_bytes = buffer_byte_len(instance.quads.len(), PACKED_QUAD_BYTES)
+            let uploaded_bytes = buffer_byte_len(instance.cube_quads.len(), PACKED_QUAD_BYTES)
+                .saturating_add(buffer_byte_len(
+                    instance.model_refs.len(),
+                    PACKED_MODEL_REF_BYTES,
+                ))
+                .saturating_add(buffer_byte_len(
+                    instance.model_lighting.len(),
+                    PACKED_QUAD_LIGHTING_BYTES,
+                ))
+                .saturating_add(buffer_byte_len(
+                    instance.liquid_quads.len(),
+                    PACKED_LIQUID_QUAD_BYTES,
+                ))
+                .saturating_add(buffer_byte_len(
+                    instance.liquid_lighting.len(),
+                    PACKED_QUAD_LIGHTING_BYTES,
+                ))
                 .saturating_add(CHUNK_ORIGIN_BYTES)
                 .saturating_add(biome_record_byte_len(&instance.biome));
             applied_tokens.push((instance.key, token, uploaded_bytes));
@@ -3043,11 +3348,35 @@ fn prepare_gpu_chunks(
     let quad_incremental_bytes = quad_writes.iter().fold(0_u64, |total, (_, words)| {
         total.saturating_add(buffer_byte_len(words.len(), PACKED_QUAD_BYTES))
     });
+    let stream_incremental_bytes = model_writes
+        .iter()
+        .fold(0_u64, |total, (_, words)| {
+            total.saturating_add(buffer_byte_len(words.len(), PACKED_MODEL_REF_BYTES))
+        })
+        .saturating_add(
+            model_lighting_writes
+                .iter()
+                .fold(0_u64, |total, (_, words)| {
+                    total.saturating_add(buffer_byte_len(words.len(), PACKED_QUAD_LIGHTING_BYTES))
+                }),
+        )
+        .saturating_add(liquid_writes.iter().fold(0_u64, |total, (_, words)| {
+            total.saturating_add(buffer_byte_len(words.len(), PACKED_LIQUID_QUAD_BYTES))
+        }))
+        .saturating_add(
+            liquid_lighting_writes
+                .iter()
+                .fold(0_u64, |total, (_, words)| {
+                    total.saturating_add(buffer_byte_len(words.len(), PACKED_QUAD_LIGHTING_BYTES))
+                }),
+        );
     let origin_incremental_bytes = buffer_byte_len(origin_writes.len(), CHUNK_ORIGIN_BYTES);
     let biome_incremental_bytes = biome_writes.iter().fold(0_u64, |total, (_, words)| {
         total.saturating_add(buffer_byte_len(words.len(), BIOME_WORD_BYTES))
     });
     let quad_gpu_copy_bytes = ensure_quad_capacity(&mut arena, &render_device, &render_queue);
+    let stream_gpu_copy_bytes =
+        ensure_geometry_stream_capacities(&mut arena, &render_device, &render_queue);
     let origin_gpu_copy_bytes = ensure_origin_capacity(&mut arena, &render_device, &render_queue);
     let biome_gpu_copy_bytes = ensure_biome_capacity(&mut arena, &render_device, &render_queue);
     for (offset, words) in quad_writes {
@@ -3066,6 +3395,30 @@ fn prepare_gpu_chunks(
             bytemuck::bytes_of(&origin),
         );
     }
+    write_stream_records(
+        &render_queue,
+        &arena.geometry_stream_buffer,
+        GEOMETRY_STREAM_WORD_BYTES,
+        model_writes,
+    );
+    write_stream_records(
+        &render_queue,
+        &arena.geometry_stream_buffer,
+        GEOMETRY_STREAM_WORD_BYTES,
+        model_lighting_writes,
+    );
+    write_stream_records(
+        &render_queue,
+        &arena.geometry_stream_buffer,
+        GEOMETRY_STREAM_WORD_BYTES,
+        liquid_writes,
+    );
+    write_stream_records(
+        &render_queue,
+        &arena.geometry_stream_buffer,
+        GEOMETRY_STREAM_WORD_BYTES,
+        liquid_lighting_writes,
+    );
     for (offset, words) in biome_writes {
         render_queue.write_buffer(
             &arena.biome_buffer,
@@ -3081,10 +3434,10 @@ fn prepare_gpu_chunks(
     *upload_stats = account_chunk_gpu_uploads(
         *budget,
         chunk_updates,
-        quad_incremental_bytes,
+        quad_incremental_bytes.saturating_add(stream_incremental_bytes),
         origin_incremental_bytes,
         biome_incremental_bytes,
-        quad_gpu_copy_bytes,
+        quad_gpu_copy_bytes.saturating_add(stream_gpu_copy_bytes),
         origin_gpu_copy_bytes,
         biome_gpu_copy_bytes,
     );
@@ -3097,41 +3450,86 @@ fn prepare_gpu_chunks(
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct GeometryStreamCounts {
+    cube: u32,
+    model: u32,
+    model_lighting: u32,
+    liquid: u32,
+    liquid_lighting: u32,
+}
+
+impl GeometryStreamCounts {
+    fn shared_word_count(self) -> Option<u32> {
+        self.model
+            .checked_mul((PACKED_MODEL_REF_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32)?
+            .checked_add(
+                self.model_lighting.checked_mul(
+                    (PACKED_QUAD_LIGHTING_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32,
+                )?,
+            )?
+            .checked_add(
+                self.liquid
+                    .checked_mul((PACKED_LIQUID_QUAD_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32)?,
+            )?
+            .checked_add(
+                self.liquid_lighting.checked_mul(
+                    (PACKED_QUAD_LIGHTING_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32,
+                )?,
+            )
+    }
+}
+
 fn allocate_for_chunk_update(
     arena: &mut ChunkGpuArena,
-    quad_required: u32,
+    required: GeometryStreamCounts,
     biome_required: u32,
     old: Option<&ArenaAllocation>,
-) -> Option<(u32, u32, u32, u32)> {
+) -> Option<ChunkRangePlan> {
     let plan = plan_chunk_range_update(
         arena.quad_len,
         &arena.free_quads,
+        arena.geometry_stream_len,
+        &arena.free_geometry_stream_words,
         arena.biome_len,
         &arena.free_biomes,
-        quad_required,
+        required,
         biome_required,
         old,
         arena.limits,
     )?;
     arena.quad_len = plan.quad_len;
-    arena.free_quads = plan.free_quads;
+    arena.free_quads = plan.free_quads.clone();
+    arena.geometry_stream_len = plan.geometry_stream_len;
+    arena.free_geometry_stream_words = plan.free_geometry_stream_words.clone();
     arena.biome_len = plan.biome_len;
-    arena.free_biomes = plan.free_biomes;
-    Some((
-        plan.quad_start,
-        plan.quad_capacity,
-        plan.biome_start,
-        plan.biome_capacity,
-    ))
+    arena.free_biomes = plan.free_biomes.clone();
+    Some(plan)
 }
 
+fn checked_geometry_range(start: u32, count: u32) -> Option<Range<u32>> {
+    if count == 0 {
+        return None;
+    }
+    start.checked_add(count).map(|end| start..end)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct ChunkRangePlan {
     quad_start: u32,
     quad_capacity: u32,
+    geometry_stream_start: u32,
+    geometry_stream_capacity: u32,
+    model_start: u32,
+    model_lighting_start: u32,
+    liquid_start: u32,
+    liquid_lighting_start: u32,
     biome_start: u32,
     biome_capacity: u32,
     quad_len: usize,
     free_quads: Vec<Range<u32>>,
+    geometry_stream_len: usize,
+    free_geometry_stream_words: Vec<Range<u32>>,
     biome_len: usize,
     free_biomes: Vec<Range<u32>>,
 }
@@ -3140,9 +3538,11 @@ struct ChunkRangePlan {
 fn plan_chunk_range_update(
     mut quad_len: usize,
     current_free_quads: &[Range<u32>],
+    mut geometry_stream_len: usize,
+    current_free_geometry_stream_words: &[Range<u32>],
     mut biome_len: usize,
     current_free_biomes: &[Range<u32>],
-    quad_required: u32,
+    required: GeometryStreamCounts,
     biome_required: u32,
     old: Option<&ArenaAllocation>,
     limits: ArenaLimits,
@@ -3151,10 +3551,39 @@ fn plan_chunk_range_update(
     let (quad_start, quad_capacity) = allocate_range_for_update(
         &mut quad_len,
         &mut free_quads,
-        quad_required,
-        old.map(|old| (old.gpu.quad_range.start, old.quad_capacity)),
+        required.cube,
+        old.and_then(|old| {
+            old.cube_range
+                .as_ref()
+                .map(|range| (range.start, old.quad_capacity))
+        }),
         limits.max_quad_items,
         0,
+    )?;
+
+    let geometry_words_required = required.shared_word_count()?;
+    let mut free_geometry_stream_words = current_free_geometry_stream_words.to_vec();
+    let (geometry_stream_start, geometry_stream_capacity) = allocate_range_for_update(
+        &mut geometry_stream_len,
+        &mut free_geometry_stream_words,
+        geometry_words_required,
+        old.and_then(|old| {
+            old.geometry_stream_range
+                .as_ref()
+                .map(|range| (range.start, old.geometry_stream_capacity))
+        }),
+        limits.max_geometry_stream_words,
+        0,
+    )?;
+    let model_start = geometry_stream_start;
+    let model_lighting_start = model_start.checked_add(
+        required.model * (PACKED_MODEL_REF_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32,
+    )?;
+    let liquid_start = model_lighting_start.checked_add(
+        required.model_lighting * (PACKED_QUAD_LIGHTING_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32,
+    )?;
+    let liquid_lighting_start = liquid_start.checked_add(
+        required.liquid * (PACKED_LIQUID_QUAD_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32,
     )?;
 
     let mut free_biomes = current_free_biomes.to_vec();
@@ -3169,10 +3598,18 @@ fn plan_chunk_range_update(
     Some(ChunkRangePlan {
         quad_start,
         quad_capacity,
+        geometry_stream_start,
+        geometry_stream_capacity,
+        model_start,
+        model_lighting_start,
+        liquid_start,
+        liquid_lighting_start,
         biome_start,
         biome_capacity,
         quad_len,
         free_quads,
+        geometry_stream_len,
+        free_geometry_stream_words,
         biome_len,
         free_biomes,
     })
@@ -3285,9 +3722,20 @@ fn release_origin(arena: &mut ChunkGpuArena, index: u32) {
 
 fn free_allocation(arena: &mut ChunkGpuArena, entity: Entity) {
     if let Some(allocation) = arena.allocations.remove(&entity) {
-        let freed = allocation.gpu.quad_range.start
-            ..allocation.gpu.quad_range.start + allocation.quad_capacity;
-        release_quad_range(&mut arena.quad_len, &mut arena.free_quads, freed);
+        if let Some(range) = allocation.cube_range {
+            release_quad_range(
+                &mut arena.quad_len,
+                &mut arena.free_quads,
+                range.start..range.start + allocation.quad_capacity,
+            );
+        }
+        if let Some(range) = allocation.geometry_stream_range {
+            release_quad_range(
+                &mut arena.geometry_stream_len,
+                &mut arena.free_geometry_stream_words,
+                range.start..range.start + allocation.geometry_stream_capacity,
+            );
+        }
         if allocation.biome_capacity != 0 {
             let freed = allocation.biome_range.start
                 ..allocation.biome_range.start + allocation.biome_capacity;
@@ -3389,6 +3837,71 @@ fn ensure_quad_capacity(
     arena.quad_capacity = growth.new_capacity;
     arena.quad_buffer = next;
     growth.gpu_copy_bytes
+}
+
+fn ensure_geometry_stream_capacities(
+    arena: &mut ChunkGpuArena,
+    render_device: &RenderDevice,
+    render_queue: &RenderQueue,
+) -> u64 {
+    ensure_stream_capacity(
+        &mut arena.geometry_stream_buffer,
+        &mut arena.geometry_stream_capacity,
+        arena.geometry_stream_len,
+        arena.limits.max_geometry_stream_words,
+        GEOMETRY_STREAM_WORD_BYTES,
+        "packed chunk geometry streams",
+        render_device,
+        render_queue,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn ensure_stream_capacity(
+    buffer: &mut Buffer,
+    capacity: &mut usize,
+    required_len: usize,
+    max_items: usize,
+    item_bytes: u64,
+    label: &'static str,
+    render_device: &RenderDevice,
+    render_queue: &RenderQueue,
+) -> u64 {
+    let Ok(Some(growth)) = plan_arena_growth(*capacity, required_len, item_bytes, max_items) else {
+        return 0;
+    };
+    let next = create_storage_buffer(
+        render_device,
+        label,
+        growth.new_capacity as u64 * item_bytes,
+    );
+    copy_gpu_buffer(
+        render_device,
+        render_queue,
+        buffer,
+        &next,
+        growth.gpu_copy_bytes,
+    );
+    *capacity = growth.new_capacity;
+    *buffer = next;
+    growth.gpu_copy_bytes
+}
+
+fn write_stream_records<T: bytemuck::Pod>(
+    render_queue: &RenderQueue,
+    buffer: &Buffer,
+    item_bytes: u64,
+    writes: Vec<(u32, Vec<T>)>,
+) {
+    for (offset, records) in writes {
+        if !records.is_empty() {
+            render_queue.write_buffer(
+                buffer,
+                u64::from(offset) * item_bytes,
+                bytemuck::cast_slice(&records),
+            );
+        }
+    }
 }
 
 fn ensure_origin_capacity(
@@ -3736,14 +4249,16 @@ fn queue_chunks(
                     key: instance.key,
                     generation: instance.generation,
                 }),
-            arena
-                .allocations
-                .iter()
-                .map(|(&entity, allocation)| FrameAllocationIdentity {
-                    entity,
-                    key: allocation.gpu.key,
-                    generation: allocation.gpu.generation,
-                }),
+            arena.allocations.iter().map(|(&entity, allocation)| {
+                (
+                    FrameAllocationIdentity {
+                        entity,
+                        key: allocation.gpu.key,
+                        generation: allocation.gpu.generation,
+                    },
+                    allocation.expected_streams(),
+                )
+            }),
         ));
     } else {
         frame_probe.clear();
@@ -3894,13 +4409,12 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedChunk {
         let Some(base_vertex) = metadata_base_vertex(allocation.metadata_index) else {
             return RenderCommandResult::Skip;
         };
+        let Some(cube_range) = direct_stream_addresses(allocation).cube else {
+            return RenderCommandResult::Skip;
+        };
         pass.set_bind_group(0, bind_group, &[view_offset.offset]);
         pass.set_index_buffer(arena.index_buffer.slice(..), IndexFormat::Uint32);
-        pass.draw_indexed(
-            0..STATIC_QUAD_INDICES.len() as u32,
-            base_vertex,
-            allocation.quad_range.clone(),
-        );
+        pass.draw_indexed(0..STATIC_QUAD_INDICES.len() as u32, base_vertex, cube_range);
         frame_probe.record_direct_draw(item.entity(), identity);
         RenderCommandResult::Success
     }
@@ -4014,6 +4528,163 @@ mod tests {
     use world::SubChunk;
 
     use super::*;
+
+    #[test]
+    fn allocation_is_atomic_across_streams() {
+        let free_cube = std::iter::once(0..1).collect::<Vec<_>>();
+        let required = GeometryStreamCounts {
+            cube: 1,
+            model: 1,
+            model_lighting: 1,
+            liquid: 1,
+            liquid_lighting: 1,
+        };
+        let plan = plan_chunk_range_update(
+            1,
+            &free_cube,
+            0,
+            &[],
+            FALLBACK_BIOME_WORDS,
+            &[],
+            required,
+            0,
+            None,
+            ArenaLimits {
+                max_quad_items: 1,
+                max_geometry_stream_words: 11,
+                max_origin_items: 1,
+                max_biome_words: FALLBACK_BIOME_WORDS,
+            },
+        );
+
+        assert!(plan.is_none());
+        assert_eq!(free_cube.len(), 1);
+        assert_eq!(free_cube[0].start, 0);
+        assert_eq!(free_cube[0].end, 1);
+
+        let retry = plan_chunk_range_update(
+            1,
+            &free_cube,
+            0,
+            &[],
+            FALLBACK_BIOME_WORDS,
+            &[],
+            required,
+            0,
+            None,
+            ArenaLimits {
+                max_quad_items: 1,
+                max_geometry_stream_words: 12,
+                max_origin_items: 1,
+                max_biome_words: FALLBACK_BIOME_WORDS,
+            },
+        )
+        .expect("the unchanged state retries once every stream can fit");
+        assert_eq!(retry.quad_start, 0);
+        assert_eq!(retry.model_start, 0);
+        assert_eq!(retry.model_lighting_start, 4);
+        assert_eq!(retry.liquid_start, 6);
+        assert_eq!(retry.liquid_lighting_start, 10);
+        assert_eq!(retry.geometry_stream_capacity, 12);
+
+        let empty = plan_chunk_range_update(
+            0,
+            &[],
+            0,
+            &[],
+            FALLBACK_BIOME_WORDS,
+            &[],
+            GeometryStreamCounts::default(),
+            0,
+            None,
+            ArenaLimits {
+                max_quad_items: 0,
+                max_geometry_stream_words: 0,
+                max_origin_items: 1,
+                max_biome_words: FALLBACK_BIOME_WORDS,
+            },
+        )
+        .expect("empty streams need no geometry arena capacity");
+        assert_eq!(empty.quad_capacity, 0);
+        assert_eq!(empty.geometry_stream_capacity, 0);
+    }
+
+    #[test]
+    fn presentation_waits_for_expected_stream_mask() {
+        let now = Instant::now();
+        let key = SubChunkKey::new(0, 65, 0, 65);
+        let entity = Entity::from_bits(1 << 32 | 1);
+        let identity = FrameAllocationIdentity {
+            entity,
+            key,
+            generation: 7,
+        };
+        let probe = FrameProbe::begin(
+            target_expectation(now, [(key, 7)]),
+            [FrameInstanceIdentity {
+                entity,
+                key,
+                generation: 7,
+            }],
+            [(identity, ChunkStreamMask::MODEL | ChunkStreamMask::LIQUID)],
+        );
+
+        assert!(probe.record_direct_streams(entity, identity, ChunkStreamMask::MODEL));
+        assert!(probe.complete().drawn_manifest.is_empty());
+
+        let probe = FrameProbe::begin(
+            target_expectation(now, [(key, 7)]),
+            [FrameInstanceIdentity {
+                entity,
+                key,
+                generation: 7,
+            }],
+            [(identity, ChunkStreamMask::MODEL | ChunkStreamMask::LIQUID)],
+        );
+        assert!(probe.record_direct_streams(
+            entity,
+            identity,
+            ChunkStreamMask::MODEL | ChunkStreamMask::LIQUID,
+        ));
+        assert_eq!(probe.complete().drawn_manifest.as_ref(), &[(key, 7)]);
+    }
+
+    #[test]
+    fn presentation_completion_uses_keyed_expected_mask_lookup() {
+        let source = include_str!("plugin.rs");
+        let complete = source
+            .split_once("    fn complete(self) -> CompletedFrameProbe {")
+            .expect("frame probe completion")
+            .1
+            .split_once("\n    }\n}\n\n#[derive(Default)]")
+            .expect("end of frame probe completion")
+            .0;
+
+        assert!(
+            !complete.contains("self.eligible.values().find_map"),
+            "completion must not linearly scan every eligible allocation per drawn identity"
+        );
+    }
+
+    #[test]
+    fn direct_and_mdi_address_identical_streams() {
+        let allocation = GpuChunkAllocation {
+            key: SubChunkKey::new(0, 0, 0, 0),
+            generation: 1,
+            tint_identity: ChunkBiomeTintIdentity::default(),
+            quad_range: 2..5,
+            model_range: Some(7..11),
+            model_lighting_range: Some(13..17),
+            liquid_range: Some(19..23),
+            liquid_lighting_range: Some(29..33),
+            metadata_index: 3,
+        };
+
+        assert_eq!(
+            direct_stream_addresses(&allocation),
+            mdi_stream_addresses(&allocation)
+        );
+    }
 
     fn target_expectation(
         now: Instant,
@@ -4269,7 +4940,11 @@ mod tests {
             generation: 9,
         };
 
-        let same_frame = FrameProbe::begin(target_expectation(now, [(key, 9)]), [instance], []);
+        let same_frame = FrameProbe::begin(
+            target_expectation(now, [(key, 9)]),
+            [instance],
+            std::iter::empty::<FrameAllocationIdentity>(),
+        );
         assert!(
             !same_frame.record_direct_draw(entity, prepared),
             "an allocation created after Queue was eligible in its PrepareResources frame"
@@ -4709,6 +5384,10 @@ mod tests {
                 generation: 1,
                 tint_identity: ChunkBiomeTintIdentity::default(),
                 quad_range: 17..23,
+                model_range: None,
+                model_lighting_range: None,
+                liquid_range: None,
+                liquid_lighting_range: None,
                 metadata_index: 4,
             },
             GpuChunkAllocation {
@@ -4716,6 +5395,10 @@ mod tests {
                 generation: 2,
                 tint_identity: ChunkBiomeTintIdentity::default(),
                 quad_range: 4..9,
+                model_range: None,
+                model_lighting_range: None,
+                liquid_range: None,
+                liquid_lighting_range: None,
                 metadata_index: 1,
             },
         ];
@@ -5035,6 +5718,10 @@ mod tests {
                         generation: instance.generation,
                         tint_identity: instance.tint_identity,
                         quad_range: (index as u32 * 6)..(index as u32 * 6 + 6),
+                        model_range: None,
+                        model_lighting_range: None,
+                        liquid_range: None,
+                        liquid_lighting_range: None,
                         metadata_index: index as u32,
                     },
                 )
@@ -5414,7 +6101,7 @@ mod tests {
         let mut successful = Vec::new();
         for entity in selected {
             let instance = &extracted[&entity];
-            let required = u32::try_from(instance.quads.len()).unwrap();
+            let required = u32::try_from(instance.quads().len()).unwrap();
             let token = instance.token.expect("tracked upload token");
             assert!(acknowledgements.try_reserve(instance.key, token));
             if allocate_quad_range(&mut quad_len, &mut free_quads, required, 5).is_none() {
@@ -5422,7 +6109,7 @@ mod tests {
                 failed.push(instance.key);
                 continue;
             }
-            let uploaded_bytes = buffer_byte_len(instance.quads.len(), PACKED_QUAD_BYTES)
+            let uploaded_bytes = buffer_byte_len(instance.quads().len(), PACKED_QUAD_BYTES)
                 .saturating_add(CHUNK_ORIGIN_BYTES);
             assert!(
                 acknowledgements.complete_with_bytes(instance.key, token, now, uploaded_bytes,)
@@ -5478,6 +6165,7 @@ mod tests {
     fn arena_growth_clamps_to_adapter_limits_and_rejects_one_past() {
         let limits = arena_limits_from_device_limits(64, 32);
         assert_eq!(limits.max_quad_items, 4);
+        assert_eq!(limits.max_geometry_stream_words, 8);
         assert_eq!(limits.max_origin_items, 2);
         assert_eq!(limits.max_biome_words, 8);
 
@@ -5521,31 +6209,45 @@ mod tests {
     fn biome_range_planning_reserves_zero_and_rolls_back_as_one_transaction() {
         let limits = ArenaLimits {
             max_quad_items: 8,
+            max_geometry_stream_words: 8,
             max_origin_items: 8,
             max_biome_words: 8,
         };
-        let fallback =
-            plan_chunk_range_update(0, &[], FALLBACK_BIOME_WORDS, &[], 1, 0, None, limits).unwrap();
+        let plan = |quad_len, biome_len, quad_required, biome_required, limits| {
+            plan_chunk_range_update(
+                quad_len,
+                &[],
+                0,
+                &[],
+                biome_len,
+                &[],
+                GeometryStreamCounts {
+                    cube: quad_required,
+                    ..Default::default()
+                },
+                biome_required,
+                None,
+                limits,
+            )
+        };
+        let fallback = plan(0, FALLBACK_BIOME_WORDS, 1, 0, limits).unwrap();
         assert_eq!(fallback.biome_start, 0);
         assert_eq!(fallback.biome_capacity, 0);
         assert_eq!(fallback.biome_len, FALLBACK_BIOME_WORDS);
 
-        let real =
-            plan_chunk_range_update(0, &[], FALLBACK_BIOME_WORDS, &[], 1, 2, None, limits).unwrap();
+        let real = plan(0, FALLBACK_BIOME_WORDS, 1, 2, limits).unwrap();
         assert_eq!(real.biome_start, FALLBACK_BIOME_WORDS as u32);
         assert_eq!(real.biome_len, FALLBACK_BIOME_WORDS + 2);
 
         assert!(
-            plan_chunk_range_update(
+            plan(
                 4,
-                &[],
                 FALLBACK_BIOME_WORDS,
-                &[],
                 1,
                 1,
-                None,
                 ArenaLimits {
                     max_quad_items: 8,
+                    max_geometry_stream_words: 8,
                     max_origin_items: 8,
                     max_biome_words: FALLBACK_BIOME_WORDS,
                 },

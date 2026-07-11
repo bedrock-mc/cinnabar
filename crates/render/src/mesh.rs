@@ -82,6 +82,90 @@ pub struct PackedQuad {
     material_id: u32,
 }
 
+/// One compact reference to an immutable global model template.
+///
+/// The first word contains the local position and transform selected by the
+/// block-state resolver. The remaining words address the template, its first
+/// lighting sidecar, and the visible template-quad/variant mask respectively.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct PackedModelRef {
+    packed_transform: u32,
+    template_id: u32,
+    lighting_base_index: u32,
+    visible_quad_mask: u32,
+}
+
+impl PackedModelRef {
+    #[must_use]
+    pub const fn new(
+        packed_transform: u32,
+        template_id: u32,
+        lighting_base_index: u32,
+        visible_quad_mask: u32,
+    ) -> Self {
+        Self {
+            packed_transform,
+            template_id,
+            lighting_base_index,
+            visible_quad_mask,
+        }
+    }
+
+    #[must_use]
+    pub const fn words(self) -> [u32; 4] {
+        [
+            self.packed_transform,
+            self.template_id,
+            self.lighting_base_index,
+            self.visible_quad_mask,
+        ]
+    }
+}
+
+/// Four face-specific packed light/AO samples in template-quad order.
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct PackedQuadLighting([u16; 4]);
+
+impl PackedQuadLighting {
+    #[must_use]
+    pub const fn new(samples: [u16; 4]) -> Self {
+        Self(samples)
+    }
+
+    #[must_use]
+    pub const fn samples(self) -> [u16; 4] {
+        self.0
+    }
+}
+
+/// Fixed-size liquid surface/side geometry record.
+///
+/// Task 12 assigns the individual fixed-point corner-height, face, flow, and
+/// material bit fields. Reserving four words here fixes queue and GPU addressing
+/// without prematurely installing a liquid producer.
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct PackedLiquidQuad([u32; 4]);
+
+impl PackedLiquidQuad {
+    #[must_use]
+    pub const fn new(words: [u32; 4]) -> Self {
+        Self(words)
+    }
+
+    #[must_use]
+    pub const fn words(self) -> [u32; 4] {
+        self.0
+    }
+}
+
+const _: () = assert!(std::mem::size_of::<PackedQuad>() == 8);
+const _: () = assert!(std::mem::size_of::<PackedModelRef>() == 16);
+const _: () = assert!(std::mem::size_of::<PackedQuadLighting>() == 8);
+const _: () = assert!(std::mem::size_of::<PackedLiquidQuad>() == 16);
+
 impl PackedQuad {
     const X_SHIFT: u32 = 0;
     const Y_SHIFT: u32 = 5;
@@ -278,24 +362,85 @@ impl<'a> Neighbourhood<'a> {
 /// Packed greedy geometry plus visibility metadata for one sub-chunk.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChunkMesh {
-    quads: Box<[PackedQuad]>,
+    cube_quads: Box<[PackedQuad]>,
+    model_refs: Box<[PackedModelRef]>,
+    model_lighting: Box<[PackedQuadLighting]>,
+    liquid_quads: Box<[PackedLiquidQuad]>,
+    liquid_lighting: Box<[PackedQuadLighting]>,
     connectivity: FaceConnectivity,
 }
 
+/// Owned packed streams transferred from worker meshing into the render queue.
+pub type ChunkMeshStreams = (
+    Box<[PackedQuad]>,
+    Box<[PackedModelRef]>,
+    Box<[PackedQuadLighting]>,
+    Box<[PackedLiquidQuad]>,
+    Box<[PackedQuadLighting]>,
+);
+
 impl ChunkMesh {
     #[must_use]
+    pub fn from_streams(
+        cube_quads: Vec<PackedQuad>,
+        model_refs: Vec<PackedModelRef>,
+        model_lighting: Vec<PackedQuadLighting>,
+        liquid_quads: Vec<PackedLiquidQuad>,
+        liquid_lighting: Vec<PackedQuadLighting>,
+        connectivity: FaceConnectivity,
+    ) -> Self {
+        Self {
+            cube_quads: cube_quads.into_boxed_slice(),
+            model_refs: model_refs.into_boxed_slice(),
+            model_lighting: model_lighting.into_boxed_slice(),
+            liquid_quads: liquid_quads.into_boxed_slice(),
+            liquid_lighting: liquid_lighting.into_boxed_slice(),
+            connectivity,
+        }
+    }
+
+    #[must_use]
     pub fn quads(&self) -> &[PackedQuad] {
-        &self.quads
+        self.cube_quads()
+    }
+
+    #[must_use]
+    pub fn cube_quads(&self) -> &[PackedQuad] {
+        &self.cube_quads
+    }
+
+    #[must_use]
+    pub fn model_refs(&self) -> &[PackedModelRef] {
+        &self.model_refs
+    }
+
+    #[must_use]
+    pub fn model_lighting(&self) -> &[PackedQuadLighting] {
+        &self.model_lighting
+    }
+
+    #[must_use]
+    pub fn liquid_quads(&self) -> &[PackedLiquidQuad] {
+        &self.liquid_quads
+    }
+
+    #[must_use]
+    pub fn liquid_lighting(&self) -> &[PackedQuadLighting] {
+        &self.liquid_lighting
     }
 
     #[must_use]
     pub fn quad_count(&self) -> usize {
-        self.quads.len()
+        self.cube_quads.len()
     }
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.quads.is_empty()
+        self.cube_quads.is_empty()
+            && self.model_refs.is_empty()
+            && self.model_lighting.is_empty()
+            && self.liquid_quads.is_empty()
+            && self.liquid_lighting.is_empty()
     }
 
     #[must_use]
@@ -305,7 +450,18 @@ impl ChunkMesh {
 
     #[must_use]
     pub fn into_quads(self) -> Box<[PackedQuad]> {
-        self.quads
+        self.cube_quads
+    }
+
+    #[must_use]
+    pub fn into_streams(self) -> ChunkMeshStreams {
+        (
+            self.cube_quads,
+            self.model_refs,
+            self.model_lighting,
+            self.liquid_quads,
+            self.liquid_lighting,
+        )
     }
 }
 
@@ -326,7 +482,11 @@ pub fn mesh_sub_chunk(
     let connectivity = cave_connectivity(&facts);
     if facts.is_air() {
         return ChunkMesh {
-            quads: Box::new([]),
+            cube_quads: Box::new([]),
+            model_refs: Box::new([]),
+            model_lighting: Box::new([]),
+            liquid_quads: Box::new([]),
+            liquid_lighting: Box::new([]),
             connectivity,
         };
     }
@@ -355,7 +515,11 @@ pub fn mesh_sub_chunk(
     }
 
     ChunkMesh {
-        quads: quads.into_boxed_slice(),
+        cube_quads: quads.into_boxed_slice(),
+        model_refs: Box::new([]),
+        model_lighting: Box::new([]),
+        liquid_quads: Box::new([]),
+        liquid_lighting: Box::new([]),
         connectivity,
     }
 }

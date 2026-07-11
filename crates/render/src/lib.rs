@@ -8,7 +8,8 @@ mod plugin;
 pub use biome::PackedBiomeRecord;
 pub use color::debug_color;
 pub use mesh::{
-    BlockClassifier, ChunkMesh, Face, FaceConnectivity, Neighbourhood, PackedQuad, mesh_sub_chunk,
+    BlockClassifier, ChunkMesh, ChunkMeshStreams, Face, FaceConnectivity, Neighbourhood,
+    PackedLiquidQuad, PackedModelRef, PackedQuad, PackedQuadLighting, mesh_sub_chunk,
 };
 pub use plugin::{
     AnimationFrameSample, BiomeTint, ChunkAnimationClock, ChunkBiomeTintIdentity, ChunkBiomeTints,

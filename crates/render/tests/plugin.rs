@@ -27,6 +27,62 @@ use world::{DecodedBiomeColumn, SubChunk, SubChunkKey};
 const AIR: u32 = 12_530;
 
 #[test]
+fn task7_streams_share_one_physical_buffer_with_binding_headroom() {
+    const CURRENT_VERTEX_STORAGE_BINDINGS: usize = 5;
+    const FUTURE_MODEL_TEMPLATE_BINDINGS: usize = 1;
+    let plugin = include_str!("../src/plugin.rs");
+    let legacy_task7_buffers = [
+        "model_buffer: Buffer",
+        "model_lighting_buffer: Buffer",
+        "liquid_buffer: Buffer",
+        "liquid_lighting_buffer: Buffer",
+    ]
+    .into_iter()
+    .filter(|field| plugin.contains(field))
+    .count();
+    let task7_physical_buffers = usize::from(plugin.contains("geometry_stream_buffer: Buffer"));
+
+    assert_eq!(legacy_task7_buffers, 0);
+    assert_eq!(
+        task7_physical_buffers, 1,
+        "the four logical Task 7 streams must share one physical storage buffer"
+    );
+    assert!(
+        CURRENT_VERTEX_STORAGE_BINDINGS + task7_physical_buffers + FUTURE_MODEL_TEMPLATE_BINDINGS
+            <= 8,
+        "the projected vertex-stage storage bindings must fit the common/minimum limit"
+    );
+}
+
+#[test]
+fn queue_counts_every_stream_and_sidecar() {
+    let key = SubChunkKey::new(0, 1, 2, 3);
+    let cube = solid_mesh(1);
+    let mesh = render::ChunkMesh::from_streams(
+        cube.quads().to_vec(),
+        vec![render::PackedModelRef::new(1, 2, 3, u32::MAX)],
+        vec![render::PackedQuadLighting::new([0; 4])],
+        vec![render::PackedLiquidQuad::new([4, 5, 6, 7])],
+        vec![render::PackedQuadLighting::new([0; 4])],
+        cube.connectivity(),
+    );
+    let expected = 6 * size_of::<PackedQuad>()
+        + size_of::<render::PackedModelRef>()
+        + size_of::<render::PackedQuadLighting>()
+        + size_of::<render::PackedLiquidQuad>()
+        + size_of::<render::PackedQuadLighting>();
+    let mut queue = ChunkRenderQueue::with_limits(ChunkRenderQueueLimits {
+        max_items: 1,
+        max_bytes: expected as u64,
+    });
+
+    queue
+        .try_insert(key, mesh, ChunkUploadPriority::new(0.0))
+        .expect("every geometry stream fits at its exact combined byte count");
+    assert_eq!(queue.pending_bytes(), expected as u64);
+}
+
+#[test]
 fn allocated_but_undrawn_target_is_not_exact_presented_evidence() {
     let now = Instant::now();
     let key = SubChunkKey::new(0, 65, 0, 65);
@@ -861,7 +917,11 @@ fn animation_clock_updates_do_not_rebuild_or_reupload_texture_assets() {
 
     let plugin = include_str!("../src/plugin.rs");
     assert_eq!(plugin.matches("render_queue.write_texture(").count(), 1);
-    assert_eq!(plugin.matches("render_queue.write_buffer(").count(), 5);
+    assert_eq!(
+        plugin.matches("render_queue.write_buffer(").count(),
+        6,
+        "one shared writer covers all new immutable geometry streams"
+    );
     assert!(plugin.contains("render_queue.write_buffer(&gpu_clock.buffer"));
 }
 

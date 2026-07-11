@@ -5,7 +5,10 @@ use assets::{
     Material, NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TextureArray,
     TextureMip, TexturePage, TextureRef, VisualKind, encode_blob,
 };
-use render::{BlockClassifier, Face, Neighbourhood, PackedQuad, debug_color, mesh_sub_chunk};
+use render::{
+    BlockClassifier, ChunkMesh, Face, FaceConnectivity, Neighbourhood, PackedLiquidQuad,
+    PackedModelRef, PackedQuad, PackedQuadLighting, debug_color, mesh_sub_chunk,
+};
 use world::SubChunk;
 
 const AIR: u32 = 12_530;
@@ -14,6 +17,33 @@ const OPAQUE_B: u32 = 13;
 const DIAGNOSTIC: u32 = 54;
 const LEAF_A: u32 = 55;
 const LEAF_B: u32 = 56;
+
+#[test]
+fn packed_stream_record_sizes() {
+    assert_eq!(size_of::<PackedQuad>(), 8);
+    assert_eq!(size_of::<PackedModelRef>(), 16);
+    assert_eq!(size_of::<PackedQuadLighting>(), 8);
+    assert_eq!(size_of::<PackedLiquidQuad>(), 16);
+
+    let model = PackedModelRef::new(1, 2, 3, 0xa5a5_5a5a);
+    let lighting = PackedQuadLighting::new([0x00f0, 0x01f0, 0x02f0, 0x03f0]);
+    let liquid = PackedLiquidQuad::new([4, 5, 6, 7]);
+    let mesh = ChunkMesh::from_streams(
+        Vec::new(),
+        vec![model],
+        vec![lighting],
+        vec![liquid],
+        vec![lighting],
+        FaceConnectivity::all(),
+    );
+
+    assert!(mesh.cube_quads().is_empty());
+    assert_eq!(mesh.model_refs(), &[model]);
+    assert_eq!(mesh.model_lighting(), &[lighting]);
+    assert_eq!(mesh.liquid_quads(), &[liquid]);
+    assert_eq!(mesh.liquid_lighting(), &[lighting]);
+    assert!(!mesh.is_empty());
+}
 
 fn classifier() -> BlockClassifier {
     BlockClassifier::new(AIR)
