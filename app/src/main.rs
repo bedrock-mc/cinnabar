@@ -29,7 +29,7 @@ use metrics::{
     DiagnosticQuadTracker, ExactFullViewProof, MetricsCollector, PipelineMetricsSnapshot,
     TeleportProof, deterministic_manifest_hash,
 };
-use network::{NetworkConfig, NetworkEvent, NetworkHandle, spawn_network};
+use network::{NetworkConfig, NetworkControlEvent, NetworkHandle, spawn_network};
 use render::{
     ChunkRenderInstance, ChunkRenderQueue, ChunkTextureAssets, ChunkUploadAcknowledgements,
     ChunkUploadPriority, ChunkUploadToken, DebugWorldPlugin, PresentedFrameAck, PresentedFrameGate,
@@ -1701,17 +1701,11 @@ fn receive_network_events(
     acknowledgements: Res<ChunkUploadAcknowledgements>,
     mut cameras: Query<&mut Transform, With<FlyCamera>>,
 ) {
-    let admission_capacity = client_world.stream.as_ref().map_or(
-        NETWORK_INGRESS_BUDGET_PER_FRAME,
-        WorldStream::remaining_admission_capacity,
-    );
-    let events = drain_network_ingress(
-        network.events_mut(),
-        NETWORK_INGRESS_BUDGET_PER_FRAME.min(admission_capacity),
-    );
-    for event in events {
-        match event {
-            NetworkEvent::Bootstrap(bootstrap) => {
+    let controls =
+        drain_network_controls(network.control_events_mut(), OUTBOUND_SEND_BUDGET_PER_FRAME);
+    for control in controls {
+        match control {
+            NetworkControlEvent::Bootstrap(bootstrap) => {
                 acknowledgements.clear();
                 info!(
                     runtime_id = bootstrap.local_player_runtime_id,
@@ -1746,28 +1740,7 @@ fn receive_network_events(
                 client_world.pending_surface_spawn = resolved.surface_anchor;
                 client_world.stream = Some(stream);
             }
-            NetworkEvent::World(sequenced) => {
-                let Some(stream) = client_world.stream.as_mut() else {
-                    client_world.fatal_error =
-                        Some("received world data before StartGame bootstrap".to_owned());
-                    continue;
-                };
-                let observed_at = Instant::now();
-                acceptance.observe_mutation(&sequenced.event, observed_at);
-                if acceptance.observe_full_view_teleport_ingress(
-                    &sequenced.event,
-                    sequenced.sequence,
-                    observed_at,
-                    stream.current_dimension(),
-                    metrics.0.frame_count(),
-                ) {
-                    stream.schedule_source_capture(sequenced.sequence);
-                }
-                if let Err(error) = stream.submit(sequenced.sequence, sequenced.event) {
-                    client_world.fatal_error = Some(format!("world FIFO rejected data: {error}"));
-                }
-            }
-            NetworkEvent::SubChunkRequestSent {
+            NetworkControlEvent::SubChunkRequestSent {
                 chunk,
                 base_sub_chunk_y,
                 count,
@@ -1782,7 +1755,7 @@ fn receive_network_events(
                     );
                 }
             }
-            NetworkEvent::Failed {
+            NetworkControlEvent::Failed {
                 message,
                 decode_error_count,
             } => {
@@ -1793,7 +1766,7 @@ fn receive_network_events(
                     format!("network session failed: {message}"),
                 );
             }
-            NetworkEvent::Stopped { decode_error_count } => {
+            NetworkControlEvent::Stopped { decode_error_count } => {
                 client_world.network_decode_errors = decode_error_count;
                 if client_world.fatal_error.is_none() {
                     client_world.fatal_error = Some("network session stopped unexpectedly".into());
@@ -1801,6 +1774,43 @@ fn receive_network_events(
             }
         }
     }
+
+    let admission_capacity = client_world.stream.as_ref().map_or(
+        NETWORK_INGRESS_BUDGET_PER_FRAME,
+        WorldStream::remaining_admission_capacity,
+    );
+    let events = drain_network_ingress(
+        network.world_events_mut(),
+        NETWORK_INGRESS_BUDGET_PER_FRAME.min(admission_capacity),
+    );
+    for sequenced in events {
+        let Some(stream) = client_world.stream.as_mut() else {
+            client_world.fatal_error =
+                Some("received world data before StartGame bootstrap".to_owned());
+            continue;
+        };
+        let observed_at = Instant::now();
+        acceptance.observe_mutation(&sequenced.event, observed_at);
+        if acceptance.observe_full_view_teleport_ingress(
+            &sequenced.event,
+            sequenced.sequence,
+            observed_at,
+            stream.current_dimension(),
+            metrics.0.frame_count(),
+        ) {
+            stream.schedule_source_capture(sequenced.sequence);
+        }
+        if let Err(error) = stream.submit(sequenced.sequence, sequenced.event) {
+            client_world.fatal_error = Some(format!("world FIFO rejected data: {error}"));
+        }
+    }
+}
+
+fn drain_network_controls<T>(
+    receiver: &mut tokio::sync::mpsc::Receiver<T>,
+    budget: usize,
+) -> Vec<T> {
+    drain_network_ingress(receiver, budget)
 }
 
 fn drain_network_ingress<T>(
@@ -2532,17 +2542,19 @@ mod tests {
         sync::Arc,
         time::{Duration, Instant},
     };
-    use world::SubChunkKey;
+    use world::{ChunkKey, SubChunkKey};
 
+    use crate::network::{NetworkControlEvent, SequencedWorldEvent};
     use crate::world_stream::{
         ForcedRemeshManifest, ForcedRemeshManifestState, ViewCohort, ViewCohortStatus, WorldStream,
     };
     use crate::{
         AcceptanceRun, FullViewRemeshTracker, FullViewTeleportCompletion, FullViewTeleportTracker,
-        MutationTracker, NETWORK_INGRESS_BUDGET_PER_FRAME, SubChunkTimeoutProgress,
-        TeleportReadySnapshot, WORLD_READY_QUIET_INTERVAL, WorldReadySettler, WorldReadySnapshot,
-        WorldReadyWork, bedrock_camera_rotation, camera_sub_chunk_key, cumulative_counter_delta,
-        deterministic_mutation_coordinate, drain_network_ingress, flush_sub_chunk_requests,
+        MutationTracker, NETWORK_INGRESS_BUDGET_PER_FRAME, OUTBOUND_SEND_BUDGET_PER_FRAME,
+        SubChunkTimeoutProgress, TeleportReadySnapshot, WORLD_READY_QUIET_INTERVAL,
+        WorldReadySettler, WorldReadySnapshot, WorldReadyWork, bedrock_camera_rotation,
+        camera_sub_chunk_key, cumulative_counter_delta, deterministic_mutation_coordinate,
+        drain_network_controls, drain_network_ingress, flush_sub_chunk_requests,
         record_fatal_error, resolve_socket_dir_from, status_title, world_ready_markers,
     };
 
@@ -4379,7 +4391,70 @@ mod tests {
     }
 
     #[test]
-    fn network_ingress_processes_a_fixed_budget_and_leaves_excess_in_the_bounded_channel() {
+    fn zero_world_admission_still_drains_control_ack_and_leaves_world_fifo_untouched() {
+        let (control_sender, mut control_receiver) = tokio::sync::mpsc::channel(1);
+        let sent_at = Instant::now();
+        control_sender
+            .try_send(NetworkControlEvent::SubChunkRequestSent {
+                chunk: ChunkKey::new(0, 3, -2),
+                base_sub_chunk_y: -4,
+                count: 24,
+                sent_at,
+            })
+            .unwrap();
+        let (world_sender, mut world_receiver) = tokio::sync::mpsc::channel(1);
+        world_sender
+            .try_send(SequencedWorldEvent {
+                sequence: 1,
+                event: WorldEvent::ChunkRadiusUpdated(16),
+            })
+            .unwrap();
+
+        let controls =
+            drain_network_controls(&mut control_receiver, OUTBOUND_SEND_BUDGET_PER_FRAME);
+        let world =
+            drain_network_ingress(&mut world_receiver, NETWORK_INGRESS_BUDGET_PER_FRAME.min(0));
+
+        assert!(matches!(
+            controls.as_slice(),
+            [NetworkControlEvent::SubChunkRequestSent {
+                chunk,
+                base_sub_chunk_y: -4,
+                count: 24,
+                sent_at: observed,
+            }] if *chunk == ChunkKey::new(0, 3, -2) && *observed == sent_at
+        ));
+        assert!(world.is_empty());
+        assert!(matches!(
+            world_receiver.try_recv(),
+            Ok(SequencedWorldEvent {
+                sequence: 1,
+                event: WorldEvent::ChunkRadiusUpdated(16),
+            })
+        ));
+    }
+
+    #[test]
+    fn control_ingress_is_bounded_to_outbound_budget_and_preserves_fifo() {
+        assert_eq!(OUTBOUND_SEND_BUDGET_PER_FRAME, 16);
+        let (sender, mut receiver) = tokio::sync::mpsc::channel(OUTBOUND_SEND_BUDGET_PER_FRAME + 2);
+        for value in 0..OUTBOUND_SEND_BUDGET_PER_FRAME + 2 {
+            sender.try_send(value).unwrap();
+        }
+
+        let drained = drain_network_controls(&mut receiver, OUTBOUND_SEND_BUDGET_PER_FRAME);
+
+        assert_eq!(
+            drained,
+            (0..OUTBOUND_SEND_BUDGET_PER_FRAME).collect::<Vec<_>>()
+        );
+        assert_eq!(receiver.try_recv(), Ok(OUTBOUND_SEND_BUDGET_PER_FRAME));
+        assert_eq!(receiver.try_recv(), Ok(OUTBOUND_SEND_BUDGET_PER_FRAME + 1));
+    }
+
+    #[test]
+    fn world_ingress_is_bounded_to_eight_and_preserves_fifo() {
+        assert_eq!(NETWORK_INGRESS_BUDGET_PER_FRAME, 8);
         let (sender, mut receiver) =
             tokio::sync::mpsc::channel(NETWORK_INGRESS_BUDGET_PER_FRAME + 2);
         for value in 0..NETWORK_INGRESS_BUDGET_PER_FRAME + 2 {
@@ -4388,7 +4463,10 @@ mod tests {
 
         let drained = drain_network_ingress(&mut receiver, NETWORK_INGRESS_BUDGET_PER_FRAME);
 
-        assert_eq!(drained.len(), NETWORK_INGRESS_BUDGET_PER_FRAME);
+        assert_eq!(
+            drained,
+            (0..NETWORK_INGRESS_BUDGET_PER_FRAME).collect::<Vec<_>>()
+        );
         assert_eq!(receiver.try_recv(), Ok(NETWORK_INGRESS_BUDGET_PER_FRAME));
         assert_eq!(
             receiver.try_recv(),

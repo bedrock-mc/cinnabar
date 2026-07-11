@@ -11,6 +11,7 @@ use tokio::sync::{mpsc, watch};
 use world::ChunkKey;
 
 const WORLD_EVENT_CAPACITY: usize = 4;
+const CONTROL_EVENT_CAPACITY: usize = 64;
 const COMMAND_CAPACITY: usize = 64;
 
 #[derive(Debug, Clone)]
@@ -20,9 +21,8 @@ pub struct NetworkConfig {
 }
 
 #[derive(Debug)]
-pub enum NetworkEvent {
+pub enum NetworkControlEvent {
     Bootstrap(WorldBootstrap),
-    World(SequencedWorldEvent),
     SubChunkRequestSent {
         chunk: ChunkKey,
         base_sub_chunk_y: i32,
@@ -92,20 +92,27 @@ impl PacketSendError {
 
 #[derive(Resource)]
 pub struct NetworkHandle {
-    events: mpsc::Receiver<NetworkEvent>,
+    control_events: mpsc::Receiver<NetworkControlEvent>,
+    world_events: mpsc::Receiver<SequencedWorldEvent>,
     commands: mpsc::Sender<NetworkCommand>,
     shutdown: watch::Sender<bool>,
     thread: Option<JoinHandle<()>>,
 }
 
 impl NetworkHandle {
-    pub fn events_mut(&mut self) -> &mut mpsc::Receiver<NetworkEvent> {
-        &mut self.events
+    pub fn control_events_mut(&mut self) -> &mut mpsc::Receiver<NetworkControlEvent> {
+        &mut self.control_events
+    }
+
+    pub fn world_events_mut(&mut self) -> &mut mpsc::Receiver<SequencedWorldEvent> {
+        &mut self.world_events
     }
 
     #[must_use]
     pub fn pending_event_count(&self) -> usize {
-        self.events.len()
+        self.control_events
+            .len()
+            .saturating_add(self.world_events.len())
     }
 
     #[must_use]
@@ -185,7 +192,8 @@ impl Drop for NetworkHandle {
 }
 
 pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Error> {
-    let (event_tx, events) = mpsc::channel(WORLD_EVENT_CAPACITY);
+    let (control_event_tx, control_events) = mpsc::channel(CONTROL_EVENT_CAPACITY);
+    let (world_event_tx, world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
     let (commands, mut command_rx) = mpsc::channel(COMMAND_CAPACITY);
     let (shutdown, mut shutdown_rx) = watch::channel(false);
     let thread = thread::Builder::new()
@@ -198,7 +206,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
             {
                 Ok(runtime) => runtime,
                 Err(error) => {
-                    let _ = event_tx.try_send(NetworkEvent::Failed {
+                    let _ = control_event_tx.try_send(NetworkControlEvent::Failed {
                         message: format!("failed to create network runtime: {error}"),
                         decode_error_count: 0,
                     });
@@ -217,10 +225,10 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                 let (mut session, game_data) = match login {
                     Ok(connected) => connected,
                     Err(error) => {
-                        let _ = send_event_or_cancel(
-                            &event_tx,
+                        let _ = send_control_event_or_cancel(
+                            &control_event_tx,
                             &mut shutdown_rx,
-                            NetworkEvent::Failed {
+                            NetworkControlEvent::Failed {
                                 message: error.to_string(),
                                 decode_error_count: 0,
                             },
@@ -230,10 +238,10 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                     }
                 };
                 let bootstrap = WorldBootstrap::from_game_data(&game_data);
-                if !send_event_or_cancel(
-                    &event_tx,
+                if !send_control_event_or_cancel(
+                    &control_event_tx,
                     &mut shutdown_rx,
-                    NetworkEvent::Bootstrap(bootstrap),
+                    NetworkControlEvent::Bootstrap(bootstrap),
                 )
                 .await
                 {
@@ -269,10 +277,10 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                                     Some(Ok(())) => {
                                         if let Some(sub_chunk) = sub_chunk {
                                             let sent_at = Instant::now();
-                                            if !send_event_or_cancel(
-                                                &event_tx,
+                                            if !send_control_event_or_cancel(
+                                                &control_event_tx,
                                                 &mut shutdown_rx,
-                                                NetworkEvent::SubChunkRequestSent {
+                                                NetworkControlEvent::SubChunkRequestSent {
                                                     chunk: sub_chunk.chunk,
                                                     base_sub_chunk_y: sub_chunk.base_sub_chunk_y,
                                                     count: sub_chunk.count,
@@ -286,10 +294,10 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                                         }
                                     }
                                     Some(Err(error)) => {
-                                        let _ = send_event_or_cancel(
-                                            &event_tx,
+                                        let _ = send_control_event_or_cancel(
+                                            &control_event_tx,
                                             &mut shutdown_rx,
-                                            NetworkEvent::Failed {
+                                            NetworkControlEvent::Failed {
                                                 message: error.to_string(),
                                                 decode_error_count: session.decode_error_count(),
                                             },
@@ -307,10 +315,10 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                                     continue;
                                 }
                                 let event = sequencer.wrap(event);
-                                if !send_event_or_cancel(
-                                    &event_tx,
+                                if !send_world_event_or_cancel(
+                                    &world_event_tx,
                                     &mut shutdown_rx,
-                                    NetworkEvent::World(event),
+                                    event,
                                 )
                                 .await
                                 {
@@ -318,10 +326,10 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                                 }
                             }
                             Err(error) => {
-                                let _ = send_event_or_cancel(
-                                    &event_tx,
+                                let _ = send_control_event_or_cancel(
+                                    &control_event_tx,
                                     &mut shutdown_rx,
-                                    NetworkEvent::Failed {
+                                    NetworkControlEvent::Failed {
                                         message: error.to_string(),
                                         decode_error_count: session.decode_error_count(),
                                     },
@@ -332,10 +340,10 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                         },
                     }
                 }
-                let _ = send_event_or_cancel(
-                    &event_tx,
+                let _ = send_control_event_or_cancel(
+                    &control_event_tx,
                     &mut shutdown_rx,
-                    NetworkEvent::Stopped {
+                    NetworkControlEvent::Stopped {
                         decode_error_count: session.decode_error_count(),
                     },
                 )
@@ -343,7 +351,8 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
             });
         })?;
     Ok(NetworkHandle {
-        events,
+        control_events,
+        world_events,
         commands,
         shutdown,
         thread: Some(thread),
@@ -439,10 +448,26 @@ where
     work
 }
 
-async fn send_event_or_cancel(
-    events: &mpsc::Sender<NetworkEvent>,
+async fn send_control_event_or_cancel(
+    events: &mpsc::Sender<NetworkControlEvent>,
     shutdown: &mut watch::Receiver<bool>,
-    event: NetworkEvent,
+    event: NetworkControlEvent,
+) -> bool {
+    send_event_or_cancel(events, shutdown, event).await
+}
+
+async fn send_world_event_or_cancel(
+    events: &mpsc::Sender<SequencedWorldEvent>,
+    shutdown: &mut watch::Receiver<bool>,
+    event: SequencedWorldEvent,
+) -> bool {
+    send_event_or_cancel(events, shutdown, event).await
+}
+
+async fn send_event_or_cancel<T>(
+    events: &mpsc::Sender<T>,
+    shutdown: &mut watch::Receiver<bool>,
+    event: T,
 ) -> bool {
     if *shutdown.borrow() {
         return false;
@@ -499,13 +524,15 @@ mod tests {
         time::{Duration, Instant},
     };
 
-    use protocol::{ChangeDimensionEvent, MovePlayerEvent, WorldEvent};
+    use protocol::{ChangeDimensionEvent, MovePlayerEvent, WorldBootstrap, WorldEvent};
     use tokio::sync::{mpsc, oneshot, watch};
 
     use super::{
-        COMMAND_CAPACITY, NetworkCommand, NetworkEvent, NetworkHandle, NetworkPumpPreference,
-        NetworkPumpWork, NetworkSequencer, PacketSendError, send_event_or_cancel,
-        wait_for_login_or_cancel, wait_for_network_work_or_cancel, wait_for_send_or_cancel,
+        COMMAND_CAPACITY, CONTROL_EVENT_CAPACITY, NetworkCommand, NetworkControlEvent,
+        NetworkHandle, NetworkPumpPreference, NetworkPumpWork, NetworkSequencer, PacketSendError,
+        SequencedWorldEvent, send_control_event_or_cancel, send_event_or_cancel,
+        send_world_event_or_cancel, wait_for_login_or_cancel, wait_for_network_work_or_cancel,
+        wait_for_send_or_cancel,
     };
 
     #[test]
@@ -546,7 +573,7 @@ mod tests {
     async fn saturated_event_queue_is_cancelled_without_waiting_for_capacity() {
         let (events, mut event_rx) = mpsc::channel(1);
         events
-            .send(NetworkEvent::Stopped {
+            .send(NetworkControlEvent::Stopped {
                 decode_error_count: 1,
             })
             .await
@@ -557,7 +584,7 @@ mod tests {
         let delivered = send_event_or_cancel(
             &events,
             &mut shutdown_rx,
-            NetworkEvent::Stopped {
+            NetworkControlEvent::Stopped {
                 decode_error_count: 2,
             },
         )
@@ -566,11 +593,123 @@ mod tests {
         assert!(!delivered);
         assert!(matches!(
             event_rx.try_recv(),
-            Ok(NetworkEvent::Stopped {
+            Ok(NetworkControlEvent::Stopped {
                 decode_error_count: 1
             })
         ));
         assert!(event_rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn saturated_world_event_channel_does_not_block_request_sent_control_event() {
+        assert_eq!(CONTROL_EVENT_CAPACITY, 64);
+        let (world_events, mut world_event_rx) = mpsc::channel(1);
+        world_events
+            .try_send(SequencedWorldEvent {
+                sequence: 1,
+                event: WorldEvent::ChunkRadiusUpdated(16),
+            })
+            .unwrap();
+        let (control_events, mut control_event_rx) = mpsc::channel(CONTROL_EVENT_CAPACITY);
+        let (_shutdown, mut shutdown_rx) = watch::channel(false);
+        let sent_at = Instant::now();
+
+        assert!(
+            send_control_event_or_cancel(
+                &control_events,
+                &mut shutdown_rx,
+                NetworkControlEvent::SubChunkRequestSent {
+                    chunk: world::ChunkKey::new(0, 4, -3),
+                    base_sub_chunk_y: -4,
+                    count: 24,
+                    sent_at,
+                },
+            )
+            .await
+        );
+
+        assert!(matches!(
+            control_event_rx.try_recv(),
+            Ok(NetworkControlEvent::SubChunkRequestSent {
+                chunk,
+                base_sub_chunk_y: -4,
+                count: 24,
+                sent_at: observed,
+            }) if chunk == world::ChunkKey::new(0, 4, -3) && observed == sent_at
+        ));
+        assert!(matches!(
+            world_event_rx.try_recv(),
+            Ok(SequencedWorldEvent {
+                sequence: 1,
+                event: WorldEvent::ChunkRadiusUpdated(16),
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
+        let (control_events, mut control_event_rx) = mpsc::channel(CONTROL_EVENT_CAPACITY);
+        let (world_events, mut world_event_rx) = mpsc::channel(4);
+        let (_shutdown, mut shutdown_rx) = watch::channel(false);
+        let bootstrap = WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 42,
+            player_position: [1.0, 72.0, -2.0],
+            world_spawn_position: [1, 64, -2],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        };
+
+        for event in [
+            NetworkControlEvent::Bootstrap(bootstrap),
+            NetworkControlEvent::Failed {
+                message: "failure".to_owned(),
+                decode_error_count: 7,
+            },
+            NetworkControlEvent::Stopped {
+                decode_error_count: 8,
+            },
+        ] {
+            assert!(send_control_event_or_cancel(&control_events, &mut shutdown_rx, event).await);
+        }
+        assert!(
+            send_world_event_or_cancel(
+                &world_events,
+                &mut shutdown_rx,
+                SequencedWorldEvent {
+                    sequence: 9,
+                    event: WorldEvent::ChunkRadiusUpdated(16),
+                },
+            )
+            .await
+        );
+
+        assert_eq!(control_event_rx.len(), 3);
+        assert_eq!(world_event_rx.len(), 1);
+        assert!(matches!(
+            control_event_rx.try_recv(),
+            Ok(NetworkControlEvent::Bootstrap(value)) if value == bootstrap
+        ));
+        assert!(matches!(
+            control_event_rx.try_recv(),
+            Ok(NetworkControlEvent::Failed {
+                message,
+                decode_error_count: 7,
+            }) if message == "failure"
+        ));
+        assert!(matches!(
+            control_event_rx.try_recv(),
+            Ok(NetworkControlEvent::Stopped {
+                decode_error_count: 8,
+            })
+        ));
+        assert!(matches!(
+            world_event_rx.try_recv(),
+            Ok(SequencedWorldEvent {
+                sequence: 9,
+                event: WorldEvent::ChunkRadiusUpdated(16),
+            })
+        ));
     }
 
     #[tokio::test]
@@ -713,12 +852,15 @@ mod tests {
                 })
                 .unwrap();
         }
-        let (event_tx, events) = mpsc::channel(1);
-        drop(event_tx);
+        let (control_event_tx, control_events) = mpsc::channel(1);
+        let (world_event_tx, world_events) = mpsc::channel(1);
+        drop(control_event_tx);
+        drop(world_event_tx);
         let (shutdown, _shutdown_rx) = watch::channel(false);
         let worker = thread::spawn(|| thread::sleep(Duration::from_millis(250)));
         let mut handle = NetworkHandle {
-            events,
+            control_events,
+            world_events,
             commands,
             shutdown,
             thread: Some(worker),
@@ -736,11 +878,13 @@ mod tests {
 
     #[test]
     fn network_pending_counts_include_ingress_and_outbound_queues() {
-        let (event_tx, events) = mpsc::channel(2);
+        let (control_event_tx, control_events) = mpsc::channel(2);
+        let (world_event_tx, world_events) = mpsc::channel(2);
         let (commands, mut command_rx) = mpsc::channel(2);
         let (shutdown, _shutdown_rx) = watch::channel(false);
         let mut handle = NetworkHandle {
-            events,
+            control_events,
+            world_events,
             commands,
             shutdown,
             thread: None,
@@ -748,13 +892,21 @@ mod tests {
 
         assert_eq!(handle.pending_event_count(), 0);
         assert_eq!(handle.pending_command_count(), 0);
-        event_tx
-            .try_send(NetworkEvent::Stopped {
+        control_event_tx
+            .try_send(NetworkControlEvent::Stopped {
                 decode_error_count: 0,
             })
             .unwrap();
         assert_eq!(handle.pending_event_count(), 1);
-        handle.events_mut().try_recv().unwrap();
+        world_event_tx
+            .try_send(SequencedWorldEvent {
+                sequence: 1,
+                event: WorldEvent::ChunkRadiusUpdated(16),
+            })
+            .unwrap();
+        assert_eq!(handle.pending_event_count(), 2);
+        handle.control_events_mut().try_recv().unwrap();
+        handle.world_events_mut().try_recv().unwrap();
         assert_eq!(handle.pending_event_count(), 0);
 
         handle.send_packet(test_packet()).unwrap();
