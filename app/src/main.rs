@@ -33,7 +33,9 @@ use render::{
 };
 use server_position::SAFE_SERVER_HEIGHT;
 use world::SubChunkKey;
-use world_stream::{CommittedControlEvent, WorldMeshChange, WorldStream};
+use world_stream::{
+    CommittedControlEvent, ViewCohort, ViewCohortStatus, WorldMeshChange, WorldStream,
+};
 
 const MESH_JOB_BUDGET_PER_FRAME: usize = 128;
 const GPU_UPLOAD_BUDGET_PER_FRAME: usize = 128;
@@ -41,6 +43,7 @@ const NETWORK_INGRESS_BUDGET_PER_FRAME: usize = 8;
 const OUTBOUND_SEND_BUDGET_PER_FRAME: usize = 16;
 const TITLE_REFRESH_INTERVAL: Duration = Duration::from_millis(100);
 const WORLD_READY_QUIET_INTERVAL: Duration = Duration::from_secs(2);
+const TELEPORT_COHORT_PROGRESS_INTERVAL: Duration = Duration::from_secs(1);
 const PHASE0_REQUESTED_RADIUS_CHUNKS: i32 = 16;
 const MUTATION_X_OFFSET_BLOCKS: i32 = 4;
 const FULL_VIEW_TELEPORT_MIN_CHUNK_DELTA: u64 = (PHASE0_REQUESTED_RADIUS_CHUNKS as u64) * 2 + 1;
@@ -167,6 +170,7 @@ struct TeleportReadySnapshot {
     resident_sub_chunks: usize,
     visible_sub_chunks: usize,
     loaded_columns: usize,
+    cohort: Option<ViewCohortStatus>,
     last_chunk_commit_at: Option<Instant>,
     last_mesh_dispatch_at: Option<Instant>,
     last_mesh_completion_at: Option<Instant>,
@@ -181,6 +185,7 @@ impl TeleportReadySnapshot {
             && self.rendered_sub_chunks != 0
             && self.resident_sub_chunks != 0
             && self.visible_sub_chunks != 0
+            && self.cohort.is_some_and(ViewCohortStatus::is_exact)
             && self.work.is_empty()
     }
 }
@@ -195,7 +200,7 @@ struct TeleportCleanCandidate {
 #[derive(Debug, Clone, Copy)]
 struct PendingFullViewTeleport {
     started: Instant,
-    target_chunk: [i32; 2],
+    target: ViewCohort,
     publisher_seen: bool,
     publisher_latency: Option<Duration>,
     first_level_chunk_latency: Option<Duration>,
@@ -206,6 +211,7 @@ struct PendingFullViewTeleport {
     sub_chunk_events: u64,
     peak_network_events: usize,
     clean_candidate: Option<TeleportCleanCandidate>,
+    last_progress_at: Option<Instant>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -229,10 +235,11 @@ struct FullViewTeleportCompletion {
 struct FullViewTeleportTracker {
     enabled: bool,
     origin_chunk: Option<[i32; 2]>,
-    latest_publisher_chunk: Option<[i32; 2]>,
-    minimum_loaded_columns: Option<usize>,
+    local_player_runtime_id: Option<u64>,
+    latest_publisher_cohort: Option<ViewCohort>,
     pending: Option<PendingFullViewTeleport>,
     completed: Option<Duration>,
+    completed_target: Option<ViewCohort>,
 }
 
 impl FullViewTeleportTracker {
@@ -240,58 +247,74 @@ impl FullViewTeleportTracker {
         Self {
             enabled,
             origin_chunk: None,
-            latest_publisher_chunk: None,
-            minimum_loaded_columns: None,
+            local_player_runtime_id: None,
+            latest_publisher_cohort: None,
             pending: None,
             completed: None,
+            completed_target: None,
         }
     }
 
-    fn begin_world_ready(&mut self, position: [f32; 3], loaded_columns: usize) {
+    fn begin_world_ready(&mut self, position: [f32; 3], local_player_runtime_id: u64) {
         if self.enabled {
             self.origin_chunk = horizontal_chunk(position);
-            self.minimum_loaded_columns = Some(loaded_columns);
+            self.local_player_runtime_id = Some(local_player_runtime_id);
         }
     }
 
-    fn observe(&mut self, event: &protocol::WorldEvent, observed_at: Instant) {
+    fn observe(
+        &mut self,
+        event: &protocol::WorldEvent,
+        observed_at: Instant,
+        current_dimension: i32,
+    ) -> bool {
         if !self.enabled || self.completed.is_some() {
-            return;
+            return false;
         }
         match event {
             protocol::WorldEvent::PublisherUpdate(update) => {
-                let publisher = [
-                    update.center[0].div_euclid(16),
-                    update.center[2].div_euclid(16),
-                ];
-                self.latest_publisher_chunk = Some(publisher);
+                let publisher = ViewCohort::from_publisher(
+                    current_dimension,
+                    update.center,
+                    update.radius_blocks,
+                );
+                self.latest_publisher_cohort = Some(publisher);
                 if let Some(pending) = &mut self.pending
-                    && publisher == pending.target_chunk
+                    && publisher == pending.target
                     && !pending.publisher_seen
                 {
                     pending.publisher_seen = true;
                     pending.publisher_latency =
                         Some(observed_at.saturating_duration_since(pending.started));
                 }
+                false
             }
             protocol::WorldEvent::MovePlayer(movement) if self.pending.is_none() => {
+                if self.local_player_runtime_id != Some(movement.runtime_id) {
+                    return false;
+                }
                 let (Some(origin), Some(target)) =
                     (self.origin_chunk, horizontal_chunk(movement.position))
                 else {
-                    return;
+                    return false;
                 };
                 let far_enough = i64::from(origin[0]).abs_diff(i64::from(target[0]))
                     >= FULL_VIEW_TELEPORT_MIN_CHUNK_DELTA
                     || i64::from(origin[1]).abs_diff(i64::from(target[1]))
                         >= FULL_VIEW_TELEPORT_MIN_CHUNK_DELTA;
                 if !far_enough {
-                    return;
+                    return false;
                 }
+                let target = ViewCohort {
+                    dimension: current_dimension,
+                    center: target,
+                    radius: PHASE0_REQUESTED_RADIUS_CHUNKS,
+                };
                 self.pending = Some(PendingFullViewTeleport {
                     started: observed_at,
-                    target_chunk: target,
-                    publisher_seen: self.latest_publisher_chunk == Some(target),
-                    publisher_latency: (self.latest_publisher_chunk == Some(target))
+                    target,
+                    publisher_seen: self.latest_publisher_cohort == Some(target),
+                    publisher_latency: (self.latest_publisher_cohort == Some(target))
                         .then_some(Duration::ZERO),
                     first_level_chunk_latency: None,
                     last_level_chunk_latency: None,
@@ -301,25 +324,48 @@ impl FullViewTeleportTracker {
                     sub_chunk_events: 0,
                     peak_network_events: 0,
                     clean_candidate: None,
+                    last_progress_at: None,
                 });
+                true
             }
-            protocol::WorldEvent::LevelChunk(_) => {
-                if let Some(pending) = &mut self.pending {
+            protocol::WorldEvent::LevelChunk(event) => {
+                if let Some(pending) = &mut self.pending
+                    && pending
+                        .target
+                        .contains_column(event.dimension, [event.x, event.z])
+                {
                     let latency = observed_at.saturating_duration_since(pending.started);
                     pending.first_level_chunk_latency.get_or_insert(latency);
                     pending.last_level_chunk_latency = Some(latency);
                     pending.level_chunk_events = pending.level_chunk_events.saturating_add(1);
                 }
+                false
             }
-            protocol::WorldEvent::SubChunks(_) => {
+            protocol::WorldEvent::SubChunks(batch) => {
                 if let Some(pending) = &mut self.pending {
+                    let target_entries = batch
+                        .entries
+                        .iter()
+                        .filter(|entry| {
+                            pending.target.contains_column(
+                                batch.dimension,
+                                [entry.position[0], entry.position[2]],
+                            )
+                        })
+                        .count();
+                    if target_entries == 0 {
+                        return false;
+                    }
                     let latency = observed_at.saturating_duration_since(pending.started);
                     pending.first_sub_chunk_latency.get_or_insert(latency);
                     pending.last_sub_chunk_latency = Some(latency);
-                    pending.sub_chunk_events = pending.sub_chunk_events.saturating_add(1);
+                    pending.sub_chunk_events = pending
+                        .sub_chunk_events
+                        .saturating_add(u64::try_from(target_entries).unwrap_or(u64::MAX));
                 }
+                false
             }
-            _ => {}
+            _ => false,
         }
     }
 
@@ -335,9 +381,9 @@ impl FullViewTeleportTracker {
                 .max(snapshot.work.network_events);
             if !pending.publisher_seen
                 || !snapshot.is_ready()
-                || self
-                    .minimum_loaded_columns
-                    .is_none_or(|minimum| snapshot.loaded_columns < minimum)
+                || snapshot
+                    .cohort
+                    .is_none_or(|status| status.target != pending.target)
             {
                 pending.clean_candidate = None;
                 return None;
@@ -384,16 +430,100 @@ impl FullViewTeleportTracker {
             }
         };
         if let Some(completion) = completion {
+            self.completed_target = self.pending.map(|pending| pending.target);
             self.pending = None;
             self.completed = Some(completion.settle_latency);
         }
         completion
     }
 
+    fn target_cohort(&self) -> Option<ViewCohort> {
+        self.pending
+            .map(|pending| pending.target)
+            .or(self.completed_target)
+    }
+
+    fn cohort_progress_line(
+        &mut self,
+        status: ViewCohortStatus,
+        work: WorldReadyWork,
+        now: Instant,
+    ) -> Option<String> {
+        let pending = self.pending.as_mut()?;
+        if pending.last_progress_at.is_some_and(|previous| {
+            now.saturating_duration_since(previous) < TELEPORT_COHORT_PROGRESS_INTERVAL
+        }) {
+            return None;
+        }
+        pending.last_progress_at = Some(now);
+        let committed = status
+            .committed
+            .map_or_else(|| "none".to_owned(), cohort_tag);
+        Some(format!(
+            "RUST_MCBE_TELEPORT_COHORT target={} committed={} exact={} expected={} loaded_target={} missing_target={} foreign_loaded={} foreign_requested={} foreign_resident={} source_leftover={} resident_count={} resident_hash={:016x} known_air_count={} known_air_hash={:016x} network_events={} network_commands={} admitted_world_events={} queued_decode_jobs={} in_flight_decode_jobs={} completed_decode_results={} pending_mesh_jobs={} in_flight_mesh_jobs={} pending_mesh_changes={} outbound_requests={} outstanding_sub_chunks={} pending_retry_requests={} render_queue_items={} pending_gpu_acknowledgements={} unacknowledged_meshes={}",
+            cohort_tag(pending.target),
+            committed,
+            status.is_exact(),
+            status.expected,
+            status.loaded_target,
+            status.missing_target,
+            status.foreign_loaded,
+            status.foreign_requested,
+            status.foreign_resident,
+            status.source_leftover,
+            status.resident_count,
+            status.resident_hash,
+            status.known_air_count,
+            status.known_air_hash,
+            work.network_events,
+            work.network_commands,
+            work.admitted_world_events,
+            work.queued_decode_jobs,
+            work.in_flight_decode_jobs,
+            work.completed_decode_results,
+            work.pending_mesh_jobs,
+            work.in_flight_mesh_jobs,
+            work.pending_mesh_changes,
+            work.outbound_requests,
+            work.outstanding_sub_chunks,
+            work.pending_retry_requests,
+            work.render_queue_items,
+            work.pending_gpu_acknowledgements,
+            work.unacknowledged_meshes,
+        ))
+    }
+
     #[cfg(test)]
     const fn is_pending(&self) -> bool {
         self.pending.is_some()
     }
+
+    #[cfg(test)]
+    fn has_clean_candidate(&self) -> bool {
+        self.pending
+            .is_some_and(|pending| pending.clean_candidate.is_some())
+    }
+}
+
+fn cohort_tag(cohort: ViewCohort) -> String {
+    format!(
+        "{}:{}:{}:{}",
+        cohort.dimension, cohort.center[0], cohort.center[1], cohort.radius
+    )
+}
+
+fn teleport_global_stage_diagnostic_marker(
+    target: ViewCohort,
+    completion: FullViewTeleportCompletion,
+) -> String {
+    format!(
+        "RUST_MCBE_TELEPORT_GLOBAL_STAGE_DIAGNOSTIC target={} global_commit_ms={:.4} global_mesh_dispatch_ms={:.4} global_mesh_complete_ms={:.4} global_mesh_ack_ms={:.4}",
+        cohort_tag(target),
+        optional_milliseconds(completion.last_chunk_commit_latency),
+        optional_milliseconds(completion.last_mesh_dispatch_latency),
+        optional_milliseconds(completion.last_mesh_completion_latency),
+        optional_milliseconds(completion.last_mesh_ack_latency),
+    )
 }
 
 fn latency_after(started: Instant, observed: Option<Instant>) -> Option<Duration> {
@@ -483,11 +613,16 @@ impl AcceptanceRun {
         self.duration.is_some()
     }
 
-    fn begin_world_ready(&mut self, ready_at: Instant, position: [f32; 3], loaded_columns: usize) {
+    fn begin_world_ready(
+        &mut self,
+        ready_at: Instant,
+        position: [f32; 3],
+        local_player_runtime_id: u64,
+    ) {
         self.deadline = self.duration.map(|duration| ready_at + duration);
         self.world_ready = true;
         self.full_view_teleport
-            .begin_world_ready(position, loaded_columns);
+            .begin_world_ready(position, local_player_runtime_id);
     }
 
     fn set_mutation_surface_anchor(&mut self, anchor: [i32; 2]) {
@@ -509,10 +644,16 @@ impl AcceptanceRun {
         }
     }
 
-    fn observe_full_view_teleport(&mut self, event: &protocol::WorldEvent, observed_at: Instant) {
-        if self.world_ready {
-            self.full_view_teleport.observe(event, observed_at);
-        }
+    fn observe_full_view_teleport(
+        &mut self,
+        event: &protocol::WorldEvent,
+        observed_at: Instant,
+        current_dimension: i32,
+    ) -> bool {
+        self.world_ready
+            && self
+                .full_view_teleport
+                .observe(event, observed_at, current_dimension)
     }
 
     fn acknowledge_mutation(
@@ -885,7 +1026,13 @@ fn receive_network_events(
                 };
                 let observed_at = Instant::now();
                 acceptance.observe_mutation(&sequenced.event, observed_at);
-                acceptance.observe_full_view_teleport(&sequenced.event, observed_at);
+                if acceptance.observe_full_view_teleport(
+                    &sequenced.event,
+                    observed_at,
+                    stream.current_dimension(),
+                ) {
+                    stream.capture_source_columns();
+                }
                 if let Err(error) = stream.submit(sequenced.sequence, sequenced.event) {
                     client_world.fatal_error = Some(format!("world FIFO rejected data: {error}"));
                 }
@@ -1104,6 +1251,10 @@ fn emit_world_ready(
         unacknowledged_meshes: stream.unacknowledged_mesh_count(),
     };
     if acceptance.world_ready {
+        let cohort = acceptance
+            .full_view_teleport
+            .target_cohort()
+            .map(|target| stream.cohort_status(target));
         let snapshot = TeleportReadySnapshot {
             received_radius_chunks: stats.received_radius_chunks,
             publisher_radius_chunks: stats.publisher_radius_chunks,
@@ -1111,6 +1262,7 @@ fn emit_world_ready(
             resident_sub_chunks: stats.resident_sub_chunks,
             visible_sub_chunks: cache.visible_rendered,
             loaded_columns: stream.loaded_column_count(),
+            cohort,
             last_chunk_commit_at: stats.last_chunk_commit_at,
             last_mesh_dispatch_at: stats.last_mesh_dispatch_at,
             last_mesh_completion_at: stats.last_mesh_completion_at,
@@ -1122,6 +1274,9 @@ fn emit_world_ready(
             .full_view_teleport
             .observe_snapshot(snapshot, observed_at)
         {
+            let cohort = snapshot
+                .cohort
+                .expect("teleport completion requires an exact cohort");
             let remesh_started = Instant::now();
             let queued_sub_chunks = stream.remesh_all_resident(remesh_started);
             if !acceptance
@@ -1135,7 +1290,11 @@ fn emit_world_ready(
             let mut stdout = std::io::stdout().lock();
             let _ = writeln!(
                 stdout,
-                "RUST_MCBE_TELEPORT_SETTLED ms={:.4} publisher_ms={:.4} first_level_ms={:.4} last_level_ms={:.4} level_events={} first_sub_ms={:.4} last_sub_ms={:.4} sub_events={} commit_ms={:.4} mesh_dispatch_ms={:.4} mesh_complete_ms={:.4} mesh_ack_ms={:.4} peak_network_events={} queued={} columns={} rendered={} resident={} visible={}",
+                "RUST_MCBE_TELEPORT_SETTLED target={} committed={} ms={:.4} publisher_ms={:.4} first_level_ms={:.4} last_level_ms={:.4} level_events={} first_sub_ms={:.4} last_sub_ms={:.4} sub_events={} peak_network_events={} queued={} columns={} expected={} loaded_target={} missing_target={} foreign_loaded={} foreign_requested={} foreign_resident={} source_leftover={} resident_count={} resident_hash={:016x} known_air_count={} known_air_hash={:016x} rendered={} resident={} visible={}",
+                cohort_tag(cohort.target),
+                cohort
+                    .committed
+                    .map_or_else(|| "none".to_owned(), cohort_tag),
                 teleport.settle_latency.as_secs_f64() * 1_000.0,
                 optional_milliseconds(teleport.publisher_latency),
                 optional_milliseconds(teleport.first_level_chunk_latency),
@@ -1144,19 +1303,42 @@ fn emit_world_ready(
                 optional_milliseconds(teleport.first_sub_chunk_latency),
                 optional_milliseconds(teleport.last_sub_chunk_latency),
                 teleport.sub_chunk_events,
-                optional_milliseconds(teleport.last_chunk_commit_latency),
-                optional_milliseconds(teleport.last_mesh_dispatch_latency),
-                optional_milliseconds(teleport.last_mesh_completion_latency),
-                optional_milliseconds(teleport.last_mesh_ack_latency),
                 teleport.peak_network_events,
                 queued_sub_chunks,
                 snapshot.loaded_columns,
+                cohort.expected,
+                cohort.loaded_target,
+                cohort.missing_target,
+                cohort.foreign_loaded,
+                cohort.foreign_requested,
+                cohort.foreign_resident,
+                cohort.source_leftover,
+                cohort.resident_count,
+                cohort.resident_hash,
+                cohort.known_air_count,
+                cohort.known_air_hash,
                 snapshot.rendered_sub_chunks,
                 snapshot.resident_sub_chunks,
                 snapshot.visible_sub_chunks,
             );
+            let _ = writeln!(
+                stdout,
+                "{}",
+                teleport_global_stage_diagnostic_marker(cohort.target, teleport)
+            );
             let _ = stdout.flush();
             return;
+        }
+        if let Some(status) = snapshot.cohort
+            && let Some(marker) = acceptance.full_view_teleport.cohort_progress_line(
+                status,
+                snapshot.work,
+                observed_at,
+            )
+        {
+            let mut stdout = std::io::stdout().lock();
+            let _ = writeln!(stdout, "{marker}");
+            let _ = stdout.flush();
         }
         if let Some(remesh_latency) = acceptance
             .full_view_remesh
@@ -1166,7 +1348,10 @@ fn emit_world_ready(
             let mut stdout = std::io::stdout().lock();
             let _ = writeln!(
                 stdout,
-                "RUST_MCBE_FORCED_FULL_VIEW_REMESH_SETTLED ms={:.4} queued={} rendered={} resident={} visible={}",
+                "RUST_MCBE_FORCED_FULL_VIEW_REMESH_SETTLED target={} ms={:.4} queued={} rendered={} resident={} visible={}",
+                snapshot
+                    .cohort
+                    .map_or_else(|| "none".to_owned(), |status| cohort_tag(status.target)),
                 remesh_latency.as_secs_f64() * 1_000.0,
                 acceptance
                     .full_view_remesh
@@ -1232,7 +1417,7 @@ fn emit_world_ready(
     acceptance.begin_world_ready(
         ready_at,
         stream.resolved_server_position().position,
-        stream.loaded_column_count(),
+        stream.local_player_runtime_id(),
     );
 }
 
@@ -1540,10 +1725,14 @@ fn cumulative_counter_delta(current: u64, previous: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use bevy::prelude::{Quat, Transform, Vec3};
-    use protocol::{BlockUpdateEvent, LevelChunkEvent, LevelChunkMode, WorldBootstrap, WorldEvent};
+    use protocol::{
+        BlockUpdateEvent, LevelChunkEvent, LevelChunkMode, SubChunkBatchEvent, SubChunkEntryEvent,
+        SubChunkResult, WorldBootstrap, WorldEvent,
+    };
     use std::time::{Duration, Instant};
     use world::SubChunkKey;
 
+    use crate::world_stream::{ViewCohort, ViewCohortStatus};
     use crate::{
         AcceptanceRun, FullViewRemeshTracker, FullViewTeleportTracker, MutationTracker,
         NETWORK_INGRESS_BUDGET_PER_FRAME, TeleportReadySnapshot, WORLD_READY_QUIET_INTERVAL,
@@ -1585,13 +1774,37 @@ mod tests {
         assert_eq!(acceptance.deadline, None);
 
         let world_ready_at = Instant::now() + Duration::from_secs(60);
-        acceptance.begin_world_ready(world_ready_at, [0.5, 70.0, 0.5], 1_000);
+        acceptance.begin_world_ready(world_ready_at, [0.5, 70.0, 0.5], 1);
 
         assert!(acceptance.world_ready);
         assert_eq!(
             acceptance.deadline,
             Some(world_ready_at + Duration::from_secs(900))
         );
+    }
+
+    const DESTINATION_COHORT: ViewCohort = ViewCohort {
+        dimension: 0,
+        center: [65, 65],
+        radius: 16,
+    };
+
+    fn exact_destination_status() -> ViewCohortStatus {
+        ViewCohortStatus {
+            target: DESTINATION_COHORT,
+            committed: Some(DESTINATION_COHORT),
+            expected: 1_089,
+            loaded_target: 1_089,
+            missing_target: 0,
+            foreign_loaded: 0,
+            foreign_requested: 0,
+            foreign_resident: 0,
+            source_leftover: 0,
+            resident_count: 9_000,
+            resident_hash: 0x1234,
+            known_air_count: 1_000,
+            known_air_hash: 0x5678,
+        }
     }
 
     fn settled_teleport_snapshot() -> TeleportReadySnapshot {
@@ -1601,7 +1814,8 @@ mod tests {
             rendered_sub_chunks: 8_000,
             resident_sub_chunks: 9_000,
             visible_sub_chunks: 7_000,
-            loaded_columns: 1_000,
+            loaded_columns: 1_089,
+            cohort: Some(exact_destination_status()),
             last_chunk_commit_at: None,
             last_mesh_dispatch_at: None,
             last_mesh_completion_at: None,
@@ -1610,11 +1824,366 @@ mod tests {
         }
     }
 
+    fn destination_tracker(started: Instant) -> FullViewTeleportTracker {
+        let mut tracker = FullViewTeleportTracker::new(true);
+        tracker.begin_world_ready([0.5, 70.0, 0.5], 1);
+        assert!(tracker.observe(
+            &WorldEvent::MovePlayer(protocol::MovePlayerEvent {
+                runtime_id: 1,
+                position: [1_040.5, 70.0, 1_040.5],
+                pitch: 0.0,
+                yaw: 0.0,
+            }),
+            started,
+            0,
+        ));
+        tracker.observe(
+            &WorldEvent::PublisherUpdate(protocol::PublisherUpdateEvent {
+                center: [1_040, 70, 1_040],
+                radius_blocks: 256,
+            }),
+            started + Duration::from_millis(100),
+            0,
+        );
+        tracker
+    }
+
+    #[test]
+    fn radius_16_with_one_loaded_target_column_and_empty_work_never_arms() {
+        let started = Instant::now();
+        let mut tracker = destination_tracker(started);
+        let mut snapshot = settled_teleport_snapshot();
+        let mut status = exact_destination_status();
+        status.loaded_target = 1;
+        status.missing_target = 1_088;
+        status.resident_count = 1;
+        status.known_air_count = 0;
+        snapshot.loaded_columns = 1;
+        snapshot.cohort = Some(status);
+
+        assert_eq!(
+            tracker.observe_snapshot(snapshot, started + Duration::from_millis(200)),
+            None
+        );
+        assert_eq!(
+            tracker.observe_snapshot(snapshot, started + Duration::from_secs(5)),
+            None
+        );
+        assert!(!tracker.has_clean_candidate());
+    }
+
+    #[test]
+    fn equal_total_loaded_count_with_missing_target_and_foreign_source_never_arms() {
+        let started = Instant::now();
+        let mut tracker = destination_tracker(started);
+        let mut snapshot = settled_teleport_snapshot();
+        let mut status = exact_destination_status();
+        status.loaded_target = 1_088;
+        status.missing_target = 1;
+        status.foreign_loaded = 1;
+        status.source_leftover = 1;
+        snapshot.loaded_columns = 1_089;
+        snapshot.cohort = Some(status);
+
+        assert_eq!(
+            tracker.observe_snapshot(snapshot, started + Duration::from_millis(200)),
+            None
+        );
+        assert_eq!(
+            tracker.observe_snapshot(snapshot, started + Duration::from_secs(5)),
+            None
+        );
+        assert!(!tracker.has_clean_candidate());
+    }
+
+    #[test]
+    fn replacing_resident_key_at_equal_counts_resets_stability() {
+        let started = Instant::now();
+        let mut tracker = destination_tracker(started);
+        let first = settled_teleport_snapshot();
+        assert_eq!(
+            tracker.observe_snapshot(first, started + Duration::from_millis(200)),
+            None
+        );
+
+        let mut replacement = first;
+        replacement.cohort.as_mut().unwrap().resident_hash = 0x9999;
+        assert_eq!(
+            tracker.observe_snapshot(replacement, started + Duration::from_millis(2_300)),
+            None,
+            "equal resident counts with different keys retained the old stability candidate"
+        );
+        assert_eq!(
+            tracker.observe_snapshot(replacement, started + Duration::from_millis(4_300)),
+            Some(super::FullViewTeleportCompletion {
+                settle_latency: Duration::from_millis(2_300),
+                publisher_latency: Some(Duration::from_millis(100)),
+                first_level_chunk_latency: None,
+                last_level_chunk_latency: None,
+                level_chunk_events: 0,
+                first_sub_chunk_latency: None,
+                last_sub_chunk_latency: None,
+                sub_chunk_events: 0,
+                last_chunk_commit_latency: None,
+                last_mesh_dispatch_latency: None,
+                last_mesh_completion_latency: None,
+                last_mesh_ack_latency: None,
+                peak_network_events: 0,
+            })
+        );
+    }
+
+    #[test]
+    fn wrong_target_center_dimension_or_radius_never_arms() {
+        let started = Instant::now();
+        let mut tracker = destination_tracker(started);
+        for (index, committed) in [
+            ViewCohort {
+                center: [64, 65],
+                ..DESTINATION_COHORT
+            },
+            ViewCohort {
+                dimension: 1,
+                ..DESTINATION_COHORT
+            },
+            ViewCohort {
+                radius: 15,
+                ..DESTINATION_COHORT
+            },
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut snapshot = settled_teleport_snapshot();
+            snapshot.cohort.as_mut().unwrap().committed = Some(committed);
+            assert_eq!(
+                tracker.observe_snapshot(
+                    snapshot,
+                    started + Duration::from_secs(u64::try_from(index).unwrap() * 3 + 1),
+                ),
+                None
+            );
+            assert!(!tracker.has_clean_candidate());
+        }
+    }
+
+    #[test]
+    fn previously_seen_wrong_radius_publisher_does_not_arm_target_stage() {
+        let started = Instant::now();
+        let mut tracker = FullViewTeleportTracker::new(true);
+        tracker.begin_world_ready([0.5, 70.0, 0.5], 1);
+        tracker.observe(
+            &WorldEvent::PublisherUpdate(protocol::PublisherUpdateEvent {
+                center: [1_040, 70, 1_040],
+                radius_blocks: 240,
+            }),
+            started,
+            0,
+        );
+        assert!(tracker.observe(
+            &WorldEvent::MovePlayer(protocol::MovePlayerEvent {
+                runtime_id: 1,
+                position: [1_040.5, 70.0, 1_040.5],
+                pitch: 0.0,
+                yaw: 0.0,
+            }),
+            started + Duration::from_millis(100),
+            0,
+        ));
+
+        assert_eq!(
+            tracker.observe_snapshot(
+                settled_teleport_snapshot(),
+                started + Duration::from_millis(200),
+            ),
+            None
+        );
+        assert_eq!(
+            tracker.observe_snapshot(
+                settled_teleport_snapshot(),
+                started + Duration::from_millis(2_200),
+            ),
+            None
+        );
+        assert!(!tracker.has_clean_candidate());
+    }
+
+    #[test]
+    fn teleport_cohort_progress_is_target_tagged_formatted_and_rate_limited() {
+        let started = Instant::now();
+        let mut tracker = destination_tracker(started);
+        let mut status = exact_destination_status();
+        status.loaded_target = 1;
+        status.missing_target = 1_088;
+        let work = WorldReadyWork {
+            outstanding_sub_chunks: 7,
+            unacknowledged_meshes: 3,
+            ..Default::default()
+        };
+
+        let line = tracker
+            .cohort_progress_line(status, work, started + Duration::from_millis(200))
+            .expect("first pending cohort observation should be inspectable");
+        assert!(line.starts_with("RUST_MCBE_TELEPORT_COHORT target=0:65:65:16"));
+        assert!(line.contains("committed=0:65:65:16"));
+        assert!(line.contains("expected=1089 loaded_target=1 missing_target=1088"));
+        assert!(line.contains("resident_count=9000 resident_hash=0000000000001234"));
+        assert!(line.contains("known_air_count=1000 known_air_hash=0000000000005678"));
+        assert!(line.contains("outstanding_sub_chunks=7"));
+        assert!(line.contains("unacknowledged_meshes=3"));
+        assert_eq!(
+            tracker.cohort_progress_line(status, work, started + Duration::from_millis(1_199),),
+            None
+        );
+        assert!(
+            tracker
+                .cohort_progress_line(status, work, started + Duration::from_millis(1_200))
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn global_stream_timestamps_are_emitted_as_separate_target_tagged_diagnostics() {
+        let marker = super::teleport_global_stage_diagnostic_marker(
+            DESTINATION_COHORT,
+            super::FullViewTeleportCompletion {
+                settle_latency: Duration::ZERO,
+                publisher_latency: None,
+                first_level_chunk_latency: None,
+                last_level_chunk_latency: None,
+                level_chunk_events: 0,
+                first_sub_chunk_latency: None,
+                last_sub_chunk_latency: None,
+                sub_chunk_events: 0,
+                last_chunk_commit_latency: Some(Duration::from_millis(10)),
+                last_mesh_dispatch_latency: Some(Duration::from_millis(20)),
+                last_mesh_completion_latency: Some(Duration::from_millis(30)),
+                last_mesh_ack_latency: Some(Duration::from_millis(40)),
+                peak_network_events: 0,
+            },
+        );
+
+        assert_eq!(
+            marker,
+            "RUST_MCBE_TELEPORT_GLOBAL_STAGE_DIAGNOSTIC target=0:65:65:16 global_commit_ms=10.0000 global_mesh_dispatch_ms=20.0000 global_mesh_complete_ms=30.0000 global_mesh_ack_ms=40.0000"
+        );
+    }
+
+    #[test]
+    fn foreign_and_source_events_do_not_advance_target_stage_diagnostics() {
+        let started = Instant::now();
+        let mut tracker = destination_tracker(started);
+        for (event, observed_at) in [
+            (
+                WorldEvent::LevelChunk(LevelChunkEvent {
+                    dimension: 0,
+                    x: 0,
+                    z: 0,
+                    mode: LevelChunkMode::LimitlessRequests,
+                    payload: Vec::new(),
+                }),
+                started + Duration::from_millis(200),
+            ),
+            (
+                WorldEvent::LevelChunk(LevelChunkEvent {
+                    dimension: 1,
+                    x: 65,
+                    z: 65,
+                    mode: LevelChunkMode::LimitlessRequests,
+                    payload: Vec::new(),
+                }),
+                started + Duration::from_millis(300),
+            ),
+            (
+                WorldEvent::SubChunks(SubChunkBatchEvent {
+                    dimension: 0,
+                    entries: vec![SubChunkEntryEvent {
+                        position: [0, -4, 0],
+                        result: SubChunkResult::AllAir,
+                    }],
+                }),
+                started + Duration::from_millis(400),
+            ),
+            (
+                WorldEvent::SubChunks(SubChunkBatchEvent {
+                    dimension: 1,
+                    entries: vec![SubChunkEntryEvent {
+                        position: [65, -4, 65],
+                        result: SubChunkResult::AllAir,
+                    }],
+                }),
+                started + Duration::from_millis(500),
+            ),
+        ] {
+            tracker.observe(&event, observed_at, 0);
+        }
+        tracker.observe(
+            &WorldEvent::LevelChunk(LevelChunkEvent {
+                dimension: 0,
+                x: 65,
+                z: 65,
+                mode: LevelChunkMode::LimitlessRequests,
+                payload: Vec::new(),
+            }),
+            started + Duration::from_millis(600),
+            0,
+        );
+        tracker.observe(
+            &WorldEvent::SubChunks(SubChunkBatchEvent {
+                dimension: 0,
+                entries: vec![
+                    SubChunkEntryEvent {
+                        position: [0, -4, 0],
+                        result: SubChunkResult::AllAir,
+                    },
+                    SubChunkEntryEvent {
+                        position: [65, -4, 65],
+                        result: SubChunkResult::AllAir,
+                    },
+                ],
+            }),
+            started + Duration::from_millis(700),
+            0,
+        );
+        assert_eq!(
+            tracker.observe_snapshot(
+                settled_teleport_snapshot(),
+                started + Duration::from_millis(800),
+            ),
+            None
+        );
+        let completion = tracker
+            .observe_snapshot(
+                settled_teleport_snapshot(),
+                started + Duration::from_millis(2_800),
+            )
+            .unwrap();
+
+        assert_eq!(completion.level_chunk_events, 1);
+        assert_eq!(
+            completion.first_level_chunk_latency,
+            Some(Duration::from_millis(600))
+        );
+        assert_eq!(
+            completion.last_level_chunk_latency,
+            Some(Duration::from_millis(600))
+        );
+        assert_eq!(completion.sub_chunk_events, 1);
+        assert_eq!(
+            completion.first_sub_chunk_latency,
+            Some(Duration::from_millis(700))
+        );
+        assert_eq!(
+            completion.last_sub_chunk_latency,
+            Some(Duration::from_millis(700))
+        );
+    }
+
     #[test]
     fn full_view_teleport_requires_far_motion_matching_publisher_and_stable_clean_work() {
         let started = Instant::now();
         let mut tracker = FullViewTeleportTracker::new(true);
-        tracker.begin_world_ready([0.5, 70.0, 0.5], 1_000);
+        tracker.begin_world_ready([0.5, 70.0, 0.5], 1);
 
         tracker.observe(
             &WorldEvent::MovePlayer(protocol::MovePlayerEvent {
@@ -1624,6 +2193,7 @@ mod tests {
                 yaw: 0.0,
             }),
             started,
+            0,
         );
         assert!(
             !tracker.is_pending(),
@@ -1638,6 +2208,7 @@ mod tests {
                 yaw: 0.0,
             }),
             started,
+            0,
         );
         assert!(tracker.is_pending());
         assert_eq!(
@@ -1655,6 +2226,7 @@ mod tests {
                 radius_blocks: 256,
             }),
             started + Duration::from_millis(1_100),
+            0,
         );
         assert_eq!(
             tracker.observe_snapshot(
@@ -1672,20 +2244,29 @@ mod tests {
                 payload: Vec::new(),
             }),
             started + Duration::from_millis(1_150),
+            0,
         );
         tracker.observe(
             &WorldEvent::SubChunks(protocol::SubChunkBatchEvent {
                 dimension: 0,
-                entries: Vec::new(),
+                entries: vec![SubChunkEntryEvent {
+                    position: [65, -4, 65],
+                    result: SubChunkResult::AllAir,
+                }],
             }),
             started + Duration::from_millis(1_300),
+            0,
         );
         tracker.observe(
             &WorldEvent::SubChunks(protocol::SubChunkBatchEvent {
                 dimension: 0,
-                entries: Vec::new(),
+                entries: vec![SubChunkEntryEvent {
+                    position: [65, -4, 65],
+                    result: SubChunkResult::AllAir,
+                }],
             }),
             started + Duration::from_millis(1_500),
+            0,
         );
         tracker.observe(
             &WorldEvent::PublisherUpdate(protocol::PublisherUpdateEvent {
@@ -1693,6 +2274,7 @@ mod tests {
                 radius_blocks: 256,
             }),
             started + Duration::from_millis(1_600),
+            0,
         );
         let mut clean = settled_teleport_snapshot();
         clean.last_chunk_commit_at = Some(started + Duration::from_millis(1_650));
@@ -1760,7 +2342,7 @@ mod tests {
     fn partial_target_column_coverage_never_settles_the_teleport_stream() {
         let started = Instant::now();
         let mut tracker = FullViewTeleportTracker::new(true);
-        tracker.begin_world_ready([0.5, 70.0, 0.5], 1_000);
+        tracker.begin_world_ready([0.5, 70.0, 0.5], 1);
         tracker.observe(
             &WorldEvent::MovePlayer(protocol::MovePlayerEvent {
                 runtime_id: 1,
@@ -1769,6 +2351,7 @@ mod tests {
                 yaw: 0.0,
             }),
             started,
+            0,
         );
         tracker.observe(
             &WorldEvent::PublisherUpdate(protocol::PublisherUpdateEvent {
@@ -1776,9 +2359,13 @@ mod tests {
                 radius_blocks: 256,
             }),
             started + Duration::from_millis(100),
+            0,
         );
         let mut partial = settled_teleport_snapshot();
         partial.loaded_columns = 999;
+        let status = partial.cohort.as_mut().unwrap();
+        status.loaded_target = 999;
+        status.missing_target = status.expected - status.loaded_target;
 
         assert_eq!(
             tracker.observe_snapshot(partial, started + Duration::from_millis(200)),

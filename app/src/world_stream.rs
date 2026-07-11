@@ -35,6 +35,80 @@ pub const DEFERRED_RETRY_CAPACITY: usize = 64;
 pub const MAX_SUB_CHUNK_RETRIES: u8 = 2;
 pub const MAX_PENDING_MESH_CHANGES: usize = 256;
 
+/// One exact horizontal publisher view, expressed in chunk columns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ViewCohort {
+    pub dimension: i32,
+    pub center: [i32; 2],
+    pub radius: i32,
+}
+
+impl ViewCohort {
+    #[must_use]
+    pub fn from_publisher(dimension: i32, center: [i32; 3], radius_blocks: u32) -> Self {
+        let chunks = radius_blocks.saturating_add(15) / 16;
+        Self {
+            dimension,
+            center: [center[0].div_euclid(16), center[2].div_euclid(16)],
+            radius: i32::try_from(chunks).unwrap_or(i32::MAX),
+        }
+    }
+
+    #[must_use]
+    pub fn contains_column(self, dimension: i32, column: [i32; 2]) -> bool {
+        dimension == self.dimension
+            && i64::from(column[0]).abs_diff(i64::from(self.center[0])) <= self.radius.max(0) as u64
+            && i64::from(column[1]).abs_diff(i64::from(self.center[1])) <= self.radius.max(0) as u64
+    }
+
+    #[must_use]
+    pub fn expected_columns(self) -> BTreeSet<ChunkKey> {
+        let radius = self.radius.max(0);
+        (-radius..=radius)
+            .flat_map(|x_offset| {
+                (-radius..=radius).map(move |z_offset| {
+                    ChunkKey::new(
+                        self.dimension,
+                        self.center[0].saturating_add(x_offset),
+                        self.center[1].saturating_add(z_offset),
+                    )
+                })
+            })
+            .collect()
+    }
+}
+
+/// Deterministic evidence that the committed world state matches one view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ViewCohortStatus {
+    pub target: ViewCohort,
+    pub committed: Option<ViewCohort>,
+    pub expected: usize,
+    pub loaded_target: usize,
+    pub missing_target: usize,
+    pub foreign_loaded: usize,
+    pub foreign_requested: usize,
+    pub foreign_resident: usize,
+    pub source_leftover: usize,
+    pub resident_count: usize,
+    pub resident_hash: u64,
+    pub known_air_count: usize,
+    pub known_air_hash: u64,
+}
+
+impl ViewCohortStatus {
+    #[must_use]
+    pub fn is_exact(self) -> bool {
+        self.committed == Some(self.target)
+            && self.loaded_target == self.expected
+            && self.missing_target == 0
+            && self.foreign_loaded == 0
+            && self.foreign_requested == 0
+            && self.foreign_resident == 0
+            && self.source_leftover == 0
+    }
+}
+
 #[derive(Debug)]
 struct SequenceBuffer<T> {
     next: u64,
@@ -508,6 +582,7 @@ pub struct WorldStream {
     network_id_mode: NetworkIdMode,
     runtime_assets: Arc<RuntimeAssets>,
     current_dimension: i32,
+    local_player_runtime_id: u64,
     ordered: SequenceBuffer<PreparedWorldEvent>,
     submitted: HashSet<u64>,
     heavy_sequences: HashSet<u64>,
@@ -535,6 +610,8 @@ pub struct WorldStream {
     committed_controls: VecDeque<CommittedControlEvent>,
     publisher_center: Option<[i32; 3]>,
     publisher_radius_chunks: Option<i32>,
+    committed_view_cohort: Option<ViewCohort>,
+    source_columns: BTreeSet<ChunkKey>,
     chunk_radius: Option<i32>,
     resolved_server_position: ResolvedServerPosition,
     stats: WorldStreamStats,
@@ -589,6 +666,7 @@ impl WorldStream {
             },
             runtime_assets,
             current_dimension: bootstrap.dimension,
+            local_player_runtime_id: bootstrap.local_player_runtime_id,
             ordered: SequenceBuffer::new(first_sequence),
             submitted: HashSet::new(),
             heavy_sequences: HashSet::new(),
@@ -620,6 +698,8 @@ impl WorldStream {
                 floor_to_i32(resolved_server_position.position[2]),
             ]),
             publisher_radius_chunks: None,
+            committed_view_cohort: None,
+            source_columns: BTreeSet::new(),
             chunk_radius: None,
             resolved_server_position,
             stats: WorldStreamStats::default(),
@@ -757,6 +837,11 @@ impl WorldStream {
     #[must_use]
     pub const fn current_dimension(&self) -> i32 {
         self.current_dimension
+    }
+
+    #[must_use]
+    pub const fn local_player_runtime_id(&self) -> u64 {
+        self.local_player_runtime_id
     }
 
     #[must_use]
@@ -1002,6 +1087,52 @@ impl WorldStream {
     #[must_use]
     pub fn loaded_column_count(&self) -> usize {
         self.loaded_columns.len()
+    }
+
+    /// Captures key-only source evidence at the far MovePlayer ingress edge.
+    pub fn capture_source_columns(&mut self) {
+        self.source_columns = self.tracked_columns();
+    }
+
+    #[must_use]
+    pub fn cohort_status(&self, target: ViewCohort) -> ViewCohortStatus {
+        let expected_columns = target.expected_columns();
+        let loaded_target = self.loaded_columns.intersection(&expected_columns).count();
+        let missing_target = expected_columns.difference(&self.loaded_columns).count();
+        let foreign_loaded = self.loaded_columns.difference(&expected_columns).count();
+        let foreign_requested = self
+            .requested_sub_chunks
+            .keys()
+            .filter(|column| !expected_columns.contains(column))
+            .count();
+        let foreign_resident = self
+            .resident
+            .iter()
+            .chain(&self.known_air)
+            .copied()
+            .filter(|key| !expected_columns.contains(&key.chunk()))
+            .collect::<BTreeSet<_>>()
+            .len();
+        let source_leftover = self
+            .tracked_columns()
+            .intersection(&self.source_columns)
+            .count();
+
+        ViewCohortStatus {
+            target,
+            committed: self.committed_view_cohort,
+            expected: expected_columns.len(),
+            loaded_target,
+            missing_target,
+            foreign_loaded,
+            foreign_requested,
+            foreign_resident,
+            source_leftover,
+            resident_count: self.resident.len(),
+            resident_hash: deterministic_sub_chunk_key_hash(&self.resident),
+            known_air_count: self.known_air.len(),
+            known_air_hash: deterministic_sub_chunk_key_hash(&self.known_air),
+        }
     }
 
     pub fn remesh_all_resident(&mut self, now: Instant) -> usize {
@@ -1386,12 +1517,14 @@ impl WorldStream {
             }
             WorldEvent::PublisherUpdate(update) => {
                 self.publisher_center = Some(update.center);
-                let chunks = update.radius_blocks.saturating_add(15) / 16;
-                self.publisher_radius_chunks = Some(
-                    i32::try_from(chunks)
-                        .unwrap_or(i32::MAX)
-                        .min(PHASE0_MAX_VIEW_RADIUS_CHUNKS),
+                let cohort = ViewCohort::from_publisher(
+                    self.current_dimension,
+                    update.center,
+                    update.radius_blocks,
                 );
+                self.publisher_radius_chunks =
+                    Some(cohort.radius.min(PHASE0_MAX_VIEW_RADIUS_CHUNKS));
+                self.committed_view_cohort = Some(cohort);
                 self.evict_outside_active_radius();
             }
             WorldEvent::ChangeDimension(change) => {
@@ -1409,6 +1542,7 @@ impl WorldStream {
                     floor_to_i32(resolved.position[2]),
                 ]);
                 self.publisher_radius_chunks = None;
+                self.committed_view_cohort = None;
                 self.push_committed_control(CommittedControlEvent::ChangeDimension {
                     change,
                     resolved,
@@ -1608,6 +1742,14 @@ impl WorldStream {
         for column in columns {
             self.evict_column(column);
         }
+    }
+
+    fn tracked_columns(&self) -> BTreeSet<ChunkKey> {
+        let mut columns = self.loaded_columns.clone();
+        columns.extend(self.requested_sub_chunks.keys().copied());
+        columns.extend(self.resident.iter().map(|key| key.chunk()));
+        columns.extend(self.known_air.iter().map(|key| key.chunk()));
+        columns
     }
 
     fn evict_outside_active_radius(&mut self) {
@@ -1957,6 +2099,18 @@ fn distance_squared(key: SubChunkKey, camera: [f32; 3]) -> f32 {
     dx.mul_add(dx, dy.mul_add(dy, dz * dz))
 }
 
+fn deterministic_sub_chunk_key_hash(keys: &BTreeSet<SubChunkKey>) -> u64 {
+    const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+    const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+
+    keys.iter()
+        .flat_map(|key| [key.dimension, key.x, key.y, key.z])
+        .flat_map(i32::to_le_bytes)
+        .fold(FNV_OFFSET_BASIS, |hash, byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(FNV_PRIME)
+        })
+}
+
 fn floor_to_i32(value: f32) -> i32 {
     if value.is_nan() {
         0
@@ -2163,6 +2317,178 @@ mod tests {
         let key = SubChunkKey::new(0, 100, -4, 0);
         assert_eq!(stream.publisher_center, Some([1_600, 64, 0]));
         assert!(stream.resident.contains(&key) || stream.known_air.contains(&key));
+    }
+
+    #[test]
+    fn equal_loaded_count_with_missing_target_and_source_replacement_is_not_exact() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        let target = super::ViewCohort {
+            dimension: 0,
+            center: [10, 10],
+            radius: 1,
+        };
+        assert_eq!(
+            super::ViewCohort {
+                dimension: 0,
+                center: [0, 0],
+                radius: 16,
+            }
+            .expected_columns()
+            .len(),
+            1_089
+        );
+        stream
+            .submit(
+                1,
+                WorldEvent::PublisherUpdate(PublisherUpdateEvent {
+                    center: [160, 64, 160],
+                    radius_blocks: 16,
+                }),
+            )
+            .unwrap();
+        let target_columns = target.expected_columns();
+        let missing = *target_columns.last().unwrap();
+        let source = ChunkKey::new(0, 0, 0);
+        stream.loaded_columns.insert(source);
+        stream.capture_source_columns();
+        stream.loaded_columns = target_columns
+            .iter()
+            .copied()
+            .filter(|column| *column != missing)
+            .collect();
+        stream.loaded_columns.insert(source);
+
+        let status = stream.cohort_status(target);
+
+        assert_eq!(status.expected, 9);
+        assert_eq!(status.loaded_target, 8);
+        assert_eq!(status.missing_target, 1);
+        assert_eq!(status.foreign_loaded, 1);
+        assert_eq!(status.source_leftover, 1);
+        assert!(!status.is_exact());
+
+        stream.loaded_columns.remove(&source);
+        stream.loaded_columns.insert(missing);
+
+        assert!(stream.cohort_status(target).is_exact());
+    }
+
+    #[test]
+    fn publisher_cohort_is_exposed_only_after_fifo_commit() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        let target = super::ViewCohort {
+            dimension: 0,
+            center: [100, 0],
+            radius: 16,
+        };
+
+        stream.submit(1, inline_air_event(0)).unwrap();
+        stream
+            .submit(
+                2,
+                WorldEvent::PublisherUpdate(PublisherUpdateEvent {
+                    center: [1_600, 64, 0],
+                    radius_blocks: 256,
+                }),
+            )
+            .unwrap();
+
+        assert_ne!(stream.cohort_status(target).committed, Some(target));
+
+        complete_pending_decode_jobs(&mut stream);
+
+        assert_eq!(stream.cohort_status(target).committed, Some(target));
+    }
+
+    #[test]
+    fn publisher_cohort_preserves_over_max_radius_while_runtime_scope_clamps() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        let target = super::ViewCohort {
+            dimension: 0,
+            center: [0, 0],
+            radius: 16,
+        };
+
+        stream
+            .submit(
+                1,
+                WorldEvent::PublisherUpdate(PublisherUpdateEvent {
+                    center: [0, 64, 0],
+                    radius_blocks: 272,
+                }),
+            )
+            .unwrap();
+
+        assert_eq!(
+            stream.cohort_status(target).committed,
+            Some(super::ViewCohort {
+                dimension: 0,
+                center: [0, 0],
+                radius: 17,
+            })
+        );
+        assert_eq!(stream.stats().publisher_radius_chunks, Some(16));
+    }
+
+    #[test]
+    fn equal_resident_and_known_air_counts_with_key_replacement_change_identity_hashes() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        let target = super::ViewCohort {
+            dimension: 0,
+            center: [0, 0],
+            radius: 1,
+        };
+        stream
+            .submit(
+                1,
+                WorldEvent::PublisherUpdate(PublisherUpdateEvent {
+                    center: [0, 64, 0],
+                    radius_blocks: 16,
+                }),
+            )
+            .unwrap();
+        let key_a = SubChunkKey::new(0, -1, 0, -1);
+        let key_b = SubChunkKey::new(0, 1, 0, 1);
+        stream.record_known_air(key_a);
+        let before = stream.cohort_status(target);
+
+        stream.resident.clear();
+        stream.known_air.clear();
+        stream.record_known_air(key_b);
+        let after = stream.cohort_status(target);
+
+        assert_eq!(before.resident_count, after.resident_count);
+        assert_ne!(before.resident_hash, after.resident_hash);
+        assert_eq!(before.known_air_count, after.known_air_count);
+        assert_ne!(before.known_air_hash, after.known_air_hash);
     }
 
     #[test]
