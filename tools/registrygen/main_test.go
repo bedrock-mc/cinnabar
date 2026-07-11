@@ -2,9 +2,12 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
+	"encoding/hex"
 	"image/color"
 	"math"
 	"math/rand"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -12,6 +15,7 @@ import (
 	"github.com/df-mc/dragonfly/server/block"
 	"github.com/df-mc/dragonfly/server/block/model"
 	"github.com/df-mc/dragonfly/server/world"
+	"github.com/sandertv/gophertunnel/minecraft/nbt"
 )
 
 type registryBiome struct {
@@ -190,23 +194,9 @@ func TestEncodeSortsRecordsAndMatchesExactBytes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
-	want := []byte{
-		'B', 'R', 'E', 'G', '1', '0', '0', '2',
-		0x02, 0x00, 0x00, 0x00,
-		0x01, 0x00, 0x00, 0x00,
-		0x44, 0x33, 0x22, 0x11,
-		0x01,
-		0x05, 0x00,
-		0x07, 0x00, 0x00, 0x00,
-		'a', 'l', 'p', 'h', 'a',
-		'{', '"', 'a', '"', ':', '1', '}',
-		0x02, 0x00, 0x00, 0x00,
-		0xdd, 0xcc, 0xbb, 0xaa,
-		0x06,
-		0x04, 0x00,
-		0x02, 0x00, 0x00, 0x00,
-		'z', 'e', 't', 'a',
-		'{', '}',
+	want, err := hex.DecodeString("4252454731303033e90300000200000002000000000000000000000002000000020000000100000044332211010000000000020000000500070000000000000000000000000000000000000000000000000000000000000000000000616c7068617b2261223a317d02000000ddccbbaa0600000000000200000004000200000000000000000000000000000000000000000000000000000000000000000000007a6574617b7d")
+	if err != nil {
+		t.Fatalf("decode expected BREG1003 fixture: %v", err)
 	}
 	if !bytes.Equal(got, want) {
 		t.Fatalf("encoded bytes:\n got: %x\nwant: %x", got, want)
@@ -590,4 +580,465 @@ func findAllByName(records []Record, name string) []Record {
 		}
 	}
 	return matches
+}
+
+func byteState(name string, value byte) StateProperty {
+	return StateProperty{Name: name, Value: TypedScalar{Kind: ScalarByte, Byte: value}}
+}
+
+func intState(name string, value int32) StateProperty {
+	return StateProperty{Name: name, Value: TypedScalar{Kind: ScalarInt, Int: value}}
+}
+
+func sourceState(name string, properties ...StateProperty) SourceState {
+	return SourceState{Name: name, Properties: properties}
+}
+
+func TestJoinSourcesBijection(t *testing.T) {
+	pmmp := []SourceState{
+		sourceState("minecraft:test", intState("level", 2), byteState("open", 1)),
+		sourceState("minecraft:air"),
+	}
+	dragonfly := []SourceState{
+		sourceState("minecraft:air"),
+		// Property order is deliberately reversed. Identity is the sorted typed
+		// compound, never input order.
+		sourceState("minecraft:test", byteState("open", 1), intState("level", 2)),
+	}
+	prismarine := []SourceState{
+		sourceState("minecraft:test", byteState("open", 1), intState("level", 2)),
+		sourceState("minecraft:air"),
+	}
+
+	joined, err := joinSources(pmmp, dragonfly, prismarine, canonicalStateHash)
+	if err != nil {
+		t.Fatalf("join sources: %v", err)
+	}
+	if len(joined) != 2 {
+		t.Fatalf("joined records = %d, want 2", len(joined))
+	}
+	if got, want := string(joined[0].StateJSON), `{}`; got != want {
+		t.Fatalf("air state = %s, want %s", got, want)
+	}
+	if got, want := string(joined[1].StateJSON), `{"level":{"type":"int","value":2},"open":{"type":"byte","value":1}}`; got != want {
+		t.Fatalf("typed state = %s, want %s", got, want)
+	}
+
+	t.Run("duplicate property", func(t *testing.T) {
+		bad := []SourceState{sourceState("minecraft:test", intState("level", 1), intState("level", 1))}
+		_, err := joinSources(bad, []SourceState{sourceState("minecraft:test", intState("level", 1))}, []SourceState{sourceState("minecraft:test", intState("level", 1))}, canonicalStateHash)
+		if err == nil || !strings.Contains(err.Error(), "duplicate state property") {
+			t.Fatalf("error = %v, want duplicate state property", err)
+		}
+	})
+
+	t.Run("missing and extra records", func(t *testing.T) {
+		_, err := joinSources(pmmp, dragonfly[:1], prismarine, canonicalStateHash)
+		if err == nil || !strings.Contains(err.Error(), "missing from Dragonfly") {
+			t.Fatalf("missing error = %v", err)
+		}
+		extra := append(append([]SourceState(nil), prismarine...), sourceState("minecraft:extra"))
+		_, err = joinSources(pmmp, dragonfly, extra, canonicalStateHash)
+		if err == nil || !strings.Contains(err.Error(), "extra in Prismarine") {
+			t.Fatalf("extra error = %v", err)
+		}
+	})
+
+	t.Run("deliberate canonical hash collision", func(t *testing.T) {
+		constantHash := func([]byte) uint64 { return 7 }
+		_, err := joinSources(pmmp, dragonfly, prismarine, constantHash)
+		if err == nil || !strings.Contains(err.Error(), "canonical state hash collision") {
+			t.Fatalf("collision error = %v", err)
+		}
+	})
+}
+
+func TestJoinSourcesRejectsTypedStateMismatch(t *testing.T) {
+	pmmp := []SourceState{sourceState("minecraft:test", intState("value", 1))}
+
+	tests := []struct {
+		name       string
+		dragonfly  []SourceState
+		prismarine []SourceState
+	}{
+		{
+			name:       "scalar type",
+			dragonfly:  []SourceState{sourceState("minecraft:test", byteState("value", 1))},
+			prismarine: pmmp,
+		},
+		{
+			name:       "unequal value",
+			dragonfly:  []SourceState{sourceState("minecraft:test", intState("value", 2))},
+			prismarine: pmmp,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := joinSources(pmmp, test.dragonfly, test.prismarine, canonicalStateHash)
+			if err == nil || !strings.Contains(err.Error(), "typed state mismatch") {
+				t.Fatalf("error = %v, want typed state mismatch", err)
+			}
+		})
+	}
+}
+
+func TestValentineSubsetAudit(t *testing.T) {
+	canonical := []SourceState{
+		sourceState("minecraft:air"),
+		sourceState("minecraft:new_block", intState("age", 0)),
+		sourceState("minecraft:test", byteState("open", 0)),
+		sourceState("minecraft:test", byteState("open", 1)),
+	}
+	valentine := []SourceState{
+		sourceState("minecraft:air"),
+		sourceState("minecraft:test", byteState("open", 0)),
+		sourceState("minecraft:test", byteState("open", 1)),
+	}
+
+	audit, err := auditValentineSubset(canonical, valentine)
+	if err != nil {
+		t.Fatalf("audit Valentine subset: %v", err)
+	}
+	if audit.CanonicalStates != 4 || audit.ValentineStates != 3 || audit.GapStates != 1 {
+		t.Fatalf("state counts = %+v", audit)
+	}
+	if audit.CanonicalNames != 3 || audit.ValentineNames != 2 || audit.GapNames != 1 {
+		t.Fatalf("name counts = %+v", audit)
+	}
+	if !slices.Equal(audit.MissingNames, []string{"minecraft:new_block"}) {
+		t.Fatalf("missing names = %#v", audit.MissingNames)
+	}
+	if audit.Joined != 3 || audit.Missing != 1 || audit.Extra != 0 || audit.Mismatched != 0 {
+		t.Fatalf("join disposition = %+v", audit)
+	}
+
+	reordered := []SourceState{valentine[2], valentine[0], valentine[1]}
+	_, err = auditValentineSubset(canonical, reordered)
+	if err == nil || !strings.Contains(err.Error(), "Valentine overlap order") {
+		t.Fatalf("order error = %v", err)
+	}
+	if len(audit.MissingStates) != 1 || !strings.Contains(audit.MissingStates[0], "minecraft:new_block") {
+		t.Fatalf("missing states = %#v", audit.MissingStates)
+	}
+
+	bad := append([]SourceState(nil), valentine...)
+	bad[0] = sourceState("minecraft:test", intState("open", 1))
+	_, err = auditValentineSubset(canonical, bad)
+	if err == nil || !strings.Contains(err.Error(), "Valentine typed state") {
+		t.Fatalf("mismatch error = %v", err)
+	}
+}
+
+func TestFileSHA256ReturnsReadError(t *testing.T) {
+	if _, err := fileSHA256(filepath.Join(t.TempDir(), "missing.bin")); err == nil {
+		t.Fatal("fileSHA256 accepted a missing source")
+	}
+}
+
+func TestSelectorCardinality(t *testing.T) {
+	var stairs []Record
+	for upsideDown := byte(0); upsideDown < 2; upsideDown++ {
+		for facing := int32(0); facing < 4; facing++ {
+			r, err := classifyRecord(sourceState(
+				"minecraft:oak_stairs",
+				intState("weirdo_direction", facing),
+				byteState("upside_down_bit", upsideDown),
+			))
+			if err != nil {
+				t.Fatalf("classify stair: %v", err)
+			}
+			stairs = append(stairs, r)
+		}
+	}
+	if err := validateSelectorCardinality(stairs); err != nil {
+		t.Fatalf("stair selector: %v", err)
+	}
+	for _, record := range stairs {
+		if record.ModelFamily != ModelFamilyStair || record.ContributorRole != ContributorPrimary {
+			t.Fatalf("stair classification = family %v role %v", record.ModelFamily, record.ContributorRole)
+		}
+		if record.FaceCoverage != 0 {
+			t.Fatalf("stair coverage = %#x, want conservative empty", record.FaceCoverage)
+		}
+	}
+
+	fixtures := []struct {
+		state  SourceState
+		family ModelFamily
+		role   ContributorRole
+		field  ModelStateField
+		value  uint32
+	}{
+		{sourceState("minecraft:short_grass"), ModelFamilyCross, ContributorPrimary, 0, 0},
+		{sourceState("minecraft:fern"), ModelFamilyCross, ContributorPrimary, 0, 0},
+		{sourceState("minecraft:red_flower", intState("flower_type", 0)), ModelFamilyCross, ContributorPrimary, 0, 0},
+		{sourceState("minecraft:wheat", intState("growth", 7)), ModelFamilyCrop, ContributorPrimary, ModelStateGrowth, 7},
+		{sourceState("minecraft:melon_stem", intState("growth", 4)), ModelFamilyCrop, ContributorPrimary, ModelStateGrowth, 4},
+		{sourceState("minecraft:water", intState("liquid_depth", 15)), ModelFamilyLiquid, ContributorLiquidAdditional, ModelStateLiquidDepth, 15},
+		{sourceState("minecraft:flowing_water", intState("liquid_depth", 3)), ModelFamilyLiquid, ContributorLiquidAdditional, ModelStateLiquidDepth, 3},
+		{sourceState("minecraft:stone_block_slab", intState("vertical_half", 0)), ModelFamilySlab, ContributorPrimary, ModelStateHalf, 0},
+		{sourceState("minecraft:stone_block_slab", intState("vertical_half", 1)), ModelFamilySlab, ContributorPrimary, ModelStateHalf, 1},
+		{sourceState("minecraft:double_stone_block_slab"), ModelFamilySlab, ContributorPrimary, ModelStateHalf, 2},
+		{sourceState("minecraft:cinnabar_slab", StateProperty{Name: "minecraft:vertical_half", Value: TypedScalar{Kind: ScalarString, String: "top"}}), ModelFamilySlab, ContributorPrimary, ModelStateHalf, 1},
+		{sourceState("minecraft:test", StateProperty{Name: "cardinal_direction", Value: TypedScalar{Kind: ScalarString, String: "north"}}), ModelFamilyUnknown, ContributorPrimary, ModelStateOrientation, 2},
+		{sourceState("minecraft:vine", intState("vine_direction_bits", 9)), ModelFamilyUnknown, ContributorPrimary, ModelStateConnections, 9},
+		{sourceState("minecraft:iron_bars"), ModelFamilyPane, ContributorPrimary, 0, 0},
+		{sourceState("minecraft:red_bed", intState("direction", 2)), ModelFamilyBed, ContributorPrimary, ModelStateOrientation, 2},
+		{sourceState("minecraft:dandelion"), ModelFamilyCross, ContributorPrimary, 0, 0},
+		{sourceState("minecraft:tall_seagrass"), ModelFamilyAquatic, ContributorPrimary, 0, 0},
+		{sourceState("minecraft:cocoa", intState("age", 2)), ModelFamilyCocoa, ContributorPrimary, ModelStateGrowth, 2},
+		{sourceState("minecraft:tube_coral_block"), ModelFamilyUnknown, ContributorPrimary, 0, 0},
+		{sourceState("minecraft:sea_pickle", intState("cluster_count", 2)), ModelFamilyUnknown, ContributorPrimary, 0, 0},
+		{sourceState("minecraft:copper_bars"), ModelFamilyPane, ContributorPrimary, 0, 0},
+		{sourceState("minecraft:torchflower"), ModelFamilyCross, ContributorPrimary, 0, 0},
+		{sourceState("minecraft:lever", StateProperty{Name: "lever_direction", Value: TypedScalar{Kind: ScalarString, String: "north"}}), ModelFamilyLever, ContributorPrimary, ModelStateOrientation, 4},
+		{sourceState("minecraft:barrier"), ModelFamilyInvisible, ContributorPrimary, 0, 0},
+		{sourceState("minecraft:dragon_egg"), ModelFamilyDecorative, ContributorPrimary, 0, 0},
+		{sourceState("minecraft:brown_mushroom"), ModelFamilyCross, ContributorPrimary, 0, 0},
+		{sourceState("minecraft:deadbush"), ModelFamilyCross, ContributorPrimary, 0, 0},
+		{sourceState("minecraft:cave_vines", intState("growing_plant_age", 4)), ModelFamilyCross, ContributorPrimary, 0, 0},
+		{sourceState("minecraft:white_glazed_terracotta", intState("facing_direction", 2)), ModelFamilyCube, ContributorPrimary, ModelStateOrientation, 2},
+		{sourceState("minecraft:chorus_flower", intState("age", 3)), ModelFamilyUnknown, ContributorPrimary, ModelStateGrowth, 3},
+		{sourceState("minecraft:waxed_copper_golem_statue", intState("copper_golem_pose", 1)), ModelFamilyStatue, ContributorPrimary, 0, 0},
+		{sourceState("minecraft:soul_sand"), ModelFamilyCuboid, ContributorPrimary, 0, 0},
+		{sourceState("minecraft:mud"), ModelFamilyCuboid, ContributorPrimary, 0, 0},
+		{sourceState("minecraft:cobblestone_wall",
+			StateProperty{Name: "wall_connection_type_north", Value: TypedScalar{Kind: ScalarString, String: "short"}},
+			StateProperty{Name: "wall_connection_type_east", Value: TypedScalar{Kind: ScalarString, String: "tall"}},
+			StateProperty{Name: "wall_connection_type_south", Value: TypedScalar{Kind: ScalarString, String: "none"}},
+			StateProperty{Name: "wall_connection_type_west", Value: TypedScalar{Kind: ScalarString, String: "short"}},
+			byteState("wall_post_bit", 1)), ModelFamilyWall, ContributorPrimary, ModelStateConnections, 329},
+	}
+	for _, fixture := range fixtures {
+		record, err := classifyRecord(fixture.state)
+		if err != nil {
+			t.Fatalf("classify %s: %v", fixture.state.Name, err)
+		}
+		if record.ModelFamily != fixture.family || record.ContributorRole != fixture.role {
+			t.Errorf("%s = family %v role %v", fixture.state.Name, record.ModelFamily, record.ContributorRole)
+		}
+		if fixture.field != 0 {
+			value, ok := record.ModelState.Get(fixture.field)
+			if !ok || value != fixture.value {
+				t.Errorf("%s field %v = %d/%v, want %d", fixture.state.Name, fixture.field, value, ok, fixture.value)
+			}
+		}
+	}
+
+	broken := append([]Record(nil), stairs[:7]...)
+	if err := validateSelectorCardinality(broken); err == nil || !strings.Contains(err.Error(), "selector cardinality") {
+		t.Fatalf("broken selector error = %v", err)
+	}
+}
+
+func TestEncodeBREG1003Canonical(t *testing.T) {
+	record, err := classifyRecord(sourceState("minecraft:stone"))
+	if err != nil {
+		t.Fatalf("classify record: %v", err)
+	}
+	record.SequentialID = 0
+	record.NetworkHash = 0x11223344
+	record.Flags = flagCubeGeometry | flagOccludesFullFace
+	record.CollisionSeed = CollisionSeed{
+		ShapeID:    7,
+		Confidence: CollisionConfidenceCollisionOnly,
+		Boxes:      []CollisionBox{{MinX: 0, MinY: 0, MinZ: 0, MaxX: 4096, MaxY: 4096, MaxZ: 4096}},
+	}
+	record.Provenance = ProvenancePMMP | ProvenanceDragonfly | ProvenancePrismarine | ProvenanceValentine
+
+	metadata := RegistryMetadata{
+		Protocol:           1001,
+		CanonicalNames:     1,
+		CanonicalStates:    1,
+		ValentineNames:     1,
+		ValentineStates:    1,
+		ValentineGapNames:  0,
+		ValentineGapStates: 0,
+	}
+	first, err := encodeWithMetadata(metadata, []Record{record})
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	second, err := encodeWithMetadata(metadata, []Record{record})
+	if err != nil {
+		t.Fatalf("encode repeat: %v", err)
+	}
+	if !bytes.Equal(first, second) {
+		t.Fatal("BREG1003 encoding is not deterministic")
+	}
+	if got := string(first[:8]); got != "BREG1003" {
+		t.Fatalf("magic = %q", got)
+	}
+	if got := binary.LittleEndian.Uint32(first[8:12]); got != 1001 {
+		t.Fatalf("protocol = %d", got)
+	}
+}
+
+func TestEncodeBREG1003AcceptsAquaticFamily(t *testing.T) {
+	record := testRecord(0, 1)
+	record.ModelFamily = ModelFamilyAquatic
+	record.Provenance = ProvenancePMMP | ProvenanceDragonfly | ProvenancePrismarine
+	if _, err := encode([]Record{record}); err != nil {
+		t.Fatalf("encode aquatic family: %v", err)
+	}
+}
+
+func TestEncodeBREG1003RejectsValentineProvenanceMetadataMismatch(t *testing.T) {
+	records := []Record{testRecord(0, 1), testRecord(1, 2)}
+	records[0].Name = "minecraft:first"
+	records[1].Name = "minecraft:second"
+	for i := range records {
+		records[i].Provenance = ProvenancePMMP | ProvenanceDragonfly | ProvenancePrismarine | ProvenanceValentine
+	}
+	metadata := RegistryMetadata{Protocol: 1001, CanonicalNames: 2, CanonicalStates: 2, ValentineNames: 1, ValentineStates: 2, ValentineGapNames: 1}
+	if _, err := encodeWithMetadata(metadata, records); err == nil || !strings.Contains(err.Error(), "Valentine provenance name count") {
+		t.Fatalf("name mismatch error = %v", err)
+	}
+	metadata.ValentineNames = 2
+	metadata.ValentineGapNames = 0
+	metadata.ValentineStates = 1
+	metadata.ValentineGapStates = 1
+	if _, err := encodeWithMetadata(metadata, records); err == nil || !strings.Contains(err.Error(), "Valentine provenance state count") {
+		t.Fatalf("state mismatch error = %v", err)
+	}
+}
+
+func TestDecodeNBTStatesStopsAtExactBufferEnd(t *testing.T) {
+	first, err := nbt.Marshal(nbtState{Name: "minecraft:air", Properties: map[string]any{}, Version: 1})
+	if err != nil {
+		t.Fatalf("marshal first NBT state: %v", err)
+	}
+	second, err := nbt.Marshal(nbtState{Name: "minecraft:test", Properties: map[string]any{"open": uint8(1)}, Version: 1})
+	if err != nil {
+		t.Fatalf("marshal second NBT state: %v", err)
+	}
+	states, err := decodeNBTStates(append(first, second...))
+	if err != nil {
+		t.Fatalf("decode exact NBT stream: %v", err)
+	}
+	if len(states) != 2 || states[1].Name != "minecraft:test" {
+		t.Fatalf("decoded states = %#v", states)
+	}
+}
+
+func TestCollisionSeedPreservesPinnedDecimalCoordinates(t *testing.T) {
+	seed, err := collisionSeed(35, map[string][][]float64{
+		"35": {{0.025, -0.0625, 0.1, 0.95000005, 1.0, 0.9}},
+	})
+	if err != nil {
+		t.Fatalf("collision seed: %v", err)
+	}
+	want := CollisionBox{MinX: 2_500_000, MinY: -6_250_000, MinZ: 10_000_000, MaxX: 95_000_005, MaxY: 100_000_000, MaxZ: 90_000_000}
+	if len(seed.Boxes) != 1 || seed.Boxes[0] != want {
+		t.Fatalf("collision boxes = %#v, want %#v", seed.Boxes, want)
+	}
+}
+
+func TestCollisionShapeVariantOrdering(t *testing.T) {
+	ids := []uint16{8, 3, 5}
+	for occurrence, want := range ids {
+		got, err := collisionShapeID(ids, occurrence, len(ids))
+		if err != nil || got != want {
+			t.Fatalf("variant %d = %d, %v; want %d", occurrence, got, err, want)
+		}
+	}
+	if got, err := collisionShapeID([]uint16{7}, 2, 4); err != nil || got != 7 {
+		t.Fatalf("shared shape = %d, %v", got, err)
+	}
+	if _, err := collisionShapeID([]uint16{1, 2}, 0, 3); err == nil || !strings.Contains(err.Error(), "variant cardinality") {
+		t.Fatalf("cardinality error = %v", err)
+	}
+}
+
+func TestValidateRealProvenance(t *testing.T) {
+	records := make([]Record, 4)
+	for i := range records {
+		records[i].Provenance = ProvenancePMMP | ProvenanceDragonfly | ProvenancePrismarine
+		if i < 3 {
+			records[i].Provenance |= ProvenanceValentine
+		}
+	}
+	audit := ValentineAudit{CanonicalStates: 4, ValentineStates: 3, Joined: 3, Missing: 1}
+	if err := validateRealProvenance(records, audit); err != nil {
+		t.Fatalf("valid provenance: %v", err)
+	}
+	bad := append([]Record(nil), records...)
+	bad[0].Provenance &^= ProvenancePrismarine
+	if err := validateRealProvenance(bad, audit); err == nil || !strings.Contains(err.Error(), "canonical provenance") {
+		t.Fatalf("canonical provenance error = %v", err)
+	}
+	bad = append([]Record(nil), records...)
+	bad[3].Provenance |= ProvenanceValentine
+	if err := validateRealProvenance(bad, audit); err == nil || !strings.Contains(err.Error(), "Valentine provenance") {
+		t.Fatalf("Valentine provenance error = %v", err)
+	}
+}
+
+func TestNonCubeFamiliesOverrideLegacySolidFlags(t *testing.T) {
+	nonUnit := CollisionSeed{ShapeID: 2, Confidence: CollisionConfidenceCollisionOnly, Boxes: []CollisionBox{{MaxX: 100_000_000, MaxY: 90_000_000, MaxZ: 100_000_000}}}
+	for _, family := range []ModelFamily{ModelFamilyStatue, ModelFamilyCuboid} {
+		record := Record{ModelFamily: family, Flags: flagCubeGeometry | flagOccludesFullFace, CollisionSeed: nonUnit}
+		finalizeGeometryFacts(&record)
+		if record.Flags != 0 || record.FaceCoverage != 0 || record.ModelFamily != family {
+			t.Fatalf("family %v retained false cube facts: %+v", family, record)
+		}
+	}
+	unit := CollisionSeed{ShapeID: 1, Confidence: CollisionConfidenceCollisionOnly, Boxes: []CollisionBox{{MaxX: 100_000_000, MaxY: 100_000_000, MaxZ: 100_000_000}}}
+	record := Record{ModelFamily: ModelFamilyCube, CollisionSeed: unit}
+	finalizeGeometryFacts(&record)
+	if record.FaceCoverage != 0x3f {
+		t.Fatalf("reviewed split cube coverage = %#x", record.FaceCoverage)
+	}
+}
+
+func TestRequiredFamilySelectorFlags(t *testing.T) {
+	tests := []struct {
+		state       SourceState
+		orientation uint32
+		flags       uint32
+	}{
+		{sourceState("minecraft:golden_rail", intState("rail_direction", 5), byteState("rail_data_bit", 1)), 5, modelFlagPowered},
+		{sourceState("minecraft:stone_button", intState("facing_direction", 3), byteState("button_pressed_bit", 1)), 3, modelFlagPressed},
+		{sourceState("minecraft:lever", StateProperty{Name: "lever_direction", Value: TypedScalar{Kind: ScalarString, String: "up_east_west"}}), 6, 0},
+		{sourceState("minecraft:oak_hanging_sign", intState("ground_sign_direction", 7), byteState("attached_bit", 1), byteState("hanging", 1)), 7, modelFlagAttached | modelFlagHanging},
+		{sourceState("minecraft:red_bed", intState("direction", 2), byteState("head_piece_bit", 1), byteState("occupied_bit", 1)), 2, modelFlagHead | modelFlagOccupied},
+		{sourceState("minecraft:oak_fence_gate", intState("direction", 1), byteState("in_wall_bit", 1)), 1, modelFlagInWall},
+		{sourceState("minecraft:oak_door", intState("direction", 3), byteState("upper_block_bit", 1)), 3, modelFlagUpper},
+		{sourceState("minecraft:test", StateProperty{Name: "cardinal_direction", Value: TypedScalar{Kind: ScalarString, String: "east"}}), 3, 0},
+		{sourceState("minecraft:torch", StateProperty{Name: "torch_facing_direction", Value: TypedScalar{Kind: ScalarString, String: "south"}}), 4, 0},
+	}
+	for _, test := range tests {
+		record, err := classifyRecord(test.state)
+		if err != nil {
+			t.Fatalf("classify %s: %v", test.state.Name, err)
+		}
+		if got, ok := record.ModelState.Get(ModelStateOrientation); !ok || got != test.orientation {
+			t.Errorf("%s orientation = %d/%v, want %d", test.state.Name, got, ok, test.orientation)
+		}
+		if test.flags != 0 {
+			if got, ok := record.ModelState.Get(ModelStateFlags); !ok || got != test.flags {
+				t.Errorf("%s flags = %#x/%v, want %#x", test.state.Name, got, ok, test.flags)
+			}
+		}
+	}
+}
+
+func TestClassifyRecordCanonicalPropertyOrder(t *testing.T) {
+	properties := []StateProperty{
+		intState("direction", 1),
+		intState("facing_direction", 2),
+		byteState("upper_block_bit", 1),
+	}
+	forward, err := classifyRecord(sourceState("minecraft:test", properties...))
+	if err != nil {
+		t.Fatalf("classify forward: %v", err)
+	}
+	slices.Reverse(properties)
+	reverse, err := classifyRecord(sourceState("minecraft:test", properties...))
+	if err != nil {
+		t.Fatalf("classify reverse: %v", err)
+	}
+	if forward.ModelState != reverse.ModelState || !bytes.Equal(forward.StateJSON, reverse.StateJSON) {
+		t.Fatalf("classification depends on property order: %+v vs %+v", forward.ModelState, reverse.ModelState)
+	}
 }

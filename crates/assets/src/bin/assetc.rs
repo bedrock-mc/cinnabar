@@ -33,7 +33,7 @@ enum Command {
         /// Root containing blocks.json and the textures directory.
         #[arg(long)]
         pack: PathBuf,
-        /// BREG1002 registry exported by tools/registrygen.
+        /// BREG1003 registry exported by tools/registrygen.
         #[arg(long)]
         registry: PathBuf,
         /// BIOREG01 registry exported by tools/registrygen.

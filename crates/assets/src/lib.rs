@@ -34,5 +34,8 @@ pub use pack::{
     BlockFace, BlockTextureMap, FlipbookSource, MAX_FLIPBOOK_FRAMES, MAX_FLIPBOOKS, PackSources,
     TerrainTextureMap, TextureKey, read_pack, resolve_texture_key,
 };
-pub use registry::{BlockFlags, RegistryRecord, read_registry};
+pub use registry::{
+    BlockFlags, CollisionBox, CollisionConfidence, CollisionSeed, ContributorRole, ModelFamily,
+    ModelState, ModelStateField, RegistryProvenance, RegistryRecord, read_registry,
+};
 pub use runtime::{NetworkIdMode, ResolvedBlock, ResolvedFace, RuntimeAssets};

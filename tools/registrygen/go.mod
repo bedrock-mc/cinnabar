@@ -2,7 +2,10 @@ module github.com/hashimthearab/rust-mcbe/tools/registrygen
 
 go 1.26.1
 
-require github.com/df-mc/dragonfly v0.10.15-0.20260709170650-b85c56ffea6b
+require (
+	github.com/df-mc/dragonfly v0.10.15-0.20260709170650-b85c56ffea6b
+	github.com/sandertv/gophertunnel v1.57.0
+)
 
 require (
 	github.com/brentp/intintmap v0.0.0-20251106190759-56907b1f8479 // indirect
@@ -12,7 +15,6 @@ require (
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/klauspost/compress v1.18.4 // indirect
-	github.com/sandertv/gophertunnel v1.57.0 // indirect
 	github.com/segmentio/fasthash v1.0.3 // indirect
 	golang.org/x/exp v0.0.0-20250103183323-7d7fa50e5329 // indirect
 	golang.org/x/net v0.38.0 // indirect

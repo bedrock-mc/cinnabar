@@ -1,7 +1,8 @@
 use std::{fs, path::Path};
 
 use assets::{
-    AssetError, BlockFace, BlockFlags, MAX_FLIPBOOK_FRAMES, MAX_FLIPBOOKS, RegistryRecord,
+    AssetError, BlockFace, BlockFlags, CollisionConfidence, ContributorRole, MAX_FLIPBOOK_FRAMES,
+    MAX_FLIPBOOKS, ModelFamily, ModelState, ModelStateField, RegistryProvenance, RegistryRecord,
     TextureKey, read_pack, read_registry, resolve_texture_key,
 };
 use tempfile::TempDir;
@@ -61,14 +62,31 @@ fn pack_with_flipbooks(flipbooks: &str) -> TempDir {
 }
 
 fn registry_bytes(records: &[RegistryFixture<'_>]) -> Vec<u8> {
-    let mut bytes = b"BREG1002".to_vec();
+    let mut bytes = b"BREG1003".to_vec();
+    bytes.extend_from_slice(&1001_u32.to_le_bytes());
+    bytes.extend_from_slice(&(records.len() as u32).to_le_bytes());
+    bytes.extend_from_slice(&(records.len() as u32).to_le_bytes());
+    bytes.extend_from_slice(&0_u32.to_le_bytes());
+    bytes.extend_from_slice(&0_u32.to_le_bytes());
+    bytes.extend_from_slice(&(records.len() as u32).to_le_bytes());
     bytes.extend_from_slice(&(records.len() as u32).to_le_bytes());
     for &(sequential_id, network_hash, flags, name, state) in records {
         bytes.extend_from_slice(&sequential_id.to_le_bytes());
         bytes.extend_from_slice(&network_hash.to_le_bytes());
         bytes.push(flags);
+        bytes.push(if flags & 1 != 0 { 1 } else { 0 });
+        bytes.push(if flags & 1 != 0 { 2 } else { 0 });
+        bytes.push(0);
+        bytes.push(if flags & 4 != 0 { 0x3f } else { 0 });
+        bytes.push(0);
+        bytes.push(1 << 1);
+        bytes.push(0);
+        bytes.extend_from_slice(&0_u16.to_le_bytes());
         bytes.extend_from_slice(&(name.len() as u16).to_le_bytes());
         bytes.extend_from_slice(&(state.len() as u32).to_le_bytes());
+        for _ in 0..8 {
+            bytes.extend_from_slice(&0_u32.to_le_bytes());
+        }
         bytes.extend_from_slice(name);
         bytes.extend_from_slice(state);
     }
@@ -82,6 +100,12 @@ fn record(name: &str, canonical_state: &str) -> RegistryRecord {
         name: name.into(),
         canonical_state: canonical_state.into(),
         flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
+        model_family: ModelFamily::Cube,
+        contributor_role: ContributorRole::Primary,
+        model_state: ModelState::default(),
+        face_coverage: 0x3f,
+        collision_seed: Default::default(),
+        provenance: RegistryProvenance::DRAGONFLY,
     }
 }
 
@@ -125,10 +149,151 @@ fn registry_reader_decodes_dragonfly_records_and_flags() {
     assert_eq!(&*records[0].name, "minecraft:air");
     assert_eq!(&*records[0].canonical_state, "{}");
     assert_eq!(records[0].flags, BlockFlags::AIR);
+    assert_eq!(records[0].model_family, ModelFamily::Air);
+    assert_eq!(records[0].contributor_role, ContributorRole::Air);
+    assert_eq!(records[0].face_coverage, 0);
+    assert_eq!(
+        records[0].collision_seed.confidence,
+        CollisionConfidence::None
+    );
+    assert_eq!(records[0].provenance, RegistryProvenance::DRAGONFLY);
     assert_eq!(
         records[1].flags,
         BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE
     );
+}
+
+#[test]
+fn registry_reader_exposes_typed_model_state() {
+    let mut bytes = registry_bytes(&[(
+        7,
+        11,
+        0,
+        b"minecraft:wheat",
+        br#"{"growth":{"type":"int","value":7}}"#,
+    )]);
+    let record_start = 8 + 7 * 4;
+    bytes[record_start + 11] = 1 << ((ModelStateField::Growth as u8) - 1);
+    let values_start = record_start + 24;
+    bytes[values_start + 5 * 4..values_start + 6 * 4].copy_from_slice(&7_u32.to_le_bytes());
+    let records = read_registry(&bytes).expect("typed BREG1003 registry");
+    assert_eq!(records[0].model_state.get(ModelStateField::Growth), Some(7));
+}
+
+#[test]
+fn registry_reader_decodes_fixed_collision_seed() {
+    let mut bytes = registry_bytes(&[(9, 12, 0, b"minecraft:test", b"{}")]);
+    let record_start = 8 + 7 * 4;
+    bytes[record_start + 13] = CollisionConfidence::CollisionOnly as u8;
+    bytes[record_start + 15] = 1;
+    bytes[record_start + 16..record_start + 18].copy_from_slice(&7_u16.to_le_bytes());
+    let coordinates = [
+        -6_250_000_i32,
+        0,
+        2_500_000,
+        100_000_000,
+        95_000_005,
+        90_000_000,
+    ];
+    let mut encoded_box = Vec::with_capacity(24);
+    for coordinate in coordinates {
+        encoded_box.extend_from_slice(&coordinate.to_le_bytes());
+    }
+    bytes.splice(record_start + 56..record_start + 56, encoded_box);
+
+    let records = read_registry(&bytes).expect("collision BREG1003 registry");
+    assert_eq!(records[0].collision_seed.shape_id, 7);
+    assert_eq!(
+        records[0].collision_seed.confidence,
+        CollisionConfidence::CollisionOnly
+    );
+    assert_eq!(records[0].collision_seed.boxes.len(), 1);
+    assert_eq!(records[0].collision_seed.boxes[0].min_x, -6_250_000);
+    assert_eq!(records[0].collision_seed.boxes[0].max_y, 95_000_005);
+}
+
+#[test]
+fn registry_reader_rejects_unknown_breg1003_enums() {
+    let mut bytes = registry_bytes(&[(9, 12, 0, b"minecraft:test", b"{}")]);
+    bytes[8 + 7 * 4 + 9] = 0xff;
+    assert!(matches!(
+        read_registry(&bytes),
+        Err(AssetError::InvalidRegistryFlags(0xff))
+    ));
+}
+
+#[test]
+fn registry_reader_rejects_false_valentine_name_overlap_metadata() {
+    let first_name = b"minecraft:first";
+    let second_name = b"minecraft:second";
+    let mut bytes = registry_bytes(&[
+        (1, 11, 0, first_name, b"{}"),
+        (2, 12, 0, second_name, b"{}"),
+    ]);
+    bytes[20..24].copy_from_slice(&1_u32.to_le_bytes());
+    bytes[24..28].copy_from_slice(&2_u32.to_le_bytes());
+    bytes[28..32].copy_from_slice(&1_u32.to_le_bytes());
+    bytes[32..36].copy_from_slice(&0_u32.to_le_bytes());
+    let first_start = 36;
+    let second_start = first_start + 56 + first_name.len() + 2;
+    bytes[first_start + 14] = 0x0f;
+    bytes[second_start + 14] = 0x0f;
+    assert!(matches!(
+        read_registry(&bytes),
+        Err(AssetError::InvalidRegistryFlags(0xff))
+    ));
+}
+
+#[test]
+fn registry_reader_decodes_checked_in_full_source_bijection() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("data/block-registry-v1001.bin");
+    let bytes = fs::read(path).expect("read checked-in BREG1003");
+    let records = read_registry(&bytes).expect("decode checked-in BREG1003");
+    assert_eq!(records.len(), 16_913);
+    let names = records
+        .iter()
+        .map(|record| &record.name)
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(names.len(), 1_356);
+    assert_eq!(
+        records
+            .iter()
+            .filter(|record| record.provenance.contains(RegistryProvenance::VALENTINE))
+            .count(),
+        15_845
+    );
+    let canonical =
+        RegistryProvenance::PMMP | RegistryProvenance::DRAGONFLY | RegistryProvenance::PRISMARINE;
+    assert!(
+        records
+            .iter()
+            .all(|record| record.provenance.contains(canonical))
+    );
+
+    let family = |name: &str| {
+        records
+            .iter()
+            .find(|record| &*record.name == name)
+            .unwrap_or_else(|| panic!("missing {name}"))
+            .model_family
+    };
+    assert_eq!(family("minecraft:short_grass"), ModelFamily::Cross);
+    assert_eq!(family("minecraft:wheat"), ModelFamily::Crop);
+    assert_eq!(family("minecraft:water"), ModelFamily::Liquid);
+    assert_eq!(family("minecraft:oak_stairs"), ModelFamily::Stair);
+    assert_eq!(family("minecraft:cobblestone_wall"), ModelFamily::Wall);
+    assert_eq!(family("minecraft:iron_bars"), ModelFamily::Pane);
+    assert_eq!(family("minecraft:seagrass"), ModelFamily::Aquatic);
+    assert_eq!(family("minecraft:cocoa"), ModelFamily::Cocoa);
+    assert_ne!(family("minecraft:chorus_flower"), ModelFamily::Cross);
+    assert_eq!(family("minecraft:soul_sand"), ModelFamily::Cuboid);
+    assert_eq!(family("minecraft:barrier"), ModelFamily::Invisible);
+    let soul_sand = records
+        .iter()
+        .find(|record| &*record.name == "minecraft:soul_sand")
+        .unwrap();
+    assert!(!soul_sand.flags.contains(BlockFlags::CUBE_GEOMETRY));
+    assert_eq!(soul_sand.face_coverage, 0);
 }
 
 #[test]
@@ -167,7 +332,7 @@ fn registry_reader_rejects_unknown_and_invalid_semantic_flags() {
 #[test]
 fn registry_reader_rejects_old_schema_magic() {
     let mut bytes = registry_bytes(&[]);
-    bytes[..8].copy_from_slice(b"BREG1001");
+    bytes[..8].copy_from_slice(b"BREG1002");
     assert!(matches!(
         read_registry(&bytes),
         Err(AssetError::InvalidRegistryMagic)
@@ -202,7 +367,13 @@ fn registry_reader_rejects_duplicate_network_hashes() {
 
 #[test]
 fn registry_reader_rejects_oversized_counts_before_record_allocation() {
-    let mut bytes = b"BREG1002".to_vec();
+    let mut bytes = b"BREG1003".to_vec();
+    bytes.extend_from_slice(&1001_u32.to_le_bytes());
+    bytes.extend_from_slice(&1_u32.to_le_bytes());
+    bytes.extend_from_slice(&65_537_u32.to_le_bytes());
+    bytes.extend_from_slice(&0_u32.to_le_bytes());
+    bytes.extend_from_slice(&0_u32.to_le_bytes());
+    bytes.extend_from_slice(&1_u32.to_le_bytes());
     bytes.extend_from_slice(&65_537_u32.to_le_bytes());
 
     assert!(matches!(

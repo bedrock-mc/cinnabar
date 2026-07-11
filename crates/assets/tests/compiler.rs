@@ -6,12 +6,13 @@ use std::{
 };
 
 use assets::{
-    AssetError, BlockFace, BlockFlags, CompiledAssets, DIAGNOSTIC_MATERIAL,
-    MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_BIRCH_FOLIAGE, MATERIAL_FLAG_EVERGREEN_FOLIAGE,
-    MATERIAL_FLAG_FOLIAGE_CLASS_MASK, MATERIAL_FLAG_FOLIAGE_TINT, MATERIAL_FLAG_GRASS_TINT,
-    MATERIAL_FLAG_OVERLAY_MASK, MATERIAL_FLAG_ROTATE_UV, MATERIAL_FLAG_TINT_MASK,
-    MATERIAL_FLAG_UV_MASK, MATERIAL_FLAGS_MASK, MAX_TEXTURE_LAYERS, Material, RegistryRecord,
-    compile_pack, encode_blob,
+    AssetError, BlockFace, BlockFlags, CollisionSeed, CompiledAssets, ContributorRole,
+    DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_BIRCH_FOLIAGE,
+    MATERIAL_FLAG_EVERGREEN_FOLIAGE, MATERIAL_FLAG_FOLIAGE_CLASS_MASK, MATERIAL_FLAG_FOLIAGE_TINT,
+    MATERIAL_FLAG_GRASS_TINT, MATERIAL_FLAG_OVERLAY_MASK, MATERIAL_FLAG_ROTATE_UV,
+    MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_UV_MASK, MATERIAL_FLAGS_MASK, MAX_TEXTURE_LAYERS,
+    Material, ModelFamily, ModelState, RegistryProvenance, RegistryRecord, compile_pack,
+    encode_blob,
 };
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 use sha2::{Digest, Sha256};
@@ -200,12 +201,35 @@ fn record(
     state: &str,
     flags: BlockFlags,
 ) -> RegistryRecord {
+    let model_family = if flags.contains(BlockFlags::AIR) {
+        ModelFamily::Air
+    } else if flags.contains(BlockFlags::LEAF_MODEL) {
+        ModelFamily::Leaves
+    } else if flags.contains(BlockFlags::CUBE_GEOMETRY) {
+        ModelFamily::Cube
+    } else {
+        ModelFamily::Unknown
+    };
     RegistryRecord {
         sequential_id,
         network_hash,
         name: name.into(),
         canonical_state: state.into(),
         flags,
+        model_family,
+        contributor_role: if flags.contains(BlockFlags::AIR) {
+            ContributorRole::Air
+        } else {
+            ContributorRole::Primary
+        },
+        model_state: ModelState::default(),
+        face_coverage: if flags.contains(BlockFlags::OCCLUDES_FULL_FACE) {
+            0x3f
+        } else {
+            0
+        },
+        collision_seed: CollisionSeed::default(),
+        provenance: RegistryProvenance::DRAGONFLY,
     }
 }
 
@@ -319,7 +343,25 @@ fn write_biome_fixture(resource_pack: &Path) {
 }
 
 fn registry_bytes(records: &[RegistryRecord]) -> Vec<u8> {
-    let mut bytes = b"BREG1002".to_vec();
+    let mut bytes = b"BREG1003".to_vec();
+    bytes.extend_from_slice(&1001_u32.to_le_bytes());
+    bytes.extend_from_slice(
+        &u32::try_from(records.len())
+            .expect("small fixture")
+            .to_le_bytes(),
+    );
+    bytes.extend_from_slice(
+        &u32::try_from(records.len())
+            .expect("small fixture")
+            .to_le_bytes(),
+    );
+    bytes.extend_from_slice(&0_u32.to_le_bytes());
+    bytes.extend_from_slice(&0_u32.to_le_bytes());
+    bytes.extend_from_slice(
+        &u32::try_from(records.len())
+            .expect("small fixture")
+            .to_le_bytes(),
+    );
     bytes.extend_from_slice(
         &u32::try_from(records.len())
             .expect("small fixture")
@@ -329,6 +371,14 @@ fn registry_bytes(records: &[RegistryRecord]) -> Vec<u8> {
         bytes.extend_from_slice(&record.sequential_id.to_le_bytes());
         bytes.extend_from_slice(&record.network_hash.to_le_bytes());
         bytes.push(record.flags.bits());
+        bytes.push(record.model_family as u8);
+        bytes.push(record.contributor_role as u8);
+        bytes.push(record.model_state.mask());
+        bytes.push(record.face_coverage);
+        bytes.push(record.collision_seed.confidence as u8);
+        bytes.push(record.provenance.bits());
+        bytes.push(u8::try_from(record.collision_seed.boxes.len()).expect("small collision seed"));
+        bytes.extend_from_slice(&record.collision_seed.shape_id.to_le_bytes());
         bytes.extend_from_slice(
             &u16::try_from(record.name.len())
                 .expect("small fixture name")
@@ -339,6 +389,30 @@ fn registry_bytes(records: &[RegistryRecord]) -> Vec<u8> {
                 .expect("small fixture state")
                 .to_le_bytes(),
         );
+        for field in [
+            assets::ModelStateField::Orientation,
+            assets::ModelStateField::Half,
+            assets::ModelStateField::Open,
+            assets::ModelStateField::Hinge,
+            assets::ModelStateField::Connections,
+            assets::ModelStateField::Growth,
+            assets::ModelStateField::LiquidDepth,
+            assets::ModelStateField::Flags,
+        ] {
+            bytes.extend_from_slice(&record.model_state.get(field).unwrap_or(0).to_le_bytes());
+        }
+        for collision_box in &record.collision_seed.boxes {
+            for coordinate in [
+                collision_box.min_x,
+                collision_box.min_y,
+                collision_box.min_z,
+                collision_box.max_x,
+                collision_box.max_y,
+                collision_box.max_z,
+            ] {
+                bytes.extend_from_slice(&coordinate.to_le_bytes());
+            }
+        }
         bytes.extend_from_slice(record.name.as_bytes());
         bytes.extend_from_slice(record.canonical_state.as_bytes());
     }
