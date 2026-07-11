@@ -5,8 +5,8 @@ use std::{
 };
 
 use assets::{
-    BlockFlags, BlockVisual, CompiledAssets, DIAGNOSTIC_MATERIAL, Material, NetworkIdMode,
-    RuntimeAssets, TextureArray, TextureMip, encode_blob,
+    BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, DIAGNOSTIC_MATERIAL, Material,
+    NetworkIdMode, RuntimeAssets, TextureArray, TextureMip, encode_blob,
 };
 use bevy::{
     camera::primitives::Aabb,
@@ -79,6 +79,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
                     .collect::<Vec<_>>()
                     .into_boxed_slice(),
             },
+            biomes: CompiledBiomeAssets::diagnostic(),
         };
         let blob = encode_blob(&compiled).expect("encode synthetic plugin assets");
         RuntimeAssets::decode(&blob).expect("decode synthetic plugin assets")

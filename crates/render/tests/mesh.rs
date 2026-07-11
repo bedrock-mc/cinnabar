@@ -1,8 +1,8 @@
 use std::{mem::size_of, sync::OnceLock};
 
 use assets::{
-    BlockFace, BlockFlags, BlockVisual, CompiledAssets, DIAGNOSTIC_MATERIAL, Material,
-    NetworkIdMode, RuntimeAssets, TextureArray, TextureMip, encode_blob,
+    BlockFace, BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, DIAGNOSTIC_MATERIAL,
+    Material, NetworkIdMode, RuntimeAssets, TextureArray, TextureMip, encode_blob,
 };
 use render::{BlockClassifier, Face, Neighbourhood, PackedQuad, debug_color, mesh_sub_chunk};
 use world::SubChunk;
@@ -74,6 +74,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
             hashed: vec![(7, 54), (0xdbf4_4120, 53)].into_boxed_slice(),
             materials: vec![Material { layer: 0, flags: 0 }; 67].into_boxed_slice(),
             textures,
+            biomes: CompiledBiomeAssets::diagnostic(),
         };
         let blob = encode_blob(&compiled).expect("encode synthetic mesher assets");
         RuntimeAssets::decode(&blob).expect("decode synthetic mesher assets")

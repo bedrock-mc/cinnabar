@@ -15,8 +15,8 @@ use std::{
 };
 
 use ::assets::{
-    BlockFlags, BlockVisual, CompiledAssets, Material, NetworkIdMode, TextureArray, TextureMip,
-    encode_blob,
+    BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, Material, NetworkIdMode,
+    TextureArray, TextureMip, encode_blob,
 };
 use args::{ClientArgs, ParseOutcome};
 use asset_startup::{
@@ -67,6 +67,7 @@ fn synthetic_blob() -> Box<[u8]> {
         ]
         .into_boxed_slice(),
         textures: TextureArray { layers: 2, mips },
+        biomes: CompiledBiomeAssets::diagnostic(),
     })
     .unwrap()
 }

@@ -1,24 +1,25 @@
 use std::mem::size_of_val;
 
 use assets::{
-    BLOB_VERSION, BlockFace, BlockFlags, BlockVisual, CompiledAssets, DIAGNOSTIC_MATERIAL,
-    MATERIAL_FLAGS_MASK, MAX_MATERIALS, MAX_TEXTURE_LAYERS, Material, NetworkIdMode, RuntimeAssets,
-    TextureArray, TextureMip, encode_blob,
+    BLOB_VERSION, BiomeRule, BlockFace, BlockFlags, BlockVisual, CompiledAssets,
+    CompiledBiomeAssets, DIAGNOSTIC_MATERIAL, MATERIAL_FLAGS_MASK, MAX_MATERIALS,
+    MAX_TEXTURE_LAYERS, Material, NetworkIdMode, RuntimeAssets, TINT_MAP_BYTES, TextureArray,
+    TextureMip, TintSource, encode_blob,
 };
 use sha2::{Digest, Sha256};
 
-const HEADER_BYTES: usize = 88;
+const HEADER_BYTES: usize = 128;
 const HASH_BYTES: usize = 32;
 const VERSION_OFFSET: usize = 8;
 const VISUAL_COUNT_OFFSET: usize = 20;
 const HASH_COUNT_OFFSET: usize = 24;
 const MATERIAL_COUNT_OFFSET: usize = 28;
 const LAYER_COUNT_OFFSET: usize = 32;
-const VISUALS_OFFSET_OFFSET: usize = 40;
-const HASHES_OFFSET_OFFSET: usize = 48;
-const MATERIALS_OFFSET_OFFSET: usize = 56;
-const TEXTURES_LENGTH_OFFSET: usize = 72;
-const PAYLOAD_LENGTH_OFFSET: usize = 80;
+const VISUALS_OFFSET_OFFSET: usize = 56;
+const HASHES_OFFSET_OFFSET: usize = 64;
+const MATERIALS_OFFSET_OFFSET: usize = 72;
+const TEXTURES_LENGTH_OFFSET: usize = 88;
+const PAYLOAD_LENGTH_OFFSET: usize = 120;
 
 fn texture_array(layers: u32) -> TextureArray {
     let mips = [16_u32, 8, 4, 2, 1]
@@ -56,11 +57,26 @@ fn compiled_assets() -> CompiledAssets {
             Material { layer: 0, flags: 0 },
             Material {
                 layer: 1,
-                flags: MATERIAL_FLAGS_MASK,
+                flags: (MATERIAL_FLAGS_MASK & !0x30) | 0x20,
             },
         ]
         .into_boxed_slice(),
         textures: texture_array(2),
+        biomes: CompiledBiomeAssets {
+            tint_maps_rgb8: vec![0x44; TINT_MAP_BYTES].into_boxed_slice(),
+            rules: vec![BiomeRule {
+                id: 7,
+                name: "minecraft:plains".into(),
+                flags: 1,
+                grass: TintSource::direct(0x11_2233),
+                foliage: TintSource::direct(0x44_5566),
+                dry_foliage: TintSource::direct(0x77_8899),
+                water: TintSource::direct(0xaa_bbcc),
+                temperature_bits: 0.8_f32.to_bits(),
+                downfall_bits: 0.4_f32.to_bits(),
+            }]
+            .into_boxed_slice(),
+        },
     }
 }
 
@@ -256,7 +272,7 @@ fn missing_values_and_materials_use_one_bounded_diagnostic_counter() {
         runtime.material(1),
         Material {
             layer: 1,
-            flags: MATERIAL_FLAGS_MASK
+            flags: (MATERIAL_FLAGS_MASK & !0x30) | 0x20
         }
     );
     assert_eq!(runtime.missing_count(), 10_001);
@@ -271,6 +287,7 @@ fn decoded_texture_mips_are_exposed_without_lookup_mutation() {
     assert_eq!(textures.mips.len(), 5);
     assert_eq!(textures.mips[0].rgba8.len(), 16 * 16 * 4 * 2);
     assert_eq!(textures.mips[4].rgba8.len(), 4 * 2);
+    assert_eq!(runtime.biome_assets(), &compiled_assets().biomes);
     assert_eq!(runtime.missing_count(), 0);
 }
 

@@ -3320,7 +3320,8 @@ mod tests {
     };
 
     use assets::{
-        BlockFlags, BlockVisual, CompiledAssets, Material, NetworkIdMode, TextureMip, encode_blob,
+        BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, Material, NetworkIdMode,
+        TextureMip, encode_blob,
     };
     use bevy::{
         prelude::*,
@@ -3371,6 +3372,7 @@ mod tests {
                         .collect::<Vec<_>>()
                         .into_boxed_slice(),
                 },
+                biomes: CompiledBiomeAssets::diagnostic(),
             };
             let blob = encode_blob(&compiled).expect("encode opaque plugin test assets");
             RuntimeAssets::decode(&blob).expect("decode opaque plugin test assets")

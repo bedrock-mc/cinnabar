@@ -2,12 +2,12 @@ use std::fs;
 
 use assets::{
     AssetError, BLOB_MAGIC, BLOB_VERSION, BlockFlags, BlockVisual, CompiledAssets,
-    MATERIAL_FLAGS_MASK, MAX_MATERIALS, MAX_TEXTURE_LAYERS, MIP_COUNT, Material, TILE_SIZE,
-    TextureArray, TextureMip, encode_blob, write_blob_atomic,
+    CompiledBiomeAssets, MATERIAL_FLAGS_MASK, MAX_MATERIALS, MAX_TEXTURE_LAYERS, MIP_COUNT,
+    Material, TILE_SIZE, TextureArray, TextureMip, encode_blob, write_blob_atomic,
 };
 use sha2::{Digest, Sha256};
 
-const HEADER_BYTES: usize = 88;
+const HEADER_BYTES: usize = 128;
 
 fn texture_array(layers: u32) -> TextureArray {
     let mips = [16_u32, 8, 4, 2, 1]
@@ -32,6 +32,7 @@ fn valid_assets() -> CompiledAssets {
         hashed: vec![(0x8000_0000, 0)].into_boxed_slice(),
         materials: vec![Material { layer: 0, flags: 0 }].into_boxed_slice(),
         textures: texture_array(1),
+        biomes: CompiledBiomeAssets::diagnostic(),
     }
 }
 
@@ -55,20 +56,30 @@ fn blob_has_checked_little_endian_sections_and_trailing_sha256() {
     assert_eq!(read_u32(&bytes, 24), 1, "hash count");
     assert_eq!(read_u32(&bytes, 28), 1, "material count");
     assert_eq!(read_u32(&bytes, 32), 1, "layer count");
-    assert_eq!(read_u32(&bytes, 36), 0, "reserved header word");
+    assert_eq!(read_u32(&bytes, 36), 8, "tint-map count");
+    assert_eq!(read_u32(&bytes, 40), 256, "tint-map size");
+    assert_eq!(read_u32(&bytes, 44), 0, "biome-rule count");
+    assert_eq!(read_u32(&bytes, 48), 0, "reserved header word");
+    assert_eq!(read_u32(&bytes, 52), 0, "reserved header word");
 
-    let visuals_offset = read_u64(&bytes, 40) as usize;
-    let hashes_offset = read_u64(&bytes, 48) as usize;
-    let materials_offset = read_u64(&bytes, 56) as usize;
-    let textures_offset = read_u64(&bytes, 64) as usize;
-    let textures_length = read_u64(&bytes, 72) as usize;
-    let payload_length = read_u64(&bytes, 80) as usize;
+    let visuals_offset = read_u64(&bytes, 56) as usize;
+    let hashes_offset = read_u64(&bytes, 64) as usize;
+    let materials_offset = read_u64(&bytes, 72) as usize;
+    let textures_offset = read_u64(&bytes, 80) as usize;
+    let textures_length = read_u64(&bytes, 88) as usize;
+    let tint_maps_offset = read_u64(&bytes, 96) as usize;
+    let biome_rules_offset = read_u64(&bytes, 104) as usize;
+    let biome_names_offset = read_u64(&bytes, 112) as usize;
+    let payload_length = read_u64(&bytes, 120) as usize;
     assert_eq!(visuals_offset, HEADER_BYTES);
     assert_eq!(hashes_offset, visuals_offset + 28);
     assert_eq!(materials_offset, hashes_offset + 8);
     assert_eq!(textures_offset, materials_offset + 8);
     assert_eq!(textures_length, 1_364);
-    assert_eq!(payload_length, textures_offset + textures_length);
+    assert_eq!(tint_maps_offset, textures_offset + textures_length);
+    assert_eq!(biome_rules_offset, tint_maps_offset + 8 * 256 * 256 * 3);
+    assert_eq!(biome_names_offset, biome_rules_offset);
+    assert_eq!(payload_length, biome_names_offset);
     assert_eq!(bytes.len(), payload_length + 32);
 
     let expected_hash = Sha256::digest(&bytes[..payload_length]);

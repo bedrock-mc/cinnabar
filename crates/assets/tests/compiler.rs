@@ -108,10 +108,11 @@ fn material_for_face(compiled: &CompiledAssets, sequential_id: usize, face: Bloc
     compiled.materials[compiled.visuals[sequential_id].faces[face as usize] as usize]
 }
 
-fn leaf_material_fixture() -> (TempDir, Vec<RegistryRecord>) {
+fn leaf_material_fixture() -> (TempDir, PathBuf, Vec<RegistryRecord>) {
     let directory = tempfile::tempdir().expect("create leaf fixture");
+    let resource_pack = directory.path().join("resource_pack");
     write_pack(
-        directory.path(),
+        &resource_pack,
         r#"{
             "stone": {"textures": "shared"},
             "cherry_leaves": {"textures": "shared"},
@@ -131,7 +132,7 @@ fn leaf_material_fixture() -> (TempDir, Vec<RegistryRecord>) {
         ("textures/blocks/c_flowered", [220, 120, 180, 255]),
     ] {
         write_png(
-            directory.path(),
+            &resource_pack,
             path,
             TILE_SIZE,
             TILE_SIZE,
@@ -151,7 +152,65 @@ fn leaf_material_fixture() -> (TempDir, Vec<RegistryRecord>) {
         record(2, 102, "minecraft:azalea_leaves", "{}", leaf),
         record(3, 103, "minecraft:azalea_leaves_flowered", "{}", leaf),
     ];
-    (directory, records)
+    (directory, resource_pack, records)
+}
+
+fn biome_registry_bytes(id: u32, name: &str) -> Vec<u8> {
+    let mut bytes = b"BIOREG01".to_vec();
+    bytes.extend_from_slice(&1_u32.to_le_bytes());
+    bytes.extend_from_slice(&id.to_le_bytes());
+    bytes.extend_from_slice(
+        &u16::try_from(name.len())
+            .expect("small fixture name")
+            .to_le_bytes(),
+    );
+    bytes.extend_from_slice(name.as_bytes());
+    bytes
+}
+
+fn write_biome_fixture(resource_pack: &Path) {
+    write_file(
+        resource_pack.join("biomes/plains.client_biome.json"),
+        r#"{
+            "format_version":"1.21.0",
+            "minecraft:client_biome":{
+                "description":{"identifier":"minecraft:plains"},
+                "components":{}
+            }
+        }"#,
+    );
+    let behavior_pack = resource_pack
+        .parent()
+        .expect("resource pack has fixture parent")
+        .join("behavior_pack");
+    write_file(
+        behavior_pack.join("biomes/plains.biome.json"),
+        r#"{
+            "format_version":"1.21.0",
+            "minecraft:biome":{
+                "description":{"identifier":"minecraft:plains"},
+                "components":{"minecraft:climate":{"temperature":0.8,"downfall":0.4}}
+            }
+        }"#,
+    );
+    for name in [
+        "grass",
+        "foliage",
+        "birch",
+        "evergreen",
+        "swamp_grass",
+        "swamp_foliage",
+        "mangrove_swamp_foliage",
+        "dry_foliage",
+    ] {
+        write_png(
+            resource_pack,
+            &format!("textures/colormap/{name}"),
+            256,
+            256,
+            &solid(256, 256, [80, 160, 40, 255]),
+        );
+    }
 }
 
 fn registry_bytes(records: &[RegistryRecord]) -> Vec<u8> {
@@ -298,12 +357,12 @@ fn reference_raw_mips(base: &[[u8; 4]], colour: [u8; 3]) -> Vec<Vec<u8>> {
 
 #[test]
 fn compiler_marks_only_leaf_faces_as_alpha_cutout() {
-    let (directory, records) = leaf_material_fixture();
-    let compiled = compile_pack(directory.path(), &records).expect("compile leaf materials");
+    let (_directory, resource_pack, records) = leaf_material_fixture();
+    let compiled = compile_pack(&resource_pack, &records).expect("compile leaf materials");
 
     assert_eq!(MATERIAL_FLAG_UV_MASK, 0x0f);
     assert_eq!(MATERIAL_FLAG_ALPHA_CUTOUT, 0x100);
-    assert_eq!(MATERIAL_FLAGS_MASK, 0x17f);
+    assert_eq!(MATERIAL_FLAGS_MASK, 0x77f);
     assert_eq!(std::mem::size_of::<Material>(), 8);
     let opaque_id = compiled.visuals[0].faces[BlockFace::Up as usize];
     let opaque = compiled.materials[opaque_id as usize];
@@ -340,23 +399,28 @@ fn compiler_marks_only_leaf_faces_as_alpha_cutout() {
     let baseline = encode_blob(&compiled).expect("encode cutout baseline");
     for iteration in 0..100_u64 {
         let shuffled = shuffled_records(&records, 0x9e37_79b9 ^ iteration);
-        let actual =
-            compile_pack(directory.path(), &shuffled).expect("compile shuffled cutout pack");
+        let actual = compile_pack(&resource_pack, &shuffled).expect("compile shuffled cutout pack");
         assert_eq!(encode_blob(&actual).expect("encode shuffle"), baseline);
     }
 }
 
 #[test]
 fn assetc_summary_reports_deterministic_cutout_material_count() {
-    let (directory, records) = leaf_material_fixture();
+    let (directory, resource_pack, records) = leaf_material_fixture();
     let registry = directory.path().join("registry.bin");
+    let biome_registry = directory.path().join("biome-registry.bin");
     let output_blob = directory.path().join("vanilla-v1001.mcbea");
     fs::write(&registry, registry_bytes(&records)).expect("write registry fixture");
+    fs::write(&biome_registry, biome_registry_bytes(0, "minecraft:plains"))
+        .expect("write biome registry fixture");
+    write_biome_fixture(&resource_pack);
     let output = Command::new(env!("CARGO_BIN_EXE_assetc"))
         .args(["compile", "--pack"])
-        .arg(directory.path())
+        .arg(&resource_pack)
         .arg("--registry")
         .arg(&registry)
+        .arg("--biome-registry")
+        .arg(&biome_registry)
         .arg("--out")
         .arg(&output_blob)
         .output()
@@ -369,7 +433,7 @@ fn assetc_summary_reports_deterministic_cutout_material_count() {
     assert_eq!(
         String::from_utf8(output.stdout).expect("UTF-8 summary"),
         format!(
-            "compiled 4 visuals, 5 materials (3 alpha cutout), and 4 texture layers to {}\n",
+            "compiled 4 visuals, 5 materials (3 alpha cutout), 4 texture layers, and 1 biome rules to {}\n",
             output_blob.display()
         )
     );

@@ -5,8 +5,8 @@ use std::{
 };
 
 use assets::{
-    AssetError, MATERIAL_FLAG_ALPHA_CUTOUT, compile_pack, encode_blob, read_registry,
-    write_blob_atomic,
+    AssetError, MATERIAL_FLAG_ALPHA_CUTOUT, compile_pack_with_biomes, encode_blob,
+    read_biome_registry, read_registry, write_blob_atomic,
 };
 use clap::{Parser, Subcommand};
 
@@ -15,7 +15,7 @@ const MAX_REGISTRY_FILE_BYTES: usize = 128 * 1024 * 1024;
 #[derive(Debug, Parser)]
 #[command(
     about = "Compile verified local Bedrock resource-pack assets",
-    after_help = "Compile inputs:\n  assetc compile --pack <RESOURCE_PACK> --registry <REGISTRY_BIN> --out <IGNORED_DIR>/vanilla-v1001.mcbea"
+    after_help = "Compile inputs:\n  assetc compile --pack <RESOURCE_PACK> --registry <BLOCK_REGISTRY_BIN> --biome-registry <BIOME_REGISTRY_BIN> --out <IGNORED_DIR>/vanilla-v1001.mcbea"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -32,6 +32,9 @@ enum Command {
         /// BREG1002 registry exported by tools/registrygen.
         #[arg(long)]
         registry: PathBuf,
+        /// BIOREG01 registry exported by tools/registrygen.
+        #[arg(long)]
+        biome_registry: PathBuf,
         /// Ignored/local output path, conventionally ending in .mcbea.
         #[arg(long)]
         out: PathBuf,
@@ -43,11 +46,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::Compile {
             pack,
             registry,
+            biome_registry,
             out,
         } => {
             let registry_bytes = read_bounded(&registry)?;
             let records = read_registry(&registry_bytes)?;
-            let compiled = compile_pack(&pack, &records)?;
+            let biome_registry_bytes = read_bounded(&biome_registry)?;
+            let biome_records = read_biome_registry(&biome_registry_bytes)?;
+            let behavior_pack = pack
+                .parent()
+                .ok_or("resource-pack path has no parent for behavior_pack")?
+                .join("behavior_pack");
+            let compiled =
+                compile_pack_with_biomes(&pack, &behavior_pack, &records, &biome_records)?;
             let blob = encode_blob(&compiled)?;
             write_blob_atomic(&out, &blob)?;
             let cutout_materials = compiled
@@ -56,11 +67,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .filter(|material| material.flags & MATERIAL_FLAG_ALPHA_CUTOUT != 0)
                 .count();
             println!(
-                "compiled {} visuals, {} materials ({} alpha cutout), and {} texture layers to {}",
+                "compiled {} visuals, {} materials ({} alpha cutout), {} texture layers, and {} biome rules to {}",
                 compiled.visuals.len(),
                 compiled.materials.len(),
                 cutout_materials,
                 compiled.textures.layers,
+                compiled.biomes.rules.len(),
                 out.display()
             );
         }

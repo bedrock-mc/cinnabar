@@ -36,7 +36,7 @@ blob:
 
 ```powershell
 powershell -NoProfile -File scripts/fetch-vanilla-assets.ps1 -AcceptEula
-cargo run -p assets --bin assetc -- compile --pack .local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack --registry crates/assets/data/block-registry-v1001.bin --out .local/assets/compiled/vanilla-v1001.mcbea
+cargo run -p assets --bin assetc -- compile --pack .local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack --registry crates/assets/data/block-registry-v1001.bin --biome-registry crates/assets/data/biome-registry-v1001.bin --out .local/assets/compiled/vanilla-v1001.mcbea
 ```
 
 Start the client with an explicit blob when needed:

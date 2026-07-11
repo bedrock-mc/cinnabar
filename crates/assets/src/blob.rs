@@ -7,18 +7,23 @@ use std::{
 use sha2::{Digest, Sha256};
 
 use crate::{
-    AssetError, BlockFlags, CompiledAssets, DIAGNOSTIC_MATERIAL, MATERIAL_FLAGS_MASK,
-    MAX_MATERIALS, MAX_TEXTURE_LAYERS, Material, image::MIP_COUNT, image::TILE_SIZE,
+    AssetError, BlockFlags, CompiledAssets, DIAGNOSTIC_MATERIAL, MAX_MATERIALS, MAX_TEXTURE_LAYERS,
+    Material,
+    biome::{TINT_MAP_BYTES, TINT_MAP_COUNT, TINT_MAP_SIZE, validate_biome_assets},
+    compiler::material_flags_are_valid,
+    image::MIP_COUNT,
+    image::TILE_SIZE,
 };
 
-pub const BLOB_MAGIC: [u8; 8] = *b"MCBEAS02";
-pub const BLOB_VERSION: u32 = 2;
+pub const BLOB_MAGIC: [u8; 8] = *b"MCBEAS03";
+pub const BLOB_VERSION: u32 = 3;
 
-const HEADER_BYTES: usize = 88;
+const HEADER_BYTES: usize = 128;
 const HASH_BYTES: usize = 32;
 const VISUAL_BYTES: usize = 28;
 const HASH_ENTRY_BYTES: usize = 8;
 const MATERIAL_BYTES: usize = 8;
+const BIOME_RULE_BYTES: usize = 36;
 const MAX_VISUALS: usize = 65_536;
 
 /// Serializes deterministic compiler output with checked offsets and a trailing SHA-256.
@@ -27,12 +32,24 @@ pub fn encode_blob(compiled: &CompiledAssets) -> Result<Box<[u8]>, AssetError> {
     let visual_bytes = section_size(compiled.visuals.len(), VISUAL_BYTES, "visual")?;
     let hash_bytes = section_size(compiled.hashed.len(), HASH_ENTRY_BYTES, "hash lookup")?;
     let material_bytes = section_size(compiled.materials.len(), MATERIAL_BYTES, "material")?;
+    let biome_rule_bytes =
+        section_size(compiled.biomes.rules.len(), BIOME_RULE_BYTES, "biome rule")?;
+    let biome_name_bytes = compiled
+        .biomes
+        .rules
+        .iter()
+        .try_fold(0_usize, |total, rule| {
+            add_section(total, rule.name.len(), "biome names")
+        })?;
 
     let visuals_offset = HEADER_BYTES;
     let hashes_offset = add_section(visuals_offset, visual_bytes, "visual")?;
     let materials_offset = add_section(hashes_offset, hash_bytes, "hash lookup")?;
     let textures_offset = add_section(materials_offset, material_bytes, "material")?;
-    let payload_length = add_section(textures_offset, texture_bytes, "texture")?;
+    let tint_maps_offset = add_section(textures_offset, texture_bytes, "texture")?;
+    let biome_rules_offset = add_section(tint_maps_offset, TINT_MAP_BYTES, "tint maps")?;
+    let biome_names_offset = add_section(biome_rules_offset, biome_rule_bytes, "biome rules")?;
+    let payload_length = add_section(biome_names_offset, biome_name_bytes, "biome names")?;
     let total_length = add_section(payload_length, HASH_BYTES, "blob hash")?;
 
     let mut bytes = Vec::with_capacity(total_length);
@@ -44,12 +61,19 @@ pub fn encode_blob(compiled: &CompiledAssets) -> Result<Box<[u8]>, AssetError> {
     push_count(&mut bytes, compiled.hashed.len(), "hash count")?;
     push_count(&mut bytes, compiled.materials.len(), "material count")?;
     push_u32(&mut bytes, compiled.textures.layers);
+    push_u32(&mut bytes, TINT_MAP_COUNT as u32);
+    push_u32(&mut bytes, TINT_MAP_SIZE);
+    push_count(&mut bytes, compiled.biomes.rules.len(), "biome rule count")?;
+    push_u32(&mut bytes, 0);
     push_u32(&mut bytes, 0);
     push_offset(&mut bytes, visuals_offset, "visual offset")?;
     push_offset(&mut bytes, hashes_offset, "hash offset")?;
     push_offset(&mut bytes, materials_offset, "material offset")?;
     push_offset(&mut bytes, textures_offset, "texture offset")?;
     push_offset(&mut bytes, texture_bytes, "texture length")?;
+    push_offset(&mut bytes, tint_maps_offset, "tint maps offset")?;
+    push_offset(&mut bytes, biome_rules_offset, "biome rules offset")?;
+    push_offset(&mut bytes, biome_names_offset, "biome names offset")?;
     push_offset(&mut bytes, payload_length, "payload length")?;
     debug_assert_eq!(bytes.len(), HEADER_BYTES);
 
@@ -74,6 +98,37 @@ pub fn encode_blob(compiled: &CompiledAssets) -> Result<Box<[u8]>, AssetError> {
     for mip in &compiled.textures.mips {
         bytes.extend_from_slice(&mip.rgba8);
     }
+    debug_assert_eq!(bytes.len(), tint_maps_offset);
+    bytes.extend_from_slice(&compiled.biomes.tint_maps_rgb8);
+    debug_assert_eq!(bytes.len(), biome_rules_offset);
+    let mut name_offset = 0_usize;
+    for rule in &compiled.biomes.rules {
+        push_u32(&mut bytes, rule.id);
+        push_u32(
+            &mut bytes,
+            u32::try_from(name_offset).map_err(|_| AssetError::BlobSizeOverflow {
+                section: "biome name offset",
+            })?,
+        );
+        bytes.extend_from_slice(
+            &u16::try_from(rule.name.len())
+                .map_err(|_| AssetError::BlobSizeOverflow {
+                    section: "biome name length",
+                })?
+                .to_le_bytes(),
+        );
+        bytes.extend_from_slice(&rule.flags.to_le_bytes());
+        for source in [rule.grass, rule.foliage, rule.dry_foliage, rule.water] {
+            push_u32(&mut bytes, source.raw());
+        }
+        push_u32(&mut bytes, rule.temperature_bits);
+        push_u32(&mut bytes, rule.downfall_bits);
+        name_offset = add_section(name_offset, rule.name.len(), "biome names")?;
+    }
+    debug_assert_eq!(bytes.len(), biome_names_offset);
+    for rule in &compiled.biomes.rules {
+        bytes.extend_from_slice(rule.name.as_bytes());
+    }
     debug_assert_eq!(bytes.len(), payload_length);
 
     let hash = Sha256::digest(&bytes);
@@ -83,6 +138,7 @@ pub fn encode_blob(compiled: &CompiledAssets) -> Result<Box<[u8]>, AssetError> {
 }
 
 fn validate_compiled(compiled: &CompiledAssets) -> Result<usize, AssetError> {
+    validate_biome_assets(&compiled.biomes)?;
     if compiled.visuals.len() > MAX_VISUALS {
         return Err(AssetError::TooManyRegistryRecords {
             count: compiled.visuals.len(),
@@ -117,7 +173,7 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<usize, AssetError> {
         return Err(invalid("material 0 is not the diagnostic layer"));
     }
     for (index, material) in compiled.materials.iter().enumerate() {
-        if material.flags & !MATERIAL_FLAGS_MASK != 0 {
+        if !material_flags_are_valid(material.flags) {
             return Err(invalid(format!(
                 "material {index} has unsupported flags {:#010x}",
                 material.flags

@@ -3,16 +3,22 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    AssetError, BLOB_MAGIC, BLOB_VERSION, BlockFace, BlockFlags, BlockVisual, DIAGNOSTIC_MATERIAL,
-    MATERIAL_FLAGS_MASK, MAX_MATERIALS, MAX_TEXTURE_LAYERS, MIP_COUNT, Material, TILE_SIZE,
-    TextureArray, TextureMip,
+    AssetError, BLOB_MAGIC, BLOB_VERSION, BiomeRule, BlockFace, BlockFlags, BlockVisual,
+    CompiledBiomeAssets, DIAGNOSTIC_MATERIAL, MAX_MATERIALS, MAX_TEXTURE_LAYERS, MIP_COUNT,
+    Material, TILE_SIZE, TextureArray, TextureMip, TintSource,
+    biome::{
+        BIOME_RULE_FLAGS_MASK, MAX_BIOME_NAME_BYTES, MAX_BIOME_NAMES_BYTES, MAX_BIOME_RULES,
+        TINT_MAP_BYTES, TINT_MAP_COUNT, TINT_MAP_SIZE, validate_biome_assets,
+    },
+    compiler::material_flags_are_valid,
 };
 
-const HEADER_BYTES: usize = 88;
+const HEADER_BYTES: usize = 128;
 const TRAILING_HASH_BYTES: usize = 32;
 const VISUAL_BYTES: usize = 28;
 const HASH_ENTRY_BYTES: usize = 8;
 const MATERIAL_BYTES: usize = 8;
+const BIOME_RULE_BYTES: usize = 36;
 const MAX_VISUALS: usize = 65_536;
 
 /// The network-ID representation selected explicitly from StartGame for one session.
@@ -84,6 +90,7 @@ pub struct RuntimeAssets {
     hashed: Box<[(u32, u32)]>,
     materials: Box<[Material]>,
     textures: TextureArray,
+    biomes: CompiledBiomeAssets,
     missing: AtomicU64,
 }
 
@@ -126,11 +133,12 @@ impl RuntimeAssets {
             hashed: Box::new([]),
             materials: vec![Material { layer: 0, flags: 0 }].into_boxed_slice(),
             textures: TextureArray { layers: 1, mips },
+            biomes: CompiledBiomeAssets::diagnostic(),
             missing: AtomicU64::new(0),
         }
     }
 
-    /// Decodes and validates a complete `MCBEAS02` blob before allocating runtime sections.
+    /// Decodes and validates a complete `MCBEAS03` blob before allocating runtime sections.
     pub fn decode(bytes: &[u8]) -> Result<Self, AssetError> {
         let header = Header::decode(bytes)?;
         header.validate_layout(bytes.len())?;
@@ -141,21 +149,32 @@ impl RuntimeAssets {
         let material_bytes = &bytes[header.materials_offset..header.textures_offset];
         let texture_bytes =
             &bytes[header.textures_offset..header.textures_offset + header.textures_length];
+        let tint_map_bytes = &bytes[header.tint_maps_offset..header.biome_rules_offset];
+        let biome_rule_bytes = &bytes[header.biome_rules_offset..header.biome_names_offset];
+        let biome_name_bytes = &bytes[header.biome_names_offset..header.payload_length];
 
         validate_visuals(visual_bytes, header.material_count)?;
         validate_hashes(hash_bytes, header.visual_count)?;
         validate_materials(material_bytes, header.layer_count)?;
+        validate_biome_sections(
+            tint_map_bytes,
+            biome_rule_bytes,
+            biome_name_bytes,
+            header.biome_rule_count,
+        )?;
 
         let visuals = decode_visuals(visual_bytes);
         let hashed = decode_hashes(hash_bytes);
         let materials = decode_materials(material_bytes);
         let textures = decode_textures(texture_bytes, header.layer_count)?;
+        let biomes = decode_biomes(tint_map_bytes, biome_rule_bytes, biome_name_bytes)?;
 
         Ok(Self {
             visuals,
             hashed,
             materials,
             textures,
+            biomes,
             missing: AtomicU64::new(0),
         })
     }
@@ -202,6 +221,11 @@ impl RuntimeAssets {
         &self.textures
     }
 
+    #[must_use]
+    pub const fn biome_assets(&self) -> &CompiledBiomeAssets {
+        &self.biomes
+    }
+
     /// Total unknown block-state and material lookups. No per-ID collection is retained.
     #[must_use]
     pub fn missing_count(&self) -> u64 {
@@ -219,11 +243,15 @@ struct Header {
     hash_count: usize,
     material_count: usize,
     layer_count: usize,
+    biome_rule_count: usize,
     visuals_offset: usize,
     hashes_offset: usize,
     materials_offset: usize,
     textures_offset: usize,
     textures_length: usize,
+    tint_maps_offset: usize,
+    biome_rules_offset: usize,
+    biome_names_offset: usize,
     payload_length: usize,
 }
 
@@ -238,7 +266,7 @@ impl Header {
         }
         let mut reader = HeaderReader::new(&bytes[..HEADER_BYTES]);
         if reader.read_exact(8)? != BLOB_MAGIC {
-            return Err(invalid("invalid MCBEAS02 magic"));
+            return Err(invalid("invalid MCBEAS03 magic"));
         }
         let version = reader.read_u32()?;
         if version != BLOB_VERSION {
@@ -263,6 +291,12 @@ impl Header {
         let hash_count = reader.read_u32()? as usize;
         let material_count = reader.read_u32()? as usize;
         let layer_count = reader.read_u32()? as usize;
+        let tint_map_count = reader.read_u32()? as usize;
+        let tint_map_size = reader.read_u32()?;
+        let biome_rule_count = reader.read_u32()? as usize;
+        if reader.read_u32()? != 0 {
+            return Err(invalid("reserved header word is not zero"));
+        }
         if reader.read_u32()? != 0 {
             return Err(invalid("reserved header word is not zero"));
         }
@@ -271,6 +305,12 @@ impl Header {
         validate_count("hash lookup", hash_count, MAX_VISUALS)?;
         validate_count("material", material_count, MAX_MATERIALS)?;
         validate_count("texture layer", layer_count, MAX_TEXTURE_LAYERS)?;
+        validate_count("biome rule", biome_rule_count, MAX_BIOME_RULES)?;
+        if tint_map_count != TINT_MAP_COUNT || tint_map_size != TINT_MAP_SIZE {
+            return Err(invalid(format!(
+                "unsupported tint maps {tint_map_count}x{tint_map_size}, expected {TINT_MAP_COUNT}x{TINT_MAP_SIZE}"
+            )));
+        }
         if material_count == 0 {
             return Err(invalid("material table has no diagnostic material"));
         }
@@ -283,11 +323,15 @@ impl Header {
             hash_count,
             material_count,
             layer_count,
+            biome_rule_count,
             visuals_offset: reader.read_usize()?,
             hashes_offset: reader.read_usize()?,
             materials_offset: reader.read_usize()?,
             textures_offset: reader.read_usize()?,
             textures_length: reader.read_usize()?,
+            tint_maps_offset: reader.read_usize()?,
+            biome_rules_offset: reader.read_usize()?,
+            biome_names_offset: reader.read_usize()?,
             payload_length: reader.read_usize()?,
         })
     }
@@ -310,17 +354,41 @@ impl Header {
             "material section",
         )?;
         let expected_texture_length = texture_byte_length(self.layer_count)?;
-        let expected_payload = checked_add(
+        let expected_tint_maps = checked_add(
             expected_textures,
             expected_texture_length,
             "texture section",
         )?;
+        let expected_biome_rules =
+            checked_add(expected_tint_maps, TINT_MAP_BYTES, "tint map section")?;
+        let expected_biome_names = checked_add(
+            expected_biome_rules,
+            checked_mul(
+                self.biome_rule_count,
+                BIOME_RULE_BYTES,
+                "biome rule section",
+            )?,
+            "biome rule section",
+        )?;
+        if self.payload_length < expected_biome_names {
+            return Err(invalid("biome name section underflows canonical layout"));
+        }
+        let biome_name_length = self.payload_length - expected_biome_names;
+        if biome_name_length > MAX_BIOME_NAMES_BYTES {
+            return Err(invalid(format!(
+                "biome name section has {biome_name_length} bytes, exceeding {MAX_BIOME_NAMES_BYTES}"
+            )));
+        }
+        let expected_payload = checked_add(expected_biome_names, biome_name_length, "biome names")?;
         let expected_input = checked_add(expected_payload, TRAILING_HASH_BYTES, "blob hash")?;
 
         if self.visuals_offset != expected_visuals
             || self.hashes_offset != expected_hashes
             || self.materials_offset != expected_materials
             || self.textures_offset != expected_textures
+            || self.tint_maps_offset != expected_tint_maps
+            || self.biome_rules_offset != expected_biome_rules
+            || self.biome_names_offset != expected_biome_names
         {
             return Err(invalid("blob sections are not canonical and contiguous"));
         }
@@ -430,7 +498,7 @@ fn validate_materials(bytes: &[u8], layer_count: usize) -> Result<(), AssetError
     for (index, record) in bytes.chunks_exact(MATERIAL_BYTES).enumerate() {
         let layer = read_u32(record, 0) as usize;
         let flags = read_u32(record, 4);
-        if flags & !MATERIAL_FLAGS_MASK != 0 {
+        if !material_flags_are_valid(flags) {
             return Err(invalid(format!(
                 "material {index} has unsupported flags {flags:#010x}"
             )));
@@ -445,6 +513,110 @@ fn validate_materials(bytes: &[u8], layer_count: usize) -> Result<(), AssetError
         }
     }
     Ok(())
+}
+
+fn validate_biome_sections(
+    tint_maps: &[u8],
+    rules: &[u8],
+    names: &[u8],
+    rule_count: usize,
+) -> Result<(), AssetError> {
+    if tint_maps.len() != TINT_MAP_BYTES {
+        return Err(invalid(format!(
+            "tint map section has {} bytes, expected {TINT_MAP_BYTES}",
+            tint_maps.len()
+        )));
+    }
+    if rules.len() != rule_count * BIOME_RULE_BYTES {
+        return Err(invalid(
+            "biome rule section length does not match its count",
+        ));
+    }
+    let mut previous = None;
+    let mut seen_names = std::collections::BTreeSet::new();
+    let mut expected_name_offset = 0_usize;
+    for record in rules.chunks_exact(BIOME_RULE_BYTES) {
+        let id = read_u32(record, 0);
+        if id > u32::from(u16::MAX) || previous.is_some_and(|previous| previous >= id) {
+            return Err(invalid(
+                "biome rule IDs are invalid or not strictly increasing",
+            ));
+        }
+        let name_offset = read_u32(record, 4) as usize;
+        let name_length = u16::from_le_bytes(record[8..10].try_into().expect("two bytes")) as usize;
+        if name_offset != expected_name_offset
+            || name_length == 0
+            || name_length > MAX_BIOME_NAME_BYTES
+        {
+            return Err(invalid("biome rule name offsets are not canonical"));
+        }
+        let name_end = checked_add(name_offset, name_length, "biome name")?;
+        let name = std::str::from_utf8(
+            names
+                .get(name_offset..name_end)
+                .ok_or_else(|| invalid("biome rule name exceeds the name section"))?,
+        )
+        .map_err(|_| invalid("biome rule name is not valid UTF-8"))?;
+        if !seen_names.insert(name) {
+            return Err(invalid(format!("duplicate biome rule name {name}")));
+        }
+        let flags = u16::from_le_bytes(record[10..12].try_into().expect("two bytes"));
+        if flags & !BIOME_RULE_FLAGS_MASK != 0 {
+            return Err(invalid(format!("biome rule {id} has unsupported flags")));
+        }
+        for offset in [12, 16, 20, 24] {
+            TintSource::from_raw(read_u32(record, offset))?;
+        }
+        let water = TintSource::from_raw(read_u32(record, 24))?;
+        if water.raw() >> 24 != 0 {
+            return Err(invalid(format!("biome rule {id} water is not direct RGB")));
+        }
+        let temperature = f32::from_bits(read_u32(record, 28));
+        let downfall = f32::from_bits(read_u32(record, 32));
+        if !temperature.is_finite() || !downfall.is_finite() {
+            return Err(invalid(format!("biome rule {id} climate is not finite")));
+        }
+        expected_name_offset = name_end;
+        previous = Some(id);
+    }
+    if expected_name_offset != names.len() {
+        return Err(invalid("biome name section has trailing bytes"));
+    }
+    Ok(())
+}
+
+fn decode_biomes(
+    tint_maps: &[u8],
+    rule_bytes: &[u8],
+    names: &[u8],
+) -> Result<CompiledBiomeAssets, AssetError> {
+    let rules = rule_bytes
+        .chunks_exact(BIOME_RULE_BYTES)
+        .map(|record| {
+            let name_offset = read_u32(record, 4) as usize;
+            let name_length =
+                u16::from_le_bytes(record[8..10].try_into().expect("validated two bytes")) as usize;
+            let name = std::str::from_utf8(&names[name_offset..name_offset + name_length])
+                .expect("validated biome name UTF-8");
+            Ok(BiomeRule {
+                id: read_u32(record, 0),
+                name: name.into(),
+                flags: u16::from_le_bytes(record[10..12].try_into().expect("two bytes")),
+                grass: TintSource::from_raw(read_u32(record, 12))?,
+                foliage: TintSource::from_raw(read_u32(record, 16))?,
+                dry_foliage: TintSource::from_raw(read_u32(record, 20))?,
+                water: TintSource::from_raw(read_u32(record, 24))?,
+                temperature_bits: read_u32(record, 28),
+                downfall_bits: read_u32(record, 32),
+            })
+        })
+        .collect::<Result<Vec<_>, AssetError>>()?;
+    let assets = CompiledBiomeAssets {
+        tint_maps_rgb8: tint_maps.to_vec().into_boxed_slice(),
+        rules: rules.into_boxed_slice(),
+    };
+    validate_biome_assets(&assets)?;
+    Ok(assets)
 }
 
 fn decode_visuals(bytes: &[u8]) -> Box<[BlockVisual]> {

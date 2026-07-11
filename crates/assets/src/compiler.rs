@@ -6,7 +6,8 @@ use std::{
 use sha2::{Digest, Sha256};
 
 use crate::{
-    AssetError, BlockFace, BlockFlags, PackSources, RegistryRecord, TextureKey,
+    AssetError, BiomeRegistryRecord, BlockFace, BlockFlags, CompiledBiomeAssets, PackSources,
+    RegistryRecord, TextureKey, compile_biome_assets,
     image::{TextureArray, build_texture_array, decode_static_texture, diagnostic_pixels},
     read_pack, resolve_texture_key,
 };
@@ -18,12 +19,25 @@ pub const MATERIAL_FLAG_ROTATE_UV: u32 = 1 << 0;
 pub const MATERIAL_FLAG_UV_MASK: u32 = 0x0000_000f;
 pub const MATERIAL_FLAG_TINT_MASK: u32 = 0x0000_0030;
 pub const MATERIAL_FLAG_GRASS_TINT: u32 = 1 << 4;
+pub const MATERIAL_FLAG_FOLIAGE_TINT: u32 = 1 << 5;
+pub const MATERIAL_FLAG_WATER_TINT: u32 = MATERIAL_FLAG_GRASS_TINT | MATERIAL_FLAG_FOLIAGE_TINT;
 pub const MATERIAL_FLAG_OVERLAY_MASK: u32 = 1 << 6;
 pub const MATERIAL_FLAG_ALPHA_CUTOUT: u32 = 1 << 8;
+pub const MATERIAL_FLAG_FOLIAGE_CLASS_MASK: u32 = 0x0000_0600;
+pub const MATERIAL_FLAG_BIRCH_FOLIAGE: u32 = 1 << 9;
+pub const MATERIAL_FLAG_EVERGREEN_FOLIAGE: u32 = 1 << 10;
+pub const MATERIAL_FLAG_DRY_FOLIAGE: u32 = MATERIAL_FLAG_FOLIAGE_CLASS_MASK;
 pub const MATERIAL_FLAGS_MASK: u32 = MATERIAL_FLAG_UV_MASK
     | MATERIAL_FLAG_TINT_MASK
     | MATERIAL_FLAG_OVERLAY_MASK
-    | MATERIAL_FLAG_ALPHA_CUTOUT;
+    | MATERIAL_FLAG_ALPHA_CUTOUT
+    | MATERIAL_FLAG_FOLIAGE_CLASS_MASK;
+
+pub(crate) const fn material_flags_are_valid(flags: u32) -> bool {
+    flags & !MATERIAL_FLAGS_MASK == 0
+        && (flags & MATERIAL_FLAG_FOLIAGE_CLASS_MASK == 0
+            || flags & MATERIAL_FLAG_TINT_MASK == MATERIAL_FLAG_FOLIAGE_TINT)
+}
 
 const MAX_VISUALS: usize = 65_536;
 
@@ -60,6 +74,7 @@ pub struct CompiledAssets {
     pub hashed: Box<[(u32, u32)]>,
     pub materials: Box<[Material]>,
     pub textures: TextureArray,
+    pub biomes: CompiledBiomeAssets,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -74,6 +89,25 @@ type CompiledVisuals = (Box<[BlockVisual]>, Box<[(u32, u32)]>);
 
 /// Compiles the cube-geometry subset of a bounded Bedrock resource pack.
 pub fn compile_pack(root: &Path, records: &[RegistryRecord]) -> Result<CompiledAssets, AssetError> {
+    compile_pack_inner(root, records, CompiledBiomeAssets::diagnostic())
+}
+
+/// Compiles the complete v3 block and biome asset set.
+pub fn compile_pack_with_biomes(
+    root: &Path,
+    behavior_pack: &Path,
+    records: &[RegistryRecord],
+    biome_registry: &[BiomeRegistryRecord],
+) -> Result<CompiledAssets, AssetError> {
+    let biomes = compile_biome_assets(root, behavior_pack, biome_registry)?;
+    compile_pack_inner(root, records, biomes)
+}
+
+fn compile_pack_inner(
+    root: &Path,
+    records: &[RegistryRecord],
+    biomes: CompiledBiomeAssets,
+) -> Result<CompiledAssets, AssetError> {
     let pack = read_pack(root)?;
     validate_records(records)?;
 
@@ -116,6 +150,7 @@ pub fn compile_pack(root: &Path, records: &[RegistryRecord]) -> Result<CompiledA
         hashed,
         materials,
         textures,
+        biomes,
     })
 }
 
@@ -176,6 +211,7 @@ fn descriptor_for(
     };
     if record.flags.contains(BlockFlags::LEAF_MODEL) {
         flags |= MATERIAL_FLAG_ALPHA_CUTOUT;
+        flags |= leaf_tint_flags(&record.name);
     }
     if record.name.as_ref() == "minecraft:grass_block" {
         flags |= match face {
@@ -193,6 +229,19 @@ fn descriptor_for(
         },
         key,
     ))
+}
+
+fn leaf_tint_flags(name: &str) -> u32 {
+    match name {
+        "minecraft:oak_leaves"
+        | "minecraft:dark_oak_leaves"
+        | "minecraft:jungle_leaves"
+        | "minecraft:acacia_leaves"
+        | "minecraft:mangrove_leaves" => MATERIAL_FLAG_FOLIAGE_TINT,
+        "minecraft:birch_leaves" => MATERIAL_FLAG_FOLIAGE_TINT | MATERIAL_FLAG_BIRCH_FOLIAGE,
+        "minecraft:spruce_leaves" => MATERIAL_FLAG_FOLIAGE_TINT | MATERIAL_FLAG_EVERGREEN_FOLIAGE,
+        _ => 0,
+    }
 }
 
 fn record_has_deferred_material(pack: &PackSources, record: &RegistryRecord) -> bool {
