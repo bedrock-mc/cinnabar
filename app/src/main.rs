@@ -29,7 +29,8 @@ use metrics::{DiagnosticQuadTracker, MetricsCollector, PipelineMetricsSnapshot};
 use network::{NetworkConfig, NetworkEvent, NetworkHandle, spawn_network};
 use render::{
     ChunkRenderInstance, ChunkRenderQueue, ChunkTextureAssets, ChunkUploadAcknowledgements,
-    ChunkUploadPriority, ChunkUploadToken, DebugWorldPlugin,
+    ChunkUploadPriority, ChunkUploadToken, DebugWorldPlugin, PresentedFrameAck, PresentedFrameGate,
+    RenderViewCohort, TargetRenderExpectation,
 };
 use server_position::SAFE_SERVER_HEIGHT;
 use world::SubChunkKey;
@@ -179,28 +180,35 @@ struct TeleportReadySnapshot {
 }
 
 impl TeleportReadySnapshot {
-    fn is_ready(self) -> bool {
+    fn is_binding_ready(self) -> bool {
         self.received_radius_chunks == Some(PHASE0_REQUESTED_RADIUS_CHUNKS)
             && self.publisher_radius_chunks == Some(PHASE0_REQUESTED_RADIUS_CHUNKS)
-            && self.rendered_sub_chunks != 0
-            && self.resident_sub_chunks != 0
-            && self.visible_sub_chunks != 0
             && self.cohort.is_some_and(ViewCohortStatus::is_exact)
             && self.work.is_empty()
     }
+
+    fn is_ready(self) -> bool {
+        self.is_binding_ready()
+            && self.rendered_sub_chunks != 0
+            && self.resident_sub_chunks != 0
+            && self.visible_sub_chunks != 0
+    }
 }
 
-#[derive(Debug, Clone, Copy)]
-struct TeleportCleanCandidate {
+#[derive(Debug, Clone)]
+struct TeleportPresentedCandidate {
     snapshot: TeleportReadySnapshot,
-    since: Instant,
-    first_clean_latency: Duration,
+    status: ViewCohortStatus,
+    expectation: TargetRenderExpectation,
+    first_frame: Option<PresentedFrameAck>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct PendingFullViewTeleport {
     started: Instant,
+    move_sequence: u64,
     target: ViewCohort,
+    source: ViewCohort,
     publisher_seen: bool,
     publisher_latency: Option<Duration>,
     first_level_chunk_latency: Option<Duration>,
@@ -210,13 +218,19 @@ struct PendingFullViewTeleport {
     last_sub_chunk_latency: Option<Duration>,
     sub_chunk_events: u64,
     peak_network_events: usize,
-    clean_candidate: Option<TeleportCleanCandidate>,
+    presented_candidate: Option<TeleportPresentedCandidate>,
     last_progress_at: Option<Instant>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct FullViewTeleportCompletion {
     settle_latency: Duration,
+    render_ready_latency: Duration,
+    first_present_return_latency: Duration,
+    first_gpu_completion_latency: Duration,
+    stable_present_return_latency: Duration,
+    stable_gpu_completion_latency: Duration,
+    view_generation: u64,
     publisher_latency: Option<Duration>,
     first_level_chunk_latency: Option<Duration>,
     last_level_chunk_latency: Option<Duration>,
@@ -236,10 +250,14 @@ struct FullViewTeleportTracker {
     enabled: bool,
     origin_chunk: Option<[i32; 2]>,
     local_player_runtime_id: Option<u64>,
-    latest_publisher_cohort: Option<ViewCohort>,
+    latest_publisher_ingress: Option<(u64, ViewCohort, Instant)>,
+    pending_move_ingress: Option<(u64, Instant)>,
     pending: Option<PendingFullViewTeleport>,
     completed: Option<Duration>,
     completed_target: Option<ViewCohort>,
+    next_view_generation: u64,
+    #[cfg(test)]
+    next_test_sequence: u64,
 }
 
 impl FullViewTeleportTracker {
@@ -248,10 +266,14 @@ impl FullViewTeleportTracker {
             enabled,
             origin_chunk: None,
             local_player_runtime_id: None,
-            latest_publisher_cohort: None,
+            latest_publisher_ingress: None,
+            pending_move_ingress: None,
             pending: None,
             completed: None,
             completed_target: None,
+            next_view_generation: 0,
+            #[cfg(test)]
+            next_test_sequence: 0,
         }
     }
 
@@ -262,9 +284,10 @@ impl FullViewTeleportTracker {
         }
     }
 
-    fn observe(
+    fn observe_ingress(
         &mut self,
         event: &protocol::WorldEvent,
+        sequence: u64,
         observed_at: Instant,
         current_dimension: i32,
     ) -> bool {
@@ -278,14 +301,19 @@ impl FullViewTeleportTracker {
                     update.center,
                     update.radius_blocks,
                 );
-                self.latest_publisher_cohort = Some(publisher);
+                if self
+                    .latest_publisher_ingress
+                    .is_none_or(|(latest, _, _)| sequence >= latest)
+                {
+                    self.latest_publisher_ingress = Some((sequence, publisher, observed_at));
+                }
                 if let Some(pending) = &mut self.pending
+                    && sequence > pending.move_sequence
                     && publisher == pending.target
                     && !pending.publisher_seen
                 {
                     pending.publisher_seen = true;
-                    pending.publisher_latency =
-                        Some(observed_at.saturating_duration_since(pending.started));
+                    pending.publisher_latency = observed_at.checked_duration_since(pending.started);
                 }
                 false
             }
@@ -305,31 +333,18 @@ impl FullViewTeleportTracker {
                 if !far_enough {
                     return false;
                 }
-                let target = ViewCohort {
-                    dimension: current_dimension,
-                    center: target,
-                    radius: PHASE0_REQUESTED_RADIUS_CHUNKS,
-                };
-                self.pending = Some(PendingFullViewTeleport {
-                    started: observed_at,
-                    target,
-                    publisher_seen: self.latest_publisher_cohort == Some(target),
-                    publisher_latency: (self.latest_publisher_cohort == Some(target))
-                        .then_some(Duration::ZERO),
-                    first_level_chunk_latency: None,
-                    last_level_chunk_latency: None,
-                    level_chunk_events: 0,
-                    first_sub_chunk_latency: None,
-                    last_sub_chunk_latency: None,
-                    sub_chunk_events: 0,
-                    peak_network_events: 0,
-                    clean_candidate: None,
-                    last_progress_at: None,
-                });
-                true
+                if self
+                    .pending_move_ingress
+                    .is_none_or(|(pending_sequence, _)| sequence < pending_sequence)
+                {
+                    self.pending_move_ingress = Some((sequence, observed_at));
+                    return true;
+                }
+                false
             }
             protocol::WorldEvent::LevelChunk(event) => {
                 if let Some(pending) = &mut self.pending
+                    && sequence > pending.move_sequence
                     && pending
                         .target
                         .contains_column(event.dimension, [event.x, event.z])
@@ -342,7 +357,9 @@ impl FullViewTeleportTracker {
                 false
             }
             protocol::WorldEvent::SubChunks(batch) => {
-                if let Some(pending) = &mut self.pending {
+                if let Some(pending) = &mut self.pending
+                    && sequence > pending.move_sequence
+                {
                     let target_entries = batch
                         .entries
                         .iter()
@@ -369,76 +386,263 @@ impl FullViewTeleportTracker {
         }
     }
 
-    fn observe_snapshot(
+    fn observe_committed_control(&mut self, control: &CommittedControlEvent) -> bool {
+        let CommittedControlEvent::MovePlayer {
+            sequence,
+            movement,
+            source_cohort,
+            ..
+        } = control
+        else {
+            return false;
+        };
+        self.commit_move(*sequence, *movement, *source_cohort)
+    }
+
+    fn commit_move(
+        &mut self,
+        sequence: u64,
+        movement: protocol::MovePlayerEvent,
+        source_cohort: Option<ViewCohort>,
+    ) -> bool {
+        if !self.enabled || self.completed.is_some() || self.pending.is_some() {
+            return false;
+        }
+        let Some((pending_sequence, started)) = self.pending_move_ingress else {
+            return false;
+        };
+        if pending_sequence != sequence {
+            return false;
+        }
+        self.pending_move_ingress = None;
+        if self.local_player_runtime_id != Some(movement.runtime_id) {
+            return false;
+        }
+        let (Some(origin), Some(target_center)) =
+            (self.origin_chunk, horizontal_chunk(movement.position))
+        else {
+            return false;
+        };
+        let far_enough = i64::from(origin[0]).abs_diff(i64::from(target_center[0]))
+            >= FULL_VIEW_TELEPORT_MIN_CHUNK_DELTA
+            || i64::from(origin[1]).abs_diff(i64::from(target_center[1]))
+                >= FULL_VIEW_TELEPORT_MIN_CHUNK_DELTA;
+        if !far_enough {
+            return false;
+        }
+        let Some(source) =
+            source_cohort.filter(|source| source.radius == PHASE0_REQUESTED_RADIUS_CHUNKS)
+        else {
+            return false;
+        };
+        let target = ViewCohort {
+            dimension: source.dimension,
+            center: target_center,
+            radius: PHASE0_REQUESTED_RADIUS_CHUNKS,
+        };
+        if source == target {
+            return false;
+        }
+        let matching_publisher =
+            self.latest_publisher_ingress
+                .filter(|(publisher_sequence, publisher, _)| {
+                    *publisher_sequence > sequence && *publisher == target
+                });
+        self.pending = Some(PendingFullViewTeleport {
+            started,
+            move_sequence: sequence,
+            target,
+            source,
+            publisher_seen: matching_publisher.is_some(),
+            publisher_latency: matching_publisher
+                .and_then(|(_, _, observed_at)| observed_at.checked_duration_since(started)),
+            first_level_chunk_latency: None,
+            last_level_chunk_latency: None,
+            level_chunk_events: 0,
+            first_sub_chunk_latency: None,
+            last_sub_chunk_latency: None,
+            sub_chunk_events: 0,
+            peak_network_events: 0,
+            presented_candidate: None,
+            last_progress_at: None,
+        });
+        true
+    }
+
+    #[cfg(test)]
+    fn observe(
+        &mut self,
+        event: &protocol::WorldEvent,
+        observed_at: Instant,
+        current_dimension: i32,
+    ) -> bool {
+        self.next_test_sequence = self.next_test_sequence.saturating_add(1);
+        let sequence = self.next_test_sequence;
+        let source = self.origin_chunk.map(|center| ViewCohort {
+            dimension: current_dimension,
+            center,
+            radius: PHASE0_REQUESTED_RADIUS_CHUNKS,
+        });
+        let capture = self.observe_ingress(event, sequence, observed_at, current_dimension);
+        if capture && let protocol::WorldEvent::MovePlayer(movement) = event {
+            return self.commit_move(sequence, *movement, source);
+        }
+        false
+    }
+
+    fn reconcile_presented_expectation(
         &mut self,
         snapshot: TeleportReadySnapshot,
+        mut proposed: TargetRenderExpectation,
         now: Instant,
+    ) -> Option<TargetRenderExpectation> {
+        let pending = self.pending.as_mut()?;
+        pending.peak_network_events = pending
+            .peak_network_events
+            .max(snapshot.work.network_events);
+        let Some(status) = snapshot.cohort else {
+            pending.presented_candidate = None;
+            return None;
+        };
+        let target = render_view_cohort(pending.target);
+        let source = render_view_cohort(pending.source);
+        if !pending.publisher_seen
+            || !snapshot.is_binding_ready()
+            || status.target != pending.target
+            || proposed.cohort != target
+            || proposed.source_cohort != Some(source)
+            || proposed.manifest.is_empty()
+        {
+            pending.presented_candidate = None;
+            return None;
+        }
+
+        if let Some(candidate) = &mut pending.presented_candidate
+            && candidate.status == status
+            && candidate.expectation.cohort == proposed.cohort
+            && candidate.expectation.source_cohort == proposed.source_cohort
+            && candidate.expectation.manifest == proposed.manifest
+        {
+            candidate.snapshot = snapshot;
+            return Some(candidate.expectation.clone());
+        }
+
+        self.next_view_generation = self.next_view_generation.wrapping_add(1).max(1);
+        proposed.view_generation = self.next_view_generation;
+        proposed.render_ready_at = now;
+        pending.presented_candidate = Some(TeleportPresentedCandidate {
+            snapshot,
+            status,
+            expectation: proposed.clone(),
+            first_frame: None,
+        });
+        Some(proposed)
+    }
+
+    fn observe_presented_frame(
+        &mut self,
+        acknowledgement: PresentedFrameAck,
     ) -> Option<FullViewTeleportCompletion> {
         let completion = {
             let pending = self.pending.as_mut()?;
-            pending.peak_network_events = pending
-                .peak_network_events
-                .max(snapshot.work.network_events);
-            if !pending.publisher_seen
-                || !snapshot.is_ready()
-                || snapshot
-                    .cohort
-                    .is_none_or(|status| status.target != pending.target)
-            {
-                pending.clean_candidate = None;
+            let candidate = pending.presented_candidate.as_mut()?;
+            if !presented_ack_matches(pending.started, &candidate.expectation, &acknowledgement) {
+                candidate.first_frame = None;
                 return None;
             }
-            match pending.clean_candidate {
-                Some(candidate) if candidate.snapshot == snapshot => {
-                    (now.saturating_duration_since(candidate.since) >= WORLD_READY_QUIET_INTERVAL)
-                        .then_some(FullViewTeleportCompletion {
-                            settle_latency: candidate.first_clean_latency,
-                            publisher_latency: pending.publisher_latency,
-                            first_level_chunk_latency: pending.first_level_chunk_latency,
-                            last_level_chunk_latency: pending.last_level_chunk_latency,
-                            level_chunk_events: pending.level_chunk_events,
-                            first_sub_chunk_latency: pending.first_sub_chunk_latency,
-                            last_sub_chunk_latency: pending.last_sub_chunk_latency,
-                            sub_chunk_events: pending.sub_chunk_events,
-                            last_chunk_commit_latency: latency_after(
-                                pending.started,
-                                snapshot.last_chunk_commit_at,
-                            ),
-                            last_mesh_dispatch_latency: latency_after(
-                                pending.started,
-                                snapshot.last_mesh_dispatch_at,
-                            ),
-                            last_mesh_completion_latency: latency_after(
-                                pending.started,
-                                snapshot.last_mesh_completion_at,
-                            ),
-                            last_mesh_ack_latency: latency_after(
-                                pending.started,
-                                snapshot.last_mesh_ack_at,
-                            ),
-                            peak_network_events: pending.peak_network_events,
-                        })
-                }
-                _ => {
-                    pending.clean_candidate = Some(TeleportCleanCandidate {
-                        snapshot,
-                        since: now,
-                        first_clean_latency: now.saturating_duration_since(pending.started),
-                    });
-                    None
-                }
+            let Some(first) = candidate.first_frame.take() else {
+                candidate.first_frame = Some(acknowledgement);
+                return None;
+            };
+            if !first.forms_stable_exact_pair_with(&acknowledgement)
+                || first.present_returned_at > acknowledgement.present_returned_at
+            {
+                candidate.first_frame = Some(acknowledgement);
+                return None;
             }
+
+            let started = pending.started;
+            Some(FullViewTeleportCompletion {
+                settle_latency: acknowledgement
+                    .gpu_completed_at
+                    .checked_duration_since(started)?,
+                render_ready_latency: candidate
+                    .expectation
+                    .render_ready_at
+                    .checked_duration_since(started)?,
+                first_present_return_latency: first
+                    .present_returned_at
+                    .checked_duration_since(started)?,
+                first_gpu_completion_latency: first
+                    .gpu_completed_at
+                    .checked_duration_since(started)?,
+                stable_present_return_latency: acknowledgement
+                    .present_returned_at
+                    .checked_duration_since(started)?,
+                stable_gpu_completion_latency: acknowledgement
+                    .gpu_completed_at
+                    .checked_duration_since(started)?,
+                view_generation: candidate.expectation.view_generation,
+                publisher_latency: pending.publisher_latency,
+                first_level_chunk_latency: pending.first_level_chunk_latency,
+                last_level_chunk_latency: pending.last_level_chunk_latency,
+                level_chunk_events: pending.level_chunk_events,
+                first_sub_chunk_latency: pending.first_sub_chunk_latency,
+                last_sub_chunk_latency: pending.last_sub_chunk_latency,
+                sub_chunk_events: pending.sub_chunk_events,
+                last_chunk_commit_latency: latency_after(
+                    started,
+                    candidate.snapshot.last_chunk_commit_at,
+                ),
+                last_mesh_dispatch_latency: latency_after(
+                    started,
+                    candidate.snapshot.last_mesh_dispatch_at,
+                ),
+                last_mesh_completion_latency: latency_after(
+                    started,
+                    candidate.snapshot.last_mesh_completion_at,
+                ),
+                last_mesh_ack_latency: latency_after(started, candidate.snapshot.last_mesh_ack_at),
+                peak_network_events: pending.peak_network_events,
+            })
         };
         if let Some(completion) = completion {
-            self.completed_target = self.pending.map(|pending| pending.target);
+            self.completed_target = self.pending.as_ref().map(|pending| pending.target);
             self.pending = None;
             self.completed = Some(completion.settle_latency);
         }
         completion
     }
 
+    #[cfg(test)]
+    fn observe_snapshot(
+        &mut self,
+        snapshot: TeleportReadySnapshot,
+        now: Instant,
+    ) -> Option<FullViewTeleportCompletion> {
+        let pending = self.pending.as_ref()?;
+        let proposed = TargetRenderExpectation {
+            cohort: render_view_cohort(pending.target),
+            source_cohort: Some(render_view_cohort(pending.source)),
+            manifest: Arc::from([(
+                SubChunkKey::new(
+                    pending.target.dimension,
+                    0,
+                    pending.target.center[0],
+                    pending.target.center[1],
+                ),
+                1,
+            )]),
+            view_generation: 0,
+            render_ready_at: now,
+        };
+        let _ = self.reconcile_presented_expectation(snapshot, proposed, now);
+        None
+    }
+
     fn target_cohort(&self) -> Option<ViewCohort> {
         self.pending
+            .as_ref()
             .map(|pending| pending.target)
             .or(self.completed_target)
     }
@@ -501,8 +705,37 @@ impl FullViewTeleportTracker {
     #[cfg(test)]
     fn has_clean_candidate(&self) -> bool {
         self.pending
-            .is_some_and(|pending| pending.clean_candidate.is_some())
+            .as_ref()
+            .is_some_and(|pending| pending.presented_candidate.is_some())
     }
+}
+
+const fn render_view_cohort(cohort: ViewCohort) -> RenderViewCohort {
+    RenderViewCohort::new(cohort.dimension, cohort.center, cohort.radius)
+}
+
+fn presented_ack_matches(
+    started: Instant,
+    expectation: &TargetRenderExpectation,
+    acknowledgement: &PresentedFrameAck,
+) -> bool {
+    acknowledgement.cohort == expectation.cohort
+        && acknowledgement.view_generation == expectation.view_generation
+        && acknowledgement.render_ready_at == expectation.render_ready_at
+        && acknowledgement.allocation_manifest == expectation.manifest
+        && acknowledgement.is_exact()
+        && acknowledgement
+            .render_ready_at
+            .checked_duration_since(started)
+            .is_some()
+        && acknowledgement
+            .present_returned_at
+            .checked_duration_since(acknowledgement.render_ready_at)
+            .is_some()
+        && acknowledgement
+            .gpu_completed_at
+            .checked_duration_since(acknowledgement.present_returned_at)
+            .is_some()
 }
 
 fn cohort_tag(cohort: ViewCohort) -> String {
@@ -644,16 +877,24 @@ impl AcceptanceRun {
         }
     }
 
-    fn observe_full_view_teleport(
+    fn observe_full_view_teleport_ingress(
         &mut self,
         event: &protocol::WorldEvent,
+        sequence: u64,
         observed_at: Instant,
         current_dimension: i32,
     ) -> bool {
         self.world_ready
-            && self
-                .full_view_teleport
-                .observe(event, observed_at, current_dimension)
+            && self.full_view_teleport.observe_ingress(
+                event,
+                sequence,
+                observed_at,
+                current_dimension,
+            )
+    }
+
+    fn observe_committed_full_view_control(&mut self, control: &CommittedControlEvent) -> bool {
+        self.world_ready && self.full_view_teleport.observe_committed_control(control)
     }
 
     fn acknowledge_mutation(
@@ -1026,12 +1267,13 @@ fn receive_network_events(
                 };
                 let observed_at = Instant::now();
                 acceptance.observe_mutation(&sequenced.event, observed_at);
-                if acceptance.observe_full_view_teleport(
+                if acceptance.observe_full_view_teleport_ingress(
                     &sequenced.event,
+                    sequenced.sequence,
                     observed_at,
                     stream.current_dimension(),
                 ) {
-                    stream.capture_source_columns();
+                    stream.schedule_source_capture(sequenced.sequence);
                 }
                 if let Err(error) = stream.submit(sequenced.sequence, sequenced.event) {
                     client_world.fatal_error = Some(format!("world FIFO rejected data: {error}"));
@@ -1105,6 +1347,7 @@ fn drive_world_stream(
         stream.take_committed_controls()
     };
     for control in controls {
+        let _ = acceptance.observe_committed_full_view_control(&control);
         apply_committed_control(
             control,
             &mut camera,
@@ -1224,6 +1467,7 @@ fn emit_world_ready(
     diagnostic_quads: Res<DiagnosticQuads>,
     render_queue: Res<ChunkRenderQueue>,
     acknowledgements: Res<ChunkUploadAcknowledgements>,
+    presented_frames: Res<PresentedFrameGate>,
     mut acceptance: ResMut<AcceptanceRun>,
     mut auto_fly: ResMut<camera::AutoFly>,
     mut metrics: ResMut<AppMetrics>,
@@ -1255,6 +1499,9 @@ fn emit_world_ready(
             .full_view_teleport
             .target_cohort()
             .map(|target| stream.cohort_status(target));
+        if let Some(status) = cohort {
+            debug_assert_eq!(stream.committed_view_cohort(), status.committed);
+        }
         let snapshot = TeleportReadySnapshot {
             received_radius_chunks: stats.received_radius_chunks,
             publisher_radius_chunks: stats.publisher_radius_chunks,
@@ -1270,10 +1517,38 @@ fn emit_world_ready(
             work,
         };
         let observed_at = Instant::now();
-        if let Some(teleport) = acceptance
+        let proposed = acceptance
             .full_view_teleport
-            .observe_snapshot(snapshot, observed_at)
-        {
+            .pending
+            .as_ref()
+            .map(|pending| {
+                render_queue.freeze_target_expectation(
+                    render_view_cohort(pending.target),
+                    Some(render_view_cohort(pending.source)),
+                    0,
+                    observed_at,
+                )
+            });
+        let expectation = proposed.and_then(|proposed| {
+            acceptance
+                .full_view_teleport
+                .reconcile_presented_expectation(snapshot, proposed, observed_at)
+        });
+        if let Some(expectation) = expectation {
+            presented_frames.set_expectation(expectation);
+        } else {
+            presented_frames.clear();
+        }
+        let teleport = presented_frames
+            .drain()
+            .into_iter()
+            .find_map(|acknowledgement| {
+                acceptance
+                    .full_view_teleport
+                    .observe_presented_frame(acknowledgement)
+            });
+        if let Some(teleport) = teleport {
+            presented_frames.clear();
             let cohort = snapshot
                 .cohort
                 .expect("teleport completion requires an exact cohort");
@@ -1290,12 +1565,18 @@ fn emit_world_ready(
             let mut stdout = std::io::stdout().lock();
             let _ = writeln!(
                 stdout,
-                "RUST_MCBE_TELEPORT_SETTLED target={} committed={} ms={:.4} publisher_ms={:.4} first_level_ms={:.4} last_level_ms={:.4} level_events={} first_sub_ms={:.4} last_sub_ms={:.4} sub_events={} peak_network_events={} queued={} columns={} expected={} loaded_target={} missing_target={} foreign_loaded={} foreign_requested={} foreign_resident={} source_leftover={} resident_count={} resident_hash={:016x} known_air_count={} known_air_hash={:016x} rendered={} resident={} visible={}",
+                "RUST_MCBE_TELEPORT_SETTLED target={} committed={} ms={:.4} view_generation={} render_ready_ms={:.4} first_present_ms={:.4} first_gpu_ms={:.4} stable_present_ms={:.4} stable_gpu_ms={:.4} publisher_ms={:.4} first_level_ms={:.4} last_level_ms={:.4} level_events={} first_sub_ms={:.4} last_sub_ms={:.4} sub_events={} peak_network_events={} queued={} columns={} expected={} loaded_target={} missing_target={} foreign_loaded={} foreign_requested={} foreign_resident={} source_leftover={} resident_count={} resident_hash={:016x} known_air_count={} known_air_hash={:016x} rendered={} resident={} visible={}",
                 cohort_tag(cohort.target),
                 cohort
                     .committed
                     .map_or_else(|| "none".to_owned(), cohort_tag),
                 teleport.settle_latency.as_secs_f64() * 1_000.0,
+                teleport.view_generation,
+                teleport.render_ready_latency.as_secs_f64() * 1_000.0,
+                teleport.first_present_return_latency.as_secs_f64() * 1_000.0,
+                teleport.first_gpu_completion_latency.as_secs_f64() * 1_000.0,
+                teleport.stable_present_return_latency.as_secs_f64() * 1_000.0,
+                teleport.stable_gpu_completion_latency.as_secs_f64() * 1_000.0,
                 optional_milliseconds(teleport.publisher_latency),
                 optional_milliseconds(teleport.first_level_chunk_latency),
                 optional_milliseconds(teleport.last_level_chunk_latency),
@@ -1488,7 +1769,9 @@ fn apply_committed_control(
     pending_surface_spawn: &mut Option<[i32; 2]>,
 ) {
     let resolved = match control {
-        CommittedControlEvent::MovePlayer { movement, resolved } => {
+        CommittedControlEvent::MovePlayer {
+            movement, resolved, ..
+        } => {
             info!(
                 runtime_id = movement.runtime_id,
                 position = ?movement.position,
@@ -1729,10 +2012,14 @@ mod tests {
         BlockUpdateEvent, LevelChunkEvent, LevelChunkMode, SubChunkBatchEvent, SubChunkEntryEvent,
         SubChunkResult, WorldBootstrap, WorldEvent,
     };
-    use std::time::{Duration, Instant};
+    use render::{PresentedFrameAck, RenderViewCohort, TargetRenderExpectation};
+    use std::{
+        sync::Arc,
+        time::{Duration, Instant},
+    };
     use world::SubChunkKey;
 
-    use crate::world_stream::{ViewCohort, ViewCohortStatus};
+    use crate::world_stream::{ViewCohort, ViewCohortStatus, WorldStream};
     use crate::{
         AcceptanceRun, FullViewRemeshTracker, FullViewTeleportTracker, MutationTracker,
         NETWORK_INGRESS_BUDGET_PER_FRAME, TeleportReadySnapshot, WORLD_READY_QUIET_INTERVAL,
@@ -1786,6 +2073,12 @@ mod tests {
     const DESTINATION_COHORT: ViewCohort = ViewCohort {
         dimension: 0,
         center: [65, 65],
+        radius: 16,
+    };
+
+    const SOURCE_COHORT: ViewCohort = ViewCohort {
+        dimension: 0,
+        center: [0, 0],
         radius: 16,
     };
 
@@ -1846,6 +2139,466 @@ mod tests {
             0,
         );
         tracker
+    }
+
+    fn proposed_render_expectation(
+        render_ready_at: Instant,
+        manifest: impl IntoIterator<Item = (SubChunkKey, u64)>,
+    ) -> TargetRenderExpectation {
+        TargetRenderExpectation {
+            cohort: RenderViewCohort::new(
+                DESTINATION_COHORT.dimension,
+                DESTINATION_COHORT.center,
+                DESTINATION_COHORT.radius,
+            ),
+            source_cohort: Some(RenderViewCohort::new(
+                SOURCE_COHORT.dimension,
+                SOURCE_COHORT.center,
+                SOURCE_COHORT.radius,
+            )),
+            manifest: Arc::from(manifest.into_iter().collect::<Vec<_>>()),
+            view_generation: 0,
+            render_ready_at,
+        }
+    }
+
+    fn presented_acknowledgement(
+        expectation: &TargetRenderExpectation,
+        frame_sequence: u64,
+        present_after_ready: Duration,
+        gpu_after_ready: Duration,
+    ) -> PresentedFrameAck {
+        PresentedFrameAck {
+            cohort: expectation.cohort,
+            frame_sequence,
+            allocation_manifest: Arc::clone(&expectation.manifest),
+            drawn_manifest: Arc::clone(&expectation.manifest),
+            view_generation: expectation.view_generation,
+            render_ready_at: expectation.render_ready_at,
+            present_returned_at: expectation.render_ready_at + present_after_ready,
+            gpu_completed_at: expectation.render_ready_at + gpu_after_ready,
+            missing_target_instances: 0,
+            unexpected_target_instances: 0,
+            source_instances: 0,
+            foreign_instances: 0,
+            stale_generation_instances: 0,
+            orphan_allocations: 0,
+        }
+    }
+
+    #[test]
+    fn full_view_teleport_arms_only_with_a_fifo_committed_source_cohort() {
+        let started = Instant::now();
+        let movement = WorldEvent::MovePlayer(protocol::MovePlayerEvent {
+            runtime_id: 1,
+            position: [1_040.5, 70.0, 1_040.5],
+            pitch: 0.0,
+            yaw: 0.0,
+        });
+        let mut tracker = FullViewTeleportTracker::new(true);
+        tracker.begin_world_ready([0.5, 70.0, 0.5], 1);
+
+        assert!(tracker.observe_ingress(&movement, 1, started, 0));
+        let WorldEvent::MovePlayer(move_player) = &movement else {
+            unreachable!();
+        };
+        let move_player = *move_player;
+        assert!(!tracker.commit_move(1, move_player, None));
+        assert!(tracker.pending.is_none());
+        assert!(tracker.observe_ingress(&movement, 2, started + Duration::from_millis(1), 0,));
+        assert!(tracker.commit_move(2, move_player, Some(SOURCE_COHORT)));
+        assert_eq!(
+            tracker.pending.as_ref().map(|pending| pending.source),
+            Some(SOURCE_COHORT)
+        );
+    }
+
+    #[test]
+    fn out_of_order_move_waits_for_fifo_source_commit_before_arming() {
+        let started = Instant::now();
+        let movement = protocol::MovePlayerEvent {
+            runtime_id: 1,
+            position: [1_040.5, 70.0, 1_040.5],
+            pitch: 0.0,
+            yaw: 0.0,
+        };
+        let mut tracker = FullViewTeleportTracker::new(true);
+        tracker.begin_world_ready([0.5, 70.0, 0.5], 1);
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.5, 70.0, 0.5],
+            world_spawn_position: [0, 70, 0],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+
+        assert!(tracker.observe_ingress(&WorldEvent::MovePlayer(movement), 2, started, 0,));
+        stream.schedule_source_capture(2);
+        stream.submit(2, WorldEvent::MovePlayer(movement)).unwrap();
+        assert!(stream.take_committed_controls().is_empty());
+        assert!(tracker.pending.is_none());
+
+        stream
+            .submit(
+                1,
+                WorldEvent::PublisherUpdate(protocol::PublisherUpdateEvent {
+                    center: [0, 70, 0],
+                    radius_blocks: 256,
+                }),
+            )
+            .unwrap();
+        let controls = stream.take_committed_controls();
+        assert_eq!(controls.len(), 1);
+        assert!(tracker.observe_committed_control(&controls[0]));
+        let pending = tracker.pending.as_ref().unwrap();
+        assert_eq!(pending.started, started);
+        assert_eq!(pending.source, SOURCE_COHORT);
+        assert_eq!(stream.committed_view_cohort(), Some(SOURCE_COHORT));
+    }
+
+    #[test]
+    fn write_buffer_ack_alone_never_settles_binding_teleport() {
+        let started = Instant::now();
+        let mut tracker = destination_tracker(started);
+        let key = SubChunkKey::new(0, 64, 65, 65);
+        let proposal =
+            proposed_render_expectation(started + Duration::from_millis(200), [(key, 7)]);
+
+        let first = tracker
+            .reconcile_presented_expectation(
+                settled_teleport_snapshot(),
+                proposal.clone(),
+                started + Duration::from_millis(200),
+            )
+            .expect("an exact clean cohort should freeze a render expectation");
+        let unchanged = tracker
+            .reconcile_presented_expectation(
+                settled_teleport_snapshot(),
+                proposal,
+                started + Duration::from_secs(30),
+            )
+            .expect("an unchanged exact cohort should retain its expectation");
+
+        assert_eq!(unchanged, first);
+        assert_eq!(tracker.completed, None);
+        assert!(tracker.pending.is_some());
+    }
+
+    #[test]
+    fn binding_teleport_requires_two_identical_presented_gpu_completed_frames() {
+        let started = Instant::now();
+        let mut tracker = destination_tracker(started);
+        let key = SubChunkKey::new(0, 64, 65, 65);
+        let expectation = tracker
+            .reconcile_presented_expectation(
+                settled_teleport_snapshot(),
+                proposed_render_expectation(started + Duration::from_millis(200), [(key, 7)]),
+                started + Duration::from_millis(200),
+            )
+            .unwrap();
+        let first = presented_acknowledgement(
+            &expectation,
+            10,
+            Duration::from_millis(10),
+            Duration::from_millis(20),
+        );
+        let second = presented_acknowledgement(
+            &expectation,
+            11,
+            Duration::from_millis(30),
+            Duration::from_millis(40),
+        );
+
+        assert_eq!(tracker.observe_presented_frame(first), None);
+        let completion = tracker
+            .observe_presented_frame(second)
+            .expect("the adjacent second exact GPU-complete frame should settle");
+        assert_eq!(completion.settle_latency, Duration::from_millis(240));
+        assert_eq!(tracker.completed, Some(Duration::from_millis(240)));
+    }
+
+    #[test]
+    fn render_manifest_change_resets_teleport_stability() {
+        let started = Instant::now();
+        let mut tracker = destination_tracker(started);
+        let key_a = SubChunkKey::new(0, 64, 65, 65);
+        let key_b = SubChunkKey::new(0, 65, 65, 65);
+        let expectation_a = tracker
+            .reconcile_presented_expectation(
+                settled_teleport_snapshot(),
+                proposed_render_expectation(started + Duration::from_millis(200), [(key_a, 7)]),
+                started + Duration::from_millis(200),
+            )
+            .unwrap();
+        assert_eq!(
+            tracker.observe_presented_frame(presented_acknowledgement(
+                &expectation_a,
+                1,
+                Duration::from_millis(10),
+                Duration::from_millis(20),
+            )),
+            None
+        );
+
+        let expectation_b = tracker
+            .reconcile_presented_expectation(
+                settled_teleport_snapshot(),
+                proposed_render_expectation(
+                    started + Duration::from_millis(300),
+                    [(key_a, 7), (key_b, 8)],
+                ),
+                started + Duration::from_millis(300),
+            )
+            .unwrap();
+        assert_ne!(expectation_b.view_generation, expectation_a.view_generation);
+        assert_eq!(
+            tracker.observe_presented_frame(presented_acknowledgement(
+                &expectation_b,
+                2,
+                Duration::from_millis(10),
+                Duration::from_millis(20),
+            )),
+            None,
+            "the first frame for a replacement manifest must only re-arm stability"
+        );
+        assert!(
+            tracker
+                .observe_presented_frame(presented_acknowledgement(
+                    &expectation_b,
+                    3,
+                    Duration::from_millis(30),
+                    Duration::from_millis(40),
+                ))
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn source_render_instance_blocks_settle_with_clean_world_queues() {
+        let started = Instant::now();
+        let mut tracker = destination_tracker(started);
+        let key = SubChunkKey::new(0, 64, 65, 65);
+        let expectation = tracker
+            .reconcile_presented_expectation(
+                settled_teleport_snapshot(),
+                proposed_render_expectation(started + Duration::from_millis(200), [(key, 7)]),
+                started + Duration::from_millis(200),
+            )
+            .unwrap();
+        for sequence in [1, 2] {
+            let mut blocked = presented_acknowledgement(
+                &expectation,
+                sequence,
+                Duration::from_millis(sequence * 10),
+                Duration::from_millis(sequence * 10 + 5),
+            );
+            blocked.source_instances = 1;
+            assert_eq!(tracker.observe_presented_frame(blocked), None);
+        }
+        assert_eq!(tracker.completed, None);
+        assert!(tracker.pending.is_some());
+    }
+
+    #[test]
+    fn cohort_identity_change_resets_stability_even_when_counts_match() {
+        let started = Instant::now();
+        let mut tracker = destination_tracker(started);
+        let key = SubChunkKey::new(0, 64, 65, 65);
+        let first_expectation = tracker
+            .reconcile_presented_expectation(
+                settled_teleport_snapshot(),
+                proposed_render_expectation(started + Duration::from_millis(200), [(key, 7)]),
+                started + Duration::from_millis(200),
+            )
+            .unwrap();
+        assert_eq!(
+            tracker.observe_presented_frame(presented_acknowledgement(
+                &first_expectation,
+                1,
+                Duration::from_millis(10),
+                Duration::from_millis(20),
+            )),
+            None
+        );
+
+        let mut changed_snapshot = settled_teleport_snapshot();
+        changed_snapshot.cohort.as_mut().unwrap().resident_hash ^= 0x55aa;
+        let replacement = tracker
+            .reconcile_presented_expectation(
+                changed_snapshot,
+                proposed_render_expectation(started + Duration::from_millis(300), [(key, 7)]),
+                started + Duration::from_millis(300),
+            )
+            .unwrap();
+        assert_ne!(
+            replacement.view_generation,
+            first_expectation.view_generation
+        );
+        assert_eq!(
+            tracker.observe_presented_frame(presented_acknowledgement(
+                &first_expectation,
+                2,
+                Duration::from_millis(30),
+                Duration::from_millis(40),
+            )),
+            None,
+            "an acknowledgement for the old cohort identity must not settle"
+        );
+    }
+
+    #[test]
+    fn visibility_count_change_does_not_reset_binding_render_stability() {
+        let started = Instant::now();
+        let mut tracker = destination_tracker(started);
+        let key = SubChunkKey::new(0, 64, 65, 65);
+        let proposal =
+            proposed_render_expectation(started + Duration::from_millis(200), [(key, 7)]);
+        let expectation = tracker
+            .reconcile_presented_expectation(
+                settled_teleport_snapshot(),
+                proposal.clone(),
+                started + Duration::from_millis(200),
+            )
+            .unwrap();
+        assert_eq!(
+            tracker.observe_presented_frame(presented_acknowledgement(
+                &expectation,
+                1,
+                Duration::from_millis(10),
+                Duration::from_millis(20),
+            )),
+            None
+        );
+
+        let mut culled = settled_teleport_snapshot();
+        culled.visible_sub_chunks = 0;
+        let retained = tracker.reconcile_presented_expectation(
+            culled,
+            proposal,
+            started + Duration::from_millis(220),
+        );
+        assert_eq!(
+            retained,
+            Some(expectation.clone()),
+            "a non-binding culling count replaced the frozen expectation"
+        );
+        assert!(
+            tracker
+                .observe_presented_frame(presented_acknowledgement(
+                    &expectation,
+                    2,
+                    Duration::from_millis(30),
+                    Duration::from_millis(40),
+                ))
+                .is_some(),
+            "a non-binding visibility change discarded the first exact frame"
+        );
+    }
+
+    #[test]
+    fn teleport_stage_offsets_are_monotonic_and_settle_equals_stable_gpu_completion() {
+        let started = Instant::now();
+        let mut tracker = destination_tracker(started);
+        let key = SubChunkKey::new(0, 64, 65, 65);
+        let expectation = tracker
+            .reconcile_presented_expectation(
+                settled_teleport_snapshot(),
+                proposed_render_expectation(started + Duration::from_millis(200), [(key, 7)]),
+                started + Duration::from_millis(200),
+            )
+            .unwrap();
+        let mut malformed =
+            presented_acknowledgement(&expectation, 9, Duration::ZERO, Duration::from_millis(1));
+        malformed.present_returned_at = expectation.render_ready_at - Duration::from_millis(1);
+        assert_eq!(tracker.observe_presented_frame(malformed), None);
+
+        assert_eq!(
+            tracker.observe_presented_frame(presented_acknowledgement(
+                &expectation,
+                10,
+                Duration::from_millis(10),
+                Duration::from_millis(20),
+            )),
+            None
+        );
+        let completion = tracker
+            .observe_presented_frame(presented_acknowledgement(
+                &expectation,
+                11,
+                Duration::from_millis(30),
+                Duration::from_millis(40),
+            ))
+            .unwrap();
+
+        assert_eq!(completion.render_ready_latency, Duration::from_millis(200));
+        assert_eq!(
+            completion.first_present_return_latency,
+            Duration::from_millis(210)
+        );
+        assert_eq!(
+            completion.first_gpu_completion_latency,
+            Duration::from_millis(220)
+        );
+        assert_eq!(
+            completion.stable_present_return_latency,
+            Duration::from_millis(230)
+        );
+        assert_eq!(
+            completion.stable_gpu_completion_latency,
+            Duration::from_millis(240)
+        );
+        assert_eq!(
+            completion.settle_latency,
+            completion.stable_gpu_completion_latency
+        );
+        assert_eq!(completion.view_generation, expectation.view_generation);
+    }
+
+    #[test]
+    fn presented_frame_timestamp_regression_resets_the_stability_pair() {
+        let started = Instant::now();
+        let mut tracker = destination_tracker(started);
+        let key = SubChunkKey::new(0, 64, 65, 65);
+        let expectation = tracker
+            .reconcile_presented_expectation(
+                settled_teleport_snapshot(),
+                proposed_render_expectation(started + Duration::from_millis(200), [(key, 7)]),
+                started + Duration::from_millis(200),
+            )
+            .unwrap();
+        assert_eq!(
+            tracker.observe_presented_frame(presented_acknowledgement(
+                &expectation,
+                1,
+                Duration::from_millis(30),
+                Duration::from_millis(40),
+            )),
+            None
+        );
+        assert_eq!(
+            tracker.observe_presented_frame(presented_acknowledgement(
+                &expectation,
+                2,
+                Duration::from_millis(20),
+                Duration::from_millis(50),
+            )),
+            None,
+            "an earlier present-return timestamp formed a false stable pair"
+        );
+        let completion = tracker
+            .observe_presented_frame(presented_acknowledgement(
+                &expectation,
+                3,
+                Duration::from_millis(60),
+                Duration::from_millis(70),
+            ))
+            .expect("a later adjacent monotonic frame should complete after the reset");
+        assert_eq!(
+            completion.first_present_return_latency,
+            Duration::from_millis(220)
+        );
+        assert_eq!(completion.settle_latency, Duration::from_millis(270));
     }
 
     #[test]
@@ -1915,22 +2668,10 @@ mod tests {
         );
         assert_eq!(
             tracker.observe_snapshot(replacement, started + Duration::from_millis(4_300)),
-            Some(super::FullViewTeleportCompletion {
-                settle_latency: Duration::from_millis(2_300),
-                publisher_latency: Some(Duration::from_millis(100)),
-                first_level_chunk_latency: None,
-                last_level_chunk_latency: None,
-                level_chunk_events: 0,
-                first_sub_chunk_latency: None,
-                last_sub_chunk_latency: None,
-                sub_chunk_events: 0,
-                last_chunk_commit_latency: None,
-                last_mesh_dispatch_latency: None,
-                last_mesh_completion_latency: None,
-                last_mesh_ack_latency: None,
-                peak_network_events: 0,
-            })
+            None,
+            "clean/upload state alone must never complete the presented-frame gate"
         );
+        assert_eq!(tracker.completed, None);
     }
 
     #[test]
@@ -2048,6 +2789,12 @@ mod tests {
             DESTINATION_COHORT,
             super::FullViewTeleportCompletion {
                 settle_latency: Duration::ZERO,
+                render_ready_latency: Duration::ZERO,
+                first_present_return_latency: Duration::ZERO,
+                first_gpu_completion_latency: Duration::ZERO,
+                stable_present_return_latency: Duration::ZERO,
+                stable_gpu_completion_latency: Duration::ZERO,
+                view_generation: 1,
                 publisher_latency: None,
                 first_level_chunk_latency: None,
                 last_level_chunk_latency: None,
@@ -2152,11 +2899,28 @@ mod tests {
             ),
             None
         );
+        let expectation = tracker
+            .pending
+            .as_ref()
+            .and_then(|pending| pending.presented_candidate.as_ref())
+            .map(|candidate| candidate.expectation.clone())
+            .unwrap();
+        assert_eq!(
+            tracker.observe_presented_frame(presented_acknowledgement(
+                &expectation,
+                1,
+                Duration::from_millis(10),
+                Duration::from_millis(20),
+            )),
+            None
+        );
         let completion = tracker
-            .observe_snapshot(
-                settled_teleport_snapshot(),
-                started + Duration::from_millis(2_800),
-            )
+            .observe_presented_frame(presented_acknowledgement(
+                &expectation,
+                2,
+                Duration::from_millis(30),
+                Duration::from_millis(40),
+            ))
             .unwrap();
 
         assert_eq!(completion.level_chunk_events, 1);
@@ -2180,7 +2944,7 @@ mod tests {
     }
 
     #[test]
-    fn full_view_teleport_requires_far_motion_matching_publisher_and_stable_clean_work() {
+    fn full_view_teleport_requires_far_motion_matching_publisher_and_two_presented_frames() {
         let started = Instant::now();
         let mut tracker = FullViewTeleportTracker::new(true);
         tracker.begin_world_ready([0.5, 70.0, 0.5], 1);
@@ -2293,10 +3057,30 @@ mod tests {
             tracker.observe_snapshot(clean, started + Duration::from_millis(2_100),),
             None
         );
+        let expectation = tracker
+            .pending
+            .as_ref()
+            .and_then(|pending| pending.presented_candidate.as_ref())
+            .map(|candidate| candidate.expectation.clone())
+            .expect("clean exact target should freeze a render expectation");
+        assert_eq!(
+            tracker.observe_presented_frame(presented_acknowledgement(
+                &expectation,
+                10,
+                Duration::from_millis(10),
+                Duration::from_millis(20),
+            )),
+            None
+        );
         let completion = tracker
-            .observe_snapshot(clean, started + Duration::from_millis(4_100))
-            .expect("stable clean target should complete");
-        assert_eq!(completion.settle_latency, Duration::from_millis(2_100));
+            .observe_presented_frame(presented_acknowledgement(
+                &expectation,
+                11,
+                Duration::from_millis(30),
+                Duration::from_millis(40),
+            ))
+            .expect("the adjacent second exact GPU-complete frame should complete");
+        assert_eq!(completion.settle_latency, Duration::from_millis(2_140));
         assert_eq!(
             completion.publisher_latency,
             Some(Duration::from_millis(1_100))

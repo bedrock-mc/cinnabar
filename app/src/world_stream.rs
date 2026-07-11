@@ -256,8 +256,10 @@ pub enum WorldMeshChange {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CommittedControlEvent {
     MovePlayer {
+        sequence: u64,
         movement: MovePlayerEvent,
         resolved: ResolvedServerPosition,
+        source_cohort: Option<ViewCohort>,
     },
     ChangeDimension {
         change: ChangeDimensionEvent,
@@ -612,6 +614,7 @@ pub struct WorldStream {
     publisher_radius_chunks: Option<i32>,
     committed_view_cohort: Option<ViewCohort>,
     source_columns: BTreeSet<ChunkKey>,
+    source_capture_sequence: Option<u64>,
     chunk_radius: Option<i32>,
     resolved_server_position: ResolvedServerPosition,
     stats: WorldStreamStats,
@@ -700,6 +703,7 @@ impl WorldStream {
             publisher_radius_chunks: None,
             committed_view_cohort: None,
             source_columns: BTreeSet::new(),
+            source_capture_sequence: None,
             chunk_radius: None,
             resolved_server_position,
             stats: WorldStreamStats::default(),
@@ -837,6 +841,11 @@ impl WorldStream {
     #[must_use]
     pub const fn current_dimension(&self) -> i32 {
         self.current_dimension
+    }
+
+    #[must_use]
+    pub const fn committed_view_cohort(&self) -> Option<ViewCohort> {
+        self.committed_view_cohort
     }
 
     #[must_use]
@@ -1089,9 +1098,15 @@ impl WorldStream {
         self.loaded_columns.len()
     }
 
-    /// Captures key-only source evidence at the far MovePlayer ingress edge.
+    /// Captures key-only source evidence at the caller-selected commit edge.
     pub fn capture_source_columns(&mut self) {
         self.source_columns = self.tracked_columns();
+    }
+
+    /// Schedules source-column capture at the exact FIFO commit edge for one
+    /// already-observed MovePlayer sequence.
+    pub fn schedule_source_capture(&mut self, sequence: u64) {
+        self.source_capture_sequence = Some(sequence);
     }
 
     #[must_use]
@@ -1549,6 +1564,12 @@ impl WorldStream {
                 });
             }
             WorldEvent::MovePlayer(movement) => {
+                let sequence = sequence.expect("sequenced MovePlayer commits through submit");
+                let source_cohort = self.committed_view_cohort;
+                if self.source_capture_sequence == Some(sequence) {
+                    self.capture_source_columns();
+                    self.source_capture_sequence = None;
+                }
                 let resolved = resolve_server_position(
                     movement.position,
                     self.resolved_server_position.position,
@@ -1556,8 +1577,10 @@ impl WorldStream {
                 );
                 self.resolved_server_position = resolved;
                 self.push_committed_control(CommittedControlEvent::MovePlayer {
+                    sequence,
                     movement,
                     resolved,
+                    source_cohort,
                 });
             }
             WorldEvent::SubChunks(_) => unreachable!("sub-chunk batches are prepared on workers"),
@@ -2415,6 +2438,105 @@ mod tests {
     }
 
     #[test]
+    fn publisher_cohort_accessor_is_exposed_only_after_fifo_commit() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        let target = super::ViewCohort {
+            dimension: 0,
+            center: [100, 0],
+            radius: 16,
+        };
+
+        assert_eq!(stream.committed_view_cohort(), None);
+
+        stream
+            .submit(
+                2,
+                WorldEvent::PublisherUpdate(PublisherUpdateEvent {
+                    center: [1_600, 64, 0],
+                    radius_blocks: 256,
+                }),
+            )
+            .unwrap();
+
+        assert_eq!(stream.committed_view_cohort(), None);
+
+        stream
+            .submit(1, WorldEvent::ChunkRadiusUpdated(16))
+            .unwrap();
+
+        assert_eq!(stream.committed_view_cohort(), Some(target));
+    }
+
+    #[test]
+    fn source_capture_occurs_at_move_fifo_commit_before_later_publisher_eviction() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.5, 70.0, 0.5],
+            world_spawn_position: [0, 70, 0],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        let source = ChunkKey::new(0, 0, 0);
+        let source_cohort = super::ViewCohort {
+            dimension: 0,
+            center: [0, 0],
+            radius: 16,
+        };
+        stream.loaded_columns.insert(source);
+        stream.chunk_radius = Some(16);
+        stream.schedule_source_capture(2);
+
+        stream
+            .submit(
+                2,
+                WorldEvent::MovePlayer(MovePlayerEvent {
+                    runtime_id: 1,
+                    position: [1_040.5, 70.0, 1_040.5],
+                    pitch: 0.0,
+                    yaw: 0.0,
+                }),
+            )
+            .unwrap();
+        stream
+            .submit(
+                3,
+                WorldEvent::PublisherUpdate(PublisherUpdateEvent {
+                    center: [1_040, 70, 1_040],
+                    radius_blocks: 256,
+                }),
+            )
+            .unwrap();
+        stream
+            .submit(
+                1,
+                WorldEvent::PublisherUpdate(PublisherUpdateEvent {
+                    center: [0, 70, 0],
+                    radius_blocks: 256,
+                }),
+            )
+            .unwrap();
+
+        assert!(stream.source_columns.contains(&source));
+        assert!(!stream.tracked_columns().contains(&source));
+        assert!(matches!(
+            stream.take_committed_controls().as_slice(),
+            [super::CommittedControlEvent::MovePlayer {
+                sequence: 2,
+                source_cohort: Some(cohort),
+                ..
+            }] if *cohort == source_cohort
+        ));
+    }
+
+    #[test]
     fn publisher_cohort_preserves_over_max_radius_while_runtime_scope_clamps() {
         let mut stream = WorldStream::new(WorldBootstrap {
             dimension: 0,
@@ -2937,11 +3059,13 @@ mod tests {
             stream.take_committed_controls(),
             vec![
                 super::CommittedControlEvent::MovePlayer {
+                    sequence: 2,
                     movement,
                     resolved: crate::server_position::ResolvedServerPosition {
                         position: movement.position,
                         surface_anchor: None,
                     },
+                    source_cohort: None,
                 },
                 super::CommittedControlEvent::ChangeDimension {
                     change,
@@ -3311,11 +3435,13 @@ mod tests {
         assert_eq!(
             stream.take_committed_controls(),
             vec![super::CommittedControlEvent::MovePlayer {
+                sequence: 2,
                 movement,
                 resolved: crate::server_position::ResolvedServerPosition {
                     position: movement.position,
                     surface_anchor: None,
                 },
+                source_cohort: None,
             }]
         );
     }
