@@ -188,6 +188,30 @@ volume to measure the reduction in diagnostic quads against the pre-slice base. 
 publish exact commands, coordinates, camera pose, processing fence, and a hashed manifest before
 screenshots are accepted.
 
+The far forest uses the binding Task 8 proof, not a loaded-count or upload-ack approximation. A
+`ViewCohort { dimension, center, radius: 16 }` expands to the exact 33x33 Chebyshev square of
+1,089 columns around the committed publisher center. Completion requires that exact target set,
+no missing or foreign loaded/requested/resident column, no intersection with the source-column
+set captured at `MovePlayer` ingress, stable resident/known-air count+hash identities, and empty
+bounded work. Rendering is proven by two
+consecutive GPU-completed presented frames with the same sorted `(SubChunkKey, mesh_generation)`
+manifest and view generation, zero source/foreign/stale-generation render instances, and zero
+orphan arena allocations. A write-buffer/upload acknowledgement alone cannot satisfy this fence.
+The forced full-view remesh begins only after the bound teleport proof and must pass the same
+presented/GPU fence with an exact remesh manifest.
+
+Resource sampling has independent mode-specific triggers. The pinned opaque baseline starts its
+steady window from its compatible world-ready marker; near gallery Front/Back runs start after
+their observable visual-fixture-ready marker; only the far forest starts after the binding
+teleport plus forced-remesh presentation marker. Baseline and near gallery modes never arm the
+far-teleport tracker. For the far forest, BDS finishes the target fixture commands, the observable
+`list` processing fence, and atomic fixture-manifest/ready-marker publication before `tp` is
+issued; the event log preserves that order through `MovePlayer` ingress and target presentation.
+After the target cohort is presented, the app verifies the deterministic target coordinate
+against that manifest and both app and harness retarget mutation tracking there. The harness
+stops any source loop before starting target `setblock`; no source-view mutation may count as
+post-teleport evidence.
+
 The report records exact source/registry/blob/BDS hashes; registry records and flag counts;
 visual/material/cutout-material/layer/mip byte counts; missing mappings; before/after diagnostic
 quad counts and percentage reduction for the same forest fixture; frame/decode/mesh/remesh and

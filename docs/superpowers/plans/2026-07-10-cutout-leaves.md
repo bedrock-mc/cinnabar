@@ -27,6 +27,9 @@
 - Validate self-colored cherry, azalea, and flowered-azalea leaves first. Common-leaf foliage tint and color parity are explicitly deferred.
 - Preserve the app budgets: mesh dispatch 64/frame, GPU uploads 8/frame, network ingress 8/frame, outbound sends 16/frame; world result capacity 128; render queue 256 items/64 MiB.
 - At radius 16, carry the gates: combined client+core RSS at most 650 MB, steady normalized CPU at most 15%, join/teleport settle and full-view remesh at most 2 seconds, modified-subchunk visibility at most 100 ms, dev-MacBook p99 at most 8 ms, and zero unadjudicated decode errors/missing mappings.
+- Full-view proof binds the exact 1,089-column radius-16 target cohort, excludes the captured source cohort, and requires two identical GPU-completed presented-frame manifests for one view generation; loaded counts or upload acknowledgements alone never settle it.
+- Steady resource sampling uses independent triggers: baseline world-ready, near gallery fixture-ready, or far forest bound-present completion. Baseline and near gallery modes never arm far teleport.
+- The far forest retargets both BDS `setblock` and app mutation tracking to a loaded target coordinate only after observable fixture-load, teleport, cohort, and presented-frame sequencing.
 - The pre-feature evidence base is `5933209fe053aff0f2164262f129635b947a636b`; diagnostic reduction must compare the same deterministic forest fixture against that revision and the final revision.
 - Every behavioral task follows RED -> GREEN -> REFACTOR, ends in a focused commit, and receives an independent review before its dependent task begins. Fix all Critical and Important findings before proceeding.
 - Every step must retain its concrete assertions and bounds; do not skip assertions, ignore failures, or add unbounded test loops.
@@ -42,10 +45,10 @@
 - `crates/assets/tests/{pack,compiler,blob,runtime}.rs`: schema, compiler, mip, and compatibility regressions.
 - `crates/render/src/mesh.rs`: palette facts, independent `u64` masks, asymmetric culling, and open leaf connectivity.
 - `crates/render/src/chunk.wgsl`: one-sample bit-8 discard and alpha-one output.
-- `crates/render/src/plugin.rs`: retain and test the one opaque depth-writing/no-blend pipeline.
-- `crates/render/tests/{mesh,plugin}.rs`: culling/connectivity, record-size, shader, phase, bind-group, and MDI regressions.
-- `app/src/world_stream.rs`: retain bounded job plumbing, update leaf connectivity regressions, and expose the publisher center for the live settle gate.
-- `app/src/{main,metrics}.rs`: time and serialize the far-teleport full-view settle gate without relabeling per-subchunk remesh latency.
+- `crates/render/src/plugin.rs`: retain the one opaque pipeline and publish exact direct/MDI presented-frame generation manifests after GPU completion.
+- `crates/render/tests/{mesh,plugin}.rs`: culling/connectivity, record-size, shader, phase, bind-group, MDI, and present-fence regressions.
+- `app/src/world_stream.rs`: retain bounded job plumbing, update leaf connectivity, and report exact target/source cohort status.
+- `app/src/{main,metrics}.rs`: bind and serialize exact cohort/presented-frame teleport and forced-remesh proof, then retarget mutation tracking.
 - `scripts/acceptance.ps1`: deterministic leaf fixtures, prebuilt-baseline client support, and process resource samples.
 - `scripts/tests/acceptance.Tests.ps1`: fixture, path-safety, resource-accounting, and baseline-option contracts.
 - `docs/phase-2-cutout-leaves-report.md`: exact hashes/counts/diagnostic reduction/performance/visual limitations.
@@ -492,12 +495,15 @@
 
   Run:
 
-  ```text
+  ```powershell
   cargo test -p render --test mesh --locked -- --nocapture
   cargo test -p render --locked -- --nocapture
   cargo test -p bedrock-client --locked -- --nocapture
   cargo clippy -p render -p bedrock-client --all-targets --locked -- -D warnings
-  rg -n "\[(u32|BlockFlags|ResolvedPaletteEntry); 4096\]" crates/render app
+  $flat = & rg -n "\[(u32|BlockFlags|ResolvedPaletteEntry); 4096\]" crates/render app 2>&1
+  $rgExit = $LASTEXITCODE
+  if ($rgExit -eq 0) { $flat; throw 'forbidden flat 4096-element array found' }
+  if ($rgExit -gt 1) { throw "rg flat-array scan failed with exit $rgExit`: $flat" }
   ```
 
   Expected: tests/clippy pass; the scan prints no matches; `PackedQuad` is eight bytes; queue,
@@ -600,28 +606,34 @@
 ### Task 5: Regenerate Local Assets and Pass the Deterministic Live Gate
 
 **Files:**
+- Modify: `app/src/args.rs`
 - Modify: `app/src/main.rs`
 - Modify: `app/src/metrics.rs`
 - Modify: `app/src/world_stream.rs`
+- Modify: `crates/render/src/lib.rs`
+- Modify: `crates/render/src/plugin.rs`
+- Modify: `crates/render/tests/plugin.rs`
 - Modify: `scripts/acceptance.ps1`
 - Modify: `scripts/tests/acceptance.Tests.ps1`
 - Create: `docs/phase-2-cutout-leaves-report.md`
 - Modify: `plan.md`
 
 **Interfaces:**
-- Extends `-VisualFixturePose` with `LeafGalleryFront`, `LeafGalleryBack`, and `LeafForest`.
+- Extends `-VisualFixturePose` with near-only `LeafGalleryFront` and `LeafGalleryBack`; adds harness-only `-LeafForestBaseline` and binding `-LeafForestFullView` modes over the same hashed forest plan.
 - Adds paired `-ClientExecutable <path>` and `-SkipClientBuild` options for the pinned base comparison; normal acceptance behavior is unchanged when omitted.
-- Adds `-UseVsync` to omit the harness's existing `--no-vsync` argument for the capped-60 resource-budget runs; default behavior remains unchanged.
-- Writes `resource-metrics.json` with bounded once-per-second process samples and records the client executable SHA-256.
-- Adds `MetricsReport::full_view_teleport_ms: f64`, measured from a far local `MovePlayer` to the first matching, fully drained publisher view; the two-second stability confirmation is excluded.
-- Adds `WorldStream::publisher_center(&self) -> Option<[i32; 3]>` for the exact view match.
-- Adds private `FullViewTeleportTracker::arm(&mut self, from: Vec3, to: Vec3, received_at: Instant)` and `observe(&mut self, publisher_center: Option<[i32; 3]>, work: WorldReadyWork, now: Instant) -> Option<Duration>`; success emits `RUST_MCBE_FULL_VIEW_SETTLED full_view_teleport_ms=<finite>`.
+- Retains `-UseVsync` for capped baseline/near-gallery sampling; far full-view mode uses the Task 8 `--frame-cap 60` contract.
+- Adds `-SteadyResourceTrigger WorldReady|VisualFixtureReady|FullViewPresented`; exactly one trigger owns each 30-second sampler and only `FullViewPresented` requires the far tracker.
+- Produces `ViewCohort { dimension: i32, center: [i32; 2], radius: i32 }`; radius 16 expands to exactly 1,089 `ChunkKey`s.
+- Produces `WorldStream::cohort_status(&self, target: ViewCohort, source: &BTreeSet<ChunkKey>) -> CohortStatus` with target/committed cohort identity; `expected`, `loaded_target`, `missing_target`, `foreign_loaded`, `foreign_requested`, `foreign_resident`, and `source_leftover`; resident/known-air count+hash identities; and bounded-work emptiness.
+- Produces `PresentedFrameAck { cohort: ViewCohort, manifest: Arc<[(SubChunkKey, u64)]>, view_generation: u64, render_ready_at: Instant, present_returned_at: Instant, gpu_completed_at: Instant, source_instances: usize, foreign_instances: usize, stale_generation_instances: usize, orphan_allocations: usize }`.
+- Produces `MetricsReport::{teleport_settle_ms, forced_full_view_remesh_ms}: Option<f64>` from the binding GPU-completion timestamps, not from upload acknowledgement or a quiet timer.
+- Produces `AcceptanceRun::retarget_mutation(&mut self, coordinate: [i32; 3], armed_at: Instant)` and a deterministic target-forest mutation coordinate shared with the PowerShell manifest.
 - Keeps owned BDS stdin, command-length/newline checks, observable `list` fence, fresh runtime copy, and 64-command/32,768-block fixture bounds.
 
 - [ ] **Step 1: Write failing acceptance-harness tests**
 
-  Add tests that all three poses produce bounded commands and manifest schema
-  `rust-mcbe-visual-fixture-v2`. Gallery manifests must contain:
+  Add tests that both near gallery poses and the far forest plan produce bounded commands and
+  manifest schema `rust-mcbe-visual-fixture-v2`. Gallery/forest manifests must contain:
 
   ```powershell
   $selfColored = @(
@@ -634,91 +646,200 @@
 
   Assert each leaf command sets `persistent_bit=true` and `update_bit=false`, opaque backing
   touches leaves, near/far panels exist, front/back camera targets are deterministic, and the
-  forest contains multiple bounded canopies. Test that `-SkipClientBuild` without
+  forest contains multiple bounded canopies plus one target mutation coordinate. Test that
+  `-SkipClientBuild` without
   `-ClientExecutable` fails, a missing executable fails, and an explicit prebuilt executable is
-  never overwritten. Assert `-UseVsync` removes `--no-vsync` while the default retains it. Test the CPU formula
+  never overwritten. Assert full-view mode supplies `--frame-cap 60` and omits `--no-vsync`.
+  Test the CPU formula
   `100 * delta_cpu_seconds / (wall_seconds * logical_processor_count)` and combined RSS sum with
   synthetic samples.
 
-  Add Rust RED tests for a private `FullViewTeleportTracker`: movement of at most 1,024 blocks
-  does not arm it; a farther movement does; a clean view with the old publisher center cannot
-  settle; reappearing work resets the candidate; two unchanged clean seconds report
-  `first_clean_at - move_received_at`; serialized latency is finite. Extend PowerShell metrics
-  validation to reject a missing, non-finite, or greater-than-2,000 ms value for the final far
-  forest run.
+  Add Rust RED tests for the exact binding:
+
+  - radius 16 enumerates 1,089 unique columns around the committed publisher center;
+  - an equal loaded count with one missing target and one source/foreign replacement fails;
+  - publisher cohort cannot bind before its FIFO-committed update matches the `MovePlayer` target;
+  - requested/resident keys outside target or any source-column intersection fail;
+  - write-buffer/upload acknowledgement without a present-return plus submitted-work callback
+    never settles;
+  - two consecutive GPU-completed frames with identical sorted manifest and view generation are
+    required; manifest/generation changes reset the pair;
+  - source/foreign/stale-generation instances or orphan allocations block completion;
+  - a newly prepared generation waits for a later queue/draw pass; direct and MDI manifests match;
+  - forced remesh starts after teleport binding, returns an exact key/generation manifest, and
+    uses the same presented/GPU fence;
+  - target mutation tracking remains disarmed until the forest cohort is bound, then ignores the
+    source coordinate and closes only on the target coordinate's presented generation.
+
+  Extend PowerShell tests to prove trigger isolation: `WorldReady` works with the pinned baseline
+  client, `VisualFixtureReady` works for near GalleryFront/Back without
+  `--full-view-teleport-gate`, and `FullViewPresented` rejects a run without both binding markers.
+  Assert baseline/full-view forest modes publish the same canonical fixture-layout hash and cannot
+  be selected together.
+  Validate `teleport_settle_ms` and `forced_full_view_remesh_ms` independently as finite values at
+  or below 2,000 ms.
 
 - [ ] **Step 2: Run RED**
 
   Run:
 
   ```text
-  powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/acceptance.Tests.ps1
-  ```
-
-  Expected: FAIL because leaf poses, prebuilt-client options, manifest v2, resource samples, and
-  full-view teleport timing do not exist.
-
-- [ ] **Step 3: Implement deterministic leaf fixtures and bounded resource sampling**
-
-  Extend `New-VisualFixturePlan` without changing `None|Front|Back`. The gallery builds three
-  2x2x2 self-colored cubes, three labeled common-leaf cubes, leaf/leaf adjacency, leaf blocks
-  touching opaque gold/plank backing, and 1-block-thick near/far panels. The forest builds
-  deterministic trunks/canopies using the same persistent leaf state and records every bounding
-  box/name in the manifest. Place `LeafForest` more than 1,024 blocks from the initial camera so
-  its publisher view has no overlap. Keep clear volume <=32,768 and commands <=64.
-
-  In `app/src/main.rs`, arm `FullViewTeleportTracker` when the committed local `MovePlayer`
-  displacement exceeds 1,024 blocks. Match its destination to
-  `WorldStream::publisher_center()`, reuse every `WorldReadyWork` field plus render/GPU
-  acknowledgement emptiness, and require an identical clean snapshot for two seconds. Store
-  first-clean latency in `MetricsCollector` and serialize `full_view_teleport_ms`. Keep
-  `max_remesh_ms` as the per-subchunk diagnostic rather than relabeling it.
-
-  Resolve an explicit client executable only when both new options are supplied. Hash the binary
-  before launch. Sample app/core `WorkingSet64` and `TotalProcessorTime` at most once per second,
-  retain a bounded 600-sample array, normalize CPU by logical processors, and write peak combined
-  RSS plus steady-window CPU. When `-UseVsync` is present, do not add `--no-vsync` to app
-  arguments. Do not weaken any existing acceptance assertion.
-
-  Write this bounded shape with at most 600 sample objects:
-
-  ```json
-  {
-    "schema": "rust-mcbe-process-resources-v1",
-    "sample_interval_ms": 1000,
-    "steady_window_seconds": 30,
-    "logical_processor_count": 12,
-    "samples": [
-      {"elapsed_ms": 1000, "client_rss_bytes": 1, "core_rss_bytes": 1, "combined_rss_bytes": 2, "normalized_cpu_percent": 0.1}
-    ],
-    "steady_max_combined_rss_bytes": 2,
-    "steady_mean_cpu_percent": 0.1,
-    "steady_p95_cpu_percent": 0.1
-  }
-  ```
-
-  Begin the 30-sample steady window only after `RUST_MCBE_FULL_VIEW_SETTLED` is observed. Call
-  `Refresh()` on both process handles before each sample and use a monotonic stopwatch. Gate the
-  steady-window maximum RSS at 650 MB and both mean/p95 normalized CPU at 15%; record whole-run
-  peak RSS separately in metadata.
-
-- [ ] **Step 4: Commit the tested harness**
-
-  Run:
-
-  ```text
+  cargo test -p render --test plugin --locked -- --nocapture
   cargo test -p bedrock-client --locked -- --nocapture
   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/acceptance.Tests.ps1
   ```
 
-  Expected: the Rust tracker/serialization tests and PowerShell harness tests pass. Then:
+  Expected: FAIL because exact cohort/source status, presented-frame GPU fences, leaf evidence
+  modes, target mutation retargeting, and independent resource triggers do not exist.
+
+- [ ] **Step 3: Implement deterministic leaf fixtures and the binding full-view proof**
+
+  Keep `LeafGalleryFront`/`LeafGalleryBack` near the initial cohort. Each builds three 2x2x2
+  self-colored cubes, three labeled common-leaf cubes, leaf/leaf adjacency, opaque backing, and
+  near/far panels. `New-FullViewTeleportPlan -LeafForest` uses the existing 65-chunk offset,
+  builds deterministic persistent canopies at the target, and records a mutation coordinate
+  inside the target forest. Its sequence is fixed: write all forest commands; issue and observe
+  the BDS `list` processing fence; atomically publish the hashed fixture/teleport plan and its
+  `VISUAL_FIXTURE_READY=<path>` marker; verify that marker contains the planned target mutation
+  coordinate; only then issue `tp`. Persist each transition in the harness event log so fixture
+  readiness, teleport issue, `MovePlayer` ingress, target presentation, and mutation arming are
+  ordered evidence rather than inferred from wall-clock delay.
+
+  Implement exact cohort identity:
+
+  ```rust
+  #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+  pub struct ViewCohort {
+      pub dimension: i32,
+      pub center: [i32; 2],
+      pub radius: i32,
+  }
+
+  impl ViewCohort {
+      pub fn columns(self) -> BTreeSet<ChunkKey> {
+          let mut columns = BTreeSet::new();
+          for x in self.center[0] - self.radius..=self.center[0] + self.radius {
+              for z in self.center[1] - self.radius..=self.center[1] + self.radius {
+                  columns.insert(ChunkKey::new(self.dimension, x, z));
+              }
+          }
+          columns
+      }
+  }
+
+  pub struct CohortStatus {
+      pub target: ViewCohort,
+      pub committed: Option<ViewCohort>,
+      pub expected: usize,
+      pub loaded_target: usize,
+      pub missing_target: usize,
+      pub foreign_loaded: usize,
+      pub foreign_requested: usize,
+      pub foreign_resident: usize,
+      pub source_leftover: usize,
+      pub resident_count: usize,
+      pub resident_hash: u64,
+      pub known_air_count: usize,
+      pub known_air_hash: u64,
+      pub bounded_work_empty: bool,
+  }
+  ```
+
+  Reject a radius other than 16 in this gate and assert `columns().len() == 1_089`. At far
+  `MovePlayer` ingress, capture the previously committed radius-16 publisher cohort and set
+  `source = source_cohort.columns()`; assert that source also has 1,089 columns and is disjoint
+  from the planned 65-chunk-offset target. Bind the target only after the matching publisher
+  update commits in FIFO order. `CohortStatus::is_exact()` requires `committed == Some(target)`,
+  `expected == loaded_target == 1_089`, every missing/foreign/source-leftover count to be zero,
+  and every bounded network/decode/mesh/render queue to be empty. Hash sorted resident and
+  known-air `SubChunkKey` identities and report every field even on failure, so equal column
+  counts cannot hide a foreign resident, stale known-air identity, or source remainder.
+
+  Carry mesh generation into `ChunkRenderInstance` and increment a monotonic `view_generation`
+  when the bound cohort changes and when forced remesh begins. Build the exact sorted
+  `Arc<[(SubChunkKey, u64)]>` manifest from instances actually queued/drawn by both direct and MDI
+  paths. In `RenderApp`, add the acknowledgement system to `RenderSystems::Render` after Bevy's
+  `render_system`. After present returns, submit an empty sentinel command buffer, attach
+  `on_submitted_work_done`, and poll nonblocking. Only then publish `PresentedFrameAck`; an upload
+  acknowledgement cannot substitute. A generation prepared this frame is eligible only after a
+  later queue/draw pass observes it.
+
+  Bind teleport completion to two consecutive GPU-completed acknowledgements with identical
+  cohort, manifest, and `view_generation`, with all source/foreign/stale-generation/orphan counts
+  zero.
+  `teleport_settle_ms` is
+  `second_identical_ack.gpu_completed_at - move_player_ingress_at`. Only after that completion,
+  call `WorldStream::remesh_all_resident(started)` and return its exact sorted key/new-generation
+  manifest. Apply the same presented/GPU fence; `forced_full_view_remesh_ms` is
+  `gpu_completed_at - started`. Emit distinct `RUST_MCBE_TELEPORT_SETTLED` and
+  `RUST_MCBE_FORCED_FULL_VIEW_REMESH_SETTLED` markers only after these proofs. Their metrics
+  records carry the exact `CohortStatus`, sorted manifest hash and length, view generation,
+  present-return timestamp, GPU-completion timestamp, and source/foreign/stale-generation/orphan
+  counts; the harness validates those fields instead of treating marker text alone as proof.
+
+  After the binding teleport marker, recompute the deterministic target mutation coordinate in
+  Rust and compare it with the already-published PowerShell forest manifest. Only on equality,
+  call `AcceptanceRun::retarget_mutation(coordinate, armed_at)` and echo the coordinate in the
+  arming event. The harness then stops any pre-teleport mutation loop and begins the alternating
+  `setblock` loop at that target coordinate. The source coordinate is no longer mutated, and a
+  source upload/present cannot close the target `MutationTracker`.
+
+- [ ] **Step 4: Implement independent steady-resource triggers**
+
+  Resolve an explicit baseline client only when both prebuilt options are supplied and hash it
+  before launch. Route exactly one trigger per run:
+
+  - `WorldReady`: pinned opaque baseline, armed by its compatible `RUST_MCBE_WORLD_READY` marker;
+  - `VisualFixtureReady`: near GalleryFront/Back, armed after the observable
+    `VISUAL_FIXTURE_READY=<path>` sequence and never passed `--full-view-teleport-gate`;
+  - `FullViewPresented`: far forest, armed only after both binding teleport and forced-remesh
+    markers and passed `--full-view-teleport-gate --frame-cap 60`.
+
+  Sample exact app/core process handles once per second for 30 seconds, call `Refresh()`, use a
+  monotonic stopwatch, normalize CPU by logical processors, and retain at most 600 samples. Write
+  this bounded shape:
+
+  ```json
+  {
+    "schema": "rust-mcbe-steady-resources-v2",
+    "trigger": "VisualFixtureReady",
+    "duration_seconds": 30,
+    "processor_count": 12,
+    "samples": [
+      {"elapsed_seconds": 1.0, "combined_rss_bytes": 2, "cpu_percent": 0.1}
+    ],
+    "summary": {
+      "sample_count": 30,
+      "max_combined_rss_bytes": 2,
+      "mean_cpu_percent": 0.1,
+      "p95_cpu_percent": 0.1
+    }
+  }
+  ```
+
+  Gate the steady-window maximum RSS at 650 MB and both mean/p95 normalized CPU at 15%; record
+  whole-run peak RSS separately. Assert the selected trigger in the artifact so a baseline or
+  gallery sample cannot be mislabeled as post-full-view evidence.
+
+- [ ] **Step 5: Commit the tested harness**
+
+  Run:
 
   ```text
-  git add app/src/main.rs app/src/metrics.rs app/src/world_stream.rs scripts/acceptance.ps1 scripts/tests/acceptance.Tests.ps1
+  cargo test -p render --test plugin --locked -- --nocapture
+  cargo test -p bedrock-client --locked -- --nocapture
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/acceptance.Tests.ps1
+  ```
+
+  Expected: presented-frame/direct/MDI, cohort/mutation/serialization, and PowerShell trigger
+  tests pass. Then:
+
+  ```text
+  git add app/src/args.rs app/src/main.rs app/src/metrics.rs app/src/world_stream.rs crates/render/src/lib.rs crates/render/src/plugin.rs crates/render/tests/plugin.rs scripts/acceptance.ps1 scripts/tests/acceptance.Tests.ps1
   git commit -m "test: add deterministic leaf live gate"
   ```
 
-- [ ] **Step 5: Run the clean no-assets code gate**
+- [ ] **Step 6: Run the clean no-assets code gate**
 
   Start with no `.local/assets` in a clean verification worktree and run:
 
@@ -737,7 +858,7 @@
   Expected: every command exits zero; the diagnostic startup path works; tracked files contain no
   `.png`, `.tga`, `.zip`, or `.mcbea`; no tracked path begins `.local/assets`.
 
-- [ ] **Step 6: Reproduce the registry and compile the ignored final blob**
+- [ ] **Step 7: Reproduce the registry and compile the ignored final blob**
 
   Run:
 
@@ -758,7 +879,7 @@
   counts; compiler reports exact visuals/materials/cutout-materials/layers/mip bytes; the blob
   decodes as schema 2 and remains ignored.
 
-- [ ] **Step 7: Reconstruct the same-scene opaque baseline**
+- [ ] **Step 8: Reconstruct the same-scene opaque baseline**
 
   Create an ignored detached worktree at the pinned base, build its client/compiler into ignored
   target paths, and compile its schema-1 local blob from the same verified source:
@@ -774,10 +895,11 @@
     --out .local/comparison/opaque-base.mcbea
   ```
 
-  Run the current acceptance harness with `LeafForest`, the base executable, base blob,
-  `-ClientExecutable`, and `-SkipClientBuild`. Record its exact executable/blob/fixture hashes,
-  diagnostic quads, missing mappings, and resource/performance metrics. The old schema is consumed
-  only by the old client; the new runtime must continue rejecting it.
+  Run the current harness in `-LeafForestBaseline` mode with the base executable/blob and the
+  independent `WorldReady` resource trigger. This mode publishes the same canonical forest-layout
+  hash as the binding full-view run but never passes the far-tracker flag to the old client.
+  Record exact executable/blob/fixture hashes, diagnostic quads, missing mappings, and resources.
+  The old schema is consumed only by the old client; the new runtime continues rejecting it.
 
   ```powershell
   $bds = (Resolve-Path .local/bds/bedrock-server-1.26.32.2).Path
@@ -786,21 +908,24 @@
     -BdsDir $bds `
     -MetricsOut .local/evidence/opaque-base-leaf-forest.json `
     -Assets .local/comparison/opaque-base.mcbea `
-    -VisualFixturePose LeafForest `
+    -LeafForestBaseline `
+    -SteadyResourceTrigger WorldReady `
     -ClientExecutable .local/comparison/opaque-target/release/bedrock-client.exe `
     -SkipClientBuild `
     -UseVsync
   ```
 
-  Expected: the base session passes the existing radius/error/mutation checks and publishes the
-  leaf-forest manifest, diagnostic count, process samples, and executable/blob hashes.
+  Expected: the base session passes existing radius/error/mutation checks, does not arm full-view
+  tracking, and publishes the forest layout hash, diagnostic count, WorldReady-triggered process
+  samples, and executable/blob hashes.
 
-- [ ] **Step 8: Run final gallery/forest visual and performance evidence**
+- [ ] **Step 9: Run final gallery/forest visual and performance evidence**
 
-  Run fresh 60-second radius-16 sessions for `LeafGalleryFront`, `LeafGalleryBack`, and
-  `LeafForest` using the final ignored blob. Require zero missing mappings and decode errors.
-  Compute forest diagnostic reduction as `base_diagnostic - final_diagnostic` and
-  `100 * reduction / base_diagnostic`; both counts must come from the same fixture manifest hash.
+  Run fresh 60-second radius-16 near sessions for `LeafGalleryFront`/`LeafGalleryBack`, then a
+  separate `LeafForestFullView` session using the final ignored blob. Require zero missing
+  mappings and decode errors. Compute forest diagnostic reduction as
+  `base_diagnostic - final_diagnostic` and `100 * reduction / base_diagnostic`; require the same
+  canonical forest-layout hash.
 
   Attempt Computer Use first on the gallery. Inspect cutout holes, opaque backing through holes,
   self-colored cherry/azalea correctness, leaf adjacency, opaque/leaf boundaries, near/far mips,
@@ -811,30 +936,45 @@
   failure. Passive GDI frames may supplement visual evidence but must be labeled passive and
   cannot claim focus/input/capture/release. Hash every accepted manifest/frame.
 
-  Record p50/p95/p99/max frame, max decode/mesh/remesh/mutation latency, full-view settle,
+  Require the forest artifact to report 1,089 expected/loaded target columns, zero missing,
+  foreign loaded/requested/resident, and source-leftover columns; resident and known-air
+  count+hash identities; two identical GPU-completed presented-frame manifests/generations; zero
+  source/foreign/stale-generation/orphan render state; and post-teleport target mutation
+  visibility at most 100 ms. Record p50/p95/p99/max frame,
+  max decode/mesh/remesh/mutation latency, both binding full-view timings,
   resident/visible subchunks, GPU bytes, client/core/combined RSS, normalized steady CPU, and all
   queue peaks. A 14.2--15.1 second full-view remesh was observed before this slice; do not close
   the <=2-second gate unless fresh evidence actually passes it.
 
   ```powershell
   $bds = (Resolve-Path .local/bds/bedrock-server-1.26.32.2).Path
-  foreach ($pose in @('LeafGalleryFront', 'LeafGalleryBack', 'LeafForest')) {
+  foreach ($pose in @('LeafGalleryFront', 'LeafGalleryBack')) {
       powershell -NoProfile -File scripts/acceptance.ps1 `
         -DurationSeconds 60 `
         -BdsDir $bds `
         -MetricsOut ".local/evidence/final-$($pose.ToLowerInvariant()).json" `
         -Assets .local/assets/compiled/vanilla-v1001.mcbea `
         -VisualFixturePose $pose `
+        -SteadyResourceTrigger VisualFixtureReady `
         -UseVsync
       if ($LASTEXITCODE -ne 0) { throw "$pose acceptance failed" }
   }
+  powershell -NoProfile -File scripts/acceptance.ps1 `
+    -DurationSeconds 900 `
+    -BdsDir $bds `
+    -MetricsOut .local/evidence/final-leafforestfullview.json `
+    -Assets .local/assets/compiled/vanilla-v1001.mcbea `
+    -LeafForestFullView `
+    -FullViewTeleportGate `
+    -SteadyResourceTrigger FullViewPresented
+  if ($LASTEXITCODE -ne 0) { throw 'LeafForestFullView acceptance failed' }
   ```
 
-  Expected: all three runs pass the existing acceptance checks; each uses a fresh BDS runtime;
-  missing mappings and decode errors are zero; final forest diagnostic quads are fewer than the
-  same-manifest base count; exact budget results are available for the report.
+  Expected: all runs use fresh BDS runtimes and pass their mode-specific triggers. Missing
+  mappings/decode errors are zero; forest cohort/present/mutation proof is exact; final diagnostic
+  quads are below the same-layout base count; exact budget results are available for the report.
 
-- [ ] **Step 9: Write the report, run final independent review, and close only proven gates**
+- [ ] **Step 10: Write the report, run final independent review, and close only proven gates**
 
   `docs/phase-2-cutout-leaves-report.md` must state exact hashes/counts, same-scene diagnostic
   reduction, performance/budget results, screenshots and capture method, zero/unresolved errors,
@@ -845,17 +985,23 @@
   `5933209fe053aff0f2164262f129635b947a636b..HEAD`. The reviewer must verify schema rejection,
   flag counts, mip coverage, asymmetric culling/connectivity, one opaque pipeline/bind group/MDI,
   exact eight-byte records, no flat arrays, no tracked Mojang payload, same-fixture evidence,
-  resource budgets, tint deferral, and Computer Use/passive-capture wording. Fix and re-review all
-  Critical and Important findings.
+  1,089-column/source-exclusion and resident/known-air identities, direct/MDI render-generation
+  manifests, the present-return/submitted-work GPU fence, target mutation retargeting,
+  mode-specific resource triggers, resource budgets, tint deferral, and Computer
+  Use/passive-capture wording. Fix and re-review all Critical and Important findings.
 
-  Re-run the full Step 5 gate plus:
+  Re-run the full Step 6 gate plus:
 
-  ```text
+  ```powershell
   git diff --check 5933209fe053aff0f2164262f129635b947a636b..HEAD
-  git ls-files | rg "\.(png|tga|zip|mcbea)$|^\.local/assets/"
+  $payload = git ls-files | rg "\.(png|tga|zip|mcbea)$|^\.local/assets/" 2>&1
+  $rgExit = $LASTEXITCODE
+  if ($rgExit -eq 0) { $payload; throw 'forbidden tracked asset payload found' }
+  if ($rgExit -gt 1) { throw "rg payload scan failed with exit $rgExit`: $payload" }
   ```
 
-  Expected: the full gate exits zero; the payload scan prints no matches; final review says ready.
+  Expected: `rg` exit 1 is treated as a clean no-match result, exit 0 fails on forbidden content,
+  and exit greater than 1 fails as a tool error. The full gate passes and final review says ready.
   Then:
 
   ```text
