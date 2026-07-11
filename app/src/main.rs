@@ -125,6 +125,14 @@ impl WorldReadyWork {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct SubChunkTimeoutProgress {
+    awaiting_responses: usize,
+    timeouts: u64,
+    retries_scheduled: u64,
+    retry_exhaustions: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct WorldReadySnapshot {
     mutation_coordinate: Option<[i32; 3]>,
@@ -651,6 +659,7 @@ impl FullViewTeleportTracker {
         &mut self,
         status: ViewCohortStatus,
         work: WorldReadyWork,
+        timeout_progress: SubChunkTimeoutProgress,
         now: Instant,
     ) -> Option<String> {
         let pending = self.pending.as_mut()?;
@@ -664,7 +673,7 @@ impl FullViewTeleportTracker {
             .committed
             .map_or_else(|| "none".to_owned(), cohort_tag);
         Some(format!(
-            "RUST_MCBE_TELEPORT_COHORT target={} committed={} exact={} expected={} loaded_target={} missing_target={} foreign_loaded={} foreign_requested={} foreign_resident={} source_leftover={} resident_count={} resident_hash={:016x} known_air_count={} known_air_hash={:016x} network_events={} network_commands={} admitted_world_events={} queued_decode_jobs={} in_flight_decode_jobs={} completed_decode_results={} pending_mesh_jobs={} in_flight_mesh_jobs={} pending_mesh_changes={} outbound_requests={} outstanding_sub_chunks={} pending_retry_requests={} render_queue_items={} pending_gpu_acknowledgements={} unacknowledged_meshes={}",
+            "RUST_MCBE_TELEPORT_COHORT target={} committed={} exact={} expected={} loaded_target={} missing_target={} foreign_loaded={} foreign_requested={} foreign_resident={} source_leftover={} resident_count={} resident_hash={:016x} known_air_count={} known_air_hash={:016x} network_events={} network_commands={} admitted_world_events={} queued_decode_jobs={} in_flight_decode_jobs={} completed_decode_results={} pending_mesh_jobs={} in_flight_mesh_jobs={} pending_mesh_changes={} outbound_requests={} outstanding_sub_chunks={} pending_retry_requests={} awaiting_sub_chunk_responses={} sub_chunk_timeouts={} sub_chunk_retries_scheduled={} sub_chunk_retry_exhaustions={} render_queue_items={} pending_gpu_acknowledgements={} unacknowledged_meshes={}",
             cohort_tag(pending.target),
             committed,
             status.is_exact(),
@@ -691,6 +700,10 @@ impl FullViewTeleportTracker {
             work.outbound_requests,
             work.outstanding_sub_chunks,
             work.pending_retry_requests,
+            timeout_progress.awaiting_responses,
+            timeout_progress.timeouts,
+            timeout_progress.retries_scheduled,
+            timeout_progress.retry_exhaustions,
             work.render_queue_items,
             work.pending_gpu_acknowledgements,
             work.unacknowledged_meshes,
@@ -1477,6 +1490,12 @@ fn emit_world_ready(
         return;
     };
     let stats = stream.stats();
+    let timeout_progress = SubChunkTimeoutProgress {
+        awaiting_responses: stats.awaiting_sub_chunk_responses,
+        timeouts: stats.sub_chunk_timeouts,
+        retries_scheduled: stats.sub_chunk_retries_scheduled,
+        retry_exhaustions: stats.sub_chunk_retry_exhaustions,
+    };
     let work = WorldReadyWork {
         network_events: network.pending_event_count(),
         network_commands: network.pending_command_count(),
@@ -1614,6 +1633,7 @@ fn emit_world_ready(
             && let Some(marker) = acceptance.full_view_teleport.cohort_progress_line(
                 status,
                 snapshot.work,
+                timeout_progress,
                 observed_at,
             )
         {
@@ -1725,6 +1745,12 @@ fn flush_sub_chunk_requests(
         } = request;
         match send(chunk, packet) {
             Ok(()) => {
+                stream.acknowledge_sub_chunk_request_sent(
+                    chunk,
+                    base_sub_chunk_y,
+                    count,
+                    Instant::now(),
+                );
                 debug!(
                     dimension,
                     chunk_x = chunk.x,
@@ -2022,11 +2048,11 @@ mod tests {
     use crate::world_stream::{ViewCohort, ViewCohortStatus, WorldStream};
     use crate::{
         AcceptanceRun, FullViewRemeshTracker, FullViewTeleportTracker, MutationTracker,
-        NETWORK_INGRESS_BUDGET_PER_FRAME, TeleportReadySnapshot, WORLD_READY_QUIET_INTERVAL,
-        WorldReadySettler, WorldReadySnapshot, WorldReadyWork, bedrock_camera_rotation,
-        camera_sub_chunk_key, cumulative_counter_delta, deterministic_mutation_coordinate,
-        drain_network_ingress, flush_sub_chunk_requests, resolve_socket_dir_from, status_title,
-        world_ready_markers,
+        NETWORK_INGRESS_BUDGET_PER_FRAME, SubChunkTimeoutProgress, TeleportReadySnapshot,
+        WORLD_READY_QUIET_INTERVAL, WorldReadySettler, WorldReadySnapshot, WorldReadyWork,
+        bedrock_camera_rotation, camera_sub_chunk_key, cumulative_counter_delta,
+        deterministic_mutation_coordinate, drain_network_ingress, flush_sub_chunk_requests,
+        resolve_socket_dir_from, status_title, world_ready_markers,
     };
 
     fn settled_world_snapshot() -> WorldReadySnapshot {
@@ -2761,9 +2787,20 @@ mod tests {
             unacknowledged_meshes: 3,
             ..Default::default()
         };
+        let timeout_progress = SubChunkTimeoutProgress {
+            awaiting_responses: 5,
+            timeouts: 4,
+            retries_scheduled: 3,
+            retry_exhaustions: 2,
+        };
 
         let line = tracker
-            .cohort_progress_line(status, work, started + Duration::from_millis(200))
+            .cohort_progress_line(
+                status,
+                work,
+                timeout_progress,
+                started + Duration::from_millis(200),
+            )
             .expect("first pending cohort observation should be inspectable");
         assert!(line.starts_with("RUST_MCBE_TELEPORT_COHORT target=0:65:65:16"));
         assert!(line.contains("committed=0:65:65:16"));
@@ -2771,14 +2808,28 @@ mod tests {
         assert!(line.contains("resident_count=9000 resident_hash=0000000000001234"));
         assert!(line.contains("known_air_count=1000 known_air_hash=0000000000005678"));
         assert!(line.contains("outstanding_sub_chunks=7"));
+        assert!(line.contains("awaiting_sub_chunk_responses=5"));
+        assert!(line.contains("sub_chunk_timeouts=4"));
+        assert!(line.contains("sub_chunk_retries_scheduled=3"));
+        assert!(line.contains("sub_chunk_retry_exhaustions=2"));
         assert!(line.contains("unacknowledged_meshes=3"));
         assert_eq!(
-            tracker.cohort_progress_line(status, work, started + Duration::from_millis(1_199),),
+            tracker.cohort_progress_line(
+                status,
+                work,
+                timeout_progress,
+                started + Duration::from_millis(1_199),
+            ),
             None
         );
         assert!(
             tracker
-                .cohort_progress_line(status, work, started + Duration::from_millis(1_200))
+                .cohort_progress_line(
+                    status,
+                    work,
+                    timeout_progress,
+                    started + Duration::from_millis(1_200),
+                )
                 .is_some()
         );
     }
@@ -3467,6 +3518,7 @@ mod tests {
         .unwrap();
         assert_eq!(sent, 1);
         assert_eq!(stream.pending_request_count(), 2);
+        assert_eq!(stream.stats().awaiting_sub_chunk_responses, 1);
 
         let sent = flush_sub_chunk_requests(&mut stream, 8, |chunk, _packet| {
             attempts.push(chunk.x);
@@ -3476,6 +3528,7 @@ mod tests {
         assert_eq!(sent, 2);
         assert_eq!(attempts, [0, 1, 1, 2]);
         assert_eq!(stream.pending_request_count(), 0);
+        assert_eq!(stream.stats().awaiting_sub_chunk_responses, 3);
     }
 
     #[test]

@@ -33,7 +33,16 @@ pub const COMMITTED_CONTROL_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;
 pub const OUTBOUND_REQUEST_CAPACITY: usize = 64;
 pub const DEFERRED_RETRY_CAPACITY: usize = 64;
 pub const MAX_SUB_CHUNK_RETRIES: u8 = 2;
+pub const SUB_CHUNK_RESPONSE_TIMEOUT: Duration = Duration::from_secs(2);
 pub const MAX_PENDING_MESH_CHANGES: usize = 256;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct PendingSubChunk {
+    retry_attempts: u8,
+    response_deadline: Option<Instant>,
+}
+
+type PendingSubChunkColumn = BTreeMap<i32, PendingSubChunk>;
 
 /// One exact horizontal publisher view, expressed in chunk columns.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -237,6 +246,13 @@ enum OutboundRequestSlot {
     Ready(PendingSubChunkRequest),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RetrySchedule {
+    Scheduled,
+    CapacityFull,
+    EncodingFailure,
+}
+
 /// A current packed mesh update, or removal, ready for `ChunkRenderQueue`.
 #[derive(Debug)]
 pub enum WorldMeshChange {
@@ -397,6 +413,10 @@ pub struct WorldStreamStats {
     pub in_flight_decode_jobs: usize,
     pub completed_decode_results: usize,
     pub pending_retry_requests: usize,
+    pub awaiting_sub_chunk_responses: usize,
+    pub sub_chunk_timeouts: u64,
+    pub sub_chunk_retries_scheduled: u64,
+    pub sub_chunk_retry_exhaustions: u64,
     pub max_decode_duration: Duration,
     pub max_mesh_duration: Duration,
     pub max_remesh_latency: Duration,
@@ -601,8 +621,8 @@ pub struct WorldStream {
     resident: BTreeSet<SubChunkKey>,
     known_air: BTreeSet<SubChunkKey>,
     loaded_columns: BTreeSet<ChunkKey>,
-    requested_sub_chunks: HashMap<ChunkKey, BTreeSet<i32>>,
-    retry_attempts: HashMap<SubChunkKey, u8>,
+    requested_sub_chunks: HashMap<ChunkKey, PendingSubChunkColumn>,
+    sub_chunk_deadlines: BTreeSet<(Instant, SubChunkKey)>,
     deferred_retries: VecDeque<SubChunkKey>,
     deferred_retry_set: HashSet<SubChunkKey>,
     connectivity: HashMap<SubChunkKey, FaceConnectivity>,
@@ -687,7 +707,7 @@ impl WorldStream {
             known_air: BTreeSet::new(),
             loaded_columns: BTreeSet::new(),
             requested_sub_chunks: HashMap::new(),
-            retry_attempts: HashMap::new(),
+            sub_chunk_deadlines: BTreeSet::new(),
             deferred_retries: VecDeque::new(),
             deferred_retry_set: HashSet::new(),
             connectivity: HashMap::new(),
@@ -821,6 +841,7 @@ impl WorldStream {
             self.accept_decode_completion(completion);
         }
         self.apply_ready();
+        self.expire_sub_chunk_deadlines(Instant::now());
         self.pump_deferred_retries();
         self.dispatch_decode_jobs();
 
@@ -976,6 +997,36 @@ impl WorldStream {
         Ok(())
     }
 
+    /// Starts the response timeout only after the network layer confirms that
+    /// a SubChunkRequest was accepted for sending.
+    pub fn acknowledge_sub_chunk_request_sent(
+        &mut self,
+        chunk: ChunkKey,
+        base_sub_chunk_y: i32,
+        count: usize,
+        sent_at: Instant,
+    ) {
+        let deadline = sent_at
+            .checked_add(SUB_CHUNK_RESPONSE_TIMEOUT)
+            .unwrap_or(sent_at);
+        for offset in 0..count {
+            let y = base_sub_chunk_y.saturating_add(offset as i32);
+            let key = SubChunkKey::from_chunk(chunk, y);
+            let previous = self
+                .requested_sub_chunks
+                .get_mut(&chunk)
+                .and_then(|pending| pending.get_mut(&y))
+                .and_then(|pending| pending.response_deadline.replace(deadline));
+            if let Some(previous) = previous {
+                self.sub_chunk_deadlines.remove(&(previous, key));
+            }
+            if self.is_expected_sub_chunk(key) {
+                self.sub_chunk_deadlines.insert((deadline, key));
+            }
+        }
+        debug_assert!(self.sub_chunk_deadlines.len() <= self.outstanding_sub_chunk_count());
+    }
+
     #[must_use]
     pub fn pending_request_count(&self) -> usize {
         self.requests
@@ -1078,7 +1129,8 @@ impl WorldStream {
             queued_decode_jobs: self.pending_decode.len(),
             in_flight_decode_jobs: self.in_flight_decode_jobs,
             completed_decode_results,
-            pending_retry_requests: self.deferred_retries.len(),
+            pending_retry_requests: self.queued_retry_request_count(),
+            awaiting_sub_chunk_responses: self.sub_chunk_deadlines.len(),
             ..self.stats
         }
     }
@@ -1368,7 +1420,7 @@ impl WorldStream {
                             .collect::<BTreeSet<_>>();
                         let applied = self.store.commit_level_chunk(key, decoded);
                         self.loaded_columns.insert(key);
-                        self.requested_sub_chunks.remove(&key);
+                        self.purge_sub_chunk_column_state(key);
                         self.resident.retain(|resident| resident.chunk() != key);
                         self.known_air.retain(|resident| resident.chunk() != key);
                         for stale in old_keys.difference(&new_keys) {
@@ -1416,6 +1468,7 @@ impl WorldStream {
                         );
                         continue;
                     }
+                    self.disarm_sub_chunk_deadline(key);
                     let (completed, committed) = match entry.result {
                         PreparedSubChunkResult::Decoded(Ok(decoded)) => {
                             let decoded_air = decoded.has_no_storages();
@@ -1652,8 +1705,13 @@ impl WorldStream {
                     return;
                 }
                 let expected = (0..count)
-                    .map(|offset| base_sub_chunk_y.saturating_add(offset as i32))
-                    .collect::<BTreeSet<_>>();
+                    .map(|offset| {
+                        (
+                            base_sub_chunk_y.saturating_add(offset as i32),
+                            PendingSubChunk::default(),
+                        )
+                    })
+                    .collect::<PendingSubChunkColumn>();
                 if expected.is_empty() {
                     self.loaded_columns.insert(key);
                 } else {
@@ -1722,17 +1780,7 @@ impl WorldStream {
 
     fn evict_column(&mut self, key: ChunkKey) {
         self.loaded_columns.remove(&key);
-        self.requested_sub_chunks.remove(&key);
-        self.requests.retain(|slot| match slot {
-            OutboundRequestSlot::Reserved(_) => true,
-            OutboundRequestSlot::Ready(request) => request.chunk != key,
-        });
-        self.retry_attempts
-            .retain(|sub_chunk, _| sub_chunk.chunk() != key);
-        self.deferred_retries
-            .retain(|sub_chunk| sub_chunk.chunk() != key);
-        self.deferred_retry_set
-            .retain(|sub_chunk| sub_chunk.chunk() != key);
+        self.purge_sub_chunk_column_state(key);
         let mut changed = self
             .resident
             .iter()
@@ -1833,7 +1881,7 @@ impl WorldStream {
     fn is_expected_sub_chunk(&self, key: SubChunkKey) -> bool {
         self.requested_sub_chunks
             .get(&key.chunk())
-            .is_some_and(|expected| expected.contains(&key.y))
+            .is_some_and(|expected| expected.contains_key(&key.y))
     }
 
     fn dispatch_mesh_jobs(&mut self, camera_position: [f32; 3], budget: usize) -> usize {
@@ -1975,21 +2023,29 @@ impl WorldStream {
         if self.retry_is_queued(key) {
             return false;
         }
-        let attempts = self.retry_attempts.entry(key).or_default();
-        if *attempts >= MAX_SUB_CHUNK_RETRIES {
+        let attempts = self
+            .requested_sub_chunks
+            .get(&key.chunk())
+            .and_then(|column| column.get(&key.y))
+            .map_or(0, |pending| pending.retry_attempts);
+        if attempts >= MAX_SUB_CHUNK_RETRIES {
+            self.stats.sub_chunk_retry_exhaustions =
+                self.stats.sub_chunk_retry_exhaustions.saturating_add(1);
             return true;
         }
-        *attempts += 1;
-        if self.requests.len() < OUTBOUND_REQUEST_CAPACITY {
-            return !self.enqueue_exact_retry(key);
+        match self.try_schedule_exact_retry(key) {
+            RetrySchedule::Scheduled => {
+                self.record_retry_scheduled(key);
+                false
+            }
+            RetrySchedule::CapacityFull => {
+                self.record_normalization_error(
+                    NormalizationErrorReason::DeferredRetryCapacityFailure,
+                );
+                true
+            }
+            RetrySchedule::EncodingFailure => true,
         }
-        if self.deferred_retries.len() < DEFERRED_RETRY_CAPACITY {
-            self.deferred_retries.push_back(key);
-            self.deferred_retry_set.insert(key);
-            return false;
-        }
-        self.record_normalization_error(NormalizationErrorReason::DeferredRetryCapacityFailure);
-        true
     }
 
     fn retry_is_queued(&self, key: SubChunkKey) -> bool {
@@ -2019,6 +2075,95 @@ impl WorldStream {
         )
     }
 
+    fn try_schedule_exact_retry(&mut self, key: SubChunkKey) -> RetrySchedule {
+        if !self.deferred_retries.is_empty() && self.requests.len() < OUTBOUND_REQUEST_CAPACITY {
+            self.pump_deferred_retries();
+        }
+        if !self.deferred_retries.is_empty() {
+            if self.deferred_retries.len() >= DEFERRED_RETRY_CAPACITY {
+                return RetrySchedule::CapacityFull;
+            }
+            self.deferred_retries.push_back(key);
+            self.deferred_retry_set.insert(key);
+            return RetrySchedule::Scheduled;
+        }
+        if self.requests.len() < OUTBOUND_REQUEST_CAPACITY {
+            return if self.enqueue_exact_retry(key) {
+                RetrySchedule::Scheduled
+            } else {
+                RetrySchedule::EncodingFailure
+            };
+        }
+        if self.deferred_retries.len() < DEFERRED_RETRY_CAPACITY {
+            self.deferred_retries.push_back(key);
+            self.deferred_retry_set.insert(key);
+            return RetrySchedule::Scheduled;
+        }
+        RetrySchedule::CapacityFull
+    }
+
+    fn record_retry_scheduled(&mut self, key: SubChunkKey) {
+        let pending = self
+            .requested_sub_chunks
+            .get_mut(&key.chunk())
+            .and_then(|column| column.get_mut(&key.y))
+            .expect("only an expected SubChunk Y may schedule a retry");
+        pending.retry_attempts = pending.retry_attempts.saturating_add(1);
+        self.stats.sub_chunk_retries_scheduled =
+            self.stats.sub_chunk_retries_scheduled.saturating_add(1);
+    }
+
+    fn expire_sub_chunk_deadlines(&mut self, now: Instant) {
+        // Older deferred retries own newly free outbound slots. Expirations
+        // observed in this pass must never bypass that FIFO.
+        self.pump_deferred_retries();
+        loop {
+            let Some(&(deadline, key)) = self.sub_chunk_deadlines.first() else {
+                break;
+            };
+            if deadline > now {
+                break;
+            }
+            let Some(pending) = self
+                .requested_sub_chunks
+                .get(&key.chunk())
+                .and_then(|column| column.get(&key.y))
+                .copied()
+            else {
+                self.sub_chunk_deadlines.remove(&(deadline, key));
+                continue;
+            };
+            if pending.response_deadline != Some(deadline) {
+                self.sub_chunk_deadlines.remove(&(deadline, key));
+                continue;
+            }
+
+            if pending.retry_attempts >= MAX_SUB_CHUNK_RETRIES {
+                self.disarm_sub_chunk_deadline(key);
+                self.stats.sub_chunk_timeouts = self.stats.sub_chunk_timeouts.saturating_add(1);
+                self.stats.sub_chunk_retry_exhaustions =
+                    self.stats.sub_chunk_retry_exhaustions.saturating_add(1);
+                self.complete_requested_sub_chunk(key);
+                continue;
+            }
+
+            match self.try_schedule_exact_retry(key) {
+                RetrySchedule::Scheduled => {
+                    self.disarm_sub_chunk_deadline(key);
+                    self.stats.sub_chunk_timeouts = self.stats.sub_chunk_timeouts.saturating_add(1);
+                    self.record_retry_scheduled(key);
+                }
+                RetrySchedule::CapacityFull => break,
+                RetrySchedule::EncodingFailure => {
+                    self.disarm_sub_chunk_deadline(key);
+                    self.stats.sub_chunk_timeouts = self.stats.sub_chunk_timeouts.saturating_add(1);
+                    self.complete_requested_sub_chunk(key);
+                }
+            }
+        }
+        debug_assert!(self.sub_chunk_deadlines.len() <= self.outstanding_sub_chunk_count());
+    }
+
     fn pump_deferred_retries(&mut self) {
         while self.requests.len() < OUTBOUND_REQUEST_CAPACITY {
             let Some(key) = self.deferred_retries.pop_front() else {
@@ -2035,7 +2180,7 @@ impl WorldStream {
     }
 
     fn cancel_sub_chunk_retry(&mut self, key: SubChunkKey) {
-        self.retry_attempts.remove(&key);
+        self.disarm_sub_chunk_deadline(key);
         if self.deferred_retry_set.remove(&key) {
             self.deferred_retries.retain(|pending| *pending != key);
         }
@@ -2045,6 +2190,55 @@ impl WorldStream {
                     && request.base_sub_chunk_y == key.y
                     && request.count == 1)
         });
+    }
+
+    fn disarm_sub_chunk_deadline(&mut self, key: SubChunkKey) {
+        let deadline = self
+            .requested_sub_chunks
+            .get_mut(&key.chunk())
+            .and_then(|column| column.get_mut(&key.y))
+            .and_then(|pending| pending.response_deadline.take());
+        if let Some(deadline) = deadline {
+            self.sub_chunk_deadlines.remove(&(deadline, key));
+        }
+    }
+
+    fn purge_sub_chunk_column_state(&mut self, chunk: ChunkKey) {
+        if let Some(pending) = self.requested_sub_chunks.remove(&chunk) {
+            for (y, pending) in pending {
+                if let Some(deadline) = pending.response_deadline {
+                    self.sub_chunk_deadlines
+                        .remove(&(deadline, SubChunkKey::from_chunk(chunk, y)));
+                }
+            }
+        }
+        self.requests.retain(|slot| match slot {
+            OutboundRequestSlot::Reserved(_) => true,
+            OutboundRequestSlot::Ready(request) => request.chunk != chunk,
+        });
+        self.deferred_retries
+            .retain(|sub_chunk| sub_chunk.chunk() != chunk);
+        self.deferred_retry_set
+            .retain(|sub_chunk| sub_chunk.chunk() != chunk);
+    }
+
+    fn queued_retry_request_count(&self) -> usize {
+        let outbound = self
+            .requests
+            .iter()
+            .filter(|slot| {
+                let OutboundRequestSlot::Ready(request) = slot else {
+                    return false;
+                };
+                request.count == 1
+                    && self
+                        .requested_sub_chunks
+                        .get(&request.chunk)
+                        .and_then(|column| column.get(&request.base_sub_chunk_y))
+                        .is_some_and(|pending| pending.retry_attempts != 0)
+            })
+            .count();
+        outbound.saturating_add(self.deferred_retries.len())
     }
 
     fn set_connectivity(&mut self, key: SubChunkKey, value: Option<FaceConnectivity>) {
@@ -2148,7 +2342,11 @@ fn floor_to_i32(value: f32) -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeSet, sync::Arc, time::Instant};
+    use std::{
+        collections::{BTreeMap, BTreeSet},
+        sync::Arc,
+        time::{Duration, Instant},
+    };
 
     use assets::{NetworkIdMode, RuntimeAssets};
     use protocol::{
@@ -2694,7 +2892,9 @@ mod tests {
                 )
                 .unwrap();
         }
-        stream.submit(63, inline_air_event(0)).unwrap();
+        // Keep the FIFO blocker on a column that does not supersede one of
+        // the 62 queued request-mode columns under test.
+        stream.submit(63, inline_air_event(8)).unwrap();
         for (sequence, x) in [(64, 10), (65, 11)] {
             stream
                 .submit(
@@ -2865,7 +3065,7 @@ mod tests {
         let known_air_before = stream.known_air.clone();
         let loaded_columns_before = stream.loaded_columns.clone();
         let requested_sub_chunks_before = stream.requested_sub_chunks.clone();
-        let retry_attempts_before = stream.retry_attempts.clone();
+        let sub_chunk_deadlines_before = stream.sub_chunk_deadlines.clone();
         let deferred_retries_before = stream.deferred_retries.clone();
         let deferred_retry_set_before = stream.deferred_retry_set.clone();
         let requests_before = stream.requests.len();
@@ -2878,7 +3078,7 @@ mod tests {
         assert_eq!(stream.known_air, known_air_before);
         assert_eq!(stream.loaded_columns, loaded_columns_before);
         assert_eq!(stream.requested_sub_chunks, requested_sub_chunks_before);
-        assert_eq!(stream.retry_attempts, retry_attempts_before);
+        assert_eq!(stream.sub_chunk_deadlines, sub_chunk_deadlines_before);
         assert_eq!(stream.deferred_retries, deferred_retries_before);
         assert_eq!(stream.deferred_retry_set, deferred_retry_set_before);
         assert_eq!(stream.requests.len(), requests_before);
@@ -2996,7 +3196,10 @@ mod tests {
         assert_eq!(stream.stats().queued_decode_jobs, 0);
         assert!(!stream.resident.contains(&SubChunkKey::new(0, 0, -3, 0)));
         assert_eq!(
-            stream.requested_sub_chunks[&ChunkKey::new(0, 0, 0)],
+            stream.requested_sub_chunks[&ChunkKey::new(0, 0, 0)]
+                .keys()
+                .copied()
+                .collect::<BTreeSet<_>>(),
             BTreeSet::from([-4])
         );
     }
@@ -3186,7 +3389,7 @@ mod tests {
         assert!(!stream.is_mesh_clean(key));
         stream
             .requested_sub_chunks
-            .insert(key.chunk(), BTreeSet::from([key.y]));
+            .insert(key.chunk(), BTreeMap::from([(key.y, Default::default())]));
         assert_eq!(stream.outstanding_sub_chunk_count(), 1);
         stream.requested_sub_chunks.clear();
         stream.in_flight.insert(key, generation);
@@ -3593,6 +3796,369 @@ mod tests {
         });
     }
 
+    fn stream_with_unsent_sub_chunks(
+        count: u16,
+    ) -> (WorldStream, Vec<SubChunkKey>, super::PendingSubChunkRequest) {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        let chunk = ChunkKey::new(0, 0, 0);
+        stream
+            .submit(
+                1,
+                WorldEvent::LevelChunk(LevelChunkEvent {
+                    dimension: 0,
+                    x: chunk.x,
+                    z: chunk.z,
+                    mode: LevelChunkMode::LimitedRequests { highest: count },
+                    payload: Vec::new(),
+                }),
+            )
+            .unwrap();
+        let request = stream
+            .pop_next_request()
+            .expect("request-mode LevelChunk should enqueue one request");
+        let keys = (0..count)
+            .map(|offset| SubChunkKey::from_chunk(chunk, -4 + i32::from(offset)))
+            .collect();
+        (stream, keys, request)
+    }
+
+    fn acknowledge_request_sent(
+        stream: &mut WorldStream,
+        request: &super::PendingSubChunkRequest,
+        sent_at: Instant,
+    ) {
+        stream.acknowledge_sub_chunk_request_sent(
+            request.chunk,
+            request.base_sub_chunk_y,
+            request.count,
+            sent_at,
+        );
+    }
+
+    #[test]
+    fn omitted_sub_chunk_y_retries_at_deadline_then_completes_after_bound() {
+        let started = Instant::now();
+        let (mut stream, keys, initial) = stream_with_unsent_sub_chunks(1);
+        let key = keys[0];
+        acknowledge_request_sent(&mut stream, &initial, started);
+
+        for attempt in 1..=super::MAX_SUB_CHUNK_RETRIES {
+            let deadline = started + super::SUB_CHUNK_RESPONSE_TIMEOUT * u32::from(attempt);
+            stream.expire_sub_chunk_deadlines(deadline);
+            let retry = stream
+                .pop_next_request()
+                .expect("an omitted Y should queue the exact bounded retry");
+            assert_eq!(retry.chunk, key.chunk());
+            assert_eq!(retry.base_sub_chunk_y, key.y);
+            assert_eq!(retry.count, 1);
+            acknowledge_request_sent(&mut stream, &retry, deadline);
+        }
+
+        let terminal_deadline = started
+            + super::SUB_CHUNK_RESPONSE_TIMEOUT
+                * u32::from(super::MAX_SUB_CHUNK_RETRIES.saturating_add(1));
+        stream.expire_sub_chunk_deadlines(terminal_deadline);
+
+        assert!(stream.loaded_columns.contains(&key.chunk()));
+        assert!(!stream.requested_sub_chunks.contains_key(&key.chunk()));
+        assert!(!stream.resident.contains(&key));
+        assert!(!stream.known_air.contains(&key));
+        assert!(stream.sub_chunk_deadlines.is_empty());
+        assert_eq!(stream.pending_request_count(), 0);
+        let stats = stream.stats();
+        assert_eq!(stats.awaiting_sub_chunk_responses, 0);
+        assert_eq!(stats.sub_chunk_timeouts, 3);
+        assert_eq!(stats.sub_chunk_retries_scheduled, 2);
+        assert_eq!(stats.sub_chunk_retry_exhaustions, 1);
+
+        let errors_before = stream.stats().normalization_errors;
+        apply_sub_chunk_result(&mut stream, key, super::PreparedSubChunkResult::AllAir);
+        assert_eq!(stream.stats().normalization_errors, errors_before + 1);
+        assert!(!stream.resident.contains(&key));
+        assert!(!stream.known_air.contains(&key));
+    }
+
+    #[test]
+    fn response_deadline_begins_only_after_successful_send() {
+        let started = Instant::now();
+        let (mut stream, keys, initial) = stream_with_unsent_sub_chunks(1);
+        let key = keys[0];
+        assert!(
+            stream.retry_request_front(initial).is_ok(),
+            "a failed send must restore its unsent request"
+        );
+
+        stream.expire_sub_chunk_deadlines(started + Duration::from_secs(100));
+        assert_eq!(stream.stats().awaiting_sub_chunk_responses, 0);
+        assert_eq!(stream.stats().sub_chunk_timeouts, 0);
+        assert!(stream.requested_sub_chunks.contains_key(&key.chunk()));
+
+        let retry = stream.pop_next_request().unwrap();
+        let sent_at = started + Duration::from_secs(100);
+        acknowledge_request_sent(&mut stream, &retry, sent_at);
+        assert_eq!(stream.stats().awaiting_sub_chunk_responses, 1);
+        stream.expire_sub_chunk_deadlines(
+            sent_at + super::SUB_CHUNK_RESPONSE_TIMEOUT - Duration::from_nanos(1),
+        );
+        assert_eq!(stream.stats().sub_chunk_timeouts, 0);
+        stream.expire_sub_chunk_deadlines(sent_at + super::SUB_CHUNK_RESPONSE_TIMEOUT);
+        assert_eq!(stream.stats().sub_chunk_timeouts, 1);
+    }
+
+    #[test]
+    fn explicit_transient_reply_disarms_old_deadline_and_preserves_retry_bound() {
+        let started = Instant::now();
+        let (mut stream, keys, initial) = stream_with_unsent_sub_chunks(1);
+        let key = keys[0];
+        acknowledge_request_sent(&mut stream, &initial, started);
+
+        apply_sub_chunk_result(
+            &mut stream,
+            key,
+            super::PreparedSubChunkResult::Unavailable(SubChunkUnavailable::ChunkNotFound),
+        );
+        assert!(stream.sub_chunk_deadlines.is_empty());
+        assert_eq!(stream.stats().awaiting_sub_chunk_responses, 0);
+        assert_eq!(stream.stats().sub_chunk_retries_scheduled, 1);
+        stream.expire_sub_chunk_deadlines(started + super::SUB_CHUNK_RESPONSE_TIMEOUT);
+        assert_eq!(stream.stats().sub_chunk_timeouts, 0);
+
+        let first_retry = stream.pop_next_request().unwrap();
+        let first_retry_sent_at = started + Duration::from_secs(1);
+        acknowledge_request_sent(&mut stream, &first_retry, first_retry_sent_at);
+        stream.expire_sub_chunk_deadlines(first_retry_sent_at + super::SUB_CHUNK_RESPONSE_TIMEOUT);
+        let second_retry = stream.pop_next_request().unwrap();
+        let second_retry_sent_at = first_retry_sent_at + super::SUB_CHUNK_RESPONSE_TIMEOUT;
+        acknowledge_request_sent(&mut stream, &second_retry, second_retry_sent_at);
+        stream.expire_sub_chunk_deadlines(second_retry_sent_at + super::SUB_CHUNK_RESPONSE_TIMEOUT);
+
+        assert!(stream.loaded_columns.contains(&key.chunk()));
+        assert!(!stream.known_air.contains(&key));
+        let stats = stream.stats();
+        assert_eq!(stats.sub_chunk_timeouts, 2);
+        assert_eq!(stats.sub_chunk_retries_scheduled, 2);
+        assert_eq!(stats.sub_chunk_retry_exhaustions, 1);
+    }
+
+    #[test]
+    fn explicit_transient_retry_preserves_older_deferred_fifo_when_outbound_reopens() {
+        let started = Instant::now();
+        let (mut stream, keys, initial) = stream_with_unsent_sub_chunks(2);
+        acknowledge_request_sent(&mut stream, &initial, started);
+        for sequence in 0..super::OUTBOUND_REQUEST_CAPACITY {
+            stream
+                .requests
+                .push_back(super::OutboundRequestSlot::Reserved(sequence as u64 + 10));
+        }
+        apply_sub_chunk_result(
+            &mut stream,
+            keys[0],
+            super::PreparedSubChunkResult::Unavailable(SubChunkUnavailable::ChunkNotFound),
+        );
+        assert_eq!(stream.deferred_retries.front(), Some(&keys[0]));
+        for index in 1..super::DEFERRED_RETRY_CAPACITY {
+            let key = SubChunkKey::new(0, 100 + index as i32, -4, 100);
+            stream.deferred_retries.push_back(key);
+            stream.deferred_retry_set.insert(key);
+        }
+        stream.requests.pop_front();
+        let normalization_before = stream.stats().normalization_errors;
+
+        apply_sub_chunk_result(
+            &mut stream,
+            keys[1],
+            super::PreparedSubChunkResult::Unavailable(SubChunkUnavailable::PlayerNotFound),
+        );
+
+        let outbound_retry_y = stream.requests.iter().find_map(|slot| match slot {
+            super::OutboundRequestSlot::Ready(request) => Some(request.base_sub_chunk_y),
+            super::OutboundRequestSlot::Reserved(_) => None,
+        });
+        assert_eq!(outbound_retry_y, Some(keys[0].y));
+        assert_eq!(stream.deferred_retries.back(), Some(&keys[1]));
+        assert_eq!(
+            stream.deferred_retries.len(),
+            super::DEFERRED_RETRY_CAPACITY
+        );
+        assert_eq!(stream.outstanding_sub_chunk_count(), 2);
+        assert_eq!(stream.stats().sub_chunk_retries_scheduled, 2);
+        assert_eq!(stream.stats().normalization_errors, normalization_before);
+        assert!(!stream.loaded_columns.contains(&keys[0].chunk()));
+    }
+
+    #[test]
+    fn late_success_cancels_queued_timeout_retry() {
+        let started = Instant::now();
+        let (mut stream, keys, initial) = stream_with_unsent_sub_chunks(2);
+        acknowledge_request_sent(&mut stream, &initial, started);
+        for sequence in 0..super::OUTBOUND_REQUEST_CAPACITY - 1 {
+            stream
+                .requests
+                .push_back(super::OutboundRequestSlot::Reserved(sequence as u64 + 10));
+        }
+        stream.expire_sub_chunk_deadlines(started + super::SUB_CHUNK_RESPONSE_TIMEOUT);
+        assert_eq!(stream.pending_request_count(), 1);
+        assert_eq!(stream.deferred_retries.len(), 1);
+
+        for key in &keys {
+            apply_sub_chunk_result(&mut stream, *key, super::PreparedSubChunkResult::AllAir);
+        }
+
+        assert!(stream.loaded_columns.contains(&keys[0].chunk()));
+        assert!(keys.iter().all(|key| stream.known_air.contains(key)));
+        assert_eq!(stream.pending_request_count(), 0);
+        assert!(stream.deferred_retries.is_empty());
+        assert!(stream.sub_chunk_deadlines.is_empty());
+        let stats = stream.stats();
+        assert_eq!(stats.sub_chunk_timeouts, 2);
+        assert_eq!(stats.sub_chunk_retries_scheduled, 2);
+        assert_eq!(stats.sub_chunk_retry_exhaustions, 0);
+    }
+
+    #[test]
+    fn eviction_purges_deadlines_retries_and_late_reply_state() {
+        let started = Instant::now();
+        let (mut stream, keys, initial) = stream_with_unsent_sub_chunks(3);
+        acknowledge_request_sent(&mut stream, &initial, started);
+        for sequence in 0..super::OUTBOUND_REQUEST_CAPACITY - 2 {
+            stream
+                .requests
+                .push_back(super::OutboundRequestSlot::Reserved(sequence as u64 + 10));
+        }
+        stream.expire_sub_chunk_deadlines(started + super::SUB_CHUNK_RESPONSE_TIMEOUT);
+        assert_eq!(stream.pending_request_count(), 2);
+        assert_eq!(stream.deferred_retries.len(), 1);
+        stream
+            .requests
+            .retain(|slot| matches!(slot, super::OutboundRequestSlot::Ready(_)));
+        let armed_retry = stream.pop_next_request().unwrap();
+        acknowledge_request_sent(
+            &mut stream,
+            &armed_retry,
+            started + super::SUB_CHUNK_RESPONSE_TIMEOUT,
+        );
+        assert!(!stream.sub_chunk_deadlines.is_empty());
+        assert_eq!(stream.pending_request_count(), 1);
+        assert_eq!(stream.deferred_retries.len(), 1);
+
+        let chunk = keys[0].chunk();
+        stream.evict_column(chunk);
+
+        assert!(!stream.requested_sub_chunks.contains_key(&chunk));
+        assert!(stream.sub_chunk_deadlines.is_empty());
+        assert_eq!(stream.pending_request_count(), 0);
+        assert!(stream.deferred_retries.is_empty());
+        assert!(stream.deferred_retry_set.is_empty());
+        assert_eq!(stream.stats().awaiting_sub_chunk_responses, 0);
+
+        let errors_before = stream.stats().normalization_errors;
+        apply_sub_chunk_result(&mut stream, keys[0], super::PreparedSubChunkResult::AllAir);
+        assert_eq!(stream.stats().normalization_errors, errors_before + 1);
+        assert!(!stream.loaded_columns.contains(&chunk));
+        assert!(!stream.resident.contains(&keys[0]));
+        assert!(!stream.known_air.contains(&keys[0]));
+    }
+
+    #[test]
+    fn expired_deadlines_obey_capacity_without_loss_or_overflow() {
+        let started = Instant::now();
+        let (mut stream, keys, initial) = stream_with_unsent_sub_chunks(3);
+        acknowledge_request_sent(&mut stream, &initial, started);
+        for sequence in 0..super::OUTBOUND_REQUEST_CAPACITY {
+            stream
+                .requests
+                .push_back(super::OutboundRequestSlot::Reserved(sequence as u64 + 10));
+        }
+        apply_sub_chunk_result(
+            &mut stream,
+            keys[0],
+            super::PreparedSubChunkResult::Unavailable(SubChunkUnavailable::ChunkNotFound),
+        );
+        assert_eq!(stream.deferred_retries.front(), Some(&keys[0]));
+        for index in 1..super::DEFERRED_RETRY_CAPACITY {
+            let key = SubChunkKey::new(0, 100 + index as i32, -4, 100);
+            stream.deferred_retries.push_back(key);
+            stream.deferred_retry_set.insert(key);
+        }
+        let normalization_before = stream.stats().normalization_errors;
+        let deadline = started + super::SUB_CHUNK_RESPONSE_TIMEOUT;
+
+        stream.expire_sub_chunk_deadlines(deadline);
+        assert_eq!(stream.sub_chunk_deadlines.len(), 2);
+        assert_eq!(stream.stats().sub_chunk_timeouts, 0);
+        assert_eq!(stream.stats().sub_chunk_retries_scheduled, 1);
+        assert_eq!(stream.stats().normalization_errors, normalization_before);
+
+        stream.requests.pop_front();
+        stream.expire_sub_chunk_deadlines(deadline);
+
+        assert_eq!(stream.requests.len(), super::OUTBOUND_REQUEST_CAPACITY);
+        let outbound_retry_y = stream.requests.iter().find_map(|slot| match slot {
+            super::OutboundRequestSlot::Ready(request) => Some(request.base_sub_chunk_y),
+            super::OutboundRequestSlot::Reserved(_) => None,
+        });
+        assert_eq!(outbound_retry_y, Some(keys[0].y));
+        assert_eq!(
+            stream.deferred_retries.len(),
+            super::DEFERRED_RETRY_CAPACITY
+        );
+        assert_eq!(stream.deferred_retries.back(), Some(&keys[1]));
+        assert_eq!(stream.sub_chunk_deadlines.len(), 1);
+        assert!(stream.sub_chunk_deadlines.contains(&(deadline, keys[2])));
+        assert_eq!(stream.outstanding_sub_chunk_count(), 3);
+        assert_eq!(stream.stats().sub_chunk_timeouts, 1);
+        assert_eq!(stream.stats().sub_chunk_retries_scheduled, 2);
+        assert_eq!(stream.stats().normalization_errors, normalization_before);
+    }
+
+    #[test]
+    fn timeout_progress_stats_are_exact_and_deterministic() {
+        let started = Instant::now();
+        let (mut stream, keys, initial) = stream_with_unsent_sub_chunks(2);
+        acknowledge_request_sent(&mut stream, &initial, started);
+        assert_eq!(stream.stats().awaiting_sub_chunk_responses, 2);
+
+        let first_deadline = started + super::SUB_CHUNK_RESPONSE_TIMEOUT;
+        stream.expire_sub_chunk_deadlines(first_deadline);
+        let stats = stream.stats();
+        assert_eq!(stats.awaiting_sub_chunk_responses, 0);
+        assert_eq!(stats.sub_chunk_timeouts, 2);
+        assert_eq!(stats.sub_chunk_retries_scheduled, 2);
+        assert_eq!(stats.sub_chunk_retry_exhaustions, 0);
+
+        let retries = [
+            stream.pop_next_request().unwrap(),
+            stream.pop_next_request().unwrap(),
+        ];
+        for retry in &retries {
+            acknowledge_request_sent(&mut stream, retry, first_deadline);
+        }
+        assert_eq!(stream.stats().awaiting_sub_chunk_responses, 2);
+        apply_sub_chunk_result(&mut stream, keys[0], super::PreparedSubChunkResult::AllAir);
+        assert_eq!(stream.stats().awaiting_sub_chunk_responses, 1);
+
+        let second_deadline = first_deadline + super::SUB_CHUNK_RESPONSE_TIMEOUT;
+        stream.expire_sub_chunk_deadlines(second_deadline);
+        let final_retry = stream.pop_next_request().unwrap();
+        acknowledge_request_sent(&mut stream, &final_retry, second_deadline);
+        let third_deadline = second_deadline + super::SUB_CHUNK_RESPONSE_TIMEOUT;
+        stream.expire_sub_chunk_deadlines(third_deadline);
+
+        let stats = stream.stats();
+        assert_eq!(stats.awaiting_sub_chunk_responses, 0);
+        assert_eq!(stats.sub_chunk_timeouts, 4);
+        assert_eq!(stats.sub_chunk_retries_scheduled, 3);
+        assert_eq!(stats.sub_chunk_retry_exhaustions, 1);
+        assert_eq!(stream.outstanding_sub_chunk_count(), 0);
+    }
+
     #[test]
     fn unavailable_value_is_preserved_and_y_out_of_bounds_completes_split_batch_as_air() {
         let prepared = super::prepare_sub_chunks(SubChunkBatchEvent {
@@ -3616,9 +4182,10 @@ mod tests {
             block_network_ids_are_hashes: false,
         });
         let chunk = ChunkKey::new(0, 0, 0);
-        stream
-            .requested_sub_chunks
-            .insert(chunk, BTreeSet::from([-4, -3]));
+        stream.requested_sub_chunks.insert(
+            chunk,
+            BTreeMap::from([(-4, Default::default()), (-3, Default::default())]),
+        );
         apply_sub_chunk_result(
             &mut stream,
             SubChunkKey::from_chunk(chunk, -4),
@@ -4004,7 +4571,7 @@ mod tests {
         let key = SubChunkKey::new(1, -8, 3, 12);
         stream
             .requested_sub_chunks
-            .insert(key.chunk(), BTreeSet::from([key.y]));
+            .insert(key.chunk(), BTreeMap::from([(key.y, Default::default())]));
         stream.apply_prepared(super::PreparedWorldEvent::SubChunks {
             dimension: key.dimension,
             entries: vec![super::PreparedSubChunk {
