@@ -849,7 +849,8 @@ function Complete-ProcessLogs {
 function Stop-BoundedProcess {
     param(
         $Handle,
-        [Parameter(Mandatory = $true)][ValidateSet('app', 'core', 'bds')][string]$Kind
+        [Parameter(Mandatory = $true)][ValidateSet('app', 'core', 'bds')][string]$Kind,
+        [string]$BdsConsoleLogPath
     )
 
     if ($null -eq $Handle -or $Handle.Process.HasExited) {
@@ -857,9 +858,15 @@ function Stop-BoundedProcess {
     }
     if ($Kind -eq 'bds') {
         try {
-            $Handle.Process.StandardInput.WriteLine('stop')
-            $Handle.Process.StandardInput.Flush()
-            $Handle.Process.StandardInput.Close()
+            try {
+                Write-BdsConsoleCommand `
+                    -Handle $Handle `
+                    -Command 'stop' `
+                    -LogPath $BdsConsoleLogPath
+            }
+            finally {
+                $Handle.Process.StandardInput.Close()
+            }
         }
         catch {
             Write-Warning "BDS graceful stop failed: $_"
@@ -1201,7 +1208,10 @@ finally {
         [pscustomobject]@{ Handle = $bdsHandle; Kind = 'bds' }
     )) {
         try {
-            Stop-BoundedProcess -Handle $child.Handle -Kind $child.Kind
+            Stop-BoundedProcess `
+                -Handle $child.Handle `
+                -Kind $child.Kind `
+                -BdsConsoleLogPath (Join-Path $RunDirectory 'bds.console.log')
         }
         catch {
             $cleanupErrors.Add("stop $($child.Kind): $($_.Exception.Message)")
