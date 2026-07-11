@@ -26,6 +26,26 @@ function Assert-Throws {
     Assert-True $threw $Message
 }
 
+function ConvertTo-TestCommandArgument {
+    param([Parameter(Mandatory = $true)][string]$Value)
+
+    if ($Value -notmatch '[\s"]') {
+        return $Value
+    }
+    return '"' + $Value.Replace('"', '\"') + '"'
+}
+
+function Format-TestResolvedCommand {
+    param(
+        [Parameter(Mandatory = $true)][string]$Executable,
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][string[]]$Arguments
+    )
+
+    $parts = @((ConvertTo-TestCommandArgument $Executable))
+    $parts += @($Arguments | ForEach-Object { ConvertTo-TestCommandArgument $_ })
+    return $parts -join ' '
+}
+
 function Invoke-Acceptance {
     param([string[]]$Arguments)
     $previousErrorAction = $ErrorActionPreference
@@ -69,6 +89,30 @@ try {
     Assert-True ($commands[1] -match '^CORE_COMMAND=') 'core command was not second'
     Assert-True ($commands[2] -match '^APP_COMMAND=') 'app command was not third'
     Assert-True ($success.Output.Count -eq 3) 'default dry-run output changed'
+    $expectedRuntimeDirectory = Join-Path (Join-Path $ProjectRoot '.local\bds-runtime') (Split-Path -Leaf $BdsDir)
+    $expectedSocketDirectory = Join-Path $DryRunDirectory 'socket'
+    $expectedCanonicalMetrics = Join-Path $DryRunDirectory 'app-metrics.json'
+    $expectedCommands = @(
+        ('BDS_COMMAND=' + (Format-TestResolvedCommand `
+            -Executable (Join-Path $expectedRuntimeDirectory 'bedrock_server.exe') `
+            -Arguments @()))
+        ('CORE_COMMAND=' + (Format-TestResolvedCommand `
+            -Executable (Join-Path $ProjectRoot 'target\release\bedrock-core.exe') `
+            -Arguments @('-socket-dir', $expectedSocketDirectory, '-upstream', '127.0.0.1:19132')))
+        ('APP_COMMAND=' + (Format-TestResolvedCommand `
+            -Executable (Join-Path $ProjectRoot 'target\release\bedrock-client.exe') `
+            -Arguments @(
+                '--socket-dir', $expectedSocketDirectory,
+                '--acceptance-seconds', '900',
+                '--metrics-out', $expectedCanonicalMetrics,
+                '--auto-fly',
+                '--no-vsync'
+            )))
+    )
+    Assert-Equal `
+        ($expectedCommands -join [Environment]::NewLine) `
+        ($commands -join [Environment]::NewLine) `
+        'default dry-run commands changed'
     foreach ($flag in @('--socket-dir', '--acceptance-seconds 900', '--metrics-out', '--auto-fly', '--no-vsync')) {
         Assert-True ($commands[2].Contains($flag)) "app command is missing $flag"
     }
@@ -357,6 +401,49 @@ try {
     Stop-BoundedProcess -Handle $eofHelper -Kind 'core'
     Assert-True $eofHelper.Process.HasExited 'core-style EOF cleanup left its child running'
     Complete-ProcessLogs $eofHelper
+
+    $bdsStopState = [pscustomobject]@{
+        Commands = [Collections.Generic.List[string]]::new()
+        FlushCount = 0
+        CloseCount = 0
+        WaitTimeout = 0
+    }
+    $bdsStopInput = [pscustomobject]@{ State = $bdsStopState }
+    $bdsStopInput | Add-Member -MemberType ScriptMethod -Name WriteLine -Value {
+        param([string]$Command)
+        $this.State.Commands.Add($Command)
+    }
+    $bdsStopInput | Add-Member -MemberType ScriptMethod -Name Flush -Value {
+        $this.State.FlushCount++
+    }
+    $bdsStopInput | Add-Member -MemberType ScriptMethod -Name Close -Value {
+        $this.State.CloseCount++
+    }
+    $bdsStopProcess = [pscustomobject]@{
+        StandardInput = $bdsStopInput
+        HasExited = $false
+        State = $bdsStopState
+    }
+    $bdsStopProcess | Add-Member -MemberType ScriptMethod -Name WaitForExit -Value {
+        param([int]$Timeout)
+        $this.State.WaitTimeout = $Timeout
+        $this.HasExited = $true
+        return $true
+    }
+    $bdsStopHandle = [pscustomobject]@{ Process = $bdsStopProcess }
+    $bdsStopLog = Join-Path $TempRoot 'bds-stop.console.log'
+    Stop-BoundedProcess `
+        -Handle $bdsStopHandle `
+        -Kind 'bds' `
+        -BdsConsoleLogPath $bdsStopLog
+    Assert-Equal 1 $bdsStopState.Commands.Count 'BDS cleanup did not write exactly one command'
+    Assert-Equal 'stop' $bdsStopState.Commands[0] 'BDS cleanup wrote the wrong command'
+    Assert-Equal 1 $bdsStopState.FlushCount 'BDS cleanup did not flush standard input exactly once'
+    Assert-Equal 1 $bdsStopState.CloseCount 'BDS cleanup did not close standard input exactly once'
+    Assert-Equal 20000 $bdsStopState.WaitTimeout 'BDS cleanup changed its graceful wait timeout'
+    $loggedStopCommands = @(Get-Content -LiteralPath $bdsStopLog)
+    Assert-Equal 1 $loggedStopCommands.Count 'BDS cleanup did not log exactly one command'
+    Assert-Equal 'stop' $loggedStopCommands[0] 'BDS cleanup logged the wrong command'
 
     $metrics = [ordered]@{
         session_seconds = 900.0; world_ready = $true; requested_radius_chunks = 16
