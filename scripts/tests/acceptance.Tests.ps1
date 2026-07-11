@@ -594,6 +594,24 @@ try {
     $baselineForestPlan = New-LeafForestPlan -MutationCoordinate $mutationCoordinate -Mode Baseline
     $fullViewForestPlan = New-FullViewTeleportPlan -MutationCoordinate $mutationCoordinate -LeafForest
 
+    $stablePrefix = [Text.Encoding]::UTF8.GetBytes("first line`n")
+    $sparseLogBytes = [byte[]]::new($stablePrefix.Length + 8)
+    [Array]::Copy($stablePrefix, $sparseLogBytes, $stablePrefix.Length)
+    $sparseLogBytes[$stablePrefix.Length + 4] = [byte][char]'x'
+    Assert-Equal `
+        $stablePrefix.Length `
+        (Get-ContiguousProcessLogByteCount -Buffer $sparseLogBytes -Count $sparseLogBytes.Length) `
+        'process-log reader advanced into an uncommitted NUL gap'
+    Assert-Equal `
+        $stablePrefix.Length `
+        (Get-ContiguousProcessLogByteCount -Buffer $stablePrefix -Count $stablePrefix.Length) `
+        'process-log reader truncated a fully committed byte range'
+
+    $zeroErrorEvidence = Assert-BdsFixtureCommandResults `
+        -Commands @('fill 0 0 0 0 0 0 minecraft:air') `
+        -Lines @('[2026-07-11 12:00:00:000 ERROR] 0 blocks filled')
+    Assert-Equal 0 $zeroErrorEvidence.results[0].changed_count 'BDS zero-change fill error did not retain an exact zero result'
+
     foreach ($leafPlan in @($leafFrontPlan, $leafBackPlan, $baselineForestPlan, $fullViewForestPlan)) {
         Assert-Equal 'rust-mcbe-visual-fixture-v2' $leafPlan.Manifest.schema 'leaf plan used the wrong manifest schema'
         Assert-True ([string]$leafPlan.Manifest.fixture_layout_hash -match '^[0-9a-f]{64}$') 'leaf plan omitted a canonical SHA-256 layout hash'
@@ -652,7 +670,7 @@ try {
         Assert-Equal 'tickingarea remove rust_mcbe_leaf_forest' $forestPlan.CleanupCommand 'forest cleanup command changed'
         Assert-Equal 'Removed ticking area(s)' $forestPlan.CleanupMarker 'forest cleanup waited for the wrong acknowledgement'
         Assert-Equal $forestPlan.LoadAreaCommand $forestPlan.Commands[0] 'forest preload was not the first planned command'
-        Assert-Equal 23 $forestPlan.Manifest.command_count 'forest command count omitted preload/fence/teleport'
+        Assert-Equal 22 $forestPlan.Manifest.command_count 'forest command count omitted preload/fence/teleport'
         Assert-Equal 'rust_mcbe_leaf_forest' $forestPlan.Manifest.load_area.name 'forest manifest omitted the deterministic ticking-area name'
         Assert-True ([bool]$forestPlan.Manifest.load_area.preload) 'forest manifest did not require ticking-area preload'
         Assert-Equal 8000 $forestPlan.Manifest.load_area.settle_milliseconds 'forest manifest omitted preload settle evidence'
@@ -666,6 +684,8 @@ try {
     Assert-Equal ($expectedTargetMutation -join ',') (@($fullViewForestPlan.TargetMutation.x, $fullViewForestPlan.TargetMutation.y, $fullViewForestPlan.TargetMutation.z) -join ',') 'far target mutation changed from the no-CLI contract'
     Assert-Equal ($baselineForestPlan.Commands -join "`n") ($fullViewForestPlan.Commands -join "`n") 'baseline and full-view forests did not publish identical scene commands'
     Assert-Equal 65 $baselineForestPlan.Manifest.offset_chunks 'baseline forest did not publish the same far offset'
+    $redundantTargetSupportCommand = "setblock $($expectedTargetMutation[0]) $($expectedTargetMutation[1] - 1) $($expectedTargetMutation[2]) minecraft:stone"
+    Assert-True (-not ($fullViewForestPlan.FixtureCommands -contains $redundantTargetSupportCommand)) 'forest redundantly replaced target support already covered by its stone platform'
     $initialTargetCommand = "setblock $($expectedTargetMutation[0]) $($expectedTargetMutation[1]) $($expectedTargetMutation[2]) minecraft:diamond_block"
     Assert-True ($fullViewForestPlan.FixtureCommands -contains $initialTargetCommand) 'forest did not initialize target mutation to the opposite block'
     Assert-True (-not ($fullViewForestPlan.FixtureCommands -contains $initialTargetCommand.Replace('diamond_block', 'gold_block'))) 'forest initialized target to the first post-ARM block, making it a no-op'
@@ -1029,6 +1049,7 @@ try {
             }
     } 'BDS fixture command failed:*outside of the world*' 'forest publisher did not fail closed on the live-observed outside-world result'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $failedForestRunDirectory 'visual-fixture-ready.json'))) 'failed forest published a fixture manifest'
+    Assert-True (Test-Path -LiteralPath (Join-Path $failedForestRunDirectory 'fixture-command-stdout.json') -PathType Leaf) 'failed forest did not preserve its exact live stdout interval'
     Assert-True (-not $failedForestInput.ToString().Contains($fullViewForestPlan.TeleportCommand)) 'failed forest teleported after a rejected fixture command'
     Assert-Equal $fullViewForestPlan.LoadAreaName $failedForestHandle.ActiveTickingArea.Name 'failed forest lost cleanup ownership for its active ticking area'
     $failedForestEvents = @(Get-Content -LiteralPath (Join-Path $failedForestRunDirectory 'acceptance-events.jsonl') | ForEach-Object { ConvertFrom-Json $_ })
@@ -1052,6 +1073,9 @@ try {
                 -SkippedLines (New-TestBdsFixtureResultLines -Commands $leafFrontPlan.FixtureCommands)
         }
     Assert-True (Test-Path -LiteralPath $leafGalleryPublication.Path -PathType Leaf) 'leaf gallery did not publish after every command result succeeded'
+    $leafGalleryStdoutEvidence = Get-Content -Raw -LiteralPath (Join-Path $leafGalleryRunDirectory 'fixture-command-stdout.json') | ConvertFrom-Json
+    Assert-Equal $leafFrontPlan.FixtureCommands.Count @($leafGalleryStdoutEvidence.skipped_lines).Count 'leaf gallery stdout artifact lost an exact result line'
+    Assert-Equal 'players online:' $leafGalleryStdoutEvidence.marker 'leaf gallery stdout artifact lost its fence marker'
     Assert-Equal ($leafFrontPlan.Commands -join [Environment]::NewLine) $leafGalleryInput.ToString().TrimEnd("`r", "`n") 'leaf gallery result validation changed command/fence/teleport order'
 
     $failedGalleryInput = [IO.StringWriter]::new([Globalization.CultureInfo]::InvariantCulture)

@@ -967,6 +967,23 @@ function Test-RakNetUnconnectedPong {
     }
 }
 
+function Get-ContiguousProcessLogByteCount {
+    param(
+        [Parameter(Mandatory = $true)][byte[]]$Buffer,
+        [Parameter(Mandatory = $true)][ValidateRange(0, [int]::MaxValue)][int]$Count
+    )
+
+    if ($Count -gt $Buffer.Length) {
+        throw "process-log byte count exceeds buffer length: count=$Count length=$($Buffer.Length)"
+    }
+    for ($index = 0; $index -lt $Count; $index++) {
+        if ($Buffer[$index] -eq 0) {
+            return $index
+        }
+    }
+    return $Count
+}
+
 function Wait-ProcessOutputMarker {
     param(
         [Parameter(Mandatory = $true)]$Handle,
@@ -1027,8 +1044,14 @@ function Wait-ProcessOutputMarker {
                 if ($read -eq 0) {
                     break
                 }
-                $cursor.Offset = [long]$cursor.Offset + $read
-                $cursor.PartialLine += [Text.Encoding]::UTF8.GetString($buffer, 0, $read)
+                $contiguousRead = Get-ContiguousProcessLogByteCount -Buffer $buffer -Count $read
+                if ($contiguousRead -gt 0) {
+                    $cursor.Offset = [long]$cursor.Offset + $contiguousRead
+                    $cursor.PartialLine += [Text.Encoding]::UTF8.GetString($buffer, 0, $contiguousRead)
+                }
+                if ($contiguousRead -lt $read) {
+                    break
+                }
                 if ($cursor.PartialLine.Length -gt 131072) {
                     $cursor.PartialLine = $cursor.PartialLine.Substring($cursor.PartialLine.Length - 131072)
                 }
@@ -1124,15 +1147,15 @@ function Assert-BdsFixtureCommandResults {
 
     $results = [Collections.Generic.List[object]]::new()
     foreach ($line in $Lines) {
-        if ($line.Contains(' ERROR] ')) {
-            throw "BDS fixture command failed: $line"
-        }
         if ($line -notmatch '^\[[^\]\r\n]+ (?<level>INFO|ERROR)\] (?<message>.*)$') {
+            if ($line.Contains(' ERROR] ')) {
+                throw "BDS fixture command failed: $line"
+            }
             continue
         }
         $level = [string]$Matches['level']
         $message = [string]$Matches['message']
-        if ($level -ceq 'ERROR') {
+        if ($level -ceq 'ERROR' -and $message -cne '0 blocks filled') {
             throw "BDS fixture command failed: $line"
         }
         if ($message -ceq 'Block placed') {
@@ -1596,7 +1619,6 @@ function New-LeafForestPlan {
     $fillVolumes.Add($clearVolume)
     $fixtureCommands.Add("fill $($targetMutation.x - 20) $($sy - 1) $($targetMutation.z - 20) $($targetMutation.x + 20) $($sy - 1) $($targetMutation.z + 20) minecraft:stone")
     $fillVolumes.Add(1681)
-    $fixtureCommands.Add("setblock $($targetMutation.x) $($targetMutation.y - 1) $($targetMutation.z) minecraft:stone")
     $fixtureCommands.Add("setblock $($targetMutation.x) $($targetMutation.y) $($targetMutation.z) minecraft:diamond_block")
     foreach ($canopy in $canopies) {
         $x = $targetMutation.x + [int]$canopy.x_offset
@@ -1924,6 +1946,22 @@ function Complete-BdsFixtureCommandBatch {
         -Evidence $rawEvidence `
         -Context 'schema-v2 fixture fence wait' `
         -RequireSkippedLines
+    $lineNumberProperty = $markerEvidence.PSObject.Properties['LineNumber']
+    $readOffsetProperty = $markerEvidence.PSObject.Properties['ReadOffset']
+    $observedAtProperty = $markerEvidence.PSObject.Properties['ObservedAtUtc']
+    $stdoutEvidencePath = Join-Path $RunDirectory 'fixture-command-stdout.json'
+    $stdoutEvidence = [pscustomobject][ordered]@{
+        schema = 'rust-mcbe-fixture-command-stdout-v1'
+        marker = [string]$Plan.FenceMarker
+        marker_line = [string]$markerEvidence.Line
+        marker_line_number = if ($null -eq $lineNumberProperty) { $null } else { [uint64]$lineNumberProperty.Value }
+        read_offset = if ($null -eq $readOffsetProperty) { $null } else { [long]$readOffsetProperty.Value }
+        observed_at_utc = if ($null -eq $observedAtProperty) { $null } else { [string]$observedAtProperty.Value }
+        skipped_line_count = @($markerEvidence.SkippedLines).Count
+        skipped_lines_sha256 = Get-Utf8Sha256 -Text (@($markerEvidence.SkippedLines) -join "`n")
+        skipped_lines = @($markerEvidence.SkippedLines)
+    }
+    $stdoutEvidenceSha256 = Write-AtomicJsonArtifact -Path $stdoutEvidencePath -Value $stdoutEvidence
     $resultEvidence = Assert-BdsFixtureCommandResults `
         -Commands $fixtureCommands `
         -Lines @($markerEvidence.SkippedLines)
@@ -1931,6 +1969,8 @@ function Complete-BdsFixtureCommandBatch {
         command_count = $fixtureCommands.Count
         result_count = [int]$resultEvidence.result_count
         result_stdout_sha256 = [string]$resultEvidence.stdout_sha256
+        stdout_evidence = $stdoutEvidencePath
+        stdout_evidence_sha256 = $stdoutEvidenceSha256
         pose = [string]$Plan.Pose
     })
     Write-AcceptanceEvent -RunDirectory $RunDirectory -Event 'processing_fence_observed' -Fields ([ordered]@{
