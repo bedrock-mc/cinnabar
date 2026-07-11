@@ -1,4 +1,8 @@
-use std::{mem::size_of, sync::OnceLock};
+use std::{
+    mem::size_of,
+    sync::{Arc, OnceLock},
+    time::{Duration, Instant},
+};
 
 use assets::{
     BlockFlags, BlockVisual, CompiledAssets, DIAGNOSTIC_MATERIAL, Material, NetworkIdMode,
@@ -12,12 +16,37 @@ use render::{
     BlockClassifier, ChunkRenderInstance, ChunkRenderQueue, ChunkRenderQueueLimits,
     ChunkTextureAssetIdentity, ChunkUploadPriority, DebugWorldPlugin, Face, MATERIAL_UV_REFLECT_U,
     MATERIAL_UV_REFLECT_V, MATERIAL_UV_ROTATE_90, MATERIAL_UV_ROTATE_180, MATERIAL_UV_ROTATE_270,
-    Neighbourhood, PackedQuad, TextureArrayLimits, TextureLimitError, greedy_texture_uv,
-    mesh_sub_chunk, plan_texture_mip_uploads, texture_asset_needs_rebuild,
+    Neighbourhood, PackedQuad, PresentedFrameAck, RenderViewCohort, TextureArrayLimits,
+    TextureLimitError, greedy_texture_uv, mesh_sub_chunk, plan_texture_mip_uploads,
+    texture_asset_needs_rebuild,
 };
 use world::{SubChunk, SubChunkKey};
 
 const AIR: u32 = 12_530;
+
+#[test]
+fn allocated_but_undrawn_target_is_not_exact_presented_evidence() {
+    let now = Instant::now();
+    let key = SubChunkKey::new(0, 65, 0, 65);
+    let acknowledgement = PresentedFrameAck {
+        cohort: RenderViewCohort::new(0, [65, 65], 16),
+        frame_sequence: 1,
+        allocation_manifest: Arc::from([(key, 7)]),
+        drawn_manifest: Arc::from([]),
+        view_generation: 1,
+        render_ready_at: now,
+        present_returned_at: now + Duration::from_millis(1),
+        gpu_completed_at: now + Duration::from_millis(2),
+        missing_target_instances: 0,
+        unexpected_target_instances: 0,
+        source_instances: 0,
+        foreign_instances: 0,
+        stale_generation_instances: 0,
+        orphan_allocations: 0,
+    };
+
+    assert!(!acknowledgement.is_exact());
+}
 
 fn runtime_assets() -> &'static RuntimeAssets {
     static ASSETS: OnceLock<RuntimeAssets> = OnceLock::new();

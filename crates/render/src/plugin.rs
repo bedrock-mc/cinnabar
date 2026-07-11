@@ -455,6 +455,7 @@ impl PresentedFrameAck {
     #[must_use]
     pub fn is_exact(&self) -> bool {
         !self.allocation_manifest.is_empty()
+            && self.drawn_manifest == self.allocation_manifest
             && self.missing_target_instances == 0
             && self.unexpected_target_instances == 0
             && self.source_instances == 0
@@ -2981,6 +2982,44 @@ mod tests {
     }
 
     #[test]
+    fn allocated_but_undrawn_target_manifest_is_not_exact_presented_evidence() {
+        let render_ready_at = Instant::now();
+        let present_returned_at = render_ready_at + std::time::Duration::from_millis(1);
+        let gpu_completed_at = present_returned_at + std::time::Duration::from_millis(1);
+        let key = SubChunkKey::new(0, 65, 0, 65);
+        let entity = Entity::from_bits(1);
+        let allocation = FrameAllocationIdentity {
+            entity,
+            key,
+            generation: 7,
+        };
+        let acknowledgement = build_presented_frame_ack(
+            FrameProbe::begin(
+                target_expectation(render_ready_at, [(key, 7)]),
+                [FrameInstanceIdentity {
+                    entity,
+                    key,
+                    generation: 7,
+                }],
+                [allocation],
+            )
+            .complete(),
+            FrameCompletionEvidence {
+                present_returned_at: Some(present_returned_at),
+                submitted_work_done_at: Some(gpu_completed_at),
+            },
+        )
+        .expect("post-present GPU completion should publish diagnostic frame evidence");
+
+        assert_eq!(acknowledgement.allocation_manifest.as_ref(), &[(key, 7)]);
+        assert!(acknowledgement.drawn_manifest.is_empty());
+        assert!(
+            !acknowledgement.is_exact(),
+            "an allocated but undrawn target generation satisfied the presented-frame gate"
+        );
+    }
+
+    #[test]
     fn frame_probe_rejects_stale_allocation_generation() {
         let now = Instant::now();
         let key = SubChunkKey::new(0, 65, 0, 65);
@@ -3418,6 +3457,7 @@ mod tests {
                 }],
                 [allocation],
             ));
+            assert!(frame_probe.record_direct_draw(entity, allocation));
             frame_probe.take_completed().unwrap()
         };
         let acknowledgement = |probe, present_offset, gpu_offset| {

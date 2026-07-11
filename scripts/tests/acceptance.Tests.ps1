@@ -85,12 +85,16 @@ $TempRoot = Join-Path ([IO.Path]::GetTempPath()) ("rust-mcbe acceptance tests {0
 $BdsDir = Join-Path $TempRoot 'bds source'
 $MetricsOut = Join-Path $TempRoot 'metrics output\metrics.json'
 $Assets = Join-Path $TempRoot 'vanilla assets with spaces.mcpack'
+$PrebuiltClient = Join-Path $TempRoot 'opaque base client\bedrock-client.exe'
 $DryRunDirectory = Join-Path $ProjectRoot '.local\acceptance\dry-run'
 
 try {
     New-Item -ItemType Directory -Path $BdsDir -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $BdsDir 'bedrock_server.exe') -Value 'fixture' -NoNewline
     Set-Content -LiteralPath $Assets -Value 'assets fixture' -NoNewline
+    New-Item -ItemType Directory -Path (Split-Path -Parent $PrebuiltClient) -Force | Out-Null
+    Set-Content -LiteralPath $PrebuiltClient -Value 'pinned opaque client fixture' -NoNewline
+    $prebuiltHashBefore = (Get-FileHash -Algorithm SHA256 -LiteralPath $PrebuiltClient).Hash
     Assert-True (-not (Test-Path -LiteralPath $DryRunDirectory)) "pre-existing dry-run artifact prevents an immutability assertion: $DryRunDirectory"
 
     $success = Invoke-Acceptance -Arguments @(
@@ -183,6 +187,101 @@ try {
     Assert-True (-not $teleportAppCommand[0].Contains('--no-vsync')) 'full-view app command bypassed its capped presentation mode'
     Assert-True ($teleportDryRun.Output -contains 'FULL_VIEW_TELEPORT_GATE=1') 'full-view dry-run did not record its mode'
 
+    $leafFrontDryRun = Invoke-Acceptance -Arguments @(
+        '-DryRun',
+        '-DurationSeconds', '60',
+        '-BdsDir', $BdsDir,
+        '-MetricsOut', $MetricsOut,
+        '-Assets', $Assets,
+        '-VisualFixturePose', 'LeafGalleryFront',
+        '-SteadyResourceTrigger', 'VisualFixtureReady',
+        '-UseVsync'
+    )
+    Assert-True ($leafFrontDryRun.ExitCode -eq 0) "leaf-front dry-run failed: $($leafFrontDryRun.Output -join [Environment]::NewLine)"
+    $leafFrontAppCommand = @($leafFrontDryRun.Output | Where-Object { $_ -match '^APP_COMMAND=' })
+    Assert-Equal 1 $leafFrontAppCommand.Count 'leaf-front dry-run did not emit one app command'
+    Assert-True (-not $leafFrontAppCommand[0].Contains('--auto-fly')) 'leaf-front mode retained auto-fly'
+    Assert-True (-not $leafFrontAppCommand[0].Contains('--no-vsync')) 'leaf-front mode bypassed -UseVsync'
+    Assert-True (-not $leafFrontAppCommand[0].Contains('--full-view-teleport-gate')) 'leaf-front mode armed the far tracker'
+    Assert-True ($leafFrontDryRun.Output -contains 'VISUAL_FIXTURE_POSE=LeafGalleryFront') 'leaf-front dry-run lost its pose'
+    Assert-True ($leafFrontDryRun.Output -contains 'STEADY_RESOURCE_TRIGGER=VisualFixtureReady') 'leaf-front dry-run lost its trigger'
+    Assert-True ($leafFrontDryRun.Output -contains 'USE_VSYNC=1') 'leaf-front dry-run lost its vsync mode'
+
+    $baselineDryRun = Invoke-Acceptance -Arguments @(
+        '-DryRun',
+        '-DurationSeconds', '60',
+        '-BdsDir', $BdsDir,
+        '-MetricsOut', $MetricsOut,
+        '-Assets', $Assets,
+        '-LeafForestBaseline',
+        '-SteadyResourceTrigger', 'WorldReady',
+        '-ClientExecutable', $PrebuiltClient,
+        '-SkipClientBuild',
+        '-UseVsync'
+    )
+    Assert-True ($baselineDryRun.ExitCode -eq 0) "leaf-forest baseline dry-run failed: $($baselineDryRun.Output -join [Environment]::NewLine)"
+    $baselineAppCommand = @($baselineDryRun.Output | Where-Object { $_ -match '^APP_COMMAND=' })
+    Assert-Equal 1 $baselineAppCommand.Count 'baseline dry-run did not emit one app command'
+    Assert-True ($baselineAppCommand[0].StartsWith('APP_COMMAND=' + (ConvertTo-TestCommandArgument ((Resolve-Path -LiteralPath $PrebuiltClient).Path)))) 'baseline did not select the exact prebuilt executable'
+    Assert-True (-not $baselineAppCommand[0].Contains('--auto-fly')) 'baseline retained auto-fly'
+    Assert-True (-not $baselineAppCommand[0].Contains('--no-vsync')) 'baseline bypassed -UseVsync'
+    Assert-True (-not $baselineAppCommand[0].Contains('--full-view-teleport-gate')) 'baseline armed the far tracker'
+    foreach ($marker in @(
+        'LEAF_FOREST_BASELINE=1',
+        'STEADY_RESOURCE_TRIGGER=WorldReady',
+        'SKIP_CLIENT_BUILD=1',
+        'USE_VSYNC=1'
+    )) {
+        Assert-True ($baselineDryRun.Output -contains $marker) "baseline dry-run omitted $marker"
+    }
+    Assert-Equal $prebuiltHashBefore (Get-FileHash -Algorithm SHA256 -LiteralPath $PrebuiltClient).Hash 'dry-run overwrote the explicit prebuilt client'
+
+    $leafForestFullViewDryRun = Invoke-Acceptance -Arguments @(
+        '-DryRun',
+        '-DurationSeconds', '900',
+        '-BdsDir', $BdsDir,
+        '-MetricsOut', $MetricsOut,
+        '-Assets', $Assets,
+        '-LeafForestFullView',
+        '-FullViewTeleportGate',
+        '-SteadyResourceTrigger', 'FullViewPresented'
+    )
+    Assert-True ($leafForestFullViewDryRun.ExitCode -eq 0) "leaf-forest full-view dry-run failed: $($leafForestFullViewDryRun.Output -join [Environment]::NewLine)"
+    $leafForestFullViewAppCommand = @($leafForestFullViewDryRun.Output | Where-Object { $_ -match '^APP_COMMAND=' })
+    Assert-Equal 1 $leafForestFullViewAppCommand.Count 'leaf-forest full-view emitted the wrong app-command count'
+    Assert-True ($leafForestFullViewAppCommand[0].Contains('--full-view-teleport-gate --frame-cap 60')) 'leaf-forest full-view lost the binding capped mode'
+    Assert-True (-not $leafForestFullViewAppCommand[0].Contains('--no-vsync')) 'leaf-forest full-view added no-vsync'
+    Assert-True ($leafForestFullViewDryRun.Output -contains 'LEAF_FOREST_FULL_VIEW=1') 'leaf-forest full-view lost its mode marker'
+    Assert-True ($leafForestFullViewDryRun.Output -contains 'STEADY_RESOURCE_TRIGGER=FullViewPresented') 'leaf-forest full-view lost its trigger marker'
+
+    $invalidLeafModes = @(
+        @('-LeafForestBaseline', '-LeafForestFullView', '-FullViewTeleportGate', '-SteadyResourceTrigger', 'WorldReady', '-ClientExecutable', $PrebuiltClient, '-SkipClientBuild', '-UseVsync'),
+        @('-LeafForestBaseline', '-SteadyResourceTrigger', 'WorldReady', '-ClientExecutable', $PrebuiltClient, '-SkipClientBuild'),
+        @('-LeafForestBaseline', '-SteadyResourceTrigger', 'VisualFixtureReady', '-ClientExecutable', $PrebuiltClient, '-SkipClientBuild', '-UseVsync'),
+        @('-LeafForestFullView', '-SteadyResourceTrigger', 'FullViewPresented'),
+        @('-LeafForestFullView', '-FullViewTeleportGate', '-SteadyResourceTrigger', 'WorldReady'),
+        @('-VisualFixturePose', 'LeafGalleryBack', '-SteadyResourceTrigger', 'VisualFixtureReady'),
+        @('-VisualFixturePose', 'LeafGalleryBack', '-SteadyResourceTrigger', 'WorldReady', '-UseVsync'),
+        @('-VisualFixturePose', 'LeafGalleryFront', '-SteadyResourceTrigger', 'VisualFixtureReady', '-UseVsync'),
+        @('-VisualFixturePose', 'leafgalleryfront', '-SteadyResourceTrigger', 'VisualFixtureReady', '-UseVsync', '-Assets', $Assets),
+        @('-SteadyResourceTrigger', 'worldready'),
+        @('-LeafForestBaseline', '-SteadyResourceTrigger', 'WorldReady', '-ClientExecutable', $PrebuiltClient, '-SkipClientBuild', '-UseVsync'),
+        @('-LeafForestFullView', '-FullViewTeleportGate', '-SteadyResourceTrigger', 'FullViewPresented'),
+        @('-SkipClientBuild'),
+        @('-ClientExecutable', $PrebuiltClient),
+        @('-SkipClientBuild', '-ClientExecutable', (Join-Path $TempRoot 'missing-client.exe'))
+    )
+    foreach ($invalidLeafMode in $invalidLeafModes) {
+        $invalidArguments = @(
+            '-DryRun',
+            '-DurationSeconds', '900',
+            '-BdsDir', $BdsDir,
+            '-MetricsOut', $MetricsOut
+        ) + $invalidLeafMode
+        $invalidResult = Invoke-Acceptance -Arguments $invalidArguments
+        Assert-True ($invalidResult.ExitCode -ne 0) "invalid leaf/prebuilt mode was accepted: $($invalidLeafMode -join ' ')"
+    }
+
     $conflictingModes = Invoke-Acceptance -Arguments @(
         '-DryRun',
         '-DurationSeconds', '900',
@@ -236,13 +335,27 @@ try {
     Assert-True ($source.Contains("'6f6806e821a579c183c44d786f76d9b358a2b825'")) 'Valentine metadata commit is not the repository pin'
     Assert-True (-not $source.Contains("'^RUST_MCBE_TELEPORT_SETTLED ms=")) 'live teleport path still assumes ms precedes target'
     Assert-True (-not $source.Contains("'^RUST_MCBE_FORCED_FULL_VIEW_REMESH_SETTLED ms=")) 'live forced-remesh path still assumes ms precedes target'
-    Assert-True ($source.Contains('-TeleportMarker $teleportMarkerEvidence')) 'live metrics validation does not receive parsed teleport evidence'
-    Assert-True ($source.Contains('-ForcedRemeshMarker $forcedRemeshMarkerEvidence')) 'live metrics validation does not receive parsed forced-remesh evidence'
-    Assert-True ($source.Contains('-ExpectedTargetCohort $expectedTargetCohort')) 'live metrics validation does not receive the planned target cohort'
-    Assert-True ($source.Contains('-SteadyResourceArtifactPath $steadyResourceArtifactPath')) 'live metrics validation does not require the steady-resource artifact'
-    Assert-True (([regex]::Matches($source, '-TeleportMarker \$teleportMarkerEvidence')).Count -ge 2) 'steady-resource sampler does not receive teleport trigger evidence'
-    Assert-True (([regex]::Matches($source, '-ForcedRemeshMarker \$forcedRemeshMarkerEvidence')).Count -ge 2) 'steady-resource sampler does not receive forced-remesh trigger evidence'
+    Assert-True ($source.Contains('TeleportMarker = $teleportMarkerEvidence')) 'live metrics validation does not receive parsed teleport evidence'
+    Assert-True ($source.Contains('ForcedRemeshMarker = $forcedRemeshMarkerEvidence')) 'live metrics validation does not receive parsed forced-remesh evidence'
+    Assert-True ($source.Contains('ExpectedTargetCohort = $expectedTargetCohort')) 'live metrics validation does not receive the planned target cohort'
+    Assert-True ($source.Contains('SteadyResourceArtifactPath = $steadyResourceArtifactPath')) 'live metrics validation does not require the steady-resource artifact'
+    Assert-True (([regex]::Matches($source, '-TeleportMarker \$teleportMarkerEvidence')).Count -ge 1) 'steady-resource sampler does not receive teleport trigger evidence'
+    Assert-True (([regex]::Matches($source, '-ForcedRemeshMarker \$forcedRemeshMarkerEvidence')).Count -ge 1) 'steady-resource sampler does not receive forced-remesh trigger evidence'
+    Assert-True ($source.Contains('if (-not $SkipClientBuild)')) 'prebuilt client mode does not skip the app build'
+    Assert-True ($source.Contains('RUST_MCBE_TARGET_MUTATION_ARMED ')) 'live harness does not wait for the target-mutation arming marker'
+    Assert-True ($source.Contains('ConvertFrom-TargetMutationArmedMarker')) 'live harness does not parse target-mutation evidence'
+    Assert-True ($source.Contains('RUST_MCBE_MOVE_PLAYER_INGRESS ')) 'live harness does not wait for binding MovePlayer ingress evidence'
+    Assert-True ($source.Contains('ConvertFrom-MovePlayerIngressMarker')) 'live harness does not parse binding MovePlayer ingress evidence'
+    Assert-True ($source.Contains('-PassThruEvidence')) 'binding marker waits do not retain stdout positions'
+    Assert-True ($source.Contains('Write-AcceptanceEvent')) 'live harness does not persist ordered fixture/teleport events'
+    Assert-True ($source.Contains('Move-Item -LiteralPath $temporaryPath -Destination $Path')) 'fixture manifest publication is not an atomic sibling rename'
+    Assert-True ($source.Contains('$cpuPercent = 100.0 * $cpuDelta / ($wallDelta * [Environment]::ProcessorCount)')) 'steady CPU normalization formula changed'
+    Assert-True (([regex]::Matches($source, '\.Refresh\(\)')).Count -ge 4) 'resource sampling does not refresh both process handles before/during sampling'
+    $baselineSourceMutationIndex = $source.IndexOf('$baselineSourceMutationCommand = Publish-BaselineSourceMutation', [StringComparison]::Ordinal)
     $resourceSamplingIndex = $source.IndexOf('$resourceDocument = Measure-SteadyResources', [StringComparison]::Ordinal)
+    $baselineForestPublishIndex = $source.IndexOf('$fixturePlan = New-LeafForestPlan -MutationCoordinate $coordinate -Mode Baseline', [StringComparison]::Ordinal)
+    Assert-True ($baselineSourceMutationIndex -ge 0 -and $resourceSamplingIndex -gt $baselineSourceMutationIndex) 'baseline did not issue its source mutation immediately before the WorldReady observation window'
+    Assert-True ($baselineForestPublishIndex -gt $resourceSamplingIndex) 'baseline far forest could publish before the source mutation observation window'
     $metricsValidationIndex = $source.IndexOf('$metrics = Assert-AcceptanceMetrics', [StringComparison]::Ordinal)
     Assert-True ($resourceSamplingIndex -ge 0 -and $metricsValidationIndex -gt $resourceSamplingIndex) 'full-view metrics SLA validation can run before steady-resource sampling/artifact publication'
 
@@ -260,6 +373,48 @@ try {
         Remove-Item Env:RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY -ErrorAction SilentlyContinue
     }
 
+    $safeGeneratedRoot = Join-Path $TempRoot 'generated destinations'
+    Assert-PrebuiltClientPathSafe `
+        -ClientExecutable $PrebuiltClient `
+        -RuntimeDirectory (Join-Path $safeGeneratedRoot 'runtime') `
+        -RunDirectory (Join-Path $safeGeneratedRoot 'run') `
+        -CoreExecutable (Join-Path $safeGeneratedRoot 'bedrock-core.exe') `
+        -MetricsOut (Join-Path $safeGeneratedRoot 'metrics.json')
+    Assert-ThrowsLike {
+        Assert-PrebuiltClientPathSafe `
+            -ClientExecutable $PrebuiltClient `
+            -RuntimeDirectory (Split-Path -Parent $PrebuiltClient) `
+            -RunDirectory (Join-Path $safeGeneratedRoot 'run') `
+            -CoreExecutable (Join-Path $safeGeneratedRoot 'bedrock-core.exe') `
+            -MetricsOut (Join-Path $safeGeneratedRoot 'metrics.json')
+    } '*overlaps stable BDS runtime*' 'prebuilt client inside the generated BDS runtime was accepted'
+    Assert-ThrowsLike {
+        Assert-PrebuiltClientPathSafe `
+            -ClientExecutable $PrebuiltClient `
+            -RuntimeDirectory (Join-Path $safeGeneratedRoot 'runtime') `
+            -RunDirectory (Join-Path $safeGeneratedRoot 'run') `
+            -CoreExecutable $PrebuiltClient `
+            -MetricsOut (Join-Path $safeGeneratedRoot 'metrics.json')
+    } '*aliases generated core executable*' 'prebuilt client aliasing the core output was accepted'
+    Assert-ThrowsLike {
+        Assert-PrebuiltClientPathSafe `
+            -ClientExecutable $PrebuiltClient `
+            -RuntimeDirectory (Join-Path $safeGeneratedRoot 'runtime') `
+            -RunDirectory (Split-Path -Parent $PrebuiltClient) `
+            -CoreExecutable (Join-Path $safeGeneratedRoot 'bedrock-core.exe') `
+            -MetricsOut (Join-Path $safeGeneratedRoot 'metrics.json')
+    } '*overlaps acceptance run output*' 'prebuilt client inside the acceptance output directory was accepted'
+    Assert-ThrowsLike {
+        Assert-PrebuiltClientPathSafe `
+            -ClientExecutable $PrebuiltClient `
+            -RuntimeDirectory (Join-Path $safeGeneratedRoot 'runtime') `
+            -RunDirectory (Join-Path $safeGeneratedRoot 'run') `
+            -CoreExecutable (Join-Path $safeGeneratedRoot 'bedrock-core.exe') `
+            -MetricsOut $PrebuiltClient
+    } '*aliases requested metrics output*' 'prebuilt client aliasing MetricsOut was accepted'
+    $prebuiltGuardHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $PrebuiltClient).Hash.ToLowerInvariant()
+    Assert-FileHashUnchanged -Path $PrebuiltClient -ExpectedSha256 $prebuiltGuardHash -Label 'test prebuilt client'
+
     $teleportMarkerLine = 'RUST_MCBE_TELEPORT_SETTLED target=0:65:65:16 committed=0:65:65:16 ms=1500.0000 view_generation=7 render_ready_ms=1200.0000 publisher_ms=100.0000 first_level_ms=200.0000 last_level_ms=600.0000 level_events=1089 first_sub_ms=250.0000 last_sub_ms=900.0000 sub_events=1089 first_frame_sequence=41 stable_frame_sequence=42 first_present_ms=1300.0000 first_gpu_ms=1350.0000 stable_present_ms=1400.0000 stable_gpu_ms=1500.0000 expected_manifest_count=4 expected_manifest_hash=1111222233334444 first_presented_manifest_count=4 first_presented_manifest_hash=1111222233334444 stable_presented_manifest_count=4 stable_presented_manifest_hash=1111222233334444 expected=1089 loaded_target=1089 missing_target=0 foreign_loaded=0 foreign_requested=0 foreign_resident=0 source_leftover=0 resident_count=3 resident_hash=aaaabbbbccccdddd known_air_count=1 known_air_hash=eeeeffff00001111 missing_target_instances=0 unexpected_target_instances=0 source_instances=0 foreign_instances=0 stale_generation_instances=0 orphan_allocations=0 frame_count=90'
     $forcedMarkerLine = 'RUST_MCBE_FORCED_FULL_VIEW_REMESH_SETTLED target=0:65:65:16 committed=0:65:65:16 ms=1500.0000 view_generation=8 render_ready_ms=0.0000 first_frame_sequence=43 stable_frame_sequence=44 first_present_ms=1200.0000 first_gpu_ms=1300.0000 stable_present_ms=1400.0000 stable_gpu_ms=1500.0000 expected_manifest_count=4 expected_manifest_hash=5555666677778888 first_presented_manifest_count=4 first_presented_manifest_hash=5555666677778888 stable_presented_manifest_count=4 stable_presented_manifest_hash=5555666677778888 expected=1089 loaded_target=1089 missing_target=0 foreign_loaded=0 foreign_requested=0 foreign_resident=0 source_leftover=0 resident_count=3 resident_hash=aaaabbbbccccdddd known_air_count=1 known_air_hash=eeeeffff00001111 missing_target_instances=0 unexpected_target_instances=0 source_instances=0 foreign_instances=0 stale_generation_instances=0 orphan_allocations=0 frame_count=90'
     $teleportMarker = ConvertFrom-FullViewSettleMarker `
@@ -273,11 +428,122 @@ try {
     Assert-Equal '0:65:65:16' $forcedMarker.target 'target-prefixed forced-remesh marker lost its cohort'
     Assert-Equal 1500.0 $forcedMarker.ms 'target-prefixed forced-remesh marker did not parse milliseconds'
 
+    $worldReadyLine = 'RUST_MCBE_WORLD_READY source_tag=v1 blob_sha256=abc'
+    $worldReadyTrigger = New-SteadyResourceTriggerEvidence `
+        -Kind WorldReady `
+        -WorldReadyMarker $worldReadyLine
+    Assert-Equal 'WorldReady' $worldReadyTrigger.kind 'world-ready trigger changed kind'
+    Assert-True ([string]$worldReadyTrigger.marker_sha256 -match '^[0-9a-f]{64}$') 'world-ready trigger omitted marker hash'
+    $visualTrigger = New-SteadyResourceTriggerEvidence `
+        -Kind VisualFixtureReady `
+        -FixturePublication ([pscustomobject]@{
+            ManifestSha256 = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+            LayoutHash = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+            Pose = 'LeafGalleryFront'
+        })
+    Assert-Equal 'VisualFixtureReady' $visualTrigger.kind 'visual trigger changed kind'
+    Assert-Equal 'LeafGalleryFront' $visualTrigger.pose 'visual trigger lost pose'
+    Assert-Equal ('a' * 64) $visualTrigger.manifest_sha256 'visual trigger lost manifest hash'
+    Assert-Equal ('b' * 64) $visualTrigger.fixture_layout_hash 'visual trigger lost layout hash'
+    $fullViewTrigger = New-SteadyResourceTriggerEvidence `
+        -Kind FullViewPresented `
+        -TeleportMarker $teleportMarker `
+        -ForcedRemeshMarker $forcedMarker
+    Assert-Equal 'FullViewPresented' $fullViewTrigger.kind 'full-view trigger changed kind'
+    Assert-ThrowsLike {
+        New-SteadyResourceTriggerEvidence -Kind FullViewPresented -TeleportMarker $teleportMarker
+    } '*ForcedRemeshMarker*' 'full-view trigger accepted incomplete binding evidence'
+
     $mutationCoordinate = @(101, 64, -37)
     $frontPlan = New-VisualFixturePlan -MutationCoordinate $mutationCoordinate -Pose Front
     $frontPlanAgain = New-VisualFixturePlan -MutationCoordinate $mutationCoordinate -Pose Front
     $backPlan = New-VisualFixturePlan -MutationCoordinate $mutationCoordinate -Pose Back
     $teleportPlan = New-FullViewTeleportPlan -MutationCoordinate $mutationCoordinate
+    $leafFrontPlan = New-VisualFixturePlan -MutationCoordinate $mutationCoordinate -Pose LeafGalleryFront
+    $leafFrontPlanAgain = New-VisualFixturePlan -MutationCoordinate $mutationCoordinate -Pose LeafGalleryFront
+    $leafBackPlan = New-VisualFixturePlan -MutationCoordinate $mutationCoordinate -Pose LeafGalleryBack
+    $baselineForestPlan = New-LeafForestPlan -MutationCoordinate $mutationCoordinate -Mode Baseline
+    $fullViewForestPlan = New-FullViewTeleportPlan -MutationCoordinate $mutationCoordinate -LeafForest
+
+    foreach ($leafPlan in @($leafFrontPlan, $leafBackPlan, $baselineForestPlan, $fullViewForestPlan)) {
+        Assert-Equal 'rust-mcbe-visual-fixture-v2' $leafPlan.Manifest.schema 'leaf plan used the wrong manifest schema'
+        Assert-True ([string]$leafPlan.Manifest.fixture_layout_hash -match '^[0-9a-f]{64}$') 'leaf plan omitted a canonical SHA-256 layout hash'
+        Assert-True ($leafPlan.Commands.Count -le 64) "leaf plan exceeded the 64-command bound: $($leafPlan.Commands.Count)"
+        Assert-True ($leafPlan.Commands[-2] -ceq 'list') 'leaf plan fence was not immediately before teleport'
+        Assert-True ($leafPlan.Commands[-1] -ceq $leafPlan.TeleportCommand) 'leaf plan teleport was not the final planned command'
+        foreach ($volume in @($leafPlan.Manifest.fill_volumes)) {
+            Assert-True ([int]$volume -le 32768) "leaf plan fill exceeded the BDS bound: $volume"
+        }
+        $leafCommands = @($leafPlan.FixtureCommands | Where-Object { $_ -match 'minecraft:.*leaves' })
+        Assert-True ($leafCommands.Count -gt 0) 'leaf plan emitted no leaf command'
+        foreach ($leafCommand in $leafCommands) {
+            Assert-True ($leafCommand.Contains('"persistent_bit"=true')) "leaf command omitted persistent_bit=true: $leafCommand"
+            Assert-True ($leafCommand.Contains('"update_bit"=false')) "leaf command omitted update_bit=false: $leafCommand"
+        }
+    }
+
+    Assert-Equal ($leafFrontPlan.Commands -join "`n") ($leafFrontPlanAgain.Commands -join "`n") 'leaf-front commands were not deterministic'
+    Assert-Equal $leafFrontPlan.Manifest.fixture_layout_hash $leafFrontPlanAgain.Manifest.fixture_layout_hash 'leaf-front layout hash was not deterministic'
+    Assert-Equal $leafFrontPlan.Manifest.fixture_layout_hash $leafBackPlan.Manifest.fixture_layout_hash 'leaf gallery poses did not share one canonical layout'
+    Assert-True ($leafFrontPlan.TeleportCommand -cne $leafBackPlan.TeleportCommand) 'leaf gallery front/back cameras were identical'
+    $selfColored = @('minecraft:cherry_leaves', 'minecraft:azalea_leaves', 'minecraft:azalea_leaves_flowered')
+    $tintDeferred = @('minecraft:oak_leaves', 'minecraft:birch_leaves', 'minecraft:spruce_leaves')
+    Assert-Equal ($selfColored -join ',') (@($leafFrontPlan.Manifest.self_colored) -join ',') 'self-colored leaf set changed'
+    Assert-Equal ($tintDeferred -join ',') (@($leafFrontPlan.Manifest.tint_deferred) -join ',') 'tint-deferred leaf set changed'
+    Assert-Equal 6 @($leafFrontPlan.Manifest.blocks).Count 'leaf gallery did not contain six labeled 2x2x2 cubes'
+    foreach ($block in @($leafFrontPlan.Manifest.blocks)) {
+        Assert-Equal '2,2,2' (@($block.size) -join ',') "leaf cube $($block.label) was not 2x2x2"
+        Assert-True ([bool]$block.persistent_bit) "leaf cube $($block.label) was not persistent"
+        Assert-True (-not [bool]$block.update_bit) "leaf cube $($block.label) enabled update_bit"
+    }
+    Assert-True (@($leafFrontPlan.Manifest.leaf_adjacency).Count -gt 0) 'leaf gallery omitted leaf-to-leaf adjacency evidence'
+    Assert-True (@($leafFrontPlan.Manifest.opaque_backing).Count -gt 0) 'leaf gallery omitted opaque backing touching leaves'
+    Assert-Equal 'near,far' (@($leafFrontPlan.Manifest.panels | ForEach-Object { $_.distance }) -join ',') 'leaf gallery omitted deterministic near/far panels'
+
+    Assert-Equal $baselineForestPlan.Manifest.fixture_layout_hash $fullViewForestPlan.Manifest.fixture_layout_hash 'baseline and full-view forests changed canonical layout'
+    Assert-True (@($baselineForestPlan.Manifest.canopies).Count -ge 4) 'forest did not contain multiple bounded canopies'
+    foreach ($forestPlan in @($baselineForestPlan, $fullViewForestPlan)) {
+        Assert-Equal ($selfColored -join ',') (@($forestPlan.Manifest.self_colored) -join ',') 'forest self-colored leaf set changed'
+        Assert-Equal ($tintDeferred -join ',') (@($forestPlan.Manifest.tint_deferred) -join ',') 'forest tint-deferred leaf set changed'
+        $forestSelfColored = @($forestPlan.Manifest.canopies | Where-Object { $_.category -ceq 'self_colored' } | ForEach-Object { $_.block } | Sort-Object -Unique)
+        $forestTintDeferred = @($forestPlan.Manifest.canopies | Where-Object { $_.category -ceq 'tint_deferred' } | ForEach-Object { $_.block } | Sort-Object -Unique)
+        Assert-Equal (($selfColored | Sort-Object) -join ',') ($forestSelfColored -join ',') 'forest canopy categories lost a self-colored identifier'
+        Assert-Equal (($tintDeferred | Sort-Object) -join ',') ($forestTintDeferred -join ',') 'forest canopy categories lost a tint-deferred identifier'
+        Assert-Equal $mutationCoordinate[1] $forestPlan.Manifest.clear.min.y 'forest clear did not own the target ground layer'
+        Assert-Equal 31213 $forestPlan.Manifest.clear.volume 'forest clear volume changed from the bounded 49x13x49 scene'
+        Assert-True (@($forestPlan.Manifest.fill_volumes) -contains 31213) 'forest fill-volume evidence omitted the exact clear volume'
+        Assert-Equal 0 $forestPlan.Manifest.layout.clear_min_offset[1] 'forest canonical layout did not own the ground layer'
+    }
+    $expectedFarCamera = @(($mutationCoordinate[0] + 1040), ($mutationCoordinate[1] + 12), ($mutationCoordinate[2] + 1040))
+    $expectedTargetMutation = @(($mutationCoordinate[0] + 1040), $mutationCoordinate[1], ($mutationCoordinate[2] + 1052))
+    Assert-Equal ($expectedFarCamera -join ',') (@($baselineForestPlan.Target.x, $baselineForestPlan.Target.y, $baselineForestPlan.Target.z) -join ',') 'baseline forest did not use the identical far camera/cohort'
+    Assert-Equal ($expectedFarCamera -join ',') (@($fullViewForestPlan.Target.x, $fullViewForestPlan.Target.y, $fullViewForestPlan.Target.z) -join ',') 'far camera changed from the fixed 65-chunk binding target'
+    Assert-Equal ($expectedTargetMutation -join ',') (@($baselineForestPlan.TargetMutation.x, $baselineForestPlan.TargetMutation.y, $baselineForestPlan.TargetMutation.z) -join ',') 'baseline forest did not use the identical far mutation coordinate'
+    Assert-Equal ($expectedTargetMutation -join ',') (@($fullViewForestPlan.TargetMutation.x, $fullViewForestPlan.TargetMutation.y, $fullViewForestPlan.TargetMutation.z) -join ',') 'far target mutation changed from the no-CLI contract'
+    Assert-Equal ($baselineForestPlan.Commands -join "`n") ($fullViewForestPlan.Commands -join "`n") 'baseline and full-view forests did not publish identical scene commands'
+    Assert-Equal 65 $baselineForestPlan.Manifest.offset_chunks 'baseline forest did not publish the same far offset'
+    $initialTargetCommand = "setblock $($expectedTargetMutation[0]) $($expectedTargetMutation[1]) $($expectedTargetMutation[2]) minecraft:diamond_block"
+    Assert-True ($fullViewForestPlan.FixtureCommands -contains $initialTargetCommand) 'forest did not initialize target mutation to the opposite block'
+    Assert-True (-not ($fullViewForestPlan.FixtureCommands -contains $initialTargetCommand.Replace('diamond_block', 'gold_block'))) 'forest initialized target to the first post-ARM block, making it a no-op'
+    Assert-Equal 'minecraft:gold_block,minecraft:diamond_block' (@($fullViewForestPlan.Manifest.mutation_blocks) -join ',') 'target mutation alternation changed'
+    Assert-Equal ($mutationCoordinate -join ',') (@($fullViewForestPlan.Manifest.source_mutation.x, $fullViewForestPlan.Manifest.source_mutation.y, $fullViewForestPlan.Manifest.source_mutation.z) -join ',') 'forest manifest lost source mutation identity'
+    Assert-Equal ($expectedTargetMutation -join ',') (@($fullViewForestPlan.Manifest.target_mutation.x, $fullViewForestPlan.Manifest.target_mutation.y, $fullViewForestPlan.Manifest.target_mutation.z) -join ',') 'forest manifest lost target mutation identity'
+
+    $armedMarker = ConvertFrom-TargetMutationArmedMarker -Line 'RUST_MCBE_TARGET_MUTATION_ARMED source=101,64,-37 target=1141,64,1015 view_generation=9'
+    Assert-Equal '101,64,-37' (@($armedMarker.source) -join ',') 'target-mutation marker lost source coordinate'
+    Assert-Equal '1141,64,1015' (@($armedMarker.target) -join ',') 'target-mutation marker lost target coordinate'
+    Assert-Equal 9 $armedMarker.view_generation 'target-mutation marker lost view generation'
+    Assert-ThrowsLike {
+        ConvertFrom-TargetMutationArmedMarker -Line 'RUST_MCBE_TARGET_MUTATION_ARMED source=101,64,-37 target=1141,64,1015'
+    } 'invalid target mutation armed marker:*' 'target-mutation marker accepted a missing generation'
+    $movePlayerIngress = ConvertFrom-MovePlayerIngressMarker -Line 'RUST_MCBE_MOVE_PLAYER_INGRESS sequence=27 position=1141.5,76.25,1003.5'
+    Assert-Equal 27 $movePlayerIngress.sequence 'MovePlayer ingress marker lost its sequence'
+    Assert-Equal 1141.5 ([double]$movePlayerIngress.position[0]) 'MovePlayer ingress marker lost decimal X'
+    Assert-Equal 76.25 ([double]$movePlayerIngress.position[1]) 'MovePlayer ingress marker lost decimal Y'
+    Assert-Equal 1003.5 ([double]$movePlayerIngress.position[2]) 'MovePlayer ingress marker lost decimal Z'
+    Assert-ThrowsLike {
+        ConvertFrom-MovePlayerIngressMarker -Line 'RUST_MCBE_MOVE_PLAYER_INGRESS sequence=0 position=1141.5,76.25,1003.5'
+    } 'invalid MovePlayer ingress marker:*' 'MovePlayer ingress marker accepted sequence zero'
 
     Assert-Equal ($frontPlan.Commands -join "`n") ($frontPlanAgain.Commands -join "`n") 'front fixture commands were not deterministic'
     Assert-True ($frontPlan.TeleportCommand -cne $backPlan.TeleportCommand) 'front and back fixture teleports were identical'
@@ -389,7 +655,7 @@ try {
     $script:ObservedFixtureFence = $null
     $fixtureRunDirectory = Join-Path $TempRoot 'fixture run'
     New-Item -ItemType Directory -Path $fixtureRunDirectory | Out-Null
-    Publish-VisualFixture `
+    $fixturePublication = Publish-VisualFixture `
         -Handle $fixtureHandle `
         -Plan $frontPlan `
         -RunDirectory $fixtureRunDirectory `
@@ -402,6 +668,8 @@ try {
     $fixtureLogPath = Join-Path $fixtureRunDirectory 'bds.console.log'
     $fixtureReadyPath = Join-Path $fixtureRunDirectory 'visual-fixture-ready.json'
     Assert-True (Test-Path -LiteralPath $fixtureReadyPath -PathType Leaf) 'fixture ready artifact was not published'
+    Assert-Equal $fixtureReadyPath $fixturePublication.Path 'fixture publication returned the wrong path'
+    Assert-True ([string]$fixturePublication.ManifestSha256 -match '^[0-9a-f]{64}$') 'fixture publication omitted its file hash'
     Assert-Equal ($frontPlan.Commands -join "`n") ((Get-Content -LiteralPath $fixtureLogPath) -join "`n") 'fixture console log did not record every command in order'
     Assert-Equal ($frontPlan.Commands -join [Environment]::NewLine) $fixtureInput.ToString().TrimEnd("`r", "`n") 'fixture commands were not sent through the owned standard input in order'
     Assert-Equal $frontPlan.FenceMarker $script:ObservedFixtureFence 'fixture publisher did not wait for the processing fence'
@@ -411,6 +679,80 @@ try {
     Assert-Equal 'players online:' $fixtureReady.processing_fence.stdout_marker 'fixture ready artifact recorded the wrong fence marker'
     Assert-Equal 3000 $fixtureReady.settle_milliseconds 'fixture ready artifact did not record the production settle duration'
     Assert-Equal $frontPlan.TeleportCommand $fixtureReady.teleport_command 'fixture ready artifact recorded the wrong teleport'
+
+    $forestInput = [IO.StringWriter]::new([Globalization.CultureInfo]::InvariantCulture)
+    $forestHandle = [pscustomobject]@{
+        Process = [pscustomobject]@{ StandardInput = $forestInput }
+    }
+    $script:ObservedForestFence = $null
+    $forestRunDirectory = Join-Path $TempRoot 'forest full view run'
+    New-Item -ItemType Directory -Path $forestRunDirectory | Out-Null
+    $forestPublication = Publish-FullViewTeleport `
+        -Handle $forestHandle `
+        -Plan $fullViewForestPlan `
+        -RunDirectory $forestRunDirectory `
+        -WaitForFence {
+            param($Handle, $Marker, $TimeoutSeconds)
+            $script:ObservedForestFence = $Marker
+            return $Marker
+        }
+    Assert-Equal $fullViewForestPlan.FenceMarker $script:ObservedForestFence 'forest publisher did not observe the list fence'
+    Assert-True (Test-Path -LiteralPath $forestPublication.Path -PathType Leaf) 'forest publisher did not atomically publish its manifest'
+    Assert-Equal $fullViewForestPlan.Manifest.fixture_layout_hash $forestPublication.LayoutHash 'forest publication lost layout hash'
+    $forestManifestHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $forestPublication.Path).Hash.ToLowerInvariant()
+    Assert-Equal $forestManifestHash $forestPublication.ManifestSha256 'forest publication hash did not match bytes'
+    Assert-PublishedTargetMutation -Path $forestPublication.Path -Expected $fullViewForestPlan.TargetMutation
+    $tamperedForestManifestPath = Join-Path $forestRunDirectory 'tampered-visual-fixture-ready.json'
+    $tamperedForestManifest = Get-Content -Raw -LiteralPath $forestPublication.Path | ConvertFrom-Json
+    $tamperedForestManifest.target_mutation.x = [int]$tamperedForestManifest.target_mutation.x + 1
+    [IO.File]::WriteAllText(
+        $tamperedForestManifestPath,
+        ($tamperedForestManifest | ConvertTo-Json -Depth 16),
+        [Text.UTF8Encoding]::new($false)
+    )
+    Assert-ThrowsLike {
+        Assert-PublishedTargetMutation -Path $tamperedForestManifestPath -Expected $fullViewForestPlan.TargetMutation
+    } 'published target mutation did not match plan*' 'far publisher accepted a serialized target mutation mismatch'
+    Assert-Equal ($fullViewForestPlan.Commands -join "`n") ((Get-Content -LiteralPath (Join-Path $forestRunDirectory 'bds.console.log')) -join "`n") 'forest commands/fence/teleport were not sent in exact order'
+    Assert-Equal ($fullViewForestPlan.Commands -join [Environment]::NewLine) $forestInput.ToString().TrimEnd("`r", "`n") 'forest owned-stdin order changed'
+    $forestEvents = @(Get-Content -LiteralPath (Join-Path $forestRunDirectory 'acceptance-events.jsonl') | ForEach-Object { ConvertFrom-Json $_ })
+    Assert-Equal `
+        'fixture_commands_completed,processing_fence_observed,visual_fixture_ready,teleport_issued' `
+        (@($forestEvents | ForEach-Object { $_.event }) -join ',') `
+        'forest evidence event order changed'
+    $forestReadyEvent = @($forestEvents | Where-Object { $_.event -ceq 'visual_fixture_ready' })[0]
+    $forestTeleportEvent = @($forestEvents | Where-Object { $_.event -ceq 'teleport_issued' })[0]
+    Assert-True ([int]$forestReadyEvent.sequence -lt [int]$forestTeleportEvent.sequence) 'forest teleport preceded atomic manifest readiness'
+    Assert-Equal `
+        (@($fullViewForestPlan.TargetMutation.x, $fullViewForestPlan.TargetMutation.y, $fullViewForestPlan.TargetMutation.z) -join ',') `
+        ([string]$forestReadyEvent.target_mutation) `
+        'forest ready event lost target mutation coordinate'
+    Assert-Equal 0 @(Get-ChildItem -LiteralPath $forestRunDirectory -Filter '*.partial-*' -File).Count 'forest publication leaked a partial manifest'
+
+    $baselineInput = [IO.StringWriter]::new([Globalization.CultureInfo]::InvariantCulture)
+    $baselineHandle = [pscustomobject]@{
+        Process = [pscustomobject]@{ StandardInput = $baselineInput }
+    }
+    $baselineRunDirectory = Join-Path $TempRoot 'forest baseline run'
+    New-Item -ItemType Directory -Path $baselineRunDirectory | Out-Null
+    $baselineSourceCommand = Publish-BaselineSourceMutation `
+        -Handle $baselineHandle `
+        -Coordinate $mutationCoordinate `
+        -RunDirectory $baselineRunDirectory
+    $null = Publish-VisualFixture `
+        -Handle $baselineHandle `
+        -Plan $baselineForestPlan `
+        -RunDirectory $baselineRunDirectory `
+        -SettleMilliseconds 0 `
+        -WaitForFence { param($Handle, $Marker, $TimeoutSeconds); return $Marker }
+    Assert-Equal 'setblock 101 64 -37 minecraft:gold_block' $baselineSourceCommand 'baseline source mutation prelude changed'
+    $expectedBaselineConsole = @($baselineSourceCommand) + @($baselineForestPlan.Commands)
+    Assert-Equal ($expectedBaselineConsole -join "`n") ((Get-Content -LiteralPath (Join-Path $baselineRunDirectory 'bds.console.log')) -join "`n") 'baseline source mutation did not precede the far forest fence/teleport'
+    $baselineEvents = @(Get-Content -LiteralPath (Join-Path $baselineRunDirectory 'acceptance-events.jsonl') | ForEach-Object { ConvertFrom-Json $_ })
+    Assert-Equal `
+        'source_mutation_command,fixture_commands_completed,processing_fence_observed,visual_fixture_ready,teleport_issued' `
+        (@($baselineEvents | ForEach-Object { $_.event }) -join ',') `
+        'baseline event evidence did not order source mutation before the far forest'
 
     $serverPropertiesPath = Join-Path $TempRoot 'server.properties'
     [IO.File]::WriteAllLines(
@@ -515,6 +857,33 @@ try {
     Complete-ProcessLogs $helper
     Assert-True ((Get-Content -Raw -LiteralPath $helper.StdoutPath).Contains('TEST_READY')) 'stdout was not preserved'
     Assert-True ((Get-Content -Raw -LiteralPath $helper.StderrPath).Contains('error-line')) 'stderr was not preserved'
+
+    $orderedMarkerHelper = Start-LoggedProcess `
+        -Executable (Join-Path $PSHOME 'powershell.exe') `
+        -Arguments @('-NoProfile', '-Command', "[Console]::Out.WriteLine('CURSOR_FIRST'); [Console]::Out.WriteLine('CURSOR_SECOND')") `
+        -WorkingDirectory $TempRoot `
+        -StdoutPath (Join-Path $TempRoot 'ordered-markers.stdout.log') `
+        -StderrPath (Join-Path $TempRoot 'ordered-markers.stderr.log')
+    $firstMarkerEvidence = Wait-ProcessOutputMarker -Handle $orderedMarkerHelper -Marker 'CURSOR_FIRST' -TimeoutSeconds 10 -PassThruEvidence
+    $secondMarkerEvidence = Wait-ProcessOutputMarker -Handle $orderedMarkerHelper -Marker 'CURSOR_SECOND' -TimeoutSeconds 10 -PassThruEvidence
+    Assert-Equal 'CURSOR_FIRST' $firstMarkerEvidence.Line 'marker cursor returned the wrong first line'
+    Assert-Equal 'CURSOR_SECOND' $secondMarkerEvidence.Line 'marker cursor lost the buffered second line'
+    Assert-True ([uint64]$secondMarkerEvidence.LineNumber -gt [uint64]$firstMarkerEvidence.LineNumber) 'marker cursor did not preserve increasing stdout line positions'
+    Assert-True ($orderedMarkerHelper.Process.WaitForExit(10000)) 'ordered marker helper did not exit'
+    Complete-ProcessLogs $orderedMarkerHelper
+
+    $reversedMarkerHelper = Start-LoggedProcess `
+        -Executable (Join-Path $PSHOME 'powershell.exe') `
+        -Arguments @('-NoProfile', '-Command', "[Console]::Out.WriteLine('HISTORICAL_MARKER'); [Console]::Out.WriteLine('CURRENT_MARKER')") `
+        -WorkingDirectory $TempRoot `
+        -StdoutPath (Join-Path $TempRoot 'reversed-markers.stdout.log') `
+        -StderrPath (Join-Path $TempRoot 'reversed-markers.stderr.log')
+    $null = Wait-ProcessOutputMarker -Handle $reversedMarkerHelper -Marker 'CURRENT_MARKER' -TimeoutSeconds 10 -PassThruEvidence
+    Assert-ThrowsLike {
+        Wait-ProcessOutputMarker -Handle $reversedMarkerHelper -Marker 'HISTORICAL_MARKER' -TimeoutSeconds 1 -PassThruEvidence
+    } "timed out waiting for 'HISTORICAL_MARKER'*" 'marker wait rescanned and accepted an earlier stdout line'
+    Assert-True ($reversedMarkerHelper.Process.WaitForExit(10000)) 'reversed marker helper did not exit'
+    Complete-ProcessLogs $reversedMarkerHelper
 
     $udpHelper = $null
     $bufferedHelper = $null
@@ -656,6 +1025,7 @@ $writer.Dispose()
     Assert-Equal 1 $loggedStopCommands.Count 'BDS cleanup did not log exactly one command'
     Assert-Equal 'stop' $loggedStopCommands[0] 'BDS cleanup logged the wrong command'
 
+    $expectedAssetBlobSha256 = 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'
     $metrics = [ordered]@{
         session_seconds = 900.0; world_ready = $true; requested_radius_chunks = 16
         received_radius_chunks = 16; publisher_radius_chunks = 16
@@ -670,6 +1040,16 @@ $writer.Dispose()
         peak_completed_decode_results = 1; peak_pending_retry_requests = 1
         peak_outbound_requests = 1; peak_pending_mesh_jobs = 1
         peak_in_flight_mesh_jobs = 1; gpu_upload_bytes = 1
+        assets = [ordered]@{
+            source_tag = 'v1.26.30.32-preview'
+            source_sha256 = '12d5cddc03acd507e9e0bd412f2e94d34d0a1a855758af7a9eef61b03630ad7c'
+            blob_sha256 = $expectedAssetBlobSha256
+            texture_layers = 372
+            texture_bytes_including_mips = 1000
+            material_count = 405
+            missing_mapping_count = 0
+            diagnostic_quad_count = 12
+        }
         teleport_proof = [ordered]@{
             target = '0:65:65:16'; committed = '0:65:65:16'; ms = 1500.0
             view_generation = 7; render_ready_ms = 1200.0; publisher_ms = 100.0
@@ -739,8 +1119,29 @@ $writer.Dispose()
         ForcedRemeshMarker = $forcedMarker
         ExpectedTargetCohort = '0:65:65:16'
         SteadyResourceArtifactPath = $steadyResourceArtifactPath
+        ExpectedMutationCoordinate = @(1, 2, 3)
+        RequireAssets = $true
+        ExpectedAssetBlobSha256 = $expectedAssetBlobSha256
     }
     $null = Assert-AcceptanceMetrics @fullViewArguments
+
+    $metrics.visible_mutation_count = 0
+    $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    Assert-ThrowsLike { Assert-AcceptanceMetrics @fullViewArguments } 'visible_mutation_count was zero for target mutation*' 'full-view leaf evidence accepted no visible target mutation'
+    $metrics.visible_mutation_count = 1
+    $metrics.mutation_coordinate = @(9, 9, 9)
+    $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    Assert-ThrowsLike { Assert-AcceptanceMetrics @fullViewArguments } 'mutation_coordinate did not match manifested target*' 'full-view leaf evidence accepted the source/wrong mutation coordinate'
+    $metrics.mutation_coordinate = @(1, 2, 3)
+    $metrics.assets.missing_mapping_count = 1
+    $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    Assert-ThrowsLike { Assert-AcceptanceMetrics @fullViewArguments } 'asset missing_mapping_count=1, expected zero*' 'leaf evidence accepted a missing asset mapping'
+    $metrics.assets.missing_mapping_count = 0
+    $metrics.assets.blob_sha256 = 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'
+    $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    Assert-ThrowsLike { Assert-AcceptanceMetrics @fullViewArguments } 'asset blob_sha256 did not match supplied blob*' 'leaf evidence accepted metrics from the wrong asset blob'
+    $metrics.assets.blob_sha256 = $expectedAssetBlobSha256
+    $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
 
     $staleResourceArtifact = $steadyArtifact | ConvertTo-Json -Depth 10 | ConvertFrom-Json
     $staleResourceArtifact.trigger.target = '0:66:65:16'

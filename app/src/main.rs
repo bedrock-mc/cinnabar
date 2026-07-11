@@ -50,6 +50,9 @@ const WORLD_READY_QUIET_INTERVAL: Duration = Duration::from_secs(2);
 const TELEPORT_COHORT_PROGRESS_INTERVAL: Duration = Duration::from_secs(1);
 const PHASE0_REQUESTED_RADIUS_CHUNKS: i32 = 16;
 const MUTATION_X_OFFSET_BLOCKS: i32 = 4;
+const LEAF_FOREST_FAR_OFFSET_CHUNKS: i32 = 65;
+const LEAF_FOREST_FAR_OFFSET_BLOCKS: i32 = LEAF_FOREST_FAR_OFFSET_CHUNKS * 16;
+const LEAF_FOREST_MUTATION_Z_OFFSET_BLOCKS: i32 = 12;
 const FULL_VIEW_TELEPORT_MIN_CHUNK_DELTA: u64 = (PHASE0_REQUESTED_RADIUS_CHUNKS as u64) * 2 + 1;
 
 #[derive(Resource)]
@@ -221,6 +224,7 @@ struct PendingFullViewTeleport {
     move_sequence: u64,
     target: ViewCohort,
     source: ViewCohort,
+    target_mutation_coordinate: [i32; 3],
     publisher_seen: bool,
     publisher_latency: Option<Duration>,
     first_level_chunk_latency: Option<Duration>,
@@ -243,6 +247,7 @@ struct FullViewTeleportCompletion {
     stable_present_return_latency: Duration,
     stable_gpu_completion_latency: Duration,
     view_generation: u64,
+    target_mutation_coordinate: [i32; 3],
     publisher_latency: Option<Duration>,
     first_level_chunk_latency: Option<Duration>,
     last_level_chunk_latency: Option<Duration>,
@@ -265,12 +270,14 @@ struct FullViewTeleportCompletion {
 struct FullViewTeleportTracker {
     enabled: bool,
     origin_chunk: Option<[i32; 2]>,
+    source_mutation_coordinate: Option<[i32; 3]>,
     local_player_runtime_id: Option<u64>,
     latest_publisher_ingress: Option<(u64, ViewCohort, Instant)>,
     pending_move_ingress: Option<(u64, Instant, u64)>,
     pending: Option<PendingFullViewTeleport>,
     completed: Option<Duration>,
     completed_target: Option<ViewCohort>,
+    completed_target_mutation: Option<[i32; 3]>,
     next_view_generation: u64,
     current_frame_count: u64,
     #[cfg(test)]
@@ -282,12 +289,14 @@ impl FullViewTeleportTracker {
         Self {
             enabled,
             origin_chunk: None,
+            source_mutation_coordinate: None,
             local_player_runtime_id: None,
             latest_publisher_ingress: None,
             pending_move_ingress: None,
             pending: None,
             completed: None,
             completed_target: None,
+            completed_target_mutation: None,
             next_view_generation: 0,
             current_frame_count: 0,
             #[cfg(test)]
@@ -300,6 +309,10 @@ impl FullViewTeleportTracker {
             self.origin_chunk = horizontal_chunk(position);
             self.local_player_runtime_id = Some(local_player_runtime_id);
         }
+    }
+
+    fn set_source_mutation_coordinate(&mut self, coordinate: [i32; 3]) {
+        self.source_mutation_coordinate = Some(coordinate);
     }
 
     fn observe_ingress(
@@ -443,6 +456,12 @@ impl FullViewTeleportTracker {
         else {
             return false;
         };
+        let Some(target_mutation_coordinate) = self
+            .source_mutation_coordinate
+            .and_then(|source| leaf_forest_target_mutation_coordinate(movement.position, source))
+        else {
+            return false;
+        };
         let far_enough = i64::from(origin[0]).abs_diff(i64::from(target_center[0]))
             >= FULL_VIEW_TELEPORT_MIN_CHUNK_DELTA
             || i64::from(origin[1]).abs_diff(i64::from(target_center[1]))
@@ -474,6 +493,7 @@ impl FullViewTeleportTracker {
             move_sequence: sequence,
             target,
             source,
+            target_mutation_coordinate,
             publisher_seen: matching_publisher.is_some(),
             publisher_latency: matching_publisher
                 .and_then(|(_, _, observed_at)| observed_at.checked_duration_since(started)),
@@ -610,6 +630,7 @@ impl FullViewTeleportTracker {
                     .gpu_completed_at
                     .checked_duration_since(started)?,
                 view_generation: candidate.expectation.view_generation,
+                target_mutation_coordinate: pending.target_mutation_coordinate,
                 publisher_latency: pending.publisher_latency,
                 first_level_chunk_latency: pending.first_level_chunk_latency,
                 last_level_chunk_latency: pending.last_level_chunk_latency,
@@ -643,6 +664,7 @@ impl FullViewTeleportTracker {
         };
         if let Some(completion) = &completion {
             self.completed_target = self.pending.as_ref().map(|pending| pending.target);
+            self.completed_target_mutation = Some(completion.target_mutation_coordinate);
             self.pending = None;
             self.completed = Some(completion.settle_latency);
         }
@@ -1105,9 +1127,9 @@ fn exact_full_view_proof(
     let (expected_manifest_count, expected_manifest_hash) =
         manifest_evidence(&evidence.expectation.manifest);
     let (first_presented_manifest_count, first_presented_manifest_hash) =
-        manifest_evidence(&evidence.first_frame.allocation_manifest);
+        manifest_evidence(&evidence.first_frame.drawn_manifest);
     let (stable_presented_manifest_count, stable_presented_manifest_hash) =
-        manifest_evidence(&evidence.stable_frame.allocation_manifest);
+        manifest_evidence(&evidence.stable_frame.drawn_manifest);
     ExactFullViewProof {
         target: cohort_tag(status.target),
         committed: status
@@ -1292,6 +1314,7 @@ struct AcceptanceRun {
     deadline: Option<Instant>,
     metrics_out: Option<PathBuf>,
     mutation_surface_anchor: Option<[i32; 2]>,
+    source_mutation_coordinate: Option<[i32; 3]>,
     mutation: Option<MutationTracker>,
     world_ready_settler: WorldReadySettler,
     full_view_teleport: FullViewTeleportTracker,
@@ -1311,6 +1334,7 @@ impl AcceptanceRun {
             deadline: None,
             metrics_out,
             mutation_surface_anchor: None,
+            source_mutation_coordinate: None,
             mutation: None,
             world_ready_settler: WorldReadySettler::default(),
             full_view_teleport: FullViewTeleportTracker::new(full_view_teleport_gate),
@@ -1346,7 +1370,45 @@ impl AcceptanceRun {
 
     fn set_mutation_coordinate(&mut self, coordinate: [i32; 3]) {
         self.mutation_surface_anchor = None;
-        self.mutation = Some(MutationTracker::new(coordinate));
+        self.source_mutation_coordinate = Some(coordinate);
+        self.full_view_teleport
+            .set_source_mutation_coordinate(coordinate);
+        if !self.full_view_teleport.enabled {
+            self.mutation = Some(MutationTracker::new(coordinate));
+        }
+    }
+
+    fn source_mutation_coordinate(&self) -> Option<[i32; 3]> {
+        self.source_mutation_coordinate
+    }
+
+    fn retarget_mutation(&mut self, coordinate: [i32; 3], armed_at: Instant) -> bool {
+        if self.full_view_teleport.completed_target_mutation != Some(coordinate)
+            || self.full_view_remesh.completed.is_none()
+            || self
+                .mutation
+                .as_ref()
+                .is_some_and(|mutation| mutation.coordinate() == coordinate)
+        {
+            return false;
+        }
+        self.mutation_surface_anchor = None;
+        self.mutation = Some(MutationTracker::armed(coordinate, armed_at));
+        true
+    }
+
+    fn target_mutation_marker(&self) -> Option<String> {
+        let source = self.source_mutation_coordinate()?;
+        let target = self.mutation.as_ref()?.coordinate();
+        if self.full_view_teleport.completed_target_mutation != Some(target) {
+            return None;
+        }
+        let view_generation = self.full_view_remesh.completed.as_ref()?.view_generation;
+        Some(target_mutation_armed_marker(
+            source,
+            target,
+            view_generation,
+        ))
     }
 
     fn observe_mutation(&mut self, event: &protocol::WorldEvent, observed_at: Instant) {
@@ -1380,16 +1442,27 @@ impl AcceptanceRun {
     fn acknowledge_mutation(
         &mut self,
         key: SubChunkKey,
+        generation: u64,
         dirty_since: Instant,
         applied_at: Instant,
     ) -> Option<Duration> {
-        self.mutation
-            .as_mut()
-            .and_then(|mutation| mutation.acknowledge(key, dirty_since, applied_at))
+        let requires_presented_frame = self.full_view_teleport.enabled;
+        self.mutation.as_mut().and_then(|mutation| {
+            mutation.acknowledge_upload(
+                key,
+                generation,
+                dirty_since,
+                applied_at,
+                requires_presented_frame,
+            )
+        })
     }
 
     fn mutation_coordinate(&self) -> Option<[i32; 3]> {
-        self.mutation.as_ref().map(MutationTracker::coordinate)
+        self.mutation
+            .as_ref()
+            .map(MutationTracker::coordinate)
+            .or(self.source_mutation_coordinate)
     }
 
     fn visible_mutation_count(&self) -> u64 {
@@ -1397,27 +1470,59 @@ impl AcceptanceRun {
             .as_ref()
             .map_or(0, MutationTracker::visible_count)
     }
+
+    fn reconcile_mutation_presented_expectation(
+        &mut self,
+        proposed: TargetRenderExpectation,
+        now: Instant,
+    ) -> Option<TargetRenderExpectation> {
+        let minimum_view_generation = self.full_view_remesh.completed.as_ref()?.view_generation;
+        self.mutation.as_mut()?.reconcile_presented_expectation(
+            proposed,
+            minimum_view_generation,
+            now,
+        )
+    }
+
+    fn observe_presented_mutation(
+        &mut self,
+        acknowledgement: PresentedFrameAck,
+    ) -> Option<Duration> {
+        self.mutation
+            .as_mut()?
+            .observe_presented_frame(acknowledgement)
+    }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct PendingMutation {
     key: SubChunkKey,
     observed_at: Instant,
+    uploaded_generation: Option<u64>,
+    expectation: Option<TargetRenderExpectation>,
 }
 
 #[derive(Debug)]
 struct MutationTracker {
     coordinate: [i32; 3],
+    armed_at: Instant,
     pending: Option<PendingMutation>,
     visible_count: u64,
+    next_view_generation: u64,
 }
 
 impl MutationTracker {
-    const fn new(coordinate: [i32; 3]) -> Self {
+    fn new(coordinate: [i32; 3]) -> Self {
+        Self::armed(coordinate, Instant::now())
+    }
+
+    const fn armed(coordinate: [i32; 3], armed_at: Instant) -> Self {
         Self {
             coordinate,
+            armed_at,
             pending: None,
             visible_count: 0,
+            next_view_generation: 0,
         }
     }
 
@@ -1426,6 +1531,9 @@ impl MutationTracker {
     }
 
     fn observe(&mut self, event: &protocol::WorldEvent, observed_at: Instant) -> bool {
+        if observed_at < self.armed_at {
+            return false;
+        }
         let protocol::WorldEvent::BlockUpdates(updates) = event else {
             return false;
         };
@@ -1443,23 +1551,103 @@ impl MutationTracker {
                 update.position[2].div_euclid(16),
             ),
             observed_at,
+            uploaded_generation: None,
+            expectation: None,
         });
         true
     }
 
+    #[cfg(test)]
     fn acknowledge(
         &mut self,
         key: SubChunkKey,
         dirty_since: Instant,
         applied_at: Instant,
     ) -> Option<Duration> {
-        let pending = self.pending?;
-        if pending.key != key || dirty_since < pending.observed_at {
+        self.acknowledge_upload(key, 0, dirty_since, applied_at, false)
+    }
+
+    fn acknowledge_upload(
+        &mut self,
+        key: SubChunkKey,
+        generation: u64,
+        dirty_since: Instant,
+        applied_at: Instant,
+        requires_presented_frame: bool,
+    ) -> Option<Duration> {
+        let pending = self.pending.as_mut()?;
+        if pending.key != key
+            || dirty_since < pending.observed_at
+            || applied_at < pending.observed_at
+        {
             return None;
         }
+        if requires_presented_frame {
+            pending.uploaded_generation = Some(generation);
+            pending.expectation = None;
+            return None;
+        }
+        let observed_at = pending.observed_at;
         self.pending = None;
         self.visible_count = self.visible_count.saturating_add(1);
-        Some(applied_at.saturating_duration_since(pending.observed_at))
+        Some(applied_at.saturating_duration_since(observed_at))
+    }
+
+    fn reconcile_presented_expectation(
+        &mut self,
+        mut proposed: TargetRenderExpectation,
+        minimum_view_generation: u64,
+        now: Instant,
+    ) -> Option<TargetRenderExpectation> {
+        let pending = self.pending.as_ref()?;
+        let generation = pending.uploaded_generation?;
+        let expected_entry = (pending.key, generation);
+        if proposed.manifest.is_empty() || !proposed.manifest.contains(&expected_entry) {
+            self.pending
+                .as_mut()
+                .expect("the mutation pending state was just observed")
+                .expectation = None;
+            return None;
+        }
+        if let Some(expectation) = &pending.expectation
+            && expectation.cohort == proposed.cohort
+            && expectation.source_cohort == proposed.source_cohort
+            && expectation.manifest == proposed.manifest
+        {
+            return Some(expectation.clone());
+        }
+
+        self.next_view_generation = self
+            .next_view_generation
+            .max(minimum_view_generation)
+            .wrapping_add(1)
+            .max(1);
+        proposed.view_generation = self.next_view_generation;
+        proposed.render_ready_at = now;
+        self.pending
+            .as_mut()
+            .expect("the mutation pending state was just observed")
+            .expectation = Some(proposed.clone());
+        Some(proposed)
+    }
+
+    fn observe_presented_frame(&mut self, acknowledgement: PresentedFrameAck) -> Option<Duration> {
+        let pending = self.pending.as_ref()?;
+        let expectation = pending.expectation.as_ref()?;
+        let generation = pending.uploaded_generation?;
+        if !presented_ack_matches(pending.observed_at, expectation, &acknowledgement)
+            || !acknowledgement
+                .drawn_manifest
+                .contains(&(pending.key, generation))
+        {
+            return None;
+        }
+        let latency = acknowledgement
+            .gpu_completed_at
+            .checked_duration_since(pending.observed_at)?;
+        self.pending = None;
+        self.visible_count = self.visible_count.saturating_add(1);
+        Some(latency)
     }
 
     const fn visible_count(&self) -> u64 {
@@ -1479,6 +1667,74 @@ fn deterministic_mutation_coordinate(
         surface_y.saturating_sub(1),
         surface_anchor[1],
     ]
+}
+
+fn leaf_forest_target_mutation_coordinate(
+    position: [f32; 3],
+    source: [i32; 3],
+) -> Option<[i32; 3]> {
+    let [x, _, z] = position;
+    if !x.is_finite() || !z.is_finite() {
+        return None;
+    }
+    let floor_to_i32 = |value: f32| value.floor().clamp(i32::MIN as f32, i32::MAX as f32) as i32;
+    let target_x = floor_to_i32(x);
+    let target_z = floor_to_i32(z);
+    if target_x != source[0].saturating_add(LEAF_FOREST_FAR_OFFSET_BLOCKS)
+        || target_z != source[2].saturating_add(LEAF_FOREST_FAR_OFFSET_BLOCKS)
+    {
+        return None;
+    }
+    Some([
+        target_x,
+        source[1],
+        target_z.saturating_add(LEAF_FOREST_MUTATION_Z_OFFSET_BLOCKS),
+    ])
+}
+
+fn move_player_ingress_marker(sequence: u64, position: [f32; 3]) -> Option<String> {
+    let [x, y, z] = position;
+    if !x.is_finite() || !y.is_finite() || !z.is_finite() {
+        return None;
+    }
+    Some(format!(
+        "RUST_MCBE_MOVE_PLAYER_INGRESS sequence={sequence} position={x},{y},{z}"
+    ))
+}
+
+fn accepted_move_player_ingress_marker(
+    accepted: bool,
+    sequence: u64,
+    event: &protocol::WorldEvent,
+) -> Option<String> {
+    if !accepted {
+        return None;
+    }
+    let protocol::WorldEvent::MovePlayer(movement) = event else {
+        return None;
+    };
+    move_player_ingress_marker(sequence, movement.position)
+}
+
+fn write_move_player_ingress_before_source_capture(
+    writer: &mut impl Write,
+    marker: &str,
+    source_capture: impl FnOnce(),
+) {
+    let _ = writeln!(writer, "{marker}");
+    let _ = writer.flush();
+    source_capture();
+}
+
+fn target_mutation_armed_marker(
+    source: [i32; 3],
+    target: [i32; 3],
+    view_generation: u64,
+) -> String {
+    format!(
+        "RUST_MCBE_TARGET_MUTATION_ARMED source={},{},{} target={},{},{} view_generation={view_generation}",
+        source[0], source[1], source[2], target[0], target[1], target[2]
+    )
 }
 
 fn world_ready_markers(snapshot: WorldReadySnapshot) -> Option<[String; 2]> {
@@ -1791,14 +2047,28 @@ fn receive_network_events(
         };
         let observed_at = Instant::now();
         acceptance.observe_mutation(&sequenced.event, observed_at);
-        if acceptance.observe_full_view_teleport_ingress(
+        let accepted_binding_ingress = acceptance.observe_full_view_teleport_ingress(
             &sequenced.event,
             sequenced.sequence,
             observed_at,
             stream.current_dimension(),
             metrics.0.frame_count(),
-        ) {
-            stream.schedule_source_capture(sequenced.sequence);
+        );
+        if accepted_binding_ingress {
+            if let Some(ingress_marker) = accepted_move_player_ingress_marker(
+                accepted_binding_ingress,
+                sequenced.sequence,
+                &sequenced.event,
+            ) {
+                let mut stdout = std::io::stdout().lock();
+                write_move_player_ingress_before_source_capture(
+                    &mut stdout,
+                    &ingress_marker,
+                    || stream.schedule_source_capture(sequenced.sequence),
+                );
+            } else {
+                stream.schedule_source_capture(sequenced.sequence);
+            }
         }
         if let Err(error) = stream.submit(sequenced.sequence, sequenced.event) {
             client_world.fatal_error = Some(format!("world FIFO rejected data: {error}"));
@@ -1840,6 +2110,7 @@ fn drive_world_stream(
         render_queue.record_gpu_upload_bytes(acknowledgement.uploaded_bytes);
         if let Some(latency) = acceptance.acknowledge_mutation(
             acknowledgement.key,
+            acknowledgement.token.generation,
             acknowledgement.token.dirty_since,
             acknowledgement.applied_at,
         ) {
@@ -2162,9 +2433,58 @@ fn emit_world_ready(
                 metrics
                     .0
                     .record_forced_full_view_remesh_proof(proof.clone());
+                let Some(target) = acceptance.full_view_teleport.completed_target_mutation else {
+                    error!("forced remesh completed without deterministic mutation coordinates");
+                    return;
+                };
+                if !acceptance.retarget_mutation(target, completion.stable_frame.gpu_completed_at) {
+                    error!(
+                        ?target,
+                        "could not arm target-only mutation after forced remesh"
+                    );
+                    return;
+                }
+                let Some(mutation_marker) = acceptance.target_mutation_marker() else {
+                    error!("target mutation armed without complete manifest-comparable evidence");
+                    return;
+                };
                 let mut stdout = std::io::stdout().lock();
                 let _ = writeln!(stdout, "{}", forced_remesh_settled_marker(&proof));
+                let _ = writeln!(stdout, "{mutation_marker}");
                 let _ = stdout.flush();
+            }
+        }
+
+        let completed_remesh_target =
+            acceptance
+                .full_view_remesh
+                .completed
+                .as_ref()
+                .map(|completion| {
+                    (
+                        completion.expectation.cohort,
+                        completion.expectation.source_cohort,
+                    )
+                });
+        if let Some((target, source)) = completed_remesh_target {
+            let proposed = render_queue.freeze_target_expectation(target, source, 0, observed_at);
+            let expectation =
+                acceptance.reconcile_mutation_presented_expectation(proposed, observed_at);
+            if let Some(expectation) = expectation {
+                presented_frames.set_expectation(expectation);
+                if let Some(latency) =
+                    presented_frames
+                        .drain()
+                        .into_iter()
+                        .find_map(|acknowledgement| {
+                            acceptance.observe_presented_mutation(acknowledgement)
+                        })
+                {
+                    presented_frames.clear();
+                    metrics.0.record_mutation_to_visible(latency);
+                }
+            } else {
+                presented_frames.clear();
             }
         }
         return;
@@ -2552,10 +2872,12 @@ mod tests {
         AcceptanceRun, FullViewRemeshTracker, FullViewTeleportCompletion, FullViewTeleportTracker,
         MutationTracker, NETWORK_INGRESS_BUDGET_PER_FRAME, OUTBOUND_SEND_BUDGET_PER_FRAME,
         SubChunkTimeoutProgress, TeleportReadySnapshot, WORLD_READY_QUIET_INTERVAL,
-        WorldReadySettler, WorldReadySnapshot, WorldReadyWork, bedrock_camera_rotation,
-        camera_sub_chunk_key, cumulative_counter_delta, deterministic_mutation_coordinate,
-        drain_network_controls, drain_network_ingress, flush_sub_chunk_requests,
-        record_fatal_error, resolve_socket_dir_from, status_title, world_ready_markers,
+        WorldReadySettler, WorldReadySnapshot, WorldReadyWork, accepted_move_player_ingress_marker,
+        bedrock_camera_rotation, camera_sub_chunk_key, cumulative_counter_delta,
+        deterministic_mutation_coordinate, drain_network_controls, drain_network_ingress,
+        flush_sub_chunk_requests, leaf_forest_target_mutation_coordinate, record_fatal_error,
+        resolve_socket_dir_from, status_title, target_mutation_armed_marker, world_ready_markers,
+        write_move_player_ingress_before_source_capture,
     };
 
     fn settled_world_snapshot() -> WorldReadySnapshot {
@@ -2582,6 +2904,321 @@ mod tests {
         acceptance.set_mutation_coordinate([14, 71, -6]);
         assert_eq!(acceptance.mutation_surface_anchor(), None);
         assert_eq!(acceptance.mutation_coordinate(), Some([14, 71, -6]));
+    }
+
+    #[test]
+    fn full_view_move_player_ingress_marker_is_exact_and_nonbinding_events_are_silent() {
+        let started = Instant::now();
+        let mut acceptance = AcceptanceRun::new(Some(900), None, true);
+        acceptance.set_mutation_coordinate([0, 58, 0]);
+        acceptance.begin_world_ready(started, [0.5, 70.0, 0.5], 1);
+
+        let publisher = WorldEvent::PublisherUpdate(protocol::PublisherUpdateEvent {
+            center: [0, 70, 0],
+            radius_blocks: 256,
+        });
+        let accepted =
+            acceptance.observe_full_view_teleport_ingress(&publisher, 40, started, 0, 10);
+        assert!(!accepted);
+        assert_eq!(
+            accepted_move_player_ingress_marker(accepted, 40, &publisher),
+            None,
+        );
+
+        let near = WorldEvent::MovePlayer(protocol::MovePlayerEvent {
+            runtime_id: 1,
+            position: [16.5, 70.0, 0.5],
+            pitch: 0.0,
+            yaw: 0.0,
+        });
+        let accepted = acceptance.observe_full_view_teleport_ingress(
+            &near,
+            41,
+            started + Duration::from_millis(1),
+            0,
+            11,
+        );
+        assert!(!accepted);
+        assert_eq!(
+            accepted_move_player_ingress_marker(accepted, 41, &near),
+            None,
+        );
+
+        let binding = WorldEvent::MovePlayer(protocol::MovePlayerEvent {
+            runtime_id: 1,
+            position: [1_040.5, 93.75, 1_040.5],
+            pitch: 0.0,
+            yaw: 0.0,
+        });
+        let accepted = acceptance.observe_full_view_teleport_ingress(
+            &binding,
+            42,
+            started + Duration::from_millis(2),
+            0,
+            12,
+        );
+        assert!(accepted);
+        assert_eq!(
+            accepted_move_player_ingress_marker(accepted, 42, &binding),
+            Some(
+                "RUST_MCBE_MOVE_PLAYER_INGRESS sequence=42 position=1040.5,93.75,1040.5".to_owned(),
+            ),
+        );
+        assert_eq!(
+            acceptance
+                .full_view_teleport
+                .pending_move_ingress
+                .map(|(sequence, _, _)| sequence),
+            Some(42),
+        );
+    }
+
+    #[test]
+    fn full_view_move_player_ingress_marker_rejects_nonfinite_xz_but_preserves_y_independence() {
+        let started = Instant::now();
+        for position in [
+            [f32::NAN, 70.0, 1_040.5],
+            [1_040.5, 70.0, f32::NEG_INFINITY],
+        ] {
+            let mut acceptance = AcceptanceRun::new(Some(900), None, true);
+            acceptance.set_mutation_coordinate([0, 58, 0]);
+            acceptance.begin_world_ready(started, [0.5, 70.0, 0.5], 1);
+            let movement = WorldEvent::MovePlayer(protocol::MovePlayerEvent {
+                runtime_id: 1,
+                position,
+                pitch: 0.0,
+                yaw: 0.0,
+            });
+            let accepted =
+                acceptance.observe_full_view_teleport_ingress(&movement, 43, started, 0, 10);
+            assert!(!accepted);
+            assert_eq!(
+                accepted_move_player_ingress_marker(accepted, 43, &movement),
+                None,
+                "nonfinite position {position:?} produced parser-visible ingress evidence",
+            );
+        }
+
+        let mut acceptance = AcceptanceRun::new(Some(900), None, true);
+        acceptance.set_mutation_coordinate([0, 58, 0]);
+        acceptance.begin_world_ready(started, [0.5, 70.0, 0.5], 1);
+        let movement = WorldEvent::MovePlayer(protocol::MovePlayerEvent {
+            runtime_id: 1,
+            position: [1_040.5, f32::INFINITY, 1_040.5],
+            pitch: 0.0,
+            yaw: 0.0,
+        });
+        let accepted = acceptance.observe_full_view_teleport_ingress(&movement, 43, started, 0, 10);
+        assert!(
+            accepted,
+            "nonfinite MovePlayer Y changed binding acceptance"
+        );
+        assert_eq!(
+            accepted_move_player_ingress_marker(accepted, 43, &movement),
+            None,
+            "nonfinite MovePlayer Y produced a non-parser-safe marker instead of only preserving capture",
+        );
+        assert_eq!(
+            acceptance
+                .full_view_teleport
+                .pending_move_ingress
+                .map(|(sequence, _, _)| sequence),
+            Some(43),
+        );
+    }
+
+    #[test]
+    fn move_player_ingress_marker_is_flushed_before_source_capture() {
+        struct OrderingWriter {
+            bytes: std::rc::Rc<std::cell::RefCell<Vec<u8>>>,
+            flushed: std::rc::Rc<std::cell::Cell<bool>>,
+        }
+
+        impl std::io::Write for OrderingWriter {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.bytes.borrow_mut().extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                self.flushed.set(true);
+                Ok(())
+            }
+        }
+
+        let bytes = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let flushed = std::rc::Rc::new(std::cell::Cell::new(false));
+        let capture_called = std::rc::Rc::new(std::cell::Cell::new(false));
+        let mut writer = OrderingWriter {
+            bytes: std::rc::Rc::clone(&bytes),
+            flushed: std::rc::Rc::clone(&flushed),
+        };
+        let capture_called_for_callback = std::rc::Rc::clone(&capture_called);
+        let bytes_for_callback = std::rc::Rc::clone(&bytes);
+        let flushed_for_callback = std::rc::Rc::clone(&flushed);
+
+        write_move_player_ingress_before_source_capture(
+            &mut writer,
+            "RUST_MCBE_MOVE_PLAYER_INGRESS sequence=42 position=1040.5,93.75,1040.5",
+            || {
+                assert!(flushed_for_callback.get());
+                assert_eq!(
+                    bytes_for_callback.borrow().as_slice(),
+                    b"RUST_MCBE_MOVE_PLAYER_INGRESS sequence=42 position=1040.5,93.75,1040.5\n",
+                );
+                capture_called_for_callback.set(true);
+            },
+        );
+
+        assert!(capture_called.get());
+    }
+
+    #[test]
+    fn full_view_mutation_stays_disarmed_until_exact_target_and_remesh_binding() {
+        let source = [0, 58, 0];
+        let started = Instant::now();
+        let mut acceptance = AcceptanceRun::new(Some(900), None, true);
+        acceptance.set_mutation_coordinate(source);
+
+        assert_eq!(acceptance.source_mutation_coordinate(), Some(source));
+        assert!(acceptance.mutation.is_none());
+        assert_eq!(acceptance.target_mutation_marker(), None);
+        assert!(!acceptance.retarget_mutation([1_040, 58, 1_052], started));
+
+        acceptance.full_view_teleport = destination_tracker(started);
+        let key = SubChunkKey::new(0, 65, 64, 65);
+        let expectation = acceptance
+            .full_view_teleport
+            .reconcile_presented_expectation(
+                settled_teleport_snapshot(),
+                proposed_render_expectation(started + Duration::from_millis(200), [(key, 7)]),
+                started + Duration::from_millis(200),
+            )
+            .unwrap();
+        assert_eq!(
+            acceptance
+                .full_view_teleport
+                .observe_presented_frame(presented_acknowledgement(
+                    &expectation,
+                    1,
+                    Duration::from_millis(10),
+                    Duration::from_millis(20),
+                )),
+            None
+        );
+        let completion = acceptance
+            .full_view_teleport
+            .observe_presented_frame(presented_acknowledgement(
+                &expectation,
+                2,
+                Duration::from_millis(30),
+                Duration::from_millis(40),
+            ))
+            .expect("the exact adjacent frame pair should bind the target");
+        let target = [1_040, 58, 1_052];
+        assert_eq!(completion.target_mutation_coordinate, target);
+        assert!(
+            !acceptance.retarget_mutation(target, completion.stable_frame.gpu_completed_at),
+            "teleport binding armed mutation before the frozen forced remesh completed"
+        );
+        assert_eq!(acceptance.target_mutation_marker(), None);
+
+        let remesh_started = completion.stable_frame.gpu_completed_at + Duration::from_millis(1);
+        let manifest = ForcedRemeshManifest {
+            started_at: remesh_started,
+            entries: Arc::from([(key, 8)]),
+        };
+        assert!(acceptance.full_view_remesh.start(
+            Some(&completion),
+            exact_destination_status(),
+            manifest,
+            3,
+        ));
+        let remesh_expectation = acceptance
+            .full_view_remesh
+            .reconcile_presented_expectation(
+                settled_teleport_snapshot(),
+                ForcedRemeshManifestState::Complete,
+                Some(proposed_render_expectation(
+                    remesh_started + Duration::from_millis(10),
+                    [(key, 8)],
+                )),
+                remesh_started + Duration::from_millis(10),
+                4,
+            )
+            .unwrap();
+        assert_eq!(
+            acceptance.full_view_remesh.observe_presented_frame(
+                presented_acknowledgement(
+                    &remesh_expectation,
+                    3,
+                    Duration::from_millis(10),
+                    Duration::from_millis(20),
+                ),
+                4,
+            ),
+            None
+        );
+        let remesh_completion = acceptance
+            .full_view_remesh
+            .observe_presented_frame(
+                presented_acknowledgement(
+                    &remesh_expectation,
+                    4,
+                    Duration::from_millis(30),
+                    Duration::from_millis(40),
+                ),
+                5,
+            )
+            .expect("the exact forced-remesh frame pair should settle");
+        assert_eq!(acceptance.target_mutation_marker(), None);
+        assert!(
+            acceptance.retarget_mutation(target, remesh_completion.stable_frame.gpu_completed_at,)
+        );
+        assert_eq!(
+            acceptance.target_mutation_marker(),
+            Some(format!(
+                "RUST_MCBE_TARGET_MUTATION_ARMED source=0,58,0 target=1040,58,1052 view_generation={}",
+                remesh_completion.view_generation
+            ))
+        );
+        assert_eq!(acceptance.mutation_coordinate(), Some(target));
+        assert_eq!(acceptance.visible_mutation_count(), 0);
+    }
+
+    #[test]
+    fn leaf_forest_target_mutation_uses_the_binding_move_player_offset() {
+        let source = [4, 70, -2];
+        assert_eq!(
+            leaf_forest_target_mutation_coordinate([1_044.5, 93.75, 1_038.5], source),
+            Some([1_044, 70, 1_050])
+        );
+        assert_eq!(
+            leaf_forest_target_mutation_coordinate([f32::NAN, 93.75, 1_038.5], source),
+            None
+        );
+        assert_eq!(
+            leaf_forest_target_mutation_coordinate([1_044.5, 93.75, f32::INFINITY], source),
+            None
+        );
+        assert_eq!(
+            leaf_forest_target_mutation_coordinate([1_044.5, f32::INFINITY, 1_038.5], source,),
+            Some([1_044, 70, 1_050]),
+            "target mutation Y must come from the manifest-compatible source coordinate"
+        );
+        assert_eq!(
+            leaf_forest_target_mutation_coordinate([1_043.5, 93.75, 1_038.5], source),
+            None,
+            "a MovePlayer target outside the exact 65-chunk forest offset was accepted"
+        );
+    }
+
+    #[test]
+    fn target_mutation_marker_is_exact_and_manifest_comparable() {
+        assert_eq!(
+            target_mutation_armed_marker([4, 70, -2], [1_044, 70, 1_050], 9),
+            "RUST_MCBE_TARGET_MUTATION_ARMED source=4,70,-2 target=1044,70,1050 view_generation=9"
+        );
     }
 
     #[test]
@@ -2648,6 +3285,7 @@ mod tests {
 
     fn destination_tracker(started: Instant) -> FullViewTeleportTracker {
         let mut tracker = FullViewTeleportTracker::new(true);
+        tracker.set_source_mutation_coordinate([0, 58, 0]);
         tracker.begin_world_ready([0.5, 70.0, 0.5], 1);
         assert!(tracker.observe(
             &WorldEvent::MovePlayer(protocol::MovePlayerEvent {
@@ -2761,6 +3399,7 @@ mod tests {
             yaw: 0.0,
         });
         let mut tracker = FullViewTeleportTracker::new(true);
+        tracker.set_source_mutation_coordinate([0, 58, 0]);
         tracker.begin_world_ready([0.5, 70.0, 0.5], 1);
 
         assert!(tracker.observe_ingress(&movement, 1, started, 0, 10));
@@ -2788,6 +3427,7 @@ mod tests {
             yaw: 0.0,
         };
         let mut tracker = FullViewTeleportTracker::new(true);
+        tracker.set_source_mutation_coordinate([0, 58, 0]);
         tracker.begin_world_ready([0.5, 70.0, 0.5], 1);
         let mut stream = WorldStream::new(WorldBootstrap {
             dimension: 0,
@@ -2848,6 +3488,25 @@ mod tests {
         assert_eq!(unchanged, first);
         assert_eq!(tracker.completed, None);
         assert!(tracker.pending.is_some());
+    }
+
+    #[test]
+    fn non_empty_leaf_forest_never_binds_an_empty_target_expectation() {
+        let started = Instant::now();
+        let mut tracker = destination_tracker(started);
+        let empty = proposed_render_expectation(started + Duration::from_millis(200), []);
+
+        assert_eq!(
+            tracker.reconcile_presented_expectation(
+                settled_teleport_snapshot(),
+                empty,
+                started + Duration::from_millis(200),
+            ),
+            None
+        );
+        assert!(tracker.pending.is_some());
+        assert_eq!(tracker.completed, None);
+        assert_eq!(tracker.completed_target_mutation, None);
     }
 
     #[test]
@@ -3277,6 +3936,7 @@ mod tests {
     fn previously_seen_wrong_radius_publisher_does_not_arm_target_stage() {
         let started = Instant::now();
         let mut tracker = FullViewTeleportTracker::new(true);
+        tracker.set_source_mutation_coordinate([0, 58, 0]);
         tracker.begin_world_ready([0.5, 70.0, 0.5], 1);
         tracker.observe(
             &WorldEvent::PublisherUpdate(protocol::PublisherUpdateEvent {
@@ -3521,6 +4181,7 @@ mod tests {
     fn full_view_teleport_requires_far_motion_matching_publisher_and_two_presented_frames() {
         let started = Instant::now();
         let mut tracker = FullViewTeleportTracker::new(true);
+        tracker.set_source_mutation_coordinate([0, 58, 0]);
         tracker.begin_world_ready([0.5, 70.0, 0.5], 1);
 
         tracker.observe(
@@ -3700,6 +4361,7 @@ mod tests {
     fn partial_target_column_coverage_never_settles_the_teleport_stream() {
         let started = Instant::now();
         let mut tracker = FullViewTeleportTracker::new(true);
+        tracker.set_source_mutation_coordinate([0, 58, 0]);
         tracker.begin_world_ready([0.5, 70.0, 0.5], 1);
         tracker.observe(
             &WorldEvent::MovePlayer(protocol::MovePlayerEvent {
@@ -4200,7 +4862,7 @@ mod tests {
     fn mutation_tracker_closes_latency_only_on_the_target_gpu_acknowledgement() {
         let coordinate = [14, 71, -6];
         let observed_at = Instant::now();
-        let mut tracker = MutationTracker::new(coordinate);
+        let mut tracker = MutationTracker::armed(coordinate, observed_at);
         let target_update = WorldEvent::BlockUpdates(vec![BlockUpdateEvent {
             dimension: 0,
             position: coordinate,
@@ -4234,6 +4896,72 @@ mod tests {
             ),
             Some(Duration::from_millis(75))
         );
+        assert_eq!(tracker.visible_count(), 1);
+    }
+
+    #[test]
+    fn full_view_mutation_closes_only_on_the_target_presented_generation() {
+        let coordinate = [1_040, 58, 1_052];
+        let key = SubChunkKey::new(0, 65, 3, 65);
+        let armed_at = Instant::now();
+        let observed_at = armed_at + Duration::from_millis(10);
+        let render_ready_at = armed_at + Duration::from_millis(20);
+        let mut tracker = MutationTracker::armed(coordinate, armed_at);
+        let source_update = WorldEvent::BlockUpdates(vec![BlockUpdateEvent {
+            dimension: 0,
+            position: [4, 70, -2],
+            layer: 0,
+            network_id: 7,
+        }]);
+        let target_update = WorldEvent::BlockUpdates(vec![BlockUpdateEvent {
+            dimension: 0,
+            position: coordinate,
+            layer: 0,
+            network_id: 7,
+        }]);
+
+        assert!(!tracker.observe(&source_update, observed_at));
+        assert!(!tracker.observe(&target_update, armed_at - Duration::from_millis(1)));
+        assert!(tracker.observe(&target_update, observed_at));
+        assert_eq!(
+            tracker.acknowledge_upload(
+                key,
+                77,
+                observed_at,
+                observed_at + Duration::from_millis(5),
+                true,
+            ),
+            None,
+            "an upload acknowledgement settled a full-view mutation before presentation"
+        );
+
+        let expectation = tracker
+            .reconcile_presented_expectation(
+                proposed_render_expectation(render_ready_at, [(key, 77)]),
+                8,
+                render_ready_at,
+            )
+            .expect("the uploaded target generation should freeze an exact expectation");
+        assert_eq!(expectation.view_generation, 9);
+        let mut wrong_generation = presented_acknowledgement(
+            &expectation,
+            90,
+            Duration::from_millis(10),
+            Duration::from_millis(20),
+        );
+        wrong_generation.allocation_manifest = Arc::from([(key, 76)]);
+        wrong_generation.drawn_manifest = Arc::from([(key, 76)]);
+        assert_eq!(tracker.observe_presented_frame(wrong_generation), None);
+
+        let latency = tracker
+            .observe_presented_frame(presented_acknowledgement(
+                &expectation,
+                91,
+                Duration::from_millis(10),
+                Duration::from_millis(20),
+            ))
+            .expect("the exact target generation should close on GPU-completed presentation");
+        assert_eq!(latency, Duration::from_millis(30));
         assert_eq!(tracker.visible_count(), 1);
     }
 
