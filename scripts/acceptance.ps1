@@ -593,11 +593,60 @@ function Start-LoggedProcess {
     }
 }
 
+function Test-RakNetUnconnectedPong {
+    param(
+        [Parameter(Mandatory = $true)][string]$Address,
+        [Parameter(Mandatory = $true)][ValidateRange(1, 65535)][int]$Port,
+        [Parameter(Mandatory = $true)][ValidateRange(1, 5000)][int]$TimeoutMilliseconds
+    )
+
+    $magic = [byte[]]@(
+        0x00, 0xff, 0xff, 0x00, 0xfe, 0xfe, 0xfe, 0xfe,
+        0xfd, 0xfd, 0xfd, 0xfd, 0x12, 0x34, 0x56, 0x78
+    )
+    $probe = [byte[]]::new(33)
+    $probe[0] = 0x01
+    $sentAt = [BitConverter]::GetBytes([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())
+    $guid = [BitConverter]::GetBytes([DateTime]::UtcNow.Ticks)
+    if ([BitConverter]::IsLittleEndian) {
+        [Array]::Reverse($sentAt)
+        [Array]::Reverse($guid)
+    }
+    [Array]::Copy($sentAt, 0, $probe, 1, $sentAt.Length)
+    [Array]::Copy($magic, 0, $probe, 9, $magic.Length)
+    [Array]::Copy($guid, 0, $probe, 25, $guid.Length)
+
+    $client = [Net.Sockets.UdpClient]::new()
+    try {
+        $client.Client.ReceiveTimeout = $TimeoutMilliseconds
+        $client.Connect($Address, $Port)
+        $null = $client.Send($probe, $probe.Length)
+        $remote = [Net.IPEndPoint]::new([Net.IPAddress]::Any, 0)
+        $response = $client.Receive([ref]$remote)
+        if ($response.Length -lt 33 -or $response[0] -ne 0x1c) {
+            return $false
+        }
+        for ($index = 0; $index -lt $magic.Length; $index++) {
+            if ($response[17 + $index] -ne $magic[$index]) {
+                return $false
+            }
+        }
+        return $true
+    }
+    catch [Net.Sockets.SocketException] {
+        return $false
+    }
+    finally {
+        $client.Dispose()
+    }
+}
+
 function Wait-ProcessOutputMarker {
     param(
         [Parameter(Mandatory = $true)]$Handle,
         [Parameter(Mandatory = $true)][string]$Marker,
-        [Parameter(Mandatory = $true)][int]$TimeoutSeconds
+        [Parameter(Mandatory = $true)][int]$TimeoutSeconds,
+        [scriptblock]$ReadinessProbe
     )
 
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
@@ -635,6 +684,11 @@ function Wait-ProcessOutputMarker {
         }
         finally {
             $reader.Dispose()
+        }
+        if (-not $Handle.Process.HasExited -and
+            $null -ne $ReadinessProbe -and
+            (& $ReadinessProbe)) {
+            return $Marker
         }
         if ($Handle.Process.HasExited -and $Handle.StdoutCopy.IsCompleted) {
             break
@@ -1911,8 +1965,9 @@ try {
 
     $portReservation = New-ReservedUdpPort
     $portV6Reservation = New-ReservedUdpPort
-    $Upstream = "127.0.0.1:$($portReservation.Port)"
-    Set-ServerProperties -Path (Join-Path $RuntimeDirectory 'server.properties') -Port $portReservation.Port -PortV6 $portV6Reservation.Port
+    $bdsPort = $portReservation.Port
+    $Upstream = "127.0.0.1:$bdsPort"
+    Set-ServerProperties -Path (Join-Path $RuntimeDirectory 'server.properties') -Port $bdsPort -PortV6 $portV6Reservation.Port
     $CoreArguments = @('-socket-dir', $SocketDirectory, '-upstream', $Upstream)
     $BdsCommand = Format-ResolvedCommand $BdsExecutable $BdsArguments
     $CoreCommand = Format-ResolvedCommand $CoreExecutable $CoreArguments
@@ -1939,7 +1994,18 @@ try {
     $portV6Reservation = $null
 
     $bdsHandle = Start-LoggedProcess -Executable $BdsExecutable -Arguments $BdsArguments -WorkingDirectory $RuntimeDirectory -StdoutPath (Join-Path $RunDirectory 'bds.stdout.log') -StderrPath (Join-Path $RunDirectory 'bds.stderr.log')
-    $null = Wait-ProcessOutputMarker -Handle $bdsHandle -Marker 'Server started.' -TimeoutSeconds 120
+    # BDS can buffer redirected stdout until shutdown, so also accept its protocol-level readiness signal.
+    $bdsReadinessProbe = {
+        Test-RakNetUnconnectedPong `
+            -Address '127.0.0.1' `
+            -Port $bdsPort `
+            -TimeoutMilliseconds 500
+    }.GetNewClosure()
+    $null = Wait-ProcessOutputMarker `
+        -Handle $bdsHandle `
+        -Marker 'Server started.' `
+        -TimeoutSeconds 120 `
+        -ReadinessProbe $bdsReadinessProbe
 
     $coreHandle = Start-LoggedProcess -Executable $CoreExecutable -Arguments $CoreArguments -WorkingDirectory $ProjectRoot -StdoutPath (Join-Path $RunDirectory 'core.stdout.log') -StderrPath (Join-Path $RunDirectory 'core.stderr.log')
     $endpointPath = Join-Path $SocketDirectory 'game.addr'

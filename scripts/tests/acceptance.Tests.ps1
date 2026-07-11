@@ -516,6 +516,93 @@ try {
     Assert-True ((Get-Content -Raw -LiteralPath $helper.StdoutPath).Contains('TEST_READY')) 'stdout was not preserved'
     Assert-True ((Get-Content -Raw -LiteralPath $helper.StderrPath).Contains('error-line')) 'stderr was not preserved'
 
+    $udpHelper = $null
+    $bufferedHelper = $null
+    try {
+        $udpReservation = New-ReservedUdpPort
+        $udpPort = $udpReservation.Port
+        $udpReservation.Client.Dispose()
+        $udpServerScript = @'
+$ErrorActionPreference = 'Stop'
+$udp = [Net.Sockets.UdpClient]::new(__PORT__)
+$udp.Client.ReceiveTimeout = 5000
+$magic = [byte[]]@(0x00, 0xff, 0xff, 0x00, 0xfe, 0xfe, 0xfe, 0xfe, 0xfd, 0xfd, 0xfd, 0xfd, 0x12, 0x34, 0x56, 0x78)
+[Console]::Out.WriteLine('UDP_READY')
+[Console]::Out.Flush()
+try {
+    foreach ($mode in @('wrong-id', 'wrong-magic', 'valid')) {
+        $remote = [Net.IPEndPoint]::new([Net.IPAddress]::Any, 0)
+        $request = $udp.Receive([ref]$remote)
+        $response = [byte[]]::new(33)
+        $response[0] = if ($mode -eq 'wrong-id') { 0x1b } else { 0x1c }
+        if ($request.Length -ge 9) {
+            [Array]::Copy($request, 1, $response, 1, 8)
+        }
+        if ($mode -ne 'wrong-magic') {
+            [Array]::Copy($magic, 0, $response, 17, $magic.Length)
+        }
+        $null = $udp.Send($response, $response.Length, $remote)
+    }
+}
+finally {
+    $udp.Dispose()
+}
+'@.Replace('__PORT__', $udpPort.ToString([Globalization.CultureInfo]::InvariantCulture))
+        $udpServerCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($udpServerScript))
+        $udpHelper = Start-LoggedProcess `
+            -Executable (Join-Path $PSHOME 'powershell.exe') `
+            -Arguments @('-NoProfile', '-EncodedCommand', $udpServerCommand) `
+            -WorkingDirectory $TempRoot `
+            -StdoutPath (Join-Path $TempRoot 'udp-helper.stdout.log') `
+            -StderrPath (Join-Path $TempRoot 'udp-helper.stderr.log')
+        $null = Wait-ProcessOutputMarker -Handle $udpHelper -Marker 'UDP_READY' -TimeoutSeconds 10
+
+        $bufferedChildScript = @'
+$writer = [IO.StreamWriter]::new(
+    [Console]::OpenStandardOutput(),
+    [Text.UTF8Encoding]::new($false),
+    4096
+)
+$writer.AutoFlush = $false
+$writer.WriteLine('BUFFERED_READY')
+$null = [Console]::In.ReadLine()
+$writer.Dispose()
+'@
+        $bufferedChildCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($bufferedChildScript))
+        $bufferedHelper = Start-LoggedProcess `
+            -Executable (Join-Path $PSHOME 'powershell.exe') `
+            -Arguments @('-NoProfile', '-EncodedCommand', $bufferedChildCommand) `
+            -WorkingDirectory $TempRoot `
+            -StdoutPath (Join-Path $TempRoot 'buffered-helper.stdout.log') `
+            -StderrPath (Join-Path $TempRoot 'buffered-helper.stderr.log')
+        $readinessProbe = {
+            Test-RakNetUnconnectedPong `
+                -Address '127.0.0.1' `
+                -Port $udpPort `
+                -TimeoutMilliseconds 500
+        }.GetNewClosure()
+        $observed = Wait-ProcessOutputMarker `
+            -Handle $bufferedHelper `
+            -Marker 'BUFFERED_READY' `
+            -TimeoutSeconds 10 `
+            -ReadinessProbe $readinessProbe
+        Assert-Equal 'BUFFERED_READY' $observed 'RakNet readiness did not release the buffered BDS marker wait'
+        Assert-True (-not $bufferedHelper.Process.HasExited) 'buffered logging helper exited before alternate readiness was observed'
+        Assert-True ((Get-Item -LiteralPath $bufferedHelper.StdoutPath).Length -eq 0) 'buffered marker unexpectedly reached the log before alternate readiness'
+        Assert-True ($udpHelper.Process.WaitForExit(2000)) 'invalid RakNet responses were accepted before the valid pong'
+    }
+    finally {
+        if ($null -ne $bufferedHelper) {
+            Stop-BoundedProcess -Handle $bufferedHelper -Kind 'core'
+            Complete-ProcessLogs $bufferedHelper
+        }
+        if ($null -ne $udpHelper) {
+            Stop-BoundedProcess -Handle $udpHelper -Kind 'core'
+            Complete-ProcessLogs $udpHelper
+        }
+    }
+    Assert-True ((Get-Content -Raw -LiteralPath $bufferedHelper.StdoutPath).Contains('BUFFERED_READY')) 'alternate readiness lost continuously captured stdout'
+
     $eofHelper = Start-LoggedProcess `
         -Executable (Join-Path $PSHOME 'powershell.exe') `
         -Arguments @('-NoProfile', '-Command', '[Console]::In.ReadToEnd() | Out-Null') `
