@@ -4,7 +4,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use assets::{AssetError, compile_pack, encode_blob, read_registry, write_blob_atomic};
+use assets::{
+    AssetError, MATERIAL_FLAG_ALPHA_CUTOUT, compile_pack, encode_blob, read_registry,
+    write_blob_atomic,
+};
 use clap::{Parser, Subcommand};
 
 const MAX_REGISTRY_FILE_BYTES: usize = 128 * 1024 * 1024;
@@ -47,10 +50,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let compiled = compile_pack(&pack, &records)?;
             let blob = encode_blob(&compiled)?;
             write_blob_atomic(&out, &blob)?;
+            let cutout_materials = compiled
+                .materials
+                .iter()
+                .filter(|material| material.flags & MATERIAL_FLAG_ALPHA_CUTOUT != 0)
+                .count();
             println!(
-                "compiled {} visuals, {} materials, and {} texture layers to {}",
+                "compiled {} visuals, {} materials ({} alpha cutout), and {} texture layers to {}",
                 compiled.visuals.len(),
                 compiled.materials.len(),
+                cutout_materials,
                 compiled.textures.layers,
                 out.display()
             );

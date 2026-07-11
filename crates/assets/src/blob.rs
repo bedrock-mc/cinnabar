@@ -7,8 +7,8 @@ use std::{
 use sha2::{Digest, Sha256};
 
 use crate::{
-    AssetError, BlockFlags, CompiledAssets, DIAGNOSTIC_MATERIAL, MAX_MATERIALS, MAX_TEXTURE_LAYERS,
-    Material, image::MIP_COUNT, image::TILE_SIZE,
+    AssetError, BlockFlags, CompiledAssets, DIAGNOSTIC_MATERIAL, MATERIAL_FLAGS_MASK,
+    MAX_MATERIALS, MAX_TEXTURE_LAYERS, Material, image::MIP_COUNT, image::TILE_SIZE,
 };
 
 pub const BLOB_MAGIC: [u8; 8] = *b"MCBEAS02";
@@ -117,6 +117,12 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<usize, AssetError> {
         return Err(invalid("material 0 is not the diagnostic layer"));
     }
     for (index, material) in compiled.materials.iter().enumerate() {
+        if material.flags & !MATERIAL_FLAGS_MASK != 0 {
+            return Err(invalid(format!(
+                "material {index} has unsupported flags {:#010x}",
+                material.flags
+            )));
+        }
         if material.layer >= compiled.textures.layers {
             return Err(invalid(format!(
                 "material {index} references layer {}, but there are {layers} layers",

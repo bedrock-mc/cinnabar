@@ -10,7 +10,8 @@ mod runtime;
 
 pub use blob::{BLOB_MAGIC, BLOB_VERSION, encode_blob, write_blob_atomic};
 pub use compiler::{
-    BlockVisual, CompiledAssets, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ROTATE_UV, MAX_MATERIALS,
+    BlockVisual, CompiledAssets, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_CUTOUT,
+    MATERIAL_FLAG_ROTATE_UV, MATERIAL_FLAG_UV_MASK, MATERIAL_FLAGS_MASK, MAX_MATERIALS,
     MAX_TEXTURE_LAYERS, Material, compile_pack,
 };
 pub use error::AssetError;

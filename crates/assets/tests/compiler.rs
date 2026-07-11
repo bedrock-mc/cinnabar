@@ -7,8 +7,8 @@ use std::{
 
 use assets::{
     AssetError, BlockFace, BlockFlags, CompiledAssets, DIAGNOSTIC_MATERIAL,
-    MATERIAL_FLAG_ROTATE_UV, MAX_TEXTURE_LAYERS, Material, RegistryRecord, compile_pack,
-    encode_blob,
+    MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_ROTATE_UV, MATERIAL_FLAG_UV_MASK,
+    MATERIAL_FLAGS_MASK, MAX_TEXTURE_LAYERS, Material, RegistryRecord, compile_pack, encode_blob,
 };
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 use tempfile::TempDir;
@@ -105,6 +105,366 @@ fn record(
 
 fn material_for_face(compiled: &CompiledAssets, sequential_id: usize, face: BlockFace) -> Material {
     compiled.materials[compiled.visuals[sequential_id].faces[face as usize] as usize]
+}
+
+fn leaf_material_fixture() -> (TempDir, Vec<RegistryRecord>) {
+    let directory = tempfile::tempdir().expect("create leaf fixture");
+    write_pack(
+        directory.path(),
+        r#"{
+            "stone": {"textures": "shared"},
+            "cherry_leaves": {"textures": "shared"},
+            "azalea_leaves": {"textures": "azalea"},
+            "azalea_leaves_flowered": {"textures": "flowered"}
+        }"#,
+        r#"{"texture_data": {
+            "shared": {"textures": "textures/blocks/a_shared"},
+            "azalea": {"textures": "textures/blocks/b_azalea"},
+            "flowered": {"textures": "textures/blocks/c_flowered"}
+        }}"#,
+        "[]",
+    );
+    for (path, colour) in [
+        ("textures/blocks/a_shared", [220, 80, 90, 255]),
+        ("textures/blocks/b_azalea", [40, 180, 80, 255]),
+        ("textures/blocks/c_flowered", [220, 120, 180, 255]),
+    ] {
+        write_png(
+            directory.path(),
+            path,
+            TILE_SIZE,
+            TILE_SIZE,
+            &solid(TILE_SIZE, TILE_SIZE, colour),
+        );
+    }
+    let leaf = BlockFlags::CUBE_GEOMETRY | BlockFlags::LEAF_MODEL;
+    let records = vec![
+        record(
+            0,
+            100,
+            "minecraft:stone",
+            "{}",
+            BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
+        ),
+        record(1, 101, "minecraft:cherry_leaves", "{}", leaf),
+        record(2, 102, "minecraft:azalea_leaves", "{}", leaf),
+        record(3, 103, "minecraft:azalea_leaves_flowered", "{}", leaf),
+    ];
+    (directory, records)
+}
+
+fn registry_bytes(records: &[RegistryRecord]) -> Vec<u8> {
+    let mut bytes = b"BREG1002".to_vec();
+    bytes.extend_from_slice(
+        &u32::try_from(records.len())
+            .expect("small fixture")
+            .to_le_bytes(),
+    );
+    for record in records {
+        bytes.extend_from_slice(&record.sequential_id.to_le_bytes());
+        bytes.extend_from_slice(&record.network_hash.to_le_bytes());
+        bytes.push(record.flags.bits());
+        bytes.extend_from_slice(
+            &u16::try_from(record.name.len())
+                .expect("small fixture name")
+                .to_le_bytes(),
+        );
+        bytes.extend_from_slice(
+            &u32::try_from(record.canonical_state.len())
+                .expect("small fixture state")
+                .to_le_bytes(),
+        );
+        bytes.extend_from_slice(record.name.as_bytes());
+        bytes.extend_from_slice(record.canonical_state.as_bytes());
+    }
+    bytes
+}
+
+fn shuffled_records(records: &[RegistryRecord], mut state: u64) -> Vec<RegistryRecord> {
+    let mut shuffled = records.to_vec();
+    for upper in (1..shuffled.len()).rev() {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1);
+        let bound = u64::try_from(upper + 1).expect("fixture bound fits u64");
+        let index = usize::try_from(state % bound).expect("shuffle index fits usize");
+        shuffled.swap(upper, index);
+    }
+    shuffled
+}
+
+fn mip_layer(compiled: &CompiledAssets, mip_index: usize, layer: u32) -> &[u8] {
+    let mip = &compiled.textures.mips[mip_index];
+    let layer_bytes = usize::try_from(mip.size * mip.size * 4).expect("small mip");
+    let start = usize::try_from(layer).expect("small layer") * layer_bytes;
+    &mip.rgba8[start..start + layer_bytes]
+}
+
+fn alpha_survivors(rgba: &[u8]) -> usize {
+    assert_eq!(rgba.len() % 4, 0);
+    rgba.chunks_exact(4).filter(|pixel| pixel[3] >= 128).count()
+}
+
+fn scaled_survivors(raw_rgba: &[u8], scale: u32) -> usize {
+    raw_rgba
+        .chunks_exact(4)
+        .filter(|pixel| {
+            let alpha = ((u32::from(pixel[3]) * scale + 0x8000) >> 16).min(255) as u8;
+            alpha >= 128
+        })
+        .count()
+}
+
+fn reference_nearest_scale(raw_rgba: &[u8], target: usize) -> u32 {
+    const SCALE_MAX: u32 = 16 << 16;
+    const SURVIVOR_NUMERATOR: u32 = (128 << 16) - 0x8000;
+    let mut candidates = vec![0];
+    for alpha in raw_rgba.chunks_exact(4).map(|pixel| pixel[3]) {
+        if alpha == 0 {
+            continue;
+        }
+        let alpha = u32::from(alpha);
+        let threshold = SURVIVOR_NUMERATOR.div_ceil(alpha);
+        if threshold <= SCALE_MAX {
+            candidates.push(threshold.saturating_sub(1));
+            candidates.push(threshold);
+        }
+    }
+    assert!(candidates.len() <= raw_rgba.len() / 2 + 1);
+    candidates.sort_unstable();
+    candidates.dedup();
+    candidates
+        .into_iter()
+        .min_by_key(|&scale| (scaled_survivors(raw_rgba, scale).abs_diff(target), scale))
+        .expect("scale zero is always present")
+}
+
+fn reference_nearest_survivors(raw_rgba: &[u8], target: usize) -> usize {
+    scaled_survivors(raw_rgba, reference_nearest_scale(raw_rgba, target))
+}
+
+fn cutout_pattern(colour: [u8; 3], threshold: u32) -> Vec<[u8; 4]> {
+    let mut pixels = Vec::with_capacity((TILE_SIZE * TILE_SIZE) as usize);
+    for y in 0..TILE_SIZE {
+        for x in 0..TILE_SIZE {
+            let alpha = if ((x * 17 + y * 29 + x * y * 7) & 255) < threshold {
+                255
+            } else {
+                0
+            };
+            pixels.push([colour[0], colour[1], colour[2], alpha]);
+        }
+    }
+    pixels
+}
+
+fn aligned_half_pattern(colour: [u8; 3]) -> Vec<[u8; 4]> {
+    let mut pixels = Vec::with_capacity((TILE_SIZE * TILE_SIZE) as usize);
+    for _y in 0..TILE_SIZE {
+        for x in 0..TILE_SIZE {
+            pixels.push([colour[0], colour[1], colour[2], u8::MAX * u8::from(x < 8)]);
+        }
+    }
+    pixels
+}
+
+fn reference_raw_mips(base: &[[u8; 4]], colour: [u8; 3]) -> Vec<Vec<u8>> {
+    let mut size = TILE_SIZE;
+    let mut current = base.to_vec();
+    let mut mips = vec![current.iter().flatten().copied().collect::<Vec<_>>()];
+    while size > 1 {
+        let target_size = size / 2;
+        let mut target = Vec::with_capacity((target_size * target_size) as usize);
+        for y in 0..target_size {
+            for x in 0..target_size {
+                let mut alpha_sum = 0_u32;
+                for offset_y in 0..2 {
+                    for offset_x in 0..2 {
+                        let source = ((y * 2 + offset_y) * size + x * 2 + offset_x) as usize;
+                        alpha_sum += u32::from(current[source][3]);
+                    }
+                }
+                let rgb = if alpha_sum == 0 { [0; 3] } else { colour };
+                target.push([rgb[0], rgb[1], rgb[2], ((alpha_sum + 2) / 4) as u8]);
+            }
+        }
+        mips.push(target.iter().flatten().copied().collect());
+        current = target;
+        size = target_size;
+    }
+    mips
+}
+
+#[test]
+fn compiler_marks_only_leaf_faces_as_alpha_cutout() {
+    let (directory, records) = leaf_material_fixture();
+    let compiled = compile_pack(directory.path(), &records).expect("compile leaf materials");
+
+    assert_eq!(MATERIAL_FLAG_UV_MASK, 0x0f);
+    assert_eq!(MATERIAL_FLAG_ALPHA_CUTOUT, 0x100);
+    assert_eq!(MATERIAL_FLAGS_MASK, 0x10f);
+    assert_eq!(std::mem::size_of::<Material>(), 8);
+    let opaque_id = compiled.visuals[0].faces[BlockFace::Up as usize];
+    let opaque = compiled.materials[opaque_id as usize];
+    assert_eq!(opaque.flags & MATERIAL_FLAG_ALPHA_CUTOUT, 0);
+    for leaf in 1..=3 {
+        for face in BlockFace::ALL {
+            let material_id = compiled.visuals[leaf].faces[face as usize];
+            assert_ne!(material_id, DIAGNOSTIC_MATERIAL);
+            let material = compiled.materials[material_id as usize];
+            assert_eq!(
+                material.flags & MATERIAL_FLAG_ALPHA_CUTOUT,
+                MATERIAL_FLAG_ALPHA_CUTOUT
+            );
+            assert_eq!(material.flags & MATERIAL_FLAG_UV_MASK, 0);
+        }
+    }
+    let cherry_id = compiled.visuals[1].faces[BlockFace::Up as usize];
+    let cherry = compiled.materials[cherry_id as usize];
+    assert_eq!(
+        opaque.layer, cherry.layer,
+        "pixels must remain deduplicated"
+    );
+    assert_ne!(
+        opaque_id, cherry_id,
+        "opaque and cutout descriptors must differ"
+    );
+    assert!(
+        compiled
+            .materials
+            .iter()
+            .all(|material| material.flags & !MATERIAL_FLAGS_MASK == 0)
+    );
+
+    let baseline = encode_blob(&compiled).expect("encode cutout baseline");
+    for iteration in 0..100_u64 {
+        let shuffled = shuffled_records(&records, 0x9e37_79b9 ^ iteration);
+        let actual =
+            compile_pack(directory.path(), &shuffled).expect("compile shuffled cutout pack");
+        assert_eq!(encode_blob(&actual).expect("encode shuffle"), baseline);
+    }
+}
+
+#[test]
+fn assetc_summary_reports_deterministic_cutout_material_count() {
+    let (directory, records) = leaf_material_fixture();
+    let registry = directory.path().join("registry.bin");
+    let output_blob = directory.path().join("vanilla-v1001.mcbea");
+    fs::write(&registry, registry_bytes(&records)).expect("write registry fixture");
+    let output = Command::new(env!("CARGO_BIN_EXE_assetc"))
+        .args(["compile", "--pack"])
+        .arg(directory.path())
+        .arg("--registry")
+        .arg(&registry)
+        .arg("--out")
+        .arg(&output_blob)
+        .output()
+        .expect("run assetc compile");
+    assert!(
+        output.status.success(),
+        "assetc failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).expect("UTF-8 summary"),
+        format!(
+            "compiled 4 visuals, 5 materials (3 alpha cutout), and 4 texture layers to {}\n",
+            output_blob.display()
+        )
+    );
+}
+
+#[test]
+fn cutout_mips_preserve_each_layer_coverage_without_cross_layer_bleed() {
+    let directory = tempfile::tempdir().expect("create coverage fixture");
+    write_pack(
+        directory.path(),
+        r#"{
+            "cherry_leaves":{"textures":"red"},
+            "azalea_leaves":{"textures":"blue"},
+            "azalea_leaves_flowered":{"textures":"green"}
+        }"#,
+        r#"{"texture_data":{
+            "red":{"textures":"textures/blocks/a_red"},
+            "blue":{"textures":"textures/blocks/b_blue"},
+            "green":{"textures":"textures/blocks/c_green"}
+        }}"#,
+        "[]",
+    );
+    let red = cutout_pattern([255, 0, 0], 78);
+    let blue = cutout_pattern([0, 0, 255], 181);
+    let green = aligned_half_pattern([0, 255, 0]);
+    for (path, pixels) in [
+        ("textures/blocks/a_red", &red),
+        ("textures/blocks/b_blue", &blue),
+        ("textures/blocks/c_green", &green),
+    ] {
+        write_png(directory.path(), path, TILE_SIZE, TILE_SIZE, pixels);
+    }
+    let flags = BlockFlags::CUBE_GEOMETRY | BlockFlags::LEAF_MODEL;
+    let records = [
+        record(0, 200, "minecraft:cherry_leaves", "{}", flags),
+        record(1, 201, "minecraft:azalea_leaves", "{}", flags),
+        record(2, 202, "minecraft:azalea_leaves_flowered", "{}", flags),
+    ];
+    let compiled = compile_pack(directory.path(), &records).expect("compile coverage fixture");
+    let red_layer = material_for_face(&compiled, 0, BlockFace::Up).layer;
+    let blue_layer = material_for_face(&compiled, 1, BlockFace::Up).layer;
+    assert_eq!(
+        blue_layer,
+        red_layer + 1,
+        "red and blue must be adjacent layers"
+    );
+
+    let mut correction_exercised = false;
+    for (record_id, base, colour, no_tie) in [
+        (0, red.as_slice(), [255, 0, 0], false),
+        (1, blue.as_slice(), [0, 0, 255], false),
+        (2, green.as_slice(), [0, 255, 0], true),
+    ] {
+        let layer = material_for_face(&compiled, record_id, BlockFace::Up).layer;
+        let raw_mips = reference_raw_mips(base, colour);
+        let base_survivors = alpha_survivors(&raw_mips[0]);
+        for (mip_index, mip) in compiled.textures.mips.iter().enumerate() {
+            let actual = mip_layer(&compiled, mip_index, layer);
+            let raw = &raw_mips[mip_index];
+            let pixels = usize::try_from(mip.size * mip.size).expect("small mip");
+            let target = (base_survivors * pixels + 128) / 256;
+            let expected_scale = reference_nearest_scale(raw, target);
+            assert_eq!(
+                alpha_survivors(actual),
+                reference_nearest_survivors(raw, target),
+                "coverage mismatch for record {record_id} mip {mip_index}"
+            );
+            for (actual, raw) in actual.chunks_exact(4).zip(raw.chunks_exact(4)) {
+                assert_eq!(&actual[..3], &raw[..3], "coverage scaling changed RGB");
+                let expected_alpha = if mip_index == 0 {
+                    raw[3]
+                } else {
+                    ((u32::from(raw[3]) * expected_scale + 0x8000) >> 16).min(255) as u8
+                };
+                assert_eq!(
+                    actual[3], expected_alpha,
+                    "coverage scaling chose the wrong tie-break scale"
+                );
+            }
+            if record_id == 0 {
+                assert!(actual.chunks_exact(4).all(|pixel| pixel[2] == 0));
+            } else if record_id == 1 {
+                assert!(actual.chunks_exact(4).all(|pixel| pixel[0] == 0));
+            }
+            if no_tie {
+                assert_eq!(alpha_survivors(raw), target, "no-tie fixture missed target");
+                assert_eq!(alpha_survivors(actual), target);
+            } else if mip_index > 0 && alpha_survivors(raw) != target {
+                correction_exercised = true;
+            }
+        }
+    }
+    assert!(
+        correction_exercised,
+        "patterns did not exercise coverage correction"
+    );
 }
 
 #[test]

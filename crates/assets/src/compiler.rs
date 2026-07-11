@@ -15,6 +15,9 @@ pub const DIAGNOSTIC_MATERIAL: u32 = 0;
 pub const MAX_TEXTURE_LAYERS: usize = 2_048;
 pub const MAX_MATERIALS: usize = 65_536;
 pub const MATERIAL_FLAG_ROTATE_UV: u32 = 1 << 0;
+pub const MATERIAL_FLAG_UV_MASK: u32 = 0x0000_000f;
+pub const MATERIAL_FLAG_ALPHA_CUTOUT: u32 = 1 << 8;
+pub const MATERIAL_FLAGS_MASK: u32 = MATERIAL_FLAG_UV_MASK | MATERIAL_FLAG_ALPHA_CUTOUT;
 
 const MAX_VISUALS: usize = 65_536;
 
@@ -88,7 +91,12 @@ pub fn compile_pack(root: &Path, records: &[RegistryRecord]) -> Result<CompiledA
     }
 
     let (layers, layer_by_path) = compile_layers(root, &descriptor_keys)?;
-    let textures = build_texture_array(&layers)?;
+    let cutout_layers = descriptor_keys
+        .keys()
+        .filter(|descriptor| descriptor.flags & MATERIAL_FLAG_ALPHA_CUTOUT != 0)
+        .filter_map(|descriptor| layer_by_path.get(&descriptor.path).copied())
+        .collect::<BTreeSet<_>>();
+    let textures = build_texture_array(&layers, &cutout_layers)?;
     let (materials, material_by_descriptor) = compile_materials(&descriptor_keys, &layer_by_path)?;
     let (visuals, hashed) = compile_visuals(records, &pack, &material_by_descriptor)?;
 
@@ -150,11 +158,14 @@ fn descriptor_for(
     if source_is_deferred(pack, record, &key, path) {
         return None;
     }
-    let flags = if rotate_uv {
+    let mut flags = if rotate_uv {
         MATERIAL_FLAG_ROTATE_UV
     } else {
         0
     };
+    if record.flags.contains(BlockFlags::LEAF_MODEL) {
+        flags |= MATERIAL_FLAG_ALPHA_CUTOUT;
+    }
     Some((
         Descriptor {
             path: path.into(),
@@ -189,6 +200,11 @@ fn compile_layers(
     root: &Path,
     descriptor_keys: &BTreeMap<Descriptor, Box<str>>,
 ) -> Result<CompiledLayers, AssetError> {
+    let cutout_paths = descriptor_keys
+        .keys()
+        .filter(|descriptor| descriptor.flags & MATERIAL_FLAG_ALPHA_CUTOUT != 0)
+        .map(|descriptor| descriptor.path.clone())
+        .collect::<BTreeSet<_>>();
     let mut key_by_path = BTreeMap::<Box<str>, Box<str>>::new();
     for (descriptor, key) in descriptor_keys {
         key_by_path
@@ -210,7 +226,8 @@ fn compile_layers(
     for (path, key) in key_by_path {
         let source_path = static_texture_path(root, &path, &key)?;
         let pixels = decode_static_texture(&source_path, &key)?;
-        if pixels.chunks_exact(4).any(|pixel| pixel[3] != u8::MAX) {
+        if pixels.chunks_exact(4).any(|pixel| pixel[3] != u8::MAX) && !cutout_paths.contains(&path)
+        {
             continue;
         }
         let digest: [u8; 32] = Sha256::digest(&pixels).into();

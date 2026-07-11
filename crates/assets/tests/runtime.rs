@@ -2,8 +2,8 @@ use std::mem::size_of_val;
 
 use assets::{
     BLOB_VERSION, BlockFace, BlockFlags, BlockVisual, CompiledAssets, DIAGNOSTIC_MATERIAL,
-    MAX_MATERIALS, MAX_TEXTURE_LAYERS, Material, NetworkIdMode, RuntimeAssets, TextureArray,
-    TextureMip, encode_blob,
+    MATERIAL_FLAGS_MASK, MAX_MATERIALS, MAX_TEXTURE_LAYERS, Material, NetworkIdMode, RuntimeAssets,
+    TextureArray, TextureMip, encode_blob,
 };
 use sha2::{Digest, Sha256};
 
@@ -54,7 +54,10 @@ fn compiled_assets() -> CompiledAssets {
         hashed: vec![(1, 0), (0xdbf4_4120, 1)].into_boxed_slice(),
         materials: vec![
             Material { layer: 0, flags: 0 },
-            Material { layer: 1, flags: 7 },
+            Material {
+                layer: 1,
+                flags: MATERIAL_FLAGS_MASK,
+            },
         ]
         .into_boxed_slice(),
         textures: texture_array(2),
@@ -137,6 +140,15 @@ fn decode_rejects_invalid_visual_flag_semantics() {
         reseal(&mut blob);
         assert_rejected(&blob, &format!("invalid visual flags {raw:#x}"));
     }
+}
+
+#[test]
+fn decode_rejects_material_flags_outside_supported_mask() {
+    let mut blob = valid_blob();
+    let materials_offset = read_u64(&blob, MATERIALS_OFFSET_OFFSET) as usize;
+    write_u32(&mut blob, materials_offset + 12, MATERIAL_FLAGS_MASK | 0x10);
+    reseal(&mut blob);
+    assert_rejected(&blob, "material flags outside 0x10f");
 }
 
 #[test]
@@ -240,7 +252,13 @@ fn missing_values_and_materials_use_one_bounded_diagnostic_counter() {
     assert_eq!(size_of_val(&runtime), runtime_size);
     assert_eq!(runtime.material(u32::MAX), Material { layer: 0, flags: 0 });
     assert_eq!(runtime.missing_count(), 10_001);
-    assert_eq!(runtime.material(1), Material { layer: 1, flags: 7 });
+    assert_eq!(
+        runtime.material(1),
+        Material {
+            layer: 1,
+            flags: MATERIAL_FLAGS_MASK
+        }
+    );
     assert_eq!(runtime.missing_count(), 10_001);
 }
 

@@ -4,7 +4,8 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     AssetError, BLOB_MAGIC, BLOB_VERSION, BlockFace, BlockFlags, BlockVisual, DIAGNOSTIC_MATERIAL,
-    MAX_MATERIALS, MAX_TEXTURE_LAYERS, MIP_COUNT, Material, TILE_SIZE, TextureArray, TextureMip,
+    MATERIAL_FLAGS_MASK, MAX_MATERIALS, MAX_TEXTURE_LAYERS, MIP_COUNT, Material, TILE_SIZE,
+    TextureArray, TextureMip,
 };
 
 const HEADER_BYTES: usize = 88;
@@ -429,6 +430,11 @@ fn validate_materials(bytes: &[u8], layer_count: usize) -> Result<(), AssetError
     for (index, record) in bytes.chunks_exact(MATERIAL_BYTES).enumerate() {
         let layer = read_u32(record, 0) as usize;
         let flags = read_u32(record, 4);
+        if flags & !MATERIAL_FLAGS_MASK != 0 {
+            return Err(invalid(format!(
+                "material {index} has unsupported flags {flags:#010x}"
+            )));
+        }
         if layer >= layer_count {
             return Err(invalid(format!(
                 "material {index} references layer {layer}, but there are {layer_count} layers"

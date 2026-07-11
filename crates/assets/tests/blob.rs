@@ -1,9 +1,9 @@
 use std::fs;
 
 use assets::{
-    AssetError, BLOB_MAGIC, BLOB_VERSION, BlockFlags, BlockVisual, CompiledAssets, MAX_MATERIALS,
-    MAX_TEXTURE_LAYERS, MIP_COUNT, Material, TILE_SIZE, TextureArray, TextureMip, encode_blob,
-    write_blob_atomic,
+    AssetError, BLOB_MAGIC, BLOB_VERSION, BlockFlags, BlockVisual, CompiledAssets,
+    MATERIAL_FLAGS_MASK, MAX_MATERIALS, MAX_TEXTURE_LAYERS, MIP_COUNT, Material, TILE_SIZE,
+    TextureArray, TextureMip, encode_blob, write_blob_atomic,
 };
 use sha2::{Digest, Sha256};
 
@@ -126,6 +126,20 @@ fn blob_rejects_material_layer_visual_and_mip_invariants() {
             Err(AssetError::InvalidCompiledAssets { .. })
         ));
     }
+
+    let mut bad_material_flags = valid_assets();
+    bad_material_flags.materials = vec![
+        Material { layer: 0, flags: 0 },
+        Material {
+            layer: 0,
+            flags: MATERIAL_FLAGS_MASK | 0x10,
+        },
+    ]
+    .into_boxed_slice();
+    assert!(matches!(
+        encode_blob(&bad_material_flags),
+        Err(AssetError::InvalidCompiledAssets { .. })
+    ));
 }
 
 #[test]
