@@ -235,6 +235,14 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     vertex storage-binding count including future templates is seven of the
     common minimum eight; 89 render tests, strict Clippy, and independent
     re-review are green.
+  - [x] Produce stable eight-byte face-specific model/liquid lighting sidecars
+    from a palette-native center-plus-26-neighbour snapshot. Commit `8b5c5a6`
+    bakes exact Phase 2.6 block-light 0 / sky-light 15 values plus per-vertex AO,
+    registers generation-scoped diagonal AO/liquid dependency masks, and covers
+    inline columns, known-air replacement, stale rejection, and conservative
+    unknown targets. Render 93/93, world 51/51, client 187/187, strict combined
+    Clippy, and independent re-review are green; Phase 2.7 will replace only the
+    light inputs, not this format or addressing.
   - [ ] Add palette-native multi-layer contributor resolution, retaining the
     eight-byte greedy cube record and adding compact model/liquid streams with
     atomic queue/GPU generation accounting and direct/MDI parity.
@@ -266,7 +274,8 @@ and wrapping, per-layer mip quality, opaque/cutout/blend behavior, flipbooks, bi
 block/sky lighting across day/night, fog, sky, and clouds. Exercise focus, keyboard input,
 movement, and mouse-look/rotation during the pass. No placeholder/debug texture or visibly
 non-vanilla rendering ships past this phase; record screenshots and any adjudicated parity gaps
-in the phase report.
+in the phase report. If Computer Use window capture fails, take a native Windows screenshot,
+store it only under the user's temporary directory, inspect that file, and never commit it.
 
 ## Phase 3 — Movement and the local player
 
