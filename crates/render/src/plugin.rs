@@ -3601,7 +3601,7 @@ impl FromWorld for ChunkPipeline {
                 },
                 BindGroupLayoutEntry {
                     binding: 7,
-                    visibility: ShaderStages::FRAGMENT,
+                    visibility: ShaderStages::VERTEX_FRAGMENT,
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: true },
                         has_dynamic_offset: false,
@@ -3611,7 +3611,7 @@ impl FromWorld for ChunkPipeline {
                 },
                 BindGroupLayoutEntry {
                     binding: 8,
-                    visibility: ShaderStages::FRAGMENT,
+                    visibility: ShaderStages::VERTEX_FRAGMENT,
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: true },
                         has_dynamic_offset: false,

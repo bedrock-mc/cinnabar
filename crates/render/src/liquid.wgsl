@@ -61,10 +61,8 @@ struct VertexOutput {
     @location(1) @interpolate(flat) current_texture: u32,
     @location(2) @interpolate(flat) next_texture: u32,
     @location(3) @interpolate(flat) frame_blend: f32,
-    @location(4) local_position: vec3<f32>,
-    @location(5) normal: vec3<f32>,
-    @location(6) @interpolate(flat) biome_record: u32,
-    @location(7) light_factor: f32,
+    @location(4) @interpolate(flat) water_tint: vec3<f32>,
+    @location(5) light_factor: f32,
 }
 
 fn animation_sample(material: MaterialGpu) -> FrameSample {
@@ -176,6 +174,14 @@ fn vertex(
     let chunk_origin = chunk_origins[draw_ref.metadata_index];
     let world_position = vec3<f32>(chunk_origin.value.xyz) + local_position;
     let frame = animation_sample(material);
+    let block_coordinate = vec3<u32>(
+        geometry & 15u,
+        (geometry >> 4u) & 15u,
+        (geometry >> 8u) & 15u,
+    );
+    let requested_tint = packed_biome_tint_index(u32(chunk_origin.value.w), block_coordinate);
+    let tint_index = select(0u, requested_tint, requested_tint < arrayLength(&biome_tints));
+    let tint = biome_tints[tint_index];
 
     var out: VertexOutput;
     out.clip_position = view.clip_from_world * vec4(world_position, 1.0);
@@ -190,9 +196,7 @@ fn vertex(
     out.current_texture = frame.current;
     out.next_texture = frame.next;
     out.frame_blend = frame.blend;
-    out.local_position = local_position;
-    out.normal = face_normal(face);
-    out.biome_record = u32(chunk_origin.value.w);
+    out.water_tint = unpack_linear_rgb10(tint.water);
     out.light_factor = max(block_light, sky_light) / 15.0 * (1.0 - ao * 0.12);
     return out;
 }
@@ -241,11 +245,5 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         let next_sample = sample_texture_ref(in.next_texture, in.uv, dx, dy);
         sampled = mix(current_sample, next_sample, in.frame_blend);
     }
-    let inward_position = floor(in.local_position - in.normal * 0.001);
-    let coordinate = vec3<u32>(clamp(inward_position, vec3(0.0), vec3(15.0)));
-    let requested_tint = packed_biome_tint_index(in.biome_record, coordinate);
-    let tint_index = select(0u, requested_tint, requested_tint < arrayLength(&biome_tints));
-    let tint = biome_tints[tint_index];
-    let water_tint = unpack_linear_rgb10(tint.water);
-    return vec4(sampled.rgb * water_tint * in.light_factor, sampled.a);
+    return vec4(sampled.rgb * in.water_tint * in.light_factor, sampled.a);
 }

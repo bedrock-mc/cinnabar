@@ -43,6 +43,26 @@ fn chunk_sampler_source_contract_is_crisp_for_magnification_and_filtered_for_mip
 }
 
 #[test]
+fn shared_biome_bindings_are_visible_to_vertex_and_fragment_pipelines() {
+    let source = include_str!("../src/plugin.rs");
+    for binding in [7, 8] {
+        let marker = format!("binding: {binding},");
+        let start = source
+            .find(&marker)
+            .unwrap_or_else(|| panic!("missing shared biome binding {binding}"));
+        let entry = &source[start
+            ..source[start..]
+                .find("count: None,")
+                .map(|offset| start + offset)
+                .expect("bind group entry must retain a count")];
+        assert!(
+            entry.contains("visibility: ShaderStages::VERTEX_FRAGMENT"),
+            "shared biome binding {binding} must support opaque fragment and liquid vertex reads",
+        );
+    }
+}
+
+#[test]
 fn sort_ref_ceiling_is_enforced() {
     assert_eq!(size_of::<PackedTransparentDrawRef>(), 8);
     assert_eq!(MAX_TRANSPARENT_DRAW_REFS, 2_097_152);

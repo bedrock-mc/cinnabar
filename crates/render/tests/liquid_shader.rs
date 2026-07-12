@@ -217,8 +217,35 @@ fn liquid_shader_preserves_straight_alpha_animation_tint_and_light() {
     assert!(SHADER.contains("textureSampleGrad(block_textures_page_0"));
     assert!(SHADER.contains("textureSampleGrad(block_textures_page_1"));
     assert!(SHADER.contains("mix(current_sample, next_sample, in.frame_blend)"));
-    assert!(SHADER.contains("let water_tint = unpack_linear_rgb10(tint.water)"));
-    assert!(SHADER.contains("return vec4(sampled.rgb * water_tint * in.light_factor, sampled.a)"));
+    assert!(SHADER.contains("out.water_tint = unpack_linear_rgb10(tint.water)"));
+    assert!(
+        SHADER.contains("return vec4(sampled.rgb * in.water_tint * in.light_factor, sampled.a)")
+    );
     assert!(!SHADER.contains("sampled.rgb * sampled.a"));
     assert!(!SHADER.contains("sampled.a <"));
+}
+
+#[test]
+fn liquid_shader_resolves_block_biome_tint_before_fragment_rasterization() {
+    let vertex = SHADER
+        .split("@vertex")
+        .nth(1)
+        .and_then(|shader| shader.split("@fragment").next())
+        .expect("liquid shader must retain a vertex stage before its fragment stage");
+    let fragment = SHADER
+        .split("@fragment")
+        .nth(1)
+        .expect("liquid shader must retain a fragment stage");
+
+    assert!(vertex.contains("let block_coordinate = vec3<u32>("));
+    assert!(vertex.contains("geometry & 15u"));
+    assert!(vertex.contains("(geometry >> 4u) & 15u"));
+    assert!(vertex.contains("(geometry >> 8u) & 15u"));
+    assert!(
+        vertex.contains("packed_biome_tint_index(u32(chunk_origin.value.w), block_coordinate)")
+    );
+    assert!(vertex.contains("out.water_tint = unpack_linear_rgb10(tint.water)"));
+    assert!(!fragment.contains("packed_biome_tint_index("));
+    assert!(!fragment.contains("biome_records["));
+    assert!(fragment.contains("sampled.rgb * in.water_tint * in.light_factor"));
 }
