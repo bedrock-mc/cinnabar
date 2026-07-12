@@ -86,7 +86,7 @@ Use the repository's pinned `tools/registrygen` command recorded in the Phase 2 
 - Consumes: `ModelFamily::FlowerBed`, growth/orientation, the two terrain variants for the block, and `ModelQuad`'s 1/256 positions plus 1/4096 UVs.
 - Produces: immutable model templates selected by `(block texture pair, growth 0..3, direction)`; growth 4..7 remains attributable diagnostic until Task 4 records native evidence.
 
-- [ ] **Step 1: Write failing normal-state compiler tests**
+- [x] **Step 1: Write failing normal-state compiler tests**
 
 For each block, compile growth 0–3 facing north and assert:
 
@@ -101,21 +101,21 @@ assert_eq!(distinct_template_materials(&assets, visual.model_template).len(), 2)
 
 Also assert `growth=4` remains diagnostic before Task 4, proving no implicit clamp.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `cargo test -p assets --test compiler flowerbed --locked -- --nocapture`
 
 Expected: FAIL because both names lack a dedicated compiled model.
 
-- [ ] **Step 3: Implement one checked flowerbed template builder**
+- [x] **Step 3: Implement one checked flowerbed template builder**
 
 Add a small `FlowerBedPatch` data table using the exact Mojang flowerbed model positions/UVs. Build an additive prefix of one through four horizontal flower planes plus their stem planes. Resolve terrain variant 0 as flower and variant 1 as stem; fail closed if either is absent. Apply cardinal rotation around the block center with checked 1/256 integer coordinates.
 
-- [ ] **Step 4: Deduplicate templates by full material/state identity**
+- [x] **Step 4: Deduplicate templates by full material/state identity**
 
 Use a bounded cache key containing both material IDs, growth, and direction. Assert template and quad counts fit existing `u32`/asset-manifest limits and that identical states reuse template indices.
 
-- [ ] **Step 5: Verify encode/decode and all normal states**
+- [x] **Step 5: Verify encode/decode and all normal states**
 
 Run:
 
