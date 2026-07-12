@@ -15,12 +15,14 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
+	"golang.org/x/oauth2"
 )
 
 // Config configures a local bridge listener and its upstream Bedrock server.
 type Config struct {
-	SocketDir string
-	Upstream  string
+	SocketDir   string
+	Upstream    string
+	TokenSource oauth2.TokenSource
 }
 
 const localRelayBatchPacketLimit = 1600
@@ -92,7 +94,7 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 			go func() {
 				defer sessions.Done()
 				err := callWithoutPanic(func() error {
-					return handleConnection(serveCtx, downstream, cfg.Upstream)
+					return handleConnection(serveCtx, downstream, cfg.Upstream, cfg.TokenSource)
 				})
 				if err != nil && !isOrdinaryClose(err) {
 					select {
@@ -158,21 +160,34 @@ func callConnectionLifecycle(operation string, call func() error) (err error) {
 	return call()
 }
 
-func handleConnection(ctx context.Context, downstream *minecraft.Conn, upstreamAddress string) error {
-	identity := downstream.IdentityData()
-	offlineIdentity := login.IdentityData{
-		Identity:    identity.Identity,
-		DisplayName: identity.DisplayName,
-	}
-	dialer := minecraft.Dialer{
-		ClientData:   downstream.ClientData(),
-		ErrorLog:     slog.Default().With("component", "upstream-dialer"),
-		IdentityData: offlineIdentity,
-		Protocol:     downstream.Proto(),
-	}
+func handleConnection(ctx context.Context, downstream *minecraft.Conn, upstreamAddress string, tokenSource oauth2.TokenSource) error {
+	dialer := newUpstreamDialer(downstream, tokenSource)
 	return dialAndServe(ctx, downstream, func(ctx context.Context) (upstreamSession, error) {
 		return dialer.DialContextNetwork(ctx, minecraft.RakNet{}, upstreamAddress)
 	})
+}
+
+type dialerDownstream interface {
+	IdentityData() login.IdentityData
+	ClientData() login.ClientData
+	Proto() minecraft.Protocol
+}
+
+func newUpstreamDialer(downstream dialerDownstream, tokenSource oauth2.TokenSource) minecraft.Dialer {
+	dialer := minecraft.Dialer{
+		ClientData:  downstream.ClientData(),
+		ErrorLog:    slog.Default().With("component", "upstream-dialer"),
+		Protocol:    downstream.Proto(),
+		TokenSource: tokenSource,
+	}
+	if tokenSource == nil {
+		identity := downstream.IdentityData()
+		dialer.IdentityData = login.IdentityData{
+			Identity:    identity.Identity,
+			DisplayName: identity.DisplayName,
+		}
+	}
+	return dialer
 }
 
 func dialAndServe(ctx context.Context, downstream downstreamSession, dial func(context.Context) (upstreamSession, error)) error {

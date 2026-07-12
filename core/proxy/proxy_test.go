@@ -15,8 +15,73 @@ import (
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
+	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
+	"golang.org/x/oauth2"
 )
+
+type dialerTestDownstream struct {
+	identity login.IdentityData
+	client   login.ClientData
+	protocol minecraft.Protocol
+}
+
+func (d dialerTestDownstream) IdentityData() login.IdentityData { return d.identity }
+func (d dialerTestDownstream) ClientData() login.ClientData     { return d.client }
+func (d dialerTestDownstream) Proto() minecraft.Protocol        { return d.protocol }
+
+func TestNewUpstreamDialerOfflinePreservesIdentity(t *testing.T) {
+	downstream := dialerTestDownstream{
+		identity: login.IdentityData{
+			Identity:    "offline-identity",
+			DisplayName: "Offline Player",
+			XUID:        "must-not-be-copied",
+			TitleID:     "must-not-be-copied",
+		},
+		client:   login.ClientData{DeviceModel: "client-data-sentinel"},
+		protocol: minecraft.DefaultProtocol,
+	}
+
+	dialer := newUpstreamDialer(downstream, nil)
+	if dialer.TokenSource != nil {
+		t.Fatal("TokenSource is non-nil in offline mode")
+	}
+	if dialer.IdentityData.Identity != downstream.identity.Identity || dialer.IdentityData.DisplayName != downstream.identity.DisplayName {
+		t.Fatalf("IdentityData = %#v, want copied offline identity/display name", dialer.IdentityData)
+	}
+	if dialer.IdentityData.XUID != "" || dialer.IdentityData.TitleID != "" {
+		t.Fatalf("IdentityData copied authenticated fields: %#v", dialer.IdentityData)
+	}
+	if dialer.ClientData.DeviceModel != downstream.client.DeviceModel {
+		t.Fatalf("ClientData.DeviceModel = %q, want %q", dialer.ClientData.DeviceModel, downstream.client.DeviceModel)
+	}
+	if dialer.Protocol != downstream.protocol {
+		t.Fatal("Protocol was not preserved")
+	}
+}
+
+func TestNewUpstreamDialerAuthenticatedUsesTokenAndOmitsOfflineIdentity(t *testing.T) {
+	downstream := dialerTestDownstream{
+		identity: login.IdentityData{Identity: "offline-identity", DisplayName: "Offline Player"},
+		client:   login.ClientData{DeviceModel: "client-data-sentinel"},
+		protocol: minecraft.DefaultProtocol,
+	}
+	source := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "sentinel"})
+
+	dialer := newUpstreamDialer(downstream, source)
+	if dialer.TokenSource != source {
+		t.Fatal("TokenSource was not preserved")
+	}
+	if dialer.IdentityData != (login.IdentityData{}) {
+		t.Fatalf("IdentityData = %#v, want zero value in authenticated mode", dialer.IdentityData)
+	}
+	if dialer.ClientData.DeviceModel != downstream.client.DeviceModel {
+		t.Fatalf("ClientData.DeviceModel = %q, want %q", dialer.ClientData.DeviceModel, downstream.client.DeviceModel)
+	}
+	if dialer.Protocol != downstream.protocol {
+		t.Fatal("Protocol was not preserved")
+	}
+}
 
 func TestSpawnBarrierPreventsEarlyRelay(t *testing.T) {
 	downReady := make(chan struct{})
