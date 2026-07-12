@@ -448,6 +448,22 @@ try {
     Assert-True ($waterAppCommand[0] -match '--require-transparent-presentation') 'water gallery did not opt into bounded transparent presentation settle'
     Assert-True ($waterAppCommand[0] -match '--transparent-witness-request') 'water gallery did not pass its ignored-local transparent witness request path to the app'
 
+    foreach ($flowerBedPose in @('FlowerBedGalleryTop', 'FlowerBedGalleryNorth', 'FlowerBedGalleryEast', 'FlowerBedGalleryOblique')) {
+        $flowerBedDryRun = Invoke-Acceptance -Arguments @(
+            '-DryRun',
+            '-DurationSeconds', '60',
+            '-BdsDir', $BdsDir,
+            '-MetricsOut', $MetricsOut,
+            '-Assets', $CrossCropAssets,
+            '-VisualFixturePose', $flowerBedPose,
+            '-UseVsync',
+            '-SteadyResourceTrigger', 'VisualFixtureReady'
+        )
+        Assert-True ($flowerBedDryRun.ExitCode -eq 0) "$flowerBedPose dry-run failed: $($flowerBedDryRun.Output -join [Environment]::NewLine)"
+        Assert-True ($flowerBedDryRun.Output -contains "VISUAL_FIXTURE_POSE=$flowerBedPose") "$flowerBedPose dry-run lost its exact pose"
+        Assert-Equal 1 @($flowerBedDryRun.Output | Where-Object { $_ -match '^FLOWERBED_GALLERY_ARGUMENTS_SHA256=[0-9a-f]{64}$' }).Count "$flowerBedPose dry-run did not emit deterministic arguments identity"
+    }
+
     $baselineDryRun = Invoke-Acceptance -Arguments @(
         '-DryRun',
         '-DurationSeconds', '60',
@@ -672,6 +688,32 @@ try {
         -Pose WaterGalleryFront `
         -RegistryPath $BlockRegistry `
         -AssetsPath $AquaticAssets
+    $flowerBedPlans = @('FlowerBedGalleryTop', 'FlowerBedGalleryNorth', 'FlowerBedGalleryEast', 'FlowerBedGalleryOblique') | ForEach-Object {
+        New-FlowerBedGalleryPlan -MutationCoordinate @(100, 64, 200) -Pose $_ -RegistryPath $BlockRegistry
+    }
+
+    foreach ($flowerBedPlan in $flowerBedPlans) {
+        Assert-Equal 'FlowerBedGallery' $flowerBedPlan.Manifest.fixture_kind 'flowerbed plan lost fixture kind'
+        Assert-Equal 64 ([int]$flowerBedPlan.Manifest.gallery_state_count) 'flowerbed plan did not enumerate exactly 64 states'
+        Assert-Equal 64 @($flowerBedPlan.Manifest.gallery_states | Sort-Object -Unique).Count 'flowerbed manifest states were not unique'
+        Assert-Equal 64 @($flowerBedPlan.GalleryCommands | Where-Object { $_ -match '^setblock .* minecraft:(wildflowers|pink_petals) ' }).Count 'flowerbed plan did not issue exactly one placement per canonical state'
+        Assert-Equal 64 @($flowerBedPlan.Manifest.reference_cubes).Count 'flowerbed plan did not pair every state with a reference cube'
+        Assert-Equal 4 @($flowerBedPlan.Manifest.camera_poses.PSObject.Properties).Count 'flowerbed plan lost a fixed diagnostic camera'
+        Assert-True ($flowerBedPlan.LoadAreaCommand -match '^tickingarea add ') 'flowerbed plan did not preload its bounded gallery'
+        Assert-True ($flowerBedPlan.CleanupCommand -match '^tickingarea remove ') 'flowerbed plan did not provide ticking-area cleanup'
+        Assert-Equal (Get-CanonicalObjectHash -Value $flowerBedPlan.Manifest.relative_layout) $flowerBedPlan.Manifest.fixture_layout_hash 'flowerbed layout hash was not derived from the complete relative layout'
+
+        $growths = @($flowerBedPlan.CoverageEntries | ForEach-Object growth | Sort-Object -Unique)
+        $directions = @($flowerBedPlan.CoverageEntries | ForEach-Object direction | Sort-Object -Unique)
+        $names = @($flowerBedPlan.CoverageEntries | ForEach-Object name | Sort-Object -Unique)
+        Assert-Equal '0,1,2,3,4,5,6,7' ($growths -join ',') 'flowerbed gallery growth coverage changed'
+        Assert-Equal 'east,north,south,west' ($directions -join ',') 'flowerbed gallery cardinal coverage changed'
+        Assert-Equal 'minecraft:pink_petals,minecraft:wildflowers' ($names -join ',') 'flowerbed gallery name coverage changed'
+    }
+    Assert-Equal 1 @($flowerBedPlans | ForEach-Object { $_.Manifest.fixture_layout_hash } | Sort-Object -Unique).Count 'flowerbed camera pose changed canonical layout identity'
+    $movedFlowerBedPlan = New-FlowerBedGalleryPlan -MutationCoordinate @(500, 70, -300) -Pose FlowerBedGalleryTop -RegistryPath $BlockRegistry
+    Assert-Equal $flowerBedPlans[0].Manifest.fixture_layout_hash $movedFlowerBedPlan.Manifest.fixture_layout_hash 'flowerbed absolute coordinate changed canonical layout identity'
+    Assert-Equal ($flowerBedPlans[0].Manifest.gallery_states -join "`n") ($movedFlowerBedPlan.Manifest.gallery_states -join "`n") 'flowerbed BREG state manifest was not deterministic'
 
     $freshSource = Join-Path $TempRoot 'fresh gallery source'
     $freshRuntime = Join-Path $TempRoot 'fresh gallery runtime'
@@ -723,11 +765,11 @@ try {
         Get-BdsSourceWorldIdentity -SourceDirectory $malformedSource -AllowMissingWorld
     } '*worlds*' 'fresh-world allowance accepted a malformed worlds entry'
     Assert-Equal 'CrossCropGallery' $crossCropPlan.Manifest.fixture_kind 'cross/crop plan lost fixture kind'
-    Assert-Equal 443 ([int]$crossCropPlan.Manifest.gallery_state_count) 'cross/crop plan did not enumerate the exact tracked Cross/Crop state set'
+    Assert-Equal 411 ([int]$crossCropPlan.Manifest.gallery_state_count) 'cross/crop plan did not enumerate the exact tracked Cross/Crop state set after flowerbeds moved to family 31'
     Assert-Equal 0 ([int]$crossCropPlan.Manifest.family_diagnostics.cross) 'cross family diagnostic contract changed'
     Assert-Equal 0 ([int]$crossCropPlan.Manifest.family_diagnostics.crop) 'crop family diagnostic contract changed'
     Assert-Equal $assetIdentity ([string]$crossCropPlan.Manifest.artifact_identity.assets_sha256) 'cross/crop plan lost asset identity'
-    Assert-Equal 445 $crossCropPlan.GalleryCommands.Count 'cross/crop gallery command coverage is not one command per tracked state plus bounded setup'
+    Assert-Equal 413 $crossCropPlan.GalleryCommands.Count 'cross/crop gallery command coverage is not one command per tracked state plus bounded setup'
     Assert-True (-not (($crossCropPlan.GalleryCommands -join "`n") -match 'seagrass|kelp')) 'Task 9 gallery included Task 10 aquatic plants'
     $firstPlan = $crossCropPlan.Manifest | ConvertTo-Json -Compress -Depth 12
     $secondPlan = (New-CrossCropGalleryPlan -MutationCoordinate @(100, 64, 200) -Pose CrossCropGalleryFront -RegistryPath $BlockRegistry -AssetsPath $CrossCropAssets).Manifest | ConvertTo-Json -Compress -Depth 12
