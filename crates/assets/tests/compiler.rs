@@ -11,8 +11,8 @@ use assets::{
     MATERIAL_FLAG_EVERGREEN_FOLIAGE, MATERIAL_FLAG_FOLIAGE_CLASS_MASK, MATERIAL_FLAG_FOLIAGE_TINT,
     MATERIAL_FLAG_GRASS_TINT, MATERIAL_FLAG_OVERLAY_MASK, MATERIAL_FLAG_ROTATE_UV,
     MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_UV_MASK, MATERIAL_FLAGS_MASK, MAX_TEXTURE_LAYERS,
-    Material, ModelFamily, ModelState, RegistryProvenance, RegistryRecord, compile_pack,
-    encode_blob,
+    MODEL_QUAD_FLAG_TWO_SIDED, Material, ModelFamily, ModelState, RegistryProvenance,
+    RegistryRecord, VisualKind, compile_pack, encode_blob,
 };
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 use sha2::{Digest, Sha256};
@@ -434,6 +434,196 @@ fn record(
         collision_seed: CollisionSeed::default(),
         provenance: RegistryProvenance::DRAGONFLY,
     }
+}
+
+fn model_record(
+    sequential_id: u32,
+    network_hash: u32,
+    name: &str,
+    state: &str,
+    model_family: ModelFamily,
+) -> RegistryRecord {
+    let mut record = record(
+        sequential_id,
+        network_hash,
+        name,
+        state,
+        BlockFlags::empty(),
+    );
+    record.model_family = model_family;
+    record
+}
+
+#[test]
+fn compiler_compiles_exact_terrestrial_cross_alias_tint_and_crop_variants() {
+    let directory = tempfile::tempdir().expect("create terrestrial cross fixture");
+    write_pack(
+        directory.path(),
+        r#"{
+            "short_grass":{"textures":"short_grass"},
+            "fern":{"textures":"fern"},
+            "yellow_flower":{"textures":"yellow_flower"},
+            "sapling":{"textures":"sapling"},
+            "wheat":{"textures":"wheat"},
+            "carrots":{"textures":"carrots"},
+            "melon_stem":{"textures":"melon_stem"}
+        }"#,
+        r#"{"texture_data":{
+            "short_grass":{"textures":"textures/blocks/short_grass"},
+            "fern":{"textures":"textures/blocks/fern"},
+            "yellow_flower":{"textures":"textures/blocks/dandelion"},
+            "sapling":{"textures":["textures/blocks/oak","textures/blocks/spruce"]},
+            "wheat":{"textures":[
+                "textures/blocks/wheat0","textures/blocks/wheat1",
+                "textures/blocks/wheat2","textures/blocks/wheat3",
+                "textures/blocks/wheat4","textures/blocks/wheat5",
+                "textures/blocks/wheat6","textures/blocks/wheat7"
+            ]},
+            "carrots":{"textures":[
+                "textures/blocks/carrots0","textures/blocks/carrots1",
+                "textures/blocks/carrots2","textures/blocks/carrots3"
+            ]},
+            "melon_stem":{"textures":[
+                "textures/blocks/melon_disconnected","textures/blocks/melon_connected"
+            ]}
+        }}"#,
+        "[]",
+    );
+    for (index, path) in [
+        "short_grass",
+        "fern",
+        "dandelion",
+        "oak",
+        "spruce",
+        "wheat0",
+        "wheat1",
+        "wheat2",
+        "wheat3",
+        "wheat4",
+        "wheat5",
+        "wheat6",
+        "wheat7",
+        "carrots0",
+        "carrots1",
+        "carrots2",
+        "carrots3",
+        "melon_disconnected",
+        "melon_connected",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        write_png(
+            directory.path(),
+            &format!("textures/blocks/{path}"),
+            TILE_SIZE,
+            TILE_SIZE,
+            &solid(TILE_SIZE, TILE_SIZE, [index as u8 + 1, 17, 31, 255]),
+        );
+    }
+    let records = [
+        model_record(0, 100, "minecraft:short_grass", "{}", ModelFamily::Cross),
+        model_record(1, 101, "minecraft:fern", "{}", ModelFamily::Cross),
+        model_record(2, 102, "minecraft:dandelion", "{}", ModelFamily::Cross),
+        model_record(
+            3,
+            103,
+            "minecraft:oak_sapling",
+            r#"{"age_bit":{"type":"byte","value":1}}"#,
+            ModelFamily::Cross,
+        ),
+        model_record(
+            4,
+            104,
+            "minecraft:wheat",
+            r#"{"growth":{"type":"int","value":0}}"#,
+            ModelFamily::Crop,
+        ),
+        model_record(
+            5,
+            105,
+            "minecraft:wheat",
+            r#"{"growth":{"type":"int","value":7}}"#,
+            ModelFamily::Crop,
+        ),
+        model_record(
+            6,
+            106,
+            "minecraft:carrots",
+            r#"{"growth":{"type":"int","value":5}}"#,
+            ModelFamily::Crop,
+        ),
+        model_record(
+            7,
+            107,
+            "minecraft:melon_stem",
+            r#"{"facing_direction":{"type":"int","value":0},"growth":{"type":"int","value":7}}"#,
+            ModelFamily::Crop,
+        ),
+        model_record(
+            8,
+            108,
+            "minecraft:melon_stem",
+            r#"{"facing_direction":{"type":"int","value":2},"growth":{"type":"int","value":7}}"#,
+            ModelFamily::Crop,
+        ),
+    ];
+
+    let compiled = compile_pack(directory.path(), &records).expect("compile crossed plants");
+    assert!(compiled.visuals.iter().all(|visual| {
+        visual.kind == VisualKind::Cross && visual.model_template != assets::NO_MODEL_TEMPLATE
+    }));
+    assert_eq!(
+        compiled
+            .visuals
+            .iter()
+            .map(|visual| visual.variant)
+            .collect::<Vec<_>>(),
+        [0, 0, 0, 0, 0, 7, 2, 0, 1]
+    );
+    for (index, visual) in compiled.visuals.iter().enumerate() {
+        let template = compiled.model_templates[visual.model_template as usize];
+        assert_eq!(
+            template.quad_count, 2,
+            "visual {index} did not use one crossed pair"
+        );
+        assert!(template.quad_count <= 32);
+        let quads = &compiled.model_quads
+            [template.quad_start as usize..(template.quad_start + template.quad_count) as usize];
+        assert!(
+            quads
+                .iter()
+                .all(|quad| quad.flags == MODEL_QUAD_FLAG_TWO_SIDED)
+        );
+        assert!(quads.iter().all(|quad| {
+            compiled.materials[quad.material as usize].flags & MATERIAL_FLAG_ALPHA_CUTOUT != 0
+        }));
+    }
+    for index in [0_usize, 1] {
+        let template = compiled.model_templates[compiled.visuals[index].model_template as usize];
+        let material = compiled.model_quads[template.quad_start as usize].material as usize;
+        assert_eq!(
+            compiled.materials[material].flags & MATERIAL_FLAG_TINT_MASK,
+            MATERIAL_FLAG_GRASS_TINT,
+            "grass and fern must use the biome grass tint class"
+        );
+    }
+    for index in 2..compiled.visuals.len() {
+        let template = compiled.model_templates[compiled.visuals[index].model_template as usize];
+        let material = compiled.model_quads[template.quad_start as usize].material as usize;
+        assert_eq!(
+            compiled.materials[material].flags & MATERIAL_FLAG_TINT_MASK,
+            0
+        );
+    }
+    assert_ne!(
+        compiled.visuals[4].model_template,
+        compiled.visuals[5].model_template
+    );
+    assert_ne!(
+        compiled.visuals[4].model_template,
+        compiled.visuals[6].model_template
+    );
 }
 
 fn material_for_face(compiled: &CompiledAssets, sequential_id: usize, face: BlockFace) -> Material {

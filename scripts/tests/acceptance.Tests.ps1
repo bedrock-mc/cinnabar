@@ -43,6 +43,29 @@ function Assert-ThrowsLike {
     Assert-True ($observed -like $Pattern) "$Message`nexpected error like: $Pattern`nactual error:        $observed"
 }
 
+function New-TestCrossCropAssets {
+    param(
+        [Parameter(Mandatory = $true)][string]$RegistryPath,
+        [Parameter(Mandatory = $true)][string]$Path
+    )
+
+    $registryBytes = [IO.File]::ReadAllBytes($RegistryPath)
+    $visualCount = [BitConverter]::ToUInt32($registryBytes, 16)
+    $bytes = [byte[]]::new(200 + 40 * $visualCount)
+    [Text.Encoding]::ASCII.GetBytes('MCBEAS04').CopyTo($bytes, 0)
+    [BitConverter]::GetBytes([uint32]4).CopyTo($bytes, 8)
+    [BitConverter]::GetBytes([uint32]16).CopyTo($bytes, 12)
+    [BitConverter]::GetBytes([uint32]5).CopyTo($bytes, 16)
+    [BitConverter]::GetBytes([uint32]$visualCount).CopyTo($bytes, 20)
+    [BitConverter]::GetBytes([uint64]200).CopyTo($bytes, 96)
+    for ($index = 0; $index -lt $visualCount; $index++) {
+        $offset = 200 + 40 * $index
+        $bytes[$offset + 25] = 2
+        [BitConverter]::GetBytes([uint32]0).CopyTo($bytes, $offset + 28)
+    }
+    [IO.File]::WriteAllBytes($Path, $bytes)
+}
+
 function New-TestBdsFixtureResultLines {
     param([Parameter(Mandatory = $true)][string[]]$Commands)
 
@@ -179,6 +202,8 @@ $TempRoot = Join-Path ([IO.Path]::GetTempPath()) ("rust-mcbe acceptance tests {0
 $BdsDir = Join-Path $TempRoot 'bds source'
 $MetricsOut = Join-Path $TempRoot 'metrics output\metrics.json'
 $Assets = Join-Path $TempRoot 'vanilla assets with spaces.mcpack'
+$CrossCropAssets = Join-Path $TempRoot 'compiled cross crop assets.mcbea'
+$BlockRegistry = Join-Path $ProjectRoot 'crates\assets\data\block-registry-v1001.bin'
 $PrebuiltClient = Join-Path $TempRoot 'opaque base client\bedrock-client.exe'
 $DryRunDirectory = Join-Path $ProjectRoot '.local\acceptance\dry-run'
 $testFailure = $null
@@ -188,6 +213,7 @@ try {
     New-Item -ItemType Directory -Path $BdsDir -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $BdsDir 'bedrock_server.exe') -Value 'fixture' -NoNewline
     Set-Content -LiteralPath $Assets -Value 'assets fixture' -NoNewline
+    New-TestCrossCropAssets -RegistryPath $BlockRegistry -Path $CrossCropAssets
     New-Item -ItemType Directory -Path (Split-Path -Parent $PrebuiltClient) -Force | Out-Null
     Set-Content -LiteralPath $PrebuiltClient -Value 'pinned opaque client fixture' -NoNewline
     $prebuiltHashBefore = (Get-FileHash -Algorithm SHA256 -LiteralPath $PrebuiltClient).Hash
@@ -272,7 +298,7 @@ try {
         '-DurationSeconds', '900',
         '-BdsDir', $BdsDir,
         '-MetricsOut', $MetricsOut,
-        '-Assets', $Assets,
+        '-Assets', $CrossCropAssets,
         '-FullViewTeleportGate'
     )
     Assert-True ($teleportDryRun.ExitCode -eq 0) "full-view dry-run failed: $($teleportDryRun.Output -join [Environment]::NewLine)"
@@ -303,6 +329,22 @@ try {
     Assert-True ($leafFrontDryRun.Output -contains 'VISUAL_FIXTURE_POSE=LeafGalleryFront') 'leaf-front dry-run lost its pose'
     Assert-True ($leafFrontDryRun.Output -contains 'STEADY_RESOURCE_TRIGGER=VisualFixtureReady') 'leaf-front dry-run lost its trigger'
     Assert-True ($leafFrontDryRun.Output -contains 'USE_VSYNC=1') 'leaf-front dry-run lost its vsync mode'
+
+    $crossCropDryRun = Invoke-Acceptance -Arguments @(
+        '-DryRun',
+        '-DurationSeconds', '60',
+        '-BdsDir', $BdsDir,
+        '-MetricsOut', $MetricsOut,
+        '-Assets', $CrossCropAssets,
+        '-VisualFixturePose', 'CrossCropGalleryFront',
+        '-SteadyResourceTrigger', 'VisualFixtureReady',
+        '-UseVsync'
+    )
+    Assert-True ($crossCropDryRun.ExitCode -eq 0) "cross/crop gallery dry-run failed: $($crossCropDryRun.Output -join [Environment]::NewLine)"
+    $assetIdentity = (Get-FileHash -Algorithm SHA256 -LiteralPath $CrossCropAssets).Hash.ToLowerInvariant()
+    Assert-True ($crossCropDryRun.Output -contains 'VISUAL_FIXTURE_POSE=CrossCropGalleryFront') 'cross/crop dry-run lost its exact gallery argument'
+    Assert-True ($crossCropDryRun.Output -contains "CROSS_CROP_GALLERY_ASSETS_SHA256=$assetIdentity") 'cross/crop dry-run did not record exact artifact identity'
+    Assert-Equal 1 @($crossCropDryRun.Output | Where-Object { $_ -match '^CROSS_CROP_GALLERY_ARGUMENTS_SHA256=[0-9a-f]{64}$' }).Count 'cross/crop dry-run did not record deterministic gallery arguments identity'
 
     $baselineDryRun = Invoke-Acceptance -Arguments @(
         '-DryRun',
@@ -424,6 +466,11 @@ try {
     Assert-True ($missing.ExitCode -ne 0) 'missing BDS directory was accepted'
 
     $source = Get-Content -Raw -LiteralPath $AcceptanceScript
+    $identityFunctionStart = $source.IndexOf('function Get-BdsSourceWorldIdentity {', [StringComparison]::Ordinal)
+    $identityFunctionEnd = $source.IndexOf('function Assert-BdsSourceWorldIdentityUnchanged {', $identityFunctionStart, [StringComparison]::Ordinal)
+    $identityFunctionSource = $source.Substring($identityFunctionStart, $identityFunctionEnd - $identityFunctionStart)
+    Assert-True (-not $identityFunctionSource.Contains('Test-Path -LiteralPath $worldsPath')) 'optional source identity still treats Test-Path false as proof that worlds is absent'
+    Assert-True (-not $identityFunctionSource.Contains('Test-Path -LiteralPath $worldPath')) 'optional source identity still treats Test-Path false as proof that the configured world is absent'
     Assert-True ($source.Contains('CopyToAsync')) 'child logs are not streamed directly to files'
     Assert-True ($source.Contains('[IO.FileOptions]::WriteThrough')) 'child log files are not write-through'
     Assert-True (-not $source.Contains('ReadToEndAsync')) 'child logs are retained in memory'
@@ -501,6 +548,97 @@ try {
     finally {
         Remove-Item Env:RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY -ErrorAction SilentlyContinue
     }
+
+    $crossCropPlan = New-CrossCropGalleryPlan `
+        -MutationCoordinate @(100, 64, 200) `
+        -Pose CrossCropGalleryFront `
+        -RegistryPath $BlockRegistry `
+        -AssetsPath $CrossCropAssets
+
+    $freshSource = Join-Path $TempRoot 'fresh gallery source'
+    $freshRuntime = Join-Path $TempRoot 'fresh gallery runtime'
+    New-Item -ItemType Directory -Path $freshSource, (Join-Path $freshRuntime 'worlds\Bedrock level') -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $freshSource 'server.properties') -Value 'level-name=Bedrock level' -Encoding ASCII
+    Set-Content -LiteralPath (Join-Path $freshRuntime 'server.properties') -Value 'level-name=Bedrock level' -Encoding ASCII
+    Set-Content -LiteralPath (Join-Path $freshRuntime 'worlds\Bedrock level\level.dat') -Value 'fresh runtime world' -NoNewline
+    $missingSourceIdentity = Get-BdsSourceWorldIdentity -SourceDirectory $freshSource -AllowMissingWorld
+    Assert-True ($null -eq $missingSourceIdentity) 'fresh BDS source unexpectedly reported a generated source world'
+    $freshRuntimeIdentity = Get-BdsSourceWorldIdentity -SourceDirectory $freshRuntime
+    $freshPlan = New-CrossCropGalleryPlan `
+        -MutationCoordinate @(100, 64, 200) `
+        -Pose CrossCropGalleryFront `
+        -RegistryPath $BlockRegistry `
+        -AssetsPath $CrossCropAssets
+    Set-BdsSourceWorldIdentityOnPlan `
+        -Plan $freshPlan `
+        -Identity $missingSourceIdentity `
+        -RuntimeIdentity $freshRuntimeIdentity
+    Assert-True ($null -eq $freshPlan.Manifest.PSObject.Properties['source_world_identity']) 'fresh gallery mislabeled a runtime-created world as source evidence'
+    Assert-Equal $freshRuntimeIdentity.sha256 $freshPlan.Manifest.runtime_world_identity.sha256 'fresh gallery did not bind the runtime-created world identity'
+    $sourcePreferredPlan = New-CrossCropGalleryPlan `
+        -MutationCoordinate @(100, 64, 200) `
+        -Pose CrossCropGalleryFront `
+        -RegistryPath $BlockRegistry `
+        -AssetsPath $CrossCropAssets
+    Set-BdsSourceWorldIdentityOnPlan `
+        -Plan $sourcePreferredPlan `
+        -Identity $freshRuntimeIdentity `
+        -RuntimeIdentity $freshRuntimeIdentity
+    Assert-Equal $freshRuntimeIdentity.sha256 $sourcePreferredPlan.Manifest.source_world_identity.sha256 'existing source identity did not take precedence'
+    Assert-True ($null -eq $sourcePreferredPlan.Manifest.PSObject.Properties['runtime_world_identity']) 'source-backed gallery also recorded runtime identity on its plan'
+
+    $brokenSource = Join-Path $TempRoot 'broken reparse gallery source'
+    $brokenTarget = Join-Path $TempRoot 'broken reparse gallery target'
+    New-Item -ItemType Directory -Path $brokenSource, $brokenTarget -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $brokenSource 'server.properties') -Value 'level-name=Bedrock level' -Encoding ASCII
+    $null = New-Item -ItemType Junction -Path (Join-Path $brokenSource 'worlds') -Target $brokenTarget
+    Remove-Item -LiteralPath $brokenTarget -Force
+    Assert-ThrowsLike {
+        Get-BdsSourceWorldIdentity -SourceDirectory $brokenSource -AllowMissingWorld
+    } '*worlds*' 'fresh-world allowance accepted a broken worlds reparse point'
+
+    $malformedSource = Join-Path $TempRoot 'malformed gallery source'
+    New-Item -ItemType Directory -Path $malformedSource -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $malformedSource 'server.properties') -Value 'level-name=Bedrock level' -Encoding ASCII
+    Set-Content -LiteralPath (Join-Path $malformedSource 'worlds') -Value 'not a directory' -NoNewline
+    Assert-ThrowsLike {
+        Get-BdsSourceWorldIdentity -SourceDirectory $malformedSource -AllowMissingWorld
+    } '*worlds*' 'fresh-world allowance accepted a malformed worlds entry'
+    Assert-Equal 'CrossCropGallery' $crossCropPlan.Manifest.fixture_kind 'cross/crop plan lost fixture kind'
+    Assert-Equal 443 ([int]$crossCropPlan.Manifest.gallery_state_count) 'cross/crop plan did not enumerate the exact tracked Cross/Crop state set'
+    Assert-Equal 0 ([int]$crossCropPlan.Manifest.family_diagnostics.cross) 'cross family diagnostic contract changed'
+    Assert-Equal 0 ([int]$crossCropPlan.Manifest.family_diagnostics.crop) 'crop family diagnostic contract changed'
+    Assert-Equal $assetIdentity ([string]$crossCropPlan.Manifest.artifact_identity.assets_sha256) 'cross/crop plan lost asset identity'
+    Assert-Equal 445 $crossCropPlan.GalleryCommands.Count 'cross/crop gallery command coverage is not one command per tracked state plus bounded setup'
+    Assert-True (-not (($crossCropPlan.GalleryCommands -join "`n") -match 'seagrass|kelp')) 'Task 9 gallery included Task 10 aquatic plants'
+    $firstPlan = $crossCropPlan.Manifest | ConvertTo-Json -Compress -Depth 12
+    $secondPlan = (New-CrossCropGalleryPlan -MutationCoordinate @(100, 64, 200) -Pose CrossCropGalleryFront -RegistryPath $BlockRegistry -AssetsPath $CrossCropAssets).Manifest | ConvertTo-Json -Compress -Depth 12
+    Assert-Equal $firstPlan $secondPlan 'cross/crop gallery arguments were not deterministic'
+    $backPlan = New-CrossCropGalleryPlan -MutationCoordinate @(100, 64, 200) -Pose CrossCropGalleryBack -RegistryPath $BlockRegistry -AssetsPath $CrossCropAssets
+    $movedPlan = New-CrossCropGalleryPlan -MutationCoordinate @(500, 70, -300) -Pose CrossCropGalleryFront -RegistryPath $BlockRegistry -AssetsPath $CrossCropAssets
+    Assert-Equal $crossCropPlan.Manifest.fixture_layout_hash $backPlan.Manifest.fixture_layout_hash 'front/back capture pose changed the fixture layout identity'
+    Assert-Equal $crossCropPlan.Manifest.fixture_layout_hash $movedPlan.Manifest.fixture_layout_hash 'absolute mutation coordinate changed the fixture layout identity'
+    Assert-Equal (Get-CanonicalObjectHash -Value $crossCropPlan.Manifest.relative_layout) $crossCropPlan.Manifest.fixture_layout_hash 'fixture layout hash is not the complete canonical relative layout descriptor'
+    foreach ($plan in @($crossCropPlan, $backPlan)) {
+        $cameraDistance = [Math]::Abs([double]$plan.Manifest.camera.position.z - [double]$plan.Manifest.gallery_center.z)
+        $nearDepth = $cameraDistance - 18.0
+        $requiredHorizontalFov = 2.0 * [Math]::Atan(23.0 / $nearDepth) * 180.0 / [Math]::PI
+        Assert-True ($requiredHorizontalFov -le 60.0) "$($plan.Pose) cannot frame every exhaustive gallery column within the 60-degree horizontal-FOV contract"
+    }
+
+    $tamperedAssets = Join-Path $TempRoot 'tampered cross crop assets.mcbea'
+    [IO.File]::WriteAllBytes($tamperedAssets, [IO.File]::ReadAllBytes($CrossCropAssets))
+    $firstCrossCropId = [int]$crossCropPlan.CoverageEntries[0].sequential_id
+    $tamperedBytes = [IO.File]::ReadAllBytes($tamperedAssets)
+    $tamperedBytes[200 + 40 * $firstCrossCropId + 25] = 0
+    [IO.File]::WriteAllBytes($tamperedAssets, $tamperedBytes)
+    Assert-ThrowsLike {
+        Get-CrossCropCoverageEvidence -RegistryPath $BlockRegistry -AssetsPath $tamperedAssets
+    } '*diagnostic*' 'cross/crop coverage evidence accepted a diagnostic visual'
+
+    $metadataIdentityIndex = $source.IndexOf("`$metadata['cross_crop_gallery']", [StringComparison]::Ordinal)
+    $visualPublicationIndex = $source.IndexOf('`$fixturePublication = Publish-VisualFixture'.TrimStart('`'), [StringComparison]::Ordinal)
+    Assert-True ($metadataIdentityIndex -ge 0 -and $visualPublicationIndex -gt $metadataIdentityIndex) 'cross/crop arguments and artifact identity were not recorded before visual fixture publication/capture'
 
     $safeGeneratedRoot = Join-Path $TempRoot 'generated destinations'
     Assert-PrebuiltClientPathSafe `

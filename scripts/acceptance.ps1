@@ -9,7 +9,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$MetricsOut,
     [string]$Assets,
-    [ValidateSet('None', 'Front', 'Back', 'LeafGalleryFront', 'LeafGalleryBack')]
+    [ValidateSet('None', 'Front', 'Back', 'LeafGalleryFront', 'LeafGalleryBack', 'CrossCropGalleryFront', 'CrossCropGalleryBack')]
     [string]$VisualFixturePose = 'None',
     [switch]$FullViewTeleportGate,
     [switch]$LeafForestBaseline,
@@ -699,8 +699,38 @@ function Set-ServerProperties {
     [IO.File]::WriteAllLines($Path, $lines, [Text.UTF8Encoding]::new($false))
 }
 
+function Get-BdsWorldIdentityChild {
+    param(
+        [Parameter(Mandatory = $true)][string]$ParentPath,
+        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $true)][string]$Label,
+        [switch]$AllowMissing
+    )
+
+    $path = [IO.Path]::Combine($ParentPath, $Name)
+    try {
+        return Get-Item -LiteralPath $path -Force -ErrorAction Stop
+    }
+    catch {
+        if ($_.Exception -isnot [Management.Automation.ItemNotFoundException]) {
+            throw
+        }
+        $unresolvedEntries = @(Get-ChildItem -LiteralPath $ParentPath -Force -ErrorAction Stop | Where-Object Name -CEQ $Name)
+        if ($unresolvedEntries.Count -ne 0) {
+            throw "$Label exists but could not be resolved safely: $path"
+        }
+        if ($AllowMissing) {
+            return $null
+        }
+        throw "$Label does not exist: $path"
+    }
+}
+
 function Get-BdsSourceWorldIdentity {
-    param([Parameter(Mandatory = $true)][string]$SourceDirectory)
+    param(
+        [Parameter(Mandatory = $true)][string]$SourceDirectory,
+        [switch]$AllowMissingWorld
+    )
 
     $sourceInputInfo = Get-Item -LiteralPath $SourceDirectory -Force -ErrorAction Stop
     if (-not $sourceInputInfo.PSIsContainer -or
@@ -728,13 +758,27 @@ function Get-BdsSourceWorldIdentity {
     }
     $levelName = $levelNameValues[0]
     $worldsPath = [IO.Path]::Combine($sourceFull, 'worlds')
-    $worldsInfo = Get-Item -LiteralPath $worldsPath -Force -ErrorAction Stop
+    $worldsInfo = Get-BdsWorldIdentityChild `
+        -ParentPath $sourceFull `
+        -Name 'worlds' `
+        -Label 'BDS source worlds directory' `
+        -AllowMissing:$AllowMissingWorld
+    if ($null -eq $worldsInfo) {
+        return $null
+    }
     if (-not $worldsInfo.PSIsContainer -or
         (($worldsInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) {
         throw "invalid BDS source worlds directory: $worldsPath"
     }
     $worldPath = [IO.Path]::Combine($worldsPath, $levelName)
-    $worldInfo = Get-Item -LiteralPath $worldPath -Force -ErrorAction Stop
+    $worldInfo = Get-BdsWorldIdentityChild `
+        -ParentPath $worldsPath `
+        -Name $levelName `
+        -Label 'BDS source world directory' `
+        -AllowMissing:$AllowMissingWorld
+    if ($null -eq $worldInfo) {
+        return $null
+    }
     if (-not $worldInfo.PSIsContainer -or
         (($worldInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) {
         throw "invalid BDS source world directory: $worldPath"
@@ -1704,18 +1748,261 @@ function New-LeafForestPlan {
     }
 }
 
+function ConvertTo-BdsCanonicalStateSuffix {
+    param([Parameter(Mandatory = $true)][AllowEmptyString()][string]$CanonicalState)
+
+    if ($CanonicalState -ceq '{}') {
+        return ''
+    }
+    $state = $CanonicalState | ConvertFrom-Json
+    $assignments = [Collections.Generic.List[string]]::new()
+    foreach ($property in @($state.PSObject.Properties | Sort-Object Name)) {
+        $typed = $property.Value
+        $value = switch ([string]$typed.type) {
+            'byte' {
+                if ([int]$typed.value -eq 0) { 'false' }
+                elseif ([int]$typed.value -eq 1) { 'true' }
+                else { [string][int]$typed.value }
+            }
+            'int' { [string][int]$typed.value }
+            'string' { '"' + ([string]$typed.value).Replace('\', '\\').Replace('"', '\"') + '"' }
+            default { throw "unsupported canonical state type '$($typed.type)' for '$($property.Name)'" }
+        }
+        $assignments.Add(('"{0}"={1}' -f $property.Name, $value))
+    }
+    return ' [' + ($assignments -join ',') + ']'
+}
+
+function Get-CrossCropCoverageEvidence {
+    param(
+        [Parameter(Mandatory = $true)][string]$RegistryPath,
+        [Parameter(Mandatory = $true)][string]$AssetsPath
+    )
+
+    $registryBytes = [IO.File]::ReadAllBytes($RegistryPath)
+    $reader = [IO.BinaryReader]::new([IO.MemoryStream]::new($registryBytes, $false))
+    $utf8 = [Text.UTF8Encoding]::new($false, $true)
+    try {
+        if ($utf8.GetString($reader.ReadBytes(8)) -cne 'BREG1003' -or $reader.ReadUInt32() -ne 1001) {
+            throw 'cross/crop coverage requires the protocol-1001 BREG1003 registry'
+        }
+        $null = $reader.ReadUInt32()
+        $recordCount = [int]$reader.ReadUInt32()
+        foreach ($ignored in 1..4) { $null = $reader.ReadUInt32() }
+        $entries = [Collections.Generic.List[object]]::new()
+        for ($recordIndex = 0; $recordIndex -lt $recordCount; $recordIndex++) {
+            $sequentialId = $reader.ReadUInt32()
+            $null = $reader.ReadUInt32()
+            $null = $reader.ReadByte()
+            $family = $reader.ReadByte()
+            $null = $reader.ReadByte()
+            $null = $reader.ReadByte()
+            $null = $reader.ReadByte()
+            $null = $reader.ReadByte()
+            $null = $reader.ReadByte()
+            $boxCount = [int]$reader.ReadByte()
+            $null = $reader.ReadUInt16()
+            $nameLength = [int]$reader.ReadUInt16()
+            $stateLength = [int]$reader.ReadUInt32()
+            $null = $reader.ReadBytes(32)
+            $null = $reader.ReadBytes(24 * $boxCount)
+            $name = $utf8.GetString($reader.ReadBytes($nameLength))
+            $canonicalState = $utf8.GetString($reader.ReadBytes($stateLength))
+            if ($family -in @(4, 5)) {
+                $entries.Add([pscustomobject][ordered]@{
+                    sequential_id = $sequentialId
+                    family = if ($family -eq 4) { 'Cross' } else { 'Crop' }
+                    name = $name
+                    canonical_state = $canonicalState
+                })
+            }
+        }
+        if ($reader.BaseStream.Position -ne $reader.BaseStream.Length) {
+            throw 'BREG1003 registry has trailing bytes'
+        }
+    }
+    finally {
+        $reader.Dispose()
+    }
+
+    $assetBytes = [IO.File]::ReadAllBytes($AssetsPath)
+    if ($assetBytes.Length -lt 200 -or $utf8.GetString($assetBytes, 0, 8) -cne 'MCBEAS04' -or
+        [BitConverter]::ToUInt32($assetBytes, 8) -ne 4) {
+        throw 'cross/crop coverage requires an MCBEAS04 compiled asset blob'
+    }
+    $visualCount = [BitConverter]::ToUInt32($assetBytes, 20)
+    $visualOffset = [BitConverter]::ToUInt64($assetBytes, 96)
+    if ($visualOffset -gt [uint64]$assetBytes.Length -or
+        [uint64]$visualCount * 40 -gt [uint64]$assetBytes.Length - $visualOffset) {
+        throw 'MCBEAS04 visual table is out of bounds'
+    }
+    $diagnosticCross = 0
+    $diagnosticCrop = 0
+    foreach ($entry in $entries) {
+        if ([uint64]$entry.sequential_id -ge [uint64]$visualCount) {
+            throw "registry sequential ID $($entry.sequential_id) is absent from the MCBEAS04 visual table"
+        }
+        $offset = [int]($visualOffset + 40 * [uint64]$entry.sequential_id)
+        $isDiagnostic = $assetBytes[$offset + 25] -ne 2 -or [BitConverter]::ToUInt32($assetBytes, $offset + 28) -eq [uint32]::MaxValue
+        if ($isDiagnostic) {
+            if ($entry.family -ceq 'Cross') { $diagnosticCross++ } else { $diagnosticCrop++ }
+        }
+    }
+    if ($diagnosticCross -ne 0 -or $diagnosticCrop -ne 0) {
+        throw "cross/crop compiled coverage contains diagnostic visuals: cross=$diagnosticCross crop=$diagnosticCrop"
+    }
+    $crossCount = @($entries | Where-Object family -CEQ 'Cross').Count
+    $cropCount = @($entries | Where-Object family -CEQ 'Crop').Count
+    $stateSetHash = Get-CanonicalObjectHash -Value @($entries | ForEach-Object {
+        [pscustomobject][ordered]@{
+            sequential_id = $_.sequential_id
+            family = $_.family
+            name = $_.name
+            canonical_state = $_.canonical_state
+        }
+    })
+    return [pscustomobject][ordered]@{
+        schema = 'rust-mcbe-cross-crop-coverage-v1'
+        registry_protocol = 1001
+        compiler_schema = 'MCBEAS04'
+        registry_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $RegistryPath).Hash.ToLowerInvariant()
+        assets_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $AssetsPath).Hash.ToLowerInvariant()
+        state_set_sha256 = $stateSetHash
+        state_count = $entries.Count
+        cross_state_count = $crossCount
+        crop_state_count = $cropCount
+        diagnostic_cross = $diagnosticCross
+        diagnostic_crop = $diagnosticCrop
+        entries = @($entries)
+    }
+}
+
+function New-CrossCropGalleryPlan {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateCount(3, 3)]
+        [int[]]$MutationCoordinate,
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('CrossCropGalleryFront', 'CrossCropGalleryBack')]
+        [string]$Pose,
+        [Parameter(Mandatory = $true)][string]$RegistryPath,
+        [Parameter(Mandatory = $true)][string]$AssetsPath
+    )
+
+    $coverage = Get-CrossCropCoverageEvidence -RegistryPath $RegistryPath -AssetsPath $AssetsPath
+    $mx = [int]$MutationCoordinate[0]
+    $my = [int]$MutationCoordinate[1]
+    $mz = [int]$MutationCoordinate[2]
+    $columns = 24
+    $clearMin = [pscustomobject][ordered]@{ x = $mx - 24; y = $my + 1; z = $mz - 20 }
+    $clearMax = [pscustomobject][ordered]@{ x = $mx + 24; y = $my + 5; z = $mz + 20 }
+    $clearVolume = ($clearMax.x - $clearMin.x + 1) *
+        ($clearMax.y - $clearMin.y + 1) *
+        ($clearMax.z - $clearMin.z + 1)
+    if ($clearVolume -gt 32768) {
+        throw "cross/crop gallery clear volume exceeds BDS fill limit: $clearVolume"
+    }
+    $galleryCenter = [pscustomobject][ordered]@{ x = $mx; y = $my + 3; z = $mz }
+    $camera = if ($Pose -ceq 'CrossCropGalleryFront') {
+        [pscustomobject][ordered]@{ x = $mx; y = $my + 10; z = $mz - 70 }
+    }
+    else {
+        [pscustomobject][ordered]@{ x = $mx; y = $my + 9; z = $mz + 70 }
+    }
+
+    $fixtureCommands = [Collections.Generic.List[string]]::new()
+    $fixtureCommands.Add("fill $($clearMin.x) $($clearMin.y) $($clearMin.z) $($clearMax.x) $($clearMax.y) $($clearMax.z) minecraft:air")
+    $fixtureCommands.Add("fill $($clearMin.x) $($my + 1) $($clearMin.z) $($clearMax.x) $($my + 1) $($clearMax.z) minecraft:farmland")
+    for ($index = 0; $index -lt $coverage.entries.Count; $index++) {
+        $x = $mx - 23 + 2 * ($index % $columns)
+        $z = $mz - 18 + 2 * [Math]::Floor($index / $columns)
+        $entry = $coverage.entries[$index]
+        $stateSuffix = ConvertTo-BdsCanonicalStateSuffix -CanonicalState $entry.canonical_state
+        $fixtureCommands.Add("setblock $x $($my + 2) $z $($entry.name)$stateSuffix")
+    }
+    $fenceMarker = 'players online:'
+    $fenceCommand = 'list'
+    $teleportCommand = "tp @a[name=RustMCBE] $($camera.x) $($camera.y) $($camera.z) facing $($galleryCenter.x) $($galleryCenter.y) $($galleryCenter.z)"
+    $commands = @($fixtureCommands) + @($fenceCommand, $teleportCommand)
+    if ($commands.Count -gt 512) {
+        throw "cross/crop gallery command list is not bounded: $($commands.Count)"
+    }
+    $relativeLayout = [pscustomobject][ordered]@{
+        schema = 'rust-mcbe-cross-crop-layout-v1'
+        state_set_sha256 = $coverage.state_set_sha256
+        gallery_state_count = $coverage.state_count
+        clear_min = @(-24, 1, -20)
+        clear_max = @(24, 5, 20)
+        support_min = @(-24, 1, -20)
+        support_max = @(24, 1, 20)
+        support_block = 'minecraft:farmland'
+        grid_origin = @(-23, 2, -18)
+        columns = $columns
+        spacing = @(2, 2)
+    }
+    $layoutHash = Get-CanonicalObjectHash -Value $relativeLayout
+    $manifest = [pscustomobject][ordered]@{
+        schema = 'rust-mcbe-visual-fixture-v1'
+        fixture_kind = 'CrossCropGallery'
+        pose = $Pose
+        mutation = [pscustomobject][ordered]@{ x = $mx; y = $my; z = $mz }
+        fixture_layout_hash = $layoutHash
+        relative_layout = $relativeLayout
+        gallery_center = $galleryCenter
+        camera = [pscustomobject][ordered]@{ position = $camera; target = $galleryCenter }
+        gallery_state_count = $coverage.state_count
+        gallery_states = @($coverage.entries | ForEach-Object { "$($_.name)|$($_.canonical_state)" })
+        family_diagnostics = [pscustomobject][ordered]@{ cross = $coverage.diagnostic_cross; crop = $coverage.diagnostic_crop }
+        coverage_evidence = [pscustomobject][ordered]@{
+            schema = $coverage.schema
+            state_set_sha256 = $coverage.state_set_sha256
+            state_count = $coverage.state_count
+            cross_state_count = $coverage.cross_state_count
+            crop_state_count = $coverage.crop_state_count
+            registry_sha256 = $coverage.registry_sha256
+            assets_sha256 = $coverage.assets_sha256
+        }
+        artifact_identity = [pscustomobject][ordered]@{
+            assets_sha256 = $coverage.assets_sha256
+            registry_sha256 = $coverage.registry_sha256
+            registry_protocol = $coverage.registry_protocol
+            compiler_schema = $coverage.compiler_schema
+        }
+        fixture_commands = @($fixtureCommands)
+        processing_fence = [pscustomobject][ordered]@{ command = $fenceCommand; stdout_marker = $fenceMarker }
+        teleport_command = $teleportCommand
+        settle_milliseconds = 3000
+    }
+    return [pscustomobject][ordered]@{
+        Pose = $Pose
+        FixtureCommands = @($fixtureCommands)
+        GalleryCommands = @($fixtureCommands)
+        FenceMarker = $fenceMarker
+        FenceCommand = $fenceCommand
+        TeleportCommand = $teleportCommand
+        Commands = $commands
+        Manifest = $manifest
+        CoverageEntries = @($coverage.entries)
+    }
+}
+
 function New-VisualFixturePlan {
     param(
         [Parameter(Mandatory = $true)]
         [ValidateCount(3, 3)]
         [int[]]$MutationCoordinate,
         [Parameter(Mandatory = $true)]
-        [ValidateSet('Front', 'Back', 'LeafGalleryFront', 'LeafGalleryBack')]
-        [string]$Pose
+        [ValidateSet('Front', 'Back', 'LeafGalleryFront', 'LeafGalleryBack', 'CrossCropGalleryFront', 'CrossCropGalleryBack')]
+        [string]$Pose,
+        [string]$RegistryPath,
+        [string]$AssetsPath
     )
 
     if ($Pose.StartsWith('LeafGallery', [StringComparison]::Ordinal)) {
         return New-LeafGalleryPlan -MutationCoordinate $MutationCoordinate -Pose $Pose
+    }
+    if ($Pose.StartsWith('CrossCropGallery', [StringComparison]::Ordinal)) {
+        return New-CrossCropGalleryPlan -MutationCoordinate $MutationCoordinate -Pose $Pose -RegistryPath $RegistryPath -AssetsPath $AssetsPath
     }
     return New-OpaqueVisualFixturePlan -MutationCoordinate $MutationCoordinate -Pose $Pose
 }
@@ -1781,22 +2068,33 @@ function Write-BdsConsoleCommand {
 function Set-BdsSourceWorldIdentityOnPlan {
     param(
         [Parameter(Mandatory = $true)]$Plan,
-        [Parameter(Mandatory = $true)]$Identity
+        [Parameter(Mandatory = $true)][AllowNull()]$Identity,
+        [AllowNull()]$RuntimeIdentity = $null
     )
 
-    if ([string]$Plan.Manifest.schema -cne 'rust-mcbe-visual-fixture-v2') {
+    $identityField = if ($null -ne $Identity) {
+        'source_world_identity'
+    }
+    elseif ($null -ne $RuntimeIdentity) {
+        'runtime_world_identity'
+    }
+    elseif ([string]$Plan.Manifest.schema -ceq 'rust-mcbe-visual-fixture-v2') {
+        throw 'schema-v2 fixture plan requires source or runtime world identity evidence'
+    }
+    else {
         return
     }
-    if ($null -ne $Plan.Manifest.PSObject.Properties['source_world_identity']) {
-        throw 'schema-v2 fixture plan already contains source_world_identity'
+    if ($null -ne $Plan.Manifest.PSObject.Properties[$identityField]) {
+        throw "fixture plan already contains $identityField"
     }
-    $Plan.Manifest | Add-Member -MemberType NoteProperty -Name source_world_identity -Value ([pscustomobject][ordered]@{
-        schema = [string]$Identity.schema
-        level_name = [string]$Identity.level_name
-        file_count = [uint64]$Identity.file_count
-        total_bytes = [uint64]$Identity.total_bytes
-        level_dat_sha256 = [string]$Identity.level_dat_sha256
-        sha256 = [string]$Identity.sha256
+    $selectedIdentity = if ($null -ne $Identity) { $Identity } else { $RuntimeIdentity }
+    $Plan.Manifest | Add-Member -MemberType NoteProperty -Name $identityField -Value ([pscustomobject][ordered]@{
+        schema = [string]$selectedIdentity.schema
+        level_name = [string]$selectedIdentity.level_name
+        file_count = [uint64]$selectedIdentity.file_count
+        total_bytes = [uint64]$selectedIdentity.total_bytes
+        level_dat_sha256 = [string]$selectedIdentity.level_dat_sha256
+        sha256 = [string]$selectedIdentity.sha256
     })
 }
 
@@ -3341,12 +3639,14 @@ if ($env:RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY -eq '1') {
 if ($DurationSeconds -lt 60) {
     throw 'DurationSeconds must be at least 60'
 }
-$canonicalVisualFixturePoses = @('None', 'Front', 'Back', 'LeafGalleryFront', 'LeafGalleryBack')
+$canonicalVisualFixturePoses = @('None', 'Front', 'Back', 'LeafGalleryFront', 'LeafGalleryBack', 'CrossCropGalleryFront', 'CrossCropGalleryBack')
 if (-not ($canonicalVisualFixturePoses -ccontains $VisualFixturePose)) {
     throw "VisualFixturePose must use canonical casing: $VisualFixturePose"
 }
 $isLeafGallery = $VisualFixturePose -in @('LeafGalleryFront', 'LeafGalleryBack')
-$isLeafEvidence = $isLeafGallery -or $LeafForestBaseline -or $LeafForestFullView
+$isCrossCropGallery = $VisualFixturePose -in @('CrossCropGalleryFront', 'CrossCropGalleryBack')
+$isDeterministicGallery = $isLeafGallery -or $isCrossCropGallery
+$isLeafEvidence = $isDeterministicGallery -or $LeafForestBaseline -or $LeafForestFullView
 $hasClientExecutable = $PSBoundParameters.ContainsKey('ClientExecutable')
 if ($PSBoundParameters.ContainsKey('SteadyResourceTrigger') -and
     -not (@('WorldReady', 'VisualFixtureReady', 'FullViewPresented') -ccontains $SteadyResourceTrigger)) {
@@ -3381,12 +3681,12 @@ if ($LeafForestBaseline) {
         throw 'LeafForestBaseline requires SteadyResourceTrigger WorldReady'
     }
 }
-if ($isLeafGallery) {
+if ($isDeterministicGallery) {
     if (-not $UseVsync) {
-        throw 'leaf gallery modes require UseVsync'
+        throw 'deterministic gallery modes require UseVsync'
     }
     if ([string]$SteadyResourceTrigger -cne 'VisualFixtureReady') {
-        throw 'leaf gallery modes require SteadyResourceTrigger VisualFixtureReady'
+        throw 'deterministic gallery modes require SteadyResourceTrigger VisualFixtureReady'
     }
 }
 if ($LeafForestFullView -and [string]$SteadyResourceTrigger -cne 'FullViewPresented') {
@@ -3396,8 +3696,8 @@ if ($PSBoundParameters.ContainsKey('SteadyResourceTrigger')) {
     if ($SteadyResourceTrigger -ceq 'WorldReady' -and -not $LeafForestBaseline) {
         throw 'SteadyResourceTrigger WorldReady is reserved for LeafForestBaseline'
     }
-    if ($SteadyResourceTrigger -ceq 'VisualFixtureReady' -and -not $isLeafGallery) {
-        throw 'SteadyResourceTrigger VisualFixtureReady requires a leaf gallery pose'
+    if ($SteadyResourceTrigger -ceq 'VisualFixtureReady' -and -not $isDeterministicGallery) {
+        throw 'SteadyResourceTrigger VisualFixtureReady requires a deterministic gallery pose'
     }
     if ($SteadyResourceTrigger -ceq 'FullViewPresented' -and -not $FullViewTeleportGate) {
         throw 'SteadyResourceTrigger FullViewPresented requires FullViewTeleportGate'
@@ -3453,6 +3753,13 @@ if (-not (Test-Path -LiteralPath $BdsSourceExecutable -PathType Leaf)) {
 }
 
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$BlockRegistryPath = Join-Path $ProjectRoot 'crates\assets\data\block-registry-v1001.bin'
+$CrossCropCoverage = if ($isCrossCropGallery) {
+    Get-CrossCropCoverageEvidence -RegistryPath $BlockRegistryPath -AssetsPath $Assets
+}
+else {
+    $null
+}
 $MetricsOut = [IO.Path]::GetFullPath($MetricsOut)
 $RuntimeDirectory = Join-Path (Join-Path $ProjectRoot '.local\bds-runtime') (Split-Path -Leaf $BdsDir)
 $RunName = if ($DryRun) { 'dry-run' } else { "{0}-{1}" -f [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ'), $PID }
@@ -3506,6 +3813,15 @@ if ($DryRun) {
     if ($VisualFixturePose -ne 'None') {
         Write-Output "VISUAL_FIXTURE_POSE=$VisualFixturePose"
     }
+    if ($isCrossCropGallery) {
+        Write-Output "CROSS_CROP_GALLERY_ASSETS_SHA256=$($CrossCropCoverage.assets_sha256)"
+        $galleryArguments = [pscustomobject][ordered]@{
+            pose = $VisualFixturePose
+            state_set_sha256 = $CrossCropCoverage.state_set_sha256
+            state_count = $CrossCropCoverage.state_count
+        }
+        Write-Output "CROSS_CROP_GALLERY_ARGUMENTS_SHA256=$(Get-CanonicalObjectHash -Value $galleryArguments)"
+    }
     if ($FullViewTeleportGate) {
         Write-Output 'FULL_VIEW_TELEPORT_GATE=1'
     }
@@ -3551,13 +3867,14 @@ $activeMutationCoordinate = $null
 $baselineSourceMutationCommand = $null
 $baselineForestPlan = $null
 $sourceWorldIdentity = $null
+$runtimeWorldIdentity = $null
 $metrics = $null
 
 try {
     New-Item -ItemType Directory -Path $RunDirectory -Force | Out-Null
 
     if ($isLeafEvidence) {
-        $sourceWorldIdentity = Get-BdsSourceWorldIdentity -SourceDirectory $BdsDir
+        $sourceWorldIdentity = Get-BdsSourceWorldIdentity -SourceDirectory $BdsDir -AllowMissingWorld
     }
 
     $repoCommit = (& git -C $ProjectRoot rev-parse HEAD).Trim()
@@ -3597,6 +3914,34 @@ try {
     }
     if ($VisualFixturePose -ne 'None') {
         $metadata['visual_fixture_pose'] = $VisualFixturePose
+    }
+    if ($isCrossCropGallery) {
+        $crossCropGalleryArguments = [pscustomobject][ordered]@{
+            pose = $VisualFixturePose
+            state_set_sha256 = $CrossCropCoverage.state_set_sha256
+            state_count = $CrossCropCoverage.state_count
+        }
+        $metadata['cross_crop_gallery'] = [pscustomobject][ordered]@{
+            arguments = $crossCropGalleryArguments
+            arguments_sha256 = Get-CanonicalObjectHash -Value $crossCropGalleryArguments
+            coverage_evidence = [pscustomobject][ordered]@{
+                schema = $CrossCropCoverage.schema
+                state_set_sha256 = $CrossCropCoverage.state_set_sha256
+                state_count = $CrossCropCoverage.state_count
+                cross_state_count = $CrossCropCoverage.cross_state_count
+                crop_state_count = $CrossCropCoverage.crop_state_count
+                diagnostic_cross = $CrossCropCoverage.diagnostic_cross
+                diagnostic_crop = $CrossCropCoverage.diagnostic_crop
+            }
+            artifact_identity = [pscustomobject][ordered]@{
+                assets = $Assets
+                assets_sha256 = $CrossCropCoverage.assets_sha256
+                registry = $BlockRegistryPath
+                registry_sha256 = $CrossCropCoverage.registry_sha256
+                registry_protocol = $CrossCropCoverage.registry_protocol
+                compiler_schema = $CrossCropCoverage.compiler_schema
+            }
+        }
     }
     if ($FullViewTeleportGate) {
         $metadata['full_view_teleport_gate'] = $true
@@ -3673,6 +4018,12 @@ try {
         -TimeoutSeconds 120 `
         -ReadinessProbe $bdsReadinessProbe
 
+    if ($VisualFixturePose -ne 'None' -or $LeafForestBaseline -or $LeafForestFullView) {
+        $runtimeWorldIdentity = Get-BdsSourceWorldIdentity -SourceDirectory $RuntimeDirectory
+        $metadata['runtime_world_identity'] = $runtimeWorldIdentity
+        $metadata | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $RunDirectory 'metadata.json') -Encoding UTF8
+    }
+
     $coreHandle = Start-LoggedProcess -Executable $CoreExecutable -Arguments $CoreArguments -WorkingDirectory $ProjectRoot -StdoutPath (Join-Path $RunDirectory 'core.stdout.log') -StderrPath (Join-Path $RunDirectory 'core.stderr.log')
     $endpointPath = Join-Path $SocketDirectory 'game.addr'
     $endpointDeadline = [DateTime]::UtcNow.AddSeconds(30)
@@ -3704,7 +4055,7 @@ try {
             -Coordinate $coordinate `
             -RunDirectory $RunDirectory
         $baselineForestPlan = New-LeafForestPlan -MutationCoordinate $coordinate -Mode Baseline
-        Set-BdsSourceWorldIdentityOnPlan -Plan $baselineForestPlan -Identity $sourceWorldIdentity
+        Set-BdsSourceWorldIdentityOnPlan -Plan $baselineForestPlan -Identity $sourceWorldIdentity -RuntimeIdentity $runtimeWorldIdentity
         $null = Start-BdsFixtureLoadArea `
             -Handle $bdsHandle `
             -Plan $baselineForestPlan `
@@ -3744,7 +4095,7 @@ try {
         else {
             New-FullViewTeleportPlan -MutationCoordinate $coordinate
         }
-        Set-BdsSourceWorldIdentityOnPlan -Plan $teleportPlan -Identity $sourceWorldIdentity
+        Set-BdsSourceWorldIdentityOnPlan -Plan $teleportPlan -Identity $sourceWorldIdentity -RuntimeIdentity $runtimeWorldIdentity
         $fixturePublication = Publish-FullViewTeleport `
             -Handle $bdsHandle `
             -Plan $teleportPlan `
@@ -3893,13 +4244,17 @@ try {
         $metadata['fixture_layout_hash'] = $fixturePublication.LayoutHash
     }
     elseif ($VisualFixturePose -ne 'None') {
-        $fixturePlan = New-VisualFixturePlan -MutationCoordinate $coordinate -Pose $VisualFixturePose
-        Set-BdsSourceWorldIdentityOnPlan -Plan $fixturePlan -Identity $sourceWorldIdentity
+        $fixturePlan = New-VisualFixturePlan `
+            -MutationCoordinate $coordinate `
+            -Pose $VisualFixturePose `
+            -RegistryPath $BlockRegistryPath `
+            -AssetsPath $Assets
+        Set-BdsSourceWorldIdentityOnPlan -Plan $fixturePlan -Identity $sourceWorldIdentity -RuntimeIdentity $runtimeWorldIdentity
         $fixturePublication = Publish-VisualFixture `
             -Handle $bdsHandle `
             -Plan $fixturePlan `
             -RunDirectory $RunDirectory
-        if ($isLeafGallery) {
+        if ($isDeterministicGallery) {
             $steadyTriggerEvidence = New-SteadyResourceTriggerEvidence `
                 -Kind VisualFixtureReady `
                 -FixturePublication $fixturePublication

@@ -28,8 +28,8 @@ const AIR: u32 = 12_530;
 
 #[test]
 fn task7_streams_share_one_physical_buffer_with_binding_headroom() {
-    const CURRENT_VERTEX_STORAGE_BINDINGS: usize = 5;
-    const FUTURE_MODEL_TEMPLATE_BINDINGS: usize = 1;
+    const CURRENT_VERTEX_STORAGE_BINDINGS: usize = 6;
+    const MODEL_TEMPLATE_BINDINGS: usize = 1;
     let plugin = include_str!("../src/plugin.rs");
     let legacy_task7_buffers = [
         "model_buffer: Buffer",
@@ -48,10 +48,66 @@ fn task7_streams_share_one_physical_buffer_with_binding_headroom() {
         "the four logical Task 7 streams must share one physical storage buffer"
     );
     assert!(
-        CURRENT_VERTEX_STORAGE_BINDINGS + task7_physical_buffers + FUTURE_MODEL_TEMPLATE_BINDINGS
-            <= 8,
+        CURRENT_VERTEX_STORAGE_BINDINGS + task7_physical_buffers + MODEL_TEMPLATE_BINDINGS <= 8,
         "the projected vertex-stage storage bindings must fit the common/minimum limit"
     );
+}
+
+#[test]
+fn crossed_model_pipeline_is_two_sided_and_uses_shared_bounded_bindings() {
+    let plugin = include_str!("../src/plugin.rs");
+    let shader = include_str!("../src/model.wgsl");
+    assert!(plugin.contains("load_internal_asset!(app, MODEL_SHADER_HANDLE, \"model.wgsl\""));
+    assert!(plugin.contains("\"packed model pipeline\""));
+    assert!(plugin.contains("model_descriptor.primitive.cull_mode = None"));
+    assert!(plugin.contains("resource: arena.geometry_stream_buffer.as_entire_binding()"));
+    assert!(plugin.contains("resource: texture_assets.model_template_buffer.as_entire_binding()"));
+    assert!(plugin.contains("MODEL_TEMPLATE_BINDING_BUDGET: u32 = 8"));
+    assert!(plugin.contains("MODEL_VERTEX_STORAGE_BINDINGS: u32 = 8"));
+    assert!(plugin.contains("MODEL_VERTEX_STORAGE_BINDINGS <= MODEL_TEMPLATE_BINDING_BUDGET"));
+    assert!(shader.contains("@binding(12) var<storage, read> model_templates: array<u32>"));
+    assert!(shader.contains("@binding(13) var<storage, read> geometry_streams: array<u32>"));
+    assert!(shader.contains("visible_quad_mask"));
+    assert!(shader.contains("lighting_base_index"));
+    assert!(shader.contains("block_light"));
+    assert!(shader.contains("sky_light"));
+    assert!(shader.contains("safe_quad_index"));
+    let zero_guard = shader
+        .find("if (quad_count == 0u)")
+        .expect("zero-quad templates require an early invisible return");
+    assert!(zero_guard < shader.find("template_quad_base").unwrap());
+    assert!(zero_guard < shader.find("let light_word").unwrap());
+    assert!(shader.contains("sampled.a < 0.5"));
+    assert!(!shader.contains("face_light"));
+}
+
+#[test]
+fn crossed_model_shader_parses_validates_and_has_one_shared_binding_shape() {
+    let shader = include_str!("../src/model.wgsl").replacen(
+        "#import bevy_render::view::View",
+        "struct View { clip_from_world: mat4x4<f32>, }",
+        1,
+    );
+    let module = naga::front::wgsl::parse_str(&shader).expect("parse packed model WGSL");
+    naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::all(),
+    )
+    .validate(&module)
+    .expect("validate packed model WGSL");
+    assert_eq!(shader.matches("@group(0) @binding(").count(), 14);
+    for binding in 0..=13 {
+        assert!(shader.contains(&format!("@group(0) @binding({binding})")));
+    }
+}
+
+#[test]
+fn crossed_model_direct_and_mdi_commands_have_identical_output_addressing() {
+    let source = include_str!("../src/plugin.rs");
+    assert!(source.contains("fn model_direct_draw_command("));
+    assert!(source.contains("fn model_mdi_draw_command("));
+    assert!(source.contains("model_draw_command(allocation, direct_stream_addresses(allocation))"));
+    assert!(source.contains("model_draw_command(allocation, mdi_stream_addresses(allocation))"));
 }
 
 #[test]
@@ -544,7 +600,7 @@ fn render_queue_carries_biome_tint_revision_to_the_instance() {
 }
 
 #[test]
-fn packed_chunk_pipeline_remains_one_opaque_depth_writing_path() {
+fn packed_chunk_pipeline_family_remains_one_opaque_depth_writing_phase() {
     let plugin = include_str!("../src/plugin.rs");
 
     assert_eq!(
@@ -553,7 +609,7 @@ fn packed_chunk_pipeline_remains_one_opaque_depth_writing_path() {
             .count(),
         1
     );
-    assert_eq!(plugin.matches(".add_render_command::<Opaque3d").count(), 2);
+    assert_eq!(plugin.matches(".add_render_command::<Opaque3d").count(), 4);
     assert_eq!(plugin.matches("BindGroupLayoutDescriptor::new(").count(), 1);
     assert_eq!(
         plugin.matches("render_device.create_bind_group(").count(),
@@ -564,8 +620,8 @@ fn packed_chunk_pipeline_remains_one_opaque_depth_writing_path() {
     assert!(plugin.contains("layout: vec![bind_group_layout.clone()]"));
     assert!(plugin.contains("blend: None"));
     assert!(plugin.contains("depth_write_enabled: true"));
-    assert_eq!(plugin.matches("binding: ").count(), 24);
-    for binding in 0..=11 {
+    assert_eq!(plugin.matches("binding: ").count(), 28);
+    for binding in 0..=13 {
         assert_eq!(
             plugin.matches(&format!("binding: {binding},")).count(),
             2,
@@ -598,8 +654,8 @@ fn packed_chunk_pipeline_remains_one_opaque_depth_writing_path() {
         plugin
             .matches("pass.set_bind_group(0, bind_group, &[view_offset.offset]);")
             .count(),
-        2,
-        "direct and MDI must share the same global bind group"
+        4,
+        "cube/model direct and MDI must share the same global bind group"
     );
 }
 

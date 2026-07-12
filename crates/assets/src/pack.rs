@@ -185,6 +185,29 @@ impl TerrainTextureMap {
         }
     }
 
+    /// Resolves an immutable model material and records its selected terrain
+    /// array index for deterministic state-to-variant inspection.
+    pub(crate) fn get_for_model_record(
+        &self,
+        key: &str,
+        record: &RegistryRecord,
+    ) -> Option<(&str, u32)> {
+        let paths = self.entries.get(key)?;
+        match paths {
+            TerrainPaths::Static { path, .. } => Some((path, 0)),
+            TerrainPaths::Variants { paths, .. } => {
+                let selected = if is_mushroom_face_key(key, &record.name) {
+                    mushroom_variant_index(record).filter(|_| paths.len() == 16)?
+                } else {
+                    model_variant_index(key, record, paths.len())?
+                };
+                paths
+                    .get(selected)
+                    .map(|path| (path.as_ref(), selected as u32))
+            }
+        }
+    }
+
     pub(crate) fn source_paths(&self) -> impl Iterator<Item = &str> {
         self.entries.values().flat_map(TerrainPaths::paths)
     }
@@ -433,7 +456,11 @@ pub fn resolve_texture_key(
         .name
         .strip_prefix("minecraft:")
         .unwrap_or(&record.name);
-    let resource_pack_name = legacy_resource_pack_block_alias(block_name).unwrap_or(block_name);
+    let resource_pack_name = if blocks.entries.contains_key(block_name) {
+        block_name
+    } else {
+        legacy_resource_pack_block_alias(block_name).unwrap_or(block_name)
+    };
     let Some(texture) = blocks.entries.get(resource_pack_name) else {
         return TextureKey::diagnostic();
     };
@@ -455,8 +482,117 @@ fn legacy_resource_pack_block_alias(block_name: &str) -> Option<&'static str> {
     match block_name {
         "grass_block" => Some("grass"),
         "sea_lantern" => Some("seaLantern"),
+        "dandelion" => Some("yellow_flower"),
+        "poppy" | "blue_orchid" | "allium" | "azure_bluet" | "red_tulip" | "orange_tulip"
+        | "white_tulip" | "pink_tulip" | "oxeye_daisy" | "cornflower" | "lily_of_the_valley" => {
+            Some("red_flower")
+        }
+        "oak_sapling" | "spruce_sapling" | "birch_sapling" | "jungle_sapling"
+        | "acacia_sapling" | "dark_oak_sapling" => Some("sapling"),
         _ => None,
     }
+}
+
+fn model_variant_index(key: &str, record: &RegistryRecord, count: usize) -> Option<usize> {
+    if count == 0 {
+        return None;
+    }
+    let name = record
+        .name
+        .strip_prefix("minecraft:")
+        .unwrap_or(&record.name);
+    let selected = match key {
+        "red_flower" => match name {
+            "poppy" => 0,
+            "blue_orchid" => 1,
+            "allium" => 2,
+            "azure_bluet" => 3,
+            "red_tulip" => 4,
+            "orange_tulip" => 5,
+            "white_tulip" => 6,
+            "pink_tulip" => 7,
+            "oxeye_daisy" => 8,
+            "cornflower" => 9,
+            "lily_of_the_valley" => 10,
+            _ => canonical_u32(&record.canonical_state, "flower_type")? as usize,
+        },
+        "sapling" => match name {
+            "oak_sapling" => 0,
+            "spruce_sapling" => 1,
+            "birch_sapling" => 2,
+            "jungle_sapling" => 3,
+            "acacia_sapling" => 4,
+            "dark_oak_sapling" => 5,
+            _ => sapling_variant(canonical_string(&record.canonical_state, "sapling_type")?)?,
+        },
+        "wheat" => canonical_u32(&record.canonical_state, "growth")? as usize,
+        "melon_stem" | "pumpkin_stem" => {
+            usize::from(canonical_u32(&record.canonical_state, "facing_direction")? >= 2)
+        }
+        "carrots" | "potatoes" | "beetroot" => {
+            const STAGES: [usize; 8] = [0, 0, 1, 1, 2, 2, 2, 3];
+            *STAGES.get(canonical_u32(&record.canonical_state, "growth")? as usize)?
+        }
+        "torchflower_crop" => usize::from(canonical_u32(&record.canonical_state, "growth")? >= 4),
+        _ => {
+            let growth = canonical_u32(&record.canonical_state, "growth")
+                .or_else(|| canonical_u32(&record.canonical_state, "growth_stage"))
+                .or_else(|| canonical_u32(&record.canonical_state, "age"));
+            growth.map_or(0, |growth| {
+                if count >= 8 {
+                    growth as usize
+                } else {
+                    (growth as usize).saturating_mul(count) / 8
+                }
+            })
+        }
+    };
+    (selected < count).then_some(selected)
+}
+
+fn canonical_u32(state: &str, property: &str) -> Option<u32> {
+    let document = serde_json::from_str::<Map<String, Value>>(state).ok()?;
+    canonical_value(document.get(property)?)?
+        .as_u64()
+        .and_then(|value| u32::try_from(value).ok())
+}
+
+fn canonical_string<'a>(state: &'a str, property: &str) -> Option<&'a str> {
+    let document = serde_json::from_str::<Map<String, Value>>(state).ok()?;
+    let value = canonical_value(document.get(property)?)?
+        .as_str()?
+        .to_owned();
+    // This helper cannot return data owned by the parsed document, so the only
+    // legacy generic selector is handled by its stable canonical spelling.
+    match value.as_str() {
+        "oak" => Some("oak"),
+        "spruce" => Some("spruce"),
+        "birch" => Some("birch"),
+        "jungle" => Some("jungle"),
+        "acacia" => Some("acacia"),
+        "dark_oak" => Some("dark_oak"),
+        "roofed_oak" => Some("roofed_oak"),
+        _ => None,
+    }
+}
+
+fn canonical_value(value: &Value) -> Option<&Value> {
+    value
+        .as_object()
+        .and_then(|object| object.get("value"))
+        .or(Some(value))
+}
+
+fn sapling_variant(name: &str) -> Option<usize> {
+    Some(match name {
+        "oak" => 0,
+        "spruce" => 1,
+        "birch" => 2,
+        "jungle" => 3,
+        "acacia" => 4,
+        "dark_oak" | "roofed_oak" => 5,
+        _ => return None,
+    })
 }
 
 fn read_blocks(path: &Path) -> Result<BlockTextureMap, AssetError> {

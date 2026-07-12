@@ -2,8 +2,9 @@ use std::{mem::size_of, sync::OnceLock};
 
 use assets::{
     BlockFace, BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, DIAGNOSTIC_MATERIAL,
-    Material, NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TextureArray,
-    TextureMip, TexturePage, TextureRef, VisualKind, encode_blob,
+    MODEL_QUAD_FLAG_TWO_SIDED, Material, ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE,
+    NetworkIdMode, RuntimeAssets, TextureArray, TextureMip, TexturePage, TextureRef, VisualKind,
+    encode_blob,
 };
 use render::{
     BlockClassifier, ChunkMesh, Face, FaceConnectivity, Neighbourhood, PackedLiquidQuad,
@@ -17,6 +18,8 @@ const OPAQUE_B: u32 = 13;
 const DIAGNOSTIC: u32 = 54;
 const LEAF_A: u32 = 55;
 const LEAF_B: u32 = 56;
+const CROSS: u32 = 57;
+const ZERO_QUAD_CROSS: u32 = 58;
 
 #[test]
 fn packed_stream_record_sizes() {
@@ -111,6 +114,24 @@ fn runtime_assets() -> &'static RuntimeAssets {
             animation: NO_ANIMATION,
             variant: 0,
         };
+        visuals[CROSS as usize] = BlockVisual {
+            faces: [1; 6],
+            flags: BlockFlags::empty(),
+            kind: VisualKind::Cross,
+            contributor_role: assets::ContributorRole::Primary,
+            model_template: 0,
+            animation: NO_ANIMATION,
+            variant: 2,
+        };
+        visuals[ZERO_QUAD_CROSS as usize] = BlockVisual {
+            faces: [1; 6],
+            flags: BlockFlags::empty(),
+            kind: VisualKind::Cross,
+            contributor_role: assets::ContributorRole::Primary,
+            model_template: 1,
+            animation: NO_ANIMATION,
+            variant: 0,
+        };
 
         let textures = TextureArray {
             layers: 1,
@@ -137,8 +158,34 @@ fn runtime_assets() -> &'static RuntimeAssets {
                 67
             ]
             .into_boxed_slice(),
-            model_templates: Box::new([]),
-            model_quads: Box::new([]),
+            model_templates: vec![
+                ModelTemplate {
+                    quad_start: 0,
+                    quad_count: 2,
+                    flags: 0,
+                },
+                ModelTemplate {
+                    quad_start: 2,
+                    quad_count: 0,
+                    flags: 0,
+                },
+            ]
+            .into_boxed_slice(),
+            model_quads: vec![
+                ModelQuad {
+                    positions: [[0, 0, 0], [256, 0, 256], [256, 256, 256], [0, 256, 0]],
+                    uvs: [[0, 4096], [4096, 4096], [4096, 0], [0, 0]],
+                    material: 1,
+                    flags: MODEL_QUAD_FLAG_TWO_SIDED,
+                },
+                ModelQuad {
+                    positions: [[256, 0, 0], [0, 0, 256], [0, 256, 256], [256, 256, 0]],
+                    uvs: [[0, 4096], [4096, 4096], [4096, 0], [0, 0]],
+                    material: 1,
+                    flags: MODEL_QUAD_FLAG_TWO_SIDED,
+                },
+            ]
+            .into_boxed_slice(),
             animations: Box::new([]),
             animation_frames: Box::new([]),
             texture_pages: vec![TexturePage::new(textures)].into_boxed_slice(),
@@ -147,6 +194,74 @@ fn runtime_assets() -> &'static RuntimeAssets {
         let blob = encode_blob(&compiled).expect("encode synthetic mesher assets");
         RuntimeAssets::decode(&blob).expect("decode synthetic mesher assets")
     })
+}
+
+#[test]
+fn crossed_model_emits_compact_ref_visibility_transform_and_quad_lighting() {
+    let center = blocks(CROSS, &[[2, 3, 4]]);
+    let mesh = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::default(),
+        &center,
+    );
+
+    assert!(
+        mesh.cube_quads().is_empty(),
+        "cross plants must not emit cube faces"
+    );
+    assert_eq!(mesh.model_refs().len(), 1);
+    assert_eq!(
+        mesh.model_refs()[0].words(),
+        [2 | (3 << 4) | (4 << 8), 0, 0, 0b11]
+    );
+    assert_eq!(mesh.model_lighting().len(), 2);
+    assert_eq!(mesh.model_lighting()[0].samples(), [0x00f0; 4]);
+    assert_eq!(mesh.model_lighting()[1].samples(), [0x00f0; 4]);
+    assert!(mesh.connectivity().is_all_connected());
+}
+
+#[test]
+fn crossed_model_visibility_is_conservative_next_to_full_occluder() {
+    let center = adjacent_blocks(CROSS, OPAQUE_A);
+    let mesh = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::default(),
+        &center,
+    );
+    assert_eq!(mesh.model_refs().len(), 1);
+    assert_eq!(mesh.model_refs()[0].words()[3], 0b11);
+}
+
+#[test]
+fn mixed_zero_and_nonzero_templates_emit_only_drawable_model_streams() {
+    let center = adjacent_blocks(ZERO_QUAD_CROSS, CROSS);
+    let mixed_mesh = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::default(),
+        &center,
+    );
+
+    assert_eq!(mixed_mesh.model_refs().len(), 1);
+    assert_eq!(mixed_mesh.model_refs()[0].words()[1], 0);
+    assert_eq!(mixed_mesh.model_lighting().len(), 2);
+    assert_eq!(mixed_mesh.model_refs()[0].words()[3], 0b11);
+    assert!(mixed_mesh.connectivity().is_all_connected());
+
+    let zero_only = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::default(),
+        &blocks(ZERO_QUAD_CROSS, &[[8, 8, 8]]),
+    );
+    assert!(zero_only.model_refs().is_empty());
+    assert!(zero_only.model_lighting().is_empty());
+    assert!(
+        zero_only.is_empty(),
+        "zero-only model chunks must be removed before allocation/presentation"
+    );
 }
 
 fn mesh<'a>(

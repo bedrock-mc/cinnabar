@@ -61,7 +61,13 @@ use crate::{
 };
 
 const CHUNK_SHADER_HANDLE: Handle<Shader> = uuid_handle!("b5664c91-763f-4e5c-9310-d12659f70cd4");
+const MODEL_SHADER_HANDLE: Handle<Shader> = uuid_handle!("2cd46297-17aa-4c18-bfb1-83373bf39475");
 const STATIC_QUAD_INDICES: [u32; 6] = [0, 1, 2, 0, 2, 3];
+const MODEL_QUADS_PER_REF: u32 = 32;
+const MODEL_INDEX_COUNT: u32 = MODEL_QUADS_PER_REF * 6;
+const MODEL_TEMPLATE_BINDING_BUDGET: u32 = 8;
+const MODEL_VERTEX_STORAGE_BINDINGS: u32 = 8;
+const _: () = assert!(MODEL_VERTEX_STORAGE_BINDINGS <= MODEL_TEMPLATE_BINDING_BUDGET);
 const PACKED_QUAD_BYTES: u64 = 8;
 const PACKED_MODEL_REF_BYTES: u64 = 16;
 const PACKED_QUAD_LIGHTING_BYTES: u64 = 8;
@@ -1163,6 +1169,19 @@ impl FrameProbe {
             .count()
     }
 
+    fn record_mdi_streams(
+        &self,
+        draws: impl IntoIterator<Item = (Entity, FrameAllocationIdentity)>,
+        streams: ChunkStreamMask,
+    ) -> usize {
+        draws
+            .into_iter()
+            .filter(|(entity, allocation)| {
+                self.record_direct_streams(*entity, *allocation, streams)
+            })
+            .count()
+    }
+
     fn complete(self) -> CompletedFrameProbe {
         let expected = self
             .expectation
@@ -1250,6 +1269,20 @@ impl ActiveFrameProbe {
             .is_none_or(|probe| probe.record_direct_draw(entity, allocation))
     }
 
+    fn record_direct_streams(
+        &self,
+        entity: Entity,
+        allocation: FrameAllocationIdentity,
+        streams: ChunkStreamMask,
+    ) -> bool {
+        self.0
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .current
+            .as_ref()
+            .is_none_or(|probe| probe.record_direct_streams(entity, allocation, streams))
+    }
+
     fn record_mdi_draws(
         &self,
         draws: impl IntoIterator<Item = (Entity, FrameAllocationIdentity)>,
@@ -1258,6 +1291,18 @@ impl ActiveFrameProbe {
         let draws = draws.into_iter().collect::<Vec<_>>();
         state.current.as_ref().map_or(draws.len(), |probe| {
             probe.record_mdi_draws(draws.iter().copied())
+        })
+    }
+
+    fn record_mdi_streams(
+        &self,
+        draws: impl IntoIterator<Item = (Entity, FrameAllocationIdentity)>,
+        streams: ChunkStreamMask,
+    ) -> usize {
+        let state = self.0.lock().unwrap_or_else(|poison| poison.into_inner());
+        let draws = draws.into_iter().collect::<Vec<_>>();
+        state.current.as_ref().map_or(draws.len(), |probe| {
+            probe.record_mdi_streams(draws.iter().copied(), streams)
         })
     }
 
@@ -1947,6 +1992,7 @@ impl Plugin for DebugWorldPlugin {
         ));
 
         load_internal_asset!(app, CHUNK_SHADER_HANDLE, "chunk.wgsl", Shader::from_wgsl);
+        load_internal_asset!(app, MODEL_SHADER_HANDLE, "model.wgsl", Shader::from_wgsl);
 
         let acknowledgements = app
             .world()
@@ -1964,9 +2010,12 @@ impl Plugin for DebugWorldPlugin {
             .init_resource::<ChunkGpuBiomeTints>()
             .init_resource::<ChunkTextureUploadStats>()
             .init_resource::<ChunkIndirectBatches>()
+            .init_resource::<ChunkModelIndirectBatches>()
             .init_resource::<ActiveFrameProbe>()
             .add_render_command::<Opaque3d, DrawChunkCommands>()
             .add_render_command::<Opaque3d, DrawChunkIndirectCommands>()
+            .add_render_command::<Opaque3d, DrawModelCommands>()
+            .add_render_command::<Opaque3d, DrawModelIndirectCommands>()
             .add_systems(
                 RenderStartup,
                 (init_chunk_gpu_arena, init_chunk_gpu_animation_clock),
@@ -2116,6 +2165,7 @@ struct ChunkPipelineSpecializer;
 #[derive(Resource)]
 struct ChunkPipeline {
     variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
+    model_variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
     bind_group_layout: BindGroupLayoutDescriptor,
 }
 
@@ -2240,6 +2290,26 @@ impl FromWorld for ChunkPipeline {
                     },
                     count: None,
                 },
+                BindGroupLayoutEntry {
+                    binding: 12,
+                    visibility: ShaderStages::VERTEX,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 13,
+                    visibility: ShaderStages::VERTEX,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         );
         let descriptor = RenderPipelineDescriptor {
@@ -2272,8 +2342,18 @@ impl FromWorld for ChunkPipeline {
             }),
             ..default()
         };
+        let mut model_descriptor = descriptor.clone();
+        model_descriptor.label = Some("packed model pipeline".into());
+        model_descriptor.vertex.shader = MODEL_SHADER_HANDLE;
+        model_descriptor
+            .fragment
+            .as_mut()
+            .expect("model fragment")
+            .shader = MODEL_SHADER_HANDLE;
+        model_descriptor.primitive.cull_mode = None;
         Self {
             variants: Variants::new(ChunkPipelineSpecializer, descriptor),
+            model_variants: Variants::new(ChunkPipelineSpecializer, model_descriptor),
             bind_group_layout,
         }
     }
@@ -2381,6 +2461,35 @@ fn indexed_indirect_command(allocation: &GpuChunkAllocation) -> Option<DrawIndex
     })
 }
 
+fn model_draw_command(
+    allocation: &GpuChunkAllocation,
+    addresses: StreamAddresses,
+) -> Option<DrawIndexedIndirectArgs> {
+    let model = addresses.model?;
+    addresses.model_lighting?;
+    let first_instance = model.start.checked_div(4)?;
+    let end_instance = model.end.checked_div(4)?;
+    let instance_count = end_instance.checked_sub(first_instance)?;
+    (instance_count != 0).then_some(DrawIndexedIndirectArgs {
+        index_count: MODEL_INDEX_COUNT,
+        instance_count,
+        first_index: 0,
+        base_vertex: allocation
+            .metadata_index
+            .checked_mul(MODEL_QUADS_PER_REF * 4)
+            .and_then(|value| i32::try_from(value).ok())?,
+        first_instance,
+    })
+}
+
+fn model_direct_draw_command(allocation: &GpuChunkAllocation) -> Option<DrawIndexedIndirectArgs> {
+    model_draw_command(allocation, direct_stream_addresses(allocation))
+}
+
+fn model_mdi_draw_command(allocation: &GpuChunkAllocation) -> Option<DrawIndexedIndirectArgs> {
+    model_draw_command(allocation, mdi_stream_addresses(allocation))
+}
+
 fn metadata_base_vertex(metadata_index: u32) -> Option<i32> {
     metadata_index
         .checked_mul(4)
@@ -2415,6 +2524,9 @@ struct ChunkIndirectBatch {
 
 #[derive(Resource, Default)]
 struct ChunkIndirectBatches(HashMap<Entity, ChunkIndirectBatch>);
+
+#[derive(Resource, Default)]
+struct ChunkModelIndirectBatches(HashMap<Entity, ChunkIndirectBatch>);
 
 #[derive(Clone)]
 struct ArenaAllocation {
@@ -2459,6 +2571,8 @@ struct ChunkBindGroupBuffers {
     animations: BufferId,
     animation_frames: BufferId,
     animation_clock: BufferId,
+    model_templates: BufferId,
+    geometry_streams: BufferId,
     biome_tints: BufferId,
     biome_tint_table: ChunkBiomeTintResourceIdentity,
     textures: ChunkTextureAssetIdentity,
@@ -2579,6 +2693,7 @@ struct PreparedChunkTextureAssets {
     material_buffer: Buffer,
     animation_buffer: Buffer,
     animation_frame_buffer: Buffer,
+    model_template_buffer: Buffer,
     _textures: [Texture; 2],
     views: [TextureView; 2],
     sampler: Sampler,
@@ -2718,6 +2833,7 @@ fn prepare_chunk_texture_assets(
         .iter()
         .map(|frame| frame.raw())
         .collect::<Vec<_>>();
+    let model_template_words = encode_model_template_words(assets.assets());
     let material_bytes = material_words
         .len()
         .saturating_mul(std::mem::size_of::<MaterialGpu>());
@@ -2727,10 +2843,14 @@ fn prepare_chunk_texture_assets(
     let animation_frame_bytes = animation_frame_words
         .len()
         .saturating_mul(std::mem::size_of::<u32>());
+    let model_template_bytes = model_template_words
+        .len()
+        .saturating_mul(std::mem::size_of::<u32>());
     for (label, bytes) in [
         ("material", material_bytes),
         ("animation", animation_bytes),
         ("animation frame", animation_frame_bytes),
+        ("model template", model_template_bytes),
     ] {
         if !storage_table_fits(
             bytes,
@@ -2769,6 +2889,11 @@ fn prepare_chunk_texture_assets(
         } else {
             &animation_frame_words
         }),
+        usage: BufferUsages::STORAGE,
+    });
+    let model_template_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("global chunk model templates"),
+        contents: bytemuck::cast_slice(&model_template_words),
         usage: BufferUsages::STORAGE,
     });
     let (texture_0, view_0, padded_0) = upload_texture_page(
@@ -2811,10 +2936,38 @@ fn prepare_chunk_texture_assets(
         material_buffer,
         animation_buffer,
         animation_frame_buffer,
+        model_template_buffer,
         _textures: [texture_0, texture_1],
         views: [view_0, view_1],
         sampler,
     });
+}
+
+fn encode_model_template_words(assets: &RuntimeAssets) -> Vec<u32> {
+    let template_count = u32::try_from(assets.model_templates().len()).unwrap_or(u32::MAX);
+    let mut words = Vec::with_capacity(
+        1 + assets.model_templates().len() * 3 + assets.model_quads().len() * 12,
+    );
+    words.push(template_count);
+    for template in assets.model_templates() {
+        words.extend([template.quad_start, template.quad_count, template.flags]);
+    }
+    for quad in assets.model_quads() {
+        let mut i16_values = quad.positions.iter().flatten().copied();
+        for _ in 0..6 {
+            let low = i16_values.next().expect("twelve model position components") as u16;
+            let high = i16_values.next().expect("twelve model position components") as u16;
+            words.push(u32::from(low) | (u32::from(high) << 16));
+        }
+        let mut u16_values = quad.uvs.iter().flatten().copied();
+        for _ in 0..4 {
+            let low = u16_values.next().expect("eight model UV components");
+            let high = u16_values.next().expect("eight model UV components");
+            words.push(u32::from(low) | (u32::from(high) << 16));
+        }
+        words.extend([quad.material, quad.flags]);
+    }
+    words
 }
 
 fn storage_table_fits(bytes: usize, max_buffer_size: u64, max_binding_size: u32) -> bool {
@@ -2952,6 +3105,7 @@ struct ChunkGpuArena {
     origin_buffer: Buffer,
     biome_buffer: Buffer,
     index_buffer: Buffer,
+    model_index_buffer: Buffer,
     indirect_buffer: Buffer,
     bind_group: Option<BindGroup>,
     bind_group_buffers: Option<ChunkBindGroupBuffers>,
@@ -3009,6 +3163,11 @@ impl ChunkGpuArena {
                 contents: bytemuck::cast_slice(&STATIC_QUAD_INDICES),
                 usage: BufferUsages::INDEX,
             }),
+            model_index_buffer: render_device.create_buffer_with_data(&BufferInitDescriptor {
+                label: Some("shared model template quad indices"),
+                contents: bytemuck::cast_slice(&model_index_data()),
+                usage: BufferUsages::INDEX,
+            }),
             indirect_buffer: create_indirect_buffer(render_device, 1),
             bind_group: None,
             bind_group_buffers: None,
@@ -3029,6 +3188,23 @@ impl ChunkGpuArena {
             allocations: HashMap::new(),
         }
     }
+}
+
+fn model_index_data() -> [u32; MODEL_INDEX_COUNT as usize] {
+    let mut indices = [0; MODEL_INDEX_COUNT as usize];
+    for quad in 0..MODEL_QUADS_PER_REF {
+        let vertex = quad * 4;
+        let index = quad as usize * 6;
+        indices[index..index + 6].copy_from_slice(&[
+            vertex,
+            vertex + 1,
+            vertex + 2,
+            vertex,
+            vertex + 2,
+            vertex + 3,
+        ]);
+    }
+    indices
 }
 
 fn create_storage_buffer(render_device: &RenderDevice, label: &'static str, size: u64) -> Buffer {
@@ -3245,12 +3421,13 @@ fn prepare_gpu_chunks(
             .iter()
             .map(PackedQuad::words)
             .collect::<Vec<_>>();
-        let model_words = instance
+        let mut model_words = instance
             .model_refs
             .iter()
             .copied()
             .map(PackedModelRef::words)
             .collect::<Vec<_>>();
+        absolutize_model_lighting_bases(&mut model_words, plan.model_lighting_start);
         let model_lighting_words = instance
             .model_lighting
             .iter()
@@ -3448,6 +3625,23 @@ fn prepare_gpu_chunks(
             upload_stats.chunk_budget,
         );
     }
+}
+
+fn absolutize_model_lighting_bases(model_refs: &mut [[u32; 4]], lighting_word_start: u32) {
+    let lighting_record_base = lighting_word_start / 2;
+    for words in model_refs {
+        words[2] = words[2]
+            .checked_add(lighting_record_base)
+            .expect("atomic model-lighting arena plan fits u32 record addressing");
+    }
+}
+
+#[cfg(test)]
+fn model_light_factor(sample: u16) -> f32 {
+    let block_light = f32::from(sample & 0x0f);
+    let sky_light = f32::from((sample >> 4) & 0x0f);
+    let ao = f32::from((sample >> 8) & 0x03);
+    block_light.max(sky_light) / 15.0 * (1.0 - ao * 0.12)
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -4024,6 +4218,8 @@ fn prepare_chunk_bind_group(
         animations: texture_assets.animation_buffer.id(),
         animation_frames: texture_assets.animation_frame_buffer.id(),
         animation_clock: clock.buffer.id(),
+        model_templates: texture_assets.model_template_buffer.id(),
+        geometry_streams: arena.geometry_stream_buffer.id(),
         biome_tints: biome_tints.buffer.id(),
         biome_tint_table: biome_tints.identity,
         textures: texture_assets.identity,
@@ -4098,6 +4294,14 @@ fn prepare_chunk_bind_group(
                 binding: 11,
                 resource: clock.buffer.as_entire_binding(),
             },
+            BindGroupEntry {
+                binding: 12,
+                resource: texture_assets.model_template_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 13,
+                resource: arena.geometry_stream_buffer.as_entire_binding(),
+            },
         ],
     );
     arena.bind_group = Some(bind_group);
@@ -4146,6 +4350,32 @@ fn prepare_indirect_batch_draws<'a>(
     (commands, drawn)
 }
 
+fn prepare_model_indirect_batch_draws<'a>(
+    allocations: impl IntoIterator<Item = (Entity, &'a GpuChunkAllocation)>,
+    frame_probe: &ActiveFrameProbe,
+    active_tint_identity: ChunkBiomeTintIdentity,
+) -> (
+    Vec<DrawIndexedIndirectArgs>,
+    Vec<(Entity, FrameAllocationIdentity)>,
+) {
+    let mut commands = Vec::new();
+    let mut drawn = Vec::new();
+    for (entity, allocation) in allocations {
+        let Some(identity) =
+            drawable_allocation_identity(frame_probe, entity, allocation, active_tint_identity)
+        else {
+            continue;
+        };
+        let Some(command) = model_mdi_draw_command(allocation) else {
+            continue;
+        };
+        commands.push(command);
+        drawn.push((entity, identity));
+    }
+    (commands, drawn)
+}
+
+#[allow(clippy::too_many_arguments)]
 fn prepare_chunk_indirect_batches(
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
@@ -4153,11 +4383,30 @@ fn prepare_chunk_indirect_batches(
     biome_tints: Res<ChunkBiomeTints>,
     frame_probe: Res<ActiveFrameProbe>,
     mut batches: ResMut<ChunkIndirectBatches>,
+    mut model_batches: ResMut<ChunkModelIndirectBatches>,
     mut arena: ResMut<ChunkGpuArena>,
 ) {
     let mut all_commands = Vec::new();
     for batch in batches.0.values_mut() {
         let (indirect_commands, drawn_allocations) = prepare_indirect_batch_draws(
+            batch
+                .visible_entities
+                .iter()
+                .filter_map(|&entity| allocations.get(entity).ok().map(|item| (entity, item))),
+            &frame_probe,
+            biome_tints.table_identity(),
+        );
+        batch.drawn_allocations = drawn_allocations;
+        batch.indirect_offset = all_commands.len() as u64 * INDEXED_INDIRECT_BYTES;
+        let Ok(command_count) = u32::try_from(indirect_commands.len()) else {
+            batch.command_count = 0;
+            continue;
+        };
+        batch.command_count = command_count;
+        all_commands.extend(indirect_commands);
+    }
+    for batch in model_batches.0.values_mut() {
+        let (indirect_commands, drawn_allocations) = prepare_model_indirect_batch_draws(
             batch
                 .visible_entities
                 .iter()
@@ -4216,7 +4465,10 @@ fn queue_chunks(
     biome_tints: Res<ChunkBiomeTints>,
     presented_frame_gate: Res<PresentedFrameGate>,
     frame_probe: Res<ActiveFrameProbe>,
-    mut indirect_batches: ResMut<ChunkIndirectBatches>,
+    mut indirect_batch_sets: ParamSet<(
+        ResMut<ChunkIndirectBatches>,
+        ResMut<ChunkModelIndirectBatches>,
+    )>,
     mut next_tick: Local<Tick>,
     mut unsupported_reported: Local<bool>,
 ) {
@@ -4227,7 +4479,10 @@ fn queue_chunks(
     let draw_functions = draw_functions.read();
     let direct_draw = draw_functions.id::<DrawChunkCommands>();
     let indirect_draw = draw_functions.id::<DrawChunkIndirectCommands>();
-    indirect_batches.0.clear();
+    let model_direct_draw = draw_functions.id::<DrawModelCommands>();
+    let model_indirect_draw = draw_functions.id::<DrawModelIndirectCommands>();
+    indirect_batch_sets.p0().0.clear();
+    indirect_batch_sets.p1().0.clear();
     if draw_mode == ChunkDrawMode::Unsupported {
         frame_probe.clear();
         if !*unsupported_reported {
@@ -4276,6 +4531,15 @@ fn queue_chunks(
         ) else {
             continue;
         };
+        let Ok(model_pipeline_id) = pipeline.model_variants.specialize(
+            &pipeline_cache,
+            ChunkPipelineKey {
+                msaa: *msaa,
+                hdr: view.hdr,
+            },
+        ) else {
+            continue;
+        };
 
         if draw_mode == ChunkDrawMode::MultiDrawIndirect {
             let visible = sorted_visible_entities(
@@ -4301,7 +4565,19 @@ fn queue_chunks(
             if visible.is_empty() {
                 continue;
             }
-            indirect_batches.0.insert(
+            indirect_batch_sets.p0().0.insert(
+                view_entity,
+                ChunkIndirectBatch {
+                    visible_entities: visible
+                        .iter()
+                        .map(|(render_entity, _)| *render_entity)
+                        .collect(),
+                    drawn_allocations: Vec::new(),
+                    indirect_offset: 0,
+                    command_count: 0,
+                },
+            );
+            indirect_batch_sets.p1().0.insert(
                 view_entity,
                 ChunkIndirectBatch {
                     visible_entities: visible
@@ -4320,6 +4596,25 @@ fn queue_chunks(
                 Opaque3dBatchSetKey {
                     draw_function: indirect_draw,
                     pipeline: pipeline_id,
+                    material_bind_group_index: None,
+                    lightmap_slab: None,
+                    vertex_slab: default(),
+                    index_slab: None,
+                },
+                Opaque3dBinKey {
+                    asset_id: AssetId::<Mesh>::invalid().untyped(),
+                },
+                (view_entity, *view_main_entity),
+                InputUniformIndex::default(),
+                BinnedRenderPhaseType::NonMesh,
+                *next_tick,
+            );
+            let this_tick = next_tick.get() + 1;
+            next_tick.set(this_tick);
+            phase.add(
+                Opaque3dBatchSetKey {
+                    draw_function: model_indirect_draw,
+                    pipeline: model_pipeline_id,
                     material_bind_group_index: None,
                     lightmap_slab: None,
                     vertex_slab: default(),
@@ -4369,12 +4664,35 @@ fn queue_chunks(
                 BinnedRenderPhaseType::NonMesh,
                 *next_tick,
             );
+            if model_direct_draw_command(allocation).is_some() {
+                let this_tick = next_tick.get() + 1;
+                next_tick.set(this_tick);
+                phase.add(
+                    Opaque3dBatchSetKey {
+                        draw_function: model_direct_draw,
+                        pipeline: model_pipeline_id,
+                        material_bind_group_index: None,
+                        lightmap_slab: None,
+                        vertex_slab: default(),
+                        index_slab: None,
+                    },
+                    Opaque3dBinKey {
+                        asset_id: AssetId::<Mesh>::invalid().untyped(),
+                    },
+                    (render_entity, main_entity),
+                    InputUniformIndex::default(),
+                    BinnedRenderPhaseType::NonMesh,
+                    *next_tick,
+                );
+            }
         }
     }
 }
 
 type DrawChunkCommands = (SetItemPipeline, DrawPackedChunk);
 type DrawChunkIndirectCommands = (SetItemPipeline, DrawPackedChunksIndirect);
+type DrawModelCommands = (SetItemPipeline, DrawPackedModel);
+type DrawModelIndirectCommands = (SetItemPipeline, DrawPackedModelsIndirect);
 
 // Both supported paths use `first_instance` to select packed quad records and
 // `base_vertex / 4` to select the per-draw origin. Direct drawing is the
@@ -4420,7 +4738,51 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedChunk {
     }
 }
 
+struct DrawPackedModel;
+
+impl<P: PhaseItem> RenderCommand<P> for DrawPackedModel {
+    type Param = (SRes<ChunkGpuArena>, SRes<ActiveFrameProbe>);
+    type ViewQuery = Read<ViewUniformOffset>;
+    type ItemQuery = Read<GpuChunkAllocation>;
+
+    fn render<'w>(
+        item: &P,
+        view_offset: ROQueryItem<'w, '_, Self::ViewQuery>,
+        allocation: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
+        (arena, frame_probe): SystemParamItem<'w, '_, Self::Param>,
+        pass: &mut TrackedRenderPass<'w>,
+    ) -> RenderCommandResult {
+        let arena = arena.into_inner();
+        let frame_probe = frame_probe.into_inner();
+        let (Some(bind_group), Some(allocation)) = (&arena.bind_group, allocation) else {
+            return RenderCommandResult::Skip;
+        };
+        let identity = FrameAllocationIdentity {
+            entity: item.entity(),
+            key: allocation.key,
+            generation: allocation.generation,
+        };
+        if !frame_probe.accepts(item.entity(), identity) {
+            return RenderCommandResult::Skip;
+        }
+        let Some(draw) = model_direct_draw_command(allocation) else {
+            return RenderCommandResult::Skip;
+        };
+        pass.set_bind_group(0, bind_group, &[view_offset.offset]);
+        pass.set_index_buffer(arena.model_index_buffer.slice(..), IndexFormat::Uint32);
+        pass.draw_indexed(
+            draw.first_index..draw.first_index + draw.index_count,
+            draw.base_vertex,
+            draw.first_instance..draw.first_instance + draw.instance_count,
+        );
+        frame_probe.record_direct_streams(item.entity(), identity, ChunkStreamMask::MODEL);
+        RenderCommandResult::Success
+    }
+}
+
 struct DrawPackedChunksIndirect;
+
+struct DrawPackedModelsIndirect;
 
 fn indirect_batch_draw_args(
     batches: &ChunkIndirectBatches,
@@ -4463,6 +4825,46 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedChunksIndirect {
         if let Some(batch) = batches.0.get(&item.entity()) {
             frame_probe.record_mdi_draws(batch.drawn_allocations.iter().copied());
         }
+        RenderCommandResult::Success
+    }
+}
+
+impl<P: PhaseItem> RenderCommand<P> for DrawPackedModelsIndirect {
+    type Param = (
+        SRes<ChunkGpuArena>,
+        SRes<ChunkModelIndirectBatches>,
+        SRes<ActiveFrameProbe>,
+    );
+    type ViewQuery = Read<ViewUniformOffset>;
+    type ItemQuery = ();
+
+    fn render<'w>(
+        item: &P,
+        view_offset: ROQueryItem<'w, '_, Self::ViewQuery>,
+        _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
+        (arena, batches, frame_probe): SystemParamItem<'w, '_, Self::Param>,
+        pass: &mut TrackedRenderPass<'w>,
+    ) -> RenderCommandResult {
+        let arena = arena.into_inner();
+        let batches = batches.into_inner();
+        let frame_probe = frame_probe.into_inner();
+        let Some(batch) = batches.0.get(&item.entity()) else {
+            return RenderCommandResult::Skip;
+        };
+        let (indirect_offset, command_count) = (batch.indirect_offset, batch.command_count);
+        if command_count == 0 {
+            return RenderCommandResult::Skip;
+        }
+        let Some(bind_group) = &arena.bind_group else {
+            return RenderCommandResult::Skip;
+        };
+        pass.set_bind_group(0, bind_group, &[view_offset.offset]);
+        pass.set_index_buffer(arena.model_index_buffer.slice(..), IndexFormat::Uint32);
+        pass.multi_draw_indexed_indirect(&arena.indirect_buffer, indirect_offset, command_count);
+        frame_probe.record_mdi_streams(
+            batch.drawn_allocations.iter().copied(),
+            ChunkStreamMask::MODEL,
+        );
         RenderCommandResult::Success
     }
 }
@@ -4684,6 +5086,47 @@ mod tests {
             direct_stream_addresses(&allocation),
             mdi_stream_addresses(&allocation)
         );
+    }
+
+    #[test]
+    fn crossed_model_direct_and_mdi_commands_are_identical() {
+        let allocation = GpuChunkAllocation {
+            key: SubChunkKey::new(0, 0, 0, 0),
+            generation: 1,
+            tint_identity: ChunkBiomeTintIdentity::default(),
+            quad_range: 0..0,
+            model_range: Some(20..32),
+            model_lighting_range: Some(32..44),
+            liquid_range: None,
+            liquid_lighting_range: None,
+            metadata_index: 3,
+        };
+        let direct = model_direct_draw_command(&allocation).expect("direct model draw");
+        let mdi = model_mdi_draw_command(&allocation).expect("MDI model draw");
+        assert_eq!(direct.index_count, mdi.index_count);
+        assert_eq!(direct.instance_count, mdi.instance_count);
+        assert_eq!(direct.first_index, mdi.first_index);
+        assert_eq!(direct.base_vertex, mdi.base_vertex);
+        assert_eq!(direct.first_instance, mdi.first_instance);
+        assert_eq!(direct.index_count, 32 * 6);
+        assert_eq!(direct.instance_count, 3);
+        assert_eq!(direct.first_instance, 5);
+        assert_eq!(direct.base_vertex, 3 * 32 * 4);
+    }
+
+    #[test]
+    fn model_lighting_base_patches_to_shared_arena_records_without_mutating_other_words() {
+        let mut refs = vec![[0x432, 7, 0, 0b11], [0x765, 8, 2, 0b101]];
+        absolutize_model_lighting_bases(&mut refs, 20);
+        assert_eq!(refs, [[0x432, 7, 10, 0b11], [0x765, 8, 12, 0b101]]);
+    }
+
+    #[test]
+    fn model_light_factor_uses_block_sky_and_ao_channels() {
+        assert_eq!(model_light_factor(0x00f0), 1.0);
+        assert_eq!(model_light_factor(0x000f), 1.0);
+        assert_eq!(model_light_factor(0x0000), 0.0);
+        assert!((model_light_factor(0x03f0) - 0.64).abs() < f32::EPSILON);
     }
 
     fn target_expectation(

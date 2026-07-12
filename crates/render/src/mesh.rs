@@ -1,6 +1,9 @@
 use std::collections::VecDeque;
 
-use assets::{BlockFace, BlockFlags, DIAGNOSTIC_MATERIAL, NetworkIdMode, RuntimeAssets};
+use assets::{
+    BlockFace, BlockFlags, DIAGNOSTIC_MATERIAL, NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets,
+    VisualKind,
+};
 use world::{MeshNeighbourhood, PalettedStorage, SubChunk};
 
 const SIDE: usize = 16;
@@ -533,11 +536,64 @@ pub fn mesh_sub_chunk_in_neighbourhood(
             greedy_slice(&facts, face, slice, &mut rows, &mut quads);
         }
     }
+    let mut model_refs = Vec::new();
+    let mut model_lighting = Vec::new();
+    for x in 0..SIDE {
+        for y in 0..SIDE {
+            for z in 0..SIDE {
+                let entry = facts.at(x, y, z);
+                if !matches!(entry.kind, VisualKind::Cross | VisualKind::Model)
+                    || entry.model_template == NO_MODEL_TEMPLATE
+                {
+                    continue;
+                }
+                let Some(template) = visuals.model_templates().get(entry.model_template as usize)
+                else {
+                    continue;
+                };
+                if template.quad_count == 0 {
+                    continue;
+                }
+                let Ok(lighting_base_index) = u32::try_from(model_lighting.len()) else {
+                    continue;
+                };
+                let Some(lighting) = crate::lighting::bake_template_lighting(
+                    classifier,
+                    visuals,
+                    network_id_mode,
+                    neighbourhood,
+                    [x as i32, y as i32, z as i32],
+                    entry.model_template,
+                ) else {
+                    continue;
+                };
+                let visible_quad_mask = match template.quad_count {
+                    0 => 0,
+                    32 => u32::MAX,
+                    count => (1_u32 << count) - 1,
+                };
+                model_refs.push(PackedModelRef::new(
+                    pack_model_transform(
+                        [x as u8, y as u8, z as u8],
+                        if entry.kind == VisualKind::Cross {
+                            0
+                        } else {
+                            entry.variant
+                        },
+                    ),
+                    entry.model_template,
+                    lighting_base_index,
+                    visible_quad_mask,
+                ));
+                model_lighting.extend(lighting);
+            }
+        }
+    }
 
     ChunkMesh {
         cube_quads: quads.into_boxed_slice(),
-        model_refs: Box::new([]),
-        model_lighting: Box::new([]),
+        model_refs: model_refs.into_boxed_slice(),
+        model_lighting: model_lighting.into_boxed_slice(),
         liquid_quads: Box::new([]),
         liquid_lighting: Box::new([]),
         connectivity,
@@ -548,20 +604,30 @@ pub fn mesh_sub_chunk_in_neighbourhood(
 struct ResolvedPaletteEntry {
     flags: BlockFlags,
     faces: [u32; Face::ALL.len()],
+    kind: VisualKind,
+    model_template: u32,
+    variant: u32,
 }
 
 impl ResolvedPaletteEntry {
     const AIR: Self = Self {
         flags: BlockFlags::AIR,
         faces: [DIAGNOSTIC_MATERIAL; Face::ALL.len()],
+        kind: VisualKind::Invisible,
+        model_template: NO_MODEL_TEMPLATE,
+        variant: 0,
     };
     const DIAGNOSTIC: Self = Self {
         flags: BlockFlags::empty(),
         faces: [DIAGNOSTIC_MATERIAL; Face::ALL.len()],
+        kind: VisualKind::Diagnostic,
+        model_template: NO_MODEL_TEMPLATE,
+        variant: 0,
     };
 
-    const fn emits_geometry(self) -> bool {
-        !self.flags.contains(BlockFlags::AIR)
+    const fn emits_cube_geometry(self) -> bool {
+        self.flags.contains(BlockFlags::CUBE_GEOMETRY)
+            || matches!(self.kind, VisualKind::Diagnostic)
     }
 }
 
@@ -685,7 +751,20 @@ fn resolve_palette_entry(
         flags.remove(BlockFlags::OCCLUDES_FULL_FACE | BlockFlags::LEAF_MODEL);
         [DIAGNOSTIC_MATERIAL; Face::ALL.len()]
     };
-    ResolvedPaletteEntry { flags, faces }
+    ResolvedPaletteEntry {
+        flags,
+        faces,
+        kind: block.kind(),
+        model_template: block.model_template().unwrap_or(NO_MODEL_TEMPLATE),
+        variant: block.variant(),
+    }
+}
+
+const fn pack_model_transform(local: [u8; 3], transform: u32) -> u32 {
+    (local[0] as u32)
+        | ((local[1] as u32) << 4)
+        | ((local[2] as u32) << 8)
+        | ((transform & 0x000f_ffff) << 12)
 }
 
 fn packed_palette_index(storage: &PalettedStorage, x: usize, y: usize, z: usize) -> Option<usize> {
@@ -771,7 +850,7 @@ impl VisibilityMasks {
                 leaves: AxisColumns::empty(),
             },
             PaletteSource::Uniform(entry) => Self {
-                geometry: if entry.emits_geometry() {
+                geometry: if entry.emits_cube_geometry() {
                     AxisColumns::full()
                 } else {
                     AxisColumns::empty()
@@ -797,7 +876,7 @@ impl VisibilityMasks {
                     for y in 0..SIDE {
                         for z in 0..SIDE {
                             let entry = facts.at(x, y, z);
-                            if entry.emits_geometry() {
+                            if entry.emits_cube_geometry() {
                                 masks.geometry.set(x, y, z);
                             }
                             if entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE) {

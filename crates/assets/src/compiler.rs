@@ -5,9 +5,9 @@ use std::{
 
 use crate::{
     Animation, AnimationInventory, AssetError, BiomeRegistryRecord, BlockFace, BlockFlags,
-    CompiledBiomeAssets, ContributorRole, ModelQuad, ModelTemplate, NO_ANIMATION,
-    NO_MODEL_TEMPLATE, PackSources, RegistryRecord, TextureKey, TexturePage, TextureRef,
-    VisualKind,
+    CompiledBiomeAssets, ContributorRole, MODEL_QUAD_FLAG_TWO_SIDED, ModelFamily, ModelQuad,
+    ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, PackSources, RegistryRecord, TextureKey,
+    TexturePage, TextureRef, VisualKind,
     animation::{
         AnimationLimits, AnimationPlan, DecodedImage, compile_animation_plan,
         compile_animation_plan_selected,
@@ -135,7 +135,12 @@ struct Descriptor {
 }
 
 type CompiledMaterials = (Box<[Material]>, BTreeMap<Descriptor, u32>);
-type CompiledVisuals = (Box<[BlockVisual]>, Box<[(u32, u32)]>);
+type CompiledVisuals = (
+    Box<[BlockVisual]>,
+    Box<[(u32, u32)]>,
+    Box<[ModelTemplate]>,
+    Box<[ModelQuad]>,
+);
 type CompiledAnimations = (Box<[Animation]>, Box<[TextureRef]>);
 
 /// Compiles the cube-geometry subset of a bounded Bedrock resource pack.
@@ -211,10 +216,16 @@ fn compile_pack_inner(
 
     let mut descriptor_keys = BTreeMap::<Descriptor, Box<str>>::new();
     for record in records.iter().filter(|record| {
-        record.flags.contains(BlockFlags::CUBE_GEOMETRY)
-            && !record_has_deferred_material(&pack, record)
+        (record.flags.contains(BlockFlags::CUBE_GEOMETRY)
+            && !record_has_deferred_material(&pack, record))
+            || is_terrestrial_cross(record)
     }) {
-        for face in BlockFace::ALL {
+        let faces: &[BlockFace] = if is_terrestrial_cross(record) {
+            &[cross_texture_face(record)]
+        } else {
+            &BlockFace::ALL
+        };
+        for &face in faces {
             if let Some((descriptor, key)) = descriptor_for(&pack, record, face) {
                 descriptor_keys
                     .entry(descriptor)
@@ -232,14 +243,15 @@ fn compile_pack_inner(
     let texture_pages = animation_plan_pages(&animation_plan)?;
     let (animations, animation_frames) = runtime_animation_tables(&animation_plan)?;
     let (materials, material_by_descriptor) = compile_materials(&descriptor_keys, &animation_plan)?;
-    let (visuals, hashed) = compile_visuals(records, &pack, &material_by_descriptor)?;
+    let (visuals, hashed, model_templates, model_quads) =
+        compile_visuals(records, &pack, &material_by_descriptor)?;
 
     Ok(CompiledAssets {
         visuals,
         hashed,
         materials,
-        model_templates: Box::new([]),
-        model_quads: Box::new([]),
+        model_templates,
+        model_quads,
         animations,
         animation_frames,
         texture_pages,
@@ -293,8 +305,12 @@ fn descriptor_for(
 ) -> Option<(Descriptor, Box<str>)> {
     let TextureKey { key, rotate_uv } = resolve_texture_key(&pack.blocks, record, face);
     let key = key?;
-    let path = pack.terrain.get_for_record(&key, record)?;
-    if source_is_deferred(pack, record, &key, path) {
+    let path = if is_terrestrial_cross(record) {
+        pack.terrain.get_for_model_record(&key, record)?.0
+    } else {
+        pack.terrain.get_for_record(&key, record)?
+    };
+    if !is_terrestrial_cross(record) && source_is_deferred(pack, record, &key, path) {
         return None;
     }
     let mut flags = if rotate_uv {
@@ -302,7 +318,9 @@ fn descriptor_for(
     } else {
         0
     };
-    if record.flags.contains(BlockFlags::LEAF_MODEL) {
+    if is_terrestrial_cross(record) {
+        flags |= MATERIAL_FLAG_ALPHA_CUTOUT | cross_tint_flags(&record.name);
+    } else if record.flags.contains(BlockFlags::LEAF_MODEL) {
         flags |= MATERIAL_FLAG_ALPHA_CUTOUT;
         flags |= leaf_tint_flags(&record.name);
     }
@@ -323,6 +341,40 @@ fn descriptor_for(
         },
         key,
     ))
+}
+
+const fn is_terrestrial_cross(record: &RegistryRecord) -> bool {
+    matches!(record.model_family, ModelFamily::Cross | ModelFamily::Crop)
+}
+
+fn cross_texture_face(record: &RegistryRecord) -> BlockFace {
+    if canonical_state_u32(&record.canonical_state, "upper_block_bit") == Some(1) {
+        BlockFace::Up
+    } else {
+        BlockFace::Down
+    }
+}
+
+fn canonical_state_u32(state: &str, property: &str) -> Option<u32> {
+    let document =
+        serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(state).ok()?;
+    let value = document.get(property)?;
+    value
+        .as_object()
+        .and_then(|object| object.get("value"))
+        .unwrap_or(value)
+        .as_u64()
+        .and_then(|value| u32::try_from(value).ok())
+}
+
+fn cross_tint_flags(name: &str) -> u32 {
+    match name {
+        "minecraft:short_grass"
+        | "minecraft:tall_grass"
+        | "minecraft:fern"
+        | "minecraft:large_fern" => MATERIAL_FLAG_GRASS_TINT,
+        _ => 0,
+    }
 }
 
 fn leaf_tint_flags(name: &str) -> u32 {
@@ -617,10 +669,46 @@ fn compile_visuals(
     let mut visuals =
         vec![BlockVisual::diagnostic(BlockFlags::empty(), ContributorRole::Primary); visual_count];
     let mut hashed = Vec::with_capacity(records.len());
+    let mut model_templates = Vec::new();
+    let mut model_quads = Vec::new();
+    let mut template_by_material = BTreeMap::<u32, u32>::new();
 
     for record in records {
         let mut visual = BlockVisual::diagnostic(record.flags, record.contributor_role);
-        if record.flags.contains(BlockFlags::CUBE_GEOMETRY)
+        if is_terrestrial_cross(record) {
+            let face = cross_texture_face(record);
+            if let Some((descriptor, _)) = descriptor_for(pack, record, face)
+                && let Some(&material) = material_by_descriptor.get(&descriptor)
+                && let Some(variant) = model_variant(pack, record, face)
+            {
+                let template = if let Some(&template) = template_by_material.get(&material) {
+                    template
+                } else {
+                    let template = u32::try_from(model_templates.len()).map_err(|_| {
+                        AssetError::BlobSizeOverflow {
+                            section: "model template",
+                        }
+                    })?;
+                    let quad_start = u32::try_from(model_quads.len()).map_err(|_| {
+                        AssetError::BlobSizeOverflow {
+                            section: "model quad",
+                        }
+                    })?;
+                    model_templates.push(ModelTemplate {
+                        quad_start,
+                        quad_count: 2,
+                        flags: 0,
+                    });
+                    model_quads.extend(crossed_quads(material));
+                    template_by_material.insert(material, template);
+                    template
+                };
+                visual.faces = [material; 6];
+                visual.kind = VisualKind::Cross;
+                visual.model_template = template;
+                visual.variant = variant;
+            }
+        } else if record.flags.contains(BlockFlags::CUBE_GEOMETRY)
             && !record_has_deferred_material(pack, record)
         {
             let mut faces = [DIAGNOSTIC_MATERIAL; 6];
@@ -645,7 +733,38 @@ fn compile_visuals(
         hashed.push((record.network_hash, record.sequential_id));
     }
     hashed.sort_unstable_by_key(|entry| entry.0);
-    Ok((visuals.into_boxed_slice(), hashed.into_boxed_slice()))
+    Ok((
+        visuals.into_boxed_slice(),
+        hashed.into_boxed_slice(),
+        model_templates.into_boxed_slice(),
+        model_quads.into_boxed_slice(),
+    ))
+}
+
+fn model_variant(pack: &PackSources, record: &RegistryRecord, face: BlockFace) -> Option<u32> {
+    let TextureKey { key, .. } = resolve_texture_key(&pack.blocks, record, face);
+    let key = key?;
+    pack.terrain
+        .get_for_model_record(&key, record)
+        .map(|(_, variant)| variant)
+}
+
+fn crossed_quads(material: u32) -> [ModelQuad; 2] {
+    let uvs = [[0, 4096], [4096, 4096], [4096, 0], [0, 0]];
+    [
+        ModelQuad {
+            positions: [[0, 0, 0], [256, 0, 256], [256, 256, 256], [0, 256, 0]],
+            uvs,
+            material,
+            flags: MODEL_QUAD_FLAG_TWO_SIDED,
+        },
+        ModelQuad {
+            positions: [[256, 0, 0], [0, 0, 256], [0, 256, 256], [256, 256, 0]],
+            uvs,
+            material,
+            flags: MODEL_QUAD_FLAG_TWO_SIDED,
+        },
+    ]
 }
 
 #[cfg(test)]
