@@ -129,6 +129,28 @@ Scope (detailed plan to be written at phase start):
 - **Conformance harness (promoted from deferral):** `tools/fixturegen` grows to full packet coverage; CI job round-trips gophertunnel↔valentine bytes both directions on every core and defs bump. This is the automated version of spike task 0.4.
 - Consumer-surface work in `platform/Lunar` to expose what the core needs through the facade (measured, minimal, per AGENTS.md ABI rules).
 
+**Early authenticated RakNet smoke (Zeqa):**
+
+- [x] Add an explicit, ignored Microsoft token cache and optional authenticated upstream
+  dial mode while preserving the offline BDS path when `-auth-cache` is omitted.
+- [x] Document the exact `bedrock-core` and release `bedrock-client` commands, device-code
+  stdout flow, cache privacy requirements, and Rust → local socket → Go → RakNet boundary.
+- [ ] Live smoke: authenticate `bedrock-core` to `zeqa.net:19132` with
+  `.local/auth/microsoft-token.json` and confirm the current release client reaches Zeqa.
+- [ ] Record non-secret live evidence below; never record the device code, access token,
+  refresh token, or token-cache contents.
+
+Live evidence (pending manual Microsoft device-code approval):
+
+- Date/time: pending
+- Authenticated upstream connection observed: pending
+- Client reached Zeqa lobby/session: pending
+- Credential hygiene (`git ls-files .local` empty; no credential material in retained logs):
+  pending
+
+This early direct-RakNet smoke does not close the phase-wide control-channel, `corectl`,
+Realms, friends, NetherNet, transfer, or sign-out work above.
+
 Exit: `corectl join --friend <gamertag>` works from a clean machine; conformance CI green.
 
 ## Phase 2 — World rendering (textured, lit, real)

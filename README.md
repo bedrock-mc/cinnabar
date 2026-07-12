@@ -41,6 +41,53 @@ NetherNet. The Go core owns those moving network surfaces and translates them in
 local stream consumed by the client. This keeps the renderer and game simulation in Rust while
 reusing the proven gophertunnel networking/authentication stack.
 
+## Authenticated remote RakNet servers
+
+Run both commands from the repository root. For a generic authenticated Bedrock server,
+start the Go core in one terminal (replace the example address with the server's host and
+port):
+
+```text
+go run ./core/cmd/bedrock-core -socket-dir .local/run-remote -upstream play.example.net:19132 -auth-cache .local/auth/microsoft-token.json
+```
+
+Then start the current release client against the same local socket directory in another
+terminal:
+
+```text
+cargo run --release -p bedrock-client --locked -- --socket-dir .local/run-remote
+```
+
+The equivalent Zeqa smoke commands are:
+
+```text
+go run ./core/cmd/bedrock-core -socket-dir .local/run-zeqa -upstream zeqa.net:19132 -auth-cache .local/auth/microsoft-token.json
+cargo run --release -p bedrock-client --locked -- --socket-dir .local/run-zeqa
+```
+
+On first use, `bedrock-core` prints the Microsoft device-login URL and code to stdout. Approve
+that code in a browser; the core then writes the resulting token cache to
+`.local/auth/microsoft-token.json`. A usable cache is refreshed and reused on later runs, so a
+new prompt is not expected every time.
+
+The cache contains private Microsoft authentication credentials. Keep it under the ignored
+`.local/` tree, never commit or share it, and do not paste its contents into logs, issues, or
+smoke-test evidence. Deleting the cache signs this local workflow out and requires a new device
+login on the next authenticated run.
+
+The authenticated join path is:
+
+```text
+bedrock-client (Rust: Axolotl/Valentine packets, world state, Bevy renderer)
+  -> local streamnet socket (Unix socket; loopback transport on Windows)
+  -> bedrock-core (Go: gophertunnel authentication, session, and packet relay)
+  -> go-raknet
+  -> remote Bedrock server (for example, Zeqa)
+```
+
+Realms and friend-world joins remain Go-owned as well, using the gophertunnel,
+go-nethernet, and go-xsapi stack; they are separate from this direct RakNet command path.
+
 ## Verification
 
 ```text

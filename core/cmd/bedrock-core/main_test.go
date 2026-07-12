@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"io"
 	"strings"
 	"testing"
@@ -160,6 +161,17 @@ func TestRunHelpReturnsSuccessWithoutStartingProxy(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatal("run(invalid flag) error = nil, want parse failure")
+	}
+}
+
+func TestHelpDocumentsAuthCache(t *testing.T) {
+	help := &strings.Builder{}
+	_, err := parseFlags([]string{"-h"}, help)
+	if !errors.Is(err, flag.ErrHelp) {
+		t.Fatalf("parseFlags(-h) error = %v, want flag.ErrHelp", err)
+	}
+	if !strings.Contains(help.String(), "-auth-cache") {
+		t.Fatalf("help text does not document -auth-cache:\n%s", help.String())
 	}
 }
 
