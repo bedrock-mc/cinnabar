@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fmt::Write as _,
     fs,
     path::{Path, PathBuf},
@@ -14,12 +15,94 @@ use assets::{
     MATERIAL_FLAG_WATER_TINT, MATERIAL_FLAGS_MASK, MAX_TEXTURE_LAYERS, MODEL_QUAD_FLAG_TWO_SIDED,
     MODEL_TEMPLATE_FLAG_KELP, Material, ModelFamily, ModelState, ModelStateField, NetworkIdMode,
     RegistryProvenance, RegistryRecord, RuntimeAssets, VisualKind, compile_pack, encode_blob,
+    read_registry,
 };
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 
 const TILE_SIZE: u32 = 16;
+
+#[test]
+fn flowerbed_generated_registry_has_exact_canonical_state_matrix() {
+    let bytes = if let Ok(revision) = std::env::var("FLOWERBED_REGISTRY_GIT_REV") {
+        let output = Command::new("git")
+            .args([
+                "show",
+                &format!("{revision}:crates/assets/data/block-registry-v1001.bin"),
+            ])
+            .output()
+            .expect("read requested registry revision");
+        assert!(output.status.success(), "git show failed: {output:?}");
+        output.stdout
+    } else {
+        include_bytes!("../data/block-registry-v1001.bin").to_vec()
+    };
+    let records = read_registry(&bytes).expect("decode committed generated registry");
+
+    for name in ["minecraft:wildflowers", "minecraft:pink_petals"] {
+        let selected = records
+            .iter()
+            .filter(|record| record.name.as_ref() == name)
+            .collect::<Vec<_>>();
+        assert_eq!(selected.len(), 32, "{name} record count");
+
+        let mut growths = [false; 8];
+        let mut orientations = [false; 4];
+        let mut selectors = HashSet::with_capacity(32);
+        let mut canonical_states = HashSet::with_capacity(32);
+        for record in selected {
+            assert_eq!(record.model_family as u8, 31, "{name} raw family");
+            assert_ne!(record.model_family, ModelFamily::Cross, "{name} is Cross");
+            assert_ne!(
+                record.model_family,
+                ModelFamily::Unknown,
+                "{name} is Unknown"
+            );
+            let growth = record
+                .model_state
+                .get(ModelStateField::Growth)
+                .expect("flowerbed growth") as usize;
+            let orientation = record
+                .model_state
+                .get(ModelStateField::Orientation)
+                .expect("flowerbed orientation") as usize;
+            assert!(
+                growth < growths.len(),
+                "{name} growth {growth} out of range"
+            );
+            assert!(
+                orientation < orientations.len(),
+                "{name} orientation {orientation} out of range"
+            );
+            growths[growth] = true;
+            orientations[orientation] = true;
+            assert!(
+                selectors.insert((growth, orientation)),
+                "{name} duplicate growth/orientation pair {growth}/{orientation}"
+            );
+            assert!(
+                canonical_states.insert(record.canonical_state.as_ref()),
+                "{name} duplicate canonical state"
+            );
+        }
+
+        assert!(
+            growths.into_iter().all(|present| present),
+            "{name} growth coverage"
+        );
+        assert!(
+            orientations.into_iter().all(|present| present),
+            "{name} orientation coverage"
+        );
+        assert_eq!(selectors.len(), 32, "{name} selector uniqueness");
+        assert_eq!(
+            canonical_states.len(),
+            32,
+            "{name} canonical-state uniqueness"
+        );
+    }
+}
 
 #[test]
 fn assetc_root_help_documents_all_compile_inputs() {
