@@ -1,4 +1,4 @@
-use std::f32::consts::{FRAC_PI_2, TAU};
+use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
 use bevy::{
     core_pipeline::tonemapping::Tonemapping,
@@ -8,6 +8,7 @@ use bevy::{
 };
 
 pub const PITCH_LIMIT: f32 = FRAC_PI_2 - 0.01;
+pub const DEFAULT_VERTICAL_FOV_RADIANS: f32 = 2.0 * PI / 3.0;
 
 pub const AUTO_FLY_PERIOD_SECONDS: f32 = 24.0;
 pub const AUTO_FLY_MAX_HORIZONTAL_BLOCKS: f32 = 128.0;
@@ -120,6 +121,10 @@ impl Plugin for FlyCameraPlugin {
 fn spawn_fly_camera(mut commands: Commands) {
     commands.spawn((
         Camera3d::default(),
+        Projection::Perspective(PerspectiveProjection {
+            fov: DEFAULT_VERTICAL_FOV_RADIANS,
+            ..default()
+        }),
         Tonemapping::None,
         FlyCamera::default(),
         Transform::from_xyz(0.0, 80.0, 0.0),

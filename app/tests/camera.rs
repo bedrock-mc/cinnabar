@@ -262,6 +262,37 @@ fn plugin_spawns_camera_and_auto_fly_uses_delta_seconds() {
 }
 
 #[test]
+fn plugin_spawns_camera_with_120_degree_vertical_fov() {
+    let mut app = App::new();
+    app.init_resource::<Time>()
+        .add_plugins(FlyCameraPlugin::default());
+    app.world_mut().spawn((
+        Window {
+            focused: true,
+            ..default()
+        },
+        CursorOptions::default(),
+        PrimaryWindow,
+    ));
+
+    app.update();
+    let projection = app
+        .world_mut()
+        .query_filtered::<&Projection, (With<Camera3d>, With<FlyCamera>)>()
+        .single(app.world())
+        .unwrap();
+    let Projection::Perspective(perspective) = projection else {
+        panic!("fly camera projection is not perspective");
+    };
+    let expected = 120.0_f32.to_radians();
+    assert!(
+        (perspective.fov - expected).abs() <= 1.0e-6,
+        "vertical FOV = {} degrees, want 120",
+        perspective.fov.to_degrees()
+    );
+}
+
+#[test]
 fn auto_fly_moves_and_rotates_while_unfocused_with_a_released_cursor() {
     let target = Vec3::new(4.5, 70.0, -3.5);
     let mut app = App::new();
