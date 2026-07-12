@@ -5051,9 +5051,21 @@ mod tests {
         assert_eq!(probe.complete().drawn_manifest.as_ref(), &[(key, 7)]);
     }
 
+    fn normalize_source_newlines(source: &str) -> String {
+        source.replace("\r\n", "\n")
+    }
+
+    #[test]
+    fn source_parser_normalizes_crlf_for_windows_worktrees() {
+        assert_eq!(
+            normalize_source_newlines("first\r\nsecond\r\n"),
+            "first\nsecond\n"
+        );
+    }
+
     #[test]
     fn presentation_completion_uses_keyed_expected_mask_lookup() {
-        let source = include_str!("plugin.rs");
+        let source = normalize_source_newlines(include_str!("plugin.rs"));
         let complete = source
             .split_once("    fn complete(self) -> CompletedFrameProbe {")
             .expect("frame probe completion")
