@@ -219,9 +219,12 @@ fn compile_pack_inner(
         (record.flags.contains(BlockFlags::CUBE_GEOMETRY)
             && !record_has_deferred_material(&pack, record))
             || is_terrestrial_cross(record)
+            || is_liquid(record)
     }) {
         let faces: &[BlockFace] = if is_terrestrial_cross(record) {
             &[cross_texture_face(record)]
+        } else if is_liquid(record) {
+            &[BlockFace::Up]
         } else {
             &BlockFace::ALL
         };
@@ -310,7 +313,10 @@ fn descriptor_for(
     } else {
         pack.terrain.get_for_record(&key, record)?
     };
-    if !is_terrestrial_cross(record) && source_is_deferred(pack, record, &key, path) {
+    if !is_terrestrial_cross(record)
+        && !is_liquid(record)
+        && source_is_deferred(pack, record, &key, path)
+    {
         return None;
     }
     let mut flags = if rotate_uv {
@@ -320,6 +326,8 @@ fn descriptor_for(
     };
     if is_terrestrial_cross(record) {
         flags |= MATERIAL_FLAG_ALPHA_CUTOUT | cross_tint_flags(&record.name);
+    } else if is_liquid(record) {
+        flags |= liquid_material_flags(&record.name);
     } else if record.flags.contains(BlockFlags::LEAF_MODEL) {
         flags |= MATERIAL_FLAG_ALPHA_CUTOUT;
         flags |= leaf_tint_flags(&record.name);
@@ -345,6 +353,21 @@ fn descriptor_for(
 
 const fn is_terrestrial_cross(record: &RegistryRecord) -> bool {
     matches!(record.model_family, ModelFamily::Cross | ModelFamily::Crop)
+}
+
+const fn is_liquid(record: &RegistryRecord) -> bool {
+    matches!(record.model_family, ModelFamily::Liquid)
+        && matches!(record.contributor_role, ContributorRole::LiquidAdditional)
+}
+
+const fn liquid_material_flags(name: &str) -> u32 {
+    match name.as_bytes() {
+        b"minecraft:water" | b"minecraft:flowing_water" => {
+            MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_WATER_TINT
+        }
+        b"minecraft:lava" | b"minecraft:flowing_lava" => 0,
+        _ => 0,
+    }
 }
 
 fn cross_texture_face(record: &RegistryRecord) -> BlockFace {
@@ -675,7 +698,20 @@ fn compile_visuals(
 
     for record in records {
         let mut visual = BlockVisual::diagnostic(record.flags, record.contributor_role);
-        if is_terrestrial_cross(record) {
+        if is_liquid(record) {
+            if let Some((descriptor, _)) = descriptor_for(pack, record, BlockFace::Up)
+                && let Some(&material) = material_by_descriptor.get(&descriptor)
+            {
+                visual.flags.remove(
+                    BlockFlags::AIR
+                        | BlockFlags::CUBE_GEOMETRY
+                        | BlockFlags::OCCLUDES_FULL_FACE
+                        | BlockFlags::LEAF_MODEL,
+                );
+                visual.faces = [material; 6];
+                visual.kind = VisualKind::Liquid;
+            }
+        } else if is_terrestrial_cross(record) {
             let face = cross_texture_face(record);
             if let Some((descriptor, _)) = descriptor_for(pack, record, face)
                 && let Some(&material) = material_by_descriptor.get(&descriptor)

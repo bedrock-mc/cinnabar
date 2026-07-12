@@ -244,7 +244,7 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     missing states across 35 wholly absent names and zero extra/mismatched
     states. The deterministic registry SHA-256 is
     `3669be82850824af8592276afe864d903495e743b8af81dfcf1d3aa1586231a4`.
-  - [ ] Version the bounded runtime asset schema to `MCBEAS04`; compile the
+  - [x] Version the bounded runtime asset schema to `MCBEAS04`; compile the
     typed registry selectors, template tables, page-aware flipbook data, and
     attributable per-family diagnostics without committing Mojang payloads.
   - [x] Upload the bounded one/two-page `MCBEAS04` texture resource, immutable

@@ -7,12 +7,13 @@ use std::{
 
 use assets::{
     AssetError, BlockFace, BlockFlags, CollisionSeed, CompiledAssets, ContributorRole,
-    DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_BIRCH_FOLIAGE,
-    MATERIAL_FLAG_EVERGREEN_FOLIAGE, MATERIAL_FLAG_FOLIAGE_CLASS_MASK, MATERIAL_FLAG_FOLIAGE_TINT,
-    MATERIAL_FLAG_GRASS_TINT, MATERIAL_FLAG_OVERLAY_MASK, MATERIAL_FLAG_ROTATE_UV,
-    MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_UV_MASK, MATERIAL_FLAGS_MASK, MAX_TEXTURE_LAYERS,
-    MODEL_QUAD_FLAG_TWO_SIDED, Material, ModelFamily, ModelState, RegistryProvenance,
-    RegistryRecord, VisualKind, compile_pack, encode_blob,
+    DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT,
+    MATERIAL_FLAG_BIRCH_FOLIAGE, MATERIAL_FLAG_EVERGREEN_FOLIAGE, MATERIAL_FLAG_FOLIAGE_CLASS_MASK,
+    MATERIAL_FLAG_FOLIAGE_TINT, MATERIAL_FLAG_GRASS_TINT, MATERIAL_FLAG_OVERLAY_MASK,
+    MATERIAL_FLAG_ROTATE_UV, MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_UV_MASK,
+    MATERIAL_FLAG_WATER_TINT, MATERIAL_FLAGS_MASK, MAX_TEXTURE_LAYERS, MODEL_QUAD_FLAG_TWO_SIDED,
+    Material, ModelFamily, ModelState, RegistryProvenance, RegistryRecord, VisualKind,
+    compile_pack, encode_blob,
 };
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 use sha2::{Digest, Sha256};
@@ -1921,17 +1922,18 @@ fn compiler_installs_recognized_flipbooks_after_loading_the_strip() {
     let directory = tempfile::tempdir().expect("create fixture");
     write_pack(
         directory.path(),
-        r#"{"water":{"textures":"water"}}"#,
-        r#"{"texture_data":{"water":{"textures":"textures/blocks/water"}}}"#,
-        r#"[{"flipbook_texture":"textures/blocks/water","atlas_tile":"water"}]"#,
+        r#"{"water":{"textures":"water"},"lava":{"textures":"lava"}}"#,
+        r#"{"texture_data":{"water":{"textures":"textures/blocks/water"},"lava":{"textures":"textures/blocks/lava"}}}"#,
+        r#"[
+            {"flipbook_texture":"textures/blocks/water","atlas_tile":"water"},
+            {"flipbook_texture":"textures/blocks/lava","atlas_tile":"lava"}
+        ]"#,
     );
-    let records = [record(
-        0,
-        700,
-        "minecraft:water",
-        "{}",
-        BlockFlags::CUBE_GEOMETRY,
-    )];
+    let mut water_record = model_record(0, 700, "minecraft:water", "{}", ModelFamily::Liquid);
+    water_record.contributor_role = ContributorRole::LiquidAdditional;
+    let mut lava_record = model_record(1, 701, "minecraft:lava", "{}", ModelFamily::Liquid);
+    lava_record.contributor_role = ContributorRole::LiquidAdditional;
+    let records = [water_record, lava_record];
     let mut water = solid(TILE_SIZE, TILE_SIZE, [20, 80, 200, 180]);
     water.extend(solid(TILE_SIZE, TILE_SIZE, [30, 100, 220, 180]));
     write_png(
@@ -1941,19 +1943,52 @@ fn compiler_installs_recognized_flipbooks_after_loading_the_strip() {
         TILE_SIZE * 2,
         &water,
     );
+    let mut lava = solid(TILE_SIZE, TILE_SIZE, [240, 90, 10, 255]);
+    lava.extend(solid(TILE_SIZE, TILE_SIZE, [255, 130, 20, 255]));
+    write_png(
+        directory.path(),
+        "textures/blocks/lava",
+        TILE_SIZE,
+        TILE_SIZE * 2,
+        &lava,
+    );
 
     let compiled = compile_pack(directory.path(), &records).expect("compile flipbook reference");
 
+    assert_eq!(compiled.visuals[0].kind, VisualKind::Liquid);
+    assert_eq!(
+        compiled.visuals[0].contributor_role,
+        ContributorRole::LiquidAdditional
+    );
+    assert!(
+        !compiled.visuals[0]
+            .flags
+            .contains(BlockFlags::CUBE_GEOMETRY)
+    );
     assert!(
         compiled.visuals[0]
             .faces
             .into_iter()
             .all(|material| material != 0)
     );
-    assert_eq!(compiled.materials.len(), 2);
-    assert_eq!(compiled.animations.len(), 1);
-    assert_eq!(compiled.animation_frames.len(), 2);
-    assert_eq!(compiled.texture_pages[0].texture.layers, 3);
+    assert_eq!(compiled.visuals[1].kind, VisualKind::Liquid);
+    assert_eq!(
+        compiled.visuals[1].contributor_role,
+        ContributorRole::LiquidAdditional
+    );
+    assert_eq!(compiled.materials.len(), 3);
+    let water_material = compiled.materials[compiled.visuals[0].faces[0] as usize];
+    let lava_material = compiled.materials[compiled.visuals[1].faces[0] as usize];
+    assert_eq!(
+        water_material.flags,
+        MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_WATER_TINT
+    );
+    assert_eq!(water_material.animation, 0);
+    assert_eq!(lava_material.flags, 0);
+    assert_eq!(lava_material.animation, 1);
+    assert_eq!(compiled.animations.len(), 2);
+    assert_eq!(compiled.animation_frames.len(), 4);
+    assert_eq!(compiled.texture_pages[0].texture.layers, 5);
 }
 
 fn one_texture_fixture() -> (TempDir, RegistryRecord, PathBuf) {

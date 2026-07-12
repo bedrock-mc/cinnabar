@@ -13,9 +13,9 @@ pub use lighting::{
     mesh_dependency_mask,
 };
 pub use mesh::{
-    BlockClassifier, ChunkMesh, ChunkMeshStreams, Face, FaceConnectivity, Neighbourhood,
-    PackedLiquidQuad, PackedModelRef, PackedQuad, PackedQuadLighting, mesh_sub_chunk,
-    mesh_sub_chunk_in_neighbourhood,
+    BlockClassifier, ChunkMesh, ChunkMeshStreams, ContributorResolver, Face, FaceConnectivity,
+    Neighbourhood, PackedLiquidQuad, PackedModelRef, PackedQuad, PackedQuadLighting,
+    ResolvedContributors, mesh_sub_chunk, mesh_sub_chunk_in_neighbourhood,
 };
 pub use plugin::{
     AnimationFrameSample, BiomeTint, ChunkAnimationClock, ChunkBiomeTintIdentity, ChunkBiomeTints,

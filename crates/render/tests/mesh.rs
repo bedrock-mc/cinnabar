@@ -7,8 +7,8 @@ use assets::{
     encode_blob,
 };
 use render::{
-    BlockClassifier, ChunkMesh, Face, FaceConnectivity, Neighbourhood, PackedLiquidQuad,
-    PackedModelRef, PackedQuad, PackedQuadLighting, debug_color, mesh_sub_chunk,
+    BlockClassifier, ChunkMesh, ContributorResolver, Face, FaceConnectivity, Neighbourhood,
+    PackedLiquidQuad, PackedModelRef, PackedQuad, PackedQuadLighting, debug_color, mesh_sub_chunk,
 };
 use world::SubChunk;
 
@@ -20,6 +20,9 @@ const LEAF_A: u32 = 55;
 const LEAF_B: u32 = 56;
 const CROSS: u32 = 57;
 const ZERO_QUAD_CROSS: u32 = 58;
+const LIQUID_A: u32 = 59;
+const LIQUID_B: u32 = 60;
+const UNSUPPORTED_ADDITIONAL: u32 = 61;
 
 #[test]
 fn packed_stream_record_sizes() {
@@ -129,6 +132,26 @@ fn runtime_assets() -> &'static RuntimeAssets {
             kind: VisualKind::Cross,
             contributor_role: assets::ContributorRole::Primary,
             model_template: 1,
+            animation: NO_ANIMATION,
+            variant: 0,
+        };
+        for runtime_id in [LIQUID_A, LIQUID_B] {
+            visuals[runtime_id as usize] = BlockVisual {
+                faces: [DIAGNOSTIC_MATERIAL; 6],
+                flags: BlockFlags::empty(),
+                kind: VisualKind::Liquid,
+                contributor_role: assets::ContributorRole::LiquidAdditional,
+                model_template: NO_MODEL_TEMPLATE,
+                animation: NO_ANIMATION,
+                variant: 0,
+            };
+        }
+        visuals[UNSUPPORTED_ADDITIONAL as usize] = BlockVisual {
+            faces: [DIAGNOSTIC_MATERIAL; 6],
+            flags: BlockFlags::empty(),
+            kind: VisualKind::Diagnostic,
+            contributor_role: assets::ContributorRole::LiquidAdditional,
+            model_template: NO_MODEL_TEMPLATE,
             animation: NO_ANIMATION,
             variant: 0,
         };
@@ -595,10 +618,21 @@ fn zero_storage_and_uniform_air_emit_no_geometry() {
 }
 
 #[test]
-fn first_non_air_storage_layer_selects_the_debug_material() {
-    let layer_zero = packed_storage(1, &[AIR, 29], &[([0, 0, 0], 1)]);
-    let layer_one = packed_storage(1, &[AIR, 31], &[([0, 0, 0], 1), ([2, 0, 0], 1)]);
-    let sub = sub_chunk(vec![layer_zero, layer_one]);
+fn layered_solid_and_water_are_both_resolved() {
+    let solid = packed_storage(1, &[AIR, OPAQUE_A], &[([8, 8, 8], 1)]);
+    let water = packed_storage(1, &[AIR, LIQUID_A], &[([8, 8, 8], 1)]);
+    let sub = sub_chunk(vec![solid, water]);
+    let resolved = ContributorResolver::new(
+        classifier(),
+        runtime_assets(),
+        NetworkIdMode::Sequential,
+        &sub,
+    );
+    assert_eq!(resolved.palette_entry_count(), 4);
+    let resolved = resolved.resolve([8, 8, 8]);
+    assert_eq!(resolved.primary_network_value(), Some(OPAQUE_A));
+    assert_eq!(resolved.liquid_network_value(), Some(LIQUID_A));
+    assert_eq!(resolved.diagnostic_network_value(), None);
 
     let mesh = mesh(
         &classifier(),
@@ -606,15 +640,241 @@ fn first_non_air_storage_layer_selects_the_debug_material() {
         &Neighbourhood::empty(),
         &sub,
     );
-    let materials = mesh
-        .quads()
-        .iter()
-        .map(PackedQuad::material_id)
-        .collect::<Vec<_>>();
+    assert_eq!(mesh.quad_count(), 6);
+    assert!(
+        mesh.quads()
+            .iter()
+            .all(|quad| quad.material_id() == OPAQUE_A)
+    );
+    assert!(mesh.liquid_quads().is_empty());
+}
 
-    assert_eq!(mesh.quad_count(), 12);
-    assert_eq!(materials.iter().filter(|&&id| id == 29).count(), 6);
-    assert_eq!(materials.iter().filter(|&&id| id == 31).count(), 6);
+#[test]
+fn uniform_solid_and_water_resolve_all_layers() {
+    let sub = sub_chunk(vec![uniform_storage(OPAQUE_A), uniform_storage(LIQUID_A)]);
+    let resolver = ContributorResolver::new(
+        classifier(),
+        runtime_assets(),
+        NetworkIdMode::Sequential,
+        &sub,
+    );
+    assert_eq!(resolver.palette_entry_count(), 2);
+    let resolved = resolver.resolve([15, 15, 15]);
+    assert_eq!(resolved.primary_network_value(), Some(OPAQUE_A));
+    assert_eq!(resolved.liquid_network_value(), Some(LIQUID_A));
+    assert_eq!(resolved.diagnostic_network_value(), None);
+
+    let mesh = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &sub,
+    );
+    assert_eq!(mesh.quad_count(), 6);
+    assert!(
+        mesh.quads()
+            .iter()
+            .all(|quad| quad.material_id() == OPAQUE_A)
+    );
+}
+
+#[test]
+fn contributor_resolver_rejects_out_of_bounds_coordinates_consistently() {
+    let uniform = uniform(OPAQUE_A);
+    let mixed = blocks(OPAQUE_A, &[[8, 8, 8]]);
+    for sub_chunk in [&uniform, &mixed] {
+        let resolved = ContributorResolver::new(
+            classifier(),
+            runtime_assets(),
+            NetworkIdMode::Sequential,
+            sub_chunk,
+        )
+        .resolve([16, 0, 0]);
+        assert_eq!(resolved.primary_network_value(), None);
+        assert_eq!(resolved.liquid_network_value(), None);
+        assert_eq!(resolved.diagnostic_network_value(), Some(0));
+    }
+}
+
+#[test]
+fn liquid_before_solid_is_order_independent() {
+    let water = packed_storage(1, &[AIR, LIQUID_A], &[([8, 8, 8], 1)]);
+    let solid = packed_storage(1, &[AIR, OPAQUE_A], &[([8, 8, 8], 1)]);
+    let sub = sub_chunk(vec![water, solid]);
+    let resolved = ContributorResolver::new(
+        classifier(),
+        runtime_assets(),
+        NetworkIdMode::Sequential,
+        &sub,
+    )
+    .resolve([8, 8, 8]);
+    assert_eq!(resolved.primary_network_value(), Some(OPAQUE_A));
+    assert_eq!(resolved.liquid_network_value(), Some(LIQUID_A));
+    assert_eq!(resolved.diagnostic_network_value(), None);
+
+    let mesh = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &sub,
+    );
+
+    assert_eq!(mesh.quad_count(), 6);
+    assert!(
+        mesh.quads()
+            .iter()
+            .all(|quad| quad.material_id() == OPAQUE_A)
+    );
+}
+
+#[test]
+fn liquid_only_is_retained_without_diagnostic_cube() {
+    let water = blocks(LIQUID_A, &[[8, 8, 8]]);
+    let resolved = ContributorResolver::new(
+        classifier(),
+        runtime_assets(),
+        NetworkIdMode::Sequential,
+        &water,
+    )
+    .resolve([8, 8, 8]);
+    assert_eq!(resolved.primary_network_value(), None);
+    assert_eq!(resolved.liquid_network_value(), Some(LIQUID_A));
+    assert_eq!(resolved.diagnostic_network_value(), None);
+    let mesh = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &water,
+    );
+
+    assert!(mesh.cube_quads().is_empty());
+    assert!(mesh.model_refs().is_empty());
+}
+
+#[test]
+fn duplicate_liquid_collapses() {
+    let first = packed_storage(1, &[AIR, LIQUID_A], &[([8, 8, 8], 1)]);
+    let duplicate = packed_storage(1, &[AIR, LIQUID_A], &[([8, 8, 8], 1)]);
+    let sub = sub_chunk(vec![first, duplicate]);
+    let resolved = ContributorResolver::new(
+        classifier(),
+        runtime_assets(),
+        NetworkIdMode::Sequential,
+        &sub,
+    )
+    .resolve([8, 8, 8]);
+    assert_eq!(resolved.primary_network_value(), None);
+    assert_eq!(resolved.liquid_network_value(), Some(LIQUID_A));
+    assert_eq!(resolved.diagnostic_network_value(), None);
+
+    let mesh = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &sub,
+    );
+
+    assert!(mesh.is_empty());
+}
+
+#[test]
+fn two_primary_layers_fail_closed() {
+    for second_runtime_id in [OPAQUE_A, OPAQUE_B] {
+        let first = packed_storage(1, &[AIR, OPAQUE_A], &[([8, 8, 8], 1)]);
+        let second = packed_storage(1, &[AIR, second_runtime_id], &[([8, 8, 8], 1)]);
+        let sub = sub_chunk(vec![first, second]);
+
+        let resolved = ContributorResolver::new(
+            classifier(),
+            runtime_assets(),
+            NetworkIdMode::Sequential,
+            &sub,
+        )
+        .resolve([8, 8, 8]);
+        assert_eq!(resolved.primary_network_value(), None);
+        assert_eq!(resolved.liquid_network_value(), None);
+        assert_eq!(resolved.diagnostic_network_value(), Some(second_runtime_id));
+
+        assert_single_diagnostic_voxel(&sub);
+    }
+}
+
+#[test]
+fn distinct_liquids_fail_closed() {
+    let first = packed_storage(1, &[AIR, LIQUID_A], &[([8, 8, 8], 1)]);
+    let second = packed_storage(1, &[AIR, LIQUID_B], &[([8, 8, 8], 1)]);
+    let sub = sub_chunk(vec![first, second]);
+
+    let resolved = ContributorResolver::new(
+        classifier(),
+        runtime_assets(),
+        NetworkIdMode::Sequential,
+        &sub,
+    )
+    .resolve([8, 8, 8]);
+    assert_eq!(resolved.primary_network_value(), None);
+    assert_eq!(resolved.liquid_network_value(), None);
+    assert_eq!(resolved.diagnostic_network_value(), Some(LIQUID_B));
+
+    assert_single_diagnostic_voxel(&sub);
+}
+
+#[test]
+fn unsupported_additional_layer_fails_closed() {
+    let unsupported = blocks(UNSUPPORTED_ADDITIONAL, &[[8, 8, 8]]);
+
+    let resolved = ContributorResolver::new(
+        classifier(),
+        runtime_assets(),
+        NetworkIdMode::Sequential,
+        &unsupported,
+    )
+    .resolve([8, 8, 8]);
+    assert_eq!(resolved.primary_network_value(), None);
+    assert_eq!(resolved.liquid_network_value(), None);
+    assert_eq!(
+        resolved.diagnostic_network_value(),
+        Some(UNSUPPORTED_ADDITIONAL)
+    );
+
+    assert_single_diagnostic_voxel(&unsupported);
+}
+
+#[test]
+fn sixteen_storage_layers_resolve_without_flattening() {
+    let mut layers = vec![uniform_storage(AIR); world::MAX_STORAGE_COUNT - 1];
+    layers.push(packed_storage(1, &[AIR, OPAQUE_A], &[([8, 8, 8], 1)]));
+    let sub = sub_chunk(layers);
+
+    let mesh = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &sub,
+    );
+    assert_eq!(mesh.quad_count(), 6);
+    assert!(
+        mesh.quads()
+            .iter()
+            .all(|quad| quad.material_id() == OPAQUE_A)
+    );
+}
+
+fn assert_single_diagnostic_voxel(sub_chunk: &SubChunk) {
+    let mesh = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        sub_chunk,
+    );
+    assert_eq!(mesh.quad_count(), 6);
+    assert!(
+        mesh.quads()
+            .iter()
+            .all(|quad| quad.material_id() == DIAGNOSTIC_MATERIAL)
+    );
+    assert!(mesh.model_refs().is_empty());
+    assert!(mesh.liquid_quads().is_empty());
 }
 
 #[test]
@@ -729,9 +989,9 @@ fn leaf_slab_is_cave_open_while_opaque_slab_separates_opposite_faces() {
 }
 
 #[test]
-fn first_non_air_palette_layer_controls_leaf_facts_and_face_material() {
+fn separate_primary_layers_resolve_per_coordinate() {
     let layer_zero = packed_storage(1, &[AIR, LEAF_A], &[([1, 1, 1], 1)]);
-    let layer_one = packed_storage(1, &[AIR, OPAQUE_A], &[([1, 1, 1], 1), ([2, 1, 1], 1)]);
+    let layer_one = packed_storage(1, &[AIR, OPAQUE_A], &[([2, 1, 1], 1)]);
     let sub = sub_chunk(vec![layer_zero, layer_one]);
     let mesh = mesh(
         &classifier(),
