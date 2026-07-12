@@ -79,6 +79,7 @@ pub enum ModelFamily {
     Cocoa = 28,
     Lever = 29,
     Invisible = 30,
+    FlowerBed = 31,
 }
 
 impl ModelFamily {
@@ -115,6 +116,7 @@ impl ModelFamily {
             28 => Self::Cocoa,
             29 => Self::Lever,
             30 => Self::Invisible,
+            31 => Self::FlowerBed,
             _ => return Err(AssetError::InvalidRegistryFlags(raw)),
         })
     }

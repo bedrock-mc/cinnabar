@@ -831,6 +831,65 @@ func TestSelectorCardinality(t *testing.T) {
 	}
 }
 
+func TestFlowerBedClassificationPreservesGrowthAndOrientation(t *testing.T) {
+	for _, name := range []string{"minecraft:wildflowers", "minecraft:pink_petals"} {
+		state := sourceState(name,
+			intState("growth", 2),
+			StateProperty{Name: "minecraft:cardinal_direction", Value: TypedScalar{Kind: ScalarString, String: "east"}},
+		)
+		record, err := classifyRecord(state)
+		if err != nil {
+			t.Fatalf("classify %s: %v", name, err)
+		}
+		if record.ModelFamily != ModelFamilyFlowerBed {
+			t.Fatalf("%s family=%v, want FlowerBed", name, record.ModelFamily)
+		}
+		if got, ok := record.ModelState.Get(ModelStateGrowth); !ok || got != 2 {
+			t.Fatalf("%s growth=%d/%v, want 2/true", name, got, ok)
+		}
+		if got, ok := record.ModelState.Get(ModelStateOrientation); !ok || got != 3 {
+			t.Fatalf("%s orientation=%d/%v, want east (3/true)", name, got, ok)
+		}
+	}
+}
+
+func TestFlowerBedCanonicalStateCoverage(t *testing.T) {
+	directions := []string{"south", "west", "north", "east"}
+	for _, name := range []string{"minecraft:wildflowers", "minecraft:pink_petals"} {
+		records := make([]Record, 0, 32)
+		states := make(map[string]struct{}, 32)
+		selectors := make(map[[2]uint32]struct{}, 32)
+		for growth := int32(0); growth < 8; growth++ {
+			for _, direction := range directions {
+				record, err := classifyRecord(sourceState(name,
+					intState("growth", growth),
+					StateProperty{Name: "minecraft:cardinal_direction", Value: TypedScalar{Kind: ScalarString, String: direction}},
+				))
+				if err != nil {
+					t.Fatalf("classify %s growth=%d direction=%s: %v", name, growth, direction, err)
+				}
+				if record.ModelFamily == ModelFamilyCross || record.ModelFamily == ModelFamilyUnknown {
+					t.Fatalf("%s growth=%d direction=%s family=%v, want dedicated family", name, growth, direction, record.ModelFamily)
+				}
+				if record.ModelFamily != ModelFamilyFlowerBed {
+					t.Fatalf("%s growth=%d direction=%s family=%v, want FlowerBed", name, growth, direction, record.ModelFamily)
+				}
+				gotGrowth, hasGrowth := record.ModelState.Get(ModelStateGrowth)
+				orientation, hasOrientation := record.ModelState.Get(ModelStateOrientation)
+				if !hasGrowth || !hasOrientation {
+					t.Fatalf("%s growth=%d direction=%s selector mask=%#x", name, growth, direction, record.ModelState.Mask)
+				}
+				records = append(records, record)
+				states[string(record.StateJSON)] = struct{}{}
+				selectors[[2]uint32{gotGrowth, orientation}] = struct{}{}
+			}
+		}
+		if len(records) != 32 || len(states) != 32 || len(selectors) != 32 {
+			t.Fatalf("%s records/states/selectors=%d/%d/%d, want 32/32/32", name, len(records), len(states), len(selectors))
+		}
+	}
+}
+
 func TestEncodeBREG1003Canonical(t *testing.T) {
 	record, err := classifyRecord(sourceState("minecraft:stone"))
 	if err != nil {

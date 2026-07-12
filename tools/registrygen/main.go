@@ -106,9 +106,10 @@ const (
 	ModelFamilyCocoa
 	ModelFamilyLever
 	ModelFamilyInvisible
+	ModelFamilyFlowerBed
 )
 
-const maxModelFamily = ModelFamilyInvisible
+const maxModelFamily = ModelFamilyFlowerBed
 
 type ContributorRole uint8
 
@@ -1139,6 +1140,8 @@ func classifyRecord(state SourceState) (Record, error) {
 		record.ModelFamily = ModelFamilyCocoa
 	case isCropName(name):
 		record.ModelFamily = ModelFamilyCrop
+	case name == "wildflowers" || name == "pink_petals":
+		record.ModelFamily = ModelFamilyFlowerBed
 	case isCrossName(name):
 		record.ModelFamily = ModelFamilyCross
 	}
@@ -1313,7 +1316,7 @@ func isCrossName(name string) bool {
 	if name == "chorus_flower" {
 		return false
 	}
-	if name == "short_grass" || name == "tall_grass" || name == "short_dry_grass" || name == "tall_dry_grass" || name == "fern" || name == "large_fern" || name == "deadbush" || name == "bush" || name == "red_flower" || name == "yellow_flower" || name == "dandelion" || name == "poppy" || name == "blue_orchid" || name == "allium" || name == "azure_bluet" || name == "oxeye_daisy" || name == "cornflower" || name == "lily_of_the_valley" || name == "wither_rose" || name == "sunflower" || name == "lilac" || name == "rose_bush" || name == "peony" || name == "brown_mushroom" || name == "red_mushroom" || name == "crimson_fungus" || name == "warped_fungus" || name == "crimson_roots" || name == "warped_roots" || name == "nether_sprouts" || name == "mangrove_propagule" || name == "hanging_roots" || name == "pale_hanging_moss" || name == "firefly_bush" || name == "reeds" || name == "weeping_vines" || name == "twisting_vines" || strings.HasPrefix(name, "cave_vines") || name == "web" || name == "fire" || name == "soul_fire" || name == "torchflower" || name == "wildflowers" {
+	if name == "short_grass" || name == "tall_grass" || name == "short_dry_grass" || name == "tall_dry_grass" || name == "fern" || name == "large_fern" || name == "deadbush" || name == "bush" || name == "red_flower" || name == "yellow_flower" || name == "dandelion" || name == "poppy" || name == "blue_orchid" || name == "allium" || name == "azure_bluet" || name == "oxeye_daisy" || name == "cornflower" || name == "lily_of_the_valley" || name == "wither_rose" || name == "sunflower" || name == "lilac" || name == "rose_bush" || name == "peony" || name == "brown_mushroom" || name == "red_mushroom" || name == "crimson_fungus" || name == "warped_fungus" || name == "crimson_roots" || name == "warped_roots" || name == "nether_sprouts" || name == "mangrove_propagule" || name == "hanging_roots" || name == "pale_hanging_moss" || name == "firefly_bush" || name == "reeds" || name == "weeping_vines" || name == "twisting_vines" || strings.HasPrefix(name, "cave_vines") || name == "web" || name == "fire" || name == "soul_fire" || name == "torchflower" {
 		return true
 	}
 	return !strings.Contains(name, "flower_pot") && (strings.HasSuffix(name, "_flower") || strings.HasSuffix(name, "_sapling"))
