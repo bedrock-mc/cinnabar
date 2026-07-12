@@ -142,25 +142,25 @@ Expected: PASS; 32 normal states (two blocks × four growth × four directions) 
 - Consumes: pinned local-only Mojang resource pack and BDS console command channel.
 - Produces: a 64-state BDS fixture manifest and an ignored diagnostic resource pack with uniquely coloured flower quadrants/stem texels.
 
-- [ ] **Step 1: Write failing fixture-manifest tests**
+- [x] **Step 1: Write failing fixture-manifest tests**
 
 Assert the plan contains exactly 64 unique `setblock` commands, every growth 0–7 and cardinal direction for both names, fixed camera commands for top/north/east/oblique views, a layout hash, and cleanup/ticking-area commands.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/tests/acceptance.Tests.ps1`
 
 Expected: FAIL because `FlowerBedGallery*` poses do not exist.
 
-- [ ] **Step 3: Implement `New-FlowerBedGalleryPlan`**
+- [x] **Step 3: Implement `New-FlowerBedGalleryPlan`**
 
 Add `FlowerBedGalleryTop`, `FlowerBedGalleryNorth`, `FlowerBedGalleryEast`, and `FlowerBedGalleryOblique` to the validated pose set. Build the exact 64-state grid from typed states, not string ordinal assumptions. Reuse existing fenced BDS command/result proof and source-world identity protections.
 
-- [ ] **Step 4: Test the local-only diagnostic pack builder**
+- [x] **Step 4: Test the local-only diagnostic pack builder**
 
 The builder must refuse output outside `.local`, copy only the two flower and two stem PNGs plus the minimum manifest/terrain routing, replace texels deterministically, and emit SHA-256 evidence. Tests inspect generated images but never add them to git.
 
-- [ ] **Step 5: Run script verification**
+- [x] **Step 5: Run script verification**
 
 Run:
 
@@ -177,6 +177,7 @@ Implementation notes (Task 3):
 - The exhaustive gallery reads raw family 31 directly from the committed protocol-1001 `BREG1003` registry and rejects any matrix other than the exact two names × growth 0–7 × South/West/North/East set. Its 8×8, four-by-three-spaced layout pairs every typed state with a polished-andesite reference cube and uses the existing schema-v2 ticking-area, command-result fence, source-world identity, and cleanup lifecycle.
 - `scripts/flowerbed-reference-pack.ps1` accepts only an output rooted below this checkout's ignored `.local` directory, rejects overlap and reparse traversal, copies the pack manifest, emits minimal two-entry block/terrain routing, and writes only four deterministic opaque quadrant/stripe PNGs with per-file input/output SHA-256 evidence. The builder validates required route tokens without treating Mojang's comment-bearing pinned `terrain_texture.json` as strict JSON.
 - Production builds verify exact SHA-256 values for all seven required files before claiming the pinned Mojang tag/archive identity. Synthetic fixtures must provide an explicit `rust-mcbe-flowerbed-source-identity-v1` document through `-SourceIdentityPath`; its complete file-hash map is verified against actual bytes and bound into the generated v2 evidence manifest.
+- Independent Task 3 re-review at `07eab74` found the implementation spec-compliant and approved, with no Critical, Important, or Minor findings.
 
 ---
 
