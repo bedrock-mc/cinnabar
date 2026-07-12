@@ -88,6 +88,33 @@ func TestSourceValidCacheRefreshesAndPersistsRotation(t *testing.T) {
 	assertCachedToken(t, path, rotated)
 }
 
+func TestSourceOversizedRefreshedTokenDoesNotReplaceExistingCache(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "microsoft-token.json")
+	writeToken(t, path, token("cached", "cached-refresh"))
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oversized := token("rotated", strings.Repeat("\x00", maxCacheSize/6))
+
+	_, err = Source(context.Background(), Config{
+		Path: path,
+		Refresh: func(*oauth2.Token, io.Writer) oauth2.TokenSource {
+			return oauth2.StaticTokenSource(oversized)
+		},
+	})
+	if err == nil {
+		t.Fatal("Source() error = nil, want oversized serialized token rejection")
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(after, before) {
+		t.Fatal("oversized refreshed token replaced the existing cache")
+	}
+}
+
 func TestSourceExpiredRefreshRequestsOnce(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "microsoft-token.json")
 	writeToken(t, path, token("expired", "expired-refresh"))

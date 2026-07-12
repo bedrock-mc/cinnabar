@@ -227,8 +227,9 @@ type saveHooks struct {
 }
 
 func saveWithHooks(path string, tok *oauth2.Token, hooks saveHooks) (returnErr error) {
-	if !validToken(tok) {
-		return errors.New("refusing to persist token without refresh token")
+	serialized, err := serializeToken(tok)
+	if err != nil {
+		return err
 	}
 	dir := filepath.Dir(path)
 	beforeCreate, err := snapshotDirectoryChain(dir)
@@ -298,8 +299,12 @@ func saveWithHooks(path string, tok *oauth2.Token, hooks saveHooks) (returnErr e
 	if err := file.Chmod(0o600); err != nil {
 		return err
 	}
-	if err := json.NewEncoder(file).Encode(tok); err != nil {
+	written, err := file.Write(serialized)
+	if err != nil {
 		return err
+	}
+	if written != len(serialized) {
+		return io.ErrShortWrite
 	}
 	if err := file.Sync(); err != nil {
 		return err
@@ -357,6 +362,27 @@ func saveWithHooks(path string, tok *oauth2.Token, hooks saveHooks) (returnErr e
 	}
 	success = true
 	return nil
+}
+
+func serializeToken(tok *oauth2.Token) ([]byte, error) {
+	if !validToken(tok) {
+		return nil, errors.New("refusing to persist token without refresh token")
+	}
+	remaining := maxCacheSize
+	for _, field := range []string{tok.AccessToken, tok.TokenType, tok.RefreshToken} {
+		if len(field) > remaining {
+			return nil, fmt.Errorf("auth cache exceeds %d bytes", maxCacheSize)
+		}
+		remaining -= len(field)
+	}
+	serialized, err := json.Marshal(tok)
+	if err != nil {
+		return nil, err
+	}
+	if len(serialized) >= maxCacheSize {
+		return nil, fmt.Errorf("auth cache exceeds %d bytes", maxCacheSize)
+	}
+	return append(serialized, '\n'), nil
 }
 
 func createRootTemp(root *os.Root) (*os.File, string, error) {
