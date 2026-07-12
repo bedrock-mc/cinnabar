@@ -55,6 +55,28 @@ and direct Mojang `blocks.json` name coverage. The initial comment line in
 Mojang reference JSON was excluded before JSON decoding. Counts below must be
 regenerated when any pin or registry schema changes.
 
+## FlowerBed normal-state baseline
+
+`minecraft:wildflowers` and `minecraft:pink_petals` now compile Growth 0-3 as
+one through four immutable additive ground-patch groups for every preserved
+cardinal value: South=0, West=1, North=2, East=3. Each terrain key must expose
+exactly the routed flower material at array index 0 and stem material at index
+1; missing or malformed routing leaves the state diagnostic. The template key
+contains both material IDs, growth, and orientation. Growth 4-7 is still an
+explicit attributable diagnostic and is never clamped, wrapped, or aliased.
+
+The compact coordinates and UVs are a geometry baseline derived from the four
+Mojang Java `flowerbed_1.json` through `flowerbed_4.json` models in the pinned
+`MrHakan/mc-mapping-tree` commit
+`be56c80939e94f4afd5e63bc40c684af9ff218fb`. Source element coordinates were
+rotated as declared by those models, quantized once to the existing 1/256-block
+position format, and retain 1/4096 texture-tile UVs. The resulting additive
+prefixes contain 7, 10, 17, and 20 two-sided quads, respectively, with all
+vertices below 64/256 block height. This Java-derived table is provisional
+geometry evidence only; Task 4's pinned native Bedrock gallery remains the
+authority for final coordinates, UV orientation, and command-only Growth 4-7
+semantics.
+
 ## Exhaustive renderer-work partition
 
 The cube row is deliberately conservative. It assigns all states of a name

@@ -221,6 +221,19 @@ fn compile_pack_inner(
             || is_model_visual(record)
             || is_liquid(record)
     }) {
+        if is_flowerbed(record) {
+            if let Some((descriptor, key, _)) = flowerbed_material_descriptor(&pack, record) {
+                descriptor_keys
+                    .entry(descriptor)
+                    .and_modify(|current| {
+                        if key.as_ref() < current.as_ref() {
+                            *current = key.clone();
+                        }
+                    })
+                    .or_insert(key);
+            }
+            continue;
+        }
         let aquatic_faces;
         let faces: &[BlockFace] = if is_kelp(record) || is_liquid(record) {
             &BlockFace::ALL
@@ -358,6 +371,46 @@ fn descriptor_for(
     ))
 }
 
+fn flowerbed_material_descriptor(
+    pack: &PackSources,
+    record: &RegistryRecord,
+) -> Option<(Descriptor, Box<str>, u32)> {
+    let TextureKey { key, rotate_uv } = resolve_texture_key(&pack.blocks, record, BlockFace::Down);
+    let key = key?;
+    let (path, variant) = pack.terrain.get_for_model_record(&key, record)?;
+    Some((
+        Descriptor {
+            path: path.into(),
+            texture_key: key.clone(),
+            flags: (u32::from(rotate_uv) * MATERIAL_FLAG_ROTATE_UV) | MATERIAL_FLAG_ALPHA_CUTOUT,
+        },
+        key,
+        variant,
+    ))
+}
+
+fn flowerbed_material_descriptors(
+    records: &[RegistryRecord],
+    pack: &PackSources,
+    record: &RegistryRecord,
+) -> [Option<(Descriptor, Box<str>)>; 2] {
+    let mut descriptors = [None, None];
+    for candidate in records
+        .iter()
+        .filter(|candidate| candidate.name == record.name && is_flowerbed(candidate))
+    {
+        let Some((descriptor, key, variant)) = flowerbed_material_descriptor(pack, candidate)
+        else {
+            continue;
+        };
+        if variant > 1 {
+            return [None, None];
+        }
+        descriptors[variant as usize].get_or_insert((descriptor, key));
+    }
+    descriptors
+}
+
 const fn is_terrestrial_cross(record: &RegistryRecord) -> bool {
     matches!(record.model_family, ModelFamily::Cross | ModelFamily::Crop)
 }
@@ -375,8 +428,16 @@ fn is_kelp(record: &RegistryRecord) -> bool {
     matches!(record.model_family, ModelFamily::Aquatic) && record.name.as_ref() == "minecraft:kelp"
 }
 
+fn is_flowerbed(record: &RegistryRecord) -> bool {
+    matches!(record.model_family, ModelFamily::FlowerBed)
+        && matches!(
+            record.name.as_ref(),
+            "minecraft:wildflowers" | "minecraft:pink_petals"
+        )
+}
+
 fn is_model_visual(record: &RegistryRecord) -> bool {
-    is_cross_visual(record) || is_kelp(record)
+    is_cross_visual(record) || is_kelp(record) || is_flowerbed(record)
 }
 
 const fn is_liquid(record: &RegistryRecord) -> bool {
@@ -754,6 +815,7 @@ fn compile_visuals(
     let mut model_quads = Vec::new();
     let mut template_by_material = BTreeMap::<[u32; 2], u32>::new();
     let mut kelp_template_by_material = BTreeMap::<[u32; 6], u32>::new();
+    let mut flowerbed_template_by_key = BTreeMap::<[u32; 4], u32>::new();
 
     for record in records {
         let mut visual = BlockVisual::diagnostic(record.flags, record.contributor_role);
@@ -785,6 +847,51 @@ fn compile_visuals(
                 visual.faces = [west, east, down, up, north, south];
                 visual.kind = VisualKind::Liquid;
                 visual.variant = liquid_depth;
+            }
+        } else if is_flowerbed(record) {
+            let growth = record.model_state.get(ModelStateField::Growth);
+            let orientation = record.model_state.get(ModelStateField::Orientation);
+            let descriptors = flowerbed_material_descriptors(records, pack, record);
+            let materials = descriptors.each_ref().map(|descriptor| {
+                descriptor
+                    .as_ref()
+                    .and_then(|(descriptor, _)| material_by_descriptor.get(descriptor))
+                    .copied()
+            });
+            if let ([Some(flower), Some(stem)], Some(growth @ 0..=3), Some(orientation @ 0..=3)) =
+                (materials, growth, orientation)
+            {
+                let key = [flower, stem, growth, orientation];
+                let template = if let Some(&template) = flowerbed_template_by_key.get(&key) {
+                    template
+                } else {
+                    let quads = flowerbed_quads([flower, stem], growth, orientation)?;
+                    let template = u32::try_from(model_templates.len()).map_err(|_| {
+                        AssetError::BlobSizeOverflow {
+                            section: "model template",
+                        }
+                    })?;
+                    let quad_start = u32::try_from(model_quads.len()).map_err(|_| {
+                        AssetError::BlobSizeOverflow {
+                            section: "model quad",
+                        }
+                    })?;
+                    let quad_count =
+                        u32::try_from(quads.len()).map_err(|_| AssetError::BlobSizeOverflow {
+                            section: "model quad count",
+                        })?;
+                    model_templates.push(ModelTemplate {
+                        quad_start,
+                        quad_count,
+                        flags: 0,
+                    });
+                    model_quads.extend(quads);
+                    flowerbed_template_by_key.insert(key, template);
+                    template
+                };
+                visual.faces = [flower; 6];
+                visual.kind = VisualKind::Model;
+                visual.model_template = template;
             }
         } else if is_kelp(record) {
             let descriptors = BlockFace::ALL.map(|face| descriptor_for(pack, record, face));
@@ -928,6 +1035,233 @@ fn crossed_quads(materials: [u32; 2]) -> [ModelQuad; 2] {
             flags: MODEL_QUAD_FLAG_TWO_SIDED,
         },
     ]
+}
+
+#[derive(Clone, Copy)]
+struct FlowerBedQuad {
+    positions: [[i16; 3]; 4],
+    uvs: [[u16; 2]; 4],
+    stem: bool,
+}
+
+#[derive(Clone, Copy)]
+struct FlowerBedPatch {
+    quads: &'static [FlowerBedQuad],
+}
+
+const FLOWERBED_PATCH_1: [FlowerBedQuad; 7] = [
+    flowerbed_quad(
+        [[0, 48, 0], [128, 48, 0], [128, 48, 128], [0, 48, 128]],
+        [[0, 0], [2048, 0], [2048, 2048], [0, 2048]],
+        false,
+    ),
+    flowerbed_quad(
+        [[77, 0, 19], [66, 0, 30], [66, 48, 30], [77, 48, 19]],
+        stem_uv(1024),
+        true,
+    ),
+    flowerbed_quad(
+        [[66, 0, 19], [77, 0, 30], [77, 48, 30], [66, 48, 19]],
+        stem_uv(1024),
+        true,
+    ),
+    flowerbed_quad(
+        [[29, 0, 81], [18, 0, 93], [18, 48, 93], [29, 48, 81]],
+        stem_uv(1024),
+        true,
+    ),
+    flowerbed_quad(
+        [[18, 0, 81], [29, 0, 93], [29, 48, 93], [18, 48, 81]],
+        stem_uv(1024),
+        true,
+    ),
+    flowerbed_quad(
+        [[109, 0, 98], [97, 0, 110], [97, 48, 110], [109, 48, 98]],
+        stem_uv(1024),
+        true,
+    ),
+    flowerbed_quad(
+        [[97, 0, 98], [109, 0, 110], [109, 48, 110], [97, 48, 98]],
+        stem_uv(1024),
+        true,
+    ),
+];
+
+const FLOWERBED_PATCH_2: [FlowerBedQuad; 3] = [
+    flowerbed_quad(
+        [[0, 16, 128], [128, 16, 128], [128, 16, 256], [0, 16, 256]],
+        [[0, 2048], [2048, 2048], [2048, 4096], [0, 4096]],
+        false,
+    ),
+    flowerbed_quad(
+        [[67, 0, 179], [78, 0, 190], [78, 16, 190], [67, 16, 179]],
+        stem_uv(1536),
+        true,
+    ),
+    flowerbed_quad(
+        [[78, 0, 179], [67, 0, 190], [67, 16, 190], [78, 16, 179]],
+        stem_uv(1536),
+        true,
+    ),
+];
+
+const FLOWERBED_PATCH_3: [FlowerBedQuad; 7] = [
+    flowerbed_quad(
+        [
+            [128, 32, 128],
+            [256, 32, 128],
+            [256, 32, 256],
+            [128, 32, 256],
+        ],
+        [[2048, 2048], [4096, 2048], [4096, 4096], [2048, 4096]],
+        false,
+    ),
+    flowerbed_quad(
+        [[186, 0, 218], [198, 0, 229], [198, 32, 229], [186, 32, 218]],
+        stem_uv(1280),
+        true,
+    ),
+    flowerbed_quad(
+        [[198, 0, 218], [186, 0, 229], [186, 32, 229], [198, 32, 218]],
+        stem_uv(1280),
+        true,
+    ),
+    flowerbed_quad(
+        [[238, 0, 162], [226, 0, 173], [226, 32, 173], [238, 32, 162]],
+        stem_uv(1280),
+        true,
+    ),
+    flowerbed_quad(
+        [[226, 0, 162], [238, 0, 173], [238, 32, 173], [226, 32, 162]],
+        stem_uv(1280),
+        true,
+    ),
+    flowerbed_quad(
+        [[157, 0, 146], [146, 0, 157], [146, 32, 157], [157, 32, 146]],
+        stem_uv(1280),
+        true,
+    ),
+    flowerbed_quad(
+        [[146, 0, 146], [157, 0, 157], [157, 32, 157], [146, 32, 146]],
+        stem_uv(1280),
+        true,
+    ),
+];
+
+const FLOWERBED_PATCH_4: [FlowerBedQuad; 3] = [
+    flowerbed_quad(
+        [[128, 32, 0], [256, 32, 0], [256, 32, 128], [128, 32, 128]],
+        [[2048, 0], [4096, 0], [4096, 2048], [2048, 2048]],
+        false,
+    ),
+    flowerbed_quad(
+        [[189, 0, 50], [177, 0, 62], [177, 32, 62], [189, 32, 50]],
+        stem_uv(1280),
+        true,
+    ),
+    flowerbed_quad(
+        [[177, 0, 50], [189, 0, 62], [189, 32, 62], [177, 32, 50]],
+        stem_uv(1280),
+        true,
+    ),
+];
+
+const FLOWERBED_PATCHES: [FlowerBedPatch; 4] = [
+    FlowerBedPatch {
+        quads: &FLOWERBED_PATCH_1,
+    },
+    FlowerBedPatch {
+        quads: &FLOWERBED_PATCH_2,
+    },
+    FlowerBedPatch {
+        quads: &FLOWERBED_PATCH_3,
+    },
+    FlowerBedPatch {
+        quads: &FLOWERBED_PATCH_4,
+    },
+];
+
+const fn flowerbed_quad(positions: [[i16; 3]; 4], uvs: [[u16; 2]; 4], stem: bool) -> FlowerBedQuad {
+    FlowerBedQuad {
+        positions,
+        uvs,
+        stem,
+    }
+}
+
+const fn stem_uv(min_v: u16) -> [[u16; 2]; 4] {
+    [[0, 1792], [256, 1792], [256, min_v], [0, min_v]]
+}
+
+fn flowerbed_quads(
+    materials: [u32; 2],
+    growth: u32,
+    orientation: u32,
+) -> Result<Vec<ModelQuad>, AssetError> {
+    let patch_count = usize::try_from(growth + 1).map_err(|_| AssetError::BlobSizeOverflow {
+        section: "flowerbed patch count",
+    })?;
+    let patches =
+        FLOWERBED_PATCHES
+            .get(..patch_count)
+            .ok_or_else(|| AssetError::InvalidCompiledAssets {
+                detail: format!("flowerbed growth {growth} is not a normal state").into(),
+            })?;
+    if orientation > 3 {
+        return Err(AssetError::InvalidCompiledAssets {
+            detail: format!("flowerbed orientation {orientation} is not cardinal").into(),
+        });
+    }
+    let quad_count = patches.iter().map(|patch| patch.quads.len()).sum();
+    if quad_count > 32 {
+        return Err(AssetError::InvalidCompiledAssets {
+            detail: format!("flowerbed template has {quad_count} quads").into(),
+        });
+    }
+    let mut quads = Vec::with_capacity(quad_count);
+    for source in patches.iter().flat_map(|patch| patch.quads) {
+        let mut positions = source.positions;
+        for position in &mut positions {
+            *position = rotate_flowerbed_position(*position, orientation)?;
+            if position[1] >= 64 {
+                return Err(AssetError::InvalidCompiledAssets {
+                    detail: "flowerbed template exceeded the near-ground bound".into(),
+                });
+            }
+        }
+        quads.push(ModelQuad {
+            positions,
+            uvs: source.uvs,
+            material: materials[usize::from(source.stem)],
+            flags: MODEL_QUAD_FLAG_TWO_SIDED,
+        });
+    }
+    Ok(quads)
+}
+
+fn rotate_flowerbed_position(
+    [x, y, z]: [i16; 3],
+    orientation: u32,
+) -> Result<[i16; 3], AssetError> {
+    if !(0..=256).contains(&x) || !(0..=256).contains(&z) {
+        return Err(AssetError::InvalidCompiledAssets {
+            detail: format!("flowerbed source position ({x}, {z}) is outside one block").into(),
+        });
+    }
+    let complement = |value: i16| {
+        i16::try_from(256_i32 - i32::from(value)).map_err(|_| AssetError::BlobSizeOverflow {
+            section: "flowerbed rotated position",
+        })
+    };
+    match orientation {
+        0 => Ok([x, y, z]),
+        1 => Ok([complement(z)?, y, x]),
+        2 => Ok([complement(x)?, y, complement(z)?]),
+        3 => Ok([z, y, complement(x)?]),
+        _ => Err(AssetError::InvalidCompiledAssets {
+            detail: format!("flowerbed orientation {orientation} is not cardinal").into(),
+        }),
+    }
 }
 
 fn kelp_quads(materials: [u32; 6]) -> [ModelQuad; 6] {
