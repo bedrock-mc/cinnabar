@@ -31,8 +31,12 @@ const ADJACENT_OFFSETS: [[i8; 3]; 26] = [
     [1, 1, 0],
     [1, 1, 1],
 ];
-pub(crate) const LIQUID_SAMPLE_OFFSETS: [[i8; 3]; 19] = [
+pub(crate) const LIQUID_SAMPLE_OFFSETS: [[i8; 3]; 23] = [
     [0, -1, 0],
+    [-1, -1, 0],
+    [1, -1, 0],
+    [0, -1, -1],
+    [0, -1, 1],
     [-1, 0, -1],
     [-1, 0, 0],
     [-1, 0, 1],
@@ -133,8 +137,9 @@ impl<'a> MeshNeighbourhood<'a> {
     /// Exact sub-chunk offsets needed by vanilla-like liquid surface meshing.
     ///
     /// The set is a horizontal 3x3 at the current and upper Y levels, plus
-    /// the lower center used by the bottom face. It is fixed, deduplicated,
-    /// and deliberately smaller than the general 3x3x3 AO neighbourhood.
+    /// the lower center and four lower cardinals used by bottom faces and
+    /// downward flow. It is fixed, deduplicated, and deliberately smaller
+    /// than the general 3x3x3 AO neighbourhood.
     pub fn liquid_sample_offsets() -> impl ExactSizeIterator<Item = [i8; 3]> {
         LIQUID_SAMPLE_OFFSETS.into_iter()
     }
@@ -187,7 +192,8 @@ impl<'a> MeshNeighbourhood<'a> {
 }
 
 const fn is_liquid_sample_offset([x, y, z]: [i8; 3]) -> bool {
-    ((y == 0 || y == 1) && x >= -1 && x <= 1 && z >= -1 && z <= 1) || (x == 0 && y == -1 && z == 0)
+    ((y == 0 || y == 1) && x >= -1 && x <= 1 && z >= -1 && z <= 1)
+        || (y == -1 && ((x == 0 && z == 0) || (x.abs() + z.abs() == 1)))
 }
 
 fn index([x, y, z]: [i8; 3]) -> Option<usize> {

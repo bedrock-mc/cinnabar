@@ -145,22 +145,115 @@ impl PackedQuadLighting {
 
 /// Fixed-size liquid surface/side geometry record.
 ///
-/// Task 12 assigns the individual fixed-point corner-height, face, flow, and
-/// material bit fields. Reserving four words here fixes queue and GPU addressing
-/// without prematurely installing a liquid producer.
+/// Word 0 packs local X/Y/Z nibbles, face bits 12..14 (6 and 7 reserved), a
+/// falling bit, and signed i8 X/Z flow gradients. Word 1 stores four u8 heights,
+/// where 255 is one full block. Vertex order is top NW/NE/SE/SW; bottom
+/// NW/SW/SE/NE; -X bottom-N/top-N/top-S/bottom-S; +X
+/// bottom-S/top-S/top-N/bottom-N; -Z bottom-E/top-E/top-W/bottom-W; and +Z
+/// bottom-W/top-W/top-E/bottom-E. Word 2 stores the selected material and word 3
+/// the relative index in the independently allocated liquid-light stream.
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct PackedLiquidQuad([u32; 4]);
 
 impl PackedLiquidQuad {
     #[must_use]
-    pub const fn new(words: [u32; 4]) -> Self {
-        Self(words)
+    pub const fn words(self) -> [u32; 4] {
+        self.0
+    }
+
+    /// Packs one liquid quad. Heights are u8 fixed point with 255 = one block,
+    /// ordered top NW/NE/SE/SW; bottom NW/SW/SE/NE; -X
+    /// bottom-N/top-N/top-S/bottom-S; +X bottom-S/top-S/top-N/bottom-N; -Z
+    /// bottom-E/top-E/top-W/bottom-W; or +Z bottom-W/top-W/top-E/bottom-E.
+    /// Raw face encodings 6 and 7 remain reserved.
+    #[must_use]
+    pub const fn try_pack(
+        origin: [u8; 3],
+        face: Face,
+        heights: [u8; 4],
+        material_id: u32,
+        lighting_index: u32,
+        flow_gradient: [i8; 2],
+        falling: bool,
+    ) -> Option<Self> {
+        if origin[0] >= 16 || origin[1] >= 16 || origin[2] >= 16 {
+            return None;
+        }
+        let geometry = origin[0] as u32
+            | ((origin[1] as u32) << 4)
+            | ((origin[2] as u32) << 8)
+            | ((face as u32) << 12)
+            | ((falling as u32) << 15)
+            | ((flow_gradient[0] as u8 as u32) << 16)
+            | ((flow_gradient[1] as u8 as u32) << 24);
+        let corners = heights[0] as u32
+            | ((heights[1] as u32) << 8)
+            | ((heights[2] as u32) << 16)
+            | ((heights[3] as u32) << 24);
+        Some(Self([geometry, corners, material_id, lighting_index]))
     }
 
     #[must_use]
-    pub const fn words(self) -> [u32; 4] {
-        self.0
+    pub const fn origin(self) -> [u8; 3] {
+        [
+            (self.0[0] & 15) as u8,
+            ((self.0[0] >> 4) & 15) as u8,
+            ((self.0[0] >> 8) & 15) as u8,
+        ]
+    }
+
+    #[must_use]
+    pub const fn face(self) -> Face {
+        match (self.0[0] >> 12) & 7 {
+            0 => Face::NegativeX,
+            1 => Face::PositiveX,
+            2 => Face::NegativeY,
+            3 => Face::PositiveY,
+            4 => Face::NegativeZ,
+            5 => Face::PositiveZ,
+            _ => unreachable!(),
+        }
+    }
+
+    /// Checks reserved face encodings before accepting raw stream words.
+    #[must_use]
+    pub const fn try_from_words(words: [u32; 4]) -> Option<Self> {
+        if ((words[0] >> 12) & 7) >= 6 {
+            None
+        } else {
+            Some(Self(words))
+        }
+    }
+
+    #[must_use]
+    pub const fn heights(self) -> [u8; 4] {
+        [
+            self.0[1] as u8,
+            (self.0[1] >> 8) as u8,
+            (self.0[1] >> 16) as u8,
+            (self.0[1] >> 24) as u8,
+        ]
+    }
+
+    #[must_use]
+    pub const fn material_id(self) -> u32 {
+        self.0[2]
+    }
+
+    #[must_use]
+    pub const fn lighting_index(self) -> u32 {
+        self.0[3]
+    }
+
+    #[must_use]
+    pub const fn flow_gradient(self) -> [i8; 2] {
+        [(self.0[0] >> 16) as u8 as i8, (self.0[0] >> 24) as u8 as i8]
+    }
+
+    #[must_use]
+    pub const fn is_falling(self) -> bool {
+        self.0[0] & (1 << 15) != 0
     }
 }
 
@@ -468,11 +561,14 @@ impl ChunkMesh {
     }
 }
 
-/// Greedy-mesh one sub-chunk directly from its packed palette storages.
+/// Greedy-mesh cube/model streams from one sub-chunk and six face neighbours.
 ///
 /// Occupancy is represented as three sets of 16x16 `u64` axis columns. Face
 /// masks are calculated with shifts/AND-NOT operations, then coplanar runs of
 /// equal face material are merged before emitting one 8-byte record per quad.
+/// This legacy API cannot supply the diagonal/vertical 23-slot snapshot needed
+/// for correct liquids, so its liquid streams are explicitly empty. Liquid
+/// callers must use [`mesh_sub_chunk_in_neighbourhood`].
 #[must_use]
 pub fn mesh_sub_chunk(
     classifier: &BlockClassifier,
@@ -487,7 +583,7 @@ pub fn mesh_sub_chunk(
             let _ = neighbourhood.insert(face_offset(face), neighbour);
         }
     }
-    mesh_sub_chunk_in_neighbourhood(classifier, visuals, network_id_mode, &neighbourhood)
+    mesh_sub_chunk_core(classifier, visuals, network_id_mode, &neighbourhood, false)
 }
 
 /// Greedy-mesh from the shared bounded 3x3x3 palette-native snapshot.
@@ -497,6 +593,16 @@ pub fn mesh_sub_chunk_in_neighbourhood(
     visuals: &RuntimeAssets,
     network_id_mode: NetworkIdMode,
     neighbourhood: &MeshNeighbourhood<'_>,
+) -> ChunkMesh {
+    mesh_sub_chunk_core(classifier, visuals, network_id_mode, neighbourhood, true)
+}
+
+fn mesh_sub_chunk_core(
+    classifier: &BlockClassifier,
+    visuals: &RuntimeAssets,
+    network_id_mode: NetworkIdMode,
+    neighbourhood: &MeshNeighbourhood<'_>,
+    include_liquids: bool,
 ) -> ChunkMesh {
     let sub_chunk = neighbourhood
         .sub_chunk([0, 0, 0])
@@ -615,12 +721,17 @@ pub fn mesh_sub_chunk_in_neighbourhood(
         }
     }
 
+    let (liquid_quads, liquid_lighting) = if include_liquids {
+        crate::liquid::mesh_liquids(*classifier, visuals, network_id_mode, neighbourhood)
+    } else {
+        (Vec::new(), Vec::new())
+    };
     ChunkMesh {
         cube_quads: quads.into_boxed_slice(),
         model_refs: model_refs.into_boxed_slice(),
         model_lighting: model_lighting.into_boxed_slice(),
-        liquid_quads: Box::new([]),
-        liquid_lighting: Box::new([]),
+        liquid_quads: liquid_quads.into_boxed_slice(),
+        liquid_lighting: liquid_lighting.into_boxed_slice(),
         connectivity,
     }
 }
@@ -635,14 +746,14 @@ fn is_kelp_entry(visuals: &RuntimeAssets, entry: ResolvedPaletteEntry) -> bool {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct ResolvedPaletteEntry {
+pub(crate) struct ResolvedPaletteEntry {
     network_value: u32,
     contributor_role: ContributorRole,
-    flags: BlockFlags,
-    faces: [u32; Face::ALL.len()],
-    kind: VisualKind,
+    pub(crate) flags: BlockFlags,
+    pub(crate) faces: [u32; Face::ALL.len()],
+    pub(crate) kind: VisualKind,
     model_template: u32,
-    variant: u32,
+    pub(crate) variant: u32,
 }
 
 impl ResolvedPaletteEntry {
@@ -698,6 +809,14 @@ pub struct ResolvedContributors {
 }
 
 impl ResolvedContributors {
+    pub(crate) const fn primary_entry(self) -> Option<ResolvedPaletteEntry> {
+        self.primary
+    }
+
+    pub(crate) const fn liquid_entry(self) -> Option<ResolvedPaletteEntry> {
+        self.liquid
+    }
+
     #[must_use]
     pub const fn primary_network_value(self) -> Option<u32> {
         match self.primary {
@@ -939,7 +1058,9 @@ fn resolve_palette_entry(
     let block = visuals.resolve(network_id_mode, network_value);
     let mut flags = block.flags();
     flags.remove(BlockFlags::AIR);
-    let faces = if flags.contains(BlockFlags::CUBE_GEOMETRY) {
+    let faces = if flags.contains(BlockFlags::CUBE_GEOMETRY)
+        || matches!(block.kind(), VisualKind::Liquid)
+    {
         Face::ALL.map(|face| block.face(block_face(face)).material_id())
     } else {
         flags.remove(BlockFlags::OCCLUDES_FULL_FACE | BlockFlags::LEAF_MODEL);

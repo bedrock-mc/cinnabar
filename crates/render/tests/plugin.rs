@@ -121,7 +121,7 @@ fn queue_counts_every_stream_and_sidecar() {
         cube.quads().to_vec(),
         vec![render::PackedModelRef::new(1, 2, 3, u32::MAX)],
         vec![render::PackedQuadLighting::new([0; 4])],
-        vec![render::PackedLiquidQuad::new([4, 5, 6, 7])],
+        vec![render::PackedLiquidQuad::try_from_words([4, 5, 6, 7]).unwrap()],
         vec![render::PackedQuadLighting::new([0; 4])],
         cube.connectivity(),
     );

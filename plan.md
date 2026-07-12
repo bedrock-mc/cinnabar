@@ -286,7 +286,8 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     deliberately invisible until Tasks 11–13.
   - [x] Track the exact bounded liquid mesh neighbourhood and invalidation set.
     Task 11 keeps the shared palette-native `world::MeshNeighbourhood` as the
-    render API boundary, exposes the deduplicated 19-subchunk liquid sample set,
+    render API boundary, exposes the deduplicated 23-subchunk liquid sample set
+    (current/upper horizontal 3x3 plus lower center and four cardinals),
     applies its checked inverse for liquid-only diagonal dirtying, preserves
     ordinary six-face cube invalidation, coalesces duplicate rapid updates, and
     rejects stale dependency masks. World, client, formatting, strict Clippy,
@@ -300,6 +301,19 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     face-specific lighting, a shared bounded/no-cull direct+MDI GPU path, and an
     exhaustive hash-bound gallery; assets 112, render 102, world 51, client 187,
     acceptance, strict Clippy, and final independent re-review are green.
+  - [x] Mesh animated, biome-tinted water from the shared bounded palette
+    snapshot. Task 12 preserves all 16 water depth/falling states, vanilla-like
+    weighted four-corner surfaces, diagonal and cross-subchunk influence,
+    same-water/solid culling, clipped sides and bottoms, signed flow gradients,
+    waterlogging, still/flow per-face materials, stable stream order, and one
+    face-specific eight-byte lighting sidecar per 16-byte liquid quad. The
+    liquid dependency set was corrected to the exact 23 samples needed by
+    lower-cardinal waterfall flow. Only all-face alpha-blended, water-tinted
+    families enter this stream; lava remains attributable diagnostic until its
+    Task 19 depth-writing route. Seventeen liquid integration tests, full locked
+    affected-crate suites, exact strict Clippy, real 16,913-visual asset compile,
+    and final independent re-review are green. Water remains deliberately
+    invisible until Task 13 installs the transparent GPU path.
   - [ ] Mesh animated, biome-tinted water with same-liquid culling, vanilla-like
     corner heights, diagonal invalidation, and a correctly ordered transparent
     phase with depth testing and no depth writes.
@@ -307,11 +321,12 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     doors/trapdoors, connection-aware panes/fences/gates, then static
     chest/sign models; retain conservative culling/connectivity for partial
     models until exact face-coverage optimization is separately verified.
-  - [ ] Complete the exhaustive residual-family report so every non-air one of
-    the 16,913 canonical states has a non-diagnostic visual; close deterministic
-    galleries and live acceptance with globally zero diagnostic counters,
-    vanilla-reference screenshots, upload/memory/CPU metrics, and
-    teleport-remesh evidence.
+  - [ ] Complete the exhaustive residual-family report, beginning with
+    lava/flowing-lava on a reviewed depth-writing non-water-liquid pipeline, so
+    every non-air one of the 16,913 canonical states has a non-diagnostic visual;
+    close deterministic galleries and live acceptance with globally zero
+    diagnostic counters, vanilla-reference screenshots, upload/memory/CPU
+    metrics, and teleport-remesh evidence.
 - [ ] **2.7 Client lighting and atmosphere.** Block/sky flood fill, baked vertex
   light and day/night, then sky, fog, and clouds; finish the Phase 2 parity and
   teleport-remesh acceptance gates.

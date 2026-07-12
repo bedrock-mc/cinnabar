@@ -3,6 +3,7 @@
 mod biome;
 mod color;
 mod lighting;
+mod liquid;
 mod mesh;
 mod plugin;
 
@@ -12,6 +13,7 @@ pub use lighting::{
     PHASE26_BLOCK_LIGHT, PHASE26_SKY_LIGHT, bake_quad_lighting, bake_template_lighting,
     mesh_dependency_mask,
 };
+pub use liquid::LiquidLevel;
 pub use mesh::{
     BlockClassifier, ChunkMesh, ChunkMeshStreams, ContributorResolver, Face, FaceConnectivity,
     Neighbourhood, PackedLiquidQuad, PackedModelRef, PackedQuad, PackedQuadLighting,

@@ -883,7 +883,10 @@ Commit: `tools: report exhaustive block visual coverage`
 - Modify: `crates/assets/src/compiler.rs`
 - Modify: `crates/assets/tests/compiler.rs`
 - Modify: `crates/render/src/mesh.rs`
+- Modify: `crates/render/src/plugin.rs`
+- Create: `crates/render/src/non_water_liquid.wgsl`
 - Modify: `crates/render/tests/mesh.rs`
+- Modify: `crates/render/tests/plugin.rs`
 - Modify: `scripts/acceptance.ps1`
 - Modify: `scripts/tests/acceptance.Tests.ps1`
 - Modify: `docs/phase-2-texture-slice-report.md`
@@ -893,14 +896,17 @@ Commit: `tools: report exhaustive block visual coverage`
 Drive these reviewed batches from the Task 18 report, adding exact state/UV/model
 tests before each implementation:
 
-1. surface-height cuboids: snow layers, carpets, farmland/path, pressure plates;
-2. thin/flat connections: ladders, rails, redstone, vines, lichen, resin, sculk;
-3. fixtures: torches, lanterns, candles, flower pots, cakes;
-4. machines/decorative cuboids: hoppers, bells, anvils, grindstones, lecterns,
+1. non-water liquids: `minecraft:lava` and `minecraft:flowing_lava`, with their
+   animated materials and a reviewed depth-writing pipeline rather than the
+   water-only transparent/no-depth-write path;
+2. surface-height cuboids: snow layers, carpets, farmland/path, pressure plates;
+3. thin/flat connections: ladders, rails, redstone, vines, lichen, resin, sculk;
+4. fixtures: torches, lanterns, candles, flower pots, cakes;
+5. machines/decorative cuboids: hoppers, bells, anvils, grindstones, lecterns,
    brewing/enchanting tables;
-5. explicit vanilla-invisible/engine-only states with sourced non-diagnostic
+6. explicit vanilla-invisible/engine-only states with sourced non-diagnostic
    reasons;
-6. every remaining sorted report family, creating a named generator class and
+7. every remaining sorted report family, creating a named generator class and
    focused test rather than mapping it to an arbitrary cube.
 
 Each batch's RED run is `cargo test -p assets --test compiler <batch>` plus

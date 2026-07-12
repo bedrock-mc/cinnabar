@@ -34,7 +34,7 @@ fn packed_stream_record_sizes() {
 
     let model = PackedModelRef::new(1, 2, 3, 0xa5a5_5a5a);
     let lighting = PackedQuadLighting::new([0x00f0, 0x01f0, 0x02f0, 0x03f0]);
-    let liquid = PackedLiquidQuad::new([4, 5, 6, 7]);
+    let liquid = PackedLiquidQuad::try_from_words([4, 5, 6, 7]).unwrap();
     let mesh = ChunkMesh::from_streams(
         Vec::new(),
         vec![model],
@@ -775,6 +775,7 @@ fn layered_solid_and_water_are_both_resolved() {
             .all(|quad| quad.material_id() == OPAQUE_A)
     );
     assert!(mesh.liquid_quads().is_empty());
+    assert!(mesh.liquid_lighting().is_empty());
 }
 
 #[test]
@@ -802,10 +803,8 @@ fn layered_aquatic_cross_and_water_emit_model_without_diagnostic_cube() {
     assert!(mesh.cube_quads().is_empty());
     assert_eq!(mesh.model_refs().len(), 1);
     assert_eq!(mesh.model_lighting().len(), 2);
-    assert!(
-        mesh.liquid_quads().is_empty(),
-        "liquid meshing starts in Task 12"
-    );
+    assert!(mesh.liquid_quads().is_empty());
+    assert!(mesh.liquid_lighting().is_empty());
 }
 
 #[test]
@@ -933,7 +932,10 @@ fn duplicate_liquid_collapses() {
         &sub,
     );
 
-    assert!(mesh.is_empty());
+    assert!(mesh.cube_quads().is_empty());
+    assert!(mesh.model_refs().is_empty());
+    assert!(mesh.liquid_quads().is_empty());
+    assert!(mesh.liquid_lighting().is_empty());
 }
 
 #[test]

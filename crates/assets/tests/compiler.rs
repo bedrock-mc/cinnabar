@@ -12,8 +12,8 @@ use assets::{
     MATERIAL_FLAG_FOLIAGE_TINT, MATERIAL_FLAG_GRASS_TINT, MATERIAL_FLAG_OVERLAY_MASK,
     MATERIAL_FLAG_ROTATE_UV, MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_UV_MASK,
     MATERIAL_FLAG_WATER_TINT, MATERIAL_FLAGS_MASK, MAX_TEXTURE_LAYERS, MODEL_QUAD_FLAG_TWO_SIDED,
-    MODEL_TEMPLATE_FLAG_KELP, Material, ModelFamily, ModelState, RegistryProvenance,
-    RegistryRecord, VisualKind, compile_pack, encode_blob,
+    MODEL_TEMPLATE_FLAG_KELP, Material, ModelFamily, ModelState, ModelStateField,
+    RegistryProvenance, RegistryRecord, VisualKind, compile_pack, encode_blob,
 };
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 use sha2::{Digest, Sha256};
@@ -2208,36 +2208,87 @@ fn compiler_installs_recognized_flipbooks_after_loading_the_strip() {
     let directory = tempfile::tempdir().expect("create fixture");
     write_pack(
         directory.path(),
-        r#"{"water":{"textures":"water"},"lava":{"textures":"lava"}}"#,
-        r#"{"texture_data":{"water":{"textures":"textures/blocks/water"},"lava":{"textures":"textures/blocks/lava"}}}"#,
+        r#"{
+            "water":{"textures":{"up":"water_still","down":"water_still","side":"water_flow"}},
+            "lava":{"textures":{"up":"lava_still","down":"lava_still","side":"lava_flow"}},
+            "broken_water":{"textures":{"west":"water_flow","east":"water_flow","up":"water_still","north":"water_flow","south":"water_flow"}}
+        }"#,
+        r#"{"texture_data":{
+            "water_still":{"textures":"textures/blocks/water_still"},
+            "water_flow":{"textures":"textures/blocks/water_flow"},
+            "lava_still":{"textures":"textures/blocks/lava_still"},
+            "lava_flow":{"textures":"textures/blocks/lava_flow"}
+        }}"#,
         r#"[
-            {"flipbook_texture":"textures/blocks/water","atlas_tile":"water"},
-            {"flipbook_texture":"textures/blocks/lava","atlas_tile":"lava"}
+            {"flipbook_texture":"textures/blocks/water_still","atlas_tile":"water_still"},
+            {"flipbook_texture":"textures/blocks/water_flow","atlas_tile":"water_flow"},
+            {"flipbook_texture":"textures/blocks/lava_still","atlas_tile":"lava_still"},
+            {"flipbook_texture":"textures/blocks/lava_flow","atlas_tile":"lava_flow"}
         ]"#,
     );
-    let mut water_record = model_record(0, 700, "minecraft:water", "{}", ModelFamily::Liquid);
+    let mut water_record = model_record(
+        0,
+        700,
+        "minecraft:water",
+        r#"{"liquid_depth":{"type":"int","value":3}}"#,
+        ModelFamily::Liquid,
+    );
     water_record.contributor_role = ContributorRole::LiquidAdditional;
-    let mut lava_record = model_record(1, 701, "minecraft:lava", "{}", ModelFamily::Liquid);
+    assert_eq!(
+        water_record.model_state.get(ModelStateField::LiquidDepth),
+        None
+    );
+    let mut lava_record = model_record(
+        1,
+        701,
+        "minecraft:lava",
+        r#"{"liquid_depth":{"type":"int","value":15}}"#,
+        ModelFamily::Liquid,
+    );
     lava_record.contributor_role = ContributorRole::LiquidAdditional;
-    let records = [water_record, lava_record];
-    let mut water = solid(TILE_SIZE, TILE_SIZE, [20, 80, 200, 180]);
-    water.extend(solid(TILE_SIZE, TILE_SIZE, [30, 100, 220, 180]));
-    write_png(
-        directory.path(),
-        "textures/blocks/water",
-        TILE_SIZE,
-        TILE_SIZE * 2,
-        &water,
+    let mut missing_depth = model_record(2, 702, "minecraft:water", "{}", ModelFamily::Liquid);
+    missing_depth.contributor_role = ContributorRole::LiquidAdditional;
+    let mut out_of_range_depth = model_record(
+        3,
+        703,
+        "minecraft:water",
+        r#"{"liquid_depth":{"type":"int","value":16}}"#,
+        ModelFamily::Liquid,
     );
-    let mut lava = solid(TILE_SIZE, TILE_SIZE, [240, 90, 10, 255]);
-    lava.extend(solid(TILE_SIZE, TILE_SIZE, [255, 130, 20, 255]));
-    write_png(
-        directory.path(),
-        "textures/blocks/lava",
-        TILE_SIZE,
-        TILE_SIZE * 2,
-        &lava,
+    out_of_range_depth.contributor_role = ContributorRole::LiquidAdditional;
+    let mut missing_face = model_record(
+        4,
+        704,
+        "minecraft:broken_water",
+        r#"{"liquid_depth":{"type":"int","value":2}}"#,
+        ModelFamily::Liquid,
     );
+    missing_face.contributor_role = ContributorRole::LiquidAdditional;
+    let records = [
+        water_record,
+        lava_record,
+        missing_depth,
+        out_of_range_depth,
+        missing_face,
+    ];
+    for (index, path) in ["water_still", "water_flow", "lava_still", "lava_flow"]
+        .into_iter()
+        .enumerate()
+    {
+        let mut strip = solid(TILE_SIZE, TILE_SIZE, [20 + index as u8, 80, 200, 180]);
+        strip.extend(solid(
+            TILE_SIZE,
+            TILE_SIZE,
+            [30 + index as u8, 100, 220, 180],
+        ));
+        write_png(
+            directory.path(),
+            &format!("textures/blocks/{path}"),
+            TILE_SIZE,
+            TILE_SIZE * 2,
+            &strip,
+        );
+    }
 
     let compiled = compile_pack(directory.path(), &records).expect("compile flipbook reference");
 
@@ -2251,30 +2302,49 @@ fn compiler_installs_recognized_flipbooks_after_loading_the_strip() {
             .flags
             .contains(BlockFlags::CUBE_GEOMETRY)
     );
-    assert!(
-        compiled.visuals[0]
-            .faces
-            .into_iter()
-            .all(|material| material != 0)
+    assert_eq!(compiled.visuals[0].variant, 3);
+    assert_eq!(compiled.visuals[1].kind, VisualKind::Diagnostic);
+    assert_eq!(compiled.visuals[1].faces, [DIAGNOSTIC_MATERIAL; 6]);
+    assert_eq!(compiled.visuals[1].variant, 0);
+    for visual in &compiled.visuals[2..] {
+        assert_eq!(visual.kind, VisualKind::Diagnostic);
+        assert_eq!(visual.faces, [DIAGNOSTIC_MATERIAL; 6]);
+        assert_eq!(visual.variant, 0);
+    }
+    assert_eq!(
+        compiled.visuals[0].faces[BlockFace::Up as usize],
+        compiled.visuals[0].faces[BlockFace::Down as usize]
     );
-    assert_eq!(compiled.visuals[1].kind, VisualKind::Liquid);
+    assert_eq!(
+        compiled.visuals[0].faces[BlockFace::West as usize],
+        compiled.visuals[0].faces[BlockFace::East as usize]
+    );
+    assert_eq!(
+        compiled.visuals[0].faces[BlockFace::North as usize],
+        compiled.visuals[0].faces[BlockFace::South as usize]
+    );
+    assert_ne!(
+        compiled.visuals[0].faces[BlockFace::Up as usize],
+        compiled.visuals[0].faces[BlockFace::North as usize]
+    );
     assert_eq!(
         compiled.visuals[1].contributor_role,
         ContributorRole::LiquidAdditional
     );
-    assert_eq!(compiled.materials.len(), 3);
-    let water_material = compiled.materials[compiled.visuals[0].faces[0] as usize];
-    let lava_material = compiled.materials[compiled.visuals[1].faces[0] as usize];
+    assert_eq!(compiled.materials.len(), 7);
+    let water_material =
+        compiled.materials[compiled.visuals[0].faces[BlockFace::Up as usize] as usize];
+    let water_flow =
+        compiled.materials[compiled.visuals[0].faces[BlockFace::North as usize] as usize];
     assert_eq!(
         water_material.flags,
         MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_WATER_TINT
     );
     assert_eq!(water_material.animation, 0);
-    assert_eq!(lava_material.flags, 0);
-    assert_eq!(lava_material.animation, 1);
-    assert_eq!(compiled.animations.len(), 2);
-    assert_eq!(compiled.animation_frames.len(), 4);
-    assert_eq!(compiled.texture_pages[0].texture.layers, 5);
+    assert_eq!(water_flow.animation, 1);
+    assert_eq!(compiled.animations.len(), 4);
+    assert_eq!(compiled.animation_frames.len(), 8);
+    assert_eq!(compiled.texture_pages[0].texture.layers, 9);
 }
 
 fn one_texture_fixture() -> (TempDir, RegistryRecord, PathBuf) {

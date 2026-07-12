@@ -6,8 +6,8 @@ use std::{
 use crate::{
     Animation, AnimationInventory, AssetError, BiomeRegistryRecord, BlockFace, BlockFlags,
     CompiledBiomeAssets, ContributorRole, MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAG_KELP,
-    ModelFamily, ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, PackSources,
-    RegistryRecord, TextureKey, TexturePage, TextureRef, VisualKind,
+    ModelFamily, ModelQuad, ModelStateField, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE,
+    PackSources, RegistryRecord, TextureKey, TexturePage, TextureRef, VisualKind,
     animation::{
         AnimationLimits, AnimationPlan, DecodedImage, compile_animation_plan,
         compile_animation_plan_selected,
@@ -222,15 +222,13 @@ fn compile_pack_inner(
             || is_liquid(record)
     }) {
         let aquatic_faces;
-        let faces: &[BlockFace] = if is_kelp(record) {
+        let faces: &[BlockFace] = if is_kelp(record) || is_liquid(record) {
             &BlockFace::ALL
         } else if is_aquatic_cross(record) {
             aquatic_faces = aquatic_cross_faces(record).unwrap_or([BlockFace::Up; 2]);
             &aquatic_faces
         } else if is_terrestrial_cross(record) {
             &[cross_texture_face(record)]
-        } else if is_liquid(record) {
-            &[BlockFace::Up]
         } else {
             &BlockFace::ALL
         };
@@ -381,6 +379,14 @@ fn is_model_visual(record: &RegistryRecord) -> bool {
 const fn is_liquid(record: &RegistryRecord) -> bool {
     matches!(record.model_family, ModelFamily::Liquid)
         && matches!(record.contributor_role, ContributorRole::LiquidAdditional)
+}
+
+fn is_water_liquid(record: &RegistryRecord) -> bool {
+    is_liquid(record)
+        && matches!(
+            record.name.as_ref(),
+            "minecraft:water" | "minecraft:flowing_water"
+        )
 }
 
 const fn liquid_material_flags(name: &str) -> u32 {
@@ -748,9 +754,24 @@ fn compile_visuals(
 
     for record in records {
         let mut visual = BlockVisual::diagnostic(record.flags, record.contributor_role);
-        if is_liquid(record) {
-            if let Some((descriptor, _)) = descriptor_for(pack, record, BlockFace::Up)
-                && let Some(&material) = material_by_descriptor.get(&descriptor)
+        if is_water_liquid(record) {
+            let materials = BlockFace::ALL.map(|face| {
+                descriptor_for(pack, record, face)
+                    .and_then(|(descriptor, _)| material_by_descriptor.get(&descriptor).copied())
+            });
+            let liquid_depth = record
+                .model_state
+                .get(ModelStateField::LiquidDepth)
+                .or_else(|| canonical_state_u32(&record.canonical_state, "liquid_depth"));
+            if let [
+                Some(west),
+                Some(east),
+                Some(down),
+                Some(up),
+                Some(north),
+                Some(south),
+            ] = materials
+                && let Some(liquid_depth) = liquid_depth.filter(|depth| *depth <= 15)
             {
                 visual.flags.remove(
                     BlockFlags::AIR
@@ -758,8 +779,9 @@ fn compile_visuals(
                         | BlockFlags::OCCLUDES_FULL_FACE
                         | BlockFlags::LEAF_MODEL,
                 );
-                visual.faces = [material; 6];
+                visual.faces = [west, east, down, up, north, south];
                 visual.kind = VisualKind::Liquid;
+                visual.variant = liquid_depth;
             }
         } else if is_kelp(record) {
             let descriptors = BlockFace::ALL.map(|face| descriptor_for(pack, record, face));

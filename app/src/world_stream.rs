@@ -3245,7 +3245,7 @@ mod tests {
             let neighbourhood = snapshot.neighbourhood();
             let liquid = neighbourhood.liquid_sub_chunks().collect::<Vec<_>>();
 
-            assert_eq!(liquid.len(), 19);
+            assert_eq!(liquid.len(), 23);
             assert!(liquid.iter().all(|(_, sub_chunk)| sub_chunk.is_some()));
             for (index, (_, sub_chunk)) in liquid.into_iter().enumerate() {
                 assert_eq!(

@@ -1,0 +1,464 @@
+/// A bounded Bedrock liquid level. Raw values 8..=15 are falling states and
+/// retain their raw effective depth while rendering at source surface height.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LiquidLevel {
+    depth: u8,
+    height: u8,
+    falling: bool,
+}
+
+impl LiquidLevel {
+    pub const FULL_HEIGHT: u8 = u8::MAX;
+
+    #[must_use]
+    pub const fn from_variant(variant: u32) -> Option<Self> {
+        if variant > 15 {
+            return None;
+        }
+        let falling = variant >= 8;
+        let depth = (variant & 7) as u8;
+        let height = if falling {
+            227
+        } else {
+            (((8 - depth as u16) * 255 + 4) / 9) as u8
+        };
+        Some(Self {
+            depth,
+            height,
+            falling,
+        })
+    }
+
+    #[must_use]
+    pub const fn depth(self) -> u8 {
+        self.depth
+    }
+    #[must_use]
+    pub const fn height(self) -> u8 {
+        self.height
+    }
+    #[must_use]
+    pub const fn is_falling(self) -> bool {
+        self.falling
+    }
+
+    #[must_use]
+    pub const fn effective_depth(self) -> u8 {
+        if self.falling { 0 } else { self.depth }
+    }
+}
+
+use assets::{
+    BlockFace, BlockFlags, MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_WATER_TINT, NetworkIdMode,
+    RuntimeAssets, VisualKind,
+};
+use world::MeshNeighbourhood;
+
+use crate::mesh::{
+    BlockClassifier, ContributorResolver, Face, PackedLiquidQuad, PackedQuadLighting,
+    ResolvedContributors,
+};
+
+const SIDE: usize = 16;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct LiquidIdentity([u32; Face::ALL.len()]);
+
+#[derive(Clone, Copy)]
+struct LiquidCell {
+    identity: LiquidIdentity,
+    face_materials: [u32; Face::ALL.len()],
+    level: LiquidLevel,
+}
+
+impl LiquidCell {
+    const fn material(self, face: Face) -> u32 {
+        self.face_materials[face as usize]
+    }
+
+    const fn top_material(self, flowing: bool) -> u32 {
+        if flowing {
+            self.material(Face::NegativeX)
+        } else {
+            self.material(Face::PositiveY)
+        }
+    }
+}
+
+struct Sampler<'chunk, 'assets> {
+    resolvers: [Option<ContributorResolver<'chunk>>; 27],
+    assets: &'assets RuntimeAssets,
+}
+
+impl<'chunk, 'assets> Sampler<'chunk, 'assets> {
+    fn new(
+        classifier: BlockClassifier,
+        assets: &'assets RuntimeAssets,
+        mode: NetworkIdMode,
+        neighbourhood: &MeshNeighbourhood<'chunk>,
+    ) -> Self {
+        let mut resolvers = std::array::from_fn(|_| None);
+        for (offset, chunk) in neighbourhood.liquid_sub_chunks() {
+            if let Some(chunk) = chunk {
+                resolvers[offset_index(offset)] =
+                    Some(ContributorResolver::new(classifier, assets, mode, chunk));
+            }
+        }
+        Self { resolvers, assets }
+    }
+
+    fn contributors(
+        &self,
+        neighbourhood: &MeshNeighbourhood<'chunk>,
+        coordinate: [i32; 3],
+    ) -> Option<ResolvedContributors> {
+        let (_, local) = neighbourhood.liquid_block_source(coordinate)?;
+        let offset = coordinate
+            .map(|value| i8::try_from(value.div_euclid(16)).ok())
+            .map(Option::unwrap);
+        self.resolvers[offset_index(offset)]
+            .as_ref()
+            .map(|resolver| resolver.resolve(local))
+    }
+
+    fn liquid(
+        &self,
+        neighbourhood: &MeshNeighbourhood<'chunk>,
+        coordinate: [i32; 3],
+    ) -> Option<LiquidCell> {
+        let entry = self
+            .contributors(neighbourhood, coordinate)?
+            .liquid_entry()?;
+        (entry.kind == VisualKind::Liquid && water_material_family(self.assets, entry.faces))
+            .then_some(LiquidCell {
+                identity: LiquidIdentity(entry.faces),
+                face_materials: entry.faces,
+                level: LiquidLevel::from_variant(entry.variant)?,
+            })
+    }
+
+    fn open(&self, neighbourhood: &MeshNeighbourhood<'chunk>, coordinate: [i32; 3]) -> bool {
+        self.contributors(neighbourhood, coordinate)
+            .is_none_or(|contributors| {
+                contributors.liquid_entry().is_none()
+                    && !contributors
+                        .primary_entry()
+                        .is_some_and(|entry| entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE))
+            })
+    }
+
+    fn solid(&self, neighbourhood: &MeshNeighbourhood<'chunk>, coordinate: [i32; 3]) -> bool {
+        self.contributors(neighbourhood, coordinate)
+            .and_then(ResolvedContributors::primary_entry)
+            .is_some_and(|entry| entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE))
+    }
+}
+
+fn water_material_family(assets: &RuntimeAssets, materials: [u32; Face::ALL.len()]) -> bool {
+    materials
+        .into_iter()
+        .all(|material| water_material(assets, material))
+}
+
+fn water_material(assets: &RuntimeAssets, material: u32) -> bool {
+    let required = MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_WATER_TINT;
+    assets.material(material).flags & required == required
+}
+
+pub(crate) fn mesh_liquids(
+    classifier: BlockClassifier,
+    assets: &RuntimeAssets,
+    mode: NetworkIdMode,
+    neighbourhood: &MeshNeighbourhood<'_>,
+) -> (Vec<PackedLiquidQuad>, Vec<PackedQuadLighting>) {
+    let center = neighbourhood
+        .sub_chunk([0, 0, 0])
+        .expect("MeshNeighbourhood always contains its center");
+    let contains_liquid = center.storages().iter().any(|storage| {
+        storage
+            .palette()
+            .values()
+            .iter()
+            .copied()
+            .any(|network_value| {
+                if classifier.is_air(network_value) {
+                    return false;
+                }
+                let block = assets.resolve(mode, network_value);
+                block.kind() == VisualKind::Liquid
+                    && BlockFace::ALL
+                        .into_iter()
+                        .all(|face| water_material(assets, block.face(face).material_id()))
+            })
+    });
+    if !contains_liquid {
+        return (Vec::new(), Vec::new());
+    }
+    let sampler = Sampler::new(classifier, assets, mode, neighbourhood);
+    let mut quads = Vec::new();
+    for x in 0..SIDE {
+        for y in 0..SIDE {
+            for z in 0..SIDE {
+                let block = [x as i32, y as i32, z as i32];
+                let Some(cell) = sampler.liquid(neighbourhood, block) else {
+                    continue;
+                };
+                let heights = corner_heights(&sampler, neighbourhood, block, cell.identity);
+                let gradient = flow_gradient(&sampler, neighbourhood, block, cell);
+                let origin = [x as u8, y as u8, z as u8];
+                let above = add(block, [0, 1, 0]);
+                if !compatible(&sampler, neighbourhood, above, cell.identity)
+                    && !sampler.solid(neighbourhood, above)
+                {
+                    let material = cell.top_material(gradient != [0, 0]);
+                    quads.push(pack(
+                        origin,
+                        Face::PositiveY,
+                        heights,
+                        material,
+                        gradient,
+                        cell.level,
+                    ));
+                }
+                for face in [
+                    Face::NegativeX,
+                    Face::PositiveX,
+                    Face::NegativeZ,
+                    Face::PositiveZ,
+                ] {
+                    let adjacent = add(block, face_offset(face));
+                    if compatible(&sampler, neighbourhood, adjacent, cell.identity)
+                        || sampler.solid(neighbourhood, adjacent)
+                    {
+                        continue;
+                    }
+                    let side_heights = match face {
+                        Face::NegativeX => [0, heights[0], heights[3], 0],
+                        Face::PositiveX => [0, heights[2], heights[1], 0],
+                        Face::NegativeZ => [0, heights[1], heights[0], 0],
+                        Face::PositiveZ => [0, heights[3], heights[2], 0],
+                        _ => unreachable!(),
+                    };
+                    quads.push(pack(
+                        origin,
+                        face,
+                        side_heights,
+                        cell.material(face),
+                        gradient,
+                        cell.level,
+                    ));
+                }
+                let below = add(block, [0, -1, 0]);
+                if !compatible(&sampler, neighbourhood, below, cell.identity)
+                    && !sampler.solid(neighbourhood, below)
+                {
+                    quads.push(pack(
+                        origin,
+                        Face::NegativeY,
+                        [0; 4],
+                        cell.material(Face::NegativeY),
+                        gradient,
+                        cell.level,
+                    ));
+                }
+            }
+        }
+    }
+    let mut addressed = Vec::with_capacity(quads.len());
+    let mut lighting = Vec::with_capacity(quads.len());
+    for quad in quads {
+        let index = lighting.len() as u32;
+        let block = quad.origin().map(i32::from);
+        lighting.push(crate::lighting::bake_quad_lighting(
+            &classifier,
+            assets,
+            mode,
+            neighbourhood,
+            block,
+            quad.face(),
+            lighting_positions(quad.face(), quad.heights()),
+        ));
+        addressed.push(
+            PackedLiquidQuad::try_pack(
+                quad.origin(),
+                quad.face(),
+                quad.heights(),
+                quad.material_id(),
+                index,
+                quad.flow_gradient(),
+                quad.is_falling(),
+            )
+            .expect("previously checked liquid record"),
+        );
+    }
+    (addressed, lighting)
+}
+
+fn pack(
+    origin: [u8; 3],
+    face: Face,
+    heights: [u8; 4],
+    material: u32,
+    gradient: [i8; 2],
+    level: LiquidLevel,
+) -> PackedLiquidQuad {
+    PackedLiquidQuad::try_pack(
+        origin,
+        face,
+        heights,
+        material,
+        0,
+        gradient,
+        level.is_falling(),
+    )
+    .expect("local liquid record is bounded")
+}
+
+fn flow_gradient(
+    sampler: &Sampler<'_, '_>,
+    neighbourhood: &MeshNeighbourhood<'_>,
+    block: [i32; 3],
+    cell: LiquidCell,
+) -> [i8; 2] {
+    let current = i16::from(cell.level.effective_depth());
+    let mut gradient = [0_i16; 2];
+    for offset in [[-1, 0, 0], [1, 0, 0], [0, 0, -1], [0, 0, 1]] {
+        let adjacent = add(block, offset);
+        let delta = if let Some(other) = sampler.liquid(neighbourhood, adjacent) {
+            (other.identity == cell.identity)
+                .then(|| i16::from(other.level.effective_depth()) - current)
+        } else if sampler.open(neighbourhood, adjacent) {
+            sampler
+                .liquid(neighbourhood, add(adjacent, [0, -1, 0]))
+                .filter(|below| below.identity == cell.identity)
+                .map(|below| i16::from(below.level.effective_depth()) - current + 8)
+        } else {
+            None
+        };
+        if let Some(delta) = delta {
+            gradient[0] += (offset[0] as i16) * delta;
+            gradient[1] += (offset[2] as i16) * delta;
+        }
+    }
+    [gradient[0] as i8, gradient[1] as i8]
+}
+
+fn corner_heights(
+    sampler: &Sampler<'_, '_>,
+    neighbourhood: &MeshNeighbourhood<'_>,
+    block: [i32; 3],
+    identity: LiquidIdentity,
+) -> [u8; 4] {
+    [
+        ([0, 0], [-1, 0], [0, -1], [-1, -1]),
+        ([0, 0], [1, 0], [0, -1], [1, -1]),
+        ([0, 0], [1, 0], [0, 1], [1, 1]),
+        ([0, 0], [-1, 0], [0, 1], [-1, 1]),
+    ]
+    .map(|(center, a, b, diagonal)| {
+        let include_diagonal = compatible(
+            sampler,
+            neighbourhood,
+            add(block, [a[0], 0, a[1]]),
+            identity,
+        ) || compatible(
+            sampler,
+            neighbourhood,
+            add(block, [b[0], 0, b[1]]),
+            identity,
+        );
+        let samples = [
+            Some(center),
+            Some(a),
+            Some(b),
+            include_diagonal.then_some(diagonal),
+        ];
+        if samples
+            .iter()
+            .flatten()
+            .any(|[x, z]| compatible(sampler, neighbourhood, add(block, [*x, 1, *z]), identity))
+        {
+            return LiquidLevel::FULL_HEIGHT;
+        }
+        let mut total = 0_u32;
+        let mut weight = 0_u32;
+        for [x, z] in samples.into_iter().flatten() {
+            let coordinate = add(block, [x, 0, z]);
+            if let Some(cell) = sampler.liquid(neighbourhood, coordinate) {
+                if cell.identity != identity {
+                    continue;
+                }
+                let sample_weight = if cell.level.height() >= 204 { 10 } else { 1 };
+                total += u32::from(cell.level.height()) * sample_weight;
+                weight += sample_weight;
+            } else if sampler.open(neighbourhood, coordinate) {
+                weight += 1;
+            }
+        }
+        if weight == 0 {
+            0
+        } else {
+            ((total + weight / 2) / weight) as u8
+        }
+    })
+}
+
+fn compatible(
+    sampler: &Sampler<'_, '_>,
+    neighbourhood: &MeshNeighbourhood<'_>,
+    coordinate: [i32; 3],
+    identity: LiquidIdentity,
+) -> bool {
+    sampler
+        .liquid(neighbourhood, coordinate)
+        .is_some_and(|cell| cell.identity == identity)
+}
+const fn add(a: [i32; 3], b: [i32; 3]) -> [i32; 3] {
+    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+}
+const fn face_offset(face: Face) -> [i32; 3] {
+    match face {
+        Face::NegativeX => [-1, 0, 0],
+        Face::PositiveX => [1, 0, 0],
+        Face::NegativeY => [0, -1, 0],
+        Face::PositiveY => [0, 1, 0],
+        Face::NegativeZ => [0, 0, -1],
+        Face::PositiveZ => [0, 0, 1],
+    }
+}
+const fn offset_index([x, y, z]: [i8; 3]) -> usize {
+    ((x + 1) as usize) * 9 + ((y + 1) as usize) * 3 + (z + 1) as usize
+}
+
+fn lighting_positions(face: Face, heights: [u8; 4]) -> [[i16; 3]; 4] {
+    let h = heights.map(i16::from);
+    // Packed vertex order is part of the transparent-stream contract:
+    // top NW/NE/SE/SW; bottom NW/SW/SE/NE;
+    // -X bottom-N/top-N/top-S/bottom-S;
+    // +X bottom-S/top-S/top-N/bottom-N;
+    // -Z bottom-E/top-E/top-W/bottom-W;
+    // +Z bottom-W/top-W/top-E/bottom-E.
+    match face {
+        Face::PositiveY => [
+            [0, h[0], 0],
+            [256, h[1], 0],
+            [256, h[2], 256],
+            [0, h[3], 256],
+        ],
+        Face::NegativeY => [[0, 0, 0], [0, 0, 256], [256, 0, 256], [256, 0, 0]],
+        Face::NegativeX => [[0, h[0], 0], [0, h[1], 0], [0, h[2], 256], [0, h[3], 256]],
+        Face::PositiveX => [
+            [256, h[0], 256],
+            [256, h[1], 256],
+            [256, h[2], 0],
+            [256, h[3], 0],
+        ],
+        Face::NegativeZ => [[256, h[0], 0], [256, h[1], 0], [0, h[2], 0], [0, h[3], 0]],
+        Face::PositiveZ => [
+            [0, h[0], 256],
+            [0, h[1], 256],
+            [256, h[2], 256],
+            [256, h[3], 256],
+        ],
+    }
+}

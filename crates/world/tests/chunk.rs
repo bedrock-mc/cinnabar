@@ -71,11 +71,12 @@ fn missing_boundary_samples_use_explicit_open_fallback() {
 }
 
 #[test]
-fn liquid_sample_offsets_are_the_exact_deduplicated_nineteen_subchunks() {
+fn liquid_sample_offsets_are_the_exact_deduplicated_twenty_three_subchunks() {
     let offsets = MeshNeighbourhood::liquid_sample_offsets().collect::<Vec<_>>();
-    assert_eq!(MeshNeighbourhood::LIQUID_SAMPLE_SUB_CHUNK_COUNT, 19);
+    assert_eq!(MeshNeighbourhood::LIQUID_SAMPLE_SUB_CHUNK_COUNT, 23);
     let unique = offsets.iter().copied().collect::<BTreeSet<_>>();
-    let expected = std::iter::once([0, -1, 0])
+    let expected = [[0, -1, 0], [-1, -1, 0], [1, -1, 0], [0, -1, -1], [0, -1, 1]]
+        .into_iter()
         .chain((-1_i8..=1).flat_map(|x| {
             [0_i8, 1]
                 .into_iter()
@@ -83,10 +84,10 @@ fn liquid_sample_offsets_are_the_exact_deduplicated_nineteen_subchunks() {
         }))
         .collect::<BTreeSet<_>>();
 
-    assert_eq!(offsets.len(), 19);
+    assert_eq!(offsets.len(), 23);
     assert_eq!(unique.len(), offsets.len());
     assert_eq!(unique, expected);
-    assert_eq!(offsets.iter().filter(|offset| offset[1] == -1).count(), 1);
+    assert_eq!(offsets.iter().filter(|offset| offset[1] == -1).count(), 5);
     assert_eq!(offsets.iter().filter(|offset| offset[1] == 0).count(), 9);
     assert_eq!(offsets.iter().filter(|offset| offset[1] == 1).count(), 9);
     assert!(unique.contains(&[0, -1, 0]));
@@ -94,8 +95,9 @@ fn liquid_sample_offsets_are_the_exact_deduplicated_nineteen_subchunks() {
     assert!(unique.contains(&[1, 0, 1]));
     assert!(unique.contains(&[-1, 1, -1]));
     assert!(unique.contains(&[1, 1, 1]));
-    assert!(!unique.contains(&[1, -1, 0]));
-    assert!(!unique.contains(&[0, -1, 1]));
+    assert!(unique.contains(&[1, -1, 0]));
+    assert!(unique.contains(&[0, -1, 1]));
+    assert!(!unique.contains(&[1, -1, 1]));
 }
 
 #[test]
@@ -115,10 +117,10 @@ fn liquid_accessors_reach_only_the_bounded_sample_set() {
         neighbour_index += 1;
     }
     let outside = uniform(999);
-    assert!(neighbourhood.insert([1, -1, 0], &outside));
+    assert!(neighbourhood.insert([1, -1, 1], &outside));
 
     let retained = neighbourhood.liquid_sub_chunks().collect::<Vec<_>>();
-    assert_eq!(retained.len(), 19);
+    assert_eq!(retained.len(), 23);
     assert_eq!(
         retained
             .iter()
@@ -129,7 +131,7 @@ fn liquid_accessors_reach_only_the_bounded_sample_set() {
     assert!(retained.iter().all(|(_, sub_chunk)| sub_chunk.is_some()));
     let center_only = MeshNeighbourhood::new(&center);
     let missing = center_only.liquid_sub_chunks().collect::<Vec<_>>();
-    assert_eq!(missing.len(), 19);
+    assert_eq!(missing.len(), 23);
     assert_eq!(
         missing
             .iter()
@@ -160,9 +162,16 @@ fn liquid_accessors_reach_only_the_bounded_sample_set() {
     );
     assert_eq!(
         neighbourhood.liquid_sample(0, [16, -1, 8]),
-        MeshSample::Open
+        MeshSample::Block(
+            neighbourhood
+                .sub_chunk([1, -1, 0])
+                .unwrap()
+                .runtime_id(0, 0, 15, 8)
+                .unwrap()
+        )
     );
-    assert!(neighbourhood.liquid_block_source([16, -1, 8]).is_none());
+    assert!(neighbourhood.liquid_block_source([16, -1, 8]).is_some());
+    assert!(neighbourhood.liquid_block_source([16, -1, 16]).is_none());
 }
 
 #[test]
@@ -170,7 +179,15 @@ fn liquid_mesh_dependents_are_the_checked_inverse_sample_set() {
     let source = SubChunkKey::new(7, 20, -4, -30);
     let actual = source.liquid_mesh_dependents().collect::<Vec<_>>();
     let unique = actual.iter().copied().collect::<BTreeSet<_>>();
-    let expected_offsets = std::iter::once([0_i8, -1, 0]).chain((-1_i8..=1).flat_map(|x| {
+    let expected_offsets = [
+        [0_i8, -1, 0],
+        [-1, -1, 0],
+        [1, -1, 0],
+        [0, -1, -1],
+        [0, -1, 1],
+    ]
+    .into_iter()
+    .chain((-1_i8..=1).flat_map(|x| {
         [0_i8, 1]
             .into_iter()
             .flat_map(move |y| (-1_i8..=1).map(move |z| [x, y, z]))
@@ -186,14 +203,14 @@ fn liquid_mesh_dependents_are_the_checked_inverse_sample_set() {
         })
         .collect::<BTreeSet<_>>();
 
-    assert_eq!(actual.len(), 19);
+    assert_eq!(actual.len(), 23);
     assert_eq!(unique.len(), actual.len());
     assert_eq!(unique, expected);
     assert_eq!(
         SubChunkKey::new(7, i32::MAX, i32::MIN, i32::MAX)
             .liquid_mesh_dependents()
             .count(),
-        5
+        7
     );
     assert_eq!(
         SubChunkKey::new(7, i32::MIN, i32::MAX, i32::MIN)

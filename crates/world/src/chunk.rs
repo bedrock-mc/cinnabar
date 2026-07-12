@@ -107,7 +107,8 @@ impl SubChunkKey {
     /// Every mesh whose bounded liquid sample set can reference this source.
     ///
     /// This is the checked inverse of `MeshNeighbourhood::liquid_sample_offsets`:
-    /// two horizontal 3x3 target layers plus one upper-center target. It does
+    /// two horizontal 3x3 target layers plus the inverse lower-center/cardinal
+    /// flow samples. It does
     /// not widen ordinary face-only cube invalidation.
     pub fn liquid_mesh_dependents(self) -> impl Iterator<Item = Self> {
         LIQUID_SAMPLE_OFFSETS
