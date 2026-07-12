@@ -78,6 +78,9 @@ fn crossed_model_pipeline_is_two_sided_and_uses_shared_bounded_bindings() {
     assert!(zero_guard < shader.find("template_quad_base").unwrap());
     assert!(zero_guard < shader.find("let light_word").unwrap());
     assert!(shader.contains("sampled.a < 0.5"));
+    assert!(shader.contains("let quad_flags = model_templates[template_quad_base + 11u]"));
+    assert!(shader.contains("@builtin(front_facing) front_facing: bool"));
+    assert!(shader.contains("if (!front_facing && in.two_sided == 0u) { discard; }"));
     assert!(!shader.contains("face_light"));
 }
 

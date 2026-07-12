@@ -1,8 +1,8 @@
-use std::collections::VecDeque;
+use std::{cell::OnceCell, collections::VecDeque};
 
 use assets::{
-    BlockFace, BlockFlags, ContributorRole, DIAGNOSTIC_MATERIAL, NO_MODEL_TEMPLATE, NetworkIdMode,
-    RuntimeAssets, VisualKind,
+    BlockFace, BlockFlags, ContributorRole, DIAGNOSTIC_MATERIAL, MODEL_TEMPLATE_FLAG_KELP,
+    NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, VisualKind,
 };
 use world::{MeshNeighbourhood, PalettedStorage, SubChunk};
 
@@ -513,6 +513,7 @@ pub fn mesh_sub_chunk_in_neighbourhood(
             connectivity,
         };
     }
+    let positive_y_facts = OnceCell::new();
 
     let masks = VisibilityMasks::from_facts(&facts);
     let mut quads = Vec::new();
@@ -567,10 +568,34 @@ pub fn mesh_sub_chunk_in_neighbourhood(
                 ) else {
                     continue;
                 };
-                let visible_quad_mask = match template.quad_count {
-                    0 => 0,
-                    32 => u32::MAX,
-                    count => (1_u32 << count) - 1,
+                let visible_quad_mask = if template.flags & MODEL_TEMPLATE_FLAG_KELP != 0 {
+                    let above = if y + 1 < SIDE {
+                        Some(facts.at(x, y + 1, z))
+                    } else {
+                        neighbourhood.sub_chunk([0, 1, 0]).map(|sub_chunk| {
+                            positive_y_facts
+                                .get_or_init(|| {
+                                    PaletteFacts::new(
+                                        *classifier,
+                                        visuals,
+                                        network_id_mode,
+                                        sub_chunk,
+                                    )
+                                })
+                                .at(x, 0, z)
+                        })
+                    };
+                    if above.is_some_and(|entry| is_kelp_entry(visuals, entry)) {
+                        0b00_1111
+                    } else {
+                        0b11_0000
+                    }
+                } else {
+                    match template.quad_count {
+                        0 => 0,
+                        32 => u32::MAX,
+                        count => (1_u32 << count) - 1,
+                    }
                 };
                 model_refs.push(PackedModelRef::new(
                     pack_model_transform(
@@ -598,6 +623,15 @@ pub fn mesh_sub_chunk_in_neighbourhood(
         liquid_lighting: Box::new([]),
         connectivity,
     }
+}
+
+fn is_kelp_entry(visuals: &RuntimeAssets, entry: ResolvedPaletteEntry) -> bool {
+    entry.kind == VisualKind::Model
+        && entry.model_template != NO_MODEL_TEMPLATE
+        && visuals
+            .model_templates()
+            .get(entry.model_template as usize)
+            .is_some_and(|template| template.flags & MODEL_TEMPLATE_FLAG_KELP != 0)
 }
 
 #[derive(Debug, Clone, Copy)]

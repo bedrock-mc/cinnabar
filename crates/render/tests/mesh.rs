@@ -2,9 +2,9 @@ use std::{mem::size_of, sync::OnceLock};
 
 use assets::{
     BlockFace, BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, DIAGNOSTIC_MATERIAL,
-    MODEL_QUAD_FLAG_TWO_SIDED, Material, ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE,
-    NetworkIdMode, RuntimeAssets, TextureArray, TextureMip, TexturePage, TextureRef, VisualKind,
-    encode_blob,
+    MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAG_KELP, Material, ModelQuad, ModelTemplate,
+    NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TextureArray, TextureMip,
+    TexturePage, TextureRef, VisualKind, encode_blob,
 };
 use render::{
     BlockClassifier, ChunkMesh, ContributorResolver, Face, FaceConnectivity, Neighbourhood,
@@ -23,6 +23,7 @@ const ZERO_QUAD_CROSS: u32 = 58;
 const LIQUID_A: u32 = 59;
 const LIQUID_B: u32 = 60;
 const UNSUPPORTED_ADDITIONAL: u32 = 61;
+const KELP: u32 = 62;
 
 #[test]
 fn packed_stream_record_sizes() {
@@ -155,6 +156,15 @@ fn runtime_assets() -> &'static RuntimeAssets {
             animation: NO_ANIMATION,
             variant: 0,
         };
+        visuals[KELP as usize] = BlockVisual {
+            faces: [1; 6],
+            flags: BlockFlags::empty(),
+            kind: VisualKind::Model,
+            contributor_role: assets::ContributorRole::Primary,
+            model_template: 2,
+            animation: NO_ANIMATION,
+            variant: 0,
+        };
 
         let textures = TextureArray {
             layers: 1,
@@ -192,9 +202,14 @@ fn runtime_assets() -> &'static RuntimeAssets {
                     quad_count: 0,
                     flags: 0,
                 },
+                ModelTemplate {
+                    quad_start: 2,
+                    quad_count: 6,
+                    flags: MODEL_TEMPLATE_FLAG_KELP,
+                },
             ]
             .into_boxed_slice(),
-            model_quads: vec![
+            model_quads: [
                 ModelQuad {
                     positions: [[0, 0, 0], [256, 0, 256], [256, 256, 256], [0, 256, 0]],
                     uvs: [[0, 4096], [4096, 4096], [4096, 0], [0, 0]],
@@ -208,6 +223,26 @@ fn runtime_assets() -> &'static RuntimeAssets {
                     flags: MODEL_QUAD_FLAG_TWO_SIDED,
                 },
             ]
+            .into_iter()
+            .chain(
+                std::iter::repeat_n(
+                    ModelQuad {
+                        positions: [[0, 0, 0], [256, 0, 256], [256, 256, 256], [0, 256, 0]],
+                        uvs: [[0, 4096], [4096, 4096], [4096, 0], [0, 0]],
+                        material: 1,
+                        flags: 0,
+                    },
+                    6,
+                )
+                .enumerate()
+                .map(|(index, mut quad)| {
+                    if index >= 4 {
+                        quad.flags = MODEL_QUAD_FLAG_TWO_SIDED;
+                    }
+                    quad
+                }),
+            )
+            .collect::<Vec<_>>()
             .into_boxed_slice(),
             animations: Box::new([]),
             animation_frames: Box::new([]),
@@ -255,6 +290,99 @@ fn crossed_model_visibility_is_conservative_next_to_full_occluder() {
     );
     assert_eq!(mesh.model_refs().len(), 1);
     assert_eq!(mesh.model_refs()[0].words()[3], 0b11);
+}
+
+#[test]
+fn kelp_head_and_body_masks_are_selected_only_by_the_primary_above() {
+    let isolated = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &blocks(KELP, &[[8, 8, 8]]),
+    );
+    assert_eq!(isolated.model_refs().len(), 1);
+    assert_eq!(isolated.model_refs()[0].words()[3], 0b11_0000);
+    assert_eq!(isolated.model_lighting().len(), 6);
+
+    let stacked = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &blocks(KELP, &[[8, 8, 8], [8, 9, 8]]),
+    );
+    assert_eq!(stacked.model_refs().len(), 2);
+    assert_eq!(stacked.model_refs()[0].words()[3], 0b1111);
+    assert_eq!(stacked.model_refs()[1].words()[3], 0b11_0000);
+    assert_eq!(stacked.model_lighting().len(), 12);
+
+    let kelp = packed_storage(1, &[AIR, KELP], &[([8, 8, 8], 1)]);
+    let water = packed_storage(1, &[AIR, LIQUID_A], &[([8, 9, 8], 1)]);
+    let liquid_above = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &sub_chunk(vec![kelp, water]),
+    );
+    assert_eq!(liquid_above.model_refs()[0].words()[3], 0b11_0000);
+
+    let kelp = packed_storage(1, &[AIR, KELP], &[([8, 8, 8], 1)]);
+    let water = packed_storage(1, &[AIR, LIQUID_A], &[([8, 8, 8], 1)]);
+    let layered = sub_chunk(vec![kelp, water]);
+    let contributors = ContributorResolver::new(
+        classifier(),
+        runtime_assets(),
+        NetworkIdMode::Sequential,
+        &layered,
+    )
+    .resolve([8, 8, 8]);
+    assert_eq!(contributors.primary_network_value(), Some(KELP));
+    assert_eq!(contributors.liquid_network_value(), Some(LIQUID_A));
+    let layered = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &layered,
+    );
+    assert_eq!(layered.model_refs()[0].words()[3], 0b11_0000);
+
+    let non_kelp_above = sub_chunk(vec![packed_storage(
+        2,
+        &[AIR, KELP, OPAQUE_A],
+        &[([8, 8, 8], 1), ([8, 9, 8], 2)],
+    )]);
+    let non_kelp_above = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &non_kelp_above,
+    );
+    assert_eq!(non_kelp_above.model_refs()[0].words()[3], 0b11_0000);
+
+    let kelp_layer = packed_storage(1, &[AIR, KELP], &[([8, 8, 8], 1), ([8, 9, 8], 1)]);
+    let conflicting_primary = packed_storage(1, &[AIR, OPAQUE_A], &[([8, 9, 8], 1)]);
+    let conflict_above = sub_chunk(vec![kelp_layer, conflicting_primary]);
+    let conflict_above = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &conflict_above,
+    );
+    assert_eq!(conflict_above.model_refs()[0].words()[3], 0b11_0000);
+}
+
+#[test]
+fn kelp_body_selection_crosses_the_positive_y_subchunk_boundary() {
+    let center = blocks(KELP, &[[8, 15, 8]]);
+    let positive_y = blocks(KELP, &[[8, 0, 8]]);
+    let neighbourhood = Neighbourhood::empty().with_positive_y(&positive_y);
+    let mesh = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &neighbourhood,
+        &center,
+    );
+    assert_eq!(mesh.model_refs().len(), 1);
+    assert_eq!(mesh.model_refs()[0].words()[3], 0b1111);
 }
 
 #[test]
@@ -647,6 +775,37 @@ fn layered_solid_and_water_are_both_resolved() {
             .all(|quad| quad.material_id() == OPAQUE_A)
     );
     assert!(mesh.liquid_quads().is_empty());
+}
+
+#[test]
+fn layered_aquatic_cross_and_water_emit_model_without_diagnostic_cube() {
+    let seagrass = packed_storage(1, &[AIR, CROSS], &[([8, 8, 8], 1)]);
+    let water = packed_storage(1, &[AIR, LIQUID_A], &[([8, 8, 8], 1)]);
+    let sub = sub_chunk(vec![seagrass, water]);
+    let resolved = ContributorResolver::new(
+        classifier(),
+        runtime_assets(),
+        NetworkIdMode::Sequential,
+        &sub,
+    )
+    .resolve([8, 8, 8]);
+    assert_eq!(resolved.primary_network_value(), Some(CROSS));
+    assert_eq!(resolved.liquid_network_value(), Some(LIQUID_A));
+    assert_eq!(resolved.diagnostic_network_value(), None);
+
+    let mesh = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &sub,
+    );
+    assert!(mesh.cube_quads().is_empty());
+    assert_eq!(mesh.model_refs().len(), 1);
+    assert_eq!(mesh.model_lighting().len(), 2);
+    assert!(
+        mesh.liquid_quads().is_empty(),
+        "liquid meshing starts in Task 12"
+    );
 }
 
 #[test]

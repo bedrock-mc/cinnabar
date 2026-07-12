@@ -8,6 +8,10 @@ pub const MAX_ANIMATION_FRAMES: usize = 1_048_576;
 pub const NO_MODEL_TEMPLATE: u32 = u32::MAX;
 pub const NO_ANIMATION: u32 = u32::MAX;
 
+/// Template selects its body or head quads from the primary block above it.
+pub const MODEL_TEMPLATE_FLAG_KELP: u32 = 1 << 0;
+pub(crate) const MODEL_TEMPLATE_FLAGS_MASK: u32 = MODEL_TEMPLATE_FLAG_KELP;
+
 const TEXTURE_PAGE_BIT: u32 = 1 << 31;
 const TEXTURE_LAYER_MASK: u32 = 0x7ff;
 const TEXTURE_RESERVED_MASK: u32 = !(TEXTURE_PAGE_BIT | TEXTURE_LAYER_MASK);

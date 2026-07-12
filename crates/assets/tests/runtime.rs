@@ -377,6 +377,11 @@ fn decode_rejects_malformed_model_animation_and_visual_sections() {
     mutate(visuals + 40 + 28, 1, "visual template ID");
     mutate(visuals + 40 + 32, 1, "visual animation ID");
     mutate(templates, 1, "noncanonical template start");
+    mutate(
+        templates + 8,
+        assets::MODEL_TEMPLATE_FLAG_KELP << 1,
+        "unknown template flags",
+    );
     mutate(quads + 40, 2, "quad material ID");
     mutate(quads + 44, 0x80, "quad unknown flags");
     mutate(animations, 1, "noncanonical animation start");
@@ -384,6 +389,44 @@ fn decode_rejects_malformed_model_animation_and_visual_sections() {
     mutate(animations + 20, 0, "zero animation replication");
     mutate(animations + 24, 2, "unknown animation flags");
     mutate(frames, 0x0010_0000, "animation frame reserved bits");
+}
+
+#[test]
+fn decode_accepts_known_kelp_template_flag() {
+    let mut compiled = compiled_assets();
+    compiled.model_templates = vec![ModelTemplate {
+        quad_start: 0,
+        quad_count: 6,
+        flags: assets::MODEL_TEMPLATE_FLAG_KELP,
+    }]
+    .into_boxed_slice();
+    let mut quads = vec![
+        ModelQuad {
+            positions: [[0; 3]; 4],
+            uvs: [[0; 2]; 4],
+            material: 0,
+            flags: 0,
+        };
+        6
+    ];
+    quads[4].flags = assets::MODEL_QUAD_FLAG_TWO_SIDED;
+    quads[5].flags = assets::MODEL_QUAD_FLAG_TWO_SIDED;
+    compiled.model_quads = quads.into_boxed_slice();
+    let blob = encode_blob(&compiled).expect("encode known kelp template");
+    let runtime = RuntimeAssets::decode(&blob).expect("decode known kelp template flag");
+    assert_eq!(
+        runtime.model_templates()[0].flags,
+        assets::MODEL_TEMPLATE_FLAG_KELP
+    );
+}
+
+#[test]
+fn decode_rejects_kelp_flag_on_noncanonical_template_shape() {
+    let mut blob = rich_blob();
+    let templates = read_u64(&blob, 120) as usize;
+    write_u32(&mut blob, templates + 8, assets::MODEL_TEMPLATE_FLAG_KELP);
+    reseal(&mut blob);
+    assert_rejected(&blob, "one-quad kelp template");
 }
 
 #[test]

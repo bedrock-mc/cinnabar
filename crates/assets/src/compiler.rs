@@ -5,9 +5,9 @@ use std::{
 
 use crate::{
     Animation, AnimationInventory, AssetError, BiomeRegistryRecord, BlockFace, BlockFlags,
-    CompiledBiomeAssets, ContributorRole, MODEL_QUAD_FLAG_TWO_SIDED, ModelFamily, ModelQuad,
-    ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, PackSources, RegistryRecord, TextureKey,
-    TexturePage, TextureRef, VisualKind,
+    CompiledBiomeAssets, ContributorRole, MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAG_KELP,
+    ModelFamily, ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, PackSources,
+    RegistryRecord, TextureKey, TexturePage, TextureRef, VisualKind,
     animation::{
         AnimationLimits, AnimationPlan, DecodedImage, compile_animation_plan,
         compile_animation_plan_selected,
@@ -218,10 +218,16 @@ fn compile_pack_inner(
     for record in records.iter().filter(|record| {
         (record.flags.contains(BlockFlags::CUBE_GEOMETRY)
             && !record_has_deferred_material(&pack, record))
-            || is_terrestrial_cross(record)
+            || is_model_visual(record)
             || is_liquid(record)
     }) {
-        let faces: &[BlockFace] = if is_terrestrial_cross(record) {
+        let aquatic_faces;
+        let faces: &[BlockFace] = if is_kelp(record) {
+            &BlockFace::ALL
+        } else if is_aquatic_cross(record) {
+            aquatic_faces = aquatic_cross_faces(record).unwrap_or([BlockFace::Up; 2]);
+            &aquatic_faces
+        } else if is_terrestrial_cross(record) {
             &[cross_texture_face(record)]
         } else if is_liquid(record) {
             &[BlockFace::Up]
@@ -308,12 +314,12 @@ fn descriptor_for(
 ) -> Option<(Descriptor, Box<str>)> {
     let TextureKey { key, rotate_uv } = resolve_texture_key(&pack.blocks, record, face);
     let key = key?;
-    let path = if is_terrestrial_cross(record) {
+    let path = if is_model_visual(record) {
         pack.terrain.get_for_model_record(&key, record)?.0
     } else {
         pack.terrain.get_for_record(&key, record)?
     };
-    if !is_terrestrial_cross(record)
+    if !is_model_visual(record)
         && !is_liquid(record)
         && source_is_deferred(pack, record, &key, path)
     {
@@ -324,7 +330,7 @@ fn descriptor_for(
     } else {
         0
     };
-    if is_terrestrial_cross(record) {
+    if is_model_visual(record) {
         flags |= MATERIAL_FLAG_ALPHA_CUTOUT | cross_tint_flags(&record.name);
     } else if is_liquid(record) {
         flags |= liquid_material_flags(&record.name);
@@ -353,6 +359,23 @@ fn descriptor_for(
 
 const fn is_terrestrial_cross(record: &RegistryRecord) -> bool {
     matches!(record.model_family, ModelFamily::Cross | ModelFamily::Crop)
+}
+
+fn is_aquatic_cross(record: &RegistryRecord) -> bool {
+    matches!(record.model_family, ModelFamily::Aquatic)
+        && record.name.as_ref() == "minecraft:seagrass"
+}
+
+fn is_cross_visual(record: &RegistryRecord) -> bool {
+    is_terrestrial_cross(record) || is_aquatic_cross(record)
+}
+
+fn is_kelp(record: &RegistryRecord) -> bool {
+    matches!(record.model_family, ModelFamily::Aquatic) && record.name.as_ref() == "minecraft:kelp"
+}
+
+fn is_model_visual(record: &RegistryRecord) -> bool {
+    is_cross_visual(record) || is_kelp(record)
 }
 
 const fn is_liquid(record: &RegistryRecord) -> bool {
@@ -388,6 +411,32 @@ fn canonical_state_u32(state: &str, property: &str) -> Option<u32> {
         .unwrap_or(value)
         .as_u64()
         .and_then(|value| u32::try_from(value).ok())
+}
+
+fn canonical_state_str(state: &str, property: &str) -> Option<Box<str>> {
+    let document =
+        serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(state).ok()?;
+    let value = document.get(property)?;
+    value
+        .as_object()
+        .and_then(|object| object.get("value"))
+        .unwrap_or(value)
+        .as_str()
+        .map(Into::into)
+}
+
+fn aquatic_cross_faces(record: &RegistryRecord) -> Option<[BlockFace; 2]> {
+    match record.name.as_ref() {
+        "minecraft:seagrass" => {
+            match canonical_state_str(&record.canonical_state, "sea_grass_type")?.as_ref() {
+                "default" => Some([BlockFace::Up, BlockFace::Up]),
+                "double_bot" => Some([BlockFace::Down, BlockFace::South]),
+                "double_top" => Some([BlockFace::East, BlockFace::West]),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
 }
 
 fn cross_tint_flags(name: &str) -> u32 {
@@ -694,7 +743,8 @@ fn compile_visuals(
     let mut hashed = Vec::with_capacity(records.len());
     let mut model_templates = Vec::new();
     let mut model_quads = Vec::new();
-    let mut template_by_material = BTreeMap::<u32, u32>::new();
+    let mut template_by_material = BTreeMap::<[u32; 2], u32>::new();
+    let mut kelp_template_by_material = BTreeMap::<[u32; 6], u32>::new();
 
     for record in records {
         let mut visual = BlockVisual::diagnostic(record.flags, record.contributor_role);
@@ -711,13 +761,65 @@ fn compile_visuals(
                 visual.faces = [material; 6];
                 visual.kind = VisualKind::Liquid;
             }
-        } else if is_terrestrial_cross(record) {
-            let face = cross_texture_face(record);
-            if let Some((descriptor, _)) = descriptor_for(pack, record, face)
-                && let Some(&material) = material_by_descriptor.get(&descriptor)
-                && let Some(variant) = model_variant(pack, record, face)
+        } else if is_kelp(record) {
+            let descriptors = BlockFace::ALL.map(|face| descriptor_for(pack, record, face));
+            let materials = descriptors.each_ref().map(|descriptor| {
+                descriptor
+                    .as_ref()
+                    .and_then(|(descriptor, _)| material_by_descriptor.get(descriptor))
+                    .copied()
+            });
+            if let [
+                Some(west),
+                Some(east),
+                Some(down),
+                Some(up),
+                Some(north),
+                Some(south),
+            ] = materials
             {
-                let template = if let Some(&template) = template_by_material.get(&material) {
+                let ordered = [north, south, up, down, east, west];
+                let template = if let Some(&template) = kelp_template_by_material.get(&ordered) {
+                    template
+                } else {
+                    let template = u32::try_from(model_templates.len()).map_err(|_| {
+                        AssetError::BlobSizeOverflow {
+                            section: "model template",
+                        }
+                    })?;
+                    let quad_start = u32::try_from(model_quads.len()).map_err(|_| {
+                        AssetError::BlobSizeOverflow {
+                            section: "model quad",
+                        }
+                    })?;
+                    model_templates.push(ModelTemplate {
+                        quad_start,
+                        quad_count: 6,
+                        flags: MODEL_TEMPLATE_FLAG_KELP,
+                    });
+                    model_quads.extend(kelp_quads(ordered));
+                    kelp_template_by_material.insert(ordered, template);
+                    template
+                };
+                visual.faces = [west, east, down, up, north, south];
+                visual.kind = VisualKind::Model;
+                visual.model_template = template;
+            }
+        } else if is_cross_visual(record) {
+            let faces = if is_aquatic_cross(record) {
+                aquatic_cross_faces(record)
+            } else {
+                Some([cross_texture_face(record); 2])
+            };
+            if let Some(faces) = faces
+                && let Some((descriptor_a, _)) = descriptor_for(pack, record, faces[0])
+                && let Some((descriptor_b, _)) = descriptor_for(pack, record, faces[1])
+                && let Some(&material_a) = material_by_descriptor.get(&descriptor_a)
+                && let Some(&material_b) = material_by_descriptor.get(&descriptor_b)
+                && let Some(variant) = model_variant(pack, record, faces[0])
+            {
+                let materials = [material_a, material_b];
+                let template = if let Some(&template) = template_by_material.get(&materials) {
                     template
                 } else {
                     let template = u32::try_from(model_templates.len()).map_err(|_| {
@@ -735,11 +837,11 @@ fn compile_visuals(
                         quad_count: 2,
                         flags: 0,
                     });
-                    model_quads.extend(crossed_quads(material));
-                    template_by_material.insert(material, template);
+                    model_quads.extend(crossed_quads(materials));
+                    template_by_material.insert(materials, template);
                     template
                 };
-                visual.faces = [material; 6];
+                visual.faces = [material_a; 6];
                 visual.kind = VisualKind::Cross;
                 visual.model_template = template;
                 visual.variant = variant;
@@ -785,19 +887,65 @@ fn model_variant(pack: &PackSources, record: &RegistryRecord, face: BlockFace) -
         .map(|(_, variant)| variant)
 }
 
-fn crossed_quads(material: u32) -> [ModelQuad; 2] {
+fn crossed_quads(materials: [u32; 2]) -> [ModelQuad; 2] {
     let uvs = [[0, 4096], [4096, 4096], [4096, 0], [0, 0]];
     [
         ModelQuad {
             positions: [[0, 0, 0], [256, 0, 256], [256, 256, 256], [0, 256, 0]],
             uvs,
-            material,
+            material: materials[0],
             flags: MODEL_QUAD_FLAG_TWO_SIDED,
         },
         ModelQuad {
             positions: [[256, 0, 0], [0, 0, 256], [0, 256, 256], [256, 256, 0]],
             uvs,
-            material,
+            material: materials[1],
+            flags: MODEL_QUAD_FLAG_TWO_SIDED,
+        },
+    ]
+}
+
+fn kelp_quads(materials: [u32; 6]) -> [ModelQuad; 6] {
+    let uvs = [[0, 4096], [4096, 4096], [4096, 0], [0, 0]];
+    let diagonal_a = [[0, 0, 0], [256, 0, 256], [256, 256, 256], [0, 256, 0]];
+    let diagonal_b = [[256, 0, 0], [0, 0, 256], [0, 256, 256], [256, 256, 0]];
+    let reverse_a = [diagonal_a[1], diagonal_a[0], diagonal_a[3], diagonal_a[2]];
+    let reverse_b = [diagonal_b[1], diagonal_b[0], diagonal_b[3], diagonal_b[2]];
+    [
+        ModelQuad {
+            positions: diagonal_a,
+            uvs,
+            material: materials[0],
+            flags: 0,
+        },
+        ModelQuad {
+            positions: diagonal_b,
+            uvs,
+            material: materials[1],
+            flags: 0,
+        },
+        ModelQuad {
+            positions: reverse_a,
+            uvs,
+            material: materials[2],
+            flags: 0,
+        },
+        ModelQuad {
+            positions: reverse_b,
+            uvs,
+            material: materials[3],
+            flags: 0,
+        },
+        ModelQuad {
+            positions: diagonal_a,
+            uvs,
+            material: materials[4],
+            flags: MODEL_QUAD_FLAG_TWO_SIDED,
+        },
+        ModelQuad {
+            positions: diagonal_b,
+            uvs,
+            material: materials[5],
             flags: MODEL_QUAD_FLAG_TWO_SIDED,
         },
     ]

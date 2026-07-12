@@ -2,14 +2,15 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use sha2::{Digest, Sha256};
 
+use crate::model::{MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAGS_MASK};
 use crate::{
     ANIMATION_FLAG_BLEND, Animation, AssetError, BLOB_MAGIC, BLOB_VERSION, BiomeRule, BlockFace,
     BlockFlags, BlockVisual, CompiledBiomeAssets, ContributorRole, DIAGNOSTIC_MATERIAL,
     MAX_ANIMATION_FRAMES, MAX_ANIMATIONS, MAX_BIOME_NAME_BYTES, MAX_BIOME_NAMES_BYTES,
     MAX_BIOME_RULES, MAX_MATERIALS, MAX_MODEL_QUADS, MAX_MODEL_TEMPLATES, MAX_TEXTURE_LAYERS,
-    MAX_TEXTURE_PAGES, MIP_COUNT, Material, ModelQuad, ModelTemplate, NO_ANIMATION,
-    NO_MODEL_TEMPLATE, TILE_SIZE, TINT_MAP_BYTES, TINT_MAP_COUNT, TINT_MAP_SIZE, TextureArray,
-    TextureMip, TexturePage, TextureRef, TintSource, VisualKind,
+    MAX_TEXTURE_PAGES, MIP_COUNT, MODEL_TEMPLATE_FLAG_KELP, Material, ModelQuad, ModelTemplate,
+    NO_ANIMATION, NO_MODEL_TEMPLATE, TILE_SIZE, TINT_MAP_BYTES, TINT_MAP_COUNT, TINT_MAP_SIZE,
+    TextureArray, TextureMip, TexturePage, TextureRef, TintSource, VisualKind,
     biome::{BIOME_RULE_FLAGS_MASK, validate_biome_assets},
     blob::{
         ANIMATION_BYTES, BIOME_RULE_BYTES, FRAME_BYTES, HASH_BYTES, HASH_ENTRY_BYTES, HEADER_BYTES,
@@ -490,13 +491,32 @@ fn validate_fixed(
     }
     let mut quad = 0usize;
     for record in sections[3].chunks_exact(TEMPLATE_BYTES) {
-        if u32_at(record, 0) as usize != quad || u32_at(record, 4) > 32 || u32_at(record, 8) != 0 {
+        if u32_at(record, 0) as usize != quad
+            || u32_at(record, 4) > 32
+            || u32_at(record, 8) & !MODEL_TEMPLATE_FLAGS_MASK != 0
+            || (u32_at(record, 8) & MODEL_TEMPLATE_FLAG_KELP != 0 && u32_at(record, 4) != 6)
+        {
             return Err(invalid("template spans are noncanonical"));
         }
         quad = checked_add(quad, u32_at(record, 4) as usize, "template")?;
     }
     if quad != header.counts[4] {
         return Err(invalid("templates do not cover quads"));
+    }
+    for record in sections[3].chunks_exact(TEMPLATE_BYTES) {
+        if u32_at(record, 8) & MODEL_TEMPLATE_FLAG_KELP == 0 {
+            continue;
+        }
+        let start = u32_at(record, 0) as usize;
+        let mut quads = sections[4].chunks_exact(QUAD_BYTES).skip(start).take(6);
+        let body_is_one_sided = quads
+            .by_ref()
+            .take(4)
+            .all(|quad| u32_at(quad, 44) & MODEL_QUAD_FLAG_TWO_SIDED == 0);
+        let head_is_two_sided = quads.all(|quad| u32_at(quad, 44) & MODEL_QUAD_FLAG_TWO_SIDED != 0);
+        if !body_is_one_sided || !head_is_two_sided {
+            return Err(invalid("kelp template has noncanonical sidedness"));
+        }
     }
     for record in sections[4].chunks_exact(QUAD_BYTES) {
         if u32_at(record, 40) as usize >= header.counts[2]

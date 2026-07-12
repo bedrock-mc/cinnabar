@@ -36,6 +36,7 @@ struct VertexOutput {
     @location(7) @interpolate(flat) frame_blend: f32,
     @location(8) @interpolate(flat) visible: u32,
     @location(9) light_factor: f32,
+    @location(10) @interpolate(flat) two_sided: u32,
 }
 
 struct FrameSample { current: u32, next: u32, blend: f32 }
@@ -113,6 +114,7 @@ fn vertex(
         invisible.frame_blend = 0.0;
         invisible.visible = 0u;
         invisible.light_factor = 0.0;
+        invisible.two_sided = 0u;
         return invisible;
     }
     let last_quad_index = quad_count - 1u;
@@ -135,6 +137,7 @@ fn vertex(
     let local_position = block_position + template_position;
     let origin = chunk_origins[metadata_index];
     let material_id = model_templates[template_quad_base + 10u];
+    let quad_flags = model_templates[template_quad_base + 11u];
     let material = materials[material_id];
     let frame = animation_sample(material);
     let uv_component = corner * 2u;
@@ -160,6 +163,7 @@ fn vertex(
     out.frame_blend = frame.blend;
     out.visible = is_visible;
     out.light_factor = max(block_light, sky_light) / 15.0 * (1.0 - ao * 0.12);
+    out.two_sided = select(0u, 1u, (quad_flags & 8u) != 0u);
     return out;
 }
 
@@ -206,8 +210,12 @@ fn sample_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> 
 }
 
 @fragment
-fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+fn fragment(
+    in: VertexOutput,
+    @builtin(front_facing) front_facing: bool,
+) -> @location(0) vec4<f32> {
     if (in.visible == 0u) { discard; }
+    if (!front_facing && in.two_sided == 0u) { discard; }
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
     var sampled = sample_ref(in.current_texture, in.uv, dx, dy);

@@ -66,6 +66,73 @@ function New-TestCrossCropAssets {
     [IO.File]::WriteAllBytes($Path, $bytes)
 }
 
+function Get-TestRegistryEntries {
+    param([Parameter(Mandatory = $true)][string]$RegistryPath)
+
+    $bytes = [IO.File]::ReadAllBytes($RegistryPath)
+    $reader = [IO.BinaryReader]::new([IO.MemoryStream]::new($bytes, $false))
+    $utf8 = [Text.UTF8Encoding]::new($false, $true)
+    try {
+        Assert-Equal 'BREG1003' $utf8.GetString($reader.ReadBytes(8)) 'test registry helper received the wrong schema'
+        Assert-Equal 1001 $reader.ReadUInt32() 'test registry helper received the wrong protocol'
+        $null = $reader.ReadUInt32()
+        $recordCount = [int]$reader.ReadUInt32()
+        foreach ($ignored in 1..4) { $null = $reader.ReadUInt32() }
+        $entries = [Collections.Generic.List[object]]::new()
+        for ($recordIndex = 0; $recordIndex -lt $recordCount; $recordIndex++) {
+            $sequentialId = $reader.ReadUInt32()
+            $null = $reader.ReadUInt32()
+            $null = $reader.ReadByte()
+            $family = $reader.ReadByte()
+            foreach ($ignored in 1..5) { $null = $reader.ReadByte() }
+            $boxCount = [int]$reader.ReadByte()
+            $null = $reader.ReadUInt16()
+            $nameLength = [int]$reader.ReadUInt16()
+            $stateLength = [int]$reader.ReadUInt32()
+            $null = $reader.ReadBytes(32 + 24 * $boxCount)
+            $name = $utf8.GetString($reader.ReadBytes($nameLength))
+            $canonicalState = $utf8.GetString($reader.ReadBytes($stateLength))
+            $entries.Add([pscustomobject][ordered]@{
+                sequential_id = $sequentialId
+                family = $family
+                name = $name
+                canonical_state = $canonicalState
+            })
+        }
+        return @($entries)
+    }
+    finally {
+        $reader.Dispose()
+    }
+}
+
+function New-TestAquaticAssets {
+    param(
+        [Parameter(Mandatory = $true)][string]$RegistryPath,
+        [Parameter(Mandatory = $true)][string]$Path
+    )
+
+    $registryBytes = [IO.File]::ReadAllBytes($RegistryPath)
+    $visualCount = [BitConverter]::ToUInt32($registryBytes, 16)
+    $bytes = [byte[]]::new(200 + 40 * $visualCount)
+    [Text.Encoding]::ASCII.GetBytes('MCBEAS04').CopyTo($bytes, 0)
+    [BitConverter]::GetBytes([uint32]4).CopyTo($bytes, 8)
+    [BitConverter]::GetBytes([uint32]16).CopyTo($bytes, 12)
+    [BitConverter]::GetBytes([uint32]5).CopyTo($bytes, 16)
+    [BitConverter]::GetBytes([uint32]$visualCount).CopyTo($bytes, 20)
+    [BitConverter]::GetBytes([uint64]200).CopyTo($bytes, 96)
+    $aquaticEntries = @(Get-TestRegistryEntries -RegistryPath $RegistryPath | Where-Object {
+        $_.family -eq 27 -and $_.name -in @('minecraft:seagrass', 'minecraft:kelp')
+    })
+    Assert-Equal 29 $aquaticEntries.Count 'test fixture did not find the exact seagrass+kelp state set'
+    foreach ($entry in $aquaticEntries) {
+        $offset = 200 + 40 * [int]$entry.sequential_id
+        $bytes[$offset + 25] = if ($entry.name -ceq 'minecraft:seagrass') { 2 } else { 3 }
+        [BitConverter]::GetBytes([uint32]0).CopyTo($bytes, $offset + 28)
+    }
+    [IO.File]::WriteAllBytes($Path, $bytes)
+}
+
 function New-TestBdsFixtureResultLines {
     param([Parameter(Mandatory = $true)][string[]]$Commands)
 
@@ -203,6 +270,7 @@ $BdsDir = Join-Path $TempRoot 'bds source'
 $MetricsOut = Join-Path $TempRoot 'metrics output\metrics.json'
 $Assets = Join-Path $TempRoot 'vanilla assets with spaces.mcpack'
 $CrossCropAssets = Join-Path $TempRoot 'compiled cross crop assets.mcbea'
+$AquaticAssets = Join-Path $TempRoot 'compiled aquatic assets.mcbea'
 $BlockRegistry = Join-Path $ProjectRoot 'crates\assets\data\block-registry-v1001.bin'
 $PrebuiltClient = Join-Path $TempRoot 'opaque base client\bedrock-client.exe'
 $DryRunDirectory = Join-Path $ProjectRoot '.local\acceptance\dry-run'
@@ -214,6 +282,7 @@ try {
     Set-Content -LiteralPath (Join-Path $BdsDir 'bedrock_server.exe') -Value 'fixture' -NoNewline
     Set-Content -LiteralPath $Assets -Value 'assets fixture' -NoNewline
     New-TestCrossCropAssets -RegistryPath $BlockRegistry -Path $CrossCropAssets
+    New-TestAquaticAssets -RegistryPath $BlockRegistry -Path $AquaticAssets
     New-Item -ItemType Directory -Path (Split-Path -Parent $PrebuiltClient) -Force | Out-Null
     Set-Content -LiteralPath $PrebuiltClient -Value 'pinned opaque client fixture' -NoNewline
     $prebuiltHashBefore = (Get-FileHash -Algorithm SHA256 -LiteralPath $PrebuiltClient).Hash
@@ -346,6 +415,22 @@ try {
     Assert-True ($crossCropDryRun.Output -contains "CROSS_CROP_GALLERY_ASSETS_SHA256=$assetIdentity") 'cross/crop dry-run did not record exact artifact identity'
     Assert-Equal 1 @($crossCropDryRun.Output | Where-Object { $_ -match '^CROSS_CROP_GALLERY_ARGUMENTS_SHA256=[0-9a-f]{64}$' }).Count 'cross/crop dry-run did not record deterministic gallery arguments identity'
 
+    $aquaticDryRun = Invoke-Acceptance -Arguments @(
+        '-DryRun',
+        '-DurationSeconds', '60',
+        '-BdsDir', $BdsDir,
+        '-MetricsOut', $MetricsOut,
+        '-Assets', $AquaticAssets,
+        '-VisualFixturePose', 'AquaticGalleryFront',
+        '-SteadyResourceTrigger', 'VisualFixtureReady',
+        '-UseVsync'
+    )
+    Assert-True ($aquaticDryRun.ExitCode -eq 0) "aquatic gallery dry-run failed: $($aquaticDryRun.Output -join [Environment]::NewLine)"
+    $aquaticAssetIdentity = (Get-FileHash -Algorithm SHA256 -LiteralPath $AquaticAssets).Hash.ToLowerInvariant()
+    Assert-True ($aquaticDryRun.Output -contains 'VISUAL_FIXTURE_POSE=AquaticGalleryFront') 'aquatic dry-run lost its exact gallery argument'
+    Assert-True ($aquaticDryRun.Output -contains "AQUATIC_GALLERY_ASSETS_SHA256=$aquaticAssetIdentity") 'aquatic dry-run did not record exact artifact identity'
+    Assert-Equal 1 @($aquaticDryRun.Output | Where-Object { $_ -match '^AQUATIC_GALLERY_ARGUMENTS_SHA256=[0-9a-f]{64}$' }).Count 'aquatic dry-run did not record deterministic gallery arguments identity'
+
     $baselineDryRun = Invoke-Acceptance -Arguments @(
         '-DryRun',
         '-DurationSeconds', '60',
@@ -472,6 +557,12 @@ try {
     Assert-True (-not $identityFunctionSource.Contains('Test-Path -LiteralPath $worldsPath')) 'optional source identity still treats Test-Path false as proof that worlds is absent'
     Assert-True (-not $identityFunctionSource.Contains('Test-Path -LiteralPath $worldPath')) 'optional source identity still treats Test-Path false as proof that the configured world is absent'
     Assert-True ($source.Contains('CopyToAsync')) 'child logs are not streamed directly to files'
+    $runtimeSnapshotIndex = $source.IndexOf('$runtimeWorldIdentity = Get-BdsSourceWorldIdentity -SourceDirectory $RuntimeDirectory', [StringComparison]::Ordinal)
+    $bdsLaunchIndex = $source.IndexOf('$bdsHandle = Start-LoggedProcess -Executable $BdsExecutable', [StringComparison]::Ordinal)
+    Assert-True ($runtimeSnapshotIndex -ge 0 -and $runtimeSnapshotIndex -lt $bdsLaunchIndex) 'runtime world identity is captured after BDS can lock level.dat'
+    Assert-True ($source.Contains('Get-BdsSourceWorldIdentity -SourceDirectory $RuntimeDirectory -AllowMissingWorld')) 'fresh BDS runtime world detection is not optional before bootstrap'
+    Assert-True ($source.Contains("`$metadata['runtime_world_bootstrapped'] = `$true")) 'fresh BDS runtime bootstrap is not recorded in metadata'
+    Assert-True ($source.Contains("'bds-bootstrap.stdout.log'")) 'fresh BDS runtime has no isolated bootstrap process evidence'
     Assert-True ($source.Contains('[IO.FileOptions]::WriteThrough')) 'child log files are not write-through'
     Assert-True (-not $source.Contains('ReadToEndAsync')) 'child logs are retained in memory'
     Assert-True ($source.Contains('-WorkingDirectory $ProjectRoot')) 'builds are not rooted at the project directory'
@@ -554,6 +645,11 @@ try {
         -Pose CrossCropGalleryFront `
         -RegistryPath $BlockRegistry `
         -AssetsPath $CrossCropAssets
+    $aquaticPlan = New-AquaticGalleryPlan `
+        -MutationCoordinate @(100, 64, 200) `
+        -Pose AquaticGalleryFront `
+        -RegistryPath $BlockRegistry `
+        -AssetsPath $AquaticAssets
 
     $freshSource = Join-Path $TempRoot 'fresh gallery source'
     $freshRuntime = Join-Path $TempRoot 'fresh gallery runtime'
@@ -639,6 +735,48 @@ try {
     $metadataIdentityIndex = $source.IndexOf("`$metadata['cross_crop_gallery']", [StringComparison]::Ordinal)
     $visualPublicationIndex = $source.IndexOf('`$fixturePublication = Publish-VisualFixture'.TrimStart('`'), [StringComparison]::Ordinal)
     Assert-True ($metadataIdentityIndex -ge 0 -and $visualPublicationIndex -gt $metadataIdentityIndex) 'cross/crop arguments and artifact identity were not recorded before visual fixture publication/capture'
+
+    Assert-Equal 'AquaticGallery' $aquaticPlan.Manifest.fixture_kind 'aquatic plan lost fixture kind'
+    Assert-Equal 29 ([int]$aquaticPlan.Manifest.gallery_state_count) 'aquatic plan did not enumerate exactly seagrass+kelp'
+    Assert-Equal 3 ([int]$aquaticPlan.Manifest.coverage_evidence.seagrass_state_count) 'aquatic plan lost seagrass coverage'
+    Assert-Equal 26 ([int]$aquaticPlan.Manifest.coverage_evidence.kelp_state_count) 'aquatic plan lost kelp coverage'
+    Assert-Equal 0 ([int]$aquaticPlan.Manifest.family_diagnostics.seagrass_kelp) 'aquatic target diagnostic contract changed'
+    Assert-Equal 113 $aquaticPlan.GalleryCommands.Count 'aquatic gallery command coverage changed'
+    Assert-Equal 26 @($aquaticPlan.Manifest.body_witnesses).Count 'aquatic gallery did not provide one above-neighbor body witness per kelp age'
+    $growthCappedTip = @($aquaticPlan.CoverageEntries | Where-Object { $_.name -ceq 'minecraft:kelp' -and $_.canonical_state -match '"kelp_age".*"value":25' })
+    Assert-Equal 1 $growthCappedTip.Count 'aquatic fixture did not resolve one canonical age-25 kelp tip'
+    Assert-Equal 26 @($aquaticPlan.Manifest.body_witnesses | Where-Object { $_.upper.sequential_id -eq $growthCappedTip[0].sequential_id }).Count 'body witnesses use a growable upper kelp tip'
+    Assert-Equal 26 @($aquaticPlan.Manifest.isolated_kelp_heads).Count 'aquatic gallery did not provide one isolated head per kelp age'
+    Assert-Equal 26 @($aquaticPlan.Manifest.head_growth_caps).Count 'isolated kelp heads can grow nondeterministically during capture'
+    Assert-Equal 26 @($aquaticPlan.GalleryCommands | Where-Object { $_ -match '^setblock .* minecraft:bedrock$' }).Count 'isolated kelp heads were not capped with a rendered non-kelp block'
+    Assert-Equal 29 @($aquaticPlan.CoverageEntries).Count 'aquatic plan coverage entries included witness duplicates'
+    Assert-Equal 1 @($aquaticPlan.GalleryCommands | Where-Object { $_ -match '^fill .* minecraft:water$' }).Count 'aquatic gallery did not build one source-water volume'
+    Assert-Equal 1 @($aquaticPlan.GalleryCommands | Where-Object { $_ -match '^fill .* minecraft:bedrock$' }).Count 'aquatic gallery did not build one supported-texture tank shell'
+    Assert-Equal 1 @($aquaticPlan.GalleryCommands | Where-Object { $_ -match '^fill .* minecraft:dirt$' }).Count 'aquatic gallery did not provide submerged plant support'
+    Assert-Equal 3 @($aquaticPlan.GalleryCommands | Where-Object { $_ -match '^fill .* minecraft:air$' }).Count 'aquatic gallery did not clear setup volume and open both camera faces'
+    $aquaticStateNames = @($aquaticPlan.CoverageEntries | ForEach-Object name | Sort-Object -Unique)
+    Assert-Equal 'minecraft:kelp,minecraft:seagrass' ($aquaticStateNames -join ',') 'aquatic coverage admitted another Aquatic-family block'
+    $aquaticFirst = $aquaticPlan.Manifest | ConvertTo-Json -Compress -Depth 12
+    $aquaticSecond = (New-AquaticGalleryPlan -MutationCoordinate @(100, 64, 200) -Pose AquaticGalleryFront -RegistryPath $BlockRegistry -AssetsPath $AquaticAssets).Manifest | ConvertTo-Json -Compress -Depth 12
+    Assert-Equal $aquaticFirst $aquaticSecond 'aquatic gallery arguments were not deterministic'
+    $aquaticBack = New-AquaticGalleryPlan -MutationCoordinate @(100, 64, 200) -Pose AquaticGalleryBack -RegistryPath $BlockRegistry -AssetsPath $AquaticAssets
+    $aquaticMoved = New-AquaticGalleryPlan -MutationCoordinate @(500, 70, -300) -Pose AquaticGalleryFront -RegistryPath $BlockRegistry -AssetsPath $AquaticAssets
+    Assert-Equal $aquaticPlan.Manifest.fixture_layout_hash $aquaticBack.Manifest.fixture_layout_hash 'aquatic front/back pose changed fixture layout identity'
+    Assert-Equal $aquaticPlan.Manifest.fixture_layout_hash $aquaticMoved.Manifest.fixture_layout_hash 'aquatic absolute coordinate changed fixture layout identity'
+    Assert-Equal 20 ([Math]::Abs([int]$aquaticPlan.Manifest.camera.position.z - [int]$aquaticPlan.Manifest.gallery_center.z)) 'aquatic front camera is not outside the open tank face near the plants'
+    Assert-Equal 20 ([Math]::Abs([int]$aquaticBack.Manifest.camera.position.z - [int]$aquaticBack.Manifest.gallery_center.z)) 'aquatic back camera is not outside the open tank face near the plants'
+
+    $tamperedAquaticAssets = Join-Path $TempRoot 'tampered aquatic assets.mcbea'
+    [IO.File]::WriteAllBytes($tamperedAquaticAssets, [IO.File]::ReadAllBytes($AquaticAssets))
+    $firstAquaticId = [int]$aquaticPlan.CoverageEntries[0].sequential_id
+    $tamperedAquaticBytes = [IO.File]::ReadAllBytes($tamperedAquaticAssets)
+    $tamperedAquaticBytes[200 + 40 * $firstAquaticId + 25] = 0
+    [IO.File]::WriteAllBytes($tamperedAquaticAssets, $tamperedAquaticBytes)
+    Assert-ThrowsLike {
+        Get-AquaticCoverageEvidence -RegistryPath $BlockRegistry -AssetsPath $tamperedAquaticAssets
+    } '*diagnostic*' 'aquatic coverage evidence accepted a diagnostic target visual'
+    $aquaticMetadataIdentityIndex = $source.IndexOf("`$metadata['aquatic_gallery']", [StringComparison]::Ordinal)
+    Assert-True ($aquaticMetadataIdentityIndex -ge 0 -and $visualPublicationIndex -gt $aquaticMetadataIdentityIndex) 'aquatic arguments and artifact identity were not recorded before visual fixture publication/capture'
 
     $safeGeneratedRoot = Join-Path $TempRoot 'generated destinations'
     Assert-PrebuiltClientPathSafe `

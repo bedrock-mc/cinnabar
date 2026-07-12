@@ -176,6 +176,30 @@ fn mcbeas04_rejects_noncanonical_new_tables_and_limits() {
     bad_template.model_quads = vec![quad].into_boxed_slice();
     assert!(encode_blob(&bad_template).is_err());
 
+    let mut kelp_template = valid_assets();
+    kelp_template.model_templates = vec![assets::ModelTemplate {
+        quad_start: 0,
+        quad_count: 6,
+        flags: assets::MODEL_TEMPLATE_FLAG_KELP,
+    }]
+    .into_boxed_slice();
+    let mut kelp_quads = vec![quad; 6];
+    kelp_quads[4].flags = assets::MODEL_QUAD_FLAG_TWO_SIDED;
+    kelp_quads[5].flags = assets::MODEL_QUAD_FLAG_TWO_SIDED;
+    kelp_template.model_quads = kelp_quads.into_boxed_slice();
+    assert!(encode_blob(&kelp_template).is_ok());
+    kelp_template.model_templates[0].quad_count = 5;
+    assert!(encode_blob(&kelp_template).is_err());
+    kelp_template.model_templates[0].quad_count = 6;
+    kelp_template.model_quads[0].flags = assets::MODEL_QUAD_FLAG_TWO_SIDED;
+    assert!(encode_blob(&kelp_template).is_err());
+    kelp_template.model_quads[0].flags = 0;
+    kelp_template.model_quads[4].flags = 0;
+    assert!(encode_blob(&kelp_template).is_err());
+    kelp_template.model_quads[4].flags = assets::MODEL_QUAD_FLAG_TWO_SIDED;
+    kelp_template.model_templates[0].flags = assets::MODEL_TEMPLATE_FLAG_KELP << 1;
+    assert!(encode_blob(&kelp_template).is_err());
+
     let mut too_many_quads = valid_assets();
     too_many_quads.model_templates = vec![assets::ModelTemplate {
         quad_start: 0,

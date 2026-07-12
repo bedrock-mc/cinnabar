@@ -6,11 +6,12 @@ use std::{
 
 use sha2::{Digest, Sha256};
 
+use crate::model::{MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAGS_MASK};
 use crate::{
     AssetError, BlockFlags, CompiledAssets, DIAGNOSTIC_MATERIAL, MAX_ANIMATION_FRAMES,
     MAX_ANIMATIONS, MAX_MATERIALS, MAX_MODEL_QUADS, MAX_MODEL_TEMPLATES, MAX_TEXTURE_LAYERS,
-    MAX_TEXTURE_PAGES, MIP_COUNT, NO_ANIMATION, NO_MODEL_TEMPLATE, TILE_SIZE, TextureRef,
-    VisualKind,
+    MAX_TEXTURE_PAGES, MIP_COUNT, MODEL_TEMPLATE_FLAG_KELP, NO_ANIMATION, NO_MODEL_TEMPLATE,
+    TILE_SIZE, TextureRef, VisualKind,
     biome::{TINT_MAP_BYTES, TINT_MAP_COUNT, TINT_MAP_SIZE, validate_biome_assets},
     compiler::{material_flags_are_valid, visual_semantics_are_valid},
     model::{ANIMATION_FLAGS_MASK, model_quad_flags_are_valid},
@@ -324,9 +325,10 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
     }
     let mut expected_quad = 0usize;
     for template in &compiled.model_templates {
-        if template.flags != 0
+        if template.flags & !MODEL_TEMPLATE_FLAGS_MASK != 0
             || template.quad_start as usize != expected_quad
             || template.quad_count > 32
+            || (template.flags & MODEL_TEMPLATE_FLAG_KELP != 0 && template.quad_count != 6)
         {
             return Err(invalid("model template spans are not canonical"));
         }
@@ -338,6 +340,22 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
     }
     if expected_quad != compiled.model_quads.len() {
         return Err(invalid("model templates do not cover all quads"));
+    }
+    for template in &compiled.model_templates {
+        if template.flags & MODEL_TEMPLATE_FLAG_KELP == 0 {
+            continue;
+        }
+        let start = template.quad_start as usize;
+        let quads = &compiled.model_quads[start..start + 6];
+        if quads[..4]
+            .iter()
+            .any(|quad| quad.flags & MODEL_QUAD_FLAG_TWO_SIDED != 0)
+            || quads[4..]
+                .iter()
+                .any(|quad| quad.flags & MODEL_QUAD_FLAG_TWO_SIDED == 0)
+        {
+            return Err(invalid("kelp template has noncanonical sidedness"));
+        }
     }
     for quad in &compiled.model_quads {
         if quad.material as usize >= compiled.materials.len()

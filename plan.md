@@ -271,9 +271,19 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     unknown targets. Render 93/93, world 51/51, client 187/187, strict combined
     Clippy, and independent re-review are green; Phase 2.7 will replace only the
     light inputs, not this format or addressing.
-  - [ ] Add palette-native multi-layer contributor resolution, retaining the
+  - [x] Add palette-native multi-layer contributor resolution, retaining the
     eight-byte greedy cube record and adding compact model/liquid streams with
-    atomic queue/GPU generation accounting and direct/MDI parity.
+    atomic queue/GPU generation accounting and direct/MDI parity. Task 10 now
+    resolves up to 16 packed storage layers without a flat 4,096-block array,
+    fails closed on contributor conflicts, and retains simultaneous primary and
+    liquid contributors. All three seagrass states and all 26 kelp ages compile
+    with exact animated material identities; kelp head/body selection is driven
+    only by the primary block above, including across subchunk boundaries. The
+    deterministic 29-state BDS water-tank gallery passed from both directions
+    at current HEAD with zero target diagnostics/decode errors, p99 15.5 ms,
+    377,843,712-byte peak combined RSS, 5.78% mean combined CPU, and native temp
+    screenshots confirming real green cutout models. Water geometry remains
+    deliberately invisible until Tasks 11–13.
   - [x] Compile crossed cutout plants/crops with exact variants and biome tint;
     compile all physical flipbook frames into texture-array layers and animate
     them from immutable descriptors without per-frame texture uploads. Commit
