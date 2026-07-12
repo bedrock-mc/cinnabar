@@ -237,6 +237,7 @@ fn liquid_shader_resolves_block_biome_tint_before_fragment_rasterization() {
         .nth(1)
         .expect("liquid shader must retain a fragment stage");
 
+    assert!(SHADER.contains("@location(4) @interpolate(flat) water_tint: vec3<f32>"));
     assert!(vertex.contains("let block_coordinate = vec3<u32>("));
     assert!(vertex.contains("geometry & 15u"));
     assert!(vertex.contains("(geometry >> 4u) & 15u"));
@@ -244,8 +245,21 @@ fn liquid_shader_resolves_block_biome_tint_before_fragment_rasterization() {
     assert!(
         vertex.contains("packed_biome_tint_index(u32(chunk_origin.value.w), block_coordinate)")
     );
+    assert!(vertex.contains(
+        "let tint_index = select(0u, requested_tint, requested_tint < arrayLength(&biome_tints))"
+    ));
+    assert!(vertex.contains("let tint = biome_tints[tint_index]"));
     assert!(vertex.contains("out.water_tint = unpack_linear_rgb10(tint.water)"));
-    assert!(!fragment.contains("packed_biome_tint_index("));
-    assert!(!fragment.contains("biome_records["));
+    for forbidden in [
+        "packed_biome_tint_index",
+        "biome_records",
+        "biome_tints[",
+        "unpack_linear_rgb10",
+    ] {
+        assert!(
+            !fragment.contains(forbidden),
+            "liquid fragment stage repeated vertex-only tint work: {forbidden}",
+        );
+    }
     assert!(fragment.contains("sampled.rgb * in.water_tint * in.light_factor"));
 }
