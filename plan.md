@@ -284,6 +284,14 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     377,843,712-byte peak combined RSS, 5.78% mean combined CPU, and native temp
     screenshots confirming real green cutout models. Water geometry remains
     deliberately invisible until Tasks 11–13.
+  - [x] Track the exact bounded liquid mesh neighbourhood and invalidation set.
+    Task 11 keeps the shared palette-native `world::MeshNeighbourhood` as the
+    render API boundary, exposes the deduplicated 19-subchunk liquid sample set,
+    applies its checked inverse for liquid-only diagonal dirtying, preserves
+    ordinary six-face cube invalidation, coalesces duplicate rapid updates, and
+    rejects stale dependency masks. World, client, formatting, strict Clippy,
+    and independent review are green; no flat block or whole-column snapshot was
+    introduced.
   - [x] Compile crossed cutout plants/crops with exact variants and biome tint;
     compile all physical flipbook frames into texture-array layers and animate
     them from immutable descriptors without per-frame texture uploads. Commit

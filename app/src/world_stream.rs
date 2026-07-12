@@ -644,18 +644,10 @@ fn pack_biome_record(
 impl MeshSnapshot {
     fn neighbourhood(&self) -> MeshNeighbourhood<'_> {
         let mut neighbourhood = MeshNeighbourhood::new(&self.center);
-        for dx in -1_i8..=1 {
-            for dy in -1_i8..=1 {
-                for dz in -1_i8..=1 {
-                    let offset = [dx, dy, dz];
-                    if offset == [0, 0, 0] {
-                        continue;
-                    }
-                    if let Some(sub_chunk) = self.adjacent[mesh_offset_index(offset)].as_deref() {
-                        let inserted = neighbourhood.insert(offset, sub_chunk);
-                        debug_assert!(inserted);
-                    }
-                }
+        for offset in MeshNeighbourhood::adjacent_offsets() {
+            if let Some(sub_chunk) = self.adjacent[mesh_offset_index(offset)].as_deref() {
+                let inserted = neighbourhood.insert(offset, sub_chunk);
+                debug_assert!(inserted);
             }
         }
         neighbourhood
@@ -2125,16 +2117,22 @@ impl WorldStream {
     ) {
         let mut dirty = BTreeSet::new();
         for key in sources {
+            dirty.extend(key.mesh_dependents());
             for dependent in key.mesh_neighbourhood_dependents() {
-                let distance = key.x.abs_diff(dependent.x)
-                    + key.y.abs_diff(dependent.y)
-                    + key.z.abs_diff(dependent.z);
-                let face_dependent = distance <= 1;
-                let diagonal_needed = self.resident.contains(&dependent)
+                let ao_needed = self.resident.contains(&dependent)
                     && self
                         .current_mesh_dependency_mask(dependent)
-                        .is_none_or(MeshDependencyMask::needs_diagonal_samples);
-                if face_dependent || diagonal_needed {
+                        .is_none_or(|mask| mask.diagonal_ao);
+                if ao_needed {
+                    dirty.insert(dependent);
+                }
+            }
+            for dependent in key.liquid_mesh_dependents() {
+                let liquid_needed = self.resident.contains(&dependent)
+                    && self
+                        .current_mesh_dependency_mask(dependent)
+                        .is_none_or(|mask| mask.liquid);
+                if liquid_needed {
                     dirty.insert(dependent);
                 }
             }
@@ -2406,25 +2404,17 @@ impl WorldStream {
 
     fn mesh_snapshot(&self, key: SubChunkKey, center: Arc<SubChunk>) -> MeshSnapshot {
         let mut adjacent = std::array::from_fn(|_| None);
-        for dx in -1_i8..=1 {
-            for dy in -1_i8..=1 {
-                for dz in -1_i8..=1 {
-                    let offset = [dx, dy, dz];
-                    if offset == [0, 0, 0] {
-                        continue;
-                    }
-                    let neighbour = key
-                        .x
-                        .checked_add(i32::from(dx))
-                        .zip(key.y.checked_add(i32::from(dy)))
-                        .zip(key.z.checked_add(i32::from(dz)))
-                        .and_then(|((x, y), z)| {
-                            self.store
-                                .sub_chunk(SubChunkKey::new(key.dimension, x, y, z))
-                        });
-                    adjacent[mesh_offset_index(offset)] = neighbour;
-                }
-            }
+        for offset @ [dx, dy, dz] in MeshNeighbourhood::adjacent_offsets() {
+            let neighbour = key
+                .x
+                .checked_add(i32::from(dx))
+                .zip(key.y.checked_add(i32::from(dy)))
+                .zip(key.z.checked_add(i32::from(dz)))
+                .and_then(|((x, y), z)| {
+                    self.store
+                        .sub_chunk(SubChunkKey::new(key.dimension, x, y, z))
+                });
+            adjacent[mesh_offset_index(offset)] = neighbour;
         }
         MeshSnapshot {
             center,
@@ -2949,6 +2939,128 @@ mod tests {
         }
 
         #[test]
+        fn horizontal_corner_change_invalidates_liquid_dependent() {
+            let mut stream = stream();
+            let source = SubChunkKey::new(0, 0, 0, 0);
+            let dependent = SubChunkKey::new(0, 1, 0, 1);
+            stream.resident.insert(dependent);
+            let generation = stream.mark_dirty_exact(dependent, Instant::now());
+            assert!(stream.register_mesh_dependency_mask(
+                dependent,
+                generation,
+                MeshDependencyMask::new(false, true),
+            ));
+            stream.pending_mesh.clear();
+
+            stream.mark_changed(source, Instant::now());
+
+            assert_ne!(
+                stream.revisions.dirty(dependent).unwrap().revision,
+                generation
+            );
+            assert!(stream.pending_mesh.contains_key(&dependent));
+        }
+
+        #[test]
+        fn liquid_dependency_skips_vertical_corner_outside_sample_set() {
+            let mut stream = stream();
+            let source = SubChunkKey::new(0, 0, 0, 0);
+            let outside = SubChunkKey::new(0, 1, 1, 1);
+            stream.resident.insert(outside);
+            let generation = stream.mark_dirty_exact(outside, Instant::now());
+            assert!(stream.register_mesh_dependency_mask(
+                outside,
+                generation,
+                MeshDependencyMask::new(false, true),
+            ));
+            stream.pending_mesh.clear();
+
+            stream.mark_changed(source, Instant::now());
+
+            assert_eq!(
+                stream.revisions.dirty(outside).unwrap().revision,
+                generation
+            );
+            assert!(!stream.pending_mesh.contains_key(&outside));
+        }
+
+        #[test]
+        fn face_only_target_skips_diagonal_but_face_neighbour_still_dirties() {
+            let mut stream = stream();
+            let source = SubChunkKey::new(0, 0, 0, 0);
+            let diagonal = SubChunkKey::new(0, 1, 0, 1);
+            let face = SubChunkKey::new(0, 1, 0, 0);
+            for target in [diagonal, face] {
+                stream.resident.insert(target);
+                let generation = stream.mark_dirty_exact(target, Instant::now());
+                assert!(stream.register_mesh_dependency_mask(
+                    target,
+                    generation,
+                    MeshDependencyMask::default(),
+                ));
+            }
+            let diagonal_generation = stream.revisions.dirty(diagonal).unwrap().revision;
+            let face_generation = stream.revisions.dirty(face).unwrap().revision;
+            stream.pending_mesh.clear();
+
+            stream.mark_changed(source, Instant::now());
+
+            assert_eq!(
+                stream.revisions.dirty(diagonal).unwrap().revision,
+                diagonal_generation
+            );
+            assert!(!stream.pending_mesh.contains_key(&diagonal));
+            assert_ne!(
+                stream.revisions.dirty(face).unwrap().revision,
+                face_generation
+            );
+            assert!(stream.pending_mesh.contains_key(&face));
+        }
+
+        #[test]
+        fn rapid_liquid_changes_coalesce_latest_generation_and_oldest_since() {
+            let mut stream = stream();
+            let source = SubChunkKey::new(0, 0, 0, 0);
+            let dependent = SubChunkKey::new(0, 1, 0, 1);
+            stream.resident.insert(dependent);
+            let registered_at = Instant::now();
+            let registered = stream.mark_dirty_exact(dependent, registered_at);
+            assert!(stream.register_mesh_dependency_mask(
+                dependent,
+                registered,
+                MeshDependencyMask::new(false, true),
+            ));
+            stream.pending_mesh.clear();
+            let first_at = Instant::now();
+
+            let before_first = stream.revisions.next_revision;
+            stream.mark_changed_sources([source, source], first_at);
+            assert_eq!(
+                stream.revisions.next_revision - before_first,
+                8,
+                "duplicate sources must assign one revision per deduplicated dirty target"
+            );
+            let first = stream.pending_mesh[&dependent];
+            let second_at = first_at + std::time::Duration::from_millis(5);
+            let before_second = stream.revisions.next_revision;
+            stream.mark_changed_sources([source, source], second_at);
+            assert_eq!(
+                stream.revisions.next_revision - before_second,
+                8,
+                "each rapid batch must revise every deduplicated dirty target exactly once"
+            );
+            let second = stream.pending_mesh[&dependent];
+
+            assert_ne!(first.revision, second.revision);
+            assert_eq!(
+                second.revision,
+                stream.revisions.dirty(dependent).unwrap().revision
+            );
+            assert_eq!(first.since, registered_at);
+            assert_eq!(second.since, registered_at);
+        }
+
+        #[test]
         fn known_empty_mask_skips_diagonal_change() {
             let mut stream = stream();
             let source = SubChunkKey::new(0, 0, 0, 0);
@@ -3107,6 +3219,41 @@ mod tests {
                 current,
                 MeshDependencyMask::new(false, true),
             ));
+        }
+
+        #[test]
+        fn private_snapshot_populates_the_shared_liquid_neighbourhood() {
+            let mut stream = stream();
+            let center_key = SubChunkKey::new(0, 20, 7, -30);
+            for (index, [dx, dy, dz]) in
+                world::MeshNeighbourhood::liquid_sample_offsets().enumerate()
+            {
+                let key = SubChunkKey::new(
+                    center_key.dimension,
+                    center_key.x + i32::from(dx),
+                    center_key.y + i32::from(dy),
+                    center_key.z + i32::from(dz),
+                );
+                stream
+                    .store
+                    .commit_sub_chunk(key, super::uniform_sub_chunk(100 + index as u32))
+                    .unwrap();
+            }
+            let center = stream.store.sub_chunk(center_key).unwrap();
+
+            let snapshot = stream.mesh_snapshot(center_key, center);
+            let neighbourhood = snapshot.neighbourhood();
+            let liquid = neighbourhood.liquid_sub_chunks().collect::<Vec<_>>();
+
+            assert_eq!(liquid.len(), 19);
+            assert!(liquid.iter().all(|(_, sub_chunk)| sub_chunk.is_some()));
+            for (index, (_, sub_chunk)) in liquid.into_iter().enumerate() {
+                assert_eq!(
+                    sub_chunk.unwrap().runtime_id(0, 0, 0, 0),
+                    Some(100 + index as u32)
+                );
+            }
+            assert!(neighbourhood.sub_chunk([1, -1, 1]).is_none());
         }
     }
 
@@ -3481,6 +3628,16 @@ mod tests {
         assert!(Arc::ptr_eq(&stream.runtime_assets, &runtime_assets));
     }
 
+    #[test]
+    fn render_mesh_api_consumes_only_the_shared_world_neighbourhood() {
+        let _: for<'a, 'b, 'c, 'd> fn(
+            &'a BlockClassifier,
+            &'b RuntimeAssets,
+            NetworkIdMode,
+            &'c world::MeshNeighbourhood<'d>,
+        ) -> render::ChunkMesh = render::mesh_sub_chunk_in_neighbourhood;
+    }
+
     fn zig_zag_i32(value: i32) -> Vec<u8> {
         let mut value = ((value << 1) ^ (value >> 31)) as u32;
         let mut encoded = Vec::new();
@@ -3495,6 +3652,12 @@ mod tests {
                 return encoded;
             }
         }
+    }
+
+    fn uniform_sub_chunk(runtime_id: u32) -> SubChunk {
+        let mut bytes = vec![8, 1, 1];
+        bytes.extend(zig_zag_i32(runtime_id as i32));
+        SubChunk::decode(&bytes).expect("decode uniform test subchunk")
     }
 
     fn biome_payload(dimension: i32, biome_id: i32) -> Vec<u8> {
@@ -6098,8 +6261,8 @@ mod tests {
             .commit_level_chunk(ChunkKey::new(0, 0, 0), decoded);
         let source = stream.store.sub_chunk(key).unwrap();
         stream.resident.insert(key);
-        let old_revision = stream.revisions.mark_dirty(key, Instant::now());
-        let current_revision = stream.revisions.mark_dirty(key, Instant::now());
+        let old_revision = stream.mark_dirty_exact(key, Instant::now());
+        let current_revision = stream.mark_dirty_exact(key, Instant::now());
         stream.in_flight.insert(key, old_revision);
         let classifier = BlockClassifier::new(12_530);
         let mesh = mesh_sub_chunk(
@@ -6119,13 +6282,15 @@ mod tests {
             biome: PackedBiomeRecord::fallback(),
             tint_identity,
             mesh,
-            dependency_mask: MeshDependencyMask::default(),
+            dependency_mask: MeshDependencyMask::new(false, true),
             duration: std::time::Duration::ZERO,
         });
 
         assert!(stream.revisions.is_current(key, current_revision));
         assert_eq!(stream.stats().stale_mesh_jobs, 1);
         assert!(stream.take_mesh_changes().is_empty());
+        assert_eq!(stream.mesh_dependency_mask(key), None);
+        assert_eq!(stream.pending_mesh[&key].revision, current_revision);
     }
 
     #[test]

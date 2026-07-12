@@ -1,6 +1,8 @@
 use std::{collections::BTreeMap, sync::Arc};
 
-use crate::{BiomeStorage, DecodedBiomeColumn, SubChunk};
+use crate::{
+    BiomeStorage, DecodedBiomeColumn, SubChunk, mesh_neighbourhood::LIQUID_SAMPLE_OFFSETS,
+};
 
 /// Key for one horizontal chunk column.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -100,6 +102,24 @@ impl SubChunkKey {
                 })
             })
         })
+    }
+
+    /// Every mesh whose bounded liquid sample set can reference this source.
+    ///
+    /// This is the checked inverse of `MeshNeighbourhood::liquid_sample_offsets`:
+    /// two horizontal 3x3 target layers plus one upper-center target. It does
+    /// not widen ordinary face-only cube invalidation.
+    pub fn liquid_mesh_dependents(self) -> impl Iterator<Item = Self> {
+        LIQUID_SAMPLE_OFFSETS
+            .into_iter()
+            .filter_map(move |[dx, dy, dz]| {
+                Some(Self::new(
+                    self.dimension,
+                    self.x.checked_sub(i32::from(dx))?,
+                    self.y.checked_sub(i32::from(dy))?,
+                    self.z.checked_sub(i32::from(dz))?,
+                ))
+            })
     }
 }
 

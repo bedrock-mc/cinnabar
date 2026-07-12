@@ -3,6 +3,55 @@ use crate::SubChunk;
 const WIDTH: usize = 3;
 const SUB_CHUNK_SIDE: i32 = 16;
 const ENTRY_COUNT: usize = WIDTH * WIDTH * WIDTH;
+const ADJACENT_OFFSETS: [[i8; 3]; 26] = [
+    [-1, -1, -1],
+    [-1, -1, 0],
+    [-1, -1, 1],
+    [-1, 0, -1],
+    [-1, 0, 0],
+    [-1, 0, 1],
+    [-1, 1, -1],
+    [-1, 1, 0],
+    [-1, 1, 1],
+    [0, -1, -1],
+    [0, -1, 0],
+    [0, -1, 1],
+    [0, 0, -1],
+    [0, 0, 1],
+    [0, 1, -1],
+    [0, 1, 0],
+    [0, 1, 1],
+    [1, -1, -1],
+    [1, -1, 0],
+    [1, -1, 1],
+    [1, 0, -1],
+    [1, 0, 0],
+    [1, 0, 1],
+    [1, 1, -1],
+    [1, 1, 0],
+    [1, 1, 1],
+];
+pub(crate) const LIQUID_SAMPLE_OFFSETS: [[i8; 3]; 19] = [
+    [0, -1, 0],
+    [-1, 0, -1],
+    [-1, 0, 0],
+    [-1, 0, 1],
+    [0, 0, -1],
+    [0, 0, 0],
+    [0, 0, 1],
+    [1, 0, -1],
+    [1, 0, 0],
+    [1, 0, 1],
+    [-1, 1, -1],
+    [-1, 1, 0],
+    [-1, 1, 1],
+    [0, 1, -1],
+    [0, 1, 0],
+    [0, 1, 1],
+    [1, 1, -1],
+    [1, 1, 0],
+    [1, 1, 1],
+];
 
 /// One palette-native block sample from a bounded meshing snapshot.
 ///
@@ -48,6 +97,9 @@ pub struct MeshNeighbourhood<'a> {
 }
 
 impl<'a> MeshNeighbourhood<'a> {
+    pub const ADJACENT_SUB_CHUNK_COUNT: usize = ADJACENT_OFFSETS.len();
+    pub const LIQUID_SAMPLE_SUB_CHUNK_COUNT: usize = LIQUID_SAMPLE_OFFSETS.len();
+
     #[must_use]
     pub fn new(center: &'a SubChunk) -> Self {
         let mut sub_chunks = [None; ENTRY_COUNT];
@@ -73,6 +125,27 @@ impl<'a> MeshNeighbourhood<'a> {
         self.sub_chunks.get(index(offset)?).copied().flatten()
     }
 
+    /// Canonical offsets for all 26 adjacent sub-chunks used by diagonal AO.
+    pub fn adjacent_offsets() -> impl ExactSizeIterator<Item = [i8; 3]> {
+        ADJACENT_OFFSETS.into_iter()
+    }
+
+    /// Exact sub-chunk offsets needed by vanilla-like liquid surface meshing.
+    ///
+    /// The set is a horizontal 3x3 at the current and upper Y levels, plus
+    /// the lower center used by the bottom face. It is fixed, deduplicated,
+    /// and deliberately smaller than the general 3x3x3 AO neighbourhood.
+    pub fn liquid_sample_offsets() -> impl ExactSizeIterator<Item = [i8; 3]> {
+        LIQUID_SAMPLE_OFFSETS.into_iter()
+    }
+
+    /// Returns every liquid sample slot, retaining missing neighbours as None.
+    pub fn liquid_sub_chunks(
+        &self,
+    ) -> impl ExactSizeIterator<Item = ([i8; 3], Option<&'a SubChunk>)> + '_ {
+        Self::liquid_sample_offsets().map(|offset| (offset, self.sub_chunk(offset)))
+    }
+
     /// Reads one storage layer without flattening any block array.
     #[must_use]
     pub fn sample(&self, layer: usize, coordinate: [i32; 3]) -> MeshSample {
@@ -84,12 +157,37 @@ impl<'a> MeshNeighbourhood<'a> {
             .map_or(MeshSample::Open, MeshSample::Block)
     }
 
+    /// Reads one storage layer only when it belongs to the liquid sample set.
+    #[must_use]
+    pub fn liquid_sample(&self, layer: usize, coordinate: [i32; 3]) -> MeshSample {
+        let Some((offset, local)) = split_coordinate(coordinate) else {
+            return MeshSample::Open;
+        };
+        if !is_liquid_sample_offset(offset) {
+            return MeshSample::Open;
+        }
+        self.sub_chunk(offset)
+            .and_then(|sub_chunk| sub_chunk.runtime_id(layer, local[0], local[1], local[2]))
+            .map_or(MeshSample::Open, MeshSample::Block)
+    }
+
     /// Returns the referenced packed sub-chunk and local block coordinate.
     #[must_use]
     pub fn block_source(&self, coordinate: [i32; 3]) -> Option<(&'a SubChunk, [u8; 3])> {
         let (offset, local) = split_coordinate(coordinate)?;
         Some((self.sub_chunk(offset)?, local))
     }
+
+    /// Returns a palette-native source only within the liquid sample set.
+    #[must_use]
+    pub fn liquid_block_source(&self, coordinate: [i32; 3]) -> Option<(&'a SubChunk, [u8; 3])> {
+        let (offset, local) = split_coordinate(coordinate)?;
+        is_liquid_sample_offset(offset).then_some((self.sub_chunk(offset)?, local))
+    }
+}
+
+const fn is_liquid_sample_offset([x, y, z]: [i8; 3]) -> bool {
+    ((y == 0 || y == 1) && x >= -1 && x <= 1 && z >= -1 && z <= 1) || (x == 0 && y == -1 && z == 0)
 }
 
 fn index([x, y, z]: [i8; 3]) -> Option<usize> {
