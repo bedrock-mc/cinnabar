@@ -749,6 +749,16 @@ quantiles. Grace expiry writes diagnostic metrics, logs the three generations,
 and exits nonzero. The manifest binds `p99_frame_ms` to an exact maximum of
 `1000 / 60` milliseconds; 16.7 ms and 17.5 ms fail while 16.6 ms passes.
 
+Completion evidence (2026-07-12): native run `20260712T203607Z-7596` froze
+exactly 60 seconds and passed at p99 14.0 ms with 38,214 transparent refs,
+consecutive exact four-key GPU witnesses, and
+request=result=committed=encoded=presented generation 518. The optimized run
+performed 89,446,712 transparent upload bytes (more than both failing
+water-correct baselines) while preserving radius 16, zero ceiling/decode
+errors, and every acceptance invariant. Commits `38c1f5d` and `ba3ea3f` passed
+full render/client tests, strict Clippy, formatting, acceptance tests, and an
+independent re-review with no remaining findings.
+
 Commit: `feat: render sorted transparent water`
 
 ---

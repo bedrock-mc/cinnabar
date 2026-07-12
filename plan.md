@@ -314,7 +314,7 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     affected-crate suites, exact strict Clippy, real 16,913-visual asset compile,
     and final independent re-review are green. Water remains deliberately
     invisible until Task 13 installs the transparent GPU path.
-  - [ ] Mesh animated, biome-tinted water with same-liquid culling, vanilla-like
+  - [x] Mesh animated, biome-tinted water with same-liquid culling, vanilla-like
     corner heights, diagonal invalidation, and a correctly ordered transparent
     phase with depth testing and no depth writes. Its deterministic BDS gallery
     requires one real water tint referenced by the committed/presented liquid
@@ -335,14 +335,20 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     committed=encoded=GPU-presented transparent generation; timeout is a
     logged nonzero failure. Its manifested p99 frame-time gate is exactly
     1000/60 ms.
-    **Current Task 13 evidence (2026-07-12):** the transparent path and exact
-    four-key GPU witness pass in three consecutive live BDS runs across both
-    `WaterGalleryFront` and `WaterGalleryBack` after fixing bounded GPU-upload
-    starvation and four-word liquid-stream arena alignment. The task remains
-    unchecked because those runs still miss the independent p99 frame-time
-    gate (17.1–18.8 ms observed versus 16.667 ms required), and floating
-    ground-vegetation/parity work remains part of the following model-family
-    tasks.
+    **Task 13 complete (2026-07-12):** after fixing bounded GPU-upload
+    starvation and four-word liquid-stream arena alignment, exact four-key GPU
+    witnesses passed repeatedly across `WaterGalleryFront` and
+    `WaterGalleryBack`. Commit `38c1f5d` moved the block-constant packed biome
+    tint lookup from the fill-heavy liquid fragment stage to a flat vertex
+    varying without changing tint, alpha, ordering, uploads, or lifecycle
+    bounds. Native run `20260712T203607Z-7596` froze exactly 60 seconds and
+    passed at p99 14.0 ms (limit 16.667 ms), with 38,214 transparent refs,
+    five runtime water tints, consecutive exact four-key GPU witnesses,
+    request=result=committed=encoded=presented generation 518, zero ceiling
+    rejects, zero decode errors, radius 16, 414,187,520-byte peak combined RSS,
+    and 6.438% mean combined CPU. Full render/client tests, strict Clippy,
+    acceptance tests, and independent re-review through test-hardening commit
+    `ba3ea3f` are green with no findings.
   - [ ] Add compact static templates in impact order: slabs/stairs,
     doors/trapdoors, connection-aware panes/fences/gates, then static
     chest/sign models; retain conservative culling/connectivity for partial
