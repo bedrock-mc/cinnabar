@@ -1236,9 +1236,9 @@ fn rotate_flowerbed_position(
     };
     match orientation {
         0 => Ok([complement(x)?, y, complement(z)?]),
-        1 => Ok([complement(z)?, y, x]),
+        1 => Ok([z, y, complement(x)?]),
         2 => Ok([x, y, z]),
-        3 => Ok([z, y, complement(x)?]),
+        3 => Ok([complement(z)?, y, x]),
         _ => Err(AssetError::InvalidCompiledAssets {
             detail: format!("flowerbed orientation {orientation} is not cardinal").into(),
         }),

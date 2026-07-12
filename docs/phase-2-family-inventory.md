@@ -77,10 +77,11 @@ prefixes contain 7, 10, 17, and 20 two-sided quads, respectively, with all
 vertices below 64/256 block height. The pinned `wildflowers.json` blockstate
 defines the table as a North-facing baseline: North is identity, East rotates
 90 degrees, South 180 degrees, and West 270 degrees. These map to preserved
-Bedrock values North=2, East=3, South=0, and West=1. This Java-derived table is
-provisional geometry evidence only; Task 4's pinned native Bedrock gallery
-remains the authority for final coordinates, UV orientation, and command-only
-Growth 4-7 semantics.
+Bedrock values North=2, East=3, South=0, and West=1. In the packed `(x,z)`
+coordinate convention, East=90 is `(256-z,x)` and West=270 is `(z,256-x)`.
+This Java-derived table is provisional geometry evidence only; Task 4's pinned
+native Bedrock gallery remains the authority for final coordinates, UV
+orientation, and command-only Growth 4-7 semantics.
 
 ## Exhaustive renderer-work partition
 
