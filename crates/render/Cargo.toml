@@ -21,6 +21,7 @@ bevy = { workspace = true, default-features = false, features = [
     "std",
 ] }
 bytemuck = { version = "1", features = ["derive"] }
+rayon.workspace = true
 world = { path = "../world" }
 
 [dev-dependencies]

@@ -316,7 +316,33 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     invisible until Task 13 installs the transparent GPU path.
   - [ ] Mesh animated, biome-tinted water with same-liquid culling, vanilla-like
     corner heights, diagonal invalidation, and a correctly ordered transparent
-    phase with depth testing and no depth writes.
+    phase with depth testing and no depth writes. Its deterministic BDS gallery
+    requires one real water tint referenced by the committed/presented liquid
+    snapshot (BDS commands cannot assign fixture biomes); a separate end-to-end
+    app integration test proves two raw biome IDs with distinct map-water
+    colours preserve dense lookup and distinct renderer tint records. Water
+    visibility churn and generation-only remeshes retain the last ordered
+    snapshot only while every absolute address stays physically resident: same
+    key/metadata, active tint, valid lighting, and a same-start liquid range
+    containing the old range. Moved/shrunk ranges, eviction, metadata reuse, or
+    asset/tint replacement use bounded copy-on-write quarantine: retired spans
+    remain drawable and unreusable until an empty-or-nonempty replacement frame
+    is submitted and its independent GPU retirement epoch completes. Cap
+    exhaustion backpressures the update/removal rather than risking stale reads
+    or a blank transparent frame.
+    Gallery freezes its 60-second duration/frame metrics at the original
+    deadline, then permits at most two unmeasured seconds for a non-empty
+    committed=encoded=GPU-presented transparent generation; timeout is a
+    logged nonzero failure. Its manifested p99 frame-time gate is exactly
+    1000/60 ms.
+    **Current Task 13 evidence (2026-07-12):** the transparent path and exact
+    four-key GPU witness pass in three consecutive live BDS runs across both
+    `WaterGalleryFront` and `WaterGalleryBack` after fixing bounded GPU-upload
+    starvation and four-word liquid-stream arena alignment. The task remains
+    unchecked because those runs still miss the independent p99 frame-time
+    gate (17.1–18.8 ms observed versus 16.667 ms required), and floating
+    ground-vegetation/parity work remains part of the following model-family
+    tasks.
   - [ ] Add compact static templates in impact order: slabs/stairs,
     doors/trapdoors, connection-aware panes/fences/gates, then static
     chest/sign models; retain conservative culling/connectivity for partial

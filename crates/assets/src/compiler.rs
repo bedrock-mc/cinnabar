@@ -336,6 +336,9 @@ fn descriptor_for(
         flags |= MATERIAL_FLAG_ALPHA_CUTOUT;
         flags |= leaf_tint_flags(&record.name);
     }
+    if record.name.as_ref() == "minecraft:glass" {
+        flags |= MATERIAL_FLAG_ALPHA_CUTOUT;
+    }
     if record.name.as_ref() == "minecraft:grass_block" {
         flags |= match face {
             BlockFace::Down => 0,

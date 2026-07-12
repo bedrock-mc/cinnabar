@@ -2,9 +2,9 @@ use std::{mem::size_of, sync::OnceLock};
 
 use assets::{
     Animation, BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, ContributorRole,
-    DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_WATER_TINT, Material,
-    NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TextureArray, TextureMip,
-    TexturePage, TextureRef, VisualKind, encode_blob,
+    DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT,
+    MATERIAL_FLAG_WATER_TINT, Material, NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode,
+    RuntimeAssets, TextureArray, TextureMip, TexturePage, TextureRef, VisualKind, encode_blob,
 };
 use render::{
     BlockClassifier, Face, LiquidLevel, Neighbourhood, PackedLiquidQuad, mesh_sub_chunk,
@@ -22,6 +22,7 @@ const FACED_LIQUID: u32 = 21;
 const FACED_ALIAS: u32 = 22;
 const FACED_DEPTH_7: u32 = 23;
 const NON_WATER_LIQUID: u32 = 24;
+const GLASS: u32 = 25;
 const STILL: u32 = 1;
 const FLOW: u32 = 2;
 
@@ -184,6 +185,24 @@ fn liquid_faces_are_clipped_and_culled_by_compatible_liquid_or_solid() {
         (SOLID, [8, 7, 8]),
     ]));
     assert_eq!(occluded.liquid_quads().len(), 3);
+}
+
+#[test]
+fn alpha_glass_enclosure_retains_contacting_water_faces_but_opaque_enclosure_culls() {
+    let enclosure = |neighbour| {
+        mesh(&blocks(&[
+            (WATER_SOURCE, [8, 8, 8]),
+            (neighbour, [7, 8, 8]),
+            (neighbour, [9, 8, 8]),
+            (neighbour, [8, 7, 8]),
+            (neighbour, [8, 9, 8]),
+            (neighbour, [8, 8, 7]),
+            (neighbour, [8, 8, 9]),
+        ]))
+    };
+
+    assert_eq!(enclosure(GLASS).liquid_quads().len(), 6);
+    assert!(enclosure(SOLID).liquid_quads().is_empty());
 }
 
 #[test]
@@ -556,7 +575,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
             animation: NO_ANIMATION,
             variant: 0,
         };
-        let mut visuals = vec![diagnostic; 25];
+        let mut visuals = vec![diagnostic; 26];
         visuals[AIR as usize] = BlockVisual {
             flags: BlockFlags::AIR,
             kind: VisualKind::Invisible,
@@ -586,13 +605,19 @@ fn runtime_assets() -> &'static RuntimeAssets {
             model_template: 0,
             ..diagnostic
         };
+        visuals[GLASS as usize] = BlockVisual {
+            faces: [15; 6],
+            flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
+            kind: VisualKind::Cube,
+            ..diagnostic
+        };
         let mut materials = vec![
             Material {
                 texture: TextureRef::DIAGNOSTIC,
                 flags: 0,
                 animation: NO_ANIMATION
             };
-            15
+            16
         ];
         materials[STILL as usize] = Material {
             texture: TextureRef::new(0, 0).unwrap(),
@@ -603,6 +628,11 @@ fn runtime_assets() -> &'static RuntimeAssets {
             texture: TextureRef::new(0, 1).unwrap(),
             flags: MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_WATER_TINT,
             animation: 1,
+        };
+        materials[15] = Material {
+            texture: TextureRef::new(0, 0).unwrap(),
+            flags: MATERIAL_FLAG_ALPHA_CUTOUT,
+            animation: NO_ANIMATION,
         };
         for (material, animation) in [(3_usize, 0_u32), (4, 1)] {
             materials[material] = Material {

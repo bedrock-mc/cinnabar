@@ -6475,18 +6475,22 @@ mod tests {
         let left = SubChunkKey::new(0, -1, 0, 0);
         let middle = SubChunkKey::new(0, 0, 0, 0);
         let right = SubChunkKey::new(0, 1, 0, 0);
+        let beyond_shell = SubChunkKey::new(0, 2, 0, 0);
         stream.set_connectivity(left, Some(render::FaceConnectivity::all()));
         stream.set_connectivity(right, Some(render::FaceConnectivity::all()));
+        stream.set_connectivity(beyond_shell, Some(render::FaceConnectivity::all()));
         stream.set_connectivity(middle, Some(leaf_mesh.connectivity()));
 
         let through_leaf = stream.cave_visible_sub_chunks(left);
         assert!(through_leaf.contains(&middle));
         assert!(through_leaf.contains(&right));
+        assert!(through_leaf.contains(&beyond_shell));
 
         stream.set_connectivity(middle, Some(opaque_mesh.connectivity()));
         let stopped_by_opaque = stream.cave_visible_sub_chunks(left);
         assert!(stopped_by_opaque.contains(&middle));
-        assert!(!stopped_by_opaque.contains(&right));
+        assert!(stopped_by_opaque.contains(&right));
+        assert!(!stopped_by_opaque.contains(&beyond_shell));
     }
 
     #[test]

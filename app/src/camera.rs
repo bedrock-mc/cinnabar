@@ -8,7 +8,10 @@ use bevy::{
 };
 
 pub const PITCH_LIMIT: f32 = FRAC_PI_2 - 0.01;
-pub const DEFAULT_VERTICAL_FOV_RADIANS: f32 = 2.0 * PI / 3.0;
+pub const DEFAULT_HORIZONTAL_FOV_RADIANS: f32 = 2.0 * PI / 3.0;
+const DEFAULT_ASPECT_RATIO: f32 = 16.0 / 9.0;
+const MIN_FOV_RADIANS: f32 = PI / 180.0;
+const MAX_FOV_RADIANS: f32 = PI - MIN_FOV_RADIANS;
 
 pub const AUTO_FLY_PERIOD_SECONDS: f32 = 24.0;
 pub const AUTO_FLY_MAX_HORIZONTAL_BLOCKS: f32 = 128.0;
@@ -113,22 +116,59 @@ impl Plugin for FlyCameraPlugin {
             .add_systems(Startup, spawn_fly_camera)
             .add_systems(
                 Update,
-                (update_cursor_capture, update_look, update_movement).chain(),
+                (
+                    update_camera_fov,
+                    (update_cursor_capture, update_look, update_movement).chain(),
+                ),
             );
     }
 }
 
-fn spawn_fly_camera(mut commands: Commands) {
+/// Converts a horizontal field of view to Bevy's vertical field of view while
+/// keeping malformed or transient zero-size window inputs finite and valid.
+#[must_use]
+pub fn horizontal_fov_to_vertical(horizontal: f32, aspect: f32) -> f32 {
+    let horizontal = if horizontal.is_finite() {
+        horizontal.clamp(MIN_FOV_RADIANS, MAX_FOV_RADIANS)
+    } else {
+        DEFAULT_HORIZONTAL_FOV_RADIANS
+    };
+    let aspect = if aspect.is_finite() && aspect > 0.0 {
+        aspect
+    } else {
+        DEFAULT_ASPECT_RATIO
+    };
+    (2.0 * ((horizontal * 0.5).tan() / aspect).atan()).clamp(MIN_FOV_RADIANS, MAX_FOV_RADIANS)
+}
+
+fn window_aspect(window: &Window) -> f32 {
+    window.resolution.width() / window.resolution.height()
+}
+
+fn spawn_fly_camera(mut commands: Commands, window: Single<&Window, With<PrimaryWindow>>) {
     commands.spawn((
         Camera3d::default(),
         Projection::Perspective(PerspectiveProjection {
-            fov: DEFAULT_VERTICAL_FOV_RADIANS,
+            fov: horizontal_fov_to_vertical(DEFAULT_HORIZONTAL_FOV_RADIANS, window_aspect(&window)),
             ..default()
         }),
         Tonemapping::None,
         FlyCamera::default(),
         Transform::from_xyz(0.0, 80.0, 0.0),
     ));
+}
+
+fn update_camera_fov(
+    window: Single<&Window, With<PrimaryWindow>>,
+    mut cameras: Query<&mut Projection, With<FlyCamera>>,
+) {
+    let vertical =
+        horizontal_fov_to_vertical(DEFAULT_HORIZONTAL_FOV_RADIANS, window_aspect(&window));
+    for mut projection in &mut cameras {
+        if let Projection::Perspective(perspective) = projection.as_mut() {
+            perspective.fov = vertical;
+        }
+    }
 }
 
 pub(crate) fn movement_axes(keys: &ButtonInput<KeyCode>) -> Vec3 {

@@ -639,10 +639,14 @@ Commit: `feat: mesh animated biome water`
 
 **Files:**
 
+- Modify: `crates/render/src/lib.rs`
 - Modify: `crates/render/src/plugin.rs`
 - Modify: `crates/render/Cargo.toml`
 - Create: `crates/render/src/liquid.wgsl`
 - Modify: `crates/render/tests/plugin.rs`
+- Modify: `app/src/args.rs`
+- Modify: `app/src/main.rs`
+- Modify: `app/src/metrics.rs`
 - Modify: `scripts/acceptance.ps1`
 - Modify: `scripts/tests/acceptance.Tests.ps1`
 
@@ -654,6 +658,28 @@ ceiling, upload caps, last-complete-order retention, `ViewSortGeneration` stale
 completion rejection, visibility/asset/mesh invalidation, and direct/MDI ordered
 snapshot parity.
 
+The exact sort key contains the camera position and orientation, the canonical
+visible allocation manifest (`SubChunkKey`, mesh generation, liquid range,
+lighting range, and metadata index), and the active asset/tint identities. An
+unchanged key reuses its outstanding generation instead of spawning another
+job. A camera-only re-sort keeps the last complete snapshot bound. A
+visibility-membership change also keeps it bound while every allocation identity
+named by that snapshot remains physically resident in the authoritative arena:
+same subchunk key and metadata index, active tint identity, structurally valid
+current lighting, and a same-start current liquid range containing the old
+range. The asset/tint identities remain exact, while mesh generation remains in
+the freshness key. Newly visible allocations appear only after the replacement
+sort and upload swap atomically. A moved/shrunk range or removal uses
+copy-on-write and keeps the old committed snapshot drawable from exact retired
+physical identity until its replacement swaps in. Asset/tint or invalid-view
+changes clear incompatible committed/pending snapshots immediately but still
+quarantine their old owned spans from reuse. Arm reclamation only after the
+replacement or empty frame has rendered; a post-render submitted-work sentinel
+uses an independent monotonic epoch and must also cover removal-to-empty, view
+reset, invalid key, and asset/tint replacement. Coalesce ranges only after that GPU completion. Cap
+exhaustion backpressures updates and retains one-shot removals for retry rather
+than freeing, reusing, or blanking them.
+
 Name the focused tests `transparent_pipeline_uses_alpha_without_depth_write`,
 `sort_ref_ceiling_is_enforced`, `older_view_sort_generation_is_rejected`,
 `last_complete_sort_remains_bound`, and
@@ -664,17 +690,64 @@ is the missing transparent pipeline/sort API. Define and assert the eight-byte
 ranges are owned exclusively by the committed ordered snapshot, never
 `ChunkMesh`.
 
+The draw ref is liquid-only and stores the absolute liquid-record index plus the
+chunk metadata index. Liquid record word 3 is converted from the Task 12
+relative lighting index to its absolute lighting-arena index during upload. The
+hard reference ceiling rejects a sort; the smaller per-frame upload cap does
+not. Oversized valid snapshots stage into an inactive bounded slot over multiple
+frames while the previous complete slot remains bound, then swap atomically.
+Bound both the number of render views and the combined double-slot allocation.
+
 ### 13.2 GREEN
 
 Add the second immutable state variant of the chunk pipeline family, liquid
 arena, double-buffered sort indirection, Rayon sort jobs, generation gating, and
 transparent presentation accounting.
 
+Use at most one bounded Rayon job per view with newest-request replacement and
+stale-result rejection. Sort subchunks by view-space centre and liquid quads by
+world-space centroid, back-to-front, with `(SubChunkKey, local quad index)` as
+the stable tie-break. Both direct and MDI paths consume the same active ref
+range and draw arguments. Submit one `Transparent3d` item per complete view
+snapshot so Bevy cannot reorder its internal references.
+
+`liquid.wgsl` resolves binding 14 draw refs into binding 13 liquid records,
+reconstructs Task 12 face winding/heights, preserves sampled alpha, applies
+animation and biome tint, rotates flowing top UVs from signed X/Z flow, and uses
+the absolute lighting index. Validate the shader with Naga and CPU/WGSL decode
+and UV parity tests.
+
+Expose request/result/committed/encoded/GPU-presented generation, ref count,
+sort CPU duration, request-to-commit latency, staged/upload bytes,
+stale/ceiling rejection counts, active-slot age, and committed
+`ViewSortGeneration` in app metrics and presentation evidence. Fold transparent
+uploads into `gpu_upload_bytes`.
+
 ### 13.3 Live water gallery and commit
 
 Capture still/flow/edge/waterlogged/biome/blend scenes at multiple angles while
 moving the camera. Record sort CPU, bytes, latency, frame p99, and diagnostic
 counters.
+
+The deterministic Water Gallery contains a still pool, downhill/flow edge,
+waterlogged plant, biome-tint witnesses, a blend edge, and a moving-camera
+re-sort witness. Acceptance tests lock its command line, layout, camera poses,
+and non-zero sort/presentation metrics. Because BDS fixture commands cannot set
+the biome under a witness, the manifest requires one distinct runtime water
+tint actually referenced by the committed/presented fixture rather than
+pretending two nearby witnesses cross a biome boundary. The separately named
+`bedrock-client::tests::compiled_and_live_biome_tables_preserve_raw_id_water_colour_parity`
+integration test proves that two live raw biome IDs with distinct map-water
+colours retain their exact dense lookup and distinct renderer tint records.
+
+Water Gallery launches the client with `--require-transparent-presentation`.
+At the exact timed-session deadline, duration and frame-distribution evidence
+freeze; a bounded two-second presentation-only grace may then continue rendering
+until one non-empty generation is simultaneously committed, draw-encoded, and
+GPU-presented. Grace frames do not alter the measured session or frame
+quantiles. Grace expiry writes diagnostic metrics, logs the three generations,
+and exits nonzero. The manifest binds `p99_frame_ms` to an exact maximum of
+`1000 / 60` milliseconds; 16.7 ms and 17.5 ms fail while 16.6 ms passes.
 
 Commit: `feat: render sorted transparent water`
 

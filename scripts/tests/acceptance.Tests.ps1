@@ -430,6 +430,23 @@ try {
     Assert-True ($aquaticDryRun.Output -contains 'VISUAL_FIXTURE_POSE=AquaticGalleryFront') 'aquatic dry-run lost its exact gallery argument'
     Assert-True ($aquaticDryRun.Output -contains "AQUATIC_GALLERY_ASSETS_SHA256=$aquaticAssetIdentity") 'aquatic dry-run did not record exact artifact identity'
     Assert-Equal 1 @($aquaticDryRun.Output | Where-Object { $_ -match '^AQUATIC_GALLERY_ARGUMENTS_SHA256=[0-9a-f]{64}$' }).Count 'aquatic dry-run did not record deterministic gallery arguments identity'
+    $aquaticAppCommand = @($aquaticDryRun.Output | Where-Object { $_ -match '^APP_COMMAND=' })
+    Assert-True ($aquaticAppCommand[0] -notmatch '--require-transparent-presentation') 'non-water aquatic gallery unexpectedly required transparent presentation settle'
+
+    $waterDryRun = Invoke-Acceptance -Arguments @(
+        '-DryRun',
+        '-DurationSeconds', '60',
+        '-BdsDir', $BdsDir,
+        '-MetricsOut', $MetricsOut,
+        '-Assets', $AquaticAssets,
+        '-VisualFixturePose', 'WaterGalleryFront',
+        '-UseVsync',
+        '-SteadyResourceTrigger', 'VisualFixtureReady'
+    )
+    Assert-True ($waterDryRun.ExitCode -eq 0) "water gallery dry-run failed: $($waterDryRun.Output -join [Environment]::NewLine)"
+    $waterAppCommand = @($waterDryRun.Output | Where-Object { $_ -match '^APP_COMMAND=' })
+    Assert-True ($waterAppCommand[0] -match '--require-transparent-presentation') 'water gallery did not opt into bounded transparent presentation settle'
+    Assert-True ($waterAppCommand[0] -match '--transparent-witness-request') 'water gallery did not pass its ignored-local transparent witness request path to the app'
 
     $baselineDryRun = Invoke-Acceptance -Arguments @(
         '-DryRun',
@@ -650,6 +667,11 @@ try {
         -Pose AquaticGalleryFront `
         -RegistryPath $BlockRegistry `
         -AssetsPath $AquaticAssets
+    $waterPlan = New-WaterGalleryPlan `
+        -MutationCoordinate @(100, 64, 200) `
+        -Pose WaterGalleryFront `
+        -RegistryPath $BlockRegistry `
+        -AssetsPath $AquaticAssets
 
     $freshSource = Join-Path $TempRoot 'fresh gallery source'
     $freshRuntime = Join-Path $TempRoot 'fresh gallery runtime'
@@ -766,6 +788,41 @@ try {
     Assert-Equal 20 ([Math]::Abs([int]$aquaticPlan.Manifest.camera.position.z - [int]$aquaticPlan.Manifest.gallery_center.z)) 'aquatic front camera is not outside the open tank face near the plants'
     Assert-Equal 20 ([Math]::Abs([int]$aquaticBack.Manifest.camera.position.z - [int]$aquaticBack.Manifest.gallery_center.z)) 'aquatic back camera is not outside the open tank face near the plants'
 
+    Assert-Equal 'WaterGallery' $waterPlan.Manifest.fixture_kind 'water plan lost fixture kind'
+    Assert-Equal 24 $waterPlan.GalleryCommands.Count 'water gallery command line changed'
+    Assert-Equal 1 @($waterPlan.GalleryCommands | Where-Object { $_ -match '^fill .* minecraft:water$' }).Count 'water gallery did not contain exactly one still-pool fill'
+    Assert-True (@($waterPlan.GalleryCommands[3..6] | Where-Object { $_ -match ' minecraft:glass$' }).Count -eq 4) 'water gallery did not build its still-pool enclosure before placing water'
+    Assert-True ($waterPlan.GalleryCommands[7] -match ' minecraft:water$') 'water gallery placed still water before its enclosure was complete'
+    Assert-Equal 6 @($waterPlan.GalleryCommands | Where-Object { $_ -match '^setblock .* minecraft:water \["liquid_depth"=[0-5]\]$' }).Count 'water gallery lost its six-state downhill flow edge'
+    Assert-Equal 'glass' $waterPlan.Manifest.relative_layout.flow_enclosure.block 'water gallery flow states were not enclosed against fluid ticks'
+    Assert-Equal 1 @($waterPlan.GalleryCommands | Where-Object { $_ -match '^setblock .* minecraft:seagrass' }).Count 'water gallery lost its waterlogged plant witness'
+    Assert-Equal 2 @($waterPlan.Manifest.relative_layout.biome_tint_witnesses).Count 'water gallery lost a biome-tint witness'
+    Assert-Equal 'runtime-biome-index-water-tint-lookup' $waterPlan.Manifest.relative_layout.biome_tint_evidence.kind 'water gallery did not bind tint witnesses to runtime biome lookup'
+    Assert-True (-not [bool]$waterPlan.Manifest.relative_layout.biome_tint_evidence.distinct_biome_colours_claimed) 'water gallery claimed nearby witnesses prove distinct biome colours'
+    Assert-Equal 1 ([uint64]$waterPlan.Manifest.relative_layout.biome_tint_evidence.minimum_rendered_distinct_tint_count) 'water gallery did not state its honest single-biome live tint requirement'
+    Assert-Equal 'bedrock-client::tests::compiled_and_live_biome_tables_preserve_raw_id_water_colour_parity' ([string]$waterPlan.Manifest.relative_layout.biome_tint_evidence.multi_biome_lookup_parity_test) 'water gallery did not retain the separate multi-biome lookup parity proof'
+    Assert-True ([Math]::Abs([double]$waterPlan.Manifest.performance.maximum_p99_frame_ms - (1000.0 / 60.0)) -lt 0.0000001) 'water gallery did not manifest the exact 60fps p99 threshold'
+    Assert-True ($null -ne $waterPlan.Manifest.relative_layout.still_pool) 'water gallery did not manifest its still pool'
+    Assert-True ($null -ne $waterPlan.Manifest.relative_layout.downhill_flow_edge) 'water gallery did not manifest its downhill flow edge'
+    Assert-True ($null -ne $waterPlan.Manifest.relative_layout.waterlogged_plant) 'water gallery did not manifest its waterlogged plant'
+    Assert-True ($null -ne $waterPlan.Manifest.relative_layout.blend_edge) 'water gallery did not manifest its blend edge'
+    Assert-True ($waterPlan.TeleportCommand -cne $waterPlan.CameraResortCommand) 'water gallery camera movement did not change the view'
+    Assert-Equal $waterPlan.TeleportCommand $waterPlan.Manifest.camera_poses.initial.command 'water gallery manifest lost its initial fixed camera pose'
+    Assert-Equal $waterPlan.CameraResortCommand $waterPlan.Manifest.camera_poses.resort.command 'water gallery manifest lost its moving-camera re-sort pose'
+    $waterPlanAgain = New-WaterGalleryPlan -MutationCoordinate @(100, 64, 200) -Pose WaterGalleryFront -RegistryPath $BlockRegistry -AssetsPath $AquaticAssets
+    $waterBack = New-WaterGalleryPlan -MutationCoordinate @(100, 64, 200) -Pose WaterGalleryBack -RegistryPath $BlockRegistry -AssetsPath $AquaticAssets
+    $waterMoved = New-WaterGalleryPlan -MutationCoordinate @(500, 70, -300) -Pose WaterGalleryFront -RegistryPath $BlockRegistry -AssetsPath $AquaticAssets
+    Assert-Equal ($waterPlan.Manifest | ConvertTo-Json -Compress -Depth 12) ($waterPlanAgain.Manifest | ConvertTo-Json -Compress -Depth 12) 'water gallery was not deterministic'
+    Assert-Equal $waterPlan.Manifest.fixture_layout_hash $waterBack.Manifest.fixture_layout_hash 'water front/back pose changed fixture layout identity'
+    Assert-Equal $waterPlan.Manifest.fixture_layout_hash $waterMoved.Manifest.fixture_layout_hash 'water absolute coordinate changed fixture layout identity'
+    Assert-Equal $waterPlan.TeleportCommand $waterBack.CameraResortCommand 'water front initial pose did not equal back resort pose'
+    Assert-Equal $waterPlan.CameraResortCommand $waterBack.TeleportCommand 'water front resort pose did not equal back initial pose'
+    $waterWitnessRequest = New-WaterGalleryTransparentWitnessRequest -Plan $waterPlan -Revision 1
+    Assert-Equal 'rust-mcbe-transparent-witness-v1' $waterWitnessRequest.schema 'water witness request lost its strict schema'
+    Assert-Equal 1 ([uint64]$waterWitnessRequest.revision) 'water witness request lost its revision'
+    Assert-Equal 0 ([int]$waterWitnessRequest.dimension) 'water witness request lost its dimension'
+    Assert-Equal '5,4,12;6,4,12;7,4,12' (@($waterWitnessRequest.sub_chunks | ForEach-Object { "$($_.x),$($_.y),$($_.z)" }) -join ';') 'water witness request did not derive the exact unique liquid-bearing subchunks'
+
     $tamperedAquaticAssets = Join-Path $TempRoot 'tampered aquatic assets.mcbea'
     [IO.File]::WriteAllBytes($tamperedAquaticAssets, [IO.File]::ReadAllBytes($AquaticAssets))
     $firstAquaticId = [int]$aquaticPlan.CoverageEntries[0].sequential_id
@@ -820,8 +877,8 @@ try {
     $prebuiltGuardHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $PrebuiltClient).Hash.ToLowerInvariant()
     Assert-FileHashUnchanged -Path $PrebuiltClient -ExpectedSha256 $prebuiltGuardHash -Label 'test prebuilt client'
 
-    $teleportMarkerLine = 'RUST_MCBE_TELEPORT_SETTLED target=0:65:65:16 committed=0:65:65:16 ms=1500.0000 view_generation=7 render_ready_ms=1200.0000 publisher_ms=100.0000 first_level_ms=200.0000 last_level_ms=600.0000 level_events=1089 first_sub_ms=250.0000 last_sub_ms=900.0000 sub_events=1089 first_frame_sequence=41 stable_frame_sequence=42 first_present_ms=1300.0000 first_gpu_ms=1350.0000 stable_present_ms=1400.0000 stable_gpu_ms=1500.0000 expected_manifest_count=4 expected_manifest_hash=1111222233334444 first_presented_manifest_count=4 first_presented_manifest_hash=1111222233334444 stable_presented_manifest_count=4 stable_presented_manifest_hash=1111222233334444 expected=1089 loaded_target=1089 missing_target=0 foreign_loaded=0 foreign_requested=0 foreign_resident=0 source_leftover=0 resident_count=3 resident_hash=aaaabbbbccccdddd known_air_count=1 known_air_hash=eeeeffff00001111 missing_target_instances=0 unexpected_target_instances=0 source_instances=0 foreign_instances=0 stale_generation_instances=0 orphan_allocations=0 frame_count=90'
-    $forcedMarkerLine = 'RUST_MCBE_FORCED_FULL_VIEW_REMESH_SETTLED target=0:65:65:16 committed=0:65:65:16 ms=1500.0000 view_generation=8 render_ready_ms=0.0000 first_frame_sequence=43 stable_frame_sequence=44 first_present_ms=1200.0000 first_gpu_ms=1300.0000 stable_present_ms=1400.0000 stable_gpu_ms=1500.0000 expected_manifest_count=4 expected_manifest_hash=5555666677778888 first_presented_manifest_count=4 first_presented_manifest_hash=5555666677778888 stable_presented_manifest_count=4 stable_presented_manifest_hash=5555666677778888 expected=1089 loaded_target=1089 missing_target=0 foreign_loaded=0 foreign_requested=0 foreign_resident=0 source_leftover=0 resident_count=3 resident_hash=aaaabbbbccccdddd known_air_count=1 known_air_hash=eeeeffff00001111 missing_target_instances=0 unexpected_target_instances=0 source_instances=0 foreign_instances=0 stale_generation_instances=0 orphan_allocations=0 frame_count=90'
+    $teleportMarkerLine = 'RUST_MCBE_TELEPORT_SETTLED target=0:65:65:16 committed=0:65:65:16 ms=1500.0000 view_generation=7 transparent_sort_generation=11 render_ready_ms=1200.0000 publisher_ms=100.0000 first_level_ms=200.0000 last_level_ms=600.0000 level_events=1089 first_sub_ms=250.0000 last_sub_ms=900.0000 sub_events=1089 first_frame_sequence=41 stable_frame_sequence=42 first_present_ms=1300.0000 first_gpu_ms=1350.0000 stable_present_ms=1400.0000 stable_gpu_ms=1500.0000 expected_manifest_count=4 expected_manifest_hash=1111222233334444 first_presented_manifest_count=4 first_presented_manifest_hash=1111222233334444 stable_presented_manifest_count=4 stable_presented_manifest_hash=1111222233334444 expected=1089 loaded_target=1089 missing_target=0 foreign_loaded=0 foreign_requested=0 foreign_resident=0 source_leftover=0 resident_count=3 resident_hash=aaaabbbbccccdddd known_air_count=1 known_air_hash=eeeeffff00001111 missing_target_instances=0 unexpected_target_instances=0 source_instances=0 foreign_instances=0 stale_generation_instances=0 orphan_allocations=0 frame_count=90'
+    $forcedMarkerLine = 'RUST_MCBE_FORCED_FULL_VIEW_REMESH_SETTLED target=0:65:65:16 committed=0:65:65:16 ms=1500.0000 view_generation=8 transparent_sort_generation=12 render_ready_ms=0.0000 first_frame_sequence=43 stable_frame_sequence=44 first_present_ms=1200.0000 first_gpu_ms=1300.0000 stable_present_ms=1400.0000 stable_gpu_ms=1500.0000 expected_manifest_count=4 expected_manifest_hash=5555666677778888 first_presented_manifest_count=4 first_presented_manifest_hash=5555666677778888 stable_presented_manifest_count=4 stable_presented_manifest_hash=5555666677778888 expected=1089 loaded_target=1089 missing_target=0 foreign_loaded=0 foreign_requested=0 foreign_resident=0 source_leftover=0 resident_count=3 resident_hash=aaaabbbbccccdddd known_air_count=1 known_air_hash=eeeeffff00001111 missing_target_instances=0 unexpected_target_instances=0 source_instances=0 foreign_instances=0 stale_generation_instances=0 orphan_allocations=0 frame_count=90'
     $teleportMarker = ConvertFrom-FullViewSettleMarker `
         -Line $teleportMarkerLine `
         -Kind Teleport
@@ -832,6 +889,13 @@ try {
     Assert-Equal 1500.0 $teleportMarker.ms 'target-prefixed teleport marker did not parse milliseconds'
     Assert-Equal '0:65:65:16' $forcedMarker.target 'target-prefixed forced-remesh marker lost its cohort'
     Assert-Equal 1500.0 $forcedMarker.ms 'target-prefixed forced-remesh marker did not parse milliseconds'
+    Assert-Equal 11 $teleportMarker.transparent_sort_generation 'teleport marker lost presented transparent sort generation'
+    Assert-Equal 12 $forcedMarker.transparent_sort_generation 'forced-remesh marker lost presented transparent sort generation'
+    Assert-ThrowsLike {
+        ConvertFrom-FullViewSettleMarker `
+            -Line $teleportMarkerLine.Replace(' transparent_sort_generation=11', '') `
+            -Kind Teleport
+    } 'Teleport settle marker is missing transparent_sort_generation*' 'full-view marker accepted missing transparent presentation evidence'
 
     $worldReadyLine = 'RUST_MCBE_WORLD_READY source_tag=v1 blob_sha256=abc'
     $worldReadyTrigger = New-SteadyResourceTriggerEvidence `
@@ -1176,6 +1240,122 @@ try {
     Assert-Equal 'players online:' $fixtureReady.processing_fence.stdout_marker 'fixture ready artifact recorded the wrong fence marker'
     Assert-Equal 3000 $fixtureReady.settle_milliseconds 'fixture ready artifact did not record the production settle duration'
     Assert-Equal $frontPlan.TeleportCommand $fixtureReady.teleport_command 'fixture ready artifact recorded the wrong teleport'
+
+    $waterInput = [IO.StringWriter]::new([Globalization.CultureInfo]::InvariantCulture)
+    $waterHandle = [pscustomobject]@{ Process = [pscustomobject]@{ StandardInput = $waterInput } }
+    $script:WaterFenceCount = 0
+    $script:WaterSortMarkerCount = 0
+    $waterAppStdout = Join-Path $TempRoot 'water app stdout.log'
+    [IO.File]::WriteAllText(
+        $waterAppStdout,
+        "RUST_MCBE_TRANSPARENT_SORT_COMMITTED generation=3 ref_count=12`n",
+        [Text.UTF8Encoding]::new($false)
+    )
+    $waterAppHandle = [pscustomobject]@{
+        StdoutPath = $waterAppStdout
+        StdoutMarkerCursor = [pscustomobject]@{ Offset = [long]0; PartialLine = ''; LineNumber = [uint64]0 }
+        Process = [pscustomobject]@{}
+    }
+    $waterRunDirectory = Join-Path $TempRoot 'water gallery run'
+    New-Item -ItemType Directory -Path $waterRunDirectory | Out-Null
+    $waterPublication = Publish-VisualFixture `
+        -Handle $waterHandle `
+        -Plan $waterPlan `
+        -RunDirectory $waterRunDirectory `
+        -SettleMilliseconds 0 `
+        -WaitForFence {
+            param($Handle, $Marker, $TimeoutSeconds)
+            $script:WaterFenceCount++
+            if ($script:WaterFenceCount -eq 1) {
+                $commandResults = @($waterPlan.FixtureCommands | ForEach-Object {
+                    if ($_ -match '^fill ') { '[2026-07-11 00:00:00 INFO] 1 blocks filled' }
+                    else { '[2026-07-11 00:00:00 INFO] Block placed' }
+                })
+                return New-TestBdsMarkerEvidence -Line '[INFO] There are 1/10 players online:' -SkippedLines $commandResults
+            }
+            if ($script:WaterFenceCount -eq 2) {
+                return New-TestBdsMarkerEvidence `
+                    -Line '[INFO] There are 1/10 players online:' `
+                    -SkippedLines @('[INFO] Teleported RustMCBE to 100.000000, 74.000000, 176.000000')
+            }
+            return New-TestBdsMarkerEvidence `
+                -Line '[INFO] There are 1/10 players online:' `
+                -SkippedLines @('[INFO] Teleported RustMCBE to 100.000000, 73.000000, 224.000000')
+        } `
+        -AppHandle $waterAppHandle `
+        -WaitForAppMarker {
+            param($Handle, $Marker, $TimeoutSeconds)
+            $script:WaterSortMarkerCount++
+            $lines = if ($Marker -ceq 'RUST_MCBE_TRANSPARENT_WITNESS_COMPLETE ') {
+                if ($script:WaterSortMarkerCount -eq 3) {
+                    @('RUST_MCBE_TRANSPARENT_WITNESS_COMPLETE revision=1 sequence=21 generation=194 key_count=3 consecutive=1')
+                }
+                else {
+                    @('RUST_MCBE_TRANSPARENT_WITNESS_COMPLETE revision=1 sequence=22 generation=194 key_count=3 consecutive=2')
+                }
+            }
+            elseif ($script:WaterSortMarkerCount -eq 1) {
+                @(
+                    'RUST_MCBE_TRANSPARENT_SORT_COMMITTED generation=7 ref_count=42',
+                    'RUST_MCBE_TRANSPARENT_SORT_COMMITTED generation=8 ref_count=42'
+                )
+            }
+            else {
+                @('RUST_MCBE_TRANSPARENT_SORT_COMMITTED generation=9 ref_count=42')
+            }
+            [IO.File]::AppendAllText($Handle.StdoutPath, (($lines -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
+            return Wait-ProcessOutputMarker -Handle $Handle -Marker $Marker -TimeoutSeconds $TimeoutSeconds -PassThruEvidence
+        }
+    Assert-Equal $waterPlan.Manifest.fixture_layout_hash $waterPublication.LayoutHash 'water publication lost layout hash'
+    Assert-Equal ($waterPlan.Commands -join [Environment]::NewLine) $waterInput.ToString().TrimEnd("`r", "`n") 'water gallery did not execute its fixed initial and moving-camera resort poses in order'
+    Assert-Equal 3 $script:WaterFenceCount 'water gallery did not fence fixture construction and both camera poses'
+    Assert-Equal 4 $script:WaterSortMarkerCount 'water gallery did not fence both committed transparent sorts and two GPU-presented exact-key witnesses'
+    Assert-True (Test-Path -LiteralPath (Join-Path $waterRunDirectory 'transparent-witness-request.json') -PathType Leaf) 'water gallery did not atomically publish its exact witness request'
+    $publishedWater = Get-Content -Raw -LiteralPath $waterPublication.Path | ConvertFrom-Json
+    Assert-Equal $waterPlan.CameraResortCommand $publishedWater.camera_resort_command 'published water manifest lost moving-camera evidence'
+    $waterEvents = @(Get-Content -LiteralPath (Join-Path $waterRunDirectory 'acceptance-events.jsonl') | ForEach-Object { ConvertFrom-Json $_ })
+    Assert-Equal 'fixture_commands_validated,initial_camera_fence_observed,initial_transparent_sort_committed,camera_resort_issued,camera_resort_fence_observed,resort_transparent_sort_committed,transparent_witness_complete,transparent_witness_complete' (@($waterEvents.event) -join ',') 'water gallery did not retain validated commands and causal exact-key GPU-presentation evidence'
+    Assert-Equal '7,9' (@($waterEvents | Where-Object { $_.event -match 'transparent_sort_committed$' } | ForEach-Object { $_.generation }) -join ',') 'buffered pre-pose sort markers satisfied causal water-gallery evidence'
+    Assert-ThrowsLike {
+        Assert-BdsCameraResortResult -Evidence (New-TestBdsMarkerEvidence `
+            -Line '[INFO] There are 1/10 players online:' `
+            -SkippedLines @('[ERROR] No targets matched selector'))
+    } 'BDS camera resort command failed:*' 'water gallery accepted a rejected camera resort before its fence'
+
+    $sortMarker = ConvertFrom-TransparentSortCommittedMarker -Line 'RUST_MCBE_TRANSPARENT_SORT_COMMITTED generation=17 ref_count=99'
+    Assert-Equal 17 $sortMarker.generation 'transparent sort marker parser lost generation'
+    Assert-Equal 99 $sortMarker.ref_count 'transparent sort marker parser lost ref count'
+    Assert-ThrowsLike {
+        ConvertFrom-TransparentSortCommittedMarker -Line 'RUST_MCBE_TRANSPARENT_SORT_COMMITTED generation=0 ref_count=99'
+    } 'invalid transparent sort committed marker:*' 'transparent sort marker accepted generation zero'
+    $witnessMarker = ConvertFrom-TransparentWitnessCompleteMarker -Line 'RUST_MCBE_TRANSPARENT_WITNESS_COMPLETE revision=3 sequence=17 generation=194 key_count=3 consecutive=2'
+    Assert-Equal 3 ([uint64]$witnessMarker.revision) 'transparent witness marker parser lost revision'
+    Assert-Equal 2 ([int]$witnessMarker.consecutive) 'transparent witness marker parser lost consecutive proof count'
+    Assert-ThrowsLike {
+        ConvertFrom-TransparentWitnessCompleteMarker -Line 'RUST_MCBE_TRANSPARENT_WITNESS_COMPLETE revision=3 sequence=17 generation=194 key_count=0 consecutive=2'
+    } 'invalid transparent witness complete marker:*' 'transparent witness marker accepted zero keys'
+    $null = Assert-StableTransparentWitnessEvidence `
+        -Request ([pscustomobject]@{ revision = [uint64]3; sub_chunks = @([pscustomobject]@{ x = 1; y = 2; z = 3 }) }) `
+        -First ([pscustomobject]@{ revision = [uint64]3; sequence = [uint64]21; generation = [uint64]194; key_count = [uint64]1; consecutive = 1 }) `
+        -Second ([pscustomobject]@{ revision = [uint64]3; sequence = [uint64]22; generation = [uint64]194; key_count = [uint64]1; consecutive = 2 })
+    Assert-ThrowsLike {
+        Assert-StableTransparentWitnessEvidence `
+            -Request ([pscustomobject]@{ revision = [uint64]3; sub_chunks = @([pscustomobject]@{ x = 1; y = 2; z = 3 }) }) `
+            -First ([pscustomobject]@{ revision = [uint64]3; sequence = [uint64]21; generation = [uint64]193; key_count = [uint64]1; consecutive = 1 }) `
+            -Second ([pscustomobject]@{ revision = [uint64]3; sequence = [uint64]22; generation = [uint64]194; key_count = [uint64]1; consecutive = 1 })
+    } 'transparent witness did not complete twice consecutively:*' 'a gen193 missing-key frame followed by only one gen194 complete frame satisfied readiness'
+    $null = Assert-NewerTransparentSortCommit `
+        -Initial ([pscustomobject]@{ generation = [uint64]7 }) `
+        -InitialLineNumber 101 `
+        -Resort ([pscustomobject]@{ generation = [uint64]8 }) `
+        -ResortLineNumber 102
+    Assert-ThrowsLike {
+        Assert-NewerTransparentSortCommit `
+            -Initial ([pscustomobject]@{ generation = [uint64]7 }) `
+            -InitialLineNumber 101 `
+            -Resort ([pscustomobject]@{ generation = [uint64]7 }) `
+            -ResortLineNumber 102
+    } 'camera resort did not commit a newer transparent sort:*' 'camera resort accepted the initial sort generation again'
 
     $forestInput = [IO.StringWriter]::new([Globalization.CultureInfo]::InvariantCulture)
     $forestHandle = [pscustomobject]@{
@@ -1610,6 +1790,41 @@ try {
     Assert-True ((Get-Content -Raw -LiteralPath $helper.StdoutPath).Contains('TEST_READY')) 'stdout was not preserved'
     Assert-True ((Get-Content -Raw -LiteralPath $helper.StderrPath).Contains('error-line')) 'stderr was not preserved'
 
+    $drainPath = Join-Path $TempRoot 'drain-marker.stdout.log'
+    [IO.File]::WriteAllText($drainPath, "OLD_ONE`nOLD_TWO`npartial", [Text.UTF8Encoding]::new($false))
+    $drainHandle = [pscustomobject]@{
+        StdoutPath = $drainPath
+        StdoutMarkerCursor = [pscustomobject]@{ Offset = [long]0; PartialLine = ''; LineNumber = [uint64]0 }
+    }
+    $drainEvidence = Advance-ProcessOutputCursorToCurrentEnd -Handle $drainHandle
+    Assert-Equal 2 $drainEvidence.complete_lines 'cursor drain did not consume every complete old stdout line'
+    Assert-Equal 2 $drainHandle.StdoutMarkerCursor.LineNumber 'cursor drain did not preserve line numbering'
+    Assert-Equal 'partial' $drainHandle.StdoutMarkerCursor.PartialLine 'cursor drain did not preserve an incomplete UTF-8 line'
+    [IO.File]::AppendAllText($drainPath, "-tail`nCURRENT_MARKER`n", [Text.UTF8Encoding]::new($false))
+    $postDrain = Wait-ProcessOutputMarker -Handle $drainHandle -Marker 'CURRENT_MARKER' -TimeoutSeconds 5 -PassThruEvidence
+    Assert-Equal 4 $postDrain.LineNumber 'post-drain marker line number was not continuous'
+    Assert-Equal 'partial-tail' $postDrain.SkippedLines[0] 'cursor drain discarded or duplicated the partial line'
+
+    $utf8DrainPath = Join-Path $TempRoot 'drain-partial-utf8.stdout.log'
+    $utf8Prefix = [Text.Encoding]::UTF8.GetBytes('prefix ')
+    $euroBytes = [Text.Encoding]::UTF8.GetBytes([string][char]0x20ac)
+    $partialUtf8 = [byte[]]::new($utf8Prefix.Length + 2)
+    [Array]::Copy($utf8Prefix, $partialUtf8, $utf8Prefix.Length)
+    [Array]::Copy($euroBytes, 0, $partialUtf8, $utf8Prefix.Length, 2)
+    [IO.File]::WriteAllBytes($utf8DrainPath, $partialUtf8)
+    $utf8DrainHandle = [pscustomobject]@{
+        StdoutPath = $utf8DrainPath
+        StdoutMarkerCursor = [pscustomobject]@{ Offset = [long]0; PartialLine = ''; LineNumber = [uint64]0 }
+    }
+    $null = Advance-ProcessOutputCursorToCurrentEnd -Handle $utf8DrainHandle
+    Assert-Equal $utf8Prefix.Length $utf8DrainHandle.StdoutMarkerCursor.Offset 'cursor drain advanced past an incomplete UTF-8 code point'
+    Assert-Equal 'prefix ' $utf8DrainHandle.StdoutMarkerCursor.PartialLine 'cursor drain corrupted text before an incomplete UTF-8 code point'
+    $completion = [byte[]]@($euroBytes[2]) + [Text.Encoding]::UTF8.GetBytes("`nUTF8_CURRENT`n")
+    $stream = [IO.FileStream]::new($utf8DrainPath, [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::ReadWrite)
+    try { $stream.Write($completion, 0, $completion.Length) } finally { $stream.Dispose() }
+    $utf8PostDrain = Wait-ProcessOutputMarker -Handle $utf8DrainHandle -Marker 'UTF8_CURRENT' -TimeoutSeconds 5 -PassThruEvidence
+    Assert-Equal "prefix $([char]0x20ac)" $utf8PostDrain.SkippedLines[0] 'cursor drain did not reconstruct the split UTF-8 code point exactly once'
+
     $orderedMarkerHelper = $null
     $orderedMarkerCleanupFailure = $null
     try {
@@ -1858,7 +2073,7 @@ $writer.Dispose()
         }
         teleport_proof = [ordered]@{
             target = '0:65:65:16'; committed = '0:65:65:16'; ms = 1500.0
-            view_generation = 7; render_ready_ms = 1200.0; publisher_ms = 100.0
+            view_generation = 7; transparent_sort_generation = 11; render_ready_ms = 1200.0; publisher_ms = 100.0
             first_level_ms = 200.0; last_level_ms = 600.0; level_events = 1089
             first_sub_ms = 250.0; last_sub_ms = 900.0; sub_events = 1089
             first_frame_sequence = 41; stable_frame_sequence = 42
@@ -1876,7 +2091,7 @@ $writer.Dispose()
         }
         forced_full_view_remesh_proof = [ordered]@{
             target = '0:65:65:16'; committed = '0:65:65:16'; ms = 1500.0
-            view_generation = 8; render_ready_ms = 0.0
+            view_generation = 8; transparent_sort_generation = 12; render_ready_ms = 0.0
             first_frame_sequence = 43; stable_frame_sequence = 44
             first_present_ms = 1200.0; first_gpu_ms = 1300.0
             stable_present_ms = 1400.0; stable_gpu_ms = 1500.0; frame_count = 90
@@ -1891,6 +2106,12 @@ $writer.Dispose()
             foreign_instances = 0; stale_generation_instances = 0; orphan_allocations = 0
         }
     }
+    $null = Assert-MarkerMatchesProof -Marker $teleportMarker -Proof ([pscustomobject]$metrics.teleport_proof) -Kind Teleport -Label 'teleport proof'
+    $metrics.teleport_proof.transparent_sort_generation = 13
+    Assert-ThrowsLike {
+        Assert-MarkerMatchesProof -Marker $teleportMarker -Proof ([pscustomobject]$metrics.teleport_proof) -Kind Teleport -Label 'teleport proof'
+    } 'teleport proof marker/metrics mismatch for transparent_sort_generation*' 'full-view proof accepted a different presented transparent generation'
+    $metrics.teleport_proof.transparent_sort_generation = 11
     $metricsPath = Join-Path $TempRoot 'validation-metrics.json'
     $steadyResourceArtifactPath = Join-Path $TempRoot 'steady-resources.json'
     $steadyArtifactSamples = @(1..30 | ForEach-Object {
@@ -1914,6 +2135,98 @@ $writer.Dispose()
     )
     $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
     $null = Assert-AcceptanceMetrics -Path $metricsPath
+
+    $transparentMetrics = [ordered]@{}
+    foreach ($key in $metrics.Keys) {
+        $transparentMetrics[$key] = $metrics[$key]
+    }
+    $transparentMetrics.transparent_sort_request_generation = 4
+    $transparentMetrics.transparent_sort_result_generation = 4
+    $transparentMetrics.transparent_sort_committed_generation = 4
+    $transparentMetrics.transparent_sort_encoded_generation = 4
+    $transparentMetrics.transparent_sort_presented_generation = 4
+    $transparentMetrics.transparent_sort_ref_count = 10
+    $transparentMetrics.transparent_sort_cpu_ms = 0.25
+    $transparentMetrics.transparent_sort_request_to_commit_ms = 3.5
+    $transparentMetrics.transparent_sort_staged_bytes = 160
+    $transparentMetrics.transparent_sort_upload_bytes = 160
+    $transparentMetrics.transparent_sort_stale_reject_count = 0
+    $transparentMetrics.transparent_sort_ceiling_reject_count = 0
+    $transparentMetrics.transparent_sort_active_slot_age_frames = 2
+    $transparentMetrics.transparent_water_distinct_tint_count = 1
+    $transparentMetrics.nontransparent_gpu_upload_bytes = 1
+    $transparentMetrics.gpu_upload_bytes = 161
+    $transparentMetrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    $null = Assert-AcceptanceMetrics -Path $metricsPath -RequireTransparentWater
+    $transparentMetrics.p99_frame_ms = 16.6
+    $transparentMetrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    $null = Assert-AcceptanceMetrics -Path $metricsPath -RequireTransparentWater -MaximumP99FrameMilliseconds (1000.0 / 60.0)
+    foreach ($failingP99 in @(16.7, 17.5)) {
+        $transparentMetrics.p99_frame_ms = $failingP99
+        $transparentMetrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+        Assert-ThrowsLike {
+            Assert-AcceptanceMetrics -Path $metricsPath -RequireTransparentWater -MaximumP99FrameMilliseconds (1000.0 / 60.0)
+        } 'p99_frame_ms exceeded manifested maximum*' "water acceptance accepted p99_frame_ms=$failingP99 above 60fps"
+    }
+    $transparentMetrics.p99_frame_ms = 3.0
+    $transparentMetrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    foreach ($field in @(
+        'transparent_sort_request_generation', 'transparent_sort_result_generation',
+        'transparent_sort_committed_generation', 'transparent_sort_encoded_generation',
+        'transparent_sort_presented_generation', 'transparent_sort_ref_count',
+        'transparent_sort_cpu_ms', 'transparent_sort_request_to_commit_ms',
+        'transparent_sort_staged_bytes', 'transparent_sort_upload_bytes',
+        'transparent_sort_active_slot_age_frames', 'transparent_water_distinct_tint_count'
+    )) {
+        $saved = $transparentMetrics[$field]
+        $transparentMetrics[$field] = 0
+        $transparentMetrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+        Assert-ThrowsLike {
+            Assert-AcceptanceMetrics -Path $metricsPath -RequireTransparentWater
+        } "transparent water metric $field was zero*" "water acceptance accepted zero $field"
+        $transparentMetrics[$field] = $saved
+    }
+    $transparentMetrics.transparent_sort_result_generation = 5
+    $transparentMetrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    Assert-ThrowsLike {
+        Assert-AcceptanceMetrics -Path $metricsPath -RequireTransparentWater
+    } 'transparent sort generations were not monotonic*' 'water acceptance accepted a result newer than its request'
+    $transparentMetrics.transparent_sort_result_generation = 4
+    $transparentMetrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    $null = Assert-AcceptanceMetrics -Path $metricsPath -RequireTransparentWater
+    Assert-ThrowsLike {
+        Assert-AcceptanceMetrics -Path $metricsPath -RequireTransparentWater -MinimumTransparentWaterDistinctTintCount 2
+    } 'transparent_water_distinct_tint_count must be at least 2*' 'configurable water acceptance accepted fewer runtime tints than its manifested minimum'
+    $transparentMetrics.transparent_water_distinct_tint_count = 0
+    $transparentMetrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    Assert-ThrowsLike {
+        Assert-AcceptanceMetrics -Path $metricsPath -RequireTransparentWater
+    } 'transparent water metric transparent_water_distinct_tint_count was zero*' 'water acceptance accepted no runtime water tint'
+    $transparentMetrics.transparent_water_distinct_tint_count = 1
+    $transparentMetrics.transparent_sort_presented_generation = 3
+    $transparentMetrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    Assert-ThrowsLike {
+        Assert-AcceptanceMetrics -Path $metricsPath -RequireTransparentWater
+    } 'transparent presented generation did not equal committed generation*' 'water acceptance accepted an unpresented committed sort'
+    $transparentMetrics.transparent_sort_presented_generation = 4
+    $transparentMetrics.transparent_sort_encoded_generation = 3
+    $transparentMetrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    Assert-ThrowsLike {
+        Assert-AcceptanceMetrics -Path $metricsPath -RequireTransparentWater
+    } 'transparent encoded generation did not equal committed generation*' 'water acceptance accepted a committed sort whose draw was not encoded'
+    $transparentMetrics.transparent_sort_encoded_generation = 4
+    $transparentMetrics.transparent_sort_upload_bytes = 161
+    $transparentMetrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    Assert-ThrowsLike {
+        Assert-AcceptanceMetrics -Path $metricsPath -RequireTransparentWater
+    } 'transparent sort upload exceeded staged bytes*' 'water acceptance accepted impossible sort upload accounting'
+    $transparentMetrics.transparent_sort_upload_bytes = 160
+    $transparentMetrics.gpu_upload_bytes = 162
+    $transparentMetrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
+    Assert-ThrowsLike {
+        Assert-AcceptanceMetrics -Path $metricsPath -RequireTransparentWater
+    } 'gpu_upload_bytes did not equal nontransparent plus transparent uploads*' 'water acceptance accepted inexact GPU byte accounting'
+    $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
 
     $approvedOpaqueBlobSha256 = 'af98e5ddd5532972bf99b9fc3bdd3819bb06b1d8696198f135a9d96ae27ca7ba'
     $opaqueBaselineMetrics = [ordered]@{

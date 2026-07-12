@@ -1,8 +1,11 @@
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, VecDeque, hash_map::Entry},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque, hash_map::Entry},
     ops::Range,
-    sync::{Arc, Mutex},
-    time::Instant,
+    sync::{
+        Arc, Mutex,
+        mpsc::{Receiver, SyncSender, sync_channel},
+    },
+    time::{Duration, Instant},
 };
 
 use assets::{
@@ -15,7 +18,9 @@ use bevy::{
         primitives::Aabb,
         visibility::{self, VisibilityClass},
     },
-    core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey},
+    core_pipeline::core_3d::{
+        CORE_3D_DEPTH_FORMAT, Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey, Transparent3d,
+    },
     ecs::{
         change_detection::Tick,
         query::ROQueryItem,
@@ -27,17 +32,17 @@ use bevy::{
         Render, RenderApp, RenderStartup, RenderSystems,
         camera::ExtractedCamera,
         extract_component::{ExtractComponent, ExtractComponentPlugin},
-        extract_resource::ExtractResourcePlugin,
+        extract_resource::{ExtractResource, ExtractResourcePlugin},
         render_phase::{
             AddRenderCommand, BinnedRenderPhaseType, DrawFunctions, InputUniformIndex, PhaseItem,
-            RenderCommand, RenderCommandResult, SetItemPipeline, TrackedRenderPass,
-            ViewBinnedRenderPhases,
+            PhaseItemExtraIndex, RenderCommand, RenderCommandResult, SetItemPipeline,
+            TrackedRenderPass, ViewBinnedRenderPhases, ViewSortedRenderPhases,
         },
         render_resource::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
-            BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBindingType,
-            BufferDescriptor, BufferId, BufferInitDescriptor, BufferUsages, Canonical,
-            ColorTargetState, ColorWrites, CommandEncoderDescriptor, CompareFunction,
+            BindGroupLayoutEntry, BindingResource, BindingType, BlendState, Buffer,
+            BufferBindingType, BufferDescriptor, BufferId, BufferInitDescriptor, BufferUsages,
+            Canonical, ColorTargetState, ColorWrites, CommandEncoderDescriptor, CompareFunction,
             DepthStencilState, DownlevelFlags, DrawIndexedIndirectArgs, Extent3d, Face as CullFace,
             FilterMode, FragmentState, IndexFormat, Origin3d, PipelineCache, PollType,
             PrimitiveState, RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType,
@@ -62,6 +67,7 @@ use crate::{
 
 const CHUNK_SHADER_HANDLE: Handle<Shader> = uuid_handle!("b5664c91-763f-4e5c-9310-d12659f70cd4");
 const MODEL_SHADER_HANDLE: Handle<Shader> = uuid_handle!("2cd46297-17aa-4c18-bfb1-83373bf39475");
+const LIQUID_SHADER_HANDLE: Handle<Shader> = uuid_handle!("52e731aa-0a4d-4b07-9d66-80eb7688398f");
 const STATIC_QUAD_INDICES: [u32; 6] = [0, 1, 2, 0, 2, 3];
 const MODEL_QUADS_PER_REF: u32 = 32;
 const MODEL_INDEX_COUNT: u32 = MODEL_QUADS_PER_REF * 6;
@@ -82,6 +88,1284 @@ const DEFAULT_RENDER_QUEUE_ITEMS: usize = 256;
 const DEFAULT_RENDER_QUEUE_BYTES: u64 = 64 * 1024 * 1024;
 const DEFAULT_ACKNOWLEDGEMENT_CAPACITY: usize = DEFAULT_RENDER_QUEUE_ITEMS;
 const DEFAULT_PRESENTED_FRAME_ACK_CAPACITY: usize = 8;
+
+/// Hard 16 MiB ceiling for one committed transparent indirection snapshot.
+pub const MAX_TRANSPARENT_DRAW_REFS: usize = 2_097_152;
+pub const MAX_TRANSPARENT_VIEWS: usize = 1;
+pub const TRANSPARENT_REF_SLOT_BYTES: usize =
+    MAX_TRANSPARENT_DRAW_REFS * std::mem::size_of::<PackedTransparentDrawRef>();
+pub const TRANSPARENT_REF_BUFFER_BYTES: usize = TRANSPARENT_REF_SLOT_BYTES * 2;
+pub const DEFAULT_TRANSPARENT_UPLOAD_REFS_PER_FRAME: usize = 131_072;
+pub const MAX_TRANSPARENT_WITNESS_KEYS: usize = 64;
+const MAX_TRANSPARENT_RETIRED_ALLOCATIONS: usize = 16_384;
+const MAX_TRANSPARENT_RETIRED_BYTES: u64 = 64 * 1024 * 1024;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TransparentDrawArgs {
+    pub index_count: u32,
+    pub instance_count: u32,
+    pub first_index: u32,
+    pub base_vertex: i32,
+    pub first_instance: u32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TransparentSortCandidate {
+    key: SubChunkKey,
+    local_quad_index: u32,
+    liquid_record_index: u32,
+    metadata_index: u32,
+    subchunk_center: [f32; 3],
+    quad_centroid: [f32; 3],
+}
+
+impl TransparentSortCandidate {
+    #[must_use]
+    pub const fn new(
+        key: SubChunkKey,
+        local_quad_index: u32,
+        liquid_record_index: u32,
+        metadata_index: u32,
+        subchunk_center: [f32; 3],
+        quad_centroid: [f32; 3],
+    ) -> Self {
+        Self {
+            key,
+            local_quad_index,
+            liquid_record_index,
+            metadata_index,
+            subchunk_center,
+            quad_centroid,
+        }
+    }
+}
+
+fn sort_transparent_candidates(
+    view_from_world: Mat4,
+    candidates: Arc<[TransparentSortCandidate]>,
+) -> Vec<PackedTransparentDrawRef> {
+    let mut grouped = BTreeMap::<SubChunkKey, Vec<usize>>::new();
+    for (index, candidate) in candidates.iter().enumerate() {
+        grouped.entry(candidate.key).or_default().push(index);
+    }
+    let mut groups = grouped.into_iter().collect::<Vec<_>>();
+    groups.sort_by(|(left_key, left), (right_key, right)| {
+        let left_center = Vec3::from_array(candidates[left[0]].subchunk_center);
+        let right_center = Vec3::from_array(candidates[right[0]].subchunk_center);
+        view_from_world
+            .transform_point3(left_center)
+            .z
+            .total_cmp(&view_from_world.transform_point3(right_center).z)
+            .then_with(|| left_key.cmp(right_key))
+    });
+    let mut refs = Vec::new();
+    for (_key, mut group) in groups {
+        group.sort_by(|&left, &right| {
+            let left = &candidates[left];
+            let right = &candidates[right];
+            view_from_world
+                .transform_point3(Vec3::from_array(left.quad_centroid))
+                .z
+                .total_cmp(
+                    &view_from_world
+                        .transform_point3(Vec3::from_array(right.quad_centroid))
+                        .z,
+                )
+                .then_with(|| left.key.cmp(&right.key))
+                .then_with(|| left.local_quad_index.cmp(&right.local_quad_index))
+        });
+        refs.extend(group.into_iter().map(|index| {
+            let candidate = &candidates[index];
+            PackedTransparentDrawRef::new(candidate.liquid_record_index, candidate.metadata_index)
+        }));
+    }
+    refs
+}
+
+#[doc(hidden)]
+pub fn sort_transparent_candidates_for_test(
+    view_from_world: Mat4,
+    candidates: Vec<TransparentSortCandidate>,
+) -> Vec<PackedTransparentDrawRef> {
+    sort_transparent_candidates(view_from_world, Arc::from(candidates))
+}
+
+fn transparent_draw_args(buffer_slot: u8, ref_count: usize) -> Option<TransparentDrawArgs> {
+    let instance_count = u32::try_from(ref_count).ok()?;
+    let first_instance =
+        u32::from(buffer_slot).checked_mul(u32::try_from(MAX_TRANSPARENT_DRAW_REFS).ok()?)?;
+    Some(TransparentDrawArgs {
+        index_count: STATIC_QUAD_INDICES.len() as u32,
+        instance_count,
+        first_index: 0,
+        base_vertex: 0,
+        first_instance,
+    })
+}
+
+fn transparent_indirect_args(
+    snapshot: &TransparentOrderedSnapshot,
+) -> Option<DrawIndexedIndirectArgs> {
+    let args = transparent_draw_args(snapshot.buffer_slot(), snapshot.refs().len())?;
+    Some(DrawIndexedIndirectArgs {
+        index_count: args.index_count,
+        instance_count: args.instance_count,
+        first_index: args.first_index,
+        base_vertex: args.base_vertex,
+        first_instance: args.first_instance,
+    })
+}
+
+#[doc(hidden)]
+pub fn direct_transparent_draw_args_for_test(
+    buffer_slot: u8,
+    ref_count: usize,
+) -> Option<TransparentDrawArgs> {
+    transparent_draw_args(buffer_slot, ref_count)
+}
+
+#[doc(hidden)]
+pub fn mdi_transparent_draw_args_for_test(
+    buffer_slot: u8,
+    ref_count: usize,
+) -> Option<TransparentDrawArgs> {
+    transparent_draw_args(buffer_slot, ref_count)
+}
+
+/// One absolute liquid-record/chunk-metadata pair in committed back-to-front order.
+///
+/// The liquid record carries its absolute lighting address in word 3. These
+/// references belong to a committed per-view snapshot, never to `ChunkMesh`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PackedTransparentDrawRef {
+    liquid_record_index: u32,
+    metadata_index: u32,
+}
+
+impl PackedTransparentDrawRef {
+    #[must_use]
+    pub const fn new(liquid_record_index: u32, metadata_index: u32) -> Self {
+        Self {
+            liquid_record_index,
+            metadata_index,
+        }
+    }
+
+    #[must_use]
+    pub const fn liquid_record_index(self) -> u32 {
+        self.liquid_record_index
+    }
+
+    #[must_use]
+    pub const fn metadata_index(self) -> u32 {
+        self.metadata_index
+    }
+}
+
+const _: () = assert!(std::mem::size_of::<PackedTransparentDrawRef>() == 8);
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TransparentSortMetricsSnapshot {
+    pub request_generation: u64,
+    pub result_generation: u64,
+    pub committed_generation: u64,
+    /// Generation whose draw command was encoded into a render pass.
+    pub encoded_generation: u64,
+    /// Generation proven by the submitted-work completion sentinel.
+    pub presented_generation: u64,
+    pub ref_count: usize,
+    pub cpu_duration: std::time::Duration,
+    pub request_to_commit_latency: std::time::Duration,
+    pub staged_bytes: u64,
+    /// Cumulative transparent ref bytes successfully written to the GPU.
+    pub upload_bytes: u64,
+    pub stale_reject_count: u64,
+    pub ceiling_reject_count: u64,
+    pub active_slot_age_frames: u64,
+    pub transparent_water_distinct_tint_count: usize,
+}
+
+/// Cross-world metrics bridge shared by the main and render worlds.
+#[derive(Resource, Debug, Clone, Default)]
+pub struct TransparentSortMetrics(Arc<Mutex<TransparentSortMetricsSnapshot>>);
+
+impl TransparentSortMetrics {
+    #[must_use]
+    pub fn snapshot(&self) -> TransparentSortMetricsSnapshot {
+        *self.0.lock().unwrap_or_else(|poison| poison.into_inner())
+    }
+
+    fn update(&self, update: impl FnOnce(&mut TransparentSortMetricsSnapshot)) {
+        update(&mut self.0.lock().unwrap_or_else(|poison| poison.into_inner()));
+    }
+
+    #[doc(hidden)]
+    pub fn publish_for_test(&self, snapshot: TransparentSortMetricsSnapshot) {
+        self.update(|current| *current = snapshot);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransparentWitnessRequestError {
+    InvalidRevision,
+    Empty,
+    TooMany,
+    Duplicate,
+}
+
+#[derive(Resource, ExtractResource, Debug, Clone, Default, PartialEq, Eq)]
+pub struct TransparentWitnessRequest {
+    revision: u64,
+    keys: Arc<[SubChunkKey]>,
+}
+
+impl TransparentWitnessRequest {
+    pub fn try_new(
+        revision: u64,
+        mut keys: Vec<SubChunkKey>,
+    ) -> Result<Self, TransparentWitnessRequestError> {
+        if revision == 0 {
+            return Err(TransparentWitnessRequestError::InvalidRevision);
+        }
+        if keys.is_empty() {
+            return Err(TransparentWitnessRequestError::Empty);
+        }
+        if keys.len() > MAX_TRANSPARENT_WITNESS_KEYS {
+            return Err(TransparentWitnessRequestError::TooMany);
+        }
+        keys.sort_unstable();
+        if keys.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(TransparentWitnessRequestError::Duplicate);
+        }
+        Ok(Self {
+            revision,
+            keys: Arc::from(keys),
+        })
+    }
+
+    #[must_use]
+    pub const fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    #[must_use]
+    pub fn keys(&self) -> &[SubChunkKey] {
+        &self.keys
+    }
+
+    const fn enabled(&self) -> bool {
+        self.revision != 0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TransparentWitnessEvent {
+    pub revision: u64,
+    pub sequence: u64,
+    pub generation: u64,
+    pub key_count: usize,
+    pub consecutive: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TransparentWitnessIncompleteEvent {
+    pub revision: u64,
+    pub sequence: u64,
+    pub generation: u64,
+    pub missing_keys: Arc<[SubChunkKey]>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TransparentWitnessStageRecord {
+    pub key: SubChunkKey,
+    pub extracted_visible: bool,
+    pub instance_present: bool,
+    pub liquid_quad_count: usize,
+    pub instance_generation: u64,
+    pub allocation_present: bool,
+    pub liquid_range_len: u32,
+    pub lighting_range_len: u32,
+    pub allocation_matches: bool,
+    pub committed_member: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TransparentWitnessStageEvent {
+    pub revision: u64,
+    pub committed_generation: u64,
+    pub records: Arc<[TransparentWitnessStageRecord]>,
+}
+
+#[derive(Debug, Clone)]
+struct TransparentWitnessToken {
+    request: TransparentWitnessRequest,
+    sequence: u64,
+    generation: u64,
+    missing_keys: Arc<[SubChunkKey]>,
+}
+
+#[derive(Debug, Default)]
+struct TransparentWitnessEvidenceState {
+    active: TransparentWitnessRequest,
+    next_sequence: u64,
+    in_flight: Option<u64>,
+    consecutive: u8,
+    events: VecDeque<TransparentWitnessEvent>,
+    last_missing_keys: Arc<[SubChunkKey]>,
+    incomplete_events: VecDeque<TransparentWitnessIncompleteEvent>,
+    last_stage_records: Arc<[TransparentWitnessStageRecord]>,
+    stage_event_count: u8,
+    stage_events: VecDeque<TransparentWitnessStageEvent>,
+}
+
+#[derive(Resource, Debug, Clone, Default)]
+pub struct TransparentWitnessEvidence(Arc<Mutex<TransparentWitnessEvidenceState>>);
+
+impl TransparentWitnessEvidence {
+    #[cfg(test)]
+    fn try_reserve(
+        &self,
+        request: &TransparentWitnessRequest,
+        generation: u64,
+        complete: bool,
+    ) -> Option<TransparentWitnessToken> {
+        let missing = if complete {
+            Vec::new()
+        } else {
+            request.keys().to_vec()
+        };
+        self.try_reserve_missing(request, generation, missing)
+    }
+
+    fn try_reserve_missing(
+        &self,
+        request: &TransparentWitnessRequest,
+        generation: u64,
+        missing_keys: Vec<SubChunkKey>,
+    ) -> Option<TransparentWitnessToken> {
+        if !request.enabled() {
+            return None;
+        }
+        let mut state = self.0.lock().unwrap_or_else(|poison| poison.into_inner());
+        if state.active != *request {
+            return None;
+        }
+        if state.in_flight.is_some() || state.consecutive >= 2 {
+            return None;
+        }
+        state.next_sequence = state.next_sequence.checked_add(1)?;
+        let sequence = state.next_sequence;
+        state.in_flight = Some(sequence);
+        Some(TransparentWitnessToken {
+            request: request.clone(),
+            sequence,
+            generation,
+            missing_keys: missing_keys.into(),
+        })
+    }
+
+    fn complete(&self, token: TransparentWitnessToken) -> bool {
+        let mut state = self.0.lock().unwrap_or_else(|poison| poison.into_inner());
+        if state.active != token.request || state.in_flight != Some(token.sequence) {
+            return false;
+        }
+        state.in_flight = None;
+        if !token.missing_keys.is_empty() {
+            state.consecutive = 0;
+            state.events.clear();
+            if state.last_missing_keys != token.missing_keys {
+                state.last_missing_keys = Arc::clone(&token.missing_keys);
+                if state.incomplete_events.len() == 4 {
+                    state.incomplete_events.pop_front();
+                }
+                state
+                    .incomplete_events
+                    .push_back(TransparentWitnessIncompleteEvent {
+                        revision: token.request.revision,
+                        sequence: token.sequence,
+                        generation: token.generation,
+                        missing_keys: token.missing_keys,
+                    });
+            }
+            return true;
+        }
+        state.consecutive = state.consecutive.saturating_add(1).min(2);
+        let event = TransparentWitnessEvent {
+            revision: token.request.revision,
+            sequence: token.sequence,
+            generation: token.generation,
+            key_count: token.request.keys.len(),
+            consecutive: state.consecutive,
+        };
+        if state.events.len() == 4 {
+            state.events.pop_front();
+        }
+        state.events.push_back(event);
+        true
+    }
+
+    pub fn drain_events(&self) -> Vec<TransparentWitnessEvent> {
+        let mut state = self.0.lock().unwrap_or_else(|poison| poison.into_inner());
+        state.events.drain(..).collect()
+    }
+
+    pub fn drain_incomplete_events(&self) -> Vec<TransparentWitnessIncompleteEvent> {
+        let mut state = self.0.lock().unwrap_or_else(|poison| poison.into_inner());
+        state.incomplete_events.drain(..).collect()
+    }
+
+    fn record_stage_snapshot(
+        &self,
+        revision: u64,
+        committed_generation: u64,
+        mut records: Vec<TransparentWitnessStageRecord>,
+    ) -> bool {
+        records.sort_unstable_by_key(|record| record.key);
+        let mut state = self.0.lock().unwrap_or_else(|poison| poison.into_inner());
+        if revision == 0
+            || state.active.revision() != revision
+            || records.len() != state.active.keys().len()
+            || !records
+                .iter()
+                .zip(state.active.keys())
+                .all(|(record, key)| record.key == *key)
+            || state.last_stage_records.as_ref() == records.as_slice()
+            || state.stage_event_count >= 8
+        {
+            return false;
+        }
+        state.last_stage_records = Arc::from(records);
+        state.stage_event_count += 1;
+        let records = Arc::clone(&state.last_stage_records);
+        state.stage_events.push_back(TransparentWitnessStageEvent {
+            revision,
+            committed_generation,
+            records,
+        });
+        true
+    }
+
+    pub fn drain_stage_events(&self) -> Vec<TransparentWitnessStageEvent> {
+        let mut state = self.0.lock().unwrap_or_else(|poison| poison.into_inner());
+        state.stage_events.drain(..).collect()
+    }
+
+    pub fn set_authoritative_request(&self, request: &TransparentWitnessRequest) {
+        let mut state = self.0.lock().unwrap_or_else(|poison| poison.into_inner());
+        if state.active == *request {
+            return;
+        }
+        state.active = request.clone();
+        state.in_flight = None;
+        state.consecutive = 0;
+        state.events.clear();
+        state.last_missing_keys = Arc::default();
+        state.incomplete_events.clear();
+        state.last_stage_records = Arc::default();
+        state.stage_event_count = 0;
+        state.stage_events.clear();
+    }
+
+    pub fn reset(&self) {
+        self.set_authoritative_request(&TransparentWitnessRequest::default());
+    }
+}
+
+fn record_encoded_transparent_generation(
+    metrics: &TransparentSortMetrics,
+    generation: ViewSortGeneration,
+) {
+    metrics.update(|snapshot| snapshot.encoded_generation = generation.get());
+}
+
+fn record_gpu_completed_transparent_generation(metrics: &TransparentSortMetrics, generation: u64) {
+    metrics.update(|snapshot| {
+        if generation != 0
+            && snapshot.committed_generation == generation
+            && snapshot.encoded_generation == generation
+        {
+            snapshot.presented_generation = snapshot.presented_generation.max(generation);
+        }
+    });
+}
+
+#[derive(Resource, Debug, Clone, Default)]
+struct TransparentPresentationFence(Arc<Mutex<Option<u64>>>);
+
+impl TransparentPresentationFence {
+    fn try_reserve(&self, generation: u64) -> bool {
+        let mut in_flight = self.0.lock().unwrap_or_else(|poison| poison.into_inner());
+        if generation == 0 || in_flight.is_some() {
+            return false;
+        }
+        *in_flight = Some(generation);
+        true
+    }
+
+    fn complete(&self, generation: u64) -> bool {
+        let mut in_flight = self.0.lock().unwrap_or_else(|poison| poison.into_inner());
+        if *in_flight != Some(generation) {
+            return false;
+        }
+        *in_flight = None;
+        true
+    }
+}
+
+#[derive(Debug, Default)]
+struct TransparentRetirementFenceState {
+    next_epoch: u64,
+    in_flight: Option<u64>,
+    completed_epoch: u64,
+}
+
+/// Independent queue-completion epoch for reclaiming retired arena addresses.
+/// It deliberately does not use `ViewSortGeneration`: view resets and stale
+/// sort callbacks must not make physical GPU memory reusable early.
+#[derive(Resource, Debug, Clone, Default)]
+struct TransparentRetirementFence(Arc<Mutex<TransparentRetirementFenceState>>);
+
+impl TransparentRetirementFence {
+    fn try_reserve(&self) -> Option<u64> {
+        let mut state = self.0.lock().unwrap_or_else(|poison| poison.into_inner());
+        if state.in_flight.is_some() {
+            return None;
+        }
+        state.next_epoch = state.next_epoch.checked_add(1)?;
+        let epoch = state.next_epoch;
+        state.in_flight = Some(epoch);
+        Some(epoch)
+    }
+
+    fn complete(&self, epoch: u64) -> bool {
+        let mut state = self.0.lock().unwrap_or_else(|poison| poison.into_inner());
+        if state.in_flight != Some(epoch) {
+            return false;
+        }
+        state.in_flight = None;
+        state.completed_epoch = state.completed_epoch.max(epoch);
+        true
+    }
+
+    fn completed_epoch(&self) -> u64 {
+        self.0
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .completed_epoch
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TransparentRetirementBudget {
+    max_items: usize,
+    max_bytes: u64,
+    items: usize,
+    bytes: u64,
+}
+
+impl TransparentRetirementBudget {
+    const fn with_limits(max_items: usize, max_bytes: u64) -> Self {
+        Self {
+            max_items,
+            max_bytes,
+            items: 0,
+            bytes: 0,
+        }
+    }
+
+    fn try_reserve(&mut self, items: usize, bytes: u64) -> bool {
+        let Some(next_items) = self.items.checked_add(items) else {
+            return false;
+        };
+        let Some(next_bytes) = self.bytes.checked_add(bytes) else {
+            return false;
+        };
+        if next_items > self.max_items || next_bytes > self.max_bytes {
+            return false;
+        }
+        self.items = next_items;
+        self.bytes = next_bytes;
+        true
+    }
+
+    fn can_reserve(self, items: usize, bytes: u64) -> bool {
+        let mut next = self;
+        next.try_reserve(items, bytes)
+    }
+
+    fn release(&mut self, items: usize, bytes: u64) {
+        self.items = self.items.saturating_sub(items);
+        self.bytes = self.bytes.saturating_sub(bytes);
+    }
+
+    #[cfg(test)]
+    const fn items(self) -> usize {
+        self.items
+    }
+
+    #[cfg(test)]
+    const fn bytes(self) -> u64 {
+        self.bytes
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransparentSortError {
+    ReferenceCeiling { requested: usize, ceiling: usize },
+    ConflictingAllocation { key: SubChunkKey },
+    InvalidCameraTransform,
+}
+
+pub const fn validate_transparent_sort_ref_count(
+    requested: usize,
+) -> Result<(), TransparentSortError> {
+    if requested > MAX_TRANSPARENT_DRAW_REFS {
+        Err(TransparentSortError::ReferenceCeiling {
+            requested,
+            ceiling: MAX_TRANSPARENT_DRAW_REFS,
+        })
+    } else {
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ViewSortGeneration(u64);
+
+impl ViewSortGeneration {
+    #[must_use]
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+
+    #[doc(hidden)]
+    #[must_use]
+    pub const fn for_test(value: u64) -> Self {
+        Self(value)
+    }
+}
+
+#[derive(Debug)]
+pub struct TransparentSortJobGate<T> {
+    in_flight: Option<ViewSortGeneration>,
+    pending: Option<(ViewSortGeneration, T)>,
+}
+
+impl<T> Default for TransparentSortJobGate<T> {
+    fn default() -> Self {
+        Self {
+            in_flight: None,
+            pending: None,
+        }
+    }
+}
+
+impl<T> TransparentSortJobGate<T> {
+    pub fn submit(
+        &mut self,
+        generation: ViewSortGeneration,
+        payload: T,
+    ) -> Option<(ViewSortGeneration, T)> {
+        if self.in_flight.is_none() {
+            self.in_flight = Some(generation);
+            Some((generation, payload))
+        } else {
+            self.pending = Some((generation, payload));
+            None
+        }
+    }
+
+    fn submit_with_replacement(
+        &mut self,
+        generation: ViewSortGeneration,
+        payload: T,
+    ) -> (Option<(ViewSortGeneration, T)>, Option<ViewSortGeneration>) {
+        if self.in_flight.is_none() {
+            self.in_flight = Some(generation);
+            (Some((generation, payload)), None)
+        } else {
+            let replaced = self
+                .pending
+                .replace((generation, payload))
+                .map(|(generation, _)| generation);
+            (None, replaced)
+        }
+    }
+
+    pub fn complete(&mut self, generation: ViewSortGeneration) -> Option<(ViewSortGeneration, T)> {
+        if self.in_flight != Some(generation) {
+            return None;
+        }
+        self.in_flight = None;
+        if let Some((next_generation, payload)) = self.pending.take() {
+            self.in_flight = Some(next_generation);
+            Some((next_generation, payload))
+        } else {
+            None
+        }
+    }
+
+    #[must_use]
+    pub const fn in_flight_generation(&self) -> Option<ViewSortGeneration> {
+        self.in_flight
+    }
+
+    #[must_use]
+    pub fn pending_generation(&self) -> Option<ViewSortGeneration> {
+        self.pending.as_ref().map(|(generation, _)| *generation)
+    }
+
+    fn contains_generation(&self, generation: ViewSortGeneration) -> bool {
+        self.in_flight == Some(generation) || self.pending_generation() == Some(generation)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TransparentAllocationIdentity {
+    key: SubChunkKey,
+    mesh_generation: u64,
+    liquid_range: Range<u32>,
+    lighting_range: Range<u32>,
+    metadata_index: u32,
+}
+
+impl TransparentAllocationIdentity {
+    #[must_use]
+    pub const fn new(
+        key: SubChunkKey,
+        mesh_generation: u64,
+        liquid_range: Range<u32>,
+        lighting_range: Range<u32>,
+        metadata_index: u32,
+    ) -> Self {
+        Self {
+            key,
+            mesh_generation,
+            liquid_range,
+            lighting_range,
+            metadata_index,
+        }
+    }
+
+    #[must_use]
+    pub const fn key(&self) -> SubChunkKey {
+        self.key
+    }
+
+    fn canonical_tuple(&self) -> (SubChunkKey, u64, u32, u32, u32, u32, u32) {
+        (
+            self.key,
+            self.mesh_generation,
+            self.liquid_range.start,
+            self.liquid_range.end,
+            self.lighting_range.start,
+            self.lighting_range.end,
+            self.metadata_index,
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ViewSortKey {
+    camera_position_bits: [u32; 3],
+    camera_orientation_bits: [u32; 4],
+    visible_allocations: Arc<[TransparentAllocationIdentity]>,
+    asset_identity: ChunkTextureAssetIdentity,
+    tint_identity: ChunkBiomeTintIdentity,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct TransparentAddressIdentity {
+    visible_allocations: Arc<[TransparentAllocationIdentity]>,
+    asset_identity: ChunkTextureAssetIdentity,
+    tint_identity: ChunkBiomeTintIdentity,
+}
+
+impl ViewSortKey {
+    pub fn try_new(
+        camera_position: [f32; 3],
+        camera_orientation: [f32; 4],
+        mut visible_allocations: Vec<TransparentAllocationIdentity>,
+        asset_identity: ChunkTextureAssetIdentity,
+        tint_identity: ChunkBiomeTintIdentity,
+    ) -> Result<Self, TransparentSortError> {
+        if !camera_position.into_iter().all(f32::is_finite)
+            || !camera_orientation.into_iter().all(f32::is_finite)
+        {
+            return Err(TransparentSortError::InvalidCameraTransform);
+        }
+        let norm_squared = camera_orientation
+            .into_iter()
+            .map(|value| value * value)
+            .sum::<f32>();
+        if !norm_squared.is_finite() || norm_squared == 0.0 {
+            return Err(TransparentSortError::InvalidCameraTransform);
+        }
+        let inverse_norm = norm_squared.sqrt().recip();
+        let mut orientation = camera_orientation.map(|value| value * inverse_norm);
+        let sign_anchor = [
+            orientation[3],
+            orientation[2],
+            orientation[1],
+            orientation[0],
+        ]
+        .into_iter()
+        .find(|value| *value != 0.0)
+        .unwrap_or(1.0);
+        if sign_anchor.is_sign_negative() {
+            orientation = orientation.map(|value| -value);
+        }
+        let canonical_bits = |value: f32| if value == 0.0 { 0 } else { value.to_bits() };
+        visible_allocations.sort_by_key(TransparentAllocationIdentity::canonical_tuple);
+        visible_allocations.dedup();
+        for pair in visible_allocations.windows(2) {
+            if pair[0].key == pair[1].key {
+                return Err(TransparentSortError::ConflictingAllocation { key: pair[0].key });
+            }
+        }
+        Ok(Self {
+            camera_position_bits: camera_position.map(canonical_bits),
+            camera_orientation_bits: orientation.map(canonical_bits),
+            visible_allocations: Arc::from(visible_allocations),
+            asset_identity,
+            tint_identity,
+        })
+    }
+
+    fn address_identity_eq(&self, other: &Self) -> bool {
+        self.visible_allocations == other.visible_allocations
+            && self.asset_identity == other.asset_identity
+            && self.tint_identity == other.tint_identity
+    }
+
+    fn address_identity(&self) -> TransparentAddressIdentity {
+        TransparentAddressIdentity {
+            visible_allocations: Arc::clone(&self.visible_allocations),
+            asset_identity: self.asset_identity,
+            tint_identity: self.tint_identity,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TransparentSortResult {
+    generation: ViewSortGeneration,
+    key: ViewSortKey,
+    refs: Box<[PackedTransparentDrawRef]>,
+}
+
+impl TransparentSortResult {
+    pub fn new(
+        generation: ViewSortGeneration,
+        key: ViewSortKey,
+        refs: Vec<PackedTransparentDrawRef>,
+    ) -> Result<Self, TransparentSortError> {
+        validate_transparent_sort_ref_count(refs.len())?;
+        Ok(Self {
+            generation,
+            key,
+            refs: refs.into_boxed_slice(),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TransparentOrderedSnapshot {
+    generation: ViewSortGeneration,
+    key: ViewSortKey,
+    refs: Arc<[PackedTransparentDrawRef]>,
+    buffer_slot: u8,
+}
+
+impl TransparentOrderedSnapshot {
+    #[must_use]
+    pub const fn generation(&self) -> ViewSortGeneration {
+        self.generation
+    }
+
+    #[must_use]
+    pub const fn key(&self) -> &ViewSortKey {
+        &self.key
+    }
+
+    #[must_use]
+    pub fn refs(&self) -> &[PackedTransparentDrawRef] {
+        &self.refs
+    }
+
+    #[must_use]
+    pub const fn buffer_slot(&self) -> u8 {
+        self.buffer_slot
+    }
+}
+
+#[derive(Debug)]
+pub struct TransparentSortState {
+    next_generation: u64,
+    requested: Option<(ViewSortGeneration, ViewSortKey)>,
+    committed: Option<TransparentOrderedSnapshot>,
+    staged: Option<TransparentStagedSnapshot>,
+    upload_cap: usize,
+}
+
+#[derive(Debug)]
+struct TransparentStagedSnapshot {
+    generation: ViewSortGeneration,
+    key: ViewSortKey,
+    refs: Arc<[PackedTransparentDrawRef]>,
+    uploaded: usize,
+    buffer_slot: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TransparentUploadBatch<'a> {
+    buffer_slot: u8,
+    ref_range: Range<usize>,
+    refs: &'a [PackedTransparentDrawRef],
+}
+
+impl TransparentUploadBatch<'_> {
+    #[must_use]
+    pub const fn buffer_slot(&self) -> u8 {
+        self.buffer_slot
+    }
+
+    #[must_use]
+    pub fn ref_range(&self) -> Range<usize> {
+        self.ref_range.clone()
+    }
+
+    #[must_use]
+    pub const fn refs(&self) -> &[PackedTransparentDrawRef] {
+        self.refs
+    }
+}
+
+impl TransparentSortState {
+    #[must_use]
+    pub const fn with_upload_cap(upload_cap: usize) -> Self {
+        Self {
+            next_generation: 0,
+            requested: None,
+            committed: None,
+            staged: None,
+            upload_cap: if upload_cap == 0 { 1 } else { upload_cap },
+        }
+    }
+
+    pub fn request(&mut self, key: &ViewSortKey) -> ViewSortGeneration {
+        self.request_retaining_resident_snapshot(key, false)
+    }
+
+    fn request_retaining_resident_snapshot(
+        &mut self,
+        key: &ViewSortKey,
+        committed_addresses_are_resident: bool,
+    ) -> ViewSortGeneration {
+        if let Some((generation, requested_key)) = &self.requested
+            && requested_key == key
+        {
+            return *generation;
+        }
+        let address_identity_is_safe = self.committed.as_ref().is_none_or(|snapshot| {
+            snapshot.key.address_identity_eq(key) || committed_addresses_are_resident
+        });
+        if !address_identity_is_safe {
+            self.committed = None;
+        }
+        if self
+            .staged
+            .as_ref()
+            .is_some_and(|snapshot| !snapshot.key.address_identity_eq(key))
+        {
+            self.staged = None;
+        }
+        // A newer camera pose always replaces an incomplete camera-only sort.
+        self.staged = None;
+        self.next_generation = self.next_generation.wrapping_add(1).max(1);
+        let generation = ViewSortGeneration(self.next_generation);
+        self.requested = Some((generation, key.clone()));
+        generation
+    }
+
+    pub fn complete(
+        &mut self,
+        result: TransparentSortResult,
+    ) -> Result<bool, TransparentSortError> {
+        if self
+            .requested
+            .as_ref()
+            .is_none_or(|(generation, key)| *generation != result.generation || key != &result.key)
+        {
+            return Ok(false);
+        }
+        if let Some(committed) = self.committed.as_mut()
+            && committed.key.address_identity_eq(&result.key)
+            && committed.refs.as_ref() == result.refs.as_ref()
+        {
+            committed.generation = result.generation;
+            committed.key = result.key;
+            self.staged = None;
+            return Ok(true);
+        }
+        let buffer_slot = self
+            .committed
+            .as_ref()
+            .map_or(0, |snapshot| 1 - snapshot.buffer_slot);
+        if result.refs.is_empty() {
+            self.committed = Some(TransparentOrderedSnapshot {
+                generation: result.generation,
+                key: result.key,
+                refs: Arc::from(result.refs),
+                buffer_slot,
+            });
+            self.staged = None;
+            return Ok(true);
+        }
+        self.staged = Some(TransparentStagedSnapshot {
+            generation: result.generation,
+            key: result.key,
+            refs: Arc::from(result.refs),
+            uploaded: 0,
+            buffer_slot,
+        });
+        Ok(false)
+    }
+
+    #[must_use]
+    pub fn next_upload_batch(&self) -> Option<TransparentUploadBatch<'_>> {
+        let staged = self.staged.as_ref()?;
+        let end = staged
+            .uploaded
+            .saturating_add(self.upload_cap)
+            .min(staged.refs.len());
+        (end > staged.uploaded).then(|| TransparentUploadBatch {
+            buffer_slot: staged.buffer_slot,
+            ref_range: staged.uploaded..end,
+            refs: &staged.refs[staged.uploaded..end],
+        })
+    }
+
+    /// Acknowledges that the batch returned by [`Self::next_upload_batch`] was
+    /// written successfully. Returns true only when the inactive slot became
+    /// complete and was atomically promoted to the committed snapshot.
+    pub fn acknowledge_upload(&mut self) -> bool {
+        let Some(staged) = self.staged.as_mut() else {
+            return false;
+        };
+        let remaining = staged.refs.len().saturating_sub(staged.uploaded);
+        let uploaded = remaining.min(self.upload_cap);
+        if uploaded == 0 {
+            return false;
+        }
+        staged.uploaded += uploaded;
+        if staged.uploaded == staged.refs.len() {
+            let staged = self.staged.take().expect("staged snapshot exists");
+            self.committed = Some(TransparentOrderedSnapshot {
+                generation: staged.generation,
+                key: staged.key,
+                refs: staged.refs,
+                buffer_slot: staged.buffer_slot,
+            });
+            return true;
+        }
+        false
+    }
+
+    #[must_use]
+    pub const fn committed(&self) -> Option<&TransparentOrderedSnapshot> {
+        self.committed.as_ref()
+    }
+
+    #[must_use]
+    pub fn staged_ref_count(&self) -> usize {
+        self.staged
+            .as_ref()
+            .map_or(0, |snapshot| snapshot.refs.len())
+    }
+
+    fn staged_generation(&self) -> Option<ViewSortGeneration> {
+        self.staged.as_ref().map(|snapshot| snapshot.generation)
+    }
+
+    pub fn reset_preserving_generation(&mut self) {
+        self.requested = None;
+        self.committed = None;
+        self.staged = None;
+    }
+}
+
+#[derive(Debug)]
+struct TransparentSortRequest {
+    generation: ViewSortGeneration,
+    requested_at: Instant,
+    key: ViewSortKey,
+    view_from_world: Mat4,
+}
+
+#[derive(Debug)]
+struct TransparentSortWork {
+    generation: ViewSortGeneration,
+    requested_at: Instant,
+    key: ViewSortKey,
+    view_from_world: Mat4,
+    candidates: Arc<[TransparentSortCandidate]>,
+    distinct_tint_count: usize,
+}
+
+#[derive(Debug, Clone)]
+struct TransparentCandidateCache {
+    address_identity: TransparentAddressIdentity,
+    candidates: Arc<[TransparentSortCandidate]>,
+    distinct_tint_count: usize,
+}
+
+#[derive(Debug)]
+struct TransparentWorkerResult {
+    generation: ViewSortGeneration,
+    requested_at: Instant,
+    key: ViewSortKey,
+    refs: Result<Vec<PackedTransparentDrawRef>, TransparentSortError>,
+    cpu_duration: Duration,
+    distinct_tint_count: usize,
+}
+
+#[derive(Resource)]
+struct TransparentSortRuntime {
+    view_entity: Option<Entity>,
+    state: TransparentSortState,
+    gate: TransparentSortJobGate<TransparentSortWork>,
+    result_sender: SyncSender<TransparentWorkerResult>,
+    result_receiver: Mutex<Receiver<TransparentWorkerResult>>,
+    requested_at: HashMap<ViewSortGeneration, Instant>,
+    staged_distinct_tint_counts: HashMap<ViewSortGeneration, usize>,
+    committed_distinct_tint_count: usize,
+    last_indirect_identity: Option<(u8, usize)>,
+    candidate_cache: Option<TransparentCandidateCache>,
+}
+
+impl Default for TransparentSortRuntime {
+    fn default() -> Self {
+        let (result_sender, result_receiver) = sync_channel(1);
+        Self {
+            view_entity: None,
+            state: TransparentSortState::with_upload_cap(DEFAULT_TRANSPARENT_UPLOAD_REFS_PER_FRAME),
+            gate: TransparentSortJobGate::default(),
+            result_sender,
+            result_receiver: Mutex::new(result_receiver),
+            requested_at: HashMap::new(),
+            staged_distinct_tint_counts: HashMap::new(),
+            committed_distinct_tint_count: 0,
+            last_indirect_identity: None,
+            candidate_cache: None,
+        }
+    }
+}
+
+impl TransparentSortRuntime {
+    fn reset_for_view(&mut self, view_entity: Option<Entity>) {
+        let next_generation = self.state.next_generation;
+        *self = Self::default();
+        self.state.next_generation = next_generation;
+        self.view_entity = view_entity;
+    }
+
+    fn fail_closed_conflicting_manifest(&mut self, metrics: &TransparentSortMetrics) {
+        let view_entity = self.view_entity;
+        self.reset_for_view(view_entity);
+        clear_active_transparent_metrics(metrics);
+    }
+
+    fn prune_request_metadata(&mut self) {
+        let in_flight = self.gate.in_flight_generation();
+        let pending = self.gate.pending_generation();
+        let staged = self.state.staged_generation();
+        self.requested_at.retain(|generation, _| {
+            Some(*generation) == in_flight
+                || Some(*generation) == pending
+                || Some(*generation) == staged
+        });
+        self.staged_distinct_tint_counts
+            .retain(|generation, _| Some(*generation) == staged);
+    }
+
+    fn generation_needs_sort_job(&self, generation: ViewSortGeneration) -> bool {
+        self.state.staged_generation() != Some(generation)
+            && !self.gate.contains_generation(generation)
+    }
+
+    fn resolve_candidate_cache(
+        &mut self,
+        key: &ViewSortKey,
+        build: impl FnOnce() -> Result<(Vec<TransparentSortCandidate>, usize), TransparentSortError>,
+    ) -> Result<(Arc<[TransparentSortCandidate]>, usize), TransparentSortError> {
+        let address_identity = key.address_identity();
+        if let Some(cache) = self
+            .candidate_cache
+            .as_ref()
+            .filter(|cache| cache.address_identity == address_identity)
+        {
+            return Ok((Arc::clone(&cache.candidates), cache.distinct_tint_count));
+        }
+        self.candidate_cache = None;
+        let (candidates, distinct_tint_count) = build()?;
+        validate_transparent_sort_ref_count(candidates.len())?;
+        let candidates = Arc::<[TransparentSortCandidate]>::from(candidates);
+        self.candidate_cache = Some(TransparentCandidateCache {
+            address_identity,
+            candidates: Arc::clone(&candidates),
+            distinct_tint_count,
+        });
+        Ok((candidates, distinct_tint_count))
+    }
+}
+
+fn transparent_request_to_commit_latency(requested_at: Instant, committed_at: Instant) -> Duration {
+    committed_at.saturating_duration_since(requested_at)
+}
+
+fn clear_active_transparent_metrics(metrics: &TransparentSortMetrics) {
+    metrics.update(|snapshot| {
+        snapshot.request_generation = 0;
+        snapshot.result_generation = 0;
+        snapshot.committed_generation = 0;
+        snapshot.encoded_generation = 0;
+        snapshot.presented_generation = 0;
+        snapshot.ref_count = 0;
+        snapshot.active_slot_age_frames = 0;
+        snapshot.transparent_water_distinct_tint_count = 0;
+    });
+}
+
+fn fail_closed_transparent_sort_key_error(
+    runtime: &mut TransparentSortRuntime,
+    metrics: &TransparentSortMetrics,
+    error: TransparentSortError,
+) {
+    match error {
+        TransparentSortError::ConflictingAllocation { .. }
+        | TransparentSortError::InvalidCameraTransform => {
+            runtime.fail_closed_conflicting_manifest(metrics);
+        }
+        TransparentSortError::ReferenceCeiling { .. } => {}
+    }
+}
+
+fn spawn_transparent_sort(sender: SyncSender<TransparentWorkerResult>, work: TransparentSortWork) {
+    rayon::spawn(move || {
+        let started = Instant::now();
+        let refs = sort_transparent_candidates(work.view_from_world, work.candidates);
+        let _ = sender.try_send(TransparentWorkerResult {
+            generation: work.generation,
+            requested_at: work.requested_at,
+            key: work.key,
+            refs: Ok(refs),
+            cpu_duration: started.elapsed(),
+            distinct_tint_count: work.distinct_tint_count,
+        });
+    });
+}
 
 pub const MATERIAL_UV_ROTATE_90: u32 = 1;
 pub const MATERIAL_UV_ROTATE_180: u32 = 2;
@@ -296,7 +1580,7 @@ impl bevy::render::extract_resource::ExtractResource for ChunkTextureAssets {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ChunkTextureAssetIdentity {
     pointer: usize,
     revision: u64,
@@ -777,6 +2061,7 @@ struct CompletedFrameProbe {
     foreign_instances: usize,
     stale_generation_instances: usize,
     orphan_allocations: usize,
+    transparent_sort_generation: u64,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -805,6 +2090,7 @@ pub struct PresentedFrameAck {
     pub foreign_instances: usize,
     pub stale_generation_instances: usize,
     pub orphan_allocations: usize,
+    pub transparent_sort_generation: u64,
 }
 
 impl PresentedFrameAck {
@@ -828,6 +2114,7 @@ impl PresentedFrameAck {
             && self.allocation_manifest == next.allocation_manifest
             && self.view_generation == next.view_generation
             && self.render_ready_at == next.render_ready_at
+            && self.transparent_sort_generation == next.transparent_sort_generation
             && self.frame_sequence.checked_add(1) == Some(next.frame_sequence)
             && self.gpu_completed_at <= next.gpu_completed_at
     }
@@ -968,6 +2255,7 @@ fn build_presented_frame_ack(
         foreign_instances: probe.foreign_instances,
         stale_generation_instances: probe.stale_generation_instances,
         orphan_allocations: probe.orphan_allocations,
+        transparent_sort_generation: probe.transparent_sort_generation,
     })
 }
 
@@ -1032,6 +2320,7 @@ struct FrameProbe {
     target_allocation_count: usize,
     duplicate_target_instances: usize,
     drawn: Mutex<BTreeMap<(SubChunkKey, u64), ChunkStreamMask>>,
+    drawn_transparent_generation: Mutex<Option<ViewSortGeneration>>,
     source_instances: usize,
     foreign_instances: usize,
     stale_generation_instances: usize,
@@ -1124,6 +2413,7 @@ impl FrameProbe {
             target_allocation_count,
             duplicate_target_instances,
             drawn: Mutex::new(BTreeMap::new()),
+            drawn_transparent_generation: Mutex::new(None),
             source_instances,
             foreign_instances,
             stale_generation_instances: stale_entities.len(),
@@ -1182,7 +2472,34 @@ impl FrameProbe {
             .count()
     }
 
+    fn record_transparent_draw(
+        &self,
+        generation: ViewSortGeneration,
+        draws: impl IntoIterator<Item = (Entity, FrameAllocationIdentity)>,
+    ) -> usize {
+        let draws = draws.into_iter().collect::<Vec<_>>();
+        let encoded = !draws.is_empty();
+        let count = draws
+            .into_iter()
+            .filter(|(entity, allocation)| {
+                self.record_direct_streams(*entity, *allocation, ChunkStreamMask::LIQUID)
+            })
+            .count();
+        if encoded {
+            *self
+                .drawn_transparent_generation
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner()) = Some(generation);
+        }
+        count
+    }
+
     fn complete(self) -> CompletedFrameProbe {
+        let transparent_sort_generation = self
+            .drawn_transparent_generation
+            .into_inner()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .map_or(0, ViewSortGeneration::get);
         let expected = self
             .expectation
             .manifest
@@ -1218,6 +2535,7 @@ impl FrameProbe {
             foreign_instances: self.foreign_instances,
             stale_generation_instances: self.stale_generation_instances,
             orphan_allocations: self.orphan_allocations,
+            transparent_sort_generation,
         }
     }
 }
@@ -1232,6 +2550,14 @@ struct ActiveFrameProbeState {
 struct ActiveFrameProbe(Mutex<ActiveFrameProbeState>);
 
 impl ActiveFrameProbe {
+    fn is_active(&self) -> bool {
+        self.0
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .current
+            .is_some()
+    }
+
     fn begin(&self, mut probe: FrameProbe) {
         let mut state = self.0.lock().unwrap_or_else(|poison| poison.into_inner());
         state.next_frame_sequence = state.next_frame_sequence.wrapping_add(1).max(1);
@@ -1303,6 +2629,18 @@ impl ActiveFrameProbe {
         let draws = draws.into_iter().collect::<Vec<_>>();
         state.current.as_ref().map_or(draws.len(), |probe| {
             probe.record_mdi_streams(draws.iter().copied(), streams)
+        })
+    }
+
+    fn record_transparent_draw(
+        &self,
+        generation: ViewSortGeneration,
+        draws: impl IntoIterator<Item = (Entity, FrameAllocationIdentity)>,
+    ) -> usize {
+        let state = self.0.lock().unwrap_or_else(|poison| poison.into_inner());
+        let draws = draws.into_iter().collect::<Vec<_>>();
+        state.current.as_ref().map_or(draws.len(), |probe| {
+            probe.record_transparent_draw(generation, draws.iter().copied())
         })
     }
 
@@ -1974,6 +3312,9 @@ impl Plugin for DebugWorldPlugin {
             .init_resource::<ChunkTextureAssets>()
             .init_resource::<ChunkAnimationClock>()
             .init_resource::<ChunkBiomeTints>()
+            .init_resource::<TransparentSortMetrics>()
+            .init_resource::<TransparentWitnessRequest>()
+            .init_resource::<TransparentWitnessEvidence>()
             .insert_resource(self.upload_budget)
             .add_systems(
                 Update,
@@ -1989,33 +3330,46 @@ impl Plugin for DebugWorldPlugin {
             ExtractResourcePlugin::<ChunkTextureAssets>::default(),
             ExtractResourcePlugin::<ChunkAnimationClock>::default(),
             ExtractResourcePlugin::<ChunkBiomeTints>::default(),
+            ExtractResourcePlugin::<TransparentWitnessRequest>::default(),
         ));
 
         load_internal_asset!(app, CHUNK_SHADER_HANDLE, "chunk.wgsl", Shader::from_wgsl);
         load_internal_asset!(app, MODEL_SHADER_HANDLE, "model.wgsl", Shader::from_wgsl);
+        load_internal_asset!(app, LIQUID_SHADER_HANDLE, "liquid.wgsl", Shader::from_wgsl);
 
         let acknowledgements = app
             .world()
             .resource::<ChunkUploadAcknowledgements>()
             .clone();
         let presented_frame_gate = app.world().resource::<PresentedFrameGate>().clone();
+        let transparent_sort_metrics = app.world().resource::<TransparentSortMetrics>().clone();
+        let transparent_witness_evidence =
+            app.world().resource::<TransparentWitnessEvidence>().clone();
 
         app.sub_app_mut(RenderApp)
             .insert_resource(self.upload_budget)
             .insert_resource(acknowledgements)
             .insert_resource(presented_frame_gate)
+            .insert_resource(transparent_sort_metrics)
+            .insert_resource(transparent_witness_evidence)
             .init_resource::<ChunkPipeline>()
             .init_resource::<ChunkGpuUploadStats>()
+            .init_resource::<GpuUpdateFairness>()
             .init_resource::<ChunkGpuTextureAssets>()
             .init_resource::<ChunkGpuBiomeTints>()
             .init_resource::<ChunkTextureUploadStats>()
             .init_resource::<ChunkIndirectBatches>()
             .init_resource::<ChunkModelIndirectBatches>()
             .init_resource::<ActiveFrameProbe>()
+            .init_resource::<TransparentSortRuntime>()
+            .init_resource::<TransparentPresentationFence>()
+            .init_resource::<TransparentRetirementFence>()
             .add_render_command::<Opaque3d, DrawChunkCommands>()
             .add_render_command::<Opaque3d, DrawChunkIndirectCommands>()
             .add_render_command::<Opaque3d, DrawModelCommands>()
             .add_render_command::<Opaque3d, DrawModelIndirectCommands>()
+            .add_render_command::<Transparent3d, DrawTransparentLiquidCommands>()
+            .add_render_command::<Transparent3d, DrawTransparentLiquidIndirectCommands>()
             .add_systems(
                 RenderStartup,
                 (init_chunk_gpu_arena, init_chunk_gpu_animation_clock),
@@ -2024,10 +3378,14 @@ impl Plugin for DebugWorldPlugin {
                 Render,
                 (
                     queue_chunks.in_set(RenderSystems::Queue),
+                    queue_transparent_chunks.in_set(RenderSystems::Queue),
                     prepare_chunk_texture_assets.in_set(RenderSystems::PrepareResources),
                     prepare_chunk_animation_clock.in_set(RenderSystems::PrepareResources),
                     prepare_chunk_biome_tints.in_set(RenderSystems::PrepareResources),
                     prepare_gpu_chunks.in_set(RenderSystems::PrepareResources),
+                    prepare_transparent_sorts
+                        .in_set(RenderSystems::PrepareResources)
+                        .after(prepare_gpu_chunks),
                     prepare_chunk_indirect_batches
                         .in_set(RenderSystems::PrepareResources)
                         .after(prepare_gpu_chunks),
@@ -2166,6 +3524,7 @@ struct ChunkPipelineSpecializer;
 struct ChunkPipeline {
     variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
     model_variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
+    liquid_variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
     bind_group_layout: BindGroupLayoutDescriptor,
 }
 
@@ -2310,6 +3669,16 @@ impl FromWorld for ChunkPipeline {
                     },
                     count: None,
                 },
+                BindGroupLayoutEntry {
+                    binding: 14,
+                    visibility: ShaderStages::VERTEX,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         );
         let descriptor = RenderPipelineDescriptor {
@@ -2351,9 +3720,33 @@ impl FromWorld for ChunkPipeline {
             .expect("model fragment")
             .shader = MODEL_SHADER_HANDLE;
         model_descriptor.primitive.cull_mode = None;
+        let mut liquid_descriptor = descriptor.clone();
+        liquid_descriptor.label = Some("packed transparent liquid pipeline".into());
+        liquid_descriptor.vertex.shader = LIQUID_SHADER_HANDLE;
+        liquid_descriptor
+            .fragment
+            .as_mut()
+            .expect("liquid fragment")
+            .shader = LIQUID_SHADER_HANDLE;
+        liquid_descriptor.fragment.as_mut().unwrap().targets[0]
+            .as_mut()
+            .unwrap()
+            .blend = Some(BlendState::ALPHA_BLENDING);
+        liquid_descriptor
+            .depth_stencil
+            .as_mut()
+            .expect("liquid depth state")
+            .depth_write_enabled = false;
+        liquid_descriptor
+            .depth_stencil
+            .as_mut()
+            .expect("liquid depth state")
+            .depth_compare = CompareFunction::GreaterEqual;
+        liquid_descriptor.primitive.cull_mode = None;
         Self {
             variants: Variants::new(ChunkPipelineSpecializer, descriptor),
             model_variants: Variants::new(ChunkPipelineSpecializer, model_descriptor),
+            liquid_variants: Variants::new(ChunkPipelineSpecializer, liquid_descriptor),
             bind_group_layout,
         }
     }
@@ -2545,6 +3938,75 @@ struct ArenaAllocation {
     gpu: GpuChunkAllocation,
 }
 
+#[derive(Clone)]
+struct RetiredArenaAllocation {
+    entity: Entity,
+    identity: GpuChunkAllocation,
+    quad: Option<(Range<u32>, u32)>,
+    geometry: Option<(Range<u32>, u32)>,
+    biome: Option<(Range<u32>, u32)>,
+    origin: Option<u32>,
+    release_epoch: Option<u64>,
+}
+
+impl RetiredArenaAllocation {
+    fn geometry_only(entity: Entity, allocation: &ArenaAllocation) -> Option<Self> {
+        Some(Self {
+            entity,
+            identity: allocation.gpu.clone(),
+            quad: None,
+            geometry: Some((
+                allocation.geometry_stream_range.clone()?,
+                allocation.geometry_stream_capacity,
+            )),
+            biome: None,
+            origin: None,
+            release_epoch: None,
+        })
+    }
+
+    fn full(entity: Entity, allocation: ArenaAllocation) -> Self {
+        let metadata_index = allocation.gpu.metadata_index;
+        Self {
+            entity,
+            identity: allocation.gpu,
+            quad: allocation
+                .cube_range
+                .map(|range| (range, allocation.quad_capacity)),
+            geometry: allocation
+                .geometry_stream_range
+                .map(|range| (range, allocation.geometry_stream_capacity)),
+            biome: (allocation.biome_capacity != 0)
+                .then_some((allocation.biome_range, allocation.biome_capacity)),
+            origin: Some(metadata_index),
+            release_epoch: None,
+        }
+    }
+
+    fn owned_bytes(&self) -> u64 {
+        let quad = self
+            .quad
+            .as_ref()
+            .map_or(0, |(_, capacity)| u64::from(*capacity) * PACKED_QUAD_BYTES);
+        let geometry = self.geometry.as_ref().map_or(0, |(_, capacity)| {
+            u64::from(*capacity) * GEOMETRY_STREAM_WORD_BYTES
+        });
+        let biome = self
+            .biome
+            .as_ref()
+            .map_or(0, |(_, capacity)| u64::from(*capacity) * BIOME_WORD_BYTES);
+        let origin = self.origin.map_or(0, |_| CHUNK_ORIGIN_BYTES);
+        quad.saturating_add(geometry)
+            .saturating_add(biome)
+            .saturating_add(origin)
+    }
+
+    fn can_release(&self, completed_epoch: u64) -> bool {
+        self.release_epoch
+            .is_some_and(|epoch| epoch <= completed_epoch)
+    }
+}
+
 impl ArenaAllocation {
     fn expected_streams(&self) -> ChunkStreamMask {
         let mut mask = ChunkStreamMask::default();
@@ -2573,6 +4035,7 @@ struct ChunkBindGroupBuffers {
     animation_clock: BufferId,
     model_templates: BufferId,
     geometry_streams: BufferId,
+    transparent_refs: BufferId,
     biome_tints: BufferId,
     biome_tint_table: ChunkBiomeTintResourceIdentity,
     textures: ChunkTextureAssetIdentity,
@@ -2910,16 +4373,7 @@ fn prepare_chunk_texture_assets(
         &upload_plans[1],
         "global chunk texture page 1",
     );
-    let sampler = render_device.create_sampler(&SamplerDescriptor {
-        label: Some("global chunk repeat sampler"),
-        address_mode_u: AddressMode::Repeat,
-        address_mode_v: AddressMode::Repeat,
-        address_mode_w: AddressMode::Repeat,
-        mag_filter: FilterMode::Linear,
-        min_filter: FilterMode::Linear,
-        mipmap_filter: FilterMode::Linear,
-        ..Default::default()
-    });
+    let sampler = render_device.create_sampler(&chunk_sampler_descriptor());
 
     stats.upload_count = 1;
     stats.material_bytes = material_bytes as u64;
@@ -2941,6 +4395,24 @@ fn prepare_chunk_texture_assets(
         views: [view_0, view_1],
         sampler,
     });
+}
+
+fn chunk_sampler_descriptor() -> SamplerDescriptor<'static> {
+    SamplerDescriptor {
+        label: Some("global chunk repeat sampler"),
+        address_mode_u: AddressMode::Repeat,
+        address_mode_v: AddressMode::Repeat,
+        address_mode_w: AddressMode::Repeat,
+        // Vanilla's native 16x16 texels stay crisp when enlarged. Minification
+        // remains linear across the independently generated mip chain to avoid
+        // shimmering in distant geometry. Anisotropy stays disabled because
+        // wgpu requires linear magnification when anisotropy is greater than 1.
+        mag_filter: FilterMode::Nearest,
+        min_filter: FilterMode::Linear,
+        mipmap_filter: FilterMode::Linear,
+        anisotropy_clamp: 1,
+        ..Default::default()
+    }
 }
 
 fn encode_model_template_words(assets: &RuntimeAssets) -> Vec<u32> {
@@ -3107,6 +4579,8 @@ struct ChunkGpuArena {
     index_buffer: Buffer,
     model_index_buffer: Buffer,
     indirect_buffer: Buffer,
+    transparent_indirect_buffer: Buffer,
+    transparent_ref_buffer: Buffer,
     bind_group: Option<BindGroup>,
     bind_group_buffers: Option<ChunkBindGroupBuffers>,
     quad_capacity: usize,
@@ -3124,6 +4598,9 @@ struct ChunkGpuArena {
     free_origins: Vec<u32>,
     free_biomes: Vec<Range<u32>>,
     allocations: HashMap<Entity, ArenaAllocation>,
+    retired_allocations: Vec<RetiredArenaAllocation>,
+    pending_removals: BTreeSet<Entity>,
+    retirement_budget: TransparentRetirementBudget,
 }
 
 fn init_chunk_gpu_arena(mut commands: Commands, render_device: Res<RenderDevice>) {
@@ -3169,6 +4646,12 @@ impl ChunkGpuArena {
                 usage: BufferUsages::INDEX,
             }),
             indirect_buffer: create_indirect_buffer(render_device, 1),
+            transparent_indirect_buffer: create_indirect_buffer(render_device, 1),
+            transparent_ref_buffer: create_storage_buffer(
+                render_device,
+                "double-buffered transparent draw refs",
+                TRANSPARENT_REF_BUFFER_BYTES as u64,
+            ),
             bind_group: None,
             bind_group_buffers: None,
             quad_capacity: 1,
@@ -3186,6 +4669,12 @@ impl ChunkGpuArena {
             free_origins: Vec::new(),
             free_biomes: Vec::new(),
             allocations: HashMap::new(),
+            retired_allocations: Vec::new(),
+            pending_removals: BTreeSet::new(),
+            retirement_budget: TransparentRetirementBudget::with_limits(
+                MAX_TRANSPARENT_RETIRED_ALLOCATIONS,
+                MAX_TRANSPARENT_RETIRED_BYTES,
+            ),
         }
     }
 }
@@ -3233,6 +4722,66 @@ struct GpuUpdateCandidate {
     tint_identity: ChunkBiomeTintIdentity,
 }
 
+const MAX_GPU_UPDATE_FAIRNESS_ENTRIES: usize = 65_536;
+const GPU_UPDATE_OVERDUE_FRAMES: u32 = 2;
+
+#[derive(Resource)]
+struct GpuUpdateFairness {
+    wait_ages: HashMap<Entity, u32>,
+    limit: usize,
+}
+
+impl Default for GpuUpdateFairness {
+    fn default() -> Self {
+        Self::with_limit(MAX_GPU_UPDATE_FAIRNESS_ENTRIES)
+    }
+}
+
+impl GpuUpdateFairness {
+    fn with_limit(limit: usize) -> Self {
+        Self {
+            wait_ages: HashMap::new(),
+            limit,
+        }
+    }
+
+    fn wait_age(&self, entity: Entity) -> u32 {
+        self.wait_ages.get(&entity).copied().unwrap_or(0)
+    }
+
+    fn finish_frame(&mut self, active: &[Entity], successful: &[Entity]) {
+        let active_set = active.iter().copied().collect::<HashSet<_>>();
+        let successful = successful.iter().copied().collect::<HashSet<_>>();
+        self.wait_ages
+            .retain(|entity, _| active_set.contains(entity));
+        for &entity in &successful {
+            self.wait_ages.remove(&entity);
+        }
+        for &entity in active.iter().filter(|entity| !successful.contains(entity)) {
+            if let Some(age) = self.wait_ages.get_mut(&entity) {
+                *age = age.saturating_add(1);
+            } else if self.wait_ages.len() < self.limit {
+                self.wait_ages.insert(entity, 1);
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn reset(&mut self) {
+        self.wait_ages.clear();
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.wait_ages.len()
+    }
+
+    #[cfg(test)]
+    fn is_empty(&self) -> bool {
+        self.wait_ages.is_empty()
+    }
+}
+
 const fn chunk_tint_identity_is_active(
     record: ChunkBiomeTintIdentity,
     active: ChunkBiomeTintIdentity,
@@ -3245,6 +4794,7 @@ fn plan_gpu_chunk_updates(
     allocations: &HashMap<Entity, ArenaAllocation>,
     camera_position: Vec3,
     active_tint_identity: ChunkBiomeTintIdentity,
+    fairness: &GpuUpdateFairness,
 ) -> Vec<Entity> {
     candidates.retain(|candidate| {
         chunk_tint_identity_is_active(candidate.tint_identity, active_tint_identity)
@@ -3254,11 +4804,27 @@ fn plan_gpu_chunk_updates(
             })
     });
     candidates.sort_by(|left, right| {
-        ChunkUploadPriority::from_camera(left.key, camera_position)
-            .distance_squared()
-            .total_cmp(
-                &ChunkUploadPriority::from_camera(right.key, camera_position).distance_squared(),
-            )
+        let left_age = fairness.wait_age(left.entity);
+        let right_age = fairness.wait_age(right.entity);
+        let left_overdue = left_age >= GPU_UPDATE_OVERDUE_FRAMES;
+        let right_overdue = right_age >= GPU_UPDATE_OVERDUE_FRAMES;
+        right_overdue
+            .cmp(&left_overdue)
+            .then_with(|| {
+                if left_overdue && right_overdue {
+                    right_age.cmp(&left_age)
+                } else {
+                    std::cmp::Ordering::Equal
+                }
+            })
+            .then_with(|| {
+                ChunkUploadPriority::from_camera(left.key, camera_position)
+                    .distance_squared()
+                    .total_cmp(
+                        &ChunkUploadPriority::from_camera(right.key, camera_position)
+                            .distance_squared(),
+                    )
+            })
             .then_with(|| left.key.cmp(&right.key))
     });
     candidates
@@ -3280,7 +4846,10 @@ fn prepare_gpu_chunks(
     acknowledgements: Res<ChunkUploadAcknowledgements>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
+    retirement_fence: Res<TransparentRetirementFence>,
+    mut fairness: ResMut<GpuUpdateFairness>,
 ) {
+    release_completed_transparent_retirements(&mut arena, retirement_fence.completed_epoch());
     let candidates = instances
         .iter()
         .map(|(entity, instance)| GpuUpdateCandidate {
@@ -3300,10 +4869,32 @@ fn prepare_gpu_chunks(
         &arena.allocations,
         camera_position,
         biome_tints.table_identity(),
+        &fairness,
     );
 
-    for entity in removed_instances.read() {
-        free_allocation(&mut arena, entity);
+    arena.pending_removals.extend(removed_instances.read());
+    for entity in arena.pending_removals.iter().copied().collect::<Vec<_>>() {
+        let Some(allocation) = arena.allocations.get(&entity).cloned() else {
+            arena.pending_removals.remove(&entity);
+            continue;
+        };
+        if allocation.liquid_range.is_none() {
+            free_allocation(&mut arena, entity);
+            arena.pending_removals.remove(&entity);
+            continue;
+        }
+        let retirement = RetiredArenaAllocation::full(entity, allocation);
+        let bytes = retirement.owned_bytes();
+        if !arena.retirement_budget.can_reserve(1, bytes) {
+            continue;
+        }
+        arena
+            .allocations
+            .remove(&entity)
+            .expect("pending removal retains its arena allocation");
+        assert!(arena.retirement_budget.try_reserve(1, bytes));
+        arena.retired_allocations.push(retirement);
+        arena.pending_removals.remove(&entity);
     }
 
     let mut quad_writes = Vec::new();
@@ -3314,8 +4905,9 @@ fn prepare_gpu_chunks(
     let mut biome_writes = Vec::new();
     let mut origin_writes = Vec::new();
     let mut applied_tokens = Vec::new();
+    let mut successful_updates = Vec::new();
     let mut chunk_updates = 0;
-    for entity in selected {
+    for &entity in &selected {
         if chunk_updates >= budget.max_per_frame {
             break;
         }
@@ -3371,17 +4963,38 @@ fn prepare_gpu_chunks(
         {
             continue;
         }
+        let stream_counts = GeometryStreamCounts {
+            cube: required,
+            model: model_required,
+            model_lighting: model_lighting_required,
+            liquid: liquid_required,
+            liquid_lighting: liquid_lighting_required,
+        };
+        let preserve_old_geometry = old
+            .as_ref()
+            .is_some_and(|old| transparent_geometry_update_requires_cow(old, stream_counts));
+        let retirement = preserve_old_geometry
+            .then(|| {
+                old.as_ref()
+                    .and_then(|old| RetiredArenaAllocation::geometry_only(entity, old))
+            })
+            .flatten();
+        if let Some(retirement) = retirement.as_ref()
+            && !arena
+                .retirement_budget
+                .can_reserve(1, retirement.owned_bytes())
+        {
+            if let Some(token) = instance.token {
+                acknowledgements.cancel(instance.key, token);
+            }
+            continue;
+        }
         let Some(plan) = allocate_for_chunk_update(
             &mut arena,
-            GeometryStreamCounts {
-                cube: required,
-                model: model_required,
-                model_lighting: model_lighting_required,
-                liquid: liquid_required,
-                liquid_lighting: liquid_lighting_required,
-            },
+            stream_counts,
             biome_required,
             old.as_ref(),
+            preserve_old_geometry,
         ) else {
             if let Some(token) = instance.token {
                 acknowledgements.cancel(instance.key, token);
@@ -3389,6 +5002,11 @@ fn prepare_gpu_chunks(
             bevy::log::warn!("chunk quad arena is at the adapter storage-buffer limit");
             continue;
         };
+        if let Some(retirement) = retirement {
+            let bytes = retirement.owned_bytes();
+            assert!(arena.retirement_budget.try_reserve(1, bytes));
+            arena.retired_allocations.push(retirement);
+        }
         let metadata_index = match old {
             Some(old) => old.gpu.metadata_index,
             None => allocate_origin(&mut arena)
@@ -3434,12 +5052,13 @@ fn prepare_gpu_chunks(
             .copied()
             .map(PackedQuadLighting::samples)
             .collect::<Vec<_>>();
-        let liquid_words = instance
+        let mut liquid_words = instance
             .liquid_quads
             .iter()
             .copied()
             .map(PackedLiquidQuad::words)
             .collect::<Vec<_>>();
+        absolutize_liquid_lighting_indices(&mut liquid_words, plan.liquid_lighting_start);
         let liquid_lighting_words = instance
             .liquid_lighting
             .iter()
@@ -3520,7 +5139,9 @@ fn prepare_gpu_chunks(
             applied_tokens.push((instance.key, token, uploaded_bytes));
         }
         chunk_updates += 1;
+        successful_updates.push(entity);
     }
+    fairness.finish_frame(&selected, &successful_updates);
 
     let quad_incremental_bytes = quad_writes.iter().fold(0_u64, |total, (_, words)| {
         total.saturating_add(buffer_byte_len(words.len(), PACKED_QUAD_BYTES))
@@ -3627,12 +5248,578 @@ fn prepare_gpu_chunks(
     }
 }
 
+fn liquid_quad_centroid(chunk_origin: [i32; 3], quad: PackedLiquidQuad) -> [f32; 3] {
+    let origin = quad.origin();
+    let heights = quad.heights();
+    let average_height = heights.into_iter().map(f32::from).sum::<f32>() / (4.0 * 255.0);
+    let mut centroid = [
+        chunk_origin[0] as f32 + f32::from(origin[0]) + 0.5,
+        chunk_origin[1] as f32 + f32::from(origin[1]) + average_height,
+        chunk_origin[2] as f32 + f32::from(origin[2]) + 0.5,
+    ];
+    match quad.face() {
+        crate::Face::NegativeX => centroid[0] -= 0.5,
+        crate::Face::PositiveX => centroid[0] += 0.5,
+        crate::Face::NegativeY => centroid[1] = chunk_origin[1] as f32 + f32::from(origin[1]),
+        crate::Face::PositiveY => {}
+        crate::Face::NegativeZ => centroid[2] -= 0.5,
+        crate::Face::PositiveZ => centroid[2] += 0.5,
+    }
+    centroid
+}
+
+fn transparent_allocation_matches(
+    instance: &ChunkRenderInstance,
+    allocation: &GpuChunkAllocation,
+    active_tint_identity: ChunkBiomeTintIdentity,
+) -> bool {
+    if instance.key != allocation.key
+        || instance.generation != allocation.generation
+        || instance.tint_identity != allocation.tint_identity
+        || allocation.tint_identity != active_tint_identity
+        || instance.liquid_quads.len() != instance.liquid_lighting.len()
+    {
+        return false;
+    }
+    let (Some(liquid), Some(lighting)) = (
+        allocation.liquid_range.as_ref(),
+        allocation.liquid_lighting_range.as_ref(),
+    ) else {
+        return instance.liquid_quads.is_empty();
+    };
+    liquid.start % 4 == 0
+        && liquid.end % 4 == 0
+        && lighting.start % 2 == 0
+        && lighting.end % 2 == 0
+        && usize::try_from(liquid.end.saturating_sub(liquid.start)).ok()
+            == instance.liquid_quads.len().checked_mul(4)
+        && usize::try_from(lighting.end.saturating_sub(lighting.start)).ok()
+            == instance.liquid_lighting.len().checked_mul(2)
+}
+
+fn transparent_snapshot_addresses_are_resident<'a, 'b>(
+    snapshot: &TransparentOrderedSnapshot,
+    resident_allocations: impl IntoIterator<Item = &'a GpuChunkAllocation>,
+    retired_allocations: impl IntoIterator<Item = &'b GpuChunkAllocation>,
+    active_asset_identity: ChunkTextureAssetIdentity,
+    active_tint_identity: ChunkBiomeTintIdentity,
+) -> bool {
+    if snapshot.key.asset_identity != active_asset_identity
+        || snapshot.key.tint_identity != active_tint_identity
+    {
+        return false;
+    }
+    let resident_allocations = resident_allocations
+        .into_iter()
+        .filter(|allocation| allocation.tint_identity == active_tint_identity)
+        .filter(|allocation| {
+            let (Some(liquid), Some(lighting)) = (
+                allocation.liquid_range.as_ref(),
+                allocation.liquid_lighting_range.as_ref(),
+            ) else {
+                return false;
+            };
+            !liquid.is_empty()
+                && !lighting.is_empty()
+                && liquid.start % 4 == 0
+                && liquid.end % 4 == 0
+                && lighting.start % 2 == 0
+                && lighting.end % 2 == 0
+                && liquid.end.saturating_sub(liquid.start) / 4
+                    == lighting.end.saturating_sub(lighting.start) / 2
+        })
+        .collect::<Vec<_>>();
+    let retired_allocations = retired_allocations
+        .into_iter()
+        .filter(|allocation| allocation.tint_identity == active_tint_identity)
+        .collect::<Vec<_>>();
+    snapshot.key.visible_allocations.iter().all(|identity| {
+        let active = resident_allocations.iter().any(|allocation| {
+            let liquid = allocation
+                .liquid_range
+                .as_ref()
+                .expect("resident allocations retain a liquid range");
+            allocation.key == identity.key
+                && allocation.metadata_index == identity.metadata_index
+                && liquid.start == identity.liquid_range.start
+                && liquid.end >= identity.liquid_range.end
+        });
+        active
+            || retired_allocations.iter().any(|allocation| {
+                allocation.key == identity.key
+                    && allocation.generation == identity.mesh_generation
+                    && allocation.metadata_index == identity.metadata_index
+                    && allocation.liquid_range.as_ref() == Some(&identity.liquid_range)
+                    && allocation.liquid_lighting_range.as_ref() == Some(&identity.lighting_range)
+            })
+    })
+}
+
+fn build_transparent_candidates(
+    visible_entities: &RenderVisibleEntities,
+    instances: &Query<&ChunkRenderInstance>,
+    allocations: &Query<&GpuChunkAllocation>,
+    biome_tints: &ChunkBiomeTints,
+) -> Result<(Vec<TransparentSortCandidate>, usize), TransparentSortError> {
+    let mut candidates = Vec::new();
+    let mut distinct_tint_colors = BTreeSet::new();
+    for &(entity, _) in visible_entities.get::<ChunkRenderInstance>() {
+        let (Ok(instance), Ok(allocation)) = (instances.get(entity), allocations.get(entity))
+        else {
+            continue;
+        };
+        if !transparent_allocation_matches(instance, allocation, biome_tints.table_identity()) {
+            continue;
+        }
+        let (Some(liquid_range), Some(_lighting_range)) = (
+            allocation.liquid_range.as_ref(),
+            allocation.liquid_lighting_range.as_ref(),
+        ) else {
+            continue;
+        };
+        let Some(record_start) = liquid_range.start.checked_div(4) else {
+            continue;
+        };
+        let subchunk_center = [
+            instance.origin[0] as f32 + 8.0,
+            instance.origin[1] as f32 + 8.0,
+            instance.origin[2] as f32 + 8.0,
+        ];
+        for (local_index, &quad) in instance.liquid_quads.iter().enumerate() {
+            let local_quad_index =
+                u32::try_from(local_index).map_err(|_| TransparentSortError::ReferenceCeiling {
+                    requested: candidates.len().saturating_add(1),
+                    ceiling: MAX_TRANSPARENT_DRAW_REFS,
+                })?;
+            if candidates.len() == MAX_TRANSPARENT_DRAW_REFS {
+                return Err(TransparentSortError::ReferenceCeiling {
+                    requested: candidates.len().saturating_add(1),
+                    ceiling: MAX_TRANSPARENT_DRAW_REFS,
+                });
+            }
+            let liquid_record_index = record_start.checked_add(local_quad_index).ok_or(
+                TransparentSortError::ReferenceCeiling {
+                    requested: candidates.len().saturating_add(1),
+                    ceiling: MAX_TRANSPARENT_DRAW_REFS,
+                },
+            )?;
+            let local = quad.origin();
+            if let Some(tint_index) = instance.biome.tint_index(local[0], local[1], local[2])
+                && let Some(tint) = biome_tints.entries().get(tint_index as usize)
+            {
+                distinct_tint_colors.insert(tint.water.map(f32::to_bits));
+            }
+            candidates.push(TransparentSortCandidate::new(
+                instance.key,
+                local_quad_index,
+                liquid_record_index,
+                allocation.metadata_index,
+                subchunk_center,
+                liquid_quad_centroid(instance.origin, quad),
+            ));
+        }
+    }
+    validate_transparent_sort_ref_count(candidates.len())?;
+    Ok((candidates, distinct_tint_colors.len()))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn prepare_transparent_sorts(
+    views: Query<(Entity, &ExtractedView, &RenderVisibleEntities), With<ExtractedCamera>>,
+    instances: Query<&ChunkRenderInstance>,
+    diagnostic_instances: Query<(Entity, &ChunkRenderInstance)>,
+    allocations: Query<&GpuChunkAllocation>,
+    texture_assets: Res<ChunkTextureAssets>,
+    biome_tints: Res<ChunkBiomeTints>,
+    render_queue: Res<RenderQueue>,
+    arena: Res<ChunkGpuArena>,
+    mut runtime: ResMut<TransparentSortRuntime>,
+    metrics: Res<TransparentSortMetrics>,
+    witness_request: Res<TransparentWitnessRequest>,
+    witness_evidence: Res<TransparentWitnessEvidence>,
+) {
+    let completed = {
+        let receiver = runtime
+            .result_receiver
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        receiver.try_recv().ok()
+    };
+    if let Some(result) = completed {
+        let next = runtime.gate.complete(result.generation);
+        metrics.update(|snapshot| {
+            snapshot.result_generation = result.generation.get();
+            snapshot.cpu_duration = result.cpu_duration;
+        });
+        match result.refs {
+            Ok(refs) => {
+                let ref_bytes =
+                    refs.len() as u64 * std::mem::size_of::<PackedTransparentDrawRef>() as u64;
+                let sort_result = TransparentSortResult::new(result.generation, result.key, refs)
+                    .expect("worker prevalidates the hard transparent reference ceiling");
+                match runtime.state.complete(sort_result) {
+                    Ok(true) => {
+                        runtime.committed_distinct_tint_count = result.distinct_tint_count;
+                        let ref_count = runtime
+                            .state
+                            .committed()
+                            .map_or(0, |snapshot| snapshot.refs().len());
+                        runtime.requested_at.remove(&result.generation);
+                        let latency = transparent_request_to_commit_latency(
+                            result.requested_at,
+                            Instant::now(),
+                        );
+                        runtime
+                            .staged_distinct_tint_counts
+                            .remove(&result.generation);
+                        metrics.update(|snapshot| {
+                            snapshot.committed_generation = result.generation.get();
+                            snapshot.ref_count = ref_count;
+                            snapshot.request_to_commit_latency = latency;
+                            snapshot.active_slot_age_frames = 0;
+                            snapshot.transparent_water_distinct_tint_count =
+                                result.distinct_tint_count;
+                        });
+                    }
+                    Ok(false) => {
+                        if runtime.state.staged_ref_count() != 0 {
+                            runtime
+                                .requested_at
+                                .insert(result.generation, result.requested_at);
+                            runtime
+                                .staged_distinct_tint_counts
+                                .insert(result.generation, result.distinct_tint_count);
+                            metrics.update(|snapshot| {
+                                snapshot.staged_bytes =
+                                    snapshot.staged_bytes.saturating_add(ref_bytes);
+                            });
+                        } else {
+                            runtime.requested_at.remove(&result.generation);
+                            runtime
+                                .staged_distinct_tint_counts
+                                .remove(&result.generation);
+                            metrics.update(|snapshot| {
+                                snapshot.stale_reject_count =
+                                    snapshot.stale_reject_count.saturating_add(1);
+                            });
+                        }
+                    }
+                    Err(TransparentSortError::ReferenceCeiling { .. }) => {
+                        runtime.requested_at.remove(&result.generation);
+                        metrics.update(|snapshot| {
+                            snapshot.ceiling_reject_count =
+                                snapshot.ceiling_reject_count.saturating_add(1);
+                        });
+                    }
+                    Err(TransparentSortError::ConflictingAllocation { .. }) => unreachable!(),
+                    Err(TransparentSortError::InvalidCameraTransform) => unreachable!(),
+                }
+            }
+            Err(TransparentSortError::ReferenceCeiling { .. }) => {
+                runtime.requested_at.remove(&result.generation);
+                metrics.update(|snapshot| {
+                    snapshot.ceiling_reject_count = snapshot.ceiling_reject_count.saturating_add(1);
+                });
+            }
+            Err(TransparentSortError::ConflictingAllocation { .. }) => {}
+            Err(TransparentSortError::InvalidCameraTransform) => {}
+        }
+        if let Some((_generation, work)) = next {
+            spawn_transparent_sort(runtime.result_sender.clone(), work);
+        }
+        runtime.prune_request_metadata();
+    }
+
+    let mut visible_views = views.iter().collect::<Vec<_>>();
+    visible_views.sort_by_key(|(entity, _, _)| *entity);
+    if visible_views.len() > MAX_TRANSPARENT_VIEWS {
+        bevy::log::warn!(
+            "transparent chunk renderer supports one retained 3D view; extra views are rejected"
+        );
+        visible_views.truncate(MAX_TRANSPARENT_VIEWS);
+    }
+    let Some((view_entity, view, visible_entities)) = visible_views.into_iter().next() else {
+        if runtime.view_entity.is_some() {
+            runtime.reset_for_view(None);
+            clear_active_transparent_metrics(&metrics);
+        }
+        return;
+    };
+    if runtime.view_entity != Some(view_entity) {
+        runtime.reset_for_view(Some(view_entity));
+        clear_active_transparent_metrics(&metrics);
+    }
+
+    let mut manifest = Vec::new();
+    for &(entity, _) in visible_entities.get::<ChunkRenderInstance>() {
+        let (Ok(instance), Ok(allocation)) = (instances.get(entity), allocations.get(entity))
+        else {
+            continue;
+        };
+        if !transparent_allocation_matches(instance, allocation, biome_tints.table_identity()) {
+            continue;
+        }
+        if let (Some(liquid), Some(lighting)) = (
+            allocation.liquid_range.clone(),
+            allocation.liquid_lighting_range.clone(),
+        ) {
+            manifest.push(TransparentAllocationIdentity::new(
+                allocation.key,
+                allocation.generation,
+                liquid,
+                lighting,
+                allocation.metadata_index,
+            ));
+        }
+    }
+    let world_from_view = view.world_from_view;
+    let (_, rotation, translation) = world_from_view.to_scale_rotation_translation();
+    let texture_identity = texture_assets.identity();
+    let tint_identity = biome_tints.table_identity();
+    let key = match ViewSortKey::try_new(
+        translation.to_array(),
+        rotation.to_array(),
+        manifest,
+        texture_identity,
+        tint_identity,
+    ) {
+        Ok(key) => key,
+        Err(error @ TransparentSortError::ConflictingAllocation { .. })
+        | Err(error @ TransparentSortError::InvalidCameraTransform) => {
+            fail_closed_transparent_sort_key_error(&mut runtime, &metrics, error);
+            return;
+        }
+        Err(TransparentSortError::ReferenceCeiling { .. }) => unreachable!(),
+    };
+    if witness_request.enabled() {
+        let visible = visible_entities
+            .get::<ChunkRenderInstance>()
+            .iter()
+            .map(|&(entity, _)| entity)
+            .collect::<BTreeSet<_>>();
+        let committed = runtime.state.committed();
+        let records = witness_request
+            .keys()
+            .iter()
+            .copied()
+            .map(|required| {
+                let found = diagnostic_instances
+                    .iter()
+                    .find(|(_, instance)| instance.key == required);
+                let (entity, instance) = found.unzip();
+                let allocation = entity.and_then(|entity| allocations.get(entity).ok());
+                TransparentWitnessStageRecord {
+                    key: required,
+                    extracted_visible: entity.is_some_and(|entity| visible.contains(&entity)),
+                    instance_present: instance.is_some(),
+                    liquid_quad_count: instance.map_or(0, |instance| instance.liquid_quads.len()),
+                    instance_generation: instance.map_or(0, |instance| instance.generation),
+                    allocation_present: allocation.is_some(),
+                    liquid_range_len: allocation
+                        .and_then(|allocation| allocation.liquid_range.as_ref())
+                        .map_or(0, |range| range.end.saturating_sub(range.start)),
+                    lighting_range_len: allocation
+                        .and_then(|allocation| allocation.liquid_lighting_range.as_ref())
+                        .map_or(0, |range| range.end.saturating_sub(range.start)),
+                    allocation_matches: instance.zip(allocation).is_some_and(
+                        |(instance, allocation)| {
+                            transparent_allocation_matches(
+                                instance,
+                                allocation,
+                                biome_tints.table_identity(),
+                            )
+                        },
+                    ),
+                    committed_member: committed.is_some_and(|snapshot| {
+                        snapshot
+                            .key()
+                            .visible_allocations
+                            .iter()
+                            .any(|allocation| allocation.key == required)
+                    }),
+                }
+            })
+            .collect();
+        witness_evidence.record_stage_snapshot(
+            witness_request.revision(),
+            committed.map_or(0, |snapshot| snapshot.generation().get()),
+            records,
+        );
+    }
+    let committed_matches = runtime
+        .state
+        .committed()
+        .is_some_and(|snapshot| snapshot.key() == &key)
+        && runtime.state.staged_ref_count() == 0;
+    if !committed_matches {
+        let had_committed = runtime.state.committed().is_some();
+        let committed_addresses_are_resident = runtime.state.committed().is_some_and(|snapshot| {
+            snapshot.key.address_identity_eq(&key)
+                || transparent_snapshot_addresses_are_resident(
+                    snapshot,
+                    arena.allocations.values().map(|allocation| &allocation.gpu),
+                    arena
+                        .retired_allocations
+                        .iter()
+                        .map(|allocation| &allocation.identity),
+                    texture_identity,
+                    tint_identity,
+                )
+        });
+        let canceled_staged = runtime.state.staged_generation();
+        let generation = runtime
+            .state
+            .request_retaining_resident_snapshot(&key, committed_addresses_are_resident);
+        if had_committed && runtime.state.committed().is_none() {
+            runtime.committed_distinct_tint_count = 0;
+            metrics.update(|snapshot| {
+                snapshot.committed_generation = 0;
+                snapshot.encoded_generation = 0;
+                snapshot.presented_generation = 0;
+                snapshot.ref_count = 0;
+                snapshot.active_slot_age_frames = 0;
+                snapshot.transparent_water_distinct_tint_count = 0;
+            });
+        }
+        if let Some(canceled) = canceled_staged
+            && runtime.state.staged_generation() != Some(canceled)
+        {
+            runtime.requested_at.remove(&canceled);
+            runtime.staged_distinct_tint_counts.remove(&canceled);
+        }
+        metrics.update(|snapshot| snapshot.request_generation = generation.get());
+        if runtime.generation_needs_sort_job(generation) {
+            let requested_at = Instant::now();
+            match runtime.resolve_candidate_cache(&key, || {
+                build_transparent_candidates(
+                    visible_entities,
+                    &instances,
+                    &allocations,
+                    &biome_tints,
+                )
+            }) {
+                Ok((candidates, distinct_tint_count)) => {
+                    let request = TransparentSortRequest {
+                        generation,
+                        requested_at,
+                        key,
+                        view_from_world: Mat4::from(world_from_view.affine().inverse()),
+                    };
+                    let work = TransparentSortWork {
+                        generation: request.generation,
+                        requested_at: request.requested_at,
+                        key: request.key,
+                        view_from_world: request.view_from_world,
+                        candidates,
+                        distinct_tint_count,
+                    };
+                    runtime.requested_at.insert(generation, requested_at);
+                    let (start, replaced) = runtime.gate.submit_with_replacement(generation, work);
+                    if let Some(replaced) = replaced {
+                        runtime.requested_at.remove(&replaced);
+                        runtime.staged_distinct_tint_counts.remove(&replaced);
+                    }
+                    if let Some((_generation, work)) = start {
+                        spawn_transparent_sort(runtime.result_sender.clone(), work);
+                    }
+                    runtime.prune_request_metadata();
+                }
+                Err(TransparentSortError::ReferenceCeiling { .. }) => {
+                    metrics.update(|snapshot| {
+                        snapshot.ceiling_reject_count =
+                            snapshot.ceiling_reject_count.saturating_add(1);
+                    });
+                }
+                Err(TransparentSortError::ConflictingAllocation { .. }) => {}
+                Err(TransparentSortError::InvalidCameraTransform) => {}
+            }
+        }
+    }
+
+    let mut uploaded_bytes = 0_u64;
+    if let Some(batch) = runtime.state.next_upload_batch() {
+        let offset = u64::try_from(batch.buffer_slot() as usize * TRANSPARENT_REF_SLOT_BYTES)
+            .unwrap()
+            .saturating_add(
+                u64::try_from(
+                    batch.ref_range().start * std::mem::size_of::<PackedTransparentDrawRef>(),
+                )
+                .unwrap(),
+            );
+        render_queue.write_buffer(
+            &arena.transparent_ref_buffer,
+            offset,
+            bytemuck::cast_slice(batch.refs()),
+        );
+        uploaded_bytes =
+            batch.refs().len() as u64 * std::mem::size_of::<PackedTransparentDrawRef>() as u64;
+    }
+    if uploaded_bytes != 0 {
+        let committed = runtime.state.acknowledge_upload();
+        metrics.update(|snapshot| {
+            snapshot.upload_bytes = snapshot.upload_bytes.saturating_add(uploaded_bytes);
+        });
+        if committed
+            && let Some((generation, ref_count)) = runtime
+                .state
+                .committed()
+                .map(|snapshot| (snapshot.generation(), snapshot.refs().len()))
+        {
+            runtime.committed_distinct_tint_count = runtime
+                .staged_distinct_tint_counts
+                .remove(&generation)
+                .unwrap_or_default();
+            let requested_at = runtime
+                .requested_at
+                .remove(&generation)
+                .expect("accepted staged generation retains its request timestamp");
+            let latency = transparent_request_to_commit_latency(requested_at, Instant::now());
+            let tint_count = runtime.committed_distinct_tint_count;
+            metrics.update(|current| {
+                current.committed_generation = generation.get();
+                current.ref_count = ref_count;
+                current.request_to_commit_latency = latency;
+                current.active_slot_age_frames = 0;
+                current.transparent_water_distinct_tint_count = tint_count;
+            });
+        }
+    }
+    metrics.update(|snapshot| {
+        if runtime.state.committed().is_some() {
+            snapshot.active_slot_age_frames = snapshot.active_slot_age_frames.saturating_add(1);
+        }
+    });
+    if let Some((identity, command)) = runtime.state.committed().and_then(|snapshot| {
+        Some((
+            (snapshot.buffer_slot(), snapshot.refs().len()),
+            transparent_indirect_args(snapshot)?,
+        ))
+    }) && runtime.last_indirect_identity != Some(identity)
+    {
+        render_queue.write_buffer(
+            &arena.transparent_indirect_buffer,
+            0,
+            bytemuck::bytes_of(&command),
+        );
+        runtime.last_indirect_identity = Some(identity);
+    }
+}
+
 fn absolutize_model_lighting_bases(model_refs: &mut [[u32; 4]], lighting_word_start: u32) {
     let lighting_record_base = lighting_word_start / 2;
     for words in model_refs {
         words[2] = words[2]
             .checked_add(lighting_record_base)
             .expect("atomic model-lighting arena plan fits u32 record addressing");
+    }
+}
+
+fn absolutize_liquid_lighting_indices(liquid_quads: &mut [[u32; 4]], lighting_word_start: u32) {
+    let lighting_record_base = lighting_word_start / 2;
+    for words in liquid_quads {
+        words[3] = words[3]
+            .checked_add(lighting_record_base)
+            .expect("atomic liquid-lighting arena plan fits u32 record addressing");
     }
 }
 
@@ -3653,25 +5840,89 @@ struct GeometryStreamCounts {
     liquid_lighting: u32,
 }
 
+const SHARED_GEOMETRY_ALIGNMENT_WORDS: u32 =
+    (PACKED_LIQUID_QUAD_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct GeometryStreamLayout {
+    model_offset: u32,
+    model_lighting_offset: u32,
+    liquid_offset: u32,
+    liquid_lighting_offset: u32,
+    word_count: u32,
+}
+
 impl GeometryStreamCounts {
-    fn shared_word_count(self) -> Option<u32> {
-        self.model
-            .checked_mul((PACKED_MODEL_REF_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32)?
-            .checked_add(
-                self.model_lighting.checked_mul(
-                    (PACKED_QUAD_LIGHTING_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32,
-                )?,
-            )?
-            .checked_add(
-                self.liquid
-                    .checked_mul((PACKED_LIQUID_QUAD_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32)?,
-            )?
-            .checked_add(
-                self.liquid_lighting.checked_mul(
-                    (PACKED_QUAD_LIGHTING_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32,
-                )?,
-            )
+    fn layout(self) -> Option<GeometryStreamLayout> {
+        let model_offset = 0;
+        let model_lighting_offset = self
+            .model
+            .checked_mul((PACKED_MODEL_REF_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32)?;
+        let model_lighting_end = model_lighting_offset.checked_add(
+            self.model_lighting
+                .checked_mul((PACKED_QUAD_LIGHTING_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32)?,
+        )?;
+        let liquid_offset = if self.liquid == 0 && self.liquid_lighting == 0 {
+            model_lighting_end
+        } else {
+            checked_align_up(model_lighting_end, SHARED_GEOMETRY_ALIGNMENT_WORDS)?
+        };
+        let liquid_lighting_offset =
+            liquid_offset
+                .checked_add(self.liquid.checked_mul(
+                    (PACKED_LIQUID_QUAD_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32,
+                )?)?;
+        let word_count = liquid_lighting_offset.checked_add(
+            self.liquid_lighting
+                .checked_mul((PACKED_QUAD_LIGHTING_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32)?,
+        )?;
+        Some(GeometryStreamLayout {
+            model_offset,
+            model_lighting_offset,
+            liquid_offset,
+            liquid_lighting_offset,
+            word_count,
+        })
     }
+
+    fn shared_word_count(self) -> Option<u32> {
+        Some(self.layout()?.word_count)
+    }
+}
+
+fn checked_align_up(value: u32, alignment: u32) -> Option<u32> {
+    debug_assert!(alignment.is_power_of_two());
+    value
+        .checked_add(alignment.checked_sub(1)?)
+        .map(|value| value & !(alignment - 1))
+}
+
+fn transparent_geometry_update_requires_cow(
+    old: &ArenaAllocation,
+    required: GeometryStreamCounts,
+) -> bool {
+    let Some(old_liquid) = old.liquid_range.as_ref() else {
+        return false;
+    };
+    let Some(stream) = old.geometry_stream_range.as_ref() else {
+        return true;
+    };
+    let Some(layout) = required.layout() else {
+        return true;
+    };
+    let Some(liquid_start) = stream.start.checked_add(layout.liquid_offset) else {
+        return true;
+    };
+    let Some(liquid_end) = liquid_start.checked_add(
+        required
+            .liquid
+            .saturating_mul((PACKED_LIQUID_QUAD_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32),
+    ) else {
+        return true;
+    };
+    layout.word_count > old.geometry_stream_capacity
+        || liquid_start != old_liquid.start
+        || liquid_end < old_liquid.end
 }
 
 fn allocate_for_chunk_update(
@@ -3679,6 +5930,7 @@ fn allocate_for_chunk_update(
     required: GeometryStreamCounts,
     biome_required: u32,
     old: Option<&ArenaAllocation>,
+    preserve_old_geometry: bool,
 ) -> Option<ChunkRangePlan> {
     let plan = plan_chunk_range_update(
         arena.quad_len,
@@ -3690,6 +5942,7 @@ fn allocate_for_chunk_update(
         required,
         biome_required,
         old,
+        preserve_old_geometry,
         arena.limits,
     )?;
     arena.quad_len = plan.quad_len;
@@ -3739,6 +5992,7 @@ fn plan_chunk_range_update(
     required: GeometryStreamCounts,
     biome_required: u32,
     old: Option<&ArenaAllocation>,
+    preserve_old_geometry: bool,
     limits: ArenaLimits,
 ) -> Option<ChunkRangePlan> {
     let mut free_quads = current_free_quads.to_vec();
@@ -3755,30 +6009,31 @@ fn plan_chunk_range_update(
         0,
     )?;
 
-    let geometry_words_required = required.shared_word_count()?;
+    let geometry_layout = required.layout()?;
+    let geometry_words_required = geometry_layout.word_count;
     let mut free_geometry_stream_words = current_free_geometry_stream_words.to_vec();
-    let (geometry_stream_start, geometry_stream_capacity) = allocate_range_for_update(
+    let (geometry_stream_start, geometry_stream_capacity) = allocate_aligned_range_for_update(
         &mut geometry_stream_len,
         &mut free_geometry_stream_words,
         geometry_words_required,
-        old.and_then(|old| {
-            old.geometry_stream_range
-                .as_ref()
-                .map(|range| (range.start, old.geometry_stream_capacity))
-        }),
+        (!preserve_old_geometry)
+            .then_some(old)
+            .flatten()
+            .and_then(|old| {
+                old.geometry_stream_range
+                    .as_ref()
+                    .map(|range| (range.start, old.geometry_stream_capacity))
+            }),
         limits.max_geometry_stream_words,
         0,
+        SHARED_GEOMETRY_ALIGNMENT_WORDS,
     )?;
-    let model_start = geometry_stream_start;
-    let model_lighting_start = model_start.checked_add(
-        required.model * (PACKED_MODEL_REF_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32,
-    )?;
-    let liquid_start = model_lighting_start.checked_add(
-        required.model_lighting * (PACKED_QUAD_LIGHTING_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32,
-    )?;
-    let liquid_lighting_start = liquid_start.checked_add(
-        required.liquid * (PACKED_LIQUID_QUAD_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32,
-    )?;
+    let model_start = geometry_stream_start.checked_add(geometry_layout.model_offset)?;
+    let model_lighting_start =
+        geometry_stream_start.checked_add(geometry_layout.model_lighting_offset)?;
+    let liquid_start = geometry_stream_start.checked_add(geometry_layout.liquid_offset)?;
+    let liquid_lighting_start =
+        geometry_stream_start.checked_add(geometry_layout.liquid_lighting_offset)?;
 
     let mut free_biomes = current_free_biomes.to_vec();
     let (biome_start, biome_capacity) = allocate_range_for_update(
@@ -3832,6 +6087,65 @@ fn allocate_range_for_update(
         return Some((empty_start, 0));
     }
     allocate_quad_range(len, free, required, max_items).map(|start| (start, required))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn allocate_aligned_range_for_update(
+    len: &mut usize,
+    free: &mut Vec<Range<u32>>,
+    required: u32,
+    old: Option<(u32, u32)>,
+    max_items: usize,
+    empty_start: u32,
+    alignment: u32,
+) -> Option<(u32, u32)> {
+    if let Some((start, capacity)) = old
+        && required != 0
+        && required <= capacity
+        && start.is_multiple_of(alignment)
+    {
+        return Some((start, capacity));
+    }
+    if let Some((start, capacity)) = old
+        && capacity != 0
+    {
+        release_quad_range(len, free, start..start.saturating_add(capacity));
+    }
+    if required == 0 {
+        return Some((empty_start, 0));
+    }
+    allocate_aligned_quad_range(len, free, required, max_items, alignment)
+        .map(|start| (start, required))
+}
+
+fn allocate_aligned_quad_range(
+    len: &mut usize,
+    free: &mut Vec<Range<u32>>,
+    required: u32,
+    max_items: usize,
+    alignment: u32,
+) -> Option<u32> {
+    for index in 0..free.len() {
+        let start = checked_align_up(free[index].start, alignment)?;
+        let end = start.checked_add(required)?;
+        if end > free[index].end {
+            continue;
+        }
+        let source = free.remove(index);
+        insert_free_quad_range(free, source.start..start);
+        insert_free_quad_range(free, end..source.end);
+        return Some(start);
+    }
+
+    let current = u32::try_from(*len).ok()?;
+    let start = checked_align_up(current, alignment)?;
+    let end = start.checked_add(required)?;
+    if end as usize > max_items {
+        return None;
+    }
+    insert_free_quad_range(free, current..start);
+    *len = end as usize;
+    Some(start)
 }
 
 fn allocate_quad_range(
@@ -3937,6 +6251,43 @@ fn free_allocation(arena: &mut ChunkGpuArena, entity: Entity) {
         }
         release_origin(arena, allocation.gpu.metadata_index);
     }
+}
+
+fn release_completed_transparent_retirements(arena: &mut ChunkGpuArena, completed_epoch: u64) {
+    let mut retained = Vec::with_capacity(arena.retired_allocations.len());
+    for retirement in std::mem::take(&mut arena.retired_allocations) {
+        if !retirement.can_release(completed_epoch) {
+            retained.push(retirement);
+            continue;
+        }
+        let bytes = retirement.owned_bytes();
+        if let Some((range, capacity)) = retirement.quad {
+            release_quad_range(
+                &mut arena.quad_len,
+                &mut arena.free_quads,
+                range.start..range.start + capacity,
+            );
+        }
+        if let Some((range, capacity)) = retirement.geometry {
+            release_quad_range(
+                &mut arena.geometry_stream_len,
+                &mut arena.free_geometry_stream_words,
+                range.start..range.start + capacity,
+            );
+        }
+        if let Some((range, capacity)) = retirement.biome {
+            release_quad_range(
+                &mut arena.biome_len,
+                &mut arena.free_biomes,
+                range.start..range.start + capacity,
+            );
+        }
+        if let Some(origin) = retirement.origin {
+            release_origin(arena, origin);
+        }
+        arena.retirement_budget.release(1, bytes);
+    }
+    arena.retired_allocations = retained;
 }
 
 fn buffer_byte_len(item_count: usize, item_bytes: u64) -> u64 {
@@ -4220,6 +6571,7 @@ fn prepare_chunk_bind_group(
         animation_clock: clock.buffer.id(),
         model_templates: texture_assets.model_template_buffer.id(),
         geometry_streams: arena.geometry_stream_buffer.id(),
+        transparent_refs: arena.transparent_ref_buffer.id(),
         biome_tints: biome_tints.buffer.id(),
         biome_tint_table: biome_tints.identity,
         textures: texture_assets.identity,
@@ -4301,6 +6653,10 @@ fn prepare_chunk_bind_group(
             BindGroupEntry {
                 binding: 13,
                 resource: arena.geometry_stream_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 14,
+                resource: arena.transparent_ref_buffer.as_entire_binding(),
             },
         ],
     );
@@ -4689,15 +7045,257 @@ fn queue_chunks(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+fn queue_transparent_chunks(
+    pipeline_cache: Res<PipelineCache>,
+    mut pipeline: ResMut<ChunkPipeline>,
+    mut transparent_phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
+    draw_functions: Res<DrawFunctions<Transparent3d>>,
+    render_adapter: Res<RenderAdapter>,
+    render_device: Res<RenderDevice>,
+    views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
+    runtime: Res<TransparentSortRuntime>,
+) {
+    let Some(snapshot) = runtime.state.committed() else {
+        return;
+    };
+    if snapshot.refs().is_empty() {
+        return;
+    }
+    let draw_mode = select_chunk_draw_mode(
+        render_adapter.get_downlevel_capabilities().flags,
+        render_device.features(),
+    );
+    if draw_mode == ChunkDrawMode::Unsupported {
+        return;
+    }
+    let draw_functions = draw_functions.read();
+    let direct_draw = draw_functions.id::<DrawTransparentLiquidCommands>();
+    let indirect_draw = draw_functions.id::<DrawTransparentLiquidIndirectCommands>();
+    for (view_entity, main_entity, view, msaa) in &views {
+        if runtime.view_entity != Some(view_entity) {
+            continue;
+        }
+        let Some(phase) = transparent_phases.get_mut(&view.retained_view_entity) else {
+            continue;
+        };
+        let Ok(pipeline_id) = pipeline.liquid_variants.specialize(
+            &pipeline_cache,
+            ChunkPipelineKey {
+                msaa: *msaa,
+                hdr: view.hdr,
+            },
+        ) else {
+            continue;
+        };
+        // Water is the sole no-depth-write blend family in v1. One phase item
+        // preserves the worker's complete internal ref order; Task 19's
+        // non-water liquids use a separate depth-writing pipeline.
+        phase.add(Transparent3d {
+            entity: (view_entity, *main_entity),
+            pipeline: pipeline_id,
+            draw_function: if draw_mode == ChunkDrawMode::MultiDrawIndirect {
+                indirect_draw
+            } else {
+                direct_draw
+            },
+            distance: 0.0,
+            batch_range: 0..1,
+            extra_index: PhaseItemExtraIndex::None,
+            indexed: true,
+        });
+    }
+}
+
+fn transparent_frame_draws(
+    snapshot: &TransparentOrderedSnapshot,
+    arena: &ChunkGpuArena,
+) -> Vec<(Entity, FrameAllocationIdentity)> {
+    let active = arena
+        .allocations
+        .iter()
+        .map(|(&entity, allocation)| (entity, &allocation.gpu));
+    let retired = arena
+        .retired_allocations
+        .iter()
+        .map(|allocation| (allocation.entity, &allocation.identity));
+    active
+        .chain(retired)
+        .filter_map(|(entity, allocation)| {
+            transparent_snapshot_references_allocation(snapshot, allocation).then_some((
+                entity,
+                FrameAllocationIdentity {
+                    entity,
+                    key: allocation.key,
+                    generation: allocation.generation,
+                },
+            ))
+        })
+        .collect()
+}
+
+fn transparent_snapshot_references_allocation(
+    snapshot: &TransparentOrderedSnapshot,
+    allocation: &GpuChunkAllocation,
+) -> bool {
+    snapshot.key.visible_allocations.iter().any(|visible| {
+        visible.key == allocation.key
+            && visible.mesh_generation == allocation.generation
+            && visible.metadata_index == allocation.metadata_index
+            && allocation.liquid_range.as_ref() == Some(&visible.liquid_range)
+            && allocation.liquid_lighting_range.as_ref() == Some(&visible.lighting_range)
+    })
+}
+
+#[cfg(test)]
+fn transparent_view_key_satisfies_witness(
+    key: &ViewSortKey,
+    request: &TransparentWitnessRequest,
+) -> bool {
+    request.enabled()
+        && request.keys.iter().all(|required| {
+            key.visible_allocations
+                .iter()
+                .any(|allocation| allocation.key == *required)
+        })
+}
+
+fn transparent_view_missing_witness_keys(
+    key: &ViewSortKey,
+    request: &TransparentWitnessRequest,
+) -> Vec<SubChunkKey> {
+    request
+        .keys
+        .iter()
+        .copied()
+        .filter(|required| {
+            !key.visible_allocations
+                .iter()
+                .any(|allocation| allocation.key == *required)
+        })
+        .collect()
+}
+
+fn transparent_retirement_can_arm(
+    committed: Option<&TransparentOrderedSnapshot>,
+    retired: &GpuChunkAllocation,
+) -> bool {
+    committed.is_none_or(|snapshot| !transparent_snapshot_references_allocation(snapshot, retired))
+}
+
 type DrawChunkCommands = (SetItemPipeline, DrawPackedChunk);
 type DrawChunkIndirectCommands = (SetItemPipeline, DrawPackedChunksIndirect);
 type DrawModelCommands = (SetItemPipeline, DrawPackedModel);
 type DrawModelIndirectCommands = (SetItemPipeline, DrawPackedModelsIndirect);
+type DrawTransparentLiquidCommands = (SetItemPipeline, DrawTransparentLiquid);
+type DrawTransparentLiquidIndirectCommands = (SetItemPipeline, DrawTransparentLiquidIndirect);
 
 // Both supported paths use `first_instance` to select packed quad records and
 // `base_vertex / 4` to select the per-draw origin. Direct drawing is the
 // fallback only on adapters that expose BASE_VERTEX.
 struct DrawPackedChunk;
+
+struct DrawTransparentLiquid;
+
+impl<P: PhaseItem> RenderCommand<P> for DrawTransparentLiquid {
+    type Param = (
+        SRes<ChunkGpuArena>,
+        SRes<TransparentSortRuntime>,
+        SRes<TransparentSortMetrics>,
+        SRes<ActiveFrameProbe>,
+    );
+    type ViewQuery = Read<ViewUniformOffset>;
+    type ItemQuery = ();
+
+    fn render<'w>(
+        item: &P,
+        view_offset: ROQueryItem<'w, '_, Self::ViewQuery>,
+        _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
+        (arena, runtime, metrics, frame_probe): SystemParamItem<'w, '_, Self::Param>,
+        pass: &mut TrackedRenderPass<'w>,
+    ) -> RenderCommandResult {
+        let arena = arena.into_inner();
+        let runtime = runtime.into_inner();
+        if runtime.view_entity != Some(item.entity()) {
+            return RenderCommandResult::Skip;
+        }
+        let (Some(bind_group), Some(snapshot)) = (&arena.bind_group, runtime.state.committed())
+        else {
+            return RenderCommandResult::Skip;
+        };
+        let Some(args) = transparent_draw_args(snapshot.buffer_slot(), snapshot.refs().len())
+        else {
+            return RenderCommandResult::Skip;
+        };
+        if args.instance_count == 0 {
+            return RenderCommandResult::Skip;
+        }
+        pass.set_bind_group(0, bind_group, &[view_offset.offset]);
+        pass.set_index_buffer(arena.index_buffer.slice(..), IndexFormat::Uint32);
+        pass.draw_indexed(
+            args.first_index..args.first_index + args.index_count,
+            args.base_vertex,
+            args.first_instance..args.first_instance + args.instance_count,
+        );
+        let frame_probe = frame_probe.into_inner();
+        if frame_probe.is_active() {
+            frame_probe.record_transparent_draw(
+                snapshot.generation(),
+                transparent_frame_draws(snapshot, arena),
+            );
+        }
+        let generation = snapshot.generation().get();
+        record_encoded_transparent_generation(metrics.into_inner(), ViewSortGeneration(generation));
+        RenderCommandResult::Success
+    }
+}
+
+struct DrawTransparentLiquidIndirect;
+
+impl<P: PhaseItem> RenderCommand<P> for DrawTransparentLiquidIndirect {
+    type Param = (
+        SRes<ChunkGpuArena>,
+        SRes<TransparentSortRuntime>,
+        SRes<TransparentSortMetrics>,
+        SRes<ActiveFrameProbe>,
+    );
+    type ViewQuery = Read<ViewUniformOffset>;
+    type ItemQuery = ();
+
+    fn render<'w>(
+        item: &P,
+        view_offset: ROQueryItem<'w, '_, Self::ViewQuery>,
+        _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
+        (arena, runtime, metrics, frame_probe): SystemParamItem<'w, '_, Self::Param>,
+        pass: &mut TrackedRenderPass<'w>,
+    ) -> RenderCommandResult {
+        let arena = arena.into_inner();
+        let runtime = runtime.into_inner();
+        if runtime.view_entity != Some(item.entity()) {
+            return RenderCommandResult::Skip;
+        }
+        let (Some(bind_group), Some(snapshot)) = (&arena.bind_group, runtime.state.committed())
+        else {
+            return RenderCommandResult::Skip;
+        };
+        if snapshot.refs().is_empty() {
+            return RenderCommandResult::Skip;
+        }
+        pass.set_bind_group(0, bind_group, &[view_offset.offset]);
+        pass.set_index_buffer(arena.index_buffer.slice(..), IndexFormat::Uint32);
+        pass.draw_indexed_indirect(&arena.transparent_indirect_buffer, 0);
+        let frame_probe = frame_probe.into_inner();
+        if frame_probe.is_active() {
+            frame_probe.record_transparent_draw(
+                snapshot.generation(),
+                transparent_frame_draws(snapshot, arena),
+            );
+        }
+        let generation = snapshot.generation().get();
+        record_encoded_transparent_generation(metrics.into_inner(), ViewSortGeneration(generation));
+        RenderCommandResult::Success
+    }
+}
 
 impl<P: PhaseItem> RenderCommand<P> for DrawPackedChunk {
     type Param = (SRes<ChunkGpuArena>, SRes<ActiveFrameProbe>);
@@ -4869,22 +7467,68 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedModelsIndirect {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn submit_presented_frame_probe(
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     frame_probe: Res<ActiveFrameProbe>,
     presented_frame_gate: Res<PresentedFrameGate>,
+    transparent_metrics: Res<TransparentSortMetrics>,
+    transparent_fence: Res<TransparentPresentationFence>,
+    transparent_runtime: Res<TransparentSortRuntime>,
+    mut arena: ResMut<ChunkGpuArena>,
+    retirement_fence: Res<TransparentRetirementFence>,
+    witness_request: Res<TransparentWitnessRequest>,
+    witness_evidence: Res<TransparentWitnessEvidence>,
 ) {
-    let Some(completed_probe) = frame_probe.take_completed() else {
-        if let Err(error) = render_device.poll(PollType::Poll) {
-            bevy::log::warn!(
-                ?error,
-                "could not nonblockingly poll presented-frame fences"
-            );
+    let completed_probe = frame_probe.take_completed().and_then(|probe| {
+        presented_frame_gate
+            .try_reserve_callback(&probe.expectation)
+            .then_some(probe)
+    });
+    let transparent_snapshot = transparent_metrics.snapshot();
+    let transparent_generation = (transparent_snapshot.encoded_generation != 0
+        && transparent_snapshot.encoded_generation == transparent_snapshot.committed_generation
+        && transparent_snapshot.encoded_generation != transparent_snapshot.presented_generation
+        && transparent_fence.try_reserve(transparent_snapshot.encoded_generation))
+    .then_some(transparent_snapshot.encoded_generation);
+    let has_releasable_retirement = arena.retired_allocations.iter().any(|retirement| {
+        retirement.release_epoch.is_none()
+            && transparent_retirement_can_arm(
+                transparent_runtime.state.committed(),
+                &retirement.identity,
+            )
+    });
+    let retirement_epoch = has_releasable_retirement
+        .then(|| retirement_fence.try_reserve())
+        .flatten();
+    if let Some(epoch) = retirement_epoch {
+        for retirement in &mut arena.retired_allocations {
+            if retirement.release_epoch.is_none()
+                && transparent_retirement_can_arm(
+                    transparent_runtime.state.committed(),
+                    &retirement.identity,
+                )
+            {
+                retirement.release_epoch = Some(epoch);
+            }
         }
-        return;
-    };
-    if !presented_frame_gate.try_reserve_callback(&completed_probe.expectation) {
+    }
+    let witness_generation = transparent_runtime
+        .state
+        .committed()
+        .map_or(0, |snapshot| snapshot.generation().get());
+    let witness_missing = transparent_runtime.state.committed().map_or_else(
+        || witness_request.keys().to_vec(),
+        |snapshot| transparent_view_missing_witness_keys(snapshot.key(), &witness_request),
+    );
+    let witness_token =
+        witness_evidence.try_reserve_missing(&witness_request, witness_generation, witness_missing);
+    if completed_probe.is_none()
+        && transparent_generation.is_none()
+        && retirement_epoch.is_none()
+        && witness_token.is_none()
+    {
         if let Err(error) = render_device.poll(PollType::Poll) {
             bevy::log::warn!(
                 ?error,
@@ -4899,8 +7543,29 @@ fn submit_presented_frame_probe(
     });
     let command_buffer = encoder.finish();
     let callback_gate = presented_frame_gate.clone();
+    let callback_metrics = transparent_metrics.clone();
+    let callback_transparent_fence = transparent_fence.clone();
+    let callback_retirement_fence = retirement_fence.clone();
+    let callback_witness_evidence = witness_evidence.clone();
     command_buffer.on_submitted_work_done(move || {
-        callback_gate.publish_reserved_probe(completed_probe, present_returned_at, Instant::now());
+        if let Some(completed_probe) = completed_probe {
+            callback_gate.publish_reserved_probe(
+                completed_probe,
+                present_returned_at,
+                Instant::now(),
+            );
+        }
+        if let Some(generation) = transparent_generation
+            && callback_transparent_fence.complete(generation)
+        {
+            record_gpu_completed_transparent_generation(&callback_metrics, generation);
+        }
+        if let Some(epoch) = retirement_epoch {
+            callback_retirement_fence.complete(epoch);
+        }
+        if let Some(token) = witness_token {
+            callback_witness_evidence.complete(token);
+        }
     });
     render_queue.submit([command_buffer]);
     if let Err(error) = render_device.poll(PollType::Poll) {
@@ -4932,6 +7597,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn chunk_sampler_keeps_native_texels_crisp_without_discarding_minification_mips() {
+        let descriptor = chunk_sampler_descriptor();
+        assert_eq!(descriptor.mag_filter, FilterMode::Nearest);
+        assert_eq!(descriptor.min_filter, FilterMode::Linear);
+        assert_eq!(descriptor.mipmap_filter, FilterMode::Linear);
+        assert_eq!(descriptor.anisotropy_clamp, 1);
+    }
+
+    #[test]
     fn allocation_is_atomic_across_streams() {
         let free_cube = std::iter::once(0..1).collect::<Vec<_>>();
         let required = GeometryStreamCounts {
@@ -4951,9 +7625,10 @@ mod tests {
             required,
             0,
             None,
+            false,
             ArenaLimits {
                 max_quad_items: 1,
-                max_geometry_stream_words: 11,
+                max_geometry_stream_words: 13,
                 max_origin_items: 1,
                 max_biome_words: FALLBACK_BIOME_WORDS,
             },
@@ -4974,9 +7649,10 @@ mod tests {
             required,
             0,
             None,
+            false,
             ArenaLimits {
                 max_quad_items: 1,
-                max_geometry_stream_words: 12,
+                max_geometry_stream_words: 14,
                 max_origin_items: 1,
                 max_biome_words: FALLBACK_BIOME_WORDS,
             },
@@ -4985,9 +7661,9 @@ mod tests {
         assert_eq!(retry.quad_start, 0);
         assert_eq!(retry.model_start, 0);
         assert_eq!(retry.model_lighting_start, 4);
-        assert_eq!(retry.liquid_start, 6);
-        assert_eq!(retry.liquid_lighting_start, 10);
-        assert_eq!(retry.geometry_stream_capacity, 12);
+        assert_eq!(retry.liquid_start, 8);
+        assert_eq!(retry.liquid_lighting_start, 12);
+        assert_eq!(retry.geometry_stream_capacity, 14);
 
         let empty = plan_chunk_range_update(
             0,
@@ -4999,6 +7675,7 @@ mod tests {
             GeometryStreamCounts::default(),
             0,
             None,
+            false,
             ArenaLimits {
                 max_quad_items: 0,
                 max_geometry_stream_words: 0,
@@ -5009,6 +7686,184 @@ mod tests {
         .expect("empty streams need no geometry arena capacity");
         assert_eq!(empty.quad_capacity, 0);
         assert_eq!(empty.geometry_stream_capacity, 0);
+    }
+
+    #[test]
+    fn shared_geometry_layout_aligns_liquid_records_after_odd_model_lighting() {
+        let required = GeometryStreamCounts {
+            model: 1,
+            model_lighting: 1,
+            liquid: 1,
+            liquid_lighting: 1,
+            ..Default::default()
+        };
+        let plan = plan_chunk_range_update(
+            0,
+            &[],
+            0,
+            &[],
+            FALLBACK_BIOME_WORDS,
+            &[],
+            required,
+            0,
+            None,
+            false,
+            ArenaLimits {
+                max_quad_items: 0,
+                max_geometry_stream_words: 16,
+                max_origin_items: 1,
+                max_biome_words: FALLBACK_BIOME_WORDS,
+            },
+        )
+        .expect("the aligned shared streams fit the arena");
+
+        assert_eq!(plan.liquid_start % 4, 0);
+        assert_eq!(plan.liquid_lighting_start % 2, 0);
+    }
+
+    #[test]
+    fn shared_geometry_tail_alignment_is_included_in_arena_accounting() {
+        let required = GeometryStreamCounts {
+            liquid: 1,
+            liquid_lighting: 1,
+            ..Default::default()
+        };
+        let plan = plan_chunk_range_update(
+            0,
+            &[],
+            2,
+            &[],
+            FALLBACK_BIOME_WORDS,
+            &[],
+            required,
+            0,
+            None,
+            false,
+            ArenaLimits {
+                max_quad_items: 0,
+                max_geometry_stream_words: 10,
+                max_origin_items: 1,
+                max_biome_words: FALLBACK_BIOME_WORDS,
+            },
+        )
+        .expect("two padding words plus six stream words fit exactly");
+
+        assert_eq!(plan.geometry_stream_start, 4);
+        assert_eq!(plan.liquid_start, 4);
+        assert_eq!(plan.liquid_lighting_start, 8);
+        assert_eq!(plan.geometry_stream_capacity, 6);
+        assert_eq!(plan.geometry_stream_len, 10);
+        assert_eq!(plan.free_geometry_stream_words, vec![2..4]);
+    }
+
+    #[test]
+    fn aligned_shared_geometry_reuses_an_eligible_old_allocation() {
+        let required = GeometryStreamCounts {
+            model: 1,
+            model_lighting: 1,
+            liquid: 1,
+            liquid_lighting: 1,
+            ..Default::default()
+        };
+        let mut old = retirement_test_allocation();
+        old.model_range = Some(8..12);
+        old.model_lighting_range = Some(12..14);
+        old.liquid_range = Some(16..20);
+        old.liquid_lighting_range = Some(20..22);
+        old.geometry_stream_range = Some(8..22);
+        old.geometry_stream_capacity = 14;
+        let plan = plan_chunk_range_update(
+            0,
+            &[],
+            22,
+            &[],
+            FALLBACK_BIOME_WORDS,
+            &[],
+            required,
+            0,
+            Some(&old),
+            false,
+            ArenaLimits {
+                max_quad_items: 0,
+                max_geometry_stream_words: 22,
+                max_origin_items: 1,
+                max_biome_words: FALLBACK_BIOME_WORDS,
+            },
+        )
+        .expect("the aligned old allocation remains reusable");
+
+        assert_eq!(plan.geometry_stream_start, 8);
+        assert_eq!(plan.geometry_stream_capacity, 14);
+        assert_eq!(plan.liquid_start, 16);
+        assert_eq!(plan.geometry_stream_len, 22);
+        assert!(plan.free_geometry_stream_words.is_empty());
+    }
+
+    #[test]
+    fn aligned_shared_geometry_is_transparent_validator_eligible() {
+        let key = SubChunkKey::new(0, 1, 4, 5);
+        let tint = ChunkBiomeTintIdentity::new(2, 3);
+        let required = GeometryStreamCounts {
+            model: 1,
+            model_lighting: 1,
+            liquid: 1,
+            liquid_lighting: 1,
+            ..Default::default()
+        };
+        let plan = plan_chunk_range_update(
+            0,
+            &[],
+            0,
+            &[],
+            FALLBACK_BIOME_WORDS,
+            &[],
+            required,
+            0,
+            None,
+            false,
+            ArenaLimits {
+                max_quad_items: 0,
+                max_geometry_stream_words: 14,
+                max_origin_items: 1,
+                max_biome_words: FALLBACK_BIOME_WORDS,
+            },
+        )
+        .expect("aligned streams fit exactly");
+        let instance = ChunkRenderInstance {
+            key,
+            cube_quads: Arc::from([]),
+            model_refs: Arc::from([]),
+            model_lighting: Arc::from([]),
+            liquid_quads: Arc::from([PackedLiquidQuad::try_pack(
+                [0, 0, 0],
+                crate::Face::PositiveY,
+                [255; 4],
+                1,
+                0,
+                [0, 0],
+                false,
+            )
+            .unwrap()]),
+            liquid_lighting: Arc::from([PackedQuadLighting::new([0; 4])]),
+            biome: PackedBiomeRecord::fallback(),
+            tint_identity: tint,
+            generation: 9,
+            token: None,
+            origin: [0; 3],
+        };
+        let allocation = GpuChunkAllocation {
+            key,
+            generation: 9,
+            tint_identity: tint,
+            quad_range: 0..0,
+            model_range: Some(plan.model_start..plan.model_lighting_start),
+            model_lighting_range: Some(plan.model_lighting_start..plan.liquid_start),
+            liquid_range: Some(plan.liquid_start..plan.liquid_start + 4),
+            liquid_lighting_range: Some(plan.liquid_lighting_start..plan.liquid_lighting_start + 2),
+            metadata_index: 0,
+        };
+
+        assert!(transparent_allocation_matches(&instance, &allocation, tint));
     }
 
     #[test]
@@ -5134,6 +7989,1150 @@ mod tests {
     }
 
     #[test]
+    fn liquid_lighting_index_patches_to_shared_arena_records_without_mutating_other_words() {
+        let mut quads = vec![[0x432, 7, 0b101, 0], [0x765, 8, 0b110, 2]];
+        absolutize_liquid_lighting_indices(&mut quads, 20);
+        assert_eq!(quads, [[0x432, 7, 0b101, 10], [0x765, 8, 0b110, 12]]);
+    }
+
+    #[test]
+    fn transparent_refs_require_exact_instance_identity_and_aligned_stream_ranges() {
+        let key = SubChunkKey::new(0, 1, 2, 3);
+        let tint = ChunkBiomeTintIdentity::new(4, 5);
+        let instance = ChunkRenderInstance {
+            key,
+            cube_quads: Arc::from([]),
+            model_refs: Arc::from([]),
+            model_lighting: Arc::from([]),
+            liquid_quads: Arc::from([PackedLiquidQuad::try_pack(
+                [0, 0, 0],
+                crate::Face::PositiveY,
+                [255; 4],
+                1,
+                0,
+                [0, 0],
+                false,
+            )
+            .unwrap()]),
+            liquid_lighting: Arc::from([PackedQuadLighting::new([0; 4])]),
+            biome: PackedBiomeRecord::fallback(),
+            tint_identity: tint,
+            generation: 6,
+            token: None,
+            origin: [16, 32, 48],
+        };
+        let allocation = GpuChunkAllocation {
+            key,
+            generation: 6,
+            tint_identity: tint,
+            quad_range: 0..0,
+            model_range: None,
+            model_lighting_range: None,
+            liquid_range: Some(8..12),
+            liquid_lighting_range: Some(20..22),
+            metadata_index: 7,
+        };
+        assert!(transparent_allocation_matches(&instance, &allocation, tint));
+
+        let mut mismatches = Vec::new();
+        let mut mismatch = allocation.clone();
+        mismatch.generation += 1;
+        mismatches.push(mismatch);
+        let mut mismatch = allocation.clone();
+        mismatch.tint_identity = ChunkBiomeTintIdentity::new(4, 6);
+        mismatches.push(mismatch);
+        let mut mismatch = allocation.clone();
+        mismatch.liquid_range = Some(9..13);
+        mismatches.push(mismatch);
+        let mut mismatch = allocation.clone();
+        mismatch.liquid_range = Some(8..16);
+        mismatches.push(mismatch);
+        let mut mismatch = allocation.clone();
+        mismatch.liquid_lighting_range = Some(21..23);
+        mismatches.push(mismatch);
+        let mut mismatch = allocation.clone();
+        mismatch.liquid_lighting_range = Some(20..24);
+        mismatches.push(mismatch);
+        assert!(
+            mismatches.into_iter().all(|allocation| {
+                !transparent_allocation_matches(&instance, &allocation, tint)
+            })
+        );
+        assert!(!transparent_allocation_matches(
+            &instance,
+            &allocation,
+            ChunkBiomeTintIdentity::new(9, 9),
+        ));
+    }
+
+    fn resident_transparent_allocation(
+        identity: &TransparentAllocationIdentity,
+        tint_identity: ChunkBiomeTintIdentity,
+    ) -> GpuChunkAllocation {
+        GpuChunkAllocation {
+            key: identity.key,
+            generation: identity.mesh_generation,
+            tint_identity,
+            quad_range: 0..0,
+            model_range: None,
+            model_lighting_range: None,
+            liquid_range: Some(identity.liquid_range.clone()),
+            liquid_lighting_range: Some(identity.lighting_range.clone()),
+            metadata_index: identity.metadata_index,
+        }
+    }
+
+    fn committed_transparent_state(
+        key: &ViewSortKey,
+        refs: Vec<PackedTransparentDrawRef>,
+    ) -> TransparentSortState {
+        let mut state = TransparentSortState::with_upload_cap(64);
+        let generation = state.request(key);
+        assert_eq!(
+            state.complete(TransparentSortResult::new(generation, key.clone(), refs).unwrap()),
+            Ok(false)
+        );
+        assert!(state.acknowledge_upload());
+        state
+    }
+
+    #[test]
+    fn visibility_membership_churn_retains_resident_snapshot_until_ordered_swap() {
+        let texture_identity = ChunkTextureAssetIdentity::for_test(1, 1);
+        let tint_identity = ChunkBiomeTintIdentity::new(2, 2);
+        let a =
+            TransparentAllocationIdentity::new(SubChunkKey::new(0, 0, 0, 0), 3, 8..16, 32..36, 1);
+        let b =
+            TransparentAllocationIdentity::new(SubChunkKey::new(0, 1, 0, 0), 4, 16..24, 36..40, 2);
+        let c =
+            TransparentAllocationIdentity::new(SubChunkKey::new(0, 2, 0, 0), 5, 24..32, 40..44, 3);
+        let old_key = ViewSortKey::try_new(
+            [0.0; 3],
+            [0.0, 0.0, 0.0, 1.0],
+            vec![a.clone(), b.clone()],
+            texture_identity,
+            tint_identity,
+        )
+        .unwrap();
+        let old_refs = vec![
+            PackedTransparentDrawRef::new(2, 2),
+            PackedTransparentDrawRef::new(1, 1),
+        ];
+        let mut state = committed_transparent_state(&old_key, old_refs.clone());
+        let old_snapshot = state.committed().unwrap().clone();
+        let resident = [
+            resident_transparent_allocation(&a, tint_identity),
+            resident_transparent_allocation(&b, tint_identity),
+            resident_transparent_allocation(&c, tint_identity),
+        ];
+        assert!(transparent_snapshot_addresses_are_resident(
+            &old_snapshot,
+            resident.iter(),
+            std::iter::empty(),
+            texture_identity,
+            tint_identity,
+        ));
+
+        // B leaves the frustum while C enters it. B's arena allocation remains
+        // resident, so every absolute reference in the old ordered snapshot is
+        // still safe to draw while the replacement sort runs.
+        let next_key = ViewSortKey::try_new(
+            [1.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+            vec![a, c],
+            texture_identity,
+            tint_identity,
+        )
+        .unwrap();
+        let next_generation = state.request_retaining_resident_snapshot(&next_key, true);
+        assert_eq!(state.committed(), Some(&old_snapshot));
+        let retained_draw = transparent_draw_args(
+            state.committed().unwrap().buffer_slot(),
+            state.committed().unwrap().refs().len(),
+        )
+        .unwrap();
+        assert_eq!(retained_draw.instance_count, old_refs.len() as u32);
+        let new_refs = vec![
+            PackedTransparentDrawRef::new(3, 3),
+            PackedTransparentDrawRef::new(1, 1),
+        ];
+        assert_eq!(
+            state.complete(
+                TransparentSortResult::new(next_generation, next_key, new_refs.clone()).unwrap()
+            ),
+            Ok(false)
+        );
+        assert_eq!(state.committed(), Some(&old_snapshot));
+        assert_eq!(state.next_upload_batch().unwrap().refs(), new_refs);
+        assert!(state.acknowledge_upload());
+        let replacement = state.committed().unwrap();
+        assert_eq!(replacement.generation(), next_generation);
+        assert_eq!(replacement.refs(), new_refs);
+        assert_ne!(replacement.buffer_slot(), old_snapshot.buffer_slot());
+    }
+
+    #[test]
+    fn missing_or_reallocated_snapshot_identity_clears_absolute_refs_immediately() {
+        let texture_identity = ChunkTextureAssetIdentity::for_test(1, 1);
+        let tint_identity = ChunkBiomeTintIdentity::new(2, 2);
+        let identity =
+            TransparentAllocationIdentity::new(SubChunkKey::new(0, 0, 0, 0), 3, 8..16, 32..36, 1);
+        let key = ViewSortKey::try_new(
+            [0.0; 3],
+            [0.0, 0.0, 0.0, 1.0],
+            vec![identity.clone()],
+            texture_identity,
+            tint_identity,
+        )
+        .unwrap();
+        let changed_key = ViewSortKey::try_new(
+            [1.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+            vec![],
+            texture_identity,
+            tint_identity,
+        )
+        .unwrap();
+
+        let exact = resident_transparent_allocation(&identity, tint_identity);
+        let mut changed_liquid_range = exact.clone();
+        changed_liquid_range.liquid_range = Some(12..20);
+        let mut changed_metadata = exact;
+        changed_metadata.metadata_index += 1;
+        for resident in [
+            Vec::new(),
+            vec![changed_liquid_range],
+            vec![changed_metadata],
+        ] {
+            let mut state =
+                committed_transparent_state(&key, vec![PackedTransparentDrawRef::new(2, 1)]);
+            assert!(!transparent_snapshot_addresses_are_resident(
+                state.committed().unwrap(),
+                resident.iter(),
+                std::iter::empty(),
+                texture_identity,
+                tint_identity,
+            ));
+            state.request_retaining_resident_snapshot(&changed_key, false);
+            assert!(state.committed().is_none());
+        }
+    }
+
+    #[test]
+    fn generation_only_update_retains_physically_resident_snapshot_and_draw_args() {
+        let texture_identity = ChunkTextureAssetIdentity::for_test(1, 1);
+        let tint_identity = ChunkBiomeTintIdentity::new(2, 2);
+        let old_identity =
+            TransparentAllocationIdentity::new(SubChunkKey::new(0, 0, 0, 0), 3, 8..16, 32..36, 1);
+        let old_key = ViewSortKey::try_new(
+            [0.0; 3],
+            [0.0, 0.0, 0.0, 1.0],
+            vec![old_identity.clone()],
+            texture_identity,
+            tint_identity,
+        )
+        .unwrap();
+        let refs = vec![
+            PackedTransparentDrawRef::new(2, 1),
+            PackedTransparentDrawRef::new(3, 1),
+        ];
+        let mut state = committed_transparent_state(&old_key, refs.clone());
+        let old_snapshot = state.committed().unwrap().clone();
+
+        let mut resident = resident_transparent_allocation(&old_identity, tint_identity);
+        resident.generation += 1;
+        assert!(transparent_snapshot_addresses_are_resident(
+            &old_snapshot,
+            [&resident],
+            std::iter::empty(),
+            texture_identity,
+            tint_identity,
+        ));
+
+        let next_identity = TransparentAllocationIdentity::new(
+            old_identity.key,
+            resident.generation,
+            old_identity.liquid_range.clone(),
+            old_identity.lighting_range.clone(),
+            old_identity.metadata_index,
+        );
+        let next_key = ViewSortKey::try_new(
+            [0.0; 3],
+            [0.0, 0.0, 0.0, 1.0],
+            vec![next_identity],
+            texture_identity,
+            tint_identity,
+        )
+        .unwrap();
+        let generation = state.request_retaining_resident_snapshot(&next_key, true);
+        assert_eq!(state.committed(), Some(&old_snapshot));
+        let retained_args = transparent_draw_args(
+            state.committed().unwrap().buffer_slot(),
+            state.committed().unwrap().refs().len(),
+        )
+        .unwrap();
+        assert_eq!(retained_args.instance_count, refs.len() as u32);
+
+        let replacement_refs = refs.into_iter().rev().collect::<Vec<_>>();
+        assert_eq!(
+            state.complete(
+                TransparentSortResult::new(generation, next_key, replacement_refs.clone()).unwrap()
+            ),
+            Ok(false)
+        );
+        assert_eq!(state.committed(), Some(&old_snapshot));
+        assert!(state.acknowledge_upload());
+        assert_eq!(state.committed().unwrap().refs(), replacement_refs);
+        assert_ne!(
+            state.committed().unwrap().buffer_slot(),
+            old_snapshot.buffer_slot()
+        );
+    }
+
+    #[test]
+    fn grown_same_start_liquid_range_keeps_old_refs_physically_resident() {
+        let texture_identity = ChunkTextureAssetIdentity::for_test(1, 1);
+        let tint_identity = ChunkBiomeTintIdentity::new(2, 2);
+        let identity =
+            TransparentAllocationIdentity::new(SubChunkKey::new(0, 0, 0, 0), 3, 8..16, 32..36, 1);
+        let key = ViewSortKey::try_new(
+            [0.0; 3],
+            [0.0, 0.0, 0.0, 1.0],
+            vec![identity.clone()],
+            texture_identity,
+            tint_identity,
+        )
+        .unwrap();
+        let snapshot = committed_transparent_state(
+            &key,
+            vec![PackedTransparentDrawRef::new(2, identity.metadata_index)],
+        )
+        .committed()
+        .unwrap()
+        .clone();
+        let mut resident = resident_transparent_allocation(&identity, tint_identity);
+        resident.generation += 1;
+        resident.liquid_range = Some(8..24);
+        resident.liquid_lighting_range = Some(40..48);
+        assert!(transparent_snapshot_addresses_are_resident(
+            &snapshot,
+            [&resident],
+            std::iter::empty(),
+            texture_identity,
+            tint_identity,
+        ));
+    }
+
+    #[test]
+    fn physical_residency_rejects_moved_shrunk_or_structurally_invalid_streams() {
+        let texture_identity = ChunkTextureAssetIdentity::for_test(1, 1);
+        let tint_identity = ChunkBiomeTintIdentity::new(2, 2);
+        let identity =
+            TransparentAllocationIdentity::new(SubChunkKey::new(0, 0, 0, 0), 3, 8..16, 32..36, 1);
+        let key = ViewSortKey::try_new(
+            [0.0; 3],
+            [0.0, 0.0, 0.0, 1.0],
+            vec![identity.clone()],
+            texture_identity,
+            tint_identity,
+        )
+        .unwrap();
+        let snapshot = committed_transparent_state(
+            &key,
+            vec![PackedTransparentDrawRef::new(2, identity.metadata_index)],
+        )
+        .committed()
+        .unwrap()
+        .clone();
+        let exact = resident_transparent_allocation(&identity, tint_identity);
+        let mut moved = exact.clone();
+        moved.liquid_range = Some(4..16);
+        let mut shrunk = exact.clone();
+        shrunk.liquid_range = Some(8..12);
+        let mut missing_lighting = exact.clone();
+        missing_lighting.liquid_lighting_range = None;
+        let mut invalid_lighting_count = exact.clone();
+        invalid_lighting_count.liquid_lighting_range = Some(32..34);
+        let mut changed_tint = exact.clone();
+        changed_tint.tint_identity = ChunkBiomeTintIdentity::new(9, 9);
+        let mut changed_key = exact;
+        changed_key.key = SubChunkKey::new(0, 1, 0, 0);
+
+        for resident in [
+            moved,
+            shrunk,
+            missing_lighting,
+            invalid_lighting_count,
+            changed_tint,
+            changed_key,
+        ] {
+            assert!(!transparent_snapshot_addresses_are_resident(
+                &snapshot,
+                [&resident],
+                std::iter::empty(),
+                texture_identity,
+                tint_identity,
+            ));
+        }
+        assert!(!transparent_snapshot_addresses_are_resident(
+            &snapshot,
+            [&resident_transparent_allocation(&identity, tint_identity)],
+            std::iter::empty(),
+            ChunkTextureAssetIdentity::for_test(9, 9),
+            tint_identity,
+        ));
+    }
+
+    #[test]
+    fn retirement_fence_uses_monotonic_epochs_and_ignores_stale_callbacks() {
+        let fence = TransparentRetirementFence::default();
+        let first = fence.try_reserve().expect("reserve first retirement epoch");
+        assert_eq!(first, 1);
+        assert!(!fence.complete(first + 9));
+        assert_eq!(fence.completed_epoch(), 0);
+        assert!(fence.complete(first));
+        assert_eq!(fence.completed_epoch(), first);
+        let second = fence
+            .try_reserve()
+            .expect("reserve second retirement epoch");
+        assert!(second > first);
+        assert!(!fence.complete(first));
+        assert_eq!(fence.completed_epoch(), first);
+        assert!(fence.complete(second));
+        assert_eq!(fence.completed_epoch(), second);
+    }
+
+    #[test]
+    fn retirement_budget_backpressures_without_overcommit_and_recovers_after_release() {
+        let mut budget = TransparentRetirementBudget::with_limits(2, 64);
+        assert!(budget.try_reserve(1, 32));
+        assert!(budget.try_reserve(1, 32));
+        assert!(!budget.try_reserve(1, 1));
+        assert!(!budget.try_reserve(0, 1));
+        budget.release(1, 32);
+        assert!(budget.try_reserve(1, 32));
+        assert_eq!(budget.items(), 2);
+        assert_eq!(budget.bytes(), 64);
+    }
+
+    fn retirement_test_allocation() -> ArenaAllocation {
+        ArenaAllocation {
+            generation: 7,
+            tint_identity: ChunkBiomeTintIdentity::new(2, 2),
+            cube_range: Some(0..2),
+            model_range: None,
+            model_lighting_range: None,
+            liquid_range: Some(8..16),
+            liquid_lighting_range: Some(16..20),
+            quad_capacity: 2,
+            geometry_stream_range: Some(0..20),
+            geometry_stream_capacity: 30,
+            biome_range: 2..6,
+            biome_capacity: 4,
+            gpu: GpuChunkAllocation {
+                key: SubChunkKey::new(0, 0, 0, 0),
+                generation: 7,
+                tint_identity: ChunkBiomeTintIdentity::new(2, 2),
+                quad_range: 0..2,
+                model_range: None,
+                model_lighting_range: None,
+                liquid_range: Some(8..16),
+                liquid_lighting_range: Some(16..20),
+                metadata_index: 3,
+            },
+        }
+    }
+
+    #[test]
+    fn moved_or_shrunk_liquid_contract_requires_copy_on_write_but_containment_does_not() {
+        let old = retirement_test_allocation();
+        let same_start_growth = GeometryStreamCounts {
+            model: 2,
+            liquid: 3,
+            liquid_lighting: 3,
+            ..default()
+        };
+        assert!(!transparent_geometry_update_requires_cow(
+            &old,
+            same_start_growth
+        ));
+        let moved_by_model = GeometryStreamCounts {
+            model: 2,
+            model_lighting: 1,
+            liquid: 2,
+            liquid_lighting: 2,
+            ..default()
+        };
+        assert!(transparent_geometry_update_requires_cow(
+            &old,
+            moved_by_model
+        ));
+        assert!(transparent_geometry_update_requires_cow(
+            &old,
+            GeometryStreamCounts::default()
+        ));
+    }
+
+    #[test]
+    fn copy_on_write_plan_keeps_old_extent_out_of_free_lists_and_growth_copy() {
+        let old = retirement_test_allocation();
+        let required = GeometryStreamCounts {
+            model: 2,
+            model_lighting: 1,
+            liquid: 2,
+            liquid_lighting: 2,
+            ..default()
+        };
+        let plan = plan_chunk_range_update(
+            2,
+            &[],
+            30,
+            &[],
+            6,
+            &[],
+            required,
+            4,
+            Some(&old),
+            true,
+            ArenaLimits {
+                max_quad_items: 128,
+                max_geometry_stream_words: 128,
+                max_origin_items: 16,
+                max_biome_words: 128,
+            },
+        )
+        .unwrap();
+        assert_eq!(plan.geometry_stream_start, 32);
+        assert_eq!(plan.free_geometry_stream_words, vec![30..32]);
+        assert!(plan.geometry_stream_len > old.geometry_stream_capacity as usize);
+        assert_eq!(
+            plan_arena_growth(1, plan.geometry_stream_len, 4, 128)
+                .unwrap()
+                .unwrap()
+                .gpu_copy_bytes,
+            4,
+            "growth copies the prior high-water buffer, including retired bytes"
+        );
+    }
+
+    #[test]
+    fn partial_and_full_retirement_transfer_only_the_owned_spans() {
+        let entity = Entity::from_bits(1 << 32 | 11);
+        let old = retirement_test_allocation();
+        let partial = RetiredArenaAllocation::geometry_only(entity, &old).unwrap();
+        assert!(partial.quad.is_none());
+        assert!(partial.geometry.is_some());
+        assert!(partial.biome.is_none());
+        assert!(partial.origin.is_none());
+
+        let full = RetiredArenaAllocation::full(entity, old);
+        assert!(full.quad.is_some());
+        assert!(full.geometry.is_some());
+        assert!(full.biome.is_some());
+        assert_eq!(full.origin, Some(3));
+    }
+
+    #[test]
+    fn retired_range_is_fence_delayed_then_coalesced_for_eventual_reuse() {
+        let entity = Entity::from_bits(1 << 32 | 11);
+        let old = retirement_test_allocation();
+        let mut retirement = RetiredArenaAllocation::geometry_only(entity, &old).unwrap();
+        retirement.release_epoch = Some(2);
+        let mut len = 60;
+        let mut free = Vec::new();
+        assert!(!retirement.can_release(1));
+        assert_eq!(allocate_quad_range(&mut len, &mut free, 30, 90), Some(60));
+        release_quad_range(&mut len, &mut free, 60..90);
+
+        assert!(retirement.can_release(2));
+        let (range, capacity) = retirement.geometry.clone().unwrap();
+        release_quad_range(&mut len, &mut free, range.start..range.start + capacity);
+        assert_eq!(allocate_quad_range(&mut len, &mut free, 30, 90), Some(0));
+    }
+
+    #[test]
+    fn transparent_witness_requires_the_exact_bounded_key_set() {
+        let a = SubChunkKey::new(0, 0, 4, 5);
+        let b = SubChunkKey::new(0, 1, 4, 5);
+        let request = TransparentWitnessRequest::try_new(7, vec![b, a]).unwrap();
+        assert_eq!(request.revision(), 7);
+        assert_eq!(request.keys(), &[a, b]);
+        assert!(TransparentWitnessRequest::try_new(0, vec![a]).is_err());
+        assert!(TransparentWitnessRequest::try_new(1, Vec::new()).is_err());
+        assert!(TransparentWitnessRequest::try_new(1, vec![a, a]).is_err());
+        assert!(
+            TransparentWitnessRequest::try_new(
+                1,
+                (0..=MAX_TRANSPARENT_WITNESS_KEYS)
+                    .map(|x| SubChunkKey::new(0, x as i32, 4, 5))
+                    .collect(),
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn transparent_witness_snapshot_rejects_gen193_missing_key_then_accepts_gen194_complete() {
+        let texture_identity = ChunkTextureAssetIdentity::for_test(1, 1);
+        let tint_identity = ChunkBiomeTintIdentity::new(2, 2);
+        let a = SubChunkKey::new(0, 0, 4, 5);
+        let b = SubChunkKey::new(0, 1, 4, 5);
+        let request = TransparentWitnessRequest::try_new(11, vec![a, b]).unwrap();
+        let allocation = |key, generation, start| {
+            TransparentAllocationIdentity::new(key, generation, start..start + 4, 40..42, 1)
+        };
+        let missing = ViewSortKey::try_new(
+            [0.0; 3],
+            [0.0, 0.0, 0.0, 1.0],
+            vec![allocation(a, 193, 8)],
+            texture_identity,
+            tint_identity,
+        )
+        .unwrap();
+        let complete = ViewSortKey::try_new(
+            [0.0; 3],
+            [0.0, 0.0, 0.0, 1.0],
+            vec![allocation(a, 194, 8), allocation(b, 194, 12)],
+            texture_identity,
+            tint_identity,
+        )
+        .unwrap();
+        assert!(!transparent_view_key_satisfies_witness(&missing, &request));
+        assert!(transparent_view_key_satisfies_witness(&complete, &request));
+    }
+
+    #[test]
+    fn witness_publishes_two_consecutive_gpu_completions_and_resets_fail_closed() {
+        let evidence = TransparentWitnessEvidence::default();
+        let key = SubChunkKey::new(0, 0, 4, 5);
+        let request = TransparentWitnessRequest::try_new(9, vec![key]).unwrap();
+        evidence.set_authoritative_request(&request);
+        let first = evidence.try_reserve(&request, 193, true).unwrap();
+        assert!(evidence.complete(first));
+        let second = evidence.try_reserve(&request, 193, true).unwrap();
+        assert!(evidence.complete(second));
+        let events = evidence.drain_events();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].consecutive, 1);
+        assert_eq!(events[1].consecutive, 2);
+        assert_eq!(events[1].revision, 9);
+        assert_eq!(events[1].key_count, 1);
+
+        let reset_evidence = TransparentWitnessEvidence::default();
+        reset_evidence.set_authoritative_request(&request);
+        let complete = reset_evidence.try_reserve(&request, 194, true).unwrap();
+        assert!(reset_evidence.complete(complete));
+        let incomplete = reset_evidence.try_reserve(&request, 194, false).unwrap();
+        assert!(reset_evidence.complete(incomplete));
+        let complete = reset_evidence.try_reserve(&request, 194, true).unwrap();
+        assert!(reset_evidence.complete(complete));
+        assert_eq!(reset_evidence.drain_events()[0].consecutive, 1);
+
+        let stale = reset_evidence.try_reserve(&request, 194, true).unwrap();
+        reset_evidence.reset();
+        assert!(!reset_evidence.complete(stale));
+        assert!(reset_evidence.drain_events().is_empty());
+    }
+
+    #[test]
+    fn stale_extracted_witness_request_cannot_reactivate_after_authoritative_reset() {
+        let evidence = TransparentWitnessEvidence::default();
+        let request =
+            TransparentWitnessRequest::try_new(9, vec![SubChunkKey::new(0, 0, 4, 5)]).unwrap();
+        evidence.set_authoritative_request(&request);
+        assert!(evidence.try_reserve(&request, 193, true).is_some());
+
+        evidence.reset();
+        assert!(evidence.try_reserve(&request, 194, true).is_none());
+        assert!(evidence.drain_events().is_empty());
+    }
+
+    #[test]
+    fn incomplete_witness_diagnostic_is_exact_deduplicated_and_reset_bounded() {
+        let evidence = TransparentWitnessEvidence::default();
+        let a = SubChunkKey::new(0, 0, 4, 5);
+        let b = SubChunkKey::new(0, 1, 4, 5);
+        let request = TransparentWitnessRequest::try_new(9, vec![a, b]).unwrap();
+        evidence.set_authoritative_request(&request);
+
+        for generation in [193, 194] {
+            let token = evidence
+                .try_reserve_missing(&request, generation, vec![b])
+                .unwrap();
+            assert!(evidence.complete(token));
+        }
+        let diagnostics = evidence.drain_incomplete_events();
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].revision, 9);
+        assert_eq!(diagnostics[0].generation, 193);
+        assert_eq!(&*diagnostics[0].missing_keys, &[b]);
+
+        evidence.reset();
+        assert!(evidence.drain_incomplete_events().is_empty());
+    }
+
+    #[test]
+    fn witness_stage_diagnostics_are_change_deduplicated_and_request_bounded() {
+        let evidence = TransparentWitnessEvidence::default();
+        let key = SubChunkKey::new(0, 0, 4, 5);
+        let request = TransparentWitnessRequest::try_new(9, vec![key]).unwrap();
+        evidence.set_authoritative_request(&request);
+        let mut record = TransparentWitnessStageRecord {
+            key,
+            extracted_visible: false,
+            instance_present: true,
+            liquid_quad_count: 5,
+            instance_generation: 7,
+            allocation_present: false,
+            liquid_range_len: 0,
+            lighting_range_len: 0,
+            allocation_matches: false,
+            committed_member: false,
+        };
+        assert!(evidence.record_stage_snapshot(9, 193, vec![record]));
+        assert!(!evidence.record_stage_snapshot(9, 194, vec![record]));
+        for generation in 195..=203 {
+            record.extracted_visible = !record.extracted_visible;
+            let _ = evidence.record_stage_snapshot(9, generation, vec![record]);
+        }
+        let events = evidence.drain_stage_events();
+        assert_eq!(events.len(), 8);
+        assert_eq!(events[0].committed_generation, 193);
+        assert_eq!(
+            events[0].records.as_ref(),
+            &[TransparentWitnessStageRecord {
+                extracted_visible: false,
+                ..record
+            }]
+        );
+
+        evidence.reset();
+        assert!(evidence.drain_stage_events().is_empty());
+    }
+
+    #[test]
+    fn retired_identity_matches_exact_old_snapshot_and_not_unrelated_active_address() {
+        let texture_identity = ChunkTextureAssetIdentity::for_test(1, 1);
+        let tint_identity = ChunkBiomeTintIdentity::new(2, 2);
+        let old = retirement_test_allocation();
+        let identity = TransparentAllocationIdentity::new(
+            old.gpu.key,
+            old.gpu.generation,
+            old.gpu.liquid_range.clone().unwrap(),
+            old.gpu.liquid_lighting_range.clone().unwrap(),
+            old.gpu.metadata_index,
+        );
+        let key = ViewSortKey::try_new(
+            [0.0; 3],
+            [0.0, 0.0, 0.0, 1.0],
+            vec![identity],
+            texture_identity,
+            tint_identity,
+        )
+        .unwrap();
+        let snapshot = committed_transparent_state(
+            &key,
+            vec![PackedTransparentDrawRef::new(2, old.gpu.metadata_index)],
+        )
+        .committed()
+        .unwrap()
+        .clone();
+        assert!(transparent_snapshot_addresses_are_resident(
+            &snapshot,
+            std::iter::empty(),
+            [&old.gpu],
+            texture_identity,
+            tint_identity,
+        ));
+        let mut unrelated = old.gpu;
+        unrelated.generation += 1;
+        assert!(!transparent_snapshot_addresses_are_resident(
+            &snapshot,
+            std::iter::empty(),
+            [&unrelated],
+            texture_identity,
+            tint_identity,
+        ));
+    }
+
+    #[test]
+    fn removal_to_empty_arms_only_after_snapshot_no_longer_references_retired_identity() {
+        let texture_identity = ChunkTextureAssetIdentity::for_test(1, 1);
+        let tint_identity = ChunkBiomeTintIdentity::new(2, 2);
+        let old = retirement_test_allocation();
+        let identity = TransparentAllocationIdentity::new(
+            old.gpu.key,
+            old.gpu.generation,
+            old.gpu.liquid_range.clone().unwrap(),
+            old.gpu.liquid_lighting_range.clone().unwrap(),
+            old.gpu.metadata_index,
+        );
+        let key = ViewSortKey::try_new(
+            [0.0; 3],
+            [0.0, 0.0, 0.0, 1.0],
+            vec![identity],
+            texture_identity,
+            tint_identity,
+        )
+        .unwrap();
+        let snapshot = committed_transparent_state(
+            &key,
+            vec![PackedTransparentDrawRef::new(2, old.gpu.metadata_index)],
+        )
+        .committed()
+        .unwrap()
+        .clone();
+        assert!(!transparent_retirement_can_arm(Some(&snapshot), &old.gpu));
+        assert!(transparent_retirement_can_arm(None, &old.gpu));
+    }
+
+    #[test]
+    fn asset_or_tint_identity_change_clears_even_resident_snapshot() {
+        let texture_identity = ChunkTextureAssetIdentity::for_test(1, 1);
+        let tint_identity = ChunkBiomeTintIdentity::new(2, 2);
+        let identity =
+            TransparentAllocationIdentity::new(SubChunkKey::new(0, 0, 0, 0), 3, 8..16, 32..36, 1);
+        let old_key = ViewSortKey::try_new(
+            [0.0; 3],
+            [0.0, 0.0, 0.0, 1.0],
+            vec![identity.clone()],
+            texture_identity,
+            tint_identity,
+        )
+        .unwrap();
+        let resident = [resident_transparent_allocation(&identity, tint_identity)];
+        for (next_texture, next_tint) in [
+            (ChunkTextureAssetIdentity::for_test(9, 9), tint_identity),
+            (texture_identity, ChunkBiomeTintIdentity::new(9, 9)),
+        ] {
+            let mut state =
+                committed_transparent_state(&old_key, vec![PackedTransparentDrawRef::new(2, 1)]);
+            assert!(!transparent_snapshot_addresses_are_resident(
+                state.committed().unwrap(),
+                resident.iter(),
+                std::iter::empty(),
+                next_texture,
+                next_tint,
+            ));
+            let next_key = ViewSortKey::try_new(
+                [1.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+                vec![identity.clone()],
+                next_texture,
+                next_tint,
+            )
+            .unwrap();
+            state.request_retaining_resident_snapshot(&next_key, false);
+            assert!(state.committed().is_none());
+        }
+    }
+
+    #[test]
+    fn conflicting_manifest_fail_closes_every_absolute_ref_owner_and_active_metric() {
+        let metrics = TransparentSortMetrics::default();
+        metrics.publish_for_test(TransparentSortMetricsSnapshot {
+            request_generation: 7,
+            result_generation: 7,
+            committed_generation: 7,
+            encoded_generation: 7,
+            presented_generation: 7,
+            ref_count: 2,
+            staged_bytes: 16,
+            upload_bytes: 16,
+            active_slot_age_frames: 3,
+            transparent_water_distinct_tint_count: 2,
+            ..Default::default()
+        });
+        let key = ViewSortKey::try_new(
+            [0.0; 3],
+            [0.0, 0.0, 0.0, 1.0],
+            vec![],
+            ChunkTextureAssetIdentity::for_test(1, 1),
+            ChunkBiomeTintIdentity::new(1, 1),
+        )
+        .unwrap();
+        let mut runtime = TransparentSortRuntime {
+            view_entity: Some(Entity::from_bits(1)),
+            ..Default::default()
+        };
+        let committed_generation = runtime.state.request(&key);
+        assert_eq!(
+            runtime.state.complete(
+                TransparentSortResult::new(committed_generation, key.clone(), vec![]).unwrap()
+            ),
+            Ok(true)
+        );
+        let pending_generation = ViewSortGeneration::for_test(committed_generation.get() + 1);
+        let work = TransparentSortWork {
+            generation: pending_generation,
+            requested_at: Instant::now(),
+            key: key.clone(),
+            view_from_world: Mat4::IDENTITY,
+            candidates: Arc::from([]),
+            distinct_tint_count: 0,
+        };
+        assert!(runtime.gate.submit(pending_generation, work).is_some());
+        runtime
+            .requested_at
+            .insert(pending_generation, Instant::now());
+        runtime
+            .staged_distinct_tint_counts
+            .insert(pending_generation, 2);
+
+        runtime.fail_closed_conflicting_manifest(&metrics);
+
+        assert!(runtime.state.committed().is_none());
+        assert_eq!(runtime.state.staged_ref_count(), 0);
+        assert_eq!(runtime.gate.in_flight_generation(), None);
+        assert_eq!(runtime.gate.pending_generation(), None);
+        assert!(runtime.requested_at.is_empty());
+        assert!(runtime.staged_distinct_tint_counts.is_empty());
+        let snapshot = metrics.snapshot();
+        assert_eq!(snapshot.committed_generation, 0);
+        assert_eq!(snapshot.encoded_generation, 0);
+        assert_eq!(snapshot.presented_generation, 0);
+        assert_eq!(snapshot.ref_count, 0);
+        assert_eq!(
+            snapshot.upload_bytes, 16,
+            "cumulative accounting survives fail-close"
+        );
+        assert!(runtime.state.request(&key) > committed_generation);
+    }
+
+    #[test]
+    fn invalid_camera_transform_fail_closes_committed_staged_gate_and_metadata() {
+        let metrics = TransparentSortMetrics::default();
+        metrics.publish_for_test(TransparentSortMetricsSnapshot {
+            committed_generation: 7,
+            encoded_generation: 7,
+            presented_generation: 7,
+            ref_count: 2,
+            upload_bytes: 16,
+            ..Default::default()
+        });
+        let key = ViewSortKey::try_new(
+            [0.0; 3],
+            [0.0, 0.0, 0.0, 1.0],
+            vec![],
+            ChunkTextureAssetIdentity::for_test(1, 1),
+            ChunkBiomeTintIdentity::new(1, 1),
+        )
+        .unwrap();
+        let mut runtime = TransparentSortRuntime {
+            view_entity: Some(Entity::from_bits(1)),
+            ..Default::default()
+        };
+        let committed = runtime.state.request(&key);
+        assert_eq!(
+            runtime
+                .state
+                .complete(TransparentSortResult::new(committed, key.clone(), vec![]).unwrap()),
+            Ok(true)
+        );
+        let moved = ViewSortKey::try_new(
+            [f32::from_bits(1), 0.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+            vec![],
+            ChunkTextureAssetIdentity::for_test(1, 1),
+            ChunkBiomeTintIdentity::new(1, 1),
+        )
+        .unwrap();
+        let staged = runtime.state.request(&moved);
+        assert_eq!(
+            runtime.state.complete(
+                TransparentSortResult::new(
+                    staged,
+                    moved.clone(),
+                    vec![PackedTransparentDrawRef::new(1, 2)],
+                )
+                .unwrap(),
+            ),
+            Ok(false)
+        );
+        let pending = ViewSortGeneration::for_test(staged.get() + 1);
+        let work = TransparentSortWork {
+            generation: pending,
+            requested_at: Instant::now(),
+            key: moved,
+            view_from_world: Mat4::IDENTITY,
+            candidates: Arc::from([]),
+            distinct_tint_count: 0,
+        };
+        assert!(runtime.gate.submit(pending, work).is_some());
+        runtime.requested_at.insert(staged, Instant::now());
+        runtime.requested_at.insert(pending, Instant::now());
+        runtime.staged_distinct_tint_counts.insert(staged, 2);
+
+        fail_closed_transparent_sort_key_error(
+            &mut runtime,
+            &metrics,
+            TransparentSortError::InvalidCameraTransform,
+        );
+
+        assert!(runtime.state.committed().is_none());
+        assert_eq!(runtime.state.staged_ref_count(), 0);
+        assert_eq!(runtime.gate.in_flight_generation(), None);
+        assert!(runtime.requested_at.is_empty());
+        assert!(runtime.staged_distinct_tint_counts.is_empty());
+        let snapshot = metrics.snapshot();
+        assert_eq!(snapshot.committed_generation, 0);
+        assert_eq!(snapshot.encoded_generation, 0);
+        assert_eq!(snapshot.presented_generation, 0);
+        assert_eq!(snapshot.ref_count, 0);
+        assert_eq!(snapshot.upload_bytes, 16);
+        assert!(runtime.state.request(&key) > staged);
+    }
+
+    #[test]
+    fn staged_generation_is_not_resubmitted_and_retains_causal_latency_origin() {
+        let key = ViewSortKey::try_new(
+            [0.0; 3],
+            [0.0, 0.0, 0.0, 1.0],
+            vec![],
+            ChunkTextureAssetIdentity::for_test(1, 1),
+            ChunkBiomeTintIdentity::new(1, 1),
+        )
+        .unwrap();
+        let mut runtime = TransparentSortRuntime::default();
+        let generation = runtime.state.request(&key);
+        assert_eq!(
+            runtime.state.complete(
+                TransparentSortResult::new(
+                    generation,
+                    key,
+                    vec![PackedTransparentDrawRef::new(1, 2)],
+                )
+                .unwrap(),
+            ),
+            Ok(false)
+        );
+        assert!(!runtime.generation_needs_sort_job(generation));
+
+        let requested_at = Instant::now();
+        assert_eq!(
+            transparent_request_to_commit_latency(
+                requested_at,
+                requested_at + Duration::from_millis(5),
+            ),
+            Duration::from_millis(5)
+        );
+    }
+
+    #[test]
+    fn candidate_cache_reuses_camera_only_arc_rebuilds_identity_and_clears_on_failure() {
+        let key = ViewSortKey::try_new(
+            [0.0; 3],
+            [0.0, 0.0, 0.0, 1.0],
+            vec![],
+            ChunkTextureAssetIdentity::for_test(1, 1),
+            ChunkBiomeTintIdentity::new(1, 1),
+        )
+        .unwrap();
+        let camera_only = ViewSortKey::try_new(
+            [1.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+            vec![],
+            ChunkTextureAssetIdentity::for_test(1, 1),
+            ChunkBiomeTintIdentity::new(1, 1),
+        )
+        .unwrap();
+        let candidate = TransparentSortCandidate::new(
+            SubChunkKey::new(0, 0, 0, 0),
+            0,
+            4,
+            5,
+            [8.0; 3],
+            [0.5; 3],
+        );
+        let mut runtime = TransparentSortRuntime::default();
+        let (first, first_tints) = runtime
+            .resolve_candidate_cache(&key, || Ok((vec![candidate.clone()], 2)))
+            .unwrap();
+        let (camera_reuse, camera_tints) = runtime
+            .resolve_candidate_cache(&camera_only, || {
+                panic!("camera-only key rebuilt candidates")
+            })
+            .unwrap();
+        assert!(Arc::ptr_eq(&first, &camera_reuse));
+        assert_eq!((first_tints, camera_tints), (2, 2));
+
+        let changed_identity = ViewSortKey::try_new(
+            [1.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+            vec![],
+            ChunkTextureAssetIdentity::for_test(2, 1),
+            ChunkBiomeTintIdentity::new(1, 1),
+        )
+        .unwrap();
+        let (rebuilt, _) = runtime
+            .resolve_candidate_cache(&changed_identity, || Ok((vec![candidate], 3)))
+            .unwrap();
+        assert!(!Arc::ptr_eq(&first, &rebuilt));
+
+        let failed_identity = ViewSortKey::try_new(
+            [1.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+            vec![],
+            ChunkTextureAssetIdentity::for_test(3, 1),
+            ChunkBiomeTintIdentity::new(1, 1),
+        )
+        .unwrap();
+        assert_eq!(
+            runtime.resolve_candidate_cache(&failed_identity, || {
+                Err(TransparentSortError::ReferenceCeiling {
+                    requested: MAX_TRANSPARENT_DRAW_REFS + 1,
+                    ceiling: MAX_TRANSPARENT_DRAW_REFS,
+                })
+            }),
+            Err(TransparentSortError::ReferenceCeiling {
+                requested: MAX_TRANSPARENT_DRAW_REFS + 1,
+                ceiling: MAX_TRANSPARENT_DRAW_REFS,
+            })
+        );
+        assert!(runtime.candidate_cache.is_none());
+    }
+
+    #[test]
+    fn encoded_liquid_draw_is_not_presented_until_submitted_work_completes() {
+        let metrics = TransparentSortMetrics::default();
+        metrics.publish_for_test(TransparentSortMetricsSnapshot {
+            committed_generation: 12,
+            ref_count: 1,
+            ..Default::default()
+        });
+        record_encoded_transparent_generation(&metrics, ViewSortGeneration::for_test(12));
+        assert_eq!(metrics.snapshot().encoded_generation, 12);
+        assert_eq!(metrics.snapshot().presented_generation, 0);
+
+        record_gpu_completed_transparent_generation(&metrics, 12);
+        assert_eq!(metrics.snapshot().presented_generation, 12);
+    }
+
+    #[test]
+    fn transparent_completion_fence_is_bounded_and_stale_callbacks_cannot_regress() {
+        let fence = TransparentPresentationFence::default();
+        assert!(fence.try_reserve(12));
+        assert!(!fence.try_reserve(13));
+        assert!(!fence.complete(13));
+        assert!(fence.complete(12));
+        assert!(fence.try_reserve(13));
+
+        let metrics = TransparentSortMetrics::default();
+        metrics.publish_for_test(TransparentSortMetricsSnapshot {
+            committed_generation: 13,
+            encoded_generation: 13,
+            presented_generation: 11,
+            ref_count: 1,
+            ..Default::default()
+        });
+        record_gpu_completed_transparent_generation(&metrics, 12);
+        assert_eq!(metrics.snapshot().presented_generation, 11);
+        assert!(fence.complete(13));
+        record_gpu_completed_transparent_generation(&metrics, 13);
+        assert_eq!(metrics.snapshot().presented_generation, 13);
+    }
+
+    #[test]
     fn model_light_factor_uses_block_sky_and_ao_channels() {
         assert_eq!(model_light_factor(0x00f0), 1.0);
         assert_eq!(model_light_factor(0x000f), 1.0);
@@ -5239,6 +9238,7 @@ mod tests {
             foreign_instances: 0,
             stale_generation_instances: 0,
             orphan_allocations: 0,
+            transparent_sort_generation: 0,
         };
 
         assert!(
@@ -5527,6 +9527,65 @@ mod tests {
         assert_eq!(acknowledgement.render_ready_at, render_ready_at);
         assert_eq!(acknowledgement.present_returned_at, present_returned_at);
         assert_eq!(acknowledgement.gpu_completed_at, gpu_completed_at);
+    }
+
+    #[test]
+    fn transparent_generation_is_published_only_from_actual_liquid_draw_evidence() {
+        let now = Instant::now();
+        let key = SubChunkKey::new(0, 65, 0, 65);
+        let entity = Entity::from_bits(1);
+        let allocation = FrameAllocationIdentity {
+            entity,
+            key,
+            generation: 7,
+        };
+        let probe = FrameProbe::begin(
+            target_expectation(now, [(key, 7)]),
+            [FrameInstanceIdentity {
+                entity,
+                key,
+                generation: 7,
+            }],
+            [(allocation, ChunkStreamMask::LIQUID)],
+        );
+        assert_eq!(
+            probe.record_transparent_draw(ViewSortGeneration::for_test(23), [(entity, allocation)]),
+            1
+        );
+        let completed = probe.complete();
+        assert_eq!(completed.transparent_sort_generation, 23);
+        assert_eq!(completed.drawn_manifest.as_ref(), &[(key, 7)]);
+    }
+
+    #[test]
+    fn retired_backed_liquid_draw_still_attributes_the_encoded_sort_generation() {
+        let now = Instant::now();
+        let key = SubChunkKey::new(0, 65, 0, 65);
+        let entity = Entity::from_bits(1);
+        let current = FrameAllocationIdentity {
+            entity,
+            key,
+            generation: 8,
+        };
+        let retired = FrameAllocationIdentity {
+            generation: 7,
+            ..current
+        };
+        let probe = FrameProbe::begin(
+            target_expectation(now, [(key, 8)]),
+            [FrameInstanceIdentity {
+                entity,
+                key,
+                generation: 8,
+            }],
+            [(current, ChunkStreamMask::LIQUID)],
+        );
+        assert_eq!(
+            probe.record_transparent_draw(ViewSortGeneration::for_test(24), [(entity, retired)]),
+            0,
+            "retired geometry is not the current opaque allocation manifest"
+        );
+        assert_eq!(probe.complete().transparent_sort_generation, 24);
     }
 
     #[test]
@@ -6151,7 +10210,13 @@ mod tests {
                 tint_identity: instance.tint_identity,
             })
             .collect::<Vec<_>>();
-        let selected = plan_gpu_chunk_updates(candidates, &HashMap::new(), Vec3::ZERO, active);
+        let selected = plan_gpu_chunk_updates(
+            candidates,
+            &HashMap::new(),
+            Vec3::ZERO,
+            active,
+            &GpuUpdateFairness::default(),
+        );
         assert_eq!(selected.len(), 1);
         let selected_entity = selected[0];
         let selected_instance = &instances[&selected_entity];
@@ -6250,6 +10315,7 @@ mod tests {
             &allocations,
             Vec3::ZERO,
             ChunkBiomeTintIdentity::default(),
+            &GpuUpdateFairness::default(),
         );
 
         assert_eq!(selected.into_iter().take(2).count(), 2);
@@ -6280,6 +10346,7 @@ mod tests {
             &HashMap::new(),
             Vec3::ZERO,
             ChunkBiomeTintIdentity::default(),
+            &GpuUpdateFairness::default(),
         );
         let mut len = 2;
         let mut free = std::iter::once(0..2).collect::<Vec<_>>();
@@ -6321,6 +10388,7 @@ mod tests {
             &HashMap::new(),
             Vec3::new(1_608.0, 8.0, 8.0),
             ChunkBiomeTintIdentity::default(),
+            &GpuUpdateFairness::default(),
         );
 
         assert_eq!(selected[0], near);
@@ -6328,6 +10396,91 @@ mod tests {
             ChunkUploadPriority::from_camera(near_key, Vec3::new(1_608.0, 8.0, 8.0))
                 < ChunkUploadPriority::from_camera(far_key, Vec3::new(1_608.0, 8.0, 8.0))
         );
+    }
+
+    #[test]
+    fn recurring_near_replacements_do_not_starve_an_older_far_gpu_update() {
+        let mut world = World::new();
+        let near = world.spawn_empty().id();
+        let far = world.spawn_empty().id();
+        let tint = ChunkBiomeTintIdentity::default();
+        let near_key = SubChunkKey::new(0, 0, 4, 0);
+        let far_key = SubChunkKey::new(0, 0, 4, 5);
+        let mut allocations = HashMap::new();
+        let mut fairness = GpuUpdateFairness::default();
+        for (entity, key) in [(near, near_key), (far, far_key)] {
+            let mut allocation = retirement_test_allocation();
+            allocation.generation = 0;
+            allocation.tint_identity = tint;
+            allocation.gpu.key = key;
+            allocation.gpu.generation = 0;
+            allocation.gpu.tint_identity = tint;
+            allocations.insert(entity, allocation);
+        }
+
+        let mut far_selected = false;
+        for near_generation in 1..=8 {
+            let candidates = vec![
+                GpuUpdateCandidate {
+                    entity: near,
+                    key: near_key,
+                    generation: near_generation,
+                    tint_identity: tint,
+                },
+                GpuUpdateCandidate {
+                    entity: far,
+                    key: far_key,
+                    generation: 1,
+                    tint_identity: tint,
+                },
+            ];
+            let selected =
+                plan_gpu_chunk_updates(candidates, &allocations, Vec3::ZERO, tint, &fairness);
+            let chosen = selected[0];
+            fairness.finish_frame(&selected, &[chosen]);
+            if chosen == far {
+                far_selected = true;
+                break;
+            }
+            allocations.get_mut(&near).unwrap().generation = near_generation;
+        }
+
+        assert!(
+            far_selected,
+            "recurring nearer remeshes consumed every one-item frame budget"
+        );
+    }
+
+    #[test]
+    fn gpu_update_fairness_is_bounded_prunes_inactive_and_clears_success_or_reset() {
+        let mut world = World::new();
+        let a = world.spawn_empty().id();
+        let b = world.spawn_empty().id();
+        let c = world.spawn_empty().id();
+        let mut fairness = GpuUpdateFairness::with_limit(2);
+
+        fairness.finish_frame(&[a, b, c], &[]);
+        assert_eq!(fairness.len(), 2);
+        assert_eq!(fairness.wait_age(a), 1);
+        assert_eq!(fairness.wait_age(b), 1);
+        assert_eq!(fairness.wait_age(c), 0);
+
+        fairness.finish_frame(&[b, c], &[]);
+        assert_eq!(fairness.len(), 2);
+        assert_eq!(fairness.wait_age(a), 0);
+        assert_eq!(fairness.wait_age(b), 2);
+        assert_eq!(fairness.wait_age(c), 1);
+
+        fairness.finish_frame(&[b, c], &[b]);
+        assert_eq!(fairness.wait_age(b), 0);
+        assert_eq!(fairness.wait_age(c), 2);
+        fairness.reset();
+        assert!(fairness.is_empty());
+
+        for _ in 0..70_000 {
+            fairness.finish_frame(&[c], &[]);
+        }
+        assert_eq!(fairness.wait_age(c), 70_000);
     }
 
     #[test]
@@ -6549,6 +10702,7 @@ mod tests {
             &HashMap::new(),
             Vec3::ZERO,
             ChunkBiomeTintIdentity::default(),
+            &GpuUpdateFairness::default(),
         );
         let mut quad_len = 0;
         let mut free_quads = Vec::new();
@@ -6682,6 +10836,7 @@ mod tests {
                 },
                 biome_required,
                 None,
+                false,
                 limits,
             )
         };

@@ -17,6 +17,10 @@ Options:
   --no-vsync                   Use immediate presentation when supported
   --frame-cap <FPS>            Cap acceptance updates to 1-1000 FPS
   --full-view-teleport-gate    Measure a dedicated no-overlap teleport
+  --require-transparent-presentation
+                               Wait up to 2s for GPU-presented water at timed exit
+  --transparent-witness-request <PATH>
+                               Poll an ignored-local exact transparent witness request
   -h, --help                   Print this help
 ";
 
@@ -31,6 +35,8 @@ pub struct ClientArgs {
     pub no_vsync: bool,
     pub frame_cap: Option<u32>,
     pub full_view_teleport_gate: bool,
+    pub require_transparent_presentation: bool,
+    pub transparent_witness_request: Option<PathBuf>,
 }
 
 impl Default for ClientArgs {
@@ -45,6 +51,8 @@ impl Default for ClientArgs {
             no_vsync: false,
             frame_cap: None,
             full_view_teleport_gate: false,
+            require_transparent_presentation: false,
+            transparent_witness_request: None,
         }
     }
 }
@@ -96,6 +104,9 @@ impl ClientArgs {
                 Some("--auto-fly") => parsed.auto_fly = true,
                 Some("--no-vsync") => parsed.no_vsync = true,
                 Some("--full-view-teleport-gate") => parsed.full_view_teleport_gate = true,
+                Some("--require-transparent-presentation") => {
+                    parsed.require_transparent_presentation = true;
+                }
                 Some("--socket-dir") => {
                     parsed.socket_dir = PathBuf::from(next_value(&mut arguments, "--socket-dir")?);
                 }
@@ -105,6 +116,12 @@ impl ClientArgs {
                 Some("--metrics-out") => {
                     parsed.metrics_out =
                         Some(PathBuf::from(next_value(&mut arguments, "--metrics-out")?));
+                }
+                Some("--transparent-witness-request") => {
+                    parsed.transparent_witness_request = Some(PathBuf::from(next_value(
+                        &mut arguments,
+                        "--transparent-witness-request",
+                    )?));
                 }
                 Some("--display-name") => {
                     let value = next_value(&mut arguments, "--display-name")?
@@ -177,6 +194,8 @@ mod tests {
         assert!(!args.no_vsync);
         assert_eq!(args.frame_cap, None);
         assert!(!args.full_view_teleport_gate);
+        assert!(!args.require_transparent_presentation);
+        assert_eq!(args.transparent_witness_request, None);
     }
 
     #[test]
@@ -195,6 +214,9 @@ mod tests {
             "metrics.json",
             "--auto-fly",
             "--no-vsync",
+            "--require-transparent-presentation",
+            "--transparent-witness-request",
+            "run/transparent-witness-request.json",
         ])
         .unwrap() else {
             panic!("expected run args")
@@ -208,6 +230,11 @@ mod tests {
         assert!(args.no_vsync);
         assert_eq!(args.frame_cap, None);
         assert!(!args.full_view_teleport_gate);
+        assert!(args.require_transparent_presentation);
+        assert_eq!(
+            args.transparent_witness_request,
+            Some(PathBuf::from("run/transparent-witness-request.json"))
+        );
     }
 
     #[test]
@@ -224,7 +251,7 @@ mod tests {
     }
 
     #[test]
-    fn help_documents_all_four_required_app_flags() {
+    fn help_documents_all_acceptance_flags() {
         assert_eq!(
             ClientArgs::parse_from(["client", "--help"]).unwrap(),
             ParseOutcome::Help
@@ -237,6 +264,8 @@ mod tests {
             "--auto-fly",
             "--frame-cap",
             "--full-view-teleport-gate",
+            "--require-transparent-presentation",
+            "--transparent-witness-request",
         ] {
             assert!(HELP.contains(flag));
         }

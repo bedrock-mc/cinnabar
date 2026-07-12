@@ -17,6 +17,7 @@ pub struct ExactFullViewProof {
     pub committed: String,
     pub ms: f64,
     pub view_generation: u64,
+    pub transparent_sort_generation: u64,
     pub render_ready_ms: f64,
     pub first_frame_sequence: u64,
     pub stable_frame_sequence: u64,
@@ -229,6 +230,7 @@ impl FrameHistogram {
 #[derive(Debug)]
 pub struct MetricsCollector {
     started: Instant,
+    finished: Option<Instant>,
     assets: AssetMetrics,
     frame_histogram: FrameHistogram,
     world_ready: bool,
@@ -259,6 +261,51 @@ pub struct MetricsCollector {
     peak_pending_mesh_jobs: usize,
     peak_in_flight_mesh_jobs: usize,
     gpu_upload_bytes: u64,
+    transparent_sort: TransparentSortMetricsSnapshot,
+}
+
+/// App-owned, copyable seam for render-world transparent-sort evidence.
+///
+/// The render crate may publish these counters through a Bevy resource; keeping
+/// this snapshot local prevents the stable metrics schema from depending on the
+/// renderer's internal resource layout.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TransparentSortMetricsSnapshot {
+    pub request_generation: u64,
+    pub result_generation: u64,
+    pub committed_generation: u64,
+    pub encoded_generation: u64,
+    pub presented_generation: u64,
+    pub ref_count: usize,
+    pub cpu_duration: Duration,
+    pub request_to_commit_latency: Duration,
+    pub staged_bytes: u64,
+    pub upload_bytes: u64,
+    pub stale_reject_count: u64,
+    pub ceiling_reject_count: u64,
+    pub active_slot_age_frames: u64,
+    pub transparent_water_distinct_tint_count: usize,
+}
+
+impl From<render::TransparentSortMetricsSnapshot> for TransparentSortMetricsSnapshot {
+    fn from(snapshot: render::TransparentSortMetricsSnapshot) -> Self {
+        Self {
+            request_generation: snapshot.request_generation,
+            result_generation: snapshot.result_generation,
+            committed_generation: snapshot.committed_generation,
+            encoded_generation: snapshot.encoded_generation,
+            presented_generation: snapshot.presented_generation,
+            ref_count: snapshot.ref_count,
+            cpu_duration: snapshot.cpu_duration,
+            request_to_commit_latency: snapshot.request_to_commit_latency,
+            staged_bytes: snapshot.staged_bytes,
+            upload_bytes: snapshot.upload_bytes,
+            stale_reject_count: snapshot.stale_reject_count,
+            ceiling_reject_count: snapshot.ceiling_reject_count,
+            active_slot_age_frames: snapshot.active_slot_age_frames,
+            transparent_water_distinct_tint_count: snapshot.transparent_water_distinct_tint_count,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -285,6 +332,7 @@ pub struct PipelineMetricsSnapshot {
     pub pending_mesh_jobs: usize,
     pub in_flight_mesh_jobs: usize,
     pub gpu_upload_bytes: u64,
+    pub transparent_sort: TransparentSortMetricsSnapshot,
 }
 
 impl Default for MetricsCollector {
@@ -298,6 +346,7 @@ impl MetricsCollector {
     pub fn new() -> Self {
         Self {
             started: Instant::now(),
+            finished: None,
             assets: AssetMetrics::default(),
             frame_histogram: FrameHistogram::default(),
             world_ready: false,
@@ -328,6 +377,7 @@ impl MetricsCollector {
             peak_pending_mesh_jobs: 0,
             peak_in_flight_mesh_jobs: 0,
             gpu_upload_bytes: 0,
+            transparent_sort: TransparentSortMetricsSnapshot::default(),
         }
     }
 
@@ -354,6 +404,9 @@ impl MetricsCollector {
     }
 
     pub fn record_frame(&mut self, duration: Duration) {
+        if self.finished.is_some() {
+            return;
+        }
         self.frame_histogram
             .record(duration.as_secs_f64() * 1_000.0);
     }
@@ -365,6 +418,7 @@ impl MetricsCollector {
 
     pub fn begin_timed_session(&mut self, started: Instant) {
         self.started = started;
+        self.finished = None;
         self.frame_histogram = FrameHistogram::default();
         self.max_remesh_milliseconds = 0.0;
         self.max_mutation_to_visible_milliseconds = 0.0;
@@ -376,13 +430,28 @@ impl MetricsCollector {
         self.forced_full_view_remesh_proof = None;
     }
 
+    /// Freezes duration-bound performance evidence at the requested session
+    /// deadline. Presentation/upload counters may still advance during the
+    /// bounded post-session GPU-settle grace.
+    pub fn finish_timed_session(&mut self, finished: Instant) {
+        if self.finished.is_none() {
+            self.finished = Some(finished.max(self.started));
+        }
+    }
+
     pub fn record_remesh_latency(&mut self, duration: Duration) {
+        if self.finished.is_some() {
+            return;
+        }
         self.max_remesh_milliseconds = self
             .max_remesh_milliseconds
             .max(duration.as_secs_f64() * 1_000.0);
     }
 
     pub fn record_mutation_to_visible(&mut self, duration: Duration) {
+        if self.finished.is_some() {
+            return;
+        }
         self.max_mutation_to_visible_milliseconds = self
             .max_mutation_to_visible_milliseconds
             .max(duration.as_secs_f64() * 1_000.0);
@@ -413,6 +482,11 @@ impl MetricsCollector {
     }
 
     pub fn record_pipeline_snapshot(&mut self, snapshot: PipelineMetricsSnapshot) {
+        if self.finished.is_some() {
+            self.gpu_upload_bytes = self.gpu_upload_bytes.max(snapshot.gpu_upload_bytes);
+            self.record_transparent_sort_snapshot(snapshot.transparent_sort);
+            return;
+        }
         self.world_ready |= snapshot.world_ready;
         self.requested_radius_chunks = snapshot.requested_radius_chunks;
         self.received_radius_chunks = snapshot.received_radius_chunks;
@@ -453,12 +527,20 @@ impl MetricsCollector {
             .peak_in_flight_mesh_jobs
             .max(snapshot.in_flight_mesh_jobs);
         self.gpu_upload_bytes = self.gpu_upload_bytes.max(snapshot.gpu_upload_bytes);
+        self.record_transparent_sort_snapshot(snapshot.transparent_sort);
+    }
+
+    pub fn record_transparent_sort_snapshot(&mut self, snapshot: TransparentSortMetricsSnapshot) {
+        self.transparent_sort = snapshot;
     }
 
     #[must_use]
     pub fn report(&self) -> MetricsReport {
+        let finished = self.finished.unwrap_or_else(Instant::now);
         MetricsReport {
-            session_seconds: self.started.elapsed().as_secs_f64(),
+            session_seconds: finished
+                .saturating_duration_since(self.started)
+                .as_secs_f64(),
             world_ready: self.world_ready,
             requested_radius_chunks: self.requested_radius_chunks,
             received_radius_chunks: self.received_radius_chunks,
@@ -491,7 +573,31 @@ impl MetricsCollector {
             peak_outbound_requests: self.peak_outbound_requests,
             peak_pending_mesh_jobs: self.peak_pending_mesh_jobs,
             peak_in_flight_mesh_jobs: self.peak_in_flight_mesh_jobs,
-            gpu_upload_bytes: self.gpu_upload_bytes,
+            nontransparent_gpu_upload_bytes: self.gpu_upload_bytes,
+            gpu_upload_bytes: self
+                .gpu_upload_bytes
+                .checked_add(self.transparent_sort.upload_bytes)
+                .expect("combined GPU upload byte counter overflowed"),
+            transparent_sort_request_generation: self.transparent_sort.request_generation,
+            transparent_sort_result_generation: self.transparent_sort.result_generation,
+            transparent_sort_committed_generation: self.transparent_sort.committed_generation,
+            transparent_sort_encoded_generation: self.transparent_sort.encoded_generation,
+            transparent_sort_presented_generation: self.transparent_sort.presented_generation,
+            transparent_sort_ref_count: self.transparent_sort.ref_count,
+            transparent_sort_cpu_ms: self.transparent_sort.cpu_duration.as_secs_f64() * 1_000.0,
+            transparent_sort_request_to_commit_ms: self
+                .transparent_sort
+                .request_to_commit_latency
+                .as_secs_f64()
+                * 1_000.0,
+            transparent_sort_staged_bytes: self.transparent_sort.staged_bytes,
+            transparent_sort_upload_bytes: self.transparent_sort.upload_bytes,
+            transparent_sort_stale_reject_count: self.transparent_sort.stale_reject_count,
+            transparent_sort_ceiling_reject_count: self.transparent_sort.ceiling_reject_count,
+            transparent_sort_active_slot_age_frames: self.transparent_sort.active_slot_age_frames,
+            transparent_water_distinct_tint_count: self
+                .transparent_sort
+                .transparent_water_distinct_tint_count,
             assets: self.assets.clone(),
         }
     }
@@ -537,7 +643,22 @@ pub struct MetricsReport {
     pub peak_outbound_requests: usize,
     pub peak_pending_mesh_jobs: usize,
     pub peak_in_flight_mesh_jobs: usize,
+    pub nontransparent_gpu_upload_bytes: u64,
     pub gpu_upload_bytes: u64,
+    pub transparent_sort_request_generation: u64,
+    pub transparent_sort_result_generation: u64,
+    pub transparent_sort_committed_generation: u64,
+    pub transparent_sort_encoded_generation: u64,
+    pub transparent_sort_presented_generation: u64,
+    pub transparent_sort_ref_count: usize,
+    pub transparent_sort_cpu_ms: f64,
+    pub transparent_sort_request_to_commit_ms: f64,
+    pub transparent_sort_staged_bytes: u64,
+    pub transparent_sort_upload_bytes: u64,
+    pub transparent_sort_stale_reject_count: u64,
+    pub transparent_sort_ceiling_reject_count: u64,
+    pub transparent_sort_active_slot_age_frames: u64,
+    pub transparent_water_distinct_tint_count: usize,
     pub assets: AssetMetrics,
 }
 
@@ -568,7 +689,7 @@ fn percentile(sorted: &[f64], percentile: f64) -> f64 {
 mod tests {
     use super::{
         AssetMetrics, ExactFullViewProof, MetricsCollector, MetricsReport, PipelineMetricsSnapshot,
-        TeleportProof, deterministic_manifest_hash, percentile,
+        TeleportProof, TransparentSortMetricsSnapshot, deterministic_manifest_hash, percentile,
     };
     use std::{fs, time::Duration};
     use world::SubChunkKey;
@@ -591,6 +712,47 @@ mod tests {
         assert_eq!(report.frame_count, 0);
         assert_eq!(report.max_remesh_ms, 0.0);
         assert_eq!(report.max_mutation_to_visible_ms, 0.0);
+    }
+
+    #[test]
+    fn timed_session_freeze_excludes_grace_frames_but_accepts_final_presentation_metrics() {
+        let started = std::time::Instant::now();
+        let mut metrics = MetricsCollector::new();
+        metrics.begin_timed_session(started);
+        metrics.record_frame(Duration::from_millis(16));
+
+        metrics.finish_timed_session(started + Duration::from_secs(60));
+        metrics.record_frame(Duration::from_millis(500));
+        metrics.record_pipeline_snapshot(PipelineMetricsSnapshot {
+            gpu_upload_bytes: 1_000,
+            transparent_sort: TransparentSortMetricsSnapshot {
+                committed_generation: 9,
+                encoded_generation: 9,
+                presented_generation: 8,
+                ref_count: 42,
+                upload_bytes: 80,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        metrics.record_transparent_sort_snapshot(TransparentSortMetricsSnapshot {
+            committed_generation: 9,
+            encoded_generation: 9,
+            presented_generation: 9,
+            ref_count: 42,
+            upload_bytes: 80,
+            ..Default::default()
+        });
+
+        let report = metrics.report();
+        assert_eq!(report.session_seconds, 60.0);
+        assert_eq!(report.frame_count, 1);
+        assert_eq!(report.p99_frame_ms, 16.0);
+        assert_eq!(report.max_frame_ms, 16.0);
+        assert_eq!(report.transparent_sort_presented_generation, 9);
+        assert_eq!(report.transparent_sort_ref_count, 42);
+        assert_eq!(report.nontransparent_gpu_upload_bytes, 1_000);
+        assert_eq!(report.gpu_upload_bytes, 1_080);
     }
 
     #[test]
@@ -627,6 +789,22 @@ mod tests {
             pending_mesh_jobs: 9,
             in_flight_mesh_jobs: 8,
             gpu_upload_bytes: 12_345,
+            transparent_sort: TransparentSortMetricsSnapshot {
+                request_generation: 21,
+                result_generation: 20,
+                committed_generation: 19,
+                encoded_generation: 19,
+                presented_generation: 18,
+                ref_count: 4_096,
+                cpu_duration: Duration::from_micros(1_250),
+                request_to_commit_latency: Duration::from_micros(2_500),
+                staged_bytes: 32_768,
+                upload_bytes: 16_384,
+                stale_reject_count: 3,
+                ceiling_reject_count: 2,
+                active_slot_age_frames: 7,
+                transparent_water_distinct_tint_count: 5,
+            },
         });
 
         let report = metrics.report();
@@ -660,7 +838,65 @@ mod tests {
         assert_eq!(report.peak_outbound_requests, 6);
         assert_eq!(report.peak_pending_mesh_jobs, 9);
         assert_eq!(report.peak_in_flight_mesh_jobs, 8);
-        assert_eq!(report.gpu_upload_bytes, 12_345);
+        assert_eq!(report.nontransparent_gpu_upload_bytes, 12_345);
+        assert_eq!(
+            report.gpu_upload_bytes,
+            report.nontransparent_gpu_upload_bytes + report.transparent_sort_upload_bytes
+        );
+        assert_eq!(report.transparent_sort_request_generation, 21);
+        assert_eq!(report.transparent_sort_result_generation, 20);
+        assert_eq!(report.transparent_sort_committed_generation, 19);
+        assert_eq!(report.transparent_sort_encoded_generation, 19);
+        assert_eq!(report.transparent_sort_presented_generation, 18);
+        assert_eq!(report.transparent_sort_ref_count, 4_096);
+        assert_eq!(report.transparent_sort_cpu_ms, 1.25);
+        assert_eq!(report.transparent_sort_request_to_commit_ms, 2.5);
+        assert_eq!(report.transparent_sort_staged_bytes, 32_768);
+        assert_eq!(report.transparent_sort_upload_bytes, 16_384);
+        assert_eq!(report.transparent_sort_stale_reject_count, 3);
+        assert_eq!(report.transparent_sort_ceiling_reject_count, 2);
+        assert_eq!(report.transparent_sort_active_slot_age_frames, 7);
+        assert_eq!(report.transparent_water_distinct_tint_count, 5);
+    }
+
+    #[test]
+    fn render_transparent_sort_snapshot_conversion_is_exact() {
+        let source = render::TransparentSortMetricsSnapshot {
+            request_generation: 31,
+            result_generation: 30,
+            committed_generation: 29,
+            encoded_generation: 29,
+            presented_generation: 28,
+            ref_count: 27,
+            cpu_duration: Duration::from_micros(26),
+            request_to_commit_latency: Duration::from_micros(25),
+            staged_bytes: 24,
+            upload_bytes: 23,
+            stale_reject_count: 22,
+            ceiling_reject_count: 21,
+            active_slot_age_frames: 20,
+            transparent_water_distinct_tint_count: 19,
+        };
+
+        assert_eq!(
+            TransparentSortMetricsSnapshot::from(source),
+            TransparentSortMetricsSnapshot {
+                request_generation: 31,
+                result_generation: 30,
+                committed_generation: 29,
+                encoded_generation: 29,
+                presented_generation: 28,
+                ref_count: 27,
+                cpu_duration: Duration::from_micros(26),
+                request_to_commit_latency: Duration::from_micros(25),
+                staged_bytes: 24,
+                upload_bytes: 23,
+                stale_reject_count: 22,
+                ceiling_reject_count: 21,
+                active_slot_age_frames: 20,
+                transparent_water_distinct_tint_count: 19,
+            }
+        );
     }
 
     #[test]
@@ -697,6 +933,7 @@ mod tests {
             committed: "0:65:65:16".to_owned(),
             ms: milliseconds,
             view_generation,
+            transparent_sort_generation: 6,
             render_ready_ms: 100.0,
             first_frame_sequence: 41,
             stable_frame_sequence: 42,
@@ -791,6 +1028,7 @@ mod tests {
         assert_eq!(teleport["target"], "0:65:65:16");
         assert_eq!(teleport["expected"], 1_089);
         assert_eq!(teleport["frame_count"], 12);
+        assert_eq!(teleport["transparent_sort_generation"], 6);
         for stage in [
             "publisher_ms",
             "first_level_ms",
@@ -839,7 +1077,22 @@ mod tests {
             peak_outbound_requests: 5,
             peak_pending_mesh_jobs: 9,
             peak_in_flight_mesh_jobs: 8,
+            nontransparent_gpu_upload_bytes: 3_072,
             gpu_upload_bytes: 4_096,
+            transparent_sort_request_generation: 11,
+            transparent_sort_result_generation: 10,
+            transparent_sort_committed_generation: 9,
+            transparent_sort_encoded_generation: 9,
+            transparent_sort_presented_generation: 8,
+            transparent_sort_ref_count: 256,
+            transparent_sort_cpu_ms: 1.25,
+            transparent_sort_request_to_commit_ms: 3.5,
+            transparent_sort_staged_bytes: 2_048,
+            transparent_sort_upload_bytes: 1_024,
+            transparent_sort_stale_reject_count: 2,
+            transparent_sort_ceiling_reject_count: 1,
+            transparent_sort_active_slot_age_frames: 4,
+            transparent_water_distinct_tint_count: 3,
             assets: AssetMetrics::default(),
         };
         let unique = std::time::SystemTime::now()
@@ -892,7 +1145,22 @@ mod tests {
                 "  \"peak_outbound_requests\": 5,\n",
                 "  \"peak_pending_mesh_jobs\": 9,\n",
                 "  \"peak_in_flight_mesh_jobs\": 8,\n",
+                "  \"nontransparent_gpu_upload_bytes\": 3072,\n",
                 "  \"gpu_upload_bytes\": 4096,\n",
+                "  \"transparent_sort_request_generation\": 11,\n",
+                "  \"transparent_sort_result_generation\": 10,\n",
+                "  \"transparent_sort_committed_generation\": 9,\n",
+                "  \"transparent_sort_encoded_generation\": 9,\n",
+                "  \"transparent_sort_presented_generation\": 8,\n",
+                "  \"transparent_sort_ref_count\": 256,\n",
+                "  \"transparent_sort_cpu_ms\": 1.25,\n",
+                "  \"transparent_sort_request_to_commit_ms\": 3.5,\n",
+                "  \"transparent_sort_staged_bytes\": 2048,\n",
+                "  \"transparent_sort_upload_bytes\": 1024,\n",
+                "  \"transparent_sort_stale_reject_count\": 2,\n",
+                "  \"transparent_sort_ceiling_reject_count\": 1,\n",
+                "  \"transparent_sort_active_slot_age_frames\": 4,\n",
+                "  \"transparent_water_distinct_tint_count\": 3,\n",
                 "  \"assets\": {\n",
                 "    \"source_tag\": \"diagnostic\",\n",
                 "    \"source_sha256\": \"diagnostic\",\n",

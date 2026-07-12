@@ -206,8 +206,10 @@ liquid without a primary is valid. Tests cover every conflict and ordering class
 - model references: compact per-block transform plus global template reference;
 - liquid quads: compact fixed-point surface/side geometry including corner
   heights and flow direction;
-- transparent draw references: per-view back-to-front indirection into model or
-  liquid records.
+- transparent draw references: per-view back-to-front indirection into liquid
+  records for the Task 13 water pipeline. Later non-water blend families may add
+  a separately typed reference stream; they do not overload or ambiguously tag
+  the liquid-only record.
 
 Template geometry is uploaded once globally. Subchunks upload references, not
 duplicated vertices. `PackedModelRef` is 16 bytes: packed local position/transform,
@@ -261,14 +263,34 @@ acceptance failure, not silently dropped geometry. Sort output uses the same
 per-frame upload cap as meshes, the previous valid order remains active until a
 complete replacement is uploaded, and camera-motion acceptance measures the
 sort CPU, bytes, latency, and frame p99 against the 60 fps / 15% steady-CPU gate.
+Frustum membership and mesh generation alone do not invalidate physical
+addresses: the previous order remains drawable while every allocation it names
+still has the same subchunk key and metadata index, an active tint identity, a
+structurally valid current lighting stream, and a liquid range with the same
+start that contains the old range. Asset and tint-table identities remain exact.
+Mesh generation stays in the sort/cache key so replacement contents cannot be
+mistaken for an already sorted view. New visible allocations enter only with the
+next atomic ordered-snapshot swap. Actual eviction or a moved/shrunk range uses
+copy-on-write: the old shared geometry allocation (and every owned span on
+removal) enters a bounded retired-range quarantine and continues to satisfy the
+old snapshot by exact physical identity until a fully uploaded replacement is
+rendered. Asset/tint identity or invalid-view changes clear an incompatible
+snapshot immediately, but its spans remain quarantined from reuse. A post-render queue sentinel, including for
+an empty/no-water replacement, advances an independent checked-monotonic
+retirement epoch only after submitted GPU work completes. Only then are retired
+ranges coalesced back into the allocator. Item/byte ceiling exhaustion
+backpressures the update or preserves a one-shot removal as pending; it never
+reuses an unsafe address or blanks the retained snapshot.
 This is vanilla-compatible depth ordering, not a claim of mathematically exact
 ordering for arbitrary intersecting translucent polygons. Equal compatible blend
 groups suppress internal shared faces; blend geometry never hides opaque
 geometry.
 
 Every sort request carries a monotonically increasing `ViewSortGeneration`
-covering the quantized camera pose, visible allocation set, asset revision, and
-mesh generations. A worker result commits only when its full key equals the
+covering the camera position's exact canonical `f32` bits, the normalized
+orientation's exact bits (with `q`/`-q` and signed zero canonicalized), visible
+allocation set, asset identity, tint identity, and mesh generations. A worker
+result commits only when its full key equals the
 current requested key; late results are discarded before upload. Direct and MDI
 consume the same committed ordered snapshot, and transparent presented-frame
 accounting records the committed view-sort generation. Tests force out-of-order
@@ -298,6 +320,22 @@ The liquid mesher performs:
 - clipped side faces;
 - still-versus-flow animation selection and flow direction;
 - biome water tint and pack-derived surface alpha.
+
+Live Water Gallery evidence requires at least one distinct water tint genuinely
+referenced by its committed and presented liquid snapshot. The fixture does not
+claim nearby witnesses have different biomes because BDS fixture commands do
+not control biome assignment. Multi-biome parity is a separate deterministic
+integration proof: two raw live biome IDs with different map-water colours must
+resolve through the dense lookup into distinct renderer water-tint records.
+
+The Water Gallery explicitly opts into a timed-exit presentation settle. The
+requested measurement window ends exactly at its original deadline, freezing
+session duration and frame quantiles. Rendering may continue for at most two
+additional seconds solely to obtain a non-empty transparent generation for
+which committed, encoded, and GPU-presented generations are identical and
+nonzero. The exact deciding snapshot is copied into final metrics. Failure to
+settle is a logged, nonzero acceptance failure rather than a weaker evidence
+gate. Its manifested p99 frame-time maximum is exactly `1000 / 60` ms.
 
 Corner heights require diagonal horizontal samples. Mesh snapshots and mutation
 invalidation therefore cover a bounded horizontal 3x3 neighborhood plus the

@@ -41,8 +41,21 @@ One global material buffer, one repeat sampler, and one mipmapped 2D texture arr
 serve the shared chunk pipeline and indirect draw arenas; there are no
 per-subchunk Bevy `Mesh` or `StandardMaterial` objects.
 
-The current visible scope is deliberately limited to opaque, axis-aligned full
-cubes. Cutout and blended blocks, most non-cube models, biome tint, animation,
+The shared sampler uses nearest magnification so the pinned pack's native
+16x16 texels remain crisp when enlarged. Minification and transitions between
+the independently generated mip levels remain linear to limit distant shimmer.
+Anisotropy remains one because WebGPU requires linear magnification whenever
+anisotropy is greater than one; a future quality profile may offer that tradeoff
+without silently changing the vanilla-pixel presentation.
+
+The user-facing default FOV is 120 degrees horizontally. Bevy stores vertical
+FOV, so the camera converts 120 degrees from the primary window's current aspect
+ratio and updates the projection after an aspect change. At 16:9 this is about
+88.51 degrees vertically, rather than the heavily distorted 120-degree vertical
+projection (about 144 degrees horizontally) used by the earlier build.
+
+The original texture slice recorded by this report was deliberately limited to
+opaque, axis-aligned full cubes. Cutout and blended blocks, most non-cube models, biome tint, animation,
 lighting, sky, fog, and clouds remain later Phase 2 work and resolve to the
 diagnostic material where appropriate.
 

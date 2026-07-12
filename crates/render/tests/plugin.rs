@@ -11,20 +11,486 @@ use assets::{
 };
 use bevy::{
     camera::primitives::Aabb,
-    prelude::{App, MinimalPlugins, Vec3, Visibility},
+    prelude::{App, Mat4, MinimalPlugins, Quat, Vec3, Visibility},
 };
 use render::{
     AnimationFrameSample, BlockClassifier, ChunkAnimationClock, ChunkRenderInstance,
     ChunkRenderQueue, ChunkRenderQueueLimits, ChunkTextureAssetIdentity, ChunkUploadPriority,
     DebugWorldPlugin, Face, MATERIAL_UV_REFLECT_U, MATERIAL_UV_REFLECT_V, MATERIAL_UV_ROTATE_90,
-    MATERIAL_UV_ROTATE_180, MATERIAL_UV_ROTATE_270, Neighbourhood, PackedBiomeRecord, PackedQuad,
-    PresentedFrameAck, RenderViewCohort, TextureArrayLimits, TextureLimitError, TexturePageBinding,
-    diagnostic_texture_page, greedy_texture_uv, mesh_sub_chunk, plan_texture_mip_uploads,
-    plan_texture_page_bindings, select_animation_frames, texture_asset_needs_rebuild,
+    MATERIAL_UV_ROTATE_180, MATERIAL_UV_ROTATE_270, MAX_TRANSPARENT_DRAW_REFS,
+    MAX_TRANSPARENT_VIEWS, Neighbourhood, PackedBiomeRecord, PackedQuad, PackedTransparentDrawRef,
+    PresentedFrameAck, RenderViewCohort, TRANSPARENT_REF_BUFFER_BYTES, TRANSPARENT_REF_SLOT_BYTES,
+    TextureArrayLimits, TextureLimitError, TexturePageBinding, TransparentAllocationIdentity,
+    TransparentOrderedSnapshot, TransparentSortCandidate, TransparentSortError,
+    TransparentSortJobGate, TransparentSortMetrics, TransparentSortMetricsSnapshot,
+    TransparentSortResult, TransparentSortState, ViewSortGeneration, ViewSortKey,
+    diagnostic_texture_page, direct_transparent_draw_args_for_test, greedy_texture_uv,
+    mdi_transparent_draw_args_for_test, mesh_sub_chunk, plan_texture_mip_uploads,
+    plan_texture_page_bindings, select_animation_frames, sort_transparent_candidates_for_test,
+    texture_asset_needs_rebuild,
 };
 use world::{DecodedBiomeColumn, SubChunk, SubChunkKey};
 
 const AIR: u32 = 12_530;
+
+#[test]
+fn chunk_sampler_source_contract_is_crisp_for_magnification_and_filtered_for_mips() {
+    let source = include_str!("../src/plugin.rs");
+    assert!(source.contains("mag_filter: FilterMode::Nearest"));
+    assert!(source.contains("min_filter: FilterMode::Linear"));
+    assert!(source.contains("mipmap_filter: FilterMode::Linear"));
+    assert!(source.contains("anisotropy_clamp: 1"));
+}
+
+#[test]
+fn sort_ref_ceiling_is_enforced() {
+    assert_eq!(size_of::<PackedTransparentDrawRef>(), 8);
+    assert_eq!(MAX_TRANSPARENT_DRAW_REFS, 2_097_152);
+    assert_eq!(
+        render::validate_transparent_sort_ref_count(MAX_TRANSPARENT_DRAW_REFS),
+        Ok(())
+    );
+    assert_eq!(
+        render::validate_transparent_sort_ref_count(MAX_TRANSPARENT_DRAW_REFS + 1),
+        Err(TransparentSortError::ReferenceCeiling {
+            requested: 2_097_153,
+            ceiling: 2_097_152,
+        })
+    );
+    let packed = PackedTransparentDrawRef::new(17, 29);
+    assert_eq!(packed.liquid_record_index(), 17);
+    assert_eq!(packed.metadata_index(), 29);
+}
+
+fn allocation(key: SubChunkKey, generation: u64, base: u32) -> TransparentAllocationIdentity {
+    TransparentAllocationIdentity::new(
+        key,
+        generation,
+        base..base + 8,
+        base + 32..base + 40,
+        base / 8,
+    )
+}
+
+fn sort_key(
+    camera: [i32; 3],
+    orientation: [i32; 4],
+    visible: Vec<TransparentAllocationIdentity>,
+    assets: u64,
+    tint: u64,
+) -> ViewSortKey {
+    ViewSortKey::try_new(
+        camera.map(|value| value as f32),
+        orientation.map(|value| value as f32),
+        visible,
+        ChunkTextureAssetIdentity::for_test(assets as usize, assets),
+        render::ChunkBiomeTintIdentity::new(tint, tint),
+    )
+    .unwrap()
+}
+
+fn exact_sort_key(camera: [f32; 3], orientation: [f32; 4]) -> ViewSortKey {
+    ViewSortKey::try_new(
+        camera,
+        orientation,
+        vec![],
+        ChunkTextureAssetIdentity::for_test(1, 1),
+        render::ChunkBiomeTintIdentity::new(1, 1),
+    )
+    .unwrap()
+}
+
+fn sort_result(
+    generation: ViewSortGeneration,
+    key: ViewSortKey,
+    record: u32,
+) -> TransparentSortResult {
+    TransparentSortResult::new(
+        generation,
+        key,
+        vec![PackedTransparentDrawRef::new(record, record + 100)],
+    )
+    .unwrap()
+}
+
+#[test]
+fn older_view_sort_generation_is_rejected() {
+    let mut state = TransparentSortState::with_upload_cap(8);
+    let visible = vec![allocation(SubChunkKey::new(0, 0, 0, 0), 3, 8)];
+    let first_key = sort_key([0, 0, 0], [0, 0, 0, 1], visible.clone(), 2, 3);
+    let first = state.request(&first_key);
+    assert_eq!(
+        state.request(&first_key),
+        first,
+        "unchanged outstanding work is reused"
+    );
+    let rotated_key = sort_key([0, 0, 0], [0, 1, 0, 1], visible, 2, 3);
+    let rotated = state.request(&rotated_key);
+    assert!(
+        first < rotated,
+        "camera orientation is part of the exact key"
+    );
+    assert_eq!(state.complete(sort_result(first, first_key, 1)), Ok(false));
+    assert!(state.committed().is_none());
+    assert_eq!(
+        state.complete(sort_result(rotated, rotated_key, 4)),
+        Ok(false)
+    );
+    assert!(state.next_upload_batch().is_some());
+    assert!(state.acknowledge_upload());
+    assert_eq!(state.committed().unwrap().generation(), rotated);
+}
+
+#[test]
+fn last_complete_sort_remains_bound() {
+    let mut state = TransparentSortState::with_upload_cap(1);
+    let visible = vec![allocation(SubChunkKey::new(0, 0, 0, 0), 1, 8)];
+    let first_key = sort_key([0, 0, 0], [0, 0, 0, 1], visible.clone(), 1, 1);
+    let first = state.request(&first_key);
+    assert_eq!(state.complete(sort_result(first, first_key, 7)), Ok(false));
+    let upload = state.next_upload_batch().unwrap();
+    assert_eq!(upload.buffer_slot(), 0);
+    assert_eq!(upload.ref_range(), 0..1);
+    assert_eq!(upload.refs(), &[PackedTransparentDrawRef::new(7, 107)]);
+    assert!(state.acknowledge_upload());
+    let committed: TransparentOrderedSnapshot = state.committed().unwrap().clone();
+    let second_key = sort_key([1, 0, 0], [0, 0, 0, 1], visible, 1, 1);
+    let second = state.request(&second_key);
+    assert_eq!(state.committed(), Some(&committed));
+    let oversized = TransparentSortResult::new(
+        second,
+        second_key,
+        vec![
+            PackedTransparentDrawRef::new(8, 1),
+            PackedTransparentDrawRef::new(9, 1),
+        ],
+    )
+    .unwrap();
+    assert_eq!(state.complete(oversized), Ok(false));
+    assert_eq!(state.committed(), Some(&committed));
+    let upload = state.next_upload_batch().unwrap();
+    assert_eq!(upload.buffer_slot(), 1);
+    assert_eq!(upload.ref_range(), 0..1);
+    assert_eq!(upload.refs(), &[PackedTransparentDrawRef::new(8, 1)]);
+    assert!(!state.acknowledge_upload());
+    assert_eq!(state.committed(), Some(&committed));
+    let upload = state.next_upload_batch().unwrap();
+    assert_eq!(upload.ref_range(), 1..2);
+    assert_eq!(upload.refs(), &[PackedTransparentDrawRef::new(9, 1)]);
+    assert!(state.acknowledge_upload());
+    let replacement = state.committed().unwrap();
+    assert_eq!(replacement.generation(), second);
+    assert_ne!(replacement.buffer_slot(), committed.buffer_slot());
+}
+
+#[test]
+fn unsafe_sort_identity_changes_clear_bound_snapshot() {
+    let a = allocation(SubChunkKey::new(0, 0, 0, 0), 1, 8);
+    let base = sort_key([0, 0, 0], [0, 0, 0, 1], vec![a.clone()], 10, 20);
+    for unsafe_key in [
+        sort_key([0, 0, 0], [0, 0, 0, 1], vec![], 10, 20),
+        sort_key(
+            [0, 0, 0],
+            [0, 0, 0, 1],
+            vec![allocation(a.key(), 2, 8)],
+            10,
+            20,
+        ),
+        sort_key([0, 0, 0], [0, 0, 0, 1], vec![a.clone()], 11, 20),
+        sort_key([0, 0, 0], [0, 0, 0, 1], vec![a.clone()], 10, 21),
+    ] {
+        let mut state = TransparentSortState::with_upload_cap(8);
+        let generation = state.request(&base);
+        assert_eq!(
+            state.complete(sort_result(generation, base.clone(), 1)),
+            Ok(false)
+        );
+        assert!(state.next_upload_batch().is_some());
+        assert!(state.acknowledge_upload());
+        state.request(&unsafe_key);
+        assert!(state.committed().is_none());
+        assert_eq!(state.staged_ref_count(), 0);
+    }
+}
+
+#[test]
+fn unsafe_sort_identity_change_discards_partially_staged_refs() {
+    let visible = vec![allocation(SubChunkKey::new(0, 0, 0, 0), 1, 8)];
+    let initial = sort_key([0, 0, 0], [0, 0, 0, 1], visible, 10, 20);
+    let mut state = TransparentSortState::with_upload_cap(1);
+    let generation = state.request(&initial);
+    let result = TransparentSortResult::new(
+        generation,
+        initial,
+        vec![
+            PackedTransparentDrawRef::new(8, 1),
+            PackedTransparentDrawRef::new(9, 1),
+        ],
+    )
+    .unwrap();
+    assert_eq!(state.complete(result), Ok(false));
+    assert!(state.next_upload_batch().is_some());
+    assert!(!state.acknowledge_upload());
+    assert_eq!(state.staged_ref_count(), 2);
+
+    let unsafe_key = sort_key([0, 0, 0], [0, 0, 0, 1], vec![], 10, 20);
+    state.request(&unsafe_key);
+    assert_eq!(state.staged_ref_count(), 0);
+    assert!(state.next_upload_batch().is_none());
+}
+
+#[test]
+fn visible_sort_manifest_is_canonical_and_reuses_the_outstanding_generation() {
+    let a = allocation(SubChunkKey::new(0, -1, 2, 3), 4, 40);
+    let b = allocation(SubChunkKey::new(0, 5, 6, 7), 8, 80);
+    let forward = sort_key([1, 2, 3], [0, 0, 0, 1], vec![a.clone(), b.clone()], 9, 10);
+    let reverse = sort_key([1, 2, 3], [0, 0, 0, 1], vec![b, a.clone(), a], 9, 10);
+    assert_eq!(forward, reverse);
+    let mut state = TransparentSortState::with_upload_cap(8);
+    assert_eq!(state.request(&forward), state.request(&reverse));
+}
+
+#[test]
+fn conflicting_duplicate_visible_allocation_is_rejected() {
+    let key = SubChunkKey::new(0, 1, 2, 3);
+    assert_eq!(
+        ViewSortKey::try_new(
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+            vec![allocation(key, 1, 8), allocation(key, 2, 16)],
+            ChunkTextureAssetIdentity::for_test(1, 1),
+            render::ChunkBiomeTintIdentity::new(1, 1),
+        ),
+        Err(TransparentSortError::ConflictingAllocation { key })
+    );
+}
+
+#[test]
+fn exact_camera_key_distinguishes_sub_quantum_motion_and_canonicalizes_quaternion_sign() {
+    let base = exact_sort_key([1.0, 2.0, 3.0], [0.1, 0.2, 0.3, 0.9]);
+    let moved = exact_sort_key(
+        [f32::from_bits(1.0_f32.to_bits() + 1), 2.0, 3.0],
+        [0.1, 0.2, 0.3, 0.9],
+    );
+    let negated = exact_sort_key([1.0, 2.0, 3.0], [-0.1, -0.2, -0.3, -0.9]);
+    assert_ne!(base, moved);
+    assert_eq!(base, negated);
+}
+
+#[test]
+fn unchanged_transparent_order_reuses_committed_slot_without_upload() {
+    let visible = vec![allocation(SubChunkKey::new(0, 0, 0, 0), 1, 8)];
+    let first_key = sort_key([0, 0, 0], [0, 0, 0, 1], visible.clone(), 1, 1);
+    let mut state = TransparentSortState::with_upload_cap(8);
+    let first = state.request(&first_key);
+    let refs = vec![
+        PackedTransparentDrawRef::new(8, 1),
+        PackedTransparentDrawRef::new(9, 1),
+    ];
+    assert_eq!(
+        state.complete(TransparentSortResult::new(first, first_key, refs.clone()).unwrap()),
+        Ok(false)
+    );
+    assert!(state.next_upload_batch().is_some());
+    assert!(state.acknowledge_upload());
+    let committed = state.committed().unwrap().clone();
+
+    let camera_only = sort_key([1, 0, 0], [0, 0, 0, 1], visible.clone(), 1, 1);
+    let second = state.request(&camera_only);
+    assert_eq!(
+        state.complete(TransparentSortResult::new(second, camera_only, refs).unwrap()),
+        Ok(true)
+    );
+    assert!(state.next_upload_batch().is_none());
+    assert_eq!(
+        state.committed().unwrap().buffer_slot(),
+        committed.buffer_slot()
+    );
+    assert_eq!(state.committed().unwrap().generation(), second);
+
+    let changed_key = sort_key([2, 0, 0], [0, 0, 0, 1], visible, 1, 1);
+    let third = state.request(&changed_key);
+    assert_eq!(
+        state.complete(
+            TransparentSortResult::new(
+                third,
+                changed_key,
+                vec![
+                    PackedTransparentDrawRef::new(9, 1),
+                    PackedTransparentDrawRef::new(8, 1)
+                ],
+            )
+            .unwrap(),
+        ),
+        Ok(false)
+    );
+    assert!(state.next_upload_batch().is_some());
+}
+
+#[test]
+fn zero_transparent_upload_cap_still_makes_bounded_progress() {
+    let key = sort_key([0, 0, 0], [0, 0, 0, 1], vec![], 1, 1);
+    let mut state = TransparentSortState::with_upload_cap(0);
+    let generation = state.request(&key);
+    let result =
+        TransparentSortResult::new(generation, key, vec![PackedTransparentDrawRef::new(1, 2)])
+            .unwrap();
+    assert_eq!(state.complete(result), Ok(false));
+    assert_eq!(state.next_upload_batch().unwrap().refs().len(), 1);
+    assert!(state.acknowledge_upload());
+}
+
+#[test]
+fn transparent_view_reset_preserves_monotonic_sort_generations() {
+    let key = sort_key([0, 0, 0], [0, 0, 0, 1], vec![], 1, 1);
+    let mut state = TransparentSortState::with_upload_cap(8);
+    let before_reset = state.request(&key);
+    state.reset_preserving_generation();
+    let after_reset = state.request(&key);
+    assert!(after_reset > before_reset);
+    assert!(state.committed().is_none());
+    assert_eq!(state.staged_ref_count(), 0);
+}
+
+#[test]
+fn transparent_sort_metrics_cross_world_clones_share_the_latest_snapshot() {
+    let metrics = TransparentSortMetrics::default();
+    let render_world = metrics.clone();
+    let snapshot = TransparentSortMetricsSnapshot {
+        request_generation: 7,
+        result_generation: 6,
+        committed_generation: 5,
+        encoded_generation: 5,
+        presented_generation: 5,
+        ref_count: 4,
+        cpu_duration: Duration::from_micros(30),
+        request_to_commit_latency: Duration::from_micros(50),
+        staged_bytes: 24,
+        upload_bytes: 16,
+        stale_reject_count: 3,
+        ceiling_reject_count: 2,
+        active_slot_age_frames: 9,
+        transparent_water_distinct_tint_count: 2,
+    };
+    render_world.publish_for_test(snapshot);
+    assert_eq!(metrics.snapshot(), snapshot);
+}
+
+#[test]
+fn transparent_view_and_double_slot_memory_are_strictly_bounded() {
+    assert_eq!(MAX_TRANSPARENT_VIEWS, 1);
+    assert_eq!(TRANSPARENT_REF_SLOT_BYTES, 16 * 1024 * 1024);
+    assert_eq!(TRANSPARENT_REF_BUFFER_BYTES, 32 * 1024 * 1024);
+    assert_eq!(
+        TRANSPARENT_REF_BUFFER_BYTES,
+        size_of::<PackedTransparentDrawRef>() * MAX_TRANSPARENT_DRAW_REFS * 2
+    );
+}
+
+#[test]
+fn transparent_sort_job_gate_keeps_one_in_flight_and_only_the_newest_replacement() {
+    let mut gate = TransparentSortJobGate::default();
+    let first = ViewSortGeneration::for_test(1);
+    let second = ViewSortGeneration::for_test(2);
+    let newest = ViewSortGeneration::for_test(3);
+    assert_eq!(gate.submit(first, "first"), Some((first, "first")));
+    assert_eq!(gate.submit(second, "second"), None);
+    assert_eq!(gate.submit(newest, "newest"), None);
+    assert_eq!(gate.in_flight_generation(), Some(first));
+    assert_eq!(gate.pending_generation(), Some(newest));
+    assert_eq!(gate.complete(first), Some((newest, "newest")));
+    assert_eq!(gate.in_flight_generation(), Some(newest));
+    assert_eq!(gate.pending_generation(), None);
+    assert_eq!(gate.complete(newest), None);
+    assert_eq!(gate.in_flight_generation(), None);
+}
+
+#[test]
+fn transparent_pipeline_uses_alpha_without_depth_write() {
+    let plugin = include_str!("../src/plugin.rs");
+    let packed = PackedTransparentDrawRef::new(17, 29);
+    assert_eq!(bytemuck::bytes_of(&packed).len(), 8);
+    assert!(plugin.contains("ViewSortedRenderPhases<Transparent3d>"));
+    assert!(plugin.contains(".blend = Some(BlendState::ALPHA_BLENDING)"));
+    assert!(plugin.contains(".depth_write_enabled = false"));
+    assert!(plugin.contains("depth_compare: CompareFunction::GreaterEqual"));
+    assert!(plugin.contains("liquid_descriptor.primitive.cull_mode = None"));
+    assert!(plugin.contains("binding: 14"));
+}
+
+#[test]
+fn direct_and_mdi_share_transparent_order() {
+    let direct = direct_transparent_draw_args_for_test(1, 37).unwrap();
+    let mdi = mdi_transparent_draw_args_for_test(1, 37).unwrap();
+    assert_eq!(direct, mdi);
+    assert_eq!(direct.index_count, 6);
+    assert_eq!(direct.instance_count, 37);
+    assert_eq!(direct.first_index, 0);
+    assert_eq!(direct.base_vertex, 0);
+    assert_eq!(direct.first_instance, MAX_TRANSPARENT_DRAW_REFS as u32);
+}
+
+#[test]
+fn transparent_draw_evidence_scan_is_only_paid_for_an_active_frame_probe() {
+    let plugin = include_str!("../src/plugin.rs");
+    assert!(plugin.contains("fn is_active(&self) -> bool"));
+    assert_eq!(
+        plugin.matches("if frame_probe.is_active() {").count(),
+        2,
+        "direct and MDI must keep normal liquid drawing O(1)"
+    );
+}
+
+#[test]
+fn transparent_indirect_command_upload_is_generation_cached() {
+    let plugin = include_str!("../src/plugin.rs");
+    assert!(plugin.contains("last_indirect_identity"));
+    assert!(plugin.contains("runtime.last_indirect_identity != Some(identity)"));
+}
+
+fn sort_candidate(
+    key: SubChunkKey,
+    local_quad_index: u32,
+    record: u32,
+    subchunk_center: [f32; 3],
+    quad_centroid: [f32; 3],
+) -> TransparentSortCandidate {
+    TransparentSortCandidate::new(
+        key,
+        local_quad_index,
+        record,
+        record + 100,
+        subchunk_center,
+        quad_centroid,
+    )
+}
+
+#[test]
+fn transparent_sort_is_grouped_back_to_front_stable_and_rotation_sensitive() {
+    let near_key = SubChunkKey::new(0, 0, 0, -1);
+    let far_key = SubChunkKey::new(0, 0, 0, -2);
+    let candidates = vec![
+        sort_candidate(near_key, 1, 11, [0.0, 0.0, -2.0], [0.0, 0.0, -2.5]),
+        sort_candidate(far_key, 1, 21, [0.0, 0.0, -10.0], [0.0, 0.0, -10.0]),
+        sort_candidate(far_key, 0, 20, [0.0, 0.0, -10.0], [0.0, 0.0, -12.0]),
+        sort_candidate(far_key, 2, 22, [0.0, 0.0, -10.0], [0.0, 0.0, -10.0]),
+    ];
+    let identity = sort_transparent_candidates_for_test(Mat4::IDENTITY, candidates.clone());
+    assert_eq!(
+        identity
+            .iter()
+            .map(|draw_ref| draw_ref.liquid_record_index())
+            .collect::<Vec<_>>(),
+        vec![20, 21, 22, 11],
+        "subchunks and their internal faces are back-to-front; ties use local index"
+    );
+
+    let rotated = sort_transparent_candidates_for_test(
+        Mat4::from_quat(Quat::from_rotation_y(std::f32::consts::PI)),
+        candidates,
+    );
+    assert_eq!(rotated[0].liquid_record_index(), 11);
+}
 
 #[test]
 fn task7_streams_share_one_physical_buffer_with_binding_headroom() {
@@ -142,6 +608,50 @@ fn queue_counts_every_stream_and_sidecar() {
 }
 
 #[test]
+fn opaque_and_model_streams_share_one_subchunk_visibility_component() {
+    let key = SubChunkKey::new(0, 1, 2, 3);
+    let cube = solid_mesh(1);
+    let mesh = render::ChunkMesh::from_streams(
+        cube.quads().to_vec(),
+        vec![render::PackedModelRef::new(1, 0, 0, u32::MAX)],
+        vec![render::PackedQuadLighting::new([0; 4])],
+        vec![],
+        vec![],
+        cube.connectivity(),
+    );
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .add_plugins(DebugWorldPlugin::new(1));
+    app.world_mut()
+        .resource_mut::<ChunkRenderQueue>()
+        .try_insert(key, mesh, ChunkUploadPriority::new(0.0))
+        .unwrap();
+
+    app.update();
+
+    {
+        let mut query = app
+            .world_mut()
+            .query::<(&ChunkRenderInstance, &mut Visibility)>();
+        let (instance, mut visibility) = query.single_mut(app.world_mut()).unwrap();
+        assert_eq!(instance.key(), key);
+        assert!(!instance.quads().is_empty());
+        assert!(!instance.model_refs().is_empty());
+        *visibility = Visibility::Hidden;
+    }
+
+    let (instance, visibility) = app
+        .world_mut()
+        .query::<(&ChunkRenderInstance, &Visibility)>()
+        .single(app.world())
+        .unwrap();
+    assert_eq!(instance.key(), key);
+    assert_eq!(*visibility, Visibility::Hidden);
+    assert!(!instance.quads().is_empty());
+    assert!(!instance.model_refs().is_empty());
+}
+
+#[test]
 fn allocated_but_undrawn_target_is_not_exact_presented_evidence() {
     let now = Instant::now();
     let key = SubChunkKey::new(0, 65, 0, 65);
@@ -160,6 +670,7 @@ fn allocated_but_undrawn_target_is_not_exact_presented_evidence() {
         foreign_instances: 0,
         stale_generation_instances: 0,
         orphan_allocations: 0,
+        transparent_sort_generation: 0,
     };
 
     assert!(!acknowledgement.is_exact());
@@ -623,8 +1134,8 @@ fn packed_chunk_pipeline_family_remains_one_opaque_depth_writing_phase() {
     assert!(plugin.contains("layout: vec![bind_group_layout.clone()]"));
     assert!(plugin.contains("blend: None"));
     assert!(plugin.contains("depth_write_enabled: true"));
-    assert_eq!(plugin.matches("binding: ").count(), 28);
-    for binding in 0..=13 {
+    assert_eq!(plugin.matches("binding: ").count(), 30);
+    for binding in 0..=14 {
         assert_eq!(
             plugin.matches(&format!("binding: {binding},")).count(),
             2,
@@ -650,15 +1161,20 @@ fn packed_chunk_pipeline_family_remains_one_opaque_depth_writing_phase() {
         1
     );
     assert!(!plugin.contains("AlphaMask3d"));
-    assert!(!plugin.contains("Transparent3d"));
+    assert_eq!(
+        plugin
+            .matches(".add_render_command::<Transparent3d")
+            .count(),
+        2
+    );
     assert_eq!(size_of::<Material>(), 12);
     assert_eq!(size_of::<PackedQuad>(), 8);
     assert_eq!(
         plugin
             .matches("pass.set_bind_group(0, bind_group, &[view_offset.offset]);")
             .count(),
-        4,
-        "cube/model direct and MDI must share the same global bind group"
+        6,
+        "cube/model/liquid direct and MDI must share the same global bind group"
     );
 }
 
@@ -978,8 +1494,8 @@ fn animation_clock_updates_do_not_rebuild_or_reupload_texture_assets() {
     assert_eq!(plugin.matches("render_queue.write_texture(").count(), 1);
     assert_eq!(
         plugin.matches("render_queue.write_buffer(").count(),
-        6,
-        "one shared writer covers all new immutable geometry streams"
+        8,
+        "shared writers cover immutable geometry plus bounded transparent refs/indirect state"
     );
     assert!(plugin.contains("render_queue.write_buffer(&gpu_clock.buffer"));
 }

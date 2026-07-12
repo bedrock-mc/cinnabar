@@ -5,6 +5,7 @@ mod culling;
 mod metrics;
 mod network;
 mod server_position;
+mod transparent_witness;
 mod world_stream;
 
 use std::{
@@ -27,15 +28,17 @@ use bevy::{
 use camera::{FlyCamera, FlyCameraPlugin};
 use metrics::{
     DiagnosticQuadTracker, ExactFullViewProof, MetricsCollector, PipelineMetricsSnapshot,
-    TeleportProof, deterministic_manifest_hash,
+    TeleportProof, TransparentSortMetricsSnapshot, deterministic_manifest_hash,
 };
 use network::{NetworkConfig, NetworkControlEvent, NetworkHandle, spawn_network};
 use render::{
     ChunkBiomeTints, ChunkRenderInstance, ChunkRenderQueue, ChunkTextureAssets,
     ChunkUploadAcknowledgements, ChunkUploadPriority, ChunkUploadToken, DebugWorldPlugin,
     PresentedFrameAck, PresentedFrameGate, RenderViewCohort, TargetRenderExpectation,
+    TransparentSortMetrics, TransparentWitnessEvidence,
 };
 use server_position::SAFE_SERVER_HEIGHT;
+use transparent_witness::{TransparentWitnessFileSource, poll_transparent_witness_request};
 use world::SubChunkKey;
 use world_stream::{
     CommittedControlEvent, ViewCohort, ViewCohortStatus, WorldMeshChange, WorldStream,
@@ -47,6 +50,7 @@ const NETWORK_INGRESS_BUDGET_PER_FRAME: usize = 8;
 const OUTBOUND_SEND_BUDGET_PER_FRAME: usize = 16;
 const TITLE_REFRESH_INTERVAL: Duration = Duration::from_millis(250);
 const WORLD_READY_QUIET_INTERVAL: Duration = Duration::from_secs(2);
+const TRANSPARENT_PRESENTATION_EXIT_GRACE: Duration = Duration::from_secs(2);
 const TELEPORT_COHORT_PROGRESS_INTERVAL: Duration = Duration::from_secs(1);
 const PHASE0_REQUESTED_RADIUS_CHUNKS: i32 = 16;
 const MUTATION_X_OFFSET_BLOCKS: i32 = 4;
@@ -1155,6 +1159,7 @@ fn exact_full_view_proof(
             .map_or_else(|| "none".to_owned(), cohort_tag),
         ms: duration_milliseconds(evidence.settle_latency),
         view_generation: evidence.view_generation,
+        transparent_sort_generation: evidence.stable_frame.transparent_sort_generation,
         render_ready_ms: duration_milliseconds(evidence.render_ready_latency),
         first_frame_sequence: evidence.first_frame.frame_sequence,
         stable_frame_sequence: evidence.stable_frame.frame_sequence,
@@ -1244,11 +1249,12 @@ fn forced_remesh_proof(
 
 fn exact_full_view_proof_marker_fields(proof: &ExactFullViewProof) -> String {
     format!(
-        "target={} committed={} ms={:.4} view_generation={} render_ready_ms={:.4} first_frame_sequence={} stable_frame_sequence={} first_present_ms={:.4} first_gpu_ms={:.4} stable_present_ms={:.4} stable_gpu_ms={:.4} frame_count={} expected_manifest_count={} expected_manifest_hash={} first_presented_manifest_count={} first_presented_manifest_hash={} stable_presented_manifest_count={} stable_presented_manifest_hash={} expected={} loaded_target={} missing_target={} foreign_loaded={} foreign_requested={} foreign_resident={} source_leftover={} resident_count={} resident_hash={} known_air_count={} known_air_hash={} missing_target_instances={} unexpected_target_instances={} source_instances={} foreign_instances={} stale_generation_instances={} orphan_allocations={}",
+        "target={} committed={} ms={:.4} view_generation={} transparent_sort_generation={} render_ready_ms={:.4} first_frame_sequence={} stable_frame_sequence={} first_present_ms={:.4} first_gpu_ms={:.4} stable_present_ms={:.4} stable_gpu_ms={:.4} frame_count={} expected_manifest_count={} expected_manifest_hash={} first_presented_manifest_count={} first_presented_manifest_hash={} stable_presented_manifest_count={} stable_presented_manifest_hash={} expected={} loaded_target={} missing_target={} foreign_loaded={} foreign_requested={} foreign_resident={} source_leftover={} resident_count={} resident_hash={} known_air_count={} known_air_hash={} missing_target_instances={} unexpected_target_instances={} source_instances={} foreign_instances={} stale_generation_instances={} orphan_allocations={}",
         proof.target,
         proof.committed,
         proof.ms,
         proof.view_generation,
+        proof.transparent_sort_generation,
         proof.render_ready_ms,
         proof.first_frame_sequence,
         proof.stable_frame_sequence,
@@ -1338,7 +1344,23 @@ struct AcceptanceRun {
     full_view_teleport: FullViewTeleportTracker,
     full_view_remesh: FullViewRemeshTracker,
     world_ready: bool,
+    require_transparent_presentation: bool,
     finished: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AcceptanceExitDecision {
+    Continue,
+    WaitForTransparentPresentation,
+    Complete,
+    Fatal,
+    TransparentPresentationTimedOut,
+}
+
+impl AcceptanceExitDecision {
+    const fn is_error(self) -> bool {
+        matches!(self, Self::Fatal | Self::TransparentPresentationTimedOut)
+    }
 }
 
 impl AcceptanceRun {
@@ -1346,6 +1368,7 @@ impl AcceptanceRun {
         seconds: Option<u64>,
         metrics_out: Option<PathBuf>,
         full_view_teleport_gate: bool,
+        require_transparent_presentation: bool,
     ) -> Self {
         Self {
             duration: seconds.map(Duration::from_secs),
@@ -1358,7 +1381,43 @@ impl AcceptanceRun {
             full_view_teleport: FullViewTeleportTracker::new(full_view_teleport_gate),
             full_view_remesh: FullViewRemeshTracker::default(),
             world_ready: false,
+            require_transparent_presentation,
             finished: false,
+        }
+    }
+
+    fn exit_decision(
+        &self,
+        now: Instant,
+        fatal: bool,
+        transparent: TransparentSortMetricsSnapshot,
+    ) -> AcceptanceExitDecision {
+        if fatal {
+            return AcceptanceExitDecision::Fatal;
+        }
+        let Some(deadline) = self.deadline else {
+            return AcceptanceExitDecision::Continue;
+        };
+        if now < deadline {
+            return AcceptanceExitDecision::Continue;
+        }
+        if !self.require_transparent_presentation {
+            return AcceptanceExitDecision::Complete;
+        }
+        if transparent.ref_count > 0
+            && transparent.committed_generation != 0
+            && transparent.committed_generation == transparent.encoded_generation
+            && transparent.committed_generation == transparent.presented_generation
+        {
+            return AcceptanceExitDecision::Complete;
+        }
+        let grace_deadline = deadline
+            .checked_add(TRANSPARENT_PRESENTATION_EXIT_GRACE)
+            .expect("transparent presentation grace deadline overflowed");
+        if now < grace_deadline {
+            AcceptanceExitDecision::WaitForTransparentPresentation
+        } else {
+            AcceptanceExitDecision::TransparentPresentationTimedOut
         }
     }
 
@@ -1739,9 +1798,13 @@ fn write_move_player_ingress_before_source_capture(
     marker: &str,
     source_capture: impl FnOnce(),
 ) {
+    write_stdout_marker(writer, marker);
+    source_capture();
+}
+
+fn write_stdout_marker(writer: &mut impl Write, marker: &str) {
     let _ = writeln!(writer, "{marker}");
     let _ = writer.flush();
-    source_capture();
 }
 
 fn target_mutation_armed_marker(
@@ -1927,10 +1990,14 @@ fn run(args: args::ClientArgs) -> Result<()> {
         asset_metrics,
     )))
     .insert_resource(DiagnosticQuads::default())
+    .insert_resource(TransparentWitnessFileSource::new(
+        args.transparent_witness_request,
+    ))
     .insert_resource(AcceptanceRun::new(
         args.acceptance_seconds,
         args.metrics_out,
         args.full_view_teleport_gate,
+        args.require_transparent_presentation,
     ))
     .add_plugins((
         DebugWorldPlugin::new(GPU_UPLOAD_BUDGET_PER_FRAME),
@@ -1942,6 +2009,7 @@ fn run(args: args::ClientArgs) -> Result<()> {
         Update,
         (
             receive_network_events,
+            poll_transparent_witness_request,
             drive_world_stream,
             refresh_cave_visibility,
             emit_world_ready,
@@ -2770,11 +2838,19 @@ fn record_metrics_and_title(
     mut metrics: ResMut<AppMetrics>,
     diagnostic_quads: Res<DiagnosticQuads>,
     render_queue: Res<ChunkRenderQueue>,
+    transparent_sort: Res<TransparentSortMetrics>,
+    transparent_witness: Res<TransparentWitnessEvidence>,
+    chunks: Query<&ChunkRenderInstance>,
     camera: Query<&Transform, With<FlyCamera>>,
     mut window: Query<(&mut Window, &CursorOptions), With<PrimaryWindow>>,
     mut title_elapsed: Local<Duration>,
     mut rolling_fps: Local<RollingFps>,
+    mut last_marked_transparent_sort_generation: Local<u64>,
 ) {
+    let now = Instant::now();
+    if let Some(deadline) = acceptance.deadline.filter(|deadline| now >= *deadline) {
+        metrics.0.finish_timed_session(deadline);
+    }
     let frame_time = time.delta();
     metrics.0.record_frame(frame_time);
     rolling_fps.record(frame_time);
@@ -2782,6 +2858,75 @@ fn record_metrics_and_title(
         client_world.runtime_assets.missing_count(),
         diagnostic_quads.0.total(),
     );
+    let transparent_sort_snapshot =
+        TransparentSortMetricsSnapshot::from(transparent_sort.snapshot());
+    if let Some(marker) = transparent_sort_committed_marker(
+        *last_marked_transparent_sort_generation,
+        transparent_sort_snapshot,
+    ) {
+        let mut stdout = std::io::stdout().lock();
+        write_stdout_marker(&mut stdout, &marker);
+        *last_marked_transparent_sort_generation = transparent_sort_snapshot.presented_generation;
+    }
+    for event in transparent_witness.drain_events() {
+        let marker = format!(
+            "RUST_MCBE_TRANSPARENT_WITNESS_COMPLETE revision={} sequence={} generation={} key_count={} consecutive={}",
+            event.revision, event.sequence, event.generation, event.key_count, event.consecutive,
+        );
+        let mut stdout = std::io::stdout().lock();
+        write_stdout_marker(&mut stdout, &marker);
+    }
+    for event in transparent_witness.drain_incomplete_events() {
+        let missing = event
+            .missing_keys
+            .iter()
+            .map(|key| format!("{},{},{},{}", key.dimension, key.x, key.y, key.z))
+            .collect::<Vec<_>>()
+            .join(";");
+        let marker = format!(
+            "RUST_MCBE_TRANSPARENT_WITNESS_INCOMPLETE revision={} sequence={} generation={} missing_count={} missing={missing}",
+            event.revision,
+            event.sequence,
+            event.generation,
+            event.missing_keys.len(),
+        );
+        let mut stdout = std::io::stdout().lock();
+        write_stdout_marker(&mut stdout, &marker);
+    }
+    for event in transparent_witness.drain_stage_events() {
+        let records = event
+            .records
+            .iter()
+            .map(|record| {
+                let app_entity = chunks.iter().any(|instance| instance.key() == record.key);
+                format!(
+                    "{},{},{},{}:app_entity={}:cave_visible={}:extracted_visible={}:instance={}:liquid_quads={}:instance_generation={}:allocation={}:liquid_range={}:lighting_range={}:allocation_matches={}:committed_member={}",
+                    record.key.dimension,
+                    record.key.x,
+                    record.key.y,
+                    record.key.z,
+                    u8::from(app_entity),
+                    u8::from(cache.visible.contains(&record.key)),
+                    u8::from(record.extracted_visible),
+                    u8::from(record.instance_present),
+                    record.liquid_quad_count,
+                    record.instance_generation,
+                    u8::from(record.allocation_present),
+                    record.liquid_range_len,
+                    record.lighting_range_len,
+                    u8::from(record.allocation_matches),
+                    u8::from(record.committed_member),
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(";");
+        let marker = format!(
+            "RUST_MCBE_TRANSPARENT_WITNESS_STAGE revision={} committed_generation={} records={records}",
+            event.revision, event.committed_generation,
+        );
+        let mut stdout = std::io::stdout().lock();
+        write_stdout_marker(&mut stdout, &marker);
+    }
     let stream_errors = client_world.stream.as_ref().map_or(0, |stream| {
         let stats = stream.stats();
         metrics.0.record_pipeline_snapshot(PipelineMetricsSnapshot {
@@ -2807,6 +2952,7 @@ fn record_metrics_and_title(
             pending_mesh_jobs: stats.pending_mesh_jobs,
             in_flight_mesh_jobs: stats.in_flight_mesh_jobs,
             gpu_upload_bytes: render_queue.gpu_upload_bytes(),
+            transparent_sort: transparent_sort_snapshot,
         });
         stats
             .decode_errors
@@ -2867,25 +3013,50 @@ fn record_metrics_and_title(
     window.title = title;
 }
 
+fn transparent_sort_committed_marker(
+    last_presented_generation: u64,
+    snapshot: TransparentSortMetricsSnapshot,
+) -> Option<String> {
+    (snapshot.presented_generation > last_presented_generation
+        && snapshot.presented_generation == snapshot.committed_generation
+        && snapshot.ref_count > 0)
+        .then(|| {
+            format!(
+                "RUST_MCBE_TRANSPARENT_SORT_COMMITTED generation={} ref_count={}",
+                snapshot.presented_generation, snapshot.ref_count
+            )
+        })
+}
+
 fn finish_acceptance_run(
     mut acceptance: ResMut<AcceptanceRun>,
     client_world: Res<ClientWorld>,
-    metrics: Res<AppMetrics>,
+    mut metrics: ResMut<AppMetrics>,
+    transparent_sort: Res<TransparentSortMetrics>,
     mut network: ResMut<NetworkHandle>,
     mut exit: MessageWriter<AppExit>,
 ) {
     if acceptance.finished {
         return;
     }
-    let timed_out = acceptance
-        .deadline
-        .is_some_and(|deadline| Instant::now() >= deadline);
+    let now = Instant::now();
     let fatal = client_world.fatal_error.is_some();
-    if !timed_out && !fatal {
+    if let Some(deadline) = acceptance.deadline.filter(|deadline| now >= *deadline) {
+        metrics.0.finish_timed_session(deadline);
+    }
+    let transparent_snapshot = TransparentSortMetricsSnapshot::from(transparent_sort.snapshot());
+    let decision = acceptance.exit_decision(now, fatal, transparent_snapshot);
+    if matches!(
+        decision,
+        AcceptanceExitDecision::Continue | AcceptanceExitDecision::WaitForTransparentPresentation
+    ) {
         return;
     }
 
     acceptance.finished = true;
+    metrics
+        .0
+        .record_transparent_sort_snapshot(transparent_snapshot);
     let mut output_failed = false;
     if let Some(path) = &acceptance.metrics_out
         && let Err(error) = metrics.0.report().write_json(path)
@@ -2899,8 +3070,18 @@ fn finish_acceptance_run(
     if let Some(error) = &client_world.fatal_error {
         error!("{error}");
     }
+    if decision == AcceptanceExitDecision::TransparentPresentationTimedOut {
+        error!(
+            "transparent presentation did not settle within {:.3}s after the timed session: committed={} encoded={} presented={} ref_count={}",
+            TRANSPARENT_PRESENTATION_EXIT_GRACE.as_secs_f64(),
+            transparent_snapshot.committed_generation,
+            transparent_snapshot.encoded_generation,
+            transparent_snapshot.presented_generation,
+            transparent_snapshot.ref_count,
+        );
+    }
     network.shutdown();
-    exit.write(if fatal || output_failed {
+    exit.write(if decision.is_error() || output_failed {
         AppExit::error()
     } else {
         AppExit::Success
@@ -2927,21 +3108,23 @@ mod tests {
     };
     use world::{ChunkKey, SubChunkKey};
 
+    use crate::metrics::TransparentSortMetricsSnapshot;
     use crate::network::{NetworkControlEvent, SequencedWorldEvent};
     use crate::world_stream::{
         ForcedRemeshManifest, ForcedRemeshManifestState, ViewCohort, ViewCohortStatus, WorldStream,
     };
     use crate::{
-        AcceptanceRun, FullViewRemeshTracker, FullViewTeleportCompletion, FullViewTeleportTracker,
-        MutationTracker, NETWORK_INGRESS_BUDGET_PER_FRAME, OUTBOUND_SEND_BUDGET_PER_FRAME,
-        RollingFps, SubChunkTimeoutProgress, TeleportReadySnapshot, WORLD_READY_QUIET_INTERVAL,
+        AcceptanceExitDecision, AcceptanceRun, FullViewRemeshTracker, FullViewTeleportCompletion,
+        FullViewTeleportTracker, MutationTracker, NETWORK_INGRESS_BUDGET_PER_FRAME,
+        OUTBOUND_SEND_BUDGET_PER_FRAME, RollingFps, SubChunkTimeoutProgress,
+        TRANSPARENT_PRESENTATION_EXIT_GRACE, TeleportReadySnapshot, WORLD_READY_QUIET_INTERVAL,
         WorldReadySettler, WorldReadySnapshot, WorldReadyWork, accepted_move_player_ingress_marker,
         bedrock_camera_rotation, camera_sub_chunk_key, cumulative_counter_delta,
         deterministic_mutation_coordinate, drain_network_controls, drain_network_ingress,
         flush_sub_chunk_requests, leaf_forest_target_mutation_coordinate, record_fatal_error,
         resolve_socket_dir_from, startup_biome_tints, status_title, synchronize_biome_tints,
-        target_mutation_armed_marker, world_ready_markers,
-        write_move_player_ingress_before_source_capture,
+        target_mutation_armed_marker, teleport_proof, transparent_sort_committed_marker,
+        world_ready_markers, write_move_player_ingress_before_source_capture, write_stdout_marker,
     };
 
     fn overworld_biome_payload() -> Vec<u8> {
@@ -2967,7 +3150,7 @@ mod tests {
     }
 
     #[test]
-    fn compiled_and_live_biome_tables_synchronize_without_a_revision_gap() {
+    fn compiled_and_live_biome_tables_preserve_raw_id_water_colour_parity() {
         let runtime_assets = Arc::new(RuntimeAssets::diagnostic());
         let mut active = startup_biome_tints(&runtime_assets);
         let initial = runtime_assets.biome_assets().resolve_live(&[]).unwrap();
@@ -2991,21 +3174,44 @@ mod tests {
             .submit(
                 1,
                 WorldEvent::BiomeDefinitions(BiomeDefinitionsEvent {
-                    definitions: Arc::from([BiomeDefinitionEvent {
-                        biome_id: Some(42),
-                        name: Arc::from("example:live"),
-                        temperature: 0.8,
-                        downfall: 0.4,
-                        snow_foliage: 0.0,
-                        map_water_color: 0xff44_6688,
-                    }]),
+                    definitions: Arc::from([
+                        BiomeDefinitionEvent {
+                            biome_id: Some(42),
+                            name: Arc::from("example:cool_water"),
+                            temperature: 0.8,
+                            downfall: 0.4,
+                            snow_foliage: 0.0,
+                            map_water_color: 0xff44_6688,
+                        },
+                        BiomeDefinitionEvent {
+                            biome_id: Some(43),
+                            name: Arc::from("example:warm_water"),
+                            temperature: 0.8,
+                            downfall: 0.4,
+                            snow_foliage: 0.0,
+                            map_water_color: 0xffaa_3300,
+                        },
+                    ]),
                 }),
             )
             .unwrap();
 
         assert!(synchronize_biome_tints(&stream, &mut active));
         assert_eq!(active.revision(), stream.biome_tint_revision());
-        assert_eq!(active.entries().len(), 2);
+        assert_eq!(active.entries().len(), 3);
+        let resolved = stream.resolved_biome_tints_snapshot();
+        let cool = usize::try_from(resolved.dense_index(42)).unwrap();
+        let warm = usize::try_from(resolved.dense_index(43)).unwrap();
+        assert_ne!(cool, warm);
+        assert_eq!(
+            active.entries()[cool].water,
+            resolved.records[cool].water[..3]
+        );
+        assert_eq!(
+            active.entries()[warm].water,
+            resolved.records[warm].water[..3]
+        );
+        assert_ne!(active.entries()[cool].water, active.entries()[warm].water);
         assert!(!synchronize_biome_tints(&stream, &mut active));
     }
 
@@ -3079,7 +3285,7 @@ mod tests {
 
     #[test]
     fn acceptance_run_retains_the_spawn_surface_anchor_until_coordinate_resolution() {
-        let mut acceptance = AcceptanceRun::new(Some(900), None, false);
+        let mut acceptance = AcceptanceRun::new(Some(900), None, false, false);
         assert!(acceptance.enabled());
         acceptance.set_mutation_surface_anchor([10, -6]);
         assert_eq!(acceptance.mutation_surface_anchor(), Some([10, -6]));
@@ -3091,7 +3297,7 @@ mod tests {
     #[test]
     fn full_view_move_player_ingress_marker_is_exact_and_nonbinding_events_are_silent() {
         let started = Instant::now();
-        let mut acceptance = AcceptanceRun::new(Some(900), None, true);
+        let mut acceptance = AcceptanceRun::new(Some(900), None, true, false);
         acceptance.set_mutation_coordinate([0, 58, 0]);
         acceptance.begin_world_ready(started, [0.5, 70.0, 0.5], 1);
 
@@ -3162,7 +3368,7 @@ mod tests {
             [f32::NAN, 70.0, 1_040.5],
             [1_040.5, 70.0, f32::NEG_INFINITY],
         ] {
-            let mut acceptance = AcceptanceRun::new(Some(900), None, true);
+            let mut acceptance = AcceptanceRun::new(Some(900), None, true, false);
             acceptance.set_mutation_coordinate([0, 58, 0]);
             acceptance.begin_world_ready(started, [0.5, 70.0, 0.5], 1);
             let movement = WorldEvent::MovePlayer(protocol::MovePlayerEvent {
@@ -3181,7 +3387,7 @@ mod tests {
             );
         }
 
-        let mut acceptance = AcceptanceRun::new(Some(900), None, true);
+        let mut acceptance = AcceptanceRun::new(Some(900), None, true, false);
         acceptance.set_mutation_coordinate([0, 58, 0]);
         acceptance.begin_world_ready(started, [0.5, 70.0, 0.5], 1);
         let movement = WorldEvent::MovePlayer(protocol::MovePlayerEvent {
@@ -3259,7 +3465,7 @@ mod tests {
     fn full_view_mutation_stays_disarmed_until_exact_target_and_remesh_binding() {
         let source = [0, 58, 0];
         let started = Instant::now();
-        let mut acceptance = AcceptanceRun::new(Some(900), None, true);
+        let mut acceptance = AcceptanceRun::new(Some(900), None, true, false);
         acceptance.set_mutation_coordinate(source);
 
         assert_eq!(acceptance.source_mutation_coordinate(), Some(source));
@@ -3405,7 +3611,7 @@ mod tests {
 
     #[test]
     fn timed_acceptance_deadline_begins_only_when_the_world_is_ready() {
-        let mut acceptance = AcceptanceRun::new(Some(900), None, false);
+        let mut acceptance = AcceptanceRun::new(Some(900), None, false, false);
         assert_eq!(acceptance.deadline, None);
 
         let world_ready_at = Instant::now() + Duration::from_secs(60);
@@ -3416,6 +3622,104 @@ mod tests {
             acceptance.deadline,
             Some(world_ready_at + Duration::from_secs(900))
         );
+    }
+
+    fn settled_transparent_snapshot(generation: u64) -> TransparentSortMetricsSnapshot {
+        TransparentSortMetricsSnapshot {
+            committed_generation: generation,
+            encoded_generation: generation,
+            presented_generation: generation,
+            ref_count: 42,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn timed_exit_completes_immediately_for_gpu_presented_transparent_snapshot() {
+        let deadline = Instant::now();
+        let mut acceptance = AcceptanceRun::new(Some(60), None, false, true);
+        acceptance.deadline = Some(deadline);
+
+        assert_eq!(
+            acceptance.exit_decision(deadline, false, settled_transparent_snapshot(17)),
+            AcceptanceExitDecision::Complete
+        );
+    }
+
+    #[test]
+    fn timed_exit_does_not_impose_water_settle_on_opaque_acceptance() {
+        let deadline = Instant::now();
+        let mut acceptance = AcceptanceRun::new(Some(60), None, false, false);
+        acceptance.deadline = Some(deadline);
+
+        assert_eq!(
+            acceptance.exit_decision(deadline, false, TransparentSortMetricsSnapshot::default(),),
+            AcceptanceExitDecision::Complete
+        );
+    }
+
+    #[test]
+    fn timed_exit_waits_for_delayed_gpu_presentation_within_grace() {
+        let deadline = Instant::now();
+        let mut acceptance = AcceptanceRun::new(Some(60), None, false, true);
+        acceptance.deadline = Some(deadline);
+        let pending = TransparentSortMetricsSnapshot {
+            committed_generation: 18,
+            encoded_generation: 18,
+            presented_generation: 17,
+            ref_count: 42,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            acceptance.exit_decision(deadline, false, pending),
+            AcceptanceExitDecision::WaitForTransparentPresentation
+        );
+        assert_eq!(
+            acceptance.exit_decision(
+                deadline + TRANSPARENT_PRESENTATION_EXIT_GRACE - Duration::from_millis(1),
+                false,
+                settled_transparent_snapshot(18),
+            ),
+            AcceptanceExitDecision::Complete
+        );
+    }
+
+    #[test]
+    fn timed_exit_turns_unsettled_transparency_into_bounded_fatal_failure() {
+        let deadline = Instant::now();
+        let mut acceptance = AcceptanceRun::new(Some(60), None, false, true);
+        acceptance.deadline = Some(deadline);
+        let pending = TransparentSortMetricsSnapshot {
+            committed_generation: 581,
+            encoded_generation: 581,
+            presented_generation: 0,
+            ref_count: 42,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            acceptance.exit_decision(
+                deadline + TRANSPARENT_PRESENTATION_EXIT_GRACE,
+                false,
+                pending,
+            ),
+            AcceptanceExitDecision::TransparentPresentationTimedOut
+        );
+        assert!(AcceptanceExitDecision::TransparentPresentationTimedOut.is_error());
+    }
+
+    #[test]
+    fn fatal_error_exits_immediately_even_before_timed_deadline() {
+        let now = Instant::now();
+        let mut acceptance = AcceptanceRun::new(Some(60), None, false, true);
+        acceptance.deadline = Some(now + Duration::from_secs(60));
+
+        assert_eq!(
+            acceptance.exit_decision(now, true, TransparentSortMetricsSnapshot::default()),
+            AcceptanceExitDecision::Fatal
+        );
+        assert!(AcceptanceExitDecision::Fatal.is_error());
     }
 
     const DESTINATION_COHORT: ViewCohort = ViewCohort {
@@ -3532,7 +3836,82 @@ mod tests {
             foreign_instances: 0,
             stale_generation_instances: 0,
             orphan_allocations: 0,
+            transparent_sort_generation: 17,
         }
+    }
+
+    #[test]
+    fn transparent_sort_marker_requires_new_presented_committed_generation_with_refs() {
+        let valid = TransparentSortMetricsSnapshot {
+            committed_generation: 17,
+            presented_generation: 17,
+            ref_count: 99,
+            ..Default::default()
+        };
+        assert_eq!(
+            transparent_sort_committed_marker(16, valid),
+            Some("RUST_MCBE_TRANSPARENT_SORT_COMMITTED generation=17 ref_count=99".to_owned())
+        );
+        assert_eq!(transparent_sort_committed_marker(17, valid), None);
+        assert_eq!(
+            transparent_sort_committed_marker(
+                16,
+                TransparentSortMetricsSnapshot {
+                    presented_generation: 17,
+                    committed_generation: 18,
+                    ref_count: 99,
+                    ..Default::default()
+                }
+            ),
+            None
+        );
+        assert_eq!(
+            transparent_sort_committed_marker(
+                16,
+                TransparentSortMetricsSnapshot {
+                    presented_generation: 17,
+                    committed_generation: 17,
+                    ref_count: 0,
+                    ..Default::default()
+                }
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn transparent_sort_marker_writer_targets_and_flushes_stdout_sink() {
+        struct FlushRecordingWriter {
+            bytes: Vec<u8>,
+            flushed: bool,
+        }
+
+        impl std::io::Write for FlushRecordingWriter {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.bytes.extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                self.flushed = true;
+                Ok(())
+            }
+        }
+
+        let mut writer = FlushRecordingWriter {
+            bytes: Vec::new(),
+            flushed: false,
+        };
+        write_stdout_marker(
+            &mut writer,
+            "RUST_MCBE_TRANSPARENT_SORT_COMMITTED generation=17 ref_count=99",
+        );
+
+        assert_eq!(
+            writer.bytes,
+            b"RUST_MCBE_TRANSPARENT_SORT_COMMITTED generation=17 ref_count=99\n"
+        );
+        assert!(writer.flushed);
     }
 
     fn binding_teleport_completion(
@@ -3569,6 +3948,19 @@ mod tests {
                 stable_gpu_after_ready,
             ))
             .unwrap()
+    }
+
+    #[test]
+    fn exact_full_view_proof_uses_stable_presented_transparent_sort_generation() {
+        let completion = binding_teleport_completion(Instant::now(), Duration::from_millis(1_500));
+
+        let proof = teleport_proof(exact_destination_status(), &completion);
+
+        assert_eq!(proof.exact.transparent_sort_generation, 17);
+        assert!(
+            super::exact_full_view_proof_marker_fields(&proof.exact)
+                .contains("transparent_sort_generation=17")
+        );
     }
 
     #[test]

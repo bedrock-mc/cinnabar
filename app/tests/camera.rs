@@ -7,7 +7,7 @@ use bevy::{
     core_pipeline::tonemapping::Tonemapping,
     input::mouse::AccumulatedMouseMotion,
     prelude::*,
-    window::{CursorGrabMode, CursorOptions, PrimaryWindow},
+    window::{CursorGrabMode, CursorOptions, PrimaryWindow, WindowResolution},
 };
 use camera::{AutoFly, FlyCamera, FlyCameraPlugin, PITCH_LIMIT};
 
@@ -262,7 +262,29 @@ fn plugin_spawns_camera_and_auto_fly_uses_delta_seconds() {
 }
 
 #[test]
-fn plugin_spawns_camera_with_120_degree_vertical_fov() {
+fn horizontal_fov_converts_to_aspect_correct_vertical_fov() {
+    let horizontal = 120.0_f32.to_radians();
+    let sixteen_nine = camera::horizontal_fov_to_vertical(horizontal, 16.0 / 9.0);
+    let four_three = camera::horizontal_fov_to_vertical(horizontal, 4.0 / 3.0);
+
+    assert!((sixteen_nine.to_degrees() - 88.507_16).abs() < 1.0e-4);
+    assert!((four_three.to_degrees() - 104.821_82).abs() < 1.0e-4);
+    assert!(four_three > sixteen_nine);
+}
+
+#[test]
+fn horizontal_fov_conversion_is_finite_and_bounded_for_bad_inputs() {
+    for horizontal in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -1.0, 0.0, 99.0] {
+        for aspect in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -1.0, 0.0] {
+            let vertical = camera::horizontal_fov_to_vertical(horizontal, aspect);
+            assert!(vertical.is_finite());
+            assert!(vertical > 0.0 && vertical < std::f32::consts::PI);
+        }
+    }
+}
+
+#[test]
+fn plugin_spawns_camera_with_120_degree_horizontal_fov() {
     let mut app = App::new();
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::default());
@@ -284,12 +306,68 @@ fn plugin_spawns_camera_with_120_degree_vertical_fov() {
     let Projection::Perspective(perspective) = projection else {
         panic!("fly camera projection is not perspective");
     };
-    let expected = 120.0_f32.to_radians();
+    let expected = camera::horizontal_fov_to_vertical(120.0_f32.to_radians(), 16.0 / 9.0);
     assert!(
         (perspective.fov - expected).abs() <= 1.0e-6,
-        "vertical FOV = {} degrees, want 120",
+        "vertical FOV = {} degrees, want aspect-correct 120-degree horizontal FOV",
         perspective.fov.to_degrees()
     );
+}
+
+#[test]
+fn camera_vertical_fov_tracks_primary_window_aspect_changes() {
+    let mut app = App::new();
+    app.init_resource::<Time>()
+        .add_plugins(FlyCameraPlugin::default());
+    let window = app
+        .world_mut()
+        .spawn((
+            Window {
+                resolution: WindowResolution::new(1600, 900),
+                focused: true,
+                ..default()
+            },
+            CursorOptions::default(),
+            PrimaryWindow,
+        ))
+        .id();
+
+    app.update();
+    let fov_16_9 = match app
+        .world_mut()
+        .query_filtered::<&Projection, (With<Camera3d>, With<FlyCamera>)>()
+        .single(app.world())
+        .unwrap()
+    {
+        Projection::Perspective(perspective) => perspective.fov,
+        _ => panic!("fly camera projection is not perspective"),
+    };
+    assert!(
+        (fov_16_9 - camera::horizontal_fov_to_vertical(120.0_f32.to_radians(), 16.0 / 9.0)).abs()
+            < 1.0e-6
+    );
+
+    app.world_mut()
+        .get_mut::<Window>(window)
+        .unwrap()
+        .resolution
+        .set_physical_resolution(1200, 900);
+    app.update();
+
+    let fov_4_3 = match app
+        .world_mut()
+        .query_filtered::<&Projection, (With<Camera3d>, With<FlyCamera>)>()
+        .single(app.world())
+        .unwrap()
+    {
+        Projection::Perspective(perspective) => perspective.fov,
+        _ => panic!("fly camera projection is not perspective"),
+    };
+    assert!(
+        (fov_4_3 - camera::horizontal_fov_to_vertical(120.0_f32.to_radians(), 4.0 / 3.0)).abs()
+            < 1.0e-6
+    );
+    assert!(fov_4_3 > fov_16_9);
 }
 
 #[test]

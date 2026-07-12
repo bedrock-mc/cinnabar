@@ -3911,6 +3911,7 @@ dependencies = [
  "bevy",
  "bytemuck",
  "naga",
+ "rayon",
  "world",
 ]
 

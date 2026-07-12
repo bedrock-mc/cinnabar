@@ -9,7 +9,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$MetricsOut,
     [string]$Assets,
-    [ValidateSet('None', 'Front', 'Back', 'LeafGalleryFront', 'LeafGalleryBack', 'CrossCropGalleryFront', 'CrossCropGalleryBack', 'AquaticGalleryFront', 'AquaticGalleryBack')]
+    [ValidateSet('None', 'Front', 'Back', 'LeafGalleryFront', 'LeafGalleryBack', 'CrossCropGalleryFront', 'CrossCropGalleryBack', 'AquaticGalleryFront', 'AquaticGalleryBack', 'WaterGalleryFront', 'WaterGalleryBack')]
     [string]$VisualFixturePose = 'None',
     [switch]$FullViewTeleportGate,
     [switch]$LeafForestBaseline,
@@ -1028,6 +1028,76 @@ function Get-ContiguousProcessLogByteCount {
     return $Count
 }
 
+function Advance-ProcessOutputCursorToCurrentEnd {
+    param([Parameter(Mandatory = $true)]$Handle)
+
+    $cursorProperty = $Handle.PSObject.Properties['StdoutMarkerCursor']
+    if ($null -eq $cursorProperty) {
+        $Handle | Add-Member -MemberType NoteProperty -Name StdoutMarkerCursor -Value ([pscustomobject]@{
+            Offset = [long]0
+            PartialLine = ''
+            LineNumber = [uint64]0
+        })
+    }
+    $cursor = $Handle.StdoutMarkerCursor
+    $startOffset = [long]$cursor.Offset
+    $reader = [IO.FileStream]::new(
+        $Handle.StdoutPath,
+        [IO.FileMode]::Open,
+        [IO.FileAccess]::Read,
+        [IO.FileShare]::ReadWrite
+    )
+    try {
+        $null = $reader.Seek($startOffset, [IO.SeekOrigin]::Begin)
+        $remaining = $reader.Length - $reader.Position
+        if ($remaining -lt 0 -or $remaining -gt [int]::MaxValue) {
+            throw "process stdout drain length was invalid: offset=$startOffset length=$($reader.Length)"
+        }
+        $bytes = [byte[]]::new([int]$remaining)
+        $read = 0
+        while ($read -lt $bytes.Length) {
+            $count = $reader.Read($bytes, $read, $bytes.Length - $read)
+            if ($count -eq 0) { break }
+            $read += $count
+        }
+        $contiguous = if ($read -eq 0) { 0 } else { Get-ContiguousProcessLogByteCount -Buffer $bytes -Count $read }
+        $decodeCount = $contiguous
+        $strictUtf8 = [Text.UTF8Encoding]::new($false, $true)
+        $decoded = $null
+        while ($decodeCount -ge [Math]::Max(0, $contiguous - 3)) {
+            try {
+                $decoded = $strictUtf8.GetString($bytes, 0, $decodeCount)
+                break
+            }
+            catch [Text.DecoderFallbackException] {
+                $decodeCount--
+            }
+        }
+        if ($null -eq $decoded) {
+            throw 'process stdout drain encountered invalid UTF-8 outside a trailing partial code point'
+        }
+        $cursor.Offset = $startOffset + $decodeCount
+        $cursor.PartialLine += $decoded
+    }
+    finally {
+        $reader.Dispose()
+    }
+
+    $completeLines = 0
+    while (($newline = $cursor.PartialLine.IndexOf("`n", [StringComparison]::Ordinal)) -ge 0) {
+        $cursor.PartialLine = $cursor.PartialLine.Substring($newline + 1)
+        $cursor.LineNumber = [uint64]$cursor.LineNumber + 1
+        $completeLines++
+    }
+    return [pscustomobject][ordered]@{
+        start_offset = $startOffset
+        end_offset = [long]$cursor.Offset
+        complete_lines = $completeLines
+        line_number = [uint64]$cursor.LineNumber
+        partial_line_length = $cursor.PartialLine.Length
+    }
+}
+
 function Wait-ProcessOutputMarker {
     param(
         [Parameter(Mandatory = $true)]$Handle,
@@ -1248,6 +1318,107 @@ function Assert-BdsFixtureCommandResults {
         results = @($results)
         stdout_sha256 = Get-Utf8Sha256 -Text ($Lines -join "`n")
     }
+}
+
+function Assert-BdsCameraResortResult {
+    param([Parameter(Mandatory = $true)]$Evidence)
+
+    $skippedProperty = $Evidence.PSObject.Properties['SkippedLines']
+    if ($null -eq $skippedProperty) {
+        throw 'BDS camera resort command failed: post-resort fence did not retain intervening output'
+    }
+    $lines = @($skippedProperty.Value | ForEach-Object { [string]$_ })
+    $rejected = @($lines | Where-Object { $_ -match '(?i)\bERROR\b' })
+    if ($rejected.Count -ne 0) {
+        throw "BDS camera resort command failed: $($rejected -join ' | ')"
+    }
+    $accepted = @($lines | Where-Object { $_ -match '(?i)\bTeleported\b' })
+    if ($accepted.Count -ne 1) {
+        throw "BDS camera resort command failed: expected one teleport acknowledgement before fence, found $($accepted.Count)"
+    }
+    return $accepted[0]
+}
+
+function ConvertFrom-TransparentSortCommittedMarker {
+    param([Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Line)
+
+    if ($Line -notmatch '^RUST_MCBE_TRANSPARENT_SORT_COMMITTED generation=(\d+) ref_count=(\d+)$') {
+        throw "invalid transparent sort committed marker: $Line"
+    }
+    $generation = [uint64]0
+    $refCount = [uint64]0
+    if (-not [uint64]::TryParse($Matches[1], [Globalization.NumberStyles]::None, [Globalization.CultureInfo]::InvariantCulture, [ref]$generation) -or
+        -not [uint64]::TryParse($Matches[2], [Globalization.NumberStyles]::None, [Globalization.CultureInfo]::InvariantCulture, [ref]$refCount) -or
+        $generation -eq 0 -or $refCount -eq 0) {
+        throw "invalid transparent sort committed marker: $Line"
+    }
+    return [pscustomobject][ordered]@{
+        generation = $generation
+        ref_count = $refCount
+    }
+}
+
+function ConvertFrom-TransparentWitnessCompleteMarker {
+    param([Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Line)
+
+    if ($Line -notmatch '^RUST_MCBE_TRANSPARENT_WITNESS_COMPLETE revision=(\d+) sequence=(\d+) generation=(\d+) key_count=(\d+) consecutive=(\d+)$') {
+        throw "invalid transparent witness complete marker: $Line"
+    }
+    $values = [Collections.Generic.List[uint64]]::new()
+    foreach ($text in $Matches[1..5]) {
+        $value = [uint64]0
+        if (-not [uint64]::TryParse($text, [Globalization.NumberStyles]::None, [Globalization.CultureInfo]::InvariantCulture, [ref]$value)) {
+            throw "invalid transparent witness complete marker: $Line"
+        }
+        $values.Add($value)
+    }
+    if ($values[0] -eq 0 -or $values[1] -eq 0 -or $values[2] -eq 0 -or
+        $values[3] -eq 0 -or $values[3] -gt 64 -or $values[4] -lt 1 -or $values[4] -gt 2) {
+        throw "invalid transparent witness complete marker: $Line"
+    }
+    return [pscustomobject][ordered]@{
+        revision = $values[0]
+        sequence = $values[1]
+        generation = $values[2]
+        key_count = $values[3]
+        consecutive = [int]$values[4]
+    }
+}
+
+function Assert-StableTransparentWitnessEvidence {
+    param(
+        [Parameter(Mandatory = $true)]$Request,
+        [Parameter(Mandatory = $true)]$First,
+        [Parameter(Mandatory = $true)]$Second
+    )
+
+    $expectedRevision = [uint64]$Request.revision
+    $expectedKeyCount = [uint64]@($Request.sub_chunks).Count
+    if ([uint64]$First.revision -ne $expectedRevision -or [uint64]$Second.revision -ne $expectedRevision -or
+        [uint64]$First.key_count -ne $expectedKeyCount -or [uint64]$Second.key_count -ne $expectedKeyCount -or
+        [int]$First.consecutive -ne 1 -or [int]$Second.consecutive -ne 2 -or
+        [uint64]$Second.sequence -le [uint64]$First.sequence -or
+        [uint64]$Second.generation -lt [uint64]$First.generation) {
+        throw "transparent witness did not complete twice consecutively: revision=$expectedRevision key_count=$expectedKeyCount first=$($First | ConvertTo-Json -Compress) second=$($Second | ConvertTo-Json -Compress)"
+    }
+    return $Second
+}
+
+function Assert-NewerTransparentSortCommit {
+    param(
+        [Parameter(Mandatory = $true)]$Initial,
+        [Parameter(Mandatory = $true)][uint64]$InitialLineNumber,
+        [Parameter(Mandatory = $true)]$Resort,
+        [Parameter(Mandatory = $true)][uint64]$ResortLineNumber
+    )
+
+    if ([uint64]$Resort.generation -le [uint64]$Initial.generation) {
+        throw "camera resort did not commit a newer transparent sort: initial=$($Initial.generation) resort=$($Resort.generation)"
+    }
+    if ($ResortLineNumber -le $InitialLineNumber) {
+        throw "camera resort transparent sort marker was not later in stdout: initial=$InitialLineNumber resort=$ResortLineNumber"
+    }
+    return $Resort
 }
 
 function Get-RequiredBdsMarkerEvidence {
@@ -2269,13 +2440,213 @@ function New-AquaticGalleryPlan {
     }
 }
 
+function New-WaterGalleryPlan {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateCount(3, 3)]
+        [int[]]$MutationCoordinate,
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('WaterGalleryFront', 'WaterGalleryBack')]
+        [string]$Pose,
+        [Parameter(Mandatory = $true)][string]$RegistryPath,
+        [Parameter(Mandatory = $true)][string]$AssetsPath
+    )
+
+    $coverage = Get-AquaticCoverageEvidence -RegistryPath $RegistryPath -AssetsPath $AssetsPath
+    $seagrass = @($coverage.entries | Where-Object {
+        $_.name -ceq 'minecraft:seagrass' -and $_.canonical_state -notmatch 'double_(top|bot)'
+    })
+    if ($seagrass.Count -ne 1) {
+        throw "water gallery expected one canonical single seagrass state, found $($seagrass.Count)"
+    }
+
+    $mx = [int]$MutationCoordinate[0]
+    $my = [int]$MutationCoordinate[1]
+    $mz = [int]$MutationCoordinate[2]
+    $galleryCenter = [pscustomobject][ordered]@{ x = $mx; y = $my + 4; z = $mz }
+    $frontCamera = [pscustomobject][ordered]@{ x = $mx; y = $my + 10; z = $mz - 24 }
+    $backCamera = [pscustomobject][ordered]@{ x = $mx; y = $my + 9; z = $mz + 24 }
+    $initialCamera = if ($Pose -ceq 'WaterGalleryFront') { $frontCamera } else { $backCamera }
+    $resortCamera = if ($Pose -ceq 'WaterGalleryFront') { $backCamera } else { $frontCamera }
+
+    $fixtureCommands = [Collections.Generic.List[string]]::new()
+    $liquidWitnessBlocks = [Collections.Generic.List[object]]::new()
+    $fixtureCommands.Add("fill $($mx - 18) $($my + 1) $($mz - 12) $($mx + 18) $($my + 9) $($mz + 12) minecraft:air")
+    $fixtureCommands.Add("fill $($mx - 18) $($my + 1) $($mz - 12) $($mx + 18) $($my + 1) $($mz + 12) minecraft:stone")
+    $fixtureCommands.Add("fill $($mx - 17) $($my + 2) $($mz - 8) $($mx - 5) $($my + 2) $($mz - 2) minecraft:stone")
+    $fixtureCommands.Add("fill $($mx - 17) $($my + 3) $($mz - 8) $($mx - 5) $($my + 3) $($mz - 8) minecraft:glass")
+    $fixtureCommands.Add("fill $($mx - 17) $($my + 3) $($mz - 2) $($mx - 5) $($my + 3) $($mz - 2) minecraft:glass")
+    $fixtureCommands.Add("fill $($mx - 17) $($my + 3) $($mz - 7) $($mx - 17) $($my + 3) $($mz - 3) minecraft:glass")
+    $fixtureCommands.Add("fill $($mx - 5) $($my + 3) $($mz - 7) $($mx - 5) $($my + 3) $($mz - 3) minecraft:glass")
+    $fixtureCommands.Add("fill $($mx - 16) $($my + 3) $($mz - 7) $($mx - 6) $($my + 3) $($mz - 3) minecraft:water")
+    foreach ($x in ($mx - 16)..($mx - 6)) {
+        foreach ($z in ($mz - 7)..($mz - 3)) {
+            $liquidWitnessBlocks.Add([pscustomobject][ordered]@{ x = $x; y = $my + 3; z = $z })
+        }
+    }
+
+    $flowWitnesses = [Collections.Generic.List[object]]::new()
+    $fixtureCommands.Add("fill $($mx - 3) $($my + 5) $($mz - 1) $($mx + 4) $($my + 8) $($mz + 1) minecraft:glass")
+    foreach ($depth in 0..5) {
+        $x = $mx - 2 + $depth
+        $supportY = $my + 6 - [Math]::Floor($depth / 2)
+        $waterY = $supportY + 1
+        $fixtureCommands.Add("setblock $x $waterY $mz minecraft:water [`"liquid_depth`"=$depth]")
+        $flowWitnesses.Add([pscustomobject][ordered]@{ x = $x; y = $waterY; z = $mz; liquid_depth = $depth })
+        $liquidWitnessBlocks.Add([pscustomobject][ordered]@{ x = $x; y = $waterY; z = $mz })
+    }
+
+    $plant = [pscustomobject][ordered]@{ x = $mx + 8; y = $my + 3; z = $mz - 5 }
+    $fixtureCommands.Add("setblock $($plant.x) $($plant.y - 1) $($plant.z) minecraft:dirt")
+    $fixtureCommands.Add("setblock $($plant.x) $($plant.y) $($plant.z) $($seagrass[0].name)$(ConvertTo-BdsCanonicalStateSuffix -CanonicalState $seagrass[0].canonical_state)")
+    $liquidWitnessBlocks.Add([pscustomobject][ordered]@{ x = $plant.x; y = $plant.y; z = $plant.z })
+
+    $tintWitnesses = @(
+        [pscustomobject][ordered]@{ label = 'near'; x = $mx + 10; y = $my + 3; z = $mz + 4 },
+        [pscustomobject][ordered]@{ label = 'far'; x = $mx + 14; y = $my + 3; z = $mz + 4 }
+    )
+    foreach ($witness in $tintWitnesses) {
+        $fixtureCommands.Add("fill $($witness.x - 1) $($witness.y - 1) $($witness.z - 1) $($witness.x + 1) $($witness.y + 1) $($witness.z + 1) minecraft:glass")
+        $fixtureCommands.Add("setblock $($witness.x) $($witness.y) $($witness.z) minecraft:water")
+        $liquidWitnessBlocks.Add([pscustomobject][ordered]@{ x = $witness.x; y = $witness.y; z = $witness.z })
+    }
+
+    $fixtureCommands.Add("fill $($mx + 5) $($my + 2) $($mz - 8) $($mx + 5) $($my + 6) $($mz - 2) minecraft:glass")
+    $fixtureCommands.Add("fill $($mx + 7) $($my + 2) $($mz - 8) $($mx + 7) $($my + 6) $($mz - 2) minecraft:stone")
+    $fixtureCommands.Add("setblock $($mx + 6) $($my + 3) $($mz - 5) minecraft:water")
+    $liquidWitnessBlocks.Add([pscustomobject][ordered]@{ x = $mx + 6; y = $my + 3; z = $mz - 5 })
+    if ($fixtureCommands.Count -ne 24) {
+        throw "water gallery command count changed: $($fixtureCommands.Count)"
+    }
+
+    $initialTeleport = "tp @a[name=RustMCBE] $($initialCamera.x) $($initialCamera.y) $($initialCamera.z) facing $($galleryCenter.x) $($galleryCenter.y) $($galleryCenter.z)"
+    $resortTeleport = "tp @a[name=RustMCBE] $($resortCamera.x) $($resortCamera.y) $($resortCamera.z) facing $($galleryCenter.x) $($galleryCenter.y) $($galleryCenter.z)"
+    $relativeLayout = [pscustomobject][ordered]@{
+        schema = 'rust-mcbe-water-layout-v1'
+        clear = @(-18, 1, -12, 18, 9, 12)
+        floor = @(-18, 1, -12, 18, 1, 12)
+        still_pool = [pscustomobject][ordered]@{ min = @(-16, 3, -7); max = @(-6, 3, -3); liquid_depth = 0 }
+        downhill_flow_edge = @($flowWitnesses | ForEach-Object {
+            [pscustomobject][ordered]@{
+                offset = @(([int]$_.x - $mx), ([int]$_.y - $my), ([int]$_.z - $mz))
+                liquid_depth = [int]$_.liquid_depth
+            }
+        })
+        flow_enclosure = [pscustomobject][ordered]@{
+            block = 'glass'
+            min = @(-3, 5, -1)
+            max = @(4, 8, 1)
+        }
+        waterlogged_plant = [pscustomobject][ordered]@{
+            offset = @(([int]$plant.x - $mx), ([int]$plant.y - $my), ([int]$plant.z - $mz))
+            block = [string]$seagrass[0].name
+            canonical_state = [string]$seagrass[0].canonical_state
+        }
+        biome_tint_witnesses = @($tintWitnesses | ForEach-Object {
+            [pscustomobject][ordered]@{
+                label = [string]$_.label
+                offset = @(([int]$_.x - $mx), ([int]$_.y - $my), ([int]$_.z - $mz))
+            }
+        })
+        biome_tint_evidence = [pscustomobject][ordered]@{
+            kind = 'runtime-biome-index-water-tint-lookup'
+            distinct_biome_colours_claimed = $false
+            minimum_rendered_distinct_tint_count = [uint64]1
+            multi_biome_lookup_parity_test = 'bedrock-client::tests::compiled_and_live_biome_tables_preserve_raw_id_water_colour_parity'
+            note = 'Witnesses require one real rendered runtime tint. This fixture cannot set BDS biomes and does not claim they cross a biome boundary; the named app test separately proves distinct raw-biome water colours survive live lookup into the render table.'
+        }
+        blend_edge = [pscustomobject][ordered]@{
+            water = @(6, 3, -5)
+            glass = @(5, 2, -8, 5, 6, -2)
+            opaque_backdrop = @(7, 2, -8, 7, 6, -2)
+        }
+    }
+    $layoutHash = Get-CanonicalObjectHash -Value $relativeLayout
+    $manifest = [pscustomobject][ordered]@{
+        schema = 'rust-mcbe-visual-fixture-v1'
+        fixture_kind = 'WaterGallery'
+        pose = $Pose
+        mutation = [pscustomobject][ordered]@{ x = $mx; y = $my; z = $mz }
+        fixture_layout_hash = $layoutHash
+        relative_layout = $relativeLayout
+        gallery_center = $galleryCenter
+        camera = [pscustomobject][ordered]@{ position = $initialCamera; target = $galleryCenter }
+        camera_poses = [pscustomobject][ordered]@{
+            initial = [pscustomobject][ordered]@{ position = $initialCamera; target = $galleryCenter; command = $initialTeleport }
+            resort = [pscustomobject][ordered]@{ position = $resortCamera; target = $galleryCenter; command = $resortTeleport }
+        }
+        fixture_commands = @($fixtureCommands)
+        processing_fence = [pscustomobject][ordered]@{ command = 'list'; stdout_marker = 'players online:' }
+        teleport_command = $initialTeleport
+        initial_camera_fence = [pscustomobject][ordered]@{ command = 'list'; stdout_marker = 'players online:' }
+        camera_resort_command = $resortTeleport
+        camera_resort_fence = [pscustomobject][ordered]@{ command = 'list'; stdout_marker = 'players online:' }
+        performance = [pscustomobject][ordered]@{
+            maximum_p99_frame_ms = [double](1000.0 / 60.0)
+            measured_session_excludes_presentation_exit_grace = $true
+        }
+        camera_resort_settle_milliseconds = 1000
+        settle_milliseconds = 3000
+        coverage_evidence = [pscustomobject][ordered]@{
+            state_set_sha256 = $coverage.state_set_sha256
+            assets_sha256 = $coverage.assets_sha256
+            registry_sha256 = $coverage.registry_sha256
+        }
+    }
+    return [pscustomobject][ordered]@{
+        Pose = $Pose
+        FixtureCommands = @($fixtureCommands)
+        GalleryCommands = @($fixtureCommands)
+        FenceMarker = 'players online:'
+        FenceCommand = 'list'
+        TeleportCommand = $initialTeleport
+        CameraResortCommand = $resortTeleport
+        LiquidWitnessBlocks = @($liquidWitnessBlocks)
+        ValidateFixtureCommandResults = $true
+        Commands = @($fixtureCommands) + @('list', $initialTeleport, 'list', $resortTeleport, 'list')
+        Manifest = $manifest
+    }
+}
+
+function New-WaterGalleryTransparentWitnessRequest {
+    param(
+        [Parameter(Mandatory = $true)]$Plan,
+        [Parameter(Mandatory = $true)][ValidateRange(1, [long]::MaxValue)][uint64]$Revision
+    )
+
+    $blocksProperty = $Plan.PSObject.Properties['LiquidWitnessBlocks']
+    if ($null -eq $blocksProperty -or @($blocksProperty.Value).Count -eq 0) {
+        throw 'water gallery transparent witness has no liquid-bearing blocks'
+    }
+    $byIdentity = [ordered]@{}
+    foreach ($block in @($blocksProperty.Value)) {
+        $x = [int][Math]::Floor([double]$block.x / 16.0)
+        $y = [int][Math]::Floor([double]$block.y / 16.0)
+        $z = [int][Math]::Floor([double]$block.z / 16.0)
+        $identity = "$x,$y,$z"
+        if (-not $byIdentity.Contains($identity)) {
+            $byIdentity[$identity] = [pscustomobject][ordered]@{ x = $x; y = $y; z = $z }
+        }
+    }
+    $keys = @($byIdentity.Values | Sort-Object x, y, z)
+    if ($keys.Count -eq 0 -or $keys.Count -gt 64) {
+        throw "water gallery transparent witness key count is outside 1..64: $($keys.Count)"
+    }
+    return [pscustomobject][ordered]@{
+        schema = 'rust-mcbe-transparent-witness-v1'
+        revision = $Revision
+        dimension = 0
+        sub_chunks = $keys
+    }
+}
+
 function New-VisualFixturePlan {
     param(
         [Parameter(Mandatory = $true)]
         [ValidateCount(3, 3)]
         [int[]]$MutationCoordinate,
         [Parameter(Mandatory = $true)]
-        [ValidateSet('Front', 'Back', 'LeafGalleryFront', 'LeafGalleryBack', 'CrossCropGalleryFront', 'CrossCropGalleryBack', 'AquaticGalleryFront', 'AquaticGalleryBack')]
+        [ValidateSet('Front', 'Back', 'LeafGalleryFront', 'LeafGalleryBack', 'CrossCropGalleryFront', 'CrossCropGalleryBack', 'AquaticGalleryFront', 'AquaticGalleryBack', 'WaterGalleryFront', 'WaterGalleryBack')]
         [string]$Pose,
         [string]$RegistryPath,
         [string]$AssetsPath
@@ -2289,6 +2660,9 @@ function New-VisualFixturePlan {
     }
     if ($Pose.StartsWith('AquaticGallery', [StringComparison]::Ordinal)) {
         return New-AquaticGalleryPlan -MutationCoordinate $MutationCoordinate -Pose $Pose -RegistryPath $RegistryPath -AssetsPath $AssetsPath
+    }
+    if ($Pose.StartsWith('WaterGallery', [StringComparison]::Ordinal)) {
+        return New-WaterGalleryPlan -MutationCoordinate $MutationCoordinate -Pose $Pose -RegistryPath $RegistryPath -AssetsPath $AssetsPath
     }
     return New-OpaqueVisualFixturePlan -MutationCoordinate $MutationCoordinate -Pose $Pose
 }
@@ -2647,7 +3021,9 @@ function Publish-VisualFixture {
         [ValidateRange(0, 10000)][int]$SettleMilliseconds = 3000,
         [ValidateRange(-1, 10000)][int]$PreloadSettleMilliseconds = -1,
         [scriptblock]$WaitForLoadArea,
-        [scriptblock]$WaitForFence
+        [scriptblock]$WaitForFence,
+        $AppHandle,
+        [scriptblock]$WaitForAppMarker
     )
 
     $consoleLogPath = Join-Path $RunDirectory 'bds.console.log'
@@ -2678,10 +3054,22 @@ function Publish-VisualFixture {
         }
         Write-BdsConsoleCommand -Handle $Handle -Command $Plan.FenceCommand -LogPath $consoleLogPath
         if ($null -eq $WaitForFence) {
-            $null = Wait-ProcessOutputMarker -Handle $Handle -Marker $Plan.FenceMarker -TimeoutSeconds 30
+            $fixtureFenceEvidence = Wait-ProcessOutputMarker -Handle $Handle -Marker $Plan.FenceMarker -TimeoutSeconds 30 -PassThruEvidence
         }
         else {
-            $null = & $WaitForFence $Handle $Plan.FenceMarker 30
+            $fixtureFenceEvidence = & $WaitForFence $Handle $Plan.FenceMarker 30
+        }
+        $validateResultsProperty = $Plan.PSObject.Properties['ValidateFixtureCommandResults']
+        if ($null -ne $validateResultsProperty -and [bool]$validateResultsProperty.Value) {
+            $skippedProperty = $fixtureFenceEvidence.PSObject.Properties['SkippedLines']
+            if ($null -eq $skippedProperty) {
+                throw 'water fixture fence did not retain command output for validation'
+            }
+            $fixtureResultEvidence = Assert-BdsFixtureCommandResults -Commands $fixtureCommands -Lines @($skippedProperty.Value)
+            Write-AcceptanceEvent -RunDirectory $RunDirectory -Event 'fixture_commands_validated' -Fields ([ordered]@{
+                result_count = [uint64]$fixtureResultEvidence.result_count
+                stdout_sha256 = [string]$fixtureResultEvidence.stdout_sha256
+            })
         }
     }
 
@@ -2705,14 +3093,134 @@ function Publish-VisualFixture {
             target_mutation = $targetMutation
         })
     }
+    $cameraResortProperty = $Plan.PSObject.Properties['CameraResortCommand']
+    if ($null -ne $cameraResortProperty -and -not [string]::IsNullOrWhiteSpace([string]$cameraResortProperty.Value)) {
+        if ($null -eq $AppHandle) {
+            throw 'camera resort acceptance requires AppHandle for causal transparent-sort evidence'
+        }
+        $null = Advance-ProcessOutputCursorToCurrentEnd -Handle $AppHandle
+    }
     Write-BdsConsoleCommand -Handle $Handle -Command $Plan.TeleportCommand -LogPath $consoleLogPath
     if ($isV2) {
         Write-AcceptanceEvent -RunDirectory $RunDirectory -Event 'teleport_issued' -Fields ([ordered]@{
             command = [string]$Plan.TeleportCommand
         })
     }
-    if ($SettleMilliseconds -gt 0) {
-        Start-Sleep -Milliseconds $SettleMilliseconds
+    $remainingSettleMilliseconds = $SettleMilliseconds
+    if ($null -ne $cameraResortProperty -and -not [string]::IsNullOrWhiteSpace([string]$cameraResortProperty.Value)) {
+        Write-BdsConsoleCommand -Handle $Handle -Command $Plan.FenceCommand -LogPath $consoleLogPath
+        if ($null -eq $WaitForFence) {
+            $initialCameraFenceEvidence = Wait-ProcessOutputMarker `
+                -Handle $Handle `
+                -Marker $Plan.FenceMarker `
+                -TimeoutSeconds 30 `
+                -PassThruEvidence
+        }
+        else {
+            $initialCameraFenceEvidence = & $WaitForFence $Handle $Plan.FenceMarker 30
+        }
+        $initialCameraResultLine = Assert-BdsCameraResortResult -Evidence $initialCameraFenceEvidence
+        Write-AcceptanceEvent -RunDirectory $RunDirectory -Event 'initial_camera_fence_observed' -Fields ([ordered]@{
+            command = [string]$Plan.FenceCommand
+            stdout_marker = [string]$Plan.FenceMarker
+            result_line = [string]$initialCameraResultLine
+        })
+        $initialPoseSettle = [Math]::Min(1000, $SettleMilliseconds)
+        if ($initialPoseSettle -gt 0) {
+            Start-Sleep -Milliseconds $initialPoseSettle
+        }
+        if ($null -eq $WaitForAppMarker) {
+            $initialSortEvidence = Wait-ProcessOutputMarker -Handle $AppHandle -Marker 'RUST_MCBE_TRANSPARENT_SORT_COMMITTED ' -TimeoutSeconds 30 -PassThruEvidence
+        }
+        else {
+            $initialSortEvidence = & $WaitForAppMarker $AppHandle 'RUST_MCBE_TRANSPARENT_SORT_COMMITTED ' 30
+        }
+        $initialSort = ConvertFrom-TransparentSortCommittedMarker -Line ([string]$initialSortEvidence.Line)
+        Write-AcceptanceEvent -RunDirectory $RunDirectory -Event 'initial_transparent_sort_committed' -Fields ([ordered]@{
+            generation = [uint64]$initialSort.generation
+            ref_count = [uint64]$initialSort.ref_count
+            stdout_line = [uint64]$initialSortEvidence.LineNumber
+        })
+        $null = Advance-ProcessOutputCursorToCurrentEnd -Handle $AppHandle
+        Write-BdsConsoleCommand -Handle $Handle -Command ([string]$cameraResortProperty.Value) -LogPath $consoleLogPath
+        Write-AcceptanceEvent -RunDirectory $RunDirectory -Event 'camera_resort_issued' -Fields ([ordered]@{
+            command = [string]$cameraResortProperty.Value
+        })
+        Write-BdsConsoleCommand -Handle $Handle -Command $Plan.FenceCommand -LogPath $consoleLogPath
+        if ($null -eq $WaitForFence) {
+            $resortFenceEvidence = Wait-ProcessOutputMarker `
+                -Handle $Handle `
+                -Marker $Plan.FenceMarker `
+                -TimeoutSeconds 30 `
+                -PassThruEvidence
+        }
+        else {
+            $resortFenceEvidence = & $WaitForFence $Handle $Plan.FenceMarker 30
+        }
+        $resortResultLine = Assert-BdsCameraResortResult -Evidence $resortFenceEvidence
+        Write-AcceptanceEvent -RunDirectory $RunDirectory -Event 'camera_resort_fence_observed' -Fields ([ordered]@{
+            command = [string]$Plan.FenceCommand
+            stdout_marker = [string]$Plan.FenceMarker
+            result_line = [string]$resortResultLine
+        })
+        if ($null -eq $WaitForAppMarker) {
+            $resortSortEvidence = Wait-ProcessOutputMarker -Handle $AppHandle -Marker 'RUST_MCBE_TRANSPARENT_SORT_COMMITTED ' -TimeoutSeconds 30 -PassThruEvidence
+        }
+        else {
+            $resortSortEvidence = & $WaitForAppMarker $AppHandle 'RUST_MCBE_TRANSPARENT_SORT_COMMITTED ' 30
+        }
+        $resortSort = ConvertFrom-TransparentSortCommittedMarker -Line ([string]$resortSortEvidence.Line)
+        $null = Assert-NewerTransparentSortCommit `
+            -Initial $initialSort `
+            -InitialLineNumber ([uint64]$initialSortEvidence.LineNumber) `
+            -Resort $resortSort `
+            -ResortLineNumber ([uint64]$resortSortEvidence.LineNumber)
+        Write-AcceptanceEvent -RunDirectory $RunDirectory -Event 'resort_transparent_sort_committed' -Fields ([ordered]@{
+            generation = [uint64]$resortSort.generation
+            ref_count = [uint64]$resortSort.ref_count
+            stdout_line = [uint64]$resortSortEvidence.LineNumber
+        })
+        $liquidWitnessProperty = $Plan.PSObject.Properties['LiquidWitnessBlocks']
+        if ($null -ne $liquidWitnessProperty) {
+            $witnessRequest = New-WaterGalleryTransparentWitnessRequest -Plan $Plan -Revision 1
+            $witnessRequestPath = Join-Path $RunDirectory 'transparent-witness-request.json'
+            $null = Advance-ProcessOutputCursorToCurrentEnd -Handle $AppHandle
+            $null = Write-AtomicJsonArtifact -Path $witnessRequestPath -Value $witnessRequest
+            $witnesses = [Collections.Generic.List[object]]::new()
+            foreach ($expectedConsecutive in 1..2) {
+                if ($null -eq $WaitForAppMarker) {
+                    $evidence = Wait-ProcessOutputMarker `
+                        -Handle $AppHandle `
+                        -Marker 'RUST_MCBE_TRANSPARENT_WITNESS_COMPLETE ' `
+                        -TimeoutSeconds 30 `
+                        -PassThruEvidence
+                }
+                else {
+                    $evidence = & $WaitForAppMarker $AppHandle 'RUST_MCBE_TRANSPARENT_WITNESS_COMPLETE ' 30
+                }
+                $witness = ConvertFrom-TransparentWitnessCompleteMarker -Line ([string]$evidence.Line)
+                if ([int]$witness.consecutive -ne $expectedConsecutive) {
+                    throw "transparent witness did not complete twice consecutively: expected=$expectedConsecutive actual=$($witness.consecutive)"
+                }
+                $witnesses.Add($witness)
+                Write-AcceptanceEvent -RunDirectory $RunDirectory -Event 'transparent_witness_complete' -Fields ([ordered]@{
+                    revision = [uint64]$witness.revision
+                    sequence = [uint64]$witness.sequence
+                    generation = [uint64]$witness.generation
+                    key_count = [uint64]$witness.key_count
+                    consecutive = [int]$witness.consecutive
+                    stdout_line = [uint64]$evidence.LineNumber
+                })
+            }
+            $null = Assert-StableTransparentWitnessEvidence `
+                -Request $witnessRequest `
+                -First $witnesses[0] `
+                -Second $witnesses[1]
+        }
+        $remainingSettleMilliseconds -= $initialPoseSettle
+    }
+    if ($remainingSettleMilliseconds -gt 0) {
+        Start-Sleep -Milliseconds $remainingSettleMilliseconds
     }
     if (-not $isV2) {
         $publication = Publish-FixtureManifest -Plan $Plan -Path $readyPath
@@ -2970,7 +3478,7 @@ function ConvertFrom-FullViewSettleMarker {
         }
         $values[$key] = $text
     }
-    foreach ($required in @('target', 'ms')) {
+    foreach ($required in @('target', 'ms', 'transparent_sort_generation')) {
         if (-not $values.Contains($required) -or $null -eq $values[$required]) {
             throw "$Kind settle marker is missing $required"
         }
@@ -3092,7 +3600,7 @@ function Get-FullViewProofFieldNames {
     param([Parameter(Mandatory = $true)][ValidateSet('Teleport', 'ForcedRemesh')][string]$Kind)
 
     $fields = @(
-        'target', 'committed', 'ms', 'view_generation', 'render_ready_ms',
+        'target', 'committed', 'ms', 'view_generation', 'transparent_sort_generation', 'render_ready_ms',
         'first_frame_sequence', 'stable_frame_sequence',
         'first_present_ms', 'first_gpu_ms', 'stable_present_ms', 'stable_gpu_ms', 'frame_count',
         'expected_manifest_count', 'expected_manifest_hash',
@@ -3207,7 +3715,9 @@ function Assert-ExactFullViewProof {
         }
     }
 
-    foreach ($field in @('resident_count', 'known_air_count', 'view_generation', 'frame_count')) {
+    foreach ($field in @(
+        'resident_count', 'known_air_count', 'view_generation', 'transparent_sort_generation', 'frame_count'
+    )) {
         $null = ConvertTo-EvidenceUInt64 -Value $Proof.$field -Field "$Label.$field"
     }
     if ([uint64]$Proof.resident_count + [uint64]$Proof.known_air_count -eq 0) {
@@ -3676,7 +4186,10 @@ function Assert-AcceptanceMetrics {
         $ExpectedMutationCoordinate,
         [switch]$RequireAssets,
         [string]$ExpectedAssetBlobSha256,
-        [switch]$OpaqueBaselineSchema
+        [switch]$OpaqueBaselineSchema,
+        [switch]$RequireTransparentWater,
+        [ValidateRange(1, 2147483647)][uint64]$MinimumTransparentWaterDistinctTintCount = 1,
+        [ValidateRange(0.000001, [double]::MaxValue)][double]$MaximumP99FrameMilliseconds
     )
 
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
@@ -3685,6 +4198,9 @@ function Assert-AcceptanceMetrics {
     $metrics = Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json
     if ($OpaqueBaselineSchema -and $RequireFullViewTeleport) {
         throw 'OpaqueBaselineSchema cannot be combined with full-view validation'
+    }
+    if ($OpaqueBaselineSchema -and $RequireTransparentWater) {
+        throw 'OpaqueBaselineSchema cannot be combined with transparent-water validation'
     }
     if ($OpaqueBaselineSchema -and (-not $RequireAssets -or $null -eq $ExpectedMutationCoordinate)) {
         throw 'OpaqueBaselineSchema requires exact asset and mutation evidence'
@@ -3757,6 +4273,10 @@ function Assert-AcceptanceMetrics {
     if ([double]::IsNaN($p99) -or [double]::IsInfinity($p99)) {
         throw "p99_frame_ms was not finite: $($metrics.p99_frame_ms)"
     }
+    if ($PSBoundParameters.ContainsKey('MaximumP99FrameMilliseconds') -and
+        $p99 -gt $MaximumP99FrameMilliseconds) {
+        throw "p99_frame_ms exceeded manifested maximum: actual=$p99 maximum=$MaximumP99FrameMilliseconds"
+    }
     if ([uint64]$metrics.decode_error_count -ne 0) {
         throw "decode_error_count=$($metrics.decode_error_count), expected zero"
     }
@@ -3767,6 +4287,64 @@ function Assert-AcceptanceMetrics {
     }
     if ($OpaqueBaselineSchema -and [uint64]$metrics.gpu_upload_bytes -eq 0) {
         throw 'gpu_upload_bytes was zero for opaque baseline'
+    }
+    if ($RequireTransparentWater) {
+        $transparentFields = @(
+            'transparent_sort_request_generation', 'transparent_sort_result_generation',
+            'transparent_sort_committed_generation', 'transparent_sort_encoded_generation',
+            'transparent_sort_presented_generation',
+            'transparent_sort_ref_count',
+            'transparent_sort_cpu_ms', 'transparent_sort_request_to_commit_ms',
+            'transparent_sort_staged_bytes', 'transparent_sort_upload_bytes',
+            'transparent_sort_stale_reject_count', 'transparent_sort_ceiling_reject_count',
+            'transparent_sort_active_slot_age_frames', 'transparent_water_distinct_tint_count',
+            'nontransparent_gpu_upload_bytes'
+        )
+        foreach ($field in $transparentFields) {
+            if ($null -eq $metrics.PSObject.Properties[$field]) {
+                throw "acceptance metrics are missing $field"
+            }
+        }
+        foreach ($field in @(
+            'transparent_sort_request_generation', 'transparent_sort_result_generation',
+            'transparent_sort_committed_generation', 'transparent_sort_encoded_generation',
+            'transparent_sort_presented_generation',
+            'transparent_sort_ref_count',
+            'transparent_sort_staged_bytes', 'transparent_sort_upload_bytes',
+            'transparent_sort_active_slot_age_frames', 'transparent_water_distinct_tint_count'
+        )) {
+            if ([uint64]$metrics.$field -eq 0) {
+                throw "transparent water metric $field was zero"
+            }
+        }
+        foreach ($field in @('transparent_sort_cpu_ms', 'transparent_sort_request_to_commit_ms')) {
+            $value = [double]$metrics.$field
+            if ([double]::IsNaN($value) -or [double]::IsInfinity($value) -or $value -le 0.0) {
+                throw "transparent water metric $field was zero or non-finite: $($metrics.$field)"
+            }
+        }
+        if ([uint64]$metrics.transparent_water_distinct_tint_count -lt $MinimumTransparentWaterDistinctTintCount) {
+            throw "transparent_water_distinct_tint_count must be at least ${MinimumTransparentWaterDistinctTintCount}: $($metrics.transparent_water_distinct_tint_count)"
+        }
+        $requestGeneration = [uint64]$metrics.transparent_sort_request_generation
+        $resultGeneration = [uint64]$metrics.transparent_sort_result_generation
+        $committedGeneration = [uint64]$metrics.transparent_sort_committed_generation
+        if ($requestGeneration -lt $resultGeneration -or $resultGeneration -lt $committedGeneration) {
+            throw "transparent sort generations were not monotonic: request=$requestGeneration result=$resultGeneration committed=$committedGeneration"
+        }
+        if ([uint64]$metrics.transparent_sort_presented_generation -ne $committedGeneration) {
+            throw "transparent presented generation did not equal committed generation: presented=$($metrics.transparent_sort_presented_generation) committed=$committedGeneration"
+        }
+        if ([uint64]$metrics.transparent_sort_encoded_generation -ne $committedGeneration) {
+            throw "transparent encoded generation did not equal committed generation: encoded=$($metrics.transparent_sort_encoded_generation) committed=$committedGeneration"
+        }
+        if ([uint64]$metrics.transparent_sort_upload_bytes -gt [uint64]$metrics.transparent_sort_staged_bytes) {
+            throw "transparent sort upload exceeded staged bytes: upload=$($metrics.transparent_sort_upload_bytes) staged=$($metrics.transparent_sort_staged_bytes)"
+        }
+        $expectedGpuUploadBytes = [uint64]$metrics.nontransparent_gpu_upload_bytes + [uint64]$metrics.transparent_sort_upload_bytes
+        if ([uint64]$metrics.gpu_upload_bytes -ne $expectedGpuUploadBytes) {
+            throw "gpu_upload_bytes did not equal nontransparent plus transparent uploads: gpu=$($metrics.gpu_upload_bytes) nontransparent=$($metrics.nontransparent_gpu_upload_bytes) transparent=$($metrics.transparent_sort_upload_bytes)"
+        }
     }
     if ($null -ne $ExpectedMutationCoordinate) {
         $expectedMutation = @($ExpectedMutationCoordinate)
@@ -3925,14 +4503,15 @@ if ($env:RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY -eq '1') {
 if ($DurationSeconds -lt 60) {
     throw 'DurationSeconds must be at least 60'
 }
-$canonicalVisualFixturePoses = @('None', 'Front', 'Back', 'LeafGalleryFront', 'LeafGalleryBack', 'CrossCropGalleryFront', 'CrossCropGalleryBack', 'AquaticGalleryFront', 'AquaticGalleryBack')
+$canonicalVisualFixturePoses = @('None', 'Front', 'Back', 'LeafGalleryFront', 'LeafGalleryBack', 'CrossCropGalleryFront', 'CrossCropGalleryBack', 'AquaticGalleryFront', 'AquaticGalleryBack', 'WaterGalleryFront', 'WaterGalleryBack')
 if (-not ($canonicalVisualFixturePoses -ccontains $VisualFixturePose)) {
     throw "VisualFixturePose must use canonical casing: $VisualFixturePose"
 }
 $isLeafGallery = $VisualFixturePose -in @('LeafGalleryFront', 'LeafGalleryBack')
 $isCrossCropGallery = $VisualFixturePose -in @('CrossCropGalleryFront', 'CrossCropGalleryBack')
 $isAquaticGallery = $VisualFixturePose -in @('AquaticGalleryFront', 'AquaticGalleryBack')
-$isDeterministicGallery = $isLeafGallery -or $isCrossCropGallery -or $isAquaticGallery
+$isWaterGallery = $VisualFixturePose -in @('WaterGalleryFront', 'WaterGalleryBack')
+$isDeterministicGallery = $isLeafGallery -or $isCrossCropGallery -or $isAquaticGallery -or $isWaterGallery
 $isLeafEvidence = $isDeterministicGallery -or $LeafForestBaseline -or $LeafForestFullView
 $hasClientExecutable = $PSBoundParameters.ContainsKey('ClientExecutable')
 if ($PSBoundParameters.ContainsKey('SteadyResourceTrigger') -and
@@ -4057,6 +4636,7 @@ $MetricsOut = [IO.Path]::GetFullPath($MetricsOut)
 $RuntimeDirectory = Join-Path (Join-Path $ProjectRoot '.local\bds-runtime') (Split-Path -Leaf $BdsDir)
 $RunName = if ($DryRun) { 'dry-run' } else { "{0}-{1}" -f [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ'), $PID }
 $RunDirectory = Join-Path (Join-Path $ProjectRoot '.local\acceptance') $RunName
+$TransparentWitnessRequestPath = Join-Path $RunDirectory 'transparent-witness-request.json'
 $SocketDirectory = Join-Path $RunDirectory 'socket'
 $CanonicalMetrics = Join-Path $RunDirectory 'app-metrics.json'
 $BdsExecutable = Join-Path $RuntimeDirectory $BdsExecutableName
@@ -4085,6 +4665,9 @@ $AppArguments = @(
 )
 if ($PSBoundParameters.ContainsKey('Assets')) {
     $AppArguments += @('--assets', $Assets)
+}
+if ($isWaterGallery) {
+    $AppArguments += @('--require-transparent-presentation', '--transparent-witness-request', $TransparentWitnessRequestPath)
 }
 if ($VisualFixturePose -eq 'None' -and -not $FullViewTeleportGate -and -not $LeafForestBaseline) {
     $AppArguments += '--auto-fly'
@@ -4634,7 +5217,8 @@ try {
         $fixturePublication = Publish-VisualFixture `
             -Handle $bdsHandle `
             -Plan $fixturePlan `
-            -RunDirectory $RunDirectory
+            -RunDirectory $RunDirectory `
+            -AppHandle $appHandle
         if ($isDeterministicGallery) {
             $steadyTriggerEvidence = New-SteadyResourceTriggerEvidence `
                 -Kind VisualFixtureReady `
@@ -4703,6 +5287,15 @@ try {
                 -ExpectedMutationCoordinate $coordinate `
                 -RequireAssets `
                 -ExpectedAssetBlobSha256 $AssetBlobSha256
+        }
+        elseif ($isWaterGallery) {
+            $metrics = Assert-AcceptanceMetrics `
+                -Path $CanonicalMetrics `
+                -RequireAssets `
+                -ExpectedAssetBlobSha256 $AssetBlobSha256 `
+                -RequireTransparentWater `
+                -MinimumTransparentWaterDistinctTintCount ([uint64]$fixturePlan.Manifest.relative_layout.biome_tint_evidence.minimum_rendered_distinct_tint_count) `
+                -MaximumP99FrameMilliseconds ([double]$fixturePlan.Manifest.performance.maximum_p99_frame_ms)
         }
         elseif ($isLeafEvidence) {
             $metrics = Assert-AcceptanceMetrics `

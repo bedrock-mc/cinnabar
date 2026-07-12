@@ -49,8 +49,8 @@ impl LiquidLevel {
 }
 
 use assets::{
-    BlockFace, BlockFlags, MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_WATER_TINT, NetworkIdMode,
-    RuntimeAssets, VisualKind,
+    BlockFace, BlockFlags, MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT,
+    MATERIAL_FLAG_WATER_TINT, NetworkIdMode, RuntimeAssets, VisualKind,
 };
 use world::MeshNeighbourhood;
 
@@ -137,21 +137,72 @@ impl<'chunk, 'assets> Sampler<'chunk, 'assets> {
             })
     }
 
-    fn open(&self, neighbourhood: &MeshNeighbourhood<'chunk>, coordinate: [i32; 3]) -> bool {
+    fn open(
+        &self,
+        neighbourhood: &MeshNeighbourhood<'chunk>,
+        coordinate: [i32; 3],
+        contacting_faces: &[Face],
+    ) -> bool {
         self.contributors(neighbourhood, coordinate)
             .is_none_or(|contributors| {
                 contributors.liquid_entry().is_none()
-                    && !contributors
-                        .primary_entry()
-                        .is_some_and(|entry| entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE))
+                    && !contributors.primary_entry().is_some_and(|entry| {
+                        entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
+                            && contacting_faces.iter().all(|&face| {
+                                material_is_opaque(self.assets, entry.faces[face as usize])
+                            })
+                    })
             })
     }
 
-    fn solid(&self, neighbourhood: &MeshNeighbourhood<'chunk>, coordinate: [i32; 3]) -> bool {
+    fn solid(
+        &self,
+        neighbourhood: &MeshNeighbourhood<'chunk>,
+        coordinate: [i32; 3],
+        contacting_face: Face,
+    ) -> bool {
         self.contributors(neighbourhood, coordinate)
             .and_then(ResolvedContributors::primary_entry)
-            .is_some_and(|entry| entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE))
+            .is_some_and(|entry| {
+                entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
+                    && material_is_opaque(self.assets, entry.faces[contacting_face as usize])
+            })
     }
+}
+
+fn material_is_opaque(assets: &RuntimeAssets, material: u32) -> bool {
+    assets.material(material).flags & (MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_ALPHA_CUTOUT) == 0
+}
+
+const fn opposite_face(face: Face) -> Face {
+    match face {
+        Face::NegativeX => Face::PositiveX,
+        Face::PositiveX => Face::NegativeX,
+        Face::NegativeY => Face::PositiveY,
+        Face::PositiveY => Face::NegativeY,
+        Face::NegativeZ => Face::PositiveZ,
+        Face::PositiveZ => Face::NegativeZ,
+    }
+}
+
+fn horizontal_contacting_faces([x, z]: [i32; 2]) -> ([Face; 2], usize) {
+    let mut faces = [Face::PositiveY; 2];
+    let mut count = 0;
+    if x < 0 {
+        faces[count] = Face::PositiveX;
+        count += 1;
+    } else if x > 0 {
+        faces[count] = Face::NegativeX;
+        count += 1;
+    }
+    if z < 0 {
+        faces[count] = Face::PositiveZ;
+        count += 1;
+    } else if z > 0 {
+        faces[count] = Face::NegativeZ;
+        count += 1;
+    }
+    (faces, count)
 }
 
 fn water_material_family(assets: &RuntimeAssets, materials: [u32; Face::ALL.len()]) -> bool {
@@ -208,7 +259,7 @@ pub(crate) fn mesh_liquids(
                 let origin = [x as u8, y as u8, z as u8];
                 let above = add(block, [0, 1, 0]);
                 if !compatible(&sampler, neighbourhood, above, cell.identity)
-                    && !sampler.solid(neighbourhood, above)
+                    && !sampler.solid(neighbourhood, above, Face::NegativeY)
                 {
                     let material = cell.top_material(gradient != [0, 0]);
                     quads.push(pack(
@@ -228,7 +279,7 @@ pub(crate) fn mesh_liquids(
                 ] {
                     let adjacent = add(block, face_offset(face));
                     if compatible(&sampler, neighbourhood, adjacent, cell.identity)
-                        || sampler.solid(neighbourhood, adjacent)
+                        || sampler.solid(neighbourhood, adjacent, opposite_face(face))
                     {
                         continue;
                     }
@@ -250,7 +301,7 @@ pub(crate) fn mesh_liquids(
                 }
                 let below = add(block, [0, -1, 0]);
                 if !compatible(&sampler, neighbourhood, below, cell.identity)
-                    && !sampler.solid(neighbourhood, below)
+                    && !sampler.solid(neighbourhood, below, Face::PositiveY)
                 {
                     quads.push(pack(
                         origin,
@@ -327,7 +378,11 @@ fn flow_gradient(
         let delta = if let Some(other) = sampler.liquid(neighbourhood, adjacent) {
             (other.identity == cell.identity)
                 .then(|| i16::from(other.level.effective_depth()) - current)
-        } else if sampler.open(neighbourhood, adjacent) {
+        } else if sampler.open(
+            neighbourhood,
+            adjacent,
+            &horizontal_contacting_faces([offset[0], offset[2]]).0[..1],
+        ) {
             sampler
                 .liquid(neighbourhood, add(adjacent, [0, -1, 0]))
                 .filter(|below| below.identity == cell.identity)
@@ -391,8 +446,11 @@ fn corner_heights(
                 let sample_weight = if cell.level.height() >= 204 { 10 } else { 1 };
                 total += u32::from(cell.level.height()) * sample_weight;
                 weight += sample_weight;
-            } else if sampler.open(neighbourhood, coordinate) {
-                weight += 1;
+            } else {
+                let (contacting_faces, count) = horizontal_contacting_faces([x, z]);
+                if sampler.open(neighbourhood, coordinate, &contacting_faces[..count]) {
+                    weight += 1;
+                }
             }
         }
         if weight == 0 {

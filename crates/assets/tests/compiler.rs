@@ -12,8 +12,8 @@ use assets::{
     MATERIAL_FLAG_FOLIAGE_TINT, MATERIAL_FLAG_GRASS_TINT, MATERIAL_FLAG_OVERLAY_MASK,
     MATERIAL_FLAG_ROTATE_UV, MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_UV_MASK,
     MATERIAL_FLAG_WATER_TINT, MATERIAL_FLAGS_MASK, MAX_TEXTURE_LAYERS, MODEL_QUAD_FLAG_TWO_SIDED,
-    MODEL_TEMPLATE_FLAG_KELP, Material, ModelFamily, ModelState, ModelStateField,
-    RegistryProvenance, RegistryRecord, VisualKind, compile_pack, encode_blob,
+    MODEL_TEMPLATE_FLAG_KELP, Material, ModelFamily, ModelState, ModelStateField, NetworkIdMode,
+    RegistryProvenance, RegistryRecord, RuntimeAssets, VisualKind, compile_pack, encode_blob,
 };
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 use sha2::{Digest, Sha256};
@@ -1643,7 +1643,7 @@ fn compiler_builds_diagnostic_and_layer_isolated_linear_mips() {
 }
 
 #[test]
-fn compiler_fails_closed_for_transparent_and_tinted_full_cubes() {
+fn compiler_supports_vanilla_glass_and_fails_closed_for_arbitrary_tinted_full_cubes() {
     let directory = tempfile::tempdir().expect("create fixture");
     write_pack(
         directory.path(),
@@ -1724,12 +1724,35 @@ fn compiler_fails_closed_for_transparent_and_tinted_full_cubes() {
             .into_iter()
             .all(|material| material != 0)
     );
-    for deferred in 1..=2 {
+    assert_eq!(compiled.visuals[1].kind, VisualKind::Cube);
+    assert!(
+        compiled.visuals[1]
+            .faces
+            .into_iter()
+            .all(|material| material != DIAGNOSTIC_MATERIAL)
+    );
+    for face in BlockFace::ALL {
         assert_eq!(
-            compiled.visuals[deferred].faces, [DIAGNOSTIC_MATERIAL; 6],
-            "deferred transparent/tinted record {deferred} must fail closed"
+            material_for_face(&compiled, 1, face).flags,
+            MATERIAL_FLAG_ALPHA_CUTOUT
         );
     }
+    let artifact = RuntimeAssets::decode(&encode_blob(&compiled).unwrap()).unwrap();
+    let artifact_glass = artifact.resolve(NetworkIdMode::Sequential, 1);
+    assert_eq!(artifact_glass.kind(), VisualKind::Cube);
+    assert!(artifact_glass.flags().contains(BlockFlags::CUBE_GEOMETRY));
+    for face in BlockFace::ALL {
+        assert_eq!(
+            artifact
+                .material(artifact_glass.face(face).material_id())
+                .flags,
+            MATERIAL_FLAG_ALPHA_CUTOUT
+        );
+    }
+    assert_eq!(
+        compiled.visuals[2].faces, [DIAGNOSTIC_MATERIAL; 6],
+        "arbitrary tinted full cube must remain fail closed"
+    );
     let grass = compiled.visuals[3];
     assert!(grass.faces.into_iter().all(|material| material != 0));
     assert_eq!(material_for_face(&compiled, 3, BlockFace::Down).flags, 0);
