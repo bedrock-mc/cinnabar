@@ -4,6 +4,7 @@ go 1.26.1
 
 require (
 	github.com/sandertv/gophertunnel v1.57.0
+	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sys v0.41.0
 )
 
@@ -40,12 +41,11 @@ require (
 	golang.org/x/exp v0.0.0-20260611194520-c48552f49976 // indirect
 	golang.org/x/image v0.21.0 // indirect
 	golang.org/x/net v0.50.0 // indirect
-	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/text v0.35.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 )
 
 replace (
-	github.com/sandertv/go-raknet => github.com/hashimthearab/go-raknet v1.14.2-0.20260625072737-109968c5e6ff
-	github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20260710063825-9948b1729395
+	github.com/sandertv/go-raknet => github.com/hashimthearab/go-raknet v1.15.1-0.20260711001310-258399b8f7ec
+	github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20260712021106-7777e5311bcd
 )

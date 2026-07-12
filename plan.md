@@ -135,21 +135,27 @@ Scope (detailed plan to be written at phase start):
   dial mode while preserving the offline BDS path when `-auth-cache` is omitted.
 - [x] Document the exact `bedrock-core` and release `bedrock-client` commands, device-code
   stdout flow, cache privacy requirements, and Rust → local socket → Go → RakNet boundary.
-- [ ] Live smoke: authenticate `bedrock-core` to `zeqa.net:19132` with
+- [x] Live smoke: authenticate `bedrock-core` to `zeqa.net:19132` with
   `.local/auth/microsoft-token.json` and confirm the current release client reaches Zeqa.
-- [ ] Record non-secret live evidence below; never record the device code, access token,
+- [x] Record non-secret live evidence below; never record the device code, access token,
   refresh token, or token-cache contents.
 
-Live evidence (pending manual Microsoft device-code approval):
+Live evidence:
 
-- Date/time: pending
-- Authenticated upstream connection observed: pending
-- Client reached Zeqa lobby/session: pending
+- Date/time: 2026-07-11 19:17 PDT
+- Authenticated upstream connection observed: yes; the authenticated protocol-1001 entry
+  connection returned Zeqa's pre-login transfer to `pvp.inpvp.net:19132`, and the bounded
+  core transfer follower completed the regional connection.
+- Client reached Zeqa lobby/session: yes; the release client reached position
+  `(-117.50, 87.62, 195.50)`, streamed `1105/5376` chunks while the count continued rising,
+  and held approximately 100 FPS. A native Windows screenshot was inspected from the user
+  temp directory and was not added to the repository.
 - Credential hygiene (`git ls-files .local` empty; no credential material in retained logs):
-  pending
+  passed. The token cache remained inside the ignored `.local/` tree, its contents were never
+  inspected, and the temporary device-code stdout log was removed after authentication.
 
 This early direct-RakNet smoke does not close the phase-wide control-channel, `corectl`,
-Realms, friends, NetherNet, transfer, or sign-out work above.
+Realms, friends, NetherNet, general/post-login transfer, or sign-out work above.
 
 Exit: `corectl join --friend <gamertag>` works from a clean machine; conformance CI green.
 

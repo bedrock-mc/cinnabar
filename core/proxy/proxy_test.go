@@ -580,6 +580,69 @@ func TestDialCancellationReturnsWithoutWaitingForDialer(t *testing.T) {
 	}
 }
 
+func TestDialFollowingTransfersRedialsBeforeReturningSession(t *testing.T) {
+	var addresses []string
+	want := newFakeUpstream(nil)
+	got, err := dialFollowingTransfers(context.Background(), "zeqa.net:19132", func(_ context.Context, address string) (upstreamSession, error) {
+		addresses = append(addresses, address)
+		switch len(addresses) {
+		case 1:
+			return nil, &minecraft.TransferError{Address: "na.zeqa.net", Port: 19133, ReloadWorld: true}
+		case 2:
+			return want, nil
+		default:
+			t.Fatalf("unexpected dial %d to %q", len(addresses), address)
+			return nil, nil
+		}
+	})
+	if err != nil {
+		t.Fatalf("dialFollowingTransfers() error = %v", err)
+	}
+	if got != want {
+		t.Fatalf("dialFollowingTransfers() session = %p, want %p", got, want)
+	}
+	if joined := strings.Join(addresses, ","); joined != "zeqa.net:19132,na.zeqa.net:19133" {
+		t.Fatalf("dial addresses = %q", joined)
+	}
+}
+
+func TestDialFollowingTransfersRejectsCyclesAndInvalidDestinations(t *testing.T) {
+	tests := []struct {
+		name     string
+		transfer minecraft.TransferError
+		want     string
+	}{
+		{name: "cycle", transfer: minecraft.TransferError{Address: "zeqa.net", Port: 19132}, want: "cycle"},
+		{name: "empty host", transfer: minecraft.TransferError{Port: 19132}, want: "empty address"},
+		{name: "empty bracketed host", transfer: minecraft.TransferError{Address: "[]", Port: 19132}, want: "empty address"},
+		{name: "zero port", transfer: minecraft.TransferError{Address: "na.zeqa.net"}, want: "zero port"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := dialFollowingTransfers(context.Background(), "zeqa.net:19132", func(context.Context, string) (upstreamSession, error) {
+				return nil, &test.transfer
+			})
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("dialFollowingTransfers() error = %v, want substring %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestDialFollowingTransfersBoundsRedirectChain(t *testing.T) {
+	dials := 0
+	_, err := dialFollowingTransfers(context.Background(), "entry.example:19132", func(context.Context, string) (upstreamSession, error) {
+		dials++
+		return nil, &minecraft.TransferError{Address: fmt.Sprintf("hop-%d.example", dials), Port: 19132}
+	})
+	if err == nil || !strings.Contains(err.Error(), "too many transfers") {
+		t.Fatalf("dialFollowingTransfers() error = %v, want bounded-transfer failure", err)
+	}
+	if dials != maxInitialTransferHops+1 {
+		t.Fatalf("dial attempts = %d, want %d", dials, maxInitialTransferHops+1)
+	}
+}
+
 func assertNoWrites(t *testing.T, session *fakeUpstream) {
 	t.Helper()
 	time.Sleep(30 * time.Millisecond)

@@ -9,6 +9,8 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
@@ -26,6 +28,7 @@ type Config struct {
 }
 
 const localRelayBatchPacketLimit = 1600
+const maxInitialTransferHops = 8
 
 type acceptResult struct {
 	conn net.Conn
@@ -163,8 +166,63 @@ func callConnectionLifecycle(operation string, call func() error) (err error) {
 func handleConnection(ctx context.Context, downstream *minecraft.Conn, upstreamAddress string, tokenSource oauth2.TokenSource) error {
 	dialer := newUpstreamDialer(downstream, tokenSource)
 	return dialAndServe(ctx, downstream, func(ctx context.Context) (upstreamSession, error) {
-		return dialer.DialContextNetwork(ctx, minecraft.RakNet{}, upstreamAddress)
+		return dialFollowingTransfers(ctx, upstreamAddress, func(ctx context.Context, address string) (upstreamSession, error) {
+			return dialer.DialContextNetwork(ctx, minecraft.RakNet{}, address)
+		})
 	})
+}
+
+func dialFollowingTransfers(
+	ctx context.Context,
+	initialAddress string,
+	dial func(context.Context, string) (upstreamSession, error),
+) (upstreamSession, error) {
+	address := initialAddress
+	seen := map[string]struct{}{strings.ToLower(address): {}}
+	for transfers := 0; ; transfers++ {
+		upstream, err := dial(ctx, address)
+		if err == nil {
+			return upstream, nil
+		}
+		var transfer *minecraft.TransferError
+		if !errors.As(err, &transfer) {
+			return nil, err
+		}
+		if transfers >= maxInitialTransferHops {
+			return nil, fmt.Errorf("proxy: too many transfers before login (limit %d): %w", maxInitialTransferHops, err)
+		}
+		next, targetErr := initialTransferTarget(transfer)
+		if targetErr != nil {
+			return nil, errors.Join(targetErr, err)
+		}
+		key := strings.ToLower(next)
+		if _, ok := seen[key]; ok {
+			return nil, fmt.Errorf("proxy: transfer cycle to %q: %w", next, err)
+		}
+		slog.Info("following pre-login server transfer", "from", address, "to", next, "hop", transfers+1)
+		seen[key] = struct{}{}
+		address = next
+	}
+}
+
+func initialTransferTarget(transfer *minecraft.TransferError) (string, error) {
+	if transfer == nil {
+		return "", errors.New("proxy: invalid transfer: nil transfer")
+	}
+	host := strings.TrimSpace(transfer.Address)
+	if host == "" {
+		return "", errors.New("proxy: invalid transfer: empty address")
+	}
+	if transfer.Port == 0 {
+		return "", errors.New("proxy: invalid transfer: zero port")
+	}
+	if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+		host = strings.TrimSpace(host[1 : len(host)-1])
+		if host == "" {
+			return "", errors.New("proxy: invalid transfer: empty address")
+		}
+	}
+	return net.JoinHostPort(host, strconv.Itoa(int(transfer.Port))), nil
 }
 
 type dialerDownstream interface {

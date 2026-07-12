@@ -65,6 +65,11 @@ go run ./core/cmd/bedrock-core -socket-dir .local/run-zeqa -upstream zeqa.net:19
 cargo run --release -p bedrock-client --locked -- --socket-dir .local/run-zeqa
 ```
 
+Some Bedrock networks route an authenticated entry connection to a regional server before
+login finishes. The core follows these pre-login `Transfer` packets itself (with cycle and
+hop limits) before it sends downstream `StartGame` and spawns the local Rust player; Zeqa
+uses this path for its lobby.
+
 On first use, `bedrock-core` prints the Microsoft device-login URL and code to stdout. Approve
 that code in a browser; the core then writes the resulting token cache to
 `.local/auth/microsoft-token.json`. A usable cache is refreshed and reused on later runs, so a
