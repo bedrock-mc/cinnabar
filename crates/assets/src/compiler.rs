@@ -222,15 +222,17 @@ fn compile_pack_inner(
             || is_liquid(record)
     }) {
         if is_flowerbed(record) {
-            if let Some((descriptor, key, _)) = flowerbed_material_descriptor(&pack, record) {
-                descriptor_keys
-                    .entry(descriptor)
-                    .and_modify(|current| {
-                        if key.as_ref() < current.as_ref() {
-                            *current = key.clone();
-                        }
-                    })
-                    .or_insert(key);
+            if let Some(descriptors) = flowerbed_material_descriptors(&pack, record) {
+                for (descriptor, key) in descriptors {
+                    descriptor_keys
+                        .entry(descriptor)
+                        .and_modify(|current| {
+                            if key.as_ref() < current.as_ref() {
+                                *current = key.clone();
+                            }
+                        })
+                        .or_insert(key);
+                }
             }
             continue;
         }
@@ -371,44 +373,24 @@ fn descriptor_for(
     ))
 }
 
-fn flowerbed_material_descriptor(
+fn flowerbed_material_descriptors(
     pack: &PackSources,
     record: &RegistryRecord,
-) -> Option<(Descriptor, Box<str>, u32)> {
+) -> Option<[(Descriptor, Box<str>); 2]> {
     let TextureKey { key, rotate_uv } = resolve_texture_key(&pack.blocks, record, BlockFace::Down);
     let key = key?;
-    let (path, variant) = pack.terrain.get_for_model_record(&key, record)?;
-    Some((
-        Descriptor {
-            path: path.into(),
-            texture_key: key.clone(),
-            flags: (u32::from(rotate_uv) * MATERIAL_FLAG_ROTATE_UV) | MATERIAL_FLAG_ALPHA_CUTOUT,
-        },
-        key,
-        variant,
-    ))
-}
-
-fn flowerbed_material_descriptors(
-    records: &[RegistryRecord],
-    pack: &PackSources,
-    record: &RegistryRecord,
-) -> [Option<(Descriptor, Box<str>)>; 2] {
-    let mut descriptors = [None, None];
-    for candidate in records
-        .iter()
-        .filter(|candidate| candidate.name == record.name && is_flowerbed(candidate))
-    {
-        let Some((descriptor, key, variant)) = flowerbed_material_descriptor(pack, candidate)
-        else {
-            continue;
-        };
-        if variant > 1 {
-            return [None, None];
-        }
-        descriptors[variant as usize].get_or_insert((descriptor, key));
-    }
-    descriptors
+    let flags = (u32::from(rotate_uv) * MATERIAL_FLAG_ROTATE_UV) | MATERIAL_FLAG_ALPHA_CUTOUT;
+    let paths = pack.terrain.get_exact_pair(&key)?;
+    Some(paths.map(|path| {
+        (
+            Descriptor {
+                path: path.into(),
+                texture_key: key.clone(),
+                flags,
+            },
+            key.clone(),
+        )
+    }))
 }
 
 const fn is_terrestrial_cross(record: &RegistryRecord) -> bool {
@@ -851,15 +833,14 @@ fn compile_visuals(
         } else if is_flowerbed(record) {
             let growth = record.model_state.get(ModelStateField::Growth);
             let orientation = record.model_state.get(ModelStateField::Orientation);
-            let descriptors = flowerbed_material_descriptors(records, pack, record);
-            let materials = descriptors.each_ref().map(|descriptor| {
-                descriptor
-                    .as_ref()
-                    .and_then(|(descriptor, _)| material_by_descriptor.get(descriptor))
-                    .copied()
+            let materials = flowerbed_material_descriptors(pack, record).map(|descriptors| {
+                descriptors.map(|(descriptor, _)| material_by_descriptor.get(&descriptor).copied())
             });
-            if let ([Some(flower), Some(stem)], Some(growth @ 0..=3), Some(orientation @ 0..=3)) =
-                (materials, growth, orientation)
+            if let (
+                Some([Some(flower), Some(stem)]),
+                Some(growth @ 0..=3),
+                Some(orientation @ 0..=3),
+            ) = (materials, growth, orientation)
             {
                 let key = [flower, stem, growth, orientation];
                 let template = if let Some(&template) = flowerbed_template_by_key.get(&key) {
@@ -1254,9 +1235,9 @@ fn rotate_flowerbed_position(
         })
     };
     match orientation {
-        0 => Ok([x, y, z]),
+        0 => Ok([complement(x)?, y, complement(z)?]),
         1 => Ok([complement(z)?, y, x]),
-        2 => Ok([complement(x)?, y, complement(z)?]),
+        2 => Ok([x, y, z]),
         3 => Ok([z, y, complement(x)?]),
         _ => Err(AssetError::InvalidCompiledAssets {
             detail: format!("flowerbed orientation {orientation} is not cardinal").into(),

@@ -164,6 +164,18 @@ impl TerrainTextureMap {
         self.entries.get(key).map(TerrainPaths::first)
     }
 
+    /// Returns exact array indices 0 and 1 only when the terrain key has
+    /// exactly two variants.
+    #[must_use]
+    pub fn get_exact_pair(&self, key: &str) -> Option<[&str; 2]> {
+        match self.entries.get(key)? {
+            TerrainPaths::Variants { paths, .. } if paths.len() == 2 => {
+                Some([paths[0].as_ref(), paths[1].as_ref()])
+            }
+            TerrainPaths::Static { .. } | TerrainPaths::Variants { .. } => None,
+        }
+    }
+
     pub(crate) fn requires_tint(&self, key: &str) -> bool {
         self.entries
             .get(key)

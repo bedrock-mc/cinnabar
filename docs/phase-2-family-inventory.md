@@ -61,9 +61,11 @@ regenerated when any pin or registry schema changes.
 one through four immutable additive ground-patch groups for every preserved
 cardinal value: South=0, West=1, North=2, East=3. Each terrain key must expose
 exactly the routed flower material at array index 0 and stem material at index
-1; missing or malformed routing leaves the state diagnostic. The template key
-contains both material IDs, growth, and orientation. Growth 4-7 is still an
-explicit attributable diagnostic and is never clamped, wrapped, or aliased.
+1 in an exact two-entry array; a dedicated terrain accessor rejects static,
+missing, and overlong arrays independently of which registry states are being
+compiled. The template key contains both material IDs, growth, and orientation.
+Growth 4-7 is still an explicit attributable diagnostic and is never clamped,
+wrapped, or aliased.
 
 The compact coordinates and UVs are a geometry baseline derived from the four
 Mojang Java `flowerbed_1.json` through `flowerbed_4.json` models in the pinned
@@ -72,10 +74,13 @@ Mojang Java `flowerbed_1.json` through `flowerbed_4.json` models in the pinned
 rotated as declared by those models, quantized once to the existing 1/256-block
 position format, and retain 1/4096 texture-tile UVs. The resulting additive
 prefixes contain 7, 10, 17, and 20 two-sided quads, respectively, with all
-vertices below 64/256 block height. This Java-derived table is provisional
-geometry evidence only; Task 4's pinned native Bedrock gallery remains the
-authority for final coordinates, UV orientation, and command-only Growth 4-7
-semantics.
+vertices below 64/256 block height. The pinned `wildflowers.json` blockstate
+defines the table as a North-facing baseline: North is identity, East rotates
+90 degrees, South 180 degrees, and West 270 degrees. These map to preserved
+Bedrock values North=2, East=3, South=0, and West=1. This Java-derived table is
+provisional geometry evidence only; Task 4's pinned native Bedrock gallery
+remains the authority for final coordinates, UV orientation, and command-only
+Growth 4-7 semantics.
 
 ## Exhaustive renderer-work partition
 

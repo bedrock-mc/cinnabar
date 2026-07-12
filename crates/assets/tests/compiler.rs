@@ -670,10 +670,10 @@ fn compiler_compiles_normal_flowerbeds_as_additive_near_ground_two_material_mode
 }
 
 #[test]
-fn compiler_rotates_flowerbed_geometry_for_explicit_cardinal_values_and_preserves_uvs() {
+fn compiler_rotates_north_baseline_flowerbeds_by_pinned_cardinal_authority() {
     let directory = tempfile::tempdir().expect("create flowerbed rotation fixture");
     write_flowerbed_pack(directory.path(), true);
-    let mut records = (0..4)
+    let records = (0..4)
         .map(|orientation| {
             generated_flowerbed_record(
                 orientation,
@@ -684,39 +684,45 @@ fn compiler_rotates_flowerbed_geometry_for_explicit_cardinal_values_and_preserve
             )
         })
         .collect::<Vec<_>>();
-    records.push(generated_flowerbed_record(
-        4,
-        11_004,
-        "minecraft:wildflowers",
-        4,
-        0,
-    ));
-
     let compiled = compile_pack(directory.path(), &records).expect("compile rotated flowerbeds");
+    // Pinned wildflowers.json at be56c809: north has no Y rotation;
+    // east=90, south=180, west=270. BREG encodes S=0, W=1, N=2, E=3.
+    let authority = [
+        (0, "south", 180),
+        (1, "west", 270),
+        (2, "north", 0),
+        (3, "east", 90),
+    ];
     let expected_flower_positions = [
-        [[0, 48, 0], [128, 48, 0], [128, 48, 128], [0, 48, 128]],
-        [[256, 48, 0], [256, 48, 128], [128, 48, 128], [128, 48, 0]],
         [
             [256, 48, 256],
             [128, 48, 256],
             [128, 48, 128],
             [256, 48, 128],
         ],
+        [[256, 48, 0], [256, 48, 128], [128, 48, 128], [128, 48, 0]],
+        [[0, 48, 0], [128, 48, 0], [128, 48, 128], [0, 48, 128]],
         [[0, 48, 256], [0, 48, 128], [128, 48, 128], [128, 48, 256]],
     ];
     let expected_stem_positions = [
-        [[77, 0, 19], [66, 0, 30], [66, 48, 30], [77, 48, 19]],
-        [[237, 0, 77], [226, 0, 66], [226, 48, 66], [237, 48, 77]],
         [[179, 0, 237], [190, 0, 226], [190, 48, 226], [179, 48, 237]],
+        [[237, 0, 77], [226, 0, 66], [226, 48, 66], [237, 48, 77]],
+        [[77, 0, 19], [66, 0, 30], [66, 48, 30], [77, 48, 19]],
         [[19, 0, 179], [30, 0, 190], [30, 48, 190], [19, 48, 179]],
     ];
-    for orientation in 0..4 {
+    for (orientation, direction, degrees) in authority {
         let visual = compiled.visuals[orientation];
         let template = compiled.model_templates[visual.model_template as usize];
         let quads = &compiled.model_quads
             [template.quad_start as usize..(template.quad_start + template.quad_count) as usize];
-        assert_eq!(quads[0].positions, expected_flower_positions[orientation]);
-        assert_eq!(quads[1].positions, expected_stem_positions[orientation]);
+        assert_eq!(
+            quads[0].positions, expected_flower_positions[orientation],
+            "BREG {direction}={orientation} must apply Y={degrees}"
+        );
+        assert_eq!(
+            quads[1].positions, expected_stem_positions[orientation],
+            "BREG {direction}={orientation} stem must apply Y={degrees}"
+        );
         assert_eq!(quads[0].uvs, [[0, 0], [2048, 0], [2048, 2048], [0, 2048]]);
         assert_eq!(
             quads[1].uvs,
@@ -743,16 +749,6 @@ fn compiler_flowerbed_templates_are_bounded_deduplicated_and_blob_stable() {
                 ));
             }
         }
-    }
-    for name in ["minecraft:wildflowers", "minecraft:pink_petals"] {
-        let sequential_id = records.len() as u32;
-        records.push(generated_flowerbed_record(
-            sequential_id,
-            12_000 + sequential_id,
-            name,
-            4,
-            0,
-        ));
     }
     let duplicate_id = records.len() as u32;
     records.push(generated_flowerbed_record(
@@ -788,10 +784,13 @@ fn compiler_flowerbed_templates_are_bounded_deduplicated_and_blob_stable() {
 fn compiler_keeps_flowerbeds_diagnostic_without_exact_second_terrain_variant() {
     let directory = tempfile::tempdir().expect("create incomplete flowerbed fixture");
     write_flowerbed_pack(directory.path(), false);
-    let records = [
-        generated_flowerbed_record(0, 13_000, "minecraft:pink_petals", 3, 0),
-        generated_flowerbed_record(1, 13_001, "minecraft:pink_petals", 4, 0),
-    ];
+    let records = [generated_flowerbed_record(
+        0,
+        13_000,
+        "minecraft:pink_petals",
+        3,
+        0,
+    )];
 
     let compiled = compile_pack(directory.path(), &records).expect("compile incomplete flowerbed");
     assert_eq!(compiled.visuals[0].kind, VisualKind::Diagnostic);
@@ -801,6 +800,26 @@ fn compiler_keeps_flowerbeds_diagnostic_without_exact_second_terrain_variant() {
     );
     assert!(compiled.model_templates.is_empty());
     assert!(compiled.model_quads.is_empty());
+}
+
+#[test]
+fn compiler_flowerbed_exact_pair_does_not_require_command_only_records() {
+    let directory = tempfile::tempdir().expect("create exact-pair flowerbed fixture");
+    write_flowerbed_pack(directory.path(), true);
+    let records = (0..4)
+        .map(|growth| {
+            generated_flowerbed_record(growth, 13_100 + growth, "minecraft:wildflowers", growth, 2)
+        })
+        .collect::<Vec<_>>();
+
+    let compiled = compile_pack(directory.path(), &records).expect("compile exact-pair flowerbed");
+    assert!(
+        compiled
+            .visuals
+            .iter()
+            .all(|visual| visual.kind == VisualKind::Model)
+    );
+    assert_eq!(compiled.model_templates.len(), 4);
 }
 
 #[test]
@@ -830,7 +849,7 @@ fn compiler_keeps_flowerbeds_diagnostic_for_an_overlong_terrain_variant_array() 
             &solid(TILE_SIZE, TILE_SIZE, [index as u8 + 1, 43, 83, 0]),
         );
     }
-    let records = (0..8)
+    let records = (0..4)
         .map(|growth| {
             generated_flowerbed_record(growth, 14_000 + growth, "minecraft:pink_petals", growth, 0)
         })
