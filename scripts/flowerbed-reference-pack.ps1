@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$InputRoot,
-    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$OutputRoot
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$OutputRoot,
+    [string]$SourceIdentityPath
 )
 
 Set-StrictMode -Version Latest
@@ -35,6 +36,14 @@ function Assert-NoReparsePath([string]$Path, [string]$StopAt, [string]$Label) {
 
 function Get-LowerSha256([string]$Path) {
     return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
+}
+
+function Get-Utf8Sha256([string]$Value) {
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        return -join ($sha.ComputeHash([Text.UTF8Encoding]::new($false).GetBytes($Value)) | ForEach-Object { $_.ToString('x2') })
+    }
+    finally { $sha.Dispose() }
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -76,6 +85,90 @@ foreach ($relative in $relativeFiles) {
     }
     Assert-NoReparsePath -Path $sourcePath -StopAt $inputFull -Label "source file $relative"
 }
+$defaultPinnedHashes = [ordered]@{
+    'manifest.json' = 'c683c2e530b73353013a8cf44cd479fe2fdaac3bb72a4cc33d945bec4dfc2496'
+    'blocks.json' = 'a53c486ba078d5824ae9694bb5ad360d8b64645b935c903cf8b4e410c75c1592'
+    'textures/terrain_texture.json' = 'fe8c2199f6b21c095f5f4612ea183f0ab358c74d6ba5580f3c1cabe00fc29329'
+    'textures/blocks/wildflowers.png' = '2402ef63dbe3306a84b524033d9da7d1e2944dc780fc310bf18ec8d8930f527b'
+    'textures/blocks/wildflowers_stem.png' = 'f2e7a5a6b0d9ed7d2f2ff98dc010acab67c82488eee8ec2fde03bfd170d42d97'
+    'textures/blocks/pink_petals.png' = 'f67c739a847a817d6f1bd566cc8f8a9172b38d2481f9d3e528416c11e307c233'
+    'textures/blocks/pink_petals_stem.png' = 'f2e7a5a6b0d9ed7d2f2ff98dc010acab67c82488eee8ec2fde03bfd170d42d97'
+}
+$hasCustomSourceIdentity = $PSBoundParameters.ContainsKey('SourceIdentityPath')
+$sourceIdentity = if ($hasCustomSourceIdentity) {
+    if (-not (Test-Path -LiteralPath $SourceIdentityPath -PathType Leaf)) {
+        throw "source identity file does not exist: $SourceIdentityPath"
+    }
+    $identityItem = Get-Item -LiteralPath $SourceIdentityPath -Force
+    if (($identityItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "source identity file must not be a reparse point: $SourceIdentityPath"
+    }
+    try { Get-Content -Raw -LiteralPath $identityItem.FullName | ConvertFrom-Json }
+    catch { throw "source identity file is malformed: $($_.Exception.Message)" }
+}
+else {
+    [pscustomobject][ordered]@{
+        schema = 'rust-mcbe-flowerbed-source-identity-v1'
+        tag = $PinnedAssetSourceTag
+        archive_sha256 = $PinnedAssetSourceSha256
+        files = @($defaultPinnedHashes.Keys | ForEach-Object {
+            [pscustomobject][ordered]@{ path = $_; sha256 = $defaultPinnedHashes[$_] }
+        })
+    }
+}
+if ([string]$sourceIdentity.schema -cne 'rust-mcbe-flowerbed-source-identity-v1') {
+    throw "unsupported source identity schema: $($sourceIdentity.schema)"
+}
+$identityTag = [string]$sourceIdentity.tag
+$identityArchiveSha256 = ([string]$sourceIdentity.archive_sha256).ToLowerInvariant()
+if ([string]::IsNullOrWhiteSpace($identityTag) -or $identityTag.Length -gt 128 -or $identityTag -match '[\x00-\x1f]') {
+    throw 'source identity tag is invalid'
+}
+if ($identityArchiveSha256 -notmatch '^[0-9a-f]{64}$') {
+    throw 'source identity archive_sha256 must be exactly 64 lowercase hexadecimal characters'
+}
+if ($hasCustomSourceIdentity -and
+    ($identityTag -ceq $PinnedAssetSourceTag -or $identityArchiveSha256 -ceq $PinnedAssetSourceSha256)) {
+    throw 'custom source identity must not reuse the reserved pinned Mojang tag or archive SHA-256'
+}
+$identityFiles = @($sourceIdentity.files)
+if ($identityFiles.Count -ne $relativeFiles.Count) {
+    throw "source identity must contain exactly $($relativeFiles.Count) required file hashes"
+}
+$expectedHashByPath = [Collections.Generic.Dictionary[string, string]]::new([StringComparer]::Ordinal)
+foreach ($file in $identityFiles) {
+    $portablePath = [string]$file.path
+    $expectedHash = ([string]$file.sha256).ToLowerInvariant()
+    if ($portablePath -notin @($relativeFiles | ForEach-Object { $_.Replace('\', '/') })) {
+        throw "source identity contains an unexpected path: $portablePath"
+    }
+    if ($expectedHash -notmatch '^[0-9a-f]{64}$') {
+        throw "source identity hash is invalid for $portablePath"
+    }
+    if ($expectedHashByPath.ContainsKey($portablePath)) {
+        throw "source identity contains a duplicate path: $portablePath"
+    }
+    $expectedHashByPath.Add($portablePath, $expectedHash)
+}
+$normalizedIdentityFiles = [Collections.Generic.List[object]]::new()
+foreach ($relative in $relativeFiles) {
+    $portablePath = $relative.Replace('\', '/')
+    if (-not $expectedHashByPath.ContainsKey($portablePath)) {
+        throw "source identity is missing required path: $portablePath"
+    }
+    $actualHash = Get-LowerSha256 -Path (Join-Path $inputFull $relative)
+    if ($actualHash -cne $expectedHashByPath[$portablePath]) {
+        throw ('source content does not match claimed identity for {0}: expected={1} actual={2}' -f $portablePath, $expectedHashByPath[$portablePath], $actualHash)
+    }
+    $normalizedIdentityFiles.Add([pscustomobject][ordered]@{ path = $portablePath; sha256 = $actualHash })
+}
+$normalizedSourceIdentity = [pscustomobject][ordered]@{
+    schema = 'rust-mcbe-flowerbed-source-identity-v1'
+    tag = $identityTag
+    archive_sha256 = $identityArchiveSha256
+    files = @($normalizedIdentityFiles)
+}
+$sourceIdentitySha256 = Get-Utf8Sha256 -Value ($normalizedSourceIdentity | ConvertTo-Json -Compress -Depth 6)
 foreach ($jsonRelative in @('manifest.json', 'blocks.json')) {
     try { $null = Get-Content -Raw -LiteralPath (Join-Path $inputFull $jsonRelative) | ConvertFrom-Json }
     catch { throw "source pack JSON is malformed: $jsonRelative ($($_.Exception.Message))" }
@@ -183,10 +276,12 @@ try {
         }
     })
     $manifest = [pscustomobject][ordered]@{
-        schema = 'rust-mcbe-flowerbed-reference-pack-v1'
-        pinned_source = [pscustomobject][ordered]@{
-            tag = $PinnedAssetSourceTag
-            archive_sha256 = $PinnedAssetSourceSha256
+        schema = 'rust-mcbe-flowerbed-reference-pack-v2'
+        source_identity = [pscustomobject][ordered]@{
+            schema = $normalizedSourceIdentity.schema
+            tag = $normalizedSourceIdentity.tag
+            archive_sha256 = $normalizedSourceIdentity.archive_sha256
+            identity_sha256 = $sourceIdentitySha256
         }
         generated_filenames = @('wildflowers.png', 'wildflowers_stem.png', 'pink_petals.png', 'pink_petals_stem.png')
         files = $fileEvidence

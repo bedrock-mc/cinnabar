@@ -176,6 +176,7 @@ Implementation notes (Task 3):
 
 - The exhaustive gallery reads raw family 31 directly from the committed protocol-1001 `BREG1003` registry and rejects any matrix other than the exact two names × growth 0–7 × South/West/North/East set. Its 8×8, four-by-three-spaced layout pairs every typed state with a polished-andesite reference cube and uses the existing schema-v2 ticking-area, command-result fence, source-world identity, and cleanup lifecycle.
 - `scripts/flowerbed-reference-pack.ps1` accepts only an output rooted below this checkout's ignored `.local` directory, rejects overlap and reparse traversal, copies the pack manifest, emits minimal two-entry block/terrain routing, and writes only four deterministic opaque quadrant/stripe PNGs with per-file input/output SHA-256 evidence. The builder validates required route tokens without treating Mojang's comment-bearing pinned `terrain_texture.json` as strict JSON.
+- Production builds verify exact SHA-256 values for all seven required files before claiming the pinned Mojang tag/archive identity. Synthetic fixtures must provide an explicit `rust-mcbe-flowerbed-source-identity-v1` document through `-SourceIdentityPath`; its complete file-hash map is verified against actual bytes and bound into the generated v2 evidence manifest.
 
 ---
 

@@ -692,6 +692,27 @@ try {
         New-FlowerBedGalleryPlan -MutationCoordinate @(100, 64, 200) -Pose $_ -RegistryPath $BlockRegistry
     }
 
+    $expectedFlowerBedStates = [Collections.Generic.List[string]]::new()
+    $expectedFlowerBedReferences = [Collections.Generic.List[string]]::new()
+    $expectedFlowerBedStateCommands = [Collections.Generic.List[string]]::new()
+    foreach ($name in @('minecraft:pink_petals', 'minecraft:wildflowers')) {
+        foreach ($direction in @('south', 'west', 'north', 'east')) {
+            foreach ($growth in 0..7) {
+                $canonical = '{"growth":{"type":"int","value":' + $growth + '},"minecraft:cardinal_direction":{"type":"string","value":"' + $direction + '"}}'
+                $stateIdentity = "$name|$canonical"
+                $index = $expectedFlowerBedStates.Count
+                $xOffset = -14 + 4 * ($index % 8)
+                $zOffset = -10 + 3 * [Math]::Floor($index / 8)
+                $expectedFlowerBedStates.Add($stateIdentity)
+                $expectedFlowerBedReferences.Add("$stateIdentity|state=$xOffset,2,$zOffset|cube=$($xOffset + 1),2,$zOffset|minecraft:polished_andesite")
+                $expectedFlowerBedStateCommands.Add("setblock $($xOffset + 100) 66 $($zOffset + 200) $name [`"growth`"=$growth,`"minecraft:cardinal_direction`"=`"$direction`"]")
+            }
+        }
+    }
+    Assert-Equal 64 $expectedFlowerBedStates.Count 'pinned flowerbed test matrix changed'
+    $expectedFirstFlowerBedState = 'minecraft:pink_petals|{"growth":{"type":"int","value":0},"minecraft:cardinal_direction":{"type":"string","value":"south"}}'
+    $expectedLastFlowerBedState = 'minecraft:wildflowers|{"growth":{"type":"int","value":7},"minecraft:cardinal_direction":{"type":"string","value":"east"}}'
+
     foreach ($flowerBedPlan in $flowerBedPlans) {
         Assert-Equal 'FlowerBedGallery' $flowerBedPlan.Manifest.fixture_kind 'flowerbed plan lost fixture kind'
         Assert-Equal 64 ([int]$flowerBedPlan.Manifest.gallery_state_count) 'flowerbed plan did not enumerate exactly 64 states'
@@ -699,6 +720,17 @@ try {
         Assert-Equal 64 @($flowerBedPlan.GalleryCommands | Where-Object { $_ -match '^setblock .* minecraft:(wildflowers|pink_petals) ' }).Count 'flowerbed plan did not issue exactly one placement per canonical state'
         Assert-Equal 64 @($flowerBedPlan.Manifest.reference_cubes).Count 'flowerbed plan did not pair every state with a reference cube'
         Assert-Equal 4 @($flowerBedPlan.Manifest.camera_poses.PSObject.Properties).Count 'flowerbed plan lost a fixed diagnostic camera'
+        Assert-Equal 'a2fe82092cb22835a0553091ecfcdd67cedcddc9e791feb2d0ddeff9fe091f15' ([string]$flowerBedPlan.Manifest.coverage_evidence.state_set_sha256) 'flowerbed exact ordered BREG state-set identity drifted'
+        Assert-Equal 'e6eb62b75661d8de7508bbb40095e105301051d22462ef39f82f4226528ef763' ([string]$flowerBedPlan.Manifest.fixture_layout_hash) 'flowerbed canonical layout identity drifted'
+        Assert-Equal $expectedFirstFlowerBedState ([string]$flowerBedPlan.Manifest.gallery_states[0]) 'flowerbed first canonical identity drifted'
+        Assert-Equal $expectedLastFlowerBedState ([string]$flowerBedPlan.Manifest.gallery_states[-1]) 'flowerbed last canonical identity drifted'
+        Assert-Equal ($expectedFlowerBedStates -join "`n") (@($flowerBedPlan.Manifest.gallery_states) -join "`n") 'flowerbed exact ordered 64-state manifest drifted'
+        $actualReferences = @($flowerBedPlan.Manifest.reference_cubes | ForEach-Object {
+            "$($_.state)|state=$($_.state_offset -join ',')|cube=$($_.cube_offset -join ',')|$($_.cube)"
+        })
+        Assert-Equal ($expectedFlowerBedReferences -join "`n") ($actualReferences -join "`n") 'flowerbed state-to-grid/reference-cube identity drifted'
+        $actualStateCommands = @($flowerBedPlan.GalleryCommands | Where-Object { $_ -match '^setblock .* minecraft:(wildflowers|pink_petals) ' })
+        Assert-Equal ($expectedFlowerBedStateCommands -join "`n") ($actualStateCommands -join "`n") 'flowerbed typed state-to-world-coordinate command identity drifted'
         Assert-True ($flowerBedPlan.LoadAreaCommand -match '^tickingarea add ') 'flowerbed plan did not preload its bounded gallery'
         Assert-True ($flowerBedPlan.CleanupCommand -match '^tickingarea remove ') 'flowerbed plan did not provide ticking-area cleanup'
         Assert-Equal (Get-CanonicalObjectHash -Value $flowerBedPlan.Manifest.relative_layout) $flowerBedPlan.Manifest.fixture_layout_hash 'flowerbed layout hash was not derived from the complete relative layout'
@@ -714,6 +746,12 @@ try {
     $movedFlowerBedPlan = New-FlowerBedGalleryPlan -MutationCoordinate @(500, 70, -300) -Pose FlowerBedGalleryTop -RegistryPath $BlockRegistry
     Assert-Equal $flowerBedPlans[0].Manifest.fixture_layout_hash $movedFlowerBedPlan.Manifest.fixture_layout_hash 'flowerbed absolute coordinate changed canonical layout identity'
     Assert-Equal ($flowerBedPlans[0].Manifest.gallery_states -join "`n") ($movedFlowerBedPlan.Manifest.gallery_states -join "`n") 'flowerbed BREG state manifest was not deterministic'
+    $tamperedFlowerBedLayout = $flowerBedPlans[0].Manifest.relative_layout | ConvertTo-Json -Depth 12 | ConvertFrom-Json
+    $tamperedFlowerBedLayout.spacing[0] = 5
+    Assert-True ((Get-CanonicalObjectHash -Value $tamperedFlowerBedLayout) -cne 'e6eb62b75661d8de7508bbb40095e105301051d22462ef39f82f4226528ef763') 'flowerbed pinned layout hash did not detect spacing drift'
+    $reorderedFlowerBedStates = @($expectedFlowerBedStates)
+    [array]::Reverse($reorderedFlowerBedStates)
+    Assert-True (($reorderedFlowerBedStates -join "`n") -cne ($flowerBedPlans[0].Manifest.gallery_states -join "`n")) 'flowerbed exact ordered manifest assertion cannot detect reordering'
 
     $freshSource = Join-Path $TempRoot 'fresh gallery source'
     $freshRuntime = Join-Path $TempRoot 'fresh gallery runtime'
