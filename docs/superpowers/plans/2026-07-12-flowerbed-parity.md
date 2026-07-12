@@ -32,7 +32,7 @@
 - Consumes: canonical names, `ModelStateGrowth`, and `ModelStateOrientation` already emitted by `recordFromState`.
 - Produces: `ModelFamilyFlowerBed = 31` in Go and `ModelFamily::FlowerBed = 31` in Rust; both flowerbed names use it for all 32 states.
 
-- [ ] **Step 1: Write the failing Go classification test**
+- [x] **Step 1: Write the failing Go classification test**
 
 ```go
 for _, name := range []string{"minecraft:wildflowers", "minecraft:pink_petals"} {
@@ -45,17 +45,17 @@ for _, name := range []string{"minecraft:wildflowers", "minecraft:pink_petals"} 
 }
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `go test ./tools/registrygen -run 'Test.*FlowerBed' -count=1`
 
 Expected: FAIL because `ModelFamilyFlowerBed` is absent and `wildflowers` is `Cross`.
 
-- [ ] **Step 3: Add the family without renumbering existing values**
+- [x] **Step 3: Add the family without renumbering existing values**
 
 Append `ModelFamilyFlowerBed` after `ModelFamilyInvisible`, classify both exact names before `isCrossName`, and remove `wildflowers` from `isCrossName`. Append Rust value `FlowerBed = 31` and decode raw value 31 in `ModelFamily::read`.
 
-- [ ] **Step 4: Prove all state cardinalities and BREG decode parity**
+- [x] **Step 4: Prove all state cardinalities and BREG decode parity**
 
 Add assertions that each name has exactly 32 records, growth 0–7 × four directions, and no record is `Cross` or `Unknown`.
 
@@ -68,7 +68,7 @@ cargo test -p assets --test compiler --locked
 
 Expected: PASS.
 
-- [ ] **Step 5: Regenerate only the committed registry binary**
+- [x] **Step 5: Regenerate only the committed registry binary**
 
 Use the repository's pinned `tools/registrygen` command recorded in the Phase 2 asset docs. Verify deterministic SHA-256 across two generations and inspect `git status` to ensure no Mojang assets entered git.
 
