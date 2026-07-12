@@ -1,6 +1,6 @@
-# rust-mcbe
+# Cinnabar
 
-`rust-mcbe` is a greenfield Minecraft Bedrock client. The Rust workspace owns the client,
+Cinnabar is a greenfield Minecraft Bedrock client. The Rust workspace owns the client,
 world model, and rendering, while the Go core will own upstream networking and identity.
 
 Phase 0 is pinned to Bedrock 1.26.30 (protocol 1001).
@@ -16,6 +16,30 @@ Phase 0 is pinned to Bedrock 1.26.30 (protocol 1001).
 
 Local reference repositories and BDS installations under `.local/` are read-only development
 inputs. Committed builds do not depend on them.
+
+## Architecture
+
+The client is deliberately split at a local, packet-aware transport boundary:
+
+```text
+Cinnabar desktop client (Rust)
+  Axolotl/Valentine protocol definitions + palette-native world + Bevy/WGPU renderer
+                              |
+                 local stream socket (`game.sock` on Unix;
+                    loopback publication behind the same
+                         streamnet interface on Windows)
+                              |
+bedrock-core (Go)
+  gophertunnel session/auth/packet relay
+       |-- go-raknet -------- third-party servers and BDS
+       `-- go-nethernet ----- Realms and friend worlds
+             `-- go-xsapi -- Xbox discovery, identity, and signaling
+```
+
+Rust never implements Microsoft/Xbox authentication, upstream encryption, RakNet, or
+NetherNet. The Go core owns those moving network surfaces and translates them into the stable
+local stream consumed by the client. This keeps the renderer and game simulation in Rust while
+reusing the proven gophertunnel networking/authentication stack.
 
 ## Verification
 

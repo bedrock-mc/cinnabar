@@ -246,9 +246,14 @@ Scope: block registry + block-state → model/texture mapping (generated export 
   - [ ] Add palette-native multi-layer contributor resolution, retaining the
     eight-byte greedy cube record and adding compact model/liquid streams with
     atomic queue/GPU generation accounting and direct/MDI parity.
-  - [ ] Compile crossed cutout plants/crops with exact variants and biome tint;
+  - [x] Compile crossed cutout plants/crops with exact variants and biome tint;
     compile all physical flipbook frames into texture-array layers and animate
-    them from immutable descriptors without per-frame texture uploads.
+    them from immutable descriptors without per-frame texture uploads. Commit
+    `a24370b` covers all 443 terrestrial Cross/Crop states (279 Cross, 164 Crop)
+    with zero diagnostics, reusable two-quad templates, compact model refs,
+    face-specific lighting, a shared bounded/no-cull direct+MDI GPU path, and an
+    exhaustive hash-bound gallery; assets 112, render 102, world 51, client 187,
+    acceptance, strict Clippy, and final independent re-review are green.
   - [ ] Mesh animated, biome-tinted water with same-liquid culling, vanilla-like
     corner heights, diagonal invalidation, and a correctly ordered transparent
     phase with depth testing and no depth writes.
