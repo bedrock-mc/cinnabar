@@ -578,6 +578,8 @@ try {
         Assert-True ($slabStairDryRun.Output -contains 'USE_VSYNC=1') "$slabStairPose lost vsync"
         Assert-Equal 1 @($slabStairDryRun.Output | Where-Object { $_ -match '^SLAB_STAIR_GALLERY_ARGUMENTS_SHA256=[0-9a-f]{64}$' }).Count "$slabStairPose lost arguments hash"
         Assert-Equal 1 @($slabStairDryRun.Output | Where-Object { $_ -match '^SLAB_STAIR_GALLERY_ASSETS_SHA256=[0-9a-f]{64}$' }).Count "$slabStairPose lost assets hash"
+        $slabStairAppCommand = @($slabStairDryRun.Output | Where-Object { $_ -match '^APP_COMMAND=' })
+        Assert-True ($slabStairAppCommand[0] -match '--model-witness-request') "$slabStairPose did not pass its ignored-local model witness request path to the app"
     }
 
     $baselineDryRun = Invoke-Acceptance -Arguments @(
@@ -719,7 +721,8 @@ try {
     Assert-True (-not $source.Contains('ReadToEndAsync')) 'child logs are retained in memory'
     Assert-True ($source.Contains('-WorkingDirectory $ProjectRoot')) 'builds are not rooted at the project directory'
     Assert-True ($source.Contains("'9948b1729395d2e819fce28e079d4a7bfc67716c'")) 'gophertunnel metadata commit is not the repository pin'
-    Assert-True ($source.Contains("'6f6806e821a579c183c44d786f76d9b358a2b825'")) 'Valentine metadata commit is not the repository pin'
+    Assert-True ($source.Contains("'6cd8087fc3f0b500e41708a8afc94a0fa3291525'")) 'Valentine metadata commit is not the compiled fork revision'
+    Assert-True ($source.Contains('Assert-ProtocolDependencyProvenance')) 'acceptance metadata does not detect Cargo/provenance drift'
     Assert-True (-not $source.Contains("'^RUST_MCBE_TELEPORT_SETTLED ms=")) 'live teleport path still assumes ms precedes target'
     Assert-True (-not $source.Contains("'^RUST_MCBE_FORCED_FULL_VIEW_REMESH_SETTLED ms=")) 'live forced-remesh path still assumes ms precedes target'
     Assert-True ($source.Contains('TeleportMarker = $teleportMarkerEvidence')) 'live metrics validation does not receive parsed teleport evidence'
@@ -1111,6 +1114,25 @@ try {
     Assert-Equal 1 ([uint64]$waterWitnessRequest.revision) 'water witness request lost its revision'
     Assert-Equal 0 ([int]$waterWitnessRequest.dimension) 'water witness request lost its dimension'
     Assert-Equal '5,4,12;6,4,12;7,4,12' (@($waterWitnessRequest.sub_chunks | ForEach-Object { "$($_.x),$($_.y),$($_.z)" }) -join ';') 'water witness request did not derive the exact unique liquid-bearing subchunks'
+
+    $modelWitnessRequest = New-SlabStairGalleryModelWitnessRequest -Plan $slabStairPlans[0] -Revision 1
+    Assert-Equal 'rust-mcbe-model-witness-v1' $modelWitnessRequest.schema 'model witness request lost its strict schema'
+    Assert-Equal 1 ([uint64]$modelWitnessRequest.revision) 'model witness request lost its revision'
+    Assert-Equal 0 ([int]$modelWitnessRequest.dimension) 'model witness request lost its dimension'
+    Assert-True (@($modelWitnessRequest.sub_chunks).Count -gt 0) 'model witness request did not derive unique central-witness keys'
+    Assert-Equal @($modelWitnessRequest.sub_chunks).Count @($modelWitnessRequest.sub_chunks | Sort-Object x, y, z -Unique).Count 'model witness request retained duplicate keys'
+    Assert-True ([string]$modelWitnessRequest.request_sha256 -cmatch '^[0-9a-f]{64}$') 'model witness request lost its deterministic hash'
+
+    $modelMarker = ConvertFrom-ModelWitnessCompleteMarker -Line "RUST_MCBE_MODEL_WITNESS_COMPLETE revision=1 request_sha256=$($modelWitnessRequest.request_sha256) sequence=40 view_generation=3 key_count=$(@($modelWitnessRequest.sub_chunks).Count) model_ref_count=43 manifest_count=$(@($modelWitnessRequest.sub_chunks).Count) manifest_sha256=$('a' * 64) missing=0 stale=0 wrong_stream=0 zero_ref=0 draw_mismatch=0 consecutive=1"
+    Assert-Equal 1 ([int]$modelMarker.consecutive) 'model marker parser lost consecutive count'
+    $modelMarker2 = $modelMarker.PSObject.Copy()
+    $modelMarker2.sequence = [uint64]41
+    $modelMarker2.consecutive = 2
+    $null = Assert-StableModelWitnessEvidence -Request $modelWitnessRequest -First $modelMarker -Second $modelMarker2
+    Assert-ThrowsLike {
+        $bad = $modelMarker2.PSObject.Copy(); $bad.sequence = [uint64]42
+        Assert-StableModelWitnessEvidence -Request $modelWitnessRequest -First $modelMarker -Second $bad
+    } '*model witness*adjacent*' 'non-adjacent model witness evidence was accepted'
 
     $tamperedAquaticAssets = Join-Path $TempRoot 'tampered aquatic assets.mcbea'
     [IO.File]::WriteAllBytes($tamperedAquaticAssets, [IO.File]::ReadAllBytes($AquaticAssets))

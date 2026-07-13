@@ -21,6 +21,8 @@ Options:
                                Wait up to 2s for GPU-presented water at timed exit
   --transparent-witness-request <PATH>
                                Poll an ignored-local exact transparent witness request
+  --model-witness-request <PATH>
+                               Poll an ignored-local exact packed-model witness request
   -h, --help                   Print this help
 ";
 
@@ -37,6 +39,7 @@ pub struct ClientArgs {
     pub full_view_teleport_gate: bool,
     pub require_transparent_presentation: bool,
     pub transparent_witness_request: Option<PathBuf>,
+    pub model_witness_request: Option<PathBuf>,
 }
 
 impl Default for ClientArgs {
@@ -53,13 +56,14 @@ impl Default for ClientArgs {
             full_view_teleport_gate: false,
             require_transparent_presentation: false,
             transparent_witness_request: None,
+            model_witness_request: None,
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParseOutcome {
-    Run(ClientArgs),
+    Run(Box<ClientArgs>),
     Help,
 }
 
@@ -123,6 +127,12 @@ impl ClientArgs {
                         "--transparent-witness-request",
                     )?));
                 }
+                Some("--model-witness-request") => {
+                    parsed.model_witness_request = Some(PathBuf::from(next_value(
+                        &mut arguments,
+                        "--model-witness-request",
+                    )?));
+                }
                 Some("--display-name") => {
                     let value = next_value(&mut arguments, "--display-name")?
                         .into_string()
@@ -165,7 +175,7 @@ impl ClientArgs {
                 _ => return Err(ArgsError::Unknown(argument)),
             }
         }
-        Ok(ParseOutcome::Run(parsed))
+        Ok(ParseOutcome::Run(Box::new(parsed)))
     }
 }
 
@@ -196,6 +206,7 @@ mod tests {
         assert!(!args.full_view_teleport_gate);
         assert!(!args.require_transparent_presentation);
         assert_eq!(args.transparent_witness_request, None);
+        assert_eq!(args.model_witness_request, None);
     }
 
     #[test]
@@ -217,6 +228,8 @@ mod tests {
             "--require-transparent-presentation",
             "--transparent-witness-request",
             "run/transparent-witness-request.json",
+            "--model-witness-request",
+            "run/model-witness-request.json",
         ])
         .unwrap() else {
             panic!("expected run args")
@@ -235,6 +248,10 @@ mod tests {
             args.transparent_witness_request,
             Some(PathBuf::from("run/transparent-witness-request.json"))
         );
+        assert_eq!(
+            args.model_witness_request,
+            Some(PathBuf::from("run/model-witness-request.json"))
+        );
     }
 
     #[test]
@@ -248,6 +265,22 @@ mod tests {
 
         assert!(args.full_view_teleport_gate);
         assert_eq!(args.frame_cap, Some(60));
+    }
+
+    #[test]
+    fn parses_model_witness_request_path() {
+        let ParseOutcome::Run(args) = ClientArgs::parse_from([
+            "client",
+            "--model-witness-request",
+            "run/model-witness-request.json",
+        ])
+        .unwrap() else {
+            panic!("expected run args")
+        };
+        assert_eq!(
+            args.model_witness_request,
+            Some(PathBuf::from("run/model-witness-request.json"))
+        );
     }
 
     #[test]
@@ -266,6 +299,7 @@ mod tests {
             "--full-view-teleport-gate",
             "--require-transparent-presentation",
             "--transparent-witness-request",
+            "--model-witness-request",
         ] {
             assert!(HELP.contains(flag));
         }

@@ -962,6 +962,7 @@ fn allocated_but_undrawn_target_is_not_exact_presented_evidence() {
         stale_generation_instances: 0,
         orphan_allocations: 0,
         transparent_sort_generation: 0,
+        model_witness: None,
     };
 
     assert!(!acknowledgement.is_exact());

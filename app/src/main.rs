@@ -3,6 +3,7 @@ mod asset_startup;
 mod camera;
 mod culling;
 mod metrics;
+mod model_witness;
 mod network;
 mod server_position;
 mod transparent_witness;
@@ -30,14 +31,17 @@ use metrics::{
     DiagnosticQuadTracker, ExactFullViewProof, MetricsCollector, PipelineMetricsSnapshot,
     TeleportProof, TransparentSortMetricsSnapshot, deterministic_manifest_hash,
 };
+use model_witness::{ModelWitnessFileSource, poll_model_witness_request};
 use network::{NetworkConfig, NetworkControlEvent, NetworkHandle, spawn_network};
 use render::{
     ChunkBiomeTints, ChunkRenderInstance, ChunkRenderQueue, ChunkTextureAssets,
     ChunkUploadAcknowledgements, ChunkUploadPriority, ChunkUploadToken, DebugWorldPlugin,
-    PresentedFrameAck, PresentedFrameGate, RenderViewCohort, TargetRenderExpectation,
-    TransparentSortMetrics, TransparentWitnessEvidence,
+    ModelWitnessEvidence, ModelWitnessManifestRecord, ModelWitnessRequest, PresentedFrameAck,
+    PresentedFrameGate, RenderViewCohort, TargetRenderExpectation, TransparentSortMetrics,
+    TransparentWitnessEvidence,
 };
 use server_position::SAFE_SERVER_HEIGHT;
+use sha2::{Digest, Sha256};
 use transparent_witness::{TransparentWitnessFileSource, poll_transparent_witness_request};
 use world::SubChunkKey;
 use world_stream::{
@@ -1931,7 +1935,7 @@ fn main() {
     match args::ClientArgs::parse_env() {
         Ok(args::ParseOutcome::Help) => print!("{}", args::HELP),
         Ok(args::ParseOutcome::Run(args)) => {
-            if let Err(error) = run(args) {
+            if let Err(error) = run(*args) {
                 eprintln!("bedrock-client failed: {error:#}");
                 std::process::exit(1);
             }
@@ -1993,6 +1997,7 @@ fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(TransparentWitnessFileSource::new(
         args.transparent_witness_request,
     ))
+    .insert_resource(ModelWitnessFileSource::new(args.model_witness_request))
     .insert_resource(AcceptanceRun::new(
         args.acceptance_seconds,
         args.metrics_out,
@@ -2010,9 +2015,11 @@ fn run(args: args::ClientArgs) -> Result<()> {
         (
             receive_network_events,
             poll_transparent_witness_request,
+            poll_model_witness_request,
             drive_world_stream,
             refresh_cave_visibility,
             emit_world_ready,
+            drive_model_witness,
             record_metrics_and_title,
             finish_acceptance_run,
         )
@@ -2373,6 +2380,63 @@ fn drive_world_stream(
     }
     if let Some(coordinate) = resolved_mutation_coordinate {
         acceptance.set_mutation_coordinate(coordinate);
+    }
+}
+
+#[derive(Default)]
+struct ModelWitnessExpectationState {
+    request: ModelWitnessRequest,
+    expectation: Option<TargetRenderExpectation>,
+    next_view_generation: u64,
+}
+
+fn drive_model_witness(
+    client_world: Res<ClientWorld>,
+    render_queue: Res<ChunkRenderQueue>,
+    presented_frames: Res<PresentedFrameGate>,
+    request: Res<ModelWitnessRequest>,
+    evidence: Res<ModelWitnessEvidence>,
+    mut state: Local<ModelWitnessExpectationState>,
+) {
+    if !request.enabled() {
+        if state.request.enabled() {
+            presented_frames.clear();
+        }
+        *state = ModelWitnessExpectationState::default();
+        return;
+    }
+    if state.request != *request {
+        presented_frames.clear();
+        state.request = (*request).clone();
+        state.expectation = None;
+        state.next_view_generation = 0;
+    }
+    let Some(cohort) = client_world
+        .stream
+        .as_ref()
+        .and_then(WorldStream::committed_view_cohort)
+        .map(render_view_cohort)
+    else {
+        return;
+    };
+    let now = Instant::now();
+    let proposed = render_queue.freeze_target_expectation(cohort, None, 0, now);
+    let expectation = if let Some(current) = state.expectation.as_ref().filter(|current| {
+        current.cohort == proposed.cohort
+            && current.source_cohort == proposed.source_cohort
+            && current.manifest == proposed.manifest
+    }) {
+        current.clone()
+    } else {
+        state.next_view_generation = state.next_view_generation.wrapping_add(1).max(1);
+        let mut next = proposed;
+        next.view_generation = state.next_view_generation;
+        state.expectation = Some(next.clone());
+        next
+    };
+    presented_frames.set_expectation(expectation);
+    for acknowledgement in presented_frames.drain() {
+        evidence.observe_presented_frame(&request, &acknowledgement);
     }
 }
 
@@ -2829,6 +2893,23 @@ fn remove_chunk_visibility(
     }
 }
 
+fn lower_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn model_witness_manifest_hash(records: &[ModelWitnessManifestRecord]) -> String {
+    let mut hasher = Sha256::new();
+    for record in records {
+        hasher.update(record.key.dimension.to_le_bytes());
+        hasher.update(record.key.x.to_le_bytes());
+        hasher.update(record.key.y.to_le_bytes());
+        hasher.update(record.key.z.to_le_bytes());
+        hasher.update(record.generation.to_le_bytes());
+        hasher.update((record.model_ref_count as u64).to_le_bytes());
+    }
+    lower_hex(&hasher.finalize())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn record_metrics_and_title(
     time: Res<Time>,
@@ -2840,6 +2921,7 @@ fn record_metrics_and_title(
     render_queue: Res<ChunkRenderQueue>,
     transparent_sort: Res<TransparentSortMetrics>,
     transparent_witness: Res<TransparentWitnessEvidence>,
+    model_witness: Res<ModelWitnessEvidence>,
     chunks: Query<&ChunkRenderInstance>,
     camera: Query<&Transform, With<FlyCamera>>,
     mut window: Query<(&mut Window, &CursorOptions), With<PrimaryWindow>>,
@@ -2872,6 +2954,28 @@ fn record_metrics_and_title(
         let marker = format!(
             "RUST_MCBE_TRANSPARENT_WITNESS_COMPLETE revision={} sequence={} generation={} key_count={} consecutive={}",
             event.revision, event.sequence, event.generation, event.key_count, event.consecutive,
+        );
+        let mut stdout = std::io::stdout().lock();
+        write_stdout_marker(&mut stdout, &marker);
+    }
+    for event in model_witness.drain_events() {
+        let acknowledgement = &event.acknowledgement;
+        let marker = format!(
+            "RUST_MCBE_MODEL_WITNESS_COMPLETE revision={} request_sha256={} sequence={} view_generation={} key_count={} model_ref_count={} manifest_count={} manifest_sha256={} missing={} stale={} wrong_stream={} zero_ref={} draw_mismatch={} consecutive={}",
+            acknowledgement.revision,
+            lower_hex(&acknowledgement.request_hash),
+            acknowledgement.frame_sequence,
+            acknowledgement.view_generation,
+            acknowledgement.manifest.len(),
+            acknowledgement.total_model_ref_count,
+            acknowledgement.manifest.len(),
+            model_witness_manifest_hash(&acknowledgement.manifest),
+            acknowledgement.missing_key_count,
+            acknowledgement.stale_generation_count,
+            acknowledgement.wrong_stream_count,
+            acknowledgement.zero_model_ref_count,
+            acknowledgement.draw_mismatch_count,
+            event.consecutive,
         );
         let mut stdout = std::io::stdout().lock();
         write_stdout_marker(&mut stdout, &marker);
@@ -3837,6 +3941,7 @@ mod tests {
             stale_generation_instances: 0,
             orphan_allocations: 0,
             transparent_sort_generation: 17,
+            model_witness: None,
         }
     }
 

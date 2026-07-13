@@ -24,7 +24,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $PinnedGophertunnelCommit = '9948b1729395d2e819fce28e079d4a7bfc67716c'
-$PinnedValentineCommit = '6f6806e821a579c183c44d786f76d9b358a2b825'
+$PinnedValentineCommit = '6cd8087fc3f0b500e41708a8afc94a0fa3291525'
 $PinnedAssetSourceTag = 'v1.26.30.32-preview'
 $PinnedAssetSourceSha256 = '12d5cddc03acd507e9e0bd412f2e94d34d0a1a855758af7a9eef61b03630ad7c'
 $LeafStateSuffix = '["persistent_bit"=true,"update_bit"=false]'
@@ -1400,6 +1400,97 @@ function Assert-StableTransparentWitnessEvidence {
         [uint64]$Second.sequence -le [uint64]$First.sequence -or
         [uint64]$Second.generation -lt [uint64]$First.generation) {
         throw "transparent witness did not complete twice consecutively: revision=$expectedRevision key_count=$expectedKeyCount first=$($First | ConvertTo-Json -Compress) second=$($Second | ConvertTo-Json -Compress)"
+    }
+    return $Second
+}
+
+function Assert-ProtocolDependencyProvenance {
+    param(
+        [Parameter(Mandatory = $true)][string]$ProjectRoot,
+        [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedRevision
+    )
+
+    $manifestPath = Join-Path $ProjectRoot 'crates\protocol\Cargo.toml'
+    $lockPath = Join-Path $ProjectRoot 'Cargo.lock'
+    $manifest = Get-Content -Raw -LiteralPath $manifestPath
+    $lock = Get-Content -Raw -LiteralPath $lockPath
+    foreach ($dependency in @('valentine', 'jolyne')) {
+        $pattern = '(?m)^' + [regex]::Escape($dependency) + '\s*=\s*\{[^\r\n]*\brev\s*=\s*"' + [regex]::Escape($ExpectedRevision) + '"[^\r\n]*\}\r?$'
+        if ($manifest -notmatch $pattern) {
+            throw "protocol dependency provenance drifted: $dependency is not pinned to $ExpectedRevision"
+        }
+    }
+    $source = "git+https://github.com/HashimTheArab/axolotl-stack.git?rev=$ExpectedRevision#$ExpectedRevision"
+    if ([regex]::Matches($lock, [regex]::Escape($source)).Count -ne 4) {
+        throw "Cargo.lock does not resolve the compiled Valentine fork revision $ExpectedRevision"
+    }
+    return $ExpectedRevision
+}
+
+function ConvertFrom-ModelWitnessCompleteMarker {
+    param([Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Line)
+
+    $pattern = '^RUST_MCBE_MODEL_WITNESS_COMPLETE revision=(\d+) request_sha256=([0-9a-f]{64}) sequence=(\d+) view_generation=(\d+) key_count=(\d+) model_ref_count=(\d+) manifest_count=(\d+) manifest_sha256=([0-9a-f]{64}) missing=(\d+) stale=(\d+) wrong_stream=(\d+) zero_ref=(\d+) draw_mismatch=(\d+) consecutive=(\d+)$'
+    if ($Line -notmatch $pattern) {
+        throw "invalid model witness complete marker: $Line"
+    }
+    $numbers = [Collections.Generic.List[uint64]]::new()
+    foreach ($index in @(1, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14)) {
+        $value = [uint64]0
+        if (-not [uint64]::TryParse($Matches[$index], [Globalization.NumberStyles]::None, [Globalization.CultureInfo]::InvariantCulture, [ref]$value)) {
+            throw "invalid model witness complete marker: $Line"
+        }
+        $numbers.Add($value)
+    }
+    if ($numbers[0] -eq 0 -or $numbers[1] -eq 0 -or $numbers[2] -eq 0 -or
+        $numbers[3] -eq 0 -or $numbers[3] -gt 64 -or $numbers[4] -eq 0 -or
+        $numbers[5] -ne $numbers[3] -or
+        @($numbers[6..10] | Where-Object { $_ -ne 0 }).Count -ne 0 -or
+        $numbers[11] -lt 1 -or $numbers[11] -gt 2) {
+        throw "invalid model witness complete marker: $Line"
+    }
+    return [pscustomobject][ordered]@{
+        revision = $numbers[0]
+        request_sha256 = $Matches[2]
+        sequence = $numbers[1]
+        view_generation = $numbers[2]
+        key_count = $numbers[3]
+        model_ref_count = $numbers[4]
+        manifest_count = $numbers[5]
+        manifest_sha256 = $Matches[8]
+        missing = $numbers[6]
+        stale = $numbers[7]
+        wrong_stream = $numbers[8]
+        zero_ref = $numbers[9]
+        draw_mismatch = $numbers[10]
+        consecutive = [int]$numbers[11]
+    }
+}
+
+function Assert-StableModelWitnessEvidence {
+    param(
+        [Parameter(Mandatory = $true)]$Request,
+        [Parameter(Mandatory = $true)]$First,
+        [Parameter(Mandatory = $true)]$Second
+    )
+
+    $expectedRevision = [uint64]$Request.revision
+    $expectedHash = [string]$Request.request_sha256
+    $expectedKeyCount = [uint64]@($Request.sub_chunks).Count
+    $zeroCounters = @('missing', 'stale', 'wrong_stream', 'zero_ref', 'draw_mismatch')
+    $hasMismatch = @($zeroCounters | Where-Object {
+        [uint64]$First.$_ -ne 0 -or [uint64]$Second.$_ -ne 0
+    }).Count -ne 0
+    if ([uint64]$First.revision -ne $expectedRevision -or [uint64]$Second.revision -ne $expectedRevision -or
+        [string]$First.request_sha256 -cne $expectedHash -or [string]$Second.request_sha256 -cne $expectedHash -or
+        [uint64]$First.key_count -ne $expectedKeyCount -or [uint64]$Second.key_count -ne $expectedKeyCount -or
+        [uint64]$First.manifest_count -ne $expectedKeyCount -or [uint64]$Second.manifest_count -ne $expectedKeyCount -or
+        [uint64]$First.model_ref_count -eq 0 -or [uint64]$First.model_ref_count -ne [uint64]$Second.model_ref_count -or
+        [string]$First.manifest_sha256 -cne [string]$Second.manifest_sha256 -or
+        [uint64]$First.view_generation -eq 0 -or [uint64]$First.view_generation -ne [uint64]$Second.view_generation -or
+        [int]$First.consecutive -ne 1 -or [int]$Second.consecutive -ne 2 -or
+        [uint64]$First.sequence + 1 -ne [uint64]$Second.sequence -or $hasMismatch) {
+        throw "model witness did not form an adjacent stable exact pair: revision=$expectedRevision key_count=$expectedKeyCount first=$($First | ConvertTo-Json -Compress) second=$($Second | ConvertTo-Json -Compress)"
     }
     return $Second
 }
@@ -2871,6 +2962,54 @@ function New-WaterGalleryTransparentWitnessRequest {
     }
 }
 
+function New-SlabStairGalleryModelWitnessRequest {
+    param(
+        [Parameter(Mandatory = $true)]$Plan,
+        [Parameter(Mandatory = $true)][ValidateRange(1, [long]::MaxValue)][uint64]$Revision
+    )
+
+    if ([string]$Plan.Manifest.fixture_kind -cne 'SlabStairGallery' -or
+        [uint64]$Plan.Manifest.central_witness_count -ne 43) {
+        throw 'model witness request requires the exact 43-entry slab/stair gallery'
+    }
+    $mutation = $Plan.Manifest.mutation
+    $witnesses = @($Plan.Manifest.witnesses)
+    if ($witnesses.Count -ne 43) {
+        throw "slab/stair model witness count changed: $($witnesses.Count)"
+    }
+    $byIdentity = [ordered]@{}
+    foreach ($witness in $witnesses) {
+        $offset = @($witness.center_offset)
+        if ($offset.Count -ne 3) {
+            throw 'slab/stair model witness lost its central block offset'
+        }
+        $x = [int][Math]::Floor(([double]$mutation.x + [double]$offset[0]) / 16.0)
+        $y = [int][Math]::Floor(([double]$mutation.y + [double]$offset[1]) / 16.0)
+        $z = [int][Math]::Floor(([double]$mutation.z + [double]$offset[2]) / 16.0)
+        $identity = "$x,$y,$z"
+        if (-not $byIdentity.Contains($identity)) {
+            $byIdentity[$identity] = [pscustomobject][ordered]@{ x = $x; y = $y; z = $z }
+        }
+    }
+    $keys = @($byIdentity.Values | Sort-Object x, y, z)
+    if ($keys.Count -eq 0 -or $keys.Count -gt 64) {
+        throw "slab/stair model witness key count is outside 1..64: $($keys.Count)"
+    }
+    $hashInput = [pscustomobject][ordered]@{
+        schema = 'rust-mcbe-model-witness-v1'
+        revision = $Revision
+        dimension = 0
+        sub_chunks = $keys
+    }
+    return [pscustomobject][ordered]@{
+        schema = [string]$hashInput.schema
+        revision = [uint64]$hashInput.revision
+        dimension = [int]$hashInput.dimension
+        request_sha256 = Get-CanonicalObjectHash -Value $hashInput
+        sub_chunks = $keys
+    }
+}
+
 function Get-StrictMcbeas04ModelTables {
     param([Parameter(Mandatory = $true)][string]$Path)
 
@@ -3706,9 +3845,11 @@ function Publish-VisualFixture {
         })
     }
     $cameraResortProperty = $Plan.PSObject.Properties['CameraResortCommand']
-    if ($null -ne $cameraResortProperty -and -not [string]::IsNullOrWhiteSpace([string]$cameraResortProperty.Value)) {
+    $fixtureKindProperty = $Plan.Manifest.PSObject.Properties['fixture_kind']
+    $isModelWitnessGallery = $null -ne $fixtureKindProperty -and [string]$fixtureKindProperty.Value -ceq 'SlabStairGallery'
+    if (($null -ne $cameraResortProperty -and -not [string]::IsNullOrWhiteSpace([string]$cameraResortProperty.Value)) -or $isModelWitnessGallery) {
         if ($null -eq $AppHandle) {
-            throw 'camera resort acceptance requires AppHandle for causal transparent-sort evidence'
+            throw 'gallery witness acceptance requires AppHandle for causal GPU evidence'
         }
         $null = Advance-ProcessOutputCursorToCurrentEnd -Handle $AppHandle
     }
@@ -3719,6 +3860,75 @@ function Publish-VisualFixture {
         })
     }
     $remainingSettleMilliseconds = $SettleMilliseconds
+    if ($isModelWitnessGallery) {
+        Write-BdsConsoleCommand -Handle $Handle -Command $Plan.FenceCommand -LogPath $consoleLogPath
+        if ($null -eq $WaitForFence) {
+            $modelCameraFenceEvidence = Wait-ProcessOutputMarker `
+                -Handle $Handle `
+                -Marker $Plan.FenceMarker `
+                -TimeoutSeconds 30 `
+                -PassThruEvidence
+        }
+        else {
+            $modelCameraFenceEvidence = & $WaitForFence $Handle $Plan.FenceMarker 30
+        }
+        $modelCameraResultLine = Assert-BdsCameraResortResult -Evidence $modelCameraFenceEvidence
+        Write-AcceptanceEvent -RunDirectory $RunDirectory -Event 'model_witness_camera_fence_observed' -Fields ([ordered]@{
+            command = [string]$Plan.FenceCommand
+            stdout_marker = [string]$Plan.FenceMarker
+            result_line = [string]$modelCameraResultLine
+        })
+
+        $modelRequest = New-SlabStairGalleryModelWitnessRequest -Plan $Plan -Revision 1
+        $modelRequestPath = Join-Path $RunDirectory 'model-witness-request.json'
+        $null = Write-AtomicJsonArtifact -Path $modelRequestPath -Value $modelRequest
+        Write-AcceptanceEvent -RunDirectory $RunDirectory -Event 'model_witness_request_published' -Fields ([ordered]@{
+            path = $modelRequestPath
+            revision = [uint64]$modelRequest.revision
+            request_sha256 = [string]$modelRequest.request_sha256
+            key_count = [uint64]@($modelRequest.sub_chunks).Count
+        })
+        $modelWitnesses = [Collections.Generic.List[object]]::new()
+        $modelEvidence = [Collections.Generic.List[object]]::new()
+        foreach ($expectedConsecutive in 1..2) {
+            if ($null -eq $WaitForAppMarker) {
+                $evidence = Wait-ProcessOutputMarker `
+                    -Handle $AppHandle `
+                    -Marker 'RUST_MCBE_MODEL_WITNESS_COMPLETE ' `
+                    -TimeoutSeconds 30 `
+                    -PassThruEvidence
+            }
+            else {
+                $evidence = & $WaitForAppMarker $AppHandle 'RUST_MCBE_MODEL_WITNESS_COMPLETE ' 30
+            }
+            $witness = ConvertFrom-ModelWitnessCompleteMarker -Line ([string]$evidence.Line)
+            if ([int]$witness.consecutive -ne $expectedConsecutive) {
+                throw "model witness completion was duplicate or out of order: expected=$expectedConsecutive actual=$($witness.consecutive)"
+            }
+            $modelWitnesses.Add($witness)
+            $modelEvidence.Add($evidence)
+            Write-AcceptanceEvent -RunDirectory $RunDirectory -Event 'model_witness_complete' -Fields ([ordered]@{
+                revision = [uint64]$witness.revision
+                request_sha256 = [string]$witness.request_sha256
+                sequence = [uint64]$witness.sequence
+                view_generation = [uint64]$witness.view_generation
+                key_count = [uint64]$witness.key_count
+                model_ref_count = [uint64]$witness.model_ref_count
+                manifest_count = [uint64]$witness.manifest_count
+                manifest_sha256 = [string]$witness.manifest_sha256
+                consecutive = [int]$witness.consecutive
+                stdout_line = [uint64]$evidence.LineNumber
+            })
+        }
+        if ([uint64]$modelEvidence[0].LineNumber -eq 0 -or
+            [uint64]$modelEvidence[1].LineNumber -le [uint64]$modelEvidence[0].LineNumber) {
+            throw 'model witness markers were stale, duplicated, or non-causal in app stdout'
+        }
+        $null = Assert-StableModelWitnessEvidence `
+            -Request $modelRequest `
+            -First $modelWitnesses[0] `
+            -Second $modelWitnesses[1]
+    }
     if ($null -ne $cameraResortProperty -and -not [string]::IsNullOrWhiteSpace([string]$cameraResortProperty.Value)) {
         Write-BdsConsoleCommand -Handle $Handle -Command $Plan.FenceCommand -LogPath $consoleLogPath
         if ($null -eq $WaitForFence) {
@@ -5233,6 +5443,7 @@ if (-not (Test-Path -LiteralPath $BdsSourceExecutable -PathType Leaf)) {
 }
 
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$null = Assert-ProtocolDependencyProvenance -ProjectRoot $ProjectRoot -ExpectedRevision $PinnedValentineCommit
 $BlockRegistryPath = Join-Path $ProjectRoot 'crates\assets\data\block-registry-v1001.bin'
 $CrossCropCoverage = if ($isCrossCropGallery) {
     Get-CrossCropCoverageEvidence -RegistryPath $BlockRegistryPath -AssetsPath $Assets
@@ -5263,6 +5474,7 @@ $RuntimeDirectory = Join-Path (Join-Path $ProjectRoot '.local\bds-runtime') (Spl
 $RunName = if ($DryRun) { 'dry-run' } else { "{0}-{1}" -f [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ'), $PID }
 $RunDirectory = Join-Path (Join-Path $ProjectRoot '.local\acceptance') $RunName
 $TransparentWitnessRequestPath = Join-Path $RunDirectory 'transparent-witness-request.json'
+$ModelWitnessRequestPath = Join-Path $RunDirectory 'model-witness-request.json'
 $SocketDirectory = Join-Path $RunDirectory 'socket'
 $CanonicalMetrics = Join-Path $RunDirectory 'app-metrics.json'
 $BdsExecutable = Join-Path $RuntimeDirectory $BdsExecutableName
@@ -5294,6 +5506,9 @@ if ($PSBoundParameters.ContainsKey('Assets')) {
 }
 if ($isWaterGallery) {
     $AppArguments += @('--require-transparent-presentation', '--transparent-witness-request', $TransparentWitnessRequestPath)
+}
+if ($isSlabStairGallery) {
+    $AppArguments += @('--model-witness-request', $ModelWitnessRequestPath)
 }
 if ($VisualFixturePose -eq 'None' -and -not $FullViewTeleportGate -and -not $LeafForestBaseline) {
     $AppArguments += '--auto-fly'

@@ -97,6 +97,7 @@ pub const TRANSPARENT_REF_SLOT_BYTES: usize =
 pub const TRANSPARENT_REF_BUFFER_BYTES: usize = TRANSPARENT_REF_SLOT_BYTES * 2;
 pub const DEFAULT_TRANSPARENT_UPLOAD_REFS_PER_FRAME: usize = 131_072;
 pub const MAX_TRANSPARENT_WITNESS_KEYS: usize = 64;
+pub const MAX_MODEL_WITNESS_KEYS: usize = 64;
 const MAX_TRANSPARENT_RETIRED_ALLOCATIONS: usize = 16_384;
 const MAX_TRANSPARENT_RETIRED_BYTES: u64 = 64 * 1024 * 1024;
 
@@ -356,6 +357,236 @@ impl TransparentWitnessRequest {
 
     const fn enabled(&self) -> bool {
         self.revision != 0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelWitnessRequestError {
+    InvalidRevision,
+    InvalidHash,
+    Empty,
+    TooMany,
+    Duplicate,
+}
+
+#[derive(Resource, ExtractResource, Debug, Clone, Default, PartialEq, Eq)]
+pub struct ModelWitnessRequest {
+    revision: u64,
+    request_hash: [u8; 32],
+    keys: Arc<[SubChunkKey]>,
+}
+
+impl ModelWitnessRequest {
+    pub fn try_new(
+        revision: u64,
+        request_hash: [u8; 32],
+        mut keys: Vec<SubChunkKey>,
+    ) -> Result<Self, ModelWitnessRequestError> {
+        if revision == 0 {
+            return Err(ModelWitnessRequestError::InvalidRevision);
+        }
+        if request_hash == [0; 32] {
+            return Err(ModelWitnessRequestError::InvalidHash);
+        }
+        if keys.is_empty() {
+            return Err(ModelWitnessRequestError::Empty);
+        }
+        if keys.len() > MAX_MODEL_WITNESS_KEYS {
+            return Err(ModelWitnessRequestError::TooMany);
+        }
+        keys.sort_unstable();
+        if keys.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(ModelWitnessRequestError::Duplicate);
+        }
+        Ok(Self {
+            revision,
+            request_hash,
+            keys: Arc::from(keys),
+        })
+    }
+
+    #[must_use]
+    pub const fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    #[must_use]
+    pub const fn request_hash(&self) -> &[u8; 32] {
+        &self.request_hash
+    }
+
+    #[must_use]
+    pub fn keys(&self) -> &[SubChunkKey] {
+        &self.keys
+    }
+
+    #[must_use]
+    pub const fn enabled(&self) -> bool {
+        self.revision != 0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ModelWitnessManifestRecord {
+    pub key: SubChunkKey,
+    pub generation: u64,
+    pub model_ref_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelWitnessFrameAck {
+    pub revision: u64,
+    pub request_hash: [u8; 32],
+    pub frame_sequence: u64,
+    pub view_generation: u64,
+    pub present_returned_at: Instant,
+    pub gpu_completed_at: Instant,
+    pub total_model_ref_count: usize,
+    pub manifest: Arc<[ModelWitnessManifestRecord]>,
+    pub missing_key_count: usize,
+    pub stale_generation_count: usize,
+    pub wrong_stream_count: usize,
+    pub zero_model_ref_count: usize,
+    pub draw_mismatch_count: usize,
+}
+
+impl ModelWitnessFrameAck {
+    #[must_use]
+    pub fn is_exact(&self) -> bool {
+        !self.manifest.is_empty()
+            && self.total_model_ref_count != 0
+            && self.missing_key_count == 0
+            && self.stale_generation_count == 0
+            && self.wrong_stream_count == 0
+            && self.zero_model_ref_count == 0
+            && self.draw_mismatch_count == 0
+    }
+
+    #[must_use]
+    pub fn forms_stable_exact_pair_with(&self, next: &Self) -> bool {
+        self.is_exact()
+            && next.is_exact()
+            && self.revision == next.revision
+            && self.request_hash == next.request_hash
+            && self.view_generation == next.view_generation
+            && self.total_model_ref_count == next.total_model_ref_count
+            && self.manifest == next.manifest
+            && self.frame_sequence.checked_add(1) == Some(next.frame_sequence)
+            && self.present_returned_at <= next.present_returned_at
+            && self.gpu_completed_at <= next.gpu_completed_at
+            && self.present_returned_at <= self.gpu_completed_at
+            && next.present_returned_at <= next.gpu_completed_at
+    }
+
+    #[cfg(test)]
+    fn exact_for_test(
+        revision: u64,
+        request_hash: [u8; 32],
+        frame_sequence: u64,
+        view_generation: u64,
+        manifest: Arc<[ModelWitnessManifestRecord]>,
+        now: Instant,
+    ) -> Self {
+        let total_model_ref_count = manifest.iter().map(|record| record.model_ref_count).sum();
+        Self {
+            revision,
+            request_hash,
+            frame_sequence,
+            view_generation,
+            present_returned_at: now,
+            gpu_completed_at: now,
+            total_model_ref_count,
+            manifest,
+            missing_key_count: 0,
+            stale_generation_count: 0,
+            wrong_stream_count: 0,
+            zero_model_ref_count: 0,
+            draw_mismatch_count: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelWitnessEvent {
+    pub acknowledgement: ModelWitnessFrameAck,
+    pub consecutive: u8,
+}
+
+#[derive(Debug, Default)]
+struct ModelWitnessEvidenceState {
+    active: ModelWitnessRequest,
+    first: Option<ModelWitnessFrameAck>,
+    complete: bool,
+    events: VecDeque<ModelWitnessEvent>,
+}
+
+#[derive(Resource, Debug, Clone, Default)]
+pub struct ModelWitnessEvidence(Arc<Mutex<ModelWitnessEvidenceState>>);
+
+impl ModelWitnessEvidence {
+    pub fn set_authoritative_request(&self, request: &ModelWitnessRequest) {
+        let mut state = self.0.lock().unwrap_or_else(|poison| poison.into_inner());
+        if state.active == *request {
+            return;
+        }
+        state.active = request.clone();
+        state.first = None;
+        state.complete = false;
+        state.events.clear();
+    }
+
+    pub fn observe_presented_frame(
+        &self,
+        request: &ModelWitnessRequest,
+        acknowledgement: &PresentedFrameAck,
+    ) {
+        let mut state = self.0.lock().unwrap_or_else(|poison| poison.into_inner());
+        if state.complete || state.active != *request {
+            return;
+        }
+        if !acknowledgement.is_exact() {
+            state.first = None;
+            return;
+        }
+        let Some(current) = acknowledgement.model_witness.as_ref().filter(|current| {
+            current.revision == request.revision
+                && current.request_hash == request.request_hash
+                && current.manifest.len() == request.keys.len()
+                && current.is_exact()
+        }) else {
+            state.first = None;
+            return;
+        };
+        let Some(first) = state.first.take() else {
+            state.first = Some(current.clone());
+            return;
+        };
+        if !first.forms_stable_exact_pair_with(current) {
+            state.first = Some(current.clone());
+            return;
+        }
+        state.events.push_back(ModelWitnessEvent {
+            acknowledgement: first,
+            consecutive: 1,
+        });
+        state.events.push_back(ModelWitnessEvent {
+            acknowledgement: current.clone(),
+            consecutive: 2,
+        });
+        state.complete = true;
+    }
+
+    pub fn drain_events(&self) -> Vec<ModelWitnessEvent> {
+        self.0
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .events
+            .drain(..)
+            .collect()
+    }
+
+    pub fn reset(&self) {
+        self.set_authoritative_request(&ModelWitnessRequest::default());
     }
 }
 
@@ -2050,6 +2281,113 @@ pub struct TargetRenderExpectation {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct ModelWitnessFrameEvaluation {
+    revision: u64,
+    request_hash: [u8; 32],
+    total_model_ref_count: usize,
+    manifest: Arc<[ModelWitnessManifestRecord]>,
+    missing_key_count: usize,
+    stale_generation_count: usize,
+    wrong_stream_count: usize,
+    zero_model_ref_count: usize,
+    draw_mismatch_count: usize,
+}
+
+impl ModelWitnessFrameEvaluation {
+    #[cfg(test)]
+    fn is_exact(&self) -> bool {
+        !self.manifest.is_empty()
+            && self.total_model_ref_count != 0
+            && self.missing_key_count == 0
+            && self.stale_generation_count == 0
+            && self.wrong_stream_count == 0
+            && self.zero_model_ref_count == 0
+            && self.draw_mismatch_count == 0
+    }
+}
+
+fn evaluate_model_witness_frame(
+    request: &ModelWitnessRequest,
+    _frame_sequence: u64,
+    _view_generation: u64,
+    expected: &[(SubChunkKey, u64)],
+    allocations: &[(SubChunkKey, u64, ChunkStreamMask, usize)],
+    drawn: &[(SubChunkKey, u64, ChunkStreamMask)],
+) -> ModelWitnessFrameEvaluation {
+    let expected = expected.iter().copied().collect::<BTreeMap<_, _>>();
+    let allocations = allocations
+        .iter()
+        .copied()
+        .map(|(key, generation, streams, model_ref_count)| {
+            ((key, generation), (streams, model_ref_count))
+        })
+        .collect::<BTreeMap<_, _>>();
+    let drawn = drawn
+        .iter()
+        .copied()
+        .map(|(key, generation, streams)| ((key, generation), streams))
+        .collect::<BTreeMap<_, _>>();
+    let mut manifest = Vec::with_capacity(request.keys().len());
+    let mut missing_key_count = 0;
+    let mut stale_generation_count = 0;
+    let mut wrong_stream_count = 0;
+    let mut zero_model_ref_count = 0;
+    let mut draw_mismatch_count = 0;
+
+    for &key in request.keys() {
+        let Some(&generation) = expected.get(&key) else {
+            missing_key_count += 1;
+            continue;
+        };
+        let Some(&(streams, model_ref_count)) = allocations.get(&(key, generation)) else {
+            if allocations
+                .keys()
+                .any(|(allocation_key, allocation_generation)| {
+                    *allocation_key == key && *allocation_generation != generation
+                })
+            {
+                stale_generation_count += 1;
+            } else {
+                missing_key_count += 1;
+            }
+            continue;
+        };
+        if !streams.contains(ChunkStreamMask::MODEL) {
+            wrong_stream_count += 1;
+            continue;
+        }
+        if model_ref_count == 0 {
+            zero_model_ref_count += 1;
+            continue;
+        }
+        if !drawn
+            .get(&(key, generation))
+            .is_some_and(|streams| streams.contains(ChunkStreamMask::MODEL))
+        {
+            draw_mismatch_count += 1;
+            continue;
+        }
+        manifest.push(ModelWitnessManifestRecord {
+            key,
+            generation,
+            model_ref_count,
+        });
+    }
+    let total_model_ref_count = manifest.iter().map(|record| record.model_ref_count).sum();
+    ModelWitnessFrameEvaluation {
+        revision: request.revision,
+        request_hash: request.request_hash,
+        total_model_ref_count,
+        manifest: Arc::from(manifest),
+        missing_key_count,
+        stale_generation_count,
+        wrong_stream_count,
+        zero_model_ref_count,
+        draw_mismatch_count,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct CompletedFrameProbe {
     expectation: TargetRenderExpectation,
     frame_sequence: u64,
@@ -2062,6 +2400,7 @@ struct CompletedFrameProbe {
     stale_generation_instances: usize,
     orphan_allocations: usize,
     transparent_sort_generation: u64,
+    model_witness: Option<ModelWitnessFrameEvaluation>,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -2091,6 +2430,7 @@ pub struct PresentedFrameAck {
     pub stale_generation_instances: usize,
     pub orphan_allocations: usize,
     pub transparent_sort_generation: u64,
+    pub model_witness: Option<ModelWitnessFrameAck>,
 }
 
 impl PresentedFrameAck {
@@ -2240,6 +2580,21 @@ fn build_presented_frame_ack(
     {
         return None;
     }
+    let model_witness = probe.model_witness.map(|model| ModelWitnessFrameAck {
+        revision: model.revision,
+        request_hash: model.request_hash,
+        frame_sequence: probe.frame_sequence,
+        view_generation: probe.expectation.view_generation,
+        present_returned_at,
+        gpu_completed_at,
+        total_model_ref_count: model.total_model_ref_count,
+        manifest: model.manifest,
+        missing_key_count: model.missing_key_count,
+        stale_generation_count: model.stale_generation_count,
+        wrong_stream_count: model.wrong_stream_count,
+        zero_model_ref_count: model.zero_model_ref_count,
+        draw_mismatch_count: model.draw_mismatch_count,
+    });
     Some(PresentedFrameAck {
         cohort: probe.expectation.cohort,
         frame_sequence: probe.frame_sequence,
@@ -2256,6 +2611,7 @@ fn build_presented_frame_ack(
         stale_generation_instances: probe.stale_generation_instances,
         orphan_allocations: probe.orphan_allocations,
         transparent_sort_generation: probe.transparent_sort_generation,
+        model_witness,
     })
 }
 
@@ -2296,17 +2652,23 @@ impl std::ops::BitOr for ChunkStreamMask {
 }
 
 trait IntoFrameAllocationEvidence {
-    fn into_evidence(self) -> (FrameAllocationIdentity, ChunkStreamMask);
+    fn into_evidence(self) -> (FrameAllocationIdentity, ChunkStreamMask, usize);
 }
 
 impl IntoFrameAllocationEvidence for FrameAllocationIdentity {
-    fn into_evidence(self) -> (FrameAllocationIdentity, ChunkStreamMask) {
-        (self, ChunkStreamMask::CUBE)
+    fn into_evidence(self) -> (FrameAllocationIdentity, ChunkStreamMask, usize) {
+        (self, ChunkStreamMask::CUBE, 0)
     }
 }
 
 impl IntoFrameAllocationEvidence for (FrameAllocationIdentity, ChunkStreamMask) {
-    fn into_evidence(self) -> (FrameAllocationIdentity, ChunkStreamMask) {
+    fn into_evidence(self) -> (FrameAllocationIdentity, ChunkStreamMask, usize) {
+        (self.0, self.1, 0)
+    }
+}
+
+impl IntoFrameAllocationEvidence for (FrameAllocationIdentity, ChunkStreamMask, usize) {
+    fn into_evidence(self) -> (FrameAllocationIdentity, ChunkStreamMask, usize) {
         self
     }
 }
@@ -2316,6 +2678,8 @@ struct FrameProbe {
     frame_sequence: u64,
     eligible: HashMap<Entity, (FrameAllocationIdentity, ChunkStreamMask)>,
     expected_streams: BTreeMap<(SubChunkKey, u64), ChunkStreamMask>,
+    model_request: ModelWitnessRequest,
+    model_allocations: BTreeMap<(SubChunkKey, u64), (ChunkStreamMask, usize)>,
     allocation_manifest: BTreeSet<(SubChunkKey, u64)>,
     target_allocation_count: usize,
     duplicate_target_instances: usize,
@@ -2328,10 +2692,25 @@ struct FrameProbe {
 }
 
 impl FrameProbe {
+    #[cfg(test)]
     fn begin(
         expectation: TargetRenderExpectation,
         instances: impl IntoIterator<Item = FrameInstanceIdentity>,
         allocations: impl IntoIterator<Item = impl IntoFrameAllocationEvidence>,
+    ) -> Self {
+        Self::begin_with_model_witness(
+            expectation,
+            instances,
+            allocations,
+            ModelWitnessRequest::default(),
+        )
+    }
+
+    fn begin_with_model_witness(
+        expectation: TargetRenderExpectation,
+        instances: impl IntoIterator<Item = FrameInstanceIdentity>,
+        allocations: impl IntoIterator<Item = impl IntoFrameAllocationEvidence>,
+        model_request: ModelWitnessRequest,
     ) -> Self {
         let expected = expectation
             .manifest
@@ -2382,11 +2761,12 @@ impl FrameProbe {
             .collect::<BTreeSet<_>>();
         let mut eligible = HashMap::new();
         let mut expected_streams_by_identity = BTreeMap::new();
+        let mut model_allocations = BTreeMap::new();
         let mut allocation_manifest = BTreeSet::new();
         let mut target_allocation_count = 0;
         let mut orphan_allocations = 0;
         for allocation in allocations {
-            let (allocation, expected_streams) = allocation.into_evidence();
+            let (allocation, expected_streams, model_ref_count) = allocation.into_evidence();
             let Some(instance) = instances.get(&allocation.entity) else {
                 orphan_allocations += 1;
                 continue;
@@ -2402,6 +2782,11 @@ impl FrameProbe {
             let identity = (allocation.key, allocation.generation);
             let mask = expected_streams_by_identity.entry(identity).or_default();
             *mask = *mask | expected_streams;
+            let model = model_allocations
+                .entry(identity)
+                .or_insert((ChunkStreamMask::default(), 0));
+            model.0 = model.0 | expected_streams;
+            model.1 = model.1.max(model_ref_count);
             eligible.insert(allocation.entity, (allocation, expected_streams));
         }
         Self {
@@ -2409,6 +2794,8 @@ impl FrameProbe {
             frame_sequence: 0,
             eligible,
             expected_streams: expected_streams_by_identity,
+            model_request,
+            model_allocations,
             allocation_manifest,
             target_allocation_count,
             duplicate_target_instances,
@@ -2506,10 +2893,33 @@ impl FrameProbe {
             .iter()
             .copied()
             .collect::<BTreeSet<_>>();
-        let drawn = self
+        let drawn_streams = self
             .drawn
             .into_inner()
-            .unwrap_or_else(|poison| poison.into_inner())
+            .unwrap_or_else(|poison| poison.into_inner());
+        let model_witness = self.model_request.enabled().then(|| {
+            let expected = self.expectation.manifest.as_ref();
+            let allocations = self
+                .model_allocations
+                .iter()
+                .map(|(&(key, generation), &(streams, model_ref_count))| {
+                    (key, generation, streams, model_ref_count)
+                })
+                .collect::<Vec<_>>();
+            let drawn = drawn_streams
+                .iter()
+                .map(|(&(key, generation), &streams)| (key, generation, streams))
+                .collect::<Vec<_>>();
+            evaluate_model_witness_frame(
+                &self.model_request,
+                self.frame_sequence,
+                self.expectation.view_generation,
+                expected,
+                &allocations,
+                &drawn,
+            )
+        });
+        let drawn = drawn_streams
             .into_iter()
             .filter_map(|(identity, drawn)| {
                 let expected = self.expected_streams.get(&identity).copied()?;
@@ -2536,6 +2946,7 @@ impl FrameProbe {
             stale_generation_instances: self.stale_generation_instances,
             orphan_allocations: self.orphan_allocations,
             transparent_sort_generation,
+            model_witness,
         }
     }
 }
@@ -3315,6 +3726,8 @@ impl Plugin for DebugWorldPlugin {
             .init_resource::<TransparentSortMetrics>()
             .init_resource::<TransparentWitnessRequest>()
             .init_resource::<TransparentWitnessEvidence>()
+            .init_resource::<ModelWitnessRequest>()
+            .init_resource::<ModelWitnessEvidence>()
             .insert_resource(self.upload_budget)
             .add_systems(
                 Update,
@@ -3331,6 +3744,7 @@ impl Plugin for DebugWorldPlugin {
             ExtractResourcePlugin::<ChunkAnimationClock>::default(),
             ExtractResourcePlugin::<ChunkBiomeTints>::default(),
             ExtractResourcePlugin::<TransparentWitnessRequest>::default(),
+            ExtractResourcePlugin::<ModelWitnessRequest>::default(),
         ));
 
         load_internal_asset!(app, CHUNK_SHADER_HANDLE, "chunk.wgsl", Shader::from_wgsl);
@@ -6819,7 +7233,7 @@ fn queue_chunks(
     allocations: Query<&GpuChunkAllocation>,
     arena: Res<ChunkGpuArena>,
     biome_tints: Res<ChunkBiomeTints>,
-    presented_frame_gate: Res<PresentedFrameGate>,
+    mut model_witness_resources: ParamSet<(Res<PresentedFrameGate>, Res<ModelWitnessRequest>)>,
     frame_probe: Res<ActiveFrameProbe>,
     mut indirect_batch_sets: ParamSet<(
         ResMut<ChunkIndirectBatches>,
@@ -6850,8 +7264,9 @@ fn queue_chunks(
         return;
     }
     *unsupported_reported = false;
-    if let Some(expectation) = presented_frame_gate.expectation() {
-        frame_probe.begin(FrameProbe::begin(
+    if let Some(expectation) = model_witness_resources.p0().expectation() {
+        let model_witness_request = (*model_witness_resources.p1()).clone();
+        frame_probe.begin(FrameProbe::begin_with_model_witness(
             expectation,
             instances
                 .iter()
@@ -6861,6 +7276,9 @@ fn queue_chunks(
                     generation: instance.generation,
                 }),
             arena.allocations.iter().map(|(&entity, allocation)| {
+                let model_ref_count = allocation.gpu.model_range.as_ref().map_or(0, |range| {
+                    range.end.saturating_sub(range.start) as usize / 4
+                });
                 (
                     FrameAllocationIdentity {
                         entity,
@@ -6868,8 +7286,10 @@ fn queue_chunks(
                         generation: allocation.gpu.generation,
                     },
                     allocation.expected_streams(),
+                    model_ref_count,
                 )
             }),
+            model_witness_request,
         ));
     } else {
         frame_probe.clear();
@@ -9285,6 +9705,7 @@ mod tests {
             stale_generation_instances: 0,
             orphan_allocations: 0,
             transparent_sort_generation: 0,
+            model_witness: None,
         };
 
         assert!(
@@ -10962,5 +11383,242 @@ mod tests {
         let mut actual = app.world().resource::<RemovalDeltas>().0.clone();
         actual.sort_unstable();
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn model_witness_request_is_exact_bounded_sorted_and_hashed() {
+        let a = SubChunkKey::new(0, 1, 4, 5);
+        let b = SubChunkKey::new(0, 2, 4, 5);
+        let request = ModelWitnessRequest::try_new(7, [0xab; 32], vec![b, a]).unwrap();
+        assert_eq!(request.revision(), 7);
+        assert_eq!(request.request_hash(), &[0xab; 32]);
+        assert_eq!(request.keys(), &[a, b]);
+        assert!(ModelWitnessRequest::try_new(0, [0; 32], vec![a]).is_err());
+        assert!(ModelWitnessRequest::try_new(1, [0; 32], Vec::new()).is_err());
+        assert!(ModelWitnessRequest::try_new(1, [0; 32], vec![a, a]).is_err());
+        assert!(
+            ModelWitnessRequest::try_new(
+                1,
+                [0; 32],
+                (0..=MAX_MODEL_WITNESS_KEYS)
+                    .map(|x| SubChunkKey::new(0, x as i32, 0, 0))
+                    .collect(),
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn model_witness_rejects_missing_stale_cube_only_and_zero_ref_keys() {
+        let key = SubChunkKey::new(0, 1, 4, 5);
+        let request = ModelWitnessRequest::try_new(7, [0x11; 32], vec![key]).unwrap();
+        let expected = [(key, 9)];
+
+        let missing = evaluate_model_witness_frame(&request, 20, 3, &[], &[], &[]);
+        assert_eq!(missing.missing_key_count, 1);
+        let stale = evaluate_model_witness_frame(
+            &request,
+            20,
+            3,
+            &expected,
+            &[(key, 8, ChunkStreamMask::MODEL, 2)],
+            &[(key, 8, ChunkStreamMask::MODEL)],
+        );
+        assert_eq!(stale.stale_generation_count, 1);
+        let cube_only = evaluate_model_witness_frame(
+            &request,
+            20,
+            3,
+            &expected,
+            &[(key, 9, ChunkStreamMask::CUBE, 2)],
+            &[(key, 9, ChunkStreamMask::CUBE)],
+        );
+        assert_eq!(cube_only.wrong_stream_count, 1);
+        let zero_ref = evaluate_model_witness_frame(
+            &request,
+            20,
+            3,
+            &expected,
+            &[(key, 9, ChunkStreamMask::MODEL, 0)],
+            &[(key, 9, ChunkStreamMask::MODEL)],
+        );
+        assert_eq!(zero_ref.zero_model_ref_count, 1);
+        assert!(!missing.is_exact());
+        assert!(!stale.is_exact());
+        assert!(!cube_only.is_exact());
+        assert!(!zero_ref.is_exact());
+    }
+
+    #[test]
+    fn model_witness_accepts_direct_and_mdi_model_stream_evidence() {
+        let key = SubChunkKey::new(0, 1, 4, 5);
+        let request = ModelWitnessRequest::try_new(7, [0x22; 32], vec![key]).unwrap();
+        let expected = [(key, 9)];
+        let allocations = [(key, 9, ChunkStreamMask::CUBE | ChunkStreamMask::MODEL, 3)];
+        for drawn in [
+            vec![(key, 9, ChunkStreamMask::MODEL)],
+            vec![(key, 9, ChunkStreamMask::CUBE | ChunkStreamMask::MODEL)],
+        ] {
+            let frame =
+                evaluate_model_witness_frame(&request, 20, 3, &expected, &allocations, &drawn);
+            assert!(frame.is_exact());
+            assert_eq!(frame.total_model_ref_count, 3);
+            assert_eq!(frame.manifest.len(), 1);
+        }
+    }
+
+    #[test]
+    fn model_witness_pair_requires_adjacent_identical_gpu_completed_frames() {
+        let now = Instant::now();
+        let key = SubChunkKey::new(0, 1, 4, 5);
+        let manifest: Arc<[ModelWitnessManifestRecord]> = Arc::from([ModelWitnessManifestRecord {
+            key,
+            generation: 9,
+            model_ref_count: 3,
+        }]);
+        let first =
+            ModelWitnessFrameAck::exact_for_test(7, [0x33; 32], 40, 3, Arc::clone(&manifest), now);
+        let adjacent =
+            ModelWitnessFrameAck::exact_for_test(7, [0x33; 32], 41, 3, Arc::clone(&manifest), now);
+        let skipped = ModelWitnessFrameAck::exact_for_test(7, [0x33; 32], 42, 3, manifest, now);
+        assert!(first.forms_stable_exact_pair_with(&adjacent));
+        assert!(!first.forms_stable_exact_pair_with(&skipped));
+    }
+
+    fn presented_model_witness_ack(
+        request: &ModelWitnessRequest,
+        key: SubChunkKey,
+        frame_sequence: u64,
+        stale_generation_instances: usize,
+        unexpected_target_instances: usize,
+    ) -> PresentedFrameAck {
+        let now = Instant::now();
+        let manifest: Arc<[ModelWitnessManifestRecord]> = Arc::from([ModelWitnessManifestRecord {
+            key,
+            generation: 9,
+            model_ref_count: 3,
+        }]);
+        PresentedFrameAck {
+            cohort: RenderViewCohort::new(key.dimension, [key.x, key.z], 0),
+            frame_sequence,
+            allocation_manifest: Arc::from([(key, 9)]),
+            drawn_manifest: Arc::from([(key, 9)]),
+            view_generation: 3,
+            render_ready_at: now,
+            present_returned_at: now,
+            gpu_completed_at: now,
+            missing_target_instances: 0,
+            unexpected_target_instances,
+            source_instances: 0,
+            foreign_instances: 0,
+            stale_generation_instances,
+            orphan_allocations: 0,
+            transparent_sort_generation: 0,
+            model_witness: Some(ModelWitnessFrameAck::exact_for_test(
+                request.revision(),
+                *request.request_hash(),
+                frame_sequence,
+                3,
+                manifest,
+                now,
+            )),
+        }
+    }
+
+    #[test]
+    fn exact_model_manifest_cannot_pair_across_stale_outer_frame_contamination() {
+        let key = SubChunkKey::new(0, 1, 4, 5);
+        let request = ModelWitnessRequest::try_new(7, [0x44; 32], vec![key]).unwrap();
+        let evidence = ModelWitnessEvidence::default();
+        evidence.set_authoritative_request(&request);
+
+        evidence.observe_presented_frame(
+            &request,
+            &presented_model_witness_ack(&request, key, 40, 0, 0),
+        );
+        evidence.observe_presented_frame(
+            &request,
+            &presented_model_witness_ack(&request, key, 41, 1, 0),
+        );
+        evidence.observe_presented_frame(
+            &request,
+            &presented_model_witness_ack(&request, key, 42, 0, 0),
+        );
+
+        assert!(evidence.drain_events().is_empty());
+    }
+
+    #[test]
+    fn exact_model_manifest_cannot_pair_across_duplicate_outer_frame_contamination() {
+        let key = SubChunkKey::new(0, 1, 4, 5);
+        let request = ModelWitnessRequest::try_new(7, [0x55; 32], vec![key]).unwrap();
+        let evidence = ModelWitnessEvidence::default();
+        evidence.set_authoritative_request(&request);
+
+        evidence.observe_presented_frame(
+            &request,
+            &presented_model_witness_ack(&request, key, 50, 0, 0),
+        );
+        evidence.observe_presented_frame(
+            &request,
+            &presented_model_witness_ack(&request, key, 51, 0, 1),
+        );
+        evidence.observe_presented_frame(
+            &request,
+            &presented_model_witness_ack(&request, key, 52, 0, 0),
+        );
+
+        assert!(evidence.drain_events().is_empty());
+    }
+
+    #[test]
+    fn model_witness_uses_actual_direct_and_mdi_frame_probe_recording_paths() {
+        let now = Instant::now();
+        let key = SubChunkKey::new(0, 65, 4, 65);
+        let entity = Entity::from_bits(91);
+        let instance = FrameInstanceIdentity {
+            entity,
+            key,
+            generation: 9,
+        };
+        let allocation = FrameAllocationIdentity {
+            entity,
+            key,
+            generation: 9,
+        };
+        let request = ModelWitnessRequest::try_new(7, [0x66; 32], vec![key]).unwrap();
+
+        let direct = FrameProbe::begin_with_model_witness(
+            target_expectation(now, [(key, 9)]),
+            [instance],
+            [(
+                allocation,
+                ChunkStreamMask::CUBE | ChunkStreamMask::MODEL,
+                3,
+            )],
+            request.clone(),
+        );
+        assert!(direct.record_direct_streams(entity, allocation, ChunkStreamMask::MODEL));
+        let direct = direct.complete().model_witness.unwrap();
+        assert!(direct.is_exact());
+        assert_eq!(direct.total_model_ref_count, 3);
+
+        let mdi = FrameProbe::begin_with_model_witness(
+            target_expectation(now, [(key, 9)]),
+            [instance],
+            [(
+                allocation,
+                ChunkStreamMask::CUBE | ChunkStreamMask::MODEL,
+                3,
+            )],
+            request,
+        );
+        assert_eq!(
+            mdi.record_mdi_streams([(entity, allocation)], ChunkStreamMask::MODEL),
+            1
+        );
+        let mdi = mdi.complete().model_witness.unwrap();
+        assert!(mdi.is_exact());
+        assert_eq!(mdi.manifest, direct.manifest);
     }
 }
