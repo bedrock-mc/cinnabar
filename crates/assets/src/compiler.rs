@@ -92,6 +92,12 @@ pub(crate) fn visual_semantics_are_valid(
     flags: BlockFlags,
     role: ContributorRole,
 ) -> bool {
+    if flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
+        && !flags.contains(BlockFlags::CUBE_GEOMETRY)
+        && !matches!(kind, VisualKind::Model)
+    {
+        return false;
+    }
     match kind {
         VisualKind::Diagnostic => true,
         VisualKind::Cube => {

@@ -464,6 +464,19 @@ fn validate_fixed(
         {
             return Err(invalid("visual kind/template disagree"));
         }
+        if flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
+            && !flags.contains(BlockFlags::CUBE_GEOMETRY)
+            && (kind != VisualKind::Model
+                || template == NO_MODEL_TEMPLATE
+                || sections[3]
+                    .chunks_exact(TEMPLATE_BYTES)
+                    .nth(template as usize)
+                    .is_none_or(|template| u32_at(template, 4) == 0))
+        {
+            return Err(invalid(
+                "standalone full-face occlusion requires a drawable model",
+            ));
+        }
     }
     let mut previous = None;
     for record in sections[1].chunks_exact(8) {

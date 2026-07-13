@@ -314,6 +314,19 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
             }
             _ => {}
         }
+        if visual.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
+            && !visual.flags.contains(BlockFlags::CUBE_GEOMETRY)
+            && (visual.kind != VisualKind::Model
+                || visual.model_template == NO_MODEL_TEMPLATE
+                || compiled
+                    .model_templates
+                    .get(visual.model_template as usize)
+                    .is_none_or(|template| template.quad_count == 0))
+        {
+            return Err(invalid(
+                "standalone full-face occlusion requires a drawable model",
+            ));
+        }
     }
     let mut previous = None;
     for &(hash, visual) in &compiled.hashed {

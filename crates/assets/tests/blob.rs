@@ -286,6 +286,30 @@ fn valid_assets() -> CompiledAssets {
     }
 }
 
+fn full_face_model_assets(quad_count: u32) -> CompiledAssets {
+    let mut compiled = valid_assets();
+    compiled.visuals[0].flags = BlockFlags::OCCLUDES_FULL_FACE;
+    compiled.visuals[0].kind = VisualKind::Model;
+    compiled.visuals[0].model_template = 0;
+    compiled.model_templates = vec![assets::ModelTemplate {
+        quad_start: 0,
+        quad_count,
+        flags: 0,
+    }]
+    .into_boxed_slice();
+    compiled.model_quads = vec![
+        assets::ModelQuad {
+            positions: [[0; 3]; 4],
+            uvs: [[0; 2]; 4],
+            material: 0,
+            flags: 0,
+        };
+        quad_count as usize
+    ]
+    .into_boxed_slice();
+    compiled
+}
+
 fn read_u32(bytes: &[u8], offset: usize) -> u32 {
     u32::from_le_bytes(bytes[offset..offset + 4].try_into().expect("u32 bytes"))
 }
@@ -432,25 +456,44 @@ fn blob_rejects_material_layer_visual_and_mip_invariants() {
 
 #[test]
 fn blob_accepts_model_full_face_occluder_without_cube_geometry() {
-    let mut compiled = valid_assets();
-    compiled.visuals[0].flags = BlockFlags::OCCLUDES_FULL_FACE;
-    compiled.visuals[0].kind = VisualKind::Model;
-    compiled.visuals[0].model_template = 0;
-    compiled.model_templates = vec![assets::ModelTemplate {
-        quad_start: 0,
-        quad_count: 1,
-        flags: 0,
-    }]
-    .into_boxed_slice();
-    compiled.model_quads = vec![assets::ModelQuad {
-        positions: [[0; 3]; 4],
-        uvs: [[0; 2]; 4],
-        material: 0,
-        flags: 0,
-    }]
-    .into_boxed_slice();
-
+    let compiled = full_face_model_assets(1);
     assert!(encode_blob(&compiled).is_ok());
+}
+
+#[test]
+fn blob_rejects_full_face_occlusion_on_nondrawable_non_cube_visuals() {
+    for (kind, role, template) in [
+        (
+            VisualKind::Diagnostic,
+            assets::ContributorRole::Primary,
+            NO_MODEL_TEMPLATE,
+        ),
+        (VisualKind::Cross, assets::ContributorRole::Primary, 0),
+        (
+            VisualKind::Liquid,
+            assets::ContributorRole::LiquidAdditional,
+            NO_MODEL_TEMPLATE,
+        ),
+        (
+            VisualKind::Invisible,
+            assets::ContributorRole::Primary,
+            NO_MODEL_TEMPLATE,
+        ),
+    ] {
+        let mut compiled = full_face_model_assets(1);
+        compiled.visuals[0].kind = kind;
+        compiled.visuals[0].contributor_role = role;
+        compiled.visuals[0].model_template = template;
+        assert!(
+            encode_blob(&compiled).is_err(),
+            "accepted standalone occlusion on {kind:?}"
+        );
+    }
+
+    assert!(
+        encode_blob(&full_face_model_assets(0)).is_err(),
+        "accepted standalone occlusion on a zero-quad Model"
+    );
 }
 
 #[test]

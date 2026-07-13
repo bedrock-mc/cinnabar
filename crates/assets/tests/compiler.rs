@@ -1402,14 +1402,14 @@ fn compiler_real_pinned_pack_has_zero_diagnostic_slab_states_when_requested() {
         diagnostic.is_empty(),
         "pinned pack retained diagnostic slabs: {diagnostic:?}"
     );
-    let templates = slabs
-        .iter()
-        .map(|record| compiled.visuals[record.sequential_id as usize].model_template)
-        .collect::<HashSet<_>>();
-    eprintln!(
-        "verified {} pinned-pack slab states with zero diagnostics across {} templates",
-        slabs.len(),
-        templates.len()
+    assert_eq!(
+        slabs
+            .iter()
+            .map(|record| compiled.visuals[record.sequential_id as usize].model_template)
+            .collect::<HashSet<_>>()
+            .len(),
+        189,
+        "pinned slab material/half templates"
     );
 }
 

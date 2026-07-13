@@ -116,6 +116,29 @@ fn valid_blob() -> Vec<u8> {
         .into_vec()
 }
 
+fn full_face_model_blob() -> Vec<u8> {
+    let mut compiled = compiled_assets();
+    compiled.visuals[1].flags = BlockFlags::OCCLUDES_FULL_FACE;
+    compiled.visuals[1].kind = VisualKind::Model;
+    compiled.visuals[1].model_template = 0;
+    compiled.model_templates = vec![ModelTemplate {
+        quad_start: 0,
+        quad_count: 1,
+        flags: 0,
+    }]
+    .into_boxed_slice();
+    compiled.model_quads = vec![ModelQuad {
+        positions: [[0; 3]; 4],
+        uvs: [[0; 2]; 4],
+        material: 1,
+        flags: 0,
+    }]
+    .into_boxed_slice();
+    encode_blob(&compiled)
+        .expect("encode model full-face occluder")
+        .into_vec()
+}
+
 fn rich_blob() -> Vec<u8> {
     let mut compiled = compiled_assets();
     compiled.visuals[1].flags = BlockFlags::empty();
@@ -238,29 +261,61 @@ fn decode_rejects_invalid_visual_flag_semantics() {
 
 #[test]
 fn runtime_preserves_model_full_face_occluder_without_cube_geometry() {
-    let mut compiled = compiled_assets();
-    compiled.visuals[1].flags = BlockFlags::OCCLUDES_FULL_FACE;
-    compiled.visuals[1].kind = VisualKind::Model;
-    compiled.visuals[1].model_template = 0;
-    compiled.model_templates = vec![ModelTemplate {
-        quad_start: 0,
-        quad_count: 1,
-        flags: 0,
-    }]
-    .into_boxed_slice();
-    compiled.model_quads = vec![ModelQuad {
-        positions: [[0; 3]; 4],
-        uvs: [[0; 2]; 4],
-        material: 1,
-        flags: 0,
-    }]
-    .into_boxed_slice();
-    let blob = encode_blob(&compiled).expect("encode model full-face occluder");
-    let runtime = RuntimeAssets::decode(&blob).expect("decode model full-face occluder");
+    let runtime =
+        RuntimeAssets::decode(&full_face_model_blob()).expect("decode model full-face occluder");
     let block = runtime.resolve(NetworkIdMode::Sequential, 1);
     assert_eq!(block.kind(), VisualKind::Model);
     assert_eq!(block.flags(), BlockFlags::OCCLUDES_FULL_FACE);
     assert!(!block.flags().contains(BlockFlags::CUBE_GEOMETRY));
+}
+
+#[test]
+fn runtime_rejects_full_face_occlusion_on_non_model_visuals() {
+    for (kind, role, template) in [
+        (
+            VisualKind::Diagnostic,
+            assets::ContributorRole::Primary,
+            NO_MODEL_TEMPLATE,
+        ),
+        (VisualKind::Cross, assets::ContributorRole::Primary, 0),
+        (
+            VisualKind::Liquid,
+            assets::ContributorRole::LiquidAdditional,
+            NO_MODEL_TEMPLATE,
+        ),
+        (
+            VisualKind::Invisible,
+            assets::ContributorRole::Primary,
+            NO_MODEL_TEMPLATE,
+        ),
+    ] {
+        let mut blob = full_face_model_blob();
+        let visuals = read_u64(&blob, VISUALS_OFFSET_OFFSET) as usize;
+        blob[visuals + 40 + 25] = kind as u8;
+        blob[visuals + 40 + 26] = role as u8;
+        write_u32(&mut blob, visuals + 40 + 28, template);
+        reseal(&mut blob);
+        assert_rejected(&blob, &format!("standalone occlusion on {kind:?}"));
+    }
+
+    let mut compiled = compiled_assets();
+    compiled.visuals[1].flags = BlockFlags::empty();
+    compiled.visuals[1].kind = VisualKind::Model;
+    compiled.visuals[1].model_template = 0;
+    compiled.model_templates = vec![ModelTemplate {
+        quad_start: 0,
+        quad_count: 0,
+        flags: 0,
+    }]
+    .into_boxed_slice();
+    compiled.model_quads = Box::new([]);
+    let mut zero_quad = encode_blob(&compiled)
+        .expect("encode non-occluding zero-quad model")
+        .into_vec();
+    let visuals = read_u64(&zero_quad, VISUALS_OFFSET_OFFSET) as usize;
+    zero_quad[visuals + 40 + 24] = BlockFlags::OCCLUDES_FULL_FACE.bits();
+    reseal(&mut zero_quad);
+    assert_rejected(&zero_quad, "standalone occlusion on zero-quad Model");
 }
 
 #[test]

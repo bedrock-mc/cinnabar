@@ -1,8 +1,8 @@
 use std::{cell::OnceCell, collections::VecDeque};
 
 use assets::{
-    BlockFace, BlockFlags, ContributorRole, DIAGNOSTIC_MATERIAL, MODEL_TEMPLATE_FLAG_KELP,
-    NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, VisualKind,
+    BlockFace, BlockFlags, ContributorRole, DIAGNOSTIC_MATERIAL, MODEL_QUAD_FLAG_CULL_FACE_MASK,
+    MODEL_TEMPLATE_FLAG_KELP, NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, VisualKind,
 };
 use world::{MeshNeighbourhood, PalettedStorage, SubChunk};
 
@@ -619,7 +619,14 @@ fn mesh_sub_chunk_core(
             connectivity,
         };
     }
-    let positive_y_facts = OnceCell::new();
+    let neighbour_facts: [OnceCell<PaletteFacts<'_>>; Face::ALL.len()] =
+        std::array::from_fn(|_| OnceCell::new());
+    let palette_context = PaletteResolutionContext {
+        classifier: *classifier,
+        visuals,
+        network_id_mode,
+        neighbourhood,
+    };
 
     let masks = VisibilityMasks::from_facts(&facts);
     let mut quads = Vec::new();
@@ -661,6 +668,13 @@ fn mesh_sub_chunk_core(
                 if template.quad_count == 0 {
                     continue;
                 }
+                let quad_start = template.quad_start as usize;
+                let Some(template_quads) = visuals
+                    .model_quads()
+                    .get(quad_start..quad_start.saturating_add(template.quad_count as usize))
+                else {
+                    continue;
+                };
                 let Ok(lighting_base_index) = u32::try_from(model_lighting.len()) else {
                     continue;
                 };
@@ -674,12 +688,12 @@ fn mesh_sub_chunk_core(
                 ) else {
                     continue;
                 };
-                let visible_quad_mask = if template.flags & MODEL_TEMPLATE_FLAG_KELP != 0 {
+                let mut visible_quad_mask = if template.flags & MODEL_TEMPLATE_FLAG_KELP != 0 {
                     let above = if y + 1 < SIDE {
                         Some(facts.at(x, y + 1, z))
                     } else {
                         neighbourhood.sub_chunk([0, 1, 0]).map(|sub_chunk| {
-                            positive_y_facts
+                            neighbour_facts[Face::PositiveY.index()]
                                 .get_or_init(|| {
                                     PaletteFacts::new(
                                         *classifier,
@@ -703,6 +717,25 @@ fn mesh_sub_chunk_core(
                         count => (1_u32 << count) - 1,
                     }
                 };
+                for (quad_index, quad) in template_quads.iter().enumerate() {
+                    let bit = 1_u32 << quad_index;
+                    if visible_quad_mask & bit == 0 {
+                        continue;
+                    }
+                    let Some(cull_face) = model_quad_cull_face(quad.flags) else {
+                        continue;
+                    };
+                    let neighbour = adjacent_palette_entry(
+                        palette_context,
+                        &facts,
+                        &neighbour_facts,
+                        [x, y, z],
+                        cull_face,
+                    );
+                    if neighbour.flags.contains(BlockFlags::OCCLUDES_FULL_FACE) {
+                        visible_quad_mask &= !bit;
+                    }
+                }
                 model_refs.push(PackedModelRef::new(
                     pack_model_transform(
                         [x as u8, y as u8, z as u8],
@@ -743,6 +776,71 @@ fn is_kelp_entry(visuals: &RuntimeAssets, entry: ResolvedPaletteEntry) -> bool {
             .model_templates()
             .get(entry.model_template as usize)
             .is_some_and(|template| template.flags & MODEL_TEMPLATE_FLAG_KELP != 0)
+}
+
+const fn model_quad_cull_face(flags: u32) -> Option<Face> {
+    match (flags & MODEL_QUAD_FLAG_CULL_FACE_MASK) >> 4 {
+        1 => Some(Face::NegativeY),
+        2 => Some(Face::PositiveY),
+        3 => Some(Face::NegativeX),
+        4 => Some(Face::PositiveX),
+        5 => Some(Face::NegativeZ),
+        6 => Some(Face::PositiveZ),
+        _ => None,
+    }
+}
+
+#[derive(Clone, Copy)]
+struct PaletteResolutionContext<'assets, 'chunks> {
+    classifier: BlockClassifier,
+    visuals: &'assets RuntimeAssets,
+    network_id_mode: NetworkIdMode,
+    neighbourhood: &'assets MeshNeighbourhood<'chunks>,
+}
+
+fn adjacent_palette_entry<'a>(
+    context: PaletteResolutionContext<'_, 'a>,
+    facts: &PaletteFacts<'a>,
+    neighbour_facts: &[OnceCell<PaletteFacts<'a>>; Face::ALL.len()],
+    [x, y, z]: [usize; 3],
+    face: Face,
+) -> ResolvedPaletteEntry {
+    let local = match face {
+        Face::NegativeX => x.checked_sub(1).map(|x| [x, y, z]),
+        Face::PositiveX => (x + 1 < SIDE).then_some([x + 1, y, z]),
+        Face::NegativeY => y.checked_sub(1).map(|y| [x, y, z]),
+        Face::PositiveY => (y + 1 < SIDE).then_some([x, y + 1, z]),
+        Face::NegativeZ => z.checked_sub(1).map(|z| [x, y, z]),
+        Face::PositiveZ => (z + 1 < SIDE).then_some([x, y, z + 1]),
+    };
+    if let Some([x, y, z]) = local {
+        return facts.at(x, y, z);
+    }
+
+    let boundary = match face {
+        Face::NegativeX => [SIDE - 1, y, z],
+        Face::PositiveX => [0, y, z],
+        Face::NegativeY => [x, SIDE - 1, z],
+        Face::PositiveY => [x, 0, z],
+        Face::NegativeZ => [x, y, SIDE - 1],
+        Face::PositiveZ => [x, y, 0],
+    };
+    context
+        .neighbourhood
+        .sub_chunk(face_offset(face))
+        .map(|sub_chunk| {
+            neighbour_facts[face.index()]
+                .get_or_init(|| {
+                    PaletteFacts::new(
+                        context.classifier,
+                        context.visuals,
+                        context.network_id_mode,
+                        sub_chunk,
+                    )
+                })
+                .at(boundary[0], boundary[1], boundary[2])
+        })
+        .unwrap_or(ResolvedPaletteEntry::AIR)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1063,7 +1161,10 @@ fn resolve_palette_entry(
     {
         Face::ALL.map(|face| block.face(block_face(face)).material_id())
     } else {
-        flags.remove(BlockFlags::OCCLUDES_FULL_FACE | BlockFlags::LEAF_MODEL);
+        flags.remove(BlockFlags::LEAF_MODEL);
+        if block.kind() != VisualKind::Model {
+            flags.remove(BlockFlags::OCCLUDES_FULL_FACE);
+        }
         [DIAGNOSTIC_MATERIAL; Face::ALL.len()]
     };
     ResolvedPaletteEntry {
