@@ -738,25 +738,61 @@ fn flowerbed_adds_no_renderer_object_or_binding_per_block_or_subchunk() {
         &Neighbourhood::empty(),
         &flowerbed_sub_chunk(&[([0, 8, 0], 0)]),
     );
-    let (one_entity_delta, one_instances) = flowerbed_render_entity_counts(one_mesh);
-    let (many_entity_delta, many_instances) = flowerbed_render_entity_counts(mesh);
+    let (one_entity_delta, one_instances, one_components, one_has_mesh3d) =
+        flowerbed_render_entity_contract(one_mesh);
+    let (many_entity_delta, many_instances, many_components, many_has_mesh3d) =
+        flowerbed_render_entity_contract(mesh);
     assert_eq!(one_instances, 1);
     assert_eq!(many_instances, 1);
     assert_eq!(
         many_entity_delta, one_entity_delta,
-        "64 FlowerBeds must not add per-block ECS entities or renderer objects"
+        "64 FlowerBeds must not add per-block ECS entities"
     );
+    assert_eq!(many_components, one_components);
+    assert!(!one_has_mesh3d);
+    assert!(!many_has_mesh3d);
+    for forbidden in [
+        "Mesh3d",
+        "MeshMaterial3d",
+        "Material",
+        "BindGroup",
+        "Pipeline",
+    ] {
+        assert!(
+            many_components
+                .iter()
+                .all(|component| !component.contains(forbidden)),
+            "produced chunk entity must not own a {forbidden} component: {many_components:?}"
+        );
+    }
 
-    let plugin = include_str!("../src/plugin.rs");
-    for structure in ["ChunkRenderInstance", "GpuChunkAllocation"] {
-        let body = rust_struct_body(plugin, structure);
-        for forbidden in ["Mesh", "Material", "BindGroup", "Pipeline"] {
+    let plugin = include_str!("../src/plugin.rs").replace("\r\n", "\n");
+    for structure in [
+        "ChunkRenderInstance",
+        "GpuChunkAllocation",
+        "ArenaAllocation",
+        "RetiredArenaAllocation",
+    ] {
+        let body = rust_struct_body(&plugin, structure);
+        for forbidden in [
+            "Mesh",
+            "Material",
+            "BindGroup",
+            "RenderPipeline",
+            "Variants<",
+        ] {
             assert!(
                 !body.contains(forbidden),
                 "{structure} must not own a per-subchunk {forbidden}"
             );
         }
     }
+    let arena = rust_struct_body(&plugin, "ChunkGpuArena");
+    assert!(arena.contains("bind_group: Option<BindGroup>"));
+    assert!(arena.contains("allocations: HashMap<Entity, ArenaAllocation>"));
+    let pipeline = rust_struct_body(&plugin, "ChunkPipeline");
+    assert!(pipeline.contains("Variants<RenderPipeline"));
+    assert!(pipeline.contains("bind_group_layout: BindGroupLayoutDescriptor"));
 }
 
 fn rust_struct_body<'a>(source: &'a str, name: &str) -> &'a str {
@@ -784,7 +820,7 @@ fn rust_struct_body<'a>(source: &'a str, name: &str) -> &'a str {
     panic!("unterminated {name} body")
 }
 
-fn flowerbed_render_entity_counts(mesh: render::ChunkMesh) -> (u32, usize) {
+fn flowerbed_render_entity_contract(mesh: render::ChunkMesh) -> (u32, usize, Vec<String>, bool) {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .add_plugins(DebugWorldPlugin::new(1));
@@ -798,14 +834,39 @@ fn flowerbed_render_entity_counts(mesh: render::ChunkMesh) -> (u32, usize) {
         )
         .unwrap();
     app.update();
-    let instance_count = app
+    let entities = app
         .world_mut()
-        .query::<&ChunkRenderInstance>()
+        .query::<(bevy::prelude::Entity, &ChunkRenderInstance)>()
         .iter(app.world())
-        .count();
+        .map(|(entity, _)| entity)
+        .collect::<Vec<_>>();
+    assert_eq!(entities.len(), 1, "one chunk entity per queued subchunk");
+    let component_ids = app
+        .world()
+        .entity(entities[0])
+        .archetype()
+        .components()
+        .to_vec();
+    let has_mesh3d = app
+        .world()
+        .entity(entities[0])
+        .contains::<bevy::mesh::Mesh3d>();
+    let component_names = component_ids
+        .into_iter()
+        .map(|component| {
+            app.world()
+                .components()
+                .get_info(component)
+                .expect("chunk archetype component metadata")
+                .name()
+                .to_string()
+        })
+        .collect::<Vec<_>>();
     (
         app.world().entities().len() - entity_count_before,
-        instance_count,
+        entities.len(),
+        component_names,
+        has_mesh3d,
     )
 }
 

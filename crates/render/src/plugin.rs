@@ -7606,6 +7606,13 @@ mod tests {
     }
 
     #[test]
+    fn gpu_binding_and_pipeline_owners_are_global_resources() {
+        fn assert_resource<T: Resource>() {}
+        assert_resource::<ChunkGpuArena>();
+        assert_resource::<ChunkPipeline>();
+    }
+
+    #[test]
     fn allocation_is_atomic_across_streams() {
         let free_cube = std::iter::once(0..1).collect::<Vec<_>>();
         let required = GeometryStreamCounts {
