@@ -819,6 +819,11 @@ try {
     }
     foreach ($slabStairPlan in $slabStairPlans) {
         Assert-True (-not (($slabStairPlan.Commands -join "`n").Contains('`'))) "$($slabStairPlan.Manifest.pose) published a literal PowerShell escape in a BDS command"
+        $slabCommands = @($slabStairPlan.FixtureCommands | Where-Object { $_ -match '^setblock .*slab' })
+        Assert-Equal 3 $slabCommands.Count "$($slabStairPlan.Manifest.pose) changed the exact slab witness command count"
+        Assert-Equal 1 @($slabCommands | Where-Object { $_.EndsWith(' minecraft:smooth_stone_slab ["minecraft:vertical_half"="bottom"]') }).Count "$($slabStairPlan.Manifest.pose) omitted the exact protocol-1001 bottom smooth-stone slab"
+        Assert-Equal 1 @($slabCommands | Where-Object { $_.EndsWith(' minecraft:smooth_stone_slab ["minecraft:vertical_half"="top"]') }).Count "$($slabStairPlan.Manifest.pose) omitted the exact protocol-1001 top smooth-stone slab"
+        Assert-Equal 1 @($slabCommands | Where-Object { $_.EndsWith(' minecraft:smooth_stone_double_slab') }).Count "$($slabStairPlan.Manifest.pose) omitted the exact protocol-1001 double smooth-stone slab"
     }
     $unsealedSlabStairAssets = Join-Path $TempRoot 'unsealed covered visual mutation.mcbea'
     $unsealedBytes = [IO.File]::ReadAllBytes($SlabStairAssets)
