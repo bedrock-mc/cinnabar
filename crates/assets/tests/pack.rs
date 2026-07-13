@@ -301,6 +301,7 @@ fn block_flag_semantics_accept_only_independent_valid_combinations() {
     for valid in [
         BlockFlags::empty(),
         BlockFlags::AIR,
+        BlockFlags::OCCLUDES_FULL_FACE,
         BlockFlags::CUBE_GEOMETRY,
         BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
         BlockFlags::CUBE_GEOMETRY | BlockFlags::LEAF_MODEL,
@@ -310,8 +311,9 @@ fn block_flag_semantics_accept_only_independent_valid_combinations() {
 
     for invalid in [
         BlockFlags::AIR | BlockFlags::CUBE_GEOMETRY,
-        BlockFlags::OCCLUDES_FULL_FACE,
+        BlockFlags::AIR | BlockFlags::OCCLUDES_FULL_FACE,
         BlockFlags::LEAF_MODEL,
+        BlockFlags::LEAF_MODEL | BlockFlags::OCCLUDES_FULL_FACE,
         BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE | BlockFlags::LEAF_MODEL,
     ] {
         assert!(!invalid.has_valid_semantics(), "accepted {invalid:?}");
@@ -320,7 +322,13 @@ fn block_flag_semantics_accept_only_independent_valid_combinations() {
 
 #[test]
 fn registry_reader_rejects_unknown_and_invalid_semantic_flags() {
-    for raw in [0x10, 0x03, 0x04, 0x08, 0x0e] {
+    let accepted = registry_bytes(&[(3, 11, 0x04, b"minecraft:test", b"{}")]);
+    assert_eq!(
+        read_registry(&accepted).expect("standalone full-face occluder")[0].flags,
+        BlockFlags::OCCLUDES_FULL_FACE
+    );
+
+    for raw in [0x10, 0x03, 0x05, 0x08, 0x0c, 0x0e] {
         let bytes = registry_bytes(&[(3, 11, raw, b"minecraft:test", b"{}")]);
         assert!(matches!(
             read_registry(&bytes),

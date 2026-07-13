@@ -927,12 +927,10 @@ fn compile_visuals(
                     slab_template_by_key.insert(key, template);
                     template
                 };
-                visual.flags.remove(
-                    BlockFlags::AIR
-                        | BlockFlags::CUBE_GEOMETRY
-                        | BlockFlags::OCCLUDES_FULL_FACE
-                        | BlockFlags::LEAF_MODEL,
-                );
+                visual
+                    .flags
+                    .remove(BlockFlags::AIR | BlockFlags::CUBE_GEOMETRY | BlockFlags::LEAF_MODEL);
+                visual.flags.set(BlockFlags::OCCLUDES_FULL_FACE, half == 2);
                 visual.faces = faces;
                 visual.kind = VisualKind::Model;
                 visual.model_template = template;

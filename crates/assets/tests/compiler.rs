@@ -1161,12 +1161,16 @@ fn compiler_slab_templates_match_exact_exterior_positions_uvs_materials_and_flag
     for (id, bounds) in [(0, (0, 128)), (1, (128, 256)), (2, (0, 256))] {
         let visual = compiled.visuals[id];
         assert_eq!(visual.kind, VisualKind::Model, "slab id={id}");
-        assert!(!visual.flags.intersects(
-            BlockFlags::AIR
-                | BlockFlags::CUBE_GEOMETRY
-                | BlockFlags::OCCLUDES_FULL_FACE
-                | BlockFlags::LEAF_MODEL
-        ));
+        assert!(
+            !visual
+                .flags
+                .intersects(BlockFlags::AIR | BlockFlags::CUBE_GEOMETRY | BlockFlags::LEAF_MODEL)
+        );
+        assert_eq!(
+            visual.flags.contains(BlockFlags::OCCLUDES_FULL_FACE),
+            id == 2,
+            "only the full slab is a full-face occluder"
+        );
         let actual = compiled_model_quads(&compiled, id);
         let expected = expected_slab_quads(visual.faces, bounds.0, bounds.1);
         assert_eq!(actual, expected, "slab id={id} exact quad contract");
@@ -2413,8 +2417,9 @@ fn compiler_rejects_invalid_block_flag_semantics() {
     for invalid in [
         BlockFlags::from_bits_retain(0x10),
         BlockFlags::AIR | BlockFlags::CUBE_GEOMETRY,
-        BlockFlags::OCCLUDES_FULL_FACE,
+        BlockFlags::AIR | BlockFlags::OCCLUDES_FULL_FACE,
         BlockFlags::LEAF_MODEL,
+        BlockFlags::LEAF_MODEL | BlockFlags::OCCLUDES_FULL_FACE,
         BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE | BlockFlags::LEAF_MODEL,
     ] {
         let records = [record(0, 1, "minecraft:test", "{}", invalid)];

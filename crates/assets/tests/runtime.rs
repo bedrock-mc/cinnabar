@@ -227,13 +227,40 @@ fn decode_rejects_resealed_old_schema_magic_and_version() {
 
 #[test]
 fn decode_rejects_invalid_visual_flag_semantics() {
-    for raw in [0x10, 0x03, 0x04, 0x08, 0x0e] {
+    for raw in [0x10, 0x03, 0x05, 0x08, 0x0c, 0x0e] {
         let mut blob = valid_blob();
         let visuals_offset = read_u64(&blob, VISUALS_OFFSET_OFFSET) as usize;
         blob[visuals_offset + 24] = raw;
         reseal(&mut blob);
         assert_rejected(&blob, &format!("invalid visual flags {raw:#x}"));
     }
+}
+
+#[test]
+fn runtime_preserves_model_full_face_occluder_without_cube_geometry() {
+    let mut compiled = compiled_assets();
+    compiled.visuals[1].flags = BlockFlags::OCCLUDES_FULL_FACE;
+    compiled.visuals[1].kind = VisualKind::Model;
+    compiled.visuals[1].model_template = 0;
+    compiled.model_templates = vec![ModelTemplate {
+        quad_start: 0,
+        quad_count: 1,
+        flags: 0,
+    }]
+    .into_boxed_slice();
+    compiled.model_quads = vec![ModelQuad {
+        positions: [[0; 3]; 4],
+        uvs: [[0; 2]; 4],
+        material: 1,
+        flags: 0,
+    }]
+    .into_boxed_slice();
+    let blob = encode_blob(&compiled).expect("encode model full-face occluder");
+    let runtime = RuntimeAssets::decode(&blob).expect("decode model full-face occluder");
+    let block = runtime.resolve(NetworkIdMode::Sequential, 1);
+    assert_eq!(block.kind(), VisualKind::Model);
+    assert_eq!(block.flags(), BlockFlags::OCCLUDES_FULL_FACE);
+    assert!(!block.flags().contains(BlockFlags::CUBE_GEOMETRY));
 }
 
 #[test]

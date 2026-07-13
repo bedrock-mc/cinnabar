@@ -379,8 +379,9 @@ fn blob_rejects_material_layer_visual_and_mip_invariants() {
     for invalid in [
         BlockFlags::from_bits_retain(0x10),
         BlockFlags::AIR | BlockFlags::CUBE_GEOMETRY,
-        BlockFlags::OCCLUDES_FULL_FACE,
+        BlockFlags::AIR | BlockFlags::OCCLUDES_FULL_FACE,
         BlockFlags::LEAF_MODEL,
+        BlockFlags::LEAF_MODEL | BlockFlags::OCCLUDES_FULL_FACE,
         BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE | BlockFlags::LEAF_MODEL,
     ] {
         let mut bad_flags = valid_assets();
@@ -427,6 +428,29 @@ fn blob_rejects_material_layer_visual_and_mip_invariants() {
         encode_blob(&blend).is_err(),
         "blend and cutout are mutually exclusive"
     );
+}
+
+#[test]
+fn blob_accepts_model_full_face_occluder_without_cube_geometry() {
+    let mut compiled = valid_assets();
+    compiled.visuals[0].flags = BlockFlags::OCCLUDES_FULL_FACE;
+    compiled.visuals[0].kind = VisualKind::Model;
+    compiled.visuals[0].model_template = 0;
+    compiled.model_templates = vec![assets::ModelTemplate {
+        quad_start: 0,
+        quad_count: 1,
+        flags: 0,
+    }]
+    .into_boxed_slice();
+    compiled.model_quads = vec![assets::ModelQuad {
+        positions: [[0; 3]; 4],
+        uvs: [[0; 2]; 4],
+        material: 0,
+        flags: 0,
+    }]
+    .into_boxed_slice();
+
+    assert!(encode_blob(&compiled).is_ok());
 }
 
 #[test]

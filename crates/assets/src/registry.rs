@@ -12,7 +12,7 @@ const MAX_REGISTRY_STATE_BYTES: usize = 1024 * 1024;
 const MAX_COLLISION_BOXES: usize = 7;
 
 bitflags! {
-    /// Legacy Dragonfly geometry facts retained by BREG1003.
+    /// Geometry and full-face occlusion facts retained by BREG1003.
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
     pub struct BlockFlags: u8 {
         const AIR = 1 << 0;
@@ -36,11 +36,9 @@ impl BlockFlags {
     pub const fn has_valid_semantics(self) -> bool {
         let air = self.contains(Self::AIR);
         let cube = self.contains(Self::CUBE_GEOMETRY);
-        let occludes = self.contains(Self::OCCLUDES_FULL_FACE);
         let leaf = self.contains(Self::LEAF_MODEL);
         (!air || self.bits() == Self::AIR.bits())
-            && (!occludes || cube)
-            && (!leaf || (cube && !occludes))
+            && (!leaf || (cube && !self.contains(Self::OCCLUDES_FULL_FACE)))
     }
 }
 
