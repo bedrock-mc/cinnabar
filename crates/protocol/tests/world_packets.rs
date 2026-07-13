@@ -2,18 +2,20 @@ use bytes::{Buf, BytesMut};
 use protocol::{
     BiomeDefinitionEvent, BiomeDefinitionsEvent, DimensionRange, GameData, HASHED_AIR_NETWORK_ID,
     LevelChunkMode, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES, MovePlayerEvent,
-    SEQUENTIAL_AIR_NETWORK_ID, SubChunkResult, WorldBootstrap, WorldEvent, WorldPacketError,
-    air_network_id, into_world_event, request_sub_chunk_column, vanilla_dimension_range,
+    PlayerMovementCorrectionEvent, SEQUENTIAL_AIR_NETWORK_ID, SubChunkResult, WorldBootstrap,
+    WorldEvent, WorldPacketError, air_network_id, into_world_event, request_sub_chunk_column,
+    vanilla_dimension_range,
 };
 use valentine::bedrock::codec::{BedrockCodec, BedrockSized};
 use valentine::bedrock::version::v1_26_30::{
     BiomeDefinition, BiomeDefinitionListPacket, BlockCoordinates, BlockUpdate,
-    BlockUpdateTransitionType, ChangeDimensionPacket, ChunkRadiusUpdatePacket, LevelChunkPacket,
-    McpePacketData, MovePlayerPacket, NetworkChunkPublisherUpdatePacket, StartGamePacketDimension,
-    SubChunkEntryWithCachingItem, SubChunkEntryWithCachingItemResult,
+    BlockUpdateTransitionType, ChangeDimensionPacket, ChunkRadiusUpdatePacket,
+    CorrectPlayerMovePredictionPacket, CorrectPlayerMovePredictionPacketPredictionType,
+    LevelChunkPacket, McpePacketData, MovePlayerPacket, NetworkChunkPublisherUpdatePacket,
+    StartGamePacketDimension, SubChunkEntryWithCachingItem, SubChunkEntryWithCachingItemResult,
     SubChunkEntryWithoutCachingItem, SubChunkEntryWithoutCachingItemResult, SubchunkPacket,
-    SubchunkPacketEntries, UpdateBlockFlags, UpdateBlockPacket, UpdateSubchunkBlocksPacket, Vec3F,
-    Vec3I,
+    SubchunkPacketEntries, UpdateBlockFlags, UpdateBlockPacket, UpdateSubchunkBlocksPacket, Vec2F,
+    Vec3F, Vec3I,
 };
 
 fn biome_definition(name_index: i16, biome_id: i16) -> BiomeDefinition {
@@ -231,6 +233,71 @@ fn normalizes_move_player_to_the_bounded_world_surface() {
             yaw: 271.25,
         }))
     );
+}
+
+#[test]
+fn normalizes_server_authoritative_movement_correction_to_the_local_player_surface() {
+    let packet = CorrectPlayerMovePredictionPacket {
+        position: Vec3F {
+            x: 27.5,
+            y: 111.0,
+            z: 91.5,
+        },
+        delta: Vec3F {
+            x: 0.25,
+            y: -1.5,
+            z: 2.75,
+        },
+        rotation: Vec2F {
+            x: -12.25,
+            z: 143.5,
+        },
+        on_ground: true,
+        tick: 4_096,
+        ..Default::default()
+    };
+
+    assert_eq!(
+        into_world_event(packet.into(), 0).unwrap(),
+        Some(WorldEvent::PlayerMovementCorrection(
+            PlayerMovementCorrectionEvent {
+                position: [27.5, 111.0, 91.5],
+                delta: [0.25, -1.5, 2.75],
+                pitch: -12.25,
+                yaw: 143.5,
+                on_ground: true,
+                tick: 4_096,
+            }
+        ))
+    );
+}
+
+#[test]
+fn rejects_negative_server_authoritative_movement_correction_tick() {
+    let packet = CorrectPlayerMovePredictionPacket {
+        tick: -1,
+        ..Default::default()
+    };
+
+    assert_eq!(
+        into_world_event(packet.into(), 0),
+        Err(WorldPacketError::NegativeMovementCorrectionTick(-1))
+    );
+}
+
+#[test]
+fn vehicle_prediction_correction_does_not_move_the_local_player_camera() {
+    let packet = CorrectPlayerMovePredictionPacket {
+        prediction_type: CorrectPlayerMovePredictionPacketPredictionType::Vehicle,
+        position: Vec3F {
+            x: 300.0,
+            y: 90.0,
+            z: -200.0,
+        },
+        ..Default::default()
+    };
+
+    assert_eq!(into_world_event(packet.into(), 0).unwrap(), None);
 }
 
 #[test]

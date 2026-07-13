@@ -12,8 +12,8 @@ use bevy::prelude::Resource;
 use crossbeam_channel::{Receiver, Sender, bounded};
 use protocol::{
     BiomeDefinitionEvent, BlockUpdateEvent, ChangeDimensionEvent, LevelChunkEvent, LevelChunkMode,
-    MovePlayerEvent, Packet, SubChunkBatchEvent, SubChunkResult, WorldBootstrap, WorldEvent,
-    request_sub_chunk_column, vanilla_dimension_range,
+    MovePlayerEvent, Packet, PlayerMovementCorrectionEvent, SubChunkBatchEvent, SubChunkResult,
+    WorldBootstrap, WorldEvent, request_sub_chunk_column, vanilla_dimension_range,
 };
 use render::{
     BlockClassifier, ChunkBiomeTintIdentity, ChunkMesh, FaceConnectivity, PackedBiomeRecord,
@@ -328,6 +328,11 @@ pub enum CommittedControlEvent {
         movement: MovePlayerEvent,
         resolved: ResolvedServerPosition,
         source_cohort: Option<ViewCohort>,
+    },
+    PlayerMovementCorrection {
+        sequence: u64,
+        correction: PlayerMovementCorrectionEvent,
+        resolved: ResolvedServerPosition,
     },
     ChangeDimension {
         change: ChangeDimensionEvent,
@@ -734,6 +739,7 @@ pub struct WorldStream {
     source_capture_sequence: Option<u64>,
     chunk_radius: Option<i32>,
     resolved_server_position: ResolvedServerPosition,
+    latest_movement_correction_tick: Option<u64>,
     stats: WorldStreamStats,
 }
 
@@ -842,6 +848,7 @@ impl WorldStream {
             source_capture_sequence: None,
             chunk_radius: None,
             resolved_server_position,
+            latest_movement_correction_tick: None,
             stats: WorldStreamStats::default(),
         }
     }
@@ -1978,6 +1985,28 @@ impl WorldStream {
                     source_cohort,
                 });
             }
+            WorldEvent::PlayerMovementCorrection(correction) => {
+                let sequence =
+                    sequence.expect("sequenced movement corrections commit through submit");
+                if self
+                    .latest_movement_correction_tick
+                    .is_some_and(|latest| correction.tick < latest)
+                {
+                    return;
+                }
+                self.latest_movement_correction_tick = Some(correction.tick);
+                let resolved = resolve_server_position(
+                    correction.position,
+                    self.resolved_server_position.position,
+                    self.resolved_server_position.surface_anchor,
+                );
+                self.resolved_server_position = resolved;
+                self.push_committed_control(CommittedControlEvent::PlayerMovementCorrection {
+                    sequence,
+                    correction,
+                    resolved,
+                });
+            }
             WorldEvent::SubChunks(_) => unreachable!("sub-chunk batches are prepared on workers"),
         }
     }
@@ -2885,8 +2914,9 @@ mod tests {
     };
     use protocol::{
         BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockUpdateEvent, ChangeDimensionEvent,
-        LevelChunkEvent, LevelChunkMode, MovePlayerEvent, PublisherUpdateEvent, SubChunkBatchEvent,
-        SubChunkEntryEvent, SubChunkResult, SubChunkUnavailable, WorldBootstrap, WorldEvent,
+        LevelChunkEvent, LevelChunkMode, MovePlayerEvent, PlayerMovementCorrectionEvent,
+        PublisherUpdateEvent, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkResult,
+        SubChunkUnavailable, WorldBootstrap, WorldEvent,
     };
     use render::{BlockClassifier, Neighbourhood, PackedBiomeRecord, mesh_sub_chunk};
     use world::{
@@ -4842,6 +4872,109 @@ mod tests {
                     },
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn movement_correction_commits_in_fifo_without_move_player_capture_metadata() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        let correction = PlayerMovementCorrectionEvent {
+            position: [27.5, 111.0, 91.5],
+            delta: [0.25, -0.5, 0.75],
+            pitch: -12.0,
+            yaw: 143.0,
+            on_ground: true,
+            tick: 4_096,
+        };
+        stream.submit(1, inline_air_event(0)).unwrap();
+        stream
+            .submit(2, WorldEvent::PlayerMovementCorrection(correction))
+            .unwrap();
+
+        assert!(stream.take_committed_controls().is_empty());
+
+        let super::DecodeJob::InlineLevelChunk {
+            mut event,
+            base_sub_chunk_y,
+            count,
+            ..
+        } = stream.pending_decode.pop_front().unwrap()
+        else {
+            panic!("expected inline decode job")
+        };
+        let payload = std::mem::take(&mut event.payload);
+        let decoded = DecodedLevelChunk::decode(base_sub_chunk_y, count, &payload);
+        stream
+            .ordered
+            .insert(
+                1,
+                super::PreparedWorldEvent::InlineLevelChunk {
+                    event,
+                    decoded,
+                    duration: std::time::Duration::ZERO,
+                },
+            )
+            .unwrap();
+        stream.apply_ready();
+
+        assert_eq!(
+            stream.take_committed_controls(),
+            vec![super::CommittedControlEvent::PlayerMovementCorrection {
+                sequence: 2,
+                correction,
+                resolved: crate::server_position::ResolvedServerPosition {
+                    position: correction.position,
+                    surface_anchor: None,
+                },
+            }]
+        );
+    }
+
+    #[test]
+    fn older_movement_correction_tick_cannot_rewind_newer_correction() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        let correction = |tick, position| PlayerMovementCorrectionEvent {
+            position,
+            delta: [0.0; 3],
+            pitch: 0.0,
+            yaw: 0.0,
+            on_ground: true,
+            tick,
+        };
+        let newer = correction(100, [100.0, 80.0, 100.0]);
+        let older = correction(99, [10.0, 70.0, 10.0]);
+
+        stream
+            .submit(1, WorldEvent::PlayerMovementCorrection(newer))
+            .unwrap();
+        stream
+            .submit(2, WorldEvent::PlayerMovementCorrection(older))
+            .unwrap();
+
+        assert_eq!(
+            stream.take_committed_controls(),
+            vec![super::CommittedControlEvent::PlayerMovementCorrection {
+                sequence: 1,
+                correction: newer,
+                resolved: crate::server_position::ResolvedServerPosition {
+                    position: newer.position,
+                    surface_anchor: None,
+                },
+            }]
         );
     }
 

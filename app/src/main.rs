@@ -2860,6 +2860,21 @@ fn apply_committed_control(
             }
             resolved
         }
+        CommittedControlEvent::PlayerMovementCorrection {
+            correction,
+            resolved,
+            ..
+        } => {
+            info!(
+                tick = correction.tick,
+                position = ?correction.position,
+                "applying committed server-authoritative movement correction"
+            );
+            if correction.yaw.is_finite() && correction.pitch.is_finite() {
+                camera.rotation = bedrock_camera_rotation(correction.yaw, correction.pitch);
+            }
+            resolved
+        }
         CommittedControlEvent::ChangeDimension { resolved, .. } => resolved,
     };
     camera.translation = Vec3::from_array(resolved.position);
@@ -3246,8 +3261,8 @@ mod tests {
     use bevy::prelude::{Quat, Transform, Vec3};
     use protocol::{
         BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockUpdateEvent, LevelChunkEvent,
-        LevelChunkMode, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkResult, WorldBootstrap,
-        WorldEvent,
+        LevelChunkMode, PlayerMovementCorrectionEvent, SubChunkBatchEvent, SubChunkEntryEvent,
+        SubChunkResult, WorldBootstrap, WorldEvent,
     };
     use render::{ChunkBiomeTints, PresentedFrameAck, RenderViewCohort, TargetRenderExpectation};
     use std::{
@@ -3259,7 +3274,8 @@ mod tests {
     use crate::metrics::TransparentSortMetricsSnapshot;
     use crate::network::{NetworkControlEvent, SequencedWorldEvent};
     use crate::world_stream::{
-        ForcedRemeshManifest, ForcedRemeshManifestState, ViewCohort, ViewCohortStatus, WorldStream,
+        CommittedControlEvent, ForcedRemeshManifest, ForcedRemeshManifestState, ViewCohort,
+        ViewCohortStatus, WorldStream,
     };
     use crate::{
         AcceptanceExitDecision, AcceptanceRun, FullViewRemeshTracker, FullViewTeleportCompletion,
@@ -3267,12 +3283,12 @@ mod tests {
         NETWORK_INGRESS_BUDGET_PER_FRAME, OUTBOUND_SEND_BUDGET_PER_FRAME, RollingFps,
         SubChunkTimeoutProgress, TRANSPARENT_PRESENTATION_EXIT_GRACE, TeleportReadySnapshot,
         WORLD_READY_QUIET_INTERVAL, WorldReadySettler, WorldReadySnapshot, WorldReadyWork,
-        accepted_move_player_ingress_marker, bedrock_camera_rotation, camera_sub_chunk_key,
-        cumulative_counter_delta, deterministic_mutation_coordinate, drain_network_controls,
-        drain_network_ingress, flush_sub_chunk_requests, leaf_forest_target_mutation_coordinate,
-        record_fatal_error, resolve_socket_dir_from, startup_biome_tints, status_title,
-        synchronize_biome_tints, target_mutation_armed_marker, teleport_proof,
-        transparent_sort_committed_marker, world_ready_markers,
+        accepted_move_player_ingress_marker, apply_committed_control, bedrock_camera_rotation,
+        camera_sub_chunk_key, cumulative_counter_delta, deterministic_mutation_coordinate,
+        drain_network_controls, drain_network_ingress, flush_sub_chunk_requests,
+        leaf_forest_target_mutation_coordinate, record_fatal_error, resolve_socket_dir_from,
+        startup_biome_tints, status_title, synchronize_biome_tints, target_mutation_armed_marker,
+        teleport_proof, transparent_sort_committed_marker, world_ready_markers,
         write_move_player_ingress_before_source_capture, write_stdout_marker,
     };
 
@@ -4140,6 +4156,41 @@ mod tests {
             tracker.pending.as_ref().map(|pending| pending.source),
             Some(SOURCE_COHORT)
         );
+    }
+
+    #[test]
+    fn movement_correction_never_arms_full_view_teleport_tracking() {
+        let started = Instant::now();
+        let correction = protocol::PlayerMovementCorrectionEvent {
+            position: [1_040.5, 70.0, 1_040.5],
+            delta: [0.0; 3],
+            pitch: 0.0,
+            yaw: 0.0,
+            on_ground: true,
+            tick: 55,
+        };
+        let mut tracker = FullViewTeleportTracker::new(true);
+        tracker.set_source_mutation_coordinate([0, 58, 0]);
+        tracker.begin_world_ready([0.5, 70.0, 0.5], 1);
+
+        assert!(!tracker.observe_ingress(
+            &WorldEvent::PlayerMovementCorrection(correction),
+            1,
+            started,
+            0,
+            10,
+        ));
+        assert!(!tracker.observe_committed_control(
+            &CommittedControlEvent::PlayerMovementCorrection {
+                sequence: 1,
+                correction,
+                resolved: crate::server_position::ResolvedServerPosition {
+                    position: correction.position,
+                    surface_anchor: None,
+                },
+            }
+        ));
+        assert!(tracker.pending.is_none());
     }
 
     #[test]
@@ -6013,6 +6064,40 @@ mod tests {
         assert!(south.abs_diff_eq(Vec3::Z, 0.0001));
         assert!(west.abs_diff_eq(Vec3::NEG_X, 0.0001));
         assert!(looking_down.y < -0.7);
+    }
+
+    #[test]
+    fn committed_movement_correction_updates_local_camera_position_and_rotation() {
+        let correction = PlayerMovementCorrectionEvent {
+            position: [27.5, 111.0, 91.5],
+            delta: [0.25, -0.5, 0.75],
+            pitch: -15.0,
+            yaw: 90.0,
+            on_ground: true,
+            tick: 55,
+        };
+        let mut camera = Transform::default();
+        let mut pending_surface_spawn = Some([3, 4]);
+
+        apply_committed_control(
+            CommittedControlEvent::PlayerMovementCorrection {
+                sequence: 7,
+                correction,
+                resolved: crate::server_position::ResolvedServerPosition {
+                    position: correction.position,
+                    surface_anchor: None,
+                },
+            },
+            &mut camera,
+            &mut pending_surface_spawn,
+        );
+
+        assert_eq!(camera.translation, Vec3::new(27.5, 111.0, 91.5));
+        assert!(camera.rotation.abs_diff_eq(
+            bedrock_camera_rotation(correction.yaw, correction.pitch),
+            0.0001
+        ));
+        assert_eq!(pending_surface_spawn, None);
     }
 
     #[test]

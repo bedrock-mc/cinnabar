@@ -605,7 +605,10 @@ mod tests {
         time::{Duration, Instant},
     };
 
-    use protocol::{ChangeDimensionEvent, MovePlayerEvent, WorldBootstrap, WorldEvent};
+    use protocol::{
+        ChangeDimensionEvent, MovePlayerEvent, PlayerMovementCorrectionEvent, WorldBootstrap,
+        WorldEvent,
+    };
     use tokio::sync::{mpsc, oneshot, watch};
 
     use super::{
@@ -678,6 +681,21 @@ mod tests {
 
         assert!(sequencer.should_forward(&movement(42)));
         assert!(!sequencer.should_forward(&movement(7)));
+    }
+
+    #[test]
+    fn server_authoritative_correction_bypasses_foreign_player_runtime_filter() {
+        let sequencer = NetworkSequencer::new(0, 42);
+        let correction = WorldEvent::PlayerMovementCorrection(PlayerMovementCorrectionEvent {
+            position: [27.5, 111.0, 91.5],
+            delta: [0.0; 3],
+            pitch: -15.0,
+            yaw: 90.0,
+            on_ground: true,
+            tick: 55,
+        });
+
+        assert!(sequencer.should_forward(&correction));
     }
 
     #[tokio::test]

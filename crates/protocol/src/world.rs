@@ -3,8 +3,9 @@ use std::sync::Arc;
 use jolyne::GameData;
 use thiserror::Error;
 use valentine::bedrock::version::v1_26_30::{
-    McpePacketData, StartGamePacketDimension, SubChunkEntryWithoutCachingItemResult,
-    SubchunkPacketEntries, SubchunkRequestPacket, Vec3I8, Vec3Li,
+    CorrectPlayerMovePredictionPacketPredictionType, McpePacketData, StartGamePacketDimension,
+    SubChunkEntryWithoutCachingItemResult, SubchunkPacketEntries, SubchunkRequestPacket, Vec3I8,
+    Vec3Li,
 };
 
 use crate::Packet;
@@ -182,6 +183,20 @@ pub struct MovePlayerEvent {
     pub yaw: f32,
 }
 
+/// One server-authoritative correction for the local player's predicted movement.
+///
+/// Unlike [`MovePlayerEvent`], this packet carries no runtime ID: Bedrock sends it
+/// directly to the player whose prediction is being corrected.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PlayerMovementCorrectionEvent {
+    pub position: [f32; 3],
+    pub delta: [f32; 3],
+    pub pitch: f32,
+    pub yaw: f32,
+    pub on_ground: bool,
+    pub tick: u64,
+}
+
 /// One live biome definition reduced to the fields required by tint lookup.
 ///
 /// `biome_id` preserves the unsigned wire value except that `0xffff` is the
@@ -218,6 +233,7 @@ pub enum WorldEvent {
     PublisherUpdate(PublisherUpdateEvent),
     ChangeDimension(ChangeDimensionEvent),
     MovePlayer(MovePlayerEvent),
+    PlayerMovementCorrection(PlayerMovementCorrectionEvent),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -261,6 +277,9 @@ pub enum WorldPacketError {
 
     #[error("publisher radius {0} is not a valid unsigned block radius")]
     InvalidPublisherRadius(i32),
+
+    #[error("server-authoritative movement correction tick {0} is negative")]
+    NegativeMovementCorrectionTick(i64),
 
     #[error("SubChunkRequest has {count} offsets, exceeding {max}")]
     TooManySubChunkRequests { count: usize, max: usize },
@@ -450,6 +469,21 @@ pub fn into_world_event(
             pitch: packet.pitch,
             yaw: packet.yaw,
         }),
+        McpePacketData::PacketCorrectPlayerMovePrediction(packet) => {
+            if packet.prediction_type != CorrectPlayerMovePredictionPacketPredictionType::Player {
+                return Ok(None);
+            }
+            let tick = u64::try_from(packet.tick)
+                .map_err(|_| WorldPacketError::NegativeMovementCorrectionTick(packet.tick))?;
+            WorldEvent::PlayerMovementCorrection(PlayerMovementCorrectionEvent {
+                position: [packet.position.x, packet.position.y, packet.position.z],
+                delta: [packet.delta.x, packet.delta.y, packet.delta.z],
+                pitch: packet.rotation.x,
+                yaw: packet.rotation.z,
+                on_ground: packet.on_ground,
+                tick,
+            })
+        }
         _ => return Ok(None),
     };
     Ok(Some(event))

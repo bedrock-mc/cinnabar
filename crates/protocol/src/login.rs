@@ -142,6 +142,7 @@ fn decode_world_raw_with(
             | McpePacketName::PacketNetworkChunkPublisherUpdate
             | McpePacketName::PacketChangeDimension
             | McpePacketName::PacketMovePlayer
+            | McpePacketName::PacketCorrectPlayerMovePrediction
     ) {
         return Ok(None);
     }
@@ -157,8 +158,9 @@ mod tests {
     use jolyne::raw::decode_packet_raw;
     use valentine::bedrock::context::BedrockSession;
     use valentine::bedrock::version::v1_26_30::{
-        BiomeDefinition, BiomeDefinitionListPacket, BlockCoordinates, McpePacketName,
-        MovePlayerPacket, UpdateBlockPacket, Vec3F,
+        BiomeDefinition, BiomeDefinitionListPacket, BlockCoordinates,
+        CorrectPlayerMovePredictionPacket, McpePacketName, MovePlayerPacket, UpdateBlockPacket,
+        Vec2F, Vec3F,
     };
     use valentine::protocol::wire;
 
@@ -251,6 +253,52 @@ mod tests {
                 position: [1.25, 70.5, -8.75],
                 pitch: 15.0,
                 yaw: -120.25,
+            })
+        );
+    }
+
+    #[test]
+    fn allowlisted_movement_correction_is_materialized_and_normalized() {
+        let session = BedrockSession { shield_item_id: 0 };
+        let packet: Packet = CorrectPlayerMovePredictionPacket {
+            position: Vec3F {
+                x: 27.5,
+                y: 111.0,
+                z: 91.5,
+            },
+            delta: Vec3F {
+                x: 0.5,
+                y: -0.25,
+                z: 1.0,
+            },
+            rotation: Vec2F { x: -15.0, z: 90.25 },
+            on_ground: true,
+            tick: 55,
+            ..Default::default()
+        }
+        .into();
+        let mut batch = crate::encode(&packet, &session).expect("encode movement correction");
+        batch.advance(1);
+        let raw = decode_packet_raw(&mut batch).expect("raw movement correction");
+        let decoder_called = Cell::new(false);
+
+        let event = decode_world_raw_with(raw, 0, |raw| {
+            decoder_called.set(true);
+            raw.decode(&session)
+        })
+        .expect("decode movement correction")
+        .expect("movement correction event");
+
+        assert!(decoder_called.get());
+        assert_eq!(
+            event,
+            WorldEvent::PlayerMovementCorrection(crate::PlayerMovementCorrectionEvent {
+                position: [27.5, 111.0, 91.5],
+                delta: [0.5, -0.25, 1.0],
+                pitch: -15.0,
+                yaw: 90.25,
+                on_ground: true,
+                tick: 55,
             })
         );
     }
