@@ -3910,8 +3910,10 @@ dependencies = [
  "assets",
  "bevy",
  "bytemuck",
+ "image",
  "naga",
  "rayon",
+ "tempfile",
  "world",
 ]
 

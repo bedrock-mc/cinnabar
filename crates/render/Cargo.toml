@@ -25,4 +25,6 @@ rayon.workspace = true
 world = { path = "../world" }
 
 [dev-dependencies]
+image = { version = "0.25", default-features = false, features = ["png"] }
 naga = { version = "27.0.3", features = ["wgsl-in"] }
+tempfile = "3"

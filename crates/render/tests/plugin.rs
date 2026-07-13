@@ -1,5 +1,7 @@
 use std::{
+    fs,
     mem::size_of,
+    path::Path,
     sync::{Arc, OnceLock},
     time::{Duration, Instant},
 };
@@ -7,13 +9,14 @@ use std::{
 use assets::{
     ANIMATION_FLAG_BLEND, Animation, BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets,
     DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_CUTOUT, MODEL_QUAD_FLAG_TWO_SIDED, Material,
-    ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets,
-    TextureArray, TextureMip, TexturePage, TextureRef, VisualKind, encode_blob,
+    ModelStateField, NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TextureArray,
+    TextureMip, TexturePage, TextureRef, VisualKind, compile_pack, encode_blob, read_registry,
 };
 use bevy::{
     camera::primitives::Aabb,
     prelude::{App, Mat4, MinimalPlugins, Quat, Vec3, Visibility},
 };
+use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 use render::{
     AnimationFrameSample, BlockClassifier, ChunkAnimationClock, ChunkRenderInstance,
     ChunkRenderQueue, ChunkRenderQueueLimits, ChunkTextureAssetIdentity, ChunkUploadPriority,
@@ -25,8 +28,7 @@ use render::{
     TransparentOrderedSnapshot, TransparentSortCandidate, TransparentSortError,
     TransparentSortJobGate, TransparentSortMetrics, TransparentSortMetricsSnapshot,
     TransparentSortResult, TransparentSortState, ViewSortGeneration, ViewSortKey,
-    diagnostic_texture_page, direct_model_draw_args_for_test,
-    direct_transparent_draw_args_for_test, greedy_texture_uv, mdi_model_draw_args_for_test,
+    diagnostic_texture_page, direct_transparent_draw_args_for_test, greedy_texture_uv,
     mdi_transparent_draw_args_for_test, mesh_sub_chunk, plan_texture_mip_uploads,
     plan_texture_page_bindings, select_animation_frames, sort_transparent_candidates_for_test,
     texture_asset_needs_rebuild,
@@ -34,7 +36,6 @@ use render::{
 use world::{DecodedBiomeColumn, SubChunk, SubChunkKey};
 
 const AIR: u32 = 12_530;
-const FLOWERBED: u32 = 14;
 
 #[test]
 fn chunk_sampler_source_contract_is_crisp_for_magnification_and_filtered_for_mips() {
@@ -604,22 +605,68 @@ fn crossed_model_direct_and_mdi_commands_have_identical_output_addressing() {
 
 #[test]
 fn flowerbed_uses_packed_model_lighting_and_conservative_connectivity() {
-    let sub_chunk = sparse_sub_chunk(FLOWERBED, [8, 8, 8]);
+    let assets = flowerbed_runtime_assets();
+    let sub_chunk = flowerbed_sub_chunk(&[([4, 8, 8], 0), ([8, 8, 8], 1), ([12, 8, 8], 2)]);
     let mesh = mesh_sub_chunk(
         &BlockClassifier::new(AIR),
-        runtime_assets(),
+        assets,
         NetworkIdMode::Sequential,
         &Neighbourhood::empty(),
         &sub_chunk,
     );
 
     assert!(mesh.cube_quads().is_empty());
-    assert_eq!(mesh.model_refs().len(), 1);
+    assert_eq!(mesh.model_refs().len(), 3);
+    let growth_zero = assets
+        .resolve(NetworkIdMode::Sequential, 0)
+        .model_template()
+        .unwrap();
+    let growth_three = assets
+        .resolve(NetworkIdMode::Sequential, 1)
+        .model_template()
+        .unwrap();
+    let growth_seven = assets
+        .resolve(NetworkIdMode::Sequential, 2)
+        .model_template()
+        .unwrap();
+    assert_ne!(growth_zero, growth_three);
     assert_eq!(
-        mesh.model_refs()[0].words(),
-        [8 | (8 << 4) | (8 << 8), 0, 0, 0b1111]
+        growth_three, growth_seven,
+        "growth 7 aliases the measured full layout"
     );
-    assert_eq!(mesh.model_lighting().len(), 4);
+    let zero_quads = assets.model_templates()[growth_zero as usize].quad_count;
+    let full_quads = assets.model_templates()[growth_three as usize].quad_count;
+    assert!(zero_quads < full_quads);
+    assert_eq!(
+        mesh.model_refs()
+            .iter()
+            .map(|packed| packed.words())
+            .collect::<Vec<_>>(),
+        vec![
+            [
+                4 | (8 << 4) | (8 << 8),
+                growth_zero,
+                0,
+                (1 << zero_quads) - 1
+            ],
+            [
+                8 | (8 << 4) | (8 << 8),
+                growth_three,
+                zero_quads,
+                (1 << full_quads) - 1
+            ],
+            [
+                12 | (8 << 4) | (8 << 8),
+                growth_seven,
+                zero_quads + full_quads,
+                (1 << full_quads) - 1
+            ],
+        ]
+    );
+    assert_eq!(
+        mesh.model_lighting().len(),
+        (zero_quads + full_quads * 2) as usize
+    );
     assert!(
         mesh.connectivity().is_all_connected(),
         "a flowerbed is non-occluding and must conservatively preserve every cave-visibility path"
@@ -628,68 +675,120 @@ fn flowerbed_uses_packed_model_lighting_and_conservative_connectivity() {
 
 #[test]
 fn flowerbed_is_two_sided_alpha_cutout_on_the_shared_model_pipeline() {
-    let assets = runtime_assets();
-    let template = assets.model_templates()[0];
-    let quads = &assets.model_quads()
-        [template.quad_start as usize..(template.quad_start + template.quad_count) as usize];
-    assert_eq!(quads.len(), 4);
-    assert!(
-        quads
-            .iter()
-            .all(|quad| quad.flags & MODEL_QUAD_FLAG_TWO_SIDED != 0)
-    );
-    assert!(
-        quads
-            .iter()
-            .all(|quad| { assets.material(quad.material).flags & MATERIAL_FLAG_ALPHA_CUTOUT != 0 })
-    );
+    let assets = flowerbed_runtime_assets();
+    for runtime_id in 0..3 {
+        let template_id = assets
+            .resolve(NetworkIdMode::Sequential, runtime_id)
+            .model_template()
+            .expect("compiled FlowerBed visual");
+        let template = assets.model_templates()[template_id as usize];
+        let quads = &assets.model_quads()
+            [template.quad_start as usize..(template.quad_start + template.quad_count) as usize];
+        assert!(!quads.is_empty());
+        assert!(
+            quads
+                .iter()
+                .all(|quad| quad.flags & MODEL_QUAD_FLAG_TWO_SIDED != 0)
+        );
+        assert!(quads.iter().all(|quad| {
+            assets.material(quad.material).flags & MATERIAL_FLAG_ALPHA_CUTOUT != 0
+        }));
+    }
 
     let plugin = include_str!("../src/plugin.rs");
     let shader = include_str!("../src/model.wgsl");
-    assert_eq!(plugin.matches("\"packed model pipeline\"").count(), 1);
     assert!(plugin.contains("model_descriptor.primitive.cull_mode = None"));
     assert!(shader.contains("sampled.a < 0.5"));
 }
 
 #[test]
-fn flowerbed_direct_and_mdi_draws_address_the_same_packed_records() {
-    let direct = direct_model_draw_args_for_test(20..24, 32..36, 3)
-        .expect("one packed flowerbed reference has a direct draw");
-    let mdi = mdi_model_draw_args_for_test(20..24, 32..36, 3)
-        .expect("one packed flowerbed reference has an MDI draw");
-    assert_eq!(direct, mdi);
-    assert_eq!(direct.index_count, 32 * 6);
-    assert_eq!(direct.instance_count, 1);
-    assert_eq!(direct.first_instance, 5);
-    assert_eq!(direct.base_vertex, 3 * 32 * 4);
-}
-
-#[test]
 fn flowerbed_adds_no_renderer_object_or_binding_per_block_or_subchunk() {
-    let plugin = include_str!("../src/plugin.rs");
-    assert!(!plugin.contains("Handle<Mesh>"));
-    assert!(!plugin.contains("Handle<StandardMaterial>"));
-    assert_eq!(
-        plugin.matches("render_device.create_bind_group(").count(),
-        1
-    );
-    assert_eq!(
-        plugin.matches("\"shared packed chunk bind group\"").count(),
-        1
-    );
-    assert_eq!(plugin.matches("model_variants.specialize(").count(), 1);
-    assert!(!plugin.contains("FlowerBed"));
-
+    let assets = flowerbed_runtime_assets();
+    let placements = (0..8)
+        .flat_map(|x| (0..8).map(move |z| ([x, 8, z], ((x + z) % 3) as usize)))
+        .collect::<Vec<_>>();
     let mesh = mesh_sub_chunk(
         &BlockClassifier::new(AIR),
-        runtime_assets(),
+        assets,
         NetworkIdMode::Sequential,
         &Neighbourhood::empty(),
-        &sparse_sub_chunk(FLOWERBED, [8, 8, 8]),
+        &flowerbed_sub_chunk(&placements),
     );
+    let expected_lighting = placements
+        .iter()
+        .map(|(_, runtime_id)| {
+            let template = assets
+                .resolve(NetworkIdMode::Sequential, *runtime_id as u32)
+                .model_template()
+                .unwrap();
+            assets.model_templates()[template as usize].quad_count as usize
+        })
+        .sum::<usize>();
+    assert_eq!(mesh.model_refs().len(), placements.len());
+    assert_eq!(mesh.model_lighting().len(), expected_lighting);
+    assert_eq!(
+        size_of_val(mesh.model_refs()) + size_of_val(mesh.model_lighting()),
+        mesh.model_refs().len() * 16 + expected_lighting * 8
+    );
+
+    let one_mesh = mesh_sub_chunk(
+        &BlockClassifier::new(AIR),
+        assets,
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &flowerbed_sub_chunk(&[([0, 8, 0], 0)]),
+    );
+    let (one_entity_delta, one_instances) = flowerbed_render_entity_counts(one_mesh);
+    let (many_entity_delta, many_instances) = flowerbed_render_entity_counts(mesh);
+    assert_eq!(one_instances, 1);
+    assert_eq!(many_instances, 1);
+    assert_eq!(
+        many_entity_delta, one_entity_delta,
+        "64 FlowerBeds must not add per-block ECS entities or renderer objects"
+    );
+
+    let plugin = include_str!("../src/plugin.rs");
+    for structure in ["ChunkRenderInstance", "GpuChunkAllocation"] {
+        let body = rust_struct_body(plugin, structure);
+        for forbidden in ["Mesh", "Material", "BindGroup", "Pipeline"] {
+            assert!(
+                !body.contains(forbidden),
+                "{structure} must not own a per-subchunk {forbidden}"
+            );
+        }
+    }
+}
+
+fn rust_struct_body<'a>(source: &'a str, name: &str) -> &'a str {
+    let marker = format!("struct {name} ");
+    let declaration = source
+        .find(&marker)
+        .unwrap_or_else(|| panic!("missing {name} declaration"));
+    let open = declaration
+        + source[declaration..]
+            .find('{')
+            .unwrap_or_else(|| panic!("missing {name} body"));
+    let mut depth = 0_u32;
+    for (offset, byte) in source.as_bytes()[open..].iter().copied().enumerate() {
+        match byte {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return &source[open + 1..open + offset];
+                }
+            }
+            _ => {}
+        }
+    }
+    panic!("unterminated {name} body")
+}
+
+fn flowerbed_render_entity_counts(mesh: render::ChunkMesh) -> (u32, usize) {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .add_plugins(DebugWorldPlugin::new(1));
+    let entity_count_before = app.world().entities().len();
     app.world_mut()
         .resource_mut::<ChunkRenderQueue>()
         .try_insert(
@@ -699,14 +798,15 @@ fn flowerbed_adds_no_renderer_object_or_binding_per_block_or_subchunk() {
         )
         .unwrap();
     app.update();
-    assert_eq!(
-        app.world_mut()
-            .query::<&ChunkRenderInstance>()
-            .iter(app.world())
-            .count(),
-        1,
-        "one subchunk owns one shared packed render instance regardless of flowerbed count"
-    );
+    let instance_count = app
+        .world_mut()
+        .query::<&ChunkRenderInstance>()
+        .iter(app.world())
+        .count();
+    (
+        app.world().entities().len() - entity_count_before,
+        instance_count,
+    )
 }
 
 #[test]
@@ -819,7 +919,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
                 animation: NO_ANIMATION,
                 variant: 0,
             };
-            15
+            14
         ];
         for material_id in 1..14_u32 {
             visuals[material_id as usize] = BlockVisual {
@@ -832,15 +932,6 @@ fn runtime_assets() -> &'static RuntimeAssets {
                 variant: 0,
             };
         }
-        visuals[FLOWERBED as usize] = BlockVisual {
-            faces: [1; 6],
-            flags: BlockFlags::empty(),
-            kind: VisualKind::Model,
-            contributor_role: assets::ContributorRole::Primary,
-            model_template: 0,
-            animation: NO_ANIMATION,
-            variant: 0,
-        };
         let compiled = CompiledAssets {
             visuals: visuals.into_boxed_slice(),
             hashed: Box::new([]),
@@ -850,33 +941,11 @@ fn runtime_assets() -> &'static RuntimeAssets {
                     flags: 0,
                     animation: NO_ANIMATION
                 };
-                15
+                14
             ]
-            .into_iter()
-            .enumerate()
-            .map(|(index, mut material)| {
-                if matches!(index, 1 | 2) {
-                    material.flags = MATERIAL_FLAG_ALPHA_CUTOUT;
-                }
-                material
-            })
-            .collect::<Vec<_>>()
             .into_boxed_slice(),
-            model_templates: vec![ModelTemplate {
-                quad_start: 0,
-                quad_count: 4,
-                flags: 0,
-            }]
-            .into_boxed_slice(),
-            model_quads: (0..4)
-                .map(|index| ModelQuad {
-                    positions: [[0, 0, 0], [256, 0, 256], [256, 63, 256], [0, 63, 0]],
-                    uvs: [[0, 4096], [4096, 4096], [4096, 0], [0, 0]],
-                    material: 1 + index % 2,
-                    flags: MODEL_QUAD_FLAG_TWO_SIDED,
-                })
-                .collect::<Vec<_>>()
-                .into_boxed_slice(),
+            model_templates: Box::new([]),
+            model_quads: Box::new([]),
             animations: Box::new([]),
             animation_frames: Box::new([]),
             texture_pages: vec![TexturePage::new(TextureArray {
@@ -914,19 +983,94 @@ fn zig_zag_i32(value: i32) -> Vec<u8> {
     }
 }
 
-fn sparse_sub_chunk(runtime_id: u32, [x, y, z]: [u8; 3]) -> SubChunk {
-    let mut words = vec![0_u32; 128];
-    let linear = (usize::from(x) << 8) | (usize::from(z) << 4) | usize::from(y);
-    words[linear / 32] |= 1 << (linear % 32);
+fn write_flowerbed_pack(root: &Path) {
+    fs::create_dir_all(root.join("textures/blocks")).expect("create FlowerBed fixture tree");
+    fs::write(
+        root.join("blocks.json"),
+        r#"{"wildflowers":{"textures":"wildflowers"}}"#,
+    )
+    .expect("write FlowerBed blocks routing");
+    fs::write(
+        root.join("textures/terrain_texture.json"),
+        r#"{"texture_data":{"wildflowers":{"textures":["textures/blocks/wildflowers","textures/blocks/wildflowers_stem"]}}}"#,
+    )
+    .expect("write FlowerBed terrain routing");
+    fs::write(root.join("textures/flipbook_textures.json"), "[]")
+        .expect("write empty flipbook inventory");
 
-    let mut encoded = vec![9, 1, 0, 3];
+    for (index, name) in ["wildflowers", "wildflowers_stem"].into_iter().enumerate() {
+        let mut rgba = vec![0_u8; 16 * 16 * 4];
+        for (pixel_index, pixel) in rgba.chunks_exact_mut(4).enumerate() {
+            pixel.copy_from_slice(&[
+                20 + index as u8,
+                80 + (pixel_index % 16) as u8,
+                140,
+                if pixel_index % 3 == 0 { 0 } else { 255 },
+            ]);
+        }
+        let mut png = Vec::new();
+        PngEncoder::new(&mut png)
+            .write_image(&rgba, 16, 16, ExtendedColorType::Rgba8)
+            .expect("encode FlowerBed fixture PNG");
+        fs::write(root.join(format!("textures/blocks/{name}.png")), png)
+            .expect("write FlowerBed fixture PNG");
+    }
+}
+
+fn flowerbed_runtime_assets() -> &'static RuntimeAssets {
+    static ASSETS: OnceLock<RuntimeAssets> = OnceLock::new();
+    ASSETS.get_or_init(|| {
+        let directory = tempfile::tempdir().expect("create FlowerBed render fixture");
+        write_flowerbed_pack(directory.path());
+        let generated = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
+            .expect("decode committed FlowerBed registry");
+        let records = [0_u32, 3, 7]
+            .into_iter()
+            .enumerate()
+            .map(|(sequential_id, growth)| {
+                let mut record = generated
+                    .iter()
+                    .find(|record| {
+                        record.name.as_ref() == "minecraft:wildflowers"
+                            && record.model_state.get(ModelStateField::Growth) == Some(growth)
+                            && record.model_state.get(ModelStateField::Orientation) == Some(2)
+                    })
+                    .unwrap_or_else(|| panic!("missing generated growth={growth} FlowerBed record"))
+                    .clone();
+                record.sequential_id = sequential_id as u32;
+                record.network_hash = 50_000 + sequential_id as u32;
+                record
+            })
+            .collect::<Vec<_>>();
+        let compiled = compile_pack(directory.path(), &records)
+            .expect("compile real FlowerBed render fixture through assets");
+        let blob = encode_blob(&compiled).expect("encode compiled FlowerBed render fixture");
+        RuntimeAssets::decode(&blob).expect("decode compiled FlowerBed render fixture")
+    })
+}
+
+fn flowerbed_sub_chunk(placements: &[([u8; 3], usize)]) -> SubChunk {
+    let bits_per_index = 2_usize;
+    let values_per_word = 32 / bits_per_index;
+    let mut words = vec![0_u32; 4096_usize.div_ceil(values_per_word)];
+    for &([x, y, z], runtime_id) in placements {
+        assert!(x < 16 && y < 16 && z < 16);
+        assert!(runtime_id < 3);
+        let linear = (usize::from(x) << 8) | (usize::from(z) << 4) | usize::from(y);
+        let shift = (linear % values_per_word) * bits_per_index;
+        words[linear / values_per_word] |= (runtime_id as u32 + 1) << shift;
+    }
+
+    let mut encoded = vec![9, 1, 0, 5];
     for word in words {
         encoded.extend_from_slice(&word.to_le_bytes());
     }
-    encoded.extend(zig_zag_i32(2));
+    encoded.extend(zig_zag_i32(4));
     encoded.extend(zig_zag_i32(AIR as i32));
-    encoded.extend(zig_zag_i32(runtime_id as i32));
-    SubChunk::decode(&encoded).expect("sparse flowerbed subchunk")
+    encoded.extend(zig_zag_i32(0));
+    encoded.extend(zig_zag_i32(1));
+    encoded.extend(zig_zag_i32(2));
+    SubChunk::decode(&encoded).expect("decode packed FlowerBed subchunk")
 }
 
 #[test]
@@ -1479,7 +1623,7 @@ fn mip_upload_plan_preserves_exact_layer_offsets_and_row_padding() {
             (4, 1, 256, 1, &[0][..], &[0][..], 256),
         ]
     );
-    assert_eq!(runtime_assets().materials().len(), 15);
+    assert_eq!(runtime_assets().materials().len(), 14);
 
     let two_layers = TextureArray {
         layers: 2,

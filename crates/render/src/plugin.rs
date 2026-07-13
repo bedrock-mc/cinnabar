@@ -3883,61 +3883,6 @@ fn model_mdi_draw_command(allocation: &GpuChunkAllocation) -> Option<DrawIndexed
     model_draw_command(allocation, mdi_stream_addresses(allocation))
 }
 
-fn model_draw_args_for_test(
-    model_range: Range<u32>,
-    model_lighting_range: Range<u32>,
-    metadata_index: u32,
-    command: fn(&GpuChunkAllocation) -> Option<DrawIndexedIndirectArgs>,
-) -> Option<TransparentDrawArgs> {
-    let allocation = GpuChunkAllocation {
-        key: SubChunkKey::new(0, 0, 0, 0),
-        generation: 0,
-        tint_identity: ChunkBiomeTintIdentity::default(),
-        quad_range: 0..0,
-        model_range: Some(model_range),
-        model_lighting_range: Some(model_lighting_range),
-        liquid_range: None,
-        liquid_lighting_range: None,
-        metadata_index,
-    };
-    let args = command(&allocation)?;
-    Some(TransparentDrawArgs {
-        index_count: args.index_count,
-        instance_count: args.instance_count,
-        first_index: args.first_index,
-        base_vertex: args.base_vertex,
-        first_instance: args.first_instance,
-    })
-}
-
-#[doc(hidden)]
-pub fn direct_model_draw_args_for_test(
-    model_range: Range<u32>,
-    model_lighting_range: Range<u32>,
-    metadata_index: u32,
-) -> Option<TransparentDrawArgs> {
-    model_draw_args_for_test(
-        model_range,
-        model_lighting_range,
-        metadata_index,
-        model_direct_draw_command,
-    )
-}
-
-#[doc(hidden)]
-pub fn mdi_model_draw_args_for_test(
-    model_range: Range<u32>,
-    model_lighting_range: Range<u32>,
-    metadata_index: u32,
-) -> Option<TransparentDrawArgs> {
-    model_draw_args_for_test(
-        model_range,
-        model_lighting_range,
-        metadata_index,
-        model_mdi_draw_command,
-    )
-}
-
 fn metadata_base_vertex(metadata_index: u32) -> Option<i32> {
     metadata_index
         .checked_mul(4)
@@ -7991,38 +7936,77 @@ mod tests {
     }
 
     #[test]
-    fn direct_and_mdi_address_identical_streams() {
-        let allocation = GpuChunkAllocation {
-            key: SubChunkKey::new(0, 0, 0, 0),
-            generation: 1,
-            tint_identity: ChunkBiomeTintIdentity::default(),
-            quad_range: 2..5,
-            model_range: Some(7..11),
-            model_lighting_range: Some(13..17),
-            liquid_range: Some(19..23),
-            liquid_lighting_range: Some(29..33),
-            metadata_index: 3,
+    fn realizable_packed_model_upload_addresses_are_identical_for_direct_and_mdi() {
+        let model_quad_counts = [2_u32, 12, 20];
+        let required = GeometryStreamCounts {
+            model: model_quad_counts.len() as u32,
+            model_lighting: model_quad_counts.iter().sum(),
+            ..Default::default()
         };
-
-        assert_eq!(
-            direct_stream_addresses(&allocation),
-            mdi_stream_addresses(&allocation)
-        );
-    }
-
-    #[test]
-    fn crossed_model_direct_and_mdi_commands_are_identical() {
+        let plan = plan_chunk_range_update(
+            0,
+            &[],
+            0,
+            &[],
+            FALLBACK_BIOME_WORDS,
+            &[],
+            required,
+            0,
+            None,
+            false,
+            ArenaLimits {
+                max_quad_items: 0,
+                max_geometry_stream_words: 128,
+                max_origin_items: 1,
+                max_biome_words: FALLBACK_BIOME_WORDS,
+            },
+        )
+        .expect("three packed model refs and all lighting sidecars fit");
+        let model_range = checked_geometry_range(plan.model_start, required.model * 4).unwrap();
+        let model_lighting_range =
+            checked_geometry_range(plan.model_lighting_start, required.model_lighting * 2).unwrap();
         let allocation = GpuChunkAllocation {
             key: SubChunkKey::new(0, 0, 0, 0),
             generation: 1,
             tint_identity: ChunkBiomeTintIdentity::default(),
             quad_range: 0..0,
-            model_range: Some(20..32),
-            model_lighting_range: Some(32..44),
+            model_range: Some(model_range.clone()),
+            model_lighting_range: Some(model_lighting_range.clone()),
             liquid_range: None,
             liquid_lighting_range: None,
             metadata_index: 3,
         };
+
+        let direct_addresses = direct_stream_addresses(&allocation);
+        let mdi_addresses = mdi_stream_addresses(&allocation);
+        assert_eq!(direct_addresses, mdi_addresses);
+        assert_eq!(direct_addresses.model, Some(model_range.clone()));
+        assert_eq!(
+            direct_addresses.model_lighting,
+            Some(model_lighting_range.clone())
+        );
+
+        let mut refs = Vec::new();
+        let mut relative_lighting_base = 0;
+        for (template, quad_count) in model_quad_counts.into_iter().enumerate() {
+            refs.push([0x888, template as u32, relative_lighting_base, u32::MAX]);
+            relative_lighting_base += quad_count;
+        }
+        absolutize_model_lighting_bases(&mut refs, plan.model_lighting_start);
+        let lighting_record_range = model_lighting_range.start / 2..model_lighting_range.end / 2;
+        assert_eq!(
+            refs.iter().map(|words| words[2]).collect::<Vec<_>>(),
+            vec![
+                lighting_record_range.start,
+                lighting_record_range.start + 2,
+                lighting_record_range.start + 14,
+            ]
+        );
+        assert!(
+            refs.iter()
+                .all(|words| lighting_record_range.contains(&words[2]))
+        );
+
         let direct = model_direct_draw_command(&allocation).expect("direct model draw");
         let mdi = model_mdi_draw_command(&allocation).expect("MDI model draw");
         assert_eq!(direct.index_count, mdi.index_count);
@@ -8032,7 +8016,7 @@ mod tests {
         assert_eq!(direct.first_instance, mdi.first_instance);
         assert_eq!(direct.index_count, 32 * 6);
         assert_eq!(direct.instance_count, 3);
-        assert_eq!(direct.first_instance, 5);
+        assert_eq!(direct.first_instance, model_range.start / 4);
         assert_eq!(direct.base_vertex, 3 * 32 * 4);
     }
 
