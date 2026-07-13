@@ -203,6 +203,30 @@ impl WorldReadySettler {
     }
 }
 
+#[derive(Debug, Default)]
+struct GalleryAnchorEmitter {
+    emitted: bool,
+}
+
+impl GalleryAnchorEmitter {
+    fn observe(&mut self, enabled: bool, snapshot: WorldReadySnapshot) -> Option<String> {
+        if self.emitted
+            || !enabled
+            || !snapshot.mutation_target_rendered
+            || !snapshot.mutation_target_visible
+            || !snapshot.mutation_target_clean
+        {
+            return None;
+        }
+        let coordinate = snapshot.mutation_coordinate?;
+        self.emitted = true;
+        Some(format!(
+            "RUST_MCBE_GALLERY_ANCHOR_READY coordinate={},{},{} rendered=true visible=true clean=true",
+            coordinate[0], coordinate[1], coordinate[2]
+        ))
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct TeleportReadySnapshot {
     received_radius_chunks: Option<i32>,
@@ -1344,6 +1368,7 @@ struct AcceptanceRun {
     mutation_surface_anchor: Option<[i32; 2]>,
     source_mutation_coordinate: Option<[i32; 3]>,
     mutation: Option<MutationTracker>,
+    gallery_anchor: GalleryAnchorEmitter,
     world_ready_settler: WorldReadySettler,
     full_view_teleport: FullViewTeleportTracker,
     full_view_remesh: FullViewRemeshTracker,
@@ -1381,6 +1406,7 @@ impl AcceptanceRun {
             mutation_surface_anchor: None,
             source_mutation_coordinate: None,
             mutation: None,
+            gallery_anchor: GalleryAnchorEmitter::default(),
             world_ready_settler: WorldReadySettler::default(),
             full_view_teleport: FullViewTeleportTracker::new(full_view_teleport_gate),
             full_view_remesh: FullViewRemeshTracker::default(),
@@ -2447,6 +2473,7 @@ fn emit_world_ready(
     cache: Res<CaveVisibilityCache>,
     diagnostic_quads: Res<DiagnosticQuads>,
     render_queue: Res<ChunkRenderQueue>,
+    model_witness_source: Res<ModelWitnessFileSource>,
     acknowledgements: Res<ChunkUploadAcknowledgements>,
     presented_frames: Res<PresentedFrameGate>,
     mut acceptance: ResMut<AcceptanceRun>,
@@ -2701,6 +2728,13 @@ fn emit_world_ready(
         work,
     };
     let ready_at = Instant::now();
+    if let Some(marker) = acceptance
+        .gallery_anchor
+        .observe(model_witness_source.configured(), snapshot)
+    {
+        let mut stdout = std::io::stdout().lock();
+        write_stdout_marker(&mut stdout, &marker);
+    }
     let Some(markers) = acceptance.world_ready_settler.observe(snapshot, ready_at) else {
         return;
     };
@@ -3219,16 +3253,17 @@ mod tests {
     };
     use crate::{
         AcceptanceExitDecision, AcceptanceRun, FullViewRemeshTracker, FullViewTeleportCompletion,
-        FullViewTeleportTracker, MutationTracker, NETWORK_INGRESS_BUDGET_PER_FRAME,
-        OUTBOUND_SEND_BUDGET_PER_FRAME, RollingFps, SubChunkTimeoutProgress,
-        TRANSPARENT_PRESENTATION_EXIT_GRACE, TeleportReadySnapshot, WORLD_READY_QUIET_INTERVAL,
-        WorldReadySettler, WorldReadySnapshot, WorldReadyWork, accepted_move_player_ingress_marker,
-        bedrock_camera_rotation, camera_sub_chunk_key, cumulative_counter_delta,
-        deterministic_mutation_coordinate, drain_network_controls, drain_network_ingress,
-        flush_sub_chunk_requests, leaf_forest_target_mutation_coordinate, record_fatal_error,
-        resolve_socket_dir_from, startup_biome_tints, status_title, synchronize_biome_tints,
-        target_mutation_armed_marker, teleport_proof, transparent_sort_committed_marker,
-        world_ready_markers, write_move_player_ingress_before_source_capture, write_stdout_marker,
+        FullViewTeleportTracker, GalleryAnchorEmitter, MutationTracker,
+        NETWORK_INGRESS_BUDGET_PER_FRAME, OUTBOUND_SEND_BUDGET_PER_FRAME, RollingFps,
+        SubChunkTimeoutProgress, TRANSPARENT_PRESENTATION_EXIT_GRACE, TeleportReadySnapshot,
+        WORLD_READY_QUIET_INTERVAL, WorldReadySettler, WorldReadySnapshot, WorldReadyWork,
+        accepted_move_player_ingress_marker, bedrock_camera_rotation, camera_sub_chunk_key,
+        cumulative_counter_delta, deterministic_mutation_coordinate, drain_network_controls,
+        drain_network_ingress, flush_sub_chunk_requests, leaf_forest_target_mutation_coordinate,
+        record_fatal_error, resolve_socket_dir_from, startup_biome_tints, status_title,
+        synchronize_biome_tints, target_mutation_armed_marker, teleport_proof,
+        transparent_sort_committed_marker, world_ready_markers,
+        write_move_player_ingress_before_source_capture, write_stdout_marker,
     };
 
     fn overworld_biome_payload() -> Vec<u8> {
@@ -5370,6 +5405,38 @@ mod tests {
                 "RUST_MCBE_WORLD_READY radius=16 rendered=2 resident=3 visible=1".to_owned(),
             ])
         );
+    }
+
+    #[test]
+    fn gallery_anchor_is_one_shot_mode_scoped_and_only_requires_the_clean_visible_target() {
+        let mut emitter = GalleryAnchorEmitter::default();
+        let mut snapshot = settled_world_snapshot();
+        snapshot.received_radius_chunks = None;
+        snapshot.publisher_radius_chunks = None;
+        snapshot.resident_sub_chunks = 0;
+        snapshot.visible_sub_chunks = 0;
+        snapshot.work.pending_mesh_jobs = 99;
+
+        assert_eq!(emitter.observe(false, snapshot), None);
+
+        snapshot.mutation_target_rendered = false;
+        assert_eq!(emitter.observe(true, snapshot), None);
+        snapshot.mutation_target_rendered = true;
+        snapshot.mutation_target_visible = false;
+        assert_eq!(emitter.observe(true, snapshot), None);
+        snapshot.mutation_target_visible = true;
+        snapshot.mutation_target_clean = false;
+        assert_eq!(emitter.observe(true, snapshot), None);
+        snapshot.mutation_target_clean = true;
+
+        assert_eq!(
+            emitter.observe(true, snapshot),
+            Some(
+                "RUST_MCBE_GALLERY_ANCHOR_READY coordinate=14,71,-6 rendered=true visible=true clean=true"
+                    .to_owned()
+            )
+        );
+        assert_eq!(emitter.observe(true, snapshot), None);
     }
 
     #[test]

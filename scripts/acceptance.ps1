@@ -1434,6 +1434,26 @@ function Assert-ProtocolDependencyProvenance {
     return $ExpectedRevision
 }
 
+function ConvertFrom-GalleryAnchorReadyMarker {
+    param([Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Line)
+
+    $pattern = '^RUST_MCBE_GALLERY_ANCHOR_READY coordinate=(-?\d+),(-?\d+),(-?\d+) rendered=true visible=true clean=true$'
+    if ($Line -notmatch $pattern) {
+        throw "invalid gallery anchor ready marker: $Line"
+    }
+    $coordinate = [Collections.Generic.List[int]]::new()
+    foreach ($index in 1..3) {
+        $value = [int]0
+        if (-not [int]::TryParse($Matches[$index], [Globalization.NumberStyles]::Integer, [Globalization.CultureInfo]::InvariantCulture, [ref]$value)) {
+            throw "invalid gallery anchor ready marker: $Line"
+        }
+        $coordinate.Add($value)
+    }
+    return [pscustomobject][ordered]@{
+        coordinate = @($coordinate)
+    }
+}
+
 function ConvertFrom-ModelWitnessCompleteMarker {
     param([Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Line)
 
@@ -5911,13 +5931,28 @@ try {
     }
 
     $appHandle = Start-LoggedProcess -Executable $AppExecutable -Arguments $AppArguments -WorkingDirectory $ProjectRoot -StdoutPath (Join-Path $RunDirectory 'app.stdout.log') -StderrPath (Join-Path $RunDirectory 'app.stderr.log')
-    $coordinateMarker = Wait-ProcessOutputMarker -Handle $appHandle -Marker 'RUST_MCBE_MUTATION_COORDINATE=' -TimeoutSeconds 180
-    $worldReadyMarkerLine = Wait-ProcessOutputMarker -Handle $appHandle -Marker 'RUST_MCBE_WORLD_READY ' -TimeoutSeconds 180
-
-    if ($coordinateMarker -notmatch '^RUST_MCBE_MUTATION_COORDINATE=(-?\d+),(-?\d+),(-?\d+)$') {
-        throw "invalid mutation marker: $coordinateMarker"
+    $worldReadyMarkerLine = $null
+    if ($isSlabStairGallery) {
+        $galleryAnchorMarkerEvidence = Wait-ProcessOutputMarker `
+            -Handle $appHandle `
+            -Marker 'RUST_MCBE_GALLERY_ANCHOR_READY ' `
+            -TimeoutSeconds 180 `
+            -PassThruEvidence
+        $galleryAnchor = ConvertFrom-GalleryAnchorReadyMarker -Line ([string]$galleryAnchorMarkerEvidence.Line)
+        $coordinate = @($galleryAnchor.coordinate)
+        Write-AcceptanceEvent -RunDirectory $RunDirectory -Event 'gallery_anchor_ready' -Fields ([ordered]@{
+            coordinate = $coordinate -join ','
+            stdout_line = [uint64]$galleryAnchorMarkerEvidence.LineNumber
+        })
     }
-    $coordinate = @([int]$Matches[1], [int]$Matches[2], [int]$Matches[3])
+    else {
+        $coordinateMarker = Wait-ProcessOutputMarker -Handle $appHandle -Marker 'RUST_MCBE_MUTATION_COORDINATE=' -TimeoutSeconds 180
+        $worldReadyMarkerLine = Wait-ProcessOutputMarker -Handle $appHandle -Marker 'RUST_MCBE_WORLD_READY ' -TimeoutSeconds 180
+        if ($coordinateMarker -notmatch '^RUST_MCBE_MUTATION_COORDINATE=(-?\d+),(-?\d+),(-?\d+)$') {
+            throw "invalid mutation marker: $coordinateMarker"
+        }
+        $coordinate = @([int]$Matches[1], [int]$Matches[2], [int]$Matches[3])
+    }
     $activeMutationCoordinate = if ($FullViewTeleportGate) { $null } else { @($coordinate) }
     $blocks = @('minecraft:gold_block', 'minecraft:diamond_block')
     $blockIndex = 0

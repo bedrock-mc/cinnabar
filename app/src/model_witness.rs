@@ -101,6 +101,10 @@ impl ModelWitnessFileSource {
             was_missing: true,
         }
     }
+
+    pub fn configured(&self) -> bool {
+        self.path.is_some()
+    }
 }
 
 pub fn poll_model_witness_request(

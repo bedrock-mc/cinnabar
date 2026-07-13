@@ -1123,6 +1123,22 @@ try {
     Assert-Equal @($modelWitnessRequest.sub_chunks).Count @($modelWitnessRequest.sub_chunks | Sort-Object x, y, z -Unique).Count 'model witness request retained duplicate keys'
     Assert-True ([string]$modelWitnessRequest.request_sha256 -cmatch '^[0-9a-f]{64}$') 'model witness request lost its deterministic hash'
 
+    $galleryAnchor = ConvertFrom-GalleryAnchorReadyMarker -Line 'RUST_MCBE_GALLERY_ANCHOR_READY coordinate=14,71,-6 rendered=true visible=true clean=true'
+    Assert-Equal '14,71,-6' (@($galleryAnchor.coordinate) -join ',') 'gallery anchor parser lost its exact mutation coordinate'
+    Assert-ThrowsLike {
+        ConvertFrom-GalleryAnchorReadyMarker -Line 'RUST_MCBE_GALLERY_ANCHOR_READY coordinate=14,71,-6 rendered=true visible=true clean=false'
+    } '*invalid gallery anchor ready marker*' 'gallery anchor parser accepted an unclean target'
+    Assert-ThrowsLike {
+        ConvertFrom-GalleryAnchorReadyMarker -Line 'RUST_MCBE_GALLERY_ANCHOR_READY coordinate=14,71,-6 rendered=true visible=true clean=true extra=true'
+    } '*invalid gallery anchor ready marker*' 'gallery anchor parser accepted an unknown field'
+    $appLaunchIndex = $source.IndexOf('$appHandle = Start-LoggedProcess -Executable $AppExecutable', [StringComparison]::Ordinal)
+    $galleryAnchorBranchIndex = $source.IndexOf('if ($isSlabStairGallery) {', $appLaunchIndex, [StringComparison]::Ordinal)
+    $galleryAnchorWaitIndex = $source.IndexOf("-Marker 'RUST_MCBE_GALLERY_ANCHOR_READY '", $galleryAnchorBranchIndex, [StringComparison]::Ordinal)
+    $normalStartupBranchIndex = $source.IndexOf("`n    else {", $galleryAnchorWaitIndex, [StringComparison]::Ordinal)
+    $worldReadyWaitIndex = $source.IndexOf("-Marker 'RUST_MCBE_WORLD_READY '", $normalStartupBranchIndex, [StringComparison]::Ordinal)
+    Assert-True ($appLaunchIndex -ge 0 -and $galleryAnchorBranchIndex -gt $appLaunchIndex -and $galleryAnchorWaitIndex -gt $galleryAnchorBranchIndex) 'slab/stair startup does not wait for its gallery-only early anchor'
+    Assert-True ($normalStartupBranchIndex -gt $galleryAnchorWaitIndex -and $worldReadyWaitIndex -gt $normalStartupBranchIndex) 'normal/perf startup no longer retains its strict WorldReady wait'
+
     $modelMarker = ConvertFrom-ModelWitnessCompleteMarker -Line "RUST_MCBE_MODEL_WITNESS_COMPLETE revision=1 request_sha256=$($modelWitnessRequest.request_sha256) sequence=40 view_generation=3 key_count=$(@($modelWitnessRequest.sub_chunks).Count) model_ref_count=43 manifest_count=$(@($modelWitnessRequest.sub_chunks).Count) manifest_sha256=$('a' * 64) missing=0 stale=0 wrong_stream=0 zero_ref=0 draw_mismatch=0 consecutive=1"
     Assert-Equal 1 ([int]$modelMarker.consecutive) 'model marker parser lost consecutive count'
     $modelMarker2 = $modelMarker.PSObject.Copy()
