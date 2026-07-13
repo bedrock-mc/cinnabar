@@ -74,17 +74,45 @@ function New-TestSlabStairAssets {
     $entries = @(Get-TestRegistryEntries -RegistryPath $RegistryPath)
     $visualCount = 1 + [int](($entries | Measure-Object sequential_id -Maximum).Maximum)
     $templateCount = 11
+    $materialCount = 1
+    $quadCount = $templateCount
+    $pageCount = 1
+    $texturePayloadBytes = 1364
+    $tintMapBytes = 8 * 256 * 256 * 3
     $visualOffset = 200
-    $templateOffset = $visualOffset + 40 * $visualCount
-    $bytes = [byte[]]::new($templateOffset + 12 * $templateCount)
+    $hashOffset = $visualOffset + 40 * $visualCount
+    $materialOffset = $hashOffset
+    $templateOffset = $materialOffset + 12 * $materialCount
+    $quadOffset = $templateOffset + 12 * $templateCount
+    $animationOffset = $quadOffset + 48 * $quadCount
+    $frameOffset = $animationOffset
+    $pageOffset = $frameOffset
+    $textureOffset = $pageOffset + 64 * $pageCount
+    $tintOffset = $textureOffset + $texturePayloadBytes
+    $biomeOffset = $tintOffset + $tintMapBytes
+    $nameOffset = $biomeOffset
+    $payloadLength = $nameOffset
+    $bytes = [byte[]]::new($payloadLength + 32)
     [Text.Encoding]::ASCII.GetBytes('MCBEAS04').CopyTo($bytes, 0)
     [BitConverter]::GetBytes([uint32]4).CopyTo($bytes, 8)
     [BitConverter]::GetBytes([uint32]16).CopyTo($bytes, 12)
     [BitConverter]::GetBytes([uint32]5).CopyTo($bytes, 16)
     [BitConverter]::GetBytes([uint32]$visualCount).CopyTo($bytes, 20)
+    [BitConverter]::GetBytes([uint32]$materialCount).CopyTo($bytes, 28)
     [BitConverter]::GetBytes([uint32]$templateCount).CopyTo($bytes, 32)
-    [BitConverter]::GetBytes([uint64]$visualOffset).CopyTo($bytes, 96)
-    [BitConverter]::GetBytes([uint64]$templateOffset).CopyTo($bytes, 120)
+    [BitConverter]::GetBytes([uint32]$quadCount).CopyTo($bytes, 36)
+    [BitConverter]::GetBytes([uint32]$pageCount).CopyTo($bytes, 48)
+    [BitConverter]::GetBytes([uint32]8).CopyTo($bytes, 52)
+    [BitConverter]::GetBytes([uint32]256).CopyTo($bytes, 56)
+    $offsets = @($visualOffset, $hashOffset, $materialOffset, $templateOffset, $quadOffset, $animationOffset, $frameOffset, $pageOffset, $textureOffset, $tintOffset, $biomeOffset, $nameOffset, $payloadLength)
+    for ($index = 0; $index -lt $offsets.Count; $index++) {
+        [BitConverter]::GetBytes([uint64]$offsets[$index]).CopyTo($bytes, 96 + 8 * $index)
+    }
+    for ($index = 0; $index -lt $visualCount; $index++) {
+        $offset = $visualOffset + 40 * $index
+        [BitConverter]::GetBytes([uint32]::MaxValue).CopyTo($bytes, $offset + 28)
+        [BitConverter]::GetBytes([uint32]::MaxValue).CopyTo($bytes, $offset + 32)
+    }
     foreach ($entry in $entries) {
         if ($entry.family -notin @(7, 8)) { continue }
         $offset = $visualOffset + 40 * [int]$entry.sequential_id
@@ -93,13 +121,37 @@ function New-TestSlabStairAssets {
         $template = if ($entry.family -eq 7) { 0 } elseif ($half -eq 0) { 1 } else { 6 }
         [BitConverter]::GetBytes([uint32]$template).CopyTo($bytes, $offset + 28)
     }
+    [BitConverter]::GetBytes([uint32]::MaxValue).CopyTo($bytes, $materialOffset + 8)
     for ($index = 0; $index -lt $templateCount; $index++) {
         $offset = $templateOffset + 12 * $index
         [BitConverter]::GetBytes([uint32]$index).CopyTo($bytes, $offset)
         [BitConverter]::GetBytes([uint32]1).CopyTo($bytes, $offset + 4)
         if ($index -gt 0) { [BitConverter]::GetBytes([uint32]2).CopyTo($bytes, $offset + 8) }
+        [BitConverter]::GetBytes([uint32]1).CopyTo($bytes, $quadOffset + 48 * $index + 44)
     }
+    [BitConverter]::GetBytes([uint32]0).CopyTo($bytes, $pageOffset)
+    [BitConverter]::GetBytes([uint32]1).CopyTo($bytes, $pageOffset + 4)
+    [BitConverter]::GetBytes([uint32]5).CopyTo($bytes, $pageOffset + 8)
+    [BitConverter]::GetBytes([uint64]$textureOffset).CopyTo($bytes, $pageOffset + 16)
+    [BitConverter]::GetBytes([uint64]$texturePayloadBytes).CopyTo($bytes, $pageOffset + 24)
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try {
+        $textureDigest = $sha256.ComputeHash($bytes, $textureOffset, $texturePayloadBytes)
+        $textureDigest.CopyTo($bytes, $pageOffset + 32)
+        $payloadDigest = $sha256.ComputeHash($bytes, 0, $payloadLength)
+        $payloadDigest.CopyTo($bytes, $payloadLength)
+    }
+    finally { $sha256.Dispose() }
     [IO.File]::WriteAllBytes($Path, $bytes)
+}
+
+function Set-TestMcbeas04Seal {
+    param([Parameter(Mandatory = $true)][byte[]]$Bytes)
+    $payloadLength = $Bytes.Length - 32
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try { $digest = $sha256.ComputeHash($Bytes, 0, $payloadLength) }
+    finally { $sha256.Dispose() }
+    $digest.CopyTo($Bytes, $payloadLength)
 }
 
 function Get-TestRegistryEntries {
@@ -750,6 +802,37 @@ try {
     # slab_stair_gallery_covers_all_variants
     $slabStairPlans = @('SlabStairGalleryTop', 'SlabStairGalleryNorth', 'SlabStairGalleryEast', 'SlabStairGalleryOblique', 'SlabStairGalleryObliqueOpposite') | ForEach-Object {
         New-SlabStairGalleryPlan -MutationCoordinate @(100, 64, 200) -Pose $_ -RegistryPath $BlockRegistry -AssetsPath $SlabStairAssets
+    }
+    $unsealedSlabStairAssets = Join-Path $TempRoot 'unsealed covered visual mutation.mcbea'
+    $unsealedBytes = [IO.File]::ReadAllBytes($SlabStairAssets)
+    $firstStairId = [int](@(Get-TestRegistryEntries -RegistryPath $BlockRegistry | Where-Object family -eq 8)[0].sequential_id)
+    $coveredVisualOffset = [int]([BitConverter]::ToUInt64($unsealedBytes, 96) + 40 * $firstStairId)
+    $unsealedBytes[$coveredVisualOffset] = $unsealedBytes[$coveredVisualOffset] -bxor 1
+    [IO.File]::WriteAllBytes($unsealedSlabStairAssets, $unsealedBytes)
+    Assert-ThrowsLike {
+        Get-SlabStairCoverageEvidence -RegistryPath $BlockRegistry -AssetsPath $unsealedSlabStairAssets
+    } 'MCBEAS04 slab/stair integrity SHA-256 mismatch*' 'slab/stair coverage accepted an unsealed covered-visual mutation'
+    $oversizedSlabStairAssets = Join-Path $TempRoot 'oversized slab stair assets.mcbea'
+    $oversizedStream = [IO.File]::Create($oversizedSlabStairAssets)
+    try { $oversizedStream.SetLength(16 * 1024 * 1024 + 1) }
+    finally { $oversizedStream.Dispose() }
+    Assert-ThrowsLike {
+        Get-StrictMcbeas04ModelTables -Path $oversizedSlabStairAssets
+    } 'MCBEAS04 blob exceeds the app 16 MiB ceiling:*' 'slab/stair validation allocated an oversized blob before rejecting it'
+    $templateOffset = [int][BitConverter]::ToUInt64([IO.File]::ReadAllBytes($SlabStairAssets), 120)
+    foreach ($malformedTemplate in @(
+        [pscustomobject]@{ name = 'resealed 33-quad template'; pattern = 'MCBEAS04 model template 0 span or flags are noncanonical*'; mutate = { param($bytes) [BitConverter]::GetBytes([uint32]33).CopyTo($bytes, $templateOffset + 4) } },
+        [pscustomobject]@{ name = 'resealed out-of-range template span'; pattern = 'MCBEAS04 model template 10 span or flags are noncanonical*'; mutate = { param($bytes) [BitConverter]::GetBytes([uint32]11).CopyTo($bytes, $templateOffset + 120) } },
+        [pscustomobject]@{ name = 'resealed middle-of-stair-group visual'; pattern = 'MCBEAS04 stair visual * does not reference an exact group base or has reserved variant bits*'; mutate = { param($bytes) [BitConverter]::GetBytes([uint32]2).CopyTo($bytes, $coveredVisualOffset + 28) } }
+    )) {
+        $malformedPath = Join-Path $TempRoot ($malformedTemplate.name + '.mcbea')
+        $malformedBytes = [IO.File]::ReadAllBytes($SlabStairAssets)
+        & $malformedTemplate.mutate $malformedBytes
+        Set-TestMcbeas04Seal -Bytes $malformedBytes
+        [IO.File]::WriteAllBytes($malformedPath, $malformedBytes)
+        Assert-ThrowsLike {
+            Get-SlabStairCoverageEvidence -RegistryPath $BlockRegistry -AssetsPath $malformedPath
+        } $malformedTemplate.pattern "slab/stair coverage accepted $($malformedTemplate.name)"
     }
 
     $expectedFlowerBedStates = [Collections.Generic.List[string]]::new()

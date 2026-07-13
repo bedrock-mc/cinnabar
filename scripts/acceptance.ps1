@@ -2871,6 +2871,154 @@ function New-WaterGalleryTransparentWitnessRequest {
     }
 }
 
+function Get-StrictMcbeas04ModelTables {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $assetLength = [int64](Get-Item -LiteralPath $Path -ErrorAction Stop).Length
+    if ($assetLength -gt 16 * 1024 * 1024) {
+        throw "MCBEAS04 blob exceeds the app 16 MiB ceiling: $assetLength"
+    }
+    if ($assetLength -lt 232) { throw "MCBEAS04 blob is shorter than header plus SHA-256: $assetLength" }
+    $bytes = [IO.File]::ReadAllBytes($Path)
+    $utf8 = [Text.UTF8Encoding]::new($false, $true)
+    if ($utf8.GetString($bytes, 0, 8) -cne 'MCBEAS04') { throw 'MCBEAS04 model-table validator received the wrong magic' }
+    if ([BitConverter]::ToUInt32($bytes, 8) -ne 4 -or [BitConverter]::ToUInt32($bytes, 12) -ne 16 -or
+        [BitConverter]::ToUInt32($bytes, 16) -ne 5 -or [BitConverter]::ToUInt32($bytes, 52) -ne 8 -or
+        [BitConverter]::ToUInt32($bytes, 56) -ne 256) {
+        throw 'MCBEAS04 header constants are noncanonical'
+    }
+    if (@($bytes[64..95] | Where-Object { $_ -ne 0 }).Count -ne 0) { throw 'MCBEAS04 reserved header bytes are nonzero' }
+
+    $payloadLength = $bytes.Length - 32
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try { $actualDigest = $sha256.ComputeHash($bytes, 0, $payloadLength) }
+    finally { $sha256.Dispose() }
+    for ($index = 0; $index -lt 32; $index++) {
+        if ($actualDigest[$index] -ne $bytes[$payloadLength + $index]) {
+            throw 'MCBEAS04 slab/stair integrity SHA-256 mismatch'
+        }
+    }
+
+    $counts = @(foreach ($countOffset in @(20, 24, 28, 32, 36, 40, 44, 48, 60)) {
+        [uint64][BitConverter]::ToUInt32($bytes, $countOffset)
+    })
+    $limits = @([uint64]65536, [uint64]65536, [uint64]65536, [uint64]65536, [uint64]2097152, [uint64]65536, [uint64]1048576, [uint64]2, [uint64]1024)
+    $labels = @('visual', 'hash', 'material', 'template', 'quad', 'animation', 'frame', 'page', 'biome')
+    for ($index = 0; $index -lt $counts.Count; $index++) {
+        if ($counts[$index] -gt $limits[$index]) { throw "MCBEAS04 $($labels[$index]) count exceeds canonical ceiling: $($counts[$index])" }
+    }
+    if ($counts[2] -eq 0 -or $counts[7] -eq 0) { throw 'MCBEAS04 material and page counts must be nonzero' }
+
+    $offsets = @(0..12 | ForEach-Object { [uint64][BitConverter]::ToUInt64($bytes, 96 + 8 * $_) })
+    $fixedSizes = @(
+        ($counts[0] * 40)
+        ($counts[1] * 8)
+        ($counts[2] * 12)
+        ($counts[3] * 12)
+        ($counts[4] * 48)
+        ($counts[5] * 28)
+        ($counts[6] * 4)
+        ($counts[7] * 64)
+    )
+    $expectedOffset = [uint64]200
+    for ($index = 0; $index -lt $fixedSizes.Count; $index++) {
+        if ($offsets[$index] -ne $expectedOffset) { throw "MCBEAS04 section $index offset is noncanonical" }
+        $expectedOffset += $fixedSizes[$index]
+    }
+    if ($offsets[8] -ne $expectedOffset -or $expectedOffset -gt [uint64]$payloadLength) { throw 'MCBEAS04 texture payload offset is noncanonical or out of bounds' }
+
+    $textureCursor = $offsets[8]
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try {
+        for ($pageIndex = 0; $pageIndex -lt $counts[7]; $pageIndex++) {
+            $descriptor = [int]($offsets[7] + 64 * $pageIndex)
+            $layers = [uint64][BitConverter]::ToUInt32($bytes, $descriptor + 4)
+            $pagePayloadOffset = [uint64][BitConverter]::ToUInt64($bytes, $descriptor + 16)
+            $pagePayloadLength = [uint64][BitConverter]::ToUInt64($bytes, $descriptor + 24)
+            $expectedPageLength = $layers * 1364
+            if ([BitConverter]::ToUInt32($bytes, $descriptor) -ne $pageIndex -or $layers -eq 0 -or $layers -gt 2048 -or
+                [BitConverter]::ToUInt32($bytes, $descriptor + 8) -ne 5 -or [BitConverter]::ToUInt32($bytes, $descriptor + 12) -ne 0 -or
+                $pagePayloadOffset -ne $textureCursor -or $pagePayloadLength -ne $expectedPageLength -or
+                $pagePayloadOffset -gt [uint64]$payloadLength -or
+                $pagePayloadLength -gt [uint64]$payloadLength - $pagePayloadOffset) {
+                throw "MCBEAS04 texture page $pageIndex descriptor is noncanonical"
+            }
+            $pageDigest = $sha256.ComputeHash($bytes, [int]$pagePayloadOffset, [int]$pagePayloadLength)
+            for ($digestIndex = 0; $digestIndex -lt 32; $digestIndex++) {
+                if ($pageDigest[$digestIndex] -ne $bytes[$descriptor + 32 + $digestIndex]) { throw "MCBEAS04 texture page $pageIndex SHA-256 mismatch" }
+            }
+            $textureCursor += $pagePayloadLength
+        }
+    }
+    finally { $sha256.Dispose() }
+    if ($offsets[9] -ne $textureCursor -or $offsets[10] -ne $offsets[9] + 8 * 256 * 256 * 3 -or
+        $offsets[11] -ne $offsets[10] + $counts[8] * 36 -or $offsets[12] -lt $offsets[11] -or
+        $offsets[12] - $offsets[11] -gt 256 * 1024 -or $offsets[12] -ne [uint64]$payloadLength) {
+        throw 'MCBEAS04 variable section offsets or exact total length are noncanonical'
+    }
+
+    $templates = [Collections.Generic.List[object]]::new()
+    $expectedQuad = [uint64]0
+    for ($templateIndex = 0; $templateIndex -lt $counts[3]; $templateIndex++) {
+        $descriptor = [int]($offsets[3] + 12 * $templateIndex)
+        $quadStart = [uint64][BitConverter]::ToUInt32($bytes, $descriptor)
+        $quadCount = [uint64][BitConverter]::ToUInt32($bytes, $descriptor + 4)
+        $flags = [uint32][BitConverter]::ToUInt32($bytes, $descriptor + 8)
+        if ($quadStart -ne $expectedQuad -or $quadCount -gt 32 -or ($flags -band (-bnot 3)) -ne 0 -or
+            (($flags -band 1) -ne 0 -and $quadCount -ne 6)) {
+            throw "MCBEAS04 model template $templateIndex span or flags are noncanonical"
+        }
+        $templates.Add([pscustomobject][ordered]@{ quad_start = $quadStart; quad_count = $quadCount; flags = $flags })
+        $expectedQuad += $quadCount
+    }
+    if ($expectedQuad -ne $counts[4]) { throw 'MCBEAS04 model templates do not exactly cover the quad table' }
+
+    $stairBases = [Collections.Generic.HashSet[uint32]]::new()
+    $templateIndex = 0
+    while ($templateIndex -lt $templates.Count) {
+        if (($templates[$templateIndex].flags -band 2) -eq 0) { $templateIndex++; continue }
+        if ($templateIndex + 5 -gt $templates.Count) { throw 'MCBEAS04 stair template group is truncated' }
+        foreach ($shape in 0..4) {
+            $shapeTemplate = $templates[$templateIndex + $shape]
+            if ($shapeTemplate.flags -ne 2 -or $shapeTemplate.quad_count -eq 0) { throw 'MCBEAS04 stair template group is noncanonical' }
+        }
+        $null = $stairBases.Add([uint32]$templateIndex)
+        $templateIndex += 5
+    }
+
+    for ($quadIndex = 0; $quadIndex -lt $counts[4]; $quadIndex++) {
+        $quad = [int]($offsets[4] + 48 * $quadIndex)
+        $material = [uint64][BitConverter]::ToUInt32($bytes, $quad + 40)
+        $flags = [uint32][BitConverter]::ToUInt32($bytes, $quad + 44)
+        if ($material -ge $counts[2] -or ($flags -band (-bnot 127)) -ne 0 -or ($flags -band 7) -gt 6 -or (($flags -shr 4) -band 7) -gt 6) {
+            throw "MCBEAS04 model quad $quadIndex has an invalid material or flags"
+        }
+    }
+
+    $referencedStairBases = [Collections.Generic.HashSet[uint32]]::new()
+    for ($visualIndex = 0; $visualIndex -lt $counts[0]; $visualIndex++) {
+        $visual = [int]($offsets[0] + 40 * $visualIndex)
+        $kind = $bytes[$visual + 25]
+        $template = [uint32][BitConverter]::ToUInt32($bytes, $visual + 28)
+        $variant = [uint32][BitConverter]::ToUInt32($bytes, $visual + 36)
+        if ($kind -gt 5 -or $bytes[$visual + 27] -ne 0) { throw "MCBEAS04 visual $visualIndex has unknown kind or reserved bits" }
+        if ($template -eq [uint32]::MaxValue) { continue }
+        if ([uint64]$template -ge $counts[3]) { throw "MCBEAS04 visual $visualIndex references an invalid template" }
+        if (($templates[[int]$template].flags -band 2) -ne 0) {
+            if (-not $stairBases.Contains($template) -or $kind -ne 3 -or ($variant -band (-bnot 7)) -ne 0) {
+                throw "MCBEAS04 stair visual $visualIndex does not reference an exact group base or has reserved variant bits"
+            }
+            $null = $referencedStairBases.Add($template)
+        }
+    }
+    foreach ($base in $stairBases) {
+        if (-not $referencedStairBases.Contains($base)) { throw "MCBEAS04 stair template group $base is unreferenced" }
+    }
+    return [pscustomobject][ordered]@{
+        bytes = $bytes; counts = $counts; offsets = $offsets; templates = @($templates); stair_bases = $stairBases
+    }
+}
+
 function Get-SlabStairCoverageEvidence {
     param(
         [Parameter(Mandatory = $true)][string]$RegistryPath,
@@ -2927,30 +3075,23 @@ function Get-SlabStairCoverageEvidence {
         }
     }
 
-    $assetBytes = [IO.File]::ReadAllBytes($AssetsPath)
-    if ($assetBytes.Length -lt 200 -or $utf8.GetString($assetBytes, 0, 8) -cne 'MCBEAS04' -or [BitConverter]::ToUInt32($assetBytes, 8) -ne 4) {
-        throw 'slab/stair coverage requires an MCBEAS04 compiled asset blob'
-    }
-    $visualCount = [BitConverter]::ToUInt32($assetBytes, 20); $templateCount = [BitConverter]::ToUInt32($assetBytes, 32)
-    $visualOffset = [BitConverter]::ToUInt64($assetBytes, 96); $templateOffset = [BitConverter]::ToUInt64($assetBytes, 120)
-    if ($visualOffset -gt [uint64]$assetBytes.Length -or [uint64]$visualCount * 40 -gt [uint64]$assetBytes.Length - $visualOffset -or
-        $templateOffset -gt [uint64]$assetBytes.Length -or [uint64]$templateCount * 12 -gt [uint64]$assetBytes.Length - $templateOffset) {
-        throw 'MCBEAS04 slab/stair tables are out of bounds'
-    }
+    $modelTables = Get-StrictMcbeas04ModelTables -Path $AssetsPath
+    $assetBytes = $modelTables.bytes
+    $visualCount = $modelTables.counts[0]; $templateCount = $modelTables.counts[3]
+    $visualOffset = $modelTables.offsets[0]
     $diagnostic = 0
     foreach ($entry in $entries) {
         if ([uint64]$entry.sequential_id -ge [uint64]$visualCount) { throw "registry sequential ID $($entry.sequential_id) is absent from MCBEAS04" }
         $visual = [int]($visualOffset + 40 * [uint64]$entry.sequential_id)
         $template = [BitConverter]::ToUInt32($assetBytes, $visual + 28)
         if ($assetBytes[$visual + 25] -ne 3 -or $template -eq [uint32]::MaxValue -or $template -ge $templateCount) { $diagnostic++; continue }
-        $descriptor = [int]($templateOffset + 12 * [uint64]$template)
-        if ([BitConverter]::ToUInt32($assetBytes, $descriptor + 4) -eq 0) { $diagnostic++; continue }
+        $descriptor = $modelTables.templates[[int]$template]
+        if ($descriptor.quad_count -eq 0) { $diagnostic++; continue }
         if ($entry.family -ceq 'Stair') {
-            if ([BitConverter]::ToUInt32($assetBytes, $descriptor + 8) -ne 2 -or $template + 4 -ge $templateCount) { $diagnostic++; continue }
-            for ($shape = 0; $shape -lt 5; $shape++) {
-                $shapeDescriptor = [int]($templateOffset + 12 * [uint64]($template + $shape))
-                if ([BitConverter]::ToUInt32($assetBytes, $shapeDescriptor + 8) -ne 2 -or [BitConverter]::ToUInt32($assetBytes, $shapeDescriptor + 4) -eq 0) { $diagnostic++; break }
-            }
+            if (-not $modelTables.stair_bases.Contains([uint32]$template) -or ([BitConverter]::ToUInt32($assetBytes, $visual + 36) -band (-bnot 7)) -ne 0) { $diagnostic++; continue }
+        }
+        elseif (($descriptor.flags -band 2) -ne 0) {
+            $diagnostic++; continue
         }
     }
     if ($diagnostic -ne 0) { throw "slab/stair compiled coverage contains diagnostic or malformed visuals: $diagnostic" }
