@@ -1123,8 +1123,9 @@ try {
     Assert-Equal @($modelWitnessRequest.sub_chunks).Count @($modelWitnessRequest.sub_chunks | Sort-Object x, y, z -Unique).Count 'model witness request retained duplicate keys'
     Assert-True ([string]$modelWitnessRequest.request_sha256 -cmatch '^[0-9a-f]{64}$') 'model witness request lost its deterministic hash'
 
-    $galleryAnchor = ConvertFrom-GalleryAnchorReadyMarker -Line 'RUST_MCBE_GALLERY_ANCHOR_READY coordinate=14,71,-6 rendered=true visible=true clean=true'
+    $galleryAnchor = ConvertFrom-GalleryAnchorReadyMarker -Line 'RUST_MCBE_GALLERY_ANCHOR_READY coordinate=14,71,-6 rendered=true visible=false clean=true'
     Assert-Equal '14,71,-6' (@($galleryAnchor.coordinate) -join ',') 'gallery anchor parser lost its exact mutation coordinate'
+    Assert-Equal $false ([bool]$galleryAnchor.visible) 'gallery anchor parser lost the observed cave-visibility state'
     Assert-ThrowsLike {
         ConvertFrom-GalleryAnchorReadyMarker -Line 'RUST_MCBE_GALLERY_ANCHOR_READY coordinate=14,71,-6 rendered=true visible=true clean=false'
     } '*invalid gallery anchor ready marker*' 'gallery anchor parser accepted an unclean target'

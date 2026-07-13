@@ -213,7 +213,6 @@ impl GalleryAnchorEmitter {
         if self.emitted
             || !enabled
             || !snapshot.mutation_target_rendered
-            || !snapshot.mutation_target_visible
             || !snapshot.mutation_target_clean
         {
             return None;
@@ -221,8 +220,8 @@ impl GalleryAnchorEmitter {
         let coordinate = snapshot.mutation_coordinate?;
         self.emitted = true;
         Some(format!(
-            "RUST_MCBE_GALLERY_ANCHOR_READY coordinate={},{},{} rendered=true visible=true clean=true",
-            coordinate[0], coordinate[1], coordinate[2]
+            "RUST_MCBE_GALLERY_ANCHOR_READY coordinate={},{},{} rendered=true visible={} clean=true",
+            coordinate[0], coordinate[1], coordinate[2], snapshot.mutation_target_visible
         ))
     }
 }
@@ -5408,7 +5407,7 @@ mod tests {
     }
 
     #[test]
-    fn gallery_anchor_is_one_shot_mode_scoped_and_only_requires_the_clean_visible_target() {
+    fn gallery_anchor_is_one_shot_mode_scoped_and_only_requires_the_clean_rendered_target() {
         let mut emitter = GalleryAnchorEmitter::default();
         let mut snapshot = settled_world_snapshot();
         snapshot.received_radius_chunks = None;
@@ -5423,8 +5422,6 @@ mod tests {
         assert_eq!(emitter.observe(true, snapshot), None);
         snapshot.mutation_target_rendered = true;
         snapshot.mutation_target_visible = false;
-        assert_eq!(emitter.observe(true, snapshot), None);
-        snapshot.mutation_target_visible = true;
         snapshot.mutation_target_clean = false;
         assert_eq!(emitter.observe(true, snapshot), None);
         snapshot.mutation_target_clean = true;
@@ -5432,7 +5429,7 @@ mod tests {
         assert_eq!(
             emitter.observe(true, snapshot),
             Some(
-                "RUST_MCBE_GALLERY_ANCHOR_READY coordinate=14,71,-6 rendered=true visible=true clean=true"
+                "RUST_MCBE_GALLERY_ANCHOR_READY coordinate=14,71,-6 rendered=true visible=false clean=true"
                     .to_owned()
             )
         );

@@ -1437,7 +1437,7 @@ function Assert-ProtocolDependencyProvenance {
 function ConvertFrom-GalleryAnchorReadyMarker {
     param([Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Line)
 
-    $pattern = '^RUST_MCBE_GALLERY_ANCHOR_READY coordinate=(-?\d+),(-?\d+),(-?\d+) rendered=true visible=true clean=true$'
+    $pattern = '^RUST_MCBE_GALLERY_ANCHOR_READY coordinate=(-?\d+),(-?\d+),(-?\d+) rendered=true visible=(true|false) clean=true$'
     if ($Line -notmatch $pattern) {
         throw "invalid gallery anchor ready marker: $Line"
     }
@@ -1451,6 +1451,7 @@ function ConvertFrom-GalleryAnchorReadyMarker {
     }
     return [pscustomobject][ordered]@{
         coordinate = @($coordinate)
+        visible = [string]$Matches[4] -ceq 'true'
     }
 }
 
@@ -5942,6 +5943,7 @@ try {
         $coordinate = @($galleryAnchor.coordinate)
         Write-AcceptanceEvent -RunDirectory $RunDirectory -Event 'gallery_anchor_ready' -Fields ([ordered]@{
             coordinate = $coordinate -join ','
+            visible = [bool]$galleryAnchor.visible
             stdout_line = [uint64]$galleryAnchorMarkerEvidence.LineNumber
         })
     }
