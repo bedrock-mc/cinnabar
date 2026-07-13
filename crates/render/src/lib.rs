@@ -36,9 +36,9 @@ pub use plugin::{
     TransparentSortResult, TransparentSortState, TransparentUploadBatch, TransparentWitnessEvent,
     TransparentWitnessEvidence, TransparentWitnessIncompleteEvent, TransparentWitnessRequest,
     TransparentWitnessRequestError, TransparentWitnessStageEvent, TransparentWitnessStageRecord,
-    ViewSortGeneration, ViewSortKey, diagnostic_texture_page,
-    direct_transparent_draw_args_for_test, greedy_texture_uv, mdi_transparent_draw_args_for_test,
-    plan_texture_mip_uploads, plan_texture_page_bindings, select_animation_frames,
-    sort_transparent_candidates_for_test, texture_asset_needs_rebuild,
+    ViewSortGeneration, ViewSortKey, diagnostic_texture_page, direct_model_draw_args_for_test,
+    direct_transparent_draw_args_for_test, greedy_texture_uv, mdi_model_draw_args_for_test,
+    mdi_transparent_draw_args_for_test, plan_texture_mip_uploads, plan_texture_page_bindings,
+    select_animation_frames, sort_transparent_candidates_for_test, texture_asset_needs_rebuild,
     validate_transparent_sort_ref_count,
 };

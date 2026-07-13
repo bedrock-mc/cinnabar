@@ -6,7 +6,8 @@ use std::{
 
 use assets::{
     ANIMATION_FLAG_BLEND, Animation, BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets,
-    DIAGNOSTIC_MATERIAL, Material, NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets,
+    DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_CUTOUT, MODEL_QUAD_FLAG_TWO_SIDED, Material,
+    ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets,
     TextureArray, TextureMip, TexturePage, TextureRef, VisualKind, encode_blob,
 };
 use bevy::{
@@ -24,7 +25,8 @@ use render::{
     TransparentOrderedSnapshot, TransparentSortCandidate, TransparentSortError,
     TransparentSortJobGate, TransparentSortMetrics, TransparentSortMetricsSnapshot,
     TransparentSortResult, TransparentSortState, ViewSortGeneration, ViewSortKey,
-    diagnostic_texture_page, direct_transparent_draw_args_for_test, greedy_texture_uv,
+    diagnostic_texture_page, direct_model_draw_args_for_test,
+    direct_transparent_draw_args_for_test, greedy_texture_uv, mdi_model_draw_args_for_test,
     mdi_transparent_draw_args_for_test, mesh_sub_chunk, plan_texture_mip_uploads,
     plan_texture_page_bindings, select_animation_frames, sort_transparent_candidates_for_test,
     texture_asset_needs_rebuild,
@@ -32,6 +34,7 @@ use render::{
 use world::{DecodedBiomeColumn, SubChunk, SubChunkKey};
 
 const AIR: u32 = 12_530;
+const FLOWERBED: u32 = 14;
 
 #[test]
 fn chunk_sampler_source_contract_is_crisp_for_magnification_and_filtered_for_mips() {
@@ -600,6 +603,113 @@ fn crossed_model_direct_and_mdi_commands_have_identical_output_addressing() {
 }
 
 #[test]
+fn flowerbed_uses_packed_model_lighting_and_conservative_connectivity() {
+    let sub_chunk = sparse_sub_chunk(FLOWERBED, [8, 8, 8]);
+    let mesh = mesh_sub_chunk(
+        &BlockClassifier::new(AIR),
+        runtime_assets(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &sub_chunk,
+    );
+
+    assert!(mesh.cube_quads().is_empty());
+    assert_eq!(mesh.model_refs().len(), 1);
+    assert_eq!(
+        mesh.model_refs()[0].words(),
+        [8 | (8 << 4) | (8 << 8), 0, 0, 0b1111]
+    );
+    assert_eq!(mesh.model_lighting().len(), 4);
+    assert!(
+        mesh.connectivity().is_all_connected(),
+        "a flowerbed is non-occluding and must conservatively preserve every cave-visibility path"
+    );
+}
+
+#[test]
+fn flowerbed_is_two_sided_alpha_cutout_on_the_shared_model_pipeline() {
+    let assets = runtime_assets();
+    let template = assets.model_templates()[0];
+    let quads = &assets.model_quads()
+        [template.quad_start as usize..(template.quad_start + template.quad_count) as usize];
+    assert_eq!(quads.len(), 4);
+    assert!(
+        quads
+            .iter()
+            .all(|quad| quad.flags & MODEL_QUAD_FLAG_TWO_SIDED != 0)
+    );
+    assert!(
+        quads
+            .iter()
+            .all(|quad| { assets.material(quad.material).flags & MATERIAL_FLAG_ALPHA_CUTOUT != 0 })
+    );
+
+    let plugin = include_str!("../src/plugin.rs");
+    let shader = include_str!("../src/model.wgsl");
+    assert_eq!(plugin.matches("\"packed model pipeline\"").count(), 1);
+    assert!(plugin.contains("model_descriptor.primitive.cull_mode = None"));
+    assert!(shader.contains("sampled.a < 0.5"));
+}
+
+#[test]
+fn flowerbed_direct_and_mdi_draws_address_the_same_packed_records() {
+    let direct = direct_model_draw_args_for_test(20..24, 32..36, 3)
+        .expect("one packed flowerbed reference has a direct draw");
+    let mdi = mdi_model_draw_args_for_test(20..24, 32..36, 3)
+        .expect("one packed flowerbed reference has an MDI draw");
+    assert_eq!(direct, mdi);
+    assert_eq!(direct.index_count, 32 * 6);
+    assert_eq!(direct.instance_count, 1);
+    assert_eq!(direct.first_instance, 5);
+    assert_eq!(direct.base_vertex, 3 * 32 * 4);
+}
+
+#[test]
+fn flowerbed_adds_no_renderer_object_or_binding_per_block_or_subchunk() {
+    let plugin = include_str!("../src/plugin.rs");
+    assert!(!plugin.contains("Handle<Mesh>"));
+    assert!(!plugin.contains("Handle<StandardMaterial>"));
+    assert_eq!(
+        plugin.matches("render_device.create_bind_group(").count(),
+        1
+    );
+    assert_eq!(
+        plugin.matches("\"shared packed chunk bind group\"").count(),
+        1
+    );
+    assert_eq!(plugin.matches("model_variants.specialize(").count(), 1);
+    assert!(!plugin.contains("FlowerBed"));
+
+    let mesh = mesh_sub_chunk(
+        &BlockClassifier::new(AIR),
+        runtime_assets(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &sparse_sub_chunk(FLOWERBED, [8, 8, 8]),
+    );
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .add_plugins(DebugWorldPlugin::new(1));
+    app.world_mut()
+        .resource_mut::<ChunkRenderQueue>()
+        .try_insert(
+            SubChunkKey::new(0, 0, 0, 0),
+            mesh,
+            ChunkUploadPriority::new(0.0),
+        )
+        .unwrap();
+    app.update();
+    assert_eq!(
+        app.world_mut()
+            .query::<&ChunkRenderInstance>()
+            .iter(app.world())
+            .count(),
+        1,
+        "one subchunk owns one shared packed render instance regardless of flowerbed count"
+    );
+}
+
+#[test]
 fn queue_counts_every_stream_and_sidecar() {
     let key = SubChunkKey::new(0, 1, 2, 3);
     let cube = solid_mesh(1);
@@ -709,7 +819,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
                 animation: NO_ANIMATION,
                 variant: 0,
             };
-            14
+            15
         ];
         for material_id in 1..14_u32 {
             visuals[material_id as usize] = BlockVisual {
@@ -722,6 +832,15 @@ fn runtime_assets() -> &'static RuntimeAssets {
                 variant: 0,
             };
         }
+        visuals[FLOWERBED as usize] = BlockVisual {
+            faces: [1; 6],
+            flags: BlockFlags::empty(),
+            kind: VisualKind::Model,
+            contributor_role: assets::ContributorRole::Primary,
+            model_template: 0,
+            animation: NO_ANIMATION,
+            variant: 0,
+        };
         let compiled = CompiledAssets {
             visuals: visuals.into_boxed_slice(),
             hashed: Box::new([]),
@@ -731,11 +850,33 @@ fn runtime_assets() -> &'static RuntimeAssets {
                     flags: 0,
                     animation: NO_ANIMATION
                 };
-                14
+                15
             ]
+            .into_iter()
+            .enumerate()
+            .map(|(index, mut material)| {
+                if matches!(index, 1 | 2) {
+                    material.flags = MATERIAL_FLAG_ALPHA_CUTOUT;
+                }
+                material
+            })
+            .collect::<Vec<_>>()
             .into_boxed_slice(),
-            model_templates: Box::new([]),
-            model_quads: Box::new([]),
+            model_templates: vec![ModelTemplate {
+                quad_start: 0,
+                quad_count: 4,
+                flags: 0,
+            }]
+            .into_boxed_slice(),
+            model_quads: (0..4)
+                .map(|index| ModelQuad {
+                    positions: [[0, 0, 0], [256, 0, 256], [256, 63, 256], [0, 63, 0]],
+                    uvs: [[0, 4096], [4096, 4096], [4096, 0], [0, 0]],
+                    material: 1 + index % 2,
+                    flags: MODEL_QUAD_FLAG_TWO_SIDED,
+                })
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
             animations: Box::new([]),
             animation_frames: Box::new([]),
             texture_pages: vec![TexturePage::new(TextureArray {
@@ -771,6 +912,21 @@ fn zig_zag_i32(value: i32) -> Vec<u8> {
             return encoded;
         }
     }
+}
+
+fn sparse_sub_chunk(runtime_id: u32, [x, y, z]: [u8; 3]) -> SubChunk {
+    let mut words = vec![0_u32; 128];
+    let linear = (usize::from(x) << 8) | (usize::from(z) << 4) | usize::from(y);
+    words[linear / 32] |= 1 << (linear % 32);
+
+    let mut encoded = vec![9, 1, 0, 3];
+    for word in words {
+        encoded.extend_from_slice(&word.to_le_bytes());
+    }
+    encoded.extend(zig_zag_i32(2));
+    encoded.extend(zig_zag_i32(AIR as i32));
+    encoded.extend(zig_zag_i32(runtime_id as i32));
+    SubChunk::decode(&encoded).expect("sparse flowerbed subchunk")
 }
 
 #[test]
@@ -1323,7 +1479,7 @@ fn mip_upload_plan_preserves_exact_layer_offsets_and_row_padding() {
             (4, 1, 256, 1, &[0][..], &[0][..], 256),
         ]
     );
-    assert_eq!(runtime_assets().materials().len(), 14);
+    assert_eq!(runtime_assets().materials().len(), 15);
 
     let two_layers = TextureArray {
         layers: 2,

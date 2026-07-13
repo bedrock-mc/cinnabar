@@ -3883,6 +3883,61 @@ fn model_mdi_draw_command(allocation: &GpuChunkAllocation) -> Option<DrawIndexed
     model_draw_command(allocation, mdi_stream_addresses(allocation))
 }
 
+fn model_draw_args_for_test(
+    model_range: Range<u32>,
+    model_lighting_range: Range<u32>,
+    metadata_index: u32,
+    command: fn(&GpuChunkAllocation) -> Option<DrawIndexedIndirectArgs>,
+) -> Option<TransparentDrawArgs> {
+    let allocation = GpuChunkAllocation {
+        key: SubChunkKey::new(0, 0, 0, 0),
+        generation: 0,
+        tint_identity: ChunkBiomeTintIdentity::default(),
+        quad_range: 0..0,
+        model_range: Some(model_range),
+        model_lighting_range: Some(model_lighting_range),
+        liquid_range: None,
+        liquid_lighting_range: None,
+        metadata_index,
+    };
+    let args = command(&allocation)?;
+    Some(TransparentDrawArgs {
+        index_count: args.index_count,
+        instance_count: args.instance_count,
+        first_index: args.first_index,
+        base_vertex: args.base_vertex,
+        first_instance: args.first_instance,
+    })
+}
+
+#[doc(hidden)]
+pub fn direct_model_draw_args_for_test(
+    model_range: Range<u32>,
+    model_lighting_range: Range<u32>,
+    metadata_index: u32,
+) -> Option<TransparentDrawArgs> {
+    model_draw_args_for_test(
+        model_range,
+        model_lighting_range,
+        metadata_index,
+        model_direct_draw_command,
+    )
+}
+
+#[doc(hidden)]
+pub fn mdi_model_draw_args_for_test(
+    model_range: Range<u32>,
+    model_lighting_range: Range<u32>,
+    metadata_index: u32,
+) -> Option<TransparentDrawArgs> {
+    model_draw_args_for_test(
+        model_range,
+        model_lighting_range,
+        metadata_index,
+        model_mdi_draw_command,
+    )
+}
+
 fn metadata_base_vertex(metadata_index: u32) -> Option<i32> {
     metadata_index
         .checked_mul(4)
