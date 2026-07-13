@@ -350,6 +350,7 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     acceptance tests, and independent re-review through test-hardening commit
     `ba3ea3f` are green with no findings.
   - [ ] Add compact static templates in impact order: slabs/stairs,
+    wall-attached vines/lichen/sculk-vein and related thin faces,
     doors/trapdoors, connection-aware panes/fences/gates, then static
     chest/sign models; retain conservative culling/connectivity for partial
     models until exact face-coverage optimization is separately verified.
@@ -381,6 +382,13 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       consecutive exact GPU-completed model-stream witnesses. Automated gallery
       construction is complete, but allocation/upload evidence cannot close
       this live gate.
+    - [ ] Wall-attached vine family: replace the diagnostic pink-cube fallback
+      for every `minecraft:vine` direction-bit state with compact cutout face
+      templates selected from its exact attachment mask, including conservative
+      cave connectivity, cross-subchunk neighbours, texture/UV parity, and a
+      deterministic gallery plus native screenshot/GPU evidence. Extend the
+      same reviewed thin-face route to glow lichen and sculk vein separately;
+      do not collapse their distinct state/property contracts into vine logic.
   - [ ] Complete the exhaustive residual-family report, beginning with
     lava/flowing-lava on a reviewed depth-writing non-water-liquid pipeline, so
     every non-air one of the 16,913 canonical states has a non-diagnostic visual;
