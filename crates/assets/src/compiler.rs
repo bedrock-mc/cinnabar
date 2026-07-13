@@ -34,12 +34,15 @@ pub const MATERIAL_FLAG_FOLIAGE_CLASS_MASK: u32 = 0x0000_0600;
 pub const MATERIAL_FLAG_BIRCH_FOLIAGE: u32 = 1 << 9;
 pub const MATERIAL_FLAG_EVERGREEN_FOLIAGE: u32 = 1 << 10;
 pub const MATERIAL_FLAG_DRY_FOLIAGE: u32 = MATERIAL_FLAG_FOLIAGE_CLASS_MASK;
+/// Selects the opaque, depth-writing liquid pipeline used by lava.
+pub const MATERIAL_FLAG_LIQUID_DEPTH_WRITE: u32 = 1 << 11;
 pub const MATERIAL_FLAGS_MASK: u32 = MATERIAL_FLAG_UV_MASK
     | MATERIAL_FLAG_TINT_MASK
     | MATERIAL_FLAG_OVERLAY_MASK
     | MATERIAL_FLAG_ALPHA_BLEND
     | MATERIAL_FLAG_ALPHA_CUTOUT
-    | MATERIAL_FLAG_FOLIAGE_CLASS_MASK;
+    | MATERIAL_FLAG_FOLIAGE_CLASS_MASK
+    | MATERIAL_FLAG_LIQUID_DEPTH_WRITE;
 
 pub(crate) const fn material_flags_are_valid(flags: u32) -> bool {
     flags & !MATERIAL_FLAGS_MASK == 0
@@ -47,6 +50,12 @@ pub(crate) const fn material_flags_are_valid(flags: u32) -> bool {
             != MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_ALPHA_CUTOUT
         && (flags & MATERIAL_FLAG_FOLIAGE_CLASS_MASK == 0
             || flags & MATERIAL_FLAG_TINT_MASK == MATERIAL_FLAG_FOLIAGE_TINT)
+        && (flags & MATERIAL_FLAG_LIQUID_DEPTH_WRITE == 0
+            || flags
+                & (MATERIAL_FLAG_ALPHA_BLEND
+                    | MATERIAL_FLAG_ALPHA_CUTOUT
+                    | MATERIAL_FLAG_TINT_MASK)
+                == 0)
 }
 
 const MAX_VISUALS: usize = 65_536;
@@ -452,11 +461,14 @@ const fn is_liquid(record: &RegistryRecord) -> bool {
         && matches!(record.contributor_role, ContributorRole::LiquidAdditional)
 }
 
-fn is_water_liquid(record: &RegistryRecord) -> bool {
+fn is_supported_liquid(record: &RegistryRecord) -> bool {
     is_liquid(record)
         && matches!(
             record.name.as_ref(),
-            "minecraft:water" | "minecraft:flowing_water"
+            "minecraft:water"
+                | "minecraft:flowing_water"
+                | "minecraft:lava"
+                | "minecraft:flowing_lava"
         )
 }
 
@@ -465,7 +477,7 @@ const fn liquid_material_flags(name: &str) -> u32 {
         b"minecraft:water" | b"minecraft:flowing_water" => {
             MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_WATER_TINT
         }
-        b"minecraft:lava" | b"minecraft:flowing_lava" => 0,
+        b"minecraft:lava" | b"minecraft:flowing_lava" => MATERIAL_FLAG_LIQUID_DEPTH_WRITE,
         _ => 0,
     }
 }
@@ -832,7 +844,7 @@ fn compile_visuals(
     ordered_records.sort_unstable_by_key(|record| record.sequential_id);
     for record in ordered_records {
         let mut visual = BlockVisual::diagnostic(record.flags, record.contributor_role);
-        if is_water_liquid(record) {
+        if is_supported_liquid(record) {
             let materials = BlockFace::ALL.map(|face| {
                 descriptor_for(pack, record, face)
                     .and_then(|(descriptor, _)| material_by_descriptor.get(&descriptor).copied())

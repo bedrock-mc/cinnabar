@@ -11,12 +11,12 @@ use assets::{
     CompiledAssets, ContributorRole, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND,
     MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_BIRCH_FOLIAGE, MATERIAL_FLAG_EVERGREEN_FOLIAGE,
     MATERIAL_FLAG_FOLIAGE_CLASS_MASK, MATERIAL_FLAG_FOLIAGE_TINT, MATERIAL_FLAG_GRASS_TINT,
-    MATERIAL_FLAG_OVERLAY_MASK, MATERIAL_FLAG_ROTATE_UV, MATERIAL_FLAG_TINT_MASK,
-    MATERIAL_FLAG_UV_MASK, MATERIAL_FLAG_WATER_TINT, MATERIAL_FLAGS_MASK, MAX_TEXTURE_LAYERS,
-    MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_QUAD_FLAG_FACE_MASK, MODEL_QUAD_FLAG_TWO_SIDED,
-    MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_STAIR, Material, ModelFamily, ModelQuad,
-    ModelState, ModelStateField, NetworkIdMode, RegistryProvenance, RegistryRecord, RuntimeAssets,
-    VisualKind, compile_pack, encode_blob, read_registry,
+    MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_OVERLAY_MASK, MATERIAL_FLAG_ROTATE_UV,
+    MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_UV_MASK, MATERIAL_FLAG_WATER_TINT, MATERIAL_FLAGS_MASK,
+    MAX_TEXTURE_LAYERS, MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_QUAD_FLAG_FACE_MASK,
+    MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_STAIR, Material,
+    ModelFamily, ModelQuad, ModelState, ModelStateField, NetworkIdMode, RegistryProvenance,
+    RegistryRecord, RuntimeAssets, VisualKind, compile_pack, encode_blob, read_registry,
 };
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 use sha2::{Digest, Sha256};
@@ -2864,7 +2864,8 @@ fn compiler_marks_only_leaf_faces_as_alpha_cutout() {
 
     assert_eq!(MATERIAL_FLAG_UV_MASK, 0x0f);
     assert_eq!(MATERIAL_FLAG_ALPHA_CUTOUT, 0x100);
-    assert_eq!(MATERIAL_FLAGS_MASK, 0x7ff);
+    assert_eq!(MATERIAL_FLAG_LIQUID_DEPTH_WRITE, 0x800);
+    assert_eq!(MATERIAL_FLAGS_MASK, 0xfff);
     assert_eq!(std::mem::size_of::<Material>(), 12);
     let opaque_id = compiled.visuals[0].faces[BlockFace::Up as usize];
     let opaque = compiled.materials[opaque_id as usize];
@@ -3970,9 +3971,8 @@ fn compiler_installs_recognized_flipbooks_after_loading_the_strip() {
             .contains(BlockFlags::CUBE_GEOMETRY)
     );
     assert_eq!(compiled.visuals[0].variant, 3);
-    assert_eq!(compiled.visuals[1].kind, VisualKind::Diagnostic);
-    assert_eq!(compiled.visuals[1].faces, [DIAGNOSTIC_MATERIAL; 6]);
-    assert_eq!(compiled.visuals[1].variant, 0);
+    assert_eq!(compiled.visuals[1].kind, VisualKind::Liquid);
+    assert_eq!(compiled.visuals[1].variant, 15);
     for visual in &compiled.visuals[2..] {
         assert_eq!(visual.kind, VisualKind::Diagnostic);
         assert_eq!(visual.faces, [DIAGNOSTIC_MATERIAL; 6]);
@@ -4009,9 +4009,86 @@ fn compiler_installs_recognized_flipbooks_after_loading_the_strip() {
     );
     assert_eq!(water_material.animation, 0);
     assert_eq!(water_flow.animation, 1);
+    let lava_still = compiled.materials[compiled.visuals[1].faces[BlockFace::Up as usize] as usize];
+    let lava_flow =
+        compiled.materials[compiled.visuals[1].faces[BlockFace::North as usize] as usize];
+    assert_eq!(lava_still.flags, MATERIAL_FLAG_LIQUID_DEPTH_WRITE);
+    assert_eq!(lava_flow.flags, MATERIAL_FLAG_LIQUID_DEPTH_WRITE);
+    assert_eq!(lava_still.animation, 2);
+    assert_eq!(lava_flow.animation, 3);
     assert_eq!(compiled.animations.len(), 4);
     assert_eq!(compiled.animation_frames.len(), 8);
     assert_eq!(compiled.texture_pages[0].texture.layers, 9);
+}
+
+#[test]
+fn compiler_maps_every_protocol_1001_lava_depth_for_both_runtime_names() {
+    let directory = tempfile::tempdir().expect("create lava fixture");
+    write_pack(
+        directory.path(),
+        r#"{
+            "lava":{"textures":{"up":"lava_still","down":"lava_still","side":"lava_flow"}},
+            "flowing_lava":{"textures":{"up":"lava_still","down":"lava_still","side":"lava_flow"}}
+        }"#,
+        r#"{"texture_data":{
+            "lava_still":{"textures":"textures/blocks/lava_still"},
+            "lava_flow":{"textures":"textures/blocks/lava_flow"}
+        }}"#,
+        r#"[
+            {"flipbook_texture":"textures/blocks/lava_still","atlas_tile":"lava_still"},
+            {"flipbook_texture":"textures/blocks/lava_flow","atlas_tile":"lava_flow"}
+        ]"#,
+    );
+    for (index, path) in ["lava_still", "lava_flow"].into_iter().enumerate() {
+        let mut strip = solid(TILE_SIZE, TILE_SIZE, [240, 40 + index as u8, 4, 255]);
+        strip.extend(solid(TILE_SIZE, TILE_SIZE, [255, 80 + index as u8, 8, 255]));
+        write_png(
+            directory.path(),
+            &format!("textures/blocks/{path}"),
+            TILE_SIZE,
+            TILE_SIZE * 2,
+            &strip,
+        );
+    }
+
+    let mut records = Vec::new();
+    for (name_index, name) in ["minecraft:lava", "minecraft:flowing_lava"]
+        .into_iter()
+        .enumerate()
+    {
+        for depth in 0..16_u32 {
+            let sequential_id = (name_index as u32) * 16 + depth;
+            let mut record = model_record(
+                sequential_id,
+                10_000 + sequential_id,
+                name,
+                &format!(r#"{{"liquid_depth":{{"type":"int","value":{depth}}}}}"#),
+                ModelFamily::Liquid,
+            );
+            record.contributor_role = ContributorRole::LiquidAdditional;
+            records.push(record);
+        }
+    }
+
+    let compiled = compile_pack(directory.path(), &records).expect("compile all lava states");
+    assert_eq!(compiled.visuals.len(), 32);
+    for (sequential_id, visual) in compiled.visuals.iter().enumerate() {
+        assert_eq!(visual.kind, VisualKind::Liquid, "state {sequential_id}");
+        assert_eq!(
+            visual.contributor_role,
+            ContributorRole::LiquidAdditional,
+            "state {sequential_id}",
+        );
+        assert_eq!(visual.variant, sequential_id as u32 % 16);
+        for material in visual.faces {
+            assert_ne!(material, DIAGNOSTIC_MATERIAL);
+            assert_eq!(
+                compiled.materials[material as usize].flags,
+                MATERIAL_FLAG_LIQUID_DEPTH_WRITE,
+            );
+        }
+    }
+    assert_eq!(compiled.animations.len(), 2);
 }
 
 fn one_texture_fixture() -> (TempDir, RegistryRecord, PathBuf) {

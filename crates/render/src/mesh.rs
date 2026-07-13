@@ -151,13 +151,16 @@ impl PackedQuadLighting {
 /// where 255 is one full block. Vertex order is top NW/NE/SE/SW; bottom
 /// NW/SW/SE/NE; -X bottom-N/top-N/top-S/bottom-S; +X
 /// bottom-S/top-S/top-N/bottom-N; -Z bottom-E/top-E/top-W/bottom-W; and +Z
-/// bottom-W/top-W/top-E/bottom-E. Word 2 stores the selected material and word 3
-/// the relative index in the independently allocated liquid-light stream.
+/// bottom-W/top-W/top-E/bottom-E. Word 2 stores the selected material in bits
+/// 0..30 and the immutable depth-writing route in bit 31; word 3 stores the
+/// relative index in the independently allocated liquid-light stream.
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct PackedLiquidQuad([u32; 4]);
 
 impl PackedLiquidQuad {
+    const DEPTH_WRITE_BIT: u32 = 1 << 31;
+
     #[must_use]
     pub const fn words(self) -> [u32; 4] {
         self.0
@@ -178,7 +181,11 @@ impl PackedLiquidQuad {
         flow_gradient: [i8; 2],
         falling: bool,
     ) -> Option<Self> {
-        if origin[0] >= 16 || origin[1] >= 16 || origin[2] >= 16 {
+        if origin[0] >= 16
+            || origin[1] >= 16
+            || origin[2] >= 16
+            || material_id & Self::DEPTH_WRITE_BIT != 0
+        {
             return None;
         }
         let geometry = origin[0] as u32
@@ -239,7 +246,23 @@ impl PackedLiquidQuad {
 
     #[must_use]
     pub const fn material_id(self) -> u32 {
-        self.0[2]
+        self.0[2] & !Self::DEPTH_WRITE_BIT
+    }
+
+    /// Returns whether this record belongs to the opaque depth-writing liquid route.
+    #[must_use]
+    pub const fn is_depth_writing(self) -> bool {
+        self.0[2] & Self::DEPTH_WRITE_BIT != 0
+    }
+
+    #[must_use]
+    pub(crate) const fn with_depth_write(mut self, enabled: bool) -> Self {
+        if enabled {
+            self.0[2] |= Self::DEPTH_WRITE_BIT;
+        } else {
+            self.0[2] &= !Self::DEPTH_WRITE_BIT;
+        }
+        self
     }
 
     #[must_use]

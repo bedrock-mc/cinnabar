@@ -38,6 +38,7 @@ const FALLING_SCROLL_TICKS: f32 = 32.0;
 const FLOW_FACE: u32 = 3u;
 const SIDE_FACE_MASK: u32 = 51u;
 const FALLING_FACE_MASK: u32 = 51u;
+const LIQUID_DEPTH_WRITE_BIT: u32 = 1u << 31u;
 
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> cube_quads: array<u32>;
@@ -63,6 +64,7 @@ struct VertexOutput {
     @location(3) @interpolate(flat) frame_blend: f32,
     @location(4) @interpolate(flat) water_tint: vec3<f32>,
     @location(5) light_factor: f32,
+    @location(6) @interpolate(flat) depth_write_route: u32,
 }
 
 fn animation_sample(material: MaterialGpu) -> FrameSample {
@@ -153,12 +155,25 @@ fn vertex(
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
+    return vertex_for_ref(transparent_refs[instance_index], vertex_index);
+}
+
+@vertex
+fn vertex_depth(
+    @builtin(vertex_index) vertex_index: u32,
+    @builtin(instance_index) instance_index: u32,
+) -> VertexOutput {
+    let draw_ref = TransparentDrawRef(instance_index, vertex_index / 4u);
+    return vertex_for_ref(draw_ref, vertex_index);
+}
+
+fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutput {
     let corner = vertex_index & 3u;
-    let draw_ref = transparent_refs[instance_index];
     let liquid_word = draw_ref.liquid_record_index * 4u;
     let geometry = geometry_streams[liquid_word];
     let height_word = geometry_streams[liquid_word + 1u];
-    let material = materials[geometry_streams[liquid_word + 2u]];
+    let packed_material = geometry_streams[liquid_word + 2u];
+    let material = materials[packed_material & ~LIQUID_DEPTH_WRITE_BIT];
     let lighting_record_index = geometry_streams[liquid_word + 3u];
     let lighting_word = geometry_streams[lighting_record_index * 2u + corner / 2u];
     let light_sample = select(
@@ -198,6 +213,7 @@ fn vertex(
     out.frame_blend = frame.blend;
     out.water_tint = unpack_linear_rgb10(tint.water);
     out.light_factor = max(block_light, sky_light) / 15.0 * (1.0 - ao * 0.12);
+    out.depth_write_route = packed_material >> 31u;
     return out;
 }
 
@@ -237,6 +253,7 @@ fn sample_texture_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+    if (in.depth_write_route != 0u) { discard; }
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
     let current_sample = sample_texture_ref(in.current_texture, in.uv, dx, dy);
@@ -246,4 +263,18 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         sampled = mix(current_sample, next_sample, in.frame_blend);
     }
     return vec4(sampled.rgb * in.water_tint * in.light_factor, sampled.a);
+}
+
+@fragment
+fn fragment_depth(in: VertexOutput) -> @location(0) vec4<f32> {
+    if (in.depth_write_route == 0u) { discard; }
+    let dx = dpdx(in.uv);
+    let dy = dpdy(in.uv);
+    let current_sample = sample_texture_ref(in.current_texture, in.uv, dx, dy);
+    var sampled = current_sample;
+    if (in.frame_blend > 0.0) {
+        let next_sample = sample_texture_ref(in.next_texture, in.uv, dx, dy);
+        sampled = mix(current_sample, next_sample, in.frame_blend);
+    }
+    return vec4(sampled.rgb * in.light_factor, 1.0);
 }

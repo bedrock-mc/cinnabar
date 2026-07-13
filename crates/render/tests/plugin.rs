@@ -443,6 +443,27 @@ fn transparent_pipeline_uses_alpha_without_depth_write() {
 }
 
 #[test]
+fn non_water_liquid_pipeline_is_opaque_and_depth_writing() {
+    let plugin = include_str!("../src/plugin.rs");
+    assert!(plugin.contains("packed depth-writing liquid pipeline"));
+    assert!(plugin.contains("depth_liquid_variants"));
+    assert!(plugin.contains("vertex_depth"));
+    assert!(plugin.contains("fragment_depth"));
+    assert!(plugin.contains("DrawDepthLiquidCommands"));
+    assert!(plugin.contains("DrawDepthLiquidIndirectCommands"));
+    let depth_pipeline = plugin
+        .split("let mut depth_liquid_descriptor = descriptor.clone();")
+        .nth(1)
+        .and_then(|source| source.split("Self {").next())
+        .expect("depth-writing liquid descriptor");
+    assert!(depth_pipeline.contains("vertex_depth"));
+    assert!(depth_pipeline.contains("fragment_depth"));
+    assert!(depth_pipeline.contains("depth_liquid_descriptor.primitive.cull_mode = None"));
+    assert!(!depth_pipeline.contains("BlendState::ALPHA_BLENDING"));
+    assert!(!depth_pipeline.contains("depth_write_enabled = false"));
+}
+
+#[test]
 fn direct_and_mdi_share_transparent_order() {
     let direct = direct_transparent_draw_args_for_test(1, 37).unwrap();
     let mdi = mdi_transparent_draw_args_for_test(1, 37).unwrap();
@@ -1496,7 +1517,7 @@ fn render_queue_carries_biome_tint_revision_to_the_instance() {
 }
 
 #[test]
-fn packed_chunk_pipeline_family_remains_one_opaque_depth_writing_phase() {
+fn packed_chunk_pipeline_family_shares_one_opaque_depth_writing_phase() {
     let plugin = include_str!("../src/plugin.rs");
 
     assert_eq!(
@@ -1505,7 +1526,7 @@ fn packed_chunk_pipeline_family_remains_one_opaque_depth_writing_phase() {
             .count(),
         1
     );
-    assert_eq!(plugin.matches(".add_render_command::<Opaque3d").count(), 4);
+    assert_eq!(plugin.matches(".add_render_command::<Opaque3d").count(), 6);
     assert_eq!(plugin.matches("BindGroupLayoutDescriptor::new(").count(), 1);
     assert_eq!(
         plugin.matches("render_device.create_bind_group(").count(),
@@ -1555,8 +1576,8 @@ fn packed_chunk_pipeline_family_remains_one_opaque_depth_writing_phase() {
         plugin
             .matches("pass.set_bind_group(0, bind_group, &[view_offset.offset]);")
             .count(),
-        6,
-        "cube/model/liquid direct and MDI must share the same global bind group"
+        8,
+        "cube/model/transparent-liquid/depth-liquid direct and MDI share the global bind group"
     );
 }
 

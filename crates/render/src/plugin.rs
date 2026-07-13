@@ -3632,6 +3632,9 @@ pub struct ChunkRenderInstance {
     model_lighting: Arc<[PackedQuadLighting]>,
     liquid_quads: Arc<[PackedLiquidQuad]>,
     liquid_lighting: Arc<[PackedQuadLighting]>,
+    has_depth_liquid: bool,
+    has_transparent_liquid: bool,
+    depth_liquid_start: Option<u32>,
     biome: PackedBiomeRecord,
     tint_identity: ChunkBiomeTintIdentity,
     generation: u64,
@@ -3774,6 +3777,7 @@ impl Plugin for DebugWorldPlugin {
             .init_resource::<ChunkTextureUploadStats>()
             .init_resource::<ChunkIndirectBatches>()
             .init_resource::<ChunkModelIndirectBatches>()
+            .init_resource::<ChunkDepthLiquidIndirectBatches>()
             .init_resource::<ActiveFrameProbe>()
             .init_resource::<TransparentSortRuntime>()
             .init_resource::<TransparentPresentationFence>()
@@ -3782,6 +3786,8 @@ impl Plugin for DebugWorldPlugin {
             .add_render_command::<Opaque3d, DrawChunkIndirectCommands>()
             .add_render_command::<Opaque3d, DrawModelCommands>()
             .add_render_command::<Opaque3d, DrawModelIndirectCommands>()
+            .add_render_command::<Opaque3d, DrawDepthLiquidCommands>()
+            .add_render_command::<Opaque3d, DrawDepthLiquidIndirectCommands>()
             .add_render_command::<Transparent3d, DrawTransparentLiquidCommands>()
             .add_render_command::<Transparent3d, DrawTransparentLiquidIndirectCommands>()
             .add_systems(
@@ -3891,6 +3897,19 @@ fn apply_chunk_render_queue(
         let origin = chunk_origin(key);
         let (cube_quads, model_refs, model_lighting, liquid_quads, liquid_lighting) =
             pending.mesh.into_streams();
+        let depth_liquid_start = liquid_quads
+            .iter()
+            .position(|quad| quad.is_depth_writing())
+            .and_then(|index| u32::try_from(index).ok());
+        debug_assert!(depth_liquid_start.is_none_or(|start| {
+            liquid_quads[start as usize..]
+                .iter()
+                .all(|quad| quad.is_depth_writing())
+        }));
+        let has_depth_liquid = depth_liquid_start.is_some();
+        let has_transparent_liquid = liquid_quads
+            .first()
+            .is_some_and(|quad| !quad.is_depth_writing());
         let instance = ChunkRenderInstance {
             key,
             cube_quads: Arc::from(cube_quads),
@@ -3898,6 +3917,9 @@ fn apply_chunk_render_queue(
             model_lighting: Arc::from(model_lighting),
             liquid_quads: Arc::from(liquid_quads),
             liquid_lighting: Arc::from(liquid_lighting),
+            has_depth_liquid,
+            has_transparent_liquid,
+            depth_liquid_start,
             biome: pending.biome,
             tint_identity: pending.tint_identity,
             generation: pending.generation,
@@ -3939,6 +3961,7 @@ struct ChunkPipeline {
     variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
     model_variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
     liquid_variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
+    depth_liquid_variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
     bind_group_layout: BindGroupLayoutDescriptor,
 }
 
@@ -4137,11 +4160,17 @@ impl FromWorld for ChunkPipeline {
         let mut liquid_descriptor = descriptor.clone();
         liquid_descriptor.label = Some("packed transparent liquid pipeline".into());
         liquid_descriptor.vertex.shader = LIQUID_SHADER_HANDLE;
+        liquid_descriptor.vertex.entry_point = Some("vertex".into());
         liquid_descriptor
             .fragment
             .as_mut()
             .expect("liquid fragment")
             .shader = LIQUID_SHADER_HANDLE;
+        liquid_descriptor
+            .fragment
+            .as_mut()
+            .expect("liquid fragment")
+            .entry_point = Some("fragment".into());
         liquid_descriptor.fragment.as_mut().unwrap().targets[0]
             .as_mut()
             .unwrap()
@@ -4157,10 +4186,22 @@ impl FromWorld for ChunkPipeline {
             .expect("liquid depth state")
             .depth_compare = CompareFunction::GreaterEqual;
         liquid_descriptor.primitive.cull_mode = None;
+        let mut depth_liquid_descriptor = descriptor.clone();
+        depth_liquid_descriptor.label = Some("packed depth-writing liquid pipeline".into());
+        depth_liquid_descriptor.vertex.shader = LIQUID_SHADER_HANDLE;
+        depth_liquid_descriptor.vertex.entry_point = Some("vertex_depth".into());
+        let depth_fragment = depth_liquid_descriptor
+            .fragment
+            .as_mut()
+            .expect("depth-writing liquid fragment");
+        depth_fragment.shader = LIQUID_SHADER_HANDLE;
+        depth_fragment.entry_point = Some("fragment_depth".into());
+        depth_liquid_descriptor.primitive.cull_mode = None;
         Self {
             variants: Variants::new(ChunkPipelineSpecializer, descriptor),
             model_variants: Variants::new(ChunkPipelineSpecializer, model_descriptor),
             liquid_variants: Variants::new(ChunkPipelineSpecializer, liquid_descriptor),
+            depth_liquid_variants: Variants::new(ChunkPipelineSpecializer, depth_liquid_descriptor),
             bind_group_layout,
         }
     }
@@ -4203,6 +4244,9 @@ struct GpuChunkAllocation {
     model_lighting_range: Option<Range<u32>>,
     liquid_range: Option<Range<u32>>,
     liquid_lighting_range: Option<Range<u32>>,
+    has_depth_liquid: bool,
+    has_transparent_liquid: bool,
+    depth_liquid_range: Option<Range<u32>>,
     metadata_index: u32,
 }
 
@@ -4297,6 +4341,34 @@ fn model_mdi_draw_command(allocation: &GpuChunkAllocation) -> Option<DrawIndexed
     model_draw_command(allocation, mdi_stream_addresses(allocation))
 }
 
+fn depth_liquid_draw_command(allocation: &GpuChunkAllocation) -> Option<DrawIndexedIndirectArgs> {
+    if !allocation.has_depth_liquid {
+        return None;
+    }
+    allocation.liquid_lighting_range.as_ref()?;
+    let liquid = allocation.depth_liquid_range.as_ref()?;
+    let instance_count = liquid.end.checked_sub(liquid.start)?;
+    (instance_count != 0).then_some(DrawIndexedIndirectArgs {
+        index_count: STATIC_QUAD_INDICES.len() as u32,
+        instance_count,
+        first_index: 0,
+        base_vertex: metadata_base_vertex(allocation.metadata_index)?,
+        first_instance: liquid.start,
+    })
+}
+
+fn depth_liquid_direct_draw_command(
+    allocation: &GpuChunkAllocation,
+) -> Option<DrawIndexedIndirectArgs> {
+    depth_liquid_draw_command(allocation)
+}
+
+fn depth_liquid_mdi_draw_command(
+    allocation: &GpuChunkAllocation,
+) -> Option<DrawIndexedIndirectArgs> {
+    depth_liquid_draw_command(allocation)
+}
+
 fn metadata_base_vertex(metadata_index: u32) -> Option<i32> {
     metadata_index
         .checked_mul(4)
@@ -4334,6 +4406,9 @@ struct ChunkIndirectBatches(HashMap<Entity, ChunkIndirectBatch>);
 
 #[derive(Resource, Default)]
 struct ChunkModelIndirectBatches(HashMap<Entity, ChunkIndirectBatch>);
+
+#[derive(Resource, Default)]
+struct ChunkDepthLiquidIndirectBatches(HashMap<Entity, ChunkIndirectBatch>);
 
 #[derive(Clone)]
 struct ArenaAllocation {
@@ -5445,6 +5520,12 @@ fn prepare_gpu_chunks(
             liquid_lighting_required
                 * (PACKED_QUAD_LIGHTING_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32,
         );
+        let depth_liquid_range = instance.depth_liquid_start.and_then(|local_start| {
+            let liquid = liquid_range.as_ref()?;
+            let record_start = liquid.start.checked_div(4)?;
+            let record_end = liquid.end.checked_div(4)?;
+            Some(record_start.checked_add(local_start)?..record_end)
+        });
         let quad_range = cube_range
             .clone()
             .unwrap_or(plan.quad_start..plan.quad_start);
@@ -5498,6 +5579,9 @@ fn prepare_gpu_chunks(
             model_lighting_range,
             liquid_range,
             liquid_lighting_range,
+            has_depth_liquid: instance.has_depth_liquid,
+            has_transparent_liquid: instance.has_transparent_liquid,
+            depth_liquid_range,
             metadata_index,
         };
         commands.entity(entity).insert(gpu.clone());
@@ -5799,7 +5883,10 @@ fn build_transparent_candidates(
             instance.origin[1] as f32 + 8.0,
             instance.origin[2] as f32 + 8.0,
         ];
-        for (local_index, &quad) in instance.liquid_quads.iter().enumerate() {
+        let transparent_end = instance
+            .depth_liquid_start
+            .map_or(instance.liquid_quads.len(), |start| start as usize);
+        for (local_index, &quad) in instance.liquid_quads[..transparent_end].iter().enumerate() {
             let local_quad_index =
                 u32::try_from(local_index).map_err(|_| TransparentSortError::ReferenceCeiling {
                     requested: candidates.len().saturating_add(1),
@@ -5973,10 +6060,12 @@ fn prepare_transparent_sorts(
         if !transparent_allocation_matches(instance, allocation, biome_tints.table_identity()) {
             continue;
         }
-        if let (Some(liquid), Some(lighting)) = (
-            allocation.liquid_range.clone(),
-            allocation.liquid_lighting_range.clone(),
-        ) {
+        if allocation.has_transparent_liquid
+            && let (Some(liquid), Some(lighting)) = (
+                allocation.liquid_range.clone(),
+                allocation.liquid_lighting_range.clone(),
+            )
+        {
             manifest.push(TransparentAllocationIdentity::new(
                 allocation.key,
                 allocation.generation,
@@ -6315,6 +6404,9 @@ fn transparent_geometry_update_requires_cow(
     old: &ArenaAllocation,
     required: GeometryStreamCounts,
 ) -> bool {
+    if !old.gpu.has_transparent_liquid {
+        return false;
+    }
     let Some(old_liquid) = old.liquid_range.as_ref() else {
         return false;
     };
@@ -7145,6 +7237,31 @@ fn prepare_model_indirect_batch_draws<'a>(
     (commands, drawn)
 }
 
+fn prepare_depth_liquid_indirect_batch_draws<'a>(
+    allocations: impl IntoIterator<Item = (Entity, &'a GpuChunkAllocation)>,
+    frame_probe: &ActiveFrameProbe,
+    active_tint_identity: ChunkBiomeTintIdentity,
+) -> (
+    Vec<DrawIndexedIndirectArgs>,
+    Vec<(Entity, FrameAllocationIdentity)>,
+) {
+    let mut commands = Vec::new();
+    let mut drawn = Vec::new();
+    for (entity, allocation) in allocations {
+        let Some(identity) =
+            drawable_allocation_identity(frame_probe, entity, allocation, active_tint_identity)
+        else {
+            continue;
+        };
+        let Some(command) = depth_liquid_mdi_draw_command(allocation) else {
+            continue;
+        };
+        commands.push(command);
+        drawn.push((entity, identity));
+    }
+    (commands, drawn)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn prepare_chunk_indirect_batches(
     render_device: Res<RenderDevice>,
@@ -7154,6 +7271,7 @@ fn prepare_chunk_indirect_batches(
     frame_probe: Res<ActiveFrameProbe>,
     mut batches: ResMut<ChunkIndirectBatches>,
     mut model_batches: ResMut<ChunkModelIndirectBatches>,
+    mut depth_liquid_batches: ResMut<ChunkDepthLiquidIndirectBatches>,
     mut arena: ResMut<ChunkGpuArena>,
 ) {
     let mut all_commands = Vec::new();
@@ -7177,6 +7295,24 @@ fn prepare_chunk_indirect_batches(
     }
     for batch in model_batches.0.values_mut() {
         let (indirect_commands, drawn_allocations) = prepare_model_indirect_batch_draws(
+            batch
+                .visible_entities
+                .iter()
+                .filter_map(|&entity| allocations.get(entity).ok().map(|item| (entity, item))),
+            &frame_probe,
+            biome_tints.table_identity(),
+        );
+        batch.drawn_allocations = drawn_allocations;
+        batch.indirect_offset = all_commands.len() as u64 * INDEXED_INDIRECT_BYTES;
+        let Ok(command_count) = u32::try_from(indirect_commands.len()) else {
+            batch.command_count = 0;
+            continue;
+        };
+        batch.command_count = command_count;
+        all_commands.extend(indirect_commands);
+    }
+    for batch in depth_liquid_batches.0.values_mut() {
+        let (indirect_commands, drawn_allocations) = prepare_depth_liquid_indirect_batch_draws(
             batch
                 .visible_entities
                 .iter()
@@ -7238,6 +7374,7 @@ fn queue_chunks(
     mut indirect_batch_sets: ParamSet<(
         ResMut<ChunkIndirectBatches>,
         ResMut<ChunkModelIndirectBatches>,
+        ResMut<ChunkDepthLiquidIndirectBatches>,
     )>,
     mut next_tick: Local<Tick>,
     mut unsupported_reported: Local<bool>,
@@ -7251,8 +7388,11 @@ fn queue_chunks(
     let indirect_draw = draw_functions.id::<DrawChunkIndirectCommands>();
     let model_direct_draw = draw_functions.id::<DrawModelCommands>();
     let model_indirect_draw = draw_functions.id::<DrawModelIndirectCommands>();
+    let depth_liquid_direct_draw = draw_functions.id::<DrawDepthLiquidCommands>();
+    let depth_liquid_indirect_draw = draw_functions.id::<DrawDepthLiquidIndirectCommands>();
     indirect_batch_sets.p0().0.clear();
     indirect_batch_sets.p1().0.clear();
+    indirect_batch_sets.p2().0.clear();
     if draw_mode == ChunkDrawMode::Unsupported {
         frame_probe.clear();
         if !*unsupported_reported {
@@ -7316,6 +7456,15 @@ fn queue_chunks(
         ) else {
             continue;
         };
+        let Ok(depth_liquid_pipeline_id) = pipeline.depth_liquid_variants.specialize(
+            &pipeline_cache,
+            ChunkPipelineKey {
+                msaa: *msaa,
+                hdr: view.hdr,
+            },
+        ) else {
+            continue;
+        };
 
         if draw_mode == ChunkDrawMode::MultiDrawIndirect {
             let visible = sorted_visible_entities(
@@ -7365,6 +7514,18 @@ fn queue_chunks(
                     command_count: 0,
                 },
             );
+            indirect_batch_sets.p2().0.insert(
+                view_entity,
+                ChunkIndirectBatch {
+                    visible_entities: visible
+                        .iter()
+                        .map(|(render_entity, _)| *render_entity)
+                        .collect(),
+                    drawn_allocations: Vec::new(),
+                    indirect_offset: 0,
+                    command_count: 0,
+                },
+            );
 
             let this_tick = next_tick.get() + 1;
             next_tick.set(this_tick);
@@ -7391,6 +7552,25 @@ fn queue_chunks(
                 Opaque3dBatchSetKey {
                     draw_function: model_indirect_draw,
                     pipeline: model_pipeline_id,
+                    material_bind_group_index: None,
+                    lightmap_slab: None,
+                    vertex_slab: default(),
+                    index_slab: None,
+                },
+                Opaque3dBinKey {
+                    asset_id: AssetId::<Mesh>::invalid().untyped(),
+                },
+                (view_entity, *view_main_entity),
+                InputUniformIndex::default(),
+                BinnedRenderPhaseType::NonMesh,
+                *next_tick,
+            );
+            let this_tick = next_tick.get() + 1;
+            next_tick.set(this_tick);
+            phase.add(
+                Opaque3dBatchSetKey {
+                    draw_function: depth_liquid_indirect_draw,
+                    pipeline: depth_liquid_pipeline_id,
                     material_bind_group_index: None,
                     lightmap_slab: None,
                     vertex_slab: default(),
@@ -7447,6 +7627,27 @@ fn queue_chunks(
                     Opaque3dBatchSetKey {
                         draw_function: model_direct_draw,
                         pipeline: model_pipeline_id,
+                        material_bind_group_index: None,
+                        lightmap_slab: None,
+                        vertex_slab: default(),
+                        index_slab: None,
+                    },
+                    Opaque3dBinKey {
+                        asset_id: AssetId::<Mesh>::invalid().untyped(),
+                    },
+                    (render_entity, main_entity),
+                    InputUniformIndex::default(),
+                    BinnedRenderPhaseType::NonMesh,
+                    *next_tick,
+                );
+            }
+            if depth_liquid_direct_draw_command(allocation).is_some() {
+                let this_tick = next_tick.get() + 1;
+                next_tick.set(this_tick);
+                phase.add(
+                    Opaque3dBatchSetKey {
+                        draw_function: depth_liquid_direct_draw,
+                        pipeline: depth_liquid_pipeline_id,
                         material_bind_group_index: None,
                         lightmap_slab: None,
                         vertex_slab: default(),
@@ -7607,6 +7808,8 @@ type DrawChunkCommands = (SetItemPipeline, DrawPackedChunk);
 type DrawChunkIndirectCommands = (SetItemPipeline, DrawPackedChunksIndirect);
 type DrawModelCommands = (SetItemPipeline, DrawPackedModel);
 type DrawModelIndirectCommands = (SetItemPipeline, DrawPackedModelsIndirect);
+type DrawDepthLiquidCommands = (SetItemPipeline, DrawDepthLiquid);
+type DrawDepthLiquidIndirectCommands = (SetItemPipeline, DrawDepthLiquidsIndirect);
 type DrawTransparentLiquidCommands = (SetItemPipeline, DrawTransparentLiquid);
 type DrawTransparentLiquidIndirectCommands = (SetItemPipeline, DrawTransparentLiquidIndirect);
 
@@ -7616,6 +7819,48 @@ type DrawTransparentLiquidIndirectCommands = (SetItemPipeline, DrawTransparentLi
 struct DrawPackedChunk;
 
 struct DrawTransparentLiquid;
+
+struct DrawDepthLiquid;
+
+impl<P: PhaseItem> RenderCommand<P> for DrawDepthLiquid {
+    type Param = (SRes<ChunkGpuArena>, SRes<ActiveFrameProbe>);
+    type ViewQuery = Read<ViewUniformOffset>;
+    type ItemQuery = Read<GpuChunkAllocation>;
+
+    fn render<'w>(
+        item: &P,
+        view_offset: ROQueryItem<'w, '_, Self::ViewQuery>,
+        allocation: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
+        (arena, frame_probe): SystemParamItem<'w, '_, Self::Param>,
+        pass: &mut TrackedRenderPass<'w>,
+    ) -> RenderCommandResult {
+        let arena = arena.into_inner();
+        let frame_probe = frame_probe.into_inner();
+        let (Some(bind_group), Some(allocation)) = (&arena.bind_group, allocation) else {
+            return RenderCommandResult::Skip;
+        };
+        let identity = FrameAllocationIdentity {
+            entity: item.entity(),
+            key: allocation.key,
+            generation: allocation.generation,
+        };
+        if !frame_probe.accepts(item.entity(), identity) {
+            return RenderCommandResult::Skip;
+        }
+        let Some(command) = depth_liquid_direct_draw_command(allocation) else {
+            return RenderCommandResult::Skip;
+        };
+        pass.set_bind_group(0, bind_group, &[view_offset.offset]);
+        pass.set_index_buffer(arena.index_buffer.slice(..), IndexFormat::Uint32);
+        pass.draw_indexed(
+            command.first_index..command.first_index + command.index_count,
+            command.base_vertex,
+            command.first_instance..command.first_instance + command.instance_count,
+        );
+        frame_probe.record_direct_streams(item.entity(), identity, ChunkStreamMask::LIQUID);
+        RenderCommandResult::Success
+    }
+}
 
 impl<P: PhaseItem> RenderCommand<P> for DrawTransparentLiquid {
     type Param = (
@@ -7882,6 +8127,51 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedModelsIndirect {
         frame_probe.record_mdi_streams(
             batch.drawn_allocations.iter().copied(),
             ChunkStreamMask::MODEL,
+        );
+        RenderCommandResult::Success
+    }
+}
+
+struct DrawDepthLiquidsIndirect;
+
+impl<P: PhaseItem> RenderCommand<P> for DrawDepthLiquidsIndirect {
+    type Param = (
+        SRes<ChunkGpuArena>,
+        SRes<ChunkDepthLiquidIndirectBatches>,
+        SRes<ActiveFrameProbe>,
+    );
+    type ViewQuery = Read<ViewUniformOffset>;
+    type ItemQuery = ();
+
+    fn render<'w>(
+        item: &P,
+        view_offset: ROQueryItem<'w, '_, Self::ViewQuery>,
+        _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
+        (arena, batches, frame_probe): SystemParamItem<'w, '_, Self::Param>,
+        pass: &mut TrackedRenderPass<'w>,
+    ) -> RenderCommandResult {
+        let arena = arena.into_inner();
+        let batches = batches.into_inner();
+        let frame_probe = frame_probe.into_inner();
+        let Some(batch) = batches.0.get(&item.entity()) else {
+            return RenderCommandResult::Skip;
+        };
+        if batch.command_count == 0 {
+            return RenderCommandResult::Skip;
+        }
+        let Some(bind_group) = &arena.bind_group else {
+            return RenderCommandResult::Skip;
+        };
+        pass.set_bind_group(0, bind_group, &[view_offset.offset]);
+        pass.set_index_buffer(arena.index_buffer.slice(..), IndexFormat::Uint32);
+        pass.multi_draw_indexed_indirect(
+            &arena.indirect_buffer,
+            batch.indirect_offset,
+            batch.command_count,
+        );
+        frame_probe.record_mdi_streams(
+            batch.drawn_allocations.iter().copied(),
+            ChunkStreamMask::LIQUID,
         );
         RenderCommandResult::Success
     }
@@ -8272,6 +8562,9 @@ mod tests {
             )
             .unwrap()]),
             liquid_lighting: Arc::from([PackedQuadLighting::new([0; 4])]),
+            has_depth_liquid: false,
+            has_transparent_liquid: true,
+            depth_liquid_start: None,
             biome: PackedBiomeRecord::fallback(),
             tint_identity: tint,
             generation: 9,
@@ -8287,6 +8580,9 @@ mod tests {
             model_lighting_range: Some(plan.model_lighting_start..plan.liquid_start),
             liquid_range: Some(plan.liquid_start..plan.liquid_start + 4),
             liquid_lighting_range: Some(plan.liquid_lighting_start..plan.liquid_lighting_start + 2),
+            has_depth_liquid: false,
+            has_transparent_liquid: true,
+            depth_liquid_range: None,
             metadata_index: 0,
         };
 
@@ -8401,6 +8697,9 @@ mod tests {
             model_lighting_range: Some(model_lighting_range.clone()),
             liquid_range: None,
             liquid_lighting_range: None,
+            has_depth_liquid: false,
+            has_transparent_liquid: false,
+            depth_liquid_range: None,
             metadata_index: 3,
         };
 
@@ -8481,6 +8780,9 @@ mod tests {
             )
             .unwrap()]),
             liquid_lighting: Arc::from([PackedQuadLighting::new([0; 4])]),
+            has_depth_liquid: false,
+            has_transparent_liquid: true,
+            depth_liquid_start: None,
             biome: PackedBiomeRecord::fallback(),
             tint_identity: tint,
             generation: 6,
@@ -8496,6 +8798,9 @@ mod tests {
             model_lighting_range: None,
             liquid_range: Some(8..12),
             liquid_lighting_range: Some(20..22),
+            has_depth_liquid: false,
+            has_transparent_liquid: true,
+            depth_liquid_range: None,
             metadata_index: 7,
         };
         assert!(transparent_allocation_matches(&instance, &allocation, tint));
@@ -8544,6 +8849,9 @@ mod tests {
             model_lighting_range: None,
             liquid_range: Some(identity.liquid_range.clone()),
             liquid_lighting_range: Some(identity.lighting_range.clone()),
+            has_depth_liquid: false,
+            has_transparent_liquid: true,
+            depth_liquid_range: None,
             metadata_index: identity.metadata_index,
         }
     }
@@ -8904,6 +9212,9 @@ mod tests {
                 model_lighting_range: None,
                 liquid_range: Some(8..16),
                 liquid_lighting_range: Some(16..20),
+                has_depth_liquid: false,
+                has_transparent_liquid: true,
+                depth_liquid_range: None,
                 metadata_index: 3,
             },
         }
@@ -8936,6 +9247,13 @@ mod tests {
         assert!(transparent_geometry_update_requires_cow(
             &old,
             GeometryStreamCounts::default()
+        ));
+
+        let mut lava_only = old;
+        lava_only.gpu.has_transparent_liquid = false;
+        assert!(!transparent_geometry_update_requires_cow(
+            &lava_only,
+            moved_by_model,
         ));
     }
 
@@ -10369,6 +10687,9 @@ mod tests {
                 model_lighting_range: None,
                 liquid_range: None,
                 liquid_lighting_range: None,
+                has_depth_liquid: false,
+                has_transparent_liquid: false,
+                depth_liquid_range: None,
                 metadata_index: 4,
             },
             GpuChunkAllocation {
@@ -10380,6 +10701,9 @@ mod tests {
                 model_lighting_range: None,
                 liquid_range: None,
                 liquid_lighting_range: None,
+                has_depth_liquid: false,
+                has_transparent_liquid: false,
+                depth_liquid_range: None,
                 metadata_index: 1,
             },
         ];
@@ -10709,6 +11033,9 @@ mod tests {
                         model_lighting_range: None,
                         liquid_range: None,
                         liquid_lighting_range: None,
+                        has_depth_liquid: false,
+                        has_transparent_liquid: false,
+                        depth_liquid_range: None,
                         metadata_index: index as u32,
                     },
                 )
@@ -11620,5 +11947,39 @@ mod tests {
         let mdi = mdi.complete().model_witness.unwrap();
         assert!(mdi.is_exact());
         assert_eq!(mdi.manifest, direct.manifest);
+    }
+
+    #[test]
+    fn depth_liquid_direct_and_mdi_draws_share_exact_addresses() {
+        let allocation = GpuChunkAllocation {
+            key: SubChunkKey::new(0, 1, 2, 3),
+            generation: 4,
+            tint_identity: ChunkBiomeTintIdentity::default(),
+            quad_range: 0..0,
+            model_range: None,
+            model_lighting_range: None,
+            liquid_range: Some(40..64),
+            liquid_lighting_range: Some(64..76),
+            has_depth_liquid: true,
+            has_transparent_liquid: true,
+            depth_liquid_range: Some(10..16),
+            metadata_index: 7,
+        };
+        let direct = depth_liquid_direct_draw_command(&allocation).unwrap();
+        let mdi = depth_liquid_mdi_draw_command(&allocation).unwrap();
+        assert_eq!(direct.index_count, mdi.index_count);
+        assert_eq!(direct.instance_count, mdi.instance_count);
+        assert_eq!(direct.first_index, mdi.first_index);
+        assert_eq!(direct.base_vertex, mdi.base_vertex);
+        assert_eq!(direct.first_instance, mdi.first_instance);
+        assert_eq!(direct.index_count, 6);
+        assert_eq!(direct.instance_count, 6);
+        assert_eq!(direct.base_vertex, 28);
+        assert_eq!(direct.first_instance, 10);
+
+        let mut water_only = allocation;
+        water_only.has_depth_liquid = false;
+        assert!(depth_liquid_direct_draw_command(&water_only).is_none());
+        assert!(depth_liquid_mdi_draw_command(&water_only).is_none());
     }
 }

@@ -3,8 +3,9 @@ use std::{mem::size_of, sync::OnceLock};
 use assets::{
     Animation, BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, ContributorRole,
     DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT,
-    MATERIAL_FLAG_WATER_TINT, Material, NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode,
-    RuntimeAssets, TextureArray, TextureMip, TexturePage, TextureRef, VisualKind, encode_blob,
+    MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_WATER_TINT, Material, NO_ANIMATION,
+    NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TextureArray, TextureMip, TexturePage,
+    TextureRef, VisualKind, encode_blob,
 };
 use render::{
     BlockClassifier, Face, LiquidLevel, Neighbourhood, PackedLiquidQuad, mesh_sub_chunk,
@@ -60,12 +61,25 @@ fn packed_schema_preserves_signed_gradient_and_relative_lighting_address() {
     assert_eq!(packed.face(), Face::PositiveY);
     assert_eq!(packed.heights(), [10, 20, 30, 40]);
     assert_eq!(packed.material_id(), 7);
+    assert!(!packed.is_depth_writing());
     assert_eq!(packed.lighting_index(), 11);
     assert_eq!(packed.flow_gradient(), [-17, 23]);
     assert!(packed.is_falling());
     assert!(
         PackedLiquidQuad::try_pack([16, 0, 0], Face::NegativeX, [0; 4], 0, 0, [0, 0], false)
             .is_none()
+    );
+    assert!(
+        PackedLiquidQuad::try_pack(
+            [0, 0, 0],
+            Face::NegativeX,
+            [0; 4],
+            1 << 31,
+            0,
+            [0, 0],
+            false,
+        )
+        .is_none()
     );
     let mut reserved = packed.words();
     reserved[0] = (reserved[0] & !(7 << 12)) | (6 << 12);
@@ -431,10 +445,87 @@ fn liquid_preserves_all_compiled_face_materials_separately_from_compatibility() 
 }
 
 #[test]
-fn liquid_without_blend_and_water_tint_emits_no_transparent_streams() {
+fn depth_writing_lava_uses_the_shared_liquid_stream_without_water_flags() {
     let mesh = mesh(&blocks(&[(NON_WATER_LIQUID, [8, 8, 8])]));
-    assert!(mesh.liquid_quads().is_empty());
-    assert!(mesh.liquid_lighting().is_empty());
+    assert_eq!(mesh.liquid_quads().len(), 6);
+    assert_eq!(mesh.liquid_lighting().len(), 6);
+    assert!(mesh.liquid_quads().iter().all(|quad| {
+        let flags = runtime_assets().material(quad.material_id()).flags;
+        quad.is_depth_writing()
+            && flags & MATERIAL_FLAG_LIQUID_DEPTH_WRITE != 0
+            && flags & (MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_WATER_TINT) == 0
+    }));
+}
+
+#[test]
+fn mixed_water_and_lava_are_stably_partitioned_with_both_interface_faces() {
+    let mesh = mesh(&blocks(&[
+        (WATER_SOURCE, [8, 8, 8]),
+        (NON_WATER_LIQUID, [9, 8, 8]),
+    ]));
+    let split = mesh
+        .liquid_quads()
+        .iter()
+        .position(|quad| quad.is_depth_writing())
+        .expect("lava suffix");
+    assert_eq!(split, 6);
+    assert_eq!(mesh.liquid_quads().len(), 12);
+    assert!(
+        mesh.liquid_quads()[..split]
+            .iter()
+            .all(|quad| !quad.is_depth_writing())
+    );
+    assert!(
+        mesh.liquid_quads()[split..]
+            .iter()
+            .all(|quad| quad.is_depth_writing())
+    );
+    assert!(
+        mesh.liquid_quads()
+            .iter()
+            .any(|quad| { quad.origin() == [8, 8, 8] && quad.face() == Face::PositiveX })
+    );
+    assert!(
+        mesh.liquid_quads()
+            .iter()
+            .any(|quad| { quad.origin() == [9, 8, 8] && quad.face() == Face::NegativeX })
+    );
+    assert!(
+        mesh.liquid_quads()
+            .iter()
+            .enumerate()
+            .all(|(index, quad)| quad.lighting_index() == index as u32)
+    );
+}
+
+#[test]
+fn depth_writing_lava_culls_matching_faces_across_all_subchunk_boundaries() {
+    for (offset, local, remote, face) in [
+        ([-1, 0, 0], [0, 8, 8], [15, 8, 8], Face::NegativeX),
+        ([1, 0, 0], [15, 8, 8], [0, 8, 8], Face::PositiveX),
+        ([0, -1, 0], [8, 0, 8], [8, 15, 8], Face::NegativeY),
+        ([0, 1, 0], [8, 15, 8], [8, 0, 8], Face::PositiveY),
+        ([0, 0, -1], [8, 8, 0], [8, 8, 15], Face::NegativeZ),
+        ([0, 0, 1], [8, 8, 15], [8, 8, 0], Face::PositiveZ),
+    ] {
+        let center = blocks(&[(NON_WATER_LIQUID, local)]);
+        let adjacent = blocks(&[(NON_WATER_LIQUID, remote)]);
+        let mut neighbourhood = MeshNeighbourhood::new(&center);
+        assert!(neighbourhood.insert(offset, &adjacent));
+        let mesh = mesh_sub_chunk_in_neighbourhood(
+            &BlockClassifier::new(AIR),
+            runtime_assets(),
+            NetworkIdMode::Sequential,
+            &neighbourhood,
+        );
+        assert!(
+            !mesh
+                .liquid_quads()
+                .iter()
+                .any(|quad| quad.origin() == local && quad.face() == face),
+            "shared lava face survived at boundary {offset:?}",
+        );
+    }
 }
 
 #[test]
@@ -634,6 +725,13 @@ fn runtime_assets() -> &'static RuntimeAssets {
             flags: MATERIAL_FLAG_ALPHA_CUTOUT,
             animation: NO_ANIMATION,
         };
+        for material in [13_usize, 14] {
+            materials[material] = Material {
+                texture: TextureRef::new(0, (material - 13) as u32).unwrap(),
+                flags: MATERIAL_FLAG_LIQUID_DEPTH_WRITE,
+                animation: (material - 13) as u32,
+            };
+        }
         for (material, animation) in [(3_usize, 0_u32), (4, 1)] {
             materials[material] = Material {
                 texture: TextureRef::new(0, animation).unwrap(),

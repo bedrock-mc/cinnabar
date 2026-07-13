@@ -50,7 +50,8 @@ impl LiquidLevel {
 
 use assets::{
     BlockFace, BlockFlags, MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT,
-    MATERIAL_FLAG_WATER_TINT, NetworkIdMode, RuntimeAssets, VisualKind,
+    MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_WATER_TINT, NetworkIdMode, RuntimeAssets,
+    VisualKind,
 };
 use world::MeshNeighbourhood;
 
@@ -69,6 +70,7 @@ struct LiquidCell {
     identity: LiquidIdentity,
     face_materials: [u32; Face::ALL.len()],
     level: LiquidLevel,
+    depth_writing: bool,
 }
 
 impl LiquidCell {
@@ -129,12 +131,13 @@ impl<'chunk, 'assets> Sampler<'chunk, 'assets> {
         let entry = self
             .contributors(neighbourhood, coordinate)?
             .liquid_entry()?;
-        (entry.kind == VisualKind::Liquid && water_material_family(self.assets, entry.faces))
-            .then_some(LiquidCell {
-                identity: LiquidIdentity(entry.faces),
-                face_materials: entry.faces,
-                level: LiquidLevel::from_variant(entry.variant)?,
-            })
+        let depth_writing = supported_liquid_material_family(self.assets, entry.faces)?;
+        (entry.kind == VisualKind::Liquid).then_some(LiquidCell {
+            identity: LiquidIdentity(entry.faces),
+            face_materials: entry.faces,
+            level: LiquidLevel::from_variant(entry.variant)?,
+            depth_writing,
+        })
     }
 
     fn open(
@@ -205,15 +208,32 @@ fn horizontal_contacting_faces([x, z]: [i32; 2]) -> ([Face; 2], usize) {
     (faces, count)
 }
 
-fn water_material_family(assets: &RuntimeAssets, materials: [u32; Face::ALL.len()]) -> bool {
-    materials
+fn supported_liquid_material_family(
+    assets: &RuntimeAssets,
+    materials: [u32; Face::ALL.len()],
+) -> Option<bool> {
+    if materials
         .into_iter()
         .all(|material| water_material(assets, material))
+    {
+        Some(false)
+    } else if materials
+        .into_iter()
+        .all(|material| depth_writing_liquid_material(assets, material))
+    {
+        Some(true)
+    } else {
+        None
+    }
 }
 
 fn water_material(assets: &RuntimeAssets, material: u32) -> bool {
     let required = MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_WATER_TINT;
     assets.material(material).flags & required == required
+}
+
+fn depth_writing_liquid_material(assets: &RuntimeAssets, material: u32) -> bool {
+    assets.material(material).flags & MATERIAL_FLAG_LIQUID_DEPTH_WRITE != 0
 }
 
 pub(crate) fn mesh_liquids(
@@ -237,16 +257,26 @@ pub(crate) fn mesh_liquids(
                 }
                 let block = assets.resolve(mode, network_value);
                 block.kind() == VisualKind::Liquid
-                    && BlockFace::ALL
-                        .into_iter()
-                        .all(|face| water_material(assets, block.face(face).material_id()))
+                    && supported_liquid_material_family(
+                        assets,
+                        BlockFace::ALL.map(|face| block.face(face).material_id()),
+                    )
+                    .is_some()
             })
     });
     if !contains_liquid {
         return (Vec::new(), Vec::new());
     }
     let sampler = Sampler::new(classifier, assets, mode, neighbourhood);
-    let mut quads = Vec::new();
+    let mut transparent_quads = Vec::new();
+    let mut depth_quads = Vec::new();
+    let mut push_quad = |quad: PackedLiquidQuad| {
+        if quad.is_depth_writing() {
+            depth_quads.push(quad);
+        } else {
+            transparent_quads.push(quad);
+        }
+    };
     for x in 0..SIDE {
         for y in 0..SIDE {
             for z in 0..SIDE {
@@ -262,13 +292,14 @@ pub(crate) fn mesh_liquids(
                     && !sampler.solid(neighbourhood, above, Face::NegativeY)
                 {
                     let material = cell.top_material(gradient != [0, 0]);
-                    quads.push(pack(
+                    push_quad(pack(
                         origin,
                         Face::PositiveY,
                         heights,
                         material,
                         gradient,
                         cell.level,
+                        cell.depth_writing,
                     ));
                 }
                 for face in [
@@ -290,34 +321,38 @@ pub(crate) fn mesh_liquids(
                         Face::PositiveZ => [0, heights[3], heights[2], 0],
                         _ => unreachable!(),
                     };
-                    quads.push(pack(
+                    push_quad(pack(
                         origin,
                         face,
                         side_heights,
                         cell.material(face),
                         gradient,
                         cell.level,
+                        cell.depth_writing,
                     ));
                 }
                 let below = add(block, [0, -1, 0]);
                 if !compatible(&sampler, neighbourhood, below, cell.identity)
                     && !sampler.solid(neighbourhood, below, Face::PositiveY)
                 {
-                    quads.push(pack(
+                    push_quad(pack(
                         origin,
                         Face::NegativeY,
                         [0; 4],
                         cell.material(Face::NegativeY),
                         gradient,
                         cell.level,
+                        cell.depth_writing,
                     ));
                 }
             }
         }
     }
-    let mut addressed = Vec::with_capacity(quads.len());
-    let mut lighting = Vec::with_capacity(quads.len());
-    for quad in quads {
+    transparent_quads.reserve(depth_quads.len());
+    transparent_quads.append(&mut depth_quads);
+    let mut addressed = Vec::with_capacity(transparent_quads.len());
+    let mut lighting = Vec::with_capacity(transparent_quads.len());
+    for quad in transparent_quads {
         let index = lighting.len() as u32;
         let block = quad.origin().map(i32::from);
         lighting.push(crate::lighting::bake_quad_lighting(
@@ -339,6 +374,7 @@ pub(crate) fn mesh_liquids(
                 quad.flow_gradient(),
                 quad.is_falling(),
             )
+            .map(|packed| packed.with_depth_write(quad.is_depth_writing()))
             .expect("previously checked liquid record"),
         );
     }
@@ -352,6 +388,7 @@ fn pack(
     material: u32,
     gradient: [i8; 2],
     level: LiquidLevel,
+    depth_writing: bool,
 ) -> PackedLiquidQuad {
     PackedLiquidQuad::try_pack(
         origin,
@@ -362,6 +399,7 @@ fn pack(
         gradient,
         level.is_falling(),
     )
+    .map(|packed| packed.with_depth_write(depth_writing))
     .expect("local liquid record is bounded")
 }
 

@@ -226,12 +226,26 @@ fn liquid_shader_preserves_straight_alpha_animation_tint_and_light() {
 }
 
 #[test]
+fn liquid_shader_has_mutually_exclusive_water_and_depth_writing_entries() {
+    assert!(SHADER.contains("fn vertex_depth("));
+    assert!(SHADER.contains("fn fragment_depth("));
+    assert!(SHADER.contains("@interpolate(flat) depth_write_route: u32"));
+    assert!(SHADER.contains("LIQUID_DEPTH_WRITE_BIT"));
+    assert!(SHADER.contains("let material = materials[packed_material & ~LIQUID_DEPTH_WRITE_BIT]"));
+    assert!(
+        SHADER.contains("let draw_ref = TransparentDrawRef(instance_index, vertex_index / 4u)")
+    );
+    assert!(SHADER.contains("out.depth_write_route = packed_material >> 31u"));
+    assert!(SHADER.contains("if (in.depth_write_route != 0u)"));
+    assert!(SHADER.contains("if (in.depth_write_route == 0u)"));
+}
+
+#[test]
 fn liquid_shader_resolves_block_biome_tint_before_fragment_rasterization() {
     let vertex = SHADER
-        .split("@vertex")
-        .nth(1)
-        .and_then(|shader| shader.split("@fragment").next())
-        .expect("liquid shader must retain a vertex stage before its fragment stage");
+        .split("@fragment")
+        .next()
+        .expect("liquid shader must retain vertex stages before its fragment stages");
     let fragment = SHADER
         .split("@fragment")
         .nth(1)

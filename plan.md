@@ -407,14 +407,24 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       exact hash-to-sequential bijection, bounds all inputs, rejects diagnostic
       regression/invisible laundering, and writes deterministic hash-bound
       reports (`b131247`; 11 tests, strict Clippy, real-pack run, and independent
-      review green). The current baseline has 14,973 diagnostics and zero vine
-      diagnostics; each remaining family must shrink that exact set.
+      review green). After the reviewed lava tranche below, the current baseline
+      has 14,941 diagnostics and zero vine or lava diagnostics; each remaining
+      family must shrink that exact set.
   - [ ] Complete the exhaustive residual-family report, beginning with
     lava/flowing-lava on a reviewed depth-writing non-water-liquid pipeline, so
     every non-air one of the 16,913 canonical states has a non-diagnostic visual;
     close deterministic galleries and live acceptance with globally zero
     diagnostic counters, vanilla-reference screenshots, upload/memory/CPU
     metrics, and teleport-remesh evidence.
+    - [x] Lava implementation: all 32 `minecraft:lava` and
+      `minecraft:flowing_lava` depth states compile through the animated liquid
+      mesher without water tint or alpha blending, use an immutable packed route
+      bit, retain the O(n) transparent-water/depth-lava partition, and draw in a
+      separate opaque depth-writing direct/MDI pipeline. Mixed interfaces and all
+      six cross-subchunk boundaries are covered. Full assets/render suites,
+      strict Clippy/formatting, the real 16,913-state ratchet, and independent
+      review are green; deterministic native gallery/GPU/performance evidence
+      remains part of the residual-family live gate.
     - [ ] Run all 67 exact-state GPU gallery pages (256 targets per logical page,
       with one final 17-state page), require exact palette readback plus two
       consecutive GPU-completed frames for every canonical target, and inspect
