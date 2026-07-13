@@ -817,6 +817,9 @@ try {
     $slabStairPlans = @('SlabStairGalleryTop', 'SlabStairGalleryNorth', 'SlabStairGalleryEast', 'SlabStairGalleryOblique', 'SlabStairGalleryObliqueOpposite') | ForEach-Object {
         New-SlabStairGalleryPlan -MutationCoordinate @(100, 64, 200) -Pose $_ -RegistryPath $BlockRegistry -AssetsPath $SlabStairAssets
     }
+    foreach ($slabStairPlan in $slabStairPlans) {
+        Assert-True (-not (($slabStairPlan.Commands -join "`n").Contains('`'))) "$($slabStairPlan.Manifest.pose) published a literal PowerShell escape in a BDS command"
+    }
     $unsealedSlabStairAssets = Join-Path $TempRoot 'unsealed covered visual mutation.mcbea'
     $unsealedBytes = [IO.File]::ReadAllBytes($SlabStairAssets)
     $firstStairId = [int](@(Get-TestRegistryEntries -RegistryPath $BlockRegistry | Where-Object family -eq 8)[0].sequential_id)

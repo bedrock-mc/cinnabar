@@ -3329,8 +3329,8 @@ function New-SlabStairGalleryPlan {
     $fixtureCommands.Add("fill $($clearMin.x) $($my + 1) $($clearMin.z) $($clearMax.x) $($my + 1) $($clearMax.z) minecraft:stone")
     $witnesses = [Collections.Generic.List[object]]::new()
     foreach ($slab in @(
-        [pscustomobject][ordered]@{ label = 'bottom_slab'; block = 'minecraft:stone_block_slab [`"vertical_half`"=`"bottom`"]'; offset = @(-4, 0, -13) },
-        [pscustomobject][ordered]@{ label = 'top_slab'; block = 'minecraft:stone_block_slab [`"vertical_half`"=`"top`"]'; offset = @(0, 0, -13) },
+        [pscustomobject][ordered]@{ label = 'bottom_slab'; block = 'minecraft:stone_block_slab ["vertical_half"="bottom"]'; offset = @(-4, 0, -13) },
+        [pscustomobject][ordered]@{ label = 'top_slab'; block = 'minecraft:stone_block_slab ["vertical_half"="top"]'; offset = @(0, 0, -13) },
         [pscustomobject][ordered]@{ label = 'double_slab'; block = 'minecraft:double_stone_block_slab'; offset = @(4, 0, -13) }
     )) {
         $x = $mx + $slab.offset[0]; $y = $my + 2; $z = $mz + $slab.offset[2]
