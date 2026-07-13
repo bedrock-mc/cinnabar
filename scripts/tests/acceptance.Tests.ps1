@@ -691,6 +691,10 @@ try {
     $flowerBedPlans = @('FlowerBedGalleryTop', 'FlowerBedGalleryNorth', 'FlowerBedGalleryEast', 'FlowerBedGalleryOblique', 'FlowerBedGalleryObliqueOpposite') | ForEach-Object {
         New-FlowerBedGalleryPlan -MutationCoordinate @(100, 64, 200) -Pose $_ -RegistryPath $BlockRegistry
     }
+    # slab_stair_gallery_covers_all_variants
+    $slabStairPlans = @('SlabStairGalleryTop', 'SlabStairGalleryNorth', 'SlabStairGalleryEast', 'SlabStairGalleryOblique', 'SlabStairGalleryObliqueOpposite') | ForEach-Object {
+        New-SlabStairGalleryPlan -MutationCoordinate @(100, 64, 200) -Pose $_
+    }
 
     $expectedFlowerBedStates = [Collections.Generic.List[string]]::new()
     $expectedFlowerBedReferences = [Collections.Generic.List[string]]::new()
@@ -762,6 +766,34 @@ try {
     $reorderedFlowerBedStates = @($expectedFlowerBedStates)
     [array]::Reverse($reorderedFlowerBedStates)
     Assert-True (($reorderedFlowerBedStates -join "`n") -cne ($flowerBedPlans[0].Manifest.gallery_states -join "`n")) 'flowerbed exact ordered manifest assertion cannot detect reordering'
+
+    foreach ($slabStairPlan in $slabStairPlans) {
+        Assert-Equal 'SlabStairGallery' $slabStairPlan.Manifest.fixture_kind 'slab/stair plan lost fixture kind'
+        Assert-Equal 43 ([int]$slabStairPlan.Manifest.central_witness_count) 'slab/stair plan lost the 43 central witnesses'
+        Assert-Equal 43 @($slabStairPlan.Manifest.witnesses).Count 'slab/stair witness inventory changed'
+        Assert-Equal 3 @($slabStairPlan.Manifest.witnesses | Where-Object kind -ceq 'slab').Count 'slab variants changed'
+        Assert-Equal 40 @($slabStairPlan.Manifest.witnesses | Where-Object kind -ceq 'stair').Count 'stair state matrix changed'
+        Assert-Equal 5 @($slabStairPlan.Manifest.camera_poses.PSObject.Properties).Count 'slab/stair plan lost a fixed diagnostic camera'
+        Assert-Equal 77 @($slabStairPlan.FixtureCommands).Count 'slab/stair fixture command bound changed'
+        Assert-Equal 'bda8ff56bb26fc1774188592c60ae666cbe4b1c35568ff9a02fdaefad73099f1' ([string]$slabStairPlan.Manifest.state_set_sha256) 'slab/stair exact state-set identity drifted'
+        Assert-Equal 'aeeb6c4e11e265d2a075af8e37945fb9b0a5b1b493373125b789b45139240510' ([string]$slabStairPlan.Manifest.fixture_layout_hash) 'slab/stair canonical layout identity drifted'
+        Assert-True ($slabStairPlan.LoadAreaCommand -match '^tickingarea add ') 'slab/stair gallery omitted bounded preload'
+        Assert-True ($slabStairPlan.CleanupCommand -match '^tickingarea remove ') 'slab/stair gallery omitted ticking-area cleanup'
+        Assert-Equal (Get-CanonicalObjectHash -Value $slabStairPlan.Manifest.relative_layout) $slabStairPlan.Manifest.fixture_layout_hash 'slab/stair layout hash was not derived from its complete relative layout'
+        foreach ($half in @($false, $true)) {
+            foreach ($orientation in @('south', 'west', 'north', 'east')) {
+                foreach ($shape in @('straight', 'right_inner', 'left_inner', 'right_outer', 'left_outer')) {
+                    Assert-Equal 1 @($slabStairPlan.Manifest.witnesses | Where-Object { $_.kind -ceq 'stair' -and $_.upside_down -eq $half -and $_.orientation -ceq $orientation -and $_.shape -ceq $shape }).Count "slab/stair matrix missing half=$half orientation=$orientation shape=$shape"
+                }
+            }
+        }
+        Assert-Equal 32 @($slabStairPlan.Manifest.witnesses | Where-Object { $_.kind -ceq 'stair' -and $null -ne $_.neighbor_offset }).Count 'corner witnesses lost isolated neighbours'
+    }
+    Assert-Equal 1 @($slabStairPlans | ForEach-Object { $_.Manifest.fixture_layout_hash } | Sort-Object -Unique).Count 'slab/stair camera pose changed canonical layout identity'
+    Assert-Equal 1 @($slabStairPlans | ForEach-Object { $_.Manifest.state_set_sha256 } | Sort-Object -Unique).Count 'slab/stair camera pose changed exact state identity'
+    $movedSlabStairPlan = New-SlabStairGalleryPlan -MutationCoordinate @(500, 70, -300) -Pose SlabStairGalleryTop
+    Assert-Equal $slabStairPlans[0].Manifest.fixture_layout_hash $movedSlabStairPlan.Manifest.fixture_layout_hash 'slab/stair absolute coordinate changed canonical layout identity'
+    Assert-Equal $slabStairPlans[0].Manifest.state_set_sha256 $movedSlabStairPlan.Manifest.state_set_sha256 'slab/stair absolute coordinate changed state identity'
 
     $freshSource = Join-Path $TempRoot 'fresh gallery source'
     $freshRuntime = Join-Path $TempRoot 'fresh gallery runtime'

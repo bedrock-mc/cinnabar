@@ -831,6 +831,31 @@ func TestSelectorCardinality(t *testing.T) {
 	}
 }
 
+func TestStairSelectorUsesCanonicalLogicalFacingAndUpsideDown(t *testing.T) {
+	wantFacing := map[int32]uint32{0: 0, 1: 1, 2: 2, 3: 3} // south, west, north, east
+	for raw, want := range wantFacing {
+		for upside := byte(0); upside < 2; upside++ {
+			record, err := classifyRecord(sourceState(
+				"minecraft:oak_stairs",
+				intState("weirdo_direction", raw),
+				byteState("upside_down_bit", upside),
+			))
+			if err != nil {
+				t.Fatalf("classify direction=%d upside=%d: %v", raw, upside, err)
+			}
+			if got, ok := record.ModelState.Get(ModelStateOrientation); !ok || got != want {
+				t.Fatalf("direction=%d orientation=%d/%v, want %d/true", raw, got, ok, want)
+			}
+			if got, ok := record.ModelState.Get(ModelStateHalf); !ok || got != uint32(upside) {
+				t.Fatalf("direction=%d upside=%d half=%d/%v", raw, upside, got, ok)
+			}
+			if record.FaceCoverage != 0 || record.Flags&(flagCubeGeometry|flagOccludesFullFace) != 0 {
+				t.Fatalf("direction=%d upside=%d stair was promoted to full coverage: %#x/%#x", raw, upside, record.FaceCoverage, record.Flags)
+			}
+		}
+	}
+}
+
 func TestFlowerBedClassificationPreservesGrowthAndOrientation(t *testing.T) {
 	for _, name := range []string{"minecraft:wildflowers", "minecraft:pink_petals"} {
 		state := sourceState(name,

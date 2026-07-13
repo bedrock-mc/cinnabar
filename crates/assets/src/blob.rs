@@ -10,8 +10,8 @@ use crate::model::{MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAGS_MASK};
 use crate::{
     AssetError, BlockFlags, CompiledAssets, DIAGNOSTIC_MATERIAL, MAX_ANIMATION_FRAMES,
     MAX_ANIMATIONS, MAX_MATERIALS, MAX_MODEL_QUADS, MAX_MODEL_TEMPLATES, MAX_TEXTURE_LAYERS,
-    MAX_TEXTURE_PAGES, MIP_COUNT, MODEL_TEMPLATE_FLAG_KELP, NO_ANIMATION, NO_MODEL_TEMPLATE,
-    TILE_SIZE, TextureRef, VisualKind,
+    MAX_TEXTURE_PAGES, MIP_COUNT, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_STAIR,
+    NO_ANIMATION, NO_MODEL_TEMPLATE, TILE_SIZE, TextureRef, VisualKind,
     biome::{TINT_MAP_BYTES, TINT_MAP_COUNT, TINT_MAP_SIZE, validate_biome_assets},
     compiler::{material_flags_are_valid, visual_semantics_are_valid},
     model::{ANIMATION_FLAGS_MASK, model_quad_flags_are_valid},
@@ -270,6 +270,8 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
             "material animation",
         )?;
     }
+    let stair_bases = compiled_stair_bases(&compiled.model_templates)?;
+    let mut referenced_stair_bases = vec![false; stair_bases.len()];
     for (index, visual) in compiled.visuals.iter().enumerate() {
         if BlockFlags::from_bits(visual.flags.bits())
             .is_none_or(|flags| !flags.has_valid_semantics())
@@ -314,6 +316,24 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
             }
             _ => {}
         }
+        if visual.model_template != NO_MODEL_TEMPLATE
+            && compiled.model_templates[visual.model_template as usize].flags
+                & MODEL_TEMPLATE_FLAG_STAIR
+                != 0
+        {
+            let Some(base_index) = stair_bases
+                .iter()
+                .position(|&base| base == visual.model_template as usize)
+            else {
+                return Err(invalid(
+                    "stair visual does not reference a topology-group base",
+                ));
+            };
+            if visual.kind != VisualKind::Model || visual.variant & !7 != 0 {
+                return Err(invalid("stair visual has invalid kind or transform"));
+            }
+            referenced_stair_bases[base_index] = true;
+        }
         if visual.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
             && !visual.flags.contains(BlockFlags::CUBE_GEOMETRY)
             && (visual.kind != VisualKind::Model
@@ -327,6 +347,9 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
                 "standalone full-face occlusion requires a drawable model",
             ));
         }
+    }
+    if referenced_stair_bases.iter().any(|referenced| !referenced) {
+        return Err(invalid("stair template group is unreferenced"));
     }
     let mut previous = None;
     for &(hash, visual) in &compiled.hashed {
@@ -400,6 +423,29 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
         validate_texture_ref(frame, &compiled.texture_pages, "animation frame")?;
     }
     Ok(())
+}
+
+fn compiled_stair_bases(templates: &[crate::ModelTemplate]) -> Result<Vec<usize>, AssetError> {
+    let mut bases = Vec::new();
+    let mut index = 0;
+    while index < templates.len() {
+        if templates[index].flags & MODEL_TEMPLATE_FLAG_STAIR == 0 {
+            index += 1;
+            continue;
+        }
+        let Some(group) = templates.get(index..index + 5) else {
+            return Err(invalid("stair template group is truncated"));
+        };
+        if group
+            .iter()
+            .any(|template| template.flags != MODEL_TEMPLATE_FLAG_STAIR || template.quad_count == 0)
+        {
+            return Err(invalid("stair template group is noncanonical"));
+        }
+        bases.push(index);
+        index += 5;
+    }
+    Ok(bases)
 }
 
 fn validate_texture(index: usize, texture: &crate::TextureArray) -> Result<(), AssetError> {

@@ -461,7 +461,7 @@ fn decode_rejects_malformed_model_animation_and_visual_sections() {
     mutate(templates, 1, "noncanonical template start");
     mutate(
         templates + 8,
-        assets::MODEL_TEMPLATE_FLAG_KELP << 1,
+        assets::MODEL_TEMPLATE_FLAG_STAIR << 1,
         "unknown template flags",
     );
     mutate(quads + 40, 2, "quad material ID");
@@ -509,6 +509,40 @@ fn decode_rejects_kelp_flag_on_noncanonical_template_shape() {
     write_u32(&mut blob, templates + 8, assets::MODEL_TEMPLATE_FLAG_KELP);
     reseal(&mut blob);
     assert_rejected(&blob, "one-quad kelp template");
+}
+
+#[test]
+fn decode_rejects_malformed_stair_template_groups() {
+    let mut compiled = compiled_assets();
+    compiled.visuals[1].flags = BlockFlags::empty();
+    compiled.visuals[1].kind = VisualKind::Model;
+    compiled.visuals[1].model_template = 0;
+    compiled.visuals[1].variant = 7;
+    compiled.model_templates = (0..5)
+        .map(|index| ModelTemplate {
+            quad_start: index,
+            quad_count: 1,
+            flags: assets::MODEL_TEMPLATE_FLAG_STAIR,
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+    compiled.model_quads = vec![
+        ModelQuad {
+            positions: [[0, 0, 0], [128, 0, 0], [128, 128, 0], [0, 128, 0]],
+            uvs: [[0, 4096], [2048, 4096], [2048, 2048], [0, 2048]],
+            material: 1,
+            flags: 5,
+        };
+        5
+    ]
+    .into_boxed_slice();
+    let mut blob = encode_blob(&compiled)
+        .expect("encode canonical stair group")
+        .into_vec();
+    let templates = read_u64(&blob, 120) as usize;
+    write_u32(&mut blob, templates + 4 * 12 + 8, 0);
+    reseal(&mut blob);
+    assert_rejected(&blob, "malformed stair group at runtime boundary");
 }
 
 #[test]

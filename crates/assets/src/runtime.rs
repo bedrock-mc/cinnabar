@@ -8,9 +8,10 @@ use crate::{
     BlockFlags, BlockVisual, CompiledBiomeAssets, ContributorRole, DIAGNOSTIC_MATERIAL,
     MAX_ANIMATION_FRAMES, MAX_ANIMATIONS, MAX_BIOME_NAME_BYTES, MAX_BIOME_NAMES_BYTES,
     MAX_BIOME_RULES, MAX_MATERIALS, MAX_MODEL_QUADS, MAX_MODEL_TEMPLATES, MAX_TEXTURE_LAYERS,
-    MAX_TEXTURE_PAGES, MIP_COUNT, MODEL_TEMPLATE_FLAG_KELP, Material, ModelQuad, ModelTemplate,
-    NO_ANIMATION, NO_MODEL_TEMPLATE, TILE_SIZE, TINT_MAP_BYTES, TINT_MAP_COUNT, TINT_MAP_SIZE,
-    TextureArray, TextureMip, TexturePage, TextureRef, TintSource, VisualKind,
+    MAX_TEXTURE_PAGES, MIP_COUNT, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_STAIR, Material,
+    ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, TILE_SIZE, TINT_MAP_BYTES,
+    TINT_MAP_COUNT, TINT_MAP_SIZE, TextureArray, TextureMip, TexturePage, TextureRef, TintSource,
+    VisualKind,
     biome::{BIOME_RULE_FLAGS_MASK, validate_biome_assets},
     blob::{
         ANIMATION_BYTES, BIOME_RULE_BYTES, FRAME_BYTES, HASH_BYTES, HASH_ENTRY_BYTES, HEADER_BYTES,
@@ -439,6 +440,8 @@ fn validate_fixed(
     sections: &[&[u8]; 12],
     pages: &[PageMeta],
 ) -> Result<(), AssetError> {
+    let stair_bases = runtime_stair_bases(sections[3])?;
+    let mut referenced_stair_bases = vec![false; stair_bases.len()];
     for (index, record) in sections[0].chunks_exact(VISUAL_BYTES).enumerate() {
         for face in 0..6 {
             if u32_at(record, face * 4) as usize >= header.counts[2] {
@@ -464,6 +467,29 @@ fn validate_fixed(
         {
             return Err(invalid("visual kind/template disagree"));
         }
+        if template != NO_MODEL_TEMPLATE
+            && u32_at(
+                sections[3]
+                    .chunks_exact(TEMPLATE_BYTES)
+                    .nth(template as usize)
+                    .expect("validated template reference"),
+                8,
+            ) & MODEL_TEMPLATE_FLAG_STAIR
+                != 0
+        {
+            let Some(base_index) = stair_bases
+                .iter()
+                .position(|&base| base == template as usize)
+            else {
+                return Err(invalid(
+                    "stair visual does not reference a topology-group base",
+                ));
+            };
+            if kind != VisualKind::Model || u32_at(record, 36) & !7 != 0 {
+                return Err(invalid("stair visual has invalid kind or transform"));
+            }
+            referenced_stair_bases[base_index] = true;
+        }
         if flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
             && !flags.contains(BlockFlags::CUBE_GEOMETRY)
             && (kind != VisualKind::Model
@@ -477,6 +503,9 @@ fn validate_fixed(
                 "standalone full-face occlusion requires a drawable model",
             ));
         }
+    }
+    if referenced_stair_bases.iter().any(|referenced| !referenced) {
+        return Err(invalid("stair template group is unreferenced"));
     }
     let mut previous = None;
     for record in sections[1].chunks_exact(8) {
@@ -557,6 +586,30 @@ fn validate_fixed(
         valid_ref(TextureRef::from_raw(u32_at(record, 0))?, pages)?;
     }
     validate_biome_sections(sections[9], sections[10], sections[11], header.biome_count)
+}
+
+fn runtime_stair_bases(bytes: &[u8]) -> Result<Vec<usize>, AssetError> {
+    let records = bytes.chunks_exact(TEMPLATE_BYTES).collect::<Vec<_>>();
+    let mut bases = Vec::new();
+    let mut index = 0;
+    while index < records.len() {
+        if u32_at(records[index], 8) & MODEL_TEMPLATE_FLAG_STAIR == 0 {
+            index += 1;
+            continue;
+        }
+        let Some(group) = records.get(index..index + 5) else {
+            return Err(invalid("stair template group is truncated"));
+        };
+        if group
+            .iter()
+            .any(|record| u32_at(record, 8) != MODEL_TEMPLATE_FLAG_STAIR || u32_at(record, 4) == 0)
+        {
+            return Err(invalid("stair template group is noncanonical"));
+        }
+        bases.push(index);
+        index += 5;
+    }
+    Ok(bases)
 }
 
 fn valid_ref(reference: TextureRef, pages: &[PageMeta]) -> Result<(), AssetError> {

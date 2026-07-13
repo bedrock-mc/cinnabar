@@ -6,8 +6,9 @@ use std::{
 use crate::{
     Animation, AnimationInventory, AssetError, BiomeRegistryRecord, BlockFace, BlockFlags,
     CompiledBiomeAssets, ContributorRole, MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAG_KELP,
-    ModelFamily, ModelQuad, ModelStateField, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE,
-    PackSources, RegistryRecord, TextureKey, TexturePage, TextureRef, VisualKind,
+    MODEL_TEMPLATE_FLAG_STAIR, ModelFamily, ModelQuad, ModelStateField, ModelTemplate,
+    NO_ANIMATION, NO_MODEL_TEMPLATE, PackSources, RegistryRecord, TextureKey, TexturePage,
+    TextureRef, VisualKind,
     animation::{
         AnimationLimits, AnimationPlan, DecodedImage, compile_animation_plan,
         compile_animation_plan_selected,
@@ -429,12 +430,17 @@ const fn is_slab(record: &RegistryRecord) -> bool {
         && matches!(record.contributor_role, ContributorRole::Primary)
 }
 
+const fn is_stair(record: &RegistryRecord) -> bool {
+    matches!(record.model_family, ModelFamily::Stair)
+        && matches!(record.contributor_role, ContributorRole::Primary)
+}
+
 fn is_cutout_model_visual(record: &RegistryRecord) -> bool {
     is_cross_visual(record) || is_kelp(record) || is_flowerbed(record)
 }
 
 fn is_model_visual(record: &RegistryRecord) -> bool {
-    is_cutout_model_visual(record) || is_slab(record)
+    is_cutout_model_visual(record) || is_slab(record) || is_stair(record)
 }
 
 const fn is_liquid(record: &RegistryRecord) -> bool {
@@ -814,6 +820,7 @@ fn compile_visuals(
     let mut kelp_template_by_material = BTreeMap::<[u32; 6], u32>::new();
     let mut flowerbed_template_by_key = BTreeMap::<[u32; 4], u32>::new();
     let mut slab_template_by_key = BTreeMap::<[u32; 7], u32>::new();
+    let mut stair_template_by_key = BTreeMap::<[u32; 7], u32>::new();
 
     let mut ordered_records = records.iter().collect::<Vec<_>>();
     ordered_records.sort_unstable_by_key(|record| record.sequential_id);
@@ -940,6 +947,76 @@ fn compile_visuals(
                 visual.faces = faces;
                 visual.kind = VisualKind::Model;
                 visual.model_template = template;
+            }
+        } else if is_stair(record) {
+            let materials = BlockFace::ALL.map(|face| {
+                descriptor_for(pack, record, face)
+                    .and_then(|(descriptor, _)| material_by_descriptor.get(&descriptor).copied())
+            });
+            if let [
+                Some(west),
+                Some(east),
+                Some(down),
+                Some(up),
+                Some(north),
+                Some(south),
+            ] = materials
+                && let Some(orientation @ 0..=3) =
+                    record.model_state.get(ModelStateField::Orientation)
+                && let Some(upside @ 0..=1) = record.model_state.get(ModelStateField::Half)
+            {
+                let faces = [west, east, down, up, north, south];
+                let rotation = (orientation + 2) & 3;
+                let canonical_faces = canonical_stair_materials(faces, rotation);
+                let key = [
+                    canonical_faces[0],
+                    canonical_faces[1],
+                    canonical_faces[2],
+                    canonical_faces[3],
+                    canonical_faces[4],
+                    canonical_faces[5],
+                    upside,
+                ];
+                let base = if let Some(&base) = stair_template_by_key.get(&key) {
+                    base
+                } else {
+                    let base = u32::try_from(model_templates.len()).map_err(|_| {
+                        AssetError::BlobSizeOverflow {
+                            section: "model template",
+                        }
+                    })?;
+                    for shape in 0..5 {
+                        let quads = stair_quads(canonical_faces, 2, upside != 0, shape);
+                        let quad_start = u32::try_from(model_quads.len()).map_err(|_| {
+                            AssetError::BlobSizeOverflow {
+                                section: "model quad",
+                            }
+                        })?;
+                        let quad_count = u32::try_from(quads.len()).map_err(|_| {
+                            AssetError::BlobSizeOverflow {
+                                section: "model quad count",
+                            }
+                        })?;
+                        model_templates.push(ModelTemplate {
+                            quad_start,
+                            quad_count,
+                            flags: MODEL_TEMPLATE_FLAG_STAIR,
+                        });
+                        model_quads.extend(quads);
+                    }
+                    stair_template_by_key.insert(key, base);
+                    base
+                };
+                visual.flags.remove(
+                    BlockFlags::AIR
+                        | BlockFlags::CUBE_GEOMETRY
+                        | BlockFlags::OCCLUDES_FULL_FACE
+                        | BlockFlags::LEAF_MODEL,
+                );
+                visual.faces = faces;
+                visual.kind = VisualKind::Model;
+                visual.model_template = base;
+                visual.variant = rotation | (upside << 2);
             }
         } else if is_kelp(record) {
             let descriptors = BlockFace::ALL.map(|face| descriptor_for(pack, record, face));
@@ -1141,6 +1218,164 @@ fn slab_quads(materials: [u32; 6], half: u32) -> [ModelQuad; 6] {
             flags: flagged(6, true),
         },
     ]
+}
+
+fn stair_quads(
+    materials: [u32; 6],
+    orientation: u32,
+    upside_down: bool,
+    shape: u32,
+) -> Vec<ModelQuad> {
+    debug_assert!(orientation < 4 && shape < 5);
+    let mut occupied = [false; 8];
+    let base_y = usize::from(upside_down);
+    let step_y = 1 - base_y;
+    for x in 0..2 {
+        for z in 0..2 {
+            occupied[cell_index(x, base_y, z)] = true;
+            let facing = toward(orientation, x, z);
+            let right = toward((orientation + 1) & 3, x, z);
+            let left = toward((orientation + 3) & 3, x, z);
+            let opposite = toward((orientation + 2) & 3, x, z);
+            let step = match shape {
+                0 => facing,
+                1 => facing || (opposite && right),
+                2 => facing || (opposite && left),
+                3 => facing && left,
+                4 => facing && right,
+                _ => false,
+            };
+            if step {
+                occupied[cell_index(x, step_y, z)] = true;
+            }
+        }
+    }
+    let mut quads = Vec::with_capacity(32);
+    for x in 0..2 {
+        for y in 0..2 {
+            for z in 0..2 {
+                if !occupied[cell_index(x, y, z)] {
+                    continue;
+                }
+                for face in BlockFace::ALL {
+                    let neighbour = match face {
+                        BlockFace::West => x.checked_sub(1).map(|nx| [nx, y, z]),
+                        BlockFace::East => (x + 1 < 2).then_some([x + 1, y, z]),
+                        BlockFace::Down => y.checked_sub(1).map(|ny| [x, ny, z]),
+                        BlockFace::Up => (y + 1 < 2).then_some([x, y + 1, z]),
+                        BlockFace::North => z.checked_sub(1).map(|nz| [x, y, nz]),
+                        BlockFace::South => (z + 1 < 2).then_some([x, y, z + 1]),
+                    };
+                    if neighbour.is_none_or(|[nx, ny, nz]| !occupied[cell_index(nx, ny, nz)]) {
+                        quads.push(stair_cell_quad(materials, face, x, y, z));
+                    }
+                }
+            }
+        }
+    }
+    debug_assert!(!quads.is_empty() && quads.len() <= 32);
+    quads
+}
+
+const fn canonical_stair_materials(materials: [u32; 6], rotation: u32) -> [u32; 6] {
+    let mut canonical = materials;
+    match rotation {
+        0 => {}
+        1 => {
+            canonical[BlockFace::West as usize] = materials[BlockFace::North as usize];
+            canonical[BlockFace::East as usize] = materials[BlockFace::South as usize];
+            canonical[BlockFace::North as usize] = materials[BlockFace::East as usize];
+            canonical[BlockFace::South as usize] = materials[BlockFace::West as usize];
+        }
+        2 => {
+            canonical[BlockFace::West as usize] = materials[BlockFace::East as usize];
+            canonical[BlockFace::East as usize] = materials[BlockFace::West as usize];
+            canonical[BlockFace::North as usize] = materials[BlockFace::South as usize];
+            canonical[BlockFace::South as usize] = materials[BlockFace::North as usize];
+        }
+        3 => {
+            canonical[BlockFace::West as usize] = materials[BlockFace::South as usize];
+            canonical[BlockFace::East as usize] = materials[BlockFace::North as usize];
+            canonical[BlockFace::North as usize] = materials[BlockFace::West as usize];
+            canonical[BlockFace::South as usize] = materials[BlockFace::East as usize];
+        }
+        _ => {}
+    }
+    canonical
+}
+
+const fn cell_index(x: usize, y: usize, z: usize) -> usize {
+    x | (y << 1) | (z << 2)
+}
+
+const fn toward(orientation: u32, x: usize, z: usize) -> bool {
+    match orientation {
+        0 => z == 1, // south
+        1 => x == 0, // west
+        2 => z == 0, // north
+        3 => x == 1, // east
+        _ => false,
+    }
+}
+
+fn stair_cell_quad(
+    materials: [u32; 6],
+    face: BlockFace,
+    x: usize,
+    y: usize,
+    z: usize,
+) -> ModelQuad {
+    let x0 = (x * 128) as i16;
+    let x1 = x0 + 128;
+    let y0 = (y * 128) as i16;
+    let y1 = y0 + 128;
+    let z0 = (z * 128) as i16;
+    let z1 = z0 + 128;
+    let (positions, face_id, boundary) = match face {
+        BlockFace::West => (
+            [[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]],
+            3,
+            x == 0,
+        ),
+        BlockFace::East => (
+            [[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]],
+            4,
+            x == 1,
+        ),
+        BlockFace::Down => (
+            [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]],
+            1,
+            y == 0,
+        ),
+        BlockFace::Up => (
+            [[x0, y1, z0], [x0, y1, z1], [x1, y1, z1], [x1, y1, z0]],
+            2,
+            y == 1,
+        ),
+        BlockFace::North => (
+            [[x0, y0, z0], [x0, y1, z0], [x1, y1, z0], [x1, y0, z0]],
+            5,
+            z == 0,
+        ),
+        BlockFace::South => (
+            [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]],
+            6,
+            z == 1,
+        ),
+    };
+    let uvs = positions.map(|[px, py, pz]| match face {
+        BlockFace::West | BlockFace::East => [(pz as u16) * 16, (4096 - i32::from(py) * 16) as u16],
+        BlockFace::North | BlockFace::South => {
+            [(px as u16) * 16, (4096 - i32::from(py) * 16) as u16]
+        }
+        BlockFace::Down | BlockFace::Up => [(px as u16) * 16, (pz as u16) * 16],
+    });
+    ModelQuad {
+        positions,
+        uvs,
+        material: materials[face as usize],
+        flags: face_id | (u32::from(boundary) * (face_id << 4)),
+    }
 }
 
 fn model_variant(pack: &PackSources, record: &RegistryRecord, face: BlockFace) -> Option<u32> {

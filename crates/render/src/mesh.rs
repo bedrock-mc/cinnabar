@@ -2,7 +2,8 @@ use std::{cell::OnceCell, collections::VecDeque};
 
 use assets::{
     BlockFace, BlockFlags, ContributorRole, DIAGNOSTIC_MATERIAL, MODEL_QUAD_FLAG_CULL_FACE_MASK,
-    MODEL_TEMPLATE_FLAG_KELP, NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, VisualKind,
+    MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_STAIR, NO_MODEL_TEMPLATE, NetworkIdMode,
+    RuntimeAssets, VisualKind,
 };
 use world::{MeshNeighbourhood, PalettedStorage, SubChunk};
 
@@ -661,7 +662,14 @@ fn mesh_sub_chunk_core(
                 {
                     continue;
                 }
-                let Some(template) = visuals.model_templates().get(entry.model_template as usize)
+                let selected_template = select_stair_template(
+                    palette_context,
+                    &facts,
+                    &neighbour_facts,
+                    [x, y, z],
+                    entry,
+                );
+                let Some(template) = visuals.model_templates().get(selected_template as usize)
                 else {
                     continue;
                 };
@@ -684,7 +692,8 @@ fn mesh_sub_chunk_core(
                     network_id_mode,
                     neighbourhood,
                     [x as i32, y as i32, z as i32],
-                    entry.model_template,
+                    selected_template,
+                    entry.variant & 3,
                 ) else {
                     continue;
                 };
@@ -722,7 +731,8 @@ fn mesh_sub_chunk_core(
                     if visible_quad_mask & bit == 0 {
                         continue;
                     }
-                    let Some(cull_face) = model_quad_cull_face(quad.flags) else {
+                    let Some(cull_face) = model_quad_cull_face(quad.flags, entry.variant & 3)
+                    else {
                         continue;
                     };
                     let neighbour = adjacent_palette_entry(
@@ -745,7 +755,7 @@ fn mesh_sub_chunk_core(
                             entry.variant
                         },
                     ),
-                    entry.model_template,
+                    selected_template,
                     lighting_base_index,
                     visible_quad_mask,
                 ));
@@ -778,8 +788,94 @@ fn is_kelp_entry(visuals: &RuntimeAssets, entry: ResolvedPaletteEntry) -> bool {
             .is_some_and(|template| template.flags & MODEL_TEMPLATE_FLAG_KELP != 0)
 }
 
-const fn model_quad_cull_face(flags: u32) -> Option<Face> {
-    match (flags & MODEL_QUAD_FLAG_CULL_FACE_MASK) >> 4 {
+fn select_stair_template<'a>(
+    context: PaletteResolutionContext<'_, 'a>,
+    facts: &PaletteFacts<'a>,
+    neighbour_facts: &[OnceCell<PaletteFacts<'a>>; Face::ALL.len()],
+    coordinate: [usize; 3],
+    entry: ResolvedPaletteEntry,
+) -> u32 {
+    let Some((facing, upside_down)) = stair_signature(context.visuals, entry) else {
+        return entry.model_template;
+    };
+    let rotated_facing = (facing + 1) & 3;
+    let closed = adjacent_palette_entry(
+        context,
+        facts,
+        neighbour_facts,
+        coordinate,
+        stair_face(facing),
+    );
+    if let Some((closed_facing, closed_upside)) = stair_signature(context.visuals, closed)
+        && closed_upside == upside_down
+    {
+        if closed_facing == rotated_facing {
+            return entry.model_template + 4;
+        }
+        if closed_facing == ((rotated_facing + 2) & 3) {
+            let side = adjacent_palette_entry(
+                context,
+                facts,
+                neighbour_facts,
+                coordinate,
+                stair_face(rotated_facing),
+            );
+            if stair_signature(context.visuals, side) != Some((facing, upside_down)) {
+                return entry.model_template + 3;
+            }
+            return entry.model_template;
+        }
+    }
+    let open = adjacent_palette_entry(
+        context,
+        facts,
+        neighbour_facts,
+        coordinate,
+        stair_face((facing + 2) & 3),
+    );
+    if let Some((open_facing, open_upside)) = stair_signature(context.visuals, open)
+        && open_upside == upside_down
+    {
+        if open_facing == rotated_facing {
+            let side = adjacent_palette_entry(
+                context,
+                facts,
+                neighbour_facts,
+                coordinate,
+                stair_face(rotated_facing),
+            );
+            if stair_signature(context.visuals, side) != Some((facing, upside_down)) {
+                return entry.model_template + 1;
+            }
+        } else if open_facing == ((rotated_facing + 2) & 3) {
+            return entry.model_template + 2;
+        }
+    }
+    entry.model_template
+}
+
+fn stair_signature(visuals: &RuntimeAssets, entry: ResolvedPaletteEntry) -> Option<(u32, bool)> {
+    (entry.kind == VisualKind::Model
+        && entry.model_template != NO_MODEL_TEMPLATE
+        && visuals
+            .model_templates()
+            .get(entry.model_template as usize)
+            .is_some_and(|template| template.flags & MODEL_TEMPLATE_FLAG_STAIR != 0))
+    .then_some((((entry.variant & 3) + 2) & 3, entry.variant & 4 != 0))
+}
+
+const fn stair_face(facing: u32) -> Face {
+    match facing {
+        0 => Face::PositiveZ,
+        1 => Face::NegativeX,
+        2 => Face::NegativeZ,
+        3 => Face::PositiveX,
+        _ => Face::NegativeZ,
+    }
+}
+
+const fn model_quad_cull_face(flags: u32, rotation: u32) -> Option<Face> {
+    let face = match (flags & MODEL_QUAD_FLAG_CULL_FACE_MASK) >> 4 {
         1 => Some(Face::NegativeY),
         2 => Some(Face::PositiveY),
         3 => Some(Face::NegativeX),
@@ -787,6 +883,21 @@ const fn model_quad_cull_face(flags: u32) -> Option<Face> {
         5 => Some(Face::NegativeZ),
         6 => Some(Face::PositiveZ),
         _ => None,
+    };
+    match (face, rotation & 3) {
+        (Some(Face::NegativeX), 1) => Some(Face::NegativeZ),
+        (Some(Face::PositiveX), 1) => Some(Face::PositiveZ),
+        (Some(Face::NegativeZ), 1) => Some(Face::PositiveX),
+        (Some(Face::PositiveZ), 1) => Some(Face::NegativeX),
+        (Some(Face::NegativeX), 2) => Some(Face::PositiveX),
+        (Some(Face::PositiveX), 2) => Some(Face::NegativeX),
+        (Some(Face::NegativeZ), 2) => Some(Face::PositiveZ),
+        (Some(Face::PositiveZ), 2) => Some(Face::NegativeZ),
+        (Some(Face::NegativeX), 3) => Some(Face::PositiveZ),
+        (Some(Face::PositiveX), 3) => Some(Face::NegativeZ),
+        (Some(Face::NegativeZ), 3) => Some(Face::NegativeX),
+        (Some(Face::PositiveZ), 3) => Some(Face::PositiveX),
+        (other, _) => other,
     }
 }
 

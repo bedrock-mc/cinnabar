@@ -10,7 +10,10 @@ pub const NO_ANIMATION: u32 = u32::MAX;
 
 /// Template selects its body or head quads from the primary block above it.
 pub const MODEL_TEMPLATE_FLAG_KELP: u32 = 1 << 0;
-pub(crate) const MODEL_TEMPLATE_FLAGS_MASK: u32 = MODEL_TEMPLATE_FLAG_KELP;
+/// Template belongs to a contiguous five-shape stair topology group.
+pub const MODEL_TEMPLATE_FLAG_STAIR: u32 = 1 << 1;
+pub(crate) const MODEL_TEMPLATE_FLAGS_MASK: u32 =
+    MODEL_TEMPLATE_FLAG_KELP | MODEL_TEMPLATE_FLAG_STAIR;
 
 const TEXTURE_PAGE_BIT: u32 = 1 << 31;
 const TEXTURE_LAYER_MASK: u32 = 0x7ff;

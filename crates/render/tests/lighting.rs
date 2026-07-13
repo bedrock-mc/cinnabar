@@ -228,6 +228,7 @@ fn template_quad_lighting_order() {
         &neighbourhood,
         [8, 8, 8],
         0,
+        0,
     )
     .expect("known template");
     let expected = [Face::PositiveY, Face::PositiveX, Face::NegativeZ].map(|face| {

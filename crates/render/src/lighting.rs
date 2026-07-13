@@ -49,6 +49,7 @@ pub fn bake_template_lighting(
     neighbourhood: &MeshNeighbourhood<'_>,
     block: [i32; 3],
     template_id: u32,
+    rotation: u32,
 ) -> Option<Vec<PackedQuadLighting>> {
     let template = assets.model_templates().get(template_id as usize)?;
     let start = template.quad_start as usize;
@@ -58,7 +59,7 @@ pub fn bake_template_lighting(
         quads
             .iter()
             .map(|quad| {
-                model_quad_face(*quad).map_or_else(default_lighting, |face| {
+                model_quad_face(*quad, rotation).map_or_else(default_lighting, |face| {
                     bake_quad_lighting(
                         classifier,
                         assets,
@@ -66,7 +67,8 @@ pub fn bake_template_lighting(
                         neighbourhood,
                         block,
                         face,
-                        quad.positions,
+                        quad.positions
+                            .map(|position| rotate_model_position(position, rotation)),
                     )
                 })
             })
@@ -166,8 +168,8 @@ fn offset(
     block
 }
 
-const fn model_quad_face(quad: ModelQuad) -> Option<Face> {
-    match quad.flags & MODEL_QUAD_FLAG_FACE_MASK {
+const fn model_quad_face(quad: ModelQuad, rotation: u32) -> Option<Face> {
+    let face = match quad.flags & MODEL_QUAD_FLAG_FACE_MASK {
         1 => Some(Face::NegativeY),
         2 => Some(Face::PositiveY),
         3 => Some(Face::NegativeX),
@@ -175,5 +177,33 @@ const fn model_quad_face(quad: ModelQuad) -> Option<Face> {
         5 => Some(Face::NegativeZ),
         6 => Some(Face::PositiveZ),
         _ => None,
+    };
+    rotate_face(face, rotation)
+}
+
+const fn rotate_face(face: Option<Face>, rotation: u32) -> Option<Face> {
+    match (face, rotation & 3) {
+        (Some(Face::NegativeX), 1) => Some(Face::NegativeZ),
+        (Some(Face::PositiveX), 1) => Some(Face::PositiveZ),
+        (Some(Face::NegativeZ), 1) => Some(Face::PositiveX),
+        (Some(Face::PositiveZ), 1) => Some(Face::NegativeX),
+        (Some(Face::NegativeX), 2) => Some(Face::PositiveX),
+        (Some(Face::PositiveX), 2) => Some(Face::NegativeX),
+        (Some(Face::NegativeZ), 2) => Some(Face::PositiveZ),
+        (Some(Face::PositiveZ), 2) => Some(Face::NegativeZ),
+        (Some(Face::NegativeX), 3) => Some(Face::PositiveZ),
+        (Some(Face::PositiveX), 3) => Some(Face::NegativeZ),
+        (Some(Face::NegativeZ), 3) => Some(Face::NegativeX),
+        (Some(Face::PositiveZ), 3) => Some(Face::PositiveX),
+        (other, _) => other,
+    }
+}
+
+const fn rotate_model_position([x, y, z]: [i16; 3], rotation: u32) -> [i16; 3] {
+    match rotation & 3 {
+        1 => [256 - z, y, x],
+        2 => [256 - x, y, 256 - z],
+        3 => [z, y, 256 - x],
+        _ => [x, y, z],
     }
 }

@@ -197,8 +197,36 @@ fn mcbeas04_rejects_noncanonical_new_tables_and_limits() {
     kelp_template.model_quads[4].flags = 0;
     assert!(encode_blob(&kelp_template).is_err());
     kelp_template.model_quads[4].flags = assets::MODEL_QUAD_FLAG_TWO_SIDED;
-    kelp_template.model_templates[0].flags = assets::MODEL_TEMPLATE_FLAG_KELP << 1;
+    kelp_template.model_templates[0].flags = assets::MODEL_TEMPLATE_FLAG_STAIR << 1;
     assert!(encode_blob(&kelp_template).is_err());
+
+    let mut stair_group = valid_assets();
+    stair_group.visuals[0].flags = BlockFlags::empty();
+    stair_group.visuals[0].kind = VisualKind::Model;
+    stair_group.visuals[0].model_template = 0;
+    stair_group.visuals[0].variant = 7;
+    let stair_quad = assets::ModelQuad {
+        positions: [[0, 0, 0], [128, 0, 0], [128, 128, 0], [0, 128, 0]],
+        uvs: [[0, 4096], [2048, 4096], [2048, 2048], [0, 2048]],
+        material: 0,
+        flags: 5,
+    };
+    stair_group.model_templates = (0..5)
+        .map(|index| assets::ModelTemplate {
+            quad_start: index,
+            quad_count: 1,
+            flags: assets::MODEL_TEMPLATE_FLAG_STAIR,
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+    stair_group.model_quads = vec![stair_quad; 5].into_boxed_slice();
+    assert!(
+        encode_blob(&stair_group).is_ok(),
+        "canonical five-shape stair group"
+    );
+    stair_group.model_templates = stair_group.model_templates[..4].into();
+    stair_group.model_quads = stair_group.model_quads[..4].into();
+    assert!(encode_blob(&stair_group).is_err(), "truncated stair group");
 
     let mut too_many_quads = valid_assets();
     too_many_quads.model_templates = vec![assets::ModelTemplate {

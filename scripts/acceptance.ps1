@@ -9,7 +9,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$MetricsOut,
     [string]$Assets,
-    [ValidateSet('None', 'Front', 'Back', 'LeafGalleryFront', 'LeafGalleryBack', 'CrossCropGalleryFront', 'CrossCropGalleryBack', 'AquaticGalleryFront', 'AquaticGalleryBack', 'WaterGalleryFront', 'WaterGalleryBack', 'FlowerBedGalleryTop', 'FlowerBedGalleryNorth', 'FlowerBedGalleryEast', 'FlowerBedGalleryOblique', 'FlowerBedGalleryObliqueOpposite')]
+    [ValidateSet('None', 'Front', 'Back', 'LeafGalleryFront', 'LeafGalleryBack', 'CrossCropGalleryFront', 'CrossCropGalleryBack', 'AquaticGalleryFront', 'AquaticGalleryBack', 'WaterGalleryFront', 'WaterGalleryBack', 'FlowerBedGalleryTop', 'FlowerBedGalleryNorth', 'FlowerBedGalleryEast', 'FlowerBedGalleryOblique', 'FlowerBedGalleryObliqueOpposite', 'SlabStairGalleryTop', 'SlabStairGalleryNorth', 'SlabStairGalleryEast', 'SlabStairGalleryOblique', 'SlabStairGalleryObliqueOpposite')]
     [string]$VisualFixturePose = 'None',
     [switch]$FullViewTeleportGate,
     [switch]$LeafForestBaseline,
@@ -2871,13 +2871,129 @@ function New-WaterGalleryTransparentWitnessRequest {
     }
 }
 
+function New-SlabStairGalleryPlan {
+    param(
+        [Parameter(Mandatory = $true)][ValidateCount(3, 3)][int[]]$MutationCoordinate,
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('SlabStairGalleryTop', 'SlabStairGalleryNorth', 'SlabStairGalleryEast', 'SlabStairGalleryOblique', 'SlabStairGalleryObliqueOpposite')]
+        [string]$Pose
+    )
+
+    $mx = [int]$MutationCoordinate[0]
+    $my = [int]$MutationCoordinate[1]
+    $mz = [int]$MutationCoordinate[2]
+    $clearMin = [pscustomobject][ordered]@{ x = $mx - 23; y = $my + 1; z = $mz - 15 }
+    $clearMax = [pscustomobject][ordered]@{ x = $mx + 23; y = $my + 7; z = $mz + 15 }
+    $clearVolume = 47 * 7 * 31
+    $galleryCenter = [pscustomobject][ordered]@{ x = $mx; y = $my + 2; z = $mz }
+    $relativeCameras = [ordered]@{
+        SlabStairGalleryTop = @(0, 38, 0)
+        SlabStairGalleryNorth = @(0, 13, -48)
+        SlabStairGalleryEast = @(48, 13, 0)
+        SlabStairGalleryOblique = @(-42, 30, -42)
+        SlabStairGalleryObliqueOpposite = @(42, 30, 42)
+    }
+    $cameraPoses = [ordered]@{}
+    foreach ($cameraName in $relativeCameras.Keys) {
+        $offset = $relativeCameras[$cameraName]
+        $position = [pscustomobject][ordered]@{ x = $mx + $offset[0]; y = $my + $offset[1]; z = $mz + $offset[2] }
+        $cameraPoses[$cameraName] = [pscustomobject][ordered]@{
+            position = $position
+            target = $galleryCenter
+            command = "tp @a[name=RustMCBE] $($position.x) $($position.y) $($position.z) facing $($galleryCenter.x) $($galleryCenter.y) $($galleryCenter.z)"
+        }
+    }
+
+    $fixtureCommands = [Collections.Generic.List[string]]::new()
+    $fixtureCommands.Add("fill $($clearMin.x) $($clearMin.y) $($clearMin.z) $($clearMax.x) $($clearMax.y) $($clearMax.z) minecraft:air")
+    $fixtureCommands.Add("fill $($clearMin.x) $($my + 1) $($clearMin.z) $($clearMax.x) $($my + 1) $($clearMax.z) minecraft:stone")
+    $witnesses = [Collections.Generic.List[object]]::new()
+    foreach ($slab in @(
+        [pscustomobject][ordered]@{ label = 'bottom_slab'; block = 'minecraft:stone_block_slab [`"vertical_half`"=`"bottom`"]'; offset = @(-4, 0, -13) },
+        [pscustomobject][ordered]@{ label = 'top_slab'; block = 'minecraft:stone_block_slab [`"vertical_half`"=`"top`"]'; offset = @(0, 0, -13) },
+        [pscustomobject][ordered]@{ label = 'double_slab'; block = 'minecraft:double_stone_block_slab'; offset = @(4, 0, -13) }
+    )) {
+        $x = $mx + $slab.offset[0]; $y = $my + 2; $z = $mz + $slab.offset[2]
+        $fixtureCommands.Add("setblock $x $y $z $($slab.block)")
+        $witnesses.Add([pscustomobject][ordered]@{ kind = 'slab'; shape = $slab.label; orientation = $null; orientation_value = $null; upside_down = $null; center_offset = @($slab.offset[0], 2, $slab.offset[2]); neighbor_offset = $null })
+    }
+
+    $orientationNames = @('south', 'west', 'north', 'east')
+    $directionOffsets = @(@(0, 1), @(-1, 0), @(0, -1), @(1, 0))
+    $shapeNames = @('straight', 'right_inner', 'left_inner', 'right_outer', 'left_outer')
+    for ($half = 0; $half -lt 2; $half++) {
+        for ($orientation = 0; $orientation -lt 4; $orientation++) {
+            for ($shape = 0; $shape -lt 5; $shape++) {
+                $index = $half * 20 + $orientation * 5 + $shape
+                $cx = $mx - 18 + 5 * ($index % 8)
+                $cy = $my + 2
+                $cz = $mz - 9 + 5 * [Math]::Floor($index / 8)
+                $upside = if ($half -eq 0) { 'false' } else { 'true' }
+                $state = "[`"weirdo_direction`"=$orientation,`"upside_down_bit`"=$upside]"
+                $fixtureCommands.Add("setblock $cx $cy $cz minecraft:oak_stairs $state")
+                $neighborOffset = $null
+                if ($shape -ne 0) {
+                    $right = ($orientation + 1) % 4
+                    $left = ($orientation + 3) % 4
+                    $opposite = ($orientation + 2) % 4
+                    $neighborDirection = if ($shape -le 2) { $opposite } else { $orientation }
+                    $neighborFacing = switch ($shape) { 1 { $right } 2 { $left } 3 { $left } 4 { $right } }
+                    $delta = $directionOffsets[$neighborDirection]
+                    $nx = $cx + $delta[0]; $nz = $cz + $delta[1]
+                    $neighborState = "[`"weirdo_direction`"=$neighborFacing,`"upside_down_bit`"=$upside]"
+                    $fixtureCommands.Add("setblock $nx $cy $nz minecraft:oak_stairs $neighborState")
+                    $neighborOffset = @(($nx - $mx), 2, ($nz - $mz))
+                }
+                $witnesses.Add([pscustomobject][ordered]@{
+                    kind = 'stair'; shape = $shapeNames[$shape]; orientation = $orientationNames[$orientation]
+                    orientation_value = $orientation; upside_down = [bool]$half
+                    center_offset = @(($cx - $mx), 2, ($cz - $mz)); neighbor_offset = $neighborOffset
+                })
+            }
+        }
+    }
+    if ($witnesses.Count -ne 43 -or $fixtureCommands.Count -ne 77) {
+        throw "slab/stair gallery layout changed: witnesses=$($witnesses.Count) commands=$($fixtureCommands.Count)"
+    }
+    $stateSetHash = Get-CanonicalObjectHash -Value @($witnesses | ForEach-Object { [pscustomobject][ordered]@{ kind = $_.kind; shape = $_.shape; orientation = $_.orientation; upside_down = $_.upside_down } })
+    $relativeLayout = [pscustomobject][ordered]@{
+        schema = 'rust-mcbe-slab-stair-layout-v1'; witness_count = 43; state_set_sha256 = $stateSetHash
+        clear_min = @(-23, 1, -15); clear_max = @(23, 7, 15); support_y = 1; support_block = 'minecraft:stone'
+        witnesses = @($witnesses); camera_offsets = [pscustomobject]$relativeCameras
+    }
+    $layoutHash = Get-CanonicalObjectHash -Value $relativeLayout
+    $fenceCommand = 'list'; $fenceMarker = 'players online:'
+    $loadAreaName = 'rust_mcbe_slab_stair_gallery'
+    $loadAreaCommand = "tickingarea add $($clearMin.x) $($clearMin.y) $($clearMin.z) $($clearMax.x) $($clearMax.y) $($clearMax.z) $loadAreaName true"
+    $cleanupCommand = "tickingarea remove $loadAreaName"
+    $teleportCommand = [string]$cameraPoses[$Pose].command
+    $commands = @($loadAreaCommand) + @($fixtureCommands) + @($fenceCommand, $teleportCommand)
+    $manifest = [pscustomobject][ordered]@{
+        schema = 'rust-mcbe-visual-fixture-v2'; fixture_kind = 'SlabStairGallery'; pose = $Pose
+        mutation = [pscustomobject][ordered]@{ x = $mx; y = $my; z = $mz }
+        fixture_layout_hash = $layoutHash; state_set_sha256 = $stateSetHash; relative_layout = $relativeLayout
+        clear = [pscustomobject][ordered]@{ min = $clearMin; max = $clearMax; volume = $clearVolume }
+        gallery_center = $galleryCenter; camera = $cameraPoses[$Pose]; camera_poses = [pscustomobject]$cameraPoses
+        central_witness_count = 43; witnesses = @($witnesses)
+        load_area = [pscustomobject][ordered]@{ name = $loadAreaName; command = $loadAreaCommand; acknowledgement_marker = 'marked for preload.'; cleanup_command = $cleanupCommand; cleanup_acknowledgement_marker = 'Removed ticking area(s)'; settle_milliseconds = 3000 }
+        processing_fence = [pscustomobject][ordered]@{ command = $fenceCommand; stdout_marker = $fenceMarker }
+        fixture_commands = @($fixtureCommands); commands = $commands; command_count = $commands.Count
+        teleport_command = $teleportCommand; settle_milliseconds = 3000
+    }
+    return [pscustomobject][ordered]@{
+        Pose = $Pose; LoadAreaName = $loadAreaName; LoadAreaCommand = $loadAreaCommand; LoadAreaMarker = 'marked for preload.'; LoadAreaSettleMilliseconds = 3000
+        CleanupCommand = $cleanupCommand; CleanupMarker = 'Removed ticking area(s)'; FixtureCommands = @($fixtureCommands); GalleryCommands = @($fixtureCommands)
+        FenceMarker = $fenceMarker; FenceCommand = $fenceCommand; TeleportCommand = $teleportCommand; Commands = $commands; Manifest = $manifest
+    }
+}
+
 function New-VisualFixturePlan {
     param(
         [Parameter(Mandatory = $true)]
         [ValidateCount(3, 3)]
         [int[]]$MutationCoordinate,
         [Parameter(Mandatory = $true)]
-        [ValidateSet('Front', 'Back', 'LeafGalleryFront', 'LeafGalleryBack', 'CrossCropGalleryFront', 'CrossCropGalleryBack', 'AquaticGalleryFront', 'AquaticGalleryBack', 'WaterGalleryFront', 'WaterGalleryBack', 'FlowerBedGalleryTop', 'FlowerBedGalleryNorth', 'FlowerBedGalleryEast', 'FlowerBedGalleryOblique', 'FlowerBedGalleryObliqueOpposite')]
+        [ValidateSet('Front', 'Back', 'LeafGalleryFront', 'LeafGalleryBack', 'CrossCropGalleryFront', 'CrossCropGalleryBack', 'AquaticGalleryFront', 'AquaticGalleryBack', 'WaterGalleryFront', 'WaterGalleryBack', 'FlowerBedGalleryTop', 'FlowerBedGalleryNorth', 'FlowerBedGalleryEast', 'FlowerBedGalleryOblique', 'FlowerBedGalleryObliqueOpposite', 'SlabStairGalleryTop', 'SlabStairGalleryNorth', 'SlabStairGalleryEast', 'SlabStairGalleryOblique', 'SlabStairGalleryObliqueOpposite')]
         [string]$Pose,
         [string]$RegistryPath,
         [string]$AssetsPath
@@ -2897,6 +3013,9 @@ function New-VisualFixturePlan {
     }
     if ($Pose.StartsWith('FlowerBedGallery', [StringComparison]::Ordinal)) {
         return New-FlowerBedGalleryPlan -MutationCoordinate $MutationCoordinate -Pose $Pose -RegistryPath $RegistryPath
+    }
+    if ($Pose.StartsWith('SlabStairGallery', [StringComparison]::Ordinal)) {
+        return New-SlabStairGalleryPlan -MutationCoordinate $MutationCoordinate -Pose $Pose
     }
     return New-OpaqueVisualFixturePlan -MutationCoordinate $MutationCoordinate -Pose $Pose
 }
