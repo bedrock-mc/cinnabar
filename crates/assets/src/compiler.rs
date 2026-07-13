@@ -351,7 +351,7 @@ fn descriptor_for(
         0
     };
     if is_cutout_model_visual(record) {
-        flags |= MATERIAL_FLAG_ALPHA_CUTOUT | cross_tint_flags(&record.name);
+        flags |= MATERIAL_FLAG_ALPHA_CUTOUT | cutout_model_tint_flags(&record.name);
     } else if is_liquid(record) {
         flags |= liquid_material_flags(&record.name);
     } else if record.flags.contains(BlockFlags::LEAF_MODEL) {
@@ -425,6 +425,10 @@ fn is_flowerbed(record: &RegistryRecord) -> bool {
         )
 }
 
+fn is_vine(record: &RegistryRecord) -> bool {
+    matches!(record.model_family, ModelFamily::Vine) && record.name.as_ref() == "minecraft:vine"
+}
+
 const fn is_slab(record: &RegistryRecord) -> bool {
     matches!(record.model_family, ModelFamily::Slab)
         && matches!(record.contributor_role, ContributorRole::Primary)
@@ -436,7 +440,7 @@ const fn is_stair(record: &RegistryRecord) -> bool {
 }
 
 fn is_cutout_model_visual(record: &RegistryRecord) -> bool {
-    is_cross_visual(record) || is_kelp(record) || is_flowerbed(record)
+    is_cross_visual(record) || is_kelp(record) || is_flowerbed(record) || is_vine(record)
 }
 
 fn is_model_visual(record: &RegistryRecord) -> bool {
@@ -512,12 +516,13 @@ fn aquatic_cross_faces(record: &RegistryRecord) -> Option<[BlockFace; 2]> {
     }
 }
 
-fn cross_tint_flags(name: &str) -> u32 {
+fn cutout_model_tint_flags(name: &str) -> u32 {
     match name {
         "minecraft:short_grass"
         | "minecraft:tall_grass"
         | "minecraft:fern"
         | "minecraft:large_fern" => MATERIAL_FLAG_GRASS_TINT,
+        "minecraft:vine" => MATERIAL_FLAG_FOLIAGE_TINT,
         _ => 0,
     }
 }
@@ -821,6 +826,7 @@ fn compile_visuals(
     let mut flowerbed_template_by_key = BTreeMap::<[u32; 4], u32>::new();
     let mut slab_template_by_key = BTreeMap::<[u32; 7], u32>::new();
     let mut stair_template_by_key = BTreeMap::<[u32; 7], u32>::new();
+    let mut vine_template_by_key = BTreeMap::<[u32; 2], u32>::new();
 
     let mut ordered_records = records.iter().collect::<Vec<_>>();
     ordered_records.sort_unstable_by_key(|record| record.sequential_id);
@@ -898,6 +904,45 @@ fn compile_visuals(
                     template
                 };
                 visual.faces = [flower; 6];
+                visual.kind = VisualKind::Model;
+                visual.model_template = template;
+            }
+        } else if is_vine(record) {
+            let material = descriptor_for(pack, record, BlockFace::South)
+                .and_then(|(descriptor, _)| material_by_descriptor.get(&descriptor).copied());
+            let connections = record.model_state.get(ModelStateField::Connections);
+            if let (Some(material), Some(connections @ 0..=15)) = (material, connections) {
+                let key = [material, connections];
+                let template = if let Some(&template) = vine_template_by_key.get(&key) {
+                    template
+                } else {
+                    let quads = vine_quads(material, connections);
+                    let template = u32::try_from(model_templates.len()).map_err(|_| {
+                        AssetError::BlobSizeOverflow {
+                            section: "model template",
+                        }
+                    })?;
+                    let quad_start = u32::try_from(model_quads.len()).map_err(|_| {
+                        AssetError::BlobSizeOverflow {
+                            section: "model quad",
+                        }
+                    })?;
+                    model_templates.push(ModelTemplate {
+                        quad_start,
+                        quad_count: connections.count_ones(),
+                        flags: 0,
+                    });
+                    model_quads.extend(quads);
+                    vine_template_by_key.insert(key, template);
+                    template
+                };
+                visual.flags.remove(
+                    BlockFlags::AIR
+                        | BlockFlags::CUBE_GEOMETRY
+                        | BlockFlags::OCCLUDES_FULL_FACE
+                        | BlockFlags::LEAF_MODEL,
+                );
+                visual.faces = [material; 6];
                 visual.kind = VisualKind::Model;
                 visual.model_template = template;
             }
@@ -1134,6 +1179,43 @@ fn compile_visuals(
         model_templates.into_boxed_slice(),
         model_quads.into_boxed_slice(),
     ))
+}
+
+/// Emits only the four horizontal attachment planes represented by Bedrock's
+/// `vine_direction_bits`. The pinned Dragonfly codec defines bit order as
+/// south, west, north, east; protocol 1001 carries no up/down attachment bit.
+fn vine_quads(material: u32, connections: u32) -> Vec<ModelQuad> {
+    debug_assert!(connections <= 15);
+    const PLANES: [(u32, u32, [[i16; 3]; 4]); 4] = [
+        (
+            1,
+            6,
+            [[0, 0, 255], [256, 0, 255], [256, 256, 255], [0, 256, 255]],
+        ),
+        (2, 3, [[1, 0, 0], [1, 0, 256], [1, 256, 256], [1, 256, 0]]),
+        (4, 5, [[0, 0, 1], [0, 256, 1], [256, 256, 1], [256, 0, 1]]),
+        (
+            8,
+            4,
+            [[255, 0, 0], [255, 256, 0], [255, 256, 256], [255, 0, 256]],
+        ),
+    ];
+    PLANES
+        .into_iter()
+        .filter(|(bit, _, _)| connections & bit != 0)
+        .map(|(_, face, positions)| ModelQuad {
+            positions,
+            uvs: positions.map(|[x, y, z]| {
+                let tangent = if matches!(face, 5 | 6) { x } else { z };
+                [(tangent as u16) * 16, ((256 - y) as u16) * 16]
+            }),
+            material,
+            // Vines remain visible from either side. Deliberately omit the
+            // cull-face field: the support block is not a reason to drop the
+            // attachment plane before alpha testing.
+            flags: MODEL_QUAD_FLAG_TWO_SIDED | face,
+        })
+        .collect()
 }
 
 fn slab_quads(materials: [u32; 6], half: u32) -> [ModelQuad; 6] {

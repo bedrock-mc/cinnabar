@@ -781,7 +781,7 @@ func TestSelectorCardinality(t *testing.T) {
 		{sourceState("minecraft:double_stone_block_slab"), ModelFamilySlab, ContributorPrimary, ModelStateHalf, 2},
 		{sourceState("minecraft:cinnabar_slab", StateProperty{Name: "minecraft:vertical_half", Value: TypedScalar{Kind: ScalarString, String: "top"}}), ModelFamilySlab, ContributorPrimary, ModelStateHalf, 1},
 		{sourceState("minecraft:test", StateProperty{Name: "cardinal_direction", Value: TypedScalar{Kind: ScalarString, String: "north"}}), ModelFamilyUnknown, ContributorPrimary, ModelStateOrientation, 2},
-		{sourceState("minecraft:vine", intState("vine_direction_bits", 9)), ModelFamilyUnknown, ContributorPrimary, ModelStateConnections, 9},
+		{sourceState("minecraft:vine", intState("vine_direction_bits", 9)), ModelFamilyVine, ContributorPrimary, ModelStateConnections, 9},
 		{sourceState("minecraft:iron_bars"), ModelFamilyPane, ContributorPrimary, 0, 0},
 		{sourceState("minecraft:red_bed", intState("direction", 2)), ModelFamilyBed, ContributorPrimary, ModelStateOrientation, 2},
 		{sourceState("minecraft:dandelion"), ModelFamilyCross, ContributorPrimary, 0, 0},
@@ -828,6 +828,25 @@ func TestSelectorCardinality(t *testing.T) {
 	broken := append([]Record(nil), stairs[:7]...)
 	if err := validateSelectorCardinality(broken); err == nil || !strings.Contains(err.Error(), "selector cardinality") {
 		t.Fatalf("broken selector error = %v", err)
+	}
+}
+
+func TestVineClassificationCoversEveryProtocol1001DirectionMask(t *testing.T) {
+	for mask := uint32(0); mask < 16; mask++ {
+		record, err := classifyRecord(sourceState("minecraft:vine", intState("vine_direction_bits", int32(mask))))
+		if err != nil {
+			t.Fatalf("mask %d: classify: %v", mask, err)
+		}
+		if record.ModelFamily != ModelFamilyVine {
+			t.Errorf("mask %d: family=%v, want Vine", mask, record.ModelFamily)
+		}
+		connections, ok := record.ModelState.Get(ModelStateConnections)
+		if !ok || connections != mask {
+			t.Errorf("mask %d: connections=(%d, %t)", mask, connections, ok)
+		}
+		if record.Flags&(flagCubeGeometry|flagOccludesFullFace) != 0 || record.FaceCoverage != 0 {
+			t.Errorf("mask %d: vine acquired full-block geometry/occlusion: flags=%#x coverage=%#x", mask, record.Flags, record.FaceCoverage)
+		}
 	}
 }
 

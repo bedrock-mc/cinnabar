@@ -24,7 +24,7 @@ The audit used these pinned inputs:
   by `assets/vanilla-source.json`.
 
 The final audited `BREG1003` export is 4,692,247 bytes with SHA-256
-`3669be82850824af8592276afe864d903495e743b8af81dfcf1d3aa1586231a4`.
+`b8aceb546ddd64f23c458ac5dca1a1a76a8109c1562fa2345c6e9f81d4ae630b`.
 It decoded exactly to EOF and reported 1,356 names, 16,913 states, 1,321
 Valentine names, 15,845 Valentine states, and attributable gaps of 35 names and
 1,068 states.
@@ -66,6 +66,21 @@ missing, and overlong arrays independently of which registry states are being
 compiled. The template key contains both material IDs, growth, and orientation.
 Growth 4-7 is still an explicit attributable diagnostic and is never clamped,
 wrapped, or aliased.
+
+## Vine attachment baseline
+
+All 16 protocol-1001 `minecraft:vine` states use a dedicated static model
+family. The pinned Dragonfly `Vines.EncodeBlock` implementation is the geometry
+selector authority: `vine_direction_bits` maps bit 0 to south, bit 1 to west,
+bit 2 to north, and bit 3 to east. Dragonfly exposes attachments only for those
+four horizontal directions, while the pinned Mojang `blocks.json` entry supplies
+the single `vine` terrain key and no additional geometry or top-face selector.
+The compiler therefore emits one two-sided, alpha-cutout, foliage-tinted wall
+plane for each set bit and does not synthesize an upward/downward plane from
+unencoded neighbour state. The zero mask remains a non-diagnostic zero-quad
+model. Every plane is inset by 1/256 block to avoid support-surface z-fighting,
+has no support-face cull flag, and contributes no cube geometry, full-face
+coverage, or full-block occlusion.
 
 The compact coordinates and UVs are a geometry baseline derived from the four
 Mojang Java `flowerbed_1.json` through `flowerbed_4.json` models in the pinned
