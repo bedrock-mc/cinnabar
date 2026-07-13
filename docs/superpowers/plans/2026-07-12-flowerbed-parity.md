@@ -193,7 +193,7 @@ Implementation notes (Task 3):
 - Consumes: installed native Bedrock client, exact gallery, diagnostic pack, fixed camera poses, native Windows `%TEMP%` screenshots.
 - Produces: measured plane coordinates/UV orientation and an explicit growth 4–7 mapping backed by screenshot hashes and client version.
 
-- [ ] **Step 1: Record the native-client version and fixture identities**
+- [x] **Step 1: Record the native-client version and fixture identities**
 
 Record `MICROSOFT.MINECRAFTUWP` version, BDS version, asset tag/SHA, gallery layout SHA, diagnostic-pack SHA, FOV, graphics mode, and camera commands. If the client version is not the pinned target, record the mismatch and do not call the evidence exact until the matching build is tested.
 
@@ -201,15 +201,17 @@ Record `MICROSOFT.MINECRAFTUWP` version, BDS version, asset tag/SHA, gallery lay
 
 Use the diagnostic pack in the native client, place all 64 states, and capture top/north/east/two oblique images. Do not use Computer Use/WGC for Cinnabar; use native GDI screenshots and inspect every fresh image.
 
-- [ ] **Step 3: Derive and record command-only behavior**
+Progress: five native GDI analysis captures are recorded and inspected. The generated world's terrain obstructs some external fixed camera positions, so the fixed-pose pixel-parity capture remains open for Task 5's terrain-safe fixture.
+
+- [x] **Step 3: Derive and record command-only behavior**
 
 Segment unique colours, calibrate against adjacent full cubes, and compare growth 4–7 masks to 0–3. Record whether each aliases an existing layout or has distinct geometry. Never infer an unobserved mapping.
 
-- [ ] **Step 4: Write RED tests for measured differences**
+- [x] **Step 4: Write RED tests for measured differences**
 
 Add exact template position/UV hashes and growth 4–7 expected template selection from recorded evidence. Run the focused tests and verify they fail before updating compiler tables.
 
-- [ ] **Step 5: Implement and verify all 64 states**
+- [x] **Step 5: Implement and verify all 64 states**
 
 Update compact template data only. Run full assets tests/Clippy/fmt and regenerate the ignored compiled vanilla blob. Confirm all 64 flowerbed states are non-diagnostic.
 

@@ -82,4 +82,3 @@ Thus the explicit native layout mapping is
 `[0, 1, 2, 3, 3, 3, 3, 3]`. Growth 4 through 7 do not wrap to growth 0
 through 3 and do not add new geometry; each aliases the full four-patch growth
 3 template for the same block and cardinal direction.
-
