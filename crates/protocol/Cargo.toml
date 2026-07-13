@@ -12,8 +12,8 @@ bytes.workspace = true
 futures.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["time"] }
-valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_30"] }
-jolyne = { path = "vendor/jolyne", default-features = false, features = ["client"] }
+valentine = { git = "https://github.com/HashimTheArab/axolotl-stack.git", rev = "6cd8087fc3f0b500e41708a8afc94a0fa3291525", default-features = false, features = ["bedrock_1_26_30"] }
+jolyne = { git = "https://github.com/HashimTheArab/axolotl-stack.git", rev = "6cd8087fc3f0b500e41708a8afc94a0fa3291525", default-features = false, features = ["client"] }
 
 [dev-dependencies]
 aes = "0.8"
