@@ -448,7 +448,7 @@ try {
     Assert-True ($waterAppCommand[0] -match '--require-transparent-presentation') 'water gallery did not opt into bounded transparent presentation settle'
     Assert-True ($waterAppCommand[0] -match '--transparent-witness-request') 'water gallery did not pass its ignored-local transparent witness request path to the app'
 
-    foreach ($flowerBedPose in @('FlowerBedGalleryTop', 'FlowerBedGalleryNorth', 'FlowerBedGalleryEast', 'FlowerBedGalleryOblique')) {
+    foreach ($flowerBedPose in @('FlowerBedGalleryTop', 'FlowerBedGalleryNorth', 'FlowerBedGalleryEast', 'FlowerBedGalleryOblique', 'FlowerBedGalleryObliqueOpposite')) {
         $flowerBedDryRun = Invoke-Acceptance -Arguments @(
             '-DryRun',
             '-DurationSeconds', '60',
@@ -688,7 +688,7 @@ try {
         -Pose WaterGalleryFront `
         -RegistryPath $BlockRegistry `
         -AssetsPath $AquaticAssets
-    $flowerBedPlans = @('FlowerBedGalleryTop', 'FlowerBedGalleryNorth', 'FlowerBedGalleryEast', 'FlowerBedGalleryOblique') | ForEach-Object {
+    $flowerBedPlans = @('FlowerBedGalleryTop', 'FlowerBedGalleryNorth', 'FlowerBedGalleryEast', 'FlowerBedGalleryOblique', 'FlowerBedGalleryObliqueOpposite') | ForEach-Object {
         New-FlowerBedGalleryPlan -MutationCoordinate @(100, 64, 200) -Pose $_ -RegistryPath $BlockRegistry
     }
 
@@ -719,7 +719,7 @@ try {
         Assert-Equal 64 @($flowerBedPlan.Manifest.gallery_states | Sort-Object -Unique).Count 'flowerbed manifest states were not unique'
         Assert-Equal 64 @($flowerBedPlan.GalleryCommands | Where-Object { $_ -match '^setblock .* minecraft:(wildflowers|pink_petals) ' }).Count 'flowerbed plan did not issue exactly one placement per canonical state'
         Assert-Equal 64 @($flowerBedPlan.Manifest.reference_cubes).Count 'flowerbed plan did not pair every state with a reference cube'
-        Assert-Equal 4 @($flowerBedPlan.Manifest.camera_poses.PSObject.Properties).Count 'flowerbed plan lost a fixed diagnostic camera'
+        Assert-Equal 5 @($flowerBedPlan.Manifest.camera_poses.PSObject.Properties).Count 'flowerbed plan lost a fixed diagnostic camera'
         Assert-Equal 'a2fe82092cb22835a0553091ecfcdd67cedcddc9e791feb2d0ddeff9fe091f15' ([string]$flowerBedPlan.Manifest.coverage_evidence.state_set_sha256) 'flowerbed exact ordered BREG state-set identity drifted'
         Assert-Equal 'e6eb62b75661d8de7508bbb40095e105301051d22462ef39f82f4226528ef763' ([string]$flowerBedPlan.Manifest.fixture_layout_hash) 'flowerbed canonical layout identity drifted'
         Assert-Equal $expectedFirstFlowerBedState ([string]$flowerBedPlan.Manifest.gallery_states[0]) 'flowerbed first canonical identity drifted'
@@ -742,6 +742,16 @@ try {
         Assert-Equal 'east,north,south,west' ($directions -join ',') 'flowerbed gallery cardinal coverage changed'
         Assert-Equal 'minecraft:pink_petals,minecraft:wildflowers' ($names -join ',') 'flowerbed gallery name coverage changed'
     }
+    $oppositeFlowerBedPlan = @($flowerBedPlans | Where-Object { $_.Manifest.pose -ceq 'FlowerBedGalleryObliqueOpposite' })[0]
+    Assert-Equal '38,28,38' (@(
+        ([int]$oppositeFlowerBedPlan.Manifest.camera.position.x - [int]$oppositeFlowerBedPlan.Manifest.mutation.x)
+        ([int]$oppositeFlowerBedPlan.Manifest.camera.position.y - [int]$oppositeFlowerBedPlan.Manifest.mutation.y)
+        ([int]$oppositeFlowerBedPlan.Manifest.camera.position.z - [int]$oppositeFlowerBedPlan.Manifest.mutation.z)
+    ) -join ',') 'flowerbed opposite oblique camera lost its symmetric offset'
+    Assert-Equal '138,92,238' (@($oppositeFlowerBedPlan.Manifest.camera.position.x, $oppositeFlowerBedPlan.Manifest.camera.position.y, $oppositeFlowerBedPlan.Manifest.camera.position.z) -join ',') 'flowerbed opposite oblique camera lost its exact position'
+    Assert-Equal 'tp @a[name=RustMCBE] 138 92 238 facing 100 66 200' ([string]$oppositeFlowerBedPlan.TeleportCommand) 'flowerbed opposite oblique camera command drifted'
+    Assert-Equal 'e6eb62b75661d8de7508bbb40095e105301051d22462ef39f82f4226528ef763' ([string]$oppositeFlowerBedPlan.Manifest.fixture_layout_hash) 'flowerbed opposite oblique camera changed canonical layout identity'
+    Assert-Equal 'a2fe82092cb22835a0553091ecfcdd67cedcddc9e791feb2d0ddeff9fe091f15' ([string]$oppositeFlowerBedPlan.Manifest.coverage_evidence.state_set_sha256) 'flowerbed opposite oblique camera changed exact state-set identity'
     Assert-Equal 1 @($flowerBedPlans | ForEach-Object { $_.Manifest.fixture_layout_hash } | Sort-Object -Unique).Count 'flowerbed camera pose changed canonical layout identity'
     $movedFlowerBedPlan = New-FlowerBedGalleryPlan -MutationCoordinate @(500, 70, -300) -Pose FlowerBedGalleryTop -RegistryPath $BlockRegistry
     Assert-Equal $flowerBedPlans[0].Manifest.fixture_layout_hash $movedFlowerBedPlan.Manifest.fixture_layout_hash 'flowerbed absolute coordinate changed canonical layout identity'

@@ -9,7 +9,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$MetricsOut,
     [string]$Assets,
-    [ValidateSet('None', 'Front', 'Back', 'LeafGalleryFront', 'LeafGalleryBack', 'CrossCropGalleryFront', 'CrossCropGalleryBack', 'AquaticGalleryFront', 'AquaticGalleryBack', 'WaterGalleryFront', 'WaterGalleryBack', 'FlowerBedGalleryTop', 'FlowerBedGalleryNorth', 'FlowerBedGalleryEast', 'FlowerBedGalleryOblique')]
+    [ValidateSet('None', 'Front', 'Back', 'LeafGalleryFront', 'LeafGalleryBack', 'CrossCropGalleryFront', 'CrossCropGalleryBack', 'AquaticGalleryFront', 'AquaticGalleryBack', 'WaterGalleryFront', 'WaterGalleryBack', 'FlowerBedGalleryTop', 'FlowerBedGalleryNorth', 'FlowerBedGalleryEast', 'FlowerBedGalleryOblique', 'FlowerBedGalleryObliqueOpposite')]
     [string]$VisualFixturePose = 'None',
     [switch]$FullViewTeleportGate,
     [switch]$LeafForestBaseline,
@@ -2693,7 +2693,7 @@ function New-FlowerBedGalleryPlan {
     param(
         [Parameter(Mandatory = $true)][ValidateCount(3, 3)][int[]]$MutationCoordinate,
         [Parameter(Mandatory = $true)]
-        [ValidateSet('FlowerBedGalleryTop', 'FlowerBedGalleryNorth', 'FlowerBedGalleryEast', 'FlowerBedGalleryOblique')]
+        [ValidateSet('FlowerBedGalleryTop', 'FlowerBedGalleryNorth', 'FlowerBedGalleryEast', 'FlowerBedGalleryOblique', 'FlowerBedGalleryObliqueOpposite')]
         [string]$Pose,
         [Parameter(Mandatory = $true)][string]$RegistryPath
     )
@@ -2713,6 +2713,15 @@ function New-FlowerBedGalleryPlan {
         FlowerBedGalleryNorth = @(0, 10, -44)
         FlowerBedGalleryEast = @(44, 10, 0)
         FlowerBedGalleryOblique = @(-38, 28, -38)
+        FlowerBedGalleryObliqueOpposite = @(38, 28, 38)
+    }
+    # The v1 layout identity predates the opposite capture pose. Keep its
+    # descriptor stable because capture coverage does not alter fixture blocks.
+    $layoutIdentityCameraOffsets = [ordered]@{
+        FlowerBedGalleryTop = $relativeCameras.FlowerBedGalleryTop
+        FlowerBedGalleryNorth = $relativeCameras.FlowerBedGalleryNorth
+        FlowerBedGalleryEast = $relativeCameras.FlowerBedGalleryEast
+        FlowerBedGalleryOblique = $relativeCameras.FlowerBedGalleryOblique
     }
     $cameraPoses = [ordered]@{}
     foreach ($cameraName in $relativeCameras.Keys) {
@@ -2769,7 +2778,7 @@ function New-FlowerBedGalleryPlan {
         spacing = @(4, 3)
         reference_cube_offset = @(1, 0, 0)
         reference_cube = 'minecraft:polished_andesite'
-        camera_offsets = [pscustomobject]$relativeCameras
+        camera_offsets = [pscustomobject]$layoutIdentityCameraOffsets
     }
     $layoutHash = Get-CanonicalObjectHash -Value $relativeLayout
     $manifest = [pscustomobject][ordered]@{
@@ -2868,7 +2877,7 @@ function New-VisualFixturePlan {
         [ValidateCount(3, 3)]
         [int[]]$MutationCoordinate,
         [Parameter(Mandatory = $true)]
-        [ValidateSet('Front', 'Back', 'LeafGalleryFront', 'LeafGalleryBack', 'CrossCropGalleryFront', 'CrossCropGalleryBack', 'AquaticGalleryFront', 'AquaticGalleryBack', 'WaterGalleryFront', 'WaterGalleryBack', 'FlowerBedGalleryTop', 'FlowerBedGalleryNorth', 'FlowerBedGalleryEast', 'FlowerBedGalleryOblique')]
+        [ValidateSet('Front', 'Back', 'LeafGalleryFront', 'LeafGalleryBack', 'CrossCropGalleryFront', 'CrossCropGalleryBack', 'AquaticGalleryFront', 'AquaticGalleryBack', 'WaterGalleryFront', 'WaterGalleryBack', 'FlowerBedGalleryTop', 'FlowerBedGalleryNorth', 'FlowerBedGalleryEast', 'FlowerBedGalleryOblique', 'FlowerBedGalleryObliqueOpposite')]
         [string]$Pose,
         [string]$RegistryPath,
         [string]$AssetsPath
@@ -4728,7 +4737,7 @@ if ($env:RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY -eq '1') {
 if ($DurationSeconds -lt 60) {
     throw 'DurationSeconds must be at least 60'
 }
-$canonicalVisualFixturePoses = @('None', 'Front', 'Back', 'LeafGalleryFront', 'LeafGalleryBack', 'CrossCropGalleryFront', 'CrossCropGalleryBack', 'AquaticGalleryFront', 'AquaticGalleryBack', 'WaterGalleryFront', 'WaterGalleryBack', 'FlowerBedGalleryTop', 'FlowerBedGalleryNorth', 'FlowerBedGalleryEast', 'FlowerBedGalleryOblique')
+$canonicalVisualFixturePoses = @('None', 'Front', 'Back', 'LeafGalleryFront', 'LeafGalleryBack', 'CrossCropGalleryFront', 'CrossCropGalleryBack', 'AquaticGalleryFront', 'AquaticGalleryBack', 'WaterGalleryFront', 'WaterGalleryBack', 'FlowerBedGalleryTop', 'FlowerBedGalleryNorth', 'FlowerBedGalleryEast', 'FlowerBedGalleryOblique', 'FlowerBedGalleryObliqueOpposite')
 if (-not ($canonicalVisualFixturePoses -ccontains $VisualFixturePose)) {
     throw "VisualFixturePose must use canonical casing: $VisualFixturePose"
 }
@@ -4736,7 +4745,7 @@ $isLeafGallery = $VisualFixturePose -in @('LeafGalleryFront', 'LeafGalleryBack')
 $isCrossCropGallery = $VisualFixturePose -in @('CrossCropGalleryFront', 'CrossCropGalleryBack')
 $isAquaticGallery = $VisualFixturePose -in @('AquaticGalleryFront', 'AquaticGalleryBack')
 $isWaterGallery = $VisualFixturePose -in @('WaterGalleryFront', 'WaterGalleryBack')
-$isFlowerBedGallery = $VisualFixturePose -in @('FlowerBedGalleryTop', 'FlowerBedGalleryNorth', 'FlowerBedGalleryEast', 'FlowerBedGalleryOblique')
+$isFlowerBedGallery = $VisualFixturePose -in @('FlowerBedGalleryTop', 'FlowerBedGalleryNorth', 'FlowerBedGalleryEast', 'FlowerBedGalleryOblique', 'FlowerBedGalleryObliqueOpposite')
 $isDeterministicGallery = $isLeafGallery -or $isCrossCropGallery -or $isAquaticGallery -or $isWaterGallery -or $isFlowerBedGallery
 $isLeafEvidence = $isDeterministicGallery -or $LeafForestBaseline -or $LeafForestFullView
 $hasClientExecutable = $PSBoundParameters.ContainsKey('ClientExecutable')
