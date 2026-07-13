@@ -2445,7 +2445,18 @@ fn drive_model_witness(
         return;
     };
     let now = Instant::now();
-    let proposed = render_queue.freeze_target_expectation(cohort, None, 0, now);
+    let Some(proposed) = render_queue.freeze_target_expectation_for_keys(
+        cohort,
+        None,
+        request.keys().iter().copied(),
+        0,
+        now,
+    ) else {
+        if state.expectation.take().is_some() {
+            presented_frames.clear();
+        }
+        return;
+    };
     let expectation = if let Some(current) = state.expectation.as_ref().filter(|current| {
         current.cohort == proposed.cohort
             && current.source_cohort == proposed.source_cohort
