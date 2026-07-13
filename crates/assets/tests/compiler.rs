@@ -611,7 +611,7 @@ fn compiler_compiles_normal_flowerbeds_as_additive_near_ground_two_material_mode
     write_flowerbed_pack(directory.path(), true);
     let mut records = Vec::new();
     for name in ["minecraft:wildflowers", "minecraft:pink_petals"] {
-        for growth in 0..=4 {
+        for growth in 0..=7 {
             let sequential_id = records.len() as u32;
             records.push(generated_flowerbed_record(
                 sequential_id,
@@ -625,8 +625,8 @@ fn compiler_compiles_normal_flowerbeds_as_additive_near_ground_two_material_mode
 
     let compiled = compile_pack(directory.path(), &records).expect("compile flowerbeds");
     for name_index in 0..2 {
-        for growth in 0..=3 {
-            let visual = compiled.visuals[name_index * 5 + growth];
+        for (growth, expected_flower_quads) in [1, 2, 3, 4, 4, 4, 4, 4].into_iter().enumerate() {
+            let visual = compiled.visuals[name_index * 8 + growth];
             assert_eq!(visual.kind, VisualKind::Model, "growth={growth}");
             assert_ne!(visual.model_template, assets::NO_MODEL_TEMPLATE);
             let template = compiled.model_templates[visual.model_template as usize];
@@ -638,7 +638,7 @@ fn compiler_compiles_normal_flowerbeds_as_additive_near_ground_two_material_mode
                     .iter()
                     .filter(|quad| quad.material == flower_material)
                     .count(),
-                growth + 1,
+                expected_flower_quads,
                 "growth={growth} additive patch count"
             );
             assert!(
@@ -663,9 +663,6 @@ fn compiler_compiles_normal_flowerbeds_as_additive_near_ground_two_material_mode
                     .all(|quad| quad.flags == MODEL_QUAD_FLAG_TWO_SIDED)
             );
         }
-        let command_only = compiled.visuals[name_index * 5 + 4];
-        assert_eq!(command_only.kind, VisualKind::Diagnostic);
-        assert_eq!(command_only.model_template, assets::NO_MODEL_TEMPLATE);
     }
 }
 
@@ -737,7 +734,7 @@ fn compiler_flowerbed_templates_are_bounded_deduplicated_and_blob_stable() {
     write_flowerbed_pack(directory.path(), true);
     let mut records = Vec::new();
     for name in ["minecraft:wildflowers", "minecraft:pink_petals"] {
-        for growth in 0..4 {
+        for growth in 0..8 {
             for orientation in 0..4 {
                 let sequential_id = records.len() as u32;
                 records.push(generated_flowerbed_record(
@@ -767,6 +764,26 @@ fn compiler_flowerbed_templates_are_bounded_deduplicated_and_blob_stable() {
         compiled.visuals[duplicate_id as usize].model_template, compiled.visuals[10].model_template,
         "identical material/growth/orientation identity must deduplicate"
     );
+    assert!(
+        compiled
+            .visuals
+            .iter()
+            .all(|visual| visual.kind == VisualKind::Model),
+        "all 64 normal flowerbed states must route to models"
+    );
+    for name_index in 0..2 {
+        for orientation in 0..4 {
+            let full_layout =
+                compiled.visuals[name_index * 32 + 3 * 4 + orientation].model_template;
+            for growth in 4..8 {
+                assert_eq!(
+                    compiled.visuals[name_index * 32 + growth * 4 + orientation].model_template,
+                    full_layout,
+                    "growth={growth} must alias the measured full layout for block={name_index} orientation={orientation}"
+                );
+            }
+        }
+    }
     for (index, expected_quads) in [7, 10, 17, 20].into_iter().enumerate() {
         let visual = compiled.visuals[index * 4];
         let template = compiled.model_templates[visual.model_template as usize];

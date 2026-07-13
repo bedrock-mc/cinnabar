@@ -838,15 +838,17 @@ fn compile_visuals(
             });
             if let (
                 Some([Some(flower), Some(stem)]),
-                Some(growth @ 0..=3),
+                Some(growth @ 0..=7),
                 Some(orientation @ 0..=3),
             ) = (materials, growth, orientation)
             {
-                let key = [flower, stem, growth, orientation];
+                const LAYOUT_BY_GROWTH: [u32; 8] = [0, 1, 2, 3, 3, 3, 3, 3];
+                let layout = LAYOUT_BY_GROWTH[growth as usize];
+                let key = [flower, stem, layout, orientation];
                 let template = if let Some(&template) = flowerbed_template_by_key.get(&key) {
                     template
                 } else {
-                    let quads = flowerbed_quads([flower, stem], growth, orientation)?;
+                    let quads = flowerbed_quads([flower, stem], layout, orientation)?;
                     let template = u32::try_from(model_templates.len()).map_err(|_| {
                         AssetError::BlobSizeOverflow {
                             section: "model template",
