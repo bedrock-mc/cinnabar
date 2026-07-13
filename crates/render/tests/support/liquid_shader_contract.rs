@@ -254,8 +254,12 @@ mod tests {
     const SHADER: &str = include_str!("../../src/liquid.wgsl");
 
     fn assert_rejects_mutation(from: &str, to: &str) {
-        let mutated = SHADER.replacen(from, to, 1);
-        assert_ne!(mutated, SHADER, "mutation source must exist: {from}");
+        // `include_str!` preserves checkout line endings. Normalize the source
+        // before applying multi-line semantic mutations so this contract tests
+        // identical shader text on Windows and Unix worktrees.
+        let shader = SHADER.replace("\r\n", "\n");
+        let mutated = shader.replacen(from, to, 1);
+        assert_ne!(mutated, shader, "mutation source must exist: {from}");
         assert!(
             std::panic::catch_unwind(|| LiquidShaderContract::parse(&mutated)).is_err(),
             "contract accepted structural shader mutation: {from} -> {to}",
