@@ -1922,6 +1922,13 @@ try {
             'online-mode=true'
             'allow-list=true'
             'enable-lan-visibility=true'
+            'gamemode=survival'
+            'force-gamemode=false'
+            'allow-cheats=false'
+            'view-distance=32'
+            'player-idle-timeout=30'
+            'default-player-permission-level=member'
+            'client-side-chunk-generation-enabled=true'
             'server-name=fixture'
             'level-name=Bedrock level'
             'level-seed=unchanged-seed'
@@ -1936,12 +1943,28 @@ try {
         'online-mode=false',
         'allow-list=false',
         'enable-lan-visibility=false',
+        'gamemode=creative',
+        'force-gamemode=true',
+        'allow-cheats=true',
+        'view-distance=16',
+        'player-idle-timeout=0',
+        'default-player-permission-level=operator',
+        'client-side-chunk-generation-enabled=false',
         'server-name=fixture',
         'level-name=Bedrock level',
         'level-seed=unchanged-seed'
     )) {
         Assert-True ($serverProperties -contains $expectedProperty) "missing rewritten property: $expectedProperty"
     }
+    $duplicateAcceptancePropertyPath = Join-Path $TempRoot 'duplicate-acceptance-property.properties'
+    [IO.File]::WriteAllLines(
+        $duplicateAcceptancePropertyPath,
+        @($serverProperties) + 'client-side-chunk-generation-enabled=true',
+        [Text.UTF8Encoding]::new($false)
+    )
+    Assert-ThrowsLike {
+        Set-ServerProperties -Path $duplicateAcceptancePropertyPath -Port 20002 -PortV6 20003
+    } 'server.properties must contain exactly one client-side-chunk-generation-enabled entry' 'duplicate client-side terrain generation setting was silently accepted'
 
     $worldIdentitySource = Join-Path $TempRoot 'world identity source'
     $worldIdentitySourceReverse = Join-Path $TempRoot 'world identity source reverse'

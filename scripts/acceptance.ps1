@@ -682,6 +682,13 @@ function Set-ServerProperties {
         'online-mode' = 'false'
         'allow-list' = 'false'
         'enable-lan-visibility' = 'false'
+        'gamemode' = 'creative'
+        'force-gamemode' = 'true'
+        'allow-cheats' = 'true'
+        'view-distance' = '16'
+        'player-idle-timeout' = '0'
+        'default-player-permission-level' = 'operator'
+        'client-side-chunk-generation-enabled' = 'false'
     }
     $lines = @([IO.File]::ReadAllLines($Path))
     foreach ($key in $wanted.Keys) {
