@@ -54,5 +54,14 @@
     "id": 52,
     "byte_length": 18,
     "sha256": "b73c651ccf07ece21aea4b186be3780875ce7cacef04f9327e3c968636d43a39"
+  },
+  {
+    "name": "BiomeDefinitionListChunkGeneration",
+    "file": "biome_definition_list_chunk_generation.bin",
+    "id": 122,
+    "byte_length": 48,
+    "sha256": "a1a626d9b27cd943bc38fbbc356a09ea711ddb26acad72e284dd8dfaff94fbd4",
+    "wire_authority": "hashimthearab/gophertunnel",
+    "wire_commit": "9948b1729395d2e819fce28e079d4a7bfc67716c"
   }
 ]

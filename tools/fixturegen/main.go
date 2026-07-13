@@ -26,17 +26,21 @@ const (
 )
 
 type fixture struct {
-	name string
-	file string
-	pk   packet.Packet
+	name          string
+	file          string
+	pk            packet.Packet
+	wireAuthority string
+	wireCommit    string
 }
 
 type manifestEntry struct {
-	Name       string `json:"name"`
-	File       string `json:"file"`
-	ID         uint32 `json:"id"`
-	ByteLength int    `json:"byte_length"`
-	SHA256     string `json:"sha256"`
+	Name          string `json:"name"`
+	File          string `json:"file"`
+	ID            uint32 `json:"id"`
+	ByteLength    int    `json:"byte_length"`
+	SHA256        string `json:"sha256"`
+	WireAuthority string `json:"wire_authority,omitempty"`
+	WireCommit    string `json:"wire_commit,omitempty"`
 }
 
 func main() {
@@ -78,11 +82,13 @@ func generate(out string) error {
 		}
 		digest := sha256.Sum256(encoded)
 		manifest = append(manifest, manifestEntry{
-			Name:       fixture.name,
-			File:       fixture.file,
-			ID:         fixture.pk.ID(),
-			ByteLength: len(encoded),
-			SHA256:     hex.EncodeToString(digest[:]),
+			Name:          fixture.name,
+			File:          fixture.file,
+			ID:            fixture.pk.ID(),
+			ByteLength:    len(encoded),
+			SHA256:        hex.EncodeToString(digest[:]),
+			WireAuthority: fixture.wireAuthority,
+			WireCommit:    fixture.wireCommit,
 		})
 	}
 
@@ -227,6 +233,19 @@ func fixtures() []fixture {
 				},
 				ClearRecipes: true,
 			},
+		},
+		{
+			name: "BiomeDefinitionListChunkGeneration",
+			file: "biome_definition_list_chunk_generation.bin",
+			pk: &packet.BiomeDefinitionList{
+				BiomeDefinitions: []protocol.BiomeDefinition{
+					{
+						ChunkGeneration: protocol.Option(protocol.BiomeChunkGeneration{}),
+					},
+				},
+			},
+			wireAuthority: "hashimthearab/gophertunnel",
+			wireCommit:    "9948b1729395d2e819fce28e079d4a7bfc67716c",
 		},
 	}
 }
