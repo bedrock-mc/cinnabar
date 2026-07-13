@@ -3963,6 +3963,7 @@ mod tests {
             cohort: expectation.cohort,
             frame_sequence,
             allocation_manifest: Arc::clone(&expectation.manifest),
+            visible_allocation_manifest: Arc::clone(&expectation.manifest),
             drawn_manifest: Arc::clone(&expectation.manifest),
             view_generation: expectation.view_generation,
             render_ready_at: expectation.render_ready_at,

@@ -971,6 +971,7 @@ fn allocated_but_undrawn_target_is_not_exact_presented_evidence() {
         cohort: RenderViewCohort::new(0, [65, 65], 16),
         frame_sequence: 1,
         allocation_manifest: Arc::from([(key, 7)]),
+        visible_allocation_manifest: Arc::from([(key, 7)]),
         drawn_manifest: Arc::from([]),
         view_generation: 1,
         render_ready_at: now,

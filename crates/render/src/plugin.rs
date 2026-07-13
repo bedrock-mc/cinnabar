@@ -544,7 +544,7 @@ impl ModelWitnessEvidence {
         if state.complete || state.active != *request {
             return;
         }
-        if !acknowledgement.is_exact() {
+        if !acknowledgement.is_model_witness_compatible() {
             state.first = None;
             return;
         }
@@ -2392,6 +2392,7 @@ struct CompletedFrameProbe {
     expectation: TargetRenderExpectation,
     frame_sequence: u64,
     allocation_manifest: Arc<[(SubChunkKey, u64)]>,
+    visible_allocation_manifest: Arc<[(SubChunkKey, u64)]>,
     drawn_manifest: Arc<[(SubChunkKey, u64)]>,
     missing_target_instances: usize,
     unexpected_target_instances: usize,
@@ -2417,6 +2418,8 @@ pub struct PresentedFrameAck {
     pub frame_sequence: u64,
     /// Every target GPU allocation observed before `PrepareResources`.
     pub allocation_manifest: Arc<[(SubChunkKey, u64)]>,
+    /// Eligible target allocations extracted as visible for at least one queued view.
+    pub visible_allocation_manifest: Arc<[(SubChunkKey, u64)]>,
     /// Target allocations actually emitted by the direct or MDI draw path.
     pub drawn_manifest: Arc<[(SubChunkKey, u64)]>,
     pub view_generation: u64,
@@ -2434,6 +2437,17 @@ pub struct PresentedFrameAck {
 }
 
 impl PresentedFrameAck {
+    #[must_use]
+    fn is_model_witness_compatible(&self) -> bool {
+        self.visible_allocation_manifest == self.drawn_manifest
+            && self.missing_target_instances == 0
+            && self.unexpected_target_instances == 0
+            && self.source_instances == 0
+            && self.foreign_instances == 0
+            && self.stale_generation_instances == 0
+            && self.orphan_allocations == 0
+    }
+
     #[must_use]
     pub fn is_exact(&self) -> bool {
         !self.allocation_manifest.is_empty()
@@ -2599,6 +2613,7 @@ fn build_presented_frame_ack(
         cohort: probe.expectation.cohort,
         frame_sequence: probe.frame_sequence,
         allocation_manifest: probe.allocation_manifest,
+        visible_allocation_manifest: probe.visible_allocation_manifest,
         drawn_manifest: probe.drawn_manifest,
         view_generation: probe.expectation.view_generation,
         render_ready_at: probe.expectation.render_ready_at,
@@ -2681,6 +2696,7 @@ struct FrameProbe {
     model_request: ModelWitnessRequest,
     model_allocations: BTreeMap<(SubChunkKey, u64), (ChunkStreamMask, usize)>,
     allocation_manifest: BTreeSet<(SubChunkKey, u64)>,
+    visible_allocation_manifest: Mutex<BTreeSet<(SubChunkKey, u64)>>,
     target_allocation_count: usize,
     duplicate_target_instances: usize,
     drawn: Mutex<BTreeMap<(SubChunkKey, u64), ChunkStreamMask>>,
@@ -2797,6 +2813,7 @@ impl FrameProbe {
             model_request,
             model_allocations,
             allocation_manifest,
+            visible_allocation_manifest: Mutex::new(BTreeSet::new()),
             target_allocation_count,
             duplicate_target_instances,
             drawn: Mutex::new(BTreeMap::new()),
@@ -2810,6 +2827,23 @@ impl FrameProbe {
 
     fn record_direct_draw(&self, entity: Entity, allocation: FrameAllocationIdentity) -> bool {
         self.record_direct_streams(entity, allocation, ChunkStreamMask::CUBE)
+    }
+
+    fn record_visible(&self, entity: Entity, allocation: FrameAllocationIdentity) -> bool {
+        let Some(&(eligible, _)) = self.eligible.get(&entity) else {
+            return false;
+        };
+        if eligible != allocation {
+            return false;
+        }
+        let identity = (allocation.key, allocation.generation);
+        if self.allocation_manifest.contains(&identity) {
+            self.visible_allocation_manifest
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner())
+                .insert(identity);
+        }
+        true
     }
 
     fn record_direct_streams(
@@ -2893,6 +2927,10 @@ impl FrameProbe {
             .iter()
             .copied()
             .collect::<BTreeSet<_>>();
+        let visible_allocation_manifest = self
+            .visible_allocation_manifest
+            .into_inner()
+            .unwrap_or_else(|poison| poison.into_inner());
         let drawn_streams = self
             .drawn
             .into_inner()
@@ -2937,6 +2975,9 @@ impl FrameProbe {
             frame_sequence: self.frame_sequence,
             allocation_manifest: Arc::from(
                 self.allocation_manifest.into_iter().collect::<Vec<_>>(),
+            ),
+            visible_allocation_manifest: Arc::from(
+                visible_allocation_manifest.into_iter().collect::<Vec<_>>(),
             ),
             drawn_manifest: Arc::from(drawn.into_iter().collect::<Vec<_>>()),
             missing_target_instances,
@@ -2995,6 +3036,15 @@ impl ActiveFrameProbe {
                     .get(&entity)
                     .is_some_and(|(eligible, _)| *eligible == allocation)
             })
+    }
+
+    fn record_visible(&self, entity: Entity, allocation: FrameAllocationIdentity) -> bool {
+        self.0
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .current
+            .as_ref()
+            .is_none_or(|probe| probe.record_visible(entity, allocation))
     }
 
     fn record_direct_draw(&self, entity: Entity, allocation: FrameAllocationIdentity) -> bool {
@@ -7475,15 +7525,18 @@ fn queue_chunks(
             )
             .into_iter()
             .filter(|(entity, _)| {
-                allocations.get(*entity).is_ok_and(|allocation| {
-                    drawable_allocation_identity(
-                        &frame_probe,
-                        *entity,
-                        allocation,
-                        biome_tints.table_identity(),
-                    )
-                    .is_some()
-                })
+                let Ok(allocation) = allocations.get(*entity) else {
+                    return false;
+                };
+                let Some(identity) = drawable_allocation_identity(
+                    &frame_probe,
+                    *entity,
+                    allocation,
+                    biome_tints.table_identity(),
+                ) else {
+                    return false;
+                };
+                frame_probe.record_visible(*entity, identity)
             })
             .collect::<Vec<_>>();
 
@@ -7591,14 +7644,15 @@ fn queue_chunks(
             let Ok(allocation) = allocations.get(render_entity) else {
                 continue;
             };
-            if drawable_allocation_identity(
+            let Some(identity) = drawable_allocation_identity(
                 &frame_probe,
                 render_entity,
                 allocation,
                 biome_tints.table_identity(),
-            )
-            .is_none()
-            {
+            ) else {
+                continue;
+            };
+            if !frame_probe.record_visible(render_entity, identity) {
                 continue;
             }
             let this_tick = next_tick.get() + 1;
@@ -10014,6 +10068,7 @@ mod tests {
         let probe = CompletedFrameProbe {
             frame_sequence: 1,
             allocation_manifest: Arc::clone(&expectation.manifest),
+            visible_allocation_manifest: Arc::clone(&expectation.manifest),
             drawn_manifest: Arc::clone(&expectation.manifest),
             expectation,
             missing_target_instances: 0,
@@ -11736,7 +11791,7 @@ mod tests {
     }
 
     #[test]
-    fn model_witness_rejects_missing_stale_cube_only_and_zero_ref_keys() {
+    fn model_witness_rejects_missing_stale_wrong_stream_zero_ref_and_draw_mismatch() {
         let key = SubChunkKey::new(0, 1, 4, 5);
         let request = ModelWitnessRequest::try_new(7, [0x11; 32], vec![key]).unwrap();
         let expected = [(key, 9)];
@@ -11770,10 +11825,20 @@ mod tests {
             &[(key, 9, ChunkStreamMask::MODEL)],
         );
         assert_eq!(zero_ref.zero_model_ref_count, 1);
+        let draw_mismatch = evaluate_model_witness_frame(
+            &request,
+            20,
+            3,
+            &expected,
+            &[(key, 9, ChunkStreamMask::MODEL, 2)],
+            &[],
+        );
+        assert_eq!(draw_mismatch.draw_mismatch_count, 1);
         assert!(!missing.is_exact());
         assert!(!stale.is_exact());
         assert!(!cube_only.is_exact());
         assert!(!zero_ref.is_exact());
+        assert!(!draw_mismatch.is_exact());
     }
 
     #[test]
@@ -11829,6 +11894,7 @@ mod tests {
             cohort: RenderViewCohort::new(key.dimension, [key.x, key.z], 0),
             frame_sequence,
             allocation_manifest: Arc::from([(key, 9)]),
+            visible_allocation_manifest: Arc::from([(key, 9)]),
             drawn_manifest: Arc::from([(key, 9)]),
             view_generation: 3,
             render_ready_at: now,
@@ -11849,6 +11915,160 @@ mod tests {
                 manifest,
                 now,
             )),
+        }
+    }
+
+    fn probed_model_witness_ack(
+        request: &ModelWitnessRequest,
+        render_ready_at: Instant,
+        frame_sequence: u64,
+        unrelated_visible: bool,
+    ) -> PresentedFrameAck {
+        let requested_key = request.keys()[0];
+        let unrelated_key =
+            SubChunkKey::new(0, requested_key.y + 1, requested_key.x + 1, requested_key.z);
+        let requested_entity = Entity::from_bits(91);
+        let unrelated_entity = Entity::from_bits(92);
+        let requested_allocation = FrameAllocationIdentity {
+            entity: requested_entity,
+            key: requested_key,
+            generation: 9,
+        };
+        let unrelated_allocation = FrameAllocationIdentity {
+            entity: unrelated_entity,
+            key: unrelated_key,
+            generation: 4,
+        };
+        let mut probe = FrameProbe::begin_with_model_witness(
+            target_expectation(render_ready_at, [(requested_key, 9), (unrelated_key, 4)]),
+            [
+                FrameInstanceIdentity {
+                    entity: requested_entity,
+                    key: requested_key,
+                    generation: 9,
+                },
+                FrameInstanceIdentity {
+                    entity: unrelated_entity,
+                    key: unrelated_key,
+                    generation: 4,
+                },
+            ],
+            [
+                (
+                    requested_allocation,
+                    ChunkStreamMask::CUBE | ChunkStreamMask::MODEL,
+                    3,
+                ),
+                (
+                    unrelated_allocation,
+                    ChunkStreamMask::CUBE | ChunkStreamMask::MODEL,
+                    2,
+                ),
+            ],
+            request.clone(),
+        );
+        probe.frame_sequence = frame_sequence;
+        assert!(probe.record_visible(requested_entity, requested_allocation));
+        if unrelated_visible {
+            assert!(probe.record_visible(unrelated_entity, unrelated_allocation));
+        }
+        assert!(probe.record_direct_streams(
+            requested_entity,
+            requested_allocation,
+            ChunkStreamMask::CUBE | ChunkStreamMask::MODEL,
+        ));
+        build_presented_frame_ack(
+            probe.complete(),
+            FrameCompletionEvidence {
+                present_returned_at: Some(
+                    render_ready_at + std::time::Duration::from_millis(frame_sequence),
+                ),
+                submitted_work_done_at: Some(
+                    render_ready_at + std::time::Duration::from_millis(frame_sequence + 1),
+                ),
+            },
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn exact_model_manifest_pairs_with_unrelated_non_visible_allocation_undrawn() {
+        let render_ready_at = Instant::now();
+        let key = SubChunkKey::new(0, 65, 65, 65);
+        let request = ModelWitnessRequest::try_new(7, [0x43; 32], vec![key]).unwrap();
+        let evidence = ModelWitnessEvidence::default();
+        evidence.set_authoritative_request(&request);
+
+        for frame_sequence in [40, 41] {
+            let acknowledgement =
+                probed_model_witness_ack(&request, render_ready_at, frame_sequence, false);
+            assert!(!acknowledgement.is_exact());
+            assert_eq!(acknowledgement.allocation_manifest.len(), 2);
+            assert_eq!(acknowledgement.visible_allocation_manifest.len(), 1);
+            assert_eq!(
+                acknowledgement.visible_allocation_manifest,
+                acknowledgement.drawn_manifest
+            );
+            assert!(
+                acknowledgement
+                    .model_witness
+                    .as_ref()
+                    .is_some_and(ModelWitnessFrameAck::is_exact)
+            );
+            evidence.observe_presented_frame(&request, &acknowledgement);
+        }
+
+        let events = evidence.drain_events();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].consecutive, 1);
+        assert_eq!(events[1].consecutive, 2);
+    }
+
+    #[test]
+    fn exact_model_manifest_rejects_unrelated_visible_allocation_undrawn() {
+        let render_ready_at = Instant::now();
+        let key = SubChunkKey::new(0, 65, 65, 65);
+        let request = ModelWitnessRequest::try_new(7, [0x45; 32], vec![key]).unwrap();
+        let evidence = ModelWitnessEvidence::default();
+        evidence.set_authoritative_request(&request);
+
+        for frame_sequence in [40, 41] {
+            let acknowledgement =
+                probed_model_witness_ack(&request, render_ready_at, frame_sequence, true);
+            assert_eq!(acknowledgement.visible_allocation_manifest.len(), 2);
+            assert_eq!(acknowledgement.drawn_manifest.len(), 1);
+            assert!(!acknowledgement.is_model_witness_compatible());
+            assert!(
+                acknowledgement
+                    .model_witness
+                    .as_ref()
+                    .is_some_and(ModelWitnessFrameAck::is_exact)
+            );
+            evidence.observe_presented_frame(&request, &acknowledgement);
+        }
+
+        assert!(evidence.drain_events().is_empty());
+    }
+
+    #[test]
+    fn model_witness_outer_compatibility_rejects_every_contamination_counter() {
+        let key = SubChunkKey::new(0, 1, 4, 5);
+        let request = ModelWitnessRequest::try_new(7, [0x44; 32], vec![key]).unwrap();
+        let clean = presented_model_witness_ack(&request, key, 40, 0, 0);
+        assert!(clean.is_model_witness_compatible());
+
+        let contaminate: [fn(&mut PresentedFrameAck); 6] = [
+            |acknowledgement| acknowledgement.missing_target_instances = 1,
+            |acknowledgement| acknowledgement.unexpected_target_instances = 1,
+            |acknowledgement| acknowledgement.source_instances = 1,
+            |acknowledgement| acknowledgement.foreign_instances = 1,
+            |acknowledgement| acknowledgement.stale_generation_instances = 1,
+            |acknowledgement| acknowledgement.orphan_allocations = 1,
+        ];
+        for contaminate in contaminate {
+            let mut acknowledgement = clean.clone();
+            contaminate(&mut acknowledgement);
+            assert!(!acknowledgement.is_model_witness_compatible());
         }
     }
 
