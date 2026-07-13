@@ -366,7 +366,21 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       (`6df380d`, `09279a1`; 122 asset tests, 44 render-mesh tests, strict
       Clippy/formatting, and independent review green). Gallery acceptance
       remains part of Task 14 before the parent item can close.
-    - [ ] Stair templates and neighbor-derived straight/inner/outer selection.
+    - [x] Stair templates and neighbor-derived straight/inner/outer selection:
+      all 512 BREG1003 states across 64 names compile through compact five-shape
+      groups per material/upside signature, with exact S/W/N/E transforms,
+      both Dragonfly side-isolation guards, same-half matching, all four
+      horizontal cross-subchunk boundaries, selected-template lighting, and
+      conservative cave connectivity (`859fb13`, `0475516`, `e1732eb`,
+      `1766a56`, `469695b`). The exact pinned pack has zero stair diagnostics;
+      real-pack assets/render tests, the 43-witness/five-pose deterministic
+      gallery, strict MCBEAS04 integrity/tamper gates, full PowerShell dry-run
+      acceptance, strict Clippy/formatting, and independent re-review are green.
+    - [ ] Slab/stair native and packed-GPU live acceptance: capture all five
+      fixed Cinnabar poses through native `%TEMP%` screenshots and require two
+      consecutive exact GPU-completed model-stream witnesses. Automated gallery
+      construction is complete, but allocation/upload evidence cannot close
+      this live gate.
   - [ ] Complete the exhaustive residual-family report, beginning with
     lava/flowing-lava on a reviewed depth-writing non-water-liquid pipeline, so
     every non-air one of the 16,913 canonical states has a non-diagnostic visual;
