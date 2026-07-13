@@ -1234,7 +1234,7 @@ function Assert-BdsTickingAreaPreloadResult {
         [Parameter(Mandatory = $true)]$ExpectedMaximum
     )
 
-    $pattern = '^\[[^\]\r\n]+ INFO\] Added ticking area from (-?\d+), (-?\d+), (-?\d+) to (-?\d+), (-?\d+), (-?\d+) marked for preload\.$'
+    $pattern = '^(?:NO LOG FILE! - )?\[[^\]\r\n]+ INFO\] Added ticking area from (-?\d+), (-?\d+), (-?\d+) to (-?\d+), (-?\d+), (-?\d+) marked for preload\.$'
     if ($Line -notmatch $pattern) {
         throw "invalid ticking-area preload acknowledgement: $Line"
     }
@@ -1268,7 +1268,7 @@ function Assert-BdsFixtureCommandResults {
 
     $results = [Collections.Generic.List[object]]::new()
     foreach ($line in $Lines) {
-        if ($line -notmatch '^\[[^\]\r\n]+ (?<level>INFO|ERROR)\] (?<message>.*)$') {
+        if ($line -notmatch '^(?:NO LOG FILE! - )?\[[^\]\r\n]+ (?<level>INFO|ERROR)\] (?<message>.*)$') {
             if ($line.Contains(' ERROR] ')) {
                 throw "BDS fixture command failed: $line"
             }
@@ -3752,7 +3752,7 @@ function Remove-BdsTickingArea {
     $markerEvidence = Get-RequiredBdsMarkerEvidence `
         -Evidence $rawEvidence `
         -Context 'ticking-area cleanup wait'
-    $expectedPattern = '^\[[^\]\r\n]+ INFO\] ' + [regex]::Escape([string]$active.CleanupMarker) + '$'
+    $expectedPattern = '^(?:NO LOG FILE! - )?\[[^\]\r\n]+ INFO\] ' + [regex]::Escape([string]$active.CleanupMarker) + '$'
     if ([string]$markerEvidence.Line -notmatch $expectedPattern) {
         throw "invalid ticking-area cleanup acknowledgement: $($markerEvidence.Line)"
     }

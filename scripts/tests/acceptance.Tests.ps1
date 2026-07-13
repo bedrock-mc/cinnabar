@@ -238,7 +238,7 @@ function New-TestBdsFixtureResultLines {
     $lines = [Collections.Generic.List[string]]::new()
     foreach ($command in $Commands) {
         if ($command -match '^setblock ') {
-            $lines.Add('[2026-07-11 12:00:00:000 INFO] Block placed')
+            $lines.Add('NO LOG FILE! - [2026-07-11 12:00:00:000 INFO] Block placed')
             continue
         }
         if ($command -notmatch '^fill (-?\d+) (-?\d+) (-?\d+) (-?\d+) (-?\d+) (-?\d+) ') {
@@ -247,7 +247,7 @@ function New-TestBdsFixtureResultLines {
         $volume = ([Math]::Abs([int]$Matches[4] - [int]$Matches[1]) + 1) *
             ([Math]::Abs([int]$Matches[5] - [int]$Matches[2]) + 1) *
             ([Math]::Abs([int]$Matches[6] - [int]$Matches[3]) + 1)
-        $lines.Add("[2026-07-11 12:00:00:000 INFO] $volume blocks filled")
+        $lines.Add("NO LOG FILE! - [2026-07-11 12:00:00:000 INFO] $volume blocks filled")
     }
     return @($lines)
 }
@@ -1362,7 +1362,7 @@ try {
     Assert-Equal ($expectedTargetMutation -join ',') (@($fullViewForestPlan.Manifest.target_mutation.x, $fullViewForestPlan.Manifest.target_mutation.y, $fullViewForestPlan.Manifest.target_mutation.z) -join ',') 'forest manifest lost target mutation identity'
 
     $preloadResult = Assert-BdsTickingAreaPreloadResult `
-        -Line '[2026-07-11 12:00:00:000 INFO] Added ticking area from 1104, 0, 976 to 1167, 0, 1039 marked for preload.' `
+        -Line 'NO LOG FILE! - [2026-07-11 12:00:00:000 INFO] Added ticking area from 1104, 0, 976 to 1167, 0, 1039 marked for preload.' `
         -ExpectedMinimum $fullViewForestPlan.Manifest.clear.min `
         -ExpectedMaximum $fullViewForestPlan.Manifest.clear.max
     Assert-Equal '1104,976,1167,1039' (@($preloadResult.min_x, $preloadResult.min_z, $preloadResult.max_x, $preloadResult.max_z) -join ',') 'preload acknowledgement lost snapped X/Z bounds'
@@ -1892,7 +1892,7 @@ try {
         -WaitForAck {
             param($Handle, $Marker, $TimeoutSeconds)
             return New-TestBdsMarkerEvidence `
-                -Line '[2026-07-11 12:00:00:000 INFO] Removed ticking area(s)'
+                -Line 'NO LOG FILE! - [2026-07-11 12:00:00:000 INFO] Removed ticking area(s)'
         }
     Assert-Equal $fullViewForestPlan.CleanupCommand $cleanupResult.command 'ticking-area cleanup issued the wrong command'
     $activeTickingAreaProperty = $forestHandle.PSObject.Properties['ActiveTickingArea']
