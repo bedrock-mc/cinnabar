@@ -2871,14 +2871,113 @@ function New-WaterGalleryTransparentWitnessRequest {
     }
 }
 
+function Get-SlabStairCoverageEvidence {
+    param(
+        [Parameter(Mandatory = $true)][string]$RegistryPath,
+        [Parameter(Mandatory = $true)][string]$AssetsPath
+    )
+    $registryBytes = [IO.File]::ReadAllBytes($RegistryPath)
+    $reader = [IO.BinaryReader]::new([IO.MemoryStream]::new($registryBytes, $false))
+    $utf8 = [Text.UTF8Encoding]::new($false, $true)
+    try {
+        if ($utf8.GetString($reader.ReadBytes(8)) -cne 'BREG1003' -or $reader.ReadUInt32() -ne 1001) {
+            throw 'slab/stair coverage requires the protocol-1001 BREG1003 registry'
+        }
+        $null = $reader.ReadUInt32()
+        $recordCount = [int]$reader.ReadUInt32()
+        foreach ($ignored in 1..4) { $null = $reader.ReadUInt32() }
+        if ($recordCount -ne 16913) { throw "slab/stair registry record count changed: $recordCount" }
+        $entries = [Collections.Generic.List[object]]::new()
+        for ($recordIndex = 0; $recordIndex -lt $recordCount; $recordIndex++) {
+            $sequentialId = $reader.ReadUInt32(); $null = $reader.ReadUInt32(); $null = $reader.ReadByte()
+            $family = $reader.ReadByte(); $null = $reader.ReadByte(); $modelMask = $reader.ReadByte()
+            foreach ($ignored in 1..3) { $null = $reader.ReadByte() }
+            $boxCount = [int]$reader.ReadByte(); $null = $reader.ReadUInt16()
+            $nameLength = [int]$reader.ReadUInt16(); $stateLength = [int]$reader.ReadUInt32()
+            $values = @(for ($valueIndex = 0; $valueIndex -lt 8; $valueIndex++) { $reader.ReadUInt32() })
+            $null = $reader.ReadBytes(24 * $boxCount)
+            $name = $utf8.GetString($reader.ReadBytes($nameLength))
+            $canonicalState = $utf8.GetString($reader.ReadBytes($stateLength))
+            if ($family -in @(7, 8)) {
+                $entries.Add([pscustomobject][ordered]@{
+                    sequential_id = $sequentialId; family = if ($family -eq 7) { 'Slab' } else { 'Stair' }
+                    name = $name; canonical_state = $canonicalState; model_mask = $modelMask
+                    orientation = if (($modelMask -band 1) -ne 0) { [int]$values[0] } else { $null }
+                    half = if (($modelMask -band 2) -ne 0) { [int]$values[1] } else { $null }
+                })
+            }
+        }
+        if ($reader.BaseStream.Position -ne $reader.BaseStream.Length) { throw 'BREG1003 registry has trailing bytes' }
+    }
+    finally { $reader.Dispose() }
+
+    $slabs = @($entries | Where-Object family -CEQ 'Slab')
+    $stairs = @($entries | Where-Object family -CEQ 'Stair')
+    $stairNames = @($stairs | ForEach-Object name | Sort-Object -Unique)
+    if ($slabs.Count -ne 272 -or $stairs.Count -ne 512 -or $stairNames.Count -ne 64) {
+        throw "slab/stair registry coverage changed: slabs=$($slabs.Count) stairs=$($stairs.Count) stair_names=$($stairNames.Count)"
+    }
+    $slabHalves = @(0..2 | ForEach-Object { $half = $_; @($slabs | Where-Object half -eq $half).Count })
+    if (($slabHalves -join ',') -cne '68,68,136') { throw "slab half selector counts changed: $($slabHalves -join ',')" }
+    foreach ($name in $stairNames) {
+        $selectors = @($stairs | Where-Object name -CEQ $name | ForEach-Object { "$($_.orientation),$($_.half)" } | Sort-Object -Unique)
+        $expected = @(0..3 | ForEach-Object { $orientation = $_; 0..1 | ForEach-Object { "$orientation,$_" } })
+        if ($selectors.Count -ne 8 -or ($selectors -join ';') -cne (($expected | Sort-Object) -join ';')) {
+            throw "stair selector matrix changed for ${name}: $($selectors -join ';')"
+        }
+    }
+
+    $assetBytes = [IO.File]::ReadAllBytes($AssetsPath)
+    if ($assetBytes.Length -lt 200 -or $utf8.GetString($assetBytes, 0, 8) -cne 'MCBEAS04' -or [BitConverter]::ToUInt32($assetBytes, 8) -ne 4) {
+        throw 'slab/stair coverage requires an MCBEAS04 compiled asset blob'
+    }
+    $visualCount = [BitConverter]::ToUInt32($assetBytes, 20); $templateCount = [BitConverter]::ToUInt32($assetBytes, 32)
+    $visualOffset = [BitConverter]::ToUInt64($assetBytes, 96); $templateOffset = [BitConverter]::ToUInt64($assetBytes, 120)
+    if ($visualOffset -gt [uint64]$assetBytes.Length -or [uint64]$visualCount * 40 -gt [uint64]$assetBytes.Length - $visualOffset -or
+        $templateOffset -gt [uint64]$assetBytes.Length -or [uint64]$templateCount * 12 -gt [uint64]$assetBytes.Length - $templateOffset) {
+        throw 'MCBEAS04 slab/stair tables are out of bounds'
+    }
+    $diagnostic = 0
+    foreach ($entry in $entries) {
+        if ([uint64]$entry.sequential_id -ge [uint64]$visualCount) { throw "registry sequential ID $($entry.sequential_id) is absent from MCBEAS04" }
+        $visual = [int]($visualOffset + 40 * [uint64]$entry.sequential_id)
+        $template = [BitConverter]::ToUInt32($assetBytes, $visual + 28)
+        if ($assetBytes[$visual + 25] -ne 3 -or $template -eq [uint32]::MaxValue -or $template -ge $templateCount) { $diagnostic++; continue }
+        $descriptor = [int]($templateOffset + 12 * [uint64]$template)
+        if ([BitConverter]::ToUInt32($assetBytes, $descriptor + 4) -eq 0) { $diagnostic++; continue }
+        if ($entry.family -ceq 'Stair') {
+            if ([BitConverter]::ToUInt32($assetBytes, $descriptor + 8) -ne 2 -or $template + 4 -ge $templateCount) { $diagnostic++; continue }
+            for ($shape = 0; $shape -lt 5; $shape++) {
+                $shapeDescriptor = [int]($templateOffset + 12 * [uint64]($template + $shape))
+                if ([BitConverter]::ToUInt32($assetBytes, $shapeDescriptor + 8) -ne 2 -or [BitConverter]::ToUInt32($assetBytes, $shapeDescriptor + 4) -eq 0) { $diagnostic++; break }
+            }
+        }
+    }
+    if ($diagnostic -ne 0) { throw "slab/stair compiled coverage contains diagnostic or malformed visuals: $diagnostic" }
+    $stateSetHash = Get-CanonicalObjectHash -Value @($entries | ForEach-Object { [pscustomobject][ordered]@{
+        sequential_id = $_.sequential_id; family = $_.family; name = $_.name; canonical_state = $_.canonical_state
+    } })
+    return [pscustomobject][ordered]@{
+        schema = 'rust-mcbe-slab-stair-coverage-v1'; registry_protocol = 1001; compiler_schema = 'MCBEAS04'
+        registry_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $RegistryPath).Hash.ToLowerInvariant()
+        assets_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $AssetsPath).Hash.ToLowerInvariant()
+        state_set_sha256 = $stateSetHash; state_count = $entries.Count; slab_state_count = $slabs.Count
+        stair_state_count = $stairs.Count; stair_name_count = $stairNames.Count; diagnostic_slab_stair = $diagnostic
+        entries = @($entries)
+    }
+}
+
 function New-SlabStairGalleryPlan {
     param(
         [Parameter(Mandatory = $true)][ValidateCount(3, 3)][int[]]$MutationCoordinate,
         [Parameter(Mandatory = $true)]
         [ValidateSet('SlabStairGalleryTop', 'SlabStairGalleryNorth', 'SlabStairGalleryEast', 'SlabStairGalleryOblique', 'SlabStairGalleryObliqueOpposite')]
-        [string]$Pose
+        [string]$Pose,
+        [Parameter(Mandatory = $true)][string]$RegistryPath,
+        [Parameter(Mandatory = $true)][string]$AssetsPath
     )
 
+    $coverage = Get-SlabStairCoverageEvidence -RegistryPath $RegistryPath -AssetsPath $AssetsPath
     $mx = [int]$MutationCoordinate[0]
     $my = [int]$MutationCoordinate[1]
     $mz = [int]$MutationCoordinate[2]
@@ -2955,7 +3054,7 @@ function New-SlabStairGalleryPlan {
     if ($witnesses.Count -ne 43 -or $fixtureCommands.Count -ne 77) {
         throw "slab/stair gallery layout changed: witnesses=$($witnesses.Count) commands=$($fixtureCommands.Count)"
     }
-    $stateSetHash = Get-CanonicalObjectHash -Value @($witnesses | ForEach-Object { [pscustomobject][ordered]@{ kind = $_.kind; shape = $_.shape; orientation = $_.orientation; upside_down = $_.upside_down } })
+    $stateSetHash = $coverage.state_set_sha256
     $relativeLayout = [pscustomobject][ordered]@{
         schema = 'rust-mcbe-slab-stair-layout-v1'; witness_count = 43; state_set_sha256 = $stateSetHash
         clear_min = @(-23, 1, -15); clear_max = @(23, 7, 15); support_y = 1; support_block = 'minecraft:stone'
@@ -2975,6 +3074,12 @@ function New-SlabStairGalleryPlan {
         clear = [pscustomobject][ordered]@{ min = $clearMin; max = $clearMax; volume = $clearVolume }
         gallery_center = $galleryCenter; camera = $cameraPoses[$Pose]; camera_poses = [pscustomobject]$cameraPoses
         central_witness_count = 43; witnesses = @($witnesses)
+        coverage_evidence = [pscustomobject][ordered]@{
+            schema = $coverage.schema; registry_protocol = $coverage.registry_protocol; compiler_schema = $coverage.compiler_schema
+            registry_sha256 = $coverage.registry_sha256; assets_sha256 = $coverage.assets_sha256; state_set_sha256 = $coverage.state_set_sha256
+            state_count = $coverage.state_count; slab_state_count = $coverage.slab_state_count; stair_state_count = $coverage.stair_state_count; stair_name_count = $coverage.stair_name_count
+            diagnostic_slab_stair = $coverage.diagnostic_slab_stair
+        }
         load_area = [pscustomobject][ordered]@{ name = $loadAreaName; command = $loadAreaCommand; acknowledgement_marker = 'marked for preload.'; cleanup_command = $cleanupCommand; cleanup_acknowledgement_marker = 'Removed ticking area(s)'; settle_milliseconds = 3000 }
         processing_fence = [pscustomobject][ordered]@{ command = $fenceCommand; stdout_marker = $fenceMarker }
         fixture_commands = @($fixtureCommands); commands = $commands; command_count = $commands.Count
@@ -3015,7 +3120,7 @@ function New-VisualFixturePlan {
         return New-FlowerBedGalleryPlan -MutationCoordinate $MutationCoordinate -Pose $Pose -RegistryPath $RegistryPath
     }
     if ($Pose.StartsWith('SlabStairGallery', [StringComparison]::Ordinal)) {
-        return New-SlabStairGalleryPlan -MutationCoordinate $MutationCoordinate -Pose $Pose
+        return New-SlabStairGalleryPlan -MutationCoordinate $MutationCoordinate -Pose $Pose -RegistryPath $RegistryPath -AssetsPath $AssetsPath
     }
     return New-OpaqueVisualFixturePlan -MutationCoordinate $MutationCoordinate -Pose $Pose
 }
@@ -4856,7 +4961,7 @@ if ($env:RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY -eq '1') {
 if ($DurationSeconds -lt 60) {
     throw 'DurationSeconds must be at least 60'
 }
-$canonicalVisualFixturePoses = @('None', 'Front', 'Back', 'LeafGalleryFront', 'LeafGalleryBack', 'CrossCropGalleryFront', 'CrossCropGalleryBack', 'AquaticGalleryFront', 'AquaticGalleryBack', 'WaterGalleryFront', 'WaterGalleryBack', 'FlowerBedGalleryTop', 'FlowerBedGalleryNorth', 'FlowerBedGalleryEast', 'FlowerBedGalleryOblique', 'FlowerBedGalleryObliqueOpposite')
+$canonicalVisualFixturePoses = @('None', 'Front', 'Back', 'LeafGalleryFront', 'LeafGalleryBack', 'CrossCropGalleryFront', 'CrossCropGalleryBack', 'AquaticGalleryFront', 'AquaticGalleryBack', 'WaterGalleryFront', 'WaterGalleryBack', 'FlowerBedGalleryTop', 'FlowerBedGalleryNorth', 'FlowerBedGalleryEast', 'FlowerBedGalleryOblique', 'FlowerBedGalleryObliqueOpposite', 'SlabStairGalleryTop', 'SlabStairGalleryNorth', 'SlabStairGalleryEast', 'SlabStairGalleryOblique', 'SlabStairGalleryObliqueOpposite')
 if (-not ($canonicalVisualFixturePoses -ccontains $VisualFixturePose)) {
     throw "VisualFixturePose must use canonical casing: $VisualFixturePose"
 }
@@ -4865,7 +4970,8 @@ $isCrossCropGallery = $VisualFixturePose -in @('CrossCropGalleryFront', 'CrossCr
 $isAquaticGallery = $VisualFixturePose -in @('AquaticGalleryFront', 'AquaticGalleryBack')
 $isWaterGallery = $VisualFixturePose -in @('WaterGalleryFront', 'WaterGalleryBack')
 $isFlowerBedGallery = $VisualFixturePose -in @('FlowerBedGalleryTop', 'FlowerBedGalleryNorth', 'FlowerBedGalleryEast', 'FlowerBedGalleryOblique', 'FlowerBedGalleryObliqueOpposite')
-$isDeterministicGallery = $isLeafGallery -or $isCrossCropGallery -or $isAquaticGallery -or $isWaterGallery -or $isFlowerBedGallery
+$isSlabStairGallery = $VisualFixturePose -in @('SlabStairGalleryTop', 'SlabStairGalleryNorth', 'SlabStairGalleryEast', 'SlabStairGalleryOblique', 'SlabStairGalleryObliqueOpposite')
+$isDeterministicGallery = $isLeafGallery -or $isCrossCropGallery -or $isAquaticGallery -or $isWaterGallery -or $isFlowerBedGallery -or $isSlabStairGallery
 $isLeafEvidence = $isDeterministicGallery -or $LeafForestBaseline -or $LeafForestFullView
 $hasClientExecutable = $PSBoundParameters.ContainsKey('ClientExecutable')
 if ($PSBoundParameters.ContainsKey('SteadyResourceTrigger') -and
@@ -4992,6 +5098,12 @@ $FlowerBedCoverage = if ($isFlowerBedGallery) {
 else {
     $null
 }
+$SlabStairCoverage = if ($isSlabStairGallery) {
+    Get-SlabStairCoverageEvidence -RegistryPath $BlockRegistryPath -AssetsPath $Assets
+}
+else {
+    $null
+}
 $MetricsOut = [IO.Path]::GetFullPath($MetricsOut)
 $RuntimeDirectory = Join-Path (Join-Path $ProjectRoot '.local\bds-runtime') (Split-Path -Leaf $BdsDir)
 $RunName = if ($DryRun) { 'dry-run' } else { "{0}-{1}" -f [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ'), $PID }
@@ -5074,6 +5186,14 @@ if ($DryRun) {
             state_count = $FlowerBedCoverage.state_count
         }
         Write-Output "FLOWERBED_GALLERY_ARGUMENTS_SHA256=$(Get-CanonicalObjectHash -Value $flowerBedGalleryArguments)"
+    }
+    if ($isSlabStairGallery) {
+        Write-Output "SLAB_STAIR_GALLERY_ASSETS_SHA256=$($SlabStairCoverage.assets_sha256)"
+        $slabStairGalleryArguments = [pscustomobject][ordered]@{
+            pose = $VisualFixturePose; state_set_sha256 = $SlabStairCoverage.state_set_sha256
+            slab_state_count = $SlabStairCoverage.slab_state_count; stair_state_count = $SlabStairCoverage.stair_state_count
+        }
+        Write-Output "SLAB_STAIR_GALLERY_ARGUMENTS_SHA256=$(Get-CanonicalObjectHash -Value $slabStairGalleryArguments)"
     }
     if ($FullViewTeleportGate) {
         Write-Output 'FULL_VIEW_TELEPORT_GATE=1'
@@ -5241,6 +5361,30 @@ try {
                 registry = $BlockRegistryPath
                 registry_sha256 = $FlowerBedCoverage.registry_sha256
                 registry_protocol = $FlowerBedCoverage.registry_protocol
+            }
+        }
+    }
+    if ($isSlabStairGallery) {
+        $slabStairGalleryArguments = [pscustomobject][ordered]@{
+            pose = $VisualFixturePose; state_set_sha256 = $SlabStairCoverage.state_set_sha256
+            slab_state_count = $SlabStairCoverage.slab_state_count; stair_state_count = $SlabStairCoverage.stair_state_count
+        }
+        $metadata['slab_stair_gallery'] = [pscustomobject][ordered]@{
+            arguments = $slabStairGalleryArguments
+            arguments_sha256 = Get-CanonicalObjectHash -Value $slabStairGalleryArguments
+            coverage_evidence = [pscustomobject][ordered]@{
+                schema = $SlabStairCoverage.schema
+                state_set_sha256 = $SlabStairCoverage.state_set_sha256
+                state_count = $SlabStairCoverage.state_count
+                slab_state_count = $SlabStairCoverage.slab_state_count
+                stair_state_count = $SlabStairCoverage.stair_state_count
+                stair_name_count = $SlabStairCoverage.stair_name_count
+                diagnostic_slab_stair = $SlabStairCoverage.diagnostic_slab_stair
+            }
+            artifact_identity = [pscustomobject][ordered]@{
+                assets = $Assets; assets_sha256 = $SlabStairCoverage.assets_sha256
+                registry = $BlockRegistryPath; registry_sha256 = $SlabStairCoverage.registry_sha256
+                registry_protocol = $SlabStairCoverage.registry_protocol; compiler_schema = $SlabStairCoverage.compiler_schema
             }
         }
     }

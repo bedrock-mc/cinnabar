@@ -1046,35 +1046,37 @@ fn stair_topology_crosses_all_horizontal_subchunk_boundaries_for_both_halves() {
 fn stair_rotated_boundary_cull_faces_preserve_lighting_addresses() {
     let fixture = compiled_stair_fixture();
     let center = [8, 8, 8];
-    for facing in 0..4 {
-        let current = fixture.ids[0][facing];
-        let neighbour = offset_coordinate(center, stair_offset(facing));
-        let open = mesh_stair_placements(&[(center, current)], &Neighbourhood::empty());
-        let culled = mesh_stair_placements(
-            &[(center, current), (neighbour, fixture.cube)],
-            &Neighbourhood::empty(),
-        );
-        let open_ref = center_stair_ref(&open, center);
-        let culled_ref = center_stair_ref(&culled, center);
-        assert_eq!(culled_ref.words()[1], open_ref.words()[1]);
-        assert_eq!(culled_ref.words()[2], 0);
-        assert_ne!(
-            culled_ref.words()[3],
-            open_ref.words()[3],
-            "facing={facing} transformed cull face"
-        );
-        assert_eq!(
-            open_ref.words()[3].count_ones() - culled_ref.words()[3].count_ones(),
-            4,
-            "facing={facing} full stair side must map all four canonical half-cell faces"
-        );
-        let count =
-            fixture.assets.model_templates()[culled_ref.words()[1] as usize].quad_count as usize;
-        assert_eq!(
-            culled.model_lighting().len(),
-            count,
-            "facing={facing} lighting address span"
-        );
+    for half in 0..2 {
+        for facing in 0..4 {
+            let current = fixture.ids[half][facing];
+            let neighbour = offset_coordinate(center, stair_offset(facing));
+            let open = mesh_stair_placements(&[(center, current)], &Neighbourhood::empty());
+            let culled = mesh_stair_placements(
+                &[(center, current), (neighbour, fixture.cube)],
+                &Neighbourhood::empty(),
+            );
+            let open_ref = center_stair_ref(&open, center);
+            let culled_ref = center_stair_ref(&culled, center);
+            assert_eq!(culled_ref.words()[1], open_ref.words()[1]);
+            assert_eq!(culled_ref.words()[2], 0);
+            assert_ne!(
+                culled_ref.words()[3],
+                open_ref.words()[3],
+                "half={half} facing={facing} transformed cull face"
+            );
+            assert_eq!(
+                open_ref.words()[3].count_ones() - culled_ref.words()[3].count_ones(),
+                4,
+                "half={half} facing={facing} full stair side must map all four canonical half-cell faces"
+            );
+            let count = fixture.assets.model_templates()[culled_ref.words()[1] as usize].quad_count
+                as usize;
+            assert_eq!(
+                culled.model_lighting().len(),
+                count,
+                "half={half} facing={facing} lighting address span"
+            );
+        }
     }
 }
 

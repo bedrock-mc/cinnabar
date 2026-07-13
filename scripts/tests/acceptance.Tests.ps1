@@ -66,6 +66,42 @@ function New-TestCrossCropAssets {
     [IO.File]::WriteAllBytes($Path, $bytes)
 }
 
+function New-TestSlabStairAssets {
+    param(
+        [Parameter(Mandatory = $true)][string]$RegistryPath,
+        [Parameter(Mandatory = $true)][string]$Path
+    )
+    $entries = @(Get-TestRegistryEntries -RegistryPath $RegistryPath)
+    $visualCount = 1 + [int](($entries | Measure-Object sequential_id -Maximum).Maximum)
+    $templateCount = 11
+    $visualOffset = 200
+    $templateOffset = $visualOffset + 40 * $visualCount
+    $bytes = [byte[]]::new($templateOffset + 12 * $templateCount)
+    [Text.Encoding]::ASCII.GetBytes('MCBEAS04').CopyTo($bytes, 0)
+    [BitConverter]::GetBytes([uint32]4).CopyTo($bytes, 8)
+    [BitConverter]::GetBytes([uint32]16).CopyTo($bytes, 12)
+    [BitConverter]::GetBytes([uint32]5).CopyTo($bytes, 16)
+    [BitConverter]::GetBytes([uint32]$visualCount).CopyTo($bytes, 20)
+    [BitConverter]::GetBytes([uint32]$templateCount).CopyTo($bytes, 32)
+    [BitConverter]::GetBytes([uint64]$visualOffset).CopyTo($bytes, 96)
+    [BitConverter]::GetBytes([uint64]$templateOffset).CopyTo($bytes, 120)
+    foreach ($entry in $entries) {
+        if ($entry.family -notin @(7, 8)) { continue }
+        $offset = $visualOffset + 40 * [int]$entry.sequential_id
+        $bytes[$offset + 25] = 3
+        $half = if ($entry.family -eq 8) { [int](($entry.canonical_state | ConvertFrom-Json).upside_down_bit.value) } else { 0 }
+        $template = if ($entry.family -eq 7) { 0 } elseif ($half -eq 0) { 1 } else { 6 }
+        [BitConverter]::GetBytes([uint32]$template).CopyTo($bytes, $offset + 28)
+    }
+    for ($index = 0; $index -lt $templateCount; $index++) {
+        $offset = $templateOffset + 12 * $index
+        [BitConverter]::GetBytes([uint32]$index).CopyTo($bytes, $offset)
+        [BitConverter]::GetBytes([uint32]1).CopyTo($bytes, $offset + 4)
+        if ($index -gt 0) { [BitConverter]::GetBytes([uint32]2).CopyTo($bytes, $offset + 8) }
+    }
+    [IO.File]::WriteAllBytes($Path, $bytes)
+}
+
 function Get-TestRegistryEntries {
     param([Parameter(Mandatory = $true)][string]$RegistryPath)
 
@@ -271,6 +307,7 @@ $MetricsOut = Join-Path $TempRoot 'metrics output\metrics.json'
 $Assets = Join-Path $TempRoot 'vanilla assets with spaces.mcpack'
 $CrossCropAssets = Join-Path $TempRoot 'compiled cross crop assets.mcbea'
 $AquaticAssets = Join-Path $TempRoot 'compiled aquatic assets.mcbea'
+$SlabStairAssets = Join-Path $TempRoot 'compiled slab stair assets.mcbea'
 $BlockRegistry = Join-Path $ProjectRoot 'crates\assets\data\block-registry-v1001.bin'
 $PrebuiltClient = Join-Path $TempRoot 'opaque base client\bedrock-client.exe'
 $DryRunDirectory = Join-Path $ProjectRoot '.local\acceptance\dry-run'
@@ -283,6 +320,7 @@ try {
     Set-Content -LiteralPath $Assets -Value 'assets fixture' -NoNewline
     New-TestCrossCropAssets -RegistryPath $BlockRegistry -Path $CrossCropAssets
     New-TestAquaticAssets -RegistryPath $BlockRegistry -Path $AquaticAssets
+    New-TestSlabStairAssets -RegistryPath $BlockRegistry -Path $SlabStairAssets
     New-Item -ItemType Directory -Path (Split-Path -Parent $PrebuiltClient) -Force | Out-Null
     Set-Content -LiteralPath $PrebuiltClient -Value 'pinned opaque client fixture' -NoNewline
     $prebuiltHashBefore = (Get-FileHash -Algorithm SHA256 -LiteralPath $PrebuiltClient).Hash
@@ -464,6 +502,21 @@ try {
         Assert-Equal 1 @($flowerBedDryRun.Output | Where-Object { $_ -match '^FLOWERBED_GALLERY_ARGUMENTS_SHA256=[0-9a-f]{64}$' }).Count "$flowerBedPose dry-run did not emit deterministic arguments identity"
     }
 
+    foreach ($slabStairPose in @('SlabStairGalleryTop', 'SlabStairGalleryNorth', 'SlabStairGalleryEast', 'SlabStairGalleryOblique', 'SlabStairGalleryObliqueOpposite')) {
+        $slabStairDryRun = Invoke-Acceptance -Arguments @(
+            '-DryRun', '-DurationSeconds', '60', '-BdsDir', $BdsDir,
+            '-MetricsOut', $MetricsOut, '-Assets', $SlabStairAssets,
+            '-VisualFixturePose', $slabStairPose, '-UseVsync',
+            '-SteadyResourceTrigger', 'VisualFixtureReady'
+        )
+        Assert-True ($slabStairDryRun.ExitCode -eq 0) "$slabStairPose dry-run failed: $($slabStairDryRun.Output -join [Environment]::NewLine)"
+        Assert-True ($slabStairDryRun.Output -contains "VISUAL_FIXTURE_POSE=$slabStairPose") "$slabStairPose lost exact pose"
+        Assert-True ($slabStairDryRun.Output -contains 'STEADY_RESOURCE_TRIGGER=VisualFixtureReady') "$slabStairPose lost trigger"
+        Assert-True ($slabStairDryRun.Output -contains 'USE_VSYNC=1') "$slabStairPose lost vsync"
+        Assert-Equal 1 @($slabStairDryRun.Output | Where-Object { $_ -match '^SLAB_STAIR_GALLERY_ARGUMENTS_SHA256=[0-9a-f]{64}$' }).Count "$slabStairPose lost arguments hash"
+        Assert-Equal 1 @($slabStairDryRun.Output | Where-Object { $_ -match '^SLAB_STAIR_GALLERY_ASSETS_SHA256=[0-9a-f]{64}$' }).Count "$slabStairPose lost assets hash"
+    }
+
     $baselineDryRun = Invoke-Acceptance -Arguments @(
         '-DryRun',
         '-DurationSeconds', '60',
@@ -521,6 +574,9 @@ try {
         @('-VisualFixturePose', 'LeafGalleryBack', '-SteadyResourceTrigger', 'WorldReady', '-UseVsync'),
         @('-VisualFixturePose', 'LeafGalleryFront', '-SteadyResourceTrigger', 'VisualFixtureReady', '-UseVsync'),
         @('-VisualFixturePose', 'leafgalleryfront', '-SteadyResourceTrigger', 'VisualFixtureReady', '-UseVsync', '-Assets', $Assets),
+        @('-VisualFixturePose', 'slabstairgallerytop', '-SteadyResourceTrigger', 'VisualFixtureReady', '-UseVsync', '-Assets', $SlabStairAssets),
+        @('-VisualFixturePose', 'SlabStairGalleryTop', '-SteadyResourceTrigger', 'VisualFixtureReady', '-UseVsync'),
+        @('-VisualFixturePose', 'SlabStairGalleryTop', '-SteadyResourceTrigger', 'VisualFixtureReady', '-UseVsync', '-Assets', $Assets),
         @('-SteadyResourceTrigger', 'worldready'),
         @('-LeafForestBaseline', '-SteadyResourceTrigger', 'WorldReady', '-ClientExecutable', $PrebuiltClient, '-SkipClientBuild', '-UseVsync'),
         @('-LeafForestFullView', '-FullViewTeleportGate', '-SteadyResourceTrigger', 'FullViewPresented'),
@@ -693,7 +749,7 @@ try {
     }
     # slab_stair_gallery_covers_all_variants
     $slabStairPlans = @('SlabStairGalleryTop', 'SlabStairGalleryNorth', 'SlabStairGalleryEast', 'SlabStairGalleryOblique', 'SlabStairGalleryObliqueOpposite') | ForEach-Object {
-        New-SlabStairGalleryPlan -MutationCoordinate @(100, 64, 200) -Pose $_
+        New-SlabStairGalleryPlan -MutationCoordinate @(100, 64, 200) -Pose $_ -RegistryPath $BlockRegistry -AssetsPath $SlabStairAssets
     }
 
     $expectedFlowerBedStates = [Collections.Generic.List[string]]::new()
@@ -775,7 +831,12 @@ try {
         Assert-Equal 40 @($slabStairPlan.Manifest.witnesses | Where-Object kind -ceq 'stair').Count 'stair state matrix changed'
         Assert-Equal 5 @($slabStairPlan.Manifest.camera_poses.PSObject.Properties).Count 'slab/stair plan lost a fixed diagnostic camera'
         Assert-Equal 77 @($slabStairPlan.FixtureCommands).Count 'slab/stair fixture command bound changed'
-        Assert-Equal 'bda8ff56bb26fc1774188592c60ae666cbe4b1c35568ff9a02fdaefad73099f1' ([string]$slabStairPlan.Manifest.state_set_sha256) 'slab/stair exact state-set identity drifted'
+        Assert-Equal 784 ([int]$slabStairPlan.Manifest.coverage_evidence.state_count) 'slab/stair coverage lost exact BREG state count'
+        Assert-Equal 272 ([int]$slabStairPlan.Manifest.coverage_evidence.slab_state_count) 'slab coverage count drifted'
+        Assert-Equal 512 ([int]$slabStairPlan.Manifest.coverage_evidence.stair_state_count) 'stair coverage count drifted'
+        Assert-Equal 64 ([int]$slabStairPlan.Manifest.coverage_evidence.stair_name_count) 'stair identifier count drifted'
+        Assert-Equal 0 ([int]$slabStairPlan.Manifest.coverage_evidence.diagnostic_slab_stair) 'slab/stair compiled coverage retained diagnostics'
+        Assert-Equal '860f1e5629d7d6f390d554cedcef16546237f9f9df9f24a2abaa5a22c785fbc8' ([string]$slabStairPlan.Manifest.state_set_sha256) 'slab/stair exact state-set identity drifted'
         Assert-Equal 'aeeb6c4e11e265d2a075af8e37945fb9b0a5b1b493373125b789b45139240510' ([string]$slabStairPlan.Manifest.fixture_layout_hash) 'slab/stair canonical layout identity drifted'
         Assert-True ($slabStairPlan.LoadAreaCommand -match '^tickingarea add ') 'slab/stair gallery omitted bounded preload'
         Assert-True ($slabStairPlan.CleanupCommand -match '^tickingarea remove ') 'slab/stair gallery omitted ticking-area cleanup'
@@ -791,7 +852,7 @@ try {
     }
     Assert-Equal 1 @($slabStairPlans | ForEach-Object { $_.Manifest.fixture_layout_hash } | Sort-Object -Unique).Count 'slab/stair camera pose changed canonical layout identity'
     Assert-Equal 1 @($slabStairPlans | ForEach-Object { $_.Manifest.state_set_sha256 } | Sort-Object -Unique).Count 'slab/stair camera pose changed exact state identity'
-    $movedSlabStairPlan = New-SlabStairGalleryPlan -MutationCoordinate @(500, 70, -300) -Pose SlabStairGalleryTop
+    $movedSlabStairPlan = New-SlabStairGalleryPlan -MutationCoordinate @(500, 70, -300) -Pose SlabStairGalleryTop -RegistryPath $BlockRegistry -AssetsPath $SlabStairAssets
     Assert-Equal $slabStairPlans[0].Manifest.fixture_layout_hash $movedSlabStairPlan.Manifest.fixture_layout_hash 'slab/stair absolute coordinate changed canonical layout identity'
     Assert-Equal $slabStairPlans[0].Manifest.state_set_sha256 $movedSlabStairPlan.Manifest.state_set_sha256 'slab/stair absolute coordinate changed state identity'
 

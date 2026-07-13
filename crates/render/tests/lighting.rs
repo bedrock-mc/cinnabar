@@ -84,6 +84,21 @@ fn model_quad(face_flag: u32) -> ModelQuad {
 }
 
 fn runtime_assets() -> RuntimeAssets {
+    runtime_assets_with_model_geometry(
+        vec![ModelTemplate {
+            quad_start: 0,
+            quad_count: 3,
+            flags: 0,
+        }],
+        // up, east, north in deliberately non-enum order
+        vec![model_quad(2), model_quad(4), model_quad(5)],
+    )
+}
+
+fn runtime_assets_with_model_geometry(
+    model_templates: Vec<ModelTemplate>,
+    model_quads: Vec<ModelQuad>,
+) -> RuntimeAssets {
     let textures = TextureArray {
         layers: 1,
         mips: [16_u32, 8, 4, 2, 1]
@@ -142,14 +157,8 @@ fn runtime_assets() -> RuntimeAssets {
             animation: NO_ANIMATION,
         }]
         .into_boxed_slice(),
-        model_templates: vec![ModelTemplate {
-            quad_start: 0,
-            quad_count: 3,
-            flags: 0,
-        }]
-        .into_boxed_slice(),
-        // up, east, north in deliberately non-enum order
-        model_quads: vec![model_quad(2), model_quad(4), model_quad(5)].into_boxed_slice(),
+        model_templates: model_templates.into_boxed_slice(),
+        model_quads: model_quads.into_boxed_slice(),
         animations: Box::new([]),
         animation_frames: Box::new([]),
         texture_pages: vec![TexturePage::new(textures)].into_boxed_slice(),
@@ -244,6 +253,114 @@ fn template_quad_lighting_order() {
     });
 
     assert_eq!(actual, expected);
+}
+
+fn rotate_test_position([x, y, z]: [i16; 3], rotation: u32) -> [i16; 3] {
+    match rotation & 3 {
+        1 => [256 - z, y, x],
+        2 => [256 - x, y, 256 - z],
+        3 => [z, y, 256 - x],
+        _ => [x, y, z],
+    }
+}
+
+fn rotate_test_face(face: Face, rotation: u32) -> Face {
+    match (face, rotation & 3) {
+        (Face::NegativeX, 1) => Face::NegativeZ,
+        (Face::PositiveX, 1) => Face::PositiveZ,
+        (Face::NegativeZ, 1) => Face::PositiveX,
+        (Face::PositiveZ, 1) => Face::NegativeX,
+        (Face::NegativeX, 2) => Face::PositiveX,
+        (Face::PositiveX, 2) => Face::NegativeX,
+        (Face::NegativeZ, 2) => Face::PositiveZ,
+        (Face::PositiveZ, 2) => Face::NegativeZ,
+        (Face::NegativeX, 3) => Face::PositiveZ,
+        (Face::PositiveX, 3) => Face::NegativeZ,
+        (Face::NegativeZ, 3) => Face::NegativeX,
+        (Face::PositiveZ, 3) => Face::PositiveX,
+        (face, _) => face,
+    }
+}
+
+#[test]
+fn stair_rotation_bakes_ao_from_rotated_faces_and_positions_for_both_halves() {
+    let shader = include_str!("../src/model.wgsl");
+    for clause in [
+        "case 1u: { rotated = vec3(-centered.z, centered.y, centered.x); }",
+        "case 2u: { rotated = vec3(-centered.x, centered.y, -centered.z); }",
+        "case 3u: { rotated = vec3(centered.z, centered.y, -centered.x); }",
+    ] {
+        assert!(
+            shader.contains(clause),
+            "WGSL/CPU rotation contract drifted: {clause}"
+        );
+    }
+    assert!(shader.contains("f32(packed_u16(template_quad_base + 6u, uv_component))"));
+    assert!(shader.contains("f32(packed_u16(template_quad_base + 6u, uv_component + 1u))"));
+    let lower = [[0, 0, 32], [0, 224, 32], [0, 224, 192], [0, 0, 192]];
+    let upper = lower.map(|[x, y, z]| [x, 256 - y, z]);
+    let assets = runtime_assets_with_model_geometry(
+        vec![
+            ModelTemplate {
+                quad_start: 0,
+                quad_count: 1,
+                flags: 0,
+            },
+            ModelTemplate {
+                quad_start: 1,
+                quad_count: 1,
+                flags: 0,
+            },
+        ],
+        vec![
+            ModelQuad {
+                positions: lower,
+                uvs: [[0; 2]; 4],
+                material: 0,
+                flags: 3,
+            },
+            ModelQuad {
+                positions: upper,
+                uvs: [[0; 2]; 4],
+                material: 0,
+                flags: 3,
+            },
+        ],
+    );
+    let center = blocks(&[
+        [7, 7, 8],
+        [7, 9, 8],
+        [8, 7, 7],
+        [8, 9, 9],
+        [9, 8, 7],
+        [9, 8, 9],
+    ]);
+    let neighbourhood = MeshNeighbourhood::new(&center);
+    let classifier = BlockClassifier::new(AIR);
+    for (half, positions) in [lower, upper].into_iter().enumerate() {
+        for rotation in 0..4 {
+            let actual = bake_template_lighting(
+                &classifier,
+                &assets,
+                NetworkIdMode::Sequential,
+                &neighbourhood,
+                [8, 8, 8],
+                half as u32,
+                rotation,
+            )
+            .expect("known asymmetric stair template");
+            let expected = bake_quad_lighting(
+                &classifier,
+                &assets,
+                NetworkIdMode::Sequential,
+                &neighbourhood,
+                [8, 8, 8],
+                rotate_test_face(Face::NegativeX, rotation),
+                positions.map(|position| rotate_test_position(position, rotation)),
+            );
+            assert_eq!(actual, [expected], "half={half} rotation={rotation}");
+        }
+    }
 }
 
 #[test]
