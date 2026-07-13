@@ -36,11 +36,15 @@ texture-array layers kept distinct. Templates remain two-sided cutout geometry
 in the existing packed model-ref path; no per-block Bevy mesh or material is
 introduced.
 
-Normal `growth=0..3` initially uses the exact Mojang flowerbed coordinates and
-UVs, then is accepted only after native Bedrock image comparison. Command-only
-`growth=4..7` is not clamped, wrapped, or guessed. A native measurement gallery
-determines whether Bedrock aliases or adds layouts; the compiled family covers
-those states only after that evidence is recorded.
+Normal `growth=0..3` uses the exact Mojang flowerbed coordinates and UVs and
+was checked against native Bedrock diagnostic-colour captures. The native
+measurement gallery establishes the explicit layout mapping
+`[0, 1, 2, 3, 3, 3, 3, 3]`: command-only `growth=4..7` each aliases the full
+four-patch growth-3 layout for the same block and cardinal direction. The
+compiler canonicalizes this measured layout before template lookup, so these
+states add no duplicate templates. The measurement client is from the same
+release line but is not the exact pinned preview build; exact pixel parity
+remains gated on the matching client as recorded in the evidence document.
 
 ## Native Bedrock adjudication
 
