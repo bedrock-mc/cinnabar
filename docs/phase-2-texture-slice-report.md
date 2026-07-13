@@ -148,6 +148,51 @@ shows these are predominantly leaves/cutout and other non-full states, not missi
 asset lookups. This is the next Phase 2 render class and no vanilla-parity claim
 is made for it here.
 
+## Exhaustive protocol-1001 visual ratchet
+
+The first global coverage gate now inventories the complete generated registry
+through the production BREG1003 and MCBEAS04 decoders. The checked baseline binds
+1,356 names, 16,913 canonical states, one air state, the exact sorted state
+identity at every sequential ID, registry SHA-256
+`b8aceb546ddd64f23c458ac5dca1a1a76a8109c1562fa2345c6e9f81d4ae630b`,
+the reviewed invisible allowlist, and the exact diagnostic-state ID set. It
+rejects missing/duplicate/non-contiguous IDs, registry/blob lookup mismatch,
+new diagnostics, arbitrary diagnostic-to-invisible laundering, stale or
+uncited invisible entries, and non-canonical baselines. Diagnostic shrinkage is
+reported as an exact identity diff.
+
+Generate a reviewed baseline only when deliberately updating the protocol or
+accepted diagnostic set:
+
+```powershell
+cargo run -p visualcoverage -- baseline `
+  --registry crates/assets/data/block-registry-v1001.bin `
+  --assets .local/assets/compiled/vanilla-v1001.mcbea `
+  --invisible-allowlist crates/assets/data/visual-invisible-v1001.json `
+  --out crates/assets/data/visual-coverage-v1001.json
+```
+
+The ordinary CI/local ratchet is:
+
+```powershell
+cargo run -p visualcoverage -- ratchet `
+  --registry crates/assets/data/block-registry-v1001.bin `
+  --assets .local/assets/compiled/vanilla-v1001.mcbea `
+  --baseline crates/assets/data/visual-coverage-v1001.json `
+  --out .local/assets/compiled/visual-coverage.json
+```
+
+The 2026-07-13 real-pack run compiled all 16,913 visuals and passed the ratchet
+with asset SHA-256
+`c34ed254bbddc10f3afe3e983444cc1729312a09e6fb63dba6a77fa98be533d5`.
+It reports 14,973 current diagnostics and zero diagnostic vine masks. This is a
+regression baseline, not a parity claim: each remaining family must reduce that
+exact set, and the final strict gate still requires zero non-air diagnostics,
+67 exact-state GPU gallery pages, and the separate block-entity manifest. The
+13 MB local JSON report and compiled Mojang-derived blob remain ignored; only
+the generated non-Mojang registry metadata and deterministic coverage baseline
+are tracked.
+
 ## Remaining work
 
 1. Close Task 8's three Important review findings and rerun the live gate.

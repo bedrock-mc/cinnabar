@@ -201,10 +201,8 @@ impl RuntimeAssets {
         let visual = match mode {
             NetworkIdMode::Sequential => self.visuals.get(value as usize).copied(),
             NetworkIdMode::Hashed => self
-                .hashed
-                .binary_search_by_key(&value, |entry| entry.0)
-                .ok()
-                .and_then(|index| self.visuals.get(self.hashed[index].1 as usize))
+                .sequential_id_for_hash(value)
+                .and_then(|sequential_id| self.visuals.get(sequential_id as usize))
                 .copied(),
         };
         visual.map_or_else(
@@ -215,6 +213,30 @@ impl RuntimeAssets {
             ResolvedBlock::known,
         )
     }
+
+    /// Returns the exact sequential identity paired with a validated network
+    /// hash. Coverage tooling uses this rather than visual equality because
+    /// distinct states may intentionally share byte-identical visuals.
+    #[must_use]
+    pub fn sequential_id_for_hash(&self, network_hash: u32) -> Option<u32> {
+        self.hashed
+            .binary_search_by_key(&network_hash, |entry| entry.0)
+            .ok()
+            .map(|index| self.hashed[index].1)
+    }
+
+    /// Number of sequential visual records in the validated runtime blob.
+    #[must_use]
+    pub const fn visual_count(&self) -> usize {
+        self.visuals.len()
+    }
+
+    /// Number of unique network-hash mappings in the validated runtime blob.
+    #[must_use]
+    pub const fn hashed_count(&self) -> usize {
+        self.hashed.len()
+    }
+
     #[must_use]
     pub fn material(&self, id: u32) -> Material {
         self.materials.get(id as usize).copied().unwrap_or_else(|| {
