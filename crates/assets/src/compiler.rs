@@ -327,7 +327,7 @@ fn descriptor_for(
 ) -> Option<(Descriptor, Box<str>)> {
     let TextureKey { key, rotate_uv } = resolve_texture_key(&pack.blocks, record, face);
     let key = key?;
-    let path = if is_model_visual(record) {
+    let path = if is_cutout_model_visual(record) {
         pack.terrain.get_for_model_record(&key, record)?.0
     } else {
         pack.terrain.get_for_record(&key, record)?
@@ -343,7 +343,7 @@ fn descriptor_for(
     } else {
         0
     };
-    if is_model_visual(record) {
+    if is_cutout_model_visual(record) {
         flags |= MATERIAL_FLAG_ALPHA_CUTOUT | cross_tint_flags(&record.name);
     } else if is_liquid(record) {
         flags |= liquid_material_flags(&record.name);
@@ -418,8 +418,17 @@ fn is_flowerbed(record: &RegistryRecord) -> bool {
         )
 }
 
-fn is_model_visual(record: &RegistryRecord) -> bool {
+const fn is_slab(record: &RegistryRecord) -> bool {
+    matches!(record.model_family, ModelFamily::Slab)
+        && matches!(record.contributor_role, ContributorRole::Primary)
+}
+
+fn is_cutout_model_visual(record: &RegistryRecord) -> bool {
     is_cross_visual(record) || is_kelp(record) || is_flowerbed(record)
+}
+
+fn is_model_visual(record: &RegistryRecord) -> bool {
+    is_cutout_model_visual(record) || is_slab(record)
 }
 
 const fn is_liquid(record: &RegistryRecord) -> bool {
@@ -798,8 +807,11 @@ fn compile_visuals(
     let mut template_by_material = BTreeMap::<[u32; 2], u32>::new();
     let mut kelp_template_by_material = BTreeMap::<[u32; 6], u32>::new();
     let mut flowerbed_template_by_key = BTreeMap::<[u32; 4], u32>::new();
+    let mut slab_template_by_key = BTreeMap::<[u32; 7], u32>::new();
 
-    for record in records {
+    let mut ordered_records = records.iter().collect::<Vec<_>>();
+    ordered_records.sort_unstable_by_key(|record| record.sequential_id);
+    for record in ordered_records {
         let mut visual = BlockVisual::diagnostic(record.flags, record.contributor_role);
         if is_water_liquid(record) {
             let materials = BlockFace::ALL.map(|face| {
@@ -873,6 +885,55 @@ fn compile_visuals(
                     template
                 };
                 visual.faces = [flower; 6];
+                visual.kind = VisualKind::Model;
+                visual.model_template = template;
+            }
+        } else if is_slab(record) {
+            let materials = BlockFace::ALL.map(|face| {
+                descriptor_for(pack, record, face)
+                    .and_then(|(descriptor, _)| material_by_descriptor.get(&descriptor).copied())
+            });
+            if let [
+                Some(west),
+                Some(east),
+                Some(down),
+                Some(up),
+                Some(north),
+                Some(south),
+            ] = materials
+                && let Some(half @ 0..=2) = record.model_state.get(ModelStateField::Half)
+            {
+                let faces = [west, east, down, up, north, south];
+                let key = [west, east, down, up, north, south, half];
+                let template = if let Some(&template) = slab_template_by_key.get(&key) {
+                    template
+                } else {
+                    let template = u32::try_from(model_templates.len()).map_err(|_| {
+                        AssetError::BlobSizeOverflow {
+                            section: "model template",
+                        }
+                    })?;
+                    let quad_start = u32::try_from(model_quads.len()).map_err(|_| {
+                        AssetError::BlobSizeOverflow {
+                            section: "model quad",
+                        }
+                    })?;
+                    model_templates.push(ModelTemplate {
+                        quad_start,
+                        quad_count: 6,
+                        flags: 0,
+                    });
+                    model_quads.extend(slab_quads(faces, half));
+                    slab_template_by_key.insert(key, template);
+                    template
+                };
+                visual.flags.remove(
+                    BlockFlags::AIR
+                        | BlockFlags::CUBE_GEOMETRY
+                        | BlockFlags::OCCLUDES_FULL_FACE
+                        | BlockFlags::LEAF_MODEL,
+                );
+                visual.faces = faces;
                 visual.kind = VisualKind::Model;
                 visual.model_template = template;
             }
@@ -992,6 +1053,90 @@ fn compile_visuals(
         model_templates.into_boxed_slice(),
         model_quads.into_boxed_slice(),
     ))
+}
+
+fn slab_quads(materials: [u32; 6], half: u32) -> [ModelQuad; 6] {
+    let (min_y, max_y) = match half {
+        0 => (0, 128),
+        1 => (128, 256),
+        2 => (0, 256),
+        _ => unreachable!("slab half is checked before template generation"),
+    };
+    let min_v = (4096 - min_y * 16) as u16;
+    let max_v = (4096 - max_y * 16) as u16;
+    let vertical_standard = [[0, min_v], [4096, min_v], [4096, max_v], [0, max_v]];
+    let vertical_transposed = [[0, min_v], [0, max_v], [4096, max_v], [4096, min_v]];
+    let horizontal_standard = [[0, 0], [4096, 0], [4096, 4096], [0, 4096]];
+    let horizontal_transposed = [[0, 0], [0, 4096], [4096, 4096], [4096, 0]];
+    let flagged = |face: u32, boundary: bool| face | (u32::from(boundary) * (face << 4));
+    [
+        ModelQuad {
+            positions: [
+                [0, min_y, 0],
+                [0, min_y, 256],
+                [0, max_y, 256],
+                [0, max_y, 0],
+            ],
+            uvs: vertical_standard,
+            material: materials[BlockFace::West as usize],
+            flags: flagged(3, true),
+        },
+        ModelQuad {
+            positions: [
+                [256, min_y, 0],
+                [256, max_y, 0],
+                [256, max_y, 256],
+                [256, min_y, 256],
+            ],
+            uvs: vertical_transposed,
+            material: materials[BlockFace::East as usize],
+            flags: flagged(4, true),
+        },
+        ModelQuad {
+            positions: [
+                [0, min_y, 0],
+                [256, min_y, 0],
+                [256, min_y, 256],
+                [0, min_y, 256],
+            ],
+            uvs: horizontal_standard,
+            material: materials[BlockFace::Down as usize],
+            flags: flagged(1, min_y == 0),
+        },
+        ModelQuad {
+            positions: [
+                [0, max_y, 0],
+                [0, max_y, 256],
+                [256, max_y, 256],
+                [256, max_y, 0],
+            ],
+            uvs: horizontal_transposed,
+            material: materials[BlockFace::Up as usize],
+            flags: flagged(2, max_y == 256),
+        },
+        ModelQuad {
+            positions: [
+                [0, min_y, 0],
+                [0, max_y, 0],
+                [256, max_y, 0],
+                [256, min_y, 0],
+            ],
+            uvs: vertical_transposed,
+            material: materials[BlockFace::North as usize],
+            flags: flagged(5, true),
+        },
+        ModelQuad {
+            positions: [
+                [0, min_y, 256],
+                [256, min_y, 256],
+                [256, max_y, 256],
+                [0, max_y, 256],
+            ],
+            uvs: vertical_standard,
+            material: materials[BlockFace::South as usize],
+            flags: flagged(6, true),
+        },
+    ]
 }
 
 fn model_variant(pack: &PackSources, record: &RegistryRecord, face: BlockFace) -> Option<u32> {
