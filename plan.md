@@ -353,6 +353,14 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     doors/trapdoors, connection-aware panes/fences/gates, then static
     chest/sign models; retain conservative culling/connectivity for partial
     models until exact face-coverage optimization is separately verified.
+    - [x] Slab asset templates: all 272 BREG1003 bottom/top/double states now
+      compile through opaque six-quad packed model templates with exact
+      face-specific materials, UV crops, boundary cull flags, deterministic
+      deduplication, and zero pinned-pack slab diagnostics (`c64330b`; assets
+      tests, strict Clippy/formatting, and independent review green). Render
+      and gallery acceptance remain part of Task 14 before the parent item can
+      close.
+    - [ ] Stair templates and neighbor-derived straight/inner/outer selection.
   - [ ] Complete the exhaustive residual-family report, beginning with
     lava/flowing-lava on a reviewed depth-writing non-water-liquid pipeline, so
     every non-air one of the 16,913 canonical states has a non-diagnostic visual;
