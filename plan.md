@@ -389,18 +389,26 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       deterministic gallery plus native screenshot/GPU evidence. Extend the
       same reviewed thin-face route to glow lichen and sculk vein separately;
       do not collapse their distinct state/property contracts into vine logic.
-      **In progress (2026-07-13):** all 16 canonical vine direction masks are
-      being implemented and tested as one atomic family so no mask can silently
-      retain the diagnostic fallback.
-    - [ ] Exhaustive vanilla visual-coverage ratchet: inventory every one of
+      **Implementation complete; live gate open (2026-07-13):** all 16 masks
+      compile to foliage-tinted two-sided attachment planes with exact UV axes,
+      zero diagnostics, zero-mask no-draw behavior, and all-mask/all-boundary
+      CPU mesh coverage (`ff7066b`; focused Go/assets/render tests and two
+      independent reviews green). The deterministic gallery, native captures,
+      and consecutive GPU witnesses remain required before this item closes.
+    - [x] Exhaustive vanilla visual-coverage ratchet: inventory every one of
       the 16,913 protocol-1001 canonical states through the production registry
       and runtime decoders, bind the exact registry/asset hashes, and reject any
       newly diagnostic or unjustifiably invisible state. Diagnostic shrinkage is
       allowed while residual families are implemented; the final gate requires
       zero diagnostic non-air states. The accepted design is recorded in
       `docs/superpowers/specs/2026-07-13-exhaustive-vanilla-coverage-design.md`.
-      **In progress (2026-07-13):** the deterministic CI ratchet is being built
-      before the remaining family batches.
+      **Complete (2026-07-13):** `visualcoverage` uses the production decoders,
+      enforces the exact 1,356-name/16,913-state/one-air protocol corpus and
+      exact hash-to-sequential bijection, bounds all inputs, rejects diagnostic
+      regression/invisible laundering, and writes deterministic hash-bound
+      reports (`b131247`; 11 tests, strict Clippy, real-pack run, and independent
+      review green). The current baseline has 14,973 diagnostics and zero vine
+      diagnostics; each remaining family must shrink that exact set.
   - [ ] Complete the exhaustive residual-family report, beginning with
     lava/flowing-lava on a reviewed depth-writing non-water-liquid pipeline, so
     every non-air one of the 16,913 canonical states has a non-diagnostic visual;
