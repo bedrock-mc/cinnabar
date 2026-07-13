@@ -73,9 +73,9 @@ function New-TestSlabStairAssets {
     )
     $entries = @(Get-TestRegistryEntries -RegistryPath $RegistryPath)
     $visualCount = 1 + [int](($entries | Measure-Object sequential_id -Maximum).Maximum)
-    $templateCount = 11
+    $templateCount = 12
     $materialCount = 1
-    $quadCount = $templateCount
+    $quadCount = 17
     $pageCount = 1
     $texturePayloadBytes = 1364
     $tintMapBytes = 8 * 256 * 256 * 3
@@ -124,10 +124,21 @@ function New-TestSlabStairAssets {
     [BitConverter]::GetBytes([uint32]::MaxValue).CopyTo($bytes, $materialOffset + 8)
     for ($index = 0; $index -lt $templateCount; $index++) {
         $offset = $templateOffset + 12 * $index
-        [BitConverter]::GetBytes([uint32]$index).CopyTo($bytes, $offset)
-        [BitConverter]::GetBytes([uint32]1).CopyTo($bytes, $offset + 4)
-        if ($index -gt 0) { [BitConverter]::GetBytes([uint32]2).CopyTo($bytes, $offset + 8) }
-        [BitConverter]::GetBytes([uint32]1).CopyTo($bytes, $quadOffset + 48 * $index + 44)
+        if ($index -eq 11) {
+            [BitConverter]::GetBytes([uint32]11).CopyTo($bytes, $offset)
+            [BitConverter]::GetBytes([uint32]6).CopyTo($bytes, $offset + 4)
+            [BitConverter]::GetBytes([uint32]1).CopyTo($bytes, $offset + 8)
+            foreach ($quadIndex in 11..16) {
+                $quadFlags = if ($quadIndex -ge 15) { 8 } else { 0 }
+                [BitConverter]::GetBytes([uint32]$quadFlags).CopyTo($bytes, $quadOffset + 48 * $quadIndex + 44)
+            }
+        }
+        else {
+            [BitConverter]::GetBytes([uint32]$index).CopyTo($bytes, $offset)
+            [BitConverter]::GetBytes([uint32]1).CopyTo($bytes, $offset + 4)
+            if ($index -gt 0) { [BitConverter]::GetBytes([uint32]2).CopyTo($bytes, $offset + 8) }
+            [BitConverter]::GetBytes([uint32]1).CopyTo($bytes, $quadOffset + 48 * $index + 44)
+        }
     }
     [BitConverter]::GetBytes([uint32]0).CopyTo($bytes, $pageOffset)
     [BitConverter]::GetBytes([uint32]1).CopyTo($bytes, $pageOffset + 4)
@@ -819,11 +830,23 @@ try {
     Assert-ThrowsLike {
         Get-StrictMcbeas04ModelTables -Path $oversizedSlabStairAssets
     } 'MCBEAS04 blob exceeds the app 16 MiB ceiling:*' 'slab/stair validation allocated an oversized blob before rejecting it'
+    $kelpBackedSlabAssets = Join-Path $TempRoot 'resealed kelp backed slab.mcbea'
+    $kelpBackedBytes = [IO.File]::ReadAllBytes($SlabStairAssets)
+    $firstSlabId = [int](@(Get-TestRegistryEntries -RegistryPath $BlockRegistry | Where-Object family -eq 7)[0].sequential_id)
+    $firstSlabVisual = [int]([BitConverter]::ToUInt64($kelpBackedBytes, 96) + 40 * $firstSlabId)
+    [BitConverter]::GetBytes([uint32]11).CopyTo($kelpBackedBytes, $firstSlabVisual + 28)
+    Set-TestMcbeas04Seal -Bytes $kelpBackedBytes
+    [IO.File]::WriteAllBytes($kelpBackedSlabAssets, $kelpBackedBytes)
+    Assert-ThrowsLike {
+        Get-SlabStairCoverageEvidence -RegistryPath $BlockRegistry -AssetsPath $kelpBackedSlabAssets
+    } 'slab/stair compiled coverage contains diagnostic or malformed visuals:*' 'slab/stair coverage accepted a canonical kelp template for a slab visual'
     $templateOffset = [int][BitConverter]::ToUInt64([IO.File]::ReadAllBytes($SlabStairAssets), 120)
+    $quadOffset = [int][BitConverter]::ToUInt64([IO.File]::ReadAllBytes($SlabStairAssets), 128)
     foreach ($malformedTemplate in @(
         [pscustomobject]@{ name = 'resealed 33-quad template'; pattern = 'MCBEAS04 model template 0 span or flags are noncanonical*'; mutate = { param($bytes) [BitConverter]::GetBytes([uint32]33).CopyTo($bytes, $templateOffset + 4) } },
         [pscustomobject]@{ name = 'resealed out-of-range template span'; pattern = 'MCBEAS04 model template 10 span or flags are noncanonical*'; mutate = { param($bytes) [BitConverter]::GetBytes([uint32]11).CopyTo($bytes, $templateOffset + 120) } },
-        [pscustomobject]@{ name = 'resealed middle-of-stair-group visual'; pattern = 'MCBEAS04 stair visual * does not reference an exact group base or has reserved variant bits*'; mutate = { param($bytes) [BitConverter]::GetBytes([uint32]2).CopyTo($bytes, $coveredVisualOffset + 28) } }
+        [pscustomobject]@{ name = 'resealed middle-of-stair-group visual'; pattern = 'MCBEAS04 stair visual * does not reference an exact group base or has reserved variant bits*'; mutate = { param($bytes) [BitConverter]::GetBytes([uint32]2).CopyTo($bytes, $coveredVisualOffset + 28) } },
+        [pscustomobject]@{ name = 'resealed malformed kelp sidedness'; pattern = 'MCBEAS04 kelp template 11 has noncanonical sidedness*'; mutate = { param($bytes) [BitConverter]::GetBytes([uint32]0).CopyTo($bytes, $quadOffset + 48 * 16 + 44) } }
     )) {
         $malformedPath = Join-Path $TempRoot ($malformedTemplate.name + '.mcbea')
         $malformedBytes = [IO.File]::ReadAllBytes($SlabStairAssets)

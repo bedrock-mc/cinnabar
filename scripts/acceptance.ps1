@@ -2986,6 +2986,19 @@ function Get-StrictMcbeas04ModelTables {
         $templateIndex += 5
     }
 
+    for ($kelpIndex = 0; $kelpIndex -lt $templates.Count; $kelpIndex++) {
+        $kelpTemplate = $templates[$kelpIndex]
+        if (($kelpTemplate.flags -band 1) -eq 0) { continue }
+        foreach ($shapeIndex in 0..5) {
+            $kelpQuad = [int]($offsets[4] + 48 * ($kelpTemplate.quad_start + $shapeIndex))
+            $kelpQuadFlags = [uint32][BitConverter]::ToUInt32($bytes, $kelpQuad + 44)
+            $twoSided = ($kelpQuadFlags -band 8) -ne 0
+            if (($shapeIndex -lt 4 -and $twoSided) -or ($shapeIndex -ge 4 -and -not $twoSided)) {
+                throw "MCBEAS04 kelp template $kelpIndex has noncanonical sidedness"
+            }
+        }
+    }
+
     for ($quadIndex = 0; $quadIndex -lt $counts[4]; $quadIndex++) {
         $quad = [int]($offsets[4] + 48 * $quadIndex)
         $material = [uint64][BitConverter]::ToUInt32($bytes, $quad + 40)
@@ -3090,7 +3103,7 @@ function Get-SlabStairCoverageEvidence {
         if ($entry.family -ceq 'Stair') {
             if (-not $modelTables.stair_bases.Contains([uint32]$template) -or ([BitConverter]::ToUInt32($assetBytes, $visual + 36) -band (-bnot 7)) -ne 0) { $diagnostic++; continue }
         }
-        elseif (($descriptor.flags -band 2) -ne 0) {
+        elseif ($descriptor.flags -ne 0) {
             $diagnostic++; continue
         }
     }
