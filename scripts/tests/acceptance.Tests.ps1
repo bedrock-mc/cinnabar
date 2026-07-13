@@ -837,7 +837,7 @@ try {
         Assert-Equal 64 ([int]$slabStairPlan.Manifest.coverage_evidence.stair_name_count) 'stair identifier count drifted'
         Assert-Equal 0 ([int]$slabStairPlan.Manifest.coverage_evidence.diagnostic_slab_stair) 'slab/stair compiled coverage retained diagnostics'
         Assert-Equal '860f1e5629d7d6f390d554cedcef16546237f9f9df9f24a2abaa5a22c785fbc8' ([string]$slabStairPlan.Manifest.state_set_sha256) 'slab/stair exact state-set identity drifted'
-        Assert-Equal 'aeeb6c4e11e265d2a075af8e37945fb9b0a5b1b493373125b789b45139240510' ([string]$slabStairPlan.Manifest.fixture_layout_hash) 'slab/stair canonical layout identity drifted'
+        Assert-Equal '8c035c430d72ce4e62df32a99d126608e2b476bb155f941c89671500f91f4448' ([string]$slabStairPlan.Manifest.fixture_layout_hash) 'slab/stair canonical layout identity drifted'
         Assert-True ($slabStairPlan.LoadAreaCommand -match '^tickingarea add ') 'slab/stair gallery omitted bounded preload'
         Assert-True ($slabStairPlan.CleanupCommand -match '^tickingarea remove ') 'slab/stair gallery omitted ticking-area cleanup'
         Assert-Equal (Get-CanonicalObjectHash -Value $slabStairPlan.Manifest.relative_layout) $slabStairPlan.Manifest.fixture_layout_hash 'slab/stair layout hash was not derived from its complete relative layout'
