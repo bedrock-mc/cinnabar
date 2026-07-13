@@ -230,7 +230,7 @@ Update compact template data only. Run full assets tests/Clippy/fmt and regenera
 - Consumes: complete flowerbed asset family and native reference evidence.
 - Produces: deterministic Cinnabar gallery captures, packed-path performance evidence, and honest plan completion state.
 
-- [ ] **Step 1: Add packed-render contract tests**
+- [x] **Step 1: Add packed-render contract tests**
 
 Assert FlowerBed visuals use existing `PackedModelRef`/lighting records, two-sided cutout, direct/MDI identical addressing, conservative connectivity, and no new bind group/pipeline/per-subchunk mesh.
 
