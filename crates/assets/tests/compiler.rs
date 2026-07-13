@@ -605,6 +605,96 @@ fn write_flowerbed_pack(root: &Path, include_stem: bool) {
     }
 }
 
+fn flowerbed_geometry_digest(quads: &[assets::ModelQuad]) -> String {
+    let flower_material = quads
+        .first()
+        .expect("flowerbed template has quads")
+        .material;
+    let mut digest = Sha256::new();
+    for quad in quads {
+        for position in quad.positions {
+            for coordinate in position {
+                digest.update(coordinate.to_le_bytes());
+            }
+        }
+        for uv in quad.uvs {
+            for coordinate in uv {
+                digest.update(coordinate.to_le_bytes());
+            }
+        }
+        digest.update([u8::from(quad.material != flower_material)]);
+        digest.update(quad.flags.to_le_bytes());
+    }
+    format!("{:x}", digest.finalize())
+}
+
+#[test]
+fn compiler_flowerbed_positions_and_uvs_match_pinned_layout_hashes() {
+    let directory = tempfile::tempdir().expect("create flowerbed digest fixture");
+    write_flowerbed_pack(directory.path(), true);
+    let records = (0..4)
+        .flat_map(|growth| {
+            (0..4).map(move |orientation| {
+                let sequential_id = growth * 4 + orientation;
+                generated_flowerbed_record(
+                    sequential_id,
+                    9_000 + sequential_id,
+                    "minecraft:wildflowers",
+                    growth,
+                    orientation,
+                )
+            })
+        })
+        .collect::<Vec<_>>();
+    let compiled = compile_pack(directory.path(), &records).expect("compile flowerbed digests");
+    let actual = compiled
+        .visuals
+        .iter()
+        .map(|visual| {
+            let template = compiled.model_templates[visual.model_template as usize];
+            flowerbed_geometry_digest(
+                &compiled.model_quads[template.quad_start as usize
+                    ..(template.quad_start + template.quad_count) as usize],
+            )
+        })
+        .collect::<Vec<_>>();
+    let expected = [
+        [
+            "0535cc209cf5d041dac03f4b705b506e4dcbcf78631b3c19f08c29529c0372e1",
+            "fe9ae6e63ab41e8a54a1d478d493ac7f27b6a65e6342e2e9897a0b2481277c5c",
+            "a7b1c4a16e06435a244f86d6f363592604ac1e3004f159df82c8126eaab60b69",
+            "137445d77e0b871726f1715da34ea13afc85f8e368b3eabe47aa73c226d139ff",
+        ],
+        [
+            "7ab55b6772d41dda2a461a3a6283e15f80d2f37624b259be8f01e806764d592d",
+            "4d7a49f3e00ddb42a2e4d1457c90d97c1cdc9530315fa4f84c7b4eb375470b03",
+            "02732e5274ee362636178813a3757a7ecb172b64a4bc53a04543ade5dd825984",
+            "17fa180ccb7197b23a4812f4aa9bf5836ff1f216c90b543e61e10b280bd31e8c",
+        ],
+        [
+            "5ef044de509676b39536764fbe07a8dcff229c395f4c9a1e359f252491f2c206",
+            "722e9e3b0baa2de6565fdd5784e9cd88573bd8d211759492f3c285680864ea64",
+            "6c69274f1235f83290629448199c67bd4d50768906815b3d191f8c928ecb85f6",
+            "b2876159d61f4efcfc7050cbe3d68a381b7c4f6d3231e1dbe2ec9578680223ca",
+        ],
+        [
+            "0ad8b575a87c6d1b1b6acb04b77cdb9c7db62321e38af3d157c2af8d84b6b134",
+            "6e86adaf45e3916de0372636dcc6ebd1dc93b8c97675c466235766e8027b4950",
+            "18a7cddfe2d57f62c2fdd29ed8a0edf883c13e7b9d79ce084093685c55e82574",
+            "9c35fc675c95aeca270cb20b6b68eea6e1f366a6785003b3b0af3dbab92663d5",
+        ],
+    ];
+    for layout in 0..4 {
+        for orientation in 0..4 {
+            assert_eq!(
+                actual[layout * 4 + orientation],
+                expected[layout][orientation],
+                "layout={layout} orientation={orientation}"
+            );
+        }
+    }
+}
+
 #[test]
 fn compiler_compiles_normal_flowerbeds_as_additive_near_ground_two_material_models() {
     let directory = tempfile::tempdir().expect("create flowerbed fixture");
