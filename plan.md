@@ -357,9 +357,15 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       compile through opaque six-quad packed model templates with exact
       face-specific materials, UV crops, boundary cull flags, deterministic
       deduplication, and zero pinned-pack slab diagnostics (`c64330b`; assets
-      tests, strict Clippy/formatting, and independent review green). Render
-      and gallery acceptance remain part of Task 14 before the parent item can
-      close.
+      tests, strict Clippy/formatting, and independent review green).
+    - [x] Slab packed rendering and occlusion: lower/upper/double slabs remain
+      compact model references with six lighting sidecars and no cube stream;
+      double slabs provide full-face cave/cull occlusion while partial slabs
+      remain conservatively cave-open. Internal and all six cross-subchunk
+      model/cube boundaries are covered without lighting reindexing
+      (`6df380d`, `09279a1`; 122 asset tests, 44 render-mesh tests, strict
+      Clippy/formatting, and independent review green). Gallery acceptance
+      remains part of Task 14 before the parent item can close.
     - [ ] Stair templates and neighbor-derived straight/inner/outer selection.
   - [ ] Complete the exhaustive residual-family report, beginning with
     lava/flowing-lava on a reviewed depth-writing non-water-liquid pipeline, so
