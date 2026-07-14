@@ -1374,29 +1374,28 @@ try {
     $modelMarker2 = $modelMarker.PSObject.Copy()
     $modelMarker2.sequence = [uint64]41
     $modelMarker2.consecutive = 2
-    $null = Assert-StableModelWitnessEvidence -Request $modelWitnessRequest -ExpectedModelRefCount 43 -First $modelMarker -Second $modelMarker2
+    $null = Assert-StableModelWitnessEvidence -Request $modelWitnessRequest -First $modelMarker -Second $modelMarker2
     Assert-ThrowsLike {
         $bad = $modelMarker2.PSObject.Copy(); $bad.sequence = [uint64]42
-        Assert-StableModelWitnessEvidence -Request $modelWitnessRequest -ExpectedModelRefCount 43 -First $modelMarker -Second $bad
+        Assert-StableModelWitnessEvidence -Request $modelWitnessRequest -First $modelMarker -Second $bad
     } '*model witness*adjacent*' 'non-adjacent model witness evidence was accepted'
-    Assert-ThrowsLike {
-        $badFirst = $modelMarker.PSObject.Copy(); $badFirst.model_ref_count = [uint64]42
-        $badSecond = $modelMarker2.PSObject.Copy(); $badSecond.model_ref_count = [uint64]42
-        Assert-StableModelWitnessEvidence -Request $modelWitnessRequest -ExpectedModelRefCount 43 -First $badFirst -Second $badSecond
-    } '*model witness*adjacent*' 'stable non-43 slab/stair model reference evidence was accepted'
-    $vineModelMarker = ConvertFrom-ModelWitnessCompleteMarker -Line "RUST_MCBE_MODEL_WITNESS_COMPLETE revision=1 request_sha256=$($vineModelWitnessRequest.request_sha256) sequence=50 view_generation=4 key_count=$(@($vineModelWitnessRequest.sub_chunks).Count) model_ref_count=15 manifest_count=$(@($vineModelWitnessRequest.sub_chunks).Count) manifest_sha256=$('b' * 64) missing=0 stale=0 wrong_stream=0 zero_ref=0 draw_mismatch=0 consecutive=1"
+    $vineModelMarker = ConvertFrom-ModelWitnessCompleteMarker -Line "RUST_MCBE_MODEL_WITNESS_COMPLETE revision=1 request_sha256=$($vineModelWitnessRequest.request_sha256) sequence=487 view_generation=4 key_count=$(@($vineModelWitnessRequest.sub_chunks).Count) model_ref_count=93 manifest_count=$(@($vineModelWitnessRequest.sub_chunks).Count) manifest_sha256=$('b' * 64) missing=0 stale=0 wrong_stream=0 zero_ref=0 draw_mismatch=0 consecutive=1"
     $vineModelMarker2 = $vineModelMarker.PSObject.Copy()
-    $vineModelMarker2.sequence = [uint64]51
+    $vineModelMarker2.sequence = [uint64]488
     $vineModelMarker2.consecutive = 2
-    $null = Assert-StableModelWitnessEvidence -Request $vineModelWitnessRequest -ExpectedModelRefCount 15 -First $vineModelMarker -Second $vineModelMarker2
+    $null = Assert-StableModelWitnessEvidence -Request $vineModelWitnessRequest -First $vineModelMarker -Second $vineModelMarker2
     Assert-ThrowsLike {
-        $badFirst = $vineModelMarker.PSObject.Copy(); $badFirst.model_ref_count = [uint64]14
-        Assert-StableModelWitnessEvidence -Request $vineModelWitnessRequest -ExpectedModelRefCount 15 -First $badFirst -Second $vineModelMarker2
-    } '*model witness*adjacent*' 'vine model witness accepted 14 references in the first marker'
+        $badSecond = $vineModelMarker2.PSObject.Copy(); $badSecond.model_ref_count = [uint64]94
+        Assert-StableModelWitnessEvidence -Request $vineModelWitnessRequest -First $vineModelMarker -Second $badSecond
+    } '*model witness*adjacent*' 'vine model witness accepted an unstable model reference count'
     Assert-ThrowsLike {
-        $badSecond = $vineModelMarker2.PSObject.Copy(); $badSecond.model_ref_count = [uint64]16
-        Assert-StableModelWitnessEvidence -Request $vineModelWitnessRequest -ExpectedModelRefCount 15 -First $vineModelMarker -Second $badSecond
-    } '*model witness*adjacent*' 'vine model witness accepted 16 references in the second marker'
+        $badSecond = $vineModelMarker2.PSObject.Copy(); $badSecond.request_sha256 = 'c' * 64
+        Assert-StableModelWitnessEvidence -Request $vineModelWitnessRequest -First $vineModelMarker -Second $badSecond
+    } '*model witness*adjacent*' 'vine model witness accepted the wrong request hash'
+    Assert-ThrowsLike {
+        $badFirst = $vineModelMarker.PSObject.Copy(); $badFirst.draw_mismatch = [uint64]1
+        Assert-StableModelWitnessEvidence -Request $vineModelWitnessRequest -First $badFirst -Second $vineModelMarker2
+    } '*model witness*adjacent*' 'vine model witness accepted dirty draw-mismatch evidence'
 
     $tamperedAquaticAssets = Join-Path $TempRoot 'tampered aquatic assets.mcbea'
     [IO.File]::WriteAllBytes($tamperedAquaticAssets, [IO.File]::ReadAllBytes($AquaticAssets))
