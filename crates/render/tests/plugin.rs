@@ -80,6 +80,66 @@ fn shared_biome_bindings_are_visible_to_vertex_and_fragment_pipelines() {
 }
 
 #[test]
+fn fragment_view_reads_are_covered_by_the_shared_chunk_layout() {
+    let view_definition =
+        "struct View { clip_from_world: mat4x4<f32>, world_position: vec3<f32>, }";
+
+    for (name, source) in [
+        ("chunk", include_str!("../src/chunk.wgsl")),
+        ("model", include_str!("../src/model.wgsl")),
+        ("liquid", include_str!("../src/liquid.wgsl")),
+    ] {
+        let shader = source.replacen("#import bevy_render::view::View", view_definition, 1);
+        let module = naga::front::wgsl::parse_str(&shader)
+            .unwrap_or_else(|error| panic!("parse {name} WGSL: {error}"));
+        let info = naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::all(),
+        )
+        .validate(&module)
+        .unwrap_or_else(|error| panic!("validate {name} WGSL: {error}"));
+        let (view_handle, _) = module
+            .global_variables
+            .iter()
+            .find(|(_, global)| {
+                global
+                    .binding
+                    .as_ref()
+                    .is_some_and(|binding| binding.group == 0 && binding.binding == 0)
+            })
+            .unwrap_or_else(|| panic!("{name} shader has no group 0 binding 0 view uniform"));
+        let fragment_reads_view = module
+            .entry_points
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| entry.stage == naga::ShaderStage::Fragment)
+            .any(|(index, _)| !info.get_entry_point(index)[view_handle].is_empty());
+        assert!(
+            fragment_reads_view,
+            "{name} fragment entry points must exercise the shared view binding contract"
+        );
+    }
+
+    let source = include_str!("../src/plugin.rs");
+    let layout_start = source
+        .find("chunk vertex-pulling bind group layout")
+        .expect("shared chunk layout");
+    let binding_start = source[layout_start..]
+        .find("binding: 0,")
+        .map(|offset| layout_start + offset)
+        .expect("shared view binding");
+    let entry = &source[binding_start
+        ..source[binding_start..]
+            .find("count: None,")
+            .map(|offset| binding_start + offset)
+            .expect("complete shared view layout entry")];
+    assert!(
+        entry.contains("visibility: ShaderStages::VERTEX_FRAGMENT"),
+        "group 0 binding 0 is read by every world fragment family and must be fragment-visible"
+    );
+}
+
+#[test]
 fn sort_ref_ceiling_is_enforced() {
     assert_eq!(size_of::<PackedTransparentDrawRef>(), 8);
     assert_eq!(MAX_TRANSPARENT_DRAW_REFS, 2_097_152);
