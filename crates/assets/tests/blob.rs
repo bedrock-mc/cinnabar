@@ -271,6 +271,75 @@ fn mcbeas04_rejects_noncanonical_new_tables_and_limits() {
     assert!(encode_blob(&third_page).is_err());
 }
 
+#[test]
+fn mcbeas04_accepts_only_canonical_two_template_compounds() {
+    const COMPOUND_NEXT: u32 = 1 << 2;
+
+    let quad = assets::ModelQuad {
+        positions: [[0; 3]; 4],
+        uvs: [[0; 2]; 4],
+        material: 0,
+        flags: 0,
+    };
+    let mut compound = valid_assets();
+    compound.visuals[0].flags = BlockFlags::empty();
+    compound.visuals[0].kind = VisualKind::Model;
+    compound.visuals[0].model_template = 0;
+    compound.model_templates = vec![
+        assets::ModelTemplate {
+            quad_start: 0,
+            quad_count: 24,
+            flags: COMPOUND_NEXT,
+        },
+        assets::ModelTemplate {
+            quad_start: 24,
+            quad_count: 16,
+            flags: 0,
+        },
+    ]
+    .into_boxed_slice();
+    compound.model_quads = vec![quad; 40].into_boxed_slice();
+
+    let bytes = encode_blob(&compound).expect("canonical compound pair");
+    let runtime = assets::RuntimeAssets::decode(&bytes).expect("decode canonical compound pair");
+    assert_eq!(runtime.model_templates(), compound.model_templates.as_ref());
+
+    let mut tail_referenced = compound.clone();
+    tail_referenced.visuals[0].model_template = 1;
+    assert!(
+        encode_blob(&tail_referenced).is_err(),
+        "compound continuation cannot be directly visual-referenced"
+    );
+
+    let mut truncated = compound.clone();
+    truncated.model_templates = truncated.model_templates[..1].into();
+    truncated.model_quads = truncated.model_quads[..24].into();
+    assert!(
+        encode_blob(&truncated).is_err(),
+        "compound head cannot end the template table"
+    );
+
+    for tail_flags in [
+        COMPOUND_NEXT,
+        assets::MODEL_TEMPLATE_FLAG_KELP,
+        assets::MODEL_TEMPLATE_FLAG_STAIR,
+    ] {
+        let mut non_plain_tail = compound.clone();
+        non_plain_tail.model_templates[1].flags = tail_flags;
+        assert!(
+            encode_blob(&non_plain_tail).is_err(),
+            "compound continuation must be one plain template"
+        );
+    }
+
+    let mut combined_head = compound;
+    combined_head.model_templates[0].flags |= assets::MODEL_TEMPLATE_FLAG_KELP;
+    assert!(
+        encode_blob(&combined_head).is_err(),
+        "compound head cannot also be kelp or stair"
+    );
+}
+
 const HEADER_BYTES: usize = 200;
 
 fn texture_array(layers: u32) -> TextureArray {

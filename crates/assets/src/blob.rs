@@ -10,8 +10,8 @@ use crate::model::{MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAGS_MASK};
 use crate::{
     AssetError, BlockFlags, CompiledAssets, DIAGNOSTIC_MATERIAL, MAX_ANIMATION_FRAMES,
     MAX_ANIMATIONS, MAX_MATERIALS, MAX_MODEL_QUADS, MAX_MODEL_TEMPLATES, MAX_TEXTURE_LAYERS,
-    MAX_TEXTURE_PAGES, MIP_COUNT, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_STAIR,
-    NO_ANIMATION, NO_MODEL_TEMPLATE, TILE_SIZE, TextureRef, VisualKind,
+    MAX_TEXTURE_PAGES, MIP_COUNT, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_KELP,
+    MODEL_TEMPLATE_FLAG_STAIR, NO_ANIMATION, NO_MODEL_TEMPLATE, TILE_SIZE, TextureRef, VisualKind,
     biome::{TINT_MAP_BYTES, TINT_MAP_COUNT, TINT_MAP_SIZE, validate_biome_assets},
     compiler::{material_flags_are_valid, visual_semantics_are_valid},
     model::{ANIMATION_FLAGS_MASK, model_quad_flags_are_valid},
@@ -270,6 +270,7 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
             "material animation",
         )?;
     }
+    let compound_tails = compiled_compound_tails(&compiled.model_templates)?;
     let stair_bases = compiled_stair_bases(&compiled.model_templates)?;
     let mut referenced_stair_bases = vec![false; stair_bases.len()];
     for (index, visual) in compiled.visuals.iter().enumerate() {
@@ -297,6 +298,13 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
             compiled.model_templates.len(),
             "visual template",
         )?;
+        if visual.model_template != NO_MODEL_TEMPLATE
+            && compound_tails[visual.model_template as usize]
+        {
+            return Err(invalid(
+                "compound continuation cannot be directly visual-referenced",
+            ));
+        }
         optional_id(
             visual.animation,
             compiled.animations.len(),
@@ -423,6 +431,26 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
         validate_texture_ref(frame, &compiled.texture_pages, "animation frame")?;
     }
     Ok(())
+}
+
+fn compiled_compound_tails(templates: &[crate::ModelTemplate]) -> Result<Vec<bool>, AssetError> {
+    let mut tails = vec![false; templates.len()];
+    for (index, template) in templates.iter().enumerate() {
+        if template.flags & MODEL_TEMPLATE_FLAG_COMPOUND_NEXT == 0 {
+            continue;
+        }
+        if template.flags != MODEL_TEMPLATE_FLAG_COMPOUND_NEXT {
+            return Err(invalid("compound template head has incompatible flags"));
+        }
+        let Some(tail) = templates.get(index + 1) else {
+            return Err(invalid("compound template pair is truncated"));
+        };
+        if tail.flags != 0 {
+            return Err(invalid("compound continuation is not a plain template"));
+        }
+        tails[index + 1] = true;
+    }
+    Ok(tails)
 }
 
 fn compiled_stair_bases(templates: &[crate::ModelTemplate]) -> Result<Vec<usize>, AssetError> {

@@ -8,10 +8,10 @@ use crate::{
     BlockFlags, BlockVisual, CompiledBiomeAssets, ContributorRole, DIAGNOSTIC_MATERIAL,
     MAX_ANIMATION_FRAMES, MAX_ANIMATIONS, MAX_BIOME_NAME_BYTES, MAX_BIOME_NAMES_BYTES,
     MAX_BIOME_RULES, MAX_MATERIALS, MAX_MODEL_QUADS, MAX_MODEL_TEMPLATES, MAX_TEXTURE_LAYERS,
-    MAX_TEXTURE_PAGES, MIP_COUNT, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_STAIR, Material,
-    ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, TILE_SIZE, TINT_MAP_BYTES,
-    TINT_MAP_COUNT, TINT_MAP_SIZE, TextureArray, TextureMip, TexturePage, TextureRef, TintSource,
-    VisualKind,
+    MAX_TEXTURE_PAGES, MIP_COUNT, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_KELP,
+    MODEL_TEMPLATE_FLAG_STAIR, Material, ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE,
+    TILE_SIZE, TINT_MAP_BYTES, TINT_MAP_COUNT, TINT_MAP_SIZE, TextureArray, TextureMip,
+    TexturePage, TextureRef, TintSource, VisualKind,
     biome::{BIOME_RULE_FLAGS_MASK, validate_biome_assets},
     blob::{
         ANIMATION_BYTES, BIOME_RULE_BYTES, FRAME_BYTES, HASH_BYTES, HASH_ENTRY_BYTES, HEADER_BYTES,
@@ -462,6 +462,7 @@ fn validate_fixed(
     sections: &[&[u8]; 12],
     pages: &[PageMeta],
 ) -> Result<(), AssetError> {
+    let compound_tails = runtime_compound_tails(sections[3])?;
     let stair_bases = runtime_stair_bases(sections[3])?;
     let mut referenced_stair_bases = vec![false; stair_bases.len()];
     for (index, record) in sections[0].chunks_exact(VISUAL_BYTES).enumerate() {
@@ -483,6 +484,11 @@ fn validate_fixed(
         let template = u32_at(record, 28);
         let animation = u32_at(record, 32);
         valid_optional(template, header.counts[3], "visual template")?;
+        if template != NO_MODEL_TEMPLATE && compound_tails[template as usize] {
+            return Err(invalid(
+                "compound continuation cannot be directly visual-referenced",
+            ));
+        }
         valid_optional(animation, header.counts[5], "visual animation")?;
         if (matches!(kind, VisualKind::Model | VisualKind::Cross))
             != (template != NO_MODEL_TEMPLATE)
@@ -632,6 +638,28 @@ fn runtime_stair_bases(bytes: &[u8]) -> Result<Vec<usize>, AssetError> {
         index += 5;
     }
     Ok(bases)
+}
+
+fn runtime_compound_tails(bytes: &[u8]) -> Result<Vec<bool>, AssetError> {
+    let records = bytes.chunks_exact(TEMPLATE_BYTES).collect::<Vec<_>>();
+    let mut tails = vec![false; records.len()];
+    for (index, record) in records.iter().enumerate() {
+        let flags = u32_at(record, 8);
+        if flags & MODEL_TEMPLATE_FLAG_COMPOUND_NEXT == 0 {
+            continue;
+        }
+        if flags != MODEL_TEMPLATE_FLAG_COMPOUND_NEXT {
+            return Err(invalid("compound template head has incompatible flags"));
+        }
+        let Some(tail) = records.get(index + 1) else {
+            return Err(invalid("compound template pair is truncated"));
+        };
+        if u32_at(tail, 8) != 0 {
+            return Err(invalid("compound continuation is not a plain template"));
+        }
+        tails[index + 1] = true;
+    }
+    Ok(tails)
 }
 
 fn valid_ref(reference: TextureRef, pages: &[PageMeta]) -> Result<(), AssetError> {

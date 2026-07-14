@@ -35,6 +35,8 @@ const LIQUID_B: u32 = 60;
 const UNSUPPORTED_ADDITIONAL: u32 = 61;
 const KELP: u32 = 62;
 const MODEL_32: u32 = 63;
+const COMPOUND_40: u32 = 64;
+const MODEL_TEMPLATE_FLAG_COMPOUND_NEXT_TEST: u32 = 1 << 2;
 
 #[test]
 fn packed_stream_record_sizes() {
@@ -189,6 +191,15 @@ fn runtime_assets() -> &'static RuntimeAssets {
             animation: NO_ANIMATION,
             variant: 0,
         };
+        visuals[COMPOUND_40 as usize] = BlockVisual {
+            faces: [1; 6],
+            flags: BlockFlags::empty(),
+            kind: VisualKind::Model,
+            contributor_role: assets::ContributorRole::Primary,
+            model_template: 4,
+            animation: NO_ANIMATION,
+            variant: 0,
+        };
 
         let textures = TextureArray {
             layers: 1,
@@ -236,6 +247,16 @@ fn runtime_assets() -> &'static RuntimeAssets {
                     quad_count: 32,
                     flags: 0,
                 },
+                ModelTemplate {
+                    quad_start: 40,
+                    quad_count: 24,
+                    flags: MODEL_TEMPLATE_FLAG_COMPOUND_NEXT_TEST,
+                },
+                ModelTemplate {
+                    quad_start: 64,
+                    quad_count: 16,
+                    flags: 0,
+                },
             ]
             .into_boxed_slice(),
             model_quads: [
@@ -279,6 +300,15 @@ fn runtime_assets() -> &'static RuntimeAssets {
                     flags: MODEL_QUAD_FLAG_TWO_SIDED,
                 },
                 32,
+            ))
+            .chain(std::iter::repeat_n(
+                ModelQuad {
+                    positions: [[0, 0, 0], [256, 0, 256], [256, 256, 256], [0, 256, 0]],
+                    uvs: [[0, 4096], [4096, 4096], [4096, 0], [0, 0]],
+                    material: 1,
+                    flags: MODEL_QUAD_FLAG_TWO_SIDED,
+                },
+                40,
             ))
             .collect::<Vec<_>>()
             .into_boxed_slice(),
@@ -501,6 +531,46 @@ fn thirty_two_quad_model_emits_exact_ascending_draw_refs() {
             .collect::<Vec<_>>(),
         (0..32)
             .map(|quad_index| [0, quad_index])
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn compound_model_emits_two_bounded_refs_with_contiguous_lighting_and_draws() {
+    let mesh = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &blocks(COMPOUND_40, &[[1, 2, 3]]),
+    );
+
+    assert_eq!(mesh.model_refs().len(), 2);
+    assert_eq!(
+        mesh.model_refs()
+            .iter()
+            .copied()
+            .map(PackedModelRef::words)
+            .collect::<Vec<_>>(),
+        [
+            [1 | (2 << 4) | (3 << 8), 4, 0, 0x00ff_ffff],
+            [1 | (2 << 4) | (3 << 8), 5, 24, 0x0000_ffff],
+        ]
+    );
+    assert_eq!(mesh.model_lighting().len(), 40);
+    assert!(
+        mesh.model_lighting()
+            .iter()
+            .all(|lighting| lighting.samples() == [0x00f0; 4])
+    );
+    assert_eq!(
+        mesh.model_draw_refs()
+            .iter()
+            .copied()
+            .map(PackedModelDrawRef::words)
+            .collect::<Vec<_>>(),
+        (0..24)
+            .map(|quad| [0, quad])
+            .chain((0..16).map(|quad| [1, quad]))
             .collect::<Vec<_>>()
     );
 }

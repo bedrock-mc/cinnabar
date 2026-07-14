@@ -2,8 +2,8 @@ use std::{cell::OnceCell, collections::VecDeque};
 
 use assets::{
     BlockFace, BlockFlags, ContributorRole, DIAGNOSTIC_MATERIAL, MODEL_QUAD_FLAG_CULL_FACE_MASK,
-    MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_STAIR, NO_MODEL_TEMPLATE, NetworkIdMode,
-    RuntimeAssets, VisualKind,
+    MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_STAIR,
+    NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, VisualKind,
 };
 use world::{MeshNeighbourhood, PalettedStorage, SubChunk};
 
@@ -729,108 +729,120 @@ fn mesh_sub_chunk_core(
                     [x, y, z],
                     entry,
                 );
-                let Some(template) = visuals.model_templates().get(selected_template as usize)
+                let Some(selected) = visuals.model_templates().get(selected_template as usize)
                 else {
                     continue;
                 };
-                if template.quad_count == 0 {
-                    continue;
-                }
-                let quad_start = template.quad_start as usize;
-                let Some(template_quads) = visuals
-                    .model_quads()
-                    .get(quad_start..quad_start.saturating_add(template.quad_count as usize))
-                else {
-                    continue;
-                };
-                let mut visible_quad_mask = if template.flags & MODEL_TEMPLATE_FLAG_KELP != 0 {
-                    let above = if y + 1 < SIDE {
-                        Some(facts.at(x, y + 1, z))
-                    } else {
-                        neighbourhood.sub_chunk([0, 1, 0]).map(|sub_chunk| {
-                            neighbour_facts[Face::PositiveY.index()]
-                                .get_or_init(|| {
-                                    PaletteFacts::new(
-                                        *classifier,
-                                        visuals,
-                                        network_id_mode,
-                                        sub_chunk,
-                                    )
-                                })
-                                .at(x, 0, z)
-                        })
-                    };
-                    if above.is_some_and(|entry| is_kelp_entry(visuals, entry)) {
-                        0b00_1111
-                    } else {
-                        0b11_0000
-                    }
+                let part_count = if selected.flags & MODEL_TEMPLATE_FLAG_COMPOUND_NEXT != 0 {
+                    2
                 } else {
-                    match template.quad_count {
-                        0 => 0,
-                        32 => u32::MAX,
-                        count => (1_u32 << count) - 1,
-                    }
+                    1
                 };
-                for (quad_index, quad) in template_quads.iter().enumerate() {
-                    let bit = 1_u32 << quad_index;
-                    if visible_quad_mask & bit == 0 {
-                        continue;
-                    }
-                    let Some(cull_face) = model_quad_cull_face(quad.flags, entry.variant & 3)
+                for part in 0..part_count {
+                    let part_template = selected_template + part;
+                    let Some(template) = visuals.model_templates().get(part_template as usize)
                     else {
                         continue;
                     };
-                    let neighbour = adjacent_palette_entry(
-                        palette_context,
-                        &facts,
-                        &neighbour_facts,
-                        [x, y, z],
-                        cull_face,
-                    );
-                    if neighbour.flags.contains(BlockFlags::OCCLUDES_FULL_FACE) {
-                        visible_quad_mask &= !bit;
+                    if template.quad_count == 0 {
+                        continue;
                     }
-                }
-                if visible_quad_mask == 0 {
-                    continue;
-                }
-                let Ok(lighting_base_index) = u32::try_from(model_lighting.len()) else {
-                    continue;
-                };
-                let Some(lighting) = crate::lighting::bake_template_lighting(
-                    classifier,
-                    visuals,
-                    network_id_mode,
-                    neighbourhood,
-                    [x as i32, y as i32, z as i32],
-                    selected_template,
-                    entry.variant & 3,
-                ) else {
-                    continue;
-                };
-                let Ok(model_ref_index) = u32::try_from(model_refs.len()) else {
-                    continue;
-                };
-                model_refs.push(PackedModelRef::new(
-                    pack_model_transform(
-                        [x as u8, y as u8, z as u8],
-                        if entry.kind == VisualKind::Cross {
-                            0
+                    let quad_start = template.quad_start as usize;
+                    let Some(template_quads) = visuals
+                        .model_quads()
+                        .get(quad_start..quad_start.saturating_add(template.quad_count as usize))
+                    else {
+                        continue;
+                    };
+                    let mut visible_quad_mask = if template.flags & MODEL_TEMPLATE_FLAG_KELP != 0 {
+                        let above = if y + 1 < SIDE {
+                            Some(facts.at(x, y + 1, z))
                         } else {
-                            entry.variant
-                        },
-                    ),
-                    selected_template,
-                    lighting_base_index,
-                    visible_quad_mask,
-                ));
-                model_lighting.extend(lighting);
-                let mut remaining = visible_quad_mask;
-                while remaining != 0 {
-                    let quad_index = remaining.trailing_zeros();
-                    model_draw_refs.push(PackedModelDrawRef::new(model_ref_index, quad_index));
-                    remaining &= remaining - 1;
+                            neighbourhood.sub_chunk([0, 1, 0]).map(|sub_chunk| {
+                                neighbour_facts[Face::PositiveY.index()]
+                                    .get_or_init(|| {
+                                        PaletteFacts::new(
+                                            *classifier,
+                                            visuals,
+                                            network_id_mode,
+                                            sub_chunk,
+                                        )
+                                    })
+                                    .at(x, 0, z)
+                            })
+                        };
+                        if above.is_some_and(|entry| is_kelp_entry(visuals, entry)) {
+                            0b00_1111
+                        } else {
+                            0b11_0000
+                        }
+                    } else {
+                        match template.quad_count {
+                            0 => 0,
+                            32 => u32::MAX,
+                            count => (1_u32 << count) - 1,
+                        }
+                    };
+                    for (quad_index, quad) in template_quads.iter().enumerate() {
+                        let bit = 1_u32 << quad_index;
+                        if visible_quad_mask & bit == 0 {
+                            continue;
+                        }
+                        let Some(cull_face) = model_quad_cull_face(quad.flags, entry.variant & 3)
+                        else {
+                            continue;
+                        };
+                        let neighbour = adjacent_palette_entry(
+                            palette_context,
+                            &facts,
+                            &neighbour_facts,
+                            [x, y, z],
+                            cull_face,
+                        );
+                        if neighbour.flags.contains(BlockFlags::OCCLUDES_FULL_FACE) {
+                            visible_quad_mask &= !bit;
+                        }
+                    }
+                    if visible_quad_mask == 0 {
+                        continue;
+                    }
+                    let Ok(lighting_base_index) = u32::try_from(model_lighting.len()) else {
+                        continue;
+                    };
+                    let Some(lighting) = crate::lighting::bake_template_lighting(
+                        classifier,
+                        visuals,
+                        network_id_mode,
+                        neighbourhood,
+                        [x as i32, y as i32, z as i32],
+                        part_template,
+                        entry.variant & 3,
+                    ) else {
+                        continue;
+                    };
+                    let Ok(model_ref_index) = u32::try_from(model_refs.len()) else {
+                        continue;
+                    };
+                    model_refs.push(PackedModelRef::new(
+                        pack_model_transform(
+                            [x as u8, y as u8, z as u8],
+                            if entry.kind == VisualKind::Cross {
+                                0
+                            } else {
+                                entry.variant
+                            },
+                        ),
+                        part_template,
+                        lighting_base_index,
+                        visible_quad_mask,
+                    ));
+                    model_lighting.extend(lighting);
+                    let mut remaining = visible_quad_mask;
+                    while remaining != 0 {
+                        let quad_index = remaining.trailing_zeros();
+                        model_draw_refs.push(PackedModelDrawRef::new(model_ref_index, quad_index));
+                        remaining &= remaining - 1;
+                    }
                 }
             }
         }

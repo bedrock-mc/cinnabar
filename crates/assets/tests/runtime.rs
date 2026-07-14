@@ -173,6 +173,39 @@ fn rich_blob() -> Vec<u8> {
     encode_blob(&compiled).unwrap().into_vec()
 }
 
+fn compound_blob() -> Vec<u8> {
+    let mut compiled = compiled_assets();
+    compiled.visuals[1].flags = BlockFlags::empty();
+    compiled.visuals[1].kind = VisualKind::Model;
+    compiled.visuals[1].model_template = 0;
+    compiled.model_templates = vec![
+        ModelTemplate {
+            quad_start: 0,
+            quad_count: 24,
+            flags: assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
+        },
+        ModelTemplate {
+            quad_start: 24,
+            quad_count: 16,
+            flags: 0,
+        },
+    ]
+    .into_boxed_slice();
+    compiled.model_quads = vec![
+        ModelQuad {
+            positions: [[0; 3]; 4],
+            uvs: [[0; 2]; 4],
+            material: 1,
+            flags: 0,
+        };
+        40
+    ]
+    .into_boxed_slice();
+    encode_blob(&compiled)
+        .expect("encode canonical compound pair")
+        .into_vec()
+}
+
 #[test]
 fn runtime_decodes_checked_contributor_role_with_new_tables() {
     let runtime = RuntimeAssets::decode(&rich_blob()).expect("decode rich MCBEAS04 fixture");
@@ -543,6 +576,40 @@ fn decode_rejects_malformed_stair_template_groups() {
     write_u32(&mut blob, templates + 4 * 12 + 8, 0);
     reseal(&mut blob);
     assert_rejected(&blob, "malformed stair group at runtime boundary");
+}
+
+#[test]
+fn decode_rejects_malformed_compound_template_pairs_and_tail_references() {
+    let canonical = compound_blob();
+    RuntimeAssets::decode(&canonical).expect("decode canonical compound pair");
+    let templates = read_u64(&canonical, 120) as usize;
+    let visuals = read_u64(&canonical, 96) as usize;
+
+    let mut combined_head = canonical.clone();
+    write_u32(
+        &mut combined_head,
+        templates + 8,
+        assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | assets::MODEL_TEMPLATE_FLAG_KELP,
+    );
+    reseal(&mut combined_head);
+    assert_rejected(&combined_head, "compound head with incompatible flag");
+
+    let mut non_plain_tail = canonical.clone();
+    write_u32(
+        &mut non_plain_tail,
+        templates + 12 + 8,
+        assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
+    );
+    reseal(&mut non_plain_tail);
+    assert_rejected(
+        &non_plain_tail,
+        "compound continuation starting another pair",
+    );
+
+    let mut tail_referenced = canonical;
+    write_u32(&mut tail_referenced, visuals + 40 + 28, 1);
+    reseal(&mut tail_referenced);
+    assert_rejected(&tail_referenced, "direct compound continuation reference");
 }
 
 #[test]
