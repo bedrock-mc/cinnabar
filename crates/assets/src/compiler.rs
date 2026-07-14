@@ -9,9 +9,9 @@ use crate::{
     MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_FENCE_NETHER,
     MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
     MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE,
-    MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_WALL, ModelFamily, ModelQuad, ModelStateField,
-    ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, PackSources, RegistryRecord, TextureKey,
-    TexturePage, TextureRef, VisualKind,
+    MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, MODEL_TEMPLATE_FLAG_WALL,
+    ModelFamily, ModelQuad, ModelStateField, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE,
+    PackSources, RegistryRecord, TextureKey, TexturePage, TextureRef, VisualKind,
     animation::{
         AnimationLimits, AnimationPlan, DecodedImage, compile_animation_plan,
         compile_animation_plan_selected,
@@ -378,7 +378,9 @@ fn descriptor_for(
     } else {
         0
     };
-    if is_pane(record) {
+    if is_stained_glass_cube(record) {
+        flags |= MATERIAL_FLAG_ALPHA_BLEND;
+    } else if is_pane(record) {
         flags |= if record.name.contains("stained_glass_pane") {
             MATERIAL_FLAG_ALPHA_BLEND
         } else {
@@ -586,6 +588,38 @@ const fn is_pane(record: &RegistryRecord) -> bool {
         && matches!(record.contributor_role, ContributorRole::Primary)
 }
 
+const ORDINARY_STAINED_GLASS_NAMES: [&str; 16] = [
+    "minecraft:black_stained_glass",
+    "minecraft:blue_stained_glass",
+    "minecraft:brown_stained_glass",
+    "minecraft:cyan_stained_glass",
+    "minecraft:gray_stained_glass",
+    "minecraft:green_stained_glass",
+    "minecraft:light_blue_stained_glass",
+    "minecraft:light_gray_stained_glass",
+    "minecraft:lime_stained_glass",
+    "minecraft:magenta_stained_glass",
+    "minecraft:orange_stained_glass",
+    "minecraft:pink_stained_glass",
+    "minecraft:purple_stained_glass",
+    "minecraft:red_stained_glass",
+    "minecraft:white_stained_glass",
+    "minecraft:yellow_stained_glass",
+];
+
+fn is_stained_glass_cube(record: &RegistryRecord) -> bool {
+    record.canonical_state.as_ref() == "{}"
+        && record.model_family == ModelFamily::Cube
+        && record.contributor_role == ContributorRole::Primary
+        && ORDINARY_STAINED_GLASS_NAMES
+            .binary_search(&record.name.as_ref())
+            .is_ok()
+}
+
+fn is_ordinary_stained_glass_name(name: &str) -> bool {
+    ORDINARY_STAINED_GLASS_NAMES.binary_search(&name).is_ok()
+}
+
 const fn is_fence(record: &RegistryRecord) -> bool {
     matches!(record.model_family, ModelFamily::Fence)
         && matches!(record.contributor_role, ContributorRole::Primary)
@@ -612,7 +646,8 @@ fn is_cutout_model_visual(record: &RegistryRecord) -> bool {
 }
 
 fn is_model_visual(record: &RegistryRecord) -> bool {
-    is_cutout_model_visual(record)
+    is_stained_glass_cube(record)
+        || is_cutout_model_visual(record)
         || is_slab(record)
         || is_stair(record)
         || is_wall(record)
@@ -1149,6 +1184,7 @@ fn compile_visuals(
     let mut model_quads = Vec::new();
     let mut template_by_material = BTreeMap::<[u32; 2], u32>::new();
     let mut kelp_template_by_material = BTreeMap::<[u32; 6], u32>::new();
+    let mut transparent_cube_template_by_material = BTreeMap::<[u32; 6], u32>::new();
     let mut flowerbed_template_by_key = BTreeMap::<[u32; 4], u32>::new();
     let mut slab_template_by_key = BTreeMap::<[u32; 7], u32>::new();
     let mut stair_template_by_key = BTreeMap::<[u32; 7], u32>::new();
@@ -1167,7 +1203,48 @@ fn compile_visuals(
     ordered_records.sort_unstable_by_key(|record| record.sequential_id);
     for record in ordered_records {
         let mut visual = BlockVisual::diagnostic(record.flags, record.contributor_role);
-        if is_supported_liquid(record) {
+        if is_ordinary_stained_glass_name(&record.name) && !is_stained_glass_cube(record) {
+            // Exact names fail closed when any admission fact disagrees.
+        } else if is_stained_glass_cube(record) {
+            let materials = BlockFace::ALL.map(|face| {
+                descriptor_for(pack, record, face)
+                    .and_then(|(descriptor, _)| material_by_descriptor.get(&descriptor).copied())
+            });
+            if let [
+                Some(west),
+                Some(east),
+                Some(down),
+                Some(up),
+                Some(north),
+                Some(south),
+            ] = materials
+            {
+                let materials = [west, east, down, up, north, south];
+                let template = if let Some(&template) =
+                    transparent_cube_template_by_material.get(&materials)
+                {
+                    template
+                } else {
+                    let template = push_model_template(
+                        cuboid_quads(materials, [0, 0, 0], [256, 256, 256]).to_vec(),
+                        MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
+                        &mut model_templates,
+                        &mut model_quads,
+                    )?;
+                    transparent_cube_template_by_material.insert(materials, template);
+                    template
+                };
+                visual.flags.remove(
+                    BlockFlags::AIR
+                        | BlockFlags::CUBE_GEOMETRY
+                        | BlockFlags::OCCLUDES_FULL_FACE
+                        | BlockFlags::LEAF_MODEL,
+                );
+                visual.faces = materials;
+                visual.kind = VisualKind::Model;
+                visual.model_template = template;
+            }
+        } else if is_supported_liquid(record) {
             let materials = BlockFace::ALL.map(|face| {
                 descriptor_for(pack, record, face)
                     .and_then(|(descriptor, _)| material_by_descriptor.get(&descriptor).copied())

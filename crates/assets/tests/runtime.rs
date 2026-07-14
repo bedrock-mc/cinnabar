@@ -173,6 +173,47 @@ fn rich_blob() -> Vec<u8> {
     encode_blob(&compiled).unwrap().into_vec()
 }
 
+fn transparent_cube_compiled() -> CompiledAssets {
+    let mut compiled = compiled_assets();
+    compiled.visuals[1].flags = BlockFlags::empty();
+    compiled.visuals[1].kind = VisualKind::Model;
+    compiled.visuals[1].model_template = 0;
+    compiled.visuals[1].faces = [1; 6];
+    compiled.materials[1].flags = assets::MATERIAL_FLAG_ALPHA_BLEND;
+    compiled.model_templates = vec![ModelTemplate {
+        quad_start: 0,
+        quad_count: 6,
+        flags: assets::MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
+    }]
+    .into_boxed_slice();
+    let positions = [
+        [[0, 0, 0], [0, 0, 256], [0, 256, 256], [0, 256, 0]],
+        [[256, 0, 0], [256, 256, 0], [256, 256, 256], [256, 0, 256]],
+        [[0, 0, 0], [256, 0, 0], [256, 0, 256], [0, 0, 256]],
+        [[0, 256, 0], [0, 256, 256], [256, 256, 256], [256, 256, 0]],
+        [[0, 0, 0], [0, 256, 0], [256, 256, 0], [256, 0, 0]],
+        [[0, 0, 256], [256, 0, 256], [256, 256, 256], [0, 256, 256]],
+    ];
+    compiled.model_quads = positions
+        .into_iter()
+        .enumerate()
+        .map(|(face, positions)| ModelQuad {
+            positions,
+            uvs: [[0, 4096], [4096, 4096], [4096, 0], [0, 0]],
+            material: 1,
+            flags: [3, 4, 1, 2, 5, 6][face],
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+    compiled
+}
+
+fn transparent_cube_blob() -> Vec<u8> {
+    encode_blob(&transparent_cube_compiled())
+        .expect("encode canonical transparent cube")
+        .into_vec()
+}
+
 fn compound_blob() -> Vec<u8> {
     let mut compiled = compiled_assets();
     compiled.visuals[1].flags = BlockFlags::empty();
@@ -533,6 +574,90 @@ fn decode_accepts_known_kelp_template_flag() {
         runtime.model_templates()[0].flags,
         assets::MODEL_TEMPLATE_FLAG_KELP
     );
+}
+
+#[test]
+fn decode_checks_and_round_trips_transparent_cube_template_semantics() {
+    let canonical = transparent_cube_blob();
+    let runtime = RuntimeAssets::decode(&canonical).expect("decode canonical transparent cube");
+    assert_eq!(
+        runtime.model_templates()[0].flags,
+        assets::MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE
+    );
+    assert_eq!(runtime.model_templates()[0].quad_count, 6);
+    assert!(runtime.model_quads().iter().all(|quad| {
+        quad.material != DIAGNOSTIC_MATERIAL
+            && runtime.material(quad.material).flags & assets::MATERIAL_FLAG_ALPHA_BLEND != 0
+    }));
+
+    let templates = read_u64(&canonical, 120) as usize;
+    let materials = read_u64(&canonical, MATERIALS_OFFSET_OFFSET) as usize;
+    let quads = read_u64(&canonical, 128) as usize;
+
+    let mut opaque = canonical.clone();
+    write_u32(&mut opaque, materials + 12 + 4, 0);
+    reseal(&mut opaque);
+    assert_rejected(&opaque, "opaque transparent-cube material");
+
+    let mut diagnostic = canonical.clone();
+    write_u32(&mut diagnostic, quads + 5 * 48 + 40, DIAGNOSTIC_MATERIAL);
+    reseal(&mut diagnostic);
+    assert_rejected(&diagnostic, "diagnostic transparent-cube material");
+
+    let mut malformed_geometry = canonical.clone();
+    malformed_geometry[quads..quads + 2].copy_from_slice(&1_i16.to_le_bytes());
+    reseal(&mut malformed_geometry);
+    assert_rejected(&malformed_geometry, "malformed transparent-cube geometry");
+
+    for incompatible in [
+        assets::MODEL_TEMPLATE_FLAG_KELP,
+        assets::MODEL_TEMPLATE_FLAG_STAIR,
+        assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
+        assets::MODEL_TEMPLATE_FLAG_PANE,
+        assets::MODEL_TEMPLATE_FLAG_FENCE_WOOD,
+        assets::MODEL_TEMPLATE_FLAG_FENCE_NETHER,
+        assets::MODEL_TEMPLATE_FLAG_WALL,
+        assets::MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
+        assets::MODEL_TEMPLATE_FLAG_GATE_AXIS_Z,
+    ] {
+        let mut combined = canonical.clone();
+        write_u32(
+            &mut combined,
+            templates + 8,
+            assets::MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE | incompatible,
+        );
+        reseal(&mut combined);
+        assert_rejected(
+            &combined,
+            &format!("transparent cube combined with {incompatible:#x}"),
+        );
+    }
+
+    let mut split = transparent_cube_compiled();
+    split.model_templates = vec![
+        ModelTemplate {
+            quad_start: 0,
+            quad_count: 5,
+            flags: 0,
+        },
+        ModelTemplate {
+            quad_start: 5,
+            quad_count: 1,
+            flags: 0,
+        },
+    ]
+    .into_boxed_slice();
+    let mut wrong_count = encode_blob(&split)
+        .expect("encode otherwise-valid split template fixture")
+        .into_vec();
+    let split_templates = read_u64(&wrong_count, 120) as usize;
+    write_u32(
+        &mut wrong_count,
+        split_templates + 8,
+        assets::MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
+    );
+    reseal(&mut wrong_count);
+    assert_rejected(&wrong_count, "five-quad transparent cube");
 }
 
 #[test]

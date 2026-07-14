@@ -15,10 +15,10 @@ use assets::{
     MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_UV_MASK, MATERIAL_FLAG_WATER_TINT, MATERIAL_FLAGS_MASK,
     MAX_TEXTURE_LAYERS, MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_QUAD_FLAG_FACE_MASK,
     MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD,
-    MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR, Material,
-    ModelFamily, ModelQuad, ModelState, ModelStateField, NetworkIdMode, RegistryProvenance,
-    RegistryRecord, RuntimeAssets, VisualKind, compile_pack, encode_blob, read_pack, read_registry,
-    resolve_texture_key,
+    MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR,
+    MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, Material, ModelFamily, ModelQuad, ModelState,
+    ModelStateField, NetworkIdMode, RegistryProvenance, RegistryRecord, RuntimeAssets, VisualKind,
+    compile_pack, encode_blob, read_pack, read_registry, resolve_texture_key,
 };
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 use sha2::{Digest, Sha256};
@@ -32,6 +32,25 @@ const HUGE_MUSHROOM_NAMES: [&str; 3] = [
     "minecraft:red_mushroom_block",
 ];
 
+const ORDINARY_STAINED_GLASS_NAMES: [&str; 16] = [
+    "minecraft:black_stained_glass",
+    "minecraft:blue_stained_glass",
+    "minecraft:brown_stained_glass",
+    "minecraft:cyan_stained_glass",
+    "minecraft:gray_stained_glass",
+    "minecraft:green_stained_glass",
+    "minecraft:light_blue_stained_glass",
+    "minecraft:light_gray_stained_glass",
+    "minecraft:lime_stained_glass",
+    "minecraft:magenta_stained_glass",
+    "minecraft:orange_stained_glass",
+    "minecraft:pink_stained_glass",
+    "minecraft:purple_stained_glass",
+    "minecraft:red_stained_glass",
+    "minecraft:white_stained_glass",
+    "minecraft:yellow_stained_glass",
+];
+
 fn generated_huge_mushroom_records() -> Vec<RegistryRecord> {
     let mut records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
         .expect("decode committed generated registry")
@@ -40,6 +59,35 @@ fn generated_huge_mushroom_records() -> Vec<RegistryRecord> {
         .collect::<Vec<_>>();
     records.sort_unstable_by_key(|record| record.sequential_id);
     records
+}
+
+fn generated_stained_glass_cube_records() -> Vec<RegistryRecord> {
+    read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+        .expect("decode committed generated registry")
+        .into_iter()
+        .filter(|record| {
+            ORDINARY_STAINED_GLASS_NAMES
+                .binary_search(&record.name.as_ref())
+                .is_ok()
+        })
+        .collect()
+}
+
+#[test]
+fn generated_registry_has_exact_stained_glass_cube_inventory() {
+    let ordinary_stained_glass = generated_stained_glass_cube_records();
+    assert_eq!(ordinary_stained_glass.len(), 16);
+    assert!(ordinary_stained_glass.iter().all(|record| {
+        record.canonical_state.as_ref() == "{}"
+            && record.model_family == ModelFamily::Cube
+            && record.contributor_role == ContributorRole::Primary
+    }));
+    let mut actual = ordinary_stained_glass
+        .iter()
+        .map(|record| record.name.as_ref())
+        .collect::<Vec<_>>();
+    actual.sort_unstable();
+    assert_eq!(actual, ORDINARY_STAINED_GLASS_NAMES);
 }
 
 #[test]
@@ -6744,7 +6792,7 @@ fn alpha_support_is_scoped_to_each_descriptor_when_a_texture_path_is_shared() {
     write_pack(
         directory.path(),
         r#"{
-            "red_stained_glass": {"textures": "shared_stained_glass"},
+            "arbitrary_tinted_cube": {"textures": "shared_stained_glass"},
             "red_stained_glass_pane": {"textures": "shared_stained_glass"}
         }"#,
         r#"{"texture_data": {
@@ -6765,7 +6813,7 @@ fn alpha_support_is_scoped_to_each_descriptor_when_a_texture_path_is_shared() {
         record(
             0,
             400,
-            "minecraft:red_stained_glass",
+            "minecraft:arbitrary_tinted_cube",
             "{}",
             BlockFlags::CUBE_GEOMETRY,
         ),
@@ -6794,6 +6842,219 @@ fn alpha_support_is_scoped_to_each_descriptor_when_a_texture_path_is_shared() {
                 != 0),
         "the stained pane must retain its per-descriptor blend material"
     );
+}
+
+#[test]
+fn compiler_emits_exact_checked_stained_glass_cube_models() {
+    let directory = tempfile::tempdir().expect("create stained-glass cube fixture");
+    let mut blocks = serde_json::Map::new();
+    let mut terrain = serde_json::Map::new();
+    let mut expected_pixels = Vec::new();
+    for (name_index, name) in ORDINARY_STAINED_GLASS_NAMES.iter().enumerate() {
+        let short_name = name.strip_prefix("minecraft:").unwrap();
+        let mut textures = serde_json::Map::new();
+        let mut face_pixels = [[0; 4]; 6];
+        for (face_index, face_name) in ["west", "east", "down", "up", "north", "south"]
+            .into_iter()
+            .enumerate()
+        {
+            let key = format!("glass_{name_index}_{face_index}");
+            let path = format!("textures/blocks/{key}");
+            let pixel = [
+                8 + name_index as u8 * 7,
+                16 + face_index as u8 * 13,
+                200 - name_index as u8 * 5,
+                32 + face_index as u8 * 31,
+            ];
+            textures.insert(face_name.into(), key.clone().into());
+            terrain.insert(key, serde_json::json!({ "textures": path }));
+            write_png(
+                directory.path(),
+                &path,
+                TILE_SIZE,
+                TILE_SIZE,
+                &solid(TILE_SIZE, TILE_SIZE, pixel),
+            );
+            face_pixels[face_index] = pixel;
+        }
+        blocks.insert(
+            short_name.into(),
+            serde_json::json!({ "textures": textures }),
+        );
+        expected_pixels.push(face_pixels);
+    }
+    write_pack(
+        directory.path(),
+        &serde_json::Value::Object(blocks).to_string(),
+        &serde_json::json!({ "texture_data": terrain }).to_string(),
+        "[]",
+    );
+
+    let mut records = ORDINARY_STAINED_GLASS_NAMES
+        .iter()
+        .enumerate()
+        .map(|(id, name)| {
+            model_record(id as u32, 90_000 + id as u32, name, "{}", ModelFamily::Cube)
+        })
+        .collect::<Vec<_>>();
+    let mut extra_state = model_record(
+        records.len() as u32,
+        90_100,
+        "minecraft:red_stained_glass",
+        r#"{"extra":{"type":"byte","value":0}}"#,
+        ModelFamily::Cube,
+    );
+    extra_state.flags = BlockFlags::CUBE_GEOMETRY;
+    records.push(extra_state);
+    records.push(model_record(
+        records.len() as u32,
+        90_101,
+        "minecraft:red_stained_glass",
+        "{}",
+        ModelFamily::Pane,
+    ));
+    let mut wrong_role = model_record(
+        records.len() as u32,
+        90_102,
+        "minecraft:red_stained_glass",
+        "{}",
+        ModelFamily::Cube,
+    );
+    wrong_role.contributor_role = ContributorRole::LiquidAdditional;
+    records.push(wrong_role);
+    for name in [
+        "minecraft:hard_red_stained_glass",
+        "minecraft:copper_grate",
+        "minecraft:slime",
+        "minecraft:invisible_bedrock",
+    ] {
+        records.push(model_record(
+            records.len() as u32,
+            90_000 + records.len() as u32,
+            name,
+            "{}",
+            ModelFamily::Cube,
+        ));
+    }
+
+    let compiled = compile_pack(directory.path(), &records).expect("compile stained-glass cubes");
+    for (id, expected) in expected_pixels.iter().enumerate() {
+        let visual = compiled.visuals[id];
+        assert_eq!(visual.kind, VisualKind::Model, "{}", records[id].name);
+        assert_eq!(visual.contributor_role, ContributorRole::Primary);
+        assert!(!visual.flags.intersects(
+            BlockFlags::AIR
+                | BlockFlags::CUBE_GEOMETRY
+                | BlockFlags::OCCLUDES_FULL_FACE
+                | BlockFlags::LEAF_MODEL
+        ));
+        let template = compiled.model_templates[visual.model_template as usize];
+        assert_eq!(template.flags, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE);
+        assert_eq!(template.quad_count, 6);
+        let quads = template_quads(&compiled, visual.model_template);
+        assert_eq!(model_bounds(quads), ([0, 0, 0], [256, 256, 256]));
+        for (face_index, quad) in quads.iter().enumerate() {
+            assert_eq!(quad.material, visual.faces[face_index]);
+            assert_eq!(quad.flags, [3, 4, 1, 2, 5, 6][face_index]);
+            let material = compiled.materials[quad.material as usize];
+            assert_eq!(material.flags, MATERIAL_FLAG_ALPHA_BLEND);
+            assert_eq!(
+                mip_pixel(&compiled, 0, material.texture.layer(), 0, 0),
+                expected[face_index]
+            );
+        }
+    }
+    assert!(
+        compiled.visuals[ORDINARY_STAINED_GLASS_NAMES.len()..]
+            .iter()
+            .all(|visual| visual.kind == VisualKind::Diagnostic
+                && visual.faces == [DIAGNOSTIC_MATERIAL; 6])
+    );
+
+    let baseline = encode_blob(&compiled).expect("encode stained-glass cubes");
+    records.reverse();
+    let reversed = compile_pack(directory.path(), &records).expect("compile reversed records");
+    assert_eq!(encode_blob(&reversed).unwrap(), baseline);
+}
+
+#[test]
+fn compiler_real_pinned_pack_admits_only_exact_stained_glass_cube_records() {
+    let Some(pack) = std::env::var_os("PINNED_VANILLA_PACK") else {
+        return;
+    };
+    let all = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+        .expect("decode committed generated registry");
+    let ordinary_stained_glass = all
+        .iter()
+        .filter(|record| {
+            ORDINARY_STAINED_GLASS_NAMES
+                .binary_search(&record.name.as_ref())
+                .is_ok()
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    assert_eq!(ordinary_stained_glass.len(), 16);
+    assert!(ordinary_stained_glass.iter().all(|record| {
+        record.canonical_state.as_ref() == "{}"
+            && record.model_family == ModelFamily::Cube
+            && record.contributor_role == ContributorRole::Primary
+    }));
+    let excluded = all
+        .iter()
+        .filter(|record| {
+            record.name.starts_with("minecraft:hard_") && record.name.ends_with("_stained_glass")
+                || record.name.contains("copper_grate")
+                || record.name.as_ref() == "minecraft:slime"
+                || record.name.as_ref() == "minecraft:invisible_bedrock"
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    assert!(
+        excluded
+            .iter()
+            .any(|record| record.name.contains("copper_grate"))
+    );
+    assert!(
+        excluded
+            .iter()
+            .any(|record| record.name.as_ref() == "minecraft:slime")
+    );
+    assert!(
+        excluded
+            .iter()
+            .any(|record| record.name.as_ref() == "minecraft:invisible_bedrock")
+    );
+
+    let ordinary_count = ordinary_stained_glass.len();
+    let mut records = ordinary_stained_glass
+        .into_iter()
+        .chain(excluded)
+        .collect::<Vec<_>>();
+    for (id, record) in records.iter_mut().enumerate() {
+        record.sequential_id = id as u32;
+        record.network_hash = 91_000 + id as u32;
+    }
+    let compiled = compile_pack(Path::new(&pack), &records).expect("compile pinned stained glass");
+    for (id, visual) in compiled.visuals.iter().enumerate() {
+        if id < ordinary_count {
+            assert_eq!(visual.kind, VisualKind::Model, "{}", records[id].name);
+            assert_eq!(
+                compiled.model_templates[visual.model_template as usize].flags,
+                MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE
+            );
+            assert!(visual.faces.iter().all(|&material| {
+                material != DIAGNOSTIC_MATERIAL
+                    && compiled.materials[material as usize].flags == MATERIAL_FLAG_ALPHA_BLEND
+            }));
+        } else {
+            assert_eq!(visual.kind, VisualKind::Diagnostic, "{}", records[id].name);
+        }
+    }
+    let baseline = encode_blob(&compiled).expect("encode pinned stained glass");
+    records.reverse();
+    let reversed =
+        compile_pack(Path::new(&pack), &records).expect("compile reversed pinned records");
+    assert_eq!(encode_blob(&reversed).unwrap(), baseline);
 }
 
 #[test]

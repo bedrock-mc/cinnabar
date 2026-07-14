@@ -492,6 +492,98 @@ fn valid_assets() -> CompiledAssets {
     }
 }
 
+fn transparent_cube_assets() -> CompiledAssets {
+    let mut compiled = valid_assets();
+    compiled.visuals[0].flags = BlockFlags::empty();
+    compiled.visuals[0].kind = VisualKind::Model;
+    compiled.visuals[0].model_template = 0;
+    compiled.visuals[0].faces = [1; 6];
+    compiled.materials = vec![
+        Material {
+            texture: TextureRef::DIAGNOSTIC,
+            flags: 0,
+            animation: NO_ANIMATION,
+        },
+        Material {
+            texture: TextureRef::new(0, 0).unwrap(),
+            flags: assets::MATERIAL_FLAG_ALPHA_BLEND,
+            animation: NO_ANIMATION,
+        },
+    ]
+    .into_boxed_slice();
+    compiled.model_templates = vec![assets::ModelTemplate {
+        quad_start: 0,
+        quad_count: 6,
+        flags: assets::MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
+    }]
+    .into_boxed_slice();
+    let positions = [
+        [[0, 0, 0], [0, 0, 256], [0, 256, 256], [0, 256, 0]],
+        [[256, 0, 0], [256, 256, 0], [256, 256, 256], [256, 0, 256]],
+        [[0, 0, 0], [256, 0, 0], [256, 0, 256], [0, 0, 256]],
+        [[0, 256, 0], [0, 256, 256], [256, 256, 256], [256, 256, 0]],
+        [[0, 0, 0], [0, 256, 0], [256, 256, 0], [256, 0, 0]],
+        [[0, 0, 256], [256, 0, 256], [256, 256, 256], [0, 256, 256]],
+    ];
+    compiled.model_quads = positions
+        .into_iter()
+        .enumerate()
+        .map(|(face, positions)| assets::ModelQuad {
+            positions,
+            uvs: [[0, 4096], [4096, 4096], [4096, 0], [0, 0]],
+            material: 1,
+            flags: [3, 4, 1, 2, 5, 6][face],
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+    compiled
+}
+
+#[test]
+fn mcbeas04_checks_and_round_trips_transparent_cube_template_semantics() {
+    let compiled = transparent_cube_assets();
+    let bytes = encode_blob(&compiled).expect("encode canonical transparent cube");
+    let runtime = assets::RuntimeAssets::decode(&bytes).expect("decode canonical transparent cube");
+    assert_eq!(runtime.model_templates(), compiled.model_templates.as_ref());
+    assert_eq!(runtime.model_quads(), compiled.model_quads.as_ref());
+
+    let mut wrong_count = transparent_cube_assets();
+    wrong_count.model_templates[0].quad_count = 5;
+    wrong_count.model_quads = wrong_count.model_quads[..5].into();
+    assert!(encode_blob(&wrong_count).is_err());
+
+    let mut opaque = transparent_cube_assets();
+    opaque.materials[1].flags = 0;
+    assert!(encode_blob(&opaque).is_err());
+
+    let mut diagnostic = transparent_cube_assets();
+    diagnostic.model_quads[5].material = 0;
+    assert!(encode_blob(&diagnostic).is_err());
+
+    let mut malformed_geometry = transparent_cube_assets();
+    malformed_geometry.model_quads[0].positions[0][0] = 1;
+    assert!(encode_blob(&malformed_geometry).is_err());
+
+    for incompatible in [
+        assets::MODEL_TEMPLATE_FLAG_KELP,
+        assets::MODEL_TEMPLATE_FLAG_STAIR,
+        assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
+        assets::MODEL_TEMPLATE_FLAG_PANE,
+        assets::MODEL_TEMPLATE_FLAG_FENCE_WOOD,
+        assets::MODEL_TEMPLATE_FLAG_FENCE_NETHER,
+        assets::MODEL_TEMPLATE_FLAG_WALL,
+        assets::MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
+        assets::MODEL_TEMPLATE_FLAG_GATE_AXIS_Z,
+    ] {
+        let mut combined = transparent_cube_assets();
+        combined.model_templates[0].flags |= incompatible;
+        assert!(
+            encode_blob(&combined).is_err(),
+            "accepted transparent-cube flag combined with {incompatible:#x}"
+        );
+    }
+}
+
 fn full_face_model_assets(quad_count: u32) -> CompiledAssets {
     let mut compiled = valid_assets();
     compiled.visuals[0].flags = BlockFlags::OCCLUDES_FULL_FACE;

@@ -27,6 +27,26 @@ pub const MODEL_TEMPLATE_FLAG_WALL: u32 = 1 << 6;
 pub const MODEL_TEMPLATE_FLAG_GATE_AXIS_X: u32 = 1 << 7;
 /// Compound fence gate whose facing direction lies on the Z axis.
 pub const MODEL_TEMPLATE_FLAG_GATE_AXIS_Z: u32 = 1 << 8;
+/// Standalone six-quad unit cube whose materials use alpha blending.
+pub const MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE: u32 = 1 << 9;
+
+pub(crate) fn transparent_cube_quad_geometry_is_valid(
+    index: usize,
+    positions: [[i16; 3]; 4],
+    flags: u32,
+) -> bool {
+    const POSITIONS: [[[i16; 3]; 4]; 6] = [
+        [[0, 0, 0], [0, 0, 256], [0, 256, 256], [0, 256, 0]],
+        [[256, 0, 0], [256, 256, 0], [256, 256, 256], [256, 0, 256]],
+        [[0, 0, 0], [256, 0, 0], [256, 0, 256], [0, 0, 256]],
+        [[0, 256, 0], [0, 256, 256], [256, 256, 256], [256, 256, 0]],
+        [[0, 0, 0], [0, 256, 0], [256, 256, 0], [256, 0, 0]],
+        [[0, 0, 256], [256, 0, 256], [256, 256, 256], [0, 256, 256]],
+    ];
+    const FLAGS: [u32; 6] = [3, 4, 1, 2, 5, 6];
+    POSITIONS.get(index) == Some(&positions) && FLAGS.get(index) == Some(&flags)
+}
+
 pub(crate) const fn model_template_flags_are_valid(flags: u32) -> bool {
     matches!(
         flags,
@@ -37,6 +57,7 @@ pub(crate) const fn model_template_flags_are_valid(flags: u32) -> bool {
             | MODEL_TEMPLATE_FLAG_FENCE_NETHER
             | MODEL_TEMPLATE_FLAG_WALL
             | MODEL_TEMPLATE_FLAG_COMPOUND_NEXT
+            | MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE
     ) || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_X
         || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z
 }

@@ -6,15 +6,18 @@ use std::{
 
 use sha2::{Digest, Sha256};
 
-use crate::model::{MODEL_QUAD_FLAG_TWO_SIDED, model_template_flags_are_valid};
+use crate::model::{
+    MODEL_QUAD_FLAG_TWO_SIDED, model_template_flags_are_valid,
+    transparent_cube_quad_geometry_is_valid,
+};
 use crate::{
-    AssetError, BlockFlags, CompiledAssets, DIAGNOSTIC_MATERIAL, MAX_ANIMATION_FRAMES,
-    MAX_ANIMATIONS, MAX_MATERIALS, MAX_MODEL_QUADS, MAX_MODEL_TEMPLATES, MAX_TEXTURE_LAYERS,
-    MAX_TEXTURE_PAGES, MIP_COUNT, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
+    AssetError, BlockFlags, CompiledAssets, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND,
+    MAX_ANIMATION_FRAMES, MAX_ANIMATIONS, MAX_MATERIALS, MAX_MODEL_QUADS, MAX_MODEL_TEMPLATES,
+    MAX_TEXTURE_LAYERS, MAX_TEXTURE_PAGES, MIP_COUNT, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
     MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD,
     MODEL_TEMPLATE_FLAG_GATE_AXIS_X, MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP,
-    MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR, NO_ANIMATION, NO_MODEL_TEMPLATE,
-    TILE_SIZE, TextureRef, VisualKind,
+    MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
+    NO_ANIMATION, NO_MODEL_TEMPLATE, TILE_SIZE, TextureRef, VisualKind,
     biome::{TINT_MAP_BYTES, TINT_MAP_COUNT, TINT_MAP_SIZE, validate_biome_assets},
     compiler::{material_flags_are_valid, visual_semantics_are_valid},
     model::{ANIMATION_FLAGS_MASK, model_quad_flags_are_valid},
@@ -404,6 +407,7 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
             || template.quad_start as usize != expected_quad
             || template.quad_count > 32
             || (template.flags & MODEL_TEMPLATE_FLAG_KELP != 0 && template.quad_count != 6)
+            || (template.flags == MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE && template.quad_count != 6)
         {
             return Err(invalid("model template spans are not canonical"));
         }
@@ -437,6 +441,27 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
             || !model_quad_flags_are_valid(quad.flags)
         {
             return Err(invalid("model quad has invalid material or flags"));
+        }
+    }
+    for template in &compiled.model_templates {
+        if template.flags != MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE {
+            continue;
+        }
+        let start = template.quad_start as usize;
+        let end = start + template.quad_count as usize;
+        if compiled.model_quads[start..end]
+            .iter()
+            .enumerate()
+            .any(|(index, quad)| {
+                !transparent_cube_quad_geometry_is_valid(index, quad.positions, quad.flags)
+                    || quad.material == DIAGNOSTIC_MATERIAL
+                    || compiled.materials[quad.material as usize].flags & MATERIAL_FLAG_ALPHA_BLEND
+                        == 0
+            })
+        {
+            return Err(invalid(
+                "transparent-cube template geometry and materials are noncanonical",
+            ));
         }
     }
     let mut expected_frame = 0usize;

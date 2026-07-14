@@ -2,18 +2,22 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use sha2::{Digest, Sha256};
 
-use crate::model::{MODEL_QUAD_FLAG_TWO_SIDED, model_template_flags_are_valid};
+use crate::model::{
+    MODEL_QUAD_FLAG_TWO_SIDED, model_template_flags_are_valid,
+    transparent_cube_quad_geometry_is_valid,
+};
 use crate::{
     ANIMATION_FLAG_BLEND, Animation, AssetError, BLOB_MAGIC, BLOB_VERSION, BiomeRule, BlockFace,
     BlockFlags, BlockVisual, CompiledBiomeAssets, ContributorRole, DIAGNOSTIC_MATERIAL,
-    MAX_ANIMATION_FRAMES, MAX_ANIMATIONS, MAX_BIOME_NAME_BYTES, MAX_BIOME_NAMES_BYTES,
-    MAX_BIOME_RULES, MAX_MATERIALS, MAX_MODEL_QUADS, MAX_MODEL_TEMPLATES, MAX_TEXTURE_LAYERS,
-    MAX_TEXTURE_PAGES, MIP_COUNT, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
+    MATERIAL_FLAG_ALPHA_BLEND, MAX_ANIMATION_FRAMES, MAX_ANIMATIONS, MAX_BIOME_NAME_BYTES,
+    MAX_BIOME_NAMES_BYTES, MAX_BIOME_RULES, MAX_MATERIALS, MAX_MODEL_QUADS, MAX_MODEL_TEMPLATES,
+    MAX_TEXTURE_LAYERS, MAX_TEXTURE_PAGES, MIP_COUNT, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
     MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD,
     MODEL_TEMPLATE_FLAG_GATE_AXIS_X, MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP,
-    MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR, Material, ModelQuad, ModelTemplate,
-    NO_ANIMATION, NO_MODEL_TEMPLATE, TILE_SIZE, TINT_MAP_BYTES, TINT_MAP_COUNT, TINT_MAP_SIZE,
-    TextureArray, TextureMip, TexturePage, TextureRef, TintSource, VisualKind,
+    MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
+    Material, ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, TILE_SIZE, TINT_MAP_BYTES,
+    TINT_MAP_COUNT, TINT_MAP_SIZE, TextureArray, TextureMip, TexturePage, TextureRef, TintSource,
+    VisualKind,
     biome::{BIOME_RULE_FLAGS_MASK, validate_biome_assets},
     blob::{
         ANIMATION_BYTES, BIOME_RULE_BYTES, FRAME_BYTES, HASH_BYTES, HASH_ENTRY_BYTES, HEADER_BYTES,
@@ -600,6 +604,7 @@ fn validate_fixed(
             || u32_at(record, 4) > 32
             || !model_template_flags_are_valid(u32_at(record, 8))
             || (u32_at(record, 8) & MODEL_TEMPLATE_FLAG_KELP != 0 && u32_at(record, 4) != 6)
+            || (u32_at(record, 8) == MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE && u32_at(record, 4) != 6)
         {
             return Err(invalid("template spans are noncanonical"));
         }
@@ -628,6 +633,41 @@ fn validate_fixed(
             || !model_quad_flags_are_valid(u32_at(record, 44))
         {
             return Err(invalid("model quad is invalid"));
+        }
+    }
+    for template in sections[3].chunks_exact(TEMPLATE_BYTES) {
+        if u32_at(template, 8) != MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE {
+            continue;
+        }
+        let start = u32_at(template, 0) as usize;
+        let quad_count = u32_at(template, 4) as usize;
+        let malformed = sections[4]
+            .chunks_exact(QUAD_BYTES)
+            .skip(start)
+            .take(quad_count)
+            .enumerate()
+            .any(|(index, quad)| {
+                let mut positions = [[0; 3]; 4];
+                for (vertex, position) in positions.iter_mut().flatten().enumerate() {
+                    *position = i16::from_le_bytes(
+                        quad[vertex * 2..vertex * 2 + 2]
+                            .try_into()
+                            .expect("fixed model quad position"),
+                    );
+                }
+                let material = u32_at(quad, 40) as usize;
+                !transparent_cube_quad_geometry_is_valid(index, positions, u32_at(quad, 44))
+                    || material == DIAGNOSTIC_MATERIAL as usize
+                    || u32_at(
+                        &sections[2][material * MATERIAL_BYTES..(material + 1) * MATERIAL_BYTES],
+                        4,
+                    ) & MATERIAL_FLAG_ALPHA_BLEND
+                        == 0
+            });
+        if malformed {
+            return Err(invalid(
+                "transparent-cube template geometry and materials are noncanonical",
+            ));
         }
     }
     let mut frame = 0usize;
