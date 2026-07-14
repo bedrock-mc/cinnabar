@@ -1021,6 +1021,16 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     with exact byte accounting. The combined app/render suites and strict
     Clippy are green. GPU arena/shader consumption, mixed-block visual
     acceptance, and live teleport full-view remesh acceptance remain open.
+  - [x] Consume cube, model, and liquid light sidecars in the GPU world shaders
+    without adding a buffer, bind group, or per-subchunk render resource. Commit
+    `fe1a2ea` appends cube sidecars to the existing binding-13 arena, expands the
+    per-draw origin ABI to carry exact cube/light bases, validates aligned and
+    disjoint direct/MDI addressing, and converts discrete block/sky/AO samples
+    at the vertex before smooth interpolation. Daylight affects only sky light;
+    alpha and fog ordering remain intact. Full render and app suites, strict
+    combined Clippy, WGSL semantic/Metal-stage checks, formatting, and diff
+    checks are green. Live mixed-block GPU parity and teleport/performance
+    acceptance remain open.
 
 Perf budget carried from Phase 0 gate; add: full remesh of view distance after teleport ≤ 2s.
 
