@@ -21,3 +21,22 @@
 - Do not change firewall policy or automate UAC/security-consent dialogs. If a
   genuinely new listening executable is required, explain why and wait until
   the user is at the PC.
+
+## Throughput and evidence discipline
+
+- Prioritize implementation of plan-critical functionality over repeated
+  polishing of already-correct per-family evidence.
+- For each implementation tranche, use one focused independent review cycle.
+  Fix all Critical and Important findings, but do not start additional review
+  loops unless a fix materially changes production behavior.
+- Reuse an existing authoritative native checkpoint when it covers the exact
+  state product and geometry/material questions. Do not recapture equivalent
+  views merely to improve presentation.
+- Batch native screenshots, matching-view GPU witnesses, and visual polish at
+  the deterministic gallery/live-acceptance gate whenever they are not needed
+  to decide the implementation contract.
+- Keep independent implementation lanes parallel when they use separate
+  worktrees or have no shared-write conflict. Merge or cherry-pick only after
+  each lane is green and reviewed.
+- Report status precisely: distinguish pushed work, locally committed work,
+  test-green uncommitted work, and work that is only in progress.
