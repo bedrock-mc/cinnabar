@@ -49,7 +49,7 @@ $(ATMOSPHERE_BLOB): $(ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_MANI
 	$(ATMOSPHERE_COMPILE)
 
 $(ATMOSPHERE_REPORT): $(ATMOSPHERE_BLOB)
-	$(ATMOSPHERE_COMPILE)
+	@if [ ! -f "$@" ] || [ "$@" -ot "$<" ]; then $(ATMOSPHERE_COMPILE); fi
 
 core:
 	$(if $(strip $(UPSTREAM)),,$(error UPSTREAM is required; run make core UPSTREAM=host:port))

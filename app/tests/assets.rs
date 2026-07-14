@@ -330,6 +330,10 @@ fn make_assets_and_client_refresh_the_atmosphere_blob_and_report() {
             "$(VANILLA_SOURCE_MANIFEST)"
         ),
         "$(ATMOSPHERE_REPORT): $(ATMOSPHERE_BLOB)",
+        concat!(
+            "\t@if [ ! -f \"$@\" ] || [ \"$@\" -ot \"$<\" ]; then ",
+            "$(ATMOSPHERE_COMPILE); fi"
+        ),
         "\t$(ATMOSPHERE_COMPILE)",
         "atmosphere-assets: $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT)",
         "assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT)",
@@ -359,7 +363,10 @@ fn make_assets_and_client_refresh_the_atmosphere_blob_and_report() {
     );
     assert!(!makefile.contains("$(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT):"));
     assert_eq!(
-        makefile.matches("\t$(ATMOSPHERE_COMPILE)").count(),
+        makefile
+            .lines()
+            .filter(|line| line.starts_with('\t') && line.contains("$(ATMOSPHERE_COMPILE)"))
+            .count(),
         2,
         "blob and missing-report recovery must use one shared producer command"
     );
