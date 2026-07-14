@@ -143,6 +143,12 @@ gate as a bounded two-template compound (24+16 quads, or 22+16 for closed
 bamboo), preserving the existing 32-bit visibility mask and packed-reference
 format without truncating the model.
 
+Carpet rendering is complete for all 179 states. Seventeen ordinary carpets use
+one exact 1/16-block cuboid route. Pale moss contributes the other 162 states as
+the complete four-side ternary matrix plus upper bit; its opaque base and
+two-sided cutout side planes remain separate material classes, including the
+isolated-upper base-plus-four-tall form.
+
 ## Selector requirements
 
 The generated selector representation or the preserved canonical typed state

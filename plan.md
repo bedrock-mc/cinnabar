@@ -445,6 +445,22 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       visualcoverage suites, strict Clippy/formatting, real pinned-pack run, and
       independent review/re-review green). Deterministic gallery/native GPU
       evidence remains in the shared residual-family live gate.
+    - [x] Carpet and stateful pale-moss-carpet templates: all 17 ordinary
+      stateless carpets compile as exact opaque 1/16-block cuboids with the
+      pinned wool/moss aliases, while all 162 pale-moss states enforce the
+      exact four `none`/`short`/`tall` side properties and upper-bit contract.
+      Pale bases stay opaque; side planes use the pinned two-entry cutout pair
+      in its verified tall/short order, render two-sided with conservative
+      connectivity, preserve the isolated-upper base-plus-four-tall special
+      case, and quantize vanilla's unrepresentable 1.6/256 inset symmetrically
+      to 2/254. Missing, invalid, extra, or mismatched typed selectors fail
+      closed; collision seeds do not affect rendering. The production ratchet
+      removes exactly 179 carpet diagnostics with no additions and now holds
+      8,122 diagnostics including air (`8087b6a`; two byte-identical pinned
+      builds, full assets/visualcoverage suites, renderer two-sided regression,
+      strict workspace Clippy/formatting, and independent review green).
+      Deterministic gallery/native GPU evidence remains in the shared
+      residual-family live gate.
     - [ ] Slab/stair native and packed-GPU live acceptance: capture all five
       fixed Cinnabar poses through native `%TEMP%` screenshots and require two
       consecutive exact GPU-completed model-stream witnesses. Automated gallery
@@ -577,9 +593,9 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       regression/invisible laundering, and writes deterministic hash-bound
       reports (`b131247`; 11 tests, strict Clippy, real-pack run, and independent
       review green). The reviewed baseline was refreshed cumulatively for the
-      already-landed door, trapdoor, wall, pressure-plate, and fence-gate
-      tranches. After lava, vine, and those five static families, the current
-      residual has 8,301
+      already-landed door, trapdoor, wall, pressure-plate, fence-gate, and carpet
+      tranches. After lava, vine, and those six static families, the current
+      residual has 8,122
       diagnostics including the single air diagnostic, with zero diagnostics in
       every implemented family; each remaining family must shrink that exact set.
   - [ ] Complete the exhaustive residual-family report, beginning with
