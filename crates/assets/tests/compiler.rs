@@ -6886,7 +6886,7 @@ fn compiler_selects_huge_mushroom_face_variants_and_keeps_other_arrays_at_zero()
         for (face_index, (face, block_face, texture_suffix)) in faces.iter().enumerate() {
             let key = format!("{texture_prefix}_{texture_suffix}");
             face_entries.insert((*block_face).into(), serde_json::Value::String(key.clone()));
-            let selected_bits: &[u8] = if is_static_stem_face(family_index, *face) {
+            let selected_bits = if is_static_stem_face(family_index, *face) {
                 terrain_entries.insert(
                     key,
                     serde_json::json!({
@@ -6895,7 +6895,7 @@ fn compiler_selects_huge_mushroom_face_variants_and_keeps_other_arrays_at_zero()
                         )
                     }),
                 );
-                &[0]
+                vec![0]
             } else {
                 let variants = (0..16)
                     .map(|bits| {
@@ -6905,10 +6905,10 @@ fn compiler_selects_huge_mushroom_face_variants_and_keeps_other_arrays_at_zero()
                     })
                     .collect::<Vec<_>>();
                 terrain_entries.insert(key, serde_json::json!({ "textures": variants }));
-                &[0, 15]
+                (0..16).collect::<Vec<_>>()
             };
 
-            for &bits in selected_bits {
+            for bits in selected_bits {
                 let source = if is_static_stem_face(family_index, *face) {
                     format!("textures/blocks/{texture_prefix}_{texture_suffix}_static")
                 } else {
@@ -6957,8 +6957,8 @@ fn compiler_selects_huge_mushroom_face_variants_and_keeps_other_arrays_at_zero()
 
     let mut records = Vec::new();
     for (family_index, (block_name, _)) in families.iter().enumerate() {
-        for (state_index, bits) in [0_u8, 15].into_iter().enumerate() {
-            let sequential_id = (family_index * 2 + state_index) as u32;
+        for bits in 0_u8..16 {
+            let sequential_id = (family_index * 16 + usize::from(bits)) as u32;
             records.push(record(
                 sequential_id,
                 0x8000_1000 + sequential_id,
@@ -6981,6 +6981,9 @@ fn compiler_selects_huge_mushroom_face_variants_and_keeps_other_arrays_at_zero()
         r#"{"huge_mushroom_bits":{"type":"int","value":"15"}}"#,
         r#"{"huge_mushroom_bits":{"extra":0,"type":"int","value":15}}"#,
         r#"{"extra":{"type":"byte","value":0},"huge_mushroom_bits":{"type":"int","value":15}}"#,
+        r#"{"huge_mushroom_bits":{"type":"int","value":0},"huge_mushroom_bits":{"type":"int","value":15}}"#,
+        r#"{"huge_mushroom_bits":{"type":"byte","type":"int","value":15}}"#,
+        r#"{"huge_mushroom_bits":{"type":"int","value":0,"value":15}}"#,
     ];
     for state in fallback_states {
         let sequential_id = records.len() as u32;
@@ -7011,8 +7014,8 @@ fn compiler_selects_huge_mushroom_face_variants_and_keeps_other_arrays_at_zero()
 
     let compiled = compile_pack(directory.path(), &records).expect("compile mushroom variants");
     for (family_index, _) in families.iter().enumerate() {
-        for (state_index, bits) in [0_u8, 15].into_iter().enumerate() {
-            let sequential_id = family_index * 2 + state_index;
+        for bits in 0_u8..16 {
+            let sequential_id = family_index * 16 + usize::from(bits);
             for (face_index, (face, _, _)) in faces.iter().enumerate() {
                 let material = material_for_face(&compiled, sequential_id, *face);
                 let expected_bits = if is_static_stem_face(family_index, *face) {
@@ -7029,16 +7032,25 @@ fn compiler_selects_huge_mushroom_face_variants_and_keeps_other_arrays_at_zero()
             }
         }
     }
-    for sequential_id in 6..6 + fallback_states.len() {
+    let fallback_start = families.len() * 16;
+    for (offset, state) in fallback_states.iter().enumerate() {
+        let sequential_id = fallback_start + offset;
+        assert_eq!(
+            compiled.visuals[sequential_id].kind,
+            VisualKind::Diagnostic,
+            "invalid or absent mushroom selector must fail closed: {state}"
+        );
         assert_eq!(
             compiled.visuals[sequential_id].faces, [0; 6],
-            "invalid or absent mushroom selector must fail closed"
+            "invalid or absent mushroom selector retained faces: {state}"
         );
     }
     assert_eq!(
-        compiled.visuals[invalid_stem_id as usize].faces, [0; 6],
+        compiled.visuals[invalid_stem_id as usize].kind,
+        VisualKind::Diagnostic,
         "invalid selector must also fail closed for static mushroom face paths"
     );
+    assert_eq!(compiled.visuals[invalid_stem_id as usize].faces, [0; 6]);
     let unrelated = material_for_face(&compiled, unrelated_id as usize, BlockFace::Up);
     assert_eq!(
         mip_pixel(&compiled, 0, unrelated.texture.layer(), 0, 0),
@@ -7083,6 +7095,7 @@ fn compiler_fails_closed_for_noncanonical_mushroom_variant_counts() {
     let compiled = compile_pack(directory.path(), &records)
         .expect("a malformed mushroom variant table must fail closed without loading a texture");
 
+    assert_eq!(compiled.visuals[0].kind, VisualKind::Diagnostic);
     assert_eq!(compiled.visuals[0].faces, [0; 6]);
     assert_eq!(compiled.materials.len(), 1);
     assert_eq!(compiled.texture_pages[0].texture.layers, 1);

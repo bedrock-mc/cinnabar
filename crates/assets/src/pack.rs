@@ -750,17 +750,25 @@ fn collect_terrain_paths(key: &str, value: TerrainValue) -> Result<TerrainPaths,
     }
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HugeMushroomState {
+    huge_mushroom_bits: HugeMushroomSelector,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HugeMushroomSelector {
+    #[serde(rename = "type")]
+    kind: Box<str>,
+    value: u8,
+}
+
 fn mushroom_variant_index(record: &RegistryRecord) -> Option<usize> {
-    let properties = serde_json::from_str::<Map<String, Value>>(&record.canonical_state).ok()?;
-    if properties.len() != 1 {
-        return None;
-    }
-    let selector = properties.get("huge_mushroom_bits")?.as_object()?;
-    if selector.len() != 2 || selector.get("type")?.as_str()? != "int" {
-        return None;
-    }
-    let bits = selector.get("value")?.as_u64()?;
-    usize::try_from(bits).ok().filter(|&bits| bits <= 15)
+    let state = serde_json::from_str::<HugeMushroomState>(&record.canonical_state).ok()?;
+    (state.huge_mushroom_bits.kind.as_ref() == "int")
+        .then_some(usize::from(state.huge_mushroom_bits.value))
+        .filter(|&bits| bits <= 15)
 }
 
 fn is_mushroom_face_key(key: &str, block_name: &str) -> bool {
