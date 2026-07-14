@@ -19,9 +19,10 @@ use assets::{
 };
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 use render::{
-    BlockClassifier, ChunkMesh, ContributorResolver, Face, FaceConnectivity, Neighbourhood,
-    PackedLiquidQuad, PackedModelDrawRef, PackedModelRef, PackedQuad, PackedQuadLighting,
-    debug_color, mesh_sub_chunk, mesh_sub_chunk_in_neighbourhood,
+    BlockClassifier, ChunkMesh, ContributorResolver, Face, FaceConnectivity, MeshLightSample,
+    Neighbourhood, PackedLiquidQuad, PackedModelDrawRef, PackedModelRef, PackedQuad,
+    PackedQuadLighting, debug_color, mesh_sub_chunk, mesh_sub_chunk_in_neighbourhood,
+    mesh_sub_chunk_with_lighting,
 };
 use world::{MeshNeighbourhood, SubChunk};
 
@@ -5058,6 +5059,37 @@ fn one_opaque_block_emits_six_packed_quads() {
     assert!(mesh.quads().iter().all(|quad| quad.material_id() == 7));
     assert_eq!(mesh.quads()[0].face(), Face::NegativeX);
     assert_eq!(mesh.quads()[0].words(), [1 | (2 << 5) | (3 << 10), 7]);
+    assert_eq!(mesh.cube_lighting().len(), mesh.cube_quads().len());
+}
+
+#[test]
+fn cube_lighting_is_one_to_one_and_splits_greedy_runs() {
+    let sub = blocks(11, &[[0, 0, 0], [1, 0, 0]]);
+    let sampler =
+        |[x, _y, _z]: [i32; 3]| MeshLightSample::try_new(if x <= 0 { 1 } else { 9 }, 15).unwrap();
+    let mesh = mesh_sub_chunk_with_lighting(
+        &classifier(),
+        runtime_assets(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &sub,
+        &sampler,
+    );
+
+    assert_eq!(size_of::<PackedQuad>(), 8);
+    assert_eq!(mesh.cube_lighting().len(), mesh.cube_quads().len());
+    assert_eq!(
+        mesh.quad_count(),
+        10,
+        "different packed light splits four coplanar runs"
+    );
+    assert!(mesh.quads().iter().all(|quad| quad.width() == 1));
+    assert!(
+        mesh.cube_lighting()
+            .iter()
+            .flat_map(|lighting| lighting.samples())
+            .all(|sample| sample & 0x000f != 0 && (sample >> 4) & 0x000f == 15)
+    );
 }
 
 #[test]

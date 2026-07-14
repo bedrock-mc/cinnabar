@@ -14,14 +14,16 @@ pub use atmosphere_render::AtmospherePlugin;
 pub use biome::PackedBiomeRecord;
 pub use color::debug_color;
 pub use lighting::{
-    PHASE26_BLOCK_LIGHT, PHASE26_SKY_LIGHT, bake_quad_lighting, bake_template_lighting,
-    mesh_dependency_mask,
+    FullBrightLightSampler, MeshLightSample, MeshLightSampler, PHASE26_BLOCK_LIGHT,
+    PHASE26_SKY_LIGHT, bake_quad_lighting, bake_quad_lighting_with_sampler, bake_template_lighting,
+    bake_template_lighting_with_sampler, mesh_dependency_mask,
 };
 pub use liquid::LiquidLevel;
 pub use mesh::{
     BlockClassifier, ChunkMesh, ChunkMeshStreams, ContributorResolver, Face, FaceConnectivity,
     Neighbourhood, PackedLiquidQuad, PackedModelDrawRef, PackedModelRef, PackedQuad,
     PackedQuadLighting, ResolvedContributors, mesh_sub_chunk, mesh_sub_chunk_in_neighbourhood,
+    mesh_sub_chunk_in_neighbourhood_with_lighting, mesh_sub_chunk_with_lighting,
 };
 pub use plugin::{
     AnimationFrameSample, BiomeTint, ChunkAnimationClock, ChunkBiomeTintIdentity, ChunkBiomeTints,

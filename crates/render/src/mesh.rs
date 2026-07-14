@@ -509,13 +509,19 @@ impl<'a> Neighbourhood<'a> {
 /// Packed greedy geometry plus visibility metadata for one sub-chunk.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChunkMesh {
-    cube_quads: Box<[PackedQuad]>,
+    cube_streams: Box<CubeStreams>,
     model_refs: Box<[PackedModelRef]>,
     model_lighting: Box<[PackedQuadLighting]>,
     model_draw_refs: Box<ModelDrawRefs>,
     liquid_quads: Box<[PackedLiquidQuad]>,
     liquid_lighting: Box<[PackedQuadLighting]>,
     connectivity: FaceConnectivity,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct CubeStreams {
+    cube_quads: Box<[PackedQuad]>,
+    cube_lighting: Box<[PackedQuadLighting]>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -546,8 +552,13 @@ impl ChunkMesh {
         liquid_lighting: Vec<PackedQuadLighting>,
         connectivity: FaceConnectivity,
     ) -> Self {
+        let cube_lighting =
+            vec![crate::lighting::phase26_default_lighting(); cube_quads.len()].into_boxed_slice();
         Self {
-            cube_quads: cube_quads.into_boxed_slice(),
+            cube_streams: Box::new(CubeStreams {
+                cube_quads: cube_quads.into_boxed_slice(),
+                cube_lighting,
+            }),
             model_refs: model_refs.into_boxed_slice(),
             model_lighting: model_lighting.into_boxed_slice(),
             model_draw_refs: Box::new(ModelDrawRefs {
@@ -567,7 +578,13 @@ impl ChunkMesh {
 
     #[must_use]
     pub fn cube_quads(&self) -> &[PackedQuad] {
-        &self.cube_quads
+        &self.cube_streams.cube_quads
+    }
+
+    /// CPU-baked lighting in exact one-to-one cube-quad order.
+    #[must_use]
+    pub fn cube_lighting(&self) -> &[PackedQuadLighting] {
+        &self.cube_streams.cube_lighting
     }
 
     #[must_use]
@@ -608,12 +625,13 @@ impl ChunkMesh {
 
     #[must_use]
     pub fn quad_count(&self) -> usize {
-        self.cube_quads.len()
+        self.cube_streams.cube_quads.len()
     }
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.cube_quads.is_empty()
+        self.cube_streams.cube_quads.is_empty()
+            && self.cube_streams.cube_lighting.is_empty()
             && self.model_refs.is_empty()
             && self.model_lighting.is_empty()
             && self.model_draw_refs.opaque.is_empty()
@@ -629,17 +647,21 @@ impl ChunkMesh {
 
     #[must_use]
     pub fn into_quads(self) -> Box<[PackedQuad]> {
-        self.cube_quads
+        self.cube_streams.cube_quads
     }
 
     #[must_use]
     pub fn into_streams(self) -> ChunkMeshStreams {
+        let CubeStreams {
+            cube_quads,
+            cube_lighting: _,
+        } = *self.cube_streams;
         let ModelDrawRefs {
             opaque,
             transparent,
         } = *self.model_draw_refs;
         (
-            self.cube_quads,
+            cube_quads,
             self.model_refs,
             self.model_lighting,
             opaque,
@@ -666,13 +688,40 @@ pub fn mesh_sub_chunk(
     neighbours: &Neighbourhood<'_>,
     sub_chunk: &SubChunk,
 ) -> ChunkMesh {
+    mesh_sub_chunk_with_lighting(
+        classifier,
+        visuals,
+        network_id_mode,
+        neighbours,
+        sub_chunk,
+        &crate::lighting::FullBrightLightSampler,
+    )
+}
+
+/// Greedy-mesh with allocation-free solved block/sky light sampling.
+#[must_use]
+pub fn mesh_sub_chunk_with_lighting<S: crate::lighting::MeshLightSampler + ?Sized>(
+    classifier: &BlockClassifier,
+    visuals: &RuntimeAssets,
+    network_id_mode: NetworkIdMode,
+    neighbours: &Neighbourhood<'_>,
+    sub_chunk: &SubChunk,
+    light_sampler: &S,
+) -> ChunkMesh {
     let mut neighbourhood = MeshNeighbourhood::new(sub_chunk);
     for face in Face::ALL {
         if let Some(neighbour) = neighbours.get(face) {
             let _ = neighbourhood.insert(face_offset(face), neighbour);
         }
     }
-    mesh_sub_chunk_core(classifier, visuals, network_id_mode, &neighbourhood, false)
+    mesh_sub_chunk_core(
+        classifier,
+        visuals,
+        network_id_mode,
+        &neighbourhood,
+        light_sampler,
+        false,
+    )
 }
 
 /// Greedy-mesh from the shared bounded 3x3x3 palette-native snapshot.
@@ -683,14 +732,42 @@ pub fn mesh_sub_chunk_in_neighbourhood(
     network_id_mode: NetworkIdMode,
     neighbourhood: &MeshNeighbourhood<'_>,
 ) -> ChunkMesh {
-    mesh_sub_chunk_core(classifier, visuals, network_id_mode, neighbourhood, true)
+    mesh_sub_chunk_in_neighbourhood_with_lighting(
+        classifier,
+        visuals,
+        network_id_mode,
+        neighbourhood,
+        &crate::lighting::FullBrightLightSampler,
+    )
 }
 
-fn mesh_sub_chunk_core(
+/// Greedy-mesh the bounded palette snapshot with solved block/sky light.
+#[must_use]
+pub fn mesh_sub_chunk_in_neighbourhood_with_lighting<
+    S: crate::lighting::MeshLightSampler + ?Sized,
+>(
     classifier: &BlockClassifier,
     visuals: &RuntimeAssets,
     network_id_mode: NetworkIdMode,
     neighbourhood: &MeshNeighbourhood<'_>,
+    light_sampler: &S,
+) -> ChunkMesh {
+    mesh_sub_chunk_core(
+        classifier,
+        visuals,
+        network_id_mode,
+        neighbourhood,
+        light_sampler,
+        true,
+    )
+}
+
+fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
+    classifier: &BlockClassifier,
+    visuals: &RuntimeAssets,
+    network_id_mode: NetworkIdMode,
+    neighbourhood: &MeshNeighbourhood<'_>,
+    light_sampler: &S,
     include_liquids: bool,
 ) -> ChunkMesh {
     let sub_chunk = neighbourhood
@@ -700,7 +777,7 @@ fn mesh_sub_chunk_core(
     let connectivity = cave_connectivity(&facts);
     if facts.is_air() {
         return ChunkMesh {
-            cube_quads: Box::new([]),
+            cube_streams: Box::default(),
             model_refs: Box::new([]),
             model_lighting: Box::new([]),
             model_draw_refs: Box::default(),
@@ -720,6 +797,7 @@ fn mesh_sub_chunk_core(
 
     let masks = VisibilityMasks::from_facts(&facts);
     let mut quads = Vec::new();
+    let mut cube_lighting = Vec::new();
     for face in Face::ALL {
         let columns = exposed_columns(
             *classifier,
@@ -732,12 +810,36 @@ fn mesh_sub_chunk_core(
         );
         for slice in 0..SIDE {
             let mut rows = [0_u64; SIDE];
+            let mut lighting_scratch = [PackedQuadLighting::default(); SIDE * SIDE];
             for (v, row) in rows.iter_mut().enumerate() {
                 for (u, column) in columns[v].iter().enumerate() {
-                    *row |= ((*column >> slice) & 1) << u;
+                    let visible = (*column >> slice) & 1;
+                    *row |= visible << u;
+                    if visible != 0 {
+                        let coordinate = block_coordinate(face, slice, u, v);
+                        lighting_scratch[v * SIDE + u] =
+                            crate::lighting::bake_quad_lighting_with_sampler(
+                                classifier,
+                                visuals,
+                                network_id_mode,
+                                neighbourhood,
+                                light_sampler,
+                                coordinate.map(|value| value as i32),
+                                face,
+                                crate::lighting::cube_face_positions(face),
+                            );
+                    }
                 }
             }
-            greedy_slice(&facts, face, slice, &mut rows, &mut quads);
+            greedy_slice(
+                &facts,
+                face,
+                slice,
+                &mut rows,
+                &lighting_scratch,
+                &mut quads,
+                &mut cube_lighting,
+            );
         }
     }
     let mut model_refs = Vec::new();
@@ -864,11 +966,12 @@ fn mesh_sub_chunk_core(
                         let Ok(lighting_base_index) = u32::try_from(model_lighting.len()) else {
                             continue;
                         };
-                        let Some(lighting) = crate::lighting::bake_template_lighting(
+                        let Some(lighting) = crate::lighting::bake_template_lighting_with_sampler(
                             classifier,
                             visuals,
                             network_id_mode,
                             neighbourhood,
+                            light_sampler,
                             [x as i32, y as i32, z as i32],
                             part_template,
                             entry.variant & 3,
@@ -916,12 +1019,21 @@ fn mesh_sub_chunk_core(
     }
 
     let (liquid_quads, liquid_lighting) = if include_liquids {
-        crate::liquid::mesh_liquids(*classifier, visuals, network_id_mode, neighbourhood)
+        crate::liquid::mesh_liquids(
+            *classifier,
+            visuals,
+            network_id_mode,
+            neighbourhood,
+            light_sampler,
+        )
     } else {
         (Vec::new(), Vec::new())
     };
     ChunkMesh {
-        cube_quads: quads.into_boxed_slice(),
+        cube_streams: Box::new(CubeStreams {
+            cube_quads: quads.into_boxed_slice(),
+            cube_lighting: cube_lighting.into_boxed_slice(),
+        }),
         model_refs: model_refs.into_boxed_slice(),
         model_lighting: model_lighting.into_boxed_slice(),
         model_draw_refs: Box::new(ModelDrawRefs {
@@ -1755,13 +1867,16 @@ fn greedy_slice(
     face: Face,
     slice: usize,
     rows: &mut [u64; SIDE],
+    lighting_scratch: &[PackedQuadLighting; SIDE * SIDE],
     quads: &mut Vec<PackedQuad>,
+    cube_lighting: &mut Vec<PackedQuadLighting>,
 ) {
     for v in 0..SIDE {
         while rows[v] != 0 {
             let u = rows[v].trailing_zeros() as usize;
             let origin = block_coordinate(face, slice, u, v);
             let material_id = facts.at(origin[0], origin[1], origin[2]).faces[face.index()];
+            let lighting = lighting_scratch[v * SIDE + u];
 
             let shifted = rows[v] >> u;
             let binary_width = (!shifted).trailing_zeros() as usize;
@@ -1770,6 +1885,7 @@ fn greedy_slice(
             while width < binary_width && {
                 let [x, y, z] = block_coordinate(face, slice, u + width, v);
                 facts.at(x, y, z).faces[face.index()] == material_id
+                    && lighting_scratch[v * SIDE + u + width] == lighting
             } {
                 width += 1;
             }
@@ -1780,6 +1896,9 @@ fn greedy_slice(
                 for offset in 0..width {
                     let [x, y, z] = block_coordinate(face, slice, u + offset, v + height);
                     if facts.at(x, y, z).faces[face.index()] != material_id {
+                        break 'height;
+                    }
+                    if lighting_scratch[(v + height) * SIDE + u + offset] != lighting {
                         break 'height;
                     }
                 }
@@ -1796,6 +1915,7 @@ fn greedy_slice(
                 height as u8,
                 material_id,
             ));
+            cube_lighting.push(lighting);
         }
     }
 }

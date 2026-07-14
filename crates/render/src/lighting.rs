@@ -9,6 +9,62 @@ pub const PHASE26_SKY_LIGHT: u8 = 15;
 
 const FIXED_HALF_BLOCK: i16 = 128;
 
+/// One allocation-free block/sky sample owned by the render meshing boundary.
+///
+/// Block and sky light remain independent four-bit channels. Direct-sky
+/// provenance is deliberately not a render channel: the world light solver
+/// resolves it before exposing samples to meshing.
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct MeshLightSample(u8);
+
+impl MeshLightSample {
+    pub const FULL_BRIGHT: Self = Self(PHASE26_BLOCK_LIGHT | (PHASE26_SKY_LIGHT << 4));
+
+    #[must_use]
+    pub const fn try_new(block: u8, sky: u8) -> Option<Self> {
+        if block <= 15 && sky <= 15 {
+            Some(Self(block | (sky << 4)))
+        } else {
+            None
+        }
+    }
+
+    #[must_use]
+    pub const fn block(self) -> u8 {
+        self.0 & 15
+    }
+
+    #[must_use]
+    pub const fn sky(self) -> u8 {
+        self.0 >> 4
+    }
+}
+
+/// Allocation-free source of solved block and sky light for mesh baking.
+pub trait MeshLightSampler {
+    fn sample(&self, coordinate: [i32; 3]) -> MeshLightSample;
+}
+
+impl<F> MeshLightSampler for F
+where
+    F: Fn([i32; 3]) -> MeshLightSample,
+{
+    fn sample(&self, coordinate: [i32; 3]) -> MeshLightSample {
+        self(coordinate)
+    }
+}
+
+/// Compatibility source used until a caller supplies its solved light view.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FullBrightLightSampler;
+
+impl MeshLightSampler for FullBrightLightSampler {
+    fn sample(&self, _coordinate: [i32; 3]) -> MeshLightSample {
+        MeshLightSample::FULL_BRIGHT
+    }
+}
+
 /// Bakes one face-specific four-vertex lighting sidecar.
 #[must_use]
 pub fn bake_quad_lighting(
@@ -20,7 +76,36 @@ pub fn bake_quad_lighting(
     face: Face,
     positions: [[i16; 3]; 4],
 ) -> PackedQuadLighting {
+    bake_quad_lighting_with_sampler(
+        classifier,
+        assets,
+        network_id_mode,
+        neighbourhood,
+        &FullBrightLightSampler,
+        block,
+        face,
+        positions,
+    )
+}
+
+/// Bakes one face sidecar from solved block/sky light and geometric AO.
+#[must_use]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the sampler augments the established face-bake boundary without bundling unrelated assets"
+)]
+pub fn bake_quad_lighting_with_sampler<S: MeshLightSampler + ?Sized>(
+    classifier: &BlockClassifier,
+    assets: &RuntimeAssets,
+    network_id_mode: NetworkIdMode,
+    neighbourhood: &MeshNeighbourhood<'_>,
+    light_sampler: &S,
+    block: [i32; 3],
+    face: Face,
+    positions: [[i16; 3]; 4],
+) -> PackedQuadLighting {
     let (normal, tangent_a, tangent_b) = face_basis(face);
+    let outward = add_normal(block, normal);
     let samples = positions.map(|position| {
         let sign_a = corner_sign(position[tangent_a]);
         let sign_b = corner_sign(position[tangent_b]);
@@ -35,7 +120,19 @@ pub fn bake_quad_lighting(
         } else {
             u8::from(side_a) + u8::from(side_b) + u8::from(corner)
         };
-        pack_sample(PHASE26_BLOCK_LIGHT, PHASE26_SKY_LIGHT, ao)
+        let light = average_light([
+            light_sampler.sample(outward),
+            light_sampler.sample(offset(block, normal, tangent_a, sign_a, None)),
+            light_sampler.sample(offset(block, normal, tangent_b, sign_b, None)),
+            light_sampler.sample(offset(
+                block,
+                normal,
+                tangent_a,
+                sign_a,
+                Some((tangent_b, sign_b)),
+            )),
+        ]);
+        pack_sample(light.block(), light.sky(), ao)
     });
     PackedQuadLighting::new(samples)
 }
@@ -51,6 +148,34 @@ pub fn bake_template_lighting(
     template_id: u32,
     rotation: u32,
 ) -> Option<Vec<PackedQuadLighting>> {
+    bake_template_lighting_with_sampler(
+        classifier,
+        assets,
+        network_id_mode,
+        neighbourhood,
+        &FullBrightLightSampler,
+        block,
+        template_id,
+        rotation,
+    )
+}
+
+/// Bakes one sampler-driven sidecar for every immutable template quad.
+#[must_use]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the sampler augments the established template-bake boundary without bundling unrelated assets"
+)]
+pub fn bake_template_lighting_with_sampler<S: MeshLightSampler + ?Sized>(
+    classifier: &BlockClassifier,
+    assets: &RuntimeAssets,
+    network_id_mode: NetworkIdMode,
+    neighbourhood: &MeshNeighbourhood<'_>,
+    light_sampler: &S,
+    block: [i32; 3],
+    template_id: u32,
+    rotation: u32,
+) -> Option<Vec<PackedQuadLighting>> {
     let template = assets.model_templates().get(template_id as usize)?;
     let start = template.quad_start as usize;
     let end = start.checked_add(template.quad_count as usize)?;
@@ -59,18 +184,22 @@ pub fn bake_template_lighting(
         quads
             .iter()
             .map(|quad| {
-                model_quad_face(*quad, rotation).map_or_else(default_lighting, |face| {
-                    bake_quad_lighting(
-                        classifier,
-                        assets,
-                        network_id_mode,
-                        neighbourhood,
-                        block,
-                        face,
-                        quad.positions
-                            .map(|position| rotate_model_position(position, rotation)),
-                    )
-                })
+                model_quad_face(*quad, rotation).map_or_else(
+                    || lighting_at(light_sampler.sample(block)),
+                    |face| {
+                        bake_quad_lighting_with_sampler(
+                            classifier,
+                            assets,
+                            network_id_mode,
+                            neighbourhood,
+                            light_sampler,
+                            block,
+                            face,
+                            quad.positions
+                                .map(|position| rotate_model_position(position, rotation)),
+                        )
+                    },
+                )
             })
             .collect(),
     )
@@ -104,8 +233,26 @@ pub fn mesh_dependency_mask(
     mask
 }
 
-const fn default_lighting() -> PackedQuadLighting {
+pub(crate) const fn phase26_default_lighting() -> PackedQuadLighting {
     PackedQuadLighting::new([pack_sample(PHASE26_BLOCK_LIGHT, PHASE26_SKY_LIGHT, 0); 4])
+}
+
+const fn lighting_at(sample: MeshLightSample) -> PackedQuadLighting {
+    PackedQuadLighting::new([pack_sample(sample.block(), sample.sky(), 0); 4])
+}
+
+fn average_light(samples: [MeshLightSample; 4]) -> MeshLightSample {
+    let block = samples
+        .iter()
+        .map(|sample| u16::from(sample.block()))
+        .sum::<u16>()
+        / 4;
+    let sky = samples
+        .iter()
+        .map(|sample| u16::from(sample.sky()))
+        .sum::<u16>()
+        / 4;
+    MeshLightSample::try_new(block as u8, sky as u8).expect("averaged nibbles remain bounded")
 }
 
 const fn pack_sample(block: u8, sky: u8, ao: u8) -> u16 {
@@ -166,6 +313,24 @@ fn offset(
         block[axis] += sign;
     }
     block
+}
+
+const fn add_normal(mut block: [i32; 3], normal: [i32; 3]) -> [i32; 3] {
+    block[0] += normal[0];
+    block[1] += normal[1];
+    block[2] += normal[2];
+    block
+}
+
+pub(crate) const fn cube_face_positions(face: Face) -> [[i16; 3]; 4] {
+    match face {
+        Face::NegativeX => [[0, 0, 0], [0, 0, 256], [0, 256, 256], [0, 256, 0]],
+        Face::PositiveX => [[256, 0, 0], [256, 256, 0], [256, 256, 256], [256, 0, 256]],
+        Face::NegativeY => [[0, 0, 0], [256, 0, 0], [256, 0, 256], [0, 0, 256]],
+        Face::PositiveY => [[0, 256, 0], [0, 256, 256], [256, 256, 256], [256, 256, 0]],
+        Face::NegativeZ => [[0, 0, 0], [0, 256, 0], [256, 256, 0], [256, 0, 0]],
+        Face::PositiveZ => [[0, 0, 256], [256, 0, 256], [256, 256, 256], [0, 256, 256]],
+    }
 }
 
 const fn model_quad_face(quad: ModelQuad, rotation: u32) -> Option<Face> {

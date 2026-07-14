@@ -8,8 +8,8 @@ use assets::{
     TextureRef, VisualKind, encode_blob,
 };
 use render::{
-    BlockClassifier, Face, LiquidLevel, Neighbourhood, PackedLiquidQuad, mesh_sub_chunk,
-    mesh_sub_chunk_in_neighbourhood,
+    BlockClassifier, Face, LiquidLevel, MeshLightSample, Neighbourhood, PackedLiquidQuad,
+    mesh_sub_chunk, mesh_sub_chunk_in_neighbourhood, mesh_sub_chunk_in_neighbourhood_with_lighting,
 };
 use world::{MeshNeighbourhood, SubChunk};
 
@@ -384,6 +384,28 @@ fn liquid_lighting_is_face_specific_and_ao_samples_the_expected_corner() {
     assert_eq!(
         occluded_corner.liquid_lighting()[top.lighting_index() as usize].samples(),
         [0x01f0, 0x00f0, 0x00f0, 0x00f0]
+    );
+}
+
+#[test]
+fn liquid_lighting_uses_the_render_owned_sampler() {
+    let center = blocks(&[(WATER_SOURCE, [8, 8, 8])]);
+    let neighbourhood = MeshNeighbourhood::new(&center);
+    let sampler = |_coordinate: [i32; 3]| MeshLightSample::try_new(11, 3).unwrap();
+    let mesh = mesh_sub_chunk_in_neighbourhood_with_lighting(
+        &BlockClassifier::new(AIR),
+        runtime_assets(),
+        NetworkIdMode::Sequential,
+        &neighbourhood,
+        &sampler,
+    );
+
+    assert!(!mesh.liquid_lighting().is_empty());
+    assert!(
+        mesh.liquid_lighting()
+            .iter()
+            .flat_map(|lighting| lighting.samples())
+            .all(|sample| sample & 0x00ff == 0x003b)
     );
 }
 

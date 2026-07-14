@@ -7,8 +7,9 @@ use assets::{
     encode_blob,
 };
 use render::{
-    BlockClassifier, Face, PHASE26_BLOCK_LIGHT, PHASE26_SKY_LIGHT, PackedQuad, PackedQuadLighting,
-    bake_quad_lighting, bake_template_lighting, mesh_dependency_mask,
+    BlockClassifier, Face, MeshLightSample, PHASE26_BLOCK_LIGHT, PHASE26_SKY_LIGHT, PackedQuad,
+    PackedQuadLighting, bake_quad_lighting, bake_quad_lighting_with_sampler,
+    bake_template_lighting, bake_template_lighting_with_sampler, mesh_dependency_mask,
 };
 use world::{MeshNeighbourhood, SubChunk};
 
@@ -225,6 +226,85 @@ fn phase26_light_defaults_are_explicit() {
     }
     assert_eq!(size_of::<PackedQuadLighting>(), 8);
     assert_eq!(size_of::<PackedQuad>(), 8);
+}
+
+#[test]
+fn mesh_light_samples_are_bounded_independent_nibbles() {
+    assert_eq!(size_of::<MeshLightSample>(), 1);
+    let sample = MeshLightSample::try_new(3, 12).expect("bounded light nibbles");
+    assert_eq!(sample.block(), 3);
+    assert_eq!(sample.sky(), 12);
+    assert!(MeshLightSample::try_new(16, 0).is_none());
+    assert!(MeshLightSample::try_new(0, 16).is_none());
+}
+
+#[test]
+fn sampler_drives_block_and_sky_without_overwriting_ao() {
+    let (assets, center) = fixture();
+    let sampler = |coordinate: [i32; 3]| {
+        let (block, sky) = match coordinate {
+            [8, 9, 8] => (2, 12),
+            [9, 9, 8] => (6, 8),
+            [8, 9, 9] => (10, 4),
+            [9, 9, 9] => (14, 0),
+            _ => (0, 0),
+        };
+        MeshLightSample::try_new(block, sky).unwrap()
+    };
+    let lighting = bake_quad_lighting_with_sampler(
+        &BlockClassifier::new(AIR),
+        &assets,
+        NetworkIdMode::Sequential,
+        &MeshNeighbourhood::new(&center),
+        &sampler,
+        [8, 8, 8],
+        Face::PositiveY,
+        full_corner(),
+    );
+
+    for sample in lighting.samples() {
+        assert_eq!(sample & 0x000f, 8, "block light averages independently");
+        assert_eq!(
+            (sample >> 4) & 0x000f,
+            6,
+            "sky light averages independently"
+        );
+        assert_eq!((sample >> 8) & 0x0003, 3, "AO remains geometric");
+        assert_eq!(sample & 0xfc00, 0, "reserved bits remain zero");
+    }
+}
+
+#[test]
+fn faceless_cross_quad_samples_the_block_cell_without_ao() {
+    let assets = runtime_assets_with_model_geometry(
+        vec![ModelTemplate {
+            quad_start: 0,
+            quad_count: 1,
+            flags: 0,
+        }],
+        vec![model_quad(0)],
+    );
+    let center = blocks(&[]);
+    let sampler = |coordinate: [i32; 3]| {
+        if coordinate == [8, 8, 8] {
+            MeshLightSample::try_new(7, 5).unwrap()
+        } else {
+            MeshLightSample::try_new(0, 0).unwrap()
+        }
+    };
+    let lighting = bake_template_lighting_with_sampler(
+        &BlockClassifier::new(AIR),
+        &assets,
+        NetworkIdMode::Sequential,
+        &MeshNeighbourhood::new(&center),
+        &sampler,
+        [8, 8, 8],
+        0,
+        0,
+    )
+    .expect("known faceless template");
+
+    assert_eq!(lighting, [PackedQuadLighting::new([0x0057; 4])]);
 }
 
 #[test]
