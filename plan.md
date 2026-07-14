@@ -445,7 +445,16 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       four keys, 92 refs, zero contamination), stayed within the RSS/CPU budget
       at 638,537,728 bytes and 2.82% mean CPU, and failed only the shared 100 ms
       mutation gate at 142.5286 ms. The next performance investigation must
-      target frame scheduling/presentation and mutation-to-frame latency. The backend/presentation investigation is now
+      target frame scheduling/presentation and mutation-to-frame latency.
+      Two process-scoped pacing A/Bs on the same approved DX12 runtime ruled
+      out unsafe workarounds: AutoNoVsync run `20260714T033621Z-14584` never
+      reached the world-ready/mutation fence, while FIFO with
+      `WGPU_DX12_USE_FRAME_LATENCY_WAITABLE_OBJECT=dontwait` in run
+      `20260714T034035Z-22400` reached the clean gallery/camera fence but never
+      produced a GPU-completed model witness and resisted graceful shutdown.
+      Keep wgpu's default waitable-object behavior for correctness; surface
+      acquisition/presentation remains the evidence-backed external blocker.
+      The backend/presentation investigation is now
       conclusive: five direct swapchain captures from Cinnabar, minimal Bevy
       Camera3d and Camera2d clear-only probes, a camera-local red clear, and
       DX12/FXC were byte-identical pure black. Vulkan exposes no surface present
