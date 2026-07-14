@@ -147,7 +147,7 @@ fn gallery_inventory_is_non_accepting_when_zero_diagnostics_hide_a_strict_invali
 
 #[test]
 #[ignore = "requires CINNABAR_REAL_PACK pointing at the ignored pinned vanilla-v1001.mcbea"]
-fn current_gallery_inventory_is_non_accepting_with_7770_diagnostics() {
+fn current_gallery_inventory_is_non_accepting_with_7722_diagnostics() {
     let assets_path = std::env::var_os("CINNABAR_REAL_PACK")
         .map(std::path::PathBuf::from)
         .expect("set CINNABAR_REAL_PACK to the ignored pinned vanilla-v1001.mcbea");
@@ -157,7 +157,7 @@ fn current_gallery_inventory_is_non_accepting_with_7770_diagnostics() {
     let inventory = gallery_inventory_bytes(registry, &assets, baseline).unwrap();
 
     assert!(!inventory.accepting);
-    assert_eq!(inventory.diagnostic_targets, 7_770);
+    assert_eq!(inventory.diagnostic_targets, 7_722);
     assert_eq!(
         inventory
             .pages
@@ -165,7 +165,7 @@ fn current_gallery_inventory_is_non_accepting_with_7770_diagnostics() {
             .flat_map(|page| &page.targets)
             .filter(|target| target.status == visualcoverage::GalleryTargetStatus::Diagnostic)
             .count(),
-        7_770
+        7_722
     );
 }
 
