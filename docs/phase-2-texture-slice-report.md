@@ -184,13 +184,14 @@ cargo run -p visualcoverage -- ratchet `
 
 The refreshed 2026-07-13 real-pack run compiled all 16,913 visuals and passed
 the ratchet with asset SHA-256
-`0323bd2da3cdfffd9afffc3cd525383ed7bc43dc52f19e1b35c232d2ef3db325`.
-It reports 7,954 diagnostics including air and zero diagnostics for lava, vine,
-doors, trapdoors, walls, pressure plates, fence gates, carpets, or buttons. The
+`9c83995e8bff9744fd833b163697f892a3e3ca972e56dd6862d0319b8b5eb866`.
+It reports 7,898 diagnostics including air and zero diagnostics for lava, vine,
+doors, trapdoors, walls, pressure plates, fence gates, panes, fences, carpets,
+or buttons. The
 reviewed baseline refresh
 cumulatively records the already-landed door/trapdoor/wall removals plus the
-pressure-plate, fence-gate, carpet, and button tranches, rather than attributing
-all 6,987 removed IDs to one feature. This is a regression baseline, not a parity
+pressure-plate, fence-gate, pane/fence, carpet, and button tranches, rather than
+attributing all 7,043 removed IDs to one feature. This is a regression baseline, not a parity
 claim: each remaining
 family must reduce that exact set, and the final strict gate still requires zero
 non-air diagnostics, 67 exact-state GPU gallery pages, and the separate

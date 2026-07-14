@@ -504,8 +504,9 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       caught and corrected the initial source-space projection. Materials stay
       opaque, partial models advertise no boundary culling/coverage, and
       collision seeds are not render authority. The production ratchet removes
-      exactly 168 button diagnostics with no additions and now holds 7,954
-      diagnostics including air (`43288b9`, `b1bbf2f`; deterministic pinned
+      exactly 168 button diagnostics with no additions and now holds 7,898
+      diagnostics including air after integrating the already-landed 56-state
+      pane/fence tranche (`8b427eb`, `fe55779`; deterministic pinned
       builds, full assets/render/visualcoverage suites, strict Clippy/formatting,
       and independent final re-review green). Deterministic gallery/native GPU
       evidence remains in the shared residual-family live gate.
@@ -641,9 +642,9 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       regression/invisible laundering, and writes deterministic hash-bound
       reports (`b131247`; 11 tests, strict Clippy, real-pack run, and independent
       review green). The reviewed baseline was refreshed cumulatively for the
-      already-landed door, trapdoor, wall, pressure-plate, fence-gate, carpet,
-      and button tranches. After lava, vine, and those seven static families,
-      the current residual has 7,954
+      already-landed door, trapdoor, wall, pressure-plate, fence-gate, pane,
+      fence, carpet, and button tranches. After lava, vine, and those
+      connected/static families, the current residual has 7,898
       diagnostics including the single air diagnostic, with zero diagnostics in
       every implemented family; each remaining family must shrink that exact set.
   - [ ] Complete the exhaustive residual-family report, beginning with
