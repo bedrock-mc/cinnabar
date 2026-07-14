@@ -6,10 +6,12 @@ use assets::{
     RuntimeAssets, TINT_MAP_BYTES, TextureArray, TextureMip, TexturePage, TextureRef, TintSource,
     VisualKind, encode_blob, read_registry,
 };
+use serde::Serialize;
+use sha2::{Digest, Sha256};
 use visualcoverage::{
     AllowlistEntry, Baseline, Counts, CoverageError, RenderStream, StateIdentity, analyze_bytes,
     analyze_records, baseline_from_snapshot, deterministic_json, parse_baseline, ratchet,
-    ratchet_protocol_1001, strict_records,
+    ratchet_protocol_1001, strict_bytes, strict_records, write_deterministic_json_atomic,
 };
 
 #[test]
@@ -833,12 +835,27 @@ fn strict_quad(material: u32) -> ModelQuad {
 fn strict_runtime(
     records: &[RegistryRecord],
     visuals: Vec<BlockVisual>,
-    mut materials: Vec<Material>,
+    materials: Vec<Material>,
     templates: Vec<ModelTemplate>,
     quads: Vec<ModelQuad>,
     animations: Vec<Animation>,
     frames: Vec<TextureRef>,
 ) -> RuntimeAssets {
+    RuntimeAssets::decode(&strict_blob(
+        records, visuals, materials, templates, quads, animations, frames,
+    ))
+    .expect("decode strict fixture")
+}
+
+fn strict_blob(
+    records: &[RegistryRecord],
+    visuals: Vec<BlockVisual>,
+    mut materials: Vec<Material>,
+    templates: Vec<ModelTemplate>,
+    quads: Vec<ModelQuad>,
+    animations: Vec<Animation>,
+    frames: Vec<TextureRef>,
+) -> Vec<u8> {
     if animations.is_empty() {
         for material in &mut materials {
             material.animation = NO_ANIMATION;
@@ -874,8 +891,9 @@ fn strict_runtime(
             .into_boxed_slice(),
         },
     };
-    RuntimeAssets::decode(&encode_blob(&compiled).expect("encode strict fixture"))
-        .expect("decode strict fixture")
+    encode_blob(&compiled)
+        .expect("encode strict fixture")
+        .into_vec()
 }
 
 fn strict_materials() -> Vec<Material> {
@@ -1390,6 +1408,265 @@ fn strict_json_is_hash_bound_sorted_and_byte_identical() {
     );
 }
 
+fn assert_no_atomic_temp_artifacts(directory: &std::path::Path) {
+    let artifacts = std::fs::read_dir(directory)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|name| name.contains(".tmp-"))
+        .collect::<Vec<_>>();
+    assert!(
+        artifacts.is_empty(),
+        "orphaned atomic temp files: {artifacts:?}"
+    );
+}
+
+struct SerializationFailure;
+
+impl Serialize for SerializationFailure {
+    fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        Err(serde::ser::Error::custom(
+            "intentional serialization failure",
+        ))
+    }
+}
+
+#[test]
+fn strict_atomic_writer_preserves_destinations_and_cleans_temps_on_failure() {
+    let directory = tempfile::tempdir().unwrap();
+    let output = directory.path().join("strict.json");
+    std::fs::write(&output, b"reviewed-report\n").unwrap();
+
+    let error = write_deterministic_json_atomic(&output, &SerializationFailure).unwrap_err();
+    assert!(matches!(error, CoverageError::Json(_)));
+    assert_eq!(std::fs::read(&output).unwrap(), b"reviewed-report\n");
+    assert_no_atomic_temp_artifacts(directory.path());
+
+    let replacement_blocker = directory.path().join("blocked.json");
+    std::fs::create_dir(&replacement_blocker).unwrap();
+    let error = write_deterministic_json_atomic(
+        &replacement_blocker,
+        &serde_json::json!({"schema": "strict-test"}),
+    )
+    .unwrap_err();
+    assert!(matches!(error, CoverageError::ReportWrite { .. }));
+    assert!(replacement_blocker.is_dir());
+    assert_no_atomic_temp_artifacts(directory.path());
+
+    write_deterministic_json_atomic(&output, &serde_json::json!({"schema": "strict-test"}))
+        .unwrap();
+    assert_eq!(
+        std::fs::read(&output).unwrap(),
+        b"{\n  \"schema\": \"strict-test\"\n}\n"
+    );
+    assert_no_atomic_temp_artifacts(directory.path());
+}
+
+#[test]
+fn strict_cli_preserves_preexisting_output_on_semantic_failure() {
+    let records = fixture_records();
+    let registry = registry_bytes(&records);
+    let assets = blob(
+        &records,
+        &[
+            VisualKind::Invisible,
+            VisualKind::Cube,
+            VisualKind::Diagnostic,
+        ],
+    );
+    let expected = baseline(&analyze_bytes(&registry, &assets).unwrap());
+    let directory = tempfile::tempdir().unwrap();
+    let registry_path = directory.path().join("registry.bin");
+    let assets_path = directory.path().join("assets.mcbea");
+    let baseline_path = directory.path().join("baseline.json");
+    let report_path = directory.path().join("strict.json");
+    std::fs::write(&registry_path, registry).unwrap();
+    std::fs::write(&assets_path, assets).unwrap();
+    std::fs::write(&baseline_path, deterministic_json(&expected).unwrap()).unwrap();
+    std::fs::write(&report_path, b"reviewed-report\n").unwrap();
+
+    let run = std::process::Command::new(env!("CARGO_BIN_EXE_visualcoverage"))
+        .args([
+            "strict",
+            "--registry",
+            registry_path.to_str().unwrap(),
+            "--assets",
+            assets_path.to_str().unwrap(),
+            "--baseline",
+            baseline_path.to_str().unwrap(),
+            "--out",
+            report_path.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!run.status.success());
+    assert_eq!(std::fs::read(&report_path).unwrap(), b"reviewed-report\n");
+    assert_no_atomic_temp_artifacts(directory.path());
+}
+
+#[test]
+fn strict_rejects_each_diagnostic_transitive_and_unsupported_liquid_route() {
+    let model_records = strict_fixture_records(&[ModelFamily::Air, ModelFamily::Cross]);
+    let runtime = strict_runtime(
+        &model_records,
+        vec![
+            strict_no_draw(BlockFlags::AIR, ContributorRole::Air),
+            strict_model(VisualKind::Cross, 0),
+        ],
+        strict_materials(),
+        vec![ModelTemplate {
+            quad_start: 0,
+            quad_count: 1,
+            flags: 0,
+        }],
+        vec![strict_quad(0)],
+        strict_animations().0,
+        strict_animations().1,
+    );
+    let snapshot = strict_snapshot(&model_records, &runtime);
+    assert!(matches!(
+        strict_records(
+            &model_records,
+            &runtime,
+            snapshot.clone(),
+            &strict_baseline(&snapshot, &[]),
+            false,
+        ),
+        Err(CoverageError::DiagnosticMaterialReference {
+            state,
+            material_id: 0,
+        }) if state == snapshot.states[1]
+    ));
+
+    let liquid_records = strict_fixture_records(&[ModelFamily::Air, ModelFamily::Liquid]);
+    let runtime = strict_runtime(
+        &liquid_records,
+        vec![
+            strict_no_draw(BlockFlags::AIR, ContributorRole::Air),
+            strict_liquid([0; 6], 0),
+        ],
+        strict_materials(),
+        vec![],
+        vec![],
+        strict_animations().0,
+        strict_animations().1,
+    );
+    let snapshot = strict_snapshot(&liquid_records, &runtime);
+    assert!(matches!(
+        strict_records(
+            &liquid_records,
+            &runtime,
+            snapshot.clone(),
+            &strict_baseline(&snapshot, &[]),
+            false,
+        ),
+        Err(CoverageError::DiagnosticMaterialReference {
+            state,
+            material_id: 0,
+        }) if state == snapshot.states[1]
+    ));
+
+    let runtime = strict_runtime(
+        &liquid_records,
+        vec![
+            strict_no_draw(BlockFlags::AIR, ContributorRole::Air),
+            strict_liquid([1; 6], 0),
+        ],
+        strict_materials(),
+        vec![],
+        vec![],
+        strict_animations().0,
+        strict_animations().1,
+    );
+    let snapshot = strict_snapshot(&liquid_records, &runtime);
+    assert!(matches!(
+        strict_records(
+            &liquid_records,
+            &runtime,
+            snapshot.clone(),
+            &strict_baseline(&snapshot, &[]),
+            false,
+        ),
+        Err(CoverageError::InvalidLiquidMaterials {
+            state,
+            material_ids,
+        }) if state == snapshot.states[1] && material_ids == vec![1]
+    ));
+
+    let mut diagnostic_frames = strict_animations().1;
+    diagnostic_frames[0] = TextureRef::DIAGNOSTIC;
+    let cube_records = strict_fixture_records(&[ModelFamily::Air, ModelFamily::Cube]);
+    let runtime = strict_runtime(
+        &cube_records,
+        vec![
+            strict_no_draw(BlockFlags::AIR, ContributorRole::Air),
+            strict_cube([2; 6]),
+        ],
+        strict_materials(),
+        vec![],
+        vec![],
+        strict_animations().0,
+        diagnostic_frames,
+    );
+    let snapshot = strict_snapshot(&cube_records, &runtime);
+    assert!(matches!(
+        strict_records(
+            &cube_records,
+            &runtime,
+            snapshot.clone(),
+            &strict_baseline(&snapshot, &[]),
+            false,
+        ),
+        Err(CoverageError::DiagnosticAnimationFrameReference {
+            state,
+            animation_id: 0,
+        }) if state == snapshot.states[1]
+    ));
+}
+
+#[test]
+fn strict_bytes_computes_and_binds_production_input_hashes() {
+    let mut records = read_registry(include_bytes!(
+        "../../../crates/assets/data/block-registry-v1001.bin"
+    ))
+    .unwrap();
+    for record in &mut records {
+        if !record.flags.contains(BlockFlags::AIR) {
+            record.model_family = ModelFamily::Cube;
+        }
+    }
+    let registry = registry_bytes(&records);
+    let visuals = records
+        .iter()
+        .map(|record| {
+            if record.flags.contains(BlockFlags::AIR) {
+                strict_no_draw(BlockFlags::AIR, ContributorRole::Air)
+            } else {
+                strict_cube([1; 6])
+            }
+        })
+        .collect();
+    let assets = strict_blob(
+        &records,
+        visuals,
+        strict_materials(),
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+    );
+    let snapshot = analyze_bytes(&registry, &assets).unwrap();
+    let expected_registry_hash = format!("{:x}", Sha256::digest(&registry));
+    let expected_assets_hash = format!("{:x}", Sha256::digest(&assets));
+    let report = strict_bytes(&registry, &assets, &strict_baseline(&snapshot, &[])).unwrap();
+
+    assert_eq!(report.registry_sha256, expected_registry_hash);
+    assert_eq!(report.assets_sha256, expected_assets_hash);
+    assert_eq!(report.routes.len(), 16_913);
+}
+
 #[test]
 #[ignore = "requires CINNABAR_REAL_PACK pointing at the ignored pinned MCBEAS04 blob"]
 fn strict_cli_rejects_the_current_real_pack_until_zero_diagnostics() {
@@ -1401,8 +1678,10 @@ fn strict_cli_rejects_the_current_real_pack_until_zero_diagnostics() {
         .join("../../crates/assets/data/visual-coverage-v1001.json");
     let registry_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../crates/assets/data/block-registry-v1001.bin");
-    let expected = parse_baseline(&std::fs::read(&baseline_path).unwrap()).unwrap();
-    assert_eq!(expected.diagnostic_sequential_ids.len(), 14_941);
+    let registry_bytes = std::fs::read(&registry_path).unwrap();
+    let assets_bytes = std::fs::read(&assets_path).unwrap();
+    let current = analyze_bytes(&registry_bytes, &assets_bytes).unwrap();
+    assert_eq!(current.diagnostic_states.len(), 14_941);
 
     let directory = tempfile::tempdir().unwrap();
     let report_path = directory.path().join("strict.json");
@@ -1426,7 +1705,7 @@ fn strict_cli_rejects_the_current_real_pack_until_zero_diagnostics() {
     );
     let stderr = String::from_utf8_lossy(&run.stderr);
     assert!(
-        stderr.contains("NonAirDiagnostic") || stderr.contains("UnsupportedModelFamily"),
+        stderr.contains("UnsupportedModelFamily"),
         "unexpected stderr: {stderr}"
     );
     assert!(!report_path.exists());

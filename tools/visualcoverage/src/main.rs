@@ -6,8 +6,8 @@ use std::{
 
 use clap::{Parser, Subcommand};
 use visualcoverage::{
-    AllowlistEntry, analyze_bytes, baseline_from_snapshot, deterministic_json, parse_baseline,
-    ratchet_protocol_1001, strict_bytes,
+    AllowlistEntry, analyze_bytes, baseline_from_snapshot, parse_baseline, ratchet_protocol_1001,
+    strict_bytes, write_deterministic_json_atomic,
 };
 
 const MAX_REGISTRY_BYTES: u64 = 16 * 1024 * 1024;
@@ -78,7 +78,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "invisible allowlist",
             )?)?;
             let baseline = baseline_from_snapshot(&snapshot, allowlist)?;
-            fs::write(out, deterministic_json(&baseline)?)?;
+            write_deterministic_json_atomic(&out, &baseline)?;
         }
         Command::Ratchet {
             registry,
@@ -92,8 +92,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 parse_baseline(&read_bounded(&baseline, MAX_BASELINE_BYTES, "baseline")?)?;
             let report =
                 ratchet_protocol_1001(analyze_bytes(&registry_bytes, &assets_bytes)?, &baseline)?;
-            let bytes = deterministic_json(&report)?;
-            fs::write(out, bytes)?;
+            write_deterministic_json_atomic(&out, &report)?;
         }
         Command::Strict {
             registry,
@@ -106,8 +105,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let baseline =
                 parse_baseline(&read_bounded(&baseline, MAX_BASELINE_BYTES, "baseline")?)?;
             let report = strict_bytes(&registry_bytes, &assets_bytes, &baseline)?;
-            let bytes = deterministic_json(&report)?;
-            fs::write(out, bytes)?;
+            write_deterministic_json_atomic(&out, &report)?;
         }
     }
     Ok(())
