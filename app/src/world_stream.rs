@@ -2007,6 +2007,10 @@ impl WorldStream {
                     resolved,
                 });
             }
+            // Protocol normalization lands before the app-owned clock and
+            // weather resources. Keep these events ordered and bounded here;
+            // the atmosphere tranche will consume them without remeshing.
+            WorldEvent::SetTime(_) | WorldEvent::Weather(_) => {}
             WorldEvent::SubChunks(_) => unreachable!("sub-chunk batches are prepared on workers"),
         }
     }

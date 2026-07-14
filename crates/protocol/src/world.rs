@@ -3,9 +3,9 @@ use std::sync::Arc;
 use jolyne::GameData;
 use thiserror::Error;
 use valentine::bedrock::version::v1_26_30::{
-    CorrectPlayerMovePredictionPacketPredictionType, McpePacketData, StartGamePacketDimension,
-    SubChunkEntryWithoutCachingItemResult, SubchunkPacketEntries, SubchunkRequestPacket, Vec3I8,
-    Vec3Li,
+    CorrectPlayerMovePredictionPacketPredictionType, LevelEventPacketEvent, McpePacketData,
+    StartGamePacketDimension, SubChunkEntryWithoutCachingItemResult, SubchunkPacketEntries,
+    SubchunkRequestPacket, Vec3I8, Vec3Li,
 };
 
 use crate::Packet;
@@ -67,6 +67,40 @@ impl WorldBootstrap {
             air_network_id: air_network_id(start_game.block_network_ids_are_hashes),
             block_network_ids_are_hashes: start_game.block_network_ids_are_hashes,
         }
+    }
+}
+
+/// Initial clock and weather state retained from StartGame.
+///
+/// This is separate from [`WorldBootstrap`] so existing world-stream
+/// construction remains independent of the later app-owned atmosphere state.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WorldEnvironmentBootstrap {
+    /// StartGame's cycle-stop sentinel. Current world time arrives in SetTime.
+    pub day_cycle_stop_time: i32,
+    /// Initial rain intensity clamped to the closed unit interval.
+    pub rain_level: f32,
+    /// Initial lightning intensity clamped to the closed unit interval.
+    pub lightning_level: f32,
+}
+
+impl WorldEnvironmentBootstrap {
+    #[must_use]
+    pub fn from_game_data(game_data: &GameData) -> Self {
+        let start_game = &game_data.start_game;
+        Self {
+            day_cycle_stop_time: start_game.day_cycle_stop_time,
+            rain_level: normalize_weather_level(start_game.rain_level),
+            lightning_level: normalize_weather_level(start_game.lightning_level),
+        }
+    }
+}
+
+fn normalize_weather_level(level: f32) -> f32 {
+    if level.is_finite() {
+        level.clamp(0.0, 1.0)
+    } else {
+        0.0
     }
 }
 
@@ -183,6 +217,32 @@ pub struct MovePlayerEvent {
     pub yaw: f32,
 }
 
+/// One server world-clock update.
+///
+/// The signed Bedrock time is retained exactly. Interpreting negative values or
+/// mapping ticks to a visual day cycle belongs to the app-owned clock.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SetTimeEvent {
+    pub time: i32,
+}
+
+/// Weather channel targeted by a normalized level event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WeatherChannel {
+    Rain,
+    Lightning,
+}
+
+/// One normalized weather-channel target from a Bedrock level event.
+///
+/// Start events target `1.0`; stop events target `0.0`. LevelEvent's integer
+/// data is not an intensity and is intentionally excluded from this contract.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WeatherUpdateEvent {
+    pub channel: WeatherChannel,
+    pub level: f32,
+}
+
 /// One server-authoritative correction for the local player's predicted movement.
 ///
 /// Unlike [`MovePlayerEvent`], this packet carries no runtime ID: Bedrock sends it
@@ -234,6 +294,8 @@ pub enum WorldEvent {
     ChangeDimension(ChangeDimensionEvent),
     MovePlayer(MovePlayerEvent),
     PlayerMovementCorrection(PlayerMovementCorrectionEvent),
+    SetTime(SetTimeEvent),
+    Weather(WeatherUpdateEvent),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -483,6 +545,31 @@ pub fn into_world_event(
                 on_ground: packet.on_ground,
                 tick,
             })
+        }
+        McpePacketData::PacketSetTime(packet) => {
+            WorldEvent::SetTime(SetTimeEvent { time: packet.time })
+        }
+        McpePacketData::PacketLevelEvent(packet) => {
+            let update = match packet.event {
+                LevelEventPacketEvent::StartRain => WeatherUpdateEvent {
+                    channel: WeatherChannel::Rain,
+                    level: 1.0,
+                },
+                LevelEventPacketEvent::StopRain => WeatherUpdateEvent {
+                    channel: WeatherChannel::Rain,
+                    level: 0.0,
+                },
+                LevelEventPacketEvent::StartThunder => WeatherUpdateEvent {
+                    channel: WeatherChannel::Lightning,
+                    level: 1.0,
+                },
+                LevelEventPacketEvent::StopThunder => WeatherUpdateEvent {
+                    channel: WeatherChannel::Lightning,
+                    level: 0.0,
+                },
+                _ => return Ok(None),
+            };
+            WorldEvent::Weather(update)
         }
         _ => return Ok(None),
     };

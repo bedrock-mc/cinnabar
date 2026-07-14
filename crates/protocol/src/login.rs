@@ -143,6 +143,8 @@ fn decode_world_raw_with(
             | McpePacketName::PacketChangeDimension
             | McpePacketName::PacketMovePlayer
             | McpePacketName::PacketCorrectPlayerMovePrediction
+            | McpePacketName::PacketSetTime
+            | McpePacketName::PacketLevelEvent
     ) {
         return Ok(None);
     }
@@ -159,8 +161,8 @@ mod tests {
     use valentine::bedrock::context::BedrockSession;
     use valentine::bedrock::version::v1_26_30::{
         BiomeDefinition, BiomeDefinitionListPacket, BlockCoordinates,
-        CorrectPlayerMovePredictionPacket, McpePacketName, MovePlayerPacket, UpdateBlockPacket,
-        Vec2F, Vec3F,
+        CorrectPlayerMovePredictionPacket, LevelEventPacket, LevelEventPacketEvent, McpePacketName,
+        MovePlayerPacket, UpdateBlockPacket, Vec2F, Vec3F,
     };
     use valentine::protocol::wire;
 
@@ -216,6 +218,36 @@ mod tests {
         assert_eq!(updates[0].dimension, 2);
         assert_eq!(updates[0].position, [17, 2, -3]);
         assert_eq!(updates[0].network_id, 99);
+    }
+
+    #[test]
+    fn allowlisted_weather_packet_is_decoded_and_normalized() {
+        let session = BedrockSession { shield_item_id: 0 };
+        let packet: Packet = LevelEventPacket {
+            event: LevelEventPacketEvent::StartRain,
+            data: 48_000,
+            ..Default::default()
+        }
+        .into();
+        let mut batch = crate::encode(&packet, &session).expect("encode weather event");
+        batch.advance(1);
+        let raw = decode_packet_raw(&mut batch).expect("raw weather event");
+        let decoder_called = Cell::new(false);
+
+        let event = decode_world_raw_with(raw, 0, |raw| {
+            decoder_called.set(true);
+            raw.decode(&session)
+        })
+        .expect("decode weather event");
+
+        assert!(decoder_called.get());
+        assert_eq!(
+            event,
+            Some(WorldEvent::Weather(crate::WeatherUpdateEvent {
+                channel: crate::WeatherChannel::Rain,
+                level: 1.0,
+            }))
+        );
     }
 
     #[test]

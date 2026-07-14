@@ -2,8 +2,9 @@ use bytes::{Buf, BytesMut};
 use protocol::{
     BiomeDefinitionEvent, BiomeDefinitionsEvent, DimensionRange, GameData, HASHED_AIR_NETWORK_ID,
     LevelChunkMode, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES, MovePlayerEvent,
-    PlayerMovementCorrectionEvent, SEQUENTIAL_AIR_NETWORK_ID, SubChunkResult, WorldBootstrap,
-    WorldEvent, WorldPacketError, air_network_id, into_world_event, request_sub_chunk_column,
+    PlayerMovementCorrectionEvent, SEQUENTIAL_AIR_NETWORK_ID, SetTimeEvent, SubChunkResult,
+    WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent,
+    WorldPacketError, air_network_id, into_world_event, request_sub_chunk_column,
     vanilla_dimension_range,
 };
 use valentine::bedrock::codec::{BedrockCodec, BedrockSized};
@@ -11,8 +12,9 @@ use valentine::bedrock::version::v1_26_30::{
     BiomeDefinition, BiomeDefinitionListPacket, BlockCoordinates, BlockUpdate,
     BlockUpdateTransitionType, ChangeDimensionPacket, ChunkRadiusUpdatePacket,
     CorrectPlayerMovePredictionPacket, CorrectPlayerMovePredictionPacketPredictionType,
-    LevelChunkPacket, McpePacketData, MovePlayerPacket, NetworkChunkPublisherUpdatePacket,
-    StartGamePacketDimension, SubChunkEntryWithCachingItem, SubChunkEntryWithCachingItemResult,
+    LevelChunkPacket, LevelEventPacket, LevelEventPacketEvent, McpePacketData, MovePlayerPacket,
+    NetworkChunkPublisherUpdatePacket, SetTimePacket, StartGamePacketDimension,
+    SubChunkEntryWithCachingItem, SubChunkEntryWithCachingItemResult,
     SubChunkEntryWithoutCachingItem, SubChunkEntryWithoutCachingItemResult, SubchunkPacket,
     SubchunkPacketEntries, UpdateBlockFlags, UpdateBlockPacket, UpdateSubchunkBlocksPacket, Vec2F,
     Vec3F, Vec3I,
@@ -194,6 +196,9 @@ fn normalizes_start_game_bootstrap_without_generated_types() {
         y: 114,
         z: 61,
     };
+    game_data.start_game.day_cycle_stop_time = 18_000;
+    game_data.start_game.rain_level = 0.25;
+    game_data.start_game.lightning_level = 0.75;
     game_data.start_game.block_network_ids_are_hashes = true;
 
     assert_eq!(
@@ -207,6 +212,36 @@ fn normalizes_start_game_bootstrap_without_generated_types() {
             block_network_ids_are_hashes: true,
         }
     );
+    assert_eq!(
+        WorldEnvironmentBootstrap::from_game_data(&game_data),
+        WorldEnvironmentBootstrap {
+            day_cycle_stop_time: 18_000,
+            rain_level: 0.25,
+            lightning_level: 0.75,
+        }
+    );
+}
+
+#[test]
+fn clamps_initial_weather_levels_and_fails_non_finite_values_closed() {
+    let mut game_data = GameData {
+        start_game: Default::default(),
+        item_registry: Default::default(),
+        biome_definitions: None,
+        entity_identifiers: None,
+        creative_content: None,
+    };
+    game_data.start_game.rain_level = -0.25;
+    game_data.start_game.lightning_level = 1.25;
+    let bootstrap = WorldEnvironmentBootstrap::from_game_data(&game_data);
+    assert_eq!(bootstrap.rain_level, 0.0);
+    assert_eq!(bootstrap.lightning_level, 1.0);
+
+    game_data.start_game.rain_level = f32::NAN;
+    game_data.start_game.lightning_level = f32::INFINITY;
+    let bootstrap = WorldEnvironmentBootstrap::from_game_data(&game_data);
+    assert_eq!(bootstrap.rain_level, 0.0);
+    assert_eq!(bootstrap.lightning_level, 0.0);
 }
 
 #[test]
@@ -680,8 +715,66 @@ fn normalizes_streaming_radius_publisher_and_dimension_events() {
 }
 
 #[test]
-fn ignores_packets_without_world_state() {
-    let packet = valentine::bedrock::version::v1_26_30::SetTimePacket { time: 6000 };
+fn normalizes_post_spawn_set_time() {
+    let packet = SetTimePacket { time: 6000 };
+    assert_eq!(
+        into_world_event(packet.into(), 0).unwrap(),
+        Some(WorldEvent::SetTime(SetTimeEvent { time: 6000 }))
+    );
+}
+
+#[test]
+fn normalizes_weather_level_events_to_explicit_channel_targets() {
+    let cases = [
+        (
+            LevelEventPacketEvent::StartRain,
+            WeatherUpdateEvent {
+                channel: WeatherChannel::Rain,
+                level: 1.0,
+            },
+        ),
+        (
+            LevelEventPacketEvent::StopRain,
+            WeatherUpdateEvent {
+                channel: WeatherChannel::Rain,
+                level: 0.0,
+            },
+        ),
+        (
+            LevelEventPacketEvent::StartThunder,
+            WeatherUpdateEvent {
+                channel: WeatherChannel::Lightning,
+                level: 1.0,
+            },
+        ),
+        (
+            LevelEventPacketEvent::StopThunder,
+            WeatherUpdateEvent {
+                channel: WeatherChannel::Lightning,
+                level: 0.0,
+            },
+        ),
+    ];
+
+    for (event, expected) in cases {
+        let packet = LevelEventPacket {
+            event,
+            data: 48_000,
+            ..Default::default()
+        };
+        assert_eq!(
+            into_world_event(packet.into(), 0).unwrap(),
+            Some(WorldEvent::Weather(expected))
+        );
+    }
+}
+
+#[test]
+fn ignores_level_events_without_normalized_world_state() {
+    let packet = LevelEventPacket {
+        event: LevelEventPacketEvent::SoundClick,
+        ..Default::default()
+    };
     assert_eq!(into_world_event(packet.into(), 0).unwrap(), None);
 }
 

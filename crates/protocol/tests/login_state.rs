@@ -285,6 +285,7 @@ impl ServerScript {
                     self.enqueue_encrypted(&[
                         start_game(RUNTIME_ID),
                         McpePacket::from(SetTimePacket { time: 12_345 }),
+                        McpePacket::from(SetTimePacket { time: 23_456 }),
                     ]);
                 }
                 self.stage = 6;
@@ -568,14 +569,22 @@ async fn assert_success(mode: CompressionMode, order: SpawnOrder) {
     assert_eq!(game_data.start_game.runtime_entity_id, RUNTIME_ID);
     assert_eq!(session.decode_error_count(), 0);
 
-    let deferred = tokio::time::timeout(std::time::Duration::from_secs(1), session.recv())
+    for expected_time in [12_345, 23_456] {
+        let deferred = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            session.recv_world_event(0),
+        )
         .await
         .expect("pre-spawn packet was discarded")
-        .expect("pre-spawn packets must be preserved for play");
-    assert!(matches!(
-        deferred.data,
-        McpePacketData::PacketSetTime(SetTimePacket { time: 12_345 })
-    ));
+        .expect("pre-spawn packet must normalize in Play");
+        assert_eq!(
+            deferred,
+            WorldEvent::SetTime(protocol::SetTimeEvent {
+                time: expected_time,
+            }),
+            "pre-spawn SetTime packets must retain FIFO order"
+        );
+    }
 
     let initial_radius = tokio::time::timeout(
         std::time::Duration::from_secs(1),

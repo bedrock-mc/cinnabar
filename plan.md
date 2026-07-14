@@ -899,6 +899,12 @@ Scope: block registry + block-state → model/texture mapping (generated export 
 - [ ] **2.7 Client lighting and atmosphere.** Block/sky flood fill, baked vertex
   light and day/night, then sky, fog, and clouds; finish the Phase 2 parity and
   teleport-remesh acceptance gates.
+  - [x] Normalize SetTime and rain/thunder level events into bounded,
+    vendor-independent protocol events; retain day-cycle-stop and clamped
+    initial rain/lightning state from StartGame. Two deferred pre-spawn SetTime
+    packets retain FIFO order in Play, post-spawn normalization is identical,
+    and non-finite initial weather values fail closed. The app-owned clock,
+    weather resources, light response, and atmosphere rendering remain open.
 
 Perf budget carried from Phase 0 gate; add: full remesh of view distance after teleport ≤ 2s.
 
