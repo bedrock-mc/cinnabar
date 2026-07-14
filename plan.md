@@ -354,6 +354,15 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     and 6.438% mean combined CPU. Full render/client tests, strict Clippy,
     acceptance tests, and independent re-review through test-hardening commit
     `ba3ea3f` are green with no findings.
+    **Camera-motion regression closed (2026-07-13):** exact floating-point view
+    keys no longer discard a safe same-address transparent snapshot midway
+    through its bounded inactive-slot upload. The staged generation now commits
+    atomically before the latest pose is requested, while allocation, asset,
+    tint, or stream-address changes still cancel immediately. This prevents
+    newly streamed water from starving and appearing or disappearing with
+    camera movement (`a4f7da5`; regression-first test, full 278-test render
+    suite, strict Clippy/formatting, and diff check green). A fresh native BDS
+    camera-motion capture is required below before closing live evidence.
   - [ ] Add compact static templates in impact order: slabs/stairs,
     wall-attached vines/lichen/sculk-vein and related thin faces,
     doors/trapdoors, connection-aware panes/fences/gates, then static
