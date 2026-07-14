@@ -1485,6 +1485,28 @@ function ConvertFrom-CameraCommittedMarker {
     }
 }
 
+function Assert-ModelGalleryCommittedCamera {
+    param(
+        [Parameter(Mandatory = $true)]$Committed,
+        [Parameter(Mandatory = $true)]$Target
+    )
+
+    # Bedrock's tp command centers integral horizontal block coordinates.
+    $expectedX = [double]$Target.x + 0.5
+    $expectedY = [double]$Target.y + 1.62001
+    $expectedZ = [double]$Target.z + 0.5
+    if ([Math]::Abs([double]$Committed.position[0] - $expectedX) -gt 0.01 -or
+        [Math]::Abs([double]$Committed.position[1] - $expectedY) -gt 0.01 -or
+        [Math]::Abs([double]$Committed.position[2] - $expectedZ) -gt 0.01) {
+        throw "committed client camera did not match the model gallery target: expected=$expectedX,$expectedY,$expectedZ actual=$(@($Committed.position) -join ',')"
+    }
+    return [pscustomobject][ordered]@{
+        x = $expectedX
+        y = $expectedY
+        z = $expectedZ
+    }
+}
+
 function ConvertFrom-ModelWitnessCompleteMarker {
     param([Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Line)
 
@@ -3891,13 +3913,7 @@ function Publish-VisualFixture {
                 $modelCameraCommitEvidence = & $WaitForAppMarker $AppHandle 'RUST_MCBE_CAMERA_COMMITTED ' 60
             }
             $modelCameraCommit = ConvertFrom-CameraCommittedMarker -Line ([string]$modelCameraCommitEvidence.Line)
-            $expectedCamera = $Plan.CameraTarget
-            $expectedEyeY = [double]$expectedCamera.y + 1.62001
-            if ([Math]::Abs([double]$modelCameraCommit.position[0] - [double]$expectedCamera.x) -gt 0.01 -or
-                [Math]::Abs([double]$modelCameraCommit.position[1] - $expectedEyeY) -gt 0.01 -or
-                [Math]::Abs([double]$modelCameraCommit.position[2] - [double]$expectedCamera.z) -gt 0.01) {
-                throw "committed client camera did not match the model gallery target: expected=$($expectedCamera.x),$expectedEyeY,$($expectedCamera.z) actual=$(@($modelCameraCommit.position) -join ',')"
-            }
+            $null = Assert-ModelGalleryCommittedCamera -Committed $modelCameraCommit -Target $Plan.CameraTarget
             Write-AcceptanceEvent -RunDirectory $RunDirectory -Event 'model_witness_camera_committed' -Fields ([ordered]@{
                 sequence = [uint64]$modelCameraCommit.sequence
                 position = @($modelCameraCommit.position) -join ','

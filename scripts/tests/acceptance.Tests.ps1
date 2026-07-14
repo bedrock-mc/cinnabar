@@ -1165,6 +1165,12 @@ try {
     Assert-ThrowsLike {
         ConvertFrom-CameraCommittedMarker -Line 'RUST_MCBE_CAMERA_COMMITTED sequence=0 position=27,87.62,43 yaw=-45 pitch=12.5'
     } '*invalid camera committed marker*' 'camera-commit parser accepted sequence zero'
+    $centeredCamera = ConvertFrom-CameraCommittedMarker -Line 'RUST_MCBE_CAMERA_COMMITTED sequence=19 position=27.50000,87.62001,43.50000 yaw=-45.00000 pitch=12.50000'
+    $expectedCenteredCamera = Assert-ModelGalleryCommittedCamera -Committed $centeredCamera -Target ([pscustomobject]@{ x = 27; y = 86; z = 43 })
+    Assert-Equal '27.5,87.62001,43.5' (@($expectedCenteredCamera.x, $expectedCenteredCamera.y, $expectedCenteredCamera.z) -join ',') 'camera assertion lost Bedrock horizontal centering'
+    Assert-ThrowsLike {
+        Assert-ModelGalleryCommittedCamera -Committed $cameraCommitted -Target ([pscustomobject]@{ x = 27; y = 86; z = 43 })
+    } '*did not match the model gallery target*' 'camera assertion accepted uncentered horizontal coordinates'
     $appLaunchIndex = $source.IndexOf('$appHandle = Start-LoggedProcess -Executable $AppExecutable', [StringComparison]::Ordinal)
     $galleryAnchorBranchIndex = $source.IndexOf('if ($isSlabStairGallery) {', $appLaunchIndex, [StringComparison]::Ordinal)
     $galleryAnchorWaitIndex = $source.IndexOf("-Marker 'RUST_MCBE_GALLERY_ANCHOR_READY '", $galleryAnchorBranchIndex, [StringComparison]::Ordinal)
