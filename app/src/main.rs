@@ -2095,6 +2095,7 @@ fn run(args: args::ClientArgs) -> Result<()> {
             Update,
             (
                 receive_network_events,
+                exit_on_fatal_runtime_error,
                 poll_transparent_witness_request,
                 poll_model_witness_request,
                 drive_world_stream,
@@ -2178,6 +2179,26 @@ fn record_fatal_error(fatal_error: &mut Option<String>, error: String) {
     if fatal_error.is_none() {
         *fatal_error = Some(error);
     }
+}
+
+fn fatal_runtime_exit(error: &str) -> Option<AppExit> {
+    (!error.is_empty()).then(AppExit::error)
+}
+
+fn exit_on_fatal_runtime_error(
+    client_world: Res<ClientWorld>,
+    mut network: ResMut<NetworkHandle>,
+    mut exit: MessageWriter<AppExit>,
+) {
+    let Some(exit_status) = client_world
+        .fatal_error
+        .as_deref()
+        .and_then(fatal_runtime_exit)
+    else {
+        return;
+    };
+    network.shutdown();
+    exit.write(exit_status);
 }
 
 fn world_stream_fatal_message(error: world_stream::WorldStreamFatalError) -> String {
@@ -3451,7 +3472,7 @@ fn cumulative_counter_delta(current: u64, previous: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use assets::RuntimeAssets;
-    use bevy::prelude::{Quat, Transform, Vec3};
+    use bevy::prelude::{AppExit, Quat, Transform, Vec3};
     use protocol::{
         BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockUpdateEvent, LevelChunkEvent,
         LevelChunkMode, PlayerMovementCorrectionEvent, SubChunkBatchEvent, SubChunkEntryEvent,
@@ -3480,12 +3501,13 @@ mod tests {
         accepted_move_player_ingress_marker, apply_committed_control, bedrock_camera_rotation,
         bridge_endpoint_exists, bridge_endpoint_path, camera_sub_chunk_key,
         cumulative_counter_delta, deterministic_mutation_coordinate, drain_network_controls,
-        drain_network_ingress, flush_sub_chunk_requests, leaf_forest_target_mutation_coordinate,
-        model_gallery_camera_committed_marker, preflight_bridge_endpoint, record_fatal_error,
-        resolve_socket_dir_from, startup_biome_tints, status_title, synchronize_biome_tints,
-        target_mutation_armed_marker, teleport_proof, transparent_sort_committed_marker,
-        world_ready_markers, world_stream_fatal_message,
-        write_move_player_ingress_before_source_capture, write_stdout_marker,
+        drain_network_ingress, fatal_runtime_exit, flush_sub_chunk_requests,
+        leaf_forest_target_mutation_coordinate, model_gallery_camera_committed_marker,
+        preflight_bridge_endpoint, record_fatal_error, resolve_socket_dir_from,
+        startup_biome_tints, status_title, synchronize_biome_tints, target_mutation_armed_marker,
+        teleport_proof, transparent_sort_committed_marker, world_ready_markers,
+        world_stream_fatal_message, write_move_player_ingress_before_source_capture,
+        write_stdout_marker,
     };
 
     fn overworld_biome_payload() -> Vec<u8> {
@@ -4081,6 +4103,15 @@ mod tests {
             AcceptanceExitDecision::Fatal
         );
         assert!(AcceptanceExitDecision::Fatal.is_error());
+    }
+
+    #[test]
+    fn interactive_network_failure_requests_exit_without_waiting_for_acceptance_finalization() {
+        assert_eq!(
+            fatal_runtime_exit("network session failed: bridge closed"),
+            Some(AppExit::error())
+        );
+        assert_eq!(fatal_runtime_exit(""), None);
     }
 
     const DESTINATION_COHORT: ViewCohort = ViewCohort {
