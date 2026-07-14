@@ -870,11 +870,13 @@ pub fn strict_bytes(
 
 /// Compiles the exact protocol-1001 target inventory consumed by later gallery
 /// placement and screenshot stages. Diagnostics are retained as explicit
-/// targets, but keep the inventory non-accepting until visual coverage closes.
-pub fn compile_gallery_inventory(
+/// targets. Acceptance requires both zero diagnostics and a fully valid strict
+/// semantic draw graph.
+fn assemble_gallery_inventory(
     snapshot: CoverageSnapshot,
     baseline: &Baseline,
     baseline_sha256: &str,
+    strict_semantics_valid: bool,
 ) -> Result<GalleryInventory, CoverageError> {
     let report = ratchet_protocol_1001(snapshot, baseline)?;
     let diagnostic_ids = report
@@ -932,7 +934,7 @@ pub fn compile_gallery_inventory(
         registry_sha256: report.registry_sha256,
         assets_sha256: report.assets_sha256,
         baseline_sha256: baseline_sha256.to_owned(),
-        accepting: diagnostic_targets == 0,
+        accepting: diagnostic_targets == 0 && strict_semantics_valid,
         diagnostic_targets,
         target_count: PROTOCOL_1001_COUNTS.states,
         pages,
@@ -945,10 +947,21 @@ pub fn gallery_inventory_bytes(
     baseline_bytes: &[u8],
 ) -> Result<GalleryInventory, CoverageError> {
     let baseline = parse_baseline(baseline_bytes)?;
-    compile_gallery_inventory(
-        analyze_bytes(registry_bytes, assets_bytes)?,
+    let records = read_registry(registry_bytes).map_err(CoverageError::Registry)?;
+    let runtime = RuntimeAssets::decode(assets_bytes).map_err(CoverageError::Assets)?;
+    let snapshot = analyze_records(
+        &records,
+        &runtime,
+        &sha256(registry_bytes),
+        &sha256(assets_bytes),
+    )?;
+    let strict_semantics_valid =
+        strict_records(&records, &runtime, snapshot.clone(), &baseline, true).is_ok();
+    assemble_gallery_inventory(
+        snapshot,
         &baseline,
         &sha256(baseline_bytes),
+        strict_semantics_valid,
     )
 }
 

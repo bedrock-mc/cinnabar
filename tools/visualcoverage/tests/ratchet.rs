@@ -12,13 +12,19 @@ use sha2::{Digest, Sha256};
 use visualcoverage::{
     AllowlistEntry, Baseline, Counts, CoverageError, GALLERY_INVENTORY_SCHEMA,
     GALLERY_PAGE_CAPACITY, RenderStream, StateIdentity, analyze_bytes, analyze_records,
-    baseline_from_snapshot, compile_gallery_inventory, deterministic_json, gallery_inventory_bytes,
-    parse_baseline, ratchet, ratchet_protocol_1001, strict_bytes, strict_records,
-    write_deterministic_json_atomic,
+    baseline_from_snapshot, deterministic_json, gallery_inventory_bytes, parse_baseline, ratchet,
+    ratchet_protocol_1001, strict_bytes, strict_records, write_deterministic_json_atomic,
 };
 
 fn full_gallery_fixture(
     diagnostic_ids: &std::collections::BTreeSet<u32>,
+) -> (Vec<u8>, Vec<u8>, Baseline) {
+    full_gallery_fixture_with_strict_invalid_route(diagnostic_ids, false)
+}
+
+fn full_gallery_fixture_with_strict_invalid_route(
+    diagnostic_ids: &std::collections::BTreeSet<u32>,
+    strict_invalid: bool,
 ) -> (Vec<u8>, Vec<u8>, Baseline) {
     let mut records = read_registry(include_bytes!(
         "../../../crates/assets/data/block-registry-v1001.bin"
@@ -30,19 +36,34 @@ fn full_gallery_fixture(
         }
     }
     let registry = registry_bytes(&records);
-    let kinds = records
+    let mut visuals = records
         .iter()
         .map(|record| {
             if record.flags.contains(BlockFlags::AIR) {
-                VisualKind::Invisible
+                strict_no_draw(BlockFlags::AIR, ContributorRole::Air)
             } else if diagnostic_ids.contains(&record.sequential_id) {
-                VisualKind::Diagnostic
+                strict_diagnostic(BlockFlags::empty(), ContributorRole::Primary)
             } else {
-                VisualKind::Cube
+                strict_cube([1; 6])
             }
         })
         .collect::<Vec<_>>();
-    let assets = blob(&records, &kinds);
+    if strict_invalid {
+        visuals
+            .iter_mut()
+            .find(|visual| visual.kind == VisualKind::Cube)
+            .expect("at least one visible gallery target")
+            .faces[0] = DIAGNOSTIC_MATERIAL;
+    }
+    let assets = strict_blob(
+        &records,
+        visuals,
+        strict_materials(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    );
     let snapshot = analyze_bytes(&registry, &assets).expect("analyze full gallery fixture");
     let mut baseline = baseline(&snapshot);
     baseline.expected_vine_diagnostic_masks = snapshot.vine_diagnostic_masks.clone();
@@ -52,8 +73,8 @@ fn full_gallery_fixture(
 #[test]
 fn gallery_inventory_has_exact_67_page_shape() {
     let (registry, assets, baseline) = full_gallery_fixture(&Default::default());
-    let snapshot = analyze_bytes(&registry, &assets).unwrap();
-    let inventory = compile_gallery_inventory(snapshot, &baseline, "baseline-hash").unwrap();
+    let baseline = deterministic_json(&baseline).unwrap();
+    let inventory = gallery_inventory_bytes(&registry, &assets, &baseline).unwrap();
 
     assert_eq!(inventory.schema, GALLERY_INVENTORY_SCHEMA);
     assert_eq!(inventory.pages.len(), 67);
@@ -72,12 +93,8 @@ fn gallery_inventory_has_exact_67_page_shape() {
 #[test]
 fn gallery_inventory_contains_every_sequential_id_once_and_in_order() {
     let (registry, assets, baseline) = full_gallery_fixture(&Default::default());
-    let inventory = compile_gallery_inventory(
-        analyze_bytes(&registry, &assets).unwrap(),
-        &baseline,
-        "baseline-hash",
-    )
-    .unwrap();
+    let baseline = deterministic_json(&baseline).unwrap();
+    let inventory = gallery_inventory_bytes(&registry, &assets, &baseline).unwrap();
     let ids = inventory
         .pages
         .iter()
@@ -115,6 +132,17 @@ fn gallery_inventory_is_hash_bound_and_byte_identical() {
     );
     assert!(first.accepting);
     assert_eq!(first.diagnostic_targets, 0);
+}
+
+#[test]
+fn gallery_inventory_is_non_accepting_when_zero_diagnostics_hide_a_strict_invalid_route() {
+    let (registry, assets, baseline) =
+        full_gallery_fixture_with_strict_invalid_route(&Default::default(), true);
+    let baseline_bytes = deterministic_json(&baseline).unwrap();
+    let inventory = gallery_inventory_bytes(&registry, &assets, &baseline_bytes).unwrap();
+
+    assert_eq!(inventory.diagnostic_targets, 0);
+    assert!(!inventory.accepting);
 }
 
 #[test]
