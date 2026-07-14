@@ -850,7 +850,7 @@ fn mesh_sub_chunk_core(
                                     && model_template_flags(visuals, neighbour)
                                         & MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE
                                         != 0
-                                    && neighbour.faces == entry.faces;
+                                    && neighbour.network_value == entry.network_value;
                             if neighbour.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
                                 || equal_pane
                                 || equal_transparent_cube

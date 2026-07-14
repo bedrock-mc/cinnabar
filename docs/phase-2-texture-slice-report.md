@@ -216,10 +216,34 @@ cave-open; and the rule crosses all six subchunk boundaries. Education
 `hard_*` glass, stained-glass panes, copper grates, slime, all legacy flags-zero
 records, and `minecraft:invisible_bedrock` remain excluded.
 
+The subsequent copper-grate run removes exactly eight diagnostics with zero
+additions: `minecraft:copper_grate`, `minecraft:exposed_copper_grate`,
+`minecraft:weathered_copper_grate`, `minecraft:oxidized_copper_grate`,
+`minecraft:waxed_copper_grate`, `minecraft:waxed_exposed_copper_grate`,
+`minecraft:waxed_weathered_copper_grate`, and
+`minecraft:waxed_oxidized_copper_grate`, each at canonical state `{}`. The
+checked transparent-cube trust boundary now accepts either six alpha-blended
+materials or six alpha-cutout materials while rejecting mixed classes, both
+alpha bits, opaque/diagnostic materials, incompatible flags, and malformed
+topology. Waxed variants intentionally share exact face-material IDs with the
+matching unwaxed oxidation state.
+
+Palette-native meshing suppresses grate faces only when both checked cubes have
+the same exact network value. Identical states therefore emit ten ordinary
+cutout model draws, while oxidation and wax boundaries emit twelve even when
+their textures alias. This holds in sequential and hashed modes and across all
+six subchunk boundaries; opaque/grate asymmetry remains correct, no grate uses
+the transparent draw stream, and grate walls remain cave-open. Slime,
+stained/hard glass, panes, copper bars/bulbs/doors/trapdoors, unrelated grate
+names, legacy flags-zero records, and `minecraft:invisible_bedrock` remain
+outside the exact grate admission. The ignored integrated blob SHA-256 is
+`20cd1b4301f40736468a3249acf21fdea0544d74fa238d8faae04aaee1af9940`,
+and the refreshed ratchet is zero-delta at 7,698 diagnostics including air.
+
 The reviewed baseline cumulatively records the already-landed
 door/trapdoor/wall removals plus the pressure-plate, fence-gate, pane/fence,
 carpet, button, huge-mushroom, glow-lichen/sculk-vein, and ordinary
-stained-glass tranches, rather than attributing all 7,235 removed IDs to one
+stained-glass and copper-grate tranches, rather than attributing all 7,243 removed IDs to one
 feature. This is a regression baseline, not a parity claim: each remaining
 family must reduce that exact set, and the final strict gate still requires zero
 non-air diagnostics, 67 exact-state GPU gallery pages, and the separate

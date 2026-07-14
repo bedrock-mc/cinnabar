@@ -380,6 +380,8 @@ fn descriptor_for(
     };
     if is_stained_glass_cube(record) {
         flags |= MATERIAL_FLAG_ALPHA_BLEND;
+    } else if is_copper_grate(record) {
+        flags |= MATERIAL_FLAG_ALPHA_CUTOUT;
     } else if is_pane(record) {
         flags |= if record.name.contains("stained_glass_pane") {
             MATERIAL_FLAG_ALPHA_BLEND
@@ -607,6 +609,17 @@ const ORDINARY_STAINED_GLASS_NAMES: [&str; 16] = [
     "minecraft:yellow_stained_glass",
 ];
 
+const COPPER_GRATE_NAMES: [&str; 8] = [
+    "minecraft:copper_grate",
+    "minecraft:exposed_copper_grate",
+    "minecraft:oxidized_copper_grate",
+    "minecraft:waxed_copper_grate",
+    "minecraft:waxed_exposed_copper_grate",
+    "minecraft:waxed_oxidized_copper_grate",
+    "minecraft:waxed_weathered_copper_grate",
+    "minecraft:weathered_copper_grate",
+];
+
 fn is_stained_glass_cube(record: &RegistryRecord) -> bool {
     record.canonical_state.as_ref() == "{}"
         && record.model_family == ModelFamily::Cube
@@ -618,6 +631,17 @@ fn is_stained_glass_cube(record: &RegistryRecord) -> bool {
 
 fn is_ordinary_stained_glass_name(name: &str) -> bool {
     ORDINARY_STAINED_GLASS_NAMES.binary_search(&name).is_ok()
+}
+
+fn is_copper_grate(record: &RegistryRecord) -> bool {
+    record.canonical_state.as_ref() == "{}"
+        && record.model_family == ModelFamily::Cube
+        && record.contributor_role == ContributorRole::Primary
+        && is_copper_grate_name(&record.name)
+}
+
+fn is_copper_grate_name(name: &str) -> bool {
+    COPPER_GRATE_NAMES.binary_search(&name).is_ok()
 }
 
 const fn is_fence(record: &RegistryRecord) -> bool {
@@ -652,6 +676,7 @@ fn is_cutout_model_visual(record: &RegistryRecord) -> bool {
 
 fn is_model_visual(record: &RegistryRecord) -> bool {
     is_stained_glass_cube(record)
+        || is_copper_grate(record)
         || is_cutout_model_visual(record)
         || is_slab(record)
         || is_stair(record)
@@ -1239,9 +1264,11 @@ fn compile_visuals(
     ordered_records.sort_unstable_by_key(|record| record.sequential_id);
     for record in ordered_records {
         let mut visual = BlockVisual::diagnostic(record.flags, record.contributor_role);
-        if is_ordinary_stained_glass_name(&record.name) && !is_stained_glass_cube(record) {
+        if (is_ordinary_stained_glass_name(&record.name) && !is_stained_glass_cube(record))
+            || (is_copper_grate_name(&record.name) && !is_copper_grate(record))
+        {
             // Exact names fail closed when any admission fact disagrees.
-        } else if is_stained_glass_cube(record) {
+        } else if is_stained_glass_cube(record) || is_copper_grate(record) {
             let materials = BlockFace::ALL.map(|face| {
                 descriptor_for(pack, record, face)
                     .and_then(|(descriptor, _)| material_by_descriptor.get(&descriptor).copied())

@@ -12,12 +12,13 @@ use crate::model::{
 };
 use crate::{
     AssetError, BlockFlags, CompiledAssets, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND,
-    MAX_ANIMATION_FRAMES, MAX_ANIMATIONS, MAX_MATERIALS, MAX_MODEL_QUADS, MAX_MODEL_TEMPLATES,
-    MAX_TEXTURE_LAYERS, MAX_TEXTURE_PAGES, MIP_COUNT, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
-    MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD,
-    MODEL_TEMPLATE_FLAG_GATE_AXIS_X, MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP,
-    MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
-    NO_ANIMATION, NO_MODEL_TEMPLATE, TILE_SIZE, TextureRef, VisualKind,
+    MATERIAL_FLAG_ALPHA_CUTOUT, MAX_ANIMATION_FRAMES, MAX_ANIMATIONS, MAX_MATERIALS,
+    MAX_MODEL_QUADS, MAX_MODEL_TEMPLATES, MAX_TEXTURE_LAYERS, MAX_TEXTURE_PAGES, MIP_COUNT,
+    MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_FENCE_NETHER,
+    MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
+    MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE,
+    MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, NO_ANIMATION,
+    NO_MODEL_TEMPLATE, TILE_SIZE, TextureRef, VisualKind,
     biome::{TINT_MAP_BYTES, TINT_MAP_COUNT, TINT_MAP_SIZE, validate_biome_assets},
     compiler::{material_flags_are_valid, visual_semantics_are_valid},
     model::{ANIMATION_FLAGS_MASK, model_quad_flags_are_valid},
@@ -449,19 +450,28 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
         }
         let start = template.quad_start as usize;
         let end = start + template.quad_count as usize;
-        if compiled.model_quads[start..end]
-            .iter()
-            .enumerate()
-            .any(|(index, quad)| {
-                !transparent_cube_quad_geometry_is_valid(index, quad.positions, quad.flags)
-                    || quad.material == DIAGNOSTIC_MATERIAL
-                    || compiled.materials[quad.material as usize].flags & MATERIAL_FLAG_ALPHA_BLEND
-                        == 0
-            })
-        {
-            return Err(invalid(
-                "transparent-cube template geometry and materials are noncanonical",
-            ));
+        let mut expected_alpha_class = None;
+        for (index, quad) in compiled.model_quads[start..end].iter().enumerate() {
+            if !transparent_cube_quad_geometry_is_valid(index, quad.positions, quad.flags)
+                || quad.material == DIAGNOSTIC_MATERIAL
+            {
+                return Err(invalid(
+                    "transparent-cube template geometry and materials are noncanonical",
+                ));
+            }
+            let alpha_class = compiled.materials[quad.material as usize].flags
+                & (MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_ALPHA_CUTOUT);
+            if !matches!(
+                alpha_class,
+                MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_ALPHA_CUTOUT
+            ) || expected_alpha_class
+                .replace(alpha_class)
+                .is_some_and(|expected| expected != alpha_class)
+            {
+                return Err(invalid(
+                    "transparent-cube template geometry and materials are noncanonical",
+                ));
+            }
         }
     }
     let mut expected_frame = 0usize;

@@ -9,15 +9,15 @@ use crate::model::{
 use crate::{
     ANIMATION_FLAG_BLEND, Animation, AssetError, BLOB_MAGIC, BLOB_VERSION, BiomeRule, BlockFace,
     BlockFlags, BlockVisual, CompiledBiomeAssets, ContributorRole, DIAGNOSTIC_MATERIAL,
-    MATERIAL_FLAG_ALPHA_BLEND, MAX_ANIMATION_FRAMES, MAX_ANIMATIONS, MAX_BIOME_NAME_BYTES,
-    MAX_BIOME_NAMES_BYTES, MAX_BIOME_RULES, MAX_MATERIALS, MAX_MODEL_QUADS, MAX_MODEL_TEMPLATES,
-    MAX_TEXTURE_LAYERS, MAX_TEXTURE_PAGES, MIP_COUNT, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
-    MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD,
-    MODEL_TEMPLATE_FLAG_GATE_AXIS_X, MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP,
-    MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
-    Material, ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, TILE_SIZE, TINT_MAP_BYTES,
-    TINT_MAP_COUNT, TINT_MAP_SIZE, TextureArray, TextureMip, TexturePage, TextureRef, TintSource,
-    VisualKind,
+    MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT, MAX_ANIMATION_FRAMES, MAX_ANIMATIONS,
+    MAX_BIOME_NAME_BYTES, MAX_BIOME_NAMES_BYTES, MAX_BIOME_RULES, MAX_MATERIALS, MAX_MODEL_QUADS,
+    MAX_MODEL_TEMPLATES, MAX_TEXTURE_LAYERS, MAX_TEXTURE_PAGES, MIP_COUNT,
+    MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_FENCE_NETHER,
+    MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
+    MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE,
+    MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, Material, ModelQuad,
+    ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, TILE_SIZE, TINT_MAP_BYTES, TINT_MAP_COUNT,
+    TINT_MAP_SIZE, TextureArray, TextureMip, TexturePage, TextureRef, TintSource, VisualKind,
     biome::{BIOME_RULE_FLAGS_MASK, validate_biome_assets},
     blob::{
         ANIMATION_BYTES, BIOME_RULE_BYTES, FRAME_BYTES, HASH_BYTES, HASH_ENTRY_BYTES, HEADER_BYTES,
@@ -641,33 +641,44 @@ fn validate_fixed(
         }
         let start = u32_at(template, 0) as usize;
         let quad_count = u32_at(template, 4) as usize;
-        let malformed = sections[4]
+        let mut expected_alpha_class = None;
+        for (index, quad) in sections[4]
             .chunks_exact(QUAD_BYTES)
             .skip(start)
             .take(quad_count)
             .enumerate()
-            .any(|(index, quad)| {
-                let mut positions = [[0; 3]; 4];
-                for (vertex, position) in positions.iter_mut().flatten().enumerate() {
-                    *position = i16::from_le_bytes(
-                        quad[vertex * 2..vertex * 2 + 2]
-                            .try_into()
-                            .expect("fixed model quad position"),
-                    );
-                }
-                let material = u32_at(quad, 40) as usize;
-                !transparent_cube_quad_geometry_is_valid(index, positions, u32_at(quad, 44))
-                    || material == DIAGNOSTIC_MATERIAL as usize
-                    || u32_at(
-                        &sections[2][material * MATERIAL_BYTES..(material + 1) * MATERIAL_BYTES],
-                        4,
-                    ) & MATERIAL_FLAG_ALPHA_BLEND
-                        == 0
-            });
-        if malformed {
-            return Err(invalid(
-                "transparent-cube template geometry and materials are noncanonical",
-            ));
+        {
+            let mut positions = [[0; 3]; 4];
+            for (vertex, position) in positions.iter_mut().flatten().enumerate() {
+                *position = i16::from_le_bytes(
+                    quad[vertex * 2..vertex * 2 + 2]
+                        .try_into()
+                        .expect("fixed model quad position"),
+                );
+            }
+            let material = u32_at(quad, 40) as usize;
+            if !transparent_cube_quad_geometry_is_valid(index, positions, u32_at(quad, 44))
+                || material == DIAGNOSTIC_MATERIAL as usize
+            {
+                return Err(invalid(
+                    "transparent-cube template geometry and materials are noncanonical",
+                ));
+            }
+            let alpha_class = u32_at(
+                &sections[2][material * MATERIAL_BYTES..(material + 1) * MATERIAL_BYTES],
+                4,
+            ) & (MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_ALPHA_CUTOUT);
+            if !matches!(
+                alpha_class,
+                MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_ALPHA_CUTOUT
+            ) || expected_alpha_class
+                .replace(alpha_class)
+                .is_some_and(|expected| expected != alpha_class)
+            {
+                return Err(invalid(
+                    "transparent-cube template geometry and materials are noncanonical",
+                ));
+            }
         }
     }
     let mut frame = 0usize;

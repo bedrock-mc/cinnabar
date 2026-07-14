@@ -584,6 +584,29 @@ fn mcbeas04_checks_and_round_trips_transparent_cube_template_semantics() {
     }
 }
 
+#[test]
+fn mcbeas04_accepts_homogeneous_copper_grate_cutout_and_rejects_mixed_alpha_classes() {
+    let mut cutout = transparent_cube_assets();
+    cutout.materials[1].flags = assets::MATERIAL_FLAG_ALPHA_CUTOUT;
+    encode_blob(&cutout).expect("encode homogeneous copper-grate cutout cube");
+
+    let mut mixed = transparent_cube_assets();
+    let mut materials = mixed.materials.into_vec();
+    materials.push(Material {
+        texture: TextureRef::new(0, 0).unwrap(),
+        flags: assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+        animation: NO_ANIMATION,
+    });
+    mixed.materials = materials.into_boxed_slice();
+    mixed.model_quads[5].material = 2;
+    assert!(encode_blob(&mixed).is_err());
+
+    let mut both = transparent_cube_assets();
+    both.materials[1].flags =
+        assets::MATERIAL_FLAG_ALPHA_BLEND | assets::MATERIAL_FLAG_ALPHA_CUTOUT;
+    assert!(encode_blob(&both).is_err());
+}
+
 fn full_face_model_assets(quad_count: u32) -> CompiledAssets {
     let mut compiled = valid_assets();
     compiled.visuals[0].flags = BlockFlags::OCCLUDES_FULL_FACE;

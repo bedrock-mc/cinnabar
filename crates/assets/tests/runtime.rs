@@ -661,6 +661,46 @@ fn decode_checks_and_round_trips_transparent_cube_template_semantics() {
 }
 
 #[test]
+fn decode_accepts_homogeneous_copper_grate_cutout_and_rejects_mixed_alpha_classes() {
+    let canonical = transparent_cube_blob();
+    let materials = read_u64(&canonical, MATERIALS_OFFSET_OFFSET) as usize;
+
+    let mut cutout = canonical.clone();
+    write_u32(
+        &mut cutout,
+        materials + 12 + 4,
+        assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+    );
+    reseal(&mut cutout);
+    RuntimeAssets::decode(&cutout).expect("decode homogeneous copper-grate cutout cube");
+
+    let mut both = canonical.clone();
+    write_u32(
+        &mut both,
+        materials + 12 + 4,
+        assets::MATERIAL_FLAG_ALPHA_BLEND | assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+    );
+    reseal(&mut both);
+    assert_rejected(&both, "both alpha bits on transparent cube");
+
+    let mut mixed_compiled = transparent_cube_compiled();
+    let mut compiled_materials = mixed_compiled.materials.into_vec();
+    compiled_materials.push(Material {
+        texture: TextureRef::new(0, 0).unwrap(),
+        flags: assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+        animation: NO_ANIMATION,
+    });
+    mixed_compiled.materials = compiled_materials.into_boxed_slice();
+    let mut mixed = encode_blob(&mixed_compiled)
+        .expect("encode blend template with unused cutout material")
+        .into_vec();
+    let mixed_quads = read_u64(&mixed, 128) as usize;
+    write_u32(&mut mixed, mixed_quads + 5 * 48 + 40, 2);
+    reseal(&mut mixed);
+    assert_rejected(&mixed, "mixed blend/cutout transparent cube");
+}
+
+#[test]
 fn decode_rejects_kelp_flag_on_noncanonical_template_shape() {
     let mut blob = rich_blob();
     let templates = read_u64(&blob, 120) as usize;

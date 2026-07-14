@@ -563,6 +563,25 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       diagnostics and 7,235 cumulative removals; the ignored integrated blob is
       SHA-256
       `61025bb3e8e1b9ca0d5e2ec1cd7847433333a20f99948c6193fbb370a0d4900f`.
+    - [x] Copper grates: the exact stateless `minecraft:copper_grate`,
+      `minecraft:exposed_copper_grate`, `minecraft:weathered_copper_grate`,
+      `minecraft:oxidized_copper_grate`, `minecraft:waxed_copper_grate`,
+      `minecraft:waxed_exposed_copper_grate`,
+      `minecraft:waxed_weathered_copper_grate`, and
+      `minecraft:waxed_oxidized_copper_grate` records now use homogeneous
+      alpha-cutout six-quad transparent-cube templates. Waxed variants retain
+      the exact unwaxed face-material aliases, while shared-face culling uses
+      exact network identity so wax and oxidation boundaries remain visible in
+      sequential and hashed modes. Grates stay cave-open, route only through
+      ordinary depth-writing model draws, cull against identical states across
+      all six subchunk boundaries, and preserve opaque-neighbour asymmetry.
+      Slime, stained/hard glass, panes, copper bars/bulbs/doors/trapdoors,
+      unrelated grate names, legacy flags-zero records, and
+      `minecraft:invisible_bedrock` remain outside this admission. The
+      production ratchet removes exactly eight IDs with zero additions, leaving
+      7,698 diagnostics and 7,243 cumulative removals; the ignored integrated
+      blob SHA-256 is
+      `20cd1b4301f40736468a3249acf21fdea0544d74fa238d8faae04aaee1af9940`.
     - [ ] Slab/stair native and packed-GPU live acceptance: capture all five
       fixed Cinnabar poses through native `%TEMP%` screenshots and require two
       consecutive exact GPU-completed model-stream witnesses. Automated gallery
@@ -711,9 +730,9 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       review green). The reviewed baseline was refreshed cumulatively for the
       already-landed door, trapdoor, wall, pressure-plate, fence-gate, pane,
       fence, carpet, button, huge-mushroom, glow-lichen, sculk-vein, exact
-      ordinary stained-glass, and static-sign tranches. After lava, vine, and
-      those connected/static/multiface/glass families, the current residual has
-      2,834
+      ordinary stained-glass, exact copper-grate, and static-sign tranches.
+      After lava, vine, and those connected/static/multiface/glass/grate
+      families, the current residual has 2,826
       diagnostics including the single air diagnostic, with zero diagnostics in
       every implemented family; each remaining family must shrink that exact set.
   - [ ] Complete the exhaustive residual-family report, continuing from the
