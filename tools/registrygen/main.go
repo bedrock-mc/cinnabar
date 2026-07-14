@@ -1172,8 +1172,10 @@ func classifyRecord(state SourceState) (Record, error) {
 		}
 		switch propertyName {
 		case "weirdo_direction", "direction", "facing_direction", "ground_sign_direction", "cardinal_direction", "pillar_axis", "torch_facing_direction", "rail_direction", "lever_direction":
-			if value, ok := orientationUint(propertyName, property.Value); ok {
-				record.ModelState.Set(ModelStateOrientation, value)
+			if record.ModelFamily != ModelFamilySign {
+				if value, ok := orientationUint(propertyName, property.Value); ok {
+					record.ModelState.Set(ModelStateOrientation, value)
+				}
 			}
 		}
 		if value, ok := scalarUint(property.Value); ok {
@@ -1271,10 +1273,58 @@ func classifyRecord(state SourceState) (Record, error) {
 	if hasVariantFlags {
 		record.ModelState.Set(ModelStateFlags, variantFlags)
 	}
+	if record.ModelFamily == ModelFamilySign {
+		orientation, err := signOrientation(name, state.Properties)
+		if err != nil {
+			return Record{}, err
+		}
+		record.ModelState.Set(ModelStateOrientation, orientation)
+	}
 	if record.ModelFamily == ModelFamilySlab && strings.Contains(name, "double") {
 		record.ModelState.Set(ModelStateHalf, 2)
 	}
 	return record, nil
+}
+
+func signOrientation(name string, properties []StateProperty) (uint32, error) {
+	values := make(map[string]uint32, 2)
+	for _, property := range properties {
+		propertyName := strings.TrimPrefix(property.Name, "minecraft:")
+		if propertyName != "facing_direction" && propertyName != "ground_sign_direction" {
+			continue
+		}
+		value, ok := scalarUint(property.Value)
+		if !ok {
+			return 0, fmt.Errorf("%s %s is not an unsigned selector", name, propertyName)
+		}
+		values[propertyName] = value
+	}
+	if strings.Contains(name, "hanging_sign") {
+		facing, hasFacing := values["facing_direction"]
+		rotation, hasRotation := values["ground_sign_direction"]
+		if !hasFacing || facing > 5 || !hasRotation || rotation > 15 {
+			return 0, fmt.Errorf("%s requires facing_direction 0..5 and ground_sign_direction 0..15", name)
+		}
+		// Preserve both selectors. `hanging` chooses which one controls visible
+		// geometry: wall-hanging signs use the facing nibble, while ceiling
+		// hanging signs use the 16-way ground rotation nibble.
+		return rotation | (facing << 4), nil
+	}
+	if strings.HasSuffix(name, "standing_sign") || name == "standing_sign" {
+		rotation, ok := values["ground_sign_direction"]
+		if !ok || rotation > 15 {
+			return 0, fmt.Errorf("%s requires ground_sign_direction 0..15", name)
+		}
+		return rotation, nil
+	}
+	if strings.HasSuffix(name, "wall_sign") || name == "wall_sign" {
+		facing, ok := values["facing_direction"]
+		if !ok || facing > 5 {
+			return 0, fmt.Errorf("%s requires facing_direction 0..5", name)
+		}
+		return facing, nil
+	}
+	return 0, fmt.Errorf("unsupported sign family %s", name)
 }
 
 func scalarUint(scalar TypedScalar) (uint32, bool) {

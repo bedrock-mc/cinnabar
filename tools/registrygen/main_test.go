@@ -1133,7 +1133,7 @@ func TestRequiredFamilySelectorFlags(t *testing.T) {
 		{sourceState("minecraft:golden_rail", intState("rail_direction", 5), byteState("rail_data_bit", 1)), 5, modelFlagPowered},
 		{sourceState("minecraft:stone_button", intState("facing_direction", 3), byteState("button_pressed_bit", 1)), 3, modelFlagPressed},
 		{sourceState("minecraft:lever", StateProperty{Name: "lever_direction", Value: TypedScalar{Kind: ScalarString, String: "up_east_west"}}), 6, 0},
-		{sourceState("minecraft:oak_hanging_sign", intState("ground_sign_direction", 7), byteState("attached_bit", 1), byteState("hanging", 1)), 7, modelFlagAttached | modelFlagHanging},
+		{sourceState("minecraft:oak_hanging_sign", intState("facing_direction", 3), intState("ground_sign_direction", 7), byteState("attached_bit", 1), byteState("hanging", 1)), 55, modelFlagAttached | modelFlagHanging},
 		{sourceState("minecraft:red_bed", intState("direction", 2), byteState("head_piece_bit", 1), byteState("occupied_bit", 1)), 2, modelFlagHead | modelFlagOccupied},
 		{sourceState("minecraft:oak_fence_gate", intState("direction", 1), byteState("in_wall_bit", 1)), 1, modelFlagInWall},
 		{sourceState("minecraft:oak_door", intState("direction", 3), byteState("upper_block_bit", 1)), 3, modelFlagUpper},
@@ -1151,6 +1151,82 @@ func TestRequiredFamilySelectorFlags(t *testing.T) {
 		if test.flags != 0 {
 			if got, ok := record.ModelState.Get(ModelStateFlags); !ok || got != test.flags {
 				t.Errorf("%s flags = %#x/%v, want %#x", test.state.Name, got, ok, test.flags)
+			}
+		}
+	}
+}
+
+func TestSignSelectorsAreModeDependentAndOrderIndependent(t *testing.T) {
+	const signMask = uint8(1 << (ModelStateOrientation - 1))
+	const hangingMask = signMask | uint8(1<<(ModelStateFlags-1))
+
+	for rotation := uint32(0); rotation < 16; rotation++ {
+		record, err := classifyRecord(sourceState(
+			"minecraft:standing_sign",
+			intState("ground_sign_direction", int32(rotation)),
+		))
+		if err != nil {
+			t.Fatalf("classify standing rotation %d: %v", rotation, err)
+		}
+		if record.ModelState.Mask != signMask {
+			t.Fatalf("standing rotation %d mask = %#x, want %#x", rotation, record.ModelState.Mask, signMask)
+		}
+		if got, ok := record.ModelState.Get(ModelStateOrientation); !ok || got != rotation {
+			t.Fatalf("standing rotation %d selector = %d/%v", rotation, got, ok)
+		}
+	}
+
+	for facing := uint32(0); facing < 6; facing++ {
+		record, err := classifyRecord(sourceState(
+			"minecraft:wall_sign",
+			intState("facing_direction", int32(facing)),
+		))
+		if err != nil {
+			t.Fatalf("classify wall facing %d: %v", facing, err)
+		}
+		if record.ModelState.Mask != signMask {
+			t.Fatalf("wall facing %d mask = %#x, want %#x", facing, record.ModelState.Mask, signMask)
+		}
+		if got, ok := record.ModelState.Get(ModelStateOrientation); !ok || got != facing {
+			t.Fatalf("wall facing %d selector = %d/%v", facing, got, ok)
+		}
+	}
+
+	for attached := uint32(0); attached < 2; attached++ {
+		for hanging := uint32(0); hanging < 2; hanging++ {
+			for rotation := uint32(0); rotation < 16; rotation++ {
+				for facing := uint32(0); facing < 6; facing++ {
+					properties := []StateProperty{
+						byteState("hanging", byte(hanging)),
+						intState("ground_sign_direction", int32(rotation)),
+						byteState("attached_bit", byte(attached)),
+						intState("facing_direction", int32(facing)),
+					}
+					record, err := classifyRecord(sourceState("minecraft:oak_hanging_sign", properties...))
+					if err != nil {
+						t.Fatalf("classify hanging selector %d/%d/%d/%d: %v", attached, hanging, rotation, facing, err)
+					}
+					if record.ModelState.Mask != hangingMask {
+						t.Fatalf("hanging selector %d/%d/%d/%d mask = %#x, want %#x", attached, hanging, rotation, facing, record.ModelState.Mask, hangingMask)
+					}
+					wantOrientation := rotation | (facing << 4)
+					if got, ok := record.ModelState.Get(ModelStateOrientation); !ok || got != wantOrientation {
+						t.Fatalf("hanging selector %d/%d/%d/%d orientation = %d/%v, want %d", attached, hanging, rotation, facing, got, ok, wantOrientation)
+					}
+					wantFlags := attached*modelFlagAttached | hanging*modelFlagHanging
+					if got, ok := record.ModelState.Get(ModelStateFlags); !ok || got != wantFlags {
+						t.Fatalf("hanging selector %d/%d/%d/%d flags = %#x/%v, want %#x", attached, hanging, rotation, facing, got, ok, wantFlags)
+					}
+
+					slices.Reverse(properties)
+					reversed, err := classifyRecord(sourceState("minecraft:oak_hanging_sign", properties...))
+					if err != nil {
+						t.Fatalf("classify reversed hanging selector: %v", err)
+					}
+					if reversed.ModelState != record.ModelState {
+						t.Fatalf("property order changed hanging selector: got %+v want %+v", reversed.ModelState, record.ModelState)
+					}
+				}
 			}
 		}
 	}

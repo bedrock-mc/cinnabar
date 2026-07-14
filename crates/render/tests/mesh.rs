@@ -652,6 +652,112 @@ struct CompiledVineFixture {
     by_mask: [u32; 16],
 }
 
+#[test]
+fn compiled_blank_signs_emit_exact_bounded_model_and_lighting_streams() {
+    let generated = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
+        .expect("decode committed sign registry");
+    let air = generated
+        .iter()
+        .find(|record| record.name.as_ref() == "minecraft:air")
+        .expect("committed air record")
+        .clone();
+    let standing = generated
+        .iter()
+        .find(|record| {
+            record.name.as_ref() == "minecraft:standing_sign"
+                && record.model_state.get(ModelStateField::Orientation) == Some(7)
+        })
+        .expect("standing sign rotation seven")
+        .clone();
+    let wall = generated
+        .iter()
+        .find(|record| {
+            record.name.as_ref() == "minecraft:wall_sign"
+                && record.model_state.get(ModelStateField::Orientation) == Some(4)
+        })
+        .expect("west wall sign")
+        .clone();
+    let hanging = generated
+        .iter()
+        .find(|record| {
+            record.name.as_ref() == "minecraft:oak_hanging_sign"
+                && record.model_state.get(ModelStateField::Orientation) == Some(9 | (3 << 4))
+                && record.model_state.get(ModelStateField::Flags) == Some((1 << 2) | (1 << 3))
+        })
+        .expect("attached ceiling hanging sign")
+        .clone();
+
+    let directory = tempfile::tempdir().expect("create sign render fixture");
+    fs::create_dir_all(directory.path().join("textures/blocks"))
+        .expect("create sign render texture tree");
+    fs::write(
+        directory.path().join("blocks.json"),
+        r#"{"standing_sign":{"textures":"sign_texture"},"wall_sign":{"textures":"sign_texture"},"oak_hanging_sign":{"textures":"sign_texture"}}"#,
+    )
+    .expect("write sign block routing");
+    fs::write(
+        directory.path().join("textures/terrain_texture.json"),
+        r#"{"texture_data":{"sign_texture":{"textures":"textures/blocks/sign_texture"}}}"#,
+    )
+    .expect("write sign terrain routing");
+    fs::write(
+        directory.path().join("textures/flipbook_textures.json"),
+        "[]",
+    )
+    .expect("write empty sign flipbooks");
+    let mut rgba = vec![0_u8; 16 * 16 * 4];
+    for pixel in rgba.chunks_exact_mut(4) {
+        pixel.copy_from_slice(&[139, 98, 55, 255]);
+    }
+    let mut png = Vec::new();
+    PngEncoder::new(&mut png)
+        .write_image(&rgba, 16, 16, ExtendedColorType::Rgba8)
+        .expect("encode sign fixture texture");
+    fs::write(
+        directory.path().join("textures/blocks/sign_texture.png"),
+        png,
+    )
+    .expect("write sign fixture texture");
+
+    let ids = [
+        standing.sequential_id,
+        wall.sequential_id,
+        hanging.sequential_id,
+    ];
+    let compiled = compile_pack(directory.path(), &[air.clone(), standing, wall, hanging])
+        .expect("compile representative blank signs");
+    let runtime = RuntimeAssets::decode(&encode_blob(&compiled).expect("encode sign fixture"))
+        .expect("decode sign fixture");
+    for (&runtime_id, expected_quads) in ids.iter().zip([12_usize, 6, 18]) {
+        let resolved = runtime.resolve(NetworkIdMode::Sequential, runtime_id);
+        assert_eq!(resolved.kind(), VisualKind::Model);
+        assert!(!resolved.flags().intersects(
+            BlockFlags::AIR | BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE
+        ));
+        let template_id = resolved.model_template().expect("compiled sign template");
+        let template = runtime.model_templates()[template_id as usize];
+        assert_eq!(template.quad_count as usize, expected_quads);
+        let center = sub_chunk(vec![packed_storage(
+            1,
+            &[air.sequential_id, runtime_id],
+            &[([7, 8, 9], 1)],
+        )]);
+        let mesh = mesh_sub_chunk(
+            &BlockClassifier::new(air.sequential_id),
+            &runtime,
+            NetworkIdMode::Sequential,
+            &Neighbourhood::empty(),
+            &center,
+        );
+        assert!(mesh.cube_quads().is_empty());
+        assert!(mesh.liquid_quads().is_empty());
+        assert_eq!(mesh.model_refs().len(), 1);
+        assert_eq!(mesh.model_refs()[0].words()[1], template_id);
+        assert_eq!(mesh.model_lighting().len(), expected_quads);
+        assert!(mesh.connectivity().is_all_connected());
+    }
+}
+
 fn write_vine_render_pack(root: &Path, cube_name: &str) {
     fs::create_dir_all(root.join("textures/blocks")).expect("create vine render fixture tree");
     fs::write(

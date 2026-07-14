@@ -2182,8 +2182,8 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
     .expect("parse committed production baseline");
     let current = analyze_bytes(&registry_bytes, &assets_bytes).unwrap();
     assert_eq!(current.states.len(), 16_913);
-    assert_eq!(baseline.diagnostic_sequential_ids.len(), 7_706);
-    assert_eq!(current.diagnostic_states.len(), 7_706);
+    assert_eq!(baseline.diagnostic_sequential_ids.len(), 2_834);
+    assert_eq!(current.diagnostic_states.len(), 2_834);
 
     let expected_stained_glass_ids = STAINED_GLASS_REMOVALS.map(|(id, _)| id);
     for &(sequential_id, name) in &STAINED_GLASS_REMOVALS {
@@ -2208,7 +2208,7 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
         .sort_unstable();
     assert_eq!(
         pre_stained_glass_baseline.diagnostic_sequential_ids.len(),
-        7_722
+        2_850
     );
     let report = ratchet_protocol_1001(current.clone(), &pre_stained_glass_baseline)
         .expect("run exact pre-stained-glass production ratchet");
@@ -2225,6 +2225,43 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
     assert!(report.removed_diagnostics.iter().all(|state| {
         state.canonical_state == "{}" && state.model_family == "cube" && !state.is_air
     }));
+
+    let expected_sign_ids = records
+        .iter()
+        .filter(|record| record.model_family == ModelFamily::Sign)
+        .map(|record| record.sequential_id)
+        .collect::<Vec<_>>();
+    assert_eq!(expected_sign_ids.len(), 4_872);
+    assert!(expected_sign_ids.iter().all(|id| {
+        baseline
+            .diagnostic_sequential_ids
+            .binary_search(id)
+            .is_err()
+    }));
+    let mut pre_sign_baseline = baseline.clone();
+    pre_sign_baseline
+        .diagnostic_sequential_ids
+        .extend(expected_sign_ids.iter().copied());
+    pre_sign_baseline.diagnostic_sequential_ids.sort_unstable();
+    assert_eq!(pre_sign_baseline.diagnostic_sequential_ids.len(), 7_706);
+    let report = ratchet_protocol_1001(current.clone(), &pre_sign_baseline)
+        .expect("run exact pre-sign production ratchet");
+    assert!(report.added_diagnostics.is_empty());
+    assert_eq!(report.removed_diagnostics.len(), 4_872);
+    assert!(
+        report
+            .removed_diagnostics
+            .iter()
+            .all(|state| state.model_family == "sign")
+    );
+    assert_eq!(
+        report
+            .removed_diagnostics
+            .iter()
+            .map(|state| state.sequential_id)
+            .collect::<Vec<_>>(),
+        expected_sign_ids
+    );
 
     let expected_multiface_ids = records
         .iter()
@@ -2252,9 +2289,9 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
         .sort_unstable();
     assert_eq!(
         pre_multiface_baseline.diagnostic_sequential_ids.len(),
-        7_834
+        2_962
     );
-    assert_eq!(7_834 + STAINED_GLASS_REMOVALS.len(), 7_850);
+    assert_eq!(2_962 + STAINED_GLASS_REMOVALS.len(), 2_978);
     let report = ratchet_protocol_1001(current.clone(), &pre_multiface_baseline)
         .expect("run exact pre-multiface production ratchet");
     assert!(report.added_diagnostics.is_empty());
@@ -2291,8 +2328,8 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
         .diagnostic_sequential_ids
         .extend(expected_gate_ids.iter().copied());
     pre_gate_baseline.diagnostic_sequential_ids.sort_unstable();
-    assert_eq!(pre_gate_baseline.diagnostic_sequential_ids.len(), 7_898);
-    assert_eq!(7_898 + STAINED_GLASS_REMOVALS.len(), 7_914);
+    assert_eq!(pre_gate_baseline.diagnostic_sequential_ids.len(), 3_026);
+    assert_eq!(3_026 + STAINED_GLASS_REMOVALS.len(), 3_042);
     let report = ratchet_protocol_1001(current.clone(), &pre_gate_baseline)
         .expect("run exact pre-Gate production ratchet");
     assert!(report.added_diagnostics.is_empty());
@@ -2329,8 +2366,8 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
     pre_carpet_baseline
         .diagnostic_sequential_ids
         .sort_unstable();
-    assert_eq!(pre_carpet_baseline.diagnostic_sequential_ids.len(), 7_885);
-    assert_eq!(7_885 + STAINED_GLASS_REMOVALS.len(), 7_901);
+    assert_eq!(pre_carpet_baseline.diagnostic_sequential_ids.len(), 3_013);
+    assert_eq!(3_013 + STAINED_GLASS_REMOVALS.len(), 3_029);
     let report = ratchet_protocol_1001(current.clone(), &pre_carpet_baseline)
         .expect("run exact pre-Carpet production ratchet");
     assert!(report.added_diagnostics.is_empty());
@@ -2367,8 +2404,8 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
     pre_button_baseline
         .diagnostic_sequential_ids
         .sort_unstable();
-    assert_eq!(pre_button_baseline.diagnostic_sequential_ids.len(), 7_874);
-    assert_eq!(7_874 + STAINED_GLASS_REMOVALS.len(), 7_890);
+    assert_eq!(pre_button_baseline.diagnostic_sequential_ids.len(), 3_002);
+    assert_eq!(3_002 + STAINED_GLASS_REMOVALS.len(), 3_018);
     let report = ratchet_protocol_1001(current.clone(), &pre_button_baseline)
         .expect("run exact pre-Button production ratchet");
     assert!(report.added_diagnostics.is_empty());
