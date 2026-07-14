@@ -204,7 +204,7 @@ Scope: block registry + block-state → model/texture mapping (generated export 
   widening the eight-byte quad. The existing single opaque shader now applies
   bit-8 alpha cutout with depth writes and no blending. No Mojang payload is
   tracked. The deterministic live-evidence task remains open.
-- [ ] **2.5 Biome palettes and tinting.** Decode/store biome data and apply
+- [x] **2.5 Biome palettes and tinting.** Decode/store biome data and apply
   grass/foliage/water tint without widening the eight-byte quad record.
   - [x] Palette-native v1001 biome storage/column decoding, including padded
     Bedrock words, `0xff` previous-storage reuse, strict malformed-input
@@ -219,11 +219,16 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     independently, preserve grass-side alpha as an opaque tint mask through
     mip generation, and apply the pinned pack's deterministic default grass
     tint until live per-biome color lookup replaces it.
-  - [ ] Compile grass/foliage/water tint classifications and biome color rules,
+  - [x] Compile grass/foliage/water tint classifications and biome color rules,
     upload palette-native biome/tint tables, and apply them in the chunk shader
     without widening the eight-byte quad record. Grass plus generic/birch/
     evergreen/dry foliage are now resolved from `MCBEAS03`, revision-gated,
-    and applied palette-natively; real water-material production remains in 2.6.
+    and applied palette-natively. **Complete (2026-07-13):** Task 13's real
+    animated water route applies the live palette-native water tint in the
+    liquid shader without widening the eight-byte cube quad. Native run
+    `20260712T203607Z-7596` proved five runtime water tints, consecutive exact
+    GPU witnesses, generation 518 presented, p99 14.0 ms, and zero decode
+    errors; fresh assets/render/client focused suites remain green.
 - [ ] **2.6 Static/non-cube models, blend/water, and flipbooks.** Complete the
   remaining block visual classes and animation path per
   `docs/superpowers/specs/2026-07-11-phase-2-6-noncube-water-design.md`.
