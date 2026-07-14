@@ -9,8 +9,8 @@ use std::{
 };
 
 use assets::{
-    ANIMATION_FLAG_BLEND, Animation, Material, NO_ANIMATION, ResolvedBiomeTints, RuntimeAssets,
-    TextureArray, TextureMip, TextureRef,
+    ANIMATION_FLAG_BLEND, Animation, Material, ModelTemplate, NO_ANIMATION, ResolvedBiomeTints,
+    RuntimeAssets, TextureArray, TextureMip, TextureRef,
 };
 use bevy::{
     asset::{AssetId, load_internal_asset, uuid_handle},
@@ -4498,6 +4498,13 @@ fn model_mdi_draw_command(allocation: &GpuChunkAllocation) -> Option<DrawIndexed
     model_draw_command(allocation, mdi_stream_addresses(allocation))
 }
 
+fn model_ref_count_for_witness(allocation: &GpuChunkAllocation) -> usize {
+    allocation.model_range.as_ref().map_or(0, |range| {
+        range.end.saturating_sub(range.start) as usize
+            / (PACKED_MODEL_REF_BYTES / GEOMETRY_STREAM_WORD_BYTES) as usize
+    })
+}
+
 fn depth_liquid_draw_command(allocation: &GpuChunkAllocation) -> Option<DrawIndexedIndirectArgs> {
     if !allocation.has_depth_liquid {
         return None;
@@ -5476,6 +5483,7 @@ fn prepare_gpu_chunks(
     budget: Res<ChunkUploadBudget>,
     mut upload_stats: ResMut<ChunkGpuUploadStats>,
     biome_tints: Res<ChunkBiomeTints>,
+    texture_assets: Res<ChunkTextureAssets>,
     acknowledgements: Res<ChunkUploadAcknowledgements>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
@@ -5552,6 +5560,7 @@ fn prepare_gpu_chunks(
             &instance.model_refs,
             &instance.model_lighting,
             &instance.model_draw_refs,
+            texture_assets.assets().model_templates(),
         ) {
             bevy::log::error!("sub-chunk model streams are not an exact reachable triplet");
             continue;
@@ -6508,6 +6517,7 @@ fn validate_local_model_streams(
     model_refs: &[PackedModelRef],
     model_lighting: &[PackedQuadLighting],
     model_draw_refs: &[PackedModelDrawRef],
+    model_templates: &[ModelTemplate],
 ) -> bool {
     let present = [
         !model_refs.is_empty(),
@@ -6522,12 +6532,41 @@ fn validate_local_model_streams(
     }
 
     let mut draw_index = 0;
+    let mut expected_lighting_base = 0_usize;
     for (model_ref_index, model_ref) in model_refs.iter().copied().enumerate() {
         let Ok(model_ref_index) = u32::try_from(model_ref_index) else {
             return false;
         };
         let words = model_ref.words();
         let lighting_base = words[2] as usize;
+        let visible_mask = words[3];
+        let Some(template) = model_templates.get(words[1] as usize) else {
+            return false;
+        };
+        let Ok(template_quad_count) = usize::try_from(template.quad_count) else {
+            return false;
+        };
+        if !(1..=32).contains(&template_quad_count)
+            || visible_mask == 0
+            || lighting_base != expected_lighting_base
+        {
+            return false;
+        }
+        let valid_mask = if template_quad_count == 32 {
+            u32::MAX
+        } else {
+            (1_u32 << template_quad_count) - 1
+        };
+        if visible_mask & !valid_mask != 0 {
+            return false;
+        }
+        let Some(lighting_end) = lighting_base.checked_add(template_quad_count) else {
+            return false;
+        };
+        if lighting_end > model_lighting.len() {
+            return false;
+        }
+        expected_lighting_base = lighting_end;
         let mut visible = words[3];
         while visible != 0 {
             let quad_index = visible.trailing_zeros();
@@ -6547,7 +6586,7 @@ fn validate_local_model_streams(
             visible &= visible - 1;
         }
     }
-    draw_index == model_draw_refs.len()
+    draw_index == model_draw_refs.len() && expected_lighting_base == model_lighting.len()
 }
 
 fn absolutize_model_draw_refs(draw_refs: &mut [[u32; 2]], model_word_start: u32) -> Option<()> {
@@ -7677,9 +7716,7 @@ fn queue_chunks(
                     generation: instance.generation,
                 }),
             arena.allocations.iter().map(|(&entity, allocation)| {
-                let model_ref_count = allocation.gpu.model_range.as_ref().map_or(0, |range| {
-                    range.end.saturating_sub(range.start) as usize / 4
-                });
+                let model_ref_count = model_ref_count_for_witness(&allocation.gpu);
                 (
                     FrameAllocationIdentity {
                         entity,
@@ -9062,7 +9099,12 @@ mod tests {
 
     #[test]
     fn model_upload_validation_requires_an_exact_reachable_triplet() {
-        let refs = [PackedModelRef::new(0x432, 7, 0, 0b10_1101)];
+        let templates = [assets::ModelTemplate {
+            quad_start: 0,
+            quad_count: 6,
+            flags: 0,
+        }];
+        let refs = [PackedModelRef::new(0x432, 0, 0, 0b10_1101)];
         let lighting = [PackedQuadLighting::new([0; 4]); 6];
         let draws = [
             PackedModelDrawRef::new(0, 0),
@@ -9070,29 +9112,155 @@ mod tests {
             PackedModelDrawRef::new(0, 3),
             PackedModelDrawRef::new(0, 5),
         ];
-        assert!(validate_local_model_streams(&refs, &lighting, &draws));
-        assert!(!validate_local_model_streams(&refs, &lighting, &[]));
-        assert!(!validate_local_model_streams(&[], &lighting, &draws));
-        assert!(!validate_local_model_streams(&refs, &[], &draws));
-        assert!(!validate_local_model_streams(
-            &refs,
-            &lighting,
-            &[PackedModelDrawRef::new(1, 0)]
+        assert!(validate_local_model_streams(
+            &refs, &lighting, &draws, &templates
         ));
         assert!(!validate_local_model_streams(
             &refs,
             &lighting,
-            &[PackedModelDrawRef::new(0, 32)]
+            &[],
+            &templates
+        ));
+        assert!(!validate_local_model_streams(
+            &[],
+            &lighting,
+            &draws,
+            &templates
+        ));
+        assert!(!validate_local_model_streams(
+            &refs,
+            &[],
+            &draws,
+            &templates
         ));
         assert!(!validate_local_model_streams(
             &refs,
             &lighting,
-            &[PackedModelDrawRef::new(0, 1)]
+            &[PackedModelDrawRef::new(1, 0)],
+            &templates,
         ));
         assert!(!validate_local_model_streams(
-            &[PackedModelRef::new(0x432, 7, 5, 0b10_0000)],
+            &refs,
             &lighting,
-            &[PackedModelDrawRef::new(0, 5)]
+            &[PackedModelDrawRef::new(0, 32)],
+            &templates,
+        ));
+        assert!(!validate_local_model_streams(
+            &refs,
+            &lighting,
+            &[PackedModelDrawRef::new(0, 1)],
+            &templates,
+        ));
+        assert!(!validate_local_model_streams(
+            &[PackedModelRef::new(0x432, 0, 5, 0b10_0000)],
+            &lighting,
+            &[PackedModelDrawRef::new(0, 5)],
+            &templates,
+        ));
+    }
+
+    fn owned_model_stream_fixture() -> (
+        Vec<PackedModelRef>,
+        Vec<PackedQuadLighting>,
+        Vec<PackedModelDrawRef>,
+        Vec<assets::ModelTemplate>,
+    ) {
+        (
+            vec![
+                PackedModelRef::new(0x111, 0, 0, 0b10_1101),
+                PackedModelRef::new(0x222, 1, 6, 0b10),
+            ],
+            vec![PackedQuadLighting::new([0; 4]); 8],
+            vec![
+                PackedModelDrawRef::new(0, 0),
+                PackedModelDrawRef::new(0, 2),
+                PackedModelDrawRef::new(0, 3),
+                PackedModelDrawRef::new(0, 5),
+                PackedModelDrawRef::new(1, 1),
+            ],
+            vec![
+                assets::ModelTemplate {
+                    quad_start: 0,
+                    quad_count: 6,
+                    flags: 0,
+                },
+                assets::ModelTemplate {
+                    quad_start: 6,
+                    quad_count: 2,
+                    flags: 0,
+                },
+            ],
+        )
+    }
+
+    #[test]
+    fn partial_masks_own_full_contiguous_template_lighting() {
+        let (refs, lighting, draws, templates) = owned_model_stream_fixture();
+        assert!(validate_local_model_streams(
+            &refs, &lighting, &draws, &templates
+        ));
+    }
+
+    #[test]
+    fn model_upload_rejects_duplicate_lighting_base() {
+        let (mut refs, lighting, draws, templates) = owned_model_stream_fixture();
+        refs[1] = PackedModelRef::new(0x222, 1, 0, 0b10);
+        assert!(!validate_local_model_streams(
+            &refs, &lighting, &draws, &templates
+        ));
+    }
+
+    #[test]
+    fn model_upload_rejects_first_lighting_base_gap() {
+        let (mut refs, lighting, draws, templates) = owned_model_stream_fixture();
+        refs[0] = PackedModelRef::new(0x111, 0, 1, 0b10_1101);
+        assert!(!validate_local_model_streams(
+            &refs, &lighting, &draws, &templates
+        ));
+    }
+
+    #[test]
+    fn model_upload_rejects_middle_lighting_gap() {
+        let (mut refs, lighting, draws, templates) = owned_model_stream_fixture();
+        refs[1] = PackedModelRef::new(0x222, 1, 7, 0b10);
+        assert!(!validate_local_model_streams(
+            &refs, &lighting, &draws, &templates
+        ));
+    }
+
+    #[test]
+    fn model_upload_rejects_trailing_unreachable_lighting() {
+        let (refs, mut lighting, draws, templates) = owned_model_stream_fixture();
+        lighting.push(PackedQuadLighting::new([0; 4]));
+        assert!(!validate_local_model_streams(
+            &refs, &lighting, &draws, &templates
+        ));
+    }
+
+    #[test]
+    fn model_upload_rejects_cross_model_lighting_overlap() {
+        let (mut refs, lighting, draws, templates) = owned_model_stream_fixture();
+        refs[1] = PackedModelRef::new(0x222, 1, 5, 0b10);
+        assert!(!validate_local_model_streams(
+            &refs, &lighting, &draws, &templates
+        ));
+    }
+
+    #[test]
+    fn model_upload_rejects_cross_model_draw_read() {
+        let (refs, lighting, mut draws, templates) = owned_model_stream_fixture();
+        draws[3] = PackedModelDrawRef::new(1, 1);
+        assert!(!validate_local_model_streams(
+            &refs, &lighting, &draws, &templates
+        ));
+    }
+
+    #[test]
+    fn model_upload_rejects_zero_mask_ref_beside_drawable_ref() {
+        let (mut refs, lighting, draws, templates) = owned_model_stream_fixture();
+        refs[0] = PackedModelRef::new(0x111, 0, 0, 0);
+        assert!(!validate_local_model_streams(
+            &refs, &lighting, &draws, &templates
         ));
     }
 
@@ -9102,6 +9270,100 @@ mod tests {
         absolutize_model_draw_refs(&mut draws, 20).expect("aligned model record base");
         assert_eq!(draws, [[5, 2], [8, 31]]);
         assert!(absolutize_model_draw_refs(&mut draws, 22).is_none());
+    }
+
+    #[test]
+    fn production_model_witness_counts_refs_not_exact_draw_records() {
+        let now = Instant::now();
+        let key = SubChunkKey::new(0, 65, 0, 65);
+        let entity = Entity::from_bits(1 << 32 | 81);
+        let mut allocation = retirement_test_allocation();
+        allocation.gpu.key = key;
+        allocation.gpu.generation = 9;
+        allocation.gpu.model_range = Some(0..8);
+        allocation.gpu.model_lighting_range = Some(8..20);
+        allocation.gpu.model_draw_range = Some(20..40);
+        allocation.model_range = allocation.gpu.model_range.clone();
+        allocation.model_lighting_range = allocation.gpu.model_lighting_range.clone();
+        allocation.model_draw_range = allocation.gpu.model_draw_range.clone();
+
+        let model_ref_count = model_ref_count_for_witness(&allocation.gpu);
+        let model_draw_count = allocation.gpu.model_draw_range.as_ref().unwrap().len() / 2;
+        assert_eq!(model_ref_count, 2);
+        assert_eq!(model_draw_count, 10);
+
+        let identity = FrameAllocationIdentity {
+            entity,
+            key,
+            generation: 9,
+        };
+        let request = ModelWitnessRequest::try_new(7, [0x81; 32], vec![key]).unwrap();
+        let probe = FrameProbe::begin_with_model_witness(
+            target_expectation(now, [(key, 9)]),
+            [FrameInstanceIdentity {
+                entity,
+                key,
+                generation: 9,
+            }],
+            [(identity, allocation.expected_streams(), model_ref_count)],
+            request,
+        );
+        assert!(probe.record_direct_streams(entity, identity, ChunkStreamMask::MODEL));
+        let witness = probe.complete().model_witness.unwrap();
+        assert_eq!(witness.total_model_ref_count, 2);
+        assert_eq!(witness.manifest[0].model_ref_count, 2);
+    }
+
+    #[test]
+    fn model_mdi_batch_emits_one_command_per_eligible_allocation() {
+        let tint = ChunkBiomeTintIdentity::new(4, 5);
+        let allocations = [
+            (Entity::from_bits(201), 0_u32, 1_u32),
+            (Entity::from_bits(202), 20_u32, 3_u32),
+            (Entity::from_bits(203), 44_u32, 5_u32),
+        ]
+        .map(|(entity, start, draw_count)| {
+            (
+                entity,
+                GpuChunkAllocation {
+                    key: SubChunkKey::new(0, start as i32, 0, 0),
+                    generation: 1,
+                    tint_identity: tint,
+                    quad_range: 0..0,
+                    model_range: Some(start..start + 4),
+                    model_lighting_range: Some(start + 4..start + 6),
+                    model_draw_range: Some(start + 6..start + 6 + draw_count * 2),
+                    liquid_range: None,
+                    liquid_lighting_range: None,
+                    has_depth_liquid: false,
+                    has_transparent_liquid: false,
+                    depth_liquid_range: None,
+                    metadata_index: start / 4,
+                },
+            )
+        });
+        let frame_probe = ActiveFrameProbe::default();
+        let (commands, drawn) = prepare_model_indirect_batch_draws(
+            allocations
+                .iter()
+                .map(|(entity, allocation)| (*entity, allocation)),
+            &frame_probe,
+            tint,
+        );
+
+        assert_eq!(commands.len(), allocations.len());
+        assert_eq!(drawn.len(), allocations.len());
+        assert_eq!(
+            commands
+                .iter()
+                .map(|command| command.instance_count)
+                .collect::<Vec<_>>(),
+            [1, 3, 5]
+        );
+        assert_eq!(
+            drawn.iter().map(|(entity, _)| *entity).collect::<Vec<_>>(),
+            allocations.map(|(entity, _)| entity)
+        );
     }
 
     #[test]
