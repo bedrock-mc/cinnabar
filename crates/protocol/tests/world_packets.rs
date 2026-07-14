@@ -1,10 +1,10 @@
 use bytes::{Buf, BytesMut};
 use protocol::{
-    BiomeDefinitionEvent, BiomeDefinitionsEvent, DimensionRange, GameData, HASHED_AIR_NETWORK_ID,
-    LevelChunkMode, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES, MovePlayerEvent,
-    PlayerMovementCorrectionEvent, SEQUENTIAL_AIR_NETWORK_ID, SetTimeEvent, SubChunkResult,
-    WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent,
-    WorldPacketError, air_network_id, into_world_event, request_sub_chunk_column,
+    BiomeDefinitionEvent, BiomeDefinitionsEvent, DaylightCycleUpdateEvent, DimensionRange,
+    GameData, HASHED_AIR_NETWORK_ID, LevelChunkMode, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES,
+    MovePlayerEvent, PlayerMovementCorrectionEvent, SEQUENTIAL_AIR_NETWORK_ID, SetTimeEvent,
+    SubChunkResult, WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldEnvironmentBootstrap,
+    WorldEvent, WorldPacketError, air_network_id, into_world_event, request_sub_chunk_column,
     vanilla_dimension_range,
 };
 use valentine::bedrock::codec::{BedrockCodec, BedrockSized};
@@ -12,7 +12,8 @@ use valentine::bedrock::version::v1_26_30::{
     BiomeDefinition, BiomeDefinitionListPacket, BlockCoordinates, BlockUpdate,
     BlockUpdateTransitionType, ChangeDimensionPacket, ChunkRadiusUpdatePacket,
     CorrectPlayerMovePredictionPacket, CorrectPlayerMovePredictionPacketPredictionType,
-    GameRuleVarint, GameRuleVarintType, GameRuleVarintValue, LevelChunkPacket, LevelEventPacket,
+    GameRuleI32, GameRuleI32Type, GameRuleI32Value, GameRuleVarint, GameRuleVarintType,
+    GameRuleVarintValue, GameRulesChangedPacket, LevelChunkPacket, LevelEventPacket,
     LevelEventPacketEvent, McpePacketData, MovePlayerPacket, NetworkChunkPublisherUpdatePacket,
     SetTimePacket, StartGamePacketDimension, SubChunkEntryWithCachingItem,
     SubChunkEntryWithCachingItemResult, SubChunkEntryWithoutCachingItem,
@@ -762,6 +763,48 @@ fn normalizes_post_spawn_set_time() {
         into_world_event(packet.into(), 0).unwrap(),
         Some(WorldEvent::SetTime(SetTimeEvent { time: 6000 }))
     );
+}
+
+#[test]
+fn normalizes_only_boolean_daylight_cycle_rule_changes_case_insensitively() {
+    let packet = GameRulesChangedPacket {
+        rules: vec![
+            GameRuleI32 {
+                name: "keepinventory".to_owned(),
+                type_: GameRuleI32Type::Bool,
+                value: Some(GameRuleI32Value::Bool(true)),
+                ..Default::default()
+            },
+            GameRuleI32 {
+                name: "DoDaylightCycle".to_owned(),
+                type_: GameRuleI32Type::Int,
+                value: Some(GameRuleI32Value::Int(0)),
+                ..Default::default()
+            },
+            GameRuleI32 {
+                name: "DODAYLIGHTCYCLE".to_owned(),
+                type_: GameRuleI32Type::Bool,
+                value: Some(GameRuleI32Value::Bool(false)),
+                ..Default::default()
+            },
+        ],
+    };
+    assert_eq!(
+        into_world_event(packet.into(), 0).unwrap(),
+        Some(WorldEvent::DaylightCycle(DaylightCycleUpdateEvent {
+            enabled: false,
+        }))
+    );
+
+    let wrong_type = GameRulesChangedPacket {
+        rules: vec![GameRuleI32 {
+            name: "dodaylightcycle".to_owned(),
+            type_: GameRuleI32Type::Float,
+            value: Some(GameRuleI32Value::Float(0.0)),
+            ..Default::default()
+        }],
+    };
+    assert_eq!(into_world_event(wrong_type.into(), 0).unwrap(), None);
 }
 
 #[test]

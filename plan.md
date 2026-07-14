@@ -948,7 +948,9 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     vendor-independent protocol events; retain StartGame's initial current
     tick, day-cycle lock time, case-insensitive boolean `doDaylightCycle`
     state (default enabled when absent), and clamped initial rain/lightning.
-    Two deferred pre-spawn SetTime
+    Runtime `GameRulesChanged` packets normalize only a case-insensitive
+    boolean `doDaylightCycle` entry and ignore wrong types. Two deferred
+    pre-spawn SetTime
     packets retain FIFO order in Play, post-spawn normalization is identical,
     and non-finite initial weather values fail closed.
   - [x] Consume the normalized environment stream into app-owned clock and
@@ -956,9 +958,11 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     StartGame begins a new environment session, anchors its exact initial tick,
     preserves its cycle lock and bounded rain/lightning targets, advances only
     while `doDaylightCycle` is enabled, and uses the lock tick only when the
-    rule is explicitly disabled. Exact signed SetTime values re-anchor the
-    running clock. Dimension changes
-    preserve that world-session snapshot. FIFO-committed SetTime/weather
+    rule is explicitly disabled. A runtime false transition freezes the exact
+    current visual tick; true re-anchors and resumes it. Exact signed SetTime
+    values immediately re-anchor either a running or frozen clock. Dimension
+    changes
+    preserve that world-session snapshot. FIFO-committed SetTime/day-cycle/weather
     updates do not dirty meshes, enqueue mesh changes, or change cave
     connectivity. Mesh-baked light response and vanilla atmosphere parity
     remain open.

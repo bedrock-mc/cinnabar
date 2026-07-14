@@ -144,6 +144,7 @@ fn decode_world_raw_with(
             | McpePacketName::PacketMovePlayer
             | McpePacketName::PacketCorrectPlayerMovePrediction
             | McpePacketName::PacketSetTime
+            | McpePacketName::PacketGameRulesChanged
             | McpePacketName::PacketLevelEvent
     ) {
         return Ok(None);
@@ -161,7 +162,8 @@ mod tests {
     use valentine::bedrock::context::BedrockSession;
     use valentine::bedrock::version::v1_26_30::{
         BiomeDefinition, BiomeDefinitionListPacket, BlockCoordinates,
-        CorrectPlayerMovePredictionPacket, LevelEventPacket, LevelEventPacketEvent, McpePacketName,
+        CorrectPlayerMovePredictionPacket, GameRuleI32, GameRuleI32Type, GameRuleI32Value,
+        GameRulesChangedPacket, LevelEventPacket, LevelEventPacketEvent, McpePacketName,
         MovePlayerPacket, UpdateBlockPacket, Vec2F, Vec3F,
     };
     use valentine::protocol::wire;
@@ -246,6 +248,38 @@ mod tests {
             Some(WorldEvent::Weather(crate::WeatherUpdateEvent {
                 channel: crate::WeatherChannel::Rain,
                 level: 1.0,
+            }))
+        );
+    }
+
+    #[test]
+    fn allowlisted_daylight_cycle_rule_is_decoded_and_normalized() {
+        let session = BedrockSession { shield_item_id: 0 };
+        let packet: Packet = GameRulesChangedPacket {
+            rules: vec![GameRuleI32 {
+                name: "DoDaylightCycle".to_owned(),
+                type_: GameRuleI32Type::Bool,
+                value: Some(GameRuleI32Value::Bool(false)),
+                ..Default::default()
+            }],
+        }
+        .into();
+        let mut batch = crate::encode(&packet, &session).expect("encode gamerule event");
+        batch.advance(1);
+        let raw = decode_packet_raw(&mut batch).expect("raw gamerule event");
+        let decoder_called = Cell::new(false);
+
+        let event = decode_world_raw_with(raw, 0, |raw| {
+            decoder_called.set(true);
+            raw.decode(&session)
+        })
+        .expect("decode gamerule event");
+
+        assert!(decoder_called.get());
+        assert_eq!(
+            event,
+            Some(WorldEvent::DaylightCycle(crate::DaylightCycleUpdateEvent {
+                enabled: false
             }))
         );
     }

@@ -11,10 +11,10 @@ use assets::{LiveBiomeDefinition, NetworkIdMode, ResolvedBiomeTints, RuntimeAsse
 use bevy::prelude::Resource;
 use crossbeam_channel::{Receiver, Sender, bounded};
 use protocol::{
-    BiomeDefinitionEvent, BlockUpdateEvent, ChangeDimensionEvent, LevelChunkEvent, LevelChunkMode,
-    MovePlayerEvent, Packet, PlayerMovementCorrectionEvent, SetTimeEvent, SubChunkBatchEvent,
-    SubChunkResult, WeatherUpdateEvent, WorldBootstrap, WorldEvent, request_sub_chunk_column,
-    vanilla_dimension_range,
+    BiomeDefinitionEvent, BlockUpdateEvent, ChangeDimensionEvent, DaylightCycleUpdateEvent,
+    LevelChunkEvent, LevelChunkMode, MovePlayerEvent, Packet, PlayerMovementCorrectionEvent,
+    SetTimeEvent, SubChunkBatchEvent, SubChunkResult, WeatherUpdateEvent, WorldBootstrap,
+    WorldEvent, request_sub_chunk_column, vanilla_dimension_range,
 };
 use render::{
     BlockClassifier, ChunkBiomeTintIdentity, ChunkMesh, FaceConnectivity, MeshLightSample,
@@ -350,6 +350,10 @@ pub enum CommittedControlEvent {
     SetTime {
         sequence: u64,
         update: SetTimeEvent,
+    },
+    DaylightCycle {
+        sequence: u64,
+        update: DaylightCycleUpdateEvent,
     },
     Weather {
         sequence: u64,
@@ -2616,6 +2620,13 @@ impl WorldStream {
                 let sequence = sequence.expect("sequenced SetTime commits through submit");
                 self.push_committed_control(CommittedControlEvent::SetTime { sequence, update });
             }
+            WorldEvent::DaylightCycle(update) => {
+                let sequence = sequence.expect("sequenced daylight-cycle commits through submit");
+                self.push_committed_control(CommittedControlEvent::DaylightCycle {
+                    sequence,
+                    update,
+                });
+            }
             WorldEvent::Weather(update) => {
                 let sequence = sequence.expect("sequenced weather commits through submit");
                 self.push_committed_control(CommittedControlEvent::Weather { sequence, update });
@@ -4231,9 +4242,10 @@ mod tests {
     };
     use protocol::{
         BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockUpdateEvent, ChangeDimensionEvent,
-        LevelChunkEvent, LevelChunkMode, MovePlayerEvent, PlayerMovementCorrectionEvent,
-        PublisherUpdateEvent, SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkResult,
-        SubChunkUnavailable, WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldEvent,
+        DaylightCycleUpdateEvent, LevelChunkEvent, LevelChunkMode, MovePlayerEvent,
+        PlayerMovementCorrectionEvent, PublisherUpdateEvent, SetTimeEvent, SubChunkBatchEvent,
+        SubChunkEntryEvent, SubChunkResult, SubChunkUnavailable, WeatherChannel,
+        WeatherUpdateEvent, WorldBootstrap, WorldEvent,
     };
     use render::{BlockClassifier, Neighbourhood, PackedBiomeRecord, mesh_sub_chunk};
     use world::{
@@ -6088,7 +6100,7 @@ mod tests {
     }
 
     #[test]
-    fn clock_and_weather_commit_in_fifo_order_without_dirtying_world_meshes() {
+    fn clock_daylight_and_weather_commit_in_fifo_order_without_dirtying_world_meshes() {
         let mut stream = WorldStream::new(WorldBootstrap {
             dimension: 0,
             local_player_runtime_id: 1,
@@ -6107,6 +6119,12 @@ mod tests {
         stream
             .submit(
                 2,
+                WorldEvent::DaylightCycle(DaylightCycleUpdateEvent { enabled: false }),
+            )
+            .unwrap();
+        stream
+            .submit(
+                3,
                 WorldEvent::Weather(WeatherUpdateEvent {
                     channel: WeatherChannel::Rain,
                     level: 1.0,
@@ -6115,7 +6133,7 @@ mod tests {
             .unwrap();
         stream
             .submit(
-                3,
+                4,
                 WorldEvent::Weather(WeatherUpdateEvent {
                     channel: WeatherChannel::Lightning,
                     level: 0.0,
@@ -6130,15 +6148,19 @@ mod tests {
                     sequence: 1,
                     update: SetTimeEvent { time: i32::MIN },
                 },
-                super::CommittedControlEvent::Weather {
+                super::CommittedControlEvent::DaylightCycle {
                     sequence: 2,
+                    update: DaylightCycleUpdateEvent { enabled: false },
+                },
+                super::CommittedControlEvent::Weather {
+                    sequence: 3,
                     update: WeatherUpdateEvent {
                         channel: WeatherChannel::Rain,
                         level: 1.0,
                     },
                 },
                 super::CommittedControlEvent::Weather {
-                    sequence: 3,
+                    sequence: 4,
                     update: WeatherUpdateEvent {
                         channel: WeatherChannel::Lightning,
                         level: 0.0,

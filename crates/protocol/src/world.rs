@@ -3,10 +3,10 @@ use std::sync::Arc;
 use jolyne::GameData;
 use thiserror::Error;
 use valentine::bedrock::version::v1_26_30::{
-    CorrectPlayerMovePredictionPacketPredictionType, GameRuleVarintType, GameRuleVarintValue,
-    LevelEventPacketEvent, McpePacketData, StartGamePacketDimension,
-    SubChunkEntryWithoutCachingItemResult, SubchunkPacketEntries, SubchunkRequestPacket, Vec3I8,
-    Vec3Li,
+    CorrectPlayerMovePredictionPacketPredictionType, GameRuleI32, GameRuleI32Type,
+    GameRuleI32Value, GameRuleVarintType, GameRuleVarintValue, LevelEventPacketEvent,
+    McpePacketData, StartGamePacketDimension, SubChunkEntryWithoutCachingItemResult,
+    SubchunkPacketEntries, SubchunkRequestPacket, Vec3I8, Vec3Li,
 };
 
 use crate::Packet;
@@ -246,6 +246,12 @@ pub struct SetTimeEvent {
     pub time: i32,
 }
 
+/// One runtime update to the world's daylight-cycle switch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DaylightCycleUpdateEvent {
+    pub enabled: bool,
+}
+
 /// Weather channel targeted by a normalized level event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WeatherChannel {
@@ -315,6 +321,7 @@ pub enum WorldEvent {
     MovePlayer(MovePlayerEvent),
     PlayerMovementCorrection(PlayerMovementCorrectionEvent),
     SetTime(SetTimeEvent),
+    DaylightCycle(DaylightCycleUpdateEvent),
     Weather(WeatherUpdateEvent),
 }
 
@@ -569,6 +576,12 @@ pub fn into_world_event(
         McpePacketData::PacketSetTime(packet) => {
             WorldEvent::SetTime(SetTimeEvent { time: packet.time })
         }
+        McpePacketData::PacketGameRulesChanged(packet) => {
+            let Some(enabled) = daylight_cycle_rule_update(&packet.rules) else {
+                return Ok(None);
+            };
+            WorldEvent::DaylightCycle(DaylightCycleUpdateEvent { enabled })
+        }
         McpePacketData::PacketLevelEvent(packet) => {
             let update = match packet.event {
                 LevelEventPacketEvent::StartRain => WeatherUpdateEvent {
@@ -594,6 +607,19 @@ pub fn into_world_event(
         _ => return Ok(None),
     };
     Ok(Some(event))
+}
+
+fn daylight_cycle_rule_update(rules: &[GameRuleI32]) -> Option<bool> {
+    rules.iter().find_map(|rule| {
+        if rule.name.eq_ignore_ascii_case("dodaylightcycle")
+            && rule.type_ == GameRuleI32Type::Bool
+            && let Some(GameRuleI32Value::Bool(enabled)) = &rule.value
+        {
+            Some(*enabled)
+        } else {
+            None
+        }
+    })
 }
 
 fn canonical_biome_name(name: &str) -> Arc<str> {

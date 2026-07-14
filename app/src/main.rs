@@ -3046,7 +3046,9 @@ fn apply_committed_control(
             resolved
         }
         CommittedControlEvent::ChangeDimension { resolved, .. } => resolved,
-        CommittedControlEvent::SetTime { .. } | CommittedControlEvent::Weather { .. } => return,
+        CommittedControlEvent::SetTime { .. }
+        | CommittedControlEvent::DaylightCycle { .. }
+        | CommittedControlEvent::Weather { .. } => return,
     };
     camera.translation = Vec3::from_array(resolved.position);
     *pending_surface_spawn = resolved.surface_anchor;
