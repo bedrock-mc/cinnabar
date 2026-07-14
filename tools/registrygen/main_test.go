@@ -172,6 +172,8 @@ func TestPMMPFallbackIsNarrowUniformAndProvenanceTagged(t *testing.T) {
 	pmmp := map[string]PMMPLightProperties{
 		"minecraft:redstone_lamp":     {Brightness: 0, Opacity: 0},
 		"minecraft:lit_redstone_lamp": {Brightness: 15, Opacity: 0},
+		// An exact PMMP entry cannot widen the audited fallback allowlist.
+		"minecraft:hard_pink_stained_glass": {Brightness: 15, Opacity: 0},
 	}
 	properties, report, err := resolveAuthoritativeLightProperties(records, world.DefaultBlockRegistry, pmmp)
 	if err != nil {
@@ -180,7 +182,8 @@ func TestPMMPFallbackIsNarrowUniformAndProvenanceTagged(t *testing.T) {
 	if got, want := report.PMMPFallbackIdentifiers, []string{"minecraft:lit_redstone_lamp", "minecraft:redstone_lamp"}; !slices.Equal(got, want) {
 		t.Fatalf("fallback identifiers = %v, want %v", got, want)
 	}
-	if report.PMMPFallbackStates == 0 || len(report.PMMPFallbackSequentialIDs) != report.PMMPFallbackStates {
+	if report.DragonflyAccessorStates != 16_911 || report.PMMPFallbackStates != 2 ||
+		!slices.Equal(report.PMMPFallbackSequentialIDs, []uint32{1309, 6853}) {
 		t.Fatalf("fallback provenance = %+v", report)
 	}
 	for _, record := range records {
@@ -203,6 +206,12 @@ func TestPMMPFallbackIsNarrowUniformAndProvenanceTagged(t *testing.T) {
 	pmmp["minecraft:lit_redstone_lamp"] = PMMPLightProperties{Brightness: 16, Opacity: 0}
 	if _, _, err := resolveAuthoritativeLightProperties(records, world.DefaultBlockRegistry, pmmp); err == nil || !strings.Contains(err.Error(), "brightness") {
 		t.Fatalf("out-of-range fallback error = %v", err)
+	}
+}
+
+func TestAuthoritativeLightGenerationRejectsMissingPMMP(t *testing.T) {
+	if _, _, err := encodeAuthoritativeLightRegistry(nil, nil, world.DefaultBlockRegistry, ""); err == nil || !strings.Contains(err.Error(), "PMMP") {
+		t.Fatalf("missing PMMP source error = %v", err)
 	}
 }
 

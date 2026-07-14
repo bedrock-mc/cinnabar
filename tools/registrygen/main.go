@@ -353,29 +353,12 @@ func main() {
 		fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
 		os.Exit(1)
 	}
-	var encodedLights []byte
-	if *pmmpRoot == "" {
-		encodedLights, err = encodeLightRegistry(bindingBREG, records, world.DefaultBlockRegistry)
-	} else {
-		pmmpLights, lightErr := readPMMPLightProperties(filepath.Join(*pmmpRoot, "block_properties_table.json"))
-		if lightErr != nil {
-			fmt.Fprintf(os.Stderr, "registrygen: read PMMP light diagnostics: %v\n", lightErr)
-			os.Exit(1)
-		}
-		resolved, lightReport, lightErr := resolveAuthoritativeLightProperties(records, world.DefaultBlockRegistry, pmmpLights)
-		if lightErr != nil {
-			fmt.Fprintf(os.Stderr, "registrygen: resolve light metadata: %v\n", lightErr)
-			os.Exit(1)
-		}
-		report.LightMetadata = lightReport
-		bindingDigest := sha256.Sum256(bindingBREG)
-		report.LightMetadata.BREGSHA256 = fmt.Sprintf("%x", bindingDigest)
-		encodedLights, err = encodeResolvedLightRegistry(bindingBREG, records, resolved)
-	}
+	encodedLights, lightReport, err := encodeAuthoritativeLightRegistry(bindingBREG, records, world.DefaultBlockRegistry, *pmmpRoot)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
 		os.Exit(1)
 	}
+	report.LightMetadata = lightReport
 	if err := os.MkdirAll(filepath.Dir(*out), 0o755); err != nil {
 		fmt.Fprintf(os.Stderr, "registrygen: create output directory: %v\n", err)
 		os.Exit(1)
@@ -2499,6 +2482,27 @@ func readBREG1003LightIdentities(data []byte) ([]bregLightIdentity, error) {
 	return identities, nil
 }
 
+func encodeAuthoritativeLightRegistry(breg []byte, records []Record, registry world.BlockRegistry, pmmpRoot string) ([]byte, LightGenerationReport, error) {
+	if pmmpRoot == "" {
+		return nil, LightGenerationReport{}, errors.New("authoritative light generation requires the pinned PMMP source")
+	}
+	pmmpLights, err := readPMMPLightProperties(filepath.Join(pmmpRoot, "block_properties_table.json"))
+	if err != nil {
+		return nil, LightGenerationReport{}, fmt.Errorf("read PMMP light diagnostics: %w", err)
+	}
+	resolved, report, err := resolveAuthoritativeLightProperties(records, registry, pmmpLights)
+	if err != nil {
+		return nil, LightGenerationReport{}, fmt.Errorf("resolve light metadata: %w", err)
+	}
+	bindingDigest := sha256.Sum256(breg)
+	report.BREGSHA256 = fmt.Sprintf("%x", bindingDigest)
+	encoded, err := encodeResolvedLightRegistry(breg, records, resolved)
+	if err != nil {
+		return nil, LightGenerationReport{}, err
+	}
+	return encoded, report, nil
+}
+
 func resolveAuthoritativeLightProperties(records []Record, registry world.BlockRegistry, pmmp map[string]PMMPLightProperties) ([]byte, LightGenerationReport, error) {
 	if registry == nil {
 		return nil, LightGenerationReport{}, errors.New("block registry is nil")
@@ -2520,36 +2524,40 @@ func resolveAuthoritativeLightProperties(records []Record, registry world.BlockR
 		if emission > 15 || filter > 15 {
 			return nil, LightGenerationReport{}, fmt.Errorf("runtime ID %d returned malformed light %d/%d", record.SequentialID, emission, filter)
 		}
-		fallback, eligible := fallbackNames[record.Name]
-		_ = fallback
+		_, eligible := fallbackNames[record.Name]
+		// The exact Dragonfly per-RID accessors are primary for every state
+		// except the two audited lamp identifiers. Block implementation coverage
+		// is intentionally not an authority test: protocol-1001 includes valid
+		// states represented internally by Dragonfly's unknownBlock type.
+		if !eligible {
+			report.DragonflyAccessorStates++
+			properties[index] = emission | filter<<4
+			continue
+		}
 		value, found := registry.BlockByRuntimeID(record.SequentialID)
 		concrete := found
 		if found {
 			_, hash := value.Hash()
 			concrete = hash != math.MaxUint64
 		}
-		if eligible {
-			exact, ok := pmmp[record.Name]
-			if !ok {
-				return nil, LightGenerationReport{}, fmt.Errorf("required exact PMMP light entry %s is missing", record.Name)
-			}
-			pmmpEmission, pmmpFilter, err := checkedPMMPLight(record.Name, exact)
-			if err != nil {
-				return nil, LightGenerationReport{}, err
-			}
-			if concrete {
-				if emission != pmmpEmission || filter != pmmpFilter {
-					return nil, LightGenerationReport{}, fmt.Errorf("concrete Dragonfly light %d/%d disagrees with exact PMMP cross-check %d/%d for %s", emission, filter, pmmpEmission, pmmpFilter, record.Name)
-				}
-			} else {
-				emission, filter = pmmpEmission, pmmpFilter
-				report.PMMPFallbackStates++
-				report.PMMPFallbackSequentialIDs = append(report.PMMPFallbackSequentialIDs, record.SequentialID)
-				fallbackNames[record.Name] = true
-			}
+		exact, ok := pmmp[record.Name]
+		if !ok {
+			return nil, LightGenerationReport{}, fmt.Errorf("required exact PMMP light entry %s is missing", record.Name)
 		}
-		if concrete || !eligible {
+		pmmpEmission, pmmpFilter, err := checkedPMMPLight(record.Name, exact)
+		if err != nil {
+			return nil, LightGenerationReport{}, err
+		}
+		if concrete {
+			if emission != pmmpEmission || filter != pmmpFilter {
+				return nil, LightGenerationReport{}, fmt.Errorf("concrete Dragonfly light %d/%d disagrees with exact PMMP cross-check %d/%d for %s", emission, filter, pmmpEmission, pmmpFilter, record.Name)
+			}
 			report.DragonflyAccessorStates++
+		} else {
+			emission, filter = pmmpEmission, pmmpFilter
+			report.PMMPFallbackStates++
+			report.PMMPFallbackSequentialIDs = append(report.PMMPFallbackSequentialIDs, record.SequentialID)
+			fallbackNames[record.Name] = true
 		}
 		properties[index] = emission | filter<<4
 	}
