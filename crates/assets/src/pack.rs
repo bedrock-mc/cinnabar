@@ -176,6 +176,17 @@ impl TerrainTextureMap {
         }
     }
 
+    /// Returns a terrain path only when the source is a scalar/static entry.
+    /// State-sensitive model families use this instead of silently selecting
+    /// variant zero from an array.
+    #[must_use]
+    pub(crate) fn get_exact_static(&self, key: &str) -> Option<&str> {
+        match self.entries.get(key)? {
+            TerrainPaths::Static { path, .. } => Some(path),
+            TerrainPaths::Variants { .. } => None,
+        }
+    }
+
     pub(crate) fn requires_tint(&self, key: &str) -> bool {
         self.entries
             .get(key)
@@ -222,6 +233,24 @@ impl TerrainTextureMap {
 
     pub(crate) fn source_paths(&self) -> impl Iterator<Item = &str> {
         self.entries.values().flat_map(TerrainPaths::paths)
+    }
+}
+
+impl BlockTextureMap {
+    /// Returns six explicit face keys. Fallback `side` routing is deliberately
+    /// excluded so exact model families cannot accept an underspecified map.
+    pub(crate) fn get_exact_faces(&self, block_name: &str) -> Option<[&str; 6]> {
+        let TextureValue::Faces(faces) = self.entries.get(block_name)? else {
+            return None;
+        };
+        Some([
+            faces.west.as_deref()?,
+            faces.east.as_deref()?,
+            faces.down.as_deref()?,
+            faces.up.as_deref()?,
+            faces.north.as_deref()?,
+            faces.south.as_deref()?,
+        ])
     }
 }
 

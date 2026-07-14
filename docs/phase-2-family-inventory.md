@@ -23,13 +23,15 @@ The audit used these pinned inputs:
 - the locally acquired, ignored Mojang 1.26.30 sample resource pack described
   by `assets/vanilla-source.json`.
 
-The final audited `BREG1003` export is 4,692,247 bytes with SHA-256
-`fda4b40335c24b0019049ce572668b03f8ddb9a705de88abb4d724aa7ff81106`.
+The current audited `BREG1003` export is 4,692,247 bytes with SHA-256
+`3e0a67718b6368d8b5f7755e9e49a1241233f21bcea8724a9163febb4f1b1d92`.
 It decoded exactly to EOF and reported 1,356 names, 16,913 states, 1,321
 Valentine names, 15,845 Valentine states, and attributable gaps of 35 names and
 1,068 states. The 2026-07-13 selector-only regeneration preserves
 `redstone_signal` as a typed pressed flag for exactly the 256 pressure-plate
-records; two generations were byte-identical and no other record changed.
+records. The 2026-07-14 regeneration additionally assigns the dedicated
+chiseled-bookshelf family and reviewed solid/full-face facts to exactly IDs
+1,605–1,860; two generations were byte-identical.
 
 Reacquire and regenerate the ignored evidence with:
 
@@ -230,7 +232,18 @@ confidence may remain state-specific.
 
 ## Residual topology
 
-The 412-name/2,860-state residual is bounded and attributable:
+The 2026-07-14 chiseled-bookshelf tranche removes exactly the contiguous 256
+canonical states at IDs 1,605–1,860. The dedicated family admits only the full
+`books_stored:int 0..63 × direction:int 0..3` product with canonical ID formula,
+unit collision, solid/full-face facts, exact face routing, a two-entry front
+terrain array, and static side/top terrain entries. It compiles four opaque
+source materials and 64 eleven-quad templates. Native evidence and hashes are
+recorded in `docs/evidence/phase-2-chiseled-bookshelf-native-reference.md`.
+The current exact residual is 2,570 diagnostics including air; no unrelated ID
+changed status.
+
+The original 412-name/2,860-state planning residual was bounded and
+attributable:
 
 - 229 names/812 states have full-cube collision. This is only a candidate set:
   it also contains shulker boxes, pistons, chorus flower, azalea, Education

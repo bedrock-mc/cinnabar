@@ -240,6 +240,21 @@ outside the exact grate admission. The ignored integrated blob SHA-256 is
 `20cd1b4301f40736468a3249acf21fdea0544d74fa238d8faae04aaee1af9940`,
 and the refreshed ratchet is zero-delta at 7,698 diagnostics including air.
 
+The subsequent chiseled-bookshelf run removes exactly the contiguous 256 IDs
+1,605–1,860 with zero additions. The compiler requires the complete canonical
+64×4 selector product, exact ID formula, reviewed unit collision/full-face
+facts, exact `blocks.json` face map, a two-entry empty/occupied front array, and
+static side/top entries. It emits exactly four non-diagnostic source materials,
+64 immutable templates, and 704 template quads. All four direction rotations,
+the eight representative occupancy masks, slot UV seams, ordinary/front
+occlusion, all six cross-subchunk boundaries, cave closure, deterministic
+reversed input, and a dense full-subchunk model-stream bound are covered. The
+refreshed baseline is zero-delta at 2,570 diagnostics including air. Registry
+SHA-256 is
+`3e0a67718b6368d8b5f7755e9e49a1241233f21bcea8724a9163febb4f1b1d92`;
+the ignored integrated blob SHA-256 is
+`df82f3408ee5805bcd536a484b6d0e8831eb972d76225c17eda005695e4d982c`.
+
 The reviewed baseline cumulatively records the already-landed
 door/trapdoor/wall removals plus the pressure-plate, fence-gate, pane/fence,
 carpet, button, huge-mushroom, glow-lichen/sculk-vein, and ordinary

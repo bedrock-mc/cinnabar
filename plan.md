@@ -582,6 +582,24 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       7,698 diagnostics and 7,243 cumulative removals; the ignored integrated
       blob SHA-256 is
       `20cd1b4301f40736468a3249acf21fdea0544d74fa238d8faae04aaee1af9940`.
+    - [x] Chiseled bookshelves: all 256 canonical
+      `minecraft:chiseled_bookshelf` states (sequential IDs 1,605–1,860) now
+      compile from the exact `books_stored:int 0..63 × direction:int 0..3`
+      product into 64 immutable north-facing templates and four opaque source
+      materials. Each template has five ordinary full faces plus six coplanar
+      front-slot quads; native 1.26.33.1 evidence fixes bit order to top-left,
+      top-middle, top-right, bottom-left, bottom-middle, bottom-right and fixes
+      directions 0/1/2/3 to south/west/north/east. Exact pair/static terrain
+      access, unit collision, flags, face coverage, typed state, ID formula,
+      and complete-family cardinality all fail closed. Ordinary and six-quad
+      front faces cull across every subchunk boundary, the full model closes
+      cave connectivity, and the dense-subchunk fixture emits exactly 1,352
+      model refs and 2,816 visible quad refs with stable 11-record lighting
+      spans. The exact production ratchet removes only IDs 1,605–1,860 with
+      zero additions, leaving 2,570 diagnostics including air. Registry SHA-256
+      is `3e0a67718b6368d8b5f7755e9e49a1241233f21bcea8724a9163febb4f1b1d92`;
+      the ignored compiled pack SHA-256 is
+      `df82f3408ee5805bcd536a484b6d0e8831eb972d76225c17eda005695e4d982c`.
     - [ ] Slab/stair native and packed-GPU live acceptance: capture all five
       fixed Cinnabar poses through native `%TEMP%` screenshots and require two
       consecutive exact GPU-completed model-stream witnesses. Automated gallery
@@ -732,9 +750,10 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       fence, carpet, button, huge-mushroom, glow-lichen, sculk-vein, exact
       ordinary stained-glass, exact copper-grate, and static-sign tranches.
       After lava, vine, and those connected/static/multiface/glass/grate
-      families, the current residual has 2,826
-      diagnostics including the single air diagnostic, with zero diagnostics in
-      every implemented family; each remaining family must shrink that exact set.
+      families plus the exact chiseled-bookshelf tranche, the current residual
+      has 2,570 diagnostics including the single air diagnostic, with zero
+      diagnostics in every implemented family; each remaining family must shrink
+      that exact set.
   - [ ] Complete the exhaustive residual-family report, continuing from the
     completed lava/flowing-lava depth-writing non-water-liquid pipeline, so
     every non-air one of the 16,913 canonical states has a non-diagnostic visual;

@@ -110,9 +110,10 @@ const (
 	ModelFamilyVine
 	ModelFamilyGlowLichen
 	ModelFamilySculkVein
+	ModelFamilyChiseledBookshelf
 )
 
-const maxModelFamily = ModelFamilySculkVein
+const maxModelFamily = ModelFamilyChiseledBookshelf
 
 type ContributorRole uint8
 
@@ -960,6 +961,16 @@ func collisionSeedIsUnit(seed CollisionSeed) bool {
 }
 
 func finalizeGeometryFacts(record *Record) {
+	if record.ModelFamily == ModelFamilyChiseledBookshelf {
+		if collisionSeedIsUnit(record.CollisionSeed) {
+			record.Flags = flagCubeGeometry | flagOccludesFullFace
+			record.FaceCoverage = 0x3f
+		} else {
+			record.Flags &^= flagCubeGeometry | flagOccludesFullFace
+			record.FaceCoverage = 0
+		}
+		return
+	}
 	if (record.ModelFamily == ModelFamilyStatue || record.ModelFamily == ModelFamilyCuboid) && record.CollisionSeed.Confidence != CollisionConfidenceNone && !collisionSeedIsUnit(record.CollisionSeed) {
 		record.Flags &^= flagCubeGeometry | flagOccludesFullFace
 		record.FaceCoverage = 0
@@ -1151,6 +1162,14 @@ func classifyRecord(state SourceState) (Record, error) {
 		record.ModelFamily = ModelFamilyGlowLichen
 	case name == "sculk_vein":
 		record.ModelFamily = ModelFamilySculkVein
+	case name == "chiseled_bookshelf":
+		books, direction, err := chiseledBookshelfSelectors(state.Properties)
+		if err != nil {
+			return Record{}, err
+		}
+		record.ModelFamily = ModelFamilyChiseledBookshelf
+		record.ModelState.Set(ModelStateConnections, books)
+		record.ModelState.Set(ModelStateOrientation, direction)
 	case isCrossName(name):
 		record.ModelFamily = ModelFamilyCross
 	}
@@ -1286,6 +1305,39 @@ func classifyRecord(state SourceState) (Record, error) {
 	return record, nil
 }
 
+func chiseledBookshelfSelectors(properties []StateProperty) (books uint32, direction uint32, err error) {
+	if len(properties) != 2 {
+		return 0, 0, fmt.Errorf("chiseled_bookshelf requires exactly books_stored:int and direction:int")
+	}
+	seenBooks, seenDirection := false, false
+	for _, property := range properties {
+		name := strings.TrimPrefix(property.Name, "minecraft:")
+		if property.Value.Kind != ScalarInt {
+			return 0, 0, fmt.Errorf("chiseled_bookshelf %s must be an int selector", name)
+		}
+		switch name {
+		case "books_stored":
+			if seenBooks || property.Value.Int < 0 || property.Value.Int > 63 {
+				return 0, 0, fmt.Errorf("chiseled_bookshelf books_stored must be unique and inside 0..63")
+			}
+			seenBooks = true
+			books = uint32(property.Value.Int)
+		case "direction":
+			if seenDirection || property.Value.Int < 0 || property.Value.Int > 3 {
+				return 0, 0, fmt.Errorf("chiseled_bookshelf direction must be unique and inside 0..3")
+			}
+			seenDirection = true
+			direction = uint32(property.Value.Int)
+		default:
+			return 0, 0, fmt.Errorf("chiseled_bookshelf has unsupported selector %q", name)
+		}
+	}
+	if !seenBooks || !seenDirection {
+		return 0, 0, fmt.Errorf("chiseled_bookshelf requires books_stored and direction selectors")
+	}
+	return books, direction, nil
+}
+
 func signOrientation(name string, properties []StateProperty) (uint32, error) {
 	values := make(map[string]uint32, 2)
 	for _, property := range properties {
@@ -1409,6 +1461,11 @@ func validateSelectorCardinality(records []Record) error {
 		groups[record.Name] = append(groups[record.Name], record)
 	}
 	for name, group := range groups {
+		if name == "minecraft:chiseled_bookshelf" {
+			if err := validateChiseledBookshelfProduct(group); err != nil {
+				return err
+			}
+		}
 		values := make(map[string]map[string]struct{})
 		for _, record := range group {
 			var state map[string]canonicalScalar
@@ -1433,6 +1490,35 @@ func validateSelectorCardinality(records []Record) error {
 		if expected != len(group) {
 			return fmt.Errorf("selector cardinality for %s is %d states but typed product is %d", name, len(group), expected)
 		}
+	}
+	return nil
+}
+
+func validateChiseledBookshelfProduct(records []Record) error {
+	if len(records) != 256 {
+		return fmt.Errorf("chiseled_bookshelf selector cardinality is %d, want 256", len(records))
+	}
+	seen := make(map[[2]uint32]struct{}, 256)
+	for _, record := range records {
+		if record.ModelFamily != ModelFamilyChiseledBookshelf || record.ContributorRole != ContributorPrimary {
+			return fmt.Errorf("chiseled_bookshelf state %d has invalid family or role", record.SequentialID)
+		}
+		if record.Flags != flagCubeGeometry|flagOccludesFullFace || !collisionSeedIsUnit(record.CollisionSeed) {
+			return fmt.Errorf("chiseled_bookshelf state %d lacks exact solid unit geometry evidence", record.SequentialID)
+		}
+		books, hasBooks := record.ModelState.Get(ModelStateConnections)
+		direction, hasDirection := record.ModelState.Get(ModelStateOrientation)
+		if !hasBooks || !hasDirection || record.ModelState.Mask != uint8(1<<(ModelStateOrientation-1)|1<<(ModelStateConnections-1)) || books > 63 || direction > 3 {
+			return fmt.Errorf("chiseled_bookshelf state %d has invalid typed selector projection", record.SequentialID)
+		}
+		if record.SequentialID != 1605+books*4+direction {
+			return fmt.Errorf("chiseled_bookshelf state %d does not match canonical ID formula", record.SequentialID)
+		}
+		key := [2]uint32{books, direction}
+		if _, exists := seen[key]; exists {
+			return fmt.Errorf("chiseled_bookshelf duplicate selector %v", key)
+		}
+		seen[key] = struct{}{}
 	}
 	return nil
 }

@@ -288,6 +288,10 @@ fn registry_reader_decodes_checked_in_full_source_bijection() {
     assert_eq!(family("minecraft:vine"), ModelFamily::Vine);
     assert_eq!(family("minecraft:glow_lichen"), ModelFamily::GlowLichen);
     assert_eq!(family("minecraft:sculk_vein"), ModelFamily::SculkVein);
+    assert_eq!(
+        family("minecraft:chiseled_bookshelf"),
+        ModelFamily::ChiseledBookshelf
+    );
     assert_ne!(family("minecraft:chorus_flower"), ModelFamily::Cross);
     assert_eq!(family("minecraft:soul_sand"), ModelFamily::Cuboid);
     assert_eq!(family("minecraft:barrier"), ModelFamily::Invisible);

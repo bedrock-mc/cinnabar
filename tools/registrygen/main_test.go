@@ -850,6 +850,109 @@ func TestVineClassificationCoversEveryProtocol1001DirectionMask(t *testing.T) {
 	}
 }
 
+func TestChiseledBookshelfClassificationRequiresExactTypedSelectors(t *testing.T) {
+	const wantMask = uint8(1<<(ModelStateOrientation-1) | 1<<(ModelStateConnections-1))
+	for books := int32(0); books < 64; books++ {
+		for direction := int32(0); direction < 4; direction++ {
+			record, err := classifyRecord(sourceState(
+				"minecraft:chiseled_bookshelf",
+				intState("books_stored", books),
+				intState("direction", direction),
+			))
+			if err != nil {
+				t.Fatalf("classify books=%d direction=%d: %v", books, direction, err)
+			}
+			if record.ModelFamily != ModelFamilyChiseledBookshelf {
+				t.Fatalf("books=%d direction=%d family=%v", books, direction, record.ModelFamily)
+			}
+			if record.ModelState.Mask != wantMask {
+				t.Fatalf("books=%d direction=%d mask=%#x, want %#x", books, direction, record.ModelState.Mask, wantMask)
+			}
+			if got, ok := record.ModelState.Get(ModelStateConnections); !ok || got != uint32(books) {
+				t.Fatalf("books selector=%d/%v, want %d/true", got, ok, books)
+			}
+			if got, ok := record.ModelState.Get(ModelStateOrientation); !ok || got != uint32(direction) {
+				t.Fatalf("direction selector=%d/%v, want %d/true", got, ok, direction)
+			}
+		}
+	}
+
+	invalid := []SourceState{
+		sourceState("minecraft:chiseled_bookshelf", intState("books_stored", -1), intState("direction", 0)),
+		sourceState("minecraft:chiseled_bookshelf", intState("books_stored", 64), intState("direction", 0)),
+		sourceState("minecraft:chiseled_bookshelf", intState("books_stored", 0), intState("direction", -1)),
+		sourceState("minecraft:chiseled_bookshelf", intState("books_stored", 0), intState("direction", 4)),
+		sourceState("minecraft:chiseled_bookshelf", byteState("books_stored", 0), intState("direction", 0)),
+		sourceState("minecraft:chiseled_bookshelf", intState("books_stored", 0), byteState("direction", 0)),
+		sourceState("minecraft:chiseled_bookshelf", intState("books_stored", 0)),
+		sourceState("minecraft:chiseled_bookshelf", intState("books_stored", 0), intState("direction", 0), intState("extra", 0)),
+	}
+	for index, state := range invalid {
+		if _, err := classifyRecord(state); err == nil {
+			t.Errorf("invalid selector fixture %d was accepted", index)
+		}
+	}
+
+	unrelated, err := classifyRecord(sourceState(
+		"minecraft:bookshelf",
+		intState("books_stored", 1),
+		intState("direction", 2),
+	))
+	if err != nil {
+		t.Fatalf("classify unrelated shelf: %v", err)
+	}
+	if unrelated.ModelFamily == ModelFamilyChiseledBookshelf {
+		t.Fatal("non-exact bookshelf name entered chiseled family")
+	}
+}
+
+func TestChiseledBookshelfSelectorProductRequiresCanonicalIdsAndUnitCollision(t *testing.T) {
+	records := make([]Record, 0, 256)
+	for books := int32(0); books < 64; books++ {
+		for direction := int32(0); direction < 4; direction++ {
+			record, err := classifyRecord(sourceState(
+				"minecraft:chiseled_bookshelf",
+				intState("books_stored", books),
+				intState("direction", direction),
+			))
+			if err != nil {
+				t.Fatalf("classify: %v", err)
+			}
+			record.SequentialID = 1605 + uint32(books)*4 + uint32(direction)
+			record.NetworkHash = record.SequentialID + 1
+			record.Flags = flagCubeGeometry | flagOccludesFullFace
+			record.CollisionSeed = CollisionSeed{
+				ShapeID:    1,
+				Confidence: CollisionConfidenceCollisionOnly,
+				Boxes:      []CollisionBox{{MaxX: 100_000_000, MaxY: 100_000_000, MaxZ: 100_000_000}},
+			}
+			finalizeGeometryFacts(&record)
+			records = append(records, record)
+		}
+	}
+	if err := validateSelectorCardinality(records); err != nil {
+		t.Fatalf("valid selector product: %v", err)
+	}
+	for _, record := range records {
+		if record.FaceCoverage != 0x3f {
+			t.Fatalf("state %d face coverage=%#x", record.SequentialID, record.FaceCoverage)
+		}
+	}
+
+	for _, mutate := range []func([]Record){
+		func(records []Record) { records[0].SequentialID++ },
+		func(records []Record) { records[0].Flags = 0 },
+		func(records []Record) { records[0].CollisionSeed.Boxes[0].MaxY-- },
+	} {
+		broken := append([]Record(nil), records...)
+		broken[0].CollisionSeed.Boxes = append([]CollisionBox(nil), records[0].CollisionSeed.Boxes...)
+		mutate(broken)
+		if err := validateSelectorCardinality(broken); err == nil {
+			t.Fatal("invalid chiseled bookshelf product was accepted")
+		}
+	}
+}
+
 func TestMultifaceFamiliesPreserveEveryProtocol1001DirectionMaskSeparately(t *testing.T) {
 	for _, fixture := range []struct {
 		name       string
@@ -1121,6 +1224,21 @@ func TestNonCubeFamiliesOverrideLegacySolidFlags(t *testing.T) {
 	finalizeGeometryFacts(&record)
 	if record.FaceCoverage != 0x3f {
 		t.Fatalf("reviewed split cube coverage = %#x", record.FaceCoverage)
+	}
+}
+
+func TestChiseledBookshelfPromotesReviewedUnitCollisionToSolidFaceFacts(t *testing.T) {
+	unit := CollisionSeed{ShapeID: 1, Confidence: CollisionConfidenceCollisionOnly, Boxes: []CollisionBox{{MaxX: 100_000_000, MaxY: 100_000_000, MaxZ: 100_000_000}}}
+	record := Record{ModelFamily: ModelFamilyChiseledBookshelf, CollisionSeed: unit}
+	finalizeGeometryFacts(&record)
+	if record.Flags != flagCubeGeometry|flagOccludesFullFace || record.FaceCoverage != 0x3f {
+		t.Fatalf("unit bookshelf facts = flags %#x coverage %#x", record.Flags, record.FaceCoverage)
+	}
+
+	record = Record{ModelFamily: ModelFamilyChiseledBookshelf, Flags: flagCubeGeometry | flagOccludesFullFace, FaceCoverage: 0x3f, CollisionSeed: CollisionSeed{ShapeID: 2, Confidence: CollisionConfidenceCollisionOnly, Boxes: []CollisionBox{{MaxX: 100_000_000, MaxY: 99_999_999, MaxZ: 100_000_000}}}}
+	finalizeGeometryFacts(&record)
+	if record.Flags != 0 || record.FaceCoverage != 0 {
+		t.Fatalf("non-unit bookshelf retained solid facts = flags %#x coverage %#x", record.Flags, record.FaceCoverage)
 	}
 }
 

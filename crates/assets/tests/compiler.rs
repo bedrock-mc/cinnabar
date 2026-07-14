@@ -131,6 +131,42 @@ fn generated_registry_has_exact_copper_grate_inventory() {
 }
 
 #[test]
+fn generated_registry_has_exact_chiseled_bookshelf_inventory() {
+    let records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+        .expect("decode committed generated registry");
+    let selected = records
+        .iter()
+        .filter(|record| record.name.as_ref() == "minecraft:chiseled_bookshelf")
+        .collect::<Vec<_>>();
+    assert_eq!(selected.len(), 256);
+    let mut seen = [false; 256];
+    for record in selected {
+        assert_eq!(record.model_family, ModelFamily::ChiseledBookshelf);
+        assert_eq!(record.contributor_role, ContributorRole::Primary);
+        assert_eq!(
+            record.flags,
+            BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE
+        );
+        assert_eq!(record.face_coverage, 0x3f);
+        assert_eq!(record.collision_seed.shape_id, 1);
+        assert_eq!(record.collision_seed.boxes.len(), 1);
+        let books = record
+            .model_state
+            .get(ModelStateField::Connections)
+            .expect("books selector");
+        let direction = record
+            .model_state
+            .get(ModelStateField::Orientation)
+            .expect("direction selector");
+        let index = (books * 4 + direction) as usize;
+        assert_eq!(record.sequential_id, 1605 + index as u32);
+        assert!(!seen[index]);
+        seen[index] = true;
+    }
+    assert!(seen.into_iter().all(|present| present));
+}
+
+#[test]
 fn generated_registry_has_exact_stained_glass_cube_inventory() {
     let ordinary_stained_glass = generated_stained_glass_cube_records();
     assert_eq!(ordinary_stained_glass.len(), 16);
@@ -7795,6 +7831,253 @@ fn compiler_real_pinned_pack_admits_only_exact_copper_grate_records() {
     records.reverse();
     let reversed =
         compile_pack(Path::new(&pack), &records).expect("compile reversed pinned copper grates");
+    assert_eq!(encode_blob(&reversed).unwrap(), baseline);
+}
+
+fn write_chiseled_bookshelf_pack(root: &Path, terrain_overrides: Option<&str>) {
+    write_pack(
+        root,
+        r#"{"chiseled_bookshelf":{"textures":{"down":"chiseled_bookshelf_top","up":"chiseled_bookshelf_top","north":"chiseled_bookshelf_front","east":"chiseled_bookshelf_side","south":"chiseled_bookshelf_side","west":"chiseled_bookshelf_side"}}}"#,
+        terrain_overrides.unwrap_or(
+            r#"{"texture_data":{
+                "chiseled_bookshelf_front":{"textures":["textures/blocks/chiseled_bookshelf_empty","textures/blocks/chiseled_bookshelf_occupied"]},
+                "chiseled_bookshelf_side":{"textures":"textures/blocks/chiseled_bookshelf_side"},
+                "chiseled_bookshelf_top":{"textures":"textures/blocks/chiseled_bookshelf_top"}
+            }}"#,
+        ),
+        "[]",
+    );
+    for (path, color) in [
+        (
+            "textures/blocks/chiseled_bookshelf_empty",
+            [10, 20, 30, 255],
+        ),
+        (
+            "textures/blocks/chiseled_bookshelf_occupied",
+            [40, 50, 60, 255],
+        ),
+        ("textures/blocks/chiseled_bookshelf_side", [70, 80, 90, 255]),
+        (
+            "textures/blocks/chiseled_bookshelf_top",
+            [100, 110, 120, 255],
+        ),
+    ] {
+        write_png(
+            root,
+            path,
+            TILE_SIZE,
+            TILE_SIZE,
+            &solid(TILE_SIZE, TILE_SIZE, color),
+        );
+    }
+}
+
+fn chiseled_bookshelf_records() -> Vec<RegistryRecord> {
+    let mut records = Vec::with_capacity(256);
+    for books in 0..64_u32 {
+        for direction in 0..4_u32 {
+            let id = 1605 + books * 4 + direction;
+            let mut record = encoded_model_record(
+                id,
+                100_000 + id,
+                "minecraft:chiseled_bookshelf",
+                ModelFamily::ChiseledBookshelf,
+                &[
+                    (ModelStateField::Connections, books),
+                    (ModelStateField::Orientation, direction),
+                ],
+            );
+            record.canonical_state = serde_json::json!({
+                "books_stored": {"type": "int", "value": books},
+                "direction": {"type": "int", "value": direction}
+            })
+            .to_string()
+            .into();
+            record.flags = BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE;
+            record.face_coverage = 0x3f;
+            record.collision_seed = CollisionSeed {
+                shape_id: 1,
+                confidence: CollisionConfidence::CollisionOnly,
+                boxes: vec![CollisionBox {
+                    max_x: 100_000_000,
+                    max_y: 100_000_000,
+                    max_z: 100_000_000,
+                    ..CollisionBox::default()
+                }]
+                .into_boxed_slice(),
+            };
+            records.push(record);
+        }
+    }
+    records
+}
+
+#[test]
+fn compiler_emits_exact_chiseled_bookshelf_materials_templates_and_uv_partition() {
+    let directory = tempfile::tempdir().expect("create chiseled-bookshelf fixture");
+    write_chiseled_bookshelf_pack(directory.path(), None);
+    let mut records = chiseled_bookshelf_records();
+
+    let compiled = compile_pack(directory.path(), &records).expect("compile chiseled bookshelves");
+    let admitted = records
+        .iter()
+        .map(|record| compiled.visuals[record.sequential_id as usize])
+        .collect::<Vec<_>>();
+    assert!(admitted.iter().all(|visual| {
+        visual.kind == VisualKind::Model
+            && visual.flags == BlockFlags::OCCLUDES_FULL_FACE
+            && visual.model_template != assets::NO_MODEL_TEMPLATE
+    }));
+    assert_eq!(
+        compiled.materials.len(),
+        5,
+        "diagnostic plus four source materials"
+    );
+    assert_eq!(compiled.model_templates.len(), 64);
+    assert_eq!(compiled.model_quads.len(), 64 * 11);
+
+    let empty_visual = compiled.visuals[(1605 + 2) as usize];
+    let empty = template_quads(&compiled, empty_visual.model_template)[5].material;
+    let occupied_visual = compiled.visuals[(1605 + 63 * 4 + 2) as usize];
+    let occupied = template_quads(&compiled, occupied_visual.model_template)[5].material;
+
+    for books in [0_u32, 1, 2, 4, 8, 16, 32, 63] {
+        let visuals = (0..4)
+            .map(|direction| compiled.visuals[(1605 + books * 4 + direction) as usize])
+            .collect::<Vec<_>>();
+        assert!(
+            visuals
+                .iter()
+                .all(|visual| visual.model_template == visuals[0].model_template)
+        );
+        for (direction, visual) in visuals.iter().enumerate() {
+            assert_eq!(visual.variant, (direction as u32 + 2) & 3);
+        }
+        let quads = template_quads(&compiled, visuals[0].model_template);
+        assert_eq!(quads.len(), 11);
+        assert_eq!(model_bounds(quads), ([0, 0, 0], [256, 256, 256]));
+        assert!(quads.iter().all(|quad| {
+            let face = quad.flags & MODEL_QUAD_FLAG_FACE_MASK;
+            let cull = (quad.flags & MODEL_QUAD_FLAG_CULL_FACE_MASK) >> 4;
+            face != 0 && face == cull
+        }));
+
+        let slots = &quads[5..];
+        let mut x_boundaries = slots
+            .iter()
+            .flat_map(|quad| quad.positions.iter().map(|position| position[0]))
+            .collect::<Vec<_>>();
+        x_boundaries.sort_unstable();
+        x_boundaries.dedup();
+        assert_eq!(x_boundaries, [0, 85, 171, 256]);
+        let mut u_boundaries = slots
+            .iter()
+            .flat_map(|quad| quad.uvs.iter().map(|uv| uv[0]))
+            .collect::<Vec<_>>();
+        u_boundaries.sort_unstable();
+        u_boundaries.dedup();
+        assert_eq!(u_boundaries, [0, 1365, 2731, 4096]);
+        let mut y_boundaries = slots
+            .iter()
+            .flat_map(|quad| quad.positions.iter().map(|position| position[1]))
+            .collect::<Vec<_>>();
+        y_boundaries.sort_unstable();
+        y_boundaries.dedup();
+        assert_eq!(y_boundaries, [0, 128, 256]);
+        for (slot, quad) in slots.iter().enumerate() {
+            assert_eq!(
+                quad.material,
+                if books & (1 << slot) == 0 {
+                    empty
+                } else {
+                    occupied
+                }
+            );
+        }
+    }
+
+    let baseline = encode_blob(&compiled).expect("encode chiseled bookshelf assets");
+    records.reverse();
+    let reversed = compile_pack(directory.path(), &records).expect("compile reversed records");
+    assert_eq!(encode_blob(&reversed).unwrap(), baseline);
+}
+
+#[test]
+fn compiler_chiseled_bookshelf_admission_fails_closed_as_a_complete_family() {
+    let valid_pack = tempfile::tempdir().expect("create exact pack");
+    write_chiseled_bookshelf_pack(valid_pack.path(), None);
+    let records = chiseled_bookshelf_records();
+
+    let mut families = Vec::new();
+    let mut missing = records.clone();
+    missing.pop();
+    families.push(missing);
+    let mut wrong_id = records.clone();
+    wrong_id[0].sequential_id = 1604;
+    families.push(wrong_id);
+    let mut wrong_state = records.clone();
+    wrong_state[0].canonical_state =
+        r#"{"books_stored":{"type":"byte","value":0},"direction":{"type":"int","value":0}}"#.into();
+    families.push(wrong_state);
+    let mut extra_state = records.clone();
+    extra_state[0].canonical_state = r#"{"books_stored":{"type":"int","value":0},"direction":{"type":"int","value":0},"extra":{"type":"int","value":0}}"#.into();
+    families.push(extra_state);
+    let mut wrong_flags = records.clone();
+    wrong_flags[0].flags = BlockFlags::CUBE_GEOMETRY;
+    families.push(wrong_flags);
+    let mut wrong_collision = records.clone();
+    wrong_collision[0].collision_seed.boxes[0].max_y -= 1;
+    families.push(wrong_collision);
+
+    for (index, family) in families.iter().enumerate() {
+        let compiled = compile_pack(valid_pack.path(), family).expect("compile rejected family");
+        assert!(
+            family.iter().all(|record| {
+                compiled.visuals[record.sequential_id as usize].kind == VisualKind::Diagnostic
+            }),
+            "invalid family {index} leaked a supported visual"
+        );
+    }
+
+    for terrain in [
+        r#"{"texture_data":{"chiseled_bookshelf_front":{"textures":["textures/blocks/chiseled_bookshelf_empty"]},"chiseled_bookshelf_side":{"textures":"textures/blocks/chiseled_bookshelf_side"},"chiseled_bookshelf_top":{"textures":"textures/blocks/chiseled_bookshelf_top"}}}"#,
+        r#"{"texture_data":{"chiseled_bookshelf_front":{"textures":["textures/blocks/chiseled_bookshelf_empty","textures/blocks/chiseled_bookshelf_occupied","textures/blocks/chiseled_bookshelf_extra"]},"chiseled_bookshelf_side":{"textures":"textures/blocks/chiseled_bookshelf_side"},"chiseled_bookshelf_top":{"textures":"textures/blocks/chiseled_bookshelf_top"}}}"#,
+        r#"{"texture_data":{"chiseled_bookshelf_front":{"textures":["textures/blocks/chiseled_bookshelf_empty","textures/blocks/chiseled_bookshelf_occupied"]},"chiseled_bookshelf_side":{"textures":["textures/blocks/chiseled_bookshelf_side"]},"chiseled_bookshelf_top":{"textures":"textures/blocks/chiseled_bookshelf_top"}}}"#,
+    ] {
+        let malformed = tempfile::tempdir().expect("create malformed terrain fixture");
+        write_chiseled_bookshelf_pack(malformed.path(), Some(terrain));
+        let compiled = compile_pack(malformed.path(), &records).expect("compile malformed terrain");
+        assert!(records.iter().all(|record| {
+            compiled.visuals[record.sequential_id as usize].kind == VisualKind::Diagnostic
+        }));
+    }
+}
+
+#[test]
+#[ignore = "requires PINNED_VANILLA_PACK pointing at the ignored pinned vanilla resource pack"]
+fn compiler_real_pinned_pack_admits_all_exact_chiseled_bookshelf_records() {
+    let pack = std::env::var_os("PINNED_VANILLA_PACK")
+        .expect("set PINNED_VANILLA_PACK to the ignored pinned vanilla resource pack");
+    let mut records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+        .expect("decode committed generated registry")
+        .into_iter()
+        .filter(|record| record.name.as_ref() == "minecraft:chiseled_bookshelf")
+        .collect::<Vec<_>>();
+    assert_eq!(records.len(), 256);
+    let compiled = compile_pack(Path::new(&pack), &records).expect("compile pinned bookshelves");
+    assert!(records.iter().all(|record| {
+        let visual = compiled.visuals[record.sequential_id as usize];
+        visual.kind == VisualKind::Model
+            && visual.flags == BlockFlags::OCCLUDES_FULL_FACE
+            && compiled.model_templates[visual.model_template as usize].quad_count == 11
+    }));
+    assert_eq!(compiled.materials.len(), 5);
+    assert_eq!(compiled.model_templates.len(), 64);
+    assert_eq!(compiled.model_quads.len(), 704);
+    let baseline = encode_blob(&compiled).expect("encode pinned chiseled bookshelf assets");
+    records.reverse();
+    let reversed =
+        compile_pack(Path::new(&pack), &records).expect("compile reversed pinned records");
     assert_eq!(encode_blob(&reversed).unwrap(), baseline);
 }
 
