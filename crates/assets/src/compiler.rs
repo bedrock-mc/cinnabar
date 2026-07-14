@@ -252,6 +252,20 @@ fn compile_pack_inner(
             }
             continue;
         }
+        if is_pale_moss_carpet(record)
+            && let Some(descriptors) = pale_moss_carpet_side_material_descriptors(&pack)
+        {
+            for (descriptor, key) in descriptors {
+                descriptor_keys
+                    .entry(descriptor)
+                    .and_modify(|current| {
+                        if key.as_ref() < current.as_ref() {
+                            *current = key.clone();
+                        }
+                    })
+                    .or_insert(key);
+            }
+        }
         let aquatic_faces;
         let faces: &[BlockFace] = if is_kelp(record) || is_liquid(record) {
             &BlockFace::ALL
@@ -409,6 +423,23 @@ fn flowerbed_material_descriptors(
     }))
 }
 
+fn pale_moss_carpet_side_material_descriptors(
+    pack: &PackSources,
+) -> Option<[(Descriptor, Box<str>); 2]> {
+    let key: Box<str> = "pale_moss_carpet_side".into();
+    let paths = pack.terrain.get_exact_pair(&key)?;
+    Some(paths.map(|path| {
+        (
+            Descriptor {
+                path: path.into(),
+                texture_key: key.clone(),
+                flags: MATERIAL_FLAG_ALPHA_CUTOUT,
+            },
+            key.clone(),
+        )
+    }))
+}
+
 const fn is_terrestrial_cross(record: &RegistryRecord) -> bool {
     matches!(record.model_family, ModelFamily::Cross | ModelFamily::Crop)
 }
@@ -458,6 +489,40 @@ const fn is_pressure_plate(record: &RegistryRecord) -> bool {
         && matches!(record.contributor_role, ContributorRole::Primary)
 }
 
+const fn is_carpet(record: &RegistryRecord) -> bool {
+    matches!(record.model_family, ModelFamily::Carpet)
+        && matches!(record.contributor_role, ContributorRole::Primary)
+        && is_supported_carpet_name(&record.name)
+}
+
+const fn is_supported_carpet_name(name: &str) -> bool {
+    matches!(
+        name.as_bytes(),
+        b"minecraft:black_carpet"
+            | b"minecraft:blue_carpet"
+            | b"minecraft:brown_carpet"
+            | b"minecraft:cyan_carpet"
+            | b"minecraft:gray_carpet"
+            | b"minecraft:green_carpet"
+            | b"minecraft:light_blue_carpet"
+            | b"minecraft:light_gray_carpet"
+            | b"minecraft:lime_carpet"
+            | b"minecraft:magenta_carpet"
+            | b"minecraft:moss_carpet"
+            | b"minecraft:orange_carpet"
+            | b"minecraft:pale_moss_carpet"
+            | b"minecraft:pink_carpet"
+            | b"minecraft:purple_carpet"
+            | b"minecraft:red_carpet"
+            | b"minecraft:white_carpet"
+            | b"minecraft:yellow_carpet"
+    )
+}
+
+fn is_pale_moss_carpet(record: &RegistryRecord) -> bool {
+    is_carpet(record) && record.name.as_ref() == "minecraft:pale_moss_carpet"
+}
+
 const fn is_gate(record: &RegistryRecord) -> bool {
     matches!(record.model_family, ModelFamily::Gate)
         && matches!(record.contributor_role, ContributorRole::Primary)
@@ -489,6 +554,7 @@ fn is_model_visual(record: &RegistryRecord) -> bool {
         || is_wall(record)
         || is_pressure_plate(record)
         || is_gate(record)
+        || is_carpet(record)
 }
 
 const fn is_liquid(record: &RegistryRecord) -> bool {
@@ -868,6 +934,33 @@ struct PressurePlateTemplateKey {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[repr(u8)]
+enum PaleMossCarpetSide {
+    None = 0,
+    Short = 1,
+    Tall = 2,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct PaleMossCarpetState {
+    sides: [PaleMossCarpetSide; 4],
+    upper: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum CarpetState {
+    Ordinary,
+    Pale(PaleMossCarpetState),
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct PaleMossCarpetTemplateKey {
+    materials: [u32; 6],
+    side_materials: [u32; 2],
+    state: PaleMossCarpetState,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct GateTemplateKey {
     materials: [u32; 6],
     orientation: u8,
@@ -934,6 +1027,7 @@ fn compile_visuals(
     let mut cuboid_template_by_key = BTreeMap::<CuboidTemplateKey, u32>::new();
     let mut wall_template_by_key = BTreeMap::<[u32; 7], u32>::new();
     let mut pressure_plate_template_by_key = BTreeMap::<PressurePlateTemplateKey, u32>::new();
+    let mut pale_moss_carpet_template_by_key = BTreeMap::<PaleMossCarpetTemplateKey, u32>::new();
     let mut gate_template_by_key = BTreeMap::<GateTemplateKey, u32>::new();
 
     let mut ordered_records = records.iter().collect::<Vec<_>>();
@@ -1229,6 +1323,90 @@ fn compile_visuals(
                     model_quads.extend(pressure_plate_quads(materials, pressed));
                     pressure_plate_template_by_key.insert(key, template);
                     template
+                };
+                visual.flags.remove(
+                    BlockFlags::AIR
+                        | BlockFlags::CUBE_GEOMETRY
+                        | BlockFlags::OCCLUDES_FULL_FACE
+                        | BlockFlags::LEAF_MODEL,
+                );
+                visual.faces = materials;
+                visual.kind = VisualKind::Model;
+                visual.model_template = template;
+            }
+        } else if is_carpet(record) {
+            let materials = BlockFace::ALL.map(|face| {
+                descriptor_for(pack, record, face)
+                    .and_then(|(descriptor, _)| material_by_descriptor.get(&descriptor).copied())
+            });
+            let state = carpet_state(record);
+            if let [
+                Some(west),
+                Some(east),
+                Some(down),
+                Some(up),
+                Some(north),
+                Some(south),
+            ] = materials
+                && let Some(state) = state
+            {
+                let materials = [west, east, down, up, north, south];
+                let template = match state {
+                    CarpetState::Ordinary => intern_cuboid_template(
+                        materials,
+                        [0, 0, 0],
+                        [256, 16, 256],
+                        &mut cuboid_template_by_key,
+                        &mut model_templates,
+                        &mut model_quads,
+                    )?,
+                    CarpetState::Pale(state) => {
+                        let side_materials =
+                            pale_moss_carpet_side_material_descriptors(pack).map(|descriptors| {
+                                descriptors.map(|(descriptor, _)| {
+                                    material_by_descriptor.get(&descriptor).copied()
+                                })
+                            });
+                        let Some([Some(tall), Some(short)]) = side_materials else {
+                            visuals[record.sequential_id as usize] = visual;
+                            hashed.push((record.network_hash, record.sequential_id));
+                            continue;
+                        };
+                        let side_materials = [tall, short];
+                        let key = PaleMossCarpetTemplateKey {
+                            materials,
+                            side_materials,
+                            state,
+                        };
+                        if let Some(&template) = pale_moss_carpet_template_by_key.get(&key) {
+                            template
+                        } else {
+                            let quads = pale_moss_carpet_quads(materials, side_materials, state);
+                            let template = u32::try_from(model_templates.len()).map_err(|_| {
+                                AssetError::BlobSizeOverflow {
+                                    section: "model template",
+                                }
+                            })?;
+                            let quad_start = u32::try_from(model_quads.len()).map_err(|_| {
+                                AssetError::BlobSizeOverflow {
+                                    section: "model quad",
+                                }
+                            })?;
+                            let quad_count = u32::try_from(quads.len()).map_err(|_| {
+                                AssetError::BlobSizeOverflow {
+                                    section: "model quad count",
+                                }
+                            })?;
+                            model_templates.push(ModelTemplate {
+                                quad_start,
+                                quad_count,
+                                flags: 0,
+                            });
+                            model_quads.extend(quads);
+                            pale_moss_carpet_template_by_key.insert(key, template);
+                            template
+                        }
+                    }
                 };
                 visual.flags.remove(
                     BlockFlags::AIR
@@ -1547,6 +1725,124 @@ fn compile_visuals(
         model_templates.into_boxed_slice(),
         model_quads.into_boxed_slice(),
     ))
+}
+
+fn carpet_state(record: &RegistryRecord) -> Option<CarpetState> {
+    if !is_pale_moss_carpet(record) {
+        let state = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(
+            &record.canonical_state,
+        )
+        .ok()?;
+        return (record.model_state.mask() == 0 && state.is_empty())
+            .then_some(CarpetState::Ordinary);
+    }
+
+    const FLAGS_MASK: u8 = 1 << (ModelStateField::Flags as u8 - 1);
+    const UPPER: u32 = 1 << 7;
+    if record.model_state.mask() != FLAGS_MASK {
+        return None;
+    }
+    let flags = record.model_state.get(ModelStateField::Flags)?;
+    if !matches!(flags, 0 | UPPER) {
+        return None;
+    }
+    let state =
+        serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&record.canonical_state)
+            .ok()?;
+    if state.len() != 5 {
+        return None;
+    }
+    let side = |direction| {
+        let name = format!("pale_moss_carpet_side_{direction}");
+        match typed_model_state_value(&state, &name, "string")?.as_str()? {
+            "none" => Some(PaleMossCarpetSide::None),
+            "short" => Some(PaleMossCarpetSide::Short),
+            "tall" => Some(PaleMossCarpetSide::Tall),
+            _ => None,
+        }
+    };
+    let upper = match typed_model_state_value(&state, "upper_block_bit", "byte")?.as_u64()? {
+        0 => false,
+        1 => true,
+        _ => return None,
+    };
+    if upper != (flags == UPPER) {
+        return None;
+    }
+    Some(CarpetState::Pale(PaleMossCarpetState {
+        sides: [side("east")?, side("north")?, side("south")?, side("west")?],
+        upper,
+    }))
+}
+
+fn typed_model_state_value<'a>(
+    state: &'a serde_json::Map<String, serde_json::Value>,
+    name: &str,
+    expected_type: &str,
+) -> Option<&'a serde_json::Value> {
+    let typed = state.get(name)?.as_object()?;
+    if typed.len() != 2 || typed.get("type")?.as_str()? != expected_type {
+        return None;
+    }
+    typed.get("value")
+}
+
+fn pale_moss_carpet_quads(
+    materials: [u32; 6],
+    side_materials: [u32; 2],
+    state: PaleMossCarpetState,
+) -> Vec<ModelQuad> {
+    let isolated_upper = state.upper
+        && state
+            .sides
+            .iter()
+            .all(|side| matches!(side, PaleMossCarpetSide::None));
+    let mut quads = Vec::with_capacity(10);
+    if !state.upper || isolated_upper {
+        quads.extend(cuboid_quads(materials, [0, 0, 0], [256, 16, 256]));
+    }
+
+    // The vanilla Java plane is inset by 0.1 model pixels, or 1.6 of our
+    // 1/256-block units. Two units is the nearest representable symmetric
+    // position, paired with 254 on the opposite face.
+    const PLANES: [(u32, [[i16; 3]; 4]); 4] = [
+        (
+            4,
+            [[254, 0, 0], [254, 256, 0], [254, 256, 256], [254, 0, 256]],
+        ),
+        (5, [[0, 0, 2], [0, 256, 2], [256, 256, 2], [256, 0, 2]]),
+        (
+            6,
+            [[0, 0, 254], [256, 0, 254], [256, 256, 254], [0, 256, 254]],
+        ),
+        (3, [[2, 0, 0], [2, 0, 256], [2, 256, 256], [2, 256, 0]]),
+    ];
+    for ((face, positions), side) in PLANES.into_iter().zip(state.sides) {
+        let side = if isolated_upper {
+            PaleMossCarpetSide::Tall
+        } else {
+            side
+        };
+        let material = match side {
+            PaleMossCarpetSide::None => continue,
+            // The pinned Bedrock pair is [side_base, side_tip], which is
+            // pixel-identical to Java [tall, small] in the opposite naming.
+            PaleMossCarpetSide::Short => side_materials[1],
+            PaleMossCarpetSide::Tall => side_materials[0],
+        };
+        quads.push(ModelQuad {
+            positions,
+            uvs: positions.map(|[x, y, z]| {
+                let tangent = if matches!(face, 5 | 6) { x } else { z };
+                [(tangent as u16) * 16, ((256 - y) as u16) * 16]
+            }),
+            material,
+            // Pale moss side planes are alpha-tested from both directions;
+            // support connectivity must not cull them before alpha testing.
+            flags: MODEL_QUAD_FLAG_TWO_SIDED | face,
+        });
+    }
+    quads
 }
 
 /// Emits only the four horizontal attachment planes represented by Bedrock's

@@ -49,6 +49,17 @@ fn committed_protocol_baseline_binds_the_complete_corpus_and_all_vines() {
                 .diagnostic_sequential_ids
                 .contains(&record.sequential_id))
     );
+    let carpets = records
+        .iter()
+        .filter(|record| record.model_family == ModelFamily::Carpet)
+        .collect::<Vec<_>>();
+    assert_eq!(carpets.len(), 179);
+    assert!(carpets.iter().all(|record| {
+        baseline
+            .diagnostic_sequential_ids
+            .binary_search(&record.sequential_id)
+            .is_err()
+    }));
 }
 
 fn fixture_records() -> Vec<RegistryRecord> {
@@ -1808,8 +1819,8 @@ fn production_ratchet_reports_exact_gate_removals_for_the_full_real_pack() {
     .expect("parse committed production baseline");
     let current = analyze_bytes(&registry_bytes, &assets_bytes).unwrap();
     assert_eq!(current.states.len(), 16_913);
-    assert_eq!(baseline.diagnostic_sequential_ids.len(), 8_301);
-    assert_eq!(current.diagnostic_states.len(), 8_301);
+    assert_eq!(baseline.diagnostic_sequential_ids.len(), 8_122);
+    assert_eq!(current.diagnostic_states.len(), 8_122);
 
     let expected_gate_ids = records
         .iter()
@@ -1829,7 +1840,7 @@ fn production_ratchet_reports_exact_gate_removals_for_the_full_real_pack() {
         .diagnostic_sequential_ids
         .extend(expected_gate_ids.iter().copied());
     pre_gate_baseline.diagnostic_sequential_ids.sort_unstable();
-    assert_eq!(pre_gate_baseline.diagnostic_sequential_ids.len(), 8_493);
+    assert_eq!(pre_gate_baseline.diagnostic_sequential_ids.len(), 8_314);
     let report = ratchet_protocol_1001(current.clone(), &pre_gate_baseline)
         .expect("run exact pre-Gate production ratchet");
     assert!(report.added_diagnostics.is_empty());
@@ -1846,6 +1857,43 @@ fn production_ratchet_reports_exact_gate_removals_for_the_full_real_pack() {
         .map(|state| state.sequential_id)
         .collect::<Vec<_>>();
     assert_eq!(removed_ids, expected_gate_ids);
+
+    let expected_carpet_ids = records
+        .iter()
+        .filter(|record| record.model_family == ModelFamily::Carpet)
+        .map(|record| record.sequential_id)
+        .collect::<Vec<_>>();
+    assert_eq!(expected_carpet_ids.len(), 179);
+    assert!(expected_carpet_ids.iter().all(|id| {
+        baseline
+            .diagnostic_sequential_ids
+            .binary_search(id)
+            .is_err()
+    }));
+    let mut pre_carpet_baseline = baseline.clone();
+    pre_carpet_baseline
+        .diagnostic_sequential_ids
+        .extend(expected_carpet_ids.iter().copied());
+    pre_carpet_baseline
+        .diagnostic_sequential_ids
+        .sort_unstable();
+    assert_eq!(pre_carpet_baseline.diagnostic_sequential_ids.len(), 8_301);
+    let report = ratchet_protocol_1001(current.clone(), &pre_carpet_baseline)
+        .expect("run exact pre-Carpet production ratchet");
+    assert!(report.added_diagnostics.is_empty());
+    assert_eq!(report.removed_diagnostics.len(), 179);
+    assert!(
+        report
+            .removed_diagnostics
+            .iter()
+            .all(|state| state.model_family == "carpet")
+    );
+    let removed_ids = report
+        .removed_diagnostics
+        .iter()
+        .map(|state| state.sequential_id)
+        .collect::<Vec<_>>();
+    assert_eq!(removed_ids, expected_carpet_ids);
 
     let refreshed = ratchet_protocol_1001(current, &baseline)
         .expect("run refreshed production coverage ratchet");
