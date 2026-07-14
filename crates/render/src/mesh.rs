@@ -533,6 +533,7 @@ struct ModelDrawRefs {
 /// Owned packed streams transferred from worker meshing into the render queue.
 pub type ChunkMeshStreams = (
     Box<[PackedQuad]>,
+    Box<[PackedQuadLighting]>,
     Box<[PackedModelRef]>,
     Box<[PackedQuadLighting]>,
     Box<[PackedModelDrawRef]>,
@@ -540,6 +541,25 @@ pub type ChunkMeshStreams = (
     Box<[PackedLiquidQuad]>,
     Box<[PackedQuadLighting]>,
 );
+
+/// Structural rejection for externally assembled chunk mesh streams.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChunkMeshStreamError {
+    cube_quads: usize,
+    cube_lighting: usize,
+}
+
+impl ChunkMeshStreamError {
+    #[must_use]
+    pub const fn cube_quads(self) -> usize {
+        self.cube_quads
+    }
+
+    #[must_use]
+    pub const fn cube_lighting(self) -> usize {
+        self.cube_lighting
+    }
+}
 
 impl ChunkMesh {
     #[must_use]
@@ -552,12 +572,46 @@ impl ChunkMesh {
         liquid_lighting: Vec<PackedQuadLighting>,
         connectivity: FaceConnectivity,
     ) -> Self {
-        let cube_lighting =
-            vec![crate::lighting::phase26_default_lighting(); cube_quads.len()].into_boxed_slice();
-        Self {
+        let cube_lighting = vec![crate::lighting::phase26_default_lighting(); cube_quads.len()];
+        Self::try_from_streams_with_cube_lighting(
+            cube_quads,
+            cube_lighting,
+            model_refs,
+            model_lighting,
+            model_draw_refs,
+            liquid_quads,
+            liquid_lighting,
+            connectivity,
+        )
+        .expect("compatibility cube lighting count is derived from cube quads")
+    }
+
+    /// Builds an externally assembled mesh only when every cube quad has one
+    /// lighting sidecar in the same immutable order.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the method validates the complete independently-owned CPU stream contract"
+    )]
+    pub fn try_from_streams_with_cube_lighting(
+        cube_quads: Vec<PackedQuad>,
+        cube_lighting: Vec<PackedQuadLighting>,
+        model_refs: Vec<PackedModelRef>,
+        model_lighting: Vec<PackedQuadLighting>,
+        model_draw_refs: Vec<PackedModelDrawRef>,
+        liquid_quads: Vec<PackedLiquidQuad>,
+        liquid_lighting: Vec<PackedQuadLighting>,
+        connectivity: FaceConnectivity,
+    ) -> Result<Self, ChunkMeshStreamError> {
+        if cube_quads.len() != cube_lighting.len() {
+            return Err(ChunkMeshStreamError {
+                cube_quads: cube_quads.len(),
+                cube_lighting: cube_lighting.len(),
+            });
+        }
+        Ok(Self {
             cube_streams: Box::new(CubeStreams {
                 cube_quads: cube_quads.into_boxed_slice(),
-                cube_lighting,
+                cube_lighting: cube_lighting.into_boxed_slice(),
             }),
             model_refs: model_refs.into_boxed_slice(),
             model_lighting: model_lighting.into_boxed_slice(),
@@ -568,7 +622,7 @@ impl ChunkMesh {
             liquid_quads: liquid_quads.into_boxed_slice(),
             liquid_lighting: liquid_lighting.into_boxed_slice(),
             connectivity,
-        }
+        })
     }
 
     #[must_use]
@@ -654,7 +708,7 @@ impl ChunkMesh {
     pub fn into_streams(self) -> ChunkMeshStreams {
         let CubeStreams {
             cube_quads,
-            cube_lighting: _,
+            cube_lighting,
         } = *self.cube_streams;
         let ModelDrawRefs {
             opaque,
@@ -662,6 +716,7 @@ impl ChunkMesh {
         } = *self.model_draw_refs;
         (
             cube_quads,
+            cube_lighting,
             self.model_refs,
             self.model_lighting,
             opaque,

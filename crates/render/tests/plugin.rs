@@ -1108,7 +1108,7 @@ fn queue_counts_every_stream_and_sidecar() {
         cube.connectivity(),
     )
     .with_transparent_model_draw_refs(vec![render::PackedModelDrawRef::new(0, 1)]);
-    let expected = 6 * size_of::<PackedQuad>()
+    let expected = 6 * (size_of::<PackedQuad>() + size_of::<render::PackedQuadLighting>())
         + size_of::<render::PackedModelRef>()
         + size_of::<render::PackedQuadLighting>()
         + 2 * size_of::<render::PackedModelDrawRef>()
@@ -1123,6 +1123,48 @@ fn queue_counts_every_stream_and_sidecar() {
         .try_insert(key, mesh, ChunkUploadPriority::new(0.0))
         .expect("every geometry stream fits at its exact combined byte count");
     assert_eq!(queue.pending_bytes(), expected as u64);
+}
+
+#[test]
+fn cube_lighting_counts_toward_exact_queue_caps_and_survives_extraction() {
+    let key = SubChunkKey::new(0, 1, 2, 3);
+    let mesh = solid_mesh(1);
+    let expected_lighting = mesh.cube_lighting().to_vec();
+    let exact_bytes =
+        6 * (size_of::<PackedQuad>() + size_of::<render::PackedQuadLighting>()) as u64;
+    let mut too_small = ChunkRenderQueue::with_limits(ChunkRenderQueueLimits {
+        max_items: 1,
+        max_bytes: exact_bytes - 1,
+    });
+    let mesh = too_small
+        .try_insert(key, mesh, ChunkUploadPriority::new(0.0))
+        .expect_err("cube lighting must participate in the CPU queue cap");
+    assert_eq!(too_small.pending_bytes(), 0);
+
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .insert_resource(ChunkRenderQueue::with_limits(ChunkRenderQueueLimits {
+            max_items: 1,
+            max_bytes: exact_bytes,
+        }))
+        .add_plugins(DebugWorldPlugin::new(1));
+    app.world_mut()
+        .resource_mut::<ChunkRenderQueue>()
+        .try_insert(key, mesh, ChunkUploadPriority::new(0.0))
+        .expect("exact cube geometry plus CPU-light sidecar cap fits");
+    assert_eq!(
+        app.world().resource::<ChunkRenderQueue>().pending_bytes(),
+        exact_bytes
+    );
+    app.update();
+
+    let instance = app
+        .world_mut()
+        .query::<&ChunkRenderInstance>()
+        .single(app.world())
+        .unwrap();
+    assert_eq!(instance.cube_lighting(), expected_lighting);
+    assert_eq!(instance.cube_lighting().len(), instance.quads().len());
 }
 
 #[test]
@@ -1372,7 +1414,7 @@ fn render_queue_enforces_item_and_byte_limits_without_losing_replacements() {
     let third = SubChunkKey::new(0, 2, 0, 0);
     let mut queue = ChunkRenderQueue::with_limits(ChunkRenderQueueLimits {
         max_items: 2,
-        max_bytes: 48,
+        max_bytes: 96,
     });
 
     queue
@@ -1386,14 +1428,14 @@ fn render_queue_enforces_item_and_byte_limits_without_losing_replacements() {
         )
         .unwrap();
     assert_eq!(queue.retained_len(), 2);
-    assert_eq!(queue.pending_bytes(), 48);
+    assert_eq!(queue.pending_bytes(), 96);
 
     let rejected = queue
         .try_insert(third, solid_mesh(3), ChunkUploadPriority::new(2.0))
         .unwrap_err();
     assert_eq!(rejected.quad_count(), 6);
     assert_eq!(queue.retained_len(), 2);
-    assert_eq!(queue.pending_bytes(), 48);
+    assert_eq!(queue.pending_bytes(), 96);
 
     queue
         .try_update(
@@ -1409,7 +1451,7 @@ fn render_queue_enforces_item_and_byte_limits_without_losing_replacements() {
         .try_update(first, solid_mesh(4), ChunkUploadPriority::new(0.0))
         .unwrap_err();
     assert_eq!(superseding.quad_count(), 6);
-    assert_eq!(queue.pending_bytes(), 48);
+    assert_eq!(queue.pending_bytes(), 96);
 
     queue.try_remove(first).unwrap();
     assert_eq!(queue.retained_len(), 2, "removal remains losslessly queued");
@@ -1424,7 +1466,7 @@ fn rejected_mesh_is_eventually_delivered_after_the_capped_queue_drains() {
     app.add_plugins(MinimalPlugins)
         .insert_resource(ChunkRenderQueue::with_limits(ChunkRenderQueueLimits {
             max_items: 1,
-            max_bytes: 48,
+            max_bytes: 96,
         }))
         .add_plugins(DebugWorldPlugin::new(1));
 
@@ -1658,7 +1700,9 @@ fn render_queue_counts_and_extracts_non_fallback_biome_records() {
     let key = SubChunkKey::new(0, 0, 0, 0);
     let mesh = solid_mesh(1);
     let biome = uniform_biome_record(7);
-    let expected_bytes = 6 * size_of::<PackedQuad>() as u64 + biome.byte_len();
+    let expected_bytes = 6
+        * (size_of::<PackedQuad>() + size_of::<render::PackedQuadLighting>()) as u64
+        + biome.byte_len();
     let mut queue = ChunkRenderQueue::with_limits(ChunkRenderQueueLimits {
         max_items: 1,
         max_bytes: expected_bytes - 1,

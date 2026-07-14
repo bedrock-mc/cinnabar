@@ -3961,6 +3961,10 @@ impl ChunkRenderQueue {
 fn mesh_byte_len(mesh: &ChunkMesh) -> u64 {
     buffer_byte_len(mesh.cube_quads().len(), PACKED_QUAD_BYTES)
         .saturating_add(buffer_byte_len(
+            mesh.cube_lighting().len(),
+            PACKED_QUAD_LIGHTING_BYTES,
+        ))
+        .saturating_add(buffer_byte_len(
             mesh.model_refs().len(),
             PACKED_MODEL_REF_BYTES,
         ))
@@ -4009,6 +4013,7 @@ fn pending_upload_byte_len(pending: &PendingUpload) -> u64 {
 pub struct ChunkRenderInstance {
     key: SubChunkKey,
     cube_quads: Arc<[PackedQuad]>,
+    cube_lighting: Arc<[PackedQuadLighting]>,
     model_refs: Arc<[PackedModelRef]>,
     model_lighting: Arc<[PackedQuadLighting]>,
     model_draw_refs: Arc<[PackedModelDrawRef]>,
@@ -4039,6 +4044,13 @@ impl ChunkRenderInstance {
     #[must_use]
     pub fn quads(&self) -> &[PackedQuad] {
         &self.cube_quads
+    }
+
+    /// CPU-retained cube lighting sidecars. GPU consumption is integrated in a
+    /// later slice without changing this extraction contract.
+    #[must_use]
+    pub fn cube_lighting(&self) -> &[PackedQuadLighting] {
+        &self.cube_lighting
     }
 
     #[must_use]
@@ -4304,6 +4316,7 @@ fn apply_chunk_render_queue(
         let origin = chunk_origin(key);
         let (
             cube_quads,
+            cube_lighting,
             model_refs,
             model_lighting,
             model_draw_refs,
@@ -4311,6 +4324,7 @@ fn apply_chunk_render_queue(
             liquid_quads,
             liquid_lighting,
         ) = pending.mesh.into_streams();
+        debug_assert_eq!(cube_quads.len(), cube_lighting.len());
         let depth_liquid_start = liquid_quads
             .iter()
             .position(|quad| quad.is_depth_writing())
@@ -4327,6 +4341,7 @@ fn apply_chunk_render_queue(
         let instance = ChunkRenderInstance {
             key,
             cube_quads: Arc::from(cube_quads),
+            cube_lighting: Arc::from(cube_lighting),
             model_refs: Arc::from(model_refs),
             model_lighting: Arc::from(model_lighting),
             model_draw_refs: Arc::from(model_draw_refs),
@@ -10047,6 +10062,7 @@ mod tests {
         let instance = ChunkRenderInstance {
             key,
             cube_quads: Arc::from([]),
+            cube_lighting: Arc::from([]),
             model_refs: Arc::from([]),
             model_lighting: Arc::from([]),
             model_draw_refs: Arc::from([]),
@@ -11032,6 +11048,7 @@ mod tests {
         let instance = ChunkRenderInstance {
             key,
             cube_quads: Arc::from([]),
+            cube_lighting: Arc::from([]),
             model_refs: Arc::from([]),
             model_lighting: Arc::from([]),
             model_draw_refs: Arc::from([]),
@@ -11111,6 +11128,7 @@ mod tests {
         let instance = ChunkRenderInstance {
             key,
             cube_quads: Arc::from([]),
+            cube_lighting: Arc::from([]),
             model_refs: Arc::from([PackedModelRef::new(0, 0, 0, 1)]),
             model_lighting: Arc::from([PackedQuadLighting::new([0; 4])]),
             model_draw_refs: Arc::from([PackedModelDrawRef::new(0, 0)]),

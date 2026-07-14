@@ -5063,6 +5063,48 @@ fn one_opaque_block_emits_six_packed_quads() {
 }
 
 #[test]
+fn cube_lighting_roundtrips_with_streams_and_rejects_count_mismatch() {
+    let base = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &blocks(7, &[[1, 2, 3]]),
+    );
+    let quads = base.cube_quads().to_vec();
+    let expected = (0..quads.len())
+        .map(|index| PackedQuadLighting::new([index as u16 + 1; 4]))
+        .collect::<Vec<_>>();
+    let mesh = ChunkMesh::try_from_streams_with_cube_lighting(
+        quads.clone(),
+        expected.clone(),
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        base.connectivity(),
+    )
+    .expect("one cube-light sidecar per cube quad");
+    let (roundtrip_quads, roundtrip_lighting, _, _, _, _, _, _) = mesh.into_streams();
+    assert_eq!(roundtrip_quads.as_ref(), quads);
+    assert_eq!(roundtrip_lighting.as_ref(), expected);
+
+    let error = ChunkMesh::try_from_streams_with_cube_lighting(
+        quads,
+        expected[..expected.len() - 1].to_vec(),
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        base.connectivity(),
+    )
+    .expect_err("cube lighting mismatch must fail closed");
+    assert_eq!(error.cube_quads(), 6);
+    assert_eq!(error.cube_lighting(), 5);
+}
+
+#[test]
 fn cube_lighting_is_one_to_one_and_splits_greedy_runs() {
     let sub = blocks(11, &[[0, 0, 0], [1, 0, 0]]);
     let sampler =
