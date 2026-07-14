@@ -7377,6 +7377,9 @@ fn absolutize_liquid_lighting_indices(liquid_quads: &mut [[u32; 4]], lighting_wo
 }
 
 #[cfg(test)]
+const PROVISIONAL_NIGHT_SKY_TRANSFER_FLOOR: f32 = 0.2;
+
+#[cfg(test)]
 fn packed_light_factor(sample: u16, daylight: f32) -> f32 {
     const CURVE: [f32; 16] = [
         0.0,
@@ -7397,7 +7400,10 @@ fn packed_light_factor(sample: u16, daylight: f32) -> f32 {
         1.0,
     ];
     let block_light = CURVE[usize::from(sample & 0x0f)];
-    let sky_light = CURVE[usize::from((sample >> 4) & 0x0f)] * daylight.clamp(0.0, 1.0);
+    let effective_daylight = daylight
+        .clamp(0.0, 1.0)
+        .max(PROVISIONAL_NIGHT_SKY_TRANSFER_FLOOR);
+    let sky_light = CURVE[usize::from((sample >> 4) & 0x0f)] * effective_daylight;
     let ao = f32::from((sample >> 8) & 0x03);
     block_light.max(sky_light) * (1.0 - ao * 0.12)
 }
@@ -12601,9 +12607,14 @@ mod tests {
         let sky_only = 0x00f0;
         assert_eq!(
             packed_light_factor(block_only, 0.0),
-            packed_light_factor(block_only, 1.0)
+            packed_light_factor(block_only, 1.0),
+            "daylight transfer must never alter independent block light"
         );
-        assert_eq!(packed_light_factor(sky_only, 0.0), 0.0);
+        assert_eq!(
+            packed_light_factor(sky_only, 0.0),
+            PROVISIONAL_NIGHT_SKY_TRANSFER_FLOOR,
+            "full solved skylight retains a conservative nonzero transfer at true night"
+        );
         assert!(packed_light_factor(sky_only, 1.0) > 0.0);
         assert!(packed_light_factor(0x03f0, 1.0) < packed_light_factor(sky_only, 1.0));
     }

@@ -12,12 +12,12 @@ use valentine::bedrock::version::v1_26_30::{
     BiomeDefinition, BiomeDefinitionListPacket, BlockCoordinates, BlockUpdate,
     BlockUpdateTransitionType, ChangeDimensionPacket, ChunkRadiusUpdatePacket,
     CorrectPlayerMovePredictionPacket, CorrectPlayerMovePredictionPacketPredictionType,
-    LevelChunkPacket, LevelEventPacket, LevelEventPacketEvent, McpePacketData, MovePlayerPacket,
-    NetworkChunkPublisherUpdatePacket, SetTimePacket, StartGamePacketDimension,
-    SubChunkEntryWithCachingItem, SubChunkEntryWithCachingItemResult,
-    SubChunkEntryWithoutCachingItem, SubChunkEntryWithoutCachingItemResult, SubchunkPacket,
-    SubchunkPacketEntries, UpdateBlockFlags, UpdateBlockPacket, UpdateSubchunkBlocksPacket, Vec2F,
-    Vec3F, Vec3I,
+    GameRuleVarint, GameRuleVarintType, GameRuleVarintValue, LevelChunkPacket, LevelEventPacket,
+    LevelEventPacketEvent, McpePacketData, MovePlayerPacket, NetworkChunkPublisherUpdatePacket,
+    SetTimePacket, StartGamePacketDimension, SubChunkEntryWithCachingItem,
+    SubChunkEntryWithCachingItemResult, SubChunkEntryWithoutCachingItem,
+    SubChunkEntryWithoutCachingItemResult, SubchunkPacket, SubchunkPacketEntries, UpdateBlockFlags,
+    UpdateBlockPacket, UpdateSubchunkBlocksPacket, Vec2F, Vec3F, Vec3I,
 };
 
 fn biome_definition(name_index: i16, biome_id: i16) -> BiomeDefinition {
@@ -197,6 +197,13 @@ fn normalizes_start_game_bootstrap_without_generated_types() {
         z: 61,
     };
     game_data.start_game.day_cycle_stop_time = 18_000;
+    game_data.start_game.current_tick = 123_456;
+    game_data.start_game.gamerules.push(GameRuleVarint {
+        name: "DoDaylightCycle".to_owned(),
+        editable: true,
+        type_: GameRuleVarintType::Bool,
+        value: Some(GameRuleVarintValue::Bool(false)),
+    });
     game_data.start_game.rain_level = 0.25;
     game_data.start_game.lightning_level = 0.75;
     game_data.start_game.block_network_ids_are_hashes = true;
@@ -215,10 +222,44 @@ fn normalizes_start_game_bootstrap_without_generated_types() {
     assert_eq!(
         WorldEnvironmentBootstrap::from_game_data(&game_data),
         WorldEnvironmentBootstrap {
-            day_cycle_stop_time: 18_000,
+            initial_time: 123_456,
+            day_cycle_lock_time: 18_000,
+            daylight_cycle_enabled: false,
             rain_level: 0.25,
             lightning_level: 0.75,
         }
+    );
+}
+
+#[test]
+fn start_game_daylight_cycle_defaults_enabled_and_requires_a_boolean_rule() {
+    let mut game_data = GameData {
+        start_game: Default::default(),
+        item_registry: Default::default(),
+        biome_definitions: None,
+        entity_identifiers: None,
+        creative_content: None,
+    };
+    game_data.start_game.current_tick = 6_000;
+    game_data.start_game.day_cycle_stop_time = 0;
+
+    let bootstrap = WorldEnvironmentBootstrap::from_game_data(&game_data);
+    assert_eq!(bootstrap.initial_time, 6_000);
+    assert_eq!(bootstrap.day_cycle_lock_time, 0);
+    assert!(
+        bootstrap.daylight_cycle_enabled,
+        "an absent doDaylightCycle rule must not turn relay default zero into a clock lock"
+    );
+
+    game_data.start_game.gamerules.push(GameRuleVarint {
+        name: "DODAYLIGHTCYCLE".to_owned(),
+        editable: false,
+        type_: GameRuleVarintType::Int,
+        value: Some(GameRuleVarintValue::Int(0)),
+    });
+    assert!(
+        WorldEnvironmentBootstrap::from_game_data(&game_data).daylight_cycle_enabled,
+        "a non-boolean rule with the same name is not an authoritative cycle switch"
     );
 }
 

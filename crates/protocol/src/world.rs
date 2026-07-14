@@ -3,9 +3,10 @@ use std::sync::Arc;
 use jolyne::GameData;
 use thiserror::Error;
 use valentine::bedrock::version::v1_26_30::{
-    CorrectPlayerMovePredictionPacketPredictionType, LevelEventPacketEvent, McpePacketData,
-    StartGamePacketDimension, SubChunkEntryWithoutCachingItemResult, SubchunkPacketEntries,
-    SubchunkRequestPacket, Vec3I8, Vec3Li,
+    CorrectPlayerMovePredictionPacketPredictionType, GameRuleVarintType, GameRuleVarintValue,
+    LevelEventPacketEvent, McpePacketData, StartGamePacketDimension,
+    SubChunkEntryWithoutCachingItemResult, SubchunkPacketEntries, SubchunkRequestPacket, Vec3I8,
+    Vec3Li,
 };
 
 use crate::Packet;
@@ -76,8 +77,12 @@ impl WorldBootstrap {
 /// construction remains independent of the later app-owned atmosphere state.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WorldEnvironmentBootstrap {
-    /// StartGame's cycle-stop sentinel. Current world time arrives in SetTime.
-    pub day_cycle_stop_time: i32,
+    /// StartGame's current absolute world tick.
+    pub initial_time: i64,
+    /// StartGame's cycle lock tick, used only when the daylight cycle is disabled.
+    pub day_cycle_lock_time: i32,
+    /// Whether the world clock advances between server-authored time updates.
+    pub daylight_cycle_enabled: bool,
     /// Initial rain intensity clamped to the closed unit interval.
     pub rain_level: f32,
     /// Initial lightning intensity clamped to the closed unit interval.
@@ -89,7 +94,22 @@ impl WorldEnvironmentBootstrap {
     pub fn from_game_data(game_data: &GameData) -> Self {
         let start_game = &game_data.start_game;
         Self {
-            day_cycle_stop_time: start_game.day_cycle_stop_time,
+            initial_time: start_game.current_tick,
+            day_cycle_lock_time: start_game.day_cycle_stop_time,
+            daylight_cycle_enabled: start_game
+                .gamerules
+                .iter()
+                .find_map(|rule| {
+                    if rule.name.eq_ignore_ascii_case("dodaylightcycle")
+                        && rule.type_ == GameRuleVarintType::Bool
+                        && let Some(GameRuleVarintValue::Bool(enabled)) = &rule.value
+                    {
+                        Some(*enabled)
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(true),
             rain_level: normalize_weather_level(start_game.rain_level),
             lightning_level: normalize_weather_level(start_game.lightning_level),
         }

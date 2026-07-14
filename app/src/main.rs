@@ -113,6 +113,7 @@ struct AppWorldState<'w> {
     client_world: ResMut<'w, ClientWorld>,
     clock: ResMut<'w, WorldClock>,
     weather: ResMut<'w, WeatherState>,
+    time: Res<'w, Time<Real>>,
 }
 
 fn startup_biome_tints(runtime_assets: &RuntimeAssets) -> ChunkBiomeTints {
@@ -2218,6 +2219,7 @@ fn receive_network_events(
         mut client_world,
         mut clock,
         mut weather,
+        time,
     } = state;
     let controls =
         drain_network_controls(network.control_events_mut(), OUTBOUND_SEND_BUDGET_PER_FRAME);
@@ -2235,7 +2237,12 @@ fn receive_network_events(
                     "received StartGame bootstrap"
                 );
                 let replacing_session = clock.session_generation() != 0;
-                replace_session(&mut clock, &mut weather, environment);
+                replace_session(
+                    &mut clock,
+                    &mut weather,
+                    environment,
+                    time.elapsed_secs_f64(),
+                );
                 if replacing_session {
                     debug!("replaced StartGame environment session");
                 }
@@ -2381,12 +2388,12 @@ fn drive_world_stream(
     acknowledgements: Res<ChunkUploadAcknowledgements>,
     model_witness_source: Res<ModelWitnessFileSource>,
     mut camera: Query<&mut Transform, With<FlyCamera>>,
-    time: Res<Time<Real>>,
 ) {
     let AppWorldState {
         mut client_world,
         mut clock,
         mut weather,
+        time,
     } = state;
     let Some(stream) = client_world.stream.as_mut() else {
         return;

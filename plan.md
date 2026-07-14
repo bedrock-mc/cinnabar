@@ -945,15 +945,19 @@ Scope: block registry + block-state → model/texture mapping (generated export 
   light and day/night, then sky, fog, and clouds; finish the Phase 2 parity and
   teleport-remesh acceptance gates.
   - [x] Normalize SetTime and rain/thunder level events into bounded,
-    vendor-independent protocol events; retain day-cycle-stop and clamped
-    initial rain/lightning state from StartGame. Two deferred pre-spawn SetTime
+    vendor-independent protocol events; retain StartGame's initial current
+    tick, day-cycle lock time, case-insensitive boolean `doDaylightCycle`
+    state (default enabled when absent), and clamped initial rain/lightning.
+    Two deferred pre-spawn SetTime
     packets retain FIFO order in Play, post-spawn normalization is identical,
     and non-finite initial weather values fail closed.
   - [x] Consume the normalized environment stream into app-owned clock and
     weather resources without interpreting visual curves. A replacement
-    StartGame begins a new environment session, preserves its exact
-    `day_cycle_stop_time` and bounded rain/lightning targets, and clears the
-    current time until the next exact signed SetTime value. Dimension changes
+    StartGame begins a new environment session, anchors its exact initial tick,
+    preserves its cycle lock and bounded rain/lightning targets, advances only
+    while `doDaylightCycle` is enabled, and uses the lock tick only when the
+    rule is explicitly disabled. Exact signed SetTime values re-anchor the
+    running clock. Dimension changes
     preserve that world-session snapshot. FIFO-committed SetTime/weather
     updates do not dirty meshes, enqueue mesh changes, or change cave
     connectivity. Mesh-baked light response and vanilla atmosphere parity
@@ -981,8 +985,9 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     integration are covered below; mesh baking, GPU/shader light consumption,
     vanilla sky/fog/cloud parity, and visual acceptance remain open.
   - [x] Derive a deterministic per-frame atmosphere snapshot from the app-owned
-    clock and weather state: real elapsed time advances unlocked sessions at 20
-    ticks per second, non-negative stop times freeze exactly, signed times use
+    clock and weather state: real elapsed time advances enabled sessions at 20
+    ticks per second, explicitly disabled cycles freeze at their lock tick,
+    signed times use
     Euclidean day and moon-phase wrapping, and rain/thunder remain bounded.
     Extract one stable 96-byte uniform, render the first procedural sky/sun/moon
     pass at reversed-Z far depth with per-view MSAA specialization, and apply
@@ -1048,7 +1053,11 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     per-draw origin ABI to carry exact cube/light bases, validates aligned and
     disjoint direct/MDI addressing, and converts discrete block/sky/AO samples
     at the vertex before smooth interpolation. Daylight affects only sky light;
-    alpha and fog ordering remain intact. Full render and app suites, strict
+    full solved skylight retains a named provisional `0.2` transfer floor at
+    true night while block light remains independent. This floor is a
+    conservative calibration to the existing horizon baseline, not a vanilla
+    parity claim; native Bedrock reference tuning remains open. Alpha and fog
+    ordering remain intact. Full render and app suites, strict
     combined Clippy, WGSL semantic/Metal-stage checks, formatting, and diff
     checks are green. Live mixed-block GPU parity and teleport/performance
     acceptance remain open.

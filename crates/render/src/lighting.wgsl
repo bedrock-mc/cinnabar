@@ -7,6 +7,10 @@ const LIGHT_CURVE: array<f32, 16> = array(
     0.5, 0.61904764, 0.7777778, 1.0,
 );
 
+// Provisional conservative floor calibrated to the existing 0.2 horizon
+// daylight baseline. Native Bedrock capture tuning remains an acceptance item.
+const PROVISIONAL_NIGHT_SKY_TRANSFER_FLOOR: f32 = 0.2;
+
 fn lit_colour(
     colour: vec3<f32>,
     block_brightness: f32,
@@ -15,8 +19,9 @@ fn lit_colour(
     daylight: f32,
 ) -> vec3<f32> {
     let block_contribution = vec3(clamp(block_brightness, 0.0, 1.0));
+    let effective_daylight = max(clamp(daylight, 0.0, 1.0), PROVISIONAL_NIGHT_SKY_TRANSFER_FLOOR);
     let sky_contribution = vec3(
-        clamp(sky_brightness, 0.0, 1.0) * clamp(daylight, 0.0, 1.0),
+        clamp(sky_brightness, 0.0, 1.0) * effective_daylight,
     );
     let combined = max(block_contribution, sky_contribution);
     return colour * combined * clamp(ao_factor, 0.0, 1.0);

@@ -11,7 +11,7 @@ require (
 require (
 	github.com/coder/websocket v1.8.14 // indirect
 	github.com/coreos/go-oidc/v3 v3.17.0 // indirect
-	github.com/df-mc/go-nethernet v1.0.18 // indirect
+	github.com/df-mc/go-nethernet v1.0.19-0.20260713035212-0d451757ec09 // indirect
 	github.com/df-mc/go-playfab/v2 v2.0.2-0.20260618232935-6d86fc87875f // indirect
 	github.com/df-mc/go-xsapi/v2 v2.0.2 // indirect
 	github.com/df-mc/jsonc v1.0.5 // indirect
@@ -47,5 +47,5 @@ require (
 
 replace (
 	github.com/sandertv/go-raknet => github.com/hashimthearab/go-raknet v1.15.1-0.20260711001310-258399b8f7ec
-	github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20260714002524-bbe6cfdeed39
+	github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20260714232922-3e42c49a16f5
 )

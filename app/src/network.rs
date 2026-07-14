@@ -875,7 +875,9 @@ mod tests {
             block_network_ids_are_hashes: false,
         };
         let environment = WorldEnvironmentBootstrap {
-            day_cycle_stop_time: 18_000,
+            initial_time: 12_000,
+            day_cycle_lock_time: 18_000,
+            daylight_cycle_enabled: false,
             rain_level: 0.25,
             lightning_level: 0.75,
         };

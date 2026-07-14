@@ -14,9 +14,10 @@ use crate::world_stream::CommittedControlEvent;
 #[derive(Resource, Debug, Clone, Copy, Default, PartialEq)]
 pub(crate) struct WorldClock {
     session_generation: u64,
-    server_time: Option<i32>,
+    server_time: Option<i64>,
     server_time_anchor_seconds: Option<f64>,
-    day_cycle_stop_time: i32,
+    day_cycle_lock_time: i32,
+    daylight_cycle_enabled: bool,
     last_update_sequence: Option<u64>,
 }
 
@@ -34,13 +35,18 @@ impl WorldClock {
     }
 
     #[must_use]
-    pub(crate) const fn server_time(self) -> Option<i32> {
+    pub(crate) const fn server_time(self) -> Option<i64> {
         self.server_time
     }
 
     #[must_use]
-    pub(crate) const fn day_cycle_stop_time(self) -> i32 {
-        self.day_cycle_stop_time
+    pub(crate) const fn day_cycle_lock_time(self) -> i32 {
+        self.day_cycle_lock_time
+    }
+
+    #[must_use]
+    pub(crate) const fn daylight_cycle_enabled(self) -> bool {
+        self.daylight_cycle_enabled
     }
 
     #[must_use]
@@ -95,6 +101,7 @@ pub(crate) fn replace_session(
     clock: &mut WorldClock,
     weather: &mut WeatherState,
     bootstrap: WorldEnvironmentBootstrap,
+    elapsed_seconds: f64,
 ) {
     let session_generation = clock
         .session_generation
@@ -102,9 +109,10 @@ pub(crate) fn replace_session(
         .saturating_add(1);
     *clock = WorldClock {
         session_generation,
-        server_time: None,
-        server_time_anchor_seconds: None,
-        day_cycle_stop_time: bootstrap.day_cycle_stop_time,
+        server_time: Some(bootstrap.initial_time),
+        server_time_anchor_seconds: Some(finite_nonnegative(elapsed_seconds)),
+        day_cycle_lock_time: bootstrap.day_cycle_lock_time,
+        daylight_cycle_enabled: bootstrap.daylight_cycle_enabled,
         last_update_sequence: None,
     };
     *weather = WeatherState {
@@ -127,7 +135,7 @@ pub(crate) fn apply_environment_control(
 ) -> bool {
     match control {
         CommittedControlEvent::SetTime { sequence, update } => {
-            clock.server_time = Some(update.time);
+            clock.server_time = Some(i64::from(update.time));
             clock.server_time_anchor_seconds = Some(finite_nonnegative(elapsed_seconds));
             clock.last_update_sequence = Some(sequence);
             true
@@ -148,20 +156,29 @@ pub(crate) fn apply_environment_control(
 
 /// Returns the absolute Bedrock tick used for this rendered frame.
 ///
-/// Non-negative `day_cycle_stop_time` values freeze the sky at that exact
-/// tick. Otherwise the last signed SetTime value advances from its monotonic
-/// local anchor at Bedrock's twenty ticks per second.
+/// A disabled daylight cycle freezes the sky at StartGame's explicit lock
+/// tick. Otherwise StartGame's current tick or the latest signed SetTime value
+/// advances from its monotonic local anchor at Bedrock's twenty ticks per
+/// second.
 #[must_use]
 pub(crate) fn visual_world_time(clock: WorldClock, elapsed_seconds: f64) -> f64 {
-    if clock.day_cycle_stop_time >= 0 {
-        return f64::from(clock.day_cycle_stop_time);
+    if !clock.daylight_cycle_enabled {
+        return f64::from(clock.day_cycle_lock_time);
     }
     let Some((server_time, anchor)) = clock.server_time.zip(clock.server_time_anchor_seconds)
     else {
         return 0.0;
     };
     let elapsed_seconds = finite_nonnegative(elapsed_seconds);
-    f64::from(server_time) + (elapsed_seconds - anchor).max(0.0) * 20.0
+    bedrock_ticks_as_f64(server_time) + (elapsed_seconds - anchor).max(0.0) * 20.0
+}
+
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "Bedrock world ticks are rendered as a continuous f64 timeline"
+)]
+fn bedrock_ticks_as_f64(ticks: i64) -> f64 {
+    ticks as f64
 }
 
 #[must_use]
@@ -208,12 +225,16 @@ mod tests {
     use crate::world_stream::CommittedControlEvent;
 
     fn bootstrap(
-        day_cycle_stop_time: i32,
+        initial_time: i64,
+        day_cycle_lock_time: i32,
+        daylight_cycle_enabled: bool,
         rain_level: f32,
         lightning_level: f32,
     ) -> WorldEnvironmentBootstrap {
         WorldEnvironmentBootstrap {
-            day_cycle_stop_time,
+            initial_time,
+            day_cycle_lock_time,
+            daylight_cycle_enabled,
             rain_level,
             lightning_level,
         }
@@ -224,10 +245,22 @@ mod tests {
         let mut clock = WorldClock::default();
         let mut weather = WeatherState::default();
 
-        replace_session(&mut clock, &mut weather, bootstrap(-1, 0.25, 0.75));
+        replace_session(
+            &mut clock,
+            &mut weather,
+            bootstrap(6_000, 0, true, 0.25, 0.75),
+            10.0,
+        );
         assert_eq!(clock.session_generation(), 1);
-        assert_eq!(clock.server_time(), None);
-        assert_eq!(clock.day_cycle_stop_time(), -1);
+        assert_eq!(clock.server_time(), Some(6_000));
+        assert!(clock.daylight_cycle_enabled());
+        assert_eq!(visual_world_time(clock, 10.0), 6_000.0);
+        assert_eq!(visual_world_time(clock, 12.5), 6_050.0);
+        assert_eq!(
+            derive_atmosphere_frame(clock, weather, 10.0).sun_direction(),
+            [0.0, 1.0, 0.0],
+            "StartGame noon must begin at full overhead daylight"
+        );
         assert_eq!(weather.session_generation(), 1);
         assert_eq!(weather.rain_level(), 0.25);
         assert_eq!(weather.lightning_level(), 0.75);
@@ -241,15 +274,21 @@ mod tests {
             &mut weather,
             0.0,
         ));
-        replace_session(&mut clock, &mut weather, bootstrap(i32::MAX, 1.0, 0.0));
+        replace_session(
+            &mut clock,
+            &mut weather,
+            bootstrap(12_000, i32::MAX, false, 1.0, 0.0),
+            20.0,
+        );
 
         assert_eq!(clock.session_generation(), 2);
         assert_eq!(
             clock.server_time(),
-            None,
-            "a new StartGame has no SetTime yet"
+            Some(12_000),
+            "a new StartGame anchors its initial current tick"
         );
-        assert_eq!(clock.day_cycle_stop_time(), i32::MAX);
+        assert_eq!(clock.day_cycle_lock_time(), i32::MAX);
+        assert!(!clock.daylight_cycle_enabled());
         assert_eq!(clock.last_update_sequence(), None);
         assert_eq!(weather.session_generation(), 2);
         assert_eq!(weather.rain_level(), 1.0);
@@ -261,7 +300,12 @@ mod tests {
     fn committed_updates_preserve_signed_time_channel_targets_and_order() {
         let mut clock = WorldClock::default();
         let mut weather = WeatherState::default();
-        replace_session(&mut clock, &mut weather, bootstrap(18_000, 0.0, 0.0));
+        replace_session(
+            &mut clock,
+            &mut weather,
+            bootstrap(1_000, 18_000, false, 0.0, 0.0),
+            0.0,
+        );
 
         for control in [
             CommittedControlEvent::Weather {
@@ -299,7 +343,7 @@ mod tests {
         }
 
         assert_eq!(clock.server_time(), Some(-24_001));
-        assert_eq!(clock.day_cycle_stop_time(), 18_000);
+        assert_eq!(clock.day_cycle_lock_time(), 18_000);
         assert_eq!(clock.last_update_sequence(), Some(12));
         assert_eq!(weather.rain_level(), 0.25);
         assert_eq!(weather.lightning_level(), 0.75);
@@ -310,7 +354,12 @@ mod tests {
     fn dimension_change_is_not_an_environment_session_replacement() {
         let mut clock = WorldClock::default();
         let mut weather = WeatherState::default();
-        replace_session(&mut clock, &mut weather, bootstrap(6_000, 0.5, 0.75));
+        replace_session(
+            &mut clock,
+            &mut weather,
+            bootstrap(6_000, 6_000, false, 0.5, 0.75),
+            0.0,
+        );
         let before_clock = clock;
         let before_weather = weather;
 
@@ -338,7 +387,13 @@ mod tests {
     fn running_clock_anchors_each_set_time_and_advances_at_twenty_ticks_per_second() {
         let mut clock = WorldClock::default();
         let mut weather = WeatherState::default();
-        replace_session(&mut clock, &mut weather, bootstrap(-1, 0.0, 0.0));
+        replace_session(
+            &mut clock,
+            &mut weather,
+            bootstrap(6_000, 0, true, 0.0, 0.0),
+            10.0,
+        );
+        assert_eq!(visual_world_time(clock, 12.5), 6_050.0);
 
         assert!(apply_environment_control(
             CommittedControlEvent::SetTime {
@@ -369,7 +424,12 @@ mod tests {
     fn stopped_clock_uses_exact_stop_tick_and_signed_times_use_euclidean_days() {
         let mut clock = WorldClock::default();
         let mut weather = WeatherState::default();
-        replace_session(&mut clock, &mut weather, bootstrap(18_000, 0.0, 0.0));
+        replace_session(
+            &mut clock,
+            &mut weather,
+            bootstrap(6_000, 18_000, false, 0.0, 0.0),
+            0.0,
+        );
         assert!(apply_environment_control(
             CommittedControlEvent::SetTime {
                 sequence: 3,
@@ -381,7 +441,12 @@ mod tests {
         ));
         assert_eq!(visual_world_time(clock, 10_000.0), 18_000.0);
 
-        replace_session(&mut clock, &mut weather, bootstrap(-1, 0.0, 0.0));
+        replace_session(
+            &mut clock,
+            &mut weather,
+            bootstrap(-1, 0, true, 0.0, 0.0),
+            7.0,
+        );
         assert!(apply_environment_control(
             CommittedControlEvent::SetTime {
                 sequence: 4,
@@ -400,7 +465,12 @@ mod tests {
     fn cardinal_bedrock_times_drive_exact_sun_quadrants_and_moon_phases() {
         let mut clock = WorldClock::default();
         let mut weather = WeatherState::default();
-        replace_session(&mut clock, &mut weather, bootstrap(-1, 0.0, 0.0));
+        replace_session(
+            &mut clock,
+            &mut weather,
+            bootstrap(0, 0, true, 0.0, 0.0),
+            100.0,
+        );
 
         for (time, expected) in [
             (0, [1.0, 0.0, 0.0]),
@@ -443,10 +513,15 @@ mod tests {
     }
 
     #[test]
-    fn atmosphere_bounds_weather_and_session_replacement_clears_the_time_anchor() {
+    fn atmosphere_bounds_weather_and_session_replacement_reanchors_initial_time() {
         let mut clock = WorldClock::default();
         let mut weather = WeatherState::default();
-        replace_session(&mut clock, &mut weather, bootstrap(-1, 0.25, 0.75));
+        replace_session(
+            &mut clock,
+            &mut weather,
+            bootstrap(6_000, 0, true, 0.25, 0.75),
+            1.0,
+        );
         assert!(apply_environment_control(
             CommittedControlEvent::SetTime {
                 sequence: 1,
@@ -462,9 +537,14 @@ mod tests {
         assert!(frame.fog_start() >= 0.0);
         assert!(frame.fog_end() > frame.fog_start());
 
-        replace_session(&mut clock, &mut weather, bootstrap(-1, 1.0, 0.0));
-        assert_eq!(clock.server_time(), None);
-        assert_eq!(visual_world_time(clock, 50_000.0), 0.0);
+        replace_session(
+            &mut clock,
+            &mut weather,
+            bootstrap(12_000, 0, true, 1.0, 0.0),
+            50_000.0,
+        );
+        assert_eq!(clock.server_time(), Some(12_000));
+        assert_eq!(visual_world_time(clock, 50_000.0), 12_000.0);
         assert_eq!(
             derive_atmosphere_frame(clock, weather, 50_000.0).moon_phase(),
             0
