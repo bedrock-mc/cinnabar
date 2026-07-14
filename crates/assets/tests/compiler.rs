@@ -1937,7 +1937,7 @@ fn compiler_covers_all_carpet_states_with_exact_geometry_materials_and_determini
         } else {
             sides.into_iter().filter(|side| *side != 0).count()
         };
-        assert_eq!(quads.len(), usize::from(has_base) * 6 + side_count);
+        assert_eq!(quads.len(), usize::from(has_base) * 6 + side_count * 2);
         let base_count = usize::from(has_base) * 6;
         if has_base {
             assert_eq!(model_bounds(&quads[..6]), ([0, 0, 0], [256, 16, 256]));
@@ -1951,7 +1951,7 @@ fn compiler_covers_all_carpet_states_with_exact_geometry_materials_and_determini
                 compiled.materials[quad.material as usize].flags,
                 MATERIAL_FLAG_ALPHA_CUTOUT
             );
-            assert_ne!(quad.flags & MODEL_QUAD_FLAG_TWO_SIDED, 0);
+            assert_eq!(quad.flags & MODEL_QUAD_FLAG_TWO_SIDED, 0);
             assert_eq!(quad.flags & MODEL_QUAD_FLAG_CULL_FACE_MASK, 0);
             assert!(
                 quad.uvs
@@ -1963,10 +1963,10 @@ fn compiler_covers_all_carpet_states_with_exact_geometry_materials_and_determini
             let bounds = model_bounds(std::slice::from_ref(quad));
             assert!(matches!(
                 (face, bounds),
-                (3, ([2, 0, 0], [2, 256, 256]))
-                    | (4, ([254, 0, 0], [254, 256, 256]))
-                    | (5, ([0, 0, 2], [256, 256, 2]))
-                    | (6, ([0, 0, 254], [256, 256, 254]))
+                (3 | 4, ([2, 0, 0], [2, 256, 256]))
+                    | (3 | 4, ([254, 0, 0], [254, 256, 256]))
+                    | (5 | 6, ([0, 0, 2], [256, 256, 2]))
+                    | (5 | 6, ([0, 0, 254], [256, 256, 254]))
             ));
         }
     }
@@ -2022,6 +2022,83 @@ fn compiler_covers_all_carpet_states_with_exact_geometry_materials_and_determini
         baseline,
         "collision-only seeds changed carpet render geometry"
     );
+}
+
+#[test]
+fn compiler_pale_moss_side_planes_preserve_both_java_face_uv_orders() {
+    let directory = tempfile::tempdir().expect("create pale moss UV fixture");
+    write_carpet_pack(directory.path());
+    let generated = generated_carpet_records();
+    let selectors = [
+        ([2, 0, 0, 0], true),
+        ([0, 2, 0, 0], true),
+        ([0, 0, 2, 0], true),
+        ([0, 0, 0, 2], true),
+    ];
+    let mut records = selectors
+        .into_iter()
+        .map(|selector| {
+            generated
+                .iter()
+                .find(|record| {
+                    record.name.as_ref() == "minecraft:pale_moss_carpet"
+                        && pale_carpet_selector(record) == selector
+                })
+                .expect("requested pale moss direction")
+                .clone()
+        })
+        .collect::<Vec<_>>();
+    for (id, record) in records.iter_mut().enumerate() {
+        record.sequential_id = id as u32;
+        record.network_hash = 95_500 + id as u32;
+    }
+    let compiled = compile_pack(directory.path(), &records).expect("compile pale moss UV fixture");
+
+    const OUTWARD_UVS: [[u16; 2]; 4] = [[4096, 4096], [4096, 0], [0, 0], [0, 4096]];
+    const INWARD_UVS: [[u16; 2]; 4] = [[0, 4096], [4096, 4096], [4096, 0], [0, 0]];
+    let expected = [
+        (
+            4,
+            3,
+            [[254, 0, 0], [254, 256, 0], [254, 256, 256], [254, 0, 256]],
+            [[254, 0, 0], [254, 0, 256], [254, 256, 256], [254, 256, 0]],
+        ),
+        (
+            5,
+            6,
+            [[0, 0, 2], [0, 256, 2], [256, 256, 2], [256, 0, 2]],
+            [[0, 0, 2], [256, 0, 2], [256, 256, 2], [0, 256, 2]],
+        ),
+        (
+            6,
+            5,
+            [[0, 0, 254], [256, 0, 254], [256, 256, 254], [0, 256, 254]],
+            [[0, 0, 254], [0, 256, 254], [256, 256, 254], [256, 0, 254]],
+        ),
+        (
+            3,
+            4,
+            [[2, 0, 0], [2, 0, 256], [2, 256, 256], [2, 256, 0]],
+            [[2, 0, 0], [2, 256, 0], [2, 256, 256], [2, 0, 256]],
+        ),
+    ];
+    for (id, (outward_face, inward_face, outward_positions, inward_positions)) in
+        expected.into_iter().enumerate()
+    {
+        let quads = compiled_model_quads(&compiled, id);
+        assert_eq!(quads.len(), 2, "one explicit quad per Java face");
+        assert_eq!(quads[0].positions, outward_positions);
+        assert_eq!(quads[0].uvs, OUTWARD_UVS);
+        assert_eq!(quads[0].flags, outward_face);
+        assert_eq!(quads[1].positions, inward_positions);
+        assert_eq!(quads[1].uvs, INWARD_UVS);
+        assert_eq!(quads[1].flags, inward_face);
+        assert_eq!(quads[0].material, quads[1].material);
+        assert_eq!(
+            compiled.materials[quads[0].material as usize].flags,
+            MATERIAL_FLAG_ALPHA_CUTOUT
+        );
+    }
 }
 
 #[test]

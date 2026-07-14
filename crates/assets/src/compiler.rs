@@ -1797,7 +1797,7 @@ fn pale_moss_carpet_quads(
             .sides
             .iter()
             .all(|side| matches!(side, PaleMossCarpetSide::None));
-    let mut quads = Vec::with_capacity(10);
+    let mut quads = Vec::with_capacity(14);
     if !state.upper || isolated_upper {
         quads.extend(cuboid_quads(materials, [0, 0, 0], [256, 16, 256]));
     }
@@ -1805,19 +1805,23 @@ fn pale_moss_carpet_quads(
     // The vanilla Java plane is inset by 0.1 model pixels, or 1.6 of our
     // 1/256-block units. Two units is the nearest representable symmetric
     // position, paired with 254 on the opposite face.
-    const PLANES: [(u32, [[i16; 3]; 4]); 4] = [
+    const OUTWARD_UVS: [[u16; 2]; 4] = [[4096, 4096], [4096, 0], [0, 0], [0, 4096]];
+    const INWARD_UVS: [[u16; 2]; 4] = [[0, 4096], [4096, 4096], [4096, 0], [0, 0]];
+    const PLANES: [(u32, u32, [[i16; 3]; 4]); 4] = [
         (
             4,
+            3,
             [[254, 0, 0], [254, 256, 0], [254, 256, 256], [254, 0, 256]],
         ),
-        (5, [[0, 0, 2], [0, 256, 2], [256, 256, 2], [256, 0, 2]]),
+        (5, 6, [[0, 0, 2], [0, 256, 2], [256, 256, 2], [256, 0, 2]]),
         (
             6,
+            5,
             [[0, 0, 254], [256, 0, 254], [256, 256, 254], [0, 256, 254]],
         ),
-        (3, [[2, 0, 0], [2, 0, 256], [2, 256, 256], [2, 256, 0]]),
+        (3, 4, [[2, 0, 0], [2, 0, 256], [2, 256, 256], [2, 256, 0]]),
     ];
-    for ((face, positions), side) in PLANES.into_iter().zip(state.sides) {
+    for ((outward_face, inward_face, positions), side) in PLANES.into_iter().zip(state.sides) {
         let side = if isolated_upper {
             PaleMossCarpetSide::Tall
         } else {
@@ -1832,14 +1836,17 @@ fn pale_moss_carpet_quads(
         };
         quads.push(ModelQuad {
             positions,
-            uvs: positions.map(|[x, y, z]| {
-                let tangent = if matches!(face, 5 | 6) { x } else { z };
-                [(tangent as u16) * 16, ((256 - y) as u16) * 16]
-            }),
+            uvs: OUTWARD_UVS,
             material,
-            // Pale moss side planes are alpha-tested from both directions;
-            // support connectivity must not cull them before alpha testing.
-            flags: MODEL_QUAD_FLAG_TWO_SIDED | face,
+            // Neither face advertises a boundary cull direction: support
+            // connectivity must not remove it before alpha testing.
+            flags: outward_face,
+        });
+        quads.push(ModelQuad {
+            positions: [positions[0], positions[3], positions[2], positions[1]],
+            uvs: INWARD_UVS,
+            material,
+            flags: inward_face,
         });
     }
     quads
