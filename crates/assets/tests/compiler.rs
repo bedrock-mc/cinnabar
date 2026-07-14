@@ -1232,6 +1232,230 @@ fn compiler_real_pinned_pack_has_zero_diagnostic_door_and_trapdoor_states_when_r
     );
 }
 
+fn generated_wall_records(name: &str) -> Vec<RegistryRecord> {
+    let mut records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+        .expect("decode committed generated registry")
+        .into_iter()
+        .filter(|record| record.name.as_ref() == name && record.model_family == ModelFamily::Wall)
+        .collect::<Vec<_>>();
+    records.sort_unstable_by_key(|record| {
+        record
+            .model_state
+            .get(ModelStateField::Connections)
+            .expect("wall connections")
+    });
+    for (id, record) in records.iter_mut().enumerate() {
+        record.sequential_id = id as u32;
+        record.network_hash = 70_000 + id as u32;
+    }
+    records
+}
+
+fn write_wall_pack(root: &Path) {
+    write_pack(
+        root,
+        r#"{"cobblestone_wall":{"textures":{
+            "west":"wall_west","east":"wall_east","down":"wall_down",
+            "up":"wall_up","north":"wall_north","south":"wall_south"
+        }}}"#,
+        r#"{"texture_data":{
+            "wall_west":{"textures":"textures/blocks/wall_west"},
+            "wall_east":{"textures":"textures/blocks/wall_east"},
+            "wall_down":{"textures":"textures/blocks/wall_down"},
+            "wall_up":{"textures":"textures/blocks/wall_up"},
+            "wall_north":{"textures":"textures/blocks/wall_north"},
+            "wall_south":{"textures":"textures/blocks/wall_south"}
+        }}"#,
+        "[]",
+    );
+    for (index, path) in ["west", "east", "down", "up", "north", "south"]
+        .into_iter()
+        .enumerate()
+    {
+        write_png(
+            root,
+            &format!("textures/blocks/wall_{path}"),
+            TILE_SIZE,
+            TILE_SIZE,
+            &solid(TILE_SIZE, TILE_SIZE, [index as u8 * 31 + 1, 50, 90, 255]),
+        );
+    }
+}
+
+fn expected_wall_boxes(connections: u32) -> Vec<([i16; 3], [i16; 3])> {
+    assert_eq!(connections & !0x1ff, 0);
+    let north = connections & 3;
+    let east = (connections >> 2) & 3;
+    let south = (connections >> 4) & 3;
+    let west = (connections >> 6) & 3;
+    let post = (connections >> 8) & 1;
+    assert!(
+        [north, east, south, west]
+            .into_iter()
+            .all(|connection| connection <= 2)
+    );
+    let height = |connection| match connection {
+        1 => 224,
+        2 => 256,
+        _ => unreachable!(),
+    };
+    // The local vanilla template_wall_{post,side,side_tall}.json files are the
+    // visible render oracle. Dragonfly collision BBoxes are intentionally not
+    // used for these extents.
+    let mut boxes = Vec::with_capacity(5);
+    if post != 0 {
+        boxes.push(([64, 0, 64], [192, 256, 192]));
+    }
+    if north != 0 {
+        boxes.push(([80, 0, 0], [176, height(north), 128]));
+    }
+    if east != 0 {
+        boxes.push(([128, 0, 80], [256, height(east), 176]));
+    }
+    if south != 0 {
+        boxes.push(([80, 0, 128], [176, height(south), 256]));
+    }
+    if west != 0 {
+        boxes.push(([0, 0, 80], [128, height(west), 176]));
+    }
+    boxes
+}
+
+#[test]
+fn compiler_routes_all_generated_wall_connections_to_exact_compact_cuboids() {
+    let directory = tempfile::tempdir().expect("create wall fixture");
+    write_wall_pack(directory.path());
+    let records = generated_wall_records("minecraft:cobblestone_wall");
+    assert_eq!(records.len(), 162, "3^4 connection heights times post bit");
+    let selectors = records
+        .iter()
+        .map(|record| {
+            record
+                .model_state
+                .get(ModelStateField::Connections)
+                .expect("typed wall connections")
+        })
+        .collect::<HashSet<_>>();
+    assert_eq!(selectors.len(), 162);
+
+    let compiled = compile_pack(directory.path(), &records).expect("compile all wall states");
+    assert_eq!(compiled.materials.len(), 7, "diagnostic plus six faces");
+    assert_eq!(compiled.model_templates.len(), 162);
+    for (id, record) in records.iter().enumerate() {
+        let connections = record
+            .model_state
+            .get(ModelStateField::Connections)
+            .unwrap();
+        let visual = compiled.visuals[id];
+        assert_eq!(visual.kind, VisualKind::Model, "{}", record.canonical_state);
+        assert!(!visual.flags.intersects(
+            BlockFlags::AIR
+                | BlockFlags::CUBE_GEOMETRY
+                | BlockFlags::OCCLUDES_FULL_FACE
+                | BlockFlags::LEAF_MODEL
+        ));
+        assert_eq!(record.face_coverage, 0);
+        let template = compiled.model_templates[visual.model_template as usize];
+        let expected = expected_wall_boxes(connections);
+        assert_eq!(template.quad_count as usize, expected.len() * 6);
+        assert!(template.quad_count <= 30);
+        let quads = compiled_model_quads(&compiled, id);
+        for (cuboid, bounds) in quads.chunks_exact(6).zip(expected) {
+            assert_eq!(model_bounds(cuboid), bounds, "{}", record.canonical_state);
+            for (face, quad) in cuboid.iter().enumerate() {
+                assert_eq!(quad.material, visual.faces[face]);
+                assert_eq!(quad.flags, [3, 4, 1, 2, 5, 6][face]);
+                assert_eq!(quad.flags & MODEL_QUAD_FLAG_CULL_FACE_MASK, 0);
+                assert!(quad.uvs.iter().flatten().all(|value| *value <= 4096));
+            }
+        }
+    }
+
+    let baseline = encode_blob(&compiled).expect("encode exhaustive walls");
+    let mut reversed = records.clone();
+    reversed.reverse();
+    assert_eq!(
+        encode_blob(&compile_pack(directory.path(), &reversed).unwrap()).unwrap(),
+        baseline,
+        "wall compilation depends on registry ordering"
+    );
+    let mut without_collision = records;
+    for record in &mut without_collision {
+        record.collision_seed = CollisionSeed::default();
+    }
+    assert_eq!(
+        encode_blob(&compile_pack(directory.path(), &without_collision).unwrap()).unwrap(),
+        baseline,
+        "collision-only seeds changed typed wall render geometry"
+    );
+}
+
+#[test]
+fn compiler_wall_connections_fail_closed_when_missing_or_out_of_range() {
+    let directory = tempfile::tempdir().expect("create invalid wall fixture");
+    write_wall_pack(directory.path());
+    let mut records = vec![model_record(
+        0,
+        71_000,
+        "minecraft:cobblestone_wall",
+        "{}",
+        ModelFamily::Wall,
+    )];
+    for connections in [3, 3 << 2, 3 << 4, 3 << 6, 1 << 9] {
+        let id = records.len() as u32;
+        records.push(encoded_model_record(
+            id,
+            71_000 + id,
+            "minecraft:cobblestone_wall",
+            ModelFamily::Wall,
+            &[(ModelStateField::Connections, connections)],
+        ));
+    }
+    let compiled = compile_pack(directory.path(), &records).expect("compile invalid wall states");
+    assert!(
+        compiled
+            .visuals
+            .iter()
+            .all(|visual| visual.kind == VisualKind::Diagnostic)
+    );
+    assert!(compiled.model_templates.is_empty());
+    assert!(compiled.model_quads.is_empty());
+}
+
+#[test]
+fn compiler_real_pinned_pack_has_zero_diagnostic_wall_states_when_requested() {
+    let Some(pack) = std::env::var_os("PINNED_VANILLA_PACK") else {
+        return;
+    };
+    let mut records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+        .expect("decode committed generated registry")
+        .into_iter()
+        .filter(|record| record.model_family == ModelFamily::Wall)
+        .collect::<Vec<_>>();
+    assert_eq!(records.len(), 5_184);
+    records.sort_unstable_by_key(|record| record.sequential_id);
+    for (id, record) in records.iter_mut().enumerate() {
+        record.sequential_id = id as u32;
+        record.network_hash = 80_000 + id as u32;
+    }
+    let compiled = compile_pack(Path::new(&pack), &records).expect("compile pinned walls");
+    for (id, record) in records.iter().enumerate() {
+        let visual = compiled.visuals[id];
+        assert_eq!(visual.kind, VisualKind::Model, "{}", record.name);
+        assert_eq!(record.face_coverage, 0);
+        let template = compiled.model_templates[visual.model_template as usize];
+        assert!(template.quad_count <= 30);
+        assert_eq!(template.quad_count % 6, 0);
+        assert!(compiled_model_quads(&compiled, id).iter().all(|quad| {
+            quad.material != DIAGNOSTIC_MATERIAL && quad.flags & MODEL_QUAD_FLAG_CULL_FACE_MASK == 0
+        }));
+    }
+    let baseline = encode_blob(&compiled).expect("encode pinned walls");
+    records.reverse();
+    let reversed = compile_pack(Path::new(&pack), &records).expect("compile reversed pinned walls");
+    assert_eq!(encode_blob(&reversed).unwrap(), baseline);
+}
+
 fn generated_flowerbed_record(
     sequential_id: u32,
     network_hash: u32,

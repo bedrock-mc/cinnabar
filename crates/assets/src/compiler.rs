@@ -448,6 +448,11 @@ const fn is_trapdoor(record: &RegistryRecord) -> bool {
         && matches!(record.contributor_role, ContributorRole::Primary)
 }
 
+const fn is_wall(record: &RegistryRecord) -> bool {
+    matches!(record.model_family, ModelFamily::Wall)
+        && matches!(record.contributor_role, ContributorRole::Primary)
+}
+
 const fn is_slab(record: &RegistryRecord) -> bool {
     matches!(record.model_family, ModelFamily::Slab)
         && matches!(record.contributor_role, ContributorRole::Primary)
@@ -468,7 +473,7 @@ fn is_cutout_model_visual(record: &RegistryRecord) -> bool {
 }
 
 fn is_model_visual(record: &RegistryRecord) -> bool {
-    is_cutout_model_visual(record) || is_slab(record) || is_stair(record)
+    is_cutout_model_visual(record) || is_slab(record) || is_stair(record) || is_wall(record)
 }
 
 const fn is_liquid(record: &RegistryRecord) -> bool {
@@ -896,6 +901,7 @@ fn compile_visuals(
     let mut stair_template_by_key = BTreeMap::<[u32; 7], u32>::new();
     let mut vine_template_by_key = BTreeMap::<[u32; 2], u32>::new();
     let mut cuboid_template_by_key = BTreeMap::<CuboidTemplateKey, u32>::new();
+    let mut wall_template_by_key = BTreeMap::<[u32; 7], u32>::new();
 
     let mut ordered_records = records.iter().collect::<Vec<_>>();
     ordered_records.sort_unstable_by_key(|record| record.sequential_id);
@@ -1083,6 +1089,62 @@ fn compile_visuals(
                     &mut model_templates,
                     &mut model_quads,
                 )?;
+                visual.flags.remove(
+                    BlockFlags::AIR
+                        | BlockFlags::CUBE_GEOMETRY
+                        | BlockFlags::OCCLUDES_FULL_FACE
+                        | BlockFlags::LEAF_MODEL,
+                );
+                visual.faces = materials;
+                visual.kind = VisualKind::Model;
+                visual.model_template = template;
+            }
+        } else if is_wall(record) {
+            let materials = BlockFace::ALL.map(|face| {
+                descriptor_for(pack, record, face)
+                    .and_then(|(descriptor, _)| material_by_descriptor.get(&descriptor).copied())
+            });
+            let connections = record.model_state.get(ModelStateField::Connections);
+            if let [
+                Some(west),
+                Some(east),
+                Some(down),
+                Some(up),
+                Some(north),
+                Some(south),
+            ] = materials
+                && let Some(connections) =
+                    connections.filter(|connections| wall_state_is_valid(*connections))
+            {
+                let materials = [west, east, down, up, north, south];
+                let key = [west, east, down, up, north, south, connections];
+                let template = if let Some(&template) = wall_template_by_key.get(&key) {
+                    template
+                } else {
+                    let quads = wall_quads(materials, connections);
+                    let template = u32::try_from(model_templates.len()).map_err(|_| {
+                        AssetError::BlobSizeOverflow {
+                            section: "model template",
+                        }
+                    })?;
+                    let quad_start = u32::try_from(model_quads.len()).map_err(|_| {
+                        AssetError::BlobSizeOverflow {
+                            section: "model quad",
+                        }
+                    })?;
+                    let quad_count =
+                        u32::try_from(quads.len()).map_err(|_| AssetError::BlobSizeOverflow {
+                            section: "model quad count",
+                        })?;
+                    model_templates.push(ModelTemplate {
+                        quad_start,
+                        quad_count,
+                        flags: 0,
+                    });
+                    model_quads.extend(quads);
+                    wall_template_by_key.insert(key, template);
+                    template
+                };
                 visual.flags.remove(
                     BlockFlags::AIR
                         | BlockFlags::CUBE_GEOMETRY
@@ -1510,6 +1572,64 @@ fn cuboid_quads(materials: [u32; 6], min: [i16; 3], max: [i16; 3]) -> [ModelQuad
             6,
         ),
     ]
+}
+
+const fn wall_state_is_valid(connections: u32) -> bool {
+    connections & !0x1ff == 0
+        && connections & 3 <= 2
+        && (connections >> 2) & 3 <= 2
+        && (connections >> 4) & 3 <= 2
+        && (connections >> 6) & 3 <= 2
+}
+
+fn wall_quads(materials: [u32; 6], connections: u32) -> Vec<ModelQuad> {
+    debug_assert!(wall_state_is_valid(connections));
+    let north = connections & 3;
+    let east = (connections >> 2) & 3;
+    let south = (connections >> 4) & 3;
+    let west = (connections >> 6) & 3;
+    let post = (connections >> 8) & 1;
+    let height = |connection| match connection {
+        1 => 224,
+        2 => 256,
+        _ => unreachable!("wall connection is checked before geometry generation"),
+    };
+    let mut quads = Vec::with_capacity(30);
+    // Visible extents come from the local vanilla
+    // template_wall_{post,side,side_tall}.json render models. Dragonfly's
+    // broader Wall::BBox components are collision-only and not render authority.
+    if post != 0 {
+        quads.extend(cuboid_quads(materials, [64, 0, 64], [192, 256, 192]));
+    }
+    if north != 0 {
+        quads.extend(cuboid_quads(
+            materials,
+            [80, 0, 0],
+            [176, height(north), 128],
+        ));
+    }
+    if east != 0 {
+        quads.extend(cuboid_quads(
+            materials,
+            [128, 0, 80],
+            [256, height(east), 176],
+        ));
+    }
+    if south != 0 {
+        quads.extend(cuboid_quads(
+            materials,
+            [80, 0, 128],
+            [176, height(south), 256],
+        ));
+    }
+    if west != 0 {
+        quads.extend(cuboid_quads(
+            materials,
+            [0, 0, 80],
+            [128, height(west), 176],
+        ));
+    }
+    quads
 }
 
 fn slab_quads(materials: [u32; 6], half: u32) -> [ModelQuad; 6] {
