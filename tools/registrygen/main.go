@@ -108,9 +108,11 @@ const (
 	ModelFamilyInvisible
 	ModelFamilyFlowerBed
 	ModelFamilyVine
+	ModelFamilyGlowLichen
+	ModelFamilySculkVein
 )
 
-const maxModelFamily = ModelFamilyVine
+const maxModelFamily = ModelFamilySculkVein
 
 type ContributorRole uint8
 
@@ -1145,6 +1147,10 @@ func classifyRecord(state SourceState) (Record, error) {
 		record.ModelFamily = ModelFamilyFlowerBed
 	case name == "vine":
 		record.ModelFamily = ModelFamilyVine
+	case name == "glow_lichen":
+		record.ModelFamily = ModelFamilyGlowLichen
+	case name == "sculk_vein":
+		record.ModelFamily = ModelFamilySculkVein
 	case isCrossName(name):
 		record.ModelFamily = ModelFamilyCross
 	}

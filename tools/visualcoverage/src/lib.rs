@@ -1159,5 +1159,7 @@ fn model_family_name(family: ModelFamily) -> &'static str {
         ModelFamily::Invisible => "invisible",
         ModelFamily::FlowerBed => "flower_bed",
         ModelFamily::Vine => "vine",
+        ModelFamily::GlowLichen => "glow_lichen",
+        ModelFamily::SculkVein => "sculk_vein",
     }
 }

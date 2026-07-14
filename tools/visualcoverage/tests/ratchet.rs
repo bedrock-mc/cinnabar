@@ -1940,9 +1940,55 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
     .expect("parse committed production baseline");
     let current = analyze_bytes(&registry_bytes, &assets_bytes).unwrap();
     assert_eq!(current.states.len(), 16_913);
-    assert_eq!(baseline.diagnostic_sequential_ids.len(), 7_898);
-    assert_eq!(current.diagnostic_states.len(), 7_898);
+    assert_eq!(baseline.diagnostic_sequential_ids.len(), 7_770);
+    assert_eq!(current.diagnostic_states.len(), 7_770);
 
+    let expected_multiface_ids = records
+        .iter()
+        .filter(|record| {
+            matches!(
+                record.model_family,
+                ModelFamily::GlowLichen | ModelFamily::SculkVein
+            )
+        })
+        .map(|record| record.sequential_id)
+        .collect::<Vec<_>>();
+    assert_eq!(expected_multiface_ids.len(), 128);
+    assert!(expected_multiface_ids.iter().all(|id| {
+        baseline
+            .diagnostic_sequential_ids
+            .binary_search(id)
+            .is_err()
+    }));
+    let mut pre_multiface_baseline = baseline.clone();
+    pre_multiface_baseline
+        .diagnostic_sequential_ids
+        .extend(expected_multiface_ids.iter().copied());
+    pre_multiface_baseline
+        .diagnostic_sequential_ids
+        .sort_unstable();
+    assert_eq!(
+        pre_multiface_baseline.diagnostic_sequential_ids.len(),
+        7_898
+    );
+    let report = ratchet_protocol_1001(current.clone(), &pre_multiface_baseline)
+        .expect("run exact pre-multiface production ratchet");
+    assert!(report.added_diagnostics.is_empty());
+    assert_eq!(report.removed_diagnostics.len(), 128);
+    assert!(
+        report
+            .removed_diagnostics
+            .iter()
+            .all(|state| { matches!(state.model_family.as_str(), "glow_lichen" | "sculk_vein") })
+    );
+    assert_eq!(
+        report
+            .removed_diagnostics
+            .iter()
+            .map(|state| state.sequential_id)
+            .collect::<Vec<_>>(),
+        expected_multiface_ids
+    );
     let expected_gate_ids = records
         .iter()
         .filter(|record| record.model_family == ModelFamily::Gate)
@@ -1961,7 +2007,7 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
         .diagnostic_sequential_ids
         .extend(expected_gate_ids.iter().copied());
     pre_gate_baseline.diagnostic_sequential_ids.sort_unstable();
-    assert_eq!(pre_gate_baseline.diagnostic_sequential_ids.len(), 8_090);
+    assert_eq!(pre_gate_baseline.diagnostic_sequential_ids.len(), 7_962);
     let report = ratchet_protocol_1001(current.clone(), &pre_gate_baseline)
         .expect("run exact pre-Gate production ratchet");
     assert!(report.added_diagnostics.is_empty());
@@ -1998,7 +2044,7 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
     pre_carpet_baseline
         .diagnostic_sequential_ids
         .sort_unstable();
-    assert_eq!(pre_carpet_baseline.diagnostic_sequential_ids.len(), 8_077);
+    assert_eq!(pre_carpet_baseline.diagnostic_sequential_ids.len(), 7_949);
     let report = ratchet_protocol_1001(current.clone(), &pre_carpet_baseline)
         .expect("run exact pre-Carpet production ratchet");
     assert!(report.added_diagnostics.is_empty());
@@ -2035,7 +2081,7 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
     pre_button_baseline
         .diagnostic_sequential_ids
         .sort_unstable();
-    assert_eq!(pre_button_baseline.diagnostic_sequential_ids.len(), 8_066);
+    assert_eq!(pre_button_baseline.diagnostic_sequential_ids.len(), 7_938);
     let report = ratchet_protocol_1001(current.clone(), &pre_button_baseline)
         .expect("run exact pre-Button production ratchet");
     assert!(report.added_diagnostics.is_empty());

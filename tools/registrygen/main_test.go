@@ -850,6 +850,36 @@ func TestVineClassificationCoversEveryProtocol1001DirectionMask(t *testing.T) {
 	}
 }
 
+func TestMultifaceFamiliesPreserveEveryProtocol1001DirectionMaskSeparately(t *testing.T) {
+	for _, fixture := range []struct {
+		name       string
+		wantFamily ModelFamily
+	}{
+		{"minecraft:glow_lichen", ModelFamily(33)},
+		{"minecraft:sculk_vein", ModelFamily(34)},
+	} {
+		for mask := uint32(0); mask < 64; mask++ {
+			record, err := classifyRecord(sourceState(
+				fixture.name,
+				intState("multi_face_direction_bits", int32(mask)),
+			))
+			if err != nil {
+				t.Fatalf("%s mask %d: classify: %v", fixture.name, mask, err)
+			}
+			if record.ModelFamily != fixture.wantFamily {
+				t.Errorf("%s mask %d: family=%v, want %v", fixture.name, mask, record.ModelFamily, fixture.wantFamily)
+			}
+			connections, ok := record.ModelState.Get(ModelStateConnections)
+			if !ok || connections != mask {
+				t.Errorf("%s mask %d: connections=(%d, %t)", fixture.name, mask, connections, ok)
+			}
+			if record.Flags&(flagCubeGeometry|flagOccludesFullFace) != 0 || record.FaceCoverage != 0 {
+				t.Errorf("%s mask %d: multiface acquired full-block geometry/occlusion: flags=%#x coverage=%#x", fixture.name, mask, record.Flags, record.FaceCoverage)
+			}
+		}
+	}
+}
+
 func TestStairSelectorUsesCanonicalLogicalFacingAndUpsideDown(t *testing.T) {
 	wantFacing := map[int32]uint32{0: 0, 1: 1, 2: 2, 3: 3} // south, west, north, east
 	for raw, want := range wantFacing {

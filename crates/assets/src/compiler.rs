@@ -482,6 +482,20 @@ fn is_vine(record: &RegistryRecord) -> bool {
     matches!(record.model_family, ModelFamily::Vine) && record.name.as_ref() == "minecraft:vine"
 }
 
+fn is_glow_lichen(record: &RegistryRecord) -> bool {
+    matches!(record.model_family, ModelFamily::GlowLichen)
+        && record.name.as_ref() == "minecraft:glow_lichen"
+}
+
+fn is_sculk_vein(record: &RegistryRecord) -> bool {
+    matches!(record.model_family, ModelFamily::SculkVein)
+        && record.name.as_ref() == "minecraft:sculk_vein"
+}
+
+fn is_multiface(record: &RegistryRecord) -> bool {
+    is_glow_lichen(record) || is_sculk_vein(record)
+}
+
 const fn is_door(record: &RegistryRecord) -> bool {
     matches!(record.model_family, ModelFamily::Door)
         && matches!(record.contributor_role, ContributorRole::Primary)
@@ -592,6 +606,7 @@ fn is_cutout_model_visual(record: &RegistryRecord) -> bool {
         || is_kelp(record)
         || is_flowerbed(record)
         || is_vine(record)
+        || is_multiface(record)
         || is_door(record)
         || is_trapdoor(record)
 }
@@ -1138,6 +1153,7 @@ fn compile_visuals(
     let mut slab_template_by_key = BTreeMap::<[u32; 7], u32>::new();
     let mut stair_template_by_key = BTreeMap::<[u32; 7], u32>::new();
     let mut vine_template_by_key = BTreeMap::<[u32; 2], u32>::new();
+    let mut multiface_template_by_key = BTreeMap::<[u32; 3], u32>::new();
     let mut cuboid_template_by_key = BTreeMap::<CuboidTemplateKey, u32>::new();
     let mut wall_template_by_key = BTreeMap::<[u32; 7], u32>::new();
     let mut pressure_plate_template_by_key = BTreeMap::<PressurePlateTemplateKey, u32>::new();
@@ -1253,6 +1269,55 @@ fn compile_visuals(
                     });
                     model_quads.extend(quads);
                     vine_template_by_key.insert(key, template);
+                    template
+                };
+                visual.flags.remove(
+                    BlockFlags::AIR
+                        | BlockFlags::CUBE_GEOMETRY
+                        | BlockFlags::OCCLUDES_FULL_FACE
+                        | BlockFlags::LEAF_MODEL,
+                );
+                visual.faces = [material; 6];
+                visual.kind = VisualKind::Model;
+                visual.model_template = template;
+            }
+        } else if is_multiface(record) {
+            let material = descriptor_for(pack, record, BlockFace::South)
+                .and_then(|(descriptor, _)| material_by_descriptor.get(&descriptor).copied());
+            let connections = record.model_state.get(ModelStateField::Connections);
+            if let (Some(material), Some(connections @ 0..=63)) = (material, connections) {
+                // Bedrock retains state zero in its canonical palette even
+                // though placement never creates it. Vanilla renders that
+                // state as the all-face form, unlike vine mask zero.
+                let effective_connections = if connections == 0 { 63 } else { connections };
+                let family_key = match record.model_family {
+                    ModelFamily::GlowLichen => 0,
+                    ModelFamily::SculkVein => 1,
+                    _ => unreachable!("multiface predicate admitted an unrelated family"),
+                };
+                let key = [material, effective_connections, family_key];
+                let template = if let Some(&template) = multiface_template_by_key.get(&key) {
+                    template
+                } else {
+                    let quads =
+                        multiface_quads(material, effective_connections, record.model_family);
+                    let template = u32::try_from(model_templates.len()).map_err(|_| {
+                        AssetError::BlobSizeOverflow {
+                            section: "model template",
+                        }
+                    })?;
+                    let quad_start = u32::try_from(model_quads.len()).map_err(|_| {
+                        AssetError::BlobSizeOverflow {
+                            section: "model quad",
+                        }
+                    })?;
+                    model_templates.push(ModelTemplate {
+                        quad_start,
+                        quad_count: effective_connections.count_ones(),
+                        flags: 0,
+                    });
+                    model_quads.extend(quads);
+                    multiface_template_by_key.insert(key, template);
                     template
                 };
                 visual.flags.remove(
@@ -2333,6 +2398,65 @@ fn vine_quads(material: u32, connections: u32) -> Vec<ModelQuad> {
             // Vines remain visible from either side. Deliberately omit the
             // cull-face field: the support block is not a reason to drop the
             // attachment plane before alpha testing.
+            flags: MODEL_QUAD_FLAG_TWO_SIDED | face,
+        })
+        .collect()
+}
+
+/// Emits Bedrock's six independent multi-face attachment planes. This is a
+/// distinct state contract from vines: bits include down/up and mask zero is
+/// canonicalized by the caller to the all-face fallback.
+fn multiface_quads(material: u32, connections: u32, family: ModelFamily) -> Vec<ModelQuad> {
+    debug_assert!((1..=63).contains(&connections));
+    const GLOW_LICHEN_PLANES: [(u32, u32, [[i16; 3]; 4]); 6] = [
+        (1, 1, [[0, 1, 0], [0, 1, 256], [256, 1, 256], [256, 1, 0]]),
+        (
+            2,
+            2,
+            [[0, 255, 0], [256, 255, 0], [256, 255, 256], [0, 255, 256]],
+        ),
+        (
+            4,
+            6,
+            [[0, 0, 255], [256, 0, 255], [256, 256, 255], [0, 256, 255]],
+        ),
+        (8, 3, [[1, 0, 0], [1, 0, 256], [1, 256, 256], [1, 256, 0]]),
+        (16, 5, [[0, 0, 1], [0, 256, 1], [256, 256, 1], [256, 0, 1]]),
+        (
+            32,
+            4,
+            [[255, 0, 0], [255, 256, 0], [255, 256, 256], [255, 0, 256]],
+        ),
+    ];
+    const SCULK_VEIN_PLANES: [(u32, u32, [[i16; 3]; 4]); 6] = [
+        GLOW_LICHEN_PLANES[0],
+        GLOW_LICHEN_PLANES[1],
+        (4, 5, GLOW_LICHEN_PLANES[4].2),
+        (8, 6, GLOW_LICHEN_PLANES[2].2),
+        (16, 3, GLOW_LICHEN_PLANES[3].2),
+        (32, 4, GLOW_LICHEN_PLANES[5].2),
+    ];
+    let planes = match family {
+        ModelFamily::GlowLichen => GLOW_LICHEN_PLANES,
+        ModelFamily::SculkVein => SCULK_VEIN_PLANES,
+        _ => unreachable!("multiface geometry requested for an unrelated family"),
+    };
+    planes
+        .into_iter()
+        .filter(|(bit, _, _)| connections & bit != 0)
+        .map(|(_, face, positions)| ModelQuad {
+            positions,
+            uvs: positions.map(|[x, y, z]| {
+                if matches!(face, 1 | 2) {
+                    [(x as u16) * 16, (z as u16) * 16]
+                } else {
+                    let tangent = if matches!(face, 5 | 6) { x } else { z };
+                    [(tangent as u16) * 16, ((256 - y) as u16) * 16]
+                }
+            }),
+            material,
+            // Both families are paper-thin overlays. Support faces must not
+            // remove them before alpha testing, and either side remains visible.
             flags: MODEL_QUAD_FLAG_TWO_SIDED | face,
         })
         .collect()
