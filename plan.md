@@ -425,7 +425,12 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       p50 40.3 / p99 47.8 / 138.9454 ms run. Exact drawing therefore closes the
       required packed per-quad architecture but not the performance gate; GPU
       stage timestamps/workload counters must identify the remaining cost before
-      considering a one-sided/two-sided pipeline split. The backend/presentation investigation is now
+      considering a one-sided/two-sided pipeline split. Resident and
+      frustum-visible model workload counters are now implemented: acceptance
+      JSON distinguishes 16-byte model refs from exact eight-byte quad draw refs
+      and reports the former fixed 32-quad slot invocations avoided. Full
+      render/client suites are green; a live run and Bevy's asynchronous opaque/
+      transparent GPU pass timestamps remain open. The backend/presentation investigation is now
       conclusive: five direct swapchain captures from Cinnabar, minimal Bevy
       Camera3d and Camera2d clear-only probes, a camera-local red clear, and
       DX12/FXC were byte-identical pure black. Vulkan exposes no surface present

@@ -28,17 +28,18 @@ use bevy::{
 };
 use camera::{FlyCamera, FlyCameraPlugin};
 use metrics::{
-    DiagnosticQuadTracker, ExactFullViewProof, MetricsCollector, PipelineMetricsSnapshot,
-    TeleportProof, TransparentSortMetricsSnapshot, deterministic_manifest_hash,
+    DiagnosticQuadTracker, ExactFullViewProof, MetricsCollector, ModelWorkloadMetricsSnapshot,
+    PipelineMetricsSnapshot, TeleportProof, TransparentSortMetricsSnapshot,
+    deterministic_manifest_hash,
 };
 use model_witness::{ModelWitnessFileSource, poll_model_witness_request};
 use network::{NetworkConfig, NetworkControlEvent, NetworkHandle, spawn_network};
 use render::{
     ChunkBiomeTints, ChunkRenderInstance, ChunkRenderQueue, ChunkTextureAssets,
     ChunkUploadAcknowledgements, ChunkUploadPriority, ChunkUploadToken, DebugWorldPlugin,
-    ModelWitnessEvidence, ModelWitnessManifestRecord, ModelWitnessRequest, PresentedFrameAck,
-    PresentedFrameGate, RenderViewCohort, TargetRenderExpectation, TransparentSortMetrics,
-    TransparentWitnessEvidence,
+    ModelWitnessEvidence, ModelWitnessManifestRecord, ModelWitnessRequest, ModelWorkloadMetrics,
+    PresentedFrameAck, PresentedFrameGate, RenderViewCohort, TargetRenderExpectation,
+    TransparentSortMetrics, TransparentWitnessEvidence,
 };
 use server_position::SAFE_SERVER_HEIGHT;
 use sha2::{Digest, Sha256};
@@ -3027,7 +3028,7 @@ fn record_metrics_and_title(
     mut metrics: ResMut<AppMetrics>,
     diagnostic_quads: Res<DiagnosticQuads>,
     render_queue: Res<ChunkRenderQueue>,
-    transparent_sort: Res<TransparentSortMetrics>,
+    mut render_metrics: ParamSet<(Res<TransparentSortMetrics>, Res<ModelWorkloadMetrics>)>,
     transparent_witness: Res<TransparentWitnessEvidence>,
     model_witness: Res<ModelWitnessEvidence>,
     chunks: Query<&ChunkRenderInstance>,
@@ -3049,7 +3050,9 @@ fn record_metrics_and_title(
         diagnostic_quads.0.total(),
     );
     let transparent_sort_snapshot =
-        TransparentSortMetricsSnapshot::from(transparent_sort.snapshot());
+        TransparentSortMetricsSnapshot::from(render_metrics.p0().snapshot());
+    let model_workload_snapshot =
+        ModelWorkloadMetricsSnapshot::from(render_metrics.p1().snapshot());
     if let Some(marker) = transparent_sort_committed_marker(
         *last_marked_transparent_sort_generation,
         transparent_sort_snapshot,
@@ -3165,6 +3168,7 @@ fn record_metrics_and_title(
             in_flight_mesh_jobs: stats.in_flight_mesh_jobs,
             gpu_upload_bytes: render_queue.gpu_upload_bytes(),
             transparent_sort: transparent_sort_snapshot,
+            model_workload: model_workload_snapshot,
         });
         stats
             .decode_errors

@@ -262,6 +262,7 @@ pub struct MetricsCollector {
     peak_in_flight_mesh_jobs: usize,
     gpu_upload_bytes: u64,
     transparent_sort: TransparentSortMetricsSnapshot,
+    model_workload: ModelWorkloadMetricsSnapshot,
 }
 
 /// App-owned, copyable seam for render-world transparent-sort evidence.
@@ -309,6 +310,39 @@ impl From<render::TransparentSortMetricsSnapshot> for TransparentSortMetricsSnap
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ModelWorkloadCountSnapshot {
+    pub model_ref_count: usize,
+    pub model_draw_ref_count: usize,
+    pub legacy_fixed_slot_quad_invocations_avoided: usize,
+}
+
+impl From<render::ModelWorkloadCount> for ModelWorkloadCountSnapshot {
+    fn from(snapshot: render::ModelWorkloadCount) -> Self {
+        Self {
+            model_ref_count: snapshot.model_ref_count,
+            model_draw_ref_count: snapshot.model_draw_ref_count,
+            legacy_fixed_slot_quad_invocations_avoided: snapshot
+                .legacy_fixed_slot_quad_invocations_avoided,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ModelWorkloadMetricsSnapshot {
+    pub resident: ModelWorkloadCountSnapshot,
+    pub visible: ModelWorkloadCountSnapshot,
+}
+
+impl From<render::ModelWorkloadMetricsSnapshot> for ModelWorkloadMetricsSnapshot {
+    fn from(snapshot: render::ModelWorkloadMetricsSnapshot) -> Self {
+        Self {
+            resident: snapshot.resident.into(),
+            visible: snapshot.visible.into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PipelineMetricsSnapshot {
     pub world_ready: bool,
     pub requested_radius_chunks: i32,
@@ -333,6 +367,7 @@ pub struct PipelineMetricsSnapshot {
     pub in_flight_mesh_jobs: usize,
     pub gpu_upload_bytes: u64,
     pub transparent_sort: TransparentSortMetricsSnapshot,
+    pub model_workload: ModelWorkloadMetricsSnapshot,
 }
 
 impl Default for MetricsCollector {
@@ -378,6 +413,7 @@ impl MetricsCollector {
             peak_in_flight_mesh_jobs: 0,
             gpu_upload_bytes: 0,
             transparent_sort: TransparentSortMetricsSnapshot::default(),
+            model_workload: ModelWorkloadMetricsSnapshot::default(),
         }
     }
 
@@ -485,6 +521,7 @@ impl MetricsCollector {
         if self.finished.is_some() {
             self.gpu_upload_bytes = self.gpu_upload_bytes.max(snapshot.gpu_upload_bytes);
             self.record_transparent_sort_snapshot(snapshot.transparent_sort);
+            self.model_workload = snapshot.model_workload;
             return;
         }
         self.world_ready |= snapshot.world_ready;
@@ -528,6 +565,7 @@ impl MetricsCollector {
             .max(snapshot.in_flight_mesh_jobs);
         self.gpu_upload_bytes = self.gpu_upload_bytes.max(snapshot.gpu_upload_bytes);
         self.record_transparent_sort_snapshot(snapshot.transparent_sort);
+        self.model_workload = snapshot.model_workload;
     }
 
     pub fn record_transparent_sort_snapshot(&mut self, snapshot: TransparentSortMetricsSnapshot) {
@@ -598,6 +636,18 @@ impl MetricsCollector {
             transparent_water_distinct_tint_count: self
                 .transparent_sort
                 .transparent_water_distinct_tint_count,
+            resident_model_ref_count: self.model_workload.resident.model_ref_count,
+            resident_model_draw_ref_count: self.model_workload.resident.model_draw_ref_count,
+            resident_legacy_fixed_slot_quad_invocations_avoided: self
+                .model_workload
+                .resident
+                .legacy_fixed_slot_quad_invocations_avoided,
+            visible_model_ref_count: self.model_workload.visible.model_ref_count,
+            visible_model_draw_ref_count: self.model_workload.visible.model_draw_ref_count,
+            visible_legacy_fixed_slot_quad_invocations_avoided: self
+                .model_workload
+                .visible
+                .legacy_fixed_slot_quad_invocations_avoided,
             assets: self.assets.clone(),
         }
     }
@@ -659,6 +709,12 @@ pub struct MetricsReport {
     pub transparent_sort_ceiling_reject_count: u64,
     pub transparent_sort_active_slot_age_frames: u64,
     pub transparent_water_distinct_tint_count: usize,
+    pub resident_model_ref_count: usize,
+    pub resident_model_draw_ref_count: usize,
+    pub resident_legacy_fixed_slot_quad_invocations_avoided: usize,
+    pub visible_model_ref_count: usize,
+    pub visible_model_draw_ref_count: usize,
+    pub visible_legacy_fixed_slot_quad_invocations_avoided: usize,
     pub assets: AssetMetrics,
 }
 
@@ -688,7 +744,8 @@ fn percentile(sorted: &[f64], percentile: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        AssetMetrics, ExactFullViewProof, MetricsCollector, MetricsReport, PipelineMetricsSnapshot,
+        AssetMetrics, ExactFullViewProof, MetricsCollector, MetricsReport,
+        ModelWorkloadCountSnapshot, ModelWorkloadMetricsSnapshot, PipelineMetricsSnapshot,
         TeleportProof, TransparentSortMetricsSnapshot, deterministic_manifest_hash, percentile,
     };
     use std::{fs, time::Duration};
@@ -756,6 +813,40 @@ mod tests {
     }
 
     #[test]
+    fn report_publishes_exact_resident_and_visible_model_workload() {
+        let mut metrics = MetricsCollector::new();
+        metrics.record_pipeline_snapshot(PipelineMetricsSnapshot {
+            model_workload: ModelWorkloadMetricsSnapshot {
+                resident: ModelWorkloadCountSnapshot {
+                    model_ref_count: 95,
+                    model_draw_ref_count: 1_407,
+                    legacy_fixed_slot_quad_invocations_avoided: 1_633,
+                },
+                visible: ModelWorkloadCountSnapshot {
+                    model_ref_count: 77,
+                    model_draw_ref_count: 1_123,
+                    legacy_fixed_slot_quad_invocations_avoided: 1_341,
+                },
+            },
+            ..Default::default()
+        });
+
+        let report = metrics.report();
+        assert_eq!(report.resident_model_ref_count, 95);
+        assert_eq!(report.resident_model_draw_ref_count, 1_407);
+        assert_eq!(
+            report.resident_legacy_fixed_slot_quad_invocations_avoided,
+            1_633
+        );
+        assert_eq!(report.visible_model_ref_count, 77);
+        assert_eq!(report.visible_model_draw_ref_count, 1_123);
+        assert_eq!(
+            report.visible_legacy_fixed_slot_quad_invocations_avoided,
+            1_341
+        );
+    }
+
+    #[test]
     fn report_uses_sorted_nearest_rank_metrics() {
         let mut metrics = MetricsCollector::new();
         for milliseconds in 1..=100 {
@@ -805,6 +896,7 @@ mod tests {
                 active_slot_age_frames: 7,
                 transparent_water_distinct_tint_count: 5,
             },
+            model_workload: ModelWorkloadMetricsSnapshot::default(),
         });
 
         let report = metrics.report();
@@ -1093,6 +1185,12 @@ mod tests {
             transparent_sort_ceiling_reject_count: 1,
             transparent_sort_active_slot_age_frames: 4,
             transparent_water_distinct_tint_count: 3,
+            resident_model_ref_count: 95,
+            resident_model_draw_ref_count: 1_407,
+            resident_legacy_fixed_slot_quad_invocations_avoided: 1_633,
+            visible_model_ref_count: 77,
+            visible_model_draw_ref_count: 1_123,
+            visible_legacy_fixed_slot_quad_invocations_avoided: 1_341,
             assets: AssetMetrics::default(),
         };
         let unique = std::time::SystemTime::now()
@@ -1161,6 +1259,12 @@ mod tests {
                 "  \"transparent_sort_ceiling_reject_count\": 1,\n",
                 "  \"transparent_sort_active_slot_age_frames\": 4,\n",
                 "  \"transparent_water_distinct_tint_count\": 3,\n",
+                "  \"resident_model_ref_count\": 95,\n",
+                "  \"resident_model_draw_ref_count\": 1407,\n",
+                "  \"resident_legacy_fixed_slot_quad_invocations_avoided\": 1633,\n",
+                "  \"visible_model_ref_count\": 77,\n",
+                "  \"visible_model_draw_ref_count\": 1123,\n",
+                "  \"visible_legacy_fixed_slot_quad_invocations_avoided\": 1341,\n",
                 "  \"assets\": {\n",
                 "    \"source_tag\": \"diagnostic\",\n",
                 "    \"source_sha256\": \"diagnostic\",\n",

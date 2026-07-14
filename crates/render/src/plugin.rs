@@ -308,6 +308,64 @@ impl TransparentSortMetrics {
     }
 }
 
+/// Exact model workload for one allocation cohort.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ModelWorkloadCount {
+    pub model_ref_count: usize,
+    pub model_draw_ref_count: usize,
+    /// Quad vertex-shader invocations avoided relative to the former fixed
+    /// 32-quad slot issued for every model ref.
+    pub legacy_fixed_slot_quad_invocations_avoided: usize,
+}
+
+/// Current resident and frustum-visible model workload published by the
+/// render world for acceptance telemetry.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ModelWorkloadMetricsSnapshot {
+    pub resident: ModelWorkloadCount,
+    pub visible: ModelWorkloadCount,
+}
+
+/// Cross-world bridge for exact model workload telemetry.
+#[derive(Resource, Debug, Clone, Default)]
+pub struct ModelWorkloadMetrics(Arc<Mutex<ModelWorkloadMetricsSnapshot>>);
+
+impl ModelWorkloadMetrics {
+    #[must_use]
+    pub fn snapshot(&self) -> ModelWorkloadMetricsSnapshot {
+        *self.0.lock().unwrap_or_else(|poison| poison.into_inner())
+    }
+
+    fn begin_frame(&self, resident: ModelWorkloadCount) {
+        *self.0.lock().unwrap_or_else(|poison| poison.into_inner()) =
+            ModelWorkloadMetricsSnapshot {
+                resident,
+                visible: ModelWorkloadCount::default(),
+            };
+    }
+
+    fn record_visible(&self, visible: ModelWorkloadCount) {
+        let mut snapshot = self.0.lock().unwrap_or_else(|poison| poison.into_inner());
+        snapshot.visible.model_ref_count = snapshot
+            .visible
+            .model_ref_count
+            .max(visible.model_ref_count);
+        snapshot.visible.model_draw_ref_count = snapshot
+            .visible
+            .model_draw_ref_count
+            .max(visible.model_draw_ref_count);
+        snapshot.visible.legacy_fixed_slot_quad_invocations_avoided = snapshot
+            .visible
+            .legacy_fixed_slot_quad_invocations_avoided
+            .max(visible.legacy_fixed_slot_quad_invocations_avoided);
+    }
+
+    #[doc(hidden)]
+    pub fn publish_for_test(&self, snapshot: ModelWorkloadMetricsSnapshot) {
+        *self.0.lock().unwrap_or_else(|poison| poison.into_inner()) = snapshot;
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransparentWitnessRequestError {
     InvalidRevision,
@@ -3859,6 +3917,7 @@ impl Plugin for DebugWorldPlugin {
             .init_resource::<ChunkAnimationClock>()
             .init_resource::<ChunkBiomeTints>()
             .init_resource::<TransparentSortMetrics>()
+            .init_resource::<ModelWorkloadMetrics>()
             .init_resource::<TransparentWitnessRequest>()
             .init_resource::<TransparentWitnessEvidence>()
             .init_resource::<ModelWitnessRequest>()
@@ -3892,6 +3951,7 @@ impl Plugin for DebugWorldPlugin {
             .clone();
         let presented_frame_gate = app.world().resource::<PresentedFrameGate>().clone();
         let transparent_sort_metrics = app.world().resource::<TransparentSortMetrics>().clone();
+        let model_workload_metrics = app.world().resource::<ModelWorkloadMetrics>().clone();
         let transparent_witness_evidence =
             app.world().resource::<TransparentWitnessEvidence>().clone();
 
@@ -3900,6 +3960,7 @@ impl Plugin for DebugWorldPlugin {
             .insert_resource(acknowledgements)
             .insert_resource(presented_frame_gate)
             .insert_resource(transparent_sort_metrics)
+            .insert_resource(model_workload_metrics)
             .insert_resource(transparent_witness_evidence)
             .init_resource::<ChunkPipeline>()
             .init_resource::<ChunkGpuUploadStats>()
@@ -4503,6 +4564,35 @@ fn model_ref_count_for_witness(allocation: &GpuChunkAllocation) -> usize {
         range.end.saturating_sub(range.start) as usize
             / (PACKED_MODEL_REF_BYTES / GEOMETRY_STREAM_WORD_BYTES) as usize
     })
+}
+
+const LEGACY_FIXED_MODEL_QUADS_PER_REF: usize = 32;
+
+fn summarize_model_workload<'a>(
+    allocations: impl IntoIterator<Item = &'a GpuChunkAllocation>,
+) -> ModelWorkloadCount {
+    allocations
+        .into_iter()
+        .filter(|allocation| model_direct_draw_command(allocation).is_some())
+        .fold(ModelWorkloadCount::default(), |mut total, allocation| {
+            let model_ref_count = model_ref_count_for_witness(allocation);
+            let model_draw_ref_count = allocation.model_draw_range.as_ref().map_or(0, |range| {
+                range.end.saturating_sub(range.start) as usize
+                    / (PACKED_MODEL_DRAW_REF_BYTES / GEOMETRY_STREAM_WORD_BYTES) as usize
+            });
+            total.model_ref_count = total.model_ref_count.saturating_add(model_ref_count);
+            total.model_draw_ref_count = total
+                .model_draw_ref_count
+                .saturating_add(model_draw_ref_count);
+            total.legacy_fixed_slot_quad_invocations_avoided = total
+                .legacy_fixed_slot_quad_invocations_avoided
+                .saturating_add(
+                    model_ref_count
+                        .saturating_mul(LEGACY_FIXED_MODEL_QUADS_PER_REF)
+                        .saturating_sub(model_draw_ref_count),
+                );
+            total
+        })
 }
 
 fn depth_liquid_draw_command(allocation: &GpuChunkAllocation) -> Option<DrawIndexedIndirectArgs> {
@@ -7669,7 +7759,11 @@ fn queue_chunks(
     allocations: Query<&GpuChunkAllocation>,
     arena: Res<ChunkGpuArena>,
     biome_tints: Res<ChunkBiomeTints>,
-    mut model_witness_resources: ParamSet<(Res<PresentedFrameGate>, Res<ModelWitnessRequest>)>,
+    mut model_witness_resources: ParamSet<(
+        Res<PresentedFrameGate>,
+        Res<ModelWitnessRequest>,
+        Res<ModelWorkloadMetrics>,
+    )>,
     frame_probe: Res<ActiveFrameProbe>,
     mut indirect_batch_sets: ParamSet<(
         ResMut<ChunkIndirectBatches>,
@@ -7679,6 +7773,9 @@ fn queue_chunks(
     mut next_tick: Local<Tick>,
     mut unsupported_reported: Local<bool>,
 ) {
+    model_witness_resources
+        .p2()
+        .begin_frame(summarize_model_workload(allocations.iter()));
     let draw_mode = select_chunk_draw_mode(
         render_adapter.get_downlevel_capabilities().flags,
         render_device.features(),
@@ -7763,6 +7860,24 @@ fn queue_chunks(
         ) else {
             continue;
         };
+
+        model_witness_resources
+            .p2()
+            .record_visible(summarize_model_workload(
+                visible_entities
+                    .get::<ChunkRenderInstance>()
+                    .iter()
+                    .filter_map(|(render_entity, _)| {
+                        let allocation = allocations.get(*render_entity).ok()?;
+                        drawable_allocation_identity(
+                            &frame_probe,
+                            *render_entity,
+                            allocation,
+                            biome_tints.table_identity(),
+                        )?;
+                        Some(allocation)
+                    }),
+            ));
 
         if draw_mode == ChunkDrawMode::MultiDrawIndirect {
             let visible = sorted_visible_entities(
@@ -9312,6 +9427,38 @@ mod tests {
         let witness = probe.complete().model_witness.unwrap();
         assert_eq!(witness.total_model_ref_count, 2);
         assert_eq!(witness.manifest[0].model_ref_count, 2);
+    }
+
+    #[test]
+    fn model_workload_counts_refs_exact_draws_and_avoided_fixed_slots() {
+        let mut first = retirement_test_allocation().gpu;
+        first.model_range = Some(0..8);
+        first.model_lighting_range = Some(8..20);
+        first.model_draw_range = Some(20..40);
+
+        let mut second = retirement_test_allocation().gpu;
+        second.model_range = Some(64..68);
+        second.model_lighting_range = Some(68..74);
+        second.model_draw_range = Some(74..82);
+
+        let snapshot = summarize_model_workload([&first, &second]);
+        assert_eq!(snapshot.model_ref_count, 3);
+        assert_eq!(snapshot.model_draw_ref_count, 14);
+        assert_eq!(snapshot.legacy_fixed_slot_quad_invocations_avoided, 82);
+    }
+
+    #[test]
+    fn model_workload_ignores_allocations_without_a_complete_model_stream() {
+        let mut missing_draws = retirement_test_allocation().gpu;
+        missing_draws.model_range = Some(0..4);
+        missing_draws.model_lighting_range = Some(4..10);
+        missing_draws.model_draw_range = None;
+
+        let empty = retirement_test_allocation().gpu;
+        assert_eq!(
+            summarize_model_workload([&missing_draws, &empty]),
+            ModelWorkloadCount::default()
+        );
     }
 
     #[test]
