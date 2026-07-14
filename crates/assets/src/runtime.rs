@@ -2,16 +2,18 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use sha2::{Digest, Sha256};
 
-use crate::model::{MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAGS_MASK};
+use crate::model::{MODEL_QUAD_FLAG_TWO_SIDED, model_template_flags_are_valid};
 use crate::{
     ANIMATION_FLAG_BLEND, Animation, AssetError, BLOB_MAGIC, BLOB_VERSION, BiomeRule, BlockFace,
     BlockFlags, BlockVisual, CompiledBiomeAssets, ContributorRole, DIAGNOSTIC_MATERIAL,
     MAX_ANIMATION_FRAMES, MAX_ANIMATIONS, MAX_BIOME_NAME_BYTES, MAX_BIOME_NAMES_BYTES,
     MAX_BIOME_RULES, MAX_MATERIALS, MAX_MODEL_QUADS, MAX_MODEL_TEMPLATES, MAX_TEXTURE_LAYERS,
-    MAX_TEXTURE_PAGES, MIP_COUNT, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_KELP,
-    MODEL_TEMPLATE_FLAG_STAIR, Material, ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE,
-    TILE_SIZE, TINT_MAP_BYTES, TINT_MAP_COUNT, TINT_MAP_SIZE, TextureArray, TextureMip,
-    TexturePage, TextureRef, TintSource, VisualKind,
+    MAX_TEXTURE_PAGES, MIP_COUNT, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
+    MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD,
+    MODEL_TEMPLATE_FLAG_GATE_AXIS_X, MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP,
+    MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR, Material, ModelQuad, ModelTemplate,
+    NO_ANIMATION, NO_MODEL_TEMPLATE, TILE_SIZE, TINT_MAP_BYTES, TINT_MAP_COUNT, TINT_MAP_SIZE,
+    TextureArray, TextureMip, TexturePage, TextureRef, TintSource, VisualKind,
     biome::{BIOME_RULE_FLAGS_MASK, validate_biome_assets},
     blob::{
         ANIMATION_BYTES, BIOME_RULE_BYTES, FRAME_BYTES, HASH_BYTES, HASH_ENTRY_BYTES, HEADER_BYTES,
@@ -465,6 +467,8 @@ fn validate_fixed(
     let compound_tails = runtime_compound_tails(sections[3])?;
     let stair_bases = runtime_stair_bases(sections[3])?;
     let mut referenced_stair_bases = vec![false; stair_bases.len()];
+    let connected_bases = runtime_connected_bases(sections[3])?;
+    let mut referenced_connected_bases = vec![false; connected_bases.len()];
     for (index, record) in sections[0].chunks_exact(VISUAL_BYTES).enumerate() {
         for face in 0..6 {
             if u32_at(record, face * 4) as usize >= header.counts[2] {
@@ -518,6 +522,31 @@ fn validate_fixed(
             }
             referenced_stair_bases[base_index] = true;
         }
+        if template != NO_MODEL_TEMPLATE {
+            let template_flags = u32_at(
+                &sections[3]
+                    [template as usize * TEMPLATE_BYTES..(template as usize + 1) * TEMPLATE_BYTES],
+                8,
+            );
+            let connected_flag = template_flags
+                & (MODEL_TEMPLATE_FLAG_PANE
+                    | MODEL_TEMPLATE_FLAG_FENCE_WOOD
+                    | MODEL_TEMPLATE_FLAG_FENCE_NETHER);
+            if connected_flag != 0 {
+                let Some(base_index) = connected_bases
+                    .iter()
+                    .position(|&(base, flag)| base == template as usize && flag == connected_flag)
+                else {
+                    return Err(invalid(
+                        "connected visual does not reference a topology-group base",
+                    ));
+                };
+                if kind != VisualKind::Model || u32_at(record, 36) != 0 {
+                    return Err(invalid("connected visual has invalid kind or transform"));
+                }
+                referenced_connected_bases[base_index] = true;
+            }
+        }
         if flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
             && !flags.contains(BlockFlags::CUBE_GEOMETRY)
             && (kind != VisualKind::Model
@@ -534,6 +563,12 @@ fn validate_fixed(
     }
     if referenced_stair_bases.iter().any(|referenced| !referenced) {
         return Err(invalid("stair template group is unreferenced"));
+    }
+    if referenced_connected_bases
+        .iter()
+        .any(|referenced| !referenced)
+    {
+        return Err(invalid("connected template group is unreferenced"));
     }
     let mut previous = None;
     for record in sections[1].chunks_exact(8) {
@@ -563,7 +598,7 @@ fn validate_fixed(
     for record in sections[3].chunks_exact(TEMPLATE_BYTES) {
         if u32_at(record, 0) as usize != quad
             || u32_at(record, 4) > 32
-            || u32_at(record, 8) & !MODEL_TEMPLATE_FLAGS_MASK != 0
+            || !model_template_flags_are_valid(u32_at(record, 8))
             || (u32_at(record, 8) & MODEL_TEMPLATE_FLAG_KELP != 0 && u32_at(record, 4) != 6)
         {
             return Err(invalid("template spans are noncanonical"));
@@ -648,7 +683,13 @@ fn runtime_compound_tails(bytes: &[u8]) -> Result<Vec<bool>, AssetError> {
         if flags & MODEL_TEMPLATE_FLAG_COMPOUND_NEXT == 0 {
             continue;
         }
-        if flags != MODEL_TEMPLATE_FLAG_COMPOUND_NEXT {
+        let gate_axis = flags & (MODEL_TEMPLATE_FLAG_GATE_AXIS_X | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z);
+        if flags != MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | gate_axis
+            || !matches!(
+                gate_axis,
+                0 | MODEL_TEMPLATE_FLAG_GATE_AXIS_X | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z
+            )
+        {
             return Err(invalid("compound template head has incompatible flags"));
         }
         if u32_at(record, 4) == 0 {
@@ -666,6 +707,49 @@ fn runtime_compound_tails(bytes: &[u8]) -> Result<Vec<bool>, AssetError> {
         tails[index + 1] = true;
     }
     Ok(tails)
+}
+
+fn runtime_connected_bases(bytes: &[u8]) -> Result<Vec<(usize, u32)>, AssetError> {
+    let records = bytes.chunks_exact(TEMPLATE_BYTES).collect::<Vec<_>>();
+    let mut bases = Vec::new();
+    let mut index = 0;
+    while index < records.len() {
+        let flag = u32_at(records[index], 8);
+        if flag == MODEL_TEMPLATE_FLAG_PANE {
+            let Some(group) = records.get(index..index + 16) else {
+                return Err(invalid("pane template group is truncated"));
+            };
+            if group.iter().enumerate().any(|(mask, record)| {
+                u32_at(record, 8) != flag || u32_at(record, 4) != 6 + (mask as u32).count_ones() * 4
+            }) {
+                return Err(invalid("pane template group is noncanonical"));
+            }
+            bases.push((index, flag));
+            index += 16;
+        } else if matches!(
+            flag,
+            MODEL_TEMPLATE_FLAG_FENCE_WOOD | MODEL_TEMPLATE_FLAG_FENCE_NETHER
+        ) {
+            let Some(group) = records.get(index..index + 17) else {
+                return Err(invalid("fence template group is truncated"));
+            };
+            if group.iter().enumerate().any(|(offset, record)| {
+                let expected = if offset == 0 {
+                    6
+                } else {
+                    ((offset - 1) as u32).count_ones() * 8
+                };
+                u32_at(record, 8) != flag || u32_at(record, 4) != expected
+            }) {
+                return Err(invalid("fence template group is noncanonical"));
+            }
+            bases.push((index, flag));
+            index += 17;
+        } else {
+            index += 1;
+        }
+    }
+    Ok(bases)
 }
 
 fn valid_ref(reference: TextureRef, pages: &[PageMeta]) -> Result<(), AssetError> {

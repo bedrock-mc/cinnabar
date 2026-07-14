@@ -2,8 +2,11 @@ use std::{cell::OnceCell, collections::VecDeque};
 
 use assets::{
     BlockFace, BlockFlags, ContributorRole, DIAGNOSTIC_MATERIAL, MODEL_QUAD_FLAG_CULL_FACE_MASK,
-    MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_STAIR,
-    NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, VisualKind,
+    MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_FENCE_NETHER,
+    MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
+    MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE,
+    MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_WALL, NO_MODEL_TEMPLATE, NetworkIdMode,
+    RuntimeAssets, VisualKind,
 };
 use world::{MeshNeighbourhood, PalettedStorage, SubChunk};
 
@@ -722,126 +725,139 @@ fn mesh_sub_chunk_core(
                 {
                     continue;
                 }
-                let selected_template = select_stair_template(
+                let (selected_templates, selected_template_count) = select_model_templates(
                     palette_context,
                     &facts,
                     &neighbour_facts,
                     [x, y, z],
                     entry,
                 );
-                let Some(selected) = visuals.model_templates().get(selected_template as usize)
-                else {
-                    continue;
-                };
-                let part_count = if selected.flags & MODEL_TEMPLATE_FLAG_COMPOUND_NEXT != 0 {
-                    2
-                } else {
-                    1
-                };
-                for part in 0..part_count {
-                    let part_template = selected_template + part;
-                    let Some(template) = visuals.model_templates().get(part_template as usize)
+                for &selected_template in
+                    &selected_templates[..usize::from(selected_template_count)]
+                {
+                    let Some(selected) = visuals.model_templates().get(selected_template as usize)
                     else {
                         continue;
                     };
-                    if template.quad_count == 0 {
-                        continue;
-                    }
-                    let quad_start = template.quad_start as usize;
-                    let Some(template_quads) = visuals
-                        .model_quads()
-                        .get(quad_start..quad_start.saturating_add(template.quad_count as usize))
-                    else {
-                        continue;
-                    };
-                    let mut visible_quad_mask = if template.flags & MODEL_TEMPLATE_FLAG_KELP != 0 {
-                        let above = if y + 1 < SIDE {
-                            Some(facts.at(x, y + 1, z))
-                        } else {
-                            neighbourhood.sub_chunk([0, 1, 0]).map(|sub_chunk| {
-                                neighbour_facts[Face::PositiveY.index()]
-                                    .get_or_init(|| {
-                                        PaletteFacts::new(
-                                            *classifier,
-                                            visuals,
-                                            network_id_mode,
-                                            sub_chunk,
-                                        )
-                                    })
-                                    .at(x, 0, z)
-                            })
-                        };
-                        if above.is_some_and(|entry| is_kelp_entry(visuals, entry)) {
-                            0b00_1111
-                        } else {
-                            0b11_0000
-                        }
+                    let part_count = if selected.flags & MODEL_TEMPLATE_FLAG_COMPOUND_NEXT != 0 {
+                        2
                     } else {
-                        match template.quad_count {
-                            0 => 0,
-                            32 => u32::MAX,
-                            count => (1_u32 << count) - 1,
-                        }
+                        1
                     };
-                    for (quad_index, quad) in template_quads.iter().enumerate() {
-                        let bit = 1_u32 << quad_index;
-                        if visible_quad_mask & bit == 0 {
-                            continue;
-                        }
-                        let Some(cull_face) = model_quad_cull_face(quad.flags, entry.variant & 3)
+                    for part in 0..part_count {
+                        let part_template = selected_template + part;
+                        let Some(template) = visuals.model_templates().get(part_template as usize)
                         else {
                             continue;
                         };
-                        let neighbour = adjacent_palette_entry(
-                            palette_context,
-                            &facts,
-                            &neighbour_facts,
-                            [x, y, z],
-                            cull_face,
-                        );
-                        if neighbour.flags.contains(BlockFlags::OCCLUDES_FULL_FACE) {
-                            visible_quad_mask &= !bit;
+                        if template.quad_count == 0 {
+                            continue;
                         }
-                    }
-                    if visible_quad_mask == 0 {
-                        continue;
-                    }
-                    let Ok(lighting_base_index) = u32::try_from(model_lighting.len()) else {
-                        continue;
-                    };
-                    let Some(lighting) = crate::lighting::bake_template_lighting(
-                        classifier,
-                        visuals,
-                        network_id_mode,
-                        neighbourhood,
-                        [x as i32, y as i32, z as i32],
-                        part_template,
-                        entry.variant & 3,
-                    ) else {
-                        continue;
-                    };
-                    let Ok(model_ref_index) = u32::try_from(model_refs.len()) else {
-                        continue;
-                    };
-                    model_refs.push(PackedModelRef::new(
-                        pack_model_transform(
-                            [x as u8, y as u8, z as u8],
-                            if entry.kind == VisualKind::Cross {
-                                0
+                        let quad_start = template.quad_start as usize;
+                        let Some(template_quads) = visuals.model_quads().get(
+                            quad_start..quad_start.saturating_add(template.quad_count as usize),
+                        ) else {
+                            continue;
+                        };
+                        let mut visible_quad_mask =
+                            if template.flags & MODEL_TEMPLATE_FLAG_KELP != 0 {
+                                let above = if y + 1 < SIDE {
+                                    Some(facts.at(x, y + 1, z))
+                                } else {
+                                    neighbourhood.sub_chunk([0, 1, 0]).map(|sub_chunk| {
+                                        neighbour_facts[Face::PositiveY.index()]
+                                            .get_or_init(|| {
+                                                PaletteFacts::new(
+                                                    *classifier,
+                                                    visuals,
+                                                    network_id_mode,
+                                                    sub_chunk,
+                                                )
+                                            })
+                                            .at(x, 0, z)
+                                    })
+                                };
+                                if above.is_some_and(|entry| is_kelp_entry(visuals, entry)) {
+                                    0b00_1111
+                                } else {
+                                    0b11_0000
+                                }
                             } else {
-                                entry.variant
-                            },
-                        ),
-                        part_template,
-                        lighting_base_index,
-                        visible_quad_mask,
-                    ));
-                    model_lighting.extend(lighting);
-                    let mut remaining = visible_quad_mask;
-                    while remaining != 0 {
-                        let quad_index = remaining.trailing_zeros();
-                        model_draw_refs.push(PackedModelDrawRef::new(model_ref_index, quad_index));
-                        remaining &= remaining - 1;
+                                match template.quad_count {
+                                    0 => 0,
+                                    32 => u32::MAX,
+                                    count => (1_u32 << count) - 1,
+                                }
+                            };
+                        for (quad_index, quad) in template_quads.iter().enumerate() {
+                            let bit = 1_u32 << quad_index;
+                            if visible_quad_mask & bit == 0 {
+                                continue;
+                            }
+                            let Some(cull_face) =
+                                model_quad_cull_face(quad.flags, entry.variant & 3)
+                            else {
+                                continue;
+                            };
+                            let neighbour = adjacent_palette_entry(
+                                palette_context,
+                                &facts,
+                                &neighbour_facts,
+                                [x, y, z],
+                                cull_face,
+                            );
+                            let equal_pane = template.flags & MODEL_TEMPLATE_FLAG_PANE != 0
+                                && model_template_flags(visuals, neighbour)
+                                    & MODEL_TEMPLATE_FLAG_PANE
+                                    != 0
+                                && neighbour.faces == entry.faces;
+                            if neighbour.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
+                                || equal_pane
+                            {
+                                visible_quad_mask &= !bit;
+                            }
+                        }
+                        if visible_quad_mask == 0 {
+                            continue;
+                        }
+                        let Ok(lighting_base_index) = u32::try_from(model_lighting.len()) else {
+                            continue;
+                        };
+                        let Some(lighting) = crate::lighting::bake_template_lighting(
+                            classifier,
+                            visuals,
+                            network_id_mode,
+                            neighbourhood,
+                            [x as i32, y as i32, z as i32],
+                            part_template,
+                            entry.variant & 3,
+                        ) else {
+                            continue;
+                        };
+                        let Ok(model_ref_index) = u32::try_from(model_refs.len()) else {
+                            continue;
+                        };
+                        model_refs.push(PackedModelRef::new(
+                            pack_model_transform(
+                                [x as u8, y as u8, z as u8],
+                                if entry.kind == VisualKind::Cross {
+                                    0
+                                } else {
+                                    entry.variant
+                                },
+                            ),
+                            part_template,
+                            lighting_base_index,
+                            visible_quad_mask,
+                        ));
+                        model_lighting.extend(lighting);
+                        let mut remaining = visible_quad_mask;
+                        while remaining != 0 {
+                            let quad_index = remaining.trailing_zeros();
+                            model_draw_refs
+                                .push(PackedModelDrawRef::new(model_ref_index, quad_index));
+                            remaining &= remaining - 1;
+                        }
                     }
                 }
             }
@@ -871,6 +887,87 @@ fn is_kelp_entry(visuals: &RuntimeAssets, entry: ResolvedPaletteEntry) -> bool {
             .model_templates()
             .get(entry.model_template as usize)
             .is_some_and(|template| template.flags & MODEL_TEMPLATE_FLAG_KELP != 0)
+}
+
+fn select_model_templates<'a>(
+    context: PaletteResolutionContext<'_, 'a>,
+    facts: &PaletteFacts<'a>,
+    neighbour_facts: &[OnceCell<PaletteFacts<'a>>; Face::ALL.len()],
+    coordinate: [usize; 3],
+    entry: ResolvedPaletteEntry,
+) -> ([u32; 2], u8) {
+    let flags = model_template_flags(context.visuals, entry);
+    if flags & MODEL_TEMPLATE_FLAG_PANE != 0 {
+        let mask = connected_model_mask(
+            context,
+            facts,
+            neighbour_facts,
+            coordinate,
+            MODEL_TEMPLATE_FLAG_PANE,
+        );
+        return ([entry.model_template + mask, NO_MODEL_TEMPLATE], 1);
+    }
+    let fence_flag = flags & (MODEL_TEMPLATE_FLAG_FENCE_WOOD | MODEL_TEMPLATE_FLAG_FENCE_NETHER);
+    if fence_flag != 0 {
+        let mask = connected_model_mask(context, facts, neighbour_facts, coordinate, fence_flag);
+        if mask != 0 {
+            return ([entry.model_template, entry.model_template + 1 + mask], 2);
+        }
+        return ([entry.model_template, NO_MODEL_TEMPLATE], 1);
+    }
+    (
+        [
+            select_stair_template(context, facts, neighbour_facts, coordinate, entry),
+            NO_MODEL_TEMPLATE,
+        ],
+        1,
+    )
+}
+
+fn connected_model_mask<'a>(
+    context: PaletteResolutionContext<'_, 'a>,
+    facts: &PaletteFacts<'a>,
+    neighbour_facts: &[OnceCell<PaletteFacts<'a>>; Face::ALL.len()],
+    coordinate: [usize; 3],
+    connection_flag: u32,
+) -> u32 {
+    [
+        (Face::NegativeZ, 1_u32),
+        (Face::PositiveX, 2),
+        (Face::PositiveZ, 4),
+        (Face::NegativeX, 8),
+    ]
+    .into_iter()
+    .filter_map(|(face, bit)| {
+        let neighbour = adjacent_palette_entry(context, facts, neighbour_facts, coordinate, face);
+        let neighbour_flags = model_template_flags(context.visuals, neighbour);
+        let connects = if connection_flag == MODEL_TEMPLATE_FLAG_PANE {
+            neighbour_flags & MODEL_TEMPLATE_FLAG_PANE != 0
+                || neighbour_flags & MODEL_TEMPLATE_FLAG_WALL != 0
+                || neighbour.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
+        } else {
+            neighbour_flags & connection_flag != 0
+                || match face {
+                    Face::NegativeZ | Face::PositiveZ => {
+                        neighbour_flags & MODEL_TEMPLATE_FLAG_GATE_AXIS_X != 0
+                    }
+                    Face::NegativeX | Face::PositiveX => {
+                        neighbour_flags & MODEL_TEMPLATE_FLAG_GATE_AXIS_Z != 0
+                    }
+                    Face::NegativeY | Face::PositiveY => false,
+                }
+                || neighbour.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
+        };
+        connects.then_some(bit)
+    })
+    .fold(0, |mask, bit| mask | bit)
+}
+
+fn model_template_flags(visuals: &RuntimeAssets, entry: ResolvedPaletteEntry) -> u32 {
+    (entry.kind == VisualKind::Model && entry.model_template != NO_MODEL_TEMPLATE)
+        .then(|| visuals.model_templates().get(entry.model_template as usize))
+        .flatten()
+        .map_or(0, |template| template.flags)
 }
 
 fn select_stair_template<'a>(
@@ -1353,7 +1450,7 @@ fn resolve_palette_entry(
     let mut flags = block.flags();
     flags.remove(BlockFlags::AIR);
     let faces = if flags.contains(BlockFlags::CUBE_GEOMETRY)
-        || matches!(block.kind(), VisualKind::Liquid)
+        || matches!(block.kind(), VisualKind::Liquid | VisualKind::Model)
     {
         Face::ALL.map(|face| block.face(block_face(face)).material_id())
     } else {

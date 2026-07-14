@@ -15,8 +15,31 @@ pub const MODEL_TEMPLATE_FLAG_STAIR: u32 = 1 << 1;
 /// Template is the first half of a bounded two-template compound model. The
 /// immediately following plain template is its sole continuation.
 pub const MODEL_TEMPLATE_FLAG_COMPOUND_NEXT: u32 = 1 << 2;
-pub(crate) const MODEL_TEMPLATE_FLAGS_MASK: u32 =
-    MODEL_TEMPLATE_FLAG_KELP | MODEL_TEMPLATE_FLAG_STAIR | MODEL_TEMPLATE_FLAG_COMPOUND_NEXT;
+/// Template belongs to a contiguous sixteen-mask thin-pane topology group.
+pub const MODEL_TEMPLATE_FLAG_PANE: u32 = 1 << 3;
+/// Template belongs to a wood-fence post plus sixteen-mask arm group.
+pub const MODEL_TEMPLATE_FLAG_FENCE_WOOD: u32 = 1 << 4;
+/// Template belongs to a nether-fence post plus sixteen-mask arm group.
+pub const MODEL_TEMPLATE_FLAG_FENCE_NETHER: u32 = 1 << 5;
+/// Template belongs to the connection-aware wall family.
+pub const MODEL_TEMPLATE_FLAG_WALL: u32 = 1 << 6;
+/// Compound fence gate whose facing direction lies on the X axis.
+pub const MODEL_TEMPLATE_FLAG_GATE_AXIS_X: u32 = 1 << 7;
+/// Compound fence gate whose facing direction lies on the Z axis.
+pub const MODEL_TEMPLATE_FLAG_GATE_AXIS_Z: u32 = 1 << 8;
+pub(crate) const fn model_template_flags_are_valid(flags: u32) -> bool {
+    matches!(
+        flags,
+        0 | MODEL_TEMPLATE_FLAG_KELP
+            | MODEL_TEMPLATE_FLAG_STAIR
+            | MODEL_TEMPLATE_FLAG_PANE
+            | MODEL_TEMPLATE_FLAG_FENCE_WOOD
+            | MODEL_TEMPLATE_FLAG_FENCE_NETHER
+            | MODEL_TEMPLATE_FLAG_WALL
+            | MODEL_TEMPLATE_FLAG_COMPOUND_NEXT
+    ) || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_X
+        || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z
+}
 
 const TEXTURE_PAGE_BIT: u32 = 1 << 31;
 const TEXTURE_LAYER_MASK: u32 = 0x7ff;

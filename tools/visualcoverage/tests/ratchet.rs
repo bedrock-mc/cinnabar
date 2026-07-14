@@ -1,10 +1,11 @@
 use assets::{
     ANIMATION_FLAG_BLEND, Animation, BiomeRule, BlockFlags, BlockVisual, CompiledAssets,
     CompiledBiomeAssets, ContributorRole, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND,
-    MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_WATER_TINT, MODEL_TEMPLATE_FLAG_STAIR,
-    Material, ModelFamily, ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE,
-    RegistryProvenance, RegistryRecord, RuntimeAssets, TINT_MAP_BYTES, TextureArray, TextureMip,
-    TexturePage, TextureRef, TintSource, VisualKind, encode_blob, read_registry,
+    MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_WATER_TINT, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
+    MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR, Material,
+    ModelFamily, ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, RegistryProvenance,
+    RegistryRecord, RuntimeAssets, TINT_MAP_BYTES, TextureArray, TextureMip, TexturePage,
+    TextureRef, TintSource, VisualKind, encode_blob, read_registry,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -1714,6 +1715,115 @@ fn strict_rejects_diagnostic_stair_topology_variants() {
         Err(CoverageError::DiagnosticAnimationFrameReference {
             state,
             animation_id: 0,
+        }) if state == snapshot.states[1]
+    ));
+}
+
+#[test]
+fn strict_traverses_every_connected_pane_and_fence_template_variant() {
+    for (family, flag, counts, diagnostic_offset) in [
+        (
+            ModelFamily::Pane,
+            MODEL_TEMPLATE_FLAG_PANE,
+            (0_u32..16)
+                .map(|mask| 6 + mask.count_ones() * 4)
+                .collect::<Vec<_>>(),
+            15_usize,
+        ),
+        (
+            ModelFamily::Fence,
+            MODEL_TEMPLATE_FLAG_FENCE_WOOD,
+            std::iter::once(6)
+                .chain((0_u32..16).map(|mask| mask.count_ones() * 8))
+                .collect::<Vec<_>>(),
+            16,
+        ),
+    ] {
+        let records = strict_fixture_records(&[ModelFamily::Air, family]);
+        let visuals = vec![
+            strict_no_draw(BlockFlags::AIR, ContributorRole::Air),
+            strict_model(VisualKind::Model, 0),
+        ];
+        let mut start = 0_u32;
+        let templates = counts
+            .iter()
+            .map(|&quad_count| {
+                let template = ModelTemplate {
+                    quad_start: start,
+                    quad_count,
+                    flags: flag,
+                };
+                start += quad_count;
+                template
+            })
+            .collect::<Vec<_>>();
+        let diagnostic_quad = templates[diagnostic_offset].quad_start as usize;
+        let mut quads = vec![strict_quad(1); start as usize];
+        quads[diagnostic_quad] = strict_quad(0);
+        let runtime = strict_runtime(
+            &records,
+            visuals,
+            strict_materials(),
+            templates,
+            quads,
+            strict_animations().0,
+            strict_animations().1,
+        );
+        let snapshot = strict_snapshot(&records, &runtime);
+        assert!(matches!(
+            strict_records(
+                &records,
+                &runtime,
+                snapshot.clone(),
+                &strict_baseline(&snapshot, &[]),
+                false,
+            ),
+            Err(CoverageError::DiagnosticMaterialReference {
+                state,
+                material_id: 0,
+            }) if state == snapshot.states[1]
+        ));
+    }
+}
+
+#[test]
+fn strict_traverses_compound_model_continuations() {
+    let records = strict_fixture_records(&[ModelFamily::Air, ModelFamily::Gate]);
+    let runtime = strict_runtime(
+        &records,
+        vec![
+            strict_no_draw(BlockFlags::AIR, ContributorRole::Air),
+            strict_model(VisualKind::Model, 0),
+        ],
+        strict_materials(),
+        vec![
+            ModelTemplate {
+                quad_start: 0,
+                quad_count: 1,
+                flags: MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
+            },
+            ModelTemplate {
+                quad_start: 1,
+                quad_count: 1,
+                flags: 0,
+            },
+        ],
+        vec![strict_quad(1), strict_quad(0)],
+        strict_animations().0,
+        strict_animations().1,
+    );
+    let snapshot = strict_snapshot(&records, &runtime);
+    assert!(matches!(
+        strict_records(
+            &records,
+            &runtime,
+            snapshot.clone(),
+            &strict_baseline(&snapshot, &[]),
+            false,
+        ),
+        Err(CoverageError::DiagnosticMaterialReference {
+            state,
+            material_id: 0,
         }) if state == snapshot.states[1]
     ));
 }

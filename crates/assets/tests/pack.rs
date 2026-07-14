@@ -661,6 +661,89 @@ fn explicit_legacy_block_aliases_preserve_face_keys_and_unknowns_stay_diagnostic
 }
 
 #[test]
+fn all_hard_glass_panes_alias_exact_normal_body_and_edge_keys() {
+    let directory = tempfile::tempdir().expect("create hard pane alias fixture");
+    let colours = [
+        "black",
+        "blue",
+        "brown",
+        "cyan",
+        "gray",
+        "green",
+        "light_blue",
+        "light_gray",
+        "lime",
+        "magenta",
+        "orange",
+        "pink",
+        "purple",
+        "red",
+        "white",
+        "yellow",
+    ];
+    let mut blocks = serde_json::Map::new();
+    let mut terrain = serde_json::Map::new();
+    blocks.insert(
+        "glass_pane".into(),
+        serde_json::json!({"textures":{"side":"glass","east":"glass_pane_top"}}),
+    );
+    for key in ["glass", "glass_pane_top"] {
+        terrain.insert(
+            key.into(),
+            serde_json::json!({"textures":format!("textures/blocks/{key}")}),
+        );
+    }
+    for colour in colours {
+        let body = format!("{colour}_stained_glass");
+        let edge = format!("{colour}_stained_glass_pane_top");
+        blocks.insert(
+            format!("{colour}_stained_glass_pane"),
+            serde_json::json!({"textures":{
+                "side":body,
+                "east":edge
+            }}),
+        );
+        for key in [body, edge] {
+            terrain.insert(
+                key.clone(),
+                serde_json::json!({"textures":format!("textures/blocks/{key}")}),
+            );
+        }
+    }
+    write_pack(
+        directory.path(),
+        &serde_json::Value::Object(blocks).to_string(),
+        &serde_json::json!({"texture_data":terrain}).to_string(),
+        EMPTY_FLIPBOOKS,
+    );
+    let pack = read_pack(directory.path()).expect("read hard pane alias fixture");
+    for (hard, body, edge) in std::iter::once((
+        "hard_glass_pane".to_owned(),
+        "glass".to_owned(),
+        "glass_pane_top".to_owned(),
+    ))
+    .chain(colours.into_iter().map(|colour| {
+        (
+            format!("hard_{colour}_stained_glass_pane"),
+            format!("{colour}_stained_glass"),
+            format!("{colour}_stained_glass_pane_top"),
+        )
+    })) {
+        let record = record(&format!("minecraft:{hard}"), "{}");
+        assert_key(
+            resolve_texture_key(&pack.blocks, &record, BlockFace::North),
+            &body,
+            false,
+        );
+        assert_key(
+            resolve_texture_key(&pack.blocks, &record, BlockFace::East),
+            &edge,
+            false,
+        );
+    }
+}
+
+#[test]
 fn pack_reader_rejects_an_explicit_empty_face_map() {
     let directory = minimal_pack();
     write_file(

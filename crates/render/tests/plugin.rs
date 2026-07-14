@@ -591,8 +591,15 @@ fn crossed_model_pipeline_is_two_sided_and_uses_shared_bounded_bindings() {
     assert!(shader.contains("sky_light"));
     assert!(!shader.contains("safe_quad_index"));
     let masked_guard = shader
-        .find("if (is_visible == 0u) {\n        return invisible_vertex();")
+        .find("if (is_visible == 0u)")
         .expect("masked/padded model quads must exit in the vertex stage");
+    assert!(
+        shader[masked_guard..]
+            .starts_with("if (is_visible == 0u) {\r\n        return invisible_vertex();")
+            || shader[masked_guard..]
+                .starts_with("if (is_visible == 0u) {\n        return invisible_vertex();"),
+        "masked/padded model guard must immediately return an invisible vertex"
+    );
     assert!(masked_guard < shader.find("var template_position").unwrap());
     assert!(masked_guard < shader.find("let light_word").unwrap());
     let zero_guard = shader

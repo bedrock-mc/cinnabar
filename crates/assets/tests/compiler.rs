@@ -14,9 +14,11 @@ use assets::{
     MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_OVERLAY_MASK, MATERIAL_FLAG_ROTATE_UV,
     MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_UV_MASK, MATERIAL_FLAG_WATER_TINT, MATERIAL_FLAGS_MASK,
     MAX_TEXTURE_LAYERS, MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_QUAD_FLAG_FACE_MASK,
-    MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_STAIR, Material,
+    MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD,
+    MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR, Material,
     ModelFamily, ModelQuad, ModelState, ModelStateField, NetworkIdMode, RegistryProvenance,
-    RegistryRecord, RuntimeAssets, VisualKind, compile_pack, encode_blob, read_registry,
+    RegistryRecord, RuntimeAssets, VisualKind, compile_pack, encode_blob, read_pack, read_registry,
+    resolve_texture_key,
 };
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 use sha2::{Digest, Sha256};
@@ -1422,6 +1424,250 @@ fn compiler_wall_connections_fail_closed_when_missing_or_out_of_range() {
     assert!(compiled.model_quads.is_empty());
 }
 
+fn write_connected_model_pack(root: &Path) {
+    write_pack(
+        root,
+        r#"{
+            "glass_pane":{"textures":{
+                "west":"pane_body","east":"pane_edge","down":"pane_edge",
+                "up":"pane_edge","north":"pane_body","south":"pane_body"
+            }},
+            "oak_fence":{"textures":"oak_fence"},
+            "nether_brick_fence":{"textures":"nether_fence"}
+        }"#,
+        r#"{"texture_data":{
+            "pane_body":{"textures":"textures/blocks/pane_body"},
+            "pane_edge":{"textures":"textures/blocks/pane_edge"},
+            "oak_fence":{"textures":"textures/blocks/oak_fence"},
+            "nether_fence":{"textures":"textures/blocks/nether_fence"}
+        }}"#,
+        "[]",
+    );
+    for (path, colour) in [
+        ("pane_body", [30, 60, 90, 0]),
+        ("pane_edge", [60, 90, 120, 255]),
+        ("oak_fence", [100, 70, 30, 255]),
+        ("nether_fence", [70, 10, 20, 255]),
+    ] {
+        write_png(
+            root,
+            &format!("textures/blocks/{path}"),
+            TILE_SIZE,
+            TILE_SIZE,
+            &solid(TILE_SIZE, TILE_SIZE, colour),
+        );
+    }
+}
+
+fn template_quads(compiled: &CompiledAssets, template: u32) -> &[ModelQuad] {
+    let template = compiled.model_templates[template as usize];
+    &compiled.model_quads
+        [template.quad_start as usize..(template.quad_start + template.quad_count) as usize]
+}
+
+#[test]
+fn compiler_emits_all_sixteen_exact_pane_connection_templates() {
+    let directory = tempfile::tempdir().expect("create pane fixture");
+    write_connected_model_pack(directory.path());
+    let record = model_record(0, 72_000, "minecraft:glass_pane", "{}", ModelFamily::Pane);
+    let compiled = compile_pack(directory.path(), &[record]).expect("compile pane");
+    let visual = compiled.visuals[0];
+    assert_eq!(visual.kind, VisualKind::Model);
+    assert!(!visual.flags.intersects(
+        BlockFlags::AIR
+            | BlockFlags::CUBE_GEOMETRY
+            | BlockFlags::OCCLUDES_FULL_FACE
+            | BlockFlags::LEAF_MODEL
+    ));
+    let base = visual.model_template;
+    assert_eq!(compiled.model_templates.len(), 16);
+    for mask in 0_u32..16 {
+        let template = compiled.model_templates[(base + mask) as usize];
+        assert_eq!(template.flags, MODEL_TEMPLATE_FLAG_PANE, "mask={mask:#06b}");
+        assert_eq!(
+            template.quad_count,
+            6 + mask.count_ones() * 4,
+            "post and arms omit both faces at every internal join, mask={mask:#06b}"
+        );
+        assert!(template.quad_count <= 26);
+        let quads = template_quads(&compiled, base + mask);
+        if mask == 0 {
+            assert_eq!(model_bounds(quads), ([112, 0, 112], [144, 256, 144]));
+        }
+        for (bit, axis, coordinate) in [(1, 2, 112), (2, 0, 144), (4, 2, 144), (8, 0, 112)] {
+            if mask & bit != 0 {
+                let span_axis = if axis == 0 { 2 } else { 0 };
+                assert!(
+                    quads.iter().all(|quad| {
+                        !quad.positions.iter().all(|position| {
+                            position[axis] == coordinate
+                                && (112..=144).contains(&position[span_axis])
+                        })
+                    }),
+                    "internal pane join remains for mask={mask:#06b} bit={bit:#06b}"
+                );
+            }
+        }
+        assert!(
+            quads
+                .iter()
+                .all(|quad| quad.uvs.iter().flatten().all(|uv| *uv <= 4096))
+        );
+    }
+    assert!(compiled.materials.iter().skip(1).all(|material| {
+        material.flags & MATERIAL_FLAG_ALPHA_CUTOUT != 0
+            && material.flags & MATERIAL_FLAG_ALPHA_BLEND == 0
+    }));
+}
+
+#[test]
+fn compiler_emits_bounded_seventeen_template_fence_groups_by_connection_class() {
+    let directory = tempfile::tempdir().expect("create fence fixture");
+    write_connected_model_pack(directory.path());
+    let records = [
+        model_record(0, 73_000, "minecraft:oak_fence", "{}", ModelFamily::Fence),
+        model_record(
+            1,
+            73_001,
+            "minecraft:nether_brick_fence",
+            "{}",
+            ModelFamily::Fence,
+        ),
+    ];
+    let compiled = compile_pack(directory.path(), &records).expect("compile fences");
+    assert_eq!(compiled.model_templates.len(), 34);
+    for (id, expected_flag) in [
+        (0, MODEL_TEMPLATE_FLAG_FENCE_WOOD),
+        (1, MODEL_TEMPLATE_FLAG_FENCE_NETHER),
+    ] {
+        let visual = compiled.visuals[id];
+        assert_eq!(visual.kind, VisualKind::Model);
+        let base = visual.model_template;
+        let post = compiled.model_templates[base as usize];
+        assert_eq!(post.flags, expected_flag);
+        assert_eq!(post.quad_count, 6);
+        assert_eq!(
+            model_bounds(template_quads(&compiled, base)),
+            ([96, 0, 96], [160, 256, 160])
+        );
+        for mask in 0_u32..16 {
+            let arms = compiled.model_templates[(base + 1 + mask) as usize];
+            assert_eq!(arms.flags, expected_flag, "id={id} mask={mask:#06b}");
+            assert_eq!(arms.quad_count, mask.count_ones() * 8);
+            assert!(arms.quad_count <= 32);
+            for rail in template_quads(&compiled, base + 1 + mask).chunks_exact(4) {
+                let (min, max) = model_bounds(rail);
+                assert!(matches!((min[1], max[1]), (96, 144) | (192, 240)));
+            }
+        }
+    }
+    assert!(compiled.materials.iter().all(|material| {
+        material.flags & (MATERIAL_FLAG_ALPHA_CUTOUT | MATERIAL_FLAG_ALPHA_BLEND) == 0
+    }));
+}
+
+#[test]
+fn compiler_real_pinned_pack_has_zero_diagnostic_pane_and_fence_states_when_requested() {
+    let Some(pack) = std::env::var_os("PINNED_VANILLA_PACK") else {
+        return;
+    };
+    let mut records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+        .expect("decode connected-family registry")
+        .into_iter()
+        .filter(|record| matches!(record.model_family, ModelFamily::Pane | ModelFamily::Fence))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        records
+            .iter()
+            .filter(|record| record.model_family == ModelFamily::Pane)
+            .count(),
+        43
+    );
+    assert_eq!(
+        records
+            .iter()
+            .filter(|record| record.model_family == ModelFamily::Fence)
+            .count(),
+        13
+    );
+    records.sort_unstable_by_key(|record| record.sequential_id);
+    for (id, record) in records.iter_mut().enumerate() {
+        record.sequential_id = id as u32;
+        record.network_hash = 74_000 + id as u32;
+    }
+    let sources = read_pack(Path::new(&pack)).expect("read pinned connected pack");
+    for record in records
+        .iter()
+        .filter(|record| record.model_family == ModelFamily::Pane)
+    {
+        for face in [BlockFace::North, BlockFace::East] {
+            let key = resolve_texture_key(&sources.blocks, record, face)
+                .key
+                .unwrap_or_else(|| panic!("{} missing {face:?} key", record.name));
+            assert!(
+                sources.terrain.get(&key).is_some(),
+                "{} {face:?} terrain key {key} is missing",
+                record.name
+            );
+        }
+    }
+    let compiled = compile_pack(Path::new(&pack), &records).expect("compile pinned panes/fences");
+    let diagnostics = records
+        .iter()
+        .enumerate()
+        .filter(|(id, _)| compiled.visuals[*id].kind == VisualKind::Diagnostic)
+        .map(|(_, record)| record.name.as_ref())
+        .collect::<Vec<_>>();
+    assert!(
+        diagnostics.is_empty(),
+        "diagnostic connected states: {diagnostics:?}"
+    );
+    for (id, record) in records.iter().enumerate() {
+        let visual = compiled.visuals[id];
+        assert_eq!(visual.kind, VisualKind::Model, "{}", record.name);
+        let template = compiled.model_templates[visual.model_template as usize];
+        match record.model_family {
+            ModelFamily::Pane => {
+                assert_eq!(template.flags, MODEL_TEMPLATE_FLAG_PANE, "{}", record.name);
+                let expected_alpha = if record.name.contains("stained_glass_pane") {
+                    MATERIAL_FLAG_ALPHA_BLEND
+                } else {
+                    MATERIAL_FLAG_ALPHA_CUTOUT
+                };
+                for template in &compiled.model_templates
+                    [visual.model_template as usize..visual.model_template as usize + 16]
+                {
+                    let quads = &compiled.model_quads[template.quad_start as usize
+                        ..(template.quad_start + template.quad_count) as usize];
+                    assert!(quads.iter().all(|quad| {
+                        compiled.materials[quad.material as usize].flags & expected_alpha != 0
+                    }));
+                }
+            }
+            ModelFamily::Fence => {
+                assert!(matches!(
+                    template.flags,
+                    MODEL_TEMPLATE_FLAG_FENCE_WOOD | MODEL_TEMPLATE_FLAG_FENCE_NETHER
+                ));
+                let expected_alpha =
+                    u32::from(record.name.contains("bamboo")) * MATERIAL_FLAG_ALPHA_CUTOUT;
+                for template in &compiled.model_templates
+                    [visual.model_template as usize..visual.model_template as usize + 17]
+                {
+                    let quads = &compiled.model_quads[template.quad_start as usize
+                        ..(template.quad_start + template.quad_count) as usize];
+                    assert!(quads.iter().all(|quad| {
+                        compiled.materials[quad.material as usize].flags
+                            & (MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_ALPHA_CUTOUT)
+                            == expected_alpha
+                    }));
+                }
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
 #[test]
 fn compiler_real_pinned_pack_has_zero_diagnostic_wall_states_when_requested() {
     let Some(pack) = std::env::var_os("PINNED_VANILLA_PACK") else {
@@ -2549,7 +2795,7 @@ fn compiler_bamboo_gate_uses_custom_missing_faces_and_reversed_rotated_uvs() {
     assert_eq!(compiled.model_templates[3].quad_count, 16);
     assert_eq!(
         compiled.model_templates[0].flags,
-        assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT
+        assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | assets::MODEL_TEMPLATE_FLAG_GATE_AXIS_Z
     );
     assert_eq!(compiled.model_templates[1].flags, 0);
 
@@ -5617,6 +5863,64 @@ fn compiler_supports_vanilla_glass_and_fails_closed_for_arbitrary_tinted_full_cu
 }
 
 #[test]
+fn alpha_support_is_scoped_to_each_descriptor_when_a_texture_path_is_shared() {
+    let directory = tempfile::tempdir().expect("create shared alpha fixture");
+    write_pack(
+        directory.path(),
+        r#"{
+            "red_stained_glass": {"textures": "shared_stained_glass"},
+            "red_stained_glass_pane": {"textures": "shared_stained_glass"}
+        }"#,
+        r#"{"texture_data": {
+            "shared_stained_glass": {"textures": "textures/blocks/shared_stained_glass"}
+        }}"#,
+        "[]",
+    );
+    let mut pixels = solid(TILE_SIZE, TILE_SIZE, [180, 20, 30, 96]);
+    pixels[0] = [180, 20, 30, 255];
+    write_png(
+        directory.path(),
+        "textures/blocks/shared_stained_glass",
+        TILE_SIZE,
+        TILE_SIZE,
+        &pixels,
+    );
+    let records = [
+        record(
+            0,
+            400,
+            "minecraft:red_stained_glass",
+            "{}",
+            BlockFlags::CUBE_GEOMETRY,
+        ),
+        model_record(
+            1,
+            401,
+            "minecraft:red_stained_glass_pane",
+            "{}",
+            ModelFamily::Pane,
+        ),
+    ];
+
+    let compiled = compile_pack(directory.path(), &records).expect("compile shared alpha pack");
+
+    assert_eq!(
+        compiled.visuals[0].faces, [DIAGNOSTIC_MATERIAL; 6],
+        "the pane's blend permission must not admit an opaque full-cube descriptor"
+    );
+    assert_eq!(compiled.visuals[1].kind, VisualKind::Model);
+    let pane = compiled.visuals[1];
+    assert!(
+        template_quads(&compiled, pane.model_template)
+            .iter()
+            .all(|quad| compiled.materials[quad.material as usize].flags
+                & MATERIAL_FLAG_ALPHA_BLEND
+                != 0),
+        "the stained pane must retain its per-descriptor blend material"
+    );
+}
+
+#[test]
 fn compiler_output_is_identical_across_shuffled_sources_and_records() {
     fn fixture(blocks: &str, terrain: &str) -> TempDir {
         let directory = tempfile::tempdir().expect("create fixture");
@@ -6196,7 +6500,11 @@ fn compiler_installs_recognized_flipbooks_after_loading_the_strip() {
         compiled.visuals[1].contributor_role,
         ContributorRole::LiquidAdditional
     );
-    assert_eq!(compiled.materials.len(), 7);
+    assert_eq!(
+        compiled.materials.len(),
+        5,
+        "unsupported liquid descriptors sharing alpha strips must not create materials"
+    );
     let water_material =
         compiled.materials[compiled.visuals[0].faces[BlockFace::Up as usize] as usize];
     let water_flow =

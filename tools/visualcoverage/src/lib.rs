@@ -8,9 +8,10 @@ use std::{
 
 use assets::{
     BlockFace, BlockFlags, ContributorRole, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND,
-    MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_WATER_TINT, MODEL_TEMPLATE_FLAG_STAIR,
-    ModelFamily, ModelStateField, NetworkIdMode, RegistryRecord, RuntimeAssets, TextureRef,
-    VisualKind, read_registry,
+    MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_WATER_TINT, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
+    MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_PANE,
+    MODEL_TEMPLATE_FLAG_STAIR, ModelFamily, ModelStateField, NetworkIdMode, RegistryRecord,
+    RuntimeAssets, TextureRef, VisualKind, read_registry,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -691,11 +692,21 @@ pub fn strict_records(
                 let Some(base_template) = runtime.model_templates().get(template_start) else {
                     return Err(CoverageError::EmptyVisibleRoute { state, kind });
                 };
-                let template_count = if base_template.flags & MODEL_TEMPLATE_FLAG_STAIR != 0 {
-                    5
-                } else {
-                    1
-                };
+                let (template_count, allowed_empty_offset) =
+                    if base_template.flags & MODEL_TEMPLATE_FLAG_STAIR != 0 {
+                        (5, None)
+                    } else if base_template.flags & MODEL_TEMPLATE_FLAG_COMPOUND_NEXT != 0 {
+                        (2, None)
+                    } else if base_template.flags & MODEL_TEMPLATE_FLAG_PANE != 0 {
+                        (16, None)
+                    } else if base_template.flags
+                        & (MODEL_TEMPLATE_FLAG_FENCE_WOOD | MODEL_TEMPLATE_FLAG_FENCE_NETHER)
+                        != 0
+                    {
+                        (17, Some(1))
+                    } else {
+                        (1, None)
+                    };
                 let Some(template_end) = template_start.checked_add(template_count) else {
                     return Err(CoverageError::EmptyVisibleRoute { state, kind });
                 };
@@ -703,8 +714,8 @@ pub fn strict_records(
                 else {
                     return Err(CoverageError::EmptyVisibleRoute { state, kind });
                 };
-                for template in templates {
-                    if template.quad_count == 0 {
+                for (offset, template) in templates.iter().enumerate() {
+                    if template.quad_count == 0 && allowed_empty_offset != Some(offset) {
                         return Err(CoverageError::EmptyVisibleRoute { state, kind });
                     }
                     let start = template.quad_start as usize;

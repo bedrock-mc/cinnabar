@@ -585,6 +585,30 @@ fn decode_rejects_malformed_compound_template_pairs_and_tail_references() {
     let templates = read_u64(&canonical, 120) as usize;
     let visuals = read_u64(&canonical, 96) as usize;
 
+    for axis in [
+        assets::MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
+        assets::MODEL_TEMPLATE_FLAG_GATE_AXIS_Z,
+    ] {
+        let mut gate = canonical.clone();
+        write_u32(
+            &mut gate,
+            templates + 8,
+            assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | axis,
+        );
+        reseal(&mut gate);
+        RuntimeAssets::decode(&gate).expect("decode compound gate axis metadata");
+    }
+    let mut ambiguous_gate = canonical.clone();
+    write_u32(
+        &mut ambiguous_gate,
+        templates + 8,
+        assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT
+            | assets::MODEL_TEMPLATE_FLAG_GATE_AXIS_X
+            | assets::MODEL_TEMPLATE_FLAG_GATE_AXIS_Z,
+    );
+    reseal(&mut ambiguous_gate);
+    assert_rejected(&ambiguous_gate, "compound gate with both axes");
+
     let mut combined_head = canonical.clone();
     write_u32(
         &mut combined_head,
@@ -632,6 +656,89 @@ fn decode_rejects_malformed_compound_template_pairs_and_tail_references() {
         panic!("zero-quad compound continuation must fail at runtime boundary");
     };
     assert_eq!(detail.as_ref(), "compound continuation has no quads");
+}
+
+#[test]
+fn decode_rejects_malformed_connected_template_groups() {
+    let mut unreferenced = compiled_assets();
+    unreferenced.model_templates = vec![ModelTemplate {
+        quad_start: 0,
+        quad_count: 1,
+        flags: 0,
+    }]
+    .into_boxed_slice();
+    unreferenced.model_quads = vec![ModelQuad {
+        positions: [[0, 0, 0], [16, 0, 0], [16, 16, 0], [0, 16, 0]],
+        uvs: [[0, 0], [256, 0], [256, 256], [0, 256]],
+        material: 1,
+        flags: 5,
+    }]
+    .into_boxed_slice();
+    let mut unreferenced_blob = encode_blob(&unreferenced)
+        .expect("encode unreferenced plain template")
+        .into_vec();
+    let unreferenced_templates = read_u64(&unreferenced_blob, 120) as usize;
+    write_u32(
+        &mut unreferenced_blob,
+        unreferenced_templates + 8,
+        assets::MODEL_TEMPLATE_FLAG_PANE | assets::MODEL_TEMPLATE_FLAG_WALL,
+    );
+    reseal(&mut unreferenced_blob);
+    assert_rejected(
+        &unreferenced_blob,
+        "unreferenced mixed connected flags at runtime boundary",
+    );
+
+    let mut compiled = compiled_assets();
+    compiled.visuals[1].flags = BlockFlags::empty();
+    compiled.visuals[1].kind = VisualKind::Model;
+    compiled.visuals[1].model_template = 0;
+    compiled.visuals[1].variant = 0;
+    let counts = (0_u32..16)
+        .map(|mask| 6 + mask.count_ones() * 4)
+        .collect::<Vec<_>>();
+    let mut start = 0;
+    compiled.model_templates = counts
+        .into_iter()
+        .map(|quad_count| {
+            let template = ModelTemplate {
+                quad_start: start,
+                quad_count,
+                flags: assets::MODEL_TEMPLATE_FLAG_PANE,
+            };
+            start += quad_count;
+            template
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+    compiled.model_quads = vec![
+        ModelQuad {
+            positions: [[0, 0, 0], [16, 0, 0], [16, 16, 0], [0, 16, 0]],
+            uvs: [[0, 0], [256, 0], [256, 256], [0, 256]],
+            material: 1,
+            flags: 5,
+        };
+        start as usize
+    ]
+    .into_boxed_slice();
+    let mut blob = encode_blob(&compiled)
+        .expect("encode canonical pane group")
+        .into_vec();
+    let templates = read_u64(&blob, 120) as usize;
+    let mut mixed = blob.clone();
+    for index in 0..16 {
+        write_u32(
+            &mut mixed,
+            templates + index * 12 + 8,
+            assets::MODEL_TEMPLATE_FLAG_PANE | assets::MODEL_TEMPLATE_FLAG_WALL,
+        );
+    }
+    reseal(&mut mixed);
+    assert_rejected(&mixed, "mixed connected flags at runtime boundary");
+
+    write_u32(&mut blob, templates + 15 * 12 + 8, 0);
+    reseal(&mut blob);
+    assert_rejected(&blob, "malformed pane group at runtime boundary");
 }
 
 #[test]

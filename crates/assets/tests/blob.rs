@@ -350,12 +350,103 @@ fn mcbeas04_accepts_only_canonical_two_template_compounds() {
         );
     }
 
+    for axis in [
+        assets::MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
+        assets::MODEL_TEMPLATE_FLAG_GATE_AXIS_Z,
+    ] {
+        let mut gate = compound.clone();
+        gate.model_templates[0].flags |= axis;
+        assert!(encode_blob(&gate).is_ok(), "gate axis is valid metadata");
+    }
+    let mut ambiguous_gate = compound.clone();
+    ambiguous_gate.model_templates[0].flags |=
+        assets::MODEL_TEMPLATE_FLAG_GATE_AXIS_X | assets::MODEL_TEMPLATE_FLAG_GATE_AXIS_Z;
+    assert!(
+        encode_blob(&ambiguous_gate).is_err(),
+        "compound gate cannot advertise both axes"
+    );
+
     let mut combined_head = compound;
     combined_head.model_templates[0].flags |= assets::MODEL_TEMPLATE_FLAG_KELP;
     assert!(
         encode_blob(&combined_head).is_err(),
         "compound head cannot also be kelp or stair"
     );
+}
+
+#[test]
+fn mcbeas04_accepts_only_canonical_referenced_connected_template_groups() {
+    let quad = assets::ModelQuad {
+        positions: [[0, 0, 0], [16, 0, 0], [16, 16, 0], [0, 16, 0]],
+        uvs: [[0, 0], [256, 0], [256, 256], [0, 256]],
+        material: 0,
+        flags: 5,
+    };
+    let make = |flag: u32, counts: Vec<u32>| {
+        let mut compiled = valid_assets();
+        compiled.visuals[0].flags = BlockFlags::empty();
+        compiled.visuals[0].kind = VisualKind::Model;
+        compiled.visuals[0].model_template = 0;
+        compiled.visuals[0].variant = 0;
+        let mut start = 0;
+        compiled.model_templates = counts
+            .into_iter()
+            .map(|quad_count| {
+                let template = assets::ModelTemplate {
+                    quad_start: start,
+                    quad_count,
+                    flags: flag,
+                };
+                start += quad_count;
+                template
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        compiled.model_quads = vec![quad; start as usize].into_boxed_slice();
+        compiled
+    };
+
+    let mut unreferenced_mixed = valid_assets();
+    unreferenced_mixed.model_templates = vec![assets::ModelTemplate {
+        quad_start: 0,
+        quad_count: 1,
+        flags: assets::MODEL_TEMPLATE_FLAG_PANE | assets::MODEL_TEMPLATE_FLAG_WALL,
+    }]
+    .into_boxed_slice();
+    unreferenced_mixed.model_quads = vec![quad].into_boxed_slice();
+    assert!(
+        encode_blob(&unreferenced_mixed).is_err(),
+        "unreferenced mixed connected-family flags are noncanonical"
+    );
+
+    let pane_counts = (0_u32..16)
+        .map(|mask| 6 + mask.count_ones() * 4)
+        .collect::<Vec<_>>();
+    let mut pane = make(assets::MODEL_TEMPLATE_FLAG_PANE, pane_counts);
+    assert!(encode_blob(&pane).is_ok(), "canonical pane group");
+    let mut mixed = pane.clone();
+    for template in &mut mixed.model_templates {
+        template.flags |= assets::MODEL_TEMPLATE_FLAG_WALL;
+    }
+    assert!(
+        encode_blob(&mixed).is_err(),
+        "mixed connected-family flags are noncanonical"
+    );
+    pane.model_templates[15].flags = 0;
+    assert!(encode_blob(&pane).is_err(), "truncated pane group");
+
+    let fence_counts = std::iter::once(6)
+        .chain((0_u32..16).map(|mask| mask.count_ones() * 8))
+        .collect::<Vec<_>>();
+    for flag in [
+        assets::MODEL_TEMPLATE_FLAG_FENCE_WOOD,
+        assets::MODEL_TEMPLATE_FLAG_FENCE_NETHER,
+    ] {
+        let mut fence = make(flag, fence_counts.clone());
+        assert!(encode_blob(&fence).is_ok(), "canonical fence group");
+        fence.model_templates[16].quad_count -= 1;
+        assert!(encode_blob(&fence).is_err(), "malformed fence group");
+    }
 }
 
 const HEADER_BYTES: usize = 200;

@@ -6,12 +6,15 @@ use std::{
 
 use sha2::{Digest, Sha256};
 
-use crate::model::{MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAGS_MASK};
+use crate::model::{MODEL_QUAD_FLAG_TWO_SIDED, model_template_flags_are_valid};
 use crate::{
     AssetError, BlockFlags, CompiledAssets, DIAGNOSTIC_MATERIAL, MAX_ANIMATION_FRAMES,
     MAX_ANIMATIONS, MAX_MATERIALS, MAX_MODEL_QUADS, MAX_MODEL_TEMPLATES, MAX_TEXTURE_LAYERS,
-    MAX_TEXTURE_PAGES, MIP_COUNT, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_KELP,
-    MODEL_TEMPLATE_FLAG_STAIR, NO_ANIMATION, NO_MODEL_TEMPLATE, TILE_SIZE, TextureRef, VisualKind,
+    MAX_TEXTURE_PAGES, MIP_COUNT, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
+    MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD,
+    MODEL_TEMPLATE_FLAG_GATE_AXIS_X, MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP,
+    MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR, NO_ANIMATION, NO_MODEL_TEMPLATE,
+    TILE_SIZE, TextureRef, VisualKind,
     biome::{TINT_MAP_BYTES, TINT_MAP_COUNT, TINT_MAP_SIZE, validate_biome_assets},
     compiler::{material_flags_are_valid, visual_semantics_are_valid},
     model::{ANIMATION_FLAGS_MASK, model_quad_flags_are_valid},
@@ -273,6 +276,8 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
     let compound_tails = compiled_compound_tails(&compiled.model_templates)?;
     let stair_bases = compiled_stair_bases(&compiled.model_templates)?;
     let mut referenced_stair_bases = vec![false; stair_bases.len()];
+    let connected_bases = compiled_connected_bases(&compiled.model_templates)?;
+    let mut referenced_connected_bases = vec![false; connected_bases.len()];
     for (index, visual) in compiled.visuals.iter().enumerate() {
         if BlockFlags::from_bits(visual.flags.bits())
             .is_none_or(|flags| !flags.has_valid_semantics())
@@ -342,6 +347,26 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
             }
             referenced_stair_bases[base_index] = true;
         }
+        if visual.model_template != NO_MODEL_TEMPLATE {
+            let template_flags = compiled.model_templates[visual.model_template as usize].flags;
+            let connected_flag = template_flags
+                & (MODEL_TEMPLATE_FLAG_PANE
+                    | MODEL_TEMPLATE_FLAG_FENCE_WOOD
+                    | MODEL_TEMPLATE_FLAG_FENCE_NETHER);
+            if connected_flag != 0 {
+                let Some(base_index) = connected_bases.iter().position(|&(base, flag)| {
+                    base == visual.model_template as usize && flag == connected_flag
+                }) else {
+                    return Err(invalid(
+                        "connected visual does not reference a topology-group base",
+                    ));
+                };
+                if visual.kind != VisualKind::Model || visual.variant != 0 {
+                    return Err(invalid("connected visual has invalid kind or transform"));
+                }
+                referenced_connected_bases[base_index] = true;
+            }
+        }
         if visual.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
             && !visual.flags.contains(BlockFlags::CUBE_GEOMETRY)
             && (visual.kind != VisualKind::Model
@@ -359,6 +384,12 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
     if referenced_stair_bases.iter().any(|referenced| !referenced) {
         return Err(invalid("stair template group is unreferenced"));
     }
+    if referenced_connected_bases
+        .iter()
+        .any(|referenced| !referenced)
+    {
+        return Err(invalid("connected template group is unreferenced"));
+    }
     let mut previous = None;
     for &(hash, visual) in &compiled.hashed {
         if previous.is_some_and(|value| value >= hash) || visual as usize >= compiled.visuals.len()
@@ -369,7 +400,7 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
     }
     let mut expected_quad = 0usize;
     for template in &compiled.model_templates {
-        if template.flags & !MODEL_TEMPLATE_FLAGS_MASK != 0
+        if !model_template_flags_are_valid(template.flags)
             || template.quad_start as usize != expected_quad
             || template.quad_count > 32
             || (template.flags & MODEL_TEMPLATE_FLAG_KELP != 0 && template.quad_count != 6)
@@ -439,7 +470,14 @@ fn compiled_compound_tails(templates: &[crate::ModelTemplate]) -> Result<Vec<boo
         if template.flags & MODEL_TEMPLATE_FLAG_COMPOUND_NEXT == 0 {
             continue;
         }
-        if template.flags != MODEL_TEMPLATE_FLAG_COMPOUND_NEXT {
+        let gate_axis =
+            template.flags & (MODEL_TEMPLATE_FLAG_GATE_AXIS_X | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z);
+        if template.flags != MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | gate_axis
+            || !matches!(
+                gate_axis,
+                0 | MODEL_TEMPLATE_FLAG_GATE_AXIS_X | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z
+            )
+        {
             return Err(invalid("compound template head has incompatible flags"));
         }
         if template.quad_count == 0 {
@@ -478,6 +516,50 @@ fn compiled_stair_bases(templates: &[crate::ModelTemplate]) -> Result<Vec<usize>
         }
         bases.push(index);
         index += 5;
+    }
+    Ok(bases)
+}
+
+fn compiled_connected_bases(
+    templates: &[crate::ModelTemplate],
+) -> Result<Vec<(usize, u32)>, AssetError> {
+    let mut bases = Vec::new();
+    let mut index = 0;
+    while index < templates.len() {
+        let flag = templates[index].flags;
+        if flag == MODEL_TEMPLATE_FLAG_PANE {
+            let Some(group) = templates.get(index..index + 16) else {
+                return Err(invalid("pane template group is truncated"));
+            };
+            if group.iter().enumerate().any(|(mask, template)| {
+                template.flags != flag || template.quad_count != 6 + (mask as u32).count_ones() * 4
+            }) {
+                return Err(invalid("pane template group is noncanonical"));
+            }
+            bases.push((index, flag));
+            index += 16;
+        } else if matches!(
+            flag,
+            MODEL_TEMPLATE_FLAG_FENCE_WOOD | MODEL_TEMPLATE_FLAG_FENCE_NETHER
+        ) {
+            let Some(group) = templates.get(index..index + 17) else {
+                return Err(invalid("fence template group is truncated"));
+            };
+            if group.iter().enumerate().any(|(offset, template)| {
+                let expected = if offset == 0 {
+                    6
+                } else {
+                    ((offset - 1) as u32).count_ones() * 8
+                };
+                template.flags != flag || template.quad_count != expected
+            }) {
+                return Err(invalid("fence template group is noncanonical"));
+            }
+            bases.push((index, flag));
+            index += 17;
+        } else {
+            index += 1;
+        }
     }
     Ok(bases)
 }

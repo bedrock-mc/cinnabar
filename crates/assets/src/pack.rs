@@ -501,6 +501,23 @@ fn legacy_resource_pack_block_alias(block_name: &str) -> Option<&'static str> {
         }
         "oak_sapling" | "spruce_sapling" | "birch_sapling" | "jungle_sapling"
         | "acacia_sapling" | "dark_oak_sapling" => Some("sapling"),
+        "hard_glass_pane" => Some("glass_pane"),
+        "hard_black_stained_glass_pane" => Some("black_stained_glass_pane"),
+        "hard_blue_stained_glass_pane" => Some("blue_stained_glass_pane"),
+        "hard_brown_stained_glass_pane" => Some("brown_stained_glass_pane"),
+        "hard_cyan_stained_glass_pane" => Some("cyan_stained_glass_pane"),
+        "hard_gray_stained_glass_pane" => Some("gray_stained_glass_pane"),
+        "hard_green_stained_glass_pane" => Some("green_stained_glass_pane"),
+        "hard_light_blue_stained_glass_pane" => Some("light_blue_stained_glass_pane"),
+        "hard_light_gray_stained_glass_pane" => Some("light_gray_stained_glass_pane"),
+        "hard_lime_stained_glass_pane" => Some("lime_stained_glass_pane"),
+        "hard_magenta_stained_glass_pane" => Some("magenta_stained_glass_pane"),
+        "hard_orange_stained_glass_pane" => Some("orange_stained_glass_pane"),
+        "hard_pink_stained_glass_pane" => Some("pink_stained_glass_pane"),
+        "hard_purple_stained_glass_pane" => Some("purple_stained_glass_pane"),
+        "hard_red_stained_glass_pane" => Some("red_stained_glass_pane"),
+        "hard_white_stained_glass_pane" => Some("white_stained_glass_pane"),
+        "hard_yellow_stained_glass_pane" => Some("yellow_stained_glass_pane"),
         _ => None,
     }
 }

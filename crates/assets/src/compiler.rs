@@ -6,9 +6,12 @@ use std::{
 use crate::{
     Animation, AnimationInventory, AssetError, BiomeRegistryRecord, BlockFace, BlockFlags,
     CompiledBiomeAssets, ContributorRole, MODEL_QUAD_FLAG_TWO_SIDED,
-    MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_STAIR,
-    ModelFamily, ModelQuad, ModelStateField, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE,
-    PackSources, RegistryRecord, TextureKey, TexturePage, TextureRef, VisualKind,
+    MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_FENCE_NETHER,
+    MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
+    MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE,
+    MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_WALL, ModelFamily, ModelQuad, ModelStateField,
+    ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, PackSources, RegistryRecord, TextureKey,
+    TexturePage, TextureRef, VisualKind,
     animation::{
         AnimationLimits, AnimationPlan, DecodedImage, compile_animation_plan,
         compile_animation_plan_selected,
@@ -291,10 +294,12 @@ fn compile_pack_inner(
         }
     }
 
-    let animation_plan = compile_runtime_animation_plan(root, &pack, &descriptor_keys)?;
+    let (animation_plan, alpha_paths) =
+        compile_runtime_animation_plan(root, &pack, &descriptor_keys)?;
     let texture_pages = animation_plan_pages(&animation_plan)?;
     let (animations, animation_frames) = runtime_animation_tables(&animation_plan)?;
-    let (materials, material_by_descriptor) = compile_materials(&descriptor_keys, &animation_plan)?;
+    let (materials, material_by_descriptor) =
+        compile_materials(&descriptor_keys, &animation_plan, &alpha_paths)?;
     let (visuals, hashed, model_templates, model_quads) =
         compile_visuals(records, &pack, &material_by_descriptor)?;
 
@@ -357,7 +362,7 @@ fn descriptor_for(
 ) -> Option<(Descriptor, Box<str>)> {
     let TextureKey { key, rotate_uv } = resolve_texture_key(&pack.blocks, record, face);
     let key = key?;
-    let path = if is_cutout_model_visual(record) {
+    let path = if is_model_visual(record) {
         pack.terrain.get_for_model_record(&key, record)?.0
     } else {
         pack.terrain.get_for_record(&key, record)?
@@ -373,7 +378,15 @@ fn descriptor_for(
     } else {
         0
     };
-    if is_cutout_model_visual(record) {
+    if is_pane(record) {
+        flags |= if record.name.contains("stained_glass_pane") {
+            MATERIAL_FLAG_ALPHA_BLEND
+        } else {
+            MATERIAL_FLAG_ALPHA_CUTOUT
+        };
+    } else if is_fence(record) && record.name.contains("bamboo") {
+        flags |= MATERIAL_FLAG_ALPHA_CUTOUT;
+    } else if is_cutout_model_visual(record) {
         flags |= MATERIAL_FLAG_ALPHA_CUTOUT | cutout_model_tint_flags(&record.name);
     } else if is_liquid(record) {
         flags |= liquid_material_flags(&record.name);
@@ -528,6 +541,16 @@ const fn is_gate(record: &RegistryRecord) -> bool {
         && matches!(record.contributor_role, ContributorRole::Primary)
 }
 
+const fn is_pane(record: &RegistryRecord) -> bool {
+    matches!(record.model_family, ModelFamily::Pane)
+        && matches!(record.contributor_role, ContributorRole::Primary)
+}
+
+const fn is_fence(record: &RegistryRecord) -> bool {
+    matches!(record.model_family, ModelFamily::Fence)
+        && matches!(record.contributor_role, ContributorRole::Primary)
+}
+
 const fn is_slab(record: &RegistryRecord) -> bool {
     matches!(record.model_family, ModelFamily::Slab)
         && matches!(record.contributor_role, ContributorRole::Primary)
@@ -555,6 +578,8 @@ fn is_model_visual(record: &RegistryRecord) -> bool {
         || is_pressure_plate(record)
         || is_gate(record)
         || is_carpet(record)
+        || is_pane(record)
+        || is_fence(record)
 }
 
 const fn is_liquid(record: &RegistryRecord) -> bool {
@@ -674,7 +699,7 @@ fn compile_runtime_animation_plan(
     root: &Path,
     pack: &PackSources,
     descriptor_keys: &BTreeMap<Descriptor, Box<str>>,
-) -> Result<AnimationPlan, AssetError> {
+) -> Result<(AnimationPlan, BTreeSet<Box<str>>), AssetError> {
     let referenced_paths = descriptor_keys
         .keys()
         .map(|descriptor| descriptor.path.clone())
@@ -698,6 +723,7 @@ fn compile_runtime_animation_plan(
         .collect::<BTreeSet<_>>();
     let mut decoded_images = Vec::new();
     let mut decoded_paths = BTreeSet::new();
+    let mut alpha_paths = BTreeSet::new();
     for descriptor in descriptor_keys
         .keys()
         .filter(|descriptor| !animation_paths.contains(&descriptor.path))
@@ -718,12 +744,12 @@ fn compile_runtime_animation_plan(
         let supports_alpha = descriptor_keys
             .keys()
             .filter(|candidate| candidate.path == source_path)
-            .any(|candidate| {
-                candidate.flags & (MATERIAL_FLAG_ALPHA_CUTOUT | MATERIAL_FLAG_OVERLAY_MASK) != 0
-                    || candidate.texture_key.as_ref() == "bamboo_fence_gate"
-            });
+            .any(descriptor_supports_alpha);
         if has_alpha && !supports_alpha {
             continue;
+        }
+        if has_alpha {
+            alpha_paths.insert(source_path.clone());
         }
         decoded_images.push(DecodedImage {
             source_path,
@@ -738,6 +764,13 @@ fn compile_runtime_animation_plan(
         }
         let path = static_texture_path(root, &source_path, &source_path)?;
         let decoded = decode_texture(&path, &source_path)?;
+        if decoded
+            .rgba8
+            .chunks_exact(4)
+            .any(|pixel| pixel[3] != u8::MAX)
+        {
+            alpha_paths.insert(source_path.clone());
+        }
         decoded_images.push(DecodedImage {
             source_path,
             width: decoded.width,
@@ -745,7 +778,7 @@ fn compile_runtime_animation_plan(
             rgba8: decoded.rgba8,
         });
     }
-    compile_animation_plan_selected(
+    let plan = compile_animation_plan_selected(
         pack,
         &decoded_images,
         AnimationLimits {
@@ -753,7 +786,23 @@ fn compile_runtime_animation_plan(
             max_pages: 2,
         },
         Some(&selected_atlas_tiles),
-    )
+    )?;
+    Ok((plan, alpha_paths))
+}
+
+fn descriptor_supports_alpha(descriptor: &Descriptor) -> bool {
+    // Bamboo gates and the beacon's shell/core are reviewed vanilla records
+    // whose source alpha is consumed by their existing generated routes.
+    descriptor.flags
+        & (MATERIAL_FLAG_ALPHA_BLEND
+            | MATERIAL_FLAG_ALPHA_CUTOUT
+            | MATERIAL_FLAG_OVERLAY_MASK
+            | MATERIAL_FLAG_LIQUID_DEPTH_WRITE)
+        != 0
+        || matches!(
+            descriptor.texture_key.as_ref(),
+            "bamboo_fence_gate" | "beacon_core" | "beacon_shell"
+        )
 }
 
 fn animation_plan_pages(plan: &AnimationPlan) -> Result<Box<[TexturePage]>, AssetError> {
@@ -839,6 +888,7 @@ fn static_texture_path(root: &Path, source: &str, key: &str) -> Result<PathBuf, 
 fn compile_materials(
     descriptor_keys: &BTreeMap<Descriptor, Box<str>>,
     plan: &AnimationPlan,
+    alpha_paths: &BTreeSet<Box<str>>,
 ) -> Result<CompiledMaterials, AssetError> {
     let mut materials = vec![Material {
         texture: TextureRef::DIAGNOSTIC,
@@ -853,6 +903,9 @@ fn compile_materials(
     let mut material_by_descriptor = BTreeMap::new();
 
     for descriptor in descriptor_keys.keys() {
+        if alpha_paths.contains(&descriptor.path) && !descriptor_supports_alpha(descriptor) {
+            continue;
+        }
         let key = &descriptor.texture_key;
         let candidates = plan
             .animations
@@ -969,6 +1022,33 @@ struct GateTemplateKey {
     bamboo: bool,
 }
 
+fn push_model_template(
+    quads: Vec<ModelQuad>,
+    flags: u32,
+    model_templates: &mut Vec<ModelTemplate>,
+    model_quads: &mut Vec<ModelQuad>,
+) -> Result<u32, AssetError> {
+    debug_assert!(quads.len() <= 32);
+    let template =
+        u32::try_from(model_templates.len()).map_err(|_| AssetError::BlobSizeOverflow {
+            section: "model template",
+        })?;
+    let quad_start =
+        u32::try_from(model_quads.len()).map_err(|_| AssetError::BlobSizeOverflow {
+            section: "model quad",
+        })?;
+    let quad_count = u32::try_from(quads.len()).map_err(|_| AssetError::BlobSizeOverflow {
+        section: "model quad count",
+    })?;
+    model_templates.push(ModelTemplate {
+        quad_start,
+        quad_count,
+        flags,
+    });
+    model_quads.extend(quads);
+    Ok(template)
+}
+
 fn intern_cuboid_template(
     materials: [u32; 6],
     min: [i16; 3],
@@ -1029,6 +1109,8 @@ fn compile_visuals(
     let mut pressure_plate_template_by_key = BTreeMap::<PressurePlateTemplateKey, u32>::new();
     let mut pale_moss_carpet_template_by_key = BTreeMap::<PaleMossCarpetTemplateKey, u32>::new();
     let mut gate_template_by_key = BTreeMap::<GateTemplateKey, u32>::new();
+    let mut pane_template_by_key = BTreeMap::<[u32; 2], u32>::new();
+    let mut fence_template_by_key = BTreeMap::<[u32; 2], u32>::new();
 
     let mut ordered_records = records.iter().collect::<Vec<_>>();
     ordered_records.sort_unstable_by_key(|record| record.sequential_id);
@@ -1226,6 +1308,88 @@ fn compile_visuals(
                 visual.kind = VisualKind::Model;
                 visual.model_template = template;
             }
+        } else if is_pane(record) {
+            let body = descriptor_for(pack, record, BlockFace::North)
+                .and_then(|(descriptor, _)| material_by_descriptor.get(&descriptor).copied());
+            let edge = descriptor_for(pack, record, BlockFace::East)
+                .and_then(|(descriptor, _)| material_by_descriptor.get(&descriptor).copied());
+            if let (Some(body), Some(edge)) = (body, edge) {
+                let key = [body, edge];
+                let base = if let Some(&base) = pane_template_by_key.get(&key) {
+                    base
+                } else {
+                    let base = u32::try_from(model_templates.len()).map_err(|_| {
+                        AssetError::BlobSizeOverflow {
+                            section: "model template",
+                        }
+                    })?;
+                    for mask in 0..16 {
+                        let quads = pane_quads(body, edge, mask);
+                        push_model_template(
+                            quads,
+                            MODEL_TEMPLATE_FLAG_PANE,
+                            &mut model_templates,
+                            &mut model_quads,
+                        )?;
+                    }
+                    pane_template_by_key.insert(key, base);
+                    base
+                };
+                visual.flags.remove(
+                    BlockFlags::AIR
+                        | BlockFlags::CUBE_GEOMETRY
+                        | BlockFlags::OCCLUDES_FULL_FACE
+                        | BlockFlags::LEAF_MODEL,
+                );
+                visual.faces = [body, body, edge, edge, body, body];
+                visual.kind = VisualKind::Model;
+                visual.model_template = base;
+            }
+        } else if is_fence(record) {
+            let material = descriptor_for(pack, record, BlockFace::South)
+                .and_then(|(descriptor, _)| material_by_descriptor.get(&descriptor).copied());
+            if let Some(material) = material {
+                let flag = if record.name.as_ref() == "minecraft:nether_brick_fence" {
+                    MODEL_TEMPLATE_FLAG_FENCE_NETHER
+                } else {
+                    MODEL_TEMPLATE_FLAG_FENCE_WOOD
+                };
+                let key = [material, flag];
+                let base = if let Some(&base) = fence_template_by_key.get(&key) {
+                    base
+                } else {
+                    let base = u32::try_from(model_templates.len()).map_err(|_| {
+                        AssetError::BlobSizeOverflow {
+                            section: "model template",
+                        }
+                    })?;
+                    push_model_template(
+                        cuboid_quads([material; 6], [96, 0, 96], [160, 256, 160]).to_vec(),
+                        flag,
+                        &mut model_templates,
+                        &mut model_quads,
+                    )?;
+                    for mask in 0..16 {
+                        push_model_template(
+                            fence_arm_quads(material, mask),
+                            flag,
+                            &mut model_templates,
+                            &mut model_quads,
+                        )?;
+                    }
+                    fence_template_by_key.insert(key, base);
+                    base
+                };
+                visual.flags.remove(
+                    BlockFlags::AIR
+                        | BlockFlags::CUBE_GEOMETRY
+                        | BlockFlags::OCCLUDES_FULL_FACE
+                        | BlockFlags::LEAF_MODEL,
+                );
+                visual.faces = [material; 6];
+                visual.kind = VisualKind::Model;
+                visual.model_template = base;
+            }
         } else if is_wall(record) {
             let materials = BlockFace::ALL.map(|face| {
                 descriptor_for(pack, record, face)
@@ -1266,7 +1430,7 @@ fn compile_visuals(
                     model_templates.push(ModelTemplate {
                         quad_start,
                         quad_count,
-                        flags: 0,
+                        flags: MODEL_TEMPLATE_FLAG_WALL,
                     });
                     model_quads.extend(quads);
                     wall_template_by_key.insert(key, template);
@@ -1458,9 +1622,15 @@ fn compile_visuals(
                             section: "model template",
                         }
                     })?;
-                    for (part, template_flags) in
-                        [(head, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT), (tail, 0)]
-                    {
+                    let gate_axis = if orientation & 1 == 0 {
+                        MODEL_TEMPLATE_FLAG_GATE_AXIS_Z
+                    } else {
+                        MODEL_TEMPLATE_FLAG_GATE_AXIS_X
+                    };
+                    for (part, template_flags) in [
+                        (head, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | gate_axis),
+                        (tail, 0),
+                    ] {
                         let quad_start = u32::try_from(model_quads.len()).map_err(|_| {
                             AssetError::BlobSizeOverflow {
                                 section: "model quad",
@@ -2068,6 +2238,112 @@ fn pressure_plate_quads(materials: [u32; 6], pressed: bool) -> [ModelQuad; 6] {
         ] {
             for uv in &mut quads[face as usize].uvs {
                 uv[1] -= 128;
+            }
+        }
+    }
+    quads
+}
+
+fn pane_quads(body: u32, edge: u32, mask: u32) -> Vec<ModelQuad> {
+    debug_assert!(mask <= 15);
+    let mut quads = cuboid_quads(
+        [body, body, edge, edge, body, body],
+        [112, 0, 112],
+        [144, 256, 144],
+    )
+    .into_iter()
+    .enumerate()
+    .filter_map(|(face, quad)| {
+        let touching_arm = match face {
+            face if face == BlockFace::West as usize => 8,
+            face if face == BlockFace::East as usize => 2,
+            face if face == BlockFace::North as usize => 1,
+            face if face == BlockFace::South as usize => 4,
+            _ => 0,
+        };
+        (mask & touching_arm == 0).then_some(quad)
+    })
+    .collect::<Vec<_>>();
+    let arms = [
+        (
+            1,
+            [112, 0, 0],
+            [144, 256, 112],
+            [body, body, edge, edge, edge, edge],
+            BlockFace::South as usize,
+            BlockFace::North as usize,
+        ),
+        (
+            2,
+            [144, 0, 112],
+            [256, 256, 144],
+            [edge, edge, edge, edge, body, body],
+            BlockFace::West as usize,
+            BlockFace::East as usize,
+        ),
+        (
+            4,
+            [112, 0, 144],
+            [144, 256, 256],
+            [body, body, edge, edge, edge, edge],
+            BlockFace::North as usize,
+            BlockFace::South as usize,
+        ),
+        (
+            8,
+            [0, 0, 112],
+            [112, 256, 144],
+            [edge, edge, edge, edge, body, body],
+            BlockFace::East as usize,
+            BlockFace::West as usize,
+        ),
+    ];
+    for (bit, min, max, materials, hidden_face, outward_face) in arms {
+        if mask & bit == 0 {
+            continue;
+        }
+        for (face, mut quad) in cuboid_quads(materials, min, max).into_iter().enumerate() {
+            if face == hidden_face {
+                continue;
+            }
+            if face == outward_face {
+                let face_id = quad.flags & 7;
+                quad.flags |= face_id << 4;
+            }
+            quads.push(quad);
+        }
+    }
+    quads
+}
+
+fn fence_arm_quads(material: u32, mask: u32) -> Vec<ModelQuad> {
+    debug_assert!(mask <= 15);
+    let mut quads = Vec::with_capacity(mask.count_ones() as usize * 8);
+    let directions = [
+        (1, [112, 0, 0], [144, 0, 128]),
+        (2, [128, 0, 112], [256, 0, 144]),
+        (4, [112, 0, 128], [144, 0, 256]),
+        (8, [0, 0, 112], [128, 0, 144]),
+    ];
+    for (bit, mut min, mut max) in directions {
+        if mask & bit == 0 {
+            continue;
+        }
+        let extension_axis = if bit == 1 || bit == 4 { 2 } else { 0 };
+        for (min_y, max_y) in [(96, 144), (192, 240)] {
+            min[1] = min_y;
+            max[1] = max_y;
+            for (face, quad) in cuboid_quads([material; 6], min, max)
+                .into_iter()
+                .enumerate()
+            {
+                let is_extension_cap = match extension_axis {
+                    0 => matches!(face, 0 | 1),
+                    _ => matches!(face, 4 | 5),
+                };
+                if !is_extension_cap {
+                    quads.push(quad);
+                }
             }
         }
     }
