@@ -18,6 +18,14 @@
 - Do not modify assets or bee/block-family work.
 - Keep live full-view remesh and GPU/shader Phase 2.7 acceptance open.
 
+## Execution Scope Amendment
+
+After this plan was committed, the render sampler and CPU sidecars were assigned
+to a separate branch. Task 1 is intentionally not implemented here. This branch
+implements Tasks 2-4 and the app/world/release portions of Task 5. Adapting the
+internal `MeshLightHalo::sample_channels` seam to the separately owned render
+sampler and CPU mesh-bake entry point remains open for branch integration.
+
 ---
 
 ### Task 1: Allocation-free render light sampler

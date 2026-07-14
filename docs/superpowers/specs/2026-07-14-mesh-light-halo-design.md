@@ -12,7 +12,7 @@ rendering.
 
 ## Selected architecture
 
-The render crate owns a small read-only sampler contract. A light sample
+The render crate will own a small read-only sampler contract. A light sample
 contains only the block and sky nibbles consumed by `PackedQuadLighting`.
 Direct-sky provenance is not a render channel and never enters packed geometry.
 
@@ -32,6 +32,12 @@ array or map. Coordinates outside the 27-slot cube, absent slots, and unknown
 boundaries return block zero and sky zero.
 
 ## Render interface
+
+After this design was approved, the app scheduler and render sampler work were
+split across branches. This slice implements the fixed halo and an internal
+allocation-free `MeshLightHalo::sample_channels` seam. The public render trait,
+CPU mesh-bake adapter, and worker call-site hookup remain pending integration
+from the separately owned render branch.
 
 `render::LightSampler` exposes one allocation-free method:
 
