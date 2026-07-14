@@ -58,7 +58,7 @@ chunk meshing, Bevy/wgpu transparent model phase, visualcoverage.
 - Preserves zero `AIR | CUBE_GEOMETRY | OCCLUDES_FULL_FACE | LEAF_MODEL`
   flags on the compiled visual.
 
-- [ ] **Step 1: Write the failing exact compiler tests**
+- [x] **Step 1: Write the failing exact compiler tests**
 
 Add a literal 16-name allowlist and assert:
 
@@ -77,7 +77,7 @@ cleared occlusion/cube flags, byte-identical reversed-record output, and
 diagnostic output for extra state, wrong family/role, hard glass, copper grate,
 slime, and invisible bedrock.
 
-- [ ] **Step 2: Run the focused compiler tests and observe RED**
+- [x] **Step 2: Run the focused compiler tests and observe RED**
 
 Run:
 
@@ -88,7 +88,7 @@ cargo test -p assets --test compiler stained_glass_cube --locked -- --nocapture
 
 Expected: the exact ordinary states remain `VisualKind::Diagnostic`.
 
-- [ ] **Step 3: Write malformed template-flag tests and observe RED**
+- [x] **Step 3: Write malformed template-flag tests and observe RED**
 
 Create otherwise valid MCBEAS04 fixtures and reject:
 
@@ -102,7 +102,7 @@ template.flags |= MODEL_TEMPLATE_FLAG_PANE; // reject incompatible semantics
 Also require one isolated six-quad, alpha-blended transparent-cube template to
 round-trip through both checked blob and runtime decoders.
 
-- [ ] **Step 4: Implement the minimal checked asset route**
+- [x] **Step 4: Implement the minimal checked asset route**
 
 Add the isolated flag to the public model flag mask and validate it as a
 standalone semantic. In compiler code, use an exact helper:
@@ -141,7 +141,7 @@ visual.model_template = template;
 Blob/runtime validation must require exactly six quads and alpha-blended,
 non-diagnostic materials and reject every combined semantic flag.
 
-- [ ] **Step 5: Run Task 1 tests and commit**
+- [x] **Step 5: Run Task 1 tests and commit**
 
 Run:
 
