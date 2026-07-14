@@ -2054,45 +2054,75 @@ fn compiler_pale_moss_side_planes_preserve_both_java_face_uv_orders() {
     }
     let compiled = compile_pack(directory.path(), &records).expect("compile pale moss UV fixture");
 
-    const OUTWARD_UVS: [[u16; 2]; 4] = [[4096, 4096], [4096, 0], [0, 0], [0, 4096]];
-    const INWARD_UVS: [[u16; 2]; 4] = [[0, 4096], [4096, 4096], [4096, 0], [0, 0]];
     let expected = [
         (
+            "east",
             4,
             3,
             [[254, 0, 0], [254, 256, 0], [254, 256, 256], [254, 0, 256]],
+            [[4096, 4096], [4096, 0], [0, 0], [0, 4096]],
             [[254, 0, 0], [254, 0, 256], [254, 256, 256], [254, 256, 0]],
+            [[0, 4096], [4096, 4096], [4096, 0], [0, 0]],
         ),
         (
+            "north",
             5,
             6,
             [[0, 0, 2], [0, 256, 2], [256, 256, 2], [256, 0, 2]],
+            [[4096, 4096], [4096, 0], [0, 0], [0, 4096]],
             [[0, 0, 2], [256, 0, 2], [256, 256, 2], [0, 256, 2]],
+            [[0, 4096], [4096, 4096], [4096, 0], [0, 0]],
         ),
         (
+            "south",
             6,
             5,
             [[0, 0, 254], [256, 0, 254], [256, 256, 254], [0, 256, 254]],
+            [[4096, 4096], [0, 4096], [0, 0], [4096, 0]],
             [[0, 0, 254], [0, 256, 254], [256, 256, 254], [256, 0, 254]],
+            [[0, 4096], [0, 0], [4096, 0], [4096, 4096]],
         ),
         (
+            "west",
             3,
             4,
             [[2, 0, 0], [2, 0, 256], [2, 256, 256], [2, 256, 0]],
+            [[4096, 4096], [0, 4096], [0, 0], [4096, 0]],
             [[2, 0, 0], [2, 256, 0], [2, 256, 256], [2, 0, 256]],
+            [[0, 4096], [0, 0], [4096, 0], [4096, 4096]],
         ),
     ];
-    for (id, (outward_face, inward_face, outward_positions, inward_positions)) in
-        expected.into_iter().enumerate()
+    for (
+        id,
+        (
+            direction,
+            outward_face,
+            inward_face,
+            outward_positions,
+            outward_uvs,
+            inward_positions,
+            inward_uvs,
+        ),
+    ) in expected.into_iter().enumerate()
     {
         let quads = compiled_model_quads(&compiled, id);
-        assert_eq!(quads.len(), 2, "one explicit quad per Java face");
-        assert_eq!(quads[0].positions, outward_positions);
-        assert_eq!(quads[0].uvs, OUTWARD_UVS);
-        assert_eq!(quads[0].flags, outward_face);
-        assert_eq!(quads[1].positions, inward_positions);
-        assert_eq!(quads[1].uvs, INWARD_UVS);
-        assert_eq!(quads[1].flags, inward_face);
+        assert_eq!(
+            quads.len(),
+            2,
+            "one explicit quad per Java {direction} face"
+        );
+        assert_eq!(
+            quads[0].positions, outward_positions,
+            "{direction} outward positions"
+        );
+        assert_eq!(quads[0].uvs, outward_uvs, "{direction} outward UVs");
+        assert_eq!(quads[0].flags, outward_face, "{direction} outward face");
+        assert_eq!(
+            quads[1].positions, inward_positions,
+            "{direction} inward positions"
+        );
+        assert_eq!(quads[1].uvs, inward_uvs, "{direction} inward UVs");
+        assert_eq!(quads[1].flags, inward_face, "{direction} inward face");
         assert_eq!(quads[0].material, quads[1].material);
         assert_eq!(
             compiled.materials[quads[0].material as usize].flags,

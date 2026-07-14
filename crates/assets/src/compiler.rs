@@ -1805,23 +1805,40 @@ fn pale_moss_carpet_quads(
     // The vanilla Java plane is inset by 0.1 model pixels, or 1.6 of our
     // 1/256-block units. Two units is the nearest representable symmetric
     // position, paired with 254 on the opposite face.
-    const OUTWARD_UVS: [[u16; 2]; 4] = [[4096, 4096], [4096, 0], [0, 0], [0, 4096]];
-    const INWARD_UVS: [[u16; 2]; 4] = [[0, 4096], [4096, 4096], [4096, 0], [0, 0]];
-    const PLANES: [(u32, u32, [[i16; 3]; 4]); 4] = [
+    type PaleMossPlane = (u32, u32, [[i16; 3]; 4], [[u16; 2]; 4], [[u16; 2]; 4]);
+    const PLANES: [PaleMossPlane; 4] = [
         (
             4,
             3,
             [[254, 0, 0], [254, 256, 0], [254, 256, 256], [254, 0, 256]],
+            [[4096, 4096], [4096, 0], [0, 0], [0, 4096]],
+            [[0, 4096], [4096, 4096], [4096, 0], [0, 0]],
         ),
-        (5, 6, [[0, 0, 2], [0, 256, 2], [256, 256, 2], [256, 0, 2]]),
+        (
+            5,
+            6,
+            [[0, 0, 2], [0, 256, 2], [256, 256, 2], [256, 0, 2]],
+            [[4096, 4096], [4096, 0], [0, 0], [0, 4096]],
+            [[0, 4096], [4096, 4096], [4096, 0], [0, 0]],
+        ),
         (
             6,
             5,
             [[0, 0, 254], [256, 0, 254], [256, 256, 254], [0, 256, 254]],
+            [[4096, 4096], [0, 4096], [0, 0], [4096, 0]],
+            [[0, 4096], [0, 0], [4096, 0], [4096, 4096]],
         ),
-        (3, 4, [[2, 0, 0], [2, 0, 256], [2, 256, 256], [2, 256, 0]]),
+        (
+            3,
+            4,
+            [[2, 0, 0], [2, 0, 256], [2, 256, 256], [2, 256, 0]],
+            [[4096, 4096], [0, 4096], [0, 0], [4096, 0]],
+            [[0, 4096], [0, 0], [4096, 0], [4096, 4096]],
+        ),
     ];
-    for ((outward_face, inward_face, positions), side) in PLANES.into_iter().zip(state.sides) {
+    for ((outward_face, inward_face, positions, outward_uvs, inward_uvs), side) in
+        PLANES.into_iter().zip(state.sides)
+    {
         let side = if isolated_upper {
             PaleMossCarpetSide::Tall
         } else {
@@ -1836,7 +1853,7 @@ fn pale_moss_carpet_quads(
         };
         quads.push(ModelQuad {
             positions,
-            uvs: OUTWARD_UVS,
+            uvs: outward_uvs,
             material,
             // Neither face advertises a boundary cull direction: support
             // connectivity must not remove it before alpha testing.
@@ -1844,7 +1861,7 @@ fn pale_moss_carpet_quads(
         });
         quads.push(ModelQuad {
             positions: [positions[0], positions[3], positions[2], positions[1]],
-            uvs: INWARD_UVS,
+            uvs: inward_uvs,
             material,
             flags: inward_face,
         });
