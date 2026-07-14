@@ -24,10 +24,12 @@ The audit used these pinned inputs:
   by `assets/vanilla-source.json`.
 
 The final audited `BREG1003` export is 4,692,247 bytes with SHA-256
-`b8aceb546ddd64f23c458ac5dca1a1a76a8109c1562fa2345c6e9f81d4ae630b`.
+`fda4b40335c24b0019049ce572668b03f8ddb9a705de88abb4d724aa7ff81106`.
 It decoded exactly to EOF and reported 1,356 names, 16,913 states, 1,321
 Valentine names, 15,845 Valentine states, and attributable gaps of 35 names and
-1,068 states.
+1,068 states. The 2026-07-13 selector-only regeneration preserves
+`redstone_signal` as a typed pressed flag for exactly the 256 pressure-plate
+records; two generations were byte-identical and no other record changed.
 
 Reacquire and regenerate the ignored evidence with:
 

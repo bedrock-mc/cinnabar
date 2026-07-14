@@ -411,6 +411,21 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       Clippy/formatting, full 16,913-state ratchet, and independent correction
       review green). Deterministic gallery/native GPU evidence remains in the
       shared residual-family live gate.
+    - [x] Pressure-plate templates and typed pressed selector: BREG1003 now
+      preserves `redstone_signal` only for the 256 pressure-plate states as an
+      explicit unpressed/pressed flag, without affecting redstone wire or any
+      other record. All 16 material families compile through two deterministic
+      opaque templates using the vanilla `pressure_plate_up/down` bounds and
+      exact UV crops, including the pressed model's half-texel side strip;
+      missing/invalid selectors fail closed and collision data is not render
+      authority. The selector-only registry regeneration is byte-reproducible,
+      changes exactly those 256 records, and the real-pack ratchet removes all
+      256 pressure-plate diagnostics with no additions (`4c83afd`; registry SHA
+      `fda4b40335c24b0019049ce572668b03f8ddb9a705de88abb4d724aa7ff81106`,
+      152 assets tests, 23 strict-coverage tests with one real-blob gate ignored
+      by default, registrygen tests/vet, strict Clippy/formatting, and independent
+      correction review green). Deterministic gallery/native GPU evidence
+      remains in the shared residual-family live gate.
     - [ ] Slab/stair native and packed-GPU live acceptance: capture all five
       fixed Cinnabar poses through native `%TEMP%` screenshots and require two
       consecutive exact GPU-completed model-stream witnesses. Automated gallery
@@ -542,10 +557,11 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       exact hash-to-sequential bijection, bounds all inputs, rejects diagnostic
       regression/invisible laundering, and writes deterministic hash-bound
       reports (`b131247`; 11 tests, strict Clippy, real-pack run, and independent
-      review green). After the reviewed lava, vine, door, trapdoor, and wall
-      tranches, the current residual has 8,749 diagnostics and zero diagnostics
-      in those implemented families; each remaining family must shrink that
-      exact set.
+      review green). The reviewed baseline was refreshed cumulatively for the
+      already-landed door, trapdoor, wall, and pressure-plate tranches. After
+      lava, vine, and those four static families, the current residual has 8,493
+      diagnostics including the single air diagnostic, with zero diagnostics in
+      every implemented family; each remaining family must shrink that exact set.
   - [ ] Complete the exhaustive residual-family report, beginning with
     lava/flowing-lava on a reviewed depth-writing non-water-liquid pipeline, so
     every non-air one of the 16,913 canonical states has a non-diagnostic visual;

@@ -154,7 +154,7 @@ The first global coverage gate now inventories the complete generated registry
 through the production BREG1003 and MCBEAS04 decoders. The checked baseline binds
 1,356 names, 16,913 canonical states, one air state, the exact sorted state
 identity at every sequential ID, registry SHA-256
-`b8aceb546ddd64f23c458ac5dca1a1a76a8109c1562fa2345c6e9f81d4ae630b`,
+`fda4b40335c24b0019049ce572668b03f8ddb9a705de88abb4d724aa7ff81106`,
 the reviewed invisible allowlist, and the exact diagnostic-state ID set. It
 rejects missing/duplicate/non-contiguous IDs, registry/blob lookup mismatch,
 new diagnostics, arbitrary diagnostic-to-invisible laundering, stale or
@@ -182,16 +182,19 @@ cargo run -p visualcoverage -- ratchet `
   --out .local/assets/compiled/visual-coverage.json
 ```
 
-The 2026-07-13 real-pack run compiled all 16,913 visuals and passed the ratchet
-with asset SHA-256
-`c34ed254bbddc10f3afe3e983444cc1729312a09e6fb63dba6a77fa98be533d5`.
-It reports 14,973 current diagnostics and zero diagnostic vine masks. This is a
-regression baseline, not a parity claim: each remaining family must reduce that
-exact set, and the final strict gate still requires zero non-air diagnostics,
-67 exact-state GPU gallery pages, and the separate block-entity manifest. The
-13 MB local JSON report and compiled Mojang-derived blob remain ignored; only
-the generated non-Mojang registry metadata and deterministic coverage baseline
-are tracked.
+The refreshed 2026-07-13 real-pack run compiled all 16,913 visuals and passed
+the ratchet with asset SHA-256
+`c57976b62d09957295dfc36ffba7cf6aa04f7b3e799a6f78bea0d07d513f31aa`.
+It reports 8,493 diagnostics including air and zero diagnostics for lava, vine,
+doors, trapdoors, walls, or pressure plates. The reviewed baseline refresh
+cumulatively records the already-landed door/trapdoor/wall removals plus the
+pressure-plate tranche, rather than attributing all 6,448 removed IDs to one
+feature. This is a regression baseline, not a parity claim: each remaining
+family must reduce that exact set, and the final strict gate still requires zero
+non-air diagnostics, 67 exact-state GPU gallery pages, and the separate
+block-entity manifest. The local JSON report and compiled Mojang-derived blob
+remain ignored; only the generated non-Mojang registry metadata and
+deterministic coverage baseline are tracked.
 
 ## Remaining work
 
