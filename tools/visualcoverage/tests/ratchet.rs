@@ -166,7 +166,7 @@ fn gallery_inventory_is_non_accepting_when_zero_diagnostics_hide_a_strict_invali
 
 #[test]
 #[ignore = "requires CINNABAR_REAL_PACK pointing at the ignored pinned vanilla-v1001.mcbea"]
-fn current_gallery_inventory_is_non_accepting_with_7706_diagnostics() {
+fn current_gallery_inventory_is_non_accepting_with_2834_diagnostics() {
     let assets_path = std::env::var_os("CINNABAR_REAL_PACK")
         .map(std::path::PathBuf::from)
         .expect("set CINNABAR_REAL_PACK to the ignored pinned vanilla-v1001.mcbea");
@@ -176,7 +176,7 @@ fn current_gallery_inventory_is_non_accepting_with_7706_diagnostics() {
     let inventory = gallery_inventory_bytes(registry, &assets, baseline).unwrap();
 
     assert!(!inventory.accepting);
-    assert_eq!(inventory.diagnostic_targets, 7_706);
+    assert_eq!(inventory.diagnostic_targets, 2_834);
     assert_eq!(
         inventory
             .pages
@@ -184,7 +184,7 @@ fn current_gallery_inventory_is_non_accepting_with_7706_diagnostics() {
             .flat_map(|page| &page.targets)
             .filter(|target| target.status == visualcoverage::GalleryTargetStatus::Diagnostic)
             .count(),
-        7_706
+        2_834
     );
 }
 
@@ -313,7 +313,7 @@ fn committed_protocol_baseline_binds_the_complete_corpus_and_all_vines() {
                 .is_err()
         );
     }
-    assert_eq!(baseline.diagnostic_sequential_ids.len(), 7_706);
+    assert_eq!(baseline.diagnostic_sequential_ids.len(), 2_834);
 }
 
 fn fixture_records() -> Vec<RegistryRecord> {
@@ -2451,9 +2451,9 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
         .sort_unstable();
     assert_eq!(
         pre_huge_mushroom_baseline.diagnostic_sequential_ids.len(),
-        7_754
+        2_882
     );
-    assert_eq!(7_754 + STAINED_GLASS_REMOVALS.len(), 7_770);
+    assert_eq!(2_882 + STAINED_GLASS_REMOVALS.len(), 2_898);
     let report = ratchet_protocol_1001(current.clone(), &pre_huge_mushroom_baseline)
         .expect("run exact pre-huge-mushroom production ratchet");
     assert!(report.added_diagnostics.is_empty());
