@@ -445,6 +445,27 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       visualcoverage suites, strict Clippy/formatting, real pinned-pack run, and
       independent review/re-review green). Deterministic gallery/native GPU
       evidence remains in the shared residual-family live gate.
+    - [x] Connection-aware pane and fence templates plus transparent model
+      streaming: all 43 pane/bar states select one of 16 exact post-and-arm
+      masks, and all 13 fence states select compact post plus connection-arm
+      templates while preserving wood/nether connection classes. Internal and
+      all four horizontal cross-subchunk seams suppress only true pane joins;
+      fences connect to full occluders, matching fences, and only the sides of
+      axis-aligned gates. Mixed connected-template flags fail closed. Alpha
+      admission is descriptor-scoped so stained panes retain blend materials
+      without accidentally admitting full stained-glass cubes that share the
+      same texture path; reviewed beacon and liquid routes remain intact.
+      Alpha-blended model quads now reuse the same packed model references and
+      lighting sidecars but enter a dedicated no-depth-write phase, sorted
+      back-to-front by retained view and face. Sorting runs through a
+      latest-wins Rayon worker cache keyed by exact CPU/GPU generation and
+      stream identity; water and model uploads share one whole-subchunk,
+      per-frame transparent-reference budget. The production 16,913-state
+      ratchet removes exactly 56 diagnostics with zero additions and leaves
+      8,066 diagnostics including air (`a2c3a5a`, `5024f21`; full assets/render
+      suites, strict Clippy/formatting, pinned-pack ratchet, and independent
+      review/re-review green). Deterministic gallery/native GPU evidence
+      remains in the shared residual-family live gate.
     - [x] Carpet and stateful pale-moss-carpet templates: all 17 ordinary
       stateless carpets compile as exact opaque 1/16-block cuboids with the
       pinned wool/moss aliases, while all 162 pale-moss states enforce the
