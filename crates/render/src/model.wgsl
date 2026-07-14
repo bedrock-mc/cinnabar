@@ -227,14 +227,14 @@ fn packed_biome_tint_index(record: u32, coordinate: vec3<u32>) -> u32 {
 
 fn tinted(sampled: vec4<f32>, flags: u32, record: u32, position: vec3<f32>) -> vec4<f32> {
     let tint_kind = flags & 0x30u;
-    if (tint_kind == 0u) { return vec4(sampled.rgb, 1.0); }
+    if (tint_kind == 0u) { return vec4(sampled.rgb, sampled.a); }
     let coordinate = vec3<u32>(clamp(floor(position), vec3(0.0), vec3(15.0)));
     let requested = packed_biome_tint_index(record, coordinate);
     let tint = biome_tints[select(0u, requested, requested < arrayLength(&biome_tints))];
     var colour = tint.foliage;
     if (tint_kind == 0x10u) { colour = tint.grass; }
     if (tint_kind == 0x30u) { colour = tint.water; }
-    return vec4(sampled.rgb * unpack_linear_rgb10(colour), 1.0);
+    return vec4(sampled.rgb * unpack_linear_rgb10(colour), sampled.a);
 }
 
 fn sample_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
@@ -259,6 +259,23 @@ fn fragment(
         sampled = mix(sampled, sample_ref(in.next_texture, in.uv, dx, dy), in.frame_blend);
     }
     if (sampled.a < 0.5) { discard; }
+    let colour = tinted(sampled, in.material_flags, in.biome_record, in.local_position);
+    return vec4(colour.rgb * in.light_factor, colour.a);
+}
+
+@fragment
+fn fragment_blend(
+    in: VertexOutput,
+    @builtin(front_facing) front_facing: bool,
+) -> @location(0) vec4<f32> {
+    if (in.visible == 0u) { discard; }
+    if (!front_facing && in.two_sided == 0u) { discard; }
+    let dx = dpdx(in.uv);
+    let dy = dpdy(in.uv);
+    var sampled = sample_ref(in.current_texture, in.uv, dx, dy);
+    if (in.frame_blend > 0.0) {
+        sampled = mix(sampled, sample_ref(in.next_texture, in.uv, dx, dy), in.frame_blend);
+    }
     let colour = tinted(sampled, in.material_flags, in.biome_record, in.local_position);
     return vec4(colour.rgb * in.light_factor, colour.a);
 }

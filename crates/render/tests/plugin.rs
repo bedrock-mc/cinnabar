@@ -480,10 +480,11 @@ fn transparent_draw_evidence_scan_is_only_paid_for_an_active_frame_probe() {
     let plugin = include_str!("../src/plugin.rs");
     assert!(plugin.contains("fn is_active(&self) -> bool"));
     assert_eq!(
-        plugin.matches("if frame_probe.is_active() {").count(),
+        plugin.matches("if frame_probe.is_active()").count(),
         2,
         "direct and MDI must keep normal liquid drawing O(1)"
     );
+    assert!(plugin.contains("transparent_frame_draw_for_range(snapshot, arena, ref_range)"));
 }
 
 #[test]
@@ -591,8 +592,12 @@ fn crossed_model_pipeline_is_two_sided_and_uses_shared_bounded_bindings() {
     assert!(shader.contains("sky_light"));
     assert!(!shader.contains("safe_quad_index"));
     let masked_guard = shader
-        .find("if (is_visible == 0u)")
+        .find("if (is_visible == 0u) {")
         .expect("masked/padded model quads must exit in the vertex stage");
+    let masked_return = shader[masked_guard..]
+        .find("return invisible_vertex();")
+        .expect("masked/padded model quads must return an invisible vertex")
+        + masked_guard;
     assert!(
         shader[masked_guard..]
             .starts_with("if (is_visible == 0u) {\r\n        return invisible_vertex();")
@@ -602,6 +607,7 @@ fn crossed_model_pipeline_is_two_sided_and_uses_shared_bounded_bindings() {
     );
     assert!(masked_guard < shader.find("var template_position").unwrap());
     assert!(masked_guard < shader.find("let light_word").unwrap());
+    assert!(masked_return < shader.find("var template_position").unwrap());
     let zero_guard = shader
         .find("if (quad_count == 0u || quad_index >= quad_count)")
         .expect("zero-quad templates require an early invisible return");
@@ -641,6 +647,53 @@ fn crossed_model_direct_and_mdi_commands_have_identical_output_addressing() {
     assert!(source.contains("fn model_mdi_draw_command("));
     assert!(source.contains("model_draw_command(allocation, direct_stream_addresses(allocation))"));
     assert!(source.contains("model_draw_command(allocation, mdi_stream_addresses(allocation))"));
+}
+
+#[test]
+fn transparent_model_pipeline_blends_without_depth_write_or_alpha_cutoff() {
+    let plugin = include_str!("../src/plugin.rs");
+    let shader = include_str!("../src/model.wgsl");
+
+    assert!(plugin.contains("packed transparent model pipeline"));
+    assert!(plugin.contains("transparent_model_descriptor"));
+    assert!(plugin.contains("entry_point = Some(\"fragment_blend\".into())"));
+    assert!(plugin.contains("blend = Some(BlendState::ALPHA_BLENDING)"));
+    assert!(plugin.contains("depth_write_enabled = false"));
+
+    let blend_start = shader
+        .find("fn fragment_blend(")
+        .expect("transparent model fragment entry point");
+    let blend_body = &shader[blend_start..];
+    assert!(blend_body.contains("return vec4(colour.rgb * in.light_factor, colour.a);"));
+    assert!(
+        shader.contains("return vec4(sampled.rgb, sampled.a);")
+            && shader
+                .contains("return vec4(sampled.rgb * unpack_linear_rgb10(colour), sampled.a);"),
+        "biome tinting must preserve sampled alpha for the blend entry point"
+    );
+    assert!(
+        !blend_body.contains("sampled.a < 0.5"),
+        "blend models must preserve fractional sampled alpha"
+    );
+}
+
+#[test]
+fn transparent_models_queue_as_distance_sorted_subchunk_phase_items() {
+    let plugin = include_str!("../src/plugin.rs");
+
+    assert!(plugin.contains("add_render_command::<Transparent3d, DrawTransparentModelCommands>()"));
+    assert!(plugin.contains(".transparent_model_variants"));
+    assert!(plugin.contains(".specialize(&pipeline_cache, key)"));
+    assert!(plugin.contains("transparent_model_phase_distance(&rangefinder, allocation.key)"));
+    assert!(plugin.contains("prepare_transparent_model_sorts"));
+    assert!(plugin.contains("spawn_transparent_model_sort"));
+    assert!(plugin.contains("DEFAULT_TRANSPARENT_UPLOAD_REFS_PER_FRAME"));
+    assert!(plugin.contains("if runtime.view_entity != Some(view_entity)"));
+    assert!(plugin.contains("transparent_liquid_phase_distance(&rangefinder, group.key)"));
+    assert!(plugin.contains("range: group.ref_range"));
+    assert!(!plugin.contains("distance: 0.0,"));
+    assert!(plugin.contains("draw_function: transparent_model_draw"));
+    assert!(plugin.contains("entity: (render_entity, main_entity)"));
 }
 
 #[test]
@@ -922,11 +975,12 @@ fn queue_counts_every_stream_and_sidecar() {
         vec![render::PackedLiquidQuad::try_from_words([4, 5, 6, 7]).unwrap()],
         vec![render::PackedQuadLighting::new([0; 4])],
         cube.connectivity(),
-    );
+    )
+    .with_transparent_model_draw_refs(vec![render::PackedModelDrawRef::new(0, 1)]);
     let expected = 6 * size_of::<PackedQuad>()
         + size_of::<render::PackedModelRef>()
         + size_of::<render::PackedQuadLighting>()
-        + size_of::<render::PackedModelDrawRef>()
+        + 2 * size_of::<render::PackedModelDrawRef>()
         + size_of::<render::PackedLiquidQuad>()
         + size_of::<render::PackedQuadLighting>();
     let mut queue = ChunkRenderQueue::with_limits(ChunkRenderQueueLimits {
@@ -1591,7 +1645,7 @@ fn packed_chunk_pipeline_family_shares_one_opaque_depth_writing_phase() {
         plugin
             .matches(".add_render_command::<Transparent3d")
             .count(),
-        2
+        3
     );
     assert_eq!(size_of::<Material>(), 12);
     assert_eq!(size_of::<PackedQuad>(), 8);
@@ -1599,8 +1653,8 @@ fn packed_chunk_pipeline_family_shares_one_opaque_depth_writing_phase() {
         plugin
             .matches("pass.set_bind_group(0, bind_group, &[view_offset.offset]);")
             .count(),
-        8,
-        "cube/model/transparent-liquid/depth-liquid direct and MDI share the global bind group"
+        9,
+        "cube/opaque-model/transparent-model/transparent-liquid/depth-liquid direct and MDI share the global bind group"
     );
 }
 
@@ -1920,8 +1974,8 @@ fn animation_clock_updates_do_not_rebuild_or_reupload_texture_assets() {
     assert_eq!(plugin.matches("render_queue.write_texture(").count(), 1);
     assert_eq!(
         plugin.matches("render_queue.write_buffer(").count(),
-        8,
-        "shared writers cover immutable geometry plus bounded transparent refs/indirect state"
+        9,
+        "shared writers cover immutable geometry plus bounded liquid and model transparent sorts"
     );
     assert!(plugin.contains("render_queue.write_buffer(&gpu_clock.buffer"));
 }

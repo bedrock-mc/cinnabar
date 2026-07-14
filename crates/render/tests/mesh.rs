@@ -8,12 +8,12 @@ use std::{
 
 use assets::{
     BlockFace, BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, DIAGNOSTIC_MATERIAL,
-    MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_QUAD_FLAG_FACE_MASK, MODEL_QUAD_FLAG_TWO_SIDED,
-    MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_KELP,
-    MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR, Material, ModelFamily, ModelQuad,
-    ModelStateField, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets,
-    TextureArray, TextureMip, TexturePage, TextureRef, VisualKind, compile_pack, encode_blob,
-    read_registry,
+    MATERIAL_FLAG_ALPHA_BLEND, MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_QUAD_FLAG_FACE_MASK,
+    MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD,
+    MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR, Material,
+    ModelFamily, ModelQuad, ModelStateField, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE,
+    NetworkIdMode, RuntimeAssets, TextureArray, TextureMip, TexturePage, TextureRef, VisualKind,
+    compile_pack, encode_blob, read_registry,
 };
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 use render::{
@@ -37,10 +37,12 @@ const UNSUPPORTED_ADDITIONAL: u32 = 61;
 const KELP: u32 = 62;
 const MODEL_32: u32 = 63;
 const COMPOUND_40: u32 = 64;
+const MIXED_ALPHA_MODEL: u32 = 65;
 const MODEL_TEMPLATE_FLAG_COMPOUND_NEXT_TEST: u32 = 1 << 2;
 
 #[test]
 fn packed_stream_record_sizes() {
+    assert!(size_of::<ChunkMesh>() <= 128);
     assert_eq!(size_of::<PackedQuad>(), 8);
     assert_eq!(size_of::<PackedModelRef>(), 16);
     assert_eq!(size_of::<PackedModelDrawRef>(), 8);
@@ -201,6 +203,15 @@ fn runtime_assets() -> &'static RuntimeAssets {
             animation: NO_ANIMATION,
             variant: 0,
         };
+        visuals[MIXED_ALPHA_MODEL as usize] = BlockVisual {
+            faces: [1; 6],
+            flags: BlockFlags::empty(),
+            kind: VisualKind::Model,
+            contributor_role: assets::ContributorRole::Primary,
+            model_template: 6,
+            animation: NO_ANIMATION,
+            variant: 0,
+        };
 
         let textures = TextureArray {
             layers: 1,
@@ -226,6 +237,15 @@ fn runtime_assets() -> &'static RuntimeAssets {
                 };
                 67
             ]
+            .into_iter()
+            .enumerate()
+            .map(|(index, mut material)| {
+                if index == 2 {
+                    material.flags = MATERIAL_FLAG_ALPHA_BLEND;
+                }
+                material
+            })
+            .collect::<Vec<_>>()
             .into_boxed_slice(),
             model_templates: vec![
                 ModelTemplate {
@@ -256,6 +276,11 @@ fn runtime_assets() -> &'static RuntimeAssets {
                 ModelTemplate {
                     quad_start: 64,
                     quad_count: 16,
+                    flags: 0,
+                },
+                ModelTemplate {
+                    quad_start: 80,
+                    quad_count: 2,
                     flags: 0,
                 },
             ]
@@ -311,6 +336,20 @@ fn runtime_assets() -> &'static RuntimeAssets {
                 },
                 40,
             ))
+            .chain([
+                ModelQuad {
+                    positions: [[0, 0, 0], [256, 0, 0], [256, 256, 0], [0, 256, 0]],
+                    uvs: [[0, 4096], [4096, 4096], [4096, 0], [0, 0]],
+                    material: 1,
+                    flags: MODEL_QUAD_FLAG_TWO_SIDED,
+                },
+                ModelQuad {
+                    positions: [[0, 0, 256], [0, 256, 256], [256, 256, 256], [256, 0, 256]],
+                    uvs: [[0, 4096], [0, 0], [4096, 0], [4096, 4096]],
+                    material: 2,
+                    flags: MODEL_QUAD_FLAG_TWO_SIDED,
+                },
+            ])
             .collect::<Vec<_>>()
             .into_boxed_slice(),
             animations: Box::new([]),
@@ -321,6 +360,36 @@ fn runtime_assets() -> &'static RuntimeAssets {
         let blob = encode_blob(&compiled).expect("encode synthetic mesher assets");
         RuntimeAssets::decode(&blob).expect("decode synthetic mesher assets")
     })
+}
+
+#[test]
+fn mixed_alpha_model_partitions_exact_draw_refs_without_splitting_shared_records() {
+    let center = blocks(MIXED_ALPHA_MODEL, &[[2, 3, 4]]);
+    let mesh = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::default(),
+        &center,
+    );
+
+    assert_eq!(mesh.model_refs().len(), 1);
+    assert_eq!(mesh.model_lighting().len(), 2);
+    assert_eq!(
+        mesh.model_draw_refs()
+            .iter()
+            .copied()
+            .map(PackedModelDrawRef::words)
+            .collect::<Vec<_>>(),
+        [[0, 0]]
+    );
+    assert_eq!(
+        mesh.transparent_model_draw_refs()
+            .iter()
+            .copied()
+            .map(PackedModelDrawRef::words)
+            .collect::<Vec<_>>(),
+        [[0, 1]]
+    );
 }
 
 #[test]

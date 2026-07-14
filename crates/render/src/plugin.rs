@@ -36,7 +36,7 @@ use bevy::{
         render_phase::{
             AddRenderCommand, BinnedRenderPhaseType, DrawFunctions, InputUniformIndex, PhaseItem,
             PhaseItemExtraIndex, RenderCommand, RenderCommandResult, SetItemPipeline,
-            TrackedRenderPass, ViewBinnedRenderPhases, ViewSortedRenderPhases,
+            TrackedRenderPass, ViewBinnedRenderPhases, ViewRangefinder3d, ViewSortedRenderPhases,
         },
         render_resource::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
@@ -193,9 +193,22 @@ pub fn sort_transparent_candidates_for_test(
 }
 
 fn transparent_draw_args(buffer_slot: u8, ref_count: usize) -> Option<TransparentDrawArgs> {
-    let instance_count = u32::try_from(ref_count).ok()?;
-    let first_instance =
-        u32::from(buffer_slot).checked_mul(u32::try_from(MAX_TRANSPARENT_DRAW_REFS).ok()?)?;
+    transparent_draw_range_args(buffer_slot, 0..u32::try_from(ref_count).ok()?)
+}
+
+fn transparent_draw_range_args(
+    buffer_slot: u8,
+    ref_range: Range<u32>,
+) -> Option<TransparentDrawArgs> {
+    if ref_range.start > ref_range.end
+        || usize::try_from(ref_range.end).ok()? > MAX_TRANSPARENT_DRAW_REFS
+    {
+        return None;
+    }
+    let instance_count = ref_range.end - ref_range.start;
+    let first_instance = u32::from(buffer_slot)
+        .checked_mul(u32::try_from(MAX_TRANSPARENT_DRAW_REFS).ok()?)?
+        .checked_add(ref_range.start)?;
     Some(TransparentDrawArgs {
         index_count: STATIC_QUAD_INDICES.len() as u32,
         instance_count,
@@ -203,6 +216,53 @@ fn transparent_draw_args(buffer_slot: u8, ref_count: usize) -> Option<Transparen
         base_vertex: 0,
         first_instance,
     })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TransparentLiquidPhaseGroup {
+    key: SubChunkKey,
+    ref_range: Range<u32>,
+}
+
+fn transparent_liquid_phase_groups(
+    snapshot: &TransparentOrderedSnapshot,
+) -> Option<Vec<TransparentLiquidPhaseGroup>> {
+    let mut identities = BTreeMap::new();
+    for identity in snapshot.key.visible_allocations.iter() {
+        if !identity.liquid_range.start.is_multiple_of(4)
+            || !identity.liquid_range.end.is_multiple_of(4)
+            || identities
+                .insert(identity.metadata_index, identity)
+                .is_some()
+        {
+            return None;
+        }
+    }
+
+    let mut groups = Vec::<TransparentLiquidPhaseGroup>::new();
+    let mut closed_metadata = HashSet::new();
+    for (index, draw_ref) in snapshot.refs().iter().copied().enumerate() {
+        let identity = identities.get(&draw_ref.metadata_index())?;
+        let record_range = identity.liquid_range.start / 4..identity.liquid_range.end / 4;
+        if !record_range.contains(&draw_ref.liquid_record_index()) {
+            return None;
+        }
+        let index = u32::try_from(index).ok()?;
+        if let Some(group) = groups.last_mut()
+            && group.key == identity.key
+        {
+            group.ref_range.end = index.checked_add(1)?;
+            continue;
+        }
+        if !closed_metadata.insert(identity.metadata_index) {
+            return None;
+        }
+        groups.push(TransparentLiquidPhaseGroup {
+            key: identity.key,
+            ref_range: index..index.checked_add(1)?,
+        });
+    }
+    Some(groups)
 }
 
 fn transparent_indirect_args(
@@ -1539,6 +1599,130 @@ struct TransparentSortRuntime {
     committed_distinct_tint_count: usize,
     last_indirect_identity: Option<(u8, usize)>,
     candidate_cache: Option<TransparentCandidateCache>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct TransparentModelAllocationIdentity {
+    entity: Entity,
+    key: SubChunkKey,
+    generation: u64,
+    model_range: Range<u32>,
+    draw_range: Range<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct TransparentModelAddressIdentity {
+    asset_identity: ChunkTextureAssetIdentity,
+    allocations: Arc<[TransparentModelAllocationIdentity]>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct TransparentModelSortKey {
+    view_entity: Entity,
+    rotation_bits: [u32; 4],
+    address: TransparentModelAddressIdentity,
+}
+
+#[derive(Debug, Clone)]
+struct TransparentModelSortCandidate {
+    entity: Entity,
+    key: SubChunkKey,
+    draw_range: Range<u32>,
+    stable_index: u32,
+    centroid: Vec3,
+    words: [u32; 2],
+}
+
+#[derive(Debug, Clone)]
+struct TransparentModelCandidateCache {
+    address: TransparentModelAddressIdentity,
+    candidates: Arc<[TransparentModelSortCandidate]>,
+}
+
+#[derive(Debug)]
+struct TransparentModelSortWork {
+    generation: ViewSortGeneration,
+    key: TransparentModelSortKey,
+    view_from_world: Mat4,
+    candidates: Arc<[TransparentModelSortCandidate]>,
+}
+
+#[derive(Debug, Clone)]
+struct TransparentModelSortBatch {
+    draw_range: Range<u32>,
+    words: Box<[[u32; 2]]>,
+}
+
+#[derive(Debug)]
+struct TransparentModelWorkerResult {
+    generation: ViewSortGeneration,
+    key: TransparentModelSortKey,
+    batches: Vec<TransparentModelSortBatch>,
+}
+
+#[derive(Debug)]
+struct TransparentModelStagedSort {
+    key: TransparentModelSortKey,
+    batches: VecDeque<TransparentModelSortBatch>,
+}
+
+#[derive(Resource)]
+struct TransparentModelSortRuntime {
+    next_generation: u64,
+    requested: Option<(ViewSortGeneration, TransparentModelSortKey)>,
+    committed: Option<TransparentModelSortKey>,
+    staged: Option<TransparentModelStagedSort>,
+    gate: TransparentSortJobGate<TransparentModelSortWork>,
+    result_sender: SyncSender<TransparentModelWorkerResult>,
+    result_receiver: Mutex<Receiver<TransparentModelWorkerResult>>,
+    candidate_cache: Option<TransparentModelCandidateCache>,
+}
+
+#[derive(Debug, Resource)]
+struct TransparentUploadBudget {
+    remaining_refs: usize,
+}
+
+impl Default for TransparentUploadBudget {
+    fn default() -> Self {
+        Self {
+            remaining_refs: DEFAULT_TRANSPARENT_UPLOAD_REFS_PER_FRAME,
+        }
+    }
+}
+
+impl TransparentUploadBudget {
+    fn reset(&mut self) {
+        self.remaining_refs = DEFAULT_TRANSPARENT_UPLOAD_REFS_PER_FRAME;
+    }
+
+    const fn remaining(&self) -> usize {
+        self.remaining_refs
+    }
+
+    fn consume(&mut self, refs: usize) -> bool {
+        let Some(remaining) = self.remaining_refs.checked_sub(refs) else {
+            return false;
+        };
+        self.remaining_refs = remaining;
+        true
+    }
+}
+
+impl Default for TransparentModelSortRuntime {
+    fn default() -> Self {
+        let (result_sender, result_receiver) = sync_channel(1);
+        Self {
+            next_generation: 0,
+            requested: None,
+            committed: None,
+            staged: None,
+            gate: TransparentSortJobGate::default(),
+            result_sender,
+            result_receiver: Mutex::new(result_receiver),
+            candidate_cache: None,
+        }
+    }
 }
 
 impl Default for TransparentSortRuntime {
@@ -3780,6 +3964,10 @@ fn mesh_byte_len(mesh: &ChunkMesh) -> u64 {
             PACKED_MODEL_DRAW_REF_BYTES,
         ))
         .saturating_add(buffer_byte_len(
+            mesh.transparent_model_draw_refs().len(),
+            PACKED_MODEL_DRAW_REF_BYTES,
+        ))
+        .saturating_add(buffer_byte_len(
             mesh.liquid_quads().len(),
             PACKED_LIQUID_QUAD_BYTES,
         ))
@@ -3815,6 +4003,7 @@ pub struct ChunkRenderInstance {
     model_refs: Arc<[PackedModelRef]>,
     model_lighting: Arc<[PackedQuadLighting]>,
     model_draw_refs: Arc<[PackedModelDrawRef]>,
+    transparent_model_draw_refs: Arc<[PackedModelDrawRef]>,
     liquid_quads: Arc<[PackedLiquidQuad]>,
     liquid_lighting: Arc<[PackedQuadLighting]>,
     has_depth_liquid: bool,
@@ -3856,6 +4045,11 @@ impl ChunkRenderInstance {
     #[must_use]
     pub fn model_draw_refs(&self) -> &[PackedModelDrawRef] {
         &self.model_draw_refs
+    }
+
+    #[must_use]
+    pub fn transparent_model_draw_refs(&self) -> &[PackedModelDrawRef] {
+        &self.transparent_model_draw_refs
     }
 
     #[must_use]
@@ -3973,6 +4167,8 @@ impl Plugin for DebugWorldPlugin {
             .init_resource::<ChunkDepthLiquidIndirectBatches>()
             .init_resource::<ActiveFrameProbe>()
             .init_resource::<TransparentSortRuntime>()
+            .init_resource::<TransparentModelSortRuntime>()
+            .init_resource::<TransparentUploadBudget>()
             .init_resource::<TransparentPresentationFence>()
             .init_resource::<TransparentRetirementFence>()
             .add_render_command::<Opaque3d, DrawChunkCommands>()
@@ -3981,6 +4177,7 @@ impl Plugin for DebugWorldPlugin {
             .add_render_command::<Opaque3d, DrawModelIndirectCommands>()
             .add_render_command::<Opaque3d, DrawDepthLiquidCommands>()
             .add_render_command::<Opaque3d, DrawDepthLiquidIndirectCommands>()
+            .add_render_command::<Transparent3d, DrawTransparentModelCommands>()
             .add_render_command::<Transparent3d, DrawTransparentLiquidCommands>()
             .add_render_command::<Transparent3d, DrawTransparentLiquidIndirectCommands>()
             .add_systems(
@@ -3999,6 +4196,9 @@ impl Plugin for DebugWorldPlugin {
                     prepare_transparent_sorts
                         .in_set(RenderSystems::PrepareResources)
                         .after(prepare_gpu_chunks),
+                    prepare_transparent_model_sorts
+                        .in_set(RenderSystems::PrepareResources)
+                        .after(prepare_transparent_sorts),
                     prepare_chunk_indirect_batches
                         .in_set(RenderSystems::PrepareResources)
                         .after(prepare_gpu_chunks),
@@ -4093,6 +4293,7 @@ fn apply_chunk_render_queue(
             model_refs,
             model_lighting,
             model_draw_refs,
+            transparent_model_draw_refs,
             liquid_quads,
             liquid_lighting,
         ) = pending.mesh.into_streams();
@@ -4115,6 +4316,7 @@ fn apply_chunk_render_queue(
             model_refs: Arc::from(model_refs),
             model_lighting: Arc::from(model_lighting),
             model_draw_refs: Arc::from(model_draw_refs),
+            transparent_model_draw_refs: Arc::from(transparent_model_draw_refs),
             liquid_quads: Arc::from(liquid_quads),
             liquid_lighting: Arc::from(liquid_lighting),
             has_depth_liquid,
@@ -4160,6 +4362,7 @@ struct ChunkPipelineSpecializer;
 struct ChunkPipeline {
     variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
     model_variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
+    transparent_model_variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
     liquid_variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
     depth_liquid_variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
     bind_group_layout: BindGroupLayoutDescriptor,
@@ -4357,6 +4560,22 @@ impl FromWorld for ChunkPipeline {
             .expect("model fragment")
             .shader = MODEL_SHADER_HANDLE;
         model_descriptor.primitive.cull_mode = None;
+        let mut transparent_model_descriptor = model_descriptor.clone();
+        transparent_model_descriptor.label = Some("packed transparent model pipeline".into());
+        let transparent_model_fragment = transparent_model_descriptor
+            .fragment
+            .as_mut()
+            .expect("transparent model fragment");
+        transparent_model_fragment.entry_point = Some("fragment_blend".into());
+        transparent_model_fragment.targets[0]
+            .as_mut()
+            .expect("transparent model colour target")
+            .blend = Some(BlendState::ALPHA_BLENDING);
+        transparent_model_descriptor
+            .depth_stencil
+            .as_mut()
+            .expect("transparent model depth state")
+            .depth_write_enabled = false;
         let mut liquid_descriptor = descriptor.clone();
         liquid_descriptor.label = Some("packed transparent liquid pipeline".into());
         liquid_descriptor.vertex.shader = LIQUID_SHADER_HANDLE;
@@ -4400,6 +4619,10 @@ impl FromWorld for ChunkPipeline {
         Self {
             variants: Variants::new(ChunkPipelineSpecializer, descriptor),
             model_variants: Variants::new(ChunkPipelineSpecializer, model_descriptor),
+            transparent_model_variants: Variants::new(
+                ChunkPipelineSpecializer,
+                transparent_model_descriptor,
+            ),
             liquid_variants: Variants::new(ChunkPipelineSpecializer, liquid_descriptor),
             depth_liquid_variants: Variants::new(ChunkPipelineSpecializer, depth_liquid_descriptor),
             bind_group_layout,
@@ -4443,6 +4666,7 @@ struct GpuChunkAllocation {
     model_range: Option<Range<u32>>,
     model_lighting_range: Option<Range<u32>>,
     model_draw_range: Option<Range<u32>>,
+    transparent_model_draw_range: Option<Range<u32>>,
     liquid_range: Option<Range<u32>>,
     liquid_lighting_range: Option<Range<u32>>,
     has_depth_liquid: bool,
@@ -4457,6 +4681,7 @@ struct StreamAddresses {
     model: Option<Range<u32>>,
     model_lighting: Option<Range<u32>>,
     model_draw: Option<Range<u32>>,
+    transparent_model_draw: Option<Range<u32>>,
     liquid: Option<Range<u32>>,
     liquid_lighting: Option<Range<u32>>,
 }
@@ -4467,6 +4692,7 @@ fn direct_stream_addresses(allocation: &GpuChunkAllocation) -> StreamAddresses {
         model: allocation.model_range.clone(),
         model_lighting: allocation.model_lighting_range.clone(),
         model_draw: allocation.model_draw_range.clone(),
+        transparent_model_draw: allocation.transparent_model_draw_range.clone(),
         liquid: allocation.liquid_range.clone(),
         liquid_lighting: allocation.liquid_lighting_range.clone(),
     }
@@ -4522,6 +4748,15 @@ fn model_draw_command(
     let model = addresses.model?;
     let model_lighting = addresses.model_lighting?;
     let model_draw = addresses.model_draw?;
+    let expected_draw_start =
+        if allocation.transparent_model_draw_range.as_ref() == Some(&model_draw) {
+            allocation
+                .model_draw_range
+                .as_ref()
+                .map_or(model_lighting.end, |range| range.end)
+        } else {
+            model_lighting.end
+        };
     if model.is_empty()
         || !model.start.is_multiple_of(4)
         || !model.end.is_multiple_of(4)
@@ -4532,7 +4767,7 @@ fn model_draw_command(
         || !model_draw.start.is_multiple_of(2)
         || !model_draw.end.is_multiple_of(2)
         || model.end != model_lighting.start
-        || model_lighting.end != model_draw.start
+        || expected_draw_start != model_draw.start
     {
         return None;
     }
@@ -4559,6 +4794,14 @@ fn model_mdi_draw_command(allocation: &GpuChunkAllocation) -> Option<DrawIndexed
     model_draw_command(allocation, mdi_stream_addresses(allocation))
 }
 
+fn transparent_model_direct_draw_command(
+    allocation: &GpuChunkAllocation,
+) -> Option<DrawIndexedIndirectArgs> {
+    let mut addresses = direct_stream_addresses(allocation);
+    addresses.model_draw = addresses.transparent_model_draw.clone();
+    model_draw_command(allocation, addresses)
+}
+
 fn model_ref_count_for_witness(allocation: &GpuChunkAllocation) -> usize {
     allocation.model_range.as_ref().map_or(0, |range| {
         range.end.saturating_sub(range.start) as usize
@@ -4573,13 +4816,23 @@ fn summarize_model_workload<'a>(
 ) -> ModelWorkloadCount {
     allocations
         .into_iter()
-        .filter(|allocation| model_direct_draw_command(allocation).is_some())
+        .filter(|allocation| {
+            model_direct_draw_command(allocation).is_some()
+                || transparent_model_direct_draw_command(allocation).is_some()
+        })
         .fold(ModelWorkloadCount::default(), |mut total, allocation| {
             let model_ref_count = model_ref_count_for_witness(allocation);
-            let model_draw_ref_count = allocation.model_draw_range.as_ref().map_or(0, |range| {
-                range.end.saturating_sub(range.start) as usize
-                    / (PACKED_MODEL_DRAW_REF_BYTES / GEOMETRY_STREAM_WORD_BYTES) as usize
-            });
+            let model_draw_ref_count = allocation
+                .model_draw_range
+                .as_ref()
+                .into_iter()
+                .chain(allocation.transparent_model_draw_range.as_ref())
+                .fold(0_usize, |total, range| {
+                    total.saturating_add(
+                        range.end.saturating_sub(range.start) as usize
+                            / (PACKED_MODEL_DRAW_REF_BYTES / GEOMETRY_STREAM_WORD_BYTES) as usize,
+                    )
+                });
             total.model_ref_count = total.model_ref_count.saturating_add(model_ref_count);
             total.model_draw_ref_count = total
                 .model_draw_ref_count
@@ -4672,6 +4925,7 @@ struct ArenaAllocation {
     model_range: Option<Range<u32>>,
     model_lighting_range: Option<Range<u32>>,
     model_draw_range: Option<Range<u32>>,
+    transparent_model_draw_range: Option<Range<u32>>,
     liquid_range: Option<Range<u32>>,
     liquid_lighting_range: Option<Range<u32>>,
     quad_capacity: u32,
@@ -4760,6 +5014,7 @@ impl ArenaAllocation {
         if self.model_range.is_some()
             || self.model_lighting_range.is_some()
             || self.model_draw_range.is_some()
+            || self.transparent_model_draw_range.is_some()
         {
             mask = mask | ChunkStreamMask::MODEL;
         }
@@ -5632,6 +5887,7 @@ fn prepare_gpu_chunks(
     let mut model_writes = Vec::new();
     let mut model_lighting_writes = Vec::new();
     let mut model_draw_writes = Vec::new();
+    let mut transparent_model_draw_writes = Vec::new();
     let mut liquid_writes = Vec::new();
     let mut liquid_lighting_writes = Vec::new();
     let mut biome_writes = Vec::new();
@@ -5646,13 +5902,16 @@ fn prepare_gpu_chunks(
         let Ok((_, instance)) = instances.get(entity) else {
             continue;
         };
-        if !validate_local_model_streams(
+        if !validate_partitioned_model_streams(
             &instance.model_refs,
             &instance.model_lighting,
             &instance.model_draw_refs,
+            &instance.transparent_model_draw_refs,
             texture_assets.assets().model_templates(),
+            texture_assets.assets().model_quads(),
+            texture_assets.assets().materials(),
         ) {
-            bevy::log::error!("sub-chunk model streams are not an exact reachable triplet");
+            bevy::log::error!("sub-chunk model streams are not an exact material partition");
             continue;
         }
         let old = arena.allocations.get(&entity).cloned();
@@ -5673,6 +5932,14 @@ fn prepare_gpu_chunks(
         };
         let Ok(model_draw_required) = u32::try_from(instance.model_draw_refs.len()) else {
             bevy::log::error!("sub-chunk model-draw stream exceeds the u32 instance range");
+            continue;
+        };
+        let Ok(transparent_model_draw_required) =
+            u32::try_from(instance.transparent_model_draw_refs.len())
+        else {
+            bevy::log::error!(
+                "sub-chunk transparent-model-draw stream exceeds the u32 instance range"
+            );
             continue;
         };
         let Ok(liquid_required) = u32::try_from(instance.liquid_quads.len()) else {
@@ -5713,6 +5980,7 @@ fn prepare_gpu_chunks(
             model: model_required,
             model_lighting: model_lighting_required,
             model_draw: model_draw_required,
+            transparent_model_draw: transparent_model_draw_required,
             liquid: liquid_required,
             liquid_lighting: liquid_lighting_required,
         };
@@ -5772,6 +6040,11 @@ fn prepare_gpu_chunks(
             plan.model_draw_start,
             model_draw_required * (PACKED_MODEL_DRAW_REF_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32,
         );
+        let transparent_model_draw_range = checked_geometry_range(
+            plan.transparent_model_draw_start,
+            transparent_model_draw_required
+                * (PACKED_MODEL_DRAW_REF_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32,
+        );
         let liquid_range = checked_geometry_range(
             plan.liquid_start,
             liquid_required * (PACKED_LIQUID_QUAD_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32,
@@ -5814,8 +6087,18 @@ fn prepare_gpu_chunks(
             .copied()
             .map(PackedModelDrawRef::words)
             .collect::<Vec<_>>();
-        absolutize_model_draw_refs(&mut model_draw_words, plan.model_start)
-            .expect("validated model draw refs and atomic arena plan fit absolute addressing");
+        let mut transparent_model_draw_words = instance
+            .transparent_model_draw_refs
+            .iter()
+            .copied()
+            .map(PackedModelDrawRef::words)
+            .collect::<Vec<_>>();
+        absolutize_partitioned_model_draw_refs(
+            &mut model_draw_words,
+            &mut transparent_model_draw_words,
+            plan.model_start,
+        )
+        .expect("validated model draw refs and atomic arena plan fit absolute addressing");
         let mut liquid_words = instance
             .liquid_quads
             .iter()
@@ -5834,6 +6117,10 @@ fn prepare_gpu_chunks(
         model_writes.push((plan.model_start, model_words));
         model_lighting_writes.push((plan.model_lighting_start, model_lighting_words));
         model_draw_writes.push((plan.model_draw_start, model_draw_words));
+        transparent_model_draw_writes.push((
+            plan.transparent_model_draw_start,
+            transparent_model_draw_words,
+        ));
         liquid_writes.push((plan.liquid_start, liquid_words));
         liquid_lighting_writes.push((plan.liquid_lighting_start, liquid_lighting_words));
         if !biome_words.is_empty() {
@@ -5848,6 +6135,7 @@ fn prepare_gpu_chunks(
             model_range,
             model_lighting_range,
             model_draw_range,
+            transparent_model_draw_range,
             liquid_range,
             liquid_lighting_range,
             has_depth_liquid: instance.has_depth_liquid,
@@ -5865,6 +6153,7 @@ fn prepare_gpu_chunks(
                 model_range: gpu.model_range.clone(),
                 model_lighting_range: gpu.model_lighting_range.clone(),
                 model_draw_range: gpu.model_draw_range.clone(),
+                transparent_model_draw_range: gpu.transparent_model_draw_range.clone(),
                 liquid_range: gpu.liquid_range.clone(),
                 liquid_lighting_range: gpu.liquid_lighting_range.clone(),
                 quad_capacity: plan.quad_capacity,
@@ -5875,6 +6164,7 @@ fn prepare_gpu_chunks(
                         model: model_required,
                         model_lighting: model_lighting_required,
                         model_draw: model_draw_required,
+                        transparent_model_draw: transparent_model_draw_required,
                         liquid: liquid_required,
                         liquid_lighting: liquid_lighting_required,
                     }
@@ -5899,6 +6189,10 @@ fn prepare_gpu_chunks(
                 ))
                 .saturating_add(buffer_byte_len(
                     instance.model_draw_refs.len(),
+                    PACKED_MODEL_DRAW_REF_BYTES,
+                ))
+                .saturating_add(buffer_byte_len(
+                    instance.transparent_model_draw_refs.len(),
                     PACKED_MODEL_DRAW_REF_BYTES,
                 ))
                 .saturating_add(buffer_byte_len(
@@ -5936,6 +6230,13 @@ fn prepare_gpu_chunks(
         .saturating_add(model_draw_writes.iter().fold(0_u64, |total, (_, words)| {
             total.saturating_add(buffer_byte_len(words.len(), PACKED_MODEL_DRAW_REF_BYTES))
         }))
+        .saturating_add(
+            transparent_model_draw_writes
+                .iter()
+                .fold(0_u64, |total, (_, words)| {
+                    total.saturating_add(buffer_byte_len(words.len(), PACKED_MODEL_DRAW_REF_BYTES))
+                }),
+        )
         .saturating_add(liquid_writes.iter().fold(0_u64, |total, (_, words)| {
             total.saturating_add(buffer_byte_len(words.len(), PACKED_LIQUID_QUAD_BYTES))
         }))
@@ -5988,6 +6289,12 @@ fn prepare_gpu_chunks(
         &arena.geometry_stream_buffer,
         GEOMETRY_STREAM_WORD_BYTES,
         model_draw_writes,
+    );
+    write_stream_records(
+        &render_queue,
+        &arena.geometry_stream_buffer,
+        GEOMETRY_STREAM_WORD_BYTES,
+        transparent_model_draw_writes,
     );
     write_stream_records(
         &render_queue,
@@ -6079,6 +6386,52 @@ fn transparent_allocation_matches(
             == instance.liquid_quads.len().checked_mul(4)
         && usize::try_from(lighting.end.saturating_sub(lighting.start)).ok()
             == instance.liquid_lighting.len().checked_mul(2)
+}
+
+fn packed_stream_range_matches(
+    range: Option<&Range<u32>>,
+    record_count: usize,
+    words_per_record: usize,
+) -> bool {
+    match range {
+        Some(range) => {
+            record_count != 0
+                && usize::try_from(range.start)
+                    .ok()
+                    .is_some_and(|start| start.is_multiple_of(words_per_record))
+                && usize::try_from(range.end.saturating_sub(range.start)).ok()
+                    == record_count.checked_mul(words_per_record)
+        }
+        None => record_count == 0,
+    }
+}
+
+fn transparent_model_allocation_matches(
+    instance: &ChunkRenderInstance,
+    allocation: &GpuChunkAllocation,
+) -> bool {
+    instance.key == allocation.key
+        && instance.generation == allocation.generation
+        && packed_stream_range_matches(
+            allocation.model_range.as_ref(),
+            instance.model_refs.len(),
+            4,
+        )
+        && packed_stream_range_matches(
+            allocation.model_lighting_range.as_ref(),
+            instance.model_lighting.len(),
+            2,
+        )
+        && packed_stream_range_matches(
+            allocation.model_draw_range.as_ref(),
+            instance.model_draw_refs.len(),
+            2,
+        )
+        && packed_stream_range_matches(
+            allocation.transparent_model_draw_range.as_ref(),
+            instance.transparent_model_draw_refs.len(),
+            2,
+        )
 }
 
 fn transparent_snapshot_addresses_are_resident<'a, 'b>(
@@ -6224,7 +6577,9 @@ fn prepare_transparent_sorts(
     metrics: Res<TransparentSortMetrics>,
     witness_request: Res<TransparentWitnessRequest>,
     witness_evidence: Res<TransparentWitnessEvidence>,
+    mut upload_budget: ResMut<TransparentUploadBudget>,
 ) {
+    upload_budget.reset();
     let completed = {
         let receiver = runtime
             .result_receiver
@@ -6527,6 +6882,12 @@ fn prepare_transparent_sorts(
 
     let mut uploaded_bytes = 0_u64;
     if let Some(batch) = runtime.state.next_upload_batch() {
+        if !upload_budget.consume(batch.refs().len()) {
+            bevy::log::error!(
+                "transparent water sort batch exceeds the shared per-frame reference upload budget"
+            );
+            return;
+        }
         let offset = u64::try_from(batch.buffer_slot() as usize * TRANSPARENT_REF_SLOT_BYTES)
             .unwrap()
             .saturating_add(
@@ -6603,6 +6964,7 @@ fn absolutize_model_lighting_bases(model_refs: &mut [[u32; 4]], lighting_word_st
     }
 }
 
+#[cfg(test)]
 fn validate_local_model_streams(
     model_refs: &[PackedModelRef],
     model_lighting: &[PackedQuadLighting],
@@ -6679,6 +7041,107 @@ fn validate_local_model_streams(
     draw_index == model_draw_refs.len() && expected_lighting_base == model_lighting.len()
 }
 
+fn validate_partitioned_model_streams(
+    model_refs: &[PackedModelRef],
+    model_lighting: &[PackedQuadLighting],
+    opaque_draw_refs: &[PackedModelDrawRef],
+    blend_draw_refs: &[PackedModelDrawRef],
+    model_templates: &[ModelTemplate],
+    model_quads: &[assets::ModelQuad],
+    materials: &[Material],
+) -> bool {
+    let any_draw = !opaque_draw_refs.is_empty() || !blend_draw_refs.is_empty();
+    if model_refs.is_empty() != model_lighting.is_empty() || model_refs.is_empty() == any_draw {
+        return false;
+    }
+    if model_refs.is_empty() {
+        return true;
+    }
+
+    let mut opaque_index = 0;
+    let mut blend_index = 0;
+    let mut expected_lighting_base = 0_usize;
+    for (model_ref_index, model_ref) in model_refs.iter().copied().enumerate() {
+        let Ok(model_ref_index) = u32::try_from(model_ref_index) else {
+            return false;
+        };
+        let words = model_ref.words();
+        let lighting_base = words[2] as usize;
+        let visible_mask = words[3];
+        let Some(template) = model_templates.get(words[1] as usize) else {
+            return false;
+        };
+        let Ok(template_quad_count) = usize::try_from(template.quad_count) else {
+            return false;
+        };
+        let template_start = template.quad_start as usize;
+        let Some(template_end) = template_start.checked_add(template_quad_count) else {
+            return false;
+        };
+        let Some(template_quads) = model_quads.get(template_start..template_end) else {
+            return false;
+        };
+        if !(1..=32).contains(&template_quad_count)
+            || visible_mask == 0
+            || lighting_base != expected_lighting_base
+        {
+            return false;
+        }
+        let valid_mask = if template_quad_count == 32 {
+            u32::MAX
+        } else {
+            (1_u32 << template_quad_count) - 1
+        };
+        if visible_mask & !valid_mask != 0 {
+            return false;
+        }
+        let Some(lighting_end) = lighting_base.checked_add(template_quad_count) else {
+            return false;
+        };
+        if lighting_end > model_lighting.len() {
+            return false;
+        }
+        expected_lighting_base = lighting_end;
+
+        let mut visible = visible_mask;
+        while visible != 0 {
+            let quad_index = visible.trailing_zeros();
+            let Some(quad) = template_quads.get(quad_index as usize) else {
+                return false;
+            };
+            let is_blend = if quad.material == assets::DIAGNOSTIC_MATERIAL {
+                false
+            } else {
+                let Some(material) = materials.get(quad.material as usize) else {
+                    return false;
+                };
+                material.flags & assets::MATERIAL_FLAG_ALPHA_BLEND != 0
+            };
+            let (draw_refs, draw_index) = if is_blend {
+                (blend_draw_refs, &mut blend_index)
+            } else {
+                (opaque_draw_refs, &mut opaque_index)
+            };
+            let Some(draw_ref) = draw_refs.get(*draw_index).copied() else {
+                return false;
+            };
+            if draw_ref.words() != [model_ref_index, quad_index]
+                || lighting_base
+                    .checked_add(quad_index as usize)
+                    .is_none_or(|index| index >= model_lighting.len())
+            {
+                return false;
+            }
+            *draw_index += 1;
+            visible &= visible - 1;
+        }
+    }
+    opaque_index == opaque_draw_refs.len()
+        && blend_index == blend_draw_refs.len()
+        && expected_lighting_base == model_lighting.len()
+}
+
+#[cfg(test)]
 fn absolutize_model_draw_refs(draw_refs: &mut [[u32; 2]], model_word_start: u32) -> Option<()> {
     if !model_word_start.is_multiple_of(4) {
         return None;
@@ -6691,6 +7154,31 @@ fn absolutize_model_draw_refs(draw_refs: &mut [[u32; 2]], model_word_start: u32)
         return None;
     }
     for words in draw_refs {
+        words[0] += model_record_base;
+    }
+    Some(())
+}
+
+fn absolutize_partitioned_model_draw_refs(
+    opaque_draw_refs: &mut [[u32; 2]],
+    blend_draw_refs: &mut [[u32; 2]],
+    model_word_start: u32,
+) -> Option<()> {
+    if !model_word_start.is_multiple_of(4) {
+        return None;
+    }
+    let model_record_base = model_word_start / 4;
+    if opaque_draw_refs
+        .iter()
+        .chain(blend_draw_refs.iter())
+        .any(|words| words[0].checked_add(model_record_base).is_none())
+    {
+        return None;
+    }
+    for words in opaque_draw_refs
+        .iter_mut()
+        .chain(blend_draw_refs.iter_mut())
+    {
         words[0] += model_record_base;
     }
     Some(())
@@ -6719,6 +7207,7 @@ struct GeometryStreamCounts {
     model: u32,
     model_lighting: u32,
     model_draw: u32,
+    transparent_model_draw: u32,
     liquid: u32,
     liquid_lighting: u32,
 }
@@ -6731,6 +7220,7 @@ struct GeometryStreamLayout {
     model_offset: u32,
     model_lighting_offset: u32,
     model_draw_offset: u32,
+    transparent_model_draw_offset: u32,
     liquid_offset: u32,
     liquid_lighting_offset: u32,
     word_count: u32,
@@ -6751,10 +7241,15 @@ impl GeometryStreamCounts {
             .checked_add(self.model_draw.checked_mul(
                 (PACKED_MODEL_DRAW_REF_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32,
             )?)?;
+        let transparent_model_draw_offset = model_draw_end;
+        let transparent_model_draw_end = transparent_model_draw_offset
+            .checked_add(self.transparent_model_draw.checked_mul(
+                (PACKED_MODEL_DRAW_REF_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32,
+            )?)?;
         let liquid_offset = if self.liquid == 0 && self.liquid_lighting == 0 {
-            model_draw_end
+            transparent_model_draw_end
         } else {
-            checked_align_up(model_draw_end, SHARED_GEOMETRY_ALIGNMENT_WORDS)?
+            checked_align_up(transparent_model_draw_end, SHARED_GEOMETRY_ALIGNMENT_WORDS)?
         };
         let liquid_lighting_offset =
             liquid_offset
@@ -6769,6 +7264,7 @@ impl GeometryStreamCounts {
             model_offset,
             model_lighting_offset,
             model_draw_offset,
+            transparent_model_draw_offset,
             liquid_offset,
             liquid_lighting_offset,
             word_count,
@@ -6863,6 +7359,7 @@ struct ChunkRangePlan {
     model_start: u32,
     model_lighting_start: u32,
     model_draw_start: u32,
+    transparent_model_draw_start: u32,
     liquid_start: u32,
     liquid_lighting_start: u32,
     biome_start: u32,
@@ -6926,6 +7423,8 @@ fn plan_chunk_range_update(
     let model_lighting_start =
         geometry_stream_start.checked_add(geometry_layout.model_lighting_offset)?;
     let model_draw_start = geometry_stream_start.checked_add(geometry_layout.model_draw_offset)?;
+    let transparent_model_draw_start =
+        geometry_stream_start.checked_add(geometry_layout.transparent_model_draw_offset)?;
     let liquid_start = geometry_stream_start.checked_add(geometry_layout.liquid_offset)?;
     let liquid_lighting_start =
         geometry_stream_start.checked_add(geometry_layout.liquid_lighting_offset)?;
@@ -6947,6 +7446,7 @@ fn plan_chunk_range_update(
         model_start,
         model_lighting_start,
         model_draw_start,
+        transparent_model_draw_start,
         liquid_start,
         liquid_lighting_start,
         biome_start,
@@ -8091,15 +8591,16 @@ fn queue_transparent_chunks(
     draw_functions: Res<DrawFunctions<Transparent3d>>,
     render_adapter: Res<RenderAdapter>,
     render_device: Res<RenderDevice>,
-    views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
+    views: Query<(
+        Entity,
+        &MainEntity,
+        &ExtractedView,
+        &RenderVisibleEntities,
+        &Msaa,
+    )>,
+    allocations: Query<&GpuChunkAllocation>,
     runtime: Res<TransparentSortRuntime>,
 ) {
-    let Some(snapshot) = runtime.state.committed() else {
-        return;
-    };
-    if snapshot.refs().is_empty() {
-        return;
-    }
     let draw_mode = select_chunk_draw_mode(
         render_adapter.get_downlevel_capabilities().flags,
         render_device.features(),
@@ -8108,41 +8609,477 @@ fn queue_transparent_chunks(
         return;
     }
     let draw_functions = draw_functions.read();
+    let transparent_model_draw = draw_functions.id::<DrawTransparentModelCommands>();
     let direct_draw = draw_functions.id::<DrawTransparentLiquidCommands>();
-    let indirect_draw = draw_functions.id::<DrawTransparentLiquidIndirectCommands>();
-    for (view_entity, main_entity, view, msaa) in &views {
+    for (view_entity, main_entity, view, visible_entities, msaa) in &views {
         if runtime.view_entity != Some(view_entity) {
             continue;
         }
         let Some(phase) = transparent_phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
-        let Ok(pipeline_id) = pipeline.liquid_variants.specialize(
-            &pipeline_cache,
-            ChunkPipelineKey {
-                msaa: *msaa,
-                hdr: view.hdr,
-            },
+        let key = ChunkPipelineKey {
+            msaa: *msaa,
+            hdr: view.hdr,
+        };
+        let rangefinder = view.rangefinder3d();
+        if let Ok(model_pipeline_id) = pipeline
+            .transparent_model_variants
+            .specialize(&pipeline_cache, key)
+        {
+            for &(render_entity, main_entity) in visible_entities.get::<ChunkRenderInstance>() {
+                let Ok(allocation) = allocations.get(render_entity) else {
+                    continue;
+                };
+                if transparent_model_direct_draw_command(allocation).is_none() {
+                    continue;
+                }
+                phase.add(Transparent3d {
+                    entity: (render_entity, main_entity),
+                    pipeline: model_pipeline_id,
+                    draw_function: transparent_model_draw,
+                    distance: transparent_model_phase_distance(&rangefinder, allocation.key),
+                    batch_range: 0..1,
+                    extra_index: PhaseItemExtraIndex::None,
+                    indexed: true,
+                });
+            }
+        }
+
+        let Some(snapshot) = runtime.state.committed() else {
+            continue;
+        };
+        if snapshot.refs().is_empty() || runtime.view_entity != Some(view_entity) {
+            continue;
+        }
+        let Some(groups) = transparent_liquid_phase_groups(snapshot) else {
+            bevy::log::error!(
+                "committed transparent-liquid snapshot is not an exact contiguous sub-chunk partition"
+            );
+            continue;
+        };
+        let Ok(pipeline_id) = pipeline.liquid_variants.specialize(&pipeline_cache, key) else {
+            continue;
+        };
+        // Keep each sub-chunk's worker-sorted water refs contiguous while
+        // giving water and blend models the same phase-distance contract.
+        for group in groups {
+            phase.add(Transparent3d {
+                entity: (view_entity, *main_entity),
+                pipeline: pipeline_id,
+                draw_function: direct_draw,
+                distance: transparent_liquid_phase_distance(&rangefinder, group.key),
+                batch_range: 0..1,
+                extra_index: PhaseItemExtraIndex::IndirectParametersIndex {
+                    range: group.ref_range,
+                    batch_set_index: None,
+                },
+                indexed: true,
+            });
+        }
+    }
+}
+
+fn transparent_model_subchunk_center(key: SubChunkKey) -> Vec3 {
+    let origin = chunk_origin(key);
+    Vec3::new(
+        origin[0] as f32 + 8.0,
+        origin[1] as f32 + 8.0,
+        origin[2] as f32 + 8.0,
+    )
+}
+
+fn transparent_model_phase_distance(rangefinder: &ViewRangefinder3d, key: SubChunkKey) -> f32 {
+    rangefinder.distance(&transparent_model_subchunk_center(key))
+}
+
+fn transparent_model_draw_candidate(
+    key: SubChunkKey,
+    model_refs: &[PackedModelRef],
+    draw_ref: PackedModelDrawRef,
+    model_templates: &[ModelTemplate],
+    model_quads: &[assets::ModelQuad],
+    model_record_base: u32,
+) -> Option<(Vec3, [u32; 2])> {
+    let [chunk_x, chunk_y, chunk_z] = chunk_origin(key).map(|coordinate| coordinate as f32);
+    let [local_model_ref, quad_index] = draw_ref.words();
+    let model_ref = model_refs.get(local_model_ref as usize)?.words();
+    let template = model_templates.get(model_ref[1] as usize)?;
+    if quad_index >= template.quad_count || model_ref[3] & (1_u32 << quad_index) == 0 {
+        return None;
+    }
+    let quad = model_quads.get(template.quad_start.checked_add(quad_index)? as usize)?;
+    let mut centroid = quad.positions.iter().fold(Vec3::ZERO, |total, position| {
+        total
+            + Vec3::new(
+                f32::from(position[0]),
+                f32::from(position[1]),
+                f32::from(position[2]),
+            )
+    }) / (4.0 * 256.0);
+    let centered = centroid - Vec3::new(0.5, 0.0, 0.5);
+    centroid = match (model_ref[0] >> 12) & 3 {
+        1 => Vec3::new(-centered.z, centered.y, centered.x),
+        2 => Vec3::new(-centered.x, centered.y, -centered.z),
+        3 => Vec3::new(centered.z, centered.y, -centered.x),
+        _ => centered,
+    } + Vec3::new(0.5, 0.0, 0.5);
+    let block = Vec3::new(
+        (model_ref[0] & 15) as f32,
+        ((model_ref[0] >> 4) & 15) as f32,
+        ((model_ref[0] >> 8) & 15) as f32,
+    );
+    Some((
+        Vec3::new(chunk_x, chunk_y, chunk_z) + block + centroid,
+        [local_model_ref.checked_add(model_record_base)?, quad_index],
+    ))
+}
+
+#[cfg(test)]
+fn sorted_transparent_model_draw_words(
+    rangefinder: &ViewRangefinder3d,
+    key: SubChunkKey,
+    model_refs: &[PackedModelRef],
+    draw_refs: &[PackedModelDrawRef],
+    model_templates: &[ModelTemplate],
+    model_quads: &[assets::ModelQuad],
+    model_record_base: u32,
+) -> Option<Vec<[u32; 2]>> {
+    let mut sorted = Vec::with_capacity(draw_refs.len());
+    for (stable_index, draw_ref) in draw_refs.iter().copied().enumerate() {
+        let (world_centroid, words) = transparent_model_draw_candidate(
+            key,
+            model_refs,
+            draw_ref,
+            model_templates,
+            model_quads,
+            model_record_base,
+        )?;
+        sorted.push((rangefinder.distance(&world_centroid), stable_index, words));
+    }
+    sorted.sort_by(|left, right| {
+        left.0
+            .total_cmp(&right.0)
+            .then_with(|| left.1.cmp(&right.1))
+    });
+    Some(sorted.into_iter().map(|(_, _, words)| words).collect())
+}
+
+fn canonical_transparent_rotation_bits(mut rotation: Quat) -> Option<[u32; 4]> {
+    let norm_squared = rotation.length_squared();
+    if !norm_squared.is_finite() || norm_squared == 0.0 {
+        return None;
+    }
+    rotation *= norm_squared.sqrt().recip();
+    let mut values = rotation.to_array();
+    let anchor = [values[3], values[2], values[1], values[0]]
+        .into_iter()
+        .find(|value| *value != 0.0)
+        .unwrap_or(1.0);
+    if anchor.is_sign_negative() {
+        values = values.map(|value| -value);
+    }
+    Some(values.map(|value| if value == 0.0 { 0 } else { value.to_bits() }))
+}
+
+fn sort_transparent_model_candidates(
+    view_from_world: Mat4,
+    candidates: Arc<[TransparentModelSortCandidate]>,
+) -> Vec<TransparentModelSortBatch> {
+    let mut groups =
+        HashMap::<Entity, (SubChunkKey, Range<u32>, Vec<TransparentModelSortCandidate>)>::new();
+    for candidate in candidates.iter().cloned() {
+        let entry = groups
+            .entry(candidate.entity)
+            .or_insert_with(|| (candidate.key, candidate.draw_range.clone(), Vec::new()));
+        entry.2.push(candidate);
+    }
+    let mut groups = groups.into_values().collect::<Vec<_>>();
+    groups.sort_by_key(|(key, range, _)| (*key, range.start));
+    groups
+        .into_iter()
+        .map(|(_, draw_range, mut candidates)| {
+            candidates.sort_by(|left, right| {
+                view_from_world
+                    .transform_point3(left.centroid)
+                    .z
+                    .total_cmp(&view_from_world.transform_point3(right.centroid).z)
+                    .then_with(|| left.stable_index.cmp(&right.stable_index))
+            });
+            TransparentModelSortBatch {
+                draw_range,
+                words: candidates
+                    .into_iter()
+                    .map(|candidate| candidate.words)
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            }
+        })
+        .collect()
+}
+
+fn take_transparent_model_upload_batches(
+    batches: &mut VecDeque<TransparentModelSortBatch>,
+    upload_cap: usize,
+) -> Vec<TransparentModelSortBatch> {
+    let mut upload_remaining = upload_cap;
+    let mut selected = Vec::new();
+    while let Some(batch) = batches.front() {
+        if batch.words.len() > upload_remaining {
+            break;
+        }
+        upload_remaining -= batch.words.len();
+        selected.push(
+            batches
+                .pop_front()
+                .expect("front batch remains available while selecting uploads"),
+        );
+    }
+    selected
+}
+
+fn spawn_transparent_model_sort(
+    sender: SyncSender<TransparentModelWorkerResult>,
+    work: TransparentModelSortWork,
+) {
+    rayon::spawn(move || {
+        let batches = sort_transparent_model_candidates(work.view_from_world, work.candidates);
+        let _ = sender.try_send(TransparentModelWorkerResult {
+            generation: work.generation,
+            key: work.key,
+            batches,
+        });
+    });
+}
+
+#[allow(clippy::too_many_arguments)]
+fn prepare_transparent_model_sorts(
+    views: Query<(Entity, &ExtractedView, &RenderVisibleEntities), With<ExtractedCamera>>,
+    instances: Query<&ChunkRenderInstance>,
+    allocations: Query<&GpuChunkAllocation>,
+    texture_assets: Res<ChunkTextureAssets>,
+    arena: Res<ChunkGpuArena>,
+    render_queue: Res<RenderQueue>,
+    transparent_runtime: Res<TransparentSortRuntime>,
+    mut upload_budget: ResMut<TransparentUploadBudget>,
+    mut runtime: ResMut<TransparentModelSortRuntime>,
+) {
+    let Some((view_entity, view, visible_entities)) = views
+        .iter()
+        .find(|(entity, _, _)| transparent_runtime.view_entity == Some(*entity))
+    else {
+        runtime.committed = None;
+        runtime.staged = None;
+        runtime.candidate_cache = None;
+        return;
+    };
+    let (_, rotation, _) = view.world_from_view.to_scale_rotation_translation();
+    let Some(rotation_bits) = canonical_transparent_rotation_bits(rotation) else {
+        return;
+    };
+    let mut identities = Vec::new();
+    let mut total_refs = 0_usize;
+    for &(entity, _) in visible_entities.get::<ChunkRenderInstance>() {
+        let Ok(allocation) = allocations.get(entity) else {
+            continue;
+        };
+        let Ok(instance) = instances.get(entity) else {
+            continue;
+        };
+        if !transparent_model_allocation_matches(instance, allocation) {
+            continue;
+        }
+        let (Some(model_range), Some(draw_range)) = (
+            allocation.model_range.clone(),
+            allocation.transparent_model_draw_range.clone(),
         ) else {
             continue;
         };
-        // Water is the sole no-depth-write blend family in v1. One phase item
-        // preserves the worker's complete internal ref order; Task 19's
-        // non-water liquids use a separate depth-writing pipeline.
-        phase.add(Transparent3d {
-            entity: (view_entity, *main_entity),
-            pipeline: pipeline_id,
-            draw_function: if draw_mode == ChunkDrawMode::MultiDrawIndirect {
-                indirect_draw
-            } else {
-                direct_draw
-            },
-            distance: 0.0,
-            batch_range: 0..1,
-            extra_index: PhaseItemExtraIndex::None,
-            indexed: true,
+        if !model_range.start.is_multiple_of(4)
+            || !draw_range.start.is_multiple_of(2)
+            || !draw_range.end.is_multiple_of(2)
+        {
+            bevy::log::error!(key = ?allocation.key, "transparent model sort ranges are misaligned");
+            return;
+        }
+        let ref_count = draw_range.end.saturating_sub(draw_range.start) as usize / 2;
+        if ref_count > DEFAULT_TRANSPARENT_UPLOAD_REFS_PER_FRAME {
+            bevy::log::error!(key = ?allocation.key, "one transparent model sub-chunk exceeds the per-frame sort upload cap");
+            return;
+        }
+        total_refs = total_refs.saturating_add(ref_count);
+        if total_refs > MAX_TRANSPARENT_DRAW_REFS {
+            bevy::log::error!("visible transparent model refs exceed the hard sort ceiling");
+            return;
+        }
+        identities.push(TransparentModelAllocationIdentity {
+            entity,
+            key: allocation.key,
+            generation: allocation.generation,
+            model_range,
+            draw_range,
         });
     }
+    identities.sort_by_key(|identity| (identity.key, identity.draw_range.start));
+    let address = TransparentModelAddressIdentity {
+        asset_identity: texture_assets.identity(),
+        allocations: Arc::from(identities),
+    };
+    let key = TransparentModelSortKey {
+        view_entity,
+        rotation_bits,
+        address: address.clone(),
+    };
+
+    let completed = runtime
+        .result_receiver
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .try_recv()
+        .ok();
+    if let Some(result) = completed {
+        let next = runtime.gate.complete(result.generation);
+        if runtime.requested.as_ref() == Some(&(result.generation, result.key.clone()))
+            && result.key == key
+        {
+            runtime.staged = Some(TransparentModelStagedSort {
+                key: result.key,
+                batches: result.batches.into(),
+            });
+        }
+        if let Some((_generation, work)) = next {
+            spawn_transparent_model_sort(runtime.result_sender.clone(), work);
+        }
+    }
+    if runtime
+        .staged
+        .as_ref()
+        .is_some_and(|staged| staged.key != key)
+    {
+        runtime.staged = None;
+    }
+    if let Some(staged) = runtime.staged.as_mut() {
+        let batches =
+            take_transparent_model_upload_batches(&mut staged.batches, upload_budget.remaining());
+        let uploaded_refs = batches.iter().map(|batch| batch.words.len()).sum();
+        if !upload_budget.consume(uploaded_refs) {
+            bevy::log::error!(
+                "transparent model sort batches exceed the shared per-frame reference upload budget"
+            );
+            return;
+        }
+        for batch in batches {
+            render_queue.write_buffer(
+                &arena.geometry_stream_buffer,
+                u64::from(batch.draw_range.start) * GEOMETRY_STREAM_WORD_BYTES,
+                bytemuck::cast_slice(&batch.words),
+            );
+        }
+        if staged.batches.is_empty() {
+            runtime.committed = Some(staged.key.clone());
+            runtime.staged = None;
+        }
+    }
+    if runtime.committed.as_ref() == Some(&key)
+        || runtime
+            .staged
+            .as_ref()
+            .is_some_and(|staged| staged.key == key)
+        || runtime
+            .requested
+            .as_ref()
+            .is_some_and(|(_, requested)| requested == &key)
+    {
+        return;
+    }
+
+    if total_refs == 0 {
+        runtime.requested = None;
+        runtime.staged = None;
+        runtime.committed = Some(key);
+        runtime.candidate_cache = Some(TransparentModelCandidateCache {
+            address,
+            candidates: Arc::from([]),
+        });
+        return;
+    }
+
+    let candidates = if runtime
+        .candidate_cache
+        .as_ref()
+        .is_some_and(|cache| cache.address == address)
+    {
+        Arc::clone(&runtime.candidate_cache.as_ref().unwrap().candidates)
+    } else {
+        let mut candidates = Vec::with_capacity(total_refs);
+        for identity in address.allocations.iter() {
+            let Ok(instance) = instances.get(identity.entity) else {
+                return;
+            };
+            if instance.transparent_model_draw_refs.len().checked_mul(2)
+                != Some(
+                    identity
+                        .draw_range
+                        .end
+                        .saturating_sub(identity.draw_range.start) as usize,
+                )
+            {
+                return;
+            }
+            for (stable_index, draw_ref) in instance
+                .transparent_model_draw_refs
+                .iter()
+                .copied()
+                .enumerate()
+            {
+                let Some((centroid, words)) = transparent_model_draw_candidate(
+                    identity.key,
+                    &instance.model_refs,
+                    draw_ref,
+                    texture_assets.assets().model_templates(),
+                    texture_assets.assets().model_quads(),
+                    identity.model_range.start / 4,
+                ) else {
+                    return;
+                };
+                let Ok(stable_index) = u32::try_from(stable_index) else {
+                    return;
+                };
+                candidates.push(TransparentModelSortCandidate {
+                    entity: identity.entity,
+                    key: identity.key,
+                    draw_range: identity.draw_range.clone(),
+                    stable_index,
+                    centroid,
+                    words,
+                });
+            }
+        }
+        let candidates = Arc::from(candidates);
+        runtime.candidate_cache = Some(TransparentModelCandidateCache {
+            address: address.clone(),
+            candidates: Arc::clone(&candidates),
+        });
+        candidates
+    };
+    runtime.next_generation = runtime.next_generation.wrapping_add(1).max(1);
+    let generation = ViewSortGeneration(runtime.next_generation);
+    runtime.requested = Some((generation, key.clone()));
+    runtime.committed = None;
+    let work = TransparentModelSortWork {
+        generation,
+        key,
+        view_from_world: Mat4::from(view.world_from_view.affine().inverse()),
+        candidates,
+    };
+    let (start, _) = runtime.gate.submit_with_replacement(generation, work);
+    if let Some((_generation, work)) = start {
+        spawn_transparent_model_sort(runtime.result_sender.clone(), work);
+    }
+}
+
+fn transparent_liquid_phase_distance(rangefinder: &ViewRangefinder3d, key: SubChunkKey) -> f32 {
+    transparent_model_phase_distance(rangefinder, key)
 }
 
 fn transparent_frame_draws(
@@ -8170,6 +9107,47 @@ fn transparent_frame_draws(
             ))
         })
         .collect()
+}
+
+fn transparent_frame_draw_for_range(
+    snapshot: &TransparentOrderedSnapshot,
+    arena: &ChunkGpuArena,
+    ref_range: Range<u32>,
+) -> Option<(Entity, FrameAllocationIdentity)> {
+    let start = usize::try_from(ref_range.start).ok()?;
+    let end = usize::try_from(ref_range.end).ok()?;
+    let refs = snapshot.refs().get(start..end)?;
+    let metadata_index = refs.first()?.metadata_index();
+    if refs
+        .iter()
+        .any(|draw_ref| draw_ref.metadata_index() != metadata_index)
+    {
+        return None;
+    }
+    let active = arena
+        .allocations
+        .iter()
+        .map(|(&entity, allocation)| (entity, &allocation.gpu));
+    let retired = arena
+        .retired_allocations
+        .iter()
+        .map(|allocation| (allocation.entity, &allocation.identity));
+    active
+        .chain(retired)
+        .find(|(_, allocation)| {
+            allocation.metadata_index == metadata_index
+                && transparent_snapshot_references_allocation(snapshot, allocation)
+        })
+        .map(|(entity, allocation)| {
+            (
+                entity,
+                FrameAllocationIdentity {
+                    entity,
+                    key: allocation.key,
+                    generation: allocation.generation,
+                },
+            )
+        })
 }
 
 fn transparent_snapshot_references_allocation(
@@ -8225,6 +9203,7 @@ type DrawChunkCommands = (SetItemPipeline, DrawPackedChunk);
 type DrawChunkIndirectCommands = (SetItemPipeline, DrawPackedChunksIndirect);
 type DrawModelCommands = (SetItemPipeline, DrawPackedModel);
 type DrawModelIndirectCommands = (SetItemPipeline, DrawPackedModelsIndirect);
+type DrawTransparentModelCommands = (SetItemPipeline, DrawPackedTransparentModel);
 type DrawDepthLiquidCommands = (SetItemPipeline, DrawDepthLiquid);
 type DrawDepthLiquidIndirectCommands = (SetItemPipeline, DrawDepthLiquidsIndirect);
 type DrawTransparentLiquidCommands = (SetItemPipeline, DrawTransparentLiquid);
@@ -8279,7 +9258,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawDepthLiquid {
     }
 }
 
-impl<P: PhaseItem> RenderCommand<P> for DrawTransparentLiquid {
+impl RenderCommand<Transparent3d> for DrawTransparentLiquid {
     type Param = (
         SRes<ChunkGpuArena>,
         SRes<TransparentSortRuntime>,
@@ -8290,7 +9269,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawTransparentLiquid {
     type ItemQuery = ();
 
     fn render<'w>(
-        item: &P,
+        item: &Transparent3d,
         view_offset: ROQueryItem<'w, '_, Self::ViewQuery>,
         _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
         (arena, runtime, metrics, frame_probe): SystemParamItem<'w, '_, Self::Param>,
@@ -8305,7 +9284,13 @@ impl<P: PhaseItem> RenderCommand<P> for DrawTransparentLiquid {
         else {
             return RenderCommandResult::Skip;
         };
-        let Some(args) = transparent_draw_args(snapshot.buffer_slot(), snapshot.refs().len())
+        let PhaseItemExtraIndex::IndirectParametersIndex {
+            range: ref_range, ..
+        } = item.extra_index.clone()
+        else {
+            return RenderCommandResult::Skip;
+        };
+        let Some(args) = transparent_draw_range_args(snapshot.buffer_slot(), ref_range.clone())
         else {
             return RenderCommandResult::Skip;
         };
@@ -8320,11 +9305,10 @@ impl<P: PhaseItem> RenderCommand<P> for DrawTransparentLiquid {
             args.first_instance..args.first_instance + args.instance_count,
         );
         let frame_probe = frame_probe.into_inner();
-        if frame_probe.is_active() {
-            frame_probe.record_transparent_draw(
-                snapshot.generation(),
-                transparent_frame_draws(snapshot, arena),
-            );
+        if frame_probe.is_active()
+            && let Some(draw) = transparent_frame_draw_for_range(snapshot, arena, ref_range)
+        {
+            frame_probe.record_transparent_draw(snapshot.generation(), [draw]);
         }
         let generation = snapshot.generation().get();
         record_encoded_transparent_generation(metrics.into_inner(), ViewSortGeneration(generation));
@@ -8446,6 +9430,48 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedModel {
             return RenderCommandResult::Skip;
         }
         let Some(draw) = model_direct_draw_command(allocation) else {
+            return RenderCommandResult::Skip;
+        };
+        pass.set_bind_group(0, bind_group, &[view_offset.offset]);
+        pass.set_index_buffer(arena.model_index_buffer.slice(..), IndexFormat::Uint32);
+        pass.draw_indexed(
+            draw.first_index..draw.first_index + draw.index_count,
+            draw.base_vertex,
+            draw.first_instance..draw.first_instance + draw.instance_count,
+        );
+        frame_probe.record_direct_streams(item.entity(), identity, ChunkStreamMask::MODEL);
+        RenderCommandResult::Success
+    }
+}
+
+struct DrawPackedTransparentModel;
+
+impl<P: PhaseItem> RenderCommand<P> for DrawPackedTransparentModel {
+    type Param = (SRes<ChunkGpuArena>, SRes<ActiveFrameProbe>);
+    type ViewQuery = Read<ViewUniformOffset>;
+    type ItemQuery = Read<GpuChunkAllocation>;
+
+    fn render<'w>(
+        item: &P,
+        view_offset: ROQueryItem<'w, '_, Self::ViewQuery>,
+        allocation: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
+        (arena, frame_probe): SystemParamItem<'w, '_, Self::Param>,
+        pass: &mut TrackedRenderPass<'w>,
+    ) -> RenderCommandResult {
+        let arena = arena.into_inner();
+        let frame_probe = frame_probe.into_inner();
+        let (Some(bind_group), Some(allocation)) = (&arena.bind_group, allocation) else {
+            return RenderCommandResult::Skip;
+        };
+        let identity = FrameAllocationIdentity {
+            entity: item.entity(),
+            key: allocation.key,
+            generation: allocation.generation,
+        };
+        if !frame_probe.accepts(item.entity(), identity) {
+            return RenderCommandResult::Skip;
+        }
+        let Some(draw) = transparent_model_direct_draw_command(allocation) else {
             return RenderCommandResult::Skip;
         };
         pass.set_bind_group(0, bind_group, &[view_offset.offset]);
@@ -8747,6 +9773,7 @@ mod tests {
             model: 1,
             model_lighting: 1,
             model_draw: 1,
+            transparent_model_draw: 0,
             liquid: 1,
             liquid_lighting: 1,
         };
@@ -8975,6 +10002,7 @@ mod tests {
             model_refs: Arc::from([]),
             model_lighting: Arc::from([]),
             model_draw_refs: Arc::from([]),
+            transparent_model_draw_refs: Arc::from([]),
             liquid_quads: Arc::from([PackedLiquidQuad::try_pack(
                 [0, 0, 0],
                 crate::Face::PositiveY,
@@ -9003,6 +10031,7 @@ mod tests {
             model_range: Some(plan.model_start..plan.model_lighting_start),
             model_lighting_range: Some(plan.model_lighting_start..plan.liquid_start),
             model_draw_range: None,
+            transparent_model_draw_range: None,
             liquid_range: Some(plan.liquid_start..plan.liquid_start + 4),
             liquid_lighting_range: Some(plan.liquid_lighting_start..plan.liquid_lighting_start + 2),
             has_depth_liquid: false,
@@ -9124,6 +10153,7 @@ mod tests {
             model_range: Some(model_range.clone()),
             model_lighting_range: Some(model_lighting_range.clone()),
             model_draw_range: Some(model_draw_range.clone()),
+            transparent_model_draw_range: None,
             liquid_range: None,
             liquid_lighting_range: None,
             has_depth_liquid: false,
@@ -9274,6 +10304,373 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn transparent_model_draw_uses_only_its_exact_partitioned_range() {
+        let required = GeometryStreamCounts {
+            model: 1,
+            model_lighting: 2,
+            model_draw: 1,
+            transparent_model_draw: 2,
+            ..Default::default()
+        };
+        let plan = plan_chunk_range_update(
+            0,
+            &[],
+            0,
+            &[],
+            FALLBACK_BIOME_WORDS,
+            &[],
+            required,
+            0,
+            None,
+            false,
+            ArenaLimits {
+                max_quad_items: 0,
+                max_geometry_stream_words: 32,
+                max_origin_items: 1,
+                max_biome_words: FALLBACK_BIOME_WORDS,
+            },
+        )
+        .expect("partitioned model upload fits");
+        let transparent_range = plan.transparent_model_draw_start
+            ..plan.transparent_model_draw_start + required.transparent_model_draw * 2;
+        let allocation = GpuChunkAllocation {
+            key: SubChunkKey::new(0, 0, 0, 0),
+            generation: 1,
+            tint_identity: ChunkBiomeTintIdentity::default(),
+            quad_range: 0..0,
+            model_range: Some(plan.model_start..plan.model_lighting_start),
+            model_lighting_range: Some(plan.model_lighting_start..plan.model_draw_start),
+            model_draw_range: Some(plan.model_draw_start..plan.transparent_model_draw_start),
+            transparent_model_draw_range: Some(transparent_range.clone()),
+            liquid_range: None,
+            liquid_lighting_range: None,
+            has_depth_liquid: false,
+            has_transparent_liquid: false,
+            depth_liquid_range: None,
+            metadata_index: 3,
+        };
+
+        let draw = transparent_model_direct_draw_command(&allocation)
+            .expect("transparent model draw command");
+        assert_eq!(draw.index_count, MODEL_INDEX_COUNT);
+        assert_eq!(draw.instance_count, 2);
+        assert_eq!(draw.first_instance, transparent_range.start / 2);
+        assert_eq!(draw.base_vertex, 12);
+        assert!(
+            transparent_model_direct_draw_command(&GpuChunkAllocation {
+                transparent_model_draw_range: None,
+                ..allocation
+            })
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn transparent_model_phase_distance_is_monotonic_by_subchunk_center() {
+        let rangefinder = bevy::render::render_phase::ViewRangefinder3d::from_world_from_view(
+            &bevy::math::Affine3A::from_translation(Vec3::new(0.0, 0.0, -1.0)),
+        );
+        let near = SubChunkKey::new(0, 0, 0, 0);
+        let far = SubChunkKey::new(0, 0, 0, 2);
+
+        assert_eq!(transparent_model_subchunk_center(near), Vec3::splat(8.0));
+        assert!(
+            transparent_model_phase_distance(&rangefinder, far)
+                > transparent_model_phase_distance(&rangefinder, near)
+        );
+    }
+
+    #[test]
+    fn transparent_liquid_groups_share_the_model_subchunk_distance_contract() {
+        let near =
+            TransparentAllocationIdentity::new(SubChunkKey::new(0, 0, 0, 0), 1, 8..12, 24..26, 10);
+        let far =
+            TransparentAllocationIdentity::new(SubChunkKey::new(0, 0, 0, 2), 2, 0..8, 20..24, 20);
+        let key = ViewSortKey::try_new(
+            [0.0; 3],
+            [0.0, 0.0, 0.0, 1.0],
+            vec![near.clone(), far.clone()],
+            ChunkTextureAssetIdentity::for_test(1, 1),
+            ChunkBiomeTintIdentity::new(1, 1),
+        )
+        .unwrap();
+        let snapshot = committed_transparent_state(
+            &key,
+            vec![
+                PackedTransparentDrawRef::new(0, far.metadata_index),
+                PackedTransparentDrawRef::new(1, far.metadata_index),
+                PackedTransparentDrawRef::new(2, near.metadata_index),
+            ],
+        )
+        .committed()
+        .unwrap()
+        .clone();
+
+        let groups = transparent_liquid_phase_groups(&snapshot).expect("exact grouped snapshot");
+        assert_eq!(
+            groups,
+            [
+                TransparentLiquidPhaseGroup {
+                    key: far.key,
+                    ref_range: 0..2,
+                },
+                TransparentLiquidPhaseGroup {
+                    key: near.key,
+                    ref_range: 2..3,
+                },
+            ]
+        );
+        let rangefinder = bevy::render::render_phase::ViewRangefinder3d::from_world_from_view(
+            &bevy::math::Affine3A::from_translation(Vec3::new(0.0, 0.0, -1.0)),
+        );
+        assert_eq!(
+            transparent_liquid_phase_distance(&rangefinder, groups[0].key),
+            transparent_model_phase_distance(&rangefinder, far.key),
+        );
+        assert!(
+            transparent_liquid_phase_distance(&rangefinder, groups[0].key)
+                > transparent_liquid_phase_distance(&rangefinder, groups[1].key)
+        );
+        assert_eq!(
+            transparent_draw_range_args(snapshot.buffer_slot(), groups[0].ref_range.clone()),
+            Some(TransparentDrawArgs {
+                index_count: 6,
+                instance_count: 2,
+                first_index: 0,
+                base_vertex: 0,
+                first_instance: 0,
+            })
+        );
+
+        let mut non_contiguous = snapshot;
+        non_contiguous.refs = Arc::from([
+            PackedTransparentDrawRef::new(0, far.metadata_index),
+            PackedTransparentDrawRef::new(2, near.metadata_index),
+            PackedTransparentDrawRef::new(1, far.metadata_index),
+        ]);
+        assert!(transparent_liquid_phase_groups(&non_contiguous).is_none());
+        assert!(transparent_draw_range_args(0, 0..MAX_TRANSPARENT_DRAW_REFS as u32 + 1).is_none());
+    }
+
+    #[test]
+    fn transparent_model_face_order_reverses_with_camera_rotation() {
+        let model_refs = [PackedModelRef::new(0, 0, 0, 0b11)];
+        let draw_refs = [PackedModelDrawRef::new(0, 0), PackedModelDrawRef::new(0, 1)];
+        let templates = [assets::ModelTemplate {
+            quad_start: 0,
+            quad_count: 2,
+            flags: 0,
+        }];
+        let quads = [
+            assets::ModelQuad {
+                positions: [[0, 0, 0], [256, 0, 0], [256, 256, 0], [0, 256, 0]],
+                uvs: [[0; 2]; 4],
+                material: 0,
+                flags: 0,
+            },
+            assets::ModelQuad {
+                positions: [[0, 0, 256], [0, 256, 256], [256, 256, 256], [256, 0, 256]],
+                uvs: [[0; 2]; 4],
+                material: 0,
+                flags: 0,
+            },
+        ];
+        let identity_view =
+            ViewRangefinder3d::from_world_from_view(&bevy::math::Affine3A::IDENTITY);
+        let reversed_view = ViewRangefinder3d::from_world_from_view(
+            &bevy::math::Affine3A::from_rotation_translation(
+                Quat::from_rotation_y(std::f32::consts::PI),
+                Vec3::ZERO,
+            ),
+        );
+
+        assert_eq!(
+            sorted_transparent_model_draw_words(
+                &identity_view,
+                SubChunkKey::new(0, 0, 0, 0),
+                &model_refs,
+                &draw_refs,
+                &templates,
+                &quads,
+                5,
+            )
+            .unwrap(),
+            [[5, 0], [5, 1]],
+        );
+        assert_eq!(
+            sorted_transparent_model_draw_words(
+                &reversed_view,
+                SubChunkKey::new(0, 0, 0, 0),
+                &model_refs,
+                &draw_refs,
+                &templates,
+                &quads,
+                5,
+            )
+            .unwrap(),
+            [[5, 1], [5, 0]],
+        );
+
+        let entity = Entity::from_bits(1);
+        let candidates = Arc::from(
+            draw_refs
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(stable_index, draw_ref)| {
+                    let (centroid, words) = transparent_model_draw_candidate(
+                        SubChunkKey::new(0, 0, 0, 0),
+                        &model_refs,
+                        draw_ref,
+                        &templates,
+                        &quads,
+                        5,
+                    )
+                    .unwrap();
+                    TransparentModelSortCandidate {
+                        entity,
+                        key: SubChunkKey::new(0, 0, 0, 0),
+                        draw_range: 20..24,
+                        stable_index: stable_index as u32,
+                        centroid,
+                        words,
+                    }
+                })
+                .collect::<Vec<_>>(),
+        );
+        assert_eq!(
+            sort_transparent_model_candidates(Mat4::IDENTITY, Arc::clone(&candidates))[0]
+                .words
+                .as_ref(),
+            [[5, 0], [5, 1]],
+        );
+        assert_eq!(
+            sort_transparent_model_candidates(
+                Mat4::from_quat(Quat::from_rotation_y(std::f32::consts::PI)),
+                candidates,
+            )[0]
+            .words
+            .as_ref(),
+            [[5, 1], [5, 0]],
+        );
+    }
+
+    #[test]
+    fn transparent_model_upload_batches_respect_cap_without_splitting_subchunks() {
+        let mut batches = VecDeque::from([
+            TransparentModelSortBatch {
+                draw_range: 0..6,
+                words: vec![[0, 0]; 3].into_boxed_slice(),
+            },
+            TransparentModelSortBatch {
+                draw_range: 6..14,
+                words: vec![[1, 0]; 4].into_boxed_slice(),
+            },
+        ]);
+
+        let first = take_transparent_model_upload_batches(&mut batches, 5);
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].draw_range, 0..6);
+        assert_eq!(batches.len(), 1);
+
+        let second = take_transparent_model_upload_batches(&mut batches, 5);
+        assert_eq!(second.len(), 1);
+        assert_eq!(second[0].draw_range, 6..14);
+        assert!(batches.is_empty());
+    }
+
+    #[test]
+    fn transparent_model_rotation_cache_key_normalizes_quaternion_sign() {
+        let rotation = Quat::from_rotation_y(0.75);
+        assert_eq!(
+            canonical_transparent_rotation_bits(rotation),
+            canonical_transparent_rotation_bits(-rotation),
+        );
+        assert_ne!(
+            canonical_transparent_rotation_bits(rotation),
+            canonical_transparent_rotation_bits(Quat::from_rotation_y(1.0)),
+        );
+    }
+
+    #[test]
+    fn shared_geometry_layout_keeps_both_model_draw_routes_contiguous_and_bounded() {
+        let layout = GeometryStreamCounts {
+            model: 1,
+            model_lighting: 2,
+            model_draw: 1,
+            transparent_model_draw: 2,
+            liquid: 1,
+            liquid_lighting: 1,
+            ..Default::default()
+        }
+        .layout()
+        .expect("bounded mixed model streams");
+
+        assert_eq!(layout.model_offset, 0);
+        assert_eq!(layout.model_lighting_offset, 4);
+        assert_eq!(layout.model_draw_offset, 8);
+        assert_eq!(layout.transparent_model_draw_offset, 10);
+        assert_eq!(layout.liquid_offset, 16);
+        assert_eq!(layout.liquid_lighting_offset, 20);
+        assert_eq!(layout.word_count, 22);
+    }
+
+    #[test]
+    fn model_upload_validation_enforces_exact_material_partition() {
+        let templates = [assets::ModelTemplate {
+            quad_start: 0,
+            quad_count: 2,
+            flags: 0,
+        }];
+        let quads = [
+            assets::ModelQuad {
+                positions: [[0; 3]; 4],
+                uvs: [[0; 2]; 4],
+                material: assets::DIAGNOSTIC_MATERIAL,
+                flags: 0,
+            },
+            assets::ModelQuad {
+                positions: [[0; 3]; 4],
+                uvs: [[0; 2]; 4],
+                material: 1,
+                flags: 0,
+            },
+        ];
+        let materials = [
+            assets::Material {
+                texture: TextureRef::DIAGNOSTIC,
+                flags: 0,
+                animation: NO_ANIMATION,
+            },
+            assets::Material {
+                texture: TextureRef::DIAGNOSTIC,
+                flags: assets::MATERIAL_FLAG_ALPHA_BLEND,
+                animation: NO_ANIMATION,
+            },
+        ];
+        let refs = [PackedModelRef::new(0x432, 0, 0, 0b11)];
+        let lighting = [PackedQuadLighting::new([0; 4]); 2];
+        let opaque = [PackedModelDrawRef::new(0, 0)];
+        let blend = [PackedModelDrawRef::new(0, 1)];
+
+        assert!(validate_partitioned_model_streams(
+            &refs, &lighting, &opaque, &blend, &templates, &quads, &materials,
+        ));
+        assert!(!validate_partitioned_model_streams(
+            &refs, &lighting, &blend, &opaque, &templates, &quads, &materials,
+        ));
+        assert!(!validate_partitioned_model_streams(
+            &refs,
+            &lighting,
+            &opaque,
+            &[],
+            &templates,
+            &quads,
+            &materials,
+        ));
+    }
+
     fn owned_model_stream_fixture() -> (
         Vec<PackedModelRef>,
         Vec<PackedQuadLighting>,
@@ -9388,6 +10785,19 @@ mod tests {
     }
 
     #[test]
+    fn partitioned_model_draw_absolutization_preserves_both_exact_routes() {
+        let mut opaque = vec![[0, 0], [2, 7]];
+        let mut blend = vec![[0, 1], [2, 8]];
+
+        absolutize_partitioned_model_draw_refs(&mut opaque, &mut blend, 20)
+            .expect("aligned shared model base");
+
+        assert_eq!(opaque, [[5, 0], [7, 7]]);
+        assert_eq!(blend, [[5, 1], [7, 8]]);
+        assert!(absolutize_partitioned_model_draw_refs(&mut opaque, &mut blend, 22).is_none());
+    }
+
+    #[test]
     fn production_model_witness_counts_refs_not_exact_draw_records() {
         let now = Instant::now();
         let key = SubChunkKey::new(0, 65, 0, 65);
@@ -9462,6 +10872,24 @@ mod tests {
     }
 
     #[test]
+    fn model_workload_counts_transparent_only_model_draws() {
+        let mut allocation = retirement_test_allocation().gpu;
+        allocation.model_range = Some(0..4);
+        allocation.model_lighting_range = Some(4..8);
+        allocation.model_draw_range = None;
+        allocation.transparent_model_draw_range = Some(8..12);
+
+        assert_eq!(
+            summarize_model_workload([&allocation]),
+            ModelWorkloadCount {
+                model_ref_count: 1,
+                model_draw_ref_count: 2,
+                legacy_fixed_slot_quad_invocations_avoided: 30,
+            }
+        );
+    }
+
+    #[test]
     fn model_mdi_batch_emits_one_command_per_eligible_allocation() {
         let tint = ChunkBiomeTintIdentity::new(4, 5);
         let allocations = [
@@ -9480,6 +10908,7 @@ mod tests {
                     model_range: Some(start..start + 4),
                     model_lighting_range: Some(start + 4..start + 6),
                     model_draw_range: Some(start + 6..start + 6 + draw_count * 2),
+                    transparent_model_draw_range: None,
                     liquid_range: None,
                     liquid_lighting_range: None,
                     has_depth_liquid: false,
@@ -9558,6 +10987,7 @@ mod tests {
             model_refs: Arc::from([]),
             model_lighting: Arc::from([]),
             model_draw_refs: Arc::from([]),
+            transparent_model_draw_refs: Arc::from([]),
             liquid_quads: Arc::from([PackedLiquidQuad::try_pack(
                 [0, 0, 0],
                 crate::Face::PositiveY,
@@ -9586,6 +11016,7 @@ mod tests {
             model_range: None,
             model_lighting_range: None,
             model_draw_range: None,
+            transparent_model_draw_range: None,
             liquid_range: Some(8..12),
             liquid_lighting_range: Some(20..22),
             has_depth_liquid: false,
@@ -9626,6 +11057,81 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn transparent_model_refs_require_the_exact_gpu_generation_and_stream_ranges() {
+        let key = SubChunkKey::new(0, 1, 2, 3);
+        let instance = ChunkRenderInstance {
+            key,
+            cube_quads: Arc::from([]),
+            model_refs: Arc::from([PackedModelRef::new(0, 0, 0, 1)]),
+            model_lighting: Arc::from([PackedQuadLighting::new([0; 4])]),
+            model_draw_refs: Arc::from([PackedModelDrawRef::new(0, 0)]),
+            transparent_model_draw_refs: Arc::from([PackedModelDrawRef::new(0, 0)]),
+            liquid_quads: Arc::from([]),
+            liquid_lighting: Arc::from([]),
+            has_depth_liquid: false,
+            has_transparent_liquid: false,
+            depth_liquid_start: None,
+            biome: PackedBiomeRecord::fallback(),
+            tint_identity: ChunkBiomeTintIdentity::new(4, 5),
+            generation: 6,
+            token: None,
+            origin: [16, 32, 48],
+        };
+        let allocation = GpuChunkAllocation {
+            key,
+            generation: 6,
+            tint_identity: instance.tint_identity,
+            quad_range: 0..0,
+            model_range: Some(0..4),
+            model_lighting_range: Some(4..6),
+            model_draw_range: Some(6..8),
+            transparent_model_draw_range: Some(8..10),
+            liquid_range: None,
+            liquid_lighting_range: None,
+            has_depth_liquid: false,
+            has_transparent_liquid: false,
+            depth_liquid_range: None,
+            metadata_index: 7,
+        };
+        assert!(transparent_model_allocation_matches(&instance, &allocation));
+
+        let mut stale = allocation.clone();
+        stale.generation += 1;
+        assert!(!transparent_model_allocation_matches(&instance, &stale));
+        let mut wrong_key = allocation.clone();
+        wrong_key.key = SubChunkKey::new(0, 1, 2, 4);
+        assert!(!transparent_model_allocation_matches(&instance, &wrong_key));
+        let mut wrong_model = allocation.clone();
+        wrong_model.model_range = Some(0..8);
+        assert!(!transparent_model_allocation_matches(
+            &instance,
+            &wrong_model
+        ));
+        let mut wrong_draw = allocation;
+        wrong_draw.transparent_model_draw_range = Some(9..11);
+        assert!(!transparent_model_allocation_matches(
+            &instance,
+            &wrong_draw
+        ));
+    }
+
+    #[test]
+    fn water_and_models_share_one_transparent_upload_allowance() {
+        let mut budget = TransparentUploadBudget::default();
+        assert!(budget.consume(DEFAULT_TRANSPARENT_UPLOAD_REFS_PER_FRAME - 3));
+        assert_eq!(budget.remaining(), 3);
+        assert!(!budget.consume(4));
+        assert!(budget.consume(3));
+        assert_eq!(budget.remaining(), 0);
+
+        budget.reset();
+        assert_eq!(
+            budget.remaining(),
+            DEFAULT_TRANSPARENT_UPLOAD_REFS_PER_FRAME
+        );
+    }
+
     fn resident_transparent_allocation(
         identity: &TransparentAllocationIdentity,
         tint_identity: ChunkBiomeTintIdentity,
@@ -9638,6 +11144,7 @@ mod tests {
             model_range: None,
             model_lighting_range: None,
             model_draw_range: None,
+            transparent_model_draw_range: None,
             liquid_range: Some(identity.liquid_range.clone()),
             liquid_lighting_range: Some(identity.lighting_range.clone()),
             has_depth_liquid: false,
@@ -9988,6 +11495,7 @@ mod tests {
             model_range: None,
             model_lighting_range: None,
             model_draw_range: None,
+            transparent_model_draw_range: None,
             liquid_range: Some(8..16),
             liquid_lighting_range: Some(16..20),
             quad_capacity: 2,
@@ -10003,6 +11511,7 @@ mod tests {
                 model_range: None,
                 model_lighting_range: None,
                 model_draw_range: None,
+                transparent_model_draw_range: None,
                 liquid_range: Some(8..16),
                 liquid_lighting_range: Some(16..20),
                 has_depth_liquid: false,
@@ -11531,6 +13040,7 @@ mod tests {
                 model_range: None,
                 model_lighting_range: None,
                 model_draw_range: None,
+                transparent_model_draw_range: None,
                 liquid_range: None,
                 liquid_lighting_range: None,
                 has_depth_liquid: false,
@@ -11546,6 +13056,7 @@ mod tests {
                 model_range: None,
                 model_lighting_range: None,
                 model_draw_range: None,
+                transparent_model_draw_range: None,
                 liquid_range: None,
                 liquid_lighting_range: None,
                 has_depth_liquid: false,
@@ -11879,6 +13390,7 @@ mod tests {
                         model_range: None,
                         model_lighting_range: None,
                         model_draw_range: None,
+                        transparent_model_draw_range: None,
                         liquid_range: None,
                         liquid_lighting_range: None,
                         has_depth_liquid: false,
@@ -13246,6 +14758,7 @@ mod tests {
             model_range: None,
             model_lighting_range: None,
             model_draw_range: None,
+            transparent_model_draw_range: None,
             liquid_range: Some(40..64),
             liquid_lighting_range: Some(64..76),
             has_depth_liquid: true,

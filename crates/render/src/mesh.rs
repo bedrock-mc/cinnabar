@@ -1,12 +1,12 @@
 use std::{cell::OnceCell, collections::VecDeque};
 
 use assets::{
-    BlockFace, BlockFlags, ContributorRole, DIAGNOSTIC_MATERIAL, MODEL_QUAD_FLAG_CULL_FACE_MASK,
-    MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_FENCE_NETHER,
-    MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
-    MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE,
-    MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_WALL, NO_MODEL_TEMPLATE, NetworkIdMode,
-    RuntimeAssets, VisualKind,
+    BlockFace, BlockFlags, ContributorRole, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND,
+    MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
+    MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD,
+    MODEL_TEMPLATE_FLAG_GATE_AXIS_X, MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP,
+    MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_WALL,
+    NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, VisualKind,
 };
 use world::{MeshNeighbourhood, PalettedStorage, SubChunk};
 
@@ -512,10 +512,16 @@ pub struct ChunkMesh {
     cube_quads: Box<[PackedQuad]>,
     model_refs: Box<[PackedModelRef]>,
     model_lighting: Box<[PackedQuadLighting]>,
-    model_draw_refs: Box<[PackedModelDrawRef]>,
+    model_draw_refs: Box<ModelDrawRefs>,
     liquid_quads: Box<[PackedLiquidQuad]>,
     liquid_lighting: Box<[PackedQuadLighting]>,
     connectivity: FaceConnectivity,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct ModelDrawRefs {
+    opaque: Box<[PackedModelDrawRef]>,
+    transparent: Box<[PackedModelDrawRef]>,
 }
 
 /// Owned packed streams transferred from worker meshing into the render queue.
@@ -523,6 +529,7 @@ pub type ChunkMeshStreams = (
     Box<[PackedQuad]>,
     Box<[PackedModelRef]>,
     Box<[PackedQuadLighting]>,
+    Box<[PackedModelDrawRef]>,
     Box<[PackedModelDrawRef]>,
     Box<[PackedLiquidQuad]>,
     Box<[PackedQuadLighting]>,
@@ -543,7 +550,10 @@ impl ChunkMesh {
             cube_quads: cube_quads.into_boxed_slice(),
             model_refs: model_refs.into_boxed_slice(),
             model_lighting: model_lighting.into_boxed_slice(),
-            model_draw_refs: model_draw_refs.into_boxed_slice(),
+            model_draw_refs: Box::new(ModelDrawRefs {
+                opaque: model_draw_refs.into_boxed_slice(),
+                transparent: Box::new([]),
+            }),
             liquid_quads: liquid_quads.into_boxed_slice(),
             liquid_lighting: liquid_lighting.into_boxed_slice(),
             connectivity,
@@ -572,7 +582,18 @@ impl ChunkMesh {
 
     #[must_use]
     pub fn model_draw_refs(&self) -> &[PackedModelDrawRef] {
-        &self.model_draw_refs
+        &self.model_draw_refs.opaque
+    }
+
+    #[must_use]
+    pub fn transparent_model_draw_refs(&self) -> &[PackedModelDrawRef] {
+        &self.model_draw_refs.transparent
+    }
+
+    #[must_use]
+    pub fn with_transparent_model_draw_refs(mut self, draw_refs: Vec<PackedModelDrawRef>) -> Self {
+        self.model_draw_refs.transparent = draw_refs.into_boxed_slice();
+        self
     }
 
     #[must_use]
@@ -595,7 +616,8 @@ impl ChunkMesh {
         self.cube_quads.is_empty()
             && self.model_refs.is_empty()
             && self.model_lighting.is_empty()
-            && self.model_draw_refs.is_empty()
+            && self.model_draw_refs.opaque.is_empty()
+            && self.model_draw_refs.transparent.is_empty()
             && self.liquid_quads.is_empty()
             && self.liquid_lighting.is_empty()
     }
@@ -612,11 +634,16 @@ impl ChunkMesh {
 
     #[must_use]
     pub fn into_streams(self) -> ChunkMeshStreams {
+        let ModelDrawRefs {
+            opaque,
+            transparent,
+        } = *self.model_draw_refs;
         (
             self.cube_quads,
             self.model_refs,
             self.model_lighting,
-            self.model_draw_refs,
+            opaque,
+            transparent,
             self.liquid_quads,
             self.liquid_lighting,
         )
@@ -676,7 +703,7 @@ fn mesh_sub_chunk_core(
             cube_quads: Box::new([]),
             model_refs: Box::new([]),
             model_lighting: Box::new([]),
-            model_draw_refs: Box::new([]),
+            model_draw_refs: Box::default(),
             liquid_quads: Box::new([]),
             liquid_lighting: Box::new([]),
             connectivity,
@@ -716,6 +743,7 @@ fn mesh_sub_chunk_core(
     let mut model_refs = Vec::new();
     let mut model_lighting = Vec::new();
     let mut model_draw_refs = Vec::new();
+    let mut transparent_model_draw_refs = Vec::new();
     for x in 0..SIDE {
         for y in 0..SIDE {
             for z in 0..SIDE {
@@ -854,8 +882,18 @@ fn mesh_sub_chunk_core(
                         let mut remaining = visible_quad_mask;
                         while remaining != 0 {
                             let quad_index = remaining.trailing_zeros();
-                            model_draw_refs
-                                .push(PackedModelDrawRef::new(model_ref_index, quad_index));
+                            let draw_ref = PackedModelDrawRef::new(model_ref_index, quad_index);
+                            if template_quads[quad_index as usize].material != DIAGNOSTIC_MATERIAL
+                                && visuals
+                                    .material(template_quads[quad_index as usize].material)
+                                    .flags
+                                    & MATERIAL_FLAG_ALPHA_BLEND
+                                    != 0
+                            {
+                                transparent_model_draw_refs.push(draw_ref);
+                            } else {
+                                model_draw_refs.push(draw_ref);
+                            }
                             remaining &= remaining - 1;
                         }
                     }
@@ -873,7 +911,10 @@ fn mesh_sub_chunk_core(
         cube_quads: quads.into_boxed_slice(),
         model_refs: model_refs.into_boxed_slice(),
         model_lighting: model_lighting.into_boxed_slice(),
-        model_draw_refs: model_draw_refs.into_boxed_slice(),
+        model_draw_refs: Box::new(ModelDrawRefs {
+            opaque: model_draw_refs.into_boxed_slice(),
+            transparent: transparent_model_draw_refs.into_boxed_slice(),
+        }),
         liquid_quads: liquid_quads.into_boxed_slice(),
         liquid_lighting: liquid_lighting.into_boxed_slice(),
         connectivity,
