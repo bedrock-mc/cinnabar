@@ -41,6 +41,23 @@ struct VertexOutput {
 
 struct FrameSample { current: u32, next: u32, blend: f32 }
 
+fn invisible_vertex() -> VertexOutput {
+    var invisible: VertexOutput;
+    invisible.clip_position = vec4(2.0, 2.0, 2.0, 1.0);
+    invisible.uv = vec2(0.0);
+    invisible.current_texture = 0u;
+    invisible.normal = vec3(0.0);
+    invisible.material_flags = 0u;
+    invisible.local_position = vec3(0.0);
+    invisible.biome_record = 0u;
+    invisible.next_texture = 0u;
+    invisible.frame_blend = 0.0;
+    invisible.visible = 0u;
+    invisible.light_factor = 0.0;
+    invisible.two_sided = 0u;
+    return invisible;
+}
+
 fn animation_sample(material: MaterialGpu) -> FrameSample {
     if (material.animation == 0xffffffffu) {
         return FrameSample(material.texture, material.texture, 0.0);
@@ -102,25 +119,15 @@ fn vertex(
     let quad_start = model_templates[descriptor];
     let quad_count = model_templates[descriptor + 1u];
     if (quad_count == 0u) {
-        var invisible: VertexOutput;
-        invisible.clip_position = vec4(0.0, 0.0, 0.0, 1.0);
-        invisible.uv = vec2(0.0);
-        invisible.current_texture = 0u;
-        invisible.normal = vec3(0.0);
-        invisible.material_flags = 0u;
-        invisible.local_position = vec3(0.0);
-        invisible.biome_record = 0u;
-        invisible.next_texture = 0u;
-        invisible.frame_blend = 0.0;
-        invisible.visible = 0u;
-        invisible.light_factor = 0.0;
-        invisible.two_sided = 0u;
-        return invisible;
+        return invisible_vertex();
     }
     let last_quad_index = quad_count - 1u;
     let safe_quad_index = min(quad_index, last_quad_index);
     let template_quad_base = 1u + model_templates[0] * 3u + (quad_start + safe_quad_index) * 12u;
     let is_visible = u32(quad_index < quad_count) * ((visible_quad_mask >> quad_index) & 1u);
+    if (is_visible == 0u) {
+        return invisible_vertex();
+    }
 
     let component = corner * 3u;
     var template_position = vec3<f32>(

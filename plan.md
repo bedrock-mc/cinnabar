@@ -402,7 +402,10 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       not relay reordering; the channel and per-frame admission window are now
       coherently 32, matching the existing heavy-event cap while preserving FIFO
       order and decode/mesh worker budgets. GPU cost and fresh native visual
-      evidence remain open.
+      evidence remain open. The first GPU-side correction now rejects all padded
+      and neighbour-masked slots in the model vertex stage before template,
+      lighting, texture, tint, and fragment work; the fixed 32-quad/reference
+      storage contract remains bounded while a live A/B measures the reduction.
     - [ ] Wall-attached vine family: replace the diagnostic pink-cube fallback
       for every `minecraft:vine` direction-bit state with compact cutout face
       templates selected from its exact attachment mask, including conservative
