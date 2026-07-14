@@ -1154,6 +1154,16 @@ func classifyRecord(state SourceState) (Record, error) {
 	var hasVariantFlags bool
 	for _, property := range state.Properties {
 		propertyName := strings.TrimPrefix(property.Name, "minecraft:")
+		if propertyName == "redstone_signal" && record.ModelFamily == ModelFamilyPressurePlate {
+			value, ok := scalarUint(property.Value)
+			if !ok || value > 15 {
+				return Record{}, fmt.Errorf("pressure plate redstone_signal is outside 0..15")
+			}
+			if value != 0 {
+				variantFlags |= modelFlagPressed
+			}
+			hasVariantFlags = true
+		}
 		switch propertyName {
 		case "weirdo_direction", "direction", "facing_direction", "ground_sign_direction", "cardinal_direction", "pillar_axis", "torch_facing_direction", "rail_direction", "lever_direction":
 			if value, ok := orientationUint(propertyName, property.Value); ok {

@@ -1126,6 +1126,51 @@ func TestRequiredFamilySelectorFlags(t *testing.T) {
 	}
 }
 
+func TestPressurePlateRedstoneSignalBecomesTypedPressedFlag(t *testing.T) {
+	for signal := int32(0); signal <= 15; signal++ {
+		state := sourceState(
+			"minecraft:wooden_pressure_plate",
+			intState("redstone_signal", signal),
+		)
+		record, err := classifyRecord(state)
+		if err != nil {
+			t.Fatalf("classify signal %d: %v", signal, err)
+		}
+		if record.ModelFamily != ModelFamilyPressurePlate {
+			t.Fatalf("signal %d family = %v", signal, record.ModelFamily)
+		}
+		want := uint32(0)
+		if signal != 0 {
+			want = modelFlagPressed
+		}
+		if got, ok := record.ModelState.Get(ModelStateFlags); !ok || got != want {
+			t.Errorf("signal %d flags = %#x/%v, want %#x/present", signal, got, ok, want)
+		}
+	}
+}
+
+func TestRedstoneSignalSelectorIsPressurePlateScoped(t *testing.T) {
+	record, err := classifyRecord(sourceState("minecraft:test", intState("redstone_signal", 15)))
+	if err != nil {
+		t.Fatalf("classify unrelated redstone state: %v", err)
+	}
+	if got, ok := record.ModelState.Get(ModelStateFlags); ok {
+		t.Fatalf("unrelated redstone signal leaked typed flags %#x", got)
+	}
+}
+
+func TestPressurePlateRejectsRedstoneSignalOutsideTypedDomain(t *testing.T) {
+	for _, signal := range []int32{-1, 16} {
+		_, err := classifyRecord(sourceState(
+			"minecraft:wooden_pressure_plate",
+			intState("redstone_signal", signal),
+		))
+		if err == nil {
+			t.Fatalf("signal %d unexpectedly classified", signal)
+		}
+	}
+}
+
 func TestClassifyRecordCanonicalPropertyOrder(t *testing.T) {
 	properties := []StateProperty{
 		intState("direction", 1),

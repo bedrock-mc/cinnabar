@@ -453,6 +453,11 @@ const fn is_wall(record: &RegistryRecord) -> bool {
         && matches!(record.contributor_role, ContributorRole::Primary)
 }
 
+const fn is_pressure_plate(record: &RegistryRecord) -> bool {
+    matches!(record.model_family, ModelFamily::PressurePlate)
+        && matches!(record.contributor_role, ContributorRole::Primary)
+}
+
 const fn is_slab(record: &RegistryRecord) -> bool {
     matches!(record.model_family, ModelFamily::Slab)
         && matches!(record.contributor_role, ContributorRole::Primary)
@@ -473,7 +478,11 @@ fn is_cutout_model_visual(record: &RegistryRecord) -> bool {
 }
 
 fn is_model_visual(record: &RegistryRecord) -> bool {
-    is_cutout_model_visual(record) || is_slab(record) || is_stair(record) || is_wall(record)
+    is_cutout_model_visual(record)
+        || is_slab(record)
+        || is_stair(record)
+        || is_wall(record)
+        || is_pressure_plate(record)
 }
 
 const fn is_liquid(record: &RegistryRecord) -> bool {
@@ -845,6 +854,12 @@ struct CuboidTemplateKey {
     max: [i16; 3],
 }
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct PressurePlateTemplateKey {
+    materials: [u32; 6],
+    pressed: bool,
+}
+
 fn intern_cuboid_template(
     materials: [u32; 6],
     min: [i16; 3],
@@ -902,6 +917,7 @@ fn compile_visuals(
     let mut vine_template_by_key = BTreeMap::<[u32; 2], u32>::new();
     let mut cuboid_template_by_key = BTreeMap::<CuboidTemplateKey, u32>::new();
     let mut wall_template_by_key = BTreeMap::<[u32; 7], u32>::new();
+    let mut pressure_plate_template_by_key = BTreeMap::<PressurePlateTemplateKey, u32>::new();
 
     let mut ordered_records = records.iter().collect::<Vec<_>>();
     ordered_records.sort_unstable_by_key(|record| record.sequential_id);
@@ -1143,6 +1159,58 @@ fn compile_visuals(
                     });
                     model_quads.extend(quads);
                     wall_template_by_key.insert(key, template);
+                    template
+                };
+                visual.flags.remove(
+                    BlockFlags::AIR
+                        | BlockFlags::CUBE_GEOMETRY
+                        | BlockFlags::OCCLUDES_FULL_FACE
+                        | BlockFlags::LEAF_MODEL,
+                );
+                visual.faces = materials;
+                visual.kind = VisualKind::Model;
+                visual.model_template = template;
+            }
+        } else if is_pressure_plate(record) {
+            const PRESSED: u32 = 1 << 1;
+            let materials = BlockFace::ALL.map(|face| {
+                descriptor_for(pack, record, face)
+                    .and_then(|(descriptor, _)| material_by_descriptor.get(&descriptor).copied())
+            });
+            let flags = record.model_state.get(ModelStateField::Flags);
+            if let [
+                Some(west),
+                Some(east),
+                Some(down),
+                Some(up),
+                Some(north),
+                Some(south),
+            ] = materials
+                && let Some(flags @ (0 | PRESSED)) = flags
+            {
+                let materials = [west, east, down, up, north, south];
+                let pressed = flags == PRESSED;
+                let key = PressurePlateTemplateKey { materials, pressed };
+                let template = if let Some(&template) = pressure_plate_template_by_key.get(&key) {
+                    template
+                } else {
+                    let template = u32::try_from(model_templates.len()).map_err(|_| {
+                        AssetError::BlobSizeOverflow {
+                            section: "model template",
+                        }
+                    })?;
+                    let quad_start = u32::try_from(model_quads.len()).map_err(|_| {
+                        AssetError::BlobSizeOverflow {
+                            section: "model quad",
+                        }
+                    })?;
+                    model_templates.push(ModelTemplate {
+                        quad_start,
+                        quad_count: 6,
+                        flags: 0,
+                    });
+                    model_quads.extend(pressure_plate_quads(materials, pressed));
+                    pressure_plate_template_by_key.insert(key, template);
                     template
                 };
                 visual.flags.remove(
@@ -1572,6 +1640,27 @@ fn cuboid_quads(materials: [u32; 6], min: [i16; 3], max: [i16; 3]) -> [ModelQuad
             6,
         ),
     ]
+}
+
+fn pressure_plate_quads(materials: [u32; 6], pressed: bool) -> [ModelQuad; 6] {
+    // Visible geometry and UVs come from the local vanilla
+    // pressure_plate_{up,down}.json models. The pressed side strip is
+    // 15..15.5 pixels rather than the generic cuboid's 15.5..16 strip.
+    let max_y = if pressed { 8 } else { 16 };
+    let mut quads = cuboid_quads(materials, [16, 0, 16], [240, max_y, 240]);
+    if pressed {
+        for face in [
+            BlockFace::West,
+            BlockFace::East,
+            BlockFace::North,
+            BlockFace::South,
+        ] {
+            for uv in &mut quads[face as usize].uvs {
+                uv[1] -= 128;
+            }
+        }
+    }
+    quads
 }
 
 const fn wall_state_is_valid(connections: u32) -> bool {

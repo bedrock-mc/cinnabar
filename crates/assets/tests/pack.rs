@@ -298,6 +298,38 @@ fn registry_reader_decodes_checked_in_full_source_bijection() {
 }
 
 #[test]
+fn registry_reader_decodes_all_pressure_plate_pressed_selectors() {
+    const PRESSED: u32 = 1 << 1;
+    let bytes = include_bytes!("../data/block-registry-v1001.bin");
+    let records = read_registry(bytes).expect("decode checked-in BREG1003");
+    let plates = records
+        .iter()
+        .filter(|record| record.model_family == ModelFamily::PressurePlate)
+        .collect::<Vec<_>>();
+    assert_eq!(plates.len(), 256);
+    let mut counts = std::collections::BTreeMap::<&str, [usize; 2]>::new();
+    for record in plates {
+        assert_eq!(record.model_state.mask(), 1 << 7, "{}", record.name);
+        let state: serde_json::Value =
+            serde_json::from_str(&record.canonical_state).expect("canonical pressure-plate state");
+        let signal = state["redstone_signal"]["value"]
+            .as_u64()
+            .expect("integer redstone_signal");
+        assert!(signal <= 15);
+        let expected = if signal == 0 { 0 } else { PRESSED };
+        assert_eq!(
+            record.model_state.get(ModelStateField::Flags),
+            Some(expected),
+            "{}",
+            record.canonical_state
+        );
+        counts.entry(record.name.as_ref()).or_default()[usize::from(signal != 0)] += 1;
+    }
+    assert_eq!(counts.len(), 16);
+    assert!(counts.values().all(|count| *count == [1, 15]));
+}
+
+#[test]
 fn block_flag_semantics_accept_only_independent_valid_combinations() {
     for valid in [
         BlockFlags::empty(),
