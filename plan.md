@@ -676,11 +676,12 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       review green). The reviewed baseline was refreshed cumulatively for the
       already-landed door, trapdoor, wall, pressure-plate, fence-gate, pane,
       fence, carpet, and button tranches. After lava, vine, and those
-      connected/static families, the current residual has 7,898
+      connected/static families, glow lichen, and sculk vein, the current
+      residual has 7,770
       diagnostics including the single air diagnostic, with zero diagnostics in
       every implemented family; each remaining family must shrink that exact set.
-  - [ ] Complete the exhaustive residual-family report, beginning with
-    lava/flowing-lava on a reviewed depth-writing non-water-liquid pipeline, so
+  - [ ] Complete the exhaustive residual-family report, continuing from the
+    completed lava/flowing-lava depth-writing non-water-liquid pipeline, so
     every non-air one of the 16,913 canonical states has a non-diagnostic visual;
     close deterministic galleries and live acceptance with globally zero
     diagnostic counters, vanilla-reference screenshots, upload/memory/CPU
@@ -698,11 +699,21 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       with one final 17-state page), require exact palette readback plus two
       consecutive GPU-completed frames for every canonical target, and inspect
       fresh native `%TEMP%` screenshots. Family-specific support/neighbour
-      fixtures do not count toward the 16,913 target inventory.
+      fixtures do not count toward the 16,913 target inventory. The reviewed
+      implementation order starts with a deterministic BREG/MCBEAS/hash-bound
+      logical page inventory, then adds exact app-side palette witnesses,
+      per-target GPU evidence, family-aware placement, and native captures; the
+      logical inventory is independent of the RX 570 presentation blocker.
     - [ ] Generate a separate version-pinned block-entity inventory and reviewed
       renderer manifest. Prove chunk-NBT and live-update handling, required NBT
       variants, and GPU/no-draw evidence for every source ID; block entities are
-      not folded into the canonical block-state count.
+      not folded into the canonical block-state count. The ingestion audit found
+      21 explicit Dragonfly source IDs plus an id-less Note producer that must be
+      explicitly adjudicated; current packet-56 and chunk/subchunk-tail NBT is
+      dropped before the world store. The bounded implementation order is
+      NetworkLittleEndian NBT prefix decoding plus atomic sparse storage first,
+      then a separate deterministic source/renderer-manifest generator and
+      strict join, followed by per-ID GPU/no-draw witnesses.
     - [ ] Squash-merge both the Axolotl protocol-fix branch and Cinnabar feature
       branch into their respective `main` branches only after the applicable
       deterministic tests, native/GPU acceptance, zero-diagnostic state gate,
