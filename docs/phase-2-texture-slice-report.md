@@ -184,7 +184,7 @@ cargo run -p visualcoverage -- ratchet `
 
 The refreshed 2026-07-13 real-pack run compiled all 16,913 visuals and passed
 the ratchet with asset SHA-256
-`bf7e49d927b3f8b49e64d0636d239c8682fa3cddbbebc9c643dfef4d893c97f6`.
+`378e09441683bffc847b2cf283c827f940b3f166a42864365c3a823748b1c303`.
 It reports 8,122 diagnostics including air and zero diagnostics for lava, vine,
 doors, trapdoors, walls, pressure plates, fence gates, or carpets. The reviewed
 baseline refresh

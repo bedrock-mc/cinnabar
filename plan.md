@@ -456,9 +456,10 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       to 2/254. Missing, invalid, extra, or mismatched typed selectors fail
       closed; collision seeds do not affect rendering. The production ratchet
       removes exactly 179 carpet diagnostics with no additions and now holds
-      8,122 diagnostics including air (`8087b6a`; two byte-identical pinned
-      builds, full assets/visualcoverage suites, renderer two-sided regression,
-      strict workspace Clippy/formatting, and independent review green).
+      8,122 diagnostics including air (`8087b6a`, `9323093`, `9e99a5e`; exact
+      opposing and direction-specific Java UV corner orders, two byte-identical
+      pinned builds, full assets/visualcoverage suites, renderer regressions,
+      strict workspace Clippy/formatting, and independent final re-review green).
       Deterministic gallery/native GPU evidence remains in the shared
       residual-family live gate.
     - [ ] Slab/stair native and packed-GPU live acceptance: capture all five
