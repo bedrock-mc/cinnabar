@@ -154,7 +154,7 @@ The first global coverage gate now inventories the complete generated registry
 through the production BREG1003 and MCBEAS04 decoders. The checked baseline binds
 1,356 names, 16,913 canonical states, one air state, the exact sorted state
 identity at every sequential ID, registry SHA-256
-`fda4b40335c24b0019049ce572668b03f8ddb9a705de88abb4d724aa7ff81106`,
+`394c4566f6231297543e0e0a49889931d7349fba1cf390cb1022ff994a363c03`,
 the reviewed invisible allowlist, and the exact diagnostic-state ID set. It
 rejects missing/duplicate/non-contiguous IDs, registry/blob lookup mismatch,
 new diagnostics, arbitrary diagnostic-to-invisible laundering, stale or

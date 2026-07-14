@@ -175,7 +175,7 @@ Expected: all pass. Commit only Task 1 files.
 - Produces transparent-only draw references with same-material shared-face
   suppression inside and across subchunks.
 
-- [ ] **Step 1: Write failing CPU mesh tests**
+- [x] **Step 1: Write failing CPU mesh tests**
 
 Construct production-style stained-glass visuals and require:
 
@@ -189,7 +189,7 @@ Add separate tests proving different colours retain 12 faces, an adjacent opaque
 cube retains its opaque face while hiding the glass face behind it, glass stays
 cave-open, and equal-colour culling works across all six subchunk boundaries.
 
-- [ ] **Step 2: Run the focused mesh tests and observe RED**
+- [x] **Step 2: Run the focused mesh tests and observe RED**
 
 Run:
 
@@ -200,7 +200,7 @@ cargo test -p render --test mesh stained_glass --locked -- --nocapture
 Expected: equal-colour glass retains the two internal faces before the new
 template-semantic culling rule.
 
-- [ ] **Step 3: Implement the minimal palette-native culling rule**
+- [x] **Step 3: Implement the minimal palette-native culling rule**
 
 In the existing model-quad culling loop, preserve full-opaque and pane behavior,
 then add:
@@ -223,7 +223,7 @@ if neighbour.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
 
 Do not change connectivity, allocation, upload, sorting, or pipeline code.
 
-- [ ] **Step 4: Prove the exact production delta before refreshing**
+- [x] **Step 4: Prove the exact production delta before refreshing**
 
 Rebuild the ignored blob, ratchet it against the committed 7,722 baseline, and
 require 16 removals, zero additions, and only the literal ordinary stained-glass
@@ -234,7 +234,7 @@ cargo run -p assets --bin assetc --locked -- compile --pack $env:PINNED_VANILLA_
 cargo run -p visualcoverage --locked -- ratchet --registry crates/assets/data/block-registry-v1001.bin --assets .local/assets/compiled/vanilla-v1001.mcbea --baseline crates/assets/data/visual-coverage-v1001.json --out .local/assets/compiled/pre-stained-glass-ratchet.json
 ```
 
-- [ ] **Step 5: Refresh the baseline and exact production assertions**
+- [x] **Step 5: Refresh the baseline and exact production assertions**
 
 Generate the reviewed baseline using
 `crates/assets/data/visual-invisible-v1001.json`. Update the production test to
@@ -242,7 +242,7 @@ require 7,706 diagnostics and reconstruct the 7,722 pre-stained-glass set by
 adding exactly the 16 admitted IDs. Rerun the ratchet and require zero additions
 and zero removals.
 
-- [ ] **Step 6: Update plan/report/progress and verify**
+- [x] **Step 6: Update plan/report/progress and verify**
 
 Record exact names/count, culling/material semantics, exclusions, integrated
 blob SHA-256, residual 7,706, and cumulative removed count 7,235. Keep earlier
@@ -261,7 +261,7 @@ git diff --check
 
 Expected: every command passes; tracked files contain no Mojang payload.
 
-- [ ] **Step 7: Commit Task 2**
+- [x] **Step 7: Commit Task 2**
 
 Commit the renderer, tests, refreshed baseline, and documentation. Do not push
 until independent spec-and-quality review approves the complete design range.
