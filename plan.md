@@ -411,8 +411,21 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       ingress and commit in the same update) and again passed the exact model
       witness. Vertex culling improved p50 from 41.7 to 39.6 ms despite 8,699
       versus 5,679 resident subchunks, but p99 remained 47.7 ms and the 100 ms
-      mutation gate still failed at 139.9718 ms; structural exact-count model
-      drawing remains required. The backend/presentation investigation is now
+      mutation gate still failed at 139.9718 ms. Structural exact-count model
+      drawing is now complete in `fcb1989` and ownership-hardening `b07e194`:
+      one exact eight-byte visible-quad indirection record replaces the fixed
+      32-quad vertex launch while preserving 16-byte model refs, ordered
+      lighting, one direct/MDI command per subchunk, arena/COW bounds, and model
+      witness semantics. Full render/client tests, strict Clippy/format/shader
+      validation, release build, and independent review/re-review are green.
+      Live VineGallery run `20260714T030538Z-22388` passed exact GPU witnesses
+      at sequences 191/192 (four keys, 95 stable refs, all contamination
+      counters zero) but measured p50 40.6 ms, p99 47.7 ms, and 142.6 ms
+      mutation-to-visible with 8,345 resident subchunks—neutral versus the prior
+      p50 40.3 / p99 47.8 / 138.9454 ms run. Exact drawing therefore closes the
+      required packed per-quad architecture but not the performance gate; GPU
+      stage timestamps/workload counters must identify the remaining cost before
+      considering a one-sided/two-sided pipeline split. The backend/presentation investigation is now
       conclusive: five direct swapchain captures from Cinnabar, minimal Bevy
       Camera3d and Camera2d clear-only probes, a camera-local red clear, and
       DX12/FXC were byte-identical pure black. Vulkan exposes no surface present
@@ -452,7 +465,8 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       budgets. Native captures and the structural exact-count model-draw
       optimization remain required before this item closes; native capture is
       separately blocked by the confirmed RX 570 Bevy/wgpu presentation failure
-      above.
+      above. Exact visible-quad drawing is complete but was performance-neutral;
+      GPU-stage measurement and the shared 100 ms gate remain open.
     - [x] Exhaustive vanilla visual-coverage ratchet: inventory every one of
       the 16,913 protocol-1001 canonical states through the production registry
       and runtime decoders, bind the exact registry/asset hashes, and reject any
