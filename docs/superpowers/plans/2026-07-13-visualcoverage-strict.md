@@ -153,4 +153,3 @@ Expected: all synthetic strict tests and the existing 11 ratchet tests pass; Cli
 git add tools/visualcoverage/src/lib.rs tools/visualcoverage/src/main.rs tools/visualcoverage/tests/ratchet.rs docs/superpowers/plans/2026-07-13-visualcoverage-strict.md
 git commit -m "feat(tools): add strict vanilla visual coverage gate"
 ```
-

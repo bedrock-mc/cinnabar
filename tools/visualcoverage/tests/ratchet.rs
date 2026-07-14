@@ -1,10 +1,10 @@
 use assets::{
     ANIMATION_FLAG_BLEND, Animation, BiomeRule, BlockFlags, BlockVisual, CompiledAssets,
     CompiledBiomeAssets, ContributorRole, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND,
-    MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_WATER_TINT, Material, ModelFamily, ModelQuad,
-    ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, RegistryProvenance, RegistryRecord,
-    RuntimeAssets, TINT_MAP_BYTES, TextureArray, TextureMip, TexturePage, TextureRef, TintSource,
-    VisualKind, encode_blob, read_registry,
+    MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_WATER_TINT, MODEL_TEMPLATE_FLAG_STAIR,
+    Material, ModelFamily, ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE,
+    RegistryProvenance, RegistryRecord, RuntimeAssets, TINT_MAP_BYTES, TextureArray, TextureMip,
+    TexturePage, TextureRef, TintSource, VisualKind, encode_blob, read_registry,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -1624,6 +1624,129 @@ fn strict_rejects_each_diagnostic_transitive_and_unsupported_liquid_route() {
             animation_id: 0,
         }) if state == snapshot.states[1]
     ));
+}
+
+fn strict_stair_templates() -> Vec<ModelTemplate> {
+    (0..5)
+        .map(|quad_start| ModelTemplate {
+            quad_start,
+            quad_count: 1,
+            flags: MODEL_TEMPLATE_FLAG_STAIR,
+        })
+        .collect()
+}
+
+#[test]
+fn strict_rejects_diagnostic_stair_topology_variants() {
+    let records = strict_fixture_records(&[ModelFamily::Air, ModelFamily::Stair]);
+    let visuals = vec![
+        strict_no_draw(BlockFlags::AIR, ContributorRole::Air),
+        strict_model(VisualKind::Model, 0),
+    ];
+
+    let runtime = strict_runtime(
+        &records,
+        visuals.clone(),
+        strict_materials(),
+        strict_stair_templates(),
+        vec![
+            strict_quad(1),
+            strict_quad(0),
+            strict_quad(1),
+            strict_quad(1),
+            strict_quad(1),
+        ],
+        strict_animations().0,
+        strict_animations().1,
+    );
+    let snapshot = strict_snapshot(&records, &runtime);
+    assert!(matches!(
+        strict_records(
+            &records,
+            &runtime,
+            snapshot.clone(),
+            &strict_baseline(&snapshot, &[]),
+            false,
+        ),
+        Err(CoverageError::DiagnosticMaterialReference {
+            state,
+            material_id: 0,
+        }) if state == snapshot.states[1]
+    ));
+
+    let mut diagnostic_frames = strict_animations().1;
+    diagnostic_frames[0] = TextureRef::DIAGNOSTIC;
+    let runtime = strict_runtime(
+        &records,
+        visuals,
+        strict_materials(),
+        strict_stair_templates(),
+        vec![
+            strict_quad(1),
+            strict_quad(1),
+            strict_quad(2),
+            strict_quad(1),
+            strict_quad(1),
+        ],
+        strict_animations().0,
+        diagnostic_frames,
+    );
+    let snapshot = strict_snapshot(&records, &runtime);
+    assert!(matches!(
+        strict_records(
+            &records,
+            &runtime,
+            snapshot.clone(),
+            &strict_baseline(&snapshot, &[]),
+            false,
+        ),
+        Err(CoverageError::DiagnosticAnimationFrameReference {
+            state,
+            animation_id: 0,
+        }) if state == snapshot.states[1]
+    ));
+}
+
+#[test]
+fn strict_reports_all_reachable_stair_topology_materials_and_animations() {
+    let records = strict_fixture_records(&[ModelFamily::Air, ModelFamily::Stair]);
+    let mut materials = strict_materials();
+    materials.push(Material {
+        texture: TextureRef::new(0, 7).unwrap(),
+        flags: 0,
+        animation: NO_ANIMATION,
+    });
+    let runtime = strict_runtime(
+        &records,
+        vec![
+            strict_no_draw(BlockFlags::AIR, ContributorRole::Air),
+            strict_model(VisualKind::Model, 0),
+        ],
+        materials,
+        strict_stair_templates(),
+        vec![
+            strict_quad(1),
+            strict_quad(2),
+            strict_quad(3),
+            strict_quad(4),
+            strict_quad(5),
+        ],
+        strict_animations().0,
+        strict_animations().1,
+    );
+    let snapshot = strict_snapshot(&records, &runtime);
+    let report = strict_records(
+        &records,
+        &runtime,
+        snapshot.clone(),
+        &strict_baseline(&snapshot, &[]),
+        false,
+    )
+    .expect("all reachable stair topology templates are drawable");
+
+    assert_eq!(report.routes[1].model_template, Some(0));
+    assert_eq!(report.routes[1].material_ids, vec![1, 2, 3, 4, 5]);
+    assert_eq!(report.routes[1].animation_ids, vec![0]);
 }
 
 #[test]

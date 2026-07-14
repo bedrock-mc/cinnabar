@@ -8,8 +8,9 @@ use std::{
 
 use assets::{
     BlockFace, BlockFlags, ContributorRole, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND,
-    MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_WATER_TINT, ModelFamily, ModelStateField,
-    NetworkIdMode, RegistryRecord, RuntimeAssets, TextureRef, VisualKind, read_registry,
+    MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_WATER_TINT, MODEL_TEMPLATE_FLAG_STAIR,
+    ModelFamily, ModelStateField, NetworkIdMode, RegistryRecord, RuntimeAssets, TextureRef,
+    VisualKind, read_registry,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -686,27 +687,42 @@ pub fn strict_records(
                 let Some(template_id) = sequential.model_template() else {
                     return Err(CoverageError::EmptyVisibleRoute { state, kind });
                 };
-                let Some(template) = runtime.model_templates().get(template_id as usize) else {
+                let template_start = template_id as usize;
+                let Some(base_template) = runtime.model_templates().get(template_start) else {
                     return Err(CoverageError::EmptyVisibleRoute { state, kind });
                 };
-                if template.quad_count == 0 {
-                    return Err(CoverageError::EmptyVisibleRoute { state, kind });
-                }
-                let start = template.quad_start as usize;
-                let Some(end) = start.checked_add(template.quad_count as usize) else {
+                let template_count = if base_template.flags & MODEL_TEMPLATE_FLAG_STAIR != 0 {
+                    5
+                } else {
+                    1
+                };
+                let Some(template_end) = template_start.checked_add(template_count) else {
                     return Err(CoverageError::EmptyVisibleRoute { state, kind });
                 };
-                let Some(quads) = runtime.model_quads().get(start..end) else {
+                let Some(templates) = runtime.model_templates().get(template_start..template_end)
+                else {
                     return Err(CoverageError::EmptyVisibleRoute { state, kind });
                 };
-                for quad in quads {
-                    if quad.material == DIAGNOSTIC_MATERIAL {
-                        return Err(CoverageError::DiagnosticMaterialReference {
-                            state,
-                            material_id: quad.material,
-                        });
+                for template in templates {
+                    if template.quad_count == 0 {
+                        return Err(CoverageError::EmptyVisibleRoute { state, kind });
                     }
-                    material_ids.insert(quad.material);
+                    let start = template.quad_start as usize;
+                    let Some(end) = start.checked_add(template.quad_count as usize) else {
+                        return Err(CoverageError::EmptyVisibleRoute { state, kind });
+                    };
+                    let Some(quads) = runtime.model_quads().get(start..end) else {
+                        return Err(CoverageError::EmptyVisibleRoute { state, kind });
+                    };
+                    for quad in quads {
+                        if quad.material == DIAGNOSTIC_MATERIAL {
+                            return Err(CoverageError::DiagnosticMaterialReference {
+                                state,
+                                material_id: quad.material,
+                            });
+                        }
+                        material_ids.insert(quad.material);
+                    }
                 }
                 (RenderStream::Model, Some(template_id))
             }
