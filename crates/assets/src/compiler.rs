@@ -2294,6 +2294,11 @@ fn sign_quads(material: u32, state: SignState) -> Vec<ModelQuad> {
     let materials = [material; 6];
     match state {
         SignState::Standing { rotation } => {
+            // Classic vanilla's SignModel declares a 24x12 board and its
+            // block-entity render pose applies a 2/3 scale before converting
+            // model pixels to world units. The resulting 16x8-pixel (1x1/2
+            // block) world silhouette is therefore [0,256] x [112,240] here;
+            // using the raw 24x12 model box would make signs 50% oversized.
             let mut quads = Vec::with_capacity(12);
             quads.extend(cuboid_quads(materials, [0, 112, 120], [256, 240, 136]));
             quads.extend(cuboid_quads(materials, [120, 0, 120], [136, 112, 136]));
@@ -2329,10 +2334,10 @@ fn wall_sign_quads(materials: [u32; 6], facing: u8) -> [ModelQuad; 6] {
     let (min, max) = match facing {
         0 => ([0, 240, 0], [256, 256, 256]),
         1 => ([0, 0, 0], [256, 16, 256]),
-        2 => ([0, 72, 0], [256, 200, 16]),
-        3 => ([0, 72, 240], [256, 200, 256]),
-        4 => ([0, 72, 0], [16, 200, 256]),
-        5 => ([240, 72, 0], [256, 200, 256]),
+        2 => ([0, 72, 240], [256, 200, 256]),
+        3 => ([0, 72, 0], [256, 200, 16]),
+        4 => ([240, 72, 0], [256, 200, 256]),
+        5 => ([0, 72, 0], [16, 200, 256]),
         _ => unreachable!("sign selector validates all wall facings"),
     };
     cuboid_quads(materials, min, max)
@@ -2351,26 +2356,26 @@ fn hanging_wall_sign_quads(materials: [u32; 6], facing: u8) -> Vec<ModelQuad> {
         2 => (
             [16, 48, 120],
             [240, 176, 136],
-            [96, 224, 0],
-            [160, 256, 128],
+            [96, 224, 128],
+            [160, 256, 256],
         ),
         3 => (
             [16, 48, 120],
             [240, 176, 136],
-            [96, 224, 128],
-            [160, 256, 256],
+            [96, 224, 0],
+            [160, 256, 128],
         ),
         4 => (
             [120, 48, 16],
             [136, 176, 240],
-            [0, 224, 96],
-            [128, 256, 160],
+            [128, 224, 96],
+            [256, 256, 160],
         ),
         5 => (
             [120, 48, 16],
             [136, 176, 240],
-            [128, 224, 96],
-            [256, 256, 160],
+            [0, 224, 96],
+            [128, 256, 160],
         ),
         _ => unreachable!("sign selector validates all hanging-wall facings"),
     };

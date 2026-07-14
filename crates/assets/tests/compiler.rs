@@ -928,6 +928,12 @@ fn compiler_routes_all_sign_states_to_reviewed_blank_static_models() {
         })
         .unwrap();
     let standing_front = template_quads(standing_zero)[5];
+    let (board_min, board_max) = model_bounds(&template_quads(standing_zero)[..6]);
+    assert_eq!(
+        [board_max[0] - board_min[0], board_max[1] - board_min[1]],
+        [256, 128],
+        "24x12 SignModel pixels scaled by the vanilla 2/3 render pose must occupy a 16x8-pixel world silhouette"
+    );
     assert_eq!(
         standing_front.positions,
         [
@@ -948,6 +954,54 @@ fn compiler_routes_all_sign_states_to_reviewed_blank_static_models() {
         .map(|record| compiled.visuals[record.sequential_id as usize].model_template)
         .collect::<HashSet<_>>();
     assert_eq!(oak_wall.len(), 6, "all wall facings must be visible");
+    let expected_wall_bounds = [
+        ([0, 240, 0], [256, 256, 256]),
+        ([0, 0, 0], [256, 16, 256]),
+        ([0, 72, 240], [256, 200, 256]),
+        ([0, 72, 0], [256, 200, 16]),
+        ([240, 72, 0], [256, 200, 256]),
+        ([0, 72, 0], [16, 200, 256]),
+    ];
+    for (facing, expected) in expected_wall_bounds.into_iter().enumerate() {
+        let record = records
+            .iter()
+            .find(|record| {
+                record.name.as_ref() == "minecraft:wall_sign"
+                    && record.model_state.get(ModelStateField::Orientation) == Some(facing as u32)
+            })
+            .unwrap();
+        assert_eq!(
+            model_bounds(template_quads(record)),
+            expected,
+            "wall-sign facing {facing} must place the board opposite its supporting side"
+        );
+    }
+
+    let expected_hanging_wall_support_bounds = [
+        ([96, 128, 176], [160, 256, 256]),
+        ([96, 0, 0], [160, 128, 80]),
+        ([96, 224, 128], [160, 256, 256]),
+        ([96, 224, 0], [160, 256, 128]),
+        ([128, 224, 96], [256, 256, 160]),
+        ([0, 224, 96], [128, 256, 160]),
+    ];
+    for (facing, expected_support) in expected_hanging_wall_support_bounds.into_iter().enumerate() {
+        let record = records
+            .iter()
+            .find(|record| {
+                record.name.as_ref() == "minecraft:oak_hanging_sign"
+                    && record.model_state.get(ModelStateField::Orientation)
+                        == Some((facing as u32) << 4)
+                    && record.model_state.get(ModelStateField::Flags) == Some(0)
+            })
+            .unwrap();
+        let quads = template_quads(record);
+        assert_eq!(
+            model_bounds(&quads[6..12]),
+            expected_support,
+            "wall-hanging facing {facing} must extend its support opposite its front"
+        );
+    }
 
     let oak_hanging = records
         .iter()
