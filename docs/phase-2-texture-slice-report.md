@@ -272,11 +272,28 @@ the ignored integrated blob SHA-256 is
 `91998c61a9f8c40a72e73e45167d7448e9ad18271b561bc61f8d839584603e19`.
 The matching-view Cinnabar two-frame live presentation witness remains open.
 
+The subsequent selector-alias opaque-cube run removes exactly 27 reviewed
+compatibility states with zero additions, leaving 2,479 diagnostics including
+air. The generator and compiler bind all 38 states across the complete hay,
+bone, quartz-block, smooth-quartz, chiseled-quartz, purpur, and TNT products;
+malformed state wrappers, incomplete products, descriptor aliases, terrain
+arrays, overlay tint, flipbooks, and alpha-bearing source images fail closed.
+The X/Y/Z native cap permutation is preserved with a quarter-turn UV flag on
+the four non-cap faces for X/Z pillars, while `deprecated` and `explode_bit`
+are material-identical static aliases. Sequential/hash rendering covers every
+state, all six subchunk boundaries, six-quad dense greedy output, cave closure,
+and zero model/transparent/liquid streams. Registry SHA-256 is
+`9f67a14d73cf958b53557cc31c601168aa0eb95c5d46dfac1299f8412a0cb74f`;
+the ignored integrated blob SHA-256 is
+`18a4718d6fd03a66c0eb30e0a28444dcf80159c658cf4f7712e5ff342f7740ca`.
+The matching-view Cinnabar two-frame live presentation witness remains open.
+
 The reviewed baseline cumulatively records the already-landed
 door/trapdoor/wall removals plus the pressure-plate, fence-gate, pane/fence,
 carpet, button, huge-mushroom, glow-lichen/sculk-vein, and ordinary
-stained-glass, copper-grate, chiseled-bookshelf, and resin-clump tranches,
-rather than attributing all 7,307 removed IDs to one
+stained-glass, copper-grate, chiseled-bookshelf, resin-clump, and selector-alias
+opaque-cube tranches,
+rather than attributing all 7,334 removed IDs to one
 feature. This is a regression baseline, not a parity claim: each remaining
 family must reduce that exact set, and the final strict gate still requires zero
 non-air diagnostics, 67 exact-state GPU gallery pages, and the separate

@@ -847,7 +847,10 @@ fn pillar_axis_permutations_move_caps_and_rotate_horizontal_sides() {
     write_pack(directory.path(), blocks, terrain, EMPTY_FLIPBOOKS);
     let pack = read_pack(directory.path()).expect("valid pillar pack");
 
-    let x = record("minecraft:column", r#"{"pillar_axis":"x"}"#);
+    let x = record(
+        "minecraft:column",
+        r#"{"pillar_axis":{"type":"string","value":"x"}}"#,
+    );
     assert_key(
         resolve_texture_key(&pack.blocks, &x, BlockFace::West),
         "bottom",
@@ -867,7 +870,10 @@ fn pillar_axis_permutations_move_caps_and_rotate_horizontal_sides() {
         assert_key(resolve_texture_key(&pack.blocks, &x, face), "side", true);
     }
 
-    let y = record("minecraft:column", r#"{"pillar_axis":"y"}"#);
+    let y = record(
+        "minecraft:column",
+        r#"{"pillar_axis":{"type":"string","value":"y"}}"#,
+    );
     assert_key(
         resolve_texture_key(&pack.blocks, &y, BlockFace::Down),
         "bottom",
@@ -884,7 +890,10 @@ fn pillar_axis_permutations_move_caps_and_rotate_horizontal_sides() {
         false,
     );
 
-    let z = record("minecraft:column", r#"{"axis":"z"}"#);
+    let z = record(
+        "minecraft:column",
+        r#"{"pillar_axis":{"type":"string","value":"z"}}"#,
+    );
     assert_key(
         resolve_texture_key(&pack.blocks, &z, BlockFace::North),
         "bottom",
@@ -902,6 +911,45 @@ fn pillar_axis_permutations_move_caps_and_rotate_horizontal_sides() {
         BlockFace::Up,
     ] {
         assert_key(resolve_texture_key(&pack.blocks, &z, face), "side", true);
+    }
+
+    let legacy = record("minecraft:column", r#"{"axis":"z"}"#);
+    assert_key(
+        resolve_texture_key(&pack.blocks, &legacy, BlockFace::North),
+        "bottom",
+        false,
+    );
+}
+
+#[test]
+fn malformed_tagged_pillar_axes_fail_closed_to_diagnostic() {
+    let directory = tempfile::tempdir().expect("create fixture");
+    write_pack(
+        directory.path(),
+        r#"{"hay_block":{"textures":{"up":"top","down":"bottom","side":"side"}}}"#,
+        r#"{"texture_data":{"top":{"textures":"textures/blocks/top"},"bottom":{"textures":"textures/blocks/bottom"},"side":{"textures":"textures/blocks/side"}}}"#,
+        EMPTY_FLIPBOOKS,
+    );
+    let pack = read_pack(directory.path()).expect("valid pillar pack");
+
+    for malformed in [
+        r#"{"pillar_axis":{"type":"string"}}"#,
+        r#"{"pillar_axis":{"type":"string","value":"x","extra":0}}"#,
+        r#"{"pillar_axis":{"type":"int","value":0}}"#,
+        r#"{"pillar_axis":{"type":"string","value":0}}"#,
+        r#"{"pillar_axis":{"type":"string","value":"q"}}"#,
+        r#"{"pillar_axis":{"type":"string","value":"x"},"axis":{"type":"string","value":"x"}}"#,
+    ] {
+        let resolved = resolve_texture_key(
+            &pack.blocks,
+            &record("minecraft:hay_block", malformed),
+            BlockFace::West,
+        );
+        assert_eq!(
+            resolved.key, None,
+            "malformed state was admitted: {malformed}"
+        );
+        assert!(!resolved.rotate_uv);
     }
 }
 

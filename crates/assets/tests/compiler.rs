@@ -203,6 +203,390 @@ fn generated_registry_has_exact_resin_clump_inventory() {
     assert!(seen.into_iter().all(|present| present));
 }
 
+const SELECTOR_ALIAS_CUBE_NAMES: [&str; 7] = [
+    "minecraft:bone_block",
+    "minecraft:chiseled_quartz_block",
+    "minecraft:hay_block",
+    "minecraft:purpur_block",
+    "minecraft:quartz_block",
+    "minecraft:smooth_quartz",
+    "minecraft:tnt",
+];
+
+fn selector_alias_cube_records() -> Vec<RegistryRecord> {
+    read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+        .expect("decode committed generated registry")
+        .into_iter()
+        .filter(|record| SELECTOR_ALIAS_CUBE_NAMES.contains(&record.name.as_ref()))
+        .collect()
+}
+
+#[test]
+fn generated_registry_has_exact_reviewed_selector_alias_cube_products() {
+    let records = selector_alias_cube_records();
+    assert_eq!(records.len(), 38);
+    let target_ids = [
+        2908, 2909, 2910, 2912, 2913, 2914, 2916, 2917, 2918, 5443, 5444, 6466, 6467, 6468, 6470,
+        6471, 6472, 6474, 6475, 6476, 7082, 7083, 13113, 14686, 14687, 15345, 15346,
+    ];
+    assert_eq!(target_ids.len(), 27);
+    let actual_ids = records
+        .iter()
+        .map(|record| record.sequential_id)
+        .collect::<HashSet<_>>();
+    assert!(target_ids.iter().all(|id| actual_ids.contains(id)));
+    for record in records {
+        assert_eq!(record.model_family, ModelFamily::Cube);
+        assert_eq!(record.contributor_role, ContributorRole::Primary);
+        assert_eq!(
+            record.flags,
+            BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE
+        );
+        assert_eq!(record.face_coverage, 0x3f);
+        assert_eq!(record.collision_seed.shape_id, 1);
+        assert_eq!(
+            record.collision_seed.confidence,
+            CollisionConfidence::CollisionOnly
+        );
+        assert_eq!(
+            record.collision_seed.boxes.as_ref(),
+            &[CollisionBox {
+                min_x: 0,
+                min_y: 0,
+                min_z: 0,
+                max_x: 100_000_000,
+                max_y: 100_000_000,
+                max_z: 100_000_000,
+            }]
+        );
+        if record.name.as_ref() == "minecraft:tnt" {
+            assert_eq!(record.model_state.mask(), 0);
+        } else {
+            assert_eq!(
+                record.model_state.mask(),
+                1 << (ModelStateField::Orientation as u8 - 1)
+            );
+            assert!(matches!(
+                record.model_state.get(ModelStateField::Orientation),
+                Some(0..=2)
+            ));
+        }
+    }
+}
+
+fn write_selector_alias_cube_pack(root: &Path, hay_route: &str) {
+    write_pack(
+        root,
+        &format!(
+            r#"{{
+                "bone_block":{{"textures":{{"down":"bone_block_top","side":"bone_block_side","up":"bone_block_top"}}}},
+                "chiseled_quartz_block":{{"textures":{{"down":"chiseled_quartz_block_top","side":"chiseled_quartz_block_side","up":"chiseled_quartz_block_top"}}}},
+                "hay_block":{{"textures":{hay_route}}},
+                "purpur_block":{{"textures":"flattened_purpur_block"}},
+                "quartz_block":{{"textures":{{"down":"flattened_quartz_block_top","side":"flattened_quartz_block_side","up":"flattened_quartz_block_top"}}}},
+                "smooth_quartz":{{"textures":"smooth_quartz"}},
+                "tnt":{{"textures":{{"down":"flattened_tnt_bottom","side":"flattened_tnt_side","up":"flattened_tnt_top"}}}}
+            }}"#
+        ),
+        r#"{"texture_data":{
+            "bone_block_top":{"textures":"textures/blocks/bone_block_top"},
+            "bone_block_side":{"textures":"textures/blocks/bone_block_side"},
+            "chiseled_quartz_block_top":{"textures":"textures/blocks/quartz_block_chiseled_top"},
+            "chiseled_quartz_block_side":{"textures":"textures/blocks/quartz_block_chiseled"},
+            "hayblock_top":{"textures":"textures/blocks/hay_block_top"},
+            "hayblock_side":{"textures":"textures/blocks/hay_block_side"},
+            "hay_alias":{"textures":"textures/blocks/hay_block_side"},
+            "flattened_purpur_block":{"textures":"textures/blocks/purpur_block"},
+            "flattened_quartz_block_top":{"textures":"textures/blocks/quartz_block_top"},
+            "flattened_quartz_block_side":{"textures":"textures/blocks/quartz_block_side"},
+            "smooth_quartz":{"textures":"textures/blocks/quartz_block_bottom"},
+            "flattened_tnt_bottom":{"textures":"textures/blocks/tnt_bottom"},
+            "flattened_tnt_side":{"textures":"textures/blocks/tnt_side"},
+            "flattened_tnt_top":{"textures":"textures/blocks/tnt_top"}
+        }}"#,
+        "[]",
+    );
+    for (index, key) in [
+        "bone_block_top",
+        "bone_block_side",
+        "quartz_block_chiseled_top",
+        "quartz_block_chiseled",
+        "hay_block_top",
+        "hay_block_side",
+        "purpur_block",
+        "quartz_block_top",
+        "quartz_block_side",
+        "quartz_block_bottom",
+        "tnt_bottom",
+        "tnt_side",
+        "tnt_top",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        write_png(
+            root,
+            &format!("textures/blocks/{key}"),
+            TILE_SIZE,
+            TILE_SIZE,
+            &solid(TILE_SIZE, TILE_SIZE, [index as u8 + 1, 40, 80, 255]),
+        );
+    }
+}
+
+fn remapped_selector_alias_cube_records() -> Vec<RegistryRecord> {
+    selector_alias_cube_records()
+}
+
+#[test]
+fn compiler_selector_alias_cube_admission_rejects_extra_state_properties_atomically() {
+    let directory = tempfile::tempdir().expect("create fixture");
+    write_selector_alias_cube_pack(
+        directory.path(),
+        r#"{"down":"hayblock_top","side":"hayblock_side","up":"hayblock_top"}"#,
+    );
+    let mut records = remapped_selector_alias_cube_records();
+    let hay = records
+        .iter_mut()
+        .find(|record| record.name.as_ref() == "minecraft:hay_block")
+        .expect("hay record");
+    let mut state =
+        serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&hay.canonical_state)
+            .expect("canonical hay state");
+    state.insert(
+        "extra".into(),
+        serde_json::json!({"type": "int", "value": 0}),
+    );
+    hay.canonical_state = serde_json::to_string(&state).unwrap().into();
+    let compiled = compile_pack(directory.path(), &records).expect("compile malformed inventory");
+    assert!(records.iter().all(|record| {
+        compiled.visuals[record.sequential_id as usize].kind == VisualKind::Diagnostic
+    }));
+}
+
+#[test]
+fn compiler_selector_alias_cube_pack_route_rejects_descriptor_aliases() {
+    let directory = tempfile::tempdir().expect("create fixture");
+    write_selector_alias_cube_pack(directory.path(), r#""hay_alias""#);
+    let records = remapped_selector_alias_cube_records();
+    let compiled = compile_pack(directory.path(), &records).expect("compile aliased pack");
+    for record in &records {
+        let kind = compiled.visuals[record.sequential_id as usize].kind;
+        if record.name.as_ref() == "minecraft:hay_block" {
+            assert_eq!(kind, VisualKind::Diagnostic);
+        } else {
+            assert_eq!(kind, VisualKind::Cube, "{record:?}");
+        }
+    }
+}
+
+#[test]
+fn compiler_selector_alias_cube_pack_route_rejects_aliases_variants_tint_flipbooks_and_alpha() {
+    for malformed in ["path_alias", "variants", "tint", "flipbook", "alpha"] {
+        let directory = tempfile::tempdir().expect("create fixture");
+        write_selector_alias_cube_pack(
+            directory.path(),
+            r#"{"down":"hayblock_top","side":"hayblock_side","up":"hayblock_top"}"#,
+        );
+        match malformed {
+            "path_alias" | "variants" | "tint" => {
+                let path = directory.path().join("textures/terrain_texture.json");
+                let terrain = fs::read_to_string(&path).unwrap();
+                let replacement = match malformed {
+                    "path_alias" => {
+                        r#""hayblock_side":{"textures":"textures/blocks/bone_block_side"}"#
+                    }
+                    "variants" => {
+                        r#""hayblock_side":{"textures":["textures/blocks/hay_block_side"]}"#
+                    }
+                    "tint" => {
+                        r##""hayblock_side":{"textures":{"path":"textures/blocks/hay_block_side","overlay_color":"#ffffff"}}"##
+                    }
+                    _ => unreachable!(),
+                };
+                fs::write(
+                    path,
+                    terrain.replace(
+                        r#""hayblock_side":{"textures":"textures/blocks/hay_block_side"}"#,
+                        replacement,
+                    ),
+                )
+                .unwrap();
+            }
+            "flipbook" => fs::write(
+                directory.path().join("textures/flipbook_textures.json"),
+                r#"[{"flipbook_texture":"textures/blocks/hay_block_side","atlas_tile":"hayblock_side"}]"#,
+            )
+            .unwrap(),
+            "alpha" => write_png(
+                directory.path(),
+                "textures/blocks/hay_block_side",
+                TILE_SIZE,
+                TILE_SIZE,
+                &solid(TILE_SIZE, TILE_SIZE, [10, 20, 30, 127]),
+            ),
+            _ => unreachable!(),
+        }
+        let records = remapped_selector_alias_cube_records();
+        let compiled = compile_pack(directory.path(), &records).expect("compile malformed route");
+        for record in &records {
+            let kind = compiled.visuals[record.sequential_id as usize].kind;
+            if record.name.as_ref() == "minecraft:hay_block" {
+                assert_eq!(kind, VisualKind::Diagnostic, "{malformed}: {record:?}");
+            } else {
+                assert_eq!(kind, VisualKind::Cube, "{malformed}: {record:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn compiler_emits_exact_selector_alias_cube_faces_aliases_and_uv_rotations() {
+    let directory = tempfile::tempdir().expect("create fixture");
+    write_selector_alias_cube_pack(
+        directory.path(),
+        r#"{"down":"hayblock_top","side":"hayblock_side","up":"hayblock_top"}"#,
+    );
+    let records = remapped_selector_alias_cube_records();
+    let compiled = compile_pack(directory.path(), &records).expect("compile exact products");
+
+    assert!(compiled.model_templates.is_empty());
+    assert!(compiled.model_quads.is_empty());
+    assert!(compiled.animations.is_empty());
+    assert!(compiled.animation_frames.is_empty());
+    for record in &records {
+        let visual = compiled.visuals[record.sequential_id as usize];
+        assert_eq!(visual.kind, VisualKind::Cube, "{record:?}");
+        assert_eq!(visual.model_template, assets::NO_MODEL_TEMPLATE);
+        for material in visual.faces {
+            assert_ne!(material, DIAGNOSTIC_MATERIAL);
+            let material = compiled.materials[material as usize];
+            assert!(matches!(material.flags, 0 | MATERIAL_FLAG_ROTATE_UV));
+            assert_eq!(material.animation, assets::NO_ANIMATION);
+        }
+    }
+
+    for name in [
+        "minecraft:bone_block",
+        "minecraft:chiseled_quartz_block",
+        "minecraft:hay_block",
+        "minecraft:quartz_block",
+    ] {
+        let by_axis = |orientation| {
+            records
+                .iter()
+                .find(|record| {
+                    record.name.as_ref() == name
+                        && record.model_state.get(ModelStateField::Orientation) == Some(orientation)
+                })
+                .expect("axis record")
+        };
+        let y = compiled.visuals[by_axis(1).sequential_id as usize];
+        let x = compiled.visuals[by_axis(0).sequential_id as usize];
+        let z = compiled.visuals[by_axis(2).sequential_id as usize];
+        let y_cap = material_for_face(
+            &compiled,
+            by_axis(1).sequential_id as usize,
+            BlockFace::Down,
+        );
+        let y_side = material_for_face(
+            &compiled,
+            by_axis(1).sequential_id as usize,
+            BlockFace::North,
+        );
+        for face in [BlockFace::Down, BlockFace::Up] {
+            assert_eq!(compiled.materials[y.faces[face as usize] as usize].flags, 0);
+        }
+        for face in [BlockFace::West, BlockFace::East] {
+            let material = compiled.materials[x.faces[face as usize] as usize];
+            assert_eq!(material.texture.layer(), y_cap.texture.layer());
+            assert_eq!(material.flags, 0);
+        }
+        for face in [
+            BlockFace::Down,
+            BlockFace::Up,
+            BlockFace::North,
+            BlockFace::South,
+        ] {
+            let material = compiled.materials[x.faces[face as usize] as usize];
+            assert_eq!(material.texture.layer(), y_side.texture.layer());
+            assert_eq!(material.flags, MATERIAL_FLAG_ROTATE_UV);
+        }
+        for face in [BlockFace::North, BlockFace::South] {
+            let material = compiled.materials[z.faces[face as usize] as usize];
+            assert_eq!(material.texture.layer(), y_cap.texture.layer());
+            assert_eq!(material.flags, 0);
+        }
+        for face in [
+            BlockFace::West,
+            BlockFace::East,
+            BlockFace::Down,
+            BlockFace::Up,
+        ] {
+            let material = compiled.materials[z.faces[face as usize] as usize];
+            assert_eq!(material.texture.layer(), y_side.texture.layer());
+            assert_eq!(material.flags, MATERIAL_FLAG_ROTATE_UV);
+        }
+    }
+
+    for name in ["minecraft:hay_block", "minecraft:bone_block"] {
+        for orientation in 0..=2 {
+            let aliases = records
+                .iter()
+                .filter(|record| {
+                    record.name.as_ref() == name
+                        && record.model_state.get(ModelStateField::Orientation) == Some(orientation)
+                })
+                .map(|record| compiled.visuals[record.sequential_id as usize].faces)
+                .collect::<Vec<_>>();
+            assert_eq!(aliases.len(), 4);
+            assert!(aliases.windows(2).all(|pair| pair[0] == pair[1]));
+        }
+    }
+    let tnt = records
+        .iter()
+        .filter(|record| record.name.as_ref() == "minecraft:tnt")
+        .map(|record| compiled.visuals[record.sequential_id as usize].faces)
+        .collect::<Vec<_>>();
+    assert_eq!(tnt.len(), 2);
+    assert_eq!(tnt[0], tnt[1]);
+
+    let baseline = encode_blob(&compiled).expect("encode exact selector aliases");
+    let mut reversed = records.clone();
+    reversed.reverse();
+    let reversed = compile_pack(directory.path(), &reversed).expect("compile reversed records");
+    assert_eq!(encode_blob(&reversed).unwrap(), baseline);
+}
+
+#[test]
+#[ignore = "requires PINNED_VANILLA_PACK pointing at the ignored vanilla resource pack"]
+fn compiler_real_pinned_pack_admits_all_exact_selector_alias_cube_records() {
+    let pack = std::env::var_os("PINNED_VANILLA_PACK")
+        .map(PathBuf::from)
+        .expect("set PINNED_VANILLA_PACK");
+    let records = remapped_selector_alias_cube_records();
+    let first = compile_pack(&pack, &records).expect("compile pinned selector aliases");
+    assert!(records.iter().all(|record| {
+        let visual = first.visuals[record.sequential_id as usize];
+        visual.kind == VisualKind::Cube
+            && visual.model_template == assets::NO_MODEL_TEMPLATE
+            && visual
+                .faces
+                .iter()
+                .all(|material| *material != DIAGNOSTIC_MATERIAL)
+    }));
+    assert!(first.model_templates.is_empty());
+    assert!(first.model_quads.is_empty());
+    assert!(first.animations.is_empty());
+    let baseline = encode_blob(&first).unwrap();
+    let second = compile_pack(&pack, &records).expect("compile pinned selector aliases twice");
+    assert_eq!(encode_blob(&second).unwrap(), baseline);
+    let mut reversed = records;
+    reversed.reverse();
+    let reversed = compile_pack(&pack, &reversed).expect("compile reversed pinned aliases");
+    assert_eq!(encode_blob(&reversed).unwrap(), baseline);
+}
+
 #[test]
 fn generated_registry_has_exact_stained_glass_cube_inventory() {
     let ordinary_stained_glass = generated_stained_glass_cube_records();

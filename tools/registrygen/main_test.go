@@ -8,6 +8,7 @@ import (
 	"math"
 	"math/rand"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -590,6 +591,10 @@ func intState(name string, value int32) StateProperty {
 	return StateProperty{Name: name, Value: TypedScalar{Kind: ScalarInt, Int: value}}
 }
 
+func stringState(name, value string) StateProperty {
+	return StateProperty{Name: name, Value: TypedScalar{Kind: ScalarString, String: value}}
+}
+
 func sourceState(name string, properties ...StateProperty) SourceState {
 	return SourceState{Name: name, Properties: properties}
 }
@@ -1116,6 +1121,187 @@ func TestResinClumpProductRequiresExactIdsStateAndEmptyCollision(t *testing.T) {
 	duplicate[63].NetworkHash++
 	if err := validateSelectorCardinality(duplicate); err == nil {
 		t.Fatal("duplicate resin-clump selector was accepted")
+	}
+}
+
+func exactSelectorAliasCubeRecords(t *testing.T) []Record {
+	t.Helper()
+	unit := CollisionSeed{
+		ShapeID:    1,
+		Confidence: CollisionConfidenceCollisionOnly,
+		Boxes:      []CollisionBox{{MaxX: 100_000_000, MaxY: 100_000_000, MaxZ: 100_000_000}},
+	}
+	records := make([]Record, 0, 38)
+	appendAxisProduct := func(name string, base uint32, deprecated bool) {
+		t.Helper()
+		for axisIndex, axis := range []string{"y", "x", "z"} {
+			count := 1
+			if deprecated {
+				count = 4
+			}
+			for value := 0; value < count; value++ {
+				properties := []StateProperty{stringState("pillar_axis", axis)}
+				if deprecated {
+					properties = []StateProperty{intState("deprecated", int32(value)), stringState("pillar_axis", axis)}
+				}
+				record, err := classifyRecord(sourceState(name, properties...))
+				if err != nil {
+					t.Fatalf("classify %s/%s/%d: %v", name, axis, value, err)
+				}
+				record.SequentialID = base + uint32(axisIndex*count+value)
+				record.NetworkHash = 90_000 + record.SequentialID
+				record.CollisionSeed = unit
+				if (deprecated && value == 0) || (!deprecated && axisIndex == 0) {
+					record.Flags = flagCubeGeometry | flagOccludesFullFace
+				}
+				finalizeGeometryFacts(&record)
+				records = append(records, record)
+			}
+		}
+	}
+	appendAxisProduct("minecraft:hay_block", 2907, true)
+	appendAxisProduct("minecraft:bone_block", 6465, true)
+	appendAxisProduct("minecraft:quartz_block", 5442, false)
+	appendAxisProduct("minecraft:smooth_quartz", 7081, false)
+	appendAxisProduct("minecraft:chiseled_quartz_block", 14685, false)
+	appendAxisProduct("minecraft:purpur_block", 15344, false)
+	for exploded := byte(0); exploded < 2; exploded++ {
+		record, err := classifyRecord(sourceState("minecraft:tnt", byteState("explode_bit", exploded)))
+		if err != nil {
+			t.Fatalf("classify TNT %d: %v", exploded, err)
+		}
+		record.SequentialID = 13112 + uint32(exploded)
+		record.NetworkHash = 90_000 + record.SequentialID
+		record.CollisionSeed = unit
+		if exploded == 0 {
+			record.Flags = flagCubeGeometry | flagOccludesFullFace
+		}
+		finalizeGeometryFacts(&record)
+		records = append(records, record)
+	}
+	return records
+}
+
+func cloneRecords(records []Record) []Record {
+	cloned := append([]Record(nil), records...)
+	for index := range cloned {
+		cloned[index].StateJSON = append([]byte(nil), records[index].StateJSON...)
+		cloned[index].CollisionSeed.Boxes = append([]CollisionBox(nil), records[index].CollisionSeed.Boxes...)
+	}
+	return cloned
+}
+
+func TestReviewedSelectorAliasCubePromotionIsExactAtomicAndDeterministic(t *testing.T) {
+	records := exactSelectorAliasCubeRecords(t)
+	before := cloneRecords(records)
+	if err := promoteReviewedSelectorAliasCubes(records); err != nil {
+		t.Fatalf("promote exact products: %v", err)
+	}
+	wantChanged := map[uint32]bool{
+		2908: true, 2909: true, 2910: true, 2912: true, 2913: true, 2914: true, 2916: true, 2917: true, 2918: true,
+		6466: true, 6467: true, 6468: true, 6470: true, 6471: true, 6472: true, 6474: true, 6475: true, 6476: true,
+		5443: true, 5444: true, 7082: true, 7083: true, 14686: true, 14687: true, 15345: true, 15346: true, 13113: true,
+	}
+	changed := 0
+	for index, record := range records {
+		if record.Flags != flagCubeGeometry|flagOccludesFullFace || record.FaceCoverage != 0x3f {
+			t.Fatalf("state %d solid facts=%#x/%#x", record.SequentialID, record.Flags, record.FaceCoverage)
+		}
+		wasChanged := before[index].Flags != record.Flags || before[index].FaceCoverage != record.FaceCoverage
+		if wasChanged != wantChanged[record.SequentialID] {
+			t.Fatalf("state %d changed=%v, want %v", record.SequentialID, wasChanged, wantChanged[record.SequentialID])
+		}
+		if wasChanged {
+			changed++
+		}
+	}
+	if changed != 27 {
+		t.Fatalf("promoted %d states, want 27", changed)
+	}
+	forward, err := encode(records)
+	if err != nil {
+		t.Fatalf("encode forward: %v", err)
+	}
+	reversed := cloneRecords(before)
+	slices.Reverse(reversed)
+	if err := promoteReviewedSelectorAliasCubes(reversed); err != nil {
+		t.Fatalf("promote reversed: %v", err)
+	}
+	backward, err := encode(reversed)
+	if err != nil {
+		t.Fatalf("encode reversed: %v", err)
+	}
+	if !bytes.Equal(forward, backward) {
+		t.Fatal("selector-alias cube BREG encoding depends on source order")
+	}
+}
+
+func TestReviewedSelectorAliasCubePromotionRejectsMalformedProductsWithoutMutation(t *testing.T) {
+	valid := exactSelectorAliasCubeRecords(t)
+	mutations := []struct {
+		name   string
+		mutate func([]Record)
+	}{
+		{"missing state", func(records []Record) { records[0].Name = "minecraft:unrelated" }},
+		{"entire product absent", func(records []Record) {
+			for index := range records {
+				if records[index].Name == "minecraft:tnt" {
+					records[index].Name = "minecraft:unrelated_tnt"
+				}
+			}
+		}},
+		{"wrong ID", func(records []Record) { records[0].SequentialID++ }},
+		{"wrong canonical type", func(records []Record) {
+			records[0].StateJSON = []byte(`{"deprecated":{"type":"byte","value":0},"pillar_axis":{"type":"string","value":"y"}}`)
+		}},
+		{"unknown axis", func(records []Record) {
+			records[0].StateJSON = []byte(`{"deprecated":{"type":"int","value":0},"pillar_axis":{"type":"string","value":"q"}}`)
+		}},
+		{"extra canonical key", func(records []Record) {
+			records[0].StateJSON = []byte(`{"deprecated":{"type":"int","value":0},"extra":{"type":"int","value":0},"pillar_axis":{"type":"string","value":"y"}}`)
+		}},
+		{"model-state disagreement", func(records []Record) { records[0].ModelState.Set(ModelStateOrientation, 2) }},
+		{"extra model-state field", func(records []Record) { records[0].ModelState.Set(ModelStateGrowth, 0) }},
+		{"wrong role", func(records []Record) { records[0].ContributorRole = ContributorLiquidAdditional }},
+		{"wrong family", func(records []Record) { records[0].ModelFamily = ModelFamilyUnknown }},
+		{"unexpected source flags", func(records []Record) { records[1].Flags = flagCubeGeometry }},
+		{"shape ID", func(records []Record) { records[0].CollisionSeed.ShapeID = 2 }},
+		{"confidence", func(records []Record) { records[0].CollisionSeed.Confidence = CollisionConfidenceReviewedVisibleBounds }},
+		{"unit bounds", func(records []Record) { records[0].CollisionSeed.Boxes[0].MaxY-- }},
+		{"duplicate selector", func(records []Record) {
+			records[1].StateJSON = append([]byte(nil), records[0].StateJSON...)
+			records[1].ModelState = records[0].ModelState
+		}},
+	}
+	for _, mutation := range mutations {
+		t.Run(mutation.name, func(t *testing.T) {
+			broken := cloneRecords(valid)
+			mutation.mutate(broken)
+			before := cloneRecords(broken)
+			if err := promoteReviewedSelectorAliasCubes(broken); err == nil {
+				t.Fatal("malformed selector-alias product was accepted")
+			}
+			if !reflect.DeepEqual(broken, before) {
+				t.Fatal("failed promotion mutated records")
+			}
+		})
+	}
+}
+
+func TestReviewedSelectorAliasCubePromotionIgnoresUnreviewedCubeLikeRecords(t *testing.T) {
+	record, err := classifyRecord(sourceState("minecraft:white_glazed_terracotta", intState("facing_direction", 2)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.CollisionSeed = CollisionSeed{ShapeID: 1, Confidence: CollisionConfidenceCollisionOnly, Boxes: []CollisionBox{{MaxX: 100_000_000, MaxY: 100_000_000, MaxZ: 100_000_000}}}
+	finalizeGeometryFacts(&record)
+	records := []Record{record}
+	before := cloneRecords(records)
+	if err := promoteReviewedSelectorAliasCubes(records); err != nil {
+		t.Fatalf("unrelated record: %v", err)
+	}
+	if !reflect.DeepEqual(records, before) {
+		t.Fatal("unreviewed cube-like record was promoted")
 	}
 }
 

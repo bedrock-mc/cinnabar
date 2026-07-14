@@ -279,6 +279,26 @@ impl BlockTextureMap {
             faces.south.as_deref()?,
         ])
     }
+
+    /// Returns the exact vanilla pillar form: down/up caps plus one horizontal
+    /// side fallback and no explicit horizontal overrides.
+    pub(crate) fn get_exact_pillar(&self, block_name: &str) -> Option<[&str; 3]> {
+        let TextureValue::Faces(faces) = self.entries.get(block_name)? else {
+            return None;
+        };
+        if faces.west.is_some()
+            || faces.east.is_some()
+            || faces.north.is_some()
+            || faces.south.is_some()
+        {
+            return None;
+        }
+        Some([
+            faces.down.as_deref()?,
+            faces.up.as_deref()?,
+            faces.side.as_deref()?,
+        ])
+    }
 }
 
 #[derive(Debug)]
@@ -536,7 +556,15 @@ pub fn resolve_texture_key(
     match texture {
         TextureValue::Key(key) => TextureKey::resolved(key, false),
         TextureValue::Faces(faces) => {
-            let (source_face, rotate_uv) = orient_face(face, state_axis(&record.canonical_state));
+            let axis = match state_axis(&record.canonical_state) {
+                AxisState::Absent => Axis::Y,
+                AxisState::Exact(axis) => axis,
+                AxisState::Invalid if is_reviewed_selector_alias_cube_name(&record.name) => {
+                    return TextureKey::diagnostic();
+                }
+                AxisState::Invalid => Axis::Y,
+            };
+            let (source_face, rotate_uv) = orient_face(face, axis);
             faces
                 .resolve(source_face)
                 .map_or_else(TextureKey::diagnostic, |key| {
@@ -1094,18 +1122,55 @@ enum Axis {
     Z,
 }
 
-fn state_axis(canonical_state: &str) -> Axis {
-    let Ok(properties) = serde_json::from_str::<Map<String, Value>>(canonical_state) else {
-        return Axis::Y;
+fn is_reviewed_selector_alias_cube_name(name: &str) -> bool {
+    matches!(
+        name,
+        "minecraft:bone_block"
+            | "minecraft:chiseled_quartz_block"
+            | "minecraft:hay_block"
+            | "minecraft:purpur_block"
+            | "minecraft:quartz_block"
+            | "minecraft:smooth_quartz"
+            | "minecraft:tnt"
+    )
+}
+
+enum AxisState {
+    Absent,
+    Exact(Axis),
+    Invalid,
+}
+
+fn axis_value(value: &Value) -> Option<Axis> {
+    let value = if let Some(value) = value.as_str() {
+        value
+    } else {
+        let tagged = value.as_object()?;
+        if tagged.len() != 2 || tagged.get("type")?.as_str()? != "string" {
+            return None;
+        }
+        tagged.get("value")?.as_str()?
     };
-    match properties
-        .get("pillar_axis")
-        .or_else(|| properties.get("axis"))
-        .and_then(Value::as_str)
-    {
-        Some("x") => Axis::X,
-        Some("z") => Axis::Z,
-        _ => Axis::Y,
+    match value {
+        "x" => Some(Axis::X),
+        "y" => Some(Axis::Y),
+        "z" => Some(Axis::Z),
+        _ => None,
+    }
+}
+
+fn state_axis(canonical_state: &str) -> AxisState {
+    let Ok(properties) = serde_json::from_str::<Map<String, Value>>(canonical_state) else {
+        return AxisState::Invalid;
+    };
+    let pillar_axis = properties.get("pillar_axis");
+    let legacy_axis = properties.get("axis");
+    match (pillar_axis, legacy_axis) {
+        (None, None) => AxisState::Absent,
+        (Some(_), Some(_)) => AxisState::Invalid,
+        (Some(value), None) | (None, Some(value)) => {
+            axis_value(value).map_or(AxisState::Invalid, AxisState::Exact)
+        }
     }
 }
 

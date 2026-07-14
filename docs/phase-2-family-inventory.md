@@ -24,7 +24,7 @@ The audit used these pinned inputs:
   by `assets/vanilla-source.json`.
 
 The current audited `BREG1003` export is 4,692,247 bytes with SHA-256
-`33a31ec89a04fe638a4f59ab315561c1c0d897e04f2041d5643262d3de56d30c`.
+`9f67a14d73cf958b53557cc31c601168aa0eb95c5d46dfac1299f8412a0cb74f`.
 It decoded exactly to EOF and reported 1,356 names, 16,913 states, 1,321
 Valentine names, 15,845 Valentine states, and attributable gaps of 35 names and
 1,068 states. The 2026-07-13 selector-only regeneration preserves
@@ -33,6 +33,10 @@ records. The 2026-07-14 regenerations additionally assign the dedicated
 chiseled-bookshelf family and reviewed solid/full-face facts to exactly IDs
 1,605–1,860, then the dedicated empty-collision resin-clump family to exactly
 IDs 2,930–2,993. Two resin generations were byte-identical.
+
+The 2026-07-14 selector-alias regeneration then promotes exactly 27 reviewed
+compatibility states across hay, bone, quartz variants, purpur, and TNT; two
+generations were byte-identical.
 
 Reacquire and regenerate the ignored evidence with:
 
@@ -252,7 +256,18 @@ to the all-face template. One static alpha-cutout material produces 63 immutable
 templates and 192 quads. Evidence and local-only screenshot hashes are recorded
 in `docs/evidence/phase-2-resin-clump-native-reference.md`.
 
-The current exact residual is 2,506 diagnostics including air; no unrelated ID
+The subsequent selector-alias opaque-cube tranche removes exactly 27 states:
+IDs 2,908-2,910, 2,912-2,914, 2,916-2,918, 5,443-5,444, 6,466-6,468,
+6,470-6,472, 6,474-6,476, 7,082-7,083, 13,113, 14,686-14,687, and
+15,345-15,346. Admission binds all 38 states in the seven complete products,
+exact typed selectors and formula IDs, unit collision, exact static non-tinted
+opaque pack routes, and the native X/Y/Z cap permutation. `deprecated` and
+`explode_bit` remain static visual aliases. The runtime emits only ordinary cube
+faces, with quarter-turn UV flags on the four non-cap faces for X/Z pillars.
+Commands and local-only evidence hashes are recorded in
+`docs/evidence/phase-2-selector-alias-cubes-native-reference.md`.
+
+The current exact residual is 2,479 diagnostics including air; no unrelated ID
 changed status.
 
 The original 412-name/2,860-state planning residual was bounded and

@@ -455,6 +455,9 @@ func generateRegistry(pmmpRoot, prismarineRoot, valentinePalettePath, valentineB
 	if err := validateSelectorCardinality(joined); err != nil {
 		return nil, RegistryMetadata{}, GenerationReport{}, err
 	}
+	if err := promoteReviewedSelectorAliasCubes(joined); err != nil {
+		return nil, RegistryMetadata{}, GenerationReport{}, err
+	}
 
 	valentine, err := readNBTStates(valentinePalettePath)
 	if err != nil {
@@ -1118,7 +1121,7 @@ func classifyRecord(state SourceState) (Record, error) {
 		record.ModelFamily = ModelFamilyDecorative
 	case name == "soul_sand" || name == "mud":
 		record.ModelFamily = ModelFamilyCuboid
-	case isSplitCubeName(name):
+	case isReviewedSelectorAliasCubeName(name), isGlazedTerracottaName(name):
 		record.ModelFamily = ModelFamilyCube
 	case strings.Contains(name, "trapdoor"):
 		record.ModelFamily = ModelFamilyTrapdoor
@@ -1511,8 +1514,195 @@ func isTorchName(name string) bool {
 	return name == "torch" || name == "copper_torch" || name == "soul_torch" || name == "redstone_torch" || name == "unlit_redstone_torch" || name == "underwater_torch" || strings.HasPrefix(name, "colored_torch_")
 }
 
-func isSplitCubeName(name string) bool {
-	return strings.HasSuffix(name, "_glazed_terracotta") || name == "bone_block" || name == "hay_block" || name == "chiseled_quartz_block" || name == "purpur_block" || name == "quartz_block" || name == "smooth_quartz" || name == "tnt"
+func isGlazedTerracottaName(name string) bool {
+	return strings.HasSuffix(name, "_glazed_terracotta")
+}
+
+func isReviewedSelectorAliasCubeName(name string) bool {
+	switch name {
+	case "bone_block", "hay_block", "chiseled_quartz_block", "purpur_block", "quartz_block", "smooth_quartz", "tnt":
+		return true
+	default:
+		return false
+	}
+}
+
+func selectorAliasCubeCollisionIsExact(seed CollisionSeed) bool {
+	return seed.ShapeID == 1 &&
+		seed.Confidence == CollisionConfidenceCollisionOnly &&
+		len(seed.Boxes) == 1 &&
+		seed.Boxes[0] == (CollisionBox{MaxX: 100_000_000, MaxY: 100_000_000, MaxZ: 100_000_000})
+}
+
+func exactCanonicalString(raw json.RawMessage) (string, bool) {
+	var tagged map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &tagged); err != nil || len(tagged) != 2 {
+		return "", false
+	}
+	var kind string
+	if err := json.Unmarshal(tagged["type"], &kind); err != nil || kind != "string" {
+		return "", false
+	}
+	var value string
+	if err := json.Unmarshal(tagged["value"], &value); err != nil {
+		return "", false
+	}
+	return value, true
+}
+
+func exactCanonicalByte(raw json.RawMessage) (byte, bool) {
+	var tagged map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &tagged); err != nil || len(tagged) != 2 {
+		return 0, false
+	}
+	var kind string
+	if err := json.Unmarshal(tagged["type"], &kind); err != nil || kind != "byte" {
+		return 0, false
+	}
+	var value uint8
+	if err := json.Unmarshal(tagged["value"], &value); err != nil || value > 1 {
+		return 0, false
+	}
+	return value, true
+}
+
+func selectorAliasAxisState(stateJSON []byte, hasDeprecated bool) (axisIndex, deprecated uint32, ok bool) {
+	var state map[string]json.RawMessage
+	wantProperties := 1
+	if hasDeprecated {
+		wantProperties = 2
+	}
+	if err := json.Unmarshal(stateJSON, &state); err != nil || len(state) != wantProperties {
+		return 0, 0, false
+	}
+	axis, axisOK := exactCanonicalString(state["pillar_axis"])
+	if !axisOK {
+		return 0, 0, false
+	}
+	switch axis {
+	case "y":
+		axisIndex = 0
+	case "x":
+		axisIndex = 1
+	case "z":
+		axisIndex = 2
+	default:
+		return 0, 0, false
+	}
+	if hasDeprecated {
+		var deprecatedOK bool
+		deprecated, deprecatedOK = exactCanonicalInt(state["deprecated"], 3)
+		if !deprecatedOK {
+			return 0, 0, false
+		}
+	}
+	return axisIndex, deprecated, true
+}
+
+// promoteReviewedSelectorAliasCubes admits only the complete, native-reviewed
+// selector products below. Validation is deliberately atomic: no BREG record is
+// changed until every present reviewed product has passed exact state, ID,
+// projection, collision, and pre-promotion geometry checks.
+func promoteReviewedSelectorAliasCubes(records []Record) error {
+	type product struct {
+		base          uint32
+		cardinality   int
+		hasDeprecated bool
+		tnt           bool
+	}
+	products := map[string]product{
+		"minecraft:hay_block":             {base: 2907, cardinality: 12, hasDeprecated: true},
+		"minecraft:bone_block":            {base: 6465, cardinality: 12, hasDeprecated: true},
+		"minecraft:quartz_block":          {base: 5442, cardinality: 3},
+		"minecraft:smooth_quartz":         {base: 7081, cardinality: 3},
+		"minecraft:chiseled_quartz_block": {base: 14685, cardinality: 3},
+		"minecraft:purpur_block":          {base: 15344, cardinality: 3},
+		"minecraft:tnt":                   {base: 13112, cardinality: 2, tnt: true},
+	}
+	groups := make(map[string][]int, len(products))
+	for index := range records {
+		if _, reviewed := products[records[index].Name]; reviewed {
+			groups[records[index].Name] = append(groups[records[index].Name], index)
+		}
+	}
+	if len(groups) == 0 {
+		return nil
+	}
+	promote := make([]int, 0, 27)
+	for name, spec := range products {
+		indexes := groups[name]
+		if len(indexes) != spec.cardinality {
+			return fmt.Errorf("%s selector cardinality is %d, want %d", name, len(indexes), spec.cardinality)
+		}
+		seen := make([]bool, spec.cardinality)
+		for _, index := range indexes {
+			record := &records[index]
+			if record.ModelFamily != ModelFamilyCube || record.ContributorRole != ContributorPrimary {
+				return fmt.Errorf("%s state %d has invalid family or role", name, record.SequentialID)
+			}
+			if record.FaceCoverage != 0x3f || !selectorAliasCubeCollisionIsExact(record.CollisionSeed) {
+				return fmt.Errorf("%s state %d lacks exact unit cube evidence", name, record.SequentialID)
+			}
+			var offset uint32
+			var sourceSolid bool
+			if spec.tnt {
+				var state map[string]json.RawMessage
+				if err := json.Unmarshal(record.StateJSON, &state); err != nil || len(state) != 1 {
+					return fmt.Errorf("%s state %d has invalid typed selector", name, record.SequentialID)
+				}
+				exploded, ok := exactCanonicalByte(state["explode_bit"])
+				if !ok || record.ModelState.Mask != 0 {
+					return fmt.Errorf("%s state %d has invalid typed selector projection", name, record.SequentialID)
+				}
+				offset = uint32(exploded)
+				sourceSolid = exploded == 0
+			} else {
+				axisIndex, deprecated, ok := selectorAliasAxisState(record.StateJSON, spec.hasDeprecated)
+				orientation, hasOrientation := record.ModelState.Get(ModelStateOrientation)
+				wantOrientation := [3]uint32{1, 0, 2}[axisIndex]
+				if !ok || !hasOrientation || orientation != wantOrientation || record.ModelState.Mask != uint8(1<<(ModelStateOrientation-1)) {
+					return fmt.Errorf("%s state %d has invalid typed selector projection", name, record.SequentialID)
+				}
+				stride := uint32(1)
+				if spec.hasDeprecated {
+					stride = 4
+				}
+				offset = axisIndex*stride + deprecated
+				if spec.hasDeprecated {
+					sourceSolid = deprecated == 0
+				} else {
+					sourceSolid = axisIndex == 0
+				}
+			}
+			if offset >= uint32(spec.cardinality) || record.SequentialID != spec.base+offset {
+				return fmt.Errorf("%s state %d does not match canonical ID formula", name, record.SequentialID)
+			}
+			if seen[offset] {
+				return fmt.Errorf("%s has duplicate selector offset %d", name, offset)
+			}
+			seen[offset] = true
+			wantFlags := uint8(0)
+			if sourceSolid {
+				wantFlags = flagCubeGeometry | flagOccludesFullFace
+			}
+			if record.Flags != wantFlags {
+				return fmt.Errorf("%s state %d has unexpected pre-promotion flags %#x", name, record.SequentialID, record.Flags)
+			}
+			if !sourceSolid {
+				promote = append(promote, index)
+			}
+		}
+		for offset, present := range seen {
+			if !present {
+				return fmt.Errorf("%s selector product is missing offset %d", name, offset)
+			}
+		}
+	}
+	for _, index := range promote {
+		records[index].Flags = flagCubeGeometry | flagOccludesFullFace
+		records[index].FaceCoverage = 0x3f
+	}
+	return nil
 }
 
 func validateSelectorCardinality(records []Record) error {

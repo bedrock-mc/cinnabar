@@ -624,6 +624,28 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       - [ ] Live presentation acceptance: reproduce the native resin viewpoints
         in Cinnabar and require two consecutive exact GPU-completed model-stream
         witnesses. Native and Cinnabar screenshots remain local-only.
+    - [x] Reviewed selector-alias opaque cubes: validate all 38 records in the
+      complete hay, bone, quartz-block, smooth-quartz, chiseled-quartz, purpur,
+      and TNT products, then promote exactly 27 compatibility states. Exact
+      typed wrappers, raw keys, values, formula IDs, Primary/Cube facts, shape 1
+      CollisionOnly unit bounds, complete-product cardinality, and exact
+      static/non-tinted/opaque vanilla pack descriptors fail closed. Native
+      1.26.33.1 evidence preserves Y caps down/up, X caps west/east, Z caps
+      north/south, and a quarter-turn on all four non-cap faces for X/Z;
+      `deprecated=0..3` and `explode_bit=0..1` are static visual aliases.
+      Sequential/hash rendering covers every state, all six cross-subchunk
+      culls, dense six-quad greedy output, cave closure, and zero model,
+      transparent, and liquid streams. The exact production ratchet removes
+      only IDs 2,908-2,910, 2,912-2,914, 2,916-2,918, 5,443-5,444,
+      6,466-6,468, 6,470-6,472, 6,474-6,476, 7,082-7,083, 13,113,
+      14,686-14,687, and 15,345-15,346 with zero additions, leaving 2,479
+      diagnostics including air. Registry SHA-256 is
+      `9f67a14d73cf958b53557cc31c601168aa0eb95c5d46dfac1299f8412a0cb74f`;
+      ignored compiled-pack SHA-256 is
+      `18a4718d6fd03a66c0eb30e0a28444dcf80159c658cf4f7712e5ff342f7740ca`.
+      - [ ] Live presentation acceptance: reproduce the matching native axis,
+        TNT, and deprecated-state viewpoints and require two consecutive exact
+        GPU-completed cube-stream witnesses. Screenshots remain local-only.
     - [ ] Slab/stair native and packed-GPU live acceptance: capture all five
       fixed Cinnabar poses through native `%TEMP%` screenshots and require two
       consecutive exact GPU-completed model-stream witnesses. Automated gallery
@@ -773,10 +795,11 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       already-landed door, trapdoor, wall, pressure-plate, fence-gate, pane,
       fence, carpet, button, huge-mushroom, glow-lichen, sculk-vein, exact
       ordinary stained-glass, exact copper-grate, static-sign,
-      chiseled-bookshelf, and resin-clump tranches.
+      chiseled-bookshelf, resin-clump, and selector-alias opaque-cube tranches.
       After lava, vine, and those connected/static/multiface/glass/grate
-      families plus the exact chiseled-bookshelf and resin-clump tranches, the
-      current residual has 2,506 diagnostics including the single air diagnostic, with zero
+      families plus the exact chiseled-bookshelf, resin-clump, and selector-alias
+      opaque-cube tranches, the current residual has 2,479 diagnostics including
+      the single air diagnostic, with zero
       diagnostics in every implemented family; each remaining family must shrink
       that exact set.
   - [ ] Complete the exhaustive residual-family report, continuing from the
