@@ -438,6 +438,16 @@ fn is_vine(record: &RegistryRecord) -> bool {
     matches!(record.model_family, ModelFamily::Vine) && record.name.as_ref() == "minecraft:vine"
 }
 
+const fn is_door(record: &RegistryRecord) -> bool {
+    matches!(record.model_family, ModelFamily::Door)
+        && matches!(record.contributor_role, ContributorRole::Primary)
+}
+
+const fn is_trapdoor(record: &RegistryRecord) -> bool {
+    matches!(record.model_family, ModelFamily::Trapdoor)
+        && matches!(record.contributor_role, ContributorRole::Primary)
+}
+
 const fn is_slab(record: &RegistryRecord) -> bool {
     matches!(record.model_family, ModelFamily::Slab)
         && matches!(record.contributor_role, ContributorRole::Primary)
@@ -449,7 +459,12 @@ const fn is_stair(record: &RegistryRecord) -> bool {
 }
 
 fn is_cutout_model_visual(record: &RegistryRecord) -> bool {
-    is_cross_visual(record) || is_kelp(record) || is_flowerbed(record) || is_vine(record)
+    is_cross_visual(record)
+        || is_kelp(record)
+        || is_flowerbed(record)
+        || is_vine(record)
+        || is_door(record)
+        || is_trapdoor(record)
 }
 
 fn is_model_visual(record: &RegistryRecord) -> bool {
@@ -818,6 +833,47 @@ fn compile_materials(
     Ok((materials.into_boxed_slice(), material_by_descriptor))
 }
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct CuboidTemplateKey {
+    materials: [u32; 6],
+    min: [i16; 3],
+    max: [i16; 3],
+}
+
+fn intern_cuboid_template(
+    materials: [u32; 6],
+    min: [i16; 3],
+    max: [i16; 3],
+    template_by_key: &mut BTreeMap<CuboidTemplateKey, u32>,
+    model_templates: &mut Vec<ModelTemplate>,
+    model_quads: &mut Vec<ModelQuad>,
+) -> Result<u32, AssetError> {
+    let key = CuboidTemplateKey {
+        materials,
+        min,
+        max,
+    };
+    if let Some(&template) = template_by_key.get(&key) {
+        return Ok(template);
+    }
+    let template =
+        u32::try_from(model_templates.len()).map_err(|_| AssetError::BlobSizeOverflow {
+            section: "model template",
+        })?;
+    let quad_start =
+        u32::try_from(model_quads.len()).map_err(|_| AssetError::BlobSizeOverflow {
+            section: "model quad",
+        })?;
+    model_templates.push(ModelTemplate {
+        quad_start,
+        quad_count: 6,
+        flags: 0,
+    });
+    model_quads.extend(cuboid_quads(materials, min, max));
+    template_by_key.insert(key, template);
+    Ok(template)
+}
+
 fn compile_visuals(
     records: &[RegistryRecord],
     pack: &PackSources,
@@ -839,6 +895,7 @@ fn compile_visuals(
     let mut slab_template_by_key = BTreeMap::<[u32; 7], u32>::new();
     let mut stair_template_by_key = BTreeMap::<[u32; 7], u32>::new();
     let mut vine_template_by_key = BTreeMap::<[u32; 2], u32>::new();
+    let mut cuboid_template_by_key = BTreeMap::<CuboidTemplateKey, u32>::new();
 
     let mut ordered_records = records.iter().collect::<Vec<_>>();
     ordered_records.sort_unstable_by_key(|record| record.sequential_id);
@@ -955,6 +1012,84 @@ fn compile_visuals(
                         | BlockFlags::LEAF_MODEL,
                 );
                 visual.faces = [material; 6];
+                visual.kind = VisualKind::Model;
+                visual.model_template = template;
+            }
+        } else if is_door(record) {
+            const UPPER: u32 = 1 << 7;
+            let orientation = record.model_state.get(ModelStateField::Orientation);
+            let open = record.model_state.get(ModelStateField::Open);
+            let hinge = record.model_state.get(ModelStateField::Hinge);
+            let flags = record.model_state.get(ModelStateField::Flags);
+            if let (Some(orientation @ 0..=3), Some(open @ 0..=1), Some(hinge @ 0..=1), Some(flags)) =
+                (orientation, open, hinge, flags)
+                && flags & !UPPER == 0
+            {
+                let texture_face = if flags & UPPER == 0 {
+                    BlockFace::Down
+                } else {
+                    BlockFace::South
+                };
+                let material = descriptor_for(pack, record, texture_face)
+                    .and_then(|(descriptor, _)| material_by_descriptor.get(&descriptor).copied());
+                if let Some(material) = material {
+                    let materials = [material; 6];
+                    let (min, max) = door_bounds(orientation, open, hinge);
+                    let template = intern_cuboid_template(
+                        materials,
+                        min,
+                        max,
+                        &mut cuboid_template_by_key,
+                        &mut model_templates,
+                        &mut model_quads,
+                    )?;
+                    visual.flags.remove(
+                        BlockFlags::AIR
+                            | BlockFlags::CUBE_GEOMETRY
+                            | BlockFlags::OCCLUDES_FULL_FACE
+                            | BlockFlags::LEAF_MODEL,
+                    );
+                    visual.faces = materials;
+                    visual.kind = VisualKind::Model;
+                    visual.model_template = template;
+                }
+            }
+        } else if is_trapdoor(record) {
+            let materials = BlockFace::ALL.map(|face| {
+                descriptor_for(pack, record, face)
+                    .and_then(|(descriptor, _)| material_by_descriptor.get(&descriptor).copied())
+            });
+            let orientation = record.model_state.get(ModelStateField::Orientation);
+            let open = record.model_state.get(ModelStateField::Open);
+            let half = record.model_state.get(ModelStateField::Half);
+            if let [
+                Some(west),
+                Some(east),
+                Some(down),
+                Some(up),
+                Some(north),
+                Some(south),
+            ] = materials
+                && let (Some(orientation @ 0..=3), Some(open @ 0..=1), Some(half @ 0..=1)) =
+                    (orientation, open, half)
+            {
+                let materials = [west, east, down, up, north, south];
+                let (min, max) = trapdoor_bounds(orientation, open, half);
+                let template = intern_cuboid_template(
+                    materials,
+                    min,
+                    max,
+                    &mut cuboid_template_by_key,
+                    &mut model_templates,
+                    &mut model_quads,
+                )?;
+                visual.flags.remove(
+                    BlockFlags::AIR
+                        | BlockFlags::CUBE_GEOMETRY
+                        | BlockFlags::OCCLUDES_FULL_FACE
+                        | BlockFlags::LEAF_MODEL,
+                );
+                visual.faces = materials;
                 visual.kind = VisualKind::Model;
                 visual.model_template = template;
             }
@@ -1228,6 +1363,153 @@ fn vine_quads(material: u32, connections: u32) -> Vec<ModelQuad> {
             flags: MODEL_QUAD_FLAG_TWO_SIDED | face,
         })
         .collect()
+}
+
+fn door_bounds(orientation: u32, open: u32, hinge: u32) -> ([i16; 3], [i16; 3]) {
+    const THICKNESS: i16 = 3 * 16;
+    const HIGH: i16 = 256 - THICKNESS;
+    // Dragonfly writes `Door.Facing.RotateRight()` into the Bedrock cardinal
+    // state. Decode that stored orientation back to the logical closed facing
+    // before applying model.Door's open/hinge rotations.
+    const NORTH: u32 = 0;
+    const SOUTH: u32 = 1;
+    const WEST: u32 = 2;
+    const EAST: u32 = 3;
+    let facing = match orientation {
+        0 => EAST,  // encoded south
+        1 => SOUTH, // encoded west
+        2 => WEST,  // encoded north
+        3 => NORTH, // encoded east
+        _ => unreachable!("door selectors are checked before geometry generation"),
+    };
+    let rotate_right = |facing| match facing {
+        NORTH => EAST,
+        EAST => SOUTH,
+        SOUTH => WEST,
+        WEST => NORTH,
+        _ => unreachable!(),
+    };
+    let rotate_left = |facing| match facing {
+        NORTH => WEST,
+        WEST => SOUTH,
+        SOUTH => EAST,
+        EAST => NORTH,
+        _ => unreachable!(),
+    };
+    let effective = match (open, hinge) {
+        (0, 0 | 1) => facing,
+        (1, 0) => rotate_right(facing),
+        (1, 1) => rotate_left(facing),
+        _ => unreachable!("door selectors are checked before geometry generation"),
+    };
+    match effective {
+        NORTH => ([0, 0, HIGH], [256, 256, 256]),
+        SOUTH => ([0, 0, 0], [256, 256, THICKNESS]),
+        WEST => ([HIGH, 0, 0], [256, 256, 256]),
+        EAST => ([0, 0, 0], [THICKNESS, 256, 256]),
+        _ => unreachable!(),
+    }
+}
+
+fn trapdoor_bounds(orientation: u32, open: u32, half: u32) -> ([i16; 3], [i16; 3]) {
+    const THICKNESS: i16 = 3 * 16;
+    const HIGH: i16 = 256 - THICKNESS;
+    match (open, orientation, half) {
+        (0, _, 0) => ([0, 0, 0], [256, THICKNESS, 256]),
+        (0, _, 1) => ([0, HIGH, 0], [256, 256, 256]),
+        (1, 0, _) => ([0, 0, 0], [THICKNESS, 256, 256]),
+        (1, 1, _) => ([HIGH, 0, 0], [256, 256, 256]),
+        (1, 2, _) => ([0, 0, 0], [256, 256, THICKNESS]),
+        (1, 3, _) => ([0, 0, HIGH], [256, 256, 256]),
+        _ => unreachable!("trapdoor selectors are checked before geometry generation"),
+    }
+}
+
+fn cuboid_quads(materials: [u32; 6], min: [i16; 3], max: [i16; 3]) -> [ModelQuad; 6] {
+    debug_assert!(
+        min.iter().zip(max).all(|(&min, max)| min < max),
+        "cuboid bounds must have positive volume"
+    );
+    let [min_x, min_y, min_z] = min;
+    let [max_x, max_y, max_z] = max;
+    let make = |face: BlockFace, positions: [[i16; 3]; 4], face_id: u32| ModelQuad {
+        uvs: positions.map(|[x, y, z]| match face {
+            BlockFace::West | BlockFace::East => {
+                [(z as u16) * 16, (4096 - i32::from(y) * 16) as u16]
+            }
+            BlockFace::North | BlockFace::South => {
+                [(x as u16) * 16, (4096 - i32::from(y) * 16) as u16]
+            }
+            BlockFace::Down | BlockFace::Up => [(x as u16) * 16, (z as u16) * 16],
+        }),
+        positions,
+        material: materials[face as usize],
+        // Thin model cuboids deliberately never advertise a full-face cull
+        // boundary. Their registry coverage remains conservative too.
+        flags: face_id,
+    };
+    [
+        make(
+            BlockFace::West,
+            [
+                [min_x, min_y, min_z],
+                [min_x, min_y, max_z],
+                [min_x, max_y, max_z],
+                [min_x, max_y, min_z],
+            ],
+            3,
+        ),
+        make(
+            BlockFace::East,
+            [
+                [max_x, min_y, min_z],
+                [max_x, max_y, min_z],
+                [max_x, max_y, max_z],
+                [max_x, min_y, max_z],
+            ],
+            4,
+        ),
+        make(
+            BlockFace::Down,
+            [
+                [min_x, min_y, min_z],
+                [max_x, min_y, min_z],
+                [max_x, min_y, max_z],
+                [min_x, min_y, max_z],
+            ],
+            1,
+        ),
+        make(
+            BlockFace::Up,
+            [
+                [min_x, max_y, min_z],
+                [min_x, max_y, max_z],
+                [max_x, max_y, max_z],
+                [max_x, max_y, min_z],
+            ],
+            2,
+        ),
+        make(
+            BlockFace::North,
+            [
+                [min_x, min_y, min_z],
+                [min_x, max_y, min_z],
+                [max_x, max_y, min_z],
+                [max_x, min_y, min_z],
+            ],
+            5,
+        ),
+        make(
+            BlockFace::South,
+            [
+                [min_x, min_y, max_z],
+                [max_x, min_y, max_z],
+                [max_x, max_y, max_z],
+                [min_x, max_y, max_z],
+            ],
+            6,
+        ),
+    ]
 }
 
 fn slab_quads(materials: [u32; 6], half: u32) -> [ModelQuad; 6] {

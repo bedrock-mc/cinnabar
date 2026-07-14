@@ -514,6 +514,16 @@ fn model_variant_index(key: &str, record: &RegistryRecord, count: usize) -> Opti
         .strip_prefix("minecraft:")
         .unwrap_or(&record.name);
     let selected = match key {
+        "door_lower" | "door_upper" => match name {
+            "wooden_door" => 0,
+            "spruce_door" => 1,
+            "birch_door" => 2,
+            "jungle_door" => 3,
+            "acacia_door" => 4,
+            "dark_oak_door" => 5,
+            "iron_door" => 6,
+            _ => return None,
+        },
         "red_flower" => match name {
             "poppy" => 0,
             "blue_orchid" => 1,
