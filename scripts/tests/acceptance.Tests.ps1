@@ -73,9 +73,9 @@ function New-TestSlabStairAssets {
     )
     $entries = @(Get-TestRegistryEntries -RegistryPath $RegistryPath)
     $visualCount = 1 + [int](($entries | Measure-Object sequential_id -Maximum).Maximum)
-    $templateCount = 12
+    $templateCount = 28
     $materialCount = 1
-    $quadCount = 17
+    $quadCount = 49
     $pageCount = 1
     $texturePayloadBytes = 1364
     $tintMapBytes = 8 * 256 * 256 * 3
@@ -114,15 +114,21 @@ function New-TestSlabStairAssets {
         [BitConverter]::GetBytes([uint32]::MaxValue).CopyTo($bytes, $offset + 32)
     }
     foreach ($entry in $entries) {
-        if ($entry.family -notin @(7, 8)) { continue }
+        if ($entry.family -notin @(7, 8) -and $entry.name -cne 'minecraft:vine') { continue }
         $offset = $visualOffset + 40 * [int]$entry.sequential_id
         $bytes[$offset + 25] = 3
-        $half = if ($entry.family -eq 8) { [int](($entry.canonical_state | ConvertFrom-Json).upside_down_bit.value) } else { 0 }
-        $template = if ($entry.family -eq 7) { 0 } elseif ($half -eq 0) { 1 } else { 6 }
+        if ($entry.name -ceq 'minecraft:vine') {
+            $mask = [int](($entry.canonical_state | ConvertFrom-Json).vine_direction_bits.value)
+            $template = 12 + $mask
+        }
+        else {
+            $half = if ($entry.family -eq 8) { [int](($entry.canonical_state | ConvertFrom-Json).upside_down_bit.value) } else { 0 }
+            $template = if ($entry.family -eq 7) { 0 } elseif ($half -eq 0) { 1 } else { 6 }
+        }
         [BitConverter]::GetBytes([uint32]$template).CopyTo($bytes, $offset + 28)
     }
     [BitConverter]::GetBytes([uint32]::MaxValue).CopyTo($bytes, $materialOffset + 8)
-    for ($index = 0; $index -lt $templateCount; $index++) {
+    for ($index = 0; $index -lt 12; $index++) {
         $offset = $templateOffset + 12 * $index
         if ($index -eq 11) {
             [BitConverter]::GetBytes([uint32]11).CopyTo($bytes, $offset)
@@ -139,6 +145,18 @@ function New-TestSlabStairAssets {
             if ($index -gt 0) { [BitConverter]::GetBytes([uint32]2).CopyTo($bytes, $offset + 8) }
             [BitConverter]::GetBytes([uint32]1).CopyTo($bytes, $quadOffset + 48 * $index + 44)
         }
+    }
+    $vineQuadStart = 17
+    for ($mask = 0; $mask -lt 16; $mask++) {
+        $quadCountForMask = 0
+        foreach ($bit in @(1, 2, 4, 8)) {
+            if (($mask -band $bit) -ne 0) { $quadCountForMask++ }
+        }
+        $offset = $templateOffset + 12 * (12 + $mask)
+        [BitConverter]::GetBytes([uint32]$vineQuadStart).CopyTo($bytes, $offset)
+        [BitConverter]::GetBytes([uint32]$quadCountForMask).CopyTo($bytes, $offset + 4)
+        [BitConverter]::GetBytes([uint32]0).CopyTo($bytes, $offset + 8)
+        $vineQuadStart += $quadCountForMask
     }
     [BitConverter]::GetBytes([uint32]0).CopyTo($bytes, $pageOffset)
     [BitConverter]::GetBytes([uint32]1).CopyTo($bytes, $pageOffset + 4)
@@ -601,6 +619,21 @@ try {
         Assert-True ($slabStairAppCommand[0] -match '--model-witness-request') "$slabStairPose did not pass its ignored-local model witness request path to the app"
     }
 
+    foreach ($vinePose in @('VineGalleryTop', 'VineGalleryNorth', 'VineGalleryEast', 'VineGalleryOblique', 'VineGalleryObliqueOpposite')) {
+        $vineDryRun = Invoke-Acceptance -Arguments @(
+            '-DryRun', '-DurationSeconds', '60', '-BdsDir', $BdsDir,
+            '-MetricsOut', $MetricsOut, '-Assets', $SlabStairAssets,
+            '-VisualFixturePose', $vinePose, '-UseVsync',
+            '-SteadyResourceTrigger', 'VisualFixtureReady'
+        )
+        Assert-True ($vineDryRun.ExitCode -eq 0) "$vinePose dry-run failed: $($vineDryRun.Output -join [Environment]::NewLine)"
+        Assert-True ($vineDryRun.Output -contains "VISUAL_FIXTURE_POSE=$vinePose") "$vinePose lost exact pose"
+        Assert-Equal 1 @($vineDryRun.Output | Where-Object { $_ -match '^VINE_GALLERY_ARGUMENTS_SHA256=[0-9a-f]{64}$' }).Count "$vinePose lost arguments hash"
+        Assert-Equal 1 @($vineDryRun.Output | Where-Object { $_ -match '^VINE_GALLERY_ASSETS_SHA256=[0-9a-f]{64}$' }).Count "$vinePose lost assets hash"
+        $vineAppCommand = @($vineDryRun.Output | Where-Object { $_ -match '^APP_COMMAND=' })
+        Assert-True ($vineAppCommand[0] -match '--model-witness-request') "$vinePose did not pass its ignored-local model witness request path to the app"
+    }
+
     $baselineDryRun = Invoke-Acceptance -Arguments @(
         '-DryRun',
         '-DurationSeconds', '60',
@@ -661,6 +694,9 @@ try {
         @('-VisualFixturePose', 'slabstairgallerytop', '-SteadyResourceTrigger', 'VisualFixtureReady', '-UseVsync', '-Assets', $SlabStairAssets),
         @('-VisualFixturePose', 'SlabStairGalleryTop', '-SteadyResourceTrigger', 'VisualFixtureReady', '-UseVsync'),
         @('-VisualFixturePose', 'SlabStairGalleryTop', '-SteadyResourceTrigger', 'VisualFixtureReady', '-UseVsync', '-Assets', $Assets),
+        @('-VisualFixturePose', 'vinegallerytop', '-SteadyResourceTrigger', 'VisualFixtureReady', '-UseVsync', '-Assets', $SlabStairAssets),
+        @('-VisualFixturePose', 'VineGalleryTop', '-SteadyResourceTrigger', 'VisualFixtureReady', '-UseVsync'),
+        @('-VisualFixturePose', 'VineGalleryTop', '-SteadyResourceTrigger', 'VisualFixtureReady', '-UseVsync', '-Assets', $Assets),
         @('-SteadyResourceTrigger', 'worldready'),
         @('-LeafForestBaseline', '-SteadyResourceTrigger', 'WorldReady', '-ClientExecutable', $PrebuiltClient, '-SkipClientBuild', '-UseVsync'),
         @('-LeafForestFullView', '-FullViewTeleportGate', '-SteadyResourceTrigger', 'FullViewPresented'),
@@ -836,6 +872,67 @@ try {
     $slabStairPlans = @('SlabStairGalleryTop', 'SlabStairGalleryNorth', 'SlabStairGalleryEast', 'SlabStairGalleryOblique', 'SlabStairGalleryObliqueOpposite') | ForEach-Object {
         New-SlabStairGalleryPlan -MutationCoordinate @(100, 64, 200) -Pose $_ -RegistryPath $BlockRegistry -AssetsPath $SlabStairAssets
     }
+    # vine_gallery_covers_all_direction_masks
+    $vinePlans = @('VineGalleryTop', 'VineGalleryNorth', 'VineGalleryEast', 'VineGalleryOblique', 'VineGalleryObliqueOpposite') | ForEach-Object {
+        New-VineGalleryPlan -MutationCoordinate @(100, 64, 200) -Pose $_ -RegistryPath $BlockRegistry -AssetsPath $SlabStairAssets
+    }
+    foreach ($vinePlan in $vinePlans) {
+        Assert-Equal 'rust-mcbe-visual-fixture-v2' $vinePlan.Manifest.schema 'vine gallery lost schema-v2 fixture identity'
+        Assert-Equal 'VineGallery' $vinePlan.Manifest.fixture_kind 'vine plan lost fixture kind'
+        Assert-Equal 16 ([int]$vinePlan.Manifest.central_witness_count) 'vine plan lost the exact 16 central witnesses'
+        Assert-Equal 16 @($vinePlan.Manifest.witnesses).Count 'vine witness inventory changed'
+        Assert-Equal '0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15' (@($vinePlan.Manifest.witnesses | ForEach-Object mask) -join ',') 'vine masks are not the exact ordered bijection 0..15'
+        Assert-Equal 5 @($vinePlan.Manifest.camera_poses.PSObject.Properties).Count 'vine plan lost a fixed diagnostic camera'
+        Assert-Equal 50 @($vinePlan.FixtureCommands).Count 'vine fixture command bound changed'
+        Assert-Equal 16 ([int]$vinePlan.Manifest.coverage_evidence.state_count) 'vine coverage lost exact BREG state count'
+        Assert-Equal 0 ([int]$vinePlan.Manifest.coverage_evidence.diagnostic_vine) 'vine compiled coverage retained diagnostics'
+        Assert-True (-not (($vinePlan.Commands -join "`n").Contains('`'))) "$($vinePlan.Manifest.pose) published a literal PowerShell escape in a BDS command"
+        Assert-Equal (Get-CanonicalObjectHash -Value $vinePlan.Manifest.relative_layout) $vinePlan.Manifest.fixture_layout_hash 'vine layout hash was not derived from its complete relative layout'
+
+        $centerIdentities = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        $supportIdentities = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        foreach ($witness in @($vinePlan.Manifest.witnesses)) {
+            $mask = [int]$witness.mask
+            $expectedSupportDirections = @(
+                if (($mask -band 1) -ne 0) { 'south' }
+                if (($mask -band 2) -ne 0) { 'west' }
+                if (($mask -band 4) -ne 0) { 'north' }
+                if (($mask -band 8) -ne 0) { 'east' }
+            )
+            Assert-Equal ($expectedSupportDirections -join ',') (@($witness.supports | ForEach-Object direction) -join ',') "vine mask $mask changed exact horizontal support semantics"
+            Assert-Equal $expectedSupportDirections.Count @($witness.supports).Count "vine mask $mask changed support popcount"
+            $center = @($witness.center_offset)
+            $centerIdentity = "$($center[0]),$($center[1]),$($center[2])"
+            Assert-True ($centerIdentities.Add($centerIdentity)) "vine mask $mask reused another gallery center"
+            foreach ($support in @($witness.supports)) {
+                $offset = @($support.offset)
+                $supportIdentity = "$($offset[0]),$($offset[1]),$($offset[2])"
+                Assert-True ($supportIdentities.Add($supportIdentity)) "vine mask $mask reused another cell's support"
+                Assert-True (-not $centerIdentities.Contains($supportIdentity)) "vine mask $mask support overlapped a gallery center"
+                $supportCommand = "setblock $([int]$vinePlan.Manifest.mutation.x + [int]$offset[0]) $([int]$vinePlan.Manifest.mutation.y + [int]$offset[1]) $([int]$vinePlan.Manifest.mutation.z + [int]$offset[2]) minecraft:stone"
+                Assert-Equal 1 @($vinePlan.FixtureCommands | Where-Object { $_ -ceq $supportCommand }).Count "vine mask $mask manifest support did not map to exactly one BDS command"
+            }
+            $expectedStateCommandSuffix = " minecraft:vine [`"vine_direction_bits`"=$mask]"
+            Assert-Equal 1 @($vinePlan.FixtureCommands | Where-Object { $_.EndsWith($expectedStateCommandSuffix) }).Count "vine mask $mask lost its exact protocol-1001 state command"
+        }
+        Assert-Equal 0 @($vinePlan.Manifest.witnesses | Where-Object mask -eq 0 | ForEach-Object supports).Count 'vine mask 0 gained diagnostic/support geometry'
+        Assert-Equal 32 $supportIdentities.Count 'vine gallery did not create the exact 32 isolated horizontal supports'
+        Assert-Equal 32 @($vinePlan.FixtureCommands | Where-Object { $_ -cmatch '^setblock -?\d+ -?\d+ -?\d+ minecraft:stone$' }).Count 'vine gallery emitted extra or missing solid horizontal support commands'
+        foreach ($centerIdentity in $centerIdentities) {
+            Assert-True (-not $supportIdentities.Contains($centerIdentity)) "vine support overlapped center $centerIdentity"
+        }
+    }
+    Assert-Equal 1 @($vinePlans | ForEach-Object { $_.Manifest.fixture_layout_hash } | Sort-Object -Unique).Count 'vine camera pose changed canonical layout identity'
+    Assert-Equal 1 @($vinePlans | ForEach-Object { $_.Manifest.state_set_sha256 } | Sort-Object -Unique).Count 'vine camera pose changed exact state identity'
+    $movedVinePlan = New-VineGalleryPlan -MutationCoordinate @(500, 70, -300) -Pose VineGalleryTop -RegistryPath $BlockRegistry -AssetsPath $SlabStairAssets
+    Assert-Equal $vinePlans[0].Manifest.fixture_layout_hash $movedVinePlan.Manifest.fixture_layout_hash 'vine absolute coordinate changed canonical layout identity'
+    Assert-Equal $vinePlans[0].Manifest.state_set_sha256 $movedVinePlan.Manifest.state_set_sha256 'vine absolute coordinate changed state identity'
+    Assert-Equal ($vinePlans[0].Manifest.relative_layout | ConvertTo-Json -Compress -Depth 12) ($movedVinePlan.Manifest.relative_layout | ConvertTo-Json -Compress -Depth 12) 'vine translated layout changed its relative fixture document'
+    Assert-Equal '400,6,-500' (@(
+        ([int]$movedVinePlan.Manifest.mutation.x - [int]$vinePlans[0].Manifest.mutation.x)
+        ([int]$movedVinePlan.Manifest.mutation.y - [int]$vinePlans[0].Manifest.mutation.y)
+        ([int]$movedVinePlan.Manifest.mutation.z - [int]$vinePlans[0].Manifest.mutation.z)
+    ) -join ',') 'vine translated layout used the wrong deterministic displacement'
     foreach ($slabStairPlan in $slabStairPlans) {
         Assert-True (-not (($slabStairPlan.Commands -join "`n").Contains('`'))) "$($slabStairPlan.Manifest.pose) published a literal PowerShell escape in a BDS command"
         $slabCommands = @($slabStairPlan.FixtureCommands | Where-Object { $_ -match '^setblock .*slab' })
@@ -886,6 +983,55 @@ try {
         Assert-ThrowsLike {
             Get-SlabStairCoverageEvidence -RegistryPath $BlockRegistry -AssetsPath $malformedPath
         } $malformedTemplate.pattern "slab/stair coverage accepted $($malformedTemplate.name)"
+    }
+
+    $vineCoverage = Get-VineCoverageEvidence -RegistryPath $BlockRegistry -AssetsPath $SlabStairAssets
+    Assert-Equal 'rust-mcbe-vine-coverage-v1' $vineCoverage.schema 'vine coverage lost strict schema identity'
+    Assert-Equal 1001 ([int]$vineCoverage.registry_protocol) 'vine coverage lost protocol binding'
+    Assert-Equal 'MCBEAS04' $vineCoverage.compiler_schema 'vine coverage lost compiler binding'
+    Assert-Equal 16 ([int]$vineCoverage.state_count) 'vine coverage did not contain exactly 16 states'
+    Assert-Equal '0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15' (@($vineCoverage.entries | ForEach-Object mask) -join ',') 'vine coverage masks were not an exact bijection 0..15'
+    Assert-Equal 0 ([int]$vineCoverage.diagnostic_vine) 'vine coverage retained diagnostic/malformed visuals'
+    Assert-ThrowsLike {
+        Get-VineCoverageEvidence -RegistryPath $BlockRegistry -AssetsPath (Join-Path $TempRoot 'missing vine assets.mcbea')
+    } '*' 'vine coverage accepted a missing assets blob'
+
+    $vineEntries = @(Get-TestRegistryEntries -RegistryPath $BlockRegistry | Where-Object name -CEQ 'minecraft:vine')
+    $vineVisualOffset = [int][BitConverter]::ToUInt64([IO.File]::ReadAllBytes($SlabStairAssets), 96)
+    foreach ($malformedVineVisual in @(
+        [pscustomobject]@{
+            name = 'diagnostic visual kind'
+            mutate = {
+                param($bytes)
+                $entry = @($vineEntries | Where-Object { [int](($_.canonical_state | ConvertFrom-Json).vine_direction_bits.value) -eq 1 })[0]
+                $bytes[$vineVisualOffset + 40 * [int]$entry.sequential_id + 25] = 0
+            }
+        },
+        [pscustomobject]@{
+            name = 'mask zero nonzero-quad template'
+            mutate = {
+                param($bytes)
+                $entry = @($vineEntries | Where-Object { [int](($_.canonical_state | ConvertFrom-Json).vine_direction_bits.value) -eq 0 })[0]
+                [BitConverter]::GetBytes([uint32]13).CopyTo($bytes, $vineVisualOffset + 40 * [int]$entry.sequential_id + 28)
+            }
+        },
+        [pscustomobject]@{
+            name = 'mask three wrong-popcount template'
+            mutate = {
+                param($bytes)
+                $entry = @($vineEntries | Where-Object { [int](($_.canonical_state | ConvertFrom-Json).vine_direction_bits.value) -eq 3 })[0]
+                [BitConverter]::GetBytes([uint32]13).CopyTo($bytes, $vineVisualOffset + 40 * [int]$entry.sequential_id + 28)
+            }
+        }
+    )) {
+        $malformedVinePath = Join-Path $TempRoot "$($malformedVineVisual.name).mcbea"
+        $malformedVineBytes = [IO.File]::ReadAllBytes($SlabStairAssets)
+        & $malformedVineVisual.mutate $malformedVineBytes
+        Set-TestMcbeas04Seal -Bytes $malformedVineBytes
+        [IO.File]::WriteAllBytes($malformedVinePath, $malformedVineBytes)
+        Assert-ThrowsLike {
+            Get-VineCoverageEvidence -RegistryPath $BlockRegistry -AssetsPath $malformedVinePath
+        } 'vine compiled coverage contains diagnostic or malformed visuals:*' "vine coverage accepted $($malformedVineVisual.name)"
     }
 
     $expectedFlowerBedStates = [Collections.Generic.List[string]]::new()
@@ -1142,13 +1288,27 @@ try {
     Assert-Equal 0 ([int]$waterWitnessRequest.dimension) 'water witness request lost its dimension'
     Assert-Equal '5,4,12;6,4,12;7,4,12' (@($waterWitnessRequest.sub_chunks | ForEach-Object { "$($_.x),$($_.y),$($_.z)" }) -join ';') 'water witness request did not derive the exact unique liquid-bearing subchunks'
 
-    $modelWitnessRequest = New-SlabStairGalleryModelWitnessRequest -Plan $slabStairPlans[0] -Revision 1
+    $modelWitnessRequest = New-ModelGalleryWitnessRequest -Plan $slabStairPlans[0] -Revision 1
     Assert-Equal 'rust-mcbe-model-witness-v1' $modelWitnessRequest.schema 'model witness request lost its strict schema'
     Assert-Equal 1 ([uint64]$modelWitnessRequest.revision) 'model witness request lost its revision'
     Assert-Equal 0 ([int]$modelWitnessRequest.dimension) 'model witness request lost its dimension'
     Assert-True (@($modelWitnessRequest.sub_chunks).Count -gt 0) 'model witness request did not derive unique central-witness keys'
     Assert-Equal @($modelWitnessRequest.sub_chunks).Count @($modelWitnessRequest.sub_chunks | Sort-Object x, y, z -Unique).Count 'model witness request retained duplicate keys'
     Assert-True ([string]$modelWitnessRequest.request_sha256 -cmatch '^[0-9a-f]{64}$') 'model witness request lost its deterministic hash'
+    Assert-Equal 'schema,revision,dimension,request_sha256,sub_chunks' (@($modelWitnessRequest.PSObject.Properties.Name) -join ',') 'slab/stair model witness request shape changed'
+    $vineModelWitnessRequest = New-ModelGalleryWitnessRequest -Plan $vinePlans[0] -Revision 1
+    Assert-Equal 'rust-mcbe-model-witness-v1' $vineModelWitnessRequest.schema 'vine model witness request lost its strict schema'
+    Assert-Equal 'schema,revision,dimension,request_sha256,sub_chunks' (@($vineModelWitnessRequest.PSObject.Properties.Name) -join ',') 'vine model witness request shape is not exact'
+    Assert-Equal 1 ([uint64]$vineModelWitnessRequest.revision) 'vine model witness request lost its revision'
+    Assert-Equal 0 ([int]$vineModelWitnessRequest.dimension) 'vine model witness request lost its dimension'
+    Assert-True (@($vineModelWitnessRequest.sub_chunks).Count -gt 0) 'vine model witness request did not derive unique central-witness keys'
+    Assert-Equal @($vineModelWitnessRequest.sub_chunks).Count @($vineModelWitnessRequest.sub_chunks | Sort-Object x, y, z -Unique).Count 'vine model witness request retained duplicate keys'
+    Assert-True ([string]$vineModelWitnessRequest.request_sha256 -cmatch '^[0-9a-f]{64}$') 'vine model witness request lost its deterministic hash'
+    Assert-ThrowsLike {
+        $wrongKind = $vinePlans[0] | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+        $wrongKind.Manifest.fixture_kind = 'vinegallery'
+        New-ModelGalleryWitnessRequest -Plan $wrongKind -Revision 1
+    } '*model witness request requires a recognized exact model gallery*' 'generic model witness request accepted noncanonical fixture-kind casing'
 
     $galleryAnchor = ConvertFrom-GalleryAnchorReadyMarker -Line 'RUST_MCBE_GALLERY_ANCHOR_READY coordinate=14,71,-6 rendered=true visible=false clean=true'
     Assert-Equal '14,71,-6' (@($galleryAnchor.coordinate) -join ',') 'gallery anchor parser lost its exact mutation coordinate'
@@ -1172,15 +1332,16 @@ try {
         Assert-ModelGalleryCommittedCamera -Committed $cameraCommitted -Target ([pscustomobject]@{ x = 27; y = 86; z = 43 })
     } '*did not match the model gallery target*' 'camera assertion accepted uncentered horizontal coordinates'
     $appLaunchIndex = $source.IndexOf('$appHandle = Start-LoggedProcess -Executable $AppExecutable', [StringComparison]::Ordinal)
-    $galleryAnchorBranchIndex = $source.IndexOf('if ($isSlabStairGallery) {', $appLaunchIndex, [StringComparison]::Ordinal)
+    $galleryAnchorBranchIndex = $source.IndexOf('if ($isModelWitnessGallery) {', $appLaunchIndex, [StringComparison]::Ordinal)
     $galleryAnchorWaitIndex = $source.IndexOf("-Marker 'RUST_MCBE_GALLERY_ANCHOR_READY '", $galleryAnchorBranchIndex, [StringComparison]::Ordinal)
     $normalStartupBranchIndex = $source.IndexOf("`n    else {", $galleryAnchorWaitIndex, [StringComparison]::Ordinal)
     $worldReadyWaitIndex = $source.IndexOf("-Marker 'RUST_MCBE_WORLD_READY '", $normalStartupBranchIndex, [StringComparison]::Ordinal)
-    Assert-True ($appLaunchIndex -ge 0 -and $galleryAnchorBranchIndex -gt $appLaunchIndex -and $galleryAnchorWaitIndex -gt $galleryAnchorBranchIndex) 'slab/stair startup does not wait for its gallery-only early anchor'
+    Assert-True ($appLaunchIndex -ge 0 -and $galleryAnchorBranchIndex -gt $appLaunchIndex -and $galleryAnchorWaitIndex -gt $galleryAnchorBranchIndex) 'generic model-gallery startup does not wait for its gallery-only early anchor'
     Assert-True ($normalStartupBranchIndex -gt $galleryAnchorWaitIndex -and $worldReadyWaitIndex -gt $normalStartupBranchIndex) 'normal/perf startup no longer retains its strict WorldReady wait'
 
     $publishVisualFixtureIndex = $source.IndexOf('function Publish-VisualFixture {', [StringComparison]::Ordinal)
     $modelGalleryClassificationIndex = $source.IndexOf('$isModelWitnessGallery =', $publishVisualFixtureIndex, [StringComparison]::Ordinal)
+    Assert-True ($source.IndexOf("@('SlabStairGallery', 'VineGallery') -ccontains", $modelGalleryClassificationIndex, [StringComparison]::Ordinal) -gt $modelGalleryClassificationIndex) 'model-witness routing is not generic, exact, and case-sensitive for slab/stair plus vine'
     $modelGalleryPreTeleportBranchIndex = $source.IndexOf('if ($isV2 -and $isModelWitnessGallery) {', $modelGalleryClassificationIndex, [StringComparison]::Ordinal)
     $modelGalleryPreTeleportIndex = $source.IndexOf('Write-BdsConsoleCommand -Handle $Handle -Command $Plan.TeleportCommand', $modelGalleryPreTeleportBranchIndex, [StringComparison]::Ordinal)
     $modelGalleryCameraCommitIndex = $source.IndexOf("-Marker 'RUST_MCBE_CAMERA_COMMITTED '", $modelGalleryPreTeleportIndex, [StringComparison]::Ordinal)
@@ -1193,6 +1354,7 @@ try {
             $modelGalleryCameraCommitIndex -gt $modelGalleryPreTeleportIndex -and
             $modelGalleryFixtureCompletionIndex -gt $modelGalleryCameraCommitIndex) `
         'model gallery camera commit is not fenced ahead of the fixture update flood'
+    Assert-True ($source.IndexOf('New-ModelGalleryWitnessRequest -Plan $Plan -Revision 1', $modelGalleryClassificationIndex, [StringComparison]::Ordinal) -gt $modelGalleryClassificationIndex) 'model gallery publication still routes through a slab/stair-only witness builder'
 
     $modelMarker = ConvertFrom-ModelWitnessCompleteMarker -Line "RUST_MCBE_MODEL_WITNESS_COMPLETE revision=1 request_sha256=$($modelWitnessRequest.request_sha256) sequence=40 view_generation=3 key_count=$(@($modelWitnessRequest.sub_chunks).Count) model_ref_count=43 manifest_count=$(@($modelWitnessRequest.sub_chunks).Count) manifest_sha256=$('a' * 64) missing=0 stale=0 wrong_stream=0 zero_ref=0 draw_mismatch=0 consecutive=1"
     Assert-Equal 1 ([int]$modelMarker.consecutive) 'model marker parser lost consecutive count'
@@ -1204,6 +1366,11 @@ try {
         $bad = $modelMarker2.PSObject.Copy(); $bad.sequence = [uint64]42
         Assert-StableModelWitnessEvidence -Request $modelWitnessRequest -First $modelMarker -Second $bad
     } '*model witness*adjacent*' 'non-adjacent model witness evidence was accepted'
+    $vineModelMarker = ConvertFrom-ModelWitnessCompleteMarker -Line "RUST_MCBE_MODEL_WITNESS_COMPLETE revision=1 request_sha256=$($vineModelWitnessRequest.request_sha256) sequence=50 view_generation=4 key_count=$(@($vineModelWitnessRequest.sub_chunks).Count) model_ref_count=15 manifest_count=$(@($vineModelWitnessRequest.sub_chunks).Count) manifest_sha256=$('b' * 64) missing=0 stale=0 wrong_stream=0 zero_ref=0 draw_mismatch=0 consecutive=1"
+    $vineModelMarker2 = $vineModelMarker.PSObject.Copy()
+    $vineModelMarker2.sequence = [uint64]51
+    $vineModelMarker2.consecutive = 2
+    $null = Assert-StableModelWitnessEvidence -Request $vineModelWitnessRequest -First $vineModelMarker -Second $vineModelMarker2
 
     $tamperedAquaticAssets = Join-Path $TempRoot 'tampered aquatic assets.mcbea'
     [IO.File]::WriteAllBytes($tamperedAquaticAssets, [IO.File]::ReadAllBytes($AquaticAssets))
