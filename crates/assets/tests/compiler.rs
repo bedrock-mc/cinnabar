@@ -5402,6 +5402,12 @@ fn compiler_cactus_rejects_nonexact_pack_routes_even_when_materials_are_interned
             r#"{"texture_data":{"cactus_bottom":{"textures":"textures/blocks/cactus_bottom"},"cactus_side":{"textures":"textures/blocks/cactus_side"},"cactus_top":{"textures":"textures/blocks/cactus_top"}}}"#,
             r#"[{"flipbook_texture":"textures/blocks/cactus_side","atlas_tile":"cactus_side"}]"#,
         ),
+        (
+            "unknown face-map key",
+            r#"{"cactus":{"textures":{"down":"cactus_bottom","side":"cactus_side","up":"cactus_top","sied":"cactus_side"}}}"#,
+            r#"{"texture_data":{"cactus_bottom":{"textures":"textures/blocks/cactus_bottom"},"cactus_side":{"textures":"textures/blocks/cactus_side"},"cactus_top":{"textures":"textures/blocks/cactus_top"}}}"#,
+            "[]",
+        ),
     ];
     for (label, blocks, terrain, flipbooks) in cases {
         let directory = tempfile::tempdir().expect("create malformed cactus pack");

@@ -267,7 +267,7 @@ impl BlockTextureMap {
         let TextureValue::Faces(faces) = self.entries.get(block_name)? else {
             return None;
         };
-        if faces.side.is_some() {
+        if faces.side.is_some() || !faces.extra.is_empty() {
             return None;
         }
         Some([
@@ -290,6 +290,7 @@ impl BlockTextureMap {
             || faces.east.is_some()
             || faces.north.is_some()
             || faces.south.is_some()
+            || !faces.extra.is_empty()
         {
             return None;
         }
@@ -311,6 +312,7 @@ impl BlockTextureMap {
             || faces.east.is_some()
             || faces.north.is_some()
             || faces.south.is_some()
+            || !faces.extra.is_empty()
         {
             return None;
         }
@@ -418,6 +420,8 @@ struct FaceKeys {
     north: Option<String>,
     south: Option<String>,
     side: Option<String>,
+    #[serde(flatten)]
+    extra: BTreeMap<String, Value>,
 }
 
 impl FaceKeys {

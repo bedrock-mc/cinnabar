@@ -105,6 +105,10 @@ fn exact_side_caps_and_static_terrain_accessors_fail_closed() {
             "missing up",
             r#"{"down":"cactus_bottom","side":"cactus_side"}"#,
         ),
+        (
+            "unknown typo key",
+            r#"{"down":"cactus_bottom","side":"cactus_side","up":"cactus_top","sied":"cactus_side"}"#,
+        ),
     ] {
         let directory = tempfile::tempdir().expect("invalid cactus pack");
         write_pack(
