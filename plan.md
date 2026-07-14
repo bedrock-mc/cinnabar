@@ -710,9 +710,10 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       reports (`b131247`; 11 tests, strict Clippy, real-pack run, and independent
       review green). The reviewed baseline was refreshed cumulatively for the
       already-landed door, trapdoor, wall, pressure-plate, fence-gate, pane,
-      fence, carpet, button, huge-mushroom, glow-lichen, sculk-vein, and exact
-      ordinary stained-glass tranches. After lava, vine, and those
-      connected/static/multiface/glass families, the current residual has 7,706
+      fence, carpet, button, huge-mushroom, glow-lichen, sculk-vein, exact
+      ordinary stained-glass, and static-sign tranches. After lava, vine, and
+      those connected/static/multiface/glass families, the current residual has
+      2,834
       diagnostics including the single air diagnostic, with zero diagnostics in
       every implemented family; each remaining family must shrink that exact set.
   - [ ] Complete the exhaustive residual-family report, continuing from the
@@ -730,6 +731,19 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       strict Clippy/formatting, the real 16,913-state ratchet, and independent
       review are green; deterministic native gallery/GPU/performance evidence
       remains part of the residual-family live gate.
+    - [ ] Close static sign visual parity and its deterministic native gallery.
+      - [x] Eliminate all 4,872 standing, wall, and hanging-sign diagnostics
+        with typed, order-independent selectors; exact 16-way rotation, six-way
+        facing, attachment, and hanging matrices; pinned terrain aliases; and
+        bounded static model templates. All-six-facing tests caught and fixed
+        reversed wall/wall-hanging support placement. The classic raw 24x12
+        board plus 2/3 render transform establishes the 16x8 world silhouette,
+        and sign text remains a block-entity deferral (`5987ed6`, `fba9e2e`).
+      - [ ] Source-adjudicate exact board thickness, standing-post dimensions,
+        and hanging board/support cuboids, then close UV/native-reference and
+        GPU evidence. The pinned Bedrock sample pack exposes sign terrain aliases
+        but no authoritative sign geometry, so the current shapes must not be
+        described as final 1:1 geometry until this evidence is recorded.
     - [ ] Run all 67 exact-state GPU gallery pages (256 targets per logical page,
       with one final 17-state page), require exact palette readback plus two
       consecutive GPU-completed frames for every canonical target, and inspect
@@ -768,11 +782,13 @@ Scope: block registry + block-state → model/texture mapping (generated export 
 
 Perf budget carried from Phase 0 gate; add: full remesh of view distance after teleport ≤ 2s.
 
-**Edge anti-aliasing (2026-07-14):** the client now explicitly selects 8x MSAA
-for the primary camera. All custom chunk, static-model, transparent-model, water,
-and depth-liquid pipelines already specialize from the camera sample count, so
-the quality increase covers the complete world render without an FXAA blur pass
-over the pixel-art textures (`ac1da9e`; camera suite and strict Clippy green).
+**Edge anti-aliasing (2026-07-14):** the client explicitly selects portable 4x
+MSAA for the primary camera. All custom chunk, static-model, transparent-model,
+water, and depth-liquid pipelines specialize from the camera sample count, so it
+covers the complete world render without an FXAA blur pass over the pixel-art
+textures. An attempted 8x default (`ac1da9e`) was reverted after a real macOS
+adapter rejected eight samples for `Depth32Float`; any higher setting must be
+capability-checked rather than hardcoded (camera suite and strict Clippy green).
 
 **Live visual acceptance (Computer Use):** run the Bevy app in representative vanilla
 world scenes and compare visible results against the matching Mojang vanilla assets/reference
