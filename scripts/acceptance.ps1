@@ -1550,6 +1550,7 @@ function ConvertFrom-ModelWitnessCompleteMarker {
 function Assert-StableModelWitnessEvidence {
     param(
         [Parameter(Mandatory = $true)]$Request,
+        [Parameter(Mandatory = $true)][ValidateRange(1, [long]::MaxValue)][uint64]$ExpectedModelRefCount,
         [Parameter(Mandatory = $true)]$First,
         [Parameter(Mandatory = $true)]$Second
     )
@@ -1565,12 +1566,13 @@ function Assert-StableModelWitnessEvidence {
         [string]$First.request_sha256 -cne $expectedHash -or [string]$Second.request_sha256 -cne $expectedHash -or
         [uint64]$First.key_count -ne $expectedKeyCount -or [uint64]$Second.key_count -ne $expectedKeyCount -or
         [uint64]$First.manifest_count -ne $expectedKeyCount -or [uint64]$Second.manifest_count -ne $expectedKeyCount -or
-        [uint64]$First.model_ref_count -eq 0 -or [uint64]$First.model_ref_count -ne [uint64]$Second.model_ref_count -or
+        [uint64]$First.model_ref_count -ne $ExpectedModelRefCount -or
+        [uint64]$Second.model_ref_count -ne $ExpectedModelRefCount -or
         [string]$First.manifest_sha256 -cne [string]$Second.manifest_sha256 -or
         [uint64]$First.view_generation -eq 0 -or [uint64]$First.view_generation -ne [uint64]$Second.view_generation -or
         [int]$First.consecutive -ne 1 -or [int]$Second.consecutive -ne 2 -or
         [uint64]$First.sequence + 1 -ne [uint64]$Second.sequence -or $hasMismatch) {
-        throw "model witness did not form an adjacent stable exact pair: revision=$expectedRevision key_count=$expectedKeyCount first=$($First | ConvertTo-Json -Compress) second=$($Second | ConvertTo-Json -Compress)"
+        throw "model witness did not form an adjacent stable exact pair: revision=$expectedRevision key_count=$expectedKeyCount expected_model_ref_count=$ExpectedModelRefCount first=$($First | ConvertTo-Json -Compress) second=$($Second | ConvertTo-Json -Compress)"
     }
     return $Second
 }
@@ -4083,6 +4085,15 @@ function Publish-VisualFixture {
     }
     $fixtureKindProperty = $Plan.Manifest.PSObject.Properties['fixture_kind']
     $isModelWitnessGallery = $null -ne $fixtureKindProperty -and @('SlabStairGallery', 'VineGallery') -ccontains [string]$fixtureKindProperty.Value
+    $expectedModelRefCount = if (-not $isModelWitnessGallery) {
+        [uint64]0
+    }
+    elseif ([string]$fixtureKindProperty.Value -ceq 'SlabStairGallery') {
+        [uint64]43
+    }
+    else {
+        [uint64]15
+    }
     $isV2 = [string]$Plan.Manifest.schema -ceq 'rust-mcbe-visual-fixture-v2'
     if ($isV2) {
         $null = Start-BdsFixtureLoadArea `
@@ -4251,6 +4262,7 @@ function Publish-VisualFixture {
         }
         $null = Assert-StableModelWitnessEvidence `
             -Request $modelRequest `
+            -ExpectedModelRefCount $expectedModelRefCount `
             -First $modelWitnesses[0] `
             -Second $modelWitnesses[1]
     }

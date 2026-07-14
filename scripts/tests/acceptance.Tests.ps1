@@ -906,6 +906,19 @@ try {
             Assert-True ($centerIdentities.Add($centerIdentity)) "vine mask $mask reused another gallery center"
             foreach ($support in @($witness.supports)) {
                 $offset = @($support.offset)
+                $expectedDelta = switch -CaseSensitive ([string]$support.direction) {
+                    'south' { @(0, 0, 1) }
+                    'west' { @(-1, 0, 0) }
+                    'north' { @(0, 0, -1) }
+                    'east' { @(1, 0, 0) }
+                    default { throw "vine mask $mask declared unknown support direction: $($support.direction)" }
+                }
+                $expectedOffset = @(
+                    ([int]$center[0] + [int]$expectedDelta[0])
+                    ([int]$center[1] + [int]$expectedDelta[1])
+                    ([int]$center[2] + [int]$expectedDelta[2])
+                )
+                Assert-Equal ($expectedOffset -join ',') ($offset -join ',') "vine mask $mask $($support.direction) support moved away from its exact direction delta"
                 $supportIdentity = "$($offset[0]),$($offset[1]),$($offset[2])"
                 Assert-True ($supportIdentities.Add($supportIdentity)) "vine mask $mask reused another cell's support"
                 Assert-True (-not $centerIdentities.Contains($supportIdentity)) "vine mask $mask support overlapped a gallery center"
@@ -1361,16 +1374,29 @@ try {
     $modelMarker2 = $modelMarker.PSObject.Copy()
     $modelMarker2.sequence = [uint64]41
     $modelMarker2.consecutive = 2
-    $null = Assert-StableModelWitnessEvidence -Request $modelWitnessRequest -First $modelMarker -Second $modelMarker2
+    $null = Assert-StableModelWitnessEvidence -Request $modelWitnessRequest -ExpectedModelRefCount 43 -First $modelMarker -Second $modelMarker2
     Assert-ThrowsLike {
         $bad = $modelMarker2.PSObject.Copy(); $bad.sequence = [uint64]42
-        Assert-StableModelWitnessEvidence -Request $modelWitnessRequest -First $modelMarker -Second $bad
+        Assert-StableModelWitnessEvidence -Request $modelWitnessRequest -ExpectedModelRefCount 43 -First $modelMarker -Second $bad
     } '*model witness*adjacent*' 'non-adjacent model witness evidence was accepted'
+    Assert-ThrowsLike {
+        $badFirst = $modelMarker.PSObject.Copy(); $badFirst.model_ref_count = [uint64]42
+        $badSecond = $modelMarker2.PSObject.Copy(); $badSecond.model_ref_count = [uint64]42
+        Assert-StableModelWitnessEvidence -Request $modelWitnessRequest -ExpectedModelRefCount 43 -First $badFirst -Second $badSecond
+    } '*model witness*adjacent*' 'stable non-43 slab/stair model reference evidence was accepted'
     $vineModelMarker = ConvertFrom-ModelWitnessCompleteMarker -Line "RUST_MCBE_MODEL_WITNESS_COMPLETE revision=1 request_sha256=$($vineModelWitnessRequest.request_sha256) sequence=50 view_generation=4 key_count=$(@($vineModelWitnessRequest.sub_chunks).Count) model_ref_count=15 manifest_count=$(@($vineModelWitnessRequest.sub_chunks).Count) manifest_sha256=$('b' * 64) missing=0 stale=0 wrong_stream=0 zero_ref=0 draw_mismatch=0 consecutive=1"
     $vineModelMarker2 = $vineModelMarker.PSObject.Copy()
     $vineModelMarker2.sequence = [uint64]51
     $vineModelMarker2.consecutive = 2
-    $null = Assert-StableModelWitnessEvidence -Request $vineModelWitnessRequest -First $vineModelMarker -Second $vineModelMarker2
+    $null = Assert-StableModelWitnessEvidence -Request $vineModelWitnessRequest -ExpectedModelRefCount 15 -First $vineModelMarker -Second $vineModelMarker2
+    Assert-ThrowsLike {
+        $badFirst = $vineModelMarker.PSObject.Copy(); $badFirst.model_ref_count = [uint64]14
+        Assert-StableModelWitnessEvidence -Request $vineModelWitnessRequest -ExpectedModelRefCount 15 -First $badFirst -Second $vineModelMarker2
+    } '*model witness*adjacent*' 'vine model witness accepted 14 references in the first marker'
+    Assert-ThrowsLike {
+        $badSecond = $vineModelMarker2.PSObject.Copy(); $badSecond.model_ref_count = [uint64]16
+        Assert-StableModelWitnessEvidence -Request $vineModelWitnessRequest -ExpectedModelRefCount 15 -First $vineModelMarker -Second $badSecond
+    } '*model witness*adjacent*' 'vine model witness accepted 16 references in the second marker'
 
     $tamperedAquaticAssets = Join-Path $TempRoot 'tampered aquatic assets.mcbea'
     [IO.File]::WriteAllBytes($tamperedAquaticAssets, [IO.File]::ReadAllBytes($AquaticAssets))
