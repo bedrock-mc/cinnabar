@@ -433,8 +433,16 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       compile to foliage-tinted two-sided attachment planes with exact UV axes,
       zero diagnostics, zero-mask no-draw behavior, and all-mask/all-boundary
       CPU mesh coverage (`ff7066b`; focused Go/assets/render tests and two
-      independent reviews green). The deterministic gallery, native captures,
-      and consecutive GPU witnesses remain required before this item closes.
+      independent reviews green). Deterministic acceptance is now complete in
+      `489af26` and `748438c`: five canonical poses bind the exact 0..15 mask
+      bijection and compiled-asset hashes, build isolated direction-exact stone
+      supports, preserve mask 0 as zero-draw, fence the committed camera ahead
+      of publication, and require two adjacent GPU-completed markers with
+      exactly 15 drawable vine references. The full acceptance and runtime
+      safety suites are green and independent review/re-review found no open
+      Critical or Important issue. A live GPU run plus native captures remain
+      required before this item closes; native capture is separately blocked by
+      the confirmed RX 570 Bevy/wgpu presentation failure above.
     - [x] Exhaustive vanilla visual-coverage ratchet: inventory every one of
       the 16,913 protocol-1001 canonical states through the production registry
       and runtime decoders, bind the exact registry/asset hashes, and reject any
