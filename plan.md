@@ -718,6 +718,15 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       logical page inventory, then adds exact app-side palette witnesses,
       per-target GPU evidence, family-aware placement, and native captures; the
       logical inventory is independent of the RX 570 presentation blocker.
+      - [x] Compile the exact logical target inventory: all 16,913 sequential
+        IDs are assigned once and in order to 66 full 256-target pages plus a
+        final 17-target page. The deterministic artifact binds BREG, MCBEAS, and
+        coverage-baseline hashes, retains per-target diagnostic/drawable/
+        invisible status, and is deliberately non-accepting until both the
+        diagnostic count reaches zero and the strict semantic render-route gate
+        passes. The CLI writes atomically and preserves an existing output on
+        failure (`500c4af`, `59f692c`; full tests, pinned real-pack check,
+        strict Clippy/formatting, and independent re-review green).
     - [ ] Generate a separate version-pinned block-entity inventory and reviewed
       renderer manifest. Prove chunk-NBT and live-update handling, required NBT
       variants, and GPU/no-draw evidence for every source ID; block entities are
@@ -737,6 +746,12 @@ Scope: block registry + block-state → model/texture mapping (generated export 
   teleport-remesh acceptance gates.
 
 Perf budget carried from Phase 0 gate; add: full remesh of view distance after teleport ≤ 2s.
+
+**Edge anti-aliasing (2026-07-14):** the client now explicitly selects 8x MSAA
+for the primary camera. All custom chunk, static-model, transparent-model, water,
+and depth-liquid pipelines already specialize from the camera sample count, so
+the quality increase covers the complete world render without an FXAA blur pass
+over the pixel-art textures (`ac1da9e`; camera suite and strict Clippy green).
 
 **Live visual acceptance (Computer Use):** run the Bevy app in representative vanilla
 world scenes and compare visible results against the matching Mojang vanilla assets/reference
