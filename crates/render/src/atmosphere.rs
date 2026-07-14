@@ -1,7 +1,7 @@
 use std::f32::consts::TAU;
 
 use bevy::{
-    prelude::Resource,
+    prelude::{Resource, Vec4},
     render::{extract_resource::ExtractResource, render_resource::ShaderType},
 };
 
@@ -24,12 +24,12 @@ pub const BEDROCK_DAY_TICKS: f64 = 24_000.0;
     ShaderType,
 )]
 pub struct AtmosphereFrame {
-    sun_direction_daylight: [f32; 4],
-    moon_direction_phase: [f32; 4],
-    sky_zenith_rain: [f32; 4],
-    sky_horizon_thunder: [f32; 4],
-    fog_color_start: [f32; 4],
-    fog_end_time: [f32; 4],
+    sun_direction_daylight: Vec4,
+    moon_direction_phase: Vec4,
+    sky_zenith_rain: Vec4,
+    sky_horizon_thunder: Vec4,
+    fog_color_start: Vec4,
+    fog_end_time: Vec4,
 }
 
 const _: () = assert!(std::mem::size_of::<AtmosphereFrame>() == 96);
@@ -71,67 +71,67 @@ impl AtmosphereFrame {
         let fog_end = lerp(256.0, 112.0, (rain * 0.75 + thunder * 0.25).clamp(0.0, 1.0));
 
         Self {
-            sun_direction_daylight: [
+            sun_direction_daylight: Vec4::new(
                 sun_direction[0],
                 sun_direction[1],
                 sun_direction[2],
                 daylight,
-            ],
-            moon_direction_phase: [
+            ),
+            moon_direction_phase: Vec4::new(
                 moon_direction[0],
                 moon_direction[1],
                 moon_direction[2],
                 f32::from(moon_phase),
-            ],
-            sky_zenith_rain: [storm_zenith[0], storm_zenith[1], storm_zenith[2], rain],
-            sky_horizon_thunder: [
+            ),
+            sky_zenith_rain: Vec4::new(storm_zenith[0], storm_zenith[1], storm_zenith[2], rain),
+            sky_horizon_thunder: Vec4::new(
                 storm_horizon[0],
                 storm_horizon[1],
                 storm_horizon[2],
                 thunder,
-            ],
-            fog_color_start: [fog_color[0], fog_color[1], fog_color[2], fog_start],
-            fog_end_time: [fog_end, day_fraction, 0.0, 0.0],
+            ),
+            fog_color_start: Vec4::new(fog_color[0], fog_color[1], fog_color[2], fog_start),
+            fog_end_time: Vec4::new(fog_end, day_fraction, 0.0, 0.0),
         }
     }
 
     #[must_use]
-    pub const fn sun_direction(self) -> [f32; 3] {
+    pub fn sun_direction(self) -> [f32; 3] {
         [
-            self.sun_direction_daylight[0],
-            self.sun_direction_daylight[1],
-            self.sun_direction_daylight[2],
+            self.sun_direction_daylight.x,
+            self.sun_direction_daylight.y,
+            self.sun_direction_daylight.z,
         ]
     }
 
     #[must_use]
-    pub const fn moon_phase(self) -> u8 {
-        self.moon_direction_phase[3] as u8
+    pub fn moon_phase(self) -> u8 {
+        self.moon_direction_phase.w as u8
     }
 
     #[must_use]
-    pub const fn day_fraction(self) -> f32 {
-        self.fog_end_time[1]
+    pub fn day_fraction(self) -> f32 {
+        self.fog_end_time.y
     }
 
     #[must_use]
-    pub const fn rain_level(self) -> f32 {
-        self.sky_zenith_rain[3]
+    pub fn rain_level(self) -> f32 {
+        self.sky_zenith_rain.w
     }
 
     #[must_use]
-    pub const fn thunder_level(self) -> f32 {
-        self.sky_horizon_thunder[3]
+    pub fn thunder_level(self) -> f32 {
+        self.sky_horizon_thunder.w
     }
 
     #[must_use]
-    pub const fn fog_start(self) -> f32 {
-        self.fog_color_start[3]
+    pub fn fog_start(self) -> f32 {
+        self.fog_color_start.w
     }
 
     #[must_use]
-    pub const fn fog_end(self) -> f32 {
-        self.fog_end_time[0]
+    pub fn fog_end(self) -> f32 {
+        self.fog_end_time.x
     }
 }
 

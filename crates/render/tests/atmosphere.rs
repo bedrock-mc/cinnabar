@@ -1,5 +1,48 @@
-use bevy::prelude::App;
+use std::sync::Arc;
+
+use bevy::{
+    math::{Mat3, Mat4, Vec3, Vec4},
+    prelude::App,
+    render::{
+        render_resource::{
+            BindingResource, DynamicUniformBuffer, ShaderType, encase::UniformBuffer,
+        },
+        renderer::{RenderDevice, RenderQueue, WgpuWrapper},
+        view::{ColorGradingUniform, ViewUniform},
+    },
+};
 use render::{AtmosphereFrame, AtmospherePlugin, DebugWorldPlugin};
+
+fn test_view_uniform() -> ViewUniform {
+    ViewUniform {
+        clip_from_world: Mat4::IDENTITY,
+        unjittered_clip_from_world: Mat4::IDENTITY,
+        world_from_clip: Mat4::IDENTITY,
+        world_from_view: Mat4::IDENTITY,
+        view_from_world: Mat4::IDENTITY,
+        clip_from_view: Mat4::IDENTITY,
+        view_from_clip: Mat4::IDENTITY,
+        world_position: Vec3::ZERO,
+        exposure: 1.0,
+        viewport: Vec4::ZERO,
+        main_pass_viewport: Vec4::ZERO,
+        frustum: [Vec4::ZERO; 6],
+        color_grading: ColorGradingUniform {
+            balance: Mat3::IDENTITY,
+            saturation: Vec3::ONE,
+            contrast: Vec3::ONE,
+            gamma: Vec3::ONE,
+            gain: Vec3::ONE,
+            lift: Vec3::ZERO,
+            midtone_range: bevy::math::Vec2::new(0.2, 0.7),
+            exposure: 0.0,
+            hue: 0.0,
+            post_saturation: 1.0,
+        },
+        mip_bias: 0.0,
+        frame_count: 0,
+    }
+}
 
 #[test]
 fn atmosphere_plugin_is_safe_without_a_render_sub_app() {
@@ -9,11 +52,57 @@ fn atmosphere_plugin_is_safe_without_a_render_sub_app() {
 }
 
 #[test]
-fn chunk_renderer_installs_its_atmosphere_dependency() {
+fn atmosphere_and_chunk_plugins_compose_in_atmosphere_first_order() {
     let mut app = App::new();
-    app.add_plugins(DebugWorldPlugin::new(1));
+    app.add_plugins((AtmospherePlugin, DebugWorldPlugin::new(1)));
     assert!(app.is_plugin_added::<AtmospherePlugin>());
     assert!(app.world().contains_resource::<AtmosphereFrame>());
+}
+
+#[test]
+fn atmosphere_and_chunk_plugins_compose_in_chunk_first_order() {
+    let mut app = App::new();
+    app.add_plugins((DebugWorldPlugin::new(1), AtmospherePlugin));
+    assert!(app.is_plugin_added::<AtmospherePlugin>());
+    assert!(app.world().contains_resource::<AtmosphereFrame>());
+}
+
+#[test]
+fn atmosphere_frame_is_a_uniform_compatible_six_vec4_abi() {
+    AtmosphereFrame::assert_uniform_compat();
+    let frame = AtmosphereFrame::from_bedrock_time(6_000.0, 0.25, 0.75);
+    let mut encoded = UniformBuffer::new(Vec::<u8>::new());
+    encoded.write(&frame).expect("encode atmosphere uniform");
+    let encoded = encoded.into_inner();
+    assert_eq!(AtmosphereFrame::min_size().get(), 96);
+    assert_eq!(encoded.len(), 96);
+    assert_eq!(encoded.as_slice(), bytemuck::bytes_of(&frame));
+}
+
+#[test]
+fn dynamic_view_binding_window_keeps_a_nonzero_second_view_offset_in_bounds() {
+    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+    let device = RenderDevice::from(device);
+    let queue = RenderQueue(Arc::new(WgpuWrapper::new(queue)));
+    let mut uniforms = DynamicUniformBuffer::<ViewUniform>::default();
+    uniforms.push(&test_view_uniform());
+    let second_view_offset = u64::from(uniforms.push(&test_view_uniform()));
+    uniforms.write_buffer(&device, &queue);
+
+    let BindingResource::Buffer(binding) = uniforms.binding().expect("view binding") else {
+        panic!("dynamic uniforms must expose a buffer binding");
+    };
+    let bound_size = binding
+        .size
+        .expect("dynamic binding has an exact window")
+        .get();
+    assert_eq!(bound_size, ViewUniform::min_size().get());
+    assert!(second_view_offset + bound_size <= binding.buffer.size());
+    assert!(second_view_offset + binding.buffer.size() > binding.buffer.size());
+
+    let source = include_str!("../src/atmosphere_render.rs");
+    assert!(source.contains("view_uniforms.uniforms.binding()"));
+    assert!(!source.contains("view_buffer.as_entire_binding()"));
 }
 
 #[test]

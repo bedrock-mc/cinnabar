@@ -41,32 +41,50 @@ pub struct AtmospherePlugin;
 
 impl Plugin for AtmospherePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<AtmosphereFrame>();
-        if app.get_sub_app(RenderApp).is_none() {
-            return;
-        }
-
-        app.add_plugins(ExtractResourcePlugin::<AtmosphereFrame>::default());
-        load_internal_asset!(
-            app,
-            ATMOSPHERE_SHADER_HANDLE,
-            "atmosphere.wgsl",
-            Shader::from_wgsl
-        );
-
-        app.sub_app_mut(RenderApp)
-            .init_resource::<AtmospherePipeline>()
-            .add_render_command::<Opaque3d, DrawAtmosphereCommands>()
-            .add_systems(RenderStartup, init_atmosphere_gpu)
-            .add_systems(
-                Render,
-                (
-                    prepare_atmosphere_uniform.in_set(RenderSystems::PrepareResources),
-                    prepare_atmosphere_bind_group.in_set(RenderSystems::PrepareBindGroups),
-                    queue_atmosphere.in_set(RenderSystems::Queue),
-                ),
-            );
+        install_atmosphere(app);
     }
+
+    fn finish(&self, app: &mut App) {
+        install_atmosphere(app);
+    }
+}
+
+#[derive(Resource)]
+struct AtmosphereRenderInstalled;
+
+pub(crate) fn install_atmosphere(app: &mut App) {
+    app.init_resource::<AtmosphereFrame>();
+    let Some(render_app) = app.get_sub_app(RenderApp) else {
+        return;
+    };
+    if render_app
+        .world()
+        .contains_resource::<AtmosphereRenderInstalled>()
+    {
+        return;
+    }
+
+    app.add_plugins(ExtractResourcePlugin::<AtmosphereFrame>::default());
+    load_internal_asset!(
+        app,
+        ATMOSPHERE_SHADER_HANDLE,
+        "atmosphere.wgsl",
+        Shader::from_wgsl
+    );
+
+    app.sub_app_mut(RenderApp)
+        .insert_resource(AtmosphereRenderInstalled)
+        .init_resource::<AtmospherePipeline>()
+        .add_render_command::<Opaque3d, DrawAtmosphereCommands>()
+        .add_systems(RenderStartup, init_atmosphere_gpu)
+        .add_systems(
+            Render,
+            (
+                prepare_atmosphere_uniform.in_set(RenderSystems::PrepareResources),
+                prepare_atmosphere_bind_group.in_set(RenderSystems::PrepareBindGroups),
+                queue_atmosphere.in_set(RenderSystems::Queue),
+            ),
+        );
 }
 
 #[derive(Resource)]
@@ -77,6 +95,7 @@ pub(crate) struct AtmosphereGpu {
 }
 
 fn init_atmosphere_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
+    AtmosphereFrame::assert_uniform_compat();
     let buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
         label: Some("global atmosphere frame"),
         contents: bytemuck::bytes_of(&AtmosphereFrame::default()),
@@ -201,11 +220,15 @@ fn prepare_atmosphere_bind_group(
     view_uniforms: Res<ViewUniforms>,
     mut gpu: ResMut<AtmosphereGpu>,
 ) {
-    let Some(view_buffer) = view_uniforms.uniforms.buffer() else {
+    let Some(view_binding) = view_uniforms.uniforms.binding() else {
         gpu.bind_group = None;
         gpu.view_buffer_id = None;
         return;
     };
+    let view_buffer = view_uniforms
+        .uniforms
+        .buffer()
+        .expect("a dynamic view binding always owns a GPU buffer");
     if gpu.bind_group.is_some() && gpu.view_buffer_id == Some(view_buffer.id()) {
         return;
     }
@@ -215,7 +238,7 @@ fn prepare_atmosphere_bind_group(
         &[
             BindGroupEntry {
                 binding: 0,
-                resource: view_buffer.as_entire_binding(),
+                resource: view_binding,
             },
             BindGroupEntry {
                 binding: 1,
@@ -310,5 +333,60 @@ impl<P: PhaseItem> RenderCommand<P> for DrawAtmosphere {
     ) -> RenderCommandResult {
         pass.draw(0..3, 0..1);
         RenderCommandResult::Success
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use bevy::{
+        app::SubApp,
+        asset::Assets,
+        core_pipeline::core_3d::{Opaque3d, Transparent3d},
+        ecs::schedule::Schedule,
+        prelude::{App, Shader},
+        render::{
+            ExtractSchedule, Render, RenderApp, RenderStartup,
+            render_phase::DrawFunctions,
+            renderer::{RenderDevice, RenderQueue, WgpuWrapper},
+        },
+    };
+
+    use super::{AtmosphereGpu, AtmosphereRenderInstalled};
+    use crate::DebugWorldPlugin;
+
+    fn app_with_noop_render_sub_app() -> App {
+        let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+        let mut render_app = SubApp::new();
+        render_app
+            .insert_resource(RenderDevice::from(device))
+            .insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))))
+            .insert_resource(DrawFunctions::<Opaque3d>::default())
+            .insert_resource(DrawFunctions::<Transparent3d>::default())
+            .add_schedule(Schedule::new(RenderStartup))
+            .add_schedule(Render::base_schedule())
+            .add_schedule(Schedule::new(ExtractSchedule));
+
+        let mut app = App::new();
+        app.insert_resource(Assets::<Shader>::default())
+            .insert_sub_app(RenderApp, render_app);
+        app
+    }
+
+    #[test]
+    fn standalone_chunk_renderer_installs_and_starts_atmosphere_gpu_resources() {
+        let mut app = app_with_noop_render_sub_app();
+        app.add_plugins(DebugWorldPlugin::new(1));
+        app.finish();
+
+        let render_app = app.sub_app_mut(RenderApp);
+        assert!(
+            render_app
+                .world()
+                .contains_resource::<AtmosphereRenderInstalled>()
+        );
+        render_app.world_mut().run_schedule(RenderStartup);
+        assert!(render_app.world().contains_resource::<AtmosphereGpu>());
     }
 }

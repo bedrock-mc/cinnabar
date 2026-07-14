@@ -28,3 +28,4 @@ world = { path = "../world" }
 image = { version = "0.25", default-features = false, features = ["png"] }
 naga = { version = "27.0.3", features = ["wgsl-in"] }
 tempfile = "3"
+wgpu = { version = "27.0.1", default-features = false, features = ["noop"] }

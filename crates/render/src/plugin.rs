@@ -63,9 +63,9 @@ use bevy::{
 use world::SubChunkKey;
 
 use crate::{
-    AtmosphereFrame, AtmospherePlugin, ChunkMesh, PackedBiomeRecord, PackedLiquidQuad,
-    PackedModelDrawRef, PackedModelRef, PackedQuad, PackedQuadLighting,
-    atmosphere_render::AtmosphereGpu,
+    AtmosphereFrame, ChunkMesh, PackedBiomeRecord, PackedLiquidQuad, PackedModelDrawRef,
+    PackedModelRef, PackedQuad, PackedQuadLighting,
+    atmosphere_render::{AtmosphereGpu, install_atmosphere},
 };
 
 const CHUNK_SHADER_HANDLE: Handle<Shader> = uuid_handle!("b5664c91-763f-4e5c-9310-d12659f70cd4");
@@ -4112,9 +4112,7 @@ impl DebugWorldPlugin {
 
 impl Plugin for DebugWorldPlugin {
     fn build(&self, app: &mut App) {
-        if !app.is_plugin_added::<AtmospherePlugin>() {
-            app.add_plugins(AtmospherePlugin);
-        }
+        install_atmosphere(app);
         app.init_resource::<ChunkRenderQueue>()
             .init_resource::<ChunkUploadAcknowledgements>()
             .init_resource::<PresentedFrameGate>()
@@ -4220,6 +4218,10 @@ impl Plugin for DebugWorldPlugin {
                         .after(bevy::render::renderer::render_system),
                 ),
             );
+    }
+
+    fn finish(&self, app: &mut App) {
+        install_atmosphere(app);
     }
 }
 
