@@ -429,8 +429,10 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       frustum-visible model workload counters are now implemented: acceptance
       JSON distinguishes 16-byte model refs from exact eight-byte quad draw refs
       and reports the former fixed 32-quad slot invocations avoided. Full
-      render/client suites are green; a live run and Bevy's asynchronous opaque/
-      transparent GPU pass timestamps remain open. The backend/presentation investigation is now
+      render/client suites are green. Acceptance/profiling runs now also enable
+      Bevy's asynchronous DX12 timestamp recorder and report paired, deduplicated
+      p50/p95/p99/max timings for the chunk-containing opaque and transparent 3D
+      passes without blocking the GPU; a live run remains open. The backend/presentation investigation is now
       conclusive: five direct swapchain captures from Cinnabar, minimal Bevy
       Camera3d and Camera2d clear-only probes, a camera-local red clear, and
       DX12/FXC were byte-identical pure black. Vulkan exposes no surface present

@@ -22,15 +22,17 @@ use asset_startup::{LoadedAssetKind, load_runtime_assets, select_asset_path_from
 use assets::{DIAGNOSTIC_MATERIAL, RuntimeAssets};
 use bevy::{
     app::AppExit,
+    diagnostic::{DiagnosticPath, DiagnosticsStore},
     prelude::*,
+    render::diagnostic::RenderDiagnosticsPlugin,
     window::{CursorOptions, PresentMode, PrimaryWindow, WindowPlugin},
     winit::{UpdateMode, WinitSettings},
 };
 use camera::{FlyCamera, FlyCameraPlugin};
 use metrics::{
-    DiagnosticQuadTracker, ExactFullViewProof, MetricsCollector, ModelWorkloadMetricsSnapshot,
-    PipelineMetricsSnapshot, TeleportProof, TransparentSortMetricsSnapshot,
-    deterministic_manifest_hash,
+    DiagnosticQuadTracker, ExactFullViewProof, GpuPassMeasurement, MetricsCollector,
+    ModelWorkloadMetricsSnapshot, PipelineMetricsSnapshot, TeleportProof,
+    TransparentSortMetricsSnapshot, deterministic_manifest_hash, pair_gpu_pass_sample,
 };
 use model_witness::{ModelWitnessFileSource, poll_model_witness_request};
 use network::{NetworkConfig, NetworkControlEvent, NetworkHandle, spawn_network};
@@ -54,6 +56,10 @@ const GPU_UPLOAD_BUDGET_PER_FRAME: usize = 128;
 const NETWORK_INGRESS_BUDGET_PER_FRAME: usize = 32;
 const OUTBOUND_SEND_BUDGET_PER_FRAME: usize = 16;
 const TITLE_REFRESH_INTERVAL: Duration = Duration::from_millis(250);
+const OPAQUE_3D_GPU_DIAGNOSTIC: DiagnosticPath =
+    DiagnosticPath::const_new("render/main_opaque_pass_3d/elapsed_gpu");
+const TRANSPARENT_3D_GPU_DIAGNOSTIC: DiagnosticPath =
+    DiagnosticPath::const_new("render/main_transparent_pass_3d/elapsed_gpu");
 const WORLD_READY_QUIET_INTERVAL: Duration = Duration::from_secs(2);
 const TRANSPARENT_PRESENTATION_EXIT_GRACE: Duration = Duration::from_secs(2);
 const TELEPORT_COHORT_PROGRESS_INTERVAL: Duration = Duration::from_secs(1);
@@ -1910,6 +1916,14 @@ struct RollingFps {
     elapsed: Duration,
 }
 
+#[derive(Default)]
+struct MetricsSamplingState {
+    title_elapsed: Duration,
+    rolling_fps: RollingFps,
+    last_marked_transparent_sort_generation: u64,
+    last_gpu_measurement_time: Option<Instant>,
+}
+
 impl RollingFps {
     fn record(&mut self, frame_time: Duration) {
         if frame_time.is_zero() {
@@ -2010,49 +2024,52 @@ fn run(args: args::ClientArgs) -> Result<()> {
             ..default()
         }),
         ..default()
-    }))
-    .insert_resource(frame_limited_winit_settings(args.frame_cap))
-    .insert_resource(ClearColor(Color::srgb(0.46, 0.70, 0.92)))
-    .insert_resource(network)
-    .insert_resource(ClientWorld::new(Arc::clone(&runtime_assets)))
-    .insert_resource(startup_biome_tints(&runtime_assets))
-    .insert_resource(ChunkTextureAssets::new(runtime_assets))
-    .insert_resource(CaveVisibilityCache::default())
-    .insert_resource(AppMetrics(MetricsCollector::with_asset_metrics(
-        asset_metrics,
-    )))
-    .insert_resource(DiagnosticQuads::default())
-    .insert_resource(TransparentWitnessFileSource::new(
-        args.transparent_witness_request,
-    ))
-    .insert_resource(ModelWitnessFileSource::new(args.model_witness_request))
-    .insert_resource(AcceptanceRun::new(
-        args.acceptance_seconds,
-        args.metrics_out,
-        args.full_view_teleport_gate,
-        args.require_transparent_presentation,
-    ))
-    .add_plugins((
-        DebugWorldPlugin::new(GPU_UPLOAD_BUDGET_PER_FRAME),
-        FlyCameraPlugin::new(args.auto_fly),
-    ))
-    .add_observer(apply_added_chunk_visibility)
-    .add_observer(remove_chunk_visibility)
-    .add_systems(
-        Update,
-        (
-            receive_network_events,
-            poll_transparent_witness_request,
-            poll_model_witness_request,
-            drive_world_stream,
-            refresh_cave_visibility,
-            emit_world_ready,
-            drive_model_witness,
-            record_metrics_and_title,
-            finish_acceptance_run,
-        )
-            .chain(),
-    );
+    }));
+    if args.acceptance_seconds.is_some() || args.metrics_out.is_some() {
+        app.add_plugins(RenderDiagnosticsPlugin);
+    }
+    app.insert_resource(frame_limited_winit_settings(args.frame_cap))
+        .insert_resource(ClearColor(Color::srgb(0.46, 0.70, 0.92)))
+        .insert_resource(network)
+        .insert_resource(ClientWorld::new(Arc::clone(&runtime_assets)))
+        .insert_resource(startup_biome_tints(&runtime_assets))
+        .insert_resource(ChunkTextureAssets::new(runtime_assets))
+        .insert_resource(CaveVisibilityCache::default())
+        .insert_resource(AppMetrics(MetricsCollector::with_asset_metrics(
+            asset_metrics,
+        )))
+        .insert_resource(DiagnosticQuads::default())
+        .insert_resource(TransparentWitnessFileSource::new(
+            args.transparent_witness_request,
+        ))
+        .insert_resource(ModelWitnessFileSource::new(args.model_witness_request))
+        .insert_resource(AcceptanceRun::new(
+            args.acceptance_seconds,
+            args.metrics_out,
+            args.full_view_teleport_gate,
+            args.require_transparent_presentation,
+        ))
+        .add_plugins((
+            DebugWorldPlugin::new(GPU_UPLOAD_BUDGET_PER_FRAME),
+            FlyCameraPlugin::new(args.auto_fly),
+        ))
+        .add_observer(apply_added_chunk_visibility)
+        .add_observer(remove_chunk_visibility)
+        .add_systems(
+            Update,
+            (
+                receive_network_events,
+                poll_transparent_witness_request,
+                poll_model_witness_request,
+                drive_world_stream,
+                refresh_cave_visibility,
+                emit_world_ready,
+                drive_model_witness,
+                record_metrics_and_title,
+                finish_acceptance_run,
+            )
+                .chain(),
+        );
 
     let exit = app.run();
     if let Some(mut network) = app.world_mut().remove_resource::<NetworkHandle>() {
@@ -3028,23 +3045,37 @@ fn record_metrics_and_title(
     mut metrics: ResMut<AppMetrics>,
     diagnostic_quads: Res<DiagnosticQuads>,
     render_queue: Res<ChunkRenderQueue>,
-    mut render_metrics: ParamSet<(Res<TransparentSortMetrics>, Res<ModelWorkloadMetrics>)>,
+    mut render_metrics: ParamSet<(
+        Res<TransparentSortMetrics>,
+        Res<ModelWorkloadMetrics>,
+        Res<DiagnosticsStore>,
+    )>,
     transparent_witness: Res<TransparentWitnessEvidence>,
     model_witness: Res<ModelWitnessEvidence>,
     chunks: Query<&ChunkRenderInstance>,
     camera: Query<&Transform, With<FlyCamera>>,
     mut window: Query<(&mut Window, &CursorOptions), With<PrimaryWindow>>,
-    mut title_elapsed: Local<Duration>,
-    mut rolling_fps: Local<RollingFps>,
-    mut last_marked_transparent_sort_generation: Local<u64>,
+    mut sampling: Local<MetricsSamplingState>,
 ) {
     let now = Instant::now();
+    let gpu_sample = {
+        let diagnostics = render_metrics.p2();
+        pair_gpu_pass_sample(
+            sampling.last_gpu_measurement_time,
+            gpu_pass_measurement(&diagnostics, &OPAQUE_3D_GPU_DIAGNOSTIC),
+            gpu_pass_measurement(&diagnostics, &TRANSPARENT_3D_GPU_DIAGNOSTIC),
+        )
+    };
+    if let Some((measurement_time, sample)) = gpu_sample {
+        sampling.last_gpu_measurement_time = Some(measurement_time);
+        metrics.0.record_gpu_pass_sample(measurement_time, sample);
+    }
     if let Some(deadline) = acceptance.deadline.filter(|deadline| now >= *deadline) {
         metrics.0.finish_timed_session(deadline);
     }
     let frame_time = time.delta();
     metrics.0.record_frame(frame_time);
-    rolling_fps.record(frame_time);
+    sampling.rolling_fps.record(frame_time);
     metrics.0.record_asset_counters(
         client_world.runtime_assets.missing_count(),
         diagnostic_quads.0.total(),
@@ -3054,12 +3085,13 @@ fn record_metrics_and_title(
     let model_workload_snapshot =
         ModelWorkloadMetricsSnapshot::from(render_metrics.p1().snapshot());
     if let Some(marker) = transparent_sort_committed_marker(
-        *last_marked_transparent_sort_generation,
+        sampling.last_marked_transparent_sort_generation,
         transparent_sort_snapshot,
     ) {
         let mut stdout = std::io::stdout().lock();
         write_stdout_marker(&mut stdout, &marker);
-        *last_marked_transparent_sort_generation = transparent_sort_snapshot.presented_generation;
+        sampling.last_marked_transparent_sort_generation =
+            transparent_sort_snapshot.presented_generation;
     }
     for event in transparent_witness.drain_events() {
         let marker = format!(
@@ -3203,11 +3235,11 @@ fn record_metrics_and_title(
     metrics.0.add_decode_errors(error_delta);
     client_world.reported_decode_errors = total_errors;
 
-    *title_elapsed += time.delta();
-    if *title_elapsed < TITLE_REFRESH_INTERVAL {
+    sampling.title_elapsed += time.delta();
+    if sampling.title_elapsed < TITLE_REFRESH_INTERVAL {
         return;
     }
-    *title_elapsed = Duration::ZERO;
+    sampling.title_elapsed = Duration::ZERO;
     let (Ok(camera), Ok((mut window, cursor))) = (camera.single(), window.single_mut()) else {
         return;
     };
@@ -3220,13 +3252,22 @@ fn record_metrics_and_title(
         resident,
         cache.visible_rendered,
         camera::input_is_active(&window, cursor),
-        rolling_fps.value(),
+        sampling.rolling_fps.value(),
     );
     if let Some(error) = &client_world.fatal_error {
         title.push_str(" | ERROR: ");
         title.push_str(error);
     }
     window.title = title;
+}
+
+fn gpu_pass_measurement(
+    diagnostics: &DiagnosticsStore,
+    path: &DiagnosticPath,
+) -> Option<GpuPassMeasurement> {
+    diagnostics
+        .get_measurement(path)
+        .map(|measurement| GpuPassMeasurement::new(measurement.time, measurement.value))
 }
 
 fn transparent_sort_committed_marker(

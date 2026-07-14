@@ -227,12 +227,63 @@ impl FrameHistogram {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GpuPassMeasurement {
+    pub time: Instant,
+    pub value_ms: f64,
+}
+
+impl GpuPassMeasurement {
+    #[must_use]
+    pub const fn new(time: Instant, value_ms: f64) -> Self {
+        Self { time, value_ms }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct GpuPassSample {
+    pub opaque_ms: f64,
+    pub transparent_ms: f64,
+    pub chunk_containing_pass_ms: f64,
+}
+
+#[must_use]
+pub fn pair_gpu_pass_sample(
+    last_recorded_time: Option<Instant>,
+    opaque: Option<GpuPassMeasurement>,
+    transparent: Option<GpuPassMeasurement>,
+) -> Option<(Instant, GpuPassSample)> {
+    let opaque = opaque
+        .filter(|measurement| measurement.value_ms.is_finite() && measurement.value_ms >= 0.0)?;
+    if last_recorded_time == Some(opaque.time) {
+        return None;
+    }
+    let transparent_ms = transparent
+        .filter(|measurement| {
+            measurement.time == opaque.time
+                && measurement.value_ms.is_finite()
+                && measurement.value_ms >= 0.0
+        })
+        .map_or(0.0, |measurement| measurement.value_ms);
+    Some((
+        opaque.time,
+        GpuPassSample {
+            opaque_ms: opaque.value_ms,
+            transparent_ms,
+            chunk_containing_pass_ms: opaque.value_ms + transparent_ms,
+        },
+    ))
+}
+
 #[derive(Debug)]
 pub struct MetricsCollector {
     started: Instant,
     finished: Option<Instant>,
     assets: AssetMetrics,
     frame_histogram: FrameHistogram,
+    opaque_gpu_histogram: FrameHistogram,
+    transparent_gpu_histogram: FrameHistogram,
+    chunk_containing_gpu_histogram: FrameHistogram,
     world_ready: bool,
     requested_radius_chunks: i32,
     received_radius_chunks: Option<i32>,
@@ -384,6 +435,9 @@ impl MetricsCollector {
             finished: None,
             assets: AssetMetrics::default(),
             frame_histogram: FrameHistogram::default(),
+            opaque_gpu_histogram: FrameHistogram::default(),
+            transparent_gpu_histogram: FrameHistogram::default(),
+            chunk_containing_gpu_histogram: FrameHistogram::default(),
             world_ready: false,
             requested_radius_chunks: 0,
             received_radius_chunks: None,
@@ -447,6 +501,16 @@ impl MetricsCollector {
             .record(duration.as_secs_f64() * 1_000.0);
     }
 
+    pub fn record_gpu_pass_sample(&mut self, time: Instant, sample: GpuPassSample) {
+        if time < self.started || self.finished.is_some() {
+            return;
+        }
+        self.opaque_gpu_histogram.record(sample.opaque_ms);
+        self.transparent_gpu_histogram.record(sample.transparent_ms);
+        self.chunk_containing_gpu_histogram
+            .record(sample.chunk_containing_pass_ms);
+    }
+
     #[must_use]
     pub const fn frame_count(&self) -> u64 {
         self.frame_histogram.sample_count
@@ -456,6 +520,9 @@ impl MetricsCollector {
         self.started = started;
         self.finished = None;
         self.frame_histogram = FrameHistogram::default();
+        self.opaque_gpu_histogram = FrameHistogram::default();
+        self.transparent_gpu_histogram = FrameHistogram::default();
+        self.chunk_containing_gpu_histogram = FrameHistogram::default();
         self.max_remesh_milliseconds = 0.0;
         self.max_mutation_to_visible_milliseconds = 0.0;
         self.max_decode_milliseconds = 0.0;
@@ -590,6 +657,19 @@ impl MetricsCollector {
             p95_frame_ms: self.frame_histogram.quantile(0.95),
             p99_frame_ms: self.frame_histogram.quantile(0.99),
             max_frame_ms: self.frame_histogram.max_milliseconds,
+            gpu_pass_sample_count: self.opaque_gpu_histogram.sample_count,
+            opaque_3d_gpu_p50_ms: self.opaque_gpu_histogram.quantile(0.50),
+            opaque_3d_gpu_p95_ms: self.opaque_gpu_histogram.quantile(0.95),
+            opaque_3d_gpu_p99_ms: self.opaque_gpu_histogram.quantile(0.99),
+            opaque_3d_gpu_max_ms: self.opaque_gpu_histogram.max_milliseconds,
+            transparent_3d_gpu_p50_ms: self.transparent_gpu_histogram.quantile(0.50),
+            transparent_3d_gpu_p95_ms: self.transparent_gpu_histogram.quantile(0.95),
+            transparent_3d_gpu_p99_ms: self.transparent_gpu_histogram.quantile(0.99),
+            transparent_3d_gpu_max_ms: self.transparent_gpu_histogram.max_milliseconds,
+            chunk_containing_pass_gpu_p50_ms: self.chunk_containing_gpu_histogram.quantile(0.50),
+            chunk_containing_pass_gpu_p95_ms: self.chunk_containing_gpu_histogram.quantile(0.95),
+            chunk_containing_pass_gpu_p99_ms: self.chunk_containing_gpu_histogram.quantile(0.99),
+            chunk_containing_pass_gpu_max_ms: self.chunk_containing_gpu_histogram.max_milliseconds,
             max_decode_ms: self.max_decode_milliseconds,
             max_mesh_ms: self.max_mesh_milliseconds,
             max_remesh_ms: self.max_remesh_milliseconds,
@@ -672,6 +752,19 @@ pub struct MetricsReport {
     pub p95_frame_ms: f64,
     pub p99_frame_ms: f64,
     pub max_frame_ms: f64,
+    pub gpu_pass_sample_count: u64,
+    pub opaque_3d_gpu_p50_ms: f64,
+    pub opaque_3d_gpu_p95_ms: f64,
+    pub opaque_3d_gpu_p99_ms: f64,
+    pub opaque_3d_gpu_max_ms: f64,
+    pub transparent_3d_gpu_p50_ms: f64,
+    pub transparent_3d_gpu_p95_ms: f64,
+    pub transparent_3d_gpu_p99_ms: f64,
+    pub transparent_3d_gpu_max_ms: f64,
+    pub chunk_containing_pass_gpu_p50_ms: f64,
+    pub chunk_containing_pass_gpu_p95_ms: f64,
+    pub chunk_containing_pass_gpu_p99_ms: f64,
+    pub chunk_containing_pass_gpu_max_ms: f64,
     pub max_decode_ms: f64,
     pub max_mesh_ms: f64,
     pub max_remesh_ms: f64,
@@ -744,9 +837,10 @@ fn percentile(sorted: &[f64], percentile: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        AssetMetrics, ExactFullViewProof, MetricsCollector, MetricsReport,
-        ModelWorkloadCountSnapshot, ModelWorkloadMetricsSnapshot, PipelineMetricsSnapshot,
-        TeleportProof, TransparentSortMetricsSnapshot, deterministic_manifest_hash, percentile,
+        AssetMetrics, ExactFullViewProof, GpuPassMeasurement, GpuPassSample, MetricsCollector,
+        MetricsReport, ModelWorkloadCountSnapshot, ModelWorkloadMetricsSnapshot,
+        PipelineMetricsSnapshot, TeleportProof, TransparentSortMetricsSnapshot,
+        deterministic_manifest_hash, pair_gpu_pass_sample, percentile,
     };
     use std::{fs, time::Duration};
     use world::SubChunkKey;
@@ -754,6 +848,75 @@ mod tests {
     #[test]
     fn empty_percentiles_are_zero() {
         assert_eq!(percentile(&[], 0.99), 0.0);
+    }
+
+    #[test]
+    fn gpu_pass_pair_sums_only_measurements_from_the_same_render_frame() {
+        let time = std::time::Instant::now();
+        let (_, sample) = pair_gpu_pass_sample(
+            None,
+            Some(GpuPassMeasurement::new(time, 3.25)),
+            Some(GpuPassMeasurement::new(time, 0.75)),
+        )
+        .unwrap();
+        assert_eq!(sample.opaque_ms, 3.25);
+        assert_eq!(sample.transparent_ms, 0.75);
+        assert_eq!(sample.chunk_containing_pass_ms, 4.0);
+    }
+
+    #[test]
+    fn gpu_pass_pair_does_not_reuse_a_stale_transparent_measurement() {
+        let transparent_time = std::time::Instant::now();
+        let opaque_time = transparent_time + Duration::from_millis(1);
+        let (_, sample) = pair_gpu_pass_sample(
+            None,
+            Some(GpuPassMeasurement::new(opaque_time, 2.5)),
+            Some(GpuPassMeasurement::new(transparent_time, 9.0)),
+        )
+        .unwrap();
+        assert_eq!(sample.transparent_ms, 0.0);
+        assert_eq!(sample.chunk_containing_pass_ms, 2.5);
+    }
+
+    #[test]
+    fn gpu_pass_pair_records_each_async_measurement_timestamp_once() {
+        let time = std::time::Instant::now();
+        assert!(
+            pair_gpu_pass_sample(Some(time), Some(GpuPassMeasurement::new(time, 1.0)), None,)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn gpu_pass_histograms_reset_with_the_timed_session_and_report_quantiles() {
+        let mut metrics = MetricsCollector::new();
+        let started = std::time::Instant::now();
+        metrics.record_gpu_pass_sample(
+            started,
+            GpuPassSample {
+                opaque_ms: 99.0,
+                transparent_ms: 99.0,
+                chunk_containing_pass_ms: 198.0,
+            },
+        );
+        metrics.begin_timed_session(started);
+        metrics.record_gpu_pass_sample(
+            started + Duration::from_millis(1),
+            GpuPassSample {
+                opaque_ms: 1.25,
+                transparent_ms: 0.75,
+                chunk_containing_pass_ms: 2.0,
+            },
+        );
+
+        let report = metrics.report();
+        assert_eq!(report.gpu_pass_sample_count, 1);
+        assert_eq!(report.opaque_3d_gpu_p50_ms, 1.3);
+        assert_eq!(report.opaque_3d_gpu_max_ms, 1.25);
+        assert_eq!(report.transparent_3d_gpu_p50_ms, 0.8);
+        assert_eq!(report.transparent_3d_gpu_max_ms, 0.75);
+        assert_eq!(report.chunk_containing_pass_gpu_p50_ms, 2.0);
+        assert_eq!(report.chunk_containing_pass_gpu_max_ms, 2.0);
     }
 
     #[test]
@@ -1148,6 +1311,19 @@ mod tests {
             p95_frame_ms: 5.0,
             p99_frame_ms: 5.0,
             max_frame_ms: 5.0,
+            gpu_pass_sample_count: 2,
+            opaque_3d_gpu_p50_ms: 2.0,
+            opaque_3d_gpu_p95_ms: 3.0,
+            opaque_3d_gpu_p99_ms: 3.0,
+            opaque_3d_gpu_max_ms: 3.0,
+            transparent_3d_gpu_p50_ms: 0.5,
+            transparent_3d_gpu_p95_ms: 1.0,
+            transparent_3d_gpu_p99_ms: 1.0,
+            transparent_3d_gpu_max_ms: 1.0,
+            chunk_containing_pass_gpu_p50_ms: 2.5,
+            chunk_containing_pass_gpu_p95_ms: 4.0,
+            chunk_containing_pass_gpu_p99_ms: 4.0,
+            chunk_containing_pass_gpu_max_ms: 4.0,
             max_decode_ms: 6.0,
             max_mesh_ms: 7.0,
             max_remesh_ms: 20.0,
@@ -1222,6 +1398,19 @@ mod tests {
                 "  \"p95_frame_ms\": 5.0,\n",
                 "  \"p99_frame_ms\": 5.0,\n",
                 "  \"max_frame_ms\": 5.0,\n",
+                "  \"gpu_pass_sample_count\": 2,\n",
+                "  \"opaque_3d_gpu_p50_ms\": 2.0,\n",
+                "  \"opaque_3d_gpu_p95_ms\": 3.0,\n",
+                "  \"opaque_3d_gpu_p99_ms\": 3.0,\n",
+                "  \"opaque_3d_gpu_max_ms\": 3.0,\n",
+                "  \"transparent_3d_gpu_p50_ms\": 0.5,\n",
+                "  \"transparent_3d_gpu_p95_ms\": 1.0,\n",
+                "  \"transparent_3d_gpu_p99_ms\": 1.0,\n",
+                "  \"transparent_3d_gpu_max_ms\": 1.0,\n",
+                "  \"chunk_containing_pass_gpu_p50_ms\": 2.5,\n",
+                "  \"chunk_containing_pass_gpu_p95_ms\": 4.0,\n",
+                "  \"chunk_containing_pass_gpu_p99_ms\": 4.0,\n",
+                "  \"chunk_containing_pass_gpu_max_ms\": 4.0,\n",
                 "  \"max_decode_ms\": 6.0,\n",
                 "  \"max_mesh_ms\": 7.0,\n",
                 "  \"max_remesh_ms\": 20.0,\n",
