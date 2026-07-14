@@ -52,6 +52,7 @@ use bevy::{
             TextureViewDescriptor, TextureViewDimension, Variants, VertexState, WgpuFeatures,
         },
         renderer::{RenderAdapter, RenderDevice, RenderQueue},
+        settings::Backends,
         sync_world::MainEntity,
         view::{
             ExtractedView, RenderVisibleEntities, ViewTarget, ViewUniform, ViewUniformOffset,
@@ -4566,6 +4567,11 @@ impl FromWorld for ChunkPipeline {
             .as_mut()
             .expect("model fragment")
             .shader = MODEL_SHADER_HANDLE;
+        model_descriptor
+            .fragment
+            .as_mut()
+            .expect("model fragment")
+            .entry_point = Some("fragment".into());
         model_descriptor.primitive.cull_mode = None;
         let mut transparent_model_descriptor = model_descriptor.clone();
         transparent_model_descriptor.label = Some("packed transparent model pipeline".into());
@@ -4719,11 +4725,19 @@ enum ChunkDrawMode {
 fn select_chunk_draw_mode(
     downlevel_flags: DownlevelFlags,
     features: WgpuFeatures,
+    is_dx12: bool,
+    debug_assertions: bool,
 ) -> ChunkDrawMode {
     if !downlevel_flags.contains(DownlevelFlags::BASE_VERTEX) {
         ChunkDrawMode::Unsupported
     } else if downlevel_flags.contains(DownlevelFlags::INDIRECT_EXECUTION)
         && features.contains(WgpuFeatures::INDIRECT_FIRST_INSTANCE)
+        // wgpu 27's DX12 indirect validator expands each indexed command
+        // from 20 to 32 bytes for special constants, but its debug batching
+        // assertion still assumes the unexpanded stride. Preserve MDI in
+        // release builds and use the equivalent direct path while that
+        // validator is active.
+        && !(debug_assertions && is_dx12)
     {
         ChunkDrawMode::MultiDrawIndirect
     } else {
@@ -8286,6 +8300,8 @@ fn queue_chunks(
     let draw_mode = select_chunk_draw_mode(
         render_adapter.get_downlevel_capabilities().flags,
         render_device.features(),
+        Backends::from(render_adapter.get_info().backend).contains(Backends::DX12),
+        cfg!(debug_assertions),
     );
     let draw_functions = draw_functions.read();
     let direct_draw = draw_functions.id::<DrawChunkCommands>();
@@ -8611,6 +8627,8 @@ fn queue_transparent_chunks(
     let draw_mode = select_chunk_draw_mode(
         render_adapter.get_downlevel_capabilities().flags,
         render_device.features(),
+        Backends::from(render_adapter.get_info().backend).contains(Backends::DX12),
+        cfg!(debug_assertions),
     );
     if draw_mode == ChunkDrawMode::Unsupported {
         return;
@@ -13108,30 +13126,52 @@ mod tests {
             | WgpuFeatures::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
 
         assert_eq!(
-            select_chunk_draw_mode(indirect, first_instance),
+            select_chunk_draw_mode(indirect, first_instance, false, true),
             ChunkDrawMode::MultiDrawIndirect,
         );
         assert_eq!(
-            select_chunk_draw_mode(DownlevelFlags::BASE_VERTEX, first_instance),
+            select_chunk_draw_mode(DownlevelFlags::BASE_VERTEX, first_instance, false, true,),
             ChunkDrawMode::Direct,
         );
         assert_eq!(
             select_chunk_draw_mode(
                 indirect,
                 WgpuFeatures::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
+                false,
+                true,
             ),
             ChunkDrawMode::Direct,
         );
         assert_eq!(
-            select_chunk_draw_mode(DownlevelFlags::empty(), WgpuFeatures::empty()),
+            select_chunk_draw_mode(DownlevelFlags::empty(), WgpuFeatures::empty(), false, true,),
             ChunkDrawMode::Unsupported,
         );
         assert_eq!(
             select_chunk_draw_mode(
                 DownlevelFlags::INDIRECT_EXECUTION,
                 WgpuFeatures::INDIRECT_FIRST_INSTANCE,
+                false,
+                true,
             ),
             ChunkDrawMode::Unsupported,
+        );
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn debug_build_uses_direct_draws_when_indirect_validation_needs_extended_commands() {
+        let indirect = DownlevelFlags::INDIRECT_EXECUTION | DownlevelFlags::BASE_VERTEX;
+        let first_instance = WgpuFeatures::INDIRECT_FIRST_INSTANCE;
+
+        assert_eq!(
+            select_chunk_draw_mode(indirect, first_instance, true, true),
+            ChunkDrawMode::Direct,
+            "debug DX12 validation expands indexed commands from 20 to 32 bytes, so wgpu 27 cannot batch them safely"
+        );
+        assert_eq!(
+            select_chunk_draw_mode(indirect, first_instance, true, false),
+            ChunkDrawMode::MultiDrawIndirect,
+            "release DX12 keeps the required multi-draw path after debug validation is compiled out"
         );
     }
 

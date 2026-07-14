@@ -659,6 +659,23 @@ fn crossed_model_pipeline_is_two_sided_and_uses_shared_bounded_bindings() {
 }
 
 #[test]
+fn opaque_model_pipeline_selects_its_fragment_entry_point_explicitly() {
+    let plugin = include_str!("../src/plugin.rs");
+    let model_pipeline = plugin
+        .split_once("model_descriptor.label = Some(\"packed model pipeline\".into());")
+        .expect("packed model pipeline descriptor")
+        .1
+        .split_once("let mut transparent_model_descriptor = model_descriptor.clone();")
+        .expect("transparent model pipeline follows opaque model pipeline")
+        .0;
+
+    assert!(
+        model_pipeline.contains(".entry_point = Some(\"fragment\".into());"),
+        "the opaque model pipeline must select `fragment` now that model.wgsl has multiple fragment entry points"
+    );
+}
+
+#[test]
 fn crossed_model_shader_parses_validates_and_has_one_shared_binding_shape() {
     let shader = include_str!("../src/model.wgsl").replacen(
         "#import bevy_render::view::View",

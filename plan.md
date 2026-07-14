@@ -363,6 +363,24 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     camera movement (`a4f7da5`; regression-first test, full 278-test render
     suite, strict Clippy/formatting, and diff check green). A fresh native BDS
     camera-motion capture is required below before closing live evidence.
+    **Native rerun integration follow-up (2026-07-13):** the first DX12 water
+    rerun exposed two independent GPU setup defects introduced by the new
+    transparent-model path. The opaque packed-model pipeline now explicitly
+    selects `fragment` after `model.wgsl` gained the separate
+    `fragment_blend` entry point. Debug DX12 also uses the equivalent direct
+    cube/model/depth-liquid draw path because wgpu 27's indirect validator
+    expands a 20-byte indexed command to 32 bytes for D3D12 special constants
+    while its debug batching assertion still advances by 20; release DX12 and
+    unaffected backends retain multi-draw indirect. Both failures have
+    regression-first coverage, the full 279-test render suite and strict
+    Clippy/formatting are green, and independent review found no blocking
+    issues. The corrected native run stayed alive and continuously committed
+    transparent snapshots through generation 187 / 31,915 refs instead of
+    panicking or starving. It still timed out at the 180-second fixture-ready
+    marker while loading 7,934/9,132 debug-path subchunks, and the required
+    fresh GDI capture remained pure black under the already-isolated RX 570
+    Bevy/wgpu presentation failure, so this is correctness evidence rather
+    than visual closure.
   - [ ] Add compact static templates in impact order: slabs/stairs,
     wall-attached vines/lichen/sculk-vein and related thin faces,
     doors/trapdoors, connection-aware panes/fences/gates, then static
