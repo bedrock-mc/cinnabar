@@ -6,7 +6,7 @@ use std::{
 };
 
 use bevy::prelude::Resource;
-use protocol::{LoginSequence, Packet, WorldBootstrap, WorldEvent};
+use protocol::{LoginSequence, Packet, WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent};
 use tokio::sync::{mpsc, watch};
 use world::ChunkKey;
 
@@ -22,7 +22,10 @@ pub struct NetworkConfig {
 
 #[derive(Debug)]
 pub enum NetworkControlEvent {
-    Bootstrap(WorldBootstrap),
+    Bootstrap {
+        world: WorldBootstrap,
+        environment: WorldEnvironmentBootstrap,
+    },
     SubChunkRequestSent {
         chunk: ChunkKey,
         base_sub_chunk_y: i32,
@@ -238,10 +241,14 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                     }
                 };
                 let bootstrap = WorldBootstrap::from_game_data(&game_data);
+                let environment = WorldEnvironmentBootstrap::from_game_data(&game_data);
                 if !send_control_event_or_cancel(
                     &control_event_tx,
                     &mut shutdown_rx,
-                    NetworkControlEvent::Bootstrap(bootstrap),
+                    NetworkControlEvent::Bootstrap {
+                        world: bootstrap,
+                        environment,
+                    },
                 )
                 .await
                 {
@@ -607,7 +614,7 @@ mod tests {
 
     use protocol::{
         ChangeDimensionEvent, MovePlayerEvent, PlayerMovementCorrectionEvent, WorldBootstrap,
-        WorldEvent,
+        WorldEnvironmentBootstrap, WorldEvent,
     };
     use tokio::sync::{mpsc, oneshot, watch};
 
@@ -867,9 +874,17 @@ mod tests {
             air_network_id: 12_530,
             block_network_ids_are_hashes: false,
         };
+        let environment = WorldEnvironmentBootstrap {
+            day_cycle_stop_time: 18_000,
+            rain_level: 0.25,
+            lightning_level: 0.75,
+        };
 
         for event in [
-            NetworkControlEvent::Bootstrap(bootstrap),
+            NetworkControlEvent::Bootstrap {
+                world: bootstrap,
+                environment,
+            },
             NetworkControlEvent::Failed {
                 message: "failure".to_owned(),
                 decode_error_count: 7,
@@ -896,7 +911,8 @@ mod tests {
         assert_eq!(world_event_rx.len(), 1);
         assert!(matches!(
             control_event_rx.try_recv(),
-            Ok(NetworkControlEvent::Bootstrap(value)) if value == bootstrap
+            Ok(NetworkControlEvent::Bootstrap { world, environment: value })
+                if world == bootstrap && value == environment
         ));
         assert!(matches!(
             control_event_rx.try_recv(),

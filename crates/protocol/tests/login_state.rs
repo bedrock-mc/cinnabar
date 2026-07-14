@@ -347,6 +347,7 @@ impl ServerScript {
                         }
                     ]
                 ));
+                self.enqueue_encrypted(&[McpePacket::from(SetTimePacket { time: 34_567 })]);
                 self.stage = 8;
             }
             8 => {
@@ -594,6 +595,18 @@ async fn assert_success(mode: CompressionMode, order: SpawnOrder) {
     .expect("initial chunk radius acknowledgement was discarded")
     .expect("initial chunk radius acknowledgement must decode in Play");
     assert!(matches!(initial_radius, WorldEvent::ChunkRadiusUpdated(16)));
+
+    let post_spawn_time = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        session.recv_world_event(0),
+    )
+    .await
+    .expect("post-spawn SetTime was discarded")
+    .expect("post-spawn SetTime must normalize in Play");
+    assert_eq!(
+        post_spawn_time,
+        WorldEvent::SetTime(protocol::SetTimeEvent { time: 34_567 })
+    );
 
     let mut invalid = Packet::from(ClientCacheStatusPacket { enabled: true });
     invalid.header.id = McpePacketName::PacketPlayStatus;

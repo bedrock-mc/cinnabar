@@ -75,6 +75,7 @@ const _: () = assert!(NETWORK_INGRESS_BUDGET_PER_FRAME == world_stream::MAX_ADMI
 #[derive(Resource)]
 struct ClientWorld {
     stream: Option<WorldStream>,
+    environment: Option<protocol::WorldEnvironmentBootstrap>,
     runtime_assets: Arc<RuntimeAssets>,
     pending_surface_spawn: Option<[i32; 2]>,
     fatal_error: Option<String>,
@@ -92,6 +93,7 @@ impl ClientWorld {
     fn new(runtime_assets: Arc<RuntimeAssets>) -> Self {
         Self {
             stream: None,
+            environment: None,
             runtime_assets,
             pending_surface_spawn: None,
             fatal_error: None,
@@ -2131,7 +2133,10 @@ fn receive_network_events(
         drain_network_controls(network.control_events_mut(), OUTBOUND_SEND_BUDGET_PER_FRAME);
     for control in controls {
         match control {
-            NetworkControlEvent::Bootstrap(bootstrap) => {
+            NetworkControlEvent::Bootstrap {
+                world: bootstrap,
+                environment,
+            } => {
                 acknowledgements.clear();
                 info!(
                     runtime_id = bootstrap.local_player_runtime_id,
@@ -2139,6 +2144,9 @@ fn receive_network_events(
                     world_spawn = ?bootstrap.world_spawn_position,
                     "received StartGame bootstrap"
                 );
+                if client_world.environment.replace(environment).is_some() {
+                    debug!("replaced StartGame environment bootstrap");
+                }
                 if acceptance.enabled() {
                     acceptance.set_mutation_surface_anchor([
                         bootstrap.world_spawn_position[0],
