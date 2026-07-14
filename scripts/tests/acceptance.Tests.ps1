@@ -1159,6 +1159,12 @@ try {
     Assert-ThrowsLike {
         ConvertFrom-GalleryAnchorReadyMarker -Line 'RUST_MCBE_GALLERY_ANCHOR_READY coordinate=14,71,-6 rendered=true visible=true clean=true extra=true'
     } '*invalid gallery anchor ready marker*' 'gallery anchor parser accepted an unknown field'
+    $cameraCommitted = ConvertFrom-CameraCommittedMarker -Line 'RUST_MCBE_CAMERA_COMMITTED sequence=19 position=27.00000,87.62000,43.00000 yaw=-45.00000 pitch=12.50000'
+    Assert-Equal 19 ([uint64]$cameraCommitted.sequence) 'camera-commit parser lost sequence'
+    Assert-Equal '27,87.62,43' (@($cameraCommitted.position) -join ',') 'camera-commit parser lost position'
+    Assert-ThrowsLike {
+        ConvertFrom-CameraCommittedMarker -Line 'RUST_MCBE_CAMERA_COMMITTED sequence=0 position=27,87.62,43 yaw=-45 pitch=12.5'
+    } '*invalid camera committed marker*' 'camera-commit parser accepted sequence zero'
     $appLaunchIndex = $source.IndexOf('$appHandle = Start-LoggedProcess -Executable $AppExecutable', [StringComparison]::Ordinal)
     $galleryAnchorBranchIndex = $source.IndexOf('if ($isSlabStairGallery) {', $appLaunchIndex, [StringComparison]::Ordinal)
     $galleryAnchorWaitIndex = $source.IndexOf("-Marker 'RUST_MCBE_GALLERY_ANCHOR_READY '", $galleryAnchorBranchIndex, [StringComparison]::Ordinal)
@@ -1171,13 +1177,15 @@ try {
     $modelGalleryClassificationIndex = $source.IndexOf('$isModelWitnessGallery =', $publishVisualFixtureIndex, [StringComparison]::Ordinal)
     $modelGalleryPreTeleportBranchIndex = $source.IndexOf('if ($isV2 -and $isModelWitnessGallery) {', $modelGalleryClassificationIndex, [StringComparison]::Ordinal)
     $modelGalleryPreTeleportIndex = $source.IndexOf('Write-BdsConsoleCommand -Handle $Handle -Command $Plan.TeleportCommand', $modelGalleryPreTeleportBranchIndex, [StringComparison]::Ordinal)
+    $modelGalleryCameraCommitIndex = $source.IndexOf("-Marker 'RUST_MCBE_CAMERA_COMMITTED '", $modelGalleryPreTeleportIndex, [StringComparison]::Ordinal)
     $modelGalleryFixtureCompletionIndex = $source.IndexOf('$null = Complete-BdsFixtureCommandBatch', $modelGalleryPreTeleportBranchIndex, [StringComparison]::Ordinal)
     Assert-True `
         ($modelGalleryClassificationIndex -gt $publishVisualFixtureIndex -and
             $modelGalleryPreTeleportBranchIndex -gt $modelGalleryClassificationIndex -and
             $modelGalleryPreTeleportIndex -gt $modelGalleryPreTeleportBranchIndex -and
-            $modelGalleryFixtureCompletionIndex -gt $modelGalleryPreTeleportIndex) `
-        'model gallery camera teleport is not fenced ahead of the fixture update flood'
+            $modelGalleryCameraCommitIndex -gt $modelGalleryPreTeleportIndex -and
+            $modelGalleryFixtureCompletionIndex -gt $modelGalleryCameraCommitIndex) `
+        'model gallery camera commit is not fenced ahead of the fixture update flood'
 
     $modelMarker = ConvertFrom-ModelWitnessCompleteMarker -Line "RUST_MCBE_MODEL_WITNESS_COMPLETE revision=1 request_sha256=$($modelWitnessRequest.request_sha256) sequence=40 view_generation=3 key_count=$(@($modelWitnessRequest.sub_chunks).Count) model_ref_count=43 manifest_count=$(@($modelWitnessRequest.sub_chunks).Count) manifest_sha256=$('a' * 64) missing=0 stale=0 wrong_stream=0 zero_ref=0 draw_mismatch=0 consecutive=1"
     Assert-Equal 1 ([int]$modelMarker.consecutive) 'model marker parser lost consecutive count'

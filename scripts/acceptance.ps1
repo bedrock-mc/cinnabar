@@ -1456,6 +1456,35 @@ function ConvertFrom-GalleryAnchorReadyMarker {
     }
 }
 
+function ConvertFrom-CameraCommittedMarker {
+    param([Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Line)
+
+    $number = '[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?'
+    $pattern = "^RUST_MCBE_CAMERA_COMMITTED sequence=(\d+) position=($number),($number),($number) yaw=($number) pitch=($number)$"
+    if ($Line -notmatch $pattern) {
+        throw "invalid camera committed marker: $Line"
+    }
+    $sequence = [uint64]0
+    if (-not [uint64]::TryParse($Matches[1], [Globalization.NumberStyles]::None, [Globalization.CultureInfo]::InvariantCulture, [ref]$sequence) -or $sequence -eq 0) {
+        throw "invalid camera committed marker: $Line"
+    }
+    $values = [Collections.Generic.List[double]]::new()
+    foreach ($index in 2..6) {
+        $value = [double]0
+        if (-not [double]::TryParse($Matches[$index], [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$value) -or
+            [double]::IsNaN($value) -or [double]::IsInfinity($value)) {
+            throw "invalid camera committed marker: $Line"
+        }
+        $values.Add($value)
+    }
+    return [pscustomobject][ordered]@{
+        sequence = $sequence
+        position = @($values[0], $values[1], $values[2])
+        yaw = $values[3]
+        pitch = $values[4]
+    }
+}
+
 function ConvertFrom-ModelWitnessCompleteMarker {
     param([Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Line)
 
@@ -3388,6 +3417,7 @@ function New-SlabStairGalleryPlan {
     $loadAreaCommand = "tickingarea add $($clearMin.x) $($clearMin.y) $($clearMin.z) $($clearMax.x) $($clearMax.y) $($clearMax.z) $loadAreaName true"
     $cleanupCommand = "tickingarea remove $loadAreaName"
     $teleportCommand = [string]$cameraPoses[$Pose].command
+    $cameraTarget = $cameraPoses[$Pose].position
     $commands = @($loadAreaCommand) + @($fixtureCommands) + @($fenceCommand, $teleportCommand)
     $manifest = [pscustomobject][ordered]@{
         schema = 'rust-mcbe-visual-fixture-v2'; fixture_kind = 'SlabStairGallery'; pose = $Pose
@@ -3410,7 +3440,7 @@ function New-SlabStairGalleryPlan {
     return [pscustomobject][ordered]@{
         Pose = $Pose; LoadAreaName = $loadAreaName; LoadAreaCommand = $loadAreaCommand; LoadAreaMarker = 'marked for preload.'; LoadAreaSettleMilliseconds = 3000
         CleanupCommand = $cleanupCommand; CleanupMarker = 'Removed ticking area(s)'; FixtureCommands = @($fixtureCommands); GalleryCommands = @($fixtureCommands)
-        FenceMarker = $fenceMarker; FenceCommand = $fenceCommand; TeleportCommand = $teleportCommand; Commands = $commands; Manifest = $manifest
+        FenceMarker = $fenceMarker; FenceCommand = $fenceCommand; TeleportCommand = $teleportCommand; CameraTarget = $cameraTarget; Commands = $commands; Manifest = $manifest
     }
 }
 
@@ -3849,6 +3879,30 @@ function Publish-VisualFixture {
                 command = [string]$Plan.FenceCommand
                 stdout_marker = [string]$Plan.FenceMarker
                 result_line = [string]$modelCameraResultLine
+            })
+            if ($null -eq $WaitForAppMarker) {
+                $modelCameraCommitEvidence = Wait-ProcessOutputMarker `
+                    -Handle $AppHandle `
+                    -Marker 'RUST_MCBE_CAMERA_COMMITTED ' `
+                    -TimeoutSeconds 60 `
+                    -PassThruEvidence
+            }
+            else {
+                $modelCameraCommitEvidence = & $WaitForAppMarker $AppHandle 'RUST_MCBE_CAMERA_COMMITTED ' 60
+            }
+            $modelCameraCommit = ConvertFrom-CameraCommittedMarker -Line ([string]$modelCameraCommitEvidence.Line)
+            $expectedCamera = $Plan.CameraTarget
+            $expectedEyeY = [double]$expectedCamera.y + 1.62001
+            if ([Math]::Abs([double]$modelCameraCommit.position[0] - [double]$expectedCamera.x) -gt 0.01 -or
+                [Math]::Abs([double]$modelCameraCommit.position[1] - $expectedEyeY) -gt 0.01 -or
+                [Math]::Abs([double]$modelCameraCommit.position[2] - [double]$expectedCamera.z) -gt 0.01) {
+                throw "committed client camera did not match the model gallery target: expected=$($expectedCamera.x),$expectedEyeY,$($expectedCamera.z) actual=$(@($modelCameraCommit.position) -join ',')"
+            }
+            Write-AcceptanceEvent -RunDirectory $RunDirectory -Event 'model_witness_camera_committed' -Fields ([ordered]@{
+                sequence = [uint64]$modelCameraCommit.sequence
+                position = @($modelCameraCommit.position) -join ','
+                yaw = [double]$modelCameraCommit.yaw
+                pitch = [double]$modelCameraCommit.pitch
             })
         }
         $null = Complete-BdsFixtureCommandBatch `

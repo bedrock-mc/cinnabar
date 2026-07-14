@@ -386,7 +386,13 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       camera teleport ahead of the synthetic fixture-update flood. The five
       inspectable native captures and a clean performance-gate run remain open;
       the first repaired live run was rejected at 138.3439 ms mutation-to-visible
-      against the 100 ms gate while unrelated machine CPU load was 36–58%.
+      against the 100 ms gate. Audit found that the already-complete exact model
+      witness remained armed throughout the later timed session, rebuilding a
+      full frame probe over thousands of instances every frame. The probe now
+      disarms immediately after its exact two-frame pair, and gallery publication
+      now waits for an exact Rust-side committed-camera marker before sending the
+      fixture-update flood. Unit, full-workspace, acceptance dry-run, and runtime
+      safety regressions are green; a fresh native five-pose rerun remains open.
     - [ ] Wall-attached vine family: replace the diagnostic pink-cube fallback
       for every `minecraft:vine` direction-bit state with compact cutout face
       templates selected from its exact attachment mask, including conservative
@@ -530,7 +536,10 @@ change improves batching without regressing join latency, memory, or shutdown be
 The PR #80 API is now carried on the published `cinnabar-batch-reading` fork branch at
 `bbe6cfdeed39713c2b20103a1294e609d5841615`; Cinnabar enables batch reading on both legs,
 preserves source batch boundaries, and retains the exact 1,600-packet split ceiling. Core
-unit tests and the first real BDS join/GPU-witness run are green for that slice. Porting the
+now forwards each bounded slice with `WritePacketImmediate`, pre-flushes existing buffered
+output, tests boundaries in both directions, and prevents the initial loading-screen filter
+from merging adjacent source wire batches. Unit tests and the first real BDS join/GPU-witness
+run are green for that slice. Porting the
 remaining PR-specific slow-reader/decode-error/disconnect regressions and completing the
 join-latency/resource comparison remain open, so this final polish item is not yet complete.
 

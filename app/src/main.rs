@@ -2251,6 +2251,7 @@ fn drive_world_stream(
     mut biome_tints: ResMut<ChunkBiomeTints>,
     mut diagnostic_quads: ResMut<DiagnosticQuads>,
     acknowledgements: Res<ChunkUploadAcknowledgements>,
+    model_witness_source: Res<ModelWitnessFileSource>,
     mut camera: Query<&mut Transform, With<FlyCamera>>,
 ) {
     let Some(stream) = client_world.stream.as_mut() else {
@@ -2287,11 +2288,17 @@ fn drive_world_stream(
     };
     for control in controls {
         let _ = acceptance.observe_committed_full_view_control(&control);
+        let camera_marker =
+            model_gallery_camera_committed_marker(model_witness_source.configured(), &control);
         apply_committed_control(
             control,
             &mut camera,
             &mut client_world.pending_surface_spawn,
         );
+        if let Some(marker) = camera_marker {
+            let mut stdout = std::io::stdout().lock();
+            write_stdout_marker(&mut stdout, &marker);
+        }
     }
     let camera_position = camera.translation;
     let resolved_surface_spawn = client_world.pending_surface_spawn.and_then(|anchor| {
@@ -2436,6 +2443,11 @@ fn drive_model_witness(
         state.expectation = None;
         state.next_view_generation = 0;
     }
+    if evidence.is_complete_for(&request) {
+        presented_frames.clear();
+        state.expectation = None;
+        return;
+    }
     let Some(cohort) = client_world
         .stream
         .as_ref()
@@ -2473,6 +2485,10 @@ fn drive_model_witness(
     presented_frames.set_expectation(expectation);
     for acknowledgement in presented_frames.drain() {
         evidence.observe_presented_frame(&request, &acknowledgement);
+    }
+    if evidence.is_complete_for(&request) {
+        presented_frames.clear();
+        state.expectation = None;
     }
 }
 
@@ -2881,6 +2897,29 @@ fn apply_committed_control(
     *pending_surface_spawn = resolved.surface_anchor;
 }
 
+fn model_gallery_camera_committed_marker(
+    configured: bool,
+    control: &CommittedControlEvent,
+) -> Option<String> {
+    if !configured {
+        return None;
+    }
+    let CommittedControlEvent::MovePlayer {
+        sequence,
+        movement,
+        resolved,
+        ..
+    } = control
+    else {
+        return None;
+    };
+    let [x, y, z] = resolved.position;
+    Some(format!(
+        "RUST_MCBE_CAMERA_COMMITTED sequence={sequence} position={x:.5},{y:.5},{z:.5} yaw={:.5} pitch={:.5}",
+        movement.yaw, movement.pitch
+    ))
+}
+
 fn refresh_cave_visibility(
     client_world: Res<ClientWorld>,
     camera: Query<&Transform, With<FlyCamera>>,
@@ -3286,9 +3325,10 @@ mod tests {
         accepted_move_player_ingress_marker, apply_committed_control, bedrock_camera_rotation,
         camera_sub_chunk_key, cumulative_counter_delta, deterministic_mutation_coordinate,
         drain_network_controls, drain_network_ingress, flush_sub_chunk_requests,
-        leaf_forest_target_mutation_coordinate, record_fatal_error, resolve_socket_dir_from,
-        startup_biome_tints, status_title, synchronize_biome_tints, target_mutation_armed_marker,
-        teleport_proof, transparent_sort_committed_marker, world_ready_markers,
+        leaf_forest_target_mutation_coordinate, model_gallery_camera_committed_marker,
+        record_fatal_error, resolve_socket_dir_from, startup_biome_tints, status_title,
+        synchronize_biome_tints, target_mutation_armed_marker, teleport_proof,
+        transparent_sort_committed_marker, world_ready_markers,
         write_move_player_ingress_before_source_capture, write_stdout_marker,
     };
 
@@ -6098,6 +6138,55 @@ mod tests {
             0.0001
         ));
         assert_eq!(pending_surface_spawn, None);
+    }
+
+    #[test]
+    fn model_gallery_camera_marker_only_reports_committed_move_player() {
+        let movement = protocol::MovePlayerEvent {
+            runtime_id: 1,
+            position: [27.0, 87.62, 43.0],
+            pitch: 12.5,
+            yaw: -45.0,
+        };
+        let control = CommittedControlEvent::MovePlayer {
+            sequence: 19,
+            movement,
+            resolved: crate::server_position::ResolvedServerPosition {
+                position: movement.position,
+                surface_anchor: None,
+            },
+            source_cohort: None,
+        };
+        assert_eq!(
+            model_gallery_camera_committed_marker(true, &control).as_deref(),
+            Some(
+                "RUST_MCBE_CAMERA_COMMITTED sequence=19 position=27.00000,87.62000,43.00000 yaw=-45.00000 pitch=12.50000"
+            )
+        );
+        assert!(model_gallery_camera_committed_marker(false, &control).is_none());
+
+        let correction = protocol::PlayerMovementCorrectionEvent {
+            position: movement.position,
+            delta: [0.0; 3],
+            pitch: movement.pitch,
+            yaw: movement.yaw,
+            on_ground: false,
+            tick: 1,
+        };
+        assert!(
+            model_gallery_camera_committed_marker(
+                true,
+                &CommittedControlEvent::PlayerMovementCorrection {
+                    sequence: 20,
+                    correction,
+                    resolved: crate::server_position::ResolvedServerPosition {
+                        position: correction.position,
+                        surface_anchor: None,
+                    },
+                },
+            )
+            .is_none()
+        );
     }
 
     #[test]

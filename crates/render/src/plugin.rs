@@ -585,6 +585,12 @@ impl ModelWitnessEvidence {
             .collect()
     }
 
+    #[must_use]
+    pub fn is_complete_for(&self, request: &ModelWitnessRequest) -> bool {
+        let state = self.0.lock().unwrap_or_else(|poison| poison.into_inner());
+        state.complete && state.active == *request
+    }
+
     pub fn reset(&self) {
         self.set_authoritative_request(&ModelWitnessRequest::default());
     }
@@ -12137,6 +12143,12 @@ mod tests {
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].consecutive, 1);
         assert_eq!(events[1].consecutive, 2);
+        assert!(evidence.is_complete_for(&request));
+
+        let next = ModelWitnessRequest::try_new(8, [0x44; 32], vec![key]).unwrap();
+        evidence.set_authoritative_request(&next);
+        assert!(!evidence.is_complete_for(&request));
+        assert!(!evidence.is_complete_for(&next));
     }
 
     #[test]

@@ -286,7 +286,7 @@ func finishDialFailure(downstream packetSession, dialErr error) error {
 
 type packetSession interface {
 	ReadBatch() ([]packet.Packet, error)
-	WritePacket(packet.Packet) error
+	WritePacketImmediate(...packet.Packet) error
 	Flush() error
 	Abort() error
 	Close() error
@@ -431,28 +431,21 @@ func pumpPackets(source, destination packetSession, fromDownstream bool) (err er
 		}
 	}()
 	dropInitialSpawnLoadingScreens := fromDownstream
-	outputBatchPackets := 0
-	if !fromDownstream {
-		if err := destination.Flush(); err != nil {
-			return err
-		}
+	if err := destination.Flush(); err != nil {
+		return err
 	}
+	outputBatch := make([]packet.Packet, 0, localRelayBatchPacketLimit)
 	flushOutputBatch := func() error {
-		if outputBatchPackets == 0 {
+		if len(outputBatch) == 0 {
 			return nil
 		}
-		if err := destination.Flush(); err != nil {
-			return err
-		}
-		outputBatchPackets = 0
-		return nil
+		err := destination.WritePacketImmediate(outputBatch...)
+		outputBatch = outputBatch[:0]
+		return err
 	}
 	writePacket := func(value packet.Packet) error {
-		if err := destination.WritePacket(value); err != nil {
-			return err
-		}
-		outputBatchPackets++
-		if outputBatchPackets != localRelayBatchPacketLimit {
+		outputBatch = append(outputBatch, value)
+		if len(outputBatch) != localRelayBatchPacketLimit {
 			return nil
 		}
 		return flushOutputBatch()
@@ -461,9 +454,6 @@ func pumpPackets(source, destination packetSession, fromDownstream bool) (err er
 	for {
 		batch, err := source.ReadBatch()
 		if err != nil {
-			if pendingInitialStart != nil {
-				return errors.Join(err, writePacket(pendingInitialStart), flushOutputBatch())
-			}
 			return err
 		}
 		for _, value := range batch {
@@ -496,6 +486,16 @@ func pumpPackets(source, destination packetSession, fromDownstream bool) (err er
 			if err := writePacket(value); err != nil {
 				return err
 			}
+		}
+		// The loading-screen filter is intentionally restricted to one source
+		// wire batch. Carrying Start into the next read would merge two source
+		// boundaries when the following packet is not its adjacent End.
+		if pendingInitialStart != nil {
+			if err := writePacket(pendingInitialStart); err != nil {
+				return err
+			}
+			pendingInitialStart = nil
+			dropInitialSpawnLoadingScreens = false
 		}
 		if err := flushOutputBatch(); err != nil {
 			return err

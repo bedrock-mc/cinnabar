@@ -200,12 +200,15 @@ func TestRelayDoesNotForwardDownstreamSpawnLoadingScreens(t *testing.T) {
 	wantFirst := &packet.NetworkStackLatency{Timestamp: 7}
 	wantLaterLoading := &packet.ServerBoundLoadingScreen{Type: packet.LoadingScreenTypeStart}
 	wantLast := &packet.NetworkStackLatency{Timestamp: 8}
-	down.reads <- packetResult{packet: &packet.ServerBoundLoadingScreen{Type: packet.LoadingScreenTypeStart}}
-	down.reads <- packetResult{packet: &packet.ServerBoundLoadingScreen{Type: packet.LoadingScreenTypeEnd}}
-	down.reads <- packetResult{packet: wantFirst}
-	down.reads <- packetResult{packet: wantLaterLoading}
-	down.reads <- packetResult{packet: wantLast}
-	down.reads <- packetResult{err: io.EOF}
+	down.useBatchReads = true
+	down.batchReads <- batchResult{packets: []packet.Packet{
+		&packet.ServerBoundLoadingScreen{Type: packet.LoadingScreenTypeStart},
+		&packet.ServerBoundLoadingScreen{Type: packet.LoadingScreenTypeEnd},
+	}}
+	down.batchReads <- batchResult{packets: []packet.Packet{wantFirst}}
+	down.batchReads <- batchResult{packets: []packet.Packet{wantLaterLoading}}
+	down.batchReads <- batchResult{packets: []packet.Packet{wantLast}}
+	down.batchReads <- batchResult{err: io.EOF}
 
 	err := pumpPackets(down, up, true)
 	if !errors.Is(err, io.EOF) {
@@ -302,6 +305,49 @@ func TestRelayPreservesUpstreamWireBatchBoundaries(t *testing.T) {
 		if got[index] != want[index] {
 			t.Fatalf("flattened packet %d was reordered", index)
 		}
+	}
+}
+
+func TestRelayPreservesDownstreamWireBatchBoundaries(t *testing.T) {
+	down := newFakeDownstream(nil)
+	up := newFakeUpstream(nil)
+	down.useBatchReads = true
+	first := []packet.Packet{
+		&packet.NetworkStackLatency{Timestamp: 1},
+		&packet.NetworkStackLatency{Timestamp: 2},
+	}
+	second := []packet.Packet{&packet.NetworkStackLatency{Timestamp: 3}}
+	down.batchReads <- batchResult{packets: first}
+	down.batchReads <- batchResult{packets: second}
+	down.batchReads <- batchResult{err: io.EOF}
+
+	if err := pumpPackets(down, up, true); !errors.Is(err, io.EOF) {
+		t.Fatalf("pumpPackets() error = %v, want EOF", err)
+	}
+	if got, want := batchSizes(up.flushedBatches()), []int{2, 1}; !slices.Equal(got, want) {
+		t.Fatalf("batch sizes = %v, want %v", got, want)
+	}
+}
+
+func TestRelayDoesNotMergeLoadingScreenStartAcrossWireBoundary(t *testing.T) {
+	down := newFakeDownstream(nil)
+	up := newFakeUpstream(nil)
+	down.useBatchReads = true
+	start := &packet.ServerBoundLoadingScreen{Type: packet.LoadingScreenTypeStart}
+	normal := &packet.NetworkStackLatency{Timestamp: 1}
+	down.batchReads <- batchResult{packets: []packet.Packet{start}}
+	down.batchReads <- batchResult{packets: []packet.Packet{normal}}
+	down.batchReads <- batchResult{err: io.EOF}
+
+	if err := pumpPackets(down, up, true); !errors.Is(err, io.EOF) {
+		t.Fatalf("pumpPackets() error = %v, want EOF", err)
+	}
+	batches := up.flushedBatches()
+	if got, want := batchSizes(batches), []int{1, 1}; !slices.Equal(got, want) {
+		t.Fatalf("batch sizes = %v, want %v", got, want)
+	}
+	if batches[0][0] != start || batches[1][0] != normal {
+		t.Fatal("loading-screen boundary packets were reordered")
 	}
 }
 
@@ -777,6 +823,15 @@ func (s *fakeSession) WritePacket(p packet.Packet) error {
 	s.pendingBatch = append(s.pendingBatch, p)
 	s.batchesMu.Unlock()
 	return nil
+}
+
+func (s *fakeSession) WritePacketImmediate(packets ...packet.Packet) error {
+	for _, value := range packets {
+		if err := s.WritePacket(value); err != nil {
+			return err
+		}
+	}
+	return s.Flush()
 }
 
 func (s *fakeSession) Flush() error {
