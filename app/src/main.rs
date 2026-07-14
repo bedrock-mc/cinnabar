@@ -2000,6 +2000,9 @@ fn main() {
 }
 
 fn run(args: args::ClientArgs) -> Result<()> {
+    let socket_dir = resolve_socket_dir(&args.socket_dir);
+    preflight_bridge_endpoint(&socket_dir)?;
+
     let selected_assets = select_asset_path_from_environment(args.assets.as_deref());
     let loaded_assets =
         load_runtime_assets(selected_assets).context("load startup block assets")?;
@@ -2016,7 +2019,7 @@ fn run(args: args::ClientArgs) -> Result<()> {
     let asset_metrics = loaded_assets.metrics;
 
     let network = spawn_network(NetworkConfig {
-        socket_dir: resolve_socket_dir(&args.socket_dir),
+        socket_dir,
         display_name: args.display_name.clone(),
     })
     .context("spawn Bedrock network worker")?;
@@ -2121,7 +2124,32 @@ fn resolve_socket_dir_from(path: &Path, current_dir: &Path, executable: &Path) -
 }
 
 fn bridge_endpoint_exists(directory: &Path) -> bool {
-    directory.join("game.addr").is_file() || directory.join("game.sock").exists()
+    let endpoint = bridge_endpoint_path(directory);
+    if cfg!(windows) {
+        endpoint.is_file()
+    } else {
+        endpoint.exists()
+    }
+}
+
+fn bridge_endpoint_path(directory: &Path) -> PathBuf {
+    directory.join(if cfg!(windows) {
+        "game.addr"
+    } else {
+        "game.sock"
+    })
+}
+
+fn preflight_bridge_endpoint(socket_dir: &Path) -> Result<()> {
+    if bridge_endpoint_exists(socket_dir) {
+        return Ok(());
+    }
+    let endpoint = bridge_endpoint_path(socket_dir);
+    bail!(
+        "Go core is not running: expected bridge endpoint at {}. Start it first with `make core UPSTREAM=host:port` (socket directory: {}).",
+        endpoint.display(),
+        socket_dir.display(),
+    )
 }
 
 fn record_fatal_error(fatal_error: &mut Option<String>, error: String) {
@@ -3394,6 +3422,7 @@ mod tests {
     };
     use render::{ChunkBiomeTints, PresentedFrameAck, RenderViewCohort, TargetRenderExpectation};
     use std::{
+        path::Path,
         sync::Arc,
         time::{Duration, Instant},
     };
@@ -3412,13 +3441,13 @@ mod tests {
         SubChunkTimeoutProgress, TRANSPARENT_PRESENTATION_EXIT_GRACE, TeleportReadySnapshot,
         WORLD_READY_QUIET_INTERVAL, WorldReadySettler, WorldReadySnapshot, WorldReadyWork,
         accepted_move_player_ingress_marker, apply_committed_control, bedrock_camera_rotation,
-        camera_sub_chunk_key, cumulative_counter_delta, deterministic_mutation_coordinate,
-        drain_network_controls, drain_network_ingress, flush_sub_chunk_requests,
-        leaf_forest_target_mutation_coordinate, model_gallery_camera_committed_marker,
-        record_fatal_error, resolve_socket_dir_from, startup_biome_tints, status_title,
-        synchronize_biome_tints, target_mutation_armed_marker, teleport_proof,
-        transparent_sort_committed_marker, world_ready_markers,
-        write_move_player_ingress_before_source_capture, write_stdout_marker,
+        bridge_endpoint_exists, bridge_endpoint_path, camera_sub_chunk_key,
+        cumulative_counter_delta, deterministic_mutation_coordinate, drain_network_controls,
+        drain_network_ingress, flush_sub_chunk_requests, leaf_forest_target_mutation_coordinate,
+        model_gallery_camera_committed_marker, preflight_bridge_endpoint, record_fatal_error,
+        resolve_socket_dir_from, startup_biome_tints, status_title, synchronize_biome_tints,
+        target_mutation_armed_marker, teleport_proof, transparent_sort_committed_marker,
+        world_ready_markers, write_move_player_ingress_before_source_capture, write_stdout_marker,
     };
 
     fn overworld_biome_payload() -> Vec<u8> {
@@ -6293,7 +6322,12 @@ mod tests {
         let expected = root.join("project/.local/run");
         std::fs::create_dir_all(&current_dir).unwrap();
         std::fs::create_dir_all(&expected).unwrap();
-        std::fs::write(expected.join("game.addr"), "127.0.0.1:19132\n").unwrap();
+        let endpoint_name = if cfg!(windows) {
+            "game.addr"
+        } else {
+            "game.sock"
+        };
+        std::fs::write(expected.join(endpoint_name), "endpoint").unwrap();
 
         assert_eq!(
             resolve_socket_dir_from(
@@ -6305,5 +6339,88 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn bridge_endpoint_exists_only_for_the_platform_marker() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "rust-mcbe-platform-endpoint-{}-{unique}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let (expected, wrong) = if cfg!(windows) {
+            ("game.addr", "game.sock")
+        } else {
+            ("game.sock", "game.addr")
+        };
+
+        std::fs::write(root.join(wrong), "wrong platform").unwrap();
+        assert!(!bridge_endpoint_exists(&root));
+        preflight_bridge_endpoint(&root)
+            .expect_err("a wrong-platform marker must not pass startup preflight");
+
+        std::fs::write(root.join(expected), "expected platform").unwrap();
+        assert!(bridge_endpoint_exists(&root));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn bridge_endpoint_path_selects_the_platform_marker() {
+        let socket_dir = Path::new("custom/run");
+        let expected_name = if cfg!(windows) {
+            "game.addr"
+        } else {
+            "game.sock"
+        };
+
+        assert_eq!(
+            bridge_endpoint_path(socket_dir),
+            socket_dir.join(expected_name)
+        );
+    }
+
+    #[test]
+    fn missing_bridge_endpoint_returns_an_actionable_error() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let socket_dir = std::env::temp_dir().join(format!(
+            "rust-mcbe-missing-core-{}-{unique}",
+            std::process::id()
+        ));
+        let expected_endpoint = bridge_endpoint_path(&socket_dir);
+
+        let error = preflight_bridge_endpoint(&socket_dir)
+            .expect_err("a missing platform endpoint must stop startup")
+            .to_string();
+
+        assert!(error.contains("Go core is not running"));
+        assert!(error.contains(&expected_endpoint.display().to_string()));
+        assert!(error.contains("make core UPSTREAM=host:port"));
+    }
+
+    #[test]
+    fn existing_platform_endpoint_passes_preflight() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let socket_dir = std::env::temp_dir().join(format!(
+            "rust-mcbe-running-core-{}-{unique}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&socket_dir).unwrap();
+        std::fs::write(bridge_endpoint_path(&socket_dir), "endpoint").unwrap();
+
+        preflight_bridge_endpoint(&socket_dir)
+            .expect("an existing platform endpoint must continue startup");
+
+        let _ = std::fs::remove_dir_all(socket_dir);
     }
 }
