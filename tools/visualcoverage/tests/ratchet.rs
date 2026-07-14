@@ -1,12 +1,15 @@
 use assets::{
-    BiomeRule, BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, ContributorRole,
-    DIAGNOSTIC_MATERIAL, Material, NO_ANIMATION, NO_MODEL_TEMPLATE, RegistryProvenance,
-    RegistryRecord, RuntimeAssets, TINT_MAP_BYTES, TextureArray, TextureMip, TexturePage,
-    TextureRef, TintSource, VisualKind, encode_blob, read_registry,
+    ANIMATION_FLAG_BLEND, Animation, BiomeRule, BlockFlags, BlockVisual, CompiledAssets,
+    CompiledBiomeAssets, ContributorRole, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND,
+    MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_WATER_TINT, Material, ModelFamily, ModelQuad,
+    ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, RegistryProvenance, RegistryRecord,
+    RuntimeAssets, TINT_MAP_BYTES, TextureArray, TextureMip, TexturePage, TextureRef, TintSource,
+    VisualKind, encode_blob, read_registry,
 };
 use visualcoverage::{
-    AllowlistEntry, Baseline, Counts, CoverageError, StateIdentity, analyze_bytes,
-    baseline_from_snapshot, deterministic_json, parse_baseline, ratchet, ratchet_protocol_1001,
+    AllowlistEntry, Baseline, Counts, CoverageError, RenderStream, StateIdentity, analyze_bytes,
+    analyze_records, baseline_from_snapshot, deterministic_json, parse_baseline, ratchet,
+    ratchet_protocol_1001, strict_records,
 };
 
 #[test]
@@ -735,4 +738,696 @@ fn current_model_family_is_recorded_for_diagnostic_counts() {
     let family = StateIdentity::from_record(&records[2]).model_family;
     assert_eq!(snapshot.diagnostics_by_family.get(&family), Some(&1));
     assert_eq!(snapshot.diagnostics_by_name.get("minecraft:vine"), Some(&1));
+}
+
+fn strict_fixture_records(families: &[ModelFamily]) -> Vec<RegistryRecord> {
+    let all = read_registry(include_bytes!(
+        "../../../crates/assets/data/block-registry-v1001.bin"
+    ))
+    .expect("read production registry");
+    families
+        .iter()
+        .enumerate()
+        .map(|(index, &family)| {
+            let mut record = all
+                .iter()
+                .find(|record| record.model_family == family)
+                .unwrap_or_else(|| panic!("missing fixture record for {family:?}"))
+                .clone();
+            record.sequential_id = index as u32;
+            record.network_hash = 0x9100_0000 + index as u32;
+            record
+        })
+        .collect()
+}
+
+fn strict_no_draw(flags: BlockFlags, role: ContributorRole) -> BlockVisual {
+    BlockVisual {
+        faces: [DIAGNOSTIC_MATERIAL; 6],
+        flags,
+        kind: VisualKind::Invisible,
+        contributor_role: role,
+        model_template: NO_MODEL_TEMPLATE,
+        animation: NO_ANIMATION,
+        variant: 0,
+    }
+}
+
+fn strict_cube(faces: [u32; 6]) -> BlockVisual {
+    BlockVisual {
+        faces,
+        flags: BlockFlags::CUBE_GEOMETRY,
+        kind: VisualKind::Cube,
+        contributor_role: ContributorRole::Primary,
+        model_template: NO_MODEL_TEMPLATE,
+        animation: NO_ANIMATION,
+        variant: 0,
+    }
+}
+
+fn strict_model(kind: VisualKind, template: u32) -> BlockVisual {
+    BlockVisual {
+        faces: [DIAGNOSTIC_MATERIAL; 6],
+        flags: BlockFlags::empty(),
+        kind,
+        contributor_role: ContributorRole::Primary,
+        model_template: template,
+        animation: NO_ANIMATION,
+        variant: 0,
+    }
+}
+
+fn strict_liquid(faces: [u32; 6], variant: u32) -> BlockVisual {
+    BlockVisual {
+        faces,
+        flags: BlockFlags::empty(),
+        kind: VisualKind::Liquid,
+        contributor_role: ContributorRole::LiquidAdditional,
+        model_template: NO_MODEL_TEMPLATE,
+        animation: NO_ANIMATION,
+        variant,
+    }
+}
+
+fn strict_diagnostic(flags: BlockFlags, role: ContributorRole) -> BlockVisual {
+    BlockVisual {
+        faces: [DIAGNOSTIC_MATERIAL; 6],
+        flags,
+        kind: VisualKind::Diagnostic,
+        contributor_role: role,
+        model_template: NO_MODEL_TEMPLATE,
+        animation: NO_ANIMATION,
+        variant: 0,
+    }
+}
+
+fn strict_quad(material: u32) -> ModelQuad {
+    ModelQuad {
+        positions: [[0, 0, 0], [256, 0, 0], [256, 256, 0], [0, 256, 0]],
+        uvs: [[0, 0], [4096, 0], [4096, 4096], [0, 4096]],
+        material,
+        flags: 0,
+    }
+}
+
+fn strict_runtime(
+    records: &[RegistryRecord],
+    visuals: Vec<BlockVisual>,
+    mut materials: Vec<Material>,
+    templates: Vec<ModelTemplate>,
+    quads: Vec<ModelQuad>,
+    animations: Vec<Animation>,
+    frames: Vec<TextureRef>,
+) -> RuntimeAssets {
+    if animations.is_empty() {
+        for material in &mut materials {
+            material.animation = NO_ANIMATION;
+        }
+    }
+    let mut hashed = records
+        .iter()
+        .map(|record| (record.network_hash, record.sequential_id))
+        .collect::<Vec<_>>();
+    hashed.sort_unstable();
+    let compiled = CompiledAssets {
+        visuals: visuals.into_boxed_slice(),
+        hashed: hashed.into_boxed_slice(),
+        materials: materials.into_boxed_slice(),
+        model_templates: templates.into_boxed_slice(),
+        model_quads: quads.into_boxed_slice(),
+        animations: animations.into_boxed_slice(),
+        animation_frames: frames.into_boxed_slice(),
+        texture_pages: vec![TexturePage::new(texture_array(8))].into_boxed_slice(),
+        biomes: CompiledBiomeAssets {
+            tint_maps_rgb8: vec![0; TINT_MAP_BYTES].into_boxed_slice(),
+            rules: vec![BiomeRule {
+                id: 0,
+                name: "minecraft:plains".into(),
+                flags: 0,
+                grass: TintSource::direct(0),
+                foliage: TintSource::direct(0),
+                dry_foliage: TintSource::direct(0),
+                water: TintSource::direct(0),
+                temperature_bits: 0,
+                downfall_bits: 0,
+            }]
+            .into_boxed_slice(),
+        },
+    };
+    RuntimeAssets::decode(&encode_blob(&compiled).expect("encode strict fixture"))
+        .expect("decode strict fixture")
+}
+
+fn strict_materials() -> Vec<Material> {
+    vec![
+        Material {
+            texture: TextureRef::DIAGNOSTIC,
+            flags: 0,
+            animation: NO_ANIMATION,
+        },
+        Material {
+            texture: TextureRef::new(0, 1).unwrap(),
+            flags: 0,
+            animation: NO_ANIMATION,
+        },
+        Material {
+            texture: TextureRef::new(0, 2).unwrap(),
+            flags: 0,
+            animation: 0,
+        },
+        Material {
+            texture: TextureRef::new(0, 3).unwrap(),
+            flags: MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_WATER_TINT,
+            animation: 0,
+        },
+        Material {
+            texture: TextureRef::new(0, 4).unwrap(),
+            flags: MATERIAL_FLAG_LIQUID_DEPTH_WRITE,
+            animation: 0,
+        },
+    ]
+}
+
+fn strict_animations() -> (Vec<Animation>, Vec<TextureRef>) {
+    (
+        vec![Animation {
+            frame_start: 0,
+            frame_count: 2,
+            ticks_per_frame: 1,
+            atlas_index: 0,
+            atlas_tile_variant: 0,
+            replicate: 1,
+            flags: ANIMATION_FLAG_BLEND,
+        }],
+        vec![
+            TextureRef::new(0, 5).unwrap(),
+            TextureRef::new(0, 6).unwrap(),
+        ],
+    )
+}
+
+fn strict_baseline(
+    snapshot: &visualcoverage::CoverageSnapshot,
+    invisible: &[StateIdentity],
+) -> Baseline {
+    Baseline {
+        schema: visualcoverage::BASELINE_SCHEMA.into(),
+        protocol: 1001,
+        registry_sha256: snapshot.registry_sha256.clone(),
+        counts: snapshot.counts,
+        states: snapshot.states.clone(),
+        diagnostic_sequential_ids: snapshot
+            .diagnostic_states
+            .iter()
+            .map(|state| state.sequential_id)
+            .collect(),
+        invisible_allowlist: invisible
+            .iter()
+            .cloned()
+            .map(|state| AllowlistEntry {
+                state,
+                authority: "Reviewed no-draw fixture".into(),
+                source: "https://example.invalid/strict-fixture".into(),
+            })
+            .collect(),
+        expected_vine_diagnostic_masks: snapshot.vine_diagnostic_masks.clone(),
+    }
+}
+
+fn strict_snapshot(
+    records: &[RegistryRecord],
+    runtime: &RuntimeAssets,
+) -> visualcoverage::CoverageSnapshot {
+    analyze_records(records, runtime, "registry-hash", "assets-hash")
+        .expect("analyze strict fixture")
+}
+
+#[test]
+fn strict_rejects_non_air_diagnostics_and_unknown_families() {
+    let records = strict_fixture_records(&[ModelFamily::Air, ModelFamily::Cube]);
+    let runtime = strict_runtime(
+        &records,
+        vec![
+            strict_no_draw(BlockFlags::AIR, ContributorRole::Air),
+            strict_diagnostic(BlockFlags::CUBE_GEOMETRY, ContributorRole::Primary),
+        ],
+        strict_materials(),
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+    );
+    let snapshot = strict_snapshot(&records, &runtime);
+    let expected = snapshot.states[1].clone();
+    assert!(matches!(
+        strict_records(
+            &records,
+            &runtime,
+            snapshot.clone(),
+            &strict_baseline(&snapshot, &[]),
+            false,
+        ),
+        Err(CoverageError::NonAirDiagnostic { state }) if state == expected
+    ));
+
+    let mut unknown = records.clone();
+    unknown[1].model_family = ModelFamily::Unknown;
+    let runtime = strict_runtime(
+        &unknown,
+        vec![
+            strict_no_draw(BlockFlags::AIR, ContributorRole::Air),
+            strict_cube([1; 6]),
+        ],
+        strict_materials(),
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+    );
+    let snapshot = strict_snapshot(&unknown, &runtime);
+    let expected = snapshot.states[1].clone();
+    assert!(matches!(
+        strict_records(
+            &unknown,
+            &runtime,
+            snapshot.clone(),
+            &strict_baseline(&snapshot, &[]),
+            false,
+        ),
+        Err(CoverageError::UnsupportedModelFamily { state, family })
+            if state == expected && family == "unknown"
+    ));
+}
+
+#[test]
+fn strict_requires_air_no_draw_and_source_cited_invisibles() {
+    let records = strict_fixture_records(&[ModelFamily::Air, ModelFamily::Invisible]);
+    let runtime = strict_runtime(
+        &records,
+        vec![
+            strict_diagnostic(BlockFlags::AIR, ContributorRole::Air),
+            strict_no_draw(BlockFlags::empty(), ContributorRole::Primary),
+        ],
+        strict_materials(),
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+    );
+    let snapshot = strict_snapshot(&records, &runtime);
+    let expected_air = snapshot.states[0].clone();
+    let invisible = snapshot.states[1].clone();
+    assert!(matches!(
+        strict_records(
+            &records,
+            &runtime,
+            snapshot.clone(),
+            &strict_baseline(&snapshot, std::slice::from_ref(&invisible)),
+            false,
+        ),
+        Err(CoverageError::InvalidAirRoute { state, kind })
+            if state == expected_air && kind == "diagnostic"
+    ));
+
+    let runtime = strict_runtime(
+        &records,
+        vec![
+            strict_no_draw(BlockFlags::AIR, ContributorRole::Air),
+            strict_no_draw(BlockFlags::empty(), ContributorRole::Primary),
+        ],
+        strict_materials(),
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+    );
+    let snapshot = strict_snapshot(&records, &runtime);
+    assert!(matches!(
+        strict_records(
+            &records,
+            &runtime,
+            snapshot.clone(),
+            &strict_baseline(&snapshot, &[]),
+            false,
+        ),
+        Err(CoverageError::UnreviewedInvisible { state }) if state == snapshot.states[1]
+    ));
+
+    let mut drawable_invisible = strict_no_draw(BlockFlags::empty(), ContributorRole::Primary);
+    drawable_invisible.faces[0] = 1;
+    drawable_invisible.animation = 0;
+    let runtime = strict_runtime(
+        &records,
+        vec![
+            strict_no_draw(BlockFlags::AIR, ContributorRole::Air),
+            drawable_invisible,
+        ],
+        strict_materials(),
+        vec![],
+        vec![],
+        strict_animations().0,
+        strict_animations().1,
+    );
+    let snapshot = strict_snapshot(&records, &runtime);
+    let invisible = snapshot.states[1].clone();
+    assert!(matches!(
+        strict_records(
+            &records,
+            &runtime,
+            snapshot.clone(),
+            &strict_baseline(&snapshot, std::slice::from_ref(&invisible)),
+            false,
+        ),
+        Err(CoverageError::InvalidInvisibleRoute { state, kind })
+            if state == invisible && kind == "invisible"
+    ));
+}
+
+#[test]
+fn strict_rejects_empty_or_diagnostic_cube_model_and_liquid_routes() {
+    let records = strict_fixture_records(&[
+        ModelFamily::Air,
+        ModelFamily::Cube,
+        ModelFamily::Cross,
+        ModelFamily::Liquid,
+    ]);
+
+    let runtime = strict_runtime(
+        &records,
+        vec![
+            strict_no_draw(BlockFlags::AIR, ContributorRole::Air),
+            strict_cube([0; 6]),
+            strict_model(VisualKind::Cross, 0),
+            strict_liquid([3; 6], 0),
+        ],
+        strict_materials(),
+        vec![ModelTemplate {
+            quad_start: 0,
+            quad_count: 1,
+            flags: 0,
+        }],
+        vec![strict_quad(1)],
+        strict_animations().0,
+        strict_animations().1,
+    );
+    let snapshot = strict_snapshot(&records, &runtime);
+    assert!(matches!(
+        strict_records(
+            &records,
+            &runtime,
+            snapshot.clone(),
+            &strict_baseline(&snapshot, &[]),
+            false,
+        ),
+        Err(CoverageError::EmptyVisibleRoute { state, kind })
+            if state == snapshot.states[1] && kind == "cube"
+    ));
+
+    let runtime = strict_runtime(
+        &records,
+        vec![
+            strict_no_draw(BlockFlags::AIR, ContributorRole::Air),
+            strict_cube([1; 6]),
+            strict_model(VisualKind::Cross, 0),
+            strict_liquid([3; 6], 0),
+        ],
+        strict_materials(),
+        vec![ModelTemplate {
+            quad_start: 0,
+            quad_count: 0,
+            flags: 0,
+        }],
+        vec![],
+        strict_animations().0,
+        strict_animations().1,
+    );
+    let snapshot = strict_snapshot(&records, &runtime);
+    assert!(matches!(
+        strict_records(
+            &records,
+            &runtime,
+            snapshot.clone(),
+            &strict_baseline(&snapshot, &[]),
+            false,
+        ),
+        Err(CoverageError::EmptyVisibleRoute { state, kind })
+            if state == snapshot.states[2] && kind == "cross"
+    ));
+
+    let runtime = strict_runtime(
+        &records,
+        vec![
+            strict_no_draw(BlockFlags::AIR, ContributorRole::Air),
+            strict_cube([1; 6]),
+            strict_model(VisualKind::Cross, 0),
+            strict_liquid([3; 6], 16),
+        ],
+        strict_materials(),
+        vec![ModelTemplate {
+            quad_start: 0,
+            quad_count: 1,
+            flags: 0,
+        }],
+        vec![strict_quad(1)],
+        strict_animations().0,
+        strict_animations().1,
+    );
+    let snapshot = strict_snapshot(&records, &runtime);
+    assert!(matches!(
+        strict_records(
+            &records,
+            &runtime,
+            snapshot.clone(),
+            &strict_baseline(&snapshot, &[]),
+            false,
+        ),
+        Err(CoverageError::InvalidLiquidDepth { state, variant })
+            if state == snapshot.states[3] && variant == 16
+    ));
+
+    let runtime = strict_runtime(
+        &records,
+        vec![
+            strict_no_draw(BlockFlags::AIR, ContributorRole::Air),
+            strict_cube([1; 6]),
+            strict_model(VisualKind::Cross, 0),
+            strict_liquid([3, 4, 3, 4, 3, 4], 0),
+        ],
+        strict_materials(),
+        vec![ModelTemplate {
+            quad_start: 0,
+            quad_count: 1,
+            flags: 0,
+        }],
+        vec![strict_quad(1)],
+        strict_animations().0,
+        strict_animations().1,
+    );
+    let snapshot = strict_snapshot(&records, &runtime);
+    assert!(matches!(
+        strict_records(
+            &records,
+            &runtime,
+            snapshot.clone(),
+            &strict_baseline(&snapshot, &[]),
+            false,
+        ),
+        Err(CoverageError::InvalidLiquidMaterials { state, material_ids })
+            if state == snapshot.states[3] && material_ids == vec![3, 4]
+    ));
+
+    let mut diagnostic_texture_materials = strict_materials();
+    diagnostic_texture_materials[1].texture = TextureRef::DIAGNOSTIC;
+    let runtime = strict_runtime(
+        &records,
+        vec![
+            strict_no_draw(BlockFlags::AIR, ContributorRole::Air),
+            strict_cube([1; 6]),
+            strict_model(VisualKind::Cross, 0),
+            strict_liquid([3; 6], 0),
+        ],
+        diagnostic_texture_materials,
+        vec![ModelTemplate {
+            quad_start: 0,
+            quad_count: 1,
+            flags: 0,
+        }],
+        vec![strict_quad(1)],
+        strict_animations().0,
+        strict_animations().1,
+    );
+    let snapshot = strict_snapshot(&records, &runtime);
+    assert!(matches!(
+        strict_records(
+            &records,
+            &runtime,
+            snapshot.clone(),
+            &strict_baseline(&snapshot, &[]),
+            false,
+        ),
+        Err(CoverageError::DiagnosticTextureReference {
+            state,
+            material_id: 1,
+        }) if state == snapshot.states[1]
+    ));
+}
+
+#[test]
+fn strict_reports_exact_render_stream_material_template_and_animation_routes() {
+    let records = strict_fixture_records(&[
+        ModelFamily::Air,
+        ModelFamily::Cube,
+        ModelFamily::Cross,
+        ModelFamily::Slab,
+        ModelFamily::Liquid,
+        ModelFamily::Invisible,
+    ]);
+    let (animations, frames) = strict_animations();
+    let runtime = strict_runtime(
+        &records,
+        vec![
+            strict_no_draw(BlockFlags::AIR, ContributorRole::Air),
+            strict_cube([2, 1, 2, 1, 2, 1]),
+            strict_model(VisualKind::Cross, 0),
+            strict_model(VisualKind::Model, 1),
+            strict_liquid([3; 6], 7),
+            strict_no_draw(BlockFlags::empty(), ContributorRole::Primary),
+        ],
+        strict_materials(),
+        vec![
+            ModelTemplate {
+                quad_start: 0,
+                quad_count: 1,
+                flags: 0,
+            },
+            ModelTemplate {
+                quad_start: 1,
+                quad_count: 1,
+                flags: 0,
+            },
+        ],
+        vec![strict_quad(2), strict_quad(1)],
+        animations,
+        frames,
+    );
+    let snapshot = strict_snapshot(&records, &runtime);
+    let invisible = snapshot.states[5].clone();
+    let report = strict_records(
+        &records,
+        &runtime,
+        snapshot.clone(),
+        &strict_baseline(&snapshot, std::slice::from_ref(&invisible)),
+        false,
+    )
+    .expect("strict graph passes");
+
+    assert_eq!(
+        report
+            .routes
+            .iter()
+            .map(|route| route.state.sequential_id)
+            .collect::<Vec<_>>(),
+        vec![0, 1, 2, 3, 4, 5]
+    );
+    assert_eq!(report.routes[0].render_stream, RenderStream::NoDraw);
+    assert_eq!(report.routes[0].material_ids, Vec::<u32>::new());
+    assert_eq!(report.routes[1].render_stream, RenderStream::Cube);
+    assert_eq!(report.routes[1].material_ids, vec![1, 2]);
+    assert_eq!(report.routes[1].animation_ids, vec![0]);
+    assert_eq!(report.routes[2].render_stream, RenderStream::Model);
+    assert_eq!(report.routes[2].model_template, Some(0));
+    assert_eq!(report.routes[2].material_ids, vec![2]);
+    assert_eq!(report.routes[2].animation_ids, vec![0]);
+    assert_eq!(report.routes[3].render_stream, RenderStream::Model);
+    assert_eq!(report.routes[3].model_template, Some(1));
+    assert_eq!(report.routes[3].material_ids, vec![1]);
+    assert_eq!(report.routes[4].render_stream, RenderStream::Liquid);
+    assert_eq!(report.routes[4].material_ids, vec![3]);
+    assert_eq!(report.routes[4].animation_ids, vec![0]);
+    assert_eq!(report.routes[5].render_stream, RenderStream::NoDraw);
+    assert_eq!(report.invisible_decisions.len(), 2);
+    assert_eq!(report.states_by_stream[&RenderStream::NoDraw], 2);
+    assert_eq!(report.states_by_stream[&RenderStream::Cube], 1);
+    assert_eq!(report.states_by_stream[&RenderStream::Model], 2);
+    assert_eq!(report.states_by_stream[&RenderStream::Liquid], 1);
+}
+
+#[test]
+fn strict_json_is_hash_bound_sorted_and_byte_identical() {
+    let records = strict_fixture_records(&[ModelFamily::Air, ModelFamily::Cube]);
+    let runtime = strict_runtime(
+        &records,
+        vec![
+            strict_no_draw(BlockFlags::AIR, ContributorRole::Air),
+            strict_cube([2, 1, 2, 1, 2, 1]),
+        ],
+        strict_materials(),
+        vec![],
+        vec![],
+        strict_animations().0,
+        strict_animations().1,
+    );
+    let snapshot = strict_snapshot(&records, &runtime);
+    let report = strict_records(
+        &records,
+        &runtime,
+        snapshot.clone(),
+        &strict_baseline(&snapshot, &[]),
+        false,
+    )
+    .expect("strict graph passes");
+    assert_eq!(report.registry_sha256, "registry-hash");
+    assert_eq!(report.assets_sha256, "assets-hash");
+    assert_eq!(report.schema, visualcoverage::STRICT_REPORT_SCHEMA);
+    let first = deterministic_json(&report).unwrap();
+    let second = deterministic_json(&report).unwrap();
+    assert_eq!(first, second);
+    assert!(first.ends_with(b"\n"));
+    assert!(
+        first
+            .windows(b"\"no_draw\"".len())
+            .any(|window| window == b"\"no_draw\"")
+    );
+}
+
+#[test]
+#[ignore = "requires CINNABAR_REAL_PACK pointing at the ignored pinned MCBEAS04 blob"]
+fn strict_cli_rejects_the_current_real_pack_until_zero_diagnostics() {
+    let assets_path = std::env::var_os("CINNABAR_REAL_PACK")
+        .map(std::path::PathBuf::from)
+        .expect("set CINNABAR_REAL_PACK to the ignored pinned vanilla-v1001.mcbea");
+    assert!(assets_path.is_file(), "missing real pack: {assets_path:?}");
+    let baseline_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../crates/assets/data/visual-coverage-v1001.json");
+    let registry_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../crates/assets/data/block-registry-v1001.bin");
+    let expected = parse_baseline(&std::fs::read(&baseline_path).unwrap()).unwrap();
+    assert_eq!(expected.diagnostic_sequential_ids.len(), 14_941);
+
+    let directory = tempfile::tempdir().unwrap();
+    let report_path = directory.path().join("strict.json");
+    let run = std::process::Command::new(env!("CARGO_BIN_EXE_visualcoverage"))
+        .args([
+            "strict",
+            "--registry",
+            registry_path.to_str().unwrap(),
+            "--assets",
+            assets_path.to_str().unwrap(),
+            "--baseline",
+            baseline_path.to_str().unwrap(),
+            "--out",
+            report_path.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        !run.status.success(),
+        "real pack unexpectedly passed strict"
+    );
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert!(
+        stderr.contains("NonAirDiagnostic") || stderr.contains("UnsupportedModelFamily"),
+        "unexpected stderr: {stderr}"
+    );
+    assert!(!report_path.exists());
 }

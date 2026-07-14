@@ -7,7 +7,7 @@ use std::{
 use clap::{Parser, Subcommand};
 use visualcoverage::{
     AllowlistEntry, analyze_bytes, baseline_from_snapshot, deterministic_json, parse_baseline,
-    ratchet_protocol_1001,
+    ratchet_protocol_1001, strict_bytes,
 };
 
 const MAX_REGISTRY_BYTES: u64 = 16 * 1024 * 1024;
@@ -37,6 +37,17 @@ enum Command {
     },
     /// Rejects canonical inventory changes, diagnostic regressions, and invisible laundering.
     Ratchet {
+        #[arg(long)]
+        registry: PathBuf,
+        #[arg(long)]
+        assets: PathBuf,
+        #[arg(long)]
+        baseline: PathBuf,
+        #[arg(long = "out")]
+        out: PathBuf,
+    },
+    /// Rejects every diagnostic, unsupported, empty, or transitive no-draw visual route.
+    Strict {
         #[arg(long)]
         registry: PathBuf,
         #[arg(long)]
@@ -81,6 +92,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 parse_baseline(&read_bounded(&baseline, MAX_BASELINE_BYTES, "baseline")?)?;
             let report =
                 ratchet_protocol_1001(analyze_bytes(&registry_bytes, &assets_bytes)?, &baseline)?;
+            let bytes = deterministic_json(&report)?;
+            fs::write(out, bytes)?;
+        }
+        Command::Strict {
+            registry,
+            assets,
+            baseline,
+            out,
+        } => {
+            let registry_bytes = read_bounded(&registry, MAX_REGISTRY_BYTES, "registry")?;
+            let assets_bytes = read_bounded(&assets, MAX_ASSET_BYTES, "asset blob")?;
+            let baseline =
+                parse_baseline(&read_bounded(&baseline, MAX_BASELINE_BYTES, "baseline")?)?;
+            let report = strict_bytes(&registry_bytes, &assets_bytes, &baseline)?;
             let bytes = deterministic_json(&report)?;
             fs::write(out, bytes)?;
         }
