@@ -980,6 +980,24 @@ try {
     $emptyWallMaskTables = Get-StrictMcbeas04ModelTables -Path $emptyWallMaskAssets
     Assert-Equal 0 ([int]$emptyWallMaskTables.templates[12].quad_count) 'strict model-table validation changed the canonical empty wall-mask span'
     Assert-Equal 64 ([int]$emptyWallMaskTables.templates[12].flags) 'strict model-table validation changed the canonical wall flag'
+    $strictTemplateOffset = [int][BitConverter]::ToUInt64($emptyWallMaskBytes, 120)
+    foreach ($invalidTemplateFlag in @(
+        [pscustomobject]@{ name = 'standalone gate axis x'; template = 12; flags = 128; quad_count = 0 },
+        [pscustomobject]@{ name = 'standalone gate axis z'; template = 12; flags = 256; quad_count = 0 },
+        [pscustomobject]@{ name = 'combined kelp and stair'; template = 12; flags = 3; quad_count = 0 },
+        [pscustomobject]@{ name = 'short transparent cube'; template = 0; flags = 512; quad_count = 1 }
+    )) {
+        $invalidTemplateFlagAssets = Join-Path $TempRoot ("resealed $($invalidTemplateFlag.name).mcbea")
+        $invalidTemplateFlagBytes = [IO.File]::ReadAllBytes($SlabStairAssets)
+        $invalidTemplateDescriptor = $strictTemplateOffset + 12 * [int]$invalidTemplateFlag.template
+        Assert-Equal ([int]$invalidTemplateFlag.quad_count) ([int][BitConverter]::ToUInt32($invalidTemplateFlagBytes, $invalidTemplateDescriptor + 4)) "$($invalidTemplateFlag.name) fixture started from the wrong quad count"
+        [BitConverter]::GetBytes([uint32]$invalidTemplateFlag.flags).CopyTo($invalidTemplateFlagBytes, $invalidTemplateDescriptor + 8)
+        Set-TestMcbeas04Seal -Bytes $invalidTemplateFlagBytes
+        [IO.File]::WriteAllBytes($invalidTemplateFlagAssets, $invalidTemplateFlagBytes)
+        Assert-ThrowsLike {
+            Get-StrictMcbeas04ModelTables -Path $invalidTemplateFlagAssets
+        } "MCBEAS04 model template $($invalidTemplateFlag.template) span or flags are noncanonical" "strict model-table validation accepted $($invalidTemplateFlag.name) flags"
+    }
     $kelpBackedSlabAssets = Join-Path $TempRoot 'resealed kelp backed slab.mcbea'
     $kelpBackedBytes = [IO.File]::ReadAllBytes($SlabStairAssets)
     $firstSlabId = [int](@(Get-TestRegistryEntries -RegistryPath $BlockRegistry | Where-Object family -eq 7)[0].sequential_id)
