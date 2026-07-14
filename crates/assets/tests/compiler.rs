@@ -26,6 +26,63 @@ use tempfile::TempDir;
 
 const TILE_SIZE: u32 = 16;
 
+const HUGE_MUSHROOM_NAMES: [&str; 3] = [
+    "minecraft:brown_mushroom_block",
+    "minecraft:mushroom_stem",
+    "minecraft:red_mushroom_block",
+];
+
+fn generated_huge_mushroom_records() -> Vec<RegistryRecord> {
+    let mut records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+        .expect("decode committed generated registry")
+        .into_iter()
+        .filter(|record| HUGE_MUSHROOM_NAMES.contains(&record.name.as_ref()))
+        .collect::<Vec<_>>();
+    records.sort_unstable_by_key(|record| record.sequential_id);
+    records
+}
+
+#[test]
+fn generated_registry_has_exact_canonical_huge_mushroom_inventory() {
+    let records = generated_huge_mushroom_records();
+    assert_eq!(records.len(), 48);
+
+    for name in HUGE_MUSHROOM_NAMES {
+        let selected = records
+            .iter()
+            .filter(|record| record.name.as_ref() == name)
+            .collect::<Vec<_>>();
+        assert_eq!(selected.len(), 16, "{name} record count");
+        let mut bits = [false; 16];
+        for record in selected {
+            assert_eq!(record.model_family, ModelFamily::Cube, "{name}");
+            assert!(
+                record.flags.contains(BlockFlags::CUBE_GEOMETRY),
+                "{name} {}",
+                record.canonical_state
+            );
+            let state = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(
+                &record.canonical_state,
+            )
+            .expect("canonical huge-mushroom state");
+            assert_eq!(state.len(), 1, "{}", record.canonical_state);
+            let selector = state["huge_mushroom_bits"]
+                .as_object()
+                .expect("tagged huge-mushroom selector");
+            assert_eq!(selector.len(), 2, "{}", record.canonical_state);
+            assert_eq!(selector["type"], "int", "{}", record.canonical_state);
+            let value = selector["value"]
+                .as_u64()
+                .and_then(|value| usize::try_from(value).ok())
+                .expect("nonnegative integer huge-mushroom selector");
+            assert!(value < bits.len(), "{}", record.canonical_state);
+            assert!(!bits[value], "duplicate {name} selector {value}");
+            bits[value] = true;
+        }
+        assert!(bits.into_iter().all(|present| present), "{name} coverage");
+    }
+}
+
 #[test]
 fn flowerbed_generated_registry_has_exact_canonical_state_matrix() {
     let bytes = if let Ok(revision) = std::env::var("FLOWERBED_REGISTRY_GIT_REV") {
@@ -6906,7 +6963,7 @@ fn compiler_selects_huge_mushroom_face_variants_and_keeps_other_arrays_at_zero()
                 sequential_id,
                 0x8000_1000 + sequential_id,
                 &format!("minecraft:{block_name}"),
-                &format!(r#"{{"huge_mushroom_bits":{bits}}}"#),
+                &format!(r#"{{"huge_mushroom_bits":{{"type":"int","value":{bits}}}}}"#),
                 BlockFlags::CUBE_GEOMETRY,
             ));
         }
@@ -6915,9 +6972,15 @@ fn compiler_selects_huge_mushroom_face_variants_and_keeps_other_arrays_at_zero()
         "{}",
         "null",
         "not JSON",
+        r#"{"huge_mushroom_bits":0}"#,
+        r#"{"huge_mushroom_bits":15}"#,
         r#"{"huge_mushroom_bits":-1}"#,
         r#"{"huge_mushroom_bits":16}"#,
         r#"{"huge_mushroom_bits":"15"}"#,
+        r#"{"huge_mushroom_bits":{"type":"byte","value":15}}"#,
+        r#"{"huge_mushroom_bits":{"type":"int","value":"15"}}"#,
+        r#"{"huge_mushroom_bits":{"extra":0,"type":"int","value":15}}"#,
+        r#"{"extra":{"type":"byte","value":0},"huge_mushroom_bits":{"type":"int","value":15}}"#,
     ];
     for state in fallback_states {
         let sequential_id = records.len() as u32;
@@ -7013,7 +7076,7 @@ fn compiler_fails_closed_for_noncanonical_mushroom_variant_counts() {
         0,
         0x8000_2000,
         "minecraft:brown_mushroom_block",
-        r#"{"huge_mushroom_bits":14}"#,
+        r#"{"huge_mushroom_bits":{"type":"int","value":14}}"#,
         BlockFlags::CUBE_GEOMETRY,
     )];
 
@@ -7023,6 +7086,83 @@ fn compiler_fails_closed_for_noncanonical_mushroom_variant_counts() {
     assert_eq!(compiled.visuals[0].faces, [0; 6]);
     assert_eq!(compiled.materials.len(), 1);
     assert_eq!(compiled.texture_pages[0].texture.layers, 1);
+}
+
+#[test]
+fn compiler_real_pinned_pack_only_admits_exact_canonical_huge_mushrooms_when_requested() {
+    let Some(pack) = std::env::var_os("PINNED_VANILLA_PACK") else {
+        return;
+    };
+    let all = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+        .expect("decode committed generated registry");
+    let huge_mushrooms = all
+        .iter()
+        .filter(|record| HUGE_MUSHROOM_NAMES.contains(&record.name.as_ref()))
+        .cloned()
+        .collect::<Vec<_>>();
+    let legacy_flags_zero = all
+        .iter()
+        .filter(|record| {
+            record.model_family == ModelFamily::Cube && record.flags == BlockFlags::empty()
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let transparency_family = all
+        .iter()
+        .filter(|record| {
+            record.model_family == ModelFamily::Cube
+                && (record.name.ends_with("_stained_glass")
+                    || record.name.contains("copper_grate")
+                    || record.name.as_ref() == "minecraft:slime")
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let invisible_bedrock = all
+        .iter()
+        .find(|record| record.name.as_ref() == "minecraft:invisible_bedrock")
+        .expect("canonical invisible bedrock")
+        .clone();
+    assert_eq!(huge_mushrooms.len(), 48);
+    assert_eq!(legacy_flags_zero.len(), 43);
+    assert_eq!(transparency_family.len(), 25);
+
+    let excluded_count = legacy_flags_zero.len() + transparency_family.len() + 1;
+    let mut records = huge_mushrooms
+        .into_iter()
+        .chain(legacy_flags_zero)
+        .chain(transparency_family)
+        .chain(std::iter::once(invisible_bedrock))
+        .collect::<Vec<_>>();
+    for (id, record) in records.iter_mut().enumerate() {
+        record.sequential_id = id as u32;
+        record.network_hash = 108_000 + id as u32;
+    }
+
+    let compiled = compile_pack(Path::new(&pack), &records).expect("compile pinned mushrooms");
+    for (id, record) in records.iter().enumerate() {
+        if id < 48 {
+            assert_eq!(compiled.visuals[id].kind, VisualKind::Cube, "{record:?}");
+            assert!(
+                compiled.visuals[id]
+                    .faces
+                    .iter()
+                    .all(|material| *material != DIAGNOSTIC_MATERIAL),
+                "{record:?}"
+            );
+        } else {
+            assert_eq!(
+                compiled.visuals[id].kind,
+                VisualKind::Diagnostic,
+                "excluded record became drawable: {record:?}"
+            );
+        }
+    }
+    assert_eq!(records.len() - 48, excluded_count);
+
+    let baseline = encode_blob(&compiled).expect("encode pinned mushrooms");
+    records.reverse();
+    let reversed = compile_pack(Path::new(&pack), &records).expect("compile reversed mushrooms");
+    assert_eq!(encode_blob(&reversed).unwrap(), baseline);
 }
 
 #[test]

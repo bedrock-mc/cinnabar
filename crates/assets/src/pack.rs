@@ -752,7 +752,14 @@ fn collect_terrain_paths(key: &str, value: TerrainValue) -> Result<TerrainPaths,
 
 fn mushroom_variant_index(record: &RegistryRecord) -> Option<usize> {
     let properties = serde_json::from_str::<Map<String, Value>>(&record.canonical_state).ok()?;
-    let bits = properties.get("huge_mushroom_bits")?.as_u64()?;
+    if properties.len() != 1 {
+        return None;
+    }
+    let selector = properties.get("huge_mushroom_bits")?.as_object()?;
+    if selector.len() != 2 || selector.get("type")?.as_str()? != "int" {
+        return None;
+    }
+    let bits = selector.get("value")?.as_u64()?;
     usize::try_from(bits).ok().filter(|&bits| bits <= 15)
 }
 

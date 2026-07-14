@@ -528,6 +528,18 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       builds, full assets/render/visualcoverage suites, strict Clippy/formatting,
       and independent final re-review green). Deterministic gallery/native GPU
       evidence remains in the shared residual-family live gate.
+    - [x] Canonical huge-mushroom cube states: all 48 states across brown
+      mushroom blocks, red mushroom blocks, and mushroom stems now select the
+      pinned pack's exact six-face material aliases from the canonical tagged
+      `huge_mushroom_bits` integer. Missing, extra, untagged, mistyped,
+      noncanonical, or out-of-range selectors fail closed. The focused
+      production-pack gate preserves diagnostics for all 43 legacy flags-zero
+      cube records, all 25 stained-glass/copper-grate/slime transparency-family
+      cubes, and `minecraft:invisible_bedrock`; record reordering remains
+      byte-deterministic. The production ratchet removes exactly 48 intended
+      diagnostics with zero additions and now holds 7,850 diagnostics including
+      air (full assets/visualcoverage suites, pinned compiler tests, strict
+      Clippy/formatting, and zero-delta refreshed ratchet green).
     - [ ] Slab/stair native and packed-GPU live acceptance: capture all five
       fixed Cinnabar poses through native `%TEMP%` screenshots and require two
       consecutive exact GPU-completed model-stream witnesses. Automated gallery
@@ -675,9 +687,9 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       reports (`b131247`; 11 tests, strict Clippy, real-pack run, and independent
       review green). The reviewed baseline was refreshed cumulatively for the
       already-landed door, trapdoor, wall, pressure-plate, fence-gate, pane,
-      fence, carpet, and button tranches. After lava, vine, and those
-      connected/static families, glow lichen, and sculk vein, the current
-      residual has 7,770
+      fence, carpet, button, huge-mushroom, glow-lichen, and sculk-vein
+      tranches. After lava, vine, and those connected/static/multiface families,
+      the current residual has 7,722
       diagnostics including the single air diagnostic, with zero diagnostics in
       every implemented family; each remaining family must shrink that exact set.
   - [ ] Complete the exhaustive residual-family report, continuing from the

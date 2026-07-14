@@ -72,6 +72,25 @@ fn committed_protocol_baseline_binds_the_complete_corpus_and_all_vines() {
             .binary_search(&record.sequential_id)
             .is_err()
     }));
+    let huge_mushrooms = records
+        .iter()
+        .filter(|record| {
+            matches!(
+                record.name.as_ref(),
+                "minecraft:brown_mushroom_block"
+                    | "minecraft:mushroom_stem"
+                    | "minecraft:red_mushroom_block"
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(huge_mushrooms.len(), 48);
+    assert!(huge_mushrooms.iter().all(|record| {
+        baseline
+            .diagnostic_sequential_ids
+            .binary_search(&record.sequential_id)
+            .is_err()
+    }));
+    assert_eq!(baseline.diagnostic_sequential_ids.len(), 7_850);
 }
 
 fn fixture_records() -> Vec<RegistryRecord> {
@@ -1940,8 +1959,8 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
     .expect("parse committed production baseline");
     let current = analyze_bytes(&registry_bytes, &assets_bytes).unwrap();
     assert_eq!(current.states.len(), 16_913);
-    assert_eq!(baseline.diagnostic_sequential_ids.len(), 7_770);
-    assert_eq!(current.diagnostic_states.len(), 7_770);
+    assert_eq!(baseline.diagnostic_sequential_ids.len(), 7_722);
+    assert_eq!(current.diagnostic_states.len(), 7_722);
 
     let expected_multiface_ids = records
         .iter()
@@ -1969,7 +1988,7 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
         .sort_unstable();
     assert_eq!(
         pre_multiface_baseline.diagnostic_sequential_ids.len(),
-        7_898
+        7_850
     );
     let report = ratchet_protocol_1001(current.clone(), &pre_multiface_baseline)
         .expect("run exact pre-multiface production ratchet");
@@ -2007,7 +2026,7 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
         .diagnostic_sequential_ids
         .extend(expected_gate_ids.iter().copied());
     pre_gate_baseline.diagnostic_sequential_ids.sort_unstable();
-    assert_eq!(pre_gate_baseline.diagnostic_sequential_ids.len(), 7_962);
+    assert_eq!(pre_gate_baseline.diagnostic_sequential_ids.len(), 7_914);
     let report = ratchet_protocol_1001(current.clone(), &pre_gate_baseline)
         .expect("run exact pre-Gate production ratchet");
     assert!(report.added_diagnostics.is_empty());
@@ -2044,7 +2063,7 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
     pre_carpet_baseline
         .diagnostic_sequential_ids
         .sort_unstable();
-    assert_eq!(pre_carpet_baseline.diagnostic_sequential_ids.len(), 7_949);
+    assert_eq!(pre_carpet_baseline.diagnostic_sequential_ids.len(), 7_901);
     let report = ratchet_protocol_1001(current.clone(), &pre_carpet_baseline)
         .expect("run exact pre-Carpet production ratchet");
     assert!(report.added_diagnostics.is_empty());
@@ -2081,7 +2100,7 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
     pre_button_baseline
         .diagnostic_sequential_ids
         .sort_unstable();
-    assert_eq!(pre_button_baseline.diagnostic_sequential_ids.len(), 7_938);
+    assert_eq!(pre_button_baseline.diagnostic_sequential_ids.len(), 7_890);
     let report = ratchet_protocol_1001(current.clone(), &pre_button_baseline)
         .expect("run exact pre-Button production ratchet");
     assert!(report.added_diagnostics.is_empty());
@@ -2098,6 +2117,56 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
         .map(|state| state.sequential_id)
         .collect::<Vec<_>>();
     assert_eq!(removed_ids, expected_button_ids);
+
+    let expected_huge_mushroom_ids = records
+        .iter()
+        .filter(|record| {
+            matches!(
+                record.name.as_ref(),
+                "minecraft:brown_mushroom_block"
+                    | "minecraft:mushroom_stem"
+                    | "minecraft:red_mushroom_block"
+            )
+        })
+        .map(|record| record.sequential_id)
+        .collect::<Vec<_>>();
+    assert_eq!(expected_huge_mushroom_ids.len(), 48);
+    assert!(expected_huge_mushroom_ids.iter().all(|id| {
+        baseline
+            .diagnostic_sequential_ids
+            .binary_search(id)
+            .is_err()
+    }));
+    let mut pre_huge_mushroom_baseline = baseline.clone();
+    pre_huge_mushroom_baseline
+        .diagnostic_sequential_ids
+        .extend(expected_huge_mushroom_ids.iter().copied());
+    pre_huge_mushroom_baseline
+        .diagnostic_sequential_ids
+        .sort_unstable();
+    assert_eq!(
+        pre_huge_mushroom_baseline.diagnostic_sequential_ids.len(),
+        7_770
+    );
+    let report = ratchet_protocol_1001(current.clone(), &pre_huge_mushroom_baseline)
+        .expect("run exact pre-huge-mushroom production ratchet");
+    assert!(report.added_diagnostics.is_empty());
+    assert_eq!(report.removed_diagnostics.len(), 48);
+    assert!(report.removed_diagnostics.iter().all(|state| {
+        state.model_family == "cube"
+            && matches!(
+                state.name.as_str(),
+                "minecraft:brown_mushroom_block"
+                    | "minecraft:mushroom_stem"
+                    | "minecraft:red_mushroom_block"
+            )
+    }));
+    let removed_ids = report
+        .removed_diagnostics
+        .iter()
+        .map(|state| state.sequential_id)
+        .collect::<Vec<_>>();
+    assert_eq!(removed_ids, expected_huge_mushroom_ids);
 
     let refreshed = ratchet_protocol_1001(current, &baseline)
         .expect("run refreshed production coverage ratchet");

@@ -184,16 +184,18 @@ cargo run -p visualcoverage -- ratchet `
 
 The refreshed 2026-07-13 real-pack run compiled all 16,913 visuals and passed
 the ratchet with asset SHA-256
-`9c83995e8bff9744fd833b163697f892a3e3ca972e56dd6862d0319b8b5eb866`.
-It reports 7,898 diagnostics including air and zero diagnostics for lava, vine,
+`9ee5c509e7a88ec79bd525ea15a17fbeb9b976e0d666f98b66109e9f291ab872`.
+It reports 7,850 diagnostics including air and zero diagnostics for lava, vine,
 doors, trapdoors, walls, pressure plates, fence gates, panes, fences, carpets,
-or buttons. The
-reviewed baseline refresh
+buttons, or the 48 canonical huge-mushroom states. The huge-mushroom tranche
+removed exactly those 48 identities with zero additions while leaving the 43
+legacy flags-zero cube records, 25 transparency-family cubes, and
+`minecraft:invisible_bedrock` diagnostic. The reviewed baseline refresh
 cumulatively records the already-landed door/trapdoor/wall removals plus the
-pressure-plate, fence-gate, pane/fence, carpet, and button tranches, rather than
-attributing all 7,043 removed IDs to one feature. This is a regression baseline, not a parity
-claim: each remaining
-family must reduce that exact set, and the final strict gate still requires zero
+pressure-plate, fence-gate, pane/fence, carpet, button, and huge-mushroom
+tranches, rather than attributing all 7,091 removed IDs to one feature. This is
+a regression baseline, not a parity claim: each remaining family must reduce
+that exact set, and the final strict gate still requires zero
 non-air diagnostics, 67 exact-state GPU gallery pages, and the separate
 block-entity manifest. The local JSON report and compiled Mojang-derived blob
 remain ignored; only the generated non-Mojang registry metadata and
