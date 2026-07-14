@@ -1430,6 +1430,15 @@ impl TransparentSortState {
         if !address_identity_is_safe {
             self.committed = None;
         }
+        // Exact camera bits may change every frame. Finish a safe inactive-slot
+        // upload before accepting another pose so bounded uploads cannot starve.
+        if let Some(staged) = self
+            .staged
+            .as_ref()
+            .filter(|snapshot| snapshot.key.address_identity_eq(key))
+        {
+            return staged.generation;
+        }
         if self
             .staged
             .as_ref()
@@ -1437,8 +1446,6 @@ impl TransparentSortState {
         {
             self.staged = None;
         }
-        // A newer camera pose always replaces an incomplete camera-only sort.
-        self.staged = None;
         self.next_generation = self.next_generation.wrapping_add(1).max(1);
         let generation = ViewSortGeneration(self.next_generation);
         self.requested = Some((generation, key.clone()));

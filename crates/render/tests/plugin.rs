@@ -264,6 +264,44 @@ fn unsafe_sort_identity_change_discards_partially_staged_refs() {
 }
 
 #[test]
+fn camera_motion_cannot_starve_a_partially_uploaded_water_sort() {
+    let visible = vec![allocation(SubChunkKey::new(0, 0, 0, 0), 1, 8)];
+    let initial = sort_key([0, 0, 0], [0, 0, 0, 1], visible.clone(), 10, 20);
+    let mut state = TransparentSortState::with_upload_cap(1);
+    let staged_generation = state.request(&initial);
+    let refs = vec![
+        PackedTransparentDrawRef::new(8, 1),
+        PackedTransparentDrawRef::new(9, 1),
+    ];
+    assert_eq!(
+        state.complete(
+            TransparentSortResult::new(staged_generation, initial, refs.clone()).unwrap()
+        ),
+        Ok(false)
+    );
+
+    let moved_once = sort_key([1, 0, 0], [0, 0, 0, 1], visible.clone(), 10, 20);
+    assert_eq!(
+        state.request(&moved_once),
+        staged_generation,
+        "camera-only motion must finish the bounded inactive-slot upload"
+    );
+    assert_eq!(state.next_upload_batch().unwrap().refs(), &refs[..1]);
+    assert!(!state.acknowledge_upload());
+
+    let moved_again = sort_key([2, 0, 0], [0, 0, 0, 1], visible, 10, 20);
+    assert_eq!(state.request(&moved_again), staged_generation);
+    assert_eq!(state.next_upload_batch().unwrap().refs(), &refs[1..]);
+    assert!(state.acknowledge_upload());
+    assert_eq!(state.committed().unwrap().refs(), refs);
+
+    assert!(
+        state.request(&moved_again) > staged_generation,
+        "the latest camera pose is scheduled immediately after the atomic commit"
+    );
+}
+
+#[test]
 fn visible_sort_manifest_is_canonical_and_reuses_the_outstanding_generation() {
     let a = allocation(SubChunkKey::new(0, -1, 2, 3), 4, 40);
     let b = allocation(SubChunkKey::new(0, 5, 6, 7), 8, 80);
