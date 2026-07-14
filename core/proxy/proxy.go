@@ -52,6 +52,7 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 	listener, err := (minecraft.ListenConfig{
 		AuthenticationDisabled: true,
 		AllowUnknownPackets:    true,
+		EnableBatchReading:     true,
 		ErrorLog:               slog.Default().With("component", "local-listener"),
 	}).ListenNetwork(streamnet.New(cfg.SocketDir), "")
 	if err != nil {
@@ -233,10 +234,11 @@ type dialerDownstream interface {
 
 func newUpstreamDialer(downstream dialerDownstream, tokenSource oauth2.TokenSource) minecraft.Dialer {
 	dialer := minecraft.Dialer{
-		ClientData:  downstream.ClientData(),
-		ErrorLog:    slog.Default().With("component", "upstream-dialer"),
-		Protocol:    downstream.Proto(),
-		TokenSource: tokenSource,
+		ClientData:         downstream.ClientData(),
+		EnableBatchReading: true,
+		ErrorLog:           slog.Default().With("component", "upstream-dialer"),
+		Protocol:           downstream.Proto(),
+		TokenSource:        tokenSource,
 	}
 	if tokenSource == nil {
 		identity := downstream.IdentityData()
@@ -283,7 +285,7 @@ func finishDialFailure(downstream packetSession, dialErr error) error {
 }
 
 type packetSession interface {
-	ReadPacket() (packet.Packet, error)
+	ReadBatch() ([]packet.Packet, error)
 	WritePacket(packet.Packet) error
 	Flush() error
 	Abort() error
@@ -429,68 +431,73 @@ func pumpPackets(source, destination packetSession, fromDownstream bool) (err er
 		}
 	}()
 	dropInitialSpawnLoadingScreens := fromDownstream
-	capLocalBatches := !fromDownstream
-	localBatchStarted := false
-	localBatchPackets := 0
-	writePacket := func(value packet.Packet) error {
-		if capLocalBatches && !localBatchStarted {
-			if err := destination.Flush(); err != nil {
-				return err
-			}
-			localBatchStarted = true
-		}
-		if err := destination.WritePacket(value); err != nil {
+	outputBatchPackets := 0
+	if !fromDownstream {
+		if err := destination.Flush(); err != nil {
 			return err
 		}
-		if !capLocalBatches {
-			return nil
-		}
-		localBatchPackets++
-		if localBatchPackets != localRelayBatchPacketLimit {
+	}
+	flushOutputBatch := func() error {
+		if outputBatchPackets == 0 {
 			return nil
 		}
 		if err := destination.Flush(); err != nil {
 			return err
 		}
-		localBatchPackets = 0
+		outputBatchPackets = 0
 		return nil
+	}
+	writePacket := func(value packet.Packet) error {
+		if err := destination.WritePacket(value); err != nil {
+			return err
+		}
+		outputBatchPackets++
+		if outputBatchPackets != localRelayBatchPacketLimit {
+			return nil
+		}
+		return flushOutputBatch()
 	}
 	var pendingInitialStart packet.Packet
 	for {
-		value, err := source.ReadPacket()
+		batch, err := source.ReadBatch()
 		if err != nil {
 			if pendingInitialStart != nil {
-				return errors.Join(err, writePacket(pendingInitialStart))
+				return errors.Join(err, writePacket(pendingInitialStart), flushOutputBatch())
 			}
 			return err
 		}
-		// Each gophertunnel side performs its own initial spawn handshake. The
-		// downstream listener defers ServerBoundLoadingScreen packets because it
-		// does not handle them internally; forwarding those two acknowledgements
-		// after the spawn barrier repeats the upstream client's acknowledgements
-		// and BDS disconnects with UnexpectedPacket. The Phase-0 clients emit an
-		// adjacent no-ID Start/End pair. Buffer Start until End proves that exact
-		// pair; any mismatch disables the filter and preserves FIFO.
-		if dropInitialSpawnLoadingScreens {
-			if pendingInitialStart == nil {
-				if isLoadingScreen(value, packet.LoadingScreenTypeStart) {
-					pendingInitialStart = value
+		for _, value := range batch {
+			// Each gophertunnel side performs its own initial spawn handshake. The
+			// downstream listener defers ServerBoundLoadingScreen packets because it
+			// does not handle them internally; forwarding those two acknowledgements
+			// after the spawn barrier repeats the upstream client's acknowledgements
+			// and BDS disconnects with UnexpectedPacket. The Phase-0 clients emit an
+			// adjacent no-ID Start/End pair. Buffer Start until End proves that exact
+			// pair; any mismatch disables the filter and preserves FIFO.
+			if dropInitialSpawnLoadingScreens {
+				if pendingInitialStart == nil {
+					if isLoadingScreen(value, packet.LoadingScreenTypeStart) {
+						pendingInitialStart = value
+						continue
+					}
+					dropInitialSpawnLoadingScreens = false
+				} else if isLoadingScreen(value, packet.LoadingScreenTypeEnd) {
+					pendingInitialStart = nil
+					dropInitialSpawnLoadingScreens = false
 					continue
+				} else {
+					if err := writePacket(pendingInitialStart); err != nil {
+						return err
+					}
+					pendingInitialStart = nil
+					dropInitialSpawnLoadingScreens = false
 				}
-				dropInitialSpawnLoadingScreens = false
-			} else if isLoadingScreen(value, packet.LoadingScreenTypeEnd) {
-				pendingInitialStart = nil
-				dropInitialSpawnLoadingScreens = false
-				continue
-			} else {
-				if err := writePacket(pendingInitialStart); err != nil {
-					return err
-				}
-				pendingInitialStart = nil
-				dropInitialSpawnLoadingScreens = false
+			}
+			if err := writePacket(value); err != nil {
+				return err
 			}
 		}
-		if err := writePacket(value); err != nil {
+		if err := flushOutputBatch(); err != nil {
 			return err
 		}
 	}

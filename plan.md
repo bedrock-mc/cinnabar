@@ -380,8 +380,13 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     - [ ] Slab/stair native and packed-GPU live acceptance: capture all five
       fixed Cinnabar poses through native `%TEMP%` screenshots and require two
       consecutive exact GPU-completed model-stream witnesses. Automated gallery
-      construction is complete, but allocation/upload evidence cannot close
-      this live gate.
+      construction is complete. The Top pose now reaches two consecutive exact
+      7-key GPU witnesses with 276 model references and zero missing, stale,
+      wrong-stream, zero-reference, or draw-mismatch counters after moving the
+      camera teleport ahead of the synthetic fixture-update flood. The five
+      inspectable native captures and a clean performance-gate run remain open;
+      the first repaired live run was rejected at 138.3439 ms mutation-to-visible
+      against the 100 ms gate while unrelated machine CPU load was 36–58%.
     - [ ] Wall-attached vine family: replace the diagnostic pink-cube fallback
       for every `minecraft:vine` direction-bit state with compact cutout face
       templates selected from its exact attachment mask, including conservative
@@ -522,6 +527,12 @@ equivalent that preserves buffered ordering). Never mix `ReadBatch` with
 ordering, slow-reader, mid-batch decode-error, deferred-login-boundary, and pre-disconnect flush
 regressions into `core/internal/relay`; retain bounded lossless backpressure and verify that the
 change improves batching without regressing join latency, memory, or shutdown behavior.
+The PR #80 API is now carried on the published `cinnabar-batch-reading` fork branch at
+`bbe6cfdeed39713c2b20103a1294e609d5841615`; Cinnabar enables batch reading on both legs,
+preserves source batch boundaries, and retains the exact 1,600-packet split ceiling. Core
+unit tests and the first real BDS join/GPU-witness run are green for that slice. Porting the
+remaining PR-specific slow-reader/decode-error/disconnect regressions and completing the
+join-latency/resource comparison remain open, so this final polish item is not yet complete.
 
 ---
 

@@ -739,7 +739,7 @@ try {
     Assert-True ($source.Contains('[IO.FileOptions]::WriteThrough')) 'child log files are not write-through'
     Assert-True (-not $source.Contains('ReadToEndAsync')) 'child logs are retained in memory'
     Assert-True ($source.Contains('-WorkingDirectory $ProjectRoot')) 'builds are not rooted at the project directory'
-    Assert-True ($source.Contains("'9948b1729395d2e819fce28e079d4a7bfc67716c'")) 'gophertunnel metadata commit is not the repository pin'
+    Assert-True ($source.Contains("'bbe6cfdeed39713c2b20103a1294e609d5841615'")) 'gophertunnel metadata commit is not the repository pin'
     Assert-True ($source.Contains("'6cd8087fc3f0b500e41708a8afc94a0fa3291525'")) 'Valentine metadata commit is not the compiled fork revision'
     Assert-True ($source.Contains('Assert-ProtocolDependencyProvenance')) 'acceptance metadata does not detect Cargo/provenance drift'
     Assert-True (-not $source.Contains("'^RUST_MCBE_TELEPORT_SETTLED ms=")) 'live teleport path still assumes ms precedes target'
@@ -1166,6 +1166,18 @@ try {
     $worldReadyWaitIndex = $source.IndexOf("-Marker 'RUST_MCBE_WORLD_READY '", $normalStartupBranchIndex, [StringComparison]::Ordinal)
     Assert-True ($appLaunchIndex -ge 0 -and $galleryAnchorBranchIndex -gt $appLaunchIndex -and $galleryAnchorWaitIndex -gt $galleryAnchorBranchIndex) 'slab/stair startup does not wait for its gallery-only early anchor'
     Assert-True ($normalStartupBranchIndex -gt $galleryAnchorWaitIndex -and $worldReadyWaitIndex -gt $normalStartupBranchIndex) 'normal/perf startup no longer retains its strict WorldReady wait'
+
+    $publishVisualFixtureIndex = $source.IndexOf('function Publish-VisualFixture {', [StringComparison]::Ordinal)
+    $modelGalleryClassificationIndex = $source.IndexOf('$isModelWitnessGallery =', $publishVisualFixtureIndex, [StringComparison]::Ordinal)
+    $modelGalleryPreTeleportBranchIndex = $source.IndexOf('if ($isV2 -and $isModelWitnessGallery) {', $modelGalleryClassificationIndex, [StringComparison]::Ordinal)
+    $modelGalleryPreTeleportIndex = $source.IndexOf('Write-BdsConsoleCommand -Handle $Handle -Command $Plan.TeleportCommand', $modelGalleryPreTeleportBranchIndex, [StringComparison]::Ordinal)
+    $modelGalleryFixtureCompletionIndex = $source.IndexOf('$null = Complete-BdsFixtureCommandBatch', $modelGalleryPreTeleportBranchIndex, [StringComparison]::Ordinal)
+    Assert-True `
+        ($modelGalleryClassificationIndex -gt $publishVisualFixtureIndex -and
+            $modelGalleryPreTeleportBranchIndex -gt $modelGalleryClassificationIndex -and
+            $modelGalleryPreTeleportIndex -gt $modelGalleryPreTeleportBranchIndex -and
+            $modelGalleryFixtureCompletionIndex -gt $modelGalleryPreTeleportIndex) `
+        'model gallery camera teleport is not fenced ahead of the fixture update flood'
 
     $modelMarker = ConvertFrom-ModelWitnessCompleteMarker -Line "RUST_MCBE_MODEL_WITNESS_COMPLETE revision=1 request_sha256=$($modelWitnessRequest.request_sha256) sequence=40 view_generation=3 key_count=$(@($modelWitnessRequest.sub_chunks).Count) model_ref_count=43 manifest_count=$(@($modelWitnessRequest.sub_chunks).Count) manifest_sha256=$('a' * 64) missing=0 stale=0 wrong_stream=0 zero_ref=0 draw_mismatch=0 consecutive=1"
     Assert-Equal 1 ([int]$modelMarker.consecutive) 'model marker parser lost consecutive count'

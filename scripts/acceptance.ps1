@@ -24,7 +24,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$PinnedGophertunnelCommit = '9948b1729395d2e819fce28e079d4a7bfc67716c'
+$PinnedGophertunnelCommit = 'bbe6cfdeed39713c2b20103a1294e609d5841615'
 $PinnedValentineCommit = '6cd8087fc3f0b500e41708a8afc94a0fa3291525'
 $PinnedAssetSourceTag = 'v1.26.30.32-preview'
 $PinnedAssetSourceSha256 = '12d5cddc03acd507e9e0bd412f2e94d34d0a1a855758af7a9eef61b03630ad7c'
@@ -3814,6 +3814,8 @@ function Publish-VisualFixture {
     else {
         @($fixtureCommandsProperty.Value)
     }
+    $fixtureKindProperty = $Plan.Manifest.PSObject.Properties['fixture_kind']
+    $isModelWitnessGallery = $null -ne $fixtureKindProperty -and [string]$fixtureKindProperty.Value -ceq 'SlabStairGallery'
     $isV2 = [string]$Plan.Manifest.schema -ceq 'rust-mcbe-visual-fixture-v2'
     if ($isV2) {
         $null = Start-BdsFixtureLoadArea `
@@ -3822,6 +3824,33 @@ function Publish-VisualFixture {
             -RunDirectory $RunDirectory `
             -SettleMilliseconds $PreloadSettleMilliseconds `
             -WaitForLoadArea $WaitForLoadArea
+        if ($isV2 -and $isModelWitnessGallery) {
+            if ($null -eq $AppHandle) {
+                throw 'gallery witness acceptance requires AppHandle for causal GPU evidence'
+            }
+            $null = Advance-ProcessOutputCursorToCurrentEnd -Handle $AppHandle
+            Write-BdsConsoleCommand -Handle $Handle -Command $Plan.TeleportCommand -LogPath $consoleLogPath
+            Write-AcceptanceEvent -RunDirectory $RunDirectory -Event 'teleport_issued' -Fields ([ordered]@{
+                command = [string]$Plan.TeleportCommand
+            })
+            Write-BdsConsoleCommand -Handle $Handle -Command $Plan.FenceCommand -LogPath $consoleLogPath
+            if ($null -eq $WaitForFence) {
+                $modelCameraFenceEvidence = Wait-ProcessOutputMarker `
+                    -Handle $Handle `
+                    -Marker $Plan.FenceMarker `
+                    -TimeoutSeconds 30 `
+                    -PassThruEvidence
+            }
+            else {
+                $modelCameraFenceEvidence = & $WaitForFence $Handle $Plan.FenceMarker 30
+            }
+            $modelCameraResultLine = Assert-BdsCameraResortResult -Evidence $modelCameraFenceEvidence
+            Write-AcceptanceEvent -RunDirectory $RunDirectory -Event 'model_witness_camera_fence_observed' -Fields ([ordered]@{
+                command = [string]$Plan.FenceCommand
+                stdout_marker = [string]$Plan.FenceMarker
+                result_line = [string]$modelCameraResultLine
+            })
+        }
         $null = Complete-BdsFixtureCommandBatch `
             -Handle $Handle `
             -Plan $Plan `
@@ -3874,40 +3903,22 @@ function Publish-VisualFixture {
         })
     }
     $cameraResortProperty = $Plan.PSObject.Properties['CameraResortCommand']
-    $fixtureKindProperty = $Plan.Manifest.PSObject.Properties['fixture_kind']
-    $isModelWitnessGallery = $null -ne $fixtureKindProperty -and [string]$fixtureKindProperty.Value -ceq 'SlabStairGallery'
-    if (($null -ne $cameraResortProperty -and -not [string]::IsNullOrWhiteSpace([string]$cameraResortProperty.Value)) -or $isModelWitnessGallery) {
+    if ($null -ne $cameraResortProperty -and -not [string]::IsNullOrWhiteSpace([string]$cameraResortProperty.Value)) {
         if ($null -eq $AppHandle) {
             throw 'gallery witness acceptance requires AppHandle for causal GPU evidence'
         }
         $null = Advance-ProcessOutputCursorToCurrentEnd -Handle $AppHandle
     }
-    Write-BdsConsoleCommand -Handle $Handle -Command $Plan.TeleportCommand -LogPath $consoleLogPath
-    if ($isV2) {
-        Write-AcceptanceEvent -RunDirectory $RunDirectory -Event 'teleport_issued' -Fields ([ordered]@{
-            command = [string]$Plan.TeleportCommand
-        })
+    if (-not $isModelWitnessGallery) {
+        Write-BdsConsoleCommand -Handle $Handle -Command $Plan.TeleportCommand -LogPath $consoleLogPath
+        if ($isV2) {
+            Write-AcceptanceEvent -RunDirectory $RunDirectory -Event 'teleport_issued' -Fields ([ordered]@{
+                command = [string]$Plan.TeleportCommand
+            })
+        }
     }
     $remainingSettleMilliseconds = $SettleMilliseconds
     if ($isModelWitnessGallery) {
-        Write-BdsConsoleCommand -Handle $Handle -Command $Plan.FenceCommand -LogPath $consoleLogPath
-        if ($null -eq $WaitForFence) {
-            $modelCameraFenceEvidence = Wait-ProcessOutputMarker `
-                -Handle $Handle `
-                -Marker $Plan.FenceMarker `
-                -TimeoutSeconds 30 `
-                -PassThruEvidence
-        }
-        else {
-            $modelCameraFenceEvidence = & $WaitForFence $Handle $Plan.FenceMarker 30
-        }
-        $modelCameraResultLine = Assert-BdsCameraResortResult -Evidence $modelCameraFenceEvidence
-        Write-AcceptanceEvent -RunDirectory $RunDirectory -Event 'model_witness_camera_fence_observed' -Fields ([ordered]@{
-            command = [string]$Plan.FenceCommand
-            stdout_marker = [string]$Plan.FenceMarker
-            result_line = [string]$modelCameraResultLine
-        })
-
         $modelRequest = New-SlabStairGalleryModelWitnessRequest -Plan $Plan -Revision 1
         $modelRequestPath = Join-Path $RunDirectory 'model-witness-request.json'
         $null = Write-AtomicJsonArtifact -Path $modelRequestPath -Value $modelRequest

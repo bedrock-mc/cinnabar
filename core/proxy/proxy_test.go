@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"runtime/pprof"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -43,6 +44,9 @@ func TestNewUpstreamDialerOfflinePreservesIdentity(t *testing.T) {
 	}
 
 	dialer := newUpstreamDialer(downstream, nil)
+	if !dialer.EnableBatchReading {
+		t.Fatal("batch reading is disabled in offline mode")
+	}
 	if dialer.TokenSource != nil {
 		t.Fatal("TokenSource is non-nil in offline mode")
 	}
@@ -69,6 +73,9 @@ func TestNewUpstreamDialerAuthenticatedUsesTokenAndOmitsOfflineIdentity(t *testi
 	source := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "sentinel"})
 
 	dialer := newUpstreamDialer(downstream, source)
+	if !dialer.EnableBatchReading {
+		t.Fatal("batch reading is disabled in authenticated mode")
+	}
 	if dialer.TokenSource != source {
 		t.Fatal("TokenSource was not preserved")
 	}
@@ -266,6 +273,38 @@ func TestRelayNeverFiltersUpstreamLoadingScreens(t *testing.T) {
 	}
 }
 
+func TestRelayPreservesUpstreamWireBatchBoundaries(t *testing.T) {
+	up := newFakeUpstream(nil)
+	down := newFakeDownstream(nil)
+	up.useBatchReads = true
+	first := []packet.Packet{
+		&packet.NetworkStackLatency{Timestamp: 1},
+		&packet.NetworkStackLatency{Timestamp: 2},
+	}
+	second := []packet.Packet{&packet.NetworkStackLatency{Timestamp: 3}}
+	up.batchReads <- batchResult{packets: first}
+	up.batchReads <- batchResult{packets: second}
+	up.batchReads <- batchResult{err: io.EOF}
+
+	if err := pumpPackets(up, down, false); !errors.Is(err, io.EOF) {
+		t.Fatalf("pumpPackets() error = %v, want EOF", err)
+	}
+	if err := down.Flush(); err != nil {
+		t.Fatalf("flush remaining packets: %v", err)
+	}
+	batches := down.flushedBatches()
+	if got, want := batchSizes(batches), []int{2, 1}; !slices.Equal(got, want) {
+		t.Fatalf("batch sizes = %v, want %v", got, want)
+	}
+	want := append(append([]packet.Packet(nil), first...), second...)
+	got := append(append([]packet.Packet(nil), batches[0]...), batches[1]...)
+	for index := range want {
+		if got[index] != want[index] {
+			t.Fatalf("flattened packet %d was reordered", index)
+		}
+	}
+}
+
 func TestRelayCapsUpstreamToDownstreamBatches(t *testing.T) {
 	const packetLimit = 1600
 	up := newFakeUpstream(nil)
@@ -276,13 +315,12 @@ func TestRelayCapsUpstreamToDownstreamBatches(t *testing.T) {
 	}
 
 	relayed := make([]packet.Packet, packetLimit*2+1)
-	go func() {
-		for index := range relayed {
-			relayed[index] = &packet.NetworkStackLatency{Timestamp: int64(index)}
-			up.reads <- packetResult{packet: relayed[index]}
-		}
-		up.reads <- packetResult{err: io.EOF}
-	}()
+	for index := range relayed {
+		relayed[index] = &packet.NetworkStackLatency{Timestamp: int64(index)}
+	}
+	up.useBatchReads = true
+	up.batchReads <- batchResult{packets: relayed}
+	up.batchReads <- batchResult{err: io.EOF}
 
 	if err := pumpPackets(up, down, false); !errors.Is(err, io.EOF) {
 		t.Fatalf("pumpPackets() error = %v, want EOF", err)
@@ -326,12 +364,12 @@ func TestRelayPropagatesUpstreamBatchBoundaryFlushError(t *testing.T) {
 	up := newFakeUpstream(nil)
 	down := newFakeDownstream(nil)
 	down.flushErr = wantErr
-	go func() {
-		for index := 0; index < packetLimit; index++ {
-			up.reads <- packetResult{packet: &packet.NetworkStackLatency{Timestamp: int64(index)}}
-		}
-		up.reads <- packetResult{err: io.EOF}
-	}()
+	batch := make([]packet.Packet, packetLimit)
+	for index := range batch {
+		batch[index] = &packet.NetworkStackLatency{Timestamp: int64(index)}
+	}
+	up.useBatchReads = true
+	up.batchReads <- batchResult{packets: batch}
 
 	err := pumpPackets(up, down, false)
 	if !errors.Is(err, wantErr) {
@@ -668,8 +706,15 @@ type packetResult struct {
 	err    error
 }
 
+type batchResult struct {
+	packets []packet.Packet
+	err     error
+}
+
 type fakeSession struct {
 	reads                   chan packetResult
+	batchReads              chan batchResult
+	useBatchReads           bool
 	closed                  chan struct{}
 	abortOnce               sync.Once
 	closeOnce               sync.Once
@@ -688,8 +733,9 @@ type fakeSession struct {
 
 func newFakeSession() fakeSession {
 	return fakeSession{
-		reads:  make(chan packetResult, 16),
-		closed: make(chan struct{}),
+		reads:      make(chan packetResult, 16),
+		batchReads: make(chan batchResult, 16),
+		closed:     make(chan struct{}),
 	}
 }
 
@@ -699,6 +745,22 @@ func (s *fakeSession) ReadPacket() (packet.Packet, error) {
 		return nil, net.ErrClosed
 	case result := <-s.reads:
 		return result.packet, result.err
+	}
+}
+
+func (s *fakeSession) ReadBatch() ([]packet.Packet, error) {
+	if !s.useBatchReads {
+		value, err := s.ReadPacket()
+		if err != nil {
+			return nil, err
+		}
+		return []packet.Packet{value}, nil
+	}
+	select {
+	case <-s.closed:
+		return nil, net.ErrClosed
+	case result := <-s.batchReads:
+		return result.packets, result.err
 	}
 }
 
