@@ -180,6 +180,78 @@ fn generated_registry_has_exact_chiseled_bookshelf_inventory() {
     assert!(seen.into_iter().all(|present| present));
 }
 
+fn bee_housing_records() -> Vec<RegistryRecord> {
+    let mut records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+        .expect("decode committed generated registry")
+        .into_iter()
+        .filter(|record| {
+            matches!(
+                record.name.as_ref(),
+                "minecraft:bee_nest" | "minecraft:beehive"
+            )
+        })
+        .collect::<Vec<_>>();
+    records.sort_unstable_by_key(|record| record.sequential_id);
+    records
+}
+
+#[test]
+fn generated_registry_has_exact_bee_housing_inventory() {
+    let records = bee_housing_records();
+    assert_eq!(records.len(), 48);
+    let selector_mask =
+        1 << (ModelStateField::Orientation as u8 - 1) | 1 << (ModelStateField::Growth as u8 - 1);
+    let mut seen = HashSet::new();
+    for record in records {
+        let base = match record.name.as_ref() {
+            "minecraft:bee_nest" => 10_395,
+            "minecraft:beehive" => 12_495,
+            _ => unreachable!(),
+        };
+        assert_eq!(record.model_family, ModelFamily::Cube);
+        assert_eq!(record.contributor_role, ContributorRole::Primary);
+        assert_eq!(
+            record.flags,
+            BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE
+        );
+        assert_eq!(record.face_coverage, 0x3f);
+        assert_eq!(record.collision_seed.shape_id, 1);
+        assert_eq!(
+            record.collision_seed.confidence,
+            CollisionConfidence::CollisionOnly
+        );
+        assert_eq!(
+            record.collision_seed.boxes.as_ref(),
+            [CollisionBox {
+                max_x: 100_000_000,
+                max_y: 100_000_000,
+                max_z: 100_000_000,
+                ..CollisionBox::default()
+            }]
+        );
+        assert_eq!(record.model_state.mask(), selector_mask);
+        let direction = record
+            .model_state
+            .get(ModelStateField::Orientation)
+            .expect("bee direction");
+        let honey = record
+            .model_state
+            .get(ModelStateField::Growth)
+            .expect("bee honey level");
+        assert!(direction < 4);
+        assert!(honey < 6);
+        assert_eq!(record.sequential_id, base + honey * 4 + direction);
+        assert_eq!(
+            record.canonical_state.as_ref(),
+            format!(
+                r#"{{"direction":{{"type":"int","value":{direction}}},"honey_level":{{"type":"int","value":{honey}}}}}"#
+            )
+        );
+        assert!(seen.insert((record.name, direction, honey)));
+    }
+    assert_eq!(seen.len(), 48);
+}
+
 #[test]
 fn generated_registry_has_exact_resin_clump_inventory() {
     let records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
@@ -10240,6 +10312,281 @@ fn compiler_chiseled_bookshelf_rejects_extra_side_fallback() {
     assert!(records.iter().all(|record| {
         compiled.visuals[record.sequential_id as usize].kind == VisualKind::Diagnostic
     }));
+}
+
+fn write_bee_housing_pack(root: &Path) {
+    write_pack(
+        root,
+        r#"{
+            "bee_nest":{"textures":{"down":"bee_nest_bottom","east":"bee_nest_side","north":"bee_nest_side","south":"bee_nest_front","up":"bee_nest_top","west":"bee_nest_side"}},
+            "beehive":{"textures":{"down":"beehive_top","east":"beehive_side","north":"beehive_side","south":"beehive_front","up":"beehive_top","west":"beehive_side"}}
+        }"#,
+        r#"{"texture_data":{
+            "bee_nest_bottom":{"textures":["textures/blocks/bee_nest_bottom"]},
+            "bee_nest_front":{"textures":["textures/blocks/bee_nest_front","textures/blocks/bee_nest_front_honey"]},
+            "bee_nest_side":{"textures":["textures/blocks/bee_nest_side"]},
+            "bee_nest_top":{"textures":["textures/blocks/bee_nest_top"]},
+            "beehive_front":{"textures":["textures/blocks/beehive_front","textures/blocks/beehive_front_honey"]},
+            "beehive_side":{"textures":["textures/blocks/beehive_side"]},
+            "beehive_top":{"textures":["textures/blocks/beehive_top"]}
+        }}"#,
+        "[]",
+    );
+    for (name, colour) in [
+        ("bee_nest_bottom", [11, 12, 13, 255]),
+        ("bee_nest_front", [21, 22, 23, 255]),
+        ("bee_nest_front_honey", [31, 32, 33, 255]),
+        ("bee_nest_side", [41, 42, 43, 255]),
+        ("bee_nest_top", [51, 52, 53, 255]),
+        ("beehive_front", [61, 62, 63, 255]),
+        ("beehive_front_honey", [71, 72, 73, 255]),
+        ("beehive_side", [81, 82, 83, 255]),
+        ("beehive_top", [91, 92, 93, 255]),
+    ] {
+        write_png(
+            root,
+            &format!("textures/blocks/{name}"),
+            TILE_SIZE,
+            TILE_SIZE,
+            &solid(TILE_SIZE, TILE_SIZE, colour),
+        );
+    }
+}
+
+#[test]
+fn compiler_emits_exact_compact_bee_housing_cubes_for_all_states_and_network_modes() {
+    let directory = tempfile::tempdir().expect("create bee fixture");
+    write_bee_housing_pack(directory.path());
+    let mut records = bee_housing_records();
+    let compiled = compile_pack(directory.path(), &records).expect("compile exact bee family");
+
+    assert_eq!(
+        compiled.materials.len(),
+        10,
+        "diagnostic plus nine exact textures"
+    );
+    assert!(compiled.model_templates.is_empty());
+    assert!(compiled.model_quads.is_empty());
+    assert!(
+        compiled.materials[1..]
+            .iter()
+            .all(|material| { material.flags == 0 && material.animation == assets::NO_ANIMATION })
+    );
+
+    for record in &records {
+        let direction = record
+            .model_state
+            .get(ModelStateField::Orientation)
+            .expect("bee direction") as usize;
+        let honey = record
+            .model_state
+            .get(ModelStateField::Growth)
+            .expect("bee honey level");
+        let visual = compiled.visuals[record.sequential_id as usize];
+        assert_eq!(visual.kind, VisualKind::Cube);
+        assert_eq!(
+            visual.flags,
+            BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE
+        );
+        assert_eq!(visual.model_template, assets::NO_MODEL_TEMPLATE);
+        assert_eq!(visual.variant, 0);
+        assert!(
+            visual
+                .faces
+                .iter()
+                .all(|&material| material != DIAGNOSTIC_MATERIAL)
+        );
+
+        let front_face = [
+            BlockFace::South,
+            BlockFace::West,
+            BlockFace::North,
+            BlockFace::East,
+        ][direction] as usize;
+        let ordinary_front =
+            compiled.visuals[(record.sequential_id - honey * 4) as usize].faces[front_face];
+        let honey_front =
+            compiled.visuals[(record.sequential_id - honey * 4 + 20) as usize].faces[front_face];
+        assert_eq!(
+            visual.faces[front_face],
+            if honey == 5 {
+                honey_front
+            } else {
+                ordinary_front
+            },
+            "{} direction={direction} honey={honey}",
+            record.name
+        );
+
+        let horizontal = [
+            visual.faces[BlockFace::West as usize],
+            visual.faces[BlockFace::East as usize],
+            visual.faces[BlockFace::North as usize],
+            visual.faces[BlockFace::South as usize],
+        ];
+        for (face, material) in horizontal.into_iter().enumerate() {
+            if [
+                BlockFace::West,
+                BlockFace::East,
+                BlockFace::North,
+                BlockFace::South,
+            ][face] as usize
+                != front_face
+            {
+                assert_ne!(material, visual.faces[front_face]);
+            }
+        }
+        if record.name.as_ref() == "minecraft:beehive" {
+            assert_eq!(
+                visual.faces[BlockFace::Down as usize],
+                visual.faces[BlockFace::Up as usize]
+            );
+        } else {
+            assert_ne!(
+                visual.faces[BlockFace::Down as usize],
+                visual.faces[BlockFace::Up as usize]
+            );
+        }
+    }
+
+    let blob = encode_blob(&compiled).expect("encode bee assets");
+    let runtime = RuntimeAssets::decode(&blob).expect("decode bee assets");
+    for record in &records {
+        let sequential = runtime.resolve(NetworkIdMode::Sequential, record.sequential_id);
+        let hashed = runtime.resolve(NetworkIdMode::Hashed, record.network_hash);
+        assert_eq!(sequential.kind(), VisualKind::Cube);
+        assert_eq!(hashed.kind(), VisualKind::Cube);
+        for face in BlockFace::ALL {
+            assert_eq!(
+                sequential.face(face).material_id(),
+                hashed.face(face).material_id()
+            );
+        }
+    }
+    assert_eq!(runtime.missing_count(), 0);
+
+    let baseline = blob;
+    records.reverse();
+    let reversed = compile_pack(directory.path(), &records).expect("compile reversed bee family");
+    assert_eq!(encode_blob(&reversed).unwrap(), baseline);
+}
+
+#[test]
+fn compiler_bee_housing_admission_is_atomic_and_pack_routes_are_exact() {
+    let directory = tempfile::tempdir().expect("create bee fixture");
+    write_bee_housing_pack(directory.path());
+    let records = bee_housing_records();
+    let mut families = Vec::new();
+    let mut missing = records.clone();
+    missing.remove(0);
+    families.push(("missing state", missing));
+    let mut wrong_type = records.clone();
+    wrong_type[0].canonical_state =
+        r#"{"direction":{"type":"byte","value":0},"honey_level":{"type":"int","value":0}}"#.into();
+    families.push(("wrong canonical type", wrong_type));
+    let mut extra = records.clone();
+    extra[0].canonical_state = r#"{"direction":{"type":"int","value":0},"extra":{"type":"int","value":0},"honey_level":{"type":"int","value":0}}"#.into();
+    families.push(("extra canonical key", extra));
+    let mut wrong_projection = records.clone();
+    wrong_projection[0].model_state = encoded_model_record(
+        10_395,
+        100_395,
+        "minecraft:bee_nest",
+        ModelFamily::Cube,
+        &[
+            (ModelStateField::Orientation, 0),
+            (ModelStateField::Growth, 1),
+        ],
+    )
+    .model_state;
+    families.push(("projection disagreement", wrong_projection));
+    let mut wrong_id = records.clone();
+    wrong_id[0].sequential_id -= 1;
+    families.push(("wrong ID", wrong_id));
+    let mut wrong_family = records.clone();
+    wrong_family[0].model_family = ModelFamily::Decorative;
+    families.push(("wrong family", wrong_family));
+    let mut wrong_role = records.clone();
+    wrong_role[0].contributor_role = ContributorRole::LiquidAdditional;
+    families.push(("wrong role", wrong_role));
+    let mut wrong_flags = records.clone();
+    wrong_flags[0].flags = BlockFlags::CUBE_GEOMETRY;
+    families.push(("wrong flags", wrong_flags));
+    let mut wrong_collision = records.clone();
+    wrong_collision[0].collision_seed.boxes[0].max_y -= 1;
+    families.push(("wrong collision", wrong_collision));
+
+    for (label, family) in families {
+        let compiled =
+            compile_pack(directory.path(), &family).expect("compile malformed bee family");
+        assert!(
+            family
+                .iter()
+                .filter(|record| matches!(
+                    record.name.as_ref(),
+                    "minecraft:bee_nest" | "minecraft:beehive"
+                ))
+                .all(|record| {
+                    compiled.visuals[record.sequential_id as usize].kind == VisualKind::Diagnostic
+                }),
+            "invalid family `{label}` leaked a supported visual"
+        );
+    }
+
+    for (label, blocks, terrain) in [
+        (
+            "extra block fallback",
+            r#"{"bee_nest":{"textures":{"down":"bee_nest_bottom","east":"bee_nest_side","north":"bee_nest_side","side":"bee_nest_side","south":"bee_nest_front","up":"bee_nest_top","west":"bee_nest_side"}},"beehive":{"textures":{"down":"beehive_top","east":"beehive_side","north":"beehive_side","south":"beehive_front","up":"beehive_top","west":"beehive_side"}}}"#,
+            None,
+        ),
+        (
+            "wrong front cardinal",
+            r#"{"bee_nest":{"textures":{"down":"bee_nest_bottom","east":"bee_nest_side","north":"bee_nest_front","south":"bee_nest_side","up":"bee_nest_top","west":"bee_nest_side"}},"beehive":{"textures":{"down":"beehive_top","east":"beehive_side","north":"beehive_side","south":"beehive_front","up":"beehive_top","west":"beehive_side"}}}"#,
+            None,
+        ),
+        (
+            "front variant count",
+            r#"{"bee_nest":{"textures":{"down":"bee_nest_bottom","east":"bee_nest_side","north":"bee_nest_side","south":"bee_nest_front","up":"bee_nest_top","west":"bee_nest_side"}},"beehive":{"textures":{"down":"beehive_top","east":"beehive_side","north":"beehive_side","south":"beehive_front","up":"beehive_top","west":"beehive_side"}}}"#,
+            Some(
+                r#"{"texture_data":{"bee_nest_bottom":{"textures":"textures/blocks/bee_nest_bottom"},"bee_nest_front":{"textures":["textures/blocks/bee_nest_front"]},"bee_nest_side":{"textures":"textures/blocks/bee_nest_side"},"bee_nest_top":{"textures":"textures/blocks/bee_nest_top"},"beehive_front":{"textures":["textures/blocks/beehive_front","textures/blocks/beehive_front_honey"]},"beehive_side":{"textures":"textures/blocks/beehive_side"},"beehive_top":{"textures":"textures/blocks/beehive_top"}}}"#,
+            ),
+        ),
+    ] {
+        let malformed = tempfile::tempdir().expect("create malformed bee pack");
+        write_bee_housing_pack(malformed.path());
+        write_file(malformed.path().join("blocks.json"), blocks);
+        if let Some(terrain) = terrain {
+            write_file(
+                malformed.path().join("textures/terrain_texture.json"),
+                terrain,
+            );
+        }
+        let compiled =
+            compile_pack(malformed.path(), &records).expect("compile malformed bee route");
+        assert!(
+            records.iter().all(|record| {
+                compiled.visuals[record.sequential_id as usize].kind == VisualKind::Diagnostic
+            }),
+            "nonexact route `{label}` was accepted"
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires PINNED_VANILLA_PACK pointing at the ignored pinned vanilla resource pack"]
+fn compiler_real_pinned_pack_admits_all_exact_bee_housing_records() {
+    let pack = std::env::var_os("PINNED_VANILLA_PACK")
+        .expect("set PINNED_VANILLA_PACK to the ignored pinned vanilla resource pack");
+    let records = bee_housing_records();
+    let compiled = compile_pack(Path::new(&pack), &records).expect("compile pinned bee family");
+    assert!(records.iter().all(|record| {
+        let visual = compiled.visuals[record.sequential_id as usize];
+        visual.kind == VisualKind::Cube
+            && visual.flags == BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE
+            && visual.model_template == assets::NO_MODEL_TEMPLATE
+    }));
+    assert!(compiled.model_templates.is_empty());
+    assert!(compiled.model_quads.is_empty());
 }
 
 #[test]

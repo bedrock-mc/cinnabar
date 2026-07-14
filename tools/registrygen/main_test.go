@@ -1154,6 +1154,135 @@ func TestChiseledBookshelfClassificationRequiresExactTypedSelectors(t *testing.T
 	}
 }
 
+func TestBeeHousingClassificationRequiresExactOrderIndependentTypedSelectors(t *testing.T) {
+	const wantMask = uint8(1<<(ModelStateOrientation-1) | 1<<(ModelStateGrowth-1))
+	for _, name := range []string{"minecraft:bee_nest", "minecraft:beehive"} {
+		for honey := int32(0); honey < 6; honey++ {
+			for direction := int32(0); direction < 4; direction++ {
+				for _, properties := range [][]StateProperty{
+					{intState("direction", direction), intState("honey_level", honey)},
+					{intState("honey_level", honey), intState("direction", direction)},
+				} {
+					record, err := classifyRecord(sourceState(name, properties...))
+					if err != nil {
+						t.Fatalf("%s honey=%d direction=%d: %v", name, honey, direction, err)
+					}
+					if record.ModelFamily != ModelFamilyCube || record.ContributorRole != ContributorPrimary {
+						t.Fatalf("%s honey=%d direction=%d family/role=%v/%v", name, honey, direction, record.ModelFamily, record.ContributorRole)
+					}
+					if record.ModelState.Mask != wantMask {
+						t.Fatalf("%s honey=%d direction=%d mask=%#x, want %#x", name, honey, direction, record.ModelState.Mask, wantMask)
+					}
+					if got, ok := record.ModelState.Get(ModelStateOrientation); !ok || got != uint32(direction) {
+						t.Fatalf("%s direction projection=%d/%v, want %d/true", name, got, ok, direction)
+					}
+					if got, ok := record.ModelState.Get(ModelStateGrowth); !ok || got != uint32(honey) {
+						t.Fatalf("%s honey projection=%d/%v, want %d/true", name, got, ok, honey)
+					}
+				}
+			}
+		}
+	}
+
+	for index, state := range []SourceState{
+		sourceState("minecraft:bee_nest", intState("direction", -1), intState("honey_level", 0)),
+		sourceState("minecraft:bee_nest", intState("direction", 4), intState("honey_level", 0)),
+		sourceState("minecraft:bee_nest", intState("direction", 0), intState("honey_level", -1)),
+		sourceState("minecraft:bee_nest", intState("direction", 0), intState("honey_level", 6)),
+		sourceState("minecraft:bee_nest", byteState("direction", 0), intState("honey_level", 0)),
+		sourceState("minecraft:bee_nest", intState("direction", 0), byteState("honey_level", 0)),
+		sourceState("minecraft:bee_nest", intState("minecraft:direction", 0), intState("honey_level", 0)),
+		sourceState("minecraft:bee_nest", intState("direction", 0), intState("minecraft:honey_level", 0)),
+		sourceState("minecraft:bee_nest", intState("direction", 0)),
+		sourceState("minecraft:bee_nest", intState("direction", 0), intState("honey_level", 0), intState("extra", 0)),
+	} {
+		if _, err := classifyRecord(state); err == nil {
+			t.Errorf("invalid bee selector fixture %d was accepted", index)
+		}
+	}
+
+	unrelated, err := classifyRecord(sourceState(
+		"minecraft:honey_block",
+		intState("direction", 0),
+		intState("honey_level", 5),
+	))
+	if err != nil {
+		t.Fatalf("classify unrelated honey block: %v", err)
+	}
+	if unrelated.ModelFamily == ModelFamilyCube && unrelated.ModelState.Mask == wantMask {
+		t.Fatal("unrelated honey block entered the exact bee-housing family")
+	}
+}
+
+func TestBeeHousingSelectorProductRequiresExactCanonicalIdsAndUnitCollision(t *testing.T) {
+	records := make([]Record, 0, 48)
+	for _, family := range []struct {
+		name string
+		base uint32
+	}{
+		{"minecraft:bee_nest", 10_395},
+		{"minecraft:beehive", 12_495},
+	} {
+		for honey := int32(0); honey < 6; honey++ {
+			for direction := int32(0); direction < 4; direction++ {
+				record, err := classifyRecord(sourceState(
+					family.name,
+					intState("honey_level", honey),
+					intState("direction", direction),
+				))
+				if err != nil {
+					t.Fatalf("classify %s: %v", family.name, err)
+				}
+				offset := uint32(honey)*4 + uint32(direction)
+				record.SequentialID = family.base + offset
+				record.NetworkHash = record.SequentialID + 1
+				record.CollisionSeed = CollisionSeed{
+					ShapeID:    1,
+					Confidence: CollisionConfidenceCollisionOnly,
+					Boxes:      []CollisionBox{{MaxX: 100_000_000, MaxY: 100_000_000, MaxZ: 100_000_000}},
+				}
+				finalizeGeometryFacts(&record)
+				records = append(records, record)
+			}
+		}
+	}
+	if err := validateSelectorCardinality(records); err != nil {
+		t.Fatalf("valid bee selector products: %v", err)
+	}
+	for _, record := range records {
+		if record.Flags != flagCubeGeometry|flagOccludesFullFace || record.FaceCoverage != 0x3f {
+			t.Fatalf("state %d flags/coverage=%#x/%#x", record.SequentialID, record.Flags, record.FaceCoverage)
+		}
+	}
+
+	for _, mutation := range []struct {
+		name   string
+		mutate func([]Record)
+	}{
+		{"missing state", func(records []Record) { records[23] = records[22] }},
+		{"sequential ID", func(records []Record) { records[0].SequentialID++ }},
+		{"canonical alias", func(records []Record) {
+			records[0].StateJSON = []byte(`{"direction":{"type":"int","value":0},"minecraft:honey_level":{"type":"int","value":0}}`)
+		}},
+		{"projection disagreement", func(records []Record) { records[0].ModelState.Set(ModelStateGrowth, 1) }},
+		{"flags", func(records []Record) { records[0].Flags = 0 }},
+		{"unit bounds", func(records []Record) { records[0].CollisionSeed.Boxes[0].MaxY-- }},
+		{"shape ID", func(records []Record) { records[0].CollisionSeed.ShapeID = 2 }},
+		{"confidence", func(records []Record) { records[0].CollisionSeed.Confidence = CollisionConfidenceReviewedVisibleBounds }},
+	} {
+		t.Run(mutation.name, func(t *testing.T) {
+			broken := append([]Record(nil), records...)
+			for index := range broken {
+				broken[index].CollisionSeed.Boxes = append([]CollisionBox(nil), records[index].CollisionSeed.Boxes...)
+			}
+			mutation.mutate(broken)
+			if err := validateSelectorCardinality(broken); err == nil {
+				t.Fatal("invalid bee selector products were accepted")
+			}
+		})
+	}
+}
+
 func TestChiseledBookshelfSelectorProductRequiresCanonicalIdsAndUnitCollision(t *testing.T) {
 	records := make([]Record, 0, 256)
 	for books := int32(0); books < 64; books++ {

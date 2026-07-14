@@ -190,6 +190,19 @@ impl TerrainTextureMap {
         }
     }
 
+    /// Returns an exact two-variant route only when neither variant is tinted
+    /// and the terrain entry carries no alias or extension metadata.
+    pub(crate) fn get_exact_pair_plain(&self, key: &str) -> Option<[&str; 2]> {
+        match self.entries.get(key)? {
+            TerrainPaths::Variants {
+                paths,
+                requires_tint: false,
+                has_extra_metadata: false,
+            } if paths.len() == 2 => Some([paths[0].as_ref(), paths[1].as_ref()]),
+            TerrainPaths::Static { .. } | TerrainPaths::Variants { .. } => None,
+        }
+    }
+
     /// Resolves the native-verified farmland top selector. Vanilla stores the
     /// wet path at index zero and the dry path at index one; only moisture
     /// zero is dry.
@@ -238,6 +251,19 @@ impl TerrainTextureMap {
                 requires_tint: false,
                 ..
             } => Some(path),
+            TerrainPaths::Static { .. } | TerrainPaths::Variants { .. } => None,
+        }
+    }
+
+    /// Returns the pinned vanilla singleton-array form only when it is
+    /// untinted and carries no alias or extension metadata.
+    pub(crate) fn get_exact_singleton_plain(&self, key: &str) -> Option<&str> {
+        match self.entries.get(key)? {
+            TerrainPaths::Variants {
+                paths,
+                requires_tint: false,
+                has_extra_metadata: false,
+            } if paths.len() == 1 => Some(paths[0].as_ref()),
             TerrainPaths::Static { .. } | TerrainPaths::Variants { .. } => None,
         }
     }

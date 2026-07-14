@@ -848,7 +848,8 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       cactus tranches.
       After lava, vine, and those connected/static/multiface/glass/grate
       families plus the exact chiseled-bookshelf, resin-clump, selector-alias
-      opaque-cube, cactus, cake, and farmland tranches, the current residual has 2,448 diagnostics including
+      opaque-cube, cactus, cake, farmland, and exact bee-housing tranches, the
+      current residual has 2,400 diagnostics including
       the single air diagnostic, with zero
       diagnostics in every implemented family; each remaining family must shrink
       that exact set.
@@ -867,6 +868,19 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       strict Clippy/formatting, the real 16,913-state ratchet, and independent
       review are green; deterministic native gallery/GPU/performance evidence
       remains part of the residual-family live gate.
+    - [x] Exact bee nest/beehive cubes: all 48 canonical states across
+      `minecraft:bee_nest` and `minecraft:beehive` now preserve the typed
+      direction 0..3 by honey-level 0..5 product, full-cube collision and
+      occlusion, and the compact packed cube stream. Protocol direction maps
+      the front south/west/north/east; only honey level 5 selects the honeyed
+      front. The compiler requires the pinned six-face block maps, singleton
+      static terrain arrays, exact two-entry front arrays, literal paths, and
+      no tint/extra/flipbook metadata. Both network-ID modes, all states, dense
+      greedy closure, and all six cross-subchunk boundaries are covered. The
+      full real-pack ratchet removes exactly IDs 10,395..10,418 and
+      12,495..12,518 with zero additions, shrinking 2,448 -> 2,400 diagnostics.
+      Bee occupants remain a separately reviewed block-entity concern rather
+      than block-state geometry.
     - [ ] Close static sign visual parity and its deterministic native gallery.
       - [x] Eliminate all 4,872 standing, wall, and hanging-sign diagnostics
         with typed, order-independent selectors; exact 16-way rotation, six-way

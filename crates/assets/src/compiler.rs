@@ -252,6 +252,7 @@ fn compile_pack_inner(
     let admit_cakes = cake_inventory_is_exact(records) && cake_source_alpha_is_exact(root, &pack);
     let admit_farmland =
         farmland_inventory_is_exact(records) && farmland_source_alpha_is_exact(root, &pack);
+    let admit_bee_housing = bee_housing_inventory_is_exact(records);
 
     let mut descriptor_keys = BTreeMap::<Descriptor, Box<str>>::new();
     for record in records.iter().filter(|record| {
@@ -272,6 +273,9 @@ fn compile_pack_inner(
         }
         if is_farmland_name(&record.name) {
             return admit_farmland && is_farmland_record(record);
+        }
+        if is_bee_housing_name(&record.name) {
+            return admit_bee_housing && is_bee_housing_record(record);
         }
         (record.flags.contains(BlockFlags::CUBE_GEOMETRY)
             && !record_has_deferred_material(&pack, record))
@@ -318,6 +322,14 @@ fn compile_pack_inner(
         }
         if admit_farmland && is_farmland_record(record) {
             if let Some(descriptors) = farmland_material_descriptors(&pack) {
+                for (descriptor, key) in descriptors {
+                    descriptor_keys.insert(descriptor, key);
+                }
+            }
+            continue;
+        }
+        if admit_bee_housing && is_bee_housing_record(record) {
+            if let Some(descriptors) = bee_housing_material_descriptors(&pack) {
                 for (descriptor, key) in descriptors {
                     descriptor_keys.insert(descriptor, key);
                 }
@@ -395,6 +407,7 @@ fn compile_pack_inner(
             cacti: admit_cacti,
             cakes: admit_cakes,
             farmland: admit_farmland,
+            bee_housing: admit_bee_housing,
         },
     )?;
     if light_properties.len() != visuals.len() {
@@ -793,6 +806,178 @@ fn selector_alias_cube_material_descriptors(
                 flags: u32::from(rotate_uv) * MATERIAL_FLAG_ROTATE_UV,
             },
             key,
+        ));
+    }
+    descriptors.try_into().ok()
+}
+
+fn is_bee_housing_name(name: &str) -> bool {
+    matches!(name, "minecraft:bee_nest" | "minecraft:beehive")
+}
+
+fn exact_bee_housing_state(record: &RegistryRecord) -> Option<(u32, u32)> {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct ExactBeeHousingState {
+        direction: ExactBeeHousingTaggedInt,
+        honey_level: ExactBeeHousingTaggedInt,
+    }
+
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct ExactBeeHousingTaggedInt {
+        #[serde(rename = "type")]
+        kind: Box<str>,
+        value: i64,
+    }
+
+    let state = serde_json::from_str::<ExactBeeHousingState>(&record.canonical_state).ok()?;
+    if state.direction.kind.as_ref() != "int"
+        || state.honey_level.kind.as_ref() != "int"
+        || !(0..=3).contains(&state.direction.value)
+        || !(0..=5).contains(&state.honey_level.value)
+    {
+        return None;
+    }
+    let direction = state.direction.value as u32;
+    let honey_level = state.honey_level.value as u32;
+    let orientation_mask = 1 << (ModelStateField::Orientation as u8 - 1);
+    let growth_mask = 1 << (ModelStateField::Growth as u8 - 1);
+    if record.model_state.mask() != orientation_mask | growth_mask
+        || record.model_state.get(ModelStateField::Orientation) != Some(direction)
+        || record.model_state.get(ModelStateField::Growth) != Some(honey_level)
+    {
+        return None;
+    }
+    Some((direction, honey_level))
+}
+
+fn bee_housing_collision_is_exact(record: &RegistryRecord) -> bool {
+    record.collision_seed.shape_id == 1
+        && record.collision_seed.confidence == crate::CollisionConfidence::CollisionOnly
+        && record.collision_seed.boxes.as_ref()
+            == [crate::CollisionBox {
+                max_x: 100_000_000,
+                max_y: 100_000_000,
+                max_z: 100_000_000,
+                ..crate::CollisionBox::default()
+            }]
+}
+
+fn is_bee_housing_record(record: &RegistryRecord) -> bool {
+    is_bee_housing_name(&record.name)
+        && record.model_family == ModelFamily::Cube
+        && record.contributor_role == ContributorRole::Primary
+        && record.flags == BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE
+        && record.face_coverage == 0x3f
+        && bee_housing_collision_is_exact(record)
+        && exact_bee_housing_state(record).is_some()
+}
+
+fn bee_housing_inventory_is_exact(records: &[RegistryRecord]) -> bool {
+    let selected = records
+        .iter()
+        .filter(|record| is_bee_housing_name(&record.name))
+        .collect::<Vec<_>>();
+    if selected.len() != 48 {
+        return false;
+    }
+    let mut seen = [false; 48];
+    for record in selected {
+        if !is_bee_housing_record(record) {
+            return false;
+        }
+        let Some((direction, honey_level)) = exact_bee_housing_state(record) else {
+            return false;
+        };
+        let (family, base) = match record.name.as_ref() {
+            "minecraft:bee_nest" => (0, 10_395),
+            "minecraft:beehive" => (1, 12_495),
+            _ => return false,
+        };
+        let state = honey_level * 4 + direction;
+        let slot = family * 24 + state as usize;
+        if record.sequential_id != base + state || seen[slot] {
+            return false;
+        }
+        seen[slot] = true;
+    }
+    seen.into_iter().all(|present| present)
+}
+
+fn bee_housing_material_descriptors(pack: &PackSources) -> Option<[(Descriptor, Box<str>); 9]> {
+    if pack.blocks.get_exact_faces("bee_nest")?
+        != [
+            "bee_nest_side",
+            "bee_nest_side",
+            "bee_nest_bottom",
+            "bee_nest_top",
+            "bee_nest_side",
+            "bee_nest_front",
+        ]
+        || pack.blocks.get_exact_faces("beehive")?
+            != [
+                "beehive_side",
+                "beehive_side",
+                "beehive_top",
+                "beehive_top",
+                "beehive_side",
+                "beehive_front",
+            ]
+    {
+        return None;
+    }
+
+    let routes = [
+        ("bee_nest_bottom", "textures/blocks/bee_nest_bottom"),
+        ("bee_nest_front", "textures/blocks/bee_nest_front"),
+        ("bee_nest_front", "textures/blocks/bee_nest_front_honey"),
+        ("bee_nest_side", "textures/blocks/bee_nest_side"),
+        ("bee_nest_top", "textures/blocks/bee_nest_top"),
+        ("beehive_front", "textures/blocks/beehive_front"),
+        ("beehive_front", "textures/blocks/beehive_front_honey"),
+        ("beehive_side", "textures/blocks/beehive_side"),
+        ("beehive_top", "textures/blocks/beehive_top"),
+    ];
+    let nest_front = pack.terrain.get_exact_pair_plain("bee_nest_front")?;
+    let hive_front = pack.terrain.get_exact_pair_plain("beehive_front")?;
+    if nest_front
+        != [
+            "textures/blocks/bee_nest_front",
+            "textures/blocks/bee_nest_front_honey",
+        ]
+        || hive_front
+            != [
+                "textures/blocks/beehive_front",
+                "textures/blocks/beehive_front_honey",
+            ]
+    {
+        return None;
+    }
+
+    let mut descriptors = Vec::with_capacity(routes.len());
+    for (key, expected_path) in routes {
+        let path = if key.ends_with("_front") {
+            expected_path
+        } else {
+            let path = pack.terrain.get_exact_singleton_plain(key)?;
+            if path != expected_path {
+                return None;
+            }
+            path
+        };
+        if pack.flipbooks.iter().any(|flipbook| {
+            flipbook.atlas_tile.as_ref() == key || flipbook.texture_path.as_ref() == path
+        }) {
+            return None;
+        }
+        descriptors.push((
+            Descriptor {
+                path: path.into(),
+                texture_key: key.into(),
+                flags: 0,
+            },
+            key.into(),
         ));
     }
     descriptors.try_into().ok()
@@ -2170,6 +2355,7 @@ struct ExactAdmissions {
     cacti: bool,
     cakes: bool,
     farmland: bool,
+    bee_housing: bool,
 }
 
 fn compile_visuals(
@@ -2185,6 +2371,7 @@ fn compile_visuals(
         cacti: admit_cacti,
         cakes: admit_cakes,
         farmland: admit_farmland,
+        bee_housing: admit_bee_housing,
     } = admissions;
     let visual_count = records
         .iter()
@@ -2219,7 +2406,62 @@ fn compile_visuals(
     ordered_records.sort_unstable_by_key(|record| record.sequential_id);
     for record in ordered_records {
         let mut visual = BlockVisual::diagnostic(record.flags, record.contributor_role);
-        if is_cactus_name(&record.name) && (!admit_cacti || !is_cactus_record(record)) {
+        if is_bee_housing_name(&record.name)
+            && (!admit_bee_housing || !is_bee_housing_record(record))
+        {
+            // Both exact 24-state families are admitted atomically and may not
+            // fall through to the generic cube/terrain route.
+        } else if admit_bee_housing && is_bee_housing_record(record) {
+            let materials = bee_housing_material_descriptors(pack).map(|descriptors| {
+                descriptors.map(|(descriptor, _)| material_by_descriptor.get(&descriptor).copied())
+            });
+            if let Some(
+                [
+                    Some(nest_bottom),
+                    Some(nest_front),
+                    Some(nest_front_honey),
+                    Some(nest_side),
+                    Some(nest_top),
+                    Some(hive_front),
+                    Some(hive_front_honey),
+                    Some(hive_side),
+                    Some(hive_top),
+                ],
+            ) = materials
+            {
+                let (direction, honey_level) =
+                    exact_bee_housing_state(record).expect("exact bee housing state");
+                let front_face = [
+                    BlockFace::South,
+                    BlockFace::West,
+                    BlockFace::North,
+                    BlockFace::East,
+                ][direction as usize] as usize;
+                let mut faces = if record.name.as_ref() == "minecraft:bee_nest" {
+                    [
+                        nest_side,
+                        nest_side,
+                        nest_bottom,
+                        nest_top,
+                        nest_side,
+                        nest_side,
+                    ]
+                } else {
+                    [
+                        hive_side, hive_side, hive_top, hive_top, hive_side, hive_side,
+                    ]
+                };
+                faces[front_face] = match (record.name.as_ref(), honey_level == 5) {
+                    ("minecraft:bee_nest", false) => nest_front,
+                    ("minecraft:bee_nest", true) => nest_front_honey,
+                    ("minecraft:beehive", false) => hive_front,
+                    ("minecraft:beehive", true) => hive_front_honey,
+                    _ => unreachable!("exact bee housing name"),
+                };
+                visual.faces = faces;
+                visual.kind = VisualKind::Cube;
+            }
+        } else if is_cactus_name(&record.name) && (!admit_cacti || !is_cactus_record(record)) {
             // This exact family is all-or-nothing and malformed states may not
             // fall through to any generic age, crop, cube, or cuboid route.
         } else if admit_cacti && is_cactus_record(record) {

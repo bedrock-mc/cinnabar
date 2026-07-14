@@ -1041,6 +1041,16 @@ func chiseledBookshelfCollisionIsExact(seed CollisionSeed) bool {
 }
 
 func finalizeGeometryFacts(record *Record) {
+	if isBeeHousingName(record.Name) {
+		if beeHousingCollisionIsExact(record.CollisionSeed) {
+			record.Flags = flagCubeGeometry | flagOccludesFullFace
+			record.FaceCoverage = 0x3f
+		} else {
+			record.Flags &^= flagCubeGeometry | flagOccludesFullFace
+			record.FaceCoverage = 0
+		}
+		return
+	}
 	if record.ModelFamily == ModelFamilyChiseledBookshelf {
 		if chiseledBookshelfCollisionIsExact(record.CollisionSeed) {
 			record.Flags = flagCubeGeometry | flagOccludesFullFace
@@ -1250,6 +1260,14 @@ func classifyRecord(state SourceState) (Record, error) {
 		record.ModelFamily = ModelFamilyChiseledBookshelf
 		record.ModelState.Set(ModelStateConnections, books)
 		record.ModelState.Set(ModelStateOrientation, direction)
+	case name == "bee_nest" || name == "beehive":
+		direction, honey, err := beeHousingSelectors(state.Properties)
+		if err != nil {
+			return Record{}, err
+		}
+		record.ModelFamily = ModelFamilyCube
+		record.ModelState.Set(ModelStateOrientation, direction)
+		record.ModelState.Set(ModelStateGrowth, honey)
 	case name == "resin_clump":
 		connections, err := resinClumpSelector(state.Properties)
 		if err != nil {
@@ -1446,6 +1464,42 @@ func chiseledBookshelfSelectors(properties []StateProperty) (books uint32, direc
 	return books, direction, nil
 }
 
+func isBeeHousingName(name string) bool {
+	return name == "minecraft:bee_nest" || name == "minecraft:beehive"
+}
+
+func beeHousingSelectors(properties []StateProperty) (direction uint32, honey uint32, err error) {
+	if len(properties) != 2 {
+		return 0, 0, fmt.Errorf("bee housing requires exactly direction:int and honey_level:int")
+	}
+	seenDirection, seenHoney := false, false
+	for _, property := range properties {
+		if property.Value.Kind != ScalarInt {
+			return 0, 0, fmt.Errorf("bee housing %s must be an int selector", property.Name)
+		}
+		switch property.Name {
+		case "direction":
+			if seenDirection || property.Value.Int < 0 || property.Value.Int > 3 {
+				return 0, 0, fmt.Errorf("bee housing direction must be unique and inside 0..3")
+			}
+			seenDirection = true
+			direction = uint32(property.Value.Int)
+		case "honey_level":
+			if seenHoney || property.Value.Int < 0 || property.Value.Int > 5 {
+				return 0, 0, fmt.Errorf("bee housing honey_level must be unique and inside 0..5")
+			}
+			seenHoney = true
+			honey = uint32(property.Value.Int)
+		default:
+			return 0, 0, fmt.Errorf("bee housing has unsupported selector %q", property.Name)
+		}
+	}
+	if !seenDirection || !seenHoney {
+		return 0, 0, fmt.Errorf("bee housing requires direction and honey_level selectors")
+	}
+	return direction, honey, nil
+}
+
 func resinClumpSelector(properties []StateProperty) (uint32, error) {
 	if len(properties) != 1 || properties[0].Name != "multi_face_direction_bits" {
 		return 0, fmt.Errorf("resin_clump requires exactly multi_face_direction_bits:int")
@@ -1514,6 +1568,16 @@ func chiseledBookshelfCanonicalSelectors(stateJSON []byte) (books uint32, direct
 	books, booksOK := exactCanonicalInt(state["books_stored"], 63)
 	direction, directionOK := exactCanonicalInt(state["direction"], 3)
 	return books, direction, booksOK && directionOK
+}
+
+func beeHousingCanonicalSelectors(stateJSON []byte) (direction uint32, honey uint32, ok bool) {
+	var state map[string]json.RawMessage
+	if err := json.Unmarshal(stateJSON, &state); err != nil || len(state) != 2 {
+		return 0, 0, false
+	}
+	direction, directionOK := exactCanonicalInt(state["direction"], 3)
+	honey, honeyOK := exactCanonicalInt(state["honey_level"], 5)
+	return direction, honey, directionOK && honeyOK
 }
 
 func resinClumpCanonicalSelector(stateJSON []byte) (uint32, bool) {
@@ -1962,6 +2026,11 @@ func validateSelectorCardinality(records []Record) error {
 		groups[record.Name] = append(groups[record.Name], record)
 	}
 	for name, group := range groups {
+		if isBeeHousingName(name) {
+			if err := validateBeeHousingProduct(group); err != nil {
+				return err
+			}
+		}
 		if name == "minecraft:chiseled_bookshelf" {
 			if err := validateChiseledBookshelfProduct(group); err != nil {
 				return err
@@ -2010,6 +2079,59 @@ func validateSelectorCardinality(records []Record) error {
 		}
 		if expected != len(group) {
 			return fmt.Errorf("selector cardinality for %s is %d states but typed product is %d", name, len(group), expected)
+		}
+	}
+	return nil
+}
+
+func beeHousingCollisionIsExact(seed CollisionSeed) bool {
+	return seed.ShapeID == 1 &&
+		seed.Confidence == CollisionConfidenceCollisionOnly &&
+		len(seed.Boxes) == 1 &&
+		seed.Boxes[0] == (CollisionBox{MaxX: 100_000_000, MaxY: 100_000_000, MaxZ: 100_000_000})
+}
+
+func validateBeeHousingProduct(records []Record) error {
+	if len(records) != 24 {
+		return fmt.Errorf("bee housing selector cardinality is %d, want 24", len(records))
+	}
+	name := records[0].Name
+	base := uint32(0)
+	switch name {
+	case "minecraft:bee_nest":
+		base = 10_395
+	case "minecraft:beehive":
+		base = 12_495
+	default:
+		return fmt.Errorf("unsupported bee housing name %q", name)
+	}
+	seen := [24]bool{}
+	wantMask := uint8(1<<(ModelStateOrientation-1) | 1<<(ModelStateGrowth-1))
+	for _, record := range records {
+		if record.Name != name || record.ModelFamily != ModelFamilyCube || record.ContributorRole != ContributorPrimary {
+			return fmt.Errorf("%s state %d has invalid family or role", name, record.SequentialID)
+		}
+		if record.Flags != flagCubeGeometry|flagOccludesFullFace || record.FaceCoverage != 0x3f || !beeHousingCollisionIsExact(record.CollisionSeed) {
+			return fmt.Errorf("%s state %d lacks exact solid unit geometry evidence", name, record.SequentialID)
+		}
+		canonicalDirection, canonicalHoney, hasCanonical := beeHousingCanonicalSelectors(record.StateJSON)
+		direction, hasDirection := record.ModelState.Get(ModelStateOrientation)
+		honey, hasHoney := record.ModelState.Get(ModelStateGrowth)
+		if !hasCanonical || !hasDirection || !hasHoney || canonicalDirection != direction || canonicalHoney != honey || direction > 3 || honey > 5 || record.ModelState.Mask != wantMask {
+			return fmt.Errorf("%s state %d has invalid typed selector projection", name, record.SequentialID)
+		}
+		offset := honey*4 + direction
+		if record.SequentialID != base+offset {
+			return fmt.Errorf("%s state %d does not match canonical ID formula", name, record.SequentialID)
+		}
+		if seen[offset] {
+			return fmt.Errorf("%s has duplicate selector offset %d", name, offset)
+		}
+		seen[offset] = true
+	}
+	for offset, present := range seen {
+		if !present {
+			return fmt.Errorf("%s selector product is missing offset %d", name, offset)
 		}
 	}
 	return nil
