@@ -1,0 +1,50 @@
+.DEFAULT_GOAL := help
+
+CARGO ?= cargo
+GO ?= go
+POWERSHELL ?= powershell
+
+SOCKET_DIR ?= .local/run-zeqa
+AUTH_CACHE ?= .local/auth/microsoft-token.json
+
+PACK_DIR ?= .local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack
+BLOCK_REGISTRY ?= crates/assets/data/block-registry-v1001.bin
+BIOME_REGISTRY ?= crates/assets/data/biome-registry-v1001.bin
+ASSET_BLOB ?= .local/assets/compiled/vanilla-v1001.mcbea
+
+.PHONY: help assets core client client-windows client-macos client-linux client-wayland client-x11
+
+help:
+	@echo make assets          - Download and compile the vanilla resource pack
+	@echo make core            - Run the Go networking/auth core
+	@echo make client          - Run the release Rust client
+	@echo make client-windows  - Run the client on Windows
+	@echo make client-macos    - Run the client on macOS
+	@echo make client-linux    - Run with automatic Wayland/X11 selection
+	@echo make client-wayland  - Run on Wayland
+	@echo make client-x11      - Run on X11/XWayland
+	@echo UPSTREAM=host:port is required for make core
+	@echo Override optional settings with SOCKET_DIR=... and AUTH_CACHE=...
+
+assets:
+ifeq ($(OS),Windows_NT)
+	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File scripts/fetch-vanilla-assets.ps1 -AcceptEula
+else
+	bash scripts/fetch-vanilla-assets.sh --accept-eula
+endif
+	$(CARGO) run --locked -p assets --bin assetc -- compile --pack "$(PACK_DIR)" --registry "$(BLOCK_REGISTRY)" --biome-registry "$(BIOME_REGISTRY)" --out "$(ASSET_BLOB)"
+
+core:
+	$(if $(strip $(UPSTREAM)),,$(error UPSTREAM is required; run make core UPSTREAM=host:port))
+	$(GO) run ./core/cmd/bedrock-core -socket-dir "$(SOCKET_DIR)" -upstream "$(UPSTREAM)" -auth-cache "$(AUTH_CACHE)"
+
+client:
+	$(CARGO) run --release -p bedrock-client --locked -- --socket-dir "$(SOCKET_DIR)"
+
+client-windows client-macos client-linux: client
+
+client-wayland:
+	env -u DISPLAY $(MAKE) client
+
+client-x11:
+	env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET $(MAKE) client
