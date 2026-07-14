@@ -537,9 +537,11 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       cube records, all 25 stained-glass/copper-grate/slime transparency-family
       cubes, and `minecraft:invisible_bedrock`; record reordering remains
       byte-deterministic. The production ratchet removes exactly 48 intended
-      diagnostics with zero additions and now holds 7,850 diagnostics including
-      air (full assets/visualcoverage suites, pinned compiler tests, strict
-      Clippy/formatting, and zero-delta refreshed ratchet green).
+      diagnostics with zero additions. After integrating the already-landed
+      128-state glow-lichen/sculk-vein tranche, the current baseline holds 7,722
+      diagnostics including air (full assets/visualcoverage suites, pinned
+      compiler tests, strict Clippy/formatting, and zero-delta refreshed ratchet
+      green).
     - [ ] Slab/stair native and packed-GPU live acceptance: capture all five
       fixed Cinnabar poses through native `%TEMP%` screenshots and require two
       consecutive exact GPU-completed model-stream witnesses. Automated gallery

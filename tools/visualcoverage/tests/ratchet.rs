@@ -90,7 +90,7 @@ fn committed_protocol_baseline_binds_the_complete_corpus_and_all_vines() {
             .binary_search(&record.sequential_id)
             .is_err()
     }));
-    assert_eq!(baseline.diagnostic_sequential_ids.len(), 7_850);
+    assert_eq!(baseline.diagnostic_sequential_ids.len(), 7_722);
 }
 
 fn fixture_records() -> Vec<RegistryRecord> {
