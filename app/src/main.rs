@@ -2170,6 +2170,10 @@ fn record_fatal_error(fatal_error: &mut Option<String>, error: String) {
     }
 }
 
+fn world_stream_fatal_message(error: world_stream::WorldStreamFatalError) -> String {
+    format!("world stream fatal: {error}")
+}
+
 fn receive_network_events(
     mut network: ResMut<NetworkHandle>,
     state: AppWorldState,
@@ -2377,14 +2381,21 @@ fn drive_world_stream(
     let Ok(mut camera) = camera.single_mut() else {
         return;
     };
-    let controls = {
+    let (controls, stream_fatal) = {
         let stream = client_world
             .stream
             .as_mut()
             .expect("stream presence was checked before camera access");
         stream.poll(camera.translation.to_array(), MESH_JOB_BUDGET_PER_FRAME);
-        stream.take_committed_controls()
+        (stream.take_committed_controls(), stream.take_fatal_error())
     };
+    if let Some(error) = stream_fatal {
+        record_fatal_error(
+            &mut client_world.fatal_error,
+            world_stream_fatal_message(error),
+        );
+        return;
+    }
     for control in controls {
         if apply_environment_control(control, &mut clock, &mut weather, time.elapsed_secs_f64()) {
             continue;
@@ -3442,13 +3453,13 @@ mod tests {
         sync::Arc,
         time::{Duration, Instant},
     };
-    use world::{ChunkKey, SubChunkKey};
+    use world::{ChunkKey, LightSolveError, SubChunkKey};
 
     use crate::metrics::TransparentSortMetricsSnapshot;
     use crate::network::{NetworkControlEvent, SequencedWorldEvent};
     use crate::world_stream::{
         CommittedControlEvent, ForcedRemeshManifest, ForcedRemeshManifestState, ViewCohort,
-        ViewCohortStatus, WorldStream,
+        ViewCohortStatus, WorldStream, WorldStreamFatalError,
     };
     use crate::{
         AcceptanceExitDecision, AcceptanceRun, FullViewRemeshTracker, FullViewTeleportCompletion,
@@ -3463,7 +3474,8 @@ mod tests {
         model_gallery_camera_committed_marker, preflight_bridge_endpoint, record_fatal_error,
         resolve_socket_dir_from, startup_biome_tints, status_title, synchronize_biome_tints,
         target_mutation_armed_marker, teleport_proof, transparent_sort_committed_marker,
-        world_ready_markers, write_move_player_ingress_before_source_capture, write_stdout_marker,
+        world_ready_markers, world_stream_fatal_message,
+        write_move_player_ingress_before_source_capture, write_stdout_marker,
     };
 
     fn overworld_biome_payload() -> Vec<u8> {
@@ -6120,6 +6132,21 @@ mod tests {
         assert_eq!(fatal_error.as_deref(), Some(original));
         assert_eq!(stream.pending_request_count(), 1);
         assert_eq!(stream.stats().awaiting_sub_chunk_responses, 0);
+    }
+
+    #[test]
+    fn exact_light_fatal_message_is_stage_independent() {
+        let fatal = WorldStreamFatalError::LightSolve {
+            key: SubChunkKey::new(0, -3, 12, 9),
+            error: LightSolveError::QueueLimitExceeded { max: 1_000_000 },
+        };
+        let expected = "world stream fatal: light solve failed for SubChunkKey { dimension: 0, x: -3, y: 12, z: 9 }: light solve queue exceeded limit 1000000";
+
+        for _world_ready in [false, true] {
+            let mut fatal_error = None;
+            record_fatal_error(&mut fatal_error, world_stream_fatal_message(fatal));
+            assert_eq!(fatal_error.as_deref(), Some(expected));
+        }
     }
 
     #[test]

@@ -163,6 +163,18 @@ fn nibble_storage_rejects_values_above_fifteen() {
 }
 
 #[test]
+fn uniform_subchunk_light_constructs_both_channels_without_allocating() {
+    let light = SubChunkLight::uniform(2, 15, 77).unwrap();
+
+    assert_eq!(light.generation(), 77);
+    assert_eq!(light.get(LightChannel::Block, 0, 0, 0), Some(2));
+    assert_eq!(light.get(LightChannel::Sky, 15, 15, 15), Some(15));
+    assert_eq!(light.channel(LightChannel::Block).allocated_bytes(), 0);
+    assert_eq!(light.channel(LightChannel::Sky).allocated_bytes(), 0);
+    assert!(SubChunkLight::uniform(16, 0, 1).is_err());
+}
+
+#[test]
 fn trusted_boundary_samples_are_checked_and_non_forgeable() {
     assert!(BoundaryLightSample::trusted(15, true).is_ok());
     assert!(BoundaryLightSample::trusted(16, false).is_err());

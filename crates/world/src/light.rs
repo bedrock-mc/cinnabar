@@ -167,6 +167,15 @@ pub struct SubChunkLight {
 }
 
 impl SubChunkLight {
+    /// Creates allocation-free uniform block- and sky-light channels.
+    pub fn uniform(block: u8, sky: u8, generation: u64) -> Result<Self, LightStorageError> {
+        Ok(Self {
+            block: LightNibbleStorage::uniform(block)?,
+            sky: LightNibbleStorage::uniform(sky)?,
+            generation,
+        })
+    }
+
     /// Creates allocation-free zeroed channels.
     #[must_use]
     pub fn dark(generation: u64) -> Self {

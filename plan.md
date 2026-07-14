@@ -969,6 +969,12 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     mesh scheduling are covered without flat block arrays. Mesh light baking,
     GPU/shader consumption, sky/fog/cloud rendering, and visual acceptance
     remain open.
+    - Release scheduler workload gate on 2026-07-14: the exact radius-16 square
+      (33×33 columns) across all 24 Overworld subchunks completed 26,136
+      known-air light solves, with 26,136 uniform fast-path completions, zero
+      stale completions, and all keys current in 1,006 ms. This measures the
+      lighting scheduler only; live teleport/full-view remesh acceptance,
+      mixed-block workloads, mesh baking, and rendering acceptance remain open.
 
 Perf budget carried from Phase 0 gate; add: full remesh of view distance after teleport ≤ 2s.
 
