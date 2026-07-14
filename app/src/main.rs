@@ -2106,6 +2106,7 @@ fn receive_network_events(
     mut acceptance: ResMut<AcceptanceRun>,
     metrics: Res<AppMetrics>,
     acknowledgements: Res<ChunkUploadAcknowledgements>,
+    model_witness_source: Res<ModelWitnessFileSource>,
     mut cameras: Query<&mut Transform, With<FlyCamera>>,
 ) {
     let controls =
@@ -2197,6 +2198,13 @@ fn receive_network_events(
             continue;
         };
         let observed_at = Instant::now();
+        if model_witness_source.configured()
+            && let protocol::WorldEvent::MovePlayer(movement) = &sequenced.event
+            && let Some(marker) = move_player_ingress_marker(sequenced.sequence, movement.position)
+        {
+            let mut stdout = std::io::stdout().lock();
+            write_stdout_marker(&mut stdout, &marker);
+        }
         acceptance.observe_mutation(&sequenced.event, observed_at);
         let accepted_binding_ingress = acceptance.observe_full_view_teleport_ingress(
             &sequenced.event,
