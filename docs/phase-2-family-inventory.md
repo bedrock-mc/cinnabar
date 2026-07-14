@@ -24,14 +24,15 @@ The audit used these pinned inputs:
   by `assets/vanilla-source.json`.
 
 The current audited `BREG1003` export is 4,692,247 bytes with SHA-256
-`3e0a67718b6368d8b5f7755e9e49a1241233f21bcea8724a9163febb4f1b1d92`.
+`33a31ec89a04fe638a4f59ab315561c1c0d897e04f2041d5643262d3de56d30c`.
 It decoded exactly to EOF and reported 1,356 names, 16,913 states, 1,321
 Valentine names, 15,845 Valentine states, and attributable gaps of 35 names and
 1,068 states. The 2026-07-13 selector-only regeneration preserves
 `redstone_signal` as a typed pressed flag for exactly the 256 pressure-plate
-records. The 2026-07-14 regeneration additionally assigns the dedicated
+records. The 2026-07-14 regenerations additionally assign the dedicated
 chiseled-bookshelf family and reviewed solid/full-face facts to exactly IDs
-1,605–1,860; two generations were byte-identical.
+1,605–1,860, then the dedicated empty-collision resin-clump family to exactly
+IDs 2,930–2,993. Two resin generations were byte-identical.
 
 Reacquire and regenerate the ignored evidence with:
 
@@ -239,7 +240,19 @@ unit collision, solid/full-face facts, exact face routing, a two-entry front
 terrain array, and static side/top terrain entries. It compiles four opaque
 source materials and 64 eleven-quad templates. Native evidence and hashes are
 recorded in `docs/evidence/phase-2-chiseled-bookshelf-native-reference.md`.
-The current exact residual is 2,570 diagnostics including air; no unrelated ID
+
+The subsequent resin-clump tranche removes exactly the contiguous 64 canonical
+states at IDs 2,930–2,993. Admission requires the complete typed
+`multi_face_direction_bits:int 0..63` product, `id = 2930 + mask`, empty flags
+and face coverage, shape 0 with no collision boxes, and the exact scalar/static
+`resin_clump` terrain route. Native 1.26.33.1 evidence maps bits to
+down/up/south/west/north/east, matches the glow-lichen face-relative UV table,
+and normalizes a written zero mask to 63; the compiler therefore aliases mask 0
+to the all-face template. One static alpha-cutout material produces 63 immutable
+templates and 192 quads. Evidence and local-only screenshot hashes are recorded
+in `docs/evidence/phase-2-resin-clump-native-reference.md`.
+
+The current exact residual is 2,506 diagnostics including air; no unrelated ID
 changed status.
 
 The original 412-name/2,860-state planning residual was bounded and

@@ -82,6 +82,7 @@ pub enum ModelFamily {
     GlowLichen = 33,
     SculkVein = 34,
     ChiseledBookshelf = 35,
+    ResinClump = 36,
 }
 
 impl ModelFamily {
@@ -123,6 +124,7 @@ impl ModelFamily {
             33 => Self::GlowLichen,
             34 => Self::SculkVein,
             35 => Self::ChiseledBookshelf,
+            36 => Self::ResinClump,
             _ => return Err(AssetError::InvalidRegistryFlags(raw)),
         })
     }
@@ -137,6 +139,14 @@ mod model_family_tests {
         assert_eq!(
             ModelFamily::read(35).expect("family value 35"),
             ModelFamily::ChiseledBookshelf
+        );
+    }
+
+    #[test]
+    fn reads_dedicated_resin_clump_family_value() {
+        assert_eq!(
+            ModelFamily::read(36).expect("family value 36"),
+            ModelFamily::ResinClump
         );
     }
 }

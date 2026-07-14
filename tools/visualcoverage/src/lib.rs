@@ -1304,5 +1304,6 @@ fn model_family_name(family: ModelFamily) -> &'static str {
         ModelFamily::GlowLichen => "glow_lichen",
         ModelFamily::SculkVein => "sculk_vein",
         ModelFamily::ChiseledBookshelf => "chiseled_bookshelf",
+        ModelFamily::ResinClump => "resin_clump",
     }
 }

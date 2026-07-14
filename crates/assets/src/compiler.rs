@@ -234,9 +234,13 @@ fn compile_pack_inner(
     validate_records(records)?;
 
     let admit_chiseled_bookshelves = chiseled_bookshelf_inventory_is_exact(records);
+    let admit_resin_clumps = resin_clump_inventory_is_exact(records);
 
     let mut descriptor_keys = BTreeMap::<Descriptor, Box<str>>::new();
     for record in records.iter().filter(|record| {
+        if is_resin_clump_name(&record.name) {
+            return admit_resin_clumps && is_resin_clump_record(record);
+        }
         if is_chiseled_bookshelf_name(&record.name) {
             return admit_chiseled_bookshelves && is_chiseled_bookshelf_record(record);
         }
@@ -245,6 +249,12 @@ fn compile_pack_inner(
             || is_model_visual(record)
             || is_liquid(record)
     }) {
+        if admit_resin_clumps && is_resin_clump_record(record) {
+            if let Some((descriptor, key)) = resin_clump_material_descriptor(&pack) {
+                descriptor_keys.insert(descriptor, key);
+            }
+            continue;
+        }
         if admit_chiseled_bookshelves && is_chiseled_bookshelf_record(record) {
             if let Some(descriptors) = chiseled_bookshelf_material_descriptors(&pack) {
                 for (descriptor, key) in descriptors {
@@ -318,6 +328,7 @@ fn compile_pack_inner(
         &pack,
         &material_by_descriptor,
         admit_chiseled_bookshelves,
+        admit_resin_clumps,
     )?;
 
     Ok(CompiledAssets {
@@ -513,8 +524,93 @@ fn is_sculk_vein(record: &RegistryRecord) -> bool {
         && record.name.as_ref() == "minecraft:sculk_vein"
 }
 
+fn is_resin_clump(record: &RegistryRecord) -> bool {
+    matches!(record.model_family, ModelFamily::ResinClump)
+        && record.name.as_ref() == "minecraft:resin_clump"
+}
+
+fn is_resin_clump_name(name: &str) -> bool {
+    name == "minecraft:resin_clump"
+}
+
+fn exact_resin_clump_state(record: &RegistryRecord) -> Option<u32> {
+    let state =
+        serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&record.canonical_state)
+            .ok()?;
+    if state.len() != 1 {
+        return None;
+    }
+    let connections = exact_tagged_int(state.get("multi_face_direction_bits")?, 63)?;
+    let mask = 1 << (ModelStateField::Connections as u8 - 1);
+    if record.model_state.mask() != mask
+        || record.model_state.get(ModelStateField::Connections) != Some(connections)
+    {
+        return None;
+    }
+    Some(connections)
+}
+
+fn is_resin_clump_record(record: &RegistryRecord) -> bool {
+    is_resin_clump_name(&record.name)
+        && record.model_family == ModelFamily::ResinClump
+        && record.contributor_role == ContributorRole::Primary
+        && record.flags.is_empty()
+        && record.face_coverage == 0
+        && record.collision_seed.shape_id == 0
+        && record.collision_seed.confidence == crate::CollisionConfidence::CollisionOnly
+        && record.collision_seed.boxes.is_empty()
+        && exact_resin_clump_state(record).is_some()
+}
+
+fn resin_clump_inventory_is_exact(records: &[RegistryRecord]) -> bool {
+    let selected = records
+        .iter()
+        .filter(|record| is_resin_clump_name(&record.name))
+        .collect::<Vec<_>>();
+    if selected.len() != 64 {
+        return false;
+    }
+    let mut seen = [false; 64];
+    for record in selected {
+        if !is_resin_clump_record(record) {
+            return false;
+        }
+        let Some(connections) = exact_resin_clump_state(record) else {
+            return false;
+        };
+        if record.sequential_id != 2930 + connections || seen[connections as usize] {
+            return false;
+        }
+        seen[connections as usize] = true;
+    }
+    seen.into_iter().all(|present| present)
+}
+
+fn resin_clump_material_descriptor(pack: &PackSources) -> Option<(Descriptor, Box<str>)> {
+    let key = pack.blocks.get_exact_scalar("resin_clump")?;
+    if key != "resin_clump" {
+        return None;
+    }
+    let path = pack.terrain.get_exact_static_no_tint(key)?;
+    if path != "textures/blocks/resin_clump"
+        || pack.flipbooks.iter().any(|flipbook| {
+            flipbook.atlas_tile.as_ref() == key || flipbook.texture_path.as_ref() == path
+        })
+    {
+        return None;
+    }
+    Some((
+        Descriptor {
+            path: path.into(),
+            texture_key: key.into(),
+            flags: MATERIAL_FLAG_ALPHA_CUTOUT,
+        },
+        key.into(),
+    ))
+}
+
 fn is_multiface(record: &RegistryRecord) -> bool {
-    is_glow_lichen(record) || is_sculk_vein(record)
+    is_glow_lichen(record) || is_sculk_vein(record) || is_resin_clump(record)
 }
 
 const fn is_door(record: &RegistryRecord) -> bool {
@@ -1398,6 +1494,7 @@ fn compile_visuals(
     pack: &PackSources,
     material_by_descriptor: &BTreeMap<Descriptor, u32>,
     admit_chiseled_bookshelves: bool,
+    admit_resin_clumps: bool,
 ) -> Result<CompiledVisuals, AssetError> {
     let visual_count = records
         .iter()
@@ -1432,7 +1529,12 @@ fn compile_visuals(
     ordered_records.sort_unstable_by_key(|record| record.sequential_id);
     for record in ordered_records {
         let mut visual = BlockVisual::diagnostic(record.flags, record.contributor_role);
-        if is_chiseled_bookshelf_name(&record.name)
+        if is_resin_clump_name(&record.name)
+            && (!admit_resin_clumps || !is_resin_clump_record(record))
+        {
+            // This exact family is all-or-nothing and may not fall through to
+            // generic multi-face handling.
+        } else if is_chiseled_bookshelf_name(&record.name)
             && (!admit_chiseled_bookshelves || !is_chiseled_bookshelf_record(record))
         {
             // This exact family is all-or-nothing so malformed or incomplete
@@ -1626,7 +1728,12 @@ fn compile_visuals(
                 visual.model_template = template;
             }
         } else if is_multiface(record) {
-            let material = descriptor_for(pack, record, BlockFace::South)
+            let descriptor = if record.model_family == ModelFamily::ResinClump {
+                resin_clump_material_descriptor(pack)
+            } else {
+                descriptor_for(pack, record, BlockFace::South)
+            };
+            let material = descriptor
                 .and_then(|(descriptor, _)| material_by_descriptor.get(&descriptor).copied());
             let connections = record.model_state.get(ModelStateField::Connections);
             if let (Some(material), Some(connections @ 0..=63)) = (material, connections) {
@@ -1637,6 +1744,7 @@ fn compile_visuals(
                 let family_key = match record.model_family {
                     ModelFamily::GlowLichen => 0,
                     ModelFamily::SculkVein => 1,
+                    ModelFamily::ResinClump => 2,
                     _ => unreachable!("multiface predicate admitted an unrelated family"),
                 };
                 let key = [material, effective_connections, family_key];
@@ -3049,7 +3157,7 @@ fn multiface_quads(material: u32, connections: u32, family: ModelFamily) -> Vec<
         (32, 4, GLOW_LICHEN_PLANES[5].2),
     ];
     let planes = match family {
-        ModelFamily::GlowLichen => GLOW_LICHEN_PLANES,
+        ModelFamily::GlowLichen | ModelFamily::ResinClump => GLOW_LICHEN_PLANES,
         ModelFamily::SculkVein => SCULK_VEIN_PLANES,
         _ => unreachable!("multiface geometry requested for an unrelated family"),
     };

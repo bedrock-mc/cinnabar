@@ -974,6 +974,151 @@ func TestChiseledBookshelfSelectorProductRequiresCanonicalIdsAndUnitCollision(t 
 	}
 }
 
+func TestResinClumpClassificationRequiresExactTypedSelector(t *testing.T) {
+	const wantMask = uint8(1 << (ModelStateConnections - 1))
+	for mask := int32(0); mask < 64; mask++ {
+		record, err := classifyRecord(sourceState(
+			"minecraft:resin_clump",
+			intState("multi_face_direction_bits", mask),
+		))
+		if err != nil {
+			t.Fatalf("classify mask %d: %v", mask, err)
+		}
+		if record.ModelFamily != ModelFamilyResinClump {
+			t.Fatalf("mask %d family=%v", mask, record.ModelFamily)
+		}
+		if record.ModelState.Mask != wantMask {
+			t.Fatalf("mask %d model-state mask=%#x, want %#x", mask, record.ModelState.Mask, wantMask)
+		}
+		if got, ok := record.ModelState.Get(ModelStateConnections); !ok || got != uint32(mask) {
+			t.Fatalf("mask %d connections=%d/%v", mask, got, ok)
+		}
+	}
+
+	invalid := []SourceState{
+		sourceState("minecraft:resin_clump"),
+		sourceState("minecraft:resin_clump", intState("multi_face_direction_bits", -1)),
+		sourceState("minecraft:resin_clump", intState("multi_face_direction_bits", 64)),
+		sourceState("minecraft:resin_clump", byteState("multi_face_direction_bits", 1)),
+		sourceState("minecraft:resin_clump", StateProperty{Name: "multi_face_direction_bits", Value: TypedScalar{Kind: ScalarString, String: "1"}}),
+		sourceState("minecraft:resin_clump", intState("minecraft:multi_face_direction_bits", 1)),
+		sourceState("minecraft:resin_clump", intState("direction_bits", 1)),
+		sourceState("minecraft:resin_clump", intState("multi_face_direction_bits", 1), intState("extra", 0)),
+	}
+	for index, state := range invalid {
+		if _, err := classifyRecord(state); err == nil {
+			t.Errorf("invalid selector fixture %d was accepted", index)
+		}
+	}
+
+	unrelated, err := classifyRecord(sourceState(
+		"minecraft:resin_block",
+		intState("multi_face_direction_bits", 1),
+	))
+	if err != nil {
+		t.Fatalf("classify unrelated resin block: %v", err)
+	}
+	if unrelated.ModelFamily == ModelFamilyResinClump {
+		t.Fatal("non-exact resin name entered resin-clump family")
+	}
+}
+
+func exactResinClumpRecords(t *testing.T) []Record {
+	t.Helper()
+	records := make([]Record, 0, 64)
+	for mask := int32(0); mask < 64; mask++ {
+		record, err := classifyRecord(sourceState(
+			"minecraft:resin_clump",
+			intState("multi_face_direction_bits", mask),
+		))
+		if err != nil {
+			t.Fatalf("classify mask %d: %v", mask, err)
+		}
+		record.SequentialID = 2930 + uint32(mask)
+		record.NetworkHash = 80_000 + uint32(mask)
+		record.Flags = 0
+		record.FaceCoverage = 0
+		record.CollisionSeed = CollisionSeed{
+			ShapeID:    0,
+			Confidence: CollisionConfidenceCollisionOnly,
+		}
+		records = append(records, record)
+	}
+	return records
+}
+
+func TestResinClumpProductRequiresExactIdsStateAndEmptyCollision(t *testing.T) {
+	records := exactResinClumpRecords(t)
+	if err := validateSelectorCardinality(records); err != nil {
+		t.Fatalf("valid resin-clump product: %v", err)
+	}
+	forward, err := encode(records)
+	if err != nil {
+		t.Fatalf("encode forward: %v", err)
+	}
+	reversed := append([]Record(nil), records...)
+	slices.Reverse(reversed)
+	backward, err := encode(reversed)
+	if err != nil {
+		t.Fatalf("encode reversed: %v", err)
+	}
+	if !bytes.Equal(forward, backward) {
+		t.Fatal("resin-clump BREG encoding depends on source order")
+	}
+
+	mutations := []struct {
+		name   string
+		mutate func([]Record)
+	}{
+		{"missing state", func(records []Record) { records[0].StateJSON = []byte(`{}`) }},
+		{"aliased key", func(records []Record) {
+			records[0].StateJSON = []byte(`{"minecraft:multi_face_direction_bits":{"type":"int","value":0}}`)
+		}},
+		{"wrong canonical type", func(records []Record) {
+			records[0].StateJSON = []byte(`{"multi_face_direction_bits":{"type":"byte","value":0}}`)
+		}},
+		{"extra canonical key", func(records []Record) {
+			records[0].StateJSON = []byte(`{"extra":{"type":"int","value":0},"multi_face_direction_bits":{"type":"int","value":0}}`)
+		}},
+		{"model-state disagreement", func(records []Record) {
+			records[0].ModelState.Set(ModelStateConnections, 1)
+		}},
+		{"extra model-state field", func(records []Record) {
+			records[0].ModelState.Set(ModelStateOrientation, 0)
+		}},
+		{"wrong role", func(records []Record) { records[0].ContributorRole = ContributorLiquidAdditional }},
+		{"wrong family", func(records []Record) { records[0].ModelFamily = ModelFamilyGlowLichen }},
+		{"wrong ID", func(records []Record) { records[0].SequentialID++ }},
+		{"flags", func(records []Record) { records[0].Flags = flagCubeGeometry }},
+		{"face coverage", func(records []Record) { records[0].FaceCoverage = 1 }},
+		{"shape ID", func(records []Record) { records[0].CollisionSeed.ShapeID = 1 }},
+		{"confidence", func(records []Record) { records[0].CollisionSeed.Confidence = CollisionConfidenceReviewedVisibleBounds }},
+		{"collision box", func(records []Record) {
+			records[0].CollisionSeed.Boxes = []CollisionBox{{MaxX: 1, MaxY: 1, MaxZ: 1}}
+		}},
+	}
+	for _, mutation := range mutations {
+		t.Run(mutation.name, func(t *testing.T) {
+			broken := append([]Record(nil), records...)
+			mutation.mutate(broken)
+			if err := validateSelectorCardinality(broken); err == nil {
+				t.Fatal("invalid resin-clump product was accepted")
+			}
+		})
+	}
+
+	if err := validateSelectorCardinality(records[:63]); err == nil {
+		t.Fatal("incomplete resin-clump product was accepted")
+	}
+	duplicate := append([]Record(nil), records...)
+	duplicate[63] = duplicate[62]
+	duplicate[63].SequentialID = 2993
+	duplicate[63].NetworkHash++
+	if err := validateSelectorCardinality(duplicate); err == nil {
+		t.Fatal("duplicate resin-clump selector was accepted")
+	}
+}
+
 func TestMultifaceFamiliesPreserveEveryProtocol1001DirectionMaskSeparately(t *testing.T) {
 	for _, fixture := range []struct {
 		name       string

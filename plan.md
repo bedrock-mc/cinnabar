@@ -604,6 +604,26 @@ Scope: block registry + block-state → model/texture mapping (generated export 
         native-gallery viewpoints and require two consecutive exact
         GPU-completed model-stream witnesses. Keep both native and Cinnabar
         screenshots local-only; do not commit Mojang-derived imagery.
+    - [x] Resin clumps: all 64 canonical `minecraft:resin_clump` states
+      (sequential IDs 2,930–2,993) now require the exact typed
+      `multi_face_direction_bits:int 0..63` product, formula IDs, empty flags and
+      face coverage, empty collision, and the exact scalar/static
+      `resin_clump` texture route. Native 1.26.33.1 support-removal/readback
+      fixes bits 1/2/4/8/16/32 to down/up/south/west/north/east, matches the
+      glow-lichen UV projection, and proves that a written zero mask reloads as
+      63. The compiler preserves every protocol record while aliasing mask 0 to
+      mask 63, emitting one static alpha-cutout material, 63 templates, and 192
+      quads. Sequential and hashed mesh gates cover every mask, all six
+      boundaries, cave openness, opaque-support visibility, layered water, and
+      the dense 4,096-reference/24,576-draw-light bound. The exact production
+      ratchet removes only IDs 2,930–2,993 with zero additions, leaving 2,506
+      diagnostics including air. Registry SHA-256 is
+      `33a31ec89a04fe638a4f59ab315561c1c0d897e04f2041d5643262d3de56d30c`;
+      the ignored compiled pack SHA-256 is
+      `91998c61a9f8c40a72e73e45167d7448e9ad18271b561bc61f8d839584603e19`.
+      - [ ] Live presentation acceptance: reproduce the native resin viewpoints
+        in Cinnabar and require two consecutive exact GPU-completed model-stream
+        witnesses. Native and Cinnabar screenshots remain local-only.
     - [ ] Slab/stair native and packed-GPU live acceptance: capture all five
       fixed Cinnabar poses through native `%TEMP%` screenshots and require two
       consecutive exact GPU-completed model-stream witnesses. Automated gallery
@@ -752,10 +772,11 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       review green). The reviewed baseline was refreshed cumulatively for the
       already-landed door, trapdoor, wall, pressure-plate, fence-gate, pane,
       fence, carpet, button, huge-mushroom, glow-lichen, sculk-vein, exact
-      ordinary stained-glass, exact copper-grate, and static-sign tranches.
+      ordinary stained-glass, exact copper-grate, static-sign,
+      chiseled-bookshelf, and resin-clump tranches.
       After lava, vine, and those connected/static/multiface/glass/grate
-      families plus the exact chiseled-bookshelf tranche, the current residual
-      has 2,570 diagnostics including the single air diagnostic, with zero
+      families plus the exact chiseled-bookshelf and resin-clump tranches, the
+      current residual has 2,506 diagnostics including the single air diagnostic, with zero
       diagnostics in every implemented family; each remaining family must shrink
       that exact set.
   - [ ] Complete the exhaustive residual-family report, continuing from the

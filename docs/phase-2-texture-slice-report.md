@@ -255,10 +255,28 @@ SHA-256 is
 the ignored integrated blob SHA-256 is
 `df82f3408ee5805bcd536a484b6d0e8831eb972d76225c17eda005695e4d982c`.
 
+The subsequent resin-clump run removes exactly IDs 2,930–2,993 with zero
+additions. The registry and compiler require the complete typed 64-mask product,
+formula IDs, empty flags and coverage, empty collision, and the exact scalar
+`resin_clump` block route to the static `textures/blocks/resin_clump` terrain
+path. Native 1.26.33.1 support-removal/readback establishes
+down/up/south/west/north/east bit order and mask-0 normalization to 63. The
+compiler emits one static alpha-cutout material, 63 templates, and 192 quads;
+mask 0 aliases the all-face template. Sequential and hashed meshing cover every
+mask, every boundary, cave openness, opaque support visibility, water
+composition, and the dense 4,096-reference/24,576-draw-light bound. The
+refreshed baseline is zero-delta at 2,506 diagnostics including air. Registry
+SHA-256 is
+`33a31ec89a04fe638a4f59ab315561c1c0d897e04f2041d5643262d3de56d30c`;
+the ignored integrated blob SHA-256 is
+`91998c61a9f8c40a72e73e45167d7448e9ad18271b561bc61f8d839584603e19`.
+The matching-view Cinnabar two-frame live presentation witness remains open.
+
 The reviewed baseline cumulatively records the already-landed
 door/trapdoor/wall removals plus the pressure-plate, fence-gate, pane/fence,
 carpet, button, huge-mushroom, glow-lichen/sculk-vein, and ordinary
-stained-glass and copper-grate tranches, rather than attributing all 7,243 removed IDs to one
+stained-glass, copper-grate, chiseled-bookshelf, and resin-clump tranches,
+rather than attributing all 7,307 removed IDs to one
 feature. This is a regression baseline, not a parity claim: each remaining
 family must reduce that exact set, and the final strict gate still requires zero
 non-air diagnostics, 67 exact-state GPU gallery pages, and the separate

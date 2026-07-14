@@ -252,6 +252,15 @@ impl TerrainTextureMap {
 }
 
 impl BlockTextureMap {
+    /// Returns a block texture key only when the source uses the scalar form.
+    #[must_use]
+    pub(crate) fn get_exact_scalar(&self, block_name: &str) -> Option<&str> {
+        match self.entries.get(block_name)? {
+            TextureValue::Key(key) => Some(key),
+            TextureValue::Faces(_) => None,
+        }
+    }
+
     /// Returns six explicit face keys. Fallback `side` routing is deliberately
     /// excluded so exact model families cannot accept an underspecified map.
     pub(crate) fn get_exact_faces(&self, block_name: &str) -> Option<[&str; 6]> {

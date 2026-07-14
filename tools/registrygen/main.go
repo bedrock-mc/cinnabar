@@ -111,9 +111,10 @@ const (
 	ModelFamilyGlowLichen
 	ModelFamilySculkVein
 	ModelFamilyChiseledBookshelf
+	ModelFamilyResinClump
 )
 
-const maxModelFamily = ModelFamilyChiseledBookshelf
+const maxModelFamily = ModelFamilyResinClump
 
 type ContributorRole uint8
 
@@ -1177,6 +1178,13 @@ func classifyRecord(state SourceState) (Record, error) {
 		record.ModelFamily = ModelFamilyChiseledBookshelf
 		record.ModelState.Set(ModelStateConnections, books)
 		record.ModelState.Set(ModelStateOrientation, direction)
+	case name == "resin_clump":
+		connections, err := resinClumpSelector(state.Properties)
+		if err != nil {
+			return Record{}, err
+		}
+		record.ModelFamily = ModelFamilyResinClump
+		record.ModelState.Set(ModelStateConnections, connections)
 	case isCrossName(name):
 		record.ModelFamily = ModelFamilyCross
 	}
@@ -1345,6 +1353,17 @@ func chiseledBookshelfSelectors(properties []StateProperty) (books uint32, direc
 	return books, direction, nil
 }
 
+func resinClumpSelector(properties []StateProperty) (uint32, error) {
+	if len(properties) != 1 || properties[0].Name != "multi_face_direction_bits" {
+		return 0, fmt.Errorf("resin_clump requires exactly multi_face_direction_bits:int")
+	}
+	property := properties[0]
+	if property.Value.Kind != ScalarInt || property.Value.Int < 0 || property.Value.Int > 63 {
+		return 0, fmt.Errorf("resin_clump multi_face_direction_bits must be an int inside 0..63")
+	}
+	return uint32(property.Value.Int), nil
+}
+
 func exactCanonicalInt(raw json.RawMessage, maximum int32) (uint32, bool) {
 	var tagged map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &tagged); err != nil || len(tagged) != 2 {
@@ -1369,6 +1388,14 @@ func chiseledBookshelfCanonicalSelectors(stateJSON []byte) (books uint32, direct
 	books, booksOK := exactCanonicalInt(state["books_stored"], 63)
 	direction, directionOK := exactCanonicalInt(state["direction"], 3)
 	return books, direction, booksOK && directionOK
+}
+
+func resinClumpCanonicalSelector(stateJSON []byte) (uint32, bool) {
+	var state map[string]json.RawMessage
+	if err := json.Unmarshal(stateJSON, &state); err != nil || len(state) != 1 {
+		return 0, false
+	}
+	return exactCanonicalInt(state["multi_face_direction_bits"], 63)
 }
 
 func signOrientation(name string, properties []StateProperty) (uint32, error) {
@@ -1499,6 +1526,11 @@ func validateSelectorCardinality(records []Record) error {
 				return err
 			}
 		}
+		if name == "minecraft:resin_clump" {
+			if err := validateResinClumpProduct(group); err != nil {
+				return err
+			}
+		}
 		values := make(map[string]map[string]struct{})
 		for _, record := range group {
 			var state map[string]canonicalScalar
@@ -1553,6 +1585,45 @@ func validateChiseledBookshelfProduct(records []Record) error {
 			return fmt.Errorf("chiseled_bookshelf duplicate selector %v", key)
 		}
 		seen[key] = struct{}{}
+	}
+	return nil
+}
+
+func resinClumpCollisionIsExact(seed CollisionSeed) bool {
+	return seed.ShapeID == 0 &&
+		seed.Confidence == CollisionConfidenceCollisionOnly &&
+		len(seed.Boxes) == 0
+}
+
+func validateResinClumpProduct(records []Record) error {
+	if len(records) != 64 {
+		return fmt.Errorf("resin_clump selector cardinality is %d, want 64", len(records))
+	}
+	seen := [64]bool{}
+	for _, record := range records {
+		if record.ModelFamily != ModelFamilyResinClump || record.ContributorRole != ContributorPrimary {
+			return fmt.Errorf("resin_clump state %d has invalid family or role", record.SequentialID)
+		}
+		if record.Flags != 0 || record.FaceCoverage != 0 || !resinClumpCollisionIsExact(record.CollisionSeed) {
+			return fmt.Errorf("resin_clump state %d has invalid empty geometry evidence", record.SequentialID)
+		}
+		canonical, hasCanonical := resinClumpCanonicalSelector(record.StateJSON)
+		connections, hasConnections := record.ModelState.Get(ModelStateConnections)
+		if !hasCanonical || !hasConnections || canonical != connections || connections > 63 || record.ModelState.Mask != uint8(1<<(ModelStateConnections-1)) {
+			return fmt.Errorf("resin_clump state %d has invalid typed selector projection", record.SequentialID)
+		}
+		if record.SequentialID != 2930+connections {
+			return fmt.Errorf("resin_clump state %d does not match canonical ID formula", record.SequentialID)
+		}
+		if seen[connections] {
+			return fmt.Errorf("resin_clump duplicate selector %d", connections)
+		}
+		seen[connections] = true
+	}
+	for mask, present := range seen {
+		if !present {
+			return fmt.Errorf("resin_clump selector product is missing mask %d", mask)
+		}
 	}
 	return nil
 }
