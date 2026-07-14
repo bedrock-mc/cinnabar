@@ -4047,8 +4047,8 @@ impl ChunkRenderInstance {
         &self.cube_quads
     }
 
-    /// CPU-retained cube lighting sidecars. GPU consumption is integrated in a
-    /// later slice without changing this extraction contract.
+    /// CPU-retained cube lighting sidecars consumed through the shared GPU
+    /// geometry arena without changing this extraction contract.
     #[must_use]
     pub fn cube_lighting(&self) -> &[PackedQuadLighting] {
         &self.cube_lighting
