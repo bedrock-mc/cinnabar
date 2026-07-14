@@ -40,6 +40,15 @@ struct BiomeTintGpu {
     padding: u32,
 }
 
+struct AtmosphereUniform {
+    sun_direction_daylight: vec4<f32>,
+    moon_direction_phase: vec4<f32>,
+    sky_zenith_rain: vec4<f32>,
+    sky_horizon_thunder: vec4<f32>,
+    fog_color_start: vec4<f32>,
+    fog_end_time: vec4<f32>,
+}
+
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> quads: array<PackedQuad>;
 @group(0) @binding(2) var<storage, read> chunk_origins: array<ChunkOrigin>;
@@ -52,6 +61,7 @@ struct BiomeTintGpu {
 @group(0) @binding(9) var<storage, read> animations: array<AnimationGpu>;
 @group(0) @binding(10) var<storage, read> animation_frames: array<u32>;
 @group(0) @binding(11) var<uniform> clock: AnimationClockGpu;
+@group(0) @binding(15) var<uniform> atmosphere: AtmosphereUniform;
 
 struct AnimationFrameSampleGpu {
     current_texture: u32,
@@ -88,6 +98,7 @@ struct VertexOutput {
     @location(5) @interpolate(flat) biome_record: u32,
     @location(6) @interpolate(flat) next_texture: u32,
     @location(7) @interpolate(flat) frame_blend: f32,
+    @location(8) world_position: vec3<f32>,
 }
 
 fn quad_corner(face: u32, corner: u32, origin: vec3<f32>, width: f32, height: f32) -> vec3<f32> {
@@ -241,6 +252,7 @@ fn vertex(
     out.biome_record = u32(chunk_origin.value.w);
     out.next_texture = animation_sample.next_texture;
     out.frame_blend = animation_sample.blend;
+    out.world_position = world_position;
     return out;
 }
 
@@ -344,6 +356,16 @@ fn sample_texture_ref(
     return textureSampleGrad(block_textures_page_1, block_sampler, uv, layer, uv_dx, uv_dy);
 }
 
+fn apply_distance_fog(colour: vec3<f32>, world_position: vec3<f32>) -> vec3<f32> {
+    let distance_to_camera = distance(world_position, view.world_position);
+    let fog = smoothstep(
+        atmosphere.fog_color_start.w,
+        atmosphere.fog_end_time.x,
+        distance_to_camera,
+    );
+    return mix(colour, atmosphere.fog_color_start.rgb, fog);
+}
+
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let uv_dx = dpdx(in.uv);
@@ -357,11 +379,12 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if ((in.material_flags & (1u << 8u)) != 0u && sampled.a < 0.5) {
         discard;
     }
-    return apply_material_tint(
+    let colour = apply_material_tint(
         sampled,
         in.material_flags,
         in.biome_record,
         in.local_position,
         in.normal,
     );
+    return vec4(apply_distance_fog(colour.rgb, in.world_position), colour.a);
 }

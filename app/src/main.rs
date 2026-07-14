@@ -27,11 +27,14 @@ use bevy::{
     ecs::system::SystemParam,
     prelude::*,
     render::diagnostic::RenderDiagnosticsPlugin,
+    time::Real,
     window::{CursorOptions, PresentMode, PrimaryWindow, WindowPlugin},
     winit::{UpdateMode, WinitSettings},
 };
 use camera::{FlyCamera, FlyCameraPlugin};
-use environment::{WeatherState, WorldClock, apply_environment_control, replace_session};
+use environment::{
+    WeatherState, WorldClock, apply_environment_control, replace_session, update_atmosphere_frame,
+};
 use metrics::{
     DiagnosticQuadTracker, ExactFullViewProof, GpuPassMeasurement, MetricsCollector,
     ModelWorkloadMetricsSnapshot, PipelineMetricsSnapshot, TeleportProof,
@@ -40,11 +43,11 @@ use metrics::{
 use model_witness::{ModelWitnessFileSource, poll_model_witness_request};
 use network::{NetworkConfig, NetworkControlEvent, NetworkHandle, spawn_network};
 use render::{
-    ChunkBiomeTints, ChunkRenderInstance, ChunkRenderQueue, ChunkTextureAssets,
-    ChunkUploadAcknowledgements, ChunkUploadPriority, ChunkUploadToken, DebugWorldPlugin,
-    ModelWitnessEvidence, ModelWitnessManifestRecord, ModelWitnessRequest, ModelWorkloadMetrics,
-    PresentedFrameAck, PresentedFrameGate, RenderViewCohort, TargetRenderExpectation,
-    TransparentSortMetrics, TransparentWitnessEvidence,
+    AtmosphereFrame, AtmospherePlugin, ChunkBiomeTints, ChunkRenderInstance, ChunkRenderQueue,
+    ChunkTextureAssets, ChunkUploadAcknowledgements, ChunkUploadPriority, ChunkUploadToken,
+    DebugWorldPlugin, ModelWitnessEvidence, ModelWitnessManifestRecord, ModelWitnessRequest,
+    ModelWorkloadMetrics, PresentedFrameAck, PresentedFrameGate, RenderViewCohort,
+    TargetRenderExpectation, TransparentSortMetrics, TransparentWitnessEvidence,
 };
 use server_position::SAFE_SERVER_HEIGHT;
 use sha2::{Digest, Sha256};
@@ -2047,6 +2050,7 @@ fn run(args: args::ClientArgs) -> Result<()> {
         .insert_resource(ClientWorld::new(Arc::clone(&runtime_assets)))
         .insert_resource(WorldClock::default())
         .insert_resource(WeatherState::default())
+        .insert_resource(AtmosphereFrame::default())
         .insert_resource(startup_biome_tints(&runtime_assets))
         .insert_resource(ChunkTextureAssets::new(runtime_assets))
         .insert_resource(CaveVisibilityCache::default())
@@ -2065,6 +2069,7 @@ fn run(args: args::ClientArgs) -> Result<()> {
             args.require_transparent_presentation,
         ))
         .add_plugins((
+            AtmospherePlugin,
             DebugWorldPlugin::new(GPU_UPLOAD_BUDGET_PER_FRAME),
             FlyCameraPlugin::new(args.auto_fly),
         ))
@@ -2077,6 +2082,7 @@ fn run(args: args::ClientArgs) -> Result<()> {
                 poll_transparent_witness_request,
                 poll_model_witness_request,
                 drive_world_stream,
+                update_atmosphere_frame,
                 refresh_cave_visibility,
                 emit_world_ready,
                 drive_model_witness,
@@ -2334,6 +2340,7 @@ fn drive_world_stream(
     acknowledgements: Res<ChunkUploadAcknowledgements>,
     model_witness_source: Res<ModelWitnessFileSource>,
     mut camera: Query<&mut Transform, With<FlyCamera>>,
+    time: Res<Time<Real>>,
 ) {
     let AppWorldState {
         mut client_world,
@@ -2373,7 +2380,7 @@ fn drive_world_stream(
         stream.take_committed_controls()
     };
     for control in controls {
-        if apply_environment_control(control, &mut clock, &mut weather) {
+        if apply_environment_control(control, &mut clock, &mut weather, time.elapsed_secs_f64()) {
             continue;
         }
         let _ = acceptance.observe_committed_full_view_control(&control);

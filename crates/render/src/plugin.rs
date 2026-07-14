@@ -63,8 +63,9 @@ use bevy::{
 use world::SubChunkKey;
 
 use crate::{
-    ChunkMesh, PackedBiomeRecord, PackedLiquidQuad, PackedModelDrawRef, PackedModelRef, PackedQuad,
-    PackedQuadLighting,
+    AtmosphereFrame, AtmospherePlugin, ChunkMesh, PackedBiomeRecord, PackedLiquidQuad,
+    PackedModelDrawRef, PackedModelRef, PackedQuad, PackedQuadLighting,
+    atmosphere_render::AtmosphereGpu,
 };
 
 const CHUNK_SHADER_HANDLE: Handle<Shader> = uuid_handle!("b5664c91-763f-4e5c-9310-d12659f70cd4");
@@ -4111,6 +4112,9 @@ impl DebugWorldPlugin {
 
 impl Plugin for DebugWorldPlugin {
     fn build(&self, app: &mut App) {
+        if !app.is_plugin_added::<AtmospherePlugin>() {
+            app.add_plugins(AtmospherePlugin);
+        }
         app.init_resource::<ChunkRenderQueue>()
             .init_resource::<ChunkUploadAcknowledgements>()
             .init_resource::<PresentedFrameGate>()
@@ -4524,6 +4528,16 @@ impl FromWorld for ChunkPipeline {
                         ty: BufferBindingType::Storage { read_only: true },
                         has_dynamic_offset: false,
                         min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 15,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: Some(AtmosphereFrame::min_size()),
                     },
                     count: None,
                 },
@@ -5060,6 +5074,7 @@ struct ChunkBindGroupBuffers {
     geometry_streams: BufferId,
     transparent_refs: BufferId,
     biome_tints: BufferId,
+    atmosphere: BufferId,
     biome_tint_table: ChunkBiomeTintResourceIdentity,
     textures: ChunkTextureAssetIdentity,
 }
@@ -7960,6 +7975,7 @@ fn prepare_chunk_bind_group(
     texture_assets: Res<ChunkGpuTextureAssets>,
     clock: Res<ChunkGpuAnimationClock>,
     biome_tints: Res<ChunkGpuBiomeTints>,
+    atmosphere: Res<AtmosphereGpu>,
     mut arena: ResMut<ChunkGpuArena>,
 ) {
     let Some(texture_assets) = texture_assets.prepared.as_ref() else {
@@ -7990,6 +8006,7 @@ fn prepare_chunk_bind_group(
         geometry_streams: arena.geometry_stream_buffer.id(),
         transparent_refs: arena.transparent_ref_buffer.id(),
         biome_tints: biome_tints.buffer.id(),
+        atmosphere: atmosphere.buffer.id(),
         biome_tint_table: biome_tints.identity,
         textures: texture_assets.identity,
     };
@@ -8074,6 +8091,10 @@ fn prepare_chunk_bind_group(
             BindGroupEntry {
                 binding: 14,
                 resource: arena.transparent_ref_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 15,
+                resource: atmosphere.buffer.as_entire_binding(),
             },
         ],
     );

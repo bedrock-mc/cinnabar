@@ -9,7 +9,7 @@ const SHADER: &str = include_str!("../src/liquid.wgsl");
 fn shader_for_naga() -> String {
     SHADER.replacen(
         "#import bevy_render::view::View",
-        "struct View { clip_from_world: mat4x4<f32>, }",
+        "struct View { clip_from_world: mat4x4<f32>, world_position: vec3<f32>, }",
         1,
     )
 }
@@ -32,8 +32,8 @@ fn liquid_shader_parses_validates_and_uses_shared_address_contract() {
     .validate(&module)
     .expect("validate liquid WGSL");
 
-    assert_eq!(shader.matches("@group(0) @binding(").count(), 15);
-    for binding in 0..=14 {
+    assert_eq!(shader.matches("@group(0) @binding(").count(), 16);
+    for binding in 0..=15 {
         assert!(shader.contains(&format!("@group(0) @binding({binding})")));
     }
     assert!(shader.contains("struct TransparentDrawRef"));
@@ -218,9 +218,8 @@ fn liquid_shader_preserves_straight_alpha_animation_tint_and_light() {
     assert!(SHADER.contains("textureSampleGrad(block_textures_page_1"));
     assert!(SHADER.contains("mix(current_sample, next_sample, in.frame_blend)"));
     assert!(SHADER.contains("out.water_tint = unpack_linear_rgb10(tint.water)"));
-    assert!(
-        SHADER.contains("return vec4(sampled.rgb * in.water_tint * in.light_factor, sampled.a)")
-    );
+    assert!(SHADER.contains("let colour = sampled.rgb * in.water_tint * in.light_factor"));
+    assert!(SHADER.contains("apply_distance_fog(colour, in.world_position)"));
     assert!(!SHADER.contains("sampled.rgb * sampled.a"));
     assert!(!SHADER.contains("sampled.a <"));
 }

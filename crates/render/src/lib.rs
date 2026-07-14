@@ -1,5 +1,7 @@
 //! Packed chunk meshing and Bevy rendering for the Bedrock client.
 
+mod atmosphere;
+mod atmosphere_render;
 mod biome;
 mod color;
 mod lighting;
@@ -7,6 +9,8 @@ mod liquid;
 mod mesh;
 mod plugin;
 
+pub use atmosphere::{AtmosphereFrame, BEDROCK_DAY_TICKS};
+pub use atmosphere_render::AtmospherePlugin;
 pub use biome::PackedBiomeRecord;
 pub use color::debug_color;
 pub use lighting::{

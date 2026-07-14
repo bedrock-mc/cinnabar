@@ -10,6 +10,11 @@ struct BiomeTintGpu {
 }
 struct TransparentDrawRef { liquid_record_index: u32, metadata_index: u32 }
 struct FrameSample { current: u32, next: u32, blend: f32 }
+struct AtmosphereUniform {
+    sun_direction_daylight: vec4<f32>, moon_direction_phase: vec4<f32>,
+    sky_zenith_rain: vec4<f32>, sky_horizon_thunder: vec4<f32>,
+    fog_color_start: vec4<f32>, fog_end_time: vec4<f32>,
+}
 
 // These literal tables are the GPU half of the packed-liquid stream contract.
 // Four entries per face in Face's numeric order, then packed corner order.
@@ -55,6 +60,7 @@ const LIQUID_DEPTH_WRITE_BIT: u32 = 1u << 31u;
 @group(0) @binding(12) var<storage, read> model_templates: array<u32>;
 @group(0) @binding(13) var<storage, read> geometry_streams: array<u32>;
 @group(0) @binding(14) var<storage, read> transparent_refs: array<TransparentDrawRef>;
+@group(0) @binding(15) var<uniform> atmosphere: AtmosphereUniform;
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
@@ -65,6 +71,7 @@ struct VertexOutput {
     @location(4) @interpolate(flat) water_tint: vec3<f32>,
     @location(5) light_factor: f32,
     @location(6) @interpolate(flat) depth_write_route: u32,
+    @location(7) world_position: vec3<f32>,
 }
 
 fn animation_sample(material: MaterialGpu) -> FrameSample {
@@ -214,6 +221,7 @@ fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutp
     out.water_tint = unpack_linear_rgb10(tint.water);
     out.light_factor = max(block_light, sky_light) / 15.0 * (1.0 - ao * 0.12);
     out.depth_write_route = packed_material >> 31u;
+    out.world_position = world_position;
     return out;
 }
 
@@ -251,6 +259,12 @@ fn sample_texture_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f
     return textureSampleGrad(block_textures_page_1, block_sampler, uv, layer, dx, dy);
 }
 
+fn apply_distance_fog(colour: vec3<f32>, world_position: vec3<f32>) -> vec3<f32> {
+    let distance_to_camera = distance(world_position, view.world_position);
+    let fog = smoothstep(atmosphere.fog_color_start.w, atmosphere.fog_end_time.x, distance_to_camera);
+    return mix(colour, atmosphere.fog_color_start.rgb, fog);
+}
+
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if (in.depth_write_route != 0u) { discard; }
@@ -262,7 +276,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         let next_sample = sample_texture_ref(in.next_texture, in.uv, dx, dy);
         sampled = mix(current_sample, next_sample, in.frame_blend);
     }
-    return vec4(sampled.rgb * in.water_tint * in.light_factor, sampled.a);
+    let colour = sampled.rgb * in.water_tint * in.light_factor;
+    // The background is fogged by the same transfer, so preserving source
+    // alpha composes to one fog application instead of double-counting it.
+    return vec4(apply_distance_fog(colour, in.world_position), sampled.a);
 }
 
 @fragment
@@ -276,5 +293,5 @@ fn fragment_depth(in: VertexOutput) -> @location(0) vec4<f32> {
         let next_sample = sample_texture_ref(in.next_texture, in.uv, dx, dy);
         sampled = mix(current_sample, next_sample, in.frame_blend);
     }
-    return vec4(sampled.rgb * in.light_factor, 1.0);
+    return vec4(apply_distance_fog(sampled.rgb * in.light_factor, in.world_position), 1.0);
 }

@@ -8,6 +8,11 @@ struct BiomeTintGpu {
     grass: u32, foliage: u32, birch: u32, evergreen: u32,
     dry_foliage: u32, water: u32, flags: u32, padding: u32,
 }
+struct AtmosphereUniform {
+    sun_direction_daylight: vec4<f32>, moon_direction_phase: vec4<f32>,
+    sky_zenith_rain: vec4<f32>, sky_horizon_thunder: vec4<f32>,
+    fog_color_start: vec4<f32>, fog_end_time: vec4<f32>,
+}
 
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> cube_quads: array<u32>;
@@ -23,6 +28,7 @@ struct BiomeTintGpu {
 @group(0) @binding(11) var<uniform> clock: AnimationClockGpu;
 @group(0) @binding(12) var<storage, read> model_templates: array<u32>;
 @group(0) @binding(13) var<storage, read> geometry_streams: array<u32>;
+@group(0) @binding(15) var<uniform> atmosphere: AtmosphereUniform;
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
@@ -37,6 +43,7 @@ struct VertexOutput {
     @location(8) @interpolate(flat) visible: u32,
     @location(9) light_factor: f32,
     @location(10) @interpolate(flat) two_sided: u32,
+    @location(11) world_position: vec3<f32>,
 }
 
 struct FrameSample { current: u32, next: u32, blend: f32 }
@@ -55,6 +62,7 @@ fn invisible_vertex() -> VertexOutput {
     invisible.visible = 0u;
     invisible.light_factor = 0.0;
     invisible.two_sided = 0u;
+    invisible.world_position = vec3(0.0);
     return invisible;
 }
 
@@ -200,6 +208,7 @@ fn vertex(
     out.visible = is_visible;
     out.light_factor = max(block_light, sky_light) / 15.0 * (1.0 - ao * 0.12);
     out.two_sided = select(0u, 1u, (quad_flags & 8u) != 0u);
+    out.world_position = world;
     return out;
 }
 
@@ -245,6 +254,12 @@ fn sample_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> 
     return textureSampleGrad(block_textures_page_1, block_sampler, uv, layer, dx, dy);
 }
 
+fn apply_distance_fog(colour: vec3<f32>, world_position: vec3<f32>) -> vec3<f32> {
+    let distance_to_camera = distance(world_position, view.world_position);
+    let fog = smoothstep(atmosphere.fog_color_start.w, atmosphere.fog_end_time.x, distance_to_camera);
+    return mix(colour, atmosphere.fog_color_start.rgb, fog);
+}
+
 @fragment
 fn fragment(
     in: VertexOutput,
@@ -260,7 +275,7 @@ fn fragment(
     }
     if (sampled.a < 0.5) { discard; }
     let colour = tinted(sampled, in.material_flags, in.biome_record, in.local_position);
-    return vec4(colour.rgb * in.light_factor, colour.a);
+    return vec4(apply_distance_fog(colour.rgb * in.light_factor, in.world_position), colour.a);
 }
 
 @fragment
@@ -277,5 +292,7 @@ fn fragment_blend(
         sampled = mix(sampled, sample_ref(in.next_texture, in.uv, dx, dy), in.frame_blend);
     }
     let colour = tinted(sampled, in.material_flags, in.biome_record, in.local_position);
-    return vec4(colour.rgb * in.light_factor, colour.a);
+    // The background is fogged by the same transfer, so preserving source
+    // alpha composes to one fog application instead of double-counting it.
+    return vec4(apply_distance_fog(colour.rgb * in.light_factor, in.world_position), colour.a);
 }

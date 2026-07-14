@@ -950,6 +950,17 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     the `--light-registry` rebuild command. Solver integration, WorldStream
     scheduling, mesh baking, GPU/shader consumption, sky/fog/cloud rendering,
     and visual acceptance remain open.
+  - [x] Derive a deterministic per-frame atmosphere snapshot from the app-owned
+    clock and weather state: real elapsed time advances unlocked sessions at 20
+    ticks per second, non-negative stop times freeze exactly, signed times use
+    Euclidean day and moon-phase wrapping, and rain/thunder remain bounded.
+    Extract one stable 96-byte uniform, render the first procedural sky/sun/moon
+    pass at reversed-Z far depth with per-view MSAA specialization, and apply
+    camera-distance fog to chunk, model, and liquid paths without adding storage
+    bindings or per-frame texture/bind-group churn. These checked curves and
+    procedural disks establish the integration slice, not vanilla parity;
+    pinned asset-backed sun/moon ingestion, clouds, precipitation visuals,
+    underwater/lava medium fog, and live reference acceptance remain open.
 
 Perf budget carried from Phase 0 gate; add: full remesh of view distance after teleport ≤ 2s.
 

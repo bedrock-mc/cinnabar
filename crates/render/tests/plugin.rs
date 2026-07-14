@@ -692,7 +692,7 @@ fn opaque_model_pipeline_selects_its_fragment_entry_point_explicitly() {
 fn crossed_model_shader_parses_validates_and_has_one_shared_binding_shape() {
     let shader = include_str!("../src/model.wgsl").replacen(
         "#import bevy_render::view::View",
-        "struct View { clip_from_world: mat4x4<f32>, }",
+        "struct View { clip_from_world: mat4x4<f32>, world_position: vec3<f32>, }",
         1,
     );
     let module = naga::front::wgsl::parse_str(&shader).expect("parse packed model WGSL");
@@ -702,10 +702,11 @@ fn crossed_model_shader_parses_validates_and_has_one_shared_binding_shape() {
     )
     .validate(&module)
     .expect("validate packed model WGSL");
-    assert_eq!(shader.matches("@group(0) @binding(").count(), 14);
+    assert_eq!(shader.matches("@group(0) @binding(").count(), 15);
     for binding in 0..=13 {
         assert!(shader.contains(&format!("@group(0) @binding({binding})")));
     }
+    assert!(shader.contains("@group(0) @binding(15)"));
 }
 
 #[test]
@@ -732,7 +733,9 @@ fn transparent_model_pipeline_blends_without_depth_write_or_alpha_cutoff() {
         .find("fn fragment_blend(")
         .expect("transparent model fragment entry point");
     let blend_body = &shader[blend_start..];
-    assert!(blend_body.contains("return vec4(colour.rgb * in.light_factor, colour.a);"));
+    assert!(blend_body.contains(
+        "return vec4(apply_distance_fog(colour.rgb * in.light_factor, in.world_position), colour.a);"
+    ));
     assert!(
         shader.contains("return vec4(sampled.rgb, sampled.a);")
             && shader
@@ -1506,7 +1509,7 @@ fn upload_budget_is_nearest_first_and_queue_supports_update_remove() {
 fn packed_chunk_shader_parses_and_validates() {
     let shader = include_str!("../src/chunk.wgsl").replacen(
         "#import bevy_render::view::View",
-        "struct View { clip_from_world: mat4x4<f32>, }",
+        "struct View { clip_from_world: mat4x4<f32>, world_position: vec3<f32>, }",
         1,
     );
     let module = naga::front::wgsl::parse_str(&shader).expect("parse packed chunk WGSL");
@@ -1517,13 +1520,14 @@ fn packed_chunk_shader_parses_and_validates() {
     .validate(&module)
     .expect("validate packed chunk WGSL");
 
-    assert_eq!(shader.matches("@group(0) @binding(").count(), 12);
+    assert_eq!(shader.matches("@group(0) @binding(").count(), 13);
     for binding in 0..=11 {
         assert!(
             shader.contains(&format!("@group(0) @binding({binding})")),
             "packed chunk shader is missing global texture binding {binding}"
         );
     }
+    assert!(shader.contains("@group(0) @binding(15)"));
     assert_eq!(shader.matches("textureSample(").count(), 0);
     assert_eq!(shader.matches("textureSampleGrad(").count(), 2);
     assert!(shader.contains("fn sample_texture_ref("));
@@ -1683,8 +1687,8 @@ fn packed_chunk_pipeline_family_shares_one_opaque_depth_writing_phase() {
     assert!(plugin.contains("layout: vec![bind_group_layout.clone()]"));
     assert!(plugin.contains("blend: None"));
     assert!(plugin.contains("depth_write_enabled: true"));
-    assert_eq!(plugin.matches("binding: ").count(), 30);
-    for binding in 0..=14 {
+    assert_eq!(plugin.matches("binding: ").count(), 32);
+    for binding in 0..=15 {
         assert_eq!(
             plugin.matches(&format!("binding: {binding},")).count(),
             2,
