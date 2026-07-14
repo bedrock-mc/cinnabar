@@ -884,6 +884,8 @@ func TestChiseledBookshelfClassificationRequiresExactTypedSelectors(t *testing.T
 		sourceState("minecraft:chiseled_bookshelf", intState("books_stored", 0), intState("direction", 4)),
 		sourceState("minecraft:chiseled_bookshelf", byteState("books_stored", 0), intState("direction", 0)),
 		sourceState("minecraft:chiseled_bookshelf", intState("books_stored", 0), byteState("direction", 0)),
+		sourceState("minecraft:chiseled_bookshelf", intState("minecraft:books_stored", 0), intState("direction", 0)),
+		sourceState("minecraft:chiseled_bookshelf", intState("books_stored", 0), intState("minecraft:direction", 0)),
 		sourceState("minecraft:chiseled_bookshelf", intState("books_stored", 0)),
 		sourceState("minecraft:chiseled_bookshelf", intState("books_stored", 0), intState("direction", 0), intState("extra", 0)),
 	}
@@ -939,17 +941,36 @@ func TestChiseledBookshelfSelectorProductRequiresCanonicalIdsAndUnitCollision(t 
 		}
 	}
 
-	for _, mutate := range []func([]Record){
-		func(records []Record) { records[0].SequentialID++ },
-		func(records []Record) { records[0].Flags = 0 },
-		func(records []Record) { records[0].CollisionSeed.Boxes[0].MaxY-- },
+	aliased := append([]Record(nil), records...)
+	for index := range aliased {
+		state := strings.ReplaceAll(string(aliased[index].StateJSON), `"books_stored"`, `"minecraft:books_stored"`)
+		state = strings.ReplaceAll(state, `"direction"`, `"minecraft:direction"`)
+		aliased[index].StateJSON = []byte(state)
+	}
+	if err := validateSelectorCardinality(aliased); err == nil {
+		t.Error("complete product with namespace-prefixed selector aliases was accepted")
+	}
+
+	for _, mutation := range []struct {
+		name   string
+		mutate func([]Record)
+	}{
+		{"sequential ID", func(records []Record) { records[0].SequentialID++ }},
+		{"flags", func(records []Record) { records[0].Flags = 0 }},
+		{"unit bounds", func(records []Record) { records[0].CollisionSeed.Boxes[0].MaxY-- }},
+		{"shape ID", func(records []Record) { records[0].CollisionSeed.ShapeID = 2 }},
+		{"confidence", func(records []Record) {
+			records[0].CollisionSeed.Confidence = CollisionConfidenceReviewedVisibleBounds
+		}},
 	} {
-		broken := append([]Record(nil), records...)
-		broken[0].CollisionSeed.Boxes = append([]CollisionBox(nil), records[0].CollisionSeed.Boxes...)
-		mutate(broken)
-		if err := validateSelectorCardinality(broken); err == nil {
-			t.Fatal("invalid chiseled bookshelf product was accepted")
-		}
+		t.Run(mutation.name, func(t *testing.T) {
+			broken := append([]Record(nil), records...)
+			broken[0].CollisionSeed.Boxes = append([]CollisionBox(nil), records[0].CollisionSeed.Boxes...)
+			mutation.mutate(broken)
+			if err := validateSelectorCardinality(broken); err == nil {
+				t.Fatal("invalid chiseled bookshelf product was accepted")
+			}
+		})
 	}
 }
 

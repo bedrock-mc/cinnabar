@@ -678,9 +678,15 @@ fn chiseled_bookshelf_material_descriptors(
     {
         return None;
     }
-    let front = pack.terrain.get_exact_pair("chiseled_bookshelf_front")?;
-    let side = pack.terrain.get_exact_static("chiseled_bookshelf_side")?;
-    let top = pack.terrain.get_exact_static("chiseled_bookshelf_top")?;
+    let front = pack
+        .terrain
+        .get_exact_pair_no_tint("chiseled_bookshelf_front")?;
+    let side = pack
+        .terrain
+        .get_exact_static_no_tint("chiseled_bookshelf_side")?;
+    let top = pack
+        .terrain
+        .get_exact_static_no_tint("chiseled_bookshelf_top")?;
     let paths = [front[0], front[1], side, top];
     if paths.into_iter().collect::<BTreeSet<_>>().len() != 4 {
         return None;

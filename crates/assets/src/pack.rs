@@ -176,14 +176,29 @@ impl TerrainTextureMap {
         }
     }
 
-    /// Returns a terrain path only when the source is a scalar/static entry.
-    /// State-sensitive model families use this instead of silently selecting
-    /// variant zero from an array.
+    /// Returns an exact two-variant route only when neither source carries
+    /// overlay tint metadata.
     #[must_use]
-    pub(crate) fn get_exact_static(&self, key: &str) -> Option<&str> {
+    pub(crate) fn get_exact_pair_no_tint(&self, key: &str) -> Option<[&str; 2]> {
         match self.entries.get(key)? {
-            TerrainPaths::Static { path, .. } => Some(path),
-            TerrainPaths::Variants { .. } => None,
+            TerrainPaths::Variants {
+                paths,
+                requires_tint: false,
+            } if paths.len() == 2 => Some([paths[0].as_ref(), paths[1].as_ref()]),
+            TerrainPaths::Static { .. } | TerrainPaths::Variants { .. } => None,
+        }
+    }
+
+    /// Returns an exact static route only when it carries no overlay tint
+    /// metadata.
+    #[must_use]
+    pub(crate) fn get_exact_static_no_tint(&self, key: &str) -> Option<&str> {
+        match self.entries.get(key)? {
+            TerrainPaths::Static {
+                path,
+                requires_tint: false,
+            } => Some(path),
+            TerrainPaths::Static { .. } | TerrainPaths::Variants { .. } => None,
         }
     }
 
@@ -243,6 +258,9 @@ impl BlockTextureMap {
         let TextureValue::Faces(faces) = self.entries.get(block_name)? else {
             return None;
         };
+        if faces.side.is_some() {
+            return None;
+        }
         Some([
             faces.west.as_deref()?,
             faces.east.as_deref()?,

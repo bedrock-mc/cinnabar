@@ -8054,6 +8054,50 @@ fn compiler_chiseled_bookshelf_admission_fails_closed_as_a_complete_family() {
 }
 
 #[test]
+fn compiler_chiseled_bookshelf_rejects_overlay_metadata() {
+    let records = chiseled_bookshelf_records();
+    for (label, terrain) in [
+        (
+            "front pair",
+            r##"{"texture_data":{"chiseled_bookshelf_front":{"textures":[{"path":"textures/blocks/chiseled_bookshelf_empty","overlay_color":"#ffffff"},"textures/blocks/chiseled_bookshelf_occupied"]},"chiseled_bookshelf_side":{"textures":"textures/blocks/chiseled_bookshelf_side"},"chiseled_bookshelf_top":{"textures":"textures/blocks/chiseled_bookshelf_top"}}}"##,
+        ),
+        (
+            "side static",
+            r##"{"texture_data":{"chiseled_bookshelf_front":{"textures":["textures/blocks/chiseled_bookshelf_empty","textures/blocks/chiseled_bookshelf_occupied"]},"chiseled_bookshelf_side":{"textures":{"path":"textures/blocks/chiseled_bookshelf_side","overlay_color":"#ffffff"}},"chiseled_bookshelf_top":{"textures":"textures/blocks/chiseled_bookshelf_top"}}}"##,
+        ),
+        (
+            "top static",
+            r##"{"texture_data":{"chiseled_bookshelf_front":{"textures":["textures/blocks/chiseled_bookshelf_empty","textures/blocks/chiseled_bookshelf_occupied"]},"chiseled_bookshelf_side":{"textures":"textures/blocks/chiseled_bookshelf_side"},"chiseled_bookshelf_top":{"textures":{"path":"textures/blocks/chiseled_bookshelf_top","overlay_color":"#ffffff"}}}}"##,
+        ),
+    ] {
+        let malformed = tempfile::tempdir().expect("create overlay terrain fixture");
+        write_chiseled_bookshelf_pack(malformed.path(), Some(terrain));
+        let compiled = compile_pack(malformed.path(), &records).expect("compile overlay terrain");
+        assert!(
+            records.iter().all(|record| {
+                compiled.visuals[record.sequential_id as usize].kind == VisualKind::Diagnostic
+            }),
+            "{label} overlay metadata was accepted"
+        );
+    }
+}
+
+#[test]
+fn compiler_chiseled_bookshelf_rejects_extra_side_fallback() {
+    let records = chiseled_bookshelf_records();
+    let fallback = tempfile::tempdir().expect("create extra-side block fixture");
+    write_chiseled_bookshelf_pack(fallback.path(), None);
+    write_file(
+        fallback.path().join("blocks.json"),
+        r#"{"chiseled_bookshelf":{"textures":{"down":"chiseled_bookshelf_top","up":"chiseled_bookshelf_top","north":"chiseled_bookshelf_front","east":"chiseled_bookshelf_side","south":"chiseled_bookshelf_side","west":"chiseled_bookshelf_side","side":"chiseled_bookshelf_side"}}}"#,
+    );
+    let compiled = compile_pack(fallback.path(), &records).expect("compile extra-side block map");
+    assert!(records.iter().all(|record| {
+        compiled.visuals[record.sequential_id as usize].kind == VisualKind::Diagnostic
+    }));
+}
+
+#[test]
 #[ignore = "requires PINNED_VANILLA_PACK pointing at the ignored pinned vanilla resource pack"]
 fn compiler_real_pinned_pack_admits_all_exact_chiseled_bookshelf_records() {
     let pack = std::env::var_os("PINNED_VANILLA_PACK")

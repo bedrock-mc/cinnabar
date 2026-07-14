@@ -960,9 +960,16 @@ func collisionSeedIsUnit(seed CollisionSeed) bool {
 	return box == (CollisionBox{MaxX: 100_000_000, MaxY: 100_000_000, MaxZ: 100_000_000})
 }
 
+func chiseledBookshelfCollisionIsExact(seed CollisionSeed) bool {
+	return seed.ShapeID == 1 &&
+		seed.Confidence == CollisionConfidenceCollisionOnly &&
+		len(seed.Boxes) == 1 &&
+		seed.Boxes[0] == (CollisionBox{MaxX: 100_000_000, MaxY: 100_000_000, MaxZ: 100_000_000})
+}
+
 func finalizeGeometryFacts(record *Record) {
 	if record.ModelFamily == ModelFamilyChiseledBookshelf {
-		if collisionSeedIsUnit(record.CollisionSeed) {
+		if chiseledBookshelfCollisionIsExact(record.CollisionSeed) {
 			record.Flags = flagCubeGeometry | flagOccludesFullFace
 			record.FaceCoverage = 0x3f
 		} else {
@@ -1311,7 +1318,7 @@ func chiseledBookshelfSelectors(properties []StateProperty) (books uint32, direc
 	}
 	seenBooks, seenDirection := false, false
 	for _, property := range properties {
-		name := strings.TrimPrefix(property.Name, "minecraft:")
+		name := property.Name
 		if property.Value.Kind != ScalarInt {
 			return 0, 0, fmt.Errorf("chiseled_bookshelf %s must be an int selector", name)
 		}
@@ -1336,6 +1343,32 @@ func chiseledBookshelfSelectors(properties []StateProperty) (books uint32, direc
 		return 0, 0, fmt.Errorf("chiseled_bookshelf requires books_stored and direction selectors")
 	}
 	return books, direction, nil
+}
+
+func exactCanonicalInt(raw json.RawMessage, maximum int32) (uint32, bool) {
+	var tagged map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &tagged); err != nil || len(tagged) != 2 {
+		return 0, false
+	}
+	var kind string
+	if err := json.Unmarshal(tagged["type"], &kind); err != nil || kind != "int" {
+		return 0, false
+	}
+	var value int32
+	if err := json.Unmarshal(tagged["value"], &value); err != nil || value < 0 || value > maximum {
+		return 0, false
+	}
+	return uint32(value), true
+}
+
+func chiseledBookshelfCanonicalSelectors(stateJSON []byte) (books uint32, direction uint32, ok bool) {
+	var state map[string]json.RawMessage
+	if err := json.Unmarshal(stateJSON, &state); err != nil || len(state) != 2 {
+		return 0, 0, false
+	}
+	books, booksOK := exactCanonicalInt(state["books_stored"], 63)
+	direction, directionOK := exactCanonicalInt(state["direction"], 3)
+	return books, direction, booksOK && directionOK
 }
 
 func signOrientation(name string, properties []StateProperty) (uint32, error) {
@@ -1503,12 +1536,13 @@ func validateChiseledBookshelfProduct(records []Record) error {
 		if record.ModelFamily != ModelFamilyChiseledBookshelf || record.ContributorRole != ContributorPrimary {
 			return fmt.Errorf("chiseled_bookshelf state %d has invalid family or role", record.SequentialID)
 		}
-		if record.Flags != flagCubeGeometry|flagOccludesFullFace || !collisionSeedIsUnit(record.CollisionSeed) {
+		if record.Flags != flagCubeGeometry|flagOccludesFullFace || !chiseledBookshelfCollisionIsExact(record.CollisionSeed) {
 			return fmt.Errorf("chiseled_bookshelf state %d lacks exact solid unit geometry evidence", record.SequentialID)
 		}
+		canonicalBooks, canonicalDirection, hasCanonicalState := chiseledBookshelfCanonicalSelectors(record.StateJSON)
 		books, hasBooks := record.ModelState.Get(ModelStateConnections)
 		direction, hasDirection := record.ModelState.Get(ModelStateOrientation)
-		if !hasBooks || !hasDirection || record.ModelState.Mask != uint8(1<<(ModelStateOrientation-1)|1<<(ModelStateConnections-1)) || books > 63 || direction > 3 {
+		if !hasCanonicalState || canonicalBooks != books || canonicalDirection != direction || !hasBooks || !hasDirection || record.ModelState.Mask != uint8(1<<(ModelStateOrientation-1)|1<<(ModelStateConnections-1)) || books > 63 || direction > 3 {
 			return fmt.Errorf("chiseled_bookshelf state %d has invalid typed selector projection", record.SequentialID)
 		}
 		if record.SequentialID != 1605+books*4+direction {

@@ -600,6 +600,10 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       is `3e0a67718b6368d8b5f7755e9e49a1241233f21bcea8724a9163febb4f1b1d92`;
       the ignored compiled pack SHA-256 is
       `df82f3408ee5805bcd536a484b6d0e8831eb972d76225c17eda005695e4d982c`.
+      - [ ] Live presentation acceptance: capture Cinnabar from the matching
+        native-gallery viewpoints and require two consecutive exact
+        GPU-completed model-stream witnesses. Keep both native and Cinnabar
+        screenshots local-only; do not commit Mojang-derived imagery.
     - [ ] Slab/stair native and packed-GPU live acceptance: capture all five
       fixed Cinnabar poses through native `%TEMP%` screenshots and require two
       consecutive exact GPU-completed model-stream witnesses. Automated gallery
