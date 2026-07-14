@@ -179,7 +179,7 @@ impl TerrainTextureMap {
     /// Returns an exact two-variant route only when neither source carries
     /// overlay tint metadata.
     #[must_use]
-    pub(crate) fn get_exact_pair_no_tint(&self, key: &str) -> Option<[&str; 2]> {
+    pub fn get_exact_pair_no_tint(&self, key: &str) -> Option<[&str; 2]> {
         match self.entries.get(key)? {
             TerrainPaths::Variants {
                 paths,
@@ -278,6 +278,23 @@ impl BlockTextureMap {
             faces.north.as_deref()?,
             faces.south.as_deref()?,
         ])
+    }
+
+    /// Returns the exact six-face vanilla cake routing and rejects all
+    /// fallback, alias, missing, or additional face keys.
+    #[must_use]
+    pub fn get_exact_cake_faces(&self) -> Option<[&str; 6]> {
+        let faces = self.get_exact_faces("cake")?;
+        (faces
+            == [
+                "cake_west",
+                "cake_side",
+                "cake_bottom",
+                "cake_top",
+                "cake_side",
+                "cake_side",
+            ])
+        .then_some(faces)
     }
 
     /// Returns the exact vanilla pillar form: down/up caps plus one horizontal

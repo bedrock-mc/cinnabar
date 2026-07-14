@@ -303,11 +303,24 @@ the ignored integrated blob SHA-256 is
 `ddee460c3bad5d14eb81216dc669389813c6a1a805de398de2b95f56bc87bc7d`.
 The matching-view Cinnabar two-frame live presentation witness remains open.
 
+The subsequent cake run removes exactly IDs 14,055-14,061 with zero additions,
+leaving 2,456 diagnostics including air. The exact seven-state typed product,
+formula IDs, shapes 89-95, literal terrain pairs, and native west-cut direction
+fail closed atomically. Seven immutable six-quad templates advance only minimum
+X by 1/8 per bite; bite zero uses `cake_side` on west and bites one through six
+use `cake_inner`. Sequential/hash rendering covers every bite, every subchunk
+boundary, opaque adjacency, cave openness, additional water, and the dense
+4,096-reference/24,576-draw-light bound. Registry SHA-256 is
+`050cf1e79f9505cfcb240b1eb6627df95451e062e77b368b6d2700c21e68c3e6`;
+the ignored integrated blob SHA-256 is
+`e800994b4bb39e1afc3e77207b510998289b4be7684eb4ac38a0aea677931e94`.
+The matching-view Cinnabar two-frame live presentation witness remains open.
+
 The reviewed baseline cumulatively records the already-landed
 door/trapdoor/wall removals plus the pressure-plate, fence-gate, pane/fence,
 carpet, button, huge-mushroom, glow-lichen/sculk-vein, and ordinary
 stained-glass, copper-grate, chiseled-bookshelf, resin-clump, selector-alias
-opaque-cube, and cactus tranches,
+opaque-cube, cactus, and cake tranches,
 rather than attributing all 7,350 removed IDs to one
 feature. This is a regression baseline, not a parity claim: each remaining
 family must reduce that exact set, and the final strict gate still requires zero

@@ -151,6 +151,99 @@ fn exact_side_caps_and_static_terrain_accessors_fail_closed() {
     }
 }
 
+#[test]
+fn exact_cake_faces_and_untinted_pairs_fail_closed() {
+    const TERRAIN: &str = r#"{"texture_data":{
+        "cake_bottom":{"textures":["textures/blocks/cake_bottom","textures/blocks/cake_bottom"]},
+        "cake_side":{"textures":["textures/blocks/cake_side","textures/blocks/cake_side"]},
+        "cake_top":{"textures":["textures/blocks/cake_top","textures/blocks/cake_top"]},
+        "cake_west":{"textures":["textures/blocks/cake_side","textures/blocks/cake_inner"]}
+    }}"#;
+    let valid = tempfile::tempdir().expect("valid cake pack");
+    write_pack(
+        valid.path(),
+        r#"{"format_version":[1,1,0],"cake":{"textures":{"down":"cake_bottom","east":"cake_side","north":"cake_side","south":"cake_side","up":"cake_top","west":"cake_west"}}}"#,
+        TERRAIN,
+        EMPTY_FLIPBOOKS,
+    );
+    let pack = read_pack(valid.path()).expect("read valid cake pack");
+    assert_eq!(
+        pack.blocks.get_exact_cake_faces(),
+        Some([
+            "cake_west",
+            "cake_side",
+            "cake_bottom",
+            "cake_top",
+            "cake_side",
+            "cake_side"
+        ])
+    );
+    assert_eq!(
+        pack.terrain.get_exact_pair_no_tint("cake_west"),
+        Some(["textures/blocks/cake_side", "textures/blocks/cake_inner"])
+    );
+
+    for (name, route) in [
+        ("scalar", r#""cake_side""#),
+        (
+            "side fallback",
+            r#"{"down":"cake_bottom","side":"cake_side","up":"cake_top","west":"cake_west"}"#,
+        ),
+        (
+            "missing face",
+            r#"{"down":"cake_bottom","east":"cake_side","north":"cake_side","up":"cake_top","west":"cake_west"}"#,
+        ),
+        (
+            "wrong route",
+            r#"{"down":"cake_bottom","east":"cake_side","north":"cake_side","south":"cake_side","up":"cake_top","west":"cake_side"}"#,
+        ),
+        (
+            "unknown key",
+            r#"{"down":"cake_bottom","east":"cake_side","north":"cake_side","south":"cake_side","up":"cake_top","west":"cake_west","sied":"cake_side"}"#,
+        ),
+    ] {
+        let directory = tempfile::tempdir().expect("invalid cake pack");
+        write_pack(
+            directory.path(),
+            &format!(r#"{{"cake":{{"textures":{route}}}}}"#),
+            TERRAIN,
+            EMPTY_FLIPBOOKS,
+        );
+        let pack = read_pack(directory.path())
+            .unwrap_or_else(|error| panic!("read {name} cake fixture: {error}"));
+        assert_eq!(pack.blocks.get_exact_cake_faces(), None, "{name}");
+    }
+
+    for (name, value) in [
+        ("static", r#""textures/blocks/cake_side""#),
+        ("singleton", r#"["textures/blocks/cake_side"]"#),
+        (
+            "three",
+            r#"["textures/blocks/cake_side","textures/blocks/cake_inner","textures/blocks/cake_inner"]"#,
+        ),
+        ("empty", r#"["","textures/blocks/cake_inner"]"#),
+        (
+            "tinted",
+            r##"[{"path":"textures/blocks/cake_side","overlay_color":"#ffffff"},"textures/blocks/cake_inner"]"##,
+        ),
+    ] {
+        let directory = tempfile::tempdir().expect("invalid cake terrain");
+        write_pack(
+            directory.path(),
+            r#"{"cake":{"textures":{"down":"cake_bottom","east":"cake_side","north":"cake_side","south":"cake_side","up":"cake_top","west":"cake_west"}}}"#,
+            &format!(r#"{{"texture_data":{{"cake_west":{{"textures":{value}}}}}}}"#),
+            EMPTY_FLIPBOOKS,
+        );
+        if let Ok(pack) = read_pack(directory.path()) {
+            assert_eq!(
+                pack.terrain.get_exact_pair_no_tint("cake_west"),
+                None,
+                "{name}"
+            );
+        }
+    }
+}
+
 fn registry_bytes(records: &[RegistryFixture<'_>]) -> Vec<u8> {
     let mut bytes = b"BREG1003".to_vec();
     bytes.extend_from_slice(&1001_u32.to_le_bytes());

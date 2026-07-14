@@ -1164,6 +1164,152 @@ func TestCactusProductRequiresExactIdsStateProjectionAndCollision(t *testing.T) 
 	}
 }
 
+func TestCakeClassificationRequiresExactTypedBiteCounter(t *testing.T) {
+	const wantMask = uint8(1 << (ModelStateGrowth - 1))
+	for bite := int32(0); bite < 7; bite++ {
+		record, err := classifyRecord(sourceState("minecraft:cake", intState("bite_counter", bite)))
+		if err != nil {
+			t.Fatalf("classify bite %d: %v", bite, err)
+		}
+		if record.ModelFamily != ModelFamilyCuboid || record.ContributorRole != ContributorPrimary {
+			t.Fatalf("bite %d family/role=%v/%v", bite, record.ModelFamily, record.ContributorRole)
+		}
+		if record.ModelState.Mask != wantMask {
+			t.Fatalf("bite %d model-state mask=%#x, want %#x", bite, record.ModelState.Mask, wantMask)
+		}
+		if got, ok := record.ModelState.Get(ModelStateGrowth); !ok || got != uint32(bite) {
+			t.Fatalf("bite %d growth=%d/%v", bite, got, ok)
+		}
+	}
+
+	invalid := []SourceState{
+		sourceState("minecraft:cake"),
+		sourceState("minecraft:cake", intState("bite_counter", -1)),
+		sourceState("minecraft:cake", intState("bite_counter", 7)),
+		sourceState("minecraft:cake", byteState("bite_counter", 1)),
+		sourceState("minecraft:cake", StateProperty{Name: "bite_counter", Value: TypedScalar{Kind: ScalarString, String: "1"}}),
+		sourceState("minecraft:cake", intState("minecraft:bite_counter", 1)),
+		sourceState("minecraft:cake", intState("bites", 1)),
+		sourceState("minecraft:cake", intState("bite_counter", 1), intState("extra", 0)),
+		sourceState("minecraft:cake", intState("bite_counter", 1), intState("bite_counter", 1)),
+	}
+	for index, state := range invalid {
+		if _, err := classifyRecord(state); err == nil {
+			t.Errorf("invalid cake selector fixture %d was accepted", index)
+		}
+	}
+
+	unrelated, err := classifyRecord(sourceState("minecraft:candle_cake", intState("bite_counter", 1)))
+	if err != nil {
+		t.Fatalf("classify unrelated cake: %v", err)
+	}
+	if unrelated.ModelFamily == ModelFamilyCuboid {
+		t.Fatal("non-exact cake name entered cake cuboid family")
+	}
+}
+
+func exactCakeRecords(t *testing.T) []Record {
+	t.Helper()
+	mins := [...]int32{6_250_000, 18_750_000, 31_250_000, 43_750_000, 56_250_000, 68_750_000, 81_250_000}
+	records := make([]Record, 0, len(mins))
+	for bite, minX := range mins {
+		record, err := classifyRecord(sourceState("minecraft:cake", intState("bite_counter", int32(bite))))
+		if err != nil {
+			t.Fatalf("classify bite %d: %v", bite, err)
+		}
+		record.SequentialID = 14055 + uint32(bite)
+		record.NetworkHash = 140_000 + uint32(bite)
+		record.Flags = 0
+		record.FaceCoverage = 0
+		record.CollisionSeed = CollisionSeed{
+			ShapeID:    uint16(89 + bite),
+			Confidence: CollisionConfidenceCollisionOnly,
+			Boxes: []CollisionBox{{
+				MinX: minX, MaxX: 93_750_000,
+				MinY: 0, MaxY: 50_000_000,
+				MinZ: 6_250_000, MaxZ: 93_750_000,
+			}},
+		}
+		record.Provenance = ProvenancePMMP | ProvenanceDragonfly | ProvenancePrismarine
+		records = append(records, record)
+	}
+	return records
+}
+
+func TestCakeProductRequiresExactIdsStateProjectionAndCollision(t *testing.T) {
+	records := exactCakeRecords(t)
+	if err := validateSelectorCardinality(records); err != nil {
+		t.Fatalf("valid cake product: %v", err)
+	}
+	forward, err := encode(records)
+	if err != nil {
+		t.Fatalf("encode forward: %v", err)
+	}
+	reversed := cloneRecords(records)
+	slices.Reverse(reversed)
+	backward, err := encode(reversed)
+	if err != nil {
+		t.Fatalf("encode reversed: %v", err)
+	}
+	if !bytes.Equal(forward, backward) {
+		t.Fatal("cake BREG encoding depends on source order")
+	}
+
+	mutations := []struct {
+		name   string
+		mutate func([]Record)
+	}{
+		{"missing state", func(records []Record) { records[0].StateJSON = []byte(`{}`) }},
+		{"aliased key", func(records []Record) {
+			records[0].StateJSON = []byte(`{"minecraft:bite_counter":{"type":"int","value":0}}`)
+		}},
+		{"wrong canonical type", func(records []Record) {
+			records[0].StateJSON = []byte(`{"bite_counter":{"type":"byte","value":0}}`)
+		}},
+		{"out of range", func(records []Record) {
+			records[0].StateJSON = []byte(`{"bite_counter":{"type":"int","value":7}}`)
+		}},
+		{"extra wrapper key", func(records []Record) {
+			records[0].StateJSON = []byte(`{"bite_counter":{"type":"int","value":0,"extra":0}}`)
+		}},
+		{"duplicate outer key", func(records []Record) {
+			records[0].StateJSON = []byte(`{"bite_counter":{"type":"int","value":0},"bite_counter":{"type":"int","value":0}}`)
+		}},
+		{"duplicate wrapper key", func(records []Record) {
+			records[0].StateJSON = []byte(`{"bite_counter":{"type":"int","type":"int","value":0}}`)
+		}},
+		{"extra canonical key", func(records []Record) {
+			records[0].StateJSON = []byte(`{"bite_counter":{"type":"int","value":0},"extra":{"type":"int","value":0}}`)
+		}},
+		{"model-state disagreement", func(records []Record) { records[0].ModelState.Set(ModelStateGrowth, 1) }},
+		{"extra model-state field", func(records []Record) { records[0].ModelState.Set(ModelStateOrientation, 0) }},
+		{"wrong role", func(records []Record) { records[0].ContributorRole = ContributorLiquidAdditional }},
+		{"wrong family", func(records []Record) { records[0].ModelFamily = ModelFamilyCrop }},
+		{"wrong ID", func(records []Record) { records[0].SequentialID++ }},
+		{"flags", func(records []Record) { records[0].Flags = flagCubeGeometry }},
+		{"face coverage", func(records []Record) { records[0].FaceCoverage = 1 }},
+		{"shape ID", func(records []Record) { records[0].CollisionSeed.ShapeID++ }},
+		{"confidence", func(records []Record) { records[0].CollisionSeed.Confidence = CollisionConfidenceReviewedVisibleBounds }},
+		{"collision bounds", func(records []Record) { records[0].CollisionSeed.Boxes[0].MinX++ }},
+		{"duplicate selector", func(records []Record) {
+			records[1].StateJSON = append([]byte(nil), records[0].StateJSON...)
+			records[1].ModelState = records[0].ModelState
+		}},
+	}
+	for _, mutation := range mutations {
+		t.Run(mutation.name, func(t *testing.T) {
+			broken := cloneRecords(records)
+			mutation.mutate(broken)
+			if err := validateSelectorCardinality(broken); err == nil {
+				t.Fatal("invalid cake product was accepted")
+			}
+		})
+	}
+	if err := validateSelectorCardinality(records[:6]); err == nil {
+		t.Fatal("incomplete cake product was accepted")
+	}
+}
+
 func exactResinClumpRecords(t *testing.T) []Record {
 	t.Helper()
 	records := make([]Record, 0, 64)

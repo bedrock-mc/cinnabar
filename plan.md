@@ -662,6 +662,23 @@ Scope: block registry + block-state → model/texture mapping (generated export 
         overview, stack, grazing, and top-inset viewpoints in Cinnabar and
         require two consecutive exact GPU-completed model-stream witnesses with
         stable generation/ref counts and zero contamination counters.
+    - [x] Exact cake family implementation: all seven canonical
+      `minecraft:cake` states (sequential IDs 14,055-14,061) now require the
+      complete exact `bite_counter:int 0..6` product, formula IDs,
+      Primary/Cuboid ownership, empty flags/coverage, exact collision shapes
+      89-95, exact six-face block routing, and literal untinted terrain pairs.
+      Native 1.26.33.1 evidence fixes west as the advancing cut plane and binds
+      bite zero to `cake_side` versus bites one through six to `cake_inner`.
+      Seven immutable six-quad templates use
+      `[16+32*b,0,16]..[240,128,240]`; sequential/hash, all-boundary,
+      opaque-adjacency, cave-open, additional-water, dense
+      4,096-reference/24,576-draw-light, deterministic-registry,
+      deterministic-pack, and exact 2,463 -> 2,456 visual-coverage gates are
+      green. No Mojang payload or screenshot is tracked.
+      - [ ] Live presentation acceptance: reproduce representative bite 0, 1,
+        and 6 native viewpoints in Cinnabar and require two consecutive exact
+        GPU-completed model-stream witnesses with stable generation/ref counts
+        and zero contamination counters.
     - [ ] Slab/stair native and packed-GPU live acceptance: capture all five
       fixed Cinnabar poses through native `%TEMP%` screenshots and require two
       consecutive exact GPU-completed model-stream witnesses. Automated gallery
@@ -815,7 +832,7 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       cactus tranches.
       After lava, vine, and those connected/static/multiface/glass/grate
       families plus the exact chiseled-bookshelf, resin-clump, selector-alias
-      opaque-cube, and cactus tranches, the current residual has 2,463 diagnostics including
+      opaque-cube, cactus, and cake tranches, the current residual has 2,456 diagnostics including
       the single air diagnostic, with zero
       diagnostics in every implemented family; each remaining family must shrink
       that exact set.

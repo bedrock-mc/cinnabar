@@ -282,7 +282,18 @@ cave-open, and dense 4,096-reference/24,576-draw-light tests are green.
 Commands and local-only evidence hashes are recorded in
 `docs/evidence/phase-2-cactus-native-reference.md`.
 
-The current exact residual is 2,463 diagnostics including air; no unrelated ID
+The subsequent cake tranche removes exactly IDs 14,055-14,061. Admission
+requires the complete `bite_counter:int 0..6` product, formula
+`id = 14055 + bite_counter`, Primary/Cuboid ownership, empty flags/coverage,
+exact shapes 89-95 and bounds, four literal untinted two-entry terrain routes,
+and the native-confirmed west cut direction. Seven immutable six-quad templates
+use bounds `[16+32*b,0,16]..[240,128,240]`; only bitten west faces select
+`cake_inner`. Sequential/hash, all-boundary, water, cave-open, and dense
+4,096-reference/24,576-draw-light tests are green. Commands and local-only
+evidence hashes are recorded in
+`docs/evidence/phase-2-cake-native-reference.md`.
+
+The current exact residual is 2,456 diagnostics including air; no unrelated ID
 changed status.
 
 The original 412-name/2,860-state planning residual was bounded and

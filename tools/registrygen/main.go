@@ -8,6 +8,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -1195,6 +1196,13 @@ func classifyRecord(state SourceState) (Record, error) {
 		}
 		record.ModelFamily = ModelFamilyCuboid
 		record.ModelState.Set(ModelStateGrowth, age)
+	case name == "cake":
+		bite, err := cakeBiteSelector(state.Properties)
+		if err != nil {
+			return Record{}, err
+		}
+		record.ModelFamily = ModelFamilyCuboid
+		record.ModelState.Set(ModelStateGrowth, bite)
 	case isCrossName(name):
 		record.ModelFamily = ModelFamilyCross
 	}
@@ -1385,6 +1393,17 @@ func cactusAgeSelector(properties []StateProperty) (uint32, error) {
 	return uint32(property.Value.Int), nil
 }
 
+func cakeBiteSelector(properties []StateProperty) (uint32, error) {
+	if len(properties) != 1 || properties[0].Name != "bite_counter" {
+		return 0, fmt.Errorf("cake requires exactly bite_counter:int")
+	}
+	property := properties[0]
+	if property.Value.Kind != ScalarInt || property.Value.Int < 0 || property.Value.Int > 6 {
+		return 0, fmt.Errorf("cake bite_counter must be an int inside 0..6")
+	}
+	return uint32(property.Value.Int), nil
+}
+
 func exactCanonicalInt(raw json.RawMessage, maximum int32) (uint32, bool) {
 	var tagged map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &tagged); err != nil || len(tagged) != 2 {
@@ -1425,6 +1444,66 @@ func cactusCanonicalAge(stateJSON []byte) (uint32, bool) {
 		return 0, false
 	}
 	return exactCanonicalInt(state["age"], 15)
+}
+
+func cakeCanonicalBite(stateJSON []byte) (uint32, bool) {
+	decoder := json.NewDecoder(bytes.NewReader(stateJSON))
+	opening, err := decoder.Token()
+	if err != nil || opening != json.Delim('{') || !decoder.More() {
+		return 0, false
+	}
+	key, err := decoder.Token()
+	if err != nil || key != "bite_counter" {
+		return 0, false
+	}
+	bite, ok := exactCakeTaggedInt(decoder)
+	if !ok || decoder.More() {
+		return 0, false
+	}
+	closing, err := decoder.Token()
+	if err != nil || closing != json.Delim('}') {
+		return 0, false
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return 0, false
+	}
+	return bite, true
+}
+
+func exactCakeTaggedInt(decoder *json.Decoder) (uint32, bool) {
+	opening, err := decoder.Token()
+	if err != nil || opening != json.Delim('{') {
+		return 0, false
+	}
+	var kind string
+	var value int32
+	seenKind, seenValue := false, false
+	for decoder.More() {
+		key, err := decoder.Token()
+		if err != nil {
+			return 0, false
+		}
+		switch key {
+		case "type":
+			if seenKind || decoder.Decode(&kind) != nil {
+				return 0, false
+			}
+			seenKind = true
+		case "value":
+			if seenValue || decoder.Decode(&value) != nil {
+				return 0, false
+			}
+			seenValue = true
+		default:
+			return 0, false
+		}
+	}
+	closing, err := decoder.Token()
+	if err != nil || closing != json.Delim('}') || !seenKind || !seenValue || kind != "int" || value < 0 || value > 6 {
+		return 0, false
+	}
+	return uint32(value), true
 }
 
 func signOrientation(name string, properties []StateProperty) (uint32, error) {
@@ -1752,6 +1831,11 @@ func validateSelectorCardinality(records []Record) error {
 				return err
 			}
 		}
+		if name == "minecraft:cake" {
+			if err := validateCakeProduct(group); err != nil {
+				return err
+			}
+		}
 		values := make(map[string]map[string]struct{})
 		for _, record := range group {
 			var state map[string]canonicalScalar
@@ -1888,6 +1972,53 @@ func validateCactusProduct(records []Record) error {
 	for age, present := range seen {
 		if !present {
 			return fmt.Errorf("cactus selector product is missing age %d", age)
+		}
+	}
+	return nil
+}
+
+func cakeCollisionIsExact(seed CollisionSeed, bite uint32) bool {
+	if bite > 6 || seed.ShapeID != uint16(89+bite) ||
+		seed.Confidence != CollisionConfidenceCollisionOnly || len(seed.Boxes) != 1 {
+		return false
+	}
+	wantMinX := [...]int32{6_250_000, 18_750_000, 31_250_000, 43_750_000, 56_250_000, 68_750_000, 81_250_000}
+	return seed.Boxes[0] == (CollisionBox{
+		MinX: wantMinX[bite], MaxX: 93_750_000,
+		MinY: 0, MaxY: 50_000_000,
+		MinZ: 6_250_000, MaxZ: 93_750_000,
+	})
+}
+
+func validateCakeProduct(records []Record) error {
+	if len(records) != 7 {
+		return fmt.Errorf("cake selector cardinality is %d, want 7", len(records))
+	}
+	seen := [7]bool{}
+	for _, record := range records {
+		if record.ModelFamily != ModelFamilyCuboid || record.ContributorRole != ContributorPrimary {
+			return fmt.Errorf("cake state %d has invalid family or role", record.SequentialID)
+		}
+		canonical, hasCanonical := cakeCanonicalBite(record.StateJSON)
+		bite, hasBite := record.ModelState.Get(ModelStateGrowth)
+		if !hasCanonical || !hasBite || canonical != bite || bite > 6 ||
+			record.ModelState.Mask != uint8(1<<(ModelStateGrowth-1)) {
+			return fmt.Errorf("cake state %d has invalid typed bite projection", record.SequentialID)
+		}
+		if record.Flags != 0 || record.FaceCoverage != 0 || !cakeCollisionIsExact(record.CollisionSeed, bite) {
+			return fmt.Errorf("cake state %d has invalid exact geometry evidence", record.SequentialID)
+		}
+		if record.SequentialID != 14055+bite {
+			return fmt.Errorf("cake state %d does not match canonical ID formula", record.SequentialID)
+		}
+		if seen[bite] {
+			return fmt.Errorf("cake duplicate bite %d", bite)
+		}
+		seen[bite] = true
+	}
+	for bite, present := range seen {
+		if !present {
+			return fmt.Errorf("cake selector product is missing bite %d", bite)
 		}
 	}
 	return nil
