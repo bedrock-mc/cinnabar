@@ -970,6 +970,16 @@ try {
     Assert-ThrowsLike {
         Get-StrictMcbeas04ModelTables -Path $oversizedSlabStairAssets
     } 'MCBEAS04 blob exceeds the app 16 MiB ceiling:*' 'slab/stair validation allocated an oversized blob before rejecting it'
+    $emptyWallMaskAssets = Join-Path $TempRoot 'canonical empty wall mask.mcbea'
+    $emptyWallMaskBytes = [IO.File]::ReadAllBytes($SlabStairAssets)
+    $emptyWallTemplateOffset = [int][BitConverter]::ToUInt64($emptyWallMaskBytes, 120) + 12 * 12
+    Assert-Equal 0 ([int][BitConverter]::ToUInt32($emptyWallMaskBytes, $emptyWallTemplateOffset + 4)) 'empty wall-mask fixture did not start from a zero-quad template'
+    [BitConverter]::GetBytes([uint32]64).CopyTo($emptyWallMaskBytes, $emptyWallTemplateOffset + 8)
+    Set-TestMcbeas04Seal -Bytes $emptyWallMaskBytes
+    [IO.File]::WriteAllBytes($emptyWallMaskAssets, $emptyWallMaskBytes)
+    $emptyWallMaskTables = Get-StrictMcbeas04ModelTables -Path $emptyWallMaskAssets
+    Assert-Equal 0 ([int]$emptyWallMaskTables.templates[12].quad_count) 'strict model-table validation changed the canonical empty wall-mask span'
+    Assert-Equal 64 ([int]$emptyWallMaskTables.templates[12].flags) 'strict model-table validation changed the canonical wall flag'
     $kelpBackedSlabAssets = Join-Path $TempRoot 'resealed kelp backed slab.mcbea'
     $kelpBackedBytes = [IO.File]::ReadAllBytes($SlabStairAssets)
     $firstSlabId = [int](@(Get-TestRegistryEntries -RegistryPath $BlockRegistry | Where-Object family -eq 7)[0].sequential_id)

@@ -3190,14 +3190,19 @@ function Get-StrictMcbeas04ModelTables {
     }
 
     $templates = [Collections.Generic.List[object]]::new()
+    # Exact values from model_template_flags_are_valid; gate-axis bits are only
+    # canonical when paired with the compound-head bit.
+    $canonicalTemplateFlags = [uint32[]]@(
+        0, 1, 2, 4, 8, 16, 32, 64, 132, 260, 512
+    )
     $expectedQuad = [uint64]0
     for ($templateIndex = 0; $templateIndex -lt $counts[3]; $templateIndex++) {
         $descriptor = [int]($offsets[3] + 12 * $templateIndex)
         $quadStart = [uint64][BitConverter]::ToUInt32($bytes, $descriptor)
         $quadCount = [uint64][BitConverter]::ToUInt32($bytes, $descriptor + 4)
         $flags = [uint32][BitConverter]::ToUInt32($bytes, $descriptor + 8)
-        if ($quadStart -ne $expectedQuad -or $quadCount -gt 32 -or ($flags -band (-bnot 3)) -ne 0 -or
-            (($flags -band 1) -ne 0 -and $quadCount -ne 6)) {
+        if ($quadStart -ne $expectedQuad -or $quadCount -gt 32 -or $flags -notin $canonicalTemplateFlags -or
+            ($flags -in @([uint32]1, [uint32]512) -and $quadCount -ne 6)) {
             throw "MCBEAS04 model template $templateIndex span or flags are noncanonical"
         }
         $templates.Add([pscustomobject][ordered]@{ quad_start = $quadStart; quad_count = $quadCount; flags = $flags })
