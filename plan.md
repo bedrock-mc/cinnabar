@@ -406,6 +406,13 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       and neighbour-masked slots in the model vertex stage before template,
       lighting, texture, tint, and fragment work; the fixed 32-quad/reference
       storage contract remains bounded while a live A/B measures the reduction.
+      Optimized North run `20260714T013915Z-6480` reduced teleport
+      acknowledgement-to-ingress/commit to 8.18 seconds (sequence 2,128, with
+      ingress and commit in the same update) and again passed the exact model
+      witness. Vertex culling improved p50 from 41.7 to 39.6 ms despite 8,699
+      versus 5,679 resident subchunks, but p99 remained 47.7 ms and the 100 ms
+      mutation gate still failed at 139.9718 ms; structural exact-count model
+      drawing and backend/presentation investigation remain required.
     - [ ] Wall-attached vine family: replace the diagnostic pink-cube fallback
       for every `minecraft:vine` direction-bit state with compact cutout face
       templates selected from its exact attachment mask, including conservative
