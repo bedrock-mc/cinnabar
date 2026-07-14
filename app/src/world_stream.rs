@@ -48,7 +48,10 @@ pub const MAX_SUB_CHUNK_RETRIES: u8 = 2;
 pub const SUB_CHUNK_RESPONSE_TIMEOUT: Duration = Duration::from_secs(2);
 pub const MAX_PENDING_MESH_CHANGES: usize = 256;
 pub const MAX_IN_FLIGHT_LIGHT_JOBS: usize = 4;
-pub const LIGHT_DISPATCH_BUDGET_PER_POLL: usize = 4;
+pub const LIGHT_SOLVES_PER_WORKER_BATCH: usize = 128;
+pub const LIGHT_DISPATCH_BUDGET_PER_POLL: usize =
+    MAX_IN_FLIGHT_LIGHT_JOBS * LIGHT_SOLVES_PER_WORKER_BATCH;
+const LIGHT_RESULT_CAPACITY: usize = LIGHT_DISPATCH_BUDGET_PER_POLL;
 const LIGHT_SOLVE_LIMITS: SolverLimits = SolverLimits::new(4_096, 1_000_000);
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -487,6 +490,7 @@ pub struct WorldStreamStats {
     pub unavailable_sub_chunks: u64,
     pub stale_mesh_jobs: u64,
     pub stale_light_jobs: u64,
+    pub light_solve_failures: u64,
     pub received_radius_chunks: Option<i32>,
     pub publisher_radius_chunks: Option<i32>,
     pub resident_sub_chunks: usize,
@@ -494,6 +498,7 @@ pub struct WorldStreamStats {
     pub in_flight_mesh_jobs: usize,
     pub pending_light_jobs: usize,
     pub in_flight_light_jobs: usize,
+    pub terminal_light_failures: usize,
     pub admitted_world_events: usize,
     pub admitted_heavy_events: usize,
     pub queued_decode_jobs: usize,
@@ -670,6 +675,13 @@ struct LightOwnership {
     light_revision: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LightFailure {
+    revision: u64,
+    block_generation: u64,
+    error: LightJobError,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum DirectSkyMask {
     Uniform(bool),
@@ -731,9 +743,36 @@ struct LightBlockSnapshot {
     dimension: i32,
     blocks: BTreeMap<SubChunkKey, SnapshotBlock>,
     classifier: BlockClassifier,
+    network_id_mode: NetworkIdMode,
+    runtime_assets: Arc<RuntimeAssets>,
     resolved_light: HashMap<u32, SolverLightProperties>,
     profile: DimensionLightProfile,
     overworld_top_y: Option<i32>,
+}
+
+impl LightBlockSnapshot {
+    fn resolve_palette_light(&mut self) {
+        for block in self.blocks.values() {
+            let SnapshotBlock::Resident(sub_chunk) = block else {
+                continue;
+            };
+            for storage in sub_chunk.storages() {
+                for &runtime_id in storage.palette().values() {
+                    if self.classifier.is_air(runtime_id) {
+                        continue;
+                    }
+                    self.resolved_light.entry(runtime_id).or_insert_with(|| {
+                        let properties = self
+                            .runtime_assets
+                            .resolve(self.network_id_mode, runtime_id)
+                            .light_properties();
+                        SolverLightProperties::new(properties.emission(), properties.filter())
+                            .expect("MCBEAS05 light nibbles are validated")
+                    });
+                }
+            }
+        }
+    }
 }
 
 impl LightBlockAccess for LightBlockSnapshot {
@@ -844,10 +883,82 @@ impl LightReadAccess for LightPriorSnapshot {
 
 #[derive(Debug)]
 struct LightCompletion {
+    batch_id: u64,
     key: SubChunkKey,
     identity: LightJobIdentity,
-    result: Result<LightSolveOutput, LightSolveError>,
+    result: Result<SolvedLightJob, LightJobError>,
     duration: Duration,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LightJobError {
+    Solve(LightSolveError),
+    MissingTargetOutput,
+}
+
+#[derive(Debug)]
+struct SolvedLightJob {
+    replacement: SubChunkLight,
+    direct_sky: Arc<DirectSkyMask>,
+    light_levels_changed: bool,
+    changed_faces: [bool; 6],
+}
+
+struct PreparedLightJob {
+    key: SubChunkKey,
+    identity: LightJobIdentity,
+    blocks: LightBlockSnapshot,
+    prior: LightPriorSnapshot,
+    bounds: LightBounds,
+}
+
+fn solve_prepared_light_job(mut job: PreparedLightJob) -> Result<SolvedLightJob, LightJobError> {
+    job.blocks.resolve_palette_light();
+    let old_light = job.prior.light.light(job.key).cloned();
+    let old_direct = job
+        .prior
+        .direct_sky
+        .get(&job.key)
+        .cloned()
+        .filter(|direct| {
+            old_light
+                .as_deref()
+                .is_some_and(|light| direct.light_revision == light.generation())
+        });
+    let profile = job.blocks.profile;
+    let output = solve_light(
+        &job.blocks,
+        &job.prior,
+        job.bounds,
+        job.identity.revision,
+        profile,
+        LIGHT_SOLVE_LIMITS,
+    )
+    .map_err(LightJobError::Solve)?;
+    let replacement = output
+        .sub_chunks()
+        .get(&job.key)
+        .map(|light| light.as_ref().clone())
+        .ok_or(LightJobError::MissingTargetOutput)?;
+    let direct_sky = Arc::new(DirectSkyMask::from_output(&output, job.key));
+    let light_levels_changed = old_light
+        .as_deref()
+        .is_none_or(|previous| !light_levels_equal(previous, &replacement));
+    let changed_faces = std::array::from_fn(|index| {
+        light_face_changed(
+            old_light.as_deref(),
+            &replacement,
+            old_direct.as_ref().map(|direct| direct.mask.as_ref()),
+            direct_sky.as_ref(),
+            LIGHT_NEIGHBOUR_OFFSETS[index],
+        )
+    });
+    Ok(SolvedLightJob {
+        replacement,
+        direct_sky,
+        light_levels_changed,
+        changed_faces,
+    })
 }
 
 const LIGHT_NEIGHBOUR_OFFSETS: [[i32; 3]; 6] = [
@@ -968,9 +1079,12 @@ pub struct WorldStream {
     light_store: LightStore,
     light_ownership: HashMap<SubChunkKey, LightOwnership>,
     direct_sky: BTreeMap<SubChunkKey, StoredDirectSky>,
+    light_failures: HashMap<SubChunkKey, LightFailure>,
     light_revisions: RevisionTracker,
     pending_light: HashMap<SubChunkKey, PendingLight>,
     in_flight_light: HashMap<SubChunkKey, LightJobIdentity>,
+    next_light_batch_id: u64,
+    in_flight_light_batches: HashMap<u64, usize>,
     light_waiters: HashMap<SubChunkKey, BTreeSet<SubChunkKey>>,
     revisions: RevisionTracker,
     applied_mesh_generations: HashMap<SubChunkKey, u64>,
@@ -1038,7 +1152,7 @@ impl WorldStream {
         existing_anchor: Option<[i32; 2]>,
     ) -> Self {
         let (decode_tx, decode_rx) = bounded(WORK_RESULT_CAPACITY);
-        let (light_tx, light_rx) = bounded(WORK_RESULT_CAPACITY);
+        let (light_tx, light_rx) = bounded(LIGHT_RESULT_CAPACITY);
         let (mesh_tx, mesh_rx) = bounded(WORK_RESULT_CAPACITY);
         let resolved_server_position =
             resolve_server_position(bootstrap.player_position, current_position, existing_anchor);
@@ -1085,9 +1199,12 @@ impl WorldStream {
             light_store: LightStore::default(),
             light_ownership: HashMap::new(),
             direct_sky: BTreeMap::new(),
+            light_failures: HashMap::new(),
             light_revisions: RevisionTracker::default(),
             pending_light: HashMap::new(),
             in_flight_light: HashMap::new(),
+            next_light_batch_id: 0,
+            in_flight_light_batches: HashMap::new(),
             light_waiters: HashMap::new(),
             revisions: RevisionTracker::default(),
             applied_mesh_generations: HashMap::new(),
@@ -1628,6 +1745,7 @@ impl WorldStream {
             in_flight_mesh_jobs: self.in_flight.len(),
             pending_light_jobs: self.pending_light.len(),
             in_flight_light_jobs: self.in_flight_light.len(),
+            terminal_light_failures: self.light_failures.len(),
             admitted_world_events: self.submitted.len(),
             admitted_heavy_events: self.heavy_sequences.len(),
             queued_decode_jobs: self.pending_decode.len(),
@@ -2690,10 +2808,19 @@ impl WorldStream {
         self.light_store.remove(key);
         self.light_ownership.remove(&key);
         self.direct_sky.remove(&key);
+        self.light_failures.remove(&key);
         self.light_revisions.entries.remove(&key);
         self.pending_light.remove(&key);
         self.in_flight_light.remove(&key);
+        self.remove_light_waiters_for(key);
+    }
+
+    fn remove_light_waiters_for(&mut self, key: SubChunkKey) {
         self.light_waiters.remove(&key);
+        self.remove_light_waiter_target(key);
+    }
+
+    fn remove_light_waiter_target(&mut self, key: SubChunkKey) {
         self.light_waiters.retain(|_, waiters| {
             waiters.remove(&key);
             !waiters.is_empty()
@@ -2704,6 +2831,8 @@ impl WorldStream {
         if !self.resident.contains(&key) || !self.block_generations.contains_key(&key) {
             return None;
         }
+        self.light_failures.remove(&key);
+        self.remove_light_waiter_target(key);
         let revision = self.light_revisions.mark_dirty(key, Instant::now());
         self.pending_light.insert(key, PendingLight { revision });
         Some(revision)
@@ -2746,7 +2875,6 @@ impl WorldStream {
 
     fn light_block_snapshot(&self, key: SubChunkKey) -> LightBlockSnapshot {
         let mut blocks = BTreeMap::new();
-        let mut resolved_light = HashMap::new();
         for sample_key in key.mesh_dependents() {
             if !self.light_source_is_known(sample_key) {
                 continue;
@@ -2754,21 +2882,6 @@ impl WorldStream {
             if self.known_air.contains(&sample_key) {
                 blocks.insert(sample_key, SnapshotBlock::KnownAir);
             } else if let Some(sub_chunk) = self.store.sub_chunk(sample_key) {
-                for storage in sub_chunk.storages() {
-                    for &runtime_id in storage.palette().values() {
-                        if self.classifier.is_air(runtime_id) {
-                            continue;
-                        }
-                        resolved_light.entry(runtime_id).or_insert_with(|| {
-                            let properties = self
-                                .runtime_assets
-                                .resolve(self.network_id_mode, runtime_id)
-                                .light_properties();
-                            SolverLightProperties::new(properties.emission(), properties.filter())
-                                .expect("MCBEAS05 light nibbles are validated")
-                        });
-                    }
-                }
                 blocks.insert(sample_key, SnapshotBlock::Resident(sub_chunk));
             }
         }
@@ -2793,7 +2906,9 @@ impl WorldStream {
             dimension: key.dimension,
             blocks,
             classifier: self.classifier,
-            resolved_light,
+            network_id_mode: self.network_id_mode,
+            runtime_assets: self.runtime_assets.clone(),
+            resolved_light: HashMap::new(),
             profile,
             overworld_top_y,
         }
@@ -2833,9 +2948,20 @@ impl WorldStream {
         }
     }
 
+    fn light_dispatch_ready(&self, key: SubChunkKey) -> bool {
+        if key.dimension != 0 {
+            return true;
+        }
+        let Some(above) = offset_sub_chunk_key(key, [0, 1, 0]) else {
+            return true;
+        };
+        !self.light_source_is_known(above) || self.light_is_current(above)
+    }
+
     fn dispatch_light_jobs(&mut self, camera_position: [f32; 3], budget: usize) -> usize {
         let worker_budget =
-            budget.min(MAX_IN_FLIGHT_LIGHT_JOBS.saturating_sub(self.in_flight_light.len()));
+            MAX_IN_FLIGHT_LIGHT_JOBS.saturating_sub(self.in_flight_light_batches.len());
+        let solve_budget = budget.min(worker_budget.saturating_mul(LIGHT_SOLVES_PER_WORKER_BATCH));
         let mut candidates = self
             .pending_light
             .iter()
@@ -2853,14 +2979,15 @@ impl WorldStream {
                 .then_with(|| left.1.cmp(&right.1))
         });
 
-        let mut dispatched = 0;
+        let mut prepared = Vec::with_capacity(solve_budget);
         for (_, key, revision) in candidates {
-            if dispatched >= worker_budget {
+            if prepared.len() >= solve_budget {
                 break;
             }
             if !self.light_revisions.is_current(key, revision)
                 || self.in_flight_light.contains_key(&key)
                 || !self.resident.contains(&key)
+                || !self.light_dispatch_ready(key)
             {
                 continue;
             }
@@ -2882,33 +3009,65 @@ impl WorldStream {
                     .light(key)
                     .map(|light| light.generation()),
             };
-            let profile = blocks.profile;
             self.pending_light.remove(&key);
             self.in_flight_light.insert(key, identity);
+            prepared.push(PreparedLightJob {
+                key,
+                identity,
+                blocks,
+                prior,
+                bounds,
+            });
+        }
+
+        let dispatched = prepared.len();
+        let mut prepared = prepared.into_iter();
+        loop {
+            let jobs = prepared
+                .by_ref()
+                .take(LIGHT_SOLVES_PER_WORKER_BATCH)
+                .collect::<Vec<_>>();
+            if jobs.is_empty() {
+                break;
+            }
+            let batch_id = self.next_light_batch_id;
+            self.next_light_batch_id = self
+                .next_light_batch_id
+                .checked_add(1)
+                .expect("light batch identity space exhausted");
+            self.in_flight_light_batches.insert(batch_id, jobs.len());
             let tx = self.light_tx.clone();
             rayon::spawn(move || {
-                let started = Instant::now();
-                let result = solve_light(
-                    &blocks,
-                    &prior,
-                    bounds,
-                    revision,
-                    profile,
-                    LIGHT_SOLVE_LIMITS,
-                );
-                let _ = tx.send(LightCompletion {
-                    key,
-                    identity,
-                    result,
-                    duration: started.elapsed(),
-                });
+                for job in jobs {
+                    let started = Instant::now();
+                    let key = job.key;
+                    let identity = job.identity;
+                    let result = solve_prepared_light_job(job);
+                    if tx
+                        .send(LightCompletion {
+                            batch_id,
+                            key,
+                            identity,
+                            result,
+                            duration: started.elapsed(),
+                        })
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
             });
-            dispatched += 1;
         }
         dispatched
     }
 
     fn accept_light_completion(&mut self, completion: LightCompletion) {
+        if let Some(remaining) = self.in_flight_light_batches.get_mut(&completion.batch_id) {
+            *remaining = remaining.saturating_sub(1);
+            if *remaining == 0 {
+                self.in_flight_light_batches.remove(&completion.batch_id);
+            }
+        }
         if self.in_flight_light.get(&completion.key) == Some(&completion.identity) {
             self.in_flight_light.remove(&completion.key);
         }
@@ -2927,39 +3086,31 @@ impl WorldStream {
             self.stats.stale_light_jobs = self.stats.stale_light_jobs.saturating_add(1);
             return;
         }
-        let output = match completion.result {
-            Ok(output) => output,
-            Err(_) => {
-                self.pending_light.insert(
+        let solved = match completion.result {
+            Ok(solved) => solved,
+            Err(error) => {
+                self.light_failures.insert(
                     completion.key,
-                    PendingLight {
+                    LightFailure {
                         revision: completion.identity.revision,
+                        block_generation: completion.identity.block_generation,
+                        error,
                     },
                 );
+                self.remove_light_waiters_for(completion.key);
+                self.stats.light_solve_failures = self.stats.light_solve_failures.saturating_add(1);
                 return;
             }
         };
-        let Some(replacement) = output
-            .sub_chunks()
-            .get(&completion.key)
-            .map(|light| light.as_ref().clone())
-        else {
-            self.pending_light.insert(
-                completion.key,
-                PendingLight {
-                    revision: completion.identity.revision,
-                },
-            );
-            return;
-        };
-        let old_light = self.light_store.light(completion.key).cloned();
-        let old_direct = self.direct_sky.get(&completion.key).cloned();
-        let light_levels_changed = old_light
-            .as_deref()
-            .is_none_or(|previous| !light_levels_equal(previous, &replacement));
+        let SolvedLightJob {
+            replacement,
+            direct_sky,
+            light_levels_changed,
+            changed_faces,
+        } = solved;
         let new_direct = StoredDirectSky {
             light_revision: completion.identity.revision,
-            mask: Arc::new(DirectSkyMask::from_output(&output, completion.key)),
+            mask: direct_sky,
         };
         if !self.light_store.commit_if_generation(
             completion.key,
@@ -2969,11 +3120,6 @@ impl WorldStream {
             self.stats.stale_light_jobs = self.stats.stale_light_jobs.saturating_add(1);
             return;
         }
-        let new_light = self
-            .light_store
-            .light(completion.key)
-            .expect("successful light commit retains target")
-            .clone();
         self.light_ownership.insert(
             completion.key,
             LightOwnership {
@@ -2993,14 +3139,8 @@ impl WorldStream {
             .light_waiters
             .remove(&completion.key)
             .unwrap_or_default();
-        for offset in LIGHT_NEIGHBOUR_OFFSETS {
-            if !light_face_changed(
-                old_light.as_deref(),
-                &new_light,
-                old_direct.as_ref().map(|direct| direct.mask.as_ref()),
-                new_direct.mask.as_ref(),
-                offset,
-            ) {
+        for (offset, changed) in LIGHT_NEIGHBOUR_OFFSETS.into_iter().zip(changed_faces) {
+            if !changed {
                 continue;
             }
             if let Some(neighbour) = offset_sub_chunk_key(completion.key, offset) {
@@ -3681,7 +3821,7 @@ mod tests {
         use protocol::WorldBootstrap;
         use world::{
             BlockPos, BoundaryLightSample, DecodedLevelChunk, LightBlockAccess, LightChannel,
-            LightReadAccess, SubChunkKey,
+            LightReadAccess, LightSolveError, SubChunkKey,
         };
 
         use super::WorldStream;
@@ -3785,6 +3925,21 @@ mod tests {
                 .recv_timeout(Duration::from_secs(2))
                 .expect("light worker completion");
             stream.accept_light_completion(completion);
+        }
+
+        fn settle_light(stream: &mut WorldStream, camera: [f32; 3]) {
+            for _ in 0..128 {
+                stream.dispatch_light_jobs(camera, usize::MAX);
+                if stream.pending_light.is_empty() && stream.in_flight_light.is_empty() {
+                    return;
+                }
+                let completion = stream
+                    .light_rx
+                    .recv_timeout(Duration::from_secs(5))
+                    .expect("light convergence made no bounded progress");
+                stream.accept_light_completion(completion);
+            }
+            panic!("light convergence exceeded the bounded test iteration limit");
         }
 
         #[test]
@@ -3961,17 +4116,14 @@ mod tests {
 
             stream.mark_light_dirty_exact(top);
             stream.mark_light_dirty_exact(below);
-            complete_one_light(&mut stream, [8.0, 296.0, 8.0]);
-            assert_eq!(
-                stream
-                    .light_store
-                    .light(below)
-                    .unwrap()
-                    .get(LightChannel::Sky, 0, 0, 0),
-                Some(0)
-            );
-            assert!(!stream.direct_sky[&below].mask.get(0, 0, 0));
-            complete_one_light(&mut stream, [8.0, 312.0, 8.0]);
+            assert_eq!(stream.dispatch_light_jobs([8.0, 296.0, 8.0], 1), 1);
+            assert!(stream.in_flight_light.contains_key(&top));
+            assert!(!stream.in_flight_light.contains_key(&below));
+            let completion = stream
+                .light_rx
+                .recv_timeout(Duration::from_secs(2))
+                .unwrap();
+            stream.accept_light_completion(completion);
             complete_one_light(&mut stream, [8.0, 296.0, 8.0]);
             assert!(stream.direct_sky[&below].mask.get(0, 0, 0));
             assert_eq!(
@@ -4068,6 +4220,42 @@ mod tests {
         }
 
         #[test]
+        fn dispatch_snapshot_defers_palette_light_resolution_to_the_worker() {
+            let mut stream = lit_stream(1);
+            let key = SubChunkKey::new(1, 0, 0, 0);
+            stream
+                .store
+                .commit_sub_chunk(key, super::uniform_sub_chunk(1))
+                .unwrap();
+            stream.resident.insert(key);
+            stream.mark_changed(key, Instant::now());
+
+            let snapshot = stream.light_block_snapshot(key);
+
+            assert!(snapshot.resolved_light.is_empty());
+            assert!(snapshot.blocks.contains_key(&key));
+        }
+
+        #[test]
+        fn worker_completion_contains_precomputed_voxel_change_summary() {
+            let mut stream = lit_stream(0);
+            let key = SubChunkKey::new(0, 0, 19, 0);
+            stream.record_known_air(key);
+            stream.mark_changed(key, Instant::now());
+            assert_eq!(stream.dispatch_light_jobs([8.0, 312.0, 8.0], 1), 1);
+
+            let completion = stream
+                .light_rx
+                .recv_timeout(Duration::from_secs(2))
+                .unwrap();
+            let solved = completion.result.as_ref().unwrap();
+
+            assert!(solved.light_levels_changed);
+            assert!(solved.direct_sky.get(0, 15, 0));
+            assert!(solved.changed_faces.into_iter().any(|changed| changed));
+        }
+
+        #[test]
         fn light_jobs_are_nearest_first_deduplicated_and_worker_bounded() {
             let mut stream = lit_stream(0);
             let keys = (0..6)
@@ -4082,19 +4270,281 @@ mod tests {
             assert_eq!(stream.pending_light.len(), keys.len());
             assert_ne!(stream.pending_light[&keys[5]].revision, latest);
 
-            assert_eq!(stream.dispatch_light_jobs([8.0, 8.0, 8.0], usize::MAX), 4);
-            assert_eq!(
-                stream.in_flight_light.len(),
-                super::super::MAX_IN_FLIGHT_LIGHT_JOBS
-            );
+            assert_eq!(stream.dispatch_light_jobs([8.0, 8.0, 8.0], usize::MAX), 6);
+            assert_eq!(stream.in_flight_light.len(), keys.len());
+            assert_eq!(stream.in_flight_light_batches.len(), 1);
             assert_eq!(
                 stream
                     .in_flight_light
                     .keys()
                     .copied()
                     .collect::<BTreeSet<_>>(),
-                keys[..4].iter().copied().collect()
+                keys.iter().copied().collect()
             );
+        }
+
+        #[test]
+        fn full_view_light_capacity_covers_two_passes_inside_two_seconds() {
+            let diameter =
+                usize::try_from(super::super::PHASE0_MAX_VIEW_RADIUS_CHUNKS * 2 + 1).unwrap();
+            let full_view_sub_chunks = diameter * diameter * 24;
+            let two_second_polls_at_sixty_hz = 120;
+            let admitted_solves = super::super::MAX_IN_FLIGHT_LIGHT_JOBS
+                * super::super::LIGHT_SOLVES_PER_WORKER_BATCH
+                * two_second_polls_at_sixty_hz;
+
+            assert!(admitted_solves >= full_view_sub_chunks * 2);
+        }
+
+        #[test]
+        fn one_poll_admits_four_bounded_worker_batches() {
+            let mut stream = lit_stream(1);
+            let capacity = super::super::MAX_IN_FLIGHT_LIGHT_JOBS
+                * super::super::LIGHT_SOLVES_PER_WORKER_BATCH;
+            let radius = super::super::PHASE0_MAX_VIEW_RADIUS_CHUNKS;
+            let keys = (-radius..=radius)
+                .flat_map(|x| (-radius..=radius).map(move |z| (x, z)))
+                .filter(|(x, z)| (x + z).rem_euclid(2) == 0)
+                .take(capacity)
+                .map(|(x, z)| SubChunkKey::new(1, x, 0, z))
+                .collect::<Vec<_>>();
+            assert_eq!(keys.len(), capacity);
+            for key in &keys {
+                stream.record_known_air(*key);
+            }
+            stream.mark_light_changed_sources(keys.iter().copied());
+
+            let started = Instant::now();
+            assert_eq!(
+                stream.dispatch_light_jobs([8.0, 8.0, 8.0], usize::MAX),
+                capacity
+            );
+            assert_eq!(stream.in_flight_light.len(), capacity);
+            assert_eq!(
+                stream.in_flight_light_batches.len(),
+                super::super::MAX_IN_FLIGHT_LIGHT_JOBS
+            );
+
+            for _ in 0..capacity {
+                let completion = stream
+                    .light_rx
+                    .recv_timeout(Duration::from_secs(5))
+                    .expect("bounded light batch completion");
+                stream.accept_light_completion(completion);
+            }
+            assert!(stream.in_flight_light.is_empty());
+            assert!(stream.in_flight_light_batches.is_empty());
+            assert!(stream.pending_light.is_empty());
+            assert!(keys.into_iter().all(|key| stream.light_is_current(key)));
+            assert!(
+                started.elapsed() < Duration::from_secs(10),
+                "representative 512-solve debug batch exceeded its generous hardware-normalized bound"
+            );
+        }
+
+        #[test]
+        fn overworld_initial_sky_work_waits_for_the_current_upper_subchunk() {
+            let mut stream = lit_stream(0);
+            let top = SubChunkKey::new(0, 0, 19, 0);
+            let below = SubChunkKey::new(0, 0, 18, 0);
+            stream.record_known_air(top);
+            stream.record_known_air(below);
+            stream.mark_light_changed_sources([top, below]);
+
+            assert_eq!(stream.dispatch_light_jobs([8.0, 296.0, 8.0], 4), 1);
+            assert!(stream.in_flight_light.contains_key(&top));
+            assert!(!stream.in_flight_light.contains_key(&below));
+        }
+
+        #[test]
+        fn deterministic_solver_failure_terminalizes_only_that_generation() {
+            let mut stream = lit_stream(1);
+            let failed = SubChunkKey::new(1, 0, 0, 0);
+            let waiter = SubChunkKey::new(1, 1, 0, 0);
+            stream.record_known_air(failed);
+            stream.record_known_air(waiter);
+            stream.mark_light_changed_sources([failed, waiter]);
+            assert_eq!(stream.dispatch_light_jobs([8.0; 3], 2), 2);
+            assert!(stream.light_waiters[&failed].contains(&waiter));
+
+            let mut completions = (0..2)
+                .map(|_| {
+                    stream
+                        .light_rx
+                        .recv_timeout(Duration::from_secs(2))
+                        .unwrap()
+                })
+                .collect::<Vec<_>>();
+            let failed_completion = completions
+                .iter_mut()
+                .find(|completion| completion.key == failed)
+                .unwrap();
+            failed_completion.result = Err(super::super::LightJobError::Solve(
+                LightSolveError::QueueLimitExceeded { max: 0 },
+            ));
+            let failed_completion = completions
+                .into_iter()
+                .find(|completion| completion.key == failed)
+                .unwrap();
+            stream.accept_light_completion(failed_completion);
+
+            assert!(!stream.pending_light.contains_key(&failed));
+            assert!(!stream.in_flight_light.contains_key(&failed));
+            assert_eq!(
+                stream.light_failures[&failed].error,
+                super::super::LightJobError::Solve(LightSolveError::QueueLimitExceeded { max: 0 })
+            );
+            assert_eq!(stream.stats().light_solve_failures, 1);
+            assert_eq!(stream.stats().terminal_light_failures, 1);
+            assert!(!stream.light_waiters.contains_key(&failed));
+            assert!(
+                stream
+                    .light_waiters
+                    .values()
+                    .all(|waiters| !waiters.contains(&failed))
+            );
+            assert_eq!(stream.dispatch_light_jobs([8.0; 3], usize::MAX), 0);
+
+            let next_revision = stream.mark_light_dirty_exact(failed).unwrap();
+            assert!(!stream.light_failures.contains_key(&failed));
+            assert_eq!(stream.pending_light[&failed].revision, next_revision);
+        }
+
+        #[test]
+        fn redirtying_a_dependency_preserves_targets_waiting_for_it() {
+            let mut stream = lit_stream(1);
+            let dependency = SubChunkKey::new(1, 0, 0, 0);
+            let target = SubChunkKey::new(1, 1, 0, 0);
+            stream.record_known_air(dependency);
+            stream.record_known_air(target);
+            stream.mark_light_changed_sources([dependency, target]);
+            assert_eq!(stream.dispatch_light_jobs([24.0, 8.0, 8.0], 1), 1);
+            assert!(stream.light_waiters[&dependency].contains(&target));
+
+            stream.mark_light_dirty_exact(dependency);
+
+            assert!(stream.light_waiters[&dependency].contains(&target));
+        }
+
+        #[test]
+        fn adjacent_concurrent_completions_converge_in_both_acceptance_orders() {
+            for reverse in [false, true] {
+                let mut stream = lit_stream(1);
+                let emitter = SubChunkKey::new(1, 0, 0, 0);
+                let air = SubChunkKey::new(1, 1, 0, 0);
+                stream
+                    .store
+                    .commit_sub_chunk(emitter, super::uniform_sub_chunk(1))
+                    .unwrap();
+                stream.resident.insert(emitter);
+                stream.record_known_air(air);
+                stream.mark_light_changed_sources([emitter, air]);
+                assert_eq!(stream.dispatch_light_jobs([16.0, 8.0, 8.0], 2), 2);
+
+                let mut completions = (0..2)
+                    .map(|_| {
+                        stream
+                            .light_rx
+                            .recv_timeout(Duration::from_secs(2))
+                            .unwrap()
+                    })
+                    .collect::<Vec<_>>();
+                completions.sort_by_key(|completion| completion.key);
+                if reverse {
+                    completions.reverse();
+                }
+                for completion in completions {
+                    stream.accept_light_completion(completion);
+                }
+                settle_light(&mut stream, [16.0, 8.0, 8.0]);
+
+                assert_eq!(
+                    stream
+                        .light_store
+                        .light(air)
+                        .unwrap()
+                        .get(LightChannel::Block, 0, 0, 0),
+                    Some(14)
+                );
+                assert!(stream.light_is_current(emitter));
+                assert!(stream.light_is_current(air));
+                assert!(stream.light_waiters.is_empty());
+            }
+        }
+
+        #[test]
+        fn mid_flight_block_replacement_rejects_both_adjacent_old_completions() {
+            let mut stream = lit_stream(1);
+            let changed = SubChunkKey::new(1, 0, 0, 0);
+            let neighbour = SubChunkKey::new(1, 1, 0, 0);
+            stream
+                .store
+                .commit_sub_chunk(changed, super::uniform_sub_chunk(1))
+                .unwrap();
+            stream.resident.insert(changed);
+            stream.record_known_air(neighbour);
+            stream.mark_light_changed_sources([changed, neighbour]);
+            assert_eq!(stream.dispatch_light_jobs([16.0, 8.0, 8.0], 2), 2);
+            let mut completions = (0..2)
+                .map(|_| {
+                    stream
+                        .light_rx
+                        .recv_timeout(Duration::from_secs(2))
+                        .unwrap()
+                })
+                .collect::<Vec<_>>();
+
+            stream
+                .store
+                .commit_sub_chunk(changed, super::uniform_sub_chunk(2))
+                .unwrap();
+            stream.mark_changed(changed, Instant::now());
+            completions.sort_by_key(|completion| std::cmp::Reverse(completion.key));
+            for completion in completions {
+                stream.accept_light_completion(completion);
+            }
+
+            assert_eq!(stream.stats().stale_light_jobs, 2);
+            assert!(!stream.light_ownership.contains_key(&changed));
+            assert!(!stream.light_ownership.contains_key(&neighbour));
+            assert!(stream.pending_light.contains_key(&changed));
+            assert!(stream.pending_light.contains_key(&neighbour));
+            settle_light(&mut stream, [16.0, 8.0, 8.0]);
+            assert!(stream.light_is_current(changed));
+            assert!(stream.light_is_current(neighbour));
+        }
+
+        #[test]
+        fn mid_flight_eviction_cannot_restore_source_or_strand_neighbour_waiters() {
+            let mut stream = lit_stream(1);
+            let evicted = SubChunkKey::new(1, 0, 0, 0);
+            let neighbour = SubChunkKey::new(1, 1, 0, 0);
+            stream.record_known_air(evicted);
+            stream.record_known_air(neighbour);
+            stream.mark_light_changed_sources([evicted, neighbour]);
+            assert_eq!(stream.dispatch_light_jobs([16.0, 8.0, 8.0], 2), 2);
+            let completions = (0..2)
+                .map(|_| {
+                    stream
+                        .light_rx
+                        .recv_timeout(Duration::from_secs(2))
+                        .unwrap()
+                })
+                .collect::<Vec<_>>();
+
+            stream.evict_column(evicted.chunk());
+            for completion in completions.into_iter().rev() {
+                stream.accept_light_completion(completion);
+            }
+            settle_light(&mut stream, [24.0, 8.0, 8.0]);
+
+            assert_eq!(
+                stream.light_store.kind(evicted),
+                world::LightSubChunkKind::Unknown
+            );
+            assert!(!stream.resident.contains(&evicted));
+            assert!(stream.light_is_current(neighbour));
+            assert!(stream.light_waiters.is_empty());
         }
 
         #[test]

@@ -162,6 +162,9 @@ struct WorldReadyWork {
     queued_decode_jobs: usize,
     in_flight_decode_jobs: usize,
     completed_decode_results: usize,
+    pending_light_jobs: usize,
+    in_flight_light_jobs: usize,
+    terminal_light_failures: usize,
     pending_mesh_jobs: usize,
     in_flight_mesh_jobs: usize,
     pending_mesh_changes: usize,
@@ -797,7 +800,7 @@ impl FullViewTeleportTracker {
             .committed
             .map_or_else(|| "none".to_owned(), cohort_tag);
         Some(format!(
-            "RUST_MCBE_TELEPORT_COHORT target={} committed={} exact={} expected={} loaded_target={} missing_target={} foreign_loaded={} foreign_requested={} foreign_resident={} source_leftover={} resident_count={} resident_hash={:016x} known_air_count={} known_air_hash={:016x} network_events={} network_commands={} admitted_world_events={} queued_decode_jobs={} in_flight_decode_jobs={} completed_decode_results={} pending_mesh_jobs={} in_flight_mesh_jobs={} pending_mesh_changes={} outbound_requests={} outstanding_sub_chunks={} pending_retry_requests={} awaiting_sub_chunk_responses={} sub_chunk_timeouts={} sub_chunk_retries_scheduled={} sub_chunk_retry_exhaustions={} render_queue_items={} pending_gpu_acknowledgements={} unacknowledged_meshes={}",
+            "RUST_MCBE_TELEPORT_COHORT target={} committed={} exact={} expected={} loaded_target={} missing_target={} foreign_loaded={} foreign_requested={} foreign_resident={} source_leftover={} resident_count={} resident_hash={:016x} known_air_count={} known_air_hash={:016x} network_events={} network_commands={} admitted_world_events={} queued_decode_jobs={} in_flight_decode_jobs={} completed_decode_results={} pending_light_jobs={} in_flight_light_jobs={} terminal_light_failures={} pending_mesh_jobs={} in_flight_mesh_jobs={} pending_mesh_changes={} outbound_requests={} outstanding_sub_chunks={} pending_retry_requests={} awaiting_sub_chunk_responses={} sub_chunk_timeouts={} sub_chunk_retries_scheduled={} sub_chunk_retry_exhaustions={} render_queue_items={} pending_gpu_acknowledgements={} unacknowledged_meshes={}",
             cohort_tag(pending.target),
             committed,
             status.is_exact(),
@@ -818,6 +821,9 @@ impl FullViewTeleportTracker {
             work.queued_decode_jobs,
             work.in_flight_decode_jobs,
             work.completed_decode_results,
+            work.pending_light_jobs,
+            work.in_flight_light_jobs,
+            work.terminal_light_failures,
             work.pending_mesh_jobs,
             work.in_flight_mesh_jobs,
             work.pending_mesh_changes,
@@ -2620,6 +2626,9 @@ fn emit_world_ready(
         queued_decode_jobs: stats.queued_decode_jobs,
         in_flight_decode_jobs: stats.in_flight_decode_jobs,
         completed_decode_results: stats.completed_decode_results,
+        pending_light_jobs: stats.pending_light_jobs,
+        in_flight_light_jobs: stats.in_flight_light_jobs,
+        terminal_light_failures: stats.terminal_light_failures,
         pending_mesh_jobs: stats.pending_mesh_jobs,
         in_flight_mesh_jobs: stats.in_flight_mesh_jobs,
         pending_mesh_changes: stream.pending_mesh_change_count(),
@@ -5713,6 +5722,27 @@ mod tests {
                 "pending mesh",
                 WorldReadyWork {
                     pending_mesh_jobs: 1,
+                    ..Default::default()
+                },
+            ),
+            (
+                "pending light",
+                WorldReadyWork {
+                    pending_light_jobs: 1,
+                    ..Default::default()
+                },
+            ),
+            (
+                "in-flight light",
+                WorldReadyWork {
+                    in_flight_light_jobs: 1,
+                    ..Default::default()
+                },
+            ),
+            (
+                "terminal light failure",
+                WorldReadyWork {
+                    terminal_light_failures: 1,
                     ..Default::default()
                 },
             ),
