@@ -1,7 +1,7 @@
 use std::mem::size_of_val;
 
 use assets::{
-    BLOB_VERSION, BiomeRule, BlockFace, BlockFlags, BlockVisual, CompiledAssets,
+    AssetError, BLOB_VERSION, BiomeRule, BlockFace, BlockFlags, BlockVisual, CompiledAssets,
     CompiledBiomeAssets, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_FOLIAGE_TINT, MATERIAL_FLAGS_MASK,
     MAX_ANIMATION_FRAMES, MAX_ANIMATIONS, MAX_MATERIALS, MAX_MODEL_QUADS, MAX_MODEL_TEMPLATES,
     Material, ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode,
@@ -181,12 +181,12 @@ fn compound_blob() -> Vec<u8> {
     compiled.model_templates = vec![
         ModelTemplate {
             quad_start: 0,
-            quad_count: 24,
+            quad_count: 1,
             flags: assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
         },
         ModelTemplate {
-            quad_start: 24,
-            quad_count: 16,
+            quad_start: 1,
+            quad_count: 1,
             flags: 0,
         },
     ]
@@ -198,7 +198,7 @@ fn compound_blob() -> Vec<u8> {
             material: 1,
             flags: 0,
         };
-        40
+        2
     ]
     .into_boxed_slice();
     encode_blob(&compiled)
@@ -610,6 +610,28 @@ fn decode_rejects_malformed_compound_template_pairs_and_tail_references() {
     write_u32(&mut tail_referenced, visuals + 40 + 28, 1);
     reseal(&mut tail_referenced);
     assert_rejected(&tail_referenced, "direct compound continuation reference");
+
+    let mut zero_head = compound_blob();
+    write_u32(&mut zero_head, templates + 4, 0);
+    write_u32(&mut zero_head, templates + 12, 0);
+    write_u32(&mut zero_head, templates + 12 + 4, 2);
+    reseal(&mut zero_head);
+    let Err(AssetError::InvalidCompiledAssets { detail }) = RuntimeAssets::decode(&zero_head)
+    else {
+        panic!("zero-quad compound head must fail at runtime boundary");
+    };
+    assert_eq!(detail.as_ref(), "compound template head has no quads");
+
+    let mut zero_tail = compound_blob();
+    write_u32(&mut zero_tail, templates + 4, 2);
+    write_u32(&mut zero_tail, templates + 12, 2);
+    write_u32(&mut zero_tail, templates + 12 + 4, 0);
+    reseal(&mut zero_tail);
+    let Err(AssetError::InvalidCompiledAssets { detail }) = RuntimeAssets::decode(&zero_tail)
+    else {
+        panic!("zero-quad compound continuation must fail at runtime boundary");
+    };
+    assert_eq!(detail.as_ref(), "compound continuation has no quads");
 }
 
 #[test]

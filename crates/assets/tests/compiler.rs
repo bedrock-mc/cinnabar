@@ -2096,6 +2096,42 @@ fn compiler_gate_selectors_fail_closed_when_missing_or_out_of_range() {
 }
 
 #[test]
+fn compiler_gate_requires_the_exact_typed_selector_mask() {
+    let directory = tempfile::tempdir().expect("create exact-mask gate fixture");
+    write_gate_pack(directory.path());
+    let valid = encoded_model_record(
+        0,
+        94_400,
+        "minecraft:fence_gate",
+        ModelFamily::Gate,
+        &[
+            (ModelStateField::Orientation, 0),
+            (ModelStateField::Open, 0),
+            (ModelStateField::Flags, 0),
+        ],
+    );
+    assert_eq!(valid.model_state.mask(), 0x85);
+    let unexpected = encoded_model_record(
+        1,
+        94_401,
+        "minecraft:fence_gate",
+        ModelFamily::Gate,
+        &[
+            (ModelStateField::Orientation, 0),
+            (ModelStateField::Half, 0),
+            (ModelStateField::Open, 0),
+            (ModelStateField::Flags, 0),
+        ],
+    );
+    assert_eq!(unexpected.model_state.mask(), 0x87);
+
+    let compiled = compile_pack(directory.path(), &[valid, unexpected])
+        .expect("compile exact and over-specified gate selectors");
+    assert_eq!(compiled.visuals[0].kind, VisualKind::Model);
+    assert_eq!(compiled.visuals[1].kind, VisualKind::Diagnostic);
+}
+
+#[test]
 fn compiler_real_pinned_pack_has_zero_diagnostic_gate_states_when_requested() {
     let Some(pack) = std::env::var_os("PINNED_VANILLA_PACK") else {
         return;

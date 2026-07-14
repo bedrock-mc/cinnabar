@@ -442,11 +442,17 @@ fn compiled_compound_tails(templates: &[crate::ModelTemplate]) -> Result<Vec<boo
         if template.flags != MODEL_TEMPLATE_FLAG_COMPOUND_NEXT {
             return Err(invalid("compound template head has incompatible flags"));
         }
+        if template.quad_count == 0 {
+            return Err(invalid("compound template head has no quads"));
+        }
         let Some(tail) = templates.get(index + 1) else {
             return Err(invalid("compound template pair is truncated"));
         };
         if tail.flags != 0 {
             return Err(invalid("compound continuation is not a plain template"));
+        }
+        if tail.quad_count == 0 {
+            return Err(invalid("compound continuation has no quads"));
         }
         tails[index + 1] = true;
     }

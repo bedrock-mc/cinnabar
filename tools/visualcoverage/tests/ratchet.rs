@@ -1792,44 +1792,63 @@ fn strict_bytes_computes_and_binds_production_input_hashes() {
 
 #[test]
 #[ignore = "requires CINNABAR_REAL_PACK pointing at the ignored pinned MCBEAS04 blob"]
-fn strict_cli_rejects_the_current_real_pack_until_zero_diagnostics() {
+fn production_ratchet_reports_exact_gate_removals_for_the_full_real_pack() {
     let assets_path = std::env::var_os("CINNABAR_REAL_PACK")
         .map(std::path::PathBuf::from)
         .expect("set CINNABAR_REAL_PACK to the ignored pinned vanilla-v1001.mcbea");
     assert!(assets_path.is_file(), "missing real pack: {assets_path:?}");
-    let baseline_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../crates/assets/data/visual-coverage-v1001.json");
     let registry_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../crates/assets/data/block-registry-v1001.bin");
     let registry_bytes = std::fs::read(&registry_path).unwrap();
     let assets_bytes = std::fs::read(&assets_path).unwrap();
+    let records = read_registry(&registry_bytes).expect("read full production registry");
+    let baseline = parse_baseline(include_bytes!(
+        "../../../crates/assets/data/visual-coverage-v1001.json"
+    ))
+    .expect("parse committed production baseline");
     let current = analyze_bytes(&registry_bytes, &assets_bytes).unwrap();
-    assert_eq!(current.diagnostic_states.len(), 14_941);
+    assert_eq!(current.states.len(), 16_913);
+    assert_eq!(baseline.diagnostic_sequential_ids.len(), 8_301);
+    assert_eq!(current.diagnostic_states.len(), 8_301);
 
-    let directory = tempfile::tempdir().unwrap();
-    let report_path = directory.path().join("strict.json");
-    let run = std::process::Command::new(env!("CARGO_BIN_EXE_visualcoverage"))
-        .args([
-            "strict",
-            "--registry",
-            registry_path.to_str().unwrap(),
-            "--assets",
-            assets_path.to_str().unwrap(),
-            "--baseline",
-            baseline_path.to_str().unwrap(),
-            "--out",
-            report_path.to_str().unwrap(),
-        ])
-        .output()
-        .unwrap();
+    let expected_gate_ids = records
+        .iter()
+        .filter(|record| record.model_family == ModelFamily::Gate)
+        .map(|record| record.sequential_id)
+        .collect::<Vec<_>>();
+    assert_eq!(expected_gate_ids.len(), 192);
+    assert!(expected_gate_ids.iter().all(|id| {
+        baseline
+            .diagnostic_sequential_ids
+            .binary_search(id)
+            .is_err()
+    }));
+
+    let mut pre_gate_baseline = baseline.clone();
+    pre_gate_baseline
+        .diagnostic_sequential_ids
+        .extend(expected_gate_ids.iter().copied());
+    pre_gate_baseline.diagnostic_sequential_ids.sort_unstable();
+    assert_eq!(pre_gate_baseline.diagnostic_sequential_ids.len(), 8_493);
+    let report = ratchet_protocol_1001(current.clone(), &pre_gate_baseline)
+        .expect("run exact pre-Gate production ratchet");
+    assert!(report.added_diagnostics.is_empty());
+    assert_eq!(report.removed_diagnostics.len(), 192);
     assert!(
-        !run.status.success(),
-        "real pack unexpectedly passed strict"
+        report
+            .removed_diagnostics
+            .iter()
+            .all(|state| state.model_family == "gate")
     );
-    let stderr = String::from_utf8_lossy(&run.stderr);
-    assert!(
-        stderr.contains("UnsupportedModelFamily"),
-        "unexpected stderr: {stderr}"
-    );
-    assert!(!report_path.exists());
+    let removed_ids = report
+        .removed_diagnostics
+        .iter()
+        .map(|state| state.sequential_id)
+        .collect::<Vec<_>>();
+    assert_eq!(removed_ids, expected_gate_ids);
+
+    let refreshed = ratchet_protocol_1001(current, &baseline)
+        .expect("run refreshed production coverage ratchet");
+    assert!(refreshed.added_diagnostics.is_empty());
+    assert!(refreshed.removed_diagnostics.is_empty());
 }

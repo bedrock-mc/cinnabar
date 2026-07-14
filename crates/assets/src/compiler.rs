@@ -1242,6 +1242,7 @@ fn compile_visuals(
             }
         } else if is_gate(record) {
             const IN_WALL: u32 = 1 << 6;
+            const GATE_STATE_MASK: u8 = 0x85;
             let materials = BlockFace::ALL.map(|face| {
                 descriptor_for(pack, record, face)
                     .and_then(|(descriptor, _)| material_by_descriptor.get(&descriptor).copied())
@@ -1249,14 +1250,15 @@ fn compile_visuals(
             let orientation = record.model_state.get(ModelStateField::Orientation);
             let open = record.model_state.get(ModelStateField::Open);
             let flags = record.model_state.get(ModelStateField::Flags);
-            if let [
-                Some(west),
-                Some(east),
-                Some(down),
-                Some(up),
-                Some(north),
-                Some(south),
-            ] = materials
+            if record.model_state.mask() == GATE_STATE_MASK
+                && let [
+                    Some(west),
+                    Some(east),
+                    Some(down),
+                    Some(up),
+                    Some(north),
+                    Some(south),
+                ] = materials
                 && let (Some(orientation @ 0..=3), Some(open @ 0..=1), Some(flags @ (0 | IN_WALL))) =
                     (orientation, open, flags)
             {

@@ -288,17 +288,17 @@ fn mcbeas04_accepts_only_canonical_two_template_compounds() {
     compound.model_templates = vec![
         assets::ModelTemplate {
             quad_start: 0,
-            quad_count: 24,
+            quad_count: 1,
             flags: COMPOUND_NEXT,
         },
         assets::ModelTemplate {
-            quad_start: 24,
-            quad_count: 16,
+            quad_start: 1,
+            quad_count: 1,
             flags: 0,
         },
     ]
     .into_boxed_slice();
-    compound.model_quads = vec![quad; 40].into_boxed_slice();
+    compound.model_quads = vec![quad; 2].into_boxed_slice();
 
     let bytes = encode_blob(&compound).expect("canonical compound pair");
     let runtime = assets::RuntimeAssets::decode(&bytes).expect("decode canonical compound pair");
@@ -313,11 +313,29 @@ fn mcbeas04_accepts_only_canonical_two_template_compounds() {
 
     let mut truncated = compound.clone();
     truncated.model_templates = truncated.model_templates[..1].into();
-    truncated.model_quads = truncated.model_quads[..24].into();
+    truncated.model_quads = truncated.model_quads[..1].into();
     assert!(
         encode_blob(&truncated).is_err(),
         "compound head cannot end the template table"
     );
+
+    let mut zero_head = compound.clone();
+    zero_head.model_templates[0].quad_count = 0;
+    zero_head.model_templates[1].quad_start = 0;
+    zero_head.model_templates[1].quad_count = 2;
+    let Err(AssetError::InvalidCompiledAssets { detail }) = encode_blob(&zero_head) else {
+        panic!("zero-quad compound head must be rejected exactly");
+    };
+    assert_eq!(detail.as_ref(), "compound template head has no quads");
+
+    let mut zero_tail = compound.clone();
+    zero_tail.model_templates[0].quad_count = 2;
+    zero_tail.model_templates[1].quad_start = 2;
+    zero_tail.model_templates[1].quad_count = 0;
+    let Err(AssetError::InvalidCompiledAssets { detail }) = encode_blob(&zero_tail) else {
+        panic!("zero-quad compound continuation must be rejected exactly");
+    };
+    assert_eq!(detail.as_ref(), "compound continuation has no quads");
 
     for tail_flags in [
         COMPOUND_NEXT,
