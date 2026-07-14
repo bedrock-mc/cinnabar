@@ -16,11 +16,14 @@ pack:
 - `textures/environment/moon_phases.png`
 - `textures/environment/clouds.png`
 
-Production compilation accepts only the reviewed manifest's exact bytes and
+Production compilation accepts only the reviewed manifest's exact content and
 fields and the reviewed encoded SHA-256 for each of those three PNG files.
-The manifest is forced to LF in `.gitattributes`, so its byte identity is
-stable across platforms. A future vanilla bump must deliberately update the
-manifest identity and all affected source-hash constants and ratchet tests.
+The validator accepts a uniformly LF or CRLF checkout, canonicalizes CRLF to LF,
+and hashes the canonical LF bytes; bare CR, mixed line endings, and all other
+byte changes fail closed. `.gitattributes` requests LF for new checkouts, but
+correctness does not depend on Git renormalizing an existing worktree. A future
+vanilla bump must deliberately update the manifest identity and all affected
+source-hash constants and ratchet tests.
 
 The cloud source is included because the pinned pack supplies an authoritative
 256x256 texture and it fits the same bounded carrier. This task does not define

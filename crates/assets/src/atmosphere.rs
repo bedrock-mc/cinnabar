@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     fs::File,
     io::{Cursor, Read},
     path::Path,
@@ -20,7 +21,7 @@ const DESCRIPTOR_BYTES: usize = 112;
 const HASH_BYTES: usize = 32;
 const FORMAT_RGBA8_SRGB: u32 = 1;
 const PINNED_MANIFEST_SHA256: [u8; 32] =
-    decode_sha256(b"0cc3e494d634cf3f9c0795d526b9f91e973dfe1009aae50b8db4418f2386304d");
+    decode_sha256(b"c6d5f56b942d703a7acd1f83b2cddb7633069e13412ad5a1c3beae666e2ec6f6");
 const PINNED_TAG: &str = "v1.26.30.32-preview";
 const PINNED_COMMIT: &str = "020f1cf4b2baef78e635d4ce7498eb16a429dcbb";
 const PINNED_ARCHIVE: &str = "bedrock-samples-v1.26.30.32-preview-full.zip";
@@ -310,9 +311,10 @@ pub fn compile_atmosphere_assets(
             max: MAX_SOURCE_MANIFEST_BYTES,
         });
     }
-    let manifest = serde_json::from_slice::<SourceManifest>(source_manifest)
+    let canonical_manifest = canonical_manifest_line_endings(source_manifest)?;
+    let manifest = serde_json::from_slice::<SourceManifest>(&canonical_manifest)
         .map_err(|source| AssetError::InvalidAtmosphereManifest { source })?;
-    let source_manifest_sha256: [u8; 32] = Sha256::digest(source_manifest).into();
+    let source_manifest_sha256: [u8; 32] = Sha256::digest(&canonical_manifest).into();
     validate_source_manifest(&manifest, source_manifest_sha256)?;
     let specs = source_specs();
     let textures = specs
@@ -326,6 +328,33 @@ pub fn compile_atmosphere_assets(
         source_manifest_sha256,
         textures,
     })
+}
+
+fn canonical_manifest_line_endings(source: &[u8]) -> Result<Cow<'_, [u8]>, AssetError> {
+    if !source.contains(&b'\r') {
+        return Ok(Cow::Borrowed(source));
+    }
+
+    let mut canonical = Vec::with_capacity(source.len());
+    let mut index = 0;
+    while index < source.len() {
+        match source[index] {
+            b'\r' if source.get(index + 1) == Some(&b'\n') => {
+                canonical.push(b'\n');
+                index += 2;
+            }
+            b'\r' | b'\n' => {
+                return Err(AssetError::InvalidAtmosphereProvenance {
+                    detail: "manifest must use uniformly LF or CRLF line endings".into(),
+                });
+            }
+            byte => {
+                canonical.push(byte);
+                index += 1;
+            }
+        }
+    }
+    Ok(Cow::Owned(canonical))
 }
 
 fn validate_source_manifest(

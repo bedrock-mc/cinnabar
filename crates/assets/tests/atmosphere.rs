@@ -23,21 +23,53 @@ const SOURCES: [(&str, u32, u32, u8); 3] = [
 #[test]
 fn production_compiler_rejects_any_manifest_bytes_other_than_the_tracked_pin() {
     let pack = synthetic_pack();
-    let mut manifest = tracked_manifest();
-    manifest.push(b'\n');
+    let manifest = canonical_tracked_manifest();
 
-    assert!(compile_atmosphere_assets(pack.path(), &manifest).is_err());
+    let mut appended = manifest.clone();
+    appended.push(b' ');
+    assert!(compile_atmosphere_assets(pack.path(), &appended).is_err());
+
+    let mut bare_cr = manifest.clone();
+    *bare_cr.iter_mut().find(|byte| **byte == b'\n').unwrap() = b'\r';
+    assert!(compile_atmosphere_assets(pack.path(), &bare_cr).is_err());
+
+    let mut mixed = manifest.clone();
+    let first_lf = mixed.iter().position(|byte| *byte == b'\n').unwrap();
+    mixed.insert(first_lf, b'\r');
+    assert!(compile_atmosphere_assets(pack.path(), &mixed).is_err());
+
+    let mut lines = std::str::from_utf8(&manifest)
+        .unwrap()
+        .lines()
+        .collect::<Vec<_>>();
+    lines.swap(1, 2);
+    let reordered = format!("{}\n", lines.join("\n"));
+    assert!(compile_atmosphere_assets(pack.path(), reordered.as_bytes()).is_err());
+
+    let changed = std::str::from_utf8(&manifest)
+        .unwrap()
+        .replace("v1.26.30.32-preview", "v1.26.30.31-preview");
+    assert!(compile_atmosphere_assets(pack.path(), changed.as_bytes()).is_err());
 }
 
 #[test]
-fn tracked_manifest_bytes_are_forced_to_lf_on_every_platform() {
-    let attributes =
-        fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.gitattributes"))
-            .unwrap();
-    assert!(
-        attributes
-            .lines()
-            .any(|line| line == "assets/vanilla-source.json text eol=lf")
+fn production_compiler_accepts_the_exact_pin_with_lf_or_crlf() {
+    let Ok(pack) = std::env::var("PINNED_VANILLA_PACK") else {
+        eprintln!("skipping: PINNED_VANILLA_PACK does not point at the ignored pinned pack");
+        return;
+    };
+    let lf = canonical_tracked_manifest();
+    let crlf = std::str::from_utf8(&lf)
+        .unwrap()
+        .replace('\n', "\r\n")
+        .into_bytes();
+
+    let from_lf = compile_atmosphere_assets(Path::new(&pack), &lf).unwrap();
+    let from_crlf = compile_atmosphere_assets(Path::new(&pack), &crlf).unwrap();
+    assert_eq!(from_crlf, from_lf);
+    assert_eq!(
+        from_crlf.source_manifest_sha256,
+        Sha256::digest(&lf).as_slice()
     );
 }
 
@@ -80,7 +112,7 @@ fn compiler_carries_exact_sources_in_canonical_order_with_hashes() {
 
     assert_eq!(
         compiled.source_manifest_sha256,
-        Sha256::digest(&manifest).as_slice()
+        Sha256::digest(canonical_tracked_manifest()).as_slice()
     );
     assert_eq!(compiled.textures.len(), 3);
     for (index, texture) in compiled.textures.iter().enumerate() {
@@ -271,7 +303,7 @@ fn assetc_atmosphere_writes_deterministic_blob_and_provenance_report() {
     );
     assert_eq!(
         report["source_manifest_sha256"],
-        format!("{:x}", Sha256::digest(&manifest))
+        format!("{:x}", Sha256::digest(canonical_tracked_manifest()))
     );
     assert_eq!(report["textures"].as_array().unwrap().len(), 3);
     assert_eq!(report["textures"][0]["role"], "sun");
@@ -423,13 +455,13 @@ fn pinned_pack_atmosphere_sources_match_exact_provenance() {
     let compiled = compile_atmosphere_assets(Path::new(&pack), &manifest).unwrap();
     let blob = encode_atmosphere_blob(&compiled).unwrap();
     assert_eq!(
-        format!("{:x}", Sha256::digest(&manifest)),
-        "0cc3e494d634cf3f9c0795d526b9f91e973dfe1009aae50b8db4418f2386304d"
+        format!("{:x}", Sha256::digest(canonical_tracked_manifest())),
+        "c6d5f56b942d703a7acd1f83b2cddb7633069e13412ad5a1c3beae666e2ec6f6"
     );
     assert_eq!(blob.len(), 299_599);
     assert_eq!(
         format!("{:x}", Sha256::digest(&blob)),
-        "0fef7cab3c6b420af08517f8f0c7b5c98556ba15aeb2961df9fcd16c3df3470c"
+        "d2f7e935744c7497741c1e54d022e676f67125c0fb006bf030b42734ba115054"
     );
     let expected = [
         (
@@ -478,6 +510,13 @@ fn format_hash(hash: [u8; 32]) -> String {
 fn tracked_manifest() -> Vec<u8> {
     fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/vanilla-source.json"))
         .unwrap()
+}
+
+fn canonical_tracked_manifest() -> Vec<u8> {
+    std::str::from_utf8(&tracked_manifest())
+        .unwrap()
+        .replace("\r\n", "\n")
+        .into_bytes()
 }
 
 fn pinned_cli_fixture() -> Option<(String, std::path::PathBuf, TempDir)> {

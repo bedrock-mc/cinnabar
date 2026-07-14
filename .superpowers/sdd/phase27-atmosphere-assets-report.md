@@ -26,7 +26,7 @@ Tracked source manifest: `assets/vanilla-source.json`
 - archive SHA-256:
   `12d5cddc03acd507e9e0bd412f2e94d34d0a1a855758af7a9eef61b03630ad7c`
 - source-manifest SHA-256:
-  `0cc3e494d634cf3f9c0795d526b9f91e973dfe1009aae50b8db4418f2386304d`
+  `c6d5f56b942d703a7acd1f83b2cddb7633069e13412ad5a1c3beae666e2ec6f6`
 - artifact policy: `local-only`
 
 Pinned resource-pack records, in canonical binary order:
@@ -55,17 +55,19 @@ canonical layout is:
 5. a trailing SHA-256 over the complete preceding envelope.
 
 The pinned output is 299,599 bytes with SHA-256
-`0fef7cab3c6b420af08517f8f0c7b5c98556ba15aeb2961df9fcd16c3df3470c`.
+`d2f7e935744c7497741c1e54d022e676f67125c0fb006bf030b42734ba115054`.
 
 `RuntimeAtmosphereAssets::decode` validates the complete envelope and all
 fixed metadata before copying bounded pixel payloads. Compilation rejects a
 missing source, a malformed PNG, encoded input above 1 MiB, wrong dimensions,
 invalid/oversized manifest input, and non-local or malformed provenance.
-Production accepts only the exact tracked manifest byte hash and reviewed
-fields, including safe single-component tag/archive values and the official
-Mojang URL. It also requires the exact encoded SHA-256 above for each texture;
-future source bumps therefore require deliberate code and test ratchet changes.
-`.gitattributes` forces the manifest to LF so that byte pin is cross-platform.
+Production accepts only the exact tracked manifest content and reviewed fields,
+including safe single-component tag/archive values and the official Mojang URL.
+Uniform CRLF checkouts are normalized to canonical LF before hashing; uniform LF
+is accepted directly, while bare CR, mixed line endings, appended whitespace,
+reordered fields, and changed fields fail closed. It also requires the exact
+encoded SHA-256 above for each texture; future source bumps therefore require
+deliberate code and test ratchet changes.
 
 `assetc atmosphere` writes both the ignored blob and a deterministic JSON
 report using per-file atomic replacement. The report contains the complete
@@ -105,6 +107,8 @@ RED was observed before each production slice:
   accepted before the Mojang release URL was constrained;
 - exact-pin coverage then proved a byte-mutated manifest and each of the three
   valid-but-modified PNGs were accepted before exact hashes were enforced;
+- checkout-line-ending coverage reproduced exact CRLF manifest rejection before
+  canonical LF hashing was introduced, while retaining mutation rejection;
 - bundle publication coverage first proved the blob was replaced before an
   invalid report destination failed; and
 - output-identity coverage reproduced Windows case-variant, dot/parent, and
