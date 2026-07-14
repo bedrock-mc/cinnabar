@@ -426,6 +426,25 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       by default, registrygen tests/vet, strict Clippy/formatting, and independent
       correction review green). Deterministic gallery/native GPU evidence
       remains in the shared residual-family live gate.
+    - [x] Fence-gate templates and bounded compound model references: all 192
+      states across 12 materials require the exact typed `Orientation`, `Open`,
+      and in-wall flag mask, fail closed on missing, invalid, or additional
+      selectors, and compile from the vanilla render-model oracle rather than
+      collision boxes. Closed/open and normal/in-wall forms preserve exact
+      UV-locked geometry; bamboo uses its distinct custom 38/40-quad topology
+      and reversed/rotated UV rectangles. Because exact gates exceed the
+      existing 32-quad mask, one visual now selects a validated pair of
+      consecutive 24+16 (bamboo closed 22+16) templates, emitted as two
+      independent packed model references with contiguous lighting and draw
+      records while preserving the 16-byte reference, `u32` visible mask,
+      MCBEAS04 field widths, and GPU shader contract. Encoder/runtime trust
+      boundaries reject empty, truncated, nested, incompatible, or directly
+      referenced continuations. The production 16,913-state ratchet removes
+      exactly 192 gate diagnostics with no additions and now holds 8,301
+      diagnostics including air (`f4bcfe0`, `1aaf952`; full assets/render and
+      visualcoverage suites, strict Clippy/formatting, real pinned-pack run, and
+      independent review/re-review green). Deterministic gallery/native GPU
+      evidence remains in the shared residual-family live gate.
     - [ ] Slab/stair native and packed-GPU live acceptance: capture all five
       fixed Cinnabar poses through native `%TEMP%` screenshots and require two
       consecutive exact GPU-completed model-stream witnesses. Automated gallery
@@ -558,8 +577,9 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       regression/invisible laundering, and writes deterministic hash-bound
       reports (`b131247`; 11 tests, strict Clippy, real-pack run, and independent
       review green). The reviewed baseline was refreshed cumulatively for the
-      already-landed door, trapdoor, wall, and pressure-plate tranches. After
-      lava, vine, and those four static families, the current residual has 8,493
+      already-landed door, trapdoor, wall, pressure-plate, and fence-gate
+      tranches. After lava, vine, and those five static families, the current
+      residual has 8,301
       diagnostics including the single air diagnostic, with zero diagnostics in
       every implemented family; each remaining family must shrink that exact set.
   - [ ] Complete the exhaustive residual-family report, beginning with

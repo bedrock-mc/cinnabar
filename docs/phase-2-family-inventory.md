@@ -136,6 +136,13 @@ none are omitted.
 Walls and signs alone cover 10,056 states. Their cardinality reflects selector
 products, not 10,056 distinct hand-authored models.
 
+Fence-gate rendering is complete for all 192 states. The collision row's 96
+open/empty values describe collision only, not visible geometry: exact vanilla
+open gates still contain 40 render quads. Cinnabar therefore represents each
+gate as a bounded two-template compound (24+16 quads, or 22+16 for closed
+bamboo), preserving the existing 32-bit visibility mask and packed-reference
+format without truncating the model.
+
 ## Selector requirements
 
 The generated selector representation or the preserved canonical typed state

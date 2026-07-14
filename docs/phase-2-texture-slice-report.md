@@ -184,12 +184,12 @@ cargo run -p visualcoverage -- ratchet `
 
 The refreshed 2026-07-13 real-pack run compiled all 16,913 visuals and passed
 the ratchet with asset SHA-256
-`c57976b62d09957295dfc36ffba7cf6aa04f7b3e799a6f78bea0d07d513f31aa`.
-It reports 8,493 diagnostics including air and zero diagnostics for lava, vine,
-doors, trapdoors, walls, or pressure plates. The reviewed baseline refresh
+`d44685da9ab18ce12da97557adfe1252ca115b7163566a73ff31581aead33316`.
+It reports 8,301 diagnostics including air and zero diagnostics for lava, vine,
+doors, trapdoors, walls, pressure plates, or fence gates. The reviewed baseline refresh
 cumulatively records the already-landed door/trapdoor/wall removals plus the
-pressure-plate tranche, rather than attributing all 6,448 removed IDs to one
-feature. This is a regression baseline, not a parity claim: each remaining
+pressure-plate and fence-gate tranches, rather than attributing all 6,640
+removed IDs to one feature. This is a regression baseline, not a parity claim: each remaining
 family must reduce that exact set, and the final strict gate still requires zero
 non-air diagnostics, 67 exact-state GPU gallery pages, and the separate
 block-entity manifest. The local JSON report and compiled Mojang-derived blob
