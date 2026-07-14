@@ -120,6 +120,7 @@ fn generated_registry_has_exact_copper_grate_inventory() {
         record.canonical_state.as_ref() == "{}"
             && record.model_family == ModelFamily::Cube
             && record.contributor_role == ContributorRole::Primary
+            && record.flags == BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE
     }));
     let mut actual = copper_grates
         .iter()
@@ -7666,11 +7667,53 @@ fn compiler_emits_exact_checked_copper_grate_models() {
     assert_eq!(encode_blob(&reversed).unwrap(), baseline);
 }
 
+fn single_copper_grate_fixture() -> TempDir {
+    let directory = tempfile::tempdir().expect("create single copper-grate fixture");
+    write_pack(
+        directory.path(),
+        r#"{"copper_grate":{"textures":"copper_grate"}}"#,
+        r#"{"texture_data":{"copper_grate":{"textures":"textures/blocks/copper_grate"}}}"#,
+        "[]",
+    );
+    write_png(
+        directory.path(),
+        "textures/blocks/copper_grate",
+        TILE_SIZE,
+        TILE_SIZE,
+        &solid(TILE_SIZE, TILE_SIZE, [184, 115, 51, 64]),
+    );
+    directory
+}
+
 #[test]
+fn compiler_rejects_exact_copper_grate_marked_air() {
+    let directory = single_copper_grate_fixture();
+    let mut record = model_record(0, 92_200, "minecraft:copper_grate", "{}", ModelFamily::Cube);
+    record.flags = BlockFlags::AIR;
+
+    let compiled = compile_pack(directory.path(), &[record]).expect("compile air copper grate");
+
+    assert_eq!(compiled.visuals[0].kind, VisualKind::Diagnostic);
+    assert_eq!(compiled.visuals[0].faces, [DIAGNOSTIC_MATERIAL; 6]);
+}
+
+#[test]
+fn compiler_rejects_exact_copper_grate_with_flags_zero() {
+    let directory = single_copper_grate_fixture();
+    let record = model_record(0, 92_201, "minecraft:copper_grate", "{}", ModelFamily::Cube);
+
+    let compiled =
+        compile_pack(directory.path(), &[record]).expect("compile flags-zero copper grate");
+
+    assert_eq!(compiled.visuals[0].kind, VisualKind::Diagnostic);
+    assert_eq!(compiled.visuals[0].faces, [DIAGNOSTIC_MATERIAL; 6]);
+}
+
+#[test]
+#[ignore = "requires PINNED_VANILLA_PACK pointing at the ignored pinned vanilla resource pack"]
 fn compiler_real_pinned_pack_admits_only_exact_copper_grate_records() {
-    let Some(pack) = std::env::var_os("PINNED_VANILLA_PACK") else {
-        return;
-    };
+    let pack = std::env::var_os("PINNED_VANILLA_PACK")
+        .expect("set PINNED_VANILLA_PACK to the ignored pinned vanilla resource pack");
     let all = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
         .expect("decode committed generated registry");
     let copper_grates = all
@@ -7687,6 +7730,7 @@ fn compiler_real_pinned_pack_admits_only_exact_copper_grate_records() {
         record.canonical_state.as_ref() == "{}"
             && record.model_family == ModelFamily::Cube
             && record.contributor_role == ContributorRole::Primary
+            && record.flags == BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE
     }));
     let excluded = all
         .iter()

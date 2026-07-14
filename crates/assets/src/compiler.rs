@@ -637,6 +637,11 @@ fn is_copper_grate(record: &RegistryRecord) -> bool {
     record.canonical_state.as_ref() == "{}"
         && record.model_family == ModelFamily::Cube
         && record.contributor_role == ContributorRole::Primary
+        && !record.flags.is_empty()
+        && !record.flags.contains(BlockFlags::AIR)
+        && record.flags.contains(BlockFlags::CUBE_GEOMETRY)
+        && record.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
+        && !record.flags.contains(BlockFlags::LEAF_MODEL)
         && is_copper_grate_name(&record.name)
 }
 
