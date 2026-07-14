@@ -81,8 +81,8 @@ unexpected second-file I/O failure occurs after the blob rename, Make sees the
 missing or older report and reruns the deterministic pair.
 
 Preflight rejects aliased outputs before either is opened for writing. It
-checks normalized absolute paths, Windows case-folded paths, canonicalized
-existing ancestors, and existing filesystem identity, covering exact,
+checks normalized absolute paths, conservatively case-folded paths on every
+platform, canonicalized existing ancestors, and existing filesystem identity, covering exact,
 dot/parent, case-variant, hardlink, and symlink/junction aliases.
 
 Build integration uses one portable producer command. `make assets`, the
@@ -109,12 +109,14 @@ RED was observed before each production slice:
   invalid report destination failed; and
 - output-identity coverage reproduced Windows case-variant, dot/parent, and
   hardlink clobbers before normalized/canonical/file-identity checks; and
+- portability coverage rejected the OS-gated case-fold implementation and
+  proves two absent case-variant destinations create neither output; and
 - Make integration first failed because the manifest/blob/report freshness
   contracts were absent, then rejected the unsafe ordinary multi-target rule.
 
-Focused pinned verification passed all fourteen atmosphere integration tests,
+Focused pinned verification passed all fifteen atmosphere integration tests,
 including exact source and pinned blob hash ratchets. Standard full assets
-verification passed 251 tests with zero failures and eight existing ignored
+verification passed 252 tests with zero failures and eight existing ignored
 opt-in tests.
 
 The client asset suite passed 31 tests. Its executable Make behavior test runs

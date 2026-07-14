@@ -52,8 +52,8 @@ atomic rename. The two separate destinations are not crash-atomic as a pair;
 if an unexpected second-file I/O failure occurs, the Make dependency observes
 the missing/older report and reruns the complete pair.
 
-Preflight compares normalized absolute locations, Windows case-folded
-locations, canonicalized existing ancestors, and existing file identity. It
+Preflight compares normalized absolute locations, conservatively case-folded
+locations on every platform, canonicalized existing ancestors, and existing file identity. It
 rejects exact, dot/parent, case, symlink/junction, and hardlink aliases before
 either output is opened for writing.
 

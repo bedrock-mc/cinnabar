@@ -422,16 +422,10 @@ fn canonicalized_location(path: &Path) -> Result<PathBuf, AssetError> {
     }
 }
 
-#[cfg(windows)]
 fn paths_alias(left: &Path, right: &Path) -> bool {
     left.to_string_lossy()
         .to_lowercase()
         .eq(&right.to_string_lossy().to_lowercase())
-}
-
-#[cfg(not(windows))]
-fn paths_alias(left: &Path, right: &Path) -> bool {
-    left == right
 }
 
 fn read_bounded(path: &Path) -> Result<Vec<u8>, AssetError> {

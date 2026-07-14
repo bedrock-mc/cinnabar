@@ -343,17 +343,43 @@ fn assetc_atmosphere_rejects_exact_and_lexically_normalized_output_aliases() {
     assert_alias_rejected_without_write(&pack, &manifest_path, &blob, &report, b"lexical-marker");
 }
 
-#[cfg(windows)]
 #[test]
-fn assetc_atmosphere_rejects_case_insensitive_output_aliases_on_windows() {
+fn assetc_atmosphere_rejects_absent_case_variant_outputs_on_every_platform() {
     let Some((pack, manifest_path, outputs)) = pinned_cli_fixture() else {
         return;
     };
     let blob = outputs.path().join("ASSET.BIN");
     let report = outputs.path().join("asset.bin");
-    fs::write(&blob, b"case-marker").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_assetc"))
+        .args(["atmosphere", "--pack"])
+        .arg(&pack)
+        .arg("--source-manifest")
+        .arg(&manifest_path)
+        .arg("--out")
+        .arg(&blob)
+        .arg("--report")
+        .arg(&report)
+        .output()
+        .unwrap();
 
-    assert_alias_rejected_without_write(&pack, &manifest_path, &blob, &report, b"case-marker");
+    assert!(!output.status.success());
+    assert!(!blob.exists(), "blob was created before alias rejection");
+    assert!(
+        !report.exists(),
+        "report was created before alias rejection"
+    );
+}
+
+#[test]
+fn assetc_case_variant_guard_is_not_platform_gated() {
+    let source = include_str!("../src/bin/assetc.rs");
+    assert_eq!(
+        source.matches("fn paths_alias(").count(),
+        1,
+        "case-fold alias comparison must have one platform-independent implementation"
+    );
+    assert!(!source.contains("#[cfg(windows)]\nfn paths_alias"));
+    assert!(!source.contains("#[cfg(not(windows))]\nfn paths_alias"));
 }
 
 #[test]
