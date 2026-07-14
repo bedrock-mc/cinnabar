@@ -412,7 +412,16 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       witness. Vertex culling improved p50 from 41.7 to 39.6 ms despite 8,699
       versus 5,679 resident subchunks, but p99 remained 47.7 ms and the 100 ms
       mutation gate still failed at 139.9718 ms; structural exact-count model
-      drawing and backend/presentation investigation remain required.
+      drawing remains required. The backend/presentation investigation is now
+      conclusive: five direct swapchain captures from Cinnabar, minimal Bevy
+      Camera3d and Camera2d clear-only probes, a camera-local red clear, and
+      DX12/FXC were byte-identical pure black. Vulkan exposes no surface present
+      modes and GL exposes no adapter on this machine. This isolates the native
+      black-window symptom below Cinnabar to Bevy 0.18.1/wgpu DX12 on the RX 570
+      driver `31.0.21924.61`; chunk, camera, shader, and custom render-phase code
+      must not be changed to mask it. A driver or isolated Bevy/wgpu A/B plus a
+      tiny startup clear-color smoke gate remains required before native visual
+      evidence can close, while deterministic GPU witnesses can continue.
     - [ ] Wall-attached vine family: replace the diagnostic pink-cube fallback
       for every `minecraft:vine` direction-bit state with compact cutout face
       templates selected from its exact attachment mask, including conservative
