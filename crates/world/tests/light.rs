@@ -226,12 +226,20 @@ fn light_store_distinguishes_boundaries_snapshots_and_eviction() {
     assert_eq!(store.kind(air), LightSubChunkKind::KnownAir);
     assert_eq!(store.kind(resident), LightSubChunkKind::Resident);
 
+    let scoped = store.snapshot_keys([air]);
+    assert_eq!(scoped.kind(air), LightSubChunkKind::KnownAir);
+    assert_eq!(scoped.kind(resident), LightSubChunkKind::Unknown);
+
     let snapshot = store.snapshot();
     let replacement = SubChunkLight::dark(3);
     assert!(store.commit_if_generation(resident, Some(2), replacement));
     assert_eq!(snapshot.light(resident).unwrap().generation(), 2);
     assert_eq!(store.light(resident).unwrap().generation(), 3);
     assert!(!store.commit_if_generation(resident, Some(2), SubChunkLight::dark(4)));
+
+    assert!(store.remove(air));
+    assert_eq!(store.kind(air), LightSubChunkKind::Unknown);
+    assert!(!store.remove(air));
 
     let removed = store.evict_chunk(ChunkKey::new(0, 11, -4));
     assert_eq!(removed, vec![resident]);

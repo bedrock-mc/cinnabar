@@ -327,6 +327,21 @@ impl LightStore {
         }
     }
 
+    /// Creates an immutable snapshot containing only explicitly requested keys.
+    pub fn snapshot_keys(&self, keys: impl IntoIterator<Item = SubChunkKey>) -> LightStoreSnapshot {
+        LightStoreSnapshot {
+            entries: keys
+                .into_iter()
+                .filter_map(|key| self.entries.get(&key).cloned().map(|entry| (key, entry)))
+                .collect(),
+        }
+    }
+
+    /// Removes one sub-chunk without disturbing other light in its column.
+    pub fn remove(&mut self, key: SubChunkKey) -> bool {
+        self.entries.remove(&key).is_some()
+    }
+
     /// Removes all light state in one horizontal chunk column.
     pub fn evict_chunk(&mut self, key: ChunkKey) -> Vec<SubChunkKey> {
         let removed = self

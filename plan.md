@@ -961,6 +961,14 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     procedural disks establish the integration slice, not vanilla parity;
     pinned asset-backed sun/moon ingestion, clouds, precipitation visuals,
     underwater/lava medium fog, and live reference acceptance remain open.
+  - [x] Wire the sparse solver and MCBEAS05 per-state emission/filter metadata
+    into generation-qualified WorldStream light storage and bounded,
+    nearest-first one-subchunk solves. Exact face block/light halos, dirty
+    boundary trust, separately retained direct-sky provenance, decoded/update/
+    eviction invalidation, convergent neighbour iteration, and current-light
+    mesh scheduling are covered without flat block arrays. Mesh light baking,
+    GPU/shader consumption, sky/fog/cloud rendering, and visual acceptance
+    remain open.
 
 Perf budget carried from Phase 0 gate; add: full remesh of view distance after teleport ≤ 2s.
 
