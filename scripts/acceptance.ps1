@@ -6,6 +6,7 @@ param(
     [int]$DurationSeconds,
     [Parameter(Mandatory = $true)]
     [string]$BdsDir,
+    [string]$BdsRuntimeDirectory,
     [Parameter(Mandatory = $true)]
     [string]$MetricsOut,
     [string]$Assets,
@@ -5498,7 +5499,15 @@ else {
     $null
 }
 $MetricsOut = [IO.Path]::GetFullPath($MetricsOut)
-$RuntimeDirectory = Join-Path (Join-Path $ProjectRoot '.local\bds-runtime') (Split-Path -Leaf $BdsDir)
+$RuntimeDirectory = if ($PSBoundParameters.ContainsKey('BdsRuntimeDirectory')) {
+    if ([string]::IsNullOrWhiteSpace($BdsRuntimeDirectory)) {
+        throw 'BdsRuntimeDirectory must not be empty'
+    }
+    ConvertTo-NormalizedRuntimePath -Path $BdsRuntimeDirectory
+}
+else {
+    Join-Path (Join-Path $ProjectRoot '.local\bds-runtime') (Split-Path -Leaf $BdsDir)
+}
 $RunName = if ($DryRun) { 'dry-run' } else { "{0}-{1}" -f [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ'), $PID }
 $RunDirectory = Join-Path (Join-Path $ProjectRoot '.local\acceptance') $RunName
 $TransparentWitnessRequestPath = Join-Path $RunDirectory 'transparent-witness-request.json'

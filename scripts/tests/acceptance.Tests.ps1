@@ -436,6 +436,25 @@ try {
     Assert-True (-not (Test-Path -LiteralPath $DryRunDirectory)) 'dry-run created its run directory'
     Assert-True (-not (Test-Path -LiteralPath $MetricsOut)) 'dry-run wrote metrics'
 
+    $sharedRuntimeDirectory = Join-Path $TempRoot 'approved shared BDS runtime'
+    $sharedRuntimeDryRun = Invoke-Acceptance -Arguments @(
+        '-DryRun',
+        '-DurationSeconds', '900',
+        '-BdsDir', $BdsDir,
+        '-BdsRuntimeDirectory', $sharedRuntimeDirectory,
+        '-MetricsOut', $MetricsOut
+    )
+    Assert-True ($sharedRuntimeDryRun.ExitCode -eq 0) "shared-runtime dry-run failed: $($sharedRuntimeDryRun.Output -join [Environment]::NewLine)"
+    $sharedRuntimeCommand = @($sharedRuntimeDryRun.Output | Where-Object { $_ -match '^BDS_COMMAND=' })
+    Assert-True ($sharedRuntimeCommand.Count -eq 1) "expected one shared-runtime BDS command, got $($sharedRuntimeCommand.Count)"
+    Assert-Equal `
+        ('BDS_COMMAND=' + (Format-TestResolvedCommand `
+            -Executable (Join-Path $sharedRuntimeDirectory 'bedrock_server.exe') `
+            -Arguments @())) `
+        $sharedRuntimeCommand[0] `
+        'explicit shared BDS runtime directory was ignored'
+    Assert-True (-not (Test-Path -LiteralPath $sharedRuntimeDirectory)) 'shared-runtime dry-run created its runtime directory'
+
     $frontDryRun = Invoke-Acceptance -Arguments @(
         '-DryRun',
         '-DurationSeconds', '900',
