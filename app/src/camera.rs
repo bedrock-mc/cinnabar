@@ -148,7 +148,10 @@ fn window_aspect(window: &Window) -> f32 {
 fn spawn_fly_camera(mut commands: Commands, window: Single<&Window, With<PrimaryWindow>>) {
     commands.spawn((
         Camera3d::default(),
-        Msaa::Sample8,
+        // Eight samples are not supported for Depth32Float on every macOS GPU.
+        // Four samples is Bevy's portable multisampled default and is shared by
+        // every custom world pipeline through its per-view specialization key.
+        Msaa::Sample4,
         Projection::Perspective(PerspectiveProjection {
             fov: horizontal_fov_to_vertical(DEFAULT_HORIZONTAL_FOV_RADIANS, window_aspect(&window)),
             ..default()

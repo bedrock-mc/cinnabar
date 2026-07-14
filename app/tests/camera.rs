@@ -243,7 +243,7 @@ fn plugin_spawns_camera_and_auto_fly_uses_delta_seconds() {
         .query_filtered::<&Msaa, (With<Camera3d>, With<FlyCamera>)>()
         .single(app.world())
         .unwrap();
-    assert_eq!(*msaa, Msaa::Sample8);
+    assert_eq!(*msaa, Msaa::Sample4);
     let start = app
         .world_mut()
         .query_filtered::<&Transform, (With<Camera3d>, With<FlyCamera>)>()
