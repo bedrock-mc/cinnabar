@@ -4108,7 +4108,7 @@ mod tests {
                 },
             ]
             .into_boxed_slice(),
-            light_properties: vec![assets::LightProperties::default()].into_boxed_slice(),
+            light_properties: vec![assets::LightProperties::default(); 3].into_boxed_slice(),
             hashed: Box::new([]),
             materials: vec![
                 Material {

@@ -1172,7 +1172,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
                 14
             ]
             .into_boxed_slice(),
-            light_properties: vec![assets::LightProperties::default()].into_boxed_slice(),
+            light_properties: vec![assets::LightProperties::default(); 14].into_boxed_slice(),
             model_templates: Box::new([]),
             model_quads: Box::new([]),
             animations: Box::new([]),

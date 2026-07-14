@@ -148,6 +148,7 @@ fn runtime_assets_with_model_geometry(
             variant: 0,
         },
     ];
+    let light_properties = vec![assets::LightProperties::default(); visuals.len()];
     let compiled = CompiledAssets {
         visuals: visuals.into_boxed_slice(),
         hashed: Box::new([]),
@@ -157,7 +158,7 @@ fn runtime_assets_with_model_geometry(
             animation: NO_ANIMATION,
         }]
         .into_boxed_slice(),
-        light_properties: vec![assets::LightProperties::default()].into_boxed_slice(),
+        light_properties: light_properties.into_boxed_slice(),
         model_templates: model_templates.into_boxed_slice(),
         model_quads: model_quads.into_boxed_slice(),
         animations: Box::new([]),

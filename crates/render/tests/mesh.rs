@@ -238,6 +238,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
                 .collect::<Vec<_>>()
                 .into_boxed_slice(),
         };
+        let light_properties = vec![assets::LightProperties::default(); visuals.len()];
         let compiled = CompiledAssets {
             visuals: visuals.into_boxed_slice(),
             // Hash 7 deliberately collides with sequential ID 7, but points
@@ -261,7 +262,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
             })
             .collect::<Vec<_>>()
             .into_boxed_slice(),
-            light_properties: vec![assets::LightProperties::default()].into_boxed_slice(),
+            light_properties: light_properties.into_boxed_slice(),
             model_templates: vec![
                 ModelTemplate {
                     quad_start: 0,
