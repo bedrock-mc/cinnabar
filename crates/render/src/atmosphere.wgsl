@@ -11,6 +11,14 @@ struct AtmosphereUniform {
 
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<uniform> atmosphere: AtmosphereUniform;
+@group(0) @binding(2) var sun_texture: texture_2d<f32>;
+@group(0) @binding(3) var moon_phases_texture: texture_2d<f32>;
+@group(0) @binding(4) var clouds_texture: texture_2d<f32>;
+@group(0) @binding(5) var atmosphere_sampler: sampler;
+
+const CELESTIAL_HALF_ANGLE: f32 = 0.075;
+const CLOUD_ALTITUDE: f32 = 128.0;
+const CLOUD_TEXTURE_WORLD_PERIOD: f32 = 256.0;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -33,20 +41,73 @@ fn view_ray(position: vec2<f32>) -> vec3<f32> {
     return normalize((view.world_from_view * vec4(view_direction, 0.0)).xyz);
 }
 
-fn moon_phase(ray: vec3<f32>, moon_direction: vec3<f32>, phase: f32) -> f32 {
-    let radius = 0.018;
-    let disk = smoothstep(cos(radius), cos(radius * 0.78), dot(ray, moon_direction));
-    var tangent = cross(moon_direction, vec3(0.0, 1.0, 0.0));
-    if (dot(tangent, tangent) < 0.001) {
-        tangent = vec3(1.0, 0.0, 0.0);
+// Returns top-left-origin image UV and a hard quad coverage mask. The basis is
+// stable at zenith so the pinned square textures never roll with the camera.
+fn celestial_uv(ray: vec3<f32>, direction: vec3<f32>) -> vec3<f32> {
+    var right = cross(direction, vec3(0.0, 1.0, 0.0));
+    if (dot(right, right) < 0.0001) {
+        right = vec3(0.0, 0.0, 1.0);
     }
-    tangent = normalize(tangent);
-    let local_x = dot(ray, tangent) / sin(radius);
-    let phase_angle = phase / 8.0 * 6.283185307179586;
-    let terminator = cos(phase_angle);
-    let waxing_sign = select(-1.0, 1.0, phase < 4.0);
-    let illuminated = smoothstep(-0.08, 0.08, local_x * waxing_sign - terminator);
-    return disk * (0.08 + illuminated * 0.92);
+    right = normalize(right);
+    let local_up = normalize(cross(right, direction));
+    let extent = sin(CELESTIAL_HALF_ANGLE);
+    let local = vec2(dot(ray, right), dot(ray, local_up)) / extent;
+    let coverage = select(0.0, 1.0, max(abs(local.x), abs(local.y)) <= 1.0);
+    return vec3(local * vec2(0.5, -0.5) + vec2(0.5), coverage);
+}
+
+fn celestial_visibility(direction_y: f32) -> f32 {
+    return smoothstep(-0.04, 0.02, direction_y);
+}
+
+fn sample_sun(ray: vec3<f32>, direction: vec3<f32>) -> vec4<f32> {
+    let mapping = celestial_uv(ray, direction);
+    let texel_uv = (clamp(mapping.xy, vec2(0.0), vec2(1.0)) * 31.0 + 0.5) / 32.0;
+    let sampled = textureSampleLevel(sun_texture, atmosphere_sampler, texel_uv, 0.0);
+    let visible = celestial_visibility(direction.y);
+    return vec4(sampled.rgb, sampled.a * mapping.z * visible);
+}
+
+fn sample_moon(ray: vec3<f32>, direction: vec3<f32>) -> vec4<f32> {
+    let mapping = celestial_uv(ray, direction);
+    let phase = u32(atmosphere.moon_direction_phase.w) % 8u;
+    let phase_column = phase % 4u;
+    let phase_row = phase / 4u;
+    let local_texel = clamp(mapping.xy, vec2(0.0), vec2(1.0)) * 31.0 + 0.5;
+    let atlas_texel = vec2(f32(phase_column * 32u), f32(phase_row * 32u)) + local_texel;
+    let atlas_uv = atlas_texel / vec2(128.0, 64.0);
+    let sampled = textureSampleLevel(moon_phases_texture, atmosphere_sampler, atlas_uv, 0.0);
+    let visible = celestial_visibility(direction.y);
+    return vec4(sampled.rgb, sampled.a * mapping.z * visible);
+}
+
+fn sample_cloud_layer(ray: vec3<f32>) -> vec4<f32> {
+    let height_to_layer = CLOUD_ALTITUDE - view.world_position.y;
+    if (abs(ray.y) < 0.001 || height_to_layer * ray.y <= 0.0) {
+        return vec4(0.0);
+    }
+    let ray_distance = height_to_layer / ray.y;
+    if (ray_distance <= 0.0) {
+        return vec4(0.0);
+    }
+
+    let world_position = view.world_position + ray * ray_distance;
+    let world_uv = fract(world_position.xz / CLOUD_TEXTURE_WORLD_PERIOD);
+    let cloud_uv = fract(world_uv + atmosphere.fog_end_time.zw);
+    let sampled = textureSampleLevel(clouds_texture, atmosphere_sampler, cloud_uv, 0.0);
+
+    let rain = atmosphere.sky_zenith_rain.w;
+    let thunder = atmosphere.sky_horizon_thunder.w;
+    let storm = clamp(rain * 0.7 + thunder * 0.3, 0.0, 1.0);
+    let horizon_fade = smoothstep(0.01, 0.08, abs(ray.y));
+    let altitude_fade = smoothstep(2.0, 16.0, abs(height_to_layer));
+    let fog = smoothstep(atmosphere.fog_color_start.w, atmosphere.fog_end_time.x, ray_distance);
+    let underside = select(1.0, 0.72, view.world_position.y < CLOUD_ALTITUDE);
+    let weather_colour = sampled.rgb * mix(underside, underside * 0.48, storm);
+    let cloud_colour = mix(weather_colour, atmosphere.fog_color_start.rgb, fog);
+    let weather_alpha = mix(0.82, 1.0, rain);
+    let cloud_alpha = sampled.a * horizon_fade * altitude_fade * weather_alpha * (1.0 - fog * 0.65);
+    return vec4(cloud_colour, cloud_alpha);
 }
 
 @fragment
@@ -63,18 +124,17 @@ fn atmosphere_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     let sun_direction = normalize(atmosphere.sun_direction_daylight.xyz);
-    let sun_disk = smoothstep(
-        cos(0.013),
-        cos(0.010),
-        dot(ray, sun_direction),
-    ) * smoothstep(-0.04, 0.02, sun_direction.y);
-    let sun_colour = mix(vec3(1.0, 0.38, 0.12), vec3(1.0, 0.93, 0.72), atmosphere.sun_direction_daylight.w);
-    colour = mix(colour, sun_colour, sun_disk);
+    let sun = sample_sun(ray, sun_direction);
+    colour = mix(colour, sun.rgb, sun.a);
 
     let moon_direction = normalize(atmosphere.moon_direction_phase.xyz);
-    let moon_disk = moon_phase(ray, moon_direction, atmosphere.moon_direction_phase.w)
-        * smoothstep(-0.04, 0.02, moon_direction.y);
-    colour = mix(colour, vec3(0.68, 0.74, 0.88), moon_disk);
+    let moon = sample_moon(ray, moon_direction);
+    colour = mix(colour, moon.rgb, moon.a);
+
+    let clouds = sample_cloud_layer(ray);
+    let cloud_colour = clouds.rgb;
+    let cloud_alpha = clouds.a;
+    colour = mix(colour, cloud_colour, cloud_alpha);
 
     return vec4(colour, 1.0);
 }

@@ -1,11 +1,75 @@
-use std::f32::consts::TAU;
+use std::{f32::consts::TAU, sync::Arc};
 
+use assets::RuntimeAtmosphereAssets;
 use bevy::{
     prelude::{Resource, Vec4},
     render::{extract_resource::ExtractResource, render_resource::ShaderType},
 };
 
 pub const BEDROCK_DAY_TICKS: f64 = 24_000.0;
+pub const CLOUD_TEXTURE_WORLD_PERIOD: f64 = 256.0;
+pub const CLOUD_SCROLL_BLOCKS_PER_TICK: f64 = 0.03;
+
+#[derive(Resource, ExtractResource, Clone, Default)]
+pub struct AtmosphereTextureAssets {
+    runtime: Option<Arc<RuntimeAtmosphereAssets>>,
+    identity: [u8; 32],
+}
+
+impl AtmosphereTextureAssets {
+    #[must_use]
+    pub fn new(runtime: Arc<RuntimeAtmosphereAssets>, identity: [u8; 32]) -> Self {
+        Self {
+            runtime: Some(runtime),
+            identity,
+        }
+    }
+
+    #[must_use]
+    pub const fn identity(&self) -> [u8; 32] {
+        self.identity
+    }
+
+    #[must_use]
+    pub fn runtime(&self) -> Option<&Arc<RuntimeAtmosphereAssets>> {
+        self.runtime.as_ref()
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MoonPhaseTile {
+    pub pixel_origin: [u32; 2],
+    pub uv_origin: [f32; 2],
+    pub uv_extent: [f32; 2],
+}
+
+#[must_use]
+pub fn moon_phase_tile(phase: u8) -> MoonPhaseTile {
+    let phase = u32::from(phase % 8);
+    let column = phase % 4;
+    let row = phase / 4;
+    MoonPhaseTile {
+        pixel_origin: [column * 32, row * 32],
+        uv_origin: [column as f32 * 0.25, row as f32 * 0.5],
+        uv_extent: [0.25, 0.5],
+    }
+}
+
+/// Vanilla-style cloud motion in normalized texture space. The texture repeats
+/// every 256 world blocks and moves east at 0.03 blocks per Bedrock tick.
+#[must_use]
+pub fn cloud_texture_offset(absolute_ticks: f64) -> [f32; 2] {
+    let ticks = if absolute_ticks.is_finite() {
+        absolute_ticks
+    } else {
+        0.0
+    };
+    [
+        ((ticks * CLOUD_SCROLL_BLOCKS_PER_TICK) / CLOUD_TEXTURE_WORLD_PERIOD).rem_euclid(1.0)
+            as f32,
+        0.0,
+    ]
+}
 
 /// One deterministic, renderer-ready snapshot of the active Bedrock sky.
 ///
@@ -57,6 +121,7 @@ impl AtmosphereFrame {
         let sun_direction = [clean_unit(cos), clean_unit(sin), 0.0];
         let moon_direction = sun_direction.map(|component| -component);
         let moon_phase = ((absolute_ticks / BEDROCK_DAY_TICKS).floor().rem_euclid(8.0)) as u8;
+        let cloud_offset = cloud_texture_offset(absolute_ticks);
 
         let daylight = (sun_direction[1] * 0.8 + 0.2).clamp(0.0, 1.0);
         let sunrise = (1.0 - sun_direction[1].abs()).powi(3) * (0.25 + daylight * 0.75);
@@ -91,7 +156,7 @@ impl AtmosphereFrame {
                 thunder,
             ),
             fog_color_start: Vec4::new(fog_color[0], fog_color[1], fog_color[2], fog_start),
-            fog_end_time: Vec4::new(fog_end, day_fraction, 0.0, 0.0),
+            fog_end_time: Vec4::new(fog_end, day_fraction, cloud_offset[0], cloud_offset[1]),
         }
     }
 
@@ -132,6 +197,11 @@ impl AtmosphereFrame {
     #[must_use]
     pub fn fog_end(self) -> f32 {
         self.fog_end_time.x
+    }
+
+    #[must_use]
+    pub fn cloud_texture_offset(self) -> [f32; 2] {
+        [self.fog_end_time.z, self.fog_end_time.w]
     }
 }
 

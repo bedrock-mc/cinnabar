@@ -27,5 +27,6 @@ world = { path = "../world" }
 [dev-dependencies]
 image = { version = "0.25", default-features = false, features = ["png"] }
 naga = { version = "27.0.3", features = ["wgsl-in"] }
+sha2 = "0.10"
 tempfile = "3"
 wgpu = { version = "27.0.1", default-features = false, features = ["noop"] }

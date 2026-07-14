@@ -1,3 +1,4 @@
+use assets::{AtmosphereRole, AtmosphereTexture};
 use bevy::{
     asset::{AssetId, load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey},
@@ -17,11 +18,15 @@ use bevy::{
             ViewBinnedRenderPhases,
         },
         render_resource::{
-            BindGroup, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
-            BindingType, Buffer, BufferBindingType, BufferId, BufferInitDescriptor, BufferUsages,
-            Canonical, ColorTargetState, ColorWrites, CompareFunction, DepthStencilState,
-            FragmentState, PipelineCache, RenderPipeline, RenderPipelineDescriptor, ShaderStages,
-            ShaderType, Specializer, SpecializerKey, TextureFormat, Variants, VertexState,
+            AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
+            BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBindingType,
+            BufferId, BufferInitDescriptor, BufferUsages, Canonical, ColorTargetState, ColorWrites,
+            CompareFunction, DepthStencilState, Extent3d, FilterMode, FragmentState, PipelineCache,
+            RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType,
+            SamplerDescriptor, ShaderStages, ShaderType, Specializer, SpecializerKey, Texture,
+            TextureDataOrder, TextureDescriptor, TextureDimension, TextureFormat,
+            TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor,
+            TextureViewDimension, Variants, VertexState,
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
@@ -29,7 +34,7 @@ use bevy::{
     },
 };
 
-use crate::AtmosphereFrame;
+use crate::{AtmosphereFrame, AtmosphereTextureAssets};
 
 const ATMOSPHERE_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("7612c9f4-c152-4f57-95d4-a22d85018c3d");
@@ -54,6 +59,7 @@ struct AtmosphereRenderInstalled;
 
 pub(crate) fn install_atmosphere(app: &mut App) {
     app.init_resource::<AtmosphereFrame>();
+    app.init_resource::<AtmosphereTextureAssets>();
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
     };
@@ -64,7 +70,10 @@ pub(crate) fn install_atmosphere(app: &mut App) {
         return;
     }
 
-    app.add_plugins(ExtractResourcePlugin::<AtmosphereFrame>::default());
+    app.add_plugins((
+        ExtractResourcePlugin::<AtmosphereFrame>::default(),
+        ExtractResourcePlugin::<AtmosphereTextureAssets>::default(),
+    ));
     load_internal_asset!(
         app,
         ATMOSPHERE_SHADER_HANDLE,
@@ -81,6 +90,7 @@ pub(crate) fn install_atmosphere(app: &mut App) {
             Render,
             (
                 prepare_atmosphere_uniform.in_set(RenderSystems::PrepareResources),
+                prepare_atmosphere_textures.in_set(RenderSystems::PrepareResources),
                 prepare_atmosphere_bind_group.in_set(RenderSystems::PrepareBindGroups),
                 queue_atmosphere.in_set(RenderSystems::Queue),
             ),
@@ -90,8 +100,19 @@ pub(crate) fn install_atmosphere(app: &mut App) {
 #[derive(Resource)]
 pub(crate) struct AtmosphereGpu {
     pub(crate) buffer: Buffer,
+    prepared: Option<PreparedAtmosphereAssets>,
     bind_group: Option<BindGroup>,
     view_buffer_id: Option<BufferId>,
+    bound_asset_identity: Option<[u8; 32]>,
+    #[cfg(test)]
+    upload_count: u32,
+}
+
+struct PreparedAtmosphereAssets {
+    identity: [u8; 32],
+    _textures: [Texture; 3],
+    views: [TextureView; 3],
+    sampler: Sampler,
 }
 
 fn init_atmosphere_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
@@ -103,8 +124,12 @@ fn init_atmosphere_gpu(mut commands: Commands, render_device: Res<RenderDevice>)
     });
     commands.insert_resource(AtmosphereGpu {
         buffer,
+        prepared: None,
         bind_group: None,
         view_buffer_id: None,
+        bound_asset_identity: None,
+        #[cfg(test)]
+        upload_count: 0,
     });
 }
 
@@ -114,6 +139,107 @@ fn prepare_atmosphere_uniform(
     render_queue: Res<RenderQueue>,
 ) {
     render_queue.write_buffer(&gpu.buffer, 0, bytemuck::bytes_of(&*frame));
+}
+
+fn prepare_atmosphere_textures(
+    requested: Res<AtmosphereTextureAssets>,
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+    mut gpu: ResMut<AtmosphereGpu>,
+) {
+    let Some(runtime) = requested.runtime() else {
+        gpu.prepared = None;
+        gpu.bind_group = None;
+        gpu.bound_asset_identity = None;
+        return;
+    };
+    if gpu
+        .prepared
+        .as_ref()
+        .is_some_and(|prepared| prepared.identity == requested.identity())
+    {
+        return;
+    }
+
+    let sun = runtime
+        .texture(AtmosphereRole::Sun)
+        .expect("validated MCBEATM1 always contains the sun texture");
+    let moon_phases = runtime
+        .texture(AtmosphereRole::MoonPhases)
+        .expect("validated MCBEATM1 always contains the moon atlas");
+    let clouds = runtime
+        .texture(AtmosphereRole::Clouds)
+        .expect("validated MCBEATM1 always contains the cloud texture");
+    let (sun_texture, sun_view) =
+        upload_atmosphere_texture(&render_device, &render_queue, sun, "pinned vanilla sun");
+    let (moon_texture, moon_view) = upload_atmosphere_texture(
+        &render_device,
+        &render_queue,
+        moon_phases,
+        "pinned vanilla moon phases",
+    );
+    let (cloud_texture, cloud_view) = upload_atmosphere_texture(
+        &render_device,
+        &render_queue,
+        clouds,
+        "pinned vanilla clouds",
+    );
+    let sampler = render_device.create_sampler(&SamplerDescriptor {
+        label: Some("pinned vanilla atmosphere repeat sampler"),
+        address_mode_u: AddressMode::Repeat,
+        address_mode_v: AddressMode::Repeat,
+        address_mode_w: AddressMode::Repeat,
+        mag_filter: FilterMode::Nearest,
+        min_filter: FilterMode::Nearest,
+        mipmap_filter: FilterMode::Nearest,
+        ..default()
+    });
+    gpu.prepared = Some(PreparedAtmosphereAssets {
+        identity: requested.identity(),
+        _textures: [sun_texture, moon_texture, cloud_texture],
+        views: [sun_view, moon_view, cloud_view],
+        sampler,
+    });
+    gpu.bind_group = None;
+    gpu.view_buffer_id = None;
+    gpu.bound_asset_identity = None;
+    #[cfg(test)]
+    {
+        gpu.upload_count += 1;
+    }
+}
+
+fn upload_atmosphere_texture(
+    render_device: &RenderDevice,
+    render_queue: &RenderQueue,
+    texture: &AtmosphereTexture,
+    label: &'static str,
+) -> (Texture, TextureView) {
+    let gpu_texture = render_device.create_texture_with_data(
+        render_queue,
+        &TextureDescriptor {
+            label: Some(label),
+            size: Extent3d {
+                width: texture.width,
+                height: texture.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8UnormSrgb,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            view_formats: &[],
+        },
+        TextureDataOrder::LayerMajor,
+        &texture.rgba8,
+    );
+    let view = gpu_texture.create_view(&TextureViewDescriptor {
+        label: Some(label),
+        dimension: Some(TextureViewDimension::D2),
+        ..default()
+    });
+    (gpu_texture, view)
 }
 
 struct AtmospherePipelineSpecializer;
@@ -127,7 +253,7 @@ struct AtmospherePipeline {
 impl FromWorld for AtmospherePipeline {
     fn from_world(_world: &mut World) -> Self {
         let bind_group_layout = BindGroupLayoutDescriptor::new(
-            "procedural atmosphere bind group layout",
+            "texture-backed atmosphere bind group layout",
             &[
                 BindGroupLayoutEntry {
                     binding: 0,
@@ -149,10 +275,46 @@ impl FromWorld for AtmospherePipeline {
                     },
                     count: None,
                 },
+                BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Texture {
+                        sample_type: TextureSampleType::Float { filterable: true },
+                        view_dimension: TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Texture {
+                        sample_type: TextureSampleType::Float { filterable: true },
+                        view_dimension: TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Texture {
+                        sample_type: TextureSampleType::Float { filterable: true },
+                        view_dimension: TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                    count: None,
+                },
             ],
         );
         let descriptor = RenderPipelineDescriptor {
-            label: Some("procedural atmosphere pipeline".into()),
+            label: Some("texture-backed atmosphere pipeline".into()),
             layout: vec![bind_group_layout.clone()],
             vertex: VertexState {
                 shader: ATMOSPHERE_SHADER_HANDLE,
@@ -223,17 +385,28 @@ fn prepare_atmosphere_bind_group(
     let Some(view_binding) = view_uniforms.uniforms.binding() else {
         gpu.bind_group = None;
         gpu.view_buffer_id = None;
+        gpu.bound_asset_identity = None;
+        return;
+    };
+    let Some(prepared) = gpu.prepared.as_ref() else {
+        gpu.bind_group = None;
+        gpu.view_buffer_id = None;
+        gpu.bound_asset_identity = None;
         return;
     };
     let view_buffer = view_uniforms
         .uniforms
         .buffer()
         .expect("a dynamic view binding always owns a GPU buffer");
-    if gpu.bind_group.is_some() && gpu.view_buffer_id == Some(view_buffer.id()) {
+    if gpu.bind_group.is_some()
+        && gpu.view_buffer_id == Some(view_buffer.id())
+        && gpu.bound_asset_identity == Some(prepared.identity)
+    {
         return;
     }
+    let asset_identity = prepared.identity;
     gpu.bind_group = Some(render_device.create_bind_group(
-        "procedural atmosphere bind group",
+        "texture-backed atmosphere bind group",
         &pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout),
         &[
             BindGroupEntry {
@@ -244,9 +417,26 @@ fn prepare_atmosphere_bind_group(
                 binding: 1,
                 resource: gpu.buffer.as_entire_binding(),
             },
+            BindGroupEntry {
+                binding: 2,
+                resource: BindingResource::TextureView(&prepared.views[0]),
+            },
+            BindGroupEntry {
+                binding: 3,
+                resource: BindingResource::TextureView(&prepared.views[1]),
+            },
+            BindGroupEntry {
+                binding: 4,
+                resource: BindingResource::TextureView(&prepared.views[2]),
+            },
+            BindGroupEntry {
+                binding: 5,
+                resource: BindingResource::Sampler(&prepared.sampler),
+            },
         ],
     ));
     gpu.view_buffer_id = Some(view_buffer.id());
+    gpu.bound_asset_identity = Some(asset_identity);
 }
 
 fn queue_atmosphere(
@@ -340,11 +530,15 @@ impl<P: PhaseItem> RenderCommand<P> for DrawAtmosphere {
 mod tests {
     use std::sync::Arc;
 
+    use assets::{
+        AtmosphereRole, AtmosphereTexture, CompiledAtmosphereAssets, RuntimeAtmosphereAssets,
+        encode_atmosphere_blob,
+    };
     use bevy::{
         app::SubApp,
         asset::Assets,
         core_pipeline::core_3d::{Opaque3d, Transparent3d},
-        ecs::schedule::Schedule,
+        ecs::{schedule::Schedule, system::RunSystemOnce},
         prelude::{App, Shader},
         render::{
             ExtractSchedule, Render, RenderApp, RenderStartup,
@@ -352,9 +546,10 @@ mod tests {
             renderer::{RenderDevice, RenderQueue, WgpuWrapper},
         },
     };
+    use sha2::{Digest, Sha256};
 
-    use super::{AtmosphereGpu, AtmosphereRenderInstalled};
-    use crate::DebugWorldPlugin;
+    use super::{AtmosphereGpu, AtmosphereRenderInstalled, prepare_atmosphere_textures};
+    use crate::{AtmosphereTextureAssets, DebugWorldPlugin};
 
     fn app_with_noop_render_sub_app() -> App {
         let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
@@ -374,6 +569,47 @@ mod tests {
         app
     }
 
+    fn synthetic_runtime(seed: u8) -> Arc<RuntimeAtmosphereAssets> {
+        let textures = [
+            (AtmosphereRole::Sun, "textures/environment/sun.png", 32, 32),
+            (
+                AtmosphereRole::MoonPhases,
+                "textures/environment/moon_phases.png",
+                128,
+                64,
+            ),
+            (
+                AtmosphereRole::Clouds,
+                "textures/environment/clouds.png",
+                256,
+                256,
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, (role, source_path, width, height))| {
+            let rgba8 = vec![seed.wrapping_add(index as u8); (width * height * 4) as usize];
+            AtmosphereTexture {
+                role,
+                source_path: source_path.into(),
+                source_bytes: 1,
+                source_sha256: [index as u8 + 1; 32],
+                pixels_sha256: Sha256::digest(&rgba8).into(),
+                width,
+                height,
+                rgba8: rgba8.into_boxed_slice(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+        let blob = encode_atmosphere_blob(&CompiledAtmosphereAssets {
+            source_manifest_sha256: [0x66; 32],
+            textures,
+        })
+        .unwrap();
+        Arc::new(RuntimeAtmosphereAssets::decode(&blob).unwrap())
+    }
+
     #[test]
     fn standalone_chunk_renderer_installs_and_starts_atmosphere_gpu_resources() {
         let mut app = app_with_noop_render_sub_app();
@@ -388,5 +624,60 @@ mod tests {
         );
         render_app.world_mut().run_schedule(RenderStartup);
         assert!(render_app.world().contains_resource::<AtmosphereGpu>());
+    }
+
+    #[test]
+    fn gpu_preparation_uploads_once_per_stable_asset_identity() {
+        let mut app = app_with_noop_render_sub_app();
+        app.add_plugins(DebugWorldPlugin::new(1));
+        app.finish();
+
+        let render_app = app.sub_app_mut(RenderApp);
+        render_app.world_mut().run_schedule(RenderStartup);
+        let identity = [0x31; 32];
+        render_app
+            .world_mut()
+            .insert_resource(AtmosphereTextureAssets::new(
+                synthetic_runtime(0x10),
+                identity,
+            ));
+        render_app
+            .world_mut()
+            .run_system_once(prepare_atmosphere_textures)
+            .unwrap();
+        assert_eq!(
+            render_app.world().resource::<AtmosphereGpu>().upload_count,
+            1
+        );
+
+        render_app
+            .world_mut()
+            .insert_resource(AtmosphereTextureAssets::new(
+                synthetic_runtime(0x20),
+                identity,
+            ));
+        render_app
+            .world_mut()
+            .run_system_once(prepare_atmosphere_textures)
+            .unwrap();
+        assert_eq!(
+            render_app.world().resource::<AtmosphereGpu>().upload_count,
+            1
+        );
+
+        render_app
+            .world_mut()
+            .insert_resource(AtmosphereTextureAssets::new(
+                synthetic_runtime(0x20),
+                [0x32; 32],
+            ));
+        render_app
+            .world_mut()
+            .run_system_once(prepare_atmosphere_textures)
+            .unwrap();
+        assert_eq!(
+            render_app.world().resource::<AtmosphereGpu>().upload_count,
+            2
+        );
     }
 }

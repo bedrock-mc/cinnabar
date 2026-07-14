@@ -9,7 +9,10 @@ mod liquid;
 mod mesh;
 mod plugin;
 
-pub use atmosphere::{AtmosphereFrame, BEDROCK_DAY_TICKS};
+pub use atmosphere::{
+    AtmosphereFrame, AtmosphereTextureAssets, BEDROCK_DAY_TICKS, CLOUD_SCROLL_BLOCKS_PER_TICK,
+    CLOUD_TEXTURE_WORLD_PERIOD, MoonPhaseTile, cloud_texture_offset, moon_phase_tile,
+};
 pub use atmosphere_render::AtmospherePlugin;
 pub use biome::PackedBiomeRecord;
 pub use color::debug_color;

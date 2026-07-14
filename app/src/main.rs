@@ -43,11 +43,12 @@ use metrics::{
 use model_witness::{ModelWitnessFileSource, poll_model_witness_request};
 use network::{NetworkConfig, NetworkControlEvent, NetworkHandle, spawn_network};
 use render::{
-    AtmosphereFrame, AtmospherePlugin, ChunkBiomeTints, ChunkRenderInstance, ChunkRenderQueue,
-    ChunkTextureAssets, ChunkUploadAcknowledgements, ChunkUploadPriority, ChunkUploadToken,
-    DebugWorldPlugin, ModelWitnessEvidence, ModelWitnessManifestRecord, ModelWitnessRequest,
-    ModelWorkloadMetrics, PresentedFrameAck, PresentedFrameGate, RenderViewCohort,
-    TargetRenderExpectation, TransparentSortMetrics, TransparentWitnessEvidence,
+    AtmosphereFrame, AtmospherePlugin, AtmosphereTextureAssets, ChunkBiomeTints,
+    ChunkRenderInstance, ChunkRenderQueue, ChunkTextureAssets, ChunkUploadAcknowledgements,
+    ChunkUploadPriority, ChunkUploadToken, DebugWorldPlugin, ModelWitnessEvidence,
+    ModelWitnessManifestRecord, ModelWitnessRequest, ModelWorkloadMetrics, PresentedFrameAck,
+    PresentedFrameGate, RenderViewCohort, TargetRenderExpectation, TransparentSortMetrics,
+    TransparentWitnessEvidence,
 };
 use server_position::SAFE_SERVER_HEIGHT;
 use sha2::{Digest, Sha256};
@@ -2024,6 +2025,11 @@ fn run(args: args::ClientArgs) -> Result<()> {
             loaded_assets.metrics.blob_sha256
         );
     }
+    eprintln!(
+        "loaded required atmosphere assets from {}",
+        loaded_assets.atmosphere.selected_path().display()
+    );
+    let (atmosphere_runtime, atmosphere_identity) = loaded_assets.atmosphere.into_parts();
     let runtime_assets = loaded_assets.runtime;
     let asset_metrics = loaded_assets.metrics;
 
@@ -2057,6 +2063,10 @@ fn run(args: args::ClientArgs) -> Result<()> {
         .insert_resource(WorldClock::default())
         .insert_resource(WeatherState::default())
         .insert_resource(AtmosphereFrame::default())
+        .insert_resource(AtmosphereTextureAssets::new(
+            atmosphere_runtime,
+            atmosphere_identity,
+        ))
         .insert_resource(startup_biome_tints(&runtime_assets))
         .insert_resource(ChunkTextureAssets::new(runtime_assets))
         .insert_resource(CaveVisibilityCache::default())

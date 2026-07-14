@@ -3989,6 +3989,7 @@ dependencies = [
  "image",
  "naga",
  "rayon",
+ "sha2",
  "tempfile",
  "wgpu",
  "world",

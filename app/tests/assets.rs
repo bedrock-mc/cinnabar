@@ -17,14 +17,16 @@ use std::{
 };
 
 use ::assets::{
-    BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, Material, NO_ANIMATION,
-    NO_MODEL_TEMPLATE, NetworkIdMode, TextureArray, TextureMip, TexturePage, TextureRef,
-    VisualKind, encode_blob,
+    AtmosphereRole, AtmosphereTexture, BlockFlags, BlockVisual, CompiledAssets,
+    CompiledAtmosphereAssets, CompiledBiomeAssets, Material, NO_ANIMATION, NO_MODEL_TEMPLATE,
+    NetworkIdMode, TextureArray, TextureMip, TexturePage, TextureRef, VisualKind,
+    encode_atmosphere_blob, encode_blob,
 };
 use args::{ClientArgs, ParseOutcome};
 use asset_startup::{
-    AssetPathSource, COMPILE_COMMAND, DEFAULT_ASSET_PATH, FETCH_COMMAND, LoadedAssetKind,
-    load_runtime_assets, select_asset_path,
+    ATMOSPHERE_COMPILE_COMMAND, ATMOSPHERE_FILENAME, AssetPathSource, COMPILE_COMMAND,
+    DEFAULT_ASSET_PATH, FETCH_COMMAND, LoadedAssetKind, atmosphere_asset_path, load_runtime_assets,
+    select_asset_path,
 };
 use metrics::{DiagnosticQuadTracker, MetricsCollector};
 use sha2::{Digest, Sha256};
@@ -93,6 +95,52 @@ fn synthetic_blob() -> Box<[u8]> {
     .unwrap()
 }
 
+fn synthetic_atmosphere_blob(seed: u8) -> Box<[u8]> {
+    let textures = [
+        (AtmosphereRole::Sun, "textures/environment/sun.png", 32, 32),
+        (
+            AtmosphereRole::MoonPhases,
+            "textures/environment/moon_phases.png",
+            128,
+            64,
+        ),
+        (
+            AtmosphereRole::Clouds,
+            "textures/environment/clouds.png",
+            256,
+            256,
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, (role, source_path, width, height))| {
+        let rgba8 = vec![seed.wrapping_add(index as u8); (width * height * 4) as usize];
+        AtmosphereTexture {
+            role,
+            source_path: source_path.into(),
+            source_bytes: 1,
+            source_sha256: [index as u8 + 1; 32],
+            pixels_sha256: Sha256::digest(&rgba8).into(),
+            width,
+            height,
+            rgba8: rgba8.into_boxed_slice(),
+        }
+    })
+    .collect::<Vec<_>>()
+    .into_boxed_slice();
+    encode_atmosphere_blob(&CompiledAtmosphereAssets {
+        source_manifest_sha256: [0x77; 32],
+        textures,
+    })
+    .unwrap()
+}
+
+fn write_sibling_atmosphere(world_asset_path: &Path, seed: u8) -> PathBuf {
+    let path = atmosphere_asset_path(world_asset_path);
+    fs::write(&path, synthetic_atmosphere_blob(seed)).unwrap();
+    path
+}
+
 #[test]
 fn workspace_consumers_accept_empty_new_tables() {
     let runtime = ::assets::RuntimeAssets::decode(&synthetic_blob()).expect("decode MCBEAS05");
@@ -132,6 +180,7 @@ fn assets_flag_parses_and_cli_beats_environment_then_default() {
 fn missing_blob_starts_with_diagnostic_assets_and_exact_local_commands() {
     let directory = temporary_directory("missing");
     let path = directory.join("missing.mcbea");
+    write_sibling_atmosphere(&path, 0x30);
     let loaded = load_runtime_assets(select_asset_path(Some(&path), None)).unwrap();
 
     assert_eq!(loaded.kind, LoadedAssetKind::Diagnostic);
@@ -150,6 +199,8 @@ fn missing_blob_starts_with_diagnostic_assets_and_exact_local_commands() {
             .resolve(NetworkIdMode::Sequential, 0)
             .is_known()
     );
+    let (atmosphere, _) = loaded.atmosphere.into_parts();
+    assert_eq!(Arc::strong_count(&atmosphere), 1);
 
     fs::remove_dir_all(directory).unwrap();
 }
@@ -176,6 +227,9 @@ fn valid_blob_decodes_once_and_reports_identity_and_counts() {
     let path = directory.join("vanilla.mcbea");
     let bytes = synthetic_blob();
     fs::write(&path, &bytes).unwrap();
+    let atmosphere_bytes = synthetic_atmosphere_blob(0x40);
+    let atmosphere_path = atmosphere_asset_path(&path);
+    fs::write(&atmosphere_path, &atmosphere_bytes).unwrap();
     let expected_hash = format!("{:x}", Sha256::digest(&bytes));
 
     let loaded = load_runtime_assets(select_asset_path(Some(&path), None)).unwrap();
@@ -192,12 +246,19 @@ fn valid_blob_decodes_once_and_reports_identity_and_counts() {
     assert_eq!(loaded.metrics.texture_bytes_including_mips, 2_728);
     assert_eq!(loaded.metrics.material_count, 2);
     assert!(loaded.notice.is_none());
+    assert_eq!(loaded.atmosphere.selected_path(), atmosphere_path);
     assert!(
         loaded
             .runtime
             .resolve(NetworkIdMode::Sequential, 0)
             .is_known()
     );
+    let (atmosphere, atmosphere_identity) = loaded.atmosphere.into_parts();
+    assert_eq!(
+        atmosphere_identity,
+        <[u8; 32]>::from(Sha256::digest(&atmosphere_bytes))
+    );
+    assert_eq!(Arc::strong_count(&atmosphere), 1);
 
     fs::remove_dir_all(directory).unwrap();
 }
@@ -207,6 +268,7 @@ fn asset_metrics_flow_into_json_and_the_world_ready_marker() {
     let directory = temporary_directory("metrics");
     let path = directory.join("vanilla.mcbea");
     fs::write(&path, synthetic_blob()).unwrap();
+    write_sibling_atmosphere(&path, 0x50);
     let loaded = load_runtime_assets(select_asset_path(Some(&path), None)).unwrap();
     let mut collector = MetricsCollector::with_asset_metrics(loaded.metrics);
     collector.record_asset_counters(7, 11);
@@ -270,6 +332,65 @@ fn documented_commands_target_only_ignored_local_asset_paths() {
         )
     );
     assert!(Path::new(DEFAULT_ASSET_PATH).starts_with(".local/assets"));
+    assert_eq!(ATMOSPHERE_FILENAME, "vanilla-v1.mcbeatm");
+    assert_eq!(ATMOSPHERE_COMPILE_COMMAND, "make atmosphere-assets");
+    assert_eq!(
+        atmosphere_asset_path(Path::new(DEFAULT_ASSET_PATH)),
+        PathBuf::from(".local/assets/compiled/vanilla-v1.mcbeatm")
+    );
+}
+
+#[test]
+fn required_atmosphere_carrier_missing_fails_closed_with_actionable_path() {
+    let directory = temporary_directory("missing-atmosphere");
+    let path = directory.join("custom-world.mcbea");
+    fs::write(&path, synthetic_blob()).unwrap();
+
+    let error = load_runtime_assets(select_asset_path(Some(&path), None)).unwrap_err();
+    let message = error.to_string();
+    let expected = directory.join(ATMOSPHERE_FILENAME);
+    assert!(
+        message.contains(&expected.display().to_string()),
+        "{message}"
+    );
+    assert!(message.contains("required atmosphere"), "{message}");
+    assert!(message.contains(ATMOSPHERE_COMPILE_COMMAND), "{message}");
+
+    fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn malformed_required_atmosphere_carrier_fails_closed_with_rebuild_command() {
+    let directory = temporary_directory("malformed-atmosphere");
+    let path = directory.join("custom-world.mcbea");
+    fs::write(&path, synthetic_blob()).unwrap();
+    let atmosphere_path = atmosphere_asset_path(&path);
+    fs::write(&atmosphere_path, b"not MCBEATM1").unwrap();
+
+    let error = load_runtime_assets(select_asset_path(Some(&path), None)).unwrap_err();
+    let message = error.to_string();
+    assert!(
+        message.contains(&atmosphere_path.display().to_string()),
+        "{message}"
+    );
+    assert!(message.contains("decode"), "{message}");
+    assert!(message.contains(ATMOSPHERE_COMPILE_COMMAND), "{message}");
+
+    fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn startup_hands_the_single_decoded_atmosphere_identity_to_the_renderer() {
+    let source = include_str!("../src/main.rs");
+    assert!(source.contains("loaded_assets.atmosphere.into_parts()"));
+    assert!(source.contains(".insert_resource(AtmosphereTextureAssets::new("));
+    assert_eq!(
+        source
+            .matches("loaded_assets.atmosphere.into_parts()")
+            .count(),
+        1,
+        "the required MCBEATM1 runtime must move into render exactly once"
+    );
 }
 
 #[test]

@@ -6,7 +6,7 @@ use std::{
     sync::Arc,
 };
 
-use assets::{AssetError, RuntimeAssets};
+use assets::{AssetError, RuntimeAssets, RuntimeAtmosphereAssets};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -15,6 +15,8 @@ use crate::metrics::AssetMetrics;
 
 pub const ASSET_PATH_ENVIRONMENT: &str = "RUST_MCBE_ASSETS";
 pub const DEFAULT_ASSET_PATH: &str = ".local/assets/compiled/vanilla-v1001.mcbea";
+pub const ATMOSPHERE_FILENAME: &str = "vanilla-v1.mcbeatm";
+pub const ATMOSPHERE_COMPILE_COMMAND: &str = "make atmosphere-assets";
 pub const FETCH_COMMAND: &str =
     "powershell -NoProfile -File scripts/fetch-vanilla-assets.ps1 -AcceptEula";
 pub const COMPILE_COMMAND: &str = concat!(
@@ -28,6 +30,7 @@ pub const COMPILE_COMMAND: &str = concat!(
 
 const VANILLA_SOURCE_JSON: &str = include_str!("../../assets/vanilla-source.json");
 const MAX_RUNTIME_BLOB_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_ATMOSPHERE_BLOB_BYTES: u64 = 512 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AssetPathSource {
@@ -50,10 +53,28 @@ pub enum LoadedAssetKind {
 
 pub struct LoadedAssets {
     pub runtime: Arc<RuntimeAssets>,
+    pub atmosphere: LoadedAtmosphereAssets,
     pub metrics: AssetMetrics,
     pub selected_path: PathBuf,
     pub kind: LoadedAssetKind,
     pub notice: Option<String>,
+}
+
+pub struct LoadedAtmosphereAssets {
+    runtime: Arc<RuntimeAtmosphereAssets>,
+    identity: [u8; 32],
+    selected_path: PathBuf,
+}
+
+impl LoadedAtmosphereAssets {
+    #[must_use]
+    pub fn selected_path(&self) -> &Path {
+        &self.selected_path
+    }
+
+    pub fn into_parts(self) -> (Arc<RuntimeAtmosphereAssets>, [u8; 32]) {
+        (self.runtime, self.identity)
+    }
 }
 
 impl std::fmt::Debug for LoadedAssets {
@@ -62,6 +83,7 @@ impl std::fmt::Debug for LoadedAssets {
             .debug_struct("LoadedAssets")
             .field("metrics", &self.metrics)
             .field("selected_path", &self.selected_path)
+            .field("atmosphere_path", &self.atmosphere.selected_path)
             .field("kind", &self.kind)
             .field("notice", &self.notice)
             .finish_non_exhaustive()
@@ -92,6 +114,35 @@ pub enum AssetStartupError {
 
     #[error("could not parse the checked-in vanilla source manifest: {0}")]
     SourceManifest(#[from] serde_json::Error),
+
+    #[error(
+        "could not read required atmosphere asset carrier at {path}: {source}\nrebuild local atmosphere assets with: {rebuild_command}"
+    )]
+    AtmosphereRead {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+        rebuild_command: &'static str,
+    },
+
+    #[error(
+        "required atmosphere asset carrier at {path} exceeds the {max_bytes}-byte startup limit\nrebuild local atmosphere assets with: {rebuild_command}"
+    )]
+    AtmosphereTooLarge {
+        path: PathBuf,
+        max_bytes: u64,
+        rebuild_command: &'static str,
+    },
+
+    #[error(
+        "could not decode required atmosphere asset carrier at {path}: {source}\nrebuild local atmosphere assets with: {rebuild_command}"
+    )]
+    AtmosphereDecode {
+        path: PathBuf,
+        #[source]
+        source: Box<AssetError>,
+        rebuild_command: &'static str,
+    },
 }
 
 #[derive(Deserialize)]
@@ -128,12 +179,18 @@ pub fn select_asset_path_from_environment(command_line: Option<&Path>) -> AssetS
     select_asset_path(command_line, std::env::var_os(ASSET_PATH_ENVIRONMENT))
 }
 
+#[must_use]
+pub fn atmosphere_asset_path(world_asset_path: &Path) -> PathBuf {
+    world_asset_path.with_file_name(ATMOSPHERE_FILENAME)
+}
+
 pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, AssetStartupError> {
     let source: VanillaSource = serde_json::from_str(VANILLA_SOURCE_JSON)?;
     let file = match File::open(&selection.path) {
         Ok(file) => file,
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            return Ok(diagnostic_assets(selection, source));
+            let atmosphere = load_atmosphere_assets(&selection.path)?;
+            return Ok(diagnostic_assets(selection, source, atmosphere));
         }
         Err(source) => {
             return Err(AssetStartupError::Read {
@@ -181,8 +238,10 @@ pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, As
             })?,
         );
     let metrics = runtime_metrics(&runtime, source, blob_sha256);
+    let atmosphere = load_atmosphere_assets(&selection.path)?;
     Ok(LoadedAssets {
         runtime,
+        atmosphere,
         metrics,
         selected_path: selection.path,
         kind: LoadedAssetKind::CompiledBlob,
@@ -190,7 +249,65 @@ pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, As
     })
 }
 
-fn diagnostic_assets(selection: AssetSelection, source: VanillaSource) -> LoadedAssets {
+fn load_atmosphere_assets(
+    world_asset_path: &Path,
+) -> Result<LoadedAtmosphereAssets, AssetStartupError> {
+    let path = atmosphere_asset_path(world_asset_path);
+    let file = File::open(&path).map_err(|source| AssetStartupError::AtmosphereRead {
+        path: path.clone(),
+        source,
+        rebuild_command: ATMOSPHERE_COMPILE_COMMAND,
+    })?;
+    let length = file
+        .metadata()
+        .map_err(|source| AssetStartupError::AtmosphereRead {
+            path: path.clone(),
+            source,
+            rebuild_command: ATMOSPHERE_COMPILE_COMMAND,
+        })?
+        .len();
+    if length > MAX_ATMOSPHERE_BLOB_BYTES {
+        return Err(AssetStartupError::AtmosphereTooLarge {
+            path,
+            max_bytes: MAX_ATMOSPHERE_BLOB_BYTES,
+            rebuild_command: ATMOSPHERE_COMPILE_COMMAND,
+        });
+    }
+    let mut bytes = Vec::with_capacity(length as usize);
+    file.take(MAX_ATMOSPHERE_BLOB_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|source| AssetStartupError::AtmosphereRead {
+            path: path.clone(),
+            source,
+            rebuild_command: ATMOSPHERE_COMPILE_COMMAND,
+        })?;
+    if bytes.len() as u64 > MAX_ATMOSPHERE_BLOB_BYTES {
+        return Err(AssetStartupError::AtmosphereTooLarge {
+            path,
+            max_bytes: MAX_ATMOSPHERE_BLOB_BYTES,
+            rebuild_command: ATMOSPHERE_COMPILE_COMMAND,
+        });
+    }
+    let identity = Sha256::digest(&bytes).into();
+    let runtime = Arc::new(RuntimeAtmosphereAssets::decode(&bytes).map_err(|source| {
+        AssetStartupError::AtmosphereDecode {
+            path: path.clone(),
+            source: Box::new(source),
+            rebuild_command: ATMOSPHERE_COMPILE_COMMAND,
+        }
+    })?);
+    Ok(LoadedAtmosphereAssets {
+        runtime,
+        identity,
+        selected_path: path,
+    })
+}
+
+fn diagnostic_assets(
+    selection: AssetSelection,
+    source: VanillaSource,
+    atmosphere: LoadedAtmosphereAssets,
+) -> LoadedAssets {
     let runtime = Arc::new(RuntimeAssets::diagnostic());
     let metrics = runtime_metrics(&runtime, source, "diagnostic".to_owned());
     let notice = format!(
@@ -200,6 +317,7 @@ fn diagnostic_assets(selection: AssetSelection, source: VanillaSource) -> Loaded
     );
     LoadedAssets {
         runtime,
+        atmosphere,
         metrics,
         selected_path: selection.path,
         kind: LoadedAssetKind::Diagnostic,
