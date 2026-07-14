@@ -989,8 +989,19 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     camera-distance fog to chunk, model, and liquid paths without adding storage
     bindings or per-frame texture/bind-group churn. These checked curves and
     procedural disks establish the integration slice, not vanilla parity;
-    pinned asset-backed sun/moon ingestion, clouds, precipitation visuals,
-    underwater/lava medium fog, and live reference acceptance remain open.
+    asset-backed GPU hookup, precipitation visuals, underwater/lava medium fog,
+    and live reference acceptance remain open.
+  - [x] Pin and carry the exact vanilla sun, moon-phase atlas, and cloud texture
+    in an independent bounded `MCBEATM1` runtime blob. The compiler requires the
+    exact tracked Mojang manifest bytes/fields and per-source PNG hashes, records
+    encoded and decoded hashes, rejects malformed/noncanonical layouts, and
+    publishes only to ignored local paths. `make assets` and `make client`
+    refresh the serialized blob/report pair through one portable producer;
+    normalized, case-variant, symlink/junction, and hardlink output aliases fail
+    before either write. Focused pinned tests, full assets/client-asset suites,
+    strict Clippy, and independent re-review are green through `54dfbb7`; no
+    Mojang payload is tracked. Persistent GPU texture upload and rendering are
+    the active follow-up.
   - [x] Wire the sparse solver and MCBEAS05 per-state emission/filter metadata
     into generation-qualified WorldStream light storage and bounded,
     nearest-first one-subchunk solves. Exact face block/light halos, dirty
