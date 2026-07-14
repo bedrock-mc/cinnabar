@@ -2110,6 +2110,20 @@ fn button_quad(
     quad
 }
 
+fn button_uvlock_rect(
+    face: BlockFace,
+    [min_x, min_y, min_z]: [i16; 3],
+    [max_x, max_y, max_z]: [i16; 3],
+) -> [u16; 4] {
+    let [min_x, min_y, min_z, max_x, max_y, max_z] = [min_x, min_y, min_z, max_x, max_y, max_z]
+        .map(|coordinate| u16::try_from(coordinate / 16).expect("button bounds are nonnegative"));
+    match face {
+        BlockFace::West | BlockFace::East => [min_z, 16 - max_y, max_z, 16 - min_y],
+        BlockFace::North | BlockFace::South => [min_x, 16 - max_y, max_x, 16 - min_y],
+        BlockFace::Down | BlockFace::Up => [min_x, min_z, max_x, max_z],
+    }
+}
+
 fn button_quads(materials: [u32; 6], orientation: u8, pressed: bool) -> [ModelQuad; 6] {
     let height = if pressed { 16 } else { 32 };
     let source_min = [80, 0, 96];
@@ -2131,14 +2145,15 @@ fn button_quads(materials: [u32; 6], orientation: u8, pressed: bool) -> [ModelQu
             quad.flags = target_face as u32;
             quad
         } else {
-            // Java wall variants are UV-locked: rotate the face and bounds,
-            // then map the source rectangle using the target face convention.
+            // Java wall variants are UV-locked: the rotated element is
+            // projected in target space, rather than carrying the source
+            // face's rectangle through the rotation.
             button_quad(
                 materials[target_face as usize],
                 target_min,
                 target_max,
                 target_face,
-                button_face_uv(source_face, pressed),
+                button_uvlock_rect(target_face, target_min, target_max),
             )
         }
     })

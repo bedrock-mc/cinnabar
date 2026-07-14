@@ -2658,6 +2658,20 @@ fn button_source_rect(face: BlockFace, pressed: bool) -> [u16; 4] {
     }
 }
 
+fn expected_button_uvlock_rect(
+    face: BlockFace,
+    [min_x, min_y, min_z]: [i16; 3],
+    [max_x, max_y, max_z]: [i16; 3],
+) -> [u16; 4] {
+    let [min_x, min_y, min_z, max_x, max_y, max_z] =
+        [min_x, min_y, min_z, max_x, max_y, max_z].map(|value| value as u16 / 16);
+    match face {
+        BlockFace::West | BlockFace::East => [min_z, 16 - max_y, max_z, 16 - min_y],
+        BlockFace::North | BlockFace::South => [min_x, 16 - max_y, max_x, 16 - min_y],
+        BlockFace::Down | BlockFace::Up => [min_x, min_z, max_x, max_z],
+    }
+}
+
 fn button_rotated_face(face: BlockFace, orientation: u32) -> BlockFace {
     let after_x90 = match face {
         BlockFace::West => BlockFace::West,
@@ -2728,10 +2742,127 @@ fn expected_button_quads(orientation: u32, pressed: bool) -> [ExpectedButtonQuad
         let uvs = if orientation <= 1 {
             source_uvs
         } else {
-            button_face_uvs(target_face, button_source_rect(source_face, pressed))
+            button_face_uvs(
+                target_face,
+                expected_button_uvlock_rect(target_face, target_min, target_max),
+            )
         };
         (target_face as u32, positions, uvs)
     })
+}
+
+fn wall_button_uv_golden(orientation: u32, pressed: bool) -> [[[u16; 2]; 4]; 6] {
+    match (orientation, pressed) {
+        (2, false) => [
+            [[3584, 2560], [4096, 2560], [4096, 1536], [3584, 1536]],
+            [[3584, 2560], [3584, 1536], [4096, 1536], [4096, 2560]],
+            [[1280, 3584], [2816, 3584], [2816, 4096], [1280, 4096]],
+            [[1280, 3584], [1280, 4096], [2816, 4096], [2816, 3584]],
+            [[1280, 2560], [1280, 1536], [2816, 1536], [2816, 2560]],
+            [[1280, 2560], [2816, 2560], [2816, 1536], [1280, 1536]],
+        ],
+        (2, true) => [
+            [[3840, 2560], [4096, 2560], [4096, 1536], [3840, 1536]],
+            [[3840, 2560], [3840, 1536], [4096, 1536], [4096, 2560]],
+            [[1280, 3840], [2816, 3840], [2816, 4096], [1280, 4096]],
+            [[1280, 3840], [1280, 4096], [2816, 4096], [2816, 3840]],
+            [[1280, 2560], [1280, 1536], [2816, 1536], [2816, 2560]],
+            [[1280, 2560], [2816, 2560], [2816, 1536], [1280, 1536]],
+        ],
+        (3, false) => [
+            [[0, 2560], [512, 2560], [512, 1536], [0, 1536]],
+            [[0, 2560], [0, 1536], [512, 1536], [512, 2560]],
+            [[1280, 0], [2816, 0], [2816, 512], [1280, 512]],
+            [[1280, 0], [1280, 512], [2816, 512], [2816, 0]],
+            [[1280, 2560], [1280, 1536], [2816, 1536], [2816, 2560]],
+            [[1280, 2560], [2816, 2560], [2816, 1536], [1280, 1536]],
+        ],
+        (3, true) => [
+            [[0, 2560], [256, 2560], [256, 1536], [0, 1536]],
+            [[0, 2560], [0, 1536], [256, 1536], [256, 2560]],
+            [[1280, 0], [2816, 0], [2816, 256], [1280, 256]],
+            [[1280, 0], [1280, 256], [2816, 256], [2816, 0]],
+            [[1280, 2560], [1280, 1536], [2816, 1536], [2816, 2560]],
+            [[1280, 2560], [2816, 2560], [2816, 1536], [1280, 1536]],
+        ],
+        (4, false) => [
+            [[1280, 2560], [2816, 2560], [2816, 1536], [1280, 1536]],
+            [[1280, 2560], [1280, 1536], [2816, 1536], [2816, 2560]],
+            [[3584, 1280], [4096, 1280], [4096, 2816], [3584, 2816]],
+            [[3584, 1280], [3584, 2816], [4096, 2816], [4096, 1280]],
+            [[3584, 2560], [3584, 1536], [4096, 1536], [4096, 2560]],
+            [[3584, 2560], [4096, 2560], [4096, 1536], [3584, 1536]],
+        ],
+        (4, true) => [
+            [[1280, 2560], [2816, 2560], [2816, 1536], [1280, 1536]],
+            [[1280, 2560], [1280, 1536], [2816, 1536], [2816, 2560]],
+            [[3840, 1280], [4096, 1280], [4096, 2816], [3840, 2816]],
+            [[3840, 1280], [3840, 2816], [4096, 2816], [4096, 1280]],
+            [[3840, 2560], [3840, 1536], [4096, 1536], [4096, 2560]],
+            [[3840, 2560], [4096, 2560], [4096, 1536], [3840, 1536]],
+        ],
+        (5, false) => [
+            [[1280, 2560], [2816, 2560], [2816, 1536], [1280, 1536]],
+            [[1280, 2560], [1280, 1536], [2816, 1536], [2816, 2560]],
+            [[0, 1280], [512, 1280], [512, 2816], [0, 2816]],
+            [[0, 1280], [0, 2816], [512, 2816], [512, 1280]],
+            [[0, 2560], [0, 1536], [512, 1536], [512, 2560]],
+            [[0, 2560], [512, 2560], [512, 1536], [0, 1536]],
+        ],
+        (5, true) => [
+            [[1280, 2560], [2816, 2560], [2816, 1536], [1280, 1536]],
+            [[1280, 2560], [1280, 1536], [2816, 1536], [2816, 2560]],
+            [[0, 1280], [256, 1280], [256, 2816], [0, 2816]],
+            [[0, 1280], [0, 2816], [256, 2816], [256, 1280]],
+            [[0, 2560], [0, 1536], [256, 1536], [256, 2560]],
+            [[0, 2560], [256, 2560], [256, 1536], [0, 1536]],
+        ],
+        _ => panic!("wall button golden requires orientation 2..=5"),
+    }
+}
+
+#[test]
+fn compiler_button_wall_uvlock_matches_independent_target_space_goldens() {
+    let directory = tempfile::tempdir().expect("create button UV-lock fixture");
+    write_button_pack(directory.path());
+    let generated = generated_button_records();
+    let selectors = (2..=5)
+        .flat_map(|orientation| [false, true].map(move |pressed| (orientation, pressed)))
+        .collect::<Vec<_>>();
+    let mut records = selectors
+        .iter()
+        .map(|selector| {
+            generated
+                .iter()
+                .find(|record| {
+                    record.name.as_ref() == "minecraft:stone_button"
+                        && button_selector(record) == *selector
+                })
+                .expect("requested wall button selector")
+                .clone()
+        })
+        .collect::<Vec<_>>();
+    for (id, record) in records.iter_mut().enumerate() {
+        record.sequential_id = id as u32;
+        record.network_hash = 97_500 + id as u32;
+    }
+    let compiled =
+        compile_pack(directory.path(), &records).expect("compile button UV-lock fixture");
+    for (id, &(orientation, pressed)) in selectors.iter().enumerate() {
+        let quads = compiled_model_quads(&compiled, id);
+        assert_eq!(quads.len(), 6);
+        let golden = wall_button_uv_golden(orientation, pressed);
+        for face in BlockFace::ALL {
+            let quad = quads
+                .iter()
+                .find(|quad| quad.flags & MODEL_QUAD_FLAG_FACE_MASK == face as u32)
+                .expect("one quad for each target wall face");
+            assert_eq!(
+                quad.uvs, golden[face as usize],
+                "orientation {orientation} pressed {pressed} target face {face:?}"
+            );
+        }
+    }
 }
 
 #[test]
