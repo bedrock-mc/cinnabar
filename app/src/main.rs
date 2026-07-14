@@ -50,7 +50,7 @@ use world_stream::{
 
 const MESH_JOB_BUDGET_PER_FRAME: usize = 128;
 const GPU_UPLOAD_BUDGET_PER_FRAME: usize = 128;
-const NETWORK_INGRESS_BUDGET_PER_FRAME: usize = 8;
+const NETWORK_INGRESS_BUDGET_PER_FRAME: usize = 32;
 const OUTBOUND_SEND_BUDGET_PER_FRAME: usize = 16;
 const TITLE_REFRESH_INTERVAL: Duration = Duration::from_millis(250);
 const WORLD_READY_QUIET_INTERVAL: Duration = Duration::from_secs(2);
@@ -62,6 +62,8 @@ const LEAF_FOREST_FAR_OFFSET_CHUNKS: i32 = 65;
 const LEAF_FOREST_FAR_OFFSET_BLOCKS: i32 = LEAF_FOREST_FAR_OFFSET_CHUNKS * 16;
 const LEAF_FOREST_MUTATION_Z_OFFSET_BLOCKS: i32 = 12;
 const FULL_VIEW_TELEPORT_MIN_CHUNK_DELTA: u64 = (PHASE0_REQUESTED_RADIUS_CHUNKS as u64) * 2 + 1;
+const _: () = assert!(network::WORLD_EVENT_CAPACITY >= NETWORK_INGRESS_BUDGET_PER_FRAME);
+const _: () = assert!(NETWORK_INGRESS_BUDGET_PER_FRAME == world_stream::MAX_ADMITTED_HEAVY_EVENTS);
 
 #[derive(Resource)]
 struct ClientWorld {
@@ -6030,8 +6032,8 @@ mod tests {
     }
 
     #[test]
-    fn world_ingress_is_bounded_to_eight_and_preserves_fifo() {
-        assert_eq!(NETWORK_INGRESS_BUDGET_PER_FRAME, 8);
+    fn world_ingress_matches_heavy_admission_window_and_preserves_fifo() {
+        assert_eq!(NETWORK_INGRESS_BUDGET_PER_FRAME, 32);
         let (sender, mut receiver) =
             tokio::sync::mpsc::channel(NETWORK_INGRESS_BUDGET_PER_FRAME + 2);
         for value in 0..NETWORK_INGRESS_BUDGET_PER_FRAME + 2 {

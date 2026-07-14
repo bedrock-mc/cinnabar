@@ -393,6 +393,16 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       now waits for an exact Rust-side committed-camera marker before sending the
       fixture-update flood. Unit, full-workspace, acceptance dry-run, and runtime
       safety regressions are green; a fresh native five-pose rerun remains open.
+      North run `20260714T011758Z-840` then passed its exact camera fence,
+      77-command result fence, and consecutive GPU model witnesses (sequences
+      907/908, seven keys, 277 refs, all contamination counters zero), but the
+      timed gate still failed at p50 41.7 ms / p99 47.6 ms and 140.1161 ms
+      mutation-to-visible. Its 55-second camera delay was a bounded Rust ingress
+      bottleneck (four queued packets and eight admissions per rendered frame),
+      not relay reordering; the channel and per-frame admission window are now
+      coherently 32, matching the existing heavy-event cap while preserving FIFO
+      order and decode/mesh worker budgets. GPU cost and fresh native visual
+      evidence remain open.
     - [ ] Wall-attached vine family: replace the diagnostic pink-cube fallback
       for every `minecraft:vine` direction-bit state with compact cutout face
       templates selected from its exact attachment mask, including conservative

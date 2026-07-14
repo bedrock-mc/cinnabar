@@ -10,7 +10,7 @@ use protocol::{LoginSequence, Packet, WorldBootstrap, WorldEvent};
 use tokio::sync::{mpsc, watch};
 use world::ChunkKey;
 
-const WORLD_EVENT_CAPACITY: usize = 4;
+pub(crate) const WORLD_EVENT_CAPACITY: usize = 32;
 const CONTROL_EVENT_CAPACITY: usize = 64;
 const COMMAND_CAPACITY: usize = 64;
 
