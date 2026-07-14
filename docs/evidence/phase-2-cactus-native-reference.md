@@ -22,20 +22,83 @@ No Mojang assets or screenshots are tracked by this manifest.
 - Cactus is alpha cutout, not full-face occluding, and does not neighbour-cull
   its inset faces against opaque blocks.
 
+## Reproducible fixture
+
+The fresh deterministic fixture uses the following exact layout string:
+
+```text
+platform:y=191;x=160..184;z=52..78;fill=black_concrete;west:x=160:red_concrete;east:x=184:blue_concrete;north:z=52:green_concrete;south:z=78:yellow_concrete;cactus[a]:x=166+4*(a%4);y=193;z=58+4*floor(a/4);support:sand@y192;a=0..15;adjacency:cactus[age=0]@(180,193,74);support:sand@(180,192,74);east_neighbor:black_concrete@(181,193,74);probe:(180,193,76);probe_support:sand@(180,192,76)
+```
+
+Its UTF-8 SHA-256 is
+`5eee087fcd4b4b0984812074cbb72c099479447d5296ae1969c381bddefa4351`.
+The colored borders make the four cardinal directions identifiable: west red,
+east blue, north green, and south yellow.
+
+The fixture was created with random ticks disabled and exact Bedrock commands:
+
+```mcfunction
+gamerule randomtickspeed 0
+fill 160 191 52 184 191 78 black_concrete
+fill 160 191 52 160 191 78 red_concrete
+fill 184 191 52 184 191 78 blue_concrete
+fill 160 191 52 184 191 52 green_concrete
+fill 160 191 78 184 191 78 yellow_concrete
+```
+
+For each `a` from 0 through 15, the grid uses
+`x = 166 + 4 * (a % 4)`, `z = 58 + 4 * floor(a / 4)`, sand at Y=192,
+and this exact state at Y=193:
+
+```mcfunction
+setblock <x> 192 <z> sand
+setblock <x> 193 <z> cactus ["age"=<a>]
+```
+
+The independent fixed-coordinate state probe at `(180,193,76)` was reset,
+written, and read back for every age using:
+
+```mcfunction
+setblock 180 193 76 air
+setblock 180 193 76 cactus ["age"=<a>]
+fill 180 193 76 180 193 76 air replace cactus ["age"=<a>]
+```
+
+Every exact readback returned `1 blocks filled`. The opaque-neighbor fixture is
+an age-zero cactus at `(180,193,74)` on sand with black concrete immediately to
+its east at `(181,193,74)`. It was written with the exact command below and
+visually captured both with the placement result visible and after the overlay
+faded:
+
+```mcfunction
+setblock 180 192 74 sand
+setblock 181 193 74 black_concrete
+setblock 180 193 74 cactus ["age"=0]
+```
+
 ## Local-only screenshot hashes
 
 | Capture | SHA-256 |
 |---|---|
-| overview | `20e8758114ca8c750a45e460dd3da7b28d00ec354d6e56b64e875dbd2db597c1` |
-| stack front | `7a44b58668ffe3b7cac93a5dabe6480bf40b120299d46feb096b2867c0f15b66` |
-| stack grazing | `1cd2d8e239e13c468c5491041ef46e70e624fbf015a9910cf34fa193a8c774e2` |
-| top inset | `d3780ea4d9bfc346b0b5bf453375e1f37390bd193572f48a6abe4f477a08d321` |
-| ages 0-2 readback | `1e8f869e2f87be7ea9b2fe850c7c7d63e305702d430e4de78620d370bfa67abd` |
-| ages 3-5 readback | `076bf72d7d5d1545e20f8facf366b1da4bc1137e2dc2f63c29c2e85af7f2d70d` |
-| ages 6-8 readback | `fe53fd75e33ccd02e742e5bcbad66c88d0422a17b4b0150c7413238932cf9397` |
-| ages 9-11 readback | `7a39b03b099f355634d480f4269c36ad2c47dae46eee1bf376d769ea0e52a240` |
-| ages 12-14 readback | `62abbbc1aa5be975b237bc498d1903e126dbdacc46ab56ec5c47fbafc42f89c6` |
-| age 15 readback retry | `d4f438ff5010ed6063b8d43dfee443a43b16e62a6ec276a7a87c9ff57115f92c` |
+| deterministic overview | `74fe9fee1bae06d22c69d988948ad209eda106df24e278861f920a701ec74d89` |
+| opaque-neighbor placement | `42dd93d0e5077dfe88ec85eaf809a96e59e7f8d0ff9d283ca30ff5652dbe479f` |
+| opaque-neighbor clean view | `885bc4ef88c0efe70773caa3ad67717cdeee75e5d346d25f4dfe425a5771d2da` |
+| exact age 0 readback | `db3f01435a40d0c2a923f4adae6fa226a517da21a6500cc4f3c940f1e2978433` |
+| exact age 1 readback | `e857fc0d892c0a4eb1ca110ced84dcfc8a32063a20d83e5378338885005ddbd8` |
+| exact age 2 readback | `56036646c70a9786a05f0cd474f3692f06f513bf4e44e3c5099543d547645c64` |
+| exact age 3 readback | `69ffb234e948e18fbbe46f10f9650f22d7ebfcfc606e71d3c451b2164ef07e24` |
+| exact age 4 readback | `50221c1adf3125f0beed7262ebe013352841902ebaf44bb5ba7fdd59417a9aac` |
+| exact age 5 readback | `6aa5a01ca01e11cb578d5dbc2cae0d635df6e06773af877eed2fadc6693c3fe6` |
+| exact age 6 readback | `bfac43286d103a740ad680261bf37dacf77217638a886c9aa871f716f9930b4c` |
+| exact age 7 readback | `d1dec9f18bebccf46931108d99076c6a3e9e6e855be07c535cfefb91662f0714` |
+| exact age 8 readback | `d93e9f5184734e2da8b9312a74aca73a44da07a8918b931252a37a5e6ec367c1` |
+| exact age 9 readback | `cbecba6825dc8b2a140bdc2431a829c17a2dc1b454c2451e13b755263ada54df` |
+| exact age 10 readback | `d88be71ab31a135e67839e0eb4a29c1946a4ea18a82ecbbfc31910c568f01522` |
+| exact age 11 readback | `7ac69d1ec2f9e0af55dd5c78836166661ad6a008594a7dac6639a4f62be3a858` |
+| exact age 12 readback | `8fdd04b78bbb5337e92f1a97074b112f373d9d39a930918e3cc420efe39f973a` |
+| exact age 13 readback | `03e5412b19fff5eed7624404370697f4045e65d655f1ba38df202524e54585de` |
+| exact age 14 readback | `6b36fb5ba1db54baf946fdc44855aca63edc1db27143eccb683934ccc9997ef1` |
+| exact age 15 readback | `b40c433648573eb15ea271710851becc8206cd0583b4d39a9c7561eb16da8675` |
 
 Images remain under `%TEMP%` and are not repository content.
 
