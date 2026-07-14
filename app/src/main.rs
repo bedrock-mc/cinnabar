@@ -2,6 +2,7 @@ mod args;
 mod asset_startup;
 mod camera;
 mod culling;
+mod environment;
 mod metrics;
 mod model_witness;
 mod network;
@@ -23,12 +24,14 @@ use assets::{DIAGNOSTIC_MATERIAL, RuntimeAssets};
 use bevy::{
     app::AppExit,
     diagnostic::{DiagnosticPath, DiagnosticsStore},
+    ecs::system::SystemParam,
     prelude::*,
     render::diagnostic::RenderDiagnosticsPlugin,
     window::{CursorOptions, PresentMode, PrimaryWindow, WindowPlugin},
     winit::{UpdateMode, WinitSettings},
 };
 use camera::{FlyCamera, FlyCameraPlugin};
+use environment::{WeatherState, WorldClock, apply_environment_control, replace_session};
 use metrics::{
     DiagnosticQuadTracker, ExactFullViewProof, GpuPassMeasurement, MetricsCollector,
     ModelWorkloadMetricsSnapshot, PipelineMetricsSnapshot, TeleportProof,
@@ -75,7 +78,6 @@ const _: () = assert!(NETWORK_INGRESS_BUDGET_PER_FRAME == world_stream::MAX_ADMI
 #[derive(Resource)]
 struct ClientWorld {
     stream: Option<WorldStream>,
-    environment: Option<protocol::WorldEnvironmentBootstrap>,
     runtime_assets: Arc<RuntimeAssets>,
     pending_surface_spawn: Option<[i32; 2]>,
     fatal_error: Option<String>,
@@ -93,7 +95,6 @@ impl ClientWorld {
     fn new(runtime_assets: Arc<RuntimeAssets>) -> Self {
         Self {
             stream: None,
-            environment: None,
             runtime_assets,
             pending_surface_spawn: None,
             fatal_error: None,
@@ -101,6 +102,13 @@ impl ClientWorld {
             reported_decode_errors: 0,
         }
     }
+}
+
+#[derive(SystemParam)]
+struct AppWorldState<'w> {
+    client_world: ResMut<'w, ClientWorld>,
+    clock: ResMut<'w, WorldClock>,
+    weather: ResMut<'w, WeatherState>,
 }
 
 fn startup_biome_tints(runtime_assets: &RuntimeAssets) -> ChunkBiomeTints {
@@ -2034,6 +2042,8 @@ fn run(args: args::ClientArgs) -> Result<()> {
         .insert_resource(ClearColor(Color::srgb(0.46, 0.70, 0.92)))
         .insert_resource(network)
         .insert_resource(ClientWorld::new(Arc::clone(&runtime_assets)))
+        .insert_resource(WorldClock::default())
+        .insert_resource(WeatherState::default())
         .insert_resource(startup_biome_tints(&runtime_assets))
         .insert_resource(ChunkTextureAssets::new(runtime_assets))
         .insert_resource(CaveVisibilityCache::default())
@@ -2122,13 +2132,18 @@ fn record_fatal_error(fatal_error: &mut Option<String>, error: String) {
 
 fn receive_network_events(
     mut network: ResMut<NetworkHandle>,
-    mut client_world: ResMut<ClientWorld>,
+    state: AppWorldState,
     mut acceptance: ResMut<AcceptanceRun>,
     metrics: Res<AppMetrics>,
     acknowledgements: Res<ChunkUploadAcknowledgements>,
     model_witness_source: Res<ModelWitnessFileSource>,
     mut cameras: Query<&mut Transform, With<FlyCamera>>,
 ) {
+    let AppWorldState {
+        mut client_world,
+        mut clock,
+        mut weather,
+    } = state;
     let controls =
         drain_network_controls(network.control_events_mut(), OUTBOUND_SEND_BUDGET_PER_FRAME);
     for control in controls {
@@ -2144,8 +2159,10 @@ fn receive_network_events(
                     world_spawn = ?bootstrap.world_spawn_position,
                     "received StartGame bootstrap"
                 );
-                if client_world.environment.replace(environment).is_some() {
-                    debug!("replaced StartGame environment bootstrap");
+                let replacing_session = clock.session_generation() != 0;
+                replace_session(&mut clock, &mut weather, environment);
+                if replacing_session {
+                    debug!("replaced StartGame environment session");
                 }
                 if acceptance.enabled() {
                     acceptance.set_mutation_surface_anchor([
@@ -2280,7 +2297,7 @@ fn drain_network_ingress<T>(
 #[allow(clippy::too_many_arguments)]
 fn drive_world_stream(
     network: Res<NetworkHandle>,
-    mut client_world: ResMut<ClientWorld>,
+    state: AppWorldState,
     mut acceptance: ResMut<AcceptanceRun>,
     mut metrics: ResMut<AppMetrics>,
     mut render_queue: ResMut<ChunkRenderQueue>,
@@ -2290,6 +2307,11 @@ fn drive_world_stream(
     model_witness_source: Res<ModelWitnessFileSource>,
     mut camera: Query<&mut Transform, With<FlyCamera>>,
 ) {
+    let AppWorldState {
+        mut client_world,
+        mut clock,
+        mut weather,
+    } = state;
     let Some(stream) = client_world.stream.as_mut() else {
         return;
     };
@@ -2323,6 +2345,9 @@ fn drive_world_stream(
         stream.take_committed_controls()
     };
     for control in controls {
+        if apply_environment_control(control, &mut clock, &mut weather) {
+            continue;
+        }
         let _ = acceptance.observe_committed_full_view_control(&control);
         let camera_marker =
             model_gallery_camera_committed_marker(model_witness_source.configured(), &control);
@@ -2928,6 +2953,7 @@ fn apply_committed_control(
             resolved
         }
         CommittedControlEvent::ChangeDimension { resolved, .. } => resolved,
+        CommittedControlEvent::SetTime { .. } | CommittedControlEvent::Weather { .. } => return,
     };
     camera.translation = Vec3::from_array(resolved.position);
     *pending_surface_spawn = resolved.surface_anchor;

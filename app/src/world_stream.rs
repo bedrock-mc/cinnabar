@@ -12,8 +12,9 @@ use bevy::prelude::Resource;
 use crossbeam_channel::{Receiver, Sender, bounded};
 use protocol::{
     BiomeDefinitionEvent, BlockUpdateEvent, ChangeDimensionEvent, LevelChunkEvent, LevelChunkMode,
-    MovePlayerEvent, Packet, PlayerMovementCorrectionEvent, SubChunkBatchEvent, SubChunkResult,
-    WorldBootstrap, WorldEvent, request_sub_chunk_column, vanilla_dimension_range,
+    MovePlayerEvent, Packet, PlayerMovementCorrectionEvent, SetTimeEvent, SubChunkBatchEvent,
+    SubChunkResult, WeatherUpdateEvent, WorldBootstrap, WorldEvent, request_sub_chunk_column,
+    vanilla_dimension_range,
 };
 use render::{
     BlockClassifier, ChunkBiomeTintIdentity, ChunkMesh, FaceConnectivity, PackedBiomeRecord,
@@ -337,6 +338,14 @@ pub enum CommittedControlEvent {
     ChangeDimension {
         change: ChangeDimensionEvent,
         resolved: ResolvedServerPosition,
+    },
+    SetTime {
+        sequence: u64,
+        update: SetTimeEvent,
+    },
+    Weather {
+        sequence: u64,
+        update: WeatherUpdateEvent,
     },
 }
 
@@ -2007,10 +2016,14 @@ impl WorldStream {
                     resolved,
                 });
             }
-            // Protocol normalization lands before the app-owned clock and
-            // weather resources. Keep these events ordered and bounded here;
-            // the atmosphere tranche will consume them without remeshing.
-            WorldEvent::SetTime(_) | WorldEvent::Weather(_) => {}
+            WorldEvent::SetTime(update) => {
+                let sequence = sequence.expect("sequenced SetTime commits through submit");
+                self.push_committed_control(CommittedControlEvent::SetTime { sequence, update });
+            }
+            WorldEvent::Weather(update) => {
+                let sequence = sequence.expect("sequenced weather commits through submit");
+                self.push_committed_control(CommittedControlEvent::Weather { sequence, update });
+            }
             WorldEvent::SubChunks(_) => unreachable!("sub-chunk batches are prepared on workers"),
         }
     }
@@ -2919,8 +2932,8 @@ mod tests {
     use protocol::{
         BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockUpdateEvent, ChangeDimensionEvent,
         LevelChunkEvent, LevelChunkMode, MovePlayerEvent, PlayerMovementCorrectionEvent,
-        PublisherUpdateEvent, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkResult,
-        SubChunkUnavailable, WorldBootstrap, WorldEvent,
+        PublisherUpdateEvent, SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkResult,
+        SubChunkUnavailable, WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldEvent,
     };
     use render::{BlockClassifier, Neighbourhood, PackedBiomeRecord, mesh_sub_chunk};
     use world::{
@@ -3731,6 +3744,114 @@ mod tests {
             mode: LevelChunkMode::Inline { count: 1 },
             payload,
         })
+    }
+
+    #[test]
+    fn clock_and_weather_commit_in_fifo_order_without_dirtying_world_meshes() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        let pending_mesh_count = stream.pending_mesh.len();
+        let mesh_change_count = stream.mesh_changes.len();
+        let connectivity_generation = stream.connectivity_generation;
+
+        stream
+            .submit(1, WorldEvent::SetTime(SetTimeEvent { time: i32::MIN }))
+            .unwrap();
+        stream
+            .submit(
+                2,
+                WorldEvent::Weather(WeatherUpdateEvent {
+                    channel: WeatherChannel::Rain,
+                    level: 1.0,
+                }),
+            )
+            .unwrap();
+        stream
+            .submit(
+                3,
+                WorldEvent::Weather(WeatherUpdateEvent {
+                    channel: WeatherChannel::Lightning,
+                    level: 0.0,
+                }),
+            )
+            .unwrap();
+
+        assert_eq!(
+            stream.take_committed_controls(),
+            vec![
+                super::CommittedControlEvent::SetTime {
+                    sequence: 1,
+                    update: SetTimeEvent { time: i32::MIN },
+                },
+                super::CommittedControlEvent::Weather {
+                    sequence: 2,
+                    update: WeatherUpdateEvent {
+                        channel: WeatherChannel::Rain,
+                        level: 1.0,
+                    },
+                },
+                super::CommittedControlEvent::Weather {
+                    sequence: 3,
+                    update: WeatherUpdateEvent {
+                        channel: WeatherChannel::Lightning,
+                        level: 0.0,
+                    },
+                },
+            ]
+        );
+        assert_eq!(stream.pending_mesh.len(), pending_mesh_count);
+        assert_eq!(stream.mesh_changes.len(), mesh_change_count);
+        assert_eq!(stream.connectivity_generation, connectivity_generation);
+    }
+
+    #[test]
+    fn clock_and_weather_wait_behind_an_earlier_decode_before_committing() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        stream.submit(1, inline_air_event(0)).unwrap();
+        stream
+            .submit(2, WorldEvent::SetTime(SetTimeEvent { time: -1 }))
+            .unwrap();
+        stream
+            .submit(
+                3,
+                WorldEvent::Weather(WeatherUpdateEvent {
+                    channel: WeatherChannel::Rain,
+                    level: 0.25,
+                }),
+            )
+            .unwrap();
+
+        assert!(stream.take_committed_controls().is_empty());
+        complete_pending_decode_jobs(&mut stream);
+        assert_eq!(
+            stream.take_committed_controls(),
+            vec![
+                super::CommittedControlEvent::SetTime {
+                    sequence: 2,
+                    update: SetTimeEvent { time: -1 },
+                },
+                super::CommittedControlEvent::Weather {
+                    sequence: 3,
+                    update: WeatherUpdateEvent {
+                        channel: WeatherChannel::Rain,
+                        level: 0.25,
+                    },
+                },
+            ]
+        );
     }
 
     #[test]

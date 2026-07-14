@@ -919,8 +919,15 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     vendor-independent protocol events; retain day-cycle-stop and clamped
     initial rain/lightning state from StartGame. Two deferred pre-spawn SetTime
     packets retain FIFO order in Play, post-spawn normalization is identical,
-    and non-finite initial weather values fail closed. The app-owned clock,
-    weather resources, light response, and atmosphere rendering remain open.
+    and non-finite initial weather values fail closed.
+  - [x] Consume the normalized environment stream into app-owned clock and
+    weather resources without interpreting visual curves. A replacement
+    StartGame begins a new environment session, preserves its exact
+    `day_cycle_stop_time` and bounded rain/lightning targets, and clears the
+    current time until the next exact signed SetTime value. Dimension changes
+    preserve that world-session snapshot. FIFO-committed SetTime/weather
+    updates do not dirty meshes, enqueue mesh changes, or change cave
+    connectivity. Light response and atmosphere rendering remain open.
 
 Perf budget carried from Phase 0 gate; add: full remesh of view distance after teleport ≤ 2s.
 
