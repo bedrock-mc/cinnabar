@@ -104,6 +104,27 @@ go vet ./core/...
 
 Live BDS tests are enabled when `BEDROCK_BDS_DIR` is set and otherwise skip.
 
+## Linux window backends
+
+Linux builds include both native Wayland and X11 support. Winit prefers Wayland when
+`WAYLAND_DISPLAY` or `WAYLAND_SOCKET` identifies an active compositor connection; otherwise,
+it uses X11 when `DISPLAY` is available. Cinnabar does not force either backend, so native
+GNOME Wayland sessions use Wayland automatically while X11 sessions and XWayland remain
+supported.
+
+Building the Wayland backend on Debian or Ubuntu requires the development library:
+
+```text
+sudo apt-get install libwayland-dev
+```
+
+To explicitly exercise the retained X11 path from a Wayland session, clear the Wayland
+connection variables for that invocation:
+
+```text
+env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET cargo run --release -p bedrock-client --locked -- --socket-dir .local/run
+```
+
 ## Local protocol-1001 block data
 
 The generated block catalog uses pinned, non-Mojang metadata from PMMP BedrockData and
