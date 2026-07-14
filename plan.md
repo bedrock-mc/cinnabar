@@ -432,7 +432,20 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       render/client suites are green. Acceptance/profiling runs now also enable
       Bevy's asynchronous DX12 timestamp recorder and report paired, deduplicated
       p50/p95/p99/max timings for the chunk-containing opaque and transparent 3D
-      passes without blocking the GPU; a live run remains open. The backend/presentation investigation is now
+      passes without blocking the GPU. Live VineGallery North run
+      `20260714T032404Z-12360` recorded 1,296 GPU samples: combined opaque plus
+      transparent was 4.9 ms p50 / 10.2 ms p99 (10.54048 ms max), while full
+      frame time remained 40.2 ms p50 / 47.6 ms p99. Its 29,083 visible model
+      refs issued 80,233 exact quad draws and avoided 850,423 of the former
+      930,656 fixed-slot invocations (91.38%); resident totals were 63,327 refs,
+      161,125 draws, and 1,865,339 avoided invocations. The exact-draw path is
+      therefore effective and model shader work is not the remaining frame-time
+      bottleneck; do not add a speculative one/two-sided model pipeline split.
+      The run again passed adjacent exact GPU witnesses (sequences 801/802,
+      four keys, 92 refs, zero contamination), stayed within the RSS/CPU budget
+      at 638,537,728 bytes and 2.82% mean CPU, and failed only the shared 100 ms
+      mutation gate at 142.5286 ms. The next performance investigation must
+      target frame scheduling/presentation and mutation-to-frame latency. The backend/presentation investigation is now
       conclusive: five direct swapchain captures from Cinnabar, minimal Bevy
       Camera3d and Camera2d clear-only probes, a camera-local red clear, and
       DX12/FXC were byte-identical pure black. Vulkan exposes no surface present
