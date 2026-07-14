@@ -437,12 +437,22 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       `489af26` and `748438c`: five canonical poses bind the exact 0..15 mask
       bijection and compiled-asset hashes, build isolated direction-exact stone
       supports, preserve mask 0 as zero-draw, fence the committed camera ahead
-      of publication, and require two adjacent GPU-completed markers with
-      exactly 15 drawable vine references. The full acceptance and runtime
-      safety suites are green and independent review/re-review found no open
-      Critical or Important issue. A live GPU run plus native captures remain
-      required before this item closes; native capture is separately blocked by
-      the confirmed RX 570 Bevy/wgpu presentation failure above.
+      of publication, and require two adjacent GPU-completed markers over the
+      exact requested subchunks with stable generation, manifest, nonzero model
+      reference total, and zero missing/stale/wrong-stream/zero-ref/draw-mismatch
+      counters. Live evidence proved the total is subchunk-wide rather than one
+      reference per central fixture (94 refs in run `20260714T023010Z-7488`), so
+      the invalid interim 15/43 equality was removed in `eec96e2`; review then
+      withdrew that recommendation and passed the corrected contract. The run
+      produced adjacent exact witnesses at sequences 461/462, four keys, 94
+      stable refs, and all contamination counters zero. Its only failure was the
+      shared model-performance gate: 138.9454 ms mutation-to-visible against
+      100 ms, p50 40.3 ms, p99 47.8 ms, with 8,595 resident subchunks. Combined
+      RSS peaked at 532,107,264 bytes and mean CPU was 2.52%, within resource
+      budgets. Native captures and the structural exact-count model-draw
+      optimization remain required before this item closes; native capture is
+      separately blocked by the confirmed RX 570 Bevy/wgpu presentation failure
+      above.
     - [x] Exhaustive vanilla visual-coverage ratchet: inventory every one of
       the 16,913 protocol-1001 canonical states through the production registry
       and runtime decoders, bind the exact registry/asset hashes, and reject any
