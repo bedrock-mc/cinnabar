@@ -17,7 +17,8 @@ use assets::{
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 use render::{
     BlockClassifier, ChunkMesh, ContributorResolver, Face, FaceConnectivity, Neighbourhood,
-    PackedLiquidQuad, PackedModelRef, PackedQuad, PackedQuadLighting, debug_color, mesh_sub_chunk,
+    PackedLiquidQuad, PackedModelDrawRef, PackedModelRef, PackedQuad, PackedQuadLighting,
+    debug_color, mesh_sub_chunk,
 };
 use world::SubChunk;
 
@@ -33,21 +34,25 @@ const LIQUID_A: u32 = 59;
 const LIQUID_B: u32 = 60;
 const UNSUPPORTED_ADDITIONAL: u32 = 61;
 const KELP: u32 = 62;
+const MODEL_32: u32 = 63;
 
 #[test]
 fn packed_stream_record_sizes() {
     assert_eq!(size_of::<PackedQuad>(), 8);
     assert_eq!(size_of::<PackedModelRef>(), 16);
+    assert_eq!(size_of::<PackedModelDrawRef>(), 8);
     assert_eq!(size_of::<PackedQuadLighting>(), 8);
     assert_eq!(size_of::<PackedLiquidQuad>(), 16);
 
     let model = PackedModelRef::new(1, 2, 3, 0xa5a5_5a5a);
+    let draw = PackedModelDrawRef::new(0, 7);
     let lighting = PackedQuadLighting::new([0x00f0, 0x01f0, 0x02f0, 0x03f0]);
     let liquid = PackedLiquidQuad::try_from_words([4, 5, 6, 7]).unwrap();
     let mesh = ChunkMesh::from_streams(
         Vec::new(),
         vec![model],
         vec![lighting],
+        vec![draw],
         vec![liquid],
         vec![lighting],
         FaceConnectivity::all(),
@@ -56,6 +61,7 @@ fn packed_stream_record_sizes() {
     assert!(mesh.cube_quads().is_empty());
     assert_eq!(mesh.model_refs(), &[model]);
     assert_eq!(mesh.model_lighting(), &[lighting]);
+    assert_eq!(mesh.model_draw_refs(), &[draw]);
     assert_eq!(mesh.liquid_quads(), &[liquid]);
     assert_eq!(mesh.liquid_lighting(), &[lighting]);
     assert!(!mesh.is_empty());
@@ -174,6 +180,15 @@ fn runtime_assets() -> &'static RuntimeAssets {
             animation: NO_ANIMATION,
             variant: 0,
         };
+        visuals[MODEL_32 as usize] = BlockVisual {
+            faces: [1; 6],
+            flags: BlockFlags::empty(),
+            kind: VisualKind::Model,
+            contributor_role: assets::ContributorRole::Primary,
+            model_template: 3,
+            animation: NO_ANIMATION,
+            variant: 0,
+        };
 
         let textures = TextureArray {
             layers: 1,
@@ -216,6 +231,11 @@ fn runtime_assets() -> &'static RuntimeAssets {
                     quad_count: 6,
                     flags: MODEL_TEMPLATE_FLAG_KELP,
                 },
+                ModelTemplate {
+                    quad_start: 8,
+                    quad_count: 32,
+                    flags: 0,
+                },
             ]
             .into_boxed_slice(),
             model_quads: [
@@ -251,6 +271,15 @@ fn runtime_assets() -> &'static RuntimeAssets {
                     quad
                 }),
             )
+            .chain(std::iter::repeat_n(
+                ModelQuad {
+                    positions: [[0, 0, 0], [256, 0, 256], [256, 256, 256], [0, 256, 0]],
+                    uvs: [[0, 4096], [4096, 4096], [4096, 0], [0, 0]],
+                    material: 1,
+                    flags: MODEL_QUAD_FLAG_TWO_SIDED,
+                },
+                32,
+            ))
             .collect::<Vec<_>>()
             .into_boxed_slice(),
             animations: Box::new([]),
@@ -283,6 +312,14 @@ fn crossed_model_emits_compact_ref_visibility_transform_and_quad_lighting() {
         [2 | (3 << 4) | (4 << 8), 0, 0, 0b11]
     );
     assert_eq!(mesh.model_lighting().len(), 2);
+    assert_eq!(
+        mesh.model_draw_refs()
+            .iter()
+            .copied()
+            .map(PackedModelDrawRef::words)
+            .collect::<Vec<_>>(),
+        [[0, 0], [0, 1]]
+    );
     assert_eq!(mesh.model_lighting()[0].samples(), [0x00f0; 4]);
     assert_eq!(mesh.model_lighting()[1].samples(), [0x00f0; 4]);
     assert!(mesh.connectivity().is_all_connected());
@@ -312,6 +349,15 @@ fn kelp_head_and_body_masks_are_selected_only_by_the_primary_above() {
     assert_eq!(isolated.model_refs().len(), 1);
     assert_eq!(isolated.model_refs()[0].words()[3], 0b11_0000);
     assert_eq!(isolated.model_lighting().len(), 6);
+    assert_eq!(
+        isolated
+            .model_draw_refs()
+            .iter()
+            .copied()
+            .map(PackedModelDrawRef::words)
+            .collect::<Vec<_>>(),
+        [[0, 4], [0, 5]]
+    );
 
     let stacked = mesh(
         &classifier(),
@@ -323,6 +369,15 @@ fn kelp_head_and_body_masks_are_selected_only_by_the_primary_above() {
     assert_eq!(stacked.model_refs()[0].words()[3], 0b1111);
     assert_eq!(stacked.model_refs()[1].words()[3], 0b11_0000);
     assert_eq!(stacked.model_lighting().len(), 12);
+    assert_eq!(
+        stacked
+            .model_draw_refs()
+            .iter()
+            .copied()
+            .map(PackedModelDrawRef::words)
+            .collect::<Vec<_>>(),
+        [[0, 0], [0, 1], [0, 2], [0, 3], [1, 4], [1, 5],]
+    );
 
     let kelp = packed_storage(1, &[AIR, KELP], &[([8, 8, 8], 1)]);
     let water = packed_storage(1, &[AIR, LIQUID_A], &[([8, 9, 8], 1)]);
@@ -418,9 +473,35 @@ fn mixed_zero_and_nonzero_templates_emit_only_drawable_model_streams() {
     );
     assert!(zero_only.model_refs().is_empty());
     assert!(zero_only.model_lighting().is_empty());
+    assert!(zero_only.model_draw_refs().is_empty());
     assert!(
         zero_only.is_empty(),
         "zero-only model chunks must be removed before allocation/presentation"
+    );
+}
+
+#[test]
+fn thirty_two_quad_model_emits_exact_ascending_draw_refs() {
+    let mesh = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &blocks(MODEL_32, &[[1, 2, 3]]),
+    );
+
+    assert_eq!(mesh.model_refs().len(), 1);
+    assert_eq!(mesh.model_refs()[0].words()[3], u32::MAX);
+    assert_eq!(mesh.model_lighting().len(), 32);
+    assert_eq!(mesh.model_draw_refs().len(), 32);
+    assert_eq!(
+        mesh.model_draw_refs()
+            .iter()
+            .copied()
+            .map(PackedModelDrawRef::words)
+            .collect::<Vec<_>>(),
+        (0..32)
+            .map(|quad_index| [0, quad_index])
+            .collect::<Vec<_>>()
     );
 }
 
@@ -903,9 +984,40 @@ fn compiled_full_slab_and_cube_cull_shared_model_and_cube_faces_in_subchunk() {
     assert_eq!(mesh.model_refs()[0].words()[2], 0);
     assert_eq!(mesh.model_refs()[0].words()[3], 0b11_1101);
     assert_eq!(mesh.model_lighting().len(), 6);
+    assert_eq!(
+        mesh.model_draw_refs()
+            .iter()
+            .copied()
+            .map(PackedModelDrawRef::words)
+            .collect::<Vec<_>>(),
+        [[0, 0], [0, 2], [0, 3], [0, 4], [0, 5]]
+    );
     assert_eq!(mesh.cube_quads().len(), 5);
     assert!(!has_face(&mesh, [8, 8, 8], Face::NegativeX));
     assert!(mesh.liquid_quads().is_empty());
+}
+
+#[test]
+fn fully_occluded_model_emits_no_model_triplet_stream() {
+    let fixture = compiled_slab_fixture();
+    let center = sub_chunk(vec![packed_storage(
+        2,
+        &[fixture.air, fixture.full, fixture.cube],
+        &[
+            ([8, 8, 8], 1),
+            ([7, 8, 8], 2),
+            ([9, 8, 8], 2),
+            ([8, 7, 8], 2),
+            ([8, 9, 8], 2),
+            ([8, 8, 7], 2),
+            ([8, 8, 9], 2),
+        ],
+    )]);
+    let mesh = mesh_compiled_fixture(&center, &Neighbourhood::empty());
+
+    assert!(mesh.model_refs().is_empty());
+    assert!(mesh.model_lighting().is_empty());
+    assert!(mesh.model_draw_refs().is_empty());
 }
 
 #[test]

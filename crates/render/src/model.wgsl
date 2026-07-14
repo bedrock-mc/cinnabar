@@ -106,28 +106,54 @@ fn vertex(
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
-    let local_vertex = vertex_index & 127u;
-    let metadata_index = vertex_index / 128u;
-    let quad_index = local_vertex / 4u;
-    let corner = local_vertex & 3u;
-    let ref_word = instance_index * 4u;
+    let local_vertex = vertex_index & 3u;
+    let metadata_index = vertex_index / 4u;
+    let corner = local_vertex;
+    let geometry_word_count = arrayLength(&geometry_streams);
+    if (instance_index > 0x7fffffffu) {
+        return invisible_vertex();
+    }
+    let draw_ref_word = instance_index * 2u;
+    if (draw_ref_word + 1u >= geometry_word_count) {
+        return invisible_vertex();
+    }
+    let model_ref_index = geometry_streams[draw_ref_word];
+    let quad_index = geometry_streams[draw_ref_word + 1u];
+    if (quad_index >= 32u || model_ref_index > 0x3fffffffu) {
+        return invisible_vertex();
+    }
+    let ref_word = model_ref_index * 4u;
+    if (ref_word + 3u >= geometry_word_count) {
+        return invisible_vertex();
+    }
     let packed_transform = geometry_streams[ref_word];
     let template_id = geometry_streams[ref_word + 1u];
     let lighting_base_index = geometry_streams[ref_word + 2u];
     let visible_quad_mask = geometry_streams[ref_word + 3u];
+    let template_word_count = arrayLength(&model_templates);
+    if (template_word_count < 4u) {
+        return invisible_vertex();
+    }
+    let template_count = model_templates[0];
+    if (template_count > (template_word_count - 1u) / 3u || template_id >= template_count) {
+        return invisible_vertex();
+    }
     let descriptor = 1u + template_id * 3u;
     let quad_start = model_templates[descriptor];
     let quad_count = model_templates[descriptor + 1u];
-    if (quad_count == 0u) {
+    if (quad_count == 0u || quad_index >= quad_count) {
         return invisible_vertex();
     }
-    let last_quad_index = quad_count - 1u;
-    let safe_quad_index = min(quad_index, last_quad_index);
-    let template_quad_base = 1u + model_templates[0] * 3u + (quad_start + safe_quad_index) * 12u;
-    let is_visible = u32(quad_index < quad_count) * ((visible_quad_mask >> quad_index) & 1u);
+    let is_visible = (visible_quad_mask >> quad_index) & 1u;
     if (is_visible == 0u) {
         return invisible_vertex();
     }
+    let template_quad_words = 1u + template_count * 3u;
+    let stored_quad_count = (template_word_count - template_quad_words) / 12u;
+    if (quad_start >= stored_quad_count || quad_index >= stored_quad_count - quad_start) {
+        return invisible_vertex();
+    }
+    let template_quad_base = template_quad_words + (quad_start + quad_index) * 12u;
 
     let component = corner * 3u;
     var template_position = vec3<f32>(
@@ -149,7 +175,10 @@ fn vertex(
     let frame = animation_sample(material);
     let uv_component = corner * 2u;
 
-    let light_word = geometry_streams[(lighting_base_index + safe_quad_index) * 2u + corner / 2u];
+    if (lighting_base_index >= geometry_word_count / 2u || quad_index >= geometry_word_count / 2u - lighting_base_index) {
+        return invisible_vertex();
+    }
+    let light_word = geometry_streams[(lighting_base_index + quad_index) * 2u + corner / 2u];
     let light_sample = select(light_word & 0xffffu, light_word >> 16u, (corner & 1u) != 0u);
     let block_light = f32(light_sample & 15u);
     let sky_light = f32((light_sample >> 4u) & 15u);

@@ -580,16 +580,23 @@ fn crossed_model_pipeline_is_two_sided_and_uses_shared_bounded_bindings() {
     assert!(shader.contains("@binding(13) var<storage, read> geometry_streams: array<u32>"));
     assert!(shader.contains("visible_quad_mask"));
     assert!(shader.contains("lighting_base_index"));
+    assert!(shader.contains("let draw_ref_word = instance_index * 2u"));
+    assert!(shader.contains("let model_ref_index = geometry_streams[draw_ref_word]"));
+    assert!(shader.contains("let quad_index = geometry_streams[draw_ref_word + 1u]"));
+    assert!(shader.contains("let geometry_word_count = arrayLength(&geometry_streams)"));
+    assert!(shader.contains("if (draw_ref_word + 1u >= geometry_word_count)"));
+    assert!(shader.contains("if (quad_index >= 32u || model_ref_index > 0x3fffffffu)"));
+    assert!(shader.contains("if (ref_word + 3u >= geometry_word_count)"));
     assert!(shader.contains("block_light"));
     assert!(shader.contains("sky_light"));
-    assert!(shader.contains("safe_quad_index"));
+    assert!(!shader.contains("safe_quad_index"));
     let masked_guard = shader
         .find("if (is_visible == 0u) {\n        return invisible_vertex();")
         .expect("masked/padded model quads must exit in the vertex stage");
     assert!(masked_guard < shader.find("var template_position").unwrap());
     assert!(masked_guard < shader.find("let light_word").unwrap());
     let zero_guard = shader
-        .find("if (quad_count == 0u)")
+        .find("if (quad_count == 0u || quad_index >= quad_count)")
         .expect("zero-quad templates require an early invisible return");
     assert!(zero_guard < shader.find("template_quad_base").unwrap());
     assert!(zero_guard < shader.find("let light_word").unwrap());
@@ -902,8 +909,9 @@ fn queue_counts_every_stream_and_sidecar() {
     let cube = solid_mesh(1);
     let mesh = render::ChunkMesh::from_streams(
         cube.quads().to_vec(),
-        vec![render::PackedModelRef::new(1, 2, 3, u32::MAX)],
+        vec![render::PackedModelRef::new(1, 2, 0, 1)],
         vec![render::PackedQuadLighting::new([0; 4])],
+        vec![render::PackedModelDrawRef::new(0, 0)],
         vec![render::PackedLiquidQuad::try_from_words([4, 5, 6, 7]).unwrap()],
         vec![render::PackedQuadLighting::new([0; 4])],
         cube.connectivity(),
@@ -911,6 +919,7 @@ fn queue_counts_every_stream_and_sidecar() {
     let expected = 6 * size_of::<PackedQuad>()
         + size_of::<render::PackedModelRef>()
         + size_of::<render::PackedQuadLighting>()
+        + size_of::<render::PackedModelDrawRef>()
         + size_of::<render::PackedLiquidQuad>()
         + size_of::<render::PackedQuadLighting>();
     let mut queue = ChunkRenderQueue::with_limits(ChunkRenderQueueLimits {
@@ -930,8 +939,9 @@ fn opaque_and_model_streams_share_one_subchunk_visibility_component() {
     let cube = solid_mesh(1);
     let mesh = render::ChunkMesh::from_streams(
         cube.quads().to_vec(),
-        vec![render::PackedModelRef::new(1, 0, 0, u32::MAX)],
+        vec![render::PackedModelRef::new(1, 0, 0, 1)],
         vec![render::PackedQuadLighting::new([0; 4])],
+        vec![render::PackedModelDrawRef::new(0, 0)],
         vec![],
         vec![],
         cube.connectivity(),

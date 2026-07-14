@@ -127,6 +127,29 @@ impl PackedModelRef {
     }
 }
 
+/// One exact visible-quad draw indirection into the packed model-ref stream.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct PackedModelDrawRef {
+    model_ref_index: u32,
+    quad_index: u32,
+}
+
+impl PackedModelDrawRef {
+    #[must_use]
+    pub const fn new(model_ref_index: u32, quad_index: u32) -> Self {
+        Self {
+            model_ref_index,
+            quad_index,
+        }
+    }
+
+    #[must_use]
+    pub const fn words(self) -> [u32; 2] {
+        [self.model_ref_index, self.quad_index]
+    }
+}
+
 /// Four face-specific packed light/AO samples in template-quad order.
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -283,6 +306,7 @@ impl PackedLiquidQuad {
 
 const _: () = assert!(std::mem::size_of::<PackedQuad>() == 8);
 const _: () = assert!(std::mem::size_of::<PackedModelRef>() == 16);
+const _: () = assert!(std::mem::size_of::<PackedModelDrawRef>() == 8);
 const _: () = assert!(std::mem::size_of::<PackedQuadLighting>() == 8);
 const _: () = assert!(std::mem::size_of::<PackedLiquidQuad>() == 16);
 
@@ -485,6 +509,7 @@ pub struct ChunkMesh {
     cube_quads: Box<[PackedQuad]>,
     model_refs: Box<[PackedModelRef]>,
     model_lighting: Box<[PackedQuadLighting]>,
+    model_draw_refs: Box<[PackedModelDrawRef]>,
     liquid_quads: Box<[PackedLiquidQuad]>,
     liquid_lighting: Box<[PackedQuadLighting]>,
     connectivity: FaceConnectivity,
@@ -495,6 +520,7 @@ pub type ChunkMeshStreams = (
     Box<[PackedQuad]>,
     Box<[PackedModelRef]>,
     Box<[PackedQuadLighting]>,
+    Box<[PackedModelDrawRef]>,
     Box<[PackedLiquidQuad]>,
     Box<[PackedQuadLighting]>,
 );
@@ -505,6 +531,7 @@ impl ChunkMesh {
         cube_quads: Vec<PackedQuad>,
         model_refs: Vec<PackedModelRef>,
         model_lighting: Vec<PackedQuadLighting>,
+        model_draw_refs: Vec<PackedModelDrawRef>,
         liquid_quads: Vec<PackedLiquidQuad>,
         liquid_lighting: Vec<PackedQuadLighting>,
         connectivity: FaceConnectivity,
@@ -513,6 +540,7 @@ impl ChunkMesh {
             cube_quads: cube_quads.into_boxed_slice(),
             model_refs: model_refs.into_boxed_slice(),
             model_lighting: model_lighting.into_boxed_slice(),
+            model_draw_refs: model_draw_refs.into_boxed_slice(),
             liquid_quads: liquid_quads.into_boxed_slice(),
             liquid_lighting: liquid_lighting.into_boxed_slice(),
             connectivity,
@@ -540,6 +568,11 @@ impl ChunkMesh {
     }
 
     #[must_use]
+    pub fn model_draw_refs(&self) -> &[PackedModelDrawRef] {
+        &self.model_draw_refs
+    }
+
+    #[must_use]
     pub fn liquid_quads(&self) -> &[PackedLiquidQuad] {
         &self.liquid_quads
     }
@@ -559,6 +592,7 @@ impl ChunkMesh {
         self.cube_quads.is_empty()
             && self.model_refs.is_empty()
             && self.model_lighting.is_empty()
+            && self.model_draw_refs.is_empty()
             && self.liquid_quads.is_empty()
             && self.liquid_lighting.is_empty()
     }
@@ -579,6 +613,7 @@ impl ChunkMesh {
             self.cube_quads,
             self.model_refs,
             self.model_lighting,
+            self.model_draw_refs,
             self.liquid_quads,
             self.liquid_lighting,
         )
@@ -638,6 +673,7 @@ fn mesh_sub_chunk_core(
             cube_quads: Box::new([]),
             model_refs: Box::new([]),
             model_lighting: Box::new([]),
+            model_draw_refs: Box::new([]),
             liquid_quads: Box::new([]),
             liquid_lighting: Box::new([]),
             connectivity,
@@ -676,6 +712,7 @@ fn mesh_sub_chunk_core(
     }
     let mut model_refs = Vec::new();
     let mut model_lighting = Vec::new();
+    let mut model_draw_refs = Vec::new();
     for x in 0..SIDE {
         for y in 0..SIDE {
             for z in 0..SIDE {
@@ -704,20 +741,6 @@ fn mesh_sub_chunk_core(
                     .model_quads()
                     .get(quad_start..quad_start.saturating_add(template.quad_count as usize))
                 else {
-                    continue;
-                };
-                let Ok(lighting_base_index) = u32::try_from(model_lighting.len()) else {
-                    continue;
-                };
-                let Some(lighting) = crate::lighting::bake_template_lighting(
-                    classifier,
-                    visuals,
-                    network_id_mode,
-                    neighbourhood,
-                    [x as i32, y as i32, z as i32],
-                    selected_template,
-                    entry.variant & 3,
-                ) else {
                     continue;
                 };
                 let mut visible_quad_mask = if template.flags & MODEL_TEMPLATE_FLAG_KELP != 0 {
@@ -769,6 +792,26 @@ fn mesh_sub_chunk_core(
                         visible_quad_mask &= !bit;
                     }
                 }
+                if visible_quad_mask == 0 {
+                    continue;
+                }
+                let Ok(lighting_base_index) = u32::try_from(model_lighting.len()) else {
+                    continue;
+                };
+                let Some(lighting) = crate::lighting::bake_template_lighting(
+                    classifier,
+                    visuals,
+                    network_id_mode,
+                    neighbourhood,
+                    [x as i32, y as i32, z as i32],
+                    selected_template,
+                    entry.variant & 3,
+                ) else {
+                    continue;
+                };
+                let Ok(model_ref_index) = u32::try_from(model_refs.len()) else {
+                    continue;
+                };
                 model_refs.push(PackedModelRef::new(
                     pack_model_transform(
                         [x as u8, y as u8, z as u8],
@@ -783,6 +826,12 @@ fn mesh_sub_chunk_core(
                     visible_quad_mask,
                 ));
                 model_lighting.extend(lighting);
+                let mut remaining = visible_quad_mask;
+                while remaining != 0 {
+                    let quad_index = remaining.trailing_zeros();
+                    model_draw_refs.push(PackedModelDrawRef::new(model_ref_index, quad_index));
+                    remaining &= remaining - 1;
+                }
             }
         }
     }
@@ -796,6 +845,7 @@ fn mesh_sub_chunk_core(
         cube_quads: quads.into_boxed_slice(),
         model_refs: model_refs.into_boxed_slice(),
         model_lighting: model_lighting.into_boxed_slice(),
+        model_draw_refs: model_draw_refs.into_boxed_slice(),
         liquid_quads: liquid_quads.into_boxed_slice(),
         liquid_lighting: liquid_lighting.into_boxed_slice(),
         connectivity,

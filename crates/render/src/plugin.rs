@@ -62,20 +62,21 @@ use bevy::{
 use world::SubChunkKey;
 
 use crate::{
-    ChunkMesh, PackedBiomeRecord, PackedLiquidQuad, PackedModelRef, PackedQuad, PackedQuadLighting,
+    ChunkMesh, PackedBiomeRecord, PackedLiquidQuad, PackedModelDrawRef, PackedModelRef, PackedQuad,
+    PackedQuadLighting,
 };
 
 const CHUNK_SHADER_HANDLE: Handle<Shader> = uuid_handle!("b5664c91-763f-4e5c-9310-d12659f70cd4");
 const MODEL_SHADER_HANDLE: Handle<Shader> = uuid_handle!("2cd46297-17aa-4c18-bfb1-83373bf39475");
 const LIQUID_SHADER_HANDLE: Handle<Shader> = uuid_handle!("52e731aa-0a4d-4b07-9d66-80eb7688398f");
 const STATIC_QUAD_INDICES: [u32; 6] = [0, 1, 2, 0, 2, 3];
-const MODEL_QUADS_PER_REF: u32 = 32;
-const MODEL_INDEX_COUNT: u32 = MODEL_QUADS_PER_REF * 6;
+const MODEL_INDEX_COUNT: u32 = 6;
 const MODEL_TEMPLATE_BINDING_BUDGET: u32 = 8;
 const MODEL_VERTEX_STORAGE_BINDINGS: u32 = 8;
 const _: () = assert!(MODEL_VERTEX_STORAGE_BINDINGS <= MODEL_TEMPLATE_BINDING_BUDGET);
 const PACKED_QUAD_BYTES: u64 = 8;
 const PACKED_MODEL_REF_BYTES: u64 = 16;
+const PACKED_MODEL_DRAW_REF_BYTES: u64 = 8;
 const PACKED_QUAD_LIGHTING_BYTES: u64 = 8;
 const PACKED_LIQUID_QUAD_BYTES: u64 = 16;
 const GEOMETRY_STREAM_WORD_BYTES: u64 = 4;
@@ -3717,6 +3718,10 @@ fn mesh_byte_len(mesh: &ChunkMesh) -> u64 {
             PACKED_QUAD_LIGHTING_BYTES,
         ))
         .saturating_add(buffer_byte_len(
+            mesh.model_draw_refs().len(),
+            PACKED_MODEL_DRAW_REF_BYTES,
+        ))
+        .saturating_add(buffer_byte_len(
             mesh.liquid_quads().len(),
             PACKED_LIQUID_QUAD_BYTES,
         ))
@@ -3751,6 +3756,7 @@ pub struct ChunkRenderInstance {
     cube_quads: Arc<[PackedQuad]>,
     model_refs: Arc<[PackedModelRef]>,
     model_lighting: Arc<[PackedQuadLighting]>,
+    model_draw_refs: Arc<[PackedModelDrawRef]>,
     liquid_quads: Arc<[PackedLiquidQuad]>,
     liquid_lighting: Arc<[PackedQuadLighting]>,
     has_depth_liquid: bool,
@@ -3787,6 +3793,11 @@ impl ChunkRenderInstance {
     #[must_use]
     pub fn model_lighting(&self) -> &[PackedQuadLighting] {
         &self.model_lighting
+    }
+
+    #[must_use]
+    pub fn model_draw_refs(&self) -> &[PackedModelDrawRef] {
+        &self.model_draw_refs
     }
 
     #[must_use]
@@ -4016,8 +4027,14 @@ fn apply_chunk_render_queue(
         }
 
         let origin = chunk_origin(key);
-        let (cube_quads, model_refs, model_lighting, liquid_quads, liquid_lighting) =
-            pending.mesh.into_streams();
+        let (
+            cube_quads,
+            model_refs,
+            model_lighting,
+            model_draw_refs,
+            liquid_quads,
+            liquid_lighting,
+        ) = pending.mesh.into_streams();
         let depth_liquid_start = liquid_quads
             .iter()
             .position(|quad| quad.is_depth_writing())
@@ -4036,6 +4053,7 @@ fn apply_chunk_render_queue(
             cube_quads: Arc::from(cube_quads),
             model_refs: Arc::from(model_refs),
             model_lighting: Arc::from(model_lighting),
+            model_draw_refs: Arc::from(model_draw_refs),
             liquid_quads: Arc::from(liquid_quads),
             liquid_lighting: Arc::from(liquid_lighting),
             has_depth_liquid,
@@ -4363,6 +4381,7 @@ struct GpuChunkAllocation {
     quad_range: Range<u32>,
     model_range: Option<Range<u32>>,
     model_lighting_range: Option<Range<u32>>,
+    model_draw_range: Option<Range<u32>>,
     liquid_range: Option<Range<u32>>,
     liquid_lighting_range: Option<Range<u32>>,
     has_depth_liquid: bool,
@@ -4376,6 +4395,7 @@ struct StreamAddresses {
     cube: Option<Range<u32>>,
     model: Option<Range<u32>>,
     model_lighting: Option<Range<u32>>,
+    model_draw: Option<Range<u32>>,
     liquid: Option<Range<u32>>,
     liquid_lighting: Option<Range<u32>>,
 }
@@ -4385,6 +4405,7 @@ fn direct_stream_addresses(allocation: &GpuChunkAllocation) -> StreamAddresses {
         cube: (!allocation.quad_range.is_empty()).then(|| allocation.quad_range.clone()),
         model: allocation.model_range.clone(),
         model_lighting: allocation.model_lighting_range.clone(),
+        model_draw: allocation.model_draw_range.clone(),
         liquid: allocation.liquid_range.clone(),
         liquid_lighting: allocation.liquid_lighting_range.clone(),
     }
@@ -4438,9 +4459,24 @@ fn model_draw_command(
     addresses: StreamAddresses,
 ) -> Option<DrawIndexedIndirectArgs> {
     let model = addresses.model?;
-    addresses.model_lighting?;
-    let first_instance = model.start.checked_div(4)?;
-    let end_instance = model.end.checked_div(4)?;
+    let model_lighting = addresses.model_lighting?;
+    let model_draw = addresses.model_draw?;
+    if model.is_empty()
+        || !model.start.is_multiple_of(4)
+        || !model.end.is_multiple_of(4)
+        || model_lighting.is_empty()
+        || !model_lighting.start.is_multiple_of(2)
+        || !model_lighting.end.is_multiple_of(2)
+        || model_draw.is_empty()
+        || !model_draw.start.is_multiple_of(2)
+        || !model_draw.end.is_multiple_of(2)
+        || model.end != model_lighting.start
+        || model_lighting.end != model_draw.start
+    {
+        return None;
+    }
+    let first_instance = model_draw.start.checked_div(2)?;
+    let end_instance = model_draw.end.checked_div(2)?;
     let instance_count = end_instance.checked_sub(first_instance)?;
     (instance_count != 0).then_some(DrawIndexedIndirectArgs {
         index_count: MODEL_INDEX_COUNT,
@@ -4448,7 +4484,7 @@ fn model_draw_command(
         first_index: 0,
         base_vertex: allocation
             .metadata_index
-            .checked_mul(MODEL_QUADS_PER_REF * 4)
+            .checked_mul(4)
             .and_then(|value| i32::try_from(value).ok())?,
         first_instance,
     })
@@ -4538,6 +4574,7 @@ struct ArenaAllocation {
     cube_range: Option<Range<u32>>,
     model_range: Option<Range<u32>>,
     model_lighting_range: Option<Range<u32>>,
+    model_draw_range: Option<Range<u32>>,
     liquid_range: Option<Range<u32>>,
     liquid_lighting_range: Option<Range<u32>>,
     quad_capacity: u32,
@@ -4623,7 +4660,10 @@ impl ArenaAllocation {
         if self.cube_range.is_some() {
             mask = mask | ChunkStreamMask::CUBE;
         }
-        if self.model_range.is_some() || self.model_lighting_range.is_some() {
+        if self.model_range.is_some()
+            || self.model_lighting_range.is_some()
+            || self.model_draw_range.is_some()
+        {
             mask = mask | ChunkStreamMask::MODEL;
         }
         if self.liquid_range.is_some() || self.liquid_lighting_range.is_some() {
@@ -5252,7 +5292,7 @@ impl ChunkGpuArena {
             }),
             model_index_buffer: render_device.create_buffer_with_data(&BufferInitDescriptor {
                 label: Some("shared model template quad indices"),
-                contents: bytemuck::cast_slice(&model_index_data()),
+                contents: bytemuck::cast_slice(&STATIC_QUAD_INDICES),
                 usage: BufferUsages::INDEX,
             }),
             indirect_buffer: create_indirect_buffer(render_device, 1),
@@ -5287,23 +5327,6 @@ impl ChunkGpuArena {
             ),
         }
     }
-}
-
-fn model_index_data() -> [u32; MODEL_INDEX_COUNT as usize] {
-    let mut indices = [0; MODEL_INDEX_COUNT as usize];
-    for quad in 0..MODEL_QUADS_PER_REF {
-        let vertex = quad * 4;
-        let index = quad as usize * 6;
-        indices[index..index + 6].copy_from_slice(&[
-            vertex,
-            vertex + 1,
-            vertex + 2,
-            vertex,
-            vertex + 2,
-            vertex + 3,
-        ]);
-    }
-    indices
 }
 
 fn create_storage_buffer(render_device: &RenderDevice, label: &'static str, size: u64) -> Buffer {
@@ -5510,6 +5533,7 @@ fn prepare_gpu_chunks(
     let mut quad_writes = Vec::new();
     let mut model_writes = Vec::new();
     let mut model_lighting_writes = Vec::new();
+    let mut model_draw_writes = Vec::new();
     let mut liquid_writes = Vec::new();
     let mut liquid_lighting_writes = Vec::new();
     let mut biome_writes = Vec::new();
@@ -5524,6 +5548,14 @@ fn prepare_gpu_chunks(
         let Ok((_, instance)) = instances.get(entity) else {
             continue;
         };
+        if !validate_local_model_streams(
+            &instance.model_refs,
+            &instance.model_lighting,
+            &instance.model_draw_refs,
+        ) {
+            bevy::log::error!("sub-chunk model streams are not an exact reachable triplet");
+            continue;
+        }
         let old = arena.allocations.get(&entity).cloned();
         let required = match u32::try_from(instance.cube_quads.len()) {
             Ok(required) => required,
@@ -5538,6 +5570,10 @@ fn prepare_gpu_chunks(
         };
         let Ok(model_lighting_required) = u32::try_from(instance.model_lighting.len()) else {
             bevy::log::error!("sub-chunk model-lighting stream exceeds the u32 instance range");
+            continue;
+        };
+        let Ok(model_draw_required) = u32::try_from(instance.model_draw_refs.len()) else {
+            bevy::log::error!("sub-chunk model-draw stream exceeds the u32 instance range");
             continue;
         };
         let Ok(liquid_required) = u32::try_from(instance.liquid_quads.len()) else {
@@ -5577,6 +5613,7 @@ fn prepare_gpu_chunks(
             cube: required,
             model: model_required,
             model_lighting: model_lighting_required,
+            model_draw: model_draw_required,
             liquid: liquid_required,
             liquid_lighting: liquid_lighting_required,
         };
@@ -5632,6 +5669,10 @@ fn prepare_gpu_chunks(
             model_lighting_required
                 * (PACKED_QUAD_LIGHTING_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32,
         );
+        let model_draw_range = checked_geometry_range(
+            plan.model_draw_start,
+            model_draw_required * (PACKED_MODEL_DRAW_REF_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32,
+        );
         let liquid_range = checked_geometry_range(
             plan.liquid_start,
             liquid_required * (PACKED_LIQUID_QUAD_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32,
@@ -5668,6 +5709,14 @@ fn prepare_gpu_chunks(
             .copied()
             .map(PackedQuadLighting::samples)
             .collect::<Vec<_>>();
+        let mut model_draw_words = instance
+            .model_draw_refs
+            .iter()
+            .copied()
+            .map(PackedModelDrawRef::words)
+            .collect::<Vec<_>>();
+        absolutize_model_draw_refs(&mut model_draw_words, plan.model_start)
+            .expect("validated model draw refs and atomic arena plan fit absolute addressing");
         let mut liquid_words = instance
             .liquid_quads
             .iter()
@@ -5685,6 +5734,7 @@ fn prepare_gpu_chunks(
         quad_writes.push((plan.quad_start, words));
         model_writes.push((plan.model_start, model_words));
         model_lighting_writes.push((plan.model_lighting_start, model_lighting_words));
+        model_draw_writes.push((plan.model_draw_start, model_draw_words));
         liquid_writes.push((plan.liquid_start, liquid_words));
         liquid_lighting_writes.push((plan.liquid_lighting_start, liquid_lighting_words));
         if !biome_words.is_empty() {
@@ -5698,6 +5748,7 @@ fn prepare_gpu_chunks(
             quad_range,
             model_range,
             model_lighting_range,
+            model_draw_range,
             liquid_range,
             liquid_lighting_range,
             has_depth_liquid: instance.has_depth_liquid,
@@ -5714,6 +5765,7 @@ fn prepare_gpu_chunks(
                 cube_range,
                 model_range: gpu.model_range.clone(),
                 model_lighting_range: gpu.model_lighting_range.clone(),
+                model_draw_range: gpu.model_draw_range.clone(),
                 liquid_range: gpu.liquid_range.clone(),
                 liquid_lighting_range: gpu.liquid_lighting_range.clone(),
                 quad_capacity: plan.quad_capacity,
@@ -5723,6 +5775,7 @@ fn prepare_gpu_chunks(
                         cube: required,
                         model: model_required,
                         model_lighting: model_lighting_required,
+                        model_draw: model_draw_required,
                         liquid: liquid_required,
                         liquid_lighting: liquid_lighting_required,
                     }
@@ -5744,6 +5797,10 @@ fn prepare_gpu_chunks(
                 .saturating_add(buffer_byte_len(
                     instance.model_lighting.len(),
                     PACKED_QUAD_LIGHTING_BYTES,
+                ))
+                .saturating_add(buffer_byte_len(
+                    instance.model_draw_refs.len(),
+                    PACKED_MODEL_DRAW_REF_BYTES,
                 ))
                 .saturating_add(buffer_byte_len(
                     instance.liquid_quads.len(),
@@ -5777,6 +5834,9 @@ fn prepare_gpu_chunks(
                     total.saturating_add(buffer_byte_len(words.len(), PACKED_QUAD_LIGHTING_BYTES))
                 }),
         )
+        .saturating_add(model_draw_writes.iter().fold(0_u64, |total, (_, words)| {
+            total.saturating_add(buffer_byte_len(words.len(), PACKED_MODEL_DRAW_REF_BYTES))
+        }))
         .saturating_add(liquid_writes.iter().fold(0_u64, |total, (_, words)| {
             total.saturating_add(buffer_byte_len(words.len(), PACKED_LIQUID_QUAD_BYTES))
         }))
@@ -5823,6 +5883,12 @@ fn prepare_gpu_chunks(
         &arena.geometry_stream_buffer,
         GEOMETRY_STREAM_WORD_BYTES,
         model_lighting_writes,
+    );
+    write_stream_records(
+        &render_queue,
+        &arena.geometry_stream_buffer,
+        GEOMETRY_STREAM_WORD_BYTES,
+        model_draw_writes,
     );
     write_stream_records(
         &render_queue,
@@ -6438,6 +6504,69 @@ fn absolutize_model_lighting_bases(model_refs: &mut [[u32; 4]], lighting_word_st
     }
 }
 
+fn validate_local_model_streams(
+    model_refs: &[PackedModelRef],
+    model_lighting: &[PackedQuadLighting],
+    model_draw_refs: &[PackedModelDrawRef],
+) -> bool {
+    let present = [
+        !model_refs.is_empty(),
+        !model_lighting.is_empty(),
+        !model_draw_refs.is_empty(),
+    ];
+    if present.iter().any(|&value| value) && !present.iter().all(|&value| value) {
+        return false;
+    }
+    if !present[0] {
+        return true;
+    }
+
+    let mut draw_index = 0;
+    for (model_ref_index, model_ref) in model_refs.iter().copied().enumerate() {
+        let Ok(model_ref_index) = u32::try_from(model_ref_index) else {
+            return false;
+        };
+        let words = model_ref.words();
+        let lighting_base = words[2] as usize;
+        let mut visible = words[3];
+        while visible != 0 {
+            let quad_index = visible.trailing_zeros();
+            let Some(draw_ref) = model_draw_refs.get(draw_index).copied() else {
+                return false;
+            };
+            let draw_words = draw_ref.words();
+            if draw_words != [model_ref_index, quad_index]
+                || quad_index >= 32
+                || lighting_base
+                    .checked_add(quad_index as usize)
+                    .is_none_or(|index| index >= model_lighting.len())
+            {
+                return false;
+            }
+            draw_index += 1;
+            visible &= visible - 1;
+        }
+    }
+    draw_index == model_draw_refs.len()
+}
+
+fn absolutize_model_draw_refs(draw_refs: &mut [[u32; 2]], model_word_start: u32) -> Option<()> {
+    if !model_word_start.is_multiple_of(4) {
+        return None;
+    }
+    let model_record_base = model_word_start / 4;
+    if draw_refs
+        .iter()
+        .any(|words| words[0].checked_add(model_record_base).is_none())
+    {
+        return None;
+    }
+    for words in draw_refs {
+        words[0] += model_record_base;
+    }
+    Some(())
+}
+
 fn absolutize_liquid_lighting_indices(liquid_quads: &mut [[u32; 4]], lighting_word_start: u32) {
     let lighting_record_base = lighting_word_start / 2;
     for words in liquid_quads {
@@ -6460,6 +6589,7 @@ struct GeometryStreamCounts {
     cube: u32,
     model: u32,
     model_lighting: u32,
+    model_draw: u32,
     liquid: u32,
     liquid_lighting: u32,
 }
@@ -6471,6 +6601,7 @@ const SHARED_GEOMETRY_ALIGNMENT_WORDS: u32 =
 struct GeometryStreamLayout {
     model_offset: u32,
     model_lighting_offset: u32,
+    model_draw_offset: u32,
     liquid_offset: u32,
     liquid_lighting_offset: u32,
     word_count: u32,
@@ -6486,10 +6617,15 @@ impl GeometryStreamCounts {
             self.model_lighting
                 .checked_mul((PACKED_QUAD_LIGHTING_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32)?,
         )?;
+        let model_draw_offset = model_lighting_end;
+        let model_draw_end = model_draw_offset
+            .checked_add(self.model_draw.checked_mul(
+                (PACKED_MODEL_DRAW_REF_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32,
+            )?)?;
         let liquid_offset = if self.liquid == 0 && self.liquid_lighting == 0 {
-            model_lighting_end
+            model_draw_end
         } else {
-            checked_align_up(model_lighting_end, SHARED_GEOMETRY_ALIGNMENT_WORDS)?
+            checked_align_up(model_draw_end, SHARED_GEOMETRY_ALIGNMENT_WORDS)?
         };
         let liquid_lighting_offset =
             liquid_offset
@@ -6503,6 +6639,7 @@ impl GeometryStreamCounts {
         Some(GeometryStreamLayout {
             model_offset,
             model_lighting_offset,
+            model_draw_offset,
             liquid_offset,
             liquid_lighting_offset,
             word_count,
@@ -6596,6 +6733,7 @@ struct ChunkRangePlan {
     geometry_stream_capacity: u32,
     model_start: u32,
     model_lighting_start: u32,
+    model_draw_start: u32,
     liquid_start: u32,
     liquid_lighting_start: u32,
     biome_start: u32,
@@ -6658,6 +6796,7 @@ fn plan_chunk_range_update(
     let model_start = geometry_stream_start.checked_add(geometry_layout.model_offset)?;
     let model_lighting_start =
         geometry_stream_start.checked_add(geometry_layout.model_lighting_offset)?;
+    let model_draw_start = geometry_stream_start.checked_add(geometry_layout.model_draw_offset)?;
     let liquid_start = geometry_stream_start.checked_add(geometry_layout.liquid_offset)?;
     let liquid_lighting_start =
         geometry_stream_start.checked_add(geometry_layout.liquid_lighting_offset)?;
@@ -6678,6 +6817,7 @@ fn plan_chunk_range_update(
         geometry_stream_capacity,
         model_start,
         model_lighting_start,
+        model_draw_start,
         liquid_start,
         liquid_lighting_start,
         biome_start,
@@ -8454,6 +8594,7 @@ mod tests {
             cube: 1,
             model: 1,
             model_lighting: 1,
+            model_draw: 1,
             liquid: 1,
             liquid_lighting: 1,
         };
@@ -8503,6 +8644,7 @@ mod tests {
         assert_eq!(retry.quad_start, 0);
         assert_eq!(retry.model_start, 0);
         assert_eq!(retry.model_lighting_start, 4);
+        assert_eq!(retry.model_draw_start, 6);
         assert_eq!(retry.liquid_start, 8);
         assert_eq!(retry.liquid_lighting_start, 12);
         assert_eq!(retry.geometry_stream_capacity, 14);
@@ -8535,6 +8677,7 @@ mod tests {
         let required = GeometryStreamCounts {
             model: 1,
             model_lighting: 1,
+            model_draw: 1,
             liquid: 1,
             liquid_lighting: 1,
             ..Default::default()
@@ -8560,6 +8703,7 @@ mod tests {
         .expect("the aligned shared streams fit the arena");
 
         assert_eq!(plan.liquid_start % 4, 0);
+        assert_eq!(plan.model_draw_start, plan.model_lighting_start + 2);
         assert_eq!(plan.liquid_lighting_start % 2, 0);
     }
 
@@ -8603,6 +8747,7 @@ mod tests {
         let required = GeometryStreamCounts {
             model: 1,
             model_lighting: 1,
+            model_draw: 1,
             liquid: 1,
             liquid_lighting: 1,
             ..Default::default()
@@ -8610,6 +8755,7 @@ mod tests {
         let mut old = retirement_test_allocation();
         old.model_range = Some(8..12);
         old.model_lighting_range = Some(12..14);
+        old.model_draw_range = Some(14..16);
         old.liquid_range = Some(16..20);
         old.liquid_lighting_range = Some(20..22);
         old.geometry_stream_range = Some(8..22);
@@ -8676,6 +8822,7 @@ mod tests {
             cube_quads: Arc::from([]),
             model_refs: Arc::from([]),
             model_lighting: Arc::from([]),
+            model_draw_refs: Arc::from([]),
             liquid_quads: Arc::from([PackedLiquidQuad::try_pack(
                 [0, 0, 0],
                 crate::Face::PositiveY,
@@ -8703,6 +8850,7 @@ mod tests {
             quad_range: 0..0,
             model_range: Some(plan.model_start..plan.model_lighting_start),
             model_lighting_range: Some(plan.model_lighting_start..plan.liquid_start),
+            model_draw_range: None,
             liquid_range: Some(plan.liquid_start..plan.liquid_start + 4),
             liquid_lighting_range: Some(plan.liquid_lighting_start..plan.liquid_lighting_start + 2),
             has_depth_liquid: false,
@@ -8789,6 +8937,7 @@ mod tests {
         let required = GeometryStreamCounts {
             model: model_quad_counts.len() as u32,
             model_lighting: model_quad_counts.iter().sum(),
+            model_draw: model_quad_counts.iter().sum(),
             ..Default::default()
         };
         let plan = plan_chunk_range_update(
@@ -8804,7 +8953,7 @@ mod tests {
             false,
             ArenaLimits {
                 max_quad_items: 0,
-                max_geometry_stream_words: 128,
+                max_geometry_stream_words: 192,
                 max_origin_items: 1,
                 max_biome_words: FALLBACK_BIOME_WORDS,
             },
@@ -8813,6 +8962,8 @@ mod tests {
         let model_range = checked_geometry_range(plan.model_start, required.model * 4).unwrap();
         let model_lighting_range =
             checked_geometry_range(plan.model_lighting_start, required.model_lighting * 2).unwrap();
+        let model_draw_range =
+            checked_geometry_range(plan.model_draw_start, required.model_draw * 2).unwrap();
         let allocation = GpuChunkAllocation {
             key: SubChunkKey::new(0, 0, 0, 0),
             generation: 1,
@@ -8820,6 +8971,7 @@ mod tests {
             quad_range: 0..0,
             model_range: Some(model_range.clone()),
             model_lighting_range: Some(model_lighting_range.clone()),
+            model_draw_range: Some(model_draw_range.clone()),
             liquid_range: None,
             liquid_lighting_range: None,
             has_depth_liquid: false,
@@ -8836,6 +8988,7 @@ mod tests {
             direct_addresses.model_lighting,
             Some(model_lighting_range.clone())
         );
+        assert_eq!(direct_addresses.model_draw, Some(model_draw_range.clone()));
 
         let mut refs = Vec::new();
         let mut relative_lighting_base = 0;
@@ -8865,10 +9018,39 @@ mod tests {
         assert_eq!(direct.first_index, mdi.first_index);
         assert_eq!(direct.base_vertex, mdi.base_vertex);
         assert_eq!(direct.first_instance, mdi.first_instance);
-        assert_eq!(direct.index_count, 32 * 6);
-        assert_eq!(direct.instance_count, 3);
-        assert_eq!(direct.first_instance, model_range.start / 4);
-        assert_eq!(direct.base_vertex, 3 * 32 * 4);
+        assert_eq!(direct.index_count, 6);
+        assert_eq!(
+            direct.instance_count,
+            model_quad_counts.iter().copied().sum::<u32>()
+        );
+        assert_eq!(direct.first_instance, model_draw_range.start / 2);
+        assert_eq!(direct.base_vertex, 3 * 4);
+
+        for malformed in [
+            GpuChunkAllocation {
+                model_range: None,
+                ..allocation.clone()
+            },
+            GpuChunkAllocation {
+                model_lighting_range: None,
+                ..allocation.clone()
+            },
+            GpuChunkAllocation {
+                model_draw_range: None,
+                ..allocation.clone()
+            },
+            GpuChunkAllocation {
+                model_draw_range: Some(model_draw_range.start + 2..model_draw_range.end + 2),
+                ..allocation.clone()
+            },
+            GpuChunkAllocation {
+                model_draw_range: Some(model_draw_range.start + 1..model_draw_range.end),
+                ..allocation.clone()
+            },
+        ] {
+            assert!(model_direct_draw_command(&malformed).is_none());
+            assert!(model_mdi_draw_command(&malformed).is_none());
+        }
     }
 
     #[test]
@@ -8876,6 +9058,78 @@ mod tests {
         let mut refs = vec![[0x432, 7, 0, 0b11], [0x765, 8, 2, 0b101]];
         absolutize_model_lighting_bases(&mut refs, 20);
         assert_eq!(refs, [[0x432, 7, 10, 0b11], [0x765, 8, 12, 0b101]]);
+    }
+
+    #[test]
+    fn model_upload_validation_requires_an_exact_reachable_triplet() {
+        let refs = [PackedModelRef::new(0x432, 7, 0, 0b10_1101)];
+        let lighting = [PackedQuadLighting::new([0; 4]); 6];
+        let draws = [
+            PackedModelDrawRef::new(0, 0),
+            PackedModelDrawRef::new(0, 2),
+            PackedModelDrawRef::new(0, 3),
+            PackedModelDrawRef::new(0, 5),
+        ];
+        assert!(validate_local_model_streams(&refs, &lighting, &draws));
+        assert!(!validate_local_model_streams(&refs, &lighting, &[]));
+        assert!(!validate_local_model_streams(&[], &lighting, &draws));
+        assert!(!validate_local_model_streams(&refs, &[], &draws));
+        assert!(!validate_local_model_streams(
+            &refs,
+            &lighting,
+            &[PackedModelDrawRef::new(1, 0)]
+        ));
+        assert!(!validate_local_model_streams(
+            &refs,
+            &lighting,
+            &[PackedModelDrawRef::new(0, 32)]
+        ));
+        assert!(!validate_local_model_streams(
+            &refs,
+            &lighting,
+            &[PackedModelDrawRef::new(0, 1)]
+        ));
+        assert!(!validate_local_model_streams(
+            &[PackedModelRef::new(0x432, 7, 5, 0b10_0000)],
+            &lighting,
+            &[PackedModelDrawRef::new(0, 5)]
+        ));
+    }
+
+    #[test]
+    fn model_draw_absolutization_changes_only_the_model_index() {
+        let mut draws = vec![[0, 2], [3, 31]];
+        absolutize_model_draw_refs(&mut draws, 20).expect("aligned model record base");
+        assert_eq!(draws, [[5, 2], [8, 31]]);
+        assert!(absolutize_model_draw_refs(&mut draws, 22).is_none());
+    }
+
+    #[test]
+    fn any_partial_model_triplet_is_expected_as_model_but_cannot_draw() {
+        for (model, lighting, draw) in [
+            (Some(0..4), None, None),
+            (None, Some(4..6), None),
+            (None, None, Some(6..8)),
+            (Some(0..4), Some(4..6), None),
+            (Some(0..4), None, Some(4..6)),
+            (None, Some(0..2), Some(2..4)),
+        ] {
+            let mut allocation = retirement_test_allocation();
+            allocation.model_range = model.clone();
+            allocation.model_lighting_range = lighting.clone();
+            allocation.model_draw_range = draw.clone();
+            allocation.gpu.model_range = model;
+            allocation.gpu.model_lighting_range = lighting;
+            allocation.gpu.model_draw_range = draw;
+
+            assert!(
+                allocation
+                    .expected_streams()
+                    .contains(ChunkStreamMask::MODEL)
+            );
+            assert!(model_direct_draw_command(&allocation.gpu).is_none());
+            assert!(model_mdi_draw_command(&allocation.gpu).is_none());
+        }
     }
 
     #[test]
@@ -8894,6 +9148,7 @@ mod tests {
             cube_quads: Arc::from([]),
             model_refs: Arc::from([]),
             model_lighting: Arc::from([]),
+            model_draw_refs: Arc::from([]),
             liquid_quads: Arc::from([PackedLiquidQuad::try_pack(
                 [0, 0, 0],
                 crate::Face::PositiveY,
@@ -8921,6 +9176,7 @@ mod tests {
             quad_range: 0..0,
             model_range: None,
             model_lighting_range: None,
+            model_draw_range: None,
             liquid_range: Some(8..12),
             liquid_lighting_range: Some(20..22),
             has_depth_liquid: false,
@@ -8972,6 +9228,7 @@ mod tests {
             quad_range: 0..0,
             model_range: None,
             model_lighting_range: None,
+            model_draw_range: None,
             liquid_range: Some(identity.liquid_range.clone()),
             liquid_lighting_range: Some(identity.lighting_range.clone()),
             has_depth_liquid: false,
@@ -9321,6 +9578,7 @@ mod tests {
             cube_range: Some(0..2),
             model_range: None,
             model_lighting_range: None,
+            model_draw_range: None,
             liquid_range: Some(8..16),
             liquid_lighting_range: Some(16..20),
             quad_capacity: 2,
@@ -9335,6 +9593,7 @@ mod tests {
                 quad_range: 0..2,
                 model_range: None,
                 model_lighting_range: None,
+                model_draw_range: None,
                 liquid_range: Some(8..16),
                 liquid_lighting_range: Some(16..20),
                 has_depth_liquid: false,
@@ -9361,6 +9620,7 @@ mod tests {
         let moved_by_model = GeometryStreamCounts {
             model: 2,
             model_lighting: 1,
+            model_draw: 2,
             liquid: 2,
             liquid_lighting: 2,
             ..default()
@@ -10861,6 +11121,7 @@ mod tests {
                 quad_range: 17..23,
                 model_range: None,
                 model_lighting_range: None,
+                model_draw_range: None,
                 liquid_range: None,
                 liquid_lighting_range: None,
                 has_depth_liquid: false,
@@ -10875,6 +11136,7 @@ mod tests {
                 quad_range: 4..9,
                 model_range: None,
                 model_lighting_range: None,
+                model_draw_range: None,
                 liquid_range: None,
                 liquid_lighting_range: None,
                 has_depth_liquid: false,
@@ -11207,6 +11469,7 @@ mod tests {
                         quad_range: (index as u32 * 6)..(index as u32 * 6 + 6),
                         model_range: None,
                         model_lighting_range: None,
+                        model_draw_range: None,
                         liquid_range: None,
                         liquid_lighting_range: None,
                         has_depth_liquid: false,
@@ -12573,6 +12836,7 @@ mod tests {
             quad_range: 0..0,
             model_range: None,
             model_lighting_range: None,
+            model_draw_range: None,
             liquid_range: Some(40..64),
             liquid_lighting_range: Some(64..76),
             has_depth_liquid: true,
