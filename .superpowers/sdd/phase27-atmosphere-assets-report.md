@@ -8,7 +8,7 @@ Branch: `phase27-atmosphere-assets`
 
 The local-only asset toolchain now compiles the pinned vanilla sun,
 moon-phase sheet, and cloud texture into an independent, bounded
-`MCBEATM1` runtime blob. No render, shader, plugin, app, or GPU file changed.
+`MCBEATM1` runtime blob. No render, shader, plugin, app production, or GPU file changed.
 Mojang payloads and generated local outputs remain untracked.
 
 Cloud data is included because the pinned Mojang pack supplies the exact
@@ -61,9 +61,11 @@ The pinned output is 299,599 bytes with SHA-256
 fixed metadata before copying bounded pixel payloads. Compilation rejects a
 missing source, a malformed PNG, encoded input above 1 MiB, wrong dimensions,
 invalid/oversized manifest input, and non-local or malformed provenance.
-The provenance validator composes and requires the official Mojang Bedrock
-Samples release URL from the manifest tag and archive rather than accepting an
-arbitrary HTTPS origin.
+Production accepts only the exact tracked manifest byte hash and reviewed
+fields, including safe single-component tag/archive values and the official
+Mojang URL. It also requires the exact encoded SHA-256 above for each texture;
+future source bumps therefore require deliberate code and test ratchet changes.
+`.gitattributes` forces the manifest to LF so that byte pin is cross-platform.
 
 `assetc atmosphere` writes both the ignored blob and a deterministic JSON
 report using per-file atomic replacement. The report contains the complete
@@ -77,6 +79,11 @@ same-directory temporary file and rename. A known-invalid report destination
 therefore leaves an existing blob/report destination untouched. If an
 unexpected second-file I/O failure occurs after the blob rename, Make sees the
 missing or older report and reruns the deterministic pair.
+
+Preflight rejects aliased outputs before either is opened for writing. It
+checks normalized absolute paths, Windows case-folded paths, canonicalized
+existing ancestors, and existing filesystem identity, covering exact,
+dot/parent, case-variant, hardlink, and symlink/junction aliases.
 
 Build integration uses one portable producer command. `make assets`, the
 explicit `make atmosphere-assets`, and `make client` depend on both outputs.
@@ -96,15 +103,24 @@ RED was observed before each production slice:
   did not exist;
 - official-source coverage first failed because an arbitrary HTTPS origin was
   accepted before the Mojang release URL was constrained;
+- exact-pin coverage then proved a byte-mutated manifest and each of the three
+  valid-but-modified PNGs were accepted before exact hashes were enforced;
 - bundle publication coverage first proved the blob was replaced before an
   invalid report destination failed; and
+- output-identity coverage reproduced Windows case-variant, dot/parent, and
+  hardlink clobbers before normalized/canonical/file-identity checks; and
 - Make integration first failed because the manifest/blob/report freshness
   contracts were absent, then rejected the unsafe ordinary multi-target rule.
 
-Focused pinned verification passed all seven atmosphere integration tests,
+Focused pinned verification passed all fourteen atmosphere integration tests,
 including exact source and pinned blob hash ratchets. Standard full assets
-verification passed 244 tests with zero failures and eight existing ignored
+verification passed 251 tests with zero failures and eight existing ignored
 opt-in tests.
+
+The client asset suite passed 31 tests. Its executable Make behavior test runs
+the real Makefile with `-j4` and a harmless producer override to prove missing
+and stale pairs invoke one serialized producer and regenerate both outputs; it
+prints an explicit skip when `make` is unavailable (as on this Windows host).
 
 For completeness, setting `PINNED_VANILLA_PACK` for the entire legacy assets
 suite activates unrelated pack-wide acceptance tests. That run passed the new

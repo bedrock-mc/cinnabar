@@ -288,6 +288,7 @@ dependencies = [
  "bitflags 2.13.0",
  "clap",
  "image",
+ "same-file",
  "serde",
  "serde_json",
  "sha2",

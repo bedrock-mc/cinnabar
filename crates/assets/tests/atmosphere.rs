@@ -1,8 +1,12 @@
-use std::{fs, path::Path, process::Command};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 use assets::{
-    AssetError, AtmosphereRole, RuntimeAtmosphereAssets, compile_atmosphere_assets,
-    encode_atmosphere_blob,
+    AssetError, AtmosphereRole, AtmosphereTexture, CompiledAtmosphereAssets,
+    RuntimeAtmosphereAssets, compile_atmosphere_assets, encode_atmosphere_blob,
 };
 use image::{Rgba, RgbaImage};
 use sha2::{Digest, Sha256};
@@ -17,31 +21,80 @@ const SOURCES: [(&str, u32, u32, u8); 3] = [
 ];
 
 #[test]
-fn compiler_carries_exact_sources_in_canonical_order_with_hashes() {
+fn production_compiler_rejects_any_manifest_bytes_other_than_the_tracked_pin() {
     let pack = synthetic_pack();
-    let compiled = compile_atmosphere_assets(pack.path(), MANIFEST).expect("compile atmosphere");
+    let mut manifest = tracked_manifest();
+    manifest.push(b'\n');
+
+    assert!(compile_atmosphere_assets(pack.path(), &manifest).is_err());
+}
+
+#[test]
+fn tracked_manifest_bytes_are_forced_to_lf_on_every_platform() {
+    let attributes =
+        fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.gitattributes"))
+            .unwrap();
+    assert!(
+        attributes
+            .lines()
+            .any(|line| line == "assets/vanilla-source.json text eol=lf")
+    );
+}
+
+#[test]
+fn production_compiler_rejects_each_modified_pinned_png() {
+    let Ok(pack) = std::env::var("PINNED_VANILLA_PACK") else {
+        eprintln!("skipping: PINNED_VANILLA_PACK does not point at the ignored pinned pack");
+        return;
+    };
+    let manifest = tracked_manifest();
+
+    for (mutated_path, _, _, _) in SOURCES {
+        let candidate = tempfile::tempdir().unwrap();
+        for (source_path, _, _, _) in SOURCES {
+            let destination = candidate.path().join(source_path);
+            fs::create_dir_all(destination.parent().unwrap()).unwrap();
+            fs::copy(Path::new(&pack).join(source_path), &destination).unwrap();
+        }
+        let path = candidate.path().join(mutated_path);
+        let mut image = image::open(&path).unwrap().into_rgba8();
+        image.get_pixel_mut(0, 0).0[0] ^= 1;
+        image.save(&path).unwrap();
+
+        assert!(
+            compile_atmosphere_assets(candidate.path(), &manifest).is_err(),
+            "modified pinned source was accepted: {mutated_path}"
+        );
+    }
+}
+
+#[test]
+fn compiler_carries_exact_sources_in_canonical_order_with_hashes() {
+    let Ok(pack) = std::env::var("PINNED_VANILLA_PACK") else {
+        eprintln!("skipping: PINNED_VANILLA_PACK does not point at the ignored pinned pack");
+        return;
+    };
+    let manifest = tracked_manifest();
+    let compiled =
+        compile_atmosphere_assets(Path::new(&pack), &manifest).expect("compile atmosphere");
 
     assert_eq!(
         compiled.source_manifest_sha256,
-        Sha256::digest(MANIFEST).as_slice()
+        Sha256::digest(&manifest).as_slice()
     );
     assert_eq!(compiled.textures.len(), 3);
     for (index, texture) in compiled.textures.iter().enumerate() {
-        let (path, width, height, value) = SOURCES[index];
+        let (path, width, height, _) = SOURCES[index];
         assert_eq!(texture.role, AtmosphereRole::ALL[index]);
         assert_eq!(texture.source_path.as_ref(), path);
         assert_eq!((texture.width, texture.height), (width, height));
         assert_eq!(
             texture.source_bytes as u64,
-            fs::metadata(pack.path().join(path)).unwrap().len()
-        );
-        assert_eq!(
-            texture.rgba8.as_ref(),
-            vec![value; width as usize * height as usize * 4]
+            fs::metadata(Path::new(&pack).join(path)).unwrap().len()
         );
         assert_eq!(
             texture.source_sha256,
-            Sha256::digest(fs::read(pack.path().join(path)).unwrap()).as_slice()
+            Sha256::digest(fs::read(Path::new(&pack).join(path)).unwrap()).as_slice()
         );
         assert_eq!(
             texture.pixels_sha256,
@@ -72,18 +125,19 @@ fn compiler_rejects_missing_malformed_oversized_and_wrong_dimensions() {
         Err(AssetError::InvalidAtmosphereProvenance { .. })
     ));
 
+    let manifest = tracked_manifest();
     let missing = synthetic_pack();
     fs::remove_file(missing.path().join(SOURCES[0].0)).unwrap();
     assert!(matches!(
-        compile_atmosphere_assets(missing.path(), MANIFEST),
+        compile_atmosphere_assets(missing.path(), &manifest),
         Err(AssetError::AtmosphereTextureIo { .. })
     ));
 
     let malformed = synthetic_pack();
     fs::write(malformed.path().join(SOURCES[0].0), b"not a png").unwrap();
     assert!(matches!(
-        compile_atmosphere_assets(malformed.path(), MANIFEST),
-        Err(AssetError::AtmosphereTextureDecode { .. })
+        compile_atmosphere_assets(malformed.path(), &manifest),
+        Err(AssetError::AtmosphereTextureHashMismatch { .. })
     ));
 
     let oversized = synthetic_pack();
@@ -93,22 +147,21 @@ fn compiler_rejects_missing_malformed_oversized_and_wrong_dimensions() {
     )
     .unwrap();
     assert!(matches!(
-        compile_atmosphere_assets(oversized.path(), MANIFEST),
+        compile_atmosphere_assets(oversized.path(), &manifest),
         Err(AssetError::AtmosphereTextureTooLarge { .. })
     ));
 
     let wrong_size = synthetic_pack();
     write_png(&wrong_size.path().join(SOURCES[0].0), 31, 32, 0x44);
     assert!(matches!(
-        compile_atmosphere_assets(wrong_size.path(), MANIFEST),
-        Err(AssetError::WrongAtmosphereTextureDimensions { .. })
+        compile_atmosphere_assets(wrong_size.path(), &manifest),
+        Err(AssetError::AtmosphereTextureHashMismatch { .. })
     ));
 }
 
 #[test]
 fn blob_is_deterministic_and_runtime_round_trips_every_record() {
-    let pack = synthetic_pack();
-    let compiled = compile_atmosphere_assets(pack.path(), MANIFEST).unwrap();
+    let compiled = synthetic_compiled();
     let first = encode_atmosphere_blob(&compiled).expect("encode atmosphere blob");
     let second = encode_atmosphere_blob(&compiled).expect("repeat atmosphere encoding");
     assert_eq!(first, second);
@@ -180,17 +233,26 @@ fn blob_rejects_noncanonical_or_corrupt_envelopes() {
 
 #[test]
 fn assetc_atmosphere_writes_deterministic_blob_and_provenance_report() {
-    let pack = synthetic_pack();
+    let Ok(pack) = std::env::var("PINNED_VANILLA_PACK") else {
+        eprintln!("skipping: PINNED_VANILLA_PACK does not point at the ignored pinned pack");
+        return;
+    };
     let outputs = tempfile::tempdir().unwrap();
     let manifest_path = outputs.path().join("vanilla-source.json");
-    fs::write(&manifest_path, MANIFEST).unwrap();
+    let manifest = tracked_manifest();
+    fs::write(&manifest_path, &manifest).unwrap();
     let first_blob = outputs.path().join("first.mcbeatm");
     let first_report = outputs.path().join("first.json");
     let second_blob = outputs.path().join("second.mcbeatm");
     let second_report = outputs.path().join("second.json");
 
-    run_assetc(pack.path(), &manifest_path, &first_blob, &first_report);
-    run_assetc(pack.path(), &manifest_path, &second_blob, &second_report);
+    run_assetc(Path::new(&pack), &manifest_path, &first_blob, &first_report);
+    run_assetc(
+        Path::new(&pack),
+        &manifest_path,
+        &second_blob,
+        &second_report,
+    );
     assert_eq!(
         fs::read(&first_blob).unwrap(),
         fs::read(&second_blob).unwrap()
@@ -205,11 +267,11 @@ fn assetc_atmosphere_writes_deterministic_blob_and_provenance_report() {
     assert_eq!(report["schema"], 1);
     assert_eq!(
         report["source"],
-        serde_json::from_slice::<serde_json::Value>(MANIFEST).unwrap()
+        serde_json::from_slice::<serde_json::Value>(&manifest).unwrap()
     );
     assert_eq!(
         report["source_manifest_sha256"],
-        format!("{:x}", Sha256::digest(MANIFEST))
+        format!("{:x}", Sha256::digest(&manifest))
     );
     assert_eq!(report["textures"].as_array().unwrap().len(), 3);
     assert_eq!(report["textures"][0]["role"], "sun");
@@ -225,15 +287,18 @@ fn assetc_atmosphere_writes_deterministic_blob_and_provenance_report() {
             .is_some_and(|value| value.len() == 64)
     );
     let report_text = fs::read_to_string(first_report).unwrap();
-    assert!(!report_text.contains(&pack.path().to_string_lossy().to_string()));
+    assert!(!report_text.contains(&pack));
 }
 
 #[test]
 fn assetc_atmosphere_preserves_existing_output_when_report_cannot_publish() {
-    let pack = synthetic_pack();
+    let Ok(pack) = std::env::var("PINNED_VANILLA_PACK") else {
+        eprintln!("skipping: PINNED_VANILLA_PACK does not point at the ignored pinned pack");
+        return;
+    };
     let outputs = tempfile::tempdir().unwrap();
     let manifest_path = outputs.path().join("vanilla-source.json");
-    fs::write(&manifest_path, MANIFEST).unwrap();
+    fs::write(&manifest_path, tracked_manifest()).unwrap();
     let blob = outputs.path().join("vanilla.mcbeatm");
     let report = outputs.path().join("report-destination");
     fs::write(&blob, b"old-blob").unwrap();
@@ -242,7 +307,7 @@ fn assetc_atmosphere_preserves_existing_output_when_report_cannot_publish() {
 
     let output = Command::new(env!("CARGO_BIN_EXE_assetc"))
         .args(["atmosphere", "--pack"])
-        .arg(pack.path())
+        .arg(&pack)
         .arg("--source-manifest")
         .arg(&manifest_path)
         .arg("--out")
@@ -258,6 +323,67 @@ fn assetc_atmosphere_preserves_existing_output_when_report_cannot_publish() {
         fs::read(report.join("old-report-marker")).unwrap(),
         b"old-report"
     );
+}
+
+#[test]
+fn assetc_atmosphere_rejects_exact_and_lexically_normalized_output_aliases() {
+    let Some((pack, manifest_path, outputs)) = pinned_cli_fixture() else {
+        return;
+    };
+
+    let exact = outputs.path().join("exact.bin");
+    fs::write(&exact, b"exact-marker").unwrap();
+    assert_alias_rejected_without_write(&pack, &manifest_path, &exact, &exact, b"exact-marker");
+
+    let directory = outputs.path().join("lexical");
+    fs::create_dir_all(directory.join("child")).unwrap();
+    let blob = directory.join("output.bin");
+    let report = directory.join("child").join("..").join("output.bin");
+    fs::write(&blob, b"lexical-marker").unwrap();
+    assert_alias_rejected_without_write(&pack, &manifest_path, &blob, &report, b"lexical-marker");
+}
+
+#[cfg(windows)]
+#[test]
+fn assetc_atmosphere_rejects_case_insensitive_output_aliases_on_windows() {
+    let Some((pack, manifest_path, outputs)) = pinned_cli_fixture() else {
+        return;
+    };
+    let blob = outputs.path().join("ASSET.BIN");
+    let report = outputs.path().join("asset.bin");
+    fs::write(&blob, b"case-marker").unwrap();
+
+    assert_alias_rejected_without_write(&pack, &manifest_path, &blob, &report, b"case-marker");
+}
+
+#[test]
+fn assetc_atmosphere_rejects_hardlink_output_aliases() {
+    let Some((pack, manifest_path, outputs)) = pinned_cli_fixture() else {
+        return;
+    };
+    let blob = outputs.path().join("hardlink-blob.bin");
+    let report = outputs.path().join("hardlink-report.json");
+    fs::write(&blob, b"hardlink-marker").unwrap();
+    fs::hard_link(&blob, &report).unwrap();
+
+    assert_alias_rejected_without_write(&pack, &manifest_path, &blob, &report, b"hardlink-marker");
+}
+
+#[test]
+fn assetc_atmosphere_rejects_symlink_output_aliases_when_supported() {
+    let Some((pack, manifest_path, outputs)) = pinned_cli_fixture() else {
+        return;
+    };
+    let (blob, report) = match symlink_alias_paths(outputs.path()) {
+        Ok(paths) => paths,
+        Err(error) => {
+            eprintln!("skipping symlink/junction alias case: {error}");
+            return;
+        }
+    };
+    fs::write(&blob, b"symlink-marker").unwrap();
+
+    assert_alias_rejected_without_write(&pack, &manifest_path, &blob, &report, b"symlink-marker");
 }
 
 #[test]
@@ -323,6 +449,87 @@ fn format_hash(hash: [u8; 32]) -> String {
     hash.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+fn tracked_manifest() -> Vec<u8> {
+    fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/vanilla-source.json"))
+        .unwrap()
+}
+
+fn pinned_cli_fixture() -> Option<(String, std::path::PathBuf, TempDir)> {
+    let Ok(pack) = std::env::var("PINNED_VANILLA_PACK") else {
+        eprintln!("skipping: PINNED_VANILLA_PACK does not point at the ignored pinned pack");
+        return None;
+    };
+    let outputs = tempfile::tempdir().unwrap();
+    let manifest_path = outputs.path().join("vanilla-source.json");
+    fs::write(&manifest_path, tracked_manifest()).unwrap();
+    Some((pack, manifest_path, outputs))
+}
+
+fn assert_alias_rejected_without_write(
+    pack: &str,
+    manifest: &Path,
+    blob: &Path,
+    report: &Path,
+    marker: &[u8],
+) {
+    let output = Command::new(env!("CARGO_BIN_EXE_assetc"))
+        .args(["atmosphere", "--pack"])
+        .arg(pack)
+        .arg("--source-manifest")
+        .arg(manifest)
+        .arg("--out")
+        .arg(blob)
+        .arg("--report")
+        .arg(report)
+        .output()
+        .unwrap();
+    assert!(
+        !output.status.success(),
+        "aliased outputs were accepted: {} / {}",
+        blob.display(),
+        report.display()
+    );
+    assert_eq!(fs::read(blob).unwrap(), marker);
+    assert_eq!(fs::read(report).unwrap(), marker);
+}
+
+#[cfg(unix)]
+fn symlink_alias_paths(root: &Path) -> std::io::Result<(PathBuf, PathBuf)> {
+    let original = root.join("symlink-blob.bin");
+    let link = root.join("symlink-report.json");
+    std::os::unix::fs::symlink(&original, &link)?;
+    Ok((original, link))
+}
+
+#[cfg(windows)]
+fn symlink_alias_paths(root: &Path) -> std::io::Result<(PathBuf, PathBuf)> {
+    let original = root.join("symlink-blob.bin");
+    let link = root.join("symlink-report.json");
+    match std::os::windows::fs::symlink_file(&original, &link) {
+        Ok(()) => return Ok((original, link)),
+        Err(source) if source.raw_os_error() == Some(1314) => {}
+        Err(source) => return Err(source),
+    }
+
+    let target_directory = root.join("junction-target");
+    let alias_directory = root.join("junction-alias");
+    fs::create_dir(&target_directory)?;
+    let output = Command::new("cmd")
+        .args(["/C", "mklink", "/J"])
+        .arg(&alias_directory)
+        .arg(&target_directory)
+        .output()?;
+    if !output.status.success() {
+        return Err(std::io::Error::other(
+            String::from_utf8_lossy(&output.stderr).into_owned(),
+        ));
+    }
+    Ok((
+        target_directory.join("output.bin"),
+        alias_directory.join("output.bin"),
+    ))
+}
+
 fn run_assetc(pack: &Path, manifest: &Path, out: &Path, report: &Path) {
     let output = Command::new(env!("CARGO_BIN_EXE_assetc"))
         .args(["atmosphere", "--pack"])
@@ -343,9 +550,9 @@ fn run_assetc(pack: &Path, manifest: &Path, out: &Path, report: &Path) {
 }
 
 fn valid_blob() -> Vec<u8> {
-    let pack = synthetic_pack();
-    let compiled = compile_atmosphere_assets(pack.path(), MANIFEST).unwrap();
-    encode_atmosphere_blob(&compiled).unwrap().into_vec()
+    encode_atmosphere_blob(&synthetic_compiled())
+        .unwrap()
+        .into_vec()
 }
 
 fn reseal(bytes: &mut [u8]) {
@@ -364,6 +571,33 @@ fn synthetic_pack() -> TempDir {
         write_png(&pack.path().join(path), width, height, value);
     }
     pack
+}
+
+fn synthetic_compiled() -> CompiledAtmosphereAssets {
+    let pack = synthetic_pack();
+    let textures = SOURCES
+        .into_iter()
+        .enumerate()
+        .map(|(index, (source_path, width, height, value))| {
+            let source = fs::read(pack.path().join(source_path)).unwrap();
+            let rgba8 = vec![value; width as usize * height as usize * 4].into_boxed_slice();
+            AtmosphereTexture {
+                role: AtmosphereRole::ALL[index],
+                source_path: source_path.into(),
+                source_bytes: source.len() as u32,
+                source_sha256: Sha256::digest(&source).into(),
+                pixels_sha256: Sha256::digest(&rgba8).into(),
+                width,
+                height,
+                rgba8,
+            }
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+    CompiledAtmosphereAssets {
+        source_manifest_sha256: Sha256::digest(MANIFEST).into(),
+        textures,
+    }
 }
 
 fn write_png(path: &Path, width: u32, height: u32, value: u8) {

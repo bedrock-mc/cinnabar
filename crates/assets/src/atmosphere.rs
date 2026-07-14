@@ -19,6 +19,21 @@ const HEADER_BYTES: usize = 128;
 const DESCRIPTOR_BYTES: usize = 112;
 const HASH_BYTES: usize = 32;
 const FORMAT_RGBA8_SRGB: u32 = 1;
+const PINNED_MANIFEST_SHA256: [u8; 32] =
+    decode_sha256(b"0cc3e494d634cf3f9c0795d526b9f91e973dfe1009aae50b8db4418f2386304d");
+const PINNED_TAG: &str = "v1.26.30.32-preview";
+const PINNED_COMMIT: &str = "020f1cf4b2baef78e635d4ce7498eb16a429dcbb";
+const PINNED_ARCHIVE: &str = "bedrock-samples-v1.26.30.32-preview-full.zip";
+const PINNED_URL: &str = "https://github.com/Mojang/bedrock-samples/releases/download/v1.26.30.32-preview/bedrock-samples-v1.26.30.32-preview-full.zip";
+const PINNED_ARCHIVE_SHA256: &str =
+    "12d5cddc03acd507e9e0bd412f2e94d34d0a1a855758af7a9eef61b03630ad7c";
+const PINNED_CACHE_DIR: &str = ".local/assets/bedrock-samples/v1.26.30.32-preview/full";
+const SUN_SOURCE_SHA256: [u8; 32] =
+    decode_sha256(b"f7273544b691f08aaef76373d526e00793cf1e1aa0e1df8518f738d44a8e526b");
+const MOON_PHASES_SOURCE_SHA256: [u8; 32] =
+    decode_sha256(b"01c566d48e0cc8618cf6fdce811b61175fc246f12f2e8f2c567d6acd3a2b35d8");
+const CLOUDS_SOURCE_SHA256: [u8; 32] =
+    decode_sha256(b"4f57cfe866779ef82be0058e244a77b0a279ee75e9eb40ac9ce6eb372445adc8");
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
@@ -297,7 +312,8 @@ pub fn compile_atmosphere_assets(
     }
     let manifest = serde_json::from_slice::<SourceManifest>(source_manifest)
         .map_err(|source| AssetError::InvalidAtmosphereManifest { source })?;
-    validate_source_manifest(&manifest)?;
+    let source_manifest_sha256: [u8; 32] = Sha256::digest(source_manifest).into();
+    validate_source_manifest(&manifest, source_manifest_sha256)?;
     let specs = source_specs();
     let textures = specs
         .into_iter()
@@ -307,25 +323,29 @@ pub fn compile_atmosphere_assets(
         .collect::<Result<Vec<_>, _>>()?
         .into_boxed_slice();
     Ok(CompiledAtmosphereAssets {
-        source_manifest_sha256: Sha256::digest(source_manifest).into(),
+        source_manifest_sha256,
         textures,
     })
 }
 
-fn validate_source_manifest(manifest: &SourceManifest) -> Result<(), AssetError> {
+fn validate_source_manifest(
+    manifest: &SourceManifest,
+    manifest_sha256: [u8; 32],
+) -> Result<(), AssetError> {
     let hex = |value: &str, length: usize| {
         value.len() == length && value.bytes().all(|byte| byte.is_ascii_hexdigit())
     };
     let cache_path = Path::new(manifest.cache_dir.as_ref());
-    let expected_url = format!(
-        "https://github.com/Mojang/bedrock-samples/releases/download/{}/{}",
-        manifest.tag, manifest.archive
-    );
-    if manifest.schema != 1
-        || manifest.tag.is_empty()
+    if manifest_sha256 != PINNED_MANIFEST_SHA256
+        || manifest.schema != 1
+        || !safe_component(&manifest.tag)
+        || !safe_component(&manifest.archive)
+        || manifest.tag.as_ref() != PINNED_TAG
+        || manifest.commit.as_ref() != PINNED_COMMIT
         || !hex(&manifest.commit, 40)
-        || !manifest.archive.ends_with(".zip")
-        || manifest.url.as_ref() != expected_url
+        || manifest.archive.as_ref() != PINNED_ARCHIVE
+        || manifest.url.as_ref() != PINNED_URL
+        || manifest.sha256.as_ref() != PINNED_ARCHIVE_SHA256
         || !hex(&manifest.sha256, 64)
         || manifest.artifact_policy.as_ref() != "local-only"
         || cache_path.is_absolute()
@@ -333,13 +353,23 @@ fn validate_source_manifest(manifest: &SourceManifest) -> Result<(), AssetError>
             .cache_dir
             .split(['/', '\\'])
             .any(|part| part == "..")
-        || !manifest.cache_dir.starts_with(".local/")
+        || manifest.cache_dir.as_ref() != PINNED_CACHE_DIR
     {
         return Err(AssetError::InvalidAtmosphereProvenance {
-            detail: "manifest must be schema 1 with an official Mojang Bedrock Samples release archive, 40/64-digit hashes, local-only policy, and a relative .local cache".into(),
+            detail: "manifest bytes and fields must exactly match the reviewed Mojang Bedrock Samples pin".into(),
         });
     }
     Ok(())
+}
+
+fn safe_component(value: &str) -> bool {
+    !value.is_empty()
+        && !value.contains(['/', '\\'])
+        && value != "."
+        && value != ".."
+        && Path::new(value)
+            .file_name()
+            .is_some_and(|name| name == value)
 }
 
 const fn source_specs() -> [(AtmosphereRole, &'static str, u32, u32); 3] {
@@ -389,6 +419,13 @@ fn read_texture(
             max: MAX_SOURCE_BYTES,
         });
     }
+    let source_sha256: [u8; 32] = Sha256::digest(&bytes).into();
+    if source_sha256 != expected_source_sha256(role) {
+        return Err(AssetError::AtmosphereTextureHashMismatch {
+            role: role.label(),
+            path,
+        });
+    }
     let dimensions = ImageReader::with_format(Cursor::new(&bytes), ImageFormat::Png)
         .into_dimensions()
         .map_err(|source| AssetError::AtmosphereTextureDecode {
@@ -432,12 +469,39 @@ fn read_texture(
         source_bytes: u32::try_from(bytes.len()).map_err(|_| AssetError::BlobSizeOverflow {
             section: "atmosphere source size",
         })?,
-        source_sha256: Sha256::digest(&bytes).into(),
+        source_sha256,
         pixels_sha256: Sha256::digest(&rgba8).into(),
         width: expected_width,
         height: expected_height,
         rgba8,
     })
+}
+
+const fn expected_source_sha256(role: AtmosphereRole) -> [u8; 32] {
+    match role {
+        AtmosphereRole::Sun => SUN_SOURCE_SHA256,
+        AtmosphereRole::MoonPhases => MOON_PHASES_SOURCE_SHA256,
+        AtmosphereRole::Clouds => CLOUDS_SOURCE_SHA256,
+    }
+}
+
+const fn decode_sha256(value: &[u8; 64]) -> [u8; 32] {
+    let mut decoded = [0_u8; 32];
+    let mut index = 0;
+    while index < decoded.len() {
+        decoded[index] =
+            (decode_hex_nibble(value[index * 2]) << 4) | decode_hex_nibble(value[index * 2 + 1]);
+        index += 1;
+    }
+    decoded
+}
+
+const fn decode_hex_nibble(value: u8) -> u8 {
+    match value {
+        b'0'..=b'9' => value - b'0',
+        b'a'..=b'f' => value - b'a' + 10,
+        _ => panic!("invalid pinned SHA-256"),
+    }
 }
 
 fn invalid(detail: impl Into<Box<str>>) -> AssetError {

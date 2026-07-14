@@ -12,6 +12,7 @@ image = { version = "0.25", default-features = false, features = ["png", "tga"] 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
+same-file = "1"
 thiserror.workspace = true
 
 [dev-dependencies]

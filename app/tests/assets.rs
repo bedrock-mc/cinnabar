@@ -11,7 +11,9 @@ use std::{
     ffi::OsString,
     fs,
     path::{Path, PathBuf},
+    process::Command,
     sync::Arc,
+    time::{Duration, SystemTime},
 };
 
 use ::assets::{
@@ -361,4 +363,115 @@ fn make_assets_and_client_refresh_the_atmosphere_blob_and_report() {
         2,
         "blob and missing-report recovery must use one shared producer command"
     );
+}
+
+#[test]
+fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() {
+    let make_available = match Command::new("make").arg("--version").output() {
+        Ok(output) if output.status.success() => true,
+        Ok(output) => {
+            eprintln!(
+                "skipping executable Makefile test: `make --version` failed with {}",
+                output.status
+            );
+            false
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!("skipping executable Makefile test: `make` is unavailable");
+            false
+        }
+        Err(error) => panic!("failed to probe make: {error}"),
+    };
+    if !make_available {
+        return;
+    }
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let temporary = temporary_directory("make-atmosphere-behavior");
+    let world = temporary.join("world.mcbea");
+    let block = temporary.join("block.bin");
+    let light = temporary.join("light.bin");
+    let biome = temporary.join("biome.bin");
+    let manifest = temporary.join("vanilla-source.json");
+    let atmosphere = temporary.join("atmosphere.mcbeatm");
+    let report = temporary.join("atmosphere.json");
+    let invocations = temporary.join("invocations.log");
+    for prerequisite in [&block, &light, &biome] {
+        fs::write(prerequisite, b"registry").unwrap();
+    }
+    fs::write(&world, b"world").unwrap();
+    fs::copy(root.join("assets/vanilla-source.json"), &manifest).unwrap();
+    let now = SystemTime::now();
+    for prerequisite in [&block, &light, &biome, &manifest] {
+        fs::File::options()
+            .write(true)
+            .open(prerequisite)
+            .unwrap()
+            .set_modified(now - Duration::from_secs(120))
+            .unwrap();
+    }
+    fs::File::options()
+        .write(true)
+        .open(&world)
+        .unwrap()
+        .set_modified(now - Duration::from_secs(60))
+        .unwrap();
+
+    let producer = format!(
+        "echo invocation >> \"{}\" && echo blob > \"{}\" && echo report > \"{}\"",
+        make_path(&invocations),
+        make_path(&atmosphere),
+        make_path(&report)
+    );
+    let assignments = [
+        "ASSET_COMPILER_INPUTS=".to_owned(),
+        format!("ASSET_BLOB={}", make_path(&world)),
+        format!("BLOCK_REGISTRY={}", make_path(&block)),
+        format!("LIGHT_REGISTRY={}", make_path(&light)),
+        format!("BIOME_REGISTRY={}", make_path(&biome)),
+        format!("VANILLA_SOURCE_MANIFEST={}", make_path(&manifest)),
+        format!("ATMOSPHERE_BLOB={}", make_path(&atmosphere)),
+        format!("ATMOSPHERE_REPORT={}", make_path(&report)),
+        format!("ATMOSPHERE_COMPILE={producer}"),
+    ];
+
+    run_make_atmosphere(root, &assignments);
+    assert_eq!(fs::read_to_string(&invocations).unwrap().lines().count(), 1);
+    assert!(atmosphere.is_file() && report.is_file());
+
+    fs::remove_file(&report).unwrap();
+    run_make_atmosphere(root, &assignments);
+    assert_eq!(fs::read_to_string(&invocations).unwrap().lines().count(), 2);
+    assert!(atmosphere.is_file() && report.is_file());
+
+    fs::File::options()
+        .write(true)
+        .open(&manifest)
+        .unwrap()
+        .set_modified(SystemTime::now() + Duration::from_secs(60))
+        .unwrap();
+    run_make_atmosphere(root, &assignments);
+    assert_eq!(fs::read_to_string(&invocations).unwrap().lines().count(), 3);
+    assert!(atmosphere.is_file() && report.is_file());
+
+    fs::remove_dir_all(temporary).unwrap();
+}
+
+fn run_make_atmosphere(root: &Path, assignments: &[String]) {
+    let output = Command::new("make")
+        .current_dir(root)
+        .args(["-f", "Makefile", "-j4", "atmosphere-assets"])
+        .args(assignments)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "make atmosphere-assets failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn make_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
 }

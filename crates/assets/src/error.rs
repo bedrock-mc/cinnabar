@@ -33,6 +33,9 @@ pub enum AssetError {
         max: usize,
     },
 
+    #[error("atmosphere texture {role} at {path} does not match the pinned source SHA-256")]
+    AtmosphereTextureHashMismatch { role: &'static str, path: PathBuf },
+
     #[error("failed to decode atmosphere texture {role} from {path}: {source}")]
     AtmosphereTextureDecode {
         role: &'static str,

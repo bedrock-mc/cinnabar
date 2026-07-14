@@ -16,6 +16,12 @@ pack:
 - `textures/environment/moon_phases.png`
 - `textures/environment/clouds.png`
 
+Production compilation accepts only the reviewed manifest's exact bytes and
+fields and the reviewed encoded SHA-256 for each of those three PNG files.
+The manifest is forced to LF in `.gitattributes`, so its byte identity is
+stable across platforms. A future vanilla bump must deliberately update the
+manifest identity and all affected source-hash constants and ratchet tests.
+
 The cloud source is included because the pinned pack supplies an authoritative
 256x256 texture and it fits the same bounded carrier. This task does not define
 cloud rendering.
@@ -46,13 +52,19 @@ atomic rename. The two separate destinations are not crash-atomic as a pair;
 if an unexpected second-file I/O failure occurs, the Make dependency observes
 the missing/older report and reruns the complete pair.
 
+Preflight compares normalized absolute locations, Windows case-folded
+locations, canonicalized existing ancestors, and existing file identity. It
+rejects exact, dot/parent, case, symlink/junction, and hardlink aliases before
+either output is opened for writing.
+
 ## Validation and bounds
 
-Compilation fails closed if any required file is absent, is not PNG, exceeds
-1 MiB encoded, fails decoding, has unexpected dimensions, or produces a
-non-RGBA8 byte count. Exact dimensions are 32x32 for the sun, 128x64 for the
-moon phase sheet, and 256x256 for clouds. Paths and ordering are constants, not
-pack-controlled discovery.
+Compilation fails closed if the manifest is not the exact reviewed pin or if
+any required file is absent, differs from its pinned encoded SHA-256, is not
+PNG, exceeds 1 MiB encoded, fails decoding, has unexpected dimensions, or
+produces a non-RGBA8 byte count. Exact dimensions are 32x32 for the sun,
+128x64 for the moon phase sheet, and 256x256 for clouds. Paths and ordering are
+constants, not pack-controlled discovery.
 
 Runtime decoding rejects wrong magic/version/count, noncanonical offsets,
 unsupported roles/formats/reserved bits, unsafe or unexpected source paths,
@@ -64,11 +76,13 @@ applies allocation bounds before copying payloads.
 
 ## Testing
 
-Tests are written and observed failing before implementation. Synthetic pack
-tests cover exact compilation, absent/malformed/oversized/wrong-dimension
-failures, deterministic encoding, runtime round trip, and corrupt-envelope
-rejection. An environment-gated pinned-pack test locks the exact three source
-paths, dimensions, and SHA-256 values without tracking Mojang bytes.
+Tests are written and observed failing before implementation. Explicit
+synthetic compiled fixtures cover deterministic encoding, runtime round trip,
+and corrupt-envelope rejection without entering the production source
+acceptance path. Environment-gated pinned-pack tests lock exact manifest bytes,
+all three encoded sources, dimensions, and SHA-256 values, including rejection
+of each valid-but-modified PNG. CLI tests cover output alias rejection without
+tracking Mojang bytes.
 
 ## Out of scope
 
