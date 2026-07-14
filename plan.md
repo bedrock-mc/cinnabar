@@ -135,6 +135,9 @@ Scope (detailed plan to be written at phase start):
   dial mode while preserving the offline BDS path when `-auth-cache` is omitted.
 - [x] Document the exact `bedrock-core` and release `bedrock-client` commands, device-code
   stdout flow, cache privacy requirements, and Rust → local socket → Go → RakNet boundary.
+- [x] Report the core's startup lifecycle synchronously: Go build start, process/auth state,
+  published local endpoint, local Rust-client acceptance, and upstream connect/success/failure.
+  Commit `46a4e9f` covers ordered, secret-safe logging and fatal-startup tests.
 - [x] Live smoke: authenticate `bedrock-core` to `zeqa.net:19132` with
   `.local/auth/microsoft-token.json` and confirm the current release client reaches Zeqa.
 - [x] Record non-secret live evidence below; never record the device code, access token,
