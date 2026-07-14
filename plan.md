@@ -928,6 +928,15 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     preserve that world-session snapshot. FIFO-committed SetTime/weather
     updates do not dirty meshes, enqueue mesh changes, or change cave
     connectivity. Light response and atmosphere rendering remain open.
+  - [x] Implement the renderer-independent sparse light core: independent
+    uniform-or-packed block/sky nibble volumes, copy-on-write snapshots,
+    generation-checked storage/eviction, and a bounded darken-then-increase
+    solver over explicit Unknown/KnownAir/Resident cells. Exact one-cell halo
+    samples carry scheduler-owned trust and direct-sky provenance; unknown,
+    dirty, or untrusted boundaries never seed light, Nether/End reject sky,
+    and all propagation shares one enforced queue budget. The authoritative
+    per-state light registry, WorldStream scheduling, mesh baking, shaders,
+    and atmosphere remain open.
 
 Perf budget carried from Phase 0 gate; add: full remesh of view distance after teleport ≤ 2s.
 
