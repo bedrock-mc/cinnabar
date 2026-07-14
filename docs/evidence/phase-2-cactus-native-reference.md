@@ -17,7 +17,8 @@ No Mojang assets or screenshots are tracked by this manifest.
 - All ages use identical rendering.
 - Native visible bounds are X/Z `1/16..15/16` and Y `0..1`.
 - West/east/north/south use `cactus_side`, down uses `cactus_bottom`, and up
-  uses `cactus_top`. Side U samples source columns 1 through 14.
+  uses `cactus_top`. The visible one-pixel side inset is represented by source
+  U columns 1 through 14 in the compiler's independently tested mapping.
 - One-, two-, and three-block stacks are full height without an air seam.
 - Cactus is alpha cutout, not full-face occluding, and does not neighbour-cull
   its inset faces against opaque blocks.
@@ -27,11 +28,11 @@ No Mojang assets or screenshots are tracked by this manifest.
 The fresh deterministic fixture uses the following exact layout string:
 
 ```text
-platform:y=191;x=160..184;z=52..78;fill=black_concrete;west:x=160:red_concrete;east:x=184:blue_concrete;north:z=52:green_concrete;south:z=78:yellow_concrete;cactus[a]:x=166+4*(a%4);y=193;z=58+4*floor(a/4);support:sand@y192;a=0..15;adjacency:cactus[age=0]@(180,193,74);support:sand@(180,192,74);east_neighbor:black_concrete@(181,193,74);probe:(180,193,76);probe_support:sand@(180,192,76)
+platform:y=191;x=160..184;z=52..78;fill=black_concrete;west:x=160:red_concrete;east:x=184:blue_concrete;north:z=52:green_concrete;south:z=78:yellow_concrete;cactus[a]:x=166+4*(a%4);y=193;z=58+4*floor(a/4);support:sand@y192;a=0..15;stacks:age=0;one:(164,193,54);two:(170,193..194,54);three:(176,193..195,54);stack_support:sand@y192;adjacency:cactus[age=0]@(180,193,74);support:sand@(180,192,74);east_neighbor:black_concrete@(181,193,74);probe:(180,193,76);probe_support:sand@(180,192,76)
 ```
 
 Its UTF-8 SHA-256 is
-`5eee087fcd4b4b0984812074cbb72c099479447d5296ae1969c381bddefa4351`.
+`69e346bc5708a9b7548b3c79c27027718eba5ab312a6e20ae1eec9902a00289b`.
 The colored borders make the four cardinal directions identifiable: west red,
 east blue, north green, and south yellow.
 
@@ -66,9 +67,8 @@ fill 180 193 76 180 193 76 air replace cactus ["age"=<a>]
 
 Every exact readback returned `1 blocks filled`. The opaque-neighbor fixture is
 an age-zero cactus at `(180,193,74)` on sand with black concrete immediately to
-its east at `(181,193,74)`. It was written with the exact command below and
-visually captured both with the placement result visible and after the overlay
-faded:
+its east at `(181,193,74)`. It was written with the exact commands below and
+captured in two post-command views, including one after the overlay faded:
 
 ```mcfunction
 setblock 180 192 74 sand
@@ -76,12 +76,43 @@ setblock 181 193 74 black_concrete
 setblock 180 193 74 cactus ["age"=0]
 ```
 
+Fresh one-, two-, and three-block age-zero stacks were built along the north
+edge with these exact commands:
+
+```mcfunction
+setblock 164 192 54 sand
+setblock 164 193 54 cactus ["age"=0]
+setblock 170 192 54 sand
+setblock 170 193 54 cactus ["age"=0]
+setblock 170 194 54 cactus ["age"=0]
+setblock 176 192 54 sand
+setblock 176 193 54 cactus ["age"=0]
+setblock 176 194 54 cactus ["age"=0]
+setblock 176 195 54 cactus ["age"=0]
+```
+
+The corresponding reproducible camera commands are:
+
+```mcfunction
+# Updated fixture overview
+tp @s 154 196 45 facing 172 193 66
+# Stack front: all three heights and their internal seams
+tp @s 170 195 47 facing 170 194 54
+# Stack grazing: side continuity and full-height placement
+tp @s 158 194 53 facing 170 194 54
+# Top inset: close elevated view of the three-high stack's top plane
+tp @s 176 198 50.5 facing 176 195.8 54
+```
+
 ## Local-only screenshot hashes
 
 | Capture | SHA-256 |
 |---|---|
-| deterministic overview | `74fe9fee1bae06d22c69d988948ad209eda106df24e278861f920a701ec74d89` |
-| opaque-neighbor placement | `42dd93d0e5077dfe88ec85eaf809a96e59e7f8d0ff9d283ca30ff5652dbe479f` |
+| deterministic overview with stacks | `feb22c2643f305568aa719f662c04522d3157a17330fde632c05d5ac3d8ce716` |
+| deterministic stack front | `d9534cc4132ebf2a9461732b45aba501a3190d7885c7bd5ac4dfc32f1ee4e5a4` |
+| deterministic stack grazing | `e864f7fc876c60c4a1a6e0147b0aca95c00ac36f9ee876039a05c04a642d29f6` |
+| deterministic top inset | `90661be5aedfb2165007753dad0a47679fbf97b8cfb21c72b07a4047fe5afa09` |
+| opaque-neighbor post-command view | `42dd93d0e5077dfe88ec85eaf809a96e59e7f8d0ff9d283ca30ff5652dbe479f` |
 | opaque-neighbor clean view | `885bc4ef88c0efe70773caa3ad67717cdeee75e5d346d25f4dfe425a5771d2da` |
 | exact age 0 readback | `db3f01435a40d0c2a923f4adae6fa226a517da21a6500cc4f3c940f1e2978433` |
 | exact age 1 readback | `e857fc0d892c0a4eb1ca110ced84dcfc8a32063a20d83e5378338885005ddbd8` |
