@@ -236,6 +236,7 @@ fn compile_pack_inner(
     let admit_chiseled_bookshelves = chiseled_bookshelf_inventory_is_exact(records);
     let admit_resin_clumps = resin_clump_inventory_is_exact(records);
     let admit_selector_alias_cubes = selector_alias_cube_inventory_is_exact(records);
+    let admit_cacti = cactus_inventory_is_exact(records);
 
     let mut descriptor_keys = BTreeMap::<Descriptor, Box<str>>::new();
     for record in records.iter().filter(|record| {
@@ -247,6 +248,9 @@ fn compile_pack_inner(
         }
         if is_chiseled_bookshelf_name(&record.name) {
             return admit_chiseled_bookshelves && is_chiseled_bookshelf_record(record);
+        }
+        if is_cactus_name(&record.name) {
+            return admit_cacti && is_cactus_record(record);
         }
         (record.flags.contains(BlockFlags::CUBE_GEOMETRY)
             && !record_has_deferred_material(&pack, record))
@@ -269,6 +273,14 @@ fn compile_pack_inner(
         }
         if admit_chiseled_bookshelves && is_chiseled_bookshelf_record(record) {
             if let Some(descriptors) = chiseled_bookshelf_material_descriptors(&pack) {
+                for (descriptor, key) in descriptors {
+                    descriptor_keys.insert(descriptor, key);
+                }
+            }
+            continue;
+        }
+        if admit_cacti && is_cactus_record(record) {
+            if let Some(descriptors) = cactus_material_descriptors(&pack) {
                 for (descriptor, key) in descriptors {
                     descriptor_keys.insert(descriptor, key);
                 }
@@ -342,6 +354,7 @@ fn compile_pack_inner(
         admit_chiseled_bookshelves,
         admit_resin_clumps,
         admit_selector_alias_cubes,
+        admit_cacti,
     )?;
 
     Ok(CompiledAssets {
@@ -812,6 +825,103 @@ fn resin_clump_material_descriptor(pack: &PackSources) -> Option<(Descriptor, Bo
         },
         key.into(),
     ))
+}
+
+fn is_cactus_name(name: &str) -> bool {
+    name == "minecraft:cactus"
+}
+
+fn exact_cactus_age(record: &RegistryRecord) -> Option<u32> {
+    let state =
+        serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&record.canonical_state)
+            .ok()?;
+    if state.len() != 1 {
+        return None;
+    }
+    let age = exact_tagged_int(state.get("age")?, 15)?;
+    let mask = 1 << (ModelStateField::Growth as u8 - 1);
+    if record.model_state.mask() != mask
+        || record.model_state.get(ModelStateField::Growth) != Some(age)
+    {
+        return None;
+    }
+    Some(age)
+}
+
+fn is_cactus_record(record: &RegistryRecord) -> bool {
+    is_cactus_name(&record.name)
+        && record.model_family == ModelFamily::Cuboid
+        && record.contributor_role == ContributorRole::Primary
+        && record.flags.is_empty()
+        && record.face_coverage == 0
+        && record.collision_seed.shape_id == 84
+        && record.collision_seed.confidence == crate::CollisionConfidence::CollisionOnly
+        && record.collision_seed.boxes.as_ref()
+            == [crate::CollisionBox {
+                min_x: 6_250_000,
+                min_y: 0,
+                min_z: 6_250_000,
+                max_x: 93_750_000,
+                max_y: 100_000_000,
+                max_z: 93_750_000,
+            }]
+        && exact_cactus_age(record).is_some()
+}
+
+fn cactus_inventory_is_exact(records: &[RegistryRecord]) -> bool {
+    let selected = records
+        .iter()
+        .filter(|record| is_cactus_name(&record.name))
+        .collect::<Vec<_>>();
+    if selected.len() != 16 {
+        return false;
+    }
+    let mut seen = [false; 16];
+    for record in selected {
+        if !is_cactus_record(record) {
+            return false;
+        }
+        let Some(age) = exact_cactus_age(record) else {
+            return false;
+        };
+        if record.sequential_id != 13_606 + age || seen[age as usize] {
+            return false;
+        }
+        seen[age as usize] = true;
+    }
+    seen.into_iter().all(|present| present)
+}
+
+fn cactus_material_descriptors(pack: &PackSources) -> Option<[(Descriptor, Box<str>); 3]> {
+    if pack.blocks.get_exact_side_caps("cactus")? != ["cactus_side", "cactus_bottom", "cactus_top"]
+    {
+        return None;
+    }
+    let routes = [
+        ("cactus_side", "textures/blocks/cactus_side"),
+        ("cactus_bottom", "textures/blocks/cactus_bottom"),
+        ("cactus_top", "textures/blocks/cactus_top"),
+    ];
+    let mut descriptors = Vec::with_capacity(3);
+    for (key, expected_path) in routes {
+        let path = pack.terrain.get_exact_static_no_tint(key)?;
+        if path != expected_path
+            || pack.flipbooks.iter().any(|flipbook| {
+                flipbook.atlas_tile.as_ref() == key || flipbook.texture_path.as_ref() == path
+            })
+        {
+            return None;
+        }
+        descriptors.push((
+            Descriptor {
+                path: path.into(),
+                texture_key: key.into(),
+                flags: MATERIAL_FLAG_ALPHA_CUTOUT,
+            },
+            key.into(),
+        ));
+    }
+    descriptors.try_into().ok()
 }
 
 fn is_multiface(record: &RegistryRecord) -> bool {
@@ -1701,6 +1811,7 @@ fn compile_visuals(
     admit_chiseled_bookshelves: bool,
     admit_resin_clumps: bool,
     admit_selector_alias_cubes: bool,
+    admit_cacti: bool,
 ) -> Result<CompiledVisuals, AssetError> {
     let visual_count = records
         .iter()
@@ -1735,7 +1846,34 @@ fn compile_visuals(
     ordered_records.sort_unstable_by_key(|record| record.sequential_id);
     for record in ordered_records {
         let mut visual = BlockVisual::diagnostic(record.flags, record.contributor_role);
-        if is_selector_alias_cube_name(&record.name)
+        if is_cactus_name(&record.name) && (!admit_cacti || !is_cactus_record(record)) {
+            // This exact family is all-or-nothing and malformed states may not
+            // fall through to any generic age, crop, cube, or cuboid route.
+        } else if admit_cacti && is_cactus_record(record) {
+            let materials = cactus_material_descriptors(pack).map(|descriptors| {
+                descriptors.map(|(descriptor, _)| material_by_descriptor.get(&descriptor).copied())
+            });
+            if let Some([Some(side), Some(bottom), Some(top)]) = materials {
+                let faces = [side, side, bottom, top, side, side];
+                let template = intern_cuboid_template(
+                    faces,
+                    [16, 0, 16],
+                    [240, 256, 240],
+                    &mut cuboid_template_by_key,
+                    &mut model_templates,
+                    &mut model_quads,
+                )?;
+                visual.flags.remove(
+                    BlockFlags::AIR
+                        | BlockFlags::CUBE_GEOMETRY
+                        | BlockFlags::OCCLUDES_FULL_FACE
+                        | BlockFlags::LEAF_MODEL,
+                );
+                visual.faces = faces;
+                visual.kind = VisualKind::Model;
+                visual.model_template = template;
+            }
+        } else if is_selector_alias_cube_name(&record.name)
             && (!admit_selector_alias_cubes || !is_selector_alias_cube_record(record))
         {
             // The seven reviewed compatibility products are admitted only as

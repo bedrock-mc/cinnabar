@@ -61,6 +61,92 @@ fn pack_with_flipbooks(flipbooks: &str) -> TempDir {
     directory
 }
 
+#[test]
+fn exact_side_caps_and_static_terrain_accessors_fail_closed() {
+    let valid = tempfile::tempdir().expect("valid cactus pack");
+    write_pack(
+        valid.path(),
+        r#"{
+            "format_version":[1,1,0],
+            "cactus":{"textures":{"down":"cactus_bottom","side":"cactus_side","up":"cactus_top"}}
+        }"#,
+        r#"{"texture_data":{
+            "cactus_bottom":{"textures":"textures/blocks/cactus_bottom"},
+            "cactus_side":{"textures":"textures/blocks/cactus_side"},
+            "cactus_top":{"textures":"textures/blocks/cactus_top"}
+        }}"#,
+        EMPTY_FLIPBOOKS,
+    );
+    let pack = read_pack(valid.path()).expect("read valid cactus pack");
+    assert_eq!(
+        pack.blocks.get_exact_side_caps("cactus"),
+        Some(["cactus_side", "cactus_bottom", "cactus_top"])
+    );
+    assert_eq!(
+        pack.terrain.get_exact_static_no_tint("cactus_bottom"),
+        Some("textures/blocks/cactus_bottom")
+    );
+
+    for (name, route) in [
+        ("scalar", r#""cactus_side""#),
+        (
+            "explicit horizontal",
+            r#"{"down":"cactus_bottom","up":"cactus_top","side":"cactus_side","west":"cactus_side"}"#,
+        ),
+        (
+            "missing side",
+            r#"{"down":"cactus_bottom","up":"cactus_top"}"#,
+        ),
+        (
+            "missing down",
+            r#"{"side":"cactus_side","up":"cactus_top"}"#,
+        ),
+        (
+            "missing up",
+            r#"{"down":"cactus_bottom","side":"cactus_side"}"#,
+        ),
+    ] {
+        let directory = tempfile::tempdir().expect("invalid cactus pack");
+        write_pack(
+            directory.path(),
+            &format!(r#"{{"format_version":[1,1,0],"cactus":{{"textures":{route}}}}}"#),
+            r#"{"texture_data":{"cactus_side":{"textures":"textures/blocks/cactus_side"},"cactus_bottom":{"textures":"textures/blocks/cactus_bottom"},"cactus_top":{"textures":"textures/blocks/cactus_top"}}}"#,
+            EMPTY_FLIPBOOKS,
+        );
+        let pack = read_pack(directory.path())
+            .unwrap_or_else(|error| panic!("read {name} cactus fixture: {error}"));
+        assert_eq!(pack.blocks.get_exact_side_caps("cactus"), None, "{name}");
+    }
+
+    for (name, terrain_value) in [
+        (
+            "array",
+            r#"["textures/blocks/cactus_side","textures/blocks/cactus_side_2"]"#,
+        ),
+        (
+            "tinted",
+            r##"{"path":"textures/blocks/cactus_side","overlay_color":"#00ff00"}"##,
+        ),
+    ] {
+        let directory = tempfile::tempdir().expect("invalid cactus terrain");
+        write_pack(
+            directory.path(),
+            r#"{"format_version":[1,1,0],"cactus":{"textures":{"down":"cactus_bottom","side":"cactus_side","up":"cactus_top"}}}"#,
+            &format!(
+                r#"{{"texture_data":{{"cactus_side":{{"textures":{terrain_value}}},"cactus_bottom":{{"textures":"textures/blocks/cactus_bottom"}},"cactus_top":{{"textures":"textures/blocks/cactus_top"}}}}}}"#
+            ),
+            EMPTY_FLIPBOOKS,
+        );
+        let pack = read_pack(directory.path())
+            .unwrap_or_else(|error| panic!("read {name} terrain fixture: {error}"));
+        assert_eq!(
+            pack.terrain.get_exact_static_no_tint("cactus_side"),
+            None,
+            "{name}"
+        );
+    }
+}
+
 fn registry_bytes(records: &[RegistryFixture<'_>]) -> Vec<u8> {
     let mut bytes = b"BREG1003".to_vec();
     bytes.extend_from_slice(&1001_u32.to_le_bytes());

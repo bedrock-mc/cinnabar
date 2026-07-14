@@ -192,7 +192,7 @@ impl TerrainTextureMap {
     /// Returns an exact static route only when it carries no overlay tint
     /// metadata.
     #[must_use]
-    pub(crate) fn get_exact_static_no_tint(&self, key: &str) -> Option<&str> {
+    pub fn get_exact_static_no_tint(&self, key: &str) -> Option<&str> {
         match self.entries.get(key)? {
             TerrainPaths::Static {
                 path,
@@ -298,6 +298,29 @@ impl BlockTextureMap {
             faces.up.as_deref()?,
             faces.side.as_deref()?,
         ])
+    }
+
+    /// Returns the exact vanilla side/caps form: one horizontal side fallback
+    /// plus down/up caps and no explicit horizontal overrides.
+    #[must_use]
+    pub fn get_exact_side_caps(&self, block_name: &str) -> Option<[&str; 3]> {
+        let TextureValue::Faces(faces) = self.entries.get(block_name)? else {
+            return None;
+        };
+        if faces.west.is_some()
+            || faces.east.is_some()
+            || faces.north.is_some()
+            || faces.south.is_some()
+        {
+            return None;
+        }
+        let side = faces.side.as_deref()?;
+        let down = faces.down.as_deref()?;
+        let up = faces.up.as_deref()?;
+        if side.is_empty() || down.is_empty() || up.is_empty() {
+            return None;
+        }
+        Some([side, down, up])
     }
 }
 

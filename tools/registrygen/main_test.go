@@ -1028,6 +1028,142 @@ func TestResinClumpClassificationRequiresExactTypedSelector(t *testing.T) {
 	}
 }
 
+func TestCactusClassificationRequiresExactTypedAge(t *testing.T) {
+	const wantMask = uint8(1 << (ModelStateGrowth - 1))
+	for age := int32(0); age < 16; age++ {
+		record, err := classifyRecord(sourceState("minecraft:cactus", intState("age", age)))
+		if err != nil {
+			t.Fatalf("classify age %d: %v", age, err)
+		}
+		if record.ModelFamily != ModelFamilyCuboid || record.ContributorRole != ContributorPrimary {
+			t.Fatalf("age %d family/role=%v/%v", age, record.ModelFamily, record.ContributorRole)
+		}
+		if record.ModelState.Mask != wantMask {
+			t.Fatalf("age %d model-state mask=%#x, want %#x", age, record.ModelState.Mask, wantMask)
+		}
+		if got, ok := record.ModelState.Get(ModelStateGrowth); !ok || got != uint32(age) {
+			t.Fatalf("age %d growth=%d/%v", age, got, ok)
+		}
+	}
+
+	invalid := []SourceState{
+		sourceState("minecraft:cactus"),
+		sourceState("minecraft:cactus", intState("age", -1)),
+		sourceState("minecraft:cactus", intState("age", 16)),
+		sourceState("minecraft:cactus", byteState("age", 1)),
+		sourceState("minecraft:cactus", StateProperty{Name: "age", Value: TypedScalar{Kind: ScalarString, String: "1"}}),
+		sourceState("minecraft:cactus", intState("minecraft:age", 1)),
+		sourceState("minecraft:cactus", intState("growth", 1)),
+		sourceState("minecraft:cactus", intState("age", 1), intState("extra", 0)),
+		sourceState("minecraft:cactus", intState("age", 1), intState("age", 1)),
+	}
+	for index, state := range invalid {
+		if _, err := classifyRecord(state); err == nil {
+			t.Errorf("invalid cactus selector fixture %d was accepted", index)
+		}
+	}
+
+	unrelated, err := classifyRecord(sourceState("minecraft:chorus_flower", intState("age", 1)))
+	if err != nil {
+		t.Fatalf("classify unrelated age-bearing block: %v", err)
+	}
+	if unrelated.ModelFamily == ModelFamilyCuboid {
+		t.Fatal("non-exact cactus name entered cactus cuboid family")
+	}
+}
+
+func exactCactusRecords(t *testing.T) []Record {
+	t.Helper()
+	records := make([]Record, 0, 16)
+	for age := int32(0); age < 16; age++ {
+		record, err := classifyRecord(sourceState("minecraft:cactus", intState("age", age)))
+		if err != nil {
+			t.Fatalf("classify age %d: %v", age, err)
+		}
+		record.SequentialID = 13606 + uint32(age)
+		record.NetworkHash = 130_000 + uint32(age)
+		record.Flags = 0
+		record.FaceCoverage = 0
+		record.CollisionSeed = CollisionSeed{
+			ShapeID:    84,
+			Confidence: CollisionConfidenceCollisionOnly,
+			Boxes: []CollisionBox{{
+				MinX: 6_250_000, MaxX: 93_750_000,
+				MinY: 0, MaxY: 100_000_000,
+				MinZ: 6_250_000, MaxZ: 93_750_000,
+			}},
+		}
+		record.Provenance = ProvenancePMMP | ProvenanceDragonfly | ProvenancePrismarine
+		records = append(records, record)
+	}
+	return records
+}
+
+func TestCactusProductRequiresExactIdsStateProjectionAndCollision(t *testing.T) {
+	records := exactCactusRecords(t)
+	if err := validateSelectorCardinality(records); err != nil {
+		t.Fatalf("valid cactus product: %v", err)
+	}
+	forward, err := encode(records)
+	if err != nil {
+		t.Fatalf("encode forward: %v", err)
+	}
+	reversed := cloneRecords(records)
+	slices.Reverse(reversed)
+	backward, err := encode(reversed)
+	if err != nil {
+		t.Fatalf("encode reversed: %v", err)
+	}
+	if !bytes.Equal(forward, backward) {
+		t.Fatal("cactus BREG encoding depends on source order")
+	}
+
+	mutations := []struct {
+		name   string
+		mutate func([]Record)
+	}{
+		{"missing state", func(records []Record) { records[0].StateJSON = []byte(`{}`) }},
+		{"aliased key", func(records []Record) {
+			records[0].StateJSON = []byte(`{"minecraft:age":{"type":"int","value":0}}`)
+		}},
+		{"wrong canonical type", func(records []Record) {
+			records[0].StateJSON = []byte(`{"age":{"type":"byte","value":0}}`)
+		}},
+		{"out of range", func(records []Record) {
+			records[0].StateJSON = []byte(`{"age":{"type":"int","value":16}}`)
+		}},
+		{"extra canonical key", func(records []Record) {
+			records[0].StateJSON = []byte(`{"age":{"type":"int","value":0},"extra":{"type":"int","value":0}}`)
+		}},
+		{"model-state disagreement", func(records []Record) { records[0].ModelState.Set(ModelStateGrowth, 1) }},
+		{"extra model-state field", func(records []Record) { records[0].ModelState.Set(ModelStateOrientation, 0) }},
+		{"wrong role", func(records []Record) { records[0].ContributorRole = ContributorLiquidAdditional }},
+		{"wrong family", func(records []Record) { records[0].ModelFamily = ModelFamilyCrop }},
+		{"wrong ID", func(records []Record) { records[0].SequentialID++ }},
+		{"flags", func(records []Record) { records[0].Flags = flagCubeGeometry }},
+		{"face coverage", func(records []Record) { records[0].FaceCoverage = 1 }},
+		{"shape ID", func(records []Record) { records[0].CollisionSeed.ShapeID = 1 }},
+		{"confidence", func(records []Record) { records[0].CollisionSeed.Confidence = CollisionConfidenceReviewedVisibleBounds }},
+		{"collision bounds", func(records []Record) { records[0].CollisionSeed.Boxes[0].MinX++ }},
+		{"duplicate selector", func(records []Record) {
+			records[1].StateJSON = append([]byte(nil), records[0].StateJSON...)
+			records[1].ModelState = records[0].ModelState
+		}},
+	}
+	for _, mutation := range mutations {
+		t.Run(mutation.name, func(t *testing.T) {
+			broken := cloneRecords(records)
+			mutation.mutate(broken)
+			if err := validateSelectorCardinality(broken); err == nil {
+				t.Fatal("invalid cactus product was accepted")
+			}
+		})
+	}
+	if err := validateSelectorCardinality(records[:15]); err == nil {
+		t.Fatal("incomplete cactus product was accepted")
+	}
+}
+
 func exactResinClumpRecords(t *testing.T) []Record {
 	t.Helper()
 	records := make([]Record, 0, 64)

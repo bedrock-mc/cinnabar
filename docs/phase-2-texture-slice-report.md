@@ -288,12 +288,27 @@ the ignored integrated blob SHA-256 is
 `18a4718d6fd03a66c0eb30e0a28444dcf80159c658cf4f7712e5ff342f7740ca`.
 The matching-view Cinnabar two-frame live presentation witness remains open.
 
+The subsequent cactus run removes exactly IDs 13,606-13,621 with zero
+additions, leaving 2,463 diagnostics including air. The generator and compiler
+require the complete exact `age:int 0..15` product, formula IDs, Primary/Cuboid
+ownership, empty flags/coverage, shape-84 collision, and exact static
+side/down/up terrain routes. Native 1.26.33.1 evidence fixes visible bounds to
+X/Z `1/16..15/16`, full Y height, and the source-column 1..14 side crop. All
+ages reuse one six-quad template and three static alpha-cutout materials.
+Sequential/hash rendering covers every age, every subchunk boundary, opaque
+adjacency, cave openness, additional water, and the dense
+4,096-reference/24,576-draw-light bound. Registry SHA-256 is
+`23a504f0daa248c717249d0aa247362933ff963754aedd790566fc0516cdcf95`;
+the ignored integrated blob SHA-256 is
+`ddee460c3bad5d14eb81216dc669389813c6a1a805de398de2b95f56bc87bc7d`.
+The matching-view Cinnabar two-frame live presentation witness remains open.
+
 The reviewed baseline cumulatively records the already-landed
 door/trapdoor/wall removals plus the pressure-plate, fence-gate, pane/fence,
 carpet, button, huge-mushroom, glow-lichen/sculk-vein, and ordinary
-stained-glass, copper-grate, chiseled-bookshelf, resin-clump, and selector-alias
-opaque-cube tranches,
-rather than attributing all 7,334 removed IDs to one
+stained-glass, copper-grate, chiseled-bookshelf, resin-clump, selector-alias
+opaque-cube, and cactus tranches,
+rather than attributing all 7,350 removed IDs to one
 feature. This is a regression baseline, not a parity claim: each remaining
 family must reduce that exact set, and the final strict gate still requires zero
 non-air diagnostics, 67 exact-state GPU gallery pages, and the separate

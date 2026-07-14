@@ -1188,6 +1188,13 @@ func classifyRecord(state SourceState) (Record, error) {
 		}
 		record.ModelFamily = ModelFamilyResinClump
 		record.ModelState.Set(ModelStateConnections, connections)
+	case name == "cactus":
+		age, err := cactusAgeSelector(state.Properties)
+		if err != nil {
+			return Record{}, err
+		}
+		record.ModelFamily = ModelFamilyCuboid
+		record.ModelState.Set(ModelStateGrowth, age)
 	case isCrossName(name):
 		record.ModelFamily = ModelFamilyCross
 	}
@@ -1367,6 +1374,17 @@ func resinClumpSelector(properties []StateProperty) (uint32, error) {
 	return uint32(property.Value.Int), nil
 }
 
+func cactusAgeSelector(properties []StateProperty) (uint32, error) {
+	if len(properties) != 1 || properties[0].Name != "age" {
+		return 0, fmt.Errorf("cactus requires exactly age:int")
+	}
+	property := properties[0]
+	if property.Value.Kind != ScalarInt || property.Value.Int < 0 || property.Value.Int > 15 {
+		return 0, fmt.Errorf("cactus age must be an int inside 0..15")
+	}
+	return uint32(property.Value.Int), nil
+}
+
 func exactCanonicalInt(raw json.RawMessage, maximum int32) (uint32, bool) {
 	var tagged map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &tagged); err != nil || len(tagged) != 2 {
@@ -1399,6 +1417,14 @@ func resinClumpCanonicalSelector(stateJSON []byte) (uint32, bool) {
 		return 0, false
 	}
 	return exactCanonicalInt(state["multi_face_direction_bits"], 63)
+}
+
+func cactusCanonicalAge(stateJSON []byte) (uint32, bool) {
+	var state map[string]json.RawMessage
+	if err := json.Unmarshal(stateJSON, &state); err != nil || len(state) != 1 {
+		return 0, false
+	}
+	return exactCanonicalInt(state["age"], 15)
 }
 
 func signOrientation(name string, properties []StateProperty) (uint32, error) {
@@ -1721,6 +1747,11 @@ func validateSelectorCardinality(records []Record) error {
 				return err
 			}
 		}
+		if name == "minecraft:cactus" {
+			if err := validateCactusProduct(group); err != nil {
+				return err
+			}
+		}
 		values := make(map[string]map[string]struct{})
 		for _, record := range group {
 			var state map[string]canonicalScalar
@@ -1813,6 +1844,50 @@ func validateResinClumpProduct(records []Record) error {
 	for mask, present := range seen {
 		if !present {
 			return fmt.Errorf("resin_clump selector product is missing mask %d", mask)
+		}
+	}
+	return nil
+}
+
+func cactusCollisionIsExact(seed CollisionSeed) bool {
+	return seed.ShapeID == 84 &&
+		seed.Confidence == CollisionConfidenceCollisionOnly &&
+		len(seed.Boxes) == 1 &&
+		seed.Boxes[0] == (CollisionBox{
+			MinX: 6_250_000, MaxX: 93_750_000,
+			MinY: 0, MaxY: 100_000_000,
+			MinZ: 6_250_000, MaxZ: 93_750_000,
+		})
+}
+
+func validateCactusProduct(records []Record) error {
+	if len(records) != 16 {
+		return fmt.Errorf("cactus selector cardinality is %d, want 16", len(records))
+	}
+	seen := [16]bool{}
+	for _, record := range records {
+		if record.ModelFamily != ModelFamilyCuboid || record.ContributorRole != ContributorPrimary {
+			return fmt.Errorf("cactus state %d has invalid family or role", record.SequentialID)
+		}
+		if record.Flags != 0 || record.FaceCoverage != 0 || !cactusCollisionIsExact(record.CollisionSeed) {
+			return fmt.Errorf("cactus state %d has invalid inset geometry evidence", record.SequentialID)
+		}
+		canonical, hasCanonical := cactusCanonicalAge(record.StateJSON)
+		age, hasAge := record.ModelState.Get(ModelStateGrowth)
+		if !hasCanonical || !hasAge || canonical != age || age > 15 || record.ModelState.Mask != uint8(1<<(ModelStateGrowth-1)) {
+			return fmt.Errorf("cactus state %d has invalid typed age projection", record.SequentialID)
+		}
+		if record.SequentialID != 13606+age {
+			return fmt.Errorf("cactus state %d does not match canonical ID formula", record.SequentialID)
+		}
+		if seen[age] {
+			return fmt.Errorf("cactus duplicate age %d", age)
+		}
+		seen[age] = true
+	}
+	for age, present := range seen {
+		if !present {
+			return fmt.Errorf("cactus selector product is missing age %d", age)
 		}
 	}
 	return nil

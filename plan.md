@@ -646,6 +646,22 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       - [ ] Live presentation acceptance: reproduce the matching native axis,
         TNT, and deprecated-state viewpoints and require two consecutive exact
         GPU-completed cube-stream witnesses. Screenshots remain local-only.
+    - [x] Exact cactus family implementation: all 16 canonical
+      `minecraft:cactus` states (sequential IDs 13,606-13,621) now require the
+      complete exact `age:int 0..15` product, formula IDs, Primary/Cuboid
+      ownership, empty flags and face coverage, exact shape-84 collision, and
+      exact static side/down/up pack routes. Native 1.26.33.1 evidence fixes the
+      visible X/Z inset to 1/16, full Y height, and side UV crop to source
+      columns 1..14. Every age reuses one six-quad template and three static
+      alpha-cutout materials. Sequential/hash, all-boundary, opaque-adjacency,
+      cave-open, additional-water, dense 4,096-reference/24,576-draw-light,
+      deterministic-registry, deterministic-pack, and exact 2,479 -> 2,463
+      visual-coverage gates are green. No Mojang payload or screenshot is
+      tracked.
+      - [ ] Live presentation acceptance: reproduce the matching native cactus
+        overview, stack, grazing, and top-inset viewpoints in Cinnabar and
+        require two consecutive exact GPU-completed model-stream witnesses with
+        stable generation/ref counts and zero contamination counters.
     - [ ] Slab/stair native and packed-GPU live acceptance: capture all five
       fixed Cinnabar poses through native `%TEMP%` screenshots and require two
       consecutive exact GPU-completed model-stream witnesses. Automated gallery
@@ -795,10 +811,11 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       already-landed door, trapdoor, wall, pressure-plate, fence-gate, pane,
       fence, carpet, button, huge-mushroom, glow-lichen, sculk-vein, exact
       ordinary stained-glass, exact copper-grate, static-sign,
-      chiseled-bookshelf, resin-clump, and selector-alias opaque-cube tranches.
+      chiseled-bookshelf, resin-clump, selector-alias opaque-cube, and exact
+      cactus tranches.
       After lava, vine, and those connected/static/multiface/glass/grate
-      families plus the exact chiseled-bookshelf, resin-clump, and selector-alias
-      opaque-cube tranches, the current residual has 2,479 diagnostics including
+      families plus the exact chiseled-bookshelf, resin-clump, selector-alias
+      opaque-cube, and cactus tranches, the current residual has 2,463 diagnostics including
       the single air diagnostic, with zero
       diagnostics in every implemented family; each remaining family must shrink
       that exact set.

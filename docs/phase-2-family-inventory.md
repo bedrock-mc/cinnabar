@@ -24,7 +24,7 @@ The audit used these pinned inputs:
   by `assets/vanilla-source.json`.
 
 The current audited `BREG1003` export is 4,692,247 bytes with SHA-256
-`9f67a14d73cf958b53557cc31c601168aa0eb95c5d46dfac1299f8412a0cb74f`.
+`23a504f0daa248c717249d0aa247362933ff963754aedd790566fc0516cdcf95`.
 It decoded exactly to EOF and reported 1,356 names, 16,913 states, 1,321
 Valentine names, 15,845 Valentine states, and attributable gaps of 35 names and
 1,068 states. The 2026-07-13 selector-only regeneration preserves
@@ -36,6 +36,11 @@ IDs 2,930–2,993. Two resin generations were byte-identical.
 
 The 2026-07-14 selector-alias regeneration then promotes exactly 27 reviewed
 compatibility states across hay, bone, quartz variants, purpur, and TNT; two
+generations were byte-identical.
+
+The subsequent cactus regeneration classifies exactly the 16 canonical
+`minecraft:cactus` ages as reviewed cuboids while preserving empty flags and
+face coverage, Growth-only state, and shape-84 collision evidence. Two
 generations were byte-identical.
 
 Reacquire and regenerate the ignored evidence with:
@@ -267,7 +272,17 @@ faces, with quarter-turn UV flags on the four non-cap faces for X/Z pillars.
 Commands and local-only evidence hashes are recorded in
 `docs/evidence/phase-2-selector-alias-cubes-native-reference.md`.
 
-The current exact residual is 2,479 diagnostics including air; no unrelated ID
+The subsequent cactus tranche removes exactly IDs 13,606-13,621. Admission
+requires the complete `age:int 0..15` product, formula `id = 13606 + age`,
+Primary/Cuboid ownership, empty flags and face coverage, exact shape-84
+collision, the exact side/down/up static pack route, and native-confirmed
+`[16,0,16]..[240,256,240]` bounds. Every age shares one six-quad template and
+three static alpha-cutout materials. Sequential/hash, all-boundary, water,
+cave-open, and dense 4,096-reference/24,576-draw-light tests are green.
+Commands and local-only evidence hashes are recorded in
+`docs/evidence/phase-2-cactus-native-reference.md`.
+
+The current exact residual is 2,463 diagnostics including air; no unrelated ID
 changed status.
 
 The original 412-name/2,860-state planning residual was bounded and
