@@ -927,16 +927,17 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     current time until the next exact signed SetTime value. Dimension changes
     preserve that world-session snapshot. FIFO-committed SetTime/weather
     updates do not dirty meshes, enqueue mesh changes, or change cave
-    connectivity. Light response and atmosphere rendering remain open.
+    connectivity. Mesh-baked light response and vanilla atmosphere parity
+    remain open.
   - [x] Implement the renderer-independent sparse light core: independent
     uniform-or-packed block/sky nibble volumes, copy-on-write snapshots,
     generation-checked storage/eviction, and a bounded darken-then-increase
     solver over explicit Unknown/KnownAir/Resident cells. Exact one-cell halo
     samples carry scheduler-owned trust and direct-sky provenance; unknown,
     dirty, or untrusted boundaries never seed light, Nether/End reject sky,
-    and all propagation shares one enforced queue budget. The authoritative
-    per-state light registry, WorldStream scheduling, mesh baking, shaders,
-    and atmosphere remain open.
+    and all propagation shares one enforced queue budget. WorldStream now owns
+    the authoritative state metadata and bounded scheduling below; mesh baking,
+    GPU/shader light consumption, and vanilla atmosphere parity remain open.
   - [x] Generate and ship bounded per-runtime-state light metadata without
     changing the reviewed `BREG1003`: `LREG1001` proves the exact protocol-state
     count, identity, property order, and committed-BREG SHA-256 before emitting
@@ -947,9 +948,9 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     provenance IDs/reporting and fail-closed disagreement/range checks. `MCBEAS05`
     atomically carries the byte beside each visual, exposes it through both
     sequential and network-hash resolution, rejects stale `MCBEAS04`, and names
-    the `--light-registry` rebuild command. Solver integration, WorldStream
-    scheduling, mesh baking, GPU/shader consumption, sky/fog/cloud rendering,
-    and visual acceptance remain open.
+    the `--light-registry` rebuild command. The solver and WorldStream scheduling
+    integration are covered below; mesh baking, GPU/shader light consumption,
+    vanilla sky/fog/cloud parity, and visual acceptance remain open.
   - [x] Derive a deterministic per-frame atmosphere snapshot from the app-owned
     clock and weather state: real elapsed time advances unlocked sessions at 20
     ticks per second, non-negative stop times freeze exactly, signed times use
