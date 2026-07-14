@@ -1,0 +1,530 @@
+use std::{
+    fs::File,
+    io::{Cursor, Read},
+    path::Path,
+};
+
+use image::{ImageFormat, ImageReader, Limits};
+use serde::Deserialize;
+use sha2::{Digest, Sha256};
+
+use crate::AssetError;
+
+pub const ATMOSPHERE_BLOB_MAGIC: [u8; 8] = *b"MCBEATM1";
+pub const ATMOSPHERE_BLOB_VERSION: u32 = 1;
+const MAX_SOURCE_BYTES: usize = 1024 * 1024;
+const MAX_SOURCE_MANIFEST_BYTES: usize = 1024 * 1024;
+const MAX_DECODE_ALLOC: u64 = 512 * 1024;
+const HEADER_BYTES: usize = 128;
+const DESCRIPTOR_BYTES: usize = 112;
+const HASH_BYTES: usize = 32;
+const FORMAT_RGBA8_SRGB: u32 = 1;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u32)]
+pub enum AtmosphereRole {
+    Sun = 1,
+    MoonPhases = 2,
+    Clouds = 3,
+}
+
+impl AtmosphereRole {
+    pub const ALL: [Self; 3] = [Self::Sun, Self::MoonPhases, Self::Clouds];
+
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Sun => "sun",
+            Self::MoonPhases => "moon phases",
+            Self::Clouds => "clouds",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AtmosphereTexture {
+    pub role: AtmosphereRole,
+    pub source_path: Box<str>,
+    pub source_bytes: u32,
+    pub source_sha256: [u8; 32],
+    pub pixels_sha256: [u8; 32],
+    pub width: u32,
+    pub height: u32,
+    pub rgba8: Box<[u8]>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CompiledAtmosphereAssets {
+    pub source_manifest_sha256: [u8; 32],
+    pub textures: Box<[AtmosphereTexture]>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceManifest {
+    schema: u32,
+    tag: Box<str>,
+    commit: Box<str>,
+    archive: Box<str>,
+    url: Box<str>,
+    sha256: Box<str>,
+    artifact_policy: Box<str>,
+    cache_dir: Box<str>,
+}
+
+pub struct RuntimeAtmosphereAssets {
+    source_manifest_sha256: [u8; 32],
+    textures: Box<[AtmosphereTexture]>,
+}
+
+impl RuntimeAtmosphereAssets {
+    pub fn decode(bytes: &[u8]) -> Result<Self, AssetError> {
+        if bytes.len() < HEADER_BYTES + HASH_BYTES {
+            return Err(invalid("truncated MCBEATM1 blob"));
+        }
+        if bytes[..8] != ATMOSPHERE_BLOB_MAGIC
+            || u32_at(bytes, 8)? != ATMOSPHERE_BLOB_VERSION
+            || u32_at(bytes, 12)? as usize != AtmosphereRole::ALL.len()
+        {
+            return Err(invalid("unsupported MCBEATM1 header"));
+        }
+        let source_manifest_sha256 = array_at::<32>(bytes, 16)?;
+        if source_manifest_sha256 == [0; 32] || bytes[80..HEADER_BYTES] != [0; 48] {
+            return Err(invalid("invalid MCBEATM1 provenance or reserved header"));
+        }
+        let descriptors_offset = usize_at(bytes, 48)?;
+        let paths_offset = usize_at(bytes, 56)?;
+        let payload_offset = usize_at(bytes, 64)?;
+        let payload_end = usize_at(bytes, 72)?;
+        let expected_paths = checked_add(
+            HEADER_BYTES,
+            checked_mul(
+                AtmosphereRole::ALL.len(),
+                DESCRIPTOR_BYTES,
+                "atmosphere descriptors",
+            )?,
+            "atmosphere paths",
+        )?;
+        if descriptors_offset != HEADER_BYTES
+            || paths_offset != expected_paths
+            || payload_offset < paths_offset
+            || payload_end < payload_offset
+            || bytes.len() != checked_add(payload_end, HASH_BYTES, "atmosphere hash")?
+        {
+            return Err(invalid("noncanonical MCBEATM1 section layout"));
+        }
+        let digest = Sha256::digest(&bytes[..payload_end]);
+        if &bytes[payload_end..] != digest.as_slice() {
+            return Err(invalid("MCBEATM1 envelope hash mismatch"));
+        }
+
+        let specs = source_specs();
+        let mut expected_path_offset = paths_offset;
+        let mut expected_payload_offset = payload_offset;
+        let mut textures = Vec::with_capacity(specs.len());
+        for (index, (expected_role, expected_path, expected_width, expected_height)) in
+            specs.into_iter().enumerate()
+        {
+            let descriptor = checked_add(
+                descriptors_offset,
+                checked_mul(index, DESCRIPTOR_BYTES, "atmosphere descriptor")?,
+                "atmosphere descriptor",
+            )?;
+            let role = role_from_u32(u32_at(bytes, descriptor)?)?;
+            let width = u32_at(bytes, descriptor + 4)?;
+            let height = u32_at(bytes, descriptor + 8)?;
+            let format = u32_at(bytes, descriptor + 12)?;
+            let path_offset = usize_at(bytes, descriptor + 16)?;
+            let path_length = u32_at(bytes, descriptor + 24)? as usize;
+            let source_bytes = u32_at(bytes, descriptor + 28)?;
+            let texture_offset = usize_at(bytes, descriptor + 32)?;
+            let texture_length = usize_at(bytes, descriptor + 40)?;
+            let source_sha256 = array_at::<32>(bytes, descriptor + 48)?;
+            let pixels_sha256 = array_at::<32>(bytes, descriptor + 80)?;
+            let expected_texture_length = pixel_length(expected_width, expected_height)?;
+            if role != expected_role
+                || width != expected_width
+                || height != expected_height
+                || format != FORMAT_RGBA8_SRGB
+                || source_bytes == 0
+                || source_bytes as usize > MAX_SOURCE_BYTES
+                || path_offset != expected_path_offset
+                || path_length != expected_path.len()
+                || texture_offset != expected_payload_offset
+                || texture_length != expected_texture_length
+                || source_sha256 == [0; 32]
+            {
+                return Err(invalid("noncanonical MCBEATM1 texture descriptor"));
+            }
+            let path_end = checked_add(path_offset, path_length, "atmosphere path")?;
+            if path_end > payload_offset
+                || bytes.get(path_offset..path_end) != Some(expected_path.as_bytes())
+            {
+                return Err(invalid("unexpected MCBEATM1 source path"));
+            }
+            let texture_end = checked_add(texture_offset, texture_length, "atmosphere pixels")?;
+            if texture_end > payload_end {
+                return Err(invalid("MCBEATM1 texture payload is out of range"));
+            }
+            let rgba8 = bytes[texture_offset..texture_end]
+                .to_vec()
+                .into_boxed_slice();
+            if Sha256::digest(&rgba8).as_slice() != pixels_sha256 {
+                return Err(invalid("MCBEATM1 texture pixel hash mismatch"));
+            }
+            textures.push(AtmosphereTexture {
+                role,
+                source_path: expected_path.into(),
+                source_bytes,
+                source_sha256,
+                pixels_sha256,
+                width,
+                height,
+                rgba8,
+            });
+            expected_path_offset = path_end;
+            expected_payload_offset = texture_end;
+        }
+        if expected_path_offset != payload_offset || expected_payload_offset != payload_end {
+            return Err(invalid("MCBEATM1 sections contain gaps or trailing data"));
+        }
+        Ok(Self {
+            source_manifest_sha256,
+            textures: textures.into_boxed_slice(),
+        })
+    }
+
+    #[must_use]
+    pub const fn source_manifest_sha256(&self) -> [u8; 32] {
+        self.source_manifest_sha256
+    }
+
+    #[must_use]
+    pub fn textures(&self) -> &[AtmosphereTexture] {
+        &self.textures
+    }
+
+    #[must_use]
+    pub fn texture(&self, role: AtmosphereRole) -> Option<&AtmosphereTexture> {
+        self.textures.iter().find(|texture| texture.role == role)
+    }
+}
+
+pub fn encode_atmosphere_blob(
+    compiled: &CompiledAtmosphereAssets,
+) -> Result<Box<[u8]>, AssetError> {
+    validate_compiled(compiled)?;
+    let descriptors_offset = HEADER_BYTES;
+    let paths_offset = checked_add(
+        descriptors_offset,
+        checked_mul(
+            compiled.textures.len(),
+            DESCRIPTOR_BYTES,
+            "atmosphere descriptors",
+        )?,
+        "atmosphere paths",
+    )?;
+    let paths_length = compiled.textures.iter().try_fold(0usize, |sum, texture| {
+        checked_add(sum, texture.source_path.len(), "atmosphere paths")
+    })?;
+    let payload_offset = checked_add(paths_offset, paths_length, "atmosphere payload")?;
+    let payload_length = compiled.textures.iter().try_fold(0usize, |sum, texture| {
+        checked_add(sum, texture.rgba8.len(), "atmosphere payload")
+    })?;
+    let payload_end = checked_add(payload_offset, payload_length, "atmosphere payload")?;
+    let total_length = checked_add(payload_end, HASH_BYTES, "atmosphere hash")?;
+    let mut bytes = Vec::with_capacity(total_length);
+    bytes.extend_from_slice(&ATMOSPHERE_BLOB_MAGIC);
+    push_u32(&mut bytes, ATMOSPHERE_BLOB_VERSION);
+    push_u32(
+        &mut bytes,
+        u32::try_from(compiled.textures.len())
+            .map_err(|_| invalid("atmosphere texture count overflow"))?,
+    );
+    bytes.extend_from_slice(&compiled.source_manifest_sha256);
+    for offset in [
+        descriptors_offset,
+        paths_offset,
+        payload_offset,
+        payload_end,
+    ] {
+        push_u64(&mut bytes, offset)?;
+    }
+    bytes.resize(HEADER_BYTES, 0);
+
+    let mut path_offset = paths_offset;
+    let mut texture_offset = payload_offset;
+    for texture in &compiled.textures {
+        push_u32(&mut bytes, texture.role as u32);
+        push_u32(&mut bytes, texture.width);
+        push_u32(&mut bytes, texture.height);
+        push_u32(&mut bytes, FORMAT_RGBA8_SRGB);
+        push_u64(&mut bytes, path_offset)?;
+        push_u32(
+            &mut bytes,
+            u32::try_from(texture.source_path.len())
+                .map_err(|_| invalid("atmosphere path length overflow"))?,
+        );
+        push_u32(&mut bytes, texture.source_bytes);
+        push_u64(&mut bytes, texture_offset)?;
+        push_u64(&mut bytes, texture.rgba8.len())?;
+        bytes.extend_from_slice(&texture.source_sha256);
+        bytes.extend_from_slice(&texture.pixels_sha256);
+        path_offset = checked_add(path_offset, texture.source_path.len(), "atmosphere path")?;
+        texture_offset = checked_add(texture_offset, texture.rgba8.len(), "atmosphere pixels")?;
+    }
+    for texture in &compiled.textures {
+        bytes.extend_from_slice(texture.source_path.as_bytes());
+    }
+    for texture in &compiled.textures {
+        bytes.extend_from_slice(&texture.rgba8);
+    }
+    debug_assert_eq!(bytes.len(), payload_end);
+    let digest = Sha256::digest(&bytes);
+    bytes.extend_from_slice(&digest);
+    Ok(bytes.into_boxed_slice())
+}
+
+/// Compiles the fixed vanilla atmosphere sources from a bounded local pack.
+pub fn compile_atmosphere_assets(
+    root: &Path,
+    source_manifest: &[u8],
+) -> Result<CompiledAtmosphereAssets, AssetError> {
+    if source_manifest.len() > MAX_SOURCE_MANIFEST_BYTES {
+        return Err(AssetError::AtmosphereManifestTooLarge {
+            size: source_manifest.len(),
+            max: MAX_SOURCE_MANIFEST_BYTES,
+        });
+    }
+    let manifest = serde_json::from_slice::<SourceManifest>(source_manifest)
+        .map_err(|source| AssetError::InvalidAtmosphereManifest { source })?;
+    validate_source_manifest(&manifest)?;
+    let specs = source_specs();
+    let textures = specs
+        .into_iter()
+        .map(|(role, source_path, width, height)| {
+            read_texture(root, role, source_path, width, height)
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .into_boxed_slice();
+    Ok(CompiledAtmosphereAssets {
+        source_manifest_sha256: Sha256::digest(source_manifest).into(),
+        textures,
+    })
+}
+
+fn validate_source_manifest(manifest: &SourceManifest) -> Result<(), AssetError> {
+    let hex = |value: &str, length: usize| {
+        value.len() == length && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+    };
+    let cache_path = Path::new(manifest.cache_dir.as_ref());
+    let expected_url = format!(
+        "https://github.com/Mojang/bedrock-samples/releases/download/{}/{}",
+        manifest.tag, manifest.archive
+    );
+    if manifest.schema != 1
+        || manifest.tag.is_empty()
+        || !hex(&manifest.commit, 40)
+        || !manifest.archive.ends_with(".zip")
+        || manifest.url.as_ref() != expected_url
+        || !hex(&manifest.sha256, 64)
+        || manifest.artifact_policy.as_ref() != "local-only"
+        || cache_path.is_absolute()
+        || manifest
+            .cache_dir
+            .split(['/', '\\'])
+            .any(|part| part == "..")
+        || !manifest.cache_dir.starts_with(".local/")
+    {
+        return Err(AssetError::InvalidAtmosphereProvenance {
+            detail: "manifest must be schema 1 with an official Mojang Bedrock Samples release archive, 40/64-digit hashes, local-only policy, and a relative .local cache".into(),
+        });
+    }
+    Ok(())
+}
+
+const fn source_specs() -> [(AtmosphereRole, &'static str, u32, u32); 3] {
+    [
+        (AtmosphereRole::Sun, "textures/environment/sun.png", 32, 32),
+        (
+            AtmosphereRole::MoonPhases,
+            "textures/environment/moon_phases.png",
+            128,
+            64,
+        ),
+        (
+            AtmosphereRole::Clouds,
+            "textures/environment/clouds.png",
+            256,
+            256,
+        ),
+    ]
+}
+
+fn read_texture(
+    root: &Path,
+    role: AtmosphereRole,
+    source_path: &'static str,
+    expected_width: u32,
+    expected_height: u32,
+) -> Result<AtmosphereTexture, AssetError> {
+    let path = root.join(source_path);
+    let file = File::open(&path).map_err(|source| AssetError::AtmosphereTextureIo {
+        role: role.label(),
+        path: path.clone(),
+        source,
+    })?;
+    let mut bytes = Vec::new();
+    file.take((MAX_SOURCE_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|source| AssetError::AtmosphereTextureIo {
+            role: role.label(),
+            path: path.clone(),
+            source,
+        })?;
+    if bytes.len() > MAX_SOURCE_BYTES {
+        return Err(AssetError::AtmosphereTextureTooLarge {
+            role: role.label(),
+            path,
+            size: bytes.len(),
+            max: MAX_SOURCE_BYTES,
+        });
+    }
+    let dimensions = ImageReader::with_format(Cursor::new(&bytes), ImageFormat::Png)
+        .into_dimensions()
+        .map_err(|source| AssetError::AtmosphereTextureDecode {
+            role: role.label(),
+            path: path.clone(),
+            source,
+        })?;
+    if dimensions != (expected_width, expected_height) {
+        return Err(AssetError::WrongAtmosphereTextureDimensions {
+            role: role.label(),
+            path,
+            width: dimensions.0,
+            height: dimensions.1,
+            expected_width,
+            expected_height,
+        });
+    }
+    let mut reader = ImageReader::with_format(Cursor::new(&bytes), ImageFormat::Png);
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(expected_width);
+    limits.max_image_height = Some(expected_height);
+    limits.max_alloc = Some(MAX_DECODE_ALLOC);
+    reader.limits(limits);
+    let rgba8 = reader
+        .decode()
+        .map_err(|source| AssetError::AtmosphereTextureDecode {
+            role: role.label(),
+            path: path.clone(),
+            source,
+        })?
+        .into_rgba8()
+        .into_raw()
+        .into_boxed_slice();
+    let expected_len = expected_width as usize * expected_height as usize * 4;
+    if rgba8.len() != expected_len {
+        return Err(invalid("atmosphere texture RGBA8 length is invalid"));
+    }
+    Ok(AtmosphereTexture {
+        role,
+        source_path: source_path.into(),
+        source_bytes: u32::try_from(bytes.len()).map_err(|_| AssetError::BlobSizeOverflow {
+            section: "atmosphere source size",
+        })?,
+        source_sha256: Sha256::digest(&bytes).into(),
+        pixels_sha256: Sha256::digest(&rgba8).into(),
+        width: expected_width,
+        height: expected_height,
+        rgba8,
+    })
+}
+
+fn invalid(detail: impl Into<Box<str>>) -> AssetError {
+    AssetError::InvalidCompiledAssets {
+        detail: detail.into(),
+    }
+}
+
+fn validate_compiled(compiled: &CompiledAtmosphereAssets) -> Result<(), AssetError> {
+    if compiled.source_manifest_sha256 == [0; 32]
+        || compiled.textures.len() != AtmosphereRole::ALL.len()
+    {
+        return Err(invalid("invalid atmosphere provenance or texture count"));
+    }
+    for (texture, (role, path, width, height)) in compiled.textures.iter().zip(source_specs()) {
+        if texture.role != role
+            || texture.source_path.as_ref() != path
+            || texture.width != width
+            || texture.height != height
+            || texture.source_bytes == 0
+            || texture.source_bytes as usize > MAX_SOURCE_BYTES
+            || texture.source_sha256 == [0; 32]
+            || texture.rgba8.len() != pixel_length(width, height)?
+            || Sha256::digest(&texture.rgba8).as_slice() != texture.pixels_sha256
+        {
+            return Err(invalid("noncanonical compiled atmosphere texture"));
+        }
+    }
+    Ok(())
+}
+
+fn role_from_u32(value: u32) -> Result<AtmosphereRole, AssetError> {
+    match value {
+        1 => Ok(AtmosphereRole::Sun),
+        2 => Ok(AtmosphereRole::MoonPhases),
+        3 => Ok(AtmosphereRole::Clouds),
+        _ => Err(invalid("unsupported atmosphere role")),
+    }
+}
+
+fn pixel_length(width: u32, height: u32) -> Result<usize, AssetError> {
+    checked_mul(
+        checked_mul(width as usize, height as usize, "atmosphere pixels")?,
+        4,
+        "atmosphere pixels",
+    )
+}
+
+fn checked_add(left: usize, right: usize, section: &'static str) -> Result<usize, AssetError> {
+    left.checked_add(right)
+        .ok_or(AssetError::BlobSizeOverflow { section })
+}
+
+fn checked_mul(left: usize, right: usize, section: &'static str) -> Result<usize, AssetError> {
+    left.checked_mul(right)
+        .ok_or(AssetError::BlobSizeOverflow { section })
+}
+
+fn push_u32(bytes: &mut Vec<u8>, value: u32) {
+    bytes.extend_from_slice(&value.to_le_bytes());
+}
+
+fn push_u64(bytes: &mut Vec<u8>, value: usize) -> Result<(), AssetError> {
+    bytes.extend_from_slice(
+        &u64::try_from(value)
+            .map_err(|_| AssetError::BlobSizeOverflow {
+                section: "atmosphere offset",
+            })?
+            .to_le_bytes(),
+    );
+    Ok(())
+}
+
+fn u32_at(bytes: &[u8], offset: usize) -> Result<u32, AssetError> {
+    Ok(u32::from_le_bytes(array_at(bytes, offset)?))
+}
+
+fn usize_at(bytes: &[u8], offset: usize) -> Result<usize, AssetError> {
+    usize::try_from(u64::from_le_bytes(array_at(bytes, offset)?))
+        .map_err(|_| invalid("MCBEATM1 offset exceeds platform"))
+}
+
+fn array_at<const N: usize>(bytes: &[u8], offset: usize) -> Result<[u8; N], AssetError> {
+    let end = checked_add(offset, N, "atmosphere field")?;
+    bytes
+        .get(offset..end)
+        .ok_or_else(|| invalid("truncated MCBEATM1 field"))?
+        .try_into()
+        .map_err(|_| invalid("invalid MCBEATM1 field"))
+}

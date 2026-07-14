@@ -5,9 +5,10 @@ use std::{
 };
 
 use assets::{
-    AnimationInventory, AssetError, MATERIAL_FLAG_ALPHA_CUTOUT, compile_pack_with_biomes,
-    encode_blob, inspect_animation_inventory, read_biome_registry, read_light_registry,
-    read_registry, write_blob_atomic,
+    AnimationInventory, AssetError, AtmosphereRole, MATERIAL_FLAG_ALPHA_CUTOUT,
+    compile_atmosphere_assets, compile_pack_with_biomes, encode_atmosphere_blob, encode_blob,
+    inspect_animation_inventory, read_biome_registry, read_light_registry, read_registry,
+    write_blob_atomic,
 };
 use clap::{Parser, Subcommand};
 use serde::Serialize;
@@ -19,7 +20,7 @@ const MAX_SOURCE_MANIFEST_BYTES: usize = 1024 * 1024;
 #[derive(Debug, Parser)]
 #[command(
     about = "Compile verified local Bedrock resource-pack assets",
-    after_help = "Compile inputs:\n  assetc compile --pack <RESOURCE_PACK> --registry <BLOCK_REGISTRY_BIN> --light-registry <LIGHT_REGISTRY_BIN> --biome-registry <BIOME_REGISTRY_BIN> --out <IGNORED_DIR>/vanilla-v1001.mcbea\n\nAnimation inventory:\n  assetc animation-inventory --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --max-layers-per-page 2048 --max-pages 2 --out <IGNORED_DIR>/animation-inventory.json"
+    after_help = "Compile inputs:\n  assetc compile --pack <RESOURCE_PACK> --registry <BLOCK_REGISTRY_BIN> --light-registry <LIGHT_REGISTRY_BIN> --biome-registry <BIOME_REGISTRY_BIN> --out <IGNORED_DIR>/vanilla-v1001.mcbea\n\nAtmosphere inputs:\n  assetc atmosphere --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbeatm --report <IGNORED_DIR>/atmosphere-assets.json\n\nAnimation inventory:\n  assetc animation-inventory --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --max-layers-per-page 2048 --max-pages 2 --out <IGNORED_DIR>/animation-inventory.json"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -28,6 +29,21 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Compile the fixed vanilla sun, moon-phase, and cloud textures.
+    Atmosphere {
+        /// Root of the pinned vanilla resource pack.
+        #[arg(long)]
+        pack: PathBuf,
+        /// Tracked manifest that pins the local resource-pack source.
+        #[arg(long)]
+        source_manifest: PathBuf,
+        /// Ignored/local MCBEATM1 output path.
+        #[arg(long)]
+        out: PathBuf,
+        /// Ignored/local deterministic JSON provenance report path.
+        #[arg(long)]
+        report: PathBuf,
+    },
     /// Compile a resource pack and Dragonfly registry into a runtime blob.
     Compile {
         /// Root containing blocks.json and the textures directory.
@@ -81,8 +97,93 @@ struct AnimationInventoryLimits {
     max_pages: u32,
 }
 
+#[derive(Serialize)]
+struct AtmosphereReport {
+    schema: u32,
+    source: serde_json::Value,
+    source_manifest_sha256: Box<str>,
+    blob_sha256: Box<str>,
+    textures: Box<[AtmosphereTextureReport]>,
+}
+
+#[derive(Serialize)]
+struct AtmosphereTextureReport {
+    role: &'static str,
+    source_path: Box<str>,
+    width: u32,
+    height: u32,
+    source_bytes: usize,
+    decoded_rgba8_bytes: usize,
+    source_sha256: Box<str>,
+    pixels_sha256: Box<str>,
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     match Cli::parse().command {
+        Command::Atmosphere {
+            pack,
+            source_manifest,
+            out,
+            report,
+        } => {
+            let manifest_bytes = read_bounded_with_limit(
+                &source_manifest,
+                MAX_SOURCE_MANIFEST_BYTES,
+                "source manifest",
+            )?;
+            let source =
+                serde_json::from_slice::<serde_json::Value>(&manifest_bytes).map_err(|source| {
+                    AssetError::Json {
+                        path: source_manifest.clone(),
+                        source,
+                    }
+                })?;
+            let compiled = compile_atmosphere_assets(&pack, &manifest_bytes)?;
+            let blob = encode_atmosphere_blob(&compiled)?;
+            let texture_reports = compiled
+                .textures
+                .iter()
+                .map(|texture| {
+                    Ok(AtmosphereTextureReport {
+                        role: match texture.role {
+                            AtmosphereRole::Sun => "sun",
+                            AtmosphereRole::MoonPhases => "moon_phases",
+                            AtmosphereRole::Clouds => "clouds",
+                        },
+                        source_path: texture.source_path.clone(),
+                        width: texture.width,
+                        height: texture.height,
+                        source_bytes: texture.source_bytes as usize,
+                        decoded_rgba8_bytes: texture.rgba8.len(),
+                        source_sha256: hex(&texture.source_sha256).into_boxed_str(),
+                        pixels_sha256: hex(&texture.pixels_sha256).into_boxed_str(),
+                    })
+                })
+                .collect::<Result<Vec<_>, AssetError>>()?
+                .into_boxed_slice();
+            let report_data = AtmosphereReport {
+                schema: 1,
+                source,
+                source_manifest_sha256: hex(&compiled.source_manifest_sha256).into_boxed_str(),
+                blob_sha256: format!("{:x}", Sha256::digest(&blob)).into_boxed_str(),
+                textures: texture_reports,
+            };
+            let mut report_bytes =
+                serde_json::to_vec_pretty(&report_data).map_err(|source| AssetError::Json {
+                    path: report.clone(),
+                    source,
+                })?;
+            report_bytes.push(b'\n');
+            validate_output_bundle(&out, &report)?;
+            write_blob_atomic(&out, &blob)?;
+            write_blob_atomic(&report, &report_bytes)?;
+            println!(
+                "compiled {} pinned atmosphere textures to {} and {}",
+                report_data.textures.len(),
+                out.display(),
+                report.display()
+            );
+        }
         Command::Compile {
             pack,
             registry,
@@ -182,6 +283,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 report.inventory.pages,
                 out.display()
             );
+        }
+    }
+    Ok(())
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn validate_output_bundle(blob: &Path, report: &Path) -> Result<(), AssetError> {
+    if blob == report {
+        return Err(AssetError::Io {
+            path: blob.to_path_buf(),
+            source: io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "atmosphere blob and report paths must be distinct",
+            ),
+        });
+    }
+    for path in [blob, report] {
+        match fs::metadata(path) {
+            Ok(metadata) if !metadata.is_file() => {
+                return Err(AssetError::Io {
+                    path: path.to_path_buf(),
+                    source: io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "atmosphere output destination is not a regular file",
+                    ),
+                });
+            }
+            Ok(_) => {}
+            Err(source) if source.kind() == io::ErrorKind::NotFound => {}
+            Err(source) => {
+                return Err(AssetError::Io {
+                    path: path.to_path_buf(),
+                    source,
+                });
+            }
         }
     }
     Ok(())

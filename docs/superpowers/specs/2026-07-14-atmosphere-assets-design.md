@@ -35,6 +35,17 @@ JSON report. The report records the manifest provenance fields, manifest hash,
 per-texture metadata, and final blob hash; it does not record a machine-local
 canonical pack path.
 
+`make assets`, `make atmosphere-assets`, and `make client` carry both generated
+outputs as freshness prerequisites. A single portable producer command avoids
+ordinary multi-target races: the report depends on the blob, and either a
+missing blob or a missing/stale report reruns the same deterministic compiler.
+
+The command constructs both byte payloads and preflights both destinations
+before publishing either. Each file uses a same-directory temporary file and
+atomic rename. The two separate destinations are not crash-atomic as a pair;
+if an unexpected second-file I/O failure occurs, the Make dependency observes
+the missing/older report and reruns the complete pair.
+
 ## Validation and bounds
 
 Compilation fails closed if any required file is absent, is not PNG, exceeds
@@ -46,8 +57,10 @@ pack-controlled discovery.
 Runtime decoding rejects wrong magic/version/count, noncanonical offsets,
 unsupported roles/formats/reserved bits, unsafe or unexpected source paths,
 dimension or payload-length mismatches, per-record hash mismatches, trailing
-data, and an invalid envelope hash. It applies allocation bounds before copying
-payloads.
+data, a missing source hash, pixel-hash mismatches, and an invalid envelope
+hash. Source-file hashes are metadata protected by the envelope because source
+PNG bytes are intentionally not copied into the runtime blob. The decoder
+applies allocation bounds before copying payloads.
 
 ## Testing
 

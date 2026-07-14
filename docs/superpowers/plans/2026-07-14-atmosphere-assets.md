@@ -55,14 +55,16 @@
 **Files:**
 - Modify: `crates/assets/tests/atmosphere.rs`
 - Modify: `crates/assets/src/bin/assetc.rs`
+- Modify: `Makefile`
+- Modify: `app/tests/assets.rs`
 
 **Interfaces:**
 - Consumes: Task 1 compiler and Task 2 encoder.
 - Produces: `assetc atmosphere --pack ... --source-manifest ... --out ... --report ...`.
 
-- [ ] Add command-level tests for documented help, deterministic binary/report output, full manifest provenance, exact texture metadata, and no machine-local path in the report.
+- [ ] Add command-level tests for documented help, deterministic binary/report output, full manifest provenance, exact texture metadata, no machine-local path in the report, failure-safe bundle publication, and Make dependency wiring.
 - [ ] Run the command-focused tests and observe failures because the subcommand is absent.
-- [ ] Implement the subcommand using bounded manifest reads, canonical JSON serialization, atomic writes, and the atmosphere compiler/encoder.
+- [ ] Implement the subcommand using bounded manifest reads, canonical JSON serialization, preflighted per-file atomic writes, the atmosphere compiler/encoder, and portable Make dependency wiring.
 - [ ] Re-run command-focused and complete atmosphere tests.
 
 ### Task 4: Pinned-source ratchet and closure

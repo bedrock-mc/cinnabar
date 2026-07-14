@@ -307,3 +307,58 @@ fn make_client_rebuilds_only_a_missing_or_stale_asset_blob() {
         .expect("Makefile has a .PHONY declaration");
     assert!(!phony.split_whitespace().any(|word| word == "$(ASSET_BLOB)"));
 }
+
+#[test]
+fn make_assets_and_client_refresh_the_atmosphere_blob_and_report() {
+    let makefile = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("Makefile"),
+    )
+    .unwrap()
+    .replace("\r\n", "\n");
+
+    for contract in [
+        "VANILLA_SOURCE_MANIFEST ?= assets/vanilla-source.json",
+        "ATMOSPHERE_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeatm",
+        "ATMOSPHERE_REPORT ?= .local/assets/compiled/atmosphere-assets.json",
+        concat!(
+            "$(ATMOSPHERE_BLOB): $(ASSET_BLOB) $(ASSET_COMPILER_INPUTS) ",
+            "$(VANILLA_SOURCE_MANIFEST)"
+        ),
+        "$(ATMOSPHERE_REPORT): $(ATMOSPHERE_BLOB)",
+        "\t$(ATMOSPHERE_COMPILE)",
+        "atmosphere-assets: $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT)",
+        "assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT)",
+        "client: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT)",
+        "--source-manifest \"$(VANILLA_SOURCE_MANIFEST)\"",
+        "--out \"$(ATMOSPHERE_BLOB)\" --report \"$(ATMOSPHERE_REPORT)\"",
+    ] {
+        assert!(
+            makefile.contains(contract),
+            "missing atmosphere Makefile contract: {contract}"
+        );
+    }
+
+    let phony = makefile
+        .lines()
+        .find(|line| line.starts_with(".PHONY:"))
+        .expect("Makefile has a .PHONY declaration");
+    assert!(
+        phony
+            .split_whitespace()
+            .any(|word| word == "atmosphere-assets")
+    );
+    assert!(
+        !phony
+            .split_whitespace()
+            .any(|word| word == "$(ATMOSPHERE_BLOB)" || word == "$(ATMOSPHERE_REPORT)")
+    );
+    assert!(!makefile.contains("$(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT):"));
+    assert_eq!(
+        makefile.matches("\t$(ATMOSPHERE_COMPILE)").count(),
+        2,
+        "blob and missing-report recovery must use one shared producer command"
+    );
+}
