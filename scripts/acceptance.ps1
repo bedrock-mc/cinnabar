@@ -3915,7 +3915,7 @@ function Publish-VisualFixture {
             $modelCameraCommit = ConvertFrom-CameraCommittedMarker -Line ([string]$modelCameraCommitEvidence.Line)
             $null = Assert-ModelGalleryCommittedCamera -Committed $modelCameraCommit -Target $Plan.CameraTarget
             Write-AcceptanceEvent -RunDirectory $RunDirectory -Event 'model_witness_camera_committed' -Fields ([ordered]@{
-                sequence = [uint64]$modelCameraCommit.sequence
+                control_sequence = [uint64]$modelCameraCommit.sequence
                 position = @($modelCameraCommit.position) -join ','
                 yaw = [double]$modelCameraCommit.yaw
                 pitch = [double]$modelCameraCommit.pitch

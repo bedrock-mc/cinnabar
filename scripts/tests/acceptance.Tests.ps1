@@ -1184,6 +1184,7 @@ try {
     $modelGalleryPreTeleportBranchIndex = $source.IndexOf('if ($isV2 -and $isModelWitnessGallery) {', $modelGalleryClassificationIndex, [StringComparison]::Ordinal)
     $modelGalleryPreTeleportIndex = $source.IndexOf('Write-BdsConsoleCommand -Handle $Handle -Command $Plan.TeleportCommand', $modelGalleryPreTeleportBranchIndex, [StringComparison]::Ordinal)
     $modelGalleryCameraCommitIndex = $source.IndexOf("-Marker 'RUST_MCBE_CAMERA_COMMITTED '", $modelGalleryPreTeleportIndex, [StringComparison]::Ordinal)
+    Assert-True ($source.IndexOf('control_sequence = [uint64]$modelCameraCommit.sequence', $modelGalleryCameraCommitIndex, [StringComparison]::Ordinal) -gt $modelGalleryCameraCommitIndex) 'camera commit overwrites acceptance event sequence'
     $modelGalleryFixtureCompletionIndex = $source.IndexOf('$null = Complete-BdsFixtureCommandBatch', $modelGalleryPreTeleportBranchIndex, [StringComparison]::Ordinal)
     Assert-True `
         ($modelGalleryClassificationIndex -gt $publishVisualFixtureIndex -and
