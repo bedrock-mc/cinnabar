@@ -238,6 +238,12 @@ fn plugin_spawns_camera_and_auto_fly_uses_delta_seconds() {
         .single(app.world())
         .unwrap();
     assert_eq!(*tonemapping, Tonemapping::None);
+    let msaa = app
+        .world_mut()
+        .query_filtered::<&Msaa, (With<Camera3d>, With<FlyCamera>)>()
+        .single(app.world())
+        .unwrap();
+    assert_eq!(*msaa, Msaa::Sample8);
     let start = app
         .world_mut()
         .query_filtered::<&Transform, (With<Camera3d>, With<FlyCamera>)>()

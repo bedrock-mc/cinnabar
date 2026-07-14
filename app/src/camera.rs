@@ -148,6 +148,7 @@ fn window_aspect(window: &Window) -> f32 {
 fn spawn_fly_camera(mut commands: Commands, window: Single<&Window, With<PrimaryWindow>>) {
     commands.spawn((
         Camera3d::default(),
+        Msaa::Sample8,
         Projection::Perspective(PerspectiveProjection {
             fov: horizontal_fov_to_vertical(DEFAULT_HORIZONTAL_FOV_RADIANS, window_aspect(&window)),
             ..default()
