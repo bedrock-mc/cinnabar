@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"runtime/pprof"
 	"slices"
@@ -617,6 +618,61 @@ func TestServeCancellationClosesRawPreLoginConnection(t *testing.T) {
 	_ = successor.Close()
 }
 
+func TestServeReportsListenerReadyAfterEndpointPublication(t *testing.T) {
+	dir := t.TempDir()
+	var output lockedBuffer
+	logger := slog.New(slog.NewTextHandler(&output, nil))
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- Serve(ctx, Config{SocketDir: dir, Upstream: "127.0.0.1:19132", Logger: logger})
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for !strings.Contains(output.String(), "msg=\"listener ready; waiting for local Rust client\"") && time.Now().Before(deadline) {
+		select {
+		case err := <-done:
+			t.Fatalf("Serve() stopped before reporting readiness: %v", err)
+		default:
+		}
+		time.Sleep(time.Millisecond)
+	}
+	network, endpoint, err := streamnet.Resolve(dir)
+	if err != nil {
+		cancel()
+		t.Fatalf("listener was reported ready before endpoint publication: %v\n%s", err, output.String())
+	}
+	if got := output.String(); !strings.Contains(got, "msg=\"listener ready; waiting for local Rust client\" socket_dir="+dir+" network="+network+" endpoint="+endpoint) {
+		cancel()
+		t.Fatalf("listener readiness output = %q, want published %s endpoint %q for socket directory %q", got, network, endpoint, dir)
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatalf("Serve() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Serve() did not stop after cancellation")
+	}
+}
+
+func TestReportListenerReadyFallsBackToSocketDirectory(t *testing.T) {
+	dir := t.TempDir()
+	var output lockedBuffer
+	logger := slog.New(slog.NewTextHandler(&output, nil))
+	reportListenerReady(logger, dir)
+
+	got := output.String()
+	if !strings.Contains(got, "msg=\"listener ready; waiting for local Rust client\" socket_dir="+dir) {
+		t.Fatalf("fallback listener readiness output = %q, want socket directory %q", got, dir)
+	}
+	if strings.Contains(got, " network=") || strings.Contains(got, " endpoint=") {
+		t.Fatalf("fallback listener readiness claimed an unresolved endpoint: %q", got)
+	}
+}
+
 func waitForGoroutineStack(t *testing.T, substring string, want bool, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -690,6 +746,58 @@ func TestDialFollowingTransfersRedialsBeforeReturningSession(t *testing.T) {
 	}
 }
 
+func TestConnectUpstreamReportsOrderedConnectionState(t *testing.T) {
+	var output lockedBuffer
+	logger := slog.New(slog.NewTextHandler(&output, nil))
+	want := newFakeUpstream(nil)
+	got, err := connectUpstream(
+		context.Background(),
+		"zeqa.net:19132",
+		"microsoft",
+		logger,
+		func(context.Context, string) (upstreamSession, error) { return want, nil },
+	)
+	if err != nil {
+		t.Fatalf("connectUpstream() error = %v", err)
+	}
+	if got != want {
+		t.Fatalf("connectUpstream() session = %p, want %p", got, want)
+	}
+	assertProxyTextInOrder(t, output.String(),
+		"msg=\"upstream connection starting\" target=zeqa.net:19132 authentication=microsoft",
+		"msg=\"upstream connected\" target=zeqa.net:19132 authentication=microsoft",
+	)
+}
+
+func TestReportLocalClientAcceptedIncludesSocketDirectory(t *testing.T) {
+	var output lockedBuffer
+	logger := slog.New(slog.NewTextHandler(&output, nil))
+	reportLocalClientAccepted(logger, "run/socket")
+	if got := output.String(); !strings.Contains(got, "msg=\"local client accepted\" socket_dir=run/socket") {
+		t.Fatalf("local client output = %q", got)
+	}
+}
+
+func TestConnectUpstreamReportsConnectionFailure(t *testing.T) {
+	var output lockedBuffer
+	logger := slog.New(slog.NewTextHandler(&output, nil))
+	wantErr := errors.New("dial refused")
+	_, err := connectUpstream(
+		context.Background(),
+		"localhost:19132",
+		"offline",
+		logger,
+		func(context.Context, string) (upstreamSession, error) { return nil, wantErr },
+	)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("connectUpstream() error = %v, want %v", err, wantErr)
+	}
+	assertProxyTextInOrder(t, output.String(),
+		"msg=\"upstream connection starting\" target=localhost:19132 authentication=offline",
+		"level=ERROR msg=\"upstream connection failed\" target=localhost:19132 authentication=offline error=\"dial refused\"",
+	)
+}
+
 func TestDialFollowingTransfersRejectsCyclesAndInvalidDestinations(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -732,6 +840,18 @@ func assertNoWrites(t *testing.T, session *fakeUpstream) {
 	time.Sleep(30 * time.Millisecond)
 	if got := len(session.written()); got != 0 {
 		t.Fatalf("forwarded %d packets before spawn barrier", got)
+	}
+}
+
+func assertProxyTextInOrder(t *testing.T, text string, parts ...string) {
+	t.Helper()
+	position := 0
+	for _, part := range parts {
+		next := strings.Index(text[position:], part)
+		if next < 0 {
+			t.Fatalf("output missing %q after byte %d:\n%s", part, position, text)
+		}
+		position += next + len(part)
 	}
 }
 

@@ -25,6 +25,7 @@ type Config struct {
 	SocketDir   string
 	Upstream    string
 	TokenSource oauth2.TokenSource
+	Logger      *slog.Logger
 }
 
 const localRelayBatchPacketLimit = 1600
@@ -43,6 +44,10 @@ type connectionAcceptor interface {
 // setup failures are returned; ordinary peer disconnects leave the listener
 // available for another client.
 func Serve(ctx context.Context, cfg Config) (err error) {
+	logger := cfg.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
 	if cfg.SocketDir == "" {
 		return errors.New("proxy: socket directory is required")
 	}
@@ -58,6 +63,7 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 	if err != nil {
 		return fmt.Errorf("proxy: listen: %w", err)
 	}
+	reportListenerReady(logger, cfg.SocketDir)
 
 	serveCtx, cancel := context.WithCancel(ctx)
 
@@ -94,11 +100,12 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 				cleanupErr := cleanupHandoffConnection(result.conn)
 				return errors.Join(fmt.Errorf("proxy: accepted unexpected connection type %T", result.conn), cleanupErr)
 			}
+			reportLocalClientAccepted(logger, cfg.SocketDir)
 			sessions.Add(1)
 			go func() {
 				defer sessions.Done()
 				err := callWithoutPanic(func() error {
-					return handleConnection(serveCtx, downstream, cfg.Upstream, cfg.TokenSource)
+					return handleConnection(serveCtx, downstream, cfg.Upstream, cfg.TokenSource, logger)
 				})
 				if err != nil && !isOrdinaryClose(err) {
 					select {
@@ -164,13 +171,49 @@ func callConnectionLifecycle(operation string, call func() error) (err error) {
 	return call()
 }
 
-func handleConnection(ctx context.Context, downstream *minecraft.Conn, upstreamAddress string, tokenSource oauth2.TokenSource) error {
+func reportLocalClientAccepted(logger *slog.Logger, socketDir string) {
+	logger.Info("local client accepted", "socket_dir", socketDir)
+}
+
+func reportListenerReady(logger *slog.Logger, socketDir string) {
+	attributes := []any{"socket_dir", socketDir}
+	if network, endpoint, err := streamnet.Resolve(socketDir); err == nil {
+		attributes = append(attributes, "network", network, "endpoint", endpoint)
+	}
+	logger.Info("listener ready; waiting for local Rust client", attributes...)
+}
+
+func handleConnection(ctx context.Context, downstream *minecraft.Conn, upstreamAddress string, tokenSource oauth2.TokenSource, logger *slog.Logger) error {
 	dialer := newUpstreamDialer(downstream, tokenSource)
 	return dialAndServe(ctx, downstream, func(ctx context.Context) (upstreamSession, error) {
-		return dialFollowingTransfers(ctx, upstreamAddress, func(ctx context.Context, address string) (upstreamSession, error) {
+		return connectUpstream(ctx, upstreamAddress, authenticationMode(tokenSource), logger, func(ctx context.Context, address string) (upstreamSession, error) {
 			return dialer.DialContextNetwork(ctx, minecraft.RakNet{}, address)
 		})
 	})
+}
+
+func authenticationMode(tokenSource oauth2.TokenSource) string {
+	if tokenSource == nil {
+		return "offline"
+	}
+	return "microsoft"
+}
+
+func connectUpstream(
+	ctx context.Context,
+	address string,
+	authentication string,
+	logger *slog.Logger,
+	dial func(context.Context, string) (upstreamSession, error),
+) (upstreamSession, error) {
+	logger.Info("upstream connection starting", "target", address, "authentication", authentication)
+	upstream, err := dialFollowingTransfers(ctx, address, dial)
+	if err != nil {
+		logger.Error("upstream connection failed", "target", address, "authentication", authentication, "error", err)
+		return nil, err
+	}
+	logger.Info("upstream connected", "target", address, "authentication", authentication)
+	return upstream, nil
 }
 
 func dialFollowingTransfers(

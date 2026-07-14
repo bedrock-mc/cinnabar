@@ -18,7 +18,7 @@ ASSET_COMPILER_INPUTS := Cargo.toml Cargo.lock crates/assets/Cargo.toml Makefile
 
 help:
 	@echo make assets          - Download and compile the vanilla resource pack
-	@echo make core            - Run the Go networking/auth core
+	@echo make core            - Compile and run the Go networking/auth core
 	@echo make client          - Refresh stale assets, then run the release Rust client
 	@echo make client-windows  - Run the client on Windows
 	@echo make client-macos    - Run the client on macOS
@@ -40,6 +40,7 @@ endif
 
 core:
 	$(if $(strip $(UPSTREAM)),,$(error UPSTREAM is required; run make core UPSTREAM=host:port))
+	@echo bedrock-core: build starting package=./core/cmd/bedrock-core
 	$(GO) run ./core/cmd/bedrock-core -socket-dir "$(SOCKET_DIR)" -upstream "$(UPSTREAM)" -auth-cache "$(AUTH_CACHE)"
 
 client: $(ASSET_BLOB)
