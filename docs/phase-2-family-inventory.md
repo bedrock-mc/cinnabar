@@ -149,6 +149,12 @@ the complete four-side ternary matrix plus upper bit; its opaque base and
 two-sided cutout side planes remain separate material classes, including the
 isolated-upper base-plus-four-tall form.
 
+Button rendering is complete for all 168 states. Fourteen materials share an
+exact pressed/unpressed cuboid family across six outward faces; wall instances
+use target-space UV locking with independent literal goldens, while floor and
+ceiling keep their deterministic canonical yaw. These partial models remain
+non-occluding and cave-connectivity-open.
+
 ## Selector requirements
 
 The generated selector representation or the preserved canonical typed state

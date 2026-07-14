@@ -492,6 +492,23 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       strict workspace Clippy/formatting, and independent final re-review green).
       Deterministic gallery/native GPU evidence remains in the shared
       residual-family live gate.
+    - [x] Button templates and exact wall UV locking: all 168 states across 14
+      materials enforce the exact `Orientation` plus pressed-flag mask and
+      canonical schema, fail closed on missing/extra/invalid selectors, and map
+      Bedrock's six outward-facing values to deterministic floor, ceiling, and
+      four wall transforms. Unpressed and pressed forms use the exact vanilla
+      bounds and face rectangles, with the unrepresentable 1.02-pixel pressed
+      depth deliberately quantized to one pixel. Wall faces derive UV-locked
+      rectangles from rotated target bounds; independent literal six-face
+      goldens cover all four directions and both pressed states after review
+      caught and corrected the initial source-space projection. Materials stay
+      opaque, partial models advertise no boundary culling/coverage, and
+      collision seeds are not render authority. The production ratchet removes
+      exactly 168 button diagnostics with no additions and now holds 7,954
+      diagnostics including air (`43288b9`, `b1bbf2f`; deterministic pinned
+      builds, full assets/render/visualcoverage suites, strict Clippy/formatting,
+      and independent final re-review green). Deterministic gallery/native GPU
+      evidence remains in the shared residual-family live gate.
     - [ ] Slab/stair native and packed-GPU live acceptance: capture all five
       fixed Cinnabar poses through native `%TEMP%` screenshots and require two
       consecutive exact GPU-completed model-stream witnesses. Automated gallery
@@ -624,9 +641,9 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       regression/invisible laundering, and writes deterministic hash-bound
       reports (`b131247`; 11 tests, strict Clippy, real-pack run, and independent
       review green). The reviewed baseline was refreshed cumulatively for the
-      already-landed door, trapdoor, wall, pressure-plate, fence-gate, and carpet
-      tranches. After lava, vine, and those six static families, the current
-      residual has 8,122
+      already-landed door, trapdoor, wall, pressure-plate, fence-gate, carpet,
+      and button tranches. After lava, vine, and those seven static families,
+      the current residual has 7,954
       diagnostics including the single air diagnostic, with zero diagnostics in
       every implemented family; each remaining family must shrink that exact set.
   - [ ] Complete the exhaustive residual-family report, beginning with
