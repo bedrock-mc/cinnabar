@@ -679,6 +679,22 @@ Scope: block registry + block-state → model/texture mapping (generated export 
         and 6 native viewpoints in Cinnabar and require two consecutive exact
         GPU-completed model-stream witnesses with stable generation/ref counts
         and zero contamination counters.
+    - [x] Exact farmland family implementation: all eight canonical
+      `minecraft:farmland` states (sequential IDs 6,122-6,129) now require the
+      complete exact `moisturized_amount:int 0..7` product, formula IDs,
+      Primary/Cuboid ownership, empty flags/coverage, exact shape-43 collision,
+      and literal untinted side/top routes. Native 1.26.33.1 evidence binds
+      amount zero to dry terrain-array index 1 and amounts one through seven to
+      wet index 0. Two immutable six-quad templates use full X/Z and 15/16 Y;
+      sequential/hash, all-boundary, opaque-adjacency, cave-open,
+      additional-water, uniform/mixed dense 4,096-reference/24,576-draw-light,
+      deterministic-registry, deterministic-pack, and exact 2,456 -> 2,448
+      visual-coverage gates are green. No Mojang payload or screenshot is
+      tracked.
+      - [ ] Live presentation acceptance: reproduce representative moisture 0,
+        1, and 7 native viewpoints in Cinnabar and require two consecutive
+        exact GPU-completed model-stream witnesses with stable generation/ref
+        counts and zero contamination counters.
     - [ ] Slab/stair native and packed-GPU live acceptance: capture all five
       fixed Cinnabar poses through native `%TEMP%` screenshots and require two
       consecutive exact GPU-completed model-stream witnesses. Automated gallery
@@ -832,7 +848,7 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       cactus tranches.
       After lava, vine, and those connected/static/multiface/glass/grate
       families plus the exact chiseled-bookshelf, resin-clump, selector-alias
-      opaque-cube, cactus, and cake tranches, the current residual has 2,456 diagnostics including
+      opaque-cube, cactus, cake, and farmland tranches, the current residual has 2,448 diagnostics including
       the single air diagnostic, with zero
       diagnostics in every implemented family; each remaining family must shrink
       that exact set.

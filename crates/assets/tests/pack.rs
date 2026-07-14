@@ -244,6 +244,134 @@ fn exact_cake_faces_and_untinted_pairs_fail_closed() {
     }
 }
 
+#[test]
+fn exact_farmland_routes_and_inverse_moisture_selector_fail_closed() {
+    let valid = tempfile::tempdir().expect("valid farmland pack");
+    write_pack(
+        valid.path(),
+        r#"{"farmland":{"textures":{"down":"farmland_side","side":"farmland_side","up":"farmland"}}}"#,
+        r#"{"texture_data":{"farmland_side":{"textures":"textures/blocks/dirt"},"farmland":{"textures":["textures/blocks/farmland_wet","textures/blocks/farmland_dry"]}}}"#,
+        EMPTY_FLIPBOOKS,
+    );
+    let pack = read_pack(valid.path()).expect("read valid farmland pack");
+    assert_eq!(
+        pack.blocks.get_exact_side_caps("farmland"),
+        Some(["farmland_side", "farmland_side", "farmland"])
+    );
+    assert_eq!(
+        pack.terrain.get_exact_static_no_tint("farmland_side"),
+        Some("textures/blocks/dirt")
+    );
+    assert_eq!(
+        pack.terrain.get_exact_farmland_side(),
+        Some("textures/blocks/dirt")
+    );
+    assert_eq!(
+        pack.terrain.get_exact_farmland_top(0),
+        Some(("textures/blocks/farmland_dry", 1))
+    );
+    for amount in 1..=7 {
+        assert_eq!(
+            pack.terrain.get_exact_farmland_top(amount),
+            Some(("textures/blocks/farmland_wet", 0)),
+            "amount {amount}"
+        );
+    }
+    assert_eq!(pack.terrain.get_exact_farmland_top(8), None);
+
+    for (label, route) in [
+        ("scalar", r#""farmland_side""#),
+        (
+            "override",
+            r#"{"down":"farmland_side","side":"farmland_side","up":"farmland","north":"farmland_side"}"#,
+        ),
+        (
+            "missing side",
+            r#"{"down":"farmland_side","up":"farmland"}"#,
+        ),
+        (
+            "wrong top key",
+            r#"{"down":"farmland_side","side":"farmland_side","up":"farmland_wet"}"#,
+        ),
+    ] {
+        let directory = tempfile::tempdir().expect("invalid farmland route");
+        write_pack(
+            directory.path(),
+            &format!(r#"{{"farmland":{{"textures":{route}}}}}"#),
+            r#"{"texture_data":{"farmland_side":{"textures":"textures/blocks/dirt"},"farmland":{"textures":["textures/blocks/farmland_wet","textures/blocks/farmland_dry"]}}}"#,
+            EMPTY_FLIPBOOKS,
+        );
+        if let Ok(pack) = read_pack(directory.path()) {
+            assert_ne!(
+                pack.blocks.get_exact_side_caps("farmland"),
+                Some(["farmland_side", "farmland_side", "farmland"]),
+                "{label}"
+            );
+        }
+    }
+
+    for (label, value) in [
+        ("static", r#""textures/blocks/farmland_wet""#),
+        ("singleton", r#"["textures/blocks/farmland_wet"]"#),
+        (
+            "three",
+            r#"["textures/blocks/farmland_wet","textures/blocks/farmland_dry","textures/blocks/farmland_wet"]"#,
+        ),
+        (
+            "wrong order",
+            r#"["textures/blocks/farmland_dry","textures/blocks/farmland_wet"]"#,
+        ),
+        ("empty", r#"["","textures/blocks/farmland_dry"]"#),
+        (
+            "tinted",
+            r##"[{"path":"textures/blocks/farmland_wet","overlay_color":"#ffffff"},"textures/blocks/farmland_dry"]"##,
+        ),
+    ] {
+        let directory = tempfile::tempdir().expect("invalid farmland terrain");
+        write_pack(
+            directory.path(),
+            r#"{"farmland":{"textures":{"down":"farmland_side","side":"farmland_side","up":"farmland"}}}"#,
+            &format!(
+                r#"{{"texture_data":{{"farmland_side":{{"textures":"textures/blocks/dirt"}},"farmland":{{"textures":{value}}}}}}}"#
+            ),
+            EMPTY_FLIPBOOKS,
+        );
+        if let Ok(pack) = read_pack(directory.path()) {
+            assert_eq!(pack.terrain.get_exact_farmland_top(0), None, "{label}");
+        }
+    }
+
+    for (label, terrain) in [
+        (
+            "top carried metadata",
+            r#"{"texture_data":{"farmland_side":{"textures":"textures/blocks/dirt"},"farmland":{"textures":["textures/blocks/farmland_wet","textures/blocks/farmland_dry"],"carried_textures":"textures/blocks/farmland_dry"}}}"#,
+        ),
+        (
+            "variant alias metadata",
+            r#"{"texture_data":{"farmland_side":{"textures":"textures/blocks/dirt"},"farmland":{"textures":[{"path":"textures/blocks/farmland_wet","alias":"wet"},"textures/blocks/farmland_dry"]}}}"#,
+        ),
+        (
+            "side carried metadata",
+            r#"{"texture_data":{"farmland_side":{"textures":"textures/blocks/dirt","carried_textures":"textures/blocks/dirt"},"farmland":{"textures":["textures/blocks/farmland_wet","textures/blocks/farmland_dry"]}}}"#,
+        ),
+    ] {
+        let directory = tempfile::tempdir().expect("farmland metadata adversary");
+        write_pack(
+            directory.path(),
+            r#"{"farmland":{"textures":{"down":"farmland_side","side":"farmland_side","up":"farmland"}}}"#,
+            terrain,
+            EMPTY_FLIPBOOKS,
+        );
+        let pack = read_pack(directory.path())
+            .unwrap_or_else(|error| panic!("read {label} farmland pack: {error}"));
+        assert!(
+            pack.terrain.get_exact_farmland_top(0).is_none()
+                || pack.terrain.get_exact_farmland_side().is_none(),
+            "{label}"
+        );
+    }
+}
+
 fn registry_bytes(records: &[RegistryFixture<'_>]) -> Vec<u8> {
     let mut bytes = b"BREG1003".to_vec();
     bytes.extend_from_slice(&1001_u32.to_le_bytes());

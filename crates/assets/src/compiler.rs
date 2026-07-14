@@ -238,6 +238,8 @@ fn compile_pack_inner(
     let admit_selector_alias_cubes = selector_alias_cube_inventory_is_exact(records);
     let admit_cacti = cactus_inventory_is_exact(records);
     let admit_cakes = cake_inventory_is_exact(records) && cake_source_alpha_is_exact(root, &pack);
+    let admit_farmland =
+        farmland_inventory_is_exact(records) && farmland_source_alpha_is_exact(root, &pack);
 
     let mut descriptor_keys = BTreeMap::<Descriptor, Box<str>>::new();
     for record in records.iter().filter(|record| {
@@ -255,6 +257,9 @@ fn compile_pack_inner(
         }
         if is_cake_name(&record.name) {
             return admit_cakes && is_cake_record(record);
+        }
+        if is_farmland_name(&record.name) {
+            return admit_farmland && is_farmland_record(record);
         }
         (record.flags.contains(BlockFlags::CUBE_GEOMETRY)
             && !record_has_deferred_material(&pack, record))
@@ -293,6 +298,14 @@ fn compile_pack_inner(
         }
         if admit_cakes && is_cake_record(record) {
             if let Some(descriptors) = cake_material_descriptors(&pack) {
+                for (descriptor, key) in descriptors {
+                    descriptor_keys.insert(descriptor, key);
+                }
+            }
+            continue;
+        }
+        if admit_farmland && is_farmland_record(record) {
+            if let Some(descriptors) = farmland_material_descriptors(&pack) {
                 for (descriptor, key) in descriptors {
                     descriptor_keys.insert(descriptor, key);
                 }
@@ -369,6 +382,7 @@ fn compile_pack_inner(
             selector_alias_cubes: admit_selector_alias_cubes,
             cacti: admit_cacti,
             cakes: admit_cakes,
+            farmland: admit_farmland,
         },
     )?;
 
@@ -1100,6 +1114,153 @@ fn cake_source_alpha_is_exact(root: &Path, pack: &PackSources) -> bool {
             let inside = x >= bounds[0] && x <= bounds[2] && y >= bounds[1] && y <= bounds[3];
             pixel[3] == if inside { u8::MAX } else { 0 }
         })
+    })
+}
+
+fn is_farmland_name(name: &str) -> bool {
+    name == "minecraft:farmland"
+}
+
+fn exact_farmland_moisture(record: &RegistryRecord) -> Option<u32> {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct ExactFarmlandState {
+        moisturized_amount: ExactFarmlandTaggedInt,
+    }
+
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct ExactFarmlandTaggedInt {
+        #[serde(rename = "type")]
+        kind: Box<str>,
+        value: i64,
+    }
+
+    let state = serde_json::from_str::<ExactFarmlandState>(&record.canonical_state).ok()?;
+    if state.moisturized_amount.kind.as_ref() != "int"
+        || !(0..=7).contains(&state.moisturized_amount.value)
+    {
+        return None;
+    }
+    let amount = state.moisturized_amount.value as u32;
+    let mask = 1 << (ModelStateField::Growth as u8 - 1);
+    if record.model_state.mask() != mask
+        || record.model_state.get(ModelStateField::Growth) != Some(amount)
+    {
+        return None;
+    }
+    Some(amount)
+}
+
+fn farmland_collision_is_exact(record: &RegistryRecord) -> bool {
+    record.collision_seed.shape_id == 43
+        && record.collision_seed.confidence == crate::CollisionConfidence::CollisionOnly
+        && record.collision_seed.boxes.as_ref()
+            == [crate::CollisionBox {
+                min_x: 0,
+                min_y: 0,
+                min_z: 0,
+                max_x: 100_000_000,
+                max_y: 93_750_000,
+                max_z: 100_000_000,
+            }]
+}
+
+fn is_farmland_record(record: &RegistryRecord) -> bool {
+    exact_farmland_moisture(record).is_some()
+        && is_farmland_name(&record.name)
+        && record.model_family == ModelFamily::Cuboid
+        && record.contributor_role == ContributorRole::Primary
+        && record.flags.is_empty()
+        && record.face_coverage == 0
+        && farmland_collision_is_exact(record)
+}
+
+fn farmland_inventory_is_exact(records: &[RegistryRecord]) -> bool {
+    let selected = records
+        .iter()
+        .filter(|record| is_farmland_name(&record.name))
+        .collect::<Vec<_>>();
+    if selected.len() != 8 {
+        return false;
+    }
+    let mut seen = [false; 8];
+    for record in selected {
+        if !is_farmland_record(record) {
+            return false;
+        }
+        let Some(amount) = exact_farmland_moisture(record) else {
+            return false;
+        };
+        if record.sequential_id != 6_122 + amount || seen[amount as usize] {
+            return false;
+        }
+        seen[amount as usize] = true;
+    }
+    seen.into_iter().all(|present| present)
+}
+
+fn farmland_material_descriptors(pack: &PackSources) -> Option<[(Descriptor, Box<str>); 3]> {
+    if pack.blocks.get_exact_side_caps("farmland")?
+        != ["farmland_side", "farmland_side", "farmland"]
+        || pack.terrain.get_exact_farmland_side()? != "textures/blocks/dirt"
+    {
+        return None;
+    }
+    let dry = pack.terrain.get_exact_farmland_top(0)?;
+    let wet = pack.terrain.get_exact_farmland_top(1)?;
+    if dry != ("textures/blocks/farmland_dry", 1)
+        || wet != ("textures/blocks/farmland_wet", 0)
+        || pack.flipbooks.iter().any(|flipbook| {
+            flipbook.atlas_tile.as_ref() == "farmland"
+                || flipbook.atlas_tile.as_ref() == "farmland_side"
+                || matches!(
+                    flipbook.texture_path.as_ref(),
+                    "textures/blocks/dirt"
+                        | "textures/blocks/farmland_wet"
+                        | "textures/blocks/farmland_dry"
+                )
+        })
+    {
+        return None;
+    }
+    Some(
+        [
+            ("farmland_side", "textures/blocks/dirt"),
+            ("farmland", "textures/blocks/farmland_wet"),
+            ("farmland", "textures/blocks/farmland_dry"),
+        ]
+        .map(|(key, path)| {
+            (
+                Descriptor {
+                    path: path.into(),
+                    texture_key: key.into(),
+                    flags: 0,
+                },
+                key.into(),
+            )
+        }),
+    )
+}
+
+fn farmland_source_alpha_is_exact(root: &Path, pack: &PackSources) -> bool {
+    if farmland_material_descriptors(pack).is_none() {
+        return false;
+    }
+    [
+        ("farmland_side", "textures/blocks/dirt"),
+        ("farmland", "textures/blocks/farmland_wet"),
+        ("farmland", "textures/blocks/farmland_dry"),
+    ]
+    .into_iter()
+    .all(|(key, source)| {
+        let Ok(path) = static_texture_path(root, source, key) else {
+            return false;
+        };
+        let Ok(rgba8) = decode_static_texture(&path, key) else {
+            return false;
+        };
+        rgba8.chunks_exact(4).all(|pixel| pixel[3] == u8::MAX)
     })
 }
 
@@ -1990,6 +2151,7 @@ struct ExactAdmissions {
     selector_alias_cubes: bool,
     cacti: bool,
     cakes: bool,
+    farmland: bool,
 }
 
 fn compile_visuals(
@@ -2004,6 +2166,7 @@ fn compile_visuals(
         selector_alias_cubes: admit_selector_alias_cubes,
         cacti: admit_cacti,
         cakes: admit_cakes,
+        farmland: admit_farmland,
     } = admissions;
     let visual_count = records
         .iter()
@@ -2086,6 +2249,38 @@ fn compile_visuals(
                     faces,
                     [16 + 32 * bite as i16, 0, 16],
                     [240, 128, 240],
+                    &mut cuboid_template_by_key,
+                    &mut model_templates,
+                    &mut model_quads,
+                )?;
+                visual.flags.remove(
+                    BlockFlags::AIR
+                        | BlockFlags::CUBE_GEOMETRY
+                        | BlockFlags::OCCLUDES_FULL_FACE
+                        | BlockFlags::LEAF_MODEL,
+                );
+                visual.faces = faces;
+                visual.kind = VisualKind::Model;
+                visual.model_template = template;
+                visual.variant = 0;
+            }
+        } else if is_farmland_name(&record.name) && (!admit_farmland || !is_farmland_record(record))
+        {
+            // The exact moisture product is atomic and must never fall through
+            // to generic cuboid or terrain-array selection.
+        } else if admit_farmland && is_farmland_record(record) {
+            let materials = farmland_material_descriptors(pack).map(|descriptors| {
+                descriptors.map(|(descriptor, _)| material_by_descriptor.get(&descriptor).copied())
+            });
+            if let Some([Some(side), Some(wet), Some(dry)]) = materials {
+                let amount =
+                    exact_farmland_moisture(record).expect("exact farmland record has moisture");
+                let top = if amount == 0 { dry } else { wet };
+                let faces = [side, side, side, top, side, side];
+                let template = intern_cuboid_template(
+                    faces,
+                    [0, 0, 0],
+                    [256, 240, 256],
                     &mut cuboid_template_by_key,
                     &mut model_templates,
                     &mut model_quads,

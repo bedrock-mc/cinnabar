@@ -316,11 +316,25 @@ the ignored integrated blob SHA-256 is
 `e800994b4bb39e1afc3e77207b510998289b4be7684eb4ac38a0aea677931e94`.
 The matching-view Cinnabar two-frame live presentation witness remains open.
 
+The subsequent farmland run removes exactly IDs 6,122-6,129 with zero
+additions, leaving 2,448 diagnostics including air. The exact eight-state typed
+product, formula IDs, shape 43, literal side/top routes, and native inverse
+moisture selector fail closed atomically. Two immutable six-quad templates use
+full X/Z and 15/16 Y; amount zero selects dry terrain-array index 1 while
+amounts one through seven share wet index 0. Sequential/hash rendering covers
+every moisture state, every subchunk boundary, opaque adjacency, cave
+openness, additional water, and both uniform and mixed dense
+4,096-reference/24,576-draw-light bounds. Registry SHA-256 is
+`e27e6e5775342c1f4089b749c69afeac19937dac0f5b7834c73164f1b6fa442c`;
+the ignored integrated blob SHA-256 is
+`6509eadf24068fc029f04ca67187517e76698bc1e31a8326bdb07e74a0c91f25`.
+The matching-view Cinnabar two-frame live presentation witness remains open.
+
 The reviewed baseline cumulatively records the already-landed
 door/trapdoor/wall removals plus the pressure-plate, fence-gate, pane/fence,
 carpet, button, huge-mushroom, glow-lichen/sculk-vein, and ordinary
 stained-glass, copper-grate, chiseled-bookshelf, resin-clump, selector-alias
-opaque-cube, cactus, and cake tranches,
+opaque-cube, cactus, cake, and farmland tranches,
 rather than attributing all 7,350 removed IDs to one
 feature. This is a regression baseline, not a parity claim: each remaining
 family must reduce that exact set, and the final strict gate still requires zero

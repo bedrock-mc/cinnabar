@@ -1203,6 +1203,13 @@ func classifyRecord(state SourceState) (Record, error) {
 		}
 		record.ModelFamily = ModelFamilyCuboid
 		record.ModelState.Set(ModelStateGrowth, bite)
+	case name == "farmland":
+		amount, err := farmlandMoistureSelector(state.Properties)
+		if err != nil {
+			return Record{}, err
+		}
+		record.ModelFamily = ModelFamilyCuboid
+		record.ModelState.Set(ModelStateGrowth, amount)
 	case isCrossName(name):
 		record.ModelFamily = ModelFamilyCross
 	}
@@ -1404,6 +1411,17 @@ func cakeBiteSelector(properties []StateProperty) (uint32, error) {
 	return uint32(property.Value.Int), nil
 }
 
+func farmlandMoistureSelector(properties []StateProperty) (uint32, error) {
+	if len(properties) != 1 || properties[0].Name != "moisturized_amount" {
+		return 0, fmt.Errorf("farmland requires exactly moisturized_amount:int")
+	}
+	property := properties[0]
+	if property.Value.Kind != ScalarInt || property.Value.Int < 0 || property.Value.Int > 7 {
+		return 0, fmt.Errorf("farmland moisturized_amount must be an int inside 0..7")
+	}
+	return uint32(property.Value.Int), nil
+}
+
 func exactCanonicalInt(raw json.RawMessage, maximum int32) (uint32, bool) {
 	var tagged map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &tagged); err != nil || len(tagged) != 2 {
@@ -1469,6 +1487,66 @@ func cakeCanonicalBite(stateJSON []byte) (uint32, bool) {
 		return 0, false
 	}
 	return bite, true
+}
+
+func farmlandCanonicalMoisture(stateJSON []byte) (uint32, bool) {
+	decoder := json.NewDecoder(bytes.NewReader(stateJSON))
+	opening, err := decoder.Token()
+	if err != nil || opening != json.Delim('{') || !decoder.More() {
+		return 0, false
+	}
+	key, err := decoder.Token()
+	if err != nil || key != "moisturized_amount" {
+		return 0, false
+	}
+	amount, ok := exactTaggedInt(decoder, 7)
+	if !ok || decoder.More() {
+		return 0, false
+	}
+	closing, err := decoder.Token()
+	if err != nil || closing != json.Delim('}') {
+		return 0, false
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return 0, false
+	}
+	return amount, true
+}
+
+func exactTaggedInt(decoder *json.Decoder, maximum int32) (uint32, bool) {
+	opening, err := decoder.Token()
+	if err != nil || opening != json.Delim('{') {
+		return 0, false
+	}
+	var kind string
+	var value int32
+	seenKind, seenValue := false, false
+	for decoder.More() {
+		key, err := decoder.Token()
+		if err != nil {
+			return 0, false
+		}
+		switch key {
+		case "type":
+			if seenKind || decoder.Decode(&kind) != nil {
+				return 0, false
+			}
+			seenKind = true
+		case "value":
+			if seenValue || decoder.Decode(&value) != nil {
+				return 0, false
+			}
+			seenValue = true
+		default:
+			return 0, false
+		}
+	}
+	closing, err := decoder.Token()
+	if err != nil || closing != json.Delim('}') || !seenKind || !seenValue || kind != "int" || value < 0 || value > maximum {
+		return 0, false
+	}
+	return uint32(value), true
 }
 
 func exactCakeTaggedInt(decoder *json.Decoder) (uint32, bool) {
@@ -1836,6 +1914,11 @@ func validateSelectorCardinality(records []Record) error {
 				return err
 			}
 		}
+		if name == "minecraft:farmland" {
+			if err := validateFarmlandProduct(group); err != nil {
+				return err
+			}
+		}
 		values := make(map[string]map[string]struct{})
 		for _, record := range group {
 			var state map[string]canonicalScalar
@@ -2019,6 +2102,51 @@ func validateCakeProduct(records []Record) error {
 	for bite, present := range seen {
 		if !present {
 			return fmt.Errorf("cake selector product is missing bite %d", bite)
+		}
+	}
+	return nil
+}
+
+func farmlandCollisionIsExact(seed CollisionSeed) bool {
+	return seed.ShapeID == 43 &&
+		seed.Confidence == CollisionConfidenceCollisionOnly &&
+		len(seed.Boxes) == 1 &&
+		seed.Boxes[0] == (CollisionBox{
+			MinX: 0, MaxX: 100_000_000,
+			MinY: 0, MaxY: 93_750_000,
+			MinZ: 0, MaxZ: 100_000_000,
+		})
+}
+
+func validateFarmlandProduct(records []Record) error {
+	if len(records) != 8 {
+		return fmt.Errorf("farmland selector cardinality is %d, want 8", len(records))
+	}
+	seen := [8]bool{}
+	for _, record := range records {
+		if record.ModelFamily != ModelFamilyCuboid || record.ContributorRole != ContributorPrimary {
+			return fmt.Errorf("farmland state %d has invalid family or role", record.SequentialID)
+		}
+		canonical, hasCanonical := farmlandCanonicalMoisture(record.StateJSON)
+		amount, hasAmount := record.ModelState.Get(ModelStateGrowth)
+		if !hasCanonical || !hasAmount || canonical != amount || amount > 7 ||
+			record.ModelState.Mask != uint8(1<<(ModelStateGrowth-1)) {
+			return fmt.Errorf("farmland state %d has invalid typed moisture projection", record.SequentialID)
+		}
+		if record.Flags != 0 || record.FaceCoverage != 0 || !farmlandCollisionIsExact(record.CollisionSeed) {
+			return fmt.Errorf("farmland state %d has invalid exact geometry evidence", record.SequentialID)
+		}
+		if record.SequentialID != 6122+amount {
+			return fmt.Errorf("farmland state %d does not match canonical ID formula", record.SequentialID)
+		}
+		if seen[amount] {
+			return fmt.Errorf("farmland duplicate moisture %d", amount)
+		}
+		seen[amount] = true
+	}
+	for amount, present := range seen {
+		if !present {
+			return fmt.Errorf("farmland selector product is missing amount %d", amount)
 		}
 	}
 	return nil

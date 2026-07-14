@@ -293,7 +293,18 @@ use bounds `[16+32*b,0,16]..[240,128,240]`; only bitten west faces select
 evidence hashes are recorded in
 `docs/evidence/phase-2-cake-native-reference.md`.
 
-The current exact residual is 2,456 diagnostics including air; no unrelated ID
+The subsequent farmland tranche removes exactly IDs 6,122-6,129. Admission
+requires the complete `moisturized_amount:int 0..7` product, formula
+`id = 6122 + moisturized_amount`, Primary/Cuboid ownership, empty
+flags/coverage, exact shape-43 collision, and literal untinted static side plus
+two-entry top routes. Native binds amount zero to dry terrain index 1 and every
+nonzero amount to wet index 0. Two immutable templates use bounds
+`[0,0,0]..[256,240,256]`; sequential/hash, all-boundary, water, cave-open, and
+uniform/mixed dense 4,096-reference/24,576-draw-light tests are green. Commands
+and local-only evidence hashes are recorded in
+`docs/evidence/phase-2-farmland-native-reference.md`.
+
+The current exact residual is 2,448 diagnostics including air; no unrelated ID
 changed status.
 
 The original 412-name/2,860-state planning residual was bounded and

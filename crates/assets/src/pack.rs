@@ -184,7 +184,46 @@ impl TerrainTextureMap {
             TerrainPaths::Variants {
                 paths,
                 requires_tint: false,
+                ..
             } if paths.len() == 2 => Some([paths[0].as_ref(), paths[1].as_ref()]),
+            TerrainPaths::Static { .. } | TerrainPaths::Variants { .. } => None,
+        }
+    }
+
+    /// Resolves the native-verified farmland top selector. Vanilla stores the
+    /// wet path at index zero and the dry path at index one; only moisture
+    /// zero is dry.
+    #[must_use]
+    pub fn get_exact_farmland_top(&self, moisturized_amount: u32) -> Option<(&str, u32)> {
+        let TerrainPaths::Variants {
+            paths,
+            requires_tint: false,
+            has_extra_metadata: false,
+        } = self.entries.get("farmland")?
+        else {
+            return None;
+        };
+        if paths.len() != 2
+            || paths[0].as_ref() != "textures/blocks/farmland_wet"
+            || paths[1].as_ref() != "textures/blocks/farmland_dry"
+            || moisturized_amount > 7
+        {
+            return None;
+        }
+        let index = usize::from(moisturized_amount == 0);
+        Some((paths[index].as_ref(), index as u32))
+    }
+
+    /// Returns the literal vanilla farmland side source only when the terrain
+    /// entry is static, untinted, and carries no alias or carried metadata.
+    #[must_use]
+    pub fn get_exact_farmland_side(&self) -> Option<&str> {
+        match self.entries.get("farmland_side")? {
+            TerrainPaths::Static {
+                path,
+                requires_tint: false,
+                has_extra_metadata: false,
+            } if path.as_ref() == "textures/blocks/dirt" => Some(path),
             TerrainPaths::Static { .. } | TerrainPaths::Variants { .. } => None,
         }
     }
@@ -197,6 +236,7 @@ impl TerrainTextureMap {
             TerrainPaths::Static {
                 path,
                 requires_tint: false,
+                ..
             } => Some(path),
             TerrainPaths::Static { .. } | TerrainPaths::Variants { .. } => None,
         }
@@ -348,10 +388,12 @@ enum TerrainPaths {
     Static {
         path: Box<str>,
         requires_tint: bool,
+        has_extra_metadata: bool,
     },
     Variants {
         paths: Box<[Box<str>]>,
         requires_tint: bool,
+        has_extra_metadata: bool,
     },
 }
 
@@ -490,6 +532,8 @@ struct TerrainDocument {
 #[derive(Deserialize)]
 struct TerrainEntry {
     textures: TerrainValue,
+    #[serde(flatten)]
+    extra: BTreeMap<String, Value>,
 }
 
 #[derive(Deserialize)]
@@ -499,6 +543,8 @@ enum TerrainValue {
     Entry {
         path: String,
         overlay_color: Option<String>,
+        #[serde(flatten)]
+        extra: BTreeMap<String, Value>,
     },
     Variants(Vec<TerrainVariant>),
 }
@@ -510,17 +556,20 @@ enum TerrainVariant {
     Entry {
         path: String,
         overlay_color: Option<String>,
+        #[serde(flatten)]
+        extra: BTreeMap<String, Value>,
     },
 }
 
 impl TerrainVariant {
-    fn into_path_and_tint(self) -> (String, bool) {
+    fn into_path_tint_and_extra(self) -> (String, bool, bool) {
         match self {
-            Self::Path(path) => (path, false),
+            Self::Path(path) => (path, false, false),
             Self::Entry {
                 path,
                 overlay_color,
-            } => (path, overlay_color.is_some()),
+                extra,
+            } => (path, overlay_color.is_some(), !extra.is_empty()),
         }
     }
 }
@@ -826,29 +875,36 @@ fn read_terrain(path: &Path) -> Result<TerrainTextureMap, AssetError> {
 
     let mut entries = BTreeMap::new();
     for (key, entry) in texture_data {
-        let variants = collect_terrain_paths(&key, entry.textures)?;
+        let variants = collect_terrain_paths(&key, entry.textures, !entry.extra.is_empty())?;
         entries.insert(key.into_boxed_str(), variants);
     }
     Ok(TerrainTextureMap { entries })
 }
 
-fn collect_terrain_paths(key: &str, value: TerrainValue) -> Result<TerrainPaths, AssetError> {
+fn collect_terrain_paths(
+    key: &str,
+    value: TerrainValue,
+    entry_has_extra_metadata: bool,
+) -> Result<TerrainPaths, AssetError> {
     match value {
         TerrainValue::Path(path) => {
             validate_texture_path(&path)?;
             Ok(TerrainPaths::Static {
                 path: path.into_boxed_str(),
                 requires_tint: false,
+                has_extra_metadata: entry_has_extra_metadata,
             })
         }
         TerrainValue::Entry {
             path,
             overlay_color,
+            extra,
         } => {
             validate_texture_path(&path)?;
             Ok(TerrainPaths::Static {
                 path: path.into_boxed_str(),
                 requires_tint: overlay_color.is_some(),
+                has_extra_metadata: entry_has_extra_metadata || !extra.is_empty(),
             })
         }
         TerrainValue::Variants(variants) => {
@@ -861,11 +917,14 @@ fn collect_terrain_paths(key: &str, value: TerrainValue) -> Result<TerrainPaths,
             }
             let mut paths = Vec::with_capacity(variants.len());
             let mut requires_tint = false;
+            let mut has_extra_metadata = entry_has_extra_metadata;
             for variant in variants {
-                let (path, variant_requires_tint) = variant.into_path_and_tint();
+                let (path, variant_requires_tint, variant_has_extra_metadata) =
+                    variant.into_path_tint_and_extra();
                 validate_texture_path(&path)?;
                 paths.push(path.into_boxed_str());
                 requires_tint |= variant_requires_tint;
+                has_extra_metadata |= variant_has_extra_metadata;
             }
             if paths.is_empty() {
                 return Err(AssetError::EmptyTextureVariants(key.into()));
@@ -873,6 +932,7 @@ fn collect_terrain_paths(key: &str, value: TerrainValue) -> Result<TerrainPaths,
             Ok(TerrainPaths::Variants {
                 paths: paths.into_boxed_slice(),
                 requires_tint,
+                has_extra_metadata,
             })
         }
     }

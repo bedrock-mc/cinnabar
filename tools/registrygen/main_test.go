@@ -1310,6 +1310,151 @@ func TestCakeProductRequiresExactIdsStateProjectionAndCollision(t *testing.T) {
 	}
 }
 
+func TestFarmlandClassificationRequiresExactTypedMoisture(t *testing.T) {
+	const wantMask = uint8(1 << (ModelStateGrowth - 1))
+	for amount := int32(0); amount < 8; amount++ {
+		record, err := classifyRecord(sourceState("minecraft:farmland", intState("moisturized_amount", amount)))
+		if err != nil {
+			t.Fatalf("classify amount %d: %v", amount, err)
+		}
+		if record.ModelFamily != ModelFamilyCuboid || record.ContributorRole != ContributorPrimary {
+			t.Fatalf("amount %d family/role=%v/%v", amount, record.ModelFamily, record.ContributorRole)
+		}
+		if record.ModelState.Mask != wantMask {
+			t.Fatalf("amount %d model-state mask=%#x, want %#x", amount, record.ModelState.Mask, wantMask)
+		}
+		if got, ok := record.ModelState.Get(ModelStateGrowth); !ok || got != uint32(amount) {
+			t.Fatalf("amount %d growth=%d/%v", amount, got, ok)
+		}
+	}
+
+	invalid := []SourceState{
+		sourceState("minecraft:farmland"),
+		sourceState("minecraft:farmland", intState("moisturized_amount", -1)),
+		sourceState("minecraft:farmland", intState("moisturized_amount", 8)),
+		sourceState("minecraft:farmland", byteState("moisturized_amount", 1)),
+		sourceState("minecraft:farmland", StateProperty{Name: "moisturized_amount", Value: TypedScalar{Kind: ScalarString, String: "1"}}),
+		sourceState("minecraft:farmland", intState("minecraft:moisturized_amount", 1)),
+		sourceState("minecraft:farmland", intState("moisture", 1)),
+		sourceState("minecraft:farmland", intState("moisturized_amount", 1), intState("extra", 0)),
+		sourceState("minecraft:farmland", intState("moisturized_amount", 1), intState("moisturized_amount", 1)),
+	}
+	for index, state := range invalid {
+		if _, err := classifyRecord(state); err == nil {
+			t.Errorf("invalid farmland selector fixture %d was accepted", index)
+		}
+	}
+
+	unrelated, err := classifyRecord(sourceState("minecraft:dirt_with_roots", intState("moisturized_amount", 1)))
+	if err != nil {
+		t.Fatalf("classify unrelated block: %v", err)
+	}
+	if unrelated.ModelFamily == ModelFamilyCuboid {
+		t.Fatal("non-exact farmland name entered farmland cuboid family")
+	}
+}
+
+func exactFarmlandRecords(t *testing.T) []Record {
+	t.Helper()
+	records := make([]Record, 0, 8)
+	for amount := int32(0); amount < 8; amount++ {
+		record, err := classifyRecord(sourceState("minecraft:farmland", intState("moisturized_amount", amount)))
+		if err != nil {
+			t.Fatalf("classify amount %d: %v", amount, err)
+		}
+		record.SequentialID = 6122 + uint32(amount)
+		record.NetworkHash = 360_492_383 + uint32(amount)*61_474_823
+		record.Flags = 0
+		record.FaceCoverage = 0
+		record.CollisionSeed = CollisionSeed{
+			ShapeID:    43,
+			Confidence: CollisionConfidenceCollisionOnly,
+			Boxes: []CollisionBox{{
+				MinX: 0, MaxX: 100_000_000,
+				MinY: 0, MaxY: 93_750_000,
+				MinZ: 0, MaxZ: 100_000_000,
+			}},
+		}
+		record.Provenance = ProvenancePMMP | ProvenanceDragonfly | ProvenancePrismarine
+		records = append(records, record)
+	}
+	return records
+}
+
+func TestFarmlandProductRequiresExactIdsStateProjectionAndCollision(t *testing.T) {
+	records := exactFarmlandRecords(t)
+	if err := validateSelectorCardinality(records); err != nil {
+		t.Fatalf("valid farmland product: %v", err)
+	}
+	forward, err := encode(records)
+	if err != nil {
+		t.Fatalf("encode forward: %v", err)
+	}
+	reversed := cloneRecords(records)
+	slices.Reverse(reversed)
+	backward, err := encode(reversed)
+	if err != nil {
+		t.Fatalf("encode reversed: %v", err)
+	}
+	if !bytes.Equal(forward, backward) {
+		t.Fatal("farmland BREG encoding depends on source order")
+	}
+
+	mutations := []struct {
+		name   string
+		mutate func([]Record)
+	}{
+		{"missing state", func(records []Record) { records[0].StateJSON = []byte(`{}`) }},
+		{"aliased key", func(records []Record) {
+			records[0].StateJSON = []byte(`{"minecraft:moisturized_amount":{"type":"int","value":0}}`)
+		}},
+		{"wrong canonical type", func(records []Record) {
+			records[0].StateJSON = []byte(`{"moisturized_amount":{"type":"byte","value":0}}`)
+		}},
+		{"out of range", func(records []Record) {
+			records[0].StateJSON = []byte(`{"moisturized_amount":{"type":"int","value":8}}`)
+		}},
+		{"extra wrapper key", func(records []Record) {
+			records[0].StateJSON = []byte(`{"moisturized_amount":{"type":"int","value":0,"extra":0}}`)
+		}},
+		{"duplicate outer key", func(records []Record) {
+			records[0].StateJSON = []byte(`{"moisturized_amount":{"type":"int","value":0},"moisturized_amount":{"type":"int","value":0}}`)
+		}},
+		{"duplicate wrapper key", func(records []Record) {
+			records[0].StateJSON = []byte(`{"moisturized_amount":{"type":"int","type":"int","value":0}}`)
+		}},
+		{"extra canonical key", func(records []Record) {
+			records[0].StateJSON = []byte(`{"moisturized_amount":{"type":"int","value":0},"extra":{"type":"int","value":0}}`)
+		}},
+		{"model-state disagreement", func(records []Record) { records[0].ModelState.Set(ModelStateGrowth, 1) }},
+		{"extra model-state field", func(records []Record) { records[0].ModelState.Set(ModelStateOrientation, 0) }},
+		{"wrong role", func(records []Record) { records[0].ContributorRole = ContributorLiquidAdditional }},
+		{"wrong family", func(records []Record) { records[0].ModelFamily = ModelFamilyCrop }},
+		{"wrong ID", func(records []Record) { records[0].SequentialID++ }},
+		{"flags", func(records []Record) { records[0].Flags = flagCubeGeometry }},
+		{"face coverage", func(records []Record) { records[0].FaceCoverage = 1 }},
+		{"shape ID", func(records []Record) { records[0].CollisionSeed.ShapeID++ }},
+		{"confidence", func(records []Record) { records[0].CollisionSeed.Confidence = CollisionConfidenceReviewedVisibleBounds }},
+		{"collision bounds", func(records []Record) { records[0].CollisionSeed.Boxes[0].MaxY++ }},
+		{"duplicate selector", func(records []Record) {
+			records[1].StateJSON = append([]byte(nil), records[0].StateJSON...)
+			records[1].ModelState = records[0].ModelState
+		}},
+	}
+	for _, mutation := range mutations {
+		t.Run(mutation.name, func(t *testing.T) {
+			broken := cloneRecords(records)
+			mutation.mutate(broken)
+			if err := validateSelectorCardinality(broken); err == nil {
+				t.Fatal("invalid farmland product was accepted")
+			}
+		})
+	}
+	if err := validateSelectorCardinality(records[:7]); err == nil {
+		t.Fatal("incomplete farmland product was accepted")
+	}
+}
+
 func exactResinClumpRecords(t *testing.T) []Record {
 	t.Helper()
 	records := make([]Record, 0, 64)
