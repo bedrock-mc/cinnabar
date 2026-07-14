@@ -647,6 +647,20 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       separately blocked by the confirmed RX 570 Bevy/wgpu presentation failure
       above. Exact visible-quad drawing is complete but was performance-neutral;
       GPU-stage measurement and the shared 100 ms gate remain open.
+      **Glow-lichen/sculk-vein implementation complete (2026-07-13):** the
+      remaining vine-like pink blocks were not `minecraft:vine`; they were all
+      64 `minecraft:glow_lichen` and 64 `minecraft:sculk_vein` states still
+      classified as unknown. Distinct registry families now preserve their
+      different six-bit face orders, render mask zero with the vanilla all-six
+      fallback, and compile exact 1/256-inset two-sided cutout planes with no
+      occlusion coverage. Sculk vein additionally binds its pinned four-frame,
+      20-tick flipbook. Exhaustive 128-state selector/geometry/UV/material
+      tests, the real pinned-pack compiler, registrygen, runtime rendering,
+      strict visual-coverage ratchet, Clippy, formatting, and independent
+      review are green; the combined 16,913-state report has zero
+      glow-lichen/sculk-vein diagnostics and 7,770 diagnostics remaining
+      overall (`a70d3c6`). Native screenshot closure remains part of the shared
+      RX 570 presentation gate above.
     - [x] Exhaustive vanilla visual-coverage ratchet: inventory every one of
       the 16,913 protocol-1001 canonical states through the production registry
       and runtime decoders, bind the exact registry/asset hashes, and reject any
