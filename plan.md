@@ -392,6 +392,20 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       strict Clippy/formatting, full 16,913-state ratchet, and independent review
       green). Deterministic gallery/native GPU evidence remains in the shared
       residual-family live gate.
+    - [x] Connected wall templates: all 5,184 states across 32 wall materials
+      decode the exact 9-bit north/east/south/west none/short/tall selector and
+      center-post bit into deterministic zero-to-30-quad packed models. Visible
+      bounds come from the local vanilla `template_wall_post`,
+      `template_wall_side`, and `template_wall_side_tall` render models rather
+      than Dragonfly/Prismarine collision boxes: post-off states omit the post,
+      short arms reach 14/16, tall arms reach full height, and UV projection
+      follows the vanilla UV-locked blockstate contract. Invalid selectors fail
+      closed, partial-model culling remains conservative, collision-seed removal
+      leaves output byte-identical, and the real-pack ratchet removes exactly
+      5,184 diagnostics with no additions (`09ba163`; 148 assets tests, strict
+      Clippy/formatting, full 16,913-state ratchet, and independent correction
+      review green). Deterministic gallery/native GPU evidence remains in the
+      shared residual-family live gate.
     - [ ] Slab/stair native and packed-GPU live acceptance: capture all five
       fixed Cinnabar poses through native `%TEMP%` screenshots and require two
       consecutive exact GPU-completed model-stream witnesses. Automated gallery
@@ -523,9 +537,10 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       exact hash-to-sequential bijection, bounds all inputs, rejects diagnostic
       regression/invisible laundering, and writes deterministic hash-bound
       reports (`b131247`; 11 tests, strict Clippy, real-pack run, and independent
-      review green). After the reviewed lava, vine, door, and trapdoor tranches,
-      the current residual has 13,933 diagnostics and zero diagnostics in those
-      implemented families; each remaining family must shrink that exact set.
+      review green). After the reviewed lava, vine, door, trapdoor, and wall
+      tranches, the current residual has 8,749 diagnostics and zero diagnostics
+      in those implemented families; each remaining family must shrink that
+      exact set.
   - [ ] Complete the exhaustive residual-family report, beginning with
     lava/flowing-lava on a reviewed depth-writing non-water-liquid pipeline, so
     every non-air one of the 16,913 canonical states has a non-diagnostic visual;
