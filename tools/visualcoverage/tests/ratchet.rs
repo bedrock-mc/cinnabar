@@ -435,6 +435,32 @@ fn committed_protocol_baseline_binds_the_complete_corpus_and_all_vines() {
                 .is_err()
         );
     }
+    let shelf_names = [
+        "minecraft:acacia_shelf",
+        "minecraft:bamboo_shelf",
+        "minecraft:birch_shelf",
+        "minecraft:cherry_shelf",
+        "minecraft:crimson_shelf",
+        "minecraft:dark_oak_shelf",
+        "minecraft:jungle_shelf",
+        "minecraft:mangrove_shelf",
+        "minecraft:oak_shelf",
+        "minecraft:pale_oak_shelf",
+        "minecraft:spruce_shelf",
+        "minecraft:warped_shelf",
+    ];
+    let shelves = records
+        .iter()
+        .filter(|record| shelf_names.contains(&record.name.as_ref()))
+        .collect::<Vec<_>>();
+    assert_eq!(shelves.len(), 384);
+    assert!(shelves.iter().all(|record| {
+        record.model_family == ModelFamily::Cuboid
+            && baseline
+                .diagnostic_sequential_ids
+                .binary_search(&record.sequential_id)
+                .is_ok()
+    }));
     assert_eq!(baseline.diagnostic_sequential_ids.len(), 2_400);
 }
 

@@ -1296,6 +1296,15 @@ func classifyRecord(state SourceState) (Record, error) {
 		}
 		record.ModelFamily = ModelFamilyCuboid
 		record.ModelState.Set(ModelStateGrowth, amount)
+	case isShelfName(name):
+		direction, powered, shelfType, err := shelfSelectors(state.Properties)
+		if err != nil {
+			return Record{}, err
+		}
+		record.ModelFamily = ModelFamilyCuboid
+		record.ModelState.Set(ModelStateOrientation, direction)
+		record.ModelState.Set(ModelStateGrowth, shelfType)
+		record.ModelState.Set(ModelStateFlags, powered*modelFlagPowered)
 	case isCrossName(name):
 		record.ModelFamily = ModelFamilyCross
 	}
@@ -1468,6 +1477,68 @@ func isBeeHousingName(name string) bool {
 	return name == "minecraft:bee_nest" || name == "minecraft:beehive"
 }
 
+func isShelfName(name string) bool {
+	name = strings.TrimPrefix(name, "minecraft:")
+	switch name {
+	case "acacia_shelf", "bamboo_shelf", "birch_shelf", "cherry_shelf",
+		"crimson_shelf", "dark_oak_shelf", "jungle_shelf", "mangrove_shelf",
+		"oak_shelf", "pale_oak_shelf", "spruce_shelf", "warped_shelf":
+		return true
+	default:
+		return false
+	}
+}
+
+func isShelfCandidateName(name string) bool {
+	return strings.HasSuffix(strings.TrimPrefix(name, "minecraft:"), "_shelf")
+}
+
+func shelfSelectors(properties []StateProperty) (direction uint32, powered uint32, shelfType uint32, err error) {
+	if len(properties) != 3 {
+		return 0, 0, 0, fmt.Errorf("shelf requires exactly minecraft:cardinal_direction:string, powered_bit:byte, and powered_shelf_type:int")
+	}
+	seenDirection, seenPowered, seenType := false, false, false
+	for _, property := range properties {
+		switch property.Name {
+		case "minecraft:cardinal_direction":
+			if seenDirection || property.Value.Kind != ScalarString {
+				return 0, 0, 0, fmt.Errorf("shelf minecraft:cardinal_direction must be one unique string")
+			}
+			seenDirection = true
+			switch property.Value.String {
+			case "south":
+				direction = 0
+			case "west":
+				direction = 1
+			case "north":
+				direction = 2
+			case "east":
+				direction = 3
+			default:
+				return 0, 0, 0, fmt.Errorf("shelf minecraft:cardinal_direction is outside south/west/north/east")
+			}
+		case "powered_bit":
+			if seenPowered || property.Value.Kind != ScalarByte || property.Value.Byte > 1 {
+				return 0, 0, 0, fmt.Errorf("shelf powered_bit must be one unique byte inside 0..1")
+			}
+			seenPowered = true
+			powered = uint32(property.Value.Byte)
+		case "powered_shelf_type":
+			if seenType || property.Value.Kind != ScalarInt || property.Value.Int < 0 || property.Value.Int > 3 {
+				return 0, 0, 0, fmt.Errorf("shelf powered_shelf_type must be one unique int inside 0..3")
+			}
+			seenType = true
+			shelfType = uint32(property.Value.Int)
+		default:
+			return 0, 0, 0, fmt.Errorf("shelf has unsupported selector %q", property.Name)
+		}
+	}
+	if !seenDirection || !seenPowered || !seenType {
+		return 0, 0, 0, fmt.Errorf("shelf requires direction, powered, and type selectors")
+	}
+	return direction, powered, shelfType, nil
+}
+
 func beeHousingSelectors(properties []StateProperty) (direction uint32, honey uint32, err error) {
 	if len(properties) != 2 {
 		return 0, 0, fmt.Errorf("bee housing requires exactly direction:int and honey_level:int")
@@ -1578,6 +1649,29 @@ func beeHousingCanonicalSelectors(stateJSON []byte) (direction uint32, honey uin
 	direction, directionOK := exactCanonicalInt(state["direction"], 3)
 	honey, honeyOK := exactCanonicalInt(state["honey_level"], 5)
 	return direction, honey, directionOK && honeyOK
+}
+
+func shelfCanonicalSelectors(stateJSON []byte) (direction uint32, powered uint32, shelfType uint32, ok bool) {
+	var state map[string]json.RawMessage
+	if err := json.Unmarshal(stateJSON, &state); err != nil || len(state) != 3 {
+		return 0, 0, 0, false
+	}
+	directionName, directionOK := exactCanonicalString(state["minecraft:cardinal_direction"])
+	switch directionName {
+	case "south":
+		direction = 0
+	case "west":
+		direction = 1
+	case "north":
+		direction = 2
+	case "east":
+		direction = 3
+	default:
+		directionOK = false
+	}
+	poweredByte, poweredOK := exactCanonicalByte(state["powered_bit"])
+	shelfType, typeOK := exactCanonicalInt(state["powered_shelf_type"], 3)
+	return direction, uint32(poweredByte), shelfType, directionOK && poweredOK && typeOK
 }
 
 func resinClumpCanonicalSelector(stateJSON []byte) (uint32, bool) {
@@ -2021,6 +2115,9 @@ func promoteReviewedSelectorAliasCubes(records []Record) error {
 }
 
 func validateSelectorCardinality(records []Record) error {
+	if err := validateShelfInventory(records); err != nil {
+		return err
+	}
 	groups := make(map[string][]Record)
 	for _, record := range records {
 		groups[record.Name] = append(groups[record.Name], record)
@@ -2091,6 +2188,57 @@ func beeHousingCollisionIsExact(seed CollisionSeed) bool {
 		seed.Boxes[0] == (CollisionBox{MaxX: 100_000_000, MaxY: 100_000_000, MaxZ: 100_000_000})
 }
 
+func validateShelfInventory(records []Record) error {
+	candidates := make([]Record, 0, 384)
+	for _, record := range records {
+		if isShelfCandidateName(record.Name) {
+			candidates = append(candidates, record)
+		}
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	if len(candidates) != 384 {
+		return fmt.Errorf("shelf inventory has %d records, want exactly 384", len(candidates))
+	}
+	wantNames := []string{
+		"minecraft:acacia_shelf",
+		"minecraft:bamboo_shelf",
+		"minecraft:birch_shelf",
+		"minecraft:cherry_shelf",
+		"minecraft:crimson_shelf",
+		"minecraft:dark_oak_shelf",
+		"minecraft:jungle_shelf",
+		"minecraft:mangrove_shelf",
+		"minecraft:oak_shelf",
+		"minecraft:pale_oak_shelf",
+		"minecraft:spruce_shelf",
+		"minecraft:warped_shelf",
+	}
+	groups := make(map[string][]Record, len(wantNames))
+	for _, record := range candidates {
+		if !isShelfName(record.Name) {
+			return fmt.Errorf("shelf inventory contains unexpected family %q", record.Name)
+		}
+		groups[record.Name] = append(groups[record.Name], record)
+	}
+	if len(groups) != len(wantNames) {
+		return fmt.Errorf("shelf inventory has %d families, want exactly %d", len(groups), len(wantNames))
+	}
+	for _, name := range wantNames {
+		group := groups[name]
+		if len(group) != 32 {
+			return fmt.Errorf("shelf inventory family %s has %d records, want exactly 32", name, len(group))
+		}
+	}
+	for _, name := range wantNames {
+		if err := validateShelfProduct(groups[name]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func validateBeeHousingProduct(records []Record) error {
 	if len(records) != 24 {
 		return fmt.Errorf("bee housing selector cardinality is %d, want 24", len(records))
@@ -2121,6 +2269,106 @@ func validateBeeHousingProduct(records []Record) error {
 			return fmt.Errorf("%s state %d has invalid typed selector projection", name, record.SequentialID)
 		}
 		offset := honey*4 + direction
+		if record.SequentialID != base+offset {
+			return fmt.Errorf("%s state %d does not match canonical ID formula", name, record.SequentialID)
+		}
+		if seen[offset] {
+			return fmt.Errorf("%s has duplicate selector offset %d", name, offset)
+		}
+		seen[offset] = true
+	}
+	for offset, present := range seen {
+		if !present {
+			return fmt.Errorf("%s selector product is missing offset %d", name, offset)
+		}
+	}
+	return nil
+}
+
+func shelfBaseID(name string) (uint32, bool) {
+	switch name {
+	case "minecraft:acacia_shelf":
+		return 383, true
+	case "minecraft:bamboo_shelf":
+		return 6513, true
+	case "minecraft:birch_shelf":
+		return 302, true
+	case "minecraft:cherry_shelf":
+		return 14007, true
+	case "minecraft:crimson_shelf":
+		return 13882, true
+	case "minecraft:dark_oak_shelf":
+		return 9131, true
+	case "minecraft:jungle_shelf":
+		return 6045, true
+	case "minecraft:mangrove_shelf":
+		return 5280, true
+	case "minecraft:oak_shelf":
+		return 6897, true
+	case "minecraft:pale_oak_shelf":
+		return 11080, true
+	case "minecraft:spruce_shelf":
+		return 5162, true
+	case "minecraft:warped_shelf":
+		return 5313, true
+	default:
+		return 0, false
+	}
+}
+
+func shelfCollisionIsExact(seed CollisionSeed, direction uint32) bool {
+	if seed.Confidence != CollisionConfidenceCollisionOnly || len(seed.Boxes) != 1 {
+		return false
+	}
+	var shapeID uint16
+	var box CollisionBox
+	switch direction {
+	case 0:
+		shapeID = 18
+		box = CollisionBox{MaxX: 100_000_000, MaxY: 100_000_000, MaxZ: 31_250_000}
+	case 1:
+		shapeID = 19
+		box = CollisionBox{MinX: 68_750_000, MaxX: 100_000_000, MaxY: 100_000_000, MaxZ: 100_000_000}
+	case 2:
+		shapeID = 20
+		box = CollisionBox{MinZ: 68_750_000, MaxX: 100_000_000, MaxY: 100_000_000, MaxZ: 100_000_000}
+	case 3:
+		shapeID = 21
+		box = CollisionBox{MaxX: 31_250_000, MaxY: 100_000_000, MaxZ: 100_000_000}
+	default:
+		return false
+	}
+	return seed.ShapeID == shapeID && seed.Boxes[0] == box
+}
+
+func validateShelfProduct(records []Record) error {
+	if len(records) != 32 {
+		return fmt.Errorf("shelf selector cardinality is %d, want 32", len(records))
+	}
+	name := records[0].Name
+	base, supported := shelfBaseID(name)
+	if !supported {
+		return fmt.Errorf("unsupported shelf name %q", name)
+	}
+	seen := [32]bool{}
+	wantMask := uint8(1<<(ModelStateOrientation-1) | 1<<(ModelStateGrowth-1) | 1<<(ModelStateFlags-1))
+	for _, record := range records {
+		if record.Name != name || record.ModelFamily != ModelFamilyCuboid || record.ContributorRole != ContributorPrimary {
+			return fmt.Errorf("%s state %d has invalid family or role", name, record.SequentialID)
+		}
+		direction, powered, shelfType, hasCanonical := shelfCanonicalSelectors(record.StateJSON)
+		projectedDirection, hasDirection := record.ModelState.Get(ModelStateOrientation)
+		projectedType, hasType := record.ModelState.Get(ModelStateGrowth)
+		projectedFlags, hasFlags := record.ModelState.Get(ModelStateFlags)
+		if !hasCanonical || !hasDirection || !hasType || !hasFlags ||
+			projectedDirection != direction || projectedType != shelfType ||
+			projectedFlags != powered*modelFlagPowered || record.ModelState.Mask != wantMask {
+			return fmt.Errorf("%s state %d has invalid typed selector projection", name, record.SequentialID)
+		}
+		if record.Flags != 0 || record.FaceCoverage != 0 || !shelfCollisionIsExact(record.CollisionSeed, direction) {
+			return fmt.Errorf("%s state %d lacks exact directional shelf geometry evidence", name, record.SequentialID)
+		}
+		offset := direction*8 + powered*4 + shelfType
 		if record.SequentialID != base+offset {
 			return fmt.Errorf("%s state %d does not match canonical ID formula", name, record.SequentialID)
 		}

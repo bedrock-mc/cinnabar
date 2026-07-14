@@ -1214,6 +1214,200 @@ func TestBeeHousingClassificationRequiresExactOrderIndependentTypedSelectors(t *
 	}
 }
 
+func TestShelfClassificationRequiresExactOrderIndependentTypedSelectors(t *testing.T) {
+	const wantMask = uint8(1<<(ModelStateOrientation-1) | 1<<(ModelStateGrowth-1) | 1<<(ModelStateFlags-1))
+	directions := []string{"south", "west", "north", "east"}
+	for direction, name := range directions {
+		for powered := byte(0); powered < 2; powered++ {
+			for shelfType := int32(0); shelfType < 4; shelfType++ {
+				for _, properties := range [][]StateProperty{
+					{stringState("minecraft:cardinal_direction", name), byteState("powered_bit", powered), intState("powered_shelf_type", shelfType)},
+					{intState("powered_shelf_type", shelfType), stringState("minecraft:cardinal_direction", name), byteState("powered_bit", powered)},
+				} {
+					record, err := classifyRecord(sourceState("minecraft:oak_shelf", properties...))
+					if err != nil {
+						t.Fatalf("direction=%s powered=%d type=%d: %v", name, powered, shelfType, err)
+					}
+					if record.ModelFamily != ModelFamilyCuboid || record.ContributorRole != ContributorPrimary {
+						t.Fatalf("direction=%s powered=%d type=%d family/role=%v/%v", name, powered, shelfType, record.ModelFamily, record.ContributorRole)
+					}
+					if record.ModelState.Mask != wantMask {
+						t.Fatalf("direction=%s powered=%d type=%d mask=%#x, want %#x", name, powered, shelfType, record.ModelState.Mask, wantMask)
+					}
+					if got, ok := record.ModelState.Get(ModelStateOrientation); !ok || got != uint32(direction) {
+						t.Fatalf("direction projection=%d/%v, want %d/true", got, ok, direction)
+					}
+					if got, ok := record.ModelState.Get(ModelStateGrowth); !ok || got != uint32(shelfType) {
+						t.Fatalf("shelf-type projection=%d/%v, want %d/true", got, ok, shelfType)
+					}
+					wantFlags := uint32(0)
+					if powered != 0 {
+						wantFlags = modelFlagPowered
+					}
+					if got, ok := record.ModelState.Get(ModelStateFlags); !ok || got != wantFlags {
+						t.Fatalf("powered projection=%d/%v, want %d/true", got, ok, wantFlags)
+					}
+				}
+			}
+		}
+	}
+
+	for index, state := range []SourceState{
+		sourceState("minecraft:oak_shelf", stringState("minecraft:cardinal_direction", "up"), byteState("powered_bit", 0), intState("powered_shelf_type", 0)),
+		sourceState("minecraft:oak_shelf", stringState("minecraft:cardinal_direction", "south"), byteState("powered_bit", 2), intState("powered_shelf_type", 0)),
+		sourceState("minecraft:oak_shelf", stringState("minecraft:cardinal_direction", "south"), byteState("powered_bit", 0), intState("powered_shelf_type", -1)),
+		sourceState("minecraft:oak_shelf", stringState("minecraft:cardinal_direction", "south"), byteState("powered_bit", 0), intState("powered_shelf_type", 4)),
+		sourceState("minecraft:oak_shelf", stringState("cardinal_direction", "south"), byteState("powered_bit", 0), intState("powered_shelf_type", 0)),
+		sourceState("minecraft:oak_shelf", stringState("minecraft:cardinal_direction", "south"), intState("powered_bit", 0), intState("powered_shelf_type", 0)),
+		sourceState("minecraft:oak_shelf", stringState("minecraft:cardinal_direction", "south"), byteState("powered_bit", 0), byteState("powered_shelf_type", 0)),
+		sourceState("minecraft:oak_shelf", stringState("minecraft:cardinal_direction", "south"), byteState("powered_bit", 0)),
+		sourceState("minecraft:oak_shelf", stringState("minecraft:cardinal_direction", "south"), byteState("powered_bit", 0), intState("powered_shelf_type", 0), intState("extra", 0)),
+	} {
+		if _, err := classifyRecord(state); err == nil {
+			t.Errorf("invalid shelf selector fixture %d was accepted", index)
+		}
+	}
+
+	unrelated, err := classifyRecord(sourceState(
+		"minecraft:bookshelf",
+		stringState("minecraft:cardinal_direction", "south"),
+		byteState("powered_bit", 0),
+		intState("powered_shelf_type", 0),
+	))
+	if err != nil {
+		t.Fatalf("classify unrelated bookshelf: %v", err)
+	}
+	if unrelated.ModelFamily == ModelFamilyCuboid && unrelated.ModelState.Mask == wantMask {
+		t.Fatal("unrelated bookshelf entered exact shelf family")
+	}
+}
+
+func exactShelfRecords(t *testing.T) []Record {
+	t.Helper()
+	families := []struct {
+		name string
+		base uint32
+	}{
+		{"minecraft:acacia_shelf", 383},
+		{"minecraft:bamboo_shelf", 6513},
+		{"minecraft:birch_shelf", 302},
+		{"minecraft:cherry_shelf", 14007},
+		{"minecraft:crimson_shelf", 13882},
+		{"minecraft:dark_oak_shelf", 9131},
+		{"minecraft:jungle_shelf", 6045},
+		{"minecraft:mangrove_shelf", 5280},
+		{"minecraft:oak_shelf", 6897},
+		{"minecraft:pale_oak_shelf", 11080},
+		{"minecraft:spruce_shelf", 5162},
+		{"minecraft:warped_shelf", 5313},
+	}
+	directions := []struct {
+		name  string
+		shape uint16
+		box   CollisionBox
+	}{
+		{"south", 18, CollisionBox{MaxX: 100_000_000, MaxY: 100_000_000, MaxZ: 31_250_000}},
+		{"west", 19, CollisionBox{MinX: 68_750_000, MaxX: 100_000_000, MaxY: 100_000_000, MaxZ: 100_000_000}},
+		{"north", 20, CollisionBox{MinZ: 68_750_000, MaxX: 100_000_000, MaxY: 100_000_000, MaxZ: 100_000_000}},
+		{"east", 21, CollisionBox{MaxX: 31_250_000, MaxY: 100_000_000, MaxZ: 100_000_000}},
+	}
+	records := make([]Record, 0, len(families)*32)
+	for _, family := range families {
+		for direction, fixture := range directions {
+			for powered := byte(0); powered < 2; powered++ {
+				for shelfType := int32(0); shelfType < 4; shelfType++ {
+					record, err := classifyRecord(sourceState(
+						family.name,
+						stringState("minecraft:cardinal_direction", fixture.name),
+						byteState("powered_bit", powered),
+						intState("powered_shelf_type", shelfType),
+					))
+					if err != nil {
+						t.Fatalf("classify %s: %v", family.name, err)
+					}
+					offset := uint32(direction)*8 + uint32(powered)*4 + uint32(shelfType)
+					record.SequentialID = family.base + offset
+					record.NetworkHash = 100_000 + record.SequentialID
+					record.CollisionSeed = CollisionSeed{
+						ShapeID: fixture.shape, Confidence: CollisionConfidenceCollisionOnly,
+						Boxes: []CollisionBox{fixture.box},
+					}
+					finalizeGeometryFacts(&record)
+					records = append(records, record)
+				}
+			}
+		}
+	}
+	return records
+}
+
+func TestShelfProductsRequireExactCanonicalIdsProjectionAndDirectionalCollision(t *testing.T) {
+	records := exactShelfRecords(t)
+	if err := validateSelectorCardinality(records); err != nil {
+		t.Fatalf("valid shelf selector products: %v", err)
+	}
+	for _, record := range records {
+		if record.Flags != 0 || record.FaceCoverage != 0 {
+			t.Fatalf("state %d acquired full-face geometry: flags/coverage=%#x/%#x", record.SequentialID, record.Flags, record.FaceCoverage)
+		}
+	}
+
+	mutations := []struct {
+		name   string
+		mutate func([]Record)
+	}{
+		{"missing state", func(records []Record) { records[31] = records[30] }},
+		{"sequential ID", func(records []Record) { records[0].SequentialID++ }},
+		{"canonical alias", func(records []Record) {
+			records[0].StateJSON = []byte(`{"cardinal_direction":{"type":"string","value":"south"},"powered_bit":{"type":"byte","value":0},"powered_shelf_type":{"type":"int","value":0}}`)
+		}},
+		{"projection disagreement", func(records []Record) { records[0].ModelState.Set(ModelStateGrowth, 1) }},
+		{"extra projection", func(records []Record) { records[0].ModelState.Set(ModelStateOpen, 0) }},
+		{"flags", func(records []Record) { records[0].Flags = flagCubeGeometry }},
+		{"face coverage", func(records []Record) { records[0].FaceCoverage = 1 }},
+		{"shape ID", func(records []Record) { records[0].CollisionSeed.ShapeID++ }},
+		{"confidence", func(records []Record) { records[0].CollisionSeed.Confidence = CollisionConfidenceReviewedVisibleBounds }},
+		{"collision bounds", func(records []Record) { records[0].CollisionSeed.Boxes[0].MaxZ++ }},
+	}
+	for _, mutation := range mutations {
+		t.Run(mutation.name, func(t *testing.T) {
+			broken := cloneRecords(records)
+			mutation.mutate(broken)
+			if err := validateSelectorCardinality(broken); err == nil {
+				t.Fatal("invalid shelf selector products were accepted")
+			}
+		})
+	}
+}
+
+func TestShelfInventoryRejectsWholeMissingAndUnexpectedFamilies(t *testing.T) {
+	records := exactShelfRecords(t)
+
+	t.Run("whole expected family missing", func(t *testing.T) {
+		broken := make([]Record, 0, len(records)-32)
+		for _, record := range records {
+			if record.Name != "minecraft:oak_shelf" {
+				broken = append(broken, record)
+			}
+		}
+		if err := validateSelectorCardinality(broken); err == nil {
+			t.Fatal("shelf inventory missing the complete oak family was accepted")
+		}
+	})
+
+	t.Run("unexpected family replaces expected family", func(t *testing.T) {
+		broken := cloneRecords(records)
+		for index := range broken {
+			if broken[index].Name == "minecraft:oak_shelf" {
+				broken[index].Name = "minecraft:unexpected_shelf"
+			}
+		}
+		if err := validateSelectorCardinality(broken); err == nil {
+			t.Fatal("shelf inventory with an unexpected replacement family was accepted")
+		}
+	})
+}
+
 func TestBeeHousingSelectorProductRequiresExactCanonicalIdsAndUnitCollision(t *testing.T) {
 	records := make([]Record, 0, 48)
 	for _, family := range []struct {

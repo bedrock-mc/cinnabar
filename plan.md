@@ -884,6 +884,18 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       12,495..12,518 with zero additions, shrinking 2,448 -> 2,400 diagnostics.
       Bee occupants remain a separately reviewed block-entity concern rather
       than block-state geometry.
+    - [ ] Shelf visual authority: the exact twelve-name/384-state registry
+      contract is classified and now fails closed if one complete family is
+      missing or an unexpected `_shelf` family appears. The installed Bedrock
+      1.26.3301.0 package exposes direction-specific
+      `minecraft:voxel_shape` files and the installed/pinned vanilla packs
+      expose shelf texture routes, texture sets, and pixels, but none defines
+      visible render geometry or per-face UV mapping. Collision/voxel bounds
+      must not be promoted into a render model. All 384 shelf states therefore
+      remain diagnostic and the global residual remains 2,400. Resume only
+      from legitimate version-matched render/UV authority or a reviewed native
+      procedure; precise paths and hashes are recorded in
+      `docs/evidence/phase-2-shelf-source-reference.md`.
     - [ ] Close static sign visual parity and its deterministic native gallery.
       - [x] Eliminate all 4,872 standing, wall, and hanging-sign diagnostics
         with typed, order-independent selectors; exact 16-way rotation, six-way
