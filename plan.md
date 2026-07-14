@@ -538,10 +538,31 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       cubes, and `minecraft:invisible_bedrock`; record reordering remains
       byte-deterministic. The production ratchet removes exactly 48 intended
       diagnostics with zero additions. After integrating the already-landed
-      128-state glow-lichen/sculk-vein tranche, the current baseline holds 7,722
-      diagnostics including air (full assets/visualcoverage suites, pinned
+      128-state glow-lichen/sculk-vein tranche, that historical checkpoint held
+      7,722 diagnostics including air (full assets/visualcoverage suites, pinned
       compiler tests, strict Clippy/formatting, and zero-delta refreshed ratchet
       green).
+    - [x] Ordinary stained-glass cubes: the exact stateless
+      `minecraft:black_stained_glass`, `minecraft:blue_stained_glass`,
+      `minecraft:brown_stained_glass`, `minecraft:cyan_stained_glass`,
+      `minecraft:gray_stained_glass`, `minecraft:green_stained_glass`,
+      `minecraft:light_blue_stained_glass`,
+      `minecraft:light_gray_stained_glass`, `minecraft:lime_stained_glass`,
+      `minecraft:magenta_stained_glass`, `minecraft:orange_stained_glass`,
+      `minecraft:pink_stained_glass`, `minecraft:purple_stained_glass`,
+      `minecraft:red_stained_glass`, `minecraft:white_stained_glass`, and
+      `minecraft:yellow_stained_glass` records now render as alpha-blended
+      six-quad models. Palette-native meshing suppresses a shared face only for
+      an equal six-face material identity under the checked transparent-cube
+      semantic, preserves both cross-colour boundary faces, culls glass behind
+      full opaque neighbours without hiding the opaque face, stays cave-open,
+      and applies across all six subchunk boundaries. Education `hard_*` glass,
+      stained-glass panes, copper grates, slime, legacy flags-zero cubes, and
+      `minecraft:invisible_bedrock` remain excluded. The production ratchet
+      removes exactly these 16 IDs with zero additions, leaving 7,706
+      diagnostics and 7,235 cumulative removals; the ignored integrated blob is
+      SHA-256
+      `61025bb3e8e1b9ca0d5e2ec1cd7847433333a20f99948c6193fbb370a0d4900f`.
     - [ ] Slab/stair native and packed-GPU live acceptance: capture all five
       fixed Cinnabar poses through native `%TEMP%` screenshots and require two
       consecutive exact GPU-completed model-stream witnesses. Automated gallery
@@ -689,9 +710,9 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       reports (`b131247`; 11 tests, strict Clippy, real-pack run, and independent
       review green). The reviewed baseline was refreshed cumulatively for the
       already-landed door, trapdoor, wall, pressure-plate, fence-gate, pane,
-      fence, carpet, button, huge-mushroom, glow-lichen, and sculk-vein
-      tranches. After lava, vine, and those connected/static/multiface families,
-      the current residual has 7,722
+      fence, carpet, button, huge-mushroom, glow-lichen, sculk-vein, and exact
+      ordinary stained-glass tranches. After lava, vine, and those
+      connected/static/multiface/glass families, the current residual has 7,706
       diagnostics including the single air diagnostic, with zero diagnostics in
       every implemented family; each remaining family must shrink that exact set.
   - [ ] Complete the exhaustive residual-family report, continuing from the

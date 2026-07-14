@@ -2,11 +2,11 @@ use std::{cell::OnceCell, collections::VecDeque};
 
 use assets::{
     BlockFace, BlockFlags, ContributorRole, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND,
-    MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
+    MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_QUAD_FLAG_FACE_MASK, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
     MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD,
     MODEL_TEMPLATE_FLAG_GATE_AXIS_X, MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP,
-    MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_WALL,
-    NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, VisualKind,
+    MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
+    MODEL_TEMPLATE_FLAG_WALL, NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, VisualKind,
 };
 use world::{MeshNeighbourhood, PalettedStorage, SubChunk};
 
@@ -822,8 +822,14 @@ fn mesh_sub_chunk_core(
                             if visible_quad_mask & bit == 0 {
                                 continue;
                             }
+                            let cull_flags =
+                                if template.flags & MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE != 0 {
+                                    (quad.flags & MODEL_QUAD_FLAG_FACE_MASK) << 4
+                                } else {
+                                    quad.flags
+                                };
                             let Some(cull_face) =
-                                model_quad_cull_face(quad.flags, entry.variant & 3)
+                                model_quad_cull_face(cull_flags, entry.variant & 3)
                             else {
                                 continue;
                             };
@@ -839,8 +845,15 @@ fn mesh_sub_chunk_core(
                                     & MODEL_TEMPLATE_FLAG_PANE
                                     != 0
                                 && neighbour.faces == entry.faces;
+                            let equal_transparent_cube =
+                                template.flags & MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE != 0
+                                    && model_template_flags(visuals, neighbour)
+                                        & MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE
+                                        != 0
+                                    && neighbour.faces == entry.faces;
                             if neighbour.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
                                 || equal_pane
+                                || equal_transparent_cube
                             {
                                 visible_quad_mask &= !bit;
                             }

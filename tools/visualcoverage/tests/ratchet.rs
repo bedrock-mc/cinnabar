@@ -16,6 +16,25 @@ use visualcoverage::{
     ratchet_protocol_1001, strict_bytes, strict_records, write_deterministic_json_atomic,
 };
 
+const STAINED_GLASS_REMOVALS: [(u32, &str); 16] = [
+    (360, "minecraft:lime_stained_glass"),
+    (2_052, "minecraft:light_gray_stained_glass"),
+    (2_703, "minecraft:brown_stained_glass"),
+    (3_972, "minecraft:purple_stained_glass"),
+    (5_455, "minecraft:gray_stained_glass"),
+    (6_552, "minecraft:green_stained_glass"),
+    (6_811, "minecraft:pink_stained_glass"),
+    (7_091, "minecraft:orange_stained_glass"),
+    (8_485, "minecraft:white_stained_glass"),
+    (9_070, "minecraft:red_stained_glass"),
+    (10_393, "minecraft:blue_stained_glass"),
+    (10_431, "minecraft:light_blue_stained_glass"),
+    (11_571, "minecraft:cyan_stained_glass"),
+    (11_572, "minecraft:black_stained_glass"),
+    (14_572, "minecraft:magenta_stained_glass"),
+    (15_165, "minecraft:yellow_stained_glass"),
+];
+
 fn full_gallery_fixture(
     diagnostic_ids: &std::collections::BTreeSet<u32>,
 ) -> (Vec<u8>, Vec<u8>, Baseline) {
@@ -147,7 +166,7 @@ fn gallery_inventory_is_non_accepting_when_zero_diagnostics_hide_a_strict_invali
 
 #[test]
 #[ignore = "requires CINNABAR_REAL_PACK pointing at the ignored pinned vanilla-v1001.mcbea"]
-fn current_gallery_inventory_is_non_accepting_with_7722_diagnostics() {
+fn current_gallery_inventory_is_non_accepting_with_7706_diagnostics() {
     let assets_path = std::env::var_os("CINNABAR_REAL_PACK")
         .map(std::path::PathBuf::from)
         .expect("set CINNABAR_REAL_PACK to the ignored pinned vanilla-v1001.mcbea");
@@ -157,7 +176,7 @@ fn current_gallery_inventory_is_non_accepting_with_7722_diagnostics() {
     let inventory = gallery_inventory_bytes(registry, &assets, baseline).unwrap();
 
     assert!(!inventory.accepting);
-    assert_eq!(inventory.diagnostic_targets, 7_722);
+    assert_eq!(inventory.diagnostic_targets, 7_706);
     assert_eq!(
         inventory
             .pages
@@ -165,7 +184,7 @@ fn current_gallery_inventory_is_non_accepting_with_7722_diagnostics() {
             .flat_map(|page| &page.targets)
             .filter(|target| target.status == visualcoverage::GalleryTargetStatus::Diagnostic)
             .count(),
-        7_722
+        7_706
     );
 }
 
@@ -281,7 +300,20 @@ fn committed_protocol_baseline_binds_the_complete_corpus_and_all_vines() {
             .binary_search(&record.sequential_id)
             .is_err()
     }));
-    assert_eq!(baseline.diagnostic_sequential_ids.len(), 7_722);
+    for &(sequential_id, name) in &STAINED_GLASS_REMOVALS {
+        let record = &records[sequential_id as usize];
+        assert_eq!(record.sequential_id, sequential_id);
+        assert_eq!(record.name.as_ref(), name);
+        assert_eq!(record.canonical_state.as_ref(), "{}");
+        assert_eq!(record.model_family, ModelFamily::Cube);
+        assert!(
+            baseline
+                .diagnostic_sequential_ids
+                .binary_search(&sequential_id)
+                .is_err()
+        );
+    }
+    assert_eq!(baseline.diagnostic_sequential_ids.len(), 7_706);
 }
 
 fn fixture_records() -> Vec<RegistryRecord> {
@@ -2150,8 +2182,49 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
     .expect("parse committed production baseline");
     let current = analyze_bytes(&registry_bytes, &assets_bytes).unwrap();
     assert_eq!(current.states.len(), 16_913);
-    assert_eq!(baseline.diagnostic_sequential_ids.len(), 7_722);
-    assert_eq!(current.diagnostic_states.len(), 7_722);
+    assert_eq!(baseline.diagnostic_sequential_ids.len(), 7_706);
+    assert_eq!(current.diagnostic_states.len(), 7_706);
+
+    let expected_stained_glass_ids = STAINED_GLASS_REMOVALS.map(|(id, _)| id);
+    for &(sequential_id, name) in &STAINED_GLASS_REMOVALS {
+        let record = &records[sequential_id as usize];
+        assert_eq!(record.sequential_id, sequential_id);
+        assert_eq!(record.name.as_ref(), name);
+        assert_eq!(record.canonical_state.as_ref(), "{}");
+        assert_eq!(record.model_family, ModelFamily::Cube);
+        assert!(
+            baseline
+                .diagnostic_sequential_ids
+                .binary_search(&sequential_id)
+                .is_err()
+        );
+    }
+    let mut pre_stained_glass_baseline = baseline.clone();
+    pre_stained_glass_baseline
+        .diagnostic_sequential_ids
+        .extend(expected_stained_glass_ids);
+    pre_stained_glass_baseline
+        .diagnostic_sequential_ids
+        .sort_unstable();
+    assert_eq!(
+        pre_stained_glass_baseline.diagnostic_sequential_ids.len(),
+        7_722
+    );
+    let report = ratchet_protocol_1001(current.clone(), &pre_stained_glass_baseline)
+        .expect("run exact pre-stained-glass production ratchet");
+    assert!(report.added_diagnostics.is_empty());
+    assert_eq!(report.removed_diagnostics.len(), 16);
+    assert_eq!(
+        report
+            .removed_diagnostics
+            .iter()
+            .map(|state| (state.sequential_id, state.name.as_str()))
+            .collect::<Vec<_>>(),
+        STAINED_GLASS_REMOVALS
+    );
+    assert!(report.removed_diagnostics.iter().all(|state| {
+        state.canonical_state == "{}" && state.model_family == "cube" && !state.is_air
+    }));
 
     let expected_multiface_ids = records
         .iter()
@@ -2179,8 +2252,9 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
         .sort_unstable();
     assert_eq!(
         pre_multiface_baseline.diagnostic_sequential_ids.len(),
-        7_850
+        7_834
     );
+    assert_eq!(7_834 + STAINED_GLASS_REMOVALS.len(), 7_850);
     let report = ratchet_protocol_1001(current.clone(), &pre_multiface_baseline)
         .expect("run exact pre-multiface production ratchet");
     assert!(report.added_diagnostics.is_empty());
@@ -2217,7 +2291,8 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
         .diagnostic_sequential_ids
         .extend(expected_gate_ids.iter().copied());
     pre_gate_baseline.diagnostic_sequential_ids.sort_unstable();
-    assert_eq!(pre_gate_baseline.diagnostic_sequential_ids.len(), 7_914);
+    assert_eq!(pre_gate_baseline.diagnostic_sequential_ids.len(), 7_898);
+    assert_eq!(7_898 + STAINED_GLASS_REMOVALS.len(), 7_914);
     let report = ratchet_protocol_1001(current.clone(), &pre_gate_baseline)
         .expect("run exact pre-Gate production ratchet");
     assert!(report.added_diagnostics.is_empty());
@@ -2254,7 +2329,8 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
     pre_carpet_baseline
         .diagnostic_sequential_ids
         .sort_unstable();
-    assert_eq!(pre_carpet_baseline.diagnostic_sequential_ids.len(), 7_901);
+    assert_eq!(pre_carpet_baseline.diagnostic_sequential_ids.len(), 7_885);
+    assert_eq!(7_885 + STAINED_GLASS_REMOVALS.len(), 7_901);
     let report = ratchet_protocol_1001(current.clone(), &pre_carpet_baseline)
         .expect("run exact pre-Carpet production ratchet");
     assert!(report.added_diagnostics.is_empty());
@@ -2291,7 +2367,8 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
     pre_button_baseline
         .diagnostic_sequential_ids
         .sort_unstable();
-    assert_eq!(pre_button_baseline.diagnostic_sequential_ids.len(), 7_890);
+    assert_eq!(pre_button_baseline.diagnostic_sequential_ids.len(), 7_874);
+    assert_eq!(7_874 + STAINED_GLASS_REMOVALS.len(), 7_890);
     let report = ratchet_protocol_1001(current.clone(), &pre_button_baseline)
         .expect("run exact pre-Button production ratchet");
     assert!(report.added_diagnostics.is_empty());
@@ -2337,8 +2414,9 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
         .sort_unstable();
     assert_eq!(
         pre_huge_mushroom_baseline.diagnostic_sequential_ids.len(),
-        7_770
+        7_754
     );
+    assert_eq!(7_754 + STAINED_GLASS_REMOVALS.len(), 7_770);
     let report = ratchet_protocol_1001(current.clone(), &pre_huge_mushroom_baseline)
         .expect("run exact pre-huge-mushroom production ratchet");
     assert!(report.added_diagnostics.is_empty());

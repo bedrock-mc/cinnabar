@@ -182,22 +182,46 @@ cargo run -p visualcoverage -- ratchet `
   --out .local/assets/compiled/visual-coverage.json
 ```
 
-The refreshed 2026-07-13 real-pack run compiled all 16,913 visuals and passed
+The historical 2026-07-13 real-pack run compiled all 16,913 visuals and passed
 the ratchet with asset SHA-256
 `bd6b8ecb73c4032be51d00dda42d8e5e1b0b55333d276b5cbfa001cb46d0abba`.
-It reports 7,722 diagnostics including air and zero diagnostics for lava, vine,
+It reported 7,722 diagnostics including air and zero diagnostics for lava, vine,
 glow lichen, sculk vein, doors, trapdoors, walls, pressure plates, fence gates,
 panes, fences, carpets, buttons, or the 48 canonical huge-mushroom states. The
-huge-mushroom tranche
-removed exactly those 48 identities with zero additions while leaving the 43
+huge-mushroom tranche removed exactly those 48 identities with zero additions
+while leaving the 43
 legacy flags-zero cube records, 25 transparency-family cubes, and
-`minecraft:invisible_bedrock` diagnostic. The reviewed baseline refresh
-cumulatively records the already-landed door/trapdoor/wall removals plus the
-pressure-plate, fence-gate, pane/fence, carpet, button, huge-mushroom, and
-glow-lichen/sculk-vein tranches, rather than attributing all 7,219 removed IDs
-to one feature. This is
-a regression baseline, not a parity claim: each remaining family must reduce
-that exact set, and the final strict gate still requires zero
+`minecraft:invisible_bedrock` diagnostic.
+
+The refreshed 2026-07-14 run removes exactly 16 additional diagnostics with
+zero additions: `minecraft:black_stained_glass`,
+`minecraft:blue_stained_glass`, `minecraft:brown_stained_glass`,
+`minecraft:cyan_stained_glass`, `minecraft:gray_stained_glass`,
+`minecraft:green_stained_glass`, `minecraft:light_blue_stained_glass`,
+`minecraft:light_gray_stained_glass`, `minecraft:lime_stained_glass`,
+`minecraft:magenta_stained_glass`, `minecraft:orange_stained_glass`,
+`minecraft:pink_stained_glass`, `minecraft:purple_stained_glass`,
+`minecraft:red_stained_glass`, `minecraft:white_stained_glass`, and
+`minecraft:yellow_stained_glass`, each at canonical state `{}`. The integrated
+blob SHA-256 is
+`61025bb3e8e1b9ca0d5e2ec1cd7847433333a20f99948c6193fbb370a0d4900f`,
+and the refreshed ratchet is zero-delta at 7,706 diagnostics including air.
+
+These cubes use the checked transparent-cube template semantic and six exact
+alpha-blended face materials. Palette-native meshing suppresses shared faces
+only when both neighbours carry that semantic and their six-face material
+identities match. Different colours retain both boundary faces; full opaque
+neighbours hide the glass face without losing their own face; glass remains
+cave-open; and the rule crosses all six subchunk boundaries. Education
+`hard_*` glass, stained-glass panes, copper grates, slime, all legacy flags-zero
+records, and `minecraft:invisible_bedrock` remain excluded.
+
+The reviewed baseline cumulatively records the already-landed
+door/trapdoor/wall removals plus the pressure-plate, fence-gate, pane/fence,
+carpet, button, huge-mushroom, glow-lichen/sculk-vein, and ordinary
+stained-glass tranches, rather than attributing all 7,235 removed IDs to one
+feature. This is a regression baseline, not a parity claim: each remaining
+family must reduce that exact set, and the final strict gate still requires zero
 non-air diagnostics, 67 exact-state GPU gallery pages, and the separate
 block-entity manifest. The local JSON report and compiled Mojang-derived blob
 remain ignored; only the generated non-Mojang registry metadata and
