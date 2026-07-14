@@ -502,6 +502,32 @@ const fn is_pressure_plate(record: &RegistryRecord) -> bool {
         && matches!(record.contributor_role, ContributorRole::Primary)
 }
 
+const fn is_button(record: &RegistryRecord) -> bool {
+    matches!(record.model_family, ModelFamily::Button)
+        && matches!(record.contributor_role, ContributorRole::Primary)
+        && is_supported_button_name(&record.name)
+}
+
+const fn is_supported_button_name(name: &str) -> bool {
+    matches!(
+        name.as_bytes(),
+        b"minecraft:acacia_button"
+            | b"minecraft:bamboo_button"
+            | b"minecraft:birch_button"
+            | b"minecraft:cherry_button"
+            | b"minecraft:crimson_button"
+            | b"minecraft:dark_oak_button"
+            | b"minecraft:jungle_button"
+            | b"minecraft:mangrove_button"
+            | b"minecraft:pale_oak_button"
+            | b"minecraft:polished_blackstone_button"
+            | b"minecraft:spruce_button"
+            | b"minecraft:stone_button"
+            | b"minecraft:warped_button"
+            | b"minecraft:wooden_button"
+    )
+}
+
 const fn is_carpet(record: &RegistryRecord) -> bool {
     matches!(record.model_family, ModelFamily::Carpet)
         && matches!(record.contributor_role, ContributorRole::Primary)
@@ -576,6 +602,7 @@ fn is_model_visual(record: &RegistryRecord) -> bool {
         || is_stair(record)
         || is_wall(record)
         || is_pressure_plate(record)
+        || is_button(record)
         || is_gate(record)
         || is_carpet(record)
         || is_pane(record)
@@ -987,6 +1014,13 @@ struct PressurePlateTemplateKey {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct ButtonTemplateKey {
+    materials: [u32; 6],
+    orientation: u8,
+    pressed: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
 enum PaleMossCarpetSide {
     None = 0,
@@ -1107,6 +1141,7 @@ fn compile_visuals(
     let mut cuboid_template_by_key = BTreeMap::<CuboidTemplateKey, u32>::new();
     let mut wall_template_by_key = BTreeMap::<[u32; 7], u32>::new();
     let mut pressure_plate_template_by_key = BTreeMap::<PressurePlateTemplateKey, u32>::new();
+    let mut button_template_by_key = BTreeMap::<ButtonTemplateKey, u32>::new();
     let mut pale_moss_carpet_template_by_key = BTreeMap::<PaleMossCarpetTemplateKey, u32>::new();
     let mut gate_template_by_key = BTreeMap::<GateTemplateKey, u32>::new();
     let mut pane_template_by_key = BTreeMap::<[u32; 2], u32>::new();
@@ -1486,6 +1521,60 @@ fn compile_visuals(
                     });
                     model_quads.extend(pressure_plate_quads(materials, pressed));
                     pressure_plate_template_by_key.insert(key, template);
+                    template
+                };
+                visual.flags.remove(
+                    BlockFlags::AIR
+                        | BlockFlags::CUBE_GEOMETRY
+                        | BlockFlags::OCCLUDES_FULL_FACE
+                        | BlockFlags::LEAF_MODEL,
+                );
+                visual.faces = materials;
+                visual.kind = VisualKind::Model;
+                visual.model_template = template;
+            }
+        } else if is_button(record) {
+            let materials = BlockFace::ALL.map(|face| {
+                descriptor_for(pack, record, face)
+                    .and_then(|(descriptor, _)| material_by_descriptor.get(&descriptor).copied())
+            });
+            if let [
+                Some(west),
+                Some(east),
+                Some(down),
+                Some(up),
+                Some(north),
+                Some(south),
+            ] = materials
+                && let Some((orientation, pressed)) = button_state(record)
+            {
+                let materials = [west, east, down, up, north, south];
+                let key = ButtonTemplateKey {
+                    materials,
+                    orientation,
+                    pressed,
+                };
+                let template = if let Some(&template) = button_template_by_key.get(&key) {
+                    template
+                } else {
+                    let quads = button_quads(materials, orientation, pressed);
+                    let template = u32::try_from(model_templates.len()).map_err(|_| {
+                        AssetError::BlobSizeOverflow {
+                            section: "model template",
+                        }
+                    })?;
+                    let quad_start = u32::try_from(model_quads.len()).map_err(|_| {
+                        AssetError::BlobSizeOverflow {
+                            section: "model quad",
+                        }
+                    })?;
+                    model_templates.push(ModelTemplate {
+                        quad_start,
+                        quad_count: 6,
+                        flags: 0,
+                    });
+                    model_quads.extend(quads);
+                    button_template_by_key.insert(key, template);
                     template
                 };
                 visual.flags.remove(
@@ -1895,6 +1984,164 @@ fn compile_visuals(
         model_templates.into_boxed_slice(),
         model_quads.into_boxed_slice(),
     ))
+}
+
+fn button_state(record: &RegistryRecord) -> Option<(u8, bool)> {
+    const BUTTON_STATE_MASK: u8 = 0x81;
+    const PRESSED: u32 = 1 << 1;
+    if record.model_state.mask() != BUTTON_STATE_MASK {
+        return None;
+    }
+    let orientation = record.model_state.get(ModelStateField::Orientation)?;
+    let flags = record.model_state.get(ModelStateField::Flags)?;
+    if orientation > 5 || !matches!(flags, 0 | PRESSED) {
+        return None;
+    }
+    let state =
+        serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&record.canonical_state)
+            .ok()?;
+    if state.len() != 2 {
+        return None;
+    }
+    let pressed = match typed_model_state_value(&state, "button_pressed_bit", "byte")?.as_u64()? {
+        0 => false,
+        1 => true,
+        _ => return None,
+    };
+    let facing = typed_model_state_value(&state, "facing_direction", "int")?.as_u64()?;
+    if facing > 5 || facing != u64::from(orientation) || pressed != (flags == PRESSED) {
+        return None;
+    }
+    Some((orientation as u8, pressed))
+}
+
+fn button_bounds(orientation: u8, pressed: bool) -> ([i16; 3], [i16; 3]) {
+    // Java's pressed model is 1.02 pixels high. Packed model coordinates are
+    // 1/16 pixel, so use the nearest deterministic one-pixel representation;
+    // this also matches the pressed side UV strip exactly.
+    let height = if pressed { 16 } else { 32 };
+    match orientation {
+        0 => ([80, 256 - height, 96], [176, 256, 160]),
+        1 => ([80, 0, 96], [176, height, 160]),
+        2 => ([80, 96, 256 - height], [176, 160, 256]),
+        3 => ([80, 96, 0], [176, 160, height]),
+        4 => ([256 - height, 96, 80], [256, 160, 176]),
+        5 => ([0, 96, 80], [height, 160, 176]),
+        _ => unreachable!("button selectors are validated before geometry generation"),
+    }
+}
+
+fn button_rotated_face(face: BlockFace, orientation: u8) -> BlockFace {
+    const X_90: [BlockFace; 6] = [
+        BlockFace::West,
+        BlockFace::East,
+        BlockFace::South,
+        BlockFace::North,
+        BlockFace::Down,
+        BlockFace::Up,
+    ];
+    const Y_90: [BlockFace; 6] = [
+        BlockFace::North,
+        BlockFace::South,
+        BlockFace::Down,
+        BlockFace::Up,
+        BlockFace::East,
+        BlockFace::West,
+    ];
+    let yaw = |mut face: BlockFace, turns: u8| {
+        for _ in 0..turns {
+            face = Y_90[face as usize];
+        }
+        face
+    };
+    match orientation {
+        0 => match face {
+            BlockFace::Down => BlockFace::Up,
+            BlockFace::Up => BlockFace::Down,
+            BlockFace::North => BlockFace::South,
+            BlockFace::South => BlockFace::North,
+            horizontal => horizontal,
+        },
+        1 => face,
+        2 => X_90[face as usize],
+        3 => yaw(X_90[face as usize], 2),
+        4 => yaw(X_90[face as usize], 3),
+        5 => yaw(X_90[face as usize], 1),
+        _ => unreachable!("button selectors are validated before geometry generation"),
+    }
+}
+
+fn button_rotate_position([x, y, z]: [i16; 3], orientation: u8) -> [i16; 3] {
+    match orientation {
+        0 => [x, 256 - y, 256 - z],
+        1 => [x, y, z],
+        2 => [x, z, 256 - y],
+        3 => [256 - x, z, y],
+        4 => [256 - y, z, 256 - x],
+        5 => [y, z, x],
+        _ => unreachable!("button selectors are validated before geometry generation"),
+    }
+}
+
+fn button_face_uv(face: BlockFace, pressed: bool) -> [u16; 4] {
+    match face {
+        BlockFace::Down | BlockFace::Up => [5, 6, 11, 10],
+        BlockFace::North | BlockFace::South => [5, 14, 11, if pressed { 15 } else { 16 }],
+        BlockFace::West | BlockFace::East => [6, 14, 10, if pressed { 15 } else { 16 }],
+    }
+}
+
+fn button_quad(
+    material: u32,
+    min: [i16; 3],
+    max: [i16; 3],
+    face: BlockFace,
+    rect: [u16; 4],
+) -> ModelQuad {
+    let mut quad = cuboid_quads([material; 6], min, max)[face as usize];
+    let [u1, v1, u2, v2] = rect.map(|coordinate| coordinate * 256);
+    quad.uvs = match face {
+        BlockFace::West | BlockFace::South => [[u1, v2], [u2, v2], [u2, v1], [u1, v1]],
+        BlockFace::East | BlockFace::North => [[u1, v2], [u1, v1], [u2, v1], [u2, v2]],
+        BlockFace::Down => [[u1, v1], [u2, v1], [u2, v2], [u1, v2]],
+        BlockFace::Up => [[u1, v1], [u1, v2], [u2, v2], [u2, v1]],
+    };
+    quad.flags = face as u32;
+    quad
+}
+
+fn button_quads(materials: [u32; 6], orientation: u8, pressed: bool) -> [ModelQuad; 6] {
+    let height = if pressed { 16 } else { 32 };
+    let source_min = [80, 0, 96];
+    let source_max = [176, height, 160];
+    let (target_min, target_max) = button_bounds(orientation, pressed);
+    BlockFace::ALL.map(|source_face| {
+        let target_face = button_rotated_face(source_face, orientation);
+        if orientation <= 1 {
+            let mut quad = button_quad(
+                materials[target_face as usize],
+                source_min,
+                source_max,
+                source_face,
+                button_face_uv(source_face, pressed),
+            );
+            quad.positions = quad
+                .positions
+                .map(|position| button_rotate_position(position, orientation));
+            quad.flags = target_face as u32;
+            quad
+        } else {
+            // Java wall variants are UV-locked: rotate the face and bounds,
+            // then map the source rectangle using the target face convention.
+            button_quad(
+                materials[target_face as usize],
+                target_min,
+                target_max,
+                target_face,
+                button_face_uv(source_face, pressed),
+            )
+        }
+    })
 }
 
 fn carpet_state(record: &RegistryRecord) -> Option<CarpetState> {

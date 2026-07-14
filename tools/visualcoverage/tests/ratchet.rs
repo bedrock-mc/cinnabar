@@ -61,6 +61,17 @@ fn committed_protocol_baseline_binds_the_complete_corpus_and_all_vines() {
             .binary_search(&record.sequential_id)
             .is_err()
     }));
+    let buttons = records
+        .iter()
+        .filter(|record| record.model_family == ModelFamily::Button)
+        .collect::<Vec<_>>();
+    assert_eq!(buttons.len(), 168);
+    assert!(buttons.iter().all(|record| {
+        baseline
+            .diagnostic_sequential_ids
+            .binary_search(&record.sequential_id)
+            .is_err()
+    }));
 }
 
 fn fixture_records() -> Vec<RegistryRecord> {
@@ -1913,7 +1924,7 @@ fn strict_bytes_computes_and_binds_production_input_hashes() {
 
 #[test]
 #[ignore = "requires CINNABAR_REAL_PACK pointing at the ignored pinned MCBEAS04 blob"]
-fn production_ratchet_reports_exact_gate_removals_for_the_full_real_pack() {
+fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
     let assets_path = std::env::var_os("CINNABAR_REAL_PACK")
         .map(std::path::PathBuf::from)
         .expect("set CINNABAR_REAL_PACK to the ignored pinned vanilla-v1001.mcbea");
@@ -1929,8 +1940,8 @@ fn production_ratchet_reports_exact_gate_removals_for_the_full_real_pack() {
     .expect("parse committed production baseline");
     let current = analyze_bytes(&registry_bytes, &assets_bytes).unwrap();
     assert_eq!(current.states.len(), 16_913);
-    assert_eq!(baseline.diagnostic_sequential_ids.len(), 8_122);
-    assert_eq!(current.diagnostic_states.len(), 8_122);
+    assert_eq!(baseline.diagnostic_sequential_ids.len(), 7_954);
+    assert_eq!(current.diagnostic_states.len(), 7_954);
 
     let expected_gate_ids = records
         .iter()
@@ -1950,7 +1961,7 @@ fn production_ratchet_reports_exact_gate_removals_for_the_full_real_pack() {
         .diagnostic_sequential_ids
         .extend(expected_gate_ids.iter().copied());
     pre_gate_baseline.diagnostic_sequential_ids.sort_unstable();
-    assert_eq!(pre_gate_baseline.diagnostic_sequential_ids.len(), 8_314);
+    assert_eq!(pre_gate_baseline.diagnostic_sequential_ids.len(), 8_146);
     let report = ratchet_protocol_1001(current.clone(), &pre_gate_baseline)
         .expect("run exact pre-Gate production ratchet");
     assert!(report.added_diagnostics.is_empty());
@@ -1987,7 +1998,7 @@ fn production_ratchet_reports_exact_gate_removals_for_the_full_real_pack() {
     pre_carpet_baseline
         .diagnostic_sequential_ids
         .sort_unstable();
-    assert_eq!(pre_carpet_baseline.diagnostic_sequential_ids.len(), 8_301);
+    assert_eq!(pre_carpet_baseline.diagnostic_sequential_ids.len(), 8_133);
     let report = ratchet_protocol_1001(current.clone(), &pre_carpet_baseline)
         .expect("run exact pre-Carpet production ratchet");
     assert!(report.added_diagnostics.is_empty());
@@ -2004,6 +2015,43 @@ fn production_ratchet_reports_exact_gate_removals_for_the_full_real_pack() {
         .map(|state| state.sequential_id)
         .collect::<Vec<_>>();
     assert_eq!(removed_ids, expected_carpet_ids);
+
+    let expected_button_ids = records
+        .iter()
+        .filter(|record| record.model_family == ModelFamily::Button)
+        .map(|record| record.sequential_id)
+        .collect::<Vec<_>>();
+    assert_eq!(expected_button_ids.len(), 168);
+    assert!(expected_button_ids.iter().all(|id| {
+        baseline
+            .diagnostic_sequential_ids
+            .binary_search(id)
+            .is_err()
+    }));
+    let mut pre_button_baseline = baseline.clone();
+    pre_button_baseline
+        .diagnostic_sequential_ids
+        .extend(expected_button_ids.iter().copied());
+    pre_button_baseline
+        .diagnostic_sequential_ids
+        .sort_unstable();
+    assert_eq!(pre_button_baseline.diagnostic_sequential_ids.len(), 8_122);
+    let report = ratchet_protocol_1001(current.clone(), &pre_button_baseline)
+        .expect("run exact pre-Button production ratchet");
+    assert!(report.added_diagnostics.is_empty());
+    assert_eq!(report.removed_diagnostics.len(), 168);
+    assert!(
+        report
+            .removed_diagnostics
+            .iter()
+            .all(|state| state.model_family == "button")
+    );
+    let removed_ids = report
+        .removed_diagnostics
+        .iter()
+        .map(|state| state.sequential_id)
+        .collect::<Vec<_>>();
+    assert_eq!(removed_ids, expected_button_ids);
 
     let refreshed = ratchet_protocol_1001(current, &baseline)
         .expect("run refreshed production coverage ratchet");
