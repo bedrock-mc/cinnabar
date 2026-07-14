@@ -50,6 +50,127 @@ use world::{DecodedBiomeColumn, SubChunk, SubChunkKey};
 
 const AIR: u32 = 12_530;
 
+fn standalone_world_shader(source: &str) -> String {
+    let lighting = include_str!("../src/lighting.wgsl").replacen(
+        "#define_import_path cinnabar::lighting",
+        "",
+        1,
+    );
+    source
+        .replacen(
+            "#import bevy_render::view::View",
+            "struct View { clip_from_world: mat4x4<f32>, world_position: vec3<f32>, }",
+            1,
+        )
+        .replacen(
+            "#import cinnabar::lighting::{light_ao_factor, light_brightness, lit_colour}",
+            &lighting,
+            1,
+        )
+}
+
+fn entry_points_use_binding(module: &naga::Module, stage: naga::ShaderStage, binding: u32) -> bool {
+    let Some((handle, _)) = module.global_variables.iter().find(|(_, variable)| {
+        variable
+            .binding
+            .as_ref()
+            .is_some_and(|resource| resource.group == 0 && resource.binding == binding)
+    }) else {
+        return false;
+    };
+    let mut entries = module
+        .entry_points
+        .iter()
+        .filter(|entry| entry.stage == stage)
+        .peekable();
+    entries.peek().is_some()
+        && entries.all(|entry| function_uses_global(module, &entry.function, handle, 0))
+}
+
+fn function_uses_global(
+    module: &naga::Module,
+    function: &naga::Function,
+    global: naga::Handle<naga::GlobalVariable>,
+    depth: usize,
+) -> bool {
+    if function.expressions.iter().any(|(_, expression)| {
+        matches!(expression, naga::Expression::GlobalVariable(handle) if *handle == global)
+    }) {
+        return true;
+    }
+    if depth >= 16 {
+        return false;
+    }
+    let mut calls = Vec::new();
+    collect_function_calls(&function.body, &mut calls);
+    calls
+        .into_iter()
+        .any(|handle| function_uses_global(module, &module.functions[handle], global, depth + 1))
+}
+
+fn collect_function_calls(block: &naga::Block, calls: &mut Vec<naga::Handle<naga::Function>>) {
+    for statement in block {
+        match statement {
+            naga::Statement::Call { function, .. } => calls.push(*function),
+            naga::Statement::Block(block) => collect_function_calls(block, calls),
+            naga::Statement::If { accept, reject, .. } => {
+                collect_function_calls(accept, calls);
+                collect_function_calls(reject, calls);
+            }
+            naga::Statement::Switch { cases, .. } => {
+                for case in cases {
+                    collect_function_calls(&case.body, calls);
+                }
+            }
+            naga::Statement::Loop {
+                body, continuing, ..
+            } => {
+                collect_function_calls(body, calls);
+                collect_function_calls(continuing, calls);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn entry_points_call_function(
+    module: &naga::Module,
+    stage: naga::ShaderStage,
+    function_name: &str,
+) -> bool {
+    let Some((target, _)) = module
+        .functions
+        .iter()
+        .find(|(_, function)| function.name.as_deref() == Some(function_name))
+    else {
+        return false;
+    };
+    let mut entries = module
+        .entry_points
+        .iter()
+        .filter(|entry| entry.stage == stage)
+        .peekable();
+    entries.peek().is_some()
+        && entries.all(|entry| function_calls(module, &entry.function, target, 0))
+}
+
+fn function_calls(
+    module: &naga::Module,
+    function: &naga::Function,
+    target: naga::Handle<naga::Function>,
+    depth: usize,
+) -> bool {
+    if depth >= 16 {
+        return false;
+    }
+    let mut calls = Vec::new();
+    collect_function_calls(&function.body, &mut calls);
+    calls.contains(&target)
+        || calls
+            .into_iter()
+            .any(|handle| function_calls(module, &module.functions[handle], target, depth + 1))
+}
+
 #[test]
 fn chunk_sampler_source_contract_is_crisp_for_magnification_and_filtered_for_mips() {
     let source = include_str!("../src/plugin.rs");
@@ -81,15 +202,12 @@ fn shared_biome_bindings_are_visible_to_vertex_and_fragment_pipelines() {
 
 #[test]
 fn fragment_view_reads_are_covered_by_the_shared_chunk_layout() {
-    let view_definition =
-        "struct View { clip_from_world: mat4x4<f32>, world_position: vec3<f32>, }";
-
     for (name, source) in [
         ("chunk", include_str!("../src/chunk.wgsl")),
         ("model", include_str!("../src/model.wgsl")),
         ("liquid", include_str!("../src/liquid.wgsl")),
     ] {
-        let shader = source.replacen("#import bevy_render::view::View", view_definition, 1);
+        let shader = standalone_world_shader(source);
         let module = naga::front::wgsl::parse_str(&shader)
             .unwrap_or_else(|error| panic!("parse {name} WGSL: {error}"));
         let info = naga::valid::Validator::new(
@@ -750,11 +868,7 @@ fn opaque_model_pipeline_selects_its_fragment_entry_point_explicitly() {
 
 #[test]
 fn crossed_model_shader_parses_validates_and_has_one_shared_binding_shape() {
-    let shader = include_str!("../src/model.wgsl").replacen(
-        "#import bevy_render::view::View",
-        "struct View { clip_from_world: mat4x4<f32>, world_position: vec3<f32>, }",
-        1,
-    );
+    let shader = standalone_world_shader(include_str!("../src/model.wgsl"));
     let module = naga::front::wgsl::parse_str(&shader).expect("parse packed model WGSL");
     naga::valid::Validator::new(
         naga::valid::ValidationFlags::all(),
@@ -793,9 +907,10 @@ fn transparent_model_pipeline_blends_without_depth_write_or_alpha_cutoff() {
         .find("fn fragment_blend(")
         .expect("transparent model fragment entry point");
     let blend_body = &shader[blend_start..];
-    assert!(blend_body.contains(
-        "return vec4(apply_distance_fog(colour.rgb * in.light_factor, in.world_position), colour.a);"
-    ));
+    assert!(blend_body.contains("let lit = lit_colour("));
+    assert!(
+        blend_body.contains("return vec4(apply_distance_fog(lit, in.world_position), colour.a);")
+    );
     assert!(
         shader.contains("return vec4(sampled.rgb, sampled.a);")
             && shader
@@ -1609,11 +1724,7 @@ fn upload_budget_is_nearest_first_and_queue_supports_update_remove() {
 
 #[test]
 fn packed_chunk_shader_parses_and_validates() {
-    let shader = include_str!("../src/chunk.wgsl").replacen(
-        "#import bevy_render::view::View",
-        "struct View { clip_from_world: mat4x4<f32>, world_position: vec3<f32>, }",
-        1,
-    );
+    let shader = standalone_world_shader(include_str!("../src/chunk.wgsl"));
     let module = naga::front::wgsl::parse_str(&shader).expect("parse packed chunk WGSL");
     naga::valid::Validator::new(
         naga::valid::ValidationFlags::all(),
@@ -1622,7 +1733,7 @@ fn packed_chunk_shader_parses_and_validates() {
     .validate(&module)
     .expect("validate packed chunk WGSL");
 
-    assert_eq!(shader.matches("@group(0) @binding(").count(), 13);
+    assert_eq!(shader.matches("@group(0) @binding(").count(), 14);
     for binding in 0..=11 {
         assert!(
             shader.contains(&format!("@group(0) @binding({binding})")),
@@ -1683,6 +1794,95 @@ fn packed_chunk_shader_parses_and_validates() {
     assert!(shader.contains("var<storage, read> animation_frames: array<u32>"));
     assert!(shader.contains("var<uniform> clock: AnimationClockGpu"));
     assert!(!shader.contains("debug_color"));
+}
+
+#[test]
+fn world_shaders_share_light_curve_channels_and_fragment_only_daylight() {
+    let plugin = include_str!("../src/plugin.rs").replace("\r\n", "\n");
+    let lighting = include_str!("../src/lighting.wgsl");
+    assert_eq!(
+        lighting
+            .matches("const LIGHT_CURVE: array<f32, 16>")
+            .count(),
+        1
+    );
+    assert_eq!(lighting.matches("fn lit_colour(").count(), 1);
+    assert!(lighting.contains("let block_contribution = vec3("));
+    assert!(lighting.contains("let sky_contribution = vec3("));
+    assert!(lighting.contains("let combined = max(block_contribution, sky_contribution)"));
+    assert!(lighting.contains("return colour * combined * clamp(ao_factor, 0.0, 1.0)"));
+    assert!(lighting.contains("fn light_brightness(level: u32)"));
+    assert!(lighting.contains("fn light_ao_factor(level: u32)"));
+    for shader in [
+        include_str!("../src/chunk.wgsl"),
+        include_str!("../src/model.wgsl"),
+        include_str!("../src/liquid.wgsl"),
+    ] {
+        assert!(shader.contains(
+            "#import cinnabar::lighting::{light_ao_factor, light_brightness, lit_colour}"
+        ));
+        assert!(!shader.contains("const LIGHT_CURVE: array<f32, 16>"));
+        assert!(!shader.contains("fn lit_colour("));
+        assert!(shader.contains("block_light"));
+        assert!(shader.contains("sky_light"));
+        assert!(shader.contains("ambient_occlusion"));
+        let vertex = shader.split("@fragment").next().unwrap();
+        assert!(!vertex.contains("atmosphere.sun_direction_daylight.w"));
+        let fragment = shader.split("@fragment").nth(1).unwrap();
+        assert!(fragment.contains("atmosphere.sun_direction_daylight.w"));
+
+        let standalone = standalone_world_shader(shader);
+        let module = naga::front::wgsl::parse_str(&standalone).expect("parse world shader");
+        naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::all(),
+        )
+        .validate(&module)
+        .expect("validate world shader");
+        assert!(entry_points_use_binding(
+            &module,
+            naga::ShaderStage::Vertex,
+            13
+        ));
+        assert!(!entry_points_use_binding(
+            &module,
+            naga::ShaderStage::Vertex,
+            15
+        ));
+        assert!(entry_points_use_binding(
+            &module,
+            naga::ShaderStage::Fragment,
+            15
+        ));
+        assert!(entry_points_call_function(
+            &module,
+            naga::ShaderStage::Vertex,
+            "light_brightness"
+        ));
+        assert!(!entry_points_call_function(
+            &module,
+            naga::ShaderStage::Fragment,
+            "light_brightness"
+        ));
+    }
+    assert!(plugin.contains("binding: 13,\n                    visibility: ShaderStages::VERTEX"));
+    assert!(
+        plugin.contains("binding: 15,\n                    visibility: ShaderStages::FRAGMENT")
+    );
+    assert!(!plugin.contains("binding: 15,\n                    visibility: ShaderStages::VERTEX"));
+}
+
+#[test]
+fn chunk_shader_reads_cube_light_from_expanded_origin_without_changing_bindings() {
+    let shader = include_str!("../src/chunk.wgsl");
+    assert!(shader.contains("struct ChunkOrigin"));
+    assert!(shader.contains("cube_bases: vec4<u32>"));
+    assert!(shader.contains("@binding(13) var<storage, read> geometry_streams: array<u32>"));
+    assert!(shader.contains("let local_quad_index = instance_index - chunk_origin.cube_bases.x"));
+    assert!(shader.contains("chunk_origin.cube_bases.y + local_quad_index"));
+    assert_eq!(shader.matches("@group(0) @binding(").count(), 14);
+    assert_eq!(std::mem::size_of::<PackedQuad>(), 8);
+    assert_eq!(std::mem::size_of::<render::PackedQuadLighting>(), 8);
 }
 
 fn uniform_biome_record(tint_index: u32) -> PackedBiomeRecord {

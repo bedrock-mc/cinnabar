@@ -1,6 +1,7 @@
 #import bevy_render::view::View
+#import cinnabar::lighting::{light_ao_factor, light_brightness, lit_colour}
 
-struct ChunkOrigin { value: vec4<i32> }
+struct ChunkOrigin { value: vec4<i32>, cube_bases: vec4<u32> }
 struct MaterialGpu { texture: u32, flags: u32, animation: u32 }
 struct AnimationGpu { frame_start: u32, frame_count: u32, ticks_per_frame: u32, flags: u32 }
 struct AnimationClockGpu { tick: u32, partial_tick: f32, padding_0: u32, padding_1: u32 }
@@ -41,9 +42,11 @@ struct VertexOutput {
     @location(6) @interpolate(flat) next_texture: u32,
     @location(7) @interpolate(flat) frame_blend: f32,
     @location(8) @interpolate(flat) visible: u32,
-    @location(9) light_factor: f32,
-    @location(10) @interpolate(flat) two_sided: u32,
-    @location(11) world_position: vec3<f32>,
+    @location(9) block_light: f32,
+    @location(10) sky_light: f32,
+    @location(11) ambient_occlusion: f32,
+    @location(12) @interpolate(flat) two_sided: u32,
+    @location(13) world_position: vec3<f32>,
 }
 
 struct FrameSample { current: u32, next: u32, blend: f32 }
@@ -60,7 +63,9 @@ fn invisible_vertex() -> VertexOutput {
     invisible.next_texture = 0u;
     invisible.frame_blend = 0.0;
     invisible.visible = 0u;
-    invisible.light_factor = 0.0;
+    invisible.block_light = 0.0;
+    invisible.sky_light = 0.0;
+    invisible.ambient_occlusion = 0.0;
     invisible.two_sided = 0u;
     invisible.world_position = vec3(0.0);
     return invisible;
@@ -206,7 +211,9 @@ fn vertex(
     out.next_texture = frame.next;
     out.frame_blend = frame.blend;
     out.visible = is_visible;
-    out.light_factor = max(block_light, sky_light) / 15.0 * (1.0 - ao * 0.12);
+    out.block_light = light_brightness(u32(block_light));
+    out.sky_light = light_brightness(u32(sky_light));
+    out.ambient_occlusion = light_ao_factor(u32(ao));
     out.two_sided = select(0u, 1u, (quad_flags & 8u) != 0u);
     out.world_position = world;
     return out;
@@ -275,7 +282,14 @@ fn fragment(
     }
     if (sampled.a < 0.5) { discard; }
     let colour = tinted(sampled, in.material_flags, in.biome_record, in.local_position);
-    return vec4(apply_distance_fog(colour.rgb * in.light_factor, in.world_position), colour.a);
+    let lit = lit_colour(
+        colour.rgb,
+        in.block_light,
+        in.sky_light,
+        in.ambient_occlusion,
+        atmosphere.sun_direction_daylight.w,
+    );
+    return vec4(apply_distance_fog(lit, in.world_position), colour.a);
 }
 
 @fragment
@@ -294,5 +308,12 @@ fn fragment_blend(
     let colour = tinted(sampled, in.material_flags, in.biome_record, in.local_position);
     // The background is fogged by the same transfer, so preserving source
     // alpha composes to one fog application instead of double-counting it.
-    return vec4(apply_distance_fog(colour.rgb * in.light_factor, in.world_position), colour.a);
+    let lit = lit_colour(
+        colour.rgb,
+        in.block_light,
+        in.sky_light,
+        in.ambient_occlusion,
+        atmosphere.sun_direction_daylight.w,
+    );
+    return vec4(apply_distance_fog(lit, in.world_position), colour.a);
 }

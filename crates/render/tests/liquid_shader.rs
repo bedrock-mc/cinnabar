@@ -7,11 +7,22 @@ use render::Face;
 const SHADER: &str = include_str!("../src/liquid.wgsl");
 
 fn shader_for_naga() -> String {
-    SHADER.replacen(
-        "#import bevy_render::view::View",
-        "struct View { clip_from_world: mat4x4<f32>, world_position: vec3<f32>, }",
+    let lighting = include_str!("../src/lighting.wgsl").replacen(
+        "#define_import_path cinnabar::lighting",
+        "",
         1,
-    )
+    );
+    SHADER
+        .replacen(
+            "#import bevy_render::view::View",
+            "struct View { clip_from_world: mat4x4<f32>, world_position: vec3<f32>, }",
+            1,
+        )
+        .replacen(
+            "#import cinnabar::lighting::{light_ao_factor, light_brightness, lit_colour}",
+            &lighting,
+            1,
+        )
 }
 
 fn assert_uv_close(actual: [f32; 2], expected: [f32; 2], context: &str) {
@@ -218,7 +229,8 @@ fn liquid_shader_preserves_straight_alpha_animation_tint_and_light() {
     assert!(SHADER.contains("textureSampleGrad(block_textures_page_1"));
     assert!(SHADER.contains("mix(current_sample, next_sample, in.frame_blend)"));
     assert!(SHADER.contains("out.water_tint = unpack_linear_rgb10(tint.water)"));
-    assert!(SHADER.contains("let colour = sampled.rgb * in.water_tint * in.light_factor"));
+    assert!(SHADER.contains("let colour = lit_colour("));
+    assert!(SHADER.contains("sampled.rgb * in.water_tint,"));
     assert!(SHADER.contains("apply_distance_fog(colour, in.world_position)"));
     assert!(!SHADER.contains("sampled.rgb * sampled.a"));
     assert!(!SHADER.contains("sampled.a <"));
@@ -274,5 +286,6 @@ fn liquid_shader_resolves_block_biome_tint_before_fragment_rasterization() {
             "liquid fragment stage repeated vertex-only tint work: {forbidden}",
         );
     }
-    assert!(fragment.contains("sampled.rgb * in.water_tint * in.light_factor"));
+    assert!(fragment.contains("let colour = lit_colour("));
+    assert!(fragment.contains("sampled.rgb * in.water_tint,"));
 }

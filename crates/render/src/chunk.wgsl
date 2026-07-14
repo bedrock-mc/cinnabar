@@ -1,4 +1,5 @@
 #import bevy_render::view::View
+#import cinnabar::lighting::{light_ao_factor, light_brightness, lit_colour}
 
 struct PackedQuad {
     geometry: u32,
@@ -7,6 +8,7 @@ struct PackedQuad {
 
 struct ChunkOrigin {
     value: vec4<i32>,
+    cube_bases: vec4<u32>,
 }
 
 struct MaterialGpu {
@@ -61,6 +63,7 @@ struct AtmosphereUniform {
 @group(0) @binding(9) var<storage, read> animations: array<AnimationGpu>;
 @group(0) @binding(10) var<storage, read> animation_frames: array<u32>;
 @group(0) @binding(11) var<uniform> clock: AnimationClockGpu;
+@group(0) @binding(13) var<storage, read> geometry_streams: array<u32>;
 @group(0) @binding(15) var<uniform> atmosphere: AtmosphereUniform;
 
 struct AnimationFrameSampleGpu {
@@ -99,6 +102,9 @@ struct VertexOutput {
     @location(6) @interpolate(flat) next_texture: u32,
     @location(7) @interpolate(flat) frame_blend: f32,
     @location(8) world_position: vec3<f32>,
+    @location(9) block_light: f32,
+    @location(10) sky_light: f32,
+    @location(11) ambient_occlusion: f32,
 }
 
 fn quad_corner(face: u32, corner: u32, origin: vec3<f32>, width: f32, height: f32) -> vec3<f32> {
@@ -237,6 +243,14 @@ fn vertex(
     let metadata_index = vertex_index / 4u;
     let corner = vertex_index & 3u;
     let chunk_origin = chunk_origins[metadata_index];
+    let local_quad_index = instance_index - chunk_origin.cube_bases.x;
+    let lighting_record_index = chunk_origin.cube_bases.y + local_quad_index;
+    let lighting_word = geometry_streams[lighting_record_index * 2u + corner / 2u];
+    let light_sample = select(
+        lighting_word & 0xffffu,
+        lighting_word >> 16u,
+        (corner & 1u) != 0u,
+    );
     let local_position = quad_corner(face, corner, local_origin, width, height);
     let world_position = vec3<f32>(chunk_origin.value.xyz) + local_position;
     let material = materials[quad.material_id];
@@ -253,6 +267,9 @@ fn vertex(
     out.next_texture = animation_sample.next_texture;
     out.frame_blend = animation_sample.blend;
     out.world_position = world_position;
+    out.block_light = light_brightness(light_sample & 15u);
+    out.sky_light = light_brightness((light_sample >> 4u) & 15u);
+    out.ambient_occlusion = light_ao_factor((light_sample >> 8u) & 3u);
     return out;
 }
 
@@ -386,5 +403,12 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         in.local_position,
         in.normal,
     );
-    return vec4(apply_distance_fog(colour.rgb, in.world_position), colour.a);
+    let lit = lit_colour(
+        colour.rgb,
+        in.block_light,
+        in.sky_light,
+        in.ambient_occlusion,
+        atmosphere.sun_direction_daylight.w,
+    );
+    return vec4(apply_distance_fog(lit, in.world_position), colour.a);
 }

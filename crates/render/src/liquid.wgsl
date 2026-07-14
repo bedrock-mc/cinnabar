@@ -1,6 +1,7 @@
 #import bevy_render::view::View
+#import cinnabar::lighting::{light_ao_factor, light_brightness, lit_colour}
 
-struct ChunkOrigin { value: vec4<i32> }
+struct ChunkOrigin { value: vec4<i32>, cube_bases: vec4<u32> }
 struct MaterialGpu { texture: u32, flags: u32, animation: u32 }
 struct AnimationGpu { frame_start: u32, frame_count: u32, ticks_per_frame: u32, flags: u32 }
 struct AnimationClockGpu { tick: u32, partial_tick: f32, padding_0: u32, padding_1: u32 }
@@ -69,9 +70,11 @@ struct VertexOutput {
     @location(2) @interpolate(flat) next_texture: u32,
     @location(3) @interpolate(flat) frame_blend: f32,
     @location(4) @interpolate(flat) water_tint: vec3<f32>,
-    @location(5) light_factor: f32,
-    @location(6) @interpolate(flat) depth_write_route: u32,
-    @location(7) world_position: vec3<f32>,
+    @location(5) block_light: f32,
+    @location(6) sky_light: f32,
+    @location(7) ambient_occlusion: f32,
+    @location(8) @interpolate(flat) depth_write_route: u32,
+    @location(9) world_position: vec3<f32>,
 }
 
 fn animation_sample(material: MaterialGpu) -> FrameSample {
@@ -219,7 +222,9 @@ fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutp
     out.next_texture = frame.next;
     out.frame_blend = frame.blend;
     out.water_tint = unpack_linear_rgb10(tint.water);
-    out.light_factor = max(block_light, sky_light) / 15.0 * (1.0 - ao * 0.12);
+    out.block_light = light_brightness(u32(block_light));
+    out.sky_light = light_brightness(u32(sky_light));
+    out.ambient_occlusion = light_ao_factor(u32(ao));
     out.depth_write_route = packed_material >> 31u;
     out.world_position = world_position;
     return out;
@@ -276,7 +281,13 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         let next_sample = sample_texture_ref(in.next_texture, in.uv, dx, dy);
         sampled = mix(current_sample, next_sample, in.frame_blend);
     }
-    let colour = sampled.rgb * in.water_tint * in.light_factor;
+    let colour = lit_colour(
+        sampled.rgb * in.water_tint,
+        in.block_light,
+        in.sky_light,
+        in.ambient_occlusion,
+        atmosphere.sun_direction_daylight.w,
+    );
     // The background is fogged by the same transfer, so preserving source
     // alpha composes to one fog application instead of double-counting it.
     return vec4(apply_distance_fog(colour, in.world_position), sampled.a);
@@ -293,5 +304,12 @@ fn fragment_depth(in: VertexOutput) -> @location(0) vec4<f32> {
         let next_sample = sample_texture_ref(in.next_texture, in.uv, dx, dy);
         sampled = mix(current_sample, next_sample, in.frame_blend);
     }
-    return vec4(apply_distance_fog(sampled.rgb * in.light_factor, in.world_position), 1.0);
+    let lit = lit_colour(
+        sampled.rgb,
+        in.block_light,
+        in.sky_light,
+        in.ambient_occlusion,
+        atmosphere.sun_direction_daylight.w,
+    );
+    return vec4(apply_distance_fog(lit, in.world_position), 1.0);
 }
