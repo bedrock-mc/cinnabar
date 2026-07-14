@@ -2274,7 +2274,7 @@ fn strict_bytes_computes_and_binds_production_input_hashes() {
 }
 
 #[test]
-#[ignore = "requires CINNABAR_REAL_PACK pointing at the ignored pinned MCBEAS04 blob"]
+#[ignore = "requires CINNABAR_REAL_PACK pointing at the ignored pinned MCBEAS05 blob"]
 fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
     let assets_path = std::env::var_os("CINNABAR_REAL_PACK")
         .map(std::path::PathBuf::from)

@@ -90,7 +90,7 @@ fn mcbeas05_exact_bytes() {
     ]
     .into_boxed_slice();
 
-    let bytes = encode_blob(&fixture).expect("encode every MCBEAS04 table");
+    let bytes = encode_blob(&fixture).expect("encode every MCBEAS05 table");
     assert_eq!(bytes.len(), 1_576_168);
     assert_eq!(
         format!("{:x}", Sha256::digest(&bytes)),

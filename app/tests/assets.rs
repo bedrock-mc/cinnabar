@@ -93,7 +93,7 @@ fn synthetic_blob() -> Box<[u8]> {
 
 #[test]
 fn workspace_consumers_accept_empty_new_tables() {
-    let runtime = ::assets::RuntimeAssets::decode(&synthetic_blob()).expect("decode MCBEAS04");
+    let runtime = ::assets::RuntimeAssets::decode(&synthetic_blob()).expect("decode MCBEAS05");
     assert!(runtime.model_templates().is_empty());
     assert!(runtime.model_quads().is_empty());
     assert!(runtime.animations().is_empty());
@@ -268,4 +268,42 @@ fn documented_commands_target_only_ignored_local_asset_paths() {
         )
     );
     assert!(Path::new(DEFAULT_ASSET_PATH).starts_with(".local/assets"));
+}
+
+#[test]
+fn make_client_rebuilds_only_a_missing_or_stale_asset_blob() {
+    let makefile = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("Makefile"),
+    )
+    .unwrap()
+    .replace("\r\n", "\n");
+
+    for contract in [
+        "LIGHT_REGISTRY ?= crates/assets/data/block-light-registry-v1001.bin",
+        concat!(
+            "ASSET_COMPILER_INPUTS := Cargo.toml Cargo.lock crates/assets/Cargo.toml Makefile ",
+            "$(wildcard crates/assets/src/*.rs) $(wildcard crates/assets/src/bin/*.rs)"
+        ),
+        concat!(
+            "$(ASSET_BLOB): $(ASSET_COMPILER_INPUTS) $(BLOCK_REGISTRY) ",
+            "$(LIGHT_REGISTRY) $(BIOME_REGISTRY)"
+        ),
+        "assets: $(ASSET_BLOB)",
+        "client: $(ASSET_BLOB)",
+        "--light-registry \"$(LIGHT_REGISTRY)\"",
+    ] {
+        assert!(
+            makefile.contains(contract),
+            "missing Makefile contract: {contract}"
+        );
+    }
+
+    let phony = makefile
+        .lines()
+        .find(|line| line.starts_with(".PHONY:"))
+        .expect("Makefile has a .PHONY declaration");
+    assert!(!phony.split_whitespace().any(|word| word == "$(ASSET_BLOB)"));
 }

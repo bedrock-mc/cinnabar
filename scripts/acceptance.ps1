@@ -2168,21 +2168,21 @@ function Get-CrossCropCoverageEvidence {
     }
 
     $assetBytes = [IO.File]::ReadAllBytes($AssetsPath)
-    if ($assetBytes.Length -lt 200 -or $utf8.GetString($assetBytes, 0, 8) -cne 'MCBEAS04' -or
-        [BitConverter]::ToUInt32($assetBytes, 8) -ne 4) {
-        throw 'cross/crop coverage requires an MCBEAS04 compiled asset blob'
+    if ($assetBytes.Length -lt 200 -or $utf8.GetString($assetBytes, 0, 8) -cne 'MCBEAS05' -or
+        [BitConverter]::ToUInt32($assetBytes, 8) -ne 5) {
+        throw 'cross/crop coverage requires an MCBEAS05 compiled asset blob'
     }
     $visualCount = [BitConverter]::ToUInt32($assetBytes, 20)
     $visualOffset = [BitConverter]::ToUInt64($assetBytes, 96)
     if ($visualOffset -gt [uint64]$assetBytes.Length -or
         [uint64]$visualCount * 40 -gt [uint64]$assetBytes.Length - $visualOffset) {
-        throw 'MCBEAS04 visual table is out of bounds'
+        throw 'MCBEAS05 visual table is out of bounds'
     }
     $diagnosticCross = 0
     $diagnosticCrop = 0
     foreach ($entry in $entries) {
         if ([uint64]$entry.sequential_id -ge [uint64]$visualCount) {
-            throw "registry sequential ID $($entry.sequential_id) is absent from the MCBEAS04 visual table"
+            throw "registry sequential ID $($entry.sequential_id) is absent from the MCBEAS05 visual table"
         }
         $offset = [int]($visualOffset + 40 * [uint64]$entry.sequential_id)
         $isDiagnostic = $assetBytes[$offset + 25] -ne 2 -or [BitConverter]::ToUInt32($assetBytes, $offset + 28) -eq [uint32]::MaxValue
@@ -2206,7 +2206,7 @@ function Get-CrossCropCoverageEvidence {
     return [pscustomobject][ordered]@{
         schema = 'rust-mcbe-cross-crop-coverage-v1'
         registry_protocol = 1001
-        compiler_schema = 'MCBEAS04'
+        compiler_schema = 'MCBEAS05'
         registry_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $RegistryPath).Hash.ToLowerInvariant()
         assets_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $AssetsPath).Hash.ToLowerInvariant()
         state_set_sha256 = $stateSetHash
@@ -2382,20 +2382,20 @@ function Get-AquaticCoverageEvidence {
     }
 
     $assetBytes = [IO.File]::ReadAllBytes($AssetsPath)
-    if ($assetBytes.Length -lt 200 -or $utf8.GetString($assetBytes, 0, 8) -cne 'MCBEAS04' -or
-        [BitConverter]::ToUInt32($assetBytes, 8) -ne 4) {
-        throw 'aquatic coverage requires an MCBEAS04 compiled asset blob'
+    if ($assetBytes.Length -lt 200 -or $utf8.GetString($assetBytes, 0, 8) -cne 'MCBEAS05' -or
+        [BitConverter]::ToUInt32($assetBytes, 8) -ne 5) {
+        throw 'aquatic coverage requires an MCBEAS05 compiled asset blob'
     }
     $visualCount = [BitConverter]::ToUInt32($assetBytes, 20)
     $visualOffset = [BitConverter]::ToUInt64($assetBytes, 96)
     if ($visualOffset -gt [uint64]$assetBytes.Length -or
         [uint64]$visualCount * 40 -gt [uint64]$assetBytes.Length - $visualOffset) {
-        throw 'MCBEAS04 visual table is out of bounds'
+        throw 'MCBEAS05 visual table is out of bounds'
     }
     $diagnosticCount = 0
     foreach ($entry in $entries) {
         if ([uint64]$entry.sequential_id -ge [uint64]$visualCount) {
-            throw "registry sequential ID $($entry.sequential_id) is absent from the MCBEAS04 visual table"
+            throw "registry sequential ID $($entry.sequential_id) is absent from the MCBEAS05 visual table"
         }
         $offset = [int]($visualOffset + 40 * [uint64]$entry.sequential_id)
         $expectedKind = if ($entry.name -ceq 'minecraft:seagrass') { 2 } else { 3 }
@@ -2418,7 +2418,7 @@ function Get-AquaticCoverageEvidence {
     return [pscustomobject][ordered]@{
         schema = 'rust-mcbe-aquatic-coverage-v1'
         registry_protocol = 1001
-        compiler_schema = 'MCBEAS04'
+        compiler_schema = 'MCBEAS05'
         registry_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $RegistryPath).Hash.ToLowerInvariant()
         assets_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $AssetsPath).Hash.ToLowerInvariant()
         state_set_sha256 = $stateSetHash
@@ -3103,23 +3103,23 @@ function New-SlabStairGalleryModelWitnessRequest {
     return New-ModelGalleryWitnessRequest -Plan $Plan -Revision $Revision
 }
 
-function Get-StrictMcbeas04ModelTables {
+function Get-StrictMcbeas05ModelTables {
     param([Parameter(Mandatory = $true)][string]$Path)
 
     $assetLength = [int64](Get-Item -LiteralPath $Path -ErrorAction Stop).Length
     if ($assetLength -gt 16 * 1024 * 1024) {
-        throw "MCBEAS04 blob exceeds the app 16 MiB ceiling: $assetLength"
+        throw "MCBEAS05 blob exceeds the app 16 MiB ceiling: $assetLength"
     }
-    if ($assetLength -lt 232) { throw "MCBEAS04 blob is shorter than header plus SHA-256: $assetLength" }
+    if ($assetLength -lt 232) { throw "MCBEAS05 blob is shorter than header plus SHA-256: $assetLength" }
     $bytes = [IO.File]::ReadAllBytes($Path)
     $utf8 = [Text.UTF8Encoding]::new($false, $true)
-    if ($utf8.GetString($bytes, 0, 8) -cne 'MCBEAS04') { throw 'MCBEAS04 model-table validator received the wrong magic' }
-    if ([BitConverter]::ToUInt32($bytes, 8) -ne 4 -or [BitConverter]::ToUInt32($bytes, 12) -ne 16 -or
+    if ($utf8.GetString($bytes, 0, 8) -cne 'MCBEAS05') { throw 'MCBEAS05 model-table validator received the wrong magic' }
+    if ([BitConverter]::ToUInt32($bytes, 8) -ne 5 -or [BitConverter]::ToUInt32($bytes, 12) -ne 16 -or
         [BitConverter]::ToUInt32($bytes, 16) -ne 5 -or [BitConverter]::ToUInt32($bytes, 52) -ne 8 -or
         [BitConverter]::ToUInt32($bytes, 56) -ne 256) {
-        throw 'MCBEAS04 header constants are noncanonical'
+        throw 'MCBEAS05 header constants are noncanonical'
     }
-    if (@($bytes[64..95] | Where-Object { $_ -ne 0 }).Count -ne 0) { throw 'MCBEAS04 reserved header bytes are nonzero' }
+    if (@($bytes[64..95] | Where-Object { $_ -ne 0 }).Count -ne 0) { throw 'MCBEAS05 reserved header bytes are nonzero' }
 
     $payloadLength = $bytes.Length - 32
     $sha256 = [Security.Cryptography.SHA256]::Create()
@@ -3127,7 +3127,7 @@ function Get-StrictMcbeas04ModelTables {
     finally { $sha256.Dispose() }
     for ($index = 0; $index -lt 32; $index++) {
         if ($actualDigest[$index] -ne $bytes[$payloadLength + $index]) {
-            throw 'MCBEAS04 slab/stair integrity SHA-256 mismatch'
+            throw 'MCBEAS05 slab/stair integrity SHA-256 mismatch'
         }
     }
 
@@ -3137,9 +3137,9 @@ function Get-StrictMcbeas04ModelTables {
     $limits = @([uint64]65536, [uint64]65536, [uint64]65536, [uint64]65536, [uint64]2097152, [uint64]65536, [uint64]1048576, [uint64]2, [uint64]1024)
     $labels = @('visual', 'hash', 'material', 'template', 'quad', 'animation', 'frame', 'page', 'biome')
     for ($index = 0; $index -lt $counts.Count; $index++) {
-        if ($counts[$index] -gt $limits[$index]) { throw "MCBEAS04 $($labels[$index]) count exceeds canonical ceiling: $($counts[$index])" }
+        if ($counts[$index] -gt $limits[$index]) { throw "MCBEAS05 $($labels[$index]) count exceeds canonical ceiling: $($counts[$index])" }
     }
-    if ($counts[2] -eq 0 -or $counts[7] -eq 0) { throw 'MCBEAS04 material and page counts must be nonzero' }
+    if ($counts[2] -eq 0 -or $counts[7] -eq 0) { throw 'MCBEAS05 material and page counts must be nonzero' }
 
     $offsets = @(0..12 | ForEach-Object { [uint64][BitConverter]::ToUInt64($bytes, 96 + 8 * $_) })
     $fixedSizes = @(
@@ -3154,10 +3154,10 @@ function Get-StrictMcbeas04ModelTables {
     )
     $expectedOffset = [uint64]200
     for ($index = 0; $index -lt $fixedSizes.Count; $index++) {
-        if ($offsets[$index] -ne $expectedOffset) { throw "MCBEAS04 section $index offset is noncanonical" }
+        if ($offsets[$index] -ne $expectedOffset) { throw "MCBEAS05 section $index offset is noncanonical" }
         $expectedOffset += $fixedSizes[$index]
     }
-    if ($offsets[8] -ne $expectedOffset -or $expectedOffset -gt [uint64]$payloadLength) { throw 'MCBEAS04 texture payload offset is noncanonical or out of bounds' }
+    if ($offsets[8] -ne $expectedOffset -or $expectedOffset -gt [uint64]$payloadLength) { throw 'MCBEAS05 texture payload offset is noncanonical or out of bounds' }
 
     $textureCursor = $offsets[8]
     $sha256 = [Security.Cryptography.SHA256]::Create()
@@ -3173,11 +3173,11 @@ function Get-StrictMcbeas04ModelTables {
                 $pagePayloadOffset -ne $textureCursor -or $pagePayloadLength -ne $expectedPageLength -or
                 $pagePayloadOffset -gt [uint64]$payloadLength -or
                 $pagePayloadLength -gt [uint64]$payloadLength - $pagePayloadOffset) {
-                throw "MCBEAS04 texture page $pageIndex descriptor is noncanonical"
+                throw "MCBEAS05 texture page $pageIndex descriptor is noncanonical"
             }
             $pageDigest = $sha256.ComputeHash($bytes, [int]$pagePayloadOffset, [int]$pagePayloadLength)
             for ($digestIndex = 0; $digestIndex -lt 32; $digestIndex++) {
-                if ($pageDigest[$digestIndex] -ne $bytes[$descriptor + 32 + $digestIndex]) { throw "MCBEAS04 texture page $pageIndex SHA-256 mismatch" }
+                if ($pageDigest[$digestIndex] -ne $bytes[$descriptor + 32 + $digestIndex]) { throw "MCBEAS05 texture page $pageIndex SHA-256 mismatch" }
             }
             $textureCursor += $pagePayloadLength
         }
@@ -3186,7 +3186,7 @@ function Get-StrictMcbeas04ModelTables {
     if ($offsets[9] -ne $textureCursor -or $offsets[10] -ne $offsets[9] + 8 * 256 * 256 * 3 -or
         $offsets[11] -ne $offsets[10] + $counts[8] * 36 -or $offsets[12] -lt $offsets[11] -or
         $offsets[12] - $offsets[11] -gt 256 * 1024 -or $offsets[12] -ne [uint64]$payloadLength) {
-        throw 'MCBEAS04 variable section offsets or exact total length are noncanonical'
+        throw 'MCBEAS05 variable section offsets or exact total length are noncanonical'
     }
 
     $templates = [Collections.Generic.List[object]]::new()
@@ -3203,21 +3203,21 @@ function Get-StrictMcbeas04ModelTables {
         $flags = [uint32][BitConverter]::ToUInt32($bytes, $descriptor + 8)
         if ($quadStart -ne $expectedQuad -or $quadCount -gt 32 -or $flags -notin $canonicalTemplateFlags -or
             ($flags -in @([uint32]1, [uint32]512) -and $quadCount -ne 6)) {
-            throw "MCBEAS04 model template $templateIndex span or flags are noncanonical"
+            throw "MCBEAS05 model template $templateIndex span or flags are noncanonical"
         }
         $templates.Add([pscustomobject][ordered]@{ quad_start = $quadStart; quad_count = $quadCount; flags = $flags })
         $expectedQuad += $quadCount
     }
-    if ($expectedQuad -ne $counts[4]) { throw 'MCBEAS04 model templates do not exactly cover the quad table' }
+    if ($expectedQuad -ne $counts[4]) { throw 'MCBEAS05 model templates do not exactly cover the quad table' }
 
     $stairBases = [Collections.Generic.HashSet[uint32]]::new()
     $templateIndex = 0
     while ($templateIndex -lt $templates.Count) {
         if (($templates[$templateIndex].flags -band 2) -eq 0) { $templateIndex++; continue }
-        if ($templateIndex + 5 -gt $templates.Count) { throw 'MCBEAS04 stair template group is truncated' }
+        if ($templateIndex + 5 -gt $templates.Count) { throw 'MCBEAS05 stair template group is truncated' }
         foreach ($shape in 0..4) {
             $shapeTemplate = $templates[$templateIndex + $shape]
-            if ($shapeTemplate.flags -ne 2 -or $shapeTemplate.quad_count -eq 0) { throw 'MCBEAS04 stair template group is noncanonical' }
+            if ($shapeTemplate.flags -ne 2 -or $shapeTemplate.quad_count -eq 0) { throw 'MCBEAS05 stair template group is noncanonical' }
         }
         $null = $stairBases.Add([uint32]$templateIndex)
         $templateIndex += 5
@@ -3231,7 +3231,7 @@ function Get-StrictMcbeas04ModelTables {
             $kelpQuadFlags = [uint32][BitConverter]::ToUInt32($bytes, $kelpQuad + 44)
             $twoSided = ($kelpQuadFlags -band 8) -ne 0
             if (($shapeIndex -lt 4 -and $twoSided) -or ($shapeIndex -ge 4 -and -not $twoSided)) {
-                throw "MCBEAS04 kelp template $kelpIndex has noncanonical sidedness"
+                throw "MCBEAS05 kelp template $kelpIndex has noncanonical sidedness"
             }
         }
     }
@@ -3241,7 +3241,7 @@ function Get-StrictMcbeas04ModelTables {
         $material = [uint64][BitConverter]::ToUInt32($bytes, $quad + 40)
         $flags = [uint32][BitConverter]::ToUInt32($bytes, $quad + 44)
         if ($material -ge $counts[2] -or ($flags -band (-bnot 127)) -ne 0 -or ($flags -band 7) -gt 6 -or (($flags -shr 4) -band 7) -gt 6) {
-            throw "MCBEAS04 model quad $quadIndex has an invalid material or flags"
+            throw "MCBEAS05 model quad $quadIndex has an invalid material or flags"
         }
     }
 
@@ -3251,18 +3251,18 @@ function Get-StrictMcbeas04ModelTables {
         $kind = $bytes[$visual + 25]
         $template = [uint32][BitConverter]::ToUInt32($bytes, $visual + 28)
         $variant = [uint32][BitConverter]::ToUInt32($bytes, $visual + 36)
-        if ($kind -gt 5 -or $bytes[$visual + 27] -ne 0) { throw "MCBEAS04 visual $visualIndex has unknown kind or reserved bits" }
+        if ($kind -gt 5) { throw "MCBEAS05 visual $visualIndex has unknown kind" }
         if ($template -eq [uint32]::MaxValue) { continue }
-        if ([uint64]$template -ge $counts[3]) { throw "MCBEAS04 visual $visualIndex references an invalid template" }
+        if ([uint64]$template -ge $counts[3]) { throw "MCBEAS05 visual $visualIndex references an invalid template" }
         if (($templates[[int]$template].flags -band 2) -ne 0) {
             if (-not $stairBases.Contains($template) -or $kind -ne 3 -or ($variant -band (-bnot 7)) -ne 0) {
-                throw "MCBEAS04 stair visual $visualIndex does not reference an exact group base or has reserved variant bits"
+                throw "MCBEAS05 stair visual $visualIndex does not reference an exact group base or has reserved variant bits"
             }
             $null = $referencedStairBases.Add($template)
         }
     }
     foreach ($base in $stairBases) {
-        if (-not $referencedStairBases.Contains($base)) { throw "MCBEAS04 stair template group $base is unreferenced" }
+        if (-not $referencedStairBases.Contains($base)) { throw "MCBEAS05 stair template group $base is unreferenced" }
     }
     return [pscustomobject][ordered]@{
         bytes = $bytes; counts = $counts; offsets = $offsets; templates = @($templates); stair_bases = $stairBases
@@ -3329,14 +3329,14 @@ function Get-VineCoverageEvidence {
         }
     }
 
-    $modelTables = Get-StrictMcbeas04ModelTables -Path $AssetsPath
+    $modelTables = Get-StrictMcbeas05ModelTables -Path $AssetsPath
     $assetBytes = $modelTables.bytes
     $visualCount = $modelTables.counts[0]; $templateCount = $modelTables.counts[3]
     $visualOffset = $modelTables.offsets[0]
     $diagnostic = 0
     foreach ($entry in $orderedEntries) {
         if ([uint64]$entry.sequential_id -ge [uint64]$visualCount) {
-            throw "registry sequential ID $($entry.sequential_id) is absent from MCBEAS04"
+            throw "registry sequential ID $($entry.sequential_id) is absent from MCBEAS05"
         }
         $visual = [int]($visualOffset + 40 * [uint64]$entry.sequential_id)
         $template = [uint32][BitConverter]::ToUInt32($assetBytes, $visual + 28)
@@ -3358,7 +3358,7 @@ function Get-VineCoverageEvidence {
         sequential_id = $_.sequential_id; name = $_.name; canonical_state = $_.canonical_state; mask = $_.mask
     } })
     return [pscustomobject][ordered]@{
-        schema = 'rust-mcbe-vine-coverage-v1'; registry_protocol = 1001; compiler_schema = 'MCBEAS04'
+        schema = 'rust-mcbe-vine-coverage-v1'; registry_protocol = 1001; compiler_schema = 'MCBEAS05'
         registry_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $RegistryPath).Hash.ToLowerInvariant()
         assets_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $AssetsPath).Hash.ToLowerInvariant()
         state_set_sha256 = $stateSetHash; state_count = $orderedEntries.Count; diagnostic_vine = $diagnostic
@@ -3524,13 +3524,13 @@ function Get-SlabStairCoverageEvidence {
         }
     }
 
-    $modelTables = Get-StrictMcbeas04ModelTables -Path $AssetsPath
+    $modelTables = Get-StrictMcbeas05ModelTables -Path $AssetsPath
     $assetBytes = $modelTables.bytes
     $visualCount = $modelTables.counts[0]; $templateCount = $modelTables.counts[3]
     $visualOffset = $modelTables.offsets[0]
     $diagnostic = 0
     foreach ($entry in $entries) {
-        if ([uint64]$entry.sequential_id -ge [uint64]$visualCount) { throw "registry sequential ID $($entry.sequential_id) is absent from MCBEAS04" }
+        if ([uint64]$entry.sequential_id -ge [uint64]$visualCount) { throw "registry sequential ID $($entry.sequential_id) is absent from MCBEAS05" }
         $visual = [int]($visualOffset + 40 * [uint64]$entry.sequential_id)
         $template = [BitConverter]::ToUInt32($assetBytes, $visual + 28)
         if ($assetBytes[$visual + 25] -ne 3 -or $template -eq [uint32]::MaxValue -or $template -ge $templateCount) { $diagnostic++; continue }
@@ -3548,7 +3548,7 @@ function Get-SlabStairCoverageEvidence {
         sequential_id = $_.sequential_id; family = $_.family; name = $_.name; canonical_state = $_.canonical_state
     } })
     return [pscustomobject][ordered]@{
-        schema = 'rust-mcbe-slab-stair-coverage-v1'; registry_protocol = 1001; compiler_schema = 'MCBEAS04'
+        schema = 'rust-mcbe-slab-stair-coverage-v1'; registry_protocol = 1001; compiler_schema = 'MCBEAS05'
         registry_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $RegistryPath).Hash.ToLowerInvariant()
         assets_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $AssetsPath).Hash.ToLowerInvariant()
         state_set_sha256 = $stateSetHash; state_count = $entries.Count; slab_state_count = $slabs.Count

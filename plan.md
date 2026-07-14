@@ -937,6 +937,19 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     and all propagation shares one enforced queue budget. The authoritative
     per-state light registry, WorldStream scheduling, mesh baking, shaders,
     and atmosphere remain open.
+  - [x] Generate and ship bounded per-runtime-state light metadata without
+    changing the reviewed `BREG1003`: `LREG1001` proves the exact protocol-state
+    count, identity, property order, and committed-BREG SHA-256 before emitting
+    one packed emission/filter byte per state. Dragonfly revision
+    `dbbd8b787946e53b1def8d532050751dfcdc80e7` is authoritative for 16,911
+    concrete states; exact, identifier-uniform pinned PMMP fallback supplies only
+    `minecraft:redstone_lamp` and `minecraft:lit_redstone_lamp`, with deterministic
+    provenance IDs/reporting and fail-closed disagreement/range checks. `MCBEAS05`
+    atomically carries the byte beside each visual, exposes it through both
+    sequential and network-hash resolution, rejects stale `MCBEAS04`, and names
+    the `--light-registry` rebuild command. Solver integration, WorldStream
+    scheduling, mesh baking, GPU/shader consumption, sky/fog/cloud rendering,
+    and visual acceptance remain open.
 
 Perf budget carried from Phase 0 gate; add: full remesh of view distance after teleport ≤ 2s.
 

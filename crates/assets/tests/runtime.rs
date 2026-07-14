@@ -282,7 +282,7 @@ fn compound_blob() -> Vec<u8> {
 
 #[test]
 fn runtime_decodes_checked_contributor_role_with_new_tables() {
-    let runtime = RuntimeAssets::decode(&rich_blob()).expect("decode rich MCBEAS04 fixture");
+    let runtime = RuntimeAssets::decode(&rich_blob()).expect("decode rich MCBEAS05 fixture");
     let block = runtime.resolve(NetworkIdMode::Sequential, 1);
     assert_eq!(
         block.contributor_role(),

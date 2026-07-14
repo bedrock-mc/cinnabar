@@ -9,15 +9,17 @@ AUTH_CACHE ?= .local/auth/microsoft-token.json
 
 PACK_DIR ?= .local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack
 BLOCK_REGISTRY ?= crates/assets/data/block-registry-v1001.bin
+LIGHT_REGISTRY ?= crates/assets/data/block-light-registry-v1001.bin
 BIOME_REGISTRY ?= crates/assets/data/biome-registry-v1001.bin
 ASSET_BLOB ?= .local/assets/compiled/vanilla-v1001.mcbea
+ASSET_COMPILER_INPUTS := Cargo.toml Cargo.lock crates/assets/Cargo.toml Makefile $(wildcard crates/assets/src/*.rs) $(wildcard crates/assets/src/bin/*.rs)
 
 .PHONY: help assets core client client-windows client-macos client-linux client-wayland client-x11
 
 help:
 	@echo make assets          - Download and compile the vanilla resource pack
 	@echo make core            - Run the Go networking/auth core
-	@echo make client          - Run the release Rust client
+	@echo make client          - Refresh stale assets, then run the release Rust client
 	@echo make client-windows  - Run the client on Windows
 	@echo make client-macos    - Run the client on macOS
 	@echo make client-linux    - Run with automatic Wayland/X11 selection
@@ -26,19 +28,21 @@ help:
 	@echo UPSTREAM=host:port is required for make core
 	@echo Override optional settings with SOCKET_DIR=... and AUTH_CACHE=...
 
-assets:
+assets: $(ASSET_BLOB)
+
+$(ASSET_BLOB): $(ASSET_COMPILER_INPUTS) $(BLOCK_REGISTRY) $(LIGHT_REGISTRY) $(BIOME_REGISTRY)
 ifeq ($(OS),Windows_NT)
 	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File scripts/fetch-vanilla-assets.ps1 -AcceptEula
 else
 	bash scripts/fetch-vanilla-assets.sh --accept-eula
 endif
-	$(CARGO) run --locked -p assets --bin assetc -- compile --pack "$(PACK_DIR)" --registry "$(BLOCK_REGISTRY)" --biome-registry "$(BIOME_REGISTRY)" --out "$(ASSET_BLOB)"
+	$(CARGO) run --locked -p assets --bin assetc -- compile --pack "$(PACK_DIR)" --registry "$(BLOCK_REGISTRY)" --light-registry "$(LIGHT_REGISTRY)" --biome-registry "$(BIOME_REGISTRY)" --out "$(ASSET_BLOB)"
 
 core:
 	$(if $(strip $(UPSTREAM)),,$(error UPSTREAM is required; run make core UPSTREAM=host:port))
 	$(GO) run ./core/cmd/bedrock-core -socket-dir "$(SOCKET_DIR)" -upstream "$(UPSTREAM)" -auth-cache "$(AUTH_CACHE)"
 
-client:
+client: $(ASSET_BLOB)
 	$(CARGO) run --release -p bedrock-client --locked -- --socket-dir "$(SOCKET_DIR)"
 
 client-windows client-macos client-linux: client

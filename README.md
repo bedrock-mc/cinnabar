@@ -163,4 +163,6 @@ cargo run -p bedrock-client --locked -- --socket-dir .local/run --assets .local/
 Asset selection uses `--assets`, then `RUST_MCBE_ASSETS`, then the ignored default
 `.local/assets/compiled/vanilla-v1001.mcbea`. A missing file starts with the generated
 magenta/black diagnostic texture and prints the commands above. A present but malformed blob
-is rejected with its exact path.
+is rejected with its exact path. `make client` treats that default blob as a real build target:
+it fetches and compiles when the blob is missing or older than the tracked asset compiler,
+registry, or lockfile inputs, while an unchanged blob launches without recompiling.

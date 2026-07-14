@@ -1050,7 +1050,7 @@ fn compile_pack_installs_flipbook_pages_frames_and_material_animation() {
             BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
         )],
     )
-    .expect("compile flipbook into MCBEAS04 tables");
+    .expect("compile flipbook into MCBEAS05 tables");
 
     assert_eq!(compiled.animations.len(), 1);
     assert_eq!(compiled.animations[0].frame_count, 2);

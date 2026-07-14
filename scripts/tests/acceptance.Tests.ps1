@@ -52,8 +52,8 @@ function New-TestCrossCropAssets {
     $registryBytes = [IO.File]::ReadAllBytes($RegistryPath)
     $visualCount = [BitConverter]::ToUInt32($registryBytes, 16)
     $bytes = [byte[]]::new(200 + 40 * $visualCount)
-    [Text.Encoding]::ASCII.GetBytes('MCBEAS04').CopyTo($bytes, 0)
-    [BitConverter]::GetBytes([uint32]4).CopyTo($bytes, 8)
+    [Text.Encoding]::ASCII.GetBytes('MCBEAS05').CopyTo($bytes, 0)
+    [BitConverter]::GetBytes([uint32]5).CopyTo($bytes, 8)
     [BitConverter]::GetBytes([uint32]16).CopyTo($bytes, 12)
     [BitConverter]::GetBytes([uint32]5).CopyTo($bytes, 16)
     [BitConverter]::GetBytes([uint32]$visualCount).CopyTo($bytes, 20)
@@ -93,8 +93,8 @@ function New-TestSlabStairAssets {
     $nameOffset = $biomeOffset
     $payloadLength = $nameOffset
     $bytes = [byte[]]::new($payloadLength + 32)
-    [Text.Encoding]::ASCII.GetBytes('MCBEAS04').CopyTo($bytes, 0)
-    [BitConverter]::GetBytes([uint32]4).CopyTo($bytes, 8)
+    [Text.Encoding]::ASCII.GetBytes('MCBEAS05').CopyTo($bytes, 0)
+    [BitConverter]::GetBytes([uint32]5).CopyTo($bytes, 8)
     [BitConverter]::GetBytes([uint32]16).CopyTo($bytes, 12)
     [BitConverter]::GetBytes([uint32]5).CopyTo($bytes, 16)
     [BitConverter]::GetBytes([uint32]$visualCount).CopyTo($bytes, 20)
@@ -174,7 +174,7 @@ function New-TestSlabStairAssets {
     [IO.File]::WriteAllBytes($Path, $bytes)
 }
 
-function Set-TestMcbeas04Seal {
+function Set-TestMcbeas05Seal {
     param([Parameter(Mandatory = $true)][byte[]]$Bytes)
     $payloadLength = $Bytes.Length - 32
     $sha256 = [Security.Cryptography.SHA256]::Create()
@@ -232,8 +232,8 @@ function New-TestAquaticAssets {
     $registryBytes = [IO.File]::ReadAllBytes($RegistryPath)
     $visualCount = [BitConverter]::ToUInt32($registryBytes, 16)
     $bytes = [byte[]]::new(200 + 40 * $visualCount)
-    [Text.Encoding]::ASCII.GetBytes('MCBEAS04').CopyTo($bytes, 0)
-    [BitConverter]::GetBytes([uint32]4).CopyTo($bytes, 8)
+    [Text.Encoding]::ASCII.GetBytes('MCBEAS05').CopyTo($bytes, 0)
+    [BitConverter]::GetBytes([uint32]5).CopyTo($bytes, 8)
     [BitConverter]::GetBytes([uint32]16).CopyTo($bytes, 12)
     [BitConverter]::GetBytes([uint32]5).CopyTo($bytes, 16)
     [BitConverter]::GetBytes([uint32]$visualCount).CopyTo($bytes, 20)
@@ -962,22 +962,22 @@ try {
     [IO.File]::WriteAllBytes($unsealedSlabStairAssets, $unsealedBytes)
     Assert-ThrowsLike {
         Get-SlabStairCoverageEvidence -RegistryPath $BlockRegistry -AssetsPath $unsealedSlabStairAssets
-    } 'MCBEAS04 slab/stair integrity SHA-256 mismatch*' 'slab/stair coverage accepted an unsealed covered-visual mutation'
+    } 'MCBEAS05 slab/stair integrity SHA-256 mismatch*' 'slab/stair coverage accepted an unsealed covered-visual mutation'
     $oversizedSlabStairAssets = Join-Path $TempRoot 'oversized slab stair assets.mcbea'
     $oversizedStream = [IO.File]::Create($oversizedSlabStairAssets)
     try { $oversizedStream.SetLength(16 * 1024 * 1024 + 1) }
     finally { $oversizedStream.Dispose() }
     Assert-ThrowsLike {
-        Get-StrictMcbeas04ModelTables -Path $oversizedSlabStairAssets
-    } 'MCBEAS04 blob exceeds the app 16 MiB ceiling:*' 'slab/stair validation allocated an oversized blob before rejecting it'
+        Get-StrictMcbeas05ModelTables -Path $oversizedSlabStairAssets
+    } 'MCBEAS05 blob exceeds the app 16 MiB ceiling:*' 'slab/stair validation allocated an oversized blob before rejecting it'
     $emptyWallMaskAssets = Join-Path $TempRoot 'canonical empty wall mask.mcbea'
     $emptyWallMaskBytes = [IO.File]::ReadAllBytes($SlabStairAssets)
     $emptyWallTemplateOffset = [int][BitConverter]::ToUInt64($emptyWallMaskBytes, 120) + 12 * 12
     Assert-Equal 0 ([int][BitConverter]::ToUInt32($emptyWallMaskBytes, $emptyWallTemplateOffset + 4)) 'empty wall-mask fixture did not start from a zero-quad template'
     [BitConverter]::GetBytes([uint32]64).CopyTo($emptyWallMaskBytes, $emptyWallTemplateOffset + 8)
-    Set-TestMcbeas04Seal -Bytes $emptyWallMaskBytes
+    Set-TestMcbeas05Seal -Bytes $emptyWallMaskBytes
     [IO.File]::WriteAllBytes($emptyWallMaskAssets, $emptyWallMaskBytes)
-    $emptyWallMaskTables = Get-StrictMcbeas04ModelTables -Path $emptyWallMaskAssets
+    $emptyWallMaskTables = Get-StrictMcbeas05ModelTables -Path $emptyWallMaskAssets
     Assert-Equal 0 ([int]$emptyWallMaskTables.templates[12].quad_count) 'strict model-table validation changed the canonical empty wall-mask span'
     Assert-Equal 64 ([int]$emptyWallMaskTables.templates[12].flags) 'strict model-table validation changed the canonical wall flag'
     $strictTemplateOffset = [int][BitConverter]::ToUInt64($emptyWallMaskBytes, 120)
@@ -992,18 +992,25 @@ try {
         $invalidTemplateDescriptor = $strictTemplateOffset + 12 * [int]$invalidTemplateFlag.template
         Assert-Equal ([int]$invalidTemplateFlag.quad_count) ([int][BitConverter]::ToUInt32($invalidTemplateFlagBytes, $invalidTemplateDescriptor + 4)) "$($invalidTemplateFlag.name) fixture started from the wrong quad count"
         [BitConverter]::GetBytes([uint32]$invalidTemplateFlag.flags).CopyTo($invalidTemplateFlagBytes, $invalidTemplateDescriptor + 8)
-        Set-TestMcbeas04Seal -Bytes $invalidTemplateFlagBytes
+        Set-TestMcbeas05Seal -Bytes $invalidTemplateFlagBytes
         [IO.File]::WriteAllBytes($invalidTemplateFlagAssets, $invalidTemplateFlagBytes)
         Assert-ThrowsLike {
-            Get-StrictMcbeas04ModelTables -Path $invalidTemplateFlagAssets
-        } "MCBEAS04 model template $($invalidTemplateFlag.template) span or flags are noncanonical" "strict model-table validation accepted $($invalidTemplateFlag.name) flags"
+            Get-StrictMcbeas05ModelTables -Path $invalidTemplateFlagAssets
+        } "MCBEAS05 model template $($invalidTemplateFlag.template) span or flags are noncanonical" "strict model-table validation accepted $($invalidTemplateFlag.name) flags"
     }
+    $nonzeroLightAssets = Join-Path $TempRoot 'nonzero packed light metadata.mcbea'
+    $nonzeroLightBytes = [IO.File]::ReadAllBytes($SlabStairAssets)
+    $nonzeroLightBytes[$coveredVisualOffset + 27] = 0xaf
+    Set-TestMcbeas05Seal -Bytes $nonzeroLightBytes
+    [IO.File]::WriteAllBytes($nonzeroLightAssets, $nonzeroLightBytes)
+    $nonzeroLightTables = Get-StrictMcbeas05ModelTables -Path $nonzeroLightAssets
+    Assert-Equal 0xaf ([int]$nonzeroLightTables.bytes[$coveredVisualOffset + 27]) 'strict model-table validation rejected or changed packed light metadata'
     $kelpBackedSlabAssets = Join-Path $TempRoot 'resealed kelp backed slab.mcbea'
     $kelpBackedBytes = [IO.File]::ReadAllBytes($SlabStairAssets)
     $firstSlabId = [int](@(Get-TestRegistryEntries -RegistryPath $BlockRegistry | Where-Object family -eq 7)[0].sequential_id)
     $firstSlabVisual = [int]([BitConverter]::ToUInt64($kelpBackedBytes, 96) + 40 * $firstSlabId)
     [BitConverter]::GetBytes([uint32]11).CopyTo($kelpBackedBytes, $firstSlabVisual + 28)
-    Set-TestMcbeas04Seal -Bytes $kelpBackedBytes
+    Set-TestMcbeas05Seal -Bytes $kelpBackedBytes
     [IO.File]::WriteAllBytes($kelpBackedSlabAssets, $kelpBackedBytes)
     Assert-ThrowsLike {
         Get-SlabStairCoverageEvidence -RegistryPath $BlockRegistry -AssetsPath $kelpBackedSlabAssets
@@ -1011,15 +1018,15 @@ try {
     $templateOffset = [int][BitConverter]::ToUInt64([IO.File]::ReadAllBytes($SlabStairAssets), 120)
     $quadOffset = [int][BitConverter]::ToUInt64([IO.File]::ReadAllBytes($SlabStairAssets), 128)
     foreach ($malformedTemplate in @(
-        [pscustomobject]@{ name = 'resealed 33-quad template'; pattern = 'MCBEAS04 model template 0 span or flags are noncanonical*'; mutate = { param($bytes) [BitConverter]::GetBytes([uint32]33).CopyTo($bytes, $templateOffset + 4) } },
-        [pscustomobject]@{ name = 'resealed out-of-range template span'; pattern = 'MCBEAS04 model template 10 span or flags are noncanonical*'; mutate = { param($bytes) [BitConverter]::GetBytes([uint32]11).CopyTo($bytes, $templateOffset + 120) } },
-        [pscustomobject]@{ name = 'resealed middle-of-stair-group visual'; pattern = 'MCBEAS04 stair visual * does not reference an exact group base or has reserved variant bits*'; mutate = { param($bytes) [BitConverter]::GetBytes([uint32]2).CopyTo($bytes, $coveredVisualOffset + 28) } },
-        [pscustomobject]@{ name = 'resealed malformed kelp sidedness'; pattern = 'MCBEAS04 kelp template 11 has noncanonical sidedness*'; mutate = { param($bytes) [BitConverter]::GetBytes([uint32]0).CopyTo($bytes, $quadOffset + 48 * 16 + 44) } }
+        [pscustomobject]@{ name = 'resealed 33-quad template'; pattern = 'MCBEAS05 model template 0 span or flags are noncanonical*'; mutate = { param($bytes) [BitConverter]::GetBytes([uint32]33).CopyTo($bytes, $templateOffset + 4) } },
+        [pscustomobject]@{ name = 'resealed out-of-range template span'; pattern = 'MCBEAS05 model template 10 span or flags are noncanonical*'; mutate = { param($bytes) [BitConverter]::GetBytes([uint32]11).CopyTo($bytes, $templateOffset + 120) } },
+        [pscustomobject]@{ name = 'resealed middle-of-stair-group visual'; pattern = 'MCBEAS05 stair visual * does not reference an exact group base or has reserved variant bits*'; mutate = { param($bytes) [BitConverter]::GetBytes([uint32]2).CopyTo($bytes, $coveredVisualOffset + 28) } },
+        [pscustomobject]@{ name = 'resealed malformed kelp sidedness'; pattern = 'MCBEAS05 kelp template 11 has noncanonical sidedness*'; mutate = { param($bytes) [BitConverter]::GetBytes([uint32]0).CopyTo($bytes, $quadOffset + 48 * 16 + 44) } }
     )) {
         $malformedPath = Join-Path $TempRoot ($malformedTemplate.name + '.mcbea')
         $malformedBytes = [IO.File]::ReadAllBytes($SlabStairAssets)
         & $malformedTemplate.mutate $malformedBytes
-        Set-TestMcbeas04Seal -Bytes $malformedBytes
+        Set-TestMcbeas05Seal -Bytes $malformedBytes
         [IO.File]::WriteAllBytes($malformedPath, $malformedBytes)
         Assert-ThrowsLike {
             Get-SlabStairCoverageEvidence -RegistryPath $BlockRegistry -AssetsPath $malformedPath
@@ -1029,7 +1036,7 @@ try {
     $vineCoverage = Get-VineCoverageEvidence -RegistryPath $BlockRegistry -AssetsPath $SlabStairAssets
     Assert-Equal 'rust-mcbe-vine-coverage-v1' $vineCoverage.schema 'vine coverage lost strict schema identity'
     Assert-Equal 1001 ([int]$vineCoverage.registry_protocol) 'vine coverage lost protocol binding'
-    Assert-Equal 'MCBEAS04' $vineCoverage.compiler_schema 'vine coverage lost compiler binding'
+    Assert-Equal 'MCBEAS05' $vineCoverage.compiler_schema 'vine coverage lost compiler binding'
     Assert-Equal 16 ([int]$vineCoverage.state_count) 'vine coverage did not contain exactly 16 states'
     Assert-Equal '0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15' (@($vineCoverage.entries | ForEach-Object mask) -join ',') 'vine coverage masks were not an exact bijection 0..15'
     Assert-Equal 0 ([int]$vineCoverage.diagnostic_vine) 'vine coverage retained diagnostic/malformed visuals'
@@ -1068,7 +1075,7 @@ try {
         $malformedVinePath = Join-Path $TempRoot "$($malformedVineVisual.name).mcbea"
         $malformedVineBytes = [IO.File]::ReadAllBytes($SlabStairAssets)
         & $malformedVineVisual.mutate $malformedVineBytes
-        Set-TestMcbeas04Seal -Bytes $malformedVineBytes
+        Set-TestMcbeas05Seal -Bytes $malformedVineBytes
         [IO.File]::WriteAllBytes($malformedVinePath, $malformedVineBytes)
         Assert-ThrowsLike {
             Get-VineCoverageEvidence -RegistryPath $BlockRegistry -AssetsPath $malformedVinePath
