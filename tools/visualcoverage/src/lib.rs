@@ -19,6 +19,8 @@ use sha2::{Digest, Sha256};
 pub const BASELINE_SCHEMA: &str = "cinnabar-visual-coverage-baseline-v1";
 pub const REPORT_SCHEMA: &str = "cinnabar-visual-coverage-report-v1";
 pub const STRICT_REPORT_SCHEMA: &str = "cinnabar-visual-coverage-strict-v1";
+pub const GALLERY_INVENTORY_SCHEMA: &str = "cinnabar-gallery-inventory-v1";
+pub const GALLERY_PAGE_CAPACITY: usize = 256;
 pub const PROTOCOL: u32 = 1001;
 pub const PROTOCOL_1001_COUNTS: Counts = Counts {
     names: 1_356,
@@ -153,6 +155,49 @@ pub struct StrictReport {
     pub routes: Vec<StrictStateRoute>,
     pub invisible_decisions: Vec<InvisibleDecision>,
     pub states_by_stream: BTreeMap<RenderStream, usize>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GalleryTargetStatus {
+    Drawable,
+    Invisible,
+    Diagnostic,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct GalleryTarget {
+    pub sequential_id: u32,
+    pub network_hash: u32,
+    pub name: String,
+    pub canonical_state: String,
+    pub model_family: String,
+    pub is_air: bool,
+    pub status: GalleryTargetStatus,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct GalleryPage {
+    pub index: u32,
+    pub first_sequential_id: u32,
+    pub last_sequential_id: u32,
+    pub targets: Vec<GalleryTarget>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct GalleryInventory {
+    pub schema: String,
+    pub protocol: u32,
+    pub registry_sha256: String,
+    pub assets_sha256: String,
+    pub baseline_sha256: String,
+    pub accepting: bool,
+    pub diagnostic_targets: usize,
+    pub target_count: usize,
+    pub pages: Vec<GalleryPage>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -821,6 +866,90 @@ pub fn strict_bytes(
         &sha256(assets_bytes),
     )?;
     strict_records(&records, &runtime, snapshot, baseline, true)
+}
+
+/// Compiles the exact protocol-1001 target inventory consumed by later gallery
+/// placement and screenshot stages. Diagnostics are retained as explicit
+/// targets, but keep the inventory non-accepting until visual coverage closes.
+pub fn compile_gallery_inventory(
+    snapshot: CoverageSnapshot,
+    baseline: &Baseline,
+    baseline_sha256: &str,
+) -> Result<GalleryInventory, CoverageError> {
+    let report = ratchet_protocol_1001(snapshot, baseline)?;
+    let diagnostic_ids = report
+        .diagnostic_states
+        .iter()
+        .map(|state| state.sequential_id)
+        .collect::<BTreeSet<_>>();
+    let invisible_ids = report
+        .invisible_decisions
+        .iter()
+        .map(|decision| decision.state.sequential_id)
+        .collect::<BTreeSet<_>>();
+    let targets = report
+        .states
+        .into_iter()
+        .map(|state| {
+            let status = if diagnostic_ids.contains(&state.sequential_id) {
+                GalleryTargetStatus::Diagnostic
+            } else if invisible_ids.contains(&state.sequential_id) {
+                GalleryTargetStatus::Invisible
+            } else {
+                GalleryTargetStatus::Drawable
+            };
+            GalleryTarget {
+                sequential_id: state.sequential_id,
+                network_hash: state.network_hash,
+                name: state.name,
+                canonical_state: state.canonical_state,
+                model_family: state.model_family,
+                is_air: state.is_air,
+                status,
+            }
+        })
+        .collect::<Vec<_>>();
+    let pages = targets
+        .chunks(GALLERY_PAGE_CAPACITY)
+        .enumerate()
+        .map(|(index, targets)| GalleryPage {
+            index: index as u32,
+            first_sequential_id: targets
+                .first()
+                .expect("canonical protocol inventory is non-empty")
+                .sequential_id,
+            last_sequential_id: targets
+                .last()
+                .expect("canonical protocol inventory is non-empty")
+                .sequential_id,
+            targets: targets.to_vec(),
+        })
+        .collect();
+    let diagnostic_targets = diagnostic_ids.len();
+    Ok(GalleryInventory {
+        schema: GALLERY_INVENTORY_SCHEMA.to_owned(),
+        protocol: report.protocol,
+        registry_sha256: report.registry_sha256,
+        assets_sha256: report.assets_sha256,
+        baseline_sha256: baseline_sha256.to_owned(),
+        accepting: diagnostic_targets == 0,
+        diagnostic_targets,
+        target_count: PROTOCOL_1001_COUNTS.states,
+        pages,
+    })
+}
+
+pub fn gallery_inventory_bytes(
+    registry_bytes: &[u8],
+    assets_bytes: &[u8],
+    baseline_bytes: &[u8],
+) -> Result<GalleryInventory, CoverageError> {
+    let baseline = parse_baseline(baseline_bytes)?;
+    compile_gallery_inventory(
+        analyze_bytes(registry_bytes, assets_bytes)?,
+        &baseline,
+        &sha256(baseline_bytes),
+    )
 }
 
 fn push_strict_route(

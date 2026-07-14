@@ -10,10 +10,173 @@ use assets::{
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use visualcoverage::{
-    AllowlistEntry, Baseline, Counts, CoverageError, RenderStream, StateIdentity, analyze_bytes,
-    analyze_records, baseline_from_snapshot, deterministic_json, parse_baseline, ratchet,
-    ratchet_protocol_1001, strict_bytes, strict_records, write_deterministic_json_atomic,
+    AllowlistEntry, Baseline, Counts, CoverageError, GALLERY_INVENTORY_SCHEMA,
+    GALLERY_PAGE_CAPACITY, RenderStream, StateIdentity, analyze_bytes, analyze_records,
+    baseline_from_snapshot, compile_gallery_inventory, deterministic_json, gallery_inventory_bytes,
+    parse_baseline, ratchet, ratchet_protocol_1001, strict_bytes, strict_records,
+    write_deterministic_json_atomic,
 };
+
+fn full_gallery_fixture(
+    diagnostic_ids: &std::collections::BTreeSet<u32>,
+) -> (Vec<u8>, Vec<u8>, Baseline) {
+    let mut records = read_registry(include_bytes!(
+        "../../../crates/assets/data/block-registry-v1001.bin"
+    ))
+    .expect("read production registry");
+    for record in &mut records {
+        if !record.flags.contains(BlockFlags::AIR) {
+            record.model_family = ModelFamily::Cube;
+        }
+    }
+    let registry = registry_bytes(&records);
+    let kinds = records
+        .iter()
+        .map(|record| {
+            if record.flags.contains(BlockFlags::AIR) {
+                VisualKind::Invisible
+            } else if diagnostic_ids.contains(&record.sequential_id) {
+                VisualKind::Diagnostic
+            } else {
+                VisualKind::Cube
+            }
+        })
+        .collect::<Vec<_>>();
+    let assets = blob(&records, &kinds);
+    let snapshot = analyze_bytes(&registry, &assets).expect("analyze full gallery fixture");
+    let mut baseline = baseline(&snapshot);
+    baseline.expected_vine_diagnostic_masks = snapshot.vine_diagnostic_masks.clone();
+    (registry, assets, baseline)
+}
+
+#[test]
+fn gallery_inventory_has_exact_67_page_shape() {
+    let (registry, assets, baseline) = full_gallery_fixture(&Default::default());
+    let snapshot = analyze_bytes(&registry, &assets).unwrap();
+    let inventory = compile_gallery_inventory(snapshot, &baseline, "baseline-hash").unwrap();
+
+    assert_eq!(inventory.schema, GALLERY_INVENTORY_SCHEMA);
+    assert_eq!(inventory.pages.len(), 67);
+    assert!(
+        inventory.pages[..66]
+            .iter()
+            .all(|page| page.targets.len() == GALLERY_PAGE_CAPACITY)
+    );
+    assert_eq!(inventory.pages[66].targets.len(), 17);
+    assert_eq!(inventory.pages[0].first_sequential_id, 0);
+    assert_eq!(inventory.pages[65].last_sequential_id, 16_895);
+    assert_eq!(inventory.pages[66].first_sequential_id, 16_896);
+    assert_eq!(inventory.pages[66].last_sequential_id, 16_912);
+}
+
+#[test]
+fn gallery_inventory_contains_every_sequential_id_once_and_in_order() {
+    let (registry, assets, baseline) = full_gallery_fixture(&Default::default());
+    let inventory = compile_gallery_inventory(
+        analyze_bytes(&registry, &assets).unwrap(),
+        &baseline,
+        "baseline-hash",
+    )
+    .unwrap();
+    let ids = inventory
+        .pages
+        .iter()
+        .flat_map(|page| page.targets.iter().map(|target| target.sequential_id))
+        .collect::<Vec<_>>();
+
+    assert_eq!(ids, (0..16_913).collect::<Vec<_>>());
+    for (index, page) in inventory.pages.iter().enumerate() {
+        assert_eq!(page.index, index as u32);
+    }
+}
+
+#[test]
+fn gallery_inventory_is_hash_bound_and_byte_identical() {
+    let (registry, assets, baseline) = full_gallery_fixture(&Default::default());
+    let baseline_bytes = deterministic_json(&baseline).unwrap();
+    let first = gallery_inventory_bytes(&registry, &assets, &baseline_bytes).unwrap();
+    let second = gallery_inventory_bytes(&registry, &assets, &baseline_bytes).unwrap();
+
+    assert_eq!(
+        deterministic_json(&first).unwrap(),
+        deterministic_json(&second).unwrap()
+    );
+    assert_eq!(
+        first.registry_sha256,
+        format!("{:x}", Sha256::digest(&registry))
+    );
+    assert_eq!(
+        first.assets_sha256,
+        format!("{:x}", Sha256::digest(&assets))
+    );
+    assert_eq!(
+        first.baseline_sha256,
+        format!("{:x}", Sha256::digest(&baseline_bytes))
+    );
+    assert!(first.accepting);
+    assert_eq!(first.diagnostic_targets, 0);
+}
+
+#[test]
+#[ignore = "requires CINNABAR_REAL_PACK pointing at the ignored pinned vanilla-v1001.mcbea"]
+fn current_gallery_inventory_is_non_accepting_with_7770_diagnostics() {
+    let assets_path = std::env::var_os("CINNABAR_REAL_PACK")
+        .map(std::path::PathBuf::from)
+        .expect("set CINNABAR_REAL_PACK to the ignored pinned vanilla-v1001.mcbea");
+    let registry = include_bytes!("../../../crates/assets/data/block-registry-v1001.bin");
+    let assets = std::fs::read(assets_path).unwrap();
+    let baseline = include_bytes!("../../../crates/assets/data/visual-coverage-v1001.json");
+    let inventory = gallery_inventory_bytes(registry, &assets, baseline).unwrap();
+
+    assert!(!inventory.accepting);
+    assert_eq!(inventory.diagnostic_targets, 7_770);
+    assert_eq!(
+        inventory
+            .pages
+            .iter()
+            .flat_map(|page| &page.targets)
+            .filter(|target| target.status == visualcoverage::GalleryTargetStatus::Diagnostic)
+            .count(),
+        7_770
+    );
+}
+
+#[test]
+fn gallery_inventory_cli_preserves_output_on_failure() {
+    let directory = tempfile::tempdir().unwrap();
+    let registry_path = directory.path().join("registry.bin");
+    let assets_path = directory.path().join("assets.mcbea");
+    let baseline_path = directory.path().join("baseline.json");
+    let output_path = directory.path().join("inventory.json");
+    let (registry, assets, mut baseline) = full_gallery_fixture(&Default::default());
+    baseline.registry_sha256 = "0".repeat(64);
+    std::fs::write(&registry_path, registry).unwrap();
+    std::fs::write(&assets_path, assets).unwrap();
+    std::fs::write(&baseline_path, deterministic_json(&baseline).unwrap()).unwrap();
+    std::fs::write(&output_path, b"reviewed-inventory\n").unwrap();
+
+    let run = std::process::Command::new(env!("CARGO_BIN_EXE_visualcoverage"))
+        .args([
+            "gallery-inventory",
+            "--registry",
+            registry_path.to_str().unwrap(),
+            "--assets",
+            assets_path.to_str().unwrap(),
+            "--baseline",
+            baseline_path.to_str().unwrap(),
+            "--out",
+            output_path.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!run.status.success());
+    assert_eq!(
+        std::fs::read(&output_path).unwrap(),
+        b"reviewed-inventory\n"
+    );
+    assert_no_atomic_temp_artifacts(directory.path());
+}
 
 #[test]
 fn committed_protocol_baseline_binds_the_complete_corpus_and_all_vines() {
