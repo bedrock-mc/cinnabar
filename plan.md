@@ -377,6 +377,21 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       real-pack assets/render tests, the 43-witness/five-pose deterministic
       gallery, strict MCBEAS04 integrity/tamper gates, full PowerShell dry-run
       acceptance, strict Clippy/formatting, and independent re-review are green.
+    - [x] Door and trapdoor templates: all 672 door states and 336 trapdoor
+      states compile through compact six-quad alpha-cutout cuboids with exact
+      typed open/orientation/hinge/half selection, 3/16-block thickness,
+      lower/upper door materials, conservative partial-model culling, and
+      deterministic template reuse. Legacy oak-through-iron door texture arrays
+      and modern bamboo/cherry/mangrove/pale-oak/nether/copper/waxed aliases are
+      covered. Dragonfly's rotated door-state encoding is inverted before its
+      logical-facing/open-hinge transform; an independent review caught and
+      corrected the initial direct-orientation interpretation before push.
+      Missing or out-of-range selectors fail closed, collision-only seeds are
+      not used as render authority, and the real-pack exhaustive gate removes
+      exactly 1,008 diagnostics with no additions (`1a69fca`; 145 assets tests,
+      strict Clippy/formatting, full 16,913-state ratchet, and independent review
+      green). Deterministic gallery/native GPU evidence remains in the shared
+      residual-family live gate.
     - [ ] Slab/stair native and packed-GPU live acceptance: capture all five
       fixed Cinnabar poses through native `%TEMP%` screenshots and require two
       consecutive exact GPU-completed model-stream witnesses. Automated gallery
@@ -508,9 +523,9 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       exact hash-to-sequential bijection, bounds all inputs, rejects diagnostic
       regression/invisible laundering, and writes deterministic hash-bound
       reports (`b131247`; 11 tests, strict Clippy, real-pack run, and independent
-      review green). After the reviewed lava tranche below, the current baseline
-      has 14,941 diagnostics and zero vine or lava diagnostics; each remaining
-      family must shrink that exact set.
+      review green). After the reviewed lava, vine, door, and trapdoor tranches,
+      the current residual has 13,933 diagnostics and zero diagnostics in those
+      implemented families; each remaining family must shrink that exact set.
   - [ ] Complete the exhaustive residual-family report, beginning with
     lava/flowing-lava on a reviewed depth-writing non-water-liquid pipeline, so
     every non-air one of the 16,913 canonical states has a non-diagnostic visual;
