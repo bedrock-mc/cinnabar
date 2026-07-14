@@ -8,23 +8,37 @@ use std::{
 
 use assets::{
     AssetError, BlockFace, BlockFlags, CollisionBox, CollisionConfidence, CollisionSeed,
-    CompiledAssets, ContributorRole, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND,
-    MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_BIRCH_FOLIAGE, MATERIAL_FLAG_EVERGREEN_FOLIAGE,
-    MATERIAL_FLAG_FOLIAGE_CLASS_MASK, MATERIAL_FLAG_FOLIAGE_TINT, MATERIAL_FLAG_GRASS_TINT,
-    MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_OVERLAY_MASK, MATERIAL_FLAG_ROTATE_UV,
-    MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_UV_MASK, MATERIAL_FLAG_WATER_TINT, MATERIAL_FLAGS_MASK,
-    MAX_TEXTURE_LAYERS, MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_QUAD_FLAG_FACE_MASK,
-    MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD,
-    MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR,
-    MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, Material, ModelFamily, ModelQuad, ModelState,
-    ModelStateField, NetworkIdMode, RegistryProvenance, RegistryRecord, RuntimeAssets, VisualKind,
-    compile_pack, encode_blob, read_pack, read_registry, resolve_texture_key,
+    CompiledAssets, ContributorRole, DIAGNOSTIC_MATERIAL, LightProperties,
+    MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_BIRCH_FOLIAGE,
+    MATERIAL_FLAG_EVERGREEN_FOLIAGE, MATERIAL_FLAG_FOLIAGE_CLASS_MASK, MATERIAL_FLAG_FOLIAGE_TINT,
+    MATERIAL_FLAG_GRASS_TINT, MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_OVERLAY_MASK,
+    MATERIAL_FLAG_ROTATE_UV, MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_UV_MASK,
+    MATERIAL_FLAG_WATER_TINT, MATERIAL_FLAGS_MASK, MAX_TEXTURE_LAYERS,
+    MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_QUAD_FLAG_FACE_MASK, MODEL_QUAD_FLAG_TWO_SIDED,
+    MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_KELP,
+    MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
+    Material, ModelFamily, ModelQuad, ModelState, ModelStateField, NetworkIdMode,
+    RegistryProvenance, RegistryRecord, RuntimeAssets, VisualKind,
+    compile_pack as compile_pack_with_lights, encode_blob, read_pack, read_registry,
+    resolve_texture_key,
 };
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 
 const TILE_SIZE: u32 = 16;
+
+fn compile_pack(root: &Path, records: &[RegistryRecord]) -> Result<CompiledAssets, AssetError> {
+    let synthetic_lights = vec![
+        LightProperties::default();
+        records
+            .iter()
+            .map(|record| record.sequential_id as usize + 1)
+            .max()
+            .unwrap_or(0)
+    ];
+    compile_pack_with_lights(root, records, &synthetic_lights)
+}
 
 const HUGE_MUSHROOM_NAMES: [&str; 3] = [
     "minecraft:brown_mushroom_block",
@@ -8737,6 +8751,17 @@ fn registry_bytes(records: &[RegistryRecord]) -> Vec<u8> {
     bytes
 }
 
+fn light_registry_bytes(breg: &[u8], count: usize) -> Vec<u8> {
+    let mut bytes = b"LREG1001".to_vec();
+    bytes.extend_from_slice(&1001_u32.to_le_bytes());
+    bytes.extend_from_slice(&(count as u32).to_le_bytes());
+    bytes.extend_from_slice(&Sha256::digest(breg));
+    bytes.extend(std::iter::repeat_n(0xf0, count));
+    let digest = Sha256::digest(&bytes);
+    bytes.extend_from_slice(&digest);
+    bytes
+}
+
 fn shuffled_records(records: &[RegistryRecord], mut state: u64) -> Vec<RegistryRecord> {
     let mut shuffled = records.to_vec();
     for upper in (1..shuffled.len()).rev() {
@@ -8955,9 +8980,16 @@ fn compiler_assigns_generic_birch_evergreen_and_self_colored_leaf_flags() {
 fn assetc_summary_reports_deterministic_cutout_material_count() {
     let (directory, resource_pack, records) = leaf_material_fixture();
     let registry = directory.path().join("registry.bin");
+    let light_registry = directory.path().join("light-registry.bin");
     let biome_registry = directory.path().join("biome-registry.bin");
     let output_blob = directory.path().join("vanilla-v1001.mcbea");
-    fs::write(&registry, registry_bytes(&records)).expect("write registry fixture");
+    let registry_fixture = registry_bytes(&records);
+    fs::write(&registry, &registry_fixture).expect("write registry fixture");
+    fs::write(
+        &light_registry,
+        light_registry_bytes(&registry_fixture, records.len()),
+    )
+    .expect("write light registry fixture");
     fs::write(&biome_registry, biome_registry_bytes(0, "minecraft:plains"))
         .expect("write biome registry fixture");
     write_biome_fixture(&resource_pack);
@@ -8966,6 +8998,8 @@ fn assetc_summary_reports_deterministic_cutout_material_count() {
         .arg(&resource_pack)
         .arg("--registry")
         .arg(&registry)
+        .arg("--light-registry")
+        .arg(&light_registry)
         .arg("--biome-registry")
         .arg(&biome_registry)
         .arg("--out")

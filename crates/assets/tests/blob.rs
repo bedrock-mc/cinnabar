@@ -9,9 +9,9 @@ use assets::{
 use sha2::{Digest, Sha256};
 
 #[test]
-fn mcbeas04_exact_bytes() {
-    assert_eq!(&BLOB_MAGIC, b"MCBEAS04");
-    assert_eq!(BLOB_VERSION, 4);
+fn mcbeas05_exact_bytes() {
+    assert_eq!(&BLOB_MAGIC, b"MCBEAS05");
+    assert_eq!(BLOB_VERSION, 5);
     let texture = assets::TextureRef::new(1, 17).expect("bounded texture ref");
     assert_eq!(texture.raw(), 0x8000_0011);
 
@@ -35,6 +35,11 @@ fn mcbeas04_exact_bytes() {
             animation: 0,
             variant: 7,
         },
+    ]
+    .into_boxed_slice();
+    fixture.light_properties = vec![
+        assets::LightProperties::new(0, 15).unwrap(),
+        assets::LightProperties::new(12, 0).unwrap(),
     ]
     .into_boxed_slice();
     fixture.hashed = vec![(1, 0), (2, 1)].into_boxed_slice();
@@ -89,8 +94,8 @@ fn mcbeas04_exact_bytes() {
     assert_eq!(bytes.len(), 1_576_168);
     assert_eq!(
         format!("{:x}", Sha256::digest(&bytes)),
-        "4770d48d0925290720a8e53707f6a4cd2f6e8dd11ec89bbaa258feeae06944f5",
-        "the complete every-table fixture is the byte-exact MCBEAS04 golden"
+        "8625117df2dcebbd90d3be83d4336e02fb1f721cd912b02a175710360b05cf07",
+        "the complete every-table fixture is the byte-exact MCBEAS05 golden"
     );
     assert_eq!(read_u32(&bytes, 20), 2);
     assert_eq!(read_u32(&bytes, 28), 2);
@@ -100,6 +105,8 @@ fn mcbeas04_exact_bytes() {
     assert_eq!(read_u32(&bytes, 44), 2);
     assert_eq!(read_u32(&bytes, 48), 2);
     let visuals = read_u64(&bytes, 96) as usize;
+    assert_eq!(bytes[visuals + 27], 0xf0);
+    assert_eq!(bytes[visuals + 40 + 27], 0x0c);
     let materials = read_u64(&bytes, 112) as usize;
     let templates = read_u64(&bytes, 120) as usize;
     let quads = read_u64(&bytes, 128) as usize;
@@ -476,6 +483,7 @@ fn valid_assets() -> CompiledAssets {
             variant: 0,
         }]
         .into_boxed_slice(),
+        light_properties: vec![assets::LightProperties::default()].into_boxed_slice(),
         hashed: vec![(0x8000_0000, 0)].into_boxed_slice(),
         materials: vec![Material {
             texture: TextureRef::DIAGNOSTIC,

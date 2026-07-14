@@ -2,8 +2,10 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"fmt"
 	"image/color"
 	"math"
 	"math/rand"
@@ -18,6 +20,236 @@ import (
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/sandertv/gophertunnel/minecraft/nbt"
 )
+
+type fixtureLightRegistry struct {
+	emission map[uint32]uint8
+	filter   map[uint32]uint8
+}
+
+func (r fixtureLightRegistry) LightBlock(runtimeID uint32) uint8 {
+	return r.emission[runtimeID]
+}
+
+func (r fixtureLightRegistry) FilteringBlock(runtimeID uint32) uint8 {
+	return r.filter[runtimeID]
+}
+
+func TestEncodeLREG1001BindsExactBREGAndSortsBySequentialID(t *testing.T) {
+	records := []Record{testRecord(2, 30), testRecord(0, 10), testRecord(1, 20)}
+	registry := fixtureLightRegistry{
+		emission: map[uint32]uint8{0: 1, 1: 2, 2: 3},
+		filter:   map[uint32]uint8{0: 4, 1: 5, 2: 6},
+	}
+	breg := []byte("exact BREG1003 fixture bytes")
+
+	first, err := encodeLightRegistry(breg, records, registry)
+	if err != nil {
+		t.Fatalf("encode light registry: %v", err)
+	}
+	second, err := encodeLightRegistry(breg, slices.Clone(records), registry)
+	if err != nil {
+		t.Fatalf("repeat light registry: %v", err)
+	}
+	if !bytes.Equal(first, second) {
+		t.Fatal("LREG1001 encoding is not deterministic")
+	}
+	if got := string(first[:8]); got != "LREG1001" {
+		t.Fatalf("magic = %q", got)
+	}
+	if got := binary.LittleEndian.Uint32(first[8:12]); got != registryProtocol {
+		t.Fatalf("protocol = %d", got)
+	}
+	if got := binary.LittleEndian.Uint32(first[12:16]); got != 3 {
+		t.Fatalf("record count = %d", got)
+	}
+	wantBREGHash := sha256.Sum256(breg)
+	if !bytes.Equal(first[16:48], wantBREGHash[:]) {
+		t.Fatalf("BREG digest = %x, want %x", first[16:48], wantBREGHash)
+	}
+	if got, want := first[48:51], []byte{0x41, 0x52, 0x63}; !bytes.Equal(got, want) {
+		t.Fatalf("packed state bytes = %x, want %x", got, want)
+	}
+	wantDigest := sha256.Sum256(first[:51])
+	if !bytes.Equal(first[51:], wantDigest[:]) {
+		t.Fatalf("LREG digest = %x, want %x", first[51:], wantDigest)
+	}
+}
+
+func TestEncodeLREG1001RequiresOneBoundedBytePerBREGState(t *testing.T) {
+	valid := fixtureLightRegistry{
+		emission: map[uint32]uint8{0: 1, 1: 2},
+		filter:   map[uint32]uint8{0: 3, 1: 4},
+	}
+	for _, test := range []struct {
+		name     string
+		records  []Record
+		registry fixtureLightRegistry
+		want     string
+	}{
+		{"gap", []Record{testRecord(0, 1), testRecord(2, 2)}, valid, "contiguous"},
+		{"duplicate", []Record{testRecord(0, 1), testRecord(0, 2)}, valid, "duplicate"},
+		{"emission nibble", []Record{testRecord(0, 1)}, fixtureLightRegistry{emission: map[uint32]uint8{0: 16}, filter: map[uint32]uint8{0: 0}}, "emission"},
+		{"filter nibble", []Record{testRecord(0, 1)}, fixtureLightRegistry{emission: map[uint32]uint8{0: 0}, filter: map[uint32]uint8{0: 16}}, "filter"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := encodeLightRegistry([]byte("breg"), test.records, test.registry)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestLightBindingRequiresExactBREGIdentityOrderAndCount(t *testing.T) {
+	records := []Record{testRecord(0, 10), testRecord(1, 20)}
+	records[0].Name, records[0].StateJSON = "minecraft:first", []byte(`{"lit":0}`)
+	records[1].Name, records[1].StateJSON = "minecraft:second", []byte(`{"lit":1}`)
+	for i := range records {
+		records[i].Provenance = ProvenanceDragonfly
+	}
+	breg, err := encode(records)
+	if err != nil {
+		t.Fatalf("encode binding BREG: %v", err)
+	}
+	if err := validateLightBindingBREG(breg, records); err != nil {
+		t.Fatalf("validate exact binding: %v", err)
+	}
+
+	fewer := slices.Clone(records[:1])
+	if err := validateLightBindingBREG(breg, fewer); err == nil || !strings.Contains(err.Error(), "count") {
+		t.Fatalf("count mismatch error = %v", err)
+	}
+	wrongState := slices.Clone(records)
+	wrongState[1].StateJSON = []byte(`{"lit":0}`)
+	if err := validateLightBindingBREG(breg, wrongState); err == nil || !strings.Contains(err.Error(), "identity") {
+		t.Fatalf("state mismatch error = %v", err)
+	}
+	wrongHash := slices.Clone(records)
+	wrongHash[0].NetworkHash++
+	if err := validateLightBindingBREG(breg, wrongHash); err == nil || !strings.Contains(err.Error(), "identity") {
+		t.Fatalf("hash mismatch error = %v", err)
+	}
+}
+
+func TestPinnedDragonflyStateAwareLightAccessors(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		properties map[string]TypedScalar
+		emission   uint8
+		filter     uint8
+	}{
+		{"minecraft:air", nil, 0, 0},
+		{"minecraft:glass", nil, 0, 0},
+		{"minecraft:oak_leaves", nil, 0, 1},
+		{"minecraft:water", nil, 0, 2},
+		{"minecraft:lava", nil, 15, 2},
+		{"minecraft:stone", nil, 0, 15},
+		{"minecraft:campfire", map[string]TypedScalar{"extinguished": {Kind: ScalarByte, Byte: 0}}, 15, 0},
+		{"minecraft:campfire", map[string]TypedScalar{"extinguished": {Kind: ScalarByte, Byte: 1}}, 0, 0},
+		{"minecraft:sea_pickle", map[string]TypedScalar{"cluster_count": {Kind: ScalarInt, Int: 0}, "dead_bit": {Kind: ScalarByte, Byte: 0}}, 6, 0},
+		{"minecraft:sea_pickle", map[string]TypedScalar{"cluster_count": {Kind: ScalarInt, Int: 3}, "dead_bit": {Kind: ScalarByte, Byte: 0}}, 15, 0},
+		{"minecraft:sea_pickle", map[string]TypedScalar{"cluster_count": {Kind: ScalarInt, Int: 3}, "dead_bit": {Kind: ScalarByte, Byte: 1}}, 0, 0},
+		{"minecraft:furnace", nil, 0, 15},
+		{"minecraft:lit_furnace", nil, 13, 15},
+		{"minecraft:candle", map[string]TypedScalar{"candles": {Kind: ScalarInt, Int: 0}, "lit": {Kind: ScalarByte, Byte: 0}}, 0, 0},
+		{"minecraft:candle", map[string]TypedScalar{"candles": {Kind: ScalarInt, Int: 0}, "lit": {Kind: ScalarByte, Byte: 1}}, 3, 0},
+		{"minecraft:candle", map[string]TypedScalar{"candles": {Kind: ScalarInt, Int: 3}, "lit": {Kind: ScalarByte, Byte: 1}}, 12, 0},
+	} {
+		t.Run(test.name+canonicalPropertySuffix(test.properties), func(t *testing.T) {
+			emission, filter := pinnedDragonflyLight(t, test.name, test.properties)
+			if emission != test.emission || filter != test.filter {
+				t.Fatalf("light = emission %d/filter %d, want %d/%d", emission, filter, test.emission, test.filter)
+			}
+		})
+	}
+}
+
+func TestPMMPFallbackIsNarrowUniformAndProvenanceTagged(t *testing.T) {
+	records, err := collect(world.DefaultBlockRegistry)
+	if err != nil {
+		t.Fatalf("collect registry: %v", err)
+	}
+	pmmp := map[string]PMMPLightProperties{
+		"minecraft:redstone_lamp":     {Brightness: 0, Opacity: 0},
+		"minecraft:lit_redstone_lamp": {Brightness: 15, Opacity: 0},
+	}
+	properties, report, err := resolveAuthoritativeLightProperties(records, world.DefaultBlockRegistry, pmmp)
+	if err != nil {
+		t.Fatalf("resolve authoritative lights: %v", err)
+	}
+	if got, want := report.PMMPFallbackIdentifiers, []string{"minecraft:lit_redstone_lamp", "minecraft:redstone_lamp"}; !slices.Equal(got, want) {
+		t.Fatalf("fallback identifiers = %v, want %v", got, want)
+	}
+	if report.PMMPFallbackStates == 0 || len(report.PMMPFallbackSequentialIDs) != report.PMMPFallbackStates {
+		t.Fatalf("fallback provenance = %+v", report)
+	}
+	for _, record := range records {
+		switch record.Name {
+		case "minecraft:redstone_lamp":
+			if got := properties[record.SequentialID]; got != 0x00 {
+				t.Fatalf("unlit lamp runtime %d light = %#x", record.SequentialID, got)
+			}
+		case "minecraft:lit_redstone_lamp":
+			if got := properties[record.SequentialID]; got != 0x0f {
+				t.Fatalf("lit lamp runtime %d light = %#x", record.SequentialID, got)
+			}
+		}
+	}
+
+	delete(pmmp, "minecraft:lit_redstone_lamp")
+	if _, _, err := resolveAuthoritativeLightProperties(records, world.DefaultBlockRegistry, pmmp); err == nil || !strings.Contains(err.Error(), "lit_redstone_lamp") {
+		t.Fatalf("missing exact PMMP fallback error = %v", err)
+	}
+	pmmp["minecraft:lit_redstone_lamp"] = PMMPLightProperties{Brightness: 16, Opacity: 0}
+	if _, _, err := resolveAuthoritativeLightProperties(records, world.DefaultBlockRegistry, pmmp); err == nil || !strings.Contains(err.Error(), "brightness") {
+		t.Fatalf("out-of-range fallback error = %v", err)
+	}
+}
+
+func pinnedDragonflyLight(t *testing.T, name string, required map[string]TypedScalar) (uint8, uint8) {
+	t.Helper()
+	states, err := collectDragonflyStates(world.DefaultBlockRegistry)
+	if err != nil {
+		t.Fatalf("collect Dragonfly states: %v", err)
+	}
+	for _, state := range states {
+		if state.Name != name {
+			continue
+		}
+		properties := make(map[string]TypedScalar, len(state.Properties))
+		for _, property := range state.Properties {
+			properties[property.Name] = property.Value
+		}
+		matches := true
+		for property, want := range required {
+			if properties[property] != want {
+				matches = false
+				break
+			}
+		}
+		if matches {
+			return world.DefaultBlockRegistry.LightBlock(state.Ordinal), world.DefaultBlockRegistry.FilteringBlock(state.Ordinal)
+		}
+	}
+	t.Fatalf("Dragonfly state %s%v not found", name, required)
+	return 0, 0
+}
+
+func canonicalPropertySuffix(properties map[string]TypedScalar) string {
+	if len(properties) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(properties))
+	for name := range properties {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	var suffix strings.Builder
+	for _, name := range names {
+		fmt.Fprintf(&suffix, "/%s=%v", name, properties[name])
+	}
+	return suffix.String()
+}
 
 type registryBiome struct {
 	id   int

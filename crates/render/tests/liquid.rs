@@ -778,6 +778,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
                 flags: 0,
             }]
             .into_boxed_slice(),
+            light_properties: vec![assets::LightProperties::default()].into_boxed_slice(),
             model_quads: vec![assets::ModelQuad {
                 positions: [[0, 0, 0], [256, 0, 256], [256, 256, 256], [0, 256, 0]],
                 uvs: [[0, 0]; 4],

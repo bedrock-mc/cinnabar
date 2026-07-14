@@ -492,6 +492,7 @@ fn blob(records: &[RegistryRecord], kinds: &[VisualKind]) -> Vec<u8> {
     hashed.sort_unstable();
     let compiled = CompiledAssets {
         visuals: kinds.iter().copied().map(visual).collect(),
+        light_properties: vec![assets::LightProperties::default(); kinds.len()].into_boxed_slice(),
         hashed: hashed.into_boxed_slice(),
         materials: vec![
             Material {
@@ -1239,6 +1240,8 @@ fn strict_blob(
     hashed.sort_unstable();
     let compiled = CompiledAssets {
         visuals: visuals.into_boxed_slice(),
+        light_properties: vec![assets::LightProperties::default(); records.len()]
+            .into_boxed_slice(),
         hashed: hashed.into_boxed_slice(),
         materials: materials.into_boxed_slice(),
         model_templates: templates.into_boxed_slice(),

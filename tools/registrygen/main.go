@@ -16,7 +16,7 @@ import (
 	"strconv"
 	"strings"
 
-	_ "github.com/df-mc/dragonfly/server/block"
+	"github.com/df-mc/dragonfly/server/block"
 	"github.com/df-mc/dragonfly/server/block/model"
 	"github.com/df-mc/dragonfly/server/world"
 	_ "github.com/df-mc/dragonfly/server/world/biome"
@@ -25,6 +25,7 @@ import (
 
 const (
 	registryHeader      = "BREG1003"
+	lightRegistryHeader = "LREG1001"
 	biomeRegistryHeader = "BIOREG01"
 	registryProtocol    = 1001
 
@@ -43,6 +44,37 @@ const (
 	maxBiomeRecordCount = 1_024
 	maxBiomeNameBytes   = 256
 )
+
+type lightRegistry interface {
+	LightBlock(runtimeID uint32) uint8
+	FilteringBlock(runtimeID uint32) uint8
+}
+
+var pmmpLightFallbackIdentifiers = []string{
+	"minecraft:lit_redstone_lamp",
+	"minecraft:redstone_lamp",
+}
+
+type PMMPLightProperties struct {
+	Brightness float64 `json:"brightness"`
+	Opacity    float64 `json:"opacity"`
+}
+
+type LightGenerationReport struct {
+	DragonflyRevision         string   `json:"dragonfly_revision"`
+	DragonflyAccessorStates   int      `json:"dragonfly_accessor_states"`
+	PMMPFallbackStates        int      `json:"pmmp_fallback_states"`
+	PMMPFallbackIdentifiers   []string `json:"pmmp_fallback_identifiers"`
+	PMMPFallbackSequentialIDs []uint32 `json:"pmmp_fallback_sequential_ids"`
+	BREGSHA256                string   `json:"breg_sha256"`
+}
+
+type bregLightIdentity struct {
+	SequentialID uint32
+	NetworkHash  uint32
+	Name         string
+	StateJSON    []byte
+}
 
 type ScalarKind uint8
 
@@ -234,15 +266,16 @@ type ValentineAudit struct {
 }
 
 type GenerationReport struct {
-	Protocol               uint32         `json:"protocol"`
-	CanonicalNames         int            `json:"canonical_names"`
-	CanonicalStates        int            `json:"canonical_states"`
-	ValentineAudit         ValentineAudit `json:"valentine_audit"`
-	PMMPPaletteSHA256      string         `json:"pmmp_palette_sha256"`
-	PrismarineStateSHA256  string         `json:"prismarine_states_sha256"`
-	PrismarineShapeSHA256  string         `json:"prismarine_shapes_sha256"`
-	ValentinePaletteSHA256 string         `json:"valentine_palette_sha256"`
-	ValentineBlocksSHA256  string         `json:"valentine_blocks_sha256"`
+	Protocol               uint32                `json:"protocol"`
+	CanonicalNames         int                   `json:"canonical_names"`
+	CanonicalStates        int                   `json:"canonical_states"`
+	ValentineAudit         ValentineAudit        `json:"valentine_audit"`
+	PMMPPaletteSHA256      string                `json:"pmmp_palette_sha256"`
+	PrismarineStateSHA256  string                `json:"prismarine_states_sha256"`
+	PrismarineShapeSHA256  string                `json:"prismarine_shapes_sha256"`
+	ValentinePaletteSHA256 string                `json:"valentine_palette_sha256"`
+	ValentineBlocksSHA256  string                `json:"valentine_blocks_sha256"`
+	LightMetadata          LightGenerationReport `json:"light_metadata"`
 }
 
 // Record is one serialized block-registry entry.
@@ -268,14 +301,16 @@ type BiomeRecord struct {
 
 func main() {
 	out := flag.String("out", "", "path to write the block registry")
+	lightOut := flag.String("light-out", "", "path to write the BREG-bound block light registry")
+	lightBREG := flag.String("light-breg", "", "existing reviewed BREG1003 whose exact bytes the light registry binds")
 	biomeOut := flag.String("biome-out", "", "optional path to write the biome registry")
 	pmmpRoot := flag.String("pmmp", "", "pinned PMMP BedrockData directory")
 	prismarineRoot := flag.String("prismarine", "", "pinned Prismarine minecraft-data directory")
 	valentinePalette := flag.String("valentine-palette", "", "pinned Valentine block_palette.bin")
 	valentineBlocks := flag.String("valentine-blocks", "", "pinned Valentine generated blocks.rs")
 	flag.Parse()
-	if *out == "" {
-		fmt.Fprintln(os.Stderr, "registrygen: -out is required")
+	if *out == "" || *lightOut == "" || *lightBREG == "" {
+		fmt.Fprintln(os.Stderr, "registrygen: -out, -light-out, and -light-breg are required")
 		os.Exit(2)
 	}
 
@@ -305,6 +340,42 @@ func main() {
 		fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
 		os.Exit(1)
 	}
+	bindingBREG, err := os.ReadFile(*lightBREG)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "registrygen: read light-binding BREG: %v\n", err)
+		os.Exit(1)
+	}
+	if len(bindingBREG) > 128<<20 {
+		fmt.Fprintln(os.Stderr, "registrygen: light-binding BREG exceeds 128 MiB")
+		os.Exit(1)
+	}
+	if err := validateLightBindingBREG(bindingBREG, records); err != nil {
+		fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
+		os.Exit(1)
+	}
+	var encodedLights []byte
+	if *pmmpRoot == "" {
+		encodedLights, err = encodeLightRegistry(bindingBREG, records, world.DefaultBlockRegistry)
+	} else {
+		pmmpLights, lightErr := readPMMPLightProperties(filepath.Join(*pmmpRoot, "block_properties_table.json"))
+		if lightErr != nil {
+			fmt.Fprintf(os.Stderr, "registrygen: read PMMP light diagnostics: %v\n", lightErr)
+			os.Exit(1)
+		}
+		resolved, lightReport, lightErr := resolveAuthoritativeLightProperties(records, world.DefaultBlockRegistry, pmmpLights)
+		if lightErr != nil {
+			fmt.Fprintf(os.Stderr, "registrygen: resolve light metadata: %v\n", lightErr)
+			os.Exit(1)
+		}
+		report.LightMetadata = lightReport
+		bindingDigest := sha256.Sum256(bindingBREG)
+		report.LightMetadata.BREGSHA256 = fmt.Sprintf("%x", bindingDigest)
+		encodedLights, err = encodeResolvedLightRegistry(bindingBREG, records, resolved)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
+		os.Exit(1)
+	}
 	if err := os.MkdirAll(filepath.Dir(*out), 0o755); err != nil {
 		fmt.Fprintf(os.Stderr, "registrygen: create output directory: %v\n", err)
 		os.Exit(1)
@@ -313,10 +384,24 @@ func main() {
 		fmt.Fprintf(os.Stderr, "registrygen: write output: %v\n", err)
 		os.Exit(1)
 	}
+	if err := os.MkdirAll(filepath.Dir(*lightOut), 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "registrygen: create light output directory: %v\n", err)
+		os.Exit(1)
+	}
+	if err := os.WriteFile(*lightOut, encodedLights, 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "registrygen: write light output: %v\n", err)
+		os.Exit(1)
+	}
 	digest := sha256.Sum256(encoded)
 	shaPath := strings.TrimSuffix(*out, filepath.Ext(*out)) + ".sha256"
 	if err := os.WriteFile(shaPath, []byte(fmt.Sprintf("%x\n", digest)), 0o644); err != nil {
 		fmt.Fprintf(os.Stderr, "registrygen: write checksum: %v\n", err)
+		os.Exit(1)
+	}
+	lightDigest := sha256.Sum256(encodedLights)
+	lightSHAPath := strings.TrimSuffix(*lightOut, filepath.Ext(*lightOut)) + ".sha256"
+	if err := os.WriteFile(lightSHAPath, []byte(fmt.Sprintf("%x\n", lightDigest)), 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "registrygen: write light checksum: %v\n", err)
 		os.Exit(1)
 	}
 	if report.Protocol != 0 {
@@ -2214,6 +2299,23 @@ func classifyFlags(value world.Block) uint8 {
 	if name == "minecraft:air" {
 		return flagAir
 	}
+	// These experimental protocol-1001 blocks were unknown when the reviewed
+	// BREG1003 was produced. The light-metadata dependency pin now implements
+	// them as solids, but this light-only change must preserve the committed
+	// visual registry's established no-geometry facts.
+	switch name {
+	case "minecraft:polished_sulfur", "minecraft:sulfur_bricks",
+		"minecraft:chiseled_sulfur", "minecraft:cinnabar_bricks",
+		"minecraft:cinnabar", "minecraft:chiseled_cinnabar",
+		"minecraft:polished_cinnabar", "minecraft:sulfur":
+		return 0
+	}
+	// Dragonfly's registered zero-value ShulkerBox carries an uninitialised
+	// animation counter and its Model method panics. It is a non-cube model,
+	// so preserve the existing no-full-face BREG facts without calling Model.
+	if _, ok := value.(block.ShulkerBox); ok {
+		return 0
+	}
 	switch value.Model().(type) {
 	case model.Leaves:
 		return flagCubeGeometry | flagLeafModel
@@ -2273,6 +2375,220 @@ func encode(records []Record) ([]byte, error) {
 		}
 	}
 	return encodeWithMetadata(defaultMetadata(compat), compat)
+}
+
+func encodeLightRegistry(breg []byte, records []Record, registry lightRegistry) ([]byte, error) {
+	if registry == nil {
+		return nil, errors.New("light registry is nil")
+	}
+	if len(records) > maxRecordCount {
+		return nil, fmt.Errorf("too many light records: %d exceeds %d", len(records), maxRecordCount)
+	}
+	sorted := append([]Record(nil), records...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].SequentialID < sorted[j].SequentialID })
+	for index, record := range sorted {
+		if index != 0 && record.SequentialID == sorted[index-1].SequentialID {
+			return nil, fmt.Errorf("duplicate sequential ID: %d", record.SequentialID)
+		}
+		if record.SequentialID != uint32(index) {
+			return nil, fmt.Errorf("light registry sequential IDs are not contiguous at index %d: got %d", index, record.SequentialID)
+		}
+	}
+
+	properties := make([]byte, len(sorted))
+	for _, record := range sorted {
+		emission := registry.LightBlock(record.SequentialID)
+		filter := registry.FilteringBlock(record.SequentialID)
+		if emission > 15 {
+			return nil, fmt.Errorf("runtime ID %d emission %d exceeds one nibble", record.SequentialID, emission)
+		}
+		if filter > 15 {
+			return nil, fmt.Errorf("runtime ID %d filter %d exceeds one nibble", record.SequentialID, filter)
+		}
+		properties[record.SequentialID] = emission | filter<<4
+	}
+	return encodeResolvedLightRegistry(breg, sorted, properties)
+}
+
+func encodeResolvedLightRegistry(breg []byte, sorted []Record, properties []byte) ([]byte, error) {
+	if len(properties) != len(sorted) {
+		return nil, fmt.Errorf("light property count %d does not match %d records", len(properties), len(sorted))
+	}
+	for index, record := range sorted {
+		if record.SequentialID != uint32(index) {
+			return nil, fmt.Errorf("resolved light records are not in sequential order at index %d: got %d", index, record.SequentialID)
+		}
+	}
+	bregDigest := sha256.Sum256(breg)
+	encoded := make([]byte, 0, len(lightRegistryHeader)+8+sha256.Size+len(sorted)+sha256.Size)
+	encoded = append(encoded, lightRegistryHeader...)
+	encoded = binary.LittleEndian.AppendUint32(encoded, registryProtocol)
+	encoded = binary.LittleEndian.AppendUint32(encoded, uint32(len(sorted)))
+	encoded = append(encoded, bregDigest[:]...)
+	encoded = append(encoded, properties...)
+	digest := sha256.Sum256(encoded)
+	encoded = append(encoded, digest[:]...)
+	return encoded, nil
+}
+
+func validateLightBindingBREG(breg []byte, records []Record) error {
+	identities, err := readBREG1003LightIdentities(breg)
+	if err != nil {
+		return err
+	}
+	if len(identities) != len(records) {
+		return fmt.Errorf("light binding BREG count %d does not match %d source states", len(identities), len(records))
+	}
+	sorted := append([]Record(nil), records...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].SequentialID < sorted[j].SequentialID })
+	for index, identity := range identities {
+		record := sorted[index]
+		if identity.SequentialID != uint32(index) || record.SequentialID != uint32(index) ||
+			identity.NetworkHash != record.NetworkHash || identity.Name != record.Name ||
+			!bytes.Equal(identity.StateJSON, record.StateJSON) {
+			return fmt.Errorf("light binding BREG identity mismatch at sequential index %d", index)
+		}
+	}
+	return nil
+}
+
+func readBREG1003LightIdentities(data []byte) ([]bregLightIdentity, error) {
+	const headerBytes = 8 + 7*4
+	const recordPrefixBytes = 24 + 8*4
+	if len(data) < headerBytes || string(data[:8]) != registryHeader || binary.LittleEndian.Uint32(data[8:12]) != registryProtocol {
+		return nil, errors.New("light binding input is not protocol-1001 BREG1003")
+	}
+	count := int(binary.LittleEndian.Uint32(data[16:20]))
+	if count > maxRecordCount {
+		return nil, fmt.Errorf("light binding BREG count %d exceeds %d", count, maxRecordCount)
+	}
+	identities := make([]bregLightIdentity, 0, count)
+	cursor := headerBytes
+	for index := 0; index < count; index++ {
+		if len(data)-cursor < recordPrefixBytes {
+			return nil, fmt.Errorf("light binding BREG record %d is truncated", index)
+		}
+		prefix := data[cursor : cursor+recordPrefixBytes]
+		sequentialID := binary.LittleEndian.Uint32(prefix[0:4])
+		networkHash := binary.LittleEndian.Uint32(prefix[4:8])
+		boxCount := int(prefix[15])
+		if boxCount > maxCollisionBoxesPerRecord {
+			return nil, fmt.Errorf("light binding BREG record %d has too many collision boxes", index)
+		}
+		nameLength := int(binary.LittleEndian.Uint16(prefix[18:20]))
+		stateLength := int(binary.LittleEndian.Uint32(prefix[20:24]))
+		if stateLength > maxStateBytes {
+			return nil, fmt.Errorf("light binding BREG record %d state exceeds limit", index)
+		}
+		payloadStart := cursor + recordPrefixBytes + boxCount*24
+		payloadEnd := payloadStart + nameLength + stateLength
+		if payloadStart < cursor || payloadEnd < payloadStart || payloadEnd > len(data) {
+			return nil, fmt.Errorf("light binding BREG record %d payload is truncated", index)
+		}
+		identities = append(identities, bregLightIdentity{
+			SequentialID: sequentialID,
+			NetworkHash:  networkHash,
+			Name:         string(data[payloadStart : payloadStart+nameLength]),
+			StateJSON:    append([]byte(nil), data[payloadStart+nameLength:payloadEnd]...),
+		})
+		cursor = payloadEnd
+	}
+	if cursor != len(data) {
+		return nil, fmt.Errorf("light binding BREG has %d trailing bytes", len(data)-cursor)
+	}
+	return identities, nil
+}
+
+func resolveAuthoritativeLightProperties(records []Record, registry world.BlockRegistry, pmmp map[string]PMMPLightProperties) ([]byte, LightGenerationReport, error) {
+	if registry == nil {
+		return nil, LightGenerationReport{}, errors.New("block registry is nil")
+	}
+	sorted := append([]Record(nil), records...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].SequentialID < sorted[j].SequentialID })
+	properties := make([]byte, len(sorted))
+	report := LightGenerationReport{DragonflyRevision: "dbbd8b787946e53b1def8d532050751dfcdc80e7"}
+	fallbackNames := make(map[string]bool, len(pmmpLightFallbackIdentifiers))
+	for _, name := range pmmpLightFallbackIdentifiers {
+		fallbackNames[name] = false
+	}
+	for index, record := range sorted {
+		if record.SequentialID != uint32(index) {
+			return nil, LightGenerationReport{}, fmt.Errorf("light registry sequential IDs are not contiguous at index %d: got %d", index, record.SequentialID)
+		}
+		emission := registry.LightBlock(record.SequentialID)
+		filter := registry.FilteringBlock(record.SequentialID)
+		if emission > 15 || filter > 15 {
+			return nil, LightGenerationReport{}, fmt.Errorf("runtime ID %d returned malformed light %d/%d", record.SequentialID, emission, filter)
+		}
+		fallback, eligible := fallbackNames[record.Name]
+		_ = fallback
+		value, found := registry.BlockByRuntimeID(record.SequentialID)
+		concrete := found
+		if found {
+			_, hash := value.Hash()
+			concrete = hash != math.MaxUint64
+		}
+		if eligible {
+			exact, ok := pmmp[record.Name]
+			if !ok {
+				return nil, LightGenerationReport{}, fmt.Errorf("required exact PMMP light entry %s is missing", record.Name)
+			}
+			pmmpEmission, pmmpFilter, err := checkedPMMPLight(record.Name, exact)
+			if err != nil {
+				return nil, LightGenerationReport{}, err
+			}
+			if concrete {
+				if emission != pmmpEmission || filter != pmmpFilter {
+					return nil, LightGenerationReport{}, fmt.Errorf("concrete Dragonfly light %d/%d disagrees with exact PMMP cross-check %d/%d for %s", emission, filter, pmmpEmission, pmmpFilter, record.Name)
+				}
+			} else {
+				emission, filter = pmmpEmission, pmmpFilter
+				report.PMMPFallbackStates++
+				report.PMMPFallbackSequentialIDs = append(report.PMMPFallbackSequentialIDs, record.SequentialID)
+				fallbackNames[record.Name] = true
+			}
+		}
+		if concrete || !eligible {
+			report.DragonflyAccessorStates++
+		}
+		properties[index] = emission | filter<<4
+	}
+	for _, name := range pmmpLightFallbackIdentifiers {
+		if !fallbackNames[name] {
+			continue
+		}
+		report.PMMPFallbackIdentifiers = append(report.PMMPFallbackIdentifiers, name)
+	}
+	return properties, report, nil
+}
+
+func checkedPMMPLight(name string, properties PMMPLightProperties) (uint8, uint8, error) {
+	if !isWholeNibble(properties.Brightness) {
+		return 0, 0, fmt.Errorf("PMMP brightness %v for %s is not an exact nibble", properties.Brightness, name)
+	}
+	if math.IsNaN(properties.Opacity) || math.IsInf(properties.Opacity, 0) || properties.Opacity < 0 || properties.Opacity > 1 {
+		return 0, 0, fmt.Errorf("PMMP opacity %v for %s is outside 0..1", properties.Opacity, name)
+	}
+	return uint8(properties.Brightness), uint8(math.Round(properties.Opacity * 15)), nil
+}
+
+func isWholeNibble(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0) && value >= 0 && value <= 15 && value == math.Trunc(value)
+}
+
+func readPMMPLightProperties(path string) (map[string]PMMPLightProperties, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > 16<<20 {
+		return nil, fmt.Errorf("PMMP block properties exceed 16 MiB")
+	}
+	var properties map[string]PMMPLightProperties
+	if err := json.Unmarshal(data, &properties); err != nil {
+		return nil, err
+	}
+	return properties, nil
 }
 
 func encodeWithMetadata(metadata RegistryMetadata, records []Record) ([]byte, error) {

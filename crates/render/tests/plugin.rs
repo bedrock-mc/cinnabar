@@ -7,11 +7,24 @@ use std::{
 };
 
 use assets::{
-    ANIMATION_FLAG_BLEND, Animation, BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets,
-    DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_CUTOUT, MODEL_QUAD_FLAG_TWO_SIDED, Material,
-    ModelStateField, NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TextureArray,
-    TextureMip, TexturePage, TextureRef, VisualKind, compile_pack, encode_blob, read_registry,
+    ANIMATION_FLAG_BLEND, Animation, AssetError, BlockFlags, BlockVisual, CompiledAssets,
+    CompiledBiomeAssets, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_CUTOUT,
+    MODEL_QUAD_FLAG_TWO_SIDED, Material, ModelStateField, NO_ANIMATION, NO_MODEL_TEMPLATE,
+    NetworkIdMode, RegistryRecord, RuntimeAssets, TextureArray, TextureMip, TexturePage,
+    TextureRef, VisualKind, compile_pack as compile_pack_with_lights, encode_blob, read_registry,
 };
+
+fn compile_pack(root: &Path, records: &[RegistryRecord]) -> Result<CompiledAssets, AssetError> {
+    let lights = vec![
+        assets::LightProperties::default();
+        records
+            .iter()
+            .map(|record| record.sequential_id as usize + 1)
+            .max()
+            .unwrap_or(0)
+    ];
+    compile_pack_with_lights(root, records, &lights)
+}
 use bevy::{
     camera::primitives::Aabb,
     prelude::{App, Mat4, MinimalPlugins, Quat, Vec3, Visibility},
@@ -1159,6 +1172,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
                 14
             ]
             .into_boxed_slice(),
+            light_properties: vec![assets::LightProperties::default()].into_boxed_slice(),
             model_templates: Box::new([]),
             model_quads: Box::new([]),
             animations: Box::new([]),

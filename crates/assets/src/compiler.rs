@@ -5,8 +5,8 @@ use std::{
 
 use crate::{
     Animation, AnimationInventory, AssetError, BiomeRegistryRecord, BlockFace, BlockFlags,
-    CompiledBiomeAssets, ContributorRole, MODEL_QUAD_FLAG_FACE_MASK, MODEL_QUAD_FLAG_TWO_SIDED,
-    MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_FENCE_NETHER,
+    CompiledBiomeAssets, ContributorRole, LightProperties, MODEL_QUAD_FLAG_FACE_MASK,
+    MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_FENCE_NETHER,
     MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
     MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE,
     MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, MODEL_TEMPLATE_FLAG_WALL,
@@ -136,6 +136,7 @@ pub(crate) fn visual_semantics_are_valid(
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompiledAssets {
     pub visuals: Box<[BlockVisual]>,
+    pub light_properties: Box<[LightProperties]>,
     pub hashed: Box<[(u32, u32)]>,
     pub materials: Box<[Material]>,
     pub model_templates: Box<[ModelTemplate]>,
@@ -163,8 +164,17 @@ type CompiledVisuals = (
 type CompiledAnimations = (Box<[Animation]>, Box<[TextureRef]>);
 
 /// Compiles the cube-geometry subset of a bounded Bedrock resource pack.
-pub fn compile_pack(root: &Path, records: &[RegistryRecord]) -> Result<CompiledAssets, AssetError> {
-    compile_pack_inner(root, records, CompiledBiomeAssets::diagnostic())
+pub fn compile_pack(
+    root: &Path,
+    records: &[RegistryRecord],
+    light_properties: &[LightProperties],
+) -> Result<CompiledAssets, AssetError> {
+    compile_pack_inner(
+        root,
+        records,
+        light_properties,
+        CompiledBiomeAssets::diagnostic(),
+    )
 }
 
 /// Compiles the complete v3 block and biome asset set.
@@ -173,9 +183,10 @@ pub fn compile_pack_with_biomes(
     behavior_pack: &Path,
     records: &[RegistryRecord],
     biome_registry: &[BiomeRegistryRecord],
+    light_properties: &[LightProperties],
 ) -> Result<CompiledAssets, AssetError> {
     let biomes = compile_biome_assets(root, behavior_pack, biome_registry)?;
-    compile_pack_inner(root, records, biomes)
+    compile_pack_inner(root, records, light_properties, biomes)
 }
 
 /// Reads and compiles a bounded animation staging plan without changing the
@@ -228,6 +239,7 @@ pub fn inspect_animation_inventory(
 fn compile_pack_inner(
     root: &Path,
     records: &[RegistryRecord],
+    light_properties: &[LightProperties],
     biomes: CompiledBiomeAssets,
 ) -> Result<CompiledAssets, AssetError> {
     let pack = read_pack(root)?;
@@ -385,9 +397,15 @@ fn compile_pack_inner(
             farmland: admit_farmland,
         },
     )?;
+    if light_properties.len() != visuals.len() {
+        return Err(AssetError::InvalidCompiledAssets {
+            detail: "light-property count does not match sequential visual span".into(),
+        });
+    }
 
     Ok(CompiledAssets {
         visuals,
+        light_properties: light_properties.into(),
         hashed,
         materials,
         model_templates,

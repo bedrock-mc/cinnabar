@@ -6,6 +6,7 @@ mod blob;
 mod compiler;
 mod error;
 mod image;
+mod light_registry;
 mod model;
 mod pack;
 mod registry;
@@ -31,6 +32,7 @@ pub use compiler::{
 };
 pub use error::AssetError;
 pub use image::{MIP_COUNT, TILE_SIZE, TextureArray, TextureMip};
+pub use light_registry::{LightProperties, read_light_registry};
 pub use model::{
     ANIMATION_FLAG_BLEND, Animation, MAX_ANIMATION_FRAMES, MAX_ANIMATIONS, MAX_MODEL_QUADS,
     MAX_MODEL_TEMPLATES, MAX_TEXTURE_PAGES, MODEL_QUAD_FLAG_CULL_FACE_MASK,

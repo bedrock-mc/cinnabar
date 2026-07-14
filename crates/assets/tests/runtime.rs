@@ -2,17 +2,17 @@ use std::mem::size_of_val;
 
 use assets::{
     AssetError, BLOB_VERSION, BiomeRule, BlockFace, BlockFlags, BlockVisual, CompiledAssets,
-    CompiledBiomeAssets, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_FOLIAGE_TINT, MATERIAL_FLAGS_MASK,
-    MAX_ANIMATION_FRAMES, MAX_ANIMATIONS, MAX_MATERIALS, MAX_MODEL_QUADS, MAX_MODEL_TEMPLATES,
-    Material, ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode,
-    RuntimeAssets, TINT_MAP_BYTES, TextureArray, TextureMip, TexturePage, TextureRef, TintSource,
-    VisualKind, encode_blob,
+    CompiledBiomeAssets, DIAGNOSTIC_MATERIAL, LightProperties, MATERIAL_FLAG_FOLIAGE_TINT,
+    MATERIAL_FLAGS_MASK, MAX_ANIMATION_FRAMES, MAX_ANIMATIONS, MAX_MATERIALS, MAX_MODEL_QUADS,
+    MAX_MODEL_TEMPLATES, Material, ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE,
+    NetworkIdMode, RuntimeAssets, TINT_MAP_BYTES, TextureArray, TextureMip, TexturePage,
+    TextureRef, TintSource, VisualKind, encode_blob,
 };
 use sha2::{Digest, Sha256};
 
 #[test]
-fn runtime_decodes_mcbeas04_tables() {
-    let runtime = RuntimeAssets::decode(&valid_blob()).expect("decode MCBEAS04");
+fn runtime_decodes_mcbeas05_tables() {
+    let runtime = RuntimeAssets::decode(&valid_blob()).expect("decode MCBEAS05");
     assert!(runtime.model_templates().is_empty());
     assert!(runtime.model_quads().is_empty());
     assert!(runtime.animations().is_empty());
@@ -72,6 +72,11 @@ fn compiled_assets() -> CompiledAssets {
             },
         ]
         .into_boxed_slice(),
+        light_properties: vec![
+            LightProperties::new(0, 0).unwrap(),
+            LightProperties::new(13, 2).unwrap(),
+        ]
+        .into_boxed_slice(),
         // Hash 1 deliberately collides with sequential ID 1 but maps to visual 0.
         hashed: vec![(1, 0), (0xdbf4_4120, 1)].into_boxed_slice(),
         materials: vec![
@@ -108,6 +113,34 @@ fn compiled_assets() -> CompiledAssets {
             .into_boxed_slice(),
         },
     }
+}
+
+#[test]
+fn runtime_light_properties_follow_visual_index_in_sequential_and_hash_modes() {
+    let runtime = RuntimeAssets::decode(&valid_blob()).expect("decode MCBEAS05");
+    assert_eq!(
+        runtime
+            .resolve(NetworkIdMode::Sequential, 1)
+            .light_properties(),
+        LightProperties::new(13, 2).unwrap()
+    );
+    assert_eq!(
+        runtime
+            .resolve(NetworkIdMode::Hashed, 0xdbf4_4120)
+            .light_properties(),
+        LightProperties::new(13, 2).unwrap()
+    );
+    assert_eq!(
+        runtime.resolve(NetworkIdMode::Hashed, 1).light_properties(),
+        LightProperties::new(0, 0).unwrap()
+    );
+}
+
+#[test]
+fn runtime_rejects_old_mcbeas04_magic() {
+    let mut old = valid_blob();
+    old[..8].copy_from_slice(b"MCBEAS04");
+    assert!(RuntimeAssets::decode(&old).is_err());
 }
 
 fn valid_blob() -> Vec<u8> {
@@ -518,7 +551,6 @@ fn decode_rejects_malformed_model_animation_and_visual_sections() {
 
     mutate_byte(visuals + 40 + 25, 99, "unknown visual kind");
     mutate_byte(visuals + 40 + 26, 99, "unknown contributor role");
-    mutate_byte(visuals + 40 + 27, 1, "visual reserved byte");
     mutate_byte(visuals + 40 + 26, 0, "liquid with primary contributor role");
     mutate_byte(
         visuals + 40 + 25,

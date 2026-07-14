@@ -21,6 +21,8 @@ pub const COMPILE_COMMAND: &str = concat!(
     "cargo run -p assets --bin assetc -- compile ",
     "--pack .local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack ",
     "--registry crates/assets/data/block-registry-v1001.bin ",
+    "--light-registry crates/assets/data/block-light-registry-v1001.bin ",
+    "--biome-registry crates/assets/data/biome-registry-v1001.bin ",
     "--out .local/assets/compiled/vanilla-v1001.mcbea"
 );
 
@@ -78,11 +80,14 @@ pub enum AssetStartupError {
     #[error("compiled asset blob at {path} exceeds the {max_bytes}-byte startup limit")]
     TooLarge { path: PathBuf, max_bytes: u64 },
 
-    #[error("could not decode compiled asset blob at {path}: {source}")]
+    #[error(
+        "could not decode compiled asset blob at {path}: {source}\nrebuild stale local assets with: {rebuild_command}"
+    )]
     Decode {
         path: PathBuf,
         #[source]
         source: Box<AssetError>,
+        rebuild_command: &'static str,
     },
 
     #[error("could not parse the checked-in vanilla source manifest: {0}")]
@@ -172,6 +177,7 @@ pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, As
             RuntimeAssets::decode(&bytes).map_err(|source| AssetStartupError::Decode {
                 path: selection.path.clone(),
                 source: Box::new(source),
+                rebuild_command: COMPILE_COMMAND,
             })?,
         );
     let metrics = runtime_metrics(&runtime, source, blob_sha256);

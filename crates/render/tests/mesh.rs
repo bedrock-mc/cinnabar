@@ -7,14 +7,15 @@ use std::{
 };
 
 use assets::{
-    BlockFace, BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, DIAGNOSTIC_MATERIAL,
-    MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT, MODEL_QUAD_FLAG_CULL_FACE_MASK,
-    MODEL_QUAD_FLAG_FACE_MASK, MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAG_FENCE_NETHER,
-    MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE,
-    MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, Material, ModelFamily,
-    ModelQuad, ModelStateField, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode,
-    RuntimeAssets, TextureArray, TextureMip, TexturePage, TextureRef, VisualKind, compile_pack,
-    encode_blob, read_registry,
+    AssetError, BlockFace, BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets,
+    DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT,
+    MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_QUAD_FLAG_FACE_MASK, MODEL_QUAD_FLAG_TWO_SIDED,
+    MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_KELP,
+    MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
+    Material, ModelFamily, ModelQuad, ModelStateField, ModelTemplate, NO_ANIMATION,
+    NO_MODEL_TEMPLATE, NetworkIdMode, RegistryRecord, RuntimeAssets, TextureArray, TextureMip,
+    TexturePage, TextureRef, VisualKind, compile_pack as compile_pack_with_lights, encode_blob,
+    read_registry,
 };
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 use render::{
@@ -40,6 +41,18 @@ const MODEL_32: u32 = 63;
 const COMPOUND_40: u32 = 64;
 const MIXED_ALPHA_MODEL: u32 = 65;
 const MODEL_TEMPLATE_FLAG_COMPOUND_NEXT_TEST: u32 = 1 << 2;
+
+fn compile_pack(root: &Path, records: &[RegistryRecord]) -> Result<CompiledAssets, AssetError> {
+    let lights = vec![
+        assets::LightProperties::default();
+        records
+            .iter()
+            .map(|record| record.sequential_id as usize + 1)
+            .max()
+            .unwrap_or(0)
+    ];
+    compile_pack_with_lights(root, records, &lights)
+}
 
 #[test]
 fn packed_stream_record_sizes() {
@@ -248,6 +261,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
             })
             .collect::<Vec<_>>()
             .into_boxed_slice(),
+            light_properties: vec![assets::LightProperties::default()].into_boxed_slice(),
             model_templates: vec![
                 ModelTemplate {
                     quad_start: 0,

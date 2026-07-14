@@ -24,8 +24,8 @@ use crate::{
     model::{ANIMATION_FLAGS_MASK, model_quad_flags_are_valid},
 };
 
-pub const BLOB_MAGIC: [u8; 8] = *b"MCBEAS04";
-pub const BLOB_VERSION: u32 = 4;
+pub const BLOB_MAGIC: [u8; 8] = *b"MCBEAS05";
+pub const BLOB_VERSION: u32 = 5;
 pub(crate) const HEADER_BYTES: usize = 200;
 pub(crate) const HASH_BYTES: usize = 32;
 pub(crate) const VISUAL_BYTES: usize = 40;
@@ -39,7 +39,7 @@ pub(crate) const PAGE_BYTES: usize = 64;
 pub(crate) const BIOME_RULE_BYTES: usize = 36;
 pub(crate) const MAX_VISUALS: usize = 65_536;
 
-/// Serializes canonical, bounded `MCBEAS04` compiler output with a trailing SHA-256.
+/// Serializes canonical, bounded `MCBEAS05` compiler output with a trailing SHA-256.
 pub fn encode_blob(compiled: &CompiledAssets) -> Result<Box<[u8]>, AssetError> {
     validate_compiled(compiled)?;
     let sizes = [
@@ -119,14 +119,14 @@ pub fn encode_blob(compiled: &CompiledAssets) -> Result<Box<[u8]>, AssetError> {
     }
     debug_assert_eq!(bytes.len(), HEADER_BYTES);
 
-    for visual in &compiled.visuals {
+    for (visual, light) in compiled.visuals.iter().zip(&compiled.light_properties) {
         for material in visual.faces {
             push_u32(&mut bytes, material);
         }
         bytes.push(visual.flags.bits());
         bytes.push(visual.kind as u8);
         bytes.push(visual.contributor_role as u8);
-        bytes.push(0);
+        bytes.push(light.packed());
         push_u32(&mut bytes, visual.model_template);
         push_u32(&mut bytes, visual.animation);
         push_u32(&mut bytes, visual.variant);
@@ -223,6 +223,11 @@ pub fn encode_blob(compiled: &CompiledAssets) -> Result<Box<[u8]>, AssetError> {
 fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
     validate_biome_assets(&compiled.biomes)?;
     bounded("visual", compiled.visuals.len(), MAX_VISUALS)?;
+    if compiled.light_properties.len() != compiled.visuals.len() {
+        return Err(invalid(
+            "light-property table must exactly match the visual table",
+        ));
+    }
     bounded("hash", compiled.hashed.len(), MAX_VISUALS)?;
     if compiled.materials.len() > MAX_MATERIALS {
         return Err(AssetError::TooManyMaterials {

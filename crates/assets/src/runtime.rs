@@ -9,9 +9,9 @@ use crate::model::{
 use crate::{
     ANIMATION_FLAG_BLEND, Animation, AssetError, BLOB_MAGIC, BLOB_VERSION, BiomeRule, BlockFace,
     BlockFlags, BlockVisual, CompiledBiomeAssets, ContributorRole, DIAGNOSTIC_MATERIAL,
-    MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT, MAX_ANIMATION_FRAMES, MAX_ANIMATIONS,
-    MAX_BIOME_NAME_BYTES, MAX_BIOME_NAMES_BYTES, MAX_BIOME_RULES, MAX_MATERIALS, MAX_MODEL_QUADS,
-    MAX_MODEL_TEMPLATES, MAX_TEXTURE_LAYERS, MAX_TEXTURE_PAGES, MIP_COUNT,
+    LightProperties, MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT, MAX_ANIMATION_FRAMES,
+    MAX_ANIMATIONS, MAX_BIOME_NAME_BYTES, MAX_BIOME_NAMES_BYTES, MAX_BIOME_RULES, MAX_MATERIALS,
+    MAX_MODEL_QUADS, MAX_MODEL_TEMPLATES, MAX_TEXTURE_LAYERS, MAX_TEXTURE_PAGES, MIP_COUNT,
     MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_FENCE_NETHER,
     MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
     MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE,
@@ -47,18 +47,21 @@ impl ResolvedFace {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ResolvedBlock {
     visual: BlockVisual,
+    light_properties: LightProperties,
     known: bool,
 }
 impl ResolvedBlock {
-    const fn known(visual: BlockVisual) -> Self {
+    const fn known(visual: BlockVisual, light_properties: LightProperties) -> Self {
         Self {
             visual,
+            light_properties,
             known: true,
         }
     }
     const fn diagnostic() -> Self {
         Self {
             visual: diagnostic_visual(),
+            light_properties: LightProperties::OPAQUE_DARK,
             known: false,
         }
     }
@@ -104,6 +107,10 @@ impl ResolvedBlock {
     pub const fn variant(self) -> u32 {
         self.visual.variant
     }
+    #[must_use]
+    pub const fn light_properties(self) -> LightProperties {
+        self.light_properties
+    }
 }
 
 const fn diagnostic_visual() -> BlockVisual {
@@ -120,6 +127,7 @@ const fn diagnostic_visual() -> BlockVisual {
 
 pub struct RuntimeAssets {
     visuals: Box<[BlockVisual]>,
+    light_properties: Box<[LightProperties]>,
     hashed: Box<[(u32, u32)]>,
     materials: Box<[Material]>,
     model_templates: Box<[ModelTemplate]>,
@@ -156,6 +164,7 @@ impl RuntimeAssets {
             .into_boxed_slice();
         Self {
             visuals: vec![diagnostic_visual()].into_boxed_slice(),
+            light_properties: vec![LightProperties::OPAQUE_DARK].into_boxed_slice(),
             hashed: Box::new([]),
             materials: vec![Material {
                 texture: TextureRef::DIAGNOSTIC,
@@ -174,7 +183,7 @@ impl RuntimeAssets {
         }
     }
 
-    /// Validates the complete `MCBEAS04` envelope and every cross-reference before allocating tables.
+    /// Validates the complete `MCBEAS05` envelope and every cross-reference before allocating tables.
     pub fn decode(bytes: &[u8]) -> Result<Self, AssetError> {
         let header = Header::decode(bytes)?;
         header.validate_layout(bytes)?;
@@ -190,6 +199,7 @@ impl RuntimeAssets {
         let biomes = decode_biomes(sections[9], sections[10], sections[11])?;
         Ok(Self {
             visuals: decode_visuals(sections[0])?,
+            light_properties: decode_light_properties(sections[0]),
             hashed: decode_hashes(sections[1]),
             materials: decode_materials(sections[2])?,
             model_templates: decode_templates(sections[3]),
@@ -204,19 +214,22 @@ impl RuntimeAssets {
 
     #[must_use]
     pub fn resolve(&self, mode: NetworkIdMode, value: u32) -> ResolvedBlock {
-        let visual = match mode {
-            NetworkIdMode::Sequential => self.visuals.get(value as usize).copied(),
-            NetworkIdMode::Hashed => self
-                .sequential_id_for_hash(value)
-                .and_then(|sequential_id| self.visuals.get(sequential_id as usize))
-                .copied(),
+        let index = match mode {
+            NetworkIdMode::Sequential => Some(value),
+            NetworkIdMode::Hashed => self.sequential_id_for_hash(value),
         };
+        let visual = index.and_then(|index| {
+            self.visuals
+                .get(index as usize)
+                .copied()
+                .zip(self.light_properties.get(index as usize).copied())
+        });
         visual.map_or_else(
             || {
                 self.record_missing();
                 ResolvedBlock::diagnostic()
             },
-            ResolvedBlock::known,
+            |(visual, light)| ResolvedBlock::known(visual, light),
         )
     }
 
@@ -300,16 +313,16 @@ struct Header {
 impl Header {
     fn decode(bytes: &[u8]) -> Result<Self, AssetError> {
         if bytes.len() < HEADER_BYTES + HASH_BYTES {
-            return Err(invalid("truncated MCBEAS04 blob"));
+            return Err(invalid("truncated MCBEAS05 blob"));
         }
         if bytes[..8] != BLOB_MAGIC {
-            return Err(invalid("invalid MCBEAS04 magic"));
+            return Err(invalid("invalid MCBEAS05 magic"));
         }
         if u32_at(bytes, 8) != BLOB_VERSION
             || u32_at(bytes, 12) != TILE_SIZE
             || u32_at(bytes, 16) != MIP_COUNT
         {
-            return Err(invalid("unsupported MCBEAS04 header"));
+            return Err(invalid("unsupported MCBEAS05 header"));
         }
         if bytes[64..96] != [0; 32] {
             return Err(invalid("header reserved bytes are non-zero"));
@@ -481,8 +494,8 @@ fn validate_fixed(
         }
         let flags =
             BlockFlags::from_bits(record[24]).ok_or_else(|| invalid("visual has unknown flags"))?;
-        if !flags.has_valid_semantics() || record[27] != 0 {
-            return Err(invalid("visual flags/reserved bytes are invalid"));
+        if !flags.has_valid_semantics() {
+            return Err(invalid("visual flags are invalid"));
         }
         let kind = VisualKind::from_raw(record[25])?;
         let contributor_role = ContributorRole::read(record[26])?;
@@ -837,6 +850,16 @@ fn decode_visuals(bytes: &[u8]) -> Result<Box<[BlockVisual]>, AssetError> {
         })
         .collect::<Result<Vec<_>, _>>()
         .map(Vec::into_boxed_slice)
+}
+fn decode_light_properties(bytes: &[u8]) -> Box<[LightProperties]> {
+    bytes
+        .chunks_exact(VISUAL_BYTES)
+        .map(|record| {
+            LightProperties::new(record[27] & 0x0f, record[27] >> 4)
+                .expect("packed nibbles are always bounded")
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice()
 }
 fn decode_hashes(bytes: &[u8]) -> Box<[(u32, u32)]> {
     bytes

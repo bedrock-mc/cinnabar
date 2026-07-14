@@ -6,8 +6,8 @@ use std::{
 
 use assets::{
     AnimationInventory, AssetError, MATERIAL_FLAG_ALPHA_CUTOUT, compile_pack_with_biomes,
-    encode_blob, inspect_animation_inventory, read_biome_registry, read_registry,
-    write_blob_atomic,
+    encode_blob, inspect_animation_inventory, read_biome_registry, read_light_registry,
+    read_registry, write_blob_atomic,
 };
 use clap::{Parser, Subcommand};
 use serde::Serialize;
@@ -19,7 +19,7 @@ const MAX_SOURCE_MANIFEST_BYTES: usize = 1024 * 1024;
 #[derive(Debug, Parser)]
 #[command(
     about = "Compile verified local Bedrock resource-pack assets",
-    after_help = "Compile inputs:\n  assetc compile --pack <RESOURCE_PACK> --registry <BLOCK_REGISTRY_BIN> --biome-registry <BIOME_REGISTRY_BIN> --out <IGNORED_DIR>/vanilla-v1001.mcbea\n\nAnimation inventory:\n  assetc animation-inventory --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --max-layers-per-page 2048 --max-pages 2 --out <IGNORED_DIR>/animation-inventory.json"
+    after_help = "Compile inputs:\n  assetc compile --pack <RESOURCE_PACK> --registry <BLOCK_REGISTRY_BIN> --light-registry <LIGHT_REGISTRY_BIN> --biome-registry <BIOME_REGISTRY_BIN> --out <IGNORED_DIR>/vanilla-v1001.mcbea\n\nAnimation inventory:\n  assetc animation-inventory --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --max-layers-per-page 2048 --max-pages 2 --out <IGNORED_DIR>/animation-inventory.json"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -36,6 +36,9 @@ enum Command {
         /// BREG1003 registry exported by tools/registrygen.
         #[arg(long)]
         registry: PathBuf,
+        /// LREG1001 state light metadata bound to the exact BREG1003 input.
+        #[arg(long)]
+        light_registry: PathBuf,
         /// BIOREG01 registry exported by tools/registrygen.
         #[arg(long)]
         biome_registry: PathBuf,
@@ -83,19 +86,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::Compile {
             pack,
             registry,
+            light_registry,
             biome_registry,
             out,
         } => {
             let registry_bytes = read_bounded(&registry)?;
             let records = read_registry(&registry_bytes)?;
+            let light_registry_bytes = read_bounded(&light_registry)?;
+            let light_properties =
+                read_light_registry(&light_registry_bytes, &registry_bytes, records.len())?;
             let biome_registry_bytes = read_bounded(&biome_registry)?;
             let biome_records = read_biome_registry(&biome_registry_bytes)?;
             let behavior_pack = pack
                 .parent()
                 .ok_or("resource-pack path has no parent for behavior_pack")?
                 .join("behavior_pack");
-            let compiled =
-                compile_pack_with_biomes(&pack, &behavior_pack, &records, &biome_records)?;
+            let compiled = compile_pack_with_biomes(
+                &pack,
+                &behavior_pack,
+                &records,
+                &biome_records,
+                &light_properties,
+            )?;
             let blob = encode_blob(&compiled)?;
             write_blob_atomic(&out, &blob)?;
             let cutout_materials = compiled
