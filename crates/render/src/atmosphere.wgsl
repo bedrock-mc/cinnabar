@@ -93,7 +93,7 @@ fn sample_cloud_layer(ray: vec3<f32>) -> vec4<f32> {
 
     let world_position = view.world_position + ray * ray_distance;
     let world_uv = fract(world_position.xz / CLOUD_TEXTURE_WORLD_PERIOD);
-    let cloud_uv = fract(world_uv + atmosphere.fog_end_time.zw);
+    let cloud_uv = fract(world_uv - atmosphere.fog_end_time.zw);
     let sampled = textureSampleLevel(clouds_texture, atmosphere_sampler, cloud_uv, 0.0);
 
     let rain = atmosphere.sky_zenith_rain.w;

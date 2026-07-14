@@ -123,6 +123,25 @@ fn cloud_motion_uses_absolute_ticks_and_wraps_euclidean_at_one_texture_period() 
 }
 
 #[test]
+fn cloud_texture_feature_moves_east_in_world_space_as_ticks_increase() {
+    fn world_x_for_feature(texture_u: f64, absolute_ticks: f64) -> f64 {
+        let offset = f64::from(cloud_texture_offset(absolute_ticks)[0]);
+        (texture_u + offset) * 256.0
+    }
+
+    let start = world_x_for_feature(0.25, 0.0);
+    let later = world_x_for_feature(0.25, 100.0);
+    assert!((later - start - 3.0).abs() < 1.0e-5, "{start} -> {later}");
+
+    let shader = include_str!("../src/atmosphere.wgsl");
+    assert!(
+        shader.contains("let cloud_uv = fract(world_uv - atmosphere.fog_end_time.zw);"),
+        "subtracting the positive eastward offset makes fixed texture features move +X"
+    );
+    assert!(!shader.contains("fract(world_uv + atmosphere.fog_end_time.zw)"));
+}
+
+#[test]
 fn sun_and_moon_visibility_overlap_only_inside_the_intentional_horizon_transition() {
     fn smoothstep(edge0: f32, edge1: f32, value: f32) -> f32 {
         let amount = ((value - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
