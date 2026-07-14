@@ -993,15 +993,25 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     and live reference acceptance remain open.
   - [x] Pin and carry the exact vanilla sun, moon-phase atlas, and cloud texture
     in an independent bounded `MCBEATM1` runtime blob. The compiler requires the
-    exact tracked Mojang manifest bytes/fields and per-source PNG hashes, records
+    exact tracked Mojang manifest fields, canonical LF bytes (accepting only a
+    uniform LF or Windows CRLF checkout), and per-source PNG hashes, records
     encoded and decoded hashes, rejects malformed/noncanonical layouts, and
     publishes only to ignored local paths. `make assets` and `make client`
     refresh the serialized blob/report pair through one portable producer;
     normalized, case-variant, symlink/junction, and hardlink output aliases fail
     before either write. Focused pinned tests, full assets/client-asset suites,
-    strict Clippy, and independent re-review are green through `54dfbb7`; no
-    Mojang payload is tracked. Persistent GPU texture upload and rendering are
-    the active follow-up.
+    strict Clippy, and independent re-review are green through `aed8d7f`; no
+    Mojang payload is tracked.
+  - [x] Load the required sibling `MCBEATM1` carrier once at startup and render
+    its exact sun, 4x2 moon-phase atlas, and repeating cloud texture through the
+    existing reversed-Z atmosphere phase. Three persistent GPU textures, one
+    sampler, and one identity-cached bind group replace the procedural celestial
+    disks without per-frame or per-subchunk resource churn; missing or malformed
+    carriers fail hard with the exact rebuild command. Clouds use absolute world
+    time, altitude 128, weather/fog fades, and a tested +X eastward speed of 0.03
+    blocks per tick. Full app/render suites, strict Clippy, WGSL validation, and
+    independent review are green through `4bf2c8c`; native multi-platform visual
+    tuning and parity acceptance remain open.
   - [x] Wire the sparse solver and MCBEAS05 per-state emission/filter metadata
     into generation-qualified WorldStream light storage and bounded,
     nearest-first one-subchunk solves. Exact face block/light halos, dirty
