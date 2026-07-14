@@ -17,8 +17,9 @@ use protocol::{
     vanilla_dimension_range,
 };
 use render::{
-    BlockClassifier, ChunkBiomeTintIdentity, ChunkMesh, FaceConnectivity, PackedBiomeRecord,
-    mesh_dependency_mask, mesh_sub_chunk_in_neighbourhood,
+    BlockClassifier, ChunkBiomeTintIdentity, ChunkMesh, FaceConnectivity, MeshLightSample,
+    MeshLightSampler, PackedBiomeRecord, mesh_dependency_mask,
+    mesh_sub_chunk_in_neighbourhood_with_lighting,
 };
 use thiserror::Error;
 use world::{
@@ -1161,10 +1162,6 @@ struct MeshLightHalo {
 }
 
 impl MeshLightHalo {
-    #[allow(
-        dead_code,
-        reason = "the render LightSampler adapter consumes this isolated seam after branch integration"
-    )]
     fn sample_channels(&self, coordinate: [i32; 3]) -> [u8; 2] {
         let offset = coordinate.map(|value| value.div_euclid(16));
         if offset.into_iter().any(|value| !(-1..=1).contains(&value)) {
@@ -1188,6 +1185,14 @@ impl MeshLightHalo {
     #[cfg(test)]
     fn occupied_slot_count(&self) -> usize {
         self.slots.iter().flatten().count()
+    }
+}
+
+impl MeshLightSampler for MeshLightHalo {
+    fn sample(&self, coordinate: [i32; 3]) -> MeshLightSample {
+        let [block, sky] = self.sample_channels(coordinate);
+        MeshLightSample::try_new(block, sky)
+            .expect("world light storage exposes only bounded four-bit channels")
     }
 }
 
@@ -1218,11 +1223,12 @@ impl MeshSnapshot {
         runtime_assets: &RuntimeAssets,
         network_id_mode: NetworkIdMode,
     ) -> ChunkMesh {
-        mesh_sub_chunk_in_neighbourhood(
+        mesh_sub_chunk_in_neighbourhood_with_lighting(
             &classifier,
             runtime_assets,
             network_id_mode,
             &self.neighbourhood(),
+            &self.light_halo,
         )
     }
 
@@ -4232,10 +4238,13 @@ mod tests {
     use render::{BlockClassifier, Neighbourhood, PackedBiomeRecord, mesh_sub_chunk};
     use world::{
         BlockUpdate, ChunkKey, ChunkStore, DecodedBiomeColumn, DecodedLevelChunk,
-        MeshDependencyMask, SubChunk, SubChunkKey,
+        MeshDependencyMask, SubChunk, SubChunkKey, SubChunkLight,
     };
 
-    use super::{MeshCompletion, RevisionTracker, SequenceBuffer, WorldStream, split_block_update};
+    use super::{
+        DirectSkyMask, MeshCompletion, MeshLightHalo, MeshLightSlot, MeshSnapshot, RevisionTracker,
+        SequenceBuffer, WorldStream, split_block_update,
+    };
 
     mod light_scheduler {
         use std::{
@@ -5975,6 +5984,46 @@ mod tests {
             NetworkIdMode,
             &'c world::MeshNeighbourhood<'d>,
         ) -> render::ChunkMesh = render::mesh_sub_chunk_in_neighbourhood;
+    }
+
+    #[test]
+    fn mesh_snapshot_bakes_solved_halo_channels_into_cube_sidecars() {
+        let key = SubChunkKey::new(0, 3, 4, 5);
+        let light = Arc::new(SubChunkLight::uniform(7, 3, 11).unwrap());
+        let direct_sky = Arc::new(DirectSkyMask::Uniform(false));
+        let light_halo = MeshLightHalo {
+            center: Some(key),
+            slots: std::array::from_fn(|_| {
+                Some(MeshLightSlot {
+                    key,
+                    block_generation: 10,
+                    light_revision: 11,
+                    light: Arc::clone(&light),
+                    direct_sky: Arc::clone(&direct_sky),
+                })
+            }),
+        };
+        let snapshot = MeshSnapshot {
+            center: Arc::new(uniform_sub_chunk(1)),
+            biome: None,
+            adjacent: std::array::from_fn(|_| None),
+            light_halo,
+        };
+
+        let mesh = snapshot.mesh(
+            BlockClassifier::new(0),
+            &RuntimeAssets::diagnostic(),
+            NetworkIdMode::Sequential,
+        );
+
+        assert!(!mesh.cube_lighting().is_empty());
+        assert_eq!(mesh.cube_lighting().len(), mesh.cube_quads().len());
+        assert!(
+            mesh.cube_lighting()
+                .iter()
+                .flat_map(|lighting| lighting.samples())
+                .all(|sample| sample & 0x00ff == 0x0037)
+        );
     }
 
     fn zig_zag_i32(value: i32) -> Vec<u8> {

@@ -989,7 +989,7 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       known-air light solves, with 26,136 uniform fast-path completions, zero
       stale completions, and all keys current in 1,006 ms. This measures the
       lighting scheduler only; live teleport/full-view remesh acceptance,
-      mixed-block workloads, mesh baking, and rendering acceptance remain open.
+      mixed-block workloads and rendering acceptance remain open.
   - [x] Capture palette-native mesh lighting in a fixed 27-slot identity halo,
     gate mesh dispatch until every known slot is current, reject and losslessly
     requeue completions after exact light or direct-sky identity changes, and
@@ -998,10 +998,14 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     nibble channels directly without flat staging arrays. App tests passed
     233/233 (with one release-only test ignored), all app integration and world
     suites passed, and the exact release workload completed 26,136/26,136
-    current subchunks with zero stale completions in 987 ms. Adapting the
-    internal halo seam to the separately owned render sampler/CPU bake work,
-    GPU/shader consumption, mixed-block visual acceptance, and live teleport
-    full-view remesh acceptance remain open.
+    current subchunks with zero stale completions in 987 ms. The halo now
+    implements the allocation-free render sampler and the worker calls the
+    light-aware mesher. Cube, model, cross, and liquid CPU sidecars retain
+    independent block/sky/AO channels; cube greedy merges split on exact packed
+    lighting, and the cube sidecar survives bounded render-queue extraction
+    with exact byte accounting. The combined app/render suites and strict
+    Clippy are green. GPU arena/shader consumption, mixed-block visual
+    acceptance, and live teleport full-view remesh acceptance remain open.
 
 Perf budget carried from Phase 0 gate; add: full remesh of view distance after teleport ≤ 2s.
 

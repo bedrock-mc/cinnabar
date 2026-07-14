@@ -39,6 +39,11 @@ allocation-free `MeshLightHalo::sample_channels` seam. The public render trait,
 CPU mesh-bake adapter, and worker call-site hookup remain pending integration
 from the separately owned render branch.
 
+**Integration update (2026-07-14):** the separate render sampler/CPU sidecar
+work is now integrated. `MeshLightHalo` implements the allocation-free render
+trait, and `MeshSnapshot::mesh` calls the light-aware entry point. GPU arena and
+shader consumption remain a separate open slice.
+
 `render::LightSampler` exposes one allocation-free method:
 
 ```rust

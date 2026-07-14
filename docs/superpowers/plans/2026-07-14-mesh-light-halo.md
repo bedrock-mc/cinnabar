@@ -26,6 +26,11 @@ implements Tasks 2-4 and the app/world/release portions of Task 5. Adapting the
 internal `MeshLightHalo::sample_channels` seam to the separately owned render
 sampler and CPU mesh-bake entry point remains open for branch integration.
 
+**Integration update (2026-07-14):** Task 1 and the app adapter are now merged:
+the halo implements the render sampler, the worker uses the light-aware mesher,
+and cube/model/cross/liquid CPU sidecars retain the solved channels through the
+bounded render queue. GPU arena/shader consumption remains open.
+
 ---
 
 ### Task 1: Allocation-free render light sampler
