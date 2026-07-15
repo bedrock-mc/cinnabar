@@ -136,6 +136,90 @@ fn runtime_light_properties_follow_visual_index_in_sequential_and_hash_modes() {
     );
 }
 
+fn synthetic_air_visual() -> BlockVisual {
+    BlockVisual {
+        faces: [DIAGNOSTIC_MATERIAL; 6],
+        flags: BlockFlags::AIR,
+        kind: VisualKind::Invisible,
+        contributor_role: assets::ContributorRole::Air,
+        model_template: NO_MODEL_TEMPLATE,
+        animation: NO_ANIMATION,
+        variant: 0,
+    }
+}
+
+#[test]
+fn runtime_derives_air_network_id_from_the_validated_registry_for_each_mode() {
+    let mut compiled = compiled_assets();
+    compiled.visuals = [compiled.visuals.as_ref(), &[synthetic_air_visual()]]
+        .concat()
+        .into_boxed_slice();
+    compiled.light_properties = [
+        compiled.light_properties.as_ref(),
+        &[LightProperties::new(0, 0).unwrap()],
+    ]
+    .concat()
+    .into_boxed_slice();
+    compiled.hashed = vec![(1, 0), (2, 1), (0xdbf4_4120, 2)].into_boxed_slice();
+    let runtime = RuntimeAssets::decode(
+        &encode_blob(&compiled)
+            .expect("encode non-default air registry")
+            .into_vec(),
+    )
+    .expect("decode non-default air registry");
+
+    assert_eq!(runtime.air_network_id(NetworkIdMode::Sequential), Some(2));
+    assert_eq!(
+        runtime.air_network_id(NetworkIdMode::Hashed),
+        Some(0xdbf4_4120)
+    );
+}
+
+#[test]
+fn runtime_air_network_id_fails_closed_for_ambiguous_air_visuals() {
+    let mut compiled = compiled_assets();
+    compiled.visuals[0] = synthetic_air_visual();
+    compiled.visuals[1] = synthetic_air_visual();
+    let runtime = RuntimeAssets::decode(
+        &encode_blob(&compiled)
+            .expect("encode ambiguous air registry")
+            .into_vec(),
+    )
+    .expect("decode ambiguous air registry");
+
+    assert_eq!(runtime.air_network_id(NetworkIdMode::Sequential), None);
+}
+
+#[test]
+fn runtime_air_network_id_fails_closed_for_ambiguous_air_hashes() {
+    let mut compiled = compiled_assets();
+    compiled.visuals[0] = synthetic_air_visual();
+    compiled.hashed = vec![(1, 0), (2, 0), (3, 1)].into_boxed_slice();
+    let runtime = RuntimeAssets::decode(
+        &encode_blob(&compiled)
+            .expect("encode ambiguous air hashes")
+            .into_vec(),
+    )
+    .expect("decode ambiguous air hashes");
+
+    assert_eq!(runtime.air_network_id(NetworkIdMode::Hashed), None);
+}
+
+#[test]
+fn runtime_air_network_id_ignores_noncanonical_air_flagged_visuals() {
+    let mut compiled = compiled_assets();
+    compiled.visuals[0].flags = BlockFlags::AIR;
+    compiled.visuals[1] = synthetic_air_visual();
+    let runtime = RuntimeAssets::decode(
+        &encode_blob(&compiled)
+            .expect("encode registry with diagnostic air decoy")
+            .into_vec(),
+    )
+    .expect("decode registry with diagnostic air decoy");
+
+    assert_eq!(runtime.air_network_id(NetworkIdMode::Sequential), Some(1));
+}
+
 #[test]
 fn runtime_rejects_old_mcbeas04_magic() {
     let mut old = valid_blob();

@@ -1372,14 +1372,18 @@ impl WorldStream {
                 current.checked_add(1)
             })
             .expect("biome tint stream identity space exhausted");
+        let network_id_mode = if bootstrap.block_network_ids_are_hashes {
+            NetworkIdMode::Hashed
+        } else {
+            NetworkIdMode::Sequential
+        };
+        let air_network_id = runtime_assets
+            .air_network_id(network_id_mode)
+            .unwrap_or(bootstrap.air_network_id);
         Self {
             store: ChunkStore::new(),
-            classifier: BlockClassifier::new(bootstrap.air_network_id),
-            network_id_mode: if bootstrap.block_network_ids_are_hashes {
-                NetworkIdMode::Hashed
-            } else {
-                NetworkIdMode::Sequential
-            },
+            classifier: BlockClassifier::new(air_network_id),
+            network_id_mode,
             runtime_assets,
             biome_definitions: Arc::from([]),
             resolved_biome_tints,
@@ -5985,7 +5989,81 @@ mod tests {
         );
 
         assert_eq!(stream.network_id_mode, NetworkIdMode::Hashed);
+        assert_eq!(stream.classifier.air_network_id(), 0xdbf4_4120);
         assert!(Arc::ptr_eq(&stream.runtime_assets, &runtime_assets));
+    }
+
+    #[test]
+    fn world_stream_classifier_uses_runtime_registry_air_for_each_network_mode() {
+        let runtime_assets = Arc::new(non_default_air_runtime_assets());
+        for (hashes, expected_air) in [(false, 2), (true, 0xdbf4_4120)] {
+            let stream = WorldStream::new_with_assets(
+                WorldBootstrap {
+                    dimension: 0,
+                    local_player_runtime_id: 1,
+                    player_position: [0.0; 3],
+                    world_spawn_position: [0; 3],
+                    air_network_id: 99,
+                    block_network_ids_are_hashes: hashes,
+                },
+                Arc::clone(&runtime_assets),
+                [0.0, crate::server_position::SAFE_SERVER_HEIGHT, 0.0],
+                None,
+            );
+
+            assert_eq!(stream.classifier.air_network_id(), expected_air);
+        }
+    }
+
+    fn non_default_air_runtime_assets() -> RuntimeAssets {
+        let cube = BlockVisual {
+            faces: [0; 6],
+            flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
+            kind: VisualKind::Cube,
+            contributor_role: assets::ContributorRole::Primary,
+            model_template: NO_MODEL_TEMPLATE,
+            animation: NO_ANIMATION,
+            variant: 0,
+        };
+        let air = BlockVisual {
+            faces: [0; 6],
+            flags: BlockFlags::AIR,
+            kind: VisualKind::Invisible,
+            contributor_role: assets::ContributorRole::Air,
+            model_template: NO_MODEL_TEMPLATE,
+            animation: NO_ANIMATION,
+            variant: 0,
+        };
+        let mips = [16_u32, 8, 4, 2, 1]
+            .map(|size| TextureMip {
+                size,
+                rgba8: vec![0; size as usize * size as usize * 4].into_boxed_slice(),
+            })
+            .into();
+        let compiled = CompiledAssets {
+            visuals: vec![cube, cube, air].into_boxed_slice(),
+            light_properties: vec![assets::LightProperties::default(); 3].into_boxed_slice(),
+            hashed: vec![(1, 0), (2, 1), (0xdbf4_4120, 2)].into_boxed_slice(),
+            materials: vec![Material {
+                texture: TextureRef::DIAGNOSTIC,
+                flags: 0,
+                animation: NO_ANIMATION,
+            }]
+            .into_boxed_slice(),
+            model_templates: Box::new([]),
+            model_quads: Box::new([]),
+            animations: Box::new([]),
+            animation_frames: Box::new([]),
+            texture_pages: vec![TexturePage::new(TextureArray { layers: 1, mips })]
+                .into_boxed_slice(),
+            biomes: CompiledBiomeAssets::diagnostic(),
+        };
+        RuntimeAssets::decode(
+            &encode_blob(&compiled)
+                .expect("encode non-default stream air registry")
+                .into_vec(),
+        )
+        .expect("decode non-default stream air registry")
     }
 
     #[test]

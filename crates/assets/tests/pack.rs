@@ -615,6 +615,25 @@ fn registry_reader_decodes_checked_in_full_source_bijection() {
 }
 
 #[test]
+fn checked_in_registry_has_one_canonical_air_network_identity() {
+    let records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+        .expect("decode checked-in BREG1003");
+    let air = records
+        .iter()
+        .filter(|record| {
+            record.flags.contains(BlockFlags::AIR)
+                && record.contributor_role == ContributorRole::Air
+                && record.model_family == ModelFamily::Air
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(air.len(), 1);
+    assert_eq!(&*air[0].name, "minecraft:air");
+    assert_eq!(air[0].sequential_id, 13_094);
+    assert_eq!(air[0].network_hash, 0xdbf4_4120);
+}
+
+#[test]
 fn registry_reader_decodes_all_pressure_plate_pressed_selectors() {
     const PRESSED: u32 = 1 << 1;
     let bytes = include_bytes!("../data/block-registry-v1001.bin");

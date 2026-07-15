@@ -244,6 +244,35 @@ impl RuntimeAssets {
             .map(|index| self.hashed[index].1)
     }
 
+    /// Returns the unique network identity marked as air by the validated
+    /// runtime registry. The lookup is bounded by the decoded visual and hash
+    /// table limits and fails closed when either identity is ambiguous.
+    #[must_use]
+    pub fn air_network_id(&self, mode: NetworkIdMode) -> Option<u32> {
+        let mut air_visuals = self.visuals.iter().enumerate().filter(|(_, visual)| {
+            visual.flags.contains(BlockFlags::AIR)
+                && visual.contributor_role == ContributorRole::Air
+        });
+        let sequential_id = u32::try_from(air_visuals.next()?.0).ok()?;
+        if air_visuals.next().is_some() {
+            return None;
+        }
+        if mode == NetworkIdMode::Sequential {
+            return Some(sequential_id);
+        }
+
+        let mut air_hashes = self
+            .hashed
+            .iter()
+            .filter(|(_, mapped_id)| *mapped_id == sequential_id)
+            .map(|(network_hash, _)| *network_hash);
+        let network_hash = air_hashes.next()?;
+        if air_hashes.next().is_some() {
+            return None;
+        }
+        Some(network_hash)
+    }
+
     /// Number of sequential visual records in the validated runtime blob.
     #[must_use]
     pub const fn visual_count(&self) -> usize {

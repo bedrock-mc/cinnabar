@@ -127,6 +127,39 @@ fn generated_copper_grate_records() -> Vec<RegistryRecord> {
 }
 
 #[test]
+fn compiled_checked_in_air_preserves_both_runtime_network_identities() {
+    let directory = TempDir::new().unwrap();
+    write_pack(
+        directory.path(),
+        r#"{"format_version":[1,1,0]}"#,
+        r#"{"texture_data":{}}"#,
+        "[]",
+    );
+    let records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+        .expect("decode committed generated registry")
+        .into_iter()
+        .filter(|record| record.name.as_ref() == "minecraft:air")
+        .collect::<Vec<_>>();
+    assert_eq!(records.len(), 1);
+    let compiled = compile_pack(directory.path(), &records).expect("compile committed air record");
+    let runtime = RuntimeAssets::decode(
+        &encode_blob(&compiled)
+            .expect("encode compiled committed air record")
+            .into_vec(),
+    )
+    .expect("decode compiled committed air record");
+
+    assert_eq!(
+        runtime.air_network_id(NetworkIdMode::Sequential),
+        Some(13_094)
+    );
+    assert_eq!(
+        runtime.air_network_id(NetworkIdMode::Hashed),
+        Some(0xdbf4_4120)
+    );
+}
+
+#[test]
 fn generated_registry_has_exact_copper_grate_inventory() {
     let copper_grates = generated_copper_grate_records();
     assert_eq!(copper_grates.len(), 8);
