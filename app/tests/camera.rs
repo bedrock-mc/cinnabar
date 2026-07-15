@@ -4,6 +4,7 @@ mod camera;
 use std::{f32::consts::FRAC_PI_2, time::Duration};
 
 use bevy::{
+    anti_alias::fxaa::Fxaa,
     core_pipeline::tonemapping::Tonemapping,
     input::mouse::AccumulatedMouseMotion,
     prelude::*,
@@ -243,7 +244,13 @@ fn plugin_spawns_camera_and_auto_fly_uses_delta_seconds() {
         .query_filtered::<&Msaa, (With<Camera3d>, With<FlyCamera>)>()
         .single(app.world())
         .unwrap();
-    assert_eq!(*msaa, Msaa::Sample4);
+    assert_eq!(*msaa, Msaa::Off);
+    let fxaa = app
+        .world_mut()
+        .query_filtered::<&Fxaa, (With<Camera3d>, With<FlyCamera>)>()
+        .single(app.world())
+        .unwrap();
+    assert!(fxaa.enabled);
     let start = app
         .world_mut()
         .query_filtered::<&Transform, (With<Camera3d>, With<FlyCamera>)>()

@@ -25,6 +25,7 @@ use anyhow::{Context, Result, bail};
 use asset_startup::{LoadedAssetKind, load_runtime_assets, select_asset_path_from_environment};
 use assets::{DIAGNOSTIC_MATERIAL, RuntimeAssets};
 use bevy::{
+    anti_alias::{AntiAliasPlugin, fxaa::FxaaPlugin},
     app::AppExit,
     diagnostic::{DiagnosticPath, DiagnosticsStore},
     ecs::system::SystemParam,
@@ -2133,14 +2134,22 @@ fn run(args: args::ClientArgs) -> Result<()> {
     };
 
     let mut app = App::new();
-    app.add_plugins(DefaultPlugins.set(WindowPlugin {
-        primary_window: Some(Window {
-            title: "Rust MCBE | connecting".to_owned(),
-            present_mode,
-            ..default()
-        }),
-        ..default()
-    }));
+    app.add_plugins(
+        DefaultPlugins
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "Rust MCBE | connecting".to_owned(),
+                    present_mode,
+                    ..default()
+                }),
+                ..default()
+            })
+            // Cinnabar uses FXAA without Bevy's TAA/SMAA/CAS bundle. The TAA
+            // graph requires post-process nodes that are intentionally absent
+            // from this compact custom renderer.
+            .disable::<AntiAliasPlugin>(),
+    );
+    app.add_plugins(FxaaPlugin);
     let diagnostics_enabled = args.acceptance_seconds.is_some() || args.metrics_out.is_some();
     if diagnostics_enabled {
         app.add_plugins(RenderDiagnosticsPlugin);

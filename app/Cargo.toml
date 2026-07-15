@@ -9,6 +9,7 @@ publish = false
 anyhow.workspace = true
 assets = { path = "../crates/assets" }
 bevy = { workspace = true, default-features = false, features = [
+    "bevy_anti_alias",
     "bevy_camera",
     "bevy_image",
     "bevy_winit",

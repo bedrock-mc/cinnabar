@@ -1,6 +1,7 @@
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
 use bevy::{
+    anti_alias::fxaa::Fxaa,
     core_pipeline::tonemapping::Tonemapping,
     input::mouse::AccumulatedMouseMotion,
     prelude::*,
@@ -155,10 +156,12 @@ fn window_aspect(window: &Window) -> f32 {
 fn spawn_fly_camera(mut commands: Commands, window: Single<&Window, With<PrimaryWindow>>) {
     commands.spawn((
         Camera3d::default(),
-        // Eight samples are not supported for Depth32Float on every macOS GPU.
-        // Four samples is Bevy's portable multisampled default and is shared by
-        // every custom world pipeline through its per-view specialization key.
-        Msaa::Sample4,
+        // Multisampled presentation is not portable: Depth32Float rejects some
+        // sample counts on macOS, and Bevy/wgpu's DX12 resolve path presents a
+        // black frame on affected adapters. FXAA retains edge smoothing without
+        // a multisampled color/depth target or backend-specific resolve step.
+        Msaa::Off,
+        Fxaa::default(),
         Projection::Perspective(PerspectiveProjection {
             fov: horizontal_fov_to_vertical(DEFAULT_HORIZONTAL_FOV_RADIANS, window_aspect(&window)),
             ..default()
