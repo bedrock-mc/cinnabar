@@ -50,3 +50,20 @@
   each lane is green and reviewed.
 - Report status precisely: distinguish pushed work, locally committed work,
   test-green uncommitted work, and work that is only in progress.
+
+## Rust build-cache discipline
+
+- Keep each concurrently active Git worktree on its own Cargo `target`
+  directory. Never point divergent worktrees at one shared `CARGO_TARGET_DIR`:
+  Cargo file locks and path-based fingerprints can reuse incompatible local
+  crate artifacts across branches.
+- Share compiler results through a bounded `sccache` instead. On this Windows
+  development machine the user Cargo configuration disables incremental
+  compilation, uses the installed `sccache`, and caps it at 20 GiB.
+- Delete a worktree's reproducible `target` directory after its commit is
+  reviewed and integrated. Preserve the canonical checkout's stable
+  `target/debug/bedrock-client.exe` and the target directories of agents that
+  are still actively compiling or testing.
+- Do not create another full clone merely to isolate a feature. Use `git
+  worktree`, and keep Mojang assets/BDS runtimes in ignored local storage rather
+  than copying them into every worktree.
