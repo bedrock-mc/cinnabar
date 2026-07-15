@@ -1111,6 +1111,12 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     alpha channel, removing the expanding black celestial quads. Full client,
     render-atmosphere, asset, camera, strict Clippy, WGSL, and independent
     review gates are green through `7805402`.
+  - [x] Keep solved light level zero visibly non-black through a named
+    provisional `0.04` linear ambient floor applied after independent
+    block/sky/daylight combination. The floor-to-one remap preserves every
+    higher light step and exact full brightness instead of flattening low
+    levels; AO remains independent. Native Bedrock capture tuning of the exact
+    floor remains part of final visual acceptance.
 
 Perf budget carried from Phase 0 gate; add: full remesh of view distance after teleport ≤ 2s.
 

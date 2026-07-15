@@ -1814,12 +1814,22 @@ fn world_shaders_share_light_curve_channels_and_fragment_only_daylight() {
         1,
         "the conservative floor remains explicitly provisional until native visual tuning"
     );
+    assert_eq!(
+        lighting
+            .matches("const PROVISIONAL_ZERO_LIGHT_AMBIENT_FLOOR: f32 = 0.04;")
+            .count(),
+        1,
+        "light level zero must retain an explicit, independently tunable ambient floor"
+    );
     assert!(lighting.contains("let block_contribution = vec3("));
     assert!(lighting.contains(
         "let effective_daylight = max(clamp(daylight, 0.0, 1.0), PROVISIONAL_NIGHT_SKY_TRANSFER_FLOOR);"
     ));
     assert!(lighting.contains("let sky_contribution = vec3("));
-    assert!(lighting.contains("let combined = max(block_contribution, sky_contribution)"));
+    assert!(lighting.contains("let channel_light = max(block_contribution, sky_contribution);"));
+    assert!(lighting.contains("vec3(PROVISIONAL_ZERO_LIGHT_AMBIENT_FLOOR)"));
+    assert!(lighting.contains("vec3(1.0)"));
+    assert!(lighting.contains("channel_light"));
     assert!(lighting.contains("return colour * combined * clamp(ao_factor, 0.0, 1.0)"));
     assert!(lighting.contains("fn light_brightness(level: u32)"));
     assert!(lighting.contains("fn light_ao_factor(level: u32)"));

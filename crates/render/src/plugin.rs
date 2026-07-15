@@ -7378,6 +7378,8 @@ fn absolutize_liquid_lighting_indices(liquid_quads: &mut [[u32; 4]], lighting_wo
 
 #[cfg(test)]
 const PROVISIONAL_NIGHT_SKY_TRANSFER_FLOOR: f32 = 0.2;
+#[cfg(test)]
+const PROVISIONAL_ZERO_LIGHT_AMBIENT_FLOOR: f32 = 0.04;
 
 #[cfg(test)]
 fn packed_light_factor(sample: u16, daylight: f32) -> f32 {
@@ -7405,7 +7407,10 @@ fn packed_light_factor(sample: u16, daylight: f32) -> f32 {
         .max(PROVISIONAL_NIGHT_SKY_TRANSFER_FLOOR);
     let sky_light = CURVE[usize::from((sample >> 4) & 0x0f)] * effective_daylight;
     let ao = f32::from((sample >> 8) & 0x03);
-    block_light.max(sky_light) * (1.0 - ao * 0.12)
+    let channel_light = block_light.max(sky_light);
+    (PROVISIONAL_ZERO_LIGHT_AMBIENT_FLOOR
+        + (1.0 - PROVISIONAL_ZERO_LIGHT_AMBIENT_FLOOR) * channel_light)
+        * (1.0 - ao * 0.12)
 }
 
 fn packed_lighting_records(lighting: &[PackedQuadLighting]) -> Vec<[u16; 4]> {
@@ -12606,16 +12611,31 @@ mod tests {
         let block_only = 0x000f;
         let sky_only = 0x00f0;
         assert_eq!(
+            packed_light_factor(0, 0.0),
+            PROVISIONAL_ZERO_LIGHT_AMBIENT_FLOOR,
+            "light level zero retains the named vanilla-like ambient visibility floor"
+        );
+        assert!(
+            packed_light_factor(0x0001, 0.0) > packed_light_factor(0, 0.0),
+            "the ambient floor must not flatten the first emitted-light step"
+        );
+        assert_eq!(
             packed_light_factor(block_only, 0.0),
             packed_light_factor(block_only, 1.0),
             "daylight transfer must never alter independent block light"
         );
         assert_eq!(
             packed_light_factor(sky_only, 0.0),
-            PROVISIONAL_NIGHT_SKY_TRANSFER_FLOOR,
-            "full solved skylight retains a conservative nonzero transfer at true night"
+            PROVISIONAL_ZERO_LIGHT_AMBIENT_FLOOR
+                + (1.0 - PROVISIONAL_ZERO_LIGHT_AMBIENT_FLOOR)
+                    * PROVISIONAL_NIGHT_SKY_TRANSFER_FLOOR,
+            "true-night skylight retains its transfer before the independent ambient remap"
         );
-        assert!(packed_light_factor(sky_only, 1.0) > 0.0);
+        assert_eq!(
+            packed_light_factor(sky_only, 1.0),
+            1.0,
+            "the ambient remap must preserve full daylight exactly"
+        );
         assert!(packed_light_factor(0x03f0, 1.0) < packed_light_factor(sky_only, 1.0));
     }
 
