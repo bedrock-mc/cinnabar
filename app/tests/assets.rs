@@ -27,8 +27,8 @@ use ::assets::{
 use args::{ClientArgs, ParseOutcome};
 use asset_startup::{
     ATMOSPHERE_COMPILE_COMMAND, ATMOSPHERE_FILENAME, AssetPathSource, COMPILE_COMMAND,
-    DEFAULT_ASSET_PATH, FETCH_COMMAND, LoadedAssetKind, atmosphere_asset_path, load_runtime_assets,
-    select_asset_path,
+    DEFAULT_ASSET_PATH, FETCH_COMMAND, LoadedAssetKind, atmosphere_asset_path,
+    atmosphere_shader_source_sha256, load_runtime_assets, select_asset_path,
 };
 use block_entity_visuals::{
     BackingBlockIdentity, BlockEntityVisualRoute, adjudicate_block_entity_visual,
@@ -592,6 +592,62 @@ fn valid_blob_decodes_once_and_reports_identity_and_counts() {
 }
 
 #[test]
+fn atmosphere_live_evidence_distinguishes_envelopes_and_is_stable_across_loads() {
+    let directory = temporary_directory("atmosphere-evidence");
+    let world_path = directory.join("vanilla.mcbea");
+    fs::write(&world_path, synthetic_blob()).unwrap();
+
+    let first_blob = synthetic_atmosphere_blob(0x61);
+    fs::write(atmosphere_asset_path(&world_path), &first_blob).unwrap();
+    let first = load_runtime_assets(select_asset_path(Some(&world_path), None)).unwrap();
+    let first_evidence = first.atmosphere.evidence();
+    let repeated = load_runtime_assets(select_asset_path(Some(&world_path), None)).unwrap();
+    let repeated_evidence = repeated.atmosphere.evidence();
+    assert_eq!(first_evidence, repeated_evidence);
+    assert_eq!(
+        first_evidence.envelope_sha256,
+        format!("{:x}", Sha256::digest(&first_blob))
+    );
+
+    let second_blob = synthetic_atmosphere_blob(0x62);
+    fs::write(atmosphere_asset_path(&world_path), &second_blob).unwrap();
+    let second = load_runtime_assets(select_asset_path(Some(&world_path), None)).unwrap();
+    let second_evidence = second.atmosphere.evidence();
+    assert_ne!(
+        first_evidence.envelope_sha256,
+        second_evidence.envelope_sha256
+    );
+    assert_eq!(
+        first_evidence.shader_source_sha256,
+        second_evidence.shader_source_sha256
+    );
+
+    let summary = second.atmosphere.startup_summary();
+    let envelope_marker = format!("envelope_sha256={}", second_evidence.envelope_sha256);
+    let shader_marker = format!(
+        "shader_source_sha256={}",
+        second_evidence.shader_source_sha256
+    );
+    assert!(summary.contains(&envelope_marker), "{summary}");
+    assert!(summary.contains(&shader_marker), "{summary}");
+    assert!(
+        summary.find(&envelope_marker).unwrap() < summary.find(&shader_marker).unwrap(),
+        "identity fields must retain one stable order: {summary}"
+    );
+
+    fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn atmosphere_shader_identity_hashes_the_exact_embedded_wgsl_source() {
+    let expected = format!(
+        "{:x}",
+        Sha256::digest(include_bytes!("../../crates/render/src/atmosphere.wgsl"))
+    );
+    assert_eq!(atmosphere_shader_source_sha256(), expected);
+}
+
+#[test]
 fn asset_metrics_flow_into_json_and_the_world_ready_marker() {
     let directory = temporary_directory("metrics");
     let path = directory.join("vanilla.mcbea");
@@ -710,6 +766,7 @@ fn malformed_required_atmosphere_carrier_fails_closed_with_rebuild_command() {
 #[test]
 fn startup_hands_the_single_decoded_atmosphere_identity_to_the_renderer() {
     let source = include_str!("../src/main.rs");
+    assert!(source.contains("loaded_assets.atmosphere.startup_summary()"));
     assert!(source.contains("loaded_assets.atmosphere.into_parts()"));
     assert!(source.contains(".insert_resource(AtmosphereTextureAssets::new("));
     assert_eq!(

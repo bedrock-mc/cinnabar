@@ -29,6 +29,7 @@ pub const COMPILE_COMMAND: &str = concat!(
 );
 
 const VANILLA_SOURCE_JSON: &str = include_str!("../../assets/vanilla-source.json");
+const ATMOSPHERE_SHADER_SOURCE: &[u8] = include_bytes!("../../crates/render/src/atmosphere.wgsl");
 const MAX_RUNTIME_BLOB_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_ATMOSPHERE_BLOB_BYTES: u64 = 512 * 1024;
 
@@ -66,6 +67,12 @@ pub struct LoadedAtmosphereAssets {
     selected_path: PathBuf,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AtmosphereEvidence {
+    pub envelope_sha256: String,
+    pub shader_source_sha256: String,
+}
+
 impl LoadedAtmosphereAssets {
     #[must_use]
     pub fn selected_path(&self) -> &Path {
@@ -75,6 +82,34 @@ impl LoadedAtmosphereAssets {
     pub fn into_parts(self) -> (Arc<RuntimeAtmosphereAssets>, [u8; 32]) {
         (self.runtime, self.identity)
     }
+
+    #[must_use]
+    pub fn evidence(&self) -> AtmosphereEvidence {
+        AtmosphereEvidence {
+            envelope_sha256: format_sha256(self.identity),
+            shader_source_sha256: atmosphere_shader_source_sha256(),
+        }
+    }
+
+    #[must_use]
+    pub fn startup_summary(&self) -> String {
+        let evidence = self.evidence();
+        format!(
+            "loaded required atmosphere assets from {} (envelope_sha256={} shader_source_sha256={})",
+            self.selected_path().display(),
+            evidence.envelope_sha256,
+            evidence.shader_source_sha256
+        )
+    }
+}
+
+#[must_use]
+pub fn atmosphere_shader_source_sha256() -> String {
+    format_sha256(Sha256::digest(ATMOSPHERE_SHADER_SOURCE).into())
+}
+
+fn format_sha256(identity: [u8; 32]) -> String {
+    identity.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 impl std::fmt::Debug for LoadedAssets {
