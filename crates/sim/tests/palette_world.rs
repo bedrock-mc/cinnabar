@@ -240,13 +240,17 @@ fn palette_adapter_rejects_oversized_queries_before_chunk_scanning() {
     let registry = CollisionRegistry::new();
     let world = PaletteWorld::new(&store, &registry, 0);
 
-    for max in [
-        Vec3::new(sim::MAX_COLLISION_QUERY_EXTENT + 1.0, 1.0, 1.0),
-        Vec3::new(1.0, sim::MAX_COLLISION_QUERY_EXTENT + 1.0, 1.0),
-        Vec3::new(1.0, 1.0, sim::MAX_COLLISION_QUERY_EXTENT + 1.0),
+    let oversized = sim::MAX_COLLISION_QUERY_EXTENT + 1.0;
+    for (min, max) in [
+        (Vec3::ZERO, Vec3::new(oversized, 1.0, 1.0)),
+        (Vec3::new(-oversized, 0.0, 0.0), Vec3::ONE),
+        (Vec3::ZERO, Vec3::new(1.0, oversized, 1.0)),
+        (Vec3::new(0.0, -oversized, 0.0), Vec3::ONE),
+        (Vec3::ZERO, Vec3::new(1.0, 1.0, oversized)),
+        (Vec3::new(0.0, 0.0, -oversized), Vec3::ONE),
     ] {
         assert_eq!(
-            world.collision_boxes(Aabb::new(Vec3::ZERO, max)),
+            world.collision_boxes(Aabb::new(min, max)),
             Err(WorldQueryError::QueryExtentExceeded)
         );
     }

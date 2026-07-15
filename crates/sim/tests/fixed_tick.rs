@@ -240,8 +240,11 @@ fn non_finite_state_and_input_are_rejected_transactionally_before_world_access()
 fn oversized_sweep_is_rejected_transactionally_before_world_access() {
     for velocity in [
         Vec3::new(1_000_000.0, 0.0, 0.0),
+        Vec3::new(-1_000_000.0, 0.0, 0.0),
         Vec3::new(0.0, 1_000_000.0, 0.0),
+        Vec3::new(0.0, -1_000_000.0, 0.0),
         Vec3::new(0.0, 0.0, 1_000_000.0),
+        Vec3::new(0.0, 0.0, -1_000_000.0),
     ] {
         let mut state = PlayerState::new(Vec3::new(0.0, 1.0, 0.0));
         state.velocity = velocity;
