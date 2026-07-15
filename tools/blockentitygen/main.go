@@ -131,6 +131,9 @@ type rendererManifest struct {
 	BDSExecutableSHA256         string          `json:"bds_executable_sha256"`
 	Entries                     []rendererEntry `json:"entries"`
 	digest                      string
+	evidenceDigest              string
+	sourceContractDigest        string
+	rendererContractDigest      string
 }
 
 type entrySourceProvenance struct {
@@ -167,6 +170,9 @@ type blockEntityInventory struct {
 	Dragonfly                  dragonflyProvenance `json:"dragonfly"`
 	BDS                        bdsProvenance       `json:"bds"`
 	RendererManifestSHA256     string              `json:"renderer_manifest_sha256"`
+	SourceContractSHA256       string              `json:"source_contract_sha256"`
+	RendererContractSHA256     string              `json:"renderer_contract_sha256"`
+	EvidenceCatalogSHA256      string              `json:"evidence_catalog_sha256"`
 	CanonicalBlockStateCounted bool                `json:"canonical_block_state_counted"`
 	Entries                    []inventoryEntry    `json:"entries"`
 }
@@ -177,6 +183,9 @@ type coverageReport struct {
 	DragonflyRegistrationSHA256 string   `json:"dragonfly_registration_sha256"`
 	BDSExecutableSHA256         string   `json:"bds_executable_sha256"`
 	RendererManifestSHA256      string   `json:"renderer_manifest_sha256"`
+	SourceContractSHA256        string   `json:"source_contract_sha256"`
+	RendererContractSHA256      string   `json:"renderer_contract_sha256"`
+	EvidenceCatalogSHA256       string   `json:"evidence_catalog_sha256"`
 	SourceCount                 int      `json:"source_count"`
 	ManifestCount               int      `json:"manifest_count"`
 	JoinedCount                 int      `json:"joined_count"`
@@ -251,6 +260,7 @@ var requiredNBTVariants = map[string]map[string][]string{
 
 func main() {
 	manifestPath := flag.String("renderer-manifest", "assets/block-entity-renderers-v1001.json", "reviewed renderer manifest")
+	evidenceCatalogPath := flag.String("evidence-catalog", "docs/evidence/block-entity-render-evidence-v1001.json", "hash-bound renderer evidence catalog")
 	outputPath := flag.String("output", "crates/assets/data/block-entities-v1001.json", "generated inventory")
 	reportPath := flag.String("report", "docs/block-entity-coverage-v1001-report.json", "deterministic coverage report")
 	strictFinal := flag.Bool("strict-final", false, "require implemented renderers and complete variant/GPU or no-draw evidence")
@@ -267,6 +277,25 @@ func main() {
 		fatal(err)
 	}
 	manifest, err := readRendererManifest(*manifestPath)
+	if err != nil {
+		fatal(err)
+	}
+	catalog, err := readEvidenceCatalog(*evidenceCatalogPath)
+	if err != nil {
+		fatal(err)
+	}
+	sourceContractDigest, err := sourceContractSHA256(source)
+	if err != nil {
+		fatal(fmt.Errorf("hash source contract: %w", err))
+	}
+	rendererContractDigest, err := rendererContractSHA256(manifest)
+	if err != nil {
+		fatal(fmt.Errorf("hash renderer contract: %w", err))
+	}
+	manifest, err = joinEvidence(manifest, catalog, evidenceIdentities{
+		SourceContractSHA256: sourceContractDigest, RendererContractSHA256: rendererContractDigest,
+		Targets: map[string]evidenceTargetIdentity{},
+	})
 	if err != nil {
 		fatal(err)
 	}
@@ -526,6 +555,9 @@ func joinInventory(source sourceInventory, manifest rendererManifest, mode joinM
 		DragonflyRegistrationSHA256: source.Dragonfly.RegistrationSHA256,
 		BDSExecutableSHA256:         source.BDS.ExecutableSHA256,
 		RendererManifestSHA256:      manifest.digest,
+		SourceContractSHA256:        manifest.sourceContractDigest,
+		RendererContractSHA256:      manifest.rendererContractDigest,
+		EvidenceCatalogSHA256:       manifest.evidenceDigest,
 		SourceCount:                 len(source.Entries), ManifestCount: len(manifest.Entries),
 		FinalBlockers: []string{},
 	}
@@ -622,6 +654,8 @@ func joinInventory(source sourceInventory, manifest rendererManifest, mode joinM
 	artifact := blockEntityInventory{
 		Schema: artifactSchema, ProtocolVersion: protocolVersion, GameVersion: gameVersion,
 		Dragonfly: source.Dragonfly, BDS: source.BDS, RendererManifestSHA256: manifest.digest,
+		SourceContractSHA256: manifest.sourceContractDigest, RendererContractSHA256: manifest.rendererContractDigest,
+		EvidenceCatalogSHA256:      manifest.evidenceDigest,
 		CanonicalBlockStateCounted: false, Entries: entries,
 	}
 	if mode == joinStrictFinal && !report.FinalGatePassed {

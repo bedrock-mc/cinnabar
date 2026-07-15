@@ -4,4 +4,5 @@ assets/vanilla-source.json text eol=lf
 assets/block-entity-renderers-v*.json text eol=lf
 crates/assets/data/block-entities-v*.json text eol=lf
 docs/block-entity-coverage-v*-report.json text eol=lf
+docs/evidence/block-entity-render-evidence-v*.json text eol=lf
 tools/blockentitygen/testdata/*.json text eol=lf

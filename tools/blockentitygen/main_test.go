@@ -429,6 +429,22 @@ func TestStrictFinalRejectsMalformedDuplicateAndContradictoryEvidence(t *testing
 func TestGeneratedInventoryAndReportMatchDeterministicGoldens(t *testing.T) {
 	source := mustCollectSource(t)
 	manifest := mustReadManifest(t)
+	catalog := mustReadEvidenceCatalog(t)
+	sourceDigest, err := sourceContractSHA256(source)
+	if err != nil {
+		t.Fatalf("source contract: %v", err)
+	}
+	rendererDigest, err := rendererContractSHA256(manifest)
+	if err != nil {
+		t.Fatalf("renderer contract: %v", err)
+	}
+	manifest, err = joinEvidence(manifest, catalog, evidenceIdentities{
+		SourceContractSHA256: sourceDigest, RendererContractSHA256: rendererDigest,
+		Targets: map[string]evidenceTargetIdentity{},
+	})
+	if err != nil {
+		t.Fatalf("join evidence catalog: %v", err)
+	}
 	artifact, report, err := joinInventory(source, manifest, joinReviewed)
 	if err != nil {
 		t.Fatalf("join reviewed manifest: %v", err)
@@ -468,6 +484,15 @@ func mustReadManifest(t *testing.T) rendererManifest {
 		t.Fatalf("decode renderer manifest: %v", err)
 	}
 	return manifest
+}
+
+func mustReadEvidenceCatalog(t *testing.T) evidenceCatalog {
+	t.Helper()
+	catalog, err := readEvidenceCatalog("../../docs/evidence/block-entity-render-evidence-v1001.json")
+	if err != nil {
+		t.Fatalf("read evidence catalog: %v", err)
+	}
+	return catalog
 }
 
 func mustStrictFinalManifest(t *testing.T) rendererManifest {

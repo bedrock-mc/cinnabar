@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "protocol_version": 1001,
+  "game_version": "1.26.30",
+  "breg_sha256": "",
+  "mcbeas_sha256": "",
+  "source_contract_sha256": "dc1bbb851201cb9c8ba6639b01931e060e8beba6a21e78d90717ad743e112290",
+  "renderer_contract_sha256": "d2aea24f000433eb4e4de828f0b30d9d896fbbb0df12e486d9cd5342d1797ab2",
+  "gallery_request_sha256": "",
+  "records": []
+}
