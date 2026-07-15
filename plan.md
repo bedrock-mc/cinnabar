@@ -1203,6 +1203,30 @@ non-vanilla rendering ships past this phase; record screenshots and any adjudica
 in the phase report. If Computer Use window capture fails, take a native Windows screenshot,
 store it only under the user's temporary directory, inspect that file, and never commit it.
 
+**Open live defects (reported 2026-07-15; Phase 2 acceptance blockers):**
+
+- [ ] Reproduce and eliminate the moving horizontal/vertical "TV static" or
+  void-band artifact under camera motion. Separate presentation tearing from
+  resident/frustum/submission loss with one identical-scene FIFO-versus-
+  no-vsync capture and coherent resident/frustum/submitted/GPU-completed frame
+  identities; do not change culling unless those identities prove a missing
+  draw.
+- [ ] Make initial chunk publication and steady streaming meet the frame and
+  teleport budgets without debug-only DX12 direct-draw collapse. Attribute
+  decode, light-halo readiness, mesh queue wait, worker time, GPU-upload budget,
+  render submission, and present latency independently; validate the final
+  release path at radius 16 with no visible stalls and full-view remesh in at
+  most two seconds.
+- [ ] Remove every dark rectangle/background pixel around the pinned sun and
+  moon textures. The acceptance test must exercise decoded pinned pixels and
+  mip/filter edges, not merely string-inspect WGSL, and must prove both bodies
+  against bright and dark skies across all moon phases.
+- [ ] Replace the current infinitely thin cloud plane with a vanilla-parity
+  cloud volume/layer that has visible thickness and side faces while retaining
+  bounded GPU cost, world anchoring, weather/fog fades, and the existing shared
+  atmosphere resource architecture. Verify from above, below, within, and at
+  grazing angles against matching native reference captures.
+
 ## Phase 3 — Movement and the local player
 
 **Goal:** playable movement that servers accept. Deliverable: walk/sprint/jump/sneak/swim/
