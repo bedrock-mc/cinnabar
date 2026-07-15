@@ -2,15 +2,17 @@
 
 Date: 2026-07-15
 
-Status: `DONE_WITH_CONCERNS`
+Status: `DONE`
 
 Branch: `phase2-world-publication-performance`
 
 Base: `891c2bc` (`perf: skip unchanged light remeshes`)
 
-Commit: this report is part of the Task 2 commit
-`feat: attribute world publication latency`; the final immutable hash is
-reported in the handoff because a commit cannot contain its own hash.
+Primary commit: `33c3e63` (`feat: attribute world publication latency`).
+
+Review follow-up: this report is updated in the follow-up commit; its final
+immutable hash is reported in the handoff because a commit cannot contain its
+own hash.
 
 ## Scope
 
@@ -108,6 +110,9 @@ Tests and script contracts were added before production changes.
   43, 14, and 14 passing integration-target tests.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/acceptance.Tests.ps1`
   passed and printed `acceptance.ps1 dry-run tests: PASS`.
+- The required Pester wrapper was also verified through its result object:
+  `Invoke-Pester scripts/tests/acceptance.Tests.ps1 -PassThru` reported
+  `PESTER_FAILED_COUNT=0`.
 - `C:\Program Files\Git\bin\bash.exe scripts/tests/acceptance_test.sh` passed
   and printed `acceptance.sh dry-run tests: PASS`. Because this Windows host's
   `python3.exe` entries are empty Microsoft Store aliases, the run used an
@@ -137,13 +142,31 @@ Tests and script contracts were added before production changes.
 - Only the six Task 2 implementation/test files and this required report are
   changed. Task 1 storage identities and generation checks are preserved.
 
-## Concern
+## Review follow-up
 
-The literal Windows PowerShell 5.1/Pester 3.4 wrapper invocation proceeds past
-all new Task 2 contract assertions but later fails in an unrelated legacy
-closure because `Test-RakNetUnconnectedPong` is not visible inside Pester's
-script scope. The same complete PowerShell assertion file passes when executed
-through its native `-File` path, which preserves its dot-sourced helper
-functions. No unrelated Pester/scoping refactor was made in this Task 2 commit.
+Two Important review findings were reproduced and fixed test-first without
+changing the publication or rendering behavior.
 
-No Task 2 production correctness concern is known.
+1. PowerShell exact scalar types:
+
+   RED: adversarial rows with `"17"`, `"41.0"`, and `"true"` were accepted
+   because PowerShell casts JSON strings to decimal/double/Boolean-compatible
+   comparison values. The parser now validates the flat JSON scalar token
+   lexically before conversion: counters/gauges/generations require a JSON
+   nonnegative integer token, durations require a JSON number token, identity
+   fields require JSON strings, and present proof requires the literal JSON
+   Boolean `true`. Matching Bash wrong-type regressions preserve exact-type
+   parity.
+
+2. Pester closure scope:
+
+   RED: Windows PowerShell 5.1/Pester 3.4 ran the test-created readiness closure
+   in a dynamic module that could not resolve the dot-sourced
+   `Test-RakNetUnconnectedPong` function. The test now captures that exact
+   helper scriptblock into the closure. Production readiness logic is
+   unchanged. `Invoke-Pester ... -PassThru` now reports zero failures rather
+   than relying on Pester 3.4's process exit code.
+
+After the follow-up, the native PowerShell suite, Pester result-count gate,
+Bash suite, full client suite, strict workspace Clippy, rustfmt, and diff check
+all pass. No Task 2 correctness concern is known.

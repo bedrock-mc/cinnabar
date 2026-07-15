@@ -5750,7 +5750,14 @@ function ConvertFrom-WorldPublicationSnapshotMarker {
         $extraText = if ($extra.Count -eq 0) { '<none>' } else { $extra -join ',' }
         throw "world publication snapshot schema mismatch: missing=$missingText extra=$extraText"
     }
+    $jsonNumber = '-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?'
+    $jsonScalar = '"(?:\\.|[^"\\])*"|true|false|null|' + $jsonNumber
     foreach ($field in $integerFields) {
+        $fieldPattern = '(?<!\\)"' + [regex]::Escape($field) + '"\s*:\s*(?<value>' + $jsonScalar + ')(?=\s*[,}])'
+        $valueMatch = [regex]::Match($json, $fieldPattern)
+        if (-not $valueMatch.Success -or $valueMatch.Groups['value'].Value -notmatch '^(?:0|[1-9][0-9]*)$') {
+            throw "world publication snapshot field $field must be a JSON nonnegative integer"
+        }
         try {
             $value = [decimal]$document.$field
         }
@@ -5762,6 +5769,11 @@ function ConvertFrom-WorldPublicationSnapshotMarker {
         }
     }
     foreach ($field in $durationFields) {
+        $fieldPattern = '(?<!\\)"' + [regex]::Escape($field) + '"\s*:\s*(?<value>' + $jsonScalar + ')(?=\s*[,}])'
+        $valueMatch = [regex]::Match($json, $fieldPattern)
+        if (-not $valueMatch.Success -or $valueMatch.Groups['value'].Value -notmatch ('^(?:' + $jsonNumber + ')$')) {
+            throw "world publication snapshot field $field must be a JSON number"
+        }
         $value = [double]$document.$field
         if ([double]::IsNaN($value) -or [double]::IsInfinity($value) -or $value -lt 0) {
             throw "world publication snapshot field $field must be finite and nonnegative"
@@ -5770,6 +5782,11 @@ function ConvertFrom-WorldPublicationSnapshotMarker {
     if (@('Direct', 'MultiDrawIndirect') -cnotcontains [string]$document.draw_mode) {
         throw "world publication snapshot has invalid draw_mode $($document.draw_mode)"
     }
+    foreach ($field in @('draw_mode', 'build_profile', 'requested_present_mode', 'effective_present_mode', 'backend', 'adapter', 'driver', 'driver_info')) {
+        if ($document.$field -isnot [string]) {
+            throw "world publication snapshot field $field must be a JSON string"
+        }
+    }
     if ([string]$document.build_profile -cne $ExpectedBuildProfile) {
         throw "world publication snapshot build profile mismatch: expected=$ExpectedBuildProfile observed=$($document.build_profile)"
     }
@@ -5777,7 +5794,9 @@ function ConvertFrom-WorldPublicationSnapshotMarker {
         [string]$document.effective_present_mode -cne $ExpectedPresentMode) {
         throw "world publication snapshot present mode mismatch: expected=$ExpectedPresentMode requested=$($document.requested_present_mode) effective=$($document.effective_present_mode)"
     }
-    if ($document.present_mode_proven -ne $true) {
+    $proofPattern = '(?<!\\)"present_mode_proven"\s*:\s*(?<value>' + $jsonScalar + ')(?=\s*[,}])'
+    $proofMatch = [regex]::Match($json, $proofPattern)
+    if (-not $proofMatch.Success -or $proofMatch.Groups['value'].Value -cne 'true' -or $document.present_mode_proven -isnot [bool]) {
         throw 'world publication snapshot does not prove the configured present mode'
     }
     foreach ($field in @('backend', 'adapter', 'driver', 'driver_info')) {

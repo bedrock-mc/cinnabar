@@ -925,6 +925,19 @@ try {
     Assert-Equal ([uint64]::MaxValue) ([uint64]$publicationSnapshot.accepted_light_jobs) 'publication snapshot lost saturating counter range'
     Assert-Equal 41.0 ([double]$publicationSnapshot.max_decode_queue_wait_ms) 'publication snapshot lost decode queue wait'
     Assert-Equal 53.0 ([double]$publicationSnapshot.max_decode_worker_ms) 'publication snapshot conflated queue wait and worker duration'
+    $stringIntegerLine = $publicationLine.Replace('"queued_decode_jobs":17', '"queued_decode_jobs":"17"')
+    Assert-Throws {
+        ConvertFrom-WorldPublicationSnapshotMarker -Line $stringIntegerLine -ExpectedBuildProfile release -ExpectedPresentMode Fifo
+    } 'publication snapshot accepted a JSON string for an integer field'
+    $stringDurationLine = $publicationLine.Replace('"max_decode_queue_wait_ms":41', '"max_decode_queue_wait_ms":"41.0"')
+    Assert-True ($stringDurationLine.Contains('"max_decode_queue_wait_ms":"41.0"')) 'duration wrong-type fixture did not mutate the JSON token'
+    Assert-Throws {
+        ConvertFrom-WorldPublicationSnapshotMarker -Line $stringDurationLine -ExpectedBuildProfile release -ExpectedPresentMode Fifo
+    } 'publication snapshot accepted a JSON string for a duration field'
+    $stringBooleanLine = $publicationLine.Replace('"present_mode_proven":true', '"present_mode_proven":"true"')
+    Assert-Throws {
+        ConvertFrom-WorldPublicationSnapshotMarker -Line $stringBooleanLine -ExpectedBuildProfile release -ExpectedPresentMode Fifo
+    } 'publication snapshot accepted a JSON string for a boolean field'
 
     $missingPublicationFields = [ordered]@{}
     foreach ($entry in $publicationFields.GetEnumerator()) {
@@ -2684,8 +2697,10 @@ $writer.Dispose()
             -WorkingDirectory $TempRoot `
             -StdoutPath (Join-Path $TempRoot 'buffered-helper.stdout.log') `
             -StderrPath (Join-Path $TempRoot 'buffered-helper.stderr.log')
+        $rakNetUnconnectedPong = ${function:Test-RakNetUnconnectedPong}
+        Assert-True ($null -ne $rakNetUnconnectedPong) 'RakNet readiness helper was not imported into the acceptance test scope'
         $readinessProbe = {
-            Test-RakNetUnconnectedPong `
+            & $rakNetUnconnectedPong `
                 -Address '127.0.0.1' `
                 -Port $udpPort `
                 -TimeoutMilliseconds 500

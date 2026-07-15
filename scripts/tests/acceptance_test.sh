@@ -62,6 +62,19 @@ assert row["max_decode_queue_wait_ms"] == 41.0
 assert row["max_decode_worker_ms"] == 53.0
 ' "$publication_output"
 
+if printf 'RUST_MCBE_WORLD_PUBLICATION_SNAPSHOT=%s\n' "${publication_row/\"queued_decode_jobs\":17/\"queued_decode_jobs\":\"17\"}" >"$publication_log" && read_world_publication_snapshots "$publication_log" release Fifo "$publication_output" >/dev/null 2>&1; then
+    echo 'publication snapshot accepted a JSON string for an integer field' >&2
+    exit 1
+fi
+if printf 'RUST_MCBE_WORLD_PUBLICATION_SNAPSHOT=%s\n' "${publication_row/\"max_decode_queue_wait_ms\":41.0/\"max_decode_queue_wait_ms\":\"41.0\"}" >"$publication_log" && read_world_publication_snapshots "$publication_log" release Fifo "$publication_output" >/dev/null 2>&1; then
+    echo 'publication snapshot accepted a JSON string for a duration field' >&2
+    exit 1
+fi
+if printf 'RUST_MCBE_WORLD_PUBLICATION_SNAPSHOT=%s\n' "${publication_row/\"present_mode_proven\":true/\"present_mode_proven\":\"true\"}" >"$publication_log" && read_world_publication_snapshots "$publication_log" release Fifo "$publication_output" >/dev/null 2>&1; then
+    echo 'publication snapshot accepted a JSON string for a boolean field' >&2
+    exit 1
+fi
+
 if printf 'RUST_MCBE_WORLD_PUBLICATION_SNAPSHOT=%s\n' "${publication_row/,\"max_mesh_queue_wait_ms\":47.0/}" >"$publication_log" && read_world_publication_snapshots "$publication_log" release Fifo "$publication_output" >/dev/null 2>&1; then
     echo 'publication snapshot accepted a missing stage field' >&2
     exit 1
