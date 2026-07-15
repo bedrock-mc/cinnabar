@@ -1,14 +1,11 @@
 #import bevy_render::view::View
+#import cinnabar::biome_tint::blended_biome_tint
 #import cinnabar::lighting::{light_ao_factor, light_brightness, lit_colour}
 
 struct ChunkOrigin { value: vec4<i32>, cube_bases: vec4<u32> }
 struct MaterialGpu { texture: u32, flags: u32, animation: u32 }
 struct AnimationGpu { frame_start: u32, frame_count: u32, ticks_per_frame: u32, flags: u32 }
 struct AnimationClockGpu { tick: u32, partial_tick: f32, padding_0: u32, padding_1: u32 }
-struct BiomeTintGpu {
-    grass: u32, foliage: u32, birch: u32, evergreen: u32,
-    dry_foliage: u32, water: u32, flags: u32, padding: u32,
-}
 struct AtmosphereUniform {
     sun_direction_daylight: vec4<f32>, moon_direction_phase: vec4<f32>,
     sky_zenith_rain: vec4<f32>, sky_horizon_thunder: vec4<f32>,
@@ -22,8 +19,6 @@ struct AtmosphereUniform {
 @group(0) @binding(4) var block_textures_page_0: texture_2d_array<f32>;
 @group(0) @binding(5) var block_textures_page_1: texture_2d_array<f32>;
 @group(0) @binding(6) var block_sampler: sampler;
-@group(0) @binding(7) var<storage, read> biome_records: array<u32>;
-@group(0) @binding(8) var<storage, read> biome_tints: array<BiomeTintGpu>;
 @group(0) @binding(9) var<storage, read> animations: array<AnimationGpu>;
 @group(0) @binding(10) var<storage, read> animation_frames: array<u32>;
 @group(0) @binding(11) var<uniform> clock: AnimationClockGpu;
@@ -219,38 +214,10 @@ fn vertex(
     return out;
 }
 
-fn unpack_linear_rgb10(packed: u32) -> vec3<f32> {
-    return vec3<f32>(f32(packed & 0x3ffu), f32((packed >> 10u) & 0x3ffu), f32((packed >> 20u) & 0x3ffu)) / 1023.0;
-}
-
-fn packed_biome_tint_index(record: u32, coordinate: vec3<u32>) -> u32 {
-    let header = biome_records[record];
-    let bits = header & 0xffu;
-    let palette_len = (header >> 8u) & 0x1fffu;
-    if (palette_len == 0u) { return 0u; }
-    var word_count = 0u;
-    var palette_index = 0u;
-    if (bits != 0u) {
-        let per_word = 32u / bits;
-        word_count = (4096u + per_word - 1u) / per_word;
-        let linear = (coordinate.x << 8u) | (coordinate.z << 4u) | coordinate.y;
-        let word = biome_records[record + 1u + linear / per_word];
-        palette_index = (word >> ((linear % per_word) * bits)) & ((1u << bits) - 1u);
-    }
-    if (palette_index >= palette_len) { return 0u; }
-    return biome_records[record + 1u + word_count + palette_index];
-}
-
 fn tinted(sampled: vec4<f32>, flags: u32, record: u32, position: vec3<f32>) -> vec4<f32> {
     let tint_kind = flags & 0x30u;
     if (tint_kind == 0u) { return vec4(sampled.rgb, sampled.a); }
-    let coordinate = vec3<u32>(clamp(floor(position), vec3(0.0), vec3(15.0)));
-    let requested = packed_biome_tint_index(record, coordinate);
-    let tint = biome_tints[select(0u, requested, requested < arrayLength(&biome_tints))];
-    var colour = tint.foliage;
-    if (tint_kind == 0x10u) { colour = tint.grass; }
-    if (tint_kind == 0x30u) { colour = tint.water; }
-    return vec4(sampled.rgb * unpack_linear_rgb10(colour), sampled.a);
+    return vec4(sampled.rgb * blended_biome_tint(tint_kind, flags, record, position), sampled.a);
 }
 
 fn sample_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {

@@ -56,6 +56,11 @@ fn standalone_world_shader(source: &str) -> String {
         "",
         1,
     );
+    let biome_tint = include_str!("../src/biome_tint.wgsl").replacen(
+        "#define_import_path cinnabar::biome_tint",
+        "",
+        1,
+    );
     source
         .replacen(
             "#import bevy_render::view::View",
@@ -65,6 +70,11 @@ fn standalone_world_shader(source: &str) -> String {
         .replacen(
             "#import cinnabar::lighting::{light_ao_factor, light_brightness, lit_colour}",
             &lighting,
+            1,
+        )
+        .replacen(
+            "#import cinnabar::biome_tint::blended_biome_tint",
+            &biome_tint,
             1,
         )
 }
@@ -914,7 +924,7 @@ fn transparent_model_pipeline_blends_without_depth_write_or_alpha_cutoff() {
     assert!(
         shader.contains("return vec4(sampled.rgb, sampled.a);")
             && shader
-                .contains("return vec4(sampled.rgb * unpack_linear_rgb10(colour), sampled.a);"),
+                .contains("return vec4(sampled.rgb * blended_biome_tint(tint_kind, flags, record, position), sampled.a);"),
         "biome tinting must preserve sampled alpha for the blend entry point"
     );
     assert!(
@@ -1900,7 +1910,12 @@ fn chunk_shader_reads_cube_light_from_expanded_origin_without_changing_bindings(
     assert!(shader.contains("@binding(13) var<storage, read> geometry_streams: array<u32>"));
     assert!(shader.contains("let local_quad_index = instance_index - chunk_origin.cube_bases.x"));
     assert!(shader.contains("chunk_origin.cube_bases.y + local_quad_index"));
-    assert_eq!(shader.matches("@group(0) @binding(").count(), 14);
+    assert_eq!(
+        standalone_world_shader(shader)
+            .matches("@group(0) @binding(")
+            .count(),
+        14
+    );
     assert_eq!(std::mem::size_of::<PackedQuad>(), 8);
     assert_eq!(std::mem::size_of::<render::PackedQuadLighting>(), 8);
 }

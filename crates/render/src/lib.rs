@@ -14,7 +14,10 @@ pub use atmosphere::{
     CLOUD_TEXTURE_WORLD_PERIOD, CameraMedium, MoonPhaseTile, cloud_texture_offset, moon_phase_tile,
 };
 pub use atmosphere_render::AtmospherePlugin;
-pub use biome::PackedBiomeRecord;
+pub use biome::{
+    BIOME_NEIGHBOUR_SLOT_COUNT, MAX_PACKED_BIOME_RECORD_WORDS, PackedBiomeRecord,
+    biome_neighbour_index,
+};
 pub use color::debug_color;
 pub use lighting::{
     FullBrightLightSampler, MeshLightSample, MeshLightSampler, PHASE26_BLOCK_LIGHT,
