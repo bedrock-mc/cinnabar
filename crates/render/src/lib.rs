@@ -3,6 +3,7 @@
 mod atmosphere;
 mod atmosphere_render;
 mod biome;
+mod cloud_mesh;
 mod color;
 mod lighting;
 mod liquid;
@@ -18,6 +19,10 @@ pub use atmosphere_render::AtmospherePlugin;
 pub use biome::{
     BIOME_NEIGHBOUR_SLOT_COUNT, MAX_PACKED_BIOME_RECORD_WORDS, PackedBiomeRecord,
     biome_neighbour_index,
+};
+pub use cloud_mesh::{
+    CLOUD_MASK_SIZE, CLOUD_TOP_Y, CLOUD_UNDERSIDE_Y, CloudFace, CloudMeshError, MAX_CLOUD_BYTES,
+    MAX_CLOUD_QUADS, PackedCloudQuad, cloud_instance_origins, mesh_cloud_texture,
 };
 pub use color::debug_color;
 pub use lighting::{
