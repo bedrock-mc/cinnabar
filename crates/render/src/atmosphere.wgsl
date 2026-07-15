@@ -13,12 +13,9 @@ struct AtmosphereUniform {
 @group(0) @binding(1) var<uniform> atmosphere: AtmosphereUniform;
 @group(0) @binding(2) var sun_texture: texture_2d<f32>;
 @group(0) @binding(3) var moon_phases_texture: texture_2d<f32>;
-@group(0) @binding(4) var clouds_texture: texture_2d<f32>;
-@group(0) @binding(5) var atmosphere_sampler: sampler;
+@group(0) @binding(4) var atmosphere_sampler: sampler;
 
 const CELESTIAL_HALF_ANGLE: f32 = 0.075;
-const CLOUD_ALTITUDE: f32 = 128.0;
-const CLOUD_TEXTURE_WORLD_PERIOD: f32 = 256.0;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -89,35 +86,6 @@ fn sample_moon(ray: vec3<f32>, direction: vec3<f32>) -> vec4<f32> {
     return vec4(sampled.rgb, mapping.z * visible);
 }
 
-fn sample_cloud_layer(ray: vec3<f32>) -> vec4<f32> {
-    let height_to_layer = CLOUD_ALTITUDE - view.world_position.y;
-    if (abs(ray.y) < 0.001 || height_to_layer * ray.y <= 0.0) {
-        return vec4(0.0);
-    }
-    let ray_distance = height_to_layer / ray.y;
-    if (ray_distance <= 0.0) {
-        return vec4(0.0);
-    }
-
-    let world_position = view.world_position + ray * ray_distance;
-    let world_uv = fract(world_position.xz / CLOUD_TEXTURE_WORLD_PERIOD);
-    let cloud_uv = fract(world_uv - atmosphere.fog_end_time.zw);
-    let sampled = textureSampleLevel(clouds_texture, atmosphere_sampler, cloud_uv, 0.0);
-
-    let rain = atmosphere.sky_zenith_rain.w;
-    let thunder = atmosphere.sky_horizon_thunder.w;
-    let storm = clamp(rain * 0.7 + thunder * 0.3, 0.0, 1.0);
-    let horizon_fade = smoothstep(0.01, 0.08, abs(ray.y));
-    let altitude_fade = smoothstep(2.0, 16.0, abs(height_to_layer));
-    let fog = smoothstep(atmosphere.fog_color_start.w, atmosphere.fog_end_time.x, ray_distance);
-    let underside = select(1.0, 0.72, view.world_position.y < CLOUD_ALTITUDE);
-    let weather_colour = sampled.rgb * mix(underside, underside * 0.48, storm);
-    let cloud_colour = mix(weather_colour, atmosphere.fog_color_start.rgb, fog);
-    let weather_alpha = mix(0.82, 1.0, rain);
-    let cloud_alpha = sampled.a * horizon_fade * altitude_fade * weather_alpha * (1.0 - fog * 0.65);
-    return vec4(cloud_colour, cloud_alpha);
-}
-
 @fragment
 fn atmosphere_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if (atmosphere.fog_end_time.x <= 32.0) {
@@ -141,11 +109,6 @@ fn atmosphere_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let moon_direction = normalize(atmosphere.moon_direction_phase.xyz);
     let moon = sample_moon(ray, moon_direction);
     colour = composite_celestial(colour, moon.rgb, moon.a);
-
-    let clouds = sample_cloud_layer(ray);
-    let cloud_colour = clouds.rgb;
-    let cloud_alpha = clouds.a;
-    colour = mix(colour, cloud_colour, cloud_alpha);
 
     return vec4(colour, 1.0);
 }

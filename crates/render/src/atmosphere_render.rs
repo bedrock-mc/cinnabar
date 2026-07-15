@@ -34,7 +34,7 @@ use bevy::{
     },
 };
 
-use crate::{AtmosphereFrame, AtmosphereTextureAssets};
+use crate::{AtmosphereFrame, AtmosphereTextureAssets, cloud_render::install_cloud_render};
 
 const ATMOSPHERE_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("7612c9f4-c152-4f57-95d4-a22d85018c3d");
@@ -80,6 +80,7 @@ pub(crate) fn install_atmosphere(app: &mut App) {
         "atmosphere.wgsl",
         Shader::from_wgsl
     );
+    install_cloud_render(app);
 
     app.sub_app_mut(RenderApp)
         .insert_resource(AtmosphereRenderInstalled)
@@ -110,8 +111,8 @@ pub(crate) struct AtmosphereGpu {
 
 struct PreparedAtmosphereAssets {
     identity: [u8; 32],
-    _textures: [Texture; 3],
-    views: [TextureView; 3],
+    _textures: [Texture; 2],
+    views: [TextureView; 2],
     sampler: Sampler,
 }
 
@@ -167,9 +168,6 @@ fn prepare_atmosphere_textures(
     let moon_phases = runtime
         .texture(AtmosphereRole::MoonPhases)
         .expect("validated MCBEATM1 always contains the moon atlas");
-    let clouds = runtime
-        .texture(AtmosphereRole::Clouds)
-        .expect("validated MCBEATM1 always contains the cloud texture");
     let (sun_texture, sun_view) =
         upload_atmosphere_texture(&render_device, &render_queue, sun, "pinned vanilla sun");
     let (moon_texture, moon_view) = upload_atmosphere_texture(
@@ -177,12 +175,6 @@ fn prepare_atmosphere_textures(
         &render_queue,
         moon_phases,
         "pinned vanilla moon phases",
-    );
-    let (cloud_texture, cloud_view) = upload_atmosphere_texture(
-        &render_device,
-        &render_queue,
-        clouds,
-        "pinned vanilla clouds",
     );
     let sampler = render_device.create_sampler(&SamplerDescriptor {
         label: Some("pinned vanilla atmosphere repeat sampler"),
@@ -196,8 +188,8 @@ fn prepare_atmosphere_textures(
     });
     gpu.prepared = Some(PreparedAtmosphereAssets {
         identity: requested.identity(),
-        _textures: [sun_texture, moon_texture, cloud_texture],
-        views: [sun_view, moon_view, cloud_view],
+        _textures: [sun_texture, moon_texture],
+        views: [sun_view, moon_view],
         sampler,
     });
     gpu.bind_group = None;
@@ -297,16 +289,6 @@ impl FromWorld for AtmospherePipeline {
                 },
                 BindGroupLayoutEntry {
                     binding: 4,
-                    visibility: ShaderStages::FRAGMENT,
-                    ty: BindingType::Texture {
-                        sample_type: TextureSampleType::Float { filterable: true },
-                        view_dimension: TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 5,
                     visibility: ShaderStages::FRAGMENT,
                     ty: BindingType::Sampler(SamplerBindingType::Filtering),
                     count: None,
@@ -427,10 +409,6 @@ fn prepare_atmosphere_bind_group(
             },
             BindGroupEntry {
                 binding: 4,
-                resource: BindingResource::TextureView(&prepared.views[2]),
-            },
-            BindGroupEntry {
-                binding: 5,
                 resource: BindingResource::Sampler(&prepared.sampler),
             },
         ],
@@ -549,6 +527,7 @@ mod tests {
     use sha2::{Digest, Sha256};
 
     use super::{AtmosphereGpu, AtmosphereRenderInstalled, prepare_atmosphere_textures};
+    use crate::cloud_render::{CloudGpu, prepare_cloud_records};
     use crate::{AtmosphereTextureAssets, DebugWorldPlugin};
 
     fn app_with_noop_render_sub_app() -> App {
@@ -679,5 +658,58 @@ mod tests {
             render_app.world().resource::<AtmosphereGpu>().upload_count,
             2
         );
+    }
+
+    #[test]
+    fn cloud_record_preparation_reuses_equal_identity_and_rebuilds_replacement_once() {
+        let mut app = app_with_noop_render_sub_app();
+        app.add_plugins(DebugWorldPlugin::new(1));
+        app.finish();
+
+        let render_app = app.sub_app_mut(RenderApp);
+        render_app.world_mut().run_schedule(RenderStartup);
+        let identity = [0x41; 32];
+        render_app
+            .world_mut()
+            .insert_resource(AtmosphereTextureAssets::new(
+                synthetic_runtime(0xfd),
+                identity,
+            ));
+        render_app
+            .world_mut()
+            .run_system_once(prepare_cloud_records)
+            .unwrap();
+        let gpu = render_app.world().resource::<CloudGpu>();
+        assert_eq!(gpu.record_count, 2);
+        assert_eq!(gpu.upload_count, 1);
+        let first_buffer = gpu.record_buffer.as_ref().unwrap().id();
+
+        render_app
+            .world_mut()
+            .insert_resource(AtmosphereTextureAssets::new(
+                synthetic_runtime(0xfc),
+                identity,
+            ));
+        render_app
+            .world_mut()
+            .run_system_once(prepare_cloud_records)
+            .unwrap();
+        let gpu = render_app.world().resource::<CloudGpu>();
+        assert_eq!(gpu.upload_count, 1);
+        assert_eq!(gpu.record_buffer.as_ref().unwrap().id(), first_buffer);
+
+        render_app
+            .world_mut()
+            .insert_resource(AtmosphereTextureAssets::new(
+                synthetic_runtime(0xfd),
+                [0x42; 32],
+            ));
+        render_app
+            .world_mut()
+            .run_system_once(prepare_cloud_records)
+            .unwrap();
+        let gpu = render_app.world().resource::<CloudGpu>();
+        assert_eq!(gpu.upload_count, 2);
+        assert_ne!(gpu.record_buffer.as_ref().unwrap().id(), first_buffer);
     }
 }

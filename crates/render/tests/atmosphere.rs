@@ -133,12 +133,12 @@ fn cloud_texture_feature_moves_east_in_world_space_as_ticks_increase() {
     let later = world_x_for_feature(0.25, 100.0);
     assert!((later - start - 3.0).abs() < 1.0e-5, "{start} -> {later}");
 
-    let shader = include_str!("../src/atmosphere.wgsl");
+    let shader = include_str!("../src/cloud.wgsl");
     assert!(
-        shader.contains("let cloud_uv = fract(world_uv - atmosphere.fog_end_time.zw);"),
-        "subtracting the positive eastward offset makes fixed texture features move +X"
+        shader.contains("atmosphere.fog_end_time.z * CLOUD_TEXTURE_WORLD_PERIOD"),
+        "the positive normalized texture offset must become a +X world offset"
     );
-    assert!(!shader.contains("fract(world_uv + atmosphere.fog_end_time.zw)"));
+    assert!(!shader.contains("- atmosphere.fog_end_time.z * CLOUD_TEXTURE_WORLD_PERIOD"));
 }
 
 #[test]
@@ -212,7 +212,7 @@ fn dynamic_view_binding_window_keeps_a_nonzero_second_view_offset_in_bounds() {
 }
 
 #[test]
-fn texture_backed_sky_shader_parses_validates_and_uses_reversed_z_far_depth() {
+fn texture_backed_sky_shader_parses_validates_and_has_no_fullscreen_cloud_plane() {
     let shader = include_str!("../src/atmosphere.wgsl").replacen(
         "#import bevy_render::view::View",
         r#"
@@ -241,16 +241,15 @@ struct View {
     assert!(shader.contains("vec4(clip_position, 0.0, 1.0)"));
     assert!(shader.contains("@binding(2) var sun_texture: texture_2d<f32>;"));
     assert!(shader.contains("@binding(3) var moon_phases_texture: texture_2d<f32>;"));
-    assert!(shader.contains("@binding(4) var clouds_texture: texture_2d<f32>;"));
-    assert!(shader.contains("@binding(5) var atmosphere_sampler: sampler;"));
+    assert!(shader.contains("@binding(4) var atmosphere_sampler: sampler;"));
     assert!(shader.contains("textureSampleLevel(sun_texture"));
     assert!(shader.contains("textureSampleLevel(moon_phases_texture"));
-    assert!(shader.contains("textureSampleLevel(clouds_texture"));
+    assert!(!shader.contains("clouds_texture"));
+    assert!(!shader.contains("textureSampleLevel(clouds_texture"));
     assert!(shader.contains("let phase_column = phase % 4u;"));
     assert!(shader.contains("let phase_row = phase / 4u;"));
-    assert!(shader.contains("const CLOUD_ALTITUDE: f32 = 128.0;"));
-    assert!(shader.contains("fract(world_position.xz / CLOUD_TEXTURE_WORLD_PERIOD"));
-    assert!(shader.contains("mix(colour, cloud_colour, cloud_alpha)"));
+    assert!(!shader.contains("sample_cloud_layer"));
+    assert!(!shader.contains("mix(colour, cloud_colour, cloud_alpha)"));
 }
 
 #[test]
@@ -265,7 +264,7 @@ fn atmosphere_pipeline_specializes_msaa_and_keeps_reversed_z_without_depth_write
     assert!(source.contains("BindingType::Sampler"));
     assert_eq!(
         source.matches("visibility: ShaderStages::FRAGMENT").count(),
-        6,
+        5,
         "Metal requires every fragment-read atmosphere binding to declare fragment visibility"
     );
     assert!(!source.contains("BufferBindingType::Storage"));

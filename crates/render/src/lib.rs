@@ -4,6 +4,7 @@ mod atmosphere;
 mod atmosphere_render;
 mod biome;
 mod cloud_mesh;
+mod cloud_render;
 mod color;
 mod lighting;
 mod liquid;
