@@ -1268,6 +1268,11 @@ store it only under the user's temporary directory, inspect that file, and never
     reviewed greedy packed finite-mesh design/implementation plan in
     `docs/superpowers/specs/2026-07-15-finite-cloud-mesh-design.md` and
     `docs/superpowers/plans/2026-07-15-finite-cloud-mesh.md`.
+  - [x] Implement and independently review the deterministic periodic CPU
+    mesher: exact 256x256 alpha occupancy, toroidal seam culling, greedy exposed
+    faces, an eight-byte packed ABI, checked worst-case ceilings, and canonical
+    snapped 3x3 origins are green through `03a8c3a`. The custom GPU pipeline,
+    fullscreen-plane removal, and live acceptance remain open.
   - [ ] Implement, independently review, and live-verify the finite cloud mesh.
 
 ## Phase 3 — Movement and the local player

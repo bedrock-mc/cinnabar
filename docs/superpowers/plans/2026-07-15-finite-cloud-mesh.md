@@ -35,27 +35,27 @@
 - `pub fn mesh_cloud_texture(texture: &assets::AtmosphereTexture) -> Result<Box<[PackedCloudQuad]>, CloudMeshError>`.
 - `pub fn cloud_instance_origins(camera_xz: [f64; 2], offset_blocks: f64) -> [[f32; 2]; 9]` returns canonical row-major 3×3 period origins.
 
-- [ ] **Step 1: Write failing occupancy, topology, and ABI tests**
+- [x] **Step 1: Write failing occupancy, topology, and ABI tests**
 
 Construct synthetic 256×256 RGBA textures in memory. Assert alpha 1 is empty and 255 is occupied; wrong dimensions/role fail; empty emits zero records; one occupied cell emits six faces; two adjacent cells contain no internal face and greedily merge to six rectangular faces; toroidal edge neighbours cull their shared seam; all-filled emits exactly one top and one bottom quad; packed records round-trip exact coordinates/extents/face and remain eight bytes.
 
-- [ ] **Step 2: Run and record red**
+- [x] **Step 2: Run and record red**
 
 Run `cargo test -p render --test cloud_mesh --locked`. Expected: compilation failure because the module and interfaces do not exist.
 
-- [ ] **Step 3: Implement occupancy and unmerged exposed faces**
+- [x] **Step 3: Implement occupancy and unmerged exposed faces**
 
 Validate `AtmosphereRole::Clouds`, 256×256 dimensions, exact RGBA length, and bounded input before allocation. Classify occupancy with `alpha >= 128`; wrap neighbour coordinates with Euclidean modulo. Emit canonical face masks without constructing cubes or a flat expanded world volume.
 
-- [ ] **Step 4: Greedy-merge each face mask**
+- [x] **Step 4: Greedy-merge each face mask**
 
 Use fixed 256-column bit masks and deterministic face/row/column traversal. Merge coplanar rectangles only. Encode `bounds` as `axis0_start | axis1_start << 8 | (axis0_extent - 1) << 16 | (axis1_extent - 1) << 24`; encode only `CloudFace as u32` in bits 0–2 of `face_and_axis` and require the remaining 29 bits to be zero. Top/down axes are X/Z; north/south use an X run plus the fixed four-block Y extent at their Z plane; west/east use a Z run plus the same Y extent at their X plane. Enforce `MAX_CLOUD_QUADS` and `MAX_CLOUD_BYTES` against the checkerboard worst case before producing the boxed result.
 
-- [ ] **Step 5: Add and implement snapped instance-origin tests**
+- [x] **Step 5: Add and implement snapped instance-origin tests**
 
 Assert 3×3 origins remain world-anchored across positive/negative coordinates, shift by exactly one period at the snap boundary, preserve fractional time offset modulo 256, and never contain non-finite values.
 
-- [ ] **Step 6: Verify and commit**
+- [x] **Step 6: Verify and commit**
 
 Run `cargo test -p render --test cloud_mesh --locked`, `cargo test -p render --locked`, `cargo clippy -p render --all-targets --locked -- -D warnings`, and `cargo fmt --all -- --check`. Commit with `feat: mesh finite periodic clouds`.
 
