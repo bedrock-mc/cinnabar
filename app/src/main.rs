@@ -1,3 +1,4 @@
+mod actor_store;
 mod args;
 mod asset_startup;
 mod camera;

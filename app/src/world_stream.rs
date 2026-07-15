@@ -34,6 +34,9 @@ use world::{
     solve_light,
 };
 
+#[cfg(test)]
+use crate::actor_store::ActorSnapshot;
+use crate::actor_store::ActorStore;
 use crate::server_position::{ResolvedServerPosition, resolve_server_position};
 
 /// Decode and mesh workers may each have at most this many completed results
@@ -45,6 +48,7 @@ pub const MAX_IN_FLIGHT_DECODE_JOBS: usize = 4;
 pub const DECODE_DISPATCH_BUDGET_PER_POLL: usize = 4;
 pub const PHASE0_MAX_VIEW_RADIUS_CHUNKS: i32 = 16;
 static NEXT_BIOME_TINT_STREAM_ID: AtomicU64 = AtomicU64::new(1);
+static NEXT_ACTOR_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 pub const COMMITTED_CONTROL_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;
 pub const OUTBOUND_REQUEST_CAPACITY: usize = 64;
 pub const DEFERRED_RETRY_CAPACITY: usize = 64;
@@ -1282,6 +1286,8 @@ fn mesh_offset_index([x, y, z]: [i8; 3]) -> usize {
 #[derive(Resource)]
 pub struct WorldStream {
     store: ChunkStore,
+    actors: ActorStore,
+    actor_session_id: u64,
     classifier: BlockClassifier,
     network_id_mode: NetworkIdMode,
     runtime_assets: Arc<RuntimeAssets>,
@@ -1396,6 +1402,11 @@ impl WorldStream {
                 current.checked_add(1)
             })
             .expect("biome tint stream identity space exhausted");
+        let actor_session_id = NEXT_ACTOR_SESSION_ID
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                current.checked_add(1)
+            })
+            .expect("actor session identity space exhausted");
         let network_id_mode = if bootstrap.block_network_ids_are_hashes {
             NetworkIdMode::Hashed
         } else {
@@ -1406,6 +1417,8 @@ impl WorldStream {
             .unwrap_or(bootstrap.air_network_id);
         Self {
             store: ChunkStore::new(),
+            actors: ActorStore::new(actor_session_id, bootstrap.dimension),
+            actor_session_id,
             classifier: BlockClassifier::new(air_network_id),
             network_id_mode,
             runtime_assets,
@@ -2031,6 +2044,18 @@ impl WorldStream {
 
     pub fn take_fatal_error(&mut self) -> Option<WorldStreamFatalError> {
         self.fatal_error.take()
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn actor(&self, runtime_id: u64) -> Option<&ActorSnapshot> {
+        self.actors.get(runtime_id)
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn actor_count(&self) -> usize {
+        self.actors.len()
     }
 
     #[must_use]
@@ -2709,6 +2734,10 @@ impl WorldStream {
             }
             WorldEvent::ChangeDimension(change) => {
                 self.evict_all_resident();
+                let sequence = sequence.expect("sequenced dimension changes commit through submit");
+                let _ =
+                    self.actors
+                        .reset_dimension(self.actor_session_id, sequence, change.dimension);
                 self.current_dimension = change.dimension;
                 let resolved = resolve_server_position(
                     change.position,
@@ -2730,6 +2759,15 @@ impl WorldStream {
             }
             WorldEvent::MovePlayer(movement) => {
                 let sequence = sequence.expect("sequenced MovePlayer commits through submit");
+                let _ = self.actors.apply_player_move(
+                    self.actor_session_id,
+                    sequence,
+                    self.current_dimension,
+                    movement,
+                );
+                if movement.runtime_id != self.local_player_runtime_id {
+                    return;
+                }
                 let source_cohort = self.committed_view_cohort;
                 if self.source_capture_sequence == Some(sequence) {
                     self.capture_source_columns();
@@ -2784,6 +2822,10 @@ impl WorldStream {
             WorldEvent::Weather(update) => {
                 let sequence = sequence.expect("sequenced weather commits through submit");
                 self.push_committed_control(CommittedControlEvent::Weather { sequence, update });
+            }
+            WorldEvent::Actor(event) => {
+                let sequence = sequence.expect("sequenced actor events commit through submit");
+                let _ = self.actors.apply(self.actor_session_id, sequence, event);
             }
             WorldEvent::SubChunks(_) => unreachable!("sub-chunk batches are prepared on workers"),
         }
@@ -4440,11 +4482,11 @@ mod tests {
         TextureRef, VisualKind, encode_blob,
     };
     use protocol::{
-        BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockEntityUpdateEvent, BlockUpdateEvent,
-        ChangeDimensionEvent, DaylightCycleUpdateEvent, LevelChunkEvent, LevelChunkMode,
-        MovePlayerEvent, PlayerMovementCorrectionEvent, PublisherUpdateEvent, SetTimeEvent,
-        SubChunkBatchEvent, SubChunkEntryEvent, SubChunkResult, SubChunkUnavailable,
-        WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldEvent,
+        ActorEvent, ActorKind, ActorSpawnEvent, BiomeDefinitionEvent, BiomeDefinitionsEvent,
+        BlockEntityUpdateEvent, BlockUpdateEvent, ChangeDimensionEvent, DaylightCycleUpdateEvent,
+        LevelChunkEvent, LevelChunkMode, MovePlayerEvent, PlayerMovementCorrectionEvent,
+        PublisherUpdateEvent, SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkResult,
+        SubChunkUnavailable, WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldEvent,
     };
     use render::{BlockClassifier, Neighbourhood, PackedBiomeRecord, mesh_sub_chunk};
     use world::{
@@ -10086,6 +10128,48 @@ mod tests {
             stream.surface_eye_position(block_x, block_z),
             Some([block_x as f32 + 0.5, -46.38, block_z as f32 + 0.5])
         );
+    }
+
+    #[test]
+    fn actor_ingestion_is_fifo_visible_without_dirtying_chunk_meshes() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        let before = stream.stats();
+        stream
+            .submit(
+                1,
+                WorldEvent::Actor(ActorEvent::Spawn(ActorSpawnEvent {
+                    dimension: 0,
+                    unique_id: 7,
+                    runtime_id: 8,
+                    kind: ActorKind::Entity {
+                        identifier: "minecraft:bee".into(),
+                    },
+                    position: [1.0, 2.0, 3.0],
+                    velocity: [0.0; 3],
+                    pitch: 0.0,
+                    yaw: 0.0,
+                    head_yaw: 0.0,
+                    body_yaw: 0.0,
+                    metadata: Arc::from([]),
+                    attributes: Arc::from([]),
+                    properties: Arc::from([]),
+                })),
+            )
+            .unwrap();
+
+        assert_eq!(stream.actor_count(), 1);
+        assert_eq!(stream.actor(8).unwrap().position, [1.0, 2.0, 3.0]);
+        assert!(stream.take_mesh_changes().is_empty());
+        let after = stream.stats();
+        assert_eq!(after.pending_mesh_jobs, before.pending_mesh_jobs);
+        assert_eq!(after.in_flight_mesh_jobs, before.in_flight_mesh_jobs);
     }
 
     enum Action {

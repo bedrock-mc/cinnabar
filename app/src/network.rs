@@ -394,9 +394,7 @@ async fn run_network_pump<S: NetworkSession>(
             }
             NetworkPumpWork::Inbound(WorldSideWork::Capacity(Err(_))) => return,
             NetworkPumpWork::Inbound(WorldSideWork::Event(Ok(event))) => {
-                if sequencer.should_forward(&event) {
-                    pending_world_event = Some(sequencer.wrap(event));
-                }
+                pending_world_event = Some(sequencer.wrap(event));
             }
             NetworkPumpWork::Inbound(WorldSideWork::Event(Err(error))) => {
                 let _ = send_control_event_or_cancel(
@@ -582,15 +580,24 @@ impl NetworkSequencer {
         self.current_dimension
     }
 
-    fn should_forward(self, event: &WorldEvent) -> bool {
-        !matches!(
-            event,
-            WorldEvent::MovePlayer(movement)
-                if movement.runtime_id != self.local_player_runtime_id
-        )
-    }
-
     fn wrap(&mut self, event: WorldEvent) -> SequencedWorldEvent {
+        let event = match event {
+            WorldEvent::MovePlayer(movement)
+                if movement.runtime_id != self.local_player_runtime_id =>
+            {
+                WorldEvent::Actor(protocol::ActorEvent::Move(protocol::ActorMoveEvent {
+                    dimension: self.current_dimension,
+                    runtime_id: movement.runtime_id,
+                    position: movement.position.map(Some),
+                    pitch: Some(movement.pitch),
+                    yaw: Some(movement.yaw),
+                    head_yaw: Some(movement.yaw),
+                    on_ground: None,
+                    teleported: false,
+                }))
+            }
+            event => event,
+        };
         let sequence = self.next_sequence;
         self.next_sequence = self.next_sequence.saturating_add(1);
         if let WorldEvent::ChangeDimension(change) = &event {
@@ -675,8 +682,8 @@ mod tests {
     }
 
     #[test]
-    fn only_the_local_players_movement_reaches_the_camera_stream() {
-        let sequencer = NetworkSequencer::new(0, 42);
+    fn foreign_player_movement_is_routed_to_the_actor_stream() {
+        let mut sequencer = NetworkSequencer::new(0, 42);
         let movement = |runtime_id| {
             WorldEvent::MovePlayer(MovePlayerEvent {
                 runtime_id,
@@ -686,13 +693,23 @@ mod tests {
             })
         };
 
-        assert!(sequencer.should_forward(&movement(42)));
-        assert!(!sequencer.should_forward(&movement(7)));
+        assert!(matches!(
+            sequencer.wrap(movement(42)).event,
+            WorldEvent::MovePlayer(MovePlayerEvent { runtime_id: 42, .. })
+        ));
+        assert!(matches!(
+            sequencer.wrap(movement(7)).event,
+            WorldEvent::Actor(protocol::ActorEvent::Move(protocol::ActorMoveEvent {
+                runtime_id: 7,
+                dimension: 0,
+                ..
+            }))
+        ));
     }
 
     #[test]
     fn server_authoritative_correction_bypasses_foreign_player_runtime_filter() {
-        let sequencer = NetworkSequencer::new(0, 42);
+        let mut sequencer = NetworkSequencer::new(0, 42);
         let correction = WorldEvent::PlayerMovementCorrection(PlayerMovementCorrectionEvent {
             position: [27.5, 111.0, 91.5],
             delta: [0.0; 3],
@@ -702,7 +719,10 @@ mod tests {
             tick: 55,
         });
 
-        assert!(sequencer.should_forward(&correction));
+        assert!(matches!(
+            sequencer.wrap(correction).event,
+            WorldEvent::PlayerMovementCorrection(_)
+        ));
     }
 
     #[tokio::test]

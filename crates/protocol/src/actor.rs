@@ -1,0 +1,717 @@
+use std::sync::Arc;
+
+use bytes::{Buf, Bytes, BytesMut};
+use thiserror::Error;
+use valentine::{
+    bedrock::codec::{BedrockCodec, VarInt},
+    bedrock::version::v1_26_30::{
+        AddEntityPacket, AddPlayerPacket, DeltaMoveFlags, EntityAttributes, EntityProperties,
+        MetadataDictionary, MetadataDictionaryItemKey, MetadataDictionaryItemValue,
+        MetadataDictionaryItemValueDefault, MoveEntityDeltaPacket, MoveEntityPacket,
+        PlayerAttributes, PlayerListPacket, PlayerRecordsRecordsItem, PlayerRecordsType,
+        RemoveEntityPacket, SetEntityDataPacket, UpdateAttributesPacket,
+    },
+    protocol::wire,
+};
+
+pub const MAX_ACTOR_IDENTIFIER_BYTES: usize = 256;
+pub const MAX_ACTOR_NAME_BYTES: usize = 256;
+pub const MAX_ACTOR_METADATA_ENTRIES: usize = 256;
+pub const MAX_ACTOR_ATTRIBUTES: usize = 128;
+pub const MAX_ACTOR_PROPERTIES: usize = 256;
+pub const MAX_ACTOR_ATTRIBUTE_MODIFIERS: usize = 64;
+pub const MAX_ACTOR_METADATA_STRING_BYTES: usize = 4_096;
+pub const MAX_ACTOR_METADATA_NBT_BYTES: usize = 1_048_576;
+pub const MAX_PLAYER_LIST_RECORDS: usize = 4_096;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ActorKind {
+    Player { uuid: [u8; 16], username: Arc<str> },
+    Entity { identifier: Arc<str> },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActorAttribute {
+    pub name: Arc<str>,
+    pub min: f32,
+    pub max: f32,
+    pub current: f32,
+    pub default: Option<f32>,
+    pub modifiers: Arc<[ActorAttributeModifier]>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActorAttributeModifier {
+    pub id: Arc<str>,
+    pub name: Arc<str>,
+    pub amount: f32,
+    pub operation: i32,
+    pub operand: i32,
+    pub serializable: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ActorProperty {
+    Int { index: i32, value: i32 },
+    Float { index: i32, value: f32 },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActorMetadata {
+    pub key: i32,
+    pub value: ActorMetadataValue,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ActorMetadataValue {
+    Byte(i8),
+    Short(i16),
+    Int(i32),
+    Float(f32),
+    String(Arc<str>),
+    Compound(Arc<[u8]>),
+    BlockPosition([i32; 3]),
+    Long(i64),
+    Vector([f32; 3]),
+    Flags(u64),
+    FlagsExtended(u64),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActorSpawnEvent {
+    pub dimension: i32,
+    pub unique_id: i64,
+    pub runtime_id: u64,
+    pub kind: ActorKind,
+    pub position: [f32; 3],
+    pub velocity: [f32; 3],
+    pub pitch: f32,
+    pub yaw: f32,
+    pub head_yaw: f32,
+    pub body_yaw: f32,
+    pub metadata: Arc<[ActorMetadata]>,
+    pub attributes: Arc<[ActorAttribute]>,
+    pub properties: Arc<[ActorProperty]>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ActorRemoveEvent {
+    pub dimension: i32,
+    pub unique_id: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ActorMoveEvent {
+    pub dimension: i32,
+    pub runtime_id: u64,
+    pub position: [Option<f32>; 3],
+    pub pitch: Option<f32>,
+    pub yaw: Option<f32>,
+    pub head_yaw: Option<f32>,
+    pub on_ground: Option<bool>,
+    pub teleported: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActorMetadataUpdateEvent {
+    pub dimension: i32,
+    pub runtime_id: u64,
+    pub metadata: Arc<[ActorMetadata]>,
+    pub properties: Arc<[ActorProperty]>,
+    pub tick: u64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActorAttributesUpdateEvent {
+    pub dimension: i32,
+    pub runtime_id: u64,
+    pub attributes: Arc<[ActorAttribute]>,
+    pub tick: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PlayerListEntry {
+    Add {
+        uuid: [u8; 16],
+        unique_id: i64,
+        username: Arc<str>,
+        verified: bool,
+    },
+    Remove {
+        uuid: [u8; 16],
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlayerListUpdateEvent {
+    pub entries: Arc<[PlayerListEntry]>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ActorEvent {
+    Spawn(ActorSpawnEvent),
+    Remove(ActorRemoveEvent),
+    Move(ActorMoveEvent),
+    Metadata(ActorMetadataUpdateEvent),
+    Attributes(ActorAttributesUpdateEvent),
+    PlayerList(PlayerListUpdateEvent),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum ActorPacketError {
+    #[error("actor identifier has {bytes} UTF-8 bytes, exceeding {max}")]
+    IdentifierTooLong { bytes: usize, max: usize },
+    #[error("actor spawn contains a non-finite {field}")]
+    NonFiniteSpawnField { field: &'static str },
+    #[error("actor collection {collection} has {count} entries, exceeding {max}")]
+    TooManyEntries {
+        collection: &'static str,
+        count: usize,
+        max: usize,
+    },
+    #[error("actor text field {field} has {bytes} UTF-8 bytes, exceeding {max}")]
+    TextTooLong {
+        field: &'static str,
+        bytes: usize,
+        max: usize,
+    },
+    #[error("actor field {field} is non-finite")]
+    NonFiniteField { field: &'static str },
+    #[error("actor metadata entry has no value")]
+    MissingMetadataValue,
+    #[error("actor metadata NBT has {bytes} bytes, exceeding {max}")]
+    MetadataNbtTooLong { bytes: usize, max: usize },
+    #[error("actor move rotation {field} has {count} bytes; expected exactly one")]
+    InvalidRotationBytes { field: &'static str, count: usize },
+    #[error("absolute actor move has an invalid runtime ID varuint")]
+    InvalidAbsoluteMoveRuntimeId,
+    #[error(
+        "absolute actor move has {actual} body bytes after its runtime ID; expected {expected}"
+    )]
+    InvalidAbsoluteMoveLength { actual: usize, expected: usize },
+    #[error("actor update has negative tick {0}")]
+    NegativeTick(i64),
+    #[error("PlayerList record count {declared} does not match {actual} records")]
+    InvalidPlayerListCount { declared: i32, actual: usize },
+    #[error("PlayerList action does not match its records")]
+    InvalidPlayerListRecords,
+    #[error("PlayerList Add verified count does not match its records")]
+    InvalidPlayerListVerifiedCount,
+    #[error("PlayerList has unsupported action {0}")]
+    UnsupportedPlayerListAction(u8),
+    #[error("failed to normalize actor metadata key")]
+    InvalidMetadataKey,
+}
+
+pub(crate) fn normalize_add_entity(
+    packet: AddEntityPacket,
+    dimension: i32,
+) -> Result<ActorEvent, ActorPacketError> {
+    if packet.entity_type.len() > MAX_ACTOR_IDENTIFIER_BYTES {
+        return Err(ActorPacketError::IdentifierTooLong {
+            bytes: packet.entity_type.len(),
+            max: MAX_ACTOR_IDENTIFIER_BYTES,
+        });
+    }
+    for (field, value) in [
+        ("position.x", packet.position.x),
+        ("position.y", packet.position.y),
+        ("position.z", packet.position.z),
+        ("velocity.x", packet.velocity.x),
+        ("velocity.y", packet.velocity.y),
+        ("velocity.z", packet.velocity.z),
+        ("pitch", packet.pitch),
+        ("yaw", packet.yaw),
+        ("head_yaw", packet.head_yaw),
+        ("body_yaw", packet.body_yaw),
+    ] {
+        if !value.is_finite() {
+            return Err(ActorPacketError::NonFiniteSpawnField { field });
+        }
+    }
+
+    let metadata = normalize_metadata(packet.metadata)?;
+    let attributes = normalize_entity_attributes(packet.attributes)?;
+    let properties = normalize_properties(packet.properties)?;
+    Ok(ActorEvent::Spawn(ActorSpawnEvent {
+        dimension,
+        unique_id: packet.unique_id,
+        runtime_id: packet.runtime_id as u64,
+        kind: ActorKind::Entity {
+            identifier: Arc::from(packet.entity_type),
+        },
+        position: [packet.position.x, packet.position.y, packet.position.z],
+        velocity: [packet.velocity.x, packet.velocity.y, packet.velocity.z],
+        pitch: packet.pitch,
+        yaw: packet.yaw,
+        head_yaw: packet.head_yaw,
+        body_yaw: packet.body_yaw,
+        metadata,
+        attributes,
+        properties,
+    }))
+}
+
+pub(crate) fn normalize_add_player(
+    packet: AddPlayerPacket,
+    dimension: i32,
+) -> Result<ActorEvent, ActorPacketError> {
+    validate_text("username", &packet.username, MAX_ACTOR_NAME_BYTES)?;
+    for (field, value) in [
+        ("position.x", packet.position.x),
+        ("position.y", packet.position.y),
+        ("position.z", packet.position.z),
+        ("velocity.x", packet.velocity.x),
+        ("velocity.y", packet.velocity.y),
+        ("velocity.z", packet.velocity.z),
+        ("pitch", packet.pitch),
+        ("yaw", packet.yaw),
+        ("head_yaw", packet.head_yaw),
+    ] {
+        validate_finite(field, value)?;
+    }
+    let metadata = normalize_metadata(packet.metadata)?;
+    let properties = normalize_properties(packet.properties)?;
+    Ok(ActorEvent::Spawn(ActorSpawnEvent {
+        dimension,
+        unique_id: packet.unique_id,
+        runtime_id: packet.runtime_id as u64,
+        kind: ActorKind::Player {
+            uuid: *packet.uuid.as_bytes(),
+            username: Arc::from(packet.username),
+        },
+        position: [packet.position.x, packet.position.y, packet.position.z],
+        velocity: [packet.velocity.x, packet.velocity.y, packet.velocity.z],
+        pitch: packet.pitch,
+        yaw: packet.yaw,
+        head_yaw: packet.head_yaw,
+        body_yaw: packet.yaw,
+        metadata,
+        attributes: Arc::from([]),
+        properties,
+    }))
+}
+
+pub(crate) const fn normalize_remove_entity(
+    packet: RemoveEntityPacket,
+    dimension: i32,
+) -> ActorEvent {
+    ActorEvent::Remove(ActorRemoveEvent {
+        dimension,
+        unique_id: packet.entity_id_self,
+    })
+}
+
+pub(crate) fn normalize_move_entity(
+    packet: MoveEntityPacket,
+    dimension: i32,
+) -> Result<ActorEvent, ActorPacketError> {
+    for (field, value) in [
+        ("position.x", packet.position.x),
+        ("position.y", packet.position.y),
+        ("position.z", packet.position.z),
+    ] {
+        validate_finite(field, value)?;
+    }
+    Ok(ActorEvent::Move(ActorMoveEvent {
+        dimension,
+        runtime_id: packet.runtime_entity_id as u64,
+        position: [
+            Some(packet.position.x),
+            Some(packet.position.y),
+            Some(packet.position.z),
+        ],
+        pitch: Some(rotation_degrees("pitch", &packet.rotation.pitch)?),
+        yaw: Some(rotation_degrees("yaw", &packet.rotation.yaw)?),
+        head_yaw: Some(rotation_degrees("head_yaw", &packet.rotation.head_yaw)?),
+        on_ground: Some(packet.flags & 1 != 0),
+        teleported: packet.flags & 2 != 0,
+    }))
+}
+
+/// Decodes the actual Bedrock MoveActorAbsolute wire shape.
+///
+/// Valentine currently models each byte rotation as a length-prefixed byte vector and models the
+/// runtime ID as a signed VarLong. The packet wire format instead carries a VarUInt64 followed by
+/// exactly three raw byte rotations, so the raw play path must not materialize the generated type.
+pub(crate) fn normalize_move_entity_body(
+    body: &Bytes,
+    dimension: i32,
+) -> Result<ActorEvent, ActorPacketError> {
+    const FIXED_BODY_BYTES: usize = 1 + 3 * size_of::<f32>() + 3;
+
+    let mut body = body.as_ref();
+    let runtime_id = wire::read_var_u64(&mut body)
+        .map_err(|_| ActorPacketError::InvalidAbsoluteMoveRuntimeId)?;
+    if body.remaining() != FIXED_BODY_BYTES {
+        return Err(ActorPacketError::InvalidAbsoluteMoveLength {
+            actual: body.remaining(),
+            expected: FIXED_BODY_BYTES,
+        });
+    }
+    let flags = body.get_u8();
+    let position = [body.get_f32_le(), body.get_f32_le(), body.get_f32_le()];
+    for (field, value) in [
+        ("position.x", position[0]),
+        ("position.y", position[1]),
+        ("position.z", position[2]),
+    ] {
+        validate_finite(field, value)?;
+    }
+    let pitch = byte_rotation_degrees(body.get_u8());
+    let yaw = byte_rotation_degrees(body.get_u8());
+    let head_yaw = byte_rotation_degrees(body.get_u8());
+
+    Ok(ActorEvent::Move(ActorMoveEvent {
+        dimension,
+        runtime_id,
+        position: position.map(Some),
+        pitch: Some(pitch),
+        yaw: Some(yaw),
+        head_yaw: Some(head_yaw),
+        on_ground: Some(flags & 1 != 0),
+        teleported: flags & 2 != 0,
+    }))
+}
+
+pub(crate) fn normalize_move_entity_delta(
+    packet: MoveEntityDeltaPacket,
+    dimension: i32,
+) -> Result<ActorEvent, ActorPacketError> {
+    for (field, value) in [
+        ("position.x", packet.x),
+        ("position.y", packet.y),
+        ("position.z", packet.z),
+    ] {
+        if let Some(value) = value {
+            validate_finite(field, value)?;
+        }
+    }
+    Ok(ActorEvent::Move(ActorMoveEvent {
+        dimension,
+        runtime_id: packet.runtime_entity_id as u64,
+        position: [packet.x, packet.y, packet.z],
+        pitch: packet.rot_x.map(byte_rotation_degrees),
+        yaw: packet.rot_y.map(byte_rotation_degrees),
+        head_yaw: packet.rot_z.map(byte_rotation_degrees),
+        on_ground: Some(packet.flags.contains(DeltaMoveFlags::ON_GROUND)),
+        teleported: packet.flags.contains(DeltaMoveFlags::TELEPORT),
+    }))
+}
+
+pub(crate) fn normalize_set_entity_data(
+    packet: SetEntityDataPacket,
+    dimension: i32,
+) -> Result<ActorEvent, ActorPacketError> {
+    let tick =
+        u64::try_from(packet.tick).map_err(|_| ActorPacketError::NegativeTick(packet.tick))?;
+    Ok(ActorEvent::Metadata(ActorMetadataUpdateEvent {
+        dimension,
+        runtime_id: packet.runtime_entity_id as u64,
+        metadata: normalize_metadata(packet.metadata)?,
+        properties: normalize_properties(packet.properties)?,
+        tick,
+    }))
+}
+
+pub(crate) fn normalize_update_attributes(
+    packet: UpdateAttributesPacket,
+    dimension: i32,
+) -> Result<ActorEvent, ActorPacketError> {
+    let tick =
+        u64::try_from(packet.tick).map_err(|_| ActorPacketError::NegativeTick(packet.tick))?;
+    Ok(ActorEvent::Attributes(ActorAttributesUpdateEvent {
+        dimension,
+        runtime_id: packet.runtime_entity_id as u64,
+        attributes: normalize_player_attributes(packet.attributes)?,
+        tick,
+    }))
+}
+
+pub(crate) fn normalize_player_list(
+    packet: PlayerListPacket,
+) -> Result<ActorEvent, ActorPacketError> {
+    let declared = packet.records.records_count;
+    let actual = packet.records.records.len();
+    if usize::try_from(declared).ok() != Some(actual) {
+        return Err(ActorPacketError::InvalidPlayerListCount { declared, actual });
+    }
+    check_count("player_list", actual, MAX_PLAYER_LIST_RECORDS)?;
+    let mut entries = Vec::with_capacity(actual);
+    match packet.records.type_ {
+        PlayerRecordsType::Add => {
+            let verified = packet
+                .records
+                .verified
+                .ok_or(ActorPacketError::InvalidPlayerListVerifiedCount)?;
+            if verified.len() != actual {
+                return Err(ActorPacketError::InvalidPlayerListVerifiedCount);
+            }
+            for (record, verified) in packet.records.records.into_iter().zip(verified) {
+                let Some(PlayerRecordsRecordsItem::Add(record)) = record else {
+                    return Err(ActorPacketError::InvalidPlayerListRecords);
+                };
+                validate_text(
+                    "player_list.username",
+                    &record.username,
+                    MAX_ACTOR_NAME_BYTES,
+                )?;
+                entries.push(PlayerListEntry::Add {
+                    uuid: *record.uuid.as_bytes(),
+                    unique_id: record.entity_unique_id,
+                    username: Arc::from(record.username),
+                    verified,
+                });
+            }
+        }
+        PlayerRecordsType::Remove => {
+            if packet.records.verified.is_some() {
+                return Err(ActorPacketError::InvalidPlayerListVerifiedCount);
+            }
+            for record in packet.records.records {
+                let Some(PlayerRecordsRecordsItem::Remove(record)) = record else {
+                    return Err(ActorPacketError::InvalidPlayerListRecords);
+                };
+                entries.push(PlayerListEntry::Remove {
+                    uuid: *record.uuid.as_bytes(),
+                });
+            }
+        }
+        PlayerRecordsType::Unknown(action) => {
+            return Err(ActorPacketError::UnsupportedPlayerListAction(action));
+        }
+    }
+    Ok(ActorEvent::PlayerList(PlayerListUpdateEvent {
+        entries: Arc::from(entries),
+    }))
+}
+
+fn normalize_entity_attributes(
+    attributes: EntityAttributes,
+) -> Result<Arc<[ActorAttribute]>, ActorPacketError> {
+    check_count("attributes", attributes.len(), MAX_ACTOR_ATTRIBUTES)?;
+    attributes
+        .into_iter()
+        .map(|attribute| {
+            validate_text("attribute.name", &attribute.name, MAX_ACTOR_NAME_BYTES)?;
+            for (field, value) in [
+                ("attribute.min", attribute.min),
+                ("attribute.max", attribute.max),
+                ("attribute.current", attribute.value),
+            ] {
+                validate_finite(field, value)?;
+            }
+            Ok(ActorAttribute {
+                name: Arc::from(attribute.name),
+                min: attribute.min,
+                max: attribute.max,
+                current: attribute.value,
+                default: None,
+                modifiers: Arc::from([]),
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(Arc::from)
+}
+
+fn normalize_player_attributes(
+    attributes: PlayerAttributes,
+) -> Result<Arc<[ActorAttribute]>, ActorPacketError> {
+    check_count("attributes", attributes.len(), MAX_ACTOR_ATTRIBUTES)?;
+    attributes
+        .into_iter()
+        .map(|attribute| {
+            validate_text("attribute.name", &attribute.name, MAX_ACTOR_NAME_BYTES)?;
+            check_count(
+                "attribute.modifiers",
+                attribute.modifiers.len(),
+                MAX_ACTOR_ATTRIBUTE_MODIFIERS,
+            )?;
+            for (field, value) in [
+                ("attribute.min", attribute.min),
+                ("attribute.max", attribute.max),
+                ("attribute.current", attribute.current),
+                ("attribute.default_min", attribute.default_min),
+                ("attribute.default_max", attribute.default_max),
+                ("attribute.default", attribute.default),
+            ] {
+                validate_finite(field, value)?;
+            }
+            let modifiers = attribute
+                .modifiers
+                .into_iter()
+                .map(|modifier| {
+                    validate_text("modifier.id", &modifier.id, MAX_ACTOR_NAME_BYTES)?;
+                    validate_text("modifier.name", &modifier.name, MAX_ACTOR_NAME_BYTES)?;
+                    validate_finite("modifier.amount", modifier.amount)?;
+                    Ok(ActorAttributeModifier {
+                        id: Arc::from(modifier.id),
+                        name: Arc::from(modifier.name),
+                        amount: modifier.amount,
+                        operation: modifier.operation,
+                        operand: modifier.operand,
+                        serializable: modifier.serializable,
+                    })
+                })
+                .collect::<Result<Vec<_>, ActorPacketError>>()?;
+            Ok(ActorAttribute {
+                name: Arc::from(attribute.name),
+                min: attribute.min,
+                max: attribute.max,
+                current: attribute.current,
+                default: Some(attribute.default),
+                modifiers: Arc::from(modifiers),
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(Arc::from)
+}
+
+fn normalize_properties(
+    properties: EntityProperties,
+) -> Result<Arc<[ActorProperty]>, ActorPacketError> {
+    let count = properties
+        .ints
+        .len()
+        .saturating_add(properties.floats.len());
+    check_count("properties", count, MAX_ACTOR_PROPERTIES)?;
+    let mut normalized = Vec::with_capacity(count);
+    normalized.extend(
+        properties
+            .ints
+            .into_iter()
+            .map(|property| ActorProperty::Int {
+                index: property.index,
+                value: property.value,
+            }),
+    );
+    for property in properties.floats {
+        validate_finite("property.float", property.value)?;
+        normalized.push(ActorProperty::Float {
+            index: property.index,
+            value: property.value,
+        });
+    }
+    Ok(Arc::from(normalized))
+}
+
+fn normalize_metadata(
+    metadata: MetadataDictionary,
+) -> Result<Arc<[ActorMetadata]>, ActorPacketError> {
+    check_count("metadata", metadata.len(), MAX_ACTOR_METADATA_ENTRIES)?;
+    metadata
+        .into_iter()
+        .map(|entry| {
+            let key = metadata_key_id(&entry.key)?;
+            let value = match entry.value {
+                MetadataDictionaryItemValue::Flags(value) => {
+                    ActorMetadataValue::Flags(value.bits())
+                }
+                MetadataDictionaryItemValue::FlagsExtended(value) => {
+                    ActorMetadataValue::FlagsExtended(value.bits())
+                }
+                MetadataDictionaryItemValue::SeatCameraRelaxDistanceSmoothing(value)
+                | MetadataDictionaryItemValue::SeatThirdPersonCameraRadius(value) => {
+                    validate_finite("metadata.float", value)?;
+                    ActorMetadataValue::Float(value)
+                }
+                MetadataDictionaryItemValue::Default(value) => match *value {
+                    Some(MetadataDictionaryItemValueDefault::Byte(value)) => {
+                        ActorMetadataValue::Byte(value)
+                    }
+                    Some(MetadataDictionaryItemValueDefault::Short(value)) => {
+                        ActorMetadataValue::Short(value)
+                    }
+                    Some(MetadataDictionaryItemValueDefault::Int(value)) => {
+                        ActorMetadataValue::Int(value)
+                    }
+                    Some(MetadataDictionaryItemValueDefault::Float(value)) => {
+                        validate_finite("metadata.float", value)?;
+                        ActorMetadataValue::Float(value)
+                    }
+                    Some(MetadataDictionaryItemValueDefault::String(value)) => {
+                        validate_text("metadata.string", &value, MAX_ACTOR_METADATA_STRING_BYTES)?;
+                        ActorMetadataValue::String(Arc::from(value))
+                    }
+                    Some(MetadataDictionaryItemValueDefault::Compound(value)) => {
+                        if value.0.len() > MAX_ACTOR_METADATA_NBT_BYTES {
+                            return Err(ActorPacketError::MetadataNbtTooLong {
+                                bytes: value.0.len(),
+                                max: MAX_ACTOR_METADATA_NBT_BYTES,
+                            });
+                        }
+                        ActorMetadataValue::Compound(Arc::from(value.0.to_vec()))
+                    }
+                    Some(MetadataDictionaryItemValueDefault::Vec3I(value)) => {
+                        ActorMetadataValue::BlockPosition([value.x, value.y, value.z])
+                    }
+                    Some(MetadataDictionaryItemValueDefault::Long(value)) => {
+                        ActorMetadataValue::Long(value)
+                    }
+                    Some(MetadataDictionaryItemValueDefault::Vec3F(value)) => {
+                        for component in [value.x, value.y, value.z] {
+                            validate_finite("metadata.vector", component)?;
+                        }
+                        ActorMetadataValue::Vector([value.x, value.y, value.z])
+                    }
+                    None => return Err(ActorPacketError::MissingMetadataValue),
+                },
+            };
+            Ok(ActorMetadata { key, value })
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(Arc::from)
+}
+
+fn metadata_key_id(key: &MetadataDictionaryItemKey) -> Result<i32, ActorPacketError> {
+    let mut bytes = BytesMut::with_capacity(5);
+    key.encode(&mut bytes)
+        .map_err(|_| ActorPacketError::InvalidMetadataKey)?;
+    let mut bytes: Bytes = bytes.freeze();
+    VarInt::decode(&mut bytes, ())
+        .map(|value| value.0)
+        .map_err(|_| ActorPacketError::InvalidMetadataKey)
+}
+
+fn rotation_degrees(field: &'static str, bytes: &[u8]) -> Result<f32, ActorPacketError> {
+    let [value] = bytes else {
+        return Err(ActorPacketError::InvalidRotationBytes {
+            field,
+            count: bytes.len(),
+        });
+    };
+    Ok(byte_rotation_degrees(*value))
+}
+
+fn byte_rotation_degrees(value: u8) -> f32 {
+    f32::from(value) * (360.0 / 256.0)
+}
+
+fn check_count(collection: &'static str, count: usize, max: usize) -> Result<(), ActorPacketError> {
+    if count > max {
+        return Err(ActorPacketError::TooManyEntries {
+            collection,
+            count,
+            max,
+        });
+    }
+    Ok(())
+}
+
+fn validate_text(field: &'static str, value: &str, max: usize) -> Result<(), ActorPacketError> {
+    if value.len() > max {
+        return Err(ActorPacketError::TextTooLong {
+            field,
+            bytes: value.len(),
+            max,
+        });
+    }
+    Ok(())
+}
+
+fn validate_finite(field: &'static str, value: f32) -> Result<(), ActorPacketError> {
+    if !value.is_finite() {
+        return Err(ActorPacketError::NonFiniteField { field });
+    }
+    Ok(())
+}
