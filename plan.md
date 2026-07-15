@@ -832,6 +832,18 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       run must still capture consecutive `RUST_MCBE_VISIBILITY_SNAPSHOT`
       markers spanning the symptom and identify the first nonzero adjacent loss
       before any repair is proposed.
+      **Fixed-pose diagnostic attempt (2026-07-15):** run
+      `20260715T164233Z-14908` disabled auto-fly and retained one stable render
+      view generation, but the client never emitted its mutation/world-ready
+      marker, so the harness timed out before publishing and facing the requested
+      `Front` fixture. The resulting 62 stable-pose snapshots therefore do not
+      constitute the required aimed-camera reproduction. They still narrow the
+      pipeline: 61/62 had exact frustum-visible/submitted counts and hashes; the
+      sole mismatch was the final snapshot taken as the failed harness entered
+      cleanup. No culling repair is authorized by this evidence. The next probe
+      must establish a fixture-facing camera independently of the world-ready
+      marker and reproduce the user's visible disappearance before changing
+      cave, frustum, or submission behavior.
     - [ ] Wall-attached vine family: replace the diagnostic pink-cube fallback
       for every `minecraft:vine` direction-bit state with compact cutout face
       templates selected from its exact attachment mask, including conservative
