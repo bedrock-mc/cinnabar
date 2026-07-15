@@ -168,6 +168,25 @@ fn sun_and_moon_visibility_overlap_only_inside_the_intentional_horizon_transitio
 }
 
 #[test]
+fn opaque_black_celestial_texels_are_treated_as_transparent() {
+    let shader = include_str!("../src/atmosphere.wgsl");
+    assert!(
+        shader.contains("fn celestial_opacity(sampled_rgb: vec3<f32>) -> f32"),
+        "the pinned sun and moon textures are opaque RGB images with black backgrounds"
+    );
+    assert_eq!(
+        shader.matches("celestial_opacity(sampled.rgb)").count(),
+        2,
+        "both sun and moon must use the same RGB black-key policy"
+    );
+    assert_eq!(
+        shader.matches("sampled.a * mapping.z * visible").count(),
+        0,
+        "source alpha is fully opaque and would render a black square"
+    );
+}
+
+#[test]
 fn dynamic_view_binding_window_keeps_a_nonzero_second_view_offset_in_bounds() {
     let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
     let device = RenderDevice::from(device);

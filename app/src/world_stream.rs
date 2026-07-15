@@ -1465,13 +1465,17 @@ impl WorldStream {
             event,
             WorldEvent::LevelChunk(_) | WorldEvent::SubChunks(_) | WorldEvent::BlockUpdates(_)
         );
-        let creates_request = matches!(
-            &event,
+        let creates_request = match &event {
             WorldEvent::LevelChunk(LevelChunkEvent {
-                mode: LevelChunkMode::LimitedRequests { .. } | LevelChunkMode::LimitlessRequests,
+                mode: LevelChunkMode::LimitedRequests { highest },
                 ..
-            })
-        );
+            }) => *highest != 0,
+            WorldEvent::LevelChunk(LevelChunkEvent {
+                mode: LevelChunkMode::LimitlessRequests,
+                ..
+            }) => true,
+            _ => false,
+        };
         if creates_request && self.requests.len() >= OUTBOUND_REQUEST_CAPACITY {
             return Err(WorldStreamError::OutboundFull {
                 sequence,
@@ -2656,11 +2660,11 @@ impl WorldStream {
             );
             return;
         };
-        let count = match event.mode {
+        let (count, has_authoritative_upper_air) = match event.mode {
             LevelChunkMode::LimitedRequests { highest } => {
-                usize::from(highest).min(range.sub_chunk_count)
+                (usize::from(highest).min(range.sub_chunk_count), true)
             }
-            LevelChunkMode::LimitlessRequests => range.sub_chunk_count,
+            LevelChunkMode::LimitlessRequests => (range.sub_chunk_count, false),
             LevelChunkMode::Inline { .. } => {
                 unreachable!("inline LevelChunk packets are prepared on workers")
             }
@@ -2668,6 +2672,21 @@ impl WorldStream {
         self.evict_column(key);
         let _ = self.store.commit_biome_column(key, decoded);
         self.enqueue_request(key, range.base_sub_chunk_y, count, sequence);
+        if has_authoritative_upper_air {
+            let first_air_y = range
+                .base_sub_chunk_y
+                .saturating_add(i32::try_from(count).expect("vanilla subchunk count fits i32"));
+            let end_y = range.base_sub_chunk_y.saturating_add(
+                i32::try_from(range.sub_chunk_count).expect("vanilla subchunk count fits i32"),
+            );
+            let changed = (first_air_y..end_y)
+                .filter_map(|y| {
+                    let air = SubChunkKey::from_chunk(key, y);
+                    self.record_known_air(air).then_some(air)
+                })
+                .collect::<BTreeSet<_>>();
+            self.mark_changed_sources(changed, Instant::now());
+        }
     }
 
     fn push_committed_control(&mut self, event: CommittedControlEvent) {
@@ -2685,6 +2704,13 @@ impl WorldStream {
         count: usize,
         sequence: Option<u64>,
     ) {
+        if count == 0 {
+            if let Some(sequence) = sequence {
+                self.cancel_request_reservation(sequence);
+            }
+            self.loaded_columns.insert(key);
+            return;
+        }
         match request_sub_chunk_column(key.dimension, key.x, key.z, base_sub_chunk_y, count) {
             Ok(packet) => {
                 let request = PendingSubChunkRequest {
@@ -4790,6 +4816,44 @@ mod tests {
         }
 
         #[test]
+        fn limited_empty_column_propagates_direct_sky_into_the_mesh_light_sidecar() {
+            let mut stream = lit_stream(0);
+            stream
+                .submit(
+                    1,
+                    super::request_level_chunk_event(
+                        0,
+                        0,
+                        0,
+                        protocol::LevelChunkMode::LimitedRequests { highest: 0 },
+                        1,
+                    ),
+                )
+                .unwrap();
+            super::complete_pending_decode_jobs(&mut stream);
+
+            assert!(stream.take_requests().is_empty());
+            for y in (-4..=19).rev() {
+                complete_one_light(&mut stream, [8.0, y as f32 * 16.0 + 8.0, 8.0]);
+            }
+
+            let bottom = SubChunkKey::new(0, 0, -4, 0);
+            assert_eq!(
+                stream
+                    .light_store
+                    .light(bottom)
+                    .unwrap()
+                    .get(LightChannel::Sky, 0, 0, 0),
+                Some(15)
+            );
+            assert!(stream.direct_sky[&bottom].mask.get(0, 0, 0));
+            let halo = stream
+                .mesh_light_halo(bottom)
+                .expect("settled implicit air exposes a current mesh-light sidecar");
+            assert_eq!(halo.sample_channels([0, 0, 0]), [0, 15]);
+        }
+
+        #[test]
         fn nether_and_end_never_seed_sky() {
             for (dimension, y) in [(1, 7), (2, 15)] {
                 let mut stream = lit_stream(dimension);
@@ -6381,6 +6445,102 @@ mod tests {
     }
 
     #[test]
+    fn limited_requests_track_omitted_upper_air_and_replace_the_column_atomically() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        let chunk = ChunkKey::new(0, 0, 0);
+
+        stream
+            .submit(
+                1,
+                request_level_chunk_event(
+                    0,
+                    0,
+                    0,
+                    LevelChunkMode::LimitedRequests { highest: 1 },
+                    1,
+                ),
+            )
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+        let requests = stream.take_requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].base_sub_chunk_y, -4);
+        assert_eq!(requests[0].count, 1);
+        assert!(
+            !stream
+                .known_air
+                .contains(&SubChunkKey::from_chunk(chunk, -4))
+        );
+        for y in -3..=19 {
+            let key = SubChunkKey::from_chunk(chunk, y);
+            assert!(stream.resident.contains(&key), "missing resident air y={y}");
+            assert!(stream.known_air.contains(&key), "missing known air y={y}");
+            assert!(
+                stream.pending_light.contains_key(&key),
+                "unscheduled light y={y}"
+            );
+        }
+
+        stream
+            .submit(
+                2,
+                request_level_chunk_event(
+                    0,
+                    0,
+                    0,
+                    LevelChunkMode::LimitedRequests { highest: 0 },
+                    2,
+                ),
+            )
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+        assert!(stream.take_requests().is_empty());
+        assert!(stream.loaded_columns.contains(&chunk));
+        for y in -4..=19 {
+            assert!(
+                stream
+                    .known_air
+                    .contains(&SubChunkKey::from_chunk(chunk, y)),
+                "empty replacement lost authoritative air y={y}"
+            );
+        }
+
+        stream
+            .submit(
+                3,
+                request_level_chunk_event(
+                    0,
+                    0,
+                    0,
+                    LevelChunkMode::LimitedRequests { highest: 1 },
+                    3,
+                ),
+            )
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+        assert_eq!(stream.take_requests().len(), 1);
+        let requested = SubChunkKey::from_chunk(chunk, -4);
+        assert!(!stream.resident.contains(&requested));
+        assert!(!stream.known_air.contains(&requested));
+        assert!(stream.is_expected_sub_chunk(requested));
+        for y in -3..=19 {
+            assert!(
+                stream
+                    .known_air
+                    .contains(&SubChunkKey::from_chunk(chunk, y)),
+                "filled replacement lost implicit upper air y={y}"
+            );
+        }
+    }
+
+    #[test]
     fn malformed_request_level_chunk_neither_commits_nor_enqueues() {
         let mut stream = WorldStream::new(WorldBootstrap {
             dimension: 0,
@@ -7355,7 +7515,10 @@ mod tests {
         assert_eq!(stream.stats().queued_decode_jobs, 2);
         complete_pending_decode_jobs(&mut stream);
         assert_eq!(stream.stats().queued_decode_jobs, 0);
-        assert!(!stream.resident.contains(&SubChunkKey::new(0, 0, -3, 0)));
+        let implicit_air = SubChunkKey::new(0, 0, -3, 0);
+        assert!(stream.resident.contains(&implicit_air));
+        assert!(stream.known_air.contains(&implicit_air));
+        assert!(stream.store.sub_chunk(implicit_air).is_none());
         assert_eq!(
             stream.requested_sub_chunks[&ChunkKey::new(0, 0, 0)]
                 .keys()
@@ -8243,6 +8406,26 @@ mod tests {
                 .unwrap_err(),
             super::WorldStreamError::OutboundFull { .. }
         ));
+
+        let empty = ChunkKey::new(0, 9, 10);
+        stream
+            .submit(
+                super::OUTBOUND_REQUEST_CAPACITY as u64 + 1,
+                request_level_chunk_event(
+                    empty.dimension,
+                    empty.x,
+                    empty.z,
+                    LevelChunkMode::LimitedRequests { highest: 0 },
+                    1,
+                ),
+            )
+            .expect("an authoritative empty column needs no outbound FIFO slot");
+        complete_pending_decode_jobs(&mut stream);
+        assert_eq!(
+            stream.pending_request_count(),
+            super::OUTBOUND_REQUEST_CAPACITY
+        );
+        assert!(stream.loaded_columns.contains(&empty));
     }
 
     fn stream_with_one_expected_sub_chunk() -> (WorldStream, SubChunkKey) {
@@ -8932,14 +9115,20 @@ mod tests {
         assert!(stream.store.sub_chunk(key).is_none());
         assert!(!stream.resident.contains(&key));
         assert_eq!(stream.take_requests().len(), 1);
-        assert_eq!(
-            stream
-                .pending_mesh
-                .keys()
-                .copied()
-                .collect::<std::collections::BTreeSet<_>>(),
-            key.mesh_neighbourhood_dependents().collect()
-        );
+        let actual = stream
+            .pending_mesh
+            .keys()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>();
+        let evicted_dependents = key
+            .mesh_neighbourhood_dependents()
+            .collect::<std::collections::BTreeSet<_>>();
+        assert!(evicted_dependents.is_subset(&actual));
+        for y in -3..=19 {
+            let air = SubChunkKey::new(0, key.x, y, key.z);
+            assert!(stream.known_air.contains(&air));
+            assert!(stream.pending_light.contains_key(&air));
+        }
     }
 
     #[test]
