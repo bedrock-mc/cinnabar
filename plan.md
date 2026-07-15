@@ -1277,8 +1277,14 @@ store it only under the user's temporary directory, inspect that file, and never
   - [x] Implement and independently review the deterministic periodic CPU
     mesher: exact 256x256 alpha occupancy, toroidal seam culling, greedy exposed
     faces, an eight-byte packed ABI, checked worst-case ceilings, and canonical
-    snapped 3x3 origins are green through `03a8c3a`. The custom GPU pipeline,
-    fullscreen-plane removal, and live acceptance remain open.
+    snapped 3x3 origins are green through `03a8c3a`.
+  - [x] Render that finite mesh through one identity-cached custom GPU pipeline
+    with immutable eight-byte quad records, vertex pulling, one nine-instance
+    draw, physical reversed-Z depth, per-view MSAA/HDR specialization, bounded
+    weather/fog shading, and explicit Metal-safe binding visibility. The old
+    fullscreen sampled plane is removed. Full render/client suites, strict
+    workspace Clippy/formatting, and independent review are green through
+    `e2d0ea8`; native visual and performance acceptance remains open.
   - [ ] Implement, independently review, and live-verify the finite cloud mesh.
 
 ## Phase 3 — Movement and the local player

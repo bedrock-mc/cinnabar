@@ -76,31 +76,31 @@ Run `cargo test -p render --test cloud_mesh --locked`, `cargo test -p render --l
 - Vertex pulling reconstructs six corners per packed quad from `vertex_index / 6`, applies one of nine period origins from `instance_index`, and adds `cloud_texture_offset * 256` on X.
 - The fragment path derives top/side/underside color from `AtmosphereFrame`, then applies the same weather and distance-fog inputs used by the removed plane path.
 
-- [ ] **Step 1: Write failing shader/pipeline/resource tests**
+- [x] **Step 1: Write failing shader/pipeline/resource tests**
 
 Assert the cloud shader parses and validates after a test `View` substitution; all six faces reconstruct exact fixed bounds; pipeline depth compare is reversed-Z and depth writes are enabled; MSAA/HDR specialize from the view; one immutable storage buffer and one bind group are reused for equal asset identities; identity replacement rebuilds once; one queued cloud item issues one draw with the exact quad and nine-instance counts.
 
-- [ ] **Step 2: Run and record red**
+- [x] **Step 2: Run and record red**
 
 Run `cargo test -p render --test cloud_render --locked` and the cloud-focused atmosphere tests. Expected: failures because the custom cloud pipeline does not exist and the fullscreen shader still samples the cloud texture.
 
-- [ ] **Step 3: Upload the deterministic cloud records once**
+- [x] **Step 3: Upload the deterministic cloud records once**
 
 During atmosphere asset preparation, call `mesh_cloud_texture` for `AtmosphereRole::Clouds`, create one `STORAGE | COPY_DST` buffer with checked byte count, and cache it by the same 32-byte atmosphere identity. A zero-record mask queues no draw and requires no dummy out-of-range access.
 
-- [ ] **Step 4: Implement vertex pulling and physical depth**
+- [x] **Step 4: Implement vertex pulling and physical depth**
 
 Use a dedicated bind-group layout for the dynamic view uniform, atmosphere uniform, and read-only cloud records. Declare every binding's actual vertex/fragment visibility for Metal validation. Reconstruct world positions without a vertex buffer, project with `view.clip_from_world`, and retain physical depth. Draw `quad_count * 6` vertices and nine instances in one render item.
 
-- [ ] **Step 5: Move weather/fog/face lighting to cloud geometry**
+- [x] **Step 5: Move weather/fog/face lighting to cloud geometry**
 
 Top faces use the clear/rain cloud color, sides use a fixed lower multiplier, and undersides use the darkest multiplier. Rain and thunder blend toward the existing bounded storm colors. Output alpha is one; distance fog blends color to `fog_color_start.rgb` and reaches full fog before the 3×3 instance edge. Do not fade by sampling alpha-1 empty pixels.
 
-- [ ] **Step 6: Remove the fullscreen cloud plane**
+- [x] **Step 6: Remove the fullscreen cloud plane**
 
 Delete `sample_cloud_layer`, its call, and all `textureSampleLevel(clouds_texture, ...)` use from `atmosphere.wgsl`. Preserve the texture in `MCBEATM1` and CPU preparation because it remains the cloud mesh source. Update binding layouts only where the removed GPU texture is no longer consumed.
 
-- [ ] **Step 7: Verify and commit**
+- [x] **Step 7: Verify and commit**
 
 Run `cargo test -p render --locked`, `cargo test -p bedrock-client --locked`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, and `cargo fmt --all -- --check`. Commit with `feat: render finite depth-aware clouds`.
 
