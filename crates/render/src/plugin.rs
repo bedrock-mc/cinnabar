@@ -72,6 +72,8 @@ const CHUNK_SHADER_HANDLE: Handle<Shader> = uuid_handle!("b5664c91-763f-4e5c-931
 const MODEL_SHADER_HANDLE: Handle<Shader> = uuid_handle!("2cd46297-17aa-4c18-bfb1-83373bf39475");
 const LIQUID_SHADER_HANDLE: Handle<Shader> = uuid_handle!("52e731aa-0a4d-4b07-9d66-80eb7688398f");
 const LIGHTING_SHADER_HANDLE: Handle<Shader> = uuid_handle!("4562a3ce-92ab-46f2-823f-af9faf2cc5c8");
+const BIOME_TINT_SHADER_HANDLE: Handle<Shader> =
+    uuid_handle!("ee40bfe6-1bd1-4aa6-bf15-e3185dfac253");
 const STATIC_QUAD_INDICES: [u32; 6] = [0, 1, 2, 0, 2, 3];
 const MODEL_INDEX_COUNT: u32 = 6;
 const MODEL_TEMPLATE_BINDING_BUDGET: u32 = 8;
@@ -85,8 +87,9 @@ const PACKED_LIQUID_QUAD_BYTES: u64 = 16;
 const GEOMETRY_STREAM_WORD_BYTES: u64 = 4;
 const CHUNK_ORIGIN_BYTES: u64 = 32;
 const BIOME_WORD_BYTES: u64 = 4;
-const FALLBACK_BIOME_WORDS: usize = 2;
-const FALLBACK_BIOME_RECORD: [u32; FALLBACK_BIOME_WORDS] = [1 << 8, 0];
+const FALLBACK_BIOME_WORDS: usize = 13;
+const FALLBACK_BIOME_RECORD: [u32; FALLBACK_BIOME_WORDS] =
+    [0x4249_4f31, 0, 0, 0, 0, 0, 11, 0, 0, 0, 0, 1 << 8, 0];
 const INDEXED_INDIRECT_BYTES: u64 = 20;
 const DEFAULT_RENDER_QUEUE_ITEMS: usize = 256;
 const DEFAULT_RENDER_QUEUE_BYTES: u64 = 64 * 1024 * 1024;
@@ -4162,6 +4165,12 @@ impl Plugin for DebugWorldPlugin {
             app,
             LIGHTING_SHADER_HANDLE,
             "lighting.wgsl",
+            Shader::from_wgsl
+        );
+        load_internal_asset!(
+            app,
+            BIOME_TINT_SHADER_HANDLE,
+            "biome_tint.wgsl",
             Shader::from_wgsl
         );
         load_internal_asset!(app, CHUNK_SHADER_HANDLE, "chunk.wgsl", Shader::from_wgsl);
@@ -14406,7 +14415,7 @@ mod tests {
             max_quad_items: 8,
             max_geometry_stream_words: 8,
             max_origin_items: 8,
-            max_biome_words: 8,
+            max_biome_words: FALLBACK_BIOME_WORDS + 8,
         };
         let plan = |quad_len, biome_len, quad_required, biome_required, limits| {
             plan_chunk_range_update(

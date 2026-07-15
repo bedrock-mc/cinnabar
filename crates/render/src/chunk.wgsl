@@ -1,4 +1,5 @@
 #import bevy_render::view::View
+#import cinnabar::biome_tint::blended_biome_tint
 #import cinnabar::lighting::{light_ao_factor, light_brightness, lit_colour}
 
 struct PackedQuad {
@@ -31,17 +32,6 @@ struct AnimationClockGpu {
     padding_1: u32,
 }
 
-struct BiomeTintGpu {
-    grass: u32,
-    foliage: u32,
-    birch: u32,
-    evergreen: u32,
-    dry_foliage: u32,
-    water: u32,
-    flags: u32,
-    padding: u32,
-}
-
 struct AtmosphereUniform {
     sun_direction_daylight: vec4<f32>,
     moon_direction_phase: vec4<f32>,
@@ -58,8 +48,6 @@ struct AtmosphereUniform {
 @group(0) @binding(4) var block_textures_page_0: texture_2d_array<f32>;
 @group(0) @binding(5) var block_textures_page_1: texture_2d_array<f32>;
 @group(0) @binding(6) var block_sampler: sampler;
-@group(0) @binding(7) var<storage, read> biome_records: array<u32>;
-@group(0) @binding(8) var<storage, read> biome_tints: array<BiomeTintGpu>;
 @group(0) @binding(9) var<storage, read> animations: array<AnimationGpu>;
 @group(0) @binding(10) var<storage, read> animation_frames: array<u32>;
 @group(0) @binding(11) var<uniform> clock: AnimationClockGpu;
@@ -273,66 +261,6 @@ fn vertex(
     return out;
 }
 
-fn unpack_linear_rgb10(packed: u32) -> vec3<f32> {
-    return vec3<f32>(
-        f32(packed & 0x3ffu),
-        f32((packed >> 10u) & 0x3ffu),
-        f32((packed >> 20u) & 0x3ffu),
-    ) / 1023.0;
-}
-
-fn packed_biome_tint_index(record: u32, coordinate: vec3<u32>) -> u32 {
-    let header = biome_records[record];
-    let bits = header & 0xffu;
-    let palette_len = (header >> 8u) & 0x1fffu;
-    if (palette_len == 0u) {
-        return 0u;
-    }
-
-    var packed_word_count = 0u;
-    var palette_index = 0u;
-    if (bits != 0u) {
-        let values_per_word = 32u / bits;
-        packed_word_count = (4096u + values_per_word - 1u) / values_per_word;
-        let linear = (coordinate.x << 8u) | (coordinate.z << 4u) | coordinate.y;
-        let word = biome_records[record + 1u + linear / values_per_word];
-        let shift = (linear % values_per_word) * bits;
-        let mask = (1u << bits) - 1u;
-        palette_index = (word >> shift) & mask;
-    }
-    if (palette_index >= palette_len) {
-        return 0u;
-    }
-    return biome_records[record + 1u + packed_word_count + palette_index];
-}
-
-fn biome_tint(
-    tint_kind: u32,
-    material_flags: u32,
-    record: u32,
-    local_position: vec3<f32>,
-    normal: vec3<f32>,
-) -> vec3<f32> {
-    let inward_position = floor(local_position - normal * 0.001);
-    let coordinate = vec3<u32>(clamp(inward_position, vec3(0.0), vec3(15.0)));
-    let requested = packed_biome_tint_index(record, coordinate);
-    let tint_count = arrayLength(&biome_tints);
-    let tint_index = select(0u, requested, requested < tint_count);
-    let tint = biome_tints[tint_index];
-    if (tint_kind == 0x10u) {
-        return unpack_linear_rgb10(tint.grass);
-    }
-    if (tint_kind == 0x30u) {
-        return unpack_linear_rgb10(tint.water);
-    }
-    switch material_flags & 0x600u {
-        case 0x200u: { return unpack_linear_rgb10(tint.birch); }
-        case 0x400u: { return unpack_linear_rgb10(tint.evergreen); }
-        case 0x600u: { return unpack_linear_rgb10(tint.dry_foliage); }
-        default: { return unpack_linear_rgb10(tint.foliage); }
-    }
-}
-
 fn apply_material_tint(
     sampled: vec4<f32>,
     material_flags: u32,
@@ -342,12 +270,11 @@ fn apply_material_tint(
 ) -> vec4<f32> {
     let tint_kind = material_flags & 0x30u;
     if (tint_kind != 0u) {
-        let tinted = sampled.rgb * biome_tint(
+        let tinted = sampled.rgb * blended_biome_tint(
             tint_kind,
             material_flags,
             biome_record,
-            local_position,
-            normal,
+            local_position - normal * 0.001,
         );
         if ((material_flags & (1u << 6u)) != 0u) {
             // Grass-side alpha is an overlay weight, not transparency. Its

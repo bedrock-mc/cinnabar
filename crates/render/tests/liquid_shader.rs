@@ -12,6 +12,11 @@ fn shader_for_naga() -> String {
         "",
         1,
     );
+    let biome_tint = include_str!("../src/biome_tint.wgsl").replacen(
+        "#define_import_path cinnabar::biome_tint",
+        "",
+        1,
+    );
     SHADER
         .replacen(
             "#import bevy_render::view::View",
@@ -21,6 +26,11 @@ fn shader_for_naga() -> String {
         .replacen(
             "#import cinnabar::lighting::{light_ao_factor, light_brightness, lit_colour}",
             &lighting,
+            1,
+        )
+        .replacen(
+            "#import cinnabar::biome_tint::blended_biome_tint",
+            &biome_tint,
             1,
         )
 }
@@ -228,7 +238,7 @@ fn liquid_shader_preserves_straight_alpha_animation_tint_and_light() {
     assert!(SHADER.contains("textureSampleGrad(block_textures_page_0"));
     assert!(SHADER.contains("textureSampleGrad(block_textures_page_1"));
     assert!(SHADER.contains("mix(current_sample, next_sample, in.frame_blend)"));
-    assert!(SHADER.contains("out.water_tint = unpack_linear_rgb10(tint.water)"));
+    assert!(SHADER.contains("out.water_tint = blended_biome_tint("));
     assert!(SHADER.contains("let colour = lit_colour("));
     assert!(SHADER.contains("sampled.rgb * in.water_tint,"));
     assert!(SHADER.contains("apply_distance_fog(colour, in.world_position)"));
@@ -267,14 +277,9 @@ fn liquid_shader_resolves_block_biome_tint_before_fragment_rasterization() {
     assert!(vertex.contains("geometry & 15u"));
     assert!(vertex.contains("(geometry >> 4u) & 15u"));
     assert!(vertex.contains("(geometry >> 8u) & 15u"));
-    assert!(
-        vertex.contains("packed_biome_tint_index(u32(chunk_origin.value.w), block_coordinate)")
-    );
-    assert!(vertex.contains(
-        "let tint_index = select(0u, requested_tint, requested_tint < arrayLength(&biome_tints))"
-    ));
-    assert!(vertex.contains("let tint = biome_tints[tint_index]"));
-    assert!(vertex.contains("out.water_tint = unpack_linear_rgb10(tint.water)"));
+    assert!(vertex.contains("out.water_tint = blended_biome_tint("));
+    assert!(vertex.contains("u32(chunk_origin.value.w),"));
+    assert!(vertex.contains("vec3<f32>(block_coordinate),"));
     for forbidden in [
         "packed_biome_tint_index",
         "biome_records",

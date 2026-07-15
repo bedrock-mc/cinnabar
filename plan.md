@@ -245,6 +245,22 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     chunk boundaries without flattening columns, preserve special foliage
     rules and custom-biome fallback, and cover abrupt-boundary, missing-neighbour,
     teleport/eviction, GPU, and performance cases.
+    **Bounded implementation landed; parity evidence remains open (2026-07-14):**
+    grass, generic foliage, and water now share a radius-one horizontal 3x3
+    linear-colour box blend across self-contained palette-native neighbour
+    snapshots. The descriptor deduplicates equal packed payloads, clamps a
+    missing neighbour to the center's nearest edge, records a uniform fast path,
+    retains direct birch/evergreen/dry-foliage selection, and validates all nine
+    immutable source identities before publication so neighbour replacement,
+    eviction, and teleport churn fail stale. Request-mode biome-only commits now
+    dirty resident cross-column consumers. The eight-byte cube quad and packed
+    Bedrock storages remain unchanged; a uniform record is 52 bytes, or
+    1,359,072 bytes for 33x33x24 subchunks at radius 16, while the exact
+    descriptor ceiling and the existing GPU arena cap bound adversarial palettes.
+    The 3x3 kernel is explicitly provisional because no reviewed native Bedrock
+    radius/weight evidence was available; keep this checkbox open until a native
+    abrupt-boundary reference fixes or confirms the kernel and the live
+    performance/visual gate passes.
 - [ ] **2.6 Static/non-cube models, blend/water, and flipbooks.** Complete the
   remaining block visual classes and animation path per
   `docs/superpowers/specs/2026-07-11-phase-2-6-noncube-water-design.md`.

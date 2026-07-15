@@ -19,8 +19,10 @@ pub struct ApplyLevelChunk {
     /// Exact changed source keys before mesh-dependency expansion, sorted and
     /// deduplicated for dependency-aware invalidation by the app.
     pub changed: Vec<SubChunkKey>,
-    /// Changed keys plus their face-adjacent mesh dependents, deduplicated and
-    /// sorted. These keys are ready to enqueue without another expansion.
+    /// Changed keys plus their mesh dependents, deduplicated and sorted. Block
+    /// changes include face-adjacent consumers; biome changes additionally
+    /// include their same-Y horizontal 3x3 blend consumers. These keys are
+    /// ready to enqueue without another expansion.
     pub dirty: Vec<SubChunkKey>,
     /// Bytes occupied by block sub-chunks before biome/border/entity data.
     pub bytes_consumed: usize,
@@ -638,7 +640,7 @@ impl ChunkStore {
             .map(|y| SubChunkKey::from_chunk(key, y))
             .collect();
         self.chunks.entry(key).or_default().biomes = Some(replacement);
-        expand_mesh_dependents(changed)
+        expand_biome_mesh_dependents(changed)
     }
 
     /// Atomically swaps a fully worker-decoded column into the store.
@@ -691,7 +693,7 @@ impl ChunkStore {
             .flat_map(|chunk| chunk.sub_chunks.keys().copied())
             .chain(sub_chunks.keys().copied())
             .collect::<BTreeSet<_>>();
-        let mut changed = ys
+        let block_changed = ys
             .into_iter()
             .filter(|y| {
                 let previous = old.and_then(|chunk| chunk.sub_chunks.get(y));
@@ -704,13 +706,20 @@ impl ChunkStore {
             })
             .map(|y| SubChunkKey::from_chunk(key, y))
             .collect::<BTreeSet<_>>();
-        changed.extend(
+        let biome_changed =
             changed_biome_ys(old.and_then(|chunk| chunk.biomes.as_ref()), biomes.as_ref())
                 .into_iter()
-                .map(|y| SubChunkKey::from_chunk(key, y)),
-        );
+                .map(|y| SubChunkKey::from_chunk(key, y))
+                .collect::<Vec<_>>();
+        let mut changed = block_changed;
+        changed.extend(biome_changed.iter().copied());
         let changed = changed.into_iter().collect::<Vec<_>>();
-        let dirty = expand_mesh_dependents(changed.clone());
+        let dirty = expand_mesh_dependents(changed.clone())
+            .into_iter()
+            .chain(expand_biome_mesh_dependents(biome_changed))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
 
         if sub_chunks.is_empty() && biomes.is_none() && block_entities.is_empty() {
             self.chunks.remove(&key);
@@ -800,6 +809,15 @@ fn expand_mesh_dependents(changed: Vec<SubChunkKey>) -> Vec<SubChunkKey> {
     changed
         .into_iter()
         .flat_map(SubChunkKey::mesh_dependents)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn expand_biome_mesh_dependents(changed: Vec<SubChunkKey>) -> Vec<SubChunkKey> {
+    changed
+        .into_iter()
+        .flat_map(SubChunkKey::biome_mesh_dependents)
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect()

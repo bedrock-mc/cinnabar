@@ -18,9 +18,9 @@ use protocol::{
     vanilla_dimension_range,
 };
 use render::{
-    BlockClassifier, ChunkBiomeTintIdentity, ChunkMesh, FaceConnectivity, MeshLightSample,
-    MeshLightSampler, PackedBiomeRecord, mesh_dependency_mask,
-    mesh_sub_chunk_in_neighbourhood_with_lighting,
+    BIOME_NEIGHBOUR_SLOT_COUNT, BlockClassifier, ChunkBiomeTintIdentity, ChunkMesh,
+    FaceConnectivity, MeshLightSample, MeshLightSampler, PackedBiomeRecord, biome_neighbour_index,
+    mesh_dependency_mask, mesh_sub_chunk_in_neighbourhood_with_lighting,
 };
 use thiserror::Error;
 use world::{
@@ -688,7 +688,7 @@ struct MeshCompletion {
     key: SubChunkKey,
     revision: u64,
     source: Arc<SubChunk>,
-    biome_source: Option<Arc<BiomeStorage>>,
+    biome_sources: BiomeNeighbourhood,
     biome: PackedBiomeRecord,
     tint_identity: ChunkBiomeTintIdentity,
     mesh: ChunkMesh,
@@ -1169,10 +1169,12 @@ fn split_light_position(dimension: i32, position: BlockPos) -> (SubChunkKey, [u8
 
 struct MeshSnapshot {
     center: Arc<SubChunk>,
-    biome: Option<Arc<BiomeStorage>>,
+    biomes: BiomeNeighbourhood,
     adjacent: [Option<Arc<SubChunk>>; 27],
     light_halo: MeshLightHalo,
 }
+
+type BiomeNeighbourhood = [Option<Arc<BiomeStorage>>; BIOME_NEIGHBOUR_SLOT_COUNT];
 
 #[derive(Debug, Clone)]
 struct MeshLightSlot {
@@ -1225,12 +1227,10 @@ impl MeshLightSampler for MeshLightHalo {
 }
 
 fn pack_biome_record(
-    storage: Option<&BiomeStorage>,
+    storages: &BiomeNeighbourhood,
     resolved: &ResolvedBiomeTints,
 ) -> PackedBiomeRecord {
-    storage.map_or_else(PackedBiomeRecord::fallback, |storage| {
-        PackedBiomeRecord::from_storage(storage, |raw_id| resolved.dense_index(raw_id))
-    })
+    PackedBiomeRecord::from_neighbourhood(storages, |raw_id| resolved.dense_index(raw_id))
 }
 
 impl MeshSnapshot {
@@ -2467,11 +2467,16 @@ impl WorldStream {
                             self.record_known_air(air);
                         }
                         let now = Instant::now();
+                        let preexpanded_dirty = applied.dirty;
                         let mut changed_sources =
                             applied.changed.into_iter().collect::<BTreeSet<_>>();
                         changed_sources.extend(new_keys.difference(&old_keys).copied());
                         changed_sources.extend(old_keys.difference(&new_keys).copied());
-                        self.mark_changed_sources(changed_sources, now);
+                        self.mark_changed_sources_with_mesh_dirty(
+                            changed_sources,
+                            preexpanded_dirty,
+                            now,
+                        );
                         self.stats.last_chunk_commit_at = Some(now);
                     }
                     Err(_) => self.stats.decode_errors = self.stats.decode_errors.saturating_add(1),
@@ -2817,7 +2822,13 @@ impl WorldStream {
         };
         self.evict_column(key);
         let (biomes, block_entities) = decoded;
-        let _ = self.store.commit_biome_column(key, biomes);
+        let biome_dirty = self.store.commit_biome_column(key, biomes);
+        let now = Instant::now();
+        for dirty in biome_dirty {
+            if self.resident.contains(&dirty) && self.store.sub_chunk(dirty).is_some() {
+                self.mark_dirty_exact(dirty, now);
+            }
+        }
         self.store.commit_chunk_block_entities(key, block_entities);
         self.enqueue_request(key, range.base_sub_chunk_y, count, sequence);
         if has_authoritative_upper_air {
@@ -2948,9 +2959,18 @@ impl WorldStream {
         sources: impl IntoIterator<Item = SubChunkKey>,
         now: Instant,
     ) {
+        self.mark_changed_sources_with_mesh_dirty(sources, std::iter::empty(), now);
+    }
+
+    fn mark_changed_sources_with_mesh_dirty(
+        &mut self,
+        sources: impl IntoIterator<Item = SubChunkKey>,
+        preexpanded_dirty: impl IntoIterator<Item = SubChunkKey>,
+        now: Instant,
+    ) {
         let sources = sources.into_iter().collect::<BTreeSet<_>>();
         self.mark_light_changed_sources(sources.iter().copied());
-        let mut dirty = BTreeSet::new();
+        let mut dirty = preexpanded_dirty.into_iter().collect::<BTreeSet<_>>();
         for key in sources {
             dirty.extend(key.mesh_dependents());
             for dependent in key.mesh_neighbourhood_dependents() {
@@ -3055,6 +3075,24 @@ impl WorldStream {
             .copied()
             .filter(|resident| resident.chunk() == key)
             .collect::<BTreeSet<_>>();
+        let biome_sources =
+            vanilla_dimension_range(key.dimension).map_or_else(BTreeSet::new, |range| {
+                (0..range.sub_chunk_count)
+                    .filter_map(|offset| {
+                        let y = range
+                            .base_sub_chunk_y
+                            .checked_add(i32::try_from(offset).ok()?)?;
+                        let biome_key = SubChunkKey::from_chunk(key, y);
+                        self.store.biome_storage(biome_key).map(|_| biome_key)
+                    })
+                    .collect::<BTreeSet<_>>()
+            });
+        let biome_dirty = biome_sources
+            .iter()
+            .copied()
+            .flat_map(SubChunkKey::biome_mesh_dependents)
+            .collect::<BTreeSet<_>>();
+        changed.extend(biome_sources);
         changed.extend(self.store.evict_chunk(key));
         self.resident.retain(|resident| resident.chunk() != key);
         self.known_air.retain(|resident| resident.chunk() != key);
@@ -3069,9 +3107,7 @@ impl WorldStream {
             self.bump_connectivity_generation();
         }
         let now = Instant::now();
-        for changed in changed {
-            self.mark_changed(changed, now);
-        }
+        self.mark_changed_sources_with_mesh_dirty(changed, biome_dirty, now);
     }
 
     fn evict_all_resident(&mut self) {
@@ -3741,9 +3777,9 @@ impl WorldStream {
             rayon::spawn(move || {
                 let started = Instant::now();
                 let source = Arc::clone(&snapshot.center);
-                let biome_source = snapshot.biome.clone();
+                let biome_sources = snapshot.biomes.clone();
                 let light_halo = snapshot.light_halo.clone();
-                let biome = pack_biome_record(biome_source.as_deref(), &resolved_biome_tints);
+                let biome = pack_biome_record(&biome_sources, &resolved_biome_tints);
                 let mesh = snapshot.mesh(classifier, &runtime_assets, network_id_mode);
                 let dependency_mask =
                     snapshot.dependency_mask(classifier, &runtime_assets, network_id_mode);
@@ -3751,7 +3787,7 @@ impl WorldStream {
                     key,
                     revision,
                     source,
-                    biome_source,
+                    biome_sources,
                     biome,
                     tint_identity,
                     mesh,
@@ -3787,10 +3823,30 @@ impl WorldStream {
         }
         MeshSnapshot {
             center,
-            biome: self.store.biome_storage(key),
+            biomes: self.biome_neighbourhood(key),
             adjacent,
             light_halo,
         }
+    }
+
+    fn biome_neighbourhood(&self, key: SubChunkKey) -> BiomeNeighbourhood {
+        let mut biomes = std::array::from_fn(|_| None);
+        for dz in -1_i8..=1 {
+            for dx in -1_i8..=1 {
+                let Some(x) = key.x.checked_add(i32::from(dx)) else {
+                    continue;
+                };
+                let Some(z) = key.z.checked_add(i32::from(dz)) else {
+                    continue;
+                };
+                let slot = biome_neighbour_index(dx, dz)
+                    .expect("bounded biome-neighbour offsets have descriptor slots");
+                biomes[slot] =
+                    self.store
+                        .biome_storage(SubChunkKey::new(key.dimension, x, key.y, z));
+            }
+        }
+        biomes
     }
 
     fn mesh_light_halo_is_current(&self, halo: &MeshLightHalo) -> bool {
@@ -3858,17 +3914,19 @@ impl WorldStream {
             .store
             .sub_chunk(completion.key)
             .is_some_and(|current| Arc::ptr_eq(&current, &completion.source));
-        let current_biome = self.store.biome_storage(completion.key);
-        let biome_source_is_current = match (&completion.biome_source, &current_biome) {
-            (Some(completed), Some(current)) => Arc::ptr_eq(completed, current),
-            (None, None) => true,
-            _ => false,
-        };
+        let current_biomes = self.biome_neighbourhood(completion.key);
+        let biome_sources_are_current = completion.biome_sources.iter().zip(&current_biomes).all(
+            |(completed, current)| match (completed, current) {
+                (Some(completed), Some(current)) => Arc::ptr_eq(completed, current),
+                (None, None) => true,
+                _ => false,
+            },
+        );
         if !self
             .revisions
             .is_current(completion.key, completion.revision)
             || !source_is_current
-            || !biome_source_is_current
+            || !biome_sources_are_current
             || completion.tint_identity != self.biome_tint_identity()
             || !self.mesh_light_halo_is_current(&completion.light_halo)
         {
@@ -6080,7 +6138,10 @@ mod tests {
         let resolved_storage = stream.store.biome_storage(key).unwrap();
         let resolved = stream.resolved_biome_tints_snapshot();
 
-        let packed = super::pack_biome_record(Some(resolved_storage.as_ref()), &resolved);
+        let packed = super::pack_biome_record(
+            &biome_neighbourhood_with_center(Some(resolved_storage)),
+            &resolved,
+        );
         assert_eq!(packed.tint_index(0, 0, 0), Some(resolved.dense_index(42)));
 
         stream.store.commit_biome_column(
@@ -6088,10 +6149,13 @@ mod tests {
             DecodedBiomeColumn::decode(-4, 1, &[1, 86]).unwrap(),
         );
         let missing_storage = stream.store.biome_storage(key).unwrap();
-        let missing = super::pack_biome_record(Some(missing_storage.as_ref()), &resolved);
+        let missing = super::pack_biome_record(
+            &biome_neighbourhood_with_center(Some(missing_storage)),
+            &resolved,
+        );
         assert_eq!(missing.tint_index(0, 0, 0), Some(0));
 
-        let absent = super::pack_biome_record(None, &resolved);
+        let absent = super::pack_biome_record(&biome_neighbourhood_with_center(None), &resolved);
         assert_eq!(absent.tint_index(0, 0, 0), Some(0));
     }
 
@@ -6163,8 +6227,11 @@ mod tests {
             key,
             revision: old_generation,
             source: Arc::clone(&source),
-            biome_source: Some(Arc::clone(&biome_source)),
-            biome: super::pack_biome_record(Some(&biome_source), &old_resolved),
+            biome_sources: biome_neighbourhood_with_center(Some(Arc::clone(&biome_source))),
+            biome: super::pack_biome_record(
+                &biome_neighbourhood_with_center(Some(Arc::clone(&biome_source))),
+                &old_resolved,
+            ),
             tint_identity: old_tint_identity,
             mesh: queued_mesh,
             dependency_mask: MeshDependencyMask::default(),
@@ -6193,8 +6260,8 @@ mod tests {
             key,
             revision: old_generation,
             source,
-            biome_source: Some(biome_source),
-            biome: super::pack_biome_record(None, &old_resolved),
+            biome_sources: biome_neighbourhood_with_center(Some(biome_source)),
+            biome: super::pack_biome_record(&biome_neighbourhood_with_center(None), &old_resolved),
             tint_identity: old_tint_identity,
             mesh: in_flight_mesh,
             dependency_mask: MeshDependencyMask::default(),
@@ -6329,7 +6396,7 @@ mod tests {
         };
         let snapshot = MeshSnapshot {
             center: Arc::new(uniform_sub_chunk(1)),
-            biome: None,
+            biomes: std::array::from_fn(|_| None),
             adjacent: std::array::from_fn(|_| None),
             light_halo,
         };
@@ -6528,6 +6595,14 @@ mod tests {
         payload.extend(std::iter::repeat_n(0xff, storage_count - 1));
         payload.push(0); // border-block count
         payload
+    }
+
+    fn biome_neighbourhood_with_center(
+        center: Option<Arc<world::BiomeStorage>>,
+    ) -> super::BiomeNeighbourhood {
+        let mut biomes = std::array::from_fn(|_| None);
+        biomes[render::biome_neighbour_index(0, 0).unwrap()] = center;
+        biomes
     }
 
     fn request_level_chunk_event(
@@ -6955,6 +7030,156 @@ mod tests {
             Some(9)
         );
         assert_eq!(stream.take_requests().len(), 1);
+    }
+
+    #[test]
+    fn request_mode_biome_arrival_dirties_diagonal_cross_chunk_blend_dependents() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        let neighbour = SubChunkKey::new(0, 1, -4, 1);
+        stream.store.commit_level_chunk(
+            neighbour.chunk(),
+            DecodedLevelChunk::decode(
+                -4,
+                1,
+                include_bytes!("../../crates/world/fixtures/uniform_non_air.bin"),
+            )
+            .unwrap(),
+        );
+        stream.resident.insert(neighbour);
+        let generation = stream.mark_dirty_exact(neighbour, Instant::now());
+        assert!(stream.register_mesh_dependency_mask(
+            neighbour,
+            generation,
+            MeshDependencyMask::default(),
+        ));
+        stream.pending_mesh.clear();
+
+        stream
+            .submit(
+                1,
+                request_level_chunk_event(
+                    0,
+                    0,
+                    0,
+                    LevelChunkMode::LimitedRequests { highest: 1 },
+                    9,
+                ),
+            )
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+
+        assert!(
+            stream.pending_mesh.contains_key(&neighbour),
+            "a newly committed biome column must invalidate a diagonal tint halo"
+        );
+    }
+
+    #[test]
+    fn inline_biome_replacement_dirties_diagonal_cross_chunk_blend_dependents() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        let source = SubChunkKey::new(0, 0, -4, 0);
+        let diagonal = SubChunkKey::new(0, 1, -4, 1);
+        let block_payload = include_bytes!("../../crates/world/fixtures/uniform_non_air.bin");
+        let mut original_payload = block_payload.to_vec();
+        original_payload.extend(biome_payload(0, 42));
+        stream.store.commit_level_chunk(
+            source.chunk(),
+            DecodedLevelChunk::decode_with_biomes(
+                -4,
+                1,
+                -4,
+                protocol::vanilla_dimension_range(0)
+                    .unwrap()
+                    .sub_chunk_count,
+                &original_payload,
+            )
+            .unwrap(),
+        );
+        stream.store.commit_level_chunk(
+            diagonal.chunk(),
+            DecodedLevelChunk::decode(-4, 1, block_payload).unwrap(),
+        );
+        stream.resident.extend([source, diagonal]);
+        let generation = stream.mark_dirty_exact(diagonal, Instant::now());
+        assert!(stream.register_mesh_dependency_mask(
+            diagonal,
+            generation,
+            MeshDependencyMask::default(),
+        ));
+        stream.pending_mesh.clear();
+
+        let mut replacement_payload = block_payload.to_vec();
+        replacement_payload.extend(biome_payload(0, 43));
+        stream
+            .submit(
+                1,
+                WorldEvent::LevelChunk(LevelChunkEvent {
+                    dimension: 0,
+                    x: 0,
+                    z: 0,
+                    mode: LevelChunkMode::Inline { count: 1 },
+                    payload: replacement_payload,
+                }),
+            )
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+
+        assert!(
+            stream.pending_mesh.contains_key(&diagonal),
+            "an inline biome replacement must invalidate a diagonal tint halo independently of AO"
+        );
+    }
+
+    #[test]
+    fn evicting_a_diagonal_biome_only_column_dirties_the_remaining_blend_boundary() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        let center = SubChunkKey::new(0, 0, -4, 0);
+        stream.store.commit_level_chunk(
+            center.chunk(),
+            DecodedLevelChunk::decode(
+                -4,
+                1,
+                include_bytes!("../../crates/world/fixtures/uniform_non_air.bin"),
+            )
+            .unwrap(),
+        );
+        stream.store.commit_biome_column(
+            ChunkKey::new(0, 1, 1),
+            DecodedBiomeColumn::decode(-4, 1, &[1, 84]).unwrap(),
+        );
+        stream.resident.insert(center);
+        let generation = stream.mark_dirty_exact(center, Instant::now());
+        assert!(stream.register_mesh_dependency_mask(
+            center,
+            generation,
+            MeshDependencyMask::default(),
+        ));
+        stream.pending_mesh.clear();
+
+        stream.evict_column(ChunkKey::new(0, 1, 1));
+
+        assert!(stream.pending_mesh.contains_key(&center));
     }
 
     #[test]
@@ -8367,7 +8592,7 @@ mod tests {
             key,
             revision: generation,
             source,
-            biome_source: Some(biome_source),
+            biome_sources: biome_neighbourhood_with_center(Some(biome_source)),
             biome,
             tint_identity,
             mesh,
@@ -8428,9 +8653,70 @@ mod tests {
             key,
             revision: generation,
             source,
-            biome_source: Some(old_biome),
+            biome_sources: biome_neighbourhood_with_center(Some(old_biome)),
             biome: old_record,
             tint_identity,
+            mesh,
+            dependency_mask: MeshDependencyMask::default(),
+            light_halo: Default::default(),
+            duration: Duration::ZERO,
+        });
+
+        assert_eq!(stream.stats().stale_mesh_jobs, 1);
+        assert!(stream.pop_mesh_change().is_none());
+    }
+
+    #[test]
+    fn changed_neighbour_biome_cannot_publish_a_stale_cross_chunk_blend() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        let key = SubChunkKey::new(0, 0, -4, 0);
+        stream.store.commit_level_chunk(
+            key.chunk(),
+            DecodedLevelChunk::decode(
+                -4,
+                1,
+                include_bytes!("../../crates/world/fixtures/uniform_non_air.bin"),
+            )
+            .unwrap(),
+        );
+        for (chunk, id) in [(key.chunk(), 42), (ChunkKey::new(0, 1, 0), 43)] {
+            stream.store.commit_biome_column(
+                chunk,
+                DecodedBiomeColumn::decode(-4, 1, &[1, id * 2]).unwrap(),
+            );
+        }
+        let source = stream.store.sub_chunk(key).unwrap();
+        let biome_sources = stream.biome_neighbourhood(key);
+        let old_record =
+            super::pack_biome_record(&biome_sources, &stream.resolved_biome_tints_snapshot());
+        let generation = stream.revisions.mark_dirty(key, Instant::now());
+        stream.in_flight.insert(key, generation);
+        let mesh = mesh_sub_chunk(
+            &stream.classifier,
+            &stream.runtime_assets,
+            stream.network_id_mode,
+            &Neighbourhood::empty(),
+            &source,
+        );
+
+        stream.store.commit_biome_column(
+            ChunkKey::new(0, 1, 0),
+            DecodedBiomeColumn::decode(-4, 1, &[1, 88]).unwrap(),
+        );
+        stream.accept_mesh_completion(MeshCompletion {
+            key,
+            revision: generation,
+            source,
+            biome_sources,
+            biome: old_record,
+            tint_identity: stream.biome_tint_identity(),
             mesh,
             dependency_mask: MeshDependencyMask::default(),
             light_halo: Default::default(),
@@ -8485,7 +8771,7 @@ mod tests {
             key,
             revision: generation,
             source,
-            biome_source: None,
+            biome_sources: biome_neighbourhood_with_center(None),
             biome: PackedBiomeRecord::fallback(),
             tint_identity,
             mesh,
@@ -9735,7 +10021,7 @@ mod tests {
             key,
             revision: old_revision,
             source: Arc::clone(&source),
-            biome_source: None,
+            biome_sources: biome_neighbourhood_with_center(None),
             biome: PackedBiomeRecord::fallback(),
             tint_identity,
             mesh,

@@ -105,6 +105,21 @@ impl SubChunkKey {
         })
     }
 
+    /// Every same-Y sub-chunk whose horizontal biome blend can sample this
+    /// source, including edge- and corner-adjacent columns.
+    pub fn biome_mesh_dependents(self) -> impl Iterator<Item = Self> {
+        (-1_i32..=1).flat_map(move |dx| {
+            (-1_i32..=1).filter_map(move |dz| {
+                Some(Self::new(
+                    self.dimension,
+                    self.x.checked_add(dx)?,
+                    self.y,
+                    self.z.checked_add(dz)?,
+                ))
+            })
+        })
+    }
+
     /// Every mesh whose bounded liquid sample set can reference this source.
     ///
     /// This is the checked inverse of `MeshNeighbourhood::liquid_sample_offsets`:
