@@ -192,13 +192,11 @@ func joinEvidence(manifest rendererManifest, catalog evidenceCatalog, identities
 	if catalog.Schema != evidenceSchema || catalog.ProtocolVersion != protocolVersion || catalog.GameVersion != gameVersion {
 		return rendererManifest{}, errors.New("evidence catalog schema/protocol/game pin drift")
 	}
-	if catalog.digest == "" {
-		digest, err := canonicalSHA256(catalog)
-		if err != nil {
-			return rendererManifest{}, fmt.Errorf("hash evidence catalog: %w", err)
-		}
-		catalog.digest = digest
+	digest, err := canonicalSHA256(catalog)
+	if err != nil {
+		return rendererManifest{}, fmt.Errorf("hash evidence catalog: %w", err)
 	}
+	catalog.digest = digest
 	if err := validateEvidenceHash("source contract", catalog.SourceContractSHA256); err != nil {
 		return rendererManifest{}, err
 	}

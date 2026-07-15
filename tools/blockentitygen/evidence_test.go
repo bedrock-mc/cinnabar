@@ -114,6 +114,49 @@ func TestEvidenceCatalogDecoderIsBoundedStrictAndCanonical(t *testing.T) {
 	}
 }
 
+func TestEvidenceCatalogJoinRehashesMutatedDecodedContent(t *testing.T) {
+	manifest, catalog, identities := validEvidenceCatalog(t)
+	raw, err := marshalCanonical(catalog)
+	if err != nil {
+		t.Fatalf("encode evidence catalog: %v", err)
+	}
+	decoded, err := decodeEvidenceCatalog(raw)
+	if err != nil {
+		t.Fatalf("decode evidence catalog: %v", err)
+	}
+	staleDigest := decoded.digest
+	decoded.Records[0].Frames[0].FrameGeneration += 100
+	decoded.Records[0].Frames[1].FrameGeneration += 100
+	wantDigest, err := canonicalSHA256(decoded)
+	if err != nil {
+		t.Fatalf("hash mutated evidence catalog: %v", err)
+	}
+	if wantDigest == staleDigest {
+		t.Fatal("test mutation did not change the canonical evidence digest")
+	}
+
+	joined, err := joinEvidence(manifest, decoded, identities)
+	if err != nil {
+		t.Fatalf("join valid mutated evidence: %v", err)
+	}
+	for index := range joined.Entries {
+		entry := &joined.Entries[index]
+		if len(entry.Witnesses.GPU) == 0 && len(entry.Witnesses.NoDraw) == 0 {
+			continue
+		}
+		entry.RendererStatus = "implemented"
+		entry.ImplementationSymbol = stringPointer("render::" + entry.SourceKey)
+		entry.GalleryBuilder = stringPointer("gallery::" + entry.SourceKey)
+	}
+	artifact, report, err := joinInventory(mustCollectSource(t), joined, joinReviewed)
+	if err != nil {
+		t.Fatalf("join inventory: %v", err)
+	}
+	if joined.evidenceDigest != wantDigest || artifact.EvidenceCatalogSHA256 != wantDigest || report.EvidenceCatalogSHA256 != wantDigest {
+		t.Fatalf("published evidence digests = manifest %q, artifact %q, report %q; want mutated content %q (stale %q)", joined.evidenceDigest, artifact.EvidenceCatalogSHA256, report.EvidenceCatalogSHA256, wantDigest, staleDigest)
+	}
+}
+
 func TestEvidenceCatalogEmptyJoinPreservesDeferredManifestAndBindsContracts(t *testing.T) {
 	manifest := mustReadManifest(t)
 	source := mustCollectSource(t)
