@@ -9,7 +9,14 @@ use valentine::bedrock::version::v1_26_30::{
     SubchunkPacketEntries, SubchunkRequestPacket, Vec3I8, Vec3Li,
 };
 
-use crate::Packet;
+use crate::{
+    ActorEvent, ActorPacketError, Packet,
+    actor::{
+        normalize_add_entity, normalize_add_player, normalize_move_entity,
+        normalize_move_entity_delta, normalize_player_list, normalize_remove_entity,
+        normalize_set_entity_data, normalize_update_attributes,
+    },
+};
 
 /// Sequential palette state ID generated for `minecraft:air` in 1.26.30.
 pub const SEQUENTIAL_AIR_NETWORK_ID: u32 = 12_530;
@@ -335,10 +342,14 @@ pub enum WorldEvent {
     SetTime(SetTimeEvent),
     DaylightCycle(DaylightCycleUpdateEvent),
     Weather(WeatherUpdateEvent),
+    Actor(ActorEvent),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum WorldPacketError {
+    #[error(transparent)]
+    Actor(#[from] ActorPacketError),
+
     #[error("BiomeDefinitionList has {count} definitions, exceeding {max}")]
     TooManyBiomeDefinitions { count: usize, max: usize },
 
@@ -396,6 +407,30 @@ pub fn into_world_event(
     current_dimension: i32,
 ) -> Result<Option<WorldEvent>, WorldPacketError> {
     let event = match packet.data {
+        McpePacketData::PacketAddEntity(packet) => {
+            WorldEvent::Actor(normalize_add_entity(*packet, current_dimension)?)
+        }
+        McpePacketData::PacketAddPlayer(packet) => {
+            WorldEvent::Actor(normalize_add_player(*packet, current_dimension)?)
+        }
+        McpePacketData::PacketRemoveEntity(packet) => {
+            WorldEvent::Actor(normalize_remove_entity(packet, current_dimension))
+        }
+        McpePacketData::PacketMoveEntity(packet) => {
+            WorldEvent::Actor(normalize_move_entity(*packet, current_dimension)?)
+        }
+        McpePacketData::PacketMoveEntityDelta(packet) => {
+            WorldEvent::Actor(normalize_move_entity_delta(*packet, current_dimension)?)
+        }
+        McpePacketData::PacketSetEntityData(packet) => {
+            WorldEvent::Actor(normalize_set_entity_data(*packet, current_dimension)?)
+        }
+        McpePacketData::PacketUpdateAttributes(packet) => {
+            WorldEvent::Actor(normalize_update_attributes(packet, current_dimension)?)
+        }
+        McpePacketData::PacketPlayerList(packet) => {
+            WorldEvent::Actor(normalize_player_list(*packet)?)
+        }
         McpePacketData::PacketBiomeDefinitionList(packet) => {
             if packet.biome_definitions.len() > MAX_BIOME_DEFINITIONS {
                 return Err(WorldPacketError::TooManyBiomeDefinitions {

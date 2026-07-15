@@ -1146,6 +1146,21 @@ mob geometry + textures from bedrock-samples, **molang subset** for vanilla anim
 controllers (walk cycles, look-at; documented cut-line, static pose fallback), item entities
 and dropped-item rendering, paper-doll first-person arm/held item.
 
+**Phase 4 progress (kept current as work lands):**
+
+- [x] **4.1 Bounded actor lifecycle ingestion.** The protocol layer now materializes and
+  normalizes `AddPlayer`, `AddActor`/`AddEntity`, `RemoveActor`/`RemoveEntity`, absolute and
+  delta actor movement, `SetActorData`/`SetEntityData`, `UpdateAttributes`, and `PlayerList`
+  into vendor-neutral events. All retained identifiers, names, metadata/NBT, attributes,
+  modifiers, properties, and roster collections have explicit limits and finite-number
+  validation. The app owns a sparse runtime-ID actor store with a unique-ID removal index,
+  atomic duplicate replacement, bounded player roster, FIFO/session/dimension rejection, and
+  dimension/session reset semantics. Foreign `MovePlayer` packets route to this actor stream
+  without entering the local-camera path, and actor updates do not dirty chunk/light/mesh
+  state. This substep deliberately does **not** implement entity rendering, interpolation,
+  skins/persona data, Molang, name tags, or item/first-person visuals; those remain open Phase 4
+  work.
+
 ## Phase 5 — Interaction, inventory, UI
 
 Scope: block breaking (server-auth crack progress overlay), placement, item use via

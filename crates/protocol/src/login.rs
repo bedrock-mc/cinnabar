@@ -134,6 +134,14 @@ fn decode_world_raw_with(
     if !matches!(
         raw.id,
         McpePacketName::PacketBiomeDefinitionList
+            | McpePacketName::PacketAddPlayer
+            | McpePacketName::PacketAddEntity
+            | McpePacketName::PacketRemoveEntity
+            | McpePacketName::PacketMoveEntity
+            | McpePacketName::PacketMoveEntityDelta
+            | McpePacketName::PacketSetEntityData
+            | McpePacketName::PacketUpdateAttributes
+            | McpePacketName::PacketPlayerList
             | McpePacketName::PacketLevelChunk
             | McpePacketName::PacketSubchunk
             | McpePacketName::PacketUpdateBlock
@@ -150,6 +158,12 @@ fn decode_world_raw_with(
     ) {
         return Ok(None);
     }
+    if raw.id == McpePacketName::PacketMoveEntity {
+        return Ok(Some(WorldEvent::Actor(
+            crate::actor::normalize_move_entity_body(raw.body(), current_dimension)
+                .map_err(crate::world::WorldPacketError::from)?,
+        )));
+    }
     let packet = decode(raw)?;
     Ok(into_world_event(packet, current_dimension)?)
 }
@@ -163,10 +177,10 @@ mod tests {
     use valentine::bedrock::codec::Nbt;
     use valentine::bedrock::context::BedrockSession;
     use valentine::bedrock::version::v1_26_30::{
-        BiomeDefinition, BiomeDefinitionListPacket, BlockCoordinates, BlockEntityDataPacket,
-        CorrectPlayerMovePredictionPacket, GameRuleI32, GameRuleI32Type, GameRuleI32Value,
-        GameRulesChangedPacket, LevelEventPacket, LevelEventPacketEvent, McpePacketName,
-        MovePlayerPacket, UpdateBlockPacket, Vec2F, Vec3F,
+        AddEntityPacket, BiomeDefinition, BiomeDefinitionListPacket, BlockCoordinates,
+        BlockEntityDataPacket, CorrectPlayerMovePredictionPacket, GameRuleI32, GameRuleI32Type,
+        GameRuleI32Value, GameRulesChangedPacket, LevelEventPacket, LevelEventPacketEvent,
+        McpePacketName, MovePlayerPacket, UpdateBlockPacket, Vec2F, Vec3F,
     };
     use valentine::protocol::wire;
 
@@ -350,6 +364,99 @@ mod tests {
                 yaw: -120.25,
             })
         );
+    }
+
+    #[test]
+    fn allowlisted_actor_packet_is_materialized_and_normalized() {
+        let session = BedrockSession { shield_item_id: 0 };
+        let packet: Packet = AddEntityPacket {
+            unique_id: 9,
+            runtime_id: 42,
+            entity_type: "minecraft:bee".to_owned(),
+            ..Default::default()
+        }
+        .into();
+        let mut batch = crate::encode(&packet, &session).expect("encode add entity");
+        batch.advance(1);
+        let raw = decode_packet_raw(&mut batch).expect("raw add entity");
+
+        let event =
+            decode_world_raw_with(raw, 2, |raw| raw.decode(&session)).expect("decode actor event");
+
+        assert!(matches!(
+            event,
+            Some(WorldEvent::Actor(crate::ActorEvent::Spawn(spawn)))
+                if spawn.dimension == 2 && spawn.runtime_id == 42
+        ));
+    }
+
+    #[test]
+    fn absolute_actor_move_uses_bedrock_varuint_and_raw_byte_rotations() {
+        let runtime_id = (u64::from(u32::MAX) + 42) << 1;
+        let mut body = BytesMut::new();
+        wire::write_var_u64(&mut body, runtime_id);
+        body.put_u8(0b11);
+        body.put_f32_le(12.5);
+        body.put_f32_le(64.25);
+        body.put_f32_le(-7.75);
+        body.put_u8(32);
+        body.put_u8(64);
+        body.put_u8(128);
+        let raw = raw_packet(McpePacketName::PacketMoveEntity, &body);
+        let decoder_called = Cell::new(false);
+
+        let event = decode_world_raw_with(raw, 2, |_| {
+            decoder_called.set(true);
+            panic!("absolute actor movement must bypass Valentine's incompatible Rotation shape")
+        })
+        .expect("decode absolute actor move")
+        .expect("absolute actor move event");
+
+        assert!(!decoder_called.get());
+        assert_eq!(
+            event,
+            WorldEvent::Actor(crate::ActorEvent::Move(crate::ActorMoveEvent {
+                dimension: 2,
+                runtime_id,
+                position: [Some(12.5), Some(64.25), Some(-7.75)],
+                pitch: Some(45.0),
+                yaw: Some(90.0),
+                head_yaw: Some(180.0),
+                on_ground: Some(true),
+                teleported: true,
+            }))
+        );
+    }
+
+    #[test]
+    fn absolute_actor_move_rejects_truncated_and_trailing_bodies() {
+        let mut valid = BytesMut::new();
+        wire::write_var_u64(&mut valid, 42);
+        valid.put_u8(0);
+        valid.put_f32_le(1.0);
+        valid.put_f32_le(2.0);
+        valid.put_f32_le(3.0);
+        valid.put_slice(&[0, 0, 0]);
+
+        for (body, actual) in [
+            (&valid[..valid.len() - 1], 15_usize),
+            (&[valid.as_ref(), &[0xff]].concat(), 17_usize),
+        ] {
+            let raw = raw_packet(McpePacketName::PacketMoveEntity, body);
+            let error = decode_world_raw_with(raw, 0, |_| {
+                panic!("malformed absolute actor movement must bypass Valentine")
+            })
+            .expect_err("malformed absolute actor move");
+            assert!(matches!(
+                error,
+                ProtocolError::World(crate::WorldPacketError::Actor(
+                    crate::ActorPacketError::InvalidAbsoluteMoveLength {
+                        actual: found,
+                        expected: 16,
+                    }
+                )) if found == actual
+            ));
+        }
     }
 
     #[test]
