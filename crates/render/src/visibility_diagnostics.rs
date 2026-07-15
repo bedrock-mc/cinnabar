@@ -6,7 +6,10 @@ use std::{
     },
 };
 
-use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
+use bevy::{
+    prelude::{Entity, Resource},
+    render::extract_resource::ExtractResource,
+};
 use world::SubChunkKey;
 
 pub const MAX_VISIBILITY_DIAGNOSTIC_KEYS: usize = 65_536;
@@ -82,6 +85,16 @@ impl VisibilityDiagnosticsInput {
     #[must_use]
     pub const fn enabled(&self) -> bool {
         self.enabled
+    }
+
+    #[must_use]
+    pub const fn resident_mesh(&self) -> VisibilityKeyDigest {
+        self.resident_mesh
+    }
+
+    #[must_use]
+    pub const fn cave_visible(&self) -> VisibilityKeyDigest {
+        self.cave_visible
     }
 
     pub fn advance(
@@ -161,16 +174,17 @@ pub struct VisibilityDiagnosticSnapshot {
     pub resident_mesh: VisibilityKeyDigest,
     pub cave_visible: VisibilityKeyDigest,
     pub frustum_visible_opaque: VisibilityKeyDigest,
-    pub submitted_opaque: VisibilityKeyDigest,
+    pub submitted_opaque: Option<VisibilityKeyDigest>,
     pub resident_to_cave_loss: VisibilityKeyDigest,
     pub cave_to_frustum_loss: VisibilityKeyDigest,
-    pub frustum_to_submitted_loss: VisibilityKeyDigest,
+    pub frustum_to_submitted_loss: Option<VisibilityKeyDigest>,
     pub draw_mode: OpaqueDrawMode,
     pub submitted_overflowed: bool,
 }
 
 pub(crate) struct VisibilityFrameProbe {
     input: VisibilityDiagnosticsInput,
+    selected_view: Entity,
     camera: ExtractedCameraIdentity,
     generations: ExtractedViewGenerations,
     draw_mode: OpaqueDrawMode,
@@ -181,6 +195,7 @@ pub(crate) struct VisibilityFrameProbe {
 }
 
 impl VisibilityFrameProbe {
+    #[cfg(test)]
     pub(crate) fn begin(
         input: VisibilityDiagnosticsInput,
         camera: ExtractedCameraIdentity,
@@ -189,8 +204,29 @@ impl VisibilityFrameProbe {
         frustum_visible_opaque: VisibilityKeyDigest,
         submitted_limit: usize,
     ) -> Self {
+        Self::begin_for_view(
+            input,
+            Entity::PLACEHOLDER,
+            camera,
+            generations,
+            draw_mode,
+            frustum_visible_opaque,
+            submitted_limit,
+        )
+    }
+
+    pub(crate) fn begin_for_view(
+        input: VisibilityDiagnosticsInput,
+        selected_view: Entity,
+        camera: ExtractedCameraIdentity,
+        generations: ExtractedViewGenerations,
+        draw_mode: OpaqueDrawMode,
+        frustum_visible_opaque: VisibilityKeyDigest,
+        submitted_limit: usize,
+    ) -> Self {
         Self {
             input,
+            selected_view,
             camera,
             generations,
             draw_mode,
@@ -201,7 +237,15 @@ impl VisibilityFrameProbe {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn record_direct(&mut self, key: SubChunkKey) -> bool {
+        self.record_direct_for_view(Entity::PLACEHOLDER, key)
+    }
+
+    fn record_direct_for_view(&mut self, view: Entity, key: SubChunkKey) -> bool {
+        if view != self.selected_view {
+            return false;
+        }
         if self.submitted.contains(&key) {
             return false;
         }
@@ -212,14 +256,24 @@ impl VisibilityFrameProbe {
         self.submitted.insert(key)
     }
 
+    #[cfg(test)]
     pub(crate) fn record_mdi(&mut self, keys: impl IntoIterator<Item = SubChunkKey>) -> usize {
+        self.record_mdi_for_view(Entity::PLACEHOLDER, keys)
+    }
+
+    fn record_mdi_for_view(
+        &mut self,
+        view: Entity,
+        keys: impl IntoIterator<Item = SubChunkKey>,
+    ) -> usize {
         keys.into_iter()
-            .filter(|&key| self.record_direct(key))
+            .filter(|&key| self.record_direct_for_view(view, key))
             .count()
     }
 
     pub(crate) fn complete(self) -> VisibilityDiagnosticSnapshot {
-        let submitted_opaque = VisibilityKeyDigest::from_keys(self.submitted);
+        let submitted_opaque =
+            (!self.submitted_overflowed).then(|| VisibilityKeyDigest::from_keys(self.submitted));
         VisibilityDiagnosticSnapshot {
             frame_generation: self.input.frame_generation,
             camera: self.camera,
@@ -231,7 +285,8 @@ impl VisibilityFrameProbe {
             submitted_opaque,
             resident_to_cave_loss: self.input.resident_mesh.loss_to(self.input.cave_visible),
             cave_to_frustum_loss: self.input.cave_visible.loss_to(self.frustum_visible_opaque),
-            frustum_to_submitted_loss: self.frustum_visible_opaque.loss_to(submitted_opaque),
+            frustum_to_submitted_loss: submitted_opaque
+                .map(|submitted| self.frustum_visible_opaque.loss_to(submitted)),
             draw_mode: self.draw_mode,
             submitted_overflowed: self.submitted_overflowed,
         }
@@ -288,7 +343,7 @@ impl ActiveVisibilityFrameProbe {
             .take();
     }
 
-    pub(crate) fn record_direct(&self, key: SubChunkKey) -> bool {
+    pub(crate) fn record_direct(&self, view: Entity, key: SubChunkKey) -> bool {
         if !self.active.load(Ordering::Acquire) {
             return false;
         }
@@ -296,10 +351,14 @@ impl ActiveVisibilityFrameProbe {
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
             .as_mut()
-            .is_some_and(|probe| probe.record_direct(key))
+            .is_some_and(|probe| probe.record_direct_for_view(view, key))
     }
 
-    pub(crate) fn record_mdi(&self, keys: impl IntoIterator<Item = SubChunkKey>) -> usize {
+    pub(crate) fn record_mdi(
+        &self,
+        view: Entity,
+        keys: impl IntoIterator<Item = SubChunkKey>,
+    ) -> usize {
         if !self.active.load(Ordering::Acquire) {
             return 0;
         }
@@ -307,7 +366,7 @@ impl ActiveVisibilityFrameProbe {
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
             .as_mut()
-            .map_or(0, |probe| probe.record_mdi(keys))
+            .map_or(0, |probe| probe.record_mdi_for_view(view, keys))
     }
 
     pub(crate) fn take_completed(&self) -> Option<VisibilityDiagnosticSnapshot> {
@@ -385,7 +444,10 @@ mod tests {
             snapshot.frustum_visible_opaque,
             VisibilityKeyDigest::default()
         );
-        assert_eq!(snapshot.submitted_opaque, VisibilityKeyDigest::default());
+        assert_eq!(
+            snapshot.submitted_opaque,
+            Some(VisibilityKeyDigest::default())
+        );
         assert_eq!(
             snapshot.resident_to_cave_loss,
             VisibilityKeyDigest::default()
@@ -396,7 +458,7 @@ mod tests {
         );
         assert_eq!(
             snapshot.frustum_to_submitted_loss,
-            VisibilityKeyDigest::default()
+            Some(VisibilityKeyDigest::default())
         );
         assert!(!snapshot.submitted_overflowed);
     }
@@ -488,25 +550,30 @@ mod tests {
     }
 
     #[test]
-    fn submitted_key_memory_is_capped_and_reports_overflow() {
-        let mut input = VisibilityDiagnosticsInput::new(true);
+    fn submitted_key_overflow_is_order_independent_and_invalidates_exact_digests() {
         let all = VisibilityKeyDigest::from_keys([key(1), key(2), key(3)]);
-        input.advance(all, all);
-        let mut probe = VisibilityFrameProbe::begin(
-            input,
-            camera(10, 20),
-            ExtractedViewGenerations::new(1, 1),
-            OpaqueDrawMode::Direct,
-            all,
-            2,
-        );
+        let snapshot_for_order = |keys| {
+            let mut input = VisibilityDiagnosticsInput::new(true);
+            input.advance(all, all);
+            let mut probe = VisibilityFrameProbe::begin(
+                input,
+                camera(10, 20),
+                ExtractedViewGenerations::new(1, 1),
+                OpaqueDrawMode::Direct,
+                all,
+                2,
+            );
+            probe.record_mdi(keys);
+            probe.complete()
+        };
 
-        assert!(probe.record_direct(key(1)));
-        assert!(probe.record_direct(key(2)));
-        assert!(!probe.record_direct(key(3)));
+        let forward = snapshot_for_order([key(1), key(2), key(3)]);
+        let reverse = snapshot_for_order([key(3), key(2), key(1)]);
 
-        let snapshot = probe.complete();
-        assert_eq!(snapshot.submitted_opaque.count, 2);
-        assert!(snapshot.submitted_overflowed);
+        for snapshot in [forward, reverse] {
+            assert_eq!(snapshot.submitted_opaque, None);
+            assert_eq!(snapshot.frustum_to_submitted_loss, None);
+            assert!(snapshot.submitted_overflowed);
+        }
     }
 }

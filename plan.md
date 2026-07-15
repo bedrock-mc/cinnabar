@@ -823,14 +823,15 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       reports the three adjacent stage-loss count/hash deltas. Collection is
       disabled outside the existing acceptance/metrics diagnostics path, emits
       at most one aggregate marker per second, retains no per-key history, and
-      caps the transient submitted-key set at 65,536 entries with an explicit
-      overflow bit. Deterministic/empty/mutation, generation-coherence,
-      Direct/MDI-parity, and bound tests are present. This checkpoint changes no
-      culling, meshing, shader, draw-order, or presentation behavior and does
-      not establish a visibility fix. A fresh affected live run must still
-      capture consecutive `RUST_MCBE_VISIBILITY_SNAPSHOT` markers spanning the
-      symptom and identify the first nonzero adjacent loss before any repair is
-      proposed.
+      caps the transient submitted-key set at 65,536 entries; overflow marks
+      the submitted digest and its adjacent loss unavailable instead of
+      publishing a truncated prefix as exact. Deterministic/empty/mutation,
+      generation-coherence, Direct/MDI-parity, and bound tests are present. This
+      checkpoint changes no culling, meshing, shader, draw-order, or presentation
+      behavior and does not establish a visibility fix. A fresh affected live
+      run must still capture consecutive `RUST_MCBE_VISIBILITY_SNAPSHOT`
+      markers spanning the symptom and identify the first nonzero adjacent loss
+      before any repair is proposed.
     - [ ] Wall-attached vine family: replace the diagnostic pink-cube fallback
       for every `minecraft:vine` direction-bit state with compact cutout face
       templates selected from its exact attachment mask, including conservative

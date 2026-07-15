@@ -4120,6 +4120,12 @@ pub struct DebugWorldPlugin {
     upload_budget: ChunkUploadBudget,
 }
 
+/// Main-world queue application boundary. Systems ordered after this set
+/// observe spawned/updated/despawned chunk entities after deferred commands
+/// and component observers have been applied.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ChunkRenderApplySet;
+
 impl DebugWorldPlugin {
     #[must_use]
     pub const fn new(max_uploads_per_frame: usize) -> Self {
@@ -4152,7 +4158,10 @@ impl Plugin for DebugWorldPlugin {
             .insert_resource(self.upload_budget)
             .add_systems(
                 Update,
-                (apply_chunk_render_queue, update_chunk_animation_clock),
+                (
+                    apply_chunk_render_queue.in_set(ChunkRenderApplySet),
+                    update_chunk_animation_clock,
+                ),
             );
 
         if app.get_sub_app(RenderApp).is_none() {
@@ -8582,7 +8591,7 @@ fn queue_chunks(
         let diagnostic_view = views
             .iter()
             .min_by_key(|(_, main_entity, _, _, _)| main_entity.id().to_bits());
-        if let Some((_, main_entity, view, visible_entities, _)) = diagnostic_view {
+        if let Some((view_entity, main_entity, view, visible_entities, _)) = diagnostic_view {
             let camera = extracted_camera_identity(main_entity, view);
             let generations = probes.camera_identity_tracker.observe(camera);
             let frustum_visible_opaque = VisibilityKeyDigest::from_keys(
@@ -8597,14 +8606,17 @@ fn queue_chunks(
                             .map(|allocation| allocation.key)
                     }),
             );
-            probes.visibility_probe.begin(VisibilityFrameProbe::begin(
-                probes.input.clone(),
-                camera,
-                generations,
-                diagnostic_draw_mode(draw_mode),
-                frustum_visible_opaque,
-                MAX_VISIBILITY_DIAGNOSTIC_KEYS,
-            ));
+            probes
+                .visibility_probe
+                .begin(VisibilityFrameProbe::begin_for_view(
+                    probes.input.clone(),
+                    view_entity,
+                    camera,
+                    generations,
+                    diagnostic_draw_mode(draw_mode),
+                    frustum_visible_opaque,
+                    MAX_VISIBILITY_DIAGNOSTIC_KEYS,
+                ));
         } else {
             probes.visibility_probe.clear();
         }
@@ -9541,6 +9553,23 @@ type DrawDepthLiquidCommands = (SetItemPipeline, DrawDepthLiquid);
 type DrawDepthLiquidIndirectCommands = (SetItemPipeline, DrawDepthLiquidsIndirect);
 type DrawTransparentLiquidCommands = (SetItemPipeline, DrawTransparentLiquid);
 type DrawTransparentLiquidIndirectCommands = (SetItemPipeline, DrawTransparentLiquidIndirect);
+type OpaqueChunkViewQuery = (Entity, Read<ViewUniformOffset>);
+
+fn record_visibility_direct_submission(
+    probe: &ActiveVisibilityFrameProbe,
+    view: Entity,
+    key: SubChunkKey,
+) -> bool {
+    probe.record_direct(view, key)
+}
+
+fn record_visibility_mdi_submissions(
+    probe: &ActiveVisibilityFrameProbe,
+    view: Entity,
+    keys: impl IntoIterator<Item = SubChunkKey>,
+) -> usize {
+    probe.record_mdi(view, keys)
+}
 
 // Both supported paths use `first_instance` to select packed quad records and
 // `base_vertex / 4` to select the per-draw origin. Direct drawing is the
@@ -9557,12 +9586,12 @@ impl<P: PhaseItem> RenderCommand<P> for DrawDepthLiquid {
         SRes<ActiveFrameProbe>,
         SRes<ActiveVisibilityFrameProbe>,
     );
-    type ViewQuery = Read<ViewUniformOffset>;
+    type ViewQuery = OpaqueChunkViewQuery;
     type ItemQuery = Read<GpuChunkAllocation>;
 
     fn render<'w>(
         item: &P,
-        view_offset: ROQueryItem<'w, '_, Self::ViewQuery>,
+        (view_entity, view_offset): ROQueryItem<'w, '_, Self::ViewQuery>,
         allocation: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
         (arena, frame_probe, visibility_probe): SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
@@ -9591,7 +9620,11 @@ impl<P: PhaseItem> RenderCommand<P> for DrawDepthLiquid {
             command.first_instance..command.first_instance + command.instance_count,
         );
         frame_probe.record_direct_streams(item.entity(), identity, ChunkStreamMask::LIQUID);
-        visibility_probe.into_inner().record_direct(allocation.key);
+        record_visibility_direct_submission(
+            visibility_probe.into_inner(),
+            view_entity,
+            allocation.key,
+        );
         RenderCommandResult::Success
     }
 }
@@ -9707,12 +9740,12 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedChunk {
         SRes<ActiveFrameProbe>,
         SRes<ActiveVisibilityFrameProbe>,
     );
-    type ViewQuery = Read<ViewUniformOffset>;
+    type ViewQuery = OpaqueChunkViewQuery;
     type ItemQuery = Read<GpuChunkAllocation>;
 
     fn render<'w>(
         item: &P,
-        view_offset: ROQueryItem<'w, '_, Self::ViewQuery>,
+        (view_entity, view_offset): ROQueryItem<'w, '_, Self::ViewQuery>,
         allocation: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
         (arena, frame_probe, visibility_probe): SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
@@ -9753,7 +9786,11 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedChunk {
             cube_range.clone(),
         );
         frame_probe.record_direct_draw(item.entity(), identity);
-        visibility_probe.into_inner().record_direct(allocation.key);
+        record_visibility_direct_submission(
+            visibility_probe.into_inner(),
+            view_entity,
+            allocation.key,
+        );
         RenderCommandResult::Success
     }
 }
@@ -9766,12 +9803,12 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedModel {
         SRes<ActiveFrameProbe>,
         SRes<ActiveVisibilityFrameProbe>,
     );
-    type ViewQuery = Read<ViewUniformOffset>;
+    type ViewQuery = OpaqueChunkViewQuery;
     type ItemQuery = Read<GpuChunkAllocation>;
 
     fn render<'w>(
         item: &P,
-        view_offset: ROQueryItem<'w, '_, Self::ViewQuery>,
+        (view_entity, view_offset): ROQueryItem<'w, '_, Self::ViewQuery>,
         allocation: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
         (arena, frame_probe, visibility_probe): SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
@@ -9800,7 +9837,11 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedModel {
             draw.first_instance..draw.first_instance + draw.instance_count,
         );
         frame_probe.record_direct_streams(item.entity(), identity, ChunkStreamMask::MODEL);
-        visibility_probe.into_inner().record_direct(allocation.key);
+        record_visibility_direct_submission(
+            visibility_probe.into_inner(),
+            view_entity,
+            allocation.key,
+        );
         RenderCommandResult::Success
     }
 }
@@ -9866,12 +9907,12 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedChunksIndirect {
         SRes<ActiveFrameProbe>,
         SRes<ActiveVisibilityFrameProbe>,
     );
-    type ViewQuery = Read<ViewUniformOffset>;
+    type ViewQuery = OpaqueChunkViewQuery;
     type ItemQuery = ();
 
     fn render<'w>(
         item: &P,
-        view_offset: ROQueryItem<'w, '_, Self::ViewQuery>,
+        (view_entity, view_offset): ROQueryItem<'w, '_, Self::ViewQuery>,
         _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
         (arena, batches, frame_probe, visibility_probe): SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
@@ -9892,7 +9933,9 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedChunksIndirect {
         pass.multi_draw_indexed_indirect(&arena.indirect_buffer, indirect_offset, command_count);
         if let Some(batch) = batches.0.get(&item.entity()) {
             frame_probe.record_mdi_draws(batch.drawn_allocations.iter().copied());
-            visibility_probe.into_inner().record_mdi(
+            record_visibility_mdi_submissions(
+                visibility_probe.into_inner(),
+                view_entity,
                 batch
                     .drawn_allocations
                     .iter()
@@ -9910,12 +9953,12 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedModelsIndirect {
         SRes<ActiveFrameProbe>,
         SRes<ActiveVisibilityFrameProbe>,
     );
-    type ViewQuery = Read<ViewUniformOffset>;
+    type ViewQuery = OpaqueChunkViewQuery;
     type ItemQuery = ();
 
     fn render<'w>(
         item: &P,
-        view_offset: ROQueryItem<'w, '_, Self::ViewQuery>,
+        (view_entity, view_offset): ROQueryItem<'w, '_, Self::ViewQuery>,
         _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
         (arena, batches, frame_probe, visibility_probe): SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
@@ -9940,7 +9983,9 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedModelsIndirect {
             batch.drawn_allocations.iter().copied(),
             ChunkStreamMask::MODEL,
         );
-        visibility_probe.into_inner().record_mdi(
+        record_visibility_mdi_submissions(
+            visibility_probe.into_inner(),
+            view_entity,
             batch
                 .drawn_allocations
                 .iter()
@@ -9959,12 +10004,12 @@ impl<P: PhaseItem> RenderCommand<P> for DrawDepthLiquidsIndirect {
         SRes<ActiveFrameProbe>,
         SRes<ActiveVisibilityFrameProbe>,
     );
-    type ViewQuery = Read<ViewUniformOffset>;
+    type ViewQuery = OpaqueChunkViewQuery;
     type ItemQuery = ();
 
     fn render<'w>(
         item: &P,
-        view_offset: ROQueryItem<'w, '_, Self::ViewQuery>,
+        (view_entity, view_offset): ROQueryItem<'w, '_, Self::ViewQuery>,
         _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
         (arena, batches, frame_probe, visibility_probe): SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
@@ -9992,7 +10037,9 @@ impl<P: PhaseItem> RenderCommand<P> for DrawDepthLiquidsIndirect {
             batch.drawn_allocations.iter().copied(),
             ChunkStreamMask::LIQUID,
         );
-        visibility_probe.into_inner().record_mdi(
+        record_visibility_mdi_submissions(
+            visibility_probe.into_inner(),
+            view_entity,
             batch
                 .drawn_allocations
                 .iter()
@@ -13731,13 +13778,96 @@ mod tests {
 
     fn assert_indirect_view_query_is_static<C>()
     where
-        C: RenderCommand<Opaque3d, ViewQuery = Read<ViewUniformOffset>>,
+        C: RenderCommand<Opaque3d, ViewQuery = OpaqueChunkViewQuery>,
     {
     }
 
     #[test]
     fn indirect_batch_staging_cannot_invalidate_the_view_query() {
         assert_indirect_view_query_is_static::<DrawPackedChunksIndirect>();
+    }
+
+    fn active_visibility_probe_for_view(
+        selected_view: Entity,
+        draw_mode: OpaqueDrawMode,
+        keys: [SubChunkKey; 2],
+    ) -> ActiveVisibilityFrameProbe {
+        let mut input = VisibilityDiagnosticsInput::new(true);
+        let digest = VisibilityKeyDigest::from_keys(keys);
+        input.advance(digest, digest);
+        let active = ActiveVisibilityFrameProbe::default();
+        active.begin(VisibilityFrameProbe::begin_for_view(
+            input,
+            selected_view,
+            ExtractedCameraIdentity {
+                stable_id: 1,
+                pose_hash: 2,
+                frustum_hash: 3,
+            },
+            crate::ExtractedViewGenerations::new(1, 1),
+            draw_mode,
+            digest,
+            8,
+        ));
+        active
+    }
+
+    #[test]
+    fn direct_render_command_seam_rejects_secondary_camera_submission() {
+        let selected_view = Entity::from_bits(1);
+        let secondary_view = Entity::from_bits(2);
+        let selected_key = SubChunkKey::new(0, 1, 2, 3);
+        let secondary_key = SubChunkKey::new(0, 4, 5, 6);
+        let probe = active_visibility_probe_for_view(
+            selected_view,
+            OpaqueDrawMode::Direct,
+            [selected_key, secondary_key],
+        );
+
+        assert!(!record_visibility_direct_submission(
+            &probe,
+            secondary_view,
+            secondary_key,
+        ));
+        assert!(record_visibility_direct_submission(
+            &probe,
+            selected_view,
+            selected_key,
+        ));
+
+        let snapshot = probe.take_completed().unwrap();
+        assert_eq!(
+            snapshot.submitted_opaque,
+            Some(VisibilityKeyDigest::from_keys([selected_key]))
+        );
+    }
+
+    #[test]
+    fn mdi_render_command_seam_rejects_secondary_camera_submission() {
+        let selected_view = Entity::from_bits(1);
+        let secondary_view = Entity::from_bits(2);
+        let selected_key = SubChunkKey::new(0, 1, 2, 3);
+        let secondary_key = SubChunkKey::new(0, 4, 5, 6);
+        let probe = active_visibility_probe_for_view(
+            selected_view,
+            OpaqueDrawMode::MultiDrawIndirect,
+            [selected_key, secondary_key],
+        );
+
+        assert_eq!(
+            record_visibility_mdi_submissions(&probe, secondary_view, [secondary_key]),
+            0
+        );
+        assert_eq!(
+            record_visibility_mdi_submissions(&probe, selected_view, [selected_key]),
+            1
+        );
+
+        let snapshot = probe.take_completed().unwrap();
+        assert_eq!(
+            snapshot.submitted_opaque,
+            Some(VisibilityKeyDigest::from_keys([selected_key]))
+        );
     }
 
     #[test]

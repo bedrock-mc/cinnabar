@@ -50,12 +50,12 @@ use movement::{
 use network::{NetworkConfig, NetworkControlEvent, NetworkHandle, spawn_network};
 use render::{
     AtmosphereFrame, AtmospherePlugin, AtmosphereTextureAssets, CameraMedium, ChunkBiomeTints,
-    ChunkRenderInstance, ChunkRenderQueue, ChunkTextureAssets, ChunkUploadAcknowledgements,
-    ChunkUploadPriority, ChunkUploadToken, DebugWorldPlugin, ModelWitnessEvidence,
-    ModelWitnessManifestRecord, ModelWitnessRequest, ModelWorkloadMetrics, PresentedFrameAck,
-    PresentedFrameGate, RenderViewCohort, TargetRenderExpectation, TransparentSortMetrics,
-    TransparentWitnessEvidence, VisibilityDiagnostics, VisibilityDiagnosticsInput,
-    VisibilityKeyDigest,
+    ChunkRenderApplySet, ChunkRenderInstance, ChunkRenderQueue, ChunkTextureAssets,
+    ChunkUploadAcknowledgements, ChunkUploadPriority, ChunkUploadToken, DebugWorldPlugin,
+    ModelWitnessEvidence, ModelWitnessManifestRecord, ModelWitnessRequest, ModelWorkloadMetrics,
+    PresentedFrameAck, PresentedFrameGate, RenderViewCohort, TargetRenderExpectation,
+    TransparentSortMetrics, TransparentWitnessEvidence, VisibilityDiagnostics,
+    VisibilityDiagnosticsInput, VisibilityKeyDigest,
 };
 use server_position::SAFE_SERVER_HEIGHT;
 use sha2::{Digest, Sha256};
@@ -2183,7 +2183,7 @@ fn run(args: args::ClientArgs) -> Result<()> {
                 update_camera_medium,
                 update_atmosphere_frame,
                 refresh_cave_visibility,
-                update_visibility_diagnostics,
+                update_visibility_diagnostics.after(ChunkRenderApplySet),
                 emit_world_ready,
                 drive_model_witness,
                 record_metrics_and_title,
@@ -3360,8 +3360,12 @@ fn record_metrics_and_title(
         sampling.visibility_elapsed = Duration::ZERO;
         let snapshot = visibility_diagnostics.snapshot();
         if snapshot.frame_generation != 0 {
+            let (submitted_valid, submitted_count, submitted_hash) =
+                visibility_digest_marker_fields(snapshot.submitted_opaque);
+            let (submitted_loss_valid, submitted_loss_count, submitted_loss_hash) =
+                visibility_digest_marker_fields(snapshot.frustum_to_submitted_loss);
             let marker = format!(
-                "RUST_MCBE_VISIBILITY_SNAPSHOT frame_generation={} camera={} pose_hash={:016x} camera_frustum_hash={:016x} pose_generation={} view_generation={} draw_mode={:?} resident_count={} resident_hash={:016x} cave_count={} cave_hash={:016x} frustum_count={} frustum_keys_hash={:016x} submitted_count={} submitted_hash={:016x} resident_to_cave_loss_count={} resident_to_cave_loss_hash={:016x} cave_to_frustum_loss_count={} cave_to_frustum_loss_hash={:016x} frustum_to_submitted_loss_count={} frustum_to_submitted_loss_hash={:016x} submitted_overflowed={}",
+                "RUST_MCBE_VISIBILITY_SNAPSHOT frame_generation={} camera={} pose_hash={:016x} camera_frustum_hash={:016x} pose_generation={} view_generation={} draw_mode={:?} resident_count={} resident_hash={:016x} cave_count={} cave_hash={:016x} frustum_count={} frustum_keys_hash={:016x} submitted_valid={} submitted_count={} submitted_hash={} resident_to_cave_loss_count={} resident_to_cave_loss_hash={:016x} cave_to_frustum_loss_count={} cave_to_frustum_loss_hash={:016x} frustum_to_submitted_loss_valid={} frustum_to_submitted_loss_count={} frustum_to_submitted_loss_hash={} submitted_overflowed={}",
                 snapshot.frame_generation,
                 snapshot.camera.stable_id,
                 snapshot.camera.pose_hash,
@@ -3375,14 +3379,16 @@ fn record_metrics_and_title(
                 snapshot.cave_visible.hash,
                 snapshot.frustum_visible_opaque.count,
                 snapshot.frustum_visible_opaque.hash,
-                snapshot.submitted_opaque.count,
-                snapshot.submitted_opaque.hash,
+                submitted_valid,
+                submitted_count,
+                submitted_hash,
                 snapshot.resident_to_cave_loss.count,
                 snapshot.resident_to_cave_loss.hash,
                 snapshot.cave_to_frustum_loss.count,
                 snapshot.cave_to_frustum_loss.hash,
-                snapshot.frustum_to_submitted_loss.count,
-                snapshot.frustum_to_submitted_loss.hash,
+                submitted_loss_valid,
+                submitted_loss_count,
+                submitted_loss_hash,
                 snapshot.submitted_overflowed,
             );
             let mut stdout = std::io::stdout().lock();
@@ -3658,16 +3664,36 @@ fn cumulative_counter_delta(current: u64, previous: u64) -> u64 {
     current.checked_sub(previous).unwrap_or(current)
 }
 
+fn visibility_digest_marker_fields(digest: Option<VisibilityKeyDigest>) -> (bool, String, String) {
+    digest.map_or_else(
+        || (false, "null".to_owned(), "null".to_owned()),
+        |digest| {
+            (
+                true,
+                digest.count.to_string(),
+                format!("{:016x}", digest.hash),
+            )
+        },
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use assets::RuntimeAssets;
-    use bevy::prelude::{AppExit, Quat, Transform, Vec3};
+    use bevy::prelude::{
+        App, AppExit, IntoScheduleConfigs, MinimalPlugins, Quat, Transform, Update, Vec3,
+    };
     use protocol::{
         BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockUpdateEvent, LevelChunkEvent,
         LevelChunkMode, PlayerMovementCorrectionEvent, SubChunkBatchEvent, SubChunkEntryEvent,
         SubChunkResult, WorldBootstrap, WorldEvent,
     };
-    use render::{ChunkBiomeTints, PresentedFrameAck, RenderViewCohort, TargetRenderExpectation};
+    use render::{
+        ChunkBiomeTints, ChunkMesh, ChunkRenderApplySet, ChunkRenderQueue, ChunkUploadPriority,
+        DebugWorldPlugin, FaceConnectivity, PackedModelDrawRef, PackedModelRef, PackedQuadLighting,
+        PresentedFrameAck, RenderViewCohort, TargetRenderExpectation, VisibilityDiagnosticsInput,
+        VisibilityKeyDigest,
+    };
     use std::{
         path::Path,
         sync::Arc,
@@ -3682,22 +3708,78 @@ mod tests {
         ViewCohortStatus, WorldStream, WorldStreamFatalError,
     };
     use crate::{
-        AcceptanceExitDecision, AcceptanceRun, FullViewRemeshTracker, FullViewTeleportCompletion,
-        FullViewTeleportTracker, GalleryAnchorEmitter, MutationTracker,
+        AcceptanceExitDecision, AcceptanceRun, CaveVisibilityCache, FullViewRemeshTracker,
+        FullViewTeleportCompletion, FullViewTeleportTracker, GalleryAnchorEmitter, MutationTracker,
         NETWORK_INGRESS_BUDGET_PER_FRAME, OUTBOUND_SEND_BUDGET_PER_FRAME, RollingFps,
         SubChunkTimeoutProgress, TRANSPARENT_PRESENTATION_EXIT_GRACE, TeleportReadySnapshot,
         WORLD_READY_QUIET_INTERVAL, WorldReadySettler, WorldReadySnapshot, WorldReadyWork,
-        accepted_move_player_ingress_marker, apply_committed_control, bedrock_camera_rotation,
-        bridge_endpoint_exists, bridge_endpoint_path, camera_sub_chunk_key,
-        cumulative_counter_delta, deterministic_mutation_coordinate, drain_network_controls,
-        drain_network_ingress, fatal_runtime_exit, flush_sub_chunk_requests,
-        leaf_forest_target_mutation_coordinate, model_gallery_camera_committed_marker,
-        preflight_bridge_endpoint, record_fatal_error, resolve_socket_dir_from,
-        startup_biome_tints, status_title, synchronize_biome_tints, target_mutation_armed_marker,
-        teleport_proof, transparent_sort_committed_marker, world_ready_markers,
-        world_stream_fatal_message, write_move_player_ingress_before_source_capture,
-        write_stdout_marker,
+        accepted_move_player_ingress_marker, apply_added_chunk_visibility, apply_committed_control,
+        bedrock_camera_rotation, bridge_endpoint_exists, bridge_endpoint_path,
+        camera_sub_chunk_key, cumulative_counter_delta, deterministic_mutation_coordinate,
+        drain_network_controls, drain_network_ingress, fatal_runtime_exit,
+        flush_sub_chunk_requests, leaf_forest_target_mutation_coordinate,
+        model_gallery_camera_committed_marker, preflight_bridge_endpoint, record_fatal_error,
+        remove_chunk_visibility, resolve_socket_dir_from, startup_biome_tints, status_title,
+        synchronize_biome_tints, target_mutation_armed_marker, teleport_proof,
+        transparent_sort_committed_marker, update_visibility_diagnostics,
+        visibility_digest_marker_fields, world_ready_markers, world_stream_fatal_message,
+        write_move_player_ingress_before_source_capture, write_stdout_marker,
     };
+
+    fn diagnostic_test_mesh() -> ChunkMesh {
+        ChunkMesh::from_streams(
+            Vec::new(),
+            vec![PackedModelRef::new(0, 0, 0, 1)],
+            vec![PackedQuadLighting::default()],
+            vec![PackedModelDrawRef::new(0, 0)],
+            Vec::new(),
+            Vec::new(),
+            FaceConnectivity::none(),
+        )
+    }
+
+    #[test]
+    fn unavailable_visibility_digest_marker_fields_are_explicitly_invalid() {
+        assert_eq!(
+            visibility_digest_marker_fields(None),
+            (false, "null".to_owned(), "null".to_owned())
+        );
+    }
+
+    #[test]
+    fn visibility_capture_observes_post_deferred_upload_and_removal_generation() {
+        let key = SubChunkKey::new(0, 3, -4, 5);
+        let expected = VisibilityKeyDigest::from_keys([key]);
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(CaveVisibilityCache::default())
+            .insert_resource(VisibilityDiagnosticsInput::new(true))
+            .add_plugins(DebugWorldPlugin::new(1))
+            .add_observer(apply_added_chunk_visibility)
+            .add_observer(remove_chunk_visibility)
+            .add_systems(
+                Update,
+                update_visibility_diagnostics.after(ChunkRenderApplySet),
+            );
+
+        app.world_mut()
+            .resource_mut::<ChunkRenderQueue>()
+            .try_insert(key, diagnostic_test_mesh(), ChunkUploadPriority::new(0.0))
+            .unwrap();
+        app.update();
+        let inserted = app.world().resource::<VisibilityDiagnosticsInput>();
+        assert_eq!(inserted.resident_mesh(), expected);
+        assert_eq!(inserted.cave_visible(), expected);
+
+        app.world_mut()
+            .resource_mut::<ChunkRenderQueue>()
+            .try_remove(key)
+            .unwrap();
+        app.update();
+        let removed = app.world().resource::<VisibilityDiagnosticsInput>();
+        assert_eq!(removed.resident_mesh(), VisibilityKeyDigest::default());
+        assert_eq!(removed.cave_visible(), VisibilityKeyDigest::default());
+    }
 
     #[test]
     fn camera_medium_sampling_is_ordered_after_fly_camera_transform_updates() {
