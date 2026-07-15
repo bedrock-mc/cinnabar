@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -158,6 +159,40 @@ func TestWorkspaceUsesDirectoryCanonicalizesUsePaths(t *testing.T) {
 	}
 }
 
+func TestWorkspaceUsesDirectoryResolvesFilesystemAliases(t *testing.T) {
+	repoRoot := t.TempDir()
+	chunkfix := filepath.Join(repoRoot, "tools", "chunkfix")
+	if err := os.MkdirAll(chunkfix, 0o755); err != nil {
+		t.Fatalf("create chunkfix directory: %v", err)
+	}
+	alias := filepath.Join(repoRoot, "chunkfix-alias")
+	symlinkErr := os.Symlink(chunkfix, alias)
+	if symlinkErr != nil && runtime.GOOS == "windows" {
+		output, junctionErr := exec.Command("cmd", "/c", "mklink", "/J", alias, chunkfix).CombinedOutput()
+		if junctionErr != nil {
+			t.Skipf(
+				"filesystem aliases are unsupported in this environment: symlink: %v; junction: %v: %s",
+				symlinkErr,
+				junctionErr,
+				strings.TrimSpace(string(output)),
+			)
+		}
+	} else if symlinkErr != nil {
+		t.Skipf("filesystem aliases are unsupported in this environment: %v", symlinkErr)
+	}
+	goWorkPath := filepath.Join(repoRoot, "go.work")
+	if err := os.WriteFile(goWorkPath, []byte("go 1.26.1\nuse ./chunkfix-alias\n"), 0o644); err != nil {
+		t.Fatalf("write go.work: %v", err)
+	}
+	got, err := workspaceUsesDirectory(goWorkPath, repoRoot, filepath.Join("tools", "chunkfix"))
+	if err != nil {
+		t.Fatalf("inspect go.work: %v", err)
+	}
+	if !got {
+		t.Fatal("workspace alias resolving to tools/chunkfix was not detected")
+	}
+}
+
 func TestWorkflowHasIsolatedChunkfixStepRequiresActiveVerifyStepStructure(t *testing.T) {
 	valid := `name: CI
 jobs:
@@ -194,6 +229,38 @@ jobs:
         run: |
           # go test ./... -count=1
           echo "go vet ./..."
+`,
+			want: false,
+		},
+		{
+			name: "heredoc literal body",
+			body: `jobs:
+  verify:
+    steps:
+      - working-directory: tools/chunkfix
+        env:
+          GOWORK: off
+        run: |
+          cat <<'CHUNKFIX_COMMANDS'
+          go test ./... -count=1
+          go vet ./...
+          CHUNKFIX_COMMANDS
+`,
+			want: false,
+		},
+		{
+			name: "quoted multiline literal",
+			body: `jobs:
+  verify:
+    steps:
+      - working-directory: tools/chunkfix
+        env:
+          GOWORK: off
+        run: |
+          printf '%s\n' '
+          go test ./... -count=1
+          go vet ./...
+          '
 `,
 			want: false,
 		},
@@ -252,10 +319,21 @@ func canonicalDirectory(base, path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	resolved, err := filepath.EvalSymlinks(absolute)
+	if err == nil {
+		absolute = resolved
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
 	return filepath.Clean(absolute), nil
 }
 
 func sameDirectory(left, right string) bool {
+	leftInfo, leftErr := os.Stat(left)
+	rightInfo, rightErr := os.Stat(right)
+	if leftErr == nil && rightErr == nil && os.SameFile(leftInfo, rightInfo) {
+		return true
+	}
 	if runtime.GOOS == "windows" {
 		return strings.EqualFold(left, right)
 	}
@@ -297,8 +375,36 @@ func workflowHasIsolatedChunkfixStep(data []byte) (bool, error) {
 	return false, nil
 }
 
+type shellLiteralState struct {
+	quote            byte
+	heredocDelimiter string
+	stripHeredocTabs bool
+}
+
 func chunkfixCommands(script string) (hasTest, hasVet bool) {
+	state := shellLiteralState{}
 	for _, line := range strings.Split(strings.ReplaceAll(script, "\r\n", "\n"), "\n") {
+		if state.heredocDelimiter != "" {
+			candidate := line
+			if state.stripHeredocTabs {
+				candidate = strings.TrimLeft(candidate, "\t")
+			}
+			if candidate == state.heredocDelimiter {
+				state.heredocDelimiter = ""
+				state.stripHeredocTabs = false
+			}
+			continue
+		}
+
+		startedInQuote := state.quote != 0
+		if delimiter, stripTabs, ok := scanShellLiterals(line, &state.quote); ok {
+			state.heredocDelimiter = delimiter
+			state.stripHeredocTabs = stripTabs
+			continue
+		}
+		if startedInQuote || state.quote != 0 {
+			continue
+		}
 		switch strings.TrimSpace(line) {
 		case "go test ./... -count=1":
 			hasTest = true
@@ -307,6 +413,73 @@ func chunkfixCommands(script string) (hasTest, hasVet bool) {
 		}
 	}
 	return hasTest, hasVet
+}
+
+func scanShellLiterals(line string, quote *byte) (delimiter string, stripTabs, ok bool) {
+	for i := 0; i < len(line); i++ {
+		character := line[i]
+		if *quote == '\'' {
+			if character == '\'' {
+				*quote = 0
+			}
+			continue
+		}
+		if *quote == '"' {
+			if character == '\\' && i+1 < len(line) {
+				i++
+				continue
+			}
+			if character == '"' {
+				*quote = 0
+			}
+			continue
+		}
+		switch character {
+		case '\\':
+			if i+1 < len(line) {
+				i++
+			}
+		case '\'', '"':
+			*quote = character
+		case '#':
+			if i == 0 || line[i-1] == ' ' || line[i-1] == '\t' {
+				return "", false, false
+			}
+		case '<':
+			if i+1 >= len(line) || line[i+1] != '<' || i+2 < len(line) && line[i+2] == '<' {
+				continue
+			}
+			i += 2
+			if i < len(line) && line[i] == '-' {
+				stripTabs = true
+				i++
+			}
+			for i < len(line) && (line[i] == ' ' || line[i] == '\t') {
+				i++
+			}
+			if i >= len(line) {
+				return "", false, false
+			}
+			if line[i] == '\'' || line[i] == '"' {
+				mark := line[i]
+				start := i + 1
+				end := strings.IndexByte(line[start:], mark)
+				if end == -1 {
+					return "", false, false
+				}
+				return line[start : start+end], stripTabs, true
+			}
+			start := i
+			for i < len(line) && !strings.ContainsRune(" \t;|&<>#", rune(line[i])) {
+				i++
+			}
+			if i == start {
+				return "", false, false
+			}
+			return line[start:i], stripTabs, true
+		}
+	}
+	return "", false, false
 }
 
 func TestWidthFixturesUseMinimalPaletteBoundaries(t *testing.T) {
