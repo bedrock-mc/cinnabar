@@ -31,7 +31,7 @@ use bevy::{
     prelude::*,
     render::diagnostic::RenderDiagnosticsPlugin,
     time::Real,
-    window::{CursorOptions, PresentMode, PrimaryWindow, WindowPlugin},
+    window::{CursorOptions, PresentMode, PrimaryWindow, WindowCloseRequested, WindowPlugin},
     winit::{UpdateMode, WinitSettings},
 };
 use camera::{FlyCamera, FlyCameraPlugin, FlyCameraUpdateSet, input_is_active, movement_axes};
@@ -2187,6 +2187,7 @@ fn run(args: args::ClientArgs) -> Result<()> {
         .add_systems(
             Update,
             (
+                exit_on_window_close_requested,
                 receive_network_events,
                 exit_on_fatal_runtime_error,
                 poll_transparent_witness_request,
@@ -2280,6 +2281,22 @@ fn record_fatal_error(fatal_error: &mut Option<String>, error: String) {
 
 fn fatal_runtime_exit(error: &str) -> Option<AppExit> {
     (!error.is_empty()).then(AppExit::error)
+}
+
+fn window_close_exit(requested: bool) -> Option<AppExit> {
+    requested.then_some(AppExit::Success)
+}
+
+fn exit_on_window_close_requested(
+    mut close_requests: MessageReader<WindowCloseRequested>,
+    mut network: ResMut<NetworkHandle>,
+    mut exit: MessageWriter<AppExit>,
+) {
+    let Some(exit_status) = window_close_exit(close_requests.read().next().is_some()) else {
+        return;
+    };
+    network.shutdown();
+    exit.write(exit_status);
 }
 
 fn exit_on_fatal_runtime_error(
@@ -3851,10 +3868,16 @@ mod tests {
         remove_chunk_visibility, requested_present_mode, resolve_socket_dir_from,
         startup_biome_tints, status_title, synchronize_biome_tints, target_mutation_armed_marker,
         teleport_proof, transparent_sort_committed_marker, update_visibility_diagnostics,
-        visibility_digest_marker_fields, world_publication_snapshot_marker, world_ready_markers,
-        world_stream_fatal_message, write_move_player_ingress_before_source_capture,
-        write_stdout_marker,
+        visibility_digest_marker_fields, window_close_exit, world_publication_snapshot_marker,
+        world_ready_markers, world_stream_fatal_message,
+        write_move_player_ingress_before_source_capture, write_stdout_marker,
     };
+
+    #[test]
+    fn window_close_request_exits_before_the_window_is_despawned() {
+        assert_eq!(window_close_exit(false), None);
+        assert_eq!(window_close_exit(true), Some(AppExit::Success));
+    }
 
     fn diagnostic_test_mesh() -> ChunkMesh {
         ChunkMesh::from_streams(
