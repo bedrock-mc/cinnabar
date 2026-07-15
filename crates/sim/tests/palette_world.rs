@@ -202,3 +202,45 @@ fn collision_registry_rejects_non_finite_and_inverted_shapes() {
         })
     );
 }
+
+#[test]
+fn collision_registry_rejects_shapes_outside_the_one_block_query_halo() {
+    let mut registry = CollisionRegistry::new();
+    for (runtime_id, shape) in [
+        (13, Aabb::new(Vec3::new(-1.000_000_01, 0.0, 0.0), Vec3::ONE)),
+        (14, Aabb::new(Vec3::ZERO, Vec3::new(2.000_000_01, 1.0, 1.0))),
+    ] {
+        assert_eq!(
+            registry.register(runtime_id, [shape]),
+            Err(RegistryError::ShapeOutsideLocalHalo {
+                runtime_id,
+                shape_index: 0,
+            })
+        );
+    }
+
+    registry
+        .register(
+            15,
+            [Aabb::new(
+                Vec3::new(-1.0, -1.0, -1.0),
+                Vec3::new(2.0, 2.0, 2.0),
+            )],
+        )
+        .unwrap();
+}
+
+#[test]
+fn palette_adapter_rejects_oversized_queries_before_chunk_scanning() {
+    let store = ChunkStore::new();
+    let registry = CollisionRegistry::new();
+    let world = PaletteWorld::new(&store, &registry, 0);
+
+    assert_eq!(
+        world.collision_boxes(Aabb::new(
+            Vec3::ZERO,
+            Vec3::new(sim::MAX_COLLISION_QUERY_EXTENT + 1.0, 1.0, 1.0),
+        )),
+        Err(WorldQueryError::QueryExtentExceeded)
+    );
+}

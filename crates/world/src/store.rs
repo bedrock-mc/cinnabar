@@ -211,6 +211,12 @@ impl ChunkStore {
         self.loaded_chunks.contains(&key)
     }
 
+    /// Marks a request-mode column as completely known without allocating
+    /// sparse block storage for an all-air result.
+    pub fn mark_chunk_loaded(&mut self, key: ChunkKey) {
+        self.loaded_chunks.insert(key);
+    }
+
     /// Returns an `Arc` snapshot suitable for handing to a mesh worker.
     #[must_use]
     pub fn sub_chunk(&self, key: SubChunkKey) -> Option<Arc<SubChunk>> {

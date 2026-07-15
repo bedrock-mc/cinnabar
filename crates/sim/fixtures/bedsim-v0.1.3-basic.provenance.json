@@ -5,5 +5,5 @@
   "module_sum": "h1:tWZ7O48DL/SaWIY+0zz0hFln+DXN4vfatqKr8zTHVo8=",
   "generator": "tools/bedsimtrace",
   "command": "$env:GOWORK='off'; go run .",
-  "sha256": "f40e1e2faed276c857dd390fd0833d126c1053c2c0b074800a86efd6405a9730"
+  "sha256": "55a7e1f9d4b4eac97d92bcb4a7cf457ccd4556687abe0b69de451558de668616"
 }

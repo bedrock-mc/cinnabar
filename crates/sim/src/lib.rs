@@ -15,4 +15,7 @@ pub use simulator::{
     AxisCollisions, MovementInput, PlayerState, SimulationError, Simulator, TICKS_PER_SECOND,
     TickResult,
 };
-pub use world::{CollisionRegistry, CollisionWorld, PaletteWorld, RegistryError, WorldQueryError};
+pub use world::{
+    CollisionRegistry, CollisionWorld, MAX_COLLISION_QUERY_EXTENT, PaletteWorld, RegistryError,
+    WorldQueryError,
+};

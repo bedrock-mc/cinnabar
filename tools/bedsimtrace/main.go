@@ -5,6 +5,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/df-mc/dragonfly/server/block"
@@ -78,6 +79,13 @@ type traceRecord struct {
 }
 
 func main() {
+	if err := writeTrace(os.Stdout); err != nil {
+		fmt.Fprintf(os.Stderr, "encode trace: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func writeTrace(output io.Writer) error {
 	state := bedsim.MovementState{
 		Pos:                     mgl64.Vec3{0, 1, 0},
 		Size:                    mgl64.Vec3{0.6, 1.8, 1},
@@ -107,24 +115,13 @@ func main() {
 		{Forward: 1},
 		{Forward: 1, Jumping: true, JumpPressed: true, Sprinting: true},
 		{Forward: 1, Jumping: true, Sprinting: true},
+		{Forward: 1},
 	}
-	encoder := json.NewEncoder(os.Stdout)
+	encoder := json.NewEncoder(output)
 	encoder.SetEscapeHTML(false)
 	for index, input := range script {
 		before := state
-		result := simulator.Simulate(&state, bedsim.InputState{
-			MoveVector:     mgl64.Vec2{input.Strafe, input.Forward},
-			Yaw:            input.YawDegrees,
-			HeadYaw:        input.YawDegrees,
-			ClientPos:      before.Pos,
-			ClientVel:      before.Vel,
-			StartSprinting: input.Sprinting && !before.Sprinting,
-			SprintDown:     input.Sprinting,
-			StartJumping:   input.JumpPressed,
-			Jumping:        input.Jumping,
-			Sneaking:       input.Sneaking,
-			SneakDown:      input.Sneaking,
-		})
+		result := simulator.Simulate(&state, toBedsimInput(before, input))
 		record := traceRecord{
 			Input: input,
 			Expected: tickResult{
@@ -137,9 +134,26 @@ func main() {
 			},
 		}
 		if err := encoder.Encode(record); err != nil {
-			fmt.Fprintf(os.Stderr, "encode trace: %v\n", err)
-			os.Exit(1)
+			return err
 		}
+	}
+	return nil
+}
+
+func toBedsimInput(before bedsim.MovementState, input movementInput) bedsim.InputState {
+	return bedsim.InputState{
+		MoveVector:     mgl64.Vec2{input.Strafe, input.Forward},
+		Yaw:            input.YawDegrees,
+		HeadYaw:        input.YawDegrees,
+		ClientPos:      before.Pos,
+		ClientVel:      before.Vel,
+		StartSprinting: input.Sprinting && !before.Sprinting,
+		StopSprinting:  !input.Sprinting && before.Sprinting,
+		SprintDown:     input.Sprinting,
+		StartJumping:   input.JumpPressed,
+		Jumping:        input.Jumping,
+		Sneaking:       input.Sneaking,
+		SneakDown:      input.Sneaking,
 	}
 }
 

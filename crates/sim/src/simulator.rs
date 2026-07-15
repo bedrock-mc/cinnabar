@@ -23,6 +23,7 @@ const JUMP_DELAY_TICKS: u8 = 10;
 const COLLISION_EPSILON: f64 = 1.0e-5;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MovementInput {
     pub strafe: f64,
     pub forward: f64,
@@ -34,6 +35,7 @@ pub struct MovementInput {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PlayerState {
     pub tick: u64,
     pub position: Vec3,
@@ -58,6 +60,7 @@ impl PlayerState {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AxisCollisions {
     pub x: bool,
     pub y: bool,
@@ -65,6 +68,7 @@ pub struct AxisCollisions {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TickResult {
     pub tick: u64,
     pub position: Vec3,
@@ -76,6 +80,10 @@ pub struct TickResult {
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum SimulationError {
+    #[error("player state field {field} is not finite")]
+    NonFiniteState { field: &'static str },
+    #[error("movement input field {field} is not finite")]
+    NonFiniteInput { field: &'static str },
     #[error(transparent)]
     World(#[from] WorldQueryError),
     #[error("movement tick overflow")]
@@ -106,6 +114,8 @@ impl Simulator {
         input: MovementInput,
         world: &impl CollisionWorld,
     ) -> Result<TickResult, SimulationError> {
+        validate_player_state(state)?;
+        validate_movement_input(input)?;
         let mut next = state.clone();
         next.tick = next
             .tick
@@ -199,6 +209,47 @@ impl Simulator {
     }
 }
 
+pub(crate) fn validate_player_state(state: &PlayerState) -> Result<(), SimulationError> {
+    for (field, value) in [
+        ("position", state.position),
+        ("velocity", state.velocity),
+        ("movement", state.movement),
+    ] {
+        if !value.is_finite() {
+            return Err(SimulationError::NonFiniteState { field });
+        }
+    }
+    let min_position = f64::from(i32::MIN) + 2.0;
+    let max_position = f64::from(i32::MAX) - 2.0;
+    if [state.position.x, state.position.y, state.position.z]
+        .into_iter()
+        .any(|value| value < min_position || value > max_position)
+    {
+        return Err(WorldQueryError::CoordinateOutOfRange.into());
+    }
+    let max_sweep_component = crate::world::MAX_COLLISION_QUERY_EXTENT - crate::PLAYER_HEIGHT;
+    if [state.velocity.x, state.velocity.y, state.velocity.z]
+        .into_iter()
+        .any(|value| value.abs() > max_sweep_component)
+    {
+        return Err(WorldQueryError::QueryExtentExceeded.into());
+    }
+    Ok(())
+}
+
+fn validate_movement_input(input: MovementInput) -> Result<(), SimulationError> {
+    for (field, value) in [
+        ("strafe", input.strafe),
+        ("forward", input.forward),
+        ("yaw_degrees", input.yaw_degrees),
+    ] {
+        if !value.is_finite() {
+            return Err(SimulationError::NonFiniteInput { field });
+        }
+    }
+    Ok(())
+}
+
 fn block_below(position: Vec3) -> Result<[i32; 3], WorldQueryError> {
     let values = [
         position.x.floor(),
@@ -247,7 +298,7 @@ fn resolve_motion(
     was_on_ground: bool,
 ) -> Result<ResolvedMotion, WorldQueryError> {
     let start = Aabb::player_at(position);
-    let colliders = world.collision_boxes(start.swept(velocity))?;
+    let colliders = bounded_collision_boxes(world, start.swept(velocity))?;
     let (normal_box, normal) = resolve_axes_reverse(start, velocity, &colliders);
     let normal_horizontal_collision = normal.x != velocity.x || normal.z != velocity.z;
     let normal_y_collision = normal.y != velocity.y;
@@ -255,7 +306,7 @@ fn resolve_motion(
 
     let resolved_box = if on_ground && normal_horizontal_collision {
         let (step_box, step) = resolve_step(start, velocity, &colliders);
-        let step_blocked = !world.collision_boxes(step_box)?.is_empty();
+        let step_blocked = !bounded_collision_boxes(world, step_box)?.is_empty();
         if !step_blocked && step.horizontal_length_squared() > normal.horizontal_length_squared() {
             step_box
         } else {
@@ -279,6 +330,14 @@ fn resolve_motion(
             z: (velocity.z - resolved.z).abs() >= COLLISION_EPSILON,
         },
     })
+}
+
+fn bounded_collision_boxes(
+    world: &impl CollisionWorld,
+    query: Aabb,
+) -> Result<Vec<Aabb>, WorldQueryError> {
+    crate::world::validate_collision_query(query)?;
+    world.collision_boxes(query)
 }
 
 fn resolve_axes_reverse(start: Aabb, velocity: Vec3, colliders: &[Aabb]) -> (Aabb, Vec3) {

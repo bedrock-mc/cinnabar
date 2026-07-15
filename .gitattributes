@@ -1,2 +1,3 @@
 crates/world/fixtures/manifest.json text eol=lf
+crates/sim/fixtures/*.jsonl text eol=lf
 assets/vanilla-source.json text eol=lf

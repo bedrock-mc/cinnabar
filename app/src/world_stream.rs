@@ -1330,6 +1330,7 @@ pub struct WorldStream {
     known_air: BTreeSet<SubChunkKey>,
     loaded_columns: BTreeSet<ChunkKey>,
     requested_sub_chunks: HashMap<ChunkKey, PendingSubChunkColumn>,
+    request_collision_failures: HashSet<ChunkKey>,
     sub_chunk_deadlines: BTreeSet<(Instant, SubChunkKey)>,
     correlated_sub_chunk_attempts: HashMap<SubChunkKey, CorrelatedSubChunkAttempts>,
     admitted_sub_chunk_replies: HashMap<SubChunkKey, u8>,
@@ -1461,6 +1462,7 @@ impl WorldStream {
             known_air: BTreeSet::new(),
             loaded_columns: BTreeSet::new(),
             requested_sub_chunks: HashMap::new(),
+            request_collision_failures: HashSet::new(),
             sub_chunk_deadlines: BTreeSet::new(),
             correlated_sub_chunk_attempts: HashMap::new(),
             admitted_sub_chunk_replies: HashMap::new(),
@@ -2616,7 +2618,7 @@ impl WorldStream {
                     };
                     committed_any |= committed;
                     if completed {
-                        self.complete_requested_sub_chunk(key);
+                        self.complete_requested_sub_chunk(key, committed);
                     }
                 }
                 if committed_any {
@@ -2905,11 +2907,13 @@ impl WorldStream {
         count: usize,
         sequence: Option<u64>,
     ) {
+        self.request_collision_failures.remove(&key);
         if count == 0 {
             if let Some(sequence) = sequence {
                 self.cancel_request_reservation(sequence);
             }
             self.loaded_columns.insert(key);
+            self.store.mark_chunk_loaded(key);
             return;
         }
         match request_sub_chunk_column(key.dimension, key.x, key.z, base_sub_chunk_y, count) {
@@ -2937,6 +2941,7 @@ impl WorldStream {
                     .collect::<PendingSubChunkColumn>();
                 if expected.is_empty() {
                     self.loaded_columns.insert(key);
+                    self.store.mark_chunk_loaded(key);
                 } else {
                     self.requested_sub_chunks.insert(key, expected);
                 }
@@ -3110,6 +3115,7 @@ impl WorldStream {
 
     fn evict_column(&mut self, key: ChunkKey) {
         self.loaded_columns.remove(&key);
+        self.request_collision_failures.remove(&key);
         self.purge_sub_chunk_column_state(key);
         let mut changed = self
             .resident
@@ -4001,9 +4007,12 @@ impl WorldStream {
         });
     }
 
-    fn complete_requested_sub_chunk(&mut self, key: SubChunkKey) {
+    fn complete_requested_sub_chunk(&mut self, key: SubChunkKey, collision_authoritative: bool) {
         self.cancel_sub_chunk_retry(key);
         let chunk = key.chunk();
+        if !collision_authoritative {
+            self.request_collision_failures.insert(chunk);
+        }
         let (removed, completed) =
             self.requested_sub_chunks
                 .get_mut(&chunk)
@@ -4025,6 +4034,9 @@ impl WorldStream {
         if completed {
             self.requested_sub_chunks.remove(&chunk);
             self.loaded_columns.insert(chunk);
+            if !self.request_collision_failures.remove(&chunk) {
+                self.store.mark_chunk_loaded(chunk);
+            }
         }
     }
 
@@ -4227,7 +4239,7 @@ impl WorldStream {
                 self.stats.sub_chunk_timeouts = self.stats.sub_chunk_timeouts.saturating_add(1);
                 self.stats.sub_chunk_retry_exhaustions =
                     self.stats.sub_chunk_retry_exhaustions.saturating_add(1);
-                self.complete_requested_sub_chunk(key);
+                self.complete_requested_sub_chunk(key, false);
                 continue;
             }
 
@@ -4241,7 +4253,7 @@ impl WorldStream {
                 RetrySchedule::EncodingFailure => {
                     self.disarm_sub_chunk_deadline(key);
                     self.stats.sub_chunk_timeouts = self.stats.sub_chunk_timeouts.saturating_add(1);
-                    self.complete_requested_sub_chunk(key);
+                    self.complete_requested_sub_chunk(key, false);
                 }
             }
         }
@@ -4258,7 +4270,7 @@ impl WorldStream {
                 continue;
             }
             if !self.enqueue_exact_retry(key) {
-                self.complete_requested_sub_chunk(key);
+                self.complete_requested_sub_chunk(key, false);
             }
         }
     }
@@ -9293,6 +9305,7 @@ mod tests {
             super::OUTBOUND_REQUEST_CAPACITY
         );
         assert!(stream.loaded_columns.contains(&empty));
+        assert!(stream.store.is_chunk_loaded(empty));
     }
 
     fn stream_with_one_expected_sub_chunk() -> (WorldStream, SubChunkKey) {
@@ -9335,6 +9348,39 @@ mod tests {
             }],
             duration: std::time::Duration::ZERO,
         });
+    }
+
+    #[test]
+    fn request_mode_non_air_completion_marks_collision_residency() {
+        let (mut stream, key) = stream_with_one_expected_sub_chunk();
+        let decoded = world::DecodedSubChunk::decode(
+            key,
+            include_bytes!("../../crates/world/fixtures/uniform_non_air.bin"),
+        )
+        .unwrap();
+
+        apply_sub_chunk_result(
+            &mut stream,
+            key,
+            super::PreparedSubChunkResult::Decoded(Ok(decoded)),
+        );
+
+        assert!(stream.loaded_columns.contains(&key.chunk()));
+        assert!(stream.store.is_chunk_loaded(key.chunk()));
+        assert!(stream.store.sub_chunk(key).is_some());
+    }
+
+    #[test]
+    fn request_mode_all_air_completion_marks_sparse_collision_residency() {
+        let (mut stream, key) = stream_with_one_expected_sub_chunk();
+
+        apply_sub_chunk_result(&mut stream, key, super::PreparedSubChunkResult::AllAir);
+
+        assert!(stream.loaded_columns.contains(&key.chunk()));
+        assert!(stream.store.is_chunk_loaded(key.chunk()));
+        assert!(stream.store.sub_chunk(key).is_none());
+        stream.evict_column(key.chunk());
+        assert!(!stream.store.is_chunk_loaded(key.chunk()));
     }
 
     fn stream_with_unsent_sub_chunks(
@@ -9902,6 +9948,7 @@ mod tests {
             }
             assert!(!stream.requested_sub_chunks.contains_key(&key.chunk()));
             assert!(stream.loaded_columns.contains(&key.chunk()));
+            assert!(!stream.store.is_chunk_loaded(key.chunk()));
             assert_eq!(stream.pending_request_count(), 0);
         }
     }
@@ -9922,6 +9969,7 @@ mod tests {
             }
         }
         assert!(stream.loaded_columns.contains(&key.chunk()));
+        assert!(!stream.store.is_chunk_loaded(key.chunk()));
         assert!(!stream.requested_sub_chunks.contains_key(&key.chunk()));
 
         let (mut stream, key) = stream_with_one_expected_sub_chunk();
@@ -9932,6 +9980,7 @@ mod tests {
         );
         assert_eq!(stream.stats().normalization_errors, 1);
         assert!(stream.loaded_columns.contains(&key.chunk()));
+        assert!(!stream.store.is_chunk_loaded(key.chunk()));
         assert!(!stream.requested_sub_chunks.contains_key(&key.chunk()));
     }
 

@@ -2451,6 +2451,10 @@ func TestEncodeBREG1003Canonical(t *testing.T) {
 	if got := binary.LittleEndian.Uint32(first[8:12]); got != 1001 {
 		t.Fatalf("protocol = %d", got)
 	}
+	record.CollisionSeed.Boxes[0].MaxX = collisionLocalHaloMax + 1
+	if _, err := encodeWithMetadata(metadata, []Record{record}); err == nil || !strings.Contains(err.Error(), "one-block query halo") {
+		t.Fatalf("out-of-halo BREG error = %v", err)
+	}
 }
 
 func TestEncodeBREG1003AcceptsAquaticFamily(t *testing.T) {
@@ -2510,6 +2514,20 @@ func TestCollisionSeedPreservesPinnedDecimalCoordinates(t *testing.T) {
 	want := CollisionBox{MinX: 2_500_000, MinY: -6_250_000, MinZ: 10_000_000, MaxX: 95_000_005, MaxY: 100_000_000, MaxZ: 90_000_000}
 	if len(seed.Boxes) != 1 || seed.Boxes[0] != want {
 		t.Fatalf("collision boxes = %#v, want %#v", seed.Boxes, want)
+	}
+}
+
+func TestCollisionSeedRejectsBoxesOutsideOneBlockQueryHalo(t *testing.T) {
+	for name, box := range map[string][]float64{
+		"below local minimum": {-1.00000001, 0, 0, 1, 1, 1},
+		"above local maximum": {0, 0, 0, 2.00000001, 1, 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := collisionSeed(1, map[string][][]float64{"1": {box}})
+			if err == nil || !strings.Contains(err.Error(), "one-block query halo") {
+				t.Fatalf("collisionSeed error = %v", err)
+			}
+		})
 	}
 }
 

@@ -108,3 +108,49 @@ fn zero_capacity_is_rejected_instead_of_silently_disabling_rewind() {
         Err(PredictionError::ZeroCapacity)
     );
 }
+
+#[test]
+fn newest_tick_non_finite_correction_is_rejected_transactionally() {
+    let simulator = Simulator::default();
+    let mut state = initial_state();
+    let mut history = PredictionHistory::new(2).unwrap();
+    history
+        .predict(&mut state, forward(), &simulator, &Floor)
+        .unwrap();
+    let before_state = state.clone();
+    let before_history = history.clone();
+    let mut corrected = state.clone();
+    corrected.position.x = f64::NAN;
+
+    assert!(matches!(
+        history.rewind_and_replay(&mut state, corrected, &simulator, &Floor),
+        Err(PredictionError::Simulation(
+            sim::SimulationError::NonFiniteState { .. }
+        ))
+    ));
+    assert_eq!(state, before_state);
+    assert_eq!(history, before_history);
+}
+
+#[test]
+fn newest_tick_oversized_sweep_correction_is_rejected_transactionally() {
+    let simulator = Simulator::default();
+    let mut state = initial_state();
+    let mut history = PredictionHistory::new(2).unwrap();
+    history
+        .predict(&mut state, forward(), &simulator, &Floor)
+        .unwrap();
+    let before_state = state.clone();
+    let before_history = history.clone();
+    let mut corrected = state.clone();
+    corrected.velocity.x = 1_000_000.0;
+
+    assert_eq!(
+        history.rewind_and_replay(&mut state, corrected, &simulator, &Floor),
+        Err(PredictionError::Simulation(sim::SimulationError::World(
+            WorldQueryError::QueryExtentExceeded,
+        )))
+    );
+    assert_eq!(state, before_state);
+    assert_eq!(history, before_history);
+}

@@ -108,6 +108,34 @@ fn malformed_blank_and_non_contiguous_records_fail_before_claiming_parity() {
 }
 
 #[test]
+fn nested_unknown_fields_are_rejected_recursively() {
+    let input = MovementInput::default();
+    let mut state = initial_state();
+    let expected = Simulator::default()
+        .tick(&mut state, input, &Floor)
+        .unwrap();
+    let canonical = serde_json::to_value(TraceRecord { input, expected }).unwrap();
+
+    for path in [
+        &["input"][..],
+        &["expected"][..],
+        &["expected", "position"][..],
+        &["expected", "collisions"][..],
+    ] {
+        let mut record = canonical.clone();
+        let mut target = &mut record;
+        for segment in path {
+            target = target.get_mut(*segment).unwrap();
+        }
+        target
+            .as_object_mut()
+            .unwrap()
+            .insert("unknown".to_owned(), serde_json::Value::Bool(true));
+        assert!(serde_json::from_value::<TraceRecord>(record).is_err());
+    }
+}
+
+#[test]
 fn pinned_bedsim_v0_1_3_walk_sprint_jump_trace_matches() {
     let replayed = verify_trace_jsonl(
         include_str!("../fixtures/bedsim-v0.1.3-basic.jsonl"),
@@ -118,9 +146,9 @@ fn pinned_bedsim_v0_1_3_walk_sprint_jump_trace_matches() {
     )
     .unwrap();
 
-    assert_eq!(replayed.tick, 4);
-    assert!((replayed.position.y - 1.753_199_999_999_999_9).abs() <= 1.0e-12);
-    assert!((replayed.position.z - 0.909_038_811_614_959).abs() <= 1.0e-12);
+    assert_eq!(replayed.tick, 5);
+    assert!((replayed.position.y - 2.001_336).abs() <= 1.0e-12);
+    assert!((replayed.position.z - 1.155_599_523_633_092_5).abs() <= 1.0e-12);
 }
 
 #[test]

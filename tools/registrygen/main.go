@@ -40,6 +40,8 @@ const (
 	maxRecordCount             = 1 << 16
 	maxCollisionBoxesPerRecord = 7
 	collisionFixedScale        = 100_000_000.0
+	collisionLocalHaloMin      = -100_000_000
+	collisionLocalHaloMax      = 200_000_000
 
 	maxBiomeRecordCount = 1_024
 	maxBiomeNameBytes   = 256
@@ -805,9 +807,24 @@ func collisionSeed(id uint16, shapes map[string][][]float64) (CollisionSeed, err
 			}
 			fixed[i] = int32(scaled)
 		}
-		boxes = append(boxes, CollisionBox{MinX: fixed[0], MinY: fixed[1], MinZ: fixed[2], MaxX: fixed[3], MaxY: fixed[4], MaxZ: fixed[5]})
+		box := CollisionBox{MinX: fixed[0], MinY: fixed[1], MinZ: fixed[2], MaxX: fixed[3], MaxY: fixed[4], MaxZ: fixed[5]}
+		if err := validateCollisionBox(box); err != nil {
+			return CollisionSeed{}, fmt.Errorf("collision shape %d box %d: %w", id, index, err)
+		}
+		boxes = append(boxes, box)
 	}
 	return CollisionSeed{ShapeID: id, Confidence: CollisionConfidenceCollisionOnly, Boxes: boxes}, nil
+}
+
+func validateCollisionBox(box CollisionBox) error {
+	if box.MinX > box.MaxX || box.MinY > box.MaxY || box.MinZ > box.MaxZ {
+		return errors.New("collision bounds are inverted")
+	}
+	if box.MinX < collisionLocalHaloMin || box.MinY < collisionLocalHaloMin || box.MinZ < collisionLocalHaloMin ||
+		box.MaxX > collisionLocalHaloMax || box.MaxY > collisionLocalHaloMax || box.MaxZ > collisionLocalHaloMax {
+		return errors.New("collision bounds exceed the one-block query halo")
+	}
+	return nil
 }
 
 func readValentineBlockCount(path string) (int, error) {
@@ -3040,6 +3057,11 @@ func encodeWithMetadata(metadata RegistryMetadata, records []Record) ([]byte, er
 		}
 		if record.CollisionSeed.Confidence == CollisionConfidenceNone && len(record.CollisionSeed.Boxes) != 0 {
 			return nil, fmt.Errorf("collision boxes without confidence for sequential ID %d", record.SequentialID)
+		}
+		for boxIndex, box := range record.CollisionSeed.Boxes {
+			if err := validateCollisionBox(box); err != nil {
+				return nil, fmt.Errorf("collision box %d for sequential ID %d: %w", boxIndex, record.SequentialID, err)
+			}
 		}
 		if record.Provenance&^allProvenance != 0 || record.Provenance == 0 {
 			return nil, fmt.Errorf("invalid provenance %#x for sequential ID %d", record.Provenance, record.SequentialID)

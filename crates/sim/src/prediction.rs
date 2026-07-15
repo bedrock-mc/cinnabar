@@ -2,7 +2,10 @@ use std::collections::VecDeque;
 
 use thiserror::Error;
 
-use crate::{CollisionWorld, MovementInput, PlayerState, SimulationError, Simulator, TickResult};
+use crate::{
+    CollisionWorld, MovementInput, PlayerState, SimulationError, Simulator, TickResult,
+    simulator::validate_player_state,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 struct PredictedFrame {
@@ -119,6 +122,7 @@ impl PredictionHistory {
         simulator: &Simulator,
         world: &impl CollisionWorld,
     ) -> Result<ReplayResult, PredictionError> {
+        validate_player_state(&corrected)?;
         let Some(index) = self
             .frames
             .iter()

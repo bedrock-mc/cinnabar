@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// Small f64 vector used by the deterministic simulation core.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Vec3 {
     pub x: f64,
     pub y: f64,
@@ -28,6 +29,11 @@ impl Vec3 {
     #[must_use]
     pub fn horizontal_length_squared(self) -> f64 {
         self.x.mul_add(self.x, self.z * self.z)
+    }
+
+    #[must_use]
+    pub fn is_finite(self) -> bool {
+        self.x.is_finite() && self.y.is_finite() && self.z.is_finite()
     }
 
     #[must_use]

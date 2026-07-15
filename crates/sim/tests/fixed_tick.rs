@@ -170,3 +170,95 @@ fn world_query_failure_is_transactional_and_does_not_advance_tick() {
     );
     assert_eq!(state, before);
 }
+
+fn assert_state_bits_eq(actual: &PlayerState, expected: &PlayerState) {
+    assert_eq!(actual.tick, expected.tick);
+    for (actual, expected) in [
+        (actual.position, expected.position),
+        (actual.velocity, expected.velocity),
+        (actual.movement, expected.movement),
+    ] {
+        assert_eq!(actual.x.to_bits(), expected.x.to_bits());
+        assert_eq!(actual.y.to_bits(), expected.y.to_bits());
+        assert_eq!(actual.z.to_bits(), expected.z.to_bits());
+    }
+    assert_eq!(actual.on_ground, expected.on_ground);
+    assert_eq!(actual.jump_delay, expected.jump_delay);
+}
+
+struct PanicWorld;
+
+impl CollisionWorld for PanicWorld {
+    fn collision_boxes(&self, _query: Aabb) -> Result<Vec<Aabb>, WorldQueryError> {
+        panic!("invalid simulation data must be rejected before a world query")
+    }
+}
+
+#[test]
+fn non_finite_state_and_input_are_rejected_transactionally_before_world_access() {
+    let simulator = Simulator::default();
+    let initial = PlayerState::new(Vec3::new(0.0, 1.0, 0.0));
+
+    let mut invalid_states = [initial.clone(), initial.clone(), initial.clone()];
+    invalid_states[0].position.x = f64::NAN;
+    invalid_states[1].velocity.y = f64::INFINITY;
+    invalid_states[2].movement.z = f64::NEG_INFINITY;
+    for mut state in invalid_states {
+        let before = state.clone();
+        assert!(matches!(
+            simulator.tick(&mut state, MovementInput::default(), &PanicWorld),
+            Err(SimulationError::NonFiniteState { .. })
+        ));
+        assert_state_bits_eq(&state, &before);
+    }
+
+    for input in [
+        MovementInput {
+            strafe: f64::NAN,
+            ..MovementInput::default()
+        },
+        MovementInput {
+            forward: f64::INFINITY,
+            ..MovementInput::default()
+        },
+        MovementInput {
+            yaw_degrees: f64::NEG_INFINITY,
+            ..MovementInput::default()
+        },
+    ] {
+        let mut state = initial.clone();
+        let before = state.clone();
+        assert!(matches!(
+            simulator.tick(&mut state, input, &PanicWorld),
+            Err(SimulationError::NonFiniteInput { .. })
+        ));
+        assert_eq!(state, before);
+    }
+}
+
+#[test]
+fn oversized_sweep_is_rejected_transactionally_before_world_access() {
+    let mut state = PlayerState::new(Vec3::new(0.0, 1.0, 0.0));
+    state.velocity.x = 1_000_000.0;
+    let before = state.clone();
+
+    assert_eq!(
+        Simulator::default().tick(&mut state, MovementInput::default(), &PanicWorld),
+        Err(SimulationError::World(WorldQueryError::QueryExtentExceeded))
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn finite_out_of_range_position_is_rejected_before_aabb_arithmetic() {
+    let mut state = PlayerState::new(Vec3::new(f64::MAX, 1.0, 0.0));
+    let before = state.clone();
+
+    assert_eq!(
+        Simulator::default().tick(&mut state, MovementInput::default(), &PanicWorld),
+        Err(SimulationError::World(
+            WorldQueryError::CoordinateOutOfRange
+        ))
+    );
+    assert_eq!(state, before);
+}

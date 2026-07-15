@@ -21,6 +21,8 @@ struct BlockPhysics {
 }
 
 pub(crate) const DEFAULT_SURFACE_FRICTION: f64 = 0.6;
+/// Maximum width, height, or depth of a collision query in blocks.
+pub const MAX_COLLISION_QUERY_EXTENT: f64 = 128.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum RegistryError {
@@ -28,6 +30,10 @@ pub enum RegistryError {
     InvalidFriction { runtime_id: u32 },
     #[error("runtime ID {runtime_id} collision shape {shape_index} is non-finite or inverted")]
     InvalidShape { runtime_id: u32, shape_index: usize },
+    #[error(
+        "runtime ID {runtime_id} collision shape {shape_index} exceeds the one-block local query halo"
+    )]
+    ShapeOutsideLocalHalo { runtime_id: u32, shape_index: usize },
 }
 
 impl CollisionRegistry {
@@ -73,6 +79,18 @@ impl CollisionRegistry {
                     shape_index,
                 });
             }
+            if shape.min.x < -1.0
+                || shape.min.y < -1.0
+                || shape.min.z < -1.0
+                || shape.max.x > 2.0
+                || shape.max.y > 2.0
+                || shape.max.z > 2.0
+            {
+                return Err(RegistryError::ShapeOutsideLocalHalo {
+                    runtime_id,
+                    shape_index,
+                });
+            }
         }
         self.blocks.insert(
             runtime_id,
@@ -101,6 +119,8 @@ pub enum WorldQueryError {
     InvalidBounds,
     #[error("collision query coordinate is outside the i32 block range")]
     CoordinateOutOfRange,
+    #[error("collision query exceeds the maximum bounded extent")]
+    QueryExtentExceeded,
     #[error("chunk {0:?} has not received a complete LevelChunk")]
     UnloadedChunk(ChunkKey),
     #[error("runtime ID {runtime_id} at {block:?} has no authoritative collision shape")]
@@ -139,21 +159,7 @@ impl<'a> PaletteWorld<'a> {
 
 impl CollisionWorld for PaletteWorld<'_> {
     fn collision_boxes(&self, query: Aabb) -> Result<Vec<Aabb>, WorldQueryError> {
-        let coordinates = [
-            query.min.x,
-            query.min.y,
-            query.min.z,
-            query.max.x,
-            query.max.y,
-            query.max.z,
-        ];
-        if !coordinates.into_iter().all(f64::is_finite)
-            || query.min.x > query.max.x
-            || query.min.y > query.max.y
-            || query.min.z > query.max.z
-        {
-            return Err(WorldQueryError::InvalidBounds);
-        }
+        validate_collision_query(query)?;
         if query.min == query.max {
             return Ok(Vec::new());
         }
@@ -236,6 +242,41 @@ impl CollisionWorld for PaletteWorld<'_> {
             .friction(runtime_id)
             .ok_or(WorldQueryError::UnknownRuntimeId { runtime_id, block })
     }
+}
+
+pub(crate) fn validate_collision_query(query: Aabb) -> Result<(), WorldQueryError> {
+    let coordinates = [
+        query.min.x,
+        query.min.y,
+        query.min.z,
+        query.max.x,
+        query.max.y,
+        query.max.z,
+    ];
+    if !coordinates.into_iter().all(f64::is_finite)
+        || query.min.x > query.max.x
+        || query.min.y > query.max.y
+        || query.min.z > query.max.z
+    {
+        return Err(WorldQueryError::InvalidBounds);
+    }
+    let min_coordinate = f64::from(i32::MIN) + 1.0;
+    let max_coordinate = f64::from(i32::MAX) - 1.0;
+    if coordinates
+        .into_iter()
+        .any(|value| value < min_coordinate || value > max_coordinate)
+    {
+        return Err(WorldQueryError::CoordinateOutOfRange);
+    }
+    let extent = query.max - query.min;
+    if !extent.is_finite()
+        || extent.x > MAX_COLLISION_QUERY_EXTENT
+        || extent.y > MAX_COLLISION_QUERY_EXTENT
+        || extent.z > MAX_COLLISION_QUERY_EXTENT
+    {
+        return Err(WorldQueryError::QueryExtentExceeded);
+    }
+    Ok(())
 }
 
 fn block_floor(value: Vec3) -> Result<[i32; 3], WorldQueryError> {

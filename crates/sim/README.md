@@ -14,7 +14,8 @@ Application/network integration remains gated until the parity work below is com
   stepping follow the pinned bedsim behavior.
 - `PaletteWorld` queries the packed `world::ChunkStore` directly. It fails closed for unloaded
   chunks, unknown runtime IDs, invalid bounds, and invalid collision-registry data rather than
-  guessing air/full-cube behavior.
+  guessing air/full-cube behavior. Queries are capped at 128 blocks per axis, and registered
+  local shapes must fit the exact `[-1, 2]` one-block-halo coverage contract.
 - `PredictionHistory` retains a bounded tick-keyed input/state history and transactionally
   replays later inputs after a correction. Protocol-specific eye/feet/delta conversion and
   collision-world snapshot versioning deliberately remain outside this crate.
