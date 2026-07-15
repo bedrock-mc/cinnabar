@@ -100,4 +100,3 @@ Run `cargo test -p bedrock-client --test assets --locked`, `cargo test -p render
 - [ ] **Step 5: Commit**
 
 Commit with `feat: fingerprint atmosphere live evidence`.
-

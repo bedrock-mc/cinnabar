@@ -24,4 +24,3 @@ The composition remains inside the existing opaque fullscreen atmosphere pass. S
 ## Verification
 
 The focused Rust tests must cover decoded border traversal, exact `(1, 1, 0)` and `(0, 0, 1)` regressions over bright and dark skies, moon-detail retention, WGSL parse/validation, and startup identity formatting. Full render and app tests, strict Clippy, rustfmt, and an independent review gate the merge. Final visual acceptance uses a fresh `%TEMP%` GDI screenshot from the stable client executable.
-
