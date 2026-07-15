@@ -43,7 +43,10 @@ use metrics::{
     TransparentSortMetricsSnapshot, deterministic_manifest_hash, pair_gpu_pass_sample,
 };
 use model_witness::{ModelWitnessFileSource, poll_model_witness_request};
-use movement::{MovementInputSample, MovementSendError, MovementTicker, flush_player_auth_inputs};
+use movement::{
+    MovementInputSample, MovementSendError, MovementSource, MovementTicker,
+    flush_player_auth_inputs,
+};
 use network::{NetworkConfig, NetworkControlEvent, NetworkHandle, spawn_network};
 use render::{
     AtmosphereFrame, AtmospherePlugin, AtmosphereTextureAssets, CameraMedium, ChunkBiomeTints,
@@ -2017,6 +2020,7 @@ fn send_player_auth_inputs(
     let (bevy_yaw, bevy_pitch, _) = camera.rotation.to_euler(EulerRot::YXZ);
     let forward = camera.forward().as_vec3();
     movement.advance(
+        MovementSource::FreeCamera,
         time.delta(),
         MovementInputSample {
             position: camera.translation.to_array(),
@@ -2359,6 +2363,10 @@ fn receive_network_events(
                 if let Ok(mut camera) = cameras.single_mut() {
                     camera.translation = Vec3::from_array(resolved.position);
                 }
+                // StartGame initializes movement timing, but the current app
+                // still has only an independent fly camera. A future physics
+                // system must explicitly replace this non-authoritative source.
+                movement.set_source(MovementSource::FreeCamera);
                 movement.reset(
                     clock.session_generation(),
                     u64::try_from(environment.initial_time).unwrap_or(0),

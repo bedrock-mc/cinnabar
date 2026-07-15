@@ -1169,13 +1169,14 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
 - [x] **3.1 Server-bound movement foundation.** A vendor-neutral Rust movement snapshot now
   maps byte-for-byte to gophertunnel's protocol-1001 `PlayerAuthInput` fixture, including the
   current position/delta, processed/analogue/raw move vectors, rotation, input flags, input
-  mode, camera orientation, and server tick. The app samples and transmits those snapshots at
-  a deterministic 20 Hz, retries a full network queue through a bounded 32-tick FIFO, clears
-  stale input on StartGame/session replacement, and reanchors the FIFO/tick/delta state on
-  `CorrectPlayerMovePrediction`. The existing fly camera is only the temporary state producer;
-  it is not claimed as collision physics or prediction. The remaining Phase 3 work replaces
-  that producer with the bedsim-parity fixed-tick simulation, history/rewind replay, collision,
-  and render interpolation before the phase deliverable is complete.
+  mode, camera orientation, and server tick. A deterministic 20 Hz scheduler, bounded 32-tick
+  retry FIFO, StartGame/session reset, and `CorrectPlayerMovePrediction` reanchoring are in
+  place behind an explicit movement-source authority gate. The gate defaults to `FreeCamera`,
+  and outbound free-camera `PlayerAuthInput`/position updates are suppressed completely;
+  StartGame and corrections cannot authorize them. Only the future `Physics` source may use
+  the scheduler and transmit. Real movement remains incomplete until the bedsim-parity
+  fixed-tick simulation, collision, prediction/history/rewind replay, and render interpolation
+  are implemented and wired to that source.
 
 ## Phase 4 — Entities and other players
 

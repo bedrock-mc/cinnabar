@@ -10,6 +10,19 @@ pub const MOVEMENT_TICKS_PER_SECOND: f64 = 20.0;
 const MOVEMENT_TICK_SECONDS: f64 = 1.0 / MOVEMENT_TICKS_PER_SECOND;
 pub const OUTBOX_CAPACITY: usize = 32;
 
+/// Origin of a movement sample and the authority allowed to transmit it.
+///
+/// The app currently has only an independent fly camera, so the safe default
+/// is deliberately non-authoritative. Phase 3's physics simulation must opt in
+/// explicitly before its samples may enter the outbound scheduler.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum MovementSource {
+    #[default]
+    FreeCamera,
+    #[allow(dead_code, reason = "reserved for the Phase 3 physics authority")]
+    Physics,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum MovementSendError<E> {
     Encode(PlayerAuthInputError),
@@ -52,10 +65,11 @@ impl From<MovementInputSample> for HeldInput {
 ///
 /// It intentionally does not simulate movement. Phase 3's bedsim port will
 /// provide the position and delta through the same [`MovementInputSample`]
-/// seam; until then, the app may feed its existing camera state explicitly.
+/// seam. Free-camera samples are never queued or transmitted.
 #[derive(Resource, Debug)]
 pub struct MovementTicker {
-    active: bool,
+    session_active: bool,
+    source: MovementSource,
     session_generation: u64,
     next_tick: u64,
     accumulated_seconds: f64,
@@ -68,7 +82,8 @@ pub struct MovementTicker {
 impl Default for MovementTicker {
     fn default() -> Self {
         Self {
-            active: false,
+            session_active: false,
+            source: MovementSource::default(),
             session_generation: 0,
             next_tick: 0,
             accumulated_seconds: 0.0,
@@ -87,7 +102,7 @@ impl MovementTicker {
         initial_server_tick: u64,
         initial_position: [f32; 3],
     ) {
-        self.active = true;
+        self.session_active = true;
         self.session_generation = session_generation;
         self.next_tick = initial_server_tick.saturating_add(1);
         self.accumulated_seconds = 0.0;
@@ -98,14 +113,29 @@ impl MovementTicker {
     }
 
     pub fn deactivate(&mut self) {
-        self.active = false;
+        self.session_active = false;
         self.accumulated_seconds = 0.0;
         self.outbox.clear();
         self.previous_input = HeldInput::default();
     }
 
+    /// Selects the source allowed to drive outbound movement.
+    ///
+    /// Changing authority always discards queued/history state so samples from
+    /// the prior source cannot cross the boundary. The production app leaves
+    /// this at [`MovementSource::FreeCamera`] until real physics exists.
+    pub fn set_source(&mut self, source: MovementSource) {
+        if self.source == source {
+            return;
+        }
+        self.source = source;
+        self.accumulated_seconds = 0.0;
+        self.previous_input = HeldInput::default();
+        self.outbox.clear();
+    }
+
     pub fn apply_server_correction(&mut self, tick: u64, position: [f32; 3]) {
-        if !self.active {
+        if !self.session_active {
             return;
         }
         self.next_tick = self.next_tick.max(tick.saturating_add(1));
@@ -113,7 +143,7 @@ impl MovementTicker {
     }
 
     pub fn reanchor_position(&mut self, position: [f32; 3]) {
-        if !self.active {
+        if !self.session_active {
             return;
         }
         self.accumulated_seconds = 0.0;
@@ -121,8 +151,13 @@ impl MovementTicker {
         self.outbox.clear();
     }
 
-    pub fn advance(&mut self, elapsed: Duration, sample: MovementInputSample) {
-        if !self.active {
+    pub fn advance(
+        &mut self,
+        source: MovementSource,
+        elapsed: Duration,
+        sample: MovementInputSample,
+    ) {
+        if !self.can_transmit(source) {
             return;
         }
         self.accumulated_seconds += elapsed.as_secs_f64();
@@ -179,6 +214,14 @@ impl MovementTicker {
         self.outbox.push_back(snapshot);
     }
 
+    const fn can_transmit(&self, sample_source: MovementSource) -> bool {
+        self.physics_is_authorized() && matches!(sample_source, MovementSource::Physics)
+    }
+
+    const fn physics_is_authorized(&self) -> bool {
+        self.session_active && matches!(self.source, MovementSource::Physics)
+    }
+
     #[must_use]
     pub fn pop_pending(&mut self) -> Option<PlayerAuthInputSnapshot> {
         self.outbox.pop_front()
@@ -188,7 +231,7 @@ impl MovementTicker {
         &mut self,
         snapshot: PlayerAuthInputSnapshot,
     ) -> Result<(), PlayerAuthInputSnapshot> {
-        if self.outbox.len() == OUTBOX_CAPACITY {
+        if !self.physics_is_authorized() || self.outbox.len() == OUTBOX_CAPACITY {
             return Err(snapshot);
         }
         self.outbox.push_front(snapshot);
@@ -229,6 +272,10 @@ pub fn flush_player_auth_inputs<E>(
     budget: usize,
     mut send: impl FnMut(Packet) -> Result<(), E>,
 ) -> Result<usize, MovementSendError<E>> {
+    if !ticker.physics_is_authorized() {
+        return Ok(0);
+    }
+
     let mut sent = 0;
     for _ in 0..budget {
         let Some(snapshot) = ticker.pop_pending() else {
@@ -314,5 +361,47 @@ fn normalize_move_vector(vector: [f32; 2]) -> [f32; 2] {
         [vector[0] * inverse_length, vector[1] * inverse_length]
     } else {
         vector
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn flush_refuses_a_stale_queue_without_physics_authority() {
+        let mut ticker = MovementTicker::default();
+        ticker.reset(1, 10, [0.0; 3]);
+        ticker.set_source(MovementSource::Physics);
+        ticker.advance(
+            MovementSource::Physics,
+            Duration::from_millis(50),
+            MovementInputSample {
+                position: [1.0, 2.0, 3.0],
+                move_vector: [0.0; 2],
+                pitch: 0.0,
+                yaw: 0.0,
+                head_yaw: 0.0,
+                camera_orientation: [0.0, 0.0, 1.0],
+                jumping: false,
+                sneaking: false,
+                sprinting: false,
+            },
+        );
+        assert_eq!(ticker.outbox.len(), 1);
+
+        // Simulate stale state surviving a future refactor so the flush guard
+        // is verified independently from set_source's transition cleanup.
+        ticker.source = MovementSource::FreeCamera;
+        let mut sent_packets = 0;
+        let flushed = flush_player_auth_inputs(&mut ticker, 8, |_packet| {
+            sent_packets += 1;
+            Ok::<_, ()>(())
+        })
+        .unwrap();
+
+        assert_eq!(flushed, 0);
+        assert_eq!(sent_packets, 0);
+        assert_eq!(ticker.outbox.len(), 1);
     }
 }

@@ -4,7 +4,7 @@ mod movement;
 use std::time::Duration;
 
 use movement::{
-    MovementInputSample, MovementSendError, MovementTicker, OUTBOX_CAPACITY,
+    MovementInputSample, MovementSendError, MovementSource, MovementTicker, OUTBOX_CAPACITY,
     flush_player_auth_inputs,
 };
 use protocol::PlayerInputFlags;
@@ -24,12 +24,149 @@ fn sample(position: [f32; 3]) -> MovementInputSample {
 }
 
 #[test]
+fn default_free_camera_never_enqueues_or_sends_after_start_game_and_correction() {
+    let mut ticker = MovementTicker::default();
+
+    // StartGame initializes session/tick state, but the app is still using
+    // its independent fly camera rather than physics-authoritative movement.
+    ticker.reset(7, 1_000, [1.0, 64.0, 2.0]);
+    ticker.advance(
+        MovementSource::FreeCamera,
+        Duration::from_millis(50),
+        sample([100.0, 200.0, 300.0]),
+    );
+
+    // A server correction may reanchor local state, but must not authorize
+    // the free camera as an outbound movement source.
+    ticker.apply_server_correction(1_050, [8.0, 70.0, 9.0]);
+    ticker.advance(
+        MovementSource::FreeCamera,
+        Duration::from_millis(50),
+        sample([400.0, 500.0, 600.0]),
+    );
+
+    let mut sent_packets = 0;
+    let flushed = flush_player_auth_inputs(&mut ticker, 8, |_packet| {
+        sent_packets += 1;
+        Ok::<_, &str>(())
+    })
+    .unwrap();
+
+    assert_eq!(flushed, 0);
+    assert_eq!(sent_packets, 0);
+    assert_eq!(ticker.pending_count(), 0);
+}
+
+#[test]
+fn physics_authority_can_use_the_existing_twenty_hertz_scheduler() {
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 1_000, [1.0, 64.0, 2.0]);
+    ticker.set_source(MovementSource::Physics);
+
+    for _ in 0..60 {
+        ticker.advance(
+            MovementSource::Physics,
+            Duration::from_secs_f64(1.0 / 60.0),
+            sample([1.0, 64.0, 2.0]),
+        );
+    }
+
+    let mut sent_packets = 0;
+    let flushed = flush_player_auth_inputs(&mut ticker, usize::MAX, |_packet| {
+        sent_packets += 1;
+        Ok::<_, &str>(())
+    })
+    .unwrap();
+
+    assert_eq!(flushed, 20);
+    assert_eq!(sent_packets, 20);
+}
+
+#[test]
+fn start_game_free_camera_reset_discards_queued_physics_and_stays_suppressed() {
+    let mut ticker = MovementTicker::default();
+    ticker.reset(1, 10, [0.0; 3]);
+    ticker.set_source(MovementSource::Physics);
+    ticker.advance(
+        MovementSource::Physics,
+        Duration::from_millis(50),
+        sample([1.0, 2.0, 3.0]),
+    );
+    assert_eq!(ticker.pending_count(), 1);
+
+    // A replacement StartGame explicitly restores the app's current source.
+    ticker.set_source(MovementSource::FreeCamera);
+    assert_eq!(ticker.pending_count(), 0);
+    ticker.reset(2, 1_000, [8.0, 70.0, 9.0]);
+    ticker.apply_server_correction(1_050, [10.0, 72.0, 11.0]);
+    ticker.advance(
+        MovementSource::FreeCamera,
+        Duration::from_millis(50),
+        sample([400.0, 500.0, 600.0]),
+    );
+
+    let mut sent_packets = 0;
+    let flushed = flush_player_auth_inputs(&mut ticker, 8, |_packet| {
+        sent_packets += 1;
+        Ok::<_, &str>(())
+    })
+    .unwrap();
+
+    assert_eq!(ticker.pending_count(), 0);
+    assert_eq!(flushed, 0);
+    assert_eq!(sent_packets, 0);
+}
+
+#[test]
+fn physics_authority_rejects_a_free_camera_sample_origin() {
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 1_000, [1.0, 64.0, 2.0]);
+    ticker.set_source(MovementSource::Physics);
+
+    ticker.advance(
+        MovementSource::FreeCamera,
+        Duration::from_millis(50),
+        sample([100.0, 200.0, 300.0]),
+    );
+
+    let mut sent_packets = 0;
+    let flushed = flush_player_auth_inputs(&mut ticker, 8, |_packet| {
+        sent_packets += 1;
+        Ok::<_, &str>(())
+    })
+    .unwrap();
+
+    assert_eq!(ticker.pending_count(), 0);
+    assert_eq!(flushed, 0);
+    assert_eq!(sent_packets, 0);
+}
+
+#[test]
+fn free_camera_authority_rejects_retry_enqueue() {
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 1_000, [1.0, 64.0, 2.0]);
+    ticker.set_source(MovementSource::Physics);
+    ticker.advance(
+        MovementSource::Physics,
+        Duration::from_millis(50),
+        sample([2.0, 64.0, 3.0]),
+    );
+    let snapshot = ticker.pop_pending().unwrap();
+
+    ticker.set_source(MovementSource::FreeCamera);
+    assert_eq!(ticker.retry_front(snapshot), Err(snapshot));
+    assert_eq!(ticker.pending_count(), 0);
+}
+
+#[test]
 fn deterministic_accumulator_emits_exactly_twenty_ticks_per_second() {
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 1_000, [1.0, 64.0, 2.0]);
+    ticker.set_source(MovementSource::Physics);
 
     for frame in 0..60 {
         ticker.advance(
+            MovementSource::Physics,
             Duration::from_secs_f64(1.0 / 60.0),
             sample([1.0, 64.0, 2.0]),
         );
@@ -48,11 +185,12 @@ fn deterministic_accumulator_emits_exactly_twenty_ticks_per_second() {
 fn tick_snapshots_encode_held_and_edge_flags_and_position_delta() {
     let mut ticker = MovementTicker::default();
     ticker.reset(1, 41, [1.0, 64.0, 2.0]);
+    ticker.set_source(MovementSource::Physics);
     let mut pressed = sample([1.25, 64.0, 1.5]);
     pressed.jumping = true;
     pressed.sprinting = true;
 
-    ticker.advance(Duration::from_millis(50), pressed);
+    ticker.advance(MovementSource::Physics, Duration::from_millis(50), pressed);
     let first = ticker.pop_pending().unwrap();
     assert_eq!(first.tick, 42);
     assert_eq!(first.delta, [0.25, 0.0, -0.5]);
@@ -74,7 +212,7 @@ fn tick_snapshots_encode_held_and_edge_flags_and_position_delta() {
         0
     );
 
-    ticker.advance(Duration::from_millis(50), pressed);
+    ticker.advance(MovementSource::Physics, Duration::from_millis(50), pressed);
     let held = ticker.pop_pending().unwrap();
     assert_eq!(held.tick, 43);
     assert_eq!(held.delta, [0.0; 3]);
@@ -92,7 +230,7 @@ fn tick_snapshots_encode_held_and_edge_flags_and_position_delta() {
     );
 
     let released = sample(pressed.position);
-    ticker.advance(Duration::from_millis(50), released);
+    ticker.advance(MovementSource::Physics, Duration::from_millis(50), released);
     let released = ticker.pop_pending().unwrap();
     assert_ne!(
         released.flags.bits() & PlayerInputFlags::JUMP_RELEASED_RAW.bits(),
@@ -108,8 +246,13 @@ fn tick_snapshots_encode_held_and_edge_flags_and_position_delta() {
 fn overdue_ticks_distribute_the_frame_position_delta_evenly() {
     let mut ticker = MovementTicker::default();
     ticker.reset(1, 100, [0.0, 64.0, 0.0]);
+    ticker.set_source(MovementSource::Physics);
 
-    ticker.advance(Duration::from_millis(150), sample([3.0, 64.0, -1.5]));
+    ticker.advance(
+        MovementSource::Physics,
+        Duration::from_millis(150),
+        sample([3.0, 64.0, -1.5]),
+    );
 
     let snapshots: Vec<_> = std::iter::from_fn(|| ticker.pop_pending()).collect();
     assert_eq!(snapshots.len(), 3);
@@ -125,7 +268,12 @@ fn overdue_ticks_distribute_the_frame_position_delta_evenly() {
 fn outbox_is_bounded_and_session_reset_discards_stale_ticks_and_input_edges() {
     let mut ticker = MovementTicker::default();
     ticker.reset(1, 10, [0.0; 3]);
-    ticker.advance(Duration::from_secs(2), sample([2.0, 3.0, 4.0]));
+    ticker.set_source(MovementSource::Physics);
+    ticker.advance(
+        MovementSource::Physics,
+        Duration::from_secs(2),
+        sample([2.0, 3.0, 4.0]),
+    );
     assert_eq!(ticker.pending_count(), OUTBOX_CAPACITY);
     assert_eq!(ticker.dropped_tick_count(), 40 - OUTBOX_CAPACITY as u64);
 
@@ -137,7 +285,11 @@ fn outbox_is_bounded_and_session_reset_discards_stale_ticks_and_input_edges() {
     assert_eq!(ticker.session_generation(), 2);
     assert_eq!(ticker.pending_count(), 0);
     assert_eq!(ticker.dropped_tick_count(), 0);
-    ticker.advance(Duration::from_millis(50), sample([9.0, 10.0, 11.0]));
+    ticker.advance(
+        MovementSource::Physics,
+        Duration::from_millis(50),
+        sample([9.0, 10.0, 11.0]),
+    );
     let new_session = ticker.pop_pending().unwrap();
     assert_eq!(new_session.tick, 5_001);
     assert_eq!(new_session.delta, [0.0; 3]);
@@ -146,7 +298,11 @@ fn outbox_is_bounded_and_session_reset_discards_stale_ticks_and_input_edges() {
         0
     );
     ticker.deactivate();
-    ticker.advance(Duration::from_millis(50), sample([9.0, 10.0, 11.0]));
+    ticker.advance(
+        MovementSource::Physics,
+        Duration::from_millis(50),
+        sample([9.0, 10.0, 11.0]),
+    );
     assert_eq!(ticker.pending_count(), 0);
 }
 
@@ -154,7 +310,9 @@ fn outbox_is_bounded_and_session_reset_discards_stale_ticks_and_input_edges() {
 fn retry_front_rejects_over_capacity_without_losing_the_snapshot() {
     let mut ticker = MovementTicker::default();
     ticker.reset(1, 0, [0.0; 3]);
+    ticker.set_source(MovementSource::Physics);
     ticker.advance(
+        MovementSource::Physics,
         Duration::from_millis(50 * OUTBOX_CAPACITY as u64),
         sample([0.0; 3]),
     );
@@ -170,12 +328,21 @@ fn retry_front_rejects_over_capacity_without_losing_the_snapshot() {
 fn server_correction_reanchors_delta_and_discards_unacknowledged_prediction_ticks() {
     let mut ticker = MovementTicker::default();
     ticker.reset(3, 100, [1.0, 64.0, 1.0]);
-    ticker.advance(Duration::from_millis(100), sample([2.0, 64.0, 2.0]));
+    ticker.set_source(MovementSource::Physics);
+    ticker.advance(
+        MovementSource::Physics,
+        Duration::from_millis(100),
+        sample([2.0, 64.0, 2.0]),
+    );
     assert_eq!(ticker.pending_count(), 2);
 
     ticker.apply_server_correction(150, [8.0, 70.0, 9.0]);
     assert_eq!(ticker.pending_count(), 0);
-    ticker.advance(Duration::from_millis(50), sample([8.0, 70.0, 9.0]));
+    ticker.advance(
+        MovementSource::Physics,
+        Duration::from_millis(50),
+        sample([8.0, 70.0, 9.0]),
+    );
     let corrected = ticker.pop_pending().unwrap();
     assert_eq!(corrected.tick, 151);
     assert_eq!(corrected.delta, [0.0; 3]);
@@ -185,7 +352,12 @@ fn server_correction_reanchors_delta_and_discards_unacknowledged_prediction_tick
 fn bounded_flush_restores_the_exact_front_snapshot_when_transport_is_full() {
     let mut ticker = MovementTicker::default();
     ticker.reset(1, 10, [0.0; 3]);
-    ticker.advance(Duration::from_millis(100), sample([1.0, 2.0, 3.0]));
+    ticker.set_source(MovementSource::Physics);
+    ticker.advance(
+        MovementSource::Physics,
+        Duration::from_millis(100),
+        sample([1.0, 2.0, 3.0]),
+    );
     let expected = *ticker.peek_pending().unwrap();
 
     let error = flush_player_auth_inputs(&mut ticker, 8, |_packet| Err("full")).unwrap_err();
@@ -208,9 +380,10 @@ fn bounded_flush_restores_the_exact_front_snapshot_when_transport_is_full() {
 fn keyboard_diagonal_is_normalized_without_losing_the_raw_vector() {
     let mut ticker = MovementTicker::default();
     ticker.reset(1, 0, [0.0; 3]);
+    ticker.set_source(MovementSource::Physics);
     let mut diagonal = sample([0.0; 3]);
     diagonal.move_vector = [1.0, 1.0];
-    ticker.advance(Duration::from_millis(50), diagonal);
+    ticker.advance(MovementSource::Physics, Duration::from_millis(50), diagonal);
     let snapshot = ticker.pop_pending().unwrap();
 
     let component = 1.0_f32 / 2.0_f32.sqrt();
