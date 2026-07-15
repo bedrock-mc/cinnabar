@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"slices"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -87,6 +88,36 @@ func TestGenerateIsDeterministicAndPinned(t *testing.T) {
 	}
 	committedDir := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", "..", "crates", "world", "fixtures"))
 	assertDirectoriesEqual(t, firstDir, committedDir)
+}
+
+func TestChunkfixIsIsolatedFromWorkspaceAndCoveredByCI(t *testing.T) {
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve test source path")
+	}
+	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", ".."))
+
+	goWork := strings.ReplaceAll(string(readFile(t, filepath.Join(repoRoot, "go.work"))), "\r\n", "\n")
+	for _, line := range strings.Split(goWork, "\n") {
+		if strings.TrimSpace(line) == "./tools/chunkfix" {
+			t.Fatal("tools/chunkfix must stay outside go.work so its pinned Dragonfly encoder is not upgraded by workspace MVS")
+		}
+	}
+
+	workflow := strings.ReplaceAll(
+		string(readFile(t, filepath.Join(repoRoot, ".github", "workflows", "ci.yml"))),
+		"\r\n",
+		"\n",
+	)
+	const isolatedStep = `        working-directory: tools/chunkfix
+        env:
+          GOWORK: "off"
+        run: |
+          go test ./... -count=1
+          go vet ./...`
+	if !strings.Contains(workflow, isolatedStep) {
+		t.Fatal("CI must test and vet tools/chunkfix as an isolated module with GOWORK=off")
+	}
 }
 
 func TestWidthFixturesUseMinimalPaletteBoundaries(t *testing.T) {

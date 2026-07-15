@@ -28,3 +28,10 @@ jobs:
       - run: cargo test --workspace
       - run: go test ./core/...
       - run: go vet ./core/...
+      - name: Test and vet pinned chunk fixture generator
+        working-directory: tools/chunkfix
+        env:
+          GOWORK: "off"
+        run: |
+          go test ./... -count=1
+          go vet ./...
