@@ -16,16 +16,6 @@ pub struct BackingBlockIdentity {
 
 impl BackingBlockIdentity {
     #[must_use]
-    pub const fn new(sequential_id: u32, network_hash: u32, visual_kind: VisualKind) -> Self {
-        Self {
-            sequential_id,
-            network_hash: Some(network_hash),
-            visual_kind,
-            known: true,
-        }
-    }
-
-    #[must_use]
     pub fn from_runtime(value: u32, mode: NetworkIdMode, assets: &RuntimeAssets) -> Self {
         let resolved = assets.resolve(mode, value);
         let (sequential_id, network_hash) = match mode {
@@ -35,14 +25,12 @@ impl BackingBlockIdentity {
                 Some(value),
             ),
         };
-        let mut identity = Self::new(
+        Self {
             sequential_id,
-            network_hash.unwrap_or(u32::MAX),
-            resolved.kind(),
-        );
-        identity.network_hash = network_hash;
-        identity.known = resolved.is_known();
-        identity
+            network_hash,
+            visual_kind: resolved.kind(),
+            known: resolved.is_known(),
+        }
     }
 
     fn matches(self, expected: StaticSource) -> bool {
@@ -206,7 +194,17 @@ fn route_digest(
             update_candidate_digest(&mut digest, source.powered_candidate());
         }
     }
+    digest.update([u8::from(backing.known), backing.visual_kind as u8]);
     digest.update(backing.sequential_id.to_le_bytes());
+    if !backing.known {
+        match backing.network_hash {
+            Some(network_hash) => {
+                digest.update([1]);
+                digest.update(network_hash.to_le_bytes());
+            }
+            None => digest.update([0]),
+        }
+    }
     digest.finalize().into()
 }
 
@@ -256,7 +254,12 @@ fn expected_network_hash(sequential_id: u32) -> Option<u32> {
 }
 
 fn deferred_backing_matches(id: &str, backing: BackingBlockIdentity) -> bool {
-    if !backing.known {
+    let expected_visual_kind = match id {
+        "Beacon" => VisualKind::Cube,
+        "Sign" => VisualKind::Model,
+        _ => VisualKind::Diagnostic,
+    };
+    if !backing.known || backing.visual_kind != expected_visual_kind {
         return false;
     }
     let sequential_id = backing.sequential_id;

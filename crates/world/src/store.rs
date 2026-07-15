@@ -391,6 +391,12 @@ impl ChunkStore {
         changed
     }
 
+    /// Removes stored block data for authoritative request-mode air while
+    /// preserving the independently supplied LevelChunk block-entity map.
+    pub fn apply_request_mode_air(&mut self, key: SubChunkKey) -> Option<SubChunkKey> {
+        self.remove_sub_chunk(key)
+    }
+
     /// Applies one `UpdateBlock`-style change without expanding block data.
     ///
     /// `air_runtime_id` comes from the active registry because raw IDs may be
@@ -660,6 +666,16 @@ impl ChunkStore {
             .collect();
         self.chunks.entry(key).or_default().biomes = Some(replacement);
         expand_biome_mesh_dependents(changed)
+    }
+
+    /// Returns whether a request-mode biome replacement is byte-for-byte
+    /// equivalent to the currently retained dense column.
+    #[must_use]
+    pub fn biome_column_matches(&self, key: ChunkKey, replacement: &DecodedBiomeColumn) -> bool {
+        self.chunks
+            .get(&key)
+            .and_then(|chunk| chunk.biomes.as_ref())
+            == Some(replacement)
     }
 
     /// Atomically swaps a fully worker-decoded column into the store.

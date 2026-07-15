@@ -20,9 +20,9 @@ use std::{
 
 use ::assets::{
     AtmosphereRole, AtmosphereTexture, BlockFlags, BlockVisual, CompiledAssets,
-    CompiledAtmosphereAssets, CompiledBiomeAssets, Material, NO_ANIMATION, NO_MODEL_TEMPLATE,
-    NetworkIdMode, TextureArray, TextureMip, TexturePage, TextureRef, VisualKind,
-    encode_atmosphere_blob, encode_blob,
+    CompiledAtmosphereAssets, CompiledBiomeAssets, Material, ModelQuad, ModelTemplate,
+    NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode, TextureArray, TextureMip, TexturePage,
+    TextureRef, VisualKind, encode_atmosphere_blob, encode_blob,
 };
 use args::{ClientArgs, ParseOutcome};
 use asset_startup::{
@@ -160,16 +160,73 @@ fn block_entity_nbt(id: Option<&str>, fields: &[(u8, &str, u8)]) -> world::Block
 }
 
 fn backing(sequential_id: u32, network_hash: u32) -> BackingBlockIdentity {
-    BackingBlockIdentity::new(sequential_id, network_hash, VisualKind::Cube)
+    let kind = if sequential_id == 846
+        || matches!(
+            sequential_id,
+            1_936
+                | 2_699..=2_702
+                | 7_069..=7_080
+                | 8_516
+                | 13_947..=13_950
+                | 14_587..=14_590
+                | 15_143..=15_146
+                | 15_321..=15_324
+                | 15_688..=15_691
+        ) {
+        VisualKind::Cube
+    } else if matches!(
+        sequential_id,
+        13..=28
+            | 837..=842
+            | 1_992..=1_997
+            | 2_018..=2_023
+            | 5_393..=5_398
+            | 6_438..=6_453
+            | 6_883..=6_888
+            | 8_510..=8_515
+            | 9_120..=9_125
+            | 9_209..=9_214
+            | 10_237..=10_252
+            | 11_064..=11_079
+            | 12_171..=12_186
+            | 12_620..=12_635
+            | 13_126..=13_141
+            | 13_336..=13_347
+            | 13_849..=13_864
+            | 14_513..=14_528
+            | 14_533..=14_548
+            | 14_691..=14_722
+            | 14_941..=14_946
+            | 15_347..=15_352
+    ) {
+        VisualKind::Model
+    } else {
+        VisualKind::Diagnostic
+    };
+    let runtime = runtime_with_block_identity(sequential_id, network_hash, kind);
+    BackingBlockIdentity::from_runtime(network_hash, NetworkIdMode::Hashed, &runtime)
 }
 
-fn runtime_with_block_identity(sequential_id: u32, network_hash: u32) -> ::assets::RuntimeAssets {
+fn runtime_with_block_identity(
+    sequential_id: u32,
+    network_hash: u32,
+    kind: VisualKind,
+) -> ::assets::RuntimeAssets {
+    let flags = if kind == VisualKind::Cube {
+        BlockFlags::CUBE_GEOMETRY
+    } else {
+        BlockFlags::empty()
+    };
     let visual = BlockVisual {
         faces: [0; 6],
-        flags: BlockFlags::CUBE_GEOMETRY,
-        kind: VisualKind::Cube,
+        flags,
+        kind,
         contributor_role: ::assets::ContributorRole::Primary,
-        model_template: NO_MODEL_TEMPLATE,
+        model_template: if kind == VisualKind::Model {
+            0
+        } else {
+            NO_MODEL_TEMPLATE
+        },
         animation: NO_ANIMATION,
         variant: 0,
     };
@@ -190,8 +247,27 @@ fn runtime_with_block_identity(sequential_id: u32, network_hash: u32) -> ::asset
             animation: NO_ANIMATION,
         }]
         .into_boxed_slice(),
-        model_templates: Box::new([]),
-        model_quads: Box::new([]),
+        model_templates: if kind == VisualKind::Model {
+            vec![ModelTemplate {
+                quad_start: 0,
+                quad_count: 1,
+                flags: 0,
+            }]
+            .into_boxed_slice()
+        } else {
+            Box::new([])
+        },
+        model_quads: if kind == VisualKind::Model {
+            vec![ModelQuad {
+                positions: [[0; 3]; 4],
+                uvs: [[0; 2]; 4],
+                material: 0,
+                flags: 0,
+            }]
+            .into_boxed_slice()
+        } else {
+            Box::new([])
+        },
         animations: Box::new([]),
         animation_frames: Box::new([]),
         texture_pages: vec![TexturePage::new(TextureArray { layers: 1, mips })].into_boxed_slice(),
@@ -294,6 +370,25 @@ fn block_entity_visuals_classify_static_logical_deferred_and_unknown_routes() {
 }
 
 #[test]
+fn block_entity_visuals_deferred_routes_require_exact_backing_identity() {
+    let beacon = block_entity_nbt(Some("Beacon"), &[]);
+    let runtime = runtime_with_block_identity(846, 561_914_719, VisualKind::Cube);
+    for identity in [
+        BackingBlockIdentity::from_runtime(0, NetworkIdMode::Hashed, &runtime),
+        BackingBlockIdentity::from_runtime(
+            561_914_719,
+            NetworkIdMode::Hashed,
+            &runtime_with_block_identity(846, 561_914_719, VisualKind::Invisible),
+        ),
+    ] {
+        assert!(matches!(
+            adjudicate_block_entity_visual(&beacon, identity),
+            BlockEntityVisualRoute::Unknown { .. }
+        ));
+    }
+}
+
+#[test]
 fn block_entity_visuals_fail_closed_at_every_note_identity_boundary() {
     let valid_backing = backing(1_936, 166_024_317);
     for fields in [
@@ -339,7 +434,7 @@ fn block_entity_visuals_route_digest_is_stable_and_identity_bound() {
     assert_ne!(first.route_digest(), other_state.route_digest());
 
     let chest = block_entity_nbt(Some("Chest"), &[]);
-    let runtime = runtime_with_block_identity(14_039, 741_882_976);
+    let runtime = runtime_with_block_identity(14_039, 741_882_976, VisualKind::Diagnostic);
     let sequential = adjudicate_block_entity_visual(
         &chest,
         BackingBlockIdentity::from_runtime(14_039, NetworkIdMode::Sequential, &runtime),
@@ -349,6 +444,23 @@ fn block_entity_visuals_route_digest_is_stable_and_identity_bound() {
         BackingBlockIdentity::from_runtime(741_882_976, NetworkIdMode::Hashed, &runtime),
     );
     assert_eq!(sequential.route_digest(), hashed.route_digest());
+}
+
+#[test]
+fn block_entity_visuals_route_digest_distinguishes_unresolved_hashed_states() {
+    let source = block_entity_nbt(Some("Barrel"), &[]);
+    let runtime = runtime_with_block_identity(7_069, 198_111_737, VisualKind::Cube);
+    let first = adjudicate_block_entity_visual(
+        &source,
+        BackingBlockIdentity::from_runtime(1, NetworkIdMode::Hashed, &runtime),
+    );
+    let second = adjudicate_block_entity_visual(
+        &source,
+        BackingBlockIdentity::from_runtime(2, NetworkIdMode::Hashed, &runtime),
+    );
+    assert!(matches!(first, BlockEntityVisualRoute::Unknown { .. }));
+    assert!(matches!(second, BlockEntityVisualRoute::Unknown { .. }));
+    assert_ne!(first.route_digest(), second.route_digest());
 }
 
 fn write_sibling_atmosphere(world_asset_path: &Path, seed: u8) -> PathBuf {
