@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -219,29 +220,33 @@ var sourceFilePins = map[string]sourceFilePin{
 	"Smoker":            {"server/block/smoker.go", "2382fa2a36f6ef1b6c5d3389bbc1831e2bdb9aae7a1f64f5dd2b01400eb5e4a6"},
 }
 
-var requiredNBTVariantIDs = map[string][]string{
-	"Banner":            {"blank", "patterned", "illager"},
-	"Barrel":            {"empty", "inventory_named"},
-	"Beacon":            {"inactive", "powered_effects"},
-	"Bed":               {"all_colours"},
-	"BlastFurnace":      {"idle", "active_recipe"},
-	"BrewingStand":      {"empty", "brewing"},
-	"Campfire":          {"empty", "cooking_four_slots"},
-	"Chest":             {"single_empty", "single_inventory_named", "paired"},
-	"CopperGolemStatue": {"all_poses"},
-	"DecoratedPot":      {"brick_sides_empty", "mixed_sherds_with_item"},
-	"EnchantTable":      {"default"},
-	"EnderChest":        {"default"},
-	"Furnace":           {"idle", "active_recipe"},
-	"GlowItemFrame":     {"empty", "displayed_item_all_rotations"},
-	"Hopper":            {"empty", "inventory_named_cooldown"},
-	"ItemFrame":         {"empty", "displayed_item_all_rotations"},
-	"Jukebox":           {"empty", "record"},
-	"Lectern":           {"empty", "book_all_pages"},
-	"Note":              {"all_pitches_unpowered", "all_pitches_powered"},
-	"Sign":              {"plain_front_back", "coloured_glowing_waxed"},
-	"Skull":             {"standing_types_rotations", "wall_types"},
-	"Smoker":            {"idle", "active_recipe"},
+var requiredNBTVariants = map[string]map[string][]string{
+	"Banner": {
+		"blank": {"id", "Base", "Type", "Patterns"}, "patterned": {"id", "Base", "Type", "Patterns"}, "illager": {"id", "Base", "Type", "Patterns"},
+	},
+	"Barrel":       {"empty": {"id", "Items"}, "inventory_named": {"id", "Items", "CustomName"}},
+	"Beacon":       {"inactive": {"id", "Levels"}, "powered_effects": {"id", "Levels", "Primary", "Secondary"}},
+	"Bed":          {"all_colours": {"id", "color"}},
+	"BlastFurnace": {"idle": {"id", "BurnTime", "CookTime", "BurnDuration", "StoredXPInt", "Items"}, "active_recipe": {"id", "BurnTime", "CookTime", "BurnDuration", "StoredXPInt", "Items"}},
+	"BrewingStand": {"empty": {"id", "Items", "CookTime", "FuelTotal", "FuelAmount"}, "brewing": {"id", "Items", "CookTime", "FuelTotal", "FuelAmount"}},
+	"Campfire":     {"empty": {"id"}, "cooking_four_slots": {"id", "Item1", "ItemTime1", "Item2", "ItemTime2", "Item3", "ItemTime3", "Item4", "ItemTime4"}},
+	"Chest": {
+		"single_empty": {"id", "Items"}, "single_inventory_named": {"id", "Items", "CustomName"}, "paired": {"id", "Items", "pairx", "pairz"},
+	},
+	"CopperGolemStatue": {"all_poses": {"id", "Pose"}},
+	"DecoratedPot":      {"brick_sides_empty": {"id", "sherds"}, "mixed_sherds_with_item": {"id", "sherds", "item"}},
+	"EnchantTable":      {"default": {"id"}},
+	"EnderChest":        {"default": {"id"}},
+	"Furnace":           {"idle": {"id", "BurnTime", "CookTime", "BurnDuration", "StoredXPInt", "Items"}, "active_recipe": {"id", "BurnTime", "CookTime", "BurnDuration", "StoredXPInt", "Items"}},
+	"GlowItemFrame":     {"empty": {"id", "ItemDropChance", "ItemRotation"}, "displayed_item_all_rotations": {"id", "ItemDropChance", "ItemRotation", "Item"}},
+	"Hopper":            {"empty": {"id", "Items", "TransferCooldown"}, "inventory_named_cooldown": {"id", "Items", "TransferCooldown", "CustomName"}},
+	"ItemFrame":         {"empty": {"id", "ItemDropChance", "ItemRotation"}, "displayed_item_all_rotations": {"id", "ItemDropChance", "ItemRotation", "Item"}},
+	"Jukebox":           {"empty": {"id"}, "record": {"id", "RecordItem"}},
+	"Lectern":           {"empty": {"id", "hasBook", "page"}, "book_all_pages": {"id", "hasBook", "page", "book", "totalPages"}},
+	"Note":              {"all_pitches_unpowered": {"note", "powered"}, "all_pitches_powered": {"note", "powered"}},
+	"Sign":              {"plain_front_back": {"id", "IsWaxed", "FrontText", "BackText"}, "coloured_glowing_waxed": {"id", "IsWaxed", "FrontText", "BackText"}},
+	"Skull":             {"standing_types_rotations": {"id", "SkullType", "Rotation"}, "wall_types": {"id", "SkullType", "Rotation"}},
+	"Smoker":            {"idle": {"id", "BurnTime", "CookTime", "BurnDuration", "StoredXPInt", "Items"}, "active_recipe": {"id", "BurnTime", "CookTime", "BurnDuration", "StoredXPInt", "Items"}},
 }
 
 func main() {
@@ -287,6 +292,21 @@ func main() {
 }
 
 func collectPinnedInventory() (sourceInventory, error) {
+	moduleRoot, err := resolveDragonflyModuleRoot()
+	if err != nil {
+		return sourceInventory{}, err
+	}
+	return collectPinnedInventoryFromModuleRoot(moduleRoot)
+}
+
+func collectPinnedInventoryFromModuleRoot(moduleRoot string) (sourceInventory, error) {
+	if err := verifyPinnedSourceFiles(moduleRoot); err != nil {
+		return sourceInventory{}, err
+	}
+	return collectPinnedInventoryFromRegistry()
+}
+
+func collectPinnedInventoryFromRegistry() (sourceInventory, error) {
 	world.DefaultBlockRegistry.Finalize()
 	grouped := map[string]map[string]map[string]json.RawMessage{}
 	ids := map[string]*string{}
@@ -390,6 +410,65 @@ func collectPinnedInventory() (sourceInventory, error) {
 		BDS:              bdsProvenance{ServerVersion: bdsServerVersion, ProtocolVersion: protocolVersion, ExecutableBytes: bdsExecutableSize, ExecutableSHA256: bdsExecutableSHA256},
 		Entries:          entries,
 	}, nil
+}
+
+func resolveDragonflyModuleRoot() (string, error) {
+	command := exec.Command("go", "list", "-m", "-f", "{{.Path}}\n{{.Version}}\n{{.Dir}}", dragonflyModule)
+	command.Env = append(os.Environ(), "GOWORK=off")
+	raw, err := command.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("resolve pinned Dragonfly module: %w: %s", err, strings.TrimSpace(string(raw)))
+	}
+	parts := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	if len(parts) != 3 || strings.TrimSpace(parts[0]) != dragonflyModule || strings.TrimSpace(parts[1]) != dragonflyVersion {
+		return "", errors.New("resolved Dragonfly module path/version drift")
+	}
+	root := strings.TrimSpace(parts[2])
+	if root == "" {
+		return "", errors.New("resolved empty Dragonfly module root")
+	}
+	return root, nil
+}
+
+func verifyPinnedSourceFiles(moduleRoot string) error {
+	root, err := filepath.Abs(moduleRoot)
+	if err != nil {
+		return fmt.Errorf("resolve Dragonfly module root: %w", err)
+	}
+	keys := make([]string, 0, len(sourceFilePins))
+	for key := range sourceFilePins {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		pin := sourceFilePins[key]
+		path := filepath.Join(root, filepath.FromSlash(pin.File))
+		relative, err := filepath.Rel(root, path)
+		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("invalid Dragonfly source path for %s", key)
+		}
+		digest, err := streamFileSHA256(path)
+		if err != nil {
+			return fmt.Errorf("hash Dragonfly source for %s: %w", key, err)
+		}
+		if digest != pin.SHA256 {
+			return fmt.Errorf("Dragonfly source hash drift for %s: got %s, want %s", key, digest, pin.SHA256)
+		}
+	}
+	return nil
+}
+
+func streamFileSHA256(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	digest := sha256.New()
+	if _, err := io.Copy(digest, file); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(digest.Sum(nil)), nil
 }
 
 func normalizeProperties(properties map[string]any) map[string]any {
@@ -605,13 +684,9 @@ func validateReviewedEntry(entry rendererEntry) error {
 	if len(entry.RequiredNBTVariants) == 0 {
 		return errors.New("missing required NBT variants")
 	}
-	expectedVariants, ok := requiredNBTVariantIDs[entry.SourceKey]
+	expectedVariants, ok := requiredNBTVariants[entry.SourceKey]
 	if !ok || len(entry.RequiredNBTVariants) != len(expectedVariants) {
 		return errors.New("required NBT variant set mismatch")
-	}
-	expected := make(map[string]bool, len(expectedVariants))
-	for _, variantID := range expectedVariants {
-		expected[variantID] = true
 	}
 	seen := make(map[string]bool, len(entry.RequiredNBTVariants))
 	for _, variant := range entry.RequiredNBTVariants {
@@ -621,7 +696,8 @@ func validateReviewedEntry(entry rendererEntry) error {
 		if seen[variant.VariantID] {
 			return fmt.Errorf("duplicate required NBT variant %q", variant.VariantID)
 		}
-		if !expected[variant.VariantID] {
+		expectedFields, expected := expectedVariants[variant.VariantID]
+		if !expected {
 			return errors.New("required NBT variant set mismatch")
 		}
 		seen[variant.VariantID] = true
@@ -631,11 +707,14 @@ func validateReviewedEntry(entry rendererEntry) error {
 		if err := validateIdentifiers(variant.RequiredFields, "required NBT field"); err != nil {
 			return err
 		}
+		if !sameIdentifierSet(variant.RequiredFields, expectedFields) {
+			return errors.New("required NBT field set mismatch")
+		}
 		if err := validateIdentifiers(variant.WitnessIDs, "NBT variant witness"); err != nil {
 			return err
 		}
 	}
-	for _, variantID := range expectedVariants {
+	for variantID := range expectedVariants {
 		if !seen[variantID] {
 			return errors.New("required NBT variant set mismatch")
 		}
@@ -701,6 +780,22 @@ func validateIdentifiers(values []string, label string) error {
 		seen[value] = true
 	}
 	return nil
+}
+
+func sameIdentifierSet(actual, expected []string) bool {
+	if len(actual) != len(expected) {
+		return false
+	}
+	want := make(map[string]bool, len(expected))
+	for _, value := range expected {
+		want[value] = true
+	}
+	for _, value := range actual {
+		if !want[value] {
+			return false
+		}
+	}
+	return true
 }
 
 func isTrimmedNonEmpty(value string) bool {

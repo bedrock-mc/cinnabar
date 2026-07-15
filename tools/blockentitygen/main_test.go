@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -288,6 +289,13 @@ func TestReviewedJoinRejectsIncompleteMalformedAndContradictoryDeclarations(t *t
 			fields := m.Entries[0].RequiredNBTVariants[0].RequiredFields
 			m.Entries[0].RequiredNBTVariants[0].RequiredFields = append(fields, fields[0])
 		}, "duplicate required NBT field"},
+		{"missing required field", func(m *rendererManifest) {
+			fields := m.Entries[0].RequiredNBTVariants[0].RequiredFields
+			m.Entries[0].RequiredNBTVariants[0].RequiredFields = fields[:len(fields)-1]
+		}, "required NBT field set mismatch"},
+		{"extra required field", func(m *rendererManifest) {
+			m.Entries[0].RequiredNBTVariants[0].RequiredFields = append(m.Entries[0].RequiredNBTVariants[0].RequiredFields, "InventedField")
+		}, "required NBT field set mismatch"},
 		{"whitespace alias", func(m *rendererManifest) {
 			m.Entries[0].NBTAliases = []string{" "}
 		}, "invalid NBT alias"},
@@ -330,6 +338,37 @@ func TestReviewedJoinRejectsIncompleteMalformedAndContradictoryDeclarations(t *t
 				t.Fatalf("error = %v, want %q", err, test.want)
 			}
 		})
+	}
+}
+
+func TestCollectPinnedInventoryRejectsActualSourceFileHashDrift(t *testing.T) {
+	sourceRoot := mustResolveModuleRoot(t)
+	fixtureRoot := t.TempDir()
+	seen := map[string]bool{}
+	for _, pin := range sourceFilePins {
+		if seen[pin.File] {
+			continue
+		}
+		seen[pin.File] = true
+		raw, err := os.ReadFile(filepath.Join(sourceRoot, filepath.FromSlash(pin.File)))
+		if err != nil {
+			t.Fatalf("read pinned source %s: %v", pin.File, err)
+		}
+		if pin.File == "server/block/banner.go" {
+			raw = append(raw, []byte("\n// source hash drift fixture\n")...)
+		}
+		destination := filepath.Join(fixtureRoot, filepath.FromSlash(pin.File))
+		if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+			t.Fatalf("create pinned source directory: %v", err)
+		}
+		if err := os.WriteFile(destination, raw, 0o600); err != nil {
+			t.Fatalf("write pinned source fixture: %v", err)
+		}
+	}
+
+	_, err := collectPinnedInventoryFromModuleRoot(fixtureRoot)
+	if err == nil || !strings.Contains(err.Error(), "Dragonfly source hash drift for Banner") {
+		t.Fatalf("source drift error = %v", err)
 	}
 }
 
@@ -467,6 +506,21 @@ func cloneManifest(t *testing.T, manifest rendererManifest) rendererManifest {
 
 func stringPointer(value string) *string {
 	return &value
+}
+
+func mustResolveModuleRoot(t *testing.T) string {
+	t.Helper()
+	command := exec.Command("go", "list", "-m", "-f", "{{.Dir}}", dragonflyModule)
+	command.Env = append(os.Environ(), "GOWORK=off")
+	raw, err := command.Output()
+	if err != nil {
+		t.Fatalf("resolve Dragonfly module root: %v", err)
+	}
+	root := strings.TrimSpace(string(raw))
+	if root == "" {
+		t.Fatal("resolved empty Dragonfly module root")
+	}
+	return root
 }
 
 func writeHashedFixture(t *testing.T, path string, size int64) string {
