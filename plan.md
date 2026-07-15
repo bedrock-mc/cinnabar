@@ -214,7 +214,7 @@ Scope: block registry + block-state → model/texture mapping (generated export 
   widening the eight-byte quad. The existing single opaque shader now applies
   bit-8 alpha cutout with depth writes and no blending. No Mojang payload is
   tracked. The deterministic live-evidence task remains open.
-- [x] **2.5 Biome palettes and tinting.** Decode/store biome data and apply
+- [ ] **2.5 Biome palettes and tinting.** Decode/store biome data and apply
   grass/foliage/water tint without widening the eight-byte quad record.
   - [x] Palette-native v1001 biome storage/column decoding, including padded
     Bedrock words, `0xff` previous-storage reuse, strict malformed-input
@@ -239,6 +239,12 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     `20260712T203607Z-7596` proved five runtime water tints, consecutive exact
     GPU witnesses, generation 518 presented, p99 14.0 ms, and zero decode
     errors; fresh assets/render/client focused suites remain green.
+  - [ ] Add vanilla-reference biome tint blending for grass, foliage, and
+    water. Determine the matching Bedrock radius/kernel from native reference
+    evidence, sample the bounded palette-native biome neighbourhood across
+    chunk boundaries without flattening columns, preserve special foliage
+    rules and custom-biome fallback, and cover abrupt-boundary, missing-neighbour,
+    teleport/eviction, GPU, and performance cases.
 - [ ] **2.6 Static/non-cube models, blend/water, and flipbooks.** Complete the
   remaining block visual classes and animation path per
   `docs/superpowers/specs/2026-07-11-phase-2-6-noncube-water-design.md`.
