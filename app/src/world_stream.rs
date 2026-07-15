@@ -4817,6 +4817,7 @@ mod tests {
             TextureArray, TextureMip, TexturePage, TextureRef, VisualKind, encode_blob,
         };
         use bevy::{
+            anti_alias::AntiAliasPlugin,
             prelude::{App, DefaultPlugins, PluginGroup, default},
             render::{RenderApp, RenderPlugin, pipelined_rendering::PipelinedRenderingPlugin},
             window::WindowPlugin,
@@ -6013,6 +6014,7 @@ mod tests {
                         synchronous_pipeline_compilation: true,
                         ..default()
                     })
+                    .disable::<AntiAliasPlugin>()
                     .disable::<WinitPlugin>()
                     .disable::<PipelinedRenderingPlugin>(),
             )
