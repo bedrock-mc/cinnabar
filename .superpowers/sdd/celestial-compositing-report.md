@@ -18,10 +18,10 @@ SHA-256 and the SHA-256 of the WGSL source embedded in the app.
 No cloud code, `plan.md`, Mojang payload, generated atmosphere blob, screenshot,
 or other worktree was changed. Nothing was pushed.
 
-Status: `DONE_WITH_CONCERNS`. All implementation and automated verification
-gates are green. The only concern is that the required independent review agent
-could not be started because the thread-wide agent limit was full on both
-attempts. A focused self-review is recorded below; native GDI visual acceptance
+Status: `DONE`. All implementation and automated verification gates are green.
+The independent review subsequently returned one Important finding about a
+machine-specific path in the identity evidence line; that finding is resolved
+and verified in the follow-up recorded below. Native GDI visual acceptance
 remains the later integration gate described by the approved design.
 
 ## Commits
@@ -136,4 +136,37 @@ GDI screenshot from the stable executable as the final live acceptance gate.
   `plan.md` change, generated asset, or screenshot.
 
 No Critical or Important issue was found during self-review. Independent review
-remains outstanding solely because no agent slot was available.
+subsequently found and resolved the evidence-line path leak described below.
+
+## Independent-review follow-up
+
+The reviewer found that `LoadedAtmosphereAssets::startup_summary()` included
+`selected_path().display()`. That path is machine-specific, so otherwise
+identical evidence changed with the checkout or temporary directory.
+
+TDD RED:
+
+- Added `atmosphere_evidence_summary_contains_only_stable_hashes`, which loads a
+  synthetic atmosphere carrier from a path containing an explicit local-path
+  sentinel, rejects the complete selected path in the summary, and asserts an
+  exact ordered two-hash evidence record.
+- `cargo test -p bedrock-client --test assets atmosphere_evidence_summary_contains_only_stable_hashes --locked -- --exact`
+  failed as expected with `selected path leaked` and printed the `%TEMP%` path
+  from the old summary.
+
+TDD GREEN and verification:
+
+- `startup_summary()` now emits exactly
+  `ATMOSPHERE_EVIDENCE envelope_sha256=<64 lowercase hex> shader_source_sha256=<64 lowercase hex>`.
+- The pre-existing human-readable selected-path diagnostic remains a separate
+  startup line and is not part of the evidence identity record.
+- The exact focused regression passed: 1 passed, 0 failed.
+- `cargo test -p bedrock-client --test assets atmosphere --locked` passed:
+  8 passed, 0 failed.
+- `cargo test -p bedrock-client --test assets --locked` passed: 38 passed,
+  0 failed.
+- `cargo clippy --workspace --all-targets --locked -- -D warnings` passed with
+  zero warnings.
+- The first `cargo fmt --all -- --check` identified two formatting-only diffs;
+  `cargo fmt --all` applied them, after which the exact regression,
+  `cargo fmt --all -- --check`, and `git diff --check` all passed.

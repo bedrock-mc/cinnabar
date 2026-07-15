@@ -2109,6 +2109,10 @@ fn run(args: args::ClientArgs) -> Result<()> {
             loaded_assets.metrics.blob_sha256
         );
     }
+    eprintln!(
+        "loaded required atmosphere assets from {}",
+        loaded_assets.atmosphere.selected_path().display()
+    );
     eprintln!("{}", loaded_assets.atmosphere.startup_summary());
     let (atmosphere_runtime, atmosphere_identity) = loaded_assets.atmosphere.into_parts();
     let runtime_assets = loaded_assets.runtime;

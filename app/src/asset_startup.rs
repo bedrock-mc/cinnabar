@@ -95,10 +95,8 @@ impl LoadedAtmosphereAssets {
     pub fn startup_summary(&self) -> String {
         let evidence = self.evidence();
         format!(
-            "loaded required atmosphere assets from {} (envelope_sha256={} shader_source_sha256={})",
-            self.selected_path().display(),
-            evidence.envelope_sha256,
-            evidence.shader_source_sha256
+            "ATMOSPHERE_EVIDENCE envelope_sha256={} shader_source_sha256={}",
+            evidence.envelope_sha256, evidence.shader_source_sha256
         )
     }
 }

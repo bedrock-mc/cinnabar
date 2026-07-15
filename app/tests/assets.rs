@@ -639,6 +639,34 @@ fn atmosphere_live_evidence_distinguishes_envelopes_and_is_stable_across_loads()
 }
 
 #[test]
+fn atmosphere_evidence_summary_contains_only_stable_hashes() {
+    let directory = temporary_directory("machine-specific-atmosphere-evidence-path");
+    let world_path = directory.join("local-vanilla.mcbea");
+    fs::write(&world_path, synthetic_blob()).unwrap();
+    let atmosphere_blob = synthetic_atmosphere_blob(0x63);
+    fs::write(atmosphere_asset_path(&world_path), &atmosphere_blob).unwrap();
+
+    let loaded = load_runtime_assets(select_asset_path(Some(&world_path), None)).unwrap();
+    let selected_path = loaded.atmosphere.selected_path().display().to_string();
+    let evidence = loaded.atmosphere.evidence();
+    let summary = loaded.atmosphere.startup_summary();
+
+    assert!(
+        !summary.contains(&selected_path),
+        "selected path leaked: {summary}"
+    );
+    assert_eq!(
+        summary,
+        format!(
+            "ATMOSPHERE_EVIDENCE envelope_sha256={} shader_source_sha256={}",
+            evidence.envelope_sha256, evidence.shader_source_sha256
+        )
+    );
+
+    fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
 fn atmosphere_shader_identity_hashes_the_exact_embedded_wgsl_source() {
     let expected = format!(
         "{:x}",
