@@ -1208,13 +1208,17 @@ Scope: block registry + block-state → model/texture mapping (generated export 
 
 Perf budget carried from Phase 0 gate; add: full remesh of view distance after teleport ≤ 2s.
 
-**Edge anti-aliasing (2026-07-14):** the client explicitly selects portable 4x
-MSAA for the primary camera. All custom chunk, static-model, transparent-model,
-water, and depth-liquid pipelines specialize from the camera sample count, so it
-covers the complete world render without an FXAA blur pass over the pixel-art
-textures. An attempted 8x default (`ac1da9e`) was reverted after a real macOS
-adapter rejected eight samples for `Depth32Float`; any higher setting must be
-capability-checked rather than hardcoded (camera suite and strict Clippy green).
+**Edge anti-aliasing (2026-07-15):** [x] the client uses single-sample world
+targets plus an FXAA-only post-process through `cd31f7a`. This replaces the
+nominally portable 4x MSAA default after a real Radeon RX 570 DX12 adapter
+presented black frames for every multisampled view (including a minimal Bevy
+clear-color reproduction), while a macOS adapter had already rejected 8x
+`Depth32Float`. Bevy's umbrella anti-alias plugin is disabled so unavailable
+TAA/SMAA/CAS graph nodes are not installed; only `FxaaPlugin` runs. The full
+280-test client suite, strict Clippy/formatting, release build, independent
+review, and a fresh BDS/GDI above/within/below gallery are green. Higher
+multisample modes remain conditional on a future capability- and live-tested
+resolve path rather than a hardcoded camera sample count.
 
 **Live visual acceptance (Computer Use):** run the Bevy app in representative vanilla
 world scenes and compare visible results against the matching Mojang vanilla assets/reference
@@ -1298,7 +1302,14 @@ store it only under the user's temporary directory, inspect that file, and never
     silhouette, face shading, motion, fog, and seam behavior against the
     matching native Bedrock client, correct the proven differences, and obtain
     a fresh accepted above/below/within/grazing gallery before closing this
-    blocker. Deterministic mesher/pipeline tests alone do not satisfy it.
+    blocker. Deterministic mesher/pipeline tests alone do not satisfy it. The
+    first live/evidence audit proves three root mismatches that must be removed:
+    the compiled `v1.26.30.32-preview` mask differs from the installed 1.26.33.1
+    mask at 24,175/65,536 occupancy coordinates; the fixed 3x3 256-period draw
+    ignores native `cloud_mesh_size: 64`, quality grid, and distance controls;
+    and the opaque, depth-writing, fixed-face shader contradicts native
+    transparent, directional-light, and exact weather-colour inputs. Exact
+    native cloud bytes remain local build inputs and must never be committed.
   - [ ] Implement, independently review, and live-verify the finite cloud mesh.
 
 ## Phase 3 — Movement and the local player
