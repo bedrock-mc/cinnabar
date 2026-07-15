@@ -995,10 +995,12 @@ Scope: block registry + block-state → model/texture mapping (generated export 
         covered without flat block expansion. The separate deterministic
         inventory/renderer manifest and per-ID GPU/no-draw witnesses remain
         open.
-    - [ ] Squash-merge both the Axolotl protocol-fix branch and Cinnabar feature
-      branch into their respective `main` branches only after the applicable
-      deterministic tests, native/GPU acceptance, zero-diagnostic state gate,
-      and block-entity manifest gate are green.
+    - [ ] Merge both the Axolotl protocol-fix branch and Cinnabar feature branch
+      into their respective `main` branches through reviewed PRs using normal
+      history-preserving merge commits (never squash or rebase the feature
+      history), only after the applicable deterministic tests, native/GPU
+      acceptance, zero-diagnostic state gate, and block-entity manifest gate
+      are green.
 - [ ] **2.7 Client lighting and atmosphere.** Block/sky flood fill, baked vertex
   light and day/night, then sky, fog, and clouds; finish the Phase 2 parity and
   teleport-remesh acceptance gates.
