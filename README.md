@@ -160,6 +160,8 @@ Start the client with an explicit blob when needed:
 cargo run -p bedrock-client --locked -- --socket-dir .local/run --assets .local/assets/compiled/vanilla-v1001.mcbea
 ```
 
+To disable VSync through the Makefile client target, run `make client NO_VSYNC=1`.
+
 Asset selection uses `--assets`, then `RUST_MCBE_ASSETS`, then the ignored default
 `.local/assets/compiled/vanilla-v1001.mcbea`. A missing file starts with the generated
 magenta/black diagnostic texture and prints the commands above. A present but malformed blob

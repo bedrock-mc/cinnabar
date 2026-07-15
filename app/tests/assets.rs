@@ -432,6 +432,21 @@ fn make_client_rebuilds_only_a_missing_or_stale_asset_blob() {
 }
 
 #[test]
+fn make_client_passes_no_vsync_only_when_requested() {
+    let makefile = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("Makefile"),
+    )
+    .unwrap()
+    .replace("\r\n", "\n");
+
+    assert!(makefile.contains("NO_VSYNC ?= 0"));
+    assert!(makefile.contains("$(if $(filter 1,$(NO_VSYNC)),--no-vsync)"));
+}
+
+#[test]
 fn make_assets_and_client_refresh_the_atmosphere_blob_and_report() {
     let makefile = fs::read_to_string(
         Path::new(env!("CARGO_MANIFEST_DIR"))

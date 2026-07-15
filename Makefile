@@ -6,6 +6,7 @@ POWERSHELL ?= powershell
 
 SOCKET_DIR ?= .local/run-zeqa
 AUTH_CACHE ?= .local/auth/microsoft-token.json
+NO_VSYNC ?= 0
 
 PACK_DIR ?= .local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack
 BLOCK_REGISTRY ?= crates/assets/data/block-registry-v1001.bin
@@ -31,7 +32,7 @@ help:
 	@echo make client-wayland  - Run on Wayland
 	@echo make client-x11      - Run on X11/XWayland
 	@echo UPSTREAM=host:port is required for make core
-	@echo Override optional settings with SOCKET_DIR=... and AUTH_CACHE=...
+	@echo Override optional settings with SOCKET_DIR=..., AUTH_CACHE=..., and NO_VSYNC=1
 
 assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT)
 
@@ -57,7 +58,7 @@ core:
 	$(GO) run ./core/cmd/bedrock-core -socket-dir "$(SOCKET_DIR)" -upstream "$(UPSTREAM)" -auth-cache "$(AUTH_CACHE)"
 
 client: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT)
-	$(CARGO) run --release -p bedrock-client --locked -- --socket-dir "$(SOCKET_DIR)"
+	$(CARGO) run --release -p bedrock-client --locked -- --socket-dir "$(SOCKET_DIR)" $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
 
 client-windows client-macos client-linux: client
 
