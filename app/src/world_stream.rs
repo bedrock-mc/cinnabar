@@ -47,8 +47,8 @@ use crate::server_position::{ResolvedServerPosition, resolve_server_position};
 pub const WORK_RESULT_CAPACITY: usize = 128;
 pub const MAX_ADMITTED_WORLD_EVENTS: usize = 64;
 pub const MAX_ADMITTED_HEAVY_EVENTS: usize = 32;
-pub const MAX_IN_FLIGHT_DECODE_JOBS: usize = 4;
-pub const DECODE_DISPATCH_BUDGET_PER_POLL: usize = 4;
+pub const MAX_IN_FLIGHT_DECODE_JOBS: usize = MAX_ADMITTED_HEAVY_EVENTS;
+pub const DECODE_DISPATCH_BUDGET_PER_POLL: usize = MAX_ADMITTED_HEAVY_EVENTS;
 pub const PHASE0_MAX_VIEW_RADIUS_CHUNKS: i32 = 16;
 static NEXT_BIOME_TINT_STREAM_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_ACTOR_SESSION_ID: AtomicU64 = AtomicU64::new(1);
@@ -9774,6 +9774,32 @@ mod tests {
             error,
             super::WorldStreamError::AdmissionFull { .. }
         ));
+    }
+
+    #[test]
+    fn one_dispatch_drains_the_entire_bounded_heavy_admission_window() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+
+        for sequence in 1..=super::MAX_ADMITTED_HEAVY_EVENTS as u64 {
+            stream
+                .submit(sequence, inline_air_event(sequence as i32))
+                .unwrap();
+        }
+
+        stream.dispatch_decode_jobs();
+
+        assert!(stream.pending_decode.is_empty());
+        assert_eq!(
+            stream.in_flight_decode_jobs,
+            super::MAX_ADMITTED_HEAVY_EVENTS
+        );
     }
 
     #[test]
