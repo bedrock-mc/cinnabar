@@ -1072,6 +1072,16 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     combined Clippy, WGSL semantic/Metal-stage checks, formatting, and diff
     checks are green. Live mixed-block GPU parity and teleport/performance
     acceptance remain open.
+  - [x] Preserve the authoritative all-air suffix omitted by limited-request
+    `LevelChunk` columns and feed it into the sparse top-down skylight graph.
+    `highest=0` columns require no outbound slot or packet; replacement,
+    eviction, direct-sky propagation, and the final mesh-light sidecar are
+    covered. This fixes the live zero-skylight world while leaving block light
+    independent. The pinned opaque-RGB sun and moon textures now derive
+    coverage from their exact black key instead of their unusable all-opaque
+    alpha channel, removing the expanding black celestial quads. Full client,
+    render-atmosphere, asset, camera, strict Clippy, WGSL, and independent
+    review gates are green through `7805402`.
 
 Perf budget carried from Phase 0 gate; add: full remesh of view distance after teleport ≤ 2s.
 
