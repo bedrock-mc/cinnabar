@@ -216,6 +216,17 @@ pub struct BlockUpdateEvent {
     pub network_id: u32,
 }
 
+/// One live block-entity NBT replacement from packet 56.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlockEntityUpdateEvent {
+    pub dimension: i32,
+    /// Absolute block coordinates in X/Y/Z order.
+    pub position: [i32; 3],
+    /// Exact validated-by-Valentine NetworkLittleEndian NBT bytes. The world
+    /// worker applies the stricter client limits before storage.
+    pub nbt: Vec<u8>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PublisherUpdateEvent {
     /// Absolute block coordinates in X/Y/Z order.
@@ -315,6 +326,7 @@ pub enum WorldEvent {
     LevelChunk(LevelChunkEvent),
     SubChunks(SubChunkBatchEvent),
     BlockUpdates(Vec<BlockUpdateEvent>),
+    BlockEntityUpdate(BlockEntityUpdateEvent),
     ChunkRadiusUpdated(i32),
     PublisherUpdate(PublisherUpdateEvent),
     ChangeDimension(ChangeDimensionEvent),
@@ -530,6 +542,13 @@ pub fn into_world_event(
                 network_id: update.runtime_id as u32,
             }));
             WorldEvent::BlockUpdates(updates)
+        }
+        McpePacketData::PacketBlockEntityData(packet) => {
+            WorldEvent::BlockEntityUpdate(BlockEntityUpdateEvent {
+                dimension: current_dimension,
+                position: [packet.position.x, packet.position.y, packet.position.z],
+                nbt: packet.nbt.0.to_vec(),
+            })
         }
         McpePacketData::PacketChunkRadiusUpdate(packet) => {
             WorldEvent::ChunkRadiusUpdated(packet.chunk_radius)

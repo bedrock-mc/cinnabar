@@ -14,9 +14,9 @@ pub use socket_transport::SocketTransport;
 pub use valentine::bedrock::context::BedrockSession;
 pub use valentine::bedrock::version::v1_26_30::{GAME_VERSION, PROTOCOL_VERSION};
 pub use world::{
-    BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockUpdateEvent, ChangeDimensionEvent,
-    DaylightCycleUpdateEvent, DimensionRange, HASHED_AIR_NETWORK_ID, LevelChunkEvent,
-    LevelChunkMode, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES, MAX_BLOCK_LAYERS,
+    BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockEntityUpdateEvent, BlockUpdateEvent,
+    ChangeDimensionEvent, DaylightCycleUpdateEvent, DimensionRange, HASHED_AIR_NETWORK_ID,
+    LevelChunkEvent, LevelChunkMode, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES, MAX_BLOCK_LAYERS,
     MAX_SUB_CHUNK_REQUESTS, MovePlayerEvent, PlayerMovementCorrectionEvent, PublisherUpdateEvent,
     SEQUENTIAL_AIR_NETWORK_ID, SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent,
     SubChunkResult, SubChunkUnavailable, WeatherChannel, WeatherUpdateEvent, WorldBootstrap,

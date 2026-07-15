@@ -944,6 +944,17 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       NetworkLittleEndian NBT prefix decoding plus atomic sparse storage first,
       then a separate deterministic source/renderer-manifest generator and
       strict join, followed by per-ID GPU/no-draw witnesses.
+      - [x] Implement bounded NetworkLittleEndian NBT prefix decoding and
+        atomic sparse ingestion for inline and request-mode LevelChunk tails,
+        successful SubChunk tails, and packet-56 live updates. Exact NBT bytes,
+        optional source IDs, and absolute positions remain sparse and
+        palette-native; strict byte/depth/collection/entity limits, scope and
+        duplicate checks, vanilla dimension Y validation, per-chunk cumulative
+        record/raw-byte caps across tail and live updates, FIFO worker decoding,
+        malformed-update retention, all-air cleanup, and chunk eviction are
+        covered without flat block expansion. The separate deterministic
+        inventory/renderer manifest and per-ID GPU/no-draw witnesses remain
+        open.
     - [ ] Squash-merge both the Axolotl protocol-fix branch and Cinnabar feature
       branch into their respective `main` branches only after the applicable
       deterministic tests, native/GPU acceptance, zero-diagnostic state gate,

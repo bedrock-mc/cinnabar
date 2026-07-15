@@ -1,8 +1,13 @@
 use thiserror::Error;
 
+use crate::BlockEntityError;
+
 /// Errors produced while decoding Bedrock chunk data.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum DecodeError {
+    #[error(transparent)]
+    BlockEntity(#[from] BlockEntityError),
+
     #[error(
         "unexpected end of input while reading {context}: need {needed} bytes, have {remaining}"
     )]
