@@ -17,7 +17,11 @@ use std::{
     collections::{BTreeSet, HashSet, VecDeque},
     io::Write,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU8, Ordering},
+    },
+    thread,
     time::{Duration, Instant},
 };
 
@@ -26,7 +30,7 @@ use asset_startup::{LoadedAssetKind, load_runtime_assets, select_asset_path_from
 use assets::{DIAGNOSTIC_MATERIAL, RuntimeAssets};
 use bevy::{
     anti_alias::{AntiAliasPlugin, fxaa::FxaaPlugin},
-    app::AppExit,
+    app::{AppExit, TerminalCtrlCHandlerPlugin},
     diagnostic::{DiagnosticPath, DiagnosticsStore},
     ecs::system::SystemParam,
     prelude::*,
@@ -79,6 +83,7 @@ const TRANSPARENT_3D_GPU_DIAGNOSTIC: DiagnosticPath =
     DiagnosticPath::const_new("render/main_transparent_pass_3d/elapsed_gpu");
 const WORLD_READY_QUIET_INTERVAL: Duration = Duration::from_secs(2);
 const TRANSPARENT_PRESENTATION_EXIT_GRACE: Duration = Duration::from_secs(2);
+const SHUTDOWN_WATCHDOG_TIMEOUT: Duration = Duration::from_secs(2);
 const TELEPORT_COHORT_PROGRESS_INTERVAL: Duration = Duration::from_secs(1);
 const PHASE0_REQUESTED_RADIUS_CHUNKS: i32 = 16;
 const MUTATION_X_OFFSET_BLOCKS: i32 = 4;
@@ -97,6 +102,114 @@ struct ClientWorld {
     fatal_error: Option<String>,
     network_decode_errors: u64,
     reported_decode_errors: u64,
+}
+
+const SHUTDOWN_WATCHDOG_IDLE: u8 = 0;
+const SHUTDOWN_WATCHDOG_ARMED: u8 = 1;
+const SHUTDOWN_WATCHDOG_COMPLETED: u8 = 2;
+const SHUTDOWN_WATCHDOG_FIRED: u8 = 3;
+
+type ShutdownTerminator = Arc<dyn Fn(i32) + Send + Sync + 'static>;
+
+#[derive(Resource, Clone)]
+struct ShutdownWatchdog {
+    state: Arc<AtomicU8>,
+    timeout: Duration,
+    terminate: ShutdownTerminator,
+}
+
+impl ShutdownWatchdog {
+    fn process(timeout: Duration) -> Self {
+        Self::new(timeout, |code| std::process::exit(code))
+    }
+
+    fn new<F>(timeout: Duration, terminate: F) -> Self
+    where
+        F: Fn(i32) + Send + Sync + 'static,
+    {
+        Self {
+            state: Arc::new(AtomicU8::new(SHUTDOWN_WATCHDOG_IDLE)),
+            timeout,
+            terminate: Arc::new(terminate),
+        }
+    }
+
+    fn arm(&self, exit: AppExit) -> bool {
+        if self
+            .state
+            .compare_exchange(
+                SHUTDOWN_WATCHDOG_IDLE,
+                SHUTDOWN_WATCHDOG_ARMED,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_err()
+        {
+            return false;
+        }
+        let state = Arc::clone(&self.state);
+        let terminate = Arc::clone(&self.terminate);
+        let timeout = self.timeout;
+        let exit_code = app_exit_code(&exit);
+        let spawned = thread::Builder::new()
+            .name("bedrock-shutdown-watchdog".to_owned())
+            .spawn(move || {
+                thread::sleep(timeout);
+                if state
+                    .compare_exchange(
+                        SHUTDOWN_WATCHDOG_ARMED,
+                        SHUTDOWN_WATCHDOG_FIRED,
+                        Ordering::AcqRel,
+                        Ordering::Acquire,
+                    )
+                    .is_ok()
+                {
+                    eprintln!(
+                        "RUST_MCBE_SHUTDOWN_WATCHDOG_FIRED timeout_ms={} exit_code={exit_code}",
+                        timeout.as_millis()
+                    );
+                    terminate(exit_code);
+                }
+            });
+        if spawned.is_err() {
+            self.state.store(SHUTDOWN_WATCHDOG_FIRED, Ordering::Release);
+            (self.terminate)(exit_code);
+        }
+        true
+    }
+
+    fn complete(&self) {
+        self.state
+            .store(SHUTDOWN_WATCHDOG_COMPLETED, Ordering::Release);
+    }
+}
+
+fn app_exit_code(exit: &AppExit) -> i32 {
+    match exit {
+        AppExit::Success => 0,
+        AppExit::Error(code) => i32::from(code.get()),
+    }
+}
+
+fn begin_bounded_shutdown(watchdog: &ShutdownWatchdog, exit: &AppExit) {
+    if watchdog.arm(exit.clone()) {
+        eprintln!(
+            "RUST_MCBE_SHUTDOWN_WATCHDOG_ARMED timeout_ms={} exit_code={}",
+            watchdog.timeout.as_millis(),
+            app_exit_code(exit)
+        );
+    }
+}
+
+fn arm_shutdown_watchdog(mut exits: MessageReader<AppExit>, watchdog: Res<ShutdownWatchdog>) {
+    let requested = exits.read().cloned().reduce(
+        |selected, next| {
+            if selected.is_error() { selected } else { next }
+        },
+    );
+    if let Some(exit) = requested {
+        begin_bounded_shutdown(&watchdog, &exit);
+    }
 }
 
 impl Default for ClientWorld {
@@ -2132,6 +2245,7 @@ fn run(args: args::ClientArgs) -> Result<()> {
             "release"
         },
     };
+    let shutdown_watchdog = ShutdownWatchdog::process(SHUTDOWN_WATCHDOG_TIMEOUT);
 
     let mut app = App::new();
     app.add_plugins(
@@ -2147,7 +2261,11 @@ fn run(args: args::ClientArgs) -> Result<()> {
             // Cinnabar uses FXAA without Bevy's TAA/SMAA/CAS bundle. The TAA
             // graph requires post-process nodes that are intentionally absent
             // from this compact custom renderer.
-            .disable::<AntiAliasPlugin>(),
+            .disable::<AntiAliasPlugin>()
+            // The launcher owns the production process lifecycle. Keeping the
+            // OS default SIGINT action also preserves a real developer escape
+            // hatch if graceful Bevy teardown is wedged.
+            .disable::<TerminalCtrlCHandlerPlugin>(),
     );
     app.add_plugins(FxaaPlugin);
     let diagnostics_enabled = args.acceptance_seconds.is_some() || args.metrics_out.is_some();
@@ -2156,6 +2274,7 @@ fn run(args: args::ClientArgs) -> Result<()> {
     }
     app.insert_resource(frame_limited_winit_settings(args.frame_cap))
         .insert_resource(ClearColor(Color::srgb(0.46, 0.70, 0.92)))
+        .insert_resource(shutdown_watchdog.clone())
         .insert_resource(network)
         .insert_resource(ClientWorld::new(Arc::clone(&runtime_assets)))
         .insert_resource(WorldClock::default())
@@ -2214,9 +2333,17 @@ fn run(args: args::ClientArgs) -> Result<()> {
                 .chain()
                 .after(FlyCameraUpdateSet),
         )
-        .add_systems(Last, send_player_auth_inputs);
+        .add_systems(
+            Last,
+            (send_player_auth_inputs, arm_shutdown_watchdog).chain(),
+        );
 
     let exit = app.run();
+    shutdown_watchdog.complete();
+    eprintln!(
+        "RUST_MCBE_SHUTDOWN_COMPLETED exit_code={}",
+        app_exit_code(&exit)
+    );
     if let Some(mut network) = app.world_mut().remove_resource::<NetworkHandle>() {
         network.shutdown();
     }
@@ -2298,13 +2425,17 @@ fn window_close_exit(requested: bool) -> Option<AppExit> {
 
 fn exit_on_window_close_requested(
     mut close_requests: MessageReader<WindowCloseRequested>,
-    mut network: ResMut<NetworkHandle>,
+    network: Option<ResMut<NetworkHandle>>,
+    watchdog: Res<ShutdownWatchdog>,
     mut exit: MessageWriter<AppExit>,
 ) {
     let Some(exit_status) = window_close_exit(close_requests.read().next().is_some()) else {
         return;
     };
-    network.shutdown();
+    begin_bounded_shutdown(&watchdog, &exit_status);
+    if let Some(mut network) = network {
+        network.shutdown();
+    }
     exit.write(exit_status);
 }
 
@@ -3835,7 +3966,7 @@ mod tests {
     use bevy::prelude::{
         App, AppExit, IntoScheduleConfigs, MinimalPlugins, Quat, Transform, Update, Vec3,
     };
-    use bevy::window::PresentMode;
+    use bevy::window::{PresentMode, WindowCloseRequested};
     use protocol::{
         BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockUpdateEvent, LevelChunkEvent,
         LevelChunkMode, PlayerMovementCorrectionEvent, SubChunkBatchEvent, SubChunkEntryEvent,
@@ -3850,7 +3981,7 @@ mod tests {
     };
     use std::{
         path::Path,
-        sync::Arc,
+        sync::{Arc, mpsc},
         time::{Duration, Instant},
     };
     use world::{ChunkKey, LightSolveError, SubChunkKey};
@@ -3865,14 +3996,14 @@ mod tests {
         AcceptanceExitDecision, AcceptanceRun, AcceptanceRuntimeConfig, CaveVisibilityCache,
         FullViewRemeshTracker, FullViewTeleportCompletion, FullViewTeleportTracker,
         GalleryAnchorEmitter, MutationTracker, NETWORK_INGRESS_BUDGET_PER_FRAME,
-        OUTBOUND_SEND_BUDGET_PER_FRAME, RollingFps, SubChunkTimeoutProgress,
+        OUTBOUND_SEND_BUDGET_PER_FRAME, RollingFps, ShutdownWatchdog, SubChunkTimeoutProgress,
         TRANSPARENT_PRESENTATION_EXIT_GRACE, TeleportReadySnapshot, WORLD_READY_QUIET_INTERVAL,
         WorldReadySettler, WorldReadySnapshot, WorldReadyWork, acceptance_runtime_metadata_marker,
         accepted_move_player_ingress_marker, apply_added_chunk_visibility, apply_committed_control,
-        bedrock_camera_rotation, bridge_endpoint_exists, bridge_endpoint_path,
-        camera_sub_chunk_key, cumulative_counter_delta, deterministic_mutation_coordinate,
-        drain_network_controls, drain_network_ingress, fatal_runtime_exit,
-        flush_sub_chunk_requests, leaf_forest_target_mutation_coordinate,
+        arm_shutdown_watchdog, bedrock_camera_rotation, bridge_endpoint_exists,
+        bridge_endpoint_path, camera_sub_chunk_key, cumulative_counter_delta,
+        deterministic_mutation_coordinate, drain_network_controls, drain_network_ingress,
+        fatal_runtime_exit, flush_sub_chunk_requests, leaf_forest_target_mutation_coordinate,
         model_gallery_camera_committed_marker, preflight_bridge_endpoint, record_fatal_error,
         remove_chunk_visibility, requested_present_mode, resolve_socket_dir_from,
         startup_biome_tints, status_title, synchronize_biome_tints, target_mutation_armed_marker,
@@ -3881,6 +4012,75 @@ mod tests {
         world_ready_markers, world_stream_fatal_message,
         write_move_player_ingress_before_source_capture, write_stdout_marker,
     };
+
+    #[test]
+    fn app_exit_arms_bounded_shutdown_with_the_requested_exit_code() {
+        let (terminated, termination) = mpsc::channel();
+        let watchdog = ShutdownWatchdog::new(Duration::from_millis(10), move |code| {
+            terminated.send(code).unwrap();
+        });
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(watchdog)
+            .add_systems(Update, arm_shutdown_watchdog);
+
+        app.world_mut().write_message(AppExit::error());
+        app.update();
+
+        assert_eq!(termination.recv_timeout(Duration::from_secs(1)), Ok(1));
+    }
+
+    #[test]
+    fn native_window_close_arms_watchdog_in_the_close_system() {
+        let (terminated, termination) = mpsc::channel();
+        let watchdog = ShutdownWatchdog::new(Duration::from_millis(10), move |code| {
+            terminated.send(code).unwrap();
+        });
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_message::<WindowCloseRequested>()
+            .insert_resource(watchdog)
+            .add_systems(Update, super::exit_on_window_close_requested);
+        let window = app.world_mut().spawn_empty().id();
+
+        app.world_mut()
+            .write_message(WindowCloseRequested { window });
+        app.update();
+
+        assert_eq!(app.should_exit(), Some(AppExit::Success));
+        assert_eq!(termination.recv_timeout(Duration::from_secs(1)), Ok(0));
+    }
+
+    #[test]
+    fn completed_shutdown_cancels_watchdog_escalation() {
+        let (terminated, termination) = mpsc::channel();
+        let watchdog = ShutdownWatchdog::new(Duration::from_millis(30), move |code| {
+            terminated.send(code).unwrap();
+        });
+
+        assert!(watchdog.arm(AppExit::Success));
+        watchdog.complete();
+
+        assert!(
+            termination
+                .recv_timeout(Duration::from_millis(100))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn shutdown_watchdog_arms_only_once() {
+        let (terminated, termination) = mpsc::channel();
+        let watchdog = ShutdownWatchdog::new(Duration::from_millis(10), move |code| {
+            terminated.send(code).unwrap();
+        });
+
+        assert!(watchdog.arm(AppExit::Success));
+        assert!(!watchdog.arm(AppExit::error()));
+
+        assert_eq!(termination.recv_timeout(Duration::from_secs(1)), Ok(0));
+        assert!(termination.recv_timeout(Duration::from_millis(50)).is_err());
+    }
 
     #[test]
     fn window_close_request_exits_before_the_window_is_despawned() {
