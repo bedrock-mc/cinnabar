@@ -1287,6 +1287,23 @@ store it only under the user's temporary directory, inspect that file, and never
     Clippy/formatting, and three independent reviews are green. This closes only
     deterministic Task 3 Steps 1–3; the release BDS join/teleport,
     presentation, RSS, settled-CPU, and visible-stall gate remains open.
+  - [x] Remove the frame-coupled four-decode throttle through `2b16368`.
+    The 2026-07-15 opt-in live trace proved that all 4,912 admitted jobs
+    completed (3,988 SubChunk jobs at about 0.02 ms each), while 1,218 frames
+    over 180 seconds limited throughput to 27.29 jobs/s solely because only
+    four jobs could dispatch per frame. Decode dispatch now drains the already
+    bounded 32-heavy-event admission window in one poll; retained payloads
+    remain capped at 32 and the result channel at 128. The deterministic
+    regression, all 284 client unit tests (two ignored), strict Clippy,
+    formatting, and CI are green.
+  - [ ] Correct the full-view cohort proof to the authoritative circular BDS
+    publisher region instead of the current 33x33 square assumption. Live
+    DX12/FIFO run `20260715T234919Z-5284` now reaches `WORLD_READY` with 7,041
+    rendered subchunks, but its far teleport settles with 937 authoritative
+    target columns and zero network/request/decode/light/mesh/upload work while
+    the proof incorrectly waits forever for 152 unsent square-corner columns
+    (`1,089 - 937`). Preserve exact source eviction and GPU-manifest evidence;
+    do not weaken this to a count-only or timeout-only success condition.
 - [ ] Remove every dark rectangle/background pixel around the pinned sun and
   moon textures. The acceptance test must exercise decoded pinned pixels and
   mip/filter edges, not merely string-inspect WGSL, and must prove both bodies
