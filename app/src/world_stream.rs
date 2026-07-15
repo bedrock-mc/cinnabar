@@ -4806,7 +4806,7 @@ mod tests {
 
     mod light_scheduler {
         use std::{
-            collections::BTreeSet,
+            collections::{BTreeMap, BTreeSet},
             sync::Arc,
             time::{Duration, Instant},
         };
@@ -4816,7 +4816,12 @@ mod tests {
             LightProperties, Material, NO_ANIMATION, NO_MODEL_TEMPLATE, RuntimeAssets,
             TextureArray, TextureMip, TexturePage, TextureRef, VisualKind, encode_blob,
         };
+        use bevy::prelude::{App, MinimalPlugins};
         use protocol::WorldBootstrap;
+        use render::{
+            ChunkRenderInstance, ChunkRenderQueue, ChunkUploadAcknowledgements,
+            ChunkUploadPriority, ChunkUploadToken, DebugWorldPlugin, RenderViewCohort,
+        };
         use world::{
             BlockPos, BlockUpdate, BoundaryLightSample, DecodedLevelChunk, LightBlockAccess,
             LightChannel, LightReadAccess, LightSolveError, SubChunkKey, SubChunkLight,
@@ -4824,7 +4829,7 @@ mod tests {
 
         use super::super::{
             DirectSkyMask, LightCompletion, LightJobIdentity, LightOwnership, SolvedLightJob,
-            StoredDirectSky,
+            StoredDirectSky, WorldMeshChange,
         };
         use super::WorldStream;
 
@@ -5970,6 +5975,371 @@ mod tests {
             assert!(
                 elapsed <= Duration::from_secs(2),
                 "completed full-view known-air lighting in {elapsed:?}, above the binding two-second gate"
+            );
+        }
+
+        #[test]
+        #[ignore = "release-only Phase 2 full-view publication completion gate"]
+        fn release_full_view_publication_completes_within_two_seconds() {
+            const VIEW_SUB_CHUNKS: usize = 33 * 33 * 24;
+            const PUBLICATION_KEYS: usize = 35 * 35 * 26;
+            const NOOP_PROBE_KEYS: usize = 6;
+            const RENDER_QUEUE_CAPACITY: usize = 256;
+            const UPLOADS_PER_UPDATE: usize = 128;
+
+            let mut stream = lit_stream(0);
+            let radius = super::super::PHASE0_MAX_VIEW_RADIUS_CHUNKS;
+            let keys = (-radius..=radius)
+                .flat_map(|x| {
+                    (-radius..=radius)
+                        .flat_map(move |z| (-4..20).map(move |y| SubChunkKey::new(0, x, y, z)))
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(keys.len(), VIEW_SUB_CHUNKS);
+            for &key in &keys {
+                stream.record_known_air(key);
+            }
+            assert_eq!(stream.resident.len(), VIEW_SUB_CHUNKS);
+            assert_eq!(stream.known_air.len(), VIEW_SUB_CHUNKS);
+            stream.mark_light_changed_sources(keys.iter().copied());
+
+            let total_started = Instant::now();
+            let light_started = Instant::now();
+            let mut light_completions = 0_usize;
+            while !stream.pending_light.is_empty() || !stream.in_flight_light.is_empty() {
+                stream.dispatch_light_jobs([8.0, 80.0, 8.0], usize::MAX);
+                if stream.in_flight_light.is_empty() {
+                    panic!("full-view lighting made no progress without an in-flight solve");
+                }
+                let completion = stream
+                    .light_rx
+                    .recv_timeout(Duration::from_secs(5))
+                    .expect("full-view light completion");
+                stream.accept_light_completion(completion);
+                light_completions += 1;
+                while let Ok(completion) = stream.light_rx.try_recv() {
+                    stream.accept_light_completion(completion);
+                    light_completions += 1;
+                }
+            }
+            let light_elapsed = light_started.elapsed();
+            let light_stats = stream.stats();
+            assert_eq!(light_completions, VIEW_SUB_CHUNKS);
+            assert_eq!(light_stats.accepted_light_jobs as usize, VIEW_SUB_CHUNKS);
+            assert_eq!(light_stats.stale_light_jobs, 0);
+            assert_eq!(light_stats.light_solve_failures, 0);
+            assert_eq!(light_stats.light_mesh_invalidations, VIEW_SUB_CHUNKS as u64);
+            assert_eq!(light_stats.value_changed_light_jobs, VIEW_SUB_CHUNKS as u64);
+            assert_eq!(light_stats.noop_light_jobs, 0);
+            assert!(stream.light_waiters.is_empty());
+            assert!(keys.iter().all(|&key| stream.light_is_current(key)));
+
+            let witness = SubChunkKey::new(0, 0, -4, 0);
+            let mesh_generations_before_noop = stream
+                .revisions
+                .entries
+                .iter()
+                .map(|(&key, dirty)| (key, dirty.revision))
+                .collect::<BTreeMap<_, _>>();
+            stream.mark_light_changed_sources([witness]);
+            let mut noop_completions = 0_usize;
+            while !stream.pending_light.is_empty() || !stream.in_flight_light.is_empty() {
+                stream.dispatch_light_jobs([8.0, 80.0, 8.0], usize::MAX);
+                let completion = stream
+                    .light_rx
+                    .recv_timeout(Duration::from_secs(5))
+                    .expect("full-view no-op light completion");
+                stream.accept_light_completion(completion);
+                noop_completions += 1;
+                while let Ok(completion) = stream.light_rx.try_recv() {
+                    stream.accept_light_completion(completion);
+                    noop_completions += 1;
+                }
+            }
+            let noop_stats = stream.stats();
+            assert_eq!(noop_completions, NOOP_PROBE_KEYS);
+            assert_eq!(
+                noop_stats.accepted_light_jobs,
+                (VIEW_SUB_CHUNKS + NOOP_PROBE_KEYS) as u64
+            );
+            assert_eq!(noop_stats.noop_light_jobs, NOOP_PROBE_KEYS as u64);
+            assert_eq!(noop_stats.light_mesh_invalidations, VIEW_SUB_CHUNKS as u64);
+            assert_eq!(
+                stream
+                    .revisions
+                    .entries
+                    .iter()
+                    .map(|(&key, dirty)| (key, dirty.revision))
+                    .collect::<BTreeMap<_, _>>(),
+                mesh_generations_before_noop,
+                "accepted no-op light must not invalidate any mesh generation"
+            );
+
+            // Keep the complete known-air solve as the fixture, then turn one
+            // in-cohort key into a deterministic non-empty mesh witness. Its
+            // current light identity is installed explicitly so the mesh
+            // worker exercises the same halo validation as live publication.
+            let decoded = DecodedLevelChunk::decode(
+                witness.y,
+                1,
+                include_bytes!("../../crates/world/fixtures/uniform_non_air.bin"),
+            )
+            .expect("publication witness fixture decodes");
+            stream.store.commit_level_chunk(witness.chunk(), decoded);
+            install_current_light(&mut stream, witness, 0, 15, true);
+            let witness_generation = stream.mark_dirty_exact(witness, Instant::now());
+            assert_eq!(stream.resident.len(), VIEW_SUB_CHUNKS);
+            assert_eq!(stream.known_air.len(), VIEW_SUB_CHUNKS - 1);
+            assert_eq!(stream.revisions.entries.len(), PUBLICATION_KEYS);
+            assert_eq!(stream.pending_mesh.len(), PUBLICATION_KEYS);
+
+            let mut app = App::new();
+            app.add_plugins(MinimalPlugins)
+                .add_plugins(DebugWorldPlugin::new(UPLOADS_PER_UPDATE));
+            let acknowledgements = app
+                .world()
+                .resource::<ChunkUploadAcknowledgements>()
+                .clone();
+            let mesh_started = Instant::now();
+            let mut extracted = BTreeMap::<SubChunkKey, (u64, Instant)>::new();
+            let mut acknowledged = BTreeSet::<SubChunkKey>::new();
+            let mut upserts = 0_usize;
+            let mut removals = 0_usize;
+            let mut upload_updates = 0_usize;
+            let mut max_queue_items = 0_usize;
+            let mut max_queue_bytes = 0_u64;
+            let mut uploaded_bytes = 0_u64;
+            let mut witness_applied = false;
+
+            loop {
+                let mut progressed = stream.dispatch_mesh_jobs([8.0, 80.0, 8.0], usize::MAX) != 0;
+                while stream.mesh_changes.len() < super::super::MAX_PENDING_MESH_CHANGES {
+                    let Ok(completion) = stream.mesh_rx.try_recv() else {
+                        break;
+                    };
+                    stream.accept_mesh_completion(completion);
+                    progressed = true;
+                }
+
+                while let Some(change) = stream.pop_mesh_change() {
+                    let retry = match change {
+                        WorldMeshChange::Upsert {
+                            key,
+                            mesh,
+                            biome,
+                            tint_identity,
+                            generation,
+                            dirty_since,
+                        } => match app
+                            .world_mut()
+                            .resource_mut::<ChunkRenderQueue>()
+                            .try_update_tracked_with_biome_identity(
+                                key,
+                                mesh,
+                                biome,
+                                tint_identity,
+                                ChunkUploadPriority::new(0.0),
+                                ChunkUploadToken {
+                                    generation,
+                                    dirty_since,
+                                },
+                            ) {
+                            Ok(()) => {
+                                assert!(
+                                    extracted.insert(key, (generation, dirty_since)).is_none(),
+                                    "duplicate upsert publication for {key:?}"
+                                );
+                                upserts += 1;
+                                progressed = true;
+                                None
+                            }
+                            Err((mesh, biome)) => Some(WorldMeshChange::Upsert {
+                                key,
+                                mesh,
+                                biome,
+                                tint_identity,
+                                generation,
+                                dirty_since,
+                            }),
+                        },
+                        WorldMeshChange::Remove {
+                            key,
+                            generation,
+                            dirty_since,
+                        } => match app
+                            .world_mut()
+                            .resource_mut::<ChunkRenderQueue>()
+                            .try_remove_tracked(
+                                key,
+                                ChunkUploadPriority::new(0.0),
+                                ChunkUploadToken {
+                                    generation,
+                                    dirty_since,
+                                },
+                            ) {
+                            Ok(()) => {
+                                assert!(
+                                    extracted.insert(key, (generation, dirty_since)).is_none(),
+                                    "duplicate removal publication for {key:?}"
+                                );
+                                removals += 1;
+                                progressed = true;
+                                None
+                            }
+                            Err(key) => Some(WorldMeshChange::Remove {
+                                key,
+                                generation,
+                                dirty_since,
+                            }),
+                        },
+                    };
+                    let Some(retry) = retry else {
+                        continue;
+                    };
+                    stream
+                        .retry_mesh_change_front(retry)
+                        .expect("bounded publication retry FIFO has capacity");
+                    break;
+                }
+
+                let retained = app.world().resource::<ChunkRenderQueue>().retained_len();
+                let pending_bytes = app.world().resource::<ChunkRenderQueue>().pending_bytes();
+                max_queue_items = max_queue_items.max(retained);
+                max_queue_bytes = max_queue_bytes.max(pending_bytes);
+                assert!(retained <= RENDER_QUEUE_CAPACITY);
+                if retained != 0 {
+                    app.update();
+                    upload_updates += 1;
+                    progressed = true;
+                }
+
+                for acknowledgement in acknowledgements.drain() {
+                    assert!(
+                        acknowledged.insert(acknowledgement.key),
+                        "duplicate upload acknowledgement for {:?}",
+                        acknowledgement.key
+                    );
+                    uploaded_bytes = uploaded_bytes.saturating_add(acknowledgement.uploaded_bytes);
+                    stream.acknowledge_mesh_upload(
+                        acknowledgement.key,
+                        acknowledgement.token.generation,
+                        acknowledgement.token.dirty_since,
+                        acknowledgement.applied_at,
+                    );
+                }
+
+                if !witness_applied {
+                    let applied = app
+                        .world_mut()
+                        .query::<&ChunkRenderInstance>()
+                        .iter(app.world())
+                        .any(|instance| instance.key() == witness && instance.quad_count() != 0);
+                    if applied {
+                        let &(generation, dirty_since) = extracted
+                            .get(&witness)
+                            .expect("applied witness was extracted with an exact token");
+                        assert_eq!(generation, witness_generation);
+                        assert!(acknowledged.insert(witness));
+                        stream.acknowledge_mesh_upload(
+                            witness,
+                            generation,
+                            dirty_since,
+                            Instant::now(),
+                        );
+                        witness_applied = true;
+                    }
+                }
+
+                let queue_empty = app.world().resource::<ChunkRenderQueue>().retained_len() == 0;
+                if stream.pending_mesh.is_empty()
+                    && stream.in_flight.is_empty()
+                    && stream.mesh_changes.is_empty()
+                    && queue_empty
+                    && acknowledgements.is_empty()
+                {
+                    break;
+                }
+                if !progressed && !stream.in_flight.is_empty() {
+                    let completion = stream
+                        .mesh_rx
+                        .recv_timeout(Duration::from_secs(5))
+                        .expect("full-view mesh completion");
+                    stream.accept_mesh_completion(completion);
+                } else if !progressed {
+                    panic!("full-view publication made no bounded progress");
+                }
+            }
+
+            let mesh_elapsed = mesh_started.elapsed();
+            let total_elapsed = total_started.elapsed();
+            let stats = stream.stats();
+            let witness_expectation = app
+                .world()
+                .resource::<ChunkRenderQueue>()
+                .freeze_target_expectation_for_keys(
+                    RenderViewCohort::new(0, [0, 0], radius),
+                    None,
+                    [witness],
+                    1,
+                    Instant::now(),
+                )
+                .expect("witness belongs to the publication cohort");
+
+            eprintln!(
+                "full-view publication benchmark: current_subchunks={} initial_accepted_light={} accepted_noop_light={} light_ms={} publication_keys={} upserts={} removals={} upload_updates={} max_queue_items={} max_queue_bytes={} uploaded_bytes={} stale_light={} stale_mesh={} mesh_ms={} total_ms={}",
+                keys.len(),
+                light_stats.accepted_light_jobs,
+                stats.noop_light_jobs,
+                light_elapsed.as_millis(),
+                extracted.len(),
+                upserts,
+                removals,
+                upload_updates,
+                max_queue_items,
+                max_queue_bytes,
+                uploaded_bytes,
+                stats.stale_light_jobs,
+                stats.stale_mesh_jobs,
+                mesh_elapsed.as_millis(),
+                total_elapsed.as_millis(),
+            );
+
+            assert_eq!(extracted.len(), PUBLICATION_KEYS);
+            assert_eq!(upserts, 1);
+            assert_eq!(removals, PUBLICATION_KEYS - 1);
+            assert_eq!(acknowledged.len(), PUBLICATION_KEYS);
+            assert_eq!(
+                upload_updates,
+                PUBLICATION_KEYS.div_ceil(UPLOADS_PER_UPDATE)
+            );
+            assert_eq!(max_queue_items, RENDER_QUEUE_CAPACITY);
+            assert!(
+                max_queue_bytes != 0,
+                "renderable witness must consume queue bytes"
+            );
+            assert!(witness_applied);
+            assert_eq!(
+                witness_expectation.manifest.as_ref(),
+                &[(witness, witness_generation)]
+            );
+            assert_eq!(stats.stale_mesh_jobs, 0);
+            assert_eq!(stats.pending_light_jobs, 0);
+            assert_eq!(stats.in_flight_light_jobs, 0);
+            assert_eq!(stats.pending_mesh_jobs, 0);
+            assert_eq!(stats.in_flight_mesh_jobs, 0);
+            assert_eq!(stream.pending_mesh_change_count(), 0);
+            assert_eq!(stream.unacknowledged_mesh_count(), 0);
+            assert!(stream.light_waiters.is_empty());
+            assert!(acknowledgements.is_empty());
+            assert_eq!(app.world().resource::<ChunkRenderQueue>().retained_len(), 0);
+            assert!(keys.iter().all(|&key| stream.light_is_current(key)));
+            assert!(keys.iter().all(|&key| stream.is_mesh_clean(key)));
+            assert!(extracted.iter().all(|(key, (generation, _))| {
+                stream.applied_mesh_generations.get(key) == Some(generation)
+            }));
+            assert!(
+                total_elapsed <= Duration::from_secs(2),
+                "completed full-view publication in {total_elapsed:?}, above the binding two-second gate"
             );
         }
 
