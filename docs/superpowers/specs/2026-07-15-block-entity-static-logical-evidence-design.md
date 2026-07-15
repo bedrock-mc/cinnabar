@@ -29,6 +29,9 @@ global strict-final gate remains red until all 22 are proven.
    visible; only the additional block-entity draw contribution is empty.
 3. Do not infer Note solely from an absent `id`. Identification requires the
    exact noteblock backing state plus bounded root `note` and `powered` fields.
+   Those field names are not globally reserved: explicitly identified other
+   block entities may carry same-named extension fields without making the
+   entire NBT record malformed.
 4. Do not add a per-block-entity Bevy `Mesh`, material, bind group, or GPU
    buffer. Existing packed chunk streams remain authoritative.
 5. Do not treat GPU routing evidence as vanilla geometry/UV parity evidence for
@@ -63,10 +66,16 @@ measurements only; no Mojang textures, BDS payloads, or screenshots are tracked.
 
 ## Runtime adjudication
 
-Extend the bounded NetworkLittleEndian NBT root scan only with the typed scalar
-fields needed for this tranche: tag-1 byte `note` in `0..=24` and tag-1 byte
-`powered` restricted to `0` or `1`. Duplicate fields, wrong tag types, and
-out-of-range values fail closed. Preserve exact source bytes.
+Extend the bounded NetworkLittleEndian NBT root scan only with candidate scalar
+metadata for the fields needed by this tranche. For each root `note` and
+`powered`, retain whether the field is absent, one tag-1 byte, or invalid for
+Note discrimination because it is duplicated or uses another tag type. Keep
+scanning the bounded payload and preserve exact source bytes; do not reject an
+explicitly identified non-Note block entity merely because it has a same-named
+extension field. Only the id-less, exact-noteblock classifier interprets the
+candidates: `note` must be one byte in `0..=24`, and `powered` must be one byte
+restricted to `0` or `1`. Missing, duplicate, wrong-typed, or out-of-range
+candidates make that Note classification fail closed.
 
 Introduce one pure block-entity visual classifier with explicit outcomes:
 

@@ -15,7 +15,7 @@
 - Existing packed chunk cube/model streams remain the only backing-block draw authority.
 - Mojang assets, BDS payloads, screenshots, and local acceptance artifacts remain untracked.
 - `Jukebox` and `Note` mean zero **additional** block-entity references while their backing cubes remain GPU-presented; they are not invisible blocks.
-- An absent NBT `id` identifies Note only with the exact noteblock backing identity and typed `note` in `0..=24` plus typed `powered`.
+- An absent NBT `id` identifies Note only with the exact noteblock backing identity and typed `note` in `0..=24` plus typed `powered`. Same-named fields on explicitly identified other block entities are extension data and must not make their records malformed.
 - Reviewed output after this tranche is exactly six proven and sixteen deferred; global strict-final remains red.
 - Every production change follows red-green-refactor and receives one focused independent review cycle.
 
@@ -132,22 +132,25 @@ git commit -m "feat: bind block entity claims to render evidence"
 - Modify: `app/tests/assets.rs`
 
 **Interfaces:**
-- Produces: `BlockEntityNbt::note() -> Option<u8>` and `BlockEntityNbt::powered() -> Option<bool>`.
+- Produces a small `RootByteCandidate`-style value (`Absent`, one typed byte, or `Invalid`) through `BlockEntityNbt::note_candidate()` and `BlockEntityNbt::powered_candidate()`; it is discriminator metadata, not a general decoded NBT tree.
 - Produces: `adjudicate_block_entity_visual(source: &BlockEntityNbt, backing: BackingBlockIdentity) -> BlockEntityVisualRoute`.
 - `BlockEntityVisualRoute` variants are `ExistingBlockState`, `LogicalNoAdditionalDraw`, `Deferred`, and `Unknown` and carry a stable route digest.
 
 - [ ] **Step 1: Write failing NBT scalar tests**
 
-Cover Note pitches `0`, `24`, `25`, typed powered false/true, wrong tag types, duplicates, unrelated absent-id compounds, and exact-byte retention.
+Cover Note pitches `0`, `24`, `25`, typed powered false/true, wrong tag types, duplicates, unrelated absent-id compounds, explicitly identified non-Note compounds with same-named extension fields, and exact-byte retention. The bounded decoder records invalid candidates without globally rejecting those extension fields; the Note classifier is where wrong types, duplicates, and out-of-range values fail closed.
 
 ```rust
 #[test]
 fn idless_note_requires_bounded_typed_note_fields() {
     let nbt = decode_root(&idless_note_nbt(24, true));
     assert_eq!(nbt.id(), None);
-    assert_eq!(nbt.note(), Some(24));
-    assert_eq!(nbt.powered(), Some(true));
-    assert!(BlockEntityNbt::decode_prefix(&idless_note_nbt(25, true)).is_err());
+    assert_eq!(nbt.note_candidate(), RootByteCandidate::Value(24));
+    assert_eq!(nbt.powered_candidate(), RootByteCandidate::Value(1));
+    assert!(matches!(
+        adjudicate_block_entity_visual(&decode_root(&idless_note_nbt(25, true)), noteblock_identity()),
+        BlockEntityVisualRoute::Unknown { .. }
+    ));
 }
 ```
 
@@ -161,7 +164,7 @@ Expected: compile failure because the accessors do not exist.
 
 - [ ] **Step 3: Extend the root scan minimally**
 
-Accept NetworkLittleEndian tag-1 byte `note` in `0..=24` and tag-1 byte `powered` restricted to `0` or `1`, exactly as encoded by the pinned producer. Reject duplicate, wrong-typed, or out-of-range fields. Do not retain a general decoded NBT tree.
+Record NetworkLittleEndian root `note` and `powered` candidates without globally reserving their names. One exact tag-1 byte becomes `Value`; absence becomes `Absent`; duplicate or wrong-typed occurrences become `Invalid` after their bounded payloads are consumed. Do not retain a general decoded NBT tree. The pure classifier, and only that classifier, requires `note` in `0..=24` and `powered` in `0..=1` when `id` is absent and the backing identity is the exact noteblock. Explicitly identified other producers ignore these candidate fields for identity and remain decodable.
 
 - [ ] **Step 4: Write failing classifier tests**
 
