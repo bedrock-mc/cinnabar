@@ -64,7 +64,7 @@ Local worlds run dragonfly behind the same core, over the same client path.
 |---|---|---|
 | Bevy meshing/frame-pacing insufficient | 0 | Spike acceptance gates the whole program |
 | valentine defs drift from gophertunnel bytes | 0→1 | Spike surfaces; Phase 1 builds automated conformance harness |
-| Dragonfly registry sequential IDs differ from valentine protocol-1001 palette IDs | 1→2 | Keep hashed mode explicit for current sessions; Phase 1 conformance must reject or translate sequential mode before claiming arbitrary-server support |
+| Dragonfly registry sequential IDs differ from valentine protocol-1001 palette IDs | 1→2 | Resolved: validated runtime assets now derive the unique canonical air identity for both sequential (`13094`) and hashed (`0xdbf44120`) sessions; the checked-in BREG→compiler→blob regression prevents stale protocol constants from turning air into diagnostic geometry on third-party servers |
 | Client-side lighting (Bedrock sends no light data) is a full subsystem | 2 | Scoped task; flood-fill block/sky light, correctness vs vanilla screenshots |
 | Molang/entity animation scope explosion | 4 | v1 = molang subset for vanilla mobs; static fallback pose; explicit cut-line |
 | Sound binaries not fully in bedrock-samples | 8 | Audit early (Phase 2 asset task); fallback = user-supplied client assets import step |
@@ -171,6 +171,13 @@ Scope: block registry + block-state → model/texture mapping (generated export 
 
 **Phase 2 progress (kept current as work lands):**
 
+- [x] **Sequential/hash third-party block identity compatibility.** Runtime
+  classification derives canonical air from the validated compiled registry
+  instead of the stale protocol bootstrap constant. The checked-in production
+  path proves sequential air `13094` and hashed air `0xdbf44120`, rejects
+  ambiguous/decoy AIR records, and covers both `WorldStream` modes. This closes
+  the all-pink-air failure seen on sequential-ID third-party servers while
+  preserving hashed servers.
 - [x] **2.1 Local-only vanilla source and deterministic asset pipeline.** Pinned
   `bedrock-samples` provenance, Dragonfly registry export, pack parsing, bounded
   compiler, per-layer mips, versioned runtime blob, and diagnostic fallback are
