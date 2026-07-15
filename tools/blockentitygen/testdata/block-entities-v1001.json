@@ -1,0 +1,3047 @@
+{
+  "schema": 1,
+  "protocol_version": 1001,
+  "game_version": "1.26.30",
+  "dragonfly": {
+    "module": "github.com/df-mc/dragonfly",
+    "version": "v0.10.15-0.20260709170650-b85c56ffea6b",
+    "revision": "b85c56ffea6b306798a935f14cc941c76618be52",
+    "registration_sha256": "13a852419214598a6a644557d3cc3a587ce0ca3a61292571c841184fbe937bae"
+  },
+  "bds": {
+    "server_version": "1.26.32.2",
+    "protocol_version": 1001,
+    "executable_bytes": 207171400,
+    "executable_sha256": "10c680f00faffecdfb3743c5a8a71d6c73f176d148173ca19a99b0c80e40a83f"
+  },
+  "renderer_manifest_sha256": "e41853b4e995c0067dff04869c107e6ca346d56686da41cb1da591b3ee61fad7",
+  "canonical_block_state_counted": false,
+  "entries": [
+    {
+      "source_key": "Banner",
+      "nbt_id": "Banner",
+      "nbt_aliases": [],
+      "backing_blocks": [
+        {
+          "name": "minecraft:standing_banner",
+          "states": [
+            {
+              "ground_sign_direction": 0
+            },
+            {
+              "ground_sign_direction": 10
+            },
+            {
+              "ground_sign_direction": 11
+            },
+            {
+              "ground_sign_direction": 12
+            },
+            {
+              "ground_sign_direction": 13
+            },
+            {
+              "ground_sign_direction": 14
+            },
+            {
+              "ground_sign_direction": 15
+            },
+            {
+              "ground_sign_direction": 1
+            },
+            {
+              "ground_sign_direction": 2
+            },
+            {
+              "ground_sign_direction": 3
+            },
+            {
+              "ground_sign_direction": 4
+            },
+            {
+              "ground_sign_direction": 5
+            },
+            {
+              "ground_sign_direction": 6
+            },
+            {
+              "ground_sign_direction": 7
+            },
+            {
+              "ground_sign_direction": 8
+            },
+            {
+              "ground_sign_direction": 9
+            }
+          ]
+        },
+        {
+          "name": "minecraft:wall_banner",
+          "states": [
+            {
+              "facing_direction": 2
+            },
+            {
+              "facing_direction": 3
+            },
+            {
+              "facing_direction": 4
+            },
+            {
+              "facing_direction": 5
+            }
+          ]
+        }
+      ],
+      "source": {
+        "dragonfly_module": "github.com/df-mc/dragonfly",
+        "dragonfly_version": "v0.10.15-0.20260709170650-b85c56ffea6b",
+        "dragonfly_revision": "b85c56ffea6b306798a935f14cc941c76618be52",
+        "dragonfly_registration_sha256": "13a852419214598a6a644557d3cc3a587ce0ca3a61292571c841184fbe937bae",
+        "dragonfly_source_file": "server/block/banner.go",
+        "dragonfly_source_file_sha256": "2b4bf86772098f20d90e89eeb128aa72c652bce2e9a7256e008d30501e43f189",
+        "bds_server_version": "1.26.32.2",
+        "bds_executable_sha256": "10c680f00faffecdfb3743c5a8a71d6c73f176d148173ca19a99b0c80e40a83f"
+      },
+      "required_nbt_variants": [
+        {
+          "variant_id": "blank",
+          "required_fields": [
+            "id",
+            "Base",
+            "Type",
+            "Patterns"
+          ],
+          "witness_ids": []
+        },
+        {
+          "variant_id": "patterned",
+          "required_fields": [
+            "id",
+            "Base",
+            "Type",
+            "Patterns"
+          ],
+          "witness_ids": []
+        },
+        {
+          "variant_id": "illager",
+          "required_fields": [
+            "id",
+            "Base",
+            "Type",
+            "Patterns"
+          ],
+          "witness_ids": []
+        }
+      ],
+      "chunk_nbt": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail",
+          "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"
+        ]
+      },
+      "live_update": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"
+        ]
+      },
+      "renderer_class": "custom_geometry",
+      "renderer_status": "deferred",
+      "implementation_symbol": null,
+      "gallery_builder": null,
+      "witnesses": {
+        "gpu": [],
+        "no_draw": []
+      }
+    },
+    {
+      "source_key": "Barrel",
+      "nbt_id": "Barrel",
+      "nbt_aliases": [],
+      "backing_blocks": [
+        {
+          "name": "minecraft:barrel",
+          "states": [
+            {
+              "facing_direction": 0,
+              "open_bit": 0
+            },
+            {
+              "facing_direction": 0,
+              "open_bit": 1
+            },
+            {
+              "facing_direction": 1,
+              "open_bit": 0
+            },
+            {
+              "facing_direction": 1,
+              "open_bit": 1
+            },
+            {
+              "facing_direction": 2,
+              "open_bit": 0
+            },
+            {
+              "facing_direction": 2,
+              "open_bit": 1
+            },
+            {
+              "facing_direction": 3,
+              "open_bit": 0
+            },
+            {
+              "facing_direction": 3,
+              "open_bit": 1
+            },
+            {
+              "facing_direction": 4,
+              "open_bit": 0
+            },
+            {
+              "facing_direction": 4,
+              "open_bit": 1
+            },
+            {
+              "facing_direction": 5,
+              "open_bit": 0
+            },
+            {
+              "facing_direction": 5,
+              "open_bit": 1
+            }
+          ]
+        }
+      ],
+      "source": {
+        "dragonfly_module": "github.com/df-mc/dragonfly",
+        "dragonfly_version": "v0.10.15-0.20260709170650-b85c56ffea6b",
+        "dragonfly_revision": "b85c56ffea6b306798a935f14cc941c76618be52",
+        "dragonfly_registration_sha256": "13a852419214598a6a644557d3cc3a587ce0ca3a61292571c841184fbe937bae",
+        "dragonfly_source_file": "server/block/barrel.go",
+        "dragonfly_source_file_sha256": "7ca8f5bbc338dff857fa0453a1d5c3336e4e58ad51dd45ae66ef7c011abd4edf",
+        "bds_server_version": "1.26.32.2",
+        "bds_executable_sha256": "10c680f00faffecdfb3743c5a8a71d6c73f176d148173ca19a99b0c80e40a83f"
+      },
+      "required_nbt_variants": [
+        {
+          "variant_id": "empty",
+          "required_fields": [
+            "id",
+            "Items"
+          ],
+          "witness_ids": []
+        },
+        {
+          "variant_id": "inventory_named",
+          "required_fields": [
+            "id",
+            "Items",
+            "CustomName"
+          ],
+          "witness_ids": []
+        }
+      ],
+      "chunk_nbt": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail",
+          "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"
+        ]
+      },
+      "live_update": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"
+        ]
+      },
+      "renderer_class": "static_block_model",
+      "renderer_status": "deferred",
+      "implementation_symbol": null,
+      "gallery_builder": null,
+      "witnesses": {
+        "gpu": [],
+        "no_draw": []
+      }
+    },
+    {
+      "source_key": "Beacon",
+      "nbt_id": "Beacon",
+      "nbt_aliases": [],
+      "backing_blocks": [
+        {
+          "name": "minecraft:beacon",
+          "states": [
+            {}
+          ]
+        }
+      ],
+      "source": {
+        "dragonfly_module": "github.com/df-mc/dragonfly",
+        "dragonfly_version": "v0.10.15-0.20260709170650-b85c56ffea6b",
+        "dragonfly_revision": "b85c56ffea6b306798a935f14cc941c76618be52",
+        "dragonfly_registration_sha256": "13a852419214598a6a644557d3cc3a587ce0ca3a61292571c841184fbe937bae",
+        "dragonfly_source_file": "server/block/beacon.go",
+        "dragonfly_source_file_sha256": "7bd35f40857c70421ceace84e84271815e8ca5f856b49a1a32c416f935b804f3",
+        "bds_server_version": "1.26.32.2",
+        "bds_executable_sha256": "10c680f00faffecdfb3743c5a8a71d6c73f176d148173ca19a99b0c80e40a83f"
+      },
+      "required_nbt_variants": [
+        {
+          "variant_id": "inactive",
+          "required_fields": [
+            "id",
+            "Levels"
+          ],
+          "witness_ids": []
+        },
+        {
+          "variant_id": "powered_effects",
+          "required_fields": [
+            "id",
+            "Levels",
+            "Primary",
+            "Secondary"
+          ],
+          "witness_ids": []
+        }
+      ],
+      "chunk_nbt": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail",
+          "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"
+        ]
+      },
+      "live_update": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"
+        ]
+      },
+      "renderer_class": "animated",
+      "renderer_status": "deferred",
+      "implementation_symbol": null,
+      "gallery_builder": null,
+      "witnesses": {
+        "gpu": [],
+        "no_draw": []
+      }
+    },
+    {
+      "source_key": "Bed",
+      "nbt_id": "Bed",
+      "nbt_aliases": [],
+      "backing_blocks": [
+        {
+          "name": "minecraft:bed",
+          "states": [
+            {
+              "direction": 0,
+              "head_piece_bit": 0,
+              "occupied_bit": 0
+            },
+            {
+              "direction": 0,
+              "head_piece_bit": 1,
+              "occupied_bit": 0
+            },
+            {
+              "direction": 1,
+              "head_piece_bit": 0,
+              "occupied_bit": 0
+            },
+            {
+              "direction": 1,
+              "head_piece_bit": 1,
+              "occupied_bit": 0
+            },
+            {
+              "direction": 2,
+              "head_piece_bit": 0,
+              "occupied_bit": 0
+            },
+            {
+              "direction": 2,
+              "head_piece_bit": 1,
+              "occupied_bit": 0
+            },
+            {
+              "direction": 3,
+              "head_piece_bit": 0,
+              "occupied_bit": 0
+            },
+            {
+              "direction": 3,
+              "head_piece_bit": 1,
+              "occupied_bit": 0
+            }
+          ]
+        }
+      ],
+      "source": {
+        "dragonfly_module": "github.com/df-mc/dragonfly",
+        "dragonfly_version": "v0.10.15-0.20260709170650-b85c56ffea6b",
+        "dragonfly_revision": "b85c56ffea6b306798a935f14cc941c76618be52",
+        "dragonfly_registration_sha256": "13a852419214598a6a644557d3cc3a587ce0ca3a61292571c841184fbe937bae",
+        "dragonfly_source_file": "server/block/bed.go",
+        "dragonfly_source_file_sha256": "d7b1d4f8e1ce9f34d85ec41712601646e9f3670b771d98668034f5bb1143c070",
+        "bds_server_version": "1.26.32.2",
+        "bds_executable_sha256": "10c680f00faffecdfb3743c5a8a71d6c73f176d148173ca19a99b0c80e40a83f"
+      },
+      "required_nbt_variants": [
+        {
+          "variant_id": "all_colours",
+          "required_fields": [
+            "id",
+            "color"
+          ],
+          "witness_ids": []
+        }
+      ],
+      "chunk_nbt": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail",
+          "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"
+        ]
+      },
+      "live_update": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"
+        ]
+      },
+      "renderer_class": "static_block_model",
+      "renderer_status": "deferred",
+      "implementation_symbol": null,
+      "gallery_builder": null,
+      "witnesses": {
+        "gpu": [],
+        "no_draw": []
+      }
+    },
+    {
+      "source_key": "BlastFurnace",
+      "nbt_id": "BlastFurnace",
+      "nbt_aliases": [],
+      "backing_blocks": [
+        {
+          "name": "minecraft:blast_furnace",
+          "states": [
+            {
+              "minecraft:cardinal_direction": "east"
+            },
+            {
+              "minecraft:cardinal_direction": "north"
+            },
+            {
+              "minecraft:cardinal_direction": "south"
+            },
+            {
+              "minecraft:cardinal_direction": "west"
+            }
+          ]
+        },
+        {
+          "name": "minecraft:lit_blast_furnace",
+          "states": [
+            {
+              "minecraft:cardinal_direction": "east"
+            },
+            {
+              "minecraft:cardinal_direction": "north"
+            },
+            {
+              "minecraft:cardinal_direction": "south"
+            },
+            {
+              "minecraft:cardinal_direction": "west"
+            }
+          ]
+        }
+      ],
+      "source": {
+        "dragonfly_module": "github.com/df-mc/dragonfly",
+        "dragonfly_version": "v0.10.15-0.20260709170650-b85c56ffea6b",
+        "dragonfly_revision": "b85c56ffea6b306798a935f14cc941c76618be52",
+        "dragonfly_registration_sha256": "13a852419214598a6a644557d3cc3a587ce0ca3a61292571c841184fbe937bae",
+        "dragonfly_source_file": "server/block/blast_furnace.go",
+        "dragonfly_source_file_sha256": "63b3ef85c523bc5a9d2b1a141aea9dbbb61c2abc007daff56dcf7ec3ed2a517d",
+        "bds_server_version": "1.26.32.2",
+        "bds_executable_sha256": "10c680f00faffecdfb3743c5a8a71d6c73f176d148173ca19a99b0c80e40a83f"
+      },
+      "required_nbt_variants": [
+        {
+          "variant_id": "idle",
+          "required_fields": [
+            "id",
+            "BurnTime",
+            "CookTime",
+            "BurnDuration",
+            "StoredXPInt",
+            "Items"
+          ],
+          "witness_ids": []
+        },
+        {
+          "variant_id": "active_recipe",
+          "required_fields": [
+            "id",
+            "BurnTime",
+            "CookTime",
+            "BurnDuration",
+            "StoredXPInt",
+            "Items"
+          ],
+          "witness_ids": []
+        }
+      ],
+      "chunk_nbt": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail",
+          "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"
+        ]
+      },
+      "live_update": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"
+        ]
+      },
+      "renderer_class": "static_block_model",
+      "renderer_status": "deferred",
+      "implementation_symbol": null,
+      "gallery_builder": null,
+      "witnesses": {
+        "gpu": [],
+        "no_draw": []
+      }
+    },
+    {
+      "source_key": "BrewingStand",
+      "nbt_id": "BrewingStand",
+      "nbt_aliases": [],
+      "backing_blocks": [
+        {
+          "name": "minecraft:brewing_stand",
+          "states": [
+            {
+              "brewing_stand_slot_a_bit": false,
+              "brewing_stand_slot_b_bit": false,
+              "brewing_stand_slot_c_bit": false
+            },
+            {
+              "brewing_stand_slot_a_bit": false,
+              "brewing_stand_slot_b_bit": false,
+              "brewing_stand_slot_c_bit": true
+            },
+            {
+              "brewing_stand_slot_a_bit": false,
+              "brewing_stand_slot_b_bit": true,
+              "brewing_stand_slot_c_bit": false
+            },
+            {
+              "brewing_stand_slot_a_bit": false,
+              "brewing_stand_slot_b_bit": true,
+              "brewing_stand_slot_c_bit": true
+            },
+            {
+              "brewing_stand_slot_a_bit": true,
+              "brewing_stand_slot_b_bit": false,
+              "brewing_stand_slot_c_bit": false
+            },
+            {
+              "brewing_stand_slot_a_bit": true,
+              "brewing_stand_slot_b_bit": false,
+              "brewing_stand_slot_c_bit": true
+            },
+            {
+              "brewing_stand_slot_a_bit": true,
+              "brewing_stand_slot_b_bit": true,
+              "brewing_stand_slot_c_bit": false
+            },
+            {
+              "brewing_stand_slot_a_bit": true,
+              "brewing_stand_slot_b_bit": true,
+              "brewing_stand_slot_c_bit": true
+            }
+          ]
+        }
+      ],
+      "source": {
+        "dragonfly_module": "github.com/df-mc/dragonfly",
+        "dragonfly_version": "v0.10.15-0.20260709170650-b85c56ffea6b",
+        "dragonfly_revision": "b85c56ffea6b306798a935f14cc941c76618be52",
+        "dragonfly_registration_sha256": "13a852419214598a6a644557d3cc3a587ce0ca3a61292571c841184fbe937bae",
+        "dragonfly_source_file": "server/block/brewing_stand.go",
+        "dragonfly_source_file_sha256": "d8a9787b921e74f58ad8338b607a98b6fbb53cff1a5e364b451d77f912f857a5",
+        "bds_server_version": "1.26.32.2",
+        "bds_executable_sha256": "10c680f00faffecdfb3743c5a8a71d6c73f176d148173ca19a99b0c80e40a83f"
+      },
+      "required_nbt_variants": [
+        {
+          "variant_id": "empty",
+          "required_fields": [
+            "id",
+            "Items",
+            "CookTime",
+            "FuelTotal",
+            "FuelAmount"
+          ],
+          "witness_ids": []
+        },
+        {
+          "variant_id": "brewing",
+          "required_fields": [
+            "id",
+            "Items",
+            "CookTime",
+            "FuelTotal",
+            "FuelAmount"
+          ],
+          "witness_ids": []
+        }
+      ],
+      "chunk_nbt": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail",
+          "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"
+        ]
+      },
+      "live_update": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"
+        ]
+      },
+      "renderer_class": "static_block_model",
+      "renderer_status": "deferred",
+      "implementation_symbol": null,
+      "gallery_builder": null,
+      "witnesses": {
+        "gpu": [],
+        "no_draw": []
+      }
+    },
+    {
+      "source_key": "Campfire",
+      "nbt_id": "Campfire",
+      "nbt_aliases": [],
+      "backing_blocks": [
+        {
+          "name": "minecraft:campfire",
+          "states": [
+            {
+              "extinguished": false,
+              "minecraft:cardinal_direction": "east"
+            },
+            {
+              "extinguished": false,
+              "minecraft:cardinal_direction": "north"
+            },
+            {
+              "extinguished": false,
+              "minecraft:cardinal_direction": "south"
+            },
+            {
+              "extinguished": false,
+              "minecraft:cardinal_direction": "west"
+            },
+            {
+              "extinguished": true,
+              "minecraft:cardinal_direction": "east"
+            },
+            {
+              "extinguished": true,
+              "minecraft:cardinal_direction": "north"
+            },
+            {
+              "extinguished": true,
+              "minecraft:cardinal_direction": "south"
+            },
+            {
+              "extinguished": true,
+              "minecraft:cardinal_direction": "west"
+            }
+          ]
+        },
+        {
+          "name": "minecraft:soul_campfire",
+          "states": [
+            {
+              "extinguished": false,
+              "minecraft:cardinal_direction": "east"
+            },
+            {
+              "extinguished": false,
+              "minecraft:cardinal_direction": "north"
+            },
+            {
+              "extinguished": false,
+              "minecraft:cardinal_direction": "south"
+            },
+            {
+              "extinguished": false,
+              "minecraft:cardinal_direction": "west"
+            },
+            {
+              "extinguished": true,
+              "minecraft:cardinal_direction": "east"
+            },
+            {
+              "extinguished": true,
+              "minecraft:cardinal_direction": "north"
+            },
+            {
+              "extinguished": true,
+              "minecraft:cardinal_direction": "south"
+            },
+            {
+              "extinguished": true,
+              "minecraft:cardinal_direction": "west"
+            }
+          ]
+        }
+      ],
+      "source": {
+        "dragonfly_module": "github.com/df-mc/dragonfly",
+        "dragonfly_version": "v0.10.15-0.20260709170650-b85c56ffea6b",
+        "dragonfly_revision": "b85c56ffea6b306798a935f14cc941c76618be52",
+        "dragonfly_registration_sha256": "13a852419214598a6a644557d3cc3a587ce0ca3a61292571c841184fbe937bae",
+        "dragonfly_source_file": "server/block/campfire.go",
+        "dragonfly_source_file_sha256": "a3a65405da1a9774aaf77a90f043a42a2054947b311a2b39d4372ab1b666dcf5",
+        "bds_server_version": "1.26.32.2",
+        "bds_executable_sha256": "10c680f00faffecdfb3743c5a8a71d6c73f176d148173ca19a99b0c80e40a83f"
+      },
+      "required_nbt_variants": [
+        {
+          "variant_id": "empty",
+          "required_fields": [
+            "id"
+          ],
+          "witness_ids": []
+        },
+        {
+          "variant_id": "cooking_four_slots",
+          "required_fields": [
+            "id",
+            "Item1",
+            "ItemTime1",
+            "Item2",
+            "ItemTime2",
+            "Item3",
+            "ItemTime3",
+            "Item4",
+            "ItemTime4"
+          ],
+          "witness_ids": []
+        }
+      ],
+      "chunk_nbt": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail",
+          "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"
+        ]
+      },
+      "live_update": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"
+        ]
+      },
+      "renderer_class": "animated",
+      "renderer_status": "deferred",
+      "implementation_symbol": null,
+      "gallery_builder": null,
+      "witnesses": {
+        "gpu": [],
+        "no_draw": []
+      }
+    },
+    {
+      "source_key": "Chest",
+      "nbt_id": "Chest",
+      "nbt_aliases": [],
+      "backing_blocks": [
+        {
+          "name": "minecraft:chest",
+          "states": [
+            {
+              "minecraft:cardinal_direction": "east"
+            },
+            {
+              "minecraft:cardinal_direction": "north"
+            },
+            {
+              "minecraft:cardinal_direction": "south"
+            },
+            {
+              "minecraft:cardinal_direction": "west"
+            }
+          ]
+        }
+      ],
+      "source": {
+        "dragonfly_module": "github.com/df-mc/dragonfly",
+        "dragonfly_version": "v0.10.15-0.20260709170650-b85c56ffea6b",
+        "dragonfly_revision": "b85c56ffea6b306798a935f14cc941c76618be52",
+        "dragonfly_registration_sha256": "13a852419214598a6a644557d3cc3a587ce0ca3a61292571c841184fbe937bae",
+        "dragonfly_source_file": "server/block/chest.go",
+        "dragonfly_source_file_sha256": "d8188c53c5cb683924e66740ec29248ef5d0e4535ff660dec045ab156de32d07",
+        "bds_server_version": "1.26.32.2",
+        "bds_executable_sha256": "10c680f00faffecdfb3743c5a8a71d6c73f176d148173ca19a99b0c80e40a83f"
+      },
+      "required_nbt_variants": [
+        {
+          "variant_id": "single_empty",
+          "required_fields": [
+            "id",
+            "Items"
+          ],
+          "witness_ids": []
+        },
+        {
+          "variant_id": "single_inventory_named",
+          "required_fields": [
+            "id",
+            "Items",
+            "CustomName"
+          ],
+          "witness_ids": []
+        },
+        {
+          "variant_id": "paired",
+          "required_fields": [
+            "id",
+            "Items",
+            "pairx",
+            "pairz"
+          ],
+          "witness_ids": []
+        }
+      ],
+      "chunk_nbt": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail",
+          "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"
+        ]
+      },
+      "live_update": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"
+        ]
+      },
+      "renderer_class": "animated",
+      "renderer_status": "deferred",
+      "implementation_symbol": null,
+      "gallery_builder": null,
+      "witnesses": {
+        "gpu": [],
+        "no_draw": []
+      }
+    },
+    {
+      "source_key": "CopperGolemStatue",
+      "nbt_id": "CopperGolemStatue",
+      "nbt_aliases": [],
+      "backing_blocks": [
+        {
+          "name": "minecraft:copper_golem_statue",
+          "states": [
+            {
+              "minecraft:cardinal_direction": "east"
+            },
+            {
+              "minecraft:cardinal_direction": "north"
+            },
+            {
+              "minecraft:cardinal_direction": "south"
+            },
+            {
+              "minecraft:cardinal_direction": "west"
+            }
+          ]
+        },
+        {
+          "name": "minecraft:exposed_copper_golem_statue",
+          "states": [
+            {
+              "minecraft:cardinal_direction": "east"
+            },
+            {
+              "minecraft:cardinal_direction": "north"
+            },
+            {
+              "minecraft:cardinal_direction": "south"
+            },
+            {
+              "minecraft:cardinal_direction": "west"
+            }
+          ]
+        },
+        {
+          "name": "minecraft:oxidized_copper_golem_statue",
+          "states": [
+            {
+              "minecraft:cardinal_direction": "east"
+            },
+            {
+              "minecraft:cardinal_direction": "north"
+            },
+            {
+              "minecraft:cardinal_direction": "south"
+            },
+            {
+              "minecraft:cardinal_direction": "west"
+            }
+          ]
+        },
+        {
+          "name": "minecraft:waxed_copper_golem_statue",
+          "states": [
+            {
+              "minecraft:cardinal_direction": "east"
+            },
+            {
+              "minecraft:cardinal_direction": "north"
+            },
+            {
+              "minecraft:cardinal_direction": "south"
+            },
+            {
+              "minecraft:cardinal_direction": "west"
+            }
+          ]
+        },
+        {
+          "name": "minecraft:waxed_exposed_copper_golem_statue",
+          "states": [
+            {
+              "minecraft:cardinal_direction": "east"
+            },
+            {
+              "minecraft:cardinal_direction": "north"
+            },
+            {
+              "minecraft:cardinal_direction": "south"
+            },
+            {
+              "minecraft:cardinal_direction": "west"
+            }
+          ]
+        },
+        {
+          "name": "minecraft:waxed_oxidized_copper_golem_statue",
+          "states": [
+            {
+              "minecraft:cardinal_direction": "east"
+            },
+            {
+              "minecraft:cardinal_direction": "north"
+            },
+            {
+              "minecraft:cardinal_direction": "south"
+            },
+            {
+              "minecraft:cardinal_direction": "west"
+            }
+          ]
+        },
+        {
+          "name": "minecraft:waxed_weathered_copper_golem_statue",
+          "states": [
+            {
+              "minecraft:cardinal_direction": "east"
+            },
+            {
+              "minecraft:cardinal_direction": "north"
+            },
+            {
+              "minecraft:cardinal_direction": "south"
+            },
+            {
+              "minecraft:cardinal_direction": "west"
+            }
+          ]
+        },
+        {
+          "name": "minecraft:weathered_copper_golem_statue",
+          "states": [
+            {
+              "minecraft:cardinal_direction": "east"
+            },
+            {
+              "minecraft:cardinal_direction": "north"
+            },
+            {
+              "minecraft:cardinal_direction": "south"
+            },
+            {
+              "minecraft:cardinal_direction": "west"
+            }
+          ]
+        }
+      ],
+      "source": {
+        "dragonfly_module": "github.com/df-mc/dragonfly",
+        "dragonfly_version": "v0.10.15-0.20260709170650-b85c56ffea6b",
+        "dragonfly_revision": "b85c56ffea6b306798a935f14cc941c76618be52",
+        "dragonfly_registration_sha256": "13a852419214598a6a644557d3cc3a587ce0ca3a61292571c841184fbe937bae",
+        "dragonfly_source_file": "server/block/copper_golem_statue.go",
+        "dragonfly_source_file_sha256": "3117769f076371d179aa0b0a38d57e26fc19e1578715a565adab786805528371",
+        "bds_server_version": "1.26.32.2",
+        "bds_executable_sha256": "10c680f00faffecdfb3743c5a8a71d6c73f176d148173ca19a99b0c80e40a83f"
+      },
+      "required_nbt_variants": [
+        {
+          "variant_id": "all_poses",
+          "required_fields": [
+            "id",
+            "Pose"
+          ],
+          "witness_ids": []
+        }
+      ],
+      "chunk_nbt": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail",
+          "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"
+        ]
+      },
+      "live_update": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"
+        ]
+      },
+      "renderer_class": "custom_geometry",
+      "renderer_status": "deferred",
+      "implementation_symbol": null,
+      "gallery_builder": null,
+      "witnesses": {
+        "gpu": [],
+        "no_draw": []
+      }
+    },
+    {
+      "source_key": "DecoratedPot",
+      "nbt_id": "DecoratedPot",
+      "nbt_aliases": [],
+      "backing_blocks": [
+        {
+          "name": "minecraft:decorated_pot",
+          "states": [
+            {
+              "direction": 0
+            },
+            {
+              "direction": 1
+            },
+            {
+              "direction": 2
+            },
+            {
+              "direction": 3
+            }
+          ]
+        }
+      ],
+      "source": {
+        "dragonfly_module": "github.com/df-mc/dragonfly",
+        "dragonfly_version": "v0.10.15-0.20260709170650-b85c56ffea6b",
+        "dragonfly_revision": "b85c56ffea6b306798a935f14cc941c76618be52",
+        "dragonfly_registration_sha256": "13a852419214598a6a644557d3cc3a587ce0ca3a61292571c841184fbe937bae",
+        "dragonfly_source_file": "server/block/decorated_pot.go",
+        "dragonfly_source_file_sha256": "0c71eb53a868da9b711e6de937a820ae509ce87996af336d7d111e4b687783af",
+        "bds_server_version": "1.26.32.2",
+        "bds_executable_sha256": "10c680f00faffecdfb3743c5a8a71d6c73f176d148173ca19a99b0c80e40a83f"
+      },
+      "required_nbt_variants": [
+        {
+          "variant_id": "brick_sides_empty",
+          "required_fields": [
+            "id",
+            "sherds"
+          ],
+          "witness_ids": []
+        },
+        {
+          "variant_id": "mixed_sherds_with_item",
+          "required_fields": [
+            "id",
+            "sherds",
+            "item"
+          ],
+          "witness_ids": []
+        }
+      ],
+      "chunk_nbt": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail",
+          "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"
+        ]
+      },
+      "live_update": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"
+        ]
+      },
+      "renderer_class": "custom_geometry",
+      "renderer_status": "deferred",
+      "implementation_symbol": null,
+      "gallery_builder": null,
+      "witnesses": {
+        "gpu": [],
+        "no_draw": []
+      }
+    },
+    {
+      "source_key": "EnchantTable",
+      "nbt_id": "EnchantTable",
+      "nbt_aliases": [],
+      "backing_blocks": [
+        {
+          "name": "minecraft:enchanting_table",
+          "states": [
+            {}
+          ]
+        }
+      ],
+      "source": {
+        "dragonfly_module": "github.com/df-mc/dragonfly",
+        "dragonfly_version": "v0.10.15-0.20260709170650-b85c56ffea6b",
+        "dragonfly_revision": "b85c56ffea6b306798a935f14cc941c76618be52",
+        "dragonfly_registration_sha256": "13a852419214598a6a644557d3cc3a587ce0ca3a61292571c841184fbe937bae",
+        "dragonfly_source_file": "server/block/enchanting_table.go",
+        "dragonfly_source_file_sha256": "3a533b9abedd2d9961b531df2773aeec0fece882f8d2832c888b1db0e78668dd",
+        "bds_server_version": "1.26.32.2",
+        "bds_executable_sha256": "10c680f00faffecdfb3743c5a8a71d6c73f176d148173ca19a99b0c80e40a83f"
+      },
+      "required_nbt_variants": [
+        {
+          "variant_id": "default",
+          "required_fields": [
+            "id"
+          ],
+          "witness_ids": []
+        }
+      ],
+      "chunk_nbt": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail",
+          "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"
+        ]
+      },
+      "live_update": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"
+        ]
+      },
+      "renderer_class": "animated",
+      "renderer_status": "deferred",
+      "implementation_symbol": null,
+      "gallery_builder": null,
+      "witnesses": {
+        "gpu": [],
+        "no_draw": []
+      }
+    },
+    {
+      "source_key": "EnderChest",
+      "nbt_id": "EnderChest",
+      "nbt_aliases": [],
+      "backing_blocks": [
+        {
+          "name": "minecraft:ender_chest",
+          "states": [
+            {
+              "minecraft:cardinal_direction": "east"
+            },
+            {
+              "minecraft:cardinal_direction": "north"
+            },
+            {
+              "minecraft:cardinal_direction": "south"
+            },
+            {
+              "minecraft:cardinal_direction": "west"
+            }
+          ]
+        }
+      ],
+      "source": {
+        "dragonfly_module": "github.com/df-mc/dragonfly",
+        "dragonfly_version": "v0.10.15-0.20260709170650-b85c56ffea6b",
+        "dragonfly_revision": "b85c56ffea6b306798a935f14cc941c76618be52",
+        "dragonfly_registration_sha256": "13a852419214598a6a644557d3cc3a587ce0ca3a61292571c841184fbe937bae",
+        "dragonfly_source_file": "server/block/ender_chest.go",
+        "dragonfly_source_file_sha256": "b0bb24c036e9ba9106540c422337b741ad972fee88ae5b702a39841f5685bc45",
+        "bds_server_version": "1.26.32.2",
+        "bds_executable_sha256": "10c680f00faffecdfb3743c5a8a71d6c73f176d148173ca19a99b0c80e40a83f"
+      },
+      "required_nbt_variants": [
+        {
+          "variant_id": "default",
+          "required_fields": [
+            "id"
+          ],
+          "witness_ids": []
+        }
+      ],
+      "chunk_nbt": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail",
+          "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"
+        ]
+      },
+      "live_update": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"
+        ]
+      },
+      "renderer_class": "animated",
+      "renderer_status": "deferred",
+      "implementation_symbol": null,
+      "gallery_builder": null,
+      "witnesses": {
+        "gpu": [],
+        "no_draw": []
+      }
+    },
+    {
+      "source_key": "Furnace",
+      "nbt_id": "Furnace",
+      "nbt_aliases": [],
+      "backing_blocks": [
+        {
+          "name": "minecraft:furnace",
+          "states": [
+            {
+              "minecraft:cardinal_direction": "east"
+            },
+            {
+              "minecraft:cardinal_direction": "north"
+            },
+            {
+              "minecraft:cardinal_direction": "south"
+            },
+            {
+              "minecraft:cardinal_direction": "west"
+            }
+          ]
+        },
+        {
+          "name": "minecraft:lit_furnace",
+          "states": [
+            {
+              "minecraft:cardinal_direction": "east"
+            },
+            {
+              "minecraft:cardinal_direction": "north"
+            },
+            {
+              "minecraft:cardinal_direction": "south"
+            },
+            {
+              "minecraft:cardinal_direction": "west"
+            }
+          ]
+        }
+      ],
+      "source": {
+        "dragonfly_module": "github.com/df-mc/dragonfly",
+        "dragonfly_version": "v0.10.15-0.20260709170650-b85c56ffea6b",
+        "dragonfly_revision": "b85c56ffea6b306798a935f14cc941c76618be52",
+        "dragonfly_registration_sha256": "13a852419214598a6a644557d3cc3a587ce0ca3a61292571c841184fbe937bae",
+        "dragonfly_source_file": "server/block/furnace.go",
+        "dragonfly_source_file_sha256": "c0e630e27380708a48adcfe2d4089ee1646e1444b799de58d97fd89bfbb745ea",
+        "bds_server_version": "1.26.32.2",
+        "bds_executable_sha256": "10c680f00faffecdfb3743c5a8a71d6c73f176d148173ca19a99b0c80e40a83f"
+      },
+      "required_nbt_variants": [
+        {
+          "variant_id": "idle",
+          "required_fields": [
+            "id",
+            "BurnTime",
+            "CookTime",
+            "BurnDuration",
+            "StoredXPInt",
+            "Items"
+          ],
+          "witness_ids": []
+        },
+        {
+          "variant_id": "active_recipe",
+          "required_fields": [
+            "id",
+            "BurnTime",
+            "CookTime",
+            "BurnDuration",
+            "StoredXPInt",
+            "Items"
+          ],
+          "witness_ids": []
+        }
+      ],
+      "chunk_nbt": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail",
+          "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"
+        ]
+      },
+      "live_update": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"
+        ]
+      },
+      "renderer_class": "static_block_model",
+      "renderer_status": "deferred",
+      "implementation_symbol": null,
+      "gallery_builder": null,
+      "witnesses": {
+        "gpu": [],
+        "no_draw": []
+      }
+    },
+    {
+      "source_key": "GlowItemFrame",
+      "nbt_id": "GlowItemFrame",
+      "nbt_aliases": [],
+      "backing_blocks": [
+        {
+          "name": "minecraft:glow_frame",
+          "states": [
+            {
+              "facing_direction": 0,
+              "item_frame_map_bit": 0,
+              "item_frame_photo_bit": 0
+            },
+            {
+              "facing_direction": 1,
+              "item_frame_map_bit": 0,
+              "item_frame_photo_bit": 0
+            },
+            {
+              "facing_direction": 2,
+              "item_frame_map_bit": 0,
+              "item_frame_photo_bit": 0
+            },
+            {
+              "facing_direction": 3,
+              "item_frame_map_bit": 0,
+              "item_frame_photo_bit": 0
+            },
+            {
+              "facing_direction": 4,
+              "item_frame_map_bit": 0,
+              "item_frame_photo_bit": 0
+            },
+            {
+              "facing_direction": 5,
+              "item_frame_map_bit": 0,
+              "item_frame_photo_bit": 0
+            }
+          ]
+        }
+      ],
+      "source": {
+        "dragonfly_module": "github.com/df-mc/dragonfly",
+        "dragonfly_version": "v0.10.15-0.20260709170650-b85c56ffea6b",
+        "dragonfly_revision": "b85c56ffea6b306798a935f14cc941c76618be52",
+        "dragonfly_registration_sha256": "13a852419214598a6a644557d3cc3a587ce0ca3a61292571c841184fbe937bae",
+        "dragonfly_source_file": "server/block/item_frame.go",
+        "dragonfly_source_file_sha256": "40f2adad61de22fdfcce31e5c308844955a55c818a9399f80f947b7d8120dd9c",
+        "bds_server_version": "1.26.32.2",
+        "bds_executable_sha256": "10c680f00faffecdfb3743c5a8a71d6c73f176d148173ca19a99b0c80e40a83f"
+      },
+      "required_nbt_variants": [
+        {
+          "variant_id": "empty",
+          "required_fields": [
+            "id",
+            "ItemDropChance",
+            "ItemRotation"
+          ],
+          "witness_ids": []
+        },
+        {
+          "variant_id": "displayed_item_all_rotations",
+          "required_fields": [
+            "id",
+            "ItemDropChance",
+            "ItemRotation",
+            "Item"
+          ],
+          "witness_ids": []
+        }
+      ],
+      "chunk_nbt": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail",
+          "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"
+        ]
+      },
+      "live_update": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"
+        ]
+      },
+      "renderer_class": "custom_geometry",
+      "renderer_status": "deferred",
+      "implementation_symbol": null,
+      "gallery_builder": null,
+      "witnesses": {
+        "gpu": [],
+        "no_draw": []
+      }
+    },
+    {
+      "source_key": "Hopper",
+      "nbt_id": "Hopper",
+      "nbt_aliases": [],
+      "backing_blocks": [
+        {
+          "name": "minecraft:hopper",
+          "states": [
+            {
+              "facing_direction": 0,
+              "toggle_bit": false
+            },
+            {
+              "facing_direction": 0,
+              "toggle_bit": true
+            },
+            {
+              "facing_direction": 1,
+              "toggle_bit": false
+            },
+            {
+              "facing_direction": 1,
+              "toggle_bit": true
+            },
+            {
+              "facing_direction": 2,
+              "toggle_bit": false
+            },
+            {
+              "facing_direction": 2,
+              "toggle_bit": true
+            },
+            {
+              "facing_direction": 3,
+              "toggle_bit": false
+            },
+            {
+              "facing_direction": 3,
+              "toggle_bit": true
+            },
+            {
+              "facing_direction": 4,
+              "toggle_bit": false
+            },
+            {
+              "facing_direction": 4,
+              "toggle_bit": true
+            },
+            {
+              "facing_direction": 5,
+              "toggle_bit": false
+            },
+            {
+              "facing_direction": 5,
+              "toggle_bit": true
+            }
+          ]
+        }
+      ],
+      "source": {
+        "dragonfly_module": "github.com/df-mc/dragonfly",
+        "dragonfly_version": "v0.10.15-0.20260709170650-b85c56ffea6b",
+        "dragonfly_revision": "b85c56ffea6b306798a935f14cc941c76618be52",
+        "dragonfly_registration_sha256": "13a852419214598a6a644557d3cc3a587ce0ca3a61292571c841184fbe937bae",
+        "dragonfly_source_file": "server/block/hopper.go",
+        "dragonfly_source_file_sha256": "796dd81ff5f86336c645eaaf98ec1eddb164de41abae458b6505e22e9869977e",
+        "bds_server_version": "1.26.32.2",
+        "bds_executable_sha256": "10c680f00faffecdfb3743c5a8a71d6c73f176d148173ca19a99b0c80e40a83f"
+      },
+      "required_nbt_variants": [
+        {
+          "variant_id": "empty",
+          "required_fields": [
+            "id",
+            "Items",
+            "TransferCooldown"
+          ],
+          "witness_ids": []
+        },
+        {
+          "variant_id": "inventory_named_cooldown",
+          "required_fields": [
+            "id",
+            "Items",
+            "TransferCooldown",
+            "CustomName"
+          ],
+          "witness_ids": []
+        }
+      ],
+      "chunk_nbt": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail",
+          "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"
+        ]
+      },
+      "live_update": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"
+        ]
+      },
+      "renderer_class": "static_block_model",
+      "renderer_status": "deferred",
+      "implementation_symbol": null,
+      "gallery_builder": null,
+      "witnesses": {
+        "gpu": [],
+        "no_draw": []
+      }
+    },
+    {
+      "source_key": "ItemFrame",
+      "nbt_id": "ItemFrame",
+      "nbt_aliases": [],
+      "backing_blocks": [
+        {
+          "name": "minecraft:frame",
+          "states": [
+            {
+              "facing_direction": 0,
+              "item_frame_map_bit": 0,
+              "item_frame_photo_bit": 0
+            },
+            {
+              "facing_direction": 1,
+              "item_frame_map_bit": 0,
+              "item_frame_photo_bit": 0
+            },
+            {
+              "facing_direction": 2,
+              "item_frame_map_bit": 0,
+              "item_frame_photo_bit": 0
+            },
+            {
+              "facing_direction": 3,
+              "item_frame_map_bit": 0,
+              "item_frame_photo_bit": 0
+            },
+            {
+              "facing_direction": 4,
+              "item_frame_map_bit": 0,
+              "item_frame_photo_bit": 0
+            },
+            {
+              "facing_direction": 5,
+              "item_frame_map_bit": 0,
+              "item_frame_photo_bit": 0
+            }
+          ]
+        }
+      ],
+      "source": {
+        "dragonfly_module": "github.com/df-mc/dragonfly",
+        "dragonfly_version": "v0.10.15-0.20260709170650-b85c56ffea6b",
+        "dragonfly_revision": "b85c56ffea6b306798a935f14cc941c76618be52",
+        "dragonfly_registration_sha256": "13a852419214598a6a644557d3cc3a587ce0ca3a61292571c841184fbe937bae",
+        "dragonfly_source_file": "server/block/item_frame.go",
+        "dragonfly_source_file_sha256": "40f2adad61de22fdfcce31e5c308844955a55c818a9399f80f947b7d8120dd9c",
+        "bds_server_version": "1.26.32.2",
+        "bds_executable_sha256": "10c680f00faffecdfb3743c5a8a71d6c73f176d148173ca19a99b0c80e40a83f"
+      },
+      "required_nbt_variants": [
+        {
+          "variant_id": "empty",
+          "required_fields": [
+            "id",
+            "ItemDropChance",
+            "ItemRotation"
+          ],
+          "witness_ids": []
+        },
+        {
+          "variant_id": "displayed_item_all_rotations",
+          "required_fields": [
+            "id",
+            "ItemDropChance",
+            "ItemRotation",
+            "Item"
+          ],
+          "witness_ids": []
+        }
+      ],
+      "chunk_nbt": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail",
+          "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"
+        ]
+      },
+      "live_update": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"
+        ]
+      },
+      "renderer_class": "custom_geometry",
+      "renderer_status": "deferred",
+      "implementation_symbol": null,
+      "gallery_builder": null,
+      "witnesses": {
+        "gpu": [],
+        "no_draw": []
+      }
+    },
+    {
+      "source_key": "Jukebox",
+      "nbt_id": "Jukebox",
+      "nbt_aliases": [],
+      "backing_blocks": [
+        {
+          "name": "minecraft:jukebox",
+          "states": [
+            {}
+          ]
+        }
+      ],
+      "source": {
+        "dragonfly_module": "github.com/df-mc/dragonfly",
+        "dragonfly_version": "v0.10.15-0.20260709170650-b85c56ffea6b",
+        "dragonfly_revision": "b85c56ffea6b306798a935f14cc941c76618be52",
+        "dragonfly_registration_sha256": "13a852419214598a6a644557d3cc3a587ce0ca3a61292571c841184fbe937bae",
+        "dragonfly_source_file": "server/block/jukebox.go",
+        "dragonfly_source_file_sha256": "3099c37944cb662f7a54c23eeb5f3dca88680e7f7571c9b12a6475fa064c6c0c",
+        "bds_server_version": "1.26.32.2",
+        "bds_executable_sha256": "10c680f00faffecdfb3743c5a8a71d6c73f176d148173ca19a99b0c80e40a83f"
+      },
+      "required_nbt_variants": [
+        {
+          "variant_id": "empty",
+          "required_fields": [
+            "id"
+          ],
+          "witness_ids": []
+        },
+        {
+          "variant_id": "record",
+          "required_fields": [
+            "id",
+            "RecordItem"
+          ],
+          "witness_ids": []
+        }
+      ],
+      "chunk_nbt": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail",
+          "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"
+        ]
+      },
+      "live_update": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"
+        ]
+      },
+      "renderer_class": "sourced_logical_invisible",
+      "renderer_status": "deferred",
+      "implementation_symbol": null,
+      "gallery_builder": null,
+      "witnesses": {
+        "gpu": [],
+        "no_draw": []
+      }
+    },
+    {
+      "source_key": "Lectern",
+      "nbt_id": "Lectern",
+      "nbt_aliases": [],
+      "backing_blocks": [
+        {
+          "name": "minecraft:lectern",
+          "states": [
+            {
+              "minecraft:cardinal_direction": "east",
+              "powered_bit": 0
+            },
+            {
+              "minecraft:cardinal_direction": "north",
+              "powered_bit": 0
+            },
+            {
+              "minecraft:cardinal_direction": "south",
+              "powered_bit": 0
+            },
+            {
+              "minecraft:cardinal_direction": "west",
+              "powered_bit": 0
+            }
+          ]
+        }
+      ],
+      "source": {
+        "dragonfly_module": "github.com/df-mc/dragonfly",
+        "dragonfly_version": "v0.10.15-0.20260709170650-b85c56ffea6b",
+        "dragonfly_revision": "b85c56ffea6b306798a935f14cc941c76618be52",
+        "dragonfly_registration_sha256": "13a852419214598a6a644557d3cc3a587ce0ca3a61292571c841184fbe937bae",
+        "dragonfly_source_file": "server/block/lectern.go",
+        "dragonfly_source_file_sha256": "538892bd4b81bb2ec342cbe9f6b4d8446ff9d2009f2e63b9eed84f288a58b472",
+        "bds_server_version": "1.26.32.2",
+        "bds_executable_sha256": "10c680f00faffecdfb3743c5a8a71d6c73f176d148173ca19a99b0c80e40a83f"
+      },
+      "required_nbt_variants": [
+        {
+          "variant_id": "empty",
+          "required_fields": [
+            "id",
+            "hasBook",
+            "page"
+          ],
+          "witness_ids": []
+        },
+        {
+          "variant_id": "book_all_pages",
+          "required_fields": [
+            "id",
+            "hasBook",
+            "page",
+            "book",
+            "totalPages"
+          ],
+          "witness_ids": []
+        }
+      ],
+      "chunk_nbt": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail",
+          "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"
+        ]
+      },
+      "live_update": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"
+        ]
+      },
+      "renderer_class": "custom_geometry",
+      "renderer_status": "deferred",
+      "implementation_symbol": null,
+      "gallery_builder": null,
+      "witnesses": {
+        "gpu": [],
+        "no_draw": []
+      }
+    },
+    {
+      "source_key": "Note",
+      "nbt_id": null,
+      "nbt_aliases": [],
+      "backing_blocks": [
+        {
+          "name": "minecraft:noteblock",
+          "states": [
+            {}
+          ]
+        }
+      ],
+      "source": {
+        "dragonfly_module": "github.com/df-mc/dragonfly",
+        "dragonfly_version": "v0.10.15-0.20260709170650-b85c56ffea6b",
+        "dragonfly_revision": "b85c56ffea6b306798a935f14cc941c76618be52",
+        "dragonfly_registration_sha256": "13a852419214598a6a644557d3cc3a587ce0ca3a61292571c841184fbe937bae",
+        "dragonfly_source_file": "server/block/note.go",
+        "dragonfly_source_file_sha256": "3d1f88ab57b1b63418b9c8a727d12a0dbd9077b90b0f3e88f568d06944e0ef7d",
+        "bds_server_version": "1.26.32.2",
+        "bds_executable_sha256": "10c680f00faffecdfb3743c5a8a71d6c73f176d148173ca19a99b0c80e40a83f"
+      },
+      "required_nbt_variants": [
+        {
+          "variant_id": "all_pitches_unpowered",
+          "required_fields": [
+            "note",
+            "powered"
+          ],
+          "witness_ids": []
+        },
+        {
+          "variant_id": "all_pitches_powered",
+          "required_fields": [
+            "note",
+            "powered"
+          ],
+          "witness_ids": []
+        }
+      ],
+      "chunk_nbt": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail",
+          "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"
+        ]
+      },
+      "live_update": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"
+        ]
+      },
+      "renderer_class": "sourced_logical_invisible",
+      "renderer_status": "deferred",
+      "implementation_symbol": null,
+      "gallery_builder": null,
+      "witnesses": {
+        "gpu": [],
+        "no_draw": []
+      }
+    },
+    {
+      "source_key": "Sign",
+      "nbt_id": "Sign",
+      "nbt_aliases": [],
+      "backing_blocks": [
+        {
+          "name": "minecraft:acacia_standing_sign",
+          "states": [
+            {
+              "ground_sign_direction": 0
+            },
+            {
+              "ground_sign_direction": 10
+            },
+            {
+              "ground_sign_direction": 11
+            },
+            {
+              "ground_sign_direction": 12
+            },
+            {
+              "ground_sign_direction": 13
+            },
+            {
+              "ground_sign_direction": 14
+            },
+            {
+              "ground_sign_direction": 15
+            },
+            {
+              "ground_sign_direction": 1
+            },
+            {
+              "ground_sign_direction": 2
+            },
+            {
+              "ground_sign_direction": 3
+            },
+            {
+              "ground_sign_direction": 4
+            },
+            {
+              "ground_sign_direction": 5
+            },
+            {
+              "ground_sign_direction": 6
+            },
+            {
+              "ground_sign_direction": 7
+            },
+            {
+              "ground_sign_direction": 8
+            },
+            {
+              "ground_sign_direction": 9
+            }
+          ]
+        },
+        {
+          "name": "minecraft:acacia_wall_sign",
+          "states": [
+            {
+              "facing_direction": 2
+            },
+            {
+              "facing_direction": 3
+            },
+            {
+              "facing_direction": 4
+            },
+            {
+              "facing_direction": 5
+            }
+          ]
+        },
+        {
+          "name": "minecraft:bamboo_standing_sign",
+          "states": [
+            {
+              "ground_sign_direction": 0
+            },
+            {
+              "ground_sign_direction": 10
+            },
+            {
+              "ground_sign_direction": 11
+            },
+            {
+              "ground_sign_direction": 12
+            },
+            {
+              "ground_sign_direction": 13
+            },
+            {
+              "ground_sign_direction": 14
+            },
+            {
+              "ground_sign_direction": 15
+            },
+            {
+              "ground_sign_direction": 1
+            },
+            {
+              "ground_sign_direction": 2
+            },
+            {
+              "ground_sign_direction": 3
+            },
+            {
+              "ground_sign_direction": 4
+            },
+            {
+              "ground_sign_direction": 5
+            },
+            {
+              "ground_sign_direction": 6
+            },
+            {
+              "ground_sign_direction": 7
+            },
+            {
+              "ground_sign_direction": 8
+            },
+            {
+              "ground_sign_direction": 9
+            }
+          ]
+        },
+        {
+          "name": "minecraft:bamboo_wall_sign",
+          "states": [
+            {
+              "facing_direction": 2
+            },
+            {
+              "facing_direction": 3
+            },
+            {
+              "facing_direction": 4
+            },
+            {
+              "facing_direction": 5
+            }
+          ]
+        },
+        {
+          "name": "minecraft:birch_standing_sign",
+          "states": [
+            {
+              "ground_sign_direction": 0
+            },
+            {
+              "ground_sign_direction": 10
+            },
+            {
+              "ground_sign_direction": 11
+            },
+            {
+              "ground_sign_direction": 12
+            },
+            {
+              "ground_sign_direction": 13
+            },
+            {
+              "ground_sign_direction": 14
+            },
+            {
+              "ground_sign_direction": 15
+            },
+            {
+              "ground_sign_direction": 1
+            },
+            {
+              "ground_sign_direction": 2
+            },
+            {
+              "ground_sign_direction": 3
+            },
+            {
+              "ground_sign_direction": 4
+            },
+            {
+              "ground_sign_direction": 5
+            },
+            {
+              "ground_sign_direction": 6
+            },
+            {
+              "ground_sign_direction": 7
+            },
+            {
+              "ground_sign_direction": 8
+            },
+            {
+              "ground_sign_direction": 9
+            }
+          ]
+        },
+        {
+          "name": "minecraft:birch_wall_sign",
+          "states": [
+            {
+              "facing_direction": 2
+            },
+            {
+              "facing_direction": 3
+            },
+            {
+              "facing_direction": 4
+            },
+            {
+              "facing_direction": 5
+            }
+          ]
+        },
+        {
+          "name": "minecraft:cherry_standing_sign",
+          "states": [
+            {
+              "ground_sign_direction": 0
+            },
+            {
+              "ground_sign_direction": 10
+            },
+            {
+              "ground_sign_direction": 11
+            },
+            {
+              "ground_sign_direction": 12
+            },
+            {
+              "ground_sign_direction": 13
+            },
+            {
+              "ground_sign_direction": 14
+            },
+            {
+              "ground_sign_direction": 15
+            },
+            {
+              "ground_sign_direction": 1
+            },
+            {
+              "ground_sign_direction": 2
+            },
+            {
+              "ground_sign_direction": 3
+            },
+            {
+              "ground_sign_direction": 4
+            },
+            {
+              "ground_sign_direction": 5
+            },
+            {
+              "ground_sign_direction": 6
+            },
+            {
+              "ground_sign_direction": 7
+            },
+            {
+              "ground_sign_direction": 8
+            },
+            {
+              "ground_sign_direction": 9
+            }
+          ]
+        },
+        {
+          "name": "minecraft:cherry_wall_sign",
+          "states": [
+            {
+              "facing_direction": 2
+            },
+            {
+              "facing_direction": 3
+            },
+            {
+              "facing_direction": 4
+            },
+            {
+              "facing_direction": 5
+            }
+          ]
+        },
+        {
+          "name": "minecraft:crimson_standing_sign",
+          "states": [
+            {
+              "ground_sign_direction": 0
+            },
+            {
+              "ground_sign_direction": 10
+            },
+            {
+              "ground_sign_direction": 11
+            },
+            {
+              "ground_sign_direction": 12
+            },
+            {
+              "ground_sign_direction": 13
+            },
+            {
+              "ground_sign_direction": 14
+            },
+            {
+              "ground_sign_direction": 15
+            },
+            {
+              "ground_sign_direction": 1
+            },
+            {
+              "ground_sign_direction": 2
+            },
+            {
+              "ground_sign_direction": 3
+            },
+            {
+              "ground_sign_direction": 4
+            },
+            {
+              "ground_sign_direction": 5
+            },
+            {
+              "ground_sign_direction": 6
+            },
+            {
+              "ground_sign_direction": 7
+            },
+            {
+              "ground_sign_direction": 8
+            },
+            {
+              "ground_sign_direction": 9
+            }
+          ]
+        },
+        {
+          "name": "minecraft:crimson_wall_sign",
+          "states": [
+            {
+              "facing_direction": 2
+            },
+            {
+              "facing_direction": 3
+            },
+            {
+              "facing_direction": 4
+            },
+            {
+              "facing_direction": 5
+            }
+          ]
+        },
+        {
+          "name": "minecraft:darkoak_standing_sign",
+          "states": [
+            {
+              "ground_sign_direction": 0
+            },
+            {
+              "ground_sign_direction": 10
+            },
+            {
+              "ground_sign_direction": 11
+            },
+            {
+              "ground_sign_direction": 12
+            },
+            {
+              "ground_sign_direction": 13
+            },
+            {
+              "ground_sign_direction": 14
+            },
+            {
+              "ground_sign_direction": 15
+            },
+            {
+              "ground_sign_direction": 1
+            },
+            {
+              "ground_sign_direction": 2
+            },
+            {
+              "ground_sign_direction": 3
+            },
+            {
+              "ground_sign_direction": 4
+            },
+            {
+              "ground_sign_direction": 5
+            },
+            {
+              "ground_sign_direction": 6
+            },
+            {
+              "ground_sign_direction": 7
+            },
+            {
+              "ground_sign_direction": 8
+            },
+            {
+              "ground_sign_direction": 9
+            }
+          ]
+        },
+        {
+          "name": "minecraft:darkoak_wall_sign",
+          "states": [
+            {
+              "facing_direction": 2
+            },
+            {
+              "facing_direction": 3
+            },
+            {
+              "facing_direction": 4
+            },
+            {
+              "facing_direction": 5
+            }
+          ]
+        },
+        {
+          "name": "minecraft:jungle_standing_sign",
+          "states": [
+            {
+              "ground_sign_direction": 0
+            },
+            {
+              "ground_sign_direction": 10
+            },
+            {
+              "ground_sign_direction": 11
+            },
+            {
+              "ground_sign_direction": 12
+            },
+            {
+              "ground_sign_direction": 13
+            },
+            {
+              "ground_sign_direction": 14
+            },
+            {
+              "ground_sign_direction": 15
+            },
+            {
+              "ground_sign_direction": 1
+            },
+            {
+              "ground_sign_direction": 2
+            },
+            {
+              "ground_sign_direction": 3
+            },
+            {
+              "ground_sign_direction": 4
+            },
+            {
+              "ground_sign_direction": 5
+            },
+            {
+              "ground_sign_direction": 6
+            },
+            {
+              "ground_sign_direction": 7
+            },
+            {
+              "ground_sign_direction": 8
+            },
+            {
+              "ground_sign_direction": 9
+            }
+          ]
+        },
+        {
+          "name": "minecraft:jungle_wall_sign",
+          "states": [
+            {
+              "facing_direction": 2
+            },
+            {
+              "facing_direction": 3
+            },
+            {
+              "facing_direction": 4
+            },
+            {
+              "facing_direction": 5
+            }
+          ]
+        },
+        {
+          "name": "minecraft:mangrove_standing_sign",
+          "states": [
+            {
+              "ground_sign_direction": 0
+            },
+            {
+              "ground_sign_direction": 10
+            },
+            {
+              "ground_sign_direction": 11
+            },
+            {
+              "ground_sign_direction": 12
+            },
+            {
+              "ground_sign_direction": 13
+            },
+            {
+              "ground_sign_direction": 14
+            },
+            {
+              "ground_sign_direction": 15
+            },
+            {
+              "ground_sign_direction": 1
+            },
+            {
+              "ground_sign_direction": 2
+            },
+            {
+              "ground_sign_direction": 3
+            },
+            {
+              "ground_sign_direction": 4
+            },
+            {
+              "ground_sign_direction": 5
+            },
+            {
+              "ground_sign_direction": 6
+            },
+            {
+              "ground_sign_direction": 7
+            },
+            {
+              "ground_sign_direction": 8
+            },
+            {
+              "ground_sign_direction": 9
+            }
+          ]
+        },
+        {
+          "name": "minecraft:mangrove_wall_sign",
+          "states": [
+            {
+              "facing_direction": 2
+            },
+            {
+              "facing_direction": 3
+            },
+            {
+              "facing_direction": 4
+            },
+            {
+              "facing_direction": 5
+            }
+          ]
+        },
+        {
+          "name": "minecraft:pale_oak_standing_sign",
+          "states": [
+            {
+              "ground_sign_direction": 0
+            },
+            {
+              "ground_sign_direction": 10
+            },
+            {
+              "ground_sign_direction": 11
+            },
+            {
+              "ground_sign_direction": 12
+            },
+            {
+              "ground_sign_direction": 13
+            },
+            {
+              "ground_sign_direction": 14
+            },
+            {
+              "ground_sign_direction": 15
+            },
+            {
+              "ground_sign_direction": 1
+            },
+            {
+              "ground_sign_direction": 2
+            },
+            {
+              "ground_sign_direction": 3
+            },
+            {
+              "ground_sign_direction": 4
+            },
+            {
+              "ground_sign_direction": 5
+            },
+            {
+              "ground_sign_direction": 6
+            },
+            {
+              "ground_sign_direction": 7
+            },
+            {
+              "ground_sign_direction": 8
+            },
+            {
+              "ground_sign_direction": 9
+            }
+          ]
+        },
+        {
+          "name": "minecraft:pale_oak_wall_sign",
+          "states": [
+            {
+              "facing_direction": 2
+            },
+            {
+              "facing_direction": 3
+            },
+            {
+              "facing_direction": 4
+            },
+            {
+              "facing_direction": 5
+            }
+          ]
+        },
+        {
+          "name": "minecraft:spruce_standing_sign",
+          "states": [
+            {
+              "ground_sign_direction": 0
+            },
+            {
+              "ground_sign_direction": 10
+            },
+            {
+              "ground_sign_direction": 11
+            },
+            {
+              "ground_sign_direction": 12
+            },
+            {
+              "ground_sign_direction": 13
+            },
+            {
+              "ground_sign_direction": 14
+            },
+            {
+              "ground_sign_direction": 15
+            },
+            {
+              "ground_sign_direction": 1
+            },
+            {
+              "ground_sign_direction": 2
+            },
+            {
+              "ground_sign_direction": 3
+            },
+            {
+              "ground_sign_direction": 4
+            },
+            {
+              "ground_sign_direction": 5
+            },
+            {
+              "ground_sign_direction": 6
+            },
+            {
+              "ground_sign_direction": 7
+            },
+            {
+              "ground_sign_direction": 8
+            },
+            {
+              "ground_sign_direction": 9
+            }
+          ]
+        },
+        {
+          "name": "minecraft:spruce_wall_sign",
+          "states": [
+            {
+              "facing_direction": 2
+            },
+            {
+              "facing_direction": 3
+            },
+            {
+              "facing_direction": 4
+            },
+            {
+              "facing_direction": 5
+            }
+          ]
+        },
+        {
+          "name": "minecraft:standing_sign",
+          "states": [
+            {
+              "ground_sign_direction": 0
+            },
+            {
+              "ground_sign_direction": 10
+            },
+            {
+              "ground_sign_direction": 11
+            },
+            {
+              "ground_sign_direction": 12
+            },
+            {
+              "ground_sign_direction": 13
+            },
+            {
+              "ground_sign_direction": 14
+            },
+            {
+              "ground_sign_direction": 15
+            },
+            {
+              "ground_sign_direction": 1
+            },
+            {
+              "ground_sign_direction": 2
+            },
+            {
+              "ground_sign_direction": 3
+            },
+            {
+              "ground_sign_direction": 4
+            },
+            {
+              "ground_sign_direction": 5
+            },
+            {
+              "ground_sign_direction": 6
+            },
+            {
+              "ground_sign_direction": 7
+            },
+            {
+              "ground_sign_direction": 8
+            },
+            {
+              "ground_sign_direction": 9
+            }
+          ]
+        },
+        {
+          "name": "minecraft:wall_sign",
+          "states": [
+            {
+              "facing_direction": 2
+            },
+            {
+              "facing_direction": 3
+            },
+            {
+              "facing_direction": 4
+            },
+            {
+              "facing_direction": 5
+            }
+          ]
+        },
+        {
+          "name": "minecraft:warped_standing_sign",
+          "states": [
+            {
+              "ground_sign_direction": 0
+            },
+            {
+              "ground_sign_direction": 10
+            },
+            {
+              "ground_sign_direction": 11
+            },
+            {
+              "ground_sign_direction": 12
+            },
+            {
+              "ground_sign_direction": 13
+            },
+            {
+              "ground_sign_direction": 14
+            },
+            {
+              "ground_sign_direction": 15
+            },
+            {
+              "ground_sign_direction": 1
+            },
+            {
+              "ground_sign_direction": 2
+            },
+            {
+              "ground_sign_direction": 3
+            },
+            {
+              "ground_sign_direction": 4
+            },
+            {
+              "ground_sign_direction": 5
+            },
+            {
+              "ground_sign_direction": 6
+            },
+            {
+              "ground_sign_direction": 7
+            },
+            {
+              "ground_sign_direction": 8
+            },
+            {
+              "ground_sign_direction": 9
+            }
+          ]
+        },
+        {
+          "name": "minecraft:warped_wall_sign",
+          "states": [
+            {
+              "facing_direction": 2
+            },
+            {
+              "facing_direction": 3
+            },
+            {
+              "facing_direction": 4
+            },
+            {
+              "facing_direction": 5
+            }
+          ]
+        }
+      ],
+      "source": {
+        "dragonfly_module": "github.com/df-mc/dragonfly",
+        "dragonfly_version": "v0.10.15-0.20260709170650-b85c56ffea6b",
+        "dragonfly_revision": "b85c56ffea6b306798a935f14cc941c76618be52",
+        "dragonfly_registration_sha256": "13a852419214598a6a644557d3cc3a587ce0ca3a61292571c841184fbe937bae",
+        "dragonfly_source_file": "server/block/sign.go",
+        "dragonfly_source_file_sha256": "53f6782a16f0b0f58364f1561c30f5f3e9350d8b186ca940d9a957aecd3781b2",
+        "bds_server_version": "1.26.32.2",
+        "bds_executable_sha256": "10c680f00faffecdfb3743c5a8a71d6c73f176d148173ca19a99b0c80e40a83f"
+      },
+      "required_nbt_variants": [
+        {
+          "variant_id": "plain_front_back",
+          "required_fields": [
+            "id",
+            "IsWaxed",
+            "FrontText",
+            "BackText"
+          ],
+          "witness_ids": []
+        },
+        {
+          "variant_id": "coloured_glowing_waxed",
+          "required_fields": [
+            "id",
+            "IsWaxed",
+            "FrontText",
+            "BackText"
+          ],
+          "witness_ids": []
+        }
+      ],
+      "chunk_nbt": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail",
+          "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"
+        ]
+      },
+      "live_update": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"
+        ]
+      },
+      "renderer_class": "text_overlay",
+      "renderer_status": "deferred",
+      "implementation_symbol": null,
+      "gallery_builder": null,
+      "witnesses": {
+        "gpu": [],
+        "no_draw": []
+      }
+    },
+    {
+      "source_key": "Skull",
+      "nbt_id": "Skull",
+      "nbt_aliases": [],
+      "backing_blocks": [
+        {
+          "name": "minecraft:creeper_head",
+          "states": [
+            {
+              "facing_direction": 0
+            },
+            {
+              "facing_direction": 1
+            },
+            {
+              "facing_direction": 2
+            },
+            {
+              "facing_direction": 3
+            },
+            {
+              "facing_direction": 4
+            },
+            {
+              "facing_direction": 5
+            }
+          ]
+        },
+        {
+          "name": "minecraft:dragon_head",
+          "states": [
+            {
+              "facing_direction": 0
+            },
+            {
+              "facing_direction": 1
+            },
+            {
+              "facing_direction": 2
+            },
+            {
+              "facing_direction": 3
+            },
+            {
+              "facing_direction": 4
+            },
+            {
+              "facing_direction": 5
+            }
+          ]
+        },
+        {
+          "name": "minecraft:piglin_head",
+          "states": [
+            {
+              "facing_direction": 0
+            },
+            {
+              "facing_direction": 1
+            },
+            {
+              "facing_direction": 2
+            },
+            {
+              "facing_direction": 3
+            },
+            {
+              "facing_direction": 4
+            },
+            {
+              "facing_direction": 5
+            }
+          ]
+        },
+        {
+          "name": "minecraft:player_head",
+          "states": [
+            {
+              "facing_direction": 0
+            },
+            {
+              "facing_direction": 1
+            },
+            {
+              "facing_direction": 2
+            },
+            {
+              "facing_direction": 3
+            },
+            {
+              "facing_direction": 4
+            },
+            {
+              "facing_direction": 5
+            }
+          ]
+        },
+        {
+          "name": "minecraft:skeleton_skull",
+          "states": [
+            {
+              "facing_direction": 0
+            },
+            {
+              "facing_direction": 1
+            },
+            {
+              "facing_direction": 2
+            },
+            {
+              "facing_direction": 3
+            },
+            {
+              "facing_direction": 4
+            },
+            {
+              "facing_direction": 5
+            }
+          ]
+        },
+        {
+          "name": "minecraft:wither_skeleton_skull",
+          "states": [
+            {
+              "facing_direction": 0
+            },
+            {
+              "facing_direction": 1
+            },
+            {
+              "facing_direction": 2
+            },
+            {
+              "facing_direction": 3
+            },
+            {
+              "facing_direction": 4
+            },
+            {
+              "facing_direction": 5
+            }
+          ]
+        },
+        {
+          "name": "minecraft:zombie_head",
+          "states": [
+            {
+              "facing_direction": 0
+            },
+            {
+              "facing_direction": 1
+            },
+            {
+              "facing_direction": 2
+            },
+            {
+              "facing_direction": 3
+            },
+            {
+              "facing_direction": 4
+            },
+            {
+              "facing_direction": 5
+            }
+          ]
+        }
+      ],
+      "source": {
+        "dragonfly_module": "github.com/df-mc/dragonfly",
+        "dragonfly_version": "v0.10.15-0.20260709170650-b85c56ffea6b",
+        "dragonfly_revision": "b85c56ffea6b306798a935f14cc941c76618be52",
+        "dragonfly_registration_sha256": "13a852419214598a6a644557d3cc3a587ce0ca3a61292571c841184fbe937bae",
+        "dragonfly_source_file": "server/block/skull.go",
+        "dragonfly_source_file_sha256": "2227703b3bd3d5b8b6a69f9127d9ef10db0701bc344347559a0457ba7f604a64",
+        "bds_server_version": "1.26.32.2",
+        "bds_executable_sha256": "10c680f00faffecdfb3743c5a8a71d6c73f176d148173ca19a99b0c80e40a83f"
+      },
+      "required_nbt_variants": [
+        {
+          "variant_id": "standing_types_rotations",
+          "required_fields": [
+            "id",
+            "SkullType",
+            "Rotation"
+          ],
+          "witness_ids": []
+        },
+        {
+          "variant_id": "wall_types",
+          "required_fields": [
+            "id",
+            "SkullType",
+            "Rotation"
+          ],
+          "witness_ids": []
+        }
+      ],
+      "chunk_nbt": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail",
+          "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"
+        ]
+      },
+      "live_update": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"
+        ]
+      },
+      "renderer_class": "custom_geometry",
+      "renderer_status": "deferred",
+      "implementation_symbol": null,
+      "gallery_builder": null,
+      "witnesses": {
+        "gpu": [],
+        "no_draw": []
+      }
+    },
+    {
+      "source_key": "Smoker",
+      "nbt_id": "Smoker",
+      "nbt_aliases": [],
+      "backing_blocks": [
+        {
+          "name": "minecraft:lit_smoker",
+          "states": [
+            {
+              "minecraft:cardinal_direction": "east"
+            },
+            {
+              "minecraft:cardinal_direction": "north"
+            },
+            {
+              "minecraft:cardinal_direction": "south"
+            },
+            {
+              "minecraft:cardinal_direction": "west"
+            }
+          ]
+        },
+        {
+          "name": "minecraft:smoker",
+          "states": [
+            {
+              "minecraft:cardinal_direction": "east"
+            },
+            {
+              "minecraft:cardinal_direction": "north"
+            },
+            {
+              "minecraft:cardinal_direction": "south"
+            },
+            {
+              "minecraft:cardinal_direction": "west"
+            }
+          ]
+        }
+      ],
+      "source": {
+        "dragonfly_module": "github.com/df-mc/dragonfly",
+        "dragonfly_version": "v0.10.15-0.20260709170650-b85c56ffea6b",
+        "dragonfly_revision": "b85c56ffea6b306798a935f14cc941c76618be52",
+        "dragonfly_registration_sha256": "13a852419214598a6a644557d3cc3a587ce0ca3a61292571c841184fbe937bae",
+        "dragonfly_source_file": "server/block/smoker.go",
+        "dragonfly_source_file_sha256": "2382fa2a36f6ef1b6c5d3389bbc1831e2bdb9aae7a1f64f5dd2b01400eb5e4a6",
+        "bds_server_version": "1.26.32.2",
+        "bds_executable_sha256": "10c680f00faffecdfb3743c5a8a71d6c73f176d148173ca19a99b0c80e40a83f"
+      },
+      "required_nbt_variants": [
+        {
+          "variant_id": "idle",
+          "required_fields": [
+            "id",
+            "BurnTime",
+            "CookTime",
+            "BurnDuration",
+            "StoredXPInt",
+            "Items"
+          ],
+          "witness_ids": []
+        },
+        {
+          "variant_id": "active_recipe",
+          "required_fields": [
+            "id",
+            "BurnTime",
+            "CookTime",
+            "BurnDuration",
+            "StoredXPInt",
+            "Items"
+          ],
+          "witness_ids": []
+        }
+      ],
+      "chunk_nbt": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail",
+          "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"
+        ]
+      },
+      "live_update": {
+        "supported": true,
+        "witness_ids": [
+          "world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"
+        ]
+      },
+      "renderer_class": "static_block_model",
+      "renderer_status": "deferred",
+      "implementation_symbol": null,
+      "gallery_builder": null,
+      "witnesses": {
+        "gpu": [],
+        "no_draw": []
+      }
+    }
+  ]
+}

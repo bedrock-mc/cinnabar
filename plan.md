@@ -993,8 +993,24 @@ Scope: block registry + block-state → model/texture mapping (generated export 
         record/raw-byte caps across tail and live updates, FIFO worker decoding,
         malformed-update retention, all-air cleanup, and chunk eviction are
         covered without flat block expansion. The separate deterministic
-        inventory/renderer manifest and per-ID GPU/no-draw witnesses remain
-        open.
+        inventory/renderer manifest is now generated below; per-ID renderer
+        and GPU/no-draw witnesses remain open.
+      - [x] Generate and commit the independent protocol-1001 block-entity
+        inventory plus reviewed renderer manifest from the exact Dragonfly
+        `b85c56ffea6b306798a935f14cc941c76618be52` registration pin and the
+        hash-bound BDS 1.26.32.2 runtime evidence. The isolated generator
+        rejects workspace dependency drift, generic `unknownBlock` NBT
+        passthrough, source/hash drift, missing/extra/duplicate source keys,
+        ambiguous aliases, and missing chunk/live-update/variant declarations.
+        Its deterministic artifact covers all 21 explicit Dragonfly NBT IDs
+        plus the id-less `Note` producer, 63 backing block names, 446 canonical
+        backing states, and 42 required NBT variants without changing the
+        16,913 block-state count. The strict-final report truthfully remains
+        red at 0 proven/22 deferred: renderer implementations, gallery builders,
+        per-variant witnesses, and per-ID GPU or no-draw evidence remain open.
+      - [ ] Implement the reviewed per-ID renderer routes and gallery builders,
+        then close every required NBT-variant witness and GPU/no-draw witness so
+        the block-entity strict-final gate reaches 22 proven with no deferrals.
     - [ ] Merge both the Axolotl protocol-fix branch and Cinnabar feature branch
       into their respective `main` branches through reviewed PRs using normal
       history-preserving merge commits (never squash or rebase the feature
