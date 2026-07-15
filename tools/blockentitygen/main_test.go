@@ -2,7 +2,10 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -178,6 +181,60 @@ func TestRendererManifestDecoderRejectsOversizedAndTrailingPayloads(t *testing.T
 	}
 }
 
+func TestReadRendererManifestRejectsOversizedFileBeforeDecoding(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "renderer-manifest.json")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create oversized manifest: %v", err)
+	}
+	if err := file.Truncate(maxRendererManifestBytes + 1); err != nil {
+		file.Close()
+		t.Fatalf("truncate oversized manifest: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close oversized manifest: %v", err)
+	}
+	if _, err := readRendererManifest(path); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversized manifest error = %v", err)
+	}
+}
+
+func TestVerifyFileSHA256StreamsWithinBoundedAllocation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pinned.bin")
+	expectedSize := int64(4 << 20)
+	expectedHash := writeHashedFixture(t, path, expectedSize)
+	if err := verifyFileSHA256(path, expectedSize, expectedHash); err != nil {
+		t.Fatalf("verify streamed fixture: %v", err)
+	}
+
+	var benchmarkErr error
+	result := testing.Benchmark(func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			if err := verifyFileSHA256(path, expectedSize, expectedHash); err != nil {
+				benchmarkErr = err
+				return
+			}
+		}
+	})
+	if benchmarkErr != nil {
+		t.Fatalf("benchmark streamed fixture: %v", benchmarkErr)
+	}
+	if allocated := result.AllocedBytesPerOp(); allocated > 256<<10 {
+		t.Fatalf("verify allocation = %d bytes/op, want at most %d", allocated, 256<<10)
+	}
+}
+
+func TestVerifyFileSHA256RejectsSizeBeforeHashing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "wrong-size.bin")
+	if err := os.WriteFile(path, []byte("not the expected size"), 0o600); err != nil {
+		t.Fatalf("write wrong-size fixture: %v", err)
+	}
+	if err := verifyFileSHA256(path, 1, strings.Repeat("0", 64)); err == nil || !strings.Contains(err.Error(), "size drift") {
+		t.Fatalf("size error = %v", err)
+	}
+}
+
 func TestStrictFinalFailsClosedOnEveryDeferredOrMissingEvidenceClass(t *testing.T) {
 	source := mustCollectSource(t)
 	manifest := mustReadManifest(t)
@@ -192,6 +249,141 @@ func TestStrictFinalFailsClosedOnEveryDeferredOrMissingEvidenceClass(t *testing.
 	}
 	if report.ProvenRendererCount != 0 || report.FinalGatePassed {
 		t.Fatalf("strict-final report = %#v", report)
+	}
+}
+
+func TestStrictFinalAcceptsOnlyCompleteConsistentEvidence(t *testing.T) {
+	source := mustCollectSource(t)
+	manifest := mustStrictFinalManifest(t)
+	_, report, err := joinInventory(source, manifest, joinStrictFinal)
+	if err != nil {
+		t.Fatalf("strict-final join: %v", err)
+	}
+	if !report.FinalGatePassed || report.ProvenRendererCount != 22 || len(report.FinalBlockers) != 0 {
+		t.Fatalf("strict-final report = %#v", report)
+	}
+}
+
+func TestReviewedJoinRejectsIncompleteMalformedAndContradictoryDeclarations(t *testing.T) {
+	source := mustCollectSource(t)
+	valid := mustReadManifest(t)
+	tests := []struct {
+		name string
+		edit func(*rendererManifest)
+		want string
+	}{
+		{"deleted but nonempty variants", func(m *rendererManifest) {
+			m.Entries[0].RequiredNBTVariants = m.Entries[0].RequiredNBTVariants[1:]
+		}, "required NBT variant set mismatch"},
+		{"extra variant", func(m *rendererManifest) {
+			m.Entries[0].RequiredNBTVariants = append(m.Entries[0].RequiredNBTVariants, nbtVariant{VariantID: "invented", RequiredFields: []string{"id"}, WitnessIDs: []string{}})
+		}, "required NBT variant set mismatch"},
+		{"whitespace variant identifier", func(m *rendererManifest) {
+			m.Entries[0].RequiredNBTVariants[0].VariantID = " "
+		}, "invalid required NBT variant identifier"},
+		{"whitespace required field", func(m *rendererManifest) {
+			m.Entries[0].RequiredNBTVariants[0].RequiredFields[0] = "\t"
+		}, "invalid required NBT field"},
+		{"duplicate required field", func(m *rendererManifest) {
+			fields := m.Entries[0].RequiredNBTVariants[0].RequiredFields
+			m.Entries[0].RequiredNBTVariants[0].RequiredFields = append(fields, fields[0])
+		}, "duplicate required NBT field"},
+		{"whitespace alias", func(m *rendererManifest) {
+			m.Entries[0].NBTAliases = []string{" "}
+		}, "invalid NBT alias"},
+		{"whitespace chunk witness", func(m *rendererManifest) {
+			m.Entries[0].ChunkNBT.WitnessIDs = []string{" "}
+		}, "invalid chunk-NBT witness"},
+		{"duplicate chunk witness", func(m *rendererManifest) {
+			witness := m.Entries[0].ChunkNBT.WitnessIDs[0]
+			m.Entries[0].ChunkNBT.WitnessIDs = []string{witness, witness}
+		}, "duplicate chunk-NBT witness"},
+		{"whitespace live witness", func(m *rendererManifest) {
+			m.Entries[0].LiveUpdate.WitnessIDs = []string{" "}
+		}, "invalid live-update witness"},
+		{"deferred implementation claim", func(m *rendererManifest) {
+			m.Entries[0].ImplementationSymbol = stringPointer("render::banner")
+		}, "deferred renderer claims implementation or evidence"},
+		{"deferred gallery claim", func(m *rendererManifest) {
+			m.Entries[0].GalleryBuilder = stringPointer("gallery::banner")
+		}, "deferred renderer claims implementation or evidence"},
+		{"deferred variant evidence", func(m *rendererManifest) {
+			m.Entries[0].RequiredNBTVariants[0].WitnessIDs = []string{"variant::banner::blank"}
+		}, "deferred renderer claims implementation or evidence"},
+		{"deferred GPU evidence", func(m *rendererManifest) {
+			m.Entries[0].Witnesses.GPU = []string{"gpu::banner"}
+		}, "deferred renderer claims implementation or evidence"},
+		{"deferred no-draw evidence", func(m *rendererManifest) {
+			m.Entries[0].Witnesses.NoDraw = []string{"no_draw::banner"}
+		}, "deferred renderer claims implementation or evidence"},
+		{"unsupported evidence claim", func(m *rendererManifest) {
+			m.Entries[0].RendererStatus = "unsupported"
+			m.Entries[0].GalleryBuilder = stringPointer("gallery::banner")
+		}, "unsupported renderer claims implementation or evidence"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			manifest := cloneManifest(t, valid)
+			test.edit(&manifest)
+			_, _, err := joinInventory(source, manifest, joinReviewed)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestStrictFinalRejectsMalformedDuplicateAndContradictoryEvidence(t *testing.T) {
+	source := mustCollectSource(t)
+	valid := mustStrictFinalManifest(t)
+	tests := []struct {
+		name string
+		edit func(*rendererManifest)
+		want string
+	}{
+		{"whitespace implementation symbol", func(m *rendererManifest) {
+			m.Entries[0].ImplementationSymbol = stringPointer(" ")
+		}, "invalid implementation symbol"},
+		{"whitespace gallery builder", func(m *rendererManifest) {
+			m.Entries[0].GalleryBuilder = stringPointer("\t")
+		}, "invalid gallery builder"},
+		{"whitespace variant witness", func(m *rendererManifest) {
+			m.Entries[0].RequiredNBTVariants[0].WitnessIDs = []string{" "}
+		}, "invalid NBT variant witness"},
+		{"duplicate variant witness", func(m *rendererManifest) {
+			witness := m.Entries[0].RequiredNBTVariants[0].WitnessIDs[0]
+			m.Entries[0].RequiredNBTVariants[0].WitnessIDs = []string{witness, witness}
+		}, "duplicate NBT variant witness"},
+		{"whitespace GPU witness", func(m *rendererManifest) {
+			m.Entries[0].Witnesses.GPU = []string{" "}
+		}, "invalid GPU witness"},
+		{"duplicate GPU witness", func(m *rendererManifest) {
+			witness := m.Entries[0].Witnesses.GPU[0]
+			m.Entries[0].Witnesses.GPU = []string{witness, witness}
+		}, "duplicate GPU witness"},
+		{"drawable no-draw contradiction", func(m *rendererManifest) {
+			m.Entries[0].Witnesses.NoDraw = []string{"no_draw::banner"}
+		}, "drawable renderer claims no-draw evidence"},
+		{"invisible GPU contradiction", func(m *rendererManifest) {
+			m.Entries[16].Witnesses.GPU = []string{"gpu::jukebox"}
+		}, "invisible renderer claims GPU evidence"},
+		{"whitespace no-draw witness", func(m *rendererManifest) {
+			m.Entries[16].Witnesses.NoDraw = []string{" "}
+		}, "invalid no-draw witness"},
+		{"duplicate no-draw witness", func(m *rendererManifest) {
+			witness := m.Entries[16].Witnesses.NoDraw[0]
+			m.Entries[16].Witnesses.NoDraw = []string{witness, witness}
+		}, "duplicate no-draw witness"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			manifest := cloneManifest(t, valid)
+			test.edit(&manifest)
+			_, _, err := joinInventory(source, manifest, joinStrictFinal)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want %q", err, test.want)
+			}
+		})
 	}
 }
 
@@ -237,6 +429,79 @@ func mustReadManifest(t *testing.T) rendererManifest {
 		t.Fatalf("decode renderer manifest: %v", err)
 	}
 	return manifest
+}
+
+func mustStrictFinalManifest(t *testing.T) rendererManifest {
+	t.Helper()
+	manifest := cloneManifest(t, mustReadManifest(t))
+	for index := range manifest.Entries {
+		entry := &manifest.Entries[index]
+		entry.RendererStatus = "implemented"
+		entry.ImplementationSymbol = stringPointer("render::" + entry.SourceKey)
+		entry.GalleryBuilder = stringPointer("gallery::" + entry.SourceKey)
+		for variantIndex := range entry.RequiredNBTVariants {
+			variant := &entry.RequiredNBTVariants[variantIndex]
+			variant.WitnessIDs = []string{"variant::" + entry.SourceKey + "::" + variant.VariantID}
+		}
+		if entry.RendererClass == "sourced_logical_invisible" {
+			entry.Witnesses.NoDraw = []string{"no_draw::" + entry.SourceKey}
+		} else {
+			entry.Witnesses.GPU = []string{"gpu::" + entry.SourceKey}
+		}
+	}
+	return manifest
+}
+
+func cloneManifest(t *testing.T, manifest rendererManifest) rendererManifest {
+	t.Helper()
+	raw, err := marshalCanonical(manifest)
+	if err != nil {
+		t.Fatalf("encode renderer manifest clone: %v", err)
+	}
+	clone, err := decodeRendererManifest(raw)
+	if err != nil {
+		t.Fatalf("decode renderer manifest clone: %v", err)
+	}
+	return clone
+}
+
+func stringPointer(value string) *string {
+	return &value
+}
+
+func writeHashedFixture(t *testing.T, path string, size int64) string {
+	t.Helper()
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create hashed fixture: %v", err)
+	}
+	hash := sha256.New()
+	chunk := bytes.Repeat([]byte{0x5a}, 64<<10)
+	remaining := size
+	for remaining > 0 {
+		writeSize := int64(len(chunk))
+		if remaining < writeSize {
+			writeSize = remaining
+		}
+		written, writeErr := file.Write(chunk[:writeSize])
+		if writeErr != nil {
+			file.Close()
+			t.Fatalf("write hashed fixture: %v", writeErr)
+		}
+		if written != int(writeSize) {
+			file.Close()
+			t.Fatalf("write hashed fixture bytes = %d, want %d", written, writeSize)
+		}
+		if _, err := hash.Write(chunk[:writeSize]); err != nil {
+			file.Close()
+			t.Fatalf("hash fixture: %v", err)
+		}
+		remaining -= writeSize
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close hashed fixture: %v", err)
+	}
+	return fmt.Sprintf("%x", hash.Sum(nil))
 }
 
 func assertGolden(t *testing.T, path string, got []byte) {

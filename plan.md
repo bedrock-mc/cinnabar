@@ -979,8 +979,9 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       variants, and GPU/no-draw evidence for every source ID; block entities are
       not folded into the canonical block-state count. The ingestion audit found
       21 explicit Dragonfly source IDs plus an id-less Note producer that must be
-      explicitly adjudicated; current packet-56 and chunk/subchunk-tail NBT is
-      dropped before the world store. The bounded implementation order is
+      explicitly adjudicated. Packet-56 and chunk/subchunk-tail NBT now reaches
+      the bounded sparse world store; per-ID renderer evidence remains open. The
+      bounded implementation order is
       NetworkLittleEndian NBT prefix decoding plus atomic sparse storage first,
       then a separate deterministic source/renderer-manifest generator and
       strict join, followed by per-ID GPU/no-draw witnesses.

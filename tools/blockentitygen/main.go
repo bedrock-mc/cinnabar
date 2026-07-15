@@ -219,6 +219,31 @@ var sourceFilePins = map[string]sourceFilePin{
 	"Smoker":            {"server/block/smoker.go", "2382fa2a36f6ef1b6c5d3389bbc1831e2bdb9aae7a1f64f5dd2b01400eb5e4a6"},
 }
 
+var requiredNBTVariantIDs = map[string][]string{
+	"Banner":            {"blank", "patterned", "illager"},
+	"Barrel":            {"empty", "inventory_named"},
+	"Beacon":            {"inactive", "powered_effects"},
+	"Bed":               {"all_colours"},
+	"BlastFurnace":      {"idle", "active_recipe"},
+	"BrewingStand":      {"empty", "brewing"},
+	"Campfire":          {"empty", "cooking_four_slots"},
+	"Chest":             {"single_empty", "single_inventory_named", "paired"},
+	"CopperGolemStatue": {"all_poses"},
+	"DecoratedPot":      {"brick_sides_empty", "mixed_sherds_with_item"},
+	"EnchantTable":      {"default"},
+	"EnderChest":        {"default"},
+	"Furnace":           {"idle", "active_recipe"},
+	"GlowItemFrame":     {"empty", "displayed_item_all_rotations"},
+	"Hopper":            {"empty", "inventory_named_cooldown"},
+	"ItemFrame":         {"empty", "displayed_item_all_rotations"},
+	"Jukebox":           {"empty", "record"},
+	"Lectern":           {"empty", "book_all_pages"},
+	"Note":              {"all_pitches_unpowered", "all_pitches_powered"},
+	"Sign":              {"plain_front_back", "coloured_glowing_waxed"},
+	"Skull":             {"standing_types_rotations", "wall_types"},
+	"Smoker":            {"idle", "active_recipe"},
+}
+
 func main() {
 	manifestPath := flag.String("renderer-manifest", "assets/block-entity-renderers-v1001.json", "reviewed renderer manifest")
 	outputPath := flag.String("output", "crates/assets/data/block-entities-v1001.json", "generated inventory")
@@ -236,11 +261,7 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	rawManifest, err := os.ReadFile(*manifestPath)
-	if err != nil {
-		fatal(fmt.Errorf("read renderer manifest: %w", err))
-	}
-	manifest, err := decodeRendererManifest(rawManifest)
+	manifest, err := readRendererManifest(*manifestPath)
 	if err != nil {
 		fatal(err)
 	}
@@ -400,6 +421,26 @@ func decodeRendererManifest(raw []byte) (rendererManifest, error) {
 	return manifest, nil
 }
 
+func readRendererManifest(path string) (rendererManifest, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return rendererManifest{}, fmt.Errorf("open renderer manifest: %w", err)
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return rendererManifest{}, fmt.Errorf("stat renderer manifest: %w", err)
+	}
+	if info.Size() > maxRendererManifestBytes {
+		return rendererManifest{}, fmt.Errorf("renderer manifest size %d exceeds %d bytes", info.Size(), maxRendererManifestBytes)
+	}
+	raw, err := io.ReadAll(io.LimitReader(file, maxRendererManifestBytes+1))
+	if err != nil {
+		return rendererManifest{}, fmt.Errorf("read renderer manifest: %w", err)
+	}
+	return decodeRendererManifest(raw)
+}
+
 func joinInventory(source sourceInventory, manifest rendererManifest, mode joinMode) (blockEntityInventory, coverageReport, error) {
 	report := coverageReport{
 		Schema: reportSchema, ProtocolVersion: protocolVersion,
@@ -549,23 +590,130 @@ func validateReviewedEntry(entry rendererEntry) error {
 	if !entry.ChunkNBT.Supported || len(entry.ChunkNBT.WitnessIDs) == 0 {
 		return errors.New("missing chunk-NBT support or witness")
 	}
+	if err := validateIdentifiers(entry.ChunkNBT.WitnessIDs, "chunk-NBT witness"); err != nil {
+		return err
+	}
 	if !entry.LiveUpdate.Supported || len(entry.LiveUpdate.WitnessIDs) == 0 {
 		return errors.New("missing live-update support or witness")
+	}
+	if err := validateIdentifiers(entry.LiveUpdate.WitnessIDs, "live-update witness"); err != nil {
+		return err
+	}
+	if err := validateIdentifiers(entry.NBTAliases, "NBT alias"); err != nil {
+		return err
 	}
 	if len(entry.RequiredNBTVariants) == 0 {
 		return errors.New("missing required NBT variants")
 	}
-	seen := map[string]bool{}
+	expectedVariants, ok := requiredNBTVariantIDs[entry.SourceKey]
+	if !ok || len(entry.RequiredNBTVariants) != len(expectedVariants) {
+		return errors.New("required NBT variant set mismatch")
+	}
+	expected := make(map[string]bool, len(expectedVariants))
+	for _, variantID := range expectedVariants {
+		expected[variantID] = true
+	}
+	seen := make(map[string]bool, len(entry.RequiredNBTVariants))
 	for _, variant := range entry.RequiredNBTVariants {
-		if variant.VariantID == "" || len(variant.RequiredFields) == 0 {
-			return errors.New("invalid required NBT variant")
+		if !isTrimmedNonEmpty(variant.VariantID) {
+			return errors.New("invalid required NBT variant identifier")
 		}
 		if seen[variant.VariantID] {
 			return fmt.Errorf("duplicate required NBT variant %q", variant.VariantID)
 		}
+		if !expected[variant.VariantID] {
+			return errors.New("required NBT variant set mismatch")
+		}
 		seen[variant.VariantID] = true
+		if len(variant.RequiredFields) == 0 {
+			return errors.New("invalid required NBT variant")
+		}
+		if err := validateIdentifiers(variant.RequiredFields, "required NBT field"); err != nil {
+			return err
+		}
+		if err := validateIdentifiers(variant.WitnessIDs, "NBT variant witness"); err != nil {
+			return err
+		}
+	}
+	for _, variantID := range expectedVariants {
+		if !seen[variantID] {
+			return errors.New("required NBT variant set mismatch")
+		}
+	}
+	if entry.ImplementationSymbol != nil && !isTrimmedNonEmpty(*entry.ImplementationSymbol) {
+		return errors.New("invalid implementation symbol")
+	}
+	if entry.GalleryBuilder != nil && !isTrimmedNonEmpty(*entry.GalleryBuilder) {
+		return errors.New("invalid gallery builder")
+	}
+	if err := validateIdentifiers(entry.Witnesses.GPU, "GPU witness"); err != nil {
+		return err
+	}
+	if err := validateIdentifiers(entry.Witnesses.NoDraw, "no-draw witness"); err != nil {
+		return err
+	}
+
+	switch entry.RendererStatus {
+	case "deferred", "unsupported":
+		if entry.ImplementationSymbol != nil || entry.GalleryBuilder != nil || hasVariantWitnesses(entry.RequiredNBTVariants) || len(entry.Witnesses.GPU) != 0 || len(entry.Witnesses.NoDraw) != 0 {
+			return fmt.Errorf("%s renderer claims implementation or evidence", entry.RendererStatus)
+		}
+	case "implemented":
+		if entry.ImplementationSymbol == nil {
+			return errors.New("missing implementation symbol")
+		}
+		if entry.GalleryBuilder == nil {
+			return errors.New("missing gallery builder")
+		}
+		for _, variant := range entry.RequiredNBTVariants {
+			if len(variant.WitnessIDs) == 0 {
+				return fmt.Errorf("missing NBT variant witness %s", variant.VariantID)
+			}
+		}
+		if entry.RendererClass == "sourced_logical_invisible" {
+			if len(entry.Witnesses.GPU) != 0 {
+				return errors.New("invisible renderer claims GPU evidence")
+			}
+			if len(entry.Witnesses.NoDraw) == 0 {
+				return errors.New("missing GPU/no-draw witness")
+			}
+		} else {
+			if len(entry.Witnesses.NoDraw) != 0 {
+				return errors.New("drawable renderer claims no-draw evidence")
+			}
+			if len(entry.Witnesses.GPU) == 0 {
+				return errors.New("missing GPU/no-draw witness")
+			}
+		}
 	}
 	return nil
+}
+
+func validateIdentifiers(values []string, label string) error {
+	seen := make(map[string]bool, len(values))
+	for _, value := range values {
+		if !isTrimmedNonEmpty(value) {
+			return fmt.Errorf("invalid %s", label)
+		}
+		if seen[value] {
+			return fmt.Errorf("duplicate %s %q", label, value)
+		}
+		seen[value] = true
+	}
+	return nil
+}
+
+func isTrimmedNonEmpty(value string) bool {
+	return value != "" && value == strings.TrimSpace(value)
+}
+
+func hasVariantWitnesses(variants []nbtVariant) bool {
+	for _, variant := range variants {
+		if len(variant.WitnessIDs) != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func strictFinalBlockers(entry rendererEntry) []string {
@@ -622,16 +770,35 @@ func equalOptionalString(left, right *string) bool {
 }
 
 func verifyBDSExecutable(path string) error {
-	raw, err := os.ReadFile(path)
+	if err := verifyFileSHA256(path, bdsExecutableSize, bdsExecutableSHA256); err != nil {
+		return fmt.Errorf("verify BDS executable: %w", err)
+	}
+	return nil
+}
+
+func verifyFileSHA256(path string, expectedSize int64, expectedSHA256 string) error {
+	file, err := os.Open(path)
 	if err != nil {
-		return fmt.Errorf("read BDS executable: %w", err)
+		return fmt.Errorf("open pinned file: %w", err)
 	}
-	if int64(len(raw)) != bdsExecutableSize {
-		return fmt.Errorf("BDS executable size drift: got %d, want %d", len(raw), bdsExecutableSize)
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return fmt.Errorf("stat pinned file: %w", err)
 	}
-	digest := sha256.Sum256(raw)
-	if hex.EncodeToString(digest[:]) != bdsExecutableSHA256 {
-		return errors.New("BDS executable hash drift")
+	if info.Size() != expectedSize {
+		return fmt.Errorf("pinned file size drift: got %d, want %d", info.Size(), expectedSize)
+	}
+	digest := sha256.New()
+	written, err := io.Copy(digest, io.LimitReader(file, expectedSize+1))
+	if err != nil {
+		return fmt.Errorf("hash pinned file: %w", err)
+	}
+	if written != expectedSize {
+		return fmt.Errorf("pinned file size drift while hashing: got %d, want %d", written, expectedSize)
+	}
+	if hex.EncodeToString(digest.Sum(nil)) != expectedSHA256 {
+		return errors.New("pinned file hash drift")
 	}
 	return nil
 }
