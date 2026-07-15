@@ -125,7 +125,6 @@ impl NetworkHandle {
             .saturating_sub(self.commands.capacity())
     }
 
-    #[cfg(test)]
     pub fn send_packet(&self, packet: Packet) -> Result<(), PacketSendError> {
         self.send_packet_with_confirmation(packet, None)
     }

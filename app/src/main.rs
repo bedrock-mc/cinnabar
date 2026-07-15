@@ -6,6 +6,7 @@ mod culling;
 mod environment;
 mod metrics;
 mod model_witness;
+mod movement;
 mod network;
 mod server_position;
 mod transparent_witness;
@@ -32,7 +33,7 @@ use bevy::{
     window::{CursorOptions, PresentMode, PrimaryWindow, WindowPlugin},
     winit::{UpdateMode, WinitSettings},
 };
-use camera::{FlyCamera, FlyCameraPlugin, FlyCameraUpdateSet};
+use camera::{FlyCamera, FlyCameraPlugin, FlyCameraUpdateSet, input_is_active, movement_axes};
 use environment::{
     WeatherState, WorldClock, apply_environment_control, replace_session, update_atmosphere_frame,
 };
@@ -42,6 +43,7 @@ use metrics::{
     TransparentSortMetricsSnapshot, deterministic_manifest_hash, pair_gpu_pass_sample,
 };
 use model_witness::{ModelWitnessFileSource, poll_model_witness_request};
+use movement::{MovementInputSample, MovementSendError, MovementTicker, flush_player_auth_inputs};
 use network::{NetworkConfig, NetworkControlEvent, NetworkHandle, spawn_network};
 use render::{
     AtmosphereFrame, AtmospherePlugin, AtmosphereTextureAssets, CameraMedium, ChunkBiomeTints,
@@ -114,6 +116,7 @@ struct AppWorldState<'w> {
     client_world: ResMut<'w, ClientWorld>,
     clock: ResMut<'w, WorldClock>,
     weather: ResMut<'w, WeatherState>,
+    movement: ResMut<'w, MovementTicker>,
     time: Res<'w, Time<Real>>,
 }
 
@@ -1995,6 +1998,71 @@ fn bedrock_camera_rotation(yaw_degrees: f32, pitch_degrees: f32) -> Quat {
     )
 }
 
+fn send_player_auth_inputs(
+    time: Res<Time<Real>>,
+    window: Single<(&Window, &CursorOptions), With<PrimaryWindow>>,
+    keys: Res<ButtonInput<KeyCode>>,
+    camera: Single<&Transform, With<FlyCamera>>,
+    network: Res<NetworkHandle>,
+    mut movement: ResMut<MovementTicker>,
+    mut client_world: ResMut<ClientWorld>,
+) {
+    let (window, cursor) = window.into_inner();
+    let active = input_is_active(window, cursor);
+    let axes = if active {
+        movement_axes(&keys)
+    } else {
+        Vec3::ZERO
+    };
+    let (bevy_yaw, bevy_pitch, _) = camera.rotation.to_euler(EulerRot::YXZ);
+    let forward = camera.forward().as_vec3();
+    movement.advance(
+        time.delta(),
+        MovementInputSample {
+            position: camera.translation.to_array(),
+            move_vector: [axes.x, axes.z],
+            pitch: -bevy_pitch.to_degrees(),
+            yaw: (180.0 - bevy_yaw.to_degrees()).rem_euclid(360.0),
+            head_yaw: (180.0 - bevy_yaw.to_degrees()).rem_euclid(360.0),
+            camera_orientation: forward.to_array(),
+            jumping: active && keys.pressed(KeyCode::Space),
+            sneaking: active
+                && (keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight)),
+            sprinting: active
+                && (keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight)),
+        },
+    );
+
+    let result =
+        flush_player_auth_inputs(&mut movement, OUTBOUND_SEND_BUDGET_PER_FRAME, |packet| {
+            network.send_packet(packet)
+        });
+    match result {
+        Ok(_) | Err(MovementSendError::Transport(network::PacketSendError::Full(_))) => {}
+        Err(MovementSendError::Encode(error)) => {
+            movement.deactivate();
+            record_fatal_error(
+                &mut client_world.fatal_error,
+                format!("failed to encode PlayerAuthInput: {error}"),
+            );
+        }
+        Err(MovementSendError::Transport(network::PacketSendError::Closed(_))) => {
+            movement.deactivate();
+            record_fatal_error(
+                &mut client_world.fatal_error,
+                "failed to send PlayerAuthInput: network command channel is closed".to_owned(),
+            );
+        }
+        Err(MovementSendError::RestoreOverflow) => {
+            movement.deactivate();
+            record_fatal_error(
+                &mut client_world.fatal_error,
+                "failed to restore backpressured PlayerAuthInput".to_owned(),
+            );
+        }
+    }
+}
+
 fn main() {
     match args::ClientArgs::parse_env() {
         Ok(args::ParseOutcome::Help) => print!("{}", args::HELP),
@@ -2065,6 +2133,7 @@ fn run(args: args::ClientArgs) -> Result<()> {
         .insert_resource(WorldClock::default())
         .insert_resource(WeatherState::default())
         .insert_resource(CameraMedium::default())
+        .insert_resource(MovementTicker::default())
         .insert_resource(AtmosphereFrame::default())
         .insert_resource(AtmosphereTextureAssets::new(
             atmosphere_runtime,
@@ -2112,7 +2181,8 @@ fn run(args: args::ClientArgs) -> Result<()> {
             )
                 .chain()
                 .after(FlyCameraUpdateSet),
-        );
+        )
+        .add_systems(Last, send_player_auth_inputs);
 
     let exit = app.run();
     if let Some(mut network) = app.world_mut().remove_resource::<NetworkHandle>() {
@@ -2237,6 +2307,7 @@ fn receive_network_events(
         mut client_world,
         mut clock,
         mut weather,
+        mut movement,
         time,
     } = state;
     let controls =
@@ -2288,6 +2359,11 @@ fn receive_network_events(
                 if let Ok(mut camera) = cameras.single_mut() {
                     camera.translation = Vec3::from_array(resolved.position);
                 }
+                movement.reset(
+                    clock.session_generation(),
+                    u64::try_from(environment.initial_time).unwrap_or(0),
+                    resolved.position,
+                );
                 client_world.pending_surface_spawn = resolved.surface_anchor;
                 client_world.stream = Some(stream);
             }
@@ -2310,6 +2386,7 @@ fn receive_network_events(
                 message,
                 decode_error_count,
             } => {
+                movement.deactivate();
                 error!(decode_error_count, "network session failed: {message}");
                 client_world.network_decode_errors = decode_error_count;
                 record_fatal_error(
@@ -2318,6 +2395,7 @@ fn receive_network_events(
                 );
             }
             NetworkControlEvent::Stopped { decode_error_count } => {
+                movement.deactivate();
                 client_world.network_decode_errors = decode_error_count;
                 if client_world.fatal_error.is_none() {
                     client_world.fatal_error = Some("network session stopped unexpectedly".into());
@@ -2411,6 +2489,7 @@ fn drive_world_stream(
         mut client_world,
         mut clock,
         mut weather,
+        mut movement,
         time,
     } = state;
     let Some(stream) = client_world.stream.as_mut() else {
@@ -2455,6 +2534,22 @@ fn drive_world_stream(
     for control in controls {
         if apply_environment_control(control, &mut clock, &mut weather, time.elapsed_secs_f64()) {
             continue;
+        }
+        match &control {
+            CommittedControlEvent::PlayerMovementCorrection {
+                correction,
+                resolved,
+                ..
+            } => movement.apply_server_correction(correction.tick, resolved.position),
+            CommittedControlEvent::MovePlayer { resolved, .. } => {
+                movement.reanchor_position(resolved.position)
+            }
+            CommittedControlEvent::ChangeDimension { resolved, .. } => {
+                movement.reanchor_position(resolved.position);
+            }
+            CommittedControlEvent::SetTime { .. }
+            | CommittedControlEvent::DaylightCycle { .. }
+            | CommittedControlEvent::Weather { .. } => {}
         }
         let _ = acceptance.observe_committed_full_view_control(&control);
         let camera_marker =

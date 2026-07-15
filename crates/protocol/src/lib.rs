@@ -3,6 +3,7 @@
 mod actor;
 mod codec;
 mod login;
+mod movement;
 mod packet;
 mod socket_transport;
 mod world;
@@ -18,6 +19,10 @@ pub use actor::{
 pub use codec::{ProtocolError, decode_batch, encode};
 pub use jolyne::GameData;
 pub use login::{LoginSequence, PlaySession};
+pub use movement::{
+    PlayerAuthInputError, PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode,
+    player_auth_input,
+};
 pub use packet::Packet;
 pub use socket_transport::SocketTransport;
 pub use valentine::bedrock::context::BedrockSession;
