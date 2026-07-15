@@ -22,6 +22,16 @@
   genuinely new listening executable is required, explain why and wait until
   the user is at the PC.
 
+## Gophertunnel branch ownership
+
+- Cinnabar-specific Gophertunnel work belongs on
+  `HashimTheArab/gophertunnel:cinnabar`, which is based on `lunar`.
+- Never push Cinnabar changes directly to the `lunar` branch. Pull useful
+  `lunar` updates into `cinnabar`, then keep Cinnabar's Go module pinned to an
+  exact commit reachable from `cinnabar`.
+- Move a generally useful Cinnabar change back to `lunar` only when the user
+  explicitly requests that promotion.
+
 ## Throughput and evidence discipline
 
 - Prioritize implementation of plan-critical functionality over repeated
