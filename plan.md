@@ -1250,6 +1250,12 @@ store it only under the user's temporary directory, inspect that file, and never
   render submission, and present latency independently; validate the final
   release path at radius 16 with no visible stalls and full-view remesh in at
   most two seconds.
+  - [x] Eliminate unchanged-light publication churn through `39c44e8`: exact
+    no-op and direct-sky-provenance-only completions preserve sampled light
+    identity/generation and perform zero mesh invalidations, while genuine
+    nibble changes retain the full 27-dependent invalidation contract. Exact
+    saturating outcome counters and independent review are green; publication
+    latency attribution, the full release benchmark, and live gates remain open.
 - [ ] Remove every dark rectangle/background pixel around the pinned sun and
   moon textures. The acceptance test must exercise decoded pinned pixels and
   mip/filter edges, not merely string-inspect WGSL, and must prove both bodies

@@ -29,31 +29,31 @@
 - `WorldStreamStats` adds `accepted_light_jobs`, `noop_light_jobs`, `value_changed_light_jobs`, `provenance_only_light_jobs`, and `light_mesh_invalidations` as saturating `u64` counters.
 - `MeshLightSlot` retains only identities that can change `MeshLightSampler` output: key, block generation, light-value generation, and `Arc<SubChunkLight>`.
 
-- [ ] **Step 1: Write failing no-op completion tests**
+- [x] **Step 1: Write failing no-op completion tests**
 
 Prepare current uniform and packed light/direct-sky states, force a new current solve revision with equal output, and accept its completion. Assert stored light/direct pointers are `Arc::ptr_eq` to the originals, ownership advances to the current block generation while preserving the sampled light generation, no mesh revision/pending job changes, no in-flight mesh becomes stale, waiters are released, and the no-op counters increment exactly once.
 
-- [ ] **Step 2: Run and record red**
+- [x] **Step 2: Run and record red**
 
 Run `cargo test -p bedrock-client world_stream::tests::light_scheduler::unchanged --locked -- --nocapture`. Expected: failure because every completion currently replaces identities and invalidates 27 mesh dependants.
 
-- [ ] **Step 3: Compute exact worker equality**
+- [x] **Step 3: Compute exact worker equality**
 
 Compare the replacement nibbles with the prior `SubChunkLight` using `light_levels_equal` and compare the complete `DirectSkyMask` value with the prior mask. Carry both booleans in `SolvedLightJob`; keep `changed_faces` unchanged for neighbour propagation.
 
-- [ ] **Step 4: Implement the generation-safe no-op path**
+- [x] **Step 4: Implement the generation-safe no-op path**
 
 After all existing freshness checks and successful solving, branch before `commit_if_generation`. If both values are unchanged, preserve both stored `Arc`s, update `LightOwnership.block_generation` while retaining its existing `light_revision`, clear only the current solver revision, update counters/durations, wake waiters, and process the all-false/unchanged face summary without calling `mark_light_mesh_dependents`.
 
-- [ ] **Step 5: Implement and test provenance-only behavior**
+- [x] **Step 5: Implement and test provenance-only behavior**
 
 For equal nibbles with a changed direct-sky mask, preserve the old `Arc<SubChunkLight>` and its generation, replace only `StoredDirectSky.mask` while tagging it with that preserved generation, advance ownership to the current block generation, and clear only the current solver revision. This is permitted only after the existing freshness checks and single-in-flight-target removal. Propagate changed faces so affected neighbour revisions reject any older in-flight solve, and perform zero mesh invalidation. Remove direct-sky `Arc` identity from `MeshLightSlot` and its currentness check after proving snapshot creation still requires `light_is_current`. Assert a mesh using unchanged nibble `Arc` data is not rejected solely by provenance replacement and a subsequently prepared light job observes the new mask.
 
-- [ ] **Step 6: Preserve changed-value behavior**
+- [x] **Step 6: Preserve changed-value behavior**
 
 Add a regression where one block/sky nibble changes. Assert stored value identity changes, the source and all existing halo dependants are dirtied exactly as before, stale mesh work requeues losslessly, and counters distinguish this path from no-op/provenance-only.
 
-- [ ] **Step 7: Verify and commit**
+- [x] **Step 7: Verify and commit**
 
 Run `cargo test -p bedrock-client --locked`, `cargo test -p world --locked`, `cargo clippy -p bedrock-client -p world --all-targets --locked -- -D warnings`, and `cargo fmt --all -- --check`. Commit with `perf: skip unchanged light remeshes`.
 
