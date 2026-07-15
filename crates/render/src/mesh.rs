@@ -1655,6 +1655,45 @@ impl<'a> ContributorResolver<'a> {
             usize::from(coordinate[2]),
         )
     }
+
+    /// Resolves one coordinate directly from packed storage palettes without
+    /// constructing the palette-fact cache. This path performs no heap
+    /// allocation and is intended for sparse, per-frame queries such as the
+    /// camera eye medium; full sub-chunk meshing should keep using `new`.
+    #[must_use]
+    pub fn resolve_direct(
+        classifier: BlockClassifier,
+        visuals: &RuntimeAssets,
+        network_id_mode: NetworkIdMode,
+        sub_chunk: &SubChunk,
+        coordinate: [u8; 3],
+    ) -> ResolvedContributors {
+        if coordinate
+            .into_iter()
+            .any(|coordinate| usize::from(coordinate) >= SIDE)
+        {
+            let mut contributors = ResolvedContributors::default();
+            contributors.fail_closed(0);
+            return contributors;
+        }
+
+        let mut contributors = ResolvedContributors::default();
+        for layer in 0..sub_chunk.storages().len() {
+            let Some(network_value) =
+                sub_chunk.runtime_id(layer, coordinate[0], coordinate[1], coordinate[2])
+            else {
+                contributors.fail_closed(0);
+                return contributors;
+            };
+            contributors.push(resolve_palette_entry(
+                classifier,
+                visuals,
+                network_id_mode,
+                network_value,
+            ));
+        }
+        contributors
+    }
 }
 
 fn resolve_palette_entry(

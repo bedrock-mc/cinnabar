@@ -31,7 +31,7 @@ use bevy::{
     window::{CursorOptions, PresentMode, PrimaryWindow, WindowPlugin},
     winit::{UpdateMode, WinitSettings},
 };
-use camera::{FlyCamera, FlyCameraPlugin};
+use camera::{FlyCamera, FlyCameraPlugin, FlyCameraUpdateSet};
 use environment::{
     WeatherState, WorldClock, apply_environment_control, replace_session, update_atmosphere_frame,
 };
@@ -43,7 +43,7 @@ use metrics::{
 use model_witness::{ModelWitnessFileSource, poll_model_witness_request};
 use network::{NetworkConfig, NetworkControlEvent, NetworkHandle, spawn_network};
 use render::{
-    AtmosphereFrame, AtmospherePlugin, AtmosphereTextureAssets, ChunkBiomeTints,
+    AtmosphereFrame, AtmospherePlugin, AtmosphereTextureAssets, CameraMedium, ChunkBiomeTints,
     ChunkRenderInstance, ChunkRenderQueue, ChunkTextureAssets, ChunkUploadAcknowledgements,
     ChunkUploadPriority, ChunkUploadToken, DebugWorldPlugin, ModelWitnessEvidence,
     ModelWitnessManifestRecord, ModelWitnessRequest, ModelWorkloadMetrics, PresentedFrameAck,
@@ -2063,6 +2063,7 @@ fn run(args: args::ClientArgs) -> Result<()> {
         .insert_resource(ClientWorld::new(Arc::clone(&runtime_assets)))
         .insert_resource(WorldClock::default())
         .insert_resource(WeatherState::default())
+        .insert_resource(CameraMedium::default())
         .insert_resource(AtmosphereFrame::default())
         .insert_resource(AtmosphereTextureAssets::new(
             atmosphere_runtime,
@@ -2100,6 +2101,7 @@ fn run(args: args::ClientArgs) -> Result<()> {
                 poll_transparent_witness_request,
                 poll_model_witness_request,
                 drive_world_stream,
+                update_camera_medium,
                 update_atmosphere_frame,
                 refresh_cave_visibility,
                 emit_world_ready,
@@ -2107,7 +2109,8 @@ fn run(args: args::ClientArgs) -> Result<()> {
                 record_metrics_and_title,
                 finish_acceptance_run,
             )
-                .chain(),
+                .chain()
+                .after(FlyCameraUpdateSet),
         );
 
     let exit = app.run();
@@ -2200,6 +2203,20 @@ fn exit_on_fatal_runtime_error(
     };
     network.shutdown();
     exit.write(exit_status);
+}
+
+fn update_camera_medium(
+    client_world: Res<ClientWorld>,
+    camera: Query<&Transform, With<FlyCamera>>,
+    mut medium: ResMut<CameraMedium>,
+) {
+    *medium = client_world
+        .stream
+        .as_ref()
+        .zip(camera.single().ok())
+        .map_or(CameraMedium::Air, |(stream, camera)| {
+            stream.camera_medium(camera.translation.to_array())
+        });
 }
 
 fn world_stream_fatal_message(error: world_stream::WorldStreamFatalError) -> String {
@@ -3518,6 +3535,14 @@ mod tests {
         world_stream_fatal_message, write_move_player_ingress_before_source_capture,
         write_stdout_marker,
     };
+
+    #[test]
+    fn camera_medium_sampling_is_ordered_after_fly_camera_transform_updates() {
+        let camera_source = include_str!("camera.rs");
+        let main_source = include_str!("main.rs");
+        assert!(camera_source.contains(".in_set(FlyCameraUpdateSet)"));
+        assert!(main_source.contains(".after(FlyCameraUpdateSet)"));
+    }
 
     fn overworld_biome_payload() -> Vec<u8> {
         let mut payload = vec![1, 2];

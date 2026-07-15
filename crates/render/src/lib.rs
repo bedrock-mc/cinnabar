@@ -11,7 +11,7 @@ mod plugin;
 
 pub use atmosphere::{
     AtmosphereFrame, AtmosphereTextureAssets, BEDROCK_DAY_TICKS, CLOUD_SCROLL_BLOCKS_PER_TICK,
-    CLOUD_TEXTURE_WORLD_PERIOD, MoonPhaseTile, cloud_texture_offset, moon_phase_tile,
+    CLOUD_TEXTURE_WORLD_PERIOD, CameraMedium, MoonPhaseTile, cloud_texture_offset, moon_phase_tile,
 };
 pub use atmosphere_render::AtmospherePlugin;
 pub use biome::PackedBiomeRecord;
@@ -21,7 +21,7 @@ pub use lighting::{
     PHASE26_SKY_LIGHT, bake_quad_lighting, bake_quad_lighting_with_sampler, bake_template_lighting,
     bake_template_lighting_with_sampler, mesh_dependency_mask,
 };
-pub use liquid::LiquidLevel;
+pub use liquid::{LiquidLevel, sample_camera_medium};
 pub use mesh::{
     BlockClassifier, ChunkMesh, ChunkMeshStreamError, ChunkMeshStreams, ContributorResolver, Face,
     FaceConnectivity, Neighbourhood, PackedLiquidQuad, PackedModelDrawRef, PackedModelRef,

@@ -119,6 +119,9 @@ fn sample_cloud_layer(ray: vec3<f32>) -> vec4<f32> {
 
 @fragment
 fn atmosphere_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+    if (atmosphere.fog_end_time.x <= 32.0) {
+        return vec4(atmosphere.fog_color_start.rgb, 1.0);
+    }
     let ray = view_ray(in.position.xy);
     let horizon_to_zenith = smoothstep(-0.08, 0.72, ray.y);
     var colour = mix(

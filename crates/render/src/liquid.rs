@@ -55,6 +55,7 @@ use assets::{
 };
 use world::MeshNeighbourhood;
 
+use crate::CameraMedium;
 use crate::mesh::{
     BlockClassifier, ContributorResolver, Face, PackedLiquidQuad, PackedQuadLighting,
     ResolvedContributors,
@@ -108,30 +109,26 @@ impl<'chunk, 'assets> Sampler<'chunk, 'assets> {
         }
         Self { resolvers, assets }
     }
+}
+
+trait LiquidSampler {
+    fn assets(&self) -> &RuntimeAssets;
 
     fn contributors(
         &self,
-        neighbourhood: &MeshNeighbourhood<'chunk>,
+        neighbourhood: &MeshNeighbourhood<'_>,
         coordinate: [i32; 3],
-    ) -> Option<ResolvedContributors> {
-        let (_, local) = neighbourhood.liquid_block_source(coordinate)?;
-        let offset = coordinate
-            .map(|value| i8::try_from(value.div_euclid(16)).ok())
-            .map(Option::unwrap);
-        self.resolvers[offset_index(offset)]
-            .as_ref()
-            .map(|resolver| resolver.resolve(local))
-    }
+    ) -> Option<ResolvedContributors>;
 
     fn liquid(
         &self,
-        neighbourhood: &MeshNeighbourhood<'chunk>,
+        neighbourhood: &MeshNeighbourhood<'_>,
         coordinate: [i32; 3],
     ) -> Option<LiquidCell> {
         let entry = self
             .contributors(neighbourhood, coordinate)?
             .liquid_entry()?;
-        let depth_writing = supported_liquid_material_family(self.assets, entry.faces)?;
+        let depth_writing = supported_liquid_material_family(self.assets(), entry.faces)?;
         (entry.kind == VisualKind::Liquid).then_some(LiquidCell {
             identity: LiquidIdentity(entry.faces),
             face_materials: entry.faces,
@@ -142,7 +139,7 @@ impl<'chunk, 'assets> Sampler<'chunk, 'assets> {
 
     fn open(
         &self,
-        neighbourhood: &MeshNeighbourhood<'chunk>,
+        neighbourhood: &MeshNeighbourhood<'_>,
         coordinate: [i32; 3],
         contacting_faces: &[Face],
     ) -> bool {
@@ -152,7 +149,7 @@ impl<'chunk, 'assets> Sampler<'chunk, 'assets> {
                     && !contributors.primary_entry().is_some_and(|entry| {
                         entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
                             && contacting_faces.iter().all(|&face| {
-                                material_is_opaque(self.assets, entry.faces[face as usize])
+                                material_is_opaque(self.assets(), entry.faces[face as usize])
                             })
                     })
             })
@@ -160,7 +157,7 @@ impl<'chunk, 'assets> Sampler<'chunk, 'assets> {
 
     fn solid(
         &self,
-        neighbourhood: &MeshNeighbourhood<'chunk>,
+        neighbourhood: &MeshNeighbourhood<'_>,
         coordinate: [i32; 3],
         contacting_face: Face,
     ) -> bool {
@@ -168,8 +165,55 @@ impl<'chunk, 'assets> Sampler<'chunk, 'assets> {
             .and_then(ResolvedContributors::primary_entry)
             .is_some_and(|entry| {
                 entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
-                    && material_is_opaque(self.assets, entry.faces[contacting_face as usize])
+                    && material_is_opaque(self.assets(), entry.faces[contacting_face as usize])
             })
+    }
+}
+
+impl LiquidSampler for Sampler<'_, '_> {
+    fn assets(&self) -> &RuntimeAssets {
+        self.assets
+    }
+
+    fn contributors(
+        &self,
+        neighbourhood: &MeshNeighbourhood<'_>,
+        coordinate: [i32; 3],
+    ) -> Option<ResolvedContributors> {
+        let (_, local) = neighbourhood.liquid_block_source(coordinate)?;
+        let offset = coordinate
+            .map(|value| i8::try_from(value.div_euclid(16)).ok())
+            .map(Option::unwrap);
+        self.resolvers[offset_index(offset)]
+            .as_ref()
+            .map(|resolver| resolver.resolve(local))
+    }
+}
+
+struct DirectSampler<'assets> {
+    classifier: BlockClassifier,
+    assets: &'assets RuntimeAssets,
+    mode: NetworkIdMode,
+}
+
+impl LiquidSampler for DirectSampler<'_> {
+    fn assets(&self) -> &RuntimeAssets {
+        self.assets
+    }
+
+    fn contributors(
+        &self,
+        neighbourhood: &MeshNeighbourhood<'_>,
+        coordinate: [i32; 3],
+    ) -> Option<ResolvedContributors> {
+        let (sub_chunk, local) = neighbourhood.liquid_block_source(coordinate)?;
+        Some(ContributorResolver::resolve_direct(
+            self.classifier,
+            self.assets,
+            self.mode,
+            sub_chunk,
+            local,
+        ))
     }
 }
 
@@ -234,6 +278,43 @@ fn water_material(assets: &RuntimeAssets, material: u32) -> bool {
 
 fn depth_writing_liquid_material(assets: &RuntimeAssets, material: u32) -> bool {
     assets.material(material).flags & MATERIAL_FLAG_LIQUID_DEPTH_WRITE != 0
+}
+
+/// Resolves the visual medium at a camera-eye position in one packed liquid
+/// neighbourhood. Surface height uses the same corner solver as liquid mesh
+/// generation, so entering fog matches the rendered water/lava boundary.
+#[must_use]
+pub fn sample_camera_medium(
+    classifier: BlockClassifier,
+    assets: &RuntimeAssets,
+    mode: NetworkIdMode,
+    neighbourhood: &MeshNeighbourhood<'_>,
+    local_position: [f32; 3],
+) -> CameraMedium {
+    if !local_position.iter().all(|value| value.is_finite()) {
+        return CameraMedium::Air;
+    }
+    let block = local_position.map(|value| value.floor() as i32);
+    let sampler = DirectSampler {
+        classifier,
+        assets,
+        mode,
+    };
+    let Some(cell) = sampler.liquid(neighbourhood, block) else {
+        return CameraMedium::Air;
+    };
+    let heights = corner_heights(&sampler, neighbourhood, block, cell.identity);
+    let x = local_position[0].rem_euclid(1.0);
+    let z = local_position[2].rem_euclid(1.0);
+    let surface = triangulated_surface_height(heights, x, z) / 255.0;
+    if local_position[1].rem_euclid(1.0) >= surface {
+        return CameraMedium::Air;
+    }
+    if cell.depth_writing {
+        CameraMedium::Lava
+    } else {
+        CameraMedium::Water
+    }
 }
 
 pub(crate) fn mesh_liquids<S: crate::lighting::MeshLightSampler + ?Sized>(
@@ -405,8 +486,8 @@ fn pack(
     .expect("local liquid record is bounded")
 }
 
-fn flow_gradient(
-    sampler: &Sampler<'_, '_>,
+fn flow_gradient<S: LiquidSampler + ?Sized>(
+    sampler: &S,
     neighbourhood: &MeshNeighbourhood<'_>,
     block: [i32; 3],
     cell: LiquidCell,
@@ -438,8 +519,8 @@ fn flow_gradient(
     [gradient[0] as i8, gradient[1] as i8]
 }
 
-fn corner_heights(
-    sampler: &Sampler<'_, '_>,
+fn corner_heights<S: LiquidSampler + ?Sized>(
+    sampler: &S,
     neighbourhood: &MeshNeighbourhood<'_>,
     block: [i32; 3],
     identity: LiquidIdentity,
@@ -501,8 +582,8 @@ fn corner_heights(
     })
 }
 
-fn compatible(
-    sampler: &Sampler<'_, '_>,
+fn compatible<S: LiquidSampler + ?Sized>(
+    sampler: &S,
     neighbourhood: &MeshNeighbourhood<'_>,
     coordinate: [i32; 3],
     identity: LiquidIdentity,
@@ -511,9 +592,19 @@ fn compatible(
         .liquid(neighbourhood, coordinate)
         .is_some_and(|cell| cell.identity == identity)
 }
+
+fn triangulated_surface_height(heights: [u8; 4], x: f32, z: f32) -> f32 {
+    let [north_west, north_east, south_east, south_west] = heights.map(f32::from);
+    if z <= x {
+        north_west + x * (north_east - north_west) + z * (south_east - north_east)
+    } else {
+        north_west + x * (south_east - south_west) + z * (south_west - north_west)
+    }
+}
 const fn add(a: [i32; 3], b: [i32; 3]) -> [i32; 3] {
     [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
 }
+
 const fn face_offset(face: Face) -> [i32; 3] {
     match face {
         Face::NegativeX => [-1, 0, 0],
@@ -558,5 +649,18 @@ fn lighting_positions(face: Face, heights: [u8; 4]) -> [[i16; 3]; 4] {
             [256, h[2], 256],
             [256, h[3], 256],
         ],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::triangulated_surface_height;
+
+    #[test]
+    fn camera_surface_matches_the_two_static_index_buffer_triangles() {
+        let heights = [0, 255, 0, 0];
+        assert_eq!(triangulated_surface_height(heights, 0.75, 0.25), 127.5);
+        assert_eq!(triangulated_surface_height(heights, 0.25, 0.75), 0.0);
+        assert_eq!(triangulated_surface_height(heights, 0.5, 0.5), 0.0);
     }
 }

@@ -1644,6 +1644,61 @@ impl WorldStream {
         self.current_dimension
     }
 
+    /// Resolves the visual medium at the camera eye directly from packed block
+    /// palettes. Missing and non-finite positions fail open to air so streamed
+    /// boundaries cannot flash dense water/lava fog.
+    #[must_use]
+    pub fn camera_medium(&self, position: [f32; 3]) -> render::CameraMedium {
+        if !position.iter().all(|value| value.is_finite()) {
+            return render::CameraMedium::Air;
+        }
+        let block = position.map(floor_to_i32);
+        let key = SubChunkKey::new(
+            self.current_dimension,
+            block[0].div_euclid(16),
+            block[1].div_euclid(16),
+            block[2].div_euclid(16),
+        );
+        let Some(center) = self.store.sub_chunk(key) else {
+            return render::CameraMedium::Air;
+        };
+        let mut adjacent: [Option<Arc<SubChunk>>; 27] = std::array::from_fn(|_| None);
+        for offset @ [dx, dy, dz] in MeshNeighbourhood::liquid_sample_offsets() {
+            if offset == [0, 0, 0] {
+                continue;
+            }
+            let Some(neighbour_key) = key
+                .x
+                .checked_add(i32::from(dx))
+                .zip(key.y.checked_add(i32::from(dy)))
+                .zip(key.z.checked_add(i32::from(dz)))
+                .map(|((x, y), z)| SubChunkKey::new(key.dimension, x, y, z))
+            else {
+                continue;
+            };
+            if let Some(sub_chunk) = self.store.sub_chunk(neighbour_key) {
+                adjacent[mesh_offset_index(offset)] = Some(sub_chunk);
+            }
+        }
+        let mut neighbourhood = MeshNeighbourhood::new(&center);
+        for offset in MeshNeighbourhood::liquid_sample_offsets() {
+            if let Some(sub_chunk) = adjacent[mesh_offset_index(offset)].as_deref() {
+                let inserted = neighbourhood.insert(offset, sub_chunk);
+                debug_assert!(inserted);
+            }
+        }
+        let local_position = std::array::from_fn(|axis| {
+            block[axis].rem_euclid(16) as f32 + position[axis].rem_euclid(1.0)
+        });
+        render::sample_camera_medium(
+            self.classifier,
+            &self.runtime_assets,
+            self.network_id_mode,
+            &neighbourhood,
+            local_position,
+        )
+    }
+
     /// Returns the latest FIFO-committed live biome definitions for mesh/tint
     /// table construction. The Arc keeps worker snapshots immutable when a
     /// server later replaces the definition list.
@@ -6315,6 +6370,153 @@ mod tests {
         let mut bytes = vec![8, 1, 1];
         bytes.extend(zig_zag_i32(runtime_id as i32));
         SubChunk::decode(&bytes).expect("decode uniform test subchunk")
+    }
+
+    #[test]
+    fn camera_medium_samples_exposed_and_waterlogged_liquid_layers_without_flattening() {
+        let mut stream = WorldStream::new_with_assets(
+            WorldBootstrap {
+                dimension: 0,
+                local_player_runtime_id: 1,
+                player_position: [0.0; 3],
+                world_spawn_position: [0; 3],
+                air_network_id: 0,
+                block_network_ids_are_hashes: false,
+            },
+            Arc::new(camera_medium_assets()),
+            [0.0, 4.5, 0.0],
+            None,
+        );
+        let key = SubChunkKey {
+            dimension: 0,
+            x: 0,
+            y: 0,
+            z: 0,
+        };
+        stream
+            .store
+            .commit_sub_chunk(key, uniform_sub_chunk(0))
+            .unwrap();
+        stream
+            .store
+            .update_block(key, BlockUpdate::new(4, 4, 4, 0, 1), 0)
+            .unwrap();
+
+        assert_eq!(
+            stream.camera_medium([4.5, 4.5, 4.5]),
+            render::CameraMedium::Water
+        );
+        assert_eq!(
+            stream.camera_medium([4.5, 4.95, 4.5]),
+            render::CameraMedium::Air
+        );
+
+        stream
+            .store
+            .update_block(key, BlockUpdate::new(4, 4, 4, 0, 3), 0)
+            .unwrap();
+        stream
+            .store
+            .update_block(key, BlockUpdate::new(4, 4, 4, 1, 1), 0)
+            .unwrap();
+        assert_eq!(
+            stream.camera_medium([4.5, 4.5, 4.5]),
+            render::CameraMedium::Water
+        );
+
+        stream
+            .store
+            .update_block(key, BlockUpdate::new(4, 4, 4, 1, 2), 0)
+            .unwrap();
+        assert_eq!(
+            stream.camera_medium([4.5, 4.5, 4.5]),
+            render::CameraMedium::Lava
+        );
+        assert_eq!(
+            stream.camera_medium([f32::NAN, 4.5, 4.5]),
+            render::CameraMedium::Air
+        );
+    }
+
+    fn camera_medium_assets() -> RuntimeAssets {
+        let visual = |kind, role, faces, variant| BlockVisual {
+            faces,
+            flags: if kind == VisualKind::Invisible {
+                BlockFlags::AIR
+            } else if kind == VisualKind::Cube {
+                BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE
+            } else {
+                BlockFlags::empty()
+            },
+            kind,
+            contributor_role: role,
+            model_template: NO_MODEL_TEMPLATE,
+            animation: NO_ANIMATION,
+            variant,
+        };
+        let visuals = vec![
+            visual(
+                VisualKind::Invisible,
+                assets::ContributorRole::Air,
+                [0; 6],
+                0,
+            ),
+            visual(
+                VisualKind::Liquid,
+                assets::ContributorRole::LiquidAdditional,
+                [1; 6],
+                0,
+            ),
+            visual(
+                VisualKind::Liquid,
+                assets::ContributorRole::LiquidAdditional,
+                [2; 6],
+                0,
+            ),
+            visual(
+                VisualKind::Cube,
+                assets::ContributorRole::Primary,
+                [0; 6],
+                0,
+            ),
+        ];
+        let mips = [16_u32, 8, 4, 2, 1]
+            .map(|size| TextureMip {
+                size,
+                rgba8: vec![0xff; size as usize * size as usize * 4].into_boxed_slice(),
+            })
+            .into();
+        let compiled = CompiledAssets {
+            visuals: visuals.into_boxed_slice(),
+            light_properties: vec![assets::LightProperties::default(); 4].into_boxed_slice(),
+            hashed: Box::new([]),
+            materials: vec![
+                Material {
+                    texture: TextureRef::DIAGNOSTIC,
+                    flags: 0,
+                    animation: NO_ANIMATION,
+                },
+                Material {
+                    texture: TextureRef::DIAGNOSTIC,
+                    flags: assets::MATERIAL_FLAG_ALPHA_BLEND | assets::MATERIAL_FLAG_WATER_TINT,
+                    animation: NO_ANIMATION,
+                },
+                Material {
+                    texture: TextureRef::DIAGNOSTIC,
+                    flags: assets::MATERIAL_FLAG_LIQUID_DEPTH_WRITE,
+                    animation: NO_ANIMATION,
+                },
+            ]
+            .into_boxed_slice(),
+            model_templates: Box::new([]),
+            model_quads: Box::new([]),
+            animations: Box::new([]),
+            animation_frames: Box::new([]),
+            texture_pages: vec![TexturePage::new(TextureArray { layers: 1, mips })]
+                .into_boxed_slice(),
+            biomes: CompiledBiomeAssets::diagnostic(),
+        };
+        RuntimeAssets::decode(&encode_blob(&compiled).unwrap()).unwrap()
     }
 
     fn biome_payload(dimension: i32, biome_id: i32) -> Vec<u8> {
