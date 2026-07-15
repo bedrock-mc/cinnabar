@@ -191,6 +191,17 @@ fn chunk_sampler_source_contract_is_crisp_for_magnification_and_filtered_for_mip
 }
 
 #[test]
+fn graphics_runtime_metadata_waits_for_extracted_diagnostics_before_surface_probe() {
+    let source = include_str!("../src/plugin.rs").replace("\r\n", "\n");
+    assert!(
+        source.contains(
+            "publish_graphics_runtime_metadata\n                        .after(RenderSystems::ExtractCommands)\n                        .before(bevy::render::view::window::create_surfaces)"
+        ),
+        "the metadata probe consumes an ExtractResource and must run after deferred extraction commands but before Bevy creates the surface"
+    );
+}
+
+#[test]
 fn shared_biome_bindings_are_visible_to_vertex_and_fragment_pipelines() {
     let source = include_str!("../src/plugin.rs");
     for binding in [7, 8] {
