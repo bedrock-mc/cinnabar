@@ -6909,7 +6909,15 @@ mod tests {
     }
 
     fn request_block_entity_event(chunk_x: i32, nbt: Vec<u8>) -> WorldEvent {
-        let mut payload = biome_payload(0, 1);
+        request_block_entity_event_with_biome(chunk_x, 1, nbt)
+    }
+
+    fn request_block_entity_event_with_biome(
+        chunk_x: i32,
+        biome_id: i32,
+        nbt: Vec<u8>,
+    ) -> WorldEvent {
+        let mut payload = biome_payload(0, biome_id);
         payload.extend(nbt);
         WorldEvent::LevelChunk(LevelChunkEvent {
             dimension: 0,
@@ -7052,6 +7060,92 @@ mod tests {
     }
 
     #[test]
+    fn block_entity_visual_diagnostics_preserve_zero_churn_inline_nbt_replacements() {
+        let mut stream = block_entity_visual_stream();
+        let mut cases = [
+            ("Barrel", 7_069, Vec::new(), Vec::new()),
+            ("BlastFurnace", 15_143, Vec::new(), Vec::new()),
+            ("Furnace", 15_688, Vec::new(), Vec::new()),
+            ("Smoker", 2_699, Vec::new(), Vec::new()),
+            ("Jukebox", 8_516, Vec::new(), Vec::new()),
+            ("", 1_936, Vec::new(), Vec::new()),
+        ];
+        for (chunk_x, (id, _, initial, replacement)) in cases.iter_mut().enumerate() {
+            let position = [chunk_x as i32 * 16 + 1, -63, 2];
+            if id.is_empty() {
+                *initial = idless_note_block_entity_nbt(position, 24, 1, 0);
+                *replacement = idless_note_block_entity_nbt(position, 0, 0, 1);
+            } else {
+                *initial = block_entity_nbt(id, position);
+                *replacement = block_entity_nbt_with_marker(id, position, 1);
+            }
+        }
+
+        let mut sequence = 1;
+        for (chunk_x, (_, runtime_id, initial, _)) in cases.iter().enumerate() {
+            stream
+                .submit(
+                    sequence,
+                    inline_block_entity_event(chunk_x as i32, *runtime_id, initial.clone()),
+                )
+                .unwrap();
+            sequence += 1;
+            complete_pending_decode_jobs(&mut stream);
+        }
+        assert_eq!(stream.stats().adjudicated_static_block_entities, 4);
+        assert_eq!(stream.stats().adjudicated_logical_block_entities, 2);
+
+        let mesh_revision_before = stream.revisions.next_revision;
+        let block_generation_before = stream.next_block_generation;
+        let light_revision_before = stream.light_revisions.next_revision;
+        let render_generation_before = stream.connectivity_generation;
+        let block_generations_before = stream.block_generations.clone();
+        let applied_mesh_generations_before = stream.applied_mesh_generations.clone();
+        let pending_mesh_before = stream.pending_mesh.len();
+        let pending_light_before = stream.pending_light.len();
+        let mesh_changes_before = stream.mesh_changes.len();
+
+        for (chunk_x, (_, runtime_id, _, replacement)) in cases.iter().enumerate() {
+            stream
+                .submit(
+                    sequence,
+                    inline_block_entity_event(chunk_x as i32, *runtime_id, replacement.clone()),
+                )
+                .unwrap();
+            sequence += 1;
+            complete_pending_decode_jobs(&mut stream);
+        }
+
+        assert_eq!(stream.revisions.next_revision, mesh_revision_before);
+        assert_eq!(stream.next_block_generation, block_generation_before);
+        assert_eq!(stream.light_revisions.next_revision, light_revision_before);
+        assert_eq!(stream.connectivity_generation, render_generation_before);
+        assert_eq!(stream.block_generations, block_generations_before);
+        assert_eq!(
+            stream.applied_mesh_generations,
+            applied_mesh_generations_before
+        );
+        assert_eq!(stream.pending_mesh.len(), pending_mesh_before);
+        assert_eq!(stream.pending_light.len(), pending_light_before);
+        assert_eq!(stream.mesh_changes.len(), mesh_changes_before);
+        assert_eq!(stream.stats().adjudicated_static_block_entities, 4);
+        assert_eq!(stream.stats().adjudicated_logical_block_entities, 2);
+        for (chunk_x, (_, _, _, replacement)) in cases.iter().enumerate() {
+            let position = [chunk_x as i32 * 16 + 1, -63, 2];
+            let retained = stream
+                .store
+                .block_entity(BlockEntityKey::new(
+                    0,
+                    position[0],
+                    position[1],
+                    position[2],
+                ))
+                .expect("inline replacement retained");
+            assert_eq!(retained.bytes(), replacement);
+        }
+    }
+
+    #[test]
     fn block_entity_visual_diagnostics_preserve_zero_remesh_request_mode_nbt_replacements() {
         let mut stream = block_entity_visual_stream();
         let mut cases = [
@@ -7145,6 +7239,91 @@ mod tests {
                 .expect("request replacement retained");
             assert_eq!(retained.bytes(), replacement);
         }
+    }
+
+    #[test]
+    fn request_mode_changed_biome_keeps_destructive_column_replacement() {
+        let mut stream = block_entity_visual_stream();
+        let position = [1, -63, 2];
+        let key = SubChunkKey::new(0, 0, -4, 0);
+        let initial = block_entity_nbt("Jukebox", position);
+        stream
+            .submit(1, request_block_entity_event(0, initial.clone()))
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+        assert_eq!(stream.take_requests().len(), 1);
+        stream
+            .submit(2, requested_block_entity_sub_chunk_event(0, 8_516, initial))
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+        assert!(stream.store.sub_chunk(key).is_some());
+        assert!(stream.resident.contains(&key));
+        let revision_before = stream.revisions.next_revision;
+
+        stream
+            .submit(
+                3,
+                request_block_entity_event_with_biome(
+                    0,
+                    2,
+                    block_entity_nbt_with_marker("Jukebox", position, 1),
+                ),
+            )
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+
+        assert!(stream.store.sub_chunk(key).is_none());
+        assert!(!stream.resident.contains(&key));
+        assert!(stream.revisions.next_revision > revision_before);
+        assert!(stream.pending_mesh.contains_key(&key));
+        assert_eq!(stream.take_requests().len(), 1);
+    }
+
+    #[test]
+    fn request_mode_changed_backing_dirties_and_replaces_preserved_column() {
+        let mut stream = block_entity_visual_stream();
+        let position = [1, -63, 2];
+        let key = SubChunkKey::new(0, 0, -4, 0);
+        let initial = block_entity_nbt("Barrel", position);
+        stream
+            .submit(1, request_block_entity_event(0, initial.clone()))
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+        assert_eq!(stream.take_requests().len(), 1);
+        stream
+            .submit(2, requested_block_entity_sub_chunk_event(0, 7_069, initial))
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+        assert_eq!(stream.stats().adjudicated_static_block_entities, 1);
+        let revision_before = stream.revisions.next_revision;
+        let block_generation_before = stream.next_block_generation;
+
+        let replacement = block_entity_nbt_with_marker("Barrel", position, 1);
+        stream
+            .submit(3, request_block_entity_event(0, replacement.clone()))
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+        assert_eq!(stream.revisions.next_revision, revision_before);
+        assert_eq!(stream.take_requests().len(), 1);
+        stream
+            .submit(
+                4,
+                requested_block_entity_sub_chunk_event(0, 7_070, replacement),
+            )
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+
+        assert!(stream.revisions.next_revision > revision_before);
+        assert!(stream.next_block_generation > block_generation_before);
+        assert!(stream.pending_mesh.contains_key(&key));
+        assert_eq!(
+            stream
+                .store
+                .sub_chunk(key)
+                .and_then(|sub_chunk| sub_chunk.runtime_id(0, 1, 1, 2)),
+            Some(7_070)
+        );
+        assert_eq!(stream.stats().adjudicated_static_block_entities, 1);
     }
 
     #[test]
