@@ -60,11 +60,12 @@ fn celestial_visibility(direction_y: f32) -> f32 {
     return smoothstep(-0.04, 0.02, direction_y);
 }
 
-// The pinned Bedrock sun and moon images are opaque RGB textures whose
-// backgrounds are exactly black, so source alpha cannot describe coverage.
-fn celestial_opacity(sampled_rgb: vec3<f32>) -> f32 {
-    let brightest_channel = max(max(sampled_rgb.r, sampled_rgb.g), sampled_rgb.b);
-    return select(0.0, 1.0, brightest_channel > 0.0);
+fn composite_celestial(
+    destination: vec3<f32>,
+    sampled_rgb: vec3<f32>,
+    coverage: f32,
+) -> vec3<f32> {
+    return destination + sampled_rgb * coverage;
 }
 
 fn sample_sun(ray: vec3<f32>, direction: vec3<f32>) -> vec4<f32> {
@@ -72,7 +73,7 @@ fn sample_sun(ray: vec3<f32>, direction: vec3<f32>) -> vec4<f32> {
     let texel_uv = (clamp(mapping.xy, vec2(0.0), vec2(1.0)) * 31.0 + 0.5) / 32.0;
     let sampled = textureSampleLevel(sun_texture, atmosphere_sampler, texel_uv, 0.0);
     let visible = celestial_visibility(direction.y);
-    return vec4(sampled.rgb, celestial_opacity(sampled.rgb) * mapping.z * visible);
+    return vec4(sampled.rgb, mapping.z * visible);
 }
 
 fn sample_moon(ray: vec3<f32>, direction: vec3<f32>) -> vec4<f32> {
@@ -85,7 +86,7 @@ fn sample_moon(ray: vec3<f32>, direction: vec3<f32>) -> vec4<f32> {
     let atlas_uv = atlas_texel / vec2(128.0, 64.0);
     let sampled = textureSampleLevel(moon_phases_texture, atmosphere_sampler, atlas_uv, 0.0);
     let visible = celestial_visibility(direction.y);
-    return vec4(sampled.rgb, celestial_opacity(sampled.rgb) * mapping.z * visible);
+    return vec4(sampled.rgb, mapping.z * visible);
 }
 
 fn sample_cloud_layer(ray: vec3<f32>) -> vec4<f32> {
@@ -135,11 +136,11 @@ fn atmosphere_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let sun_direction = normalize(atmosphere.sun_direction_daylight.xyz);
     let sun = sample_sun(ray, sun_direction);
-    colour = mix(colour, sun.rgb, sun.a);
+    colour = composite_celestial(colour, sun.rgb, sun.a);
 
     let moon_direction = normalize(atmosphere.moon_direction_phase.xyz);
     let moon = sample_moon(ray, moon_direction);
-    colour = mix(colour, moon.rgb, moon.a);
+    colour = composite_celestial(colour, moon.rgb, moon.a);
 
     let clouds = sample_cloud_layer(ray);
     let cloud_colour = clouds.rgb;

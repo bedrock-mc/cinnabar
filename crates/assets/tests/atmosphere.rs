@@ -1,12 +1,14 @@
 use std::{
+    collections::HashSet,
     fs,
     path::{Path, PathBuf},
     process::Command,
 };
 
 use assets::{
-    AssetError, AtmosphereRole, AtmosphereTexture, CompiledAtmosphereAssets,
-    RuntimeAtmosphereAssets, compile_atmosphere_assets, encode_atmosphere_blob,
+    AssetError, AtmosphereRole, AtmosphereTexture, CelestialTile, CompiledAtmosphereAssets,
+    RuntimeAtmosphereAssets, compile_atmosphere_assets, composite_celestial,
+    encode_atmosphere_blob,
 };
 use image::{Rgba, RgbaImage};
 use sha2::{Digest, Sha256};
@@ -210,6 +212,77 @@ fn blob_is_deterministic_and_runtime_round_trips_every_record() {
             compiled.textures.iter().find(|item| item.role == role)
         );
     }
+}
+
+#[test]
+fn celestial_borders_decode_once_and_add_without_darkening_the_sky() {
+    let blob = encode_atmosphere_blob(&synthetic_celestial_compiled()).unwrap();
+    let runtime = RuntimeAtmosphereAssets::decode(&blob).unwrap();
+    let borders = runtime
+        .celestial_border_texels()
+        .unwrap()
+        .collect::<Vec<_>>();
+
+    assert_eq!(borders.len(), 9 * (4 * 32 - 4));
+    let mut seen = HashSet::new();
+    for texel in &borders {
+        assert!(
+            seen.insert((texel.tile, texel.coordinate)),
+            "duplicate celestial border coordinate: {texel:?}"
+        );
+        let expected = match texel.tile {
+            CelestialTile::Sun => [1, 1, 0, 255],
+            CelestialTile::MoonPhase(_) => [0, 0, 1, 255],
+        };
+        assert_eq!(texel.rgba8, expected);
+
+        let source = [
+            f32::from(texel.rgba8[0]) / 255.0,
+            f32::from(texel.rgba8[1]) / 255.0,
+            f32::from(texel.rgba8[2]) / 255.0,
+        ];
+        for destination in [[0.02, 0.03, 0.04], [0.8, 0.7, 0.6]] {
+            let composed = composite_celestial(destination, source, 1.0);
+            for channel in 0..3 {
+                assert!(composed[channel] >= destination[channel]);
+            }
+        }
+    }
+
+    for phase in 0_u8..8 {
+        assert_eq!(
+            borders
+                .iter()
+                .filter(|texel| texel.tile == CelestialTile::MoonPhase(phase))
+                .count(),
+            4 * 32 - 4
+        );
+    }
+    assert_eq!(
+        borders
+            .iter()
+            .filter(|texel| texel.tile == CelestialTile::Sun)
+            .count(),
+        4 * 32 - 4
+    );
+}
+
+#[test]
+fn celestial_composition_retains_dark_lunar_detail_and_hdr_energy() {
+    let destination = [0.8, 0.7, 0.6];
+    let source = [2.0 / 255.0, 3.0 / 255.0, 4.0 / 255.0];
+    let composed = composite_celestial(destination, source, 0.5);
+    assert_eq!(
+        composed,
+        [
+            destination[0] + source[0] * 0.5,
+            destination[1] + source[1] * 0.5,
+            destination[2] + source[2] * 0.5,
+        ]
+    );
+
+    let hdr = composite_celestial([0.8, 0.7, 0.6], [1.0, 0.5, 0.25], 0.5);
+    assert!(hdr[0] > 1.0, "celestial energy was clamped early: {hdr:?}");
 }
 
 #[test]
@@ -662,6 +735,50 @@ fn synthetic_compiled() -> CompiledAtmosphereAssets {
     CompiledAtmosphereAssets {
         source_manifest_sha256: Sha256::digest(MANIFEST).into(),
         textures,
+    }
+}
+
+fn synthetic_celestial_compiled() -> CompiledAtmosphereAssets {
+    let mut compiled = synthetic_compiled();
+    let sun = compiled
+        .textures
+        .iter_mut()
+        .find(|texture| texture.role == AtmosphereRole::Sun)
+        .unwrap();
+    fill_rgba(&mut sun.rgba8, [12, 16, 20, 255]);
+    paint_tile_border(&mut sun.rgba8, sun.width, [0, 0], [1, 1, 0, 255]);
+    sun.pixels_sha256 = Sha256::digest(&sun.rgba8).into();
+
+    let moon = compiled
+        .textures
+        .iter_mut()
+        .find(|texture| texture.role == AtmosphereRole::MoonPhases)
+        .unwrap();
+    fill_rgba(&mut moon.rgba8, [2, 3, 4, 255]);
+    for phase in 0..8 {
+        let origin = [(phase % 4) * 32, (phase / 4) * 32];
+        paint_tile_border(&mut moon.rgba8, moon.width, origin, [0, 0, 1, 255]);
+    }
+    moon.pixels_sha256 = Sha256::digest(&moon.rgba8).into();
+    compiled
+}
+
+fn fill_rgba(pixels: &mut [u8], rgba: [u8; 4]) {
+    for pixel in pixels.chunks_exact_mut(4) {
+        pixel.copy_from_slice(&rgba);
+    }
+}
+
+fn paint_tile_border(pixels: &mut [u8], width: u32, origin: [u32; 2], rgba: [u8; 4]) {
+    for y in 0..32 {
+        for x in 0..32 {
+            if x == 0 || x == 31 || y == 0 || y == 31 {
+                let atlas_x = origin[0] + x;
+                let atlas_y = origin[1] + y;
+                let offset = ((atlas_y * width + atlas_x) * 4) as usize;
+                pixels[offset..offset + 4].copy_from_slice(&rgba);
+            }
+        }
     }
 }
 

@@ -16,8 +16,8 @@ mod runtime;
 pub use animation::AnimationInventory;
 pub use atmosphere::{
     ATMOSPHERE_BLOB_MAGIC, ATMOSPHERE_BLOB_VERSION, AtmosphereRole, AtmosphereTexture,
-    CompiledAtmosphereAssets, RuntimeAtmosphereAssets, compile_atmosphere_assets,
-    encode_atmosphere_blob,
+    CelestialBorderTexel, CelestialTile, CompiledAtmosphereAssets, RuntimeAtmosphereAssets,
+    compile_atmosphere_assets, composite_celestial, encode_atmosphere_blob,
 };
 pub use biome::{
     BIOME_REGISTRY_MAGIC, BIOME_RULE_FLAG_GRASS_SHADED, BiomeRegistryRecord, BiomeRule,

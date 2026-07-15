@@ -20,6 +20,8 @@ const HEADER_BYTES: usize = 128;
 const DESCRIPTOR_BYTES: usize = 112;
 const HASH_BYTES: usize = 32;
 const FORMAT_RGBA8_SRGB: u32 = 1;
+const CELESTIAL_TILE_SIZE: u32 = 32;
+const CELESTIAL_BORDER_TEXELS: usize = (4 * CELESTIAL_TILE_SIZE - 4) as usize;
 const PINNED_MANIFEST_SHA256: [u8; 32] =
     decode_sha256(b"c6d5f56b942d703a7acd1f83b2cddb7633069e13412ad5a1c3beae666e2ec6f6");
 const PINNED_TAG: &str = "v1.26.30.32-preview";
@@ -72,6 +74,32 @@ pub struct AtmosphereTexture {
 pub struct CompiledAtmosphereAssets {
     pub source_manifest_sha256: [u8; 32],
     pub textures: Box<[AtmosphereTexture]>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum CelestialTile {
+    Sun,
+    MoonPhase(u8),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CelestialBorderTexel {
+    pub tile: CelestialTile,
+    pub coordinate: [u32; 2],
+    pub rgba8: [u8; 4],
+}
+
+#[must_use]
+pub fn composite_celestial(
+    destination: [f32; 3],
+    sampled_rgb: [f32; 3],
+    coverage: f32,
+) -> [f32; 3] {
+    [
+        destination[0] + sampled_rgb[0] * coverage,
+        destination[1] + sampled_rgb[1] * coverage,
+        destination[2] + sampled_rgb[2] * coverage,
+    ]
 }
 
 #[derive(Deserialize)]
@@ -222,6 +250,75 @@ impl RuntimeAtmosphereAssets {
     #[must_use]
     pub fn texture(&self, role: AtmosphereRole) -> Option<&AtmosphereTexture> {
         self.textures.iter().find(|texture| texture.role == role)
+    }
+
+    pub fn celestial_border_texels(
+        &self,
+    ) -> Result<impl ExactSizeIterator<Item = CelestialBorderTexel>, AssetError> {
+        let sun = self
+            .texture(AtmosphereRole::Sun)
+            .ok_or_else(|| invalid("decoded atmosphere assets are missing the sun texture"))?;
+        validate_celestial_texture(sun, 32, 32)?;
+        let moon = self.texture(AtmosphereRole::MoonPhases).ok_or_else(|| {
+            invalid("decoded atmosphere assets are missing the moon phase texture")
+        })?;
+        validate_celestial_texture(moon, 128, 64)?;
+
+        let mut borders = Vec::with_capacity(9 * CELESTIAL_BORDER_TEXELS);
+        append_celestial_border(&mut borders, sun, CelestialTile::Sun, [0, 0]);
+        for phase in 0_u8..8 {
+            let origin = [
+                u32::from(phase % 4) * CELESTIAL_TILE_SIZE,
+                u32::from(phase / 4) * CELESTIAL_TILE_SIZE,
+            ];
+            append_celestial_border(&mut borders, moon, CelestialTile::MoonPhase(phase), origin);
+        }
+        Ok(borders.into_iter())
+    }
+}
+
+fn validate_celestial_texture(
+    texture: &AtmosphereTexture,
+    expected_width: u32,
+    expected_height: u32,
+) -> Result<(), AssetError> {
+    if texture.width != expected_width
+        || texture.height != expected_height
+        || texture.rgba8.len() != pixel_length(expected_width, expected_height)?
+    {
+        return Err(invalid(format!(
+            "decoded {} texture is {}x{} with {} RGBA bytes; expected {expected_width}x{expected_height}",
+            texture.role.label(),
+            texture.width,
+            texture.height,
+            texture.rgba8.len()
+        )));
+    }
+    Ok(())
+}
+
+fn append_celestial_border(
+    borders: &mut Vec<CelestialBorderTexel>,
+    texture: &AtmosphereTexture,
+    tile: CelestialTile,
+    origin: [u32; 2],
+) {
+    for y in 0..CELESTIAL_TILE_SIZE {
+        for x in 0..CELESTIAL_TILE_SIZE {
+            if x != 0 && x != CELESTIAL_TILE_SIZE - 1 && y != 0 && y != CELESTIAL_TILE_SIZE - 1 {
+                continue;
+            }
+            let atlas_x = origin[0] + x;
+            let atlas_y = origin[1] + y;
+            let offset = ((atlas_y * texture.width + atlas_x) * 4) as usize;
+            borders.push(CelestialBorderTexel {
+                tile,
+                coordinate: [x, y],
+                rgba8: texture.rgba8[offset..offset + 4]
+                    .try_into()
+                    .expect("validated celestial texture contains every border texel"),
+            });
+        }
     }
 }
 

@@ -168,22 +168,21 @@ fn sun_and_moon_visibility_overlap_only_inside_the_intentional_horizon_transitio
 }
 
 #[test]
-fn opaque_black_celestial_texels_are_treated_as_transparent() {
+fn celestial_texels_are_composited_additively_without_an_rgb_opacity_key() {
     let shader = include_str!("../src/atmosphere.wgsl");
     assert!(
-        shader.contains("fn celestial_opacity(sampled_rgb: vec3<f32>) -> f32"),
-        "the pinned sun and moon textures are opaque RGB images with black backgrounds"
+        shader.contains("fn composite_celestial("),
+        "sun and moon must share one additive composition helper"
     );
     assert_eq!(
-        shader.matches("celestial_opacity(sampled.rgb)").count(),
+        shader.matches("composite_celestial(colour,").count(),
         2,
-        "both sun and moon must use the same RGB black-key policy"
+        "both sun and moon must use the shared additive helper"
     );
-    assert_eq!(
-        shader.matches("sampled.a * mapping.z * visible").count(),
-        0,
-        "source alpha is fully opaque and would render a black square"
-    );
+    assert!(shader.contains("return destination + sampled_rgb * coverage;"));
+    assert!(!shader.contains("celestial_opacity"));
+    assert!(!shader.contains("mix(colour, sun.rgb, sun.a)"));
+    assert!(!shader.contains("mix(colour, moon.rgb, moon.a)"));
 }
 
 #[test]
