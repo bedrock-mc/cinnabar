@@ -102,15 +102,15 @@ Run `cargo test -p bedrock-client --locked`, both acceptance script suites, stri
 - The ignored release benchmark covers 33×33×24 subchunks through accepted light, current mesh completion, render-queue extraction, and upload acknowledgement.
 - The live result includes exact commit/profile/backend/adapter/driver/draw/present identities and stage counters.
 
-- [ ] **Step 1: Write the failing end-to-end benchmark**
+- [x] **Step 1: Write the failing end-to-end benchmark**
 
 Start from the existing 26,136 known-air scheduler fixture, drain light jobs, dispatch/accept all required meshes, drain `WorldMeshChange`, enqueue render changes, and acknowledge bounded uploads. Assert every resident renderable key reaches a current published generation with zero pending/in-flight jobs and no duplicate publication.
 
-- [ ] **Step 2: Run the release benchmark before optimization**
+- [x] **Step 2: Run the release benchmark before optimization**
 
 Run the exact ignored test with `cargo test -p bedrock-client --release --locked full_view_publication -- --ignored --nocapture`. Record total and per-stage time plus counts; expected pre-fix evidence is redundant invalidation/publication or a miss of the two-second complete-path gate.
 
-- [ ] **Step 3: Run after Tasks 1–2 and require the binding gate**
+- [x] **Step 3: Run after Tasks 1–2 and require the binding gate**
 
 Repeat the identical command. Require 26,136 current subchunks, zero stale/pending/in-flight work at completion, no no-op-generated mesh invalidations, and total complete-path time at most two seconds on the reference class.
 

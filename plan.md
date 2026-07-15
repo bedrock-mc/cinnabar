@@ -1246,6 +1246,13 @@ store it only under the user's temporary directory, inspect that file, and never
     while absent/failed/fallback evidence rejects the comparison. Release
     profile, backend, adapter, and driver provenance plus PowerShell/Bash
     contracts passed independent review through `14db67f`.
+  - [x] Remove the proven multisample resolve/presentation failure through
+    `cd31f7a`: the affected Radeon DX12 adapter rendered black for every 4x
+    MSAA view even in a minimal Bevy clear-colour reproduction, while the same
+    release BDS scene renders through single-sample targets plus FXAA. The
+    post-fix GDI gallery contains no black presentation or thin screen-space
+    band, but this does not close the user-reported artifact without the
+    binding identical-scene FIFO/Immediate motion comparison below.
   - [ ] Run the identical-scene release FIFO/Immediate capture, classify the
     artifact from coherent evidence, and eliminate the proven source.
 - [ ] Make initial chunk publication and steady streaming meet the frame and
@@ -1268,6 +1275,18 @@ store it only under the user's temporary directory, inspect that file, and never
     rows. Full client/script suites, strict Clippy/formatting, adversarial
     contract tests, and independent re-review are green through `0811c0a`;
     the full release radius-16 benchmark and live resource gates remain open.
+  - [x] Prove the deterministic full radius-16 publication path through
+    `7098b65`: 26,136 current subchunks pass accepted lighting, meshing,
+    main-world queue application, real render extraction, production GPU
+    preparation, and exact acknowledgement in 1,369 ms on the integration
+    rerun. The 64 populated witnesses produced 190,384 positive upload bytes;
+    31,786 known-air removals completed without spending the production
+    128-item non-empty upload budget, while all applications remained capped at
+    256 per frame. Zero stale, pending, in-flight, duplicate, or
+    unacknowledged work remained. Full render/client suites, strict
+    Clippy/formatting, and three independent reviews are green. This closes only
+    deterministic Task 3 Steps 1–3; the release BDS join/teleport,
+    presentation, RSS, settled-CPU, and visible-stall gate remains open.
 - [ ] Remove every dark rectangle/background pixel around the pinned sun and
   moon textures. The acceptance test must exercise decoded pinned pixels and
   mip/filter edges, not merely string-inspect WGSL, and must prove both bodies
