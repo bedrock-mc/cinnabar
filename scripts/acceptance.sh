@@ -333,11 +333,10 @@ if [[ $dry_run == true ]]; then
     printf 'BUILD_PROFILE=release\n'
     if [[ $no_vsync == true ]]; then
         printf 'REQUESTED_PRESENT_MODE=Immediate\n'
-        printf 'EFFECTIVE_PRESENT_MODE=Immediate\n'
     else
         printf 'REQUESTED_PRESENT_MODE=Fifo\n'
-        printf 'EFFECTIVE_PRESENT_MODE=Fifo\n'
     fi
+    printf 'EFFECTIVE_PRESENT_MODE=UNPROVEN\n'
     exit 0
 fi
 
@@ -549,7 +548,8 @@ metadata.update({
     "use_vsync": os.environ["RUST_MCBE_META_NO_VSYNC"] != "true",
     "no_vsync_ab": os.environ["RUST_MCBE_META_NO_VSYNC"] == "true",
     "requested_present_mode": "Immediate" if os.environ["RUST_MCBE_META_NO_VSYNC"] == "true" else "Fifo",
-    "effective_present_mode": "Immediate" if os.environ["RUST_MCBE_META_NO_VSYNC"] == "true" else "Fifo",
+    "effective_present_mode": None,
+    "present_mode_proven": False,
 })
 runtime_path = os.environ["RUST_MCBE_META_RUNTIME_PATH"]
 if os.path.isfile(runtime_path):
@@ -677,9 +677,9 @@ done
 wait "$app_pid" || die "app exited unsuccessfully (logs: $run_dir/app.stdout.log, $run_dir/app.stderr.log)"
 app_pid=''
 
-python3 - "$run_dir/app.stdout.log" "$run_dir/app.stderr.log" "$runtime_metadata_json" "$no_vsync" <<'PY'
+python3 - "$run_dir/app.stdout.log" "$runtime_metadata_json" "$no_vsync" <<'PY'
 import json, os, sys
-stdout_path, stderr_path, output_path, no_vsync = sys.argv[1:]
+stdout_path, output_path, no_vsync = sys.argv[1:]
 prefix = "RUST_MCBE_ACCEPTANCE_RUNTIME_METADATA="
 with open(stdout_path, encoding="utf-8") as source:
     markers = [line.rstrip("\n")[len(prefix):] for line in source if line.startswith(prefix)]
@@ -688,28 +688,22 @@ if len(markers) != 1:
 runtime = json.loads(markers[0])
 required = {
     "build_profile", "requested_present_mode", "effective_present_mode",
-    "backend", "adapter", "driver", "driver_info",
+    "present_mode_proven", "backend", "adapter", "driver", "driver_info",
 }
 missing = sorted(name for name in required if not str(runtime.get(name, "")).strip())
 if missing:
     raise SystemExit("acceptance runtime metadata is missing: " + ", ".join(missing))
+if runtime["present_mode_proven"] is not True:
+    raise SystemExit("acceptance runtime metadata does not prove the configured present mode")
 expected_mode = "Immediate" if no_vsync == "true" else "Fifo"
-fallback_marker = "PresentMode Immediate requested but not available. Falling back to Fifo"
-with open(stdout_path, encoding="utf-8") as source:
-    stdout_text = source.read()
-with open(stderr_path, encoding="utf-8") as source:
-    stderr_text = source.read()
 effective_mode = runtime["effective_present_mode"]
-if runtime["requested_present_mode"] == "Immediate" and (
-    fallback_marker in stdout_text or fallback_marker in stderr_text
-):
-    effective_mode = "Fifo"
 if runtime["build_profile"] != "release":
     raise SystemExit(f"acceptance requires a release client, observed {runtime['build_profile']}")
 metadata = {
     "build_profile": runtime["build_profile"],
     "requested_present_mode": runtime["requested_present_mode"],
     "effective_present_mode": effective_mode,
+    "present_mode_proven": runtime["present_mode_proven"],
     "graphics_backend": runtime["backend"],
     "graphics_adapter": runtime["adapter"],
     "graphics_driver": runtime["driver"],

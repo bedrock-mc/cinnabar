@@ -1960,8 +1960,6 @@ struct MetricsSamplingState {
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
 struct AcceptanceRuntimeConfig {
     build_profile: &'static str,
-    requested_present_mode: &'static str,
-    effective_present_mode: &'static str,
 }
 
 impl RollingFps {
@@ -2131,8 +2129,6 @@ fn run(args: args::ClientArgs) -> Result<()> {
         } else {
             "release"
         },
-        requested_present_mode: if args.no_vsync { "Immediate" } else { "Fifo" },
-        effective_present_mode: if args.no_vsync { "Immediate" } else { "Fifo" },
     };
 
     let mut app = App::new();
@@ -3713,8 +3709,9 @@ fn acceptance_runtime_metadata_marker(
         "RUST_MCBE_ACCEPTANCE_RUNTIME_METADATA={}",
         serde_json::json!({
             "build_profile": config.build_profile,
-            "requested_present_mode": config.requested_present_mode,
-            "effective_present_mode": config.effective_present_mode,
+            "requested_present_mode": graphics.requested_present_mode.as_str(),
+            "effective_present_mode": graphics.effective_present_mode.as_str(),
+            "present_mode_proven": graphics.present_mode_proven,
             "backend": graphics.backend,
             "adapter": graphics.adapter,
             "driver": graphics.driver,
@@ -3821,14 +3818,15 @@ mod tests {
         let marker = acceptance_runtime_metadata_marker(
             AcceptanceRuntimeConfig {
                 build_profile: "release",
-                requested_present_mode: "Fifo",
-                effective_present_mode: "Fifo",
             },
             &render::GraphicsAdapterMetadata {
                 backend: "Dx12".to_owned(),
                 adapter: "Test Adapter".to_owned(),
                 driver: "test-driver".to_owned(),
                 driver_info: "1.2.3".to_owned(),
+                requested_present_mode: "Immediate".to_owned(),
+                effective_present_mode: "Fifo".to_owned(),
+                present_mode_proven: true,
             },
         );
         let encoded = marker
@@ -3837,8 +3835,9 @@ mod tests {
         let document: serde_json::Value = serde_json::from_str(encoded).unwrap();
 
         assert_eq!(document["build_profile"], "release");
-        assert_eq!(document["requested_present_mode"], "Fifo");
+        assert_eq!(document["requested_present_mode"], "Immediate");
         assert_eq!(document["effective_present_mode"], "Fifo");
+        assert_eq!(document["present_mode_proven"], true);
         assert_eq!(document["backend"], "Dx12");
         assert_eq!(document["adapter"], "Test Adapter");
         assert_eq!(document["driver"], "test-driver");

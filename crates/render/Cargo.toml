@@ -23,6 +23,7 @@ bevy = { workspace = true, default-features = false, features = [
 bytemuck = { version = "1", features = ["derive"] }
 rayon.workspace = true
 world = { path = "../world" }
+wgpu = { version = "27.0.1", default-features = false }
 
 [dev-dependencies]
 image = { version = "0.25", default-features = false, features = ["png"] }

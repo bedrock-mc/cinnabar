@@ -374,6 +374,9 @@ pub struct GraphicsAdapterMetadata {
     pub adapter: String,
     pub driver: String,
     pub driver_info: String,
+    pub requested_present_mode: String,
+    pub effective_present_mode: String,
+    pub present_mode_proven: bool,
 }
 
 #[derive(Debug, Default)]
@@ -610,6 +613,9 @@ mod tests {
             adapter: "Test Adapter".to_owned(),
             driver: "test-driver".to_owned(),
             driver_info: "1.2.3".to_owned(),
+            requested_present_mode: "Fifo".to_owned(),
+            effective_present_mode: "Fifo".to_owned(),
+            present_mode_proven: true,
         };
 
         assert!(diagnostics.publish_graphics_adapter(metadata.clone()));

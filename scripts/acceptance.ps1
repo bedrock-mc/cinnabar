@@ -5664,12 +5664,15 @@ function ConvertFrom-AcceptanceRuntimeMetadataMarker {
     }
     foreach ($field in @(
         'build_profile', 'requested_present_mode', 'effective_present_mode',
-        'backend', 'adapter', 'driver', 'driver_info'
+        'present_mode_proven', 'backend', 'adapter', 'driver', 'driver_info'
     )) {
         if ($null -eq $document.PSObject.Properties[$field] -or
             [string]::IsNullOrWhiteSpace([string]$document.$field)) {
             throw "acceptance runtime metadata is missing $field"
         }
+    }
+    if ($document.present_mode_proven -ne $true) {
+        throw 'acceptance runtime metadata does not prove the configured present mode'
     }
     return $document
 }
@@ -5685,25 +5688,6 @@ function Read-AcceptanceRuntimeMetadata {
         throw "expected exactly one acceptance runtime metadata marker, found $($lines.Count)"
     }
     return ConvertFrom-AcceptanceRuntimeMetadataMarker -Line $lines[0]
-}
-
-function Resolve-EffectiveAcceptancePresentMode {
-    param(
-        [Parameter(Mandatory = $true)][string]$RequestedPresentMode,
-        [Parameter(Mandatory = $true)][string]$ReportedEffectivePresentMode,
-        [string]$StdoutText = '',
-        [string]$StderrText = ''
-    )
-
-    if ($RequestedPresentMode -cne 'Immediate') {
-        return $ReportedEffectivePresentMode
-    }
-    $fallbackMarker = 'PresentMode Immediate requested but not available. Falling back to Fifo'
-    if ($StdoutText.IndexOf($fallbackMarker, [StringComparison]::Ordinal) -ge 0 -or
-        $StderrText.IndexOf($fallbackMarker, [StringComparison]::Ordinal) -ge 0) {
-        return 'Fifo'
-    }
-    return $ReportedEffectivePresentMode
 }
 
 if ($env:RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY -eq '1') {
@@ -5931,12 +5915,11 @@ if ($DryRun) {
     Write-Output 'BUILD_PROFILE=release'
     if ($NoVsync) {
         Write-Output 'REQUESTED_PRESENT_MODE=Immediate'
-        Write-Output 'EFFECTIVE_PRESENT_MODE=Immediate'
     }
     else {
         Write-Output 'REQUESTED_PRESENT_MODE=Fifo'
-        Write-Output 'EFFECTIVE_PRESENT_MODE=Fifo'
     }
+    Write-Output 'EFFECTIVE_PRESENT_MODE=UNPROVEN'
     if ($VisualFixturePose -ne 'None') {
         Write-Output "VISUAL_FIXTURE_POSE=$VisualFixturePose"
     }
@@ -6056,7 +6039,8 @@ try {
         use_vsync = -not [bool]$NoVsync
         no_vsync_ab = [bool]$NoVsync
         requested_present_mode = if ($NoVsync) { 'Immediate' } else { 'Fifo' }
-        effective_present_mode = if ($NoVsync) { 'Immediate' } else { 'Fifo' }
+        effective_present_mode = $null
+        present_mode_proven = $false
         steady_resource_trigger = $EffectiveSteadyResourceTrigger
         build_core_command = Format-ResolvedCommand 'go' @('build', '-trimpath', '-o', $CoreExecutable, './core/cmd/bedrock-core')
         bds_command = $BdsCommand
@@ -6618,14 +6602,10 @@ try {
     }
     $runtimeMetadata = Read-AcceptanceRuntimeMetadata -Path $appHandle.StdoutPath
     $expectedPresentMode = if ($NoVsync) { 'Immediate' } else { 'Fifo' }
-    $effectivePresentMode = Resolve-EffectiveAcceptancePresentMode `
-        -RequestedPresentMode ([string]$runtimeMetadata.requested_present_mode) `
-        -ReportedEffectivePresentMode ([string]$runtimeMetadata.effective_present_mode) `
-        -StdoutText (Get-Content -Raw -LiteralPath $appHandle.StdoutPath) `
-        -StderrText (Get-Content -Raw -LiteralPath $appHandle.StderrPath)
     $metadata['build_profile'] = [string]$runtimeMetadata.build_profile
     $metadata['requested_present_mode'] = [string]$runtimeMetadata.requested_present_mode
-    $metadata['effective_present_mode'] = $effectivePresentMode
+    $metadata['effective_present_mode'] = [string]$runtimeMetadata.effective_present_mode
+    $metadata['present_mode_proven'] = [bool]$runtimeMetadata.present_mode_proven
     $metadata['graphics_backend'] = [string]$runtimeMetadata.backend
     $metadata['graphics_adapter'] = [string]$runtimeMetadata.adapter
     $metadata['graphics_driver'] = [string]$runtimeMetadata.driver
@@ -6634,8 +6614,8 @@ try {
         throw "acceptance requires a release client, observed $($runtimeMetadata.build_profile)"
     }
     if ([string]$runtimeMetadata.requested_present_mode -cne $expectedPresentMode -or
-        $effectivePresentMode -cne $expectedPresentMode) {
-        throw "acceptance present mode mismatch: expected=$expectedPresentMode requested=$($runtimeMetadata.requested_present_mode) effective=$effectivePresentMode"
+        [string]$runtimeMetadata.effective_present_mode -cne $expectedPresentMode) {
+        throw "acceptance present mode mismatch: expected=$expectedPresentMode requested=$($runtimeMetadata.requested_present_mode) effective=$($runtimeMetadata.effective_present_mode)"
     }
     if ($hasClientExecutable) {
         Assert-FileHashUnchanged -Path $AppExecutable -ExpectedSha256 $PrebuiltClientSha256 -Label 'prebuilt client after acceptance run'

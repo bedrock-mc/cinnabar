@@ -51,12 +51,12 @@ use bevy::{
             TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView,
             TextureViewDescriptor, TextureViewDimension, Variants, VertexState, WgpuFeatures,
         },
-        renderer::{RenderAdapter, RenderDevice, RenderQueue},
+        renderer::{RenderAdapter, RenderDevice, RenderInstance, RenderQueue},
         settings::Backends,
         sync_world::MainEntity,
         view::{
             ExtractedView, RenderVisibleEntities, ViewTarget, ViewUniform, ViewUniformOffset,
-            ViewUniforms,
+            ViewUniforms, window::ExtractedWindows,
         },
     },
 };
@@ -4246,6 +4246,8 @@ impl Plugin for DebugWorldPlugin {
             .add_systems(
                 Render,
                 (
+                    publish_graphics_runtime_metadata
+                        .before(bevy::render::view::window::create_surfaces),
                     queue_chunks.in_set(RenderSystems::Queue),
                     queue_transparent_chunks.in_set(RenderSystems::Queue),
                     prepare_chunk_texture_assets.in_set(RenderSystems::PrepareResources),
@@ -4899,13 +4901,11 @@ fn extracted_camera_identity(
 }
 
 #[derive(SystemParam)]
-struct QueueFrameProbeParams<'w, 's> {
+struct QueueFrameProbeParams<'w> {
     frame_probe: Res<'w, ActiveFrameProbe>,
     input: Res<'w, VisibilityDiagnosticsInput>,
     visibility_probe: Res<'w, ActiveVisibilityFrameProbe>,
-    diagnostics: Res<'w, VisibilityDiagnostics>,
     camera_identity_tracker: ResMut<'w, ExtractedCameraIdentityTracker>,
-    adapter_metadata_published: Local<'s, bool>,
 }
 
 fn adapter_metadata_field(value: String) -> String {
@@ -4914,6 +4914,89 @@ fn adapter_metadata_field(value: String) -> String {
     } else {
         value
     }
+}
+
+fn resolve_surface_present_mode(
+    requested: bevy::window::PresentMode,
+    supported: &[wgpu::PresentMode],
+) -> Option<wgpu::PresentMode> {
+    let fallbacks: &[wgpu::PresentMode] = match requested {
+        bevy::window::PresentMode::Fifo => &[wgpu::PresentMode::Fifo],
+        bevy::window::PresentMode::Immediate => {
+            &[wgpu::PresentMode::Immediate, wgpu::PresentMode::Fifo]
+        }
+        _ => return None,
+    };
+    fallbacks
+        .iter()
+        .copied()
+        .find(|candidate| supported.contains(candidate))
+}
+
+fn window_present_mode_name(mode: bevy::window::PresentMode) -> Option<&'static str> {
+    match mode {
+        bevy::window::PresentMode::Fifo => Some("Fifo"),
+        bevy::window::PresentMode::Immediate => Some("Immediate"),
+        _ => None,
+    }
+}
+
+fn surface_present_mode_name(mode: wgpu::PresentMode) -> Option<&'static str> {
+    match mode {
+        wgpu::PresentMode::Fifo => Some("Fifo"),
+        wgpu::PresentMode::Immediate => Some("Immediate"),
+        _ => None,
+    }
+}
+
+fn publish_graphics_runtime_metadata(
+    #[cfg(any(target_os = "macos", target_os = "ios"))] _marker: bevy::ecs::system::NonSendMarker,
+    windows: Res<ExtractedWindows>,
+    render_instance: Res<RenderInstance>,
+    render_adapter: Res<RenderAdapter>,
+    input: Res<VisibilityDiagnosticsInput>,
+    diagnostics: Res<VisibilityDiagnostics>,
+    mut published: Local<bool>,
+) {
+    if !input.enabled() || *published {
+        return;
+    }
+    let Some(window) = windows
+        .primary
+        .and_then(|primary| windows.windows.get(&primary))
+    else {
+        return;
+    };
+    let Some(requested_present_mode) = window_present_mode_name(window.present_mode) else {
+        return;
+    };
+    let surface_target = wgpu::SurfaceTargetUnsafe::RawHandle {
+        raw_display_handle: window.handle.get_display_handle(),
+        raw_window_handle: window.handle.get_window_handle(),
+    };
+    // SAFETY: This runs on the main thread where required, and the extracted window owns
+    // valid raw handles for the same window Bevy configures immediately after this system.
+    let Ok(surface) = (unsafe { render_instance.create_surface_unsafe(surface_target) }) else {
+        return;
+    };
+    let capabilities = surface.get_capabilities(&render_adapter);
+    let Some(effective_present_mode) =
+        resolve_surface_present_mode(window.present_mode, &capabilities.present_modes)
+            .and_then(surface_present_mode_name)
+    else {
+        return;
+    };
+    let adapter_info = render_adapter.get_info();
+    diagnostics.publish_graphics_adapter(GraphicsAdapterMetadata {
+        backend: format!("{:?}", adapter_info.backend),
+        adapter: adapter_metadata_field(adapter_info.name),
+        driver: adapter_metadata_field(adapter_info.driver),
+        driver_info: adapter_metadata_field(adapter_info.driver_info),
+        requested_present_mode: requested_present_mode.to_owned(),
+        effective_present_mode: effective_present_mode.to_owned(),
+        present_mode_proven: true,
+    });
+    *published = true;
 }
 
 fn indexed_indirect_command(allocation: &GpuChunkAllocation) -> Option<DrawIndexedIndirectArgs> {
@@ -8597,18 +8680,6 @@ fn queue_chunks(
         Backends::from(render_adapter.get_info().backend).contains(Backends::DX12),
         cfg!(debug_assertions),
     );
-    if probes.input.enabled() && !*probes.adapter_metadata_published {
-        let adapter_info = render_adapter.get_info();
-        probes
-            .diagnostics
-            .publish_graphics_adapter(GraphicsAdapterMetadata {
-                backend: format!("{:?}", adapter_info.backend),
-                adapter: adapter_metadata_field(adapter_info.name),
-                driver: adapter_metadata_field(adapter_info.driver),
-                driver_info: adapter_metadata_field(adapter_info.driver_info),
-            });
-        *probes.adapter_metadata_published = true;
-    }
     if probes.input.enabled() {
         let diagnostic_view = views
             .iter()
@@ -13807,6 +13878,32 @@ mod tests {
         assert_eq!(
             adapter_metadata_field("driver 1.2".to_owned()),
             "driver 1.2"
+        );
+    }
+
+    #[test]
+    fn explicit_present_mode_evidence_comes_from_surface_capabilities() {
+        use bevy::window::PresentMode as WindowPresentMode;
+        use wgpu::PresentMode as WgpuPresentMode;
+
+        assert_eq!(
+            resolve_surface_present_mode(
+                WindowPresentMode::Immediate,
+                &[WgpuPresentMode::Fifo, WgpuPresentMode::Immediate],
+            ),
+            Some(WgpuPresentMode::Immediate)
+        );
+        assert_eq!(
+            resolve_surface_present_mode(WindowPresentMode::Immediate, &[WgpuPresentMode::Fifo],),
+            Some(WgpuPresentMode::Fifo)
+        );
+        assert_eq!(
+            resolve_surface_present_mode(WindowPresentMode::Immediate, &[]),
+            None
+        );
+        assert_eq!(
+            resolve_surface_present_mode(WindowPresentMode::Fifo, &[WgpuPresentMode::Fifo]),
+            Some(WgpuPresentMode::Fifo)
         );
     }
 

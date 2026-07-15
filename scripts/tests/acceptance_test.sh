@@ -33,7 +33,7 @@ done
 [[ ${commands[2]} != *--no-vsync* ]]
 [[ $output == *'BUILD_PROFILE=release'* ]]
 [[ $output == *'REQUESTED_PRESENT_MODE=Fifo'* ]]
-[[ $output == *'EFFECTIVE_PRESENT_MODE=Fifo'* ]]
+[[ $output == *'EFFECTIVE_PRESENT_MODE=UNPROVEN'* ]]
 [[ ${commands[0]} == *"'"* ]]
 [[ ! -e "$project_root/.local/acceptance/dry-run" ]]
 [[ ! -e "$metrics_out" ]]
@@ -41,7 +41,9 @@ done
 no_vsync_output="$(bash "$script" --dry-run --duration 900 --bds-dir "$bds_dir" --metrics-out "$metrics_out" --no-vsync)"
 [[ $no_vsync_output == *--no-vsync* ]]
 [[ $no_vsync_output == *'REQUESTED_PRESENT_MODE=Immediate'* ]]
-[[ $no_vsync_output == *'EFFECTIVE_PRESENT_MODE=Immediate'* ]]
+[[ $no_vsync_output == *'EFFECTIVE_PRESENT_MODE=UNPROVEN'* ]]
+! grep -q 'PresentMode Immediate requested but not available. Falling back to Fifo' "$script"
+grep -q 'present_mode_proven' "$script"
 
 if bash "$script" --dry-run --duration 59 --bds-dir "$bds_dir" --metrics-out "$metrics_out" >/dev/null 2>&1; then
     echo 'duration below 60 seconds was accepted' >&2

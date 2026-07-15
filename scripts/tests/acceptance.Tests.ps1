@@ -423,7 +423,7 @@ try {
     Assert-True ($success.Output.Count -eq 6) 'default dry-run output changed'
     Assert-True ($success.Output -contains 'BUILD_PROFILE=release') 'default dry-run did not identify the release profile'
     Assert-True ($success.Output -contains 'REQUESTED_PRESENT_MODE=Fifo') 'default dry-run did not request FIFO'
-    Assert-True ($success.Output -contains 'EFFECTIVE_PRESENT_MODE=Fifo') 'default dry-run did not record effective FIFO'
+    Assert-True ($success.Output -contains 'EFFECTIVE_PRESENT_MODE=UNPROVEN') 'default dry-run relabeled requested FIFO as effective without surface proof'
     $expectedRuntimeDirectory = Join-Path (Join-Path $ProjectRoot '.local\bds-runtime') (Split-Path -Leaf $BdsDir)
     $expectedSocketDirectory = Join-Path $DryRunDirectory 'socket'
     $expectedCanonicalMetrics = Join-Path $DryRunDirectory 'app-metrics.json'
@@ -465,7 +465,7 @@ try {
     $noVsyncAppCommand = @($noVsyncDryRun.Output | Where-Object { $_ -match '^APP_COMMAND=' })
     Assert-True ($noVsyncAppCommand[0].Contains('--no-vsync')) 'explicit no-vsync A/B lost its app flag'
     Assert-True ($noVsyncDryRun.Output -contains 'REQUESTED_PRESENT_MODE=Immediate') 'explicit no-vsync request was not recorded'
-    Assert-True ($noVsyncDryRun.Output -contains 'EFFECTIVE_PRESENT_MODE=Immediate') 'explicit no-vsync effective policy was not recorded'
+    Assert-True ($noVsyncDryRun.Output -contains 'EFFECTIVE_PRESENT_MODE=UNPROVEN') 'explicit no-vsync dry-run relabeled the request as effective'
 
     $sharedRuntimeDirectory = Join-Path $TempRoot 'approved shared BDS runtime'
     $sharedRuntimeDryRun = Invoke-Acceptance -Arguments @(
@@ -863,22 +863,23 @@ try {
         Remove-Item Env:RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY -ErrorAction SilentlyContinue
     }
 
-    $runtimeMetadataMarker = ConvertFrom-AcceptanceRuntimeMetadataMarker -Line 'RUST_MCBE_ACCEPTANCE_RUNTIME_METADATA={"build_profile":"release","requested_present_mode":"Fifo","effective_present_mode":"Fifo","backend":"Dx12","adapter":"Test Adapter","driver":"test-driver","driver_info":"1.2.3"}'
+    $runtimeMetadataMarker = ConvertFrom-AcceptanceRuntimeMetadataMarker -Line 'RUST_MCBE_ACCEPTANCE_RUNTIME_METADATA={"build_profile":"release","requested_present_mode":"Fifo","effective_present_mode":"Fifo","present_mode_proven":true,"backend":"Dx12","adapter":"Test Adapter","driver":"test-driver","driver_info":"1.2.3"}'
     Assert-Equal 'release' $runtimeMetadataMarker.build_profile 'runtime metadata lost build profile'
     Assert-Equal 'Fifo' $runtimeMetadataMarker.effective_present_mode 'runtime metadata lost effective present mode'
     Assert-Equal 'Dx12' $runtimeMetadataMarker.backend 'runtime metadata lost backend'
     Assert-Equal 'Test Adapter' $runtimeMetadataMarker.adapter 'runtime metadata lost adapter'
     Assert-Equal 'test-driver' $runtimeMetadataMarker.driver 'runtime metadata lost driver'
-    Assert-Equal 'Immediate' (Resolve-EffectiveAcceptancePresentMode `
-        -RequestedPresentMode 'Immediate' `
-        -ReportedEffectivePresentMode 'Immediate') 'available Immediate mode was not preserved'
-    Assert-Equal 'Fifo' (Resolve-EffectiveAcceptancePresentMode `
-        -RequestedPresentMode 'Immediate' `
-        -ReportedEffectivePresentMode 'Immediate' `
-        -StderrText 'PresentMode Immediate requested but not available. Falling back to Fifo') 'Immediate fallback was not resolved to FIFO'
+    Assert-Equal $true $runtimeMetadataMarker.present_mode_proven 'runtime metadata lost authoritative present-mode proof'
+    Assert-Throws {
+        ConvertFrom-AcceptanceRuntimeMetadataMarker -Line 'RUST_MCBE_ACCEPTANCE_RUNTIME_METADATA={"build_profile":"release","requested_present_mode":"Immediate","effective_present_mode":"Immediate","backend":"Dx12","adapter":"Test Adapter","driver":"test-driver","driver_info":"1.2.3"}'
+    } 'runtime metadata without present-mode proof was accepted'
+    Assert-Throws {
+        ConvertFrom-AcceptanceRuntimeMetadataMarker -Line 'RUST_MCBE_ACCEPTANCE_RUNTIME_METADATA={"build_profile":"release","requested_present_mode":"Immediate","effective_present_mode":"Immediate","present_mode_proven":false,"backend":"Dx12","adapter":"Test Adapter","driver":"test-driver","driver_info":"1.2.3"}'
+    } 'runtime metadata with unproven present mode was accepted'
     Assert-Throws {
         ConvertFrom-AcceptanceRuntimeMetadataMarker -Line 'RUST_MCBE_ACCEPTANCE_RUNTIME_METADATA={"build_profile":"debug"}'
     } 'incomplete runtime metadata was accepted'
+    Assert-True (-not $source.Contains('PresentMode Immediate requested but not available. Falling back to Fifo')) 'acceptance still inferred effective mode from a suppressible INFO log'
 
     $crossCropPlan = New-CrossCropGalleryPlan `
         -MutationCoordinate @(100, 64, 200) `
