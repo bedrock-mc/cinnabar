@@ -71,23 +71,23 @@ Run `cargo test -p bedrock-client --locked`, `cargo test -p world --locked`, `ca
 - Decode/light/mesh jobs carry their enqueue `Instant` through completion and expose bounded maximum queue wait separately from worker duration.
 - Acceptance output records accepted/no-op/value/provenance light counts, mesh invalidations, stale jobs, pending/in-flight gauges, max queue waits, worker maxima, upload queue/bytes, draw mode, present provenance, and build profile in one periodic snapshot.
 
-- [ ] **Step 1: Write failing metric and script-contract tests**
+- [x] **Step 1: Write failing metric and script-contract tests**
 
 Use fixed test instants to prove queue wait excludes worker duration, counters saturate, snapshots remain deterministic, and both scripts require every exact field. Assert debug and release, Direct and MDI, and FIFO and Immediate cannot be conflated in one result row.
 
-- [ ] **Step 2: Run and record red**
+- [x] **Step 2: Run and record red**
 
 Run the focused client stats tests plus `Invoke-Pester scripts/tests/acceptance.Tests.ps1` and `bash scripts/tests/acceptance_test.sh`. Expected: failures for missing stage fields.
 
-- [ ] **Step 3: Thread enqueue times through bounded jobs**
+- [x] **Step 3: Thread enqueue times through bounded jobs**
 
 Add `queued_at: Instant` to decode, light, and mesh jobs at their existing admission point. At worker start/dispatch, calculate queue wait with saturating duration semantics; retain the existing worker timers. Update only cumulative maxima/counters in `WorldStreamStats`.
 
-- [ ] **Step 4: Emit one coherent periodic snapshot**
+- [x] **Step 4: Emit one coherent periodic snapshot**
 
 Join the world-stream values with the render/upload and visibility/presentation provenance already captured for the same acceptance run. Do not print one line per completion. Shell parsers must fail closed on absent, duplicate, malformed, or profile/mode-mismatched fields.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run `cargo test -p bedrock-client --locked`, both acceptance script suites, strict workspace Clippy, and rustfmt. Commit with `feat: attribute world publication latency`.
 

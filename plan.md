@@ -1256,6 +1256,14 @@ store it only under the user's temporary directory, inspect that file, and never
     nibble changes retain the full 27-dependent invalidation contract. Exact
     saturating outcome counters and independent review are green; publication
     latency attribution, the full release benchmark, and live gates remain open.
+  - [x] Attribute decode/light/mesh bounded-queue wait independently from
+    worker duration and emit one coherent periodic publication snapshot that
+    joins outcome counters, pending/in-flight gauges, upload bytes, draw mode,
+    build profile, present proof, and adapter provenance. PowerShell and Bash
+    reject missing, extra, duplicate, malformed, wrong-typed, or mismatched
+    rows. Full client/script suites, strict Clippy/formatting, adversarial
+    contract tests, and independent re-review are green through `0811c0a`;
+    the full release radius-16 benchmark and live resource gates remain open.
 - [ ] Remove every dark rectangle/background pixel around the pinned sun and
   moon textures. The acceptance test must exercise decoded pinned pixels and
   mip/filter edges, not merely string-inspect WGSL, and must prove both bodies
@@ -1285,6 +1293,12 @@ store it only under the user's temporary directory, inspect that file, and never
     fullscreen sampled plane is removed. Full render/client suites, strict
     workspace Clippy/formatting, and independent review are green through
     `e2d0ea8`; native visual and performance acceptance remains open.
+  - [ ] Resolve the 2026-07-15 live user rejection that the finite clouds look
+    substantially non-vanilla. Reproduce the exact visible scale, thickness,
+    silhouette, face shading, motion, fog, and seam behavior against the
+    matching native Bedrock client, correct the proven differences, and obtain
+    a fresh accepted above/below/within/grazing gallery before closing this
+    blocker. Deterministic mesher/pipeline tests alone do not satisfy it.
   - [ ] Implement, independently review, and live-verify the finite cloud mesh.
 
 ## Phase 3 — Movement and the local player
