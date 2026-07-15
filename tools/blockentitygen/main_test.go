@@ -564,6 +564,11 @@ func assertGolden(t *testing.T, path string, got []byte) {
 	if err != nil {
 		t.Fatalf("read golden %s: %v", path, err)
 	}
+	// The generated artifact is always canonical LF. Keep the byte-for-byte
+	// comparison meaningful on Windows checkouts created before the repository's
+	// eol=lf attributes were present, where Git may already have materialized the
+	// tracked text fixture with CRLF line endings.
+	want = bytes.ReplaceAll(want, []byte("\r\n"), []byte("\n"))
 	if !bytes.Equal(got, want) {
 		t.Fatalf("%s differs from deterministic golden", path)
 	}
