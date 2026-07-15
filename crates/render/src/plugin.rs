@@ -2435,8 +2435,8 @@ pub fn greedy_texture_uv(
     [u, v]
 }
 
-/// Maximum number of new or changed sub-chunks transferred to the render
-/// world in one main-world update.
+/// Maximum number of non-empty new or changed sub-chunks transferred to the
+/// render world in one main-world update.
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ChunkUploadBudget {
     pub max_per_frame: usize,
@@ -4306,9 +4306,10 @@ fn apply_chunk_render_queue(
             .then_with(|| left_key.cmp(right_key))
     });
 
-    let mut applied = 0;
+    let mut total_applications = 0;
+    let mut non_empty_uploads = 0;
     for (key, _, removal) in ready {
-        if applied >= budget.max_per_frame {
+        if total_applications >= DEFAULT_RENDER_QUEUE_ITEMS {
             break;
         }
         if removal {
@@ -4323,12 +4324,15 @@ fn apply_chunk_render_queue(
             if let Some(token) = token {
                 acknowledgements.complete(key, token, Instant::now());
             }
-            applied += 1;
+            total_applications += 1;
             continue;
         }
         let Some(pending) = queue.pending.get(&key) else {
             continue;
         };
+        if !pending.mesh.is_empty() && non_empty_uploads >= budget.max_per_frame {
+            continue;
+        }
         if pending.mesh.is_empty()
             && pending
                 .token
@@ -4349,7 +4353,7 @@ fn apply_chunk_render_queue(
             if let Some(token) = pending.token {
                 acknowledgements.complete(key, token, Instant::now());
             }
-            applied += 1;
+            total_applications += 1;
             continue;
         }
 
@@ -4413,7 +4417,8 @@ fn apply_chunk_render_queue(
                 .id();
             entities.0.insert(key, entity);
         }
-        applied += 1;
+        total_applications += 1;
+        non_empty_uploads += 1;
     }
 }
 
@@ -14514,6 +14519,160 @@ mod tests {
         assert_eq!(applied.len(), 1);
         assert_eq!(applied[0].key, key);
         assert_eq!(applied[0].token, token);
+    }
+
+    #[test]
+    fn one_upload_budget_still_applies_later_zero_byte_changes() {
+        let existing_key = SubChunkKey::new(0, 10, 0, 0);
+        let first_upload_key = SubChunkKey::new(0, 11, 0, 0);
+        let deferred_upload_key = SubChunkKey::new(0, 12, 0, 0);
+        let empty_key = SubChunkKey::new(0, 13, 0, 0);
+        let now = Instant::now();
+        let first_upload_token = ChunkUploadToken {
+            generation: 1,
+            dirty_since: now,
+        };
+        let deferred_upload_token = ChunkUploadToken {
+            generation: 2,
+            dirty_since: now,
+        };
+        let removal_token = ChunkUploadToken {
+            generation: 3,
+            dirty_since: now,
+        };
+        let empty_token = ChunkUploadToken {
+            generation: 4,
+            dirty_since: now,
+        };
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_plugins(DebugWorldPlugin::new(1));
+        let acknowledgements = app
+            .world()
+            .resource::<ChunkUploadAcknowledgements>()
+            .clone();
+
+        app.world_mut()
+            .resource_mut::<ChunkRenderQueue>()
+            .try_insert(
+                existing_key,
+                solid_test_mesh(),
+                ChunkUploadPriority::new(0.0),
+            )
+            .unwrap();
+        app.update();
+        assert!(acknowledgements.drain().is_empty());
+
+        {
+            let mut queue = app.world_mut().resource_mut::<ChunkRenderQueue>();
+            queue
+                .try_update_tracked(
+                    first_upload_key,
+                    solid_test_mesh(),
+                    ChunkUploadPriority::new(0.0),
+                    first_upload_token,
+                )
+                .unwrap();
+            queue
+                .try_update_tracked(
+                    deferred_upload_key,
+                    solid_test_mesh(),
+                    ChunkUploadPriority::new(1.0),
+                    deferred_upload_token,
+                )
+                .unwrap();
+            queue
+                .try_remove_tracked(existing_key, ChunkUploadPriority::new(2.0), removal_token)
+                .unwrap();
+            queue
+                .try_update_tracked(
+                    empty_key,
+                    ChunkMesh::default(),
+                    ChunkUploadPriority::new(3.0),
+                    empty_token,
+                )
+                .unwrap();
+        }
+
+        app.update();
+
+        let applied = acknowledgements
+            .drain()
+            .into_iter()
+            .map(|acknowledgement| {
+                assert_eq!(acknowledgement.uploaded_bytes, 0);
+                (acknowledgement.key, acknowledgement.token)
+            })
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(
+            applied,
+            BTreeMap::from([(existing_key, removal_token), (empty_key, empty_token)])
+        );
+        assert_eq!(
+            app.world().resource::<ChunkRenderQueue>().retained_len(),
+            1,
+            "the second non-empty upload must retain its place for a later frame"
+        );
+        let world = app.world_mut();
+        let mut instances = world.query::<&ChunkRenderInstance>();
+        let rendered = instances
+            .iter(world)
+            .map(ChunkRenderInstance::key)
+            .collect::<Vec<_>>();
+        assert_eq!(rendered, [first_upload_key]);
+    }
+
+    #[test]
+    fn zero_byte_applications_never_exceed_the_retained_queue_hard_cap() {
+        let total = DEFAULT_RENDER_QUEUE_ITEMS + 44;
+        let now = Instant::now();
+        let acknowledgements = ChunkUploadAcknowledgements::default();
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(ChunkRenderQueue::with_limits(ChunkRenderQueueLimits {
+                max_items: total,
+                max_bytes: DEFAULT_RENDER_QUEUE_BYTES,
+            }))
+            .insert_resource(acknowledgements.clone())
+            .add_plugins(DebugWorldPlugin::new(1));
+
+        {
+            let mut queue = app.world_mut().resource_mut::<ChunkRenderQueue>();
+            for index in 0..total {
+                queue
+                    .try_remove_tracked(
+                        SubChunkKey::new(0, index as i32, 0, 0),
+                        ChunkUploadPriority::new(index as f32),
+                        ChunkUploadToken {
+                            generation: index as u64 + 1,
+                            dirty_since: now,
+                        },
+                    )
+                    .unwrap();
+            }
+        }
+
+        app.update();
+
+        let applied = acknowledgements
+            .drain()
+            .into_iter()
+            .map(|acknowledgement| (acknowledgement.key, acknowledgement.token))
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(applied.len(), DEFAULT_RENDER_QUEUE_ITEMS);
+        for index in 0..DEFAULT_RENDER_QUEUE_ITEMS {
+            assert_eq!(
+                applied.get(&SubChunkKey::new(0, index as i32, 0, 0)),
+                Some(&ChunkUploadToken {
+                    generation: index as u64 + 1,
+                    dirty_since: now,
+                })
+            );
+        }
+        assert_eq!(
+            app.world().resource::<ChunkRenderQueue>().retained_len(),
+            total - DEFAULT_RENDER_QUEUE_ITEMS
+        );
     }
 
     #[test]

@@ -5992,7 +5992,7 @@ mod tests {
             const POPULATED_WITNESSES: usize = 8 * 8;
             const NOOP_PROBE_KEYS: usize = 6;
             const RENDER_QUEUE_CAPACITY: usize = 256;
-            const UPLOADS_PER_UPDATE: usize = RENDER_QUEUE_CAPACITY;
+            const UPLOADS_PER_UPDATE: usize = 128;
 
             let mut stream = lit_stream(0);
             let biome_tints = ChunkBiomeTints::from_resolved_with_identity(
@@ -6361,7 +6361,7 @@ mod tests {
             assert_eq!(upserts, POPULATED_WITNESSES);
             assert_eq!(removals, PUBLICATION_KEYS - POPULATED_WITNESSES);
             assert_eq!(acknowledged.len(), PUBLICATION_KEYS);
-            let minimum_upload_updates = PUBLICATION_KEYS.div_ceil(UPLOADS_PER_UPDATE);
+            let minimum_upload_updates = PUBLICATION_KEYS.div_ceil(RENDER_QUEUE_CAPACITY);
             assert!(
                 (minimum_upload_updates..=minimum_upload_updates + POPULATED_WITNESSES)
                     .contains(&upload_updates),
