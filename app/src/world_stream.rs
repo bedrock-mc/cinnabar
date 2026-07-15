@@ -517,6 +517,11 @@ pub struct WorldStreamStats {
     pub stale_light_jobs: u64,
     pub light_solve_failures: u64,
     pub light_uniform_fast_path_jobs: u64,
+    pub accepted_light_jobs: u64,
+    pub noop_light_jobs: u64,
+    pub value_changed_light_jobs: u64,
+    pub provenance_only_light_jobs: u64,
+    pub light_mesh_invalidations: u64,
     pub received_radius_chunks: Option<i32>,
     pub publisher_radius_chunks: Option<i32>,
     pub resident_sub_chunks: usize,
@@ -951,11 +956,8 @@ struct SolvedLightJob {
     replacement: SubChunkLight,
     direct_sky: Arc<DirectSkyMask>,
     used_uniform_fast_path: bool,
-    #[allow(
-        dead_code,
-        reason = "retained as a worker-side summary and asserted by scheduler regression tests"
-    )]
     light_levels_changed: bool,
+    direct_sky_changed: bool,
     changed_faces: [bool; 6],
 }
 
@@ -1005,6 +1007,9 @@ fn solve_prepared_light_job(mut job: PreparedLightJob) -> Result<SolvedLightJob,
     let light_levels_changed = old_light
         .as_deref()
         .is_none_or(|previous| !light_levels_equal(previous, &replacement));
+    let direct_sky_changed = old_direct
+        .as_ref()
+        .is_none_or(|previous| previous.mask.as_ref() != direct_sky.as_ref());
     let changed_faces = std::array::from_fn(|index| {
         light_face_changed(
             old_light.as_deref(),
@@ -1019,6 +1024,7 @@ fn solve_prepared_light_job(mut job: PreparedLightJob) -> Result<SolvedLightJob,
         direct_sky,
         used_uniform_fast_path,
         light_levels_changed,
+        direct_sky_changed,
         changed_faces,
     })
 }
@@ -1193,7 +1199,6 @@ struct MeshLightSlot {
     block_generation: u64,
     light_revision: u64,
     light: Arc<SubChunkLight>,
-    direct_sky: Arc<DirectSkyMask>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -3484,13 +3489,11 @@ impl WorldStream {
                     }
                     let ownership = self.light_ownership.get(&key).copied()?;
                     let light = Arc::clone(self.light_store.light(key)?);
-                    let direct = self.direct_sky.get(&key)?;
                     slots[mesh_offset_index(offset)] = Some(MeshLightSlot {
                         key,
                         block_generation: ownership.block_generation,
                         light_revision: ownership.light_revision,
                         light,
-                        direct_sky: Arc::clone(&direct.mask),
                     });
                 }
             }
@@ -3770,12 +3773,68 @@ impl WorldStream {
             replacement,
             direct_sky,
             used_uniform_fast_path,
-            light_levels_changed: _,
+            light_levels_changed,
+            direct_sky_changed,
             changed_faces,
         } = solved;
         if used_uniform_fast_path {
             self.stats.light_uniform_fast_path_jobs =
                 self.stats.light_uniform_fast_path_jobs.saturating_add(1);
+        }
+        if !light_levels_changed && !direct_sky_changed {
+            let Some(light_revision) = completion.identity.previous_light_generation else {
+                self.stats.stale_light_jobs = self.stats.stale_light_jobs.saturating_add(1);
+                return;
+            };
+            let Some(current_direct) = self
+                .direct_sky
+                .get(&completion.key)
+                .filter(|direct| direct.light_revision == light_revision)
+                .cloned()
+            else {
+                self.stats.stale_light_jobs = self.stats.stale_light_jobs.saturating_add(1);
+                return;
+            };
+            self.light_ownership.insert(
+                completion.key,
+                LightOwnership {
+                    block_generation: completion.identity.block_generation,
+                    light_revision,
+                },
+            );
+            self.light_revisions
+                .clear_if_current(completion.key, completion.identity.revision);
+            self.stats.max_light_duration = self.stats.max_light_duration.max(completion.duration);
+            self.stats.accepted_light_jobs = self.stats.accepted_light_jobs.saturating_add(1);
+            self.stats.noop_light_jobs = self.stats.noop_light_jobs.saturating_add(1);
+            self.finish_accepted_light_completion(completion.key, &current_direct, changed_faces);
+            return;
+        }
+        if !light_levels_changed && direct_sky_changed {
+            let Some(light_revision) = completion.identity.previous_light_generation else {
+                self.stats.stale_light_jobs = self.stats.stale_light_jobs.saturating_add(1);
+                return;
+            };
+            let new_direct = StoredDirectSky {
+                light_revision,
+                mask: direct_sky,
+            };
+            self.light_ownership.insert(
+                completion.key,
+                LightOwnership {
+                    block_generation: completion.identity.block_generation,
+                    light_revision,
+                },
+            );
+            self.direct_sky.insert(completion.key, new_direct.clone());
+            self.light_revisions
+                .clear_if_current(completion.key, completion.identity.revision);
+            self.stats.max_light_duration = self.stats.max_light_duration.max(completion.duration);
+            self.stats.accepted_light_jobs = self.stats.accepted_light_jobs.saturating_add(1);
+            self.stats.provenance_only_light_jobs =
+                self.stats.provenance_only_light_jobs.saturating_add(1);
+            self.finish_accepted_light_completion(completion.key, &new_direct, changed_faces);
+            return;
         }
         let new_direct = StoredDirectSky {
             light_revision: completion.identity.revision,
@@ -3800,21 +3859,30 @@ impl WorldStream {
         self.light_revisions
             .clear_if_current(completion.key, completion.identity.revision);
         self.stats.max_light_duration = self.stats.max_light_duration.max(completion.duration);
+        self.stats.accepted_light_jobs = self.stats.accepted_light_jobs.saturating_add(1);
+        self.stats.value_changed_light_jobs = self.stats.value_changed_light_jobs.saturating_add(1);
+        self.stats.light_mesh_invalidations = self.stats.light_mesh_invalidations.saturating_add(1);
         self.mark_light_mesh_dependents(completion.key, Instant::now());
 
-        let mut requeue = self
-            .light_waiters
-            .remove(&completion.key)
-            .unwrap_or_default();
+        self.finish_accepted_light_completion(completion.key, &new_direct, changed_faces);
+    }
+
+    fn finish_accepted_light_completion(
+        &mut self,
+        key: SubChunkKey,
+        direct_sky: &StoredDirectSky,
+        changed_faces: [bool; 6],
+    ) {
+        let mut requeue = self.light_waiters.remove(&key).unwrap_or_default();
         let completed_uniform_direct_sky = self
             .light_store
-            .light(completion.key)
-            .is_some_and(|light| is_uniform_direct_sky(light, new_direct.mask.as_ref()));
+            .light(key)
+            .is_some_and(|light| is_uniform_direct_sky(light, direct_sky.mask.as_ref()));
         for (offset, changed) in LIGHT_NEIGHBOUR_OFFSETS.into_iter().zip(changed_faces) {
             if !changed {
                 continue;
             }
-            if let Some(neighbour) = offset_sub_chunk_key(completion.key, offset) {
+            if let Some(neighbour) = offset_sub_chunk_key(key, offset) {
                 if self.pending_light.contains_key(&neighbour)
                     && !self.in_flight_light.contains_key(&neighbour)
                 {
@@ -4032,10 +4100,6 @@ impl WorldStream {
                 .light_store
                 .light(key)
                 .is_some_and(|light| Arc::ptr_eq(light, &slot.light))
-            && self.direct_sky.get(&key).is_some_and(|direct| {
-                direct.light_revision == slot.light_revision
-                    && Arc::ptr_eq(&direct.mask, &slot.direct_sky)
-            })
     }
 
     fn requeue_current_mesh_completion(&mut self, key: SubChunkKey, revision: u64) {
@@ -4664,7 +4728,7 @@ mod tests {
     };
 
     use super::{
-        DirectSkyMask, MeshCompletion, MeshLightHalo, MeshLightSlot, MeshSnapshot, RevisionTracker,
+        MeshCompletion, MeshLightHalo, MeshLightSlot, MeshSnapshot, RevisionTracker,
         SequenceBuffer, WorldStream, split_block_update,
     };
 
@@ -4682,11 +4746,14 @@ mod tests {
         };
         use protocol::WorldBootstrap;
         use world::{
-            BlockPos, BoundaryLightSample, DecodedLevelChunk, LightBlockAccess, LightChannel,
-            LightReadAccess, LightSolveError, SubChunkKey, SubChunkLight,
+            BlockPos, BlockUpdate, BoundaryLightSample, DecodedLevelChunk, LightBlockAccess,
+            LightChannel, LightReadAccess, LightSolveError, SubChunkKey, SubChunkLight,
         };
 
-        use super::super::{DirectSkyMask, LightOwnership, StoredDirectSky};
+        use super::super::{
+            DirectSkyMask, LightCompletion, LightJobIdentity, LightOwnership, SolvedLightJob,
+            StoredDirectSky,
+        };
         use super::WorldStream;
 
         fn stream() -> WorldStream {
@@ -4847,6 +4914,326 @@ mod tests {
             stream.pending_light.remove(&key);
         }
 
+        fn synthetic_light_completion(
+            stream: &mut WorldStream,
+            key: SubChunkKey,
+            direct_sky: DirectSkyMask,
+            light_levels_changed: bool,
+            direct_sky_changed: bool,
+            changed_faces: [bool; 6],
+        ) -> LightCompletion {
+            let revision = stream.mark_light_dirty_exact(key).unwrap();
+            let identity = LightJobIdentity {
+                revision,
+                block_generation: stream.block_generations[&key],
+                previous_light_generation: stream
+                    .light_store
+                    .light(key)
+                    .map(|light| light.generation()),
+            };
+            stream.pending_light.remove(&key);
+            stream.in_flight_light.insert(key, identity);
+            LightCompletion {
+                key,
+                identity,
+                result: Ok(SolvedLightJob {
+                    replacement: stream.light_store.light(key).unwrap().as_ref().clone(),
+                    direct_sky: Arc::new(direct_sky),
+                    used_uniform_fast_path: false,
+                    light_levels_changed,
+                    direct_sky_changed,
+                    changed_faces,
+                }),
+                duration: Duration::from_millis(3),
+            }
+        }
+
+        #[test]
+        fn unchanged_uniform_light_completion_preserves_mesh_currentness_and_waiters() {
+            let mut stream = lit_stream(1);
+            let key = SubChunkKey::new(1, 0, 0, 0);
+            let waiter = SubChunkKey::new(1, 2, 0, 0);
+            stream
+                .store
+                .commit_sub_chunk(key, super::uniform_sub_chunk(2))
+                .unwrap();
+            install_current_light(&mut stream, key, 0, 0, false);
+            install_current_light(&mut stream, waiter, 0, 0, false);
+            let original_light = Arc::clone(stream.light_store.light(key).unwrap());
+            let original_direct = Arc::clone(&stream.direct_sky[&key].mask);
+            let original_ownership = stream.light_ownership[&key];
+
+            let mesh_revision = stream.mark_dirty_exact(key, Instant::now());
+            assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 1);
+            let mesh_completion = stream
+                .mesh_rx
+                .recv_timeout(Duration::from_secs(2))
+                .expect("mesh worker completion");
+            stream.light_waiters.entry(key).or_default().insert(waiter);
+            stream.mark_light_dirty_exact(key).unwrap();
+            complete_one_light(&mut stream, [0.0; 3]);
+
+            assert!(Arc::ptr_eq(
+                stream.light_store.light(key).unwrap(),
+                &original_light
+            ));
+            assert!(Arc::ptr_eq(&stream.direct_sky[&key].mask, &original_direct));
+            assert_eq!(stream.light_ownership[&key], original_ownership);
+            assert!(!stream.pending_mesh.contains_key(&key));
+            assert_eq!(
+                stream.revisions.dirty(key).map(|dirty| dirty.revision),
+                Some(mesh_revision)
+            );
+            assert_eq!(stream.in_flight.get(&key), Some(&mesh_revision));
+            assert!(!stream.light_waiters.contains_key(&key));
+            assert!(stream.pending_light.contains_key(&waiter));
+
+            stream.accept_mesh_completion(mesh_completion);
+            assert_eq!(stream.stats().stale_mesh_jobs, 0);
+            assert_eq!(stream.take_mesh_changes().len(), 1);
+            assert_eq!(stream.stats().accepted_light_jobs, 1);
+            assert_eq!(stream.stats().noop_light_jobs, 1);
+            assert_eq!(stream.stats().value_changed_light_jobs, 0);
+            assert_eq!(stream.stats().provenance_only_light_jobs, 0);
+            assert_eq!(stream.stats().light_mesh_invalidations, 0);
+        }
+
+        #[test]
+        fn unchanged_packed_light_completion_advances_only_block_ownership() {
+            let mut stream = lit_stream(1);
+            let key = SubChunkKey::new(1, 0, 0, 0);
+            stream
+                .store
+                .update_block(key, BlockUpdate::new(8, 8, 8, 0, 1), 0)
+                .unwrap();
+            stream.resident.insert(key);
+            stream.mark_changed(key, Instant::now());
+            complete_one_light(&mut stream, [8.0; 3]);
+            let original_light = Arc::clone(stream.light_store.light(key).unwrap());
+            let original_direct = Arc::clone(&stream.direct_sky[&key].mask);
+            let original_light_revision = stream.light_ownership[&key].light_revision;
+            assert_eq!(original_light.get(LightChannel::Block, 8, 8, 8), Some(15));
+            assert_ne!(original_light.get(LightChannel::Block, 0, 0, 0), Some(15));
+
+            stream.mark_light_changed_sources([key]);
+            let replacement_block_generation = stream.block_generations[&key];
+            let pending_mesh_before = stream
+                .pending_mesh
+                .iter()
+                .map(|(key, pending)| (*key, (pending.revision, pending.since)))
+                .collect::<BTreeSet<_>>();
+            let mesh_revisions_before = stream
+                .revisions
+                .entries
+                .iter()
+                .map(|(key, dirty)| (*key, (dirty.revision, dirty.since)))
+                .collect::<BTreeSet<_>>();
+            complete_one_light(&mut stream, [8.0; 3]);
+
+            assert!(Arc::ptr_eq(
+                stream.light_store.light(key).unwrap(),
+                &original_light
+            ));
+            assert!(Arc::ptr_eq(&stream.direct_sky[&key].mask, &original_direct));
+            assert_eq!(
+                stream.light_ownership[&key],
+                LightOwnership {
+                    block_generation: replacement_block_generation,
+                    light_revision: original_light_revision,
+                }
+            );
+            assert_eq!(
+                stream
+                    .pending_mesh
+                    .iter()
+                    .map(|(key, pending)| (*key, (pending.revision, pending.since)))
+                    .collect::<BTreeSet<_>>(),
+                pending_mesh_before
+            );
+            assert_eq!(
+                stream
+                    .revisions
+                    .entries
+                    .iter()
+                    .map(|(key, dirty)| (*key, (dirty.revision, dirty.since)))
+                    .collect::<BTreeSet<_>>(),
+                mesh_revisions_before
+            );
+        }
+
+        #[test]
+        fn unchanged_completion_rejects_missing_prior_provenance_without_publication() {
+            let mut stream = lit_stream(1);
+            let key = SubChunkKey::new(1, 0, 0, 0);
+            install_current_light(&mut stream, key, 0, 0, false);
+            let original_ownership = stream.light_ownership[&key];
+            let completion = synthetic_light_completion(
+                &mut stream,
+                key,
+                DirectSkyMask::Uniform(false),
+                false,
+                false,
+                [false; 6],
+            );
+            stream.direct_sky.remove(&key);
+
+            stream.accept_light_completion(completion);
+
+            assert_eq!(stream.stats().stale_light_jobs, 1);
+            assert_eq!(stream.stats().accepted_light_jobs, 0);
+            assert_eq!(stream.light_ownership[&key], original_ownership);
+            assert!(stream.light_revisions.dirty(key).is_some());
+        }
+
+        #[test]
+        fn provenance_only_completion_preserves_sampled_mesh_identity() {
+            let mut stream = lit_stream(1);
+            let key = SubChunkKey::new(1, 0, 0, 0);
+            stream
+                .store
+                .commit_sub_chunk(key, super::uniform_sub_chunk(2))
+                .unwrap();
+            install_current_light(&mut stream, key, 0, 0, false);
+            let original_light = Arc::clone(stream.light_store.light(key).unwrap());
+            let original_direct = Arc::clone(&stream.direct_sky[&key].mask);
+            let original_light_revision = stream.light_ownership[&key].light_revision;
+            let mesh_revision = stream.mark_dirty_exact(key, Instant::now());
+            assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 1);
+            let mesh_completion = stream
+                .mesh_rx
+                .recv_timeout(Duration::from_secs(2))
+                .expect("mesh worker completion");
+
+            let completion = synthetic_light_completion(
+                &mut stream,
+                key,
+                DirectSkyMask::Uniform(true),
+                false,
+                true,
+                [true; 6],
+            );
+            stream.accept_light_completion(completion);
+
+            assert!(Arc::ptr_eq(
+                stream.light_store.light(key).unwrap(),
+                &original_light
+            ));
+            assert!(!Arc::ptr_eq(
+                &stream.direct_sky[&key].mask,
+                &original_direct
+            ));
+            assert_eq!(
+                stream.direct_sky[&key].light_revision,
+                original_light_revision
+            );
+            assert_eq!(
+                stream.light_ownership[&key].light_revision,
+                original_light_revision
+            );
+            assert_eq!(stream.in_flight.get(&key), Some(&mesh_revision));
+            assert!(!stream.pending_mesh.contains_key(&key));
+            assert!(
+                stream
+                    .light_prior_snapshot(key)
+                    .has_direct_sky_provenance(key.dimension, BlockPos::new(0, 0, 0))
+            );
+
+            stream.accept_mesh_completion(mesh_completion);
+            assert_eq!(stream.stats().stale_mesh_jobs, 0);
+            assert_eq!(stream.take_mesh_changes().len(), 1);
+            assert_eq!(stream.stats().accepted_light_jobs, 1);
+            assert_eq!(stream.stats().noop_light_jobs, 0);
+            assert_eq!(stream.stats().value_changed_light_jobs, 0);
+            assert_eq!(stream.stats().provenance_only_light_jobs, 1);
+            assert_eq!(stream.stats().light_mesh_invalidations, 0);
+        }
+
+        #[test]
+        fn provenance_only_face_change_stales_older_neighbour_solve() {
+            let mut stream = lit_stream(1);
+            let source = SubChunkKey::new(1, 0, 0, 0);
+            let neighbour = SubChunkKey::new(1, 1, 0, 0);
+            install_current_light(&mut stream, source, 0, 0, false);
+            install_current_light(&mut stream, neighbour, 0, 0, false);
+            stream.mark_light_dirty_exact(neighbour).unwrap();
+            assert_eq!(stream.dispatch_light_jobs([24.0, 8.0, 8.0], 1), 1);
+            let older_neighbour_completion = stream
+                .light_rx
+                .recv_timeout(Duration::from_secs(2))
+                .expect("older neighbour light completion");
+
+            let completion = synthetic_light_completion(
+                &mut stream,
+                source,
+                DirectSkyMask::Uniform(true),
+                false,
+                true,
+                [false, true, false, false, false, false],
+            );
+            stream.accept_light_completion(completion);
+            assert!(stream.pending_light.contains_key(&neighbour));
+            assert!(stream.in_flight_light.contains_key(&neighbour));
+
+            stream.accept_light_completion(older_neighbour_completion);
+            assert_eq!(stream.stats().stale_light_jobs, 1);
+            assert!(stream.pending_light.contains_key(&neighbour));
+        }
+
+        #[test]
+        fn light_outcome_counters_saturate() {
+            let key = SubChunkKey::new(1, 0, 0, 0);
+
+            let mut noop = lit_stream(1);
+            install_current_light(&mut noop, key, 0, 0, false);
+            noop.stats.accepted_light_jobs = u64::MAX;
+            noop.stats.noop_light_jobs = u64::MAX;
+            let completion = synthetic_light_completion(
+                &mut noop,
+                key,
+                DirectSkyMask::Uniform(false),
+                false,
+                false,
+                [false; 6],
+            );
+            noop.accept_light_completion(completion);
+            assert_eq!(noop.stats().accepted_light_jobs, u64::MAX);
+            assert_eq!(noop.stats().noop_light_jobs, u64::MAX);
+
+            let mut provenance = lit_stream(1);
+            install_current_light(&mut provenance, key, 0, 0, false);
+            provenance.stats.accepted_light_jobs = u64::MAX;
+            provenance.stats.provenance_only_light_jobs = u64::MAX;
+            let completion = synthetic_light_completion(
+                &mut provenance,
+                key,
+                DirectSkyMask::Uniform(true),
+                false,
+                true,
+                [true; 6],
+            );
+            provenance.accept_light_completion(completion);
+            assert_eq!(provenance.stats().accepted_light_jobs, u64::MAX);
+            assert_eq!(provenance.stats().provenance_only_light_jobs, u64::MAX);
+
+            let mut changed = lit_stream(1);
+            install_current_light(&mut changed, key, 0, 0, false);
+            changed.stats.accepted_light_jobs = u64::MAX;
+            changed.stats.value_changed_light_jobs = u64::MAX;
+            changed.stats.light_mesh_invalidations = u64::MAX;
+            let completion = synthetic_light_completion(
+                &mut changed,
+                key,
+                DirectSkyMask::Uniform(false),
+                true,
+                false,
+                [true; 6],
+            );
+            changed.accept_light_completion(completion);
+            assert_eq!(changed.stats().accepted_light_jobs, u64::MAX);
+            assert_eq!(changed.stats().value_changed_light_jobs, u64::MAX);
+            assert_eq!(changed.stats().light_mesh_invalidations, u64::MAX);
+        }
+
         #[test]
         fn mesh_light_halo_samples_center_face_edge_corner_and_absent_fallback() {
             let mut stream = stream();
@@ -4897,7 +5284,7 @@ mod tests {
         }
 
         #[test]
-        fn stale_light_halo_mesh_completion_is_rejected_and_requeued_without_loss() {
+        fn stale_light_value_mesh_is_requeued_but_provenance_identity_is_ignored() {
             let mut stream = stream();
             let center = SubChunkKey::new(0, 0, -4, 0);
             let corner = SubChunkKey::new(0, 1, -3, 1);
@@ -4930,13 +5317,13 @@ mod tests {
             let completion = stream
                 .mesh_rx
                 .recv_timeout(Duration::from_secs(2))
-                .expect("direct-sky identity mesh completion");
+                .expect("provenance-only identity mesh completion");
             stream.direct_sky.get_mut(&corner).unwrap().mask =
                 Arc::new(DirectSkyMask::Uniform(false));
             stream.accept_mesh_completion(completion);
-            assert_eq!(stream.stats().stale_mesh_jobs, 2);
-            assert!(stream.take_mesh_changes().is_empty());
-            assert_eq!(stream.pending_mesh[&center].revision, revision);
+            assert_eq!(stream.stats().stale_mesh_jobs, 1);
+            assert_eq!(stream.take_mesh_changes().len(), 1);
+            assert!(!stream.pending_mesh.contains_key(&center));
         }
 
         #[test]
@@ -5111,6 +5498,12 @@ mod tests {
             assert_eq!(stream.dispatch_light_jobs([8.0, 8.0, 8.0], 1), 1);
             stream.pending_mesh.remove(&target);
             stream.revisions.entries.remove(&target);
+            let previous_light = Arc::clone(stream.light_store.light(target).unwrap());
+            stream.stats.accepted_light_jobs = 0;
+            stream.stats.noop_light_jobs = 0;
+            stream.stats.value_changed_light_jobs = 0;
+            stream.stats.provenance_only_light_jobs = 0;
+            stream.stats.light_mesh_invalidations = 0;
 
             let completion = stream
                 .light_rx
@@ -5126,6 +5519,10 @@ mod tests {
                     .get(LightChannel::Block, 0, 0, 0),
                 Some(14)
             );
+            assert!(!Arc::ptr_eq(
+                stream.light_store.light(target).unwrap(),
+                &previous_light
+            ));
             assert!(stream.pending_mesh.contains_key(&target));
             assert!(stream.revisions.dirty(target).is_some());
             for dependent in target.mesh_neighbourhood_dependents() {
@@ -5134,6 +5531,18 @@ mod tests {
                     "changed light must invalidate halo dependent {dependent:?}"
                 );
             }
+            assert_eq!(
+                target
+                    .mesh_neighbourhood_dependents()
+                    .filter(|dependent| stream.pending_mesh.contains_key(dependent))
+                    .count(),
+                27
+            );
+            assert_eq!(stream.stats().accepted_light_jobs, 1);
+            assert_eq!(stream.stats().noop_light_jobs, 0);
+            assert_eq!(stream.stats().value_changed_light_jobs, 1);
+            assert_eq!(stream.stats().provenance_only_light_jobs, 0);
+            assert_eq!(stream.stats().light_mesh_invalidations, 1);
         }
 
         #[test]
@@ -5344,8 +5753,35 @@ mod tests {
 
             assert!(solved.used_uniform_fast_path);
             assert!(solved.light_levels_changed);
+            assert!(solved.direct_sky_changed);
             assert!(solved.direct_sky.get(0, 15, 0));
             assert!(solved.changed_faces.into_iter().any(|changed| changed));
+        }
+
+        #[test]
+        fn worker_distinguishes_provenance_only_output_from_sampled_light_changes() {
+            let mut stream = lit_stream(0);
+            let key = SubChunkKey::new(0, 0, 19, 0);
+            install_current_light(&mut stream, key, 0, 15, false);
+            let original_light = Arc::clone(stream.light_store.light(key).unwrap());
+            stream.mark_light_dirty_exact(key).unwrap();
+            assert_eq!(stream.dispatch_light_jobs([8.0, 312.0, 8.0], 1), 1);
+            let completion = stream
+                .light_rx
+                .recv_timeout(Duration::from_secs(2))
+                .expect("provenance-only worker completion");
+            let solved = completion.result.as_ref().unwrap();
+            assert!(!solved.light_levels_changed);
+            assert!(solved.direct_sky_changed);
+
+            stream.accept_light_completion(completion);
+            assert!(Arc::ptr_eq(
+                stream.light_store.light(key).unwrap(),
+                &original_light
+            ));
+            assert!(stream.direct_sky[&key].mask.get(0, 15, 0));
+            assert_eq!(stream.stats().provenance_only_light_jobs, 1);
+            assert_eq!(stream.stats().light_mesh_invalidations, 0);
         }
 
         #[test]
@@ -6533,7 +6969,6 @@ mod tests {
     fn mesh_snapshot_bakes_solved_halo_channels_into_cube_sidecars() {
         let key = SubChunkKey::new(0, 3, 4, 5);
         let light = Arc::new(SubChunkLight::uniform(7, 3, 11).unwrap());
-        let direct_sky = Arc::new(DirectSkyMask::Uniform(false));
         let light_halo = MeshLightHalo {
             center: Some(key),
             slots: std::array::from_fn(|_| {
@@ -6542,7 +6977,6 @@ mod tests {
                     block_generation: 10,
                     light_revision: 11,
                     light: Arc::clone(&light),
-                    direct_sky: Arc::clone(&direct_sky),
                 })
             }),
         };
