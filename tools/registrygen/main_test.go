@@ -2519,8 +2519,12 @@ func TestCollisionSeedPreservesPinnedDecimalCoordinates(t *testing.T) {
 
 func TestCollisionSeedRejectsBoxesOutsideOneBlockQueryHalo(t *testing.T) {
 	for name, box := range map[string][]float64{
-		"below local minimum": {-1.00000001, 0, 0, 1, 1, 1},
-		"above local maximum": {0, 0, 0, 2.00000001, 1, 1},
+		"x below local minimum": {-1.00000001, 0, 0, 1, 1, 1},
+		"y below local minimum": {0, -1.00000001, 0, 1, 1, 1},
+		"z below local minimum": {0, 0, -1.00000001, 1, 1, 1},
+		"x above local maximum": {0, 0, 0, 2.00000001, 1, 1},
+		"y above local maximum": {0, 0, 0, 1, 2.00000001, 1},
+		"z above local maximum": {0, 0, 0, 1, 1, 2.00000001},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := collisionSeed(1, map[string][][]float64{"1": {box}})

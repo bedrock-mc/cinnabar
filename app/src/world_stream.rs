@@ -9383,6 +9383,65 @@ mod tests {
         assert!(!stream.store.is_chunk_loaded(key.chunk()));
     }
 
+    #[test]
+    fn request_mode_collision_failure_latch_spans_column_and_resets_on_eviction() {
+        let (mut stream, keys, _) = stream_with_unsent_sub_chunks(2);
+        let chunk = keys[0].chunk();
+
+        apply_sub_chunk_result(
+            &mut stream,
+            keys[0],
+            super::PreparedSubChunkResult::Unavailable(SubChunkUnavailable::InvalidDimension),
+        );
+        assert!(stream.request_collision_failures.contains(&chunk));
+        apply_sub_chunk_result(&mut stream, keys[1], super::PreparedSubChunkResult::AllAir);
+        assert!(stream.loaded_columns.contains(&chunk));
+        assert!(!stream.store.is_chunk_loaded(chunk));
+
+        stream.evict_column(chunk);
+        stream
+            .submit(
+                2,
+                WorldEvent::LevelChunk(LevelChunkEvent {
+                    dimension: chunk.dimension,
+                    x: chunk.x,
+                    z: chunk.z,
+                    mode: LevelChunkMode::LimitedRequests { highest: 2 },
+                    payload: biome_payload(0, 1),
+                }),
+            )
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+        assert_eq!(stream.take_requests().len(), 1);
+        apply_sub_chunk_result(
+            &mut stream,
+            keys[0],
+            super::PreparedSubChunkResult::Unavailable(SubChunkUnavailable::InvalidDimension),
+        );
+        assert!(stream.request_collision_failures.contains(&chunk));
+        stream.evict_column(chunk);
+        assert!(!stream.request_collision_failures.contains(&chunk));
+
+        stream
+            .submit(
+                3,
+                WorldEvent::LevelChunk(LevelChunkEvent {
+                    dimension: chunk.dimension,
+                    x: chunk.x,
+                    z: chunk.z,
+                    mode: LevelChunkMode::LimitedRequests { highest: 2 },
+                    payload: biome_payload(0, 1),
+                }),
+            )
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+        assert_eq!(stream.take_requests().len(), 1);
+        for key in keys {
+            apply_sub_chunk_result(&mut stream, key, super::PreparedSubChunkResult::AllAir);
+        }
+        assert!(stream.store.is_chunk_loaded(chunk));
+    }
+
     fn stream_with_unsent_sub_chunks(
         count: u16,
     ) -> (WorldStream, Vec<SubChunkKey>, super::PendingSubChunkRequest) {

@@ -238,15 +238,21 @@ fn non_finite_state_and_input_are_rejected_transactionally_before_world_access()
 
 #[test]
 fn oversized_sweep_is_rejected_transactionally_before_world_access() {
-    let mut state = PlayerState::new(Vec3::new(0.0, 1.0, 0.0));
-    state.velocity.x = 1_000_000.0;
-    let before = state.clone();
+    for velocity in [
+        Vec3::new(1_000_000.0, 0.0, 0.0),
+        Vec3::new(0.0, 1_000_000.0, 0.0),
+        Vec3::new(0.0, 0.0, 1_000_000.0),
+    ] {
+        let mut state = PlayerState::new(Vec3::new(0.0, 1.0, 0.0));
+        state.velocity = velocity;
+        let before = state.clone();
 
-    assert_eq!(
-        Simulator::default().tick(&mut state, MovementInput::default(), &PanicWorld),
-        Err(SimulationError::World(WorldQueryError::QueryExtentExceeded))
-    );
-    assert_eq!(state, before);
+        assert_eq!(
+            Simulator::default().tick(&mut state, MovementInput::default(), &PanicWorld),
+            Err(SimulationError::World(WorldQueryError::QueryExtentExceeded))
+        );
+        assert_eq!(state, before);
+    }
 }
 
 #[test]

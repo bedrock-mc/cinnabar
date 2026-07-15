@@ -208,7 +208,11 @@ fn collision_registry_rejects_shapes_outside_the_one_block_query_halo() {
     let mut registry = CollisionRegistry::new();
     for (runtime_id, shape) in [
         (13, Aabb::new(Vec3::new(-1.000_000_01, 0.0, 0.0), Vec3::ONE)),
-        (14, Aabb::new(Vec3::ZERO, Vec3::new(2.000_000_01, 1.0, 1.0))),
+        (14, Aabb::new(Vec3::new(0.0, -1.000_000_01, 0.0), Vec3::ONE)),
+        (15, Aabb::new(Vec3::new(0.0, 0.0, -1.000_000_01), Vec3::ONE)),
+        (16, Aabb::new(Vec3::ZERO, Vec3::new(2.000_000_01, 1.0, 1.0))),
+        (17, Aabb::new(Vec3::ZERO, Vec3::new(1.0, 2.000_000_01, 1.0))),
+        (18, Aabb::new(Vec3::ZERO, Vec3::new(1.0, 1.0, 2.000_000_01))),
     ] {
         assert_eq!(
             registry.register(runtime_id, [shape]),
@@ -221,7 +225,7 @@ fn collision_registry_rejects_shapes_outside_the_one_block_query_halo() {
 
     registry
         .register(
-            15,
+            19,
             [Aabb::new(
                 Vec3::new(-1.0, -1.0, -1.0),
                 Vec3::new(2.0, 2.0, 2.0),
@@ -236,11 +240,14 @@ fn palette_adapter_rejects_oversized_queries_before_chunk_scanning() {
     let registry = CollisionRegistry::new();
     let world = PaletteWorld::new(&store, &registry, 0);
 
-    assert_eq!(
-        world.collision_boxes(Aabb::new(
-            Vec3::ZERO,
-            Vec3::new(sim::MAX_COLLISION_QUERY_EXTENT + 1.0, 1.0, 1.0),
-        )),
-        Err(WorldQueryError::QueryExtentExceeded)
-    );
+    for max in [
+        Vec3::new(sim::MAX_COLLISION_QUERY_EXTENT + 1.0, 1.0, 1.0),
+        Vec3::new(1.0, sim::MAX_COLLISION_QUERY_EXTENT + 1.0, 1.0),
+        Vec3::new(1.0, 1.0, sim::MAX_COLLISION_QUERY_EXTENT + 1.0),
+    ] {
+        assert_eq!(
+            world.collision_boxes(Aabb::new(Vec3::ZERO, max)),
+            Err(WorldQueryError::QueryExtentExceeded)
+        );
+    }
 }
