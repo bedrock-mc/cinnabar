@@ -4,8 +4,10 @@ use std::{
 };
 
 use crate::{
-    BiomeStorage, BlockUpdate, Chunk, ChunkKey, DecodeError, DecodedBiomeColumn, MutationError,
-    SubChunk, SubChunkKey,
+    BiomeStorage, BlockEntityError, BlockEntityKey, BlockEntityNbt, BlockUpdate, Chunk, ChunkKey,
+    DecodeError, DecodedBiomeColumn, DecodedBlockEntities, DecodedSubChunk,
+    MAX_BLOCK_ENTITIES_PER_CHUNK, MAX_BLOCK_ENTITY_BYTES_PER_CHUNK, MutationError, SubChunk,
+    SubChunkKey,
 };
 
 /// Maximum sub-chunks accepted in one full inline LevelChunk payload.
@@ -44,6 +46,7 @@ pub struct PreparedSubChunkMutation {
 pub struct DecodedLevelChunk {
     sub_chunks: BTreeMap<i32, Arc<SubChunk>>,
     biomes: Option<DecodedBiomeColumn>,
+    block_entities: Option<DecodedBlockEntities>,
     block_bytes_consumed: usize,
     bytes_consumed: usize,
 }
@@ -94,6 +97,7 @@ impl DecodedLevelChunk {
         Ok(Self {
             sub_chunks,
             biomes: None,
+            block_entities: None,
             block_bytes_consumed: consumed,
             bytes_consumed: consumed,
         })
@@ -119,6 +123,35 @@ impl DecodedLevelChunk {
             .checked_add(biomes.bytes_consumed())
             .expect("decoded prefixes cannot exceed the input slice");
         decoded.biomes = Some(biomes);
+        Ok(decoded)
+    }
+
+    /// Decodes the complete inline LevelChunk transaction: packed blocks,
+    /// dense biomes, the border-block prefix, and every sparse block entity.
+    pub fn decode_with_biomes_and_block_entities(
+        chunk: ChunkKey,
+        first_sub_chunk_y: i32,
+        sub_chunk_count: usize,
+        biome_base_sub_chunk_y: i32,
+        biome_storage_count: usize,
+        payload: &[u8],
+    ) -> Result<Self, DecodeError> {
+        let mut decoded = Self::decode_with_biomes(
+            first_sub_chunk_y,
+            sub_chunk_count,
+            biome_base_sub_chunk_y,
+            biome_storage_count,
+            payload,
+        )?;
+        let block_entities = DecodedBlockEntities::decode_level_chunk_tail(
+            chunk,
+            &payload[decoded.bytes_consumed..],
+        )?;
+        decoded.bytes_consumed = decoded
+            .bytes_consumed
+            .checked_add(block_entities.bytes_consumed())
+            .expect("decoded prefixes cannot exceed the input slice");
+        decoded.block_entities = Some(block_entities);
         Ok(decoded)
     }
 
@@ -182,6 +215,12 @@ impl ChunkStore {
         self.biome_storage(key)?.biome_id(x, y, z)
     }
 
+    /// Returns one immutable sparse block-entity snapshot.
+    #[must_use]
+    pub fn block_entity(&self, key: BlockEntityKey) -> Option<Arc<BlockEntityNbt>> {
+        self.chunk(key.chunk())?.block_entity(key)
+    }
+
     /// Prefix-decodes and applies one successful SubChunk response payload.
     ///
     /// Legitimate block-entity NBT may follow the serialized sub-chunk, so
@@ -230,13 +269,106 @@ impl ChunkStore {
         Ok(Some(key))
     }
 
+    /// Atomically commits one worker-decoded SubChunk block prefix and replaces
+    /// only the sparse block entities belonging to that exact 16³ scope.
+    pub fn commit_decoded_sub_chunk(
+        &mut self,
+        key: SubChunkKey,
+        decoded: DecodedSubChunk,
+    ) -> Result<Option<SubChunkKey>, DecodeError> {
+        let (sub_chunk, block_entities) = decoded.into_parts();
+        let replacement_bytes =
+            self.validate_sub_chunk_block_entity_replacement(key, &block_entities)?;
+        let changed = self.commit_sub_chunk(key, sub_chunk)?;
+        self.replace_sub_chunk_block_entities(key, block_entities, replacement_bytes);
+        Ok(changed)
+    }
+
+    /// Atomically upserts one packet-56 block entity without touching packed
+    /// block or biome state. Equal snapshots retain the existing `Arc`.
+    pub fn commit_block_entity_update(
+        &mut self,
+        key: BlockEntityKey,
+        nbt: BlockEntityNbt,
+    ) -> Result<bool, BlockEntityError> {
+        if let Some(actual) = nbt.embedded_position()
+            && actual != key.position()
+        {
+            return Err(BlockEntityError::PositionMismatch {
+                expected: key.position(),
+                actual,
+            });
+        }
+        if self
+            .block_entity(key)
+            .is_some_and(|current| current.as_ref() == &nbt)
+        {
+            return Ok(false);
+        }
+        let previous = self.chunks.get(&key.chunk());
+        let replacing = previous.and_then(|chunk| chunk.block_entities.get(&key));
+        let previous_count = previous.map_or(0, |chunk| chunk.block_entities.len());
+        if replacing.is_none() && previous_count == MAX_BLOCK_ENTITIES_PER_CHUNK {
+            return Err(BlockEntityError::TooManyEntities {
+                max: MAX_BLOCK_ENTITIES_PER_CHUNK,
+            });
+        }
+        let previous_bytes = replacing.map_or(0, |previous| previous.bytes().len());
+        let retained_bytes = previous
+            .map_or(0, |chunk| chunk.block_entity_bytes)
+            .checked_sub(previous_bytes)
+            .expect("stored block-entity byte total matches its sparse map");
+        let replacement_bytes = retained_bytes.saturating_add(nbt.bytes().len());
+        ensure_chunk_block_entity_bytes(replacement_bytes)?;
+        let chunk = self.chunks.entry(key.chunk()).or_default();
+        chunk.block_entities.insert(key, Arc::new(nbt));
+        chunk.block_entity_bytes = replacement_bytes;
+        Ok(true)
+    }
+
+    /// Atomically replaces the complete sparse block-entity map for a chunk.
+    /// Equal records retain their previous `Arc` snapshots.
+    pub fn commit_chunk_block_entities(
+        &mut self,
+        key: ChunkKey,
+        replacement: DecodedBlockEntities,
+    ) {
+        let mut replacement = replacement.into_entities();
+        if let Some(previous) = self.chunks.get(&key) {
+            for (&entity_key, entity) in &mut replacement {
+                if let Some(previous) = previous
+                    .block_entities
+                    .get(&entity_key)
+                    .filter(|previous| previous.as_ref() == entity.as_ref())
+                {
+                    *entity = Arc::clone(previous);
+                }
+            }
+        }
+        if replacement.is_empty() && !self.chunks.contains_key(&key) {
+            return;
+        }
+        let chunk = self.chunks.entry(key).or_default();
+        chunk.block_entity_bytes = replacement
+            .values()
+            .map(|entity| entity.bytes().len())
+            .sum();
+        chunk.block_entities = replacement;
+        if chunk.sub_chunks.is_empty() && chunk.biomes.is_none() && chunk.block_entities.is_empty()
+        {
+            self.chunks.remove(&key);
+        }
+    }
+
     /// Applies a successful-all-air SubChunk response without allocating a
     /// 4,096-block representation.
     ///
     /// As with [`Self::apply_sub_chunk`], the returned changed key must be
     /// expanded with [`SubChunkKey::mesh_dependents`] before scheduling meshes.
     pub fn apply_all_air(&mut self, key: SubChunkKey) -> Option<SubChunkKey> {
-        self.remove_sub_chunk(key)
+        let changed = self.remove_sub_chunk(key);
+        self.clear_sub_chunk_block_entities(key);
+        changed
     }
 
     /// Applies one `UpdateBlock`-style change without expanding block data.
@@ -351,10 +483,109 @@ impl ChunkStore {
         let chunk_key = key.chunk();
         let chunk = self.chunks.get_mut(&chunk_key)?;
         let removed = chunk.sub_chunks.remove(&key.y).is_some();
-        if chunk.sub_chunks.is_empty() && chunk.biomes.is_none() {
+        if chunk.sub_chunks.is_empty() && chunk.biomes.is_none() && chunk.block_entities.is_empty()
+        {
             self.chunks.remove(&chunk_key);
         }
         removed.then_some(key)
+    }
+
+    fn replace_sub_chunk_block_entities(
+        &mut self,
+        key: SubChunkKey,
+        replacement: DecodedBlockEntities,
+        replacement_bytes: usize,
+    ) {
+        let mut replacement = replacement.into_entities();
+        if let Some(previous) = self.chunks.get(&key.chunk()) {
+            for (&entity_key, entity) in &mut replacement {
+                if let Some(previous) = previous
+                    .block_entities
+                    .get(&entity_key)
+                    .filter(|previous| previous.as_ref() == entity.as_ref())
+                {
+                    *entity = Arc::clone(previous);
+                }
+            }
+        }
+
+        let has_previous = self.chunks.get(&key.chunk()).is_some_and(|chunk| {
+            chunk
+                .block_entities
+                .keys()
+                .any(|entity| entity.sub_chunk() == key)
+        });
+        if replacement.is_empty() && !has_previous {
+            return;
+        }
+        let chunk = self.chunks.entry(key.chunk()).or_default();
+        chunk
+            .block_entities
+            .retain(|entity, _| entity.sub_chunk() != key);
+        chunk.block_entities.extend(replacement);
+        chunk.block_entity_bytes = replacement_bytes;
+        if chunk.sub_chunks.is_empty() && chunk.biomes.is_none() && chunk.block_entities.is_empty()
+        {
+            self.chunks.remove(&key.chunk());
+        }
+    }
+
+    fn validate_sub_chunk_block_entity_replacement(
+        &self,
+        key: SubChunkKey,
+        replacement: &DecodedBlockEntities,
+    ) -> Result<usize, BlockEntityError> {
+        let previous = self.chunks.get(&key.chunk());
+        let (previous_count, previous_bytes) = previous.map_or((0, 0), |chunk| {
+            (chunk.block_entities.len(), chunk.block_entity_bytes)
+        });
+        let (removed_count, removed_bytes) = previous.map_or((0, 0), |chunk| {
+            chunk
+                .block_entities
+                .iter()
+                .filter(|(entity_key, _)| entity_key.sub_chunk() == key)
+                .fold((0_usize, 0_usize), |(count, bytes), (_, entity)| {
+                    (count + 1, bytes + entity.bytes().len())
+                })
+        });
+        let replacement_count = replacement.len();
+        let proposed_count = previous_count - removed_count + replacement_count;
+        if proposed_count > MAX_BLOCK_ENTITIES_PER_CHUNK {
+            return Err(BlockEntityError::TooManyEntities {
+                max: MAX_BLOCK_ENTITIES_PER_CHUNK,
+            });
+        }
+        let replacement_bytes = replacement.entities().fold(0_usize, |bytes, (_, nbt)| {
+            bytes.saturating_add(nbt.bytes().len())
+        });
+        let proposed_bytes = previous_bytes
+            .checked_sub(removed_bytes)
+            .expect("stored block-entity byte total matches its sparse map")
+            .saturating_add(replacement_bytes);
+        ensure_chunk_block_entity_bytes(proposed_bytes)?;
+        Ok(proposed_bytes)
+    }
+
+    fn clear_sub_chunk_block_entities(&mut self, key: SubChunkKey) {
+        let Some(chunk) = self.chunks.get_mut(&key.chunk()) else {
+            return;
+        };
+        let mut removed_bytes = 0_usize;
+        chunk.block_entities.retain(|entity, nbt| {
+            let retain = entity.sub_chunk() != key;
+            if !retain {
+                removed_bytes = removed_bytes.saturating_add(nbt.bytes().len());
+            }
+            retain
+        });
+        chunk.block_entity_bytes = chunk
+            .block_entity_bytes
+            .checked_sub(removed_bytes)
+            .expect("stored block-entity byte total matches its sparse map");
+        if chunk.sub_chunks.is_empty() && chunk.biomes.is_none() && chunk.block_entities.is_empty()
+        {
+            self.chunks.remove(&key.chunk());
+        }
     }
 
     /// Prefix-decodes all block sub-chunks in an inline LevelChunk and swaps
@@ -420,6 +651,7 @@ impl ChunkStore {
         let DecodedLevelChunk {
             mut sub_chunks,
             mut biomes,
+            block_entities,
             block_bytes_consumed,
             bytes_consumed,
         } = decoded;
@@ -435,6 +667,23 @@ impl ChunkStore {
             biomes = old.and_then(|chunk| chunk.biomes.clone());
         } else if let Some(replacement) = biomes.as_mut() {
             reuse_equal_biome_arcs(replacement, old.and_then(|chunk| chunk.biomes.as_ref()));
+        }
+        let mut block_entities = match block_entities {
+            Some(replacement) => replacement.into_entities(),
+            None => old
+                .map(|chunk| chunk.block_entities.clone())
+                .unwrap_or_default(),
+        };
+        if let Some(previous) = old {
+            for (&entity_key, replacement) in &mut block_entities {
+                if let Some(previous) = previous
+                    .block_entities
+                    .get(&entity_key)
+                    .filter(|previous| previous.as_ref() == replacement.as_ref())
+                {
+                    *replacement = Arc::clone(previous);
+                }
+            }
         }
 
         let ys = old
@@ -463,10 +712,21 @@ impl ChunkStore {
         let changed = changed.into_iter().collect::<Vec<_>>();
         let dirty = expand_mesh_dependents(changed.clone());
 
-        if sub_chunks.is_empty() && biomes.is_none() {
+        if sub_chunks.is_empty() && biomes.is_none() && block_entities.is_empty() {
             self.chunks.remove(&key);
         } else {
-            self.chunks.insert(key, Chunk { sub_chunks, biomes });
+            self.chunks.insert(
+                key,
+                Chunk {
+                    sub_chunks,
+                    biomes,
+                    block_entity_bytes: block_entities
+                        .values()
+                        .map(|entity| entity.bytes().len())
+                        .sum(),
+                    block_entities,
+                },
+            );
         }
         ApplyLevelChunk {
             changed,
@@ -474,6 +734,17 @@ impl ChunkStore {
             bytes_consumed,
             block_bytes_consumed,
         }
+    }
+}
+
+fn ensure_chunk_block_entity_bytes(bytes: usize) -> Result<(), BlockEntityError> {
+    if bytes > MAX_BLOCK_ENTITY_BYTES_PER_CHUNK {
+        Err(BlockEntityError::ChunkEntityBytesTooLarge {
+            len: bytes,
+            max: MAX_BLOCK_ENTITY_BYTES_PER_CHUNK,
+        })
+    } else {
+        Ok(())
     }
 }
 

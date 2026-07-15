@@ -11,10 +11,11 @@ use assets::{LiveBiomeDefinition, NetworkIdMode, ResolvedBiomeTints, RuntimeAsse
 use bevy::prelude::Resource;
 use crossbeam_channel::{Receiver, Sender, bounded};
 use protocol::{
-    BiomeDefinitionEvent, BlockUpdateEvent, ChangeDimensionEvent, DaylightCycleUpdateEvent,
-    LevelChunkEvent, LevelChunkMode, MovePlayerEvent, Packet, PlayerMovementCorrectionEvent,
-    SetTimeEvent, SubChunkBatchEvent, SubChunkResult, WeatherUpdateEvent, WorldBootstrap,
-    WorldEvent, request_sub_chunk_column, vanilla_dimension_range,
+    BiomeDefinitionEvent, BlockEntityUpdateEvent, BlockUpdateEvent, ChangeDimensionEvent,
+    DaylightCycleUpdateEvent, LevelChunkEvent, LevelChunkMode, MovePlayerEvent, Packet,
+    PlayerMovementCorrectionEvent, SetTimeEvent, SubChunkBatchEvent, SubChunkResult,
+    WeatherUpdateEvent, WorldBootstrap, WorldEvent, request_sub_chunk_column,
+    vanilla_dimension_range,
 };
 use render::{
     BlockClassifier, ChunkBiomeTintIdentity, ChunkMesh, FaceConnectivity, MeshLightSample,
@@ -23,12 +24,14 @@ use render::{
 };
 use thiserror::Error;
 use world::{
-    BiomeStorage, BlockPos, BlockUpdate, BoundaryLightSample, ChunkKey, ChunkStore, DecodeError,
-    DecodedBiomeColumn, DecodedLevelChunk, DimensionLightProfile, LightBlockAccess,
-    LightBlockSample, LightBounds, LightChannel, LightProperties as SolverLightProperties,
-    LightReadAccess, LightSolveError, LightSolveOutput, LightStore, LightStoreSnapshot,
-    LightSubChunkKind, MeshDependencyMask, MeshNeighbourhood, MutationError,
-    PreparedSubChunkMutation, SolverLimits, SubChunk, SubChunkKey, SubChunkLight, solve_light,
+    BiomeStorage, BlockEntityError, BlockEntityKey, BlockEntityNbt, BlockPos, BlockUpdate,
+    BoundaryLightSample, ChunkKey, ChunkStore, DecodeError, DecodedBiomeColumn,
+    DecodedBlockEntities, DecodedLevelChunk, DecodedSubChunk, DimensionLightProfile,
+    LightBlockAccess, LightBlockSample, LightBounds, LightChannel,
+    LightProperties as SolverLightProperties, LightReadAccess, LightSolveError, LightSolveOutput,
+    LightStore, LightStoreSnapshot, LightSubChunkKind, MeshDependencyMask, MeshNeighbourhood,
+    MutationError, PreparedSubChunkMutation, SolverLimits, SubChunk, SubChunkKey, SubChunkLight,
+    solve_light,
 };
 
 use crate::server_position::{ResolvedServerPosition, resolve_server_position};
@@ -376,6 +379,8 @@ impl WorldMeshChange {
 pub struct WorldStreamNormalizationStats {
     pub ordered_completion_rejections: u64,
     pub inactive_block_updates: u64,
+    pub inactive_block_entity_updates: u64,
+    pub invalid_block_entity_positions: u64,
     pub malformed_block_updates: u64,
     pub inactive_inline_chunks: u64,
     pub inactive_sub_chunks: u64,
@@ -400,6 +405,8 @@ impl WorldStreamNormalizationStats {
         [
             self.ordered_completion_rejections,
             self.inactive_block_updates,
+            self.inactive_block_entity_updates,
+            self.invalid_block_entity_positions,
             self.malformed_block_updates,
             self.inactive_inline_chunks,
             self.inactive_sub_chunks,
@@ -426,6 +433,8 @@ impl WorldStreamNormalizationStats {
 enum NormalizationErrorReason {
     OrderedCompletionRejection,
     InactiveBlockUpdate,
+    InactiveBlockEntityUpdate,
+    InvalidBlockEntityPosition,
     MalformedBlockUpdate,
     InactiveInlineChunk,
     UnexpectedSubChunk,
@@ -450,6 +459,12 @@ impl WorldStreamNormalizationStats {
                 &mut self.ordered_completion_rejections
             }
             NormalizationErrorReason::InactiveBlockUpdate => &mut self.inactive_block_updates,
+            NormalizationErrorReason::InactiveBlockEntityUpdate => {
+                &mut self.inactive_block_entity_updates
+            }
+            NormalizationErrorReason::InvalidBlockEntityPosition => {
+                &mut self.invalid_block_entity_positions
+            }
             NormalizationErrorReason::MalformedBlockUpdate => &mut self.malformed_block_updates,
             NormalizationErrorReason::InactiveInlineChunk => &mut self.inactive_inline_chunks,
             NormalizationErrorReason::UnexpectedSubChunk => &mut self.unexpected_sub_chunks,
@@ -585,7 +600,7 @@ enum PreparedWorldEvent {
     },
     RequestLevelChunk {
         event: LevelChunkEvent,
-        decoded: Result<DecodedBiomeColumn, DecodeError>,
+        decoded: Result<(DecodedBiomeColumn, DecodedBlockEntities), DecodeError>,
         duration: Duration,
     },
     SubChunks {
@@ -595,6 +610,11 @@ enum PreparedWorldEvent {
     },
     BlockUpdates {
         result: Result<Vec<PreparedSubChunkMutation>, MutationError>,
+        duration: Duration,
+    },
+    BlockEntityUpdate {
+        key: BlockEntityKey,
+        decoded: Result<BlockEntityNbt, BlockEntityError>,
         duration: Duration,
     },
     Immediate(WorldEvent),
@@ -609,7 +629,7 @@ struct PreparedSubChunk {
 
 #[derive(Debug)]
 enum PreparedSubChunkResult {
-    Decoded(Result<SubChunk, DecodeError>),
+    Decoded(Result<DecodedSubChunk, DecodeError>),
     AllAir,
     Unavailable(protocol::SubChunkUnavailable),
 }
@@ -643,6 +663,10 @@ enum DecodeJob {
         sequence: u64,
         batches: Vec<BlockMutationBatch>,
         air_runtime_id: u32,
+    },
+    BlockEntityUpdate {
+        sequence: u64,
+        event: BlockEntityUpdateEvent,
     },
 }
 
@@ -1463,7 +1487,10 @@ impl WorldStream {
 
         let heavy = matches!(
             event,
-            WorldEvent::LevelChunk(_) | WorldEvent::SubChunks(_) | WorldEvent::BlockUpdates(_)
+            WorldEvent::LevelChunk(_)
+                | WorldEvent::SubChunks(_)
+                | WorldEvent::BlockUpdates(_)
+                | WorldEvent::BlockEntityUpdate(_)
         );
         let creates_request = match &event {
             WorldEvent::LevelChunk(LevelChunkEvent {
@@ -1559,6 +1586,10 @@ impl WorldStream {
                 self.record_sub_chunk_reply_admissions(&batch);
                 self.pending_decode
                     .push_back(DecodeJob::SubChunks { sequence, batch });
+            }
+            WorldEvent::BlockEntityUpdate(event) => {
+                self.pending_decode
+                    .push_back(DecodeJob::BlockEntityUpdate { sequence, event });
             }
             immediate => {
                 if let Err(error) = self
@@ -2208,8 +2239,10 @@ impl WorldStream {
                         count,
                         biome_storage_count,
                     } => {
+                        let chunk = ChunkKey::new(event.dimension, event.x, event.z);
                         let payload = std::mem::take(&mut event.payload);
-                        let decoded = DecodedLevelChunk::decode_with_biomes(
+                        let decoded = DecodedLevelChunk::decode_with_biomes_and_block_entities(
+                            chunk,
                             base_sub_chunk_y,
                             count,
                             base_sub_chunk_y,
@@ -2231,12 +2264,20 @@ impl WorldStream {
                         biome_base_sub_chunk_y,
                         biome_storage_count,
                     } => {
+                        let chunk = ChunkKey::new(event.dimension, event.x, event.z);
                         let payload = std::mem::take(&mut event.payload);
                         let decoded = DecodedBiomeColumn::decode(
                             biome_base_sub_chunk_y,
                             biome_storage_count,
                             &payload,
-                        );
+                        )
+                        .and_then(|biomes| {
+                            let block_entities = DecodedBlockEntities::decode_level_chunk_tail(
+                                chunk,
+                                &payload[biomes.bytes_consumed()..],
+                            )?;
+                            Ok((biomes, block_entities))
+                        });
                         DecodeCompletion {
                             sequence,
                             event: PreparedWorldEvent::RequestLevelChunk {
@@ -2278,6 +2319,23 @@ impl WorldStream {
                             sequence,
                             event: PreparedWorldEvent::BlockUpdates {
                                 result,
+                                duration: started.elapsed(),
+                            },
+                        }
+                    }
+                    DecodeJob::BlockEntityUpdate { sequence, event } => {
+                        let key = BlockEntityKey::new(
+                            event.dimension,
+                            event.position[0],
+                            event.position[1],
+                            event.position[2],
+                        );
+                        let decoded = DecodedBlockEntities::decode_live(key, &event.nbt);
+                        DecodeCompletion {
+                            sequence,
+                            event: PreparedWorldEvent::BlockEntityUpdate {
+                                key,
+                                decoded,
                                 duration: started.elapsed(),
                             },
                         }
@@ -2406,8 +2464,9 @@ impl WorldStream {
                     self.disarm_sub_chunk_deadline(key);
                     let (completed, committed) = match entry.result {
                         PreparedSubChunkResult::Decoded(Ok(decoded)) => {
-                            let decoded_air = decoded.has_no_storages();
-                            let committed = match self.store.commit_sub_chunk(key, decoded) {
+                            let decoded_air = decoded.sub_chunk().has_no_storages();
+                            let committed = match self.store.commit_decoded_sub_chunk(key, decoded)
+                            {
                                 Ok(Some(changed)) => {
                                     if decoded_air {
                                         self.record_known_air(changed);
@@ -2497,6 +2556,35 @@ impl WorldStream {
                     }
                 }
             }
+            PreparedWorldEvent::BlockEntityUpdate {
+                key,
+                decoded,
+                duration,
+            } => {
+                self.stats.max_decode_duration = self.stats.max_decode_duration.max(duration);
+                if !block_entity_y_is_valid(key.dimension, key.y) {
+                    self.record_normalization_error(
+                        NormalizationErrorReason::InvalidBlockEntityPosition,
+                    );
+                    return;
+                }
+                if !self.column_is_active(key.chunk()) {
+                    self.record_normalization_error(
+                        NormalizationErrorReason::InactiveBlockEntityUpdate,
+                    );
+                    return;
+                }
+                match decoded {
+                    Ok(nbt) => {
+                        if self.store.commit_block_entity_update(key, nbt).is_err() {
+                            self.stats.decode_errors = self.stats.decode_errors.saturating_add(1);
+                        }
+                    }
+                    Err(_) => {
+                        self.stats.decode_errors = self.stats.decode_errors.saturating_add(1);
+                    }
+                }
+            }
             PreparedWorldEvent::Immediate(event) => self.apply_immediate(event, sequence),
             PreparedWorldEvent::NormalizationFailure => {
                 self.record_normalization_error(NormalizationErrorReason::EmptySubChunkBatch);
@@ -2540,6 +2628,9 @@ impl WorldStream {
             }
             WorldEvent::BlockUpdates(_) => {
                 unreachable!("block-update batches are prepared on workers")
+            }
+            WorldEvent::BlockEntityUpdate(_) => {
+                unreachable!("block-entity updates are prepared on workers")
             }
             WorldEvent::ChunkRadiusUpdated(radius) => {
                 if radius < 0 {
@@ -2646,7 +2737,7 @@ impl WorldStream {
     fn apply_request_level_chunk(
         &mut self,
         event: LevelChunkEvent,
-        decoded: DecodedBiomeColumn,
+        decoded: (DecodedBiomeColumn, DecodedBlockEntities),
         sequence: Option<u64>,
     ) {
         let key = ChunkKey::new(event.dimension, event.x, event.z);
@@ -2670,7 +2761,9 @@ impl WorldStream {
             }
         };
         self.evict_column(key);
-        let _ = self.store.commit_biome_column(key, decoded);
+        let (biomes, block_entities) = decoded;
+        let _ = self.store.commit_biome_column(key, biomes);
+        self.store.commit_chunk_block_entities(key, block_entities);
         self.enqueue_request(key, range.base_sub_chunk_y, count, sequence);
         if has_authoritative_upper_air {
             let first_air_y = range
@@ -4097,22 +4190,43 @@ impl WorldStream {
 }
 
 fn prepare_sub_chunks(batch: SubChunkBatchEvent) -> Vec<PreparedSubChunk> {
+    let dimension = batch.dimension;
     batch
         .entries
         .into_iter()
-        .map(|entry| PreparedSubChunk {
-            position: entry.position,
-            result: match entry.result {
-                SubChunkResult::Success { payload } => PreparedSubChunkResult::Decoded(
-                    SubChunk::decode_prefix(&payload).map(|(sub_chunk, _)| sub_chunk),
-                ),
-                SubChunkResult::AllAir => PreparedSubChunkResult::AllAir,
-                SubChunkResult::Unavailable(unavailable) => {
-                    PreparedSubChunkResult::Unavailable(unavailable)
-                }
-            },
+        .map(|entry| {
+            let key = SubChunkKey::new(
+                dimension,
+                entry.position[0],
+                entry.position[1],
+                entry.position[2],
+            );
+            PreparedSubChunk {
+                position: entry.position,
+                result: match entry.result {
+                    SubChunkResult::Success { payload } => {
+                        PreparedSubChunkResult::Decoded(DecodedSubChunk::decode(key, &payload))
+                    }
+                    SubChunkResult::AllAir => PreparedSubChunkResult::AllAir,
+                    SubChunkResult::Unavailable(unavailable) => {
+                        PreparedSubChunkResult::Unavailable(unavailable)
+                    }
+                },
+            }
         })
         .collect()
+}
+
+fn block_entity_y_is_valid(dimension: i32, y: i32) -> bool {
+    let Some(range) = vanilla_dimension_range(dimension) else {
+        return false;
+    };
+    let sub_chunk_y = y.div_euclid(16);
+    sub_chunk_y >= range.base_sub_chunk_y
+        && sub_chunk_y
+            < range.base_sub_chunk_y
+                + i32::try_from(range.sub_chunk_count)
+                    .expect("vanilla dimension subchunk counts fit i32")
 }
 
 fn distance_squared(key: SubChunkKey, camera: [f32; 3]) -> f32 {
@@ -4271,16 +4385,17 @@ mod tests {
         TextureRef, VisualKind, encode_blob,
     };
     use protocol::{
-        BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockUpdateEvent, ChangeDimensionEvent,
-        DaylightCycleUpdateEvent, LevelChunkEvent, LevelChunkMode, MovePlayerEvent,
-        PlayerMovementCorrectionEvent, PublisherUpdateEvent, SetTimeEvent, SubChunkBatchEvent,
-        SubChunkEntryEvent, SubChunkResult, SubChunkUnavailable, WeatherChannel,
-        WeatherUpdateEvent, WorldBootstrap, WorldEvent,
+        BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockEntityUpdateEvent, BlockUpdateEvent,
+        ChangeDimensionEvent, DaylightCycleUpdateEvent, LevelChunkEvent, LevelChunkMode,
+        MovePlayerEvent, PlayerMovementCorrectionEvent, PublisherUpdateEvent, SetTimeEvent,
+        SubChunkBatchEvent, SubChunkEntryEvent, SubChunkResult, SubChunkUnavailable,
+        WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldEvent,
     };
     use render::{BlockClassifier, Neighbourhood, PackedBiomeRecord, mesh_sub_chunk};
     use world::{
-        BlockUpdate, ChunkKey, ChunkStore, DecodedBiomeColumn, DecodedLevelChunk,
-        MeshDependencyMask, SubChunk, SubChunkKey, SubChunkLight,
+        BlockEntityKey, BlockUpdate, ChunkKey, ChunkStore, DecodedBiomeColumn,
+        DecodedBlockEntities, DecodedLevelChunk, MeshDependencyMask, SubChunk, SubChunkKey,
+        SubChunkLight,
     };
 
     use super::{
@@ -6241,6 +6356,202 @@ mod tests {
         })
     }
 
+    fn block_entity_nbt(id: &str, position: [i32; 3]) -> Vec<u8> {
+        let mut bytes = vec![10, 0, 8, 2, b'i', b'd'];
+        bytes.push(u8::try_from(id.len()).expect("test block-entity ID fits one VarUInt byte"));
+        bytes.extend_from_slice(id.as_bytes());
+        for (name, value) in [
+            (b'x', position[0]),
+            (b'y', position[1]),
+            (b'z', position[2]),
+        ] {
+            bytes.extend([3, 1, name]);
+            bytes.extend(zig_zag_i32(value));
+        }
+        bytes.push(0);
+        bytes
+    }
+
+    #[test]
+    fn live_block_entity_updates_decode_off_thread_and_commit_in_fifo() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        stream.submit(1, inline_air_event(0)).unwrap();
+        complete_pending_decode_jobs(&mut stream);
+
+        let position = [1, -63, 2];
+        let key = BlockEntityKey::new(0, position[0], position[1], position[2]);
+        stream
+            .submit(
+                2,
+                WorldEvent::BlockEntityUpdate(BlockEntityUpdateEvent {
+                    dimension: 0,
+                    position,
+                    nbt: block_entity_nbt("Chest", position),
+                }),
+            )
+            .unwrap();
+        let movement = MovePlayerEvent {
+            runtime_id: 1,
+            position: [1.0, 70.0, 2.0],
+            pitch: 0.0,
+            yaw: 0.0,
+        };
+        stream.submit(3, WorldEvent::MovePlayer(movement)).unwrap();
+
+        assert!(stream.store.block_entity(key).is_none());
+        assert!(stream.take_committed_controls().is_empty());
+        complete_pending_decode_jobs(&mut stream);
+        assert_eq!(stream.store.block_entity(key).unwrap().id(), Some("Chest"));
+        assert!(matches!(
+            stream.take_committed_controls().as_slice(),
+            [super::CommittedControlEvent::MovePlayer { sequence: 3, .. }]
+        ));
+
+        let before = stream.store.block_entity(key).unwrap();
+        stream
+            .submit(
+                4,
+                WorldEvent::BlockEntityUpdate(BlockEntityUpdateEvent {
+                    dimension: 0,
+                    position,
+                    nbt: vec![10, 0, 8],
+                }),
+            )
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+        assert!(Arc::ptr_eq(
+            &before,
+            &stream.store.block_entity(key).unwrap()
+        ));
+        assert_eq!(stream.stats().decode_errors, 1);
+
+        let invalid_position = [1, 320, 2];
+        let invalid_key = BlockEntityKey::new(
+            0,
+            invalid_position[0],
+            invalid_position[1],
+            invalid_position[2],
+        );
+        stream
+            .submit(
+                5,
+                WorldEvent::BlockEntityUpdate(BlockEntityUpdateEvent {
+                    dimension: 0,
+                    position: invalid_position,
+                    nbt: block_entity_nbt("Chest", invalid_position),
+                }),
+            )
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+        assert!(stream.store.block_entity(invalid_key).is_none());
+        assert_eq!(
+            stream
+                .stats()
+                .normalization_reasons
+                .invalid_block_entity_positions,
+            1
+        );
+    }
+
+    #[test]
+    fn inline_and_sub_chunk_ingestion_commit_sparse_block_entity_tails() {
+        let bootstrap = WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        };
+        let inline_position = [1, -63, 2];
+        let inline_key = BlockEntityKey::new(
+            0,
+            inline_position[0],
+            inline_position[1],
+            inline_position[2],
+        );
+        let mut inline_payload = vec![9, 0, (-4_i8) as u8];
+        inline_payload.extend(biome_payload(0, 1));
+        inline_payload.extend(block_entity_nbt("Chest", inline_position));
+        let mut stream = WorldStream::new(bootstrap);
+        stream
+            .submit(
+                1,
+                WorldEvent::LevelChunk(LevelChunkEvent {
+                    dimension: 0,
+                    x: 0,
+                    z: 0,
+                    mode: LevelChunkMode::Inline { count: 1 },
+                    payload: inline_payload,
+                }),
+            )
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+        assert_eq!(
+            stream.store.block_entity(inline_key).unwrap().id(),
+            Some("Chest")
+        );
+
+        let request_position = [5, -47, 6];
+        let request_key = BlockEntityKey::new(
+            0,
+            request_position[0],
+            request_position[1],
+            request_position[2],
+        );
+        let mut request_payload = biome_payload(0, 2);
+        request_payload.extend(block_entity_nbt("Note", request_position));
+        let mut stream = WorldStream::new(bootstrap);
+        stream
+            .submit(
+                1,
+                WorldEvent::LevelChunk(LevelChunkEvent {
+                    dimension: 0,
+                    x: 0,
+                    z: 0,
+                    mode: LevelChunkMode::LimitedRequests { highest: 1 },
+                    payload: request_payload,
+                }),
+            )
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+        assert_eq!(
+            stream.store.block_entity(request_key).unwrap().id(),
+            Some("Note")
+        );
+
+        let (mut stream, sub_chunk) = stream_with_one_expected_sub_chunk();
+        let sub_chunk_position = [3, -63, 4];
+        let sub_chunk_entity = BlockEntityKey::new(
+            0,
+            sub_chunk_position[0],
+            sub_chunk_position[1],
+            sub_chunk_position[2],
+        );
+        let mut payload = vec![9, 1, (-4_i8) as u8, 1];
+        payload.extend(zig_zag_i32(7));
+        payload.extend(block_entity_nbt("Sign", sub_chunk_position));
+        let mut prepared = super::prepare_sub_chunks(SubChunkBatchEvent {
+            dimension: 0,
+            entries: vec![SubChunkEntryEvent {
+                position: [sub_chunk.x, sub_chunk.y, sub_chunk.z],
+                result: SubChunkResult::Success { payload },
+            }],
+        });
+        apply_sub_chunk_result(&mut stream, sub_chunk, prepared.remove(0).result);
+        assert_eq!(
+            stream.store.block_entity(sub_chunk_entity).unwrap().id(),
+            Some("Sign")
+        );
+    }
+
     #[test]
     fn clock_daylight_and_weather_commit_in_fifo_order_without_dirtying_world_meshes() {
         let mut stream = WorldStream::new(WorldBootstrap {
@@ -6606,12 +6917,14 @@ mod tests {
                     count,
                     biome_storage_count,
                 } => {
+                    let chunk = ChunkKey::new(event.dimension, event.x, event.z);
                     let payload = std::mem::take(&mut event.payload);
                     (
                         sequence,
                         super::PreparedWorldEvent::InlineLevelChunk {
                             event,
-                            decoded: DecodedLevelChunk::decode_with_biomes(
+                            decoded: DecodedLevelChunk::decode_with_biomes_and_block_entities(
+                                chunk,
                                 base_sub_chunk_y,
                                 count,
                                 base_sub_chunk_y,
@@ -6628,6 +6941,7 @@ mod tests {
                     biome_base_sub_chunk_y,
                     biome_storage_count,
                 } => {
+                    let chunk = ChunkKey::new(event.dimension, event.x, event.z);
                     let payload = std::mem::take(&mut event.payload);
                     (
                         sequence,
@@ -6637,7 +6951,14 @@ mod tests {
                                 biome_base_sub_chunk_y,
                                 biome_storage_count,
                                 &payload,
-                            ),
+                            )
+                            .and_then(|biomes| {
+                                let block_entities = DecodedBlockEntities::decode_level_chunk_tail(
+                                    chunk,
+                                    &payload[biomes.bytes_consumed()..],
+                                )?;
+                                Ok((biomes, block_entities))
+                            }),
                             duration: std::time::Duration::ZERO,
                         },
                     )
@@ -6671,6 +6992,22 @@ mod tests {
                         duration: std::time::Duration::ZERO,
                     },
                 ),
+                super::DecodeJob::BlockEntityUpdate { sequence, event } => {
+                    let key = BlockEntityKey::new(
+                        event.dimension,
+                        event.position[0],
+                        event.position[1],
+                        event.position[2],
+                    );
+                    (
+                        sequence,
+                        super::PreparedWorldEvent::BlockEntityUpdate {
+                            key,
+                            decoded: DecodedBlockEntities::decode_live(key, &event.nbt),
+                            duration: std::time::Duration::ZERO,
+                        },
+                    )
+                }
             };
             stream.accept_decode_completion(super::DecodeCompletion { sequence, event });
         }

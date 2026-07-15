@@ -138,6 +138,7 @@ fn decode_world_raw_with(
             | McpePacketName::PacketSubchunk
             | McpePacketName::PacketUpdateBlock
             | McpePacketName::PacketUpdateSubchunkBlocks
+            | McpePacketName::PacketBlockEntityData
             | McpePacketName::PacketChunkRadiusUpdate
             | McpePacketName::PacketNetworkChunkPublisherUpdate
             | McpePacketName::PacketChangeDimension
@@ -157,11 +158,12 @@ fn decode_world_raw_with(
 mod tests {
     use std::cell::Cell;
 
-    use bytes::{Buf, BufMut, BytesMut};
+    use bytes::{Buf, BufMut, Bytes, BytesMut};
     use jolyne::raw::decode_packet_raw;
+    use valentine::bedrock::codec::Nbt;
     use valentine::bedrock::context::BedrockSession;
     use valentine::bedrock::version::v1_26_30::{
-        BiomeDefinition, BiomeDefinitionListPacket, BlockCoordinates,
+        BiomeDefinition, BiomeDefinitionListPacket, BlockCoordinates, BlockEntityDataPacket,
         CorrectPlayerMovePredictionPacket, GameRuleI32, GameRuleI32Type, GameRuleI32Value,
         GameRulesChangedPacket, LevelEventPacket, LevelEventPacketEvent, McpePacketName,
         MovePlayerPacket, UpdateBlockPacket, Vec2F, Vec3F,
@@ -220,6 +222,33 @@ mod tests {
         assert_eq!(updates[0].dimension, 2);
         assert_eq!(updates[0].position, [17, 2, -3]);
         assert_eq!(updates[0].network_id, 99);
+    }
+
+    #[test]
+    fn allowlisted_block_entity_update_preserves_dimension_position_and_exact_nbt() {
+        let session = BedrockSession { shield_item_id: 0 };
+        let nbt = vec![10, 0, 0];
+        let packet: Packet = BlockEntityDataPacket {
+            position: BlockCoordinates { x: 17, y: 2, z: -3 },
+            nbt: Nbt(Bytes::copy_from_slice(&nbt)),
+        }
+        .into();
+        let mut batch = crate::encode(&packet, &session).expect("encode block entity update");
+        batch.advance(1);
+        let raw = decode_packet_raw(&mut batch).expect("raw block entity update");
+
+        let event = decode_world_raw_with(raw, 2, |raw| raw.decode(&session))
+            .expect("decode block entity update")
+            .expect("world event");
+
+        assert_eq!(
+            event,
+            WorldEvent::BlockEntityUpdate(crate::BlockEntityUpdateEvent {
+                dimension: 2,
+                position: [17, 2, -3],
+                nbt,
+            })
+        );
     }
 
     #[test]
