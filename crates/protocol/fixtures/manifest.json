@@ -28,6 +28,13 @@
     "sha256": "d8ea552cba9f22fdf35af9c14431640abee23163c4a58e2ba28071eae9b42734"
   },
   {
+    "name": "PlayerAuthInput",
+    "file": "player_auth_input.bin",
+    "id": 144,
+    "byte_length": 92,
+    "sha256": "32648c680d193905c05c389159349f81330198fc0e25c57a192bf40ffba4ed71"
+  },
+  {
     "name": "AddActor",
     "file": "add_actor.bin",
     "id": 13,

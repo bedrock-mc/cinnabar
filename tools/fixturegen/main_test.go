@@ -51,18 +51,20 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 		"StartGame",
 		"LevelChunk",
 		"MovePlayer",
+		"PlayerAuthInput",
 		"AddActor",
 		"AvailableCommands",
 		"AvailableCommandsLive356513",
 		"CraftingDataMaterialReducer",
 		"BiomeDefinitionListChunkGeneration",
 	}
-	wantIDs := []uint32{143, 11, 58, 19, 13, 76, 76, 52, 122}
+	wantIDs := []uint32{143, 11, 58, 19, 144, 13, 76, 76, 52, 122}
 	wantHeaders := [][]byte{
 		{0x8f, 0x49},
 		{0x8b, 0x48},
 		{0xba, 0x48},
 		{0x93, 0x48},
+		{0x90, 0x49},
 		{0x8d, 0x48},
 		{0xcc, 0x48},
 		{0xcc, 0x48},

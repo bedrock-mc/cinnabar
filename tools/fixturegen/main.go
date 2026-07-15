@@ -193,6 +193,11 @@ func fixtures() []fixture {
 			},
 		},
 		{
+			name: "PlayerAuthInput",
+			file: "player_auth_input.bin",
+			pk:   playerAuthInputFixture(),
+		},
+		{
 			name: "AddActor",
 			file: "add_actor.bin",
 			pk: &packet.AddActor{
@@ -247,6 +252,36 @@ func fixtures() []fixture {
 			wireAuthority: "hashimthearab/gophertunnel",
 			wireCommit:    "9948b1729395d2e819fce28e079d4a7bfc67716c",
 		},
+	}
+}
+
+func playerAuthInputFixture() *packet.PlayerAuthInput {
+	flags := protocol.NewBitset(packet.PlayerAuthInputBitsetSize)
+	for _, flag := range []int{
+		packet.InputFlagJumping,
+		packet.InputFlagUp,
+		packet.InputFlagLeft,
+		packet.InputFlagSprinting,
+	} {
+		flags.Set(flag)
+	}
+	return &packet.PlayerAuthInput{
+		Pitch:              10.5,
+		Yaw:                20.25,
+		Position:           mgl32.Vec3{1.25, 64, -2.5},
+		MoveVector:         mgl32.Vec2{-1, 1},
+		HeadYaw:            30.75,
+		InputData:          flags,
+		InputMode:          packet.InputModeMouse,
+		PlayMode:           packet.PlayModeNormal,
+		InteractionModel:   packet.InteractionModelCrosshair,
+		InteractPitch:      10.5,
+		InteractYaw:        20.25,
+		Tick:               1234,
+		Delta:              mgl32.Vec3{0.25, 0, -0.5},
+		AnalogueMoveVector: mgl32.Vec2{-1, 1},
+		CameraOrientation:  mgl32.Vec3{0.25, -0.5, -0.75},
+		RawMoveVector:      mgl32.Vec2{-1, 1},
 	}
 }
 

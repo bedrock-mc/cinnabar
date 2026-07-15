@@ -1,10 +1,12 @@
 use bytes::{BufMut, Bytes, BytesMut};
 use protocol::{
-    BedrockSession, GAME_VERSION, PROTOCOL_VERSION, ProtocolError, decode_batch, encode,
+    BedrockSession, GAME_VERSION, PROTOCOL_VERSION, PlayerAuthInputSnapshot, PlayerInputFlags,
+    PlayerInputMode, ProtocolError, decode_batch, encode, player_auth_input,
 };
 use valentine::bedrock::version::v1_26_30::{
-    GameMode, LegacyEntityType, McpePacketData, McpePacketName, MovePlayerPacketMode,
+    GameMode, InputFlag, LegacyEntityType, McpePacketData, McpePacketName, MovePlayerPacketMode,
     MovePlayerPacketTeleportCause, NetworkSettingsPacketCompressionAlgorithm,
+    PlayerAuthInputPacketInputMode, PlayerAuthInputPacketInteractionModel,
     StartGamePacketDimension, Vec3F,
 };
 
@@ -12,6 +14,7 @@ const NETWORK_SETTINGS: &[u8] = include_bytes!("../fixtures/network_settings.bin
 const START_GAME: &[u8] = include_bytes!("../fixtures/start_game.bin");
 const LEVEL_CHUNK: &[u8] = include_bytes!("../fixtures/level_chunk.bin");
 const MOVE_PLAYER: &[u8] = include_bytes!("../fixtures/move_player.bin");
+const PLAYER_AUTH_INPUT: &[u8] = include_bytes!("../fixtures/player_auth_input.bin");
 const ADD_ACTOR: &[u8] = include_bytes!("../fixtures/add_actor.bin");
 const MAX_BATCH_BYTES: usize = 16 * 1024 * 1024;
 const MAX_BATCH_PACKETS: usize = 1_600;
@@ -147,6 +150,50 @@ fn move_player_fixture_decodes_and_round_trips_exactly() {
         other => panic!("unexpected variant: {:?}", other.packet_id()),
     }
     assert_exact_round_trip(&packet, MOVE_PLAYER);
+}
+
+#[test]
+fn player_auth_input_builder_matches_gophertunnel_bytes_exactly() {
+    let fixture = decode_one(PLAYER_AUTH_INPUT, McpePacketName::PacketPlayerAuthInput);
+    let McpePacketData::PacketPlayerAuthInput(input) = &fixture.data else {
+        panic!("unexpected fixture payload");
+    };
+    assert_eq!(input.tick, 1_234);
+    assert_eq!(input.input_mode, PlayerAuthInputPacketInputMode::Mouse);
+    assert_eq!(
+        input.interaction_model,
+        PlayerAuthInputPacketInteractionModel::Unknown(-1)
+    );
+    assert_eq!(
+        input.input_data,
+        InputFlag::UP | InputFlag::LEFT | InputFlag::JUMPING | InputFlag::SPRINTING
+    );
+    assert_exact_round_trip(&fixture, PLAYER_AUTH_INPUT);
+
+    let mut built = player_auth_input(PlayerAuthInputSnapshot {
+        tick: 1_234,
+        position: [1.25, 64.0, -2.5],
+        delta: [0.25, 0.0, -0.5],
+        move_vector: [-1.0, 1.0],
+        analogue_move_vector: [-1.0, 1.0],
+        raw_move_vector: [-1.0, 1.0],
+        pitch: 10.5,
+        yaw: 20.25,
+        head_yaw: 30.75,
+        camera_orientation: [0.25, -0.5, -0.75],
+        flags: PlayerInputFlags::UP
+            | PlayerInputFlags::LEFT
+            | PlayerInputFlags::JUMPING
+            | PlayerInputFlags::SPRINTING,
+        input_mode: PlayerInputMode::Mouse,
+    })
+    .expect("valid movement snapshot");
+    built.header.from_subclient = 1;
+    built.header.to_subclient = 2;
+    assert_eq!(
+        encode(&built, &session()).expect("encode built PlayerAuthInput"),
+        PLAYER_AUTH_INPUT
+    );
 }
 
 #[test]
