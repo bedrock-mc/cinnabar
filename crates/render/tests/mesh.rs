@@ -5366,6 +5366,37 @@ fn layered_solid_and_water_are_both_resolved() {
 }
 
 #[test]
+fn allocation_free_single_coordinate_resolution_matches_cached_mixed_palettes() {
+    let solid = packed_storage(1, &[AIR, OPAQUE_A], &[([8, 8, 8], 1)]);
+    let water = packed_storage(1, &[AIR, LIQUID_A], &[([8, 8, 8], 1)]);
+    let sub = sub_chunk(vec![solid, water]);
+    let cached = ContributorResolver::new(
+        classifier(),
+        runtime_assets(),
+        NetworkIdMode::Sequential,
+        &sub,
+    )
+    .resolve([8, 8, 8]);
+    let direct = ContributorResolver::resolve_direct(
+        classifier(),
+        runtime_assets(),
+        NetworkIdMode::Sequential,
+        &sub,
+        [8, 8, 8],
+    );
+
+    assert_eq!(
+        direct.primary_network_value(),
+        cached.primary_network_value()
+    );
+    assert_eq!(direct.liquid_network_value(), cached.liquid_network_value());
+    assert_eq!(
+        direct.diagnostic_network_value(),
+        cached.diagnostic_network_value()
+    );
+}
+
+#[test]
 fn layered_aquatic_cross_and_water_emit_model_without_diagnostic_cube() {
     let seagrass = packed_storage(1, &[AIR, CROSS], &[([8, 8, 8], 1)]);
     let water = packed_storage(1, &[AIR, LIQUID_A], &[([8, 8, 8], 1)]);

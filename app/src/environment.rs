@@ -3,7 +3,7 @@ use bevy::{
     time::Real,
 };
 use protocol::{WeatherChannel, WorldEnvironmentBootstrap};
-use render::AtmosphereFrame;
+use render::{AtmosphereFrame, CameraMedium};
 
 use crate::world_stream::CommittedControlEvent;
 
@@ -189,25 +189,38 @@ fn bedrock_ticks_as_f64(ticks: i64) -> f64 {
 }
 
 #[must_use]
+#[cfg(test)]
 pub(crate) fn derive_atmosphere_frame(
     clock: WorldClock,
     weather: WeatherState,
     elapsed_seconds: f64,
+) -> AtmosphereFrame {
+    derive_atmosphere_frame_for_medium(clock, weather, elapsed_seconds, CameraMedium::Air)
+}
+
+#[must_use]
+pub(crate) fn derive_atmosphere_frame_for_medium(
+    clock: WorldClock,
+    weather: WeatherState,
+    elapsed_seconds: f64,
+    medium: CameraMedium,
 ) -> AtmosphereFrame {
     AtmosphereFrame::from_bedrock_time(
         visual_world_time(clock, elapsed_seconds),
         weather.rain_level,
         weather.lightning_level,
     )
+    .with_camera_medium(medium)
 }
 
 pub(crate) fn update_atmosphere_frame(
     clock: Res<WorldClock>,
     weather: Res<WeatherState>,
+    medium: Res<CameraMedium>,
     time: Res<Time<Real>>,
     mut frame: ResMut<AtmosphereFrame>,
 ) {
-    *frame = derive_atmosphere_frame(*clock, *weather, time.elapsed_secs_f64());
+    *frame = derive_atmosphere_frame_for_medium(*clock, *weather, time.elapsed_secs_f64(), *medium);
 }
 
 fn finite_nonnegative(value: f64) -> f64 {
@@ -227,7 +240,7 @@ mod tests {
 
     use super::{
         WeatherState, WorldClock, apply_environment_control, derive_atmosphere_frame,
-        replace_session, visual_world_time,
+        derive_atmosphere_frame_for_medium, replace_session, visual_world_time,
     };
     use crate::world_stream::CommittedControlEvent;
 
@@ -590,5 +603,25 @@ mod tests {
             derive_atmosphere_frame(clock, weather, 50_000.0).moon_phase(),
             0
         );
+    }
+
+    #[test]
+    fn active_camera_medium_is_applied_after_clock_and_weather_derivation() {
+        let mut clock = WorldClock::default();
+        let mut weather = WeatherState::default();
+        replace_session(
+            &mut clock,
+            &mut weather,
+            bootstrap(6_000, 0, true, 0.25, 0.75),
+            10.0,
+        );
+
+        let frame =
+            derive_atmosphere_frame_for_medium(clock, weather, 10.0, render::CameraMedium::Water);
+
+        assert_eq!(frame.camera_medium(), render::CameraMedium::Water);
+        assert_eq!(frame.rain_level(), 0.25);
+        assert_eq!(frame.thunder_level(), 0.75);
+        assert_eq!(frame.sun_direction(), [0.0, 1.0, 0.0]);
     }
 }

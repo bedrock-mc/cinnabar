@@ -10,6 +10,23 @@ pub const BEDROCK_DAY_TICKS: f64 = 24_000.0;
 pub const CLOUD_TEXTURE_WORLD_PERIOD: f64 = 256.0;
 pub const CLOUD_SCROLL_BLOCKS_PER_TICK: f64 = 0.03;
 
+const WATER_FOG_COLOR: [f32; 3] = [0.02, 0.12, 0.2];
+const WATER_FOG_END: f32 = 32.0;
+const LAVA_FOG_COLOR: [f32; 3] = [0.45, 0.08, 0.0];
+const LAVA_FOG_END: f32 = 3.0;
+
+/// Visual medium containing the active camera eye.
+///
+/// This is resolved from palette-native liquid layers. Unknown world data is
+/// deliberately [`Self::Air`] so an unloaded boundary cannot flash opaque fog.
+#[derive(Resource, Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum CameraMedium {
+    #[default]
+    Air,
+    Water,
+    Lava,
+}
+
 #[derive(Resource, ExtractResource, Clone, Default)]
 pub struct AtmosphereTextureAssets {
     runtime: Option<Arc<RuntimeAtmosphereAssets>>,
@@ -160,6 +177,21 @@ impl AtmosphereFrame {
         }
     }
 
+    /// Applies camera-medium distance fog while retaining the exact celestial
+    /// and weather snapshot. The bounded constants are the Phase 2.7 baseline;
+    /// native reference calibration remains part of visual acceptance.
+    #[must_use]
+    pub fn with_camera_medium(mut self, medium: CameraMedium) -> Self {
+        let (color, end) = match medium {
+            CameraMedium::Air => return self,
+            CameraMedium::Water => (WATER_FOG_COLOR, WATER_FOG_END),
+            CameraMedium::Lava => (LAVA_FOG_COLOR, LAVA_FOG_END),
+        };
+        self.fog_color_start = Vec4::new(color[0], color[1], color[2], 0.0);
+        self.fog_end_time.x = end;
+        self
+    }
+
     #[must_use]
     pub fn sun_direction(self) -> [f32; 3] {
         [
@@ -200,6 +232,26 @@ impl AtmosphereFrame {
     }
 
     #[must_use]
+    pub fn fog_color(self) -> [f32; 3] {
+        [
+            self.fog_color_start.x,
+            self.fog_color_start.y,
+            self.fog_color_start.z,
+        ]
+    }
+
+    #[must_use]
+    pub fn camera_medium(self) -> CameraMedium {
+        if self.fog_end_time.x == WATER_FOG_END && self.fog_color() == WATER_FOG_COLOR {
+            CameraMedium::Water
+        } else if self.fog_end_time.x == LAVA_FOG_END && self.fog_color() == LAVA_FOG_COLOR {
+            CameraMedium::Lava
+        } else {
+            CameraMedium::Air
+        }
+    }
+
+    #[must_use]
     pub fn cloud_texture_offset(self) -> [f32; 2] {
         [self.fog_end_time.z, self.fog_end_time.w]
     }
@@ -227,4 +279,34 @@ fn mix3(left: [f32; 3], right: [f32; 3], amount: f32) -> [f32; 3] {
         lerp(left[1], right[1], amount),
         lerp(left[2], right[2], amount),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AtmosphereFrame, CameraMedium};
+
+    #[test]
+    fn camera_medium_overrides_only_the_distance_fog_contract() {
+        let clear = AtmosphereFrame::from_bedrock_time(6_000.0, 0.25, 0.5);
+        let water = clear.with_camera_medium(CameraMedium::Water);
+        let lava = clear.with_camera_medium(CameraMedium::Lava);
+
+        assert_eq!(water.camera_medium(), CameraMedium::Water);
+        assert_eq!(lava.camera_medium(), CameraMedium::Lava);
+        assert_eq!(water.sun_direction(), clear.sun_direction());
+        assert_eq!(water.rain_level(), clear.rain_level());
+        assert_eq!(water.thunder_level(), clear.thunder_level());
+        assert_eq!(water.fog_start(), 0.0);
+        assert_eq!(water.fog_end(), 32.0);
+        assert_eq!(lava.fog_start(), 0.0);
+        assert_eq!(lava.fog_end(), 3.0);
+        assert_eq!(water.fog_color(), [0.02, 0.12, 0.2]);
+        assert_eq!(lava.fog_color(), [0.45, 0.08, 0.0]);
+    }
+
+    #[test]
+    fn air_medium_preserves_weather_fog_exactly() {
+        let clear = AtmosphereFrame::from_bedrock_time(18_000.0, 0.75, 0.25);
+        assert_eq!(clear.with_camera_medium(CameraMedium::Air), clear);
+    }
 }

@@ -319,6 +319,19 @@ fn every_world_shader_uses_the_shared_distance_fog_uniform() {
 }
 
 #[test]
+fn dense_camera_medium_fog_replaces_the_infinite_sky_before_celestial_composition() {
+    let shader = include_str!("../src/atmosphere.wgsl");
+    let guard = "if (atmosphere.fog_end_time.x <= 32.0)";
+    let fog_return = "return vec4(atmosphere.fog_color_start.rgb, 1.0);";
+    assert!(shader.contains(guard));
+    assert!(shader.contains(fog_return));
+    assert!(
+        shader.find(guard).unwrap() < shader.find("let sun = sample_sun(").unwrap(),
+        "medium fog must hide the infinite sky before sun/moon/cloud composition"
+    );
+}
+
+#[test]
 fn transparent_world_shaders_preserve_alpha_for_single_fog_composition() {
     for (name, shader) in [
         ("model", include_str!("../src/model.wgsl")),

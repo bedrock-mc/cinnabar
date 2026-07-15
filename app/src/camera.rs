@@ -25,6 +25,11 @@ pub struct FlyCamera {
     pub look_sensitivity: Vec2,
 }
 
+/// Completes cursor, look, and movement updates before systems sample the
+/// camera's final transform for the current frame.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct FlyCameraUpdateSet;
+
 impl Default for FlyCamera {
     fn default() -> Self {
         Self {
@@ -118,7 +123,9 @@ impl Plugin for FlyCameraPlugin {
                 Update,
                 (
                     update_camera_fov,
-                    (update_cursor_capture, update_look, update_movement).chain(),
+                    (update_cursor_capture, update_look, update_movement)
+                        .chain()
+                        .in_set(FlyCameraUpdateSet),
                 ),
             );
     }

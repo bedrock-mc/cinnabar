@@ -1039,6 +1039,18 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     blocks per tick. Full app/render suites, strict Clippy, WGSL validation, and
     independent review are green through `4bf2c8c`; native multi-platform visual
     tuning and parity acceptance remain open.
+  - [x] Resolve the camera-eye medium directly from palette-native liquid
+    contributors, including secondary waterlogged layers, and use the exact
+    two-triangle surface drawn by the shared quad index buffer for the air/water
+    or air/lava transition, including noncoplanar corner heights. The sparse
+    camera query reads packed indices and palette entries directly without
+    constructing the mesher's allocating palette-fact cache; missing and
+    non-finite samples fail open to air. Water and lava replace weather distance
+    fog in the existing 96-byte atmosphere uniform, so chunk, model, liquid, and
+    infinite-sky/celestial rendering share one medium response without a new
+    binding or per-subchunk resource. The bounded water/lava colours and 32/3-
+    block visibility ranges are the Phase 2.7 baseline; native reference
+    calibration and precipitation visuals remain open.
   - [x] Wire the sparse solver and MCBEAS05 per-state emission/filter metadata
     into generation-qualified WorldStream light storage and bounded,
     nearest-first one-subchunk solves. Exact face block/light halos, dirty
