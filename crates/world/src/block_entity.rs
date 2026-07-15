@@ -65,6 +65,17 @@ pub struct BlockEntityNbt {
     bytes: Arc<[u8]>,
     id: Option<Arc<str>>,
     embedded_position: Option<[i32; 3]>,
+    note_candidate: RootByteCandidate,
+    powered_candidate: RootByteCandidate,
+}
+
+/// Bounded root-byte metadata retained for id-less Note discrimination.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum RootByteCandidate {
+    #[default]
+    Absent,
+    Value(u8),
+    Invalid,
 }
 
 impl BlockEntityNbt {
@@ -84,6 +95,8 @@ impl BlockEntityNbt {
 
         let mut id = None;
         let mut position = [None; 3];
+        let mut note_candidate = RootByteCandidate::Absent;
+        let mut powered_candidate = RootByteCandidate::Absent;
         loop {
             let tag = reader.read_u8("compound tag")?;
             if tag == 0 {
@@ -112,6 +125,12 @@ impl BlockEntityNbt {
                     }
                     position[slot] = Some(reader.read_zigzag_i32("position")?);
                 }
+                "note" => {
+                    scan_root_byte_candidate(&mut note_candidate, tag, &mut reader, &mut state)?
+                }
+                "powered" => {
+                    scan_root_byte_candidate(&mut powered_candidate, tag, &mut reader, &mut state)?
+                }
                 _ => scan_payload(tag, &mut reader, &mut state, 1)?,
             }
         }
@@ -127,6 +146,8 @@ impl BlockEntityNbt {
                 bytes: Arc::from(&input[..consumed]),
                 id,
                 embedded_position,
+                note_candidate,
+                powered_candidate,
             },
             consumed,
         ))
@@ -145,6 +166,16 @@ impl BlockEntityNbt {
     #[must_use]
     pub const fn embedded_position(&self) -> Option<[i32; 3]> {
         self.embedded_position
+    }
+
+    #[must_use]
+    pub const fn note_candidate(&self) -> RootByteCandidate {
+        self.note_candidate
+    }
+
+    #[must_use]
+    pub const fn powered_candidate(&self) -> RootByteCandidate {
+        self.powered_candidate
     }
 }
 
@@ -398,6 +429,25 @@ fn require_root_type(name: &str, actual: u8, expected: u8) -> Result<(), BlockEn
             actual,
         })
     }
+}
+
+fn scan_root_byte_candidate(
+    candidate: &mut RootByteCandidate,
+    tag: u8,
+    reader: &mut Reader<'_>,
+    state: &mut ScanState,
+) -> Result<(), BlockEntityNbtError> {
+    let value = if tag == 1 {
+        Some(reader.read_u8("root byte candidate")?)
+    } else {
+        scan_payload(tag, reader, state, 1)?;
+        None
+    };
+    *candidate = match (*candidate, value) {
+        (RootByteCandidate::Absent, Some(value)) => RootByteCandidate::Value(value),
+        _ => RootByteCandidate::Invalid,
+    };
+    Ok(())
 }
 
 #[derive(Debug, Default)]

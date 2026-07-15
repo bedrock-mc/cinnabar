@@ -37,6 +37,9 @@ use world::{
 #[cfg(test)]
 use crate::actor_store::ActorSnapshot;
 use crate::actor_store::ActorStore;
+use crate::block_entity_visuals::{
+    BackingBlockIdentity, BlockEntityVisualDiagnostics, adjudicate_block_entity_visual,
+};
 use crate::server_position::{ResolvedServerPosition, resolve_server_position};
 
 /// Decode and mesh workers may each have at most this many completed results
@@ -517,6 +520,10 @@ pub struct WorldStreamStats {
     pub received_radius_chunks: Option<i32>,
     pub publisher_radius_chunks: Option<i32>,
     pub resident_sub_chunks: usize,
+    pub adjudicated_static_block_entities: usize,
+    pub adjudicated_logical_block_entities: usize,
+    pub deferred_block_entities: usize,
+    pub unknown_block_entities: usize,
     pub pending_mesh_jobs: usize,
     pub in_flight_mesh_jobs: usize,
     pub pending_light_jobs: usize,
@@ -1286,6 +1293,7 @@ fn mesh_offset_index([x, y, z]: [i8; 3]) -> usize {
 #[derive(Resource)]
 pub struct WorldStream {
     store: ChunkStore,
+    block_entity_visuals: BlockEntityVisualDiagnostics,
     actors: ActorStore,
     actor_session_id: u64,
     classifier: BlockClassifier,
@@ -1418,6 +1426,7 @@ impl WorldStream {
             .unwrap_or(bootstrap.air_network_id);
         Self {
             store: ChunkStore::new(),
+            block_entity_visuals: BlockEntityVisualDiagnostics::default(),
             actors: ActorStore::new(actor_session_id, bootstrap.dimension),
             actor_session_id,
             classifier: BlockClassifier::new(air_network_id),
@@ -2067,10 +2076,20 @@ impl WorldStream {
             .len()
             .saturating_sub(self.pending_decode.len())
             .saturating_sub(self.in_flight_decode_jobs);
+        let [
+            adjudicated_static_block_entities,
+            adjudicated_logical_block_entities,
+            deferred_block_entities,
+            unknown_block_entities,
+        ] = self.block_entity_visuals.counts();
         WorldStreamStats {
             received_radius_chunks: self.chunk_radius,
             publisher_radius_chunks: self.publisher_radius_chunks,
             resident_sub_chunks: self.resident.len(),
+            adjudicated_static_block_entities,
+            adjudicated_logical_block_entities,
+            deferred_block_entities,
+            unknown_block_entities,
             pending_mesh_jobs: self.pending_mesh.len(),
             in_flight_mesh_jobs: self.in_flight.len(),
             pending_light_jobs: self.pending_light.len(),
@@ -2493,6 +2512,7 @@ impl WorldStream {
                         for air in air_keys {
                             self.record_known_air(air);
                         }
+                        self.refresh_block_entity_visuals_for_chunk(key);
                         let now = Instant::now();
                         let preexpanded_dirty = applied.dirty;
                         let mut changed_sources =
@@ -2617,6 +2637,9 @@ impl WorldStream {
                         }
                     };
                     committed_any |= committed;
+                    if committed {
+                        self.refresh_block_entity_visuals_for_sub_chunk(key);
+                    }
                     if completed {
                         self.complete_requested_sub_chunk(key, committed);
                     }
@@ -2632,6 +2655,7 @@ impl WorldStream {
                         let changed = self.store.commit_prepared_block_updates(prepared);
                         let now = Instant::now();
                         for key in changed {
+                            self.refresh_block_entity_visuals_for_sub_chunk(key);
                             self.sync_resident(key);
                             self.mark_changed(key, now);
                         }
@@ -2662,11 +2686,13 @@ impl WorldStream {
                     return;
                 }
                 match decoded {
-                    Ok(nbt) => {
-                        if self.store.commit_block_entity_update(key, nbt).is_err() {
+                    Ok(nbt) => match self.store.commit_block_entity_update(key, nbt) {
+                        Ok(true) => self.refresh_block_entity_visual(key),
+                        Ok(false) => {}
+                        Err(_) => {
                             self.stats.decode_errors = self.stats.decode_errors.saturating_add(1);
                         }
-                    }
+                    },
                     Err(_) => {
                         self.stats.decode_errors = self.stats.decode_errors.saturating_add(1);
                     }
@@ -2741,6 +2767,7 @@ impl WorldStream {
             }
             WorldEvent::ChangeDimension(change) => {
                 self.evict_all_resident();
+                self.block_entity_visuals.clear();
                 let sequence = sequence.expect("sequenced dimension changes commit through submit");
                 let _ =
                     self.actors
@@ -3113,7 +3140,66 @@ impl WorldStream {
             .retain(|change| !matches!(change, WorldMeshChange::Upsert { .. }));
     }
 
+    fn refresh_block_entity_visual(&mut self, key: BlockEntityKey) {
+        let Some(source) = self.store.block_entity(key) else {
+            self.block_entity_visuals.remove(key);
+            return;
+        };
+        let Some(backing) = self.backing_block_identity(key) else {
+            self.block_entity_visuals.remove(key);
+            return;
+        };
+        self.block_entity_visuals.upsert(
+            key,
+            adjudicate_block_entity_visual(source.as_ref(), backing),
+        );
+    }
+
+    fn refresh_block_entity_visuals_for_sub_chunk(&mut self, key: SubChunkKey) {
+        self.block_entity_visuals.remove_sub_chunk(key);
+        let entities = self
+            .store
+            .chunk(key.chunk())
+            .into_iter()
+            .flat_map(|chunk| chunk.block_entities())
+            .filter_map(|(entity, _)| (entity.sub_chunk() == key).then_some(entity))
+            .collect::<Vec<_>>();
+        for entity in entities {
+            self.refresh_block_entity_visual(entity);
+        }
+    }
+
+    fn refresh_block_entity_visuals_for_chunk(&mut self, key: ChunkKey) {
+        self.block_entity_visuals.remove_chunk(key);
+        let entities = self
+            .store
+            .chunk(key)
+            .into_iter()
+            .flat_map(|chunk| chunk.block_entities())
+            .map(|(entity, _)| entity)
+            .collect::<Vec<_>>();
+        for entity in entities {
+            self.refresh_block_entity_visual(entity);
+        }
+    }
+
+    fn backing_block_identity(&self, key: BlockEntityKey) -> Option<BackingBlockIdentity> {
+        let sub_chunk = self.store.sub_chunk(key.sub_chunk())?;
+        let runtime_id = sub_chunk.runtime_id(
+            0,
+            key.x.rem_euclid(16) as u8,
+            key.y.rem_euclid(16) as u8,
+            key.z.rem_euclid(16) as u8,
+        )?;
+        Some(BackingBlockIdentity::from_runtime(
+            runtime_id,
+            self.network_id_mode,
+            &self.runtime_assets,
+        ))
+    }
+
     fn evict_column(&mut self, key: ChunkKey) {
+        self.block_entity_visuals.remove_chunk(key);
         self.loaded_columns.remove(&key);
         self.request_collision_failures.remove(&key);
         self.purge_sub_chunk_column_state(key);
@@ -6701,6 +6787,320 @@ mod tests {
         }
         bytes.push(0);
         bytes
+    }
+
+    fn block_entity_nbt_with_marker(id: &str, position: [i32; 3], marker: u8) -> Vec<u8> {
+        let mut bytes = block_entity_nbt(id, position);
+        bytes.pop();
+        bytes.extend([1, 6, b'm', b'a', b'r', b'k', b'e', b'r', marker, 0]);
+        bytes
+    }
+
+    fn idless_note_block_entity_nbt(
+        position: [i32; 3],
+        note: u8,
+        powered: u8,
+        marker: u8,
+    ) -> Vec<u8> {
+        let mut bytes = vec![10, 0];
+        for (name, value) in [
+            (b"note".as_slice(), note),
+            (b"powered".as_slice(), powered),
+            (b"marker".as_slice(), marker),
+        ] {
+            bytes.push(1);
+            bytes.push(name.len() as u8);
+            bytes.extend_from_slice(name);
+            bytes.push(value);
+        }
+        for (name, value) in [
+            (b'x', position[0]),
+            (b'y', position[1]),
+            (b'z', position[2]),
+        ] {
+            bytes.extend([3, 1, name]);
+            bytes.extend(zig_zag_i32(value));
+        }
+        bytes.push(0);
+        bytes
+    }
+
+    fn block_entity_visual_assets() -> RuntimeAssets {
+        let visual = BlockVisual {
+            faces: [0; 6],
+            flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
+            kind: VisualKind::Cube,
+            contributor_role: assets::ContributorRole::Primary,
+            model_template: NO_MODEL_TEMPLATE,
+            animation: NO_ANIMATION,
+            variant: 0,
+        };
+        let compiled = CompiledAssets {
+            visuals: vec![visual; 15_692].into_boxed_slice(),
+            light_properties: vec![assets::LightProperties::default(); 15_692].into_boxed_slice(),
+            hashed: Box::new([]),
+            materials: vec![Material {
+                texture: TextureRef::DIAGNOSTIC,
+                flags: 0,
+                animation: NO_ANIMATION,
+            }]
+            .into_boxed_slice(),
+            model_templates: Box::new([]),
+            model_quads: Box::new([]),
+            animations: Box::new([]),
+            animation_frames: Box::new([]),
+            texture_pages: vec![TexturePage::new(TextureArray {
+                layers: 1,
+                mips: [16_u32, 8, 4, 2, 1]
+                    .into_iter()
+                    .map(|size| TextureMip {
+                        size,
+                        rgba8: vec![0xff; size as usize * size as usize * 4].into_boxed_slice(),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            })]
+            .into_boxed_slice(),
+            biomes: CompiledBiomeAssets::diagnostic(),
+        };
+        RuntimeAssets::decode(&encode_blob(&compiled).unwrap()).unwrap()
+    }
+
+    fn block_entity_visual_stream() -> WorldStream {
+        WorldStream::new_with_assets(
+            WorldBootstrap {
+                dimension: 0,
+                local_player_runtime_id: 1,
+                player_position: [0.0; 3],
+                world_spawn_position: [0; 3],
+                air_network_id: 0,
+                block_network_ids_are_hashes: false,
+            },
+            Arc::new(block_entity_visual_assets()),
+            [0.0, 80.0, 0.0],
+            None,
+        )
+    }
+
+    fn inline_block_entity_event(chunk_x: i32, runtime_id: u32, nbt: Vec<u8>) -> WorldEvent {
+        let mut payload = vec![9, 1, (-4_i8) as u8, 1];
+        payload.extend(zig_zag_i32(runtime_id as i32));
+        payload.extend(biome_payload(0, 1));
+        payload.extend(nbt);
+        WorldEvent::LevelChunk(LevelChunkEvent {
+            dimension: 0,
+            x: chunk_x,
+            z: 0,
+            mode: LevelChunkMode::Inline { count: 1 },
+            payload,
+        })
+    }
+
+    #[test]
+    fn block_entity_visual_diagnostics_preserve_zero_remesh_live_updates() {
+        let mut stream = block_entity_visual_stream();
+        let routes = [
+            ("Barrel", 7_069),
+            ("BlastFurnace", 15_143),
+            ("Furnace", 15_688),
+            ("Smoker", 2_699),
+            ("Jukebox", 8_516),
+        ];
+        let mut sequence = 1;
+        for (chunk_x, (id, runtime_id)) in routes.into_iter().enumerate() {
+            let position = [chunk_x as i32 * 16 + 1, -63, 2];
+            stream
+                .submit(
+                    sequence,
+                    inline_block_entity_event(
+                        chunk_x as i32,
+                        runtime_id,
+                        block_entity_nbt(id, position),
+                    ),
+                )
+                .unwrap();
+            sequence += 1;
+            complete_pending_decode_jobs(&mut stream);
+        }
+        let note_position = [5 * 16 + 1, -63, 2];
+        stream
+            .submit(
+                sequence,
+                inline_block_entity_event(
+                    5,
+                    1_936,
+                    idless_note_block_entity_nbt(note_position, 24, 1, 0),
+                ),
+            )
+            .unwrap();
+        sequence += 1;
+        complete_pending_decode_jobs(&mut stream);
+
+        let stats = stream.stats();
+        assert_eq!(stats.adjudicated_static_block_entities, 4);
+        assert_eq!(stats.adjudicated_logical_block_entities, 2);
+        assert_eq!(stats.deferred_block_entities, 0);
+        assert_eq!(stats.unknown_block_entities, 0);
+
+        let revision_before = stream.revisions.next_revision;
+        let pending_before = stream.pending_mesh.len();
+        let changes_before = stream.mesh_changes.len();
+        for (chunk_x, (id, _)) in routes.into_iter().enumerate() {
+            let position = [chunk_x as i32 * 16 + 1, -63, 2];
+            stream
+                .submit(
+                    sequence,
+                    WorldEvent::BlockEntityUpdate(BlockEntityUpdateEvent {
+                        dimension: 0,
+                        position,
+                        nbt: block_entity_nbt_with_marker(id, position, 1),
+                    }),
+                )
+                .unwrap();
+            sequence += 1;
+        }
+        stream
+            .submit(
+                sequence,
+                WorldEvent::BlockEntityUpdate(BlockEntityUpdateEvent {
+                    dimension: 0,
+                    position: note_position,
+                    nbt: idless_note_block_entity_nbt(note_position, 0, 0, 1),
+                }),
+            )
+            .unwrap();
+        sequence += 1;
+        complete_pending_decode_jobs(&mut stream);
+        assert_eq!(stream.revisions.next_revision, revision_before);
+        assert_eq!(stream.pending_mesh.len(), pending_before);
+        assert_eq!(stream.mesh_changes.len(), changes_before);
+        assert_eq!(stream.stats().adjudicated_static_block_entities, 4);
+        assert_eq!(stream.stats().adjudicated_logical_block_entities, 2);
+
+        let retained = stream.store.block_entity(BlockEntityKey::new(
+            0,
+            note_position[0],
+            note_position[1],
+            note_position[2],
+        ));
+        stream
+            .submit(
+                sequence,
+                WorldEvent::BlockEntityUpdate(BlockEntityUpdateEvent {
+                    dimension: 0,
+                    position: note_position,
+                    nbt: vec![10, 0, 8],
+                }),
+            )
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+        assert!(Arc::ptr_eq(
+            retained.as_ref().unwrap(),
+            &stream
+                .store
+                .block_entity(BlockEntityKey::new(
+                    0,
+                    note_position[0],
+                    note_position[1],
+                    note_position[2],
+                ))
+                .unwrap()
+        ));
+        assert_eq!(stream.stats().adjudicated_logical_block_entities, 2);
+        assert_eq!(stream.revisions.next_revision, revision_before);
+    }
+
+    #[test]
+    fn block_entity_visual_diagnostics_follow_request_eviction_and_dimension_lifecycle() {
+        let mut stream = block_entity_visual_stream();
+        let position = [1, -63, 2];
+        let key = BlockEntityKey::new(0, position[0], position[1], position[2]);
+        let mut request_payload = biome_payload(0, 1);
+        request_payload.extend(block_entity_nbt("Jukebox", position));
+        stream
+            .submit(
+                1,
+                WorldEvent::LevelChunk(LevelChunkEvent {
+                    dimension: 0,
+                    x: 0,
+                    z: 0,
+                    mode: LevelChunkMode::LimitedRequests { highest: 1 },
+                    payload: request_payload,
+                }),
+            )
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+        assert!(stream.store.block_entity(key).is_some());
+        assert_eq!(stream.stats().adjudicated_logical_block_entities, 0);
+        assert_eq!(stream.take_requests().len(), 1);
+
+        let mut payload = vec![9, 1, (-4_i8) as u8, 1];
+        payload.extend(zig_zag_i32(8_516));
+        payload.extend(block_entity_nbt("Jukebox", position));
+        stream
+            .submit(
+                2,
+                WorldEvent::SubChunks(SubChunkBatchEvent {
+                    dimension: 0,
+                    entries: vec![SubChunkEntryEvent {
+                        position: [0, -4, 0],
+                        result: SubChunkResult::Success { payload },
+                    }],
+                }),
+            )
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+        assert_eq!(stream.stats().adjudicated_logical_block_entities, 1);
+
+        stream.evict_column(ChunkKey::new(0, 0, 0));
+        assert_eq!(stream.stats().adjudicated_static_block_entities, 0);
+        assert_eq!(stream.stats().adjudicated_logical_block_entities, 0);
+        assert_eq!(stream.stats().deferred_block_entities, 0);
+        assert_eq!(stream.stats().unknown_block_entities, 0);
+
+        let position = [17, -63, 2];
+        stream
+            .submit(
+                3,
+                inline_block_entity_event(1, 7_069, block_entity_nbt("Barrel", position)),
+            )
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+        assert_eq!(stream.stats().adjudicated_static_block_entities, 1);
+        let deferred_position = [33, -63, 2];
+        stream
+            .submit(
+                4,
+                inline_block_entity_event(2, 14_039, block_entity_nbt("Chest", deferred_position)),
+            )
+            .unwrap();
+        let unknown_position = [49, -63, 2];
+        stream
+            .submit(
+                5,
+                inline_block_entity_event(3, 1_936, block_entity_nbt("Barrel", unknown_position)),
+            )
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+        assert_eq!(stream.stats().deferred_block_entities, 1);
+        assert_eq!(stream.stats().unknown_block_entities, 1);
+        stream
+            .submit(
+                6,
+                WorldEvent::ChangeDimension(ChangeDimensionEvent {
+                    dimension: 1,
+                    position: [0.0; 3],
+                }),
+            )
+            .unwrap();
+        assert_eq!(stream.stats().adjudicated_static_block_entities, 0);
+        assert_eq!(stream.stats().adjudicated_logical_block_entities, 0);
+        assert_eq!(stream.stats().deferred_block_entities, 0);
+        assert_eq!(stream.stats().unknown_block_entities, 0);
+
+        let replacement = block_entity_visual_stream();
+        assert_eq!(replacement.stats().adjudicated_static_block_entities, 0);
+        assert_eq!(replacement.stats().adjudicated_logical_block_entities, 0);
     }
 
     #[test]

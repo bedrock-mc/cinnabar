@@ -1,6 +1,6 @@
 use world::{
     BlockEntityNbt, BlockEntityNbtError, MAX_BLOCK_ENTITY_NBT_BYTES, MAX_NBT_COLLECTION_LENGTH,
-    MAX_NBT_DEPTH, MAX_NBT_STRING_BYTES,
+    MAX_NBT_DEPTH, MAX_NBT_STRING_BYTES, RootByteCandidate,
 };
 
 fn var_u32(mut value: u32, out: &mut Vec<u8>) {
@@ -64,6 +64,56 @@ fn representative_compound() -> Vec<u8> {
     zigzag_i32(0, &mut out);
     out.push(0);
     out
+}
+
+fn idless_note_nbt(note: u8, powered: u8) -> Vec<u8> {
+    let mut out = vec![10, 0];
+    named_header(1, b"note", &mut out);
+    out.push(note);
+    named_header(1, b"powered", &mut out);
+    out.push(powered);
+    out.push(0);
+    out
+}
+
+#[test]
+fn idless_note_requires_bounded_typed_note_fields() {
+    for (note, powered) in [(0, 0), (24, 1), (25, 2)] {
+        let encoded = idless_note_nbt(note, powered);
+        let (nbt, consumed) = BlockEntityNbt::decode_prefix(&encoded).expect("typed candidates");
+        assert_eq!(consumed, encoded.len());
+        assert_eq!(nbt.bytes(), encoded);
+        assert_eq!(nbt.id(), None);
+        assert_eq!(nbt.note_candidate(), RootByteCandidate::Value(note));
+        assert_eq!(nbt.powered_candidate(), RootByteCandidate::Value(powered));
+    }
+
+    let (unrelated, _) = BlockEntityNbt::decode_prefix(&[10, 0, 0]).expect("empty compound");
+    assert_eq!(unrelated.note_candidate(), RootByteCandidate::Absent);
+    assert_eq!(unrelated.powered_candidate(), RootByteCandidate::Absent);
+}
+
+#[test]
+fn note_candidates_record_wrong_types_and_duplicates_without_rejecting_other_ids() {
+    let mut encoded = vec![10, 0];
+    named_header(8, b"id", &mut encoded);
+    string(b"Chest", &mut encoded);
+    named_header(8, b"note", &mut encoded);
+    string(b"extension", &mut encoded);
+    named_header(1, b"note", &mut encoded);
+    encoded.push(7);
+    named_header(3, b"powered", &mut encoded);
+    zigzag_i32(1, &mut encoded);
+    named_header(1, b"powered", &mut encoded);
+    encoded.push(1);
+    encoded.push(0);
+
+    let (nbt, consumed) = BlockEntityNbt::decode_prefix(&encoded).expect("extension fields decode");
+    assert_eq!(consumed, encoded.len());
+    assert_eq!(nbt.bytes(), encoded);
+    assert_eq!(nbt.id(), Some("Chest"));
+    assert_eq!(nbt.note_candidate(), RootByteCandidate::Invalid);
+    assert_eq!(nbt.powered_candidate(), RootByteCandidate::Invalid);
 }
 
 #[test]

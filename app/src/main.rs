@@ -1,6 +1,7 @@
 mod actor_store;
 mod args;
 mod asset_startup;
+mod block_entity_visuals;
 mod camera;
 mod culling;
 mod environment;

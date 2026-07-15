@@ -21,6 +21,7 @@ pub use block_entity::{
     DecodedSubChunk, MAX_BLOCK_ENTITIES_PER_CHUNK, MAX_BLOCK_ENTITIES_PER_SUB_CHUNK,
     MAX_BLOCK_ENTITY_BYTES_PER_CHUNK, MAX_BLOCK_ENTITY_NBT_BYTES, MAX_BLOCK_ENTITY_TAIL_BYTES,
     MAX_NBT_COLLECTION_LENGTH, MAX_NBT_DEPTH, MAX_NBT_STRING_BYTES, MAX_NBT_TAGS,
+    RootByteCandidate,
 };
 pub use chunk::{Chunk, ChunkKey, SubChunkKey};
 pub use error::{DecodeError, MutationError};
