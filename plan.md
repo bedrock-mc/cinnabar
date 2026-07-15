@@ -1021,6 +1021,21 @@ Scope: block registry + block-state → model/texture mapping (generated export 
         16,913 block-state count. The strict-final report truthfully remains
         red at 0 proven/22 deferred: renderer implementations, gallery builders,
         per-variant witnesses, and per-ID GPU or no-draw evidence remain open.
+      - [x] Add the hash-bound runtime adjudication and lifecycle foundation for
+        the reviewed block-entity catalog. Barrel, BlastFurnace, Furnace, and
+        Smoker reuse their exact existing cube state; Jukebox and the exact
+        id-less Note candidate route to logical no-additional-draw outcomes;
+        every reviewed deferred ID requires its exact canonical backing; all
+        mismatched/unknown sequential or hashed states fail closed with
+        non-conflating route digests. Inline LevelChunk, request-mode
+        LevelChunk, and packet-56 NBT-only replacements preserve block, light,
+        mesh, connectivity, and render generations when backing/biomes are
+        unchanged, while changed backing/biomes, eviction, dimension reset,
+        and session reset retain destructive lifecycle behavior. Full affected
+        Rust/Go suites, strict Clippy/formatting, and independent re-review are
+        green through `558de41`. This is logical routing evidence only: the
+        strict-final artifact remains 0 proven/22 deferred until the required
+        per-variant GPU/no-draw witnesses below are generated and joined.
       - [ ] Implement the reviewed per-ID renderer routes and gallery builders,
         then close every required NBT-variant witness and GPU/no-draw witness so
         the block-entity strict-final gate reaches 22 proven with no deferrals.
@@ -1171,17 +1186,25 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     `highest=0` columns require no outbound slot or packet; replacement,
     eviction, direct-sky propagation, and the final mesh-light sidecar are
     covered. This fixes the live zero-skylight world while leaving block light
-    independent. The pinned opaque-RGB sun and moon textures now derive
-    coverage from their exact black key instead of their unusable all-opaque
-    alpha channel, removing the expanding black celestial quads. Full client,
-    render-atmosphere, asset, camera, strict Clippy, WGSL, and independent
-    review gates are green through `7805402`.
+    independent. Full client, render-atmosphere, asset, camera, strict Clippy,
+    WGSL, and independent review gates are green through `7805402`. That commit's
+    RGB black-key celestial workaround was later disproved by the pinned
+    near-black border texels and is superseded by the additive tranche below.
   - [x] Keep solved light level zero visibly non-black through a named
     provisional `0.04` linear ambient floor applied after independent
     block/sky/daylight combination. The floor-to-one remap preserves every
     higher light step and exact full brightness instead of flattening low
     levels; AO remains independent. Native Bedrock capture tuning of the exact
     floor remains part of final visual acceptance.
+  - [x] Composite the pinned opaque sun and all eight moon phases as emissive
+    additions rather than RGB-keyed opaque replacements. A decoded `MCBEATM1`
+    regression traverses every 32x32 tile border, covers the exact problematic
+    sun `(1,1,0)` and moon `(0,0,1)` samples against bright and dark skies,
+    preserves dark lunar detail and HDR energy, and Naga-validates the shared
+    WGSL path. Startup now emits ordered full envelope/shader SHA-256 evidence
+    without paths or payloads. Full workspace tests, strict Clippy/formatting,
+    and independent re-review are green through `384e08a`; the live all-phase
+    native/GDI comparison remains open in the visual blocker below.
 
 Perf budget carried from Phase 0 gate; add: full remesh of view distance after teleport ≤ 2s.
 
@@ -1211,6 +1234,16 @@ store it only under the user's temporary directory, inspect that file, and never
   no-vsync capture and coherent resident/frustum/submitted/GPU-completed frame
   identities; do not change culling unless those identities prove a missing
   draw.
+  - [x] Install bounded exact missing/extra key evidence through resident,
+    cave, frustum, submitted, and GPU-completed stages for one coherent
+    view/frame in both Direct and MDI paths. Acceptance defaults to FIFO;
+    Immediate is an explicit A/B whose effective mode is proven from the
+    primary surface capabilities with the same Bevy render instance/adapter,
+    while absent/failed/fallback evidence rejects the comparison. Release
+    profile, backend, adapter, and driver provenance plus PowerShell/Bash
+    contracts passed independent review through `14db67f`.
+  - [ ] Run the identical-scene release FIFO/Immediate capture, classify the
+    artifact from coherent evidence, and eliminate the proven source.
 - [ ] Make initial chunk publication and steady streaming meet the frame and
   teleport budgets without debug-only DX12 direct-draw collapse. Attribute
   decode, light-halo readiness, mesh queue wait, worker time, GPU-upload budget,
@@ -1221,11 +1254,21 @@ store it only under the user's temporary directory, inspect that file, and never
   moon textures. The acceptance test must exercise decoded pinned pixels and
   mip/filter edges, not merely string-inspect WGSL, and must prove both bodies
   against bright and dark skies across all moon phases.
+  - [x] Land the decoded-border additive composition and path-independent
+    envelope/shader identity tranche through `384e08a`.
+  - [ ] Run fresh release/GDI views against the matching native client for sun
+    and all moon phases, including horizon and filter-edge cases, before
+    closing the visible defect.
 - [ ] Replace the current infinitely thin cloud plane with a vanilla-parity
   cloud volume/layer that has visible thickness and side faces while retaining
   bounded GPU cost, world anchoring, weather/fog fades, and the existing shared
   atmosphere resource architecture. Verify from above, below, within, and at
   grazing angles against matching native reference captures.
+  - [x] Record the installed native occupancy/material/config evidence and the
+    reviewed greedy packed finite-mesh design/implementation plan in
+    `docs/superpowers/specs/2026-07-15-finite-cloud-mesh-design.md` and
+    `docs/superpowers/plans/2026-07-15-finite-cloud-mesh.md`.
+  - [ ] Implement, independently review, and live-verify the finite cloud mesh.
 
 ## Phase 3 — Movement and the local player
 
