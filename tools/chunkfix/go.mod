@@ -2,7 +2,10 @@ module github.com/hashimthearab/rust-mcbe/tools/chunkfix
 
 go 1.26.1
 
-require github.com/df-mc/dragonfly v0.10.15-0.20260709170650-b85c56ffea6b
+require (
+	github.com/df-mc/dragonfly v0.10.15-0.20260709170650-b85c56ffea6b
+	gopkg.in/yaml.v3 v3.0.1
+)
 
 require (
 	github.com/df-mc/worldupgrader v1.0.21 // indirect

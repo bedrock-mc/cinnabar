@@ -10,3 +10,5 @@ github.com/sandertv/gophertunnel v1.57.0 h1:UkgVg1xLCsOSm79rP09WmodGSHgA8M7+l4qu
 github.com/sandertv/gophertunnel v1.57.0/go.mod h1:W4VnrX9AIPIVXNDMEIKMIRj1T80EdOgdqXpGbQpyAbE=
 golang.org/x/exp v0.0.0-20250103183323-7d7fa50e5329 h1:9kj3STMvgqy3YA4VQXBrN7925ICMxD5wzMRcgA30588=
 golang.org/x/exp v0.0.0-20250103183323-7d7fa50e5329/go.mod h1:qj5a5QZpwLU2NLQudwIN5koi3beDhSAlJwa67PuM98c=
+gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=
+gopkg.in/yaml.v3 v3.0.1/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=

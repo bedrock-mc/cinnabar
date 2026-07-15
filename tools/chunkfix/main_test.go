@@ -3,13 +3,18 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestGenerateIsDeterministicAndPinned(t *testing.T) {
@@ -97,27 +102,211 @@ func TestChunkfixIsIsolatedFromWorkspaceAndCoveredByCI(t *testing.T) {
 	}
 	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", ".."))
 
-	goWork := strings.ReplaceAll(string(readFile(t, filepath.Join(repoRoot, "go.work"))), "\r\n", "\n")
-	for _, line := range strings.Split(goWork, "\n") {
-		if strings.TrimSpace(line) == "./tools/chunkfix" {
-			t.Fatal("tools/chunkfix must stay outside go.work so its pinned Dragonfly encoder is not upgraded by workspace MVS")
-		}
+	usesChunkfix, err := workspaceUsesDirectory(
+		filepath.Join(repoRoot, "go.work"),
+		repoRoot,
+		filepath.Join("tools", "chunkfix"),
+	)
+	if err != nil {
+		t.Fatalf("inspect go.work: %v", err)
+	}
+	if usesChunkfix {
+		t.Fatal("tools/chunkfix must stay outside go.work so its pinned Dragonfly encoder is not upgraded by workspace MVS")
 	}
 
-	workflow := strings.ReplaceAll(
-		string(readFile(t, filepath.Join(repoRoot, ".github", "workflows", "ci.yml"))),
-		"\r\n",
-		"\n",
+	covered, err := workflowHasIsolatedChunkfixStep(
+		readFile(t, filepath.Join(repoRoot, ".github", "workflows", "ci.yml")),
 	)
-	const isolatedStep = `        working-directory: tools/chunkfix
-        env:
-          GOWORK: "off"
-        run: |
-          go test ./... -count=1
-          go vet ./...`
-	if !strings.Contains(workflow, isolatedStep) {
+	if err != nil {
+		t.Fatalf("inspect CI workflow: %v", err)
+	}
+	if !covered {
 		t.Fatal("CI must test and vet tools/chunkfix as an isolated module with GOWORK=off")
 	}
+}
+
+func TestWorkspaceUsesDirectoryCanonicalizesUsePaths(t *testing.T) {
+	repoRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoRoot, "tools", "chunkfix"), 0o755); err != nil {
+		t.Fatalf("create chunkfix directory: %v", err)
+	}
+	goWorkPath := filepath.Join(repoRoot, "go.work")
+	absoluteChunkfix := filepath.ToSlash(filepath.Join(repoRoot, "tools", "chunkfix"))
+	tests := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{name: "desired workspace", body: "go 1.26.1\nuse ./core\n", want: false},
+		{name: "single line use", body: "go 1.26.1\nuse ./tools/chunkfix\n", want: true},
+		{name: "quoted trailing path", body: "go 1.26.1\nuse \"./tools/chunkfix/\"\n", want: true},
+		{name: "absolute path", body: "go 1.26.1\nuse " + strconv.Quote(absoluteChunkfix) + "\n", want: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := os.WriteFile(goWorkPath, []byte(test.body), 0o644); err != nil {
+				t.Fatalf("write go.work: %v", err)
+			}
+			got, err := workspaceUsesDirectory(goWorkPath, repoRoot, filepath.Join("tools", "chunkfix"))
+			if err != nil {
+				t.Fatalf("inspect go.work: %v", err)
+			}
+			if got != test.want {
+				t.Fatalf("workspaceUsesDirectory() = %t, want %t", got, test.want)
+			}
+		})
+	}
+}
+
+func TestWorkflowHasIsolatedChunkfixStepRequiresActiveVerifyStepStructure(t *testing.T) {
+	valid := `name: CI
+jobs:
+  verify:
+    steps:
+      - run: |
+          go vet ./...
+          go test ./... -count=1
+        env:
+          GOWORK: off
+        working-directory: tools/chunkfix
+`
+	tests := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{name: "harmless key ordering", body: valid, want: true},
+		{name: "wrong working directory", body: strings.Replace(valid, "working-directory: tools/chunkfix", "working-directory: tools/registrygen", 1), want: false},
+		{name: "missing working directory", body: strings.Replace(valid, "        working-directory: tools/chunkfix\n", "", 1), want: false},
+		{name: "wrong GOWORK", body: strings.Replace(valid, "GOWORK: off", "GOWORK: on", 1), want: false},
+		{name: "missing GOWORK", body: strings.Replace(valid, "        env:\n          GOWORK: off\n", "", 1), want: false},
+		{name: "missing test", body: strings.Replace(valid, "          go test ./... -count=1\n", "", 1), want: false},
+		{name: "missing vet", body: strings.Replace(valid, "          go vet ./...\n", "", 1), want: false},
+		{
+			name: "comments and unrelated literals",
+			body: `name: go test ./... -count=1 and go vet ./...
+jobs:
+  verify:
+    steps:
+      - working-directory: tools/chunkfix
+        env:
+          GOWORK: off
+        run: |
+          # go test ./... -count=1
+          echo "go vet ./..."
+`,
+			want: false,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := workflowHasIsolatedChunkfixStep([]byte(test.body))
+			if err != nil {
+				t.Fatalf("inspect workflow: %v", err)
+			}
+			if got != test.want {
+				t.Fatalf("workflowHasIsolatedChunkfixStep() = %t, want %t", got, test.want)
+			}
+		})
+	}
+}
+
+type goWorkDocument struct {
+	Use []struct {
+		DiskPath string
+	}
+}
+
+func workspaceUsesDirectory(goWorkPath, repoRoot, target string) (bool, error) {
+	cmd := exec.Command("go", "work", "edit", "-json", goWorkPath)
+	cmd.Dir = repoRoot
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return false, fmt.Errorf("parse %s: %w: %s", goWorkPath, err, strings.TrimSpace(string(output)))
+	}
+	var document goWorkDocument
+	if err := json.Unmarshal(output, &document); err != nil {
+		return false, fmt.Errorf("decode go.work JSON: %w", err)
+	}
+	targetPath, err := canonicalDirectory(repoRoot, target)
+	if err != nil {
+		return false, fmt.Errorf("canonicalize target directory: %w", err)
+	}
+	for _, use := range document.Use {
+		usePath, err := canonicalDirectory(filepath.Dir(goWorkPath), use.DiskPath)
+		if err != nil {
+			return false, fmt.Errorf("canonicalize use directory %q: %w", use.DiskPath, err)
+		}
+		if sameDirectory(usePath, targetPath) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func canonicalDirectory(base, path string) (string, error) {
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(base, path)
+	}
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(absolute), nil
+}
+
+func sameDirectory(left, right string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(left, right)
+	}
+	return left == right
+}
+
+type workflowDocument struct {
+	Jobs map[string]workflowJob `yaml:"jobs"`
+}
+
+type workflowJob struct {
+	Steps []workflowStep `yaml:"steps"`
+}
+
+type workflowStep struct {
+	WorkingDirectory string            `yaml:"working-directory"`
+	Env              map[string]string `yaml:"env"`
+	Run              string            `yaml:"run"`
+}
+
+func workflowHasIsolatedChunkfixStep(data []byte) (bool, error) {
+	var workflow workflowDocument
+	if err := yaml.Unmarshal(data, &workflow); err != nil {
+		return false, fmt.Errorf("decode workflow YAML: %w", err)
+	}
+	verify, ok := workflow.Jobs["verify"]
+	if !ok {
+		return false, nil
+	}
+	for _, step := range verify.Steps {
+		if step.WorkingDirectory != "tools/chunkfix" || step.Env["GOWORK"] != "off" {
+			continue
+		}
+		hasTest, hasVet := chunkfixCommands(step.Run)
+		if hasTest && hasVet {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func chunkfixCommands(script string) (hasTest, hasVet bool) {
+	for _, line := range strings.Split(strings.ReplaceAll(script, "\r\n", "\n"), "\n") {
+		switch strings.TrimSpace(line) {
+		case "go test ./... -count=1":
+			hasTest = true
+		case "go vet ./...":
+			hasVet = true
+		}
+	}
+	return hasTest, hasVet
 }
 
 func TestWidthFixturesUseMinimalPaletteBoundaries(t *testing.T) {
