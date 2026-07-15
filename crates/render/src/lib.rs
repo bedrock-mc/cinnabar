@@ -8,6 +8,7 @@ mod lighting;
 mod liquid;
 mod mesh;
 mod plugin;
+mod visibility_diagnostics;
 
 pub use atmosphere::{
     AtmosphereFrame, AtmosphereTextureAssets, BEDROCK_DAY_TICKS, CLOUD_SCROLL_BLOCKS_PER_TICK,
@@ -56,4 +57,9 @@ pub use plugin::{
     mdi_transparent_draw_args_for_test, plan_texture_mip_uploads, plan_texture_page_bindings,
     select_animation_frames, sort_transparent_candidates_for_test, texture_asset_needs_rebuild,
     validate_transparent_sort_ref_count,
+};
+pub use visibility_diagnostics::{
+    ExtractedCameraIdentity, ExtractedViewGenerations, MAX_VISIBILITY_DIAGNOSTIC_KEYS,
+    OpaqueDrawMode, VisibilityDiagnosticSnapshot, VisibilityDiagnostics,
+    VisibilityDiagnosticsInput, VisibilityKeyDigest,
 };

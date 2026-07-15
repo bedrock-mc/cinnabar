@@ -24,7 +24,7 @@ use bevy::{
     ecs::{
         change_detection::Tick,
         query::ROQueryItem,
-        system::{SystemParamItem, lifetimeless::Read, lifetimeless::SRes},
+        system::{SystemParam, SystemParamItem, lifetimeless::Read, lifetimeless::SRes},
     },
     mesh::Mesh,
     prelude::*,
@@ -66,6 +66,11 @@ use crate::{
     AtmosphereFrame, ChunkMesh, PackedBiomeRecord, PackedLiquidQuad, PackedModelDrawRef,
     PackedModelRef, PackedQuad, PackedQuadLighting,
     atmosphere_render::{AtmosphereGpu, install_atmosphere},
+    visibility_diagnostics::{
+        ActiveVisibilityFrameProbe, ExtractedCameraIdentity, ExtractedCameraIdentityTracker,
+        MAX_VISIBILITY_DIAGNOSTIC_KEYS, OpaqueDrawMode, VisibilityDiagnostics,
+        VisibilityDiagnosticsInput, VisibilityFrameProbe, VisibilityKeyDigest, hash_f32_words,
+    },
 };
 
 const CHUNK_SHADER_HANDLE: Handle<Shader> = uuid_handle!("b5664c91-763f-4e5c-9310-d12659f70cd4");
@@ -4132,6 +4137,8 @@ impl Plugin for DebugWorldPlugin {
         app.init_resource::<ChunkRenderQueue>()
             .init_resource::<ChunkUploadAcknowledgements>()
             .init_resource::<PresentedFrameGate>()
+            .init_resource::<VisibilityDiagnosticsInput>()
+            .init_resource::<VisibilityDiagnostics>()
             .init_resource::<ChunkEntities>()
             .init_resource::<ChunkTextureAssets>()
             .init_resource::<ChunkAnimationClock>()
@@ -4159,6 +4166,7 @@ impl Plugin for DebugWorldPlugin {
             ExtractResourcePlugin::<ChunkBiomeTints>::default(),
             ExtractResourcePlugin::<TransparentWitnessRequest>::default(),
             ExtractResourcePlugin::<ModelWitnessRequest>::default(),
+            ExtractResourcePlugin::<VisibilityDiagnosticsInput>::default(),
         ));
 
         load_internal_asset!(
@@ -4184,6 +4192,7 @@ impl Plugin for DebugWorldPlugin {
         let presented_frame_gate = app.world().resource::<PresentedFrameGate>().clone();
         let transparent_sort_metrics = app.world().resource::<TransparentSortMetrics>().clone();
         let model_workload_metrics = app.world().resource::<ModelWorkloadMetrics>().clone();
+        let visibility_diagnostics = app.world().resource::<VisibilityDiagnostics>().clone();
         let transparent_witness_evidence =
             app.world().resource::<TransparentWitnessEvidence>().clone();
 
@@ -4193,6 +4202,7 @@ impl Plugin for DebugWorldPlugin {
             .insert_resource(presented_frame_gate)
             .insert_resource(transparent_sort_metrics)
             .insert_resource(model_workload_metrics)
+            .insert_resource(visibility_diagnostics)
             .insert_resource(transparent_witness_evidence)
             .init_resource::<ChunkPipeline>()
             .init_resource::<ChunkGpuUploadStats>()
@@ -4204,6 +4214,8 @@ impl Plugin for DebugWorldPlugin {
             .init_resource::<ChunkModelIndirectBatches>()
             .init_resource::<ChunkDepthLiquidIndirectBatches>()
             .init_resource::<ActiveFrameProbe>()
+            .init_resource::<ActiveVisibilityFrameProbe>()
+            .init_resource::<ExtractedCameraIdentityTracker>()
             .init_resource::<TransparentSortRuntime>()
             .init_resource::<TransparentModelSortRuntime>()
             .init_resource::<TransparentUploadBudget>()
@@ -4846,6 +4858,43 @@ fn select_chunk_draw_mode(
     } else {
         ChunkDrawMode::Direct
     }
+}
+
+const fn diagnostic_draw_mode(draw_mode: ChunkDrawMode) -> OpaqueDrawMode {
+    match draw_mode {
+        ChunkDrawMode::Direct => OpaqueDrawMode::Direct,
+        ChunkDrawMode::MultiDrawIndirect => OpaqueDrawMode::MultiDrawIndirect,
+        ChunkDrawMode::Unsupported => OpaqueDrawMode::Unsupported,
+    }
+}
+
+fn opaque_allocation_is_drawable(allocation: &GpuChunkAllocation) -> bool {
+    indexed_indirect_command(allocation).is_some()
+        || model_direct_draw_command(allocation).is_some()
+        || depth_liquid_direct_draw_command(allocation).is_some()
+}
+
+fn extracted_camera_identity(
+    main_entity: &MainEntity,
+    view: &ExtractedView,
+) -> ExtractedCameraIdentity {
+    let world_from_view = view.world_from_view.to_matrix();
+    let clip_from_world = view
+        .clip_from_world
+        .unwrap_or(view.clip_from_view * world_from_view.inverse());
+    ExtractedCameraIdentity {
+        stable_id: main_entity.id().to_bits(),
+        pose_hash: hash_f32_words(world_from_view.to_cols_array()),
+        frustum_hash: hash_f32_words(clip_from_world.to_cols_array()),
+    }
+}
+
+#[derive(SystemParam)]
+struct QueueFrameProbeParams<'w> {
+    frame_probe: Res<'w, ActiveFrameProbe>,
+    input: Res<'w, VisibilityDiagnosticsInput>,
+    visibility_probe: Res<'w, ActiveVisibilityFrameProbe>,
+    camera_identity_tracker: ResMut<'w, ExtractedCameraIdentityTracker>,
 }
 
 fn indexed_indirect_command(allocation: &GpuChunkAllocation) -> Option<DrawIndexedIndirectArgs> {
@@ -8510,7 +8559,7 @@ fn queue_chunks(
         Res<ModelWitnessRequest>,
         Res<ModelWorkloadMetrics>,
     )>,
-    frame_probe: Res<ActiveFrameProbe>,
+    mut probes: QueueFrameProbeParams,
     mut indirect_batch_sets: ParamSet<(
         ResMut<ChunkIndirectBatches>,
         ResMut<ChunkModelIndirectBatches>,
@@ -8519,6 +8568,7 @@ fn queue_chunks(
     mut next_tick: Local<Tick>,
     mut unsupported_reported: Local<bool>,
 ) {
+    let frame_probe = &probes.frame_probe;
     model_witness_resources
         .p2()
         .begin_frame(summarize_model_workload(allocations.iter()));
@@ -8528,6 +8578,39 @@ fn queue_chunks(
         Backends::from(render_adapter.get_info().backend).contains(Backends::DX12),
         cfg!(debug_assertions),
     );
+    if probes.input.enabled() {
+        let diagnostic_view = views
+            .iter()
+            .min_by_key(|(_, main_entity, _, _, _)| main_entity.id().to_bits());
+        if let Some((_, main_entity, view, visible_entities, _)) = diagnostic_view {
+            let camera = extracted_camera_identity(main_entity, view);
+            let generations = probes.camera_identity_tracker.observe(camera);
+            let frustum_visible_opaque = VisibilityKeyDigest::from_keys(
+                visible_entities
+                    .get::<ChunkRenderInstance>()
+                    .iter()
+                    .filter_map(|(render_entity, _)| {
+                        allocations
+                            .get(*render_entity)
+                            .ok()
+                            .filter(|allocation| opaque_allocation_is_drawable(allocation))
+                            .map(|allocation| allocation.key)
+                    }),
+            );
+            probes.visibility_probe.begin(VisibilityFrameProbe::begin(
+                probes.input.clone(),
+                camera,
+                generations,
+                diagnostic_draw_mode(draw_mode),
+                frustum_visible_opaque,
+                MAX_VISIBILITY_DIAGNOSTIC_KEYS,
+            ));
+        } else {
+            probes.visibility_probe.clear();
+        }
+    } else {
+        probes.visibility_probe.clear();
+    }
     let draw_functions = draw_functions.read();
     let direct_draw = draw_functions.id::<DrawChunkCommands>();
     let indirect_draw = draw_functions.id::<DrawChunkIndirectCommands>();
@@ -8618,7 +8701,7 @@ fn queue_chunks(
                     .filter_map(|(render_entity, _)| {
                         let allocation = allocations.get(*render_entity).ok()?;
                         drawable_allocation_identity(
-                            &frame_probe,
+                            frame_probe,
                             *render_entity,
                             allocation,
                             biome_tints.table_identity(),
@@ -8640,7 +8723,7 @@ fn queue_chunks(
                     return false;
                 };
                 let Some(identity) = drawable_allocation_identity(
-                    &frame_probe,
+                    frame_probe,
                     *entity,
                     allocation,
                     biome_tints.table_identity(),
@@ -8756,7 +8839,7 @@ fn queue_chunks(
                 continue;
             };
             let Some(identity) = drawable_allocation_identity(
-                &frame_probe,
+                frame_probe,
                 render_entity,
                 allocation,
                 biome_tints.table_identity(),
@@ -9469,7 +9552,11 @@ struct DrawTransparentLiquid;
 struct DrawDepthLiquid;
 
 impl<P: PhaseItem> RenderCommand<P> for DrawDepthLiquid {
-    type Param = (SRes<ChunkGpuArena>, SRes<ActiveFrameProbe>);
+    type Param = (
+        SRes<ChunkGpuArena>,
+        SRes<ActiveFrameProbe>,
+        SRes<ActiveVisibilityFrameProbe>,
+    );
     type ViewQuery = Read<ViewUniformOffset>;
     type ItemQuery = Read<GpuChunkAllocation>;
 
@@ -9477,7 +9564,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawDepthLiquid {
         item: &P,
         view_offset: ROQueryItem<'w, '_, Self::ViewQuery>,
         allocation: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
-        (arena, frame_probe): SystemParamItem<'w, '_, Self::Param>,
+        (arena, frame_probe, visibility_probe): SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
         let arena = arena.into_inner();
@@ -9504,6 +9591,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawDepthLiquid {
             command.first_instance..command.first_instance + command.instance_count,
         );
         frame_probe.record_direct_streams(item.entity(), identity, ChunkStreamMask::LIQUID);
+        visibility_probe.into_inner().record_direct(allocation.key);
         RenderCommandResult::Success
     }
 }
@@ -9614,7 +9702,11 @@ impl<P: PhaseItem> RenderCommand<P> for DrawTransparentLiquidIndirect {
 }
 
 impl<P: PhaseItem> RenderCommand<P> for DrawPackedChunk {
-    type Param = (SRes<ChunkGpuArena>, SRes<ActiveFrameProbe>);
+    type Param = (
+        SRes<ChunkGpuArena>,
+        SRes<ActiveFrameProbe>,
+        SRes<ActiveVisibilityFrameProbe>,
+    );
     type ViewQuery = Read<ViewUniformOffset>;
     type ItemQuery = Read<GpuChunkAllocation>;
 
@@ -9622,7 +9714,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedChunk {
         item: &P,
         view_offset: ROQueryItem<'w, '_, Self::ViewQuery>,
         allocation: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
-        (arena, frame_probe): SystemParamItem<'w, '_, Self::Param>,
+        (arena, frame_probe, visibility_probe): SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
         let arena = arena.into_inner();
@@ -9661,6 +9753,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedChunk {
             cube_range.clone(),
         );
         frame_probe.record_direct_draw(item.entity(), identity);
+        visibility_probe.into_inner().record_direct(allocation.key);
         RenderCommandResult::Success
     }
 }
@@ -9668,7 +9761,11 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedChunk {
 struct DrawPackedModel;
 
 impl<P: PhaseItem> RenderCommand<P> for DrawPackedModel {
-    type Param = (SRes<ChunkGpuArena>, SRes<ActiveFrameProbe>);
+    type Param = (
+        SRes<ChunkGpuArena>,
+        SRes<ActiveFrameProbe>,
+        SRes<ActiveVisibilityFrameProbe>,
+    );
     type ViewQuery = Read<ViewUniformOffset>;
     type ItemQuery = Read<GpuChunkAllocation>;
 
@@ -9676,7 +9773,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedModel {
         item: &P,
         view_offset: ROQueryItem<'w, '_, Self::ViewQuery>,
         allocation: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
-        (arena, frame_probe): SystemParamItem<'w, '_, Self::Param>,
+        (arena, frame_probe, visibility_probe): SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
         let arena = arena.into_inner();
@@ -9703,6 +9800,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedModel {
             draw.first_instance..draw.first_instance + draw.instance_count,
         );
         frame_probe.record_direct_streams(item.entity(), identity, ChunkStreamMask::MODEL);
+        visibility_probe.into_inner().record_direct(allocation.key);
         RenderCommandResult::Success
     }
 }
@@ -9766,6 +9864,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedChunksIndirect {
         SRes<ChunkGpuArena>,
         SRes<ChunkIndirectBatches>,
         SRes<ActiveFrameProbe>,
+        SRes<ActiveVisibilityFrameProbe>,
     );
     type ViewQuery = Read<ViewUniformOffset>;
     type ItemQuery = ();
@@ -9774,7 +9873,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedChunksIndirect {
         item: &P,
         view_offset: ROQueryItem<'w, '_, Self::ViewQuery>,
         _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
-        (arena, batches, frame_probe): SystemParamItem<'w, '_, Self::Param>,
+        (arena, batches, frame_probe, visibility_probe): SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
         let arena = arena.into_inner();
@@ -9793,6 +9892,12 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedChunksIndirect {
         pass.multi_draw_indexed_indirect(&arena.indirect_buffer, indirect_offset, command_count);
         if let Some(batch) = batches.0.get(&item.entity()) {
             frame_probe.record_mdi_draws(batch.drawn_allocations.iter().copied());
+            visibility_probe.into_inner().record_mdi(
+                batch
+                    .drawn_allocations
+                    .iter()
+                    .map(|(_, identity)| identity.key),
+            );
         }
         RenderCommandResult::Success
     }
@@ -9803,6 +9908,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedModelsIndirect {
         SRes<ChunkGpuArena>,
         SRes<ChunkModelIndirectBatches>,
         SRes<ActiveFrameProbe>,
+        SRes<ActiveVisibilityFrameProbe>,
     );
     type ViewQuery = Read<ViewUniformOffset>;
     type ItemQuery = ();
@@ -9811,7 +9917,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedModelsIndirect {
         item: &P,
         view_offset: ROQueryItem<'w, '_, Self::ViewQuery>,
         _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
-        (arena, batches, frame_probe): SystemParamItem<'w, '_, Self::Param>,
+        (arena, batches, frame_probe, visibility_probe): SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
         let arena = arena.into_inner();
@@ -9834,6 +9940,12 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedModelsIndirect {
             batch.drawn_allocations.iter().copied(),
             ChunkStreamMask::MODEL,
         );
+        visibility_probe.into_inner().record_mdi(
+            batch
+                .drawn_allocations
+                .iter()
+                .map(|(_, identity)| identity.key),
+        );
         RenderCommandResult::Success
     }
 }
@@ -9845,6 +9957,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawDepthLiquidsIndirect {
         SRes<ChunkGpuArena>,
         SRes<ChunkDepthLiquidIndirectBatches>,
         SRes<ActiveFrameProbe>,
+        SRes<ActiveVisibilityFrameProbe>,
     );
     type ViewQuery = Read<ViewUniformOffset>;
     type ItemQuery = ();
@@ -9853,7 +9966,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawDepthLiquidsIndirect {
         item: &P,
         view_offset: ROQueryItem<'w, '_, Self::ViewQuery>,
         _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
-        (arena, batches, frame_probe): SystemParamItem<'w, '_, Self::Param>,
+        (arena, batches, frame_probe, visibility_probe): SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
         let arena = arena.into_inner();
@@ -9879,6 +9992,12 @@ impl<P: PhaseItem> RenderCommand<P> for DrawDepthLiquidsIndirect {
             batch.drawn_allocations.iter().copied(),
             ChunkStreamMask::LIQUID,
         );
+        visibility_probe.into_inner().record_mdi(
+            batch
+                .drawn_allocations
+                .iter()
+                .map(|(_, identity)| identity.key),
+        );
         RenderCommandResult::Success
     }
 }
@@ -9896,7 +10015,12 @@ fn submit_presented_frame_probe(
     retirement_fence: Res<TransparentRetirementFence>,
     witness_request: Res<TransparentWitnessRequest>,
     witness_evidence: Res<TransparentWitnessEvidence>,
+    visibility_probe: Res<ActiveVisibilityFrameProbe>,
+    visibility_diagnostics: Res<VisibilityDiagnostics>,
 ) {
+    if let Some(snapshot) = visibility_probe.take_completed() {
+        visibility_diagnostics.publish(snapshot);
+    }
     let completed_probe = frame_probe.take_completed().and_then(|probe| {
         presented_frame_gate
             .try_reserve_callback(&probe.expectation)

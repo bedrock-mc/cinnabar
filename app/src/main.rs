@@ -54,7 +54,8 @@ use render::{
     ChunkUploadPriority, ChunkUploadToken, DebugWorldPlugin, ModelWitnessEvidence,
     ModelWitnessManifestRecord, ModelWitnessRequest, ModelWorkloadMetrics, PresentedFrameAck,
     PresentedFrameGate, RenderViewCohort, TargetRenderExpectation, TransparentSortMetrics,
-    TransparentWitnessEvidence,
+    TransparentWitnessEvidence, VisibilityDiagnostics, VisibilityDiagnosticsInput,
+    VisibilityKeyDigest,
 };
 use server_position::SAFE_SERVER_HEIGHT;
 use sha2::{Digest, Sha256};
@@ -69,6 +70,7 @@ const GPU_UPLOAD_BUDGET_PER_FRAME: usize = 128;
 const NETWORK_INGRESS_BUDGET_PER_FRAME: usize = 32;
 const OUTBOUND_SEND_BUDGET_PER_FRAME: usize = 16;
 const TITLE_REFRESH_INTERVAL: Duration = Duration::from_millis(250);
+const VISIBILITY_DIAGNOSTIC_INTERVAL: Duration = Duration::from_secs(1);
 const OPAQUE_3D_GPU_DIAGNOSTIC: DiagnosticPath =
     DiagnosticPath::const_new("render/main_opaque_pass_3d/elapsed_gpu");
 const TRANSPARENT_3D_GPU_DIAGNOSTIC: DiagnosticPath =
@@ -1950,6 +1952,7 @@ struct MetricsSamplingState {
     rolling_fps: RollingFps,
     last_marked_transparent_sort_generation: u64,
     last_gpu_measurement_time: Option<Instant>,
+    visibility_elapsed: Duration,
 }
 
 impl RollingFps {
@@ -2127,7 +2130,8 @@ fn run(args: args::ClientArgs) -> Result<()> {
         }),
         ..default()
     }));
-    if args.acceptance_seconds.is_some() || args.metrics_out.is_some() {
+    let diagnostics_enabled = args.acceptance_seconds.is_some() || args.metrics_out.is_some();
+    if diagnostics_enabled {
         app.add_plugins(RenderDiagnosticsPlugin);
     }
     app.insert_resource(frame_limited_winit_settings(args.frame_cap))
@@ -2146,6 +2150,7 @@ fn run(args: args::ClientArgs) -> Result<()> {
         .insert_resource(startup_biome_tints(&runtime_assets))
         .insert_resource(ChunkTextureAssets::new(runtime_assets))
         .insert_resource(CaveVisibilityCache::default())
+        .insert_resource(VisibilityDiagnosticsInput::new(diagnostics_enabled))
         .insert_resource(AppMetrics(MetricsCollector::with_asset_metrics(
             asset_metrics,
         )))
@@ -2178,6 +2183,7 @@ fn run(args: args::ClientArgs) -> Result<()> {
                 update_camera_medium,
                 update_atmosphere_frame,
                 refresh_cave_visibility,
+                update_visibility_diagnostics,
                 emit_world_ready,
                 drive_model_witness,
                 record_metrics_and_title,
@@ -3269,6 +3275,24 @@ fn remove_chunk_visibility(
     }
 }
 
+fn update_visibility_diagnostics(
+    cache: Res<CaveVisibilityCache>,
+    chunks: Query<&ChunkRenderInstance>,
+    mut diagnostics: ResMut<VisibilityDiagnosticsInput>,
+) {
+    if !diagnostics.enabled() {
+        return;
+    }
+    let resident_mesh = VisibilityKeyDigest::from_keys(chunks.iter().map(ChunkRenderInstance::key));
+    let cave_visible = VisibilityKeyDigest::from_keys(
+        chunks
+            .iter()
+            .map(ChunkRenderInstance::key)
+            .filter(|&key| cache.is_visible(key)),
+    );
+    diagnostics.advance(resident_mesh, cave_visible);
+}
+
 fn lower_hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
@@ -3302,6 +3326,7 @@ fn record_metrics_and_title(
     )>,
     transparent_witness: Res<TransparentWitnessEvidence>,
     model_witness: Res<ModelWitnessEvidence>,
+    visibility_diagnostics: Res<VisibilityDiagnostics>,
     chunks: Query<&ChunkRenderInstance>,
     camera: Query<&Transform, With<FlyCamera>>,
     mut window: Query<(&mut Window, &CursorOptions), With<PrimaryWindow>>,
@@ -3330,6 +3355,40 @@ fn record_metrics_and_title(
         client_world.runtime_assets.missing_count(),
         diagnostic_quads.0.total(),
     );
+    sampling.visibility_elapsed += frame_time;
+    if sampling.visibility_elapsed >= VISIBILITY_DIAGNOSTIC_INTERVAL {
+        sampling.visibility_elapsed = Duration::ZERO;
+        let snapshot = visibility_diagnostics.snapshot();
+        if snapshot.frame_generation != 0 {
+            let marker = format!(
+                "RUST_MCBE_VISIBILITY_SNAPSHOT frame_generation={} camera={} pose_hash={:016x} camera_frustum_hash={:016x} pose_generation={} view_generation={} draw_mode={:?} resident_count={} resident_hash={:016x} cave_count={} cave_hash={:016x} frustum_count={} frustum_keys_hash={:016x} submitted_count={} submitted_hash={:016x} resident_to_cave_loss_count={} resident_to_cave_loss_hash={:016x} cave_to_frustum_loss_count={} cave_to_frustum_loss_hash={:016x} frustum_to_submitted_loss_count={} frustum_to_submitted_loss_hash={:016x} submitted_overflowed={}",
+                snapshot.frame_generation,
+                snapshot.camera.stable_id,
+                snapshot.camera.pose_hash,
+                snapshot.camera.frustum_hash,
+                snapshot.pose_generation,
+                snapshot.view_generation,
+                snapshot.draw_mode,
+                snapshot.resident_mesh.count,
+                snapshot.resident_mesh.hash,
+                snapshot.cave_visible.count,
+                snapshot.cave_visible.hash,
+                snapshot.frustum_visible_opaque.count,
+                snapshot.frustum_visible_opaque.hash,
+                snapshot.submitted_opaque.count,
+                snapshot.submitted_opaque.hash,
+                snapshot.resident_to_cave_loss.count,
+                snapshot.resident_to_cave_loss.hash,
+                snapshot.cave_to_frustum_loss.count,
+                snapshot.cave_to_frustum_loss.hash,
+                snapshot.frustum_to_submitted_loss.count,
+                snapshot.frustum_to_submitted_loss.hash,
+                snapshot.submitted_overflowed,
+            );
+            let mut stdout = std::io::stdout().lock();
+            write_stdout_marker(&mut stdout, &marker);
+        }
+    }
     let transparent_sort_snapshot =
         TransparentSortMetricsSnapshot::from(render_metrics.p0().snapshot());
     let model_workload_snapshot =

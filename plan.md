@@ -814,6 +814,23 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       must not be changed to mask it. A driver or isolated Bevy/wgpu A/B plus a
       tiny startup clear-color smoke gate remains required before native visual
       evidence can close, while deterministic GPU witnesses can continue.
+      **Visibility investigation checkpoint (2026-07-15; telemetry only):**
+      acceptance/metrics runs now publish one coherent, fixed-size diagnostic
+      snapshot for each rendered frame. It fingerprints the extracted camera
+      identity, pose, and frustum with monotonic pose/view generations; records
+      resident-mesh, cave-visible, Bevy-frustum-visible opaque, and actually
+      submitted opaque Direct/MDI key counts plus deterministic hashes; and
+      reports the three adjacent stage-loss count/hash deltas. Collection is
+      disabled outside the existing acceptance/metrics diagnostics path, emits
+      at most one aggregate marker per second, retains no per-key history, and
+      caps the transient submitted-key set at 65,536 entries with an explicit
+      overflow bit. Deterministic/empty/mutation, generation-coherence,
+      Direct/MDI-parity, and bound tests are present. This checkpoint changes no
+      culling, meshing, shader, draw-order, or presentation behavior and does
+      not establish a visibility fix. A fresh affected live run must still
+      capture consecutive `RUST_MCBE_VISIBILITY_SNAPSHOT` markers spanning the
+      symptom and identify the first nonzero adjacent loss before any repair is
+      proposed.
     - [ ] Wall-attached vine family: replace the diagnostic pink-cube fallback
       for every `minecraft:vine` direction-bit state with compact cutout face
       templates selected from its exact attachment mask, including conservative
