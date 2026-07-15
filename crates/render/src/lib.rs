@@ -60,7 +60,7 @@ pub use plugin::{
     validate_transparent_sort_ref_count,
 };
 pub use visibility_diagnostics::{
-    ExtractedCameraIdentity, ExtractedViewGenerations, MAX_VISIBILITY_DIAGNOSTIC_KEYS,
-    OpaqueDrawMode, VisibilityDiagnosticSnapshot, VisibilityDiagnostics,
-    VisibilityDiagnosticsInput, VisibilityKeyDigest,
+    ExtractedCameraIdentity, ExtractedViewGenerations, GraphicsAdapterMetadata,
+    MAX_VISIBILITY_DIAGNOSTIC_KEYS, OpaqueDrawMode, VisibilityDiagnosticSnapshot,
+    VisibilityDiagnostics, VisibilityDiagnosticsInput, VisibilityKeyDelta, VisibilityKeyDigest,
 };

@@ -27,12 +27,21 @@ done <<<"$output"
 [[ ${commands[0]} == BDS_COMMAND=* ]]
 [[ ${commands[1]} == CORE_COMMAND=* ]]
 [[ ${commands[2]} == APP_COMMAND=* ]]
-for flag in --socket-dir '--acceptance-seconds 900' --metrics-out --auto-fly --no-vsync; do
+for flag in --socket-dir '--acceptance-seconds 900' --metrics-out --auto-fly; do
     [[ ${commands[2]} == *"$flag"* ]]
 done
+[[ ${commands[2]} != *--no-vsync* ]]
+[[ $output == *'BUILD_PROFILE=release'* ]]
+[[ $output == *'REQUESTED_PRESENT_MODE=Fifo'* ]]
+[[ $output == *'EFFECTIVE_PRESENT_MODE=Fifo'* ]]
 [[ ${commands[0]} == *"'"* ]]
 [[ ! -e "$project_root/.local/acceptance/dry-run" ]]
 [[ ! -e "$metrics_out" ]]
+
+no_vsync_output="$(bash "$script" --dry-run --duration 900 --bds-dir "$bds_dir" --metrics-out "$metrics_out" --no-vsync)"
+[[ $no_vsync_output == *--no-vsync* ]]
+[[ $no_vsync_output == *'REQUESTED_PRESENT_MODE=Immediate'* ]]
+[[ $no_vsync_output == *'EFFECTIVE_PRESENT_MODE=Immediate'* ]]
 
 if bash "$script" --dry-run --duration 59 --bds-dir "$bds_dir" --metrics-out "$metrics_out" >/dev/null 2>&1; then
     echo 'duration below 60 seconds was accepted' >&2

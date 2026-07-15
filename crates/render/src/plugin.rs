@@ -68,8 +68,8 @@ use crate::{
     atmosphere_render::{AtmosphereGpu, install_atmosphere},
     visibility_diagnostics::{
         ActiveVisibilityFrameProbe, ExtractedCameraIdentity, ExtractedCameraIdentityTracker,
-        MAX_VISIBILITY_DIAGNOSTIC_KEYS, OpaqueDrawMode, VisibilityDiagnostics,
-        VisibilityDiagnosticsInput, VisibilityFrameProbe, VisibilityKeyDigest, hash_f32_words,
+        GraphicsAdapterMetadata, MAX_VISIBILITY_DIAGNOSTIC_KEYS, OpaqueDrawMode,
+        VisibilityDiagnostics, VisibilityDiagnosticsInput, VisibilityFrameProbe, hash_f32_words,
     },
 };
 
@@ -4899,11 +4899,21 @@ fn extracted_camera_identity(
 }
 
 #[derive(SystemParam)]
-struct QueueFrameProbeParams<'w> {
+struct QueueFrameProbeParams<'w, 's> {
     frame_probe: Res<'w, ActiveFrameProbe>,
     input: Res<'w, VisibilityDiagnosticsInput>,
     visibility_probe: Res<'w, ActiveVisibilityFrameProbe>,
+    diagnostics: Res<'w, VisibilityDiagnostics>,
     camera_identity_tracker: ResMut<'w, ExtractedCameraIdentityTracker>,
+    adapter_metadata_published: Local<'s, bool>,
+}
+
+fn adapter_metadata_field(value: String) -> String {
+    if value.trim().is_empty() {
+        "unavailable".to_owned()
+    } else {
+        value
+    }
 }
 
 fn indexed_indirect_command(allocation: &GpuChunkAllocation) -> Option<DrawIndexedIndirectArgs> {
@@ -8587,6 +8597,18 @@ fn queue_chunks(
         Backends::from(render_adapter.get_info().backend).contains(Backends::DX12),
         cfg!(debug_assertions),
     );
+    if probes.input.enabled() && !*probes.adapter_metadata_published {
+        let adapter_info = render_adapter.get_info();
+        probes
+            .diagnostics
+            .publish_graphics_adapter(GraphicsAdapterMetadata {
+                backend: format!("{:?}", adapter_info.backend),
+                adapter: adapter_metadata_field(adapter_info.name),
+                driver: adapter_metadata_field(adapter_info.driver),
+                driver_info: adapter_metadata_field(adapter_info.driver_info),
+            });
+        *probes.adapter_metadata_published = true;
+    }
     if probes.input.enabled() {
         let diagnostic_view = views
             .iter()
@@ -8594,18 +8616,16 @@ fn queue_chunks(
         if let Some((view_entity, main_entity, view, visible_entities, _)) = diagnostic_view {
             let camera = extracted_camera_identity(main_entity, view);
             let generations = probes.camera_identity_tracker.observe(camera);
-            let frustum_visible_opaque = VisibilityKeyDigest::from_keys(
-                visible_entities
-                    .get::<ChunkRenderInstance>()
-                    .iter()
-                    .filter_map(|(render_entity, _)| {
-                        allocations
-                            .get(*render_entity)
-                            .ok()
-                            .filter(|allocation| opaque_allocation_is_drawable(allocation))
-                            .map(|allocation| allocation.key)
-                    }),
-            );
+            let frustum_visible_opaque = visible_entities
+                .get::<ChunkRenderInstance>()
+                .iter()
+                .filter_map(|(render_entity, _)| {
+                    allocations
+                        .get(*render_entity)
+                        .ok()
+                        .filter(|allocation| opaque_allocation_is_drawable(allocation))
+                        .map(|allocation| allocation.key)
+                });
             probes
                 .visibility_probe
                 .begin(VisibilityFrameProbe::begin_for_view(
@@ -10065,9 +10085,7 @@ fn submit_presented_frame_probe(
     visibility_probe: Res<ActiveVisibilityFrameProbe>,
     visibility_diagnostics: Res<VisibilityDiagnostics>,
 ) {
-    if let Some(snapshot) = visibility_probe.take_completed() {
-        visibility_diagnostics.publish(snapshot);
-    }
+    let visibility_snapshot = visibility_probe.take_completed();
     let completed_probe = frame_probe.take_completed().and_then(|probe| {
         presented_frame_gate
             .try_reserve_callback(&probe.expectation)
@@ -10115,6 +10133,7 @@ fn submit_presented_frame_probe(
         && transparent_generation.is_none()
         && retirement_epoch.is_none()
         && witness_token.is_none()
+        && visibility_snapshot.is_none()
     {
         if let Err(error) = render_device.poll(PollType::Poll) {
             bevy::log::warn!(
@@ -10134,7 +10153,11 @@ fn submit_presented_frame_probe(
     let callback_transparent_fence = transparent_fence.clone();
     let callback_retirement_fence = retirement_fence.clone();
     let callback_witness_evidence = witness_evidence.clone();
+    let callback_visibility_diagnostics = visibility_diagnostics.clone();
     command_buffer.on_submitted_work_done(move || {
+        if let Some(snapshot) = visibility_snapshot {
+            callback_visibility_diagnostics.publish(snapshot.gpu_completed());
+        }
         if let Some(completed_probe) = completed_probe {
             callback_gate.publish_reserved_probe(
                 completed_probe,
@@ -10170,6 +10193,7 @@ mod tests {
         sync::{Arc, OnceLock},
     };
 
+    use crate::VisibilityKeyDigest;
     use assets::{
         BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, Material, NO_ANIMATION,
         NO_MODEL_TEMPLATE, NetworkIdMode, TextureMip, TexturePage, TextureRef, VisualKind,
@@ -13776,6 +13800,16 @@ mod tests {
         );
     }
 
+    #[test]
+    fn blank_adapter_fields_are_recorded_as_unavailable() {
+        assert_eq!(adapter_metadata_field(String::new()), "unavailable");
+        assert_eq!(adapter_metadata_field("  ".to_owned()), "unavailable");
+        assert_eq!(
+            adapter_metadata_field("driver 1.2".to_owned()),
+            "driver 1.2"
+        );
+    }
+
     fn assert_indirect_view_query_is_static<C>()
     where
         C: RenderCommand<Opaque3d, ViewQuery = OpaqueChunkViewQuery>,
@@ -13793,8 +13827,7 @@ mod tests {
         keys: [SubChunkKey; 2],
     ) -> ActiveVisibilityFrameProbe {
         let mut input = VisibilityDiagnosticsInput::new(true);
-        let digest = VisibilityKeyDigest::from_keys(keys);
-        input.advance(digest, digest);
+        input.advance(keys, keys);
         let active = ActiveVisibilityFrameProbe::default();
         active.begin(VisibilityFrameProbe::begin_for_view(
             input,
@@ -13806,7 +13839,7 @@ mod tests {
             },
             crate::ExtractedViewGenerations::new(1, 1),
             draw_mode,
-            digest,
+            keys,
             8,
         ));
         active

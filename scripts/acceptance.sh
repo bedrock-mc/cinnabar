@@ -6,7 +6,7 @@ pinned_valentine_commit='6f6806e821a579c183c44d786f76d9b358a2b825'
 
 usage() {
     cat >&2 <<'EOF'
-usage: scripts/acceptance.sh --duration SECONDS (--bds-dir PATH | --upstream HOST:PORT) --metrics-out PATH [--mutation-command PATH] [--dry-run]
+usage: scripts/acceptance.sh --duration SECONDS (--bds-dir PATH | --upstream HOST:PORT) --metrics-out PATH [--mutation-command PATH] [--no-vsync] [--dry-run]
 
 When --upstream is used for a live run, --mutation-command is required. The executable
 receives each complete BDS console command as its single argument and must relay it to
@@ -256,6 +256,7 @@ upstream=''
 metrics_out=''
 mutation_command=''
 dry_run=false
+no_vsync=false
 while (( $# )); do
     case "$1" in
         --duration) [[ $# -ge 2 ]] || { usage; exit 2; }; duration=$2; shift 2 ;;
@@ -263,6 +264,7 @@ while (( $# )); do
         --upstream) [[ $# -ge 2 ]] || { usage; exit 2; }; upstream=$2; shift 2 ;;
         --metrics-out) [[ $# -ge 2 ]] || { usage; exit 2; }; metrics_out=$2; shift 2 ;;
         --mutation-command) [[ $# -ge 2 ]] || { usage; exit 2; }; mutation_command=$2; shift 2 ;;
+        --no-vsync) no_vsync=true; shift ;;
         --dry-run) dry_run=true; shift ;;
         -h|--help) usage; exit 0 ;;
         *) usage; die "unknown argument: $1" ;;
@@ -319,12 +321,23 @@ else
     bds_command=(external-upstream "$upstream")
 fi
 core_command=("$core_executable" -socket-dir "$socket_dir" -upstream "$initial_upstream")
-app_command=("$app_executable" --socket-dir "$socket_dir" --acceptance-seconds "$duration" --metrics-out "$canonical_metrics" --auto-fly --no-vsync)
+app_command=("$app_executable" --socket-dir "$socket_dir" --acceptance-seconds "$duration" --metrics-out "$canonical_metrics" --auto-fly)
+if [[ $no_vsync == true ]]; then
+    app_command+=(--no-vsync)
+fi
 
 if [[ $dry_run == true ]]; then
     printf 'BDS_COMMAND=%s\n' "$(format_command "${bds_command[@]}")"
     printf 'CORE_COMMAND=%s\n' "$(format_command "${core_command[@]}")"
     printf 'APP_COMMAND=%s\n' "$(format_command "${app_command[@]}")"
+    printf 'BUILD_PROFILE=release\n'
+    if [[ $no_vsync == true ]]; then
+        printf 'REQUESTED_PRESENT_MODE=Immediate\n'
+        printf 'EFFECTIVE_PRESENT_MODE=Immediate\n'
+    else
+        printf 'REQUESTED_PRESENT_MODE=Fifo\n'
+        printf 'EFFECTIVE_PRESENT_MODE=Fifo\n'
+    fi
     exit 0
 fi
 
@@ -475,6 +488,7 @@ os_description=$(uname -a 2>/dev/null || printf unknown)
 cpu_description=$(sysctl -n machdep.cpu.brand_string 2>/dev/null || awk -F: '/model name/{sub(/^ /,"",$2); print $2; exit}' /proc/cpuinfo 2>/dev/null || printf unknown)
 gpu_description=$(system_profiler SPDisplaysDataType 2>/dev/null || printf unavailable)
 run_started_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+runtime_metadata_json="$run_dir/runtime-metadata.json"
 
 write_command_manifest() {
     local temporary="$run_dir/commands.txt.tmp.$$"
@@ -506,6 +520,8 @@ write_metadata() {
     export RUST_MCBE_META_CPU="$cpu_description"
     export RUST_MCBE_META_GPU="$gpu_description"
     export RUST_MCBE_META_DURATION="$duration"
+    export RUST_MCBE_META_NO_VSYNC="$no_vsync"
+    export RUST_MCBE_META_RUNTIME_PATH="$runtime_metadata_json"
     python3 - "$run_dir/metadata.json" <<'PY'
 import datetime, json, os, sys
 keys = {
@@ -528,8 +544,17 @@ metadata = {name: os.environ[source] for name, source in keys.items()}
 metadata.update({
     "duration_seconds": int(os.environ["RUST_MCBE_META_DURATION"]),
     "build_app_command": "cargo build --release -p bedrock-client --locked",
+    "build_profile": "release",
     "build_core_command": "go build -trimpath -o target/release/bedrock-core ./core/cmd/bedrock-core",
+    "use_vsync": os.environ["RUST_MCBE_META_NO_VSYNC"] != "true",
+    "no_vsync_ab": os.environ["RUST_MCBE_META_NO_VSYNC"] == "true",
+    "requested_present_mode": "Immediate" if os.environ["RUST_MCBE_META_NO_VSYNC"] == "true" else "Fifo",
+    "effective_present_mode": "Immediate" if os.environ["RUST_MCBE_META_NO_VSYNC"] == "true" else "Fifo",
 })
+runtime_path = os.environ["RUST_MCBE_META_RUNTIME_PATH"]
+if os.path.isfile(runtime_path):
+    with open(runtime_path, encoding="utf-8") as source:
+        metadata.update(json.load(source))
 if os.environ["RUST_MCBE_META_EXIT_CODE"]:
     metadata["exit_code"] = int(os.environ["RUST_MCBE_META_EXIT_CODE"])
 if metadata["status"] in {"passed", "failed"}:
@@ -603,7 +628,7 @@ while [[ ! -S $endpoint ]]; do
     sleep 0.1
 done
 
-(cd "$project_root" && exec "$app_executable" --socket-dir "$socket_dir" --acceptance-seconds "$duration" --metrics-out "$canonical_metrics" --auto-fly --no-vsync >"$run_dir/app.stdout.log" 2>"$run_dir/app.stderr.log" 6>&- 8>&- 9>&-) &
+(cd "$project_root" && exec "${app_command[@]}" >"$run_dir/app.stdout.log" 2>"$run_dir/app.stderr.log" 6>&- 8>&- 9>&-) &
 app_pid=$!
 wait_for_marker "$run_dir/app.stdout.log" 'RUST_MCBE_MUTATION_COORDINATE=' 180 "$app_pid"
 wait_for_marker "$run_dir/app.stdout.log" 'RUST_MCBE_WORLD_READY ' 180 "$app_pid"
@@ -651,6 +676,57 @@ while kill -0 "$app_pid" 2>/dev/null; do
 done
 wait "$app_pid" || die "app exited unsuccessfully (logs: $run_dir/app.stdout.log, $run_dir/app.stderr.log)"
 app_pid=''
+
+python3 - "$run_dir/app.stdout.log" "$run_dir/app.stderr.log" "$runtime_metadata_json" "$no_vsync" <<'PY'
+import json, os, sys
+stdout_path, stderr_path, output_path, no_vsync = sys.argv[1:]
+prefix = "RUST_MCBE_ACCEPTANCE_RUNTIME_METADATA="
+with open(stdout_path, encoding="utf-8") as source:
+    markers = [line.rstrip("\n")[len(prefix):] for line in source if line.startswith(prefix)]
+if len(markers) != 1:
+    raise SystemExit(f"expected exactly one acceptance runtime metadata marker, found {len(markers)}")
+runtime = json.loads(markers[0])
+required = {
+    "build_profile", "requested_present_mode", "effective_present_mode",
+    "backend", "adapter", "driver", "driver_info",
+}
+missing = sorted(name for name in required if not str(runtime.get(name, "")).strip())
+if missing:
+    raise SystemExit("acceptance runtime metadata is missing: " + ", ".join(missing))
+expected_mode = "Immediate" if no_vsync == "true" else "Fifo"
+fallback_marker = "PresentMode Immediate requested but not available. Falling back to Fifo"
+with open(stdout_path, encoding="utf-8") as source:
+    stdout_text = source.read()
+with open(stderr_path, encoding="utf-8") as source:
+    stderr_text = source.read()
+effective_mode = runtime["effective_present_mode"]
+if runtime["requested_present_mode"] == "Immediate" and (
+    fallback_marker in stdout_text or fallback_marker in stderr_text
+):
+    effective_mode = "Fifo"
+if runtime["build_profile"] != "release":
+    raise SystemExit(f"acceptance requires a release client, observed {runtime['build_profile']}")
+metadata = {
+    "build_profile": runtime["build_profile"],
+    "requested_present_mode": runtime["requested_present_mode"],
+    "effective_present_mode": effective_mode,
+    "graphics_backend": runtime["backend"],
+    "graphics_adapter": runtime["adapter"],
+    "graphics_driver": runtime["driver"],
+    "graphics_driver_info": runtime["driver_info"],
+}
+temporary = output_path + ".tmp"
+with open(temporary, "w", encoding="utf-8") as output:
+    json.dump(metadata, output, indent=2, sort_keys=True)
+    output.write("\n")
+os.replace(temporary, output_path)
+if runtime["requested_present_mode"] != expected_mode or effective_mode != expected_mode:
+    raise SystemExit(
+        "acceptance present mode mismatch: "
+        f"expected={expected_mode} requested={runtime['requested_present_mode']} "
+        f"effective={effective_mode}"
+    )
+PY
 
 python3 - "$canonical_metrics" "$duration" <<'PY'
 import json, math, platform, sys

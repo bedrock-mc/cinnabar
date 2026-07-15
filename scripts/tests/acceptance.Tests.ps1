@@ -420,7 +420,10 @@ try {
     Assert-True ($commands[0] -match '^BDS_COMMAND=') 'BDS command was not first'
     Assert-True ($commands[1] -match '^CORE_COMMAND=') 'core command was not second'
     Assert-True ($commands[2] -match '^APP_COMMAND=') 'app command was not third'
-    Assert-True ($success.Output.Count -eq 3) 'default dry-run output changed'
+    Assert-True ($success.Output.Count -eq 6) 'default dry-run output changed'
+    Assert-True ($success.Output -contains 'BUILD_PROFILE=release') 'default dry-run did not identify the release profile'
+    Assert-True ($success.Output -contains 'REQUESTED_PRESENT_MODE=Fifo') 'default dry-run did not request FIFO'
+    Assert-True ($success.Output -contains 'EFFECTIVE_PRESENT_MODE=Fifo') 'default dry-run did not record effective FIFO'
     $expectedRuntimeDirectory = Join-Path (Join-Path $ProjectRoot '.local\bds-runtime') (Split-Path -Leaf $BdsDir)
     $expectedSocketDirectory = Join-Path $DryRunDirectory 'socket'
     $expectedCanonicalMetrics = Join-Path $DryRunDirectory 'app-metrics.json'
@@ -437,22 +440,32 @@ try {
                 '--socket-dir', $expectedSocketDirectory,
                 '--acceptance-seconds', '900',
                 '--metrics-out', $expectedCanonicalMetrics,
-                '--auto-fly',
-                '--no-vsync'
+                '--auto-fly'
             )))
     )
     Assert-Equal `
         ($expectedCommands -join [Environment]::NewLine) `
         ($commands -join [Environment]::NewLine) `
         'default dry-run commands changed'
-    foreach ($flag in @('--socket-dir', '--acceptance-seconds 900', '--metrics-out', '--auto-fly', '--no-vsync')) {
+    foreach ($flag in @('--socket-dir', '--acceptance-seconds 900', '--metrics-out', '--auto-fly')) {
         Assert-True ($commands[2].Contains($flag)) "app command is missing $flag"
     }
+    Assert-True (-not $commands[2].Contains('--no-vsync')) 'default acceptance bypassed FIFO'
     Assert-True (-not $commands[2].Contains('--assets')) 'default app command unexpectedly gained --assets'
     Assert-True (-not ($success.Output -match '^VISUAL_FIXTURE_POSE=')) 'default dry-run recorded a fixture pose'
     Assert-True ($commands[0].Contains('"')) 'path containing spaces was not quoted'
     Assert-True (-not (Test-Path -LiteralPath $DryRunDirectory)) 'dry-run created its run directory'
     Assert-True (-not (Test-Path -LiteralPath $MetricsOut)) 'dry-run wrote metrics'
+
+    $noVsyncDryRun = Invoke-Acceptance -Arguments @(
+        '-DryRun', '-DurationSeconds', '900', '-BdsDir', $BdsDir,
+        '-MetricsOut', $MetricsOut, '-NoVsync'
+    )
+    Assert-True ($noVsyncDryRun.ExitCode -eq 0) "explicit no-vsync dry-run failed: $($noVsyncDryRun.Output -join [Environment]::NewLine)"
+    $noVsyncAppCommand = @($noVsyncDryRun.Output | Where-Object { $_ -match '^APP_COMMAND=' })
+    Assert-True ($noVsyncAppCommand[0].Contains('--no-vsync')) 'explicit no-vsync A/B lost its app flag'
+    Assert-True ($noVsyncDryRun.Output -contains 'REQUESTED_PRESENT_MODE=Immediate') 'explicit no-vsync request was not recorded'
+    Assert-True ($noVsyncDryRun.Output -contains 'EFFECTIVE_PRESENT_MODE=Immediate') 'explicit no-vsync effective policy was not recorded'
 
     $sharedRuntimeDirectory = Join-Path $TempRoot 'approved shared BDS runtime'
     $sharedRuntimeDryRun = Invoke-Acceptance -Arguments @(
@@ -486,7 +499,7 @@ try {
     Assert-True ($frontAppCommand.Count -eq 1) 'front fixture dry-run did not emit one app command'
     Assert-True ($frontAppCommand[0].Contains("--assets `"$((Resolve-Path -LiteralPath $Assets).Path)`"")) 'front fixture app command did not include the resolved assets path'
     Assert-True (-not $frontAppCommand[0].Contains('--auto-fly')) 'front fixture app command retained --auto-fly'
-    Assert-True ($frontAppCommand[0].Contains('--no-vsync')) 'front fixture app command lost --no-vsync'
+    Assert-True (-not $frontAppCommand[0].Contains('--no-vsync')) 'front fixture bypassed default FIFO'
     Assert-True ($frontDryRun.Output -contains 'VISUAL_FIXTURE_POSE=Front') 'front fixture dry-run did not record its pose'
 
     $backDryRun = Invoke-Acceptance -Arguments @(
@@ -849,6 +862,23 @@ try {
     finally {
         Remove-Item Env:RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY -ErrorAction SilentlyContinue
     }
+
+    $runtimeMetadataMarker = ConvertFrom-AcceptanceRuntimeMetadataMarker -Line 'RUST_MCBE_ACCEPTANCE_RUNTIME_METADATA={"build_profile":"release","requested_present_mode":"Fifo","effective_present_mode":"Fifo","backend":"Dx12","adapter":"Test Adapter","driver":"test-driver","driver_info":"1.2.3"}'
+    Assert-Equal 'release' $runtimeMetadataMarker.build_profile 'runtime metadata lost build profile'
+    Assert-Equal 'Fifo' $runtimeMetadataMarker.effective_present_mode 'runtime metadata lost effective present mode'
+    Assert-Equal 'Dx12' $runtimeMetadataMarker.backend 'runtime metadata lost backend'
+    Assert-Equal 'Test Adapter' $runtimeMetadataMarker.adapter 'runtime metadata lost adapter'
+    Assert-Equal 'test-driver' $runtimeMetadataMarker.driver 'runtime metadata lost driver'
+    Assert-Equal 'Immediate' (Resolve-EffectiveAcceptancePresentMode `
+        -RequestedPresentMode 'Immediate' `
+        -ReportedEffectivePresentMode 'Immediate') 'available Immediate mode was not preserved'
+    Assert-Equal 'Fifo' (Resolve-EffectiveAcceptancePresentMode `
+        -RequestedPresentMode 'Immediate' `
+        -ReportedEffectivePresentMode 'Immediate' `
+        -StderrText 'PresentMode Immediate requested but not available. Falling back to Fifo') 'Immediate fallback was not resolved to FIFO'
+    Assert-Throws {
+        ConvertFrom-AcceptanceRuntimeMetadataMarker -Line 'RUST_MCBE_ACCEPTANCE_RUNTIME_METADATA={"build_profile":"debug"}'
+    } 'incomplete runtime metadata was accepted'
 
     $crossCropPlan = New-CrossCropGalleryPlan `
         -MutationCoordinate @(100, 64, 200) `

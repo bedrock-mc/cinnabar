@@ -18,6 +18,7 @@ param(
     [string]$ClientExecutable,
     [switch]$SkipClientBuild,
     [switch]$UseVsync,
+    [switch]$NoVsync,
     [string]$SteadyResourceTrigger
 )
 
@@ -5648,6 +5649,63 @@ function Assert-AcceptanceMetrics {
     return $metrics
 }
 
+function ConvertFrom-AcceptanceRuntimeMetadataMarker {
+    param([Parameter(Mandatory = $true)][string]$Line)
+
+    $prefix = 'RUST_MCBE_ACCEPTANCE_RUNTIME_METADATA='
+    if (-not $Line.StartsWith($prefix, [StringComparison]::Ordinal)) {
+        throw 'invalid acceptance runtime metadata marker prefix'
+    }
+    try {
+        $document = $Line.Substring($prefix.Length) | ConvertFrom-Json
+    }
+    catch {
+        throw "invalid acceptance runtime metadata JSON: $($_.Exception.Message)"
+    }
+    foreach ($field in @(
+        'build_profile', 'requested_present_mode', 'effective_present_mode',
+        'backend', 'adapter', 'driver', 'driver_info'
+    )) {
+        if ($null -eq $document.PSObject.Properties[$field] -or
+            [string]::IsNullOrWhiteSpace([string]$document.$field)) {
+            throw "acceptance runtime metadata is missing $field"
+        }
+    }
+    return $document
+}
+
+function Read-AcceptanceRuntimeMetadata {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $lines = @(
+        Get-Content -LiteralPath $Path |
+            Where-Object { $_.StartsWith('RUST_MCBE_ACCEPTANCE_RUNTIME_METADATA=', [StringComparison]::Ordinal) }
+    )
+    if ($lines.Count -ne 1) {
+        throw "expected exactly one acceptance runtime metadata marker, found $($lines.Count)"
+    }
+    return ConvertFrom-AcceptanceRuntimeMetadataMarker -Line $lines[0]
+}
+
+function Resolve-EffectiveAcceptancePresentMode {
+    param(
+        [Parameter(Mandatory = $true)][string]$RequestedPresentMode,
+        [Parameter(Mandatory = $true)][string]$ReportedEffectivePresentMode,
+        [string]$StdoutText = '',
+        [string]$StderrText = ''
+    )
+
+    if ($RequestedPresentMode -cne 'Immediate') {
+        return $ReportedEffectivePresentMode
+    }
+    $fallbackMarker = 'PresentMode Immediate requested but not available. Falling back to Fifo'
+    if ($StdoutText.IndexOf($fallbackMarker, [StringComparison]::Ordinal) -ge 0 -or
+        $StderrText.IndexOf($fallbackMarker, [StringComparison]::Ordinal) -ge 0) {
+        return 'Fifo'
+    }
+    return $ReportedEffectivePresentMode
+}
+
 if ($env:RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY -eq '1') {
     return
 }
@@ -5696,20 +5754,17 @@ if ($LeafForestBaseline) {
     if (-not $SkipClientBuild) {
         throw 'LeafForestBaseline requires ClientExecutable and SkipClientBuild'
     }
-    if (-not $UseVsync) {
-        throw 'LeafForestBaseline requires UseVsync'
-    }
     if ([string]$SteadyResourceTrigger -cne 'WorldReady') {
         throw 'LeafForestBaseline requires SteadyResourceTrigger WorldReady'
     }
 }
 if ($isDeterministicGallery) {
-    if (-not $UseVsync) {
-        throw 'deterministic gallery modes require UseVsync'
-    }
     if ([string]$SteadyResourceTrigger -cne 'VisualFixtureReady') {
         throw 'deterministic gallery modes require SteadyResourceTrigger VisualFixtureReady'
     }
+}
+if ($UseVsync -and $NoVsync) {
+    throw 'UseVsync and NoVsync cannot be combined'
 }
 if ($LeafForestFullView -and [string]$SteadyResourceTrigger -cne 'FullViewPresented') {
     throw 'LeafForestFullView requires SteadyResourceTrigger FullViewPresented'
@@ -5862,7 +5917,7 @@ if ($VisualFixturePose -eq 'None' -and -not $FullViewTeleportGate -and -not $Lea
 if ($FullViewTeleportGate) {
     $AppArguments += @('--full-view-teleport-gate', '--frame-cap', '60')
 }
-elseif (-not $UseVsync) {
+if ($NoVsync) {
     $AppArguments += '--no-vsync'
 }
 $BdsCommand = Format-ResolvedCommand $BdsExecutable $BdsArguments
@@ -5873,6 +5928,15 @@ if ($DryRun) {
     Write-Output "BDS_COMMAND=$BdsCommand"
     Write-Output "CORE_COMMAND=$CoreCommand"
     Write-Output "APP_COMMAND=$AppCommand"
+    Write-Output 'BUILD_PROFILE=release'
+    if ($NoVsync) {
+        Write-Output 'REQUESTED_PRESENT_MODE=Immediate'
+        Write-Output 'EFFECTIVE_PRESENT_MODE=Immediate'
+    }
+    else {
+        Write-Output 'REQUESTED_PRESENT_MODE=Fifo'
+        Write-Output 'EFFECTIVE_PRESENT_MODE=Fifo'
+    }
     if ($VisualFixturePose -ne 'None') {
         Write-Output "VISUAL_FIXTURE_POSE=$VisualFixturePose"
     }
@@ -5986,9 +6050,13 @@ try {
         bds_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $BdsSourceExecutable).Hash.ToLowerInvariant()
         duration_seconds = $DurationSeconds
         build_app_command = if ($SkipClientBuild) { $null } else { 'cargo build --release -p bedrock-client --locked' }
+        build_profile = 'release'
         client_executable = $AppExecutable
         skip_client_build = [bool]$SkipClientBuild
-        use_vsync = [bool]$UseVsync
+        use_vsync = -not [bool]$NoVsync
+        no_vsync_ab = [bool]$NoVsync
+        requested_present_mode = if ($NoVsync) { 'Immediate' } else { 'Fifo' }
+        effective_present_mode = if ($NoVsync) { 'Immediate' } else { 'Fifo' }
         steady_resource_trigger = $EffectiveSteadyResourceTrigger
         build_core_command = Format-ResolvedCommand 'go' @('build', '-trimpath', '-o', $CoreExecutable, './core/cmd/bedrock-core')
         bds_command = $BdsCommand
@@ -6547,6 +6615,27 @@ try {
     }
     if ($appHandle.Process.ExitCode -ne 0) {
         throw "app exited with code $($appHandle.Process.ExitCode)"
+    }
+    $runtimeMetadata = Read-AcceptanceRuntimeMetadata -Path $appHandle.StdoutPath
+    $expectedPresentMode = if ($NoVsync) { 'Immediate' } else { 'Fifo' }
+    $effectivePresentMode = Resolve-EffectiveAcceptancePresentMode `
+        -RequestedPresentMode ([string]$runtimeMetadata.requested_present_mode) `
+        -ReportedEffectivePresentMode ([string]$runtimeMetadata.effective_present_mode) `
+        -StdoutText (Get-Content -Raw -LiteralPath $appHandle.StdoutPath) `
+        -StderrText (Get-Content -Raw -LiteralPath $appHandle.StderrPath)
+    $metadata['build_profile'] = [string]$runtimeMetadata.build_profile
+    $metadata['requested_present_mode'] = [string]$runtimeMetadata.requested_present_mode
+    $metadata['effective_present_mode'] = $effectivePresentMode
+    $metadata['graphics_backend'] = [string]$runtimeMetadata.backend
+    $metadata['graphics_adapter'] = [string]$runtimeMetadata.adapter
+    $metadata['graphics_driver'] = [string]$runtimeMetadata.driver
+    $metadata['graphics_driver_info'] = [string]$runtimeMetadata.driver_info
+    if ([string]$runtimeMetadata.build_profile -cne 'release') {
+        throw "acceptance requires a release client, observed $($runtimeMetadata.build_profile)"
+    }
+    if ([string]$runtimeMetadata.requested_present_mode -cne $expectedPresentMode -or
+        $effectivePresentMode -cne $expectedPresentMode) {
+        throw "acceptance present mode mismatch: expected=$expectedPresentMode requested=$($runtimeMetadata.requested_present_mode) effective=$effectivePresentMode"
     }
     if ($hasClientExecutable) {
         Assert-FileHashUnchanged -Path $AppExecutable -ExpectedSha256 $PrebuiltClientSha256 -Label 'prebuilt client after acceptance run'

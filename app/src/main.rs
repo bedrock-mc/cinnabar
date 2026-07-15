@@ -56,7 +56,7 @@ use render::{
     ModelWitnessEvidence, ModelWitnessManifestRecord, ModelWitnessRequest, ModelWorkloadMetrics,
     PresentedFrameAck, PresentedFrameGate, RenderViewCohort, TargetRenderExpectation,
     TransparentSortMetrics, TransparentWitnessEvidence, VisibilityDiagnostics,
-    VisibilityDiagnosticsInput, VisibilityKeyDigest,
+    VisibilityDiagnosticsInput, VisibilityKeyDelta, VisibilityKeyDigest,
 };
 use server_position::SAFE_SERVER_HEIGHT;
 use sha2::{Digest, Sha256};
@@ -1954,6 +1954,14 @@ struct MetricsSamplingState {
     last_marked_transparent_sort_generation: u64,
     last_gpu_measurement_time: Option<Instant>,
     visibility_elapsed: Duration,
+    runtime_metadata_emitted: bool,
+}
+
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
+struct AcceptanceRuntimeConfig {
+    build_profile: &'static str,
+    requested_present_mode: &'static str,
+    effective_present_mode: &'static str,
 }
 
 impl RollingFps {
@@ -2116,10 +2124,15 @@ fn run(args: args::ClientArgs) -> Result<()> {
         display_name: args.display_name.clone(),
     })
     .context("spawn Bedrock network worker")?;
-    let present_mode = if args.no_vsync {
-        PresentMode::AutoNoVsync
-    } else {
-        PresentMode::AutoVsync
+    let present_mode = requested_present_mode(args.no_vsync);
+    let runtime_config = AcceptanceRuntimeConfig {
+        build_profile: if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "release"
+        },
+        requested_present_mode: if args.no_vsync { "Immediate" } else { "Fifo" },
+        effective_present_mode: if args.no_vsync { "Immediate" } else { "Fifo" },
     };
 
     let mut app = App::new();
@@ -2152,6 +2165,7 @@ fn run(args: args::ClientArgs) -> Result<()> {
         .insert_resource(ChunkTextureAssets::new(runtime_assets))
         .insert_resource(CaveVisibilityCache::default())
         .insert_resource(VisibilityDiagnosticsInput::new(diagnostics_enabled))
+        .insert_resource(runtime_config)
         .insert_resource(AppMetrics(MetricsCollector::with_asset_metrics(
             asset_metrics,
         )))
@@ -3284,13 +3298,11 @@ fn update_visibility_diagnostics(
     if !diagnostics.enabled() {
         return;
     }
-    let resident_mesh = VisibilityKeyDigest::from_keys(chunks.iter().map(ChunkRenderInstance::key));
-    let cave_visible = VisibilityKeyDigest::from_keys(
-        chunks
-            .iter()
-            .map(ChunkRenderInstance::key)
-            .filter(|&key| cache.is_visible(key)),
-    );
+    let resident_mesh = chunks.iter().map(ChunkRenderInstance::key);
+    let cave_visible = chunks
+        .iter()
+        .map(ChunkRenderInstance::key)
+        .filter(|&key| cache.is_visible(key));
     diagnostics.advance(resident_mesh, cave_visible);
 }
 
@@ -3328,12 +3340,21 @@ fn record_metrics_and_title(
     transparent_witness: Res<TransparentWitnessEvidence>,
     model_witness: Res<ModelWitnessEvidence>,
     visibility_diagnostics: Res<VisibilityDiagnostics>,
+    runtime_config: Res<AcceptanceRuntimeConfig>,
     chunks: Query<&ChunkRenderInstance>,
     camera: Query<&Transform, With<FlyCamera>>,
     mut window: Query<(&mut Window, &CursorOptions), With<PrimaryWindow>>,
     mut sampling: Local<MetricsSamplingState>,
 ) {
     let now = Instant::now();
+    if !sampling.runtime_metadata_emitted
+        && let Some(graphics_adapter) = visibility_diagnostics.graphics_adapter()
+    {
+        let marker = acceptance_runtime_metadata_marker(*runtime_config, &graphics_adapter);
+        let mut stdout = std::io::stdout().lock();
+        write_stdout_marker(&mut stdout, &marker);
+        sampling.runtime_metadata_emitted = true;
+    }
     let gpu_sample = {
         let diagnostics = render_metrics.p2();
         pair_gpu_pass_sample(
@@ -3361,12 +3382,8 @@ fn record_metrics_and_title(
         sampling.visibility_elapsed = Duration::ZERO;
         let snapshot = visibility_diagnostics.snapshot();
         if snapshot.frame_generation != 0 {
-            let (submitted_valid, submitted_count, submitted_hash) =
-                visibility_digest_marker_fields(snapshot.submitted_opaque);
-            let (submitted_loss_valid, submitted_loss_count, submitted_loss_hash) =
-                visibility_digest_marker_fields(snapshot.frustum_to_submitted_loss);
             let marker = format!(
-                "RUST_MCBE_VISIBILITY_SNAPSHOT frame_generation={} camera={} pose_hash={:016x} camera_frustum_hash={:016x} pose_generation={} view_generation={} draw_mode={:?} resident_count={} resident_hash={:016x} cave_count={} cave_hash={:016x} frustum_count={} frustum_keys_hash={:016x} submitted_valid={} submitted_count={} submitted_hash={} resident_to_cave_loss_count={} resident_to_cave_loss_hash={:016x} cave_to_frustum_loss_count={} cave_to_frustum_loss_hash={:016x} frustum_to_submitted_loss_valid={} frustum_to_submitted_loss_count={} frustum_to_submitted_loss_hash={} submitted_overflowed={}",
+                "RUST_MCBE_VISIBILITY_SNAPSHOT frame_generation={} camera={} pose_hash={:016x} camera_frustum_hash={:016x} pose_generation={} view_generation={} draw_mode={:?} {} {} {} {} {} {} {} {} {} {} resident_overflowed={} cave_overflowed={} frustum_overflowed={} submitted_overflowed={}",
                 snapshot.frame_generation,
                 snapshot.camera.stable_id,
                 snapshot.camera.pose_hash,
@@ -3374,22 +3391,25 @@ fn record_metrics_and_title(
                 snapshot.pose_generation,
                 snapshot.view_generation,
                 snapshot.draw_mode,
-                snapshot.resident_mesh.count,
-                snapshot.resident_mesh.hash,
-                snapshot.cave_visible.count,
-                snapshot.cave_visible.hash,
-                snapshot.frustum_visible_opaque.count,
-                snapshot.frustum_visible_opaque.hash,
-                submitted_valid,
-                submitted_count,
-                submitted_hash,
-                snapshot.resident_to_cave_loss.count,
-                snapshot.resident_to_cave_loss.hash,
-                snapshot.cave_to_frustum_loss.count,
-                snapshot.cave_to_frustum_loss.hash,
-                submitted_loss_valid,
-                submitted_loss_count,
-                submitted_loss_hash,
+                visibility_digest_marker_fields("resident", snapshot.resident_mesh),
+                visibility_digest_marker_fields("cave", snapshot.cave_visible),
+                visibility_digest_marker_fields("frustum", snapshot.frustum_visible_opaque),
+                visibility_digest_marker_fields("submitted", snapshot.submitted_opaque),
+                visibility_digest_marker_fields("gpu_completed", snapshot.gpu_completed_opaque),
+                visibility_delta_marker_fields("resident_to_cave", snapshot.resident_to_cave),
+                visibility_delta_marker_fields("resident_to_frustum", snapshot.resident_to_frustum,),
+                visibility_delta_marker_fields("cave_to_frustum", snapshot.cave_to_frustum),
+                visibility_delta_marker_fields(
+                    "frustum_to_submitted",
+                    snapshot.frustum_to_submitted,
+                ),
+                visibility_delta_marker_fields(
+                    "submitted_to_gpu_completed",
+                    snapshot.submitted_to_gpu_completed,
+                ),
+                snapshot.resident_overflowed,
+                snapshot.cave_overflowed,
+                snapshot.frustum_overflowed,
                 snapshot.submitted_overflowed,
             );
             let mut stdout = std::io::stdout().lock();
@@ -3665,14 +3685,55 @@ fn cumulative_counter_delta(current: u64, previous: u64) -> u64 {
     current.checked_sub(previous).unwrap_or(current)
 }
 
-fn visibility_digest_marker_fields(digest: Option<VisibilityKeyDigest>) -> (bool, String, String) {
+fn visibility_digest_marker_fields(prefix: &str, digest: Option<VisibilityKeyDigest>) -> String {
     digest.map_or_else(
-        || (false, "null".to_owned(), "null".to_owned()),
+        || format!("{prefix}_valid=false {prefix}_count=null {prefix}_hash=null"),
         |digest| {
-            (
-                true,
-                digest.count.to_string(),
-                format!("{:016x}", digest.hash),
+            format!(
+                "{prefix}_valid=true {prefix}_count={} {prefix}_hash={:016x}",
+                digest.count, digest.hash
+            )
+        },
+    )
+}
+
+const fn requested_present_mode(no_vsync: bool) -> PresentMode {
+    if no_vsync {
+        PresentMode::Immediate
+    } else {
+        PresentMode::Fifo
+    }
+}
+
+fn acceptance_runtime_metadata_marker(
+    config: AcceptanceRuntimeConfig,
+    graphics: &render::GraphicsAdapterMetadata,
+) -> String {
+    format!(
+        "RUST_MCBE_ACCEPTANCE_RUNTIME_METADATA={}",
+        serde_json::json!({
+            "build_profile": config.build_profile,
+            "requested_present_mode": config.requested_present_mode,
+            "effective_present_mode": config.effective_present_mode,
+            "backend": graphics.backend,
+            "adapter": graphics.adapter,
+            "driver": graphics.driver,
+            "driver_info": graphics.driver_info,
+        })
+    )
+}
+
+fn visibility_delta_marker_fields(prefix: &str, delta: Option<VisibilityKeyDelta>) -> String {
+    delta.map_or_else(
+        || {
+            format!(
+                "{prefix}_valid=false {prefix}_missing_count=null {prefix}_missing_hash=null {prefix}_extra_count=null {prefix}_extra_hash=null"
+            )
+        },
+        |delta| {
+            format!(
+                "{prefix}_valid=true {prefix}_missing_count={} {prefix}_missing_hash={:016x} {prefix}_extra_count={} {prefix}_extra_hash={:016x}",
+                delta.missing.count, delta.missing.hash, delta.extra.count, delta.extra.hash
             )
         },
     )
@@ -3684,6 +3745,7 @@ mod tests {
     use bevy::prelude::{
         App, AppExit, IntoScheduleConfigs, MinimalPlugins, Quat, Transform, Update, Vec3,
     };
+    use bevy::window::PresentMode;
     use protocol::{
         BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockUpdateEvent, LevelChunkEvent,
         LevelChunkMode, PlayerMovementCorrectionEvent, SubChunkBatchEvent, SubChunkEntryEvent,
@@ -3709,20 +3771,21 @@ mod tests {
         ViewCohortStatus, WorldStream, WorldStreamFatalError,
     };
     use crate::{
-        AcceptanceExitDecision, AcceptanceRun, CaveVisibilityCache, FullViewRemeshTracker,
-        FullViewTeleportCompletion, FullViewTeleportTracker, GalleryAnchorEmitter, MutationTracker,
-        NETWORK_INGRESS_BUDGET_PER_FRAME, OUTBOUND_SEND_BUDGET_PER_FRAME, RollingFps,
-        SubChunkTimeoutProgress, TRANSPARENT_PRESENTATION_EXIT_GRACE, TeleportReadySnapshot,
-        WORLD_READY_QUIET_INTERVAL, WorldReadySettler, WorldReadySnapshot, WorldReadyWork,
+        AcceptanceExitDecision, AcceptanceRun, AcceptanceRuntimeConfig, CaveVisibilityCache,
+        FullViewRemeshTracker, FullViewTeleportCompletion, FullViewTeleportTracker,
+        GalleryAnchorEmitter, MutationTracker, NETWORK_INGRESS_BUDGET_PER_FRAME,
+        OUTBOUND_SEND_BUDGET_PER_FRAME, RollingFps, SubChunkTimeoutProgress,
+        TRANSPARENT_PRESENTATION_EXIT_GRACE, TeleportReadySnapshot, WORLD_READY_QUIET_INTERVAL,
+        WorldReadySettler, WorldReadySnapshot, WorldReadyWork, acceptance_runtime_metadata_marker,
         accepted_move_player_ingress_marker, apply_added_chunk_visibility, apply_committed_control,
         bedrock_camera_rotation, bridge_endpoint_exists, bridge_endpoint_path,
         camera_sub_chunk_key, cumulative_counter_delta, deterministic_mutation_coordinate,
         drain_network_controls, drain_network_ingress, fatal_runtime_exit,
         flush_sub_chunk_requests, leaf_forest_target_mutation_coordinate,
         model_gallery_camera_committed_marker, preflight_bridge_endpoint, record_fatal_error,
-        remove_chunk_visibility, resolve_socket_dir_from, startup_biome_tints, status_title,
-        synchronize_biome_tints, target_mutation_armed_marker, teleport_proof,
-        transparent_sort_committed_marker, update_visibility_diagnostics,
+        remove_chunk_visibility, requested_present_mode, resolve_socket_dir_from,
+        startup_biome_tints, status_title, synchronize_biome_tints, target_mutation_armed_marker,
+        teleport_proof, transparent_sort_committed_marker, update_visibility_diagnostics,
         visibility_digest_marker_fields, world_ready_markers, world_stream_fatal_message,
         write_move_player_ingress_before_source_capture, write_stdout_marker,
     };
@@ -3742,9 +3805,44 @@ mod tests {
     #[test]
     fn unavailable_visibility_digest_marker_fields_are_explicitly_invalid() {
         assert_eq!(
-            visibility_digest_marker_fields(None),
-            (false, "null".to_owned(), "null".to_owned())
+            visibility_digest_marker_fields("submitted", None),
+            "submitted_valid=false submitted_count=null submitted_hash=null"
         );
+    }
+
+    #[test]
+    fn acceptance_present_mode_is_fifo_unless_no_vsync_is_explicit() {
+        assert_eq!(requested_present_mode(false), PresentMode::Fifo);
+        assert_eq!(requested_present_mode(true), PresentMode::Immediate);
+    }
+
+    #[test]
+    fn runtime_metadata_marker_records_build_presentation_and_adapter_identity() {
+        let marker = acceptance_runtime_metadata_marker(
+            AcceptanceRuntimeConfig {
+                build_profile: "release",
+                requested_present_mode: "Fifo",
+                effective_present_mode: "Fifo",
+            },
+            &render::GraphicsAdapterMetadata {
+                backend: "Dx12".to_owned(),
+                adapter: "Test Adapter".to_owned(),
+                driver: "test-driver".to_owned(),
+                driver_info: "1.2.3".to_owned(),
+            },
+        );
+        let encoded = marker
+            .strip_prefix("RUST_MCBE_ACCEPTANCE_RUNTIME_METADATA=")
+            .unwrap();
+        let document: serde_json::Value = serde_json::from_str(encoded).unwrap();
+
+        assert_eq!(document["build_profile"], "release");
+        assert_eq!(document["requested_present_mode"], "Fifo");
+        assert_eq!(document["effective_present_mode"], "Fifo");
+        assert_eq!(document["backend"], "Dx12");
+        assert_eq!(document["adapter"], "Test Adapter");
+        assert_eq!(document["driver"], "test-driver");
+        assert_eq!(document["driver_info"], "1.2.3");
     }
 
     #[test]
@@ -3769,8 +3867,8 @@ mod tests {
             .unwrap();
         app.update();
         let inserted = app.world().resource::<VisibilityDiagnosticsInput>();
-        assert_eq!(inserted.resident_mesh(), expected);
-        assert_eq!(inserted.cave_visible(), expected);
+        assert_eq!(inserted.resident_mesh(), Some(expected));
+        assert_eq!(inserted.cave_visible(), Some(expected));
 
         app.world_mut()
             .resource_mut::<ChunkRenderQueue>()
@@ -3778,8 +3876,11 @@ mod tests {
             .unwrap();
         app.update();
         let removed = app.world().resource::<VisibilityDiagnosticsInput>();
-        assert_eq!(removed.resident_mesh(), VisibilityKeyDigest::default());
-        assert_eq!(removed.cave_visible(), VisibilityKeyDigest::default());
+        assert_eq!(
+            removed.resident_mesh(),
+            Some(VisibilityKeyDigest::default())
+        );
+        assert_eq!(removed.cave_visible(), Some(VisibilityKeyDigest::default()));
     }
 
     #[test]
