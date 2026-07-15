@@ -246,6 +246,107 @@ prepare_stable_runtime() {
     printf '%s/%s\n' "$runtime_full" "$executable"
 }
 
+read_world_publication_snapshots() {
+    local log_path=$1 expected_profile=$2 expected_present_mode=$3 output_path=$4
+    python3 - "$log_path" "$expected_profile" "$expected_present_mode" "$output_path" <<'PY'
+import json, math, os, sys
+
+log_path, expected_profile, expected_present_mode, output_path = sys.argv[1:]
+prefix = "RUST_MCBE_WORLD_PUBLICATION_SNAPSHOT="
+
+def reject_duplicate_fields(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"world publication snapshot contains duplicate field {key}")
+        result[key] = value
+    return result
+
+with open(log_path, encoding="utf-8") as source:
+    encoded = [line.rstrip("\n")[len(prefix):] for line in source if line.startswith(prefix)]
+if not encoded:
+    raise SystemExit("expected at least one world publication snapshot marker, found none")
+
+integer_fields = {
+    "accepted_light_jobs", "noop_light_jobs", "value_changed_light_jobs",
+    "provenance_only_light_jobs", "light_mesh_invalidations", "stale_light_jobs",
+    "stale_mesh_jobs", "queued_decode_jobs", "in_flight_decode_jobs",
+    "pending_light_jobs", "in_flight_light_jobs", "pending_mesh_jobs",
+    "in_flight_mesh_jobs", "upload_queue_items", "upload_queue_bytes",
+    "gpu_upload_bytes", "frame_generation", "pose_generation", "view_generation",
+}
+duration_fields = {
+    "max_decode_queue_wait_ms", "max_light_queue_wait_ms", "max_mesh_queue_wait_ms",
+    "max_decode_worker_ms", "max_light_worker_ms", "max_mesh_worker_ms",
+}
+identity_fields = {
+    "draw_mode", "build_profile", "requested_present_mode", "effective_present_mode",
+    "present_mode_proven", "backend", "adapter", "driver", "driver_info",
+}
+required = integer_fields | duration_fields | identity_fields
+snapshots = []
+for item in encoded:
+    try:
+        snapshot = json.loads(item, object_pairs_hook=reject_duplicate_fields)
+    except (json.JSONDecodeError, ValueError) as error:
+        raise SystemExit(f"invalid world publication snapshot JSON: {error}") from error
+    if not isinstance(snapshot, dict):
+        raise SystemExit("world publication snapshot JSON must be an object")
+    missing = sorted(required - snapshot.keys())
+    extra = sorted(snapshot.keys() - required)
+    if missing or extra:
+        raise SystemExit(
+            "world publication snapshot schema mismatch: "
+            f"missing={','.join(missing) if missing else '<none>'} "
+            f"extra={','.join(extra) if extra else '<none>'}"
+        )
+    for field in integer_fields:
+        value = snapshot[field]
+        if type(value) is not int or not 0 <= value <= 2**64 - 1:
+            raise SystemExit(f"world publication snapshot field {field} must be a nonnegative uint64")
+    for field in duration_fields:
+        value = snapshot[field]
+        if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
+            raise SystemExit(f"world publication snapshot field {field} must be finite and nonnegative")
+    if snapshot["draw_mode"] not in {"Direct", "MultiDrawIndirect"}:
+        raise SystemExit(f"world publication snapshot has invalid draw_mode {snapshot['draw_mode']}")
+    if snapshot["build_profile"] != expected_profile:
+        raise SystemExit(
+            "world publication snapshot build profile mismatch: "
+            f"expected={expected_profile} observed={snapshot['build_profile']}"
+        )
+    requested = snapshot["requested_present_mode"]
+    effective = snapshot["effective_present_mode"]
+    if requested != expected_present_mode or effective != expected_present_mode:
+        raise SystemExit(
+            "world publication snapshot present mode mismatch: "
+            f"expected={expected_present_mode} requested={requested} effective={effective}"
+        )
+    if snapshot["present_mode_proven"] is not True:
+        raise SystemExit("world publication snapshot does not prove the configured present mode")
+    for field in ("backend", "adapter", "driver", "driver_info"):
+        if not isinstance(snapshot[field], str) or not snapshot[field].strip():
+            raise SystemExit(f"world publication snapshot is missing {field}")
+    snapshots.append(snapshot)
+
+stable_fields = (
+    "draw_mode", "build_profile", "requested_present_mode", "effective_present_mode",
+    "backend", "adapter", "driver", "driver_info",
+)
+for snapshot in snapshots[1:]:
+    for field in stable_fields:
+        if snapshot[field] != snapshots[0][field]:
+            label = "draw mode" if field == "draw_mode" else f"identity field {field}"
+            raise SystemExit(f"world publication snapshot {label} changed within one run")
+
+temporary = output_path + ".tmp"
+with open(temporary, "w", encoding="utf-8") as output:
+    json.dump(snapshots[-1], output, indent=2, sort_keys=True)
+    output.write("\n")
+os.replace(temporary, output_path)
+PY
+}
+
 if [[ ${RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY:-} == 1 ]]; then
     return 0 2>/dev/null || exit 0
 fi
@@ -488,6 +589,7 @@ cpu_description=$(sysctl -n machdep.cpu.brand_string 2>/dev/null || awk -F: '/mo
 gpu_description=$(system_profiler SPDisplaysDataType 2>/dev/null || printf unavailable)
 run_started_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 runtime_metadata_json="$run_dir/runtime-metadata.json"
+publication_snapshot_json="$run_dir/world-publication-snapshot.json"
 
 write_command_manifest() {
     local temporary="$run_dir/commands.txt.tmp.$$"
@@ -677,9 +779,17 @@ done
 wait "$app_pid" || die "app exited unsuccessfully (logs: $run_dir/app.stdout.log, $run_dir/app.stderr.log)"
 app_pid=''
 
-python3 - "$run_dir/app.stdout.log" "$runtime_metadata_json" "$no_vsync" <<'PY'
+expected_present_mode=Fifo
+[[ $no_vsync == true ]] && expected_present_mode=Immediate
+read_world_publication_snapshots \
+    "$run_dir/app.stdout.log" \
+    release \
+    "$expected_present_mode" \
+    "$publication_snapshot_json"
+
+python3 - "$run_dir/app.stdout.log" "$runtime_metadata_json" "$no_vsync" "$publication_snapshot_json" <<'PY'
 import json, os, sys
-stdout_path, output_path, no_vsync = sys.argv[1:]
+stdout_path, output_path, no_vsync, publication_path = sys.argv[1:]
 prefix = "RUST_MCBE_ACCEPTANCE_RUNTIME_METADATA="
 with open(stdout_path, encoding="utf-8") as source:
     markers = [line.rstrip("\n")[len(prefix):] for line in source if line.startswith(prefix)]
@@ -699,6 +809,14 @@ expected_mode = "Immediate" if no_vsync == "true" else "Fifo"
 effective_mode = runtime["effective_present_mode"]
 if runtime["build_profile"] != "release":
     raise SystemExit(f"acceptance requires a release client, observed {runtime['build_profile']}")
+with open(publication_path, encoding="utf-8") as source:
+    publication = json.load(source)
+for field in (
+    "build_profile", "requested_present_mode", "effective_present_mode",
+    "backend", "adapter", "driver", "driver_info",
+):
+    if publication[field] != runtime[field]:
+        raise SystemExit(f"world publication snapshot did not match runtime metadata at {field}")
 metadata = {
     "build_profile": runtime["build_profile"],
     "requested_present_mode": runtime["requested_present_mode"],
@@ -708,6 +826,7 @@ metadata = {
     "graphics_adapter": runtime["adapter"],
     "graphics_driver": runtime["driver"],
     "graphics_driver_info": runtime["driver_info"],
+    "draw_mode": publication["draw_mode"],
 }
 temporary = output_path + ".tmp"
 with open(temporary, "w", encoding="utf-8") as output:

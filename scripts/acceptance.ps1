@@ -5690,6 +5690,138 @@ function Read-AcceptanceRuntimeMetadata {
     return ConvertFrom-AcceptanceRuntimeMetadataMarker -Line $lines[0]
 }
 
+function ConvertFrom-WorldPublicationSnapshotMarker {
+    param(
+        [Parameter(Mandatory = $true)][string]$Line,
+        [Parameter(Mandatory = $true)][ValidateSet('debug', 'release')][string]$ExpectedBuildProfile,
+        [Parameter(Mandatory = $true)][ValidateSet('Fifo', 'Immediate')][string]$ExpectedPresentMode
+    )
+
+    $prefix = 'RUST_MCBE_WORLD_PUBLICATION_SNAPSHOT='
+    if (-not $Line.StartsWith($prefix, [StringComparison]::Ordinal)) {
+        throw 'invalid world publication snapshot marker prefix'
+    }
+    $json = $Line.Substring($prefix.Length)
+    try {
+        $document = $json | ConvertFrom-Json
+    }
+    catch {
+        throw "invalid world publication snapshot JSON: $($_.Exception.Message)"
+    }
+    if ($null -eq $document -or $document -isnot [psobject]) {
+        throw 'world publication snapshot JSON must be an object'
+    }
+
+    $seenFields = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($match in [regex]::Matches($json, '(?<!\\)"((?:\\.|[^"\\])*)"\s*:')) {
+        try {
+            $field = ('"' + $match.Groups[1].Value + '"') | ConvertFrom-Json
+        }
+        catch {
+            throw 'world publication snapshot contains an invalid field name'
+        }
+        if (-not $seenFields.Add([string]$field)) {
+            throw "world publication snapshot contains duplicate field $field"
+        }
+    }
+
+    $integerFields = @(
+        'accepted_light_jobs', 'noop_light_jobs', 'value_changed_light_jobs',
+        'provenance_only_light_jobs', 'light_mesh_invalidations', 'stale_light_jobs',
+        'stale_mesh_jobs', 'queued_decode_jobs', 'in_flight_decode_jobs',
+        'pending_light_jobs', 'in_flight_light_jobs', 'pending_mesh_jobs',
+        'in_flight_mesh_jobs', 'upload_queue_items', 'upload_queue_bytes',
+        'gpu_upload_bytes', 'frame_generation', 'pose_generation', 'view_generation'
+    )
+    $durationFields = @(
+        'max_decode_queue_wait_ms', 'max_light_queue_wait_ms', 'max_mesh_queue_wait_ms',
+        'max_decode_worker_ms', 'max_light_worker_ms', 'max_mesh_worker_ms'
+    )
+    $identityFields = @(
+        'draw_mode', 'build_profile', 'requested_present_mode', 'effective_present_mode',
+        'present_mode_proven', 'backend', 'adapter', 'driver', 'driver_info'
+    )
+    $required = @($integerFields + $durationFields + $identityFields)
+    $actual = @($document.PSObject.Properties.Name)
+    $missing = @($required | Where-Object { -not ($actual -ccontains $_) } | Sort-Object)
+    $extra = @($actual | Where-Object { -not ($required -ccontains $_) } | Sort-Object)
+    if ($missing.Count -ne 0 -or $extra.Count -ne 0) {
+        $missingText = if ($missing.Count -eq 0) { '<none>' } else { $missing -join ',' }
+        $extraText = if ($extra.Count -eq 0) { '<none>' } else { $extra -join ',' }
+        throw "world publication snapshot schema mismatch: missing=$missingText extra=$extraText"
+    }
+    foreach ($field in $integerFields) {
+        try {
+            $value = [decimal]$document.$field
+        }
+        catch {
+            throw "world publication snapshot field $field must be a nonnegative integer"
+        }
+        if ($value -lt 0 -or [decimal]::Truncate($value) -ne $value -or $value -gt [decimal][uint64]::MaxValue) {
+            throw "world publication snapshot field $field must be a nonnegative uint64"
+        }
+    }
+    foreach ($field in $durationFields) {
+        $value = [double]$document.$field
+        if ([double]::IsNaN($value) -or [double]::IsInfinity($value) -or $value -lt 0) {
+            throw "world publication snapshot field $field must be finite and nonnegative"
+        }
+    }
+    if (@('Direct', 'MultiDrawIndirect') -cnotcontains [string]$document.draw_mode) {
+        throw "world publication snapshot has invalid draw_mode $($document.draw_mode)"
+    }
+    if ([string]$document.build_profile -cne $ExpectedBuildProfile) {
+        throw "world publication snapshot build profile mismatch: expected=$ExpectedBuildProfile observed=$($document.build_profile)"
+    }
+    if ([string]$document.requested_present_mode -cne $ExpectedPresentMode -or
+        [string]$document.effective_present_mode -cne $ExpectedPresentMode) {
+        throw "world publication snapshot present mode mismatch: expected=$ExpectedPresentMode requested=$($document.requested_present_mode) effective=$($document.effective_present_mode)"
+    }
+    if ($document.present_mode_proven -ne $true) {
+        throw 'world publication snapshot does not prove the configured present mode'
+    }
+    foreach ($field in @('backend', 'adapter', 'driver', 'driver_info')) {
+        if ([string]::IsNullOrWhiteSpace([string]$document.$field)) {
+            throw "world publication snapshot is missing $field"
+        }
+    }
+    return $document
+}
+
+function Read-WorldPublicationSnapshots {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][ValidateSet('debug', 'release')][string]$ExpectedBuildProfile,
+        [Parameter(Mandatory = $true)][ValidateSet('Fifo', 'Immediate')][string]$ExpectedPresentMode
+    )
+
+    $lines = @(
+        Get-Content -LiteralPath $Path |
+            Where-Object { $_.StartsWith('RUST_MCBE_WORLD_PUBLICATION_SNAPSHOT=', [StringComparison]::Ordinal) }
+    )
+    if ($lines.Count -eq 0) {
+        throw 'expected at least one world publication snapshot marker, found none'
+    }
+    $snapshots = @($lines | ForEach-Object {
+        ConvertFrom-WorldPublicationSnapshotMarker `
+            -Line $_ `
+            -ExpectedBuildProfile $ExpectedBuildProfile `
+            -ExpectedPresentMode $ExpectedPresentMode
+    })
+    $first = $snapshots[0]
+    foreach ($snapshot in $snapshots | Select-Object -Skip 1) {
+        if ([string]$snapshot.draw_mode -cne [string]$first.draw_mode) {
+            throw "world publication snapshot draw mode changed within one run: first=$($first.draw_mode) observed=$($snapshot.draw_mode)"
+        }
+        foreach ($field in @('build_profile', 'requested_present_mode', 'effective_present_mode', 'backend', 'adapter', 'driver', 'driver_info')) {
+            if ([string]$snapshot.$field -cne [string]$first.$field) {
+                throw "world publication snapshot identity field $field changed within one run"
+            }
+        }
+    }
+    return $snapshots[-1]
+}
+
 if ($env:RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY -eq '1') {
     return
 }
@@ -6602,6 +6734,10 @@ try {
     }
     $runtimeMetadata = Read-AcceptanceRuntimeMetadata -Path $appHandle.StdoutPath
     $expectedPresentMode = if ($NoVsync) { 'Immediate' } else { 'Fifo' }
+    $publicationSnapshot = Read-WorldPublicationSnapshots `
+        -Path $appHandle.StdoutPath `
+        -ExpectedBuildProfile 'release' `
+        -ExpectedPresentMode $expectedPresentMode
     $metadata['build_profile'] = [string]$runtimeMetadata.build_profile
     $metadata['requested_present_mode'] = [string]$runtimeMetadata.requested_present_mode
     $metadata['effective_present_mode'] = [string]$runtimeMetadata.effective_present_mode
@@ -6617,6 +6753,12 @@ try {
         [string]$runtimeMetadata.effective_present_mode -cne $expectedPresentMode) {
         throw "acceptance present mode mismatch: expected=$expectedPresentMode requested=$($runtimeMetadata.requested_present_mode) effective=$($runtimeMetadata.effective_present_mode)"
     }
+    foreach ($field in @('build_profile', 'requested_present_mode', 'effective_present_mode', 'backend', 'adapter', 'driver', 'driver_info')) {
+        if ([string]$publicationSnapshot.$field -cne [string]$runtimeMetadata.$field) {
+            throw "world publication snapshot did not match runtime metadata at $field"
+        }
+    }
+    $metadata['draw_mode'] = [string]$publicationSnapshot.draw_mode
     if ($hasClientExecutable) {
         Assert-FileHashUnchanged -Path $AppExecutable -ExpectedSha256 $PrebuiltClientSha256 -Label 'prebuilt client after acceptance run'
     }

@@ -3411,6 +3411,21 @@ fn record_metrics_and_title(
             );
             let mut stdout = std::io::stdout().lock();
             write_stdout_marker(&mut stdout, &marker);
+            if let (Some(stream), Some(graphics)) = (
+                client_world.stream.as_ref(),
+                visibility_diagnostics.graphics_adapter(),
+            ) {
+                let marker = world_publication_snapshot_marker(
+                    stream.stats(),
+                    render_queue.retained_len(),
+                    render_queue.pending_bytes(),
+                    render_queue.gpu_upload_bytes(),
+                    snapshot,
+                    *runtime_config,
+                    &graphics,
+                );
+                write_stdout_marker(&mut stdout, &marker);
+            }
         }
     }
     let transparent_sort_snapshot =
@@ -3721,6 +3736,57 @@ fn acceptance_runtime_metadata_marker(
     )
 }
 
+fn world_publication_snapshot_marker(
+    stats: world_stream::WorldStreamStats,
+    upload_queue_items: usize,
+    upload_queue_bytes: u64,
+    gpu_upload_bytes: u64,
+    visibility: render::VisibilityDiagnosticSnapshot,
+    config: AcceptanceRuntimeConfig,
+    graphics: &render::GraphicsAdapterMetadata,
+) -> String {
+    let milliseconds = |duration: Duration| duration.as_secs_f64() * 1_000.0;
+    format!(
+        "RUST_MCBE_WORLD_PUBLICATION_SNAPSHOT={}",
+        serde_json::json!({
+            "accepted_light_jobs": stats.accepted_light_jobs,
+            "noop_light_jobs": stats.noop_light_jobs,
+            "value_changed_light_jobs": stats.value_changed_light_jobs,
+            "provenance_only_light_jobs": stats.provenance_only_light_jobs,
+            "light_mesh_invalidations": stats.light_mesh_invalidations,
+            "stale_light_jobs": stats.stale_light_jobs,
+            "stale_mesh_jobs": stats.stale_mesh_jobs,
+            "queued_decode_jobs": stats.queued_decode_jobs,
+            "in_flight_decode_jobs": stats.in_flight_decode_jobs,
+            "pending_light_jobs": stats.pending_light_jobs,
+            "in_flight_light_jobs": stats.in_flight_light_jobs,
+            "pending_mesh_jobs": stats.pending_mesh_jobs,
+            "in_flight_mesh_jobs": stats.in_flight_mesh_jobs,
+            "max_decode_queue_wait_ms": milliseconds(stats.max_decode_queue_wait),
+            "max_light_queue_wait_ms": milliseconds(stats.max_light_queue_wait),
+            "max_mesh_queue_wait_ms": milliseconds(stats.max_mesh_queue_wait),
+            "max_decode_worker_ms": milliseconds(stats.max_decode_duration),
+            "max_light_worker_ms": milliseconds(stats.max_light_duration),
+            "max_mesh_worker_ms": milliseconds(stats.max_mesh_duration),
+            "upload_queue_items": upload_queue_items,
+            "upload_queue_bytes": upload_queue_bytes,
+            "gpu_upload_bytes": gpu_upload_bytes,
+            "frame_generation": visibility.frame_generation,
+            "pose_generation": visibility.pose_generation,
+            "view_generation": visibility.view_generation,
+            "draw_mode": format!("{:?}", visibility.draw_mode),
+            "build_profile": config.build_profile,
+            "requested_present_mode": graphics.requested_present_mode,
+            "effective_present_mode": graphics.effective_present_mode,
+            "present_mode_proven": graphics.present_mode_proven,
+            "backend": graphics.backend,
+            "adapter": graphics.adapter,
+            "driver": graphics.driver,
+            "driver_info": graphics.driver_info,
+        })
+    )
+}
+
 fn visibility_delta_marker_fields(prefix: &str, delta: Option<VisibilityKeyDelta>) -> String {
     delta.map_or_else(
         || {
@@ -3751,9 +3817,10 @@ mod tests {
     };
     use render::{
         ChunkBiomeTints, ChunkMesh, ChunkRenderApplySet, ChunkRenderQueue, ChunkUploadPriority,
-        DebugWorldPlugin, FaceConnectivity, PackedModelDrawRef, PackedModelRef, PackedQuadLighting,
-        PresentedFrameAck, RenderViewCohort, TargetRenderExpectation, VisibilityDiagnosticsInput,
-        VisibilityKeyDigest,
+        DebugWorldPlugin, FaceConnectivity, GraphicsAdapterMetadata, OpaqueDrawMode,
+        PackedModelDrawRef, PackedModelRef, PackedQuadLighting, PresentedFrameAck,
+        RenderViewCohort, TargetRenderExpectation, VisibilityDiagnosticSnapshot,
+        VisibilityDiagnosticsInput, VisibilityKeyDigest,
     };
     use std::{
         path::Path,
@@ -3766,7 +3833,7 @@ mod tests {
     use crate::network::{NetworkControlEvent, SequencedWorldEvent};
     use crate::world_stream::{
         CommittedControlEvent, ForcedRemeshManifest, ForcedRemeshManifestState, ViewCohort,
-        ViewCohortStatus, WorldStream, WorldStreamFatalError,
+        ViewCohortStatus, WorldStream, WorldStreamFatalError, WorldStreamStats,
     };
     use crate::{
         AcceptanceExitDecision, AcceptanceRun, AcceptanceRuntimeConfig, CaveVisibilityCache,
@@ -3784,8 +3851,9 @@ mod tests {
         remove_chunk_visibility, requested_present_mode, resolve_socket_dir_from,
         startup_biome_tints, status_title, synchronize_biome_tints, target_mutation_armed_marker,
         teleport_proof, transparent_sort_committed_marker, update_visibility_diagnostics,
-        visibility_digest_marker_fields, world_ready_markers, world_stream_fatal_message,
-        write_move_player_ingress_before_source_capture, write_stdout_marker,
+        visibility_digest_marker_fields, world_publication_snapshot_marker, world_ready_markers,
+        world_stream_fatal_message, write_move_player_ingress_before_source_capture,
+        write_stdout_marker,
     };
 
     fn diagnostic_test_mesh() -> ChunkMesh {
@@ -3843,6 +3911,92 @@ mod tests {
         assert_eq!(document["adapter"], "Test Adapter");
         assert_eq!(document["driver"], "test-driver");
         assert_eq!(document["driver_info"], "1.2.3");
+    }
+
+    #[test]
+    fn world_publication_snapshot_is_deterministic_and_keeps_stage_identities_separate() {
+        let stats = WorldStreamStats {
+            accepted_light_jobs: u64::MAX,
+            noop_light_jobs: 2,
+            value_changed_light_jobs: 3,
+            provenance_only_light_jobs: 5,
+            light_mesh_invalidations: 7,
+            stale_light_jobs: 11,
+            stale_mesh_jobs: 13,
+            queued_decode_jobs: 17,
+            in_flight_decode_jobs: 19,
+            pending_light_jobs: 23,
+            in_flight_light_jobs: 29,
+            pending_mesh_jobs: 31,
+            in_flight_mesh_jobs: 37,
+            max_decode_queue_wait: Duration::from_millis(41),
+            max_light_queue_wait: Duration::from_millis(43),
+            max_mesh_queue_wait: Duration::from_millis(47),
+            max_decode_duration: Duration::from_millis(53),
+            max_light_duration: Duration::from_millis(59),
+            max_mesh_duration: Duration::from_millis(61),
+            ..Default::default()
+        };
+        let visibility = VisibilityDiagnosticSnapshot {
+            frame_generation: 67,
+            pose_generation: 71,
+            view_generation: 73,
+            draw_mode: OpaqueDrawMode::Direct,
+            ..Default::default()
+        };
+        let graphics = GraphicsAdapterMetadata {
+            backend: "Dx12".to_owned(),
+            adapter: "Test Adapter".to_owned(),
+            driver: "test-driver".to_owned(),
+            driver_info: "1.2.3".to_owned(),
+            requested_present_mode: "Fifo".to_owned(),
+            effective_present_mode: "Fifo".to_owned(),
+            present_mode_proven: true,
+        };
+
+        let marker = world_publication_snapshot_marker(
+            stats,
+            79,
+            83,
+            89,
+            visibility,
+            AcceptanceRuntimeConfig {
+                build_profile: "debug",
+            },
+            &graphics,
+        );
+        assert_eq!(
+            marker,
+            world_publication_snapshot_marker(
+                stats,
+                79,
+                83,
+                89,
+                visibility,
+                AcceptanceRuntimeConfig {
+                    build_profile: "debug",
+                },
+                &graphics,
+            )
+        );
+        let document: serde_json::Value = serde_json::from_str(
+            marker
+                .strip_prefix("RUST_MCBE_WORLD_PUBLICATION_SNAPSHOT=")
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(document["accepted_light_jobs"], u64::MAX);
+        assert_eq!(document["max_decode_queue_wait_ms"], 41.0);
+        assert_eq!(document["max_decode_worker_ms"], 53.0);
+        assert_eq!(document["upload_queue_items"], 79);
+        assert_eq!(document["upload_queue_bytes"], 83);
+        assert_eq!(document["gpu_upload_bytes"], 89);
+        assert_eq!(document["frame_generation"], 67);
+        assert_eq!(document["draw_mode"], "Direct");
+        assert_eq!(document["build_profile"], "debug");
+        assert_eq!(document["requested_present_mode"], "Fifo");
+        assert_eq!(document["effective_present_mode"], "Fifo");
+        assert_eq!(document["present_mode_proven"], true);
     }
 
     #[test]

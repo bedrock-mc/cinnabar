@@ -879,6 +879,86 @@ try {
     Assert-Throws {
         ConvertFrom-AcceptanceRuntimeMetadataMarker -Line 'RUST_MCBE_ACCEPTANCE_RUNTIME_METADATA={"build_profile":"debug"}'
     } 'incomplete runtime metadata was accepted'
+
+    $publicationFields = [ordered]@{
+        accepted_light_jobs = [uint64]::MaxValue
+        noop_light_jobs = 2
+        value_changed_light_jobs = 3
+        provenance_only_light_jobs = 5
+        light_mesh_invalidations = 7
+        stale_light_jobs = 11
+        stale_mesh_jobs = 13
+        queued_decode_jobs = 17
+        in_flight_decode_jobs = 19
+        pending_light_jobs = 23
+        in_flight_light_jobs = 29
+        pending_mesh_jobs = 31
+        in_flight_mesh_jobs = 37
+        max_decode_queue_wait_ms = 41.0
+        max_light_queue_wait_ms = 43.0
+        max_mesh_queue_wait_ms = 47.0
+        max_decode_worker_ms = 53.0
+        max_light_worker_ms = 59.0
+        max_mesh_worker_ms = 61.0
+        upload_queue_items = 67
+        upload_queue_bytes = 71
+        gpu_upload_bytes = 73
+        frame_generation = 79
+        pose_generation = 83
+        view_generation = 89
+        draw_mode = 'Direct'
+        build_profile = 'release'
+        requested_present_mode = 'Fifo'
+        effective_present_mode = 'Fifo'
+        present_mode_proven = $true
+        backend = 'Dx12'
+        adapter = 'Test Adapter'
+        driver = 'test-driver'
+        driver_info = '1.2.3'
+    }
+    $publicationLine = 'RUST_MCBE_WORLD_PUBLICATION_SNAPSHOT=' + ($publicationFields | ConvertTo-Json -Compress)
+    $publicationSnapshot = ConvertFrom-WorldPublicationSnapshotMarker `
+        -Line $publicationLine `
+        -ExpectedBuildProfile 'release' `
+        -ExpectedPresentMode 'Fifo'
+    Assert-Equal 'Direct' $publicationSnapshot.draw_mode 'publication snapshot lost exact draw mode'
+    Assert-Equal ([uint64]::MaxValue) ([uint64]$publicationSnapshot.accepted_light_jobs) 'publication snapshot lost saturating counter range'
+    Assert-Equal 41.0 ([double]$publicationSnapshot.max_decode_queue_wait_ms) 'publication snapshot lost decode queue wait'
+    Assert-Equal 53.0 ([double]$publicationSnapshot.max_decode_worker_ms) 'publication snapshot conflated queue wait and worker duration'
+
+    $missingPublicationFields = [ordered]@{}
+    foreach ($entry in $publicationFields.GetEnumerator()) {
+        if ($entry.Key -cne 'max_mesh_queue_wait_ms') {
+            $missingPublicationFields[$entry.Key] = $entry.Value
+        }
+    }
+    Assert-ThrowsLike {
+        ConvertFrom-WorldPublicationSnapshotMarker -Line ('RUST_MCBE_WORLD_PUBLICATION_SNAPSHOT=' + ($missingPublicationFields | ConvertTo-Json -Compress)) -ExpectedBuildProfile release -ExpectedPresentMode Fifo
+    } '*missing=max_mesh_queue_wait_ms*' 'publication snapshot accepted a missing stage field'
+    $duplicatePublicationLine = $publicationLine.Replace('"draw_mode":"Direct"', '"draw_mode":"Direct","draw_mode":"MultiDrawIndirect"')
+    Assert-ThrowsLike {
+        ConvertFrom-WorldPublicationSnapshotMarker -Line $duplicatePublicationLine -ExpectedBuildProfile release -ExpectedPresentMode Fifo
+    } '*duplicate field*draw_mode*' 'publication snapshot accepted a duplicate draw identity'
+    Assert-Throws {
+        ConvertFrom-WorldPublicationSnapshotMarker -Line 'RUST_MCBE_WORLD_PUBLICATION_SNAPSHOT={' -ExpectedBuildProfile release -ExpectedPresentMode Fifo
+    } 'publication snapshot accepted malformed JSON'
+    Assert-ThrowsLike {
+        ConvertFrom-WorldPublicationSnapshotMarker -Line $publicationLine -ExpectedBuildProfile debug -ExpectedPresentMode Fifo
+    } '*build profile mismatch*' 'release and debug publication rows were conflated'
+    Assert-ThrowsLike {
+        ConvertFrom-WorldPublicationSnapshotMarker -Line $publicationLine -ExpectedBuildProfile release -ExpectedPresentMode Immediate
+    } '*present mode mismatch*' 'FIFO and Immediate publication rows were conflated'
+    $conflatedDrawLine = $publicationLine.Replace('"draw_mode":"Direct"', '"draw_mode":"Direct|MultiDrawIndirect"')
+    Assert-ThrowsLike {
+        ConvertFrom-WorldPublicationSnapshotMarker -Line $conflatedDrawLine -ExpectedBuildProfile release -ExpectedPresentMode Fifo
+    } '*invalid draw_mode*' 'Direct and MDI were conflated in one publication row'
+
+    $publicationLog = Join-Path $TempRoot 'publication-snapshots.log'
+    $mdiLine = $publicationLine.Replace('"draw_mode":"Direct"', '"draw_mode":"MultiDrawIndirect"')
+    Set-Content -LiteralPath $publicationLog -Value @($publicationLine, $mdiLine)
+    Assert-ThrowsLike {
+        Read-WorldPublicationSnapshots -Path $publicationLog -ExpectedBuildProfile release -ExpectedPresentMode Fifo
+    } '*draw mode changed*' 'periodic publication rows silently changed draw mode'
     Assert-True (-not $source.Contains('PresentMode Immediate requested but not available. Falling back to Fifo')) 'acceptance still inferred effective mode from a suppressible INFO log'
 
     $crossCropPlan = New-CrossCropGalleryPlan `

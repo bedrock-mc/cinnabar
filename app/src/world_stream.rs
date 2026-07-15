@@ -544,6 +544,9 @@ pub struct WorldStreamStats {
     pub sub_chunk_timeouts: u64,
     pub sub_chunk_retries_scheduled: u64,
     pub sub_chunk_retry_exhaustions: u64,
+    pub max_decode_queue_wait: Duration,
+    pub max_light_queue_wait: Duration,
+    pub max_mesh_queue_wait: Duration,
     pub max_decode_duration: Duration,
     pub max_mesh_duration: Duration,
     pub max_light_duration: Duration,
@@ -552,6 +555,24 @@ pub struct WorldStreamStats {
     pub last_mesh_dispatch_at: Option<Instant>,
     pub last_mesh_completion_at: Option<Instant>,
     pub last_mesh_ack_at: Option<Instant>,
+}
+
+impl WorldStreamStats {
+    fn observe_decode_queue_wait(&mut self, queue_wait: Duration) {
+        self.max_decode_queue_wait = self.max_decode_queue_wait.max(queue_wait);
+    }
+
+    fn observe_light_queue_wait(&mut self, queue_wait: Duration) {
+        self.max_light_queue_wait = self.max_light_queue_wait.max(queue_wait);
+    }
+
+    fn observe_mesh_queue_wait(&mut self, queue_wait: Duration) {
+        self.max_mesh_queue_wait = self.max_mesh_queue_wait.max(queue_wait);
+    }
+}
+
+fn queue_wait(queued_at: Instant, started_at: Instant) -> Duration {
+    started_at.saturating_duration_since(queued_at)
 }
 
 /// Work performed by one call to [`WorldStream::poll`].
@@ -654,6 +675,13 @@ enum PreparedSubChunkResult {
 struct DecodeCompletion {
     sequence: u64,
     event: PreparedWorldEvent,
+    queue_wait: Duration,
+}
+
+#[derive(Debug)]
+struct QueuedDecodeJob {
+    queued_at: Instant,
+    job: DecodeJob,
 }
 
 #[derive(Debug)]
@@ -697,6 +725,7 @@ struct BlockMutationBatch {
 struct PendingMesh {
     revision: u64,
     since: Instant,
+    queued_at: Instant,
 }
 
 #[derive(Debug)]
@@ -710,12 +739,14 @@ struct MeshCompletion {
     mesh: ChunkMesh,
     dependency_mask: MeshDependencyMask,
     light_halo: MeshLightHalo,
+    queue_wait: Duration,
     duration: Duration,
 }
 
 #[derive(Debug, Clone, Copy)]
 struct PendingLight {
     revision: u64,
+    queued_at: Instant,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -942,6 +973,7 @@ struct LightCompletion {
     key: SubChunkKey,
     identity: LightJobIdentity,
     result: Result<SolvedLightJob, LightJobError>,
+    queue_wait: Duration,
     duration: Duration,
 }
 
@@ -967,6 +999,7 @@ struct PreparedLightJob {
     blocks: LightBlockSnapshot,
     prior: LightPriorSnapshot,
     bounds: LightBounds,
+    queued_at: Instant,
 }
 
 fn solve_prepared_light_job(mut job: PreparedLightJob) -> Result<SolvedLightJob, LightJobError> {
@@ -1313,7 +1346,7 @@ pub struct WorldStream {
     ordered: SequenceBuffer<PreparedWorldEvent>,
     submitted: HashSet<u64>,
     heavy_sequences: HashSet<u64>,
-    pending_decode: VecDeque<DecodeJob>,
+    pending_decode: VecDeque<QueuedDecodeJob>,
     in_flight_decode_jobs: usize,
     blocking_block_updates: Option<u64>,
     decode_tx: Sender<DecodeCompletion>,
@@ -1503,6 +1536,13 @@ impl WorldStream {
         }
     }
 
+    fn enqueue_decode_job(&mut self, job: DecodeJob) {
+        self.pending_decode.push_back(QueuedDecodeJob {
+            queued_at: Instant::now(),
+            job,
+        });
+    }
+
     /// Accepts a normalized event using the FIFO sequence assigned by the
     /// network thread. Heavy payloads are decoded on Rayon workers.
     pub fn submit(&mut self, sequence: u64, event: WorldEvent) -> Result<(), WorldStreamError> {
@@ -1576,7 +1616,7 @@ impl WorldStream {
                     self.apply_ready();
                     return Ok(());
                 };
-                self.pending_decode.push_back(DecodeJob::InlineLevelChunk {
+                self.enqueue_decode_job(DecodeJob::InlineLevelChunk {
                     sequence,
                     event,
                     base_sub_chunk_y: range.base_sub_chunk_y,
@@ -1597,7 +1637,7 @@ impl WorldStream {
                     self.apply_ready();
                     return Ok(());
                 };
-                self.pending_decode.push_back(DecodeJob::RequestLevelChunk {
+                self.enqueue_decode_job(DecodeJob::RequestLevelChunk {
                     sequence,
                     event,
                     biome_base_sub_chunk_y: range.base_sub_chunk_y,
@@ -1613,12 +1653,10 @@ impl WorldStream {
                     return Ok(());
                 }
                 self.record_sub_chunk_reply_admissions(&batch);
-                self.pending_decode
-                    .push_back(DecodeJob::SubChunks { sequence, batch });
+                self.enqueue_decode_job(DecodeJob::SubChunks { sequence, batch });
             }
             WorldEvent::BlockEntityUpdate(event) => {
-                self.pending_decode
-                    .push_back(DecodeJob::BlockEntityUpdate { sequence, event });
+                self.enqueue_decode_job(DecodeJob::BlockEntityUpdate { sequence, event });
             }
             immediate => {
                 if let Err(error) = self
@@ -2112,6 +2150,9 @@ impl WorldStream {
     }
 
     pub fn begin_timed_session(&mut self) {
+        self.stats.max_decode_queue_wait = Duration::ZERO;
+        self.stats.max_light_queue_wait = Duration::ZERO;
+        self.stats.max_mesh_queue_wait = Duration::ZERO;
         self.stats.max_decode_duration = Duration::ZERO;
         self.stats.max_mesh_duration = Duration::ZERO;
         self.stats.max_light_duration = Duration::ZERO;
@@ -2258,7 +2299,7 @@ impl WorldStream {
                         self.heavy_sequences.remove(&sequence);
                         continue;
                     }
-                    self.pending_decode.push_back(DecodeJob::BlockUpdates {
+                    self.enqueue_decode_job(DecodeJob::BlockUpdates {
                         sequence,
                         batches,
                         air_runtime_id: self.classifier.air_network_id(),
@@ -2278,6 +2319,7 @@ impl WorldStream {
 
     fn accept_decode_completion(&mut self, completion: DecodeCompletion) {
         self.in_flight_decode_jobs = self.in_flight_decode_jobs.saturating_sub(1);
+        self.stats.observe_decode_queue_wait(completion.queue_wait);
         if self.blocking_block_updates == Some(completion.sequence)
             && matches!(&completion.event, PreparedWorldEvent::BlockUpdates { .. })
         {
@@ -2330,13 +2372,14 @@ impl WorldStream {
         let budget = DECODE_DISPATCH_BUDGET_PER_POLL
             .min(MAX_IN_FLIGHT_DECODE_JOBS.saturating_sub(self.in_flight_decode_jobs));
         for _ in 0..budget {
-            let Some(job) = self.pending_decode.pop_front() else {
+            let Some(QueuedDecodeJob { queued_at, job }) = self.pending_decode.pop_front() else {
                 break;
             };
             self.in_flight_decode_jobs += 1;
             let tx = self.decode_tx.clone();
             rayon::spawn(move || {
                 let started = Instant::now();
+                let queue_wait = queue_wait(queued_at, started);
                 let completion = match job {
                     DecodeJob::InlineLevelChunk {
                         sequence,
@@ -2357,6 +2400,7 @@ impl WorldStream {
                         );
                         DecodeCompletion {
                             sequence,
+                            queue_wait,
                             event: PreparedWorldEvent::InlineLevelChunk {
                                 event,
                                 decoded,
@@ -2386,6 +2430,7 @@ impl WorldStream {
                         });
                         DecodeCompletion {
                             sequence,
+                            queue_wait,
                             event: PreparedWorldEvent::RequestLevelChunk {
                                 event,
                                 decoded,
@@ -2398,6 +2443,7 @@ impl WorldStream {
                         let entries = prepare_sub_chunks(batch);
                         DecodeCompletion {
                             sequence,
+                            queue_wait,
                             event: PreparedWorldEvent::SubChunks {
                                 dimension,
                                 entries,
@@ -2423,6 +2469,7 @@ impl WorldStream {
                             .collect();
                         DecodeCompletion {
                             sequence,
+                            queue_wait,
                             event: PreparedWorldEvent::BlockUpdates {
                                 result,
                                 duration: started.elapsed(),
@@ -2439,6 +2486,7 @@ impl WorldStream {
                         let decoded = DecodedBlockEntities::decode_live(key, &event.nbt);
                         DecodeCompletion {
                             sequence,
+                            queue_wait,
                             event: PreparedWorldEvent::BlockEntityUpdate {
                                 key,
                                 decoded,
@@ -3119,8 +3167,14 @@ impl WorldStream {
     fn mark_dirty_exact(&mut self, key: SubChunkKey, now: Instant) -> u64 {
         let revision = self.revisions.mark_dirty(key, now);
         let since = self.revisions.dirty(key).map_or(now, |dirty| dirty.since);
-        self.pending_mesh
-            .insert(key, PendingMesh { revision, since });
+        self.pending_mesh.insert(
+            key,
+            PendingMesh {
+                revision,
+                since,
+                queued_at: now,
+            },
+        );
         revision
     }
 
@@ -3137,6 +3191,7 @@ impl WorldStream {
             PendingMesh {
                 revision,
                 since: now,
+                queued_at: now,
             },
         );
         revision
@@ -3426,8 +3481,15 @@ impl WorldStream {
         }
         self.light_failures.remove(&key);
         self.remove_light_waiter_target(key);
-        let revision = self.light_revisions.mark_dirty(key, Instant::now());
-        self.pending_light.insert(key, PendingLight { revision });
+        let queued_at = Instant::now();
+        let revision = self.light_revisions.mark_dirty(key, queued_at);
+        self.pending_light.insert(
+            key,
+            PendingLight {
+                revision,
+                queued_at,
+            },
+        );
         Some(revision)
     }
 
@@ -3623,6 +3685,7 @@ impl WorldStream {
                     distance_squared(key, camera_position),
                     key,
                     pending.revision,
+                    pending.queued_at,
                 )
             })
             .collect::<Vec<_>>();
@@ -3634,7 +3697,7 @@ impl WorldStream {
 
         let mut prepared = Vec::with_capacity(solve_budget);
         let mut selected_initial_air = HashSet::new();
-        for (_, key, revision) in candidates {
+        for (_, key, revision, queued_at) in candidates {
             if prepared.len() >= solve_budget {
                 break;
             }
@@ -3690,6 +3753,7 @@ impl WorldStream {
                 blocks,
                 prior,
                 bounds,
+                queued_at,
             });
             if initial_known_air {
                 selected_initial_air.insert(key);
@@ -3701,6 +3765,7 @@ impl WorldStream {
             let tx = self.light_tx.clone();
             rayon::spawn(move || {
                 let started = Instant::now();
+                let queue_wait = queue_wait(job.queued_at, started);
                 let key = job.key;
                 let identity = job.identity;
                 let result = solve_prepared_light_job(job);
@@ -3708,6 +3773,7 @@ impl WorldStream {
                     key,
                     identity,
                     result,
+                    queue_wait,
                     duration: started.elapsed(),
                 });
             });
@@ -3716,6 +3782,7 @@ impl WorldStream {
     }
 
     fn accept_light_completion(&mut self, completion: LightCompletion) {
+        self.stats.observe_light_queue_wait(completion.queue_wait);
         if self.in_flight_light.get(&completion.key) == Some(&completion.identity) {
             self.in_flight_light.remove(&completion.key);
         }
@@ -3935,6 +4002,7 @@ impl WorldStream {
                     key,
                     pending.revision,
                     pending.since,
+                    pending.queued_at,
                 )
             })
             .collect::<Vec<_>>();
@@ -3945,7 +4013,7 @@ impl WorldStream {
         });
 
         let mut dispatched = 0;
-        for (_, key, revision, dirty_since) in candidates {
+        for (_, key, revision, dirty_since, queued_at) in candidates {
             if self.mesh_changes.len() >= MAX_PENDING_MESH_CHANGES {
                 break;
             }
@@ -3990,6 +4058,7 @@ impl WorldStream {
             let tint_identity = self.biome_tint_identity();
             rayon::spawn(move || {
                 let started = Instant::now();
+                let queue_wait = queue_wait(queued_at, started);
                 let source = Arc::clone(&snapshot.center);
                 let biome_sources = snapshot.biomes.clone();
                 let light_halo = snapshot.light_halo.clone();
@@ -4007,6 +4076,7 @@ impl WorldStream {
                     mesh,
                     dependency_mask,
                     light_halo,
+                    queue_wait,
                     duration: started.elapsed(),
                 });
             });
@@ -4113,10 +4183,12 @@ impl WorldStream {
         self.pending_mesh.entry(key).or_insert(PendingMesh {
             revision,
             since: dirty.since,
+            queued_at: Instant::now(),
         });
     }
 
     fn accept_mesh_completion(&mut self, completion: MeshCompletion) {
+        self.stats.observe_mesh_queue_wait(completion.queue_wait);
         if self.in_flight.get(&completion.key) == Some(&completion.revision) {
             self.in_flight.remove(&completion.key);
         }
@@ -4944,6 +5016,7 @@ mod tests {
                     direct_sky_changed,
                     changed_faces,
                 }),
+                queue_wait: Duration::ZERO,
                 duration: Duration::from_millis(3),
             }
         }
@@ -6824,6 +6897,7 @@ mod tests {
             mesh: queued_mesh,
             dependency_mask: MeshDependencyMask::default(),
             light_halo: Default::default(),
+            queue_wait: Duration::ZERO,
             duration: Duration::ZERO,
         });
         assert_eq!(stream.pending_mesh_change_count(), 1);
@@ -6854,6 +6928,7 @@ mod tests {
             mesh: in_flight_mesh,
             dependency_mask: MeshDependencyMask::default(),
             light_halo: Default::default(),
+            queue_wait: Duration::ZERO,
             duration: Duration::ZERO,
         });
         assert_eq!(stream.stats().stale_mesh_jobs, 1);
@@ -8540,7 +8615,7 @@ mod tests {
 
     fn complete_pending_decode_jobs(stream: &mut WorldStream) {
         while let Some(job) = stream.pending_decode.pop_front() {
-            let (sequence, event) = match job {
+            let (sequence, event) = match job.job {
                 super::DecodeJob::InlineLevelChunk {
                     sequence,
                     mut event,
@@ -8640,7 +8715,11 @@ mod tests {
                     )
                 }
             };
-            stream.accept_decode_completion(super::DecodeCompletion { sequence, event });
+            stream.accept_decode_completion(super::DecodeCompletion {
+                sequence,
+                event,
+                queue_wait: std::time::Duration::ZERO,
+            });
         }
         stream.apply_ready();
     }
@@ -9530,7 +9609,7 @@ mod tests {
             base_sub_chunk_y,
             count,
             ..
-        } = stream.pending_decode.pop_front().unwrap()
+        } = stream.pending_decode.pop_front().unwrap().job
         else {
             panic!("expected inline decode job")
         };
@@ -9603,7 +9682,7 @@ mod tests {
             base_sub_chunk_y,
             count,
             ..
-        } = stream.pending_decode.pop_front().unwrap()
+        } = stream.pending_decode.pop_front().unwrap().job
         else {
             panic!("expected inline decode job")
         };
@@ -9802,6 +9881,7 @@ mod tests {
             mesh,
             dependency_mask: MeshDependencyMask::default(),
             light_halo: Default::default(),
+            queue_wait: Duration::ZERO,
             duration: Duration::ZERO,
         });
 
@@ -9863,6 +9943,7 @@ mod tests {
             mesh,
             dependency_mask: MeshDependencyMask::default(),
             light_halo: Default::default(),
+            queue_wait: Duration::ZERO,
             duration: Duration::ZERO,
         });
 
@@ -9924,6 +10005,7 @@ mod tests {
             mesh,
             dependency_mask: MeshDependencyMask::default(),
             light_halo: Default::default(),
+            queue_wait: Duration::ZERO,
             duration: Duration::ZERO,
         });
 
@@ -9981,6 +10063,7 @@ mod tests {
             mesh,
             dependency_mask: MeshDependencyMask::default(),
             light_halo: Default::default(),
+            queue_wait: Duration::ZERO,
             duration: std::time::Duration::from_millis(5),
         });
 
@@ -10042,6 +10125,61 @@ mod tests {
         assert_eq!(stream.stats().max_mesh_duration, std::time::Duration::ZERO);
         assert_eq!(stream.stats().max_remesh_latency, std::time::Duration::ZERO);
         assert_eq!(stream.stats().decode_errors, 7);
+    }
+
+    #[test]
+    fn publication_stage_queue_wait_excludes_worker_duration_and_maxima_do_not_shrink() {
+        let queued_at = Instant::now();
+        let started_at = queued_at + std::time::Duration::from_millis(17);
+        let finished_at = started_at + std::time::Duration::from_millis(29);
+        let mut stats = super::WorldStreamStats::default();
+
+        stats.observe_decode_queue_wait(super::queue_wait(queued_at, started_at));
+        stats.observe_decode_queue_wait(std::time::Duration::from_millis(3));
+        stats.observe_light_queue_wait(std::time::Duration::from_millis(11));
+        stats.observe_mesh_queue_wait(std::time::Duration::from_millis(13));
+        stats.max_decode_duration = stats
+            .max_decode_duration
+            .max(finished_at.saturating_duration_since(started_at));
+        stats.max_decode_duration = stats
+            .max_decode_duration
+            .max(std::time::Duration::from_millis(31));
+        stats.max_light_duration = stats
+            .max_light_duration
+            .max(std::time::Duration::from_millis(23));
+        stats.max_mesh_duration = stats
+            .max_mesh_duration
+            .max(std::time::Duration::from_millis(19));
+
+        assert_eq!(
+            stats.max_decode_queue_wait,
+            std::time::Duration::from_millis(17)
+        );
+        assert_eq!(
+            stats.max_decode_duration,
+            std::time::Duration::from_millis(31)
+        );
+        assert_eq!(
+            stats.max_light_queue_wait,
+            std::time::Duration::from_millis(11)
+        );
+        assert_eq!(
+            stats.max_light_duration,
+            std::time::Duration::from_millis(23)
+        );
+        assert_eq!(
+            stats.max_mesh_queue_wait,
+            std::time::Duration::from_millis(13)
+        );
+        assert_eq!(
+            stats.max_mesh_duration,
+            std::time::Duration::from_millis(19)
+        );
+        assert_eq!(
+            super::queue_wait(started_at, queued_at),
+            std::time::Duration::ZERO,
+            "an out-of-order clock observation must saturate at zero"
+        );
     }
 
     #[test]
@@ -11327,6 +11465,7 @@ mod tests {
             mesh,
             dependency_mask: MeshDependencyMask::new(false, true),
             light_halo: Default::default(),
+            queue_wait: Duration::ZERO,
             duration: std::time::Duration::ZERO,
         });
 
