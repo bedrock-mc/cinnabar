@@ -5,6 +5,7 @@ members = [
     "crates/bridge",
     "crates/protocol",
     "crates/render",
+    "crates/sim",
     "crates/world",
     "tools/visualcoverage",
 ]

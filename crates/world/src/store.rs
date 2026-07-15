@@ -185,6 +185,7 @@ impl DecodedLevelChunk {
 #[derive(Debug, Default)]
 pub struct ChunkStore {
     chunks: HashMap<ChunkKey, Chunk>,
+    loaded_chunks: BTreeSet<ChunkKey>,
 }
 
 impl ChunkStore {
@@ -197,6 +198,17 @@ impl ChunkStore {
     #[must_use]
     pub fn chunk(&self, key: ChunkKey) -> Option<&Chunk> {
         self.chunks.get(&key)
+    }
+
+    /// Returns whether a complete LevelChunk for this column has been
+    /// committed and not subsequently evicted.
+    ///
+    /// This is deliberately independent of [`Self::chunk`]: an all-air
+    /// column remains absent from the sparse palette store while still being
+    /// known world data for fail-closed collision simulation.
+    #[must_use]
+    pub fn is_chunk_loaded(&self, key: ChunkKey) -> bool {
+        self.loaded_chunks.contains(&key)
     }
 
     /// Returns an `Arc` snapshot suitable for handing to a mesh worker.
@@ -473,6 +485,7 @@ impl ChunkStore {
     /// Removes a complete column and returns its stored sub-chunk keys sorted
     /// by Y. External `Arc<SubChunk>` snapshots remain valid.
     pub fn evict_chunk(&mut self, key: ChunkKey) -> Vec<SubChunkKey> {
+        self.loaded_chunks.remove(&key);
         self.chunks
             .remove(&key)
             .into_iter()
@@ -649,6 +662,7 @@ impl ChunkStore {
         key: ChunkKey,
         decoded: DecodedLevelChunk,
     ) -> ApplyLevelChunk {
+        self.loaded_chunks.insert(key);
         let old = self.chunks.get(&key);
         let DecodedLevelChunk {
             mut sub_chunks,

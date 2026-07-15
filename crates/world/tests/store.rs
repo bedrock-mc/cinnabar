@@ -336,6 +336,29 @@ fn all_air_full_level_chunks_do_not_leave_empty_columns() {
 }
 
 #[test]
+fn level_chunk_residency_survives_sparse_all_air_storage_until_eviction() {
+    let mut store = ChunkStore::new();
+    let chunk_key = ChunkKey::new(0, -3, 5);
+    let zero_storage = [9, 0, (-4_i8) as u8];
+
+    assert!(!store.is_chunk_loaded(chunk_key));
+    store
+        .apply_level_chunk(chunk_key, -4, 1, &zero_storage)
+        .unwrap();
+    assert!(
+        store.is_chunk_loaded(chunk_key),
+        "physics must distinguish a received all-air column from an unknown column"
+    );
+    assert!(
+        store.chunk(chunk_key).is_none(),
+        "residency must not allocate a fake flat or empty block column"
+    );
+
+    assert!(store.evict_chunk(chunk_key).is_empty());
+    assert!(!store.is_chunk_loaded(chunk_key));
+}
+
+#[test]
 fn mesh_dependents_cover_faces_and_handle_coordinate_edges() {
     let key = SubChunkKey::new(2, 10, -4, -3);
     let dependents = key.mesh_dependents().collect::<Vec<_>>();

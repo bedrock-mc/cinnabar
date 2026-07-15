@@ -1177,6 +1177,18 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   that producer with the bedsim-parity fixed-tick simulation, history/rewind replay, collision,
   and render interpolation before the phase deliverable is complete.
 
+- [x] **3.2 Physics-safe simulation foundation.** `crates/sim` now provides transactional
+  one-call/one-20-Hz fixed ticks, feet-origin player AABBs, bedsim-order swept collision and
+  stepping, basic walk/sprint/jump/sneak forces, packed-palette `crates/world` collision queries,
+  and bounded tick-keyed correction replay. Unknown runtime IDs, unloaded chunks, invalid
+  collision shapes, and failed replay queries stop prediction instead of guessing. A generator
+  pinned to bedsim v0.1.3 records a checksum-bound JSONL trace, and the Rust conformance test
+  matches it at `1e-12` epsilon. This is intentionally not wired to app input or outbound
+  movement: the full runtime collision registry, remaining bedsim movement strata, expanded
+  terrain/correction traces, render interpolation, and live vanilla/Lunar verification remain
+  required before Phase 3 is complete. Freecam remains a non-authoritative mode and must be
+  network-silent.
+
 ## Phase 4 — Entities and other players
 
 Scope: actor lifecycle packets, metadata/attributes, movement interpolation, biped rendering
