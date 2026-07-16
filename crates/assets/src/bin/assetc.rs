@@ -150,34 +150,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 },
             )?;
             let blob = encode_atmosphere_blob(&compiled)?;
-            let texture_reports = compiled
-                .textures
-                .iter()
-                .map(|texture| {
-                    Ok(AtmosphereTextureReport {
-                        role: match texture.role {
-                            AtmosphereRole::Sun => "sun",
-                            AtmosphereRole::MoonPhases => "moon_phases",
-                            AtmosphereRole::Clouds => "clouds",
-                        },
-                        source_path: texture.source_path.clone(),
-                        width: texture.width,
-                        height: texture.height,
-                        source_bytes: texture.source_bytes as usize,
-                        decoded_rgba8_bytes: texture.rgba8.len(),
-                        source_sha256: hex(&texture.source_sha256).into_boxed_str(),
-                        pixels_sha256: hex(&texture.pixels_sha256).into_boxed_str(),
-                    })
-                })
-                .collect::<Result<Vec<_>, AssetError>>()?
-                .into_boxed_slice();
-            let report_data = AtmosphereReport {
-                schema: 1,
-                source,
-                source_manifest_sha256: hex(&compiled.source_manifest_sha256).into_boxed_str(),
-                blob_sha256: format!("{:x}", Sha256::digest(&blob)).into_boxed_str(),
-                textures: texture_reports,
-            };
+            let report_data = build_atmosphere_report(source, &compiled, &blob);
             let mut report_bytes =
                 serde_json::to_vec_pretty(&report_data).map_err(|source| AssetError::Json {
                     path: report.clone(),
@@ -296,6 +269,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     Ok(())
+}
+
+fn build_atmosphere_report(
+    source: serde_json::Value,
+    compiled: &assets::CompiledAtmosphereAssets,
+    blob: &[u8],
+) -> AtmosphereReport {
+    let textures = compiled
+        .textures
+        .iter()
+        .map(|texture| AtmosphereTextureReport {
+            role: match texture.role {
+                AtmosphereRole::Sun => "sun",
+                AtmosphereRole::MoonPhases => "moon_phases",
+                AtmosphereRole::Clouds => "clouds",
+            },
+            source_path: texture.source_path.clone(),
+            width: texture.width,
+            height: texture.height,
+            source_bytes: texture.source_bytes as usize,
+            decoded_rgba8_bytes: texture.rgba8.len(),
+            source_sha256: hex(&texture.source_sha256).into_boxed_str(),
+            pixels_sha256: hex(&texture.pixels_sha256).into_boxed_str(),
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+    AtmosphereReport {
+        schema: 1,
+        source,
+        source_manifest_sha256: hex(&compiled.source_manifest_sha256).into_boxed_str(),
+        blob_sha256: format!("{:x}", Sha256::digest(blob)).into_boxed_str(),
+        textures,
+    }
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -468,4 +474,109 @@ fn read_bounded_with_limit(
         });
     }
     Ok(bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use assets::{AtmosphereRole, AtmosphereTexture, CompiledAtmosphereAssets};
+    use clap::Parser;
+    use sha2::{Digest, Sha256};
+
+    use super::{Cli, Command, build_atmosphere_report};
+
+    #[test]
+    fn synthetic_cli_override_builds_canonical_path_only_report() {
+        let physical_override = "machine/private/clouds.png";
+        let cli = Cli::try_parse_from([
+            "assetc",
+            "atmosphere",
+            "--pack",
+            "pack",
+            "--source-manifest",
+            "manifest.json",
+            "--clouds-override",
+            physical_override,
+            "--out",
+            "atmosphere.mcbeatm",
+            "--report",
+            "atmosphere.json",
+        ])
+        .unwrap();
+        let Command::Atmosphere {
+            clouds_override, ..
+        } = cli.command
+        else {
+            panic!("expected atmosphere command");
+        };
+        assert_eq!(clouds_override, Some(PathBuf::from(physical_override)));
+
+        let compiled = synthetic_compiled();
+        let report = build_atmosphere_report(
+            serde_json::json!({"artifact_policy": "local-only"}),
+            &compiled,
+            b"synthetic envelope",
+        );
+        let report_text = serde_json::to_string(&report).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&report_text).unwrap();
+        assert_eq!(
+            value["textures"][2]["source_path"],
+            "textures/environment/clouds.png"
+        );
+        assert_eq!(
+            value["textures"][2]["source_sha256"],
+            hex(&compiled.textures[2].source_sha256)
+        );
+        assert_eq!(
+            value["textures"][2]["pixels_sha256"],
+            hex(&compiled.textures[2].pixels_sha256)
+        );
+        assert!(!report_text.contains(physical_override));
+    }
+
+    fn synthetic_compiled() -> CompiledAtmosphereAssets {
+        let specs = [
+            (AtmosphereRole::Sun, "textures/environment/sun.png", 32, 32),
+            (
+                AtmosphereRole::MoonPhases,
+                "textures/environment/moon_phases.png",
+                128,
+                64,
+            ),
+            (
+                AtmosphereRole::Clouds,
+                "textures/environment/clouds.png",
+                256,
+                256,
+            ),
+        ];
+        let textures = specs
+            .into_iter()
+            .enumerate()
+            .map(|(index, (role, source_path, width, height))| {
+                let rgba8 =
+                    vec![index as u8 + 1; width as usize * height as usize * 4].into_boxed_slice();
+                AtmosphereTexture {
+                    role,
+                    source_path: source_path.into(),
+                    source_bytes: index as u32 + 1,
+                    source_sha256: [index as u8 + 1; 32],
+                    pixels_sha256: Sha256::digest(&rgba8).into(),
+                    width,
+                    height,
+                    rgba8,
+                }
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        CompiledAtmosphereAssets {
+            source_manifest_sha256: [0x44; 32],
+            textures,
+        }
+    }
+
+    fn hex(bytes: &[u8]) -> String {
+        bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    }
 }

@@ -1137,10 +1137,13 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     `textures/environment/clouds.png` logical path and independent hashes. The
     wrapper API and no-override fixture remain deterministic, while
     `assetc atmosphere --clouds-override` and optional `CINNABAR_CLOUDS_PNG`
-    expose the local input portably. Startup evidence now identifies
+    expose the local input portably. Both Make modes conservatively force the
+    atmosphere producer, preventing a set-to-empty override transition from
+    retaining a stale carrier. Startup evidence now identifies
     `cloud.wgsl` separately from `atmosphere.wgsl`. Synthetic rejection tests,
-    environment-gated installed-input acceptance, the full assets suite, app
-    asset suite, strict relevant Clippy, formatting, and diff checks are green;
+    synthetic accepted options/CLI/report tests through a private injected
+    identity seam, environment-gated installed-input acceptance, the full assets
+    suite, app asset suite, strict relevant Clippy, formatting, and diff checks are green;
     transparent composition, directional lighting, calibration, and live parity
     acceptance remain open in the native-cloud plan.
   - [x] Resolve the camera-eye medium directly from palette-native liquid

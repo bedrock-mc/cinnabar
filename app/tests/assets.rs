@@ -888,7 +888,7 @@ fn make_assets_and_client_refresh_the_atmosphere_blob_and_report() {
         "ATMOSPHERE_REPORT ?= .local/assets/compiled/atmosphere-assets.json",
         "CINNABAR_CLOUDS_PNG ?=",
         "Set CINNABAR_CLOUDS_PNG to the exact local-only Bedrock 1.26.33.1 clouds.png",
-        "CLOUDS_OVERRIDE_PREREQUISITE = $(if $(strip $(CINNABAR_CLOUDS_PNG)),FORCE_CINNABAR_CLOUDS_OVERRIDE)",
+        "CLOUDS_OVERRIDE_PREREQUISITE = FORCE_CINNABAR_CLOUDS_OVERRIDE",
         "$(VANILLA_SOURCE_MANIFEST) $(CLOUDS_OVERRIDE_PREREQUISITE)",
         "FORCE_CINNABAR_CLOUDS_OVERRIDE:",
         concat!(
@@ -1037,7 +1037,10 @@ fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() 
     ));
     run_make_atmosphere(root, &override_assignments);
     assert_eq!(fs::read_to_string(&invocations).unwrap().lines().count(), 4);
-    run_make_atmosphere(root, &override_assignments);
+
+    let mut default_assignments = assignments.to_vec();
+    default_assignments.push("CINNABAR_CLOUDS_PNG=".to_owned());
+    run_make_atmosphere(root, &default_assignments);
     assert_eq!(fs::read_to_string(&invocations).unwrap().lines().count(), 5);
 
     fs::remove_dir_all(temporary).unwrap();

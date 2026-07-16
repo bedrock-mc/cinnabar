@@ -32,6 +32,10 @@ matching Bedrock 1.26.33.1 legacy cloud path while retaining compact immutable g
   introducing a checked-in local path. Keep the existing no-override fixture path deterministic.
 - [x] Verify focused assets tests, asset CLI tests, Make contract tests, formatting, and strict
   Clippy. Independently review and commit locally; the owning integration lane handles any push.
+  Normal CI uses an internal injected validation policy and pinned-reader seam to cover accepted
+  options/CLI/report behavior plus typed rejection with synthetic PNGs; the public API always
+  supplies the exact native policy. The Make target conservatively rebuilds in both override and
+  default modes so changing from a set override to an empty variable cannot retain stale clouds.
 
 ### Task 2: Native cloud configuration model
 

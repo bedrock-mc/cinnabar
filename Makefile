@@ -17,7 +17,7 @@ ASSET_BLOB ?= .local/assets/compiled/vanilla-v1001.mcbea
 ATMOSPHERE_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeatm
 ATMOSPHERE_REPORT ?= .local/assets/compiled/atmosphere-assets.json
 CINNABAR_CLOUDS_PNG ?=
-CLOUDS_OVERRIDE_PREREQUISITE = $(if $(strip $(CINNABAR_CLOUDS_PNG)),FORCE_CINNABAR_CLOUDS_OVERRIDE)
+CLOUDS_OVERRIDE_PREREQUISITE = FORCE_CINNABAR_CLOUDS_OVERRIDE
 ASSET_COMPILER_INPUTS := Cargo.toml Cargo.lock crates/assets/Cargo.toml Makefile $(wildcard crates/assets/src/*.rs) $(wildcard crates/assets/src/bin/*.rs)
 ATMOSPHERE_COMPILE = $(CARGO) run --locked -p assets --bin assetc -- atmosphere --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" $(if $(strip $(CINNABAR_CLOUDS_PNG)),--clouds-override "$(CINNABAR_CLOUDS_PNG)") --out "$(ATMOSPHERE_BLOB)" --report "$(ATMOSPHERE_REPORT)"
 

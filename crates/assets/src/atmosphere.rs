@@ -44,6 +44,25 @@ const NATIVE_CLOUDS_PIXELS_SHA256: [u8; 32] =
 const NATIVE_CLOUDS_SOURCE_BYTES: usize = 7_880;
 const NATIVE_CLOUDS_OCCUPIED_TEXELS: usize = 13_356;
 
+#[derive(Clone, Copy)]
+struct CloudValidationPolicy {
+    source_sha256: [u8; 32],
+    pixels_sha256: [u8; 32],
+    source_bytes: usize,
+    width: u32,
+    height: u32,
+    occupied_texels: usize,
+}
+
+const NATIVE_CLOUD_VALIDATION: CloudValidationPolicy = CloudValidationPolicy {
+    source_sha256: NATIVE_CLOUDS_SOURCE_SHA256,
+    pixels_sha256: NATIVE_CLOUDS_PIXELS_SHA256,
+    source_bytes: NATIVE_CLOUDS_SOURCE_BYTES,
+    width: 256,
+    height: 256,
+    occupied_texels: NATIVE_CLOUDS_OCCUPIED_TEXELS,
+};
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
 pub enum AtmosphereRole {
@@ -438,24 +457,39 @@ pub fn compile_atmosphere_assets_with_options(
         .map_err(|source| AssetError::InvalidAtmosphereManifest { source })?;
     let source_manifest_sha256: [u8; 32] = Sha256::digest(&canonical_manifest).into();
     validate_source_manifest(&manifest, source_manifest_sha256)?;
-    let specs = source_specs();
-    let textures = specs
+    let textures =
+        compile_atmosphere_textures(root, options, NATIVE_CLOUD_VALIDATION, read_texture)?;
+    Ok(CompiledAtmosphereAssets {
+        source_manifest_sha256,
+        textures,
+    })
+}
+
+fn compile_atmosphere_textures(
+    root: &Path,
+    options: AtmosphereCompileOptions<'_>,
+    cloud_policy: CloudValidationPolicy,
+    mut read_pinned: impl FnMut(
+        &Path,
+        AtmosphereRole,
+        &'static str,
+        u32,
+        u32,
+    ) -> Result<AtmosphereTexture, AssetError>,
+) -> Result<Box<[AtmosphereTexture]>, AssetError> {
+    let textures = source_specs()
         .into_iter()
         .map(|(role, source_path, width, height)| {
             if role == AtmosphereRole::Clouds
                 && let Some(path) = options.clouds_override
             {
-                read_cloud_override(path)
+                read_cloud_override_with_policy(path, cloud_policy)
             } else {
-                read_texture(root, role, source_path, width, height)
+                read_pinned(root, role, source_path, width, height)
             }
         })
-        .collect::<Result<Vec<_>, _>>()?
-        .into_boxed_slice();
-    Ok(CompiledAtmosphereAssets {
-        source_manifest_sha256,
-        textures,
-    })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(textures.into_boxed_slice())
 }
 
 fn canonical_manifest_line_endings(source: &[u8]) -> Result<Cow<'_, [u8]>, AssetError> {
@@ -547,7 +581,10 @@ const fn source_specs() -> [(AtmosphereRole, &'static str, u32, u32); 3] {
     ]
 }
 
-fn read_cloud_override(path: &Path) -> Result<AtmosphereTexture, AssetError> {
+fn read_cloud_override_with_policy(
+    path: &Path,
+    policy: CloudValidationPolicy,
+) -> Result<AtmosphereTexture, AssetError> {
     let role = AtmosphereRole::Clouds;
     let file = File::open(path).map_err(|source| AssetError::AtmosphereTextureIo {
         role: role.label(),
@@ -577,18 +614,18 @@ fn read_cloud_override(path: &Path) -> Result<AtmosphereTexture, AssetError> {
             path: path.to_path_buf(),
             source,
         })?;
-    if dimensions != (256, 256) {
+    if dimensions != (policy.width, policy.height) {
         return Err(AssetError::WrongAtmosphereTextureDimensions {
             role: role.label(),
             path: path.to_path_buf(),
             width: dimensions.0,
             height: dimensions.1,
-            expected_width: 256,
-            expected_height: 256,
+            expected_width: policy.width,
+            expected_height: policy.height,
         });
     }
     let source_sha256: [u8; 32] = Sha256::digest(&bytes).into();
-    if bytes.len() != NATIVE_CLOUDS_SOURCE_BYTES || source_sha256 != NATIVE_CLOUDS_SOURCE_SHA256 {
+    if bytes.len() != policy.source_bytes || source_sha256 != policy.source_sha256 {
         return Err(AssetError::AtmosphereTextureHashMismatch {
             role: role.label(),
             path: path.to_path_buf(),
@@ -597,8 +634,8 @@ fn read_cloud_override(path: &Path) -> Result<AtmosphereTexture, AssetError> {
 
     let mut reader = ImageReader::with_format(Cursor::new(&bytes), ImageFormat::Png);
     let mut limits = Limits::default();
-    limits.max_image_width = Some(256);
-    limits.max_image_height = Some(256);
+    limits.max_image_width = Some(policy.width);
+    limits.max_image_height = Some(policy.height);
     limits.max_alloc = Some(MAX_DECODE_ALLOC);
     reader.limits(limits);
     let rgba8 = reader
@@ -616,9 +653,9 @@ fn read_cloud_override(path: &Path) -> Result<AtmosphereTexture, AssetError> {
         .chunks_exact(4)
         .filter(|pixel| pixel[3] >= 128)
         .count();
-    if rgba8.len() != pixel_length(256, 256)?
-        || pixels_sha256 != NATIVE_CLOUDS_PIXELS_SHA256
-        || occupied_texels != NATIVE_CLOUDS_OCCUPIED_TEXELS
+    if rgba8.len() != pixel_length(policy.width, policy.height)?
+        || pixels_sha256 != policy.pixels_sha256
+        || occupied_texels != policy.occupied_texels
     {
         return Err(AssetError::AtmosphereTextureHashMismatch {
             role: role.label(),
@@ -628,11 +665,15 @@ fn read_cloud_override(path: &Path) -> Result<AtmosphereTexture, AssetError> {
     Ok(AtmosphereTexture {
         role,
         source_path: "textures/environment/clouds.png".into(),
-        source_bytes: NATIVE_CLOUDS_SOURCE_BYTES as u32,
+        source_bytes: u32::try_from(policy.source_bytes).map_err(|_| {
+            AssetError::BlobSizeOverflow {
+                section: "atmosphere source size",
+            }
+        })?,
         source_sha256,
         pixels_sha256,
-        width: 256,
-        height: 256,
+        width: policy.width,
+        height: policy.height,
         rgba8,
     })
 }
@@ -845,14 +886,53 @@ mod cloud_override_tests {
     use std::{fs, path::Path};
 
     use image::{Rgba, RgbaImage};
+    use sha2::{Digest, Sha256};
 
-    use super::{AssetError, MAX_SOURCE_BYTES, read_cloud_override};
+    use super::{
+        AssetError, AtmosphereCompileOptions, AtmosphereRole, AtmosphereTexture,
+        CloudValidationPolicy, MAX_SOURCE_BYTES, compile_atmosphere_textures,
+    };
+
+    #[test]
+    fn synthetic_policy_exercises_options_acceptance_and_replaces_only_clouds() {
+        let directory = tempfile::tempdir().unwrap();
+        let override_path = directory.path().join("native-clouds.png");
+        write_png(&override_path, 256, 256);
+        let policy = policy_for(&override_path, 256, 256, 65_536);
+
+        let baseline = compile_atmosphere_textures(
+            directory.path(),
+            AtmosphereCompileOptions::default(),
+            policy,
+            synthetic_pinned_texture,
+        )
+        .unwrap();
+        let overridden = compile_atmosphere_textures(
+            directory.path(),
+            AtmosphereCompileOptions {
+                clouds_override: Some(&override_path),
+            },
+            policy,
+            synthetic_pinned_texture,
+        )
+        .unwrap();
+
+        assert_eq!(overridden[..2], baseline[..2]);
+        assert_ne!(overridden[2], baseline[2]);
+        assert_eq!(overridden[2].role, AtmosphereRole::Clouds);
+        assert_eq!(
+            overridden[2].source_path.as_ref(),
+            "textures/environment/clouds.png"
+        );
+        assert_eq!(overridden[2].source_sha256, policy.source_sha256);
+        assert_eq!(overridden[2].pixels_sha256, policy.pixels_sha256);
+    }
 
     #[test]
     fn cloud_override_missing_path_fails_closed() {
         let directory = tempfile::tempdir().unwrap();
         assert!(matches!(
-            read_cloud_override(&directory.path().join("missing.png")),
+            compile_override(&directory.path().join("missing.png"), synthetic_policy()),
             Err(AssetError::AtmosphereTextureIo { role: "clouds", .. })
         ));
     }
@@ -863,7 +943,7 @@ mod cloud_override_tests {
         let path = directory.path().join("oversized.png");
         fs::write(&path, vec![0; MAX_SOURCE_BYTES + 1]).unwrap();
         assert!(matches!(
-            read_cloud_override(&path),
+            compile_override(&path, synthetic_policy()),
             Err(AssetError::AtmosphereTextureTooLarge { role: "clouds", .. })
         ));
     }
@@ -874,7 +954,7 @@ mod cloud_override_tests {
         let path = directory.path().join("wrong-dimensions.png");
         write_png(&path, 255, 256);
         assert!(matches!(
-            read_cloud_override(&path),
+            compile_override(&path, synthetic_policy()),
             Err(AssetError::WrongAtmosphereTextureDimensions {
                 role: "clouds",
                 width: 255,
@@ -891,10 +971,78 @@ mod cloud_override_tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("wrong-hash.png");
         write_png(&path, 256, 256);
+        let mut policy = policy_for(&path, 256, 256, 65_536);
+        policy.source_sha256[0] ^= 1;
         assert!(matches!(
-            read_cloud_override(&path),
+            compile_override(&path, policy),
             Err(AssetError::AtmosphereTextureHashMismatch { role: "clouds", .. })
         ));
+    }
+
+    fn synthetic_policy() -> CloudValidationPolicy {
+        CloudValidationPolicy {
+            source_sha256: [0x11; 32],
+            pixels_sha256: [0x22; 32],
+            source_bytes: 7_880,
+            width: 256,
+            height: 256,
+            occupied_texels: 65_536,
+        }
+    }
+
+    fn compile_override(
+        path: &Path,
+        policy: CloudValidationPolicy,
+    ) -> Result<Box<[AtmosphereTexture]>, AssetError> {
+        compile_atmosphere_textures(
+            path.parent().unwrap(),
+            AtmosphereCompileOptions {
+                clouds_override: Some(path),
+            },
+            policy,
+            synthetic_pinned_texture,
+        )
+    }
+
+    fn policy_for(
+        path: &Path,
+        width: u32,
+        height: u32,
+        occupied_texels: usize,
+    ) -> CloudValidationPolicy {
+        let bytes = fs::read(path).unwrap();
+        let rgba8 = image::load_from_memory_with_format(&bytes, image::ImageFormat::Png)
+            .unwrap()
+            .into_rgba8()
+            .into_raw();
+        CloudValidationPolicy {
+            source_sha256: Sha256::digest(&bytes).into(),
+            pixels_sha256: Sha256::digest(&rgba8).into(),
+            source_bytes: bytes.len(),
+            width,
+            height,
+            occupied_texels,
+        }
+    }
+
+    fn synthetic_pinned_texture(
+        _root: &Path,
+        role: AtmosphereRole,
+        source_path: &'static str,
+        width: u32,
+        height: u32,
+    ) -> Result<AtmosphereTexture, AssetError> {
+        let rgba8 = vec![role as u8; width as usize * height as usize * 4].into_boxed_slice();
+        Ok(AtmosphereTexture {
+            role,
+            source_path: source_path.into(),
+            source_bytes: 1,
+            source_sha256: [role as u8; 32],
+            pixels_sha256: Sha256::digest(&rgba8).into(),
+            width,
+            height,
+            rgba8,
+        })
     }
 
     fn write_png(path: &Path, width: u32, height: u32) {
