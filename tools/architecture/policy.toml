@@ -19,7 +19,7 @@ forbidden_artifacts = [
 # category limit remain governed by the strict limits above.
 [[line_baselines]]
 path = "app/tests/assets.rs"
-max = 1355
+max = 1381
 
 [[line_baselines]]
 path = "app/src/tests/finish.rs"

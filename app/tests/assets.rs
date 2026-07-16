@@ -136,10 +136,7 @@ fn synthetic_atmosphere_blob(seed: u8) -> Box<[u8]> {
 }
 
 fn synthetic_entity_blob(seed: u8) -> Box<[u8]> {
-    synthetic_entity_blob_with_manifest(
-        seed,
-        Sha256::digest(include_bytes!("../../assets/vanilla-source.json")).into(),
-    )
+    synthetic_entity_blob_with_manifest(seed, canonical_vanilla_source_manifest_sha256())
 }
 
 fn synthetic_entity_blob_with_manifest(seed: u8, source_manifest_sha256: [u8; 32]) -> Box<[u8]> {
