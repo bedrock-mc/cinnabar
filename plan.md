@@ -1469,6 +1469,35 @@ these); chat with Bedrock formatting codes; HUD (health/hunger/armor/air, bossba
 title/actionbar); Bedrock bitmap font rendering from pack `font/` assets. Taste bar applies:
 UI phases get fable-5/opus-4.8 review before merge.
 
+**Phase 5 roadmap (kept current as work lands):**
+
+- [ ] **5.1 Bedrock UI foundation.** Create `crates/ui`, ingest the pinned pack's bitmap
+  fonts/glyph metrics, implement bounded formatting-code-aware text layout, UI scaling/safe
+  areas, focus/navigation, mouse/touch/controller input, and a shared retained draw pipeline.
+  Prove no per-glyph mesh/material churn and exact cross-platform DPI behavior.
+- [ ] **5.2 Receive-only server text and HUD state.** Normalize bounded `Text`, title,
+  actionbar, toast, player-status, health/hunger/armor/air, and related lifecycle packets into
+  vendor-neutral stores. Render chat history, title/actionbar, and the survival HUD without
+  permitting UI focus to leak movement input.
+- [ ] **5.3 Interactive chat.** Add chat focus/history/autocomplete, Bedrock formatting,
+  bounded UTF-8 editing and clipboard behavior, then send through the Go core with session/FIFO
+  identity and spam-safe rate limits. Verify third-party server receive/send and disconnect
+  behavior.
+- [ ] **5.4 Scoreboard and boss bars.** Normalize objective/display/score and boss-event
+  create/update/remove packets into independent bounded lifecycle stores. Render sidebar/list/
+  below-name objectives, score ordering, boss health/style/count stacking, and title/actionbar
+  coexistence with deterministic replacement/removal tests.
+- [ ] **5.5 Interaction, hotbar, and inventory.** Implement server-authoritative break cracks,
+  placement/use, selected slot, item stack/network-ID reconciliation, creative/survival
+  inventory, and chest/furnace/crafting containers with rollback on rejected stack requests.
+- [ ] **5.6 Server forms.** Implement modal/menu/custom JSON forms, validation, cancellation,
+  keyboard/controller/touch navigation, and response routing. This is the prerequisite for
+  Lunar ClickUI compatibility.
+- [ ] **5.7 UI parity and performance acceptance.** Compare matching vanilla reference views at
+  supported scales/aspect ratios, test keyboard/mouse/controller/touch focus transitions, and
+  prove bounded retained memory plus stable frame time with chat, scoreboard, boss bars,
+  inventory, and forms active together.
+
 ## Phase 6 — Online product surface
 
 Scope: main menu + settings (video/controls/audio/account); server browser (saved servers);
