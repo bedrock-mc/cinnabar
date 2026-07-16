@@ -227,99 +227,109 @@ struct ActorPipeline {
 
 impl FromWorld for ActorPipeline {
     fn from_world(_world: &mut World) -> Self {
-        let bind_group_layout = BindGroupLayoutDescriptor::new(
-            "instanced actor bind group layout",
-            &[
-                BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::VERTEX,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Uniform,
-                        has_dynamic_offset: true,
-                        min_binding_size: Some(ViewUniform::min_size()),
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: ShaderStages::VERTEX,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: BufferSize::new(size_of::<GpuActorInstance>() as u64),
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: ShaderStages::FRAGMENT,
-                    ty: BindingType::Texture {
-                        sample_type: TextureSampleType::Float { filterable: true },
-                        view_dimension: TextureViewDimension::D2Array,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: ShaderStages::FRAGMENT,
-                    ty: BindingType::Sampler(SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        );
-        let descriptor = RenderPipelineDescriptor {
-            label: Some("instanced standard Bedrock biped pipeline".into()),
-            layout: vec![bind_group_layout.clone()],
-            vertex: VertexState {
-                shader: ACTOR_SHADER_HANDLE,
-                entry_point: Some("actor_vertex".into()),
-                buffers: vec![VertexBufferLayout {
-                    array_stride: size_of::<ActorVertex>() as u64,
-                    step_mode: VertexStepMode::Vertex,
-                    attributes: vec![
-                        VertexAttribute {
-                            format: VertexFormat::Float32x3,
-                            offset: 0,
-                            shader_location: 0,
-                        },
-                        VertexAttribute {
-                            format: VertexFormat::Float32x2,
-                            offset: 12,
-                            shader_location: 1,
-                        },
-                        VertexAttribute {
-                            format: VertexFormat::Uint32,
-                            offset: 20,
-                            shader_location: 2,
-                        },
-                    ],
-                }],
-                ..default()
-            },
-            fragment: Some(FragmentState {
-                shader: ACTOR_SHADER_HANDLE,
-                entry_point: Some("actor_fragment".into()),
-                targets: vec![Some(ColorTargetState {
-                    format: TextureFormat::bevy_default(),
-                    blend: None,
-                    write_mask: ColorWrites::ALL,
-                })],
-                ..default()
-            }),
-            depth_stencil: Some(DepthStencilState {
-                format: CORE_3D_DEPTH_FORMAT,
-                depth_write_enabled: true,
-                depth_compare: CompareFunction::GreaterEqual,
-                stencil: default(),
-                bias: default(),
-            }),
-            ..default()
-        };
+        let bind_group_layout = actor_bind_group_layout();
+        let descriptor = actor_pipeline_descriptor(bind_group_layout.clone());
         Self {
             variants: Variants::new(ActorPipelineSpecializer, descriptor),
             bind_group_layout,
         }
+    }
+}
+
+fn actor_bind_group_layout() -> BindGroupLayoutDescriptor {
+    BindGroupLayoutDescriptor::new(
+        "instanced actor bind group layout",
+        &[
+            BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::VERTEX,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: true,
+                    min_binding_size: Some(ViewUniform::min_size()),
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 1,
+                visibility: ShaderStages::VERTEX,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: BufferSize::new(size_of::<GpuActorInstance>() as u64),
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 2,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2Array,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 3,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+    )
+}
+
+fn actor_pipeline_descriptor(
+    bind_group_layout: BindGroupLayoutDescriptor,
+) -> RenderPipelineDescriptor {
+    RenderPipelineDescriptor {
+        label: Some("instanced standard Bedrock biped pipeline".into()),
+        layout: vec![bind_group_layout],
+        vertex: VertexState {
+            shader: ACTOR_SHADER_HANDLE,
+            entry_point: Some("actor_vertex".into()),
+            buffers: vec![VertexBufferLayout {
+                array_stride: size_of::<ActorVertex>() as u64,
+                step_mode: VertexStepMode::Vertex,
+                attributes: vec![
+                    VertexAttribute {
+                        format: VertexFormat::Float32x3,
+                        offset: 0,
+                        shader_location: 0,
+                    },
+                    VertexAttribute {
+                        format: VertexFormat::Float32x2,
+                        offset: 12,
+                        shader_location: 1,
+                    },
+                    VertexAttribute {
+                        format: VertexFormat::Uint32,
+                        offset: 20,
+                        shader_location: 2,
+                    },
+                ],
+            }],
+            ..default()
+        },
+        fragment: Some(FragmentState {
+            shader: ACTOR_SHADER_HANDLE,
+            entry_point: Some("actor_fragment".into()),
+            targets: vec![Some(ColorTargetState {
+                format: TextureFormat::bevy_default(),
+                blend: None,
+                write_mask: ColorWrites::ALL,
+            })],
+            ..default()
+        }),
+        depth_stencil: Some(DepthStencilState {
+            format: CORE_3D_DEPTH_FORMAT,
+            depth_write_enabled: true,
+            depth_compare: CompareFunction::GreaterEqual,
+            stencil: default(),
+            bias: default(),
+        }),
+        ..default()
     }
 }
 
@@ -511,7 +521,11 @@ mod tests {
         },
     };
 
-    use super::{ACTOR_SHADER_SOURCE, ActorGpu, ActorRenderInstalled, ActorRenderPlugin};
+    use super::{
+        ACTOR_SHADER_SOURCE, ActorGpu, ActorPipelineKey, ActorPipelineSpecializer,
+        ActorRenderInstalled, ActorRenderPlugin, actor_bind_group_layout,
+        actor_pipeline_descriptor,
+    };
 
     fn app_with_noop_render_sub_app() -> App {
         let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
@@ -553,5 +567,44 @@ mod tests {
         );
         render_app.world_mut().run_schedule(RenderStartup);
         assert!(render_app.world().contains_resource::<ActorGpu>());
+    }
+
+    #[test]
+    fn pipeline_descriptor_specializes_and_noop_backend_accepts_the_binding_layout() {
+        use bevy::prelude::Msaa;
+        use bevy::render::{
+            render_resource::{ShaderStages, Specializer},
+            view::ViewTarget,
+        };
+
+        let layout = actor_bind_group_layout();
+        assert_eq!(layout.entries.len(), 4);
+        assert_eq!(layout.entries[0].visibility, ShaderStages::VERTEX);
+        assert_eq!(layout.entries[1].visibility, ShaderStages::VERTEX);
+        assert_eq!(layout.entries[2].visibility, ShaderStages::FRAGMENT);
+        assert_eq!(layout.entries[3].visibility, ShaderStages::FRAGMENT);
+
+        let mut descriptor = actor_pipeline_descriptor(layout.clone());
+        ActorPipelineSpecializer
+            .specialize(
+                ActorPipelineKey {
+                    msaa: Msaa::Sample4,
+                    hdr: true,
+                },
+                &mut descriptor,
+            )
+            .expect("actor pipeline specializes");
+        assert_eq!(descriptor.multisample.count, 4);
+        assert_eq!(
+            descriptor.fragment.as_ref().unwrap().targets[0]
+                .as_ref()
+                .unwrap()
+                .format,
+            ViewTarget::TEXTURE_FORMAT_HDR
+        );
+
+        let app = app_with_noop_render_sub_app();
+        let render_device = app.sub_app(RenderApp).world().resource::<RenderDevice>();
+        render_device.create_bind_group_layout("actor layout validation", &layout.entries);
     }
 }

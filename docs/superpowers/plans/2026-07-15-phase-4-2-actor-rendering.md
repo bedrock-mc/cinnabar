@@ -32,9 +32,9 @@
 
 **Files:** Modify `app/src/actor_store.rs`; test its unit module.
 
-**Interfaces:** `ActorStore::render_players()` yields deterministic player actor/profile pairs without exposing local movement state.
+**Interfaces:** `ActorStore::render_players(excluded_runtime_id)` yields deterministic remote player actor/profile pairs without exposing local movement state, while roster skins remain within a cumulative retained-byte cap.
 
-- [x] Add tests for roster skin retention, UUID joining, stable runtime-ID order, and reset/removal.
+- [x] Add tests for roster skin retention and its cumulative cap, UUID joining, local-player exclusion, stable runtime-ID order, and reset/removal.
 - [x] Run `cargo test -p bedrock-client actor_store` and record RED.
 - [x] Implement the minimal iterator/profile changes.
 - [x] Re-run the focused app tests to GREEN.
@@ -45,7 +45,7 @@
 
 **Interfaces:** `ActorRenderScene::update(now_seconds, sources)` produces `ActorRenderFrame` with at most 128 instances, two poses per actor, 100 ms delayed interpolation, and deterministic skin layers.
 
-- [x] Add tests for interpolation, shortest angles, teleport snapping, truncation, skin resampling, and the locally generated default.
+- [x] Add tests for interpolation, shortest angles, one-shot teleport snapping, truncation, skin resampling, and the locally generated default.
 - [x] Run `cargo test -p render actor::tests` and record RED.
 - [x] Implement only the bounded scene/frame logic required by those tests.
 - [x] Re-run the focused render tests to GREEN.
@@ -56,7 +56,7 @@
 
 **Interfaces:** `ActorRenderPlugin` extracts `ActorRenderFrame`; WGSL expands six fixed base-layer cuboids and selects the instance skin layer.
 
-- [x] Add geometry/UV contract, shader parse, and plugin idempotence tests.
+- [x] Add geometry/UV contract, shader parse, descriptor specialization, no-op-backend binding-layout, and plugin idempotence tests.
 - [x] Run `cargo test -p render actor_render::tests` and record RED.
 - [x] Implement the custom pipeline, bounded GPU uploads, bind group, queue, and draw command.
 - [x] Re-run the focused renderer tests to GREEN.

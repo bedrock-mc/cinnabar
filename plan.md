@@ -1439,16 +1439,19 @@ and dropped-item rendering, paper-doll first-person arm/held item.
 - [x] **4.2 Standard remote-player render slice.** `PlayerList` now retains explicitly bounded
   classic 64x64, 128x128, or 256x256 RGBA skin images, with deterministic unavailable states for
   persona, malformed, or retained-budget-exhausted data; `AddPlayer` UUIDs join those roster
-  profiles to the sparse actor store. The app publishes at most 128 runtime-ID-ordered player
-  snapshots into a render-only two-pose history and samples them 100 ms behind `Time<Real>` with
-  shortest-path angle interpolation and teleport snapping. This path consumes no free-camera or
-  local movement state. One custom `Opaque3d` instanced draw expands a shared six-cuboid standard
+  profiles to the sparse actor store, whose cumulative retained skin bytes remain capped across
+  incremental roster packets. The app excludes the local runtime ID and publishes at most 128
+  runtime-ID-ordered player snapshots into a render-only two-pose history, sampling them 100 ms
+  behind `Time<Real>` with shortest-path angle interpolation and one-shot teleport snapping. This
+  path consumes no free-camera or local movement state. One custom `Opaque3d` instanced draw expands a shared six-cuboid standard
   Bedrock biped vertex buffer and samples a bounded 64x64 texture array, with no `StandardMaterial`
   or per-actor Bevy mesh. Missing/unsupported/invalid skins use the documented, locally generated
   `Cinnabar Default` skin (no Mojang or diagnostic bytes). Focused protocol/app/render tests,
-  shader parsing, format, and warnings-denied workspace Clippy are green. Persona/custom geometry,
+  shader parsing, no-op-backend binding-layout validation, pipeline specialization, format, and
+  warnings-denied workspace Clippy are green. Persona/custom geometry,
   legacy 64x32 skins, outer skin layers, limb animation/Molang, name tags, equipment, mobs/items,
-  first-person visuals, and live multi-client visual evidence remain open Phase 4 work.
+  first-person visuals, live render-pipeline creation on a hardware backend, and multi-client
+  visual evidence remain open Phase 4 work.
 
 ## Phase 5 — Interaction, inventory, UI
 

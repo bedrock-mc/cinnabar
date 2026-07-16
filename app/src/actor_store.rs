@@ -3,11 +3,13 @@ use std::collections::HashMap;
 use protocol::{
     ActorAttribute, ActorEvent, ActorKind, ActorMetadataValue, ActorMoveEvent, ActorProperty,
     ActorSpawnEvent, MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_PROPERTIES,
-    MovePlayerEvent, PlayerListEntry, PlayerSkin,
+    MAX_PLAYER_LIST_SKIN_BYTES, MovePlayerEvent, PlayerListEntry, PlayerSkin,
+    PlayerSkinUnavailable,
 };
 
 pub(crate) const MAX_TRACKED_ACTORS: usize = 8_192;
 pub(crate) const MAX_TRACKED_PLAYERS: usize = 4_096;
+pub(crate) const MAX_TRACKED_PLAYER_SKIN_BYTES: usize = MAX_PLAYER_LIST_SKIN_BYTES;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ActorApplyResult {
@@ -148,6 +150,8 @@ pub(crate) struct ActorStore {
     latest_sequence: u64,
     max_actors: usize,
     max_players: usize,
+    max_player_skin_bytes: usize,
+    retained_player_skin_bytes: usize,
     actors: HashMap<u64, ActorSnapshot>,
     unique_to_runtime: HashMap<i64, u64>,
     players: HashMap<[u8; 16], PlayerProfile>,
@@ -171,12 +175,30 @@ impl ActorStore {
         max_actors: usize,
         max_players: usize,
     ) -> Self {
+        Self::with_limits(
+            session_id,
+            dimension,
+            max_actors,
+            max_players,
+            MAX_TRACKED_PLAYER_SKIN_BYTES,
+        )
+    }
+
+    fn with_limits(
+        session_id: u64,
+        dimension: i32,
+        max_actors: usize,
+        max_players: usize,
+        max_player_skin_bytes: usize,
+    ) -> Self {
         Self {
             session_id,
             dimension,
             latest_sequence: 0,
             max_actors,
             max_players,
+            max_player_skin_bytes,
+            retained_player_skin_bytes: 0,
             actors: HashMap::new(),
             unique_to_runtime: HashMap::new(),
             players: HashMap::new(),
@@ -191,6 +213,7 @@ impl ActorStore {
         self.actors.clear();
         self.unique_to_runtime.clear();
         self.players.clear();
+        self.retained_player_skin_bytes = 0;
     }
 
     pub(crate) fn reset_dimension(
@@ -288,18 +311,55 @@ impl ActorStore {
                                 capacity_rejected = true;
                                 continue;
                             }
+                            let previous = self.players.get(uuid);
+                            let previous_skin_bytes =
+                                previous.map_or(0, |profile| retained_skin_bytes(&profile.skin));
+                            let retained_without_previous = self
+                                .retained_player_skin_bytes
+                                .saturating_sub(previous_skin_bytes);
+                            let requested_skin_bytes = retained_skin_bytes(skin);
+                            let (skin, retained_player_skin_bytes) = retained_without_previous
+                                .checked_add(requested_skin_bytes)
+                                .filter(|total| *total <= self.max_player_skin_bytes)
+                                .map_or_else(
+                                    || {
+                                        previous.map_or_else(
+                                            || {
+                                                (
+                                                    PlayerSkin::Unavailable(
+                                                        PlayerSkinUnavailable::RetainedBudgetExceeded,
+                                                    ),
+                                                    retained_without_previous,
+                                                )
+                                            },
+                                            |profile| {
+                                                (
+                                                    profile.skin.clone(),
+                                                    retained_without_previous
+                                                        .saturating_add(previous_skin_bytes),
+                                                )
+                                            },
+                                        )
+                                    },
+                                    |total| (skin.clone(), total),
+                                );
+                            self.retained_player_skin_bytes = retained_player_skin_bytes;
                             self.players.insert(
                                 *uuid,
                                 PlayerProfile {
                                     unique_id: *unique_id,
                                     username: username.clone(),
                                     verified: *verified,
-                                    skin: skin.clone(),
+                                    skin,
                                 },
                             );
                         }
                         PlayerListEntry::Remove { uuid } => {
-                            self.players.remove(uuid);
+                            if let Some(profile) = self.players.remove(uuid) {
+                                self.retained_player_skin_bytes = self
+                                    .retained_player_skin_bytes
+                                    .saturating_sub(retained_skin_bytes(&profile.skin));
+                            }
                         }
                     }
                 }
@@ -382,10 +442,14 @@ impl ActorStore {
     }
 
     #[must_use]
-    pub(crate) fn render_players(&self) -> Vec<(&ActorSnapshot, Option<&PlayerProfile>)> {
+    pub(crate) fn render_players(
+        &self,
+        excluded_runtime_id: Option<u64>,
+    ) -> Vec<(&ActorSnapshot, Option<&PlayerProfile>)> {
         let mut players = self
             .actors
             .values()
+            .filter(|actor| Some(actor.runtime_id) != excluded_runtime_id)
             .filter_map(|actor| {
                 let ActorKind::Player { uuid, .. } = &actor.kind else {
                     return None;
@@ -426,6 +490,13 @@ impl ActorStore {
     }
 }
 
+fn retained_skin_bytes(skin: &PlayerSkin) -> usize {
+    match skin {
+        PlayerSkin::Standard(skin) => skin.rgba8.len(),
+        PlayerSkin::Unavailable(_) => 0,
+    }
+}
+
 fn event_dimension(event: &ActorEvent) -> Option<i32> {
     match event {
         ActorEvent::Spawn(event) => Some(event.dimension),
@@ -444,7 +515,8 @@ mod tests {
     use protocol::{
         ActorAttribute, ActorAttributesUpdateEvent, ActorEvent, ActorKind, ActorMetadata,
         ActorMetadataUpdateEvent, ActorMetadataValue, ActorMoveEvent, ActorProperty,
-        ActorRemoveEvent, ActorSpawnEvent, PlayerListEntry, PlayerListUpdateEvent,
+        ActorRemoveEvent, ActorSpawnEvent, PlayerListEntry, PlayerListUpdateEvent, PlayerSkin,
+        PlayerSkinUnavailable, StandardSkin,
     };
 
     use super::{ActorApplyResult, ActorStore};
@@ -805,7 +877,7 @@ mod tests {
             }),
         );
 
-        let players = store.render_players();
+        let players = store.render_players(None);
         assert_eq!(
             players
                 .iter()
@@ -815,5 +887,72 @@ mod tests {
         );
         assert_eq!(players[0].1.map(|profile| &profile.skin), Some(&skin));
         assert!(players[1].1.is_none());
+
+        let remote_players = store.render_players(Some(10));
+        assert_eq!(remote_players.len(), 1);
+        assert_eq!(remote_players[0].0.runtime_id, 20);
+    }
+
+    #[test]
+    fn incremental_player_lists_cannot_exceed_the_store_skin_byte_budget() {
+        let skin_bytes = 64 * 64 * 4;
+        let skin = |value| {
+            PlayerSkin::Standard(StandardSkin {
+                width: 64,
+                height: 64,
+                rgba8: vec![value; skin_bytes].into(),
+            })
+        };
+        let add = |uuid, unique_id, skin| {
+            ActorEvent::PlayerList(PlayerListUpdateEvent {
+                entries: Arc::from([PlayerListEntry::Add {
+                    uuid,
+                    unique_id,
+                    username: format!("player-{unique_id}").into(),
+                    verified: true,
+                    skin,
+                }]),
+            })
+        };
+        let mut store = ActorStore::with_limits(1, 0, 2, 2, skin_bytes);
+
+        assert_eq!(
+            store.apply(1, 1, add([1; 16], 1, skin(1))),
+            ActorApplyResult::Updated
+        );
+        assert_eq!(
+            store.apply(1, 2, add([2; 16], 2, skin(2))),
+            ActorApplyResult::Updated
+        );
+        assert_eq!(store.retained_player_skin_bytes, skin_bytes);
+        assert_eq!(
+            store.players[&[2; 16]].skin,
+            PlayerSkin::Unavailable(PlayerSkinUnavailable::RetainedBudgetExceeded)
+        );
+
+        let oversized_replacement = PlayerSkin::Standard(StandardSkin {
+            width: 128,
+            height: 128,
+            rgba8: vec![9; 128 * 128 * 4].into(),
+        });
+        store.apply(1, 3, add([1; 16], 10, oversized_replacement));
+        assert_eq!(store.retained_player_skin_bytes, skin_bytes);
+        assert_eq!(store.players[&[1; 16]].unique_id, 10);
+        assert_eq!(store.players[&[1; 16]].skin, skin(1));
+
+        store.apply(
+            1,
+            4,
+            ActorEvent::PlayerList(PlayerListUpdateEvent {
+                entries: Arc::from([PlayerListEntry::Remove { uuid: [1; 16] }]),
+            }),
+        );
+        assert_eq!(store.retained_player_skin_bytes, 0);
+        store.apply(1, 5, add([2; 16], 2, skin(3)));
+        assert_eq!(store.retained_player_skin_bytes, skin_bytes);
+        assert!(matches!(
+            store.players[&[2; 16]].skin,
+            PlayerSkin::Standard(_)
+        ));
     }
 }

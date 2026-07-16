@@ -2111,7 +2111,8 @@ impl WorldStream {
 
     #[must_use]
     pub(crate) fn render_players(&self) -> Vec<(&ActorSnapshot, Option<&PlayerProfile>)> {
-        self.actors.render_players()
+        self.actors
+            .render_players(Some(self.local_player_runtime_id))
     }
 
     #[must_use]

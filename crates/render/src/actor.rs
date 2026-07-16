@@ -96,6 +96,7 @@ struct ActorTrack {
     previous: TimedPose,
     current: TimedPose,
     skin: Option<ActorSkinPixels>,
+    teleport_latched: bool,
 }
 
 #[derive(Debug, Default, Resource)]
@@ -145,7 +146,7 @@ impl ActorRenderScene {
             let pose = Pose::from(source);
             match self.tracks.get_mut(&source.runtime_id) {
                 Some(track) => {
-                    if source.teleported {
+                    if source.teleported && !track.teleport_latched {
                         let timed = TimedPose {
                             seconds: now_seconds,
                             pose,
@@ -159,6 +160,7 @@ impl ActorRenderScene {
                             pose,
                         };
                     }
+                    track.teleport_latched = source.teleported;
                     track.skin = source.skin.clone();
                 }
                 None => {
@@ -172,6 +174,7 @@ impl ActorRenderScene {
                             previous: timed.clone(),
                             current: timed,
                             skin: source.skin.clone(),
+                            teleport_latched: source.teleported,
                         },
                     );
                 }
@@ -449,6 +452,23 @@ mod tests {
 
         assert_eq!(frame.instances[0].position[0], 100.0);
         assert!((frame.instances[0].yaw_radians - std::f32::consts::FRAC_PI_2).abs() < 1e-5);
+    }
+
+    #[test]
+    fn sticky_teleport_snapshot_is_consumed_before_the_next_interpolation_interval() {
+        let mut scene = ActorRenderScene::default();
+        scene.update(0.0, [source(7, 0.0, 0.0)]);
+        let mut teleported = source(7, 100.0, 90.0);
+        teleported.teleported = true;
+        scene.update(0.05, [teleported.clone()]);
+        teleported.position[0] = 110.0;
+        scene.update(0.1, [teleported]);
+        let after_sticky_publication = scene.update(0.15, [source(7, 110.0, 90.0)]);
+        assert!((after_sticky_publication.instances[0].position[0] - 100.0).abs() < 1e-5);
+
+        let frame = scene.update(0.2, [source(7, 110.0, 90.0)]);
+
+        assert!((frame.instances[0].position[0] - 110.0).abs() < 1e-5);
     }
 
     #[test]
