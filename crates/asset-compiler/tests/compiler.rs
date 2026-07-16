@@ -61,6 +61,9 @@ mod materials;
 #[path = "compiler/special_cubes.rs"]
 mod special_cubes;
 
+#[path = "compiler/mineral_cubes.rs"]
+mod mineral_cubes;
+
 #[path = "compiler/baseline.rs"]
 mod baseline;
 

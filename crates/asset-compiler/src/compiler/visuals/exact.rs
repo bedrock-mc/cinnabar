@@ -5,8 +5,10 @@ fn exact_family_admission(
     record: &RegistryRecord,
     admissions: ExactAdmissions,
 ) -> CompileRuleResult {
-    let rejected = (is_bee_housing_name(&record.name)
-        && (!admissions.bee_housing || !is_bee_housing_record(record)))
+    let rejected = (is_mineral_cube_name(&record.name)
+        && (!admissions.mineral_cubes || !is_mineral_cube_record(record)))
+        || (is_bee_housing_name(&record.name)
+            && (!admissions.bee_housing || !is_bee_housing_record(record)))
         || (is_cactus_name(&record.name) && (!admissions.cacti || !is_cactus_record(record)))
         || (is_cake_name(&record.name) && (!admissions.cakes || !is_cake_record(record)))
         || (is_farmland_name(&record.name)
@@ -51,6 +53,7 @@ pub(in crate::compiler) fn compile_exact_families(
     } = context;
     let admissions = *admissions;
     let ExactAdmissions {
+        mineral_cubes: admit_mineral_cubes,
         chiseled_bookshelves: admit_chiseled_bookshelves,
         resin_clumps: admit_resin_clumps,
         selector_alias_cubes: admit_selector_alias_cubes,
@@ -65,7 +68,22 @@ pub(in crate::compiler) fn compile_exact_families(
     ) {
         return Ok(CompileRuleResult::Reject);
     }
-    if is_bee_housing_name(&record.name) && (!admit_bee_housing || !is_bee_housing_record(record)) {
+    if is_mineral_cube_name(&record.name)
+        && (!admit_mineral_cubes || !is_mineral_cube_record(record))
+    {
+        // The two protocol-gap mineral states are admitted atomically and may
+        // not inherit a generic cube route from malformed source metadata.
+    } else if admit_mineral_cubes && is_mineral_cube_record(record) {
+        let material = mineral_cube_material_descriptor(pack, record)
+            .and_then(|(descriptor, _)| material_by_descriptor.get(&descriptor).copied());
+        if let Some(material) = material {
+            visual.flags = BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE;
+            visual.faces = [material; 6];
+            visual.kind = VisualKind::Cube;
+        }
+    } else if is_bee_housing_name(&record.name)
+        && (!admit_bee_housing || !is_bee_housing_record(record))
+    {
         // Both exact 24-state families are admitted atomically and may not
         // fall through to the generic cube/terrain route.
     } else if admit_bee_housing && is_bee_housing_record(record) {
