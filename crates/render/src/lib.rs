@@ -4,9 +4,9 @@ mod actor;
 mod actor_render;
 mod atmosphere;
 mod atmosphere_render;
+mod chunk;
 mod cloud_config;
 mod cloud_render;
-mod plugin;
 mod visibility_diagnostics;
 
 use meshing::{
@@ -25,11 +25,7 @@ pub use atmosphere::{
     CLOUD_TEXTURE_WORLD_PERIOD, MoonPhaseTile, cloud_texture_offset, moon_phase_tile,
 };
 pub use atmosphere_render::AtmospherePlugin;
-pub use cloud_config::{
-    CloudCalibrationError, CloudCalibrationHarness, CloudCalibrationRecord, CloudCalibrationReport,
-    CloudCoverageSemantics, CloudMatchingView, CloudQuality, CloudRenderConfig,
-};
-pub use plugin::{
+pub use chunk::{
     AnimationFrameSample, BiomeTint, ChunkAnimationClock, ChunkBiomeTints, ChunkRenderApplySet,
     ChunkRenderInstance, ChunkRenderPlugin, ChunkRenderQueue, ChunkRenderQueueLimits,
     ChunkTextureAssetIdentity, ChunkTextureAssets, ChunkTextureUploadStats,
@@ -54,6 +50,10 @@ pub use plugin::{
     plan_texture_mip_uploads, plan_texture_page_bindings, select_animation_frames,
     sort_transparent_candidates_for_test, texture_asset_needs_rebuild,
     validate_transparent_sort_ref_count,
+};
+pub use cloud_config::{
+    CloudCalibrationError, CloudCalibrationHarness, CloudCalibrationRecord, CloudCalibrationReport,
+    CloudCoverageSemantics, CloudMatchingView, CloudQuality, CloudRenderConfig,
 };
 pub use visibility_diagnostics::{
     ExtractedCameraIdentity, ExtractedViewGenerations, GraphicsAdapterMetadata,

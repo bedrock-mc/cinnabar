@@ -273,7 +273,7 @@ fn atmosphere_pipeline_specializes_msaa_and_keeps_reversed_z_without_depth_write
 #[test]
 fn frame_updates_keep_asset_uploads_and_bind_groups_identity_stable() {
     let atmosphere = include_str!("../src/atmosphere_render.rs");
-    let chunks = include_str!("../src/plugin.rs");
+    let chunks = include_str!("../src/chunk/gpu/bind_groups.rs");
     assert_eq!(
         atmosphere.matches("create_buffer_with_data(").count(),
         1,
