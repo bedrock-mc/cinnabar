@@ -1,9 +1,8 @@
 use assets::AtmosphereRole;
 use bevy::{
-    asset::{AssetId, load_internal_asset, uuid_handle},
-    core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey},
+    asset::{load_internal_asset, uuid_handle},
+    core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Transparent3d},
     ecs::{
-        change_detection::Tick,
         query::ROQueryItem,
         system::{SystemParamItem, lifetimeless::Read, lifetimeless::SRes},
     },
@@ -11,14 +10,13 @@ use bevy::{
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         render_phase::{
-            AddRenderCommand, BinnedRenderPhaseType, DrawFunctions, InputUniformIndex, PhaseItem,
-            RenderCommand, RenderCommandResult, SetItemPipeline, TrackedRenderPass,
-            ViewBinnedRenderPhases,
+            AddRenderCommand, DrawFunctions, PhaseItem, PhaseItemExtraIndex, RenderCommand,
+            RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
         },
         render_resource::{
             BindGroup, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
-            BindingType, Buffer, BufferBindingType, BufferId, BufferInitDescriptor, BufferSize,
-            BufferUsages, Canonical, ColorTargetState, ColorWrites, CompareFunction,
+            BindingType, BlendState, Buffer, BufferBindingType, BufferId, BufferInitDescriptor,
+            BufferSize, BufferUsages, Canonical, ColorTargetState, ColorWrites, CompareFunction,
             DepthStencilState, FragmentState, PipelineCache, RenderPipeline,
             RenderPipelineDescriptor, ShaderStages, ShaderType, Specializer, SpecializerKey,
             TextureFormat, Variants, VertexState,
@@ -33,13 +31,14 @@ use crate::{
     AtmosphereFrame, AtmosphereTextureAssets, PackedCloudQuad, atmosphere_render::AtmosphereGpu,
     mesh_cloud_texture,
 };
+use meshing::{CLOUD_MASK_SIZE, CLOUD_TOP_Y, CLOUD_UNDERSIDE_Y, cloud_instance_origins};
 
 const CLOUD_SHADER_HANDLE: Handle<Shader> = uuid_handle!("8dcfe9d0-c182-44cc-ae4c-7e5233b68659");
 pub(crate) fn install_cloud_render(app: &mut App) {
     load_internal_asset!(app, CLOUD_SHADER_HANDLE, "cloud.wgsl", Shader::from_wgsl);
     app.sub_app_mut(RenderApp)
         .init_resource::<CloudPipeline>()
-        .add_render_command::<Opaque3d, DrawCloudCommands>()
+        .add_render_command::<Transparent3d, DrawCloudCommands>()
         .add_systems(RenderStartup, init_cloud_gpu)
         .add_systems(
             Render,
@@ -192,14 +191,14 @@ impl FromWorld for CloudPipeline {
                 entry_point: Some("cloud_fragment".into()),
                 targets: vec![Some(ColorTargetState {
                     format: TextureFormat::bevy_default(),
-                    blend: None,
+                    blend: Some(BlendState::ALPHA_BLENDING),
                     write_mask: ColorWrites::ALL,
                 })],
                 ..default()
             }),
             depth_stencil: Some(DepthStencilState {
                 format: CORE_3D_DEPTH_FORMAT,
-                depth_write_enabled: true,
+                depth_write_enabled: false,
                 depth_compare: CompareFunction::GreaterEqual,
                 stencil: default(),
                 bias: default(),
@@ -299,10 +298,10 @@ fn queue_clouds(
     pipeline_cache: Res<PipelineCache>,
     mut pipeline: ResMut<CloudPipeline>,
     gpu: Res<CloudGpu>,
-    mut phases: ResMut<ViewBinnedRenderPhases<Opaque3d>>,
-    draw_functions: Res<DrawFunctions<Opaque3d>>,
+    atmosphere: Res<AtmosphereFrame>,
+    mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
+    draw_functions: Res<DrawFunctions<Transparent3d>>,
     views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
-    mut next_tick: Local<Tick>,
 ) {
     if gpu.record_count == 0 {
         return;
@@ -321,26 +320,37 @@ fn queue_clouds(
         ) else {
             continue;
         };
-        let this_tick = next_tick.get() + 1;
-        next_tick.set(this_tick);
-        phase.add(
-            Opaque3dBatchSetKey {
-                draw_function,
-                pipeline: pipeline_id,
-                material_bind_group_index: None,
-                lightmap_slab: None,
-                vertex_slab: default(),
-                index_slab: None,
-            },
-            Opaque3dBinKey {
-                asset_id: AssetId::<Shader>::invalid().untyped(),
-            },
-            (view_entity, *main_entity),
-            InputUniformIndex::default(),
-            BinnedRenderPhaseType::NonMesh,
-            *next_tick,
-        );
+        phase.add(Transparent3d {
+            entity: (view_entity, *main_entity),
+            pipeline: pipeline_id,
+            draw_function,
+            distance: cloud_phase_distance(view, &atmosphere),
+            batch_range: 0..1,
+            extra_index: PhaseItemExtraIndex::None,
+            indexed: false,
+        });
     }
+}
+
+fn cloud_phase_distance(view: &ExtractedView, atmosphere: &AtmosphereFrame) -> f32 {
+    let camera = view.world_from_view.translation();
+    let offset_blocks =
+        f64::from(atmosphere.cloud_texture_offset()[0]) * f64::from(CLOUD_MASK_SIZE);
+    let cloud_center = Vec3::from_array(cloud_bounds_center(
+        [f64::from(camera.x), f64::from(camera.z)],
+        offset_blocks,
+    ));
+    view.rangefinder3d().distance(&cloud_center)
+}
+
+fn cloud_bounds_center(camera_xz: [f64; 2], offset_blocks: f64) -> [f32; 3] {
+    let center_origin = cloud_instance_origins(camera_xz, offset_blocks)[4];
+    let half_period = CLOUD_MASK_SIZE as f32 * 0.5;
+    [
+        center_origin[0] + half_period,
+        (CLOUD_UNDERSIDE_Y + CLOUD_TOP_Y) * 0.5,
+        center_origin[1] + half_period,
+    ]
 }
 
 type DrawCloudCommands = (SetItemPipeline, SetCloudBindGroup<0>, DrawClouds);
@@ -385,5 +395,39 @@ impl<P: PhaseItem> RenderCommand<P> for DrawClouds {
         let vertex_count = gpu.record_count.checked_mul(6).expect("bounded cloud draw");
         pass.draw(0..vertex_count, 0..9);
         RenderCommandResult::Success
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cloud_bounds_center;
+
+    #[test]
+    fn cloud_bounds_center_is_symmetric_across_negative_period_boundaries() {
+        assert_eq!(cloud_bounds_center([0.0, 0.0], 0.0), [128.0, 130.0, 128.0]);
+        assert_eq!(
+            cloud_bounds_center([-0.001, -0.001], 0.0),
+            [-128.0, 130.0, -128.0]
+        );
+        assert_eq!(
+            cloud_bounds_center([-256.0, -256.0], 0.0),
+            [-128.0, 130.0, -128.0]
+        );
+        assert_eq!(
+            cloud_bounds_center([-256.001, -256.001], 0.0),
+            [-384.0, 130.0, -384.0]
+        );
+    }
+
+    #[test]
+    fn cloud_bounds_center_preserves_wrapped_scroll_at_period_crossings() {
+        assert_eq!(
+            cloud_bounds_center([1.25, 0.0], 257.25),
+            [129.25, 130.0, 128.0]
+        );
+        assert_eq!(
+            cloud_bounds_center([1.249, 0.0], 257.25),
+            [-126.75, 130.0, 128.0]
+        );
     }
 }

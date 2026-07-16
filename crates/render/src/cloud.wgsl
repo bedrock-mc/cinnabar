@@ -26,13 +26,58 @@ const FACE_UP: u32 = 1u;
 const FACE_NORTH: u32 = 2u;
 const FACE_SOUTH: u32 = 3u;
 const FACE_WEST: u32 = 4u;
-const SIDE_LIGHT: f32 = 0.78;
-const UNDERSIDE_LIGHT: f32 = 0.58;
+const CLOUD_DIRECTIONAL_AMBIENT: f32 = 0.55;
+const RAIN_CLOUD_COLOUR: vec3<f32> = vec3(191.0 / 255.0);
+const THUNDER_CLOUD_COLOUR: vec3<f32> = vec3(30.0 / 255.0);
+const WEATHER_COLOUR_CONTRIBUTION: f32 = 0.95;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) world_position: vec3<f32>,
-    @location(1) @interpolate(flat) face: u32,
+    @location(1) @interpolate(flat) normal: vec3<f32>,
+}
+
+fn face_normal(face: u32) -> vec3<f32> {
+    if (face == FACE_DOWN) {
+        return vec3(0.0, -1.0, 0.0);
+    }
+    if (face == FACE_UP) {
+        return vec3(0.0, 1.0, 0.0);
+    }
+    if (face == FACE_NORTH) {
+        return vec3(0.0, 0.0, -1.0);
+    }
+    if (face == FACE_SOUTH) {
+        return vec3(0.0, 0.0, 1.0);
+    }
+    if (face == FACE_WEST) {
+        return vec3(-1.0, 0.0, 0.0);
+    }
+    return vec3(1.0, 0.0, 0.0);
+}
+
+fn invalid_cloud_fog_input(value: f32) -> bool {
+    return (bitcast<u32>(value) & 0x7f800000u) == 0x7f800000u;
+}
+
+fn bounded_cloud_fog(world_distance: f32, fog_start: f32, fog_end: f32) -> f32 {
+    if (invalid_cloud_fog_input(world_distance)
+        || invalid_cloud_fog_input(fog_start)
+        || invalid_cloud_fog_input(fog_end)) {
+        return 1.0;
+    }
+    let bounded_distance = max(world_distance, 0.0);
+    let bounded_start = clamp(fog_start, 0.0, CLOUD_TEXTURE_WORLD_PERIOD - 1.0);
+    let bounded_end = clamp(fog_end, 0.0, CLOUD_TEXTURE_WORLD_PERIOD - 1.0);
+    if (bounded_end <= bounded_start) {
+        return select(0.0, 1.0, bounded_distance >= bounded_end);
+    }
+    let amount = clamp(
+        (bounded_distance - bounded_start) / (bounded_end - bounded_start),
+        0.0,
+        1.0,
+    );
+    return amount * amount * (3.0 - 2.0 * amount);
 }
 
 fn corner_uv(corner_index: u32) -> vec2<f32> {
@@ -102,7 +147,7 @@ fn cloud_vertex(
     var out: VertexOutput;
     out.position = view.clip_from_world * vec4(world_position, 1.0);
     out.world_position = world_position;
-    out.face = record.face_and_axis & 0x7u;
+    out.normal = face_normal(record.face_and_axis & 0x7u);
     return out;
 }
 
@@ -110,23 +155,29 @@ fn cloud_vertex(
 fn cloud_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let rain = atmosphere.sky_zenith_rain.w;
     let thunder = atmosphere.sky_horizon_thunder.w;
-    let storm = clamp(rain * 0.7 + thunder * 0.3, 0.0, 1.0);
-    let bounded_storm_colour = mix(
-        atmosphere.sky_zenith_rain.rgb,
-        atmosphere.sky_horizon_thunder.rgb,
-        thunder,
+    let rain_colour = mix(
+        vec3(1.0),
+        RAIN_CLOUD_COLOUR,
+        clamp(rain, 0.0, 1.0) * WEATHER_COLOUR_CONTRIBUTION,
     );
-    let top_colour = mix(vec3(1.0), bounded_storm_colour, storm);
-    let face_light = select(
-        select(SIDE_LIGHT, 1.0, in.face == FACE_UP),
-        UNDERSIDE_LIGHT,
-        in.face == FACE_DOWN,
+    let weather_colour = mix(
+        rain_colour,
+        THUNDER_CLOUD_COLOUR,
+        clamp(thunder, 0.0, 1.0) * WEATHER_COLOUR_CONTRIBUTION,
     );
-    let cloud_colour = top_colour * face_light;
+    let sun_direction = normalize(atmosphere.sun_direction_daylight.xyz);
+    let directional = max(dot(in.normal, sun_direction), 0.0);
+    let illuminance = clamp(atmosphere.sun_direction_daylight.w, 0.0, 1.0)
+        * mix(CLOUD_DIRECTIONAL_AMBIENT, 1.0, directional);
+    let cloud_colour = weather_colour * illuminance;
 
     let world_distance = distance(in.world_position, view.world_position);
-    let bounded_fog_end = min(atmosphere.fog_end_time.x, CLOUD_TEXTURE_WORLD_PERIOD - 1.0);
-    let fog = smoothstep(atmosphere.fog_color_start.w, bounded_fog_end, world_distance);
+    let fog = bounded_cloud_fog(
+        world_distance,
+        atmosphere.fog_color_start.w,
+        atmosphere.fog_end_time.x,
+    );
     let fogged_colour = mix(cloud_colour, atmosphere.fog_color_start.rgb, fog);
-    return vec4(fogged_colour, 1.0);
+    let cloud_alpha = clamp(1.0 - fog, 0.0, 1.0);
+    return vec4(fogged_colour, cloud_alpha);
 }

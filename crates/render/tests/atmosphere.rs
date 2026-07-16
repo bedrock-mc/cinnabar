@@ -14,7 +14,8 @@ use bevy::{
     },
 };
 use render::{
-    AtmosphereFrame, AtmospherePlugin, ChunkRenderPlugin, cloud_texture_offset, moon_phase_tile,
+    AtmosphereFrame, AtmospherePlugin, ChunkRenderPlugin, cloud_directional_illuminance,
+    cloud_fog_factor, cloud_texture_offset, cloud_weather_colour, moon_phase_tile,
 };
 
 fn test_view_uniform() -> ViewUniform {
@@ -180,6 +181,67 @@ fn cloud_texture_feature_moves_east_in_world_space_as_ticks_increase() {
         "the positive normalized texture offset must become a +X world offset"
     );
     assert!(!shader.contains("- atmosphere.fog_end_time.z * CLOUD_TEXTURE_WORLD_PERIOD"));
+}
+
+#[test]
+fn cloud_weather_colours_use_exact_native_values_and_contributions() {
+    let clear = cloud_weather_colour(0.0, 0.0);
+    let rain = cloud_weather_colour(1.0, 0.0);
+    let thunder = cloud_weather_colour(0.0, 1.0);
+    let rain_native = 191.0_f32 / 255.0;
+    let thunder_native = 30.0_f32 / 255.0;
+
+    assert_eq!(clear, [1.0; 3]);
+    for channel in rain {
+        assert!((channel - (1.0 + (rain_native - 1.0) * 0.95)).abs() < 1.0e-6);
+    }
+    for channel in thunder {
+        assert!((channel - (1.0 + (thunder_native - 1.0) * 0.95)).abs() < 1.0e-6);
+    }
+
+    assert_eq!(cloud_weather_colour(f32::NAN, f32::INFINITY), clear);
+}
+
+#[test]
+fn cloud_directional_illuminance_tracks_face_normal_sun_and_daylight() {
+    assert_eq!(
+        cloud_directional_illuminance([0.0, 1.0, 0.0], [0.0, 1.0, 0.0], 1.0),
+        1.0
+    );
+    assert_eq!(
+        cloud_directional_illuminance([0.0, -1.0, 0.0], [0.0, 1.0, 0.0], 1.0),
+        0.55
+    );
+    assert_eq!(
+        cloud_directional_illuminance([1.0, 0.0, 0.0], [1.0, 0.0, 0.0], 0.5),
+        0.5
+    );
+    assert_eq!(
+        cloud_directional_illuminance([-1.0, 0.0, 0.0], [1.0, 0.0, 0.0], 0.5),
+        0.275
+    );
+    assert_eq!(
+        cloud_directional_illuminance([f32::NAN; 3], [f32::INFINITY; 3], f32::NAN),
+        0.0
+    );
+}
+
+#[test]
+fn cloud_fog_factor_is_a_finite_step_for_collapsed_or_reversed_ranges() {
+    assert_eq!(cloud_fog_factor(63.999, 64.0, 64.0), 0.0);
+    assert_eq!(cloud_fog_factor(64.0, 64.0, 64.0), 1.0);
+
+    // The cloud coverage cap can place the effective end below a valid
+    // render-relative start. This becomes an explicit step at the cap.
+    assert_eq!(cloud_fog_factor(254.999, 256.0, 256.0), 0.0);
+    assert_eq!(cloud_fog_factor(255.0, 256.0, 256.0), 1.0);
+    assert_eq!(cloud_fog_factor(0.0, 1.0e30, 255.0), 0.0);
+
+    for invalid in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        assert_eq!(cloud_fog_factor(invalid, 0.0, 255.0), 1.0);
+        assert_eq!(cloud_fog_factor(0.0, invalid, 255.0), 1.0);
+        assert_eq!(cloud_fog_factor(0.0, 0.0, invalid), 1.0);
+    }
 }
 
 #[test]

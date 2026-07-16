@@ -10,6 +10,10 @@ use meshing::CameraMedium;
 pub const BEDROCK_DAY_TICKS: f64 = 24_000.0;
 pub const CLOUD_TEXTURE_WORLD_PERIOD: f64 = 256.0;
 pub const CLOUD_SCROLL_BLOCKS_PER_TICK: f64 = 0.03;
+const CLOUD_DIRECTIONAL_AMBIENT: f32 = 0.55;
+const RAIN_CLOUD_CHANNEL: f32 = 191.0 / 255.0;
+const THUNDER_CLOUD_CHANNEL: f32 = 30.0 / 255.0;
+const WEATHER_COLOUR_CONTRIBUTION: f32 = 0.95;
 
 const WATER_FOG_COLOR: [f32; 3] = [0.02, 0.12, 0.2];
 const WATER_FOG_END: f32 = 32.0;
@@ -75,6 +79,81 @@ pub fn cloud_texture_offset(absolute_ticks: f64) -> [f32; 2] {
             as f32,
         0.0,
     ]
+}
+
+/// Matching legacy weather tint applied to otherwise-white clouds.
+///
+/// The native rain and thunder channels each contribute at most 0.95, in
+/// that order. Invalid server-authored levels are treated as clear weather.
+#[must_use]
+pub fn cloud_weather_colour(rain_level: f32, thunder_level: f32) -> [f32; 3] {
+    let rain = bounded_level(rain_level) * WEATHER_COLOUR_CONTRIBUTION;
+    let thunder = bounded_level(thunder_level) * WEATHER_COLOUR_CONTRIBUTION;
+    let rain_colour = lerp(1.0, RAIN_CLOUD_CHANNEL, rain);
+    let weather_colour = lerp(rain_colour, THUNDER_CLOUD_CHANNEL, thunder);
+    [weather_colour; 3]
+}
+
+/// Directional diffuse cloud illuminance shared with the legacy cloud shader.
+///
+/// Cloud faces retain a bounded ambient fill while the real sun direction
+/// controls the remaining diffuse response. Invalid vectors or daylight are
+/// rejected to darkness rather than producing non-finite GPU reference data.
+#[must_use]
+pub fn cloud_directional_illuminance(
+    normal: [f32; 3],
+    sun_direction: [f32; 3],
+    daylight: f32,
+) -> f32 {
+    if normal.into_iter().any(|value| !value.is_finite())
+        || sun_direction.into_iter().any(|value| !value.is_finite())
+        || !daylight.is_finite()
+    {
+        return 0.0;
+    }
+    let normal_length = normal.iter().map(|value| value * value).sum::<f32>().sqrt();
+    let sun_length = sun_direction
+        .iter()
+        .map(|value| value * value)
+        .sum::<f32>()
+        .sqrt();
+    if normal_length <= f32::EPSILON || sun_length <= f32::EPSILON {
+        return 0.0;
+    }
+    let directional = normal
+        .into_iter()
+        .zip(sun_direction)
+        .map(|(normal, sun)| normal / normal_length * (sun / sun_length))
+        .sum::<f32>()
+        .max(0.0);
+    bounded_level(daylight) * lerp(CLOUD_DIRECTIONAL_AMBIENT, 1.0, directional)
+}
+
+/// Finite legacy-cloud distance fog with explicit collapsed-range semantics.
+///
+/// Cloud coverage ends one block before the 256-block texture period. Valid
+/// render-relative fog can therefore collapse at, or extend beyond, that cap.
+/// A collapsed or reversed range becomes a deterministic step at the bounded
+/// end instead of relying on undefined `smoothstep` behavior. Non-finite input
+/// fails closed to full fog so the derived transparent alpha remains finite.
+#[must_use]
+pub fn cloud_fog_factor(world_distance: f32, fog_start: f32, fog_end: f32) -> f32 {
+    if !world_distance.is_finite() || !fog_start.is_finite() || !fog_end.is_finite() {
+        return 1.0;
+    }
+    let bounded_distance = world_distance.max(0.0);
+    let bounded_start = fog_start.clamp(0.0, 255.0);
+    let bounded_end = fog_end.clamp(0.0, 255.0);
+    if bounded_end <= bounded_start {
+        return if bounded_distance >= bounded_end {
+            1.0
+        } else {
+            0.0
+        };
+    }
+    let amount =
+        ((bounded_distance - bounded_start) / (bounded_end - bounded_start)).clamp(0.0, 1.0);
+    amount * amount * (3.0 - 2.0 * amount)
 }
 
 /// One deterministic, renderer-ready snapshot of the active Bedrock sky.

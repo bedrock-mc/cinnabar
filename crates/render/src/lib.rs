@@ -23,7 +23,8 @@ pub use actor::{
 pub use actor_render::ActorRenderPlugin;
 pub use atmosphere::{
     AtmosphereFrame, AtmosphereTextureAssets, BEDROCK_DAY_TICKS, CLOUD_SCROLL_BLOCKS_PER_TICK,
-    CLOUD_TEXTURE_WORLD_PERIOD, MoonPhaseTile, cloud_texture_offset, moon_phase_tile,
+    CLOUD_TEXTURE_WORLD_PERIOD, MoonPhaseTile, cloud_directional_illuminance, cloud_fog_factor,
+    cloud_texture_offset, cloud_weather_colour, moon_phase_tile,
 };
 pub use atmosphere_render::AtmospherePlugin;
 pub use chunk::{
