@@ -45,11 +45,9 @@ pub use chunk::{
     TransparentSortResult, TransparentSortState, TransparentUploadBatch, TransparentWitnessEvent,
     TransparentWitnessEvidence, TransparentWitnessIncompleteEvent, TransparentWitnessRequest,
     TransparentWitnessRequestError, TransparentWitnessStageEvent, TransparentWitnessStageRecord,
-    ViewSortGeneration, ViewSortKey, diagnostic_texture_page,
-    direct_transparent_draw_args_for_test, greedy_texture_uv, mdi_transparent_draw_args_for_test,
+    ViewSortGeneration, ViewSortKey, diagnostic_texture_page, greedy_texture_uv,
     plan_texture_mip_uploads, plan_texture_page_bindings, select_animation_frames,
-    sort_transparent_candidates_for_test, texture_asset_needs_rebuild,
-    validate_transparent_sort_ref_count,
+    texture_asset_needs_rebuild, validate_transparent_sort_ref_count,
 };
 pub use cloud_config::{
     CloudCalibrationError, CloudCalibrationHarness, CloudCalibrationRecord, CloudCalibrationReport,

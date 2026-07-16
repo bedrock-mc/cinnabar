@@ -81,7 +81,18 @@ pub const LIGHT_DISPATCH_BUDGET_PER_POLL: usize = MAX_IN_FLIGHT_LIGHT_JOBS;
 const LIGHT_RESULT_CAPACITY: usize = LIGHT_DISPATCH_BUDGET_PER_POLL;
 const LIGHT_SOLVE_LIMITS: SolverLimits = SolverLimits::new(4_096, 1_000_000);
 
-pub use model::*;
+use model::{
+    BlockMutationBatch, CorrelatedSubChunkAttempts, DecodeCompletion, DecodeJob, MeshCompletion,
+    NormalizationErrorReason, OutboundRequestSlot, PendingMesh, PendingSubChunk,
+    PendingSubChunkColumn, PreparedSubChunk, PreparedSubChunkResult, PreparedWorldEvent,
+    QueuedDecodeJob, RetrySchedule, RevisionTracker, SequenceBuffer, SequenceError, queue_wait,
+    split_block_update,
+};
+pub use model::{
+    CommittedControlEvent, ForcedRemeshManifest, ForcedRemeshManifestState, PendingSubChunkRequest,
+    ViewCohort, ViewCohortStatus, WorldMeshChange, WorldStreamError, WorldStreamFatalError,
+    WorldStreamNormalizationStats, WorldStreamPoll, WorldStreamStats,
+};
 
 /// Ordered Bedrock world ingestion and bounded background meshing.
 pub struct WorldStream {

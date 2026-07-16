@@ -13,7 +13,7 @@ use assets::{
     RuntimeAssets, TextureArray, TextureMip, TextureRef,
 };
 use bevy::{
-    asset::{AssetId, load_internal_asset, uuid_handle},
+    asset::{AssetId, load_internal_asset},
     camera::{
         primitives::Aabb,
         visibility::{self, VisibilityClass},
@@ -74,28 +74,9 @@ use crate::{
     },
 };
 
-const CHUNK_SHADER_HANDLE: Handle<Shader> = uuid_handle!("b5664c91-763f-4e5c-9310-d12659f70cd4");
-const MODEL_SHADER_HANDLE: Handle<Shader> = uuid_handle!("2cd46297-17aa-4c18-bfb1-83373bf39475");
-const LIQUID_SHADER_HANDLE: Handle<Shader> = uuid_handle!("52e731aa-0a4d-4b07-9d66-80eb7688398f");
-const LIGHTING_SHADER_HANDLE: Handle<Shader> = uuid_handle!("4562a3ce-92ab-46f2-823f-af9faf2cc5c8");
-const BIOME_TINT_SHADER_HANDLE: Handle<Shader> =
-    uuid_handle!("ee40bfe6-1bd1-4aa6-bf15-e3185dfac253");
-const STATIC_QUAD_INDICES: [u32; 6] = [0, 1, 2, 0, 2, 3];
-const PACKED_QUAD_BYTES: u64 = 8;
-const PACKED_MODEL_REF_BYTES: u64 = 16;
-const PACKED_MODEL_DRAW_REF_BYTES: u64 = 8;
-const PACKED_QUAD_LIGHTING_BYTES: u64 = 8;
-const PACKED_LIQUID_QUAD_BYTES: u64 = 16;
-const GEOMETRY_STREAM_WORD_BYTES: u64 = 4;
-const CHUNK_ORIGIN_BYTES: u64 = 32;
-const BIOME_WORD_BYTES: u64 = 4;
-const FALLBACK_BIOME_WORDS: usize = 13;
-const FALLBACK_BIOME_RECORD: [u32; FALLBACK_BIOME_WORDS] =
-    [0x4249_4f31, 0, 0, 0, 0, 0, 11, 0, 0, 0, 0, 1 << 8, 0];
-const INDEXED_INDIRECT_BYTES: u64 = 20;
-
 mod api;
 mod biome_tints;
+mod constants;
 mod draw;
 mod extract;
 mod gpu;
@@ -105,6 +86,14 @@ mod presentation;
 mod queue;
 mod textures;
 mod transparent;
+
+use constants::{
+    BIOME_TINT_SHADER_HANDLE, BIOME_WORD_BYTES, CHUNK_ORIGIN_BYTES, CHUNK_SHADER_HANDLE,
+    FALLBACK_BIOME_RECORD, FALLBACK_BIOME_WORDS, GEOMETRY_STREAM_WORD_BYTES,
+    INDEXED_INDIRECT_BYTES, LIGHTING_SHADER_HANDLE, LIQUID_SHADER_HANDLE, MODEL_SHADER_HANDLE,
+    PACKED_LIQUID_QUAD_BYTES, PACKED_MODEL_DRAW_REF_BYTES, PACKED_MODEL_REF_BYTES,
+    PACKED_QUAD_BYTES, PACKED_QUAD_LIGHTING_BYTES, STATIC_QUAD_INDICES,
+};
 
 #[allow(unused_imports)]
 use api::{
@@ -260,30 +249,13 @@ use transparent::retirement::{
     transparent_snapshot_references_allocation, transparent_view_missing_witness_keys,
 };
 
-#[cfg(test)]
-#[allow(unused_imports)]
-use gpu::types::build_indexed_indirect_commands;
-#[cfg(test)]
-#[allow(unused_imports)]
-use gpu::upload::{
-    PROVISIONAL_NIGHT_SKY_TRANSFER_FLOOR, PROVISIONAL_ZERO_LIGHT_AMBIENT_FLOOR,
-    absolutize_model_draw_refs, packed_light_factor, validate_local_model_streams,
-};
-#[cfg(test)]
-#[allow(unused_imports)]
-use transparent::model::sorted_transparent_model_draw_words;
-#[cfg(test)]
-#[allow(unused_imports)]
-use transparent::retirement::transparent_view_key_satisfies_witness;
 pub use transparent::sort::{
     DEFAULT_TRANSPARENT_UPLOAD_REFS_PER_FRAME, MAX_MODEL_WITNESS_KEYS, MAX_TRANSPARENT_DRAW_REFS,
     MAX_TRANSPARENT_VIEWS, MAX_TRANSPARENT_WITNESS_KEYS, PackedTransparentDrawRef,
     TRANSPARENT_REF_BUFFER_BYTES, TRANSPARENT_REF_SLOT_BYTES, TransparentAllocationIdentity,
     TransparentDrawArgs, TransparentOrderedSnapshot, TransparentSortCandidate,
     TransparentSortError, TransparentSortJobGate, TransparentSortResult, TransparentSortState,
-    TransparentUploadBatch, ViewSortGeneration, ViewSortKey, direct_transparent_draw_args_for_test,
-    mdi_transparent_draw_args_for_test, sort_transparent_candidates_for_test,
-    validate_transparent_sort_ref_count,
+    TransparentUploadBatch, ViewSortGeneration, ViewSortKey, validate_transparent_sort_ref_count,
 };
 #[allow(unused_imports)]
 use transparent::sort::{

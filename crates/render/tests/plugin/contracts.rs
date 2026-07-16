@@ -446,30 +446,6 @@ fn transparent_view_reset_preserves_monotonic_sort_generations() {
 }
 
 #[test]
-fn transparent_sort_metrics_cross_world_clones_share_the_latest_snapshot() {
-    let metrics = TransparentSortMetrics::default();
-    let render_world = metrics.clone();
-    let snapshot = TransparentSortMetricsSnapshot {
-        request_generation: 7,
-        result_generation: 6,
-        committed_generation: 5,
-        encoded_generation: 5,
-        presented_generation: 5,
-        ref_count: 4,
-        cpu_duration: Duration::from_micros(30),
-        request_to_commit_latency: Duration::from_micros(50),
-        staged_bytes: 24,
-        upload_bytes: 16,
-        stale_reject_count: 3,
-        ceiling_reject_count: 2,
-        active_slot_age_frames: 9,
-        transparent_water_distinct_tint_count: 2,
-    };
-    render_world.publish_for_test(snapshot);
-    assert_eq!(metrics.snapshot(), snapshot);
-}
-
-#[test]
 fn transparent_view_and_double_slot_memory_are_strictly_bounded() {
     assert_eq!(MAX_TRANSPARENT_VIEWS, 1);
     assert_eq!(TRANSPARENT_REF_SLOT_BYTES, 16 * 1024 * 1024);
@@ -533,18 +509,6 @@ fn non_water_liquid_pipeline_is_opaque_and_depth_writing() {
 }
 
 #[test]
-fn direct_and_mdi_share_transparent_order() {
-    let direct = direct_transparent_draw_args_for_test(1, 37).unwrap();
-    let mdi = mdi_transparent_draw_args_for_test(1, 37).unwrap();
-    assert_eq!(direct, mdi);
-    assert_eq!(direct.index_count, 6);
-    assert_eq!(direct.instance_count, 37);
-    assert_eq!(direct.first_index, 0);
-    assert_eq!(direct.base_vertex, 0);
-    assert_eq!(direct.first_instance, MAX_TRANSPARENT_DRAW_REFS as u32);
-}
-
-#[test]
 fn transparent_draw_evidence_scan_is_only_paid_for_an_active_frame_probe() {
     let plugin = CHUNK_RENDERER_SOURCE;
     assert!(plugin.contains("fn is_active(&self) -> bool"));
@@ -561,50 +525,6 @@ fn transparent_indirect_command_upload_is_generation_cached() {
     let plugin = CHUNK_RENDERER_SOURCE;
     assert!(plugin.contains("last_indirect_identity"));
     assert!(plugin.contains("runtime.last_indirect_identity != Some(identity)"));
-}
-
-fn sort_candidate(
-    key: SubChunkKey,
-    local_quad_index: u32,
-    record: u32,
-    subchunk_center: [f32; 3],
-    quad_centroid: [f32; 3],
-) -> TransparentSortCandidate {
-    TransparentSortCandidate::new(
-        key,
-        local_quad_index,
-        record,
-        record + 100,
-        subchunk_center,
-        quad_centroid,
-    )
-}
-
-#[test]
-fn transparent_sort_is_grouped_back_to_front_stable_and_rotation_sensitive() {
-    let near_key = SubChunkKey::new(0, 0, 0, -1);
-    let far_key = SubChunkKey::new(0, 0, 0, -2);
-    let candidates = vec![
-        sort_candidate(near_key, 1, 11, [0.0, 0.0, -2.0], [0.0, 0.0, -2.5]),
-        sort_candidate(far_key, 1, 21, [0.0, 0.0, -10.0], [0.0, 0.0, -10.0]),
-        sort_candidate(far_key, 0, 20, [0.0, 0.0, -10.0], [0.0, 0.0, -12.0]),
-        sort_candidate(far_key, 2, 22, [0.0, 0.0, -10.0], [0.0, 0.0, -10.0]),
-    ];
-    let identity = sort_transparent_candidates_for_test(Mat4::IDENTITY, candidates.clone());
-    assert_eq!(
-        identity
-            .iter()
-            .map(|draw_ref| draw_ref.liquid_record_index())
-            .collect::<Vec<_>>(),
-        vec![20, 21, 22, 11],
-        "subchunks and their internal faces are back-to-front; ties use local index"
-    );
-
-    let rotated = sort_transparent_candidates_for_test(
-        Mat4::from_quat(Quat::from_rotation_y(std::f32::consts::PI)),
-        candidates,
-    );
-    assert_eq!(rotated[0].liquid_record_index(), 11);
 }
 
 #[test]

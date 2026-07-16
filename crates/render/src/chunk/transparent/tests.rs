@@ -1,4 +1,55 @@
 use super::*;
+use crate::chunk::{
+    gpu::upload::{
+        PROVISIONAL_NIGHT_SKY_TRANSFER_FLOOR, PROVISIONAL_ZERO_LIGHT_AMBIENT_FLOOR,
+        packed_light_factor,
+    },
+    transparent::retirement::transparent_view_key_satisfies_witness,
+};
+
+fn sort_candidate(
+    key: SubChunkKey,
+    local_quad_index: u32,
+    record: u32,
+    subchunk_center: [f32; 3],
+    quad_centroid: [f32; 3],
+) -> TransparentSortCandidate {
+    TransparentSortCandidate::new(
+        key,
+        local_quad_index,
+        record,
+        record + 100,
+        subchunk_center,
+        quad_centroid,
+    )
+}
+
+#[test]
+fn transparent_sort_is_grouped_back_to_front_stable_and_rotation_sensitive() {
+    let near_key = SubChunkKey::new(0, 0, 0, -1);
+    let far_key = SubChunkKey::new(0, 0, 0, -2);
+    let candidates = Arc::from(vec![
+        sort_candidate(near_key, 1, 11, [0.0, 0.0, -2.0], [0.0, 0.0, -2.5]),
+        sort_candidate(far_key, 1, 21, [0.0, 0.0, -10.0], [0.0, 0.0, -10.0]),
+        sort_candidate(far_key, 0, 20, [0.0, 0.0, -10.0], [0.0, 0.0, -12.0]),
+        sort_candidate(far_key, 2, 22, [0.0, 0.0, -10.0], [0.0, 0.0, -10.0]),
+    ]);
+    let identity = sort_transparent_candidates(Mat4::IDENTITY, Arc::clone(&candidates));
+    assert_eq!(
+        identity
+            .iter()
+            .map(|draw_ref| draw_ref.liquid_record_index())
+            .collect::<Vec<_>>(),
+        vec![20, 21, 22, 11],
+        "subchunks and their internal faces are back-to-front; ties use local index"
+    );
+
+    let rotated = sort_transparent_candidates(
+        Mat4::from_quat(Quat::from_rotation_y(std::f32::consts::PI)),
+        candidates,
+    );
+    assert_eq!(rotated[0].liquid_record_index(), 11);
+}
 
 fn resident_transparent_allocation(
     identity: &TransparentAllocationIdentity,
@@ -734,18 +785,20 @@ fn asset_or_tint_identity_change_clears_even_resident_snapshot() {
 #[test]
 fn conflicting_manifest_fail_closes_every_absolute_ref_owner_and_active_metric() {
     let metrics = TransparentSortMetrics::default();
-    metrics.publish_for_test(TransparentSortMetricsSnapshot {
-        request_generation: 7,
-        result_generation: 7,
-        committed_generation: 7,
-        encoded_generation: 7,
-        presented_generation: 7,
-        ref_count: 2,
-        staged_bytes: 16,
-        upload_bytes: 16,
-        active_slot_age_frames: 3,
-        transparent_water_distinct_tint_count: 2,
-        ..Default::default()
+    metrics.update(|snapshot| {
+        *snapshot = TransparentSortMetricsSnapshot {
+            request_generation: 7,
+            result_generation: 7,
+            committed_generation: 7,
+            encoded_generation: 7,
+            presented_generation: 7,
+            ref_count: 2,
+            staged_bytes: 16,
+            upload_bytes: 16,
+            active_slot_age_frames: 3,
+            transparent_water_distinct_tint_count: 2,
+            ..Default::default()
+        }
     });
     let key = ViewSortKey::try_new(
         [0.0; 3],
@@ -806,13 +859,15 @@ fn conflicting_manifest_fail_closes_every_absolute_ref_owner_and_active_metric()
 #[test]
 fn invalid_camera_transform_fail_closes_committed_staged_gate_and_metadata() {
     let metrics = TransparentSortMetrics::default();
-    metrics.publish_for_test(TransparentSortMetricsSnapshot {
-        committed_generation: 7,
-        encoded_generation: 7,
-        presented_generation: 7,
-        ref_count: 2,
-        upload_bytes: 16,
-        ..Default::default()
+    metrics.update(|snapshot| {
+        *snapshot = TransparentSortMetricsSnapshot {
+            committed_generation: 7,
+            encoded_generation: 7,
+            presented_generation: 7,
+            ref_count: 2,
+            upload_bytes: 16,
+            ..Default::default()
+        }
     });
     let key = ViewSortKey::try_new(
         [0.0; 3],
@@ -989,10 +1044,12 @@ fn candidate_cache_reuses_camera_only_arc_rebuilds_identity_and_clears_on_failur
 #[test]
 fn encoded_liquid_draw_is_not_presented_until_submitted_work_completes() {
     let metrics = TransparentSortMetrics::default();
-    metrics.publish_for_test(TransparentSortMetricsSnapshot {
-        committed_generation: 12,
-        ref_count: 1,
-        ..Default::default()
+    metrics.update(|snapshot| {
+        *snapshot = TransparentSortMetricsSnapshot {
+            committed_generation: 12,
+            ref_count: 1,
+            ..Default::default()
+        }
     });
     record_encoded_transparent_generation(&metrics, ViewSortGeneration::for_test(12));
     assert_eq!(metrics.snapshot().encoded_generation, 12);
@@ -1012,12 +1069,14 @@ fn transparent_completion_fence_is_bounded_and_stale_callbacks_cannot_regress() 
     assert!(fence.try_reserve(13));
 
     let metrics = TransparentSortMetrics::default();
-    metrics.publish_for_test(TransparentSortMetricsSnapshot {
-        committed_generation: 13,
-        encoded_generation: 13,
-        presented_generation: 11,
-        ref_count: 1,
-        ..Default::default()
+    metrics.update(|snapshot| {
+        *snapshot = TransparentSortMetricsSnapshot {
+            committed_generation: 13,
+            encoded_generation: 13,
+            presented_generation: 11,
+            ref_count: 1,
+            ..Default::default()
+        }
     });
     record_gpu_completed_transparent_generation(&metrics, 12);
     assert_eq!(metrics.snapshot().presented_generation, 11);

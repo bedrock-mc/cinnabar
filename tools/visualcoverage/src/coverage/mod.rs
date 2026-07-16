@@ -27,7 +27,13 @@ pub use snapshot::{
     analyze_bytes, analyze_records, baseline_from_snapshot, ratchet, ratchet_protocol_1001,
 };
 pub use strict::{gallery_inventory_bytes, strict_bytes, strict_records};
-pub use types::*;
+pub use types::{
+    AllowlistEntry, BASELINE_SCHEMA, Baseline, Counts, CoverageError, CoverageSnapshot,
+    GALLERY_INVENTORY_SCHEMA, GALLERY_PAGE_CAPACITY, GalleryInventory, GalleryPage, GalleryTarget,
+    GalleryTargetStatus, InvisibleDecision, MAX_BASELINE_BYTES, PROTOCOL, PROTOCOL_1001_COUNTS,
+    REPORT_SCHEMA, RatchetReport, RenderStream, STRICT_REPORT_SCHEMA, StateIdentity, StrictReport,
+    StrictStateRoute,
+};
 
 use validation::{
     model_family_name, sha256, validate_baseline, validate_protocol_baseline,

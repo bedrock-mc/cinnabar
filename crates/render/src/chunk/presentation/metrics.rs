@@ -37,11 +37,6 @@ impl TransparentSortMetrics {
     ) {
         update(&mut self.0.lock().unwrap_or_else(|poison| poison.into_inner()));
     }
-
-    #[doc(hidden)]
-    pub fn publish_for_test(&self, snapshot: TransparentSortMetricsSnapshot) {
-        self.update(|current| *current = snapshot);
-    }
 }
 
 /// Exact model workload for one allocation cohort.
@@ -95,9 +90,33 @@ impl ModelWorkloadMetrics {
             .legacy_fixed_slot_quad_invocations_avoided
             .max(visible.legacy_fixed_slot_quad_invocations_avoided);
     }
+}
 
-    #[doc(hidden)]
-    pub fn publish_for_test(&self, snapshot: ModelWorkloadMetricsSnapshot) {
-        *self.0.lock().unwrap_or_else(|poison| poison.into_inner()) = snapshot;
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transparent_metrics_clones_share_the_latest_snapshot() {
+        let metrics = TransparentSortMetrics::default();
+        let render_world = metrics.clone();
+        let snapshot = TransparentSortMetricsSnapshot {
+            request_generation: 7,
+            result_generation: 6,
+            committed_generation: 5,
+            encoded_generation: 5,
+            presented_generation: 5,
+            ref_count: 4,
+            cpu_duration: std::time::Duration::from_micros(30),
+            request_to_commit_latency: std::time::Duration::from_micros(50),
+            staged_bytes: 24,
+            upload_bytes: 16,
+            stale_reject_count: 3,
+            ceiling_reject_count: 2,
+            active_slot_age_frames: 9,
+            transparent_water_distinct_tint_count: 2,
+        };
+        render_world.update(|current| *current = snapshot);
+        assert_eq!(metrics.snapshot(), snapshot);
     }
 }

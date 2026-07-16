@@ -117,33 +117,6 @@ impl ModelWitnessFrameAck {
             && self.present_returned_at <= self.gpu_completed_at
             && next.present_returned_at <= next.gpu_completed_at
     }
-
-    #[cfg(test)]
-    pub(in crate::chunk) fn exact_for_test(
-        revision: u64,
-        request_hash: [u8; 32],
-        frame_sequence: u64,
-        view_generation: u64,
-        manifest: Arc<[ModelWitnessManifestRecord]>,
-        now: Instant,
-    ) -> Self {
-        let total_model_ref_count = manifest.iter().map(|record| record.model_ref_count).sum();
-        Self {
-            revision,
-            request_hash,
-            frame_sequence,
-            view_generation,
-            present_returned_at: now,
-            gpu_completed_at: now,
-            total_model_ref_count,
-            manifest,
-            missing_key_count: 0,
-            stale_generation_count: 0,
-            wrong_stream_count: 0,
-            zero_model_ref_count: 0,
-            draw_mismatch_count: 0,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

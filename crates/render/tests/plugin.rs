@@ -28,7 +28,7 @@ fn compile_pack(root: &Path, records: &[RegistryRecord]) -> Result<CompiledAsset
 }
 use bevy::{
     camera::primitives::Aabb,
-    prelude::{App, Mat4, MinimalPlugins, Quat, Vec3, Visibility},
+    prelude::{App, MinimalPlugins, Vec3, Visibility},
 };
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 use meshing::{
@@ -41,13 +41,10 @@ use render::{
     MATERIAL_UV_ROTATE_270, MAX_TRANSPARENT_DRAW_REFS, MAX_TRANSPARENT_VIEWS,
     PackedTransparentDrawRef, PresentedFrameAck, RenderViewCohort, TRANSPARENT_REF_BUFFER_BYTES,
     TRANSPARENT_REF_SLOT_BYTES, TextureArrayLimits, TextureLimitError, TexturePageBinding,
-    TransparentAllocationIdentity, TransparentOrderedSnapshot, TransparentSortCandidate,
-    TransparentSortError, TransparentSortJobGate, TransparentSortMetrics,
-    TransparentSortMetricsSnapshot, TransparentSortResult, TransparentSortState,
-    ViewSortGeneration, ViewSortKey, diagnostic_texture_page,
-    direct_transparent_draw_args_for_test, greedy_texture_uv, mdi_transparent_draw_args_for_test,
-    plan_texture_mip_uploads, plan_texture_page_bindings, select_animation_frames,
-    sort_transparent_candidates_for_test, texture_asset_needs_rebuild,
+    TransparentAllocationIdentity, TransparentOrderedSnapshot, TransparentSortError,
+    TransparentSortJobGate, TransparentSortResult, TransparentSortState, ViewSortGeneration,
+    ViewSortKey, diagnostic_texture_page, greedy_texture_uv, plan_texture_mip_uploads,
+    plan_texture_page_bindings, select_animation_frames, texture_asset_needs_rebuild,
 };
 
 const CHUNK_RENDERER_SOURCE: &str = concat!(

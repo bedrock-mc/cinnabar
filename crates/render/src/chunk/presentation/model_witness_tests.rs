@@ -1,5 +1,31 @@
 use super::*;
 
+fn exact_model_witness_ack(
+    revision: u64,
+    request_hash: [u8; 32],
+    frame_sequence: u64,
+    view_generation: u64,
+    manifest: Arc<[ModelWitnessManifestRecord]>,
+    now: Instant,
+) -> ModelWitnessFrameAck {
+    let total_model_ref_count = manifest.iter().map(|record| record.model_ref_count).sum();
+    ModelWitnessFrameAck {
+        revision,
+        request_hash,
+        frame_sequence,
+        view_generation,
+        present_returned_at: now,
+        gpu_completed_at: now,
+        total_model_ref_count,
+        manifest,
+        missing_key_count: 0,
+        stale_generation_count: 0,
+        wrong_stream_count: 0,
+        zero_model_ref_count: 0,
+        draw_mismatch_count: 0,
+    }
+}
+
 #[test]
 fn model_witness_request_is_exact_bounded_sorted_and_hashed() {
     let a = SubChunkKey::new(0, 1, 4, 5);
@@ -100,11 +126,9 @@ fn model_witness_pair_requires_adjacent_identical_gpu_completed_frames() {
         generation: 9,
         model_ref_count: 3,
     }]);
-    let first =
-        ModelWitnessFrameAck::exact_for_test(7, [0x33; 32], 40, 3, Arc::clone(&manifest), now);
-    let adjacent =
-        ModelWitnessFrameAck::exact_for_test(7, [0x33; 32], 41, 3, Arc::clone(&manifest), now);
-    let skipped = ModelWitnessFrameAck::exact_for_test(7, [0x33; 32], 42, 3, manifest, now);
+    let first = exact_model_witness_ack(7, [0x33; 32], 40, 3, Arc::clone(&manifest), now);
+    let adjacent = exact_model_witness_ack(7, [0x33; 32], 41, 3, Arc::clone(&manifest), now);
+    let skipped = exact_model_witness_ack(7, [0x33; 32], 42, 3, manifest, now);
     assert!(first.forms_stable_exact_pair_with(&adjacent));
     assert!(!first.forms_stable_exact_pair_with(&skipped));
 }
@@ -139,7 +163,7 @@ fn presented_model_witness_ack(
         stale_generation_instances,
         orphan_allocations: 0,
         transparent_sort_generation: 0,
-        model_witness: Some(ModelWitnessFrameAck::exact_for_test(
+        model_witness: Some(exact_model_witness_ack(
             request.revision(),
             *request.request_hash(),
             frame_sequence,

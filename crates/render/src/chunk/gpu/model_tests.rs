@@ -1,4 +1,5 @@
 use super::*;
+use crate::chunk::gpu::upload::{absolutize_model_draw_refs, validate_local_model_streams};
 
 fn owned_model_stream_fixture() -> (
     Vec<PackedModelRef>,

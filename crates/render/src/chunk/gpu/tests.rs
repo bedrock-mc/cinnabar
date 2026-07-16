@@ -1,4 +1,8 @@
 use super::*;
+use crate::chunk::{
+    gpu::upload::validate_local_model_streams,
+    transparent::model::sorted_transparent_model_draw_words,
+};
 
 #[test]
 fn chunk_sampler_keeps_native_texels_crisp_without_discarding_minification_mips() {

@@ -94,14 +94,6 @@ pub(in crate::chunk) fn sort_transparent_candidates(
     refs
 }
 
-#[doc(hidden)]
-pub fn sort_transparent_candidates_for_test(
-    view_from_world: Mat4,
-    candidates: Vec<TransparentSortCandidate>,
-) -> Vec<PackedTransparentDrawRef> {
-    sort_transparent_candidates(view_from_world, Arc::from(candidates))
-}
-
 pub(in crate::chunk) fn transparent_draw_args(
     buffer_slot: u8,
     ref_count: usize,
@@ -189,22 +181,6 @@ pub(in crate::chunk) fn transparent_indirect_args(
         base_vertex: args.base_vertex,
         first_instance: args.first_instance,
     })
-}
-
-#[doc(hidden)]
-pub fn direct_transparent_draw_args_for_test(
-    buffer_slot: u8,
-    ref_count: usize,
-) -> Option<TransparentDrawArgs> {
-    transparent_draw_args(buffer_slot, ref_count)
-}
-
-#[doc(hidden)]
-pub fn mdi_transparent_draw_args_for_test(
-    buffer_slot: u8,
-    ref_count: usize,
-) -> Option<TransparentDrawArgs> {
-    transparent_draw_args(buffer_slot, ref_count)
 }
 
 /// One absolute liquid-record/chunk-metadata pair in committed back-to-front order.
