@@ -684,6 +684,15 @@ mod tests {
         let gpu = render_app.world().resource::<CloudGpu>();
         assert_eq!(gpu.record_count, 2);
         assert_eq!(gpu.upload_count, 1);
+        let diagnostic = gpu
+            .geometry_diagnostic
+            .as_ref()
+            .expect("prepared cloud geometry publishes calibration evidence");
+        assert_eq!(diagnostic.occupied_texels(), 65_536);
+        assert_eq!(diagnostic.quad_count(), 2);
+        assert_eq!(diagnostic.quad_bytes(), 16);
+        assert!(diagnostic.marker_fields().contains("calibrated=false"));
+        assert!(diagnostic.marker_fields().ends_with(&"41".repeat(32)));
         let first_buffer = gpu.record_buffer.as_ref().unwrap().id();
 
         render_app

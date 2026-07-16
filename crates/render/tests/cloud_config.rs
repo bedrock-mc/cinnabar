@@ -1,6 +1,9 @@
+use assets::{AtmosphereRole, AtmosphereTexture};
+use meshing::{CloudFace, PackedCloudQuad};
 use render::{
-    CloudCalibrationError, CloudCalibrationHarness, CloudCoverageSemantics, CloudMatchingView,
-    CloudQuality, CloudRenderConfig,
+    CloudCalibrationError, CloudCalibrationHarness, CloudCoverageSemantics,
+    CloudGeometryDiagnostic, CloudGeometryDiagnosticError, CloudMatchingView, CloudQuality,
+    CloudRenderConfig,
 };
 
 const QUALITIES: [CloudQuality; 4] = [
@@ -119,6 +122,176 @@ fn calibration_inputs_are_bounded_and_duplicate_records_are_rejected() {
             quality: CloudQuality::High,
         })
     );
+}
+
+#[test]
+fn provisional_geometry_diagnostic_is_exact_bounded_and_parser_stable() {
+    let diagnostic = CloudGeometryDiagnostic::try_new(
+        CloudRenderConfig::default(),
+        [0xab; 32],
+        13_356,
+        7_654,
+        61_232,
+        9,
+        256_000,
+        128_000,
+        132_000,
+    )
+    .unwrap();
+
+    assert_eq!(diagnostic.config(), CloudRenderConfig::default());
+    assert_eq!(diagnostic.occupied_texels(), 13_356);
+    assert_eq!(diagnostic.quad_count(), 7_654);
+    assert_eq!(diagnostic.quad_bytes(), 61_232);
+    assert_eq!(diagnostic.instance_count(), 9);
+    assert_eq!(diagnostic.texture_period_milliblocks(), 256_000);
+    assert_eq!(diagnostic.underside_y_milliblocks(), 128_000);
+    assert_eq!(diagnostic.top_y_milliblocks(), 132_000);
+    assert_eq!(
+        diagnostic.marker_fields(),
+        concat!(
+            "calibrated=false quality=High occupied_texels=13356 quad_count=7654 ",
+            "quad_bytes=61232 instance_count=9 texture_period_milliblocks=256000 ",
+            "underside_y_milliblocks=128000 top_y_milliblocks=132000 ",
+            "native_grid_size=3 native_mesh_size=64 native_distance_scale=3 ",
+            "native_distance_control=true native_lighting=true asset_identity_sha256=",
+            "abababababababababababababababababababababababababababababababab"
+        )
+    );
+}
+
+#[test]
+fn provisional_geometry_diagnostic_rejects_inconsistent_or_unbounded_values() {
+    let valid = || {
+        CloudGeometryDiagnostic::try_new(
+            CloudRenderConfig::default(),
+            [1; 32],
+            13_356,
+            7_654,
+            61_232,
+            9,
+            256_000,
+            128_000,
+            132_000,
+        )
+    };
+    assert!(valid().is_ok());
+    assert_eq!(
+        CloudGeometryDiagnostic::try_new(
+            CloudRenderConfig::default(),
+            [0; 32],
+            13_356,
+            7_654,
+            61_232,
+            9,
+            256_000,
+            128_000,
+            132_000,
+        ),
+        Err(CloudGeometryDiagnosticError::InvalidAssetIdentity)
+    );
+    assert_eq!(
+        CloudGeometryDiagnostic::try_new(
+            CloudRenderConfig::default(),
+            [1; 32],
+            65_537,
+            7_654,
+            61_232,
+            9,
+            256_000,
+            128_000,
+            132_000,
+        ),
+        Err(CloudGeometryDiagnosticError::TooManyOccupiedTexels {
+            actual: 65_537,
+            max: 65_536,
+        })
+    );
+    assert_eq!(
+        CloudGeometryDiagnostic::try_new(
+            CloudRenderConfig::default(),
+            [1; 32],
+            13_356,
+            7_654,
+            61_224,
+            9,
+            256_000,
+            128_000,
+            132_000,
+        ),
+        Err(CloudGeometryDiagnosticError::InconsistentQuadBytes {
+            actual: 61_224,
+            expected: 61_232,
+        })
+    );
+    assert_eq!(
+        CloudGeometryDiagnostic::try_new(
+            CloudRenderConfig::default(),
+            [1; 32],
+            13_356,
+            7_654,
+            61_232,
+            0,
+            256_000,
+            128_000,
+            132_000,
+        ),
+        Err(CloudGeometryDiagnosticError::InvalidInstanceCount)
+    );
+    assert_eq!(
+        CloudGeometryDiagnostic::try_new(
+            CloudRenderConfig::default(),
+            [1; 32],
+            13_356,
+            7_654,
+            61_232,
+            9,
+            256_000,
+            132_000,
+            128_000,
+        ),
+        Err(CloudGeometryDiagnosticError::InvalidWorldBounds)
+    );
+}
+
+#[test]
+fn runtime_geometry_diagnostic_counts_validated_occupancy_and_packed_bytes() {
+    let mut rgba8 = vec![255; 256 * 256 * 4];
+    for texel in rgba8.chunks_exact_mut(4) {
+        texel[3] = 1;
+    }
+    rgba8[3] = 255;
+    rgba8[7] = 128;
+    let texture = AtmosphereTexture {
+        role: AtmosphereRole::Clouds,
+        source_path: "textures/environment/clouds.png".into(),
+        source_bytes: 7_880,
+        source_sha256: [2; 32],
+        pixels_sha256: [4; 32],
+        width: 256,
+        height: 256,
+        rgba8: rgba8.into(),
+    };
+    let records = [
+        PackedCloudQuad::try_pack(0, 0, 1, 1, CloudFace::Up).unwrap(),
+        PackedCloudQuad::try_pack(0, 0, 1, 1, CloudFace::Down).unwrap(),
+    ];
+
+    let diagnostic = CloudGeometryDiagnostic::from_runtime_layout(
+        CloudRenderConfig::default(),
+        [5; 32],
+        &texture,
+        &records,
+        9,
+        256_000,
+        128_000,
+        132_000,
+    )
+    .unwrap();
+
+    assert_eq!(diagnostic.occupied_texels(), 2);
+    assert_eq!(diagnostic.quad_count(), 2);
+    assert_eq!(diagnostic.quad_bytes(), 16);
 }
 
 fn matching_view(quality: CloudQuality) -> CloudMatchingView {

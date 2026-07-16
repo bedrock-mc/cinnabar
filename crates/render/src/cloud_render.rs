@@ -28,8 +28,8 @@ use bevy::{
 };
 
 use crate::{
-    AtmosphereFrame, AtmosphereTextureAssets, PackedCloudQuad, atmosphere_render::AtmosphereGpu,
-    mesh_cloud_texture,
+    AtmosphereFrame, AtmosphereTextureAssets, CloudGeometryDiagnostic, CloudRenderConfig,
+    PackedCloudQuad, atmosphere_render::AtmosphereGpu, mesh_cloud_texture,
 };
 use meshing::{CLOUD_MASK_SIZE, CLOUD_TOP_Y, CLOUD_UNDERSIDE_Y, cloud_instance_origins};
 
@@ -54,6 +54,7 @@ pub(crate) fn install_cloud_render(app: &mut App) {
 pub(crate) struct CloudGpu {
     pub(crate) record_buffer: Option<Buffer>,
     pub(crate) record_count: u32,
+    pub(crate) geometry_diagnostic: Option<CloudGeometryDiagnostic>,
     prepared_identity: Option<[u8; 32]>,
     bind_group: Option<BindGroup>,
     view_buffer_id: Option<BufferId>,
@@ -67,6 +68,7 @@ fn init_cloud_gpu(mut commands: Commands) {
     commands.insert_resource(CloudGpu {
         record_buffer: None,
         record_count: 0,
+        geometry_diagnostic: None,
         prepared_identity: None,
         bind_group: None,
         view_buffer_id: None,
@@ -97,6 +99,17 @@ pub(crate) fn prepare_cloud_records(
     let records = mesh_cloud_texture(cloud_texture)
         .expect("validated MCBEATM2 cloud texture must satisfy the finite mesh contract");
     let record_count = u32::try_from(records.len()).expect("bounded cloud record count fits u32");
+    let geometry_diagnostic = CloudGeometryDiagnostic::from_runtime_layout(
+        CloudRenderConfig::default(),
+        identity,
+        cloud_texture,
+        &records,
+        9,
+        CLOUD_MASK_SIZE * 1_000,
+        (CLOUD_UNDERSIDE_Y * 1_000.0) as i32,
+        (CLOUD_TOP_Y * 1_000.0) as i32,
+    )
+    .expect("validated finite cloud geometry satisfies the diagnostic contract");
     let record_buffer = if records.is_empty() {
         None
     } else {
@@ -111,6 +124,11 @@ pub(crate) fn prepare_cloud_records(
 
     gpu.record_buffer = record_buffer;
     gpu.record_count = record_count;
+    bevy::log::info!(
+        "CLOUD_GEOMETRY_EVIDENCE {}",
+        geometry_diagnostic.marker_fields()
+    );
+    gpu.geometry_diagnostic = Some(geometry_diagnostic);
     gpu.prepared_identity = Some(identity);
     gpu.bind_group = None;
     gpu.view_buffer_id = None;
@@ -125,6 +143,7 @@ pub(crate) fn prepare_cloud_records(
 fn clear_cloud_gpu(gpu: &mut CloudGpu) {
     gpu.record_buffer = None;
     gpu.record_count = 0;
+    gpu.geometry_diagnostic = None;
     gpu.prepared_identity = None;
     gpu.bind_group = None;
     gpu.view_buffer_id = None;
