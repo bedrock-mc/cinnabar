@@ -1527,6 +1527,26 @@ and dropped-item rendering, paper-doll first-person arm/held item.
   first-person visuals, live render-pipeline creation on a hardware backend, and multi-client
   visual evidence remain open Phase 4 work.
 
+- [ ] **4.3 Data-driven Bedrock entity rigs and animation.** Ingest the pinned
+  vanilla resource pack's `entity`, `models/entity`, `animations`,
+  `animation_controllers`, `render_controllers`, and `textures/entity` trees as
+  bounded compiled assets. Evaluate only the reviewed Molang subset needed by
+  those controllers, drive poses from protocol metadata/attributes and the
+  20-Hz actor state, then perform the distinct adjacent-tick frame
+  interpolation in the renderer. Preserve shared geometry/material/texture
+  storage and bounded per-frame actor work. Decompiled Minecraft Java Edition
+  code or assets must not be copied into Cinnabar; Java behavior may only be an
+  independently observed clean-room comparison when the authoritative Bedrock
+  pack is ambiguous.
+- [ ] **4.4 Live actor ground-contact and interpolation witness.** Join
+  `play.lbsg.net:19132` with the normal authenticated core, observe at least one
+  remote player's spawn, ordinary movement, rotation, and teleport, and prove
+  that AddPlayer/MovePlayer origins, three-tick convergence, frame
+  interpolation, and the shared biped model keep both feet on the same ground
+  plane without a 1.6-block jump. Keep Oomph's remote MovePlayer eye-to-feet
+  offset (`1.62`) distinct from its prediction-correction position (`1.621`).
+  Capture bounded native visual and packet/pose evidence.
+
 ## Phase 5 — Interaction, inventory, UI
 
 Scope: block breaking (server-auth crack progress overlay), placement, item use via
