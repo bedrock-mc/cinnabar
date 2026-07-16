@@ -326,7 +326,7 @@ Commit: `refactor: organize asset compiler by visual family`
 - Move `CameraMedium` to `meshing::liquid` and `ChunkBiomeTintIdentity` to `meshing::biome`.
 - `render` consumes `ChunkMesh` and CPU identity contracts but does not re-export them when the tranche closes.
 
-- [ ] **Step 1: Add dependency-boundary RED checks**
+- [x] **Step 1: Add dependency-boundary RED checks**
 
 Run after scaffolding an empty crate:
 
@@ -336,15 +336,15 @@ cargo tree -p meshing --locked | rg 'bevy|wgpu'
 
 Expected: no output; compilation remains red until moved APIs exist.
 
-- [ ] **Step 2: Move pure modules and tests mechanically**
+- [x] **Step 2: Move pure modules and tests mechanically**
 
 Preserve public signatures and packed layout assertions. Split the former `mesh.rs` into `types`, `classifier`, `contributors`, `connectivity`, and `chunk::{build,opaque,models,liquids}` only after the crate move is green.
 
-- [ ] **Step 3: Flip every consumer atomically**
+- [x] **Step 3: Flip every consumer atomically**
 
 Replace CPU imports from `render` with `meshing` in app, render, and tests. `render::lib` exports only renderer-owned APIs when complete.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 Run:
 
@@ -369,7 +369,7 @@ Commit: `refactor: extract pure cpu meshing`
 - `chunk::api` owns application-facing queue/instance/acknowledgement/view contracts.
 - `gpu::types` owns private allocation identities shared by upload, drawing, transparency, and presentation.
 
-- [ ] **Step 1: Rename the plugin workspace-wide**
+- [x] **Step 1: Rename the plugin workspace-wide**
 
 Change `DebugWorldPlugin` to `ChunkRenderPlugin`, run render and app tests, and commit the semantic-free rename with no alias.
 
@@ -420,24 +420,24 @@ Commit: `refactor: decompose chunk renderer`
 - State-machine modules live beneath `stream/` so their `impl WorldStream` blocks retain access to
   private fields without widening the entire scheduler state to `pub(crate)`.
 
-- [ ] **Step 1: Create the Bevy-free crate and move private collaborators**
+- [x] **Step 1: Create the Bevy-free crate and move private collaborators**
 
 Move actor, block-entity, and server-position behavior with their tests. Split the oversized actor
 store by actor lifecycle/query ownership during the move. Export only types consumed by the app.
 
-- [ ] **Step 2: Move `WorldStream` mechanically**
+- [x] **Step 2: Move `WorldStream` mechanically**
 
 Remove the `Resource` derive/import. Add dependencies on protocol, world, assets, meshing, crossbeam-channel, rayon, and thiserror. Flip app imports atomically.
 
-- [ ] **Step 3: Split methods by state-machine ownership**
+- [x] **Step 3: Split methods by state-machine ownership**
 
 Keep `WorldStream` field definitions in `stream.rs`. Move coherent `impl WorldStream` blocks to sequencing/admission, decode, residency, requests, cohort, meshing, lighting, actors/block entities, and stats.
 
-- [ ] **Step 4: Partition the mixed Bevy publication test**
+- [x] **Step 4: Partition the mixed Bevy publication test**
 
 Retain private scheduler tests in client-world. Move the cross-layer render/publication contract to the app test harness and drive it through public submission/poll/change/acknowledgement methods. Remove any temporary render/Bevy dev-dependency from client-world before commit.
 
-- [ ] **Step 5: Verify dependency and behavior boundaries**
+- [x] **Step 5: Verify dependency and behavior boundaries**
 
 Run:
 
