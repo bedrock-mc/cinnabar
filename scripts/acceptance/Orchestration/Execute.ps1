@@ -277,7 +277,6 @@ $script:AcceptanceExecutionPhase = {
         $portV6Reservation.Client.Close()
         $portV6Reservation = $null
         $bdsHandle = Start-LoggedProcess -Executable $BdsExecutable -Arguments $BdsArguments -WorkingDirectory $RuntimeDirectory -StdoutPath (Join-Path $RunDirectory 'bds.stdout.log') -StderrPath (Join-Path $RunDirectory 'bds.stderr.log')
-        # BDS can buffer redirected stdout until shutdown, so also accept its protocol-level readiness signal.
         $rakNetUnconnectedPong = ${function:Test-RakNetUnconnectedPong}
         if ($null -eq $rakNetUnconnectedPong) {
             throw 'RakNet readiness helper was not loaded'
@@ -656,10 +655,7 @@ $script:AcceptanceExecutionPhase = {
         $runFailure = $_
         if ($null -ne $metadata) {
             try {
-                $metadata['status'] = 'failed'
-                $metadata['failure'] = $_.Exception.Message
-                $metadata['completed_utc'] = [DateTime]::UtcNow.ToString('o')
-                $metadata | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $RunDirectory 'metadata.json') -Encoding UTF8
+                Write-AcceptanceMetadataStatus -Metadata $metadata -RunDirectory $RunDirectory -Status failed -Failure $_.Exception.Message
             }
             catch {
                 Write-Warning "failed to update failure metadata: $_"
@@ -785,10 +781,7 @@ $script:AcceptanceExecutionPhase = {
         if ($null -eq $runFailure -and $cleanupErrors.Count -ne 0) {
             if ($null -ne $metadata) {
                 try {
-                    $metadata['status'] = 'failed'
-                    $metadata['failure'] = "cleanup: $($cleanupErrors -join '; ')"
-                    $metadata['completed_utc'] = [DateTime]::UtcNow.ToString('o')
-                    $metadata | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $RunDirectory 'metadata.json') -Encoding UTF8
+                    Write-AcceptanceMetadataStatus -Metadata $metadata -RunDirectory $RunDirectory -Status failed -Failure "cleanup: $($cleanupErrors -join '; ')"
                 }
                 catch {
                     Write-Warning "failed to update cleanup-failure metadata: $_"
@@ -803,6 +796,5 @@ $script:AcceptanceExecutionPhase = {
     $metadata['status'] = 'passed'
     $metadata['completed_utc'] = [DateTime]::UtcNow.ToString('o')
     $metadata | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $RunDirectory 'metadata.json') -Encoding UTF8
-    Write-Output "ACCEPTANCE_ARTIFACTS=$RunDirectory"
-    Write-Output "ACCEPTANCE_P99_FRAME_MS=$($metrics.p99_frame_ms)"
+    Write-Output "ACCEPTANCE_ARTIFACTS=$RunDirectory"; Write-Output "ACCEPTANCE_P99_FRAME_MS=$($metrics.p99_frame_ms)"
 }

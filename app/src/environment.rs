@@ -9,6 +9,11 @@ use render::AtmosphereFrame;
 
 use client_world::CommittedControlEvent;
 
+mod numeric;
+mod profile_lookup;
+use numeric::finite_nonnegative;
+use profile_lookup::{dimension_fallback_biome, find_biome_profile};
+
 #[derive(Resource, Default)]
 pub(crate) struct CameraMediumState(pub(crate) CameraMedium);
 
@@ -293,25 +298,6 @@ pub(crate) fn derive_profiled_atmosphere_frame(
     )
 }
 
-fn find_biome_profile<'a>(
-    profiles: &'a [BiomeVisualProfile],
-    identifier: &str,
-) -> Option<&'a BiomeVisualProfile> {
-    profiles
-        .binary_search_by(|profile| profile.biome_identifier.as_ref().cmp(identifier))
-        .ok()
-        .map(|index| &profiles[index])
-}
-
-const fn dimension_fallback_biome(dimension: i32) -> Option<&'static str> {
-    match dimension {
-        0 => Some("minecraft:plains"),
-        1 => Some("minecraft:hell"),
-        2 => Some("minecraft:the_end"),
-        _ => None,
-    }
-}
-
 pub(crate) fn update_atmosphere_frame(
     clock: Res<WorldClock>,
     weather: Res<WeatherState>,
@@ -339,14 +325,6 @@ pub(crate) fn update_atmosphere_frame(
     );
     *frame = next_frame;
     *route = next_route;
-}
-
-fn finite_nonnegative(value: f64) -> f64 {
-    if value.is_finite() {
-        value.max(0.0)
-    } else {
-        0.0
-    }
 }
 
 #[cfg(test)]

@@ -60,6 +60,23 @@ function Write-AtomicJsonArtifact {
     return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
 }
 
+function Write-AcceptanceMetadataStatus {
+    param(
+        [Parameter(Mandatory = $true)][Collections.IDictionary]$Metadata,
+        [Parameter(Mandatory = $true)][string]$RunDirectory,
+        [Parameter(Mandatory = $true)][ValidateSet('failed', 'passed')][string]$Status,
+        [AllowNull()][string]$Failure,
+        [ValidateRange(1, 32)][int]$Depth = 6
+    )
+
+    $Metadata['status'] = $Status
+    if ($PSBoundParameters.ContainsKey('Failure')) {
+        $Metadata['failure'] = $Failure
+    }
+    $Metadata['completed_utc'] = [DateTime]::UtcNow.ToString('o')
+    $Metadata | ConvertTo-Json -Depth $Depth | Set-Content -LiteralPath (Join-Path $RunDirectory 'metadata.json') -Encoding UTF8
+}
+
 function Write-AcceptanceEvent {
     param(
         [Parameter(Mandatory = $true)][string]$RunDirectory,
