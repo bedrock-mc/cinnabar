@@ -53,7 +53,8 @@ pub use chunk::{
 };
 pub use cloud_config::{
     CloudCalibrationError, CloudCalibrationHarness, CloudCalibrationRecord, CloudCalibrationReport,
-    CloudCoverageSemantics, CloudMatchingView, CloudQuality, CloudRenderConfig,
+    CloudCoverageSemantics, CloudGeometryDiagnostic, CloudGeometryDiagnosticError,
+    CloudMatchingView, CloudQuality, CloudRenderConfig,
 };
 pub use visibility_diagnostics::{
     ExtractedCameraIdentity, ExtractedViewGenerations, GraphicsAdapterMetadata,
