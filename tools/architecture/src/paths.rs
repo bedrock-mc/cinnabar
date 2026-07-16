@@ -5,7 +5,7 @@ use super::Policy;
 pub(super) fn ignored_directory(relative: &str) -> bool {
     relative
         .split('/')
-        .any(|part| matches!(part, ".git" | ".worktrees" | "target"))
+        .any(|part| matches!(part, ".git" | ".local" | ".worktrees" | "build" | "target"))
 }
 
 pub(super) fn is_vendored(relative: &str, policy: &Policy) -> bool {

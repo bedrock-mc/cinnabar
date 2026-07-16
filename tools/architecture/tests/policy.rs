@@ -115,6 +115,7 @@ fn permits_declared_vendor_and_log_only_markers() {
     let root = temp.path();
     let policy = fixture_policy(root);
     write(&root.join("vendor/generated.rs"), &"line\n".repeat(50));
+    write(&root.join(".local/captured.png"), "ignored local artifact");
     write(
         &root.join("crates/alpha/Cargo.toml"),
         "[package]\nname='alpha'\nversion='0.1.0'\n",
