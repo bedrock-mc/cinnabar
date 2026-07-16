@@ -4,6 +4,7 @@ mod atmosphere;
 mod biome;
 mod blob;
 mod compiled;
+mod entity;
 mod error;
 mod light_registry;
 mod model;
@@ -33,6 +34,14 @@ pub use compiled::{
     MATERIAL_FLAG_GRASS_TINT, MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_OVERLAY_MASK,
     MATERIAL_FLAG_ROTATE_UV, MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_UV_MASK,
     MATERIAL_FLAG_WATER_TINT, MATERIAL_FLAGS_MASK, MAX_MATERIALS, MAX_TEXTURE_LAYERS, Material,
+};
+pub use entity::{
+    CompiledEntityAssets, ENTITY_BLOB_MAGIC, ENTITY_BLOB_VERSION, EntityAssetKind,
+    EntityAssetSource, EntityAssetSymbol, EntityDependency, EntityDependencyKind,
+    MAX_ENTITY_ASSET_PATH_BYTES, MAX_ENTITY_ASSET_SOURCES, MAX_ENTITY_ASSET_SYMBOLS,
+    MAX_ENTITY_CATALOG_BYTES, MAX_ENTITY_DEPENDENCIES, MAX_ENTITY_IDENTIFIER_BYTES,
+    MAX_ENTITY_SOURCE_BYTES, MAX_ENTITY_TOTAL_SOURCE_BYTES, RuntimeEntityAssets,
+    encode_entity_blob,
 };
 pub use error::AssetError;
 pub use light_registry::{LightProperties, read_light_registry};

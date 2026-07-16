@@ -6,7 +6,7 @@ use std::{
     sync::Arc,
 };
 
-use assets::{AssetError, RuntimeAssets, RuntimeAtmosphereAssets};
+use assets::{AssetError, RuntimeAssets, RuntimeAtmosphereAssets, RuntimeEntityAssets};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -17,6 +17,8 @@ pub const ASSET_PATH_ENVIRONMENT: &str = crate::acceptance::markers::ASSETS;
 pub const DEFAULT_ASSET_PATH: &str = ".local/assets/compiled/vanilla-v1001.mcbea";
 pub const ATMOSPHERE_FILENAME: &str = "vanilla-v1.mcbeatm";
 pub const ATMOSPHERE_COMPILE_COMMAND: &str = "make atmosphere-assets";
+pub const ENTITY_ASSETS_FILENAME: &str = "vanilla-v1.mcbeent";
+pub const ENTITY_ASSETS_COMPILE_COMMAND: &str = "make entity-assets";
 pub const FETCH_COMMAND: &str =
     "powershell -NoProfile -File scripts/fetch-vanilla-assets.ps1 -AcceptEula";
 pub const COMPILE_COMMAND: &str = concat!(
@@ -33,6 +35,7 @@ const ATMOSPHERE_SHADER_SOURCE: &[u8] = include_bytes!("../../crates/render/src/
 const CLOUD_SHADER_SOURCE: &[u8] = include_bytes!("../../crates/render/src/cloud.wgsl");
 const MAX_RUNTIME_BLOB_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_ATMOSPHERE_BLOB_BYTES: u64 = 512 * 1024;
+const MAX_ENTITY_ASSET_BLOB_BYTES: u64 = 8 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AssetPathSource {
@@ -56,6 +59,7 @@ pub enum LoadedAssetKind {
 pub struct LoadedAssets {
     pub runtime: Arc<RuntimeAssets>,
     pub atmosphere: LoadedAtmosphereAssets,
+    pub entities: LoadedEntityAssets,
     pub metrics: AssetMetrics,
     pub selected_path: PathBuf,
     pub kind: LoadedAssetKind,
@@ -66,6 +70,35 @@ pub struct LoadedAtmosphereAssets {
     runtime: Arc<RuntimeAtmosphereAssets>,
     identity: [u8; 32],
     selected_path: PathBuf,
+}
+
+pub struct LoadedEntityAssets {
+    runtime: Arc<RuntimeEntityAssets>,
+    identity: [u8; 32],
+    selected_path: PathBuf,
+}
+
+impl LoadedEntityAssets {
+    #[must_use]
+    pub fn selected_path(&self) -> &Path {
+        &self.selected_path
+    }
+
+    #[must_use]
+    pub fn runtime(&self) -> &Arc<RuntimeEntityAssets> {
+        &self.runtime
+    }
+
+    #[must_use]
+    pub fn startup_summary(&self) -> String {
+        format!(
+            "ENTITY_ASSET_EVIDENCE envelope_sha256={} source_manifest_sha256={} sources={} symbols={}",
+            format_sha256(self.identity),
+            format_sha256(self.runtime.source_manifest_sha256()),
+            self.runtime.sources().len(),
+            self.runtime.symbols().len()
+        )
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -127,6 +160,7 @@ impl std::fmt::Debug for LoadedAssets {
             .field("metrics", &self.metrics)
             .field("selected_path", &self.selected_path)
             .field("atmosphere_path", &self.atmosphere.selected_path)
+            .field("entity_asset_path", &self.entities.selected_path)
             .field("kind", &self.kind)
             .field("notice", &self.notice)
             .finish_non_exhaustive()
@@ -181,6 +215,35 @@ pub enum AssetStartupError {
         "could not decode required atmosphere asset carrier at {path}: {source}\nrebuild local atmosphere assets with: {rebuild_command}"
     )]
     AtmosphereDecode {
+        path: PathBuf,
+        #[source]
+        source: Box<AssetError>,
+        rebuild_command: &'static str,
+    },
+
+    #[error(
+        "could not read required entity asset carrier at {path}: {source}\nrebuild local entity assets with: {rebuild_command}"
+    )]
+    EntityAssetsRead {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+        rebuild_command: &'static str,
+    },
+
+    #[error(
+        "required entity asset carrier at {path} exceeds the {max_bytes}-byte startup limit\nrebuild local entity assets with: {rebuild_command}"
+    )]
+    EntityAssetsTooLarge {
+        path: PathBuf,
+        max_bytes: u64,
+        rebuild_command: &'static str,
+    },
+
+    #[error(
+        "could not decode required entity asset carrier at {path}: {source}\nrebuild local entity assets with: {rebuild_command}"
+    )]
+    EntityAssetsDecode {
         path: PathBuf,
         #[source]
         source: Box<AssetError>,
@@ -262,13 +325,19 @@ pub fn atmosphere_asset_path(world_asset_path: &Path) -> PathBuf {
     world_asset_path.with_file_name(ATMOSPHERE_FILENAME)
 }
 
+#[must_use]
+pub fn entity_asset_path(world_asset_path: &Path) -> PathBuf {
+    world_asset_path.with_file_name(ENTITY_ASSETS_FILENAME)
+}
+
 pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, AssetStartupError> {
     let source: VanillaSource = serde_json::from_str(VANILLA_SOURCE_JSON)?;
     let file = match File::open(&selection.path) {
         Ok(file) => file,
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             let atmosphere = load_atmosphere_assets(&selection.path)?;
-            return Ok(diagnostic_assets(selection, source, atmosphere));
+            let entities = load_entity_assets(&selection.path)?;
+            return Ok(diagnostic_assets(selection, source, atmosphere, entities));
         }
         Err(source) => {
             return Err(AssetStartupError::Read {
@@ -317,13 +386,67 @@ pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, As
         );
     let metrics = runtime_metrics(&runtime, source, blob_sha256);
     let atmosphere = load_atmosphere_assets(&selection.path)?;
+    let entities = load_entity_assets(&selection.path)?;
     Ok(LoadedAssets {
         runtime,
         atmosphere,
+        entities,
         metrics,
         selected_path: selection.path,
         kind: LoadedAssetKind::CompiledBlob,
         notice: None,
+    })
+}
+
+fn load_entity_assets(world_asset_path: &Path) -> Result<LoadedEntityAssets, AssetStartupError> {
+    let path = entity_asset_path(world_asset_path);
+    let file = File::open(&path).map_err(|source| AssetStartupError::EntityAssetsRead {
+        path: path.clone(),
+        source,
+        rebuild_command: ENTITY_ASSETS_COMPILE_COMMAND,
+    })?;
+    let length = file
+        .metadata()
+        .map_err(|source| AssetStartupError::EntityAssetsRead {
+            path: path.clone(),
+            source,
+            rebuild_command: ENTITY_ASSETS_COMPILE_COMMAND,
+        })?
+        .len();
+    if length > MAX_ENTITY_ASSET_BLOB_BYTES {
+        return Err(AssetStartupError::EntityAssetsTooLarge {
+            path,
+            max_bytes: MAX_ENTITY_ASSET_BLOB_BYTES,
+            rebuild_command: ENTITY_ASSETS_COMPILE_COMMAND,
+        });
+    }
+    let mut bytes = Vec::with_capacity(length as usize);
+    file.take(MAX_ENTITY_ASSET_BLOB_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|source| AssetStartupError::EntityAssetsRead {
+            path: path.clone(),
+            source,
+            rebuild_command: ENTITY_ASSETS_COMPILE_COMMAND,
+        })?;
+    if bytes.len() as u64 > MAX_ENTITY_ASSET_BLOB_BYTES {
+        return Err(AssetStartupError::EntityAssetsTooLarge {
+            path,
+            max_bytes: MAX_ENTITY_ASSET_BLOB_BYTES,
+            rebuild_command: ENTITY_ASSETS_COMPILE_COMMAND,
+        });
+    }
+    let identity = Sha256::digest(&bytes).into();
+    let runtime = Arc::new(RuntimeEntityAssets::decode(&bytes).map_err(|source| {
+        AssetStartupError::EntityAssetsDecode {
+            path: path.clone(),
+            source: Box::new(source),
+            rebuild_command: ENTITY_ASSETS_COMPILE_COMMAND,
+        }
+    })?);
+    Ok(LoadedEntityAssets {
+        runtime,
+        identity,
+        selected_path: path,
     })
 }
 
@@ -385,6 +508,7 @@ fn diagnostic_assets(
     selection: AssetSelection,
     source: VanillaSource,
     atmosphere: LoadedAtmosphereAssets,
+    entities: LoadedEntityAssets,
 ) -> LoadedAssets {
     let runtime = Arc::new(RuntimeAssets::diagnostic());
     let metrics = runtime_metrics(&runtime, source, "diagnostic".to_owned());
@@ -396,6 +520,7 @@ fn diagnostic_assets(
     LoadedAssets {
         runtime,
         atmosphere,
+        entities,
         metrics,
         selected_path: selection.path,
         kind: LoadedAssetKind::Diagnostic,

@@ -113,6 +113,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         loaded_assets.atmosphere.selected_path().display()
     );
     eprintln!("{}", loaded_assets.atmosphere.startup_summary());
+    eprintln!(
+        "loaded required entity assets from {}",
+        loaded_assets.entities.selected_path().display()
+    );
+    eprintln!("{}", loaded_assets.entities.startup_summary());
     let (atmosphere_runtime, atmosphere_identity) = loaded_assets.atmosphere.into_parts();
     let runtime_assets = loaded_assets.runtime;
     let asset_metrics = loaded_assets.metrics;

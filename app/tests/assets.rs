@@ -11,16 +11,18 @@ use std::{
 
 use ::assets::{
     AtmosphereRole, AtmosphereTexture, BlockFlags, BlockVisual, CompiledAssets,
-    CompiledAtmosphereAssets, CompiledBiomeAssets, Material, ModelQuad, ModelTemplate,
-    NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode, TextureArray, TextureMip, TexturePage,
-    TextureRef, VisualKind, encode_atmosphere_blob, encode_blob,
+    CompiledAtmosphereAssets, CompiledBiomeAssets, CompiledEntityAssets, EntityAssetKind,
+    EntityAssetSource, EntityAssetSymbol, Material, ModelQuad, ModelTemplate, NO_ANIMATION,
+    NO_MODEL_TEMPLATE, NetworkIdMode, TextureArray, TextureMip, TexturePage, TextureRef,
+    VisualKind, encode_atmosphere_blob, encode_blob, encode_entity_blob,
 };
 use bedrock_client::args::{ClientArgs, ParseOutcome};
 use bedrock_client::asset_startup::{
     ATMOSPHERE_COMPILE_COMMAND, ATMOSPHERE_FILENAME, AssetPathSource, COMPILE_COMMAND,
-    DEFAULT_ASSET_PATH, FETCH_COMMAND, LoadedAssetKind, atmosphere_asset_path,
-    atmosphere_shader_source_sha256, cloud_shader_source_sha256, load_runtime_assets,
-    select_asset_path, select_asset_path_in_context,
+    DEFAULT_ASSET_PATH, ENTITY_ASSETS_COMPILE_COMMAND, ENTITY_ASSETS_FILENAME, FETCH_COMMAND,
+    LoadedAssetKind, atmosphere_asset_path, atmosphere_shader_source_sha256,
+    cloud_shader_source_sha256, entity_asset_path, load_runtime_assets, select_asset_path,
+    select_asset_path_in_context,
 };
 use bedrock_client::metrics::{DiagnosticQuadTracker, MetricsCollector};
 use client_world::{BackingBlockIdentity, BlockEntityVisualRoute, adjudicate_block_entity_visual};
@@ -128,6 +130,26 @@ fn synthetic_atmosphere_blob(seed: u8) -> Box<[u8]> {
         textures,
         biome_profiles: Box::new([]),
         fog_profiles: Box::new([]),
+    })
+    .unwrap()
+}
+
+fn synthetic_entity_blob(seed: u8) -> Box<[u8]> {
+    encode_entity_blob(&CompiledEntityAssets {
+        source_manifest_sha256: [seed; 32],
+        sources: vec![EntityAssetSource {
+            path: "entity/allay.entity.json".into(),
+            source_bytes: 1,
+            source_sha256: [seed.wrapping_add(1); 32],
+        }]
+        .into_boxed_slice(),
+        symbols: vec![EntityAssetSymbol {
+            kind: EntityAssetKind::Entity,
+            identifier: "minecraft:allay".into(),
+            source_index: 0,
+            dependencies: Box::new([]),
+        }]
+        .into_boxed_slice(),
     })
     .unwrap()
 }
@@ -458,6 +480,13 @@ fn block_entity_visuals_route_digest_distinguishes_unresolved_hashed_states() {
 fn write_sibling_atmosphere(world_asset_path: &Path, seed: u8) -> PathBuf {
     let path = atmosphere_asset_path(world_asset_path);
     fs::write(&path, synthetic_atmosphere_blob(seed)).unwrap();
+    write_sibling_entity(world_asset_path, seed.wrapping_add(0x40));
+    path
+}
+
+fn write_sibling_entity(world_asset_path: &Path, seed: u8) -> PathBuf {
+    let path = entity_asset_path(world_asset_path);
+    fs::write(&path, synthetic_entity_blob(seed)).unwrap();
     path
 }
 
@@ -566,6 +595,7 @@ fn valid_blob_decodes_once_and_reports_identity_and_counts() {
     let atmosphere_bytes = synthetic_atmosphere_blob(0x40);
     let atmosphere_path = atmosphere_asset_path(&path);
     fs::write(&atmosphere_path, &atmosphere_bytes).unwrap();
+    let entity_path = write_sibling_entity(&path, 0x41);
     let expected_hash = format!("{:x}", Sha256::digest(&bytes));
 
     let loaded = load_runtime_assets(select_asset_path(Some(&path), None)).unwrap();
@@ -583,6 +613,9 @@ fn valid_blob_decodes_once_and_reports_identity_and_counts() {
     assert_eq!(loaded.metrics.material_count, 2);
     assert!(loaded.notice.is_none());
     assert_eq!(loaded.atmosphere.selected_path(), atmosphere_path);
+    assert_eq!(loaded.entities.selected_path(), entity_path);
+    assert_eq!(loaded.entities.runtime().sources().len(), 1);
+    assert_eq!(loaded.entities.runtime().symbols().len(), 1);
     assert!(
         loaded
             .runtime
@@ -607,6 +640,7 @@ fn atmosphere_live_evidence_distinguishes_envelopes_and_is_stable_across_loads()
 
     let first_blob = synthetic_atmosphere_blob(0x61);
     fs::write(atmosphere_asset_path(&world_path), &first_blob).unwrap();
+    write_sibling_entity(&world_path, 0x51);
     let first = load_runtime_assets(select_asset_path(Some(&world_path), None)).unwrap();
     let first_evidence = first.atmosphere.evidence();
     let repeated = load_runtime_assets(select_asset_path(Some(&world_path), None)).unwrap();
@@ -653,6 +687,7 @@ fn atmosphere_evidence_summary_contains_only_stable_hashes() {
     fs::write(&world_path, synthetic_blob()).unwrap();
     let atmosphere_blob = synthetic_atmosphere_blob(0x63);
     fs::write(atmosphere_asset_path(&world_path), &atmosphere_blob).unwrap();
+    write_sibling_entity(&world_path, 0x52);
 
     let loaded = load_runtime_assets(select_asset_path(Some(&world_path), None)).unwrap();
     let selected_path = loaded.atmosphere.selected_path().display().to_string();
@@ -765,10 +800,63 @@ fn documented_commands_target_only_ignored_local_asset_paths() {
     assert!(Path::new(DEFAULT_ASSET_PATH).starts_with(".local/assets"));
     assert_eq!(ATMOSPHERE_FILENAME, "vanilla-v1.mcbeatm");
     assert_eq!(ATMOSPHERE_COMPILE_COMMAND, "make atmosphere-assets");
+    assert_eq!(ENTITY_ASSETS_FILENAME, "vanilla-v1.mcbeent");
+    assert_eq!(ENTITY_ASSETS_COMPILE_COMMAND, "make entity-assets");
     assert_eq!(
         atmosphere_asset_path(Path::new(DEFAULT_ASSET_PATH)),
         PathBuf::from(".local/assets/compiled/vanilla-v1.mcbeatm")
     );
+    assert_eq!(
+        entity_asset_path(Path::new(DEFAULT_ASSET_PATH)),
+        PathBuf::from(".local/assets/compiled/vanilla-v1.mcbeent")
+    );
+}
+
+#[test]
+fn required_entity_carrier_missing_fails_closed_with_actionable_path() {
+    let directory = temporary_directory("missing-entity-assets");
+    let path = directory.join("custom-world.mcbea");
+    fs::write(&path, synthetic_blob()).unwrap();
+    fs::write(
+        atmosphere_asset_path(&path),
+        synthetic_atmosphere_blob(0x74),
+    )
+    .unwrap();
+
+    let error = load_runtime_assets(select_asset_path(Some(&path), None)).unwrap_err();
+    let message = error.to_string();
+    let expected = directory.join(ENTITY_ASSETS_FILENAME);
+    assert!(
+        message.contains(&expected.display().to_string()),
+        "{message}"
+    );
+    assert!(message.contains("required entity"), "{message}");
+    assert!(message.contains(ENTITY_ASSETS_COMPILE_COMMAND), "{message}");
+    fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn malformed_required_entity_carrier_fails_closed_with_rebuild_command() {
+    let directory = temporary_directory("malformed-entity-assets");
+    let path = directory.join("custom-world.mcbea");
+    fs::write(&path, synthetic_blob()).unwrap();
+    fs::write(
+        atmosphere_asset_path(&path),
+        synthetic_atmosphere_blob(0x75),
+    )
+    .unwrap();
+    let entity_path = entity_asset_path(&path);
+    fs::write(&entity_path, b"not MCBEENT1").unwrap();
+
+    let error = load_runtime_assets(select_asset_path(Some(&path), None)).unwrap_err();
+    let message = error.to_string();
+    assert!(
+        message.contains(&entity_path.display().to_string()),
+        "{message}"
+    );
+    assert!(message.contains("decode"), "{message}");
+    assert!(message.contains(ENTITY_ASSETS_COMPILE_COMMAND), "{message}");
+    fs::remove_dir_all(directory).unwrap();
 }
 
 #[test]
@@ -946,6 +1034,48 @@ fn make_assets_and_client_refresh_the_atmosphere_blob_and_report() {
             .count(),
         2,
         "blob and missing-report recovery must use one shared producer command"
+    );
+}
+
+#[test]
+fn make_assets_and_client_refresh_the_entity_carrier_and_report() {
+    let makefile = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("Makefile"),
+    )
+    .unwrap()
+    .replace("\r\n", "\n");
+
+    for contract in [
+        "ENTITY_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeent",
+        "ENTITY_ASSET_REPORT ?= .local/assets/compiled/entity-assets.json",
+        concat!(
+            "ENTITY_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- ",
+            "entity-assets --pack \"$(PACK_DIR)\" --source-manifest \"$(VANILLA_SOURCE_MANIFEST)\" ",
+            "--out \"$(ENTITY_ASSET_BLOB)\" --report \"$(ENTITY_ASSET_REPORT)\""
+        ),
+        "entity-assets: $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT)",
+        "$(ENTITY_ASSET_BLOB): $(ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_MANIFEST)",
+        "$(ENTITY_ASSET_REPORT): $(ENTITY_ASSET_BLOB)",
+        "assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT)",
+        "client: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT)",
+    ] {
+        assert!(
+            makefile.contains(contract),
+            "missing entity asset Makefile contract: {contract}"
+        );
+    }
+    let phony = makefile
+        .lines()
+        .find(|line| line.starts_with(".PHONY:"))
+        .unwrap();
+    assert!(phony.split_whitespace().any(|word| word == "entity-assets"));
+    assert!(
+        !phony
+            .split_whitespace()
+            .any(|word| { word == "$(ENTITY_ASSET_BLOB)" || word == "$(ENTITY_ASSET_REPORT)" })
     );
 }
 

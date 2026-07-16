@@ -6,11 +6,12 @@ use std::{
 
 use asset_compiler::{
     AnimationInventory, AtmosphereCompileOptions, compile_atmosphere_assets_with_options,
-    compile_pack_with_biomes, inspect_animation_inventory,
+    compile_entity_assets, compile_pack_with_biomes, inspect_animation_inventory,
 };
 use assets::{
-    AssetError, AtmosphereRole, MATERIAL_FLAG_ALPHA_CUTOUT, encode_atmosphere_blob, encode_blob,
-    read_biome_registry, read_light_registry, read_registry, write_blob_atomic,
+    AssetError, AtmosphereRole, EntityAssetSource, EntityAssetSymbol, MATERIAL_FLAG_ALPHA_CUTOUT,
+    encode_atmosphere_blob, encode_blob, encode_entity_blob, read_biome_registry,
+    read_light_registry, read_registry, write_blob_atomic,
 };
 use clap::{Parser, Subcommand};
 use serde::Serialize;
@@ -22,7 +23,7 @@ const MAX_SOURCE_MANIFEST_BYTES: usize = 1024 * 1024;
 #[derive(Debug, Parser)]
 #[command(
     about = "Compile verified local Bedrock resource-pack assets",
-    after_help = "Compile inputs:\n  assetc compile --pack <RESOURCE_PACK> --registry <BLOCK_REGISTRY_BIN> --light-registry <LIGHT_REGISTRY_BIN> --biome-registry <BIOME_REGISTRY_BIN> --out <IGNORED_DIR>/vanilla-v1001.mcbea\n\nAtmosphere inputs:\n  assetc atmosphere --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbeatm --report <IGNORED_DIR>/atmosphere-assets.json\n\nAnimation inventory:\n  assetc animation-inventory --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --max-layers-per-page 2048 --max-pages 2 --out <IGNORED_DIR>/animation-inventory.json"
+    after_help = "Compile inputs:\n  assetc compile --pack <RESOURCE_PACK> --registry <BLOCK_REGISTRY_BIN> --light-registry <LIGHT_REGISTRY_BIN> --biome-registry <BIOME_REGISTRY_BIN> --out <IGNORED_DIR>/vanilla-v1001.mcbea\n\nAtmosphere inputs:\n  assetc atmosphere --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbeatm --report <IGNORED_DIR>/atmosphere-assets.json\n\nEntity animation authority:\n  assetc entity-assets --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbeent --report <IGNORED_DIR>/entity-assets.json\n\nAnimation inventory:\n  assetc animation-inventory --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --max-layers-per-page 2048 --max-pages 2 --out <IGNORED_DIR>/animation-inventory.json"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -43,6 +44,21 @@ enum Command {
         #[arg(long)]
         clouds_override: Option<PathBuf>,
         /// Ignored/local MCBEATM2 output path.
+        #[arg(long)]
+        out: PathBuf,
+        /// Ignored/local deterministic JSON provenance report path.
+        #[arg(long)]
+        report: PathBuf,
+    },
+    /// Compile bounded entity geometry, animation, controller, and texture metadata.
+    EntityAssets {
+        /// Root of the pinned vanilla resource pack.
+        #[arg(long)]
+        pack: PathBuf,
+        /// Tracked manifest that pins the local resource-pack source.
+        #[arg(long)]
+        source_manifest: PathBuf,
+        /// Ignored/local MCBEENT1 output path.
         #[arg(long)]
         out: PathBuf,
         /// Ignored/local deterministic JSON provenance report path.
@@ -123,6 +139,24 @@ struct AtmosphereTextureReport {
     pixels_sha256: Box<str>,
 }
 
+#[derive(Serialize)]
+struct EntityAssetsReport<'a> {
+    schema: u32,
+    source: serde_json::Value,
+    source_manifest_sha256: Box<str>,
+    blob_sha256: Box<str>,
+    counts: EntityAssetCounts,
+    sources: &'a [EntityAssetSource],
+    symbols: &'a [EntityAssetSymbol],
+}
+
+#[derive(Serialize)]
+struct EntityAssetCounts {
+    sources: usize,
+    symbols: usize,
+    dependencies: usize,
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     match Cli::parse().command {
         Command::Atmosphere {
@@ -140,6 +174,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &report,
                 compile_atmosphere_assets_with_options,
             )?;
+        }
+        Command::EntityAssets {
+            pack,
+            source_manifest,
+            out,
+            report,
+        } => {
+            compile_entity_assets_command(&pack, &source_manifest, &out, &report)?;
         }
         Command::Compile {
             pack,
@@ -242,6 +284,63 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
         }
     }
+    Ok(())
+}
+
+fn compile_entity_assets_command(
+    pack: &Path,
+    source_manifest: &Path,
+    out: &Path,
+    report: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let manifest_bytes = read_bounded_with_limit(
+        source_manifest,
+        MAX_SOURCE_MANIFEST_BYTES,
+        "source manifest",
+    )?;
+    let source =
+        serde_json::from_slice::<serde_json::Value>(&manifest_bytes).map_err(|source| {
+            AssetError::Json {
+                path: source_manifest.to_path_buf(),
+                source,
+            }
+        })?;
+    let compiled = compile_entity_assets(pack, &manifest_bytes)?;
+    let blob = encode_entity_blob(&compiled)?;
+    let report_data = EntityAssetsReport {
+        schema: 1,
+        source,
+        source_manifest_sha256: hex(&compiled.source_manifest_sha256).into_boxed_str(),
+        blob_sha256: format!("{:x}", Sha256::digest(&blob)).into_boxed_str(),
+        counts: EntityAssetCounts {
+            sources: compiled.sources.len(),
+            symbols: compiled.symbols.len(),
+            dependencies: compiled
+                .symbols
+                .iter()
+                .map(|symbol| symbol.dependencies.len())
+                .sum(),
+        },
+        sources: &compiled.sources,
+        symbols: &compiled.symbols,
+    };
+    let mut report_bytes =
+        serde_json::to_vec_pretty(&report_data).map_err(|source| AssetError::Json {
+            path: report.to_path_buf(),
+            source,
+        })?;
+    report_bytes.push(b'\n');
+    validate_output_bundle(out, report)?;
+    write_blob_atomic(out, &blob)?;
+    write_blob_atomic(report, &report_bytes)?;
+    println!(
+        "compiled {} entity authority sources, {} symbols, and {} dependencies to {} and {}",
+        report_data.counts.sources,
+        report_data.counts.symbols,
+        report_data.counts.dependencies,
+        out.display(),
+        report.display()
+    );
     Ok(())
 }
 
