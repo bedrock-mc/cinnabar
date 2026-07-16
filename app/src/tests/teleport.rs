@@ -96,6 +96,7 @@ fn full_view_teleport_arms_only_with_a_fifo_committed_source_cohort() {
         position: [1_040.5, 70.0, 1_040.5],
         pitch: 0.0,
         yaw: 0.0,
+        ..Default::default()
     });
     let mut tracker = FullViewTeleportTracker::new(true);
     tracker.set_source_mutation_coordinate([0, 58, 0]);
@@ -159,6 +160,7 @@ fn out_of_order_move_waits_for_fifo_source_commit_before_arming() {
         position: [1_040.5, 70.0, 1_040.5],
         pitch: 0.0,
         yaw: 0.0,
+        ..Default::default()
     };
     let mut tracker = FullViewTeleportTracker::new(true);
     tracker.set_source_mutation_coordinate([0, 58, 0]);
@@ -684,6 +686,7 @@ fn previously_seen_wrong_radius_publisher_does_not_arm_target_stage() {
             position: [1_040.5, 70.0, 1_040.5],
             pitch: 0.0,
             yaw: 0.0,
+            ..Default::default()
         }),
         started + Duration::from_millis(100),
         0,
@@ -922,6 +925,7 @@ fn full_view_teleport_requires_far_motion_matching_publisher_and_two_presented_f
             position: [32.5, 70.0, 0.5],
             pitch: 0.0,
             yaw: 0.0,
+            ..Default::default()
         }),
         started,
         0,
@@ -937,6 +941,7 @@ fn full_view_teleport_requires_far_motion_matching_publisher_and_two_presented_f
             position: [1_040.5, 70.0, 1_040.5],
             pitch: 0.0,
             yaw: 0.0,
+            ..Default::default()
         }),
         started,
         0,
@@ -1101,6 +1106,7 @@ fn partial_target_column_coverage_never_settles_the_teleport_stream() {
             position: [1_040.5, 70.0, 1_040.5],
             pitch: 0.0,
             yaw: 0.0,
+            ..Default::default()
         }),
         started,
         0,

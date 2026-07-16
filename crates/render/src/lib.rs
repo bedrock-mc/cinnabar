@@ -15,9 +15,10 @@ use meshing::{
 };
 
 pub use actor::{
-    ACTOR_INTERPOLATION_DELAY_SECONDS, ActorRenderFrame, ActorRenderInstance, ActorRenderScene,
-    ActorRenderSource, ActorSkinPixels, DEFAULT_SKIN_PROVENANCE, MAX_RENDERED_PLAYERS,
-    STANDARD_BIPED_VERTEX_COUNT, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE, standard_biped_vertices,
+    ActorCullView, ActorRenderFrame, ActorRenderInstance, ActorRenderScene, ActorRenderSource,
+    ActorSkinPixels, DEFAULT_SKIN_PROVENANCE, MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
+    MAX_RENDERED_PLAYERS, STANDARD_BIPED_VERTEX_COUNT, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE,
+    standard_biped_vertices,
 };
 pub use actor_render::ActorRenderPlugin;
 pub use atmosphere::{

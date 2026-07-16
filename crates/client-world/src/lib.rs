@@ -4,7 +4,7 @@ mod culling;
 mod server_position;
 mod stream;
 
-pub use actor_store::{ActorSnapshot, PlayerProfile};
+pub use actor_store::{ActorPose, ActorSnapshot, PlayerProfile};
 pub use block_entity_visuals::{
     BackingBlockIdentity, BlockEntityVisualRoute, adjudicate_block_entity_visual,
 };

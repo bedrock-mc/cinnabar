@@ -1,14 +1,18 @@
-use std::{sync::Arc, time::Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use bevy::{
+    camera::Projection,
     log::{debug, error, info},
     prelude::{Local, Query, Res, ResMut, Time, Transform, Vec3, With},
     time::Real,
 };
 use client_world::{ActorSnapshot, PlayerProfile, SAFE_SERVER_HEIGHT, WorldStream};
 use render::{
-    ActorRenderFrame, ActorRenderScene, ActorRenderSource, ActorSkinPixels,
-    ChunkUploadAcknowledgements,
+    ActorCullView, ActorRenderFrame, ActorRenderScene, ActorRenderSource, ActorSkinPixels,
+    ChunkUploadAcknowledgements, MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
 };
 
 use crate::{
@@ -36,8 +40,36 @@ pub(crate) use session::{
 
 pub(crate) const NETWORK_INGRESS_BUDGET_PER_FRAME: usize = 32;
 pub(crate) const OUTBOUND_SEND_BUDGET_PER_FRAME: usize = 16;
+const ACTOR_TICK_NANOS: u128 = 50_000_000;
 const _: () = assert!(WORLD_EVENT_CAPACITY >= NETWORK_INGRESS_BUDGET_PER_FRAME);
 const _: () = assert!(NETWORK_INGRESS_BUDGET_PER_FRAME == client_world::MAX_ADMITTED_HEAVY_EVENTS);
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct ActorFrameStep {
+    pub(crate) ticks: u32,
+    pub(crate) partial_tick: f32,
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct ActorFrameClock {
+    accumulated_nanos: u128,
+}
+
+impl ActorFrameClock {
+    pub(crate) fn advance(&mut self, delta: Duration) -> ActorFrameStep {
+        self.accumulated_nanos = self.accumulated_nanos.saturating_add(delta.as_nanos());
+        let elapsed_ticks = self.accumulated_nanos / ACTOR_TICK_NANOS;
+        self.accumulated_nanos %= ACTOR_TICK_NANOS;
+        ActorFrameStep {
+            ticks: u32::try_from(elapsed_ticks).unwrap_or(u32::MAX),
+            partial_tick: self.accumulated_nanos as f32 / ACTOR_TICK_NANOS as f32,
+        }
+    }
+
+    pub(crate) fn reset(&mut self) {
+        self.accumulated_nanos = 0;
+    }
+}
 
 pub(crate) fn receive_network_events(
     mut network: ResMut<NetworkHandle>,
@@ -238,6 +270,10 @@ pub(crate) fn actor_render_source(
         unique_id: actor.unique_id,
         spawn_revision: actor.spawn_revision,
         movement_revision: actor.movement_revision,
+        previous_position: actor.previous_pose.position,
+        previous_pitch_degrees: actor.previous_pose.pitch,
+        previous_yaw_degrees: actor.previous_pose.yaw,
+        previous_head_yaw_degrees: actor.previous_pose.head_yaw,
         position: actor.position,
         pitch_degrees: actor.pitch,
         yaw_degrees: actor.yaw,
@@ -248,11 +284,13 @@ pub(crate) fn actor_render_source(
 }
 
 pub(crate) fn publish_actor_render_frame(
-    client_world: Res<ClientWorld>,
+    mut client_world: ResMut<ClientWorld>,
     time: Res<Time<Real>>,
     mut scene: ResMut<ActorRenderScene>,
     mut frame: ResMut<ActorRenderFrame>,
     mut published_session: Local<Option<u64>>,
+    mut actor_clock: Local<ActorFrameClock>,
+    camera: Query<(&Transform, &Projection), With<FlyCamera>>,
 ) {
     let session_id = client_world
         .stream
@@ -260,7 +298,12 @@ pub(crate) fn publish_actor_render_frame(
         .map(WorldStream::actor_session_id);
     if *published_session != session_id {
         scene.reset();
+        actor_clock.reset();
         *published_session = session_id;
+    }
+    let step = actor_clock.advance(time.delta());
+    if let Some(stream) = client_world.stream.as_mut() {
+        stream.advance_actor_interpolation_ticks(step.ticks);
     }
     let sources = client_world
         .stream
@@ -273,7 +316,15 @@ pub(crate) fn publish_actor_render_frame(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    *frame = scene.update(time.elapsed_secs_f64(), sources).clone();
+    let cull_view = camera
+        .single()
+        .ok()
+        .map(|(transform, projection)| ActorCullView {
+            clip_from_world: projection.get_clip_from_view() * transform.to_matrix().inverse(),
+            camera_position: transform.translation,
+            max_distance: MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
+        });
+    *frame = scene.update(step.partial_tick, cull_view, sources).clone();
 }
 
 pub(crate) mod session;

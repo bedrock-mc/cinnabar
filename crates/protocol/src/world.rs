@@ -5,8 +5,9 @@ use thiserror::Error;
 use valentine::bedrock::version::v1_26_30::{
     CorrectPlayerMovePredictionPacketPredictionType, GameRuleI32, GameRuleI32Type,
     GameRuleI32Value, GameRuleVarintType, GameRuleVarintValue, LevelEventPacketEvent,
-    McpePacketData, StartGamePacketDimension, SubChunkEntryWithoutCachingItemResult,
-    SubchunkPacketEntries, SubchunkRequestPacket, Vec3I8, Vec3Li,
+    McpePacketData, MovePlayerPacketMode, StartGamePacketDimension,
+    SubChunkEntryWithoutCachingItemResult, SubchunkPacketEntries, SubchunkRequestPacket, Vec3I8,
+    Vec3Li,
 };
 
 use crate::{
@@ -247,12 +248,46 @@ pub struct ChangeDimensionEvent {
     pub position: [f32; 3],
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct MovePlayerEvent {
     pub runtime_id: u64,
     pub position: [f32; 3],
     pub pitch: f32,
     pub yaw: f32,
+    pub head_yaw: f32,
+    pub mode: MovePlayerMode,
+    pub on_ground: bool,
+    pub teleported: bool,
+    pub source_tick: i64,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum MovePlayerMode {
+    #[default]
+    Normal,
+    Reset,
+    Teleport,
+    Rotation,
+    Unknown(u8),
+}
+
+impl MovePlayerMode {
+    #[must_use]
+    pub const fn is_teleport(self) -> bool {
+        matches!(self, Self::Teleport)
+    }
+}
+
+impl From<MovePlayerPacketMode> for MovePlayerMode {
+    fn from(mode: MovePlayerPacketMode) -> Self {
+        match mode {
+            MovePlayerPacketMode::Normal => Self::Normal,
+            MovePlayerPacketMode::Reset => Self::Reset,
+            MovePlayerPacketMode::Teleport => Self::Teleport,
+            MovePlayerPacketMode::Rotation => Self::Rotation,
+            MovePlayerPacketMode::Unknown(value) => Self::Unknown(value),
+        }
+    }
 }
 
 /// One server world-clock update.
@@ -606,12 +641,20 @@ pub fn into_world_event(
                 position: [packet.position.x, packet.position.y, packet.position.z],
             })
         }
-        McpePacketData::PacketMovePlayer(packet) => WorldEvent::MovePlayer(MovePlayerEvent {
-            runtime_id: packet.runtime_id,
-            position: [packet.position.x, packet.position.y, packet.position.z],
-            pitch: packet.pitch,
-            yaw: packet.yaw,
-        }),
+        McpePacketData::PacketMovePlayer(packet) => {
+            let mode = MovePlayerMode::from(packet.mode);
+            WorldEvent::MovePlayer(MovePlayerEvent {
+                runtime_id: packet.runtime_id,
+                position: [packet.position.x, packet.position.y, packet.position.z],
+                pitch: packet.pitch,
+                yaw: packet.yaw,
+                head_yaw: packet.head_yaw,
+                mode,
+                on_ground: packet.on_ground,
+                teleported: mode.is_teleport(),
+                source_tick: packet.tick,
+            })
+        }
         McpePacketData::PacketCorrectPlayerMovePrediction(packet) => {
             if packet.prediction_type != CorrectPlayerMovePredictionPacketPredictionType::Player {
                 return Ok(None);

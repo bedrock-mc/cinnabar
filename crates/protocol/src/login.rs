@@ -362,6 +362,11 @@ mod tests {
                 position: [1.25, 70.5, -8.75],
                 pitch: 15.0,
                 yaw: -120.25,
+                head_yaw: 0.0,
+                mode: crate::MovePlayerMode::Normal,
+                on_ground: false,
+                teleported: false,
+                source_tick: 0,
             })
         );
     }
@@ -424,6 +429,8 @@ mod tests {
                 head_yaw: Some(180.0),
                 on_ground: Some(true),
                 teleported: true,
+                player_mode: None,
+                source_tick: None,
             }))
         );
     }

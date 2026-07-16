@@ -590,9 +590,11 @@ impl NetworkSequencer {
                     position: movement.position.map(Some),
                     pitch: Some(movement.pitch),
                     yaw: Some(movement.yaw),
-                    head_yaw: Some(movement.yaw),
-                    on_ground: None,
-                    teleported: false,
+                    head_yaw: Some(movement.head_yaw),
+                    on_ground: Some(movement.on_ground),
+                    teleported: movement.teleported,
+                    player_mode: Some(movement.mode),
+                    source_tick: Some(movement.source_tick),
                 }))
             }
             event => event,

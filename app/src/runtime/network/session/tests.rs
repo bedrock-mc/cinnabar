@@ -79,6 +79,11 @@ fn foreign_player_movement_is_routed_to_the_actor_stream() {
             position: [1.0, 64.0, 2.0],
             pitch: 5.0,
             yaw: 90.0,
+            head_yaw: 110.0,
+            mode: protocol::MovePlayerMode::Teleport,
+            on_ground: true,
+            teleported: true,
+            source_tick: 1_234,
         })
     };
 
@@ -86,14 +91,17 @@ fn foreign_player_movement_is_routed_to_the_actor_stream() {
         sequencer.wrap(movement(42)).event,
         WorldEvent::MovePlayer(MovePlayerEvent { runtime_id: 42, .. })
     ));
-    assert!(matches!(
-        sequencer.wrap(movement(7)).event,
-        WorldEvent::Actor(protocol::ActorEvent::Move(protocol::ActorMoveEvent {
-            runtime_id: 7,
-            dimension: 0,
-            ..
-        }))
-    ));
+    let WorldEvent::Actor(protocol::ActorEvent::Move(remote)) = sequencer.wrap(movement(7)).event
+    else {
+        panic!("foreign MovePlayer was not routed to the actor stream");
+    };
+    assert_eq!(remote.runtime_id, 7);
+    assert_eq!(remote.dimension, 0);
+    assert_eq!(remote.head_yaw, Some(110.0));
+    assert_eq!(remote.on_ground, Some(true));
+    assert!(remote.teleported);
+    assert_eq!(remote.player_mode, Some(protocol::MovePlayerMode::Teleport));
+    assert_eq!(remote.source_tick, Some(1_234));
 }
 
 #[test]

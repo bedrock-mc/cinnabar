@@ -88,25 +88,40 @@ impl ActorStore {
                 let Some(actor) = self.actors.get_mut(&movement.runtime_id) else {
                     return ActorApplyResult::MissingActor;
                 };
-                for (target, source) in actor.position.iter_mut().zip(movement.position) {
+                let mut received = actor.received_pose;
+                for (target, source) in received.position.iter_mut().zip(movement.position) {
                     if let Some(source) = source {
                         *target = source;
                     }
                 }
                 if let Some(value) = movement.pitch {
-                    actor.pitch = value;
+                    received.pitch = value;
                 }
                 if let Some(value) = movement.yaw {
-                    actor.yaw = value;
+                    received.yaw = value;
                 }
                 if let Some(value) = movement.head_yaw {
-                    actor.head_yaw = value;
+                    received.head_yaw = value;
                 }
                 if let Some(value) = movement.on_ground {
                     actor.on_ground = Some(value);
                 }
+                actor.received_pose = received;
+                if movement.teleported {
+                    actor.previous_pose = received;
+                    actor.set_current_pose(received);
+                    actor.interpolation_ticks_remaining = 0;
+                } else if matches!(actor.kind, ActorKind::Player { .. }) {
+                    actor.interpolation_ticks_remaining = PLAYER_POSITION_INTERPOLATION_TICKS;
+                } else {
+                    actor.previous_pose = received;
+                    actor.set_current_pose(received);
+                    actor.interpolation_ticks_remaining = 0;
+                }
                 actor.movement_revision = sequence;
                 actor.teleported = movement.teleported;
+                actor.player_mode = movement.player_mode;
+                actor.source_tick = movement.source_tick;
                 ActorApplyResult::Updated
             }
             ActorEvent::Metadata(update) => {
@@ -208,6 +223,32 @@ impl ActorStore {
             }
         }
     }
+    pub(crate) fn advance_interpolation_ticks(&mut self, ticks: u32) {
+        for actor in self.actors.values_mut() {
+            let meaningful_ticks = if matches!(actor.kind, ActorKind::Player { .. }) {
+                u32::from(actor.interpolation_ticks_remaining).saturating_add(1)
+            } else {
+                1
+            };
+            for _ in 0..ticks.min(meaningful_ticks) {
+                let current = actor.current_pose();
+                actor.previous_pose = current;
+                let mut next = actor.received_pose;
+                if matches!(actor.kind, ActorKind::Player { .. })
+                    && actor.interpolation_ticks_remaining > 0
+                {
+                    let divisor = f32::from(actor.interpolation_ticks_remaining);
+                    next.position = std::array::from_fn(|axis| {
+                        current.position[axis]
+                            + (actor.received_pose.position[axis] - current.position[axis])
+                                / divisor
+                    });
+                    actor.interpolation_ticks_remaining -= 1;
+                }
+                actor.set_current_pose(next);
+            }
+        }
+    }
     pub(crate) fn apply_player_move(
         &mut self,
         session_id: u64,
@@ -224,9 +265,11 @@ impl ActorStore {
                 position: movement.position.map(Some),
                 pitch: Some(movement.pitch),
                 yaw: Some(movement.yaw),
-                head_yaw: Some(movement.yaw),
-                on_ground: None,
-                teleported: false,
+                head_yaw: Some(movement.head_yaw),
+                on_ground: Some(movement.on_ground),
+                teleported: movement.teleported,
+                player_mode: Some(movement.mode),
+                source_tick: Some(movement.source_tick),
             }),
         )
     }

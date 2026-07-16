@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use protocol::{
     ActorAttribute, ActorEvent, ActorKind, ActorMetadataValue, ActorMoveEvent, ActorProperty,
     ActorSpawnEvent, MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_PROPERTIES,
-    MAX_PLAYER_LIST_SKIN_BYTES, MovePlayerEvent, PlayerListEntry, PlayerSkin,
+    MAX_PLAYER_LIST_SKIN_BYTES, MovePlayerEvent, MovePlayerMode, PlayerListEntry, PlayerSkin,
     PlayerSkinUnavailable,
 };
 
@@ -25,6 +25,16 @@ pub(crate) enum ActorApplyResult {
     StaleDimension,
 }
 
+pub(crate) const PLAYER_POSITION_INTERPOLATION_TICKS: u8 = 3;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ActorPose {
+    pub position: [f32; 3],
+    pub pitch: f32,
+    pub yaw: f32,
+    pub head_yaw: f32,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ActorSnapshot {
     pub unique_id: i64,
@@ -37,9 +47,14 @@ pub struct ActorSnapshot {
     pub pitch: f32,
     pub yaw: f32,
     pub head_yaw: f32,
+    pub previous_pose: ActorPose,
+    pub received_pose: ActorPose,
+    pub interpolation_ticks_remaining: u8,
     pub body_yaw: f32,
     pub on_ground: Option<bool>,
     pub teleported: bool,
+    pub player_mode: Option<MovePlayerMode>,
+    pub source_tick: Option<i64>,
     pub metadata: HashMap<i32, ActorMetadataValue>,
     pub attributes: HashMap<std::sync::Arc<str>, ActorAttribute>,
     pub int_properties: HashMap<i32, i32>,
@@ -48,6 +63,12 @@ pub struct ActorSnapshot {
 
 impl ActorSnapshot {
     fn from_spawn(spawn: ActorSpawnEvent, spawn_revision: u64) -> Self {
+        let pose = ActorPose {
+            position: spawn.position,
+            pitch: spawn.pitch,
+            yaw: spawn.yaw,
+            head_yaw: spawn.head_yaw,
+        };
         let mut snapshot = Self {
             unique_id: spawn.unique_id,
             runtime_id: spawn.runtime_id,
@@ -59,9 +80,14 @@ impl ActorSnapshot {
             pitch: spawn.pitch,
             yaw: spawn.yaw,
             head_yaw: spawn.head_yaw,
+            previous_pose: pose,
+            received_pose: pose,
+            interpolation_ticks_remaining: 0,
             body_yaw: spawn.body_yaw,
             on_ground: None,
             teleported: false,
+            player_mode: None,
+            source_tick: None,
             metadata: HashMap::with_capacity(spawn.metadata.len()),
             attributes: HashMap::with_capacity(spawn.attributes.len()),
             int_properties: HashMap::new(),
@@ -71,6 +97,22 @@ impl ActorSnapshot {
         snapshot.apply_attributes(&spawn.attributes);
         snapshot.apply_properties(&spawn.properties);
         snapshot
+    }
+
+    fn current_pose(&self) -> ActorPose {
+        ActorPose {
+            position: self.position,
+            pitch: self.pitch,
+            yaw: self.yaw,
+            head_yaw: self.head_yaw,
+        }
+    }
+
+    fn set_current_pose(&mut self, pose: ActorPose) {
+        self.position = pose.position;
+        self.pitch = pose.pitch;
+        self.yaw = pose.yaw;
+        self.head_yaw = pose.head_yaw;
     }
 
     fn apply_metadata(&mut self, metadata: &[protocol::ActorMetadata]) -> bool {

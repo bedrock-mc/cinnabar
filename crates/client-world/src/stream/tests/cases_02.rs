@@ -123,6 +123,7 @@ fn live_block_entity_updates_decode_off_thread_and_commit_in_fifo() {
         position: [1.0, 70.0, 2.0],
         pitch: 0.0,
         yaw: 0.0,
+        ..Default::default()
     };
     stream.submit(3, WorldEvent::MovePlayer(movement)).unwrap();
 

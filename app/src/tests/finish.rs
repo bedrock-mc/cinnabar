@@ -991,6 +991,7 @@ fn model_gallery_camera_marker_only_reports_committed_move_player() {
         position: [27.0, 87.62, 43.0],
         pitch: 12.5,
         yaw: -45.0,
+        ..Default::default()
     };
     let control = CommittedControlEvent::MovePlayer {
         sequence: 19,
