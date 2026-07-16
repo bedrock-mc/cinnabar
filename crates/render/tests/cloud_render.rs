@@ -1,4 +1,4 @@
-use render::{CLOUD_TOP_Y, CLOUD_UNDERSIDE_Y, CloudFace, PackedCloudQuad};
+use meshing::{CLOUD_TOP_Y, CLOUD_UNDERSIDE_Y, CloudFace, PackedCloudQuad};
 
 fn substitute_test_view(shader: &str) -> String {
     shader.replacen(

@@ -31,21 +31,23 @@ use bevy::{
     prelude::{App, Mat4, MinimalPlugins, Quat, Vec3, Visibility},
 };
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
+use meshing::{
+    BlockClassifier, Face, Neighbourhood, PackedBiomeRecord, PackedQuad, mesh_sub_chunk,
+};
 use render::{
-    AnimationFrameSample, BlockClassifier, ChunkAnimationClock, ChunkRenderInstance,
-    ChunkRenderQueue, ChunkRenderQueueLimits, ChunkTextureAssetIdentity, ChunkUploadPriority,
-    DebugWorldPlugin, Face, MATERIAL_UV_REFLECT_U, MATERIAL_UV_REFLECT_V, MATERIAL_UV_ROTATE_90,
-    MATERIAL_UV_ROTATE_180, MATERIAL_UV_ROTATE_270, MAX_TRANSPARENT_DRAW_REFS,
-    MAX_TRANSPARENT_VIEWS, Neighbourhood, PackedBiomeRecord, PackedQuad, PackedTransparentDrawRef,
-    PresentedFrameAck, RenderViewCohort, TRANSPARENT_REF_BUFFER_BYTES, TRANSPARENT_REF_SLOT_BYTES,
-    TextureArrayLimits, TextureLimitError, TexturePageBinding, TransparentAllocationIdentity,
-    TransparentOrderedSnapshot, TransparentSortCandidate, TransparentSortError,
-    TransparentSortJobGate, TransparentSortMetrics, TransparentSortMetricsSnapshot,
-    TransparentSortResult, TransparentSortState, ViewSortGeneration, ViewSortKey,
-    diagnostic_texture_page, direct_transparent_draw_args_for_test, greedy_texture_uv,
-    mdi_transparent_draw_args_for_test, mesh_sub_chunk, plan_texture_mip_uploads,
-    plan_texture_page_bindings, select_animation_frames, sort_transparent_candidates_for_test,
-    texture_asset_needs_rebuild,
+    AnimationFrameSample, ChunkAnimationClock, ChunkRenderInstance, ChunkRenderQueue,
+    ChunkRenderQueueLimits, ChunkTextureAssetIdentity, ChunkUploadPriority, DebugWorldPlugin,
+    MATERIAL_UV_REFLECT_U, MATERIAL_UV_REFLECT_V, MATERIAL_UV_ROTATE_90, MATERIAL_UV_ROTATE_180,
+    MATERIAL_UV_ROTATE_270, MAX_TRANSPARENT_DRAW_REFS, MAX_TRANSPARENT_VIEWS,
+    PackedTransparentDrawRef, PresentedFrameAck, RenderViewCohort, TRANSPARENT_REF_BUFFER_BYTES,
+    TRANSPARENT_REF_SLOT_BYTES, TextureArrayLimits, TextureLimitError, TexturePageBinding,
+    TransparentAllocationIdentity, TransparentOrderedSnapshot, TransparentSortCandidate,
+    TransparentSortError, TransparentSortJobGate, TransparentSortMetrics,
+    TransparentSortMetricsSnapshot, TransparentSortResult, TransparentSortState,
+    ViewSortGeneration, ViewSortKey, diagnostic_texture_page,
+    direct_transparent_draw_args_for_test, greedy_texture_uv, mdi_transparent_draw_args_for_test,
+    plan_texture_mip_uploads, plan_texture_page_bindings, select_animation_frames,
+    sort_transparent_candidates_for_test, texture_asset_needs_rebuild,
 };
 use world::{DecodedBiomeColumn, SubChunk, SubChunkKey};
 
@@ -321,7 +323,7 @@ fn sort_key(
         orientation.map(|value| value as f32),
         visible,
         ChunkTextureAssetIdentity::for_test(assets as usize, assets),
-        render::ChunkBiomeTintIdentity::new(tint, tint),
+        meshing::ChunkBiomeTintIdentity::new(tint, tint),
     )
     .unwrap()
 }
@@ -332,7 +334,7 @@ fn exact_sort_key(camera: [f32; 3], orientation: [f32; 4]) -> ViewSortKey {
         orientation,
         vec![],
         ChunkTextureAssetIdentity::for_test(1, 1),
-        render::ChunkBiomeTintIdentity::new(1, 1),
+        meshing::ChunkBiomeTintIdentity::new(1, 1),
     )
     .unwrap()
 }
@@ -534,7 +536,7 @@ fn conflicting_duplicate_visible_allocation_is_rejected() {
             [0.0, 0.0, 0.0, 1.0],
             vec![allocation(key, 1, 8), allocation(key, 2, 16)],
             ChunkTextureAssetIdentity::for_test(1, 1),
-            render::ChunkBiomeTintIdentity::new(1, 1),
+            meshing::ChunkBiomeTintIdentity::new(1, 1),
         ),
         Err(TransparentSortError::ConflictingAllocation { key })
     );
@@ -1181,7 +1183,7 @@ fn rust_struct_body<'a>(source: &'a str, name: &str) -> &'a str {
     panic!("unterminated {name} body")
 }
 
-fn flowerbed_render_entity_contract(mesh: render::ChunkMesh) -> (u32, usize, Vec<String>, bool) {
+fn flowerbed_render_entity_contract(mesh: meshing::ChunkMesh) -> (u32, usize, Vec<String>, bool) {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .add_plugins(DebugWorldPlugin::new(1));
@@ -1235,22 +1237,22 @@ fn flowerbed_render_entity_contract(mesh: render::ChunkMesh) -> (u32, usize, Vec
 fn queue_counts_every_stream_and_sidecar() {
     let key = SubChunkKey::new(0, 1, 2, 3);
     let cube = solid_mesh(1);
-    let mesh = render::ChunkMesh::from_streams(
+    let mesh = meshing::ChunkMesh::from_streams(
         cube.quads().to_vec(),
-        vec![render::PackedModelRef::new(1, 2, 0, 1)],
-        vec![render::PackedQuadLighting::new([0; 4])],
-        vec![render::PackedModelDrawRef::new(0, 0)],
-        vec![render::PackedLiquidQuad::try_from_words([4, 5, 6, 7]).unwrap()],
-        vec![render::PackedQuadLighting::new([0; 4])],
+        vec![meshing::PackedModelRef::new(1, 2, 0, 1)],
+        vec![meshing::PackedQuadLighting::new([0; 4])],
+        vec![meshing::PackedModelDrawRef::new(0, 0)],
+        vec![meshing::PackedLiquidQuad::try_from_words([4, 5, 6, 7]).unwrap()],
+        vec![meshing::PackedQuadLighting::new([0; 4])],
         cube.connectivity(),
     )
-    .with_transparent_model_draw_refs(vec![render::PackedModelDrawRef::new(0, 1)]);
-    let expected = 6 * (size_of::<PackedQuad>() + size_of::<render::PackedQuadLighting>())
-        + size_of::<render::PackedModelRef>()
-        + size_of::<render::PackedQuadLighting>()
-        + 2 * size_of::<render::PackedModelDrawRef>()
-        + size_of::<render::PackedLiquidQuad>()
-        + size_of::<render::PackedQuadLighting>();
+    .with_transparent_model_draw_refs(vec![meshing::PackedModelDrawRef::new(0, 1)]);
+    let expected = 6 * (size_of::<PackedQuad>() + size_of::<meshing::PackedQuadLighting>())
+        + size_of::<meshing::PackedModelRef>()
+        + size_of::<meshing::PackedQuadLighting>()
+        + 2 * size_of::<meshing::PackedModelDrawRef>()
+        + size_of::<meshing::PackedLiquidQuad>()
+        + size_of::<meshing::PackedQuadLighting>();
     let mut queue = ChunkRenderQueue::with_limits(ChunkRenderQueueLimits {
         max_items: 1,
         max_bytes: expected as u64,
@@ -1268,7 +1270,7 @@ fn cube_lighting_counts_toward_exact_queue_caps_and_survives_extraction() {
     let mesh = solid_mesh(1);
     let expected_lighting = mesh.cube_lighting().to_vec();
     let exact_bytes =
-        6 * (size_of::<PackedQuad>() + size_of::<render::PackedQuadLighting>()) as u64;
+        6 * (size_of::<PackedQuad>() + size_of::<meshing::PackedQuadLighting>()) as u64;
     let mut too_small = ChunkRenderQueue::with_limits(ChunkRenderQueueLimits {
         max_items: 1,
         max_bytes: exact_bytes - 1,
@@ -1308,11 +1310,11 @@ fn cube_lighting_counts_toward_exact_queue_caps_and_survives_extraction() {
 fn opaque_and_model_streams_share_one_subchunk_visibility_component() {
     let key = SubChunkKey::new(0, 1, 2, 3);
     let cube = solid_mesh(1);
-    let mesh = render::ChunkMesh::from_streams(
+    let mesh = meshing::ChunkMesh::from_streams(
         cube.quads().to_vec(),
-        vec![render::PackedModelRef::new(1, 0, 0, 1)],
-        vec![render::PackedQuadLighting::new([0; 4])],
-        vec![render::PackedModelDrawRef::new(0, 0)],
+        vec![meshing::PackedModelRef::new(1, 0, 0, 1)],
+        vec![meshing::PackedQuadLighting::new([0; 4])],
+        vec![meshing::PackedModelDrawRef::new(0, 0)],
         vec![],
         vec![],
         cube.connectivity(),
@@ -1560,7 +1562,7 @@ fn render_queue_enforces_item_and_byte_limits_without_losing_replacements() {
     queue
         .try_insert(
             second,
-            render::ChunkMesh::default(),
+            meshing::ChunkMesh::default(),
             ChunkUploadPriority::new(1.0),
         )
         .unwrap();
@@ -1577,7 +1579,7 @@ fn render_queue_enforces_item_and_byte_limits_without_losing_replacements() {
     queue
         .try_update(
             first,
-            render::ChunkMesh::default(),
+            meshing::ChunkMesh::default(),
             ChunkUploadPriority::new(0.0),
         )
         .unwrap();
@@ -1634,7 +1636,7 @@ fn rejected_mesh_is_eventually_delivered_after_the_capped_queue_drains() {
     assert_eq!(keys, [first, second]);
 }
 
-fn solid_mesh(runtime_id: u32) -> render::ChunkMesh {
+fn solid_mesh(runtime_id: u32) -> meshing::ChunkMesh {
     let mut encoded = vec![9, 1, 0, 1];
     encoded.extend(zig_zag_i32(runtime_id as i32));
     let sub_chunk = SubChunk::decode(&encoded).expect("uniform sub-chunk");
@@ -1929,7 +1931,7 @@ fn chunk_shader_reads_cube_light_from_expanded_origin_without_changing_bindings(
         14
     );
     assert_eq!(std::mem::size_of::<PackedQuad>(), 8);
-    assert_eq!(std::mem::size_of::<render::PackedQuadLighting>(), 8);
+    assert_eq!(std::mem::size_of::<meshing::PackedQuadLighting>(), 8);
 }
 
 fn uniform_biome_record(tint_index: u32) -> PackedBiomeRecord {
@@ -1948,7 +1950,7 @@ fn render_queue_counts_and_extracts_non_fallback_biome_records() {
     let mesh = solid_mesh(1);
     let biome = uniform_biome_record(7);
     let expected_bytes = 6
-        * (size_of::<PackedQuad>() + size_of::<render::PackedQuadLighting>()) as u64
+        * (size_of::<PackedQuad>() + size_of::<meshing::PackedQuadLighting>()) as u64
         + biome.byte_len();
     let mut queue = ChunkRenderQueue::with_limits(ChunkRenderQueueLimits {
         max_items: 1,

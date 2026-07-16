@@ -6,7 +6,7 @@ use assets::{
     NetworkIdMode, RuntimeAssets, TextureArray, TextureMip, TexturePage, TextureRef, VisualKind,
     encode_blob,
 };
-use render::{
+use meshing::{
     BlockClassifier, Face, MeshLightSample, PHASE26_BLOCK_LIGHT, PHASE26_SKY_LIGHT, PackedQuad,
     PackedQuadLighting, bake_quad_lighting, bake_quad_lighting_with_sampler,
     bake_template_lighting, bake_template_lighting_with_sampler, mesh_dependency_mask,
@@ -366,7 +366,7 @@ fn rotate_test_face(face: Face, rotation: u32) -> Face {
 
 #[test]
 fn stair_rotation_bakes_ao_from_rotated_faces_and_positions_for_both_halves() {
-    let shader = include_str!("../src/model.wgsl");
+    let shader = include_str!("../../render/src/model.wgsl");
     for clause in [
         "case 1u: { rotated = vec3(-centered.z, centered.y, centered.x); }",
         "case 2u: { rotated = vec3(-centered.x, centered.y, -centered.z); }",

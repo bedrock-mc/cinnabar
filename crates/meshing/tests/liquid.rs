@@ -7,7 +7,7 @@ use assets::{
     NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TextureArray, TextureMip, TexturePage,
     TextureRef, VisualKind, encode_blob,
 };
-use render::{
+use meshing::{
     BlockClassifier, Face, LiquidLevel, MeshLightSample, Neighbourhood, PackedLiquidQuad,
     mesh_sub_chunk, mesh_sub_chunk_in_neighbourhood, mesh_sub_chunk_in_neighbourhood_with_lighting,
 };
@@ -658,7 +658,7 @@ fn corner_height_crosses_negative_x_z_and_diagonal_seams() {
     assert!(heights[0] < heights[2]);
 }
 
-fn quad_at(mesh: &render::ChunkMesh, origin: [u8; 3], face: Face) -> PackedLiquidQuad {
+fn quad_at(mesh: &meshing::ChunkMesh, origin: [u8; 3], face: Face) -> PackedLiquidQuad {
     *mesh
         .liquid_quads()
         .iter()
@@ -666,7 +666,7 @@ fn quad_at(mesh: &render::ChunkMesh, origin: [u8; 3], face: Face) -> PackedLiqui
         .expect("liquid quad")
 }
 
-fn mesh(center: &SubChunk) -> render::ChunkMesh {
+fn mesh(center: &SubChunk) -> meshing::ChunkMesh {
     let neighbourhood = MeshNeighbourhood::new(center);
     mesh_sub_chunk_in_neighbourhood(
         &BlockClassifier::new(AIR),

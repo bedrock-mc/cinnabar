@@ -2,10 +2,14 @@ use bevy::{
     prelude::{Res, ResMut, Resource, Time},
     time::Real,
 };
+use meshing::CameraMedium;
 use protocol::{WeatherChannel, WorldEnvironmentBootstrap};
-use render::{AtmosphereFrame, CameraMedium};
+use render::AtmosphereFrame;
 
 use crate::world_stream::CommittedControlEvent;
+
+#[derive(Resource, Default)]
+pub(crate) struct CameraMediumState(pub(crate) CameraMedium);
 
 /// Server-authored world-clock snapshot for the active StartGame session.
 ///
@@ -216,11 +220,12 @@ pub(crate) fn derive_atmosphere_frame_for_medium(
 pub(crate) fn update_atmosphere_frame(
     clock: Res<WorldClock>,
     weather: Res<WeatherState>,
-    medium: Res<CameraMedium>,
+    medium: Res<CameraMediumState>,
     time: Res<Time<Real>>,
     mut frame: ResMut<AtmosphereFrame>,
 ) {
-    *frame = derive_atmosphere_frame_for_medium(*clock, *weather, time.elapsed_secs_f64(), *medium);
+    *frame =
+        derive_atmosphere_frame_for_medium(*clock, *weather, time.elapsed_secs_f64(), medium.0);
 }
 
 fn finite_nonnegative(value: f64) -> f64 {
@@ -617,9 +622,9 @@ mod tests {
         );
 
         let frame =
-            derive_atmosphere_frame_for_medium(clock, weather, 10.0, render::CameraMedium::Water);
+            derive_atmosphere_frame_for_medium(clock, weather, 10.0, meshing::CameraMedium::Water);
 
-        assert_eq!(frame.camera_medium(), render::CameraMedium::Water);
+        assert_eq!(frame.camera_medium(), meshing::CameraMedium::Water);
         assert_eq!(frame.rain_level(), 0.25);
         assert_eq!(frame.thunder_level(), 0.75);
         assert_eq!(frame.sun_direction(), [0.0, 1.0, 0.0]);

@@ -4,6 +4,7 @@ members = [
     "crates/asset-compiler",
     "crates/assets",
     "crates/bridge",
+    "crates/meshing",
     "crates/protocol",
     "crates/render",
     "crates/sim",

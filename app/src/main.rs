@@ -44,6 +44,7 @@ use camera::{FlyCamera, FlyCameraPlugin, FlyCameraUpdateSet, input_is_active, mo
 use environment::{
     WeatherState, WorldClock, apply_environment_control, replace_session, update_atmosphere_frame,
 };
+use meshing::CameraMedium;
 use metrics::{
     DiagnosticQuadTracker, ExactFullViewProof, GpuPassMeasurement, MetricsCollector,
     ModelWorkloadMetricsSnapshot, PipelineMetricsSnapshot, TeleportProof,
@@ -57,7 +58,7 @@ use movement::{
 use network::{NetworkConfig, NetworkControlEvent, NetworkHandle, spawn_network};
 use render::{
     ActorRenderFrame, ActorRenderPlugin, ActorRenderScene, ActorRenderSource, ActorSkinPixels,
-    AtmosphereFrame, AtmospherePlugin, AtmosphereTextureAssets, CameraMedium, ChunkBiomeTints,
+    AtmosphereFrame, AtmospherePlugin, AtmosphereTextureAssets, ChunkBiomeTints,
     ChunkRenderApplySet, ChunkRenderInstance, ChunkRenderQueue, ChunkTextureAssets,
     ChunkUploadAcknowledgements, ChunkUploadPriority, ChunkUploadToken, DebugWorldPlugin,
     ModelWitnessEvidence, ModelWitnessManifestRecord, ModelWitnessRequest, ModelWorkloadMetrics,
@@ -2283,7 +2284,7 @@ fn run(args: args::ClientArgs) -> Result<()> {
         .insert_resource(ClientWorld::new(Arc::clone(&runtime_assets)))
         .insert_resource(WorldClock::default())
         .insert_resource(WeatherState::default())
-        .insert_resource(CameraMedium::default())
+        .insert_resource(environment::CameraMediumState::default())
         .insert_resource(MovementTicker::default())
         .insert_resource(ActorRenderScene::default())
         .insert_resource(AtmosphereFrame::default())
@@ -2465,9 +2466,9 @@ fn exit_on_fatal_runtime_error(
 fn update_camera_medium(
     client_world: Res<ClientWorld>,
     camera: Query<&Transform, With<FlyCamera>>,
-    mut medium: ResMut<CameraMedium>,
+    mut medium: ResMut<environment::CameraMediumState>,
 ) {
-    *medium = client_world
+    medium.0 = client_world
         .stream
         .as_ref()
         .zip(camera.single().ok())
@@ -4036,15 +4037,17 @@ mod tests {
         App, AppExit, IntoScheduleConfigs, MinimalPlugins, Quat, Transform, Update, Vec3,
     };
     use bevy::window::{PresentMode, WindowCloseRequested};
+    use meshing::{
+        ChunkMesh, FaceConnectivity, PackedModelDrawRef, PackedModelRef, PackedQuadLighting,
+    };
     use protocol::{
         ActorKind, BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockUpdateEvent, LevelChunkEvent,
         LevelChunkMode, PlayerMovementCorrectionEvent, PlayerSkin, StandardSkin,
         SubChunkBatchEvent, SubChunkEntryEvent, SubChunkResult, WorldBootstrap, WorldEvent,
     };
     use render::{
-        ChunkBiomeTints, ChunkMesh, ChunkRenderApplySet, ChunkRenderQueue, ChunkUploadPriority,
-        DebugWorldPlugin, FaceConnectivity, GraphicsAdapterMetadata, OpaqueDrawMode,
-        PackedModelDrawRef, PackedModelRef, PackedQuadLighting, PresentedFrameAck,
+        ChunkBiomeTints, ChunkRenderApplySet, ChunkRenderQueue, ChunkUploadPriority,
+        DebugWorldPlugin, GraphicsAdapterMetadata, OpaqueDrawMode, PresentedFrameAck,
         RenderViewCohort, TargetRenderExpectation, VisibilityDiagnosticSnapshot,
         VisibilityDiagnosticsInput, VisibilityKeyDigest,
     };

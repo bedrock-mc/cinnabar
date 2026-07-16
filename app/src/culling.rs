@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use render::{Face, FaceConnectivity};
+use meshing::{Face, FaceConnectivity};
 use world::SubChunkKey;
 
 /// Conservative face-connectivity BFS used before Bevy's per-entity frustum culling.
@@ -87,7 +87,7 @@ const fn opposite(face: Face) -> Face {
 mod tests {
     use std::collections::HashMap;
 
-    use render::FaceConnectivity;
+    use meshing::FaceConnectivity;
     use world::SubChunkKey;
 
     use super::cave_visible_sub_chunks;

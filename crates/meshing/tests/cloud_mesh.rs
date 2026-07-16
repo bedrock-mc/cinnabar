@@ -1,7 +1,7 @@
 use std::mem::size_of;
 
 use assets::{AtmosphereRole, AtmosphereTexture};
-use render::{
+use meshing::{
     CLOUD_MASK_SIZE, CLOUD_TOP_Y, CLOUD_UNDERSIDE_Y, CloudFace, CloudMeshError, MAX_CLOUD_BYTES,
     MAX_CLOUD_QUADS, PackedCloudQuad, cloud_instance_origins, mesh_cloud_texture,
 };

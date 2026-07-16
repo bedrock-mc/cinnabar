@@ -10,6 +10,30 @@ const DESCRIPTOR_MAGIC: u32 = 0x4249_4f31;
 const DESCRIPTOR_WORDS: usize = 2 + BIOME_NEIGHBOUR_SLOT_COUNT;
 const NO_UNIFORM_TINT: u32 = u32::MAX;
 
+/// Immutable identity for the biome tint table referenced by packed records.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct ChunkBiomeTintIdentity {
+    stream: u64,
+    revision: u64,
+}
+
+impl ChunkBiomeTintIdentity {
+    #[must_use]
+    pub const fn new(stream: u64, revision: u64) -> Self {
+        Self { stream, revision }
+    }
+
+    #[must_use]
+    pub const fn stream(self) -> u64 {
+        self.stream
+    }
+
+    #[must_use]
+    pub const fn revision(self) -> u64 {
+        self.revision
+    }
+}
+
 /// Number of horizontal biome storages retained by one render record.
 pub const BIOME_NEIGHBOUR_SLOT_COUNT: usize = 9;
 

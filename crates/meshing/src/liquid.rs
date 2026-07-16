@@ -1,3 +1,15 @@
+/// Visual medium containing the active camera eye.
+///
+/// This is resolved from palette-native liquid layers. Unknown world data is
+/// deliberately [`Self::Air`] so an unloaded boundary cannot flash opaque fog.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum CameraMedium {
+    #[default]
+    Air,
+    Water,
+    Lava,
+}
+
 /// A bounded Bedrock liquid level. Raw values 8..=15 are falling states and
 /// retain their raw effective depth while rendering at source surface height.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,13 +67,10 @@ use assets::{
 };
 use world::MeshNeighbourhood;
 
-use crate::CameraMedium;
-use crate::mesh::{
+use crate::{
     BlockClassifier, ContributorResolver, Face, PackedLiquidQuad, PackedQuadLighting,
-    ResolvedContributors,
+    ResolvedContributors, SIDE,
 };
-
-const SIDE: usize = 16;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct LiquidIdentity([u32; Face::ALL.len()]);

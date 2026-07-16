@@ -60,6 +60,7 @@ use bevy::{
         },
     },
 };
+use meshing::{ChunkBiomeTintIdentity, Face};
 use world::SubChunkKey;
 
 use crate::{
@@ -1898,31 +1899,6 @@ impl Default for BiomeTint {
     }
 }
 
-/// Immutable dense biome tint table. Palette-native chunk records reference
-/// these entries by index; entry zero is always a deterministic fallback.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct ChunkBiomeTintIdentity {
-    stream: u64,
-    revision: u64,
-}
-
-impl ChunkBiomeTintIdentity {
-    #[must_use]
-    pub const fn new(stream: u64, revision: u64) -> Self {
-        Self { stream, revision }
-    }
-
-    #[must_use]
-    pub const fn stream(self) -> u64 {
-        self.stream
-    }
-
-    #[must_use]
-    pub const fn revision(self) -> u64 {
-        self.revision
-    }
-}
-
 #[derive(Resource, Clone)]
 pub struct ChunkBiomeTints {
     entries: Arc<[BiomeTint]>,
@@ -2391,13 +2367,7 @@ pub fn plan_texture_mip_uploads(
 }
 
 #[must_use]
-pub fn greedy_texture_uv(
-    face: crate::Face,
-    corner: u32,
-    width: u32,
-    height: u32,
-    flags: u32,
-) -> [f32; 2] {
+pub fn greedy_texture_uv(face: Face, corner: u32, width: u32, height: u32, flags: u32) -> [f32; 2] {
     let width = width as f32;
     let height = height as f32;
     let horizontal_standard = [[0.0, 0.0], [width, 0.0], [width, height], [0.0, height]];
@@ -2406,10 +2376,10 @@ pub fn greedy_texture_uv(
     let vertical_transposed = [[0.0, height], [0.0, 0.0], [width, 0.0], [width, height]];
     let corner = (corner & 3) as usize;
     let [mut u, mut v] = match face {
-        crate::Face::NegativeX | crate::Face::PositiveZ => vertical_standard[corner],
-        crate::Face::PositiveX | crate::Face::NegativeZ => vertical_transposed[corner],
-        crate::Face::NegativeY => horizontal_standard[corner],
-        crate::Face::PositiveY => horizontal_transposed[corner],
+        Face::NegativeX | Face::PositiveZ => vertical_standard[corner],
+        Face::PositiveX | Face::NegativeZ => vertical_transposed[corner],
+        Face::NegativeY => horizontal_standard[corner],
+        Face::PositiveY => horizontal_transposed[corner],
     };
     let (extent_u, extent_v) = match flags & MATERIAL_UV_ROTATION_MASK {
         MATERIAL_UV_ROTATE_90 => {
@@ -6085,7 +6055,7 @@ const fn chunk_tint_identity_is_active(
     record: ChunkBiomeTintIdentity,
     active: ChunkBiomeTintIdentity,
 ) -> bool {
-    record.stream == active.stream && record.revision == active.revision
+    record.stream() == active.stream() && record.revision() == active.revision()
 }
 
 fn plan_gpu_chunk_updates(
@@ -6699,12 +6669,12 @@ fn liquid_quad_centroid(chunk_origin: [i32; 3], quad: PackedLiquidQuad) -> [f32;
         chunk_origin[2] as f32 + f32::from(origin[2]) + 0.5,
     ];
     match quad.face() {
-        crate::Face::NegativeX => centroid[0] -= 0.5,
-        crate::Face::PositiveX => centroid[0] += 0.5,
-        crate::Face::NegativeY => centroid[1] = chunk_origin[1] as f32 + f32::from(origin[1]),
-        crate::Face::PositiveY => {}
-        crate::Face::NegativeZ => centroid[2] -= 0.5,
-        crate::Face::PositiveZ => centroid[2] += 0.5,
+        Face::NegativeX => centroid[0] -= 0.5,
+        Face::PositiveX => centroid[0] += 0.5,
+        Face::NegativeY => centroid[1] = chunk_origin[1] as f32 + f32::from(origin[1]),
+        Face::PositiveY => {}
+        Face::NegativeZ => centroid[2] -= 0.5,
+        Face::PositiveZ => centroid[2] += 0.5,
     }
     centroid
 }
@@ -10544,7 +10514,7 @@ mod tests {
             transparent_model_draw_refs: Arc::from([]),
             liquid_quads: Arc::from([PackedLiquidQuad::try_pack(
                 [0, 0, 0],
-                crate::Face::PositiveY,
+                Face::PositiveY,
                 [255; 4],
                 1,
                 0,
@@ -11653,7 +11623,7 @@ mod tests {
             transparent_model_draw_refs: Arc::from([]),
             liquid_quads: Arc::from([PackedLiquidQuad::try_pack(
                 [0, 0, 0],
-                crate::Face::PositiveY,
+                Face::PositiveY,
                 [255; 4],
                 1,
                 0,
@@ -12995,11 +12965,11 @@ mod tests {
 
     fn solid_test_mesh() -> ChunkMesh {
         let sub_chunk = SubChunk::decode(&[9, 1, 0, 1, 2]).expect("uniform test sub-chunk");
-        crate::mesh_sub_chunk(
-            &crate::BlockClassifier::new(0),
+        meshing::mesh_sub_chunk(
+            &meshing::BlockClassifier::new(0),
             opaque_runtime_assets(),
             NetworkIdMode::Sequential,
-            &crate::Neighbourhood::empty(),
+            &meshing::Neighbourhood::empty(),
             &sub_chunk,
         )
     }
@@ -14299,11 +14269,11 @@ mod tests {
         };
         let solid = solid_sub_chunk();
         let mesh = || {
-            crate::mesh_sub_chunk(
-                &crate::BlockClassifier::new(0),
+            meshing::mesh_sub_chunk(
+                &meshing::BlockClassifier::new(0),
                 opaque_runtime_assets(),
                 assets::NetworkIdMode::Sequential,
-                &crate::Neighbourhood::empty(),
+                &meshing::Neighbourhood::empty(),
                 &solid,
             )
         };
@@ -14934,19 +14904,19 @@ mod tests {
             dirty_since: now,
         };
         let solid = solid_sub_chunk(1);
-        let classifier = crate::BlockClassifier::new(0);
-        let impossible_mesh = crate::mesh_sub_chunk(
+        let classifier = meshing::BlockClassifier::new(0);
+        let impossible_mesh = meshing::mesh_sub_chunk(
             &classifier,
             opaque_runtime_assets(),
             assets::NetworkIdMode::Sequential,
-            &crate::Neighbourhood::empty(),
+            &meshing::Neighbourhood::empty(),
             &solid,
         );
-        let fitting_mesh = crate::mesh_sub_chunk(
+        let fitting_mesh = meshing::mesh_sub_chunk(
             &classifier,
             opaque_runtime_assets(),
             assets::NetworkIdMode::Sequential,
-            &crate::Neighbourhood::empty()
+            &meshing::Neighbourhood::empty()
                 .with_negative_x(&solid)
                 .with_positive_x(&solid)
                 .with_negative_y(&solid)

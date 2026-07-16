@@ -10,17 +10,17 @@ use std::{
 use assets::{LiveBiomeDefinition, NetworkIdMode, ResolvedBiomeTints, RuntimeAssets};
 use bevy::prelude::Resource;
 use crossbeam_channel::{Receiver, Sender, bounded};
+use meshing::{
+    BIOME_NEIGHBOUR_SLOT_COUNT, BlockClassifier, CameraMedium, ChunkBiomeTintIdentity, ChunkMesh,
+    FaceConnectivity, MeshLightSample, MeshLightSampler, PackedBiomeRecord, biome_neighbour_index,
+    mesh_dependency_mask, mesh_sub_chunk_in_neighbourhood_with_lighting, sample_camera_medium,
+};
 use protocol::{
     BiomeDefinitionEvent, BlockEntityUpdateEvent, BlockUpdateEvent, ChangeDimensionEvent,
     DaylightCycleUpdateEvent, LevelChunkEvent, LevelChunkMode, MovePlayerEvent, Packet,
     PlayerMovementCorrectionEvent, SetTimeEvent, SubChunkBatchEvent, SubChunkResult,
     WeatherUpdateEvent, WorldBootstrap, WorldEvent, request_sub_chunk_column,
     vanilla_dimension_range,
-};
-use render::{
-    BIOME_NEIGHBOUR_SLOT_COUNT, BlockClassifier, ChunkBiomeTintIdentity, ChunkMesh,
-    FaceConnectivity, MeshLightSample, MeshLightSampler, PackedBiomeRecord, biome_neighbour_index,
-    mesh_dependency_mask, mesh_sub_chunk_in_neighbourhood_with_lighting,
 };
 use thiserror::Error;
 use world::{
@@ -1724,9 +1724,9 @@ impl WorldStream {
     /// palettes. Missing and non-finite positions fail open to air so streamed
     /// boundaries cannot flash dense water/lava fog.
     #[must_use]
-    pub fn camera_medium(&self, position: [f32; 3]) -> render::CameraMedium {
+    pub fn camera_medium(&self, position: [f32; 3]) -> CameraMedium {
         if !position.iter().all(|value| value.is_finite()) {
-            return render::CameraMedium::Air;
+            return CameraMedium::Air;
         }
         let block = position.map(floor_to_i32);
         let key = SubChunkKey::new(
@@ -1736,7 +1736,7 @@ impl WorldStream {
             block[2].div_euclid(16),
         );
         let Some(center) = self.store.sub_chunk(key) else {
-            return render::CameraMedium::Air;
+            return CameraMedium::Air;
         };
         let mut adjacent: [Option<Arc<SubChunk>>; 27] = std::array::from_fn(|_| None);
         for offset @ [dx, dy, dz] in MeshNeighbourhood::liquid_sample_offsets() {
@@ -1766,7 +1766,7 @@ impl WorldStream {
         let local_position = std::array::from_fn(|axis| {
             block[axis].rem_euclid(16) as f32 + position[axis].rem_euclid(1.0)
         });
-        render::sample_camera_medium(
+        sample_camera_medium(
             self.classifier,
             &self.runtime_assets,
             self.network_id_mode,
@@ -4850,6 +4850,7 @@ mod tests {
         NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TextureArray, TextureMip, TexturePage,
         TextureRef, VisualKind, encode_blob,
     };
+    use meshing::{BlockClassifier, Neighbourhood, PackedBiomeRecord, mesh_sub_chunk};
     use protocol::{
         ActorEvent, ActorKind, ActorSpawnEvent, BiomeDefinitionEvent, BiomeDefinitionsEvent,
         BlockEntityUpdateEvent, BlockUpdateEvent, ChangeDimensionEvent, DaylightCycleUpdateEvent,
@@ -4857,7 +4858,6 @@ mod tests {
         PublisherUpdateEvent, SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkResult,
         SubChunkUnavailable, WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldEvent,
     };
-    use render::{BlockClassifier, Neighbourhood, PackedBiomeRecord, mesh_sub_chunk};
     use world::{
         BlockEntityKey, BlockUpdate, ChunkKey, ChunkStore, DecodedBiomeColumn,
         DecodedBlockEntities, DecodedLevelChunk, MeshDependencyMask, SubChunk, SubChunkKey,
@@ -7538,7 +7538,7 @@ mod tests {
             &'b RuntimeAssets,
             NetworkIdMode,
             &'c world::MeshNeighbourhood<'d>,
-        ) -> render::ChunkMesh = render::mesh_sub_chunk_in_neighbourhood;
+        ) -> meshing::ChunkMesh = meshing::mesh_sub_chunk_in_neighbourhood;
     }
 
     #[test]
@@ -7633,11 +7633,11 @@ mod tests {
 
         assert_eq!(
             stream.camera_medium([4.5, 4.5, 4.5]),
-            render::CameraMedium::Water
+            meshing::CameraMedium::Water
         );
         assert_eq!(
             stream.camera_medium([4.5, 4.95, 4.5]),
-            render::CameraMedium::Air
+            meshing::CameraMedium::Air
         );
 
         stream
@@ -7650,7 +7650,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             stream.camera_medium([4.5, 4.5, 4.5]),
-            render::CameraMedium::Water
+            meshing::CameraMedium::Water
         );
 
         stream
@@ -7659,11 +7659,11 @@ mod tests {
             .unwrap();
         assert_eq!(
             stream.camera_medium([4.5, 4.5, 4.5]),
-            render::CameraMedium::Lava
+            meshing::CameraMedium::Lava
         );
         assert_eq!(
             stream.camera_medium([f32::NAN, 4.5, 4.5]),
-            render::CameraMedium::Air
+            meshing::CameraMedium::Air
         );
     }
 
@@ -7763,7 +7763,7 @@ mod tests {
         center: Option<Arc<world::BiomeStorage>>,
     ) -> super::BiomeNeighbourhood {
         let mut biomes = std::array::from_fn(|_| None);
-        biomes[render::biome_neighbour_index(0, 0).unwrap()] = center;
+        biomes[meshing::biome_neighbour_index(0, 0).unwrap()] = center;
         biomes
     }
 
@@ -12364,10 +12364,10 @@ mod tests {
         let right = SubChunkKey::new(0, 1, 0, 0);
         stream
             .connectivity
-            .insert(left, render::FaceConnectivity::all());
+            .insert(left, meshing::FaceConnectivity::all());
         stream
             .connectivity
-            .insert(right, render::FaceConnectivity::all());
+            .insert(right, meshing::FaceConnectivity::all());
         stream.record_known_air(air);
         stream.mark_dirty_exact(air, Instant::now());
 
@@ -12375,7 +12375,7 @@ mod tests {
 
         assert_eq!(
             stream.connectivity(air),
-            Some(render::FaceConnectivity::all())
+            Some(meshing::FaceConnectivity::all())
         );
         let visible = stream.cave_visible_sub_chunks(left);
         assert!(visible.contains(&air));
@@ -12406,7 +12406,7 @@ mod tests {
         assert!(
             !opaque_mesh
                 .connectivity()
-                .is_connected(render::Face::NegativeX, render::Face::PositiveX)
+                .is_connected(meshing::Face::NegativeX, meshing::Face::PositiveX)
         );
 
         let mut stream = WorldStream::new_with_assets(
@@ -12426,9 +12426,9 @@ mod tests {
         let middle = SubChunkKey::new(0, 0, 0, 0);
         let right = SubChunkKey::new(0, 1, 0, 0);
         let beyond_shell = SubChunkKey::new(0, 2, 0, 0);
-        stream.set_connectivity(left, Some(render::FaceConnectivity::all()));
-        stream.set_connectivity(right, Some(render::FaceConnectivity::all()));
-        stream.set_connectivity(beyond_shell, Some(render::FaceConnectivity::all()));
+        stream.set_connectivity(left, Some(meshing::FaceConnectivity::all()));
+        stream.set_connectivity(right, Some(meshing::FaceConnectivity::all()));
+        stream.set_connectivity(beyond_shell, Some(meshing::FaceConnectivity::all()));
         stream.set_connectivity(middle, Some(leaf_mesh.connectivity()));
 
         let through_leaf = stream.cave_visible_sub_chunks(left);
@@ -12480,7 +12480,7 @@ mod tests {
         );
         assert_eq!(
             stream.connectivity(key),
-            Some(render::FaceConnectivity::all())
+            Some(meshing::FaceConnectivity::all())
         );
 
         stream.evict_column(chunk);
@@ -12516,7 +12516,7 @@ mod tests {
         assert!(stream.known_air.contains(&key));
         assert_eq!(
             stream.connectivity(key),
-            Some(render::FaceConnectivity::all())
+            Some(meshing::FaceConnectivity::all())
         );
         assert_eq!(stream.stats().resident_sub_chunks, 1);
     }

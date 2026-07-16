@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use render::{
+use meshing::{
     BIOME_NEIGHBOUR_SLOT_COUNT, MAX_PACKED_BIOME_RECORD_WORDS, PackedBiomeRecord,
     biome_neighbour_index,
 };

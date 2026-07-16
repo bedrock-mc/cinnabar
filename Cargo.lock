@@ -457,6 +457,7 @@ dependencies = [
  "assets",
  "bevy",
  "crossbeam-channel",
+ "meshing",
  "protocol",
  "rayon",
  "render",
@@ -2977,6 +2978,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "meshing"
+version = "0.1.0"
+dependencies = [
+ "asset-compiler",
+ "assets",
+ "bytemuck",
+ "image",
+ "tempfile",
+ "world",
+]
+
+[[package]]
 name = "metal"
 version = "0.32.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4034,6 +4047,7 @@ dependencies = [
  "bevy",
  "bytemuck",
  "image",
+ "meshing",
  "naga",
  "rayon",
  "sha2",

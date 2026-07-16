@@ -5,6 +5,7 @@ use bevy::{
     prelude::{Resource, Vec4},
     render::{extract_resource::ExtractResource, render_resource::ShaderType},
 };
+use meshing::CameraMedium;
 
 pub const BEDROCK_DAY_TICKS: f64 = 24_000.0;
 pub const CLOUD_TEXTURE_WORLD_PERIOD: f64 = 256.0;
@@ -14,18 +15,6 @@ const WATER_FOG_COLOR: [f32; 3] = [0.02, 0.12, 0.2];
 const WATER_FOG_END: f32 = 32.0;
 const LAVA_FOG_COLOR: [f32; 3] = [0.45, 0.08, 0.0];
 const LAVA_FOG_END: f32 = 3.0;
-
-/// Visual medium containing the active camera eye.
-///
-/// This is resolved from palette-native liquid layers. Unknown world data is
-/// deliberately [`Self::Air`] so an unloaded boundary cannot flash opaque fog.
-#[derive(Resource, Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum CameraMedium {
-    #[default]
-    Air,
-    Water,
-    Lava,
-}
 
 #[derive(Resource, ExtractResource, Clone, Default)]
 pub struct AtmosphereTextureAssets {
