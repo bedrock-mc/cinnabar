@@ -8,8 +8,9 @@ use std::{
 
 use assets::{
     AssetError, CompiledEntityAssets, EntityAssetKind, EntityAssetSource, EntityAssetSymbol,
-    EntityDependency, EntityDependencyKind, MAX_ENTITY_ASSET_SOURCES, MAX_ENTITY_ASSET_SYMBOLS,
-    MAX_ENTITY_DEPENDENCIES, MAX_ENTITY_SOURCE_BYTES, MAX_ENTITY_TOTAL_SOURCE_BYTES,
+    EntityDependency, EntityDependencyKind, EntityDependencyResolution, MAX_ENTITY_ASSET_SOURCES,
+    MAX_ENTITY_ASSET_SYMBOLS, MAX_ENTITY_DEPENDENCIES, MAX_ENTITY_SOURCE_BYTES,
+    MAX_ENTITY_TOTAL_SOURCE_BYTES,
 };
 use serde::{Deserialize, Deserializer, de};
 use serde_json::{Map, Value};
@@ -86,7 +87,7 @@ pub fn compile_entity_assets(
         .enumerate()
         .map(|(index, source)| (source.path.as_ref(), index as u32))
         .collect::<BTreeMap<_, _>>();
-    let symbols = symbols
+    let mut symbols = symbols
         .into_values()
         .map(|symbol| {
             let source_index = source_indices
@@ -101,6 +102,22 @@ pub fn compile_entity_assets(
             })
         })
         .collect::<Result<Vec<_>, AssetError>>()?;
+    let available_symbols = symbols
+        .iter()
+        .map(|symbol| (symbol.kind, symbol.identifier.clone()))
+        .collect::<BTreeSet<_>>();
+    for symbol in &mut symbols {
+        for dependency in &mut symbol.dependencies {
+            dependency.resolution = if available_symbols.contains(&(
+                dependency_asset_kind(dependency.kind),
+                dependency.identifier.clone(),
+            )) {
+                EntityDependencyResolution::Catalog
+            } else {
+                EntityDependencyResolution::External
+            };
+        }
+    }
     Ok(CompiledEntityAssets {
         source_manifest_sha256,
         sources: sources.into_boxed_slice(),
@@ -222,10 +239,14 @@ fn parse_source(
 ) -> Result<(), AssetError> {
     if relative_path.starts_with("textures/entity/") {
         if relative_path.ends_with(".png") || relative_path.ends_with(".tga") {
+            let identifier = relative_path
+                .strip_suffix(".png")
+                .or_else(|| relative_path.strip_suffix(".tga"))
+                .ok_or_else(|| invalid("texture source lacks a canonical raster extension"))?;
             return insert_symbol(
                 symbols,
                 EntityAssetKind::Texture,
-                relative_path,
+                identifier,
                 relative_path,
                 Box::new([]),
             );
@@ -333,6 +354,7 @@ fn parse_entity(
             dependencies.insert(EntityDependency {
                 kind,
                 identifier: target.into(),
+                resolution: EntityDependencyResolution::External,
             });
         }
     }
@@ -341,9 +363,8 @@ fn parse_entity(
         EntityDependencyKind::AnimationController,
         &mut dependencies,
     )?;
-    collect_named_dependencies(
+    collect_render_controller_dependencies(
         description.get("render_controllers"),
-        EntityDependencyKind::RenderController,
         &mut dependencies,
     )?;
     if dependencies.len() > MAX_ENTITY_DEPENDENCIES {
@@ -375,12 +396,64 @@ fn collect_named_dependencies(
         dependencies.insert(EntityDependency {
             kind,
             identifier: identifier.into(),
+            resolution: EntityDependencyResolution::External,
         });
         if dependencies.len() > MAX_ENTITY_DEPENDENCIES {
             return Err(invalid("client entity dependency count exceeds bound"));
         }
     }
     Ok(())
+}
+
+fn collect_render_controller_dependencies(
+    value: Option<&Value>,
+    dependencies: &mut BTreeSet<EntityDependency>,
+) -> Result<(), AssetError> {
+    let Some(value) = value else {
+        return Ok(());
+    };
+    let entries = value
+        .as_array()
+        .ok_or_else(|| invalid("client entity render_controllers must be an array"))?;
+    for entry in entries {
+        match entry {
+            Value::String(identifier) => {
+                dependencies.insert(EntityDependency {
+                    kind: EntityDependencyKind::RenderController,
+                    identifier: identifier.as_str().into(),
+                    resolution: EntityDependencyResolution::External,
+                });
+            }
+            Value::Object(conditional) => {
+                for identifier in conditional.keys() {
+                    dependencies.insert(EntityDependency {
+                        kind: EntityDependencyKind::RenderController,
+                        identifier: identifier.as_str().into(),
+                        resolution: EntityDependencyResolution::External,
+                    });
+                }
+            }
+            _ => {
+                return Err(invalid(
+                    "client entity render controller entry must be a string or conditional object",
+                ));
+            }
+        }
+        if dependencies.len() > MAX_ENTITY_DEPENDENCIES {
+            return Err(invalid("client entity dependency count exceeds bound"));
+        }
+    }
+    Ok(())
+}
+
+const fn dependency_asset_kind(kind: EntityDependencyKind) -> EntityAssetKind {
+    match kind {
+        EntityDependencyKind::Geometry => EntityAssetKind::Geometry,
+        EntityDependencyKind::Animation => EntityAssetKind::Animation,
+        EntityDependencyKind::AnimationController => EntityAssetKind::AnimationController,
+        EntityDependencyKind::RenderController => EntityAssetKind::RenderController,
+        EntityDependencyKind::Texture => EntityAssetKind::Texture,
+    }
 }
 
 fn collect_string_leaves<'a>(

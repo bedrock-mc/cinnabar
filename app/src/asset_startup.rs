@@ -249,6 +249,16 @@ pub enum AssetStartupError {
         source: Box<AssetError>,
         rebuild_command: &'static str,
     },
+
+    #[error(
+        "required entity asset carrier at {path} has stale provenance (expected source manifest SHA-256 {expected}, found {actual})\nrebuild local entity assets with: {rebuild_command}"
+    )]
+    EntityAssetsProvenance {
+        path: PathBuf,
+        expected: String,
+        actual: String,
+        rebuild_command: &'static str,
+    },
 }
 
 #[derive(Deserialize)]
@@ -443,6 +453,16 @@ fn load_entity_assets(world_asset_path: &Path) -> Result<LoadedEntityAssets, Ass
             rebuild_command: ENTITY_ASSETS_COMPILE_COMMAND,
         }
     })?);
+    let expected_manifest_sha256: [u8; 32] = Sha256::digest(VANILLA_SOURCE_JSON.as_bytes()).into();
+    let actual_manifest_sha256 = runtime.source_manifest_sha256();
+    if actual_manifest_sha256 != expected_manifest_sha256 {
+        return Err(AssetStartupError::EntityAssetsProvenance {
+            path,
+            expected: format_sha256(expected_manifest_sha256),
+            actual: format_sha256(actual_manifest_sha256),
+            rebuild_command: ENTITY_ASSETS_COMPILE_COMMAND,
+        });
+    }
     Ok(LoadedEntityAssets {
         runtime,
         identity,

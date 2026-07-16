@@ -3,8 +3,8 @@ use sha2::{Digest, Sha256};
 
 use crate::AssetError;
 
-pub const ENTITY_BLOB_MAGIC: [u8; 8] = *b"MCBEENT1";
-pub const ENTITY_BLOB_VERSION: u32 = 1;
+pub const ENTITY_BLOB_MAGIC: [u8; 8] = *b"MCBEENT2";
+pub const ENTITY_BLOB_VERSION: u32 = 2;
 pub const MAX_ENTITY_ASSET_SOURCES: usize = 8_192;
 pub const MAX_ENTITY_ASSET_SYMBOLS: usize = 16_384;
 pub const MAX_ENTITY_DEPENDENCIES: usize = 512;
@@ -38,6 +38,13 @@ pub enum EntityDependencyKind {
     Texture = 5,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[repr(u8)]
+pub enum EntityDependencyResolution {
+    Catalog = 1,
+    External = 2,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct EntityAssetSource {
@@ -51,6 +58,7 @@ pub struct EntityAssetSource {
 pub struct EntityDependency {
     pub kind: EntityDependencyKind,
     pub identifier: Box<str>,
+    pub resolution: EntityDependencyResolution,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -86,14 +94,14 @@ pub struct RuntimeEntityAssets {
 impl RuntimeEntityAssets {
     pub fn decode(bytes: &[u8]) -> Result<Self, AssetError> {
         if bytes.len() < HEADER_BYTES + HASH_BYTES {
-            return Err(invalid("truncated MCBEENT1 blob"));
+            return Err(invalid("truncated MCBEENT2 blob"));
         }
         if bytes[..8] != ENTITY_BLOB_MAGIC
             || u32_at(bytes, 8)? != ENTITY_BLOB_VERSION
             || bytes[20..24] != [0; 4]
             || bytes[64..HEADER_BYTES] != [0; 16]
         {
-            return Err(invalid("unsupported MCBEENT1 header"));
+            return Err(invalid("unsupported MCBEENT2 header"));
         }
         let source_count = u32_at(bytes, 12)? as usize;
         let symbol_count = u32_at(bytes, 16)? as usize;
@@ -102,34 +110,34 @@ impl RuntimeEntityAssets {
             || symbol_count == 0
             || symbol_count > MAX_ENTITY_ASSET_SYMBOLS
         {
-            return Err(invalid("MCBEENT1 header counts exceed bounds"));
+            return Err(invalid("MCBEENT2 header counts exceed bounds"));
         }
         let source_manifest_sha256 = array_at::<32>(bytes, 24)?;
         let payload_bytes = usize::try_from(u64::from_le_bytes(array_at(bytes, 56)?))
-            .map_err(|_| invalid("MCBEENT1 payload size exceeds platform"))?;
+            .map_err(|_| invalid("MCBEENT2 payload size exceeds platform"))?;
         if payload_bytes > MAX_ENTITY_CATALOG_BYTES
             || bytes.len()
                 != HEADER_BYTES
                     .checked_add(payload_bytes)
                     .and_then(|length| length.checked_add(HASH_BYTES))
-                    .ok_or_else(|| invalid("MCBEENT1 length overflow"))?
+                    .ok_or_else(|| invalid("MCBEENT2 length overflow"))?
         {
-            return Err(invalid("noncanonical MCBEENT1 section layout"));
+            return Err(invalid("noncanonical MCBEENT2 section layout"));
         }
         let payload_end = HEADER_BYTES + payload_bytes;
         if Sha256::digest(&bytes[..payload_end]).as_slice() != &bytes[payload_end..] {
-            return Err(invalid("MCBEENT1 envelope hash mismatch"));
+            return Err(invalid("MCBEENT2 envelope hash mismatch"));
         }
         let payload: EntityCatalogPayload =
             serde_json::from_slice(&bytes[HEADER_BYTES..payload_end])
-                .map_err(|_| invalid("invalid MCBEENT1 catalog payload"))?;
+                .map_err(|_| invalid("invalid MCBEENT2 catalog payload"))?;
         if payload.sources.len() != source_count || payload.symbols.len() != symbol_count {
-            return Err(invalid("MCBEENT1 catalog counts do not match header"));
+            return Err(invalid("MCBEENT2 catalog counts do not match header"));
         }
         let canonical = serde_json::to_vec(&payload)
-            .map_err(|_| invalid("failed to canonicalize MCBEENT1 catalog payload"))?;
+            .map_err(|_| invalid("failed to canonicalize MCBEENT2 catalog payload"))?;
         if canonical.as_slice() != &bytes[HEADER_BYTES..payload_end] {
-            return Err(invalid("noncanonical MCBEENT1 catalog encoding"));
+            return Err(invalid("noncanonical MCBEENT2 catalog encoding"));
         }
         let compiled = CompiledEntityAssets {
             source_manifest_sha256,
@@ -160,13 +168,12 @@ impl RuntimeEntityAssets {
     }
 
     #[must_use]
-    pub fn symbol(&self, kind: EntityAssetKind, identifier: &str) -> Option<&EntityAssetSymbol> {
-        let index = self.symbols.partition_point(|symbol| {
-            (symbol.kind, symbol.identifier.as_ref()) < (kind, identifier)
-        });
-        self.symbols
-            .get(index)
-            .filter(|symbol| symbol.kind == kind && symbol.identifier.as_ref() == identifier)
+    pub fn symbol_candidates(
+        &self,
+        kind: EntityAssetKind,
+        identifier: &str,
+    ) -> &[EntityAssetSymbol] {
+        symbol_candidates(&self.symbols, kind, identifier)
     }
 }
 
@@ -176,32 +183,32 @@ pub fn encode_entity_blob(compiled: &CompiledEntityAssets) -> Result<Box<[u8]>, 
         sources: compiled.sources.clone(),
         symbols: compiled.symbols.clone(),
     })
-    .map_err(|_| invalid("failed to encode MCBEENT1 catalog payload"))?;
+    .map_err(|_| invalid("failed to encode MCBEENT2 catalog payload"))?;
     if payload.len() > MAX_ENTITY_CATALOG_BYTES {
-        return Err(invalid("MCBEENT1 catalog payload exceeds bound"));
+        return Err(invalid("MCBEENT2 catalog payload exceeds bound"));
     }
     let total = HEADER_BYTES
         .checked_add(payload.len())
         .and_then(|length| length.checked_add(HASH_BYTES))
-        .ok_or_else(|| invalid("MCBEENT1 length overflow"))?;
+        .ok_or_else(|| invalid("MCBEENT2 length overflow"))?;
     let mut bytes = Vec::with_capacity(total);
     bytes.extend_from_slice(&ENTITY_BLOB_MAGIC);
     bytes.extend_from_slice(&ENTITY_BLOB_VERSION.to_le_bytes());
     bytes.extend_from_slice(
         &u32::try_from(compiled.sources.len())
-            .map_err(|_| invalid("MCBEENT1 source count overflow"))?
+            .map_err(|_| invalid("MCBEENT2 source count overflow"))?
             .to_le_bytes(),
     );
     bytes.extend_from_slice(
         &u32::try_from(compiled.symbols.len())
-            .map_err(|_| invalid("MCBEENT1 symbol count overflow"))?
+            .map_err(|_| invalid("MCBEENT2 symbol count overflow"))?
             .to_le_bytes(),
     );
     bytes.extend_from_slice(&0_u32.to_le_bytes());
     bytes.extend_from_slice(&compiled.source_manifest_sha256);
     bytes.extend_from_slice(
         &u64::try_from(payload.len())
-            .map_err(|_| invalid("MCBEENT1 payload length overflow"))?
+            .map_err(|_| invalid("MCBEENT2 payload length overflow"))?
             .to_le_bytes(),
     );
     bytes.resize(HEADER_BYTES, 0);
@@ -261,11 +268,47 @@ fn validate_compiled(compiled: &CompiledEntityAssets) -> Result<(), AssetError> 
             if previous_dependency.is_some_and(|previous| previous >= dependency_key) {
                 return Err(invalid("entity dependencies are not strictly ordered"));
             }
+            let target_kind = dependency_asset_kind(dependency.kind);
+            let has_catalog_target =
+                !symbol_candidates(&compiled.symbols, target_kind, &dependency.identifier)
+                    .is_empty();
+            let resolution_agrees = match dependency.resolution {
+                EntityDependencyResolution::Catalog => has_catalog_target,
+                EntityDependencyResolution::External => !has_catalog_target,
+            };
+            if !resolution_agrees {
+                return Err(invalid(
+                    "entity dependency resolution disagrees with catalog contents",
+                ));
+            }
             previous_dependency = Some(dependency_key);
         }
         previous_symbol = Some(key);
     }
     Ok(())
+}
+
+fn symbol_candidates<'a>(
+    symbols: &'a [EntityAssetSymbol],
+    kind: EntityAssetKind,
+    identifier: &str,
+) -> &'a [EntityAssetSymbol] {
+    let start = symbols
+        .partition_point(|symbol| (symbol.kind, symbol.identifier.as_ref()) < (kind, identifier));
+    let matching = &symbols[start..];
+    let length = matching
+        .partition_point(|symbol| symbol.kind == kind && symbol.identifier.as_ref() == identifier);
+    &matching[..length]
+}
+
+const fn dependency_asset_kind(kind: EntityDependencyKind) -> EntityAssetKind {
+    match kind {
+        EntityDependencyKind::Geometry => EntityAssetKind::Geometry,
+        EntityDependencyKind::Animation => EntityAssetKind::Animation,
+        EntityDependencyKind::AnimationController => EntityAssetKind::AnimationController,
+        EntityDependencyKind::RenderController => EntityAssetKind::RenderController,
+        EntityDependencyKind::Texture => EntityAssetKind::Texture,
+    }
 }
 
 fn validate_symbol_source(kind: EntityAssetKind, path: &str) -> Result<(), AssetError> {
@@ -328,7 +371,7 @@ fn u32_at(bytes: &[u8], offset: usize) -> Result<u32, AssetError> {
 fn array_at<const N: usize>(bytes: &[u8], offset: usize) -> Result<[u8; N], AssetError> {
     bytes
         .get(offset..offset + N)
-        .ok_or_else(|| invalid("truncated MCBEENT1 field"))?
+        .ok_or_else(|| invalid("truncated MCBEENT2 field"))?
         .try_into()
-        .map_err(|_| invalid("invalid MCBEENT1 field"))
+        .map_err(|_| invalid("invalid MCBEENT2 field"))
 }

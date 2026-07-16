@@ -1,7 +1,7 @@
 use std::{fs, path::Path, process::Command};
 
 use asset_compiler::compile_entity_assets;
-use assets::{EntityAssetKind, EntityDependencyKind};
+use assets::{EntityAssetKind, EntityDependencyKind, EntityDependencyResolution};
 use tempfile::TempDir;
 
 const MANIFEST: &[u8] = include_bytes!("../../../assets/vanilla-source.json");
@@ -26,7 +26,10 @@ fn synthetic_pack() -> TempDir {
             "geometry":{"default":"geometry.allay"},
             "animations":{"idle":"animation.allay.idle","general":"controller.animation.allay.general"},
             "animation_controllers":[{"general":"controller.animation.allay.general"}],
-            "render_controllers":["controller.render.allay"]
+            "render_controllers":[
+              "controller.render.allay",
+              {"controller.render.allay.compat":"query.is_in_water"}
+            ]
           }}
         }"#,
     );
@@ -48,7 +51,7 @@ fn synthetic_pack() -> TempDir {
     write(
         root,
         "render_controllers/allay.render_controllers.json",
-        br#"{"format_version":"1.8.0","render_controllers":{"controller.render.allay":{"geometry":"Geometry.default","textures":["Texture.default"]}}}"#,
+        br#"{"format_version":"1.8.0","render_controllers":{"controller.render.allay":{"geometry":"Geometry.default","textures":["Texture.default"]},"controller.render.allay.compat":{"geometry":"Geometry.default","textures":["Texture.default"]}}}"#,
     );
     write(root, "textures/entity/allay/allay.png", b"not-decoded-yet");
     write(
@@ -107,6 +110,49 @@ fn compiler_enumerates_entity_authority_and_dependencies_deterministically() {
     ] {
         assert!(dependencies.contains(&expected), "missing {expected:?}");
     }
+    assert!(
+        !dependencies
+            .iter()
+            .any(|(_, target)| *target == "query.is_in_water")
+    );
+    assert!(
+        entity
+            .dependencies
+            .iter()
+            .all(|dependency| { dependency.resolution == EntityDependencyResolution::Catalog })
+    );
+    assert!(first.symbols.iter().any(|symbol| {
+        symbol.kind == EntityAssetKind::Texture
+            && symbol.identifier.as_ref() == "textures/entity/allay/allay"
+    }));
+}
+
+#[test]
+fn compiler_marks_out_of_scope_dependency_edges_explicitly_external() {
+    let pack = synthetic_pack();
+    write(
+        pack.path(),
+        "entity/allay.entity.json",
+        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:allay","textures":{"default":"textures/items/external"},"geometry":{"default":"geometry.allay"}}}}"#,
+    );
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    let entity = compiled
+        .symbols
+        .iter()
+        .find(|symbol| symbol.kind == EntityAssetKind::Entity)
+        .unwrap();
+    let external = entity
+        .dependencies
+        .iter()
+        .find(|dependency| dependency.identifier.as_ref() == "textures/items/external")
+        .unwrap();
+    assert_eq!(external.resolution, EntityDependencyResolution::External);
+    let geometry = entity
+        .dependencies
+        .iter()
+        .find(|dependency| dependency.identifier.as_ref() == "geometry.allay")
+        .unwrap();
+    assert_eq!(geometry.resolution, EntityDependencyResolution::Catalog);
 }
 
 #[test]

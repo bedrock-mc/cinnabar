@@ -38,10 +38,10 @@ pub use compiled::{
 pub use entity::{
     CompiledEntityAssets, ENTITY_BLOB_MAGIC, ENTITY_BLOB_VERSION, EntityAssetKind,
     EntityAssetSource, EntityAssetSymbol, EntityDependency, EntityDependencyKind,
-    MAX_ENTITY_ASSET_PATH_BYTES, MAX_ENTITY_ASSET_SOURCES, MAX_ENTITY_ASSET_SYMBOLS,
-    MAX_ENTITY_CATALOG_BYTES, MAX_ENTITY_DEPENDENCIES, MAX_ENTITY_IDENTIFIER_BYTES,
-    MAX_ENTITY_SOURCE_BYTES, MAX_ENTITY_TOTAL_SOURCE_BYTES, RuntimeEntityAssets,
-    encode_entity_blob,
+    EntityDependencyResolution, MAX_ENTITY_ASSET_PATH_BYTES, MAX_ENTITY_ASSET_SOURCES,
+    MAX_ENTITY_ASSET_SYMBOLS, MAX_ENTITY_CATALOG_BYTES, MAX_ENTITY_DEPENDENCIES,
+    MAX_ENTITY_IDENTIFIER_BYTES, MAX_ENTITY_SOURCE_BYTES, MAX_ENTITY_TOTAL_SOURCE_BYTES,
+    RuntimeEntityAssets, encode_entity_blob,
 };
 pub use error::AssetError;
 pub use light_registry::{LightProperties, read_light_registry};

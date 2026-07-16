@@ -58,7 +58,7 @@ enum Command {
         /// Tracked manifest that pins the local resource-pack source.
         #[arg(long)]
         source_manifest: PathBuf,
-        /// Ignored/local MCBEENT1 output path.
+        /// Ignored/local MCBEENT2 output path.
         #[arg(long)]
         out: PathBuf,
         /// Ignored/local deterministic JSON provenance report path.
