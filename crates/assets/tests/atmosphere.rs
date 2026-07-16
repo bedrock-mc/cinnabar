@@ -6,9 +6,9 @@ use std::{
 };
 
 use assets::{
-    AssetError, AtmosphereRole, AtmosphereTexture, CelestialTile, CompiledAtmosphereAssets,
-    RuntimeAtmosphereAssets, compile_atmosphere_assets, composite_celestial,
-    encode_atmosphere_blob,
+    AssetError, AtmosphereCompileOptions, AtmosphereRole, AtmosphereTexture, CelestialTile,
+    CompiledAtmosphereAssets, RuntimeAtmosphereAssets, compile_atmosphere_assets,
+    compile_atmosphere_assets_with_options, composite_celestial, encode_atmosphere_blob,
 };
 use image::{Rgba, RgbaImage};
 use sha2::{Digest, Sha256};
@@ -21,6 +21,64 @@ const SOURCES: [(&str, u32, u32, u8); 3] = [
     ("textures/environment/moon_phases.png", 128, 64, 0x22),
     ("textures/environment/clouds.png", 256, 256, 0x33),
 ];
+
+const NATIVE_CLOUD_SOURCE_SHA256: &str =
+    "f19b2f3a483af3a67568dfed4387c7b59fed215edf1cb02bef0470f2b72982a0";
+const NATIVE_CLOUD_PIXELS_SHA256: &str =
+    "95f8808115fcc28c8665324bba1b72dcb1350fbfebd1c9a30009691326695136";
+
+#[test]
+fn exact_native_cloud_override_replaces_only_clouds_and_retains_logical_provenance() {
+    let (Ok(pack), Ok(clouds_override)) = (
+        std::env::var("PINNED_VANILLA_PACK"),
+        std::env::var("CINNABAR_CLOUDS_PNG"),
+    ) else {
+        eprintln!(
+            "skipping: PINNED_VANILLA_PACK and CINNABAR_CLOUDS_PNG must point at ignored local inputs"
+        );
+        return;
+    };
+    let manifest = tracked_manifest();
+    let compiled = compile_atmosphere_assets_with_options(
+        Path::new(&pack),
+        &manifest,
+        AtmosphereCompileOptions {
+            clouds_override: Some(Path::new(&clouds_override)),
+        },
+    )
+    .unwrap();
+
+    for (texture, expected) in compiled.textures[..2].iter().zip([
+        "f7273544b691f08aaef76373d526e00793cf1e1aa0e1df8518f738d44a8e526b",
+        "01c566d48e0cc8618cf6fdce811b61175fc246f12f2e8f2c567d6acd3a2b35d8",
+    ]) {
+        assert_eq!(
+            texture.source_sha256,
+            Sha256::digest(fs::read(Path::new(&pack).join(texture.source_path.as_ref())).unwrap())
+                .as_slice()
+        );
+        assert_eq!(hex(&texture.source_sha256), expected);
+    }
+    let cloud = &compiled.textures[2];
+    assert_eq!(cloud.role, AtmosphereRole::Clouds);
+    assert_eq!(
+        cloud.source_path.as_ref(),
+        "textures/environment/clouds.png"
+    );
+    assert_eq!((cloud.width, cloud.height), (256, 256));
+    assert_eq!(cloud.source_bytes, 7_880);
+    assert_eq!(hex(&cloud.source_sha256), NATIVE_CLOUD_SOURCE_SHA256);
+    assert_eq!(hex(&cloud.pixels_sha256), NATIVE_CLOUD_PIXELS_SHA256);
+    assert_eq!(
+        cloud
+            .rgba8
+            .chunks_exact(4)
+            .filter(|pixel| pixel[3] >= 128)
+            .count(),
+        13_356
+    );
+    assert!(!cloud.source_path.contains(&clouds_override));
+}
 
 #[test]
 fn production_compiler_rejects_any_manifest_bytes_other_than_the_tracked_pin() {
@@ -396,6 +454,59 @@ fn assetc_atmosphere_writes_deterministic_blob_and_provenance_report() {
 }
 
 #[test]
+fn assetc_cloud_override_report_uses_only_canonical_logical_provenance() {
+    let (Ok(pack), Ok(clouds_override)) = (
+        std::env::var("PINNED_VANILLA_PACK"),
+        std::env::var("CINNABAR_CLOUDS_PNG"),
+    ) else {
+        eprintln!(
+            "skipping: PINNED_VANILLA_PACK and CINNABAR_CLOUDS_PNG must point at ignored local inputs"
+        );
+        return;
+    };
+    let outputs = tempfile::tempdir().unwrap();
+    let manifest_path = outputs.path().join("vanilla-source.json");
+    fs::write(&manifest_path, tracked_manifest()).unwrap();
+    let blob = outputs.path().join("native.mcbeatm");
+    let report = outputs.path().join("native.json");
+    let output = Command::new(env!("CARGO_BIN_EXE_assetc"))
+        .args(["atmosphere", "--pack"])
+        .arg(&pack)
+        .arg("--source-manifest")
+        .arg(&manifest_path)
+        .arg("--clouds-override")
+        .arg(&clouds_override)
+        .arg("--out")
+        .arg(&blob)
+        .arg("--report")
+        .arg(&report)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "assetc failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let report_text = fs::read_to_string(&report).unwrap();
+    let report: serde_json::Value = serde_json::from_str(&report_text).unwrap();
+    assert_eq!(
+        report["textures"][2]["source_path"],
+        "textures/environment/clouds.png"
+    );
+    assert_eq!(report["textures"][2]["source_bytes"], 7_880);
+    assert_eq!(
+        report["textures"][2]["source_sha256"],
+        NATIVE_CLOUD_SOURCE_SHA256
+    );
+    assert_eq!(
+        report["textures"][2]["pixels_sha256"],
+        NATIVE_CLOUD_PIXELS_SHA256
+    );
+    assert!(!report_text.contains(&clouds_override));
+}
+
+#[test]
 fn assetc_atmosphere_preserves_existing_output_when_report_cannot_publish() {
     let Ok(pack) = std::env::var("PINNED_VANILLA_PACK") else {
         eprintln!("skipping: PINNED_VANILLA_PACK does not point at the ignored pinned pack");
@@ -583,6 +694,10 @@ fn format_hash(hash: [u8; 32]) -> String {
 fn tracked_manifest() -> Vec<u8> {
     fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/vanilla-source.json"))
         .unwrap()
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn canonical_tracked_manifest() -> Vec<u8> {

@@ -30,6 +30,7 @@ pub const COMPILE_COMMAND: &str = concat!(
 
 const VANILLA_SOURCE_JSON: &str = include_str!("../../assets/vanilla-source.json");
 const ATMOSPHERE_SHADER_SOURCE: &[u8] = include_bytes!("../../crates/render/src/atmosphere.wgsl");
+const CLOUD_SHADER_SOURCE: &[u8] = include_bytes!("../../crates/render/src/cloud.wgsl");
 const MAX_RUNTIME_BLOB_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_ATMOSPHERE_BLOB_BYTES: u64 = 512 * 1024;
 
@@ -71,6 +72,7 @@ pub struct LoadedAtmosphereAssets {
 pub struct AtmosphereEvidence {
     pub envelope_sha256: String,
     pub shader_source_sha256: String,
+    pub cloud_shader_source_sha256: String,
 }
 
 impl LoadedAtmosphereAssets {
@@ -88,6 +90,7 @@ impl LoadedAtmosphereAssets {
         AtmosphereEvidence {
             envelope_sha256: format_sha256(self.identity),
             shader_source_sha256: atmosphere_shader_source_sha256(),
+            cloud_shader_source_sha256: cloud_shader_source_sha256(),
         }
     }
 
@@ -95,8 +98,10 @@ impl LoadedAtmosphereAssets {
     pub fn startup_summary(&self) -> String {
         let evidence = self.evidence();
         format!(
-            "ATMOSPHERE_EVIDENCE envelope_sha256={} shader_source_sha256={}",
-            evidence.envelope_sha256, evidence.shader_source_sha256
+            "ATMOSPHERE_EVIDENCE envelope_sha256={} shader_source_sha256={} cloud_shader_source_sha256={}",
+            evidence.envelope_sha256,
+            evidence.shader_source_sha256,
+            evidence.cloud_shader_source_sha256
         )
     }
 }
@@ -104,6 +109,11 @@ impl LoadedAtmosphereAssets {
 #[must_use]
 pub fn atmosphere_shader_source_sha256() -> String {
     format_sha256(Sha256::digest(ATMOSPHERE_SHADER_SOURCE).into())
+}
+
+#[must_use]
+pub fn cloud_shader_source_sha256() -> String {
+    format_sha256(Sha256::digest(CLOUD_SHADER_SOURCE).into())
 }
 
 fn format_sha256(identity: [u8; 32]) -> String {

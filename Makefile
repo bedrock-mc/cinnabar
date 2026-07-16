@@ -16,10 +16,14 @@ VANILLA_SOURCE_MANIFEST ?= assets/vanilla-source.json
 ASSET_BLOB ?= .local/assets/compiled/vanilla-v1001.mcbea
 ATMOSPHERE_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeatm
 ATMOSPHERE_REPORT ?= .local/assets/compiled/atmosphere-assets.json
+CINNABAR_CLOUDS_PNG ?=
+CLOUDS_OVERRIDE_PREREQUISITE = $(if $(strip $(CINNABAR_CLOUDS_PNG)),FORCE_CINNABAR_CLOUDS_OVERRIDE)
 ASSET_COMPILER_INPUTS := Cargo.toml Cargo.lock crates/assets/Cargo.toml Makefile $(wildcard crates/assets/src/*.rs) $(wildcard crates/assets/src/bin/*.rs)
-ATMOSPHERE_COMPILE = $(CARGO) run --locked -p assets --bin assetc -- atmosphere --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(ATMOSPHERE_BLOB)" --report "$(ATMOSPHERE_REPORT)"
+ATMOSPHERE_COMPILE = $(CARGO) run --locked -p assets --bin assetc -- atmosphere --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" $(if $(strip $(CINNABAR_CLOUDS_PNG)),--clouds-override "$(CINNABAR_CLOUDS_PNG)") --out "$(ATMOSPHERE_BLOB)" --report "$(ATMOSPHERE_REPORT)"
 
-.PHONY: help assets atmosphere-assets core client client-windows client-macos client-linux client-wayland client-x11
+.PHONY: help assets atmosphere-assets core client client-windows client-macos client-linux client-wayland client-x11 FORCE_CINNABAR_CLOUDS_OVERRIDE
+
+FORCE_CINNABAR_CLOUDS_OVERRIDE:
 
 help:
 	@echo make assets          - Download and compile the vanilla resource pack
@@ -33,6 +37,7 @@ help:
 	@echo make client-x11      - Run on X11/XWayland
 	@echo UPSTREAM=host:port is required for make core
 	@echo Override optional settings with SOCKET_DIR=..., AUTH_CACHE=..., and NO_VSYNC=1
+	@echo Set CINNABAR_CLOUDS_PNG to the exact local-only Bedrock 1.26.33.1 clouds.png
 
 assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT)
 
@@ -46,7 +51,7 @@ else
 endif
 	$(CARGO) run --locked -p assets --bin assetc -- compile --pack "$(PACK_DIR)" --registry "$(BLOCK_REGISTRY)" --light-registry "$(LIGHT_REGISTRY)" --biome-registry "$(BIOME_REGISTRY)" --out "$(ASSET_BLOB)"
 
-$(ATMOSPHERE_BLOB): $(ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_MANIFEST)
+$(ATMOSPHERE_BLOB): $(ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_MANIFEST) $(CLOUDS_OVERRIDE_PREREQUISITE)
 	$(ATMOSPHERE_COMPILE)
 
 $(ATMOSPHERE_REPORT): $(ATMOSPHERE_BLOB)

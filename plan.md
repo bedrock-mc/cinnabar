@@ -1129,6 +1129,20 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     `docs/superpowers/plans/2026-07-16-native-cloud-parity.md`: exact local-only
     1.26.33.1 occupancy, transparent depth-aware legacy composition, directional
     lighting, exact weather contributions, and calibrated native quality controls.
+  - [x] Accept the exact local-only Bedrock 1.26.33.1 cloud PNG as an optional
+    atmosphere compiler override without changing the pinned sun/moon inputs or
+    `MCBEATM1` schema. The compiler fails closed on the exact 7,880-byte encoded
+    SHA-256, 256x256 dimensions, decoded RGBA8 SHA-256, and 13,356 occupied
+    texels; the runtime carrier and deterministic report retain only the canonical
+    `textures/environment/clouds.png` logical path and independent hashes. The
+    wrapper API and no-override fixture remain deterministic, while
+    `assetc atmosphere --clouds-override` and optional `CINNABAR_CLOUDS_PNG`
+    expose the local input portably. Startup evidence now identifies
+    `cloud.wgsl` separately from `atmosphere.wgsl`. Synthetic rejection tests,
+    environment-gated installed-input acceptance, the full assets suite, app
+    asset suite, strict relevant Clippy, formatting, and diff checks are green;
+    transparent composition, directional lighting, calibration, and live parity
+    acceptance remain open in the native-cloud plan.
   - [x] Resolve the camera-eye medium directly from palette-native liquid
     contributors, including secondary waterlogged layers, and use the exact
     two-triangle surface drawn by the shared quad index buffer for the air/water

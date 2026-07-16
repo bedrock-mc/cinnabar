@@ -28,7 +28,8 @@ use args::{ClientArgs, ParseOutcome};
 use asset_startup::{
     ATMOSPHERE_COMPILE_COMMAND, ATMOSPHERE_FILENAME, AssetPathSource, COMPILE_COMMAND,
     DEFAULT_ASSET_PATH, FETCH_COMMAND, LoadedAssetKind, atmosphere_asset_path,
-    atmosphere_shader_source_sha256, load_runtime_assets, select_asset_path,
+    atmosphere_shader_source_sha256, cloud_shader_source_sha256, load_runtime_assets,
+    select_asset_path,
 };
 use block_entity_visuals::{
     BackingBlockIdentity, BlockEntityVisualRoute, adjudicate_block_entity_visual,
@@ -658,8 +659,10 @@ fn atmosphere_evidence_summary_contains_only_stable_hashes() {
     assert_eq!(
         summary,
         format!(
-            "ATMOSPHERE_EVIDENCE envelope_sha256={} shader_source_sha256={}",
-            evidence.envelope_sha256, evidence.shader_source_sha256
+            "ATMOSPHERE_EVIDENCE envelope_sha256={} shader_source_sha256={} cloud_shader_source_sha256={}",
+            evidence.envelope_sha256,
+            evidence.shader_source_sha256,
+            evidence.cloud_shader_source_sha256
         )
     );
 
@@ -673,6 +676,15 @@ fn atmosphere_shader_identity_hashes_the_exact_embedded_wgsl_source() {
         Sha256::digest(include_bytes!("../../crates/render/src/atmosphere.wgsl"))
     );
     assert_eq!(atmosphere_shader_source_sha256(), expected);
+}
+
+#[test]
+fn cloud_shader_identity_hashes_the_exact_embedded_wgsl_source() {
+    let expected = format!(
+        "{:x}",
+        Sha256::digest(include_bytes!("../../crates/render/src/cloud.wgsl"))
+    );
+    assert_eq!(cloud_shader_source_sha256(), expected);
 }
 
 #[test]
@@ -874,6 +886,11 @@ fn make_assets_and_client_refresh_the_atmosphere_blob_and_report() {
         "VANILLA_SOURCE_MANIFEST ?= assets/vanilla-source.json",
         "ATMOSPHERE_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeatm",
         "ATMOSPHERE_REPORT ?= .local/assets/compiled/atmosphere-assets.json",
+        "CINNABAR_CLOUDS_PNG ?=",
+        "Set CINNABAR_CLOUDS_PNG to the exact local-only Bedrock 1.26.33.1 clouds.png",
+        "CLOUDS_OVERRIDE_PREREQUISITE = $(if $(strip $(CINNABAR_CLOUDS_PNG)),FORCE_CINNABAR_CLOUDS_OVERRIDE)",
+        "$(VANILLA_SOURCE_MANIFEST) $(CLOUDS_OVERRIDE_PREREQUISITE)",
+        "FORCE_CINNABAR_CLOUDS_OVERRIDE:",
         concat!(
             "$(ATMOSPHERE_BLOB): $(ASSET_BLOB) $(ASSET_COMPILER_INPUTS) ",
             "$(VANILLA_SOURCE_MANIFEST)"
@@ -888,6 +905,7 @@ fn make_assets_and_client_refresh_the_atmosphere_blob_and_report() {
         "assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT)",
         "client: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT)",
         "--source-manifest \"$(VANILLA_SOURCE_MANIFEST)\"",
+        "$(if $(strip $(CINNABAR_CLOUDS_PNG)),--clouds-override \"$(CINNABAR_CLOUDS_PNG)\")",
         "--out \"$(ATMOSPHERE_BLOB)\" --report \"$(ATMOSPHERE_REPORT)\"",
     ] {
         assert!(
@@ -1009,6 +1027,18 @@ fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() 
     run_make_atmosphere(root, &assignments);
     assert_eq!(fs::read_to_string(&invocations).unwrap().lines().count(), 3);
     assert!(atmosphere.is_file() && report.is_file());
+
+    let clouds_override = temporary.join("clouds.png");
+    fs::write(&clouds_override, b"synthetic override prerequisite").unwrap();
+    let mut override_assignments = assignments.to_vec();
+    override_assignments.push(format!(
+        "CINNABAR_CLOUDS_PNG={}",
+        make_path(&clouds_override)
+    ));
+    run_make_atmosphere(root, &override_assignments);
+    assert_eq!(fs::read_to_string(&invocations).unwrap().lines().count(), 4);
+    run_make_atmosphere(root, &override_assignments);
+    assert_eq!(fs::read_to_string(&invocations).unwrap().lines().count(), 5);
 
     fs::remove_dir_all(temporary).unwrap();
 }

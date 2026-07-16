@@ -5,10 +5,10 @@ use std::{
 };
 
 use assets::{
-    AnimationInventory, AssetError, AtmosphereRole, MATERIAL_FLAG_ALPHA_CUTOUT,
-    compile_atmosphere_assets, compile_pack_with_biomes, encode_atmosphere_blob, encode_blob,
-    inspect_animation_inventory, read_biome_registry, read_light_registry, read_registry,
-    write_blob_atomic,
+    AnimationInventory, AssetError, AtmosphereCompileOptions, AtmosphereRole,
+    MATERIAL_FLAG_ALPHA_CUTOUT, compile_atmosphere_assets_with_options, compile_pack_with_biomes,
+    encode_atmosphere_blob, encode_blob, inspect_animation_inventory, read_biome_registry,
+    read_light_registry, read_registry, write_blob_atomic,
 };
 use clap::{Parser, Subcommand};
 use serde::Serialize;
@@ -37,6 +37,9 @@ enum Command {
         /// Tracked manifest that pins the local resource-pack source.
         #[arg(long)]
         source_manifest: PathBuf,
+        /// Exact local-only Bedrock 1.26.33.1 clouds.png override.
+        #[arg(long)]
+        clouds_override: Option<PathBuf>,
         /// Ignored/local MCBEATM1 output path.
         #[arg(long)]
         out: PathBuf,
@@ -123,6 +126,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::Atmosphere {
             pack,
             source_manifest,
+            clouds_override,
             out,
             report,
         } => {
@@ -138,7 +142,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         source,
                     }
                 })?;
-            let compiled = compile_atmosphere_assets(&pack, &manifest_bytes)?;
+            let compiled = compile_atmosphere_assets_with_options(
+                &pack,
+                &manifest_bytes,
+                AtmosphereCompileOptions {
+                    clouds_override: clouds_override.as_deref(),
+                },
+            )?;
             let blob = encode_atmosphere_blob(&compiled)?;
             let texture_reports = compiled
                 .textures

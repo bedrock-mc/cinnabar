@@ -37,6 +37,12 @@ const MOON_PHASES_SOURCE_SHA256: [u8; 32] =
     decode_sha256(b"01c566d48e0cc8618cf6fdce811b61175fc246f12f2e8f2c567d6acd3a2b35d8");
 const CLOUDS_SOURCE_SHA256: [u8; 32] =
     decode_sha256(b"4f57cfe866779ef82be0058e244a77b0a279ee75e9eb40ac9ce6eb372445adc8");
+const NATIVE_CLOUDS_SOURCE_SHA256: [u8; 32] =
+    decode_sha256(b"f19b2f3a483af3a67568dfed4387c7b59fed215edf1cb02bef0470f2b72982a0");
+const NATIVE_CLOUDS_PIXELS_SHA256: [u8; 32] =
+    decode_sha256(b"95f8808115fcc28c8665324bba1b72dcb1350fbfebd1c9a30009691326695136");
+const NATIVE_CLOUDS_SOURCE_BYTES: usize = 7_880;
+const NATIVE_CLOUDS_OCCUPIED_TEXELS: usize = 13_356;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
@@ -74,6 +80,11 @@ pub struct AtmosphereTexture {
 pub struct CompiledAtmosphereAssets {
     pub source_manifest_sha256: [u8; 32],
     pub textures: Box<[AtmosphereTexture]>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct AtmosphereCompileOptions<'a> {
+    pub clouds_override: Option<&'a Path>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -402,6 +413,20 @@ pub fn compile_atmosphere_assets(
     root: &Path,
     source_manifest: &[u8],
 ) -> Result<CompiledAtmosphereAssets, AssetError> {
+    compile_atmosphere_assets_with_options(
+        root,
+        source_manifest,
+        AtmosphereCompileOptions::default(),
+    )
+}
+
+/// Compiles the pinned atmosphere sources, optionally replacing only Clouds
+/// with the exact matching locally installed 1.26.33.1 texture.
+pub fn compile_atmosphere_assets_with_options(
+    root: &Path,
+    source_manifest: &[u8],
+    options: AtmosphereCompileOptions<'_>,
+) -> Result<CompiledAtmosphereAssets, AssetError> {
     if source_manifest.len() > MAX_SOURCE_MANIFEST_BYTES {
         return Err(AssetError::AtmosphereManifestTooLarge {
             size: source_manifest.len(),
@@ -417,7 +442,13 @@ pub fn compile_atmosphere_assets(
     let textures = specs
         .into_iter()
         .map(|(role, source_path, width, height)| {
-            read_texture(root, role, source_path, width, height)
+            if role == AtmosphereRole::Clouds
+                && let Some(path) = options.clouds_override
+            {
+                read_cloud_override(path)
+            } else {
+                read_texture(root, role, source_path, width, height)
+            }
         })
         .collect::<Result<Vec<_>, _>>()?
         .into_boxed_slice();
@@ -514,6 +545,96 @@ const fn source_specs() -> [(AtmosphereRole, &'static str, u32, u32); 3] {
             256,
         ),
     ]
+}
+
+fn read_cloud_override(path: &Path) -> Result<AtmosphereTexture, AssetError> {
+    let role = AtmosphereRole::Clouds;
+    let file = File::open(path).map_err(|source| AssetError::AtmosphereTextureIo {
+        role: role.label(),
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let mut bytes = Vec::new();
+    file.take((MAX_SOURCE_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|source| AssetError::AtmosphereTextureIo {
+            role: role.label(),
+            path: path.to_path_buf(),
+            source,
+        })?;
+    if bytes.len() > MAX_SOURCE_BYTES {
+        return Err(AssetError::AtmosphereTextureTooLarge {
+            role: role.label(),
+            path: path.to_path_buf(),
+            size: bytes.len(),
+            max: MAX_SOURCE_BYTES,
+        });
+    }
+    let dimensions = ImageReader::with_format(Cursor::new(&bytes), ImageFormat::Png)
+        .into_dimensions()
+        .map_err(|source| AssetError::AtmosphereTextureDecode {
+            role: role.label(),
+            path: path.to_path_buf(),
+            source,
+        })?;
+    if dimensions != (256, 256) {
+        return Err(AssetError::WrongAtmosphereTextureDimensions {
+            role: role.label(),
+            path: path.to_path_buf(),
+            width: dimensions.0,
+            height: dimensions.1,
+            expected_width: 256,
+            expected_height: 256,
+        });
+    }
+    let source_sha256: [u8; 32] = Sha256::digest(&bytes).into();
+    if bytes.len() != NATIVE_CLOUDS_SOURCE_BYTES || source_sha256 != NATIVE_CLOUDS_SOURCE_SHA256 {
+        return Err(AssetError::AtmosphereTextureHashMismatch {
+            role: role.label(),
+            path: path.to_path_buf(),
+        });
+    }
+
+    let mut reader = ImageReader::with_format(Cursor::new(&bytes), ImageFormat::Png);
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(256);
+    limits.max_image_height = Some(256);
+    limits.max_alloc = Some(MAX_DECODE_ALLOC);
+    reader.limits(limits);
+    let rgba8 = reader
+        .decode()
+        .map_err(|source| AssetError::AtmosphereTextureDecode {
+            role: role.label(),
+            path: path.to_path_buf(),
+            source,
+        })?
+        .into_rgba8()
+        .into_raw()
+        .into_boxed_slice();
+    let pixels_sha256: [u8; 32] = Sha256::digest(&rgba8).into();
+    let occupied_texels = rgba8
+        .chunks_exact(4)
+        .filter(|pixel| pixel[3] >= 128)
+        .count();
+    if rgba8.len() != pixel_length(256, 256)?
+        || pixels_sha256 != NATIVE_CLOUDS_PIXELS_SHA256
+        || occupied_texels != NATIVE_CLOUDS_OCCUPIED_TEXELS
+    {
+        return Err(AssetError::AtmosphereTextureHashMismatch {
+            role: role.label(),
+            path: path.to_path_buf(),
+        });
+    }
+    Ok(AtmosphereTexture {
+        role,
+        source_path: "textures/environment/clouds.png".into(),
+        source_bytes: NATIVE_CLOUDS_SOURCE_BYTES as u32,
+        source_sha256,
+        pixels_sha256,
+        width: 256,
+        height: 256,
+        rgba8,
+    })
 }
 
 fn read_texture(
@@ -717,4 +838,68 @@ fn array_at<const N: usize>(bytes: &[u8], offset: usize) -> Result<[u8; N], Asse
         .ok_or_else(|| invalid("truncated MCBEATM1 field"))?
         .try_into()
         .map_err(|_| invalid("invalid MCBEATM1 field"))
+}
+
+#[cfg(test)]
+mod cloud_override_tests {
+    use std::{fs, path::Path};
+
+    use image::{Rgba, RgbaImage};
+
+    use super::{AssetError, MAX_SOURCE_BYTES, read_cloud_override};
+
+    #[test]
+    fn cloud_override_missing_path_fails_closed() {
+        let directory = tempfile::tempdir().unwrap();
+        assert!(matches!(
+            read_cloud_override(&directory.path().join("missing.png")),
+            Err(AssetError::AtmosphereTextureIo { role: "clouds", .. })
+        ));
+    }
+
+    #[test]
+    fn cloud_override_oversized_input_fails_before_decode() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("oversized.png");
+        fs::write(&path, vec![0; MAX_SOURCE_BYTES + 1]).unwrap();
+        assert!(matches!(
+            read_cloud_override(&path),
+            Err(AssetError::AtmosphereTextureTooLarge { role: "clouds", .. })
+        ));
+    }
+
+    #[test]
+    fn cloud_override_wrong_dimensions_are_reported_before_hash_validation() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("wrong-dimensions.png");
+        write_png(&path, 255, 256);
+        assert!(matches!(
+            read_cloud_override(&path),
+            Err(AssetError::WrongAtmosphereTextureDimensions {
+                role: "clouds",
+                width: 255,
+                height: 256,
+                expected_width: 256,
+                expected_height: 256,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn cloud_override_wrong_hash_fails_closed() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("wrong-hash.png");
+        write_png(&path, 256, 256);
+        assert!(matches!(
+            read_cloud_override(&path),
+            Err(AssetError::AtmosphereTextureHashMismatch { role: "clouds", .. })
+        ));
+    }
+
+    fn write_png(path: &Path, width: u32, height: u32) {
+        RgbaImage::from_pixel(width, height, Rgba([0x44, 0x55, 0x66, 0xff]))
+            .save(path)
+            .unwrap();
+    }
 }
