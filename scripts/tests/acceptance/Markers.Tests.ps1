@@ -1,7 +1,3 @@
-            @('server-name=identity fixture', 'level-name=Bedrock level'),
-            [Text.UTF8Encoding]::new($false)
-        )
-    }
     [IO.File]::WriteAllBytes((Join-Path $worldIdentitySource 'worlds\Bedrock level\level.dat'), [byte[]]@(1, 2, 3, 4))
     [IO.File]::WriteAllBytes((Join-Path $worldIdentitySource 'worlds\Bedrock level\db\CURRENT'), [byte[]]@(5, 6))
     [IO.File]::WriteAllBytes((Join-Path $worldIdentitySource 'worlds\Bedrock level\db\MANIFEST-000001'), [byte[]]@(7, 8, 9))

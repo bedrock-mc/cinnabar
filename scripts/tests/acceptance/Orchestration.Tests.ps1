@@ -781,3 +781,7 @@
         New-Item -ItemType Directory -Path (Join-Path $identityWorld 'db') -Force | Out-Null
         [IO.File]::WriteAllLines(
             (Join-Path $identityRoot 'server.properties'),
+            @('server-name=identity fixture', 'level-name=Bedrock level'),
+            [Text.UTF8Encoding]::new($false)
+        )
+    }
