@@ -3,6 +3,7 @@
 // Native Bedrock evidence has not yet fixed the exact kernel. Radius one is a
 // bounded provisional 3x3 horizontal box and must not be presented as parity.
 const PROVISIONAL_BIOME_BLEND_RADIUS: i32 = 1;
+const BIOME_BLEND_WEIGHT_DENOMINATOR: f32 = 9.0;
 const BIOME_DESCRIPTOR_WORDS: u32 = 11u;
 const BIOME_DESCRIPTOR_MAGIC: u32 = 0x42494f31u;
 
@@ -118,12 +119,12 @@ fn blended_biome_tint(
     }
 
     var sum = vec3(0.0);
-    for (var dz = -1; dz <= 1; dz += 1) {
-        for (var dx = -1; dx <= 1; dx += 1) {
+    for (var dz = -PROVISIONAL_BIOME_BLEND_RADIUS; dz <= PROVISIONAL_BIOME_BLEND_RADIUS; dz += 1) {
+        for (var dx = -PROVISIONAL_BIOME_BLEND_RADIUS; dx <= PROVISIONAL_BIOME_BLEND_RADIUS; dx += 1) {
             let sample_coordinate = coordinate + vec3(dx, 0, dz);
             let tint_index = packed_biome_tint_index(record, sample_coordinate);
             sum += tint_domain_colour(safe_biome_tint(tint_index), tint_kind);
         }
     }
-    return sum / 9.0;
+    return sum / BIOME_BLEND_WEIGHT_DENOMINATOR;
 }

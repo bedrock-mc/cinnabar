@@ -67,9 +67,9 @@ use crate::runtime::{
         exit_on_window_close_requested, fatal_runtime_exit, record_fatal_error, window_close_exit,
     },
     telemetry::{
-        AcceptanceRuntimeConfig, RollingFps, bedrock_camera_rotation, camera_sub_chunk_key,
-        refresh_diagnostic_attribution, status_title, transparent_sort_committed_marker,
-        update_visibility_diagnostics,
+        AcceptanceRuntimeConfig, RollingFps, bedrock_camera_rotation,
+        biome_blend_diagnostic_marker, camera_sub_chunk_key, refresh_diagnostic_attribution,
+        status_title, transparent_sort_committed_marker, update_visibility_diagnostics,
     },
     visibility::{CaveVisibilityCache, apply_added_chunk_visibility, remove_chunk_visibility},
     world::{
@@ -79,8 +79,9 @@ use crate::runtime::{
     },
 };
 use client_world::{
-    CommittedControlEvent, ForcedRemeshManifest, ForcedRemeshManifestState, ViewCohort,
-    ViewCohortStatus, WorldMeshChange, WorldStream, WorldStreamFatalError, WorldStreamStats,
+    CameraBiomeBlendDiagnostic, CameraBiomeBlendSample, CommittedControlEvent,
+    ForcedRemeshManifest, ForcedRemeshManifestState, ViewCohort, ViewCohortStatus, WorldMeshChange,
+    WorldStream, WorldStreamFatalError, WorldStreamStats,
 };
 
 const DESTINATION_COHORT: ViewCohort = ViewCohort {

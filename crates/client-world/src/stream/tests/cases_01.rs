@@ -552,6 +552,63 @@ fn camera_environment_context_exposes_palette_biome_and_effective_block_radius()
 }
 
 #[test]
+fn camera_biome_blend_diagnostic_matches_cross_chunk_and_diagonal_sampling() {
+    let mut stream = WorldStream::new_with_assets(
+        WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(RuntimeAssets::diagnostic()),
+        [0.0, -63.5, 0.0],
+        None,
+    );
+    for (x, z, id) in [(0, 0, 10), (1, 0, 20), (0, 1, 30), (1, 1, 40)] {
+        stream.store.commit_biome_column(
+            ChunkKey::new(0, x, z),
+            DecodedBiomeColumn::decode(-4, 1, &[1, id * 2]).unwrap(),
+        );
+    }
+
+    let diagnostic = stream
+        .camera_biome_blend_diagnostic([15.5, -63.5, 15.5])
+        .unwrap();
+
+    assert_eq!(diagnostic.block_position(), [15, -64, 15]);
+    assert_eq!(diagnostic.weight_denominator(), 9);
+    assert_eq!(
+        diagnostic.samples().map(|sample| sample.raw_biome_id()),
+        [
+            Some(10),
+            Some(10),
+            Some(20),
+            Some(10),
+            Some(10),
+            Some(20),
+            Some(30),
+            Some(30),
+            Some(40)
+        ],
+    );
+    assert_eq!(
+        diagnostic
+            .samples()
+            .iter()
+            .map(|sample| u16::from(sample.weight_numerator()))
+            .sum::<u16>(),
+        diagnostic.weight_denominator(),
+    );
+    assert!(
+        stream
+            .camera_biome_blend_diagnostic([f32::NAN, -63.5, 15.5])
+            .is_none()
+    );
+}
+
+#[test]
 fn block_entity_visual_diagnostics_preserve_zero_remesh_live_updates() {
     let mut stream = block_entity_visual_stream();
     let routes = [

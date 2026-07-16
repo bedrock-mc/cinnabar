@@ -101,6 +101,69 @@ impl WorldStream {
             block[2].rem_euclid(16) as u8,
         )
     }
+    /// Captures the renderer's exact bounded biome inputs at the camera block.
+    ///
+    /// The fixed-size witness reads packed palette entries directly. Missing
+    /// horizontal neighbours use the same nearest-center-edge rule as the GPU
+    /// record and no flat biome or colour array is materialized.
+    #[must_use]
+    pub fn camera_biome_blend_diagnostic(
+        &self,
+        position: [f32; 3],
+    ) -> Option<CameraBiomeBlendDiagnostic> {
+        if !position.iter().all(|value| value.is_finite()) {
+            return None;
+        }
+        let block = position.map(floor_to_i32);
+        let center_key = SubChunkKey::new(
+            self.current_dimension,
+            block[0].div_euclid(16),
+            block[1].div_euclid(16),
+            block[2].div_euclid(16),
+        );
+        let center = self.store.biome_storage(center_key)?;
+        let center_origin_x = center_key.x.checked_mul(16)?;
+        let center_origin_z = center_key.z.checked_mul(16)?;
+        let local_y = block[1].rem_euclid(16) as u8;
+        let mut samples = [CameraBiomeBlendSample::default(); BIOME_BLEND_SAMPLE_COUNT];
+        for dz in -BIOME_BLEND_RADIUS..=BIOME_BLEND_RADIUS {
+            for dx in -BIOME_BLEND_RADIUS..=BIOME_BLEND_RADIUS {
+                let sample_x = block[0].checked_add(dx)?;
+                let sample_z = block[2].checked_add(dz)?;
+                let sample_key = SubChunkKey::new(
+                    center_key.dimension,
+                    sample_x.div_euclid(16),
+                    center_key.y,
+                    sample_z.div_euclid(16),
+                );
+                let dx = i8::try_from(dx).ok()?;
+                let dz = i8::try_from(dz).ok()?;
+                let slot = biome_neighbour_index(dx, dz)?;
+                let raw_biome_id = if let Some(storage) = self.store.biome_storage(sample_key) {
+                    storage.biome_id(
+                        sample_x.rem_euclid(16) as u8,
+                        local_y,
+                        sample_z.rem_euclid(16) as u8,
+                    )
+                } else {
+                    center.biome_id(
+                        sample_x.saturating_sub(center_origin_x).clamp(0, 15) as u8,
+                        local_y,
+                        sample_z.saturating_sub(center_origin_z).clamp(0, 15) as u8,
+                    )
+                };
+                samples[slot] = CameraBiomeBlendSample {
+                    offset: [dx, dz],
+                    raw_biome_id,
+                    weight_numerator: 1,
+                };
+            }
+        }
+        Some(CameraBiomeBlendDiagnostic {
+            block_position: block,
+            samples,
+        })
+    }
     #[must_use]
     #[expect(
         clippy::cast_precision_loss,

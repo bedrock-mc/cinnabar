@@ -920,6 +920,21 @@ fn status_title_exposes_live_input_coordinates_for_acceptance() {
 }
 
 #[test]
+fn biome_blend_marker_is_stable_and_carries_every_weighted_palette_sample() {
+    let samples = std::array::from_fn(|index| {
+        let dx = (index % 3) as i8 - 1;
+        let dz = (index / 3) as i8 - 1;
+        CameraBiomeBlendSample::new([dx, dz], Some(index as u32 + 10))
+    });
+    let diagnostic = CameraBiomeBlendDiagnostic::new([15, -64, 15], samples);
+
+    assert_eq!(
+        biome_blend_diagnostic_marker(diagnostic),
+        "BIOME_BLEND_SNAPSHOT block=15,-64,15 radius=1 denominator=9 samples=-1,-1:10:1;0,-1:11:1;1,-1:12:1;-1,0:13:1;0,0:14:1;1,0:15:1;-1,1:16:1;0,1:17:1;1,1:18:1",
+    );
+}
+
+#[test]
 fn rolling_fps_uses_only_the_most_recent_second() {
     let mut fps = RollingFps::default();
     for _ in 0..60 {

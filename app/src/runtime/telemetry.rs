@@ -1,5 +1,6 @@
 use std::{
     collections::VecDeque,
+    fmt::Write as _,
     time::{Duration, Instant},
 };
 
@@ -15,6 +16,8 @@ use bevy::{
     window::{CursorOptions, PrimaryWindow},
     winit::{UpdateMode, WinitSettings},
 };
+use client_world::CameraBiomeBlendDiagnostic;
+use meshing::BIOME_BLEND_RADIUS;
 use render::{
     ChunkRenderInstance, ChunkRenderQueue, ModelWitnessEvidence, ModelWitnessManifestRecord,
     ModelWorkloadMetrics, TransparentSortMetrics, TransparentWitnessEvidence,
@@ -171,6 +174,33 @@ pub(crate) fn status_title(
         camera.translation.z,
         if captured { "captured" } else { "released" },
     )
+}
+
+pub(crate) fn biome_blend_diagnostic_marker(diagnostic: CameraBiomeBlendDiagnostic) -> String {
+    let block = diagnostic.block_position();
+    let mut marker = format!(
+        "BIOME_BLEND_SNAPSHOT block={},{},{} radius={} denominator={} samples=",
+        block[0],
+        block[1],
+        block[2],
+        BIOME_BLEND_RADIUS,
+        diagnostic.weight_denominator(),
+    );
+    for (index, sample) in diagnostic.samples().into_iter().enumerate() {
+        if index != 0 {
+            marker.push(';');
+        }
+        let offset = sample.offset();
+        write!(marker, "{},{}:", offset[0], offset[1]).expect("writing to String cannot fail");
+        match sample.raw_biome_id() {
+            Some(raw_biome_id) => {
+                write!(marker, "{raw_biome_id}").expect("writing to String cannot fail");
+            }
+            None => marker.push_str("none"),
+        }
+        write!(marker, ":{}", sample.weight_numerator()).expect("writing to String cannot fail");
+    }
+    marker
 }
 
 pub(crate) fn bedrock_camera_rotation(yaw_degrees: f32, pitch_degrees: f32) -> Quat {
@@ -371,6 +401,14 @@ pub(crate) fn record_metrics_and_title(
     if sampling.visibility_elapsed >= VISIBILITY_DIAGNOSTIC_INTERVAL {
         sampling.visibility_elapsed = Duration::ZERO;
         let snapshot = visibility_snapshot;
+        if let (Some(stream), Ok(camera)) = (client_world.stream.as_ref(), camera.single())
+            && let Some(diagnostic) =
+                stream.camera_biome_blend_diagnostic(camera.translation.to_array())
+        {
+            let marker = biome_blend_diagnostic_marker(diagnostic);
+            let mut stdout = std::io::stdout().lock();
+            write_stdout_marker(&mut stdout, &marker);
+        }
         if snapshot.frame_generation != 0 {
             let marker = format!(
                 "{VISIBILITY_SNAPSHOT} frame_generation={} camera={} pose_hash={:016x} camera_frustum_hash={:016x} pose_generation={} view_generation={} draw_mode={:?} {} {} {} {} {} {} {} {} {} {} resident_overflowed={} cave_overflowed={} frustum_overflowed={} submitted_overflowed={}",
