@@ -864,8 +864,12 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       boundaries and rejects the pair atomically on any mismatch. Independent
       review, the ignored pinned-pack witness, full affected suites, and strict
       checks are green through the `6aeb8c8` merge. Production visual diagnostics
-      fell exactly from 2,400 to 2,398 with zero additions. A fresh native BDS
-      run must still prove the previously dominant magenta surfaces are gone.
+      fell exactly from 2,400 to 2,398 with zero additions. **Native gate passed
+      on `3bdb317`:** fresh ignored carriers joined BDS and both minerals were
+      absent from the day and forced-night diagnostic top sets, replacing their
+      former ~328k/~322k quad dominance with leaf-litter states at roughly 2.5k
+      quads each. A residual magenta rectangle and remaining 2,398 compile-time
+      diagnostics keep the broader zero-magenta Phase 2.6 gate open.
       **Fixed-pose diagnostic attempt (2026-07-15):** run
       `20260715T164233Z-14908` disabled auto-fly and retained one stable render
       view generation, but the client never emitted its mutation/world-ready
@@ -1191,7 +1195,11 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     verification are green through `87e856f`. A live night run additionally
     proved that zero daylight could still make otherwise-transparent clouds
     pure black; clouds now share terrain's provisional `0.2` night sky-transfer
-    floor through `e7c85ea`. Native geometry scale/density and
+    floor through `e7c85ea`. **Forced-night native WGC evidence on `3bdb317`
+    passed this colour gate:** cloud faces remained visibly medium gray against
+    the purple night sky rather than becoming black. The same run was only
+    16-18/11,760 chunks at about 8 FPS, so it is not a performance or full-view
+    acceptance witness. Native geometry scale/density and
     above/below/within/grazing visual acceptance remain open.
   - [x] Resolve the camera-eye medium directly from palette-native liquid
     contributors, including secondary waterlogged layers, and use the exact
