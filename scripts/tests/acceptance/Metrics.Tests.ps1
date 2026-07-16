@@ -659,8 +659,3 @@
     $metrics.p99_frame_ms = 'not-finite'
     $metrics | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $metricsPath
     Assert-Throws { Assert-AcceptanceMetrics -Path $metricsPath } 'nonnumeric p99 passed validation'
-
-}
-catch {
-    $testFailure = $_
-}
