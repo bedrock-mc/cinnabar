@@ -74,7 +74,9 @@ pub(super) fn check_sources(
             .unwrap_or("");
         let is_test = path
             .components()
-            .any(|part| matches!(part, Component::Normal(value) if value == "tests"));
+            .any(|part| matches!(part, Component::Normal(value) if value == "tests"))
+            || file_name == "tests.rs"
+            || file_name.ends_with("_tests.rs");
         let (limit, label) = if is_test {
             (policy.test_max, "test")
         } else if matches!(file_name, "lib.rs" | "main.rs" | "mod.rs") {
@@ -95,7 +97,8 @@ pub(super) fn check_sources(
                     index + 1
                 ));
             }
-            if line.contains("pub fn ") && line.contains("_for_test") {
+            if compact.starts_with("pub") && compact.contains("fn") && compact.contains("_for_test")
+            {
                 diagnostics.push(format!(
                     "{relative}:{}: test-only public API is forbidden",
                     index + 1

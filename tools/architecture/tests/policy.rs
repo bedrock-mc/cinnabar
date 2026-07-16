@@ -10,6 +10,10 @@ fn write(path: &Path, contents: &str) {
 }
 
 fn fixture_policy(root: &Path) -> std::path::PathBuf {
+    write(
+        &root.join("Cargo.toml"),
+        "[workspace]\nmembers=['crates/alpha','crates/beta']\n",
+    );
     let policy = root.join("policy.toml");
     write(
         &policy,
@@ -18,8 +22,11 @@ production_rust_max = 5
 module_root_max = 4
 powershell_max = 5
 test_max = 6
-vendored_paths = ["vendor/"]
 forbidden_artifacts = ["**/*.exe", "**/*.png"]
+
+[[vendored]]
+path = "vendor/"
+ownership_record = "vendor/UPSTREAM.md"
 
 [[crates]]
 name = "alpha"
@@ -68,6 +75,10 @@ fn rejects_each_structural_policy_violation_with_sorted_diagnostics() {
         "$marker = 'RUST_MCBE_READY'\n",
     );
     write(&root.join("app/captured.png"), "not really an image");
+    write(
+        &root.join("Cargo.toml"),
+        "[workspace]\nmembers=['crates/alpha','crates/beta','crates/gamma']\n",
+    );
 
     let diagnostics = check_repository(root, &policy).expect("run checker");
     assert!(
@@ -84,6 +95,16 @@ fn rejects_each_structural_policy_violation_with_sorted_diagnostics() {
         diagnostics
             .iter()
             .any(|line| line.contains("matches forbidden artifact pattern"))
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|line| line.contains("workspace member `crates/gamma` has no crate rule"))
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|line| line.contains("missing ownership record"))
     );
     assert!(!diagnostics.iter().any(|line| line.contains("wgpu")));
     assert!(
@@ -114,6 +135,10 @@ fn permits_declared_vendor_and_log_only_markers() {
     let temp = tempfile::tempdir().expect("fixture root");
     let root = temp.path();
     let policy = fixture_policy(root);
+    write(
+        &root.join("vendor/UPSTREAM.md"),
+        "owned upstream snapshot\n",
+    );
     write(&root.join("vendor/generated.rs"), &"line\n".repeat(50));
     write(&root.join(".local/captured.png"), "ignored local artifact");
     write(

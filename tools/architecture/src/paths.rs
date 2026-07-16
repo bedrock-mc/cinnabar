@@ -9,8 +9,8 @@ pub(super) fn ignored_directory(relative: &str) -> bool {
 }
 
 pub(super) fn is_vendored(relative: &str, policy: &Policy) -> bool {
-    policy.vendored_paths.iter().any(|prefix| {
-        let prefix = prefix.trim_start_matches("./").trim_end_matches('/');
+    policy.vendored.iter().any(|rule| {
+        let prefix = rule.path.trim_start_matches("./").trim_end_matches('/');
         relative == prefix || relative.starts_with(&format!("{prefix}/"))
     })
 }

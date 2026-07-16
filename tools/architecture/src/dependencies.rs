@@ -10,6 +10,7 @@ pub(super) fn check_dependencies(
     policy: &Policy,
     diagnostics: &mut Vec<String>,
 ) -> Result<(), ArchitectureError> {
+    check_workspace_members(root, policy, diagnostics)?;
     let rule_paths = policy
         .crate_rules
         .iter()
@@ -50,6 +51,38 @@ pub(super) fn check_dependencies(
                     rule.name,
                 ));
             }
+        }
+    }
+    Ok(())
+}
+
+fn check_workspace_members(
+    root: &Path,
+    policy: &Policy,
+    diagnostics: &mut Vec<String>,
+) -> Result<(), ArchitectureError> {
+    let manifest_path = root.join("Cargo.toml");
+    let manifest = toml::from_str::<toml::Value>(&read(&manifest_path)?).map_err(|source| {
+        ArchitectureError::Policy {
+            path: manifest_path,
+            source,
+        }
+    })?;
+    let declared = policy
+        .crate_rules
+        .iter()
+        .map(|rule| rule.path.trim_end_matches('/'))
+        .collect::<BTreeSet<_>>();
+    let members = manifest
+        .get("workspace")
+        .and_then(|workspace| workspace.get("members"))
+        .and_then(toml::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(toml::Value::as_str);
+    for member in members {
+        if !declared.contains(member.trim_end_matches('/')) {
+            diagnostics.push(format!("workspace member `{member}` has no crate rule"));
         }
     }
     Ok(())

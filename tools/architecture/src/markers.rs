@@ -25,6 +25,12 @@ pub(super) fn check_markers(
             continue;
         }
         let relative = relative_slash(root, path);
+        if !relative.starts_with("app/src/")
+            && relative != "scripts/acceptance.ps1"
+            && !relative.starts_with("scripts/acceptance/")
+        {
+            continue;
+        }
         for marker in marker_literals(&read(path)?) {
             occurrences
                 .entry(marker)

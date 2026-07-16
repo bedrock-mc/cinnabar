@@ -41,6 +41,7 @@ pub fn check_repository(root: &Path, policy_path: &Path) -> Result<Vec<String>, 
     files.sort();
 
     let mut diagnostics = Vec::new();
+    check_vendor_records(root, &policy, &mut diagnostics);
     check_artifacts(root, &policy, &files, &mut diagnostics);
     check_sources(root, &policy, &files, &mut diagnostics)?;
     check_dependencies(root, &policy, &mut diagnostics)?;
@@ -48,6 +49,18 @@ pub fn check_repository(root: &Path, policy_path: &Path) -> Result<Vec<String>, 
     diagnostics.sort();
     diagnostics.dedup();
     Ok(diagnostics)
+}
+
+fn check_vendor_records(root: &Path, policy: &Policy, diagnostics: &mut Vec<String>) {
+    for rule in &policy.vendored {
+        let record = root.join(&rule.ownership_record);
+        if !record.is_file() {
+            diagnostics.push(format!(
+                "vendored path `{}` has missing ownership record `{}`",
+                rule.path, rule.ownership_record
+            ));
+        }
+    }
 }
 
 pub(crate) fn read(path: &Path) -> Result<String, ArchitectureError> {

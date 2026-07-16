@@ -7,13 +7,19 @@ pub(super) struct Policy {
     pub(super) powershell_max: usize,
     pub(super) test_max: usize,
     #[serde(default)]
-    pub(super) vendored_paths: Vec<String>,
+    pub(super) vendored: Vec<VendoredRule>,
     #[serde(default)]
     pub(super) forbidden_artifacts: Vec<String>,
     #[serde(default, rename = "crates")]
     pub(super) crate_rules: Vec<CrateRule>,
     #[serde(default)]
     pub(super) markers: Vec<MarkerRule>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct VendoredRule {
+    pub(super) path: String,
+    pub(super) ownership_record: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -39,4 +45,5 @@ pub(super) struct MarkerRule {
 pub(super) enum MarkerKind {
     Parsed,
     LogOnly,
+    HarnessOnly,
 }
