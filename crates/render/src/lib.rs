@@ -1,5 +1,7 @@
 //! Packed chunk meshing and Bevy rendering for the Bedrock client.
 
+mod actor;
+mod actor_render;
 mod atmosphere;
 mod atmosphere_render;
 mod biome;
@@ -12,6 +14,12 @@ mod mesh;
 mod plugin;
 mod visibility_diagnostics;
 
+pub use actor::{
+    ACTOR_INTERPOLATION_DELAY_SECONDS, ActorRenderFrame, ActorRenderInstance, ActorRenderScene,
+    ActorRenderSource, ActorSkinPixels, DEFAULT_SKIN_PROVENANCE, MAX_RENDERED_PLAYERS,
+    STANDARD_BIPED_VERTEX_COUNT, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE, standard_biped_vertices,
+};
+pub use actor_render::ActorRenderPlugin;
 pub use atmosphere::{
     AtmosphereFrame, AtmosphereTextureAssets, BEDROCK_DAY_TICKS, CLOUD_SCROLL_BLOCKS_PER_TICK,
     CLOUD_TEXTURE_WORLD_PERIOD, CameraMedium, MoonPhaseTile, cloud_texture_offset, moon_phase_tile,

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use protocol::{
     ActorAttribute, ActorEvent, ActorKind, ActorMetadataValue, ActorMoveEvent, ActorProperty,
     ActorSpawnEvent, MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_PROPERTIES,
-    MovePlayerEvent, PlayerListEntry,
+    MovePlayerEvent, PlayerListEntry, PlayerSkin,
 };
 
 pub(crate) const MAX_TRACKED_ACTORS: usize = 8_192;
@@ -137,6 +137,7 @@ pub(crate) struct PlayerProfile {
     pub unique_id: i64,
     pub username: std::sync::Arc<str>,
     pub verified: bool,
+    pub skin: PlayerSkin,
 }
 
 /// Sparse, session-scoped actor state. It owns no render or chunk-mesh state.
@@ -279,6 +280,7 @@ impl ActorStore {
                             unique_id,
                             username,
                             verified,
+                            skin,
                         } => {
                             if self.players.len() >= self.max_players
                                 && !self.players.contains_key(uuid)
@@ -292,6 +294,7 @@ impl ActorStore {
                                     unique_id: *unique_id,
                                     username: username.clone(),
                                     verified: *verified,
+                                    skin: skin.clone(),
                                 },
                             );
                         }
@@ -376,6 +379,26 @@ impl ActorStore {
         };
         self.actors.remove(&runtime_id);
         ActorApplyResult::Removed
+    }
+
+    #[must_use]
+    pub(crate) fn render_players(&self) -> Vec<(&ActorSnapshot, Option<&PlayerProfile>)> {
+        let mut players = self
+            .actors
+            .values()
+            .filter_map(|actor| {
+                let ActorKind::Player { uuid, .. } = &actor.kind else {
+                    return None;
+                };
+                let profile = self
+                    .players
+                    .get(uuid)
+                    .filter(|profile| profile.unique_id == actor.unique_id);
+                Some((actor, profile))
+            })
+            .collect::<Vec<_>>();
+        players.sort_unstable_by_key(|(actor, _)| actor.runtime_id);
+        players
     }
 
     #[cfg(test)]
@@ -728,6 +751,9 @@ mod tests {
                     unique_id: 1,
                     username: "Alex".into(),
                     verified: true,
+                    skin: protocol::PlayerSkin::Unavailable(
+                        protocol::PlayerSkinUnavailable::InvalidDimensions,
+                    ),
                 }]),
             }),
         );
@@ -744,5 +770,50 @@ mod tests {
             store.apply(1, 4, spawn(2, 2)),
             ActorApplyResult::StaleSession
         );
+    }
+
+    #[test]
+    fn render_players_join_roster_skins_and_sort_by_runtime_id() {
+        let skin = protocol::PlayerSkin::Standard(protocol::StandardSkin {
+            width: 64,
+            height: 64,
+            rgba8: vec![9; 64 * 64 * 4].into(),
+        });
+        let mut store = ActorStore::new(1, 0);
+        for (sequence, runtime_id, unique_id, uuid) in [(1, 20, 2, [2; 16]), (2, 10, 1, [1; 16])] {
+            let mut event = spawn(runtime_id, unique_id);
+            let ActorEvent::Spawn(spawn) = &mut event else {
+                unreachable!()
+            };
+            spawn.kind = ActorKind::Player {
+                uuid,
+                username: format!("player-{runtime_id}").into(),
+            };
+            store.apply(1, sequence, event);
+        }
+        store.apply(
+            1,
+            3,
+            ActorEvent::PlayerList(PlayerListUpdateEvent {
+                entries: Arc::from([PlayerListEntry::Add {
+                    uuid: [1; 16],
+                    unique_id: 1,
+                    username: "player-10".into(),
+                    verified: true,
+                    skin: skin.clone(),
+                }]),
+            }),
+        );
+
+        let players = store.render_players();
+        assert_eq!(
+            players
+                .iter()
+                .map(|(actor, _)| actor.runtime_id)
+                .collect::<Vec<_>>(),
+            [10, 20]
+        );
+        assert_eq!(players[0].1.map(|profile| &profile.skin), Some(&skin));
+        assert!(players[1].1.is_none());
     }
 }

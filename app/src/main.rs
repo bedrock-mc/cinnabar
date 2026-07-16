@@ -25,6 +25,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use actor_store::{ActorSnapshot, PlayerProfile};
 use anyhow::{Context, Result, bail};
 use asset_startup::{LoadedAssetKind, load_runtime_assets, select_asset_path_from_environment};
 use assets::{DIAGNOSTIC_MATERIAL, RuntimeAssets};
@@ -55,6 +56,7 @@ use movement::{
 };
 use network::{NetworkConfig, NetworkControlEvent, NetworkHandle, spawn_network};
 use render::{
+    ActorRenderFrame, ActorRenderPlugin, ActorRenderScene, ActorRenderSource, ActorSkinPixels,
     AtmosphereFrame, AtmospherePlugin, AtmosphereTextureAssets, CameraMedium, ChunkBiomeTints,
     ChunkRenderApplySet, ChunkRenderInstance, ChunkRenderQueue, ChunkTextureAssets,
     ChunkUploadAcknowledgements, ChunkUploadPriority, ChunkUploadToken, DebugWorldPlugin,
@@ -2281,6 +2283,7 @@ fn run(args: args::ClientArgs) -> Result<()> {
         .insert_resource(WeatherState::default())
         .insert_resource(CameraMedium::default())
         .insert_resource(MovementTicker::default())
+        .insert_resource(ActorRenderScene::default())
         .insert_resource(AtmosphereFrame::default())
         .insert_resource(AtmosphereTextureAssets::new(
             atmosphere_runtime,
@@ -2306,6 +2309,7 @@ fn run(args: args::ClientArgs) -> Result<()> {
             args.require_transparent_presentation,
         ))
         .add_plugins((
+            ActorRenderPlugin,
             AtmospherePlugin,
             DebugWorldPlugin::new(GPU_UPLOAD_BUDGET_PER_FRAME),
             FlyCameraPlugin::new(args.auto_fly),
@@ -2321,6 +2325,7 @@ fn run(args: args::ClientArgs) -> Result<()> {
                 poll_transparent_witness_request,
                 poll_model_witness_request,
                 drive_world_stream,
+                publish_actor_render_frame,
                 update_camera_medium,
                 update_atmosphere_frame,
                 refresh_cave_visibility,
@@ -2653,6 +2658,58 @@ fn drain_network_ingress<T>(
     std::iter::from_fn(|| receiver.try_recv().ok())
         .take(budget)
         .collect()
+}
+
+fn actor_render_source(
+    actor: &ActorSnapshot,
+    profile: Option<&PlayerProfile>,
+) -> ActorRenderSource {
+    let skin = profile.and_then(|profile| match &profile.skin {
+        protocol::PlayerSkin::Standard(skin) => Some(ActorSkinPixels {
+            width: skin.width,
+            height: skin.height,
+            rgba8: Arc::clone(&skin.rgba8),
+        }),
+        protocol::PlayerSkin::Unavailable(_) => None,
+    });
+    ActorRenderSource {
+        runtime_id: actor.runtime_id,
+        position: actor.position,
+        pitch_degrees: actor.pitch,
+        yaw_degrees: actor.yaw,
+        head_yaw_degrees: actor.head_yaw,
+        teleported: actor.teleported,
+        skin,
+    }
+}
+
+fn publish_actor_render_frame(
+    client_world: Res<ClientWorld>,
+    time: Res<Time<Real>>,
+    mut scene: ResMut<ActorRenderScene>,
+    mut frame: ResMut<ActorRenderFrame>,
+    mut published_session: Local<Option<u64>>,
+) {
+    let session_id = client_world
+        .stream
+        .as_ref()
+        .map(WorldStream::actor_session_id);
+    if *published_session != session_id {
+        scene.reset();
+        *published_session = session_id;
+    }
+    let sources = client_world
+        .stream
+        .as_ref()
+        .map(|stream| {
+            stream
+                .render_players()
+                .into_iter()
+                .map(|(actor, profile)| actor_render_source(actor, profile))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    *frame = scene.update(time.elapsed_secs_f64(), sources).clone();
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -3968,9 +4025,9 @@ mod tests {
     };
     use bevy::window::{PresentMode, WindowCloseRequested};
     use protocol::{
-        BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockUpdateEvent, LevelChunkEvent,
-        LevelChunkMode, PlayerMovementCorrectionEvent, SubChunkBatchEvent, SubChunkEntryEvent,
-        SubChunkResult, WorldBootstrap, WorldEvent,
+        ActorKind, BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockUpdateEvent, LevelChunkEvent,
+        LevelChunkMode, PlayerMovementCorrectionEvent, PlayerSkin, StandardSkin,
+        SubChunkBatchEvent, SubChunkEntryEvent, SubChunkResult, WorldBootstrap, WorldEvent,
     };
     use render::{
         ChunkBiomeTints, ChunkMesh, ChunkRenderApplySet, ChunkRenderQueue, ChunkUploadPriority,
@@ -3999,19 +4056,62 @@ mod tests {
         OUTBOUND_SEND_BUDGET_PER_FRAME, RollingFps, ShutdownWatchdog, SubChunkTimeoutProgress,
         TRANSPARENT_PRESENTATION_EXIT_GRACE, TeleportReadySnapshot, WORLD_READY_QUIET_INTERVAL,
         WorldReadySettler, WorldReadySnapshot, WorldReadyWork, acceptance_runtime_metadata_marker,
-        accepted_move_player_ingress_marker, apply_added_chunk_visibility, apply_committed_control,
-        arm_shutdown_watchdog, bedrock_camera_rotation, bridge_endpoint_exists,
-        bridge_endpoint_path, camera_sub_chunk_key, cumulative_counter_delta,
-        deterministic_mutation_coordinate, drain_network_controls, drain_network_ingress,
-        fatal_runtime_exit, flush_sub_chunk_requests, leaf_forest_target_mutation_coordinate,
-        model_gallery_camera_committed_marker, preflight_bridge_endpoint, record_fatal_error,
-        remove_chunk_visibility, requested_present_mode, resolve_socket_dir_from,
-        startup_biome_tints, status_title, synchronize_biome_tints, target_mutation_armed_marker,
-        teleport_proof, transparent_sort_committed_marker, update_visibility_diagnostics,
+        accepted_move_player_ingress_marker, actor_render_source, apply_added_chunk_visibility,
+        apply_committed_control, arm_shutdown_watchdog, bedrock_camera_rotation,
+        bridge_endpoint_exists, bridge_endpoint_path, camera_sub_chunk_key,
+        cumulative_counter_delta, deterministic_mutation_coordinate, drain_network_controls,
+        drain_network_ingress, fatal_runtime_exit, flush_sub_chunk_requests,
+        leaf_forest_target_mutation_coordinate, model_gallery_camera_committed_marker,
+        preflight_bridge_endpoint, record_fatal_error, remove_chunk_visibility,
+        requested_present_mode, resolve_socket_dir_from, startup_biome_tints, status_title,
+        synchronize_biome_tints, target_mutation_armed_marker, teleport_proof,
+        transparent_sort_committed_marker, update_visibility_diagnostics,
         visibility_digest_marker_fields, window_close_exit, world_publication_snapshot_marker,
         world_ready_markers, world_stream_fatal_message,
         write_move_player_ingress_before_source_capture, write_stdout_marker,
     };
+
+    #[test]
+    fn actor_render_source_uses_only_remote_actor_pose_and_roster_skin() {
+        let skin = PlayerSkin::Standard(StandardSkin {
+            width: 64,
+            height: 64,
+            rgba8: vec![23; 64 * 64 * 4].into(),
+        });
+        let actor = crate::actor_store::ActorSnapshot {
+            unique_id: 9,
+            runtime_id: 77,
+            kind: ActorKind::Player {
+                uuid: [7; 16],
+                username: "remote".into(),
+            },
+            position: [10.0, 64.0, -3.0],
+            velocity: [0.0; 3],
+            pitch: 15.0,
+            yaw: 45.0,
+            head_yaw: 60.0,
+            body_yaw: 45.0,
+            on_ground: Some(true),
+            teleported: false,
+            metadata: Default::default(),
+            attributes: Default::default(),
+            int_properties: Default::default(),
+            float_properties: Default::default(),
+        };
+        let profile = crate::actor_store::PlayerProfile {
+            unique_id: 9,
+            username: "remote".into(),
+            verified: true,
+            skin,
+        };
+
+        let source = actor_render_source(&actor, Some(&profile));
+        assert_eq!(source.runtime_id, 77);
+        assert_eq!(source.position, [10.0, 64.0, -3.0]);
+        assert_eq!(source.yaw_degrees, 45.0);
+        assert_eq!(source.head_yaw_degrees, 60.0);
+        assert_eq!(source.skin.unwrap().rgba8.as_ref(), &[23; 64 * 64 * 4]);
+    }
 
     #[test]
     fn app_exit_arms_bounded_shutdown_with_the_requested_exit_code() {
