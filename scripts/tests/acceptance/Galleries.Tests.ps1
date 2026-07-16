@@ -530,10 +530,10 @@
     $appLaunchIndex = $source.IndexOf('$appHandle = Start-LoggedProcess -Executable $AppExecutable', [StringComparison]::Ordinal)
     $galleryAnchorBranchIndex = $source.IndexOf('if ($isModelWitnessGallery) {', $appLaunchIndex, [StringComparison]::Ordinal)
     $galleryAnchorWaitIndex = $source.IndexOf("-Marker 'RUST_MCBE_GALLERY_ANCHOR_READY '", $galleryAnchorBranchIndex, [StringComparison]::Ordinal)
-    $normalStartupBranchIndex = $source.IndexOf("`n    else {", $galleryAnchorWaitIndex, [StringComparison]::Ordinal)
-    $worldReadyWaitIndex = $source.IndexOf("-Marker 'RUST_MCBE_WORLD_READY '", $normalStartupBranchIndex, [StringComparison]::Ordinal)
+    $normalStartupCoordinateIndex = $source.IndexOf('$coordinateMarker = Wait-ProcessOutputMarker', $galleryAnchorWaitIndex, [StringComparison]::Ordinal)
+    $worldReadyWaitIndex = $source.IndexOf("-Marker 'RUST_MCBE_WORLD_READY '", $normalStartupCoordinateIndex, [StringComparison]::Ordinal)
     Assert-True ($appLaunchIndex -ge 0 -and $galleryAnchorBranchIndex -gt $appLaunchIndex -and $galleryAnchorWaitIndex -gt $galleryAnchorBranchIndex) 'generic model-gallery startup does not wait for its gallery-only early anchor'
-    Assert-True ($normalStartupBranchIndex -gt $galleryAnchorWaitIndex -and $worldReadyWaitIndex -gt $normalStartupBranchIndex) 'normal/perf startup no longer retains its strict WorldReady wait'
+    Assert-True ($normalStartupCoordinateIndex -gt $galleryAnchorWaitIndex -and $worldReadyWaitIndex -gt $normalStartupCoordinateIndex) 'normal/perf startup no longer retains its strict WorldReady wait'
 
     $publishVisualFixtureIndex = $source.IndexOf('function Publish-VisualFixture {', [StringComparison]::Ordinal)
     $modelGalleryClassificationIndex = $source.IndexOf('$isModelWitnessGallery =', $publishVisualFixtureIndex, [StringComparison]::Ordinal)
