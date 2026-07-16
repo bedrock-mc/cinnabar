@@ -1,5 +1,10 @@
 # Finite Vanilla Cloud Mesh Implementation Plan
 
+> **Superseded for visual behavior:** Tasks 1 and 2 record the implemented finite-mesh
+> foundation, but their fixed 3x3 coverage, opaque/depth-writing material, fixed face
+> multipliers, and preview cloud source are not acceptance targets. Continue with
+> `2026-07-16-native-cloud-parity.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Render the validated vanilla cloud occupancy texture as one bounded, finite, world-space cloud mesh with visible thickness and physical depth.

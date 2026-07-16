@@ -1,5 +1,10 @@
 # Finite Vanilla Cloud Mesh Design
 
+> **Superseded:** The fixed 3x3, opaque, depth-writing, fixed-face-lighting decisions in
+> this document were rejected by matching-client evidence. The corrective authority is
+> `2026-07-16-native-cloud-parity-design.md`. The compact periodic mesher and packed-quad
+> ABI remain useful implementation foundations only where the newer design retains them.
+
 ## Goal
 
 Replace the infinitely thin fullscreen cloud plane with a finite, world-anchored cloud layer that exposes top, bottom, and side faces, remains bounded at all camera angles, and preserves the existing weather, fog, and absolute-time motion contracts.

@@ -1125,6 +1125,10 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     blocks per tick. Full app/render suites, strict Clippy, WGSL validation, and
     independent review are green through `4bf2c8c`; native multi-platform visual
     tuning and parity acceptance remain open.
+    The original fixed 3x3 opaque finite-cloud visual behavior is superseded by
+    `docs/superpowers/plans/2026-07-16-native-cloud-parity.md`: exact local-only
+    1.26.33.1 occupancy, transparent depth-aware legacy composition, directional
+    lighting, exact weather contributions, and calibrated native quality controls.
   - [x] Resolve the camera-eye medium directly from palette-native liquid
     contributors, including secondary waterlogged layers, and use the exact
     two-triangle surface drawn by the shared quad index buffer for the air/water
