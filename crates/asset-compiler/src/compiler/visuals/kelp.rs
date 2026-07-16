@@ -1,4 +1,37 @@
 use super::super::*;
+use super::context::{ModelStorage, RuleInputs, diagnostic_visual, push_model_template};
+use super::dispatcher::CompileRuleResult;
+
+pub(in crate::compiler) fn compile_rule(
+    record: &RegistryRecord,
+    inputs: &RuleInputs<'_>,
+    templates: &mut BTreeMap<[u32; 6], u32>,
+    storage: &mut ModelStorage<'_>,
+) -> Result<CompileRuleResult, AssetError> {
+    if !is_kelp(record) {
+        return Ok(CompileRuleResult::NoMatch);
+    }
+    let mut visual = diagnostic_visual(record);
+    if let Some([west, east, down, up, north, south]) = inputs.materials(record) {
+        let ordered = [north, south, up, down, east, west];
+        let template = if let Some(&template) = templates.get(&ordered) {
+            template
+        } else {
+            let template = push_model_template(
+                kelp_quads(ordered).to_vec(),
+                MODEL_TEMPLATE_FLAG_KELP,
+                storage.templates,
+                storage.quads,
+            )?;
+            templates.insert(ordered, template);
+            template
+        };
+        visual.faces = [west, east, down, up, north, south];
+        visual.kind = VisualKind::Model;
+        visual.model_template = template;
+    }
+    Ok(CompileRuleResult::Compiled(visual))
+}
 
 pub(in crate::compiler) fn kelp_quads(materials: [u32; 6]) -> [ModelQuad; 6] {
     let uvs = [[0, 4096], [4096, 4096], [4096, 0], [0, 0]];

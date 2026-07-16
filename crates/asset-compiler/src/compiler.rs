@@ -52,7 +52,6 @@ use visuals::{
         chiseled_bookshelf_quads, exact_chiseled_bookshelf_state, is_chiseled_bookshelf_name,
         is_chiseled_bookshelf_record,
     },
-    button::{button_quads, button_state},
     cactus::{
         cactus_inventory_is_exact, cactus_material_descriptors, is_cactus_name, is_cactus_record,
     },
@@ -60,22 +59,14 @@ use visuals::{
         cake_inventory_is_exact, cake_material_descriptors, cake_source_alpha_is_exact,
         exact_cake_bite, is_cake_name, is_cake_record,
     },
-    carpets::{carpet_state, pale_moss_carpet_quads},
-    cross::{crossed_quads, model_variant},
     dispatcher::{CompileRuleResult, ExactAdmissions, compile_visuals},
-    doors::{door_bounds, trapdoor_bounds},
     farmland::{
         exact_farmland_moisture, farmland_inventory_is_exact, farmland_material_descriptors,
         farmland_source_alpha_is_exact, is_farmland_name, is_farmland_record,
     },
-    fences::fence_arm_quads,
     flowerbed::flowerbed_quads,
-    gates::gate_quads,
     geometry::cuboid_quads,
-    kelp::kelp_quads,
     multiface::multiface_quads,
-    panes::pane_quads,
-    pressure_plates::pressure_plate_quads,
     resin_clump::{
         is_resin_clump, is_resin_clump_name, is_resin_clump_record, resin_clump_inventory_is_exact,
         resin_clump_material_descriptor,
@@ -84,11 +75,7 @@ use visuals::{
         is_selector_alias_cube_name, is_selector_alias_cube_record,
         selector_alias_cube_inventory_is_exact, selector_alias_cube_material_descriptors,
     },
-    signs::{sign_quads, sign_state},
-    slabs::slab_quads,
-    stairs::{canonical_stair_materials, stair_quads},
     vine::vine_quads,
-    walls::{wall_quads, wall_state_is_valid},
 };
 
 const MAX_VISUALS: usize = 65_536;

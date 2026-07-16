@@ -1,5 +1,52 @@
 use super::super::*;
 
+pub(in crate::compiler) struct RuleInputs<'a> {
+    pub(in crate::compiler) pack: &'a PackSources,
+    pub(in crate::compiler) material_by_descriptor: &'a BTreeMap<Descriptor, u32>,
+}
+
+impl RuleInputs<'_> {
+    pub(in crate::compiler) fn material(
+        &self,
+        record: &RegistryRecord,
+        face: BlockFace,
+    ) -> Option<u32> {
+        descriptor_for(self.pack, record, face)
+            .and_then(|(descriptor, _)| self.material_by_descriptor.get(&descriptor).copied())
+    }
+
+    pub(in crate::compiler) fn materials(&self, record: &RegistryRecord) -> Option<[u32; 6]> {
+        let [west, east, down, up, north, south] =
+            BlockFace::ALL.map(|face| self.material(record, face));
+        Some([west?, east?, down?, up?, north?, south?])
+    }
+}
+
+pub(in crate::compiler) struct ModelStorage<'a> {
+    pub(in crate::compiler) templates: &'a mut Vec<ModelTemplate>,
+    pub(in crate::compiler) quads: &'a mut Vec<ModelQuad>,
+}
+
+pub(in crate::compiler) fn diagnostic_visual(record: &RegistryRecord) -> BlockVisual {
+    BlockVisual::diagnostic(record.flags, record.contributor_role)
+}
+
+pub(in crate::compiler) fn set_model_visual(
+    visual: &mut BlockVisual,
+    materials: [u32; 6],
+    template: u32,
+) {
+    visual.flags.remove(
+        BlockFlags::AIR
+            | BlockFlags::CUBE_GEOMETRY
+            | BlockFlags::OCCLUDES_FULL_FACE
+            | BlockFlags::LEAF_MODEL,
+    );
+    visual.faces = materials;
+    visual.kind = VisualKind::Model;
+    visual.model_template = template;
+}
+
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(in crate::compiler) struct CuboidTemplateKey {
     pub(in crate::compiler) materials: [u32; 6],

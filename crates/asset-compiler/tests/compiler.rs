@@ -63,3 +63,6 @@ mod special_cubes;
 
 #[path = "compiler/baseline.rs"]
 mod baseline;
+
+#[path = "compiler/architecture.rs"]
+mod architecture;

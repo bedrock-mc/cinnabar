@@ -1,6 +1,28 @@
 use super::super::*;
 use super::context::{CuboidTemplateKey, intern_cuboid_template, push_model_template};
-use super::dispatcher::exact_family_admission;
+
+fn exact_family_admission(
+    record: &RegistryRecord,
+    admissions: ExactAdmissions,
+) -> CompileRuleResult {
+    let rejected = (is_bee_housing_name(&record.name)
+        && (!admissions.bee_housing || !is_bee_housing_record(record)))
+        || (is_cactus_name(&record.name) && (!admissions.cacti || !is_cactus_record(record)))
+        || (is_cake_name(&record.name) && (!admissions.cakes || !is_cake_record(record)))
+        || (is_farmland_name(&record.name)
+            && (!admissions.farmland || !is_farmland_record(record)))
+        || (is_selector_alias_cube_name(&record.name)
+            && (!admissions.selector_alias_cubes || !is_selector_alias_cube_record(record)))
+        || (is_resin_clump_name(&record.name)
+            && (!admissions.resin_clumps || !is_resin_clump_record(record)))
+        || (is_chiseled_bookshelf_name(&record.name)
+            && (!admissions.chiseled_bookshelves || !is_chiseled_bookshelf_record(record)));
+    if rejected {
+        CompileRuleResult::Reject
+    } else {
+        CompileRuleResult::NoMatch
+    }
+}
 
 pub(in crate::compiler) struct ExactRuleContext<'a> {
     pub(in crate::compiler) pack: &'a PackSources,

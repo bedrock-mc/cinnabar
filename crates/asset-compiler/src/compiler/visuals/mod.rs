@@ -6,6 +6,7 @@ pub(in crate::compiler) mod cake;
 pub(in crate::compiler) mod carpets;
 pub(in crate::compiler) mod context;
 pub(in crate::compiler) mod cross;
+pub(in crate::compiler) mod cube;
 pub(in crate::compiler) mod dispatcher;
 pub(in crate::compiler) mod doors;
 pub(in crate::compiler) mod exact;

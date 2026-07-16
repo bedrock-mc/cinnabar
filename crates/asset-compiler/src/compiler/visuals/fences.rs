@@ -1,4 +1,55 @@
 use super::super::*;
+use super::context::{
+    ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
+};
+use super::dispatcher::CompileRuleResult;
+
+pub(in crate::compiler) fn compile_rule(
+    record: &RegistryRecord,
+    inputs: &RuleInputs<'_>,
+    templates: &mut BTreeMap<[u32; 2], u32>,
+    storage: &mut ModelStorage<'_>,
+) -> Result<CompileRuleResult, AssetError> {
+    if !is_fence(record) {
+        return Ok(CompileRuleResult::NoMatch);
+    }
+    let mut visual = diagnostic_visual(record);
+    if let Some(material) = inputs.material(record, BlockFace::South) {
+        let flag = if record.name.as_ref() == "minecraft:nether_brick_fence" {
+            MODEL_TEMPLATE_FLAG_FENCE_NETHER
+        } else {
+            MODEL_TEMPLATE_FLAG_FENCE_WOOD
+        };
+        let key = [material, flag];
+        let base = if let Some(&base) = templates.get(&key) {
+            base
+        } else {
+            let base = u32::try_from(storage.templates.len()).map_err(|_| {
+                AssetError::BlobSizeOverflow {
+                    section: "model template",
+                }
+            })?;
+            push_model_template(
+                cuboid_quads([material; 6], [96, 0, 96], [160, 256, 160]).to_vec(),
+                flag,
+                storage.templates,
+                storage.quads,
+            )?;
+            for mask in 0..16 {
+                push_model_template(
+                    fence_arm_quads(material, mask),
+                    flag,
+                    storage.templates,
+                    storage.quads,
+                )?;
+            }
+            templates.insert(key, base);
+            base
+        };
+        set_model_visual(&mut visual, [material; 6], base);
+    }
+    Ok(CompileRuleResult::Compiled(visual))
+}
 
 pub(in crate::compiler) fn fence_arm_quads(material: u32, mask: u32) -> Vec<ModelQuad> {
     debug_assert!(mask <= 15);

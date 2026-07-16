@@ -1,5 +1,72 @@
 use super::super::*;
-use super::context::{CarpetState, PaleMossCarpetSide, PaleMossCarpetState};
+use super::context::{
+    CarpetState, CuboidTemplateKey, ModelStorage, PaleMossCarpetSide, PaleMossCarpetState,
+    PaleMossCarpetTemplateKey, RuleInputs, diagnostic_visual, intern_cuboid_template,
+    push_model_template, set_model_visual,
+};
+use super::dispatcher::CompileRuleResult;
+
+pub(in crate::compiler) struct CarpetRuleTemplates<'a> {
+    pub(in crate::compiler) cuboids: &'a mut BTreeMap<CuboidTemplateKey, u32>,
+    pub(in crate::compiler) pale: &'a mut BTreeMap<PaleMossCarpetTemplateKey, u32>,
+}
+
+pub(in crate::compiler) fn compile_rule(
+    record: &RegistryRecord,
+    inputs: &RuleInputs<'_>,
+    templates: &mut CarpetRuleTemplates<'_>,
+    storage: &mut ModelStorage<'_>,
+) -> Result<CompileRuleResult, AssetError> {
+    if !is_carpet(record) {
+        return Ok(CompileRuleResult::NoMatch);
+    }
+    let mut visual = diagnostic_visual(record);
+    if let Some(materials) = inputs.materials(record)
+        && let Some(state) = carpet_state(record)
+    {
+        let template = match state {
+            CarpetState::Ordinary => intern_cuboid_template(
+                materials,
+                [0, 0, 0],
+                [256, 16, 256],
+                templates.cuboids,
+                storage.templates,
+                storage.quads,
+            )?,
+            CarpetState::Pale(state) => {
+                let Some([Some(tall), Some(short)]) =
+                    pale_moss_carpet_side_material_descriptors(inputs.pack).map(|descriptors| {
+                        descriptors.map(|(descriptor, _)| {
+                            inputs.material_by_descriptor.get(&descriptor).copied()
+                        })
+                    })
+                else {
+                    return Ok(CompileRuleResult::Compiled(visual));
+                };
+                let side_materials = [tall, short];
+                let key = PaleMossCarpetTemplateKey {
+                    materials,
+                    side_materials,
+                    state,
+                };
+                if let Some(&template) = templates.pale.get(&key) {
+                    template
+                } else {
+                    let template = push_model_template(
+                        pale_moss_carpet_quads(materials, side_materials, state),
+                        0,
+                        storage.templates,
+                        storage.quads,
+                    )?;
+                    templates.pale.insert(key, template);
+                    template
+                }
+            }
+        };
+        set_model_visual(&mut visual, materials, template);
+    }
+    Ok(CompileRuleResult::Compiled(visual))
+}
 
 pub(in crate::compiler) fn carpet_state(record: &RegistryRecord) -> Option<CarpetState> {
     if !is_pale_moss_carpet(record) {

@@ -1,3 +1,69 @@
+use super::super::*;
+use super::context::{
+    CuboidTemplateKey, ModelStorage, RuleInputs, diagnostic_visual, intern_cuboid_template,
+    set_model_visual,
+};
+use super::dispatcher::CompileRuleResult;
+
+pub(in crate::compiler) fn compile_rule(
+    record: &RegistryRecord,
+    inputs: &RuleInputs<'_>,
+    templates: &mut BTreeMap<CuboidTemplateKey, u32>,
+    storage: &mut ModelStorage<'_>,
+) -> Result<CompileRuleResult, AssetError> {
+    if !is_door(record) && !is_trapdoor(record) {
+        return Ok(CompileRuleResult::NoMatch);
+    }
+    let mut visual = diagnostic_visual(record);
+    if is_door(record) {
+        const UPPER: u32 = 1 << 7;
+        if let (Some(orientation @ 0..=3), Some(open @ 0..=1), Some(hinge @ 0..=1), Some(flags)) = (
+            record.model_state.get(ModelStateField::Orientation),
+            record.model_state.get(ModelStateField::Open),
+            record.model_state.get(ModelStateField::Hinge),
+            record.model_state.get(ModelStateField::Flags),
+        ) && flags & !UPPER == 0
+        {
+            let face = if flags & UPPER == 0 {
+                BlockFace::Down
+            } else {
+                BlockFace::South
+            };
+            if let Some(material) = inputs.material(record, face) {
+                let materials = [material; 6];
+                let (min, max) = door_bounds(orientation, open, hinge);
+                let template = intern_cuboid_template(
+                    materials,
+                    min,
+                    max,
+                    templates,
+                    storage.templates,
+                    storage.quads,
+                )?;
+                set_model_visual(&mut visual, materials, template);
+            }
+        }
+    } else if let Some(materials) = inputs.materials(record)
+        && let (Some(orientation @ 0..=3), Some(open @ 0..=1), Some(half @ 0..=1)) = (
+            record.model_state.get(ModelStateField::Orientation),
+            record.model_state.get(ModelStateField::Open),
+            record.model_state.get(ModelStateField::Half),
+        )
+    {
+        let (min, max) = trapdoor_bounds(orientation, open, half);
+        let template = intern_cuboid_template(
+            materials,
+            min,
+            max,
+            templates,
+            storage.templates,
+            storage.quads,
+        )?;
+        set_model_visual(&mut visual, materials, template);
+    }
+    Ok(CompileRuleResult::Compiled(visual))
+}
+
 pub(in crate::compiler) fn door_bounds(
     orientation: u32,
     open: u32,

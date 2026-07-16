@@ -1,4 +1,47 @@
 use super::super::*;
+use super::context::{
+    ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
+};
+use super::dispatcher::CompileRuleResult;
+
+pub(in crate::compiler) fn compile_rule(
+    record: &RegistryRecord,
+    inputs: &RuleInputs<'_>,
+    templates: &mut BTreeMap<[u32; 2], u32>,
+    storage: &mut ModelStorage<'_>,
+) -> Result<CompileRuleResult, AssetError> {
+    if !is_pane(record) {
+        return Ok(CompileRuleResult::NoMatch);
+    }
+    let mut visual = diagnostic_visual(record);
+    if let (Some(body), Some(edge)) = (
+        inputs.material(record, BlockFace::North),
+        inputs.material(record, BlockFace::East),
+    ) {
+        let key = [body, edge];
+        let base = if let Some(&base) = templates.get(&key) {
+            base
+        } else {
+            let base = u32::try_from(storage.templates.len()).map_err(|_| {
+                AssetError::BlobSizeOverflow {
+                    section: "model template",
+                }
+            })?;
+            for mask in 0..16 {
+                push_model_template(
+                    pane_quads(body, edge, mask),
+                    MODEL_TEMPLATE_FLAG_PANE,
+                    storage.templates,
+                    storage.quads,
+                )?;
+            }
+            templates.insert(key, base);
+            base
+        };
+        set_model_visual(&mut visual, [body, body, edge, edge, body, body], base);
+    }
+    Ok(CompileRuleResult::Compiled(visual))
+}
 
 pub(in crate::compiler) fn pane_quads(body: u32, edge: u32, mask: u32) -> Vec<ModelQuad> {
     debug_assert!(mask <= 15);

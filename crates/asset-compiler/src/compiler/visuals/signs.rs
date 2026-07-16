@@ -1,5 +1,9 @@
 use super::super::*;
-use super::context::SignState;
+use super::context::{
+    ModelStorage, RuleInputs, SignState, SignTemplateKey, diagnostic_visual, push_model_template,
+    set_model_visual,
+};
+use super::dispatcher::CompileRuleResult;
 use super::{
     button::{model_quad_face_from_id, model_quad_face_id},
     carpets::typed_model_state_value,
@@ -62,6 +66,47 @@ pub(in crate::compiler) fn sign_state(record: &RegistryRecord) -> Option<SignSta
             attached: attached != 0,
         })
     }
+}
+
+pub(in crate::compiler) fn compile_rule(
+    record: &RegistryRecord,
+    inputs: &RuleInputs<'_>,
+    templates: &mut BTreeMap<SignTemplateKey, u32>,
+    storage: &mut ModelStorage<'_>,
+) -> Result<CompileRuleResult, AssetError> {
+    if !is_sign(record) {
+        return Ok(CompileRuleResult::NoMatch);
+    }
+    let mut visual = diagnostic_visual(record);
+    if let (Some(material), Some(state)) = (
+        inputs.material(record, BlockFace::South),
+        sign_state(record),
+    ) {
+        let key = match state {
+            SignState::Standing { rotation } => SignTemplateKey::Standing { material, rotation },
+            SignState::Wall { facing } => SignTemplateKey::Wall { material, facing },
+            SignState::HangingWall { facing } => SignTemplateKey::HangingWall { material, facing },
+            SignState::HangingCeiling { rotation, attached } => SignTemplateKey::HangingCeiling {
+                material,
+                rotation,
+                attached,
+            },
+        };
+        let template = if let Some(&template) = templates.get(&key) {
+            template
+        } else {
+            let template = push_model_template(
+                sign_quads(material, state),
+                0,
+                storage.templates,
+                storage.quads,
+            )?;
+            templates.insert(key, template);
+            template
+        };
+        set_model_visual(&mut visual, [material; 6], template);
+    }
+    Ok(CompileRuleResult::Compiled(visual))
 }
 
 pub(in crate::compiler) fn sign_quads(material: u32, state: SignState) -> Vec<ModelQuad> {

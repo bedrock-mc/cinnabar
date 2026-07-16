@@ -1,4 +1,79 @@
 use super::super::*;
+use super::context::{
+    GateTemplateKey, ModelStorage, RuleInputs, diagnostic_visual, set_model_visual,
+};
+use super::dispatcher::CompileRuleResult;
+
+pub(in crate::compiler) fn compile_rule(
+    record: &RegistryRecord,
+    inputs: &RuleInputs<'_>,
+    templates: &mut BTreeMap<GateTemplateKey, u32>,
+    storage: &mut ModelStorage<'_>,
+) -> Result<CompileRuleResult, AssetError> {
+    if !is_gate(record) {
+        return Ok(CompileRuleResult::NoMatch);
+    }
+    const IN_WALL: u32 = 1 << 6;
+    const GATE_STATE_MASK: u8 = 0x85;
+    let mut visual = diagnostic_visual(record);
+    if record.model_state.mask() == GATE_STATE_MASK
+        && let Some(materials) = inputs.materials(record)
+        && let (Some(orientation @ 0..=3), Some(open @ 0..=1), Some(flags @ (0 | IN_WALL))) = (
+            record.model_state.get(ModelStateField::Orientation),
+            record.model_state.get(ModelStateField::Open),
+            record.model_state.get(ModelStateField::Flags),
+        )
+    {
+        let key = GateTemplateKey {
+            materials,
+            orientation: orientation as u8,
+            open: open != 0,
+            in_wall: flags != 0,
+            bamboo: record.name.as_ref() == "minecraft:bamboo_fence_gate",
+        };
+        let template = if let Some(&template) = templates.get(&key) {
+            template
+        } else {
+            let [head, tail] =
+                gate_quads(materials, orientation, key.open, key.in_wall, key.bamboo);
+            let template = u32::try_from(storage.templates.len()).map_err(|_| {
+                AssetError::BlobSizeOverflow {
+                    section: "model template",
+                }
+            })?;
+            let gate_axis = if orientation & 1 == 0 {
+                MODEL_TEMPLATE_FLAG_GATE_AXIS_Z
+            } else {
+                MODEL_TEMPLATE_FLAG_GATE_AXIS_X
+            };
+            for (part, flags) in [
+                (head, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | gate_axis),
+                (tail, 0),
+            ] {
+                let quad_start = u32::try_from(storage.quads.len()).map_err(|_| {
+                    AssetError::BlobSizeOverflow {
+                        section: "model quad",
+                    }
+                })?;
+                let quad_count =
+                    u32::try_from(part.len()).map_err(|_| AssetError::BlobSizeOverflow {
+                        section: "model quad count",
+                    })?;
+                debug_assert!(quad_count <= 32);
+                storage.templates.push(ModelTemplate {
+                    quad_start,
+                    quad_count,
+                    flags,
+                });
+                storage.quads.extend(part);
+            }
+            templates.insert(key, template);
+            template
+        };
+        set_model_visual(&mut visual, materials, template);
+    }
+    Ok(CompileRuleResult::Compiled(visual))
+}
 
 #[derive(Clone, Copy)]
 pub(in crate::compiler) struct GateFaceUv {

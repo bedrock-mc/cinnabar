@@ -1,4 +1,58 @@
 use super::super::*;
+use super::context::{
+    ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
+};
+use super::dispatcher::CompileRuleResult;
+
+pub(in crate::compiler) fn compile_rule(
+    record: &RegistryRecord,
+    inputs: &RuleInputs<'_>,
+    templates: &mut BTreeMap<[u32; 7], u32>,
+    storage: &mut ModelStorage<'_>,
+) -> Result<CompileRuleResult, AssetError> {
+    if !is_stair(record) {
+        return Ok(CompileRuleResult::NoMatch);
+    }
+    let mut visual = diagnostic_visual(record);
+    if let Some(materials) = inputs.materials(record)
+        && let Some(orientation @ 0..=3) = record.model_state.get(ModelStateField::Orientation)
+        && let Some(upside @ 0..=1) = record.model_state.get(ModelStateField::Half)
+    {
+        let rotation = (orientation + 2) & 3;
+        let canonical = canonical_stair_materials(materials, rotation);
+        let key = [
+            canonical[0],
+            canonical[1],
+            canonical[2],
+            canonical[3],
+            canonical[4],
+            canonical[5],
+            upside,
+        ];
+        let base = if let Some(&base) = templates.get(&key) {
+            base
+        } else {
+            let base = u32::try_from(storage.templates.len()).map_err(|_| {
+                AssetError::BlobSizeOverflow {
+                    section: "model template",
+                }
+            })?;
+            for shape in 0..5 {
+                push_model_template(
+                    stair_quads(canonical, 2, upside != 0, shape),
+                    MODEL_TEMPLATE_FLAG_STAIR,
+                    storage.templates,
+                    storage.quads,
+                )?;
+            }
+            templates.insert(key, base);
+            base
+        };
+        set_model_visual(&mut visual, materials, base);
+        visual.variant = rotation | (upside << 2);
+    }
+    Ok(CompileRuleResult::Compiled(visual))
+}
 
 pub(in crate::compiler) fn stair_quads(
     materials: [u32; 6],

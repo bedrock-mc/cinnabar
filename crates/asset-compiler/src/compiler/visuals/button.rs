@@ -1,5 +1,45 @@
 use super::super::*;
 use super::carpets::typed_model_state_value;
+use super::context::{
+    ButtonTemplateKey, ModelStorage, RuleInputs, diagnostic_visual, push_model_template,
+    set_model_visual,
+};
+use super::dispatcher::CompileRuleResult;
+
+pub(in crate::compiler) fn compile_rule(
+    record: &RegistryRecord,
+    inputs: &RuleInputs<'_>,
+    templates: &mut BTreeMap<ButtonTemplateKey, u32>,
+    storage: &mut ModelStorage<'_>,
+) -> Result<CompileRuleResult, AssetError> {
+    if !is_button(record) {
+        return Ok(CompileRuleResult::NoMatch);
+    }
+    let mut visual = diagnostic_visual(record);
+    if let Some(materials) = inputs.materials(record)
+        && let Some((orientation, pressed)) = button_state(record)
+    {
+        let key = ButtonTemplateKey {
+            materials,
+            orientation,
+            pressed,
+        };
+        let template = if let Some(&template) = templates.get(&key) {
+            template
+        } else {
+            let template = push_model_template(
+                button_quads(materials, orientation, pressed).to_vec(),
+                0,
+                storage.templates,
+                storage.quads,
+            )?;
+            templates.insert(key, template);
+            template
+        };
+        set_model_visual(&mut visual, materials, template);
+    }
+    Ok(CompileRuleResult::Compiled(visual))
+}
 
 pub(in crate::compiler) fn button_state(record: &RegistryRecord) -> Option<(u8, bool)> {
     const BUTTON_STATE_MASK: u8 = 0x81;

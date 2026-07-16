@@ -1,4 +1,41 @@
 use super::super::*;
+use super::context::{
+    ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
+};
+use super::dispatcher::CompileRuleResult;
+
+pub(in crate::compiler) fn compile_rule(
+    record: &RegistryRecord,
+    inputs: &RuleInputs<'_>,
+    templates: &mut BTreeMap<[u32; 7], u32>,
+    storage: &mut ModelStorage<'_>,
+) -> Result<CompileRuleResult, AssetError> {
+    if !is_slab(record) {
+        return Ok(CompileRuleResult::NoMatch);
+    }
+    let mut visual = diagnostic_visual(record);
+    if let Some(materials) = inputs.materials(record)
+        && let Some(half @ 0..=2) = record.model_state.get(ModelStateField::Half)
+    {
+        let [west, east, down, up, north, south] = materials;
+        let key = [west, east, down, up, north, south, half];
+        let template = if let Some(&template) = templates.get(&key) {
+            template
+        } else {
+            let template = push_model_template(
+                slab_quads(materials, half).to_vec(),
+                0,
+                storage.templates,
+                storage.quads,
+            )?;
+            templates.insert(key, template);
+            template
+        };
+        set_model_visual(&mut visual, materials, template);
+        visual.flags.set(BlockFlags::OCCLUDES_FULL_FACE, half == 2);
+    }
+    Ok(CompileRuleResult::Compiled(visual))
+}
 
 pub(in crate::compiler) fn slab_quads(materials: [u32; 6], half: u32) -> [ModelQuad; 6] {
     let (min_y, max_y) = match half {

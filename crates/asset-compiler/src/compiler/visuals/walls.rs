@@ -1,4 +1,43 @@
 use super::super::*;
+use super::context::{
+    ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
+};
+use super::dispatcher::CompileRuleResult;
+
+pub(in crate::compiler) fn compile_rule(
+    record: &RegistryRecord,
+    inputs: &RuleInputs<'_>,
+    templates: &mut BTreeMap<[u32; 7], u32>,
+    storage: &mut ModelStorage<'_>,
+) -> Result<CompileRuleResult, AssetError> {
+    if !is_wall(record) {
+        return Ok(CompileRuleResult::NoMatch);
+    }
+    let mut visual = diagnostic_visual(record);
+    if let Some(materials) = inputs.materials(record)
+        && let Some(connections) = record
+            .model_state
+            .get(ModelStateField::Connections)
+            .filter(|connections| wall_state_is_valid(*connections))
+    {
+        let [west, east, down, up, north, south] = materials;
+        let key = [west, east, down, up, north, south, connections];
+        let template = if let Some(&template) = templates.get(&key) {
+            template
+        } else {
+            let template = push_model_template(
+                wall_quads(materials, connections),
+                MODEL_TEMPLATE_FLAG_WALL,
+                storage.templates,
+                storage.quads,
+            )?;
+            templates.insert(key, template);
+            template
+        };
+        set_model_visual(&mut visual, materials, template);
+    }
+    Ok(CompileRuleResult::Compiled(visual))
+}
 
 pub(in crate::compiler) const fn wall_state_is_valid(connections: u32) -> bool {
     connections & !0x1ff == 0
