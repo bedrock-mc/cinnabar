@@ -85,9 +85,21 @@ pub(super) fn check_sources(
             (policy.production_rust_max, "production Rust")
         };
         if lines > limit {
-            diagnostics.push(format!(
-                "{relative}: {lines} lines exceeds {label} limit {limit}"
-            ));
+            let baseline = policy
+                .line_baselines
+                .iter()
+                .find(|baseline| baseline.path == relative)
+                .map(|baseline| baseline.max)
+                .filter(|baseline| *baseline > limit);
+            match baseline {
+                Some(baseline) if lines > baseline => diagnostics.push(format!(
+                    "{relative}: {lines} lines exceeds grandfathered baseline {baseline}"
+                )),
+                Some(_) => {}
+                None => diagnostics.push(format!(
+                    "{relative}: {lines} lines exceeds {label} limit {limit}"
+                )),
+            }
         }
         for (index, line) in source.lines().enumerate() {
             let compact = line.split_whitespace().collect::<String>();

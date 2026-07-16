@@ -15,6 +15,12 @@ forbidden_artifacts = [
     "*.mcworld",
 ]
 
+# Existing oversized files may only shrink. New files and files below their
+# category limit remain governed by the strict limits above.
+[[line_baselines]]
+path = "app/tests/assets.rs"
+max = 1355
+
 [[vendored]]
 path = "crates/protocol/vendor/"
 ownership_record = "crates/protocol/vendor/UPSTREAM.md"

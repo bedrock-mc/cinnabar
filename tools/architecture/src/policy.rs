@@ -10,10 +10,18 @@ pub(super) struct Policy {
     pub(super) vendored: Vec<VendoredRule>,
     #[serde(default)]
     pub(super) forbidden_artifacts: Vec<String>,
+    #[serde(default)]
+    pub(super) line_baselines: Vec<LineBaseline>,
     #[serde(default, rename = "crates")]
     pub(super) crate_rules: Vec<CrateRule>,
     #[serde(default)]
     pub(super) markers: Vec<MarkerRule>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct LineBaseline {
+    pub(super) path: String,
+    pub(super) max: usize,
 }
 
 #[derive(Debug, Deserialize)]

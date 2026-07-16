@@ -1,4 +1,4 @@
-use std::{fs, path::Path};
+use std::{fs, io::Write as _, path::Path};
 
 use architecture::check_repository;
 
@@ -212,4 +212,54 @@ fn permits_declared_vendor_and_log_only_markers() {
         check_repository(root, &policy).expect("run checker"),
         Vec::<String>::new()
     );
+}
+
+#[test]
+fn grandfathered_line_baseline_allows_only_the_recorded_size() {
+    let temp = tempfile::tempdir().expect("fixture root");
+    let root = temp.path();
+    let policy = fixture_policy(root);
+    fs::OpenOptions::new()
+        .append(true)
+        .open(&policy)
+        .expect("open fixture policy")
+        .write_all(b"\n[[line_baselines]]\npath = 'crates/alpha/tests/large.rs'\nmax = 8\n")
+        .expect("append line baseline");
+    write(
+        &root.join("crates/alpha/Cargo.toml"),
+        "[package]\nname='alpha'\nversion='0.1.0'\n",
+    );
+    write(
+        &root.join("crates/beta/Cargo.toml"),
+        "[package]\nname='beta'\nversion='0.1.0'\n",
+    );
+    write(
+        &root.join("crates/alpha/tests/large.rs"),
+        &"line\n".repeat(8),
+    );
+    write(
+        &root.join("app/src/acceptance/markers.rs"),
+        "const A: &str = \"RUST_MCBE_READY\";\n",
+    );
+    write(
+        &root.join("scripts/acceptance/Markers.ps1"),
+        "$marker = 'RUST_MCBE_READY'\n",
+    );
+    write(
+        &root.join("vendor/UPSTREAM.md"),
+        "owned upstream snapshot\n",
+    );
+
+    assert_eq!(
+        check_repository(root, &policy).expect("run checker at baseline"),
+        Vec::<String>::new()
+    );
+    write(
+        &root.join("crates/alpha/tests/large.rs"),
+        &"line\n".repeat(9),
+    );
+    let diagnostics = check_repository(root, &policy).expect("run checker above baseline");
+    assert!(diagnostics.iter().any(|line| {
+        line.contains("crates/alpha/tests/large.rs: 9 lines exceeds grandfathered baseline 8")
+    }));
 }
