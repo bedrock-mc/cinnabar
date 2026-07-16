@@ -206,19 +206,19 @@ fn mineral_cube_admission_is_atomic_and_pack_routes_are_exact() {
     for (label, blocks, terrain, flipbooks) in [
         (
             "wrong block selector",
-            r#"{"cinnabar":{"textures":"cinnabar_wrong"},"sulfur":{"textures":"sulfur"}}"#,
+            r#"{"cinnabar":{"sound":"cinnabar","textures":"cinnabar_wrong"},"sulfur":{"sound":"sulfur","textures":"sulfur"}}"#,
             r#"{"texture_data":{"cinnabar":{"textures":"textures/blocks/cinnabar"},"cinnabar_wrong":{"textures":"textures/blocks/cinnabar"},"sulfur":{"textures":"textures/blocks/sulfur"}}}"#,
             "[]",
         ),
         (
             "wrong terrain path",
-            r#"{"cinnabar":{"textures":"cinnabar"},"sulfur":{"textures":"sulfur"}}"#,
+            r#"{"cinnabar":{"sound":"cinnabar","textures":"cinnabar"},"sulfur":{"sound":"sulfur","textures":"sulfur"}}"#,
             r#"{"texture_data":{"cinnabar":{"textures":"textures/blocks/cinnabar_wrong"},"sulfur":{"textures":"textures/blocks/sulfur"}}}"#,
             "[]",
         ),
         (
             "texture variant array",
-            r#"{"cinnabar":{"textures":"cinnabar"},"sulfur":{"textures":"sulfur"}}"#,
+            r#"{"cinnabar":{"sound":"cinnabar","textures":"cinnabar"},"sulfur":{"sound":"sulfur","textures":"sulfur"}}"#,
             r#"{"texture_data":{"cinnabar":{"textures":["textures/blocks/cinnabar","textures/blocks/cinnabar"]},"sulfur":{"textures":"textures/blocks/sulfur"}}}"#,
             "[]",
         ),
@@ -248,7 +248,7 @@ fn mineral_cube_admission_is_atomic_and_pack_routes_are_exact() {
         ),
         (
             "flipbook route",
-            r#"{"cinnabar":{"textures":"cinnabar"},"sulfur":{"textures":"sulfur"}}"#,
+            r#"{"cinnabar":{"sound":"cinnabar","textures":"cinnabar"},"sulfur":{"sound":"sulfur","textures":"sulfur"}}"#,
             r#"{"texture_data":{"cinnabar":{"textures":"textures/blocks/cinnabar"},"sulfur":{"textures":"textures/blocks/sulfur"}}}"#,
             r#"[{"flipbook_texture":"textures/blocks/cinnabar","atlas_tile":"cinnabar"}]"#,
         ),
