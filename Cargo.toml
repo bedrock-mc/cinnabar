@@ -9,6 +9,7 @@ members = [
     "crates/sim",
     "crates/world",
     "tools/visualcoverage",
+    "tools/architecture",
 ]
 resolver = "3"
 
