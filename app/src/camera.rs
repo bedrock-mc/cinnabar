@@ -287,6 +287,7 @@ fn update_movement(
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
     mut auto_fly: ResMut<AutoFly>,
+    local_physics: Option<Res<crate::movement::LocalPhysicsController>>,
     mut cameras: Query<(&mut Transform, &FlyCamera)>,
 ) {
     let (window, cursor) = window.into_inner();
@@ -309,6 +310,10 @@ fn update_movement(
             }
             auto_fly.last_path_position = Some(next);
         }
+        return;
+    }
+
+    if local_physics.is_some_and(|physics| physics.is_active()) {
         return;
     }
 

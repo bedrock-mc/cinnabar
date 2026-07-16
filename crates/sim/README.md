@@ -1,8 +1,10 @@
 # Bedrock movement simulation foundation
 
-This crate is the deterministic, protocol-independent base for Phase 3 movement. It does not
-emit `PlayerAuthInput`, read the render camera, or make free-camera movement authoritative.
-Application/network integration remains gated until the parity work below is complete.
+This crate is the deterministic, protocol-independent base for Phase 3 movement. The app now
+samples manual input into this fixed-tick simulation, collides against the packed world, and
+interpolates the local camera. This crate still does not emit `PlayerAuthInput`, read the render
+camera, or make free-camera movement authoritative. Network authority remains gated until the
+parity work below is complete.
 
 ## Implemented contract
 
@@ -50,5 +52,6 @@ The Rust conformance test compares its per-tick state against that output at `1e
 - Expand the pinned trace corpus across slabs, stairs, fences/walls, climbables, liquids,
   collisions, and correction scenarios; then validate on vanilla parkour and Lunar-fronted
   servers.
-- Wire fixed-tick input, render interpolation, correction packet conversion, and outbound
-  movement only after those contracts are satisfied. Freecam must remain network-silent.
+- Prove snapshot-versioned correction replay and the remaining collision/behavior contracts,
+  then authorize the already-separated outbound movement scheduler. Freecam must remain
+  network-silent.

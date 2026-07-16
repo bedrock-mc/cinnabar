@@ -170,6 +170,18 @@ impl WorldStream {
     pub const fn current_dimension(&self) -> i32 {
         self.current_dimension
     }
+
+    /// Packed palette store used by read-only local collision queries.
+    #[must_use]
+    pub const fn collision_store(&self) -> &world::ChunkStore {
+        &self.store
+    }
+
+    /// Runtime identity mode carried by block palettes in this session.
+    #[must_use]
+    pub const fn network_id_mode(&self) -> assets::NetworkIdMode {
+        self.network_id_mode
+    }
 }
 
 impl WorldStream {
