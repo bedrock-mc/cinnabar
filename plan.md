@@ -1311,6 +1311,24 @@ store it only under the user's temporary directory, inspect that file, and never
     zero. The run still timed out after this boundary because no binding pair
     of exact GPU-completed presented-frame acknowledgements was published;
     presentation-gate diagnosis and the <=2-second remesh gate remain open.
+  - [x] Correct exact presented-frame acknowledgement for legitimately culled
+    resident allocations through `9a195c1`. The gate still proves the complete
+    target GPU allocation manifest, exact generations, and zero missing,
+    unexpected, source, foreign, stale, or orphan evidence, but now requires
+    every stable visible allocation to be drawn instead of incorrectly requiring
+    every hidden allocation to be drawn in one frame. Two adjacent frames must
+    retain the same visible manifest. The visible-undrawn, hidden-resident,
+    visibility-churn, and skipped-frame regressions are green along with all 157
+    render tests, 289 client unit tests (two ignored), strict Clippy, formatting,
+    and diff checks. Live DX12/FIFO run `20260716T003124Z-7592` advanced through
+    `RUST_MCBE_TELEPORT_SETTLED` with a complete 6,951-allocation manifest and a
+    stable 1,676-allocation visible/drawn subset, with every contamination
+    counter zero. The binding far teleport still took 48,128 ms and the forced
+    full-view remesh did not finish inside the 60-second timed session; peak
+    pending meshes reached 43,024, maximum mesh queue wait reached 30,833 ms,
+    and the final snapshot still had 148 uploads queued. The <=2-second live
+    remesh/performance gate therefore remains open and is the next publication
+    bottleneck.
 - [ ] Remove every dark rectangle/background pixel around the pinned sun and
   moon textures. The acceptance test must exercise decoded pinned pixels and
   mip/filter edges, not merely string-inspect WGSL, and must prove both bodies
