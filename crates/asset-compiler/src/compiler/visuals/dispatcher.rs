@@ -6,6 +6,7 @@ use super::context::{
 
 #[derive(Clone, Copy)]
 pub(in crate::compiler) struct ExactAdmissions {
+    pub(in crate::compiler) mineral_cubes: bool,
     pub(in crate::compiler) chiseled_bookshelves: bool,
     pub(in crate::compiler) resin_clumps: bool,
     pub(in crate::compiler) selector_alias_cubes: bool,

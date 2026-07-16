@@ -45,8 +45,8 @@ fn validate_block_keys(
     blocks: &BlockTextureMap,
     terrain: &TerrainTextureMap,
 ) -> Result<(), AssetError> {
-    for (block, texture) in &blocks.entries {
-        texture.try_for_each_key(|key| {
+    for (block, entry) in &blocks.entries {
+        entry.textures.try_for_each_key(|key| {
             if terrain.entries.contains_key(key) {
                 Ok(())
             } else {

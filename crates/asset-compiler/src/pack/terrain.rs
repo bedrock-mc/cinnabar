@@ -117,6 +117,19 @@ impl TerrainTextureMap {
         }
     }
 
+    /// Returns an exact static route only when it is untinted and carries no
+    /// alias or extension metadata.
+    pub(crate) fn get_exact_static_plain(&self, key: &str) -> Option<&str> {
+        match self.entries.get(key)? {
+            TerrainPaths::Static {
+                path,
+                requires_tint: false,
+                has_extra_metadata: false,
+            } => Some(path),
+            TerrainPaths::Static { .. } | TerrainPaths::Variants { .. } => None,
+        }
+    }
+
     /// Returns the pinned vanilla singleton-array form only when it is
     /// untinted and carries no alias or extension metadata.
     pub(crate) fn get_exact_singleton_plain(&self, key: &str) -> Option<&str> {

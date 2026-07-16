@@ -66,6 +66,10 @@ use visuals::{
     },
     flowerbed::flowerbed_quads,
     geometry::cuboid_quads,
+    mineral_cubes::{
+        is_mineral_cube_name, is_mineral_cube_record, mineral_cube_inventory_is_exact,
+        mineral_cube_material_descriptor, mineral_cube_sources_are_exact,
+    },
     multiface::multiface_quads,
     resin_clump::{
         is_resin_clump, is_resin_clump_name, is_resin_clump_record, resin_clump_inventory_is_exact,
@@ -179,6 +183,8 @@ fn compile_pack_inner(
     validate_records(records)?;
 
     let admit_chiseled_bookshelves = chiseled_bookshelf_inventory_is_exact(records);
+    let admit_mineral_cubes = mineral_cube_inventory_is_exact(records)
+        && mineral_cube_sources_are_exact(root, &pack, records);
     let admit_resin_clumps = resin_clump_inventory_is_exact(records);
     let admit_selector_alias_cubes = selector_alias_cube_inventory_is_exact(records);
     let admit_cacti = cactus_inventory_is_exact(records);
@@ -189,6 +195,9 @@ fn compile_pack_inner(
 
     let mut descriptor_keys = BTreeMap::<Descriptor, Box<str>>::new();
     for record in records.iter().filter(|record| {
+        if is_mineral_cube_name(&record.name) {
+            return admit_mineral_cubes && is_mineral_cube_record(record);
+        }
         if is_selector_alias_cube_name(&record.name) {
             return admit_selector_alias_cubes && is_selector_alias_cube_record(record);
         }
@@ -215,6 +224,12 @@ fn compile_pack_inner(
             || is_model_visual(record)
             || is_liquid(record)
     }) {
+        if admit_mineral_cubes && is_mineral_cube_record(record) {
+            if let Some((descriptor, key)) = mineral_cube_material_descriptor(&pack, record) {
+                descriptor_keys.insert(descriptor, key);
+            }
+            continue;
+        }
         if admit_selector_alias_cubes && is_selector_alias_cube_record(record) {
             if let Some(descriptors) = selector_alias_cube_material_descriptors(&pack, record) {
                 for (descriptor, key) in descriptors {
@@ -334,6 +349,7 @@ fn compile_pack_inner(
         &pack,
         &material_by_descriptor,
         ExactAdmissions {
+            mineral_cubes: admit_mineral_cubes,
             chiseled_bookshelves: admit_chiseled_bookshelves,
             resin_clumps: admit_resin_clumps,
             selector_alias_cubes: admit_selector_alias_cubes,
