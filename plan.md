@@ -73,6 +73,54 @@ Local worlds run dragonfly behind the same core, over the same client path.
 | dragonfly vanilla worldgen parity | 7 | v1 local worlds = dragonfly's gen as-is; parity gaps documented, not chased |
 | Bevy 0.x quarterly breaking releases | all | Pin per phase; upgrade as a deliberate task, never mid-phase |
 
+## Current integration snapshot (2026-07-16)
+
+This ledger is the authoritative hand-off for the current branch audit. The audit base is
+clean `render-integration` commit `1ac547b`, published exactly as
+`github/phase2-textures`; the last functional implementation commit before the workflow
+documentation is `efa5400`. The agent runtime does not expose exact model/version or effort
+selectors, so reviews use the configured runtime default rather than claiming a particular
+model setting.
+
+The repository has 65 linked worktrees. Twenty-five worktree heads are ancestors of the
+audit base, 26 more are patch-equivalent or historical, and 14 have patch-unique commits.
+Only the following three patch-unique tranches remain genuine integration candidates:
+
+| Tranche | Base -> head | Review/integration state | Next action |
+|---|---|---|---|
+| Phase 3 movement foundation | `efa5400` -> `71d38a3` (`phase3-movement-integration`) | Clean, local-only, independently approved; not merged | Integrate the exact commit, rerun affected checks, and keep production outbound movement disabled while FreeCamera is active |
+| Phase 2.6 leaf litter | `efa5400` -> `698be1c` (`phase26-leaf-litter`) | Clean, local-only, review **needs changes**; not mergeable as-is | Replace provisional growth 4-7 geometry/UV/tint and complete texture admission from version-matched Bedrock visual authority, then re-review |
+| Phase 4 entity geometry stream | `105107d` -> `15bbfe2` (`phase43-entity-geometry-payloads`) | Clean, local-only; inheritance fixes landed after the first review | Independently re-review the complete range, then integrate only if approved |
+
+Phase status at this audit:
+
+| Gate | Accurate state |
+|---|---|
+| Phase 2.5 biome blending | Open: the provisional 3x3 blend kernel still needs an abrupt native biome-boundary comparison and live acceptance |
+| Phase 2.6 visual coverage | Open: the authoritative production residual is 2,398 diagnostics; the leaf-litter tranche above is not counted because it is review-blocked and unmerged |
+| Phase 2.7 lighting/sky/fog/clouds | Open: the cloud evidence sub-gate is complete, but calibrated atmosphere parity, native cloud/celestial comparison, and the <=2 s teleport-remesh gate remain open |
+| Phase 3 movement | Packet/simulation foundations are complete on the authoritative branch; app input, fixed-step simulation, collision registries, camera interpolation, and reanchors are implemented only in the pending `71d38a3` tranche. Production outbound movement remains intentionally off in FreeCamera mode |
+| Phase 4 actors | Actor tracking, standard-skin biped rendering, Oomph-style three-tick player convergence, and distinct per-frame render interpolation are complete. Authoritative geometry/bone/cube streaming remains pending in `15bbfe2`; animations/Molang, persona/custom geometry, legacy/outer skin layers, and remaining entity families are still open |
+
+Nine other patch-unique branch heads were audited as superseded/reimplemented and must not
+be merged: local `phase2-textures` copper work, `phase27-atmosphere-parity-fix`,
+`phase2-block-entity-manifest`, `repair-mushroom-typed`, `phase27-light-core`,
+`phase27-light-scheduler`, `phase3-physics-fix-resume`, `phase26-static-signs`, and
+`transparent-model-stream`. Two more are obsolete/withdrawn and must not be merged:
+`fix/frustum-culling` and `phase26-wood-shelves`.
+
+Five worktrees contain preserved, uncommitted work and are intentionally not cleaned by this
+audit: the root `cinnabar-work`, `external-mode-diagnostic`, `blockentity-evidence`,
+`atmosphere-black-diagnosis`, and `static-fence-gates`. Their changes are not part of the
+three integration candidates above.
+
+Prioritized continuation: (1) integrate and verify movement `71d38a3`; (2) re-review and, if
+approved, integrate entity geometry through `15bbfe2`; (3) repair leaf litter before any
+merge; (4) continue the source-backed bulk visual-rule generator, using BDS state/collision
+data only as structural authority and version-matched native client/resource-pack evidence
+for render geometry and UVs, with ambiguous families failing closed; then (5) close the
+remaining Phase 2 acceptance gates in order: 2.5, 2.6, 2.7.
+
 ---
 
 ## Phase 0 — Spike: prove the stack end-to-end (DETAILED, executable now)
@@ -949,7 +997,7 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       After lava, vine, and those connected/static/multiface/glass/grate
       families plus the exact chiseled-bookshelf, resin-clump, selector-alias
       opaque-cube, cactus, cake, farmland, and exact bee-housing tranches, the
-      current residual has 2,400 diagnostics including
+      current authoritative residual has 2,398 diagnostics including
       the single air diagnostic, with zero
       diagnostics in every implemented family; each remaining family must shrink
       that exact set.
@@ -989,7 +1037,8 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       expose shelf texture routes, texture sets, and pixels, but none defines
       visible render geometry or per-face UV mapping. Collision/voxel bounds
       must not be promoted into a render model. All 384 shelf states therefore
-      remain diagnostic and the global residual remains 2,400. Resume only
+      remain diagnostic; the current authoritative global residual is 2,398
+      after the later sulfur/cinnabar tranche. Resume shelf work only
       from legitimate version-matched render/UV authority or a reviewed native
       procedure; precise paths and hashes are recorded in
       `docs/evidence/phase-2-shelf-source-reference.md`.
