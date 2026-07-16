@@ -126,6 +126,86 @@ pub(in crate::chunk) fn buffer_byte_len(item_count: usize, item_bytes: u64) -> u
         .saturating_mul(item_bytes)
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(in crate::chunk) struct ArenaRequiredLengths {
+    pub(in crate::chunk) quads: usize,
+    pub(in crate::chunk) geometry_stream_words: usize,
+    pub(in crate::chunk) origins: usize,
+    pub(in crate::chunk) biome_words: usize,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(in crate::chunk) struct GpuUploadReservation {
+    pub(in crate::chunk) items: usize,
+    pub(in crate::chunk) incremental_bytes: u64,
+    pub(in crate::chunk) growth_copy_bytes: u64,
+}
+
+impl GpuUploadReservation {
+    pub(in crate::chunk) fn try_reserve(
+        &mut self,
+        budget: ChunkUploadBudget,
+        incremental_bytes: u64,
+        projected_growth_copy_bytes: u64,
+    ) -> bool {
+        let next = Self {
+            items: self.items.saturating_add(1),
+            incremental_bytes: self.incremental_bytes.saturating_add(incremental_bytes),
+            growth_copy_bytes: self.growth_copy_bytes.max(projected_growth_copy_bytes),
+        };
+        if next.items > budget.max_per_frame || next.total_bytes() > budget.max_bytes_per_frame {
+            return false;
+        }
+        *self = next;
+        true
+    }
+
+    pub(in crate::chunk) const fn total_bytes(self) -> u64 {
+        self.incremental_bytes
+            .saturating_add(self.growth_copy_bytes)
+    }
+}
+
+pub(in crate::chunk) fn planned_arena_growth_copy_bytes(
+    capacities: ArenaRequiredLengths,
+    required: ArenaRequiredLengths,
+    limits: ArenaLimits,
+) -> Option<u64> {
+    let plans = [
+        plan_arena_growth(
+            capacities.quads,
+            required.quads,
+            PACKED_QUAD_BYTES,
+            limits.max_quad_items,
+        )
+        .ok()?,
+        plan_arena_growth(
+            capacities.geometry_stream_words,
+            required.geometry_stream_words,
+            GEOMETRY_STREAM_WORD_BYTES,
+            limits.max_geometry_stream_words,
+        )
+        .ok()?,
+        plan_arena_growth(
+            capacities.origins,
+            required.origins,
+            CHUNK_ORIGIN_BYTES,
+            limits.max_origin_items,
+        )
+        .ok()?,
+        plan_arena_growth(
+            capacities.biome_words,
+            required.biome_words,
+            BIOME_WORD_BYTES,
+            limits.max_biome_words,
+        )
+        .ok()?,
+    ];
+    Some(plans.into_iter().flatten().fold(0_u64, |total, growth| {
+        total.saturating_add(growth.gpu_copy_bytes)
+    }))
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(in crate::chunk) fn account_chunk_gpu_uploads(
     budget: ChunkUploadBudget,
@@ -149,7 +229,7 @@ pub(in crate::chunk) fn account_chunk_gpu_uploads(
         incremental_bytes,
         gpu_copy_bytes,
         full_shadow_bytes: 0,
-        total_bytes: incremental_bytes,
+        total_bytes: incremental_bytes.saturating_add(gpu_copy_bytes),
     }
 }
 

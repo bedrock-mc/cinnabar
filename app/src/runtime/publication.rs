@@ -26,8 +26,10 @@ pub(crate) struct PublicationControllerConfig {
 impl Default for PublicationControllerConfig {
     fn default() -> Self {
         Self {
-            target_frame_time: Duration::from_micros(16_667),
-            recovery_frame_time: Duration::from_millis(12),
+            // `Time<Real>` includes FIFO pacing. Leave a wide overrun band so
+            // normal 60 Hz jitter is not mistaken for publication pressure.
+            target_frame_time: Duration::from_millis(25),
+            recovery_frame_time: Duration::from_millis(19),
             recovery_streak_frames: 120,
             minimum: ChunkUploadBudget::new(2, MEBIBYTE),
             initial: ChunkUploadBudget::new(8, 4 * MEBIBYTE),

@@ -119,9 +119,9 @@ use extract::install_chunk_extraction;
 use gpu::arena::{
     ArenaLimits, ChunkGpuArena, ChunkGpuUploadStats, ChunkRangePlan, GPU_UPDATE_OVERDUE_FRAMES,
     GpuUpdateCandidate, GpuUpdateFairness, MAX_GPU_UPDATE_FAIRNESS_ENTRIES,
-    allocate_aligned_quad_range, allocate_aligned_range_for_update, allocate_for_chunk_update,
-    allocate_origin, allocate_quad_range, allocate_range_for_update,
-    arena_limits_from_device_limits, checked_geometry_range, chunk_tint_identity_is_active,
+    allocate_aligned_quad_range, allocate_aligned_range_for_update, allocate_origin,
+    allocate_quad_range, allocate_range_for_update, arena_limits_from_device_limits,
+    checked_geometry_range, chunk_tint_identity_is_active, commit_chunk_range_plan,
     create_indirect_buffer, create_storage_buffer, free_allocation, init_chunk_gpu_arena,
     insert_free_quad_range, plan_chunk_range_update, plan_gpu_chunk_updates,
     release_completed_transparent_retirements, release_origin, release_quad_range,
@@ -141,11 +141,13 @@ use gpu::bind_groups::{
 };
 #[allow(unused_imports)]
 use gpu::layout::{
-    ArenaGrowthError, ArenaGrowthPlan, GeometryStreamCounts, GeometryStreamLayout,
-    SHARED_GEOMETRY_ALIGNMENT_WORDS, account_chunk_gpu_uploads, buffer_byte_len, checked_align_up,
-    copy_gpu_buffer, ensure_biome_capacity, ensure_geometry_stream_capacities,
-    ensure_origin_capacity, ensure_quad_capacity, ensure_stream_capacity, plan_arena_growth,
-    transparent_geometry_update_requires_cow, write_stream_records,
+    ArenaGrowthError, ArenaGrowthPlan, ArenaRequiredLengths, GeometryStreamCounts,
+    GeometryStreamLayout, GpuUploadReservation, SHARED_GEOMETRY_ALIGNMENT_WORDS,
+    account_chunk_gpu_uploads, buffer_byte_len, checked_align_up, copy_gpu_buffer,
+    ensure_biome_capacity, ensure_geometry_stream_capacities, ensure_origin_capacity,
+    ensure_quad_capacity, ensure_stream_capacity, plan_arena_growth,
+    planned_arena_growth_copy_bytes, transparent_geometry_update_requires_cow,
+    write_stream_records,
 };
 #[allow(unused_imports)]
 use gpu::types::{

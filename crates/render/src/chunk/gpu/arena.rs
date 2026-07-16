@@ -305,33 +305,17 @@ pub(in crate::chunk) fn plan_gpu_chunk_updates(
         .collect()
 }
 
-pub(in crate::chunk) fn allocate_for_chunk_update(
+pub(in crate::chunk) fn commit_chunk_range_plan(
     arena: &mut ChunkGpuArena,
-    required: GeometryStreamCounts,
-    biome_required: u32,
-    old: Option<&ArenaAllocation>,
-    preserve_old_geometry: bool,
-) -> Option<ChunkRangePlan> {
-    let plan = plan_chunk_range_update(
-        arena.quad_len,
-        &arena.free_quads,
-        arena.geometry_stream_len,
-        &arena.free_geometry_stream_words,
-        arena.biome_len,
-        &arena.free_biomes,
-        required,
-        biome_required,
-        old,
-        preserve_old_geometry,
-        arena.limits,
-    )?;
+    mut plan: ChunkRangePlan,
+) -> ChunkRangePlan {
     arena.quad_len = plan.quad_len;
-    arena.free_quads = plan.free_quads.clone();
+    arena.free_quads = std::mem::take(&mut plan.free_quads);
     arena.geometry_stream_len = plan.geometry_stream_len;
-    arena.free_geometry_stream_words = plan.free_geometry_stream_words.clone();
+    arena.free_geometry_stream_words = std::mem::take(&mut plan.free_geometry_stream_words);
     arena.biome_len = plan.biome_len;
-    arena.free_biomes = plan.free_biomes.clone();
-    Some(plan)
+    arena.free_biomes = std::mem::take(&mut plan.free_biomes);
+    plan
 }
 
 pub(in crate::chunk) fn checked_geometry_range(start: u32, count: u32) -> Option<Range<u32>> {

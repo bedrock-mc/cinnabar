@@ -464,9 +464,10 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
     });
 
     let mut total_applications = 0;
+    let mut payload_applications = 0;
     let mut total_bytes = 0;
     for (key, _, removal) in ready {
-        if !budget.can_fit(total_applications, total_bytes, 1, 0) {
+        if total_applications >= DEFAULT_RENDER_QUEUE_ITEMS {
             break;
         }
         if removal {
@@ -487,8 +488,14 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
         let Some(pending) = queue.pending.get(&key) else {
             continue;
         };
-        let pending_bytes = pending_upload_byte_len(pending);
-        if !budget.can_fit(total_applications, total_bytes, 1, pending_bytes) {
+        let pending_bytes = if pending.mesh.is_empty() {
+            0
+        } else {
+            pending_upload_byte_len(pending)
+        };
+        if pending_bytes != 0
+            && !budget.can_fit(payload_applications, total_bytes, 1, pending_bytes)
+        {
             continue;
         }
         if pending.mesh.is_empty()
@@ -576,7 +583,10 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
             entities.0.insert(key, entity);
         }
         total_applications += 1;
-        total_bytes = total_bytes.saturating_add(pending_bytes);
+        if pending_bytes != 0 {
+            payload_applications = payload_applications.saturating_add(1);
+            total_bytes = total_bytes.saturating_add(pending_bytes);
+        }
     }
 }
 

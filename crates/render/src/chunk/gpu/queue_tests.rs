@@ -267,7 +267,54 @@ fn gpu_growth_plan_copies_the_old_allocation_without_a_host_shadow_upload() {
     assert_eq!(stats.incremental_bytes, 72);
     assert_eq!(stats.gpu_copy_bytes, 64);
     assert_eq!(stats.full_shadow_bytes, 0);
-    assert_eq!(stats.total_bytes, 72);
+    assert_eq!(stats.total_bytes, 136);
+}
+
+#[test]
+fn arena_growth_copy_bytes_are_reserved_before_an_update_is_admitted() {
+    let budget = ChunkUploadBudget::new(1, 103);
+    let mut reservation = GpuUploadReservation::default();
+
+    assert!(!reservation.try_reserve(budget, 40, 64));
+    assert_eq!(reservation, GpuUploadReservation::default());
+
+    assert!(reservation.try_reserve(ChunkUploadBudget::new(1, 104), 40, 64));
+    assert_eq!(reservation.items, 1);
+    assert_eq!(reservation.incremental_bytes, 40);
+    assert_eq!(reservation.growth_copy_bytes, 64);
+    assert_eq!(reservation.total_bytes(), 104);
+}
+
+#[test]
+fn projected_arena_growth_counts_each_whole_arena_copy_once() {
+    let lengths = ArenaRequiredLengths {
+        quads: 9,
+        geometry_stream_words: 17,
+        origins: 5,
+        biome_words: 9,
+    };
+    let capacities = ArenaRequiredLengths {
+        quads: 8,
+        geometry_stream_words: 16,
+        origins: 4,
+        biome_words: 8,
+    };
+    let limits = ArenaLimits {
+        max_quad_items: 32,
+        max_geometry_stream_words: 32,
+        max_origin_items: 32,
+        max_biome_words: 32,
+    };
+
+    assert_eq!(
+        planned_arena_growth_copy_bytes(capacities, lengths, limits),
+        Some(
+            8 * PACKED_QUAD_BYTES
+                + 16 * GEOMETRY_STREAM_WORD_BYTES
+                + 4 * CHUNK_ORIGIN_BYTES
+                + 8 * BIOME_WORD_BYTES
+        )
+    );
 }
 
 #[test]

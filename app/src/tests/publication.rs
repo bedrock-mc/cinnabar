@@ -173,5 +173,50 @@ fn deterministic_streaming_trace_bounds_frame_spikes_against_fixed_128() {
         "publication_trace before_fixed128_frames={fixed_frames} before_peak_ms={fixed_peak_ms} after_adaptive_frames={adaptive_frames} after_peak_ms={adaptive_peak_ms}"
     );
     assert_eq!((fixed_frames, fixed_peak_ms), (8, 260));
-    assert_eq!((adaptive_frames, adaptive_peak_ms), (171, 20));
+    assert_eq!((adaptive_frames, adaptive_peak_ms), (128, 20));
+}
+
+#[test]
+fn default_controller_tolerates_60hz_fifo_jitter_and_recovers_additively() {
+    let mut controller = PublicationController::default();
+    let initial = controller.budget();
+    let jitter = [
+        Duration::from_micros(15_800),
+        Duration::from_micros(16_667),
+        Duration::from_micros(17_900),
+        Duration::from_micros(16_200),
+    ];
+
+    for frame in 0..240 {
+        controller.begin_frame(jitter[frame % jitter.len()]);
+    }
+
+    assert_eq!(controller.diagnostics().multiplicative_decreases, 0);
+    assert_eq!(controller.diagnostics().additive_increases, 2);
+    assert_eq!(controller.budget().max_per_frame, initial.max_per_frame + 2);
+}
+
+#[test]
+fn genuine_stalls_decrease_immediately_then_60hz_frames_recover_conservatively() {
+    let mut controller = PublicationController::default();
+    let initial = controller.budget();
+
+    controller.begin_frame(Duration::from_millis(80));
+    let reduced = controller.budget();
+    assert!(reduced.max_per_frame < initial.max_per_frame);
+
+    for frame in 0..119 {
+        let paced = if frame % 2 == 0 {
+            Duration::from_micros(16_200)
+        } else {
+            Duration::from_micros(17_600)
+        };
+        controller.begin_frame(paced);
+    }
+    assert_eq!(controller.budget(), reduced);
+
+    controller.begin_frame(Duration::from_micros(16_667));
+    assert_eq!(controller.budget().max_per_frame, reduced.max_per_frame + 1);
+    assert_eq!(controller.diagnostics().multiplicative_decreases, 1);
+    assert_eq!(controller.diagnostics().additive_increases, 1);
 }
