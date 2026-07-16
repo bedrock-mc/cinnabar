@@ -24,6 +24,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$AcceptanceParameters = @{} + $PSBoundParameters
 
 $PinnedGophertunnelCommit = 'bbe6cfdeed39713c2b20103a1294e609d5841615'
 $PinnedValentineCommit = '6cd8087fc3f0b500e41708a8afc94a0fa3291525'
@@ -46,4 +47,4 @@ if ($env:RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY -eq '1') {
     return
 }
 
-Invoke-CinnabarAcceptance @PSBoundParameters
+Invoke-CinnabarAcceptance @AcceptanceParameters
