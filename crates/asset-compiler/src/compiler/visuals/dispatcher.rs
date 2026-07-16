@@ -14,6 +14,7 @@ pub(in crate::compiler) struct ExactAdmissions {
     pub(in crate::compiler) cakes: bool,
     pub(in crate::compiler) farmland: bool,
     pub(in crate::compiler) bee_housing: bool,
+    pub(in crate::compiler) leaf_litter: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -45,6 +46,7 @@ struct VisualCompiler {
     fence_templates: BTreeMap<[u32; 2], u32>,
     sign_templates: BTreeMap<SignTemplateKey, u32>,
     chiseled_bookshelf_templates: BTreeMap<[u32; 5], u32>,
+    leaf_litter_templates: BTreeMap<[u32; 3], u32>,
 }
 
 impl VisualCompiler {
@@ -98,6 +100,17 @@ impl VisualCompiler {
             record,
             inputs,
             &mut self.sign_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::leaf_litter::compile_rule(
+            record,
+            admissions.leaf_litter,
+            inputs.material_by_descriptor,
+            inputs.pack,
+            &mut self.leaf_litter_templates,
             &mut ModelStorage {
                 templates: &mut self.model_templates,
                 quads: &mut self.model_quads,

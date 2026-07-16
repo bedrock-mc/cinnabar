@@ -18,8 +18,49 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
     .expect("parse committed production baseline");
     let current = analyze_bytes(&registry_bytes, &assets_bytes).unwrap();
     assert_eq!(current.states.len(), 16_913);
-    assert_eq!(baseline.diagnostic_sequential_ids.len(), 2_398);
-    assert_eq!(current.diagnostic_states.len(), 2_398);
+    assert_eq!(baseline.diagnostic_sequential_ids.len(), 2_366);
+    assert_eq!(current.diagnostic_states.len(), 2_366);
+
+    let expected_leaf_litter_ids = (46..=77).collect::<Vec<_>>();
+    for &sequential_id in &expected_leaf_litter_ids {
+        let record = &records[sequential_id as usize];
+        assert_eq!(record.sequential_id, sequential_id);
+        assert_eq!(record.name.as_ref(), "minecraft:leaf_litter");
+        assert_eq!(record.model_family, ModelFamily::Layer);
+        assert_eq!(record.flags, BlockFlags::empty());
+        assert!(
+            baseline
+                .diagnostic_sequential_ids
+                .binary_search(&sequential_id)
+                .is_err()
+        );
+    }
+    let mut pre_leaf_litter_baseline = baseline.clone();
+    pre_leaf_litter_baseline
+        .diagnostic_sequential_ids
+        .extend(expected_leaf_litter_ids.iter().copied());
+    pre_leaf_litter_baseline
+        .diagnostic_sequential_ids
+        .sort_unstable();
+    assert_eq!(
+        pre_leaf_litter_baseline.diagnostic_sequential_ids.len(),
+        2_398
+    );
+    let report = ratchet_protocol_1001(current.clone(), &pre_leaf_litter_baseline)
+        .expect("run exact pre-leaf-litter production ratchet");
+    assert!(report.added_diagnostics.is_empty());
+    assert_eq!(report.removed_diagnostics.len(), 32);
+    assert_eq!(
+        report
+            .removed_diagnostics
+            .iter()
+            .map(|state| state.sequential_id)
+            .collect::<Vec<_>>(),
+        expected_leaf_litter_ids
+    );
+    assert!(report.removed_diagnostics.iter().all(|state| {
+        state.name == "minecraft:leaf_litter" && state.model_family == "layer" && !state.is_air
+    }));
 
     let expected_mineral_cube_ids = [12_638, 14_658];
     for &(sequential_id, name) in &[(12_638, "minecraft:cinnabar"), (14_658, "minecraft:sulfur")] {
@@ -46,7 +87,7 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
         .sort_unstable();
     assert_eq!(
         pre_mineral_cube_baseline.diagnostic_sequential_ids.len(),
-        2_400
+        2_368
     );
     let report = ratchet_protocol_1001(current.clone(), &pre_mineral_cube_baseline)
         .expect("run exact pre-mineral-cube production ratchet");
@@ -110,7 +151,7 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
         .sort_unstable();
     assert_eq!(
         pre_bee_housing_baseline.diagnostic_sequential_ids.len(),
-        2_446
+        2_414
     );
     let report = ratchet_protocol_1001(current.clone(), &pre_bee_housing_baseline)
         .expect("run exact pre-bee-housing production ratchet");
@@ -157,7 +198,7 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
     pre_farmland_baseline
         .diagnostic_sequential_ids
         .sort_unstable();
-    assert_eq!(pre_farmland_baseline.diagnostic_sequential_ids.len(), 2_406);
+    assert_eq!(pre_farmland_baseline.diagnostic_sequential_ids.len(), 2_374);
     let report = ratchet_protocol_1001(current.clone(), &pre_farmland_baseline)
         .expect("run exact pre-farmland production ratchet");
     assert!(report.added_diagnostics.is_empty());
@@ -197,7 +238,7 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
         .diagnostic_sequential_ids
         .extend(expected_cake_ids.iter().copied());
     pre_cake_baseline.diagnostic_sequential_ids.sort_unstable();
-    assert_eq!(pre_cake_baseline.diagnostic_sequential_ids.len(), 2_405);
+    assert_eq!(pre_cake_baseline.diagnostic_sequential_ids.len(), 2_373);
     let report = ratchet_protocol_1001(current.clone(), &pre_cake_baseline)
         .expect("run exact pre-cake production ratchet");
     assert!(report.added_diagnostics.is_empty());
@@ -239,7 +280,7 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
     pre_cactus_baseline
         .diagnostic_sequential_ids
         .sort_unstable();
-    assert_eq!(pre_cactus_baseline.diagnostic_sequential_ids.len(), 2_414);
+    assert_eq!(pre_cactus_baseline.diagnostic_sequential_ids.len(), 2_382);
     let report = ratchet_protocol_1001(current.clone(), &pre_cactus_baseline)
         .expect("run exact pre-cactus production ratchet");
     assert!(report.added_diagnostics.is_empty());
@@ -287,7 +328,7 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
         .sort_unstable();
     assert_eq!(
         pre_selector_alias_baseline.diagnostic_sequential_ids.len(),
-        2_425
+        2_393
     );
     let report = ratchet_protocol_1001(current.clone(), &pre_selector_alias_baseline)
         .expect("run exact pre-selector-alias production ratchet");
@@ -335,7 +376,7 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
         .sort_unstable();
     assert_eq!(
         pre_resin_clump_baseline.diagnostic_sequential_ids.len(),
-        2_462
+        2_430
     );
     let report = ratchet_protocol_1001(current.clone(), &pre_resin_clump_baseline)
         .expect("run exact pre-resin-clump production ratchet");
@@ -380,7 +421,7 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
         pre_chiseled_bookshelf_baseline
             .diagnostic_sequential_ids
             .len(),
-        2_654
+        2_622
     );
     let report = ratchet_protocol_1001(current.clone(), &pre_chiseled_bookshelf_baseline)
         .expect("run exact pre-chiseled-bookshelf production ratchet");
@@ -424,7 +465,7 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
         .sort_unstable();
     assert_eq!(
         pre_copper_grate_baseline.diagnostic_sequential_ids.len(),
-        2_406
+        2_374
     );
     let report = ratchet_protocol_1001(current.clone(), &pre_copper_grate_baseline)
         .expect("run exact pre-copper-grate production ratchet");
@@ -465,9 +506,9 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
         .sort_unstable();
     assert_eq!(
         pre_stained_glass_baseline.diagnostic_sequential_ids.len(),
-        2_414
+        2_382
     );
-    assert_eq!(2_414 + COPPER_GRATE_REMOVALS.len(), 2_422);
+    assert_eq!(2_382 + COPPER_GRATE_REMOVALS.len(), 2_390);
     let report = ratchet_protocol_1001(current.clone(), &pre_stained_glass_baseline)
         .expect("run exact pre-stained-glass production ratchet");
     assert!(report.added_diagnostics.is_empty());
@@ -501,7 +542,7 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
         .diagnostic_sequential_ids
         .extend(expected_sign_ids.iter().copied());
     pre_sign_baseline.diagnostic_sequential_ids.sort_unstable();
-    assert_eq!(pre_sign_baseline.diagnostic_sequential_ids.len(), 7_270);
+    assert_eq!(pre_sign_baseline.diagnostic_sequential_ids.len(), 7_238);
     let report = ratchet_protocol_1001(current.clone(), &pre_sign_baseline)
         .expect("run exact pre-sign production ratchet");
     assert!(report.added_diagnostics.is_empty());
@@ -547,10 +588,10 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
         .sort_unstable();
     assert_eq!(
         pre_multiface_baseline.diagnostic_sequential_ids.len(),
-        2_526
+        2_494
     );
-    assert_eq!(2_526 + COPPER_GRATE_REMOVALS.len(), 2_534);
-    assert_eq!(2_534 + STAINED_GLASS_REMOVALS.len(), 2_550);
+    assert_eq!(2_494 + COPPER_GRATE_REMOVALS.len(), 2_502);
+    assert_eq!(2_502 + STAINED_GLASS_REMOVALS.len(), 2_518);
     let report = ratchet_protocol_1001(current.clone(), &pre_multiface_baseline)
         .expect("run exact pre-multiface production ratchet");
     assert!(report.added_diagnostics.is_empty());
@@ -587,9 +628,9 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
         .diagnostic_sequential_ids
         .extend(expected_gate_ids.iter().copied());
     pre_gate_baseline.diagnostic_sequential_ids.sort_unstable();
-    assert_eq!(pre_gate_baseline.diagnostic_sequential_ids.len(), 2_590);
-    assert_eq!(2_590 + COPPER_GRATE_REMOVALS.len(), 2_598);
-    assert_eq!(2_598 + STAINED_GLASS_REMOVALS.len(), 2_614);
+    assert_eq!(pre_gate_baseline.diagnostic_sequential_ids.len(), 2_558);
+    assert_eq!(2_558 + COPPER_GRATE_REMOVALS.len(), 2_566);
+    assert_eq!(2_566 + STAINED_GLASS_REMOVALS.len(), 2_582);
     let report = ratchet_protocol_1001(current.clone(), &pre_gate_baseline)
         .expect("run exact pre-Gate production ratchet");
     assert!(report.added_diagnostics.is_empty());
@@ -626,9 +667,9 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
     pre_carpet_baseline
         .diagnostic_sequential_ids
         .sort_unstable();
-    assert_eq!(pre_carpet_baseline.diagnostic_sequential_ids.len(), 2_577);
-    assert_eq!(2_577 + COPPER_GRATE_REMOVALS.len(), 2_585);
-    assert_eq!(2_585 + STAINED_GLASS_REMOVALS.len(), 2_601);
+    assert_eq!(pre_carpet_baseline.diagnostic_sequential_ids.len(), 2_545);
+    assert_eq!(2_545 + COPPER_GRATE_REMOVALS.len(), 2_553);
+    assert_eq!(2_553 + STAINED_GLASS_REMOVALS.len(), 2_569);
     let report = ratchet_protocol_1001(current.clone(), &pre_carpet_baseline)
         .expect("run exact pre-Carpet production ratchet");
     assert!(report.added_diagnostics.is_empty());
@@ -665,9 +706,9 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
     pre_button_baseline
         .diagnostic_sequential_ids
         .sort_unstable();
-    assert_eq!(pre_button_baseline.diagnostic_sequential_ids.len(), 2_566);
-    assert_eq!(2_566 + COPPER_GRATE_REMOVALS.len(), 2_574);
-    assert_eq!(2_574 + STAINED_GLASS_REMOVALS.len(), 2_590);
+    assert_eq!(pre_button_baseline.diagnostic_sequential_ids.len(), 2_534);
+    assert_eq!(2_534 + COPPER_GRATE_REMOVALS.len(), 2_542);
+    assert_eq!(2_542 + STAINED_GLASS_REMOVALS.len(), 2_558);
     let report = ratchet_protocol_1001(current.clone(), &pre_button_baseline)
         .expect("run exact pre-Button production ratchet");
     assert!(report.added_diagnostics.is_empty());
@@ -713,10 +754,10 @@ fn production_ratchet_reports_exact_model_removals_for_the_full_real_pack() {
         .sort_unstable();
     assert_eq!(
         pre_huge_mushroom_baseline.diagnostic_sequential_ids.len(),
-        2_446
+        2_414
     );
-    assert_eq!(2_446 + COPPER_GRATE_REMOVALS.len(), 2_454);
-    assert_eq!(2_454 + STAINED_GLASS_REMOVALS.len(), 2_470);
+    assert_eq!(2_414 + COPPER_GRATE_REMOVALS.len(), 2_422);
+    assert_eq!(2_422 + STAINED_GLASS_REMOVALS.len(), 2_438);
     let report = ratchet_protocol_1001(current.clone(), &pre_huge_mushroom_baseline)
         .expect("run exact pre-huge-mushroom production ratchet");
     assert!(report.added_diagnostics.is_empty());

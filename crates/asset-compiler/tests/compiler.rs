@@ -46,6 +46,9 @@ mod resin_clump;
 #[path = "compiler/flowerbed.rs"]
 mod flowerbed;
 
+#[path = "compiler/leaf_litter.rs"]
+mod leaf_litter;
+
 #[path = "compiler/slabs.rs"]
 mod slabs;
 

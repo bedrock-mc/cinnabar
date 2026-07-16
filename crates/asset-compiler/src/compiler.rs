@@ -7,15 +7,15 @@ use assets::{
     Animation, AssetError, BiomeRegistryRecord, BlockFlags, BlockVisual, CompiledAssets,
     CompiledBiomeAssets, ContributorRole, DIAGNOSTIC_MATERIAL, LightProperties,
     MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_BIRCH_FOLIAGE,
-    MATERIAL_FLAG_EVERGREEN_FOLIAGE, MATERIAL_FLAG_FOLIAGE_TINT, MATERIAL_FLAG_GRASS_TINT,
-    MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_OVERLAY_MASK, MATERIAL_FLAG_ROTATE_UV,
-    MATERIAL_FLAG_WATER_TINT, MAX_MATERIALS, MAX_TEXTURE_LAYERS, MODEL_QUAD_FLAG_FACE_MASK,
-    MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_FENCE_NETHER,
-    MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
-    MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE,
-    MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, MODEL_TEMPLATE_FLAG_WALL,
-    Material, ModelFamily, ModelQuad, ModelStateField, ModelTemplate, NO_ANIMATION, RegistryRecord,
-    TextureArray, TexturePage, TextureRef, VisualKind,
+    MATERIAL_FLAG_DRY_FOLIAGE, MATERIAL_FLAG_EVERGREEN_FOLIAGE, MATERIAL_FLAG_FOLIAGE_TINT,
+    MATERIAL_FLAG_GRASS_TINT, MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_OVERLAY_MASK,
+    MATERIAL_FLAG_ROTATE_UV, MATERIAL_FLAG_WATER_TINT, MAX_MATERIALS, MAX_TEXTURE_LAYERS,
+    MODEL_QUAD_FLAG_FACE_MASK, MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
+    MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD,
+    MODEL_TEMPLATE_FLAG_GATE_AXIS_X, MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP,
+    MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
+    MODEL_TEMPLATE_FLAG_WALL, Material, ModelFamily, ModelQuad, ModelStateField, ModelTemplate,
+    NO_ANIMATION, RegistryRecord, TextureArray, TexturePage, TextureRef, VisualKind,
 };
 
 use crate::{
@@ -66,6 +66,10 @@ use visuals::{
     },
     flowerbed::flowerbed_quads,
     geometry::cuboid_quads,
+    leaf_litter::{
+        is_leaf_litter_name, is_leaf_litter_record, leaf_litter_inventory_is_exact,
+        leaf_litter_material_descriptor, leaf_litter_source_alpha_is_exact,
+    },
     mineral_cubes::{
         is_mineral_cube_name, is_mineral_cube_record, mineral_cube_inventory_is_exact,
         mineral_cube_material_descriptor, mineral_cube_sources_are_exact,
@@ -192,6 +196,8 @@ fn compile_pack_inner(
     let admit_farmland =
         farmland_inventory_is_exact(records) && farmland_source_alpha_is_exact(root, &pack);
     let admit_bee_housing = bee_housing_inventory_is_exact(records);
+    let admit_leaf_litter =
+        leaf_litter_inventory_is_exact(records) && leaf_litter_source_alpha_is_exact(root, &pack);
 
     let mut descriptor_keys = BTreeMap::<Descriptor, Box<str>>::new();
     for record in records.iter().filter(|record| {
@@ -218,6 +224,9 @@ fn compile_pack_inner(
         }
         if is_bee_housing_name(&record.name) {
             return admit_bee_housing && is_bee_housing_record(record);
+        }
+        if is_leaf_litter_name(&record.name) {
+            return admit_leaf_litter && is_leaf_litter_record(record);
         }
         (record.flags.contains(BlockFlags::CUBE_GEOMETRY)
             && !record_has_deferred_material(&pack, record))
@@ -281,6 +290,12 @@ fn compile_pack_inner(
                 for (descriptor, key) in descriptors {
                     descriptor_keys.insert(descriptor, key);
                 }
+            }
+            continue;
+        }
+        if admit_leaf_litter && is_leaf_litter_record(record) {
+            if let Some((descriptor, key)) = leaf_litter_material_descriptor(&pack) {
+                descriptor_keys.insert(descriptor, key);
             }
             continue;
         }
@@ -357,6 +372,7 @@ fn compile_pack_inner(
             cakes: admit_cakes,
             farmland: admit_farmland,
             bee_housing: admit_bee_housing,
+            leaf_litter: admit_leaf_litter,
         },
     )?;
     if light_properties.len() != visuals.len() {

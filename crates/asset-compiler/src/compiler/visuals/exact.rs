@@ -61,6 +61,7 @@ pub(in crate::compiler) fn compile_exact_families(
         cakes: admit_cakes,
         farmland: admit_farmland,
         bee_housing: admit_bee_housing,
+        ..
     } = admissions;
     if matches!(
         exact_family_admission(record, admissions),

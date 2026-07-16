@@ -65,6 +65,22 @@ impl BlockTextureMap {
         }
     }
 
+    /// Returns the pinned leaf-litter scalar route only when its block entry
+    /// carries the reviewed item texture and no additional metadata.
+    pub(crate) fn get_exact_leaf_litter(&self) -> Option<&str> {
+        let entry = self.entries.get("leaf_litter")?;
+        if entry.sound.as_ref()?.as_str()? != "leaf_litter"
+            || entry.extra.len() != 1
+            || entry.extra.get("carried_textures")?.as_str()? != "leaf_litter_carried"
+        {
+            return None;
+        }
+        match &entry.textures {
+            TextureValue::Key(key) => Some(key),
+            TextureValue::Faces(_) => None,
+        }
+    }
+
     /// Returns six explicit face keys. Fallback `side` routing is deliberately
     /// excluded so exact model families cannot accept an underspecified map.
     pub(crate) fn get_exact_faces(&self, block_name: &str) -> Option<[&str; 6]> {
