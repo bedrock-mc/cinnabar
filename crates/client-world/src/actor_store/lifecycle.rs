@@ -89,9 +89,12 @@ impl ActorStore {
                     return ActorApplyResult::MissingActor;
                 };
                 let mut received = actor.received_pose;
-                let player_network_position = movement.position_origin
-                    == ActorPositionOrigin::NetworkOffset
-                    && matches!(actor.kind, ActorKind::Player { .. });
+                let network_position_offset =
+                    if movement.position_origin == ActorPositionOrigin::NetworkOffset {
+                        actor.network_position_offset()
+                    } else {
+                        0.0
+                    };
                 for (axis, (target, source)) in received
                     .position
                     .iter_mut()
@@ -99,8 +102,8 @@ impl ActorStore {
                     .enumerate()
                 {
                     if let Some(source) = source {
-                        *target = if player_network_position && axis == 1 {
-                            source - PLAYER_NETWORK_OFFSET
+                        *target = if axis == 1 {
+                            source - network_position_offset
                         } else {
                             source
                         };

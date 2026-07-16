@@ -264,12 +264,13 @@ pub struct MovePlayerEvent {
 /// Visual eye height of a standing player above its feet.
 pub const STANDING_PLAYER_EYE_HEIGHT: f32 = 1.62;
 
-/// Bedrock's fixed network-position offset for player movement packets.
+/// Bedrock's standing-player network-position offset for movement packets.
 ///
 /// This is deliberately distinct from [`STANDING_PLAYER_EYE_HEIGHT`]. Actor
 /// spawns use a feet origin, while player and actor-absolute movement positions
-/// include this protocol offset.
-pub const PLAYER_NETWORK_OFFSET: f32 = 1.621;
+/// include a pose-specific protocol offset; sleeping is resolved from retained
+/// actor metadata by the client world.
+pub const PLAYER_NETWORK_OFFSET: f32 = 1.62001;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum MovePlayerMode {

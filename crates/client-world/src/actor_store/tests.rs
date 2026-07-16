@@ -41,6 +41,39 @@ fn player_spawn(runtime_id: u64, unique_id: i64, x: f32) -> ActorEvent {
     ActorEvent::Spawn(spawn)
 }
 
+fn entity_spawn(
+    runtime_id: u64,
+    unique_id: i64,
+    identifier: &str,
+    metadata: Arc<[ActorMetadata]>,
+) -> ActorEvent {
+    let ActorEvent::Spawn(mut spawn) = spawn(runtime_id, unique_id) else {
+        unreachable!();
+    };
+    spawn.kind = ActorKind::Entity {
+        identifier: identifier.into(),
+    };
+    spawn.position = [0.0, 64.0, 0.0];
+    spawn.metadata = metadata;
+    ActorEvent::Spawn(spawn)
+}
+
+fn network_move(runtime_id: u64, y: f32, teleported: bool) -> ActorEvent {
+    ActorEvent::Move(ActorMoveEvent {
+        dimension: 0,
+        runtime_id,
+        position: [None, Some(y), None],
+        position_origin: ActorPositionOrigin::NetworkOffset,
+        pitch: None,
+        yaw: None,
+        head_yaw: None,
+        on_ground: Some(true),
+        teleported,
+        player_mode: None,
+        source_tick: None,
+    })
+}
+
 fn player_move(runtime_id: u64, x: f32, teleported: bool) -> ActorEvent {
     ActorEvent::Move(ActorMoveEvent {
         dimension: 0,
@@ -63,6 +96,7 @@ fn player_move(runtime_id: u64, x: f32, teleported: bool) -> ActorEvent {
 
 #[test]
 fn player_network_position_is_normalized_to_spawn_feet_space() {
+    assert_eq!(PLAYER_NETWORK_OFFSET, 1.62001);
     let mut store = ActorStore::new(1, 0);
     store.apply(1, 1, player_spawn(42, -7, 0.0));
     store.apply(
@@ -85,6 +119,162 @@ fn player_network_position_is_normalized_to_spawn_feet_space() {
 
     let actor = store.get(42).expect("stored player");
     assert!((actor.received_pose.position[1] - 64.0).abs() < 1e-5);
+}
+
+#[test]
+fn sleeping_player_network_position_uses_explicit_sleeping_metadata() {
+    const PLAYER_FLAGS_KEY: i32 = 26;
+    const PLAYER_SLEEPING_BIT: i8 = 1 << 1;
+
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, player_spawn(42, -7, 0.0));
+    store.apply(
+        1,
+        2,
+        ActorEvent::Metadata(ActorMetadataUpdateEvent {
+            dimension: 0,
+            runtime_id: 42,
+            metadata: Arc::from([ActorMetadata {
+                key: PLAYER_FLAGS_KEY,
+                value: ActorMetadataValue::Byte(PLAYER_SLEEPING_BIT),
+            }]),
+            properties: Arc::from([]),
+            tick: 2,
+        }),
+    );
+    store.apply(1, 3, network_move(42, 64.2, true));
+
+    assert!((store.get(42).unwrap().position[1] - 64.0).abs() < 1e-5);
+}
+
+#[test]
+fn sleeping_player_network_position_accepts_the_extended_sleeping_flag() {
+    const EXTENDED_FLAGS_KEY: i32 = 92;
+    const EXTENDED_SLEEPING_BIT: u64 = 1 << 11;
+
+    let mut store = ActorStore::new(1, 0);
+    let ActorEvent::Spawn(mut spawn) = player_spawn(42, -7, 0.0) else {
+        unreachable!();
+    };
+    spawn.metadata = Arc::from([ActorMetadata {
+        key: EXTENDED_FLAGS_KEY,
+        value: ActorMetadataValue::FlagsExtended(EXTENDED_SLEEPING_BIT),
+    }]);
+    store.apply(1, 1, ActorEvent::Spawn(spawn));
+    store.apply(1, 2, network_move(42, 64.2, true));
+
+    assert!((store.get(42).unwrap().position[1] - 64.0).abs() < 1e-5);
+}
+
+#[test]
+fn spawn_and_partial_positions_never_apply_network_offsets() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, entity_spawn(42, -7, "minecraft:boat", Arc::from([])));
+    assert_eq!(store.get(42).unwrap().position[1], 64.0);
+
+    store.apply(
+        1,
+        2,
+        ActorEvent::Move(ActorMoveEvent {
+            dimension: 0,
+            runtime_id: 42,
+            position: [None, Some(64.375), None],
+            position_origin: ActorPositionOrigin::Feet,
+            pitch: None,
+            yaw: None,
+            head_yaw: None,
+            on_ground: Some(true),
+            teleported: true,
+            player_mode: None,
+            source_tick: None,
+        }),
+    );
+    assert_eq!(store.get(42).unwrap().position[1], 64.375);
+}
+
+#[test]
+fn absolute_network_positions_use_supported_entity_kind_offsets() {
+    let cases = [
+        ("minecraft:item", 0.5),
+        ("minecraft:falling_block", 0.5),
+        ("minecraft:minecart", 0.5),
+        ("minecraft:chest_minecart", 0.5),
+        ("minecraft:hopper_minecart", 0.5),
+        ("minecraft:tnt_minecart", 0.5),
+        ("minecraft:command_block_minecart", 0.5),
+        ("minecraft:boat", 0.375),
+    ];
+
+    for (index, (identifier, offset)) in cases.into_iter().enumerate() {
+        let runtime_id = index as u64 + 40;
+        let mut store = ActorStore::new(1, 0);
+        store.apply(
+            1,
+            1,
+            entity_spawn(runtime_id, -(runtime_id as i64), identifier, Arc::from([])),
+        );
+        store.apply(1, 2, network_move(runtime_id, 64.0 + offset, true));
+
+        assert!(
+            (store.get(runtime_id).unwrap().position[1] - 64.0).abs() < 1e-5,
+            "{identifier} retained a network-space Y"
+        );
+    }
+}
+
+#[test]
+fn unknown_minecraft_suffixes_do_not_inherit_reviewed_offsets() {
+    for (index, identifier) in ["minecraft:display_boat", "minecraft:custom_minecart"]
+        .into_iter()
+        .enumerate()
+    {
+        let runtime_id = index as u64 + 40;
+        let mut store = ActorStore::new(1, 0);
+        store.apply(
+            1,
+            1,
+            entity_spawn(runtime_id, -(runtime_id as i64), identifier, Arc::from([])),
+        );
+        store.apply(1, 2, network_move(runtime_id, 64.75, true));
+
+        assert_eq!(
+            store.get(runtime_id).unwrap().position[1],
+            64.75,
+            "{identifier} inherited an offset without a reviewed mapping"
+        );
+    }
+}
+
+#[test]
+fn primed_tnt_network_offset_uses_retained_bounding_box_height() {
+    const BOUNDING_BOX_HEIGHT_KEY: i32 = 54;
+
+    let mut store = ActorStore::new(1, 0);
+    store.apply(
+        1,
+        1,
+        entity_spawn(
+            42,
+            -7,
+            "minecraft:tnt",
+            Arc::from([ActorMetadata {
+                key: BOUNDING_BOX_HEIGHT_KEY,
+                value: ActorMetadataValue::Float(1.2),
+            }]),
+        ),
+    );
+    store.apply(1, 2, network_move(42, 64.6, true));
+
+    assert!((store.get(42).unwrap().position[1] - 64.0).abs() < 1e-5);
+}
+
+#[test]
+fn primed_tnt_without_height_uses_the_vanilla_default_offset() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, entity_spawn(42, -7, "minecraft:tnt", Arc::from([])));
+    store.apply(1, 2, network_move(42, 64.49, true));
+
+    assert!((store.get(42).unwrap().position[1] - 64.0).abs() < 1e-5);
 }
 
 #[test]

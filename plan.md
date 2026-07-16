@@ -1523,9 +1523,14 @@ and dropped-item rendering, paper-doll first-person arm/held item.
   profiles to the sparse actor store, whose cumulative retained skin bytes remain capped across
   incremental roster packets. Foreign `MovePlayer` metadata preserves head yaw, ground state,
   mode, and signed source tick while retaining explicit packet-coordinate origin. `AddPlayer`
-  remains feet-space, while `MovePlayer` and absolute actor movement are normalized exactly once
-  from Bedrock's `1.621` player network offset after the retained actor is known to be a player;
-  partial/delta movement and non-player actors are unchanged. The client-world store performs
+  and `AddActor` remain feet-space, while `MovePlayer` and absolute actor movement are normalized
+  exactly once after retained actor kind and metadata are known. Standing players use Bedrock's
+  `1.62001` offset; sleeping players use `0.2` only when retained sleeping flags prove the pose;
+  retained item actors, falling blocks, and the reviewed vanilla minecart identifiers use `0.5`;
+  `minecraft:boat` uses `0.375`; and primed TNT uses half its retained bounding-box height with
+  the vanilla `0.49` default. The
+  separate `AddItemEntity` spawn packet still awaits ingestion. Partial/delta movement and actors
+  without a reviewed offset remain unchanged. The client-world store performs
   Oomph-style three-20-Hz-tick player convergence;
   teleports and actor replacement snap immediately, and the renderer performs the distinct
   adjacent-tick frame interpolation with shortest-path angles. Camera-frustum and conservative
@@ -1562,7 +1567,7 @@ and dropped-item rendering, paper-doll first-person arm/held item.
   that AddPlayer/MovePlayer origins, three-tick convergence, frame
   interpolation, and the shared biped model keep both feet on the same ground
   plane without a 1.6-block jump. Keep the visual standing eye height (`1.62`)
-  distinct from Bedrock's player movement network offset (`1.621`).
+  distinct from Bedrock's standing-player movement network offset (`1.62001`).
   Capture bounded native visual and packet/pose evidence.
 
 ## Phase 5 — Interaction, inventory, UI
