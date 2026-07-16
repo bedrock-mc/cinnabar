@@ -453,7 +453,7 @@ fn load_entity_assets(world_asset_path: &Path) -> Result<LoadedEntityAssets, Ass
             rebuild_command: ENTITY_ASSETS_COMPILE_COMMAND,
         }
     })?);
-    let expected_manifest_sha256: [u8; 32] = Sha256::digest(VANILLA_SOURCE_JSON.as_bytes()).into();
+    let expected_manifest_sha256 = canonical_source_manifest_sha256(VANILLA_SOURCE_JSON);
     let actual_manifest_sha256 = runtime.source_manifest_sha256();
     if actual_manifest_sha256 != expected_manifest_sha256 {
         return Err(AssetStartupError::EntityAssetsProvenance {
@@ -468,6 +468,29 @@ fn load_entity_assets(world_asset_path: &Path) -> Result<LoadedEntityAssets, Ass
         identity,
         selected_path: path,
     })
+}
+
+fn canonical_source_manifest_sha256(source: &str) -> [u8; 32] {
+    let source = source.as_bytes();
+    if !source.contains(&b'\r') {
+        return Sha256::digest(source).into();
+    }
+    let mut canonical = Vec::with_capacity(source.len());
+    let mut index = 0;
+    while index < source.len() {
+        match source[index] {
+            b'\r' if source.get(index + 1) == Some(&b'\n') => {
+                canonical.push(b'\n');
+                index += 2;
+            }
+            b'\r' | b'\n' => return Sha256::digest(source).into(),
+            byte => {
+                canonical.push(byte);
+                index += 1;
+            }
+        }
+    }
+    Sha256::digest(canonical).into()
 }
 
 fn load_atmosphere_assets(
@@ -573,5 +596,26 @@ fn runtime_metrics(
         missing_mapping_count: runtime.missing_count(),
         diagnostic_quad_count: 0,
         diagnostic_attribution: Default::default(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::canonical_source_manifest_sha256;
+
+    #[test]
+    fn canonical_source_manifest_hash_is_line_ending_invariant() {
+        assert_eq!(
+            canonical_source_manifest_sha256("{\r\n  \"schema\": 1\r\n}\r\n"),
+            canonical_source_manifest_sha256("{\n  \"schema\": 1\n}\n")
+        );
+    }
+
+    #[test]
+    fn mixed_source_manifest_line_endings_do_not_match_the_canonical_pin() {
+        assert_ne!(
+            canonical_source_manifest_sha256("{\r\n  \"schema\": 1\n}\r\n"),
+            canonical_source_manifest_sha256("{\n  \"schema\": 1\n}\n")
+        );
     }
 }
