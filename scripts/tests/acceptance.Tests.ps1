@@ -1,3 +1,5 @@
+$ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+
 . (Join-Path $PSScriptRoot 'acceptance\Assertions.ps1')
 . (Join-Path $PSScriptRoot 'acceptance\Fixtures.ps1')
 

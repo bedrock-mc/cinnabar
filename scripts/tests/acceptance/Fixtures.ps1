@@ -334,5 +334,3 @@ function Complete-TestLoggedProcess {
         throw "test logged-process cleanup failed: $($cleanupFailures -join '; ')"
     }
 }
-
-$ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
