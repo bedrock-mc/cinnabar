@@ -55,7 +55,7 @@ protocol + world + assets + meshing
 assets + world + meshing + Bevy/WGPU
   `-- render                   GPU resources, extraction, queuing, and presentation
 
-client-world + render + Bevy
+client-world + render + protocol + assets + world + Bevy
   `-- app                      executable composition and acceptance control
 ```
 
@@ -102,39 +102,18 @@ Create `crates/asset-compiler` as an offline leaf depending on `assets`. It owns
 crates/asset-compiler/src/
 |-- lib.rs
 |-- compiler.rs
-|-- materials.rs
-|-- image_decode.rs
+|-- compiler/
+|   |-- classification.rs
+|   `-- visuals/
+|       |-- dispatcher.rs
+|       |-- context.rs
+|       |-- exact.rs
+|       |-- surfaces.rs
+|       |-- geometry.rs
+|       `-- <one module per visual family>
+|-- image.rs
 |-- pack/
-|-- geometry/
-|-- visuals/
-|   |-- mod.rs
-|   `-- families/
-|       |-- bee_housing.rs
-|       |-- cake.rs
-|       |-- cactus.rs
-|       |-- farmland.rs
-|       |-- selector_alias.rs
-|       |-- resin_clump.rs
-|       |-- bookshelf.rs
-|       |-- transparent_cube.rs
-|       |-- liquid.rs
-|       |-- flowerbed.rs
-|       |-- signs.rs
-|       |-- vine.rs
-|       |-- multiface.rs
-|       |-- doors.rs
-|       |-- walls.rs
-|       |-- pressure_plates.rs
-|       |-- buttons.rs
-|       |-- carpets.rs
-|       |-- gates.rs
-|       |-- panes.rs
-|       |-- fences.rs
-|       |-- slabs.rs
-|       |-- stairs.rs
-|       |-- kelp.rs
-|       |-- cross.rs
-|       `-- fallback_cube.rs
+|   `-- <parsing modules by source-file ownership>
 `-- bin/assetc.rs
 ```
 
@@ -198,27 +177,30 @@ retain compatibility re-exports.
 
 ## Client-world pipeline
 
-Create `crates/client-world` for the client-only authoritative world pipeline:
+Create `crates/client-world` for the client-only authoritative world pipeline. State-machine
+implementations are descendants of `stream`, not siblings, so they can access private
+`WorldStream` fields without widening those fields to `pub(crate)`:
 
 ```text
 crates/client-world/src/
 |-- lib.rs
 |-- stream.rs
-|-- sequencing.rs
-|-- admission.rs
-|-- decode.rs
-|-- residency.rs
-|-- requests.rs
-|-- cohort.rs
-|-- meshing.rs
-|-- lighting/
-|   |-- mod.rs
-|   |-- snapshot.rs
-|   `-- scheduler.rs
+|-- stream/
+|   |-- sequencing.rs
+|   |-- admission.rs
+|   |-- decode.rs
+|   |-- residency.rs
+|   |-- requests.rs
+|   |-- cohort.rs
+|   |-- meshing.rs
+|   |-- stats.rs
+|   `-- lighting/
+|       |-- mod.rs
+|       |-- snapshot.rs
+|       `-- scheduler.rs
 |-- actors.rs
 |-- block_entities.rs
 |-- server_position.rs
-`-- stats.rs
 ```
 
 Move `WorldStream`, `actor_store`, `block_entity_visuals`, and `server_position` into this crate.
@@ -306,6 +288,11 @@ app/src/
 |-- main.rs
 |-- lib.rs
 |-- app.rs
+|-- args.rs
+|-- asset_startup.rs
+|-- camera.rs
+|-- movement.rs
+|-- environment.rs
 |-- runtime/
 |   |-- endpoint.rs
 |   |-- shutdown.rs
@@ -320,6 +307,8 @@ app/src/
     |-- remesh.rs
     |-- mutation.rs
     |-- proofs.rs
+    |-- model_witness.rs
+    |-- transparent_witness.rs
     `-- markers.rs
 ```
 
@@ -329,8 +318,9 @@ acceptance-only tracker, deterministic proof constructor, completion decision, a
 rather than becoming generic `helpers` modules.
 
 Rust `acceptance::markers` and PowerShell `Markers.ps1` form one cross-language protocol. A
-structural test checks that every marker literal has exactly one Rust producer and the expected
-PowerShell parser/consumer.
+checked-in expectations table classifies each marker as parsed acceptance evidence or log-only
+diagnostic output. A structural test checks that every literal has exactly one Rust producer and
+the declared parser/consumer contract.
 
 ## PowerShell acceptance harness
 
@@ -339,6 +329,7 @@ constants, top-level validation, fixed library load order, and main orchestratio
 
 ```text
 scripts/acceptance/
+|-- Load.ps1
 |-- Common.ps1
 |-- RuntimePaths.ps1
 |-- Process.ps1
@@ -347,6 +338,10 @@ scripts/acceptance/
 |-- Proofs.ps1
 |-- Resources.ps1
 |-- Metrics.ps1
+|-- Orchestrator.ps1
+|-- Orchestration/
+|   |-- Execute.ps1
+|   `-- Validate.ps1
 `-- Galleries/
     |-- Common.ps1
     |-- Leaves.ps1
@@ -390,9 +385,9 @@ private access. Before the final dependency guardrail lands, it splits into pure
 client-world scheduler tests and an app-owned public-contract publication test. No permanent
 test-support production API or Bevy normal dependency is introduced.
 
-Every mechanical move records `cargo test -- --list` before and after and compares exact test names
-and counts. Test behavior may be rewritten only in a separate semantic commit with an explicit
-reason.
+Every mechanical move records `cargo test -- --list` before and after and preserves counts while
+maintaining an explicit old-module-to-new-module accounting for renamed test paths. Test behavior
+may be rewritten only in a separate semantic commit with an explicit reason.
 
 ## Migration sequence
 
@@ -413,9 +408,11 @@ but do not start repeated review loops unless a correction materially changes pr
 8. Move `WorldStream` and its private collaborators into `client-world`, then separate method and
    test modules without regrouping scheduler state.
 9. Add the app library and split runtime composition, telemetry, and acceptance evidence.
-10. Remove migration scaffolding, rewrite the mixed publication test across its final owners, run
+10. Split every remaining oversized handwritten source named by the baseline inventory, including
+    assets runtime, asset-compiler pack parsing/tests, visualcoverage, and actor storage.
+11. Remove migration scaffolding, rewrite the mixed publication test across its final owners, run
     benchmarks, and execute the full native acceptance gate.
-11. Enable final architecture enforcement only after the tree complies.
+12. Enable final architecture enforcement only after the tree complies.
 
 No step changes the stable Windows BDS or Rust client executable paths used by live tests. No
 Mojang asset, screenshot, runtime, or evidence payload enters git.
@@ -452,10 +449,10 @@ the allowed crate dependency edges and source-size budgets:
 - test source maximum: 1,200 lines
 - gallery code split by family before reaching the PowerShell limit
 
-During migration the checker operates as a ratchet against the recorded baseline. Final strict
-enforcement begins only when the repository complies. Exceptions are allowed only for generated or
-versioned data and must include an owner, reason, and expiry. Handwritten production and test code
-cannot use the exception manifest.
+Final strict enforcement begins only when the repository complies. Generated/versioned data may
+use an exception with an owner, reason, and expiry. Tracked third-party snapshots under an explicit
+vendored path use a separate first-class policy scope tied to their upstream ownership record;
+handwritten first-party production and test code cannot use either mechanism.
 
 The checker also rejects:
 

@@ -264,13 +264,13 @@ Commit: `refactor: extract offline asset compiler`
 - `CompileRuleResult = NoMatch | Reject | Compiled(BlockVisual)` preserves exact fail-closed ordering.
 - `VisualCompiler` owns material lookup and template interning; family modules receive `&RegistryRecord` plus `&mut VisualCompiler`.
 
-- [ ] **Step 1: Add fail-closed dispatcher characterization tests**
+- [x] **Step 1: Add fail-closed dispatcher characterization tests**
 
 For selector aliases, bee housing, cake, and resin, assert malformed owned names produce `Reject` and never reach the generic cube fallback. Assert unrelated names produce `NoMatch`.
 
 Expected before the dispatcher: compile failure because `CompileRuleResult` is absent.
 
-- [ ] **Step 2: Introduce the explicit ordered result contract**
+- [x] **Step 2: Introduce the explicit ordered result contract**
 
 ```rust
 pub(super) enum CompileRuleResult {
@@ -282,11 +282,11 @@ pub(super) enum CompileRuleResult {
 
 The dispatcher lists family functions explicitly and stops on `Reject` or `Compiled`.
 
-- [ ] **Step 3: Move each family as a cohesive unit**
+- [x] **Step 3: Move each family as a cohesive unit**
 
 Move recognizer, exact state parser, complete inventory admission, descriptors, and quad construction together. Keep shared cuboid/rotation operations in `geometry`; keep family-specific constants with their family.
 
-- [ ] **Step 4: Split the single compiler integration harness without multiplying binaries**
+- [x] **Step 4: Split the single compiler integration harness without multiplying binaries**
 
 Retain `tests/compiler.rs` as the Cargo integration target. It declares shared support plus the
 exact family files `bee_housing.rs`, `cake.rs`, `cactus.rs`, `farmland.rs`,
@@ -297,7 +297,7 @@ exact family files `bee_housing.rs`, `cake.rs`, `cactus.rs`, `farmland.rs`,
 `#[path = "compiler/family.rs"] mod family;` declarations. Shared fixture construction lives in
 `tests/compiler/support.rs`.
 
-- [ ] **Step 5: Verify deterministic compiler parity and commit**
+- [x] **Step 5: Verify deterministic compiler parity and commit**
 
 Run:
 
@@ -417,10 +417,13 @@ Commit: `refactor: decompose chunk renderer`
 - `client_world::WorldStream` retains the current behavioral public methods.
 - The app defines `#[derive(Resource)] struct ClientWorld` and stores `Option<WorldStream>`; client-world itself has no Bevy normal dependency.
 - Scheduler fields remain one `WorldStream` state during this refactor; no `RequestTracker`/`LightEngine` semantic regrouping occurs.
+- State-machine modules live beneath `stream/` so their `impl WorldStream` blocks retain access to
+  private fields without widening the entire scheduler state to `pub(crate)`.
 
 - [ ] **Step 1: Create the Bevy-free crate and move private collaborators**
 
-Move actor, block-entity, and server-position behavior with their tests. Export only types consumed by the app.
+Move actor, block-entity, and server-position behavior with their tests. Split the oversized actor
+store by actor lifecycle/query ownership during the move. Export only types consumed by the app.
 
 - [ ] **Step 2: Move `WorldStream` mechanically**
 
@@ -453,6 +456,8 @@ Commit: `refactor: extract client world pipeline`
 - Create: `app/src/app.rs`
 - Create: `app/src/runtime/{endpoint,shutdown,network,world,visibility,telemetry}.rs`
 - Create: `app/src/acceptance/{mod,world_ready,teleport,remesh,mutation,proofs,markers}.rs`
+- Move: `app/src/{model_witness,transparent_witness}.rs` into app acceptance ownership
+- Retain and map: `app/src/{args,asset_startup,camera,movement,environment}.rs`
 - Modify: `app/src/main.rs`
 - Split: `app/src/metrics.rs`, `app/src/network.rs`, and inline tests
 
@@ -460,6 +465,7 @@ Commit: `refactor: extract client world pipeline`
 - `bedrock_client::run(ClientArgs) -> anyhow::Result<()>` is the library entry point.
 - `main()` parses args, calls `run`, reports fatal error, and returns the existing exit semantics.
 - All `RUST_MCBE_*` producer strings live in `acceptance::markers`.
+- A checked-in marker expectation table distinguishes parsed evidence from log-only diagnostics.
 
 - [ ] **Step 1: Add the library entry and remove path-based test includes**
 
@@ -501,6 +507,13 @@ Commit: `refactor: separate app runtime and acceptance`
 **Interfaces:**
 - `cargo run -p architecture -- check --root . --policy tools/architecture/policy.toml` validates dependency edges, forbidden dependencies, file budgets, re-export patterns, test-only public names, marker ownership, and tracked forbidden artifact patterns.
 
+- [ ] **Step 0: Close every remaining baseline size violation**
+
+Split `crates/assets/src/runtime.rs`, `crates/asset-compiler/src/pack.rs`,
+`crates/asset-compiler/tests/pack.rs`, `tools/visualcoverage/src/lib.rs`,
+`tools/visualcoverage/tests/ratchet.rs`, and the actor store moved by Task 7. Confirm the complete
+first-party handwritten tree meets the final budgets before implementing the strict checker.
+
 - [ ] **Step 1: Write failing policy fixtures**
 
 Create temporary fixture trees proving rejection of an oversized handwritten Rust file, forbidden `client-world -> bevy`, `render -> asset-compiler`, `pub use module::*`, `_for_test` public function, and duplicate `RUST_MCBE_` producer.
@@ -520,7 +533,11 @@ powershell_max = 800
 test_max = 1200
 ```
 
-Include explicit edges for bridge, protocol, world, assets, asset-compiler, meshing, client-world, render, app, sim, visualcoverage, and architecture.
+Include explicit edges for bridge, protocol, world, assets, asset-compiler, meshing, client-world,
+render, app, sim, visualcoverage, and architecture. Treat `crates/protocol/vendor/` as a first-class
+third-party snapshot scope tied to its upstream ownership record, not as a handwritten-code
+exception. Marker policy reads the expectation table so log-only diagnostics are not falsely
+reported as unpaired.
 
 - [ ] **Step 4: Add the CI gate and verify**
 
