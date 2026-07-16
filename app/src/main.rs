@@ -4897,8 +4897,8 @@ mod tests {
         ViewCohortStatus {
             target: DESTINATION_COHORT,
             committed: Some(DESTINATION_COHORT),
-            expected: 1_089,
-            loaded_target: 1_089,
+            expected: 797,
+            loaded_target: 797,
             missing_target: 0,
             foreign_loaded: 0,
             foreign_requested: 0,
@@ -4918,7 +4918,7 @@ mod tests {
             rendered_sub_chunks: 8_000,
             resident_sub_chunks: 9_000,
             visible_sub_chunks: 7_000,
-            loaded_columns: 1_089,
+            loaded_columns: 797,
             cohort: Some(exact_destination_status()),
             last_chunk_commit_at: None,
             last_mesh_dispatch_at: None,
@@ -5602,7 +5602,7 @@ mod tests {
         let mut snapshot = settled_teleport_snapshot();
         let mut status = exact_destination_status();
         status.loaded_target = 1;
-        status.missing_target = 1_088;
+        status.missing_target = 796;
         status.resident_count = 1;
         status.known_air_count = 0;
         snapshot.loaded_columns = 1;
@@ -5625,11 +5625,11 @@ mod tests {
         let mut tracker = destination_tracker(started);
         let mut snapshot = settled_teleport_snapshot();
         let mut status = exact_destination_status();
-        status.loaded_target = 1_088;
+        status.loaded_target = 796;
         status.missing_target = 1;
         status.foreign_loaded = 1;
         status.source_leftover = 1;
-        snapshot.loaded_columns = 1_089;
+        snapshot.loaded_columns = 797;
         snapshot.cohort = Some(status);
 
         assert_eq!(
@@ -5750,7 +5750,7 @@ mod tests {
         let mut tracker = destination_tracker(started);
         let mut status = exact_destination_status();
         status.loaded_target = 1;
-        status.missing_target = 1_088;
+        status.missing_target = 796;
         let work = WorldReadyWork {
             outstanding_sub_chunks: 7,
             unacknowledged_meshes: 3,
@@ -5773,7 +5773,7 @@ mod tests {
             .expect("first pending cohort observation should be inspectable");
         assert!(line.starts_with("RUST_MCBE_TELEPORT_COHORT target=0:65:65:16"));
         assert!(line.contains("committed=0:65:65:16"));
-        assert!(line.contains("expected=1089 loaded_target=1 missing_target=1088"));
+        assert!(line.contains("expected=797 loaded_target=1 missing_target=796"));
         assert!(line.contains("resident_count=9000 resident_hash=0000000000001234"));
         assert!(line.contains("known_air_count=1000 known_air_hash=0000000000005678"));
         assert!(line.contains("outstanding_sub_chunks=7"));
@@ -6152,10 +6152,10 @@ mod tests {
             0,
         );
         let mut partial = settled_teleport_snapshot();
-        partial.loaded_columns = 999;
         let status = partial.cohort.as_mut().unwrap();
-        status.loaded_target = 999;
+        status.loaded_target = status.expected - 1;
         status.missing_target = status.expected - status.loaded_target;
+        partial.loaded_columns = status.loaded_target;
 
         assert_eq!(
             tracker.observe_snapshot(partial, started + Duration::from_millis(200)),

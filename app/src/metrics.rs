@@ -1203,8 +1203,8 @@ mod tests {
             first_presented_manifest_hash: manifest_hash.to_owned(),
             stable_presented_manifest_count: 4,
             stable_presented_manifest_hash: manifest_hash.to_owned(),
-            expected: 1_089,
-            loaded_target: 1_089,
+            expected: 797,
+            loaded_target: 797,
             missing_target: 0,
             foreign_loaded: 0,
             foreign_requested: 0,
@@ -1281,7 +1281,7 @@ mod tests {
         let document = serde_json::to_value(report).unwrap();
         let teleport = &document["teleport_proof"];
         assert_eq!(teleport["target"], "0:65:65:16");
-        assert_eq!(teleport["expected"], 1_089);
+        assert_eq!(teleport["expected"], 797);
         assert_eq!(teleport["frame_count"], 12);
         assert_eq!(teleport["transparent_sort_generation"], 6);
         for stage in [

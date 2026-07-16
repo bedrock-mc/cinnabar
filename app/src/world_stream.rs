@@ -79,7 +79,11 @@ struct CorrelatedSubChunkAttempts {
     confirmed_attempts: u8,
 }
 
-/// One exact horizontal publisher view, expressed in chunk columns.
+/// One horizontal publisher view, expressed in chunk columns.
+///
+/// The radius defines a required Euclidean disk. The enclosing Chebyshev square
+/// remains the allowed retention scope so server-side prefetch does not become
+/// false foreign-world evidence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ViewCohort {
     pub dimension: i32,
@@ -110,13 +114,20 @@ impl ViewCohort {
         let radius = self.radius.max(0);
         (-radius..=radius)
             .flat_map(|x_offset| {
-                (-radius..=radius).map(move |z_offset| {
-                    ChunkKey::new(
-                        self.dimension,
-                        self.center[0].saturating_add(x_offset),
-                        self.center[1].saturating_add(z_offset),
-                    )
-                })
+                (-radius..=radius)
+                    .filter(move |z_offset| {
+                        let x = i64::from(x_offset).unsigned_abs();
+                        let z = i64::from(*z_offset).unsigned_abs();
+                        let radius = u64::try_from(radius).unwrap_or_default();
+                        x * x + z * z <= radius * radius
+                    })
+                    .map(move |z_offset| {
+                        ChunkKey::new(
+                            self.dimension,
+                            self.center[0].saturating_add(x_offset),
+                            self.center[1].saturating_add(z_offset),
+                        )
+                    })
             })
             .collect()
     }
@@ -2184,18 +2195,25 @@ impl WorldStream {
         let expected_columns = target.expected_columns();
         let loaded_target = self.loaded_columns.intersection(&expected_columns).count();
         let missing_target = expected_columns.difference(&self.loaded_columns).count();
-        let foreign_loaded = self.loaded_columns.difference(&expected_columns).count();
+        let foreign_loaded = self
+            .loaded_columns
+            .iter()
+            .filter(|column| !target.contains_column(column.dimension, [column.x, column.z]))
+            .count();
         let foreign_requested = self
             .requested_sub_chunks
             .keys()
-            .filter(|column| !expected_columns.contains(column))
+            .filter(|column| !target.contains_column(column.dimension, [column.x, column.z]))
             .count();
         let foreign_resident = self
             .resident
             .iter()
             .chain(&self.known_air)
             .copied()
-            .filter(|key| !expected_columns.contains(&key.chunk()))
+            .filter(|key| {
+                let chunk = key.chunk();
+                !target.contains_column(chunk.dimension, [chunk.x, chunk.z])
+            })
             .collect::<BTreeSet<_>>()
             .len();
         let source_leftover = self
@@ -9361,7 +9379,7 @@ mod tests {
             }
             .expected_columns()
             .len(),
-            1_089
+            797
         );
         stream
             .submit(
@@ -9386,8 +9404,8 @@ mod tests {
 
         let status = stream.cohort_status(target);
 
-        assert_eq!(status.expected, 9);
-        assert_eq!(status.loaded_target, 8);
+        assert_eq!(status.expected, 5);
+        assert_eq!(status.loaded_target, 4);
         assert_eq!(status.missing_target, 1);
         assert_eq!(status.foreign_loaded, 1);
         assert_eq!(status.source_leftover, 1);
@@ -9397,6 +9415,129 @@ mod tests {
         stream.loaded_columns.insert(missing);
 
         assert!(stream.cohort_status(target).is_exact());
+    }
+
+    #[test]
+    fn publisher_required_disk_is_distinct_from_square_prefetch_scope() {
+        let cohort = super::ViewCohort {
+            dimension: 0,
+            center: [10, -10],
+            radius: 1,
+        };
+
+        assert_eq!(cohort.expected_columns().len(), 5);
+        assert!(
+            cohort
+                .expected_columns()
+                .contains(&ChunkKey::new(0, 11, -10))
+        );
+        assert!(
+            !cohort
+                .expected_columns()
+                .contains(&ChunkKey::new(0, 11, -9))
+        );
+        assert!(cohort.contains_column(0, [11, -9]));
+        assert!(!cohort.contains_column(0, [12, -10]));
+    }
+
+    #[test]
+    fn publisher_block_position_and_radius_use_euclidean_chunk_conversion() {
+        let cases = [
+            ([-1, 64, -1], 0, [-1, -1], 0),
+            ([-16, 64, -16], 1, [-1, -1], 1),
+            ([-17, 64, -17], 15, [-2, -2], 1),
+            ([15, 64, 15], 16, [0, 0], 1),
+            ([16, 64, 16], 17, [1, 1], 2),
+        ];
+
+        for (center, radius_blocks, expected_center, expected_radius) in cases {
+            let cohort = super::ViewCohort::from_publisher(3, center, radius_blocks);
+            assert_eq!(cohort.dimension, 3);
+            assert_eq!(cohort.center, expected_center);
+            assert_eq!(cohort.radius, expected_radius);
+        }
+    }
+
+    #[test]
+    fn in_scope_prefetch_columns_do_not_prevent_exact_cohort_readiness() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        let target = super::ViewCohort {
+            dimension: 0,
+            center: [0, 0],
+            radius: 1,
+        };
+        stream.committed_view_cohort = Some(target);
+        stream.loaded_columns = target.expected_columns();
+        stream.loaded_columns.insert(ChunkKey::new(0, 1, 1));
+
+        let status = stream.cohort_status(target);
+
+        assert_eq!(status.expected, 5);
+        assert_eq!(status.loaded_target, 5);
+        assert_eq!(status.missing_target, 0);
+        assert_eq!(status.foreign_loaded, 0);
+        assert!(status.is_exact());
+    }
+
+    #[test]
+    fn in_scope_prefetch_cannot_replace_a_missing_required_column() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        let target = super::ViewCohort {
+            dimension: 0,
+            center: [0, 0],
+            radius: 1,
+        };
+        stream.committed_view_cohort = Some(target);
+        stream.loaded_columns = target.expected_columns();
+        stream.loaded_columns.remove(&ChunkKey::new(0, 1, 0));
+        stream.loaded_columns.insert(ChunkKey::new(0, 1, 1));
+
+        let status = stream.cohort_status(target);
+
+        assert_eq!(stream.loaded_columns.len(), status.expected);
+        assert_eq!(status.loaded_target, 4);
+        assert_eq!(status.missing_target, 1);
+        assert_eq!(status.foreign_loaded, 0);
+        assert!(!status.is_exact());
+    }
+
+    #[test]
+    fn columns_outside_square_prefetch_scope_prevent_exact_cohort_readiness() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        let target = super::ViewCohort {
+            dimension: 0,
+            center: [0, 0],
+            radius: 1,
+        };
+        stream.committed_view_cohort = Some(target);
+        stream.loaded_columns = target.expected_columns();
+        stream.loaded_columns.insert(ChunkKey::new(0, 2, 0));
+
+        let status = stream.cohort_status(target);
+
+        assert_eq!(status.foreign_loaded, 1);
+        assert!(!status.is_exact());
     }
 
     #[test]
