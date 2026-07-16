@@ -40,7 +40,7 @@ $script:AcceptanceExecutionPhase = {
         if ($null -ne $sourceWorldIdentity) {
             $metadata['source_world_identity'] = $sourceWorldIdentity
         }
-        if ($PSBoundParameters.ContainsKey('Assets')) {
+        if ($AcceptanceBoundParameters.ContainsKey('Assets')) {
             $metadata['assets'] = $Assets
             $metadata['assets_sha256'] = $AssetBlobSha256
         }

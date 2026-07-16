@@ -18,8 +18,8 @@ $script:AcceptanceValidationPhase = {
     $isModelWitnessGallery = $isSlabStairGallery -or $isVineGallery
     $isDeterministicGallery = $isLeafGallery -or $isCrossCropGallery -or $isAquaticGallery -or $isWaterGallery -or $isFlowerBedGallery -or $isModelWitnessGallery
     $isLeafEvidence = $isDeterministicGallery -or $LeafForestBaseline -or $LeafForestFullView
-    $hasClientExecutable = $PSBoundParameters.ContainsKey('ClientExecutable')
-    if ($PSBoundParameters.ContainsKey('SteadyResourceTrigger') -and
+    $hasClientExecutable = $AcceptanceBoundParameters.ContainsKey('ClientExecutable')
+    if ($AcceptanceBoundParameters.ContainsKey('SteadyResourceTrigger') -and
         -not (@('WorldReady', 'VisualFixtureReady', 'FullViewPresented') -ccontains $SteadyResourceTrigger)) {
         throw "invalid SteadyResourceTrigger: $SteadyResourceTrigger"
     }
@@ -60,7 +60,7 @@ $script:AcceptanceValidationPhase = {
     if ($LeafForestFullView -and [string]$SteadyResourceTrigger -cne 'FullViewPresented') {
         throw 'LeafForestFullView requires SteadyResourceTrigger FullViewPresented'
     }
-    if ($PSBoundParameters.ContainsKey('SteadyResourceTrigger')) {
+    if ($AcceptanceBoundParameters.ContainsKey('SteadyResourceTrigger')) {
         if ($SteadyResourceTrigger -ceq 'WorldReady' -and -not $LeafForestBaseline) {
             throw 'SteadyResourceTrigger WorldReady is reserved for LeafForestBaseline'
         }
@@ -71,7 +71,7 @@ $script:AcceptanceValidationPhase = {
             throw 'SteadyResourceTrigger FullViewPresented requires FullViewTeleportGate'
         }
     }
-    $EffectiveSteadyResourceTrigger = if ($PSBoundParameters.ContainsKey('SteadyResourceTrigger')) {
+    $EffectiveSteadyResourceTrigger = if ($AcceptanceBoundParameters.ContainsKey('SteadyResourceTrigger')) {
         [string]$SteadyResourceTrigger
     }
     elseif ($FullViewTeleportGate) {
@@ -83,20 +83,20 @@ $script:AcceptanceValidationPhase = {
     if ([string]::IsNullOrWhiteSpace($MetricsOut)) {
         throw 'MetricsOut must not be empty'
     }
-    if ($isLeafEvidence -and -not $PSBoundParameters.ContainsKey('Assets')) {
+    if ($isLeafEvidence -and -not $AcceptanceBoundParameters.ContainsKey('Assets')) {
         throw 'leaf evidence modes require the pinned Assets blob'
     }
     if (-not (Test-Path -LiteralPath $BdsDir -PathType Container)) {
         throw "BDS directory does not exist: $BdsDir"
     }
     $BdsDir = (Resolve-Path -LiteralPath $BdsDir).Path
-    if ($PSBoundParameters.ContainsKey('Assets')) {
+    if ($AcceptanceBoundParameters.ContainsKey('Assets')) {
         if (-not (Test-Path -LiteralPath $Assets -PathType Leaf)) {
             throw "assets file does not exist: $Assets"
         }
         $Assets = (Resolve-Path -LiteralPath $Assets).Path
     }
-    $AssetBlobSha256 = if ($PSBoundParameters.ContainsKey('Assets')) {
+    $AssetBlobSha256 = if ($AcceptanceBoundParameters.ContainsKey('Assets')) {
         (Get-FileHash -Algorithm SHA256 -LiteralPath $Assets).Hash.ToLowerInvariant()
     }
     else {
@@ -154,7 +154,7 @@ $script:AcceptanceValidationPhase = {
         $null
     }
     $MetricsOut = [IO.Path]::GetFullPath($MetricsOut)
-    $RuntimeDirectory = if ($PSBoundParameters.ContainsKey('BdsRuntimeDirectory')) {
+    $RuntimeDirectory = if ($AcceptanceBoundParameters.ContainsKey('BdsRuntimeDirectory')) {
         if ([string]::IsNullOrWhiteSpace($BdsRuntimeDirectory)) {
             throw 'BdsRuntimeDirectory must not be empty'
         }
@@ -193,7 +193,7 @@ $script:AcceptanceValidationPhase = {
         '--acceptance-seconds', $DurationSeconds.ToString([Globalization.CultureInfo]::InvariantCulture),
         '--metrics-out', $CanonicalMetrics
     )
-    if ($PSBoundParameters.ContainsKey('Assets')) {
+    if ($AcceptanceBoundParameters.ContainsKey('Assets')) {
         $AppArguments += @('--assets', $Assets)
     }
     if ($isWaterGallery) {

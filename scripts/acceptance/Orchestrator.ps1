@@ -746,6 +746,7 @@ function Invoke-CinnabarAcceptance {
         [string]$SteadyResourceTrigger
     )
 
+    $AcceptanceBoundParameters = @{} + $PSBoundParameters
     . $script:AcceptanceValidationPhase
     . $script:AcceptanceExecutionPhase
 }
