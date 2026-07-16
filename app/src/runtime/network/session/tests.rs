@@ -9,8 +9,8 @@ use std::{
 };
 
 use protocol::{
-    ChangeDimensionEvent, MovePlayerEvent, PlayerMovementCorrectionEvent, WorldBootstrap,
-    WorldEnvironmentBootstrap, WorldEvent,
+    ActorPositionOrigin, ChangeDimensionEvent, MovePlayerEvent, PLAYER_NETWORK_OFFSET,
+    PlayerMovementCorrectionEvent, WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent,
 };
 use tokio::sync::{mpsc, oneshot, watch};
 
@@ -76,9 +76,9 @@ fn foreign_player_movement_is_routed_to_the_actor_stream() {
     let movement = |runtime_id| {
         WorldEvent::MovePlayer(MovePlayerEvent {
             runtime_id,
-            // MovePlayer carries the eye position for a standing player whose
-            // spawn/render feet position is Y=64.
-            position: [1.0, 65.62, 2.0],
+            // MovePlayer carries the network-offset position for a standing
+            // player whose spawn/render feet position is Y=64.
+            position: [1.0, 64.0 + PLAYER_NETWORK_OFFSET, 2.0],
             pitch: 5.0,
             yaw: 90.0,
             head_yaw: 110.0,
@@ -100,8 +100,9 @@ fn foreign_player_movement_is_routed_to_the_actor_stream() {
     assert_eq!(remote.runtime_id, 7);
     assert_eq!(remote.dimension, 0);
     assert_eq!(remote.position[0], Some(1.0));
-    assert!((remote.position[1].unwrap() - 64.0).abs() < 1e-5);
+    assert!((remote.position[1].unwrap() - (64.0 + PLAYER_NETWORK_OFFSET)).abs() < 1e-5);
     assert_eq!(remote.position[2], Some(2.0));
+    assert_eq!(remote.position_origin, ActorPositionOrigin::NetworkOffset);
     assert_eq!(remote.head_yaw, Some(110.0));
     assert_eq!(remote.on_ground, Some(true));
     assert!(remote.teleported);
@@ -110,16 +111,12 @@ fn foreign_player_movement_is_routed_to_the_actor_stream() {
 }
 
 #[test]
-fn foreign_move_player_eye_y_stays_consistent_with_spawn_feet_y() {
+fn foreign_move_player_retains_network_origin_for_actor_store_normalization() {
     const SPAWN_FEET_Y: f32 = 64.0;
     let mut sequencer = NetworkSequencer::new(0, 42);
     let movement = WorldEvent::MovePlayer(MovePlayerEvent {
         runtime_id: 7,
-        position: [
-            1.0,
-            SPAWN_FEET_Y + protocol::DEFAULT_PLAYER_HEIGHT_OFFSET,
-            2.0,
-        ],
+        position: [1.0, SPAWN_FEET_Y + PLAYER_NETWORK_OFFSET, 2.0],
         ..Default::default()
     });
 
@@ -128,7 +125,8 @@ fn foreign_move_player_eye_y_stays_consistent_with_spawn_feet_y() {
         panic!("foreign MovePlayer was not routed to the actor stream");
     };
 
-    assert!((remote.position[1].unwrap() - SPAWN_FEET_Y).abs() < 1e-5);
+    assert!((remote.position[1].unwrap() - (SPAWN_FEET_Y + PLAYER_NETWORK_OFFSET)).abs() < 1e-5);
+    assert_eq!(remote.position_origin, ActorPositionOrigin::NetworkOffset);
 }
 
 #[test]

@@ -107,6 +107,7 @@ pub struct ActorMoveEvent {
     pub dimension: i32,
     pub runtime_id: u64,
     pub position: [Option<f32>; 3],
+    pub position_origin: ActorPositionOrigin,
     pub pitch: Option<f32>,
     pub yaw: Option<f32>,
     pub head_yaw: Option<f32>,
@@ -114,6 +115,20 @@ pub struct ActorMoveEvent {
     pub teleported: bool,
     pub player_mode: Option<crate::MovePlayerMode>,
     pub source_tick: Option<i64>,
+}
+
+/// Coordinate space carried by an actor movement position.
+///
+/// Spawn positions and partial actor movement values use the actor store's
+/// retained coordinate space. Absolute actor and player movement packets use a
+/// network coordinate whose player offset can be removed once actor kind is known.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ActorPositionOrigin {
+    /// The position is already in the actor store's retained coordinate space.
+    #[default]
+    Feet,
+    /// The position came from an absolute Bedrock network movement packet.
+    NetworkOffset,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -347,6 +362,7 @@ pub(crate) fn normalize_move_entity(
             Some(packet.position.y),
             Some(packet.position.z),
         ],
+        position_origin: ActorPositionOrigin::NetworkOffset,
         pitch: Some(rotation_degrees("pitch", &packet.rotation.pitch)?),
         yaw: Some(rotation_degrees("yaw", &packet.rotation.yaw)?),
         head_yaw: Some(rotation_degrees("head_yaw", &packet.rotation.head_yaw)?),
@@ -394,6 +410,7 @@ pub(crate) fn normalize_move_entity_body(
         dimension,
         runtime_id,
         position: position.map(Some),
+        position_origin: ActorPositionOrigin::NetworkOffset,
         pitch: Some(pitch),
         yaw: Some(yaw),
         head_yaw: Some(head_yaw),
@@ -421,6 +438,7 @@ pub(crate) fn normalize_move_entity_delta(
         dimension,
         runtime_id: packet.runtime_entity_id as u64,
         position: [packet.x, packet.y, packet.z],
+        position_origin: ActorPositionOrigin::Feet,
         pitch: packet.rot_x.map(byte_rotation_degrees),
         yaw: packet.rot_y.map(byte_rotation_degrees),
         head_yaw: packet.rot_z.map(byte_rotation_degrees),

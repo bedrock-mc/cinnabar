@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
 use protocol::{
-    ActorAttribute, ActorEvent, ActorKind, ActorMetadataValue, ActorMoveEvent, ActorProperty,
-    ActorSpawnEvent, MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_PROPERTIES,
-    MAX_PLAYER_LIST_SKIN_BYTES, MovePlayerEvent, MovePlayerMode, PlayerListEntry, PlayerSkin,
-    PlayerSkinUnavailable,
+    ActorAttribute, ActorEvent, ActorKind, ActorMetadataValue, ActorMoveEvent, ActorPositionOrigin,
+    ActorProperty, ActorSpawnEvent, MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_METADATA_ENTRIES,
+    MAX_ACTOR_PROPERTIES, MAX_PLAYER_LIST_SKIN_BYTES, MovePlayerEvent, MovePlayerMode,
+    PLAYER_NETWORK_OFFSET, PlayerListEntry, PlayerSkin, PlayerSkinUnavailable,
 };
 
 pub(crate) const MAX_TRACKED_ACTORS: usize = 8_192;

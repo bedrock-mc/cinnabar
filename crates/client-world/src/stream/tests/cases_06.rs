@@ -443,3 +443,74 @@ fn actor_ingestion_is_fifo_visible_without_dirtying_chunk_meshes() {
     assert_eq!(after.pending_mesh_jobs, before.pending_mesh_jobs);
     assert_eq!(after.in_flight_mesh_jobs, before.in_flight_mesh_jobs);
 }
+
+#[test]
+fn player_spawn_move_player_and_absolute_move_share_feet_space() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    stream
+        .submit(
+            1,
+            WorldEvent::Actor(ActorEvent::Spawn(ActorSpawnEvent {
+                dimension: 0,
+                unique_id: 7,
+                runtime_id: 8,
+                kind: ActorKind::Player {
+                    uuid: [8; 16],
+                    username: "Alex".into(),
+                },
+                position: [1.0, 64.0, 2.0],
+                velocity: [0.0; 3],
+                pitch: 0.0,
+                yaw: 0.0,
+                head_yaw: 0.0,
+                body_yaw: 0.0,
+                metadata: Arc::from([]),
+                attributes: Arc::from([]),
+                properties: Arc::from([]),
+            })),
+        )
+        .unwrap();
+    stream
+        .submit(
+            2,
+            WorldEvent::MovePlayer(MovePlayerEvent {
+                runtime_id: 8,
+                position: [1.0, 64.0 + PLAYER_NETWORK_OFFSET, 2.0],
+                on_ground: true,
+                ..Default::default()
+            }),
+        )
+        .unwrap();
+    stream.advance_actor_interpolation_ticks(3);
+    assert_eq!(stream.actor(8).unwrap().position, [1.0, 64.0, 2.0]);
+
+    stream
+        .submit(
+            3,
+            WorldEvent::Actor(ActorEvent::Move(ActorMoveEvent {
+                dimension: 0,
+                runtime_id: 8,
+                position: [Some(1.0), Some(64.0 + PLAYER_NETWORK_OFFSET), Some(2.0)],
+                position_origin: ActorPositionOrigin::NetworkOffset,
+                pitch: None,
+                yaw: None,
+                head_yaw: None,
+                on_ground: Some(true),
+                teleported: true,
+                player_mode: None,
+                source_tick: None,
+            })),
+        )
+        .unwrap();
+    let actor = stream.actor(8).unwrap();
+    assert_eq!(actor.previous_pose.position, [1.0, 64.0, 2.0]);
+    assert_eq!(actor.position, [1.0, 64.0, 2.0]);
+    assert_eq!(actor.received_pose.position, [1.0, 64.0, 2.0]);
+}
