@@ -102,6 +102,22 @@ go test ./core/...
 go vet ./core/...
 ```
 
+For a faster local loop, verify only packages affected by changes since an explicit Git base plus
+their reverse workspace dependencies:
+
+```text
+cargo run -p devtool --locked -- verify-affected --base origin/phase2-textures
+```
+
+Add `--dry-run` to inspect the selected packages and exact commands without executing them. Changes
+to workspace-global build inputs automatically select the full workspace gate. The verifier uses
+`cargo-nextest` when available and retains doctests through a separate Cargo invocation; otherwise
+it falls back to `cargo test`. Install the measured version with:
+
+```text
+cargo install cargo-nextest --version 0.9.140 --locked
+```
+
 Live BDS tests are enabled when `BEDROCK_BDS_DIR` is set and otherwise skip.
 
 ## Linux window backends

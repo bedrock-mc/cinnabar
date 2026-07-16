@@ -91,6 +91,12 @@ path = "tools/architecture"
 allowed_dependencies = []
 forbidden_dependencies = ["bevy", "wgpu"]
 
+[[crates]]
+name = "devtool"
+path = "tools/devtool"
+allowed_dependencies = []
+forbidden_dependencies = ["bevy", "wgpu"]
+
 [[markers]]
 literal = "RUST_MCBE_ACCEPTANCE_RUNTIME_METADATA"
 kind = "parsed"

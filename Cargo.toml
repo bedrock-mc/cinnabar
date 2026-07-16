@@ -12,6 +12,7 @@ members = [
     "crates/world",
     "tools/visualcoverage",
     "tools/architecture",
+    "tools/devtool",
 ]
 resolver = "3"
 
