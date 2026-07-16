@@ -9,6 +9,7 @@ use crate::{BlockClassifier, Face, SIDE};
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ResolvedPaletteEntry {
     pub(crate) network_value: u32,
+    pub(crate) sequential_id: Option<u32>,
     pub(crate) contributor_role: ContributorRole,
     pub(crate) flags: BlockFlags,
     pub(crate) faces: [u32; Face::ALL.len()],
@@ -20,6 +21,7 @@ pub(crate) struct ResolvedPaletteEntry {
 impl ResolvedPaletteEntry {
     pub(crate) const AIR: Self = Self {
         network_value: 0,
+        sequential_id: None,
         contributor_role: ContributorRole::Air,
         flags: BlockFlags::AIR,
         faces: [DIAGNOSTIC_MATERIAL; Face::ALL.len()],
@@ -29,6 +31,7 @@ impl ResolvedPaletteEntry {
     };
     const DIAGNOSTIC: Self = Self {
         network_value: 0,
+        sequential_id: None,
         contributor_role: ContributorRole::Primary,
         flags: BlockFlags::empty(),
         faces: [DIAGNOSTIC_MATERIAL; Face::ALL.len()],
@@ -44,9 +47,10 @@ impl ResolvedPaletteEntry {
         }
     }
 
-    const fn diagnostic(network_value: u32) -> Self {
+    const fn diagnostic(network_value: u32, sequential_id: Option<u32>) -> Self {
         Self {
             network_value,
+            sequential_id,
             ..Self::DIAGNOSTIC
         }
     }
@@ -120,7 +124,7 @@ impl ResolvedContributors {
         match entry.contributor_role {
             ContributorRole::Primary => {
                 if self.primary.is_some() {
-                    self.fail_closed(entry.network_value);
+                    self.fail_closed(entry.network_value, entry.sequential_id);
                 } else {
                     self.primary = Some(entry);
                 }
@@ -130,21 +134,24 @@ impl ResolvedContributors {
                     .liquid
                     .is_some_and(|liquid| liquid.network_value != entry.network_value)
                 {
-                    self.fail_closed(entry.network_value);
+                    self.fail_closed(entry.network_value, entry.sequential_id);
                 } else if self.liquid.is_none() {
                     self.liquid = Some(entry);
                 }
             }
             ContributorRole::LiquidAdditional | ContributorRole::Air => {
-                self.fail_closed(entry.network_value);
+                self.fail_closed(entry.network_value, entry.sequential_id);
             }
         }
     }
 
-    fn fail_closed(&mut self, network_value: u32) {
+    fn fail_closed(&mut self, network_value: u32, sequential_id: Option<u32>) {
         self.primary = None;
         self.liquid = None;
-        self.diagnostic = Some(ResolvedPaletteEntry::diagnostic(network_value));
+        self.diagnostic = Some(ResolvedPaletteEntry::diagnostic(
+            network_value,
+            sequential_id,
+        ));
     }
 }
 
@@ -237,11 +244,11 @@ impl<'a> PaletteFacts<'a> {
                 let mut contributors = ResolvedContributors::default();
                 for storage in storages {
                     let Some(index) = packed_palette_index(storage.storage, x, y, z) else {
-                        contributors.fail_closed(0);
+                        contributors.fail_closed(0, None);
                         return contributors;
                     };
                     let Some(&entry) = storage.entries.get(index) else {
-                        contributors.fail_closed(0);
+                        contributors.fail_closed(0, None);
                         return contributors;
                     };
                     contributors.push(entry);
@@ -295,7 +302,7 @@ impl<'a> ContributorResolver<'a> {
             .any(|coordinate| usize::from(coordinate) >= SIDE)
         {
             let mut contributors = ResolvedContributors::default();
-            contributors.fail_closed(0);
+            contributors.fail_closed(0, None);
             return contributors;
         }
         self.facts.contributors_at(
@@ -322,7 +329,7 @@ impl<'a> ContributorResolver<'a> {
             .any(|coordinate| usize::from(coordinate) >= SIDE)
         {
             let mut contributors = ResolvedContributors::default();
-            contributors.fail_closed(0);
+            contributors.fail_closed(0, None);
             return contributors;
         }
 
@@ -331,7 +338,7 @@ impl<'a> ContributorResolver<'a> {
             let Some(network_value) =
                 sub_chunk.runtime_id(layer, coordinate[0], coordinate[1], coordinate[2])
             else {
-                contributors.fail_closed(0);
+                contributors.fail_closed(0, None);
                 return contributors;
             };
             contributors.push(resolve_palette_entry(
@@ -356,6 +363,14 @@ fn resolve_palette_entry(
     }
 
     let block = visuals.resolve(network_id_mode, network_value);
+    let sequential_id = if block.is_known() {
+        match network_id_mode {
+            NetworkIdMode::Sequential => Some(network_value),
+            NetworkIdMode::Hashed => visuals.sequential_id_for_hash(network_value),
+        }
+    } else {
+        None
+    };
     let mut flags = block.flags();
     flags.remove(BlockFlags::AIR);
     let faces = if flags.contains(BlockFlags::CUBE_GEOMETRY)
@@ -371,6 +386,7 @@ fn resolve_palette_entry(
     };
     ResolvedPaletteEntry {
         network_value,
+        sequential_id,
         contributor_role: block.contributor_role(),
         flags,
         faces,

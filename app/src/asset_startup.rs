@@ -427,5 +427,6 @@ fn runtime_metrics(
         animation_frame_count: u32::try_from(runtime.animation_frames().len()).unwrap_or(u32::MAX),
         missing_mapping_count: runtime.missing_count(),
         diagnostic_quad_count: 0,
+        diagnostic_attribution: Default::default(),
     }
 }

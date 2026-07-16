@@ -35,6 +35,8 @@ pub use lighting::{
 };
 pub use liquid::{CameraMedium, LiquidLevel, sample_camera_medium};
 pub use types::{
-    ChunkMesh, ChunkMeshStreamError, ChunkMeshStreams, Face, FaceConnectivity, Neighbourhood,
-    PackedLiquidQuad, PackedModelDrawRef, PackedModelRef, PackedQuad, PackedQuadLighting,
+    ChunkMesh, ChunkMeshStreamError, ChunkMeshStreams, DiagnosticGeometryCount,
+    DiagnosticGeometrySummary, Face, FaceConnectivity, MAX_DIAGNOSTIC_IDENTITIES_PER_MESH,
+    Neighbourhood, PackedLiquidQuad, PackedModelDrawRef, PackedModelRef, PackedQuad,
+    PackedQuadLighting,
 };

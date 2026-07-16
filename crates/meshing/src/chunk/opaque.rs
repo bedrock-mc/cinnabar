@@ -2,9 +2,61 @@ use assets::{BlockFlags, NetworkIdMode, RuntimeAssets};
 use world::MeshNeighbourhood;
 
 use crate::{
-    BlockClassifier, Face, PackedQuad, PackedQuadLighting, SIDE,
+    BlockClassifier, DiagnosticGeometryCount, DiagnosticGeometrySummary, Face, PackedQuad,
+    PackedQuadLighting, SIDE,
     contributors::{PaletteFacts, PaletteSource, ResolvedPaletteEntry},
 };
+
+#[derive(Default)]
+pub(crate) struct DiagnosticGeometryAccumulator {
+    counts: std::collections::BTreeMap<(Option<u32>, u32), u32>,
+    omitted_identity_count: u32,
+    omitted_quad_count: u64,
+}
+
+impl DiagnosticGeometryAccumulator {
+    fn record(&mut self, entry: ResolvedPaletteEntry) {
+        let key = (entry.sequential_id, entry.network_value);
+        if let Some(count) = self.counts.get_mut(&key) {
+            *count = count.saturating_add(1);
+        } else if self.counts.len() < world::MAX_PALETTE_ENTRIES {
+            self.counts.insert(key, 1);
+        } else {
+            self.omitted_identity_count = self.omitted_identity_count.saturating_add(1);
+            self.omitted_quad_count = self.omitted_quad_count.saturating_add(1);
+        }
+    }
+
+    pub(crate) fn finish(self) -> DiagnosticGeometrySummary {
+        let mut summary = DiagnosticGeometrySummary::from_counts(self.counts.into_iter().map(
+            |((sequential_id, network_id), quad_count)| {
+                DiagnosticGeometryCount::new(sequential_id, network_id, quad_count)
+            },
+        ));
+        summary.add_omitted(self.omitted_identity_count, self.omitted_quad_count);
+        summary
+    }
+}
+
+pub(crate) struct CubeMeshOutput<'a> {
+    quads: &'a mut Vec<PackedQuad>,
+    lighting: &'a mut Vec<PackedQuadLighting>,
+    diagnostic_geometry: &'a mut DiagnosticGeometryAccumulator,
+}
+
+impl<'a> CubeMeshOutput<'a> {
+    pub(crate) fn new(
+        quads: &'a mut Vec<PackedQuad>,
+        lighting: &'a mut Vec<PackedQuadLighting>,
+        diagnostic_geometry: &'a mut DiagnosticGeometryAccumulator,
+    ) -> Self {
+        Self {
+            quads,
+            lighting,
+            diagnostic_geometry,
+        }
+    }
+}
 
 type Columns = [[u64; SIDE]; SIDE];
 const FULL_COLUMN: u64 = (1_u64 << SIDE) - 1;
@@ -199,14 +251,14 @@ pub(crate) fn greedy_slice(
     slice: usize,
     rows: &mut [u64; SIDE],
     lighting_scratch: &[PackedQuadLighting; SIDE * SIDE],
-    quads: &mut Vec<PackedQuad>,
-    cube_lighting: &mut Vec<PackedQuadLighting>,
+    output: &mut CubeMeshOutput<'_>,
 ) {
     for v in 0..SIDE {
         while rows[v] != 0 {
             let u = rows[v].trailing_zeros() as usize;
             let origin = block_coordinate(face, slice, u, v);
-            let material_id = facts.at(origin[0], origin[1], origin[2]).faces[face.index()];
+            let origin_entry = facts.at(origin[0], origin[1], origin[2]);
+            let material_id = origin_entry.faces[face.index()];
             let lighting = lighting_scratch[v * SIDE + u];
 
             let shifted = rows[v] >> u;
@@ -215,7 +267,7 @@ pub(crate) fn greedy_slice(
             let mut width = 1;
             while width < binary_width && {
                 let [x, y, z] = block_coordinate(face, slice, u + width, v);
-                facts.at(x, y, z).faces[face.index()] == material_id
+                same_greedy_identity(origin_entry, facts.at(x, y, z), face)
                     && lighting_scratch[v * SIDE + u + width] == lighting
             } {
                 width += 1;
@@ -226,7 +278,7 @@ pub(crate) fn greedy_slice(
             'height: while v + height < SIDE && rows[v + height] & span == span {
                 for offset in 0..width {
                     let [x, y, z] = block_coordinate(face, slice, u + offset, v + height);
-                    if facts.at(x, y, z).faces[face.index()] != material_id {
+                    if !same_greedy_identity(origin_entry, facts.at(x, y, z), face) {
                         break 'height;
                     }
                     if lighting_scratch[(v + height) * SIDE + u + offset] != lighting {
@@ -239,16 +291,31 @@ pub(crate) fn greedy_slice(
             for row in &mut rows[v..v + height] {
                 *row &= !span;
             }
-            quads.push(PackedQuad::new(
+            output.quads.push(PackedQuad::new(
                 origin.map(|coordinate| coordinate as u8),
                 face,
                 width as u8,
                 height as u8,
                 material_id,
             ));
-            cube_lighting.push(lighting);
+            output.lighting.push(lighting);
+            if material_id == assets::DIAGNOSTIC_MATERIAL {
+                output.diagnostic_geometry.record(origin_entry);
+            }
         }
     }
+}
+
+fn same_greedy_identity(
+    origin: ResolvedPaletteEntry,
+    candidate: ResolvedPaletteEntry,
+    face: Face,
+) -> bool {
+    let origin_material = origin.faces[face.index()];
+    origin_material == candidate.faces[face.index()]
+        && (origin_material != assets::DIAGNOSTIC_MATERIAL
+            || (origin.network_value == candidate.network_value
+                && origin.sequential_id == candidate.sequential_id))
 }
 
 pub(crate) const fn block_coordinate(face: Face, slice: usize, u: usize, v: usize) -> [usize; 3] {

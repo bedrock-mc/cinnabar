@@ -703,6 +703,87 @@ fn uniform_diagnostic_emits_each_unculled_slice_and_is_cave_open() {
 }
 
 #[test]
+fn emitted_diagnostic_quads_retain_sequential_identity_and_split_greedy_runs() {
+    let sub = sub_chunk(vec![packed_storage(
+        2,
+        &[AIR, DIAGNOSTIC, 50_000],
+        &[([0, 0, 0], 1), ([1, 0, 0], 2)],
+    )]);
+    let mesh = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &sub,
+    );
+
+    assert_eq!(mesh.quad_count(), 12);
+    assert_eq!(
+        mesh.diagnostic_geometry().entries(),
+        &[
+            meshing::DiagnosticGeometryCount::new(Some(DIAGNOSTIC), DIAGNOSTIC, 6),
+            meshing::DiagnosticGeometryCount::new(None, 50_000, 6),
+        ]
+    );
+    assert_eq!(mesh.diagnostic_geometry().omitted_identity_count(), 0);
+    assert_eq!(mesh.diagnostic_geometry().omitted_quad_count(), 0);
+}
+
+#[test]
+fn emitted_diagnostic_quads_retain_hash_and_resolved_sequential_identity() {
+    let sub = sub_chunk(vec![packed_storage(
+        1,
+        &[0xdbf4_4120, 7],
+        &[([4, 5, 6], 1)],
+    )]);
+    let mesh = mesh(
+        &BlockClassifier::new(0xdbf4_4120),
+        NetworkIdMode::Hashed,
+        &Neighbourhood::empty(),
+        &sub,
+    );
+
+    assert_eq!(
+        mesh.diagnostic_geometry().entries(),
+        &[meshing::DiagnosticGeometryCount::new(Some(DIAGNOSTIC), 7, 6)]
+    );
+}
+
+#[test]
+fn real_geometry_never_enters_diagnostic_attribution() {
+    let mesh = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &blocks(OPAQUE_A, &[[4, 5, 6]]),
+    );
+
+    assert!(mesh.diagnostic_geometry().entries().is_empty());
+    assert_eq!(mesh.diagnostic_geometry().omitted_quad_count(), 0);
+}
+
+#[test]
+fn per_mesh_diagnostic_summary_is_bounded_and_tie_ordered_by_identity() {
+    let summary = meshing::DiagnosticGeometrySummary::from_counts(
+        (0..meshing::MAX_DIAGNOSTIC_IDENTITIES_PER_MESH + 3)
+            .rev()
+            .map(|id| meshing::DiagnosticGeometryCount::new(Some(id as u32), id as u32, 1)),
+    );
+
+    assert_eq!(
+        summary.entries().len(),
+        meshing::MAX_DIAGNOSTIC_IDENTITIES_PER_MESH
+    );
+    assert_eq!(summary.omitted_identity_count(), 3);
+    assert_eq!(summary.omitted_quad_count(), 3);
+    assert!(
+        summary
+            .entries()
+            .windows(2)
+            .all(|pair| pair[0].sequential_id() < pair[1].sequential_id())
+    );
+}
+
+#[test]
 fn leaf_slab_is_cave_open_while_opaque_slab_separates_opposite_faces() {
     let leaf = mesh(
         &classifier(),

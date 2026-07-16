@@ -114,6 +114,59 @@ fn render_backpressure_retry_preserves_change_order_for_eventual_delivery() {
 }
 
 #[test]
+fn render_publication_retry_and_eviction_preserve_diagnostic_identity_summary() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    let key = SubChunkKey::new(0, 1, 2, 3);
+    let source = uniform_sub_chunk(50_000);
+    let mesh = mesh_sub_chunk(
+        &stream.classifier,
+        &stream.runtime_assets,
+        stream.network_id_mode,
+        &Neighbourhood::empty(),
+        &source,
+    );
+    stream
+        .mesh_changes
+        .push_back(super::WorldMeshChange::Upsert {
+            key,
+            mesh,
+            biome: PackedBiomeRecord::fallback(),
+            tint_identity: stream.biome_tint_identity(),
+            generation: 1,
+            dirty_since: Instant::now(),
+        });
+
+    let blocked = stream.pop_mesh_change().unwrap();
+    stream.retry_mesh_change_front(blocked).unwrap();
+    let super::WorldMeshChange::Upsert { mesh, .. } = stream.pop_mesh_change().unwrap() else {
+        panic!("expected retried diagnostic upsert")
+    };
+    assert_eq!(
+        mesh.diagnostic_geometry().entries(),
+        &[::meshing::DiagnosticGeometryCount::new(None, 50_000, 96)]
+    );
+
+    stream
+        .mesh_changes
+        .push_back(super::WorldMeshChange::Remove {
+            key,
+            generation: 2,
+            dirty_since: Instant::now(),
+        });
+    assert!(matches!(
+        stream.pop_mesh_change(),
+        Some(super::WorldMeshChange::Remove { key: removed, .. }) if removed == key
+    ));
+}
+
+#[test]
 fn stale_mesh_revision_is_rejected() {
     let key = SubChunkKey::new(0, -1, 2, 3);
     let mut revisions = RevisionTracker::default();

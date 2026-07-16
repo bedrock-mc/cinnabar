@@ -4,7 +4,8 @@ use bevy::prelude::{
 };
 use bevy::window::{PresentMode, WindowCloseRequested};
 use meshing::{
-    ChunkMesh, FaceConnectivity, PackedModelDrawRef, PackedModelRef, PackedQuadLighting,
+    ChunkMesh, DiagnosticGeometryCount, DiagnosticGeometrySummary, FaceConnectivity,
+    PackedModelDrawRef, PackedModelRef, PackedQuadLighting,
 };
 use protocol::{
     ActorKind, BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockUpdateEvent, LevelChunkEvent,
@@ -51,7 +52,7 @@ use crate::acceptance::{
         WorldReadySettler, WorldReadySnapshot, WorldReadyWork,
     },
 };
-use crate::metrics::TransparentSortMetricsSnapshot;
+use crate::metrics::{DiagnosticQuadTracker, MetricsCollector, TransparentSortMetricsSnapshot};
 use crate::runtime::network::{NetworkControlEvent, session::SequencedWorldEvent};
 use crate::runtime::{
     endpoint::{
@@ -67,7 +68,8 @@ use crate::runtime::{
     },
     telemetry::{
         AcceptanceRuntimeConfig, RollingFps, bedrock_camera_rotation, camera_sub_chunk_key,
-        status_title, transparent_sort_committed_marker, update_visibility_diagnostics,
+        refresh_diagnostic_attribution, status_title, transparent_sort_committed_marker,
+        update_visibility_diagnostics,
     },
     visibility::{CaveVisibilityCache, apply_added_chunk_visibility, remove_chunk_visibility},
     world::{
