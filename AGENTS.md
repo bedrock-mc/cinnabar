@@ -2,9 +2,10 @@
 
 ## Bevy client screenshots on Windows
 
-- Computer Use/WGC currently cannot capture the Cinnabar Bevy window reliably.
-- For live visual verification, capture the desktop with the native Windows GDI `CopyFromScreen` method and write PNG files beneath `%TEMP%`.
-- Inspect those temporary PNGs with the image-viewing tool. Do not rely on stale Computer Use observations or claim visual verification without inspecting a fresh capture.
+- Use native Computer Use/WGC as the primary path for Cinnabar window inspection and input testing.
+- Do not assume the Bevy window is inaccessible from an earlier failure. Refresh app/window discovery for each live run and diagnose a missing target as a current integration bug.
+- If native capture genuinely fails after fresh discovery and recovery, use Windows GDI `CopyFromScreen` only as an explicit fallback, write PNG files beneath `%TEMP%`, and inspect those fresh files with the image-viewing tool.
+- Never claim visual verification from a stale or occluded capture.
 - Keep Mojang assets and all screenshots out of git.
 
 ## Stable Windows live-test executable paths
