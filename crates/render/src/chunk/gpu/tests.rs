@@ -651,7 +651,7 @@ fn transparent_liquid_groups_share_the_model_subchunk_distance_contract() {
         [0.0; 3],
         [0.0, 0.0, 0.0, 1.0],
         vec![near.clone(), far.clone()],
-        ChunkTextureAssetIdentity::for_test(1, 1),
+        ChunkTextureAssetIdentity::new(1, 1),
         ChunkBiomeTintIdentity::new(1, 1),
     )
     .unwrap();

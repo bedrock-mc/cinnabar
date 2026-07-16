@@ -476,7 +476,7 @@ fn transparent_generation_is_published_only_from_actual_liquid_draw_evidence() {
         [(allocation, ChunkStreamMask::LIQUID)],
     );
     assert_eq!(
-        probe.record_transparent_draw(ViewSortGeneration::for_test(23), [(entity, allocation)]),
+        probe.record_transparent_draw(ViewSortGeneration::new(23), [(entity, allocation)]),
         1
     );
     let completed = probe.complete();
@@ -508,7 +508,7 @@ fn retired_backed_liquid_draw_still_attributes_the_encoded_sort_generation() {
         [(current, ChunkStreamMask::LIQUID)],
     );
     assert_eq!(
-        probe.record_transparent_draw(ViewSortGeneration::for_test(24), [(entity, retired)]),
+        probe.record_transparent_draw(ViewSortGeneration::new(24), [(entity, retired)]),
         0,
         "retired geometry is not the current opaque allocation manifest"
     );

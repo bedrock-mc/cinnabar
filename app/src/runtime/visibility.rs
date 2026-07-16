@@ -1,4 +1,14 @@
-use crate::*;
+use std::collections::{BTreeSet, HashSet};
+
+use bevy::prelude::{Add, On, Query, Remove, Res, ResMut, Resource, Transform, Visibility, With};
+use render::ChunkRenderInstance;
+use world::SubChunkKey;
+
+use crate::{
+    camera::FlyCamera,
+    metrics::{DiagnosticQuadTracker, MetricsCollector},
+    runtime::{telemetry::camera_sub_chunk_key, world::ClientWorld},
+};
 
 #[derive(Resource, Default)]
 pub(crate) struct CaveVisibilityCache {

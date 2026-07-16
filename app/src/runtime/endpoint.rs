@@ -1,4 +1,6 @@
-use crate::*;
+use std::path::{Path, PathBuf};
+
+use anyhow::{Result, bail};
 
 pub(crate) fn resolve_socket_dir(path: &Path) -> PathBuf {
     let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));

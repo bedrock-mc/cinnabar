@@ -72,15 +72,15 @@ fn mip_upload_plan_preserves_exact_layer_offsets_and_row_padding() {
 
 #[test]
 fn global_texture_bind_group_rebuilds_only_for_new_asset_identity_or_revision() {
-    let current = ChunkTextureAssetIdentity::for_test(0x1000, 7);
+    let current = texture_identity(0x1000, 7);
     assert!(!texture_asset_needs_rebuild(Some(current), current));
     assert!(texture_asset_needs_rebuild(
         Some(current),
-        ChunkTextureAssetIdentity::for_test(0x2000, 7)
+        texture_identity(0x2000, 7)
     ));
     assert!(texture_asset_needs_rebuild(
         Some(current),
-        ChunkTextureAssetIdentity::for_test(0x1000, 8)
+        texture_identity(0x1000, 8)
     ));
     assert!(texture_asset_needs_rebuild(None, current));
 }
@@ -223,7 +223,7 @@ fn one_page_fallback_is_a_real_one_layer_copy_of_diagnostic_mips() {
 
 #[test]
 fn animation_clock_updates_do_not_rebuild_or_reupload_texture_assets() {
-    let identity = ChunkTextureAssetIdentity::for_test(0x1000, 7);
+    let identity = texture_identity(0x1000, 7);
     let mut current = None;
     let mut immutable_uploads = 0;
     let mut clock_bytes = 0;

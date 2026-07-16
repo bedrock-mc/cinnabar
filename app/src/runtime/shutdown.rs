@@ -1,4 +1,21 @@
-use crate::*;
+use std::time::Instant;
+
+use bevy::{
+    log::error,
+    prelude::{AppExit, MessageReader, MessageWriter, Res, ResMut},
+    window::WindowCloseRequested,
+};
+use render::TransparentSortMetrics;
+
+use crate::metrics::TransparentSortMetricsSnapshot;
+use crate::{
+    acceptance::{AcceptanceExitDecision, AcceptanceRun, TRANSPARENT_PRESENTATION_EXIT_GRACE},
+    runtime::{
+        network::NetworkHandle,
+        visibility::AppMetrics,
+        world::{ClientWorld, ShutdownWatchdog, begin_bounded_shutdown},
+    },
+};
 
 pub(crate) fn record_fatal_error(fatal_error: &mut Option<String>, error: String) {
     if fatal_error.is_none() {

@@ -1,4 +1,35 @@
-use crate::*;
+use std::{io::Write, time::Instant};
+
+use bevy::{
+    log::error,
+    prelude::{Res, ResMut, Vec3},
+};
+use render::{ChunkRenderQueue, ChunkUploadAcknowledgements, PresentedFrameGate};
+use world::SubChunkKey;
+
+use super::{
+    AcceptanceRun,
+    markers::GALLERY_ANCHOR_READY,
+    model_witness::ModelWitnessFileSource,
+    mutation::{world_ready_markers, write_stdout_marker},
+    proofs::{
+        forced_remesh_proof, forced_remesh_settled_marker, teleport_proof, teleport_settled_marker,
+    },
+    teleport::{
+        TeleportReadySnapshot, render_view_cohort, teleport_global_stage_diagnostic_marker,
+    },
+};
+use crate::{
+    camera,
+    runtime::{
+        network::NetworkHandle,
+        visibility::{AppMetrics, CaveVisibilityCache, DiagnosticQuads},
+        world::ClientWorld,
+    },
+};
+
+pub(crate) const WORLD_READY_QUIET_INTERVAL: std::time::Duration =
+    std::time::Duration::from_secs(2);
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct WorldReadyWork {

@@ -1,4 +1,49 @@
-use crate::*;
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicU8, Ordering},
+    },
+    thread,
+    time::Duration,
+};
+
+use assets::{DIAGNOSTIC_MATERIAL, RuntimeAssets};
+use bevy::{
+    app::AppExit,
+    ecs::system::SystemParam,
+    log::{debug, info},
+    prelude::{MessageReader, Query, Res, ResMut, Resource, Time, Transform, Vec3, With},
+    time::Real,
+};
+use client_world::{CommittedControlEvent, WorldMeshChange, WorldStream};
+use meshing::CameraMedium;
+use render::{
+    ChunkBiomeTints, ChunkRenderQueue, ChunkUploadAcknowledgements, ChunkUploadPriority,
+    ChunkUploadToken,
+};
+
+use crate::{
+    acceptance::{
+        AcceptanceRun,
+        markers::{
+            CAMERA_COMMITTED, SHUTDOWN_WATCHDOG_ARMED_MARKER, SHUTDOWN_WATCHDOG_FIRED_MARKER,
+        },
+        model_witness::ModelWitnessFileSource,
+        mutation::{deterministic_mutation_coordinate, write_stdout_marker},
+    },
+    camera::FlyCamera,
+    environment::{self, WeatherState, WorldClock, apply_environment_control},
+    movement::MovementTicker,
+    runtime::{
+        network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
+        shutdown::record_fatal_error,
+        telemetry::bedrock_camera_rotation,
+        visibility::{AppMetrics, DiagnosticQuads},
+    },
+};
+
+const MESH_JOB_BUDGET_PER_FRAME: usize = 128;
+pub(crate) const SHUTDOWN_WATCHDOG_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Resource)]
 pub(crate) struct ClientWorld {

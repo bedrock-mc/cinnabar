@@ -76,7 +76,7 @@ fn resident_transparent_allocation(
 
 #[test]
 fn visibility_membership_churn_retains_resident_snapshot_until_ordered_swap() {
-    let texture_identity = ChunkTextureAssetIdentity::for_test(1, 1);
+    let texture_identity = ChunkTextureAssetIdentity::new(1, 1);
     let tint_identity = ChunkBiomeTintIdentity::new(2, 2);
     let a = TransparentAllocationIdentity::new(SubChunkKey::new(0, 0, 0, 0), 3, 8..16, 32..36, 1);
     let b = TransparentAllocationIdentity::new(SubChunkKey::new(0, 1, 0, 0), 4, 16..24, 36..40, 2);
@@ -148,7 +148,7 @@ fn visibility_membership_churn_retains_resident_snapshot_until_ordered_swap() {
 
 #[test]
 fn missing_or_reallocated_snapshot_identity_clears_absolute_refs_immediately() {
-    let texture_identity = ChunkTextureAssetIdentity::for_test(1, 1);
+    let texture_identity = ChunkTextureAssetIdentity::new(1, 1);
     let tint_identity = ChunkBiomeTintIdentity::new(2, 2);
     let identity =
         TransparentAllocationIdentity::new(SubChunkKey::new(0, 0, 0, 0), 3, 8..16, 32..36, 1);
@@ -195,7 +195,7 @@ fn missing_or_reallocated_snapshot_identity_clears_absolute_refs_immediately() {
 
 #[test]
 fn generation_only_update_retains_physically_resident_snapshot_and_draw_args() {
-    let texture_identity = ChunkTextureAssetIdentity::for_test(1, 1);
+    let texture_identity = ChunkTextureAssetIdentity::new(1, 1);
     let tint_identity = ChunkBiomeTintIdentity::new(2, 2);
     let old_identity =
         TransparentAllocationIdentity::new(SubChunkKey::new(0, 0, 0, 0), 3, 8..16, 32..36, 1);
@@ -266,7 +266,7 @@ fn generation_only_update_retains_physically_resident_snapshot_and_draw_args() {
 
 #[test]
 fn grown_same_start_liquid_range_keeps_old_refs_physically_resident() {
-    let texture_identity = ChunkTextureAssetIdentity::for_test(1, 1);
+    let texture_identity = ChunkTextureAssetIdentity::new(1, 1);
     let tint_identity = ChunkBiomeTintIdentity::new(2, 2);
     let identity =
         TransparentAllocationIdentity::new(SubChunkKey::new(0, 0, 0, 0), 3, 8..16, 32..36, 1);
@@ -300,7 +300,7 @@ fn grown_same_start_liquid_range_keeps_old_refs_physically_resident() {
 
 #[test]
 fn physical_residency_rejects_moved_shrunk_or_structurally_invalid_streams() {
-    let texture_identity = ChunkTextureAssetIdentity::for_test(1, 1);
+    let texture_identity = ChunkTextureAssetIdentity::new(1, 1);
     let tint_identity = ChunkBiomeTintIdentity::new(2, 2);
     let identity =
         TransparentAllocationIdentity::new(SubChunkKey::new(0, 0, 0, 0), 3, 8..16, 32..36, 1);
@@ -353,7 +353,7 @@ fn physical_residency_rejects_moved_shrunk_or_structurally_invalid_streams() {
         &snapshot,
         [&resident_transparent_allocation(&identity, tint_identity)],
         std::iter::empty(),
-        ChunkTextureAssetIdentity::for_test(9, 9),
+        ChunkTextureAssetIdentity::new(9, 9),
         tint_identity,
     ));
 }
@@ -528,7 +528,7 @@ fn transparent_witness_requires_the_exact_bounded_key_set() {
 
 #[test]
 fn transparent_witness_snapshot_rejects_gen193_missing_key_then_accepts_gen194_complete() {
-    let texture_identity = ChunkTextureAssetIdentity::for_test(1, 1);
+    let texture_identity = ChunkTextureAssetIdentity::new(1, 1);
     let tint_identity = ChunkBiomeTintIdentity::new(2, 2);
     let a = SubChunkKey::new(0, 0, 4, 5);
     let b = SubChunkKey::new(0, 1, 4, 5);
@@ -667,7 +667,7 @@ fn witness_stage_diagnostics_are_change_deduplicated_and_request_bounded() {
 
 #[test]
 fn retired_identity_matches_exact_old_snapshot_and_not_unrelated_active_address() {
-    let texture_identity = ChunkTextureAssetIdentity::for_test(1, 1);
+    let texture_identity = ChunkTextureAssetIdentity::new(1, 1);
     let tint_identity = ChunkBiomeTintIdentity::new(2, 2);
     let old = retirement_test_allocation();
     let identity = TransparentAllocationIdentity::new(
@@ -712,7 +712,7 @@ fn retired_identity_matches_exact_old_snapshot_and_not_unrelated_active_address(
 
 #[test]
 fn removal_to_empty_arms_only_after_snapshot_no_longer_references_retired_identity() {
-    let texture_identity = ChunkTextureAssetIdentity::for_test(1, 1);
+    let texture_identity = ChunkTextureAssetIdentity::new(1, 1);
     let tint_identity = ChunkBiomeTintIdentity::new(2, 2);
     let old = retirement_test_allocation();
     let identity = TransparentAllocationIdentity::new(
@@ -743,7 +743,7 @@ fn removal_to_empty_arms_only_after_snapshot_no_longer_references_retired_identi
 
 #[test]
 fn asset_or_tint_identity_change_clears_even_resident_snapshot() {
-    let texture_identity = ChunkTextureAssetIdentity::for_test(1, 1);
+    let texture_identity = ChunkTextureAssetIdentity::new(1, 1);
     let tint_identity = ChunkBiomeTintIdentity::new(2, 2);
     let identity =
         TransparentAllocationIdentity::new(SubChunkKey::new(0, 0, 0, 0), 3, 8..16, 32..36, 1);
@@ -757,7 +757,7 @@ fn asset_or_tint_identity_change_clears_even_resident_snapshot() {
     .unwrap();
     let resident = [resident_transparent_allocation(&identity, tint_identity)];
     for (next_texture, next_tint) in [
-        (ChunkTextureAssetIdentity::for_test(9, 9), tint_identity),
+        (ChunkTextureAssetIdentity::new(9, 9), tint_identity),
         (texture_identity, ChunkBiomeTintIdentity::new(9, 9)),
     ] {
         let mut state =
@@ -804,7 +804,7 @@ fn conflicting_manifest_fail_closes_every_absolute_ref_owner_and_active_metric()
         [0.0; 3],
         [0.0, 0.0, 0.0, 1.0],
         vec![],
-        ChunkTextureAssetIdentity::for_test(1, 1),
+        ChunkTextureAssetIdentity::new(1, 1),
         ChunkBiomeTintIdentity::new(1, 1),
     )
     .unwrap();
@@ -819,7 +819,7 @@ fn conflicting_manifest_fail_closes_every_absolute_ref_owner_and_active_metric()
         ),
         Ok(true)
     );
-    let pending_generation = ViewSortGeneration::for_test(committed_generation.get() + 1);
+    let pending_generation = ViewSortGeneration::new(committed_generation.get() + 1);
     let work = TransparentSortWork {
         generation: pending_generation,
         requested_at: Instant::now(),
@@ -873,7 +873,7 @@ fn invalid_camera_transform_fail_closes_committed_staged_gate_and_metadata() {
         [0.0; 3],
         [0.0, 0.0, 0.0, 1.0],
         vec![],
-        ChunkTextureAssetIdentity::for_test(1, 1),
+        ChunkTextureAssetIdentity::new(1, 1),
         ChunkBiomeTintIdentity::new(1, 1),
     )
     .unwrap();
@@ -892,7 +892,7 @@ fn invalid_camera_transform_fail_closes_committed_staged_gate_and_metadata() {
         [f32::from_bits(1), 0.0, 0.0],
         [0.0, 0.0, 0.0, 1.0],
         vec![],
-        ChunkTextureAssetIdentity::for_test(1, 1),
+        ChunkTextureAssetIdentity::new(1, 1),
         ChunkBiomeTintIdentity::new(1, 1),
     )
     .unwrap();
@@ -908,7 +908,7 @@ fn invalid_camera_transform_fail_closes_committed_staged_gate_and_metadata() {
         ),
         Ok(false)
     );
-    let pending = ViewSortGeneration::for_test(staged.get() + 1);
+    let pending = ViewSortGeneration::new(staged.get() + 1);
     let work = TransparentSortWork {
         generation: pending,
         requested_at: Instant::now(),
@@ -948,7 +948,7 @@ fn staged_generation_is_not_resubmitted_and_retains_causal_latency_origin() {
         [0.0; 3],
         [0.0, 0.0, 0.0, 1.0],
         vec![],
-        ChunkTextureAssetIdentity::for_test(1, 1),
+        ChunkTextureAssetIdentity::new(1, 1),
         ChunkBiomeTintIdentity::new(1, 1),
     )
     .unwrap();
@@ -979,7 +979,7 @@ fn candidate_cache_reuses_camera_only_arc_rebuilds_identity_and_clears_on_failur
         [0.0; 3],
         [0.0, 0.0, 0.0, 1.0],
         vec![],
-        ChunkTextureAssetIdentity::for_test(1, 1),
+        ChunkTextureAssetIdentity::new(1, 1),
         ChunkBiomeTintIdentity::new(1, 1),
     )
     .unwrap();
@@ -987,7 +987,7 @@ fn candidate_cache_reuses_camera_only_arc_rebuilds_identity_and_clears_on_failur
         [1.0, 0.0, 0.0],
         [0.0, 0.0, 0.0, 1.0],
         vec![],
-        ChunkTextureAssetIdentity::for_test(1, 1),
+        ChunkTextureAssetIdentity::new(1, 1),
         ChunkBiomeTintIdentity::new(1, 1),
     )
     .unwrap();
@@ -1009,7 +1009,7 @@ fn candidate_cache_reuses_camera_only_arc_rebuilds_identity_and_clears_on_failur
         [1.0, 0.0, 0.0],
         [0.0, 0.0, 0.0, 1.0],
         vec![],
-        ChunkTextureAssetIdentity::for_test(2, 1),
+        ChunkTextureAssetIdentity::new(2, 1),
         ChunkBiomeTintIdentity::new(1, 1),
     )
     .unwrap();
@@ -1022,7 +1022,7 @@ fn candidate_cache_reuses_camera_only_arc_rebuilds_identity_and_clears_on_failur
         [1.0, 0.0, 0.0],
         [0.0, 0.0, 0.0, 1.0],
         vec![],
-        ChunkTextureAssetIdentity::for_test(3, 1),
+        ChunkTextureAssetIdentity::new(3, 1),
         ChunkBiomeTintIdentity::new(1, 1),
     )
     .unwrap();
@@ -1051,7 +1051,7 @@ fn encoded_liquid_draw_is_not_presented_until_submitted_work_completes() {
             ..Default::default()
         }
     });
-    record_encoded_transparent_generation(&metrics, ViewSortGeneration::for_test(12));
+    record_encoded_transparent_generation(&metrics, ViewSortGeneration::new(12));
     assert_eq!(metrics.snapshot().encoded_generation, 12);
     assert_eq!(metrics.snapshot().presented_generation, 0);
 

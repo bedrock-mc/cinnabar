@@ -1,8 +1,43 @@
-use crate::*;
+use std::{sync::Arc, time::Instant};
+
+use bevy::{
+    log::{debug, error, info},
+    prelude::{Local, Query, Res, ResMut, Time, Transform, Vec3, With},
+    time::Real,
+};
+use client_world::{ActorSnapshot, PlayerProfile, SAFE_SERVER_HEIGHT, WorldStream};
+use render::{
+    ActorRenderFrame, ActorRenderScene, ActorRenderSource, ActorSkinPixels,
+    ChunkUploadAcknowledgements,
+};
+
+use crate::{
+    acceptance::{
+        AcceptanceRun,
+        model_witness::ModelWitnessFileSource,
+        mutation::{
+            accepted_move_player_ingress_marker, move_player_ingress_marker,
+            write_move_player_ingress_before_source_capture, write_stdout_marker,
+        },
+    },
+    camera::FlyCamera,
+    environment::replace_session,
+    movement::MovementSource,
+    runtime::{
+        shutdown::record_fatal_error,
+        visibility::AppMetrics,
+        world::{AppWorldState, ClientWorld},
+    },
+};
 
 pub(crate) use session::{
     NetworkConfig, NetworkControlEvent, NetworkHandle, WORLD_EVENT_CAPACITY, spawn_network,
 };
+
+pub(crate) const NETWORK_INGRESS_BUDGET_PER_FRAME: usize = 32;
+pub(crate) const OUTBOUND_SEND_BUDGET_PER_FRAME: usize = 16;
+const _: () = assert!(WORLD_EVENT_CAPACITY >= NETWORK_INGRESS_BUDGET_PER_FRAME);
+const _: () = assert!(NETWORK_INGRESS_BUDGET_PER_FRAME == client_world::MAX_ADMITTED_HEAVY_EVENTS);
 
 pub(crate) fn receive_network_events(
     mut network: ResMut<NetworkHandle>,

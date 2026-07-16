@@ -558,7 +558,7 @@ Commit: `ci: enforce architecture boundaries`
 **Interfaces:**
 - Produces a clean feature branch and ready-for-review PR targeting `phase2-textures`.
 
-- [ ] **Step 1: Run formatting, tests, lint, and static checks**
+- [x] **Step 1: Run formatting, tests, lint, and static checks**
 
 ```bash
 cargo fmt --check
@@ -572,7 +572,7 @@ git diff --check
 
 Expected: all commands pass. Windows-only PowerShell/native acceptance is reported precisely if not runnable from this host.
 
-- [ ] **Step 2: Run one focused independent review cycle**
+- [x] **Step 2: Run one focused independent review cycle**
 
 Review the complete branch against the design spec, dependency policy, test preservation, public API cleanliness, and file ownership. Fix every Critical and Important finding; rerun affected tests. Do not begin a second review loop unless a fix changes production behavior.
 

@@ -216,5 +216,20 @@ impl PackedTransparentDrawRef {
 
 pub(in crate::chunk) const _: () = assert!(std::mem::size_of::<PackedTransparentDrawRef>() == 8);
 
-include!("sort_state.rs");
-include!("sort_prepare.rs");
+mod prepare;
+mod state;
+
+pub(in crate::chunk) use prepare::{
+    build_transparent_candidates, prepare_transparent_sorts,
+    transparent_snapshot_addresses_are_resident,
+};
+pub(in crate::chunk) use state::{
+    TransparentAddressIdentity, TransparentCandidateCache, TransparentSortRequest,
+    TransparentSortRuntime, TransparentSortWork, TransparentStagedSnapshot,
+    TransparentWorkerResult,
+};
+pub use state::{
+    TransparentAllocationIdentity, TransparentOrderedSnapshot, TransparentSortError,
+    TransparentSortJobGate, TransparentSortResult, TransparentSortState, TransparentUploadBatch,
+    ViewSortGeneration, ViewSortKey, validate_transparent_sort_ref_count,
+};

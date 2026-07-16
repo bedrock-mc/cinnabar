@@ -138,7 +138,7 @@ fn sort_key(
         camera.map(|value| value as f32),
         orientation.map(|value| value as f32),
         visible,
-        ChunkTextureAssetIdentity::for_test(assets as usize, assets),
+        texture_identity(assets as usize, assets),
         meshing::ChunkBiomeTintIdentity::new(tint, tint),
     )
     .unwrap()
@@ -149,7 +149,7 @@ fn exact_sort_key(camera: [f32; 3], orientation: [f32; 4]) -> ViewSortKey {
         camera,
         orientation,
         vec![],
-        ChunkTextureAssetIdentity::for_test(1, 1),
+        texture_identity(1, 1),
         meshing::ChunkBiomeTintIdentity::new(1, 1),
     )
     .unwrap()
@@ -351,7 +351,7 @@ fn conflicting_duplicate_visible_allocation_is_rejected() {
             [0.0, 0.0, 0.0],
             [0.0, 0.0, 0.0, 1.0],
             vec![allocation(key, 1, 8), allocation(key, 2, 16)],
-            ChunkTextureAssetIdentity::for_test(1, 1),
+            texture_identity(1, 1),
             meshing::ChunkBiomeTintIdentity::new(1, 1),
         ),
         Err(TransparentSortError::ConflictingAllocation { key })
@@ -454,24 +454,6 @@ fn transparent_view_and_double_slot_memory_are_strictly_bounded() {
         TRANSPARENT_REF_BUFFER_BYTES,
         size_of::<PackedTransparentDrawRef>() * MAX_TRANSPARENT_DRAW_REFS * 2
     );
-}
-
-#[test]
-fn transparent_sort_job_gate_keeps_one_in_flight_and_only_the_newest_replacement() {
-    let mut gate = TransparentSortJobGate::default();
-    let first = ViewSortGeneration::for_test(1);
-    let second = ViewSortGeneration::for_test(2);
-    let newest = ViewSortGeneration::for_test(3);
-    assert_eq!(gate.submit(first, "first"), Some((first, "first")));
-    assert_eq!(gate.submit(second, "second"), None);
-    assert_eq!(gate.submit(newest, "newest"), None);
-    assert_eq!(gate.in_flight_generation(), Some(first));
-    assert_eq!(gate.pending_generation(), Some(newest));
-    assert_eq!(gate.complete(first), Some((newest, "newest")));
-    assert_eq!(gate.in_flight_generation(), Some(newest));
-    assert_eq!(gate.pending_generation(), None);
-    assert_eq!(gate.complete(newest), None);
-    assert_eq!(gate.in_flight_generation(), None);
 }
 
 #[test]

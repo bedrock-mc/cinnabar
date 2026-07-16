@@ -91,14 +91,30 @@ pub(super) fn check_sources(
         }
         for (index, line) in source.lines().enumerate() {
             let compact = line.split_whitespace().collect::<String>();
+            if !is_test && compact.starts_with("include!(") {
+                diagnostics.push(format!(
+                    "{relative}:{}: first-party Rust source fragments are forbidden",
+                    index + 1
+                ));
+            }
+            if compact == "usecrate::*;" {
+                diagnostics.push(format!(
+                    "{relative}:{}: crate-wide private preludes are forbidden",
+                    index + 1
+                ));
+            }
             if compact.starts_with("pubuse") && compact.contains("::*") {
                 diagnostics.push(format!(
                     "{relative}:{}: glob re-export is forbidden",
                     index + 1
                 ));
             }
-            if compact.starts_with("pub") && compact.contains("fn") && compact.contains("_for_test")
-            {
+            let test_only_public = compact.starts_with("pub")
+                && compact.contains("fn")
+                && (compact.contains("_for_test")
+                    || compact.contains("fnfor_test")
+                    || compact.contains("fntest_"));
+            if test_only_public {
                 diagnostics.push(format!(
                     "{relative}:{}: test-only public API is forbidden",
                     index + 1

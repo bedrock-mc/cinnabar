@@ -171,8 +171,9 @@ consumer = "scripts/acceptance/Resources.ps1"
 
 [[markers]]
 literal = "RUST_MCBE_ASSETS"
-kind = "log_only"
+kind = "environment_variable"
 producer = "app/src/acceptance/markers.rs"
+consumer = "app/src/asset_startup.rs"
 
 [[markers]]
 literal = "RUST_MCBE_ERROR_COUNTERS"

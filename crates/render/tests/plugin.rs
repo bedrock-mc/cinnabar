@@ -36,20 +36,21 @@ use meshing::{
 };
 use render::{
     AnimationFrameSample, ChunkAnimationClock, ChunkRenderInstance, ChunkRenderPlugin,
-    ChunkRenderQueue, ChunkRenderQueueLimits, ChunkTextureAssetIdentity, ChunkUploadPriority,
-    MATERIAL_UV_REFLECT_U, MATERIAL_UV_REFLECT_V, MATERIAL_UV_ROTATE_90, MATERIAL_UV_ROTATE_180,
-    MATERIAL_UV_ROTATE_270, MAX_TRANSPARENT_DRAW_REFS, MAX_TRANSPARENT_VIEWS,
-    PackedTransparentDrawRef, PresentedFrameAck, RenderViewCohort, TRANSPARENT_REF_BUFFER_BYTES,
-    TRANSPARENT_REF_SLOT_BYTES, TextureArrayLimits, TextureLimitError, TexturePageBinding,
-    TransparentAllocationIdentity, TransparentOrderedSnapshot, TransparentSortError,
-    TransparentSortJobGate, TransparentSortResult, TransparentSortState, ViewSortGeneration,
-    ViewSortKey, diagnostic_texture_page, greedy_texture_uv, plan_texture_mip_uploads,
-    plan_texture_page_bindings, select_animation_frames, texture_asset_needs_rebuild,
+    ChunkRenderQueue, ChunkRenderQueueLimits, ChunkTextureAssetIdentity, ChunkTextureAssets,
+    ChunkUploadPriority, MATERIAL_UV_REFLECT_U, MATERIAL_UV_REFLECT_V, MATERIAL_UV_ROTATE_90,
+    MATERIAL_UV_ROTATE_180, MATERIAL_UV_ROTATE_270, MAX_TRANSPARENT_DRAW_REFS,
+    MAX_TRANSPARENT_VIEWS, PackedTransparentDrawRef, PresentedFrameAck, RenderViewCohort,
+    TRANSPARENT_REF_BUFFER_BYTES, TRANSPARENT_REF_SLOT_BYTES, TextureArrayLimits,
+    TextureLimitError, TexturePageBinding, TransparentAllocationIdentity,
+    TransparentOrderedSnapshot, TransparentSortError, TransparentSortResult, TransparentSortState,
+    ViewSortGeneration, ViewSortKey, diagnostic_texture_page, greedy_texture_uv,
+    plan_texture_mip_uploads, plan_texture_page_bindings, select_animation_frames,
+    texture_asset_needs_rebuild,
 };
 
 const CHUNK_RENDERER_SOURCE: &str = concat!(
     include_str!("../src/chunk/transparent/sort.rs"),
-    include_str!("../src/chunk/transparent/sort_state.rs"),
+    include_str!("../src/chunk/transparent/sort/state.rs"),
     include_str!("../src/chunk/transparent/retirement.rs"),
     include_str!("../src/chunk/transparent/model.rs"),
     include_str!("../src/chunk/biome_tints.rs"),
@@ -67,7 +68,7 @@ const CHUNK_RENDERER_SOURCE: &str = concat!(
     include_str!("../src/chunk/gpu/bind_groups.rs"),
     include_str!("../src/chunk/gpu/arena.rs"),
     include_str!("../src/chunk/gpu/upload.rs"),
-    include_str!("../src/chunk/transparent/sort_prepare.rs"),
+    include_str!("../src/chunk/transparent/sort/prepare.rs"),
     include_str!("../src/chunk/gpu/layout.rs"),
     include_str!("../src/chunk/pipeline/commands.rs"),
     include_str!("../src/chunk/draw.rs"),
@@ -268,6 +269,17 @@ fn runtime_assets() -> &'static RuntimeAssets {
         let blob = encode_blob(&compiled).expect("encode synthetic plugin assets");
         RuntimeAssets::decode(&blob).expect("decode synthetic plugin assets")
     })
+}
+
+fn texture_identity(asset: usize, revision: u64) -> ChunkTextureAssetIdentity {
+    static ASSETS: OnceLock<Vec<Arc<RuntimeAssets>>> = OnceLock::new();
+    let assets = ASSETS.get_or_init(|| {
+        (0..32)
+            .map(|_| Arc::new(RuntimeAssets::diagnostic()))
+            .collect()
+    });
+    let slot = (asset ^ (asset >> 12)) % assets.len();
+    ChunkTextureAssets::with_revision(Arc::clone(&assets[slot]), revision).identity()
 }
 
 fn zig_zag_i32(value: i32) -> Vec<u8> {

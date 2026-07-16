@@ -1,11 +1,12 @@
-use crate::*;
-
 use std::{
     path::PathBuf,
     time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result, bail};
+#[cfg(test)]
+use bevy::prelude::{App, Update};
+use bevy::prelude::{Res, ResMut, Resource};
 use render::{TransparentWitnessEvidence, TransparentWitnessRequest};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};

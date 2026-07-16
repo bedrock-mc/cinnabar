@@ -1,3 +1,14 @@
+use super::state::{
+    TransparentAllocationIdentity, TransparentOrderedSnapshot, TransparentSortError,
+    TransparentSortRequest, TransparentSortResult, TransparentSortRuntime, TransparentSortWork,
+    ViewSortKey, validate_transparent_sort_ref_count,
+};
+use super::{
+    MAX_TRANSPARENT_DRAW_REFS, MAX_TRANSPARENT_VIEWS, PackedTransparentDrawRef,
+    TRANSPARENT_REF_SLOT_BYTES, TransparentSortCandidate, transparent_indirect_args,
+};
+use crate::chunk::*;
+
 pub(in crate::chunk) fn transparent_snapshot_addresses_are_resident<'a, 'b>(
     snapshot: &TransparentOrderedSnapshot,
     resident_allocations: impl IntoIterator<Item = &'a GpuChunkAllocation>,

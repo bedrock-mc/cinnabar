@@ -59,9 +59,9 @@ pub struct ChunkTextureAssetIdentity {
 }
 
 impl ChunkTextureAssetIdentity {
-    #[doc(hidden)]
+    #[cfg(test)]
     #[must_use]
-    pub const fn for_test(pointer: usize, revision: u64) -> Self {
+    pub(in crate::chunk) const fn new(pointer: usize, revision: u64) -> Self {
         Self { pointer, revision }
     }
 }

@@ -1,5 +1,65 @@
+use std::sync::Arc;
+
+use anyhow::{Context, Result, bail};
+use bevy::{
+    anti_alias::{AntiAliasPlugin, fxaa::FxaaPlugin},
+    app::TerminalCtrlCHandlerPlugin,
+    prelude::{
+        App, ClearColor, Color, DefaultPlugins, IntoScheduleConfigs, Last, PluginGroup, Update,
+        Window, default,
+    },
+    render::diagnostic::RenderDiagnosticsPlugin,
+    window::WindowPlugin,
+};
+use render::{
+    ActorRenderPlugin, ActorRenderScene, AtmosphereFrame, AtmospherePlugin,
+    AtmosphereTextureAssets, ChunkRenderApplySet, ChunkRenderPlugin, ChunkTextureAssets,
+    VisibilityDiagnosticsInput,
+};
+
+use crate::acceptance::{
+    markers::{SHUTDOWN_COMPLETED, requested_present_mode},
+    world_ready::emit_world_ready,
+};
+use crate::{
+    acceptance::{
+        AcceptanceRun,
+        model_witness::{ModelWitnessFileSource, poll_model_witness_request},
+        transparent_witness::{TransparentWitnessFileSource, poll_transparent_witness_request},
+    },
+    args,
+    asset_startup::{LoadedAssetKind, load_runtime_assets, select_asset_path_from_environment},
+    camera::{FlyCameraPlugin, FlyCameraUpdateSet},
+    environment::{self, WeatherState, WorldClock, update_atmosphere_frame},
+    metrics::MetricsCollector,
+    movement::MovementTicker,
+    runtime::{
+        endpoint::{preflight_bridge_endpoint, resolve_socket_dir},
+        network::{
+            NetworkConfig, NetworkHandle, publish_actor_render_frame, receive_network_events,
+            spawn_network,
+        },
+        shutdown::{
+            exit_on_fatal_runtime_error, exit_on_window_close_requested, finish_acceptance_run,
+        },
+        telemetry::{
+            AcceptanceRuntimeConfig, frame_limited_winit_settings, record_metrics_and_title,
+            send_player_auth_inputs, update_visibility_diagnostics,
+        },
+        visibility::{
+            AppMetrics, CaveVisibilityCache, DiagnosticQuads, apply_added_chunk_visibility,
+            refresh_cave_visibility, remove_chunk_visibility,
+        },
+        world::{
+            ClientWorld, SHUTDOWN_WATCHDOG_TIMEOUT, ShutdownWatchdog, app_exit_code,
+            arm_shutdown_watchdog, drive_world_stream, startup_biome_tints, update_camera_medium,
+        },
+    },
+};
+
+const GPU_UPLOAD_BUDGET_PER_FRAME: usize = 128;
+
 use crate::acceptance::model_witness::drive_model_witness;
-use crate::*;
 
 pub fn run(args: args::ClientArgs) -> Result<()> {
     let socket_dir = resolve_socket_dir(&args.socket_dir);

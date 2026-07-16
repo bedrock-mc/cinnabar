@@ -1,4 +1,61 @@
-use crate::*;
+use std::{
+    collections::VecDeque,
+    time::{Duration, Instant},
+};
+
+use bevy::{
+    diagnostic::{DiagnosticPath, DiagnosticsStore},
+    prelude::{
+        ButtonInput, EulerRot, KeyCode, Local, ParamSet, Quat, Query, Res, ResMut, Resource,
+        Single, Time, Transform, Vec3, Window, With,
+    },
+    time::Real,
+    window::{CursorOptions, PrimaryWindow},
+    winit::{UpdateMode, WinitSettings},
+};
+use render::{
+    ChunkRenderInstance, ChunkRenderQueue, ModelWitnessEvidence, ModelWitnessManifestRecord,
+    ModelWorkloadMetrics, TransparentSortMetrics, TransparentWitnessEvidence,
+    VisibilityDiagnostics, VisibilityDiagnosticsInput,
+};
+use sha2::{Digest, Sha256};
+use world::SubChunkKey;
+
+use crate::{
+    acceptance::{
+        AcceptanceRun, PHASE0_REQUESTED_RADIUS_CHUNKS,
+        markers::{
+            ERROR_COUNTERS, MODEL_WITNESS_COMPLETE, TRANSPARENT_SORT_COMMITTED,
+            TRANSPARENT_WITNESS_COMPLETE, TRANSPARENT_WITNESS_INCOMPLETE,
+            TRANSPARENT_WITNESS_STAGE, VISIBILITY_SNAPSHOT, acceptance_runtime_metadata_marker,
+            cumulative_counter_delta, visibility_delta_marker_fields,
+            visibility_digest_marker_fields, world_publication_snapshot_marker,
+        },
+        mutation::write_stdout_marker,
+    },
+    camera::{self, FlyCamera, input_is_active, movement_axes},
+    metrics::{
+        GpuPassMeasurement, ModelWorkloadMetricsSnapshot, PipelineMetricsSnapshot,
+        TransparentSortMetricsSnapshot, pair_gpu_pass_sample,
+    },
+    movement::{
+        MovementInputSample, MovementSendError, MovementSource, MovementTicker,
+        flush_player_auth_inputs,
+    },
+    runtime::{
+        network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
+        shutdown::record_fatal_error,
+        visibility::{AppMetrics, CaveVisibilityCache, DiagnosticQuads},
+        world::ClientWorld,
+    },
+};
+
+const TITLE_REFRESH_INTERVAL: Duration = Duration::from_millis(250);
+const VISIBILITY_DIAGNOSTIC_INTERVAL: Duration = Duration::from_secs(1);
+const OPAQUE_3D_GPU_DIAGNOSTIC: DiagnosticPath =
+    DiagnosticPath::const_new("render/main_opaque_pass_3d/elapsed_gpu");
+const TRANSPARENT_3D_GPU_DIAGNOSTIC: DiagnosticPath =
+    DiagnosticPath::const_new("render/main_transparent_pass_3d/elapsed_gpu");
 
 pub(crate) fn camera_sub_chunk_key(dimension: i32, position: Vec3) -> SubChunkKey {
     SubChunkKey::new(

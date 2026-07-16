@@ -1,4 +1,22 @@
-use crate::*;
+use std::{
+    io::Write,
+    time::{Duration, Instant},
+};
+
+use render::{PresentedFrameAck, TargetRenderExpectation};
+use world::SubChunkKey;
+
+use super::{
+    PHASE0_REQUESTED_RADIUS_CHUNKS,
+    markers::{MOVE_PLAYER_INGRESS, MUTATION_COORDINATE, TARGET_MUTATION_ARMED, WORLD_READY},
+    teleport::presented_ack_matches,
+    world_ready::WorldReadySnapshot,
+};
+
+const MUTATION_X_OFFSET_BLOCKS: i32 = 4;
+const LEAF_FOREST_FAR_OFFSET_CHUNKS: i32 = 65;
+const LEAF_FOREST_FAR_OFFSET_BLOCKS: i32 = LEAF_FOREST_FAR_OFFSET_CHUNKS * 16;
+const LEAF_FOREST_MUTATION_Z_OFFSET_BLOCKS: i32 = 12;
 
 #[derive(Debug, Clone)]
 pub(crate) struct PendingMutation {

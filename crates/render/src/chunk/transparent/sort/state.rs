@@ -1,3 +1,5 @@
+use super::{MAX_TRANSPARENT_DRAW_REFS, PackedTransparentDrawRef, TransparentSortCandidate};
+use crate::chunk::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransparentSortError {
@@ -27,10 +29,33 @@ impl ViewSortGeneration {
         self.0
     }
 
-    #[doc(hidden)]
+    #[cfg(test)]
     #[must_use]
-    pub const fn for_test(value: u64) -> Self {
+    pub(in crate::chunk) const fn new(value: u64) -> Self {
         Self(value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn job_gate_keeps_one_in_flight_and_only_the_newest_replacement() {
+        let mut gate = TransparentSortJobGate::default();
+        let first = ViewSortGeneration::new(1);
+        let second = ViewSortGeneration::new(2);
+        let newest = ViewSortGeneration::new(3);
+        assert_eq!(gate.submit(first, "first"), Some((first, "first")));
+        assert_eq!(gate.submit(second, "second"), None);
+        assert_eq!(gate.submit(newest, "newest"), None);
+        assert_eq!(gate.in_flight_generation(), Some(first));
+        assert_eq!(gate.pending_generation(), Some(newest));
+        assert_eq!(gate.complete(first), Some((newest, "newest")));
+        assert_eq!(gate.in_flight_generation(), Some(newest));
+        assert_eq!(gate.pending_generation(), None);
+        assert_eq!(gate.complete(newest), None);
+        assert_eq!(gate.in_flight_generation(), None);
     }
 }
 

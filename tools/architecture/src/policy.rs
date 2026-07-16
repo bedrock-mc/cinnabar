@@ -46,4 +46,5 @@ pub(super) enum MarkerKind {
     Parsed,
     LogOnly,
     HarnessOnly,
+    EnvironmentVariable,
 }

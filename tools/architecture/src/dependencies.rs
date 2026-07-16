@@ -11,6 +11,7 @@ pub(super) fn check_dependencies(
     diagnostics: &mut Vec<String>,
 ) -> Result<(), ArchitectureError> {
     check_workspace_members(root, policy, diagnostics)?;
+    let workspace_dependencies = workspace_dependencies(root)?;
     let rule_paths = policy
         .crate_rules
         .iter()
@@ -24,7 +25,11 @@ pub(super) fn check_dependencies(
                 path: manifest.clone(),
                 source,
             })?;
-        let dependencies = production_dependencies(&value, manifest.parent().unwrap_or(root));
+        let dependencies = production_dependencies(
+            &value,
+            manifest.parent().unwrap_or(root),
+            &workspace_dependencies,
+        );
         for forbidden in &rule.forbidden_dependencies {
             if dependencies
                 .iter()
@@ -88,26 +93,66 @@ fn check_workspace_members(
     Ok(())
 }
 
+#[derive(Clone)]
 struct Dependency {
     key: String,
     package: String,
     path: Option<PathBuf>,
 }
 
-fn production_dependencies(manifest: &toml::Value, crate_dir: &Path) -> Vec<Dependency> {
+fn workspace_dependencies(root: &Path) -> Result<BTreeMap<String, Dependency>, ArchitectureError> {
+    let manifest_path = root.join("Cargo.toml");
+    let manifest = toml::from_str::<toml::Value>(&read(&manifest_path)?).map_err(|source| {
+        ArchitectureError::Policy {
+            path: manifest_path,
+            source,
+        }
+    })?;
     let mut dependencies = Vec::new();
-    append_dependency_table(manifest.get("dependencies"), crate_dir, &mut dependencies);
+    append_dependency_table(
+        manifest
+            .get("workspace")
+            .and_then(|workspace| workspace.get("dependencies")),
+        root,
+        &BTreeMap::new(),
+        &mut dependencies,
+    );
+    Ok(dependencies
+        .into_iter()
+        .map(|dependency| (dependency.key.clone(), dependency))
+        .collect())
+}
+
+fn production_dependencies(
+    manifest: &toml::Value,
+    crate_dir: &Path,
+    workspace_dependencies: &BTreeMap<String, Dependency>,
+) -> Vec<Dependency> {
+    let mut dependencies = Vec::new();
+    append_dependency_table(
+        manifest.get("dependencies"),
+        crate_dir,
+        workspace_dependencies,
+        &mut dependencies,
+    );
     append_dependency_table(
         manifest.get("build-dependencies"),
         crate_dir,
+        workspace_dependencies,
         &mut dependencies,
     );
     if let Some(targets) = manifest.get("target").and_then(toml::Value::as_table) {
         for target in targets.values() {
-            append_dependency_table(target.get("dependencies"), crate_dir, &mut dependencies);
+            append_dependency_table(
+                target.get("dependencies"),
+                crate_dir,
+                workspace_dependencies,
+                &mut dependencies,
+            );
             append_dependency_table(
                 target.get("build-dependencies"),
                 crate_dir,
+                workspace_dependencies,
                 &mut dependencies,
             );
         }
@@ -118,6 +163,7 @@ fn production_dependencies(manifest: &toml::Value, crate_dir: &Path) -> Vec<Depe
 fn append_dependency_table(
     value: Option<&toml::Value>,
     crate_dir: &Path,
+    workspace_dependencies: &BTreeMap<String, Dependency>,
     dependencies: &mut Vec<Dependency>,
 ) {
     let Some(table) = value.and_then(toml::Value::as_table) else {
@@ -125,6 +171,18 @@ fn append_dependency_table(
     };
     for (key, value) in table {
         let details = value.as_table();
+        if details
+            .and_then(|table| table.get("workspace"))
+            .and_then(toml::Value::as_bool)
+            == Some(true)
+        {
+            if let Some(inherited) = workspace_dependencies.get(key) {
+                let mut inherited = inherited.clone();
+                inherited.key = key.clone();
+                dependencies.push(inherited);
+            }
+            continue;
+        }
         let package = details
             .and_then(|table| table.get("package"))
             .and_then(toml::Value::as_str)

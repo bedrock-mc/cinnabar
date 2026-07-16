@@ -29,28 +29,52 @@ use crate::acceptance::markers::{
     MUTATION_COORDINATE, TARGET_MUTATION_ARMED, TELEPORT_COHORT, TELEPORT_GLOBAL_STAGE_DIAGNOSTIC,
     TRANSPARENT_SORT_COMMITTED, WORLD_PUBLICATION_SNAPSHOT, WORLD_READY,
 };
+use crate::acceptance::{
+    AcceptanceExitDecision, AcceptanceRun, TRANSPARENT_PRESENTATION_EXIT_GRACE,
+    markers::{
+        acceptance_runtime_metadata_marker, cumulative_counter_delta, requested_present_mode,
+        visibility_digest_marker_fields, world_publication_snapshot_marker,
+    },
+    mutation::{
+        MutationTracker, accepted_move_player_ingress_marker, deterministic_mutation_coordinate,
+        leaf_forest_target_mutation_coordinate, target_mutation_armed_marker, world_ready_markers,
+        write_move_player_ingress_before_source_capture, write_stdout_marker,
+    },
+    proofs::{exact_full_view_proof_marker_fields, teleport_proof},
+    remesh::FullViewRemeshTracker,
+    teleport::{
+        FullViewTeleportCompletion, FullViewTeleportTracker, TeleportReadySnapshot,
+        teleport_global_stage_diagnostic_marker,
+    },
+    world_ready::{
+        GalleryAnchorEmitter, SubChunkTimeoutProgress, WORLD_READY_QUIET_INTERVAL,
+        WorldReadySettler, WorldReadySnapshot, WorldReadyWork,
+    },
+};
 use crate::metrics::TransparentSortMetricsSnapshot;
 use crate::runtime::network::{NetworkControlEvent, session::SequencedWorldEvent};
-use crate::{
-    AcceptanceExitDecision, AcceptanceRun, AcceptanceRuntimeConfig, CaveVisibilityCache,
-    FullViewRemeshTracker, FullViewTeleportCompletion, FullViewTeleportTracker,
-    GalleryAnchorEmitter, MutationTracker, NETWORK_INGRESS_BUDGET_PER_FRAME,
-    OUTBOUND_SEND_BUDGET_PER_FRAME, RollingFps, ShutdownWatchdog, SubChunkTimeoutProgress,
-    TRANSPARENT_PRESENTATION_EXIT_GRACE, TeleportReadySnapshot, WORLD_READY_QUIET_INTERVAL,
-    WorldReadySettler, WorldReadySnapshot, WorldReadyWork, acceptance_runtime_metadata_marker,
-    accepted_move_player_ingress_marker, actor_render_source, apply_added_chunk_visibility,
-    apply_committed_control, arm_shutdown_watchdog, bedrock_camera_rotation,
-    bridge_endpoint_exists, bridge_endpoint_path, camera_sub_chunk_key, cumulative_counter_delta,
-    deterministic_mutation_coordinate, drain_network_controls, drain_network_ingress,
-    exact_full_view_proof_marker_fields, exit_on_window_close_requested, fatal_runtime_exit,
-    flush_sub_chunk_requests, leaf_forest_target_mutation_coordinate,
-    model_gallery_camera_committed_marker, preflight_bridge_endpoint, record_fatal_error,
-    remove_chunk_visibility, requested_present_mode, resolve_socket_dir_from, startup_biome_tints,
-    status_title, synchronize_biome_tints, target_mutation_armed_marker,
-    teleport_global_stage_diagnostic_marker, teleport_proof, transparent_sort_committed_marker,
-    update_visibility_diagnostics, visibility_digest_marker_fields, window_close_exit,
-    world_publication_snapshot_marker, world_ready_markers, world_stream_fatal_message,
-    write_move_player_ingress_before_source_capture, write_stdout_marker,
+use crate::runtime::{
+    endpoint::{
+        bridge_endpoint_exists, bridge_endpoint_path, preflight_bridge_endpoint,
+        resolve_socket_dir_from,
+    },
+    network::{
+        NETWORK_INGRESS_BUDGET_PER_FRAME, OUTBOUND_SEND_BUDGET_PER_FRAME, actor_render_source,
+        drain_network_controls, drain_network_ingress,
+    },
+    shutdown::{
+        exit_on_window_close_requested, fatal_runtime_exit, record_fatal_error, window_close_exit,
+    },
+    telemetry::{
+        AcceptanceRuntimeConfig, RollingFps, bedrock_camera_rotation, camera_sub_chunk_key,
+        status_title, transparent_sort_committed_marker, update_visibility_diagnostics,
+    },
+    visibility::{CaveVisibilityCache, apply_added_chunk_visibility, remove_chunk_visibility},
+    world::{
+        ShutdownWatchdog, apply_committed_control, arm_shutdown_watchdog, flush_sub_chunk_requests,
+        model_gallery_camera_committed_marker, startup_biome_tints, synchronize_biome_tints,
+        world_stream_fatal_message,
+    },
 };
 use client_world::{
     CommittedControlEvent, ForcedRemeshManifest, ForcedRemeshManifestState, ViewCohort,

@@ -1,12 +1,21 @@
-use crate::*;
-
 use std::{path::PathBuf, time::Duration};
 
 use anyhow::{Context, Result, ensure};
-use render::{ModelWitnessEvidence, ModelWitnessRequest};
+#[cfg(test)]
+use bevy::prelude::{App, Update};
+use bevy::prelude::{Local, Res, ResMut, Resource};
+use client_world::WorldStream;
+use render::{
+    ChunkRenderQueue, ModelWitnessEvidence, ModelWitnessRequest, PresentedFrameGate,
+    TargetRenderExpectation,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::time::Instant;
 use world::SubChunkKey;
+
+use super::teleport::render_view_cohort;
+use crate::runtime::world::ClientWorld;
 
 pub(crate) const MODEL_WITNESS_SCHEMA: &str = "rust-mcbe-model-witness-v1";
 pub(crate) const WITNESS_POLL_INTERVAL: Duration = Duration::from_millis(250);

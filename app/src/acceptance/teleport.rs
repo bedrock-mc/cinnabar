@@ -1,4 +1,22 @@
-use crate::*;
+#[cfg(test)]
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use client_world::{CommittedControlEvent, ViewCohort, ViewCohortStatus};
+use render::{PresentedFrameAck, RenderViewCohort, TargetRenderExpectation};
+#[cfg(test)]
+use world::SubChunkKey;
+
+use super::mutation::leaf_forest_target_mutation_coordinate;
+use super::{
+    PHASE0_REQUESTED_RADIUS_CHUNKS,
+    markers::{TELEPORT_COHORT, TELEPORT_GLOBAL_STAGE_DIAGNOSTIC},
+    proofs::{horizontal_chunk, optional_duration_milliseconds, optional_milliseconds_token},
+    world_ready::{SubChunkTimeoutProgress, WorldReadyWork},
+};
+
+const TELEPORT_COHORT_PROGRESS_INTERVAL: Duration = Duration::from_secs(1);
+const FULL_VIEW_TELEPORT_MIN_CHUNK_DELTA: u64 = (PHASE0_REQUESTED_RADIUS_CHUNKS as u64) * 2 + 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TeleportReadySnapshot {

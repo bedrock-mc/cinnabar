@@ -75,7 +75,32 @@ pub(super) fn check_markers(
                         .unwrap_or("<missing policy consumer>")
                 ));
             }
+        } else if rule.kind == MarkerKind::EnvironmentVariable {
+            let producer_source = read(&root.join(&rule.producer))?;
+            let symbol = marker_symbol(&producer_source, &rule.literal);
+            let consumer = rule.consumer.as_deref();
+            let consumed = symbol.zip(consumer).is_some_and(|(symbol, consumer)| {
+                read(&root.join(consumer))
+                    .is_ok_and(|source| source.contains(&format!("markers::{symbol}")))
+            });
+            if !consumed {
+                diagnostics.push(format!(
+                    "environment variable marker `{}` has no symbolic use in declared consumer {}",
+                    rule.literal,
+                    consumer.unwrap_or("<missing policy consumer>")
+                ));
+            }
         }
     }
     Ok(())
+}
+
+fn marker_symbol<'a>(source: &'a str, literal: &str) -> Option<&'a str> {
+    source.lines().find_map(|line| {
+        if !line.contains(&format!("\"{literal}\"")) {
+            return None;
+        }
+        let declaration = line.split_once("const ")?.1;
+        declaration.split_once(':').map(|(name, _)| name.trim())
+    })
 }

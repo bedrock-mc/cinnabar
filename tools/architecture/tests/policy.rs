@@ -64,7 +64,7 @@ fn rejects_each_structural_policy_violation_with_sorted_diagnostics() {
     );
     write(
         &root.join("crates/alpha/src/lib.rs"),
-        "pub use hidden::*;\npub fn exposed_for_test() {}\n\n\n\n",
+        "pub use hidden::*;\npub fn exposed_for_test() {}\npub fn for_test() {}\nuse crate::*;\ninclude!(\"fragment.rs\");\n",
     );
     write(
         &root.join("app/src/acceptance/markers.rs"),
@@ -120,6 +120,16 @@ fn rejects_each_structural_policy_violation_with_sorted_diagnostics() {
     assert!(
         diagnostics
             .iter()
+            .any(|line| line.contains("crate-wide private preludes"))
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|line| line.contains("source fragments"))
+    );
+    assert!(
+        diagnostics
+            .iter()
             .any(|line| line.contains("exceeds module-root limit"))
     );
     assert!(
@@ -128,6 +138,45 @@ fn rejects_each_structural_policy_violation_with_sorted_diagnostics() {
             .any(|line| line.contains("producer count 2"))
     );
     assert!(diagnostics.windows(2).all(|pair| pair[0] <= pair[1]));
+}
+
+#[test]
+fn resolves_inherited_workspace_dependencies_before_enforcing_edges() {
+    let temp = tempfile::tempdir().expect("fixture root");
+    let root = temp.path();
+    let policy = fixture_policy(root);
+    write(
+        &root.join("Cargo.toml"),
+        "[workspace]\nmembers=['crates/alpha','crates/beta']\n[workspace.dependencies]\nrenamed={package='beta',path='crates/beta'}\n",
+    );
+    write(
+        &root.join("crates/alpha/Cargo.toml"),
+        "[package]\nname='alpha'\nversion='0.1.0'\n[target.'cfg(windows)'.build-dependencies]\nrenamed.workspace=true\n",
+    );
+    write(
+        &root.join("crates/beta/Cargo.toml"),
+        "[package]\nname='beta'\nversion='0.1.0'\n",
+    );
+    write(&root.join("crates/alpha/src/lib.rs"), "pub fn api() {}\n");
+    write(
+        &root.join("app/src/acceptance/markers.rs"),
+        "const A: &str = \"RUST_MCBE_READY\";\n",
+    );
+    write(
+        &root.join("scripts/acceptance/Markers.ps1"),
+        "$marker = 'RUST_MCBE_READY'\n",
+    );
+    write(
+        &root.join("vendor/UPSTREAM.md"),
+        "owned upstream snapshot\n",
+    );
+
+    let diagnostics = check_repository(root, &policy).expect("run checker");
+    assert!(
+        diagnostics
+            .iter()
+            .any(|line| line.contains("local dependency `beta` is absent from the allowlist"))
+    );
 }
 
 #[test]
