@@ -246,6 +246,7 @@ function Wait-ProcessOutputMarker {
     $cursor = $Handle.StdoutMarkerCursor
     $buffer = [byte[]]::new(65536)
     $skippedLines = [Collections.Generic.List[string]]::new()
+    $finalFlushPerformed = $false
     while ([DateTime]::UtcNow -lt $deadline) {
         while (($newline = $cursor.PartialLine.IndexOf("`n", [StringComparison]::Ordinal)) -ge 0) {
             $line = $cursor.PartialLine.Substring(0, $newline).TrimEnd("`r")
@@ -337,6 +338,11 @@ function Wait-ProcessOutputMarker {
                 }
             }
             return $Marker
+        }
+        if ($Handle.Process.HasExited -and $Handle.StdoutCopy.IsCompleted -and -not $finalFlushPerformed) {
+            $Handle.StdoutStream.Flush()
+            $finalFlushPerformed = $true
+            continue
         }
         if ($Handle.Process.HasExited -and $Handle.StdoutCopy.IsCompleted) {
             break
