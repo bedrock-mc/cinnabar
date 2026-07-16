@@ -32,6 +32,8 @@ struct Policy {
     test_max: usize,
     #[serde(default)]
     vendored_paths: Vec<String>,
+    #[serde(default)]
+    forbidden_artifacts: Vec<String>,
     #[serde(default, rename = "crates")]
     crate_rules: Vec<CrateRule>,
     #[serde(default)]
@@ -75,12 +77,50 @@ pub fn check_repository(root: &Path, policy_path: &Path) -> Result<Vec<String>, 
     files.sort();
 
     let mut diagnostics = Vec::new();
+    check_artifacts(root, &policy, &files, &mut diagnostics);
     check_sources(root, &policy, &files, &mut diagnostics)?;
     check_dependencies(root, &policy, &mut diagnostics)?;
     check_markers(root, &policy, &files, &mut diagnostics)?;
     diagnostics.sort();
     diagnostics.dedup();
     Ok(diagnostics)
+}
+
+fn check_artifacts(root: &Path, policy: &Policy, files: &[PathBuf], diagnostics: &mut Vec<String>) {
+    for path in files {
+        let relative = relative_slash(root, path);
+        for pattern in &policy.forbidden_artifacts {
+            if wildcard_match(pattern.as_bytes(), relative.as_bytes()) {
+                diagnostics.push(format!(
+                    "{relative}: matches forbidden artifact pattern `{pattern}`"
+                ));
+            }
+        }
+    }
+}
+
+fn wildcard_match(pattern: &[u8], value: &[u8]) -> bool {
+    let (mut pattern_index, mut value_index) = (0, 0);
+    let (mut star_index, mut star_value_index) = (None, 0);
+    while value_index < value.len() {
+        if pattern_index < pattern.len() && pattern[pattern_index] == value[value_index] {
+            pattern_index += 1;
+            value_index += 1;
+        } else if pattern_index < pattern.len() && pattern[pattern_index] == b'*' {
+            while pattern_index < pattern.len() && pattern[pattern_index] == b'*' {
+                pattern_index += 1;
+            }
+            star_index = Some(pattern_index);
+            star_value_index = value_index;
+        } else if let Some(after_star) = star_index {
+            star_value_index += 1;
+            value_index = star_value_index;
+            pattern_index = after_star;
+        } else {
+            return false;
+        }
+    }
+    pattern[pattern_index..].iter().all(|byte| *byte == b'*')
 }
 
 fn read(path: &Path) -> Result<String, ArchitectureError> {
@@ -196,11 +236,11 @@ fn check_dependencies(
     policy: &Policy,
     diagnostics: &mut Vec<String>,
 ) -> Result<(), ArchitectureError> {
-    let rule_names = policy
+    let rule_paths = policy
         .crate_rules
         .iter()
-        .map(|rule| rule.name.as_str())
-        .collect::<BTreeSet<_>>();
+        .map(|rule| (normal_path(&root.join(&rule.path)), rule.name.as_str()))
+        .collect::<BTreeMap<_, _>>();
     for rule in &policy.crate_rules {
         let manifest = root.join(&rule.path).join("Cargo.toml");
         let source = read(&manifest)?;
@@ -209,27 +249,104 @@ fn check_dependencies(
                 path: manifest.clone(),
                 source,
             })?;
-        let dependencies = value
-            .get("dependencies")
-            .and_then(toml::Value::as_table)
-            .map(|table| table.keys().cloned().collect::<BTreeSet<_>>())
-            .unwrap_or_default();
+        let dependencies = production_dependencies(&value, manifest.parent().unwrap_or(root));
         for forbidden in &rule.forbidden_dependencies {
-            if dependencies.contains(forbidden) {
+            if dependencies
+                .iter()
+                .any(|dependency| dependency.key == *forbidden || dependency.package == *forbidden)
+            {
                 diagnostics.push(format!("{}: forbidden dependency `{forbidden}`", rule.name));
             }
         }
-        let allowed = rule.allowed_dependencies.iter().collect::<BTreeSet<_>>();
+        let allowed = rule
+            .allowed_dependencies
+            .iter()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>();
         for dependency in dependencies {
-            if rule_names.contains(dependency.as_str()) && !allowed.contains(&dependency) {
+            let Some(path) = dependency.path else {
+                continue;
+            };
+            let Some(local_name) = rule_paths.get(&path) else {
+                continue;
+            };
+            if !allowed.contains(local_name) {
                 diagnostics.push(format!(
-                    "{}: local dependency `{dependency}` is absent from the allowlist",
-                    rule.name
+                    "{}: local dependency `{local_name}` is absent from the allowlist",
+                    rule.name,
                 ));
             }
         }
     }
     Ok(())
+}
+
+struct Dependency {
+    key: String,
+    package: String,
+    path: Option<PathBuf>,
+}
+
+fn production_dependencies(manifest: &toml::Value, crate_dir: &Path) -> Vec<Dependency> {
+    let mut dependencies = Vec::new();
+    append_dependency_table(manifest.get("dependencies"), crate_dir, &mut dependencies);
+    append_dependency_table(
+        manifest.get("build-dependencies"),
+        crate_dir,
+        &mut dependencies,
+    );
+    if let Some(targets) = manifest.get("target").and_then(toml::Value::as_table) {
+        for target in targets.values() {
+            append_dependency_table(target.get("dependencies"), crate_dir, &mut dependencies);
+            append_dependency_table(
+                target.get("build-dependencies"),
+                crate_dir,
+                &mut dependencies,
+            );
+        }
+    }
+    dependencies
+}
+
+fn append_dependency_table(
+    value: Option<&toml::Value>,
+    crate_dir: &Path,
+    dependencies: &mut Vec<Dependency>,
+) {
+    let Some(table) = value.and_then(toml::Value::as_table) else {
+        return;
+    };
+    for (key, value) in table {
+        let details = value.as_table();
+        let package = details
+            .and_then(|table| table.get("package"))
+            .and_then(toml::Value::as_str)
+            .unwrap_or(key)
+            .to_owned();
+        let path = details
+            .and_then(|table| table.get("path"))
+            .and_then(toml::Value::as_str)
+            .map(|path| normal_path(&crate_dir.join(path)));
+        dependencies.push(Dependency {
+            key: key.clone(),
+            package,
+            path,
+        });
+    }
+}
+
+fn normal_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            component => normalized.push(component.as_os_str()),
+        }
+    }
+    normalized
 }
 
 fn check_markers(

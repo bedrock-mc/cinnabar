@@ -19,12 +19,18 @@ module_root_max = 4
 powershell_max = 5
 test_max = 6
 vendored_paths = ["vendor/"]
+forbidden_artifacts = ["**/*.exe", "**/*.png"]
 
 [[crates]]
 name = "alpha"
 path = "crates/alpha"
 allowed_dependencies = []
 forbidden_dependencies = ["bevy", "wgpu"]
+
+[[crates]]
+name = "beta"
+path = "crates/beta"
+allowed_dependencies = []
 
 [[markers]]
 literal = "RUST_MCBE_READY"
@@ -43,7 +49,11 @@ fn rejects_each_structural_policy_violation_with_sorted_diagnostics() {
     let policy = fixture_policy(root);
     write(
         &root.join("crates/alpha/Cargo.toml"),
-        "[package]\nname='alpha'\nversion='0.1.0'\n[dependencies]\nbevy={path='../bevy'}\n",
+        "[package]\nname='alpha'\nversion='0.1.0'\n[build-dependencies]\nbevy='1'\n[target.'cfg(windows)'.dependencies]\nrenamed={package='beta',path='../beta'}\n[dev-dependencies]\nwgpu='1'\n",
+    );
+    write(
+        &root.join("crates/beta/Cargo.toml"),
+        "[package]\nname='beta'\nversion='0.1.0'\n",
     );
     write(
         &root.join("crates/alpha/src/lib.rs"),
@@ -57,6 +67,7 @@ fn rejects_each_structural_policy_violation_with_sorted_diagnostics() {
         &root.join("scripts/acceptance/Markers.ps1"),
         "$marker = 'RUST_MCBE_READY'\n",
     );
+    write(&root.join("app/captured.png"), "not really an image");
 
     let diagnostics = check_repository(root, &policy).expect("run checker");
     assert!(
@@ -64,6 +75,17 @@ fn rejects_each_structural_policy_violation_with_sorted_diagnostics() {
             .iter()
             .any(|line| line.contains("forbidden dependency `bevy`"))
     );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|line| line.contains("local dependency `beta` is absent from the allowlist"))
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|line| line.contains("matches forbidden artifact pattern"))
+    );
+    assert!(!diagnostics.iter().any(|line| line.contains("wgpu")));
     assert!(
         diagnostics
             .iter()
@@ -96,6 +118,10 @@ fn permits_declared_vendor_and_log_only_markers() {
     write(
         &root.join("crates/alpha/Cargo.toml"),
         "[package]\nname='alpha'\nversion='0.1.0'\n",
+    );
+    write(
+        &root.join("crates/beta/Cargo.toml"),
+        "[package]\nname='beta'\nversion='0.1.0'\n",
     );
     write(&root.join("crates/alpha/src/lib.rs"), "pub fn api() {}\n");
     write(
