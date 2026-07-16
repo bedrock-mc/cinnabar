@@ -1,8 +1,8 @@
 use assets::{
     CompiledEntityAssets, EntityAssetKind, EntityAssetSource, EntityAssetSymbol, EntityDependency,
     EntityDependencyKind, EntityDependencyResolution, EntityGeometry, EntityGeometryBone,
-    EntityGeometryCube, EntityGeometryFaceUv, EntityGeometryFaceUvs, EntityGeometryScalar,
-    EntityGeometryUv, RuntimeEntityAssets, encode_entity_blob,
+    EntityGeometryCube, EntityGeometryFaceUv, EntityGeometryFaceUvs, EntityGeometryInheritance,
+    EntityGeometryScalar, EntityGeometryUv, RuntimeEntityAssets, encode_entity_blob,
 };
 use sha2::{Digest, Sha256};
 
@@ -75,8 +75,12 @@ fn geometry_fixture() -> CompiledEntityAssets {
         bones: vec![EntityGeometryBone {
             name: "wing".into(),
             parent: None,
-            pivot: [scalar(0.5), scalar(4.0), scalar(1.0)],
-            rotation: [scalar(0.0), scalar(15.0), scalar(0.0)],
+            pivot: Some([scalar(0.5), scalar(4.0), scalar(1.0)]),
+            rotation: Some([scalar(0.0), scalar(15.0), scalar(0.0)]),
+            mirror: None,
+            inflate: None,
+            never_render: None,
+            reset: None,
             cubes: vec![EntityGeometryCube {
                 origin: [scalar(0.5), scalar(-1.0), scalar(1.0)],
                 size: [scalar(0.0), scalar(5.0), scalar(8.0)],
@@ -90,6 +94,47 @@ fn geometry_fixture() -> CompiledEntityAssets {
         }]
         .into_boxed_slice(),
     }]
+    .into_boxed_slice();
+    compiled
+}
+
+fn inherited_geometry_fixture() -> CompiledEntityAssets {
+    let mut compiled = geometry_fixture();
+    compiled.sources = vec![
+        compiled.sources[0].clone(),
+        compiled.sources[1].clone(),
+        EntityAssetSource {
+            path: "models/entity/z_derived.geo.json".into(),
+            source_bytes: 1,
+            source_sha256: [0x77; 32],
+        },
+    ]
+    .into_boxed_slice();
+    compiled.symbols = vec![
+        compiled.symbols[0].clone(),
+        compiled.symbols[1].clone(),
+        EntityAssetSymbol {
+            kind: EntityAssetKind::Geometry,
+            identifier: "geometry.derived".into(),
+            source_index: 2,
+            dependencies: Box::new([]),
+        },
+    ]
+    .into_boxed_slice();
+    compiled.geometries = vec![
+        compiled.geometries[0].clone(),
+        EntityGeometry {
+            identifier: "geometry.derived".into(),
+            inherits: Some(EntityGeometryInheritance {
+                identifier: "geometry.allay".into(),
+                resolution: EntityDependencyResolution::Catalog,
+            }),
+            source_index: 2,
+            texture_width: 32,
+            texture_height: 32,
+            bones: Box::new([]),
+        },
+    ]
     .into_boxed_slice();
     compiled
 }
@@ -111,6 +156,51 @@ fn entity_carrier_round_trips_sparse_per_face_uvs() {
 
     let runtime = RuntimeEntityAssets::decode(&encode_entity_blob(&compiled).unwrap()).unwrap();
     assert_eq!(runtime.geometries(), compiled.geometries.as_ref());
+}
+
+#[test]
+fn entity_carrier_round_trips_sparse_inherited_bone_fields() {
+    let mut compiled = geometry_fixture();
+    let bone = &mut compiled.geometries[0].bones[0];
+    bone.pivot = None;
+    bone.rotation = None;
+    bone.mirror = Some(true);
+    bone.inflate = Some(scalar(1.0));
+    bone.never_render = Some(false);
+    bone.reset = Some(true);
+
+    let runtime = RuntimeEntityAssets::decode(&encode_entity_blob(&compiled).unwrap()).unwrap();
+    assert_eq!(runtime.geometries(), compiled.geometries.as_ref());
+}
+
+#[test]
+fn entity_carrier_rejects_transitive_geometry_inheritance_cycles() {
+    let mut compiled = inherited_geometry_fixture();
+    compiled.geometries[0].inherits = Some(EntityGeometryInheritance {
+        identifier: "geometry.derived".into(),
+        resolution: EntityDependencyResolution::Catalog,
+    });
+
+    assert!(encode_entity_blob(&compiled).is_err());
+}
+
+#[test]
+fn entity_carrier_rejects_unresolved_inherited_bone_parents() {
+    let mut compiled = inherited_geometry_fixture();
+    compiled.geometries[1].bones = vec![EntityGeometryBone {
+        name: "nose".into(),
+        parent: Some("missing".into()),
+        pivot: None,
+        rotation: None,
+        mirror: None,
+        inflate: None,
+        never_render: None,
+        reset: None,
+        cubes: Box::new([]),
+    }]
+    .into_boxed_slice();
+
+    assert!(encode_entity_blob(&compiled).is_err());
 }
 
 #[test]

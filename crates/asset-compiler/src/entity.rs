@@ -14,6 +14,7 @@ use assets::{
     MAX_ENTITY_ASSET_SYMBOLS, MAX_ENTITY_DEPENDENCIES, MAX_ENTITY_GEOMETRIES,
     MAX_ENTITY_GEOMETRY_BONES, MAX_ENTITY_GEOMETRY_CUBES, MAX_ENTITY_GEOMETRY_NAME_BYTES,
     MAX_ENTITY_SOURCE_BYTES, MAX_ENTITY_TEXTURE_DIMENSION, MAX_ENTITY_TOTAL_SOURCE_BYTES,
+    validate_entity_geometry_inheritance,
 };
 use serde::{Deserialize, Deserializer, de};
 use serde_json::{Map, Value};
@@ -169,6 +170,7 @@ pub fn compile_entity_assets(
             })
         })
         .collect::<Result<Vec<_>, AssetError>>()?;
+    validate_entity_geometry_inheritance(&geometries)?;
     Ok(CompiledEntityAssets {
         source_manifest_sha256,
         sources: sources.into_boxed_slice(),
@@ -774,13 +776,22 @@ fn parse_geometry_bones_with_inheritance(
         let parent = optional_string(bone, "parent", path)?
             .filter(|parent| !parent.eq_ignore_ascii_case(name))
             .map(Into::into);
-        let pivot = optional_vec(bone, "pivot", path)?.unwrap_or_else(zero_vec3);
-        let rotation = optional_vec(bone, "rotation", path)?.unwrap_or_else(zero_vec3);
-        let mirror = optional_bool(bone, "mirror", path)?.unwrap_or(false);
-        let inflate = optional_scalar(bone, "inflate", path)?.unwrap_or_else(zero_scalar);
+        let pivot = optional_vec(bone, "pivot", path)?;
+        let rotation = optional_vec(bone, "rotation", path)?;
+        let mirror = optional_bool(bone, "mirror", path)?;
+        let inflate = optional_scalar(bone, "inflate", path)?;
+        let never_render = optional_bool(bone, "neverRender", path)?;
+        let reset = optional_bool(bone, "reset", path)?;
         let cubes = bone
             .get("cubes")
-            .map(|cubes| parse_geometry_cubes(cubes, path, mirror, inflate))
+            .map(|cubes| {
+                parse_geometry_cubes(
+                    cubes,
+                    path,
+                    mirror.unwrap_or(false),
+                    inflate.unwrap_or_else(zero_scalar),
+                )
+            })
             .transpose()?
             .unwrap_or_default();
         total_cubes = total_cubes
@@ -794,6 +805,10 @@ fn parse_geometry_bones_with_inheritance(
             parent,
             pivot,
             rotation,
+            mirror,
+            inflate,
+            never_render,
+            reset,
             cubes,
         });
     }

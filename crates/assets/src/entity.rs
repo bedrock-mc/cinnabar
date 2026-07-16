@@ -20,6 +20,8 @@ pub const MAX_ENTITY_GEOMETRY_NAME_BYTES: usize = 256;
 pub const MAX_ENTITY_TEXTURE_DIMENSION: u16 = 16_384;
 pub const MAX_ENTITY_GEOMETRY_SCALAR: f32 = 1_048_576.0;
 
+const MAX_ENTITY_GEOMETRY_INHERITANCE_DEPTH: usize = 64;
+
 const HEADER_BYTES: usize = 80;
 const HASH_BYTES: usize = 32;
 
@@ -142,8 +144,12 @@ pub struct EntityGeometryFaceUvs {
 pub struct EntityGeometryBone {
     pub name: Box<str>,
     pub parent: Option<Box<str>>,
-    pub pivot: [EntityGeometryScalar; 3],
-    pub rotation: [EntityGeometryScalar; 3],
+    pub pivot: Option<[EntityGeometryScalar; 3]>,
+    pub rotation: Option<[EntityGeometryScalar; 3]>,
+    pub mirror: Option<bool>,
+    pub inflate: Option<EntityGeometryScalar>,
+    pub never_render: Option<bool>,
+    pub reset: Option<bool>,
     pub cubes: Box<[EntityGeometryCube]>,
 }
 
@@ -463,7 +469,131 @@ fn validate_geometries(compiled: &CompiledEntityAssets) -> Result<(), AssetError
         validate_geometry_bones(&geometry.bones, geometry.inherits.is_some())?;
         previous = Some(key);
     }
+    validate_entity_geometry_inheritance(&compiled.geometries)
+}
+
+#[derive(Clone, Copy)]
+enum SelectedGeometryParent {
+    None,
+    External,
+    Catalog(usize),
+}
+
+/// Validates deterministic catalog inheritance selection and inherited bone parents.
+///
+/// External inheritance overlays are retained, but an explicit bone parent must
+/// resolve within the retained local/catalog chain; unseen external bones are
+/// never assumed to exist.
+pub fn validate_entity_geometry_inheritance(
+    geometries: &[EntityGeometry],
+) -> Result<(), AssetError> {
+    let parents = geometries
+        .iter()
+        .enumerate()
+        .map(|(index, geometry)| select_geometry_parent(geometries, index, geometry))
+        .collect::<Result<Vec<_>, AssetError>>()?;
+
+    for start in 0..geometries.len() {
+        let chain = selected_geometry_chain(&parents, start)?;
+        let mut effective_parents = std::collections::BTreeMap::<String, Option<String>>::new();
+        for index in chain.into_iter().rev() {
+            for bone in &geometries[index].bones {
+                let name = bone.name.to_ascii_lowercase();
+                if let Some(parent) = &bone.parent {
+                    effective_parents.insert(name, Some(parent.to_ascii_lowercase()));
+                } else {
+                    effective_parents.entry(name).or_insert(None);
+                }
+            }
+        }
+
+        for parent in effective_parents.values().flatten() {
+            if !effective_parents.contains_key(parent) {
+                return Err(invalid(
+                    "unresolved entity geometry bone parent in selected inheritance chain",
+                ));
+            }
+        }
+        for bone in effective_parents.keys() {
+            let mut current = Some(bone.as_str());
+            for step in 0..=effective_parents.len() {
+                let Some(name) = current else {
+                    break;
+                };
+                if step == effective_parents.len() {
+                    return Err(invalid(
+                        "entity geometry bone hierarchy contains an inherited cycle",
+                    ));
+                }
+                current = effective_parents.get(name).and_then(Option::as_deref);
+            }
+        }
+    }
     Ok(())
+}
+
+fn select_geometry_parent(
+    geometries: &[EntityGeometry],
+    geometry_index: usize,
+    geometry: &EntityGeometry,
+) -> Result<SelectedGeometryParent, AssetError> {
+    let Some(inherits) = &geometry.inherits else {
+        return Ok(SelectedGeometryParent::None);
+    };
+    if inherits.identifier == geometry.identifier {
+        return Err(invalid("invalid entity geometry inheritance target"));
+    }
+    if inherits.resolution == EntityDependencyResolution::External {
+        return Ok(SelectedGeometryParent::External);
+    }
+
+    let mut candidates = geometries
+        .iter()
+        .enumerate()
+        .filter(|(_, candidate)| candidate.identifier == inherits.identifier);
+    let first = candidates
+        .next()
+        .ok_or_else(|| invalid("missing catalog entity geometry inheritance target"))?;
+    let second = candidates.next();
+    if second.is_none() {
+        return Ok(SelectedGeometryParent::Catalog(first.0));
+    }
+
+    let same_source = geometries
+        .iter()
+        .enumerate()
+        .filter(|(index, candidate)| {
+            *index != geometry_index
+                && candidate.identifier == inherits.identifier
+                && candidate.source_index == geometry.source_index
+        })
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    match same_source.as_slice() {
+        [index] => Ok(SelectedGeometryParent::Catalog(*index)),
+        _ => Err(invalid(
+            "ambiguous catalog entity geometry inheritance target",
+        )),
+    }
+}
+
+fn selected_geometry_chain(
+    parents: &[SelectedGeometryParent],
+    start: usize,
+) -> Result<Vec<usize>, AssetError> {
+    let mut chain = Vec::new();
+    let mut current = start;
+    for _ in 0..=MAX_ENTITY_GEOMETRY_INHERITANCE_DEPTH {
+        if chain.contains(&current) {
+            return Err(invalid("entity geometry inheritance contains a cycle"));
+        }
+        chain.push(current);
+        match parents[current] {
+            SelectedGeometryParent::None | SelectedGeometryParent::External => return Ok(chain),
+            SelectedGeometryParent::Catalog(parent) => current = parent,
+        }
+    }
+    Err(invalid("entity geometry inheritance depth exceeds bound"))
 }
 
 fn validate_geometry_bones(
@@ -484,8 +614,15 @@ fn validate_geometry_bones(
                 return Err(invalid("invalid entity geometry bone parent"));
             }
         }
-        validate_scalars(&bone.pivot)?;
-        validate_scalars(&bone.rotation)?;
+        if let Some(pivot) = &bone.pivot {
+            validate_scalars(pivot)?;
+        }
+        if let Some(rotation) = &bone.rotation {
+            validate_scalars(rotation)?;
+        }
+        if let Some(inflate) = bone.inflate {
+            validate_geometry_scalar(inflate)?;
+        }
         total_cubes = total_cubes
             .checked_add(bone.cubes.len())
             .ok_or_else(|| invalid("entity geometry cube count overflow"))?;

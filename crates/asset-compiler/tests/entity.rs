@@ -83,7 +83,12 @@ fn compiler_enumerates_entity_authority_and_dependencies_deterministically() {
     assert_eq!((geometry.texture_width, geometry.texture_height), (32, 64));
     assert_eq!(geometry.bones.len(), 2);
     assert_eq!(geometry.bones[1].parent.as_deref(), Some("root"));
-    assert_eq!(geometry.bones[0].rotation[1].get(), 15.0);
+    assert_eq!(geometry.bones[0].mirror, Some(true));
+    assert_eq!(
+        geometry.bones[0].inflate.map(|value| value.get()),
+        Some(0.25)
+    );
+    assert_eq!(geometry.bones[0].rotation.unwrap()[1].get(), 15.0);
     assert_eq!(geometry.bones[0].cubes[0].pivot[0].get(), 0.0);
     assert_eq!(geometry.bones[0].cubes[0].inflate.get(), 0.25);
     assert!(geometry.bones[0].cubes[0].mirror);
@@ -381,6 +386,49 @@ fn compiler_preserves_legacy_geometry_inheritance_and_inherited_bone_parents() {
 }
 
 #[test]
+fn compiler_preserves_sparse_inherited_bone_overlays() {
+    let pack = synthetic_pack();
+    write(
+        pack.path(),
+        "models/entity/player_armor.geo.json",
+        br#"{"format_version":"1.8.0",
+          "geometry.player.armor.base":{"bones":[{"name":"head","neverRender":true}]},
+          "geometry.player.armor1:geometry.player.armor.base":{"bones":[{"name":"head","inflate":1.0,"neverRender":false}]},
+          "geometry.player.armor.helmet:geometry.player.armor1":{"bones":[{"name":"body","reset":true}]}
+        }"#,
+    );
+
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    let armor = compiled
+        .geometries
+        .iter()
+        .find(|geometry| geometry.identifier.as_ref() == "geometry.player.armor1")
+        .unwrap();
+    let head = &armor.bones[0];
+    assert_eq!(head.pivot, None);
+    assert_eq!(head.rotation, None);
+    assert_eq!(head.mirror, None);
+    assert_eq!(head.inflate.map(|value| value.get()), Some(1.0));
+    assert_eq!(head.never_render, Some(false));
+    assert_eq!(head.reset, None);
+    assert!(head.cubes.is_empty());
+
+    let helmet = compiled
+        .geometries
+        .iter()
+        .find(|geometry| geometry.identifier.as_ref() == "geometry.player.armor.helmet")
+        .unwrap();
+    let body = &helmet.bones[0];
+    assert_eq!(body.pivot, None);
+    assert_eq!(body.rotation, None);
+    assert_eq!(body.mirror, None);
+    assert_eq!(body.inflate, None);
+    assert_eq!(body.never_render, None);
+    assert_eq!(body.reset, Some(true));
+    assert!(body.cubes.is_empty());
+}
+
+#[test]
 fn compiler_marks_builtin_legacy_geometry_inheritance_external() {
     let pack = synthetic_pack();
     write(
@@ -393,6 +441,82 @@ fn compiler_marks_builtin_legacy_geometry_inheritance_external() {
         compiled.geometries[0].inherits.as_ref().unwrap().resolution,
         EntityDependencyResolution::External
     );
+}
+
+#[test]
+fn compiler_rejects_transitive_geometry_inheritance_cycles() {
+    let pack = synthetic_pack();
+    write(
+        pack.path(),
+        "models/entity/cycle.geo.json",
+        br#"{"format_version":"1.8.0","geometry.a:geometry.b":{"bones":[]},"geometry.b:geometry.a":{"bones":[]}}"#,
+    );
+
+    assert!(compile_entity_assets(pack.path(), MANIFEST).is_err());
+}
+
+#[test]
+fn compiler_rejects_unresolved_catalog_inherited_bone_parents() {
+    let pack = synthetic_pack();
+    write(
+        pack.path(),
+        "models/entity/inherited_parent.geo.json",
+        br#"{"format_version":"1.8.0","geometry.base":{"bones":[{"name":"head"}]},"geometry.derived:geometry.base":{"bones":[{"name":"nose","parent":"missing"}]}}"#,
+    );
+
+    assert!(compile_entity_assets(pack.path(), MANIFEST).is_err());
+}
+
+#[test]
+fn compiler_rejects_unresolved_external_inherited_bone_parents() {
+    let pack = synthetic_pack();
+    write(
+        pack.path(),
+        "models/entity/external_parent.geo.json",
+        br#"{"format_version":"1.8.0","geometry.overlay:geometry.external":{"bones":[{"name":"nose","parent":"missing"}]}}"#,
+    );
+
+    assert!(compile_entity_assets(pack.path(), MANIFEST).is_err());
+}
+
+#[test]
+fn compiler_accepts_case_insensitive_bone_parents_from_selected_ancestors() {
+    let pack = synthetic_pack();
+    write(
+        pack.path(),
+        "models/entity/inherited_parent.geo.json",
+        br#"{"format_version":"1.8.0","geometry.base":{"bones":[{"name":"Head"}]},"geometry.middle:geometry.base":{"bones":[]},"geometry.derived:geometry.middle":{"bones":[{"name":"nose","parent":"hEaD"}]}}"#,
+    );
+
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    let derived = compiled
+        .geometries
+        .iter()
+        .find(|geometry| geometry.identifier.as_ref() == "geometry.derived")
+        .unwrap();
+    assert_eq!(derived.bones[0].parent.as_deref(), Some("hEaD"));
+}
+
+#[test]
+fn compiler_rejects_ambiguous_catalog_inheritance_targets() {
+    let pack = synthetic_pack();
+    write(
+        pack.path(),
+        "models/entity/base_a.geo.json",
+        br#"{"format_version":"1.8.0","geometry.base":{"bones":[{"name":"head"}]}}"#,
+    );
+    write(
+        pack.path(),
+        "models/entity/base_b.geo.json",
+        br#"{"format_version":"1.8.0","geometry.base":{"bones":[{"name":"body"}]}}"#,
+    );
+    write(
+        pack.path(),
+        "models/entity/derived.geo.json",
+        br#"{"format_version":"1.8.0","geometry.derived:geometry.base":{"bones":[]}}"#,
+    );
+
+    assert!(compile_entity_assets(pack.path(), MANIFEST).is_err());
 }
 
 #[test]
@@ -432,8 +556,8 @@ fn compiler_preserves_duplicate_official_bone_generation_candidates() {
     );
     let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
     assert_eq!(compiled.geometries[0].bones.len(), 2);
-    assert_eq!(compiled.geometries[0].bones[0].pivot[1].get(), 1.0);
-    assert_eq!(compiled.geometries[0].bones[1].pivot[1].get(), 2.0);
+    assert_eq!(compiled.geometries[0].bones[0].pivot.unwrap()[1].get(), 1.0);
+    assert_eq!(compiled.geometries[0].bones[1].pivot.unwrap()[1].get(), 2.0);
 }
 
 #[test]

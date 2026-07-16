@@ -45,7 +45,7 @@ pub use entity::{
     MAX_ENTITY_GEOMETRIES, MAX_ENTITY_GEOMETRY_BONES, MAX_ENTITY_GEOMETRY_CUBES,
     MAX_ENTITY_GEOMETRY_NAME_BYTES, MAX_ENTITY_GEOMETRY_SCALAR, MAX_ENTITY_IDENTIFIER_BYTES,
     MAX_ENTITY_SOURCE_BYTES, MAX_ENTITY_TEXTURE_DIMENSION, MAX_ENTITY_TOTAL_SOURCE_BYTES,
-    RuntimeEntityAssets, encode_entity_blob,
+    RuntimeEntityAssets, encode_entity_blob, validate_entity_geometry_inheritance,
 };
 pub use error::AssetError;
 pub use light_registry::{LightProperties, read_light_registry};
