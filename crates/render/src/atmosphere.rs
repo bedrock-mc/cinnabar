@@ -11,6 +11,7 @@ pub const BEDROCK_DAY_TICKS: f64 = 24_000.0;
 pub const CLOUD_TEXTURE_WORLD_PERIOD: f64 = 256.0;
 pub const CLOUD_SCROLL_BLOCKS_PER_TICK: f64 = 0.03;
 const CLOUD_DIRECTIONAL_AMBIENT: f32 = 0.55;
+const PROVISIONAL_CLOUD_NIGHT_FLOOR: f32 = 0.2;
 const RAIN_CLOUD_CHANNEL: f32 = 191.0 / 255.0;
 const THUNDER_CLOUD_CHANNEL: f32 = 30.0 / 255.0;
 const WEATHER_COLOUR_CONTRIBUTION: f32 = 0.95;
@@ -126,7 +127,8 @@ pub fn cloud_directional_illuminance(
         .map(|(normal, sun)| normal / normal_length * (sun / sun_length))
         .sum::<f32>()
         .max(0.0);
-    bounded_level(daylight) * lerp(CLOUD_DIRECTIONAL_AMBIENT, 1.0, directional)
+    bounded_level(daylight).max(PROVISIONAL_CLOUD_NIGHT_FLOOR)
+        * lerp(CLOUD_DIRECTIONAL_AMBIENT, 1.0, directional)
 }
 
 /// Finite legacy-cloud distance fog with explicit collapsed-range semantics.

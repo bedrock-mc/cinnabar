@@ -27,6 +27,7 @@ const FACE_NORTH: u32 = 2u;
 const FACE_SOUTH: u32 = 3u;
 const FACE_WEST: u32 = 4u;
 const CLOUD_DIRECTIONAL_AMBIENT: f32 = 0.55;
+const PROVISIONAL_CLOUD_NIGHT_FLOOR: f32 = 0.2;
 const RAIN_CLOUD_COLOUR: vec3<f32> = vec3(191.0 / 255.0);
 const THUNDER_CLOUD_COLOUR: vec3<f32> = vec3(30.0 / 255.0);
 const WEATHER_COLOUR_CONTRIBUTION: f32 = 0.95;
@@ -167,7 +168,10 @@ fn cloud_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     );
     let sun_direction = normalize(atmosphere.sun_direction_daylight.xyz);
     let directional = max(dot(in.normal, sun_direction), 0.0);
-    let illuminance = clamp(atmosphere.sun_direction_daylight.w, 0.0, 1.0)
+    let illuminance = max(
+        clamp(atmosphere.sun_direction_daylight.w, 0.0, 1.0),
+        PROVISIONAL_CLOUD_NIGHT_FLOOR,
+    )
         * mix(CLOUD_DIRECTIONAL_AMBIENT, 1.0, directional);
     let cloud_colour = weather_colour * illuminance;
 

@@ -221,6 +221,16 @@ fn cloud_directional_illuminance_tracks_face_normal_sun_and_daylight() {
         0.275
     );
     assert_eq!(
+        cloud_directional_illuminance([0.0, 1.0, 0.0], [0.0, 1.0, 0.0], 0.0),
+        0.2,
+        "night clouds retain the same provisional sky-transfer floor as terrain"
+    );
+    assert!(
+        (cloud_directional_illuminance([0.0, -1.0, 0.0], [0.0, 1.0, 0.0], 0.0,) - 0.11).abs()
+            < 1.0e-6,
+        "night underside keeps bounded directional ambient instead of black"
+    );
+    assert_eq!(
         cloud_directional_illuminance([f32::NAN; 3], [f32::INFINITY; 3], f32::NAN),
         0.0
     );
