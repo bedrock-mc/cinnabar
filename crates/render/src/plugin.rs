@@ -2718,7 +2718,7 @@ impl PresentedFrameAck {
     #[must_use]
     pub fn is_exact(&self) -> bool {
         !self.allocation_manifest.is_empty()
-            && self.drawn_manifest == self.allocation_manifest
+            && self.drawn_manifest == self.visible_allocation_manifest
             && self.missing_target_instances == 0
             && self.unexpected_target_instances == 0
             && self.source_instances == 0
@@ -2733,6 +2733,7 @@ impl PresentedFrameAck {
             && next.is_exact()
             && self.cohort == next.cohort
             && self.allocation_manifest == next.allocation_manifest
+            && self.visible_allocation_manifest == next.visible_allocation_manifest
             && self.view_generation == next.view_generation
             && self.render_ready_at == next.render_ready_at
             && self.transparent_sort_generation == next.transparent_sort_generation
@@ -13031,7 +13032,7 @@ mod tests {
     }
 
     #[test]
-    fn allocated_but_undrawn_target_manifest_is_not_exact_presented_evidence() {
+    fn visible_but_undrawn_target_manifest_is_not_exact_presented_evidence() {
         let render_ready_at = Instant::now();
         let present_returned_at = render_ready_at + std::time::Duration::from_millis(1);
         let gpu_completed_at = present_returned_at + std::time::Duration::from_millis(1);
@@ -13042,17 +13043,18 @@ mod tests {
             key,
             generation: 7,
         };
+        let probe = FrameProbe::begin(
+            target_expectation(render_ready_at, [(key, 7)]),
+            [FrameInstanceIdentity {
+                entity,
+                key,
+                generation: 7,
+            }],
+            [allocation],
+        );
+        assert!(probe.record_visible(entity, allocation));
         let acknowledgement = build_presented_frame_ack(
-            FrameProbe::begin(
-                target_expectation(render_ready_at, [(key, 7)]),
-                [FrameInstanceIdentity {
-                    entity,
-                    key,
-                    generation: 7,
-                }],
-                [allocation],
-            )
-            .complete(),
+            probe.complete(),
             FrameCompletionEvidence {
                 present_returned_at: Some(present_returned_at),
                 submitted_work_done_at: Some(gpu_completed_at),
@@ -13064,7 +13066,152 @@ mod tests {
         assert!(acknowledgement.drawn_manifest.is_empty());
         assert!(
             !acknowledgement.is_exact(),
-            "an allocated but undrawn target generation satisfied the presented-frame gate"
+            "a visible but undrawn target generation satisfied the presented-frame gate"
+        );
+    }
+
+    #[test]
+    fn hidden_target_allocations_do_not_block_exact_presented_evidence() {
+        let render_ready_at = Instant::now();
+        let visible_key = SubChunkKey::new(0, 65, 0, 65);
+        let hidden_key = SubChunkKey::new(0, 66, 0, 65);
+        let visible_entity = Entity::from_bits(1);
+        let hidden_entity = Entity::from_bits(2);
+        let visible_allocation = FrameAllocationIdentity {
+            entity: visible_entity,
+            key: visible_key,
+            generation: 7,
+        };
+        let hidden_allocation = FrameAllocationIdentity {
+            entity: hidden_entity,
+            key: hidden_key,
+            generation: 8,
+        };
+        let expectation = target_expectation(render_ready_at, [(visible_key, 7), (hidden_key, 8)]);
+        let completed_frame = |frame_sequence| {
+            let probe = FrameProbe::begin(
+                expectation.clone(),
+                [
+                    FrameInstanceIdentity {
+                        entity: visible_entity,
+                        key: visible_key,
+                        generation: 7,
+                    },
+                    FrameInstanceIdentity {
+                        entity: hidden_entity,
+                        key: hidden_key,
+                        generation: 8,
+                    },
+                ],
+                [visible_allocation, hidden_allocation],
+            );
+            assert!(probe.record_visible(visible_entity, visible_allocation));
+            assert!(probe.record_direct_draw(visible_entity, visible_allocation));
+            let mut completed = probe.complete();
+            completed.frame_sequence = frame_sequence;
+            completed
+        };
+        let first = build_presented_frame_ack(
+            completed_frame(10),
+            FrameCompletionEvidence {
+                present_returned_at: Some(render_ready_at + std::time::Duration::from_millis(1)),
+                submitted_work_done_at: Some(render_ready_at + std::time::Duration::from_millis(2)),
+            },
+        )
+        .expect("the first presented frame should publish evidence");
+        let second = build_presented_frame_ack(
+            completed_frame(11),
+            FrameCompletionEvidence {
+                present_returned_at: Some(render_ready_at + std::time::Duration::from_millis(3)),
+                submitted_work_done_at: Some(render_ready_at + std::time::Duration::from_millis(4)),
+            },
+        )
+        .expect("the second presented frame should publish evidence");
+
+        assert_eq!(
+            first.allocation_manifest.as_ref(),
+            &[(visible_key, 7), (hidden_key, 8)]
+        );
+        assert_eq!(
+            first.visible_allocation_manifest.as_ref(),
+            &[(visible_key, 7)]
+        );
+        assert_eq!(first.drawn_manifest, first.visible_allocation_manifest);
+        assert!(
+            first.is_exact(),
+            "a hidden but correctly allocated target blocked exact frame evidence"
+        );
+        assert!(first.forms_stable_exact_pair_with(&second));
+    }
+
+    #[test]
+    fn visibility_change_cannot_form_a_stable_exact_presented_pair() {
+        let render_ready_at = Instant::now();
+        let first_key = SubChunkKey::new(0, 65, 0, 65);
+        let second_key = SubChunkKey::new(0, 66, 0, 65);
+        let first_entity = Entity::from_bits(1);
+        let second_entity = Entity::from_bits(2);
+        let first_allocation = FrameAllocationIdentity {
+            entity: first_entity,
+            key: first_key,
+            generation: 7,
+        };
+        let second_allocation = FrameAllocationIdentity {
+            entity: second_entity,
+            key: second_key,
+            generation: 8,
+        };
+        let expectation = target_expectation(render_ready_at, [(first_key, 7), (second_key, 8)]);
+        let completed_frame = |frame_sequence, visible_entity, visible_allocation| {
+            let probe = FrameProbe::begin(
+                expectation.clone(),
+                [
+                    FrameInstanceIdentity {
+                        entity: first_entity,
+                        key: first_key,
+                        generation: 7,
+                    },
+                    FrameInstanceIdentity {
+                        entity: second_entity,
+                        key: second_key,
+                        generation: 8,
+                    },
+                ],
+                [first_allocation, second_allocation],
+            );
+            assert!(probe.record_visible(visible_entity, visible_allocation));
+            assert!(probe.record_direct_draw(visible_entity, visible_allocation));
+            let mut completed = probe.complete();
+            completed.frame_sequence = frame_sequence;
+            completed
+        };
+        let acknowledgement = |probe, present_offset, gpu_offset| {
+            build_presented_frame_ack(
+                probe,
+                FrameCompletionEvidence {
+                    present_returned_at: Some(
+                        render_ready_at + std::time::Duration::from_millis(present_offset),
+                    ),
+                    submitted_work_done_at: Some(
+                        render_ready_at + std::time::Duration::from_millis(gpu_offset),
+                    ),
+                },
+            )
+            .expect("the presented frame should publish evidence")
+        };
+        let first = acknowledgement(completed_frame(10, first_entity, first_allocation), 1, 2);
+        let second = acknowledgement(completed_frame(11, second_entity, second_allocation), 3, 4);
+
+        assert!(first.is_exact());
+        assert!(second.is_exact());
+        assert_eq!(first.allocation_manifest, second.allocation_manifest);
+        assert_ne!(
+            first.visible_allocation_manifest,
+            second.visible_allocation_manifest
+        );
+        assert!(
+            !first.forms_stable_exact_pair_with(&second),
+            "adjacent exact frames with different visibility formed a stable pair"
         );
     }
 
@@ -13569,6 +13716,7 @@ mod tests {
                 }],
                 [allocation],
             ));
+            assert!(frame_probe.record_visible(entity, allocation));
             assert!(frame_probe.record_direct_draw(entity, allocation));
             frame_probe.take_completed().unwrap()
         };
