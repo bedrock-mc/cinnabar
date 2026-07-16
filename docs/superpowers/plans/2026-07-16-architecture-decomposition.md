@@ -373,25 +373,25 @@ Commit: `refactor: extract pure cpu meshing`
 
 Change `ChunkRenderPlugin` to `ChunkRenderPlugin`, run render and app tests, and commit the semantic-free rename with no alias.
 
-- [ ] **Step 2: Move plugin wiring and public contracts**
+- [x] **Step 2: Move plugin wiring and public contracts**
 
 Create `chunk::mod` and `chunk::plugin`; move queue/API types first. Update all `load_internal_asset!` paths relative to the new source file, using `../` as required.
 
-- [ ] **Step 3: Move GPU preparation and allocation**
+- [x] **Step 3: Move GPU preparation and allocation**
 
 Move arena math, stream layout, buffer growth, bind groups, and upload driver into `gpu`. Use `pub(super)` or `pub(crate)` only for demonstrated sibling consumers.
 
-- [ ] **Step 4: Move pipelines, draw submission, transparency, and presentation**
+- [x] **Step 4: Move pipelines, draw submission, transparency, and presentation**
 
 Keep sort state, model sort state, retirement, frame probes, and witness evidence with their owning resources. Do not introduce a shared prelude.
 
-- [ ] **Step 5: Move inline private tests to subsystem child modules**
+- [x] **Step 5: Move inline private tests to subsystem child modules**
 
 Tests that exercise private implementation live in `chunk/gpu/tests.rs`,
 `chunk/transparent/tests.rs`, and `chunk/presentation/tests.rs`; public shader, pipeline, and
 queue contracts remain in the one integration harness.
 
-- [ ] **Step 6: Verify and commit**
+- [x] **Step 6: Verify and commit**
 
 Run:
 
