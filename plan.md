@@ -1201,6 +1201,17 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     16-18/11,760 chunks at about 8 FPS, so it is not a performance or full-view
     acceptance witness. Native geometry scale/density and
     above/below/within/grazing visual acceptance remain open.
+    **Cloud geometry evidence contract complete (2026-07-16):** one bounded,
+    identity-deduplicated `CLOUD_GEOMETRY_EVIDENCE calibrated=false` marker now
+    records exact occupied texels, uploaded quad count/bytes, instance count,
+    provisional 256-block period and Y=128..132 bounds, pinned High-quality
+    native `grid_size=3`/`mesh_size=64`/`distance_scale=3` controls, and the
+    atmosphere asset identity. It is produced only when a new atmosphere asset
+    identity is prepared; no draw, shader, buffer topology, or per-frame work
+    changed. Independent review and the complete render suite/strict checks are
+    green through the merge following `c86d184`. The marker deliberately keeps
+    `calibrated=false`: matching native views must derive the missing world-space
+    mapping before the provisional layout changes.
   - [x] Resolve the camera-eye medium directly from palette-native liquid
     contributors, including secondary waterlogged layers, and use the exact
     two-triangle surface drawn by the shared quad index buffer for the air/water
