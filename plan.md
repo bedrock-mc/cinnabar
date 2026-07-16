@@ -845,6 +845,15 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       `minecraft:cinnabar` (12638/`0xbda02665`), with `minecraft:leaf_litter`
       far behind, replacing screenshot-based family guesses with exact live
       evidence.
+      **Sulfur/cinnabar exact route complete (2026-07-16):** both single-state
+      minerals now compile as exact opaque full cubes for sequential and hashed
+      protocol identities. Admission proves the reviewed collision, selector,
+      sound, static texture, tint, flipbook, alias, and extension-metadata
+      boundaries and rejects the pair atomically on any mismatch. Independent
+      review, the ignored pinned-pack witness, full affected suites, and strict
+      checks are green through the `6aeb8c8` merge. Production visual diagnostics
+      fell exactly from 2,400 to 2,398 with zero additions. A fresh native BDS
+      run must still prove the previously dominant magenta surfaces are gone.
       **Fixed-pose diagnostic attempt (2026-07-15):** run
       `20260715T164233Z-14908` disabled auto-fly and retained one stable render
       view generation, but the client never emitted its mutation/world-ready
@@ -1577,6 +1586,19 @@ and dropped-item rendering, paper-doll first-person arm/held item.
   code or assets must not be copied into Cinnabar; Java behavior may only be an
   independently observed clean-room comparison when the authoritative Bedrock
   pack is ambiguous.
+  **Bounded asset-catalog tranche complete (2026-07-16):** the pinned vanilla
+  `entity`, geometry, animation, animation-controller, render-controller, and
+  entity-texture trees now compile into the deterministic `MCBEENT2` carrier
+  with exact source-manifest provenance. The real reviewed pack produces 3,247
+  source records, 2,993 symbols, and 3,071 dependency edges (2,929 internal and
+  142 explicitly external); duplicate identifiers remain selectable candidates
+  rather than silently choosing a generation. Texture identifiers and
+  conditional render-controller keys resolve canonically, startup fails closed
+  on stale provenance, and generated carriers/reports and Mojang payloads remain
+  ignored. Independent review and post-merge assets/compiler/client tests and
+  strict checks are green. The carrier currently catalogs bounded metadata;
+  geometry/clip payloads, the reviewed Molang/controller evaluator, skeletal GPU
+  skinning/posing, and native animated-actor evidence remain open.
 - [ ] **4.4 Live actor ground-contact and interpolation witness.** Join
   `play.lbsg.net:19132` with the normal authenticated core, observe at least one
   remote player's spawn, ordinary movement, rotation, and teleport, and prove
