@@ -162,6 +162,11 @@ fn synthetic_entity_blob_with_manifest(seed: u8, source_manifest_sha256: [u8; 32
     .unwrap()
 }
 
+fn canonical_vanilla_source_manifest_sha256() -> [u8; 32] {
+    let source = include_str!("../../assets/vanilla-source.json").replace("\r\n", "\n");
+    Sha256::digest(source.as_bytes()).into()
+}
+
 fn block_entity_nbt(id: Option<&str>, fields: &[(u8, &str, u8)]) -> world::BlockEntityNbt {
     let mut bytes = vec![10, 0];
     if let Some(id) = id {
@@ -975,6 +980,30 @@ fn mismatched_entity_carrier_provenance_fails_closed_with_rebuild_command() {
     );
     assert!(message.contains("provenance"), "{message}");
     assert!(message.contains(ENTITY_ASSETS_COMPILE_COMMAND), "{message}");
+    fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn canonical_entity_carrier_provenance_is_portable_across_checkout_line_endings() {
+    let directory = temporary_directory("canonical-entity-provenance");
+    let path = directory.join("custom-world.mcbea");
+    fs::write(&path, synthetic_blob()).unwrap();
+    fs::write(
+        atmosphere_asset_path(&path),
+        synthetic_atmosphere_blob(0x78),
+    )
+    .unwrap();
+    fs::write(
+        entity_asset_path(&path),
+        synthetic_entity_blob_with_manifest(0x79, canonical_vanilla_source_manifest_sha256()),
+    )
+    .unwrap();
+
+    let loaded = load_runtime_assets(select_asset_path(Some(&path), None)).unwrap();
+    assert_eq!(
+        loaded.entities.runtime().source_manifest_sha256(),
+        canonical_vanilla_source_manifest_sha256()
+    );
     fs::remove_dir_all(directory).unwrap();
 }
 
