@@ -1,8 +1,6 @@
-#[path = "../src/camera.rs"]
-mod camera;
-
 use std::{f32::consts::FRAC_PI_2, time::Duration};
 
+use crate::camera::{self, AutoFly, FlyCamera, FlyCameraPlugin, PITCH_LIMIT};
 use bevy::{
     anti_alias::fxaa::Fxaa,
     core_pipeline::tonemapping::Tonemapping,
@@ -10,7 +8,6 @@ use bevy::{
     prelude::*,
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, WindowResolution},
 };
-use camera::{AutoFly, FlyCamera, FlyCameraPlugin, PITCH_LIMIT};
 
 #[test]
 fn auto_fly_path_repeats_and_stays_within_the_loaded_radius() {

@@ -1,42 +1,43 @@
+use crate::*;
+
 use std::{path::PathBuf, time::Duration};
 
 use anyhow::{Context, Result, ensure};
-use bevy::prelude::*;
 use render::{ModelWitnessEvidence, ModelWitnessRequest};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use world::SubChunkKey;
 
-const MODEL_WITNESS_SCHEMA: &str = "rust-mcbe-model-witness-v1";
-const WITNESS_POLL_INTERVAL: Duration = Duration::from_millis(250);
+pub(crate) const MODEL_WITNESS_SCHEMA: &str = "rust-mcbe-model-witness-v1";
+pub(crate) const WITNESS_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct ModelWitnessSubChunk {
-    x: i32,
-    y: i32,
-    z: i32,
+pub(crate) struct ModelWitnessSubChunk {
+    pub(crate) x: i32,
+    pub(crate) y: i32,
+    pub(crate) z: i32,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ModelWitnessFile {
-    schema: String,
-    revision: u64,
-    dimension: i32,
-    request_sha256: String,
-    sub_chunks: Vec<ModelWitnessSubChunk>,
+pub(crate) struct ModelWitnessFile {
+    pub(crate) schema: String,
+    pub(crate) revision: u64,
+    pub(crate) dimension: i32,
+    pub(crate) request_sha256: String,
+    pub(crate) sub_chunks: Vec<ModelWitnessSubChunk>,
 }
 
 #[derive(Serialize)]
-struct ModelWitnessHashInput<'a> {
-    schema: &'a str,
-    revision: u64,
-    dimension: i32,
-    sub_chunks: &'a [ModelWitnessSubChunk],
+pub(crate) struct ModelWitnessHashInput<'a> {
+    pub(crate) schema: &'a str,
+    pub(crate) revision: u64,
+    pub(crate) dimension: i32,
+    pub(crate) sub_chunks: &'a [ModelWitnessSubChunk],
 }
 
-fn canonical_request_hash(file: &ModelWitnessFile) -> Result<[u8; 32]> {
+pub(crate) fn canonical_request_hash(file: &ModelWitnessFile) -> Result<[u8; 32]> {
     let canonical = serde_json::to_vec(&ModelWitnessHashInput {
         schema: &file.schema,
         revision: file.revision,
@@ -47,7 +48,7 @@ fn canonical_request_hash(file: &ModelWitnessFile) -> Result<[u8; 32]> {
     Ok(Sha256::digest(canonical).into())
 }
 
-fn decode_lower_hex_hash(value: &str) -> Result<[u8; 32]> {
+pub(crate) fn decode_lower_hex_hash(value: &str) -> Result<[u8; 32]> {
     ensure!(
         value.len() == 64
             && value
@@ -63,7 +64,7 @@ fn decode_lower_hex_hash(value: &str) -> Result<[u8; 32]> {
     Ok(hash)
 }
 
-fn decode_request(bytes: &[u8]) -> Result<ModelWitnessRequest> {
+pub(crate) fn decode_request(bytes: &[u8]) -> Result<ModelWitnessRequest> {
     let file: ModelWitnessFile =
         serde_json::from_slice(bytes).context("decode model witness request JSON")?;
     ensure!(
@@ -165,7 +166,7 @@ mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn request_json(revision: u64, sub_chunks: &[ModelWitnessSubChunk]) -> Vec<u8> {
+    pub(crate) fn request_json(revision: u64, sub_chunks: &[ModelWitnessSubChunk]) -> Vec<u8> {
         let file = ModelWitnessFile {
             schema: MODEL_WITNESS_SCHEMA.to_owned(),
             revision,
@@ -189,7 +190,7 @@ mod tests {
     }
 
     #[test]
-    fn request_json_decodes_exact_hash_dimension_keys_and_revision() {
+    pub(crate) fn request_json_decodes_exact_hash_dimension_keys_and_revision() {
         let bytes = request_json(
             7,
             &[
@@ -207,7 +208,7 @@ mod tests {
     }
 
     #[test]
-    fn request_json_fails_closed_for_hash_schema_duplicates_and_unknown_fields() {
+    pub(crate) fn request_json_fails_closed_for_hash_schema_duplicates_and_unknown_fields() {
         let valid = request_json(7, &[ModelWitnessSubChunk { x: 1, y: 4, z: 5 }]);
         let mut tampered: serde_json::Value = serde_json::from_slice(&valid).unwrap();
         tampered["request_sha256"] = serde_json::Value::String("0".repeat(64));
@@ -228,7 +229,7 @@ mod tests {
     }
 
     #[test]
-    fn file_poller_retries_same_bytes_after_non_not_found_read_error() {
+    pub(crate) fn file_poller_retries_same_bytes_after_non_not_found_read_error() {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -268,5 +269,81 @@ mod tests {
 
         std::fs::remove_file(&path).unwrap();
         std::fs::remove_dir_all(directory).unwrap();
+    }
+}
+#[derive(Default)]
+pub(crate) struct ModelWitnessExpectationState {
+    pub(crate) request: ModelWitnessRequest,
+    pub(crate) expectation: Option<TargetRenderExpectation>,
+    pub(crate) next_view_generation: u64,
+}
+
+pub(crate) fn drive_model_witness(
+    client_world: Res<ClientWorld>,
+    render_queue: Res<ChunkRenderQueue>,
+    presented_frames: Res<PresentedFrameGate>,
+    request: Res<ModelWitnessRequest>,
+    evidence: Res<ModelWitnessEvidence>,
+    mut state: Local<ModelWitnessExpectationState>,
+) {
+    if !request.enabled() {
+        if state.request.enabled() {
+            presented_frames.clear();
+        }
+        *state = ModelWitnessExpectationState::default();
+        return;
+    }
+    if state.request != *request {
+        presented_frames.clear();
+        state.request = (*request).clone();
+        state.expectation = None;
+        state.next_view_generation = 0;
+    }
+    if evidence.is_complete_for(&request) {
+        presented_frames.clear();
+        state.expectation = None;
+        return;
+    }
+    let Some(cohort) = client_world
+        .stream
+        .as_ref()
+        .and_then(WorldStream::committed_view_cohort)
+        .map(render_view_cohort)
+    else {
+        return;
+    };
+    let now = Instant::now();
+    let Some(proposed) = render_queue.freeze_target_expectation_for_keys(
+        cohort,
+        None,
+        request.keys().iter().copied(),
+        0,
+        now,
+    ) else {
+        if state.expectation.take().is_some() {
+            presented_frames.clear();
+        }
+        return;
+    };
+    let expectation = if let Some(current) = state.expectation.as_ref().filter(|current| {
+        current.cohort == proposed.cohort
+            && current.source_cohort == proposed.source_cohort
+            && current.manifest == proposed.manifest
+    }) {
+        current.clone()
+    } else {
+        state.next_view_generation = state.next_view_generation.wrapping_add(1).max(1);
+        let mut next = proposed;
+        next.view_generation = state.next_view_generation;
+        state.expectation = Some(next.clone());
+        next
+    };
+    presented_frames.set_expectation(expectation);
+    for acknowledgement in presented_frames.drain() {
+        evidence.observe_presented_frame(&request, &acknowledgement);
+    }
+    if evidence.is_complete_for(&request) {
+        presented_frames.clear();
+        state.expectation = None;
     }
 }

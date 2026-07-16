@@ -405,3 +405,6 @@ mod tests {
         assert_eq!(ticker.outbox.len(), 1);
     }
 }
+
+#[cfg(test)]
+mod integration_tests;

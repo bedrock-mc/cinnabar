@@ -331,3 +331,6 @@ fn update_movement(
         transform.translation += direction * camera.speed * time.delta_secs();
     }
 }
+
+#[cfg(test)]
+mod tests;

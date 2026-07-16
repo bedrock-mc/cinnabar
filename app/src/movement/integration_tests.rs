@@ -1,9 +1,6 @@
-#[path = "../src/movement.rs"]
-mod movement;
-
 use std::time::Duration;
 
-use movement::{
+use super::{
     MovementInputSample, MovementSendError, MovementSource, MovementTicker, OUTBOX_CAPACITY,
     flush_player_auth_inputs,
 };

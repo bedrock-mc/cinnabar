@@ -1,37 +1,38 @@
+use crate::*;
+
 use std::{
     path::PathBuf,
     time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result, bail};
-use bevy::prelude::*;
 use render::{TransparentWitnessEvidence, TransparentWitnessRequest};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use world::SubChunkKey;
 
-const WITNESS_SCHEMA: &str = "rust-mcbe-transparent-witness-v1";
-const MAX_WITNESS_FILE_BYTES: u64 = 16 * 1024;
-const WITNESS_POLL_INTERVAL: Duration = Duration::from_millis(50);
+pub(crate) const WITNESS_SCHEMA: &str = "rust-mcbe-transparent-witness-v1";
+pub(crate) const MAX_WITNESS_FILE_BYTES: u64 = 16 * 1024;
+pub(crate) const WITNESS_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct WitnessFile {
-    schema: String,
-    revision: u64,
-    dimension: i32,
-    sub_chunks: Vec<WitnessSubChunk>,
+pub(crate) struct WitnessFile {
+    pub(crate) schema: String,
+    pub(crate) revision: u64,
+    pub(crate) dimension: i32,
+    pub(crate) sub_chunks: Vec<WitnessSubChunk>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct WitnessSubChunk {
-    x: i32,
-    y: i32,
-    z: i32,
+pub(crate) struct WitnessSubChunk {
+    pub(crate) x: i32,
+    pub(crate) y: i32,
+    pub(crate) z: i32,
 }
 
-fn decode_request(bytes: &[u8]) -> Result<TransparentWitnessRequest> {
+pub(crate) fn decode_request(bytes: &[u8]) -> Result<TransparentWitnessRequest> {
     if bytes.len() as u64 > MAX_WITNESS_FILE_BYTES {
         bail!("transparent witness request exceeds {MAX_WITNESS_FILE_BYTES} bytes");
     }
@@ -126,7 +127,7 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
-    fn request_json_decodes_exact_dimension_keys_and_revision() {
+    pub(crate) fn request_json_decodes_exact_dimension_keys_and_revision() {
         let request = decode_request(
             br#"{"schema":"rust-mcbe-transparent-witness-v1","revision":7,"dimension":0,"sub_chunks":[{"x":1,"y":4,"z":5},{"x":0,"y":4,"z":5}]}"#,
         )
@@ -139,7 +140,7 @@ mod tests {
     }
 
     #[test]
-    fn request_json_fails_closed_for_schema_duplicates_empty_and_excess() {
+    pub(crate) fn request_json_fails_closed_for_schema_duplicates_empty_and_excess() {
         for json in [
             r#"{"schema":"wrong","revision":1,"dimension":0,"sub_chunks":[{"x":0,"y":0,"z":0}]}"#.to_owned(),
             r#"{"schema":"rust-mcbe-transparent-witness-v1","revision":1,"dimension":0,"sub_chunks":[]}"#.to_owned(),
@@ -157,7 +158,7 @@ mod tests {
     }
 
     #[test]
-    fn file_poller_resets_fail_closed_on_malformed_or_missing_request() {
+    pub(crate) fn file_poller_resets_fail_closed_on_malformed_or_missing_request() {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()

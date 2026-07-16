@@ -1,12 +1,5 @@
 #![allow(dead_code)]
 
-#[path = "../src/args.rs"]
-mod args;
-#[path = "../src/asset_startup.rs"]
-mod asset_startup;
-#[path = "../src/metrics.rs"]
-mod metrics;
-
 use std::{
     ffi::OsString,
     fs,
@@ -22,15 +15,15 @@ use ::assets::{
     NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode, TextureArray, TextureMip, TexturePage,
     TextureRef, VisualKind, encode_atmosphere_blob, encode_blob,
 };
-use args::{ClientArgs, ParseOutcome};
-use asset_startup::{
+use bedrock_client::args::{ClientArgs, ParseOutcome};
+use bedrock_client::asset_startup::{
     ATMOSPHERE_COMPILE_COMMAND, ATMOSPHERE_FILENAME, AssetPathSource, COMPILE_COMMAND,
     DEFAULT_ASSET_PATH, FETCH_COMMAND, LoadedAssetKind, atmosphere_asset_path,
     atmosphere_shader_source_sha256, cloud_shader_source_sha256, load_runtime_assets,
     select_asset_path,
 };
+use bedrock_client::metrics::{DiagnosticQuadTracker, MetricsCollector};
 use client_world::{BackingBlockIdentity, BlockEntityVisualRoute, adjudicate_block_entity_visual};
-use metrics::{DiagnosticQuadTracker, MetricsCollector};
 use sha2::{Digest, Sha256};
 
 fn temporary_directory(label: &str) -> PathBuf {
@@ -801,7 +794,7 @@ fn malformed_required_atmosphere_carrier_fails_closed_with_rebuild_command() {
 
 #[test]
 fn startup_hands_the_single_decoded_atmosphere_identity_to_the_renderer() {
-    let source = include_str!("../src/main.rs");
+    let source = include_str!("../src/app.rs");
     assert!(source.contains("loaded_assets.atmosphere.startup_summary()"));
     assert!(source.contains("loaded_assets.atmosphere.into_parts()"));
     assert!(source.contains(".insert_resource(AtmosphereTextureAssets::new("));
@@ -1062,4 +1055,34 @@ fn run_make_atmosphere(root: &Path, assignments: &[String]) {
 
 fn make_path(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
+}
+
+#[test]
+fn app_composition_layout_remains_split_by_runtime_and_acceptance_owner() {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let main = fs::read_to_string(source_root.join("main.rs")).unwrap();
+    let library = fs::read_to_string(source_root.join("lib.rs")).unwrap();
+    let app = fs::read_to_string(source_root.join("app.rs")).unwrap();
+
+    assert!(library.contains("pub use app::run;"));
+    assert!(app.contains("pub fn run(args: args::ClientArgs) -> Result<()>"));
+    assert!(main.contains("run(*args)"));
+    assert!(!main.contains("add_systems"));
+
+    for relative in [
+        "runtime/endpoint.rs",
+        "runtime/shutdown.rs",
+        "runtime/network.rs",
+        "runtime/world.rs",
+        "runtime/visibility.rs",
+        "runtime/telemetry.rs",
+        "acceptance/world_ready.rs",
+        "acceptance/teleport.rs",
+        "acceptance/remesh.rs",
+        "acceptance/mutation.rs",
+        "acceptance/proofs.rs",
+        "acceptance/markers.rs",
+    ] {
+        assert!(source_root.join(relative).is_file(), "missing {relative}");
+    }
 }

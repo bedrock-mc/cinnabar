@@ -13,7 +13,7 @@ use thiserror::Error;
 
 use crate::metrics::AssetMetrics;
 
-pub const ASSET_PATH_ENVIRONMENT: &str = "RUST_MCBE_ASSETS";
+pub const ASSET_PATH_ENVIRONMENT: &str = crate::acceptance::markers::ASSETS;
 pub const DEFAULT_ASSET_PATH: &str = ".local/assets/compiled/vanilla-v1001.mcbea";
 pub const ATMOSPHERE_FILENAME: &str = "vanilla-v1.mcbeatm";
 pub const ATMOSPHERE_COMPILE_COMMAND: &str = "make atmosphere-assets";
