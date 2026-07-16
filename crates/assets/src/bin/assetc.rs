@@ -130,42 +130,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             out,
             report,
         } => {
-            let manifest_bytes = read_bounded_with_limit(
-                &source_manifest,
-                MAX_SOURCE_MANIFEST_BYTES,
-                "source manifest",
-            )?;
-            let source =
-                serde_json::from_slice::<serde_json::Value>(&manifest_bytes).map_err(|source| {
-                    AssetError::Json {
-                        path: source_manifest.clone(),
-                        source,
-                    }
-                })?;
-            let compiled = compile_atmosphere_assets_with_options(
+            compile_atmosphere_command(
                 &pack,
-                &manifest_bytes,
-                AtmosphereCompileOptions {
-                    clouds_override: clouds_override.as_deref(),
-                },
+                &source_manifest,
+                clouds_override.as_deref(),
+                &out,
+                &report,
+                compile_atmosphere_assets_with_options,
             )?;
-            let blob = encode_atmosphere_blob(&compiled)?;
-            let report_data = build_atmosphere_report(source, &compiled, &blob);
-            let mut report_bytes =
-                serde_json::to_vec_pretty(&report_data).map_err(|source| AssetError::Json {
-                    path: report.clone(),
-                    source,
-                })?;
-            report_bytes.push(b'\n');
-            validate_output_bundle(&out, &report)?;
-            write_blob_atomic(&out, &blob)?;
-            write_blob_atomic(&report, &report_bytes)?;
-            println!(
-                "compiled {} pinned atmosphere textures to {} and {}",
-                report_data.textures.len(),
-                out.display(),
-                report.display()
-            );
         }
         Command::Compile {
             pack,
@@ -268,6 +240,58 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
         }
     }
+    Ok(())
+}
+
+fn compile_atmosphere_command<F>(
+    pack: &Path,
+    source_manifest: &Path,
+    clouds_override: Option<&Path>,
+    out: &Path,
+    report: &Path,
+    compile: F,
+) -> Result<(), Box<dyn std::error::Error>>
+where
+    F: for<'a> FnOnce(
+        &Path,
+        &[u8],
+        AtmosphereCompileOptions<'a>,
+    ) -> Result<assets::CompiledAtmosphereAssets, AssetError>,
+{
+    let manifest_bytes = read_bounded_with_limit(
+        source_manifest,
+        MAX_SOURCE_MANIFEST_BYTES,
+        "source manifest",
+    )?;
+    let source =
+        serde_json::from_slice::<serde_json::Value>(&manifest_bytes).map_err(|source| {
+            AssetError::Json {
+                path: source_manifest.to_path_buf(),
+                source,
+            }
+        })?;
+    let compiled = compile(
+        pack,
+        &manifest_bytes,
+        AtmosphereCompileOptions { clouds_override },
+    )?;
+    let blob = encode_atmosphere_blob(&compiled)?;
+    let report_data = build_atmosphere_report(source, &compiled, &blob);
+    let mut report_bytes =
+        serde_json::to_vec_pretty(&report_data).map_err(|source| AssetError::Json {
+            path: report.to_path_buf(),
+            source,
+        })?;
+    report_bytes.push(b'\n');
+    validate_output_bundle(out, report)?;
+    write_blob_atomic(out, &blob)?;
+    write_blob_atomic(report, &report_bytes)?;
+    println!(
+        "compiled {} pinned atmosphere textures to {} and {}",
+        report_data.textures.len(),
+        out.display(),
+        report.display()
+    );
     Ok(())
 }
 
@@ -478,47 +502,70 @@ fn read_bounded_with_limit(
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::{ffi::OsString, fs};
 
-    use assets::{AtmosphereRole, AtmosphereTexture, CompiledAtmosphereAssets};
+    use assets::{
+        AtmosphereRole, AtmosphereTexture, CompiledAtmosphereAssets, RuntimeAtmosphereAssets,
+    };
     use clap::Parser;
     use sha2::{Digest, Sha256};
 
-    use super::{Cli, Command, build_atmosphere_report};
+    use super::{Cli, Command, compile_atmosphere_command};
 
     #[test]
     fn synthetic_cli_override_builds_canonical_path_only_report() {
-        let physical_override = "machine/private/clouds.png";
+        let directory = tempfile::tempdir().unwrap();
+        let pack = directory.path().join("pack");
+        let manifest = directory.path().join("manifest.json");
+        let physical_override = directory.path().join("private-clouds.png");
+        let blob = directory.path().join("atmosphere.mcbeatm");
+        let report = directory.path().join("atmosphere.json");
+        fs::write(&manifest, br#"{"artifact_policy":"local-only"}"#).unwrap();
         let cli = Cli::try_parse_from([
-            "assetc",
-            "atmosphere",
-            "--pack",
-            "pack",
-            "--source-manifest",
-            "manifest.json",
-            "--clouds-override",
-            physical_override,
-            "--out",
-            "atmosphere.mcbeatm",
-            "--report",
-            "atmosphere.json",
+            OsString::from("assetc"),
+            OsString::from("atmosphere"),
+            OsString::from("--pack"),
+            pack.as_os_str().to_owned(),
+            OsString::from("--source-manifest"),
+            manifest.as_os_str().to_owned(),
+            OsString::from("--clouds-override"),
+            physical_override.as_os_str().to_owned(),
+            OsString::from("--out"),
+            blob.as_os_str().to_owned(),
+            OsString::from("--report"),
+            report.as_os_str().to_owned(),
         ])
         .unwrap();
         let Command::Atmosphere {
-            clouds_override, ..
+            pack,
+            source_manifest,
+            clouds_override,
+            out,
+            report,
         } = cli.command
         else {
             panic!("expected atmosphere command");
         };
-        assert_eq!(clouds_override, Some(PathBuf::from(physical_override)));
-
         let compiled = synthetic_compiled();
-        let report = build_atmosphere_report(
-            serde_json::json!({"artifact_policy": "local-only"}),
-            &compiled,
-            b"synthetic envelope",
-        );
-        let report_text = serde_json::to_string(&report).unwrap();
+        compile_atmosphere_command(
+            &pack,
+            &source_manifest,
+            clouds_override.as_deref(),
+            &out,
+            &report,
+            |actual_pack, manifest_bytes, options| {
+                assert_eq!(actual_pack, pack);
+                assert_eq!(manifest_bytes, br#"{"artifact_policy":"local-only"}"#);
+                assert_eq!(options.clouds_override, Some(physical_override.as_path()));
+                Ok(compiled.clone())
+            },
+        )
+        .unwrap();
+
+        let blob_bytes = fs::read(&out).unwrap();
+        let runtime = RuntimeAtmosphereAssets::decode(&blob_bytes).unwrap();
+        assert_eq!(runtime.textures(), compiled.textures.as_ref());
+        let report_text = fs::read_to_string(&report).unwrap();
         let value: serde_json::Value = serde_json::from_str(&report_text).unwrap();
         assert_eq!(
             value["textures"][2]["source_path"],
@@ -532,7 +579,7 @@ mod tests {
             value["textures"][2]["pixels_sha256"],
             hex(&compiled.textures[2].pixels_sha256)
         );
-        assert!(!report_text.contains(physical_override));
+        assert!(!report_text.contains(&physical_override.display().to_string()));
     }
 
     fn synthetic_compiled() -> CompiledAtmosphereAssets {

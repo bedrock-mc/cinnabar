@@ -1141,9 +1141,10 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     atmosphere producer, preventing a set-to-empty override transition from
     retaining a stale carrier. Startup evidence now identifies
     `cloud.wgsl` separately from `atmosphere.wgsl`. Synthetic rejection tests,
-    synthetic accepted options/CLI/report tests through a private injected
-    identity seam, environment-gated installed-input acceptance, the full assets
-    suite, app asset suite, strict relevant Clippy, formatting, and diff checks are green;
+    synthetic accepted options tests through a private injected identity seam,
+    a parsed-CLI-to-encoded-report test through the production command handler,
+    environment-gated installed-input acceptance, the full assets suite, app asset
+    suite, strict relevant Clippy, formatting, and diff checks are green;
     transparent composition, directional lighting, calibration, and live parity
     acceptance remain open in the native-cloud plan.
   - [x] Resolve the camera-eye medium directly from palette-native liquid
