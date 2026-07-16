@@ -1,3 +1,4 @@
+use assets::{BiomeVisualProfile, FogMedium, FogProfile};
 use bevy::{
     prelude::{Res, ResMut, Resource, Time},
     time::Real,
@@ -10,6 +11,23 @@ use client_world::CommittedControlEvent;
 
 #[derive(Resource, Default)]
 pub(crate) struct CameraMediumState(pub(crate) CameraMedium);
+
+#[derive(Resource, Debug, Clone, Default, PartialEq)]
+pub(crate) struct EnvironmentContext {
+    pub(crate) dimension: i32,
+    pub(crate) camera_biome_identifier: Option<Box<str>>,
+    pub(crate) render_distance_blocks: Option<f32>,
+}
+
+/// Active client profile identifiers. Lighting remains routed through the
+/// current provisional scalar shader until native RGB calibration is available.
+#[derive(Resource, Debug, Clone, Default, Eq, PartialEq)]
+pub(crate) struct EnvironmentProfileRoute {
+    pub(crate) biome_identifier: Option<Box<str>>,
+    pub(crate) fog_identifier: Option<Box<str>>,
+    pub(crate) atmosphere_identifier: Option<Box<str>>,
+    pub(crate) provisional_lighting_identifier: Option<Box<str>>,
+}
 
 /// Server-authored world-clock snapshot for the active StartGame session.
 ///
@@ -217,15 +235,110 @@ pub(crate) fn derive_atmosphere_frame_for_medium(
     .with_camera_medium(medium)
 }
 
+#[must_use]
+pub(crate) fn derive_profiled_atmosphere_frame(
+    clock: WorldClock,
+    weather: WeatherState,
+    elapsed_seconds: f64,
+    medium: CameraMedium,
+    context: &EnvironmentContext,
+    biome_profiles: &[BiomeVisualProfile],
+    fog_profiles: &[FogProfile],
+) -> (AtmosphereFrame, EnvironmentProfileRoute) {
+    let base = derive_atmosphere_frame_for_medium(clock, weather, elapsed_seconds, medium);
+    let profile = context
+        .camera_biome_identifier
+        .as_deref()
+        .and_then(|identifier| find_biome_profile(biome_profiles, identifier))
+        .or_else(|| {
+            dimension_fallback_biome(context.dimension)
+                .and_then(|identifier| find_biome_profile(biome_profiles, identifier))
+        });
+    let Some(profile) = profile else {
+        return (base, EnvironmentProfileRoute::default());
+    };
+    let resolved_fog = context.render_distance_blocks.and_then(|render_distance| {
+        let fog = fog_profiles
+            .binary_search_by(|fog| fog.identifier.cmp(&profile.fog_identifier))
+            .ok()
+            .map(|index| &fog_profiles[index])?;
+        let default_fog = fog_profiles
+            .binary_search_by(|fog| fog.identifier.as_ref().cmp("minecraft:fog_default"))
+            .ok()
+            .map(|index| &fog_profiles[index]);
+        let distance = |medium| {
+            fog.distance(medium)
+                .or_else(|| default_fog.and_then(|fallback| fallback.distance(medium)))
+        };
+        let requested = match medium {
+            CameraMedium::Air
+                if weather.rain_level > 0.0 && distance(FogMedium::Weather).is_some() =>
+            {
+                FogMedium::Weather
+            }
+            CameraMedium::Air => FogMedium::Air,
+            CameraMedium::Water => FogMedium::Water,
+            CameraMedium::Lava => FogMedium::Lava,
+        };
+        distance(requested)?.resolve(render_distance)
+    });
+    (
+        base.with_environment_profile(profile.sky_rgb8, resolved_fog),
+        EnvironmentProfileRoute {
+            biome_identifier: Some(profile.biome_identifier.clone()),
+            fog_identifier: Some(profile.fog_identifier.clone()),
+            atmosphere_identifier: Some(profile.atmosphere_identifier.clone()),
+            provisional_lighting_identifier: Some(profile.lighting_identifier.clone()),
+        },
+    )
+}
+
+fn find_biome_profile<'a>(
+    profiles: &'a [BiomeVisualProfile],
+    identifier: &str,
+) -> Option<&'a BiomeVisualProfile> {
+    profiles
+        .binary_search_by(|profile| profile.biome_identifier.as_ref().cmp(identifier))
+        .ok()
+        .map(|index| &profiles[index])
+}
+
+const fn dimension_fallback_biome(dimension: i32) -> Option<&'static str> {
+    match dimension {
+        0 => Some("minecraft:plains"),
+        1 => Some("minecraft:hell"),
+        2 => Some("minecraft:the_end"),
+        _ => None,
+    }
+}
+
 pub(crate) fn update_atmosphere_frame(
     clock: Res<WorldClock>,
     weather: Res<WeatherState>,
     medium: Res<CameraMediumState>,
+    context: Res<EnvironmentContext>,
+    atmosphere_assets: Res<render::AtmosphereTextureAssets>,
     time: Res<Time<Real>>,
-    mut frame: ResMut<AtmosphereFrame>,
+    outputs: (ResMut<AtmosphereFrame>, ResMut<EnvironmentProfileRoute>),
 ) {
-    *frame =
-        derive_atmosphere_frame_for_medium(*clock, *weather, time.elapsed_secs_f64(), medium.0);
+    let (mut frame, mut route) = outputs;
+    let Some(assets) = atmosphere_assets.runtime() else {
+        *frame =
+            derive_atmosphere_frame_for_medium(*clock, *weather, time.elapsed_secs_f64(), medium.0);
+        *route = EnvironmentProfileRoute::default();
+        return;
+    };
+    let (next_frame, next_route) = derive_profiled_atmosphere_frame(
+        *clock,
+        *weather,
+        time.elapsed_secs_f64(),
+        medium.0,
+        &context,
+        assets.biome_profiles(),
+        assets.fog_profiles(),
+    );
+    *frame = next_frame;
+    *route = next_route;
 }
 
 fn finite_nonnegative(value: f64) -> f64 {
@@ -238,14 +351,16 @@ fn finite_nonnegative(value: f64) -> f64 {
 
 #[cfg(test)]
 mod tests {
+    use assets::{BiomeVisualProfile, FogDistance, FogDistanceMode, FogMedium, FogProfile};
     use protocol::{
         ChangeDimensionEvent, DaylightCycleUpdateEvent, SetTimeEvent, WeatherChannel,
         WeatherUpdateEvent, WorldEnvironmentBootstrap,
     };
 
     use super::{
-        WeatherState, WorldClock, apply_environment_control, derive_atmosphere_frame,
-        derive_atmosphere_frame_for_medium, replace_session, visual_world_time,
+        EnvironmentContext, WeatherState, WorldClock, apply_environment_control,
+        derive_atmosphere_frame, derive_atmosphere_frame_for_medium,
+        derive_profiled_atmosphere_frame, replace_session, visual_world_time,
     };
     use client_world::CommittedControlEvent;
 
@@ -628,5 +743,277 @@ mod tests {
         assert_eq!(frame.rain_level(), 0.25);
         assert_eq!(frame.thunder_level(), 0.75);
         assert_eq!(frame.sun_direction(), [0.0, 1.0, 0.0]);
+    }
+
+    #[test]
+    fn end_dimension_fallback_applies_exact_profile_and_exposes_provisional_lighting_route() {
+        let mut clock = WorldClock::default();
+        let mut weather = WeatherState::default();
+        replace_session(
+            &mut clock,
+            &mut weather,
+            bootstrap(18_000, 0, true, 0.0, 0.0),
+            10.0,
+        );
+        let context = EnvironmentContext {
+            dimension: 2,
+            camera_biome_identifier: None,
+            render_distance_blocks: Some(256.0),
+        };
+        let biomes = profiles();
+        let fogs = fog_profiles();
+
+        let (frame, route) = derive_profiled_atmosphere_frame(
+            clock,
+            weather,
+            10.0,
+            meshing::CameraMedium::Air,
+            &context,
+            &biomes,
+            &fogs,
+        );
+
+        assert_eq!(frame.sky_zenith(), [0.0; 3]);
+        assert_eq!(frame.sky_horizon(), [0.0; 3]);
+        assert_eq!(frame.fog_end(), 256.0);
+        assert_eq!(frame.rain_level(), 0.0);
+        assert_eq!(frame.thunder_level(), 0.0);
+        assert_eq!(frame.sun_direction(), [0.0, -1.0, 0.0]);
+        assert_eq!(route.biome_identifier.as_deref(), Some("minecraft:the_end"));
+        assert_eq!(
+            route.atmosphere_identifier.as_deref(),
+            Some("minecraft:end_atmospherics")
+        );
+        assert_eq!(
+            route.provisional_lighting_identifier.as_deref(),
+            Some("minecraft:end_lighting")
+        );
+    }
+
+    #[test]
+    fn known_camera_biome_takes_precedence_over_dimension_fallback() {
+        let context = EnvironmentContext {
+            dimension: 1,
+            camera_biome_identifier: Some("minecraft:plains".into()),
+            render_distance_blocks: Some(256.0),
+        };
+        let (frame, route) = derive_profiled_atmosphere_frame(
+            WorldClock::default(),
+            WeatherState::default(),
+            0.0,
+            meshing::CameraMedium::Air,
+            &context,
+            &profiles(),
+            &fog_profiles(),
+        );
+        assert_eq!(route.biome_identifier.as_deref(), Some("minecraft:plains"));
+        assert_eq!(frame.fog_end(), 256.0);
+    }
+
+    #[test]
+    fn pinned_shape_plains_air_falls_back_to_the_exact_default_fog_layer() {
+        let context = EnvironmentContext {
+            dimension: 0,
+            camera_biome_identifier: Some("minecraft:plains".into()),
+            render_distance_blocks: Some(256.0),
+        };
+        let (frame, _) = derive_profiled_atmosphere_frame(
+            WorldClock::default(),
+            WeatherState::default(),
+            0.0,
+            meshing::CameraMedium::Air,
+            &context,
+            &profiles(),
+            &fog_profiles(),
+        );
+        assert_eq!(frame.fog_start(), 235.52);
+        assert_eq!(frame.fog_end(), 256.0);
+    }
+
+    #[test]
+    fn biome_specific_medium_takes_precedence_over_the_default_fog_layer() {
+        let context = EnvironmentContext {
+            dimension: 0,
+            camera_biome_identifier: Some("minecraft:plains".into()),
+            render_distance_blocks: Some(256.0),
+        };
+        let mut fogs = fog_profiles();
+        let default_water = fogs
+            .iter_mut()
+            .find(|fog| fog.identifier.as_ref() == "minecraft:fog_default")
+            .unwrap()
+            .distances
+            .iter_mut()
+            .find(|distance| distance.medium == FogMedium::Water)
+            .unwrap();
+        default_water.end_bits = 48.0_f32.to_bits();
+
+        let (frame, _) = derive_profiled_atmosphere_frame(
+            WorldClock::default(),
+            WeatherState::default(),
+            0.0,
+            meshing::CameraMedium::Water,
+            &context,
+            &profiles(),
+            &fogs,
+        );
+        assert_eq!(frame.fog_end(), 60.0);
+    }
+
+    #[test]
+    fn active_rain_uses_the_exact_weather_fog_endpoint_from_the_default_layer() {
+        let mut clock = WorldClock::default();
+        let mut weather = WeatherState::default();
+        replace_session(
+            &mut clock,
+            &mut weather,
+            bootstrap(6_000, 0, true, 1.0, 0.0),
+            0.0,
+        );
+        let context = EnvironmentContext {
+            dimension: 0,
+            camera_biome_identifier: Some("minecraft:plains".into()),
+            render_distance_blocks: Some(256.0),
+        };
+        let (frame, _) = derive_profiled_atmosphere_frame(
+            clock,
+            weather,
+            0.0,
+            meshing::CameraMedium::Air,
+            &context,
+            &profiles(),
+            &fog_profiles(),
+        );
+        assert_eq!(frame.fog_start(), 58.88);
+        assert_eq!(frame.fog_end(), 179.2);
+    }
+
+    fn profiles() -> Vec<BiomeVisualProfile> {
+        vec![
+            BiomeVisualProfile {
+                biome_identifier: "minecraft:hell".into(),
+                fog_identifier: "minecraft:fog_hell".into(),
+                atmosphere_identifier: "minecraft:hell_atmospherics".into(),
+                lighting_identifier: "minecraft:nether_lighting".into(),
+                sky_rgb8: None,
+            },
+            BiomeVisualProfile {
+                biome_identifier: "minecraft:plains".into(),
+                fog_identifier: "minecraft:fog_plains".into(),
+                atmosphere_identifier: "minecraft:default_atmospherics".into(),
+                lighting_identifier: "minecraft:default_lighting".into(),
+                sky_rgb8: None,
+            },
+            BiomeVisualProfile {
+                biome_identifier: "minecraft:the_end".into(),
+                fog_identifier: "minecraft:fog_the_end".into(),
+                atmosphere_identifier: "minecraft:end_atmospherics".into(),
+                lighting_identifier: "minecraft:end_lighting".into(),
+                sky_rgb8: Some(0),
+            },
+        ]
+    }
+
+    fn fog_profiles() -> Vec<FogProfile> {
+        let mut profiles = vec![
+            FogProfile {
+                identifier: "minecraft:fog_default".into(),
+                distances: vec![
+                    fog_distance(
+                        FogMedium::Air,
+                        FogDistanceMode::RenderRelative,
+                        0.92,
+                        1.0,
+                        0xAB_D2_FF,
+                    ),
+                    fog_distance(
+                        FogMedium::Water,
+                        FogDistanceMode::Fixed,
+                        0.0,
+                        60.0,
+                        0x44_AF_F5,
+                    ),
+                    fog_distance(
+                        FogMedium::Weather,
+                        FogDistanceMode::RenderRelative,
+                        0.23,
+                        0.7,
+                        0x66_66_66,
+                    ),
+                    fog_distance(
+                        FogMedium::Lava,
+                        FogDistanceMode::Fixed,
+                        0.0,
+                        0.64,
+                        0x99_1A_00,
+                    ),
+                    fog_distance(
+                        FogMedium::LavaResistance,
+                        FogDistanceMode::Fixed,
+                        2.0,
+                        4.0,
+                        0x99_1A_00,
+                    ),
+                ]
+                .into_boxed_slice(),
+            },
+            fog_profile(
+                "minecraft:fog_hell",
+                FogDistanceMode::Fixed,
+                10.0,
+                96.0,
+                0x33_08_08,
+            ),
+            FogProfile {
+                identifier: "minecraft:fog_plains".into(),
+                distances: vec![fog_distance(
+                    FogMedium::Water,
+                    FogDistanceMode::Fixed,
+                    0.0,
+                    60.0,
+                    0x44_AF_F5,
+                )]
+                .into_boxed_slice(),
+            },
+            fog_profile(
+                "minecraft:fog_the_end",
+                FogDistanceMode::RenderRelative,
+                0.92,
+                1.0,
+                0x0B_08_0C,
+            ),
+        ];
+        profiles.sort_unstable_by(|left, right| left.identifier.cmp(&right.identifier));
+        profiles
+    }
+
+    fn fog_profile(
+        identifier: &str,
+        mode: FogDistanceMode,
+        start: f32,
+        end: f32,
+        rgb8: u32,
+    ) -> FogProfile {
+        FogProfile {
+            identifier: identifier.into(),
+            distances: vec![fog_distance(FogMedium::Air, mode, start, end, rgb8)]
+                .into_boxed_slice(),
+        }
+    }
+
+    fn fog_distance(
+        medium: FogMedium,
+        mode: FogDistanceMode,
+        start: f32,
+        end: f32,
+        rgb8: u32,
+    ) -> FogDistance {
+        FogDistance {
+            medium,
+            mode,
+            start_bits: start.to_bits(),
+            end_bits: end.to_bits(),
+            rgb8,
+        }
     }
 }

@@ -126,6 +126,8 @@ fn synthetic_atmosphere_blob(seed: u8) -> Box<[u8]> {
     encode_atmosphere_blob(&CompiledAtmosphereAssets {
         source_manifest_sha256: [0x77; 32],
         textures,
+        biome_profiles: Box::new([]),
+        fog_profiles: Box::new([]),
     })
     .unwrap()
 }
@@ -778,7 +780,7 @@ fn malformed_required_atmosphere_carrier_fails_closed_with_rebuild_command() {
     let path = directory.join("custom-world.mcbea");
     fs::write(&path, synthetic_blob()).unwrap();
     let atmosphere_path = atmosphere_asset_path(&path);
-    fs::write(&atmosphere_path, b"not MCBEATM1").unwrap();
+    fs::write(&atmosphere_path, b"not MCBEATM2").unwrap();
 
     let error = load_runtime_assets(select_asset_path(Some(&path), None)).unwrap_err();
     let message = error.to_string();
@@ -803,7 +805,7 @@ fn startup_hands_the_single_decoded_atmosphere_identity_to_the_renderer() {
             .matches("loaded_assets.atmosphere.into_parts()")
             .count(),
         1,
-        "the required MCBEATM1 runtime must move into render exactly once"
+        "the required MCBEATM2 runtime must move into render exactly once"
     );
 }
 

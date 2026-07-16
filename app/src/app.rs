@@ -30,7 +30,10 @@ use crate::{
     args,
     asset_startup::{LoadedAssetKind, load_runtime_assets, select_asset_path_from_environment},
     camera::{FlyCameraPlugin, FlyCameraUpdateSet},
-    environment::{self, WeatherState, WorldClock, update_atmosphere_frame},
+    environment::{
+        self, EnvironmentContext, EnvironmentProfileRoute, WeatherState, WorldClock,
+        update_atmosphere_frame,
+    },
     metrics::MetricsCollector,
     movement::MovementTicker,
     runtime::{
@@ -134,6 +137,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .insert_resource(WorldClock::default())
         .insert_resource(WeatherState::default())
         .insert_resource(environment::CameraMediumState::default())
+        .insert_resource(EnvironmentContext::default())
+        .insert_resource(EnvironmentProfileRoute::default())
         .insert_resource(MovementTicker::default())
         .insert_resource(ActorRenderScene::default())
         .insert_resource(AtmosphereFrame::default())

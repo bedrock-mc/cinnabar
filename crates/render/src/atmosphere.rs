@@ -1,6 +1,6 @@
 use std::{f32::consts::TAU, sync::Arc};
 
-use assets::RuntimeAtmosphereAssets;
+use assets::{ResolvedFog, RuntimeAtmosphereAssets};
 use bevy::{
     prelude::{Resource, Vec4},
     render::{extract_resource::ExtractResource, render_resource::ShaderType},
@@ -181,6 +181,38 @@ impl AtmosphereFrame {
         self
     }
 
+    /// Applies only exact client-profile values that survived bounded asset
+    /// compilation. Time, weather channels, celestial state, and cloud motion
+    /// remain unchanged.
+    #[must_use]
+    pub fn with_environment_profile(
+        mut self,
+        sky_rgb8: Option<u32>,
+        fog: Option<ResolvedFog>,
+    ) -> Self {
+        if let Some(rgb) = sky_rgb8.filter(|rgb| *rgb <= 0x00ff_ffff) {
+            let colour = rgb8_to_linear(rgb);
+            self.sky_zenith_rain.x = colour[0];
+            self.sky_zenith_rain.y = colour[1];
+            self.sky_zenith_rain.z = colour[2];
+            self.sky_horizon_thunder.x = colour[0];
+            self.sky_horizon_thunder.y = colour[1];
+            self.sky_horizon_thunder.z = colour[2];
+        }
+        if let Some(fog) = fog.filter(|fog| {
+            fog.start.is_finite()
+                && fog.end.is_finite()
+                && fog.start >= 0.0
+                && fog.end >= fog.start
+                && fog.rgb8 <= 0x00ff_ffff
+        }) {
+            let colour = rgb8_to_linear(fog.rgb8);
+            self.fog_color_start = Vec4::new(colour[0], colour[1], colour[2], fog.start);
+            self.fog_end_time.x = fog.end;
+        }
+        self
+    }
+
     #[must_use]
     pub fn sun_direction(self) -> [f32; 3] {
         [
@@ -203,6 +235,24 @@ impl AtmosphereFrame {
     #[must_use]
     pub fn rain_level(self) -> f32 {
         self.sky_zenith_rain.w
+    }
+
+    #[must_use]
+    pub fn sky_zenith(self) -> [f32; 3] {
+        [
+            self.sky_zenith_rain.x,
+            self.sky_zenith_rain.y,
+            self.sky_zenith_rain.z,
+        ]
+    }
+
+    #[must_use]
+    pub fn sky_horizon(self) -> [f32; 3] {
+        [
+            self.sky_horizon_thunder.x,
+            self.sky_horizon_thunder.y,
+            self.sky_horizon_thunder.z,
+        ]
     }
 
     #[must_use]
@@ -268,6 +318,17 @@ fn mix3(left: [f32; 3], right: [f32; 3], amount: f32) -> [f32; 3] {
         lerp(left[1], right[1], amount),
         lerp(left[2], right[2], amount),
     ]
+}
+
+fn rgb8_to_linear(rgb: u32) -> [f32; 3] {
+    [16, 8, 0].map(|shift| {
+        let value = ((rgb >> shift) & 0xff) as f32 / 255.0;
+        if value <= 0.040_45 {
+            value / 12.92
+        } else {
+            ((value + 0.055) / 1.055).powf(2.4)
+        }
+    })
 }
 
 #[cfg(test)]

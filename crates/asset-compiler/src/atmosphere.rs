@@ -1,5 +1,6 @@
 use std::{
     borrow::Cow,
+    collections::BTreeSet,
     fs::File,
     io::{Cursor, Read},
     path::Path,
@@ -9,7 +10,18 @@ use image::{ImageFormat, ImageReader, Limits};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-use assets::{AssetError, AtmosphereRole, AtmosphereTexture, CompiledAtmosphereAssets};
+use assets::{
+    AssetError, AtmosphereRole, AtmosphereTexture, BiomeVisualProfile, CompiledAtmosphereAssets,
+    FogDistance, FogDistanceMode, FogMedium, FogProfile, MAX_ENVIRONMENT_PROFILES,
+    MAX_FOG_DISTANCES,
+};
+
+mod environment_source;
+
+use environment_source::{
+    ClientBiomeDocument, FogSettingsDocument, parse_environment_rgb, read_environment_json,
+    sorted_environment_files, validate_environment_identifier,
+};
 
 const MAX_SOURCE_BYTES: usize = 1024 * 1024;
 const MAX_SOURCE_MANIFEST_BYTES: usize = 1024 * 1024;
@@ -105,9 +117,12 @@ pub fn compile_atmosphere_assets_with_options(
     validate_source_manifest(&manifest, source_manifest_sha256)?;
     let textures =
         compile_atmosphere_textures(root, options, NATIVE_CLOUD_VALIDATION, read_texture)?;
+    let (biome_profiles, fog_profiles) = compile_environment_profiles(root)?;
     Ok(CompiledAtmosphereAssets {
         source_manifest_sha256,
         textures,
+        biome_profiles,
+        fog_profiles,
     })
 }
 
@@ -621,5 +636,314 @@ mod cloud_override_tests {
         RgbaImage::from_pixel(width, height, Rgba([0x44, 0x55, 0x66, 0xff]))
             .save(path)
             .unwrap();
+    }
+}
+
+type CompiledEnvironmentProfiles = (Box<[BiomeVisualProfile]>, Box<[FogProfile]>);
+
+fn compile_environment_profiles(root: &Path) -> Result<CompiledEnvironmentProfiles, AssetError> {
+    let mut fogs = Vec::new();
+    let mut fog_identifiers = BTreeSet::new();
+    for source in sorted_environment_files(&root.join("fogs"), ".json")? {
+        let document: FogSettingsDocument = read_environment_json(&source)?;
+        let identifier = document.settings.description.identifier;
+        validate_environment_identifier(&identifier)?;
+        if !fog_identifiers.insert(identifier.clone()) {
+            return Err(invalid(format!("duplicate fog profile {identifier}")));
+        }
+        if document.settings.distance.is_empty()
+            || document.settings.distance.len() > MAX_FOG_DISTANCES
+        {
+            return Err(invalid(format!(
+                "fog profile {identifier} distance count is outside 1..={MAX_FOG_DISTANCES}"
+            )));
+        }
+        let mut distances = Vec::with_capacity(document.settings.distance.len());
+        for (medium, distance) in document.settings.distance {
+            let medium = FogMedium::from_source_name(&medium)
+                .ok_or_else(|| invalid(format!("unsupported fog medium {medium}")))?;
+            let mode = FogDistanceMode::from_source_name(&distance.render_distance_type)
+                .ok_or_else(|| {
+                    invalid(format!(
+                        "unsupported fog distance mode {}",
+                        distance.render_distance_type
+                    ))
+                })?;
+            if !distance.fog_start.is_finite()
+                || !distance.fog_end.is_finite()
+                || distance.fog_start < 0.0
+                || distance.fog_end < distance.fog_start
+            {
+                return Err(invalid(format!(
+                    "fog profile {identifier} has invalid {medium:?} distances"
+                )));
+            }
+            distances.push(FogDistance {
+                medium,
+                mode,
+                start_bits: distance.fog_start.to_bits(),
+                end_bits: distance.fog_end.to_bits(),
+                rgb8: parse_environment_rgb(&distance.fog_color)?,
+            });
+        }
+        distances.sort_unstable_by_key(|distance| distance.medium);
+        fogs.push(FogProfile {
+            identifier: identifier.into_boxed_str(),
+            distances: distances.into_boxed_slice(),
+        });
+    }
+    fogs.sort_unstable_by(|left, right| left.identifier.cmp(&right.identifier));
+
+    let mut biomes = Vec::new();
+    let mut biome_identifiers = BTreeSet::new();
+    for source in sorted_environment_files(&root.join("biomes"), ".client_biome.json")? {
+        let document: ClientBiomeDocument = read_environment_json(&source)?;
+        let biome = document.biome;
+        validate_environment_identifier(&biome.description.identifier)?;
+        validate_environment_identifier(&biome.components.fog.fog_identifier)?;
+        validate_environment_identifier(&biome.components.atmosphere.atmosphere_identifier)?;
+        validate_environment_identifier(&biome.components.lighting.lighting_identifier)?;
+        if !biome_identifiers.insert(biome.description.identifier.clone()) {
+            return Err(invalid(format!(
+                "duplicate biome visual profile {}",
+                biome.description.identifier
+            )));
+        }
+        if !fog_identifiers.contains(&biome.components.fog.fog_identifier) {
+            return Err(invalid(format!(
+                "biome {} references missing fog profile {}",
+                biome.description.identifier, biome.components.fog.fog_identifier
+            )));
+        }
+        biomes.push(BiomeVisualProfile {
+            biome_identifier: biome.description.identifier.into_boxed_str(),
+            fog_identifier: biome.components.fog.fog_identifier.into_boxed_str(),
+            atmosphere_identifier: biome
+                .components
+                .atmosphere
+                .atmosphere_identifier
+                .into_boxed_str(),
+            lighting_identifier: biome
+                .components
+                .lighting
+                .lighting_identifier
+                .into_boxed_str(),
+            sky_rgb8: biome
+                .components
+                .sky
+                .map(|sky| parse_environment_rgb(&sky.sky_color))
+                .transpose()?,
+        });
+    }
+    if biomes.is_empty() || biomes.len() > MAX_ENVIRONMENT_PROFILES {
+        return Err(invalid(format!(
+            "biome visual profile count is outside 1..={MAX_ENVIRONMENT_PROFILES}"
+        )));
+    }
+    if fogs.is_empty() || fogs.len() > MAX_ENVIRONMENT_PROFILES {
+        return Err(invalid(format!(
+            "fog profile count is outside 1..={MAX_ENVIRONMENT_PROFILES}"
+        )));
+    }
+    biomes.sort_unstable_by(|left, right| left.biome_identifier.cmp(&right.biome_identifier));
+    Ok((biomes.into_boxed_slice(), fogs.into_boxed_slice()))
+}
+
+#[cfg(test)]
+mod environment_profile_tests {
+    use std::fs;
+
+    use super::compile_environment_profiles;
+    use assets::{FogDistanceMode, FogMedium};
+
+    #[test]
+    fn pinned_shape_profiles_compile_exact_default_nether_and_end_metadata() {
+        let root = tempfile::tempdir().unwrap();
+        write_biome(
+            root.path(),
+            "plains",
+            "minecraft:plains",
+            "minecraft:fog_plains",
+            "minecraft:default_atmospherics",
+            "minecraft:default_lighting",
+            None,
+        );
+        write_biome(
+            root.path(),
+            "hell",
+            "minecraft:hell",
+            "minecraft:fog_hell",
+            "minecraft:hell_atmospherics",
+            "minecraft:nether_lighting",
+            None,
+        );
+        write_biome(
+            root.path(),
+            "the_end",
+            "minecraft:the_end",
+            "minecraft:fog_the_end",
+            "minecraft:end_atmospherics",
+            "minecraft:end_lighting",
+            Some("#000000"),
+        );
+        write_fog(
+            root.path(),
+            "default",
+            "minecraft:fog_plains",
+            0.92,
+            1.0,
+            "#ABD2FF",
+            "render",
+        );
+        write_fog(
+            root.path(),
+            "hell",
+            "minecraft:fog_hell",
+            10.0,
+            96.0,
+            "#330808",
+            "fixed",
+        );
+        write_fog(
+            root.path(),
+            "the_end",
+            "minecraft:fog_the_end",
+            0.92,
+            1.0,
+            "#0B080C",
+            "render",
+        );
+
+        let (biomes, fogs) = compile_environment_profiles(root.path()).unwrap();
+        assert_eq!(biomes.len(), 3);
+        let plains = biomes
+            .iter()
+            .find(|profile| profile.biome_identifier.as_ref() == "minecraft:plains")
+            .unwrap();
+        assert_eq!(plains.fog_identifier.as_ref(), "minecraft:fog_plains");
+        assert_eq!(
+            plains.atmosphere_identifier.as_ref(),
+            "minecraft:default_atmospherics"
+        );
+        assert_eq!(
+            plains.lighting_identifier.as_ref(),
+            "minecraft:default_lighting"
+        );
+        assert_eq!(plains.sky_rgb8, None);
+
+        let hell = biomes
+            .iter()
+            .find(|profile| profile.biome_identifier.as_ref() == "minecraft:hell")
+            .unwrap();
+        assert_eq!(hell.fog_identifier.as_ref(), "minecraft:fog_hell");
+        assert_eq!(
+            hell.atmosphere_identifier.as_ref(),
+            "minecraft:hell_atmospherics"
+        );
+        assert_eq!(
+            hell.lighting_identifier.as_ref(),
+            "minecraft:nether_lighting"
+        );
+
+        let end = biomes
+            .iter()
+            .find(|profile| profile.biome_identifier.as_ref() == "minecraft:the_end")
+            .unwrap();
+        assert_eq!(end.sky_rgb8, Some(0x00_0000));
+        assert_eq!(end.fog_identifier.as_ref(), "minecraft:fog_the_end");
+
+        let plains_fog = fogs
+            .iter()
+            .find(|profile| profile.identifier.as_ref() == "minecraft:fog_plains")
+            .unwrap()
+            .distance(FogMedium::Air)
+            .unwrap();
+        assert_eq!(plains_fog.mode, FogDistanceMode::RenderRelative);
+        assert_eq!((plains_fog.start(), plains_fog.end()), (0.92, 1.0));
+        assert_eq!(plains_fog.rgb8, 0xAB_D2_FF);
+
+        let hell_fog = fogs
+            .iter()
+            .find(|profile| profile.identifier.as_ref() == "minecraft:fog_hell")
+            .unwrap()
+            .distance(FogMedium::Air)
+            .unwrap();
+        assert_eq!(hell_fog.mode, FogDistanceMode::Fixed);
+        assert_eq!((hell_fog.start(), hell_fog.end()), (10.0, 96.0));
+        assert_eq!(hell_fog.rgb8, 0x33_08_08);
+
+        let end_fog = fogs
+            .iter()
+            .find(|profile| profile.identifier.as_ref() == "minecraft:fog_the_end")
+            .unwrap()
+            .distance(FogMedium::Air)
+            .unwrap();
+        assert_eq!(end_fog.rgb8, 0x0B_08_0C);
+    }
+
+    fn write_biome(
+        root: &std::path::Path,
+        file: &str,
+        biome: &str,
+        fog: &str,
+        atmosphere: &str,
+        lighting: &str,
+        sky: Option<&str>,
+    ) {
+        let directory = root.join("biomes");
+        fs::create_dir_all(&directory).unwrap();
+        let mut components = serde_json::json!({
+            "minecraft:fog_appearance": {"fog_identifier": fog},
+            "minecraft:atmosphere_identifier": {"atmosphere_identifier": atmosphere},
+            "minecraft:lighting_identifier": {"lighting_identifier": lighting},
+        });
+        if let Some(value) = sky {
+            components.as_object_mut().unwrap().insert(
+                "minecraft:sky_color".to_owned(),
+                serde_json::json!({"sky_color": value}),
+            );
+        }
+        fs::write(
+            directory.join(format!("{file}.client_biome.json")),
+            serde_json::to_vec(&serde_json::json!({
+                "minecraft:client_biome": {
+                    "description": {"identifier": biome},
+                    "components": components,
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    }
+
+    fn write_fog(
+        root: &std::path::Path,
+        file: &str,
+        identifier: &str,
+        start: f32,
+        end: f32,
+        rgb: &str,
+        mode: &str,
+    ) {
+        let directory = root.join("fogs");
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(
+            directory.join(format!("{file}_fog_setting.json")),
+            serde_json::to_vec(&serde_json::json!({
+                "minecraft:fog_settings": {
+                    "description": {"identifier": identifier},
+                    "distance": {
+                        "air": {
+                            "fog_start": start,
+                            "fog_end": end,
+                            "fog_color": rgb,
+                            "render_distance_type": mode,
+                        }
+                    }
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
     }
 }

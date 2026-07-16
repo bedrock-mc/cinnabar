@@ -350,6 +350,22 @@ fn camera_medium_sampling_is_ordered_after_fly_camera_transform_updates() {
     assert!(main_source.contains(".after(FlyCameraUpdateSet)"));
 }
 
+#[test]
+fn camera_environment_context_is_sampled_before_profiled_atmosphere_derivation() {
+    let main_source = include_str!("../app.rs");
+    let environment_source = include_str!("../environment.rs");
+    let world_source = include_str!("../runtime/world.rs");
+    assert!(main_source.contains("insert_resource(EnvironmentContext::default())"));
+    assert!(main_source.contains("insert_resource(EnvironmentProfileRoute::default())"));
+    let sample = main_source.rfind("update_camera_medium,").unwrap();
+    let derive = main_source.rfind("update_atmosphere_frame,").unwrap();
+    assert!(sample < derive);
+    assert!(world_source.contains(".camera_biome_id(camera.translation.to_array())"));
+    assert!(world_source.contains(".render_distance_blocks()"));
+    assert!(environment_source.contains("assets.biome_profiles()"));
+    assert!(environment_source.contains("assets.fog_profiles()"));
+}
+
 pub(super) fn overworld_biome_payload() -> Vec<u8> {
     let mut payload = vec![1, 2];
     payload.extend(std::iter::repeat_n(0xff, 23));
