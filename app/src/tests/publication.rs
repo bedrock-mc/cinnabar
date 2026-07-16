@@ -134,9 +134,13 @@ fn application_wires_controller_before_world_handoff_and_render_apply() {
     let source = include_str!("../app.rs");
 
     assert!(source.contains("insert_resource(PublicationController::default())"));
-    assert!(
-        source.contains("begin_publication_frame\n                .before(ChunkRenderApplySet)")
-    );
+    let publication_frame = source[source
+        .rfind("begin_publication_frame")
+        .expect("publication frame system is registered")..]
+        .split_once(".add_systems(")
+        .expect("publication frame registration is bounded")
+        .0;
+    assert!(publication_frame.contains(".before(ChunkRenderApplySet)"));
     assert!(source.contains("drive_world_stream.before(ChunkRenderApplySet)"));
 }
 
