@@ -4,8 +4,6 @@
 mod args;
 #[path = "../src/asset_startup.rs"]
 mod asset_startup;
-#[path = "../src/block_entity_visuals.rs"]
-mod block_entity_visuals;
 #[path = "../src/metrics.rs"]
 mod metrics;
 
@@ -31,9 +29,7 @@ use asset_startup::{
     atmosphere_shader_source_sha256, cloud_shader_source_sha256, load_runtime_assets,
     select_asset_path,
 };
-use block_entity_visuals::{
-    BackingBlockIdentity, BlockEntityVisualRoute, adjudicate_block_entity_visual,
-};
+use client_world::{BackingBlockIdentity, BlockEntityVisualRoute, adjudicate_block_entity_visual};
 use metrics::{DiagnosticQuadTracker, MetricsCollector};
 use sha2::{Digest, Sha256};
 

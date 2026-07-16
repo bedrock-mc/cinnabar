@@ -6,7 +6,7 @@ use meshing::CameraMedium;
 use protocol::{WeatherChannel, WorldEnvironmentBootstrap};
 use render::AtmosphereFrame;
 
-use crate::world_stream::CommittedControlEvent;
+use client_world::CommittedControlEvent;
 
 #[derive(Resource, Default)]
 pub(crate) struct CameraMediumState(pub(crate) CameraMedium);
@@ -247,7 +247,7 @@ mod tests {
         WeatherState, WorldClock, apply_environment_control, derive_atmosphere_frame,
         derive_atmosphere_frame_for_medium, replace_session, visual_world_time,
     };
-    use crate::world_stream::CommittedControlEvent;
+    use client_world::CommittedControlEvent;
 
     fn bootstrap(
         initial_time: i64,
@@ -392,7 +392,7 @@ mod tests {
                     dimension: 1,
                     position: [0.0, 64.0, 0.0],
                 },
-                resolved: crate::server_position::ResolvedServerPosition {
+                resolved: client_world::ResolvedServerPosition {
                     position: [0.0, 64.0, 0.0],
                     surface_anchor: None,
                 },

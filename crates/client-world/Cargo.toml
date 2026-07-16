@@ -1,0 +1,16 @@
+[package]
+name = "client-world"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+assets = { path = "../assets" }
+crossbeam-channel = "0.5"
+meshing = { path = "../meshing" }
+protocol = { path = "../protocol" }
+rayon.workspace = true
+sha2 = "0.10"
+thiserror.workspace = true
+world = { path = "../world" }

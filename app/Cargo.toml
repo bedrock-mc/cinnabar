@@ -19,6 +19,7 @@ bevy = { workspace = true, default-features = false, features = [
     "std",
 ] }
 crossbeam-channel = "0.5"
+client-world = { path = "../crates/client-world" }
 meshing = { path = "../crates/meshing" }
 protocol = { path = "../crates/protocol" }
 rayon.workspace = true

@@ -1,17 +1,12 @@
-mod actor_store;
 mod args;
 mod asset_startup;
-mod block_entity_visuals;
 mod camera;
-mod culling;
 mod environment;
 mod metrics;
 mod model_witness;
 mod movement;
 mod network;
-mod server_position;
 mod transparent_witness;
-mod world_stream;
 
 use std::{
     collections::{BTreeSet, HashSet, VecDeque},
@@ -25,7 +20,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use actor_store::{ActorSnapshot, PlayerProfile};
 use anyhow::{Context, Result, bail};
 use asset_startup::{LoadedAssetKind, load_runtime_assets, select_asset_path_from_environment};
 use assets::{DIAGNOSTIC_MATERIAL, RuntimeAssets};
@@ -41,6 +35,11 @@ use bevy::{
     winit::{UpdateMode, WinitSettings},
 };
 use camera::{FlyCamera, FlyCameraPlugin, FlyCameraUpdateSet, input_is_active, movement_axes};
+use client_world::SAFE_SERVER_HEIGHT;
+use client_world::{ActorSnapshot, PlayerProfile};
+use client_world::{
+    CommittedControlEvent, ViewCohort, ViewCohortStatus, WorldMeshChange, WorldStream,
+};
 use environment::{
     WeatherState, WorldClock, apply_environment_control, replace_session, update_atmosphere_frame,
 };
@@ -66,13 +65,9 @@ use render::{
     TransparentSortMetrics, TransparentWitnessEvidence, VisibilityDiagnostics,
     VisibilityDiagnosticsInput, VisibilityKeyDelta, VisibilityKeyDigest,
 };
-use server_position::SAFE_SERVER_HEIGHT;
 use sha2::{Digest, Sha256};
 use transparent_witness::{TransparentWitnessFileSource, poll_transparent_witness_request};
 use world::SubChunkKey;
-use world_stream::{
-    CommittedControlEvent, ViewCohort, ViewCohortStatus, WorldMeshChange, WorldStream,
-};
 
 const MESH_JOB_BUDGET_PER_FRAME: usize = 128;
 const GPU_UPLOAD_BUDGET_PER_FRAME: usize = 128;
@@ -95,7 +90,7 @@ const LEAF_FOREST_FAR_OFFSET_BLOCKS: i32 = LEAF_FOREST_FAR_OFFSET_CHUNKS * 16;
 const LEAF_FOREST_MUTATION_Z_OFFSET_BLOCKS: i32 = 12;
 const FULL_VIEW_TELEPORT_MIN_CHUNK_DELTA: u64 = (PHASE0_REQUESTED_RADIUS_CHUNKS as u64) * 2 + 1;
 const _: () = assert!(network::WORLD_EVENT_CAPACITY >= NETWORK_INGRESS_BUDGET_PER_FRAME);
-const _: () = assert!(NETWORK_INGRESS_BUDGET_PER_FRAME == world_stream::MAX_ADMITTED_HEAVY_EVENTS);
+const _: () = assert!(NETWORK_INGRESS_BUDGET_PER_FRAME == client_world::MAX_ADMITTED_HEAVY_EVENTS);
 
 #[derive(Resource)]
 struct ClientWorld {
@@ -1051,7 +1046,7 @@ struct FullViewRemeshPresentedCandidate {
 
 #[derive(Debug, Clone)]
 struct PendingFullViewRemesh {
-    manifest: world_stream::ForcedRemeshManifest,
+    manifest: client_world::ForcedRemeshManifest,
     cohort: ViewCohortStatus,
     source_cohort: Option<RenderViewCohort>,
     binding_manifest: Arc<[(SubChunkKey, u64)]>,
@@ -1087,7 +1082,7 @@ impl FullViewRemeshTracker {
         &mut self,
         binding: Option<&FullViewTeleportCompletion>,
         cohort: ViewCohortStatus,
-        manifest: world_stream::ForcedRemeshManifest,
+        manifest: client_world::ForcedRemeshManifest,
         frame_count: u64,
     ) -> bool {
         let Some(binding) = binding else {
@@ -1131,12 +1126,12 @@ impl FullViewRemeshTracker {
     fn reconcile_presented_expectation(
         &mut self,
         snapshot: TeleportReadySnapshot,
-        manifest_state: world_stream::ForcedRemeshManifestState,
+        manifest_state: client_world::ForcedRemeshManifestState,
         proposed: Option<TargetRenderExpectation>,
         now: Instant,
         _frame_count: u64,
     ) -> Option<TargetRenderExpectation> {
-        if manifest_state == world_stream::ForcedRemeshManifestState::Invalid {
+        if manifest_state == client_world::ForcedRemeshManifestState::Invalid {
             self.invalidate();
             return None;
         }
@@ -1148,7 +1143,7 @@ impl FullViewRemeshTracker {
             self.invalidate();
             return None;
         }
-        if manifest_state == world_stream::ForcedRemeshManifestState::Pending
+        if manifest_state == client_world::ForcedRemeshManifestState::Pending
             || !snapshot.is_ready()
         {
             self.pending
@@ -2477,7 +2472,7 @@ fn update_camera_medium(
         });
 }
 
-fn world_stream_fatal_message(error: world_stream::WorldStreamFatalError) -> String {
+fn world_stream_fatal_message(error: client_world::WorldStreamFatalError) -> String {
     format!("world stream fatal: {error}")
 }
 
@@ -3159,7 +3154,7 @@ fn emit_world_ready(
                     pending.source_cohort,
                 )
             });
-            let proposed = if manifest_state == world_stream::ForcedRemeshManifestState::Complete {
+            let proposed = if manifest_state == client_world::ForcedRemeshManifestState::Complete {
                 proposal_target.map(|(target, source)| {
                     render_queue.freeze_target_expectation(target, source, 0, observed_at)
                 })
@@ -3329,7 +3324,7 @@ fn flush_sub_chunk_requests(
         let Some(request) = stream.pop_next_request() else {
             break;
         };
-        let world_stream::PendingSubChunkRequest {
+        let client_world::PendingSubChunkRequest {
             packet,
             dimension,
             chunk,
@@ -3351,7 +3346,7 @@ fn flush_sub_chunk_requests(
             }
             Err(error) => {
                 let closed = error.is_closed();
-                let retry = world_stream::PendingSubChunkRequest {
+                let retry = client_world::PendingSubChunkRequest {
                     packet: error.into_packet(),
                     dimension,
                     chunk,
@@ -3964,7 +3959,7 @@ fn acceptance_runtime_metadata_marker(
 }
 
 fn world_publication_snapshot_marker(
-    stats: world_stream::WorldStreamStats,
+    stats: client_world::WorldStreamStats,
     upload_queue_items: usize,
     upload_queue_bytes: u64,
     gpu_upload_bytes: u64,
@@ -4060,10 +4055,6 @@ mod tests {
 
     use crate::metrics::TransparentSortMetricsSnapshot;
     use crate::network::{NetworkControlEvent, SequencedWorldEvent};
-    use crate::world_stream::{
-        CommittedControlEvent, ForcedRemeshManifest, ForcedRemeshManifestState, ViewCohort,
-        ViewCohortStatus, WorldStream, WorldStreamFatalError, WorldStreamStats,
-    };
     use crate::{
         AcceptanceExitDecision, AcceptanceRun, AcceptanceRuntimeConfig, CaveVisibilityCache,
         FullViewRemeshTracker, FullViewTeleportCompletion, FullViewTeleportTracker,
@@ -4085,6 +4076,10 @@ mod tests {
         world_ready_markers, world_stream_fatal_message,
         write_move_player_ingress_before_source_capture, write_stdout_marker,
     };
+    use client_world::{
+        CommittedControlEvent, ForcedRemeshManifest, ForcedRemeshManifestState, ViewCohort,
+        ViewCohortStatus, WorldMeshChange, WorldStream, WorldStreamFatalError, WorldStreamStats,
+    };
 
     #[test]
     fn actor_render_source_uses_only_remote_actor_pose_and_roster_skin() {
@@ -4093,7 +4088,7 @@ mod tests {
             height: 64,
             rgba8: vec![23; 64 * 64 * 4].into(),
         });
-        let actor = crate::actor_store::ActorSnapshot {
+        let actor = client_world::ActorSnapshot {
             unique_id: 9,
             runtime_id: 77,
             spawn_revision: 19,
@@ -4115,7 +4110,7 @@ mod tests {
             int_properties: Default::default(),
             float_properties: Default::default(),
         };
-        let profile = crate::actor_store::PlayerProfile {
+        let profile = client_world::PlayerProfile {
             unique_id: 9,
             username: "remote".into(),
             verified: true,
@@ -4417,6 +4412,93 @@ mod tests {
             std::thread::yield_now();
         }
         panic!("world stream decode did not complete");
+    }
+
+    #[test]
+    fn client_world_publication_contract_crosses_the_app_boundary() {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        stream
+            .submit(
+                1,
+                WorldEvent::LevelChunk(LevelChunkEvent {
+                    dimension: 0,
+                    x: 0,
+                    z: 0,
+                    mode: LevelChunkMode::LimitedRequests { highest: 1 },
+                    payload: overworld_biome_payload(),
+                }),
+            )
+            .unwrap();
+        complete_world_stream_decodes(&mut stream);
+
+        let request = stream.pop_next_request().expect("sub-chunk request");
+        stream.record_sub_chunk_request_transport_pending(
+            request.chunk,
+            request.base_sub_chunk_y,
+            request.count,
+        );
+        stream.acknowledge_sub_chunk_request_sent(
+            request.chunk,
+            request.base_sub_chunk_y,
+            request.count,
+            Instant::now(),
+        );
+        let key = SubChunkKey::from_chunk(request.chunk, request.base_sub_chunk_y);
+        stream
+            .submit(
+                2,
+                WorldEvent::SubChunks(SubChunkBatchEvent {
+                    dimension: 0,
+                    entries: vec![SubChunkEntryEvent {
+                        position: [key.x, key.y, key.z],
+                        result: SubChunkResult::AllAir,
+                    }],
+                }),
+            )
+            .unwrap();
+        complete_world_stream_decodes(&mut stream);
+
+        let acknowledgement = (0..128)
+            .find_map(|_| {
+                stream.poll([0.0; 3], 1);
+                let mut target = None;
+                while let Some(change) = stream.pop_mesh_change() {
+                    let (changed, generation, dirty_since) = match change {
+                        WorldMeshChange::Upsert {
+                            key,
+                            generation,
+                            dirty_since,
+                            ..
+                        }
+                        | WorldMeshChange::Remove {
+                            key,
+                            generation,
+                            dirty_since,
+                        } => (key, generation, dirty_since),
+                    };
+                    stream.acknowledge_mesh_upload(
+                        changed,
+                        generation,
+                        dirty_since,
+                        Instant::now(),
+                    );
+                    if changed == key {
+                        target = Some((generation, dirty_since));
+                    }
+                }
+                std::thread::yield_now();
+                target
+            })
+            .expect("public mesh publication");
+        assert_ne!(acknowledgement.0, 0);
+        assert!(stream.is_mesh_clean(key));
     }
 
     #[test]
@@ -5298,7 +5380,7 @@ mod tests {
             &CommittedControlEvent::PlayerMovementCorrection {
                 sequence: 1,
                 correction,
-                resolved: crate::server_position::ResolvedServerPosition {
+                resolved: client_world::ResolvedServerPosition {
                     position: correction.position,
                     surface_anchor: None,
                 },
@@ -6927,7 +7009,7 @@ mod tests {
 
     #[test]
     fn full_outbound_queue_retries_the_same_request_then_preserves_fifo_order() {
-        let mut stream = crate::world_stream::WorldStream::new(WorldBootstrap {
+        let mut stream = client_world::WorldStream::new(WorldBootstrap {
             dimension: 0,
             local_player_runtime_id: 1,
             player_position: [0.0; 3],
@@ -6995,7 +7077,7 @@ mod tests {
     #[test]
     fn command_admission_leaves_deadline_unarmed_until_transport_success_acknowledgement() {
         let request_stream = || {
-            let mut stream = crate::world_stream::WorldStream::new(WorldBootstrap {
+            let mut stream = client_world::WorldStream::new(WorldBootstrap {
                 dimension: 0,
                 local_player_runtime_id: 1,
                 player_position: [0.0; 3],
@@ -7045,7 +7127,7 @@ mod tests {
 
     #[test]
     fn network_session_fatal_is_retained_when_command_sender_closes_in_same_frame() {
-        let mut stream = crate::world_stream::WorldStream::new(WorldBootstrap {
+        let mut stream = client_world::WorldStream::new(WorldBootstrap {
             dimension: 0,
             local_player_runtime_id: 1,
             player_position: [0.0; 3],
@@ -7252,7 +7334,7 @@ mod tests {
             CommittedControlEvent::PlayerMovementCorrection {
                 sequence: 7,
                 correction,
-                resolved: crate::server_position::ResolvedServerPosition {
+                resolved: client_world::ResolvedServerPosition {
                     position: correction.position,
                     surface_anchor: None,
                 },
@@ -7280,7 +7362,7 @@ mod tests {
         let control = CommittedControlEvent::MovePlayer {
             sequence: 19,
             movement,
-            resolved: crate::server_position::ResolvedServerPosition {
+            resolved: client_world::ResolvedServerPosition {
                 position: movement.position,
                 surface_anchor: None,
             },
@@ -7308,7 +7390,7 @@ mod tests {
                 &CommittedControlEvent::PlayerMovementCorrection {
                     sequence: 20,
                     correction,
-                    resolved: crate::server_position::ResolvedServerPosition {
+                    resolved: client_world::ResolvedServerPosition {
                         position: correction.position,
                         surface_anchor: None,
                     },
