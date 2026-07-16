@@ -1,6 +1,23 @@
 use super::*;
 
 #[test]
+fn windows_defaults_to_dx12_without_overriding_an_explicit_wgpu_backend() {
+    use std::ffi::OsStr;
+
+    assert_eq!(
+        crate::app::preferred_render_backends(Some(OsStr::new("vulkan"))),
+        None
+    );
+    #[cfg(target_os = "windows")]
+    assert_eq!(
+        crate::app::preferred_render_backends(None),
+        Some(bevy::render::settings::Backends::DX12)
+    );
+    #[cfg(not(target_os = "windows"))]
+    assert_eq!(crate::app::preferred_render_backends(None), None);
+}
+
+#[test]
 fn remote_actor_clock_is_twenty_hertz_and_exposes_frame_fraction() {
     let mut clock = ActorFrameClock::default();
 

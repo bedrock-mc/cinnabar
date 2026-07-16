@@ -20,7 +20,7 @@ use bedrock_client::asset_startup::{
     ATMOSPHERE_COMPILE_COMMAND, ATMOSPHERE_FILENAME, AssetPathSource, COMPILE_COMMAND,
     DEFAULT_ASSET_PATH, FETCH_COMMAND, LoadedAssetKind, atmosphere_asset_path,
     atmosphere_shader_source_sha256, cloud_shader_source_sha256, load_runtime_assets,
-    select_asset_path,
+    select_asset_path, select_asset_path_in_context,
 };
 use bedrock_client::metrics::{DiagnosticQuadTracker, MetricsCollector};
 use client_world::{BackingBlockIdentity, BlockEntityVisualRoute, adjudicate_block_entity_visual};
@@ -494,6 +494,22 @@ fn assets_flag_parses_and_cli_beats_environment_then_default() {
     let default = select_asset_path(None, Some(OsString::new()));
     assert_eq!(default.path, PathBuf::from(DEFAULT_ASSET_PATH));
     assert_eq!(default.source, AssetPathSource::Default);
+}
+
+#[test]
+fn default_asset_path_falls_back_to_the_executable_project_root() {
+    let directory = temporary_directory("executable-root-assets");
+    let current_directory = directory.join("unrelated-launch-directory");
+    let project_root = directory.join("project");
+    let executable = project_root.join("target/debug/bedrock-client.exe");
+    let expected = project_root.join(DEFAULT_ASSET_PATH);
+    fs::create_dir_all(expected.parent().unwrap()).unwrap();
+    fs::write(&expected, b"compiled asset placeholder").unwrap();
+
+    let selected = select_asset_path_in_context(None, None, &current_directory, &executable);
+
+    assert_eq!(selected.source, AssetPathSource::Default);
+    assert_eq!(selected.path, expected);
 }
 
 #[test]

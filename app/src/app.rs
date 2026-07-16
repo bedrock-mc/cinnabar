@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{ffi::OsStr, sync::Arc};
 
 use anyhow::{Context, Result, bail};
 use bevy::{
@@ -8,7 +8,11 @@ use bevy::{
         App, ClearColor, Color, DefaultPlugins, IntoScheduleConfigs, Last, PluginGroup, Update,
         Window, default,
     },
-    render::diagnostic::RenderDiagnosticsPlugin,
+    render::{
+        RenderPlugin,
+        diagnostic::RenderDiagnosticsPlugin,
+        settings::{Backends, RenderCreation, WgpuSettings},
+    },
     window::WindowPlugin,
 };
 use render::{
@@ -63,6 +67,31 @@ use crate::{
 
 use crate::acceptance::model_witness::drive_model_witness;
 
+pub(crate) fn preferred_render_backends(explicit: Option<&OsStr>) -> Option<Backends> {
+    if explicit.is_some() {
+        return None;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Some(Backends::DX12)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
+    }
+}
+
+fn render_plugin() -> RenderPlugin {
+    let mut settings = WgpuSettings::default();
+    if let Some(backends) = preferred_render_backends(std::env::var_os("WGPU_BACKEND").as_deref()) {
+        settings.backends = Some(backends);
+    }
+    RenderPlugin {
+        render_creation: RenderCreation::Automatic(settings),
+        ..default()
+    }
+}
+
 pub fn run(args: args::ClientArgs) -> Result<()> {
     let socket_dir = resolve_socket_dir(&args.socket_dir);
     preflight_bridge_endpoint(&socket_dir)?;
@@ -114,6 +143,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
                 }),
                 ..default()
             })
+            .set(render_plugin())
             // Cinnabar uses FXAA without Bevy's TAA/SMAA/CAS bundle. The TAA
             // graph requires post-process nodes that are intentionally absent
             // from this compact custom renderer.
