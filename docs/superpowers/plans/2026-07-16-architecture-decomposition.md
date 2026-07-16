@@ -118,7 +118,7 @@ git commit -m "docs: plan architecture decomposition"
 - Consumes: the existing parameter block, `RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY`, and all current function names.
 - Produces: `Get-AcceptanceCompositeSource -EntryPath [string]` returning entry plus libraries in canonical load order; `Invoke-CinnabarAcceptance` containing the former top-level runtime flow.
 
-- [ ] **Step 1: Add a failing composite-source contract test**
+- [x] **Step 1: Add a failing composite-source contract test**
 
 Add a test case to `scripts/tests/acceptance.Tests.ps1` that calls:
 
@@ -132,7 +132,7 @@ Run: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/tests/acce
 
 Expected before implementation: failure because `Get-AcceptanceCompositeSource` is undefined.
 
-- [ ] **Step 2: Implement the deterministic loader seam**
+- [x] **Step 2: Implement the deterministic loader seam**
 
 `scripts/acceptance/Load.ps1` defines:
 
@@ -157,15 +157,15 @@ function Get-AcceptanceCompositeSource {
 }
 ```
 
-- [ ] **Step 3: Move functions by owner and keep fixed load order**
+- [x] **Step 3: Move functions by owner and keep fixed load order**
 
 Use `git mv`/mechanical extraction so function bodies remain byte-for-byte except for indentation required by `Invoke-CinnabarAcceptance`. `acceptance.ps1` dot-sources `Load.ps1`, then every path returned by `Get-AcceptanceLibraryPaths`, returns for library-only mode, and invokes `Invoke-CinnabarAcceptance` otherwise.
 
-- [ ] **Step 4: Split the custom PowerShell test script**
+- [x] **Step 4: Split the custom PowerShell test script**
 
 Keep `scripts/tests/acceptance.Tests.ps1` as a loader that dot-sources `Assertions.ps1`, fixtures, and each `*.Tests.ps1` in fixed order. Preserve the existing direct-script exit behavior and exact assertions.
 
-- [ ] **Step 5: Verify and commit the PowerShell split**
+- [x] **Step 5: Verify and commit the PowerShell split**
 
 Run:
 
