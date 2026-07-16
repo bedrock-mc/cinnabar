@@ -23,7 +23,7 @@ use crate::{
         ANIMATION_BYTES, BIOME_RULE_BYTES, FRAME_BYTES, HASH_BYTES, HASH_ENTRY_BYTES, HEADER_BYTES,
         MATERIAL_BYTES, MAX_VISUALS, PAGE_BYTES, QUAD_BYTES, TEMPLATE_BYTES, VISUAL_BYTES,
     },
-    compiler::{material_flags_are_valid, visual_semantics_are_valid},
+    compiled::{material_flags_are_valid, visual_semantics_are_valid},
     model::model_quad_flags_are_valid,
 };
 

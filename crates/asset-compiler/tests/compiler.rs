@@ -6,21 +6,22 @@ use std::{
     process::Command,
 };
 
+use asset_compiler::{
+    BlockFace, compile_pack as compile_pack_with_lights, read_pack, resolve_texture_key,
+};
 use assets::{
-    AssetError, BlockFace, BlockFlags, CollisionBox, CollisionConfidence, CollisionSeed,
-    CompiledAssets, ContributorRole, DIAGNOSTIC_MATERIAL, LightProperties,
-    MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_BIRCH_FOLIAGE,
-    MATERIAL_FLAG_EVERGREEN_FOLIAGE, MATERIAL_FLAG_FOLIAGE_CLASS_MASK, MATERIAL_FLAG_FOLIAGE_TINT,
-    MATERIAL_FLAG_GRASS_TINT, MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_OVERLAY_MASK,
-    MATERIAL_FLAG_ROTATE_UV, MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_UV_MASK,
-    MATERIAL_FLAG_WATER_TINT, MATERIAL_FLAGS_MASK, MAX_TEXTURE_LAYERS,
-    MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_QUAD_FLAG_FACE_MASK, MODEL_QUAD_FLAG_TWO_SIDED,
-    MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_KELP,
-    MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
-    Material, ModelFamily, ModelQuad, ModelState, ModelStateField, NetworkIdMode,
-    RegistryProvenance, RegistryRecord, RuntimeAssets, VisualKind,
-    compile_pack as compile_pack_with_lights, encode_blob, read_pack, read_registry,
-    resolve_texture_key,
+    AssetError, BlockFlags, CollisionBox, CollisionConfidence, CollisionSeed, CompiledAssets,
+    ContributorRole, DIAGNOSTIC_MATERIAL, LightProperties, MATERIAL_FLAG_ALPHA_BLEND,
+    MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_BIRCH_FOLIAGE, MATERIAL_FLAG_EVERGREEN_FOLIAGE,
+    MATERIAL_FLAG_FOLIAGE_CLASS_MASK, MATERIAL_FLAG_FOLIAGE_TINT, MATERIAL_FLAG_GRASS_TINT,
+    MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_OVERLAY_MASK, MATERIAL_FLAG_ROTATE_UV,
+    MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_UV_MASK, MATERIAL_FLAG_WATER_TINT, MATERIAL_FLAGS_MASK,
+    MAX_TEXTURE_LAYERS, MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_QUAD_FLAG_FACE_MASK,
+    MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD,
+    MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR,
+    MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, Material, ModelFamily, ModelQuad, ModelState,
+    ModelStateField, NetworkIdMode, RegistryProvenance, RegistryRecord, RuntimeAssets, VisualKind,
+    encode_blob, read_registry,
 };
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 use sha2::{Digest, Sha256};
@@ -93,7 +94,7 @@ const COPPER_GRATE_ALIAS_PAIRS: [(&str, &str); 4] = [
 ];
 
 fn generated_huge_mushroom_records() -> Vec<RegistryRecord> {
-    let mut records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let mut records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry")
         .into_iter()
         .filter(|record| HUGE_MUSHROOM_NAMES.contains(&record.name.as_ref()))
@@ -103,7 +104,7 @@ fn generated_huge_mushroom_records() -> Vec<RegistryRecord> {
 }
 
 fn generated_stained_glass_cube_records() -> Vec<RegistryRecord> {
-    read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry")
         .into_iter()
         .filter(|record| {
@@ -115,7 +116,7 @@ fn generated_stained_glass_cube_records() -> Vec<RegistryRecord> {
 }
 
 fn generated_copper_grate_records() -> Vec<RegistryRecord> {
-    read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry")
         .into_iter()
         .filter(|record| {
@@ -135,7 +136,7 @@ fn compiled_checked_in_air_preserves_both_runtime_network_identities() {
         r#"{"texture_data":{}}"#,
         "[]",
     );
-    let records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry")
         .into_iter()
         .filter(|record| record.name.as_ref() == "minecraft:air")
@@ -179,7 +180,7 @@ fn generated_registry_has_exact_copper_grate_inventory() {
 
 #[test]
 fn generated_registry_has_exact_chiseled_bookshelf_inventory() {
-    let records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry");
     let selected = records
         .iter()
@@ -214,7 +215,7 @@ fn generated_registry_has_exact_chiseled_bookshelf_inventory() {
 }
 
 fn bee_housing_records() -> Vec<RegistryRecord> {
-    let mut records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let mut records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry")
         .into_iter()
         .filter(|record| {
@@ -287,7 +288,7 @@ fn generated_registry_has_exact_bee_housing_inventory() {
 
 #[test]
 fn generated_registry_has_exact_resin_clump_inventory() {
-    let records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry");
     let selected = records
         .iter()
@@ -324,7 +325,7 @@ fn generated_registry_has_exact_resin_clump_inventory() {
 
 #[test]
 fn generated_registry_has_exact_cactus_inventory() {
-    let records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry");
     let selected = records
         .iter()
@@ -375,7 +376,7 @@ fn generated_registry_has_exact_cactus_inventory() {
 
 #[test]
 fn generated_registry_has_exact_cake_inventory() {
-    let records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry");
     let selected = records
         .iter()
@@ -429,7 +430,7 @@ fn generated_registry_has_exact_cake_inventory() {
 
 #[test]
 fn generated_registry_has_exact_farmland_inventory() {
-    let records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry");
     let selected = records
         .iter()
@@ -500,7 +501,7 @@ const SELECTOR_ALIAS_CUBE_NAMES: [&str; 7] = [
 ];
 
 fn selector_alias_cube_records() -> Vec<RegistryRecord> {
-    read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry")
         .into_iter()
         .filter(|record| SELECTOR_ALIAS_CUBE_NAMES.contains(&record.name.as_ref()))
@@ -944,7 +945,7 @@ fn flowerbed_generated_registry_has_exact_canonical_state_matrix() {
         assert!(output.status.success(), "git show failed: {output:?}");
         output.stdout
     } else {
-        include_bytes!("../data/block-registry-v1001.bin").to_vec()
+        include_bytes!("../../assets/data/block-registry-v1001.bin").to_vec()
     };
     let records = read_registry(&bytes).expect("decode committed generated registry");
 
@@ -1494,7 +1495,7 @@ fn encoded_model_record(
 const MODEL_FLAG_UPPER: u32 = 1 << 7;
 
 fn generated_family_records(name: &str, family: ModelFamily) -> Vec<RegistryRecord> {
-    let mut records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let mut records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry")
         .into_iter()
         .filter(|record| record.name.as_ref() == name && record.model_family == family)
@@ -1522,7 +1523,7 @@ const MODEL_FLAG_ATTACHED: u32 = 1 << 2;
 const MODEL_FLAG_HANGING: u32 = 1 << 3;
 
 fn generated_sign_records() -> Vec<RegistryRecord> {
-    let mut records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let mut records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry")
         .into_iter()
         .filter(|record| record.model_family == ModelFamily::Sign)
@@ -1881,7 +1882,7 @@ fn compiler_real_pinned_pack_has_zero_diagnostic_sign_states_when_requested() {
     let Some(pack) = std::env::var_os("PINNED_VANILLA_PACK") else {
         return;
     };
-    let records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry");
     let pack_sources = read_pack(Path::new(&pack)).expect("read requested pinned pack");
     let compiled = compile_pack(Path::new(&pack), &records).expect("compile requested pinned pack");
@@ -2443,7 +2444,7 @@ fn compiler_selects_the_exact_legacy_door_terrain_variant_for_each_material_fami
             );
         }
     }
-    let all = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let all = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed registry");
     let mut records = names
         .iter()
@@ -2487,7 +2488,7 @@ fn compiler_real_pinned_pack_has_zero_diagnostic_door_and_trapdoor_states_when_r
     let Some(pack) = std::env::var_os("PINNED_VANILLA_PACK") else {
         return;
     };
-    let mut records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let mut records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry")
         .into_iter()
         .filter(|record| {
@@ -2563,7 +2564,7 @@ fn compiler_real_pinned_pack_has_zero_diagnostic_door_and_trapdoor_states_when_r
 }
 
 fn generated_wall_records(name: &str) -> Vec<RegistryRecord> {
-    let mut records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let mut records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry")
         .into_iter()
         .filter(|record| record.name.as_ref() == name && record.model_family == ModelFamily::Wall)
@@ -2899,7 +2900,7 @@ fn compiler_real_pinned_pack_has_zero_diagnostic_pane_and_fence_states_when_requ
     let Some(pack) = std::env::var_os("PINNED_VANILLA_PACK") else {
         return;
     };
-    let mut records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let mut records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode connected-family registry")
         .into_iter()
         .filter(|record| matches!(record.model_family, ModelFamily::Pane | ModelFamily::Fence))
@@ -3001,7 +3002,7 @@ fn compiler_real_pinned_pack_has_zero_diagnostic_wall_states_when_requested() {
     let Some(pack) = std::env::var_os("PINNED_VANILLA_PACK") else {
         return;
     };
-    let mut records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let mut records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry")
         .into_iter()
         .filter(|record| record.model_family == ModelFamily::Wall)
@@ -3031,7 +3032,7 @@ fn compiler_real_pinned_pack_has_zero_diagnostic_wall_states_when_requested() {
 }
 
 fn generated_pressure_plate_records(name: &str) -> Vec<RegistryRecord> {
-    let mut records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let mut records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry")
         .into_iter()
         .filter(|record| {
@@ -3226,7 +3227,7 @@ fn compiler_real_pinned_pack_has_zero_diagnostic_pressure_plate_states_when_requ
     let Some(pack) = std::env::var_os("PINNED_VANILLA_PACK") else {
         return;
     };
-    let mut records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let mut records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry")
         .into_iter()
         .filter(|record| record.model_family == ModelFamily::PressurePlate)
@@ -3268,7 +3269,7 @@ fn compiler_real_pinned_pack_has_zero_diagnostic_pressure_plate_states_when_requ
 }
 
 fn generated_carpet_records() -> Vec<RegistryRecord> {
-    let mut records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let mut records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry")
         .into_iter()
         .filter(|record| record.model_family == ModelFamily::Carpet)
@@ -3799,7 +3800,7 @@ fn compiler_real_pinned_pack_has_zero_diagnostic_carpet_states_when_requested() 
 const BUTTON_PRESSED_FLAG: u32 = 1 << 1;
 
 fn generated_button_records() -> Vec<RegistryRecord> {
-    let mut records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let mut records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry")
         .into_iter()
         .filter(|record| record.model_family == ModelFamily::Button)
@@ -4383,7 +4384,7 @@ fn compiler_real_pinned_pack_has_zero_diagnostic_button_states_when_requested() 
 }
 
 fn generated_gate_records(name: &str) -> Vec<RegistryRecord> {
-    let mut records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let mut records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry")
         .into_iter()
         .filter(|record| record.name.as_ref() == name && record.model_family == ModelFamily::Gate)
@@ -4825,7 +4826,7 @@ fn compiler_real_pinned_pack_has_zero_diagnostic_gate_states_when_requested() {
     let Some(pack) = std::env::var_os("PINNED_VANILLA_PACK") else {
         return;
     };
-    let mut records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let mut records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry")
         .into_iter()
         .filter(|record| record.model_family == ModelFamily::Gate)
@@ -4881,7 +4882,7 @@ fn generated_flowerbed_record(
     growth: u32,
     orientation: u32,
 ) -> RegistryRecord {
-    let records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry");
     let mut record = records
         .into_iter()
@@ -4897,7 +4898,7 @@ fn generated_flowerbed_record(
 }
 
 fn generated_vine_records() -> Vec<RegistryRecord> {
-    let mut records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let mut records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry")
         .into_iter()
         .filter(|record| record.name.as_ref() == "minecraft:vine")
@@ -5096,7 +5097,7 @@ fn compiler_real_pinned_pack_has_zero_diagnostic_vine_states_when_requested() {
     let Some(pack) = std::env::var_os("PINNED_VANILLA_PACK") else {
         return;
     };
-    let records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry");
     let compiled = compile_pack(Path::new(&pack), &records).expect("compile requested pinned pack");
     let vines = records
@@ -5130,7 +5131,7 @@ fn generated_multiface_records(
     family: ModelFamily,
     sequential_start: u32,
 ) -> Vec<RegistryRecord> {
-    let mut records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let mut records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry")
         .into_iter()
         .filter(|record| record.name.as_ref() == name)
@@ -5321,7 +5322,7 @@ fn compiler_real_pinned_pack_has_zero_diagnostic_multiface_states_when_requested
     let Some(pack) = std::env::var_os("PINNED_VANILLA_PACK") else {
         return;
     };
-    let records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry");
     let compiled = compile_pack(Path::new(&pack), &records).expect("compile requested pinned pack");
     for family in [ModelFamily::GlowLichen, ModelFamily::SculkVein] {
@@ -5359,7 +5360,7 @@ fn compiler_real_pinned_pack_has_zero_diagnostic_multiface_states_when_requested
 }
 
 fn resin_clump_records() -> Vec<RegistryRecord> {
-    let mut records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let mut records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry")
         .into_iter()
         .filter(|record| record.name.as_ref() == "minecraft:resin_clump")
@@ -5375,7 +5376,7 @@ fn resin_clump_records() -> Vec<RegistryRecord> {
 }
 
 fn cactus_records() -> Vec<RegistryRecord> {
-    let mut records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let mut records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry")
         .into_iter()
         .filter(|record| record.name.as_ref() == "minecraft:cactus")
@@ -5723,7 +5724,7 @@ fn compiler_real_pinned_pack_admits_all_exact_cactus_records() {
 }
 
 fn cake_records() -> Vec<RegistryRecord> {
-    let mut records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let mut records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry")
         .into_iter()
         .filter(|record| record.name.as_ref() == "minecraft:cake")
@@ -6138,7 +6139,7 @@ fn compiler_real_pinned_pack_admits_all_exact_cake_records_twice() {
 }
 
 fn farmland_records() -> Vec<RegistryRecord> {
-    let mut records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let mut records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry")
         .into_iter()
         .filter(|record| record.name.as_ref() == "minecraft:farmland")
@@ -7300,7 +7301,7 @@ fn generated_slab_record(
     name: &str,
     half: u32,
 ) -> RegistryRecord {
-    let records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry");
     let mut record = records
         .into_iter()
@@ -7645,7 +7646,7 @@ fn compiler_slab_half_is_typed_fail_closed_and_ignores_collision_only_boxes() {
 #[test]
 fn compiler_covers_all_272_breg_slab_states_with_three_deduplicated_stable_templates() {
     let directory = tempfile::tempdir().expect("create exhaustive slab fixture");
-    let records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry")
         .into_iter()
         .filter(|record| record.model_family == ModelFamily::Slab)
@@ -7726,7 +7727,7 @@ fn compiler_real_pinned_pack_has_zero_diagnostic_slab_states_when_requested() {
     let Some(pack) = std::env::var_os("PINNED_VANILLA_PACK") else {
         return;
     };
-    let records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry");
     let compiled = compile_pack(Path::new(&pack), &records).expect("compile requested pinned pack");
     let slabs = records
@@ -7828,7 +7829,7 @@ fn rotate_stair_face(face: usize, rotation: u32) -> usize {
 fn compiler_stair_rotation_preserves_asymmetric_materials_geometry_and_uv_lock_for_all_states() {
     let directory = tempfile::tempdir().expect("create asymmetric stair fixture");
     write_asymmetric_stair_pack(directory.path());
-    let mut records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let mut records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed registry")
         .into_iter()
         .filter(|record| record.name.as_ref() == "minecraft:oak_stairs")
@@ -7953,7 +7954,7 @@ fn compiler_stair_rotation_preserves_asymmetric_materials_geometry_and_uv_lock_f
 fn compiler_stairs_emit_five_contiguous_bounded_exterior_templates_for_every_state() {
     let directory = tempfile::tempdir().expect("create stair fixture");
     write_stair_pack(directory.path());
-    let mut records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let mut records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed registry")
         .into_iter()
         .filter(|record| record.name.as_ref() == "minecraft:oak_stairs")
@@ -8086,7 +8087,7 @@ fn compiler_stairs_emit_five_contiguous_bounded_exterior_templates_for_every_sta
 #[test]
 fn compiler_covers_every_breg_stair_state_with_compact_stable_groups() {
     let directory = tempfile::tempdir().expect("create exhaustive stair fixture");
-    let records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed registry")
         .into_iter()
         .filter(|record| record.model_family == ModelFamily::Stair)
@@ -8172,7 +8173,7 @@ fn compiler_real_pinned_pack_has_zero_diagnostic_stair_states_when_requested() {
     let Some(pack) = std::env::var_os("PINNED_VANILLA_PACK") else {
         return;
     };
-    let records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry");
     assert_eq!(records.len(), 16_913);
     let compiled = compile_pack(Path::new(&pack), &records).expect("compile requested pinned pack");
@@ -9747,7 +9748,7 @@ fn compiler_real_pinned_pack_admits_only_exact_stained_glass_cube_records() {
     let Some(pack) = std::env::var_os("PINNED_VANILLA_PACK") else {
         return;
     };
-    let all = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let all = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry");
     let ordinary_stained_glass = all
         .iter()
@@ -10000,7 +10001,7 @@ fn compiler_rejects_exact_copper_grate_with_flags_zero() {
 fn compiler_real_pinned_pack_admits_only_exact_copper_grate_records() {
     let pack = std::env::var_os("PINNED_VANILLA_PACK")
         .expect("set PINNED_VANILLA_PACK to the ignored pinned vanilla resource pack");
-    let all = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let all = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry");
     let copper_grates = all
         .iter()
@@ -10627,7 +10628,7 @@ fn compiler_real_pinned_pack_admits_all_exact_bee_housing_records() {
 fn compiler_real_pinned_pack_admits_all_exact_chiseled_bookshelf_records() {
     let pack = std::env::var_os("PINNED_VANILLA_PACK")
         .expect("set PINNED_VANILLA_PACK to the ignored pinned vanilla resource pack");
-    let mut records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let mut records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry")
         .into_iter()
         .filter(|record| record.name.as_ref() == "minecraft:chiseled_bookshelf")
@@ -10960,7 +10961,7 @@ fn compiler_real_pinned_pack_preserves_checked_transparent_cubes_with_exact_huge
     let Some(pack) = std::env::var_os("PINNED_VANILLA_PACK") else {
         return;
     };
-    let all = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let all = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed generated registry");
     let huge_mushrooms = all
         .iter()

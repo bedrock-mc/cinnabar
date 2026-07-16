@@ -282,13 +282,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "asset-compiler"
+version = "0.1.0"
+dependencies = [
+ "assets",
+ "clap",
+ "image",
+ "same-file",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "assets"
 version = "0.1.0"
 dependencies = [
  "bitflags 2.13.0",
- "clap",
- "image",
- "same-file",
  "serde",
  "serde_json",
  "sha2",
@@ -4006,6 +4018,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 name = "render"
 version = "0.1.0"
 dependencies = [
+ "asset-compiler",
  "assets",
  "bevy",
  "bytemuck",

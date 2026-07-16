@@ -14,7 +14,7 @@ use serde::{
 };
 use serde_json::{Map, Value};
 
-use crate::{AssetError, RegistryRecord};
+use assets::{AssetError, BlockFace, RegistryRecord};
 
 const MAX_JSON_BYTES: usize = 16 * 1024 * 1024;
 const MAX_TEXTURE_KEYS: usize = 8_192;
@@ -89,33 +89,6 @@ where
             *issue_count = count;
         }
         Ok(BoundedUniqueMap { entries, issue })
-    }
-}
-
-/// Bedrock block-face order, matching the packed renderer's face discriminants.
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum BlockFace {
-    West = 0,
-    East = 1,
-    Down = 2,
-    Up = 3,
-    North = 4,
-    South = 5,
-}
-
-impl BlockFace {
-    pub const ALL: [Self; 6] = [
-        Self::West,
-        Self::East,
-        Self::Down,
-        Self::Up,
-        Self::North,
-        Self::South,
-    ];
-
-    const fn is_horizontal(self) -> bool {
-        matches!(self, Self::West | Self::East | Self::North | Self::South)
     }
 }
 

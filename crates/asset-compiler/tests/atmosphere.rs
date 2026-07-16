@@ -5,10 +5,12 @@ use std::{
     process::Command,
 };
 
+use asset_compiler::{
+    AtmosphereCompileOptions, compile_atmosphere_assets, compile_atmosphere_assets_with_options,
+};
 use assets::{
-    AssetError, AtmosphereCompileOptions, AtmosphereRole, AtmosphereTexture, CelestialTile,
-    CompiledAtmosphereAssets, RuntimeAtmosphereAssets, compile_atmosphere_assets,
-    compile_atmosphere_assets_with_options, composite_celestial, encode_atmosphere_blob,
+    AssetError, AtmosphereRole, AtmosphereTexture, CelestialTile, CompiledAtmosphereAssets,
+    RuntimeAtmosphereAssets, composite_celestial, encode_atmosphere_blob,
 };
 use image::{Rgba, RgbaImage};
 use sha2::{Digest, Sha256};

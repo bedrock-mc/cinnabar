@@ -1,9 +1,11 @@
 use std::{fs, path::Path};
 
+use asset_compiler::{
+    BlockFace, MAX_FLIPBOOK_FRAMES, MAX_FLIPBOOKS, TextureKey, read_pack, resolve_texture_key,
+};
 use assets::{
-    AssetError, BlockFace, BlockFlags, CollisionConfidence, ContributorRole, MAX_FLIPBOOK_FRAMES,
-    MAX_FLIPBOOKS, ModelFamily, ModelState, ModelStateField, RegistryProvenance, RegistryRecord,
-    TextureKey, read_pack, read_registry, resolve_texture_key,
+    AssetError, BlockFlags, CollisionConfidence, ContributorRole, ModelFamily, ModelState,
+    ModelStateField, RegistryProvenance, RegistryRecord, read_registry,
 };
 use tempfile::TempDir;
 
@@ -557,7 +559,8 @@ fn registry_reader_rejects_false_valentine_name_overlap_metadata() {
 
 #[test]
 fn registry_reader_decodes_checked_in_full_source_bijection() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("data/block-registry-v1001.bin");
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets/data/block-registry-v1001.bin");
     let bytes = fs::read(path).expect("read checked-in BREG1003");
     let records = read_registry(&bytes).expect("decode checked-in BREG1003");
     assert_eq!(records.len(), 16_913);
@@ -616,7 +619,7 @@ fn registry_reader_decodes_checked_in_full_source_bijection() {
 
 #[test]
 fn checked_in_registry_has_one_canonical_air_network_identity() {
-    let records = read_registry(include_bytes!("../data/block-registry-v1001.bin"))
+    let records = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
         .expect("decode checked-in BREG1003");
     let air = records
         .iter()
@@ -636,7 +639,7 @@ fn checked_in_registry_has_one_canonical_air_network_identity() {
 #[test]
 fn registry_reader_decodes_all_pressure_plate_pressed_selectors() {
     const PRESSED: u32 = 1 << 1;
-    let bytes = include_bytes!("../data/block-registry-v1001.bin");
+    let bytes = include_bytes!("../../assets/data/block-registry-v1001.bin");
     let records = read_registry(bytes).expect("decode checked-in BREG1003");
     let plates = records
         .iter()

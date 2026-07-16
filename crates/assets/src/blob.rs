@@ -20,7 +20,7 @@ use crate::{
     MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, NO_ANIMATION,
     NO_MODEL_TEMPLATE, TILE_SIZE, TextureRef, VisualKind,
     biome::{TINT_MAP_BYTES, TINT_MAP_COUNT, TINT_MAP_SIZE, validate_biome_assets},
-    compiler::{material_flags_are_valid, visual_semantics_are_valid},
+    compiled::{material_flags_are_valid, visual_semantics_are_valid},
     model::{ANIMATION_FLAGS_MASK, model_quad_flags_are_valid},
 };
 

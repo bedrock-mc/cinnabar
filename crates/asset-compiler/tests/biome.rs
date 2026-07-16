@@ -1,10 +1,11 @@
 use std::{fs, path::Path};
 
+use asset_compiler::compile_biome_assets;
 use assets::{
     BIOME_REGISTRY_MAGIC, BIOME_RULE_FLAG_GRASS_SHADED, BiomeRegistryRecord, BiomeRule,
     CompiledBiomeAssets, LiveBiomeDefinition, MISSING_BIOME_DENSE_INDEX, RAW_BIOME_ID_COUNT,
     TINT_MAP_BYTES, TINT_MAP_COUNT, TintMapId, TintSource, colormap_coordinate,
-    compile_biome_assets, read_biome_registry,
+    read_biome_registry,
 };
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 

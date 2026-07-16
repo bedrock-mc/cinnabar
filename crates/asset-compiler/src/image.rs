@@ -7,10 +7,7 @@ use std::{
 
 use ::image::{ImageFormat, ImageReader, Limits};
 
-use crate::AssetError;
-
-pub const TILE_SIZE: u32 = 16;
-pub const MIP_COUNT: u32 = 5;
+use assets::{AssetError, MIP_COUNT, TILE_SIZE, TextureArray, TextureMip};
 
 const MAX_TEXTURE_BYTES: usize = 1024 * 1024;
 const MAX_DECODE_ALLOC: u64 = 256 * 1024;
@@ -19,20 +16,6 @@ const ALPHA_TEST_THRESHOLD: u8 = 128;
 const ALPHA_SCALE_FRACTION_BITS: u32 = 16;
 const ALPHA_SCALE_MAX: u32 = 16 << ALPHA_SCALE_FRACTION_BITS;
 const ALPHA_SCALE_SEARCH_STEPS: usize = 21;
-
-/// One mip level containing every array layer in layer-major RGBA8 order.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TextureMip {
-    pub size: u32,
-    pub rgba8: Box<[u8]>,
-}
-
-/// Equal-sized 16x16 texture-array layers with independent mip chains.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TextureArray {
-    pub layers: u32,
-    pub mips: Box<[TextureMip]>,
-}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct DecodedTexture {
@@ -98,7 +81,7 @@ pub(crate) fn decode_texture(path: &Path, key: &str) -> Result<DecodedTexture, A
         .map_err(|source| AssetError::TextureDecode {
             key: key.into(),
             path: path.to_path_buf(),
-            source,
+            source: Box::new(source),
         })?;
     if dimensions.0 == 0
         || dimensions.1 == 0
@@ -124,7 +107,7 @@ pub(crate) fn decode_texture(path: &Path, key: &str) -> Result<DecodedTexture, A
         .map_err(|source| AssetError::TextureDecode {
             key: key.into(),
             path: path.to_path_buf(),
-            source,
+            source: Box::new(source),
         })?;
     Ok(DecodedTexture {
         width: dimensions.0,

@@ -3,8 +3,10 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
+use assets::{AssetError, TextureMip, TextureRef};
+
 use crate::{
-    AssetError, FlipbookSource, PackSources, TextureMip, TextureRef,
+    FlipbookSource, PackSources,
     image::{build_texture_mip_chain, diagnostic_pixels, normalize_texture_tile},
 };
 
@@ -241,7 +243,7 @@ pub(crate) fn compile_animation_plan_selected(
             continue;
         };
         if image.width != image.height
-            || image.width < crate::TILE_SIZE
+            || image.width < assets::TILE_SIZE
             || !image.width.is_power_of_two()
         {
             non_tile_static_sources += 1;
@@ -481,8 +483,9 @@ mod tests {
     use super::{
         AnimationLimits, DecodedImage, compile_animation_plan, texture_ref_from_linear_index,
     };
-    use crate::TextureRef;
-    use crate::{AssetError, MIP_COUNT, TILE_SIZE, read_pack};
+    use crate::read_pack;
+    use assets::TextureRef;
+    use assets::{AssetError, MIP_COUNT, TILE_SIZE};
 
     fn write(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) {
         let path = path.as_ref();

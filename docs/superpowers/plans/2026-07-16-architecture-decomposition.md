@@ -199,7 +199,7 @@ Commit: `refactor: split acceptance harness by domain`
 - `asset_compiler` produces `compile_pack`, `compile_pack_with_biomes`, `inspect_animation_inventory`, and offline atmosphere compilation APIs.
 - Binary name remains `assetc`; package selector becomes `-p asset-compiler`.
 
-- [ ] **Step 1: Add dependency-boundary RED checks**
+- [x] **Step 1: Add dependency-boundary RED checks**
 
 Add assertions to the later architecture policy fixture, initially as shell checks:
 
@@ -210,7 +210,7 @@ cargo tree -p assets --locked | rg 'clap|image' && exit 1 || true
 
 Expected before extraction: the second check fails because offline dependencies remain in `assets`.
 
-- [ ] **Step 2: Move runtime data types out of compiler-owned source**
+- [x] **Step 2: Move runtime data types out of compiler-owned source**
 
 Create focused `assets` modules for runtime material/visual/compiler-output records and their validation. Keep exact public names and binary layouts:
 
@@ -222,11 +222,11 @@ pub struct CompiledAssets { /* existing exact fields */ }
 
 Run `cargo test -p assets --locked`. Expected: all existing asset tests pass unchanged.
 
-- [ ] **Step 3: Create `asset-compiler` and move compiler code mechanically**
+- [x] **Step 3: Create `asset-compiler` and move compiler code mechanically**
 
 The new manifest depends on `assets`, `image`, `clap`, `serde`, `serde_json`, `sha2`, `same-file`, and `thiserror` as required by moved offline code. Update test imports from `assets::compile_pack` to `asset_compiler::compile_pack` and add dev-dependencies only where compiler-backed fixtures are genuinely required.
 
-- [ ] **Step 4: Update every assetc invocation atomically**
+- [x] **Step 4: Update every assetc invocation atomically**
 
 Run:
 
@@ -236,7 +236,7 @@ rg -n -- '-p assets|--bin assetc' . -g '!target'
 
 Change package selectors to `-p asset-compiler`; retain `--bin assetc`. Update source-string tests in the same commit.
 
-- [ ] **Step 5: Verify and commit the crate extraction**
+- [x] **Step 5: Verify and commit the crate extraction**
 
 Run:
 

@@ -4,11 +4,13 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
+use asset_compiler::{
+    AnimationInventory, AtmosphereCompileOptions, compile_atmosphere_assets_with_options,
+    compile_pack_with_biomes, inspect_animation_inventory,
+};
 use assets::{
-    AnimationInventory, AssetError, AtmosphereCompileOptions, AtmosphereRole,
-    MATERIAL_FLAG_ALPHA_CUTOUT, compile_atmosphere_assets_with_options, compile_pack_with_biomes,
-    encode_atmosphere_blob, encode_blob, inspect_animation_inventory, read_biome_registry,
-    read_light_registry, read_registry, write_blob_atomic,
+    AssetError, AtmosphereRole, MATERIAL_FLAG_ALPHA_CUTOUT, encode_atmosphere_blob, encode_blob,
+    read_biome_registry, read_light_registry, read_registry, write_blob_atomic,
 };
 use clap::{Parser, Subcommand};
 use serde::Serialize;

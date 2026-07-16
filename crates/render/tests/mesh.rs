@@ -6,6 +6,7 @@ use std::{
     sync::OnceLock,
 };
 
+use asset_compiler::compile_pack as compile_pack_with_lights;
 use assets::{
     AssetError, BlockFace, BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets,
     DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT,
@@ -14,8 +15,7 @@ use assets::{
     MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
     Material, ModelFamily, ModelQuad, ModelStateField, ModelTemplate, NO_ANIMATION,
     NO_MODEL_TEMPLATE, NetworkIdMode, RegistryRecord, RuntimeAssets, TextureArray, TextureMip,
-    TexturePage, TextureRef, VisualKind, compile_pack as compile_pack_with_lights, encode_blob,
-    read_registry,
+    TexturePage, TextureRef, VisualKind, encode_blob, read_registry,
 };
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 use render::{

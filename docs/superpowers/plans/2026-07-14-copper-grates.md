@@ -142,7 +142,7 @@ Do not change pane behavior or generic model culling.
 Rebuild the ignored blob and ratchet it against the committed 7,706 baseline:
 
 ```powershell
-cargo run -p assets --bin assetc --locked -- compile --pack $env:PINNED_VANILLA_PACK --registry crates/assets/data/block-registry-v1001.bin --biome-registry crates/assets/data/biome-registry-v1001.bin --out .local/assets/compiled/vanilla-v1001.mcbea
+cargo run -p asset-compiler --bin assetc --locked -- compile --pack $env:PINNED_VANILLA_PACK --registry crates/assets/data/block-registry-v1001.bin --biome-registry crates/assets/data/biome-registry-v1001.bin --out .local/assets/compiled/vanilla-v1001.mcbea
 cargo run -p visualcoverage --locked -- ratchet --registry crates/assets/data/block-registry-v1001.bin --assets .local/assets/compiled/vanilla-v1001.mcbea --baseline crates/assets/data/visual-coverage-v1001.json --out .local/assets/compiled/pre-copper-grate-ratchet.json
 ```
 

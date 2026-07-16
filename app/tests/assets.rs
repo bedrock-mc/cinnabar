@@ -747,7 +747,7 @@ fn documented_commands_target_only_ignored_local_asset_paths() {
     assert_eq!(
         COMPILE_COMMAND,
         concat!(
-            "cargo run -p assets --bin assetc -- compile ",
+            "cargo run -p asset-compiler --bin assetc -- compile ",
             "--pack .local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack ",
             "--registry crates/assets/data/block-registry-v1001.bin ",
             "--light-registry crates/assets/data/block-light-registry-v1001.bin ",

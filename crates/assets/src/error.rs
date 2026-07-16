@@ -41,7 +41,7 @@ pub enum AssetError {
         role: &'static str,
         path: PathBuf,
         #[source]
-        source: ::image::ImageError,
+        source: Box<dyn std::error::Error + Send + Sync>,
     },
 
     #[error(
@@ -275,7 +275,7 @@ pub enum AssetError {
         key: Box<str>,
         path: PathBuf,
         #[source]
-        source: ::image::ImageError,
+        source: Box<dyn std::error::Error + Send + Sync>,
     },
 
     #[error("unsupported static texture format for key {key} at {path}; expected .png or .tga")]
