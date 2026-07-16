@@ -1,6 +1,6 @@
 use protocol::{
-    ActorEvent, ActorKind, ActorMetadataValue, ActorProperty, PlayerListEntry, WorldEvent,
-    into_world_event,
+    ActorEvent, ActorKind, ActorMetadataValue, ActorProperty, PlayerListEntry, PlayerSkin,
+    PlayerSkinUnavailable, StandardSkin, WorldEvent, into_world_event,
 };
 use valentine::bedrock::version::v1_26_30::{
     AddEntityPacket, AddPlayerPacket, DeltaMoveFlags, EntityProperties, EntityPropertiesFloatsItem,
@@ -8,8 +8,8 @@ use valentine::bedrock::version::v1_26_30::{
     MetadataDictionaryItemType, MetadataDictionaryItemValue, MetadataDictionaryItemValueDefault,
     MoveEntityDeltaPacket, MoveEntityPacket, PlayerAttributesItem, PlayerListPacket, PlayerRecords,
     PlayerRecordsRecordsItem, PlayerRecordsRecordsItemAdd, PlayerRecordsRecordsItemRemove,
-    PlayerRecordsType, RemoveEntityPacket, Rotation, SetEntityDataPacket, UpdateAttributesPacket,
-    Vec3F,
+    PlayerRecordsType, RemoveEntityPacket, Rotation, SetEntityDataPacket, Skin, SkinImage,
+    UpdateAttributesPacket, Vec3F,
 };
 
 #[test]
@@ -270,6 +270,7 @@ fn player_list_add_and_remove_normalize_to_fifo_roster_deltas() {
             unique_id: 77,
             username: "Steve".into(),
             verified: true,
+            skin: PlayerSkin::Unavailable(PlayerSkinUnavailable::InvalidDimensions),
         }]
     );
 
@@ -281,6 +282,73 @@ fn player_list_add_and_remove_normalize_to_fifo_roster_deltas() {
     assert_eq!(
         remove.entries.as_ref(),
         [PlayerListEntry::Remove { uuid: [0; 16] }]
+    );
+}
+
+#[test]
+fn player_list_retains_bounded_standard_skin_and_marks_persona_explicitly() {
+    let rgba = vec![0x7f; 64 * 64 * 4];
+    let classic = PlayerRecordsRecordsItemAdd {
+        username: "Classic".to_owned(),
+        skin_data: Skin {
+            skin_data: SkinImage {
+                width: 64,
+                height: 64,
+                data: rgba.clone(),
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let persona = PlayerRecordsRecordsItemAdd {
+        username: "Persona".to_owned(),
+        skin_data: Skin {
+            persona: true,
+            skin_data: SkinImage {
+                width: 64,
+                height: 64,
+                data: rgba,
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let packet = PlayerListPacket {
+        records: PlayerRecords {
+            type_: PlayerRecordsType::Add,
+            records_count: 2,
+            records: vec![
+                Some(PlayerRecordsRecordsItem::Add(Box::new(classic))),
+                Some(PlayerRecordsRecordsItem::Add(Box::new(persona))),
+            ],
+            verified: Some(vec![true, false]),
+        },
+    }
+    .into();
+
+    let Some(WorldEvent::Actor(ActorEvent::PlayerList(update))) =
+        into_world_event(packet, 0).expect("normalize player-list skins")
+    else {
+        panic!("expected player-list update")
+    };
+
+    let PlayerListEntry::Add { skin, .. } = &update.entries[0] else {
+        panic!("expected add entry")
+    };
+    assert_eq!(
+        skin,
+        &PlayerSkin::Standard(StandardSkin {
+            width: 64,
+            height: 64,
+            rgba8: vec![0x7f; 64 * 64 * 4].into(),
+        })
+    );
+    let PlayerListEntry::Add { skin, .. } = &update.entries[1] else {
+        panic!("expected add entry")
+    };
+    assert_eq!(
+        skin,
+        &PlayerSkin::Unavailable(PlayerSkinUnavailable::UnsupportedPersona)
     );
 }
 

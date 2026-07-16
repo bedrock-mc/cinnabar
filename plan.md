@@ -1478,6 +1478,27 @@ and dropped-item rendering, paper-doll first-person arm/held item.
   skins/persona data, Molang, name tags, or item/first-person visuals; those remain open Phase 4
   work.
 
+- [x] **4.2 Standard remote-player render slice.** `PlayerList` now retains explicitly bounded
+  classic 64x64, 128x128, or 256x256 RGBA skin images, with deterministic unavailable states for
+  persona, malformed, or retained-budget-exhausted data; `AddPlayer` UUIDs join those roster
+  profiles to the sparse actor store, whose cumulative retained skin bytes remain capped across
+  incremental roster packets. The app excludes the local runtime ID and publishes at most 128
+  runtime-ID-ordered player snapshots into a render-only two-pose history, sampling them 100 ms
+  behind `Time<Real>` with shortest-path angle interpolation. Unique IDs plus accepted spawn
+  sequences identify actor lifetimes, so same-runtime replacements and remove/re-adds reset stale
+  history. Accepted movement sequences provide event identity so one teleport event snaps once
+  across repeated publications while consecutive teleport packets always snap. This path consumes
+  no free-camera or local movement state. One
+  custom `Opaque3d` instanced draw expands a shared six-cuboid standard
+  Bedrock biped vertex buffer and samples a bounded 64x64 texture array, with no `StandardMaterial`
+  or per-actor Bevy mesh. Missing/unsupported/invalid skins use the documented, locally generated
+  `Cinnabar Default` skin (no Mojang or diagnostic bytes). Focused protocol/app/render tests,
+  shader parsing, no-op-backend binding-layout validation, pipeline specialization, format, and
+  warnings-denied workspace Clippy are green. Persona/custom geometry,
+  legacy 64x32 skins, outer skin layers, limb animation/Molang, name tags, equipment, mobs/items,
+  first-person visuals, live render-pipeline creation on a hardware backend, and multi-client
+  visual evidence remain open Phase 4 work.
+
 ## Phase 5 — Interaction, inventory, UI
 
 Scope: block breaking (server-auth crack progress overlay), placement, item use via

@@ -34,9 +34,7 @@ use world::{
     solve_light,
 };
 
-#[cfg(test)]
-use crate::actor_store::ActorSnapshot;
-use crate::actor_store::ActorStore;
+use crate::actor_store::{ActorSnapshot, ActorStore, PlayerProfile};
 use crate::block_entity_visuals::{
     BackingBlockIdentity, BlockEntityVisualDiagnostics, adjudicate_block_entity_visual,
 };
@@ -2109,6 +2107,17 @@ impl WorldStream {
 
     pub fn take_fatal_error(&mut self) -> Option<WorldStreamFatalError> {
         self.fatal_error.take()
+    }
+
+    #[must_use]
+    pub(crate) fn render_players(&self) -> Vec<(&ActorSnapshot, Option<&PlayerProfile>)> {
+        self.actors
+            .render_players(Some(self.local_player_runtime_id))
+    }
+
+    #[must_use]
+    pub(crate) const fn actor_session_id(&self) -> u64 {
+        self.actor_session_id
     }
 
     #[cfg(test)]

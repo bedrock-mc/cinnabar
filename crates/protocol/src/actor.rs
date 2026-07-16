@@ -23,6 +23,8 @@ pub const MAX_ACTOR_ATTRIBUTE_MODIFIERS: usize = 64;
 pub const MAX_ACTOR_METADATA_STRING_BYTES: usize = 4_096;
 pub const MAX_ACTOR_METADATA_NBT_BYTES: usize = 1_048_576;
 pub const MAX_PLAYER_LIST_RECORDS: usize = 4_096;
+pub const MAX_STANDARD_SKIN_SIDE: u32 = 256;
+pub const MAX_PLAYER_LIST_SKIN_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActorKind {
@@ -136,10 +138,32 @@ pub enum PlayerListEntry {
         unique_id: i64,
         username: Arc<str>,
         verified: bool,
+        skin: PlayerSkin,
     },
     Remove {
         uuid: [u8; 16],
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StandardSkin {
+    pub width: u32,
+    pub height: u32,
+    pub rgba8: Arc<[u8]>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlayerSkinUnavailable {
+    UnsupportedPersona,
+    InvalidDimensions,
+    InvalidByteLength,
+    RetainedBudgetExceeded,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PlayerSkin {
+    Standard(StandardSkin),
+    Unavailable(PlayerSkinUnavailable),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -447,6 +471,7 @@ pub(crate) fn normalize_player_list(
             if verified.len() != actual {
                 return Err(ActorPacketError::InvalidPlayerListVerifiedCount);
             }
+            let mut retained_skin_bytes = 0usize;
             for (record, verified) in packet.records.records.into_iter().zip(verified) {
                 let Some(PlayerRecordsRecordsItem::Add(record)) = record else {
                     return Err(ActorPacketError::InvalidPlayerListRecords);
@@ -456,11 +481,13 @@ pub(crate) fn normalize_player_list(
                     &record.username,
                     MAX_ACTOR_NAME_BYTES,
                 )?;
+                let skin = normalize_player_skin(record.skin_data, &mut retained_skin_bytes);
                 entries.push(PlayerListEntry::Add {
                     uuid: *record.uuid.as_bytes(),
                     unique_id: record.entity_unique_id,
                     username: Arc::from(record.username),
                     verified,
+                    skin,
                 });
             }
         }
@@ -484,6 +511,47 @@ pub(crate) fn normalize_player_list(
     Ok(ActorEvent::PlayerList(PlayerListUpdateEvent {
         entries: Arc::from(entries),
     }))
+}
+
+fn normalize_player_skin(
+    skin: valentine::bedrock::version::v1_26_30::Skin,
+    retained_bytes: &mut usize,
+) -> PlayerSkin {
+    if skin.persona {
+        return PlayerSkin::Unavailable(PlayerSkinUnavailable::UnsupportedPersona);
+    }
+    let Ok(width) = u32::try_from(skin.skin_data.width) else {
+        return PlayerSkin::Unavailable(PlayerSkinUnavailable::InvalidDimensions);
+    };
+    let Ok(height) = u32::try_from(skin.skin_data.height) else {
+        return PlayerSkin::Unavailable(PlayerSkinUnavailable::InvalidDimensions);
+    };
+    if width != height || !matches!(width, 64 | 128 | MAX_STANDARD_SKIN_SIDE) {
+        return PlayerSkin::Unavailable(PlayerSkinUnavailable::InvalidDimensions);
+    }
+    let Some(expected_bytes) = usize::try_from(width)
+        .ok()
+        .and_then(|width| usize::try_from(height).ok().map(|height| (width, height)))
+        .and_then(|(width, height)| width.checked_mul(height))
+        .and_then(|pixels| pixels.checked_mul(4))
+    else {
+        return PlayerSkin::Unavailable(PlayerSkinUnavailable::InvalidDimensions);
+    };
+    if skin.skin_data.data.len() != expected_bytes {
+        return PlayerSkin::Unavailable(PlayerSkinUnavailable::InvalidByteLength);
+    }
+    let Some(next_bytes) = retained_bytes.checked_add(expected_bytes) else {
+        return PlayerSkin::Unavailable(PlayerSkinUnavailable::RetainedBudgetExceeded);
+    };
+    if next_bytes > MAX_PLAYER_LIST_SKIN_BYTES {
+        return PlayerSkin::Unavailable(PlayerSkinUnavailable::RetainedBudgetExceeded);
+    }
+    *retained_bytes = next_bytes;
+    PlayerSkin::Standard(StandardSkin {
+        width,
+        height,
+        rgba8: Arc::from(skin.skin_data.data),
+    })
 }
 
 fn normalize_entity_attributes(
