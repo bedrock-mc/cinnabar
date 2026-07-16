@@ -75,13 +75,13 @@ pub(in crate::compiler) fn mineral_cube_material_descriptor(
     let (_, _, _, expected_key, expected_path) = identity(record)?;
     if pack
         .blocks
-        .get_exact_scalar(record.name.strip_prefix("minecraft:")?)?
+        .get_exact_scalar_plain(record.name.strip_prefix("minecraft:")?, expected_key)?
         != expected_key
     {
         return None;
     }
     let key: Box<str> = expected_key.into();
-    let path = pack.terrain.get_exact_static_no_tint(&key)?;
+    let path = pack.terrain.get_exact_static_plain(&key)?;
     if path != expected_path
         || pack.flipbooks.iter().any(|flipbook| {
             flipbook.atlas_tile.as_ref() == key.as_ref() || flipbook.texture_path.as_ref() == path

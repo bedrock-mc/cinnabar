@@ -223,6 +223,30 @@ fn mineral_cube_admission_is_atomic_and_pack_routes_are_exact() {
             "[]",
         ),
         (
+            "terrain alias metadata",
+            r#"{"cinnabar":{"sound":"cinnabar","textures":"cinnabar"},"sulfur":{"sound":"sulfur","textures":"sulfur"}}"#,
+            r#"{"texture_data":{"cinnabar":{"textures":"textures/blocks/cinnabar","alias":"cinnabar_legacy"},"sulfur":{"textures":"textures/blocks/sulfur"}}}"#,
+            "[]",
+        ),
+        (
+            "terrain texture extension metadata",
+            r#"{"cinnabar":{"sound":"cinnabar","textures":"cinnabar"},"sulfur":{"sound":"sulfur","textures":"sulfur"}}"#,
+            r#"{"texture_data":{"cinnabar":{"textures":{"path":"textures/blocks/cinnabar","extension":"review-required"}},"sulfur":{"textures":"textures/blocks/sulfur"}}}"#,
+            "[]",
+        ),
+        (
+            "block isotropic metadata",
+            r#"{"cinnabar":{"sound":"cinnabar","textures":"cinnabar","isotropic":true},"sulfur":{"sound":"sulfur","textures":"sulfur"}}"#,
+            r#"{"texture_data":{"cinnabar":{"textures":"textures/blocks/cinnabar"},"sulfur":{"textures":"textures/blocks/sulfur"}}}"#,
+            "[]",
+        ),
+        (
+            "block extra rendering field",
+            r#"{"cinnabar":{"sound":"cinnabar","textures":"cinnabar","carried_textures":"cinnabar"},"sulfur":{"sound":"sulfur","textures":"sulfur"}}"#,
+            r#"{"texture_data":{"cinnabar":{"textures":"textures/blocks/cinnabar"},"sulfur":{"textures":"textures/blocks/sulfur"}}}"#,
+            "[]",
+        ),
+        (
             "flipbook route",
             r#"{"cinnabar":{"textures":"cinnabar"},"sulfur":{"textures":"sulfur"}}"#,
             r#"{"texture_data":{"cinnabar":{"textures":"textures/blocks/cinnabar"},"sulfur":{"textures":"textures/blocks/sulfur"}}}"#,

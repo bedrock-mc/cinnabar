@@ -34,7 +34,7 @@ impl TextureKey {
 /// Opaque block-name to texture-description map.
 #[derive(Debug)]
 pub struct BlockTextureMap {
-    pub(super) entries: BTreeMap<Box<str>, TextureValue>,
+    pub(super) entries: BTreeMap<Box<str>, BlockSourceEntry>,
 }
 
 /// Bounded terrain path variants indexed by texture key.
@@ -42,7 +42,24 @@ impl BlockTextureMap {
     /// Returns a block texture key only when the source uses the scalar form.
     #[must_use]
     pub(crate) fn get_exact_scalar(&self, block_name: &str) -> Option<&str> {
-        match self.entries.get(block_name)? {
+        match &self.entries.get(block_name)?.textures {
+            TextureValue::Key(key) => Some(key),
+            TextureValue::Faces(_) => None,
+        }
+    }
+
+    /// Returns the exact scalar source used by a reviewed vanilla block only
+    /// when its entry contains the expected sound and no additional fields.
+    pub(crate) fn get_exact_scalar_plain(
+        &self,
+        block_name: &str,
+        expected_sound: &str,
+    ) -> Option<&str> {
+        let entry = self.entries.get(block_name)?;
+        if entry.sound.as_ref()?.as_str()? != expected_sound || !entry.extra.is_empty() {
+            return None;
+        }
+        match &entry.textures {
             TextureValue::Key(key) => Some(key),
             TextureValue::Faces(_) => None,
         }
@@ -51,7 +68,7 @@ impl BlockTextureMap {
     /// Returns six explicit face keys. Fallback `side` routing is deliberately
     /// excluded so exact model families cannot accept an underspecified map.
     pub(crate) fn get_exact_faces(&self, block_name: &str) -> Option<[&str; 6]> {
-        let TextureValue::Faces(faces) = self.entries.get(block_name)? else {
+        let TextureValue::Faces(faces) = &self.entries.get(block_name)?.textures else {
             return None;
         };
         if faces.side.is_some() || !faces.extra.is_empty() {
@@ -87,7 +104,7 @@ impl BlockTextureMap {
     /// Returns the exact vanilla pillar form: down/up caps plus one horizontal
     /// side fallback and no explicit horizontal overrides.
     pub(crate) fn get_exact_pillar(&self, block_name: &str) -> Option<[&str; 3]> {
-        let TextureValue::Faces(faces) = self.entries.get(block_name)? else {
+        let TextureValue::Faces(faces) = &self.entries.get(block_name)?.textures else {
             return None;
         };
         if faces.west.is_some()
@@ -109,7 +126,7 @@ impl BlockTextureMap {
     /// plus down/up caps and no explicit horizontal overrides.
     #[must_use]
     pub fn get_exact_side_caps(&self, block_name: &str) -> Option<[&str; 3]> {
-        let TextureValue::Faces(faces) = self.entries.get(block_name)? else {
+        let TextureValue::Faces(faces) = &self.entries.get(block_name)?.textures else {
             return None;
         };
         if faces.west.is_some()
@@ -213,6 +230,17 @@ impl FaceKeys {
 struct BlockEntry {
     #[serde(default)]
     textures: Option<TextureValue>,
+    #[serde(default)]
+    sound: Option<Value>,
+    #[serde(flatten)]
+    extra: BTreeMap<String, Value>,
+}
+
+#[derive(Debug)]
+pub(super) struct BlockSourceEntry {
+    pub(super) textures: TextureValue,
+    sound: Option<Value>,
+    extra: BTreeMap<String, Value>,
 }
 
 pub fn resolve_texture_key(
@@ -229,11 +257,11 @@ pub fn resolve_texture_key(
     } else {
         legacy_resource_pack_block_alias(block_name).unwrap_or(block_name)
     };
-    let Some(texture) = blocks.entries.get(resource_pack_name) else {
+    let Some(entry) = blocks.entries.get(resource_pack_name) else {
         return TextureKey::diagnostic();
     };
 
-    match texture {
+    match &entry.textures {
         TextureValue::Key(key) => TextureKey::resolved(key, false),
         TextureValue::Faces(faces) => {
             let axis = match state_axis(&record.canonical_state) {
@@ -441,7 +469,14 @@ pub(super) fn read_blocks(path: &Path) -> Result<BlockTextureMap, AssetError> {
         if !textures.has_keys() {
             return Err(AssetError::MissingBlockTextureKeys(name.into_boxed_str()));
         }
-        entries.insert(name.into_boxed_str(), textures);
+        entries.insert(
+            name.into_boxed_str(),
+            BlockSourceEntry {
+                textures,
+                sound: entry.sound,
+                extra: entry.extra,
+            },
+        );
     }
     Ok(BlockTextureMap { entries })
 }
