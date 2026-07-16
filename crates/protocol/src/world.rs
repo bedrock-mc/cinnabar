@@ -261,6 +261,23 @@ pub struct MovePlayerEvent {
     pub source_tick: i64,
 }
 
+/// Standing-player eye offset used by Bedrock's MovePlayer position.
+///
+/// Actor spawn positions use a feet origin, so remote-player rendering must
+/// subtract this offset before applying MovePlayer coordinates to an actor.
+pub const DEFAULT_PLAYER_HEIGHT_OFFSET: f32 = 1.62;
+
+impl MovePlayerEvent {
+    #[must_use]
+    pub fn feet_position(self) -> [f32; 3] {
+        [
+            self.position[0],
+            self.position[1] - DEFAULT_PLAYER_HEIGHT_OFFSET,
+            self.position[2],
+        ]
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum MovePlayerMode {
     #[default]
