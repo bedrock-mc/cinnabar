@@ -20,6 +20,7 @@ pub struct ActorSkinPixels {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ActorRenderSource {
     pub runtime_id: u64,
+    pub movement_revision: u64,
     pub position: [f32; 3],
     pub pitch_degrees: f32,
     pub yaw_degrees: f32,
@@ -96,7 +97,7 @@ struct ActorTrack {
     previous: TimedPose,
     current: TimedPose,
     skin: Option<ActorSkinPixels>,
-    teleport_latched: bool,
+    movement_revision: u64,
 }
 
 #[derive(Debug, Default, Resource)]
@@ -146,7 +147,7 @@ impl ActorRenderScene {
             let pose = Pose::from(source);
             match self.tracks.get_mut(&source.runtime_id) {
                 Some(track) => {
-                    if source.teleported && !track.teleport_latched {
+                    if source.teleported && source.movement_revision != track.movement_revision {
                         let timed = TimedPose {
                             seconds: now_seconds,
                             pose,
@@ -160,7 +161,7 @@ impl ActorRenderScene {
                             pose,
                         };
                     }
-                    track.teleport_latched = source.teleported;
+                    track.movement_revision = source.movement_revision;
                     track.skin = source.skin.clone();
                 }
                 None => {
@@ -174,7 +175,7 @@ impl ActorRenderScene {
                             previous: timed.clone(),
                             current: timed,
                             skin: source.skin.clone(),
-                            teleport_latched: source.teleported,
+                            movement_revision: source.movement_revision,
                         },
                     );
                 }
@@ -421,6 +422,7 @@ mod tests {
     fn source(runtime_id: u64, x: f32, yaw_degrees: f32) -> ActorRenderSource {
         ActorRenderSource {
             runtime_id,
+            movement_revision: 0,
             position: [x, 64.0, 0.0],
             pitch_degrees: 0.0,
             yaw_degrees,
@@ -448,6 +450,7 @@ mod tests {
         scene.update(0.0, [source(7, 0.0, 0.0)]);
         let mut teleported = source(7, 100.0, 90.0);
         teleported.teleported = true;
+        teleported.movement_revision = 1;
         let frame = scene.update(0.05, [teleported]);
 
         assert_eq!(frame.instances[0].position[0], 100.0);
@@ -455,20 +458,55 @@ mod tests {
     }
 
     #[test]
-    fn sticky_teleport_snapshot_is_consumed_before_the_next_interpolation_interval() {
+    fn repeated_publication_of_one_teleport_event_snaps_only_once() {
         let mut scene = ActorRenderScene::default();
         scene.update(0.0, [source(7, 0.0, 0.0)]);
         let mut teleported = source(7, 100.0, 90.0);
         teleported.teleported = true;
+        teleported.movement_revision = 1;
         scene.update(0.05, [teleported.clone()]);
-        teleported.position[0] = 110.0;
         scene.update(0.1, [teleported]);
-        let after_sticky_publication = scene.update(0.15, [source(7, 110.0, 90.0)]);
-        assert!((after_sticky_publication.instances[0].position[0] - 100.0).abs() < 1e-5);
+        let mut ordinary = source(7, 110.0, 90.0);
+        ordinary.movement_revision = 2;
+        scene.update(0.15, [ordinary.clone()]);
+        let frame = scene.update(0.2, [ordinary]);
 
-        let frame = scene.update(0.2, [source(7, 110.0, 90.0)]);
+        assert!((frame.instances[0].position[0] - 105.0).abs() < 1e-5);
+    }
 
-        assert!((frame.instances[0].position[0] - 110.0).abs() < 1e-5);
+    #[test]
+    fn consecutive_teleport_events_snap_even_while_the_flag_stays_true() {
+        let mut scene = ActorRenderScene::default();
+        scene.update(0.0, [source(7, 0.0, 0.0)]);
+        let mut first = source(7, 100.0, 90.0);
+        first.teleported = true;
+        first.movement_revision = 1;
+        scene.update(0.05, [first]);
+
+        let mut second = source(7, 200.0, 180.0);
+        second.teleported = true;
+        second.movement_revision = 2;
+        let frame = scene.update(0.1, [second]);
+
+        assert_eq!(frame.instances[0].position[0], 200.0);
+        assert!((frame.instances[0].yaw_radians.abs() - std::f32::consts::PI).abs() < 1e-5);
+    }
+
+    #[test]
+    fn ordinary_movement_after_a_teleport_interpolates_from_the_snapped_pose() {
+        let mut scene = ActorRenderScene::default();
+        scene.update(0.0, [source(7, 0.0, 0.0)]);
+        let mut teleported = source(7, 100.0, 90.0);
+        teleported.teleported = true;
+        teleported.movement_revision = 1;
+        scene.update(0.05, [teleported]);
+
+        let mut ordinary = source(7, 110.0, 90.0);
+        ordinary.movement_revision = 2;
+        scene.update(0.1, [ordinary.clone()]);
+        let frame = scene.update(0.175, [ordinary]);
+
+        assert!((frame.instances[0].position[0] - 105.0).abs() < 1e-5);
     }
 
     #[test]

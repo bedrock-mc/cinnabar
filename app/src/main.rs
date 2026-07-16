@@ -2674,6 +2674,7 @@ fn actor_render_source(
     });
     ActorRenderSource {
         runtime_id: actor.runtime_id,
+        movement_revision: actor.movement_revision,
         position: actor.position,
         pitch_degrees: actor.pitch,
         yaw_degrees: actor.yaw,
@@ -4081,6 +4082,7 @@ mod tests {
         let actor = crate::actor_store::ActorSnapshot {
             unique_id: 9,
             runtime_id: 77,
+            movement_revision: 23,
             kind: ActorKind::Player {
                 uuid: [7; 16],
                 username: "remote".into(),
@@ -4107,6 +4109,7 @@ mod tests {
 
         let source = actor_render_source(&actor, Some(&profile));
         assert_eq!(source.runtime_id, 77);
+        assert_eq!(source.movement_revision, 23);
         assert_eq!(source.position, [10.0, 64.0, -3.0]);
         assert_eq!(source.yaw_degrees, 45.0);
         assert_eq!(source.head_yaw_degrees, 60.0);

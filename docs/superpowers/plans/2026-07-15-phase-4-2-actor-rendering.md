@@ -43,9 +43,9 @@
 
 **Files:** Create `crates/render/src/actor.rs`; modify `crates/render/src/lib.rs`; test `actor.rs`.
 
-**Interfaces:** `ActorRenderScene::update(now_seconds, sources)` produces `ActorRenderFrame` with at most 128 instances, two poses per actor, 100 ms delayed interpolation, and deterministic skin layers.
+**Interfaces:** `ActorRenderScene::update(now_seconds, sources)` produces `ActorRenderFrame` with at most 128 instances, two poses per actor, 100 ms delayed interpolation, movement-event revisions, and deterministic skin layers.
 
-- [x] Add tests for interpolation, shortest angles, one-shot teleport snapping, truncation, skin resampling, and the locally generated default.
+- [x] Add tests for interpolation, shortest angles, same-event teleport republication, consecutive teleport events, ordinary post-teleport movement, truncation, skin resampling, and the locally generated default.
 - [x] Run `cargo test -p render actor::tests` and record RED.
 - [x] Implement only the bounded scene/frame logic required by those tests.
 - [x] Re-run the focused render tests to GREEN.

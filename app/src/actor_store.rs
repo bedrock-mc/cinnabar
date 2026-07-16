@@ -29,6 +29,7 @@ pub(crate) enum ActorApplyResult {
 pub(crate) struct ActorSnapshot {
     pub unique_id: i64,
     pub runtime_id: u64,
+    pub movement_revision: u64,
     pub kind: ActorKind,
     pub position: [f32; 3],
     pub velocity: [f32; 3],
@@ -49,6 +50,7 @@ impl From<ActorSpawnEvent> for ActorSnapshot {
         let mut snapshot = Self {
             unique_id: spawn.unique_id,
             runtime_id: spawn.runtime_id,
+            movement_revision: 0,
             kind: spawn.kind,
             position: spawn.position,
             velocity: spawn.velocity,
@@ -269,6 +271,7 @@ impl ActorStore {
                 if let Some(value) = movement.on_ground {
                     actor.on_ground = Some(value);
                 }
+                actor.movement_revision = sequence;
                 actor.teleported = movement.teleported;
                 ActorApplyResult::Updated
             }
@@ -604,6 +607,7 @@ mod tests {
         );
 
         let actor = store.get(42).expect("stored actor");
+        assert_eq!(actor.movement_revision, 2);
         assert_eq!(actor.position, [9.0, 2.0, 8.0]);
         assert_eq!(actor.pitch, 10.0);
         assert_eq!(actor.on_ground, Some(true));
@@ -625,6 +629,38 @@ mod tests {
             ActorApplyResult::Removed
         );
         assert!(store.get(42).is_none());
+    }
+
+    #[test]
+    fn consecutive_teleport_packets_retain_distinct_movement_revisions() {
+        let mut store = ActorStore::new(1, 0);
+        store.apply(1, 1, spawn(42, -7));
+        let teleport = |x| {
+            ActorEvent::Move(ActorMoveEvent {
+                dimension: 0,
+                runtime_id: 42,
+                position: [Some(x), None, None],
+                pitch: None,
+                yaw: None,
+                head_yaw: None,
+                on_ground: None,
+                teleported: true,
+            })
+        };
+
+        assert_eq!(
+            store.apply(1, 2, teleport(100.0)),
+            ActorApplyResult::Updated
+        );
+        assert_eq!(store.get(42).unwrap().movement_revision, 2);
+        assert_eq!(
+            store.apply(1, 3, teleport(200.0)),
+            ActorApplyResult::Updated
+        );
+        let actor = store.get(42).unwrap();
+        assert_eq!(actor.movement_revision, 3);
+        assert_eq!(actor.position[0], 200.0);
+        assert!(actor.teleported);
     }
 
     #[test]
