@@ -12,7 +12,7 @@ use bevy::{
     },
 };
 use render::{
-    AtmosphereFrame, AtmospherePlugin, DebugWorldPlugin, cloud_texture_offset, moon_phase_tile,
+    AtmosphereFrame, AtmospherePlugin, ChunkRenderPlugin, cloud_texture_offset, moon_phase_tile,
 };
 
 fn test_view_uniform() -> ViewUniform {
@@ -56,7 +56,7 @@ fn atmosphere_plugin_is_safe_without_a_render_sub_app() {
 #[test]
 fn atmosphere_and_chunk_plugins_compose_in_atmosphere_first_order() {
     let mut app = App::new();
-    app.add_plugins((AtmospherePlugin, DebugWorldPlugin::new(1)));
+    app.add_plugins((AtmospherePlugin, ChunkRenderPlugin::new(1)));
     assert!(app.is_plugin_added::<AtmospherePlugin>());
     assert!(app.world().contains_resource::<AtmosphereFrame>());
 }
@@ -64,7 +64,7 @@ fn atmosphere_and_chunk_plugins_compose_in_atmosphere_first_order() {
 #[test]
 fn atmosphere_and_chunk_plugins_compose_in_chunk_first_order() {
     let mut app = App::new();
-    app.add_plugins((DebugWorldPlugin::new(1), AtmospherePlugin));
+    app.add_plugins((ChunkRenderPlugin::new(1), AtmospherePlugin));
     assert!(app.is_plugin_added::<AtmospherePlugin>());
     assert!(app.world().contains_resource::<AtmosphereFrame>());
 }
@@ -273,7 +273,7 @@ fn atmosphere_pipeline_specializes_msaa_and_keeps_reversed_z_without_depth_write
 #[test]
 fn frame_updates_keep_asset_uploads_and_bind_groups_identity_stable() {
     let atmosphere = include_str!("../src/atmosphere_render.rs");
-    let chunks = include_str!("../src/plugin.rs");
+    let chunks = include_str!("../src/chunk/gpu/bind_groups.rs");
     assert_eq!(
         atmosphere.matches("create_buffer_with_data(").count(),
         1,

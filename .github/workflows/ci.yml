@@ -5,13 +5,21 @@ on:
   pull_request:
 
 jobs:
+  windows-acceptance:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test Windows PowerShell 5.1 acceptance harness and dry-run contract
+        shell: powershell
+        run: .\scripts\tests\acceptance.Tests.ps1
+
   verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.93.1
         with:
-          components: rustfmt
+          components: rustfmt, clippy
       - uses: actions/setup-go@v6
         with:
           go-version: 1.26.x
@@ -24,8 +32,12 @@ jobs:
         run: |
           cargo tree -e features -p bedrock-client --target x86_64-unknown-linux-gnu --locked | grep -F 'bevy feature "wayland"'
           cargo tree -e features -p bedrock-client --target x86_64-unknown-linux-gnu --locked | grep -F 'bevy feature "x11"'
+      - name: Enforce architecture boundaries
+        run: cargo run -p architecture --locked -- check --root . --policy tools/architecture/policy.toml
       - run: cargo fmt --check
-      - run: cargo test --workspace
+      - run: cargo test --workspace --locked
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: bash scripts/tests/acceptance_test.sh
       - run: go test ./core/...
       - run: go vet ./core/...
       - name: Test and vet pinned chunk fixture generator

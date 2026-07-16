@@ -266,7 +266,7 @@ Compile the pinned ignored Mojang source and record the layer inventory in an
 ignored report with:
 
 ```powershell
-cargo run -p assets --bin assetc -- animation-inventory `
+cargo run -p asset-compiler --bin assetc -- animation-inventory `
   --pack .local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack `
   --source-manifest assets/vanilla-source.json `
   --max-layers-per-page 2048 `

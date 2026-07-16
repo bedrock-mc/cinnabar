@@ -528,7 +528,7 @@ mod tests {
 
     use super::{AtmosphereGpu, AtmosphereRenderInstalled, prepare_atmosphere_textures};
     use crate::cloud_render::{CloudGpu, prepare_cloud_records};
-    use crate::{AtmosphereTextureAssets, DebugWorldPlugin};
+    use crate::{AtmosphereTextureAssets, ChunkRenderPlugin};
 
     fn app_with_noop_render_sub_app() -> App {
         let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
@@ -592,7 +592,7 @@ mod tests {
     #[test]
     fn standalone_chunk_renderer_installs_and_starts_atmosphere_gpu_resources() {
         let mut app = app_with_noop_render_sub_app();
-        app.add_plugins(DebugWorldPlugin::new(1));
+        app.add_plugins(ChunkRenderPlugin::new(1));
         app.finish();
 
         let render_app = app.sub_app_mut(RenderApp);
@@ -608,7 +608,7 @@ mod tests {
     #[test]
     fn gpu_preparation_uploads_once_per_stable_asset_identity() {
         let mut app = app_with_noop_render_sub_app();
-        app.add_plugins(DebugWorldPlugin::new(1));
+        app.add_plugins(ChunkRenderPlugin::new(1));
         app.finish();
 
         let render_app = app.sub_app_mut(RenderApp);
@@ -663,7 +663,7 @@ mod tests {
     #[test]
     fn cloud_record_preparation_reuses_equal_identity_and_rebuilds_replacement_once() {
         let mut app = app_with_noop_render_sub_app();
-        app.add_plugins(DebugWorldPlugin::new(1));
+        app.add_plugins(ChunkRenderPlugin::new(1));
         app.finish();
 
         let render_app = app.sub_app_mut(RenderApp);

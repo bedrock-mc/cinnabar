@@ -21,11 +21,13 @@ bevy = { workspace = true, default-features = false, features = [
     "std",
 ] }
 bytemuck = { version = "1", features = ["derive"] }
+meshing = { path = "../meshing" }
 rayon.workspace = true
 world = { path = "../world" }
 wgpu = { version = "27.0.1", default-features = false }
 
 [dev-dependencies]
+asset-compiler = { path = "../asset-compiler" }
 image = { version = "0.25", default-features = false, features = ["png"] }
 naga = { version = "27.0.3", features = ["wgsl-in"] }
 sha2 = "0.10"

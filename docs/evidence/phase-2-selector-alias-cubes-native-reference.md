@@ -41,7 +41,7 @@ go run ./tools/registrygen `
   -valentine-palette crates/protocol/vendor/valentine/bedrock_versions/v1_26_30/src/block_palette.bin `
   -valentine-blocks crates/protocol/vendor/valentine/bedrock_versions/v1_26_30/src/blocks.rs
 
-cargo run -p assets --bin assetc --locked -- compile `
+cargo run -p asset-compiler --bin assetc --locked -- compile `
   --pack <PINNED_VANILLA_PACK> `
   --registry crates/assets/data/block-registry-v1001.bin `
   --biome-registry crates/assets/data/biome-registry-v1001.bin `

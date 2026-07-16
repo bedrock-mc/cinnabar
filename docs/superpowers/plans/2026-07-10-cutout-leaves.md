@@ -367,7 +367,7 @@
   cargo test -p assets --test compiler --test blob --test runtime --locked -- --nocapture
   cargo test -p assets --locked -- --nocapture
   cargo clippy -p assets --all-targets --locked -- -D warnings
-  cargo run -p assets --bin assetc -- --help
+  cargo run -p asset-compiler --bin assetc -- --help
   ```
 
   Expected: all tests pass; shuffled outputs are byte-identical; material/record sizes remain
@@ -891,7 +891,7 @@
       throw 'tracked registry is not reproducible'
   }
   powershell -NoProfile -File scripts/fetch-vanilla-assets.ps1 -AcceptEula
-  cargo run -p assets --bin assetc -- compile `
+  cargo run -p asset-compiler --bin assetc -- compile `
     --pack .local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack `
     --registry crates/assets/data/block-registry-v1001.bin `
     --out .local/assets/compiled/vanilla-v1001.mcbea
@@ -911,7 +911,7 @@
   cargo build --release -p bedrock-client --locked `
     --manifest-path .local/comparison/opaque-base/Cargo.toml `
     --target-dir .local/comparison/opaque-target
-  cargo run --manifest-path .local/comparison/opaque-base/Cargo.toml -p assets --bin assetc -- `
+  cargo run --manifest-path .local/comparison/opaque-base/Cargo.toml -p asset-compiler --bin assetc -- `
     compile --pack .local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack `
     --registry .local/comparison/opaque-base/crates/assets/data/block-registry-v1001.bin `
     --out .local/comparison/opaque-base.mcbea

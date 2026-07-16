@@ -2,7 +2,7 @@
 mod liquid_shader_contract;
 
 use liquid_shader_contract::LiquidShaderContract;
-use render::Face;
+use meshing::Face;
 
 const SHADER: &str = include_str!("../src/liquid.wgsl");
 

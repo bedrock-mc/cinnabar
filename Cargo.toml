@@ -1,13 +1,17 @@
 [workspace]
 members = [
     "app",
+    "crates/asset-compiler",
     "crates/assets",
     "crates/bridge",
+    "crates/client-world",
+    "crates/meshing",
     "crates/protocol",
     "crates/render",
     "crates/sim",
     "crates/world",
     "tools/visualcoverage",
+    "tools/architecture",
 ]
 resolver = "3"
 

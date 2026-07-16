@@ -1,0 +1,184 @@
+use std::collections::HashMap;
+
+use protocol::{
+    ActorAttribute, ActorEvent, ActorKind, ActorMetadataValue, ActorMoveEvent, ActorProperty,
+    ActorSpawnEvent, MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_PROPERTIES,
+    MAX_PLAYER_LIST_SKIN_BYTES, MovePlayerEvent, PlayerListEntry, PlayerSkin,
+    PlayerSkinUnavailable,
+};
+
+pub(crate) const MAX_TRACKED_ACTORS: usize = 8_192;
+pub(crate) const MAX_TRACKED_PLAYERS: usize = 4_096;
+pub(crate) const MAX_TRACKED_PLAYER_SKIN_BYTES: usize = MAX_PLAYER_LIST_SKIN_BYTES;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ActorApplyResult {
+    Inserted,
+    Replaced,
+    Updated,
+    Removed,
+    Reset,
+    MissingActor,
+    CapacityRejected,
+    StaleSession,
+    StaleSequence,
+    StaleDimension,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActorSnapshot {
+    pub unique_id: i64,
+    pub runtime_id: u64,
+    pub spawn_revision: u64,
+    pub movement_revision: u64,
+    pub kind: ActorKind,
+    pub position: [f32; 3],
+    pub velocity: [f32; 3],
+    pub pitch: f32,
+    pub yaw: f32,
+    pub head_yaw: f32,
+    pub body_yaw: f32,
+    pub on_ground: Option<bool>,
+    pub teleported: bool,
+    pub metadata: HashMap<i32, ActorMetadataValue>,
+    pub attributes: HashMap<std::sync::Arc<str>, ActorAttribute>,
+    pub int_properties: HashMap<i32, i32>,
+    pub float_properties: HashMap<i32, f32>,
+}
+
+impl ActorSnapshot {
+    fn from_spawn(spawn: ActorSpawnEvent, spawn_revision: u64) -> Self {
+        let mut snapshot = Self {
+            unique_id: spawn.unique_id,
+            runtime_id: spawn.runtime_id,
+            spawn_revision,
+            movement_revision: 0,
+            kind: spawn.kind,
+            position: spawn.position,
+            velocity: spawn.velocity,
+            pitch: spawn.pitch,
+            yaw: spawn.yaw,
+            head_yaw: spawn.head_yaw,
+            body_yaw: spawn.body_yaw,
+            on_ground: None,
+            teleported: false,
+            metadata: HashMap::with_capacity(spawn.metadata.len()),
+            attributes: HashMap::with_capacity(spawn.attributes.len()),
+            int_properties: HashMap::new(),
+            float_properties: HashMap::new(),
+        };
+        snapshot.apply_metadata(&spawn.metadata);
+        snapshot.apply_attributes(&spawn.attributes);
+        snapshot.apply_properties(&spawn.properties);
+        snapshot
+    }
+
+    fn apply_metadata(&mut self, metadata: &[protocol::ActorMetadata]) -> bool {
+        let mut rejected = false;
+        for metadata in metadata {
+            if self.metadata.len() >= MAX_ACTOR_METADATA_ENTRIES
+                && !self.metadata.contains_key(&metadata.key)
+            {
+                rejected = true;
+                continue;
+            }
+            self.metadata.insert(metadata.key, metadata.value.clone());
+        }
+        rejected
+    }
+
+    fn apply_attributes(&mut self, attributes: &[ActorAttribute]) -> bool {
+        let mut rejected = false;
+        for attribute in attributes {
+            if self.attributes.len() >= MAX_ACTOR_ATTRIBUTES
+                && !self.attributes.contains_key(&attribute.name)
+            {
+                rejected = true;
+                continue;
+            }
+            self.attributes
+                .insert(attribute.name.clone(), attribute.clone());
+        }
+        rejected
+    }
+
+    fn apply_properties(&mut self, properties: &[ActorProperty]) -> bool {
+        let mut rejected = false;
+        for property in properties {
+            match *property {
+                ActorProperty::Int { index, value } => {
+                    if !self.int_properties.contains_key(&index)
+                        && !self.float_properties.contains_key(&index)
+                        && self.int_properties.len() + self.float_properties.len()
+                            >= MAX_ACTOR_PROPERTIES
+                    {
+                        rejected = true;
+                        continue;
+                    }
+                    self.float_properties.remove(&index);
+                    self.int_properties.insert(index, value);
+                }
+                ActorProperty::Float { index, value } => {
+                    if !self.float_properties.contains_key(&index)
+                        && !self.int_properties.contains_key(&index)
+                        && self.int_properties.len() + self.float_properties.len()
+                            >= MAX_ACTOR_PROPERTIES
+                    {
+                        rejected = true;
+                        continue;
+                    }
+                    self.int_properties.remove(&index);
+                    self.float_properties.insert(index, value);
+                }
+            }
+        }
+        rejected
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlayerProfile {
+    pub unique_id: i64,
+    pub username: std::sync::Arc<str>,
+    pub verified: bool,
+    pub skin: PlayerSkin,
+}
+
+/// Sparse, session-scoped actor state. It owns no render or chunk-mesh state.
+#[derive(Debug)]
+pub(crate) struct ActorStore {
+    session_id: u64,
+    dimension: i32,
+    latest_sequence: u64,
+    max_actors: usize,
+    max_players: usize,
+    max_player_skin_bytes: usize,
+    retained_player_skin_bytes: usize,
+    actors: HashMap<u64, ActorSnapshot>,
+    unique_to_runtime: HashMap<i64, u64>,
+    players: HashMap<[u8; 16], PlayerProfile>,
+}
+
+mod lifecycle;
+mod query;
+
+fn retained_skin_bytes(skin: &PlayerSkin) -> usize {
+    match skin {
+        PlayerSkin::Standard(skin) => skin.rgba8.len(),
+        PlayerSkin::Unavailable(_) => 0,
+    }
+}
+
+fn event_dimension(event: &ActorEvent) -> Option<i32> {
+    match event {
+        ActorEvent::Spawn(event) => Some(event.dimension),
+        ActorEvent::Remove(event) => Some(event.dimension),
+        ActorEvent::Move(event) => Some(event.dimension),
+        ActorEvent::Metadata(event) => Some(event.dimension),
+        ActorEvent::Attributes(event) => Some(event.dimension),
+        ActorEvent::PlayerList(_) => None,
+    }
+}
+
+#[cfg(test)]
+mod tests;

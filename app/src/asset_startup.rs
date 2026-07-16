@@ -13,14 +13,14 @@ use thiserror::Error;
 
 use crate::metrics::AssetMetrics;
 
-pub const ASSET_PATH_ENVIRONMENT: &str = "RUST_MCBE_ASSETS";
+pub const ASSET_PATH_ENVIRONMENT: &str = crate::acceptance::markers::ASSETS;
 pub const DEFAULT_ASSET_PATH: &str = ".local/assets/compiled/vanilla-v1001.mcbea";
 pub const ATMOSPHERE_FILENAME: &str = "vanilla-v1.mcbeatm";
 pub const ATMOSPHERE_COMPILE_COMMAND: &str = "make atmosphere-assets";
 pub const FETCH_COMMAND: &str =
     "powershell -NoProfile -File scripts/fetch-vanilla-assets.ps1 -AcceptEula";
 pub const COMPILE_COMMAND: &str = concat!(
-    "cargo run -p assets --bin assetc -- compile ",
+    "cargo run -p asset-compiler --bin assetc -- compile ",
     "--pack .local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack ",
     "--registry crates/assets/data/block-registry-v1001.bin ",
     "--light-registry crates/assets/data/block-light-registry-v1001.bin ",
