@@ -587,7 +587,8 @@ impl NetworkSequencer {
                 WorldEvent::Actor(protocol::ActorEvent::Move(protocol::ActorMoveEvent {
                     dimension: self.current_dimension,
                     runtime_id: movement.runtime_id,
-                    position: movement.feet_position().map(Some),
+                    position: movement.position.map(Some),
+                    position_origin: protocol::ActorPositionOrigin::NetworkOffset,
                     pitch: Some(movement.pitch),
                     yaw: Some(movement.yaw),
                     head_yaw: Some(movement.head_yaw),

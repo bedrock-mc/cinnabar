@@ -89,9 +89,21 @@ impl ActorStore {
                     return ActorApplyResult::MissingActor;
                 };
                 let mut received = actor.received_pose;
-                for (target, source) in received.position.iter_mut().zip(movement.position) {
+                let player_network_position = movement.position_origin
+                    == ActorPositionOrigin::NetworkOffset
+                    && matches!(actor.kind, ActorKind::Player { .. });
+                for (axis, (target, source)) in received
+                    .position
+                    .iter_mut()
+                    .zip(movement.position)
+                    .enumerate()
+                {
                     if let Some(source) = source {
-                        *target = source;
+                        *target = if player_network_position && axis == 1 {
+                            source - PLAYER_NETWORK_OFFSET
+                        } else {
+                            source
+                        };
                     }
                 }
                 if let Some(value) = movement.pitch {
@@ -263,6 +275,7 @@ impl ActorStore {
                 dimension,
                 runtime_id: movement.runtime_id,
                 position: movement.position.map(Some),
+                position_origin: ActorPositionOrigin::NetworkOffset,
                 pitch: Some(movement.pitch),
                 yaw: Some(movement.yaw),
                 head_yaw: Some(movement.head_yaw),

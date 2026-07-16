@@ -1,6 +1,6 @@
 use protocol::{
-    ActorEvent, ActorKind, ActorMetadataValue, ActorProperty, PlayerListEntry, PlayerSkin,
-    PlayerSkinUnavailable, StandardSkin, WorldEvent, into_world_event,
+    ActorEvent, ActorKind, ActorMetadataValue, ActorPositionOrigin, ActorProperty, PlayerListEntry,
+    PlayerSkin, PlayerSkinUnavailable, StandardSkin, WorldEvent, into_world_event,
 };
 use valentine::bedrock::version::v1_26_30::{
     AddEntityPacket, AddPlayerPacket, DeltaMoveFlags, EntityProperties, EntityPropertiesFloatsItem,
@@ -123,8 +123,12 @@ fn absolute_and_delta_actor_moves_normalize_to_partial_transform_updates() {
     .into();
     let delta = MoveEntityDeltaPacket {
         runtime_entity_id: 55,
-        flags: DeltaMoveFlags::HAS_X | DeltaMoveFlags::HAS_ROT_Y | DeltaMoveFlags::ON_GROUND,
+        flags: DeltaMoveFlags::HAS_X
+            | DeltaMoveFlags::HAS_Y
+            | DeltaMoveFlags::HAS_ROT_Y
+            | DeltaMoveFlags::ON_GROUND,
         x: Some(7.5),
+        y: Some(8.25),
         rot_y: Some(192),
         ..Default::default()
     }
@@ -137,6 +141,7 @@ fn absolute_and_delta_actor_moves_normalize_to_partial_transform_updates() {
     };
     assert_eq!(absolute.runtime_id, 55);
     assert_eq!(absolute.position, [Some(4.0), Some(5.0), Some(6.0)]);
+    assert_eq!(absolute.position_origin, ActorPositionOrigin::NetworkOffset);
     assert_eq!(absolute.yaw, Some(90.0));
     assert_eq!(absolute.pitch, Some(45.0));
     assert_eq!(absolute.head_yaw, Some(180.0));
@@ -148,7 +153,8 @@ fn absolute_and_delta_actor_moves_normalize_to_partial_transform_updates() {
     else {
         panic!("expected delta actor move")
     };
-    assert_eq!(delta.position, [Some(7.5), None, None]);
+    assert_eq!(delta.position, [Some(7.5), Some(8.25), None]);
+    assert_eq!(delta.position_origin, ActorPositionOrigin::Feet);
     assert_eq!(delta.yaw, Some(270.0));
     assert_eq!(delta.pitch, None);
     assert_eq!(delta.on_ground, Some(true));

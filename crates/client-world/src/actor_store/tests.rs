@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use protocol::{
     ActorAttribute, ActorAttributesUpdateEvent, ActorEvent, ActorKind, ActorMetadata,
-    ActorMetadataUpdateEvent, ActorMetadataValue, ActorMoveEvent, ActorProperty, ActorRemoveEvent,
-    ActorSpawnEvent, PlayerListEntry, PlayerListUpdateEvent, PlayerSkin, PlayerSkinUnavailable,
-    StandardSkin,
+    ActorMetadataUpdateEvent, ActorMetadataValue, ActorMoveEvent, ActorPositionOrigin,
+    ActorProperty, ActorRemoveEvent, ActorSpawnEvent, PLAYER_NETWORK_OFFSET, PlayerListEntry,
+    PlayerListUpdateEvent, PlayerSkin, PlayerSkinUnavailable, StandardSkin,
 };
 
 use super::{ActorApplyResult, ActorStore};
@@ -46,6 +46,7 @@ fn player_move(runtime_id: u64, x: f32, teleported: bool) -> ActorEvent {
         dimension: 0,
         runtime_id,
         position: [Some(x), None, None],
+        position_origin: ActorPositionOrigin::Feet,
         pitch: Some(0.0),
         yaw: Some(0.0),
         head_yaw: Some(0.0),
@@ -58,6 +59,111 @@ fn player_move(runtime_id: u64, x: f32, teleported: bool) -> ActorEvent {
         }),
         source_tick: Some(10),
     })
+}
+
+#[test]
+fn player_network_position_is_normalized_to_spawn_feet_space() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, player_spawn(42, -7, 0.0));
+    store.apply(
+        1,
+        2,
+        ActorEvent::Move(ActorMoveEvent {
+            dimension: 0,
+            runtime_id: 42,
+            position: [Some(1.0), Some(64.0 + PLAYER_NETWORK_OFFSET), Some(2.0)],
+            position_origin: ActorPositionOrigin::NetworkOffset,
+            pitch: None,
+            yaw: None,
+            head_yaw: None,
+            on_ground: Some(true),
+            teleported: false,
+            player_mode: None,
+            source_tick: None,
+        }),
+    );
+
+    let actor = store.get(42).expect("stored player");
+    assert!((actor.received_pose.position[1] - 64.0).abs() < 1e-5);
+}
+
+#[test]
+fn player_delta_y_is_not_shifted_like_a_network_position() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, player_spawn(42, -7, 0.0));
+    store.apply(
+        1,
+        2,
+        ActorEvent::Move(ActorMoveEvent {
+            dimension: 0,
+            runtime_id: 42,
+            position: [None, Some(64.5), None],
+            position_origin: ActorPositionOrigin::Feet,
+            pitch: None,
+            yaw: None,
+            head_yaw: None,
+            on_ground: Some(false),
+            teleported: true,
+            player_mode: None,
+            source_tick: None,
+        }),
+    );
+
+    assert_eq!(store.get(42).expect("stored player").position[1], 64.5);
+}
+
+#[test]
+fn non_player_network_position_is_unchanged_without_entity_offset_metadata() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, spawn(42, -7));
+    store.apply(
+        1,
+        2,
+        ActorEvent::Move(ActorMoveEvent {
+            dimension: 0,
+            runtime_id: 42,
+            position: [None, Some(10.621), None],
+            position_origin: ActorPositionOrigin::NetworkOffset,
+            pitch: None,
+            yaw: None,
+            head_yaw: None,
+            on_ground: Some(true),
+            teleported: true,
+            player_mode: None,
+            source_tick: None,
+        }),
+    );
+
+    assert_eq!(store.get(42).expect("stored entity").position[1], 10.621);
+}
+
+#[test]
+fn player_network_teleport_snaps_to_feet_space() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, player_spawn(42, -7, 0.0));
+    store.apply(
+        1,
+        2,
+        ActorEvent::Move(ActorMoveEvent {
+            dimension: 0,
+            runtime_id: 42,
+            position: [Some(3.0), Some(100.0 + PLAYER_NETWORK_OFFSET), Some(4.0)],
+            position_origin: ActorPositionOrigin::NetworkOffset,
+            pitch: None,
+            yaw: None,
+            head_yaw: None,
+            on_ground: Some(true),
+            teleported: true,
+            player_mode: None,
+            source_tick: None,
+        }),
+    );
+
+    let actor = store.get(42).expect("stored player");
+    assert_eq!(actor.previous_pose.position, [3.0, 100.0, 4.0]);
+    assert_eq!(actor.position, [3.0, 100.0, 4.0]);
+    assert_eq!(actor.received_pose.position, [3.0, 100.0, 4.0]);
+    assert_eq!(actor.interpolation_ticks_remaining, 0);
 }
 
 #[test]
@@ -153,6 +259,7 @@ fn actor_lifecycle_applies_fifo_patches_and_removes_by_unique_id() {
                 dimension: 0,
                 runtime_id: 42,
                 position: [Some(9.0), None, Some(8.0)],
+                position_origin: ActorPositionOrigin::Feet,
                 pitch: Some(10.0),
                 yaw: None,
                 head_yaw: None,
@@ -236,6 +343,7 @@ fn consecutive_teleport_packets_retain_distinct_movement_revisions() {
             dimension: 0,
             runtime_id: 42,
             position: [Some(x), None, None],
+            position_origin: ActorPositionOrigin::Feet,
             pitch: None,
             yaw: None,
             head_yaw: None,

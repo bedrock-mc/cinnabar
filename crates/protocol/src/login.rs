@@ -424,6 +424,7 @@ mod tests {
                 dimension: 2,
                 runtime_id,
                 position: [Some(12.5), Some(64.25), Some(-7.75)],
+                position_origin: crate::ActorPositionOrigin::NetworkOffset,
                 pitch: Some(45.0),
                 yaw: Some(90.0),
                 head_yaw: Some(180.0),
