@@ -261,6 +261,18 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     radius/weight evidence was available; keep this checkbox open until a native
     abrupt-boundary reference fixes or confirms the kernel and the live
     performance/visual gate passes.
+    **Committed diagnostic contract complete (2026-07-16):** the provisional
+    radius, nine-sample count, and denominator are now one explicit CPU/WGSL
+    contract over fixed-size packed records, with cross-chunk diagonal samples
+    and exact missing-neighbour edge clamping. Acceptance-only
+    `BIOME_BLEND_COMMITTED stage=app_committed` telemetry is sourced from the
+    immutable camera-subchunk `ChunkRenderInstance` record after world apply and
+    binds its key, chunk generation, tint identity/revision, full-record hash,
+    local coordinate, and exact sample set. Unchanged identities are deduplicated
+    so stationary runs cannot grow logs. This is deliberately not labeled
+    GPU-presented evidence. Independent review and full affected tests/strict
+    checks are green through merge `a0f08d9`; the native abrupt-boundary and live
+    performance/visual adjudication remain the only completion gate.
 - [ ] **2.6 Static/non-cube models, blend/water, and flipbooks.** Complete the
   remaining block visual classes and animation path per
   `docs/superpowers/specs/2026-07-11-phase-2-6-noncube-water-design.md`.

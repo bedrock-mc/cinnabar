@@ -21,6 +21,10 @@ forbidden_artifacts = [
 path = "app/tests/assets.rs"
 max = 1355
 
+[[line_baselines]]
+path = "app/src/tests/finish.rs"
+max = 1232
+
 [[vendored]]
 path = "crates/protocol/vendor/"
 ownership_record = "crates/protocol/vendor/UPSTREAM.md"
