@@ -576,7 +576,7 @@ Expected: all commands pass. Windows-only PowerShell/native acceptance is report
 
 Review the complete branch against the design spec, dependency policy, test preservation, public API cleanliness, and file ownership. Fix every Critical and Important finding; rerun affected tests. Do not begin a second review loop unless a fix changes production behavior.
 
-- [ ] **Step 3: Rebase onto current remote base without force-pushing**
+- [x] **Step 3: Rebase onto current remote base without force-pushing**
 
 ```bash
 git fetch origin phase2-textures
