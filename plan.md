@@ -1145,8 +1145,17 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     a parsed-CLI-to-encoded-report test through the production command handler,
     environment-gated installed-input acceptance, the full assets suite, app asset
     suite, strict relevant Clippy, formatting, and diff checks are green;
-    transparent composition, directional lighting, calibration, and live parity
-    acceptance remain open in the native-cloud plan.
+    calibration and live parity acceptance remain open in the native-cloud plan.
+  - [x] Replace opaque/depth-writing finite clouds with one transparent sorted
+    render item using alpha blending, reversed-Z depth testing without depth
+    writes, exact sequential rain/thunder colour contributions, real sun-vector
+    directional lighting, bounded distance-fog alpha, and deterministic negative
+    coordinate wrapping. Empty/sub-threshold alpha emits no geometry, GPU records
+    and bind groups remain immutable, and collapsed/reversed/non-finite fog ranges
+    fail to finite deterministic alpha. Focused meshing/render tests, WGSL/Naga
+    validation, strict Clippy, formatting, independent review, and post-merge
+    verification are green through `87e856f`; native geometry scale/density and
+    above/below/within/grazing visual acceptance remain open.
   - [x] Resolve the camera-eye medium directly from palette-native liquid
     contributors, including secondary waterlogged layers, and use the exact
     two-triangle surface drawn by the shared quad index buffer for the air/water
@@ -1444,6 +1453,9 @@ store it only under the user's temporary directory, inspect that file, and never
     and the opaque, depth-writing, fixed-face shader contradicts native
     transparent, directional-light, and exact weather-colour inputs. Exact
     native cloud bytes remain local build inputs and must never be committed.
+    The opaque/depth-writing/material mismatch is resolved through `87e856f`;
+    native mesh size, quality/distance controls, density, scale, thickness,
+    silhouette, and live gallery acceptance remain open.
   - [ ] Implement, independently review, and live-verify the finite cloud mesh.
 
 ## Phase 3 — Movement and the local player
@@ -1510,8 +1522,11 @@ and dropped-item rendering, paper-doll first-person arm/held item.
   persona, malformed, or retained-budget-exhausted data; `AddPlayer` UUIDs join those roster
   profiles to the sparse actor store, whose cumulative retained skin bytes remain capped across
   incremental roster packets. Foreign `MovePlayer` metadata preserves head yaw, ground state,
-  mode, and signed source tick while converting its eye-space position to the feet-space actor
-  origin. The client-world store performs Oomph-style three-20-Hz-tick player convergence;
+  mode, and signed source tick while retaining explicit packet-coordinate origin. `AddPlayer`
+  remains feet-space, while `MovePlayer` and absolute actor movement are normalized exactly once
+  from Bedrock's `1.621` player network offset after the retained actor is known to be a player;
+  partial/delta movement and non-player actors are unchanged. The client-world store performs
+  Oomph-style three-20-Hz-tick player convergence;
   teleports and actor replacement snap immediately, and the renderer performs the distinct
   adjacent-tick frame interpolation with shortest-path angles. Camera-frustum and conservative
   192-block distance culling happen before the runtime-ID-ordered 128-instance upload cap, so
@@ -1526,6 +1541,9 @@ and dropped-item rendering, paper-doll first-person arm/held item.
   legacy 64x32 skins, outer skin layers, limb animation/Molang, name tags, equipment, mobs/items,
   first-person visuals, live render-pipeline creation on a hardware backend, and multi-client
   visual evidence remain open Phase 4 work.
+  The complete absolute-movement origin correction, regression suite, independent review, and
+  post-merge protocol/client-world/app verification are green through `3b7eb30`; the LBSG live
+  ground-contact witness remains open under 4.4.
 
 - [ ] **4.3 Data-driven Bedrock entity rigs and animation.** Ingest the pinned
   vanilla resource pack's `entity`, `models/entity`, `animations`,
@@ -1543,8 +1561,8 @@ and dropped-item rendering, paper-doll first-person arm/held item.
   remote player's spawn, ordinary movement, rotation, and teleport, and prove
   that AddPlayer/MovePlayer origins, three-tick convergence, frame
   interpolation, and the shared biped model keep both feet on the same ground
-  plane without a 1.6-block jump. Keep Oomph's remote MovePlayer eye-to-feet
-  offset (`1.62`) distinct from its prediction-correction position (`1.621`).
+  plane without a 1.6-block jump. Keep the visual standing eye height (`1.62`)
+  distinct from Bedrock's player movement network offset (`1.621`).
   Capture bounded native visual and packet/pose evidence.
 
 ## Phase 5 — Interaction, inventory, UI
