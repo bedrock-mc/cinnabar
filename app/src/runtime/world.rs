@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use assets::{DIAGNOSTIC_MATERIAL, RuntimeAssets};
+use assets::RuntimeAssets;
 use bevy::{
     app::AppExit,
     ecs::system::SystemParam,
@@ -402,13 +402,7 @@ pub(crate) fn drive_world_stream(
                     generation,
                     dirty_since,
                 } => {
-                    let diagnostic_count = u64::try_from(
-                        mesh.quads()
-                            .iter()
-                            .filter(|quad| quad.material_id() == DIAGNOSTIC_MATERIAL)
-                            .count(),
-                    )
-                    .unwrap_or(u64::MAX);
+                    let diagnostic_geometry = mesh.diagnostic_geometry().clone();
                     match render_queue.try_update_tracked_with_biome_identity(
                         key,
                         mesh,
@@ -421,7 +415,7 @@ pub(crate) fn drive_world_stream(
                         },
                     ) {
                         Ok(()) => {
-                            diagnostic_quads.0.upsert(key, diagnostic_count);
+                            diagnostic_quads.0.upsert(key, diagnostic_geometry);
                             None
                         }
                         Err((mesh, biome)) => Some(WorldMeshChange::Upsert {

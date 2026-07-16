@@ -124,6 +124,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
     let masks = VisibilityMasks::from_facts(&facts);
     let mut quads = Vec::new();
     let mut cube_lighting = Vec::new();
+    let mut diagnostic_geometry = DiagnosticGeometryAccumulator::default();
     for face in Face::ALL {
         let columns = exposed_columns(
             *classifier,
@@ -163,8 +164,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                 slice,
                 &mut rows,
                 &lighting_scratch,
-                &mut quads,
-                &mut cube_lighting,
+                &mut CubeMeshOutput::new(&mut quads, &mut cube_lighting, &mut diagnostic_geometry),
             );
         }
     }
@@ -359,6 +359,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
         cube_streams: Box::new(CubeStreams {
             cube_quads: quads.into_boxed_slice(),
             cube_lighting: cube_lighting.into_boxed_slice(),
+            diagnostic_geometry: diagnostic_geometry.finish(),
         }),
         model_refs: model_refs.into_boxed_slice(),
         model_lighting: model_lighting.into_boxed_slice(),
@@ -387,7 +388,10 @@ use super::{
         PaletteResolutionContext, adjacent_palette_entry, is_kelp_entry, model_quad_cull_face,
         model_template_flags, select_model_templates,
     },
-    opaque::{VisibilityMasks, block_coordinate, exposed_columns, face_offset, greedy_slice},
+    opaque::{
+        CubeMeshOutput, DiagnosticGeometryAccumulator, VisibilityMasks, block_coordinate,
+        exposed_columns, face_offset, greedy_slice,
+    },
 };
 use crate::{
     BlockClassifier, ChunkMesh, Face, Neighbourhood, PackedModelDrawRef, PackedModelRef,

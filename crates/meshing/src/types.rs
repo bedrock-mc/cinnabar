@@ -4,6 +4,143 @@ use crate::SIDE;
 
 const CONNECTIVITY_MASK: u64 = (1_u64 << (Face::ALL.len() * Face::ALL.len())) - 1;
 
+/// Maximum number of exact diagnostic identities retained by one sub-chunk mesh.
+pub const MAX_DIAGNOSTIC_IDENTITIES_PER_MESH: usize = 16;
+
+/// One raw network identity responsible for actually emitted diagnostic quads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DiagnosticGeometryCount {
+    sequential_id: Option<u32>,
+    network_id: u32,
+    quad_count: u32,
+}
+
+impl DiagnosticGeometryCount {
+    #[must_use]
+    pub const fn new(sequential_id: Option<u32>, network_id: u32, quad_count: u32) -> Self {
+        Self {
+            sequential_id,
+            network_id,
+            quad_count,
+        }
+    }
+
+    #[must_use]
+    pub const fn sequential_id(self) -> Option<u32> {
+        self.sequential_id
+    }
+
+    #[must_use]
+    pub const fn network_id(self) -> u32 {
+        self.network_id
+    }
+
+    #[must_use]
+    pub const fn quad_count(self) -> u32 {
+        self.quad_count
+    }
+}
+
+/// Bounded deterministic attribution attached to one packed chunk mesh.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DiagnosticGeometrySummary {
+    entries: Box<[DiagnosticGeometryCount]>,
+    omitted_identity_count: u32,
+    omitted_quad_count: u64,
+}
+
+impl DiagnosticGeometrySummary {
+    /// Aggregates a palette-bounded identity stream and retains its exact top set.
+    /// Callers should pre-aggregate repeated identities; inputs beyond the
+    /// maximum possible sub-chunk palette cardinality are folded into the
+    /// omitted counters without growing memory.
+    #[must_use]
+    pub fn from_counts(counts: impl IntoIterator<Item = DiagnosticGeometryCount>) -> Self {
+        use std::collections::BTreeMap;
+
+        let mut aggregated = BTreeMap::<(Option<u32>, u32), u64>::new();
+        let mut overflow_identity_count = 0_u32;
+        let mut overflow_quad_count = 0_u64;
+        for count in counts {
+            if count.quad_count == 0 {
+                continue;
+            }
+            let key = (count.sequential_id, count.network_id);
+            if let Some(total) = aggregated.get_mut(&key) {
+                *total = total.saturating_add(u64::from(count.quad_count));
+            } else if aggregated.len() < world::MAX_PALETTE_ENTRIES {
+                aggregated.insert(key, u64::from(count.quad_count));
+            } else {
+                overflow_identity_count = overflow_identity_count.saturating_add(1);
+                overflow_quad_count =
+                    overflow_quad_count.saturating_add(u64::from(count.quad_count));
+            }
+        }
+        let mut entries = aggregated
+            .into_iter()
+            .map(|((sequential_id, network_id), quad_count)| {
+                DiagnosticGeometryCount::new(
+                    sequential_id,
+                    network_id,
+                    u32::try_from(quad_count).unwrap_or(u32::MAX),
+                )
+            })
+            .collect::<Vec<_>>();
+        entries.sort_unstable_by(|left, right| {
+            right
+                .quad_count
+                .cmp(&left.quad_count)
+                .then_with(|| {
+                    left.sequential_id
+                        .unwrap_or(u32::MAX)
+                        .cmp(&right.sequential_id.unwrap_or(u32::MAX))
+                })
+                .then_with(|| left.network_id.cmp(&right.network_id))
+        });
+        let omitted = entries.split_off(entries.len().min(MAX_DIAGNOSTIC_IDENTITIES_PER_MESH));
+        Self {
+            entries: entries.into_boxed_slice(),
+            omitted_identity_count: overflow_identity_count
+                .saturating_add(u32::try_from(omitted.len()).unwrap_or(u32::MAX)),
+            omitted_quad_count: overflow_quad_count.saturating_add(
+                omitted
+                    .iter()
+                    .map(|count| u64::from(count.quad_count))
+                    .sum(),
+            ),
+        }
+    }
+
+    #[must_use]
+    pub fn entries(&self) -> &[DiagnosticGeometryCount] {
+        &self.entries
+    }
+
+    #[must_use]
+    pub const fn omitted_identity_count(&self) -> u32 {
+        self.omitted_identity_count
+    }
+
+    #[must_use]
+    pub const fn omitted_quad_count(&self) -> u64 {
+        self.omitted_quad_count
+    }
+
+    #[must_use]
+    pub fn total_quad_count(&self) -> u64 {
+        self.entries
+            .iter()
+            .map(|count| u64::from(count.quad_count))
+            .sum::<u64>()
+            .saturating_add(self.omitted_quad_count)
+    }
+
+    pub(crate) fn add_omitted(&mut self, identity_count: u32, quad_count: u64) {
+        self.omitted_identity_count = self.omitted_identity_count.saturating_add(identity_count);
+        self.omitted_quad_count = self.omitted_quad_count.saturating_add(quad_count);
+    }
+}
+
 /// Axis-aligned face identifiers used by packed quads and cave connectivity.
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -491,6 +628,7 @@ pub struct ChunkMesh {
 pub(crate) struct CubeStreams {
     pub(crate) cube_quads: Box<[PackedQuad]>,
     pub(crate) cube_lighting: Box<[PackedQuadLighting]>,
+    pub(crate) diagnostic_geometry: DiagnosticGeometrySummary,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -581,6 +719,7 @@ impl ChunkMesh {
             cube_streams: Box::new(CubeStreams {
                 cube_quads: cube_quads.into_boxed_slice(),
                 cube_lighting: cube_lighting.into_boxed_slice(),
+                diagnostic_geometry: DiagnosticGeometrySummary::default(),
             }),
             model_refs: model_refs.into_boxed_slice(),
             model_lighting: model_lighting.into_boxed_slice(),
@@ -669,6 +808,11 @@ impl ChunkMesh {
     }
 
     #[must_use]
+    pub const fn diagnostic_geometry(&self) -> &DiagnosticGeometrySummary {
+        &self.cube_streams.diagnostic_geometry
+    }
+
+    #[must_use]
     pub fn into_quads(self) -> Box<[PackedQuad]> {
         self.cube_streams.cube_quads
     }
@@ -678,6 +822,7 @@ impl ChunkMesh {
         let CubeStreams {
             cube_quads,
             cube_lighting,
+            ..
         } = *self.cube_streams;
         let ModelDrawRefs {
             opaque,

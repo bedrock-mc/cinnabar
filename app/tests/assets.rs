@@ -22,8 +22,9 @@ use bedrock_client::asset_startup::{
     atmosphere_shader_source_sha256, cloud_shader_source_sha256, load_runtime_assets,
     select_asset_path, select_asset_path_in_context,
 };
-use bedrock_client::metrics::{DiagnosticQuadTracker, MetricsCollector};
+use bedrock_client::metrics::{DIAGNOSTIC_TOP_LIMIT, DiagnosticQuadTracker, MetricsCollector};
 use client_world::{BackingBlockIdentity, BlockEntityVisualRoute, adjudicate_block_entity_visual};
+use meshing::{DiagnosticGeometryCount, DiagnosticGeometrySummary};
 use sha2::{Digest, Sha256};
 
 fn temporary_directory(label: &str) -> PathBuf {
@@ -703,10 +704,25 @@ fn asset_metrics_flow_into_json_and_the_world_ready_marker() {
     let loaded = load_runtime_assets(select_asset_path(Some(&path), None)).unwrap();
     let mut collector = MetricsCollector::with_asset_metrics(loaded.metrics);
     collector.record_asset_counters(7, 11);
+    let mut diagnostics = DiagnosticQuadTracker::default();
+    diagnostics.upsert(
+        world::SubChunkKey::new(0, 1, 2, 3),
+        DiagnosticGeometrySummary::from_counts([DiagnosticGeometryCount::new(
+            Some(54),
+            537_536_753,
+            6,
+        )]),
+    );
+    collector.record_diagnostic_attribution(diagnostics.snapshot());
 
     let report = collector.report();
     assert_eq!(report.assets.missing_mapping_count, 7);
     assert_eq!(report.assets.diagnostic_quad_count, 11);
+    assert_eq!(report.assets.diagnostic_attribution.total_quad_count, 6);
+    assert_eq!(
+        report.assets.diagnostic_attribution.top[0].name,
+        "minecraft:leaf_litter"
+    );
     let marker = report.assets.world_ready_marker(19, 17);
     assert!(marker.starts_with("WORLD_READY "));
     let expected_blob_hash = format!("blob_sha256={}", report.assets.blob_sha256);
@@ -716,6 +732,10 @@ fn asset_metrics_flow_into_json_and_the_world_ready_marker() {
         "source_sha256=12d5cddc03acd507e9e0bd412f2e94d34d0a1a855758af7a9eef61b03630ad7c",
         "resident_sub_chunks=19",
         "visible_sub_chunks=17",
+        "diagnostic_attribution_total=6",
+        "diagnostic_attribution_top=54|0x200a28f1|minecraft:leaf_litter|6",
+        "diagnostic_attribution_omitted_identities=0",
+        "diagnostic_attribution_omitted_quads=0",
     ] {
         assert!(marker.contains(expected), "{marker}");
     }
@@ -729,20 +749,84 @@ fn diagnostic_quad_tracker_keeps_the_current_resident_total() {
     let second = world::SubChunkKey::new(0, 4, 5, 6);
     let mut tracker = DiagnosticQuadTracker::default();
 
-    tracker.upsert(first, 9);
-    tracker.upsert(second, 4);
+    tracker.upsert(
+        first,
+        DiagnosticGeometrySummary::from_counts([DiagnosticGeometryCount::new(Some(54), 54, 9)]),
+    );
+    tracker.upsert(
+        second,
+        DiagnosticGeometrySummary::from_counts([DiagnosticGeometryCount::new(
+            Some(0),
+            973_836_165,
+            4,
+        )]),
+    );
     assert_eq!(tracker.total(), 13);
 
-    tracker.upsert(first, 2);
+    tracker.upsert(
+        first,
+        DiagnosticGeometrySummary::from_counts([DiagnosticGeometryCount::new(
+            Some(0),
+            973_836_165,
+            2,
+        )]),
+    );
     assert_eq!(tracker.total(), 6);
+    let snapshot = tracker.snapshot();
+    assert_eq!(snapshot.top[0].sequential_id, Some(0));
+    assert_eq!(snapshot.top[0].network_id, 973_836_165);
+    assert_eq!(snapshot.top[0].name, "minecraft:cyan_terracotta");
+    assert_eq!(snapshot.top[0].quad_count, 6);
 
     tracker.remove(second);
     assert_eq!(tracker.total(), 2);
 
-    tracker.upsert(first, 0);
+    tracker.upsert(first, DiagnosticGeometrySummary::default());
     assert_eq!(tracker.total(), 0);
     tracker.remove(first);
     assert_eq!(tracker.total(), 0);
+}
+
+#[test]
+fn diagnostic_tracker_reports_hashed_identity_with_canonical_name() {
+    let key = world::SubChunkKey::new(0, 1, 2, 3);
+    let mut tracker = DiagnosticQuadTracker::default();
+    tracker.upsert(
+        key,
+        DiagnosticGeometrySummary::from_counts([DiagnosticGeometryCount::new(
+            Some(54),
+            537_536_753,
+            6,
+        )]),
+    );
+
+    let snapshot = tracker.snapshot();
+    assert_eq!(snapshot.total_quad_count, 6);
+    assert_eq!(snapshot.top.len(), 1);
+    assert_eq!(snapshot.top[0].sequential_id, Some(54));
+    assert_eq!(snapshot.top[0].network_id, 537_536_753);
+    assert_eq!(snapshot.top[0].name, "minecraft:leaf_litter");
+}
+
+#[test]
+fn diagnostic_top_reporting_is_bounded_and_deterministic() {
+    let counts = (0..DIAGNOSTIC_TOP_LIMIT + 3)
+        .rev()
+        .map(|id| DiagnosticGeometryCount::new(Some(id as u32), id as u32, 1));
+    let summary = DiagnosticGeometrySummary::from_counts(counts);
+    let mut tracker = DiagnosticQuadTracker::default();
+    tracker.upsert(world::SubChunkKey::new(0, 0, 0, 0), summary);
+
+    let snapshot = tracker.snapshot();
+    assert_eq!(snapshot.top.len(), DIAGNOSTIC_TOP_LIMIT);
+    assert_eq!(snapshot.omitted_identity_count, 3);
+    assert_eq!(snapshot.omitted_quad_count, 3);
+    assert!(
+        snapshot
+            .top
+            .windows(2)
+            .all(|pair| pair[0].sequential_id < pair[1].sequential_id)
+    );
 }
 
 #[test]

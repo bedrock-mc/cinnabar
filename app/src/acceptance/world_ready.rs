@@ -421,6 +421,9 @@ pub(crate) fn emit_world_ready(
     metrics
         .0
         .record_asset_counters(missing_mapping_count, diagnostic_quads.0.total());
+    metrics
+        .0
+        .record_diagnostic_attribution(diagnostic_quads.0.snapshot());
     let asset_marker = metrics
         .0
         .asset_metrics()

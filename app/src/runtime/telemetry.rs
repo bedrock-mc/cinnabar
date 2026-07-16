@@ -6,6 +6,7 @@ use std::{
 use bevy::{
     diagnostic::{DiagnosticPath, DiagnosticsStore},
     ecs::system::SystemParam,
+    log::info,
     prelude::{
         ButtonInput, EulerRot, KeyCode, Local, Quat, Query, Res, ResMut, Resource, Single, Time,
         Transform, Vec3, Window, With,
@@ -36,8 +37,8 @@ use crate::{
     },
     camera::{self, FlyCamera, input_is_active, movement_axes},
     metrics::{
-        GpuPassMeasurement, ModelWorkloadMetricsSnapshot, PipelineMetricsSnapshot,
-        TransparentSortMetricsSnapshot, pair_gpu_pass_sample,
+        DiagnosticQuadTracker, GpuPassMeasurement, MetricsCollector, ModelWorkloadMetricsSnapshot,
+        PipelineMetricsSnapshot, TransparentSortMetricsSnapshot, pair_gpu_pass_sample,
     },
     movement::{
         MovementInputSample, MovementSendError, MovementSource, MovementTicker,
@@ -108,6 +109,23 @@ pub(crate) struct MetricsSamplingState {
     pub(crate) last_gpu_measurement_time: Option<Instant>,
     pub(crate) visibility_elapsed: Duration,
     pub(crate) runtime_metadata_emitted: bool,
+    pub(crate) diagnostic_attribution_revision: u64,
+}
+
+pub(crate) fn refresh_diagnostic_attribution(
+    last_revision: &mut u64,
+    tracker: &DiagnosticQuadTracker,
+    metrics: &mut MetricsCollector,
+) -> Option<String> {
+    let revision = tracker.revision();
+    if *last_revision == revision {
+        return None;
+    }
+    let snapshot = tracker.snapshot();
+    let marker = format!("DIAGNOSTIC_GEOMETRY {}", snapshot.marker_fields());
+    metrics.record_diagnostic_attribution(snapshot);
+    *last_revision = revision;
+    Some(marker)
 }
 
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
@@ -318,6 +336,13 @@ pub(crate) fn record_metrics_and_title(
         client_world.runtime_assets.missing_count(),
         diagnostic_quads.0.total(),
     );
+    if let Some(marker) = refresh_diagnostic_attribution(
+        &mut sampling.diagnostic_attribution_revision,
+        &diagnostic_quads.0,
+        &mut metrics.0,
+    ) {
+        info!("{marker}");
+    }
     let visibility_snapshot = visibility_diagnostics.snapshot();
     if let Some(stream) = client_world.stream.as_ref() {
         let cohort = stream
