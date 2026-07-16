@@ -1333,6 +1333,21 @@ store it only under the user's temporary directory, inspect that file, and never
     and the final snapshot still had 148 uploads queued. The <=2-second live
     remesh/performance gate therefore remains open and is the next publication
     bottleneck.
+  - [x] Remove semantically empty work from the forced acceptance remesh. Trace
+    attribution of `20260716T003124Z-7592` proved that the old gate scheduled all
+    22,488 resident identities even though only 6,951 had published GPU
+    allocations: 14,018 known-air plus 1,519 packed-empty identities created
+    15,537 guaranteed no-mesh jobs, 69.1% of the forced cohort. The gate now
+    remeshes the teleport's complete frozen allocation manifest, never its
+    visible subset, and fails closed on empty, duplicate, stale-generation, or
+    nonresident entries. Exact cohort hashes, forced generations, full
+    allocation identity, zero contamination, and the adjacent GPU-presented
+    frame proof remain unchanged. This reduces the hard application floor from
+    88 to 55 frames; it does not yet prove the binding two-second gate. All 292
+    active client unit tests plus the 43/14/14 integration groups, strict Clippy,
+    formatting, and diff checks pass. A fresh live run must measure the new
+    floor and determine whether baseline frame rate or upload scheduling is the
+    next limiter.
 - [ ] Remove every dark rectangle/background pixel around the pinned sun and
   moon textures. The acceptance test must exercise decoded pinned pixels and
   mip/filter edges, not merely string-inspect WGSL, and must prove both bodies

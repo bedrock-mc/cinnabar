@@ -1095,16 +1095,18 @@ impl FullViewRemeshTracker {
             .iter()
             .map(|(key, _)| *key)
             .collect::<BTreeSet<_>>();
+        let binding_keys = binding
+            .expectation
+            .manifest
+            .iter()
+            .map(|(key, _)| *key)
+            .collect::<BTreeSet<_>>();
         if manifest.is_empty()
             || binding.expectation.manifest.is_empty()
             || manifest.started_at < binding.stable_frame.gpu_completed_at
             || !cohort.is_exact()
             || render_view_cohort(cohort.target) != binding.expectation.cohort
-            || !binding
-                .expectation
-                .manifest
-                .iter()
-                .all(|(key, _)| manifest_keys.contains(key))
+            || manifest_keys != binding_keys
             || self.pending.is_some()
             || self.completed.is_some()
             || self.invalidated
@@ -3040,7 +3042,14 @@ fn emit_world_ready(
             let cohort = snapshot
                 .cohort
                 .expect("teleport completion requires an exact cohort");
-            let remesh_manifest = stream.remesh_all_resident(Instant::now());
+            let Some(remesh_manifest) =
+                stream.remesh_published_manifest(&teleport.expectation.manifest, Instant::now())
+            else {
+                error!(
+                    "could not start exact full-view remesh: frozen published manifest is stale"
+                );
+                return;
+            };
             if !acceptance.full_view_remesh.start(
                 Some(&teleport),
                 cohort,
@@ -6431,6 +6440,25 @@ mod tests {
         assert!(
             presented_changed.is_invalidated(),
             "a forced-generation change in presented evidence did not invalidate the benchmark"
+        );
+    }
+
+    #[test]
+    fn forced_remesh_start_rejects_entries_outside_the_frozen_allocation_manifest() {
+        let teleport_started = Instant::now();
+        let binding = binding_teleport_completion(teleport_started, Duration::from_millis(1_500));
+        let started = teleport_started + Duration::from_millis(1_501);
+        let key = binding.expectation.manifest[0].0;
+        let extra = SubChunkKey::new(key.dimension, key.x + 1, key.y, key.z);
+        let manifest = ForcedRemeshManifest {
+            started_at: started,
+            entries: Arc::from([(key, 8), (extra, 9)]),
+        };
+
+        let mut tracker = FullViewRemeshTracker::default();
+        assert!(
+            !tracker.start(Some(&binding), exact_destination_status(), manifest, 90),
+            "forced-remesh proof must reject keys outside the frozen allocation cohort"
         );
     }
 
