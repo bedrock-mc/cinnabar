@@ -23,15 +23,20 @@ matching Bedrock 1.26.33.1 legacy cloud path while retaining compact immutable g
 `crates/assets/src/lib.rs`, `crates/assets/tests/atmosphere.rs`, `Makefile`,
 `app/tests/assets.rs`.
 
-- [ ] Add failing tests for an explicit cloud override: exact accepted SHA/dimensions, wrong
+- [x] Add failing tests for an explicit cloud override: exact accepted SHA/dimensions, wrong
   hash, wrong dimensions, oversized input, missing path, and unchanged pinned sun/moon inputs.
-- [ ] Add an options-based compiler interface and `assetc atmosphere --clouds-override PATH`.
+- [x] Add an options-based compiler interface and `assetc atmosphere --clouds-override PATH`.
   The override replaces only the cloud bytes, keeps the canonical logical source path, records
   independent hashes, and fails closed.
-- [ ] Thread a portable `CINNABAR_CLOUDS_PNG` Make variable into the atmosphere command without
+- [x] Thread a portable `CINNABAR_CLOUDS_PNG` Make variable into the atmosphere command without
   introducing a checked-in local path. Keep the existing no-override fixture path deterministic.
-- [ ] Verify focused assets tests, asset CLI tests, Make contract tests, formatting, and strict
-  Clippy. Independently review, commit, and push.
+- [x] Verify focused assets tests, asset CLI tests, Make contract tests, formatting, and strict
+  Clippy. Independently review and commit locally; the owning integration lane handles any push.
+  Normal CI uses an internal injected validation policy and pinned-reader seam to cover accepted
+  options behavior plus typed rejection with synthetic PNGs; an injected command compiler drives
+  the parsed CLI override through encoding and report publication. The public API always supplies
+  the exact native policy. The Make target conservatively rebuilds in both override and default
+  modes so changing from a set override to an empty variable cannot retain stale clouds.
 
 ### Task 2: Native cloud configuration model
 
