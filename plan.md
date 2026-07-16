@@ -1697,8 +1697,8 @@ equivalent that preserves buffered ordering). Never mix `ReadBatch` with
 ordering, slow-reader, mid-batch decode-error, deferred-login-boundary, and pre-disconnect flush
 regressions into `core/internal/relay`; retain bounded lossless backpressure and verify that the
 change improves batching without regressing join latency, memory, or shutdown behavior.
-The PR #80 API is now carried on the published `cinnabar-batch-reading` fork branch at
-`bbe6cfdeed39713c2b20103a1294e609d5841615`; Cinnabar enables batch reading on both legs,
+The PR #80 API is now carried on the published `cinnabar` fork branch, and the core is
+pinned to its exact commit `48765b0f2652229b0fa8d58909bb07a2795cc117`; Cinnabar enables batch reading on both legs,
 preserves source batch boundaries, and retains the exact 1,600-packet split ceiling. Core
 now forwards each bounded slice with `WritePacketImmediate`, pre-flushes existing buffered
 output, tests boundaries in both directions, and prevents the initial loading-screen filter
