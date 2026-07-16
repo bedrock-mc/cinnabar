@@ -1159,6 +1159,17 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     binding or per-subchunk resource. The bounded water/lava colours and 32/3-
     block visibility ranges are the Phase 2.7 baseline; native reference
     calibration and precipitation visuals remain open.
+  - [x] Compile and route exact pinned client biome/fog profiles by camera
+    biome with Overworld/Nether/End fallback. `MCBATM2` carries the bounded,
+    hashed environment-profile and fog-distance tables; biome-specific fog
+    wins per medium and missing media layer from `minecraft:fog_default`.
+    Fixed and render-relative air, weather, water, and lava endpoints plus
+    exact sky colour now reach the shared atmosphere frame while clock,
+    weather, and celestial state remain intact. Lighting and atmospherics
+    identifiers are retained as explicit provisional routes rather than
+    claimed native lighting calibration. Exact pinned-pack provenance,
+    envelope, routing, render, and integration tests are green through
+    `53fd591`.
   - [x] Wire the sparse solver and MCBEAS05 per-state emission/filter metadata
     into generation-qualified WorldStream light storage and bounded,
     nearest-first one-subchunk solves. Exact face block/light halos, dirty
@@ -1275,6 +1286,12 @@ store it only under the user's temporary directory, inspect that file, and never
     post-fix GDI gallery contains no black presentation or thin screen-space
     band, but this does not close the user-reported artifact without the
     binding identical-scene FIFO/Immediate motion comparison below.
+  - [x] Make direct Windows launches and native visual inspection reliable
+    through `1cad274`: default ignored-local assets fall back to the executable
+    project root, Windows selects DX12 unless `WGPU_BACKEND` explicitly
+    overrides it, and the local BDS scene was enumerated and captured through
+    native Windows Graphics Capture at 1282x752. This closes the launch/capture
+    tooling failure only; visual-parity and performance gates remain open.
   - [ ] Run the identical-scene release FIFO/Immediate capture, classify the
     artifact from coherent evidence, and eliminate the proven source.
 - [ ] Make initial chunk publication and steady streaming meet the frame and
@@ -1297,6 +1314,16 @@ store it only under the user's temporary directory, inspect that file, and never
     rows. Full client/script suites, strict Clippy/formatting, adversarial
     contract tests, and independent re-review are green through `0811c0a`;
     the full release radius-16 benchmark and live resource gates remain open.
+  - [x] Install one shared adaptive item-and-byte publication budget across
+    world handoff, main-world application, extraction, and GPU preparation.
+    Genuine frame-pressure stalls reduce the budget multiplicatively, normal
+    FIFO pacing is tolerated, and sustained healthy frames recover
+    conservatively; nearest-first ordering and exact cohort identities remain
+    unchanged. Zero-byte removals retain a separate 256-operation hard cap,
+    and whole-arena growth copies are reserved inside the same GPU byte budget.
+    Deterministic pressure, continuity, accounting, app, client-world, and
+    render tests plus independent review are green through `9ea25e1`; the live
+    radius-16 <=2-second acceptance gate remains open.
   - [x] Prove the deterministic full radius-16 publication path through
     `7098b65`: 26,136 current subchunks pass accepted lighting, meshing,
     main-world queue application, real render extraction, production GPU
@@ -1482,13 +1509,14 @@ and dropped-item rendering, paper-doll first-person arm/held item.
   classic 64x64, 128x128, or 256x256 RGBA skin images, with deterministic unavailable states for
   persona, malformed, or retained-budget-exhausted data; `AddPlayer` UUIDs join those roster
   profiles to the sparse actor store, whose cumulative retained skin bytes remain capped across
-  incremental roster packets. The app excludes the local runtime ID and publishes at most 128
-  runtime-ID-ordered player snapshots into a render-only two-pose history, sampling them 100 ms
-  behind `Time<Real>` with shortest-path angle interpolation. Unique IDs plus accepted spawn
-  sequences identify actor lifetimes, so same-runtime replacements and remove/re-adds reset stale
-  history. Accepted movement sequences provide event identity so one teleport event snaps once
-  across repeated publications while consecutive teleport packets always snap. This path consumes
-  no free-camera or local movement state. One
+  incremental roster packets. Foreign `MovePlayer` metadata preserves head yaw, ground state,
+  mode, and signed source tick while converting its eye-space position to the feet-space actor
+  origin. The client-world store performs Oomph-style three-20-Hz-tick player convergence;
+  teleports and actor replacement snap immediately, and the renderer performs the distinct
+  adjacent-tick frame interpolation with shortest-path angles. Camera-frustum and conservative
+  192-block distance culling happen before the runtime-ID-ordered 128-instance upload cap, so
+  invisible players cannot displace visible ones. This path consumes no free-camera or local
+  movement state and sends no free-camera position updates. One
   custom `Opaque3d` instanced draw expands a shared six-cuboid standard
   Bedrock biped vertex buffer and samples a bounded 64x64 texture array, with no `StandardMaterial`
   or per-actor Bevy mesh. Missing/unsupported/invalid skins use the documented, locally generated
