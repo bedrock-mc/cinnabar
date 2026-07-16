@@ -1,10 +1,14 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::sync::Arc;
 
-use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
+use bevy::{
+    math::{Mat4, Vec3, Vec4},
+    prelude::Resource,
+    render::extract_resource::ExtractResource,
+};
 use bytemuck::{Pod, Zeroable};
 
 pub const MAX_RENDERED_PLAYERS: usize = 128;
-pub const ACTOR_INTERPOLATION_DELAY_SECONDS: f64 = 0.1;
+pub const MAX_ACTOR_RENDER_DISTANCE_BLOCKS: f32 = 192.0;
 pub const STANDARD_SKIN_SIDE: usize = 64;
 pub const STANDARD_SKIN_BYTES: usize = STANDARD_SKIN_SIDE * STANDARD_SKIN_SIDE * 4;
 pub const STANDARD_BIPED_VERTEX_COUNT: usize = 6 * 6 * 6;
@@ -23,6 +27,10 @@ pub struct ActorRenderSource {
     pub unique_id: i64,
     pub spawn_revision: u64,
     pub movement_revision: u64,
+    pub previous_position: [f32; 3],
+    pub previous_pitch_degrees: f32,
+    pub previous_yaw_degrees: f32,
+    pub previous_head_yaw_degrees: f32,
     pub position: [f32; 3],
     pub pitch_degrees: f32,
     pub yaw_degrees: f32,
@@ -33,11 +41,24 @@ pub struct ActorRenderSource {
 
 impl ActorRenderSource {
     fn is_finite(&self) -> bool {
-        self.position.iter().all(|value| value.is_finite())
+        self.previous_position
+            .iter()
+            .chain(&self.position)
+            .all(|value| value.is_finite())
+            && self.previous_pitch_degrees.is_finite()
+            && self.previous_yaw_degrees.is_finite()
+            && self.previous_head_yaw_degrees.is_finite()
             && self.pitch_degrees.is_finite()
             && self.yaw_degrees.is_finite()
             && self.head_yaw_degrees.is_finite()
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ActorCullView {
+    pub clip_from_world: Mat4,
+    pub camera_position: Vec3,
+    pub max_distance: f32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -77,56 +98,31 @@ struct Pose {
     head_yaw_degrees: f32,
 }
 
-impl From<&ActorRenderSource> for Pose {
-    fn from(source: &ActorRenderSource) -> Self {
+impl Pose {
+    fn sample(source: &ActorRenderSource, alpha: f32) -> Self {
         Self {
-            position: source.position,
-            pitch_degrees: source.pitch_degrees,
-            yaw_degrees: source.yaw_degrees,
-            head_yaw_degrees: source.head_yaw_degrees,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-struct TimedPose {
-    seconds: f64,
-    pose: Pose,
-}
-
-#[derive(Debug, Clone)]
-struct ActorTrack {
-    identity: ActorInstanceIdentity,
-    previous: TimedPose,
-    current: TimedPose,
-    skin: Option<ActorSkinPixels>,
-    movement_revision: u64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ActorInstanceIdentity {
-    unique_id: i64,
-    spawn_revision: u64,
-}
-
-impl From<&ActorRenderSource> for ActorInstanceIdentity {
-    fn from(source: &ActorRenderSource) -> Self {
-        Self {
-            unique_id: source.unique_id,
-            spawn_revision: source.spawn_revision,
+            position: std::array::from_fn(|axis| {
+                source.previous_position[axis]
+                    + (source.position[axis] - source.previous_position[axis]) * alpha
+            }),
+            pitch_degrees: lerp_degrees(source.previous_pitch_degrees, source.pitch_degrees, alpha),
+            yaw_degrees: lerp_degrees(source.previous_yaw_degrees, source.yaw_degrees, alpha),
+            head_yaw_degrees: lerp_degrees(
+                source.previous_head_yaw_degrees,
+                source.head_yaw_degrees,
+                alpha,
+            ),
         }
     }
 }
 
 #[derive(Debug, Default, Resource)]
 pub struct ActorRenderScene {
-    tracks: BTreeMap<u64, ActorTrack>,
     frame: ActorRenderFrame,
 }
 
 impl ActorRenderScene {
     pub fn reset(&mut self) {
-        self.tracks.clear();
         if !self.frame.instances.is_empty() {
             self.frame.instance_revision = self.frame.instance_revision.wrapping_add(1);
             self.frame.instances = Arc::from([]);
@@ -139,11 +135,12 @@ impl ActorRenderScene {
 
     pub fn update(
         &mut self,
-        now_seconds: f64,
+        partial_tick: f32,
+        view: Option<ActorCullView>,
         sources: impl IntoIterator<Item = ActorRenderSource>,
     ) -> &ActorRenderFrame {
-        let now_seconds = if now_seconds.is_finite() {
-            now_seconds.max(0.0)
+        let partial_tick = if partial_tick.is_finite() {
+            partial_tick.clamp(0.0, 1.0)
         } else {
             0.0
         };
@@ -153,80 +150,28 @@ impl ActorRenderScene {
             .collect::<Vec<_>>();
         sources.sort_unstable_by_key(|source| source.runtime_id);
         sources.dedup_by_key(|source| source.runtime_id);
-        sources.truncate(MAX_RENDERED_PLAYERS);
+        let visible = sources
+            .into_iter()
+            .filter_map(|source| {
+                let pose = Pose::sample(&source, partial_tick);
+                actor_is_visible(&pose, view).then_some((source, pose))
+            })
+            .take(MAX_RENDERED_PLAYERS)
+            .collect::<Vec<_>>();
 
-        let active = sources
-            .iter()
-            .map(|source| source.runtime_id)
-            .collect::<std::collections::BTreeSet<_>>();
-        self.tracks
-            .retain(|runtime_id, _| active.contains(runtime_id));
-        for source in &sources {
-            let pose = Pose::from(source);
-            let identity = ActorInstanceIdentity::from(source);
-            match self.tracks.get_mut(&source.runtime_id) {
-                Some(track) => {
-                    if track.identity != identity {
-                        let timed = TimedPose {
-                            seconds: now_seconds,
-                            pose,
-                        };
-                        track.identity = identity;
-                        track.previous = timed.clone();
-                        track.current = timed;
-                    } else if source.teleported
-                        && source.movement_revision != track.movement_revision
-                    {
-                        let timed = TimedPose {
-                            seconds: now_seconds,
-                            pose,
-                        };
-                        track.previous = timed.clone();
-                        track.current = timed;
-                    } else if track.current.pose != pose {
-                        track.previous = track.current.clone();
-                        track.current = TimedPose {
-                            seconds: now_seconds,
-                            pose,
-                        };
-                    }
-                    track.movement_revision = source.movement_revision;
-                    track.skin = source.skin.clone();
-                }
-                None => {
-                    let timed = TimedPose {
-                        seconds: now_seconds,
-                        pose,
-                    };
-                    self.tracks.insert(
-                        source.runtime_id,
-                        ActorTrack {
-                            identity,
-                            previous: timed.clone(),
-                            current: timed,
-                            skin: source.skin.clone(),
-                            movement_revision: source.movement_revision,
-                        },
-                    );
-                }
-            }
-        }
-
-        let sample_seconds = now_seconds - ACTOR_INTERPOLATION_DELAY_SECONDS;
-        let mut instances = Vec::with_capacity(self.tracks.len());
-        let mut skins = Vec::with_capacity(self.tracks.len() * STANDARD_SKIN_BYTES);
-        for (&runtime_id, track) in &self.tracks {
-            let pose = sample_pose(track, sample_seconds);
+        let mut instances = Vec::with_capacity(visible.len());
+        let mut skins = Vec::with_capacity(visible.len() * STANDARD_SKIN_BYTES);
+        for (source, pose) in visible {
             let skin_layer = u32::try_from(instances.len()).expect("bounded actor layer count");
             instances.push(ActorRenderInstance {
-                runtime_id,
+                runtime_id: source.runtime_id,
                 position: pose.position,
                 pitch_radians: wrap_degrees(pose.pitch_degrees).to_radians(),
                 yaw_radians: wrap_degrees(pose.yaw_degrees).to_radians(),
                 head_yaw_radians: wrap_degrees(pose.head_yaw_degrees).to_radians(),
                 skin_layer,
             });
-            skins.extend_from_slice(&normalize_skin(track.skin.as_ref()));
+            skins.extend_from_slice(&normalize_skin(source.skin.as_ref()));
         }
 
         if self.frame.instances.as_ref() != instances.as_slice() {
@@ -246,33 +191,46 @@ impl ActorRenderScene {
     }
 }
 
-fn sample_pose(track: &ActorTrack, seconds: f64) -> Pose {
-    let duration = track.current.seconds - track.previous.seconds;
-    if duration <= f64::EPSILON {
-        return track.current.pose.clone();
+fn actor_is_visible(pose: &Pose, view: Option<ActorCullView>) -> bool {
+    let Some(view) = view.filter(|view| {
+        view.clip_from_world.is_finite()
+            && view.camera_position.is_finite()
+            && view.max_distance.is_finite()
+            && view.max_distance > 0.0
+    }) else {
+        return true;
+    };
+    let feet = Vec3::from_array(pose.position);
+    let center = feet + Vec3::Y;
+    if center.distance_squared(view.camera_position) > view.max_distance * view.max_distance {
+        return false;
     }
-    let alpha = ((seconds - track.previous.seconds) / duration).clamp(0.0, 1.0) as f32;
-    Pose {
-        position: std::array::from_fn(|axis| {
-            track.previous.pose.position[axis]
-                + (track.current.pose.position[axis] - track.previous.pose.position[axis]) * alpha
-        }),
-        pitch_degrees: lerp_degrees(
-            track.previous.pose.pitch_degrees,
-            track.current.pose.pitch_degrees,
-            alpha,
-        ),
-        yaw_degrees: lerp_degrees(
-            track.previous.pose.yaw_degrees,
-            track.current.pose.yaw_degrees,
-            alpha,
-        ),
-        head_yaw_degrees: lerp_degrees(
-            track.previous.pose.head_yaw_degrees,
-            track.current.pose.head_yaw_degrees,
-            alpha,
-        ),
-    }
+
+    const HALF_WIDTH: f32 = 0.5;
+    const HEIGHT: f32 = 2.0;
+    let corners = [
+        Vec3::new(-HALF_WIDTH, 0.0, -HALF_WIDTH),
+        Vec3::new(HALF_WIDTH, 0.0, -HALF_WIDTH),
+        Vec3::new(-HALF_WIDTH, HEIGHT, -HALF_WIDTH),
+        Vec3::new(HALF_WIDTH, HEIGHT, -HALF_WIDTH),
+        Vec3::new(-HALF_WIDTH, 0.0, HALF_WIDTH),
+        Vec3::new(HALF_WIDTH, 0.0, HALF_WIDTH),
+        Vec3::new(-HALF_WIDTH, HEIGHT, HALF_WIDTH),
+        Vec3::new(HALF_WIDTH, HEIGHT, HALF_WIDTH),
+    ]
+    .map(|offset| view.clip_from_world * (feet + offset).extend(1.0));
+
+    !outside_clip_plane(&corners, |clip| clip.x < -clip.w)
+        && !outside_clip_plane(&corners, |clip| clip.x > clip.w)
+        && !outside_clip_plane(&corners, |clip| clip.y < -clip.w)
+        && !outside_clip_plane(&corners, |clip| clip.y > clip.w)
+        && !outside_clip_plane(&corners, |clip| clip.z < 0.0)
+        && !outside_clip_plane(&corners, |clip| clip.z > clip.w)
+        && !outside_clip_plane(&corners, |clip| clip.w <= 0.0)
+}
+
+fn outside_clip_plane(corners: &[Vec4; 8], outside: impl Fn(&Vec4) -> bool) -> bool {
+    corners.iter().all(outside)
 }
 
 fn lerp_degrees(start: f32, end: f32, alpha: f32) -> f32 {
@@ -444,9 +402,12 @@ fn append_cuboid(vertices: &mut Vec<ActorVertex>, cuboid: Cuboid, part: u32) {
 mod tests {
     use std::sync::Arc;
 
+    use bevy::math::{Mat4, Vec3};
+
     use super::{
-        ActorRenderScene, ActorRenderSource, ActorSkinPixels, DEFAULT_SKIN_PROVENANCE,
-        MAX_RENDERED_PLAYERS, STANDARD_BIPED_VERTEX_COUNT, standard_biped_vertices,
+        ActorCullView, ActorRenderScene, ActorRenderSource, ActorSkinPixels,
+        DEFAULT_SKIN_PROVENANCE, MAX_RENDERED_PLAYERS, STANDARD_BIPED_VERTEX_COUNT,
+        standard_biped_vertices,
     };
 
     fn source(runtime_id: u64, x: f32, yaw_degrees: f32) -> ActorRenderSource {
@@ -455,6 +416,10 @@ mod tests {
             unique_id: i64::try_from(runtime_id).unwrap_or(i64::MAX),
             spawn_revision: 1,
             movement_revision: 0,
+            previous_position: [x, 64.0, 0.0],
+            previous_pitch_degrees: 0.0,
+            previous_yaw_degrees: yaw_degrees,
+            previous_head_yaw_degrees: yaw_degrees,
             position: [x, 64.0, 0.0],
             pitch_degrees: 0.0,
             yaw_degrees,
@@ -464,121 +429,137 @@ mod tests {
         }
     }
 
+    fn tick_source(
+        runtime_id: u64,
+        previous_x: f32,
+        current_x: f32,
+        previous_yaw: f32,
+        current_yaw: f32,
+    ) -> ActorRenderSource {
+        ActorRenderSource {
+            previous_position: [previous_x, 64.0, 0.0],
+            previous_pitch_degrees: 0.0,
+            previous_yaw_degrees: previous_yaw,
+            previous_head_yaw_degrees: previous_yaw,
+            ..source(runtime_id, current_x, current_yaw)
+        }
+    }
+
+    fn broad_view(max_distance: f32) -> ActorCullView {
+        ActorCullView {
+            clip_from_world: Mat4::from_scale(Vec3::splat(0.001)),
+            camera_position: Vec3::new(0.0, 65.0, 0.0),
+            max_distance,
+        }
+    }
+
     #[test]
-    fn same_actor_instance_republication_preserves_delayed_interpolation_history() {
+    fn frame_interpolation_samples_adjacent_actor_ticks() {
         let mut scene = ActorRenderScene::default();
-        scene.update(0.0, [source(7, 0.0, 350.0)]);
-        scene.update(0.1, [source(7, 10.0, 10.0)]);
-        let frame = scene.update(0.15, [source(7, 10.0, 10.0)]);
+        let frame = scene.update(0.5, None, [tick_source(7, 3.0, 6.0, 0.0, 0.0)]);
 
         assert_eq!(frame.instances.len(), 1);
-        assert!((frame.instances[0].position[0] - 5.0).abs() < 1e-5);
+        assert!((frame.instances[0].position[0] - 4.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn frame_republication_changes_only_with_partial_tick() {
+        let source = tick_source(7, 3.0, 6.0, 0.0, 0.0);
+        let mut scene = ActorRenderScene::default();
+        assert_eq!(
+            scene.update(0.0, None, [source.clone()]).instances[0].position[0],
+            3.0
+        );
+        assert_eq!(
+            scene.update(0.5, None, [source.clone()]).instances[0].position[0],
+            4.5
+        );
+        assert_eq!(
+            scene.update(1.0, None, [source]).instances[0].position[0],
+            6.0
+        );
+    }
+
+    #[test]
+    fn frame_angles_take_the_shortest_path_between_tick_poses() {
+        let mut scene = ActorRenderScene::default();
+        let frame = scene.update(0.5, None, [tick_source(7, 0.0, 0.0, 350.0, 10.0)]);
+
         assert!(frame.instances[0].yaw_radians.abs() < 1e-5);
     }
 
     #[test]
-    fn same_runtime_replacement_with_a_changed_unique_id_resets_history() {
+    fn teleport_equal_endpoints_never_cross_the_old_position() {
         let mut scene = ActorRenderScene::default();
-        scene.update(0.0, [source(7, 0.0, 0.0)]);
-        scene.update(0.1, [source(7, 10.0, 0.0)]);
-
-        let mut replacement = source(7, 100.0, 90.0);
-        replacement.unique_id = 8;
-        replacement.spawn_revision = 2;
-        let frame = scene.update(0.15, [replacement]);
-
-        assert_eq!(frame.instances[0].position[0], 100.0);
-        assert!((frame.instances[0].yaw_radians - std::f32::consts::FRAC_PI_2).abs() < 1e-5);
+        for alpha in [0.0, 0.5, 1.0] {
+            let frame = scene.update(alpha, None, [tick_source(7, 100.0, 100.0, 90.0, 90.0)]);
+            assert_eq!(frame.instances[0].position[0], 100.0);
+        }
     }
 
     #[test]
-    fn same_runtime_and_unique_id_with_a_new_spawn_revision_resets_history() {
+    fn actor_culling_rejects_wholly_outside_frustum_but_keeps_edge_intersections() {
+        let view = ActorCullView {
+            clip_from_world: Mat4::from_translation(Vec3::new(0.0, -64.0, 0.0)),
+            camera_position: Vec3::new(0.0, 65.0, 0.0),
+            max_distance: 192.0,
+        };
         let mut scene = ActorRenderScene::default();
-        scene.update(0.0, [source(7, 0.0, 0.0)]);
-        scene.update(0.1, [source(7, 10.0, 0.0)]);
+        let frame = scene.update(
+            1.0,
+            Some(view),
+            [
+                tick_source(1, 0.0, 0.0, 0.0, 0.0),
+                tick_source(2, 1.4, 1.4, 0.0, 0.0),
+                tick_source(3, 3.0, 3.0, 0.0, 0.0),
+            ],
+        );
 
-        let mut readded = source(7, 100.0, 90.0);
-        readded.spawn_revision = 2;
-        let frame = scene.update(0.15, [readded]);
-
-        assert_eq!(frame.instances[0].position[0], 100.0);
-        assert!((frame.instances[0].yaw_radians - std::f32::consts::FRAC_PI_2).abs() < 1e-5);
+        assert_eq!(
+            frame
+                .instances
+                .iter()
+                .map(|actor| actor.runtime_id)
+                .collect::<Vec<_>>(),
+            vec![1, 2]
+        );
     }
 
     #[test]
-    fn teleport_replaces_interpolation_endpoints() {
+    fn actor_culling_rejects_positions_beyond_the_distance_cap() {
         let mut scene = ActorRenderScene::default();
-        scene.update(0.0, [source(7, 0.0, 0.0)]);
-        let mut teleported = source(7, 100.0, 90.0);
-        teleported.teleported = true;
-        teleported.movement_revision = 1;
-        let frame = scene.update(0.05, [teleported]);
+        let frame = scene.update(
+            1.0,
+            Some(broad_view(192.0)),
+            [
+                tick_source(1, 191.0, 191.0, 0.0, 0.0),
+                tick_source(2, 193.0, 193.0, 0.0, 0.0),
+            ],
+        );
 
-        assert_eq!(frame.instances[0].position[0], 100.0);
-        assert!((frame.instances[0].yaw_radians - std::f32::consts::FRAC_PI_2).abs() < 1e-5);
+        assert_eq!(frame.instances.len(), 1);
+        assert_eq!(frame.instances[0].runtime_id, 1);
     }
 
     #[test]
-    fn repeated_publication_of_one_teleport_event_snaps_only_once() {
+    fn culling_occurs_before_the_visible_actor_cap() {
+        let mut sources = (0..u64::try_from(MAX_RENDERED_PLAYERS).unwrap())
+            .map(|id| tick_source(id, 500.0, 500.0, 0.0, 0.0))
+            .collect::<Vec<_>>();
+        sources.push(tick_source(999, 0.0, 0.0, 0.0, 0.0));
         let mut scene = ActorRenderScene::default();
-        scene.update(0.0, [source(7, 0.0, 0.0)]);
-        let mut teleported = source(7, 100.0, 90.0);
-        teleported.teleported = true;
-        teleported.movement_revision = 1;
-        scene.update(0.05, [teleported.clone()]);
-        scene.update(0.1, [teleported]);
-        let mut ordinary = source(7, 110.0, 90.0);
-        ordinary.movement_revision = 2;
-        scene.update(0.15, [ordinary.clone()]);
-        let frame = scene.update(0.2, [ordinary]);
+        let frame = scene.update(1.0, Some(broad_view(192.0)), sources);
 
-        assert!((frame.instances[0].position[0] - 105.0).abs() < 1e-5);
+        assert_eq!(frame.instances.len(), 1);
+        assert_eq!(frame.instances[0].runtime_id, 999);
     }
 
     #[test]
-    fn consecutive_teleport_events_snap_even_while_the_flag_stays_true() {
+    fn scene_reset_clears_the_published_frame() {
         let mut scene = ActorRenderScene::default();
-        scene.update(0.0, [source(7, 0.0, 0.0)]);
-        let mut first = source(7, 100.0, 90.0);
-        first.teleported = true;
-        first.movement_revision = 1;
-        scene.update(0.05, [first]);
-
-        let mut second = source(7, 200.0, 180.0);
-        second.teleported = true;
-        second.movement_revision = 2;
-        let frame = scene.update(0.1, [second]);
-
-        assert_eq!(frame.instances[0].position[0], 200.0);
-        assert!((frame.instances[0].yaw_radians.abs() - std::f32::consts::PI).abs() < 1e-5);
-    }
-
-    #[test]
-    fn ordinary_movement_after_a_teleport_interpolates_from_the_snapped_pose() {
-        let mut scene = ActorRenderScene::default();
-        scene.update(0.0, [source(7, 0.0, 0.0)]);
-        let mut teleported = source(7, 100.0, 90.0);
-        teleported.teleported = true;
-        teleported.movement_revision = 1;
-        scene.update(0.05, [teleported]);
-
-        let mut ordinary = source(7, 110.0, 90.0);
-        ordinary.movement_revision = 2;
-        scene.update(0.1, [ordinary.clone()]);
-        let frame = scene.update(0.175, [ordinary]);
-
-        assert!((frame.instances[0].position[0] - 105.0).abs() < 1e-5);
-    }
-
-    #[test]
-    fn scene_reset_discards_same_runtime_history() {
-        let mut scene = ActorRenderScene::default();
-        scene.update(0.0, [source(7, 0.0, 0.0)]);
-        scene.update(0.1, [source(7, 10.0, 0.0)]);
+        scene.update(1.0, None, [source(7, 10.0, 0.0)]);
         scene.reset();
-        let frame = scene.update(0.15, [source(7, 100.0, 0.0)]);
-
-        assert_eq!(frame.instances[0].position[0], 100.0);
+        assert!(scene.frame().instances.is_empty());
     }
 
     #[test]
@@ -589,7 +570,7 @@ mod tests {
             .collect::<Vec<_>>();
         sources.push(source(u64::MAX, f32::NAN, 0.0));
         let mut scene = ActorRenderScene::default();
-        let frame = scene.update(0.0, sources);
+        let frame = scene.update(1.0, None, sources);
 
         assert_eq!(frame.instances.len(), MAX_RENDERED_PLAYERS);
         assert_eq!(frame.instances.first().unwrap().runtime_id, 0);
@@ -618,7 +599,7 @@ mod tests {
         let mut second = source(2, 0.0, 0.0);
         second.skin = Some(invalid);
         let mut scene = ActorRenderScene::default();
-        let frame = scene.update(0.0, [first, second]);
+        let frame = scene.update(1.0, None, [first, second]);
 
         assert_eq!(&frame.skins_rgba8[0..4], &[1, 2, 3, 255]);
         assert_eq!(frame.skins_rgba8.len(), 2 * 64 * 64 * 4);

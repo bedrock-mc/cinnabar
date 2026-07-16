@@ -64,6 +64,9 @@ impl WorldStream {
         self.actors
             .render_players(Some(self.local_player_runtime_id))
     }
+    pub fn advance_actor_interpolation_ticks(&mut self, ticks: u32) {
+        self.actors.advance_interpolation_ticks(ticks);
+    }
     pub fn actor(&self, runtime_id: u64) -> Option<&ActorSnapshot> {
         self.actors.get(runtime_id)
     }

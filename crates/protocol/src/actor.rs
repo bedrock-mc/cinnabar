@@ -112,6 +112,8 @@ pub struct ActorMoveEvent {
     pub head_yaw: Option<f32>,
     pub on_ground: Option<bool>,
     pub teleported: bool,
+    pub player_mode: Option<crate::MovePlayerMode>,
+    pub source_tick: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -350,6 +352,8 @@ pub(crate) fn normalize_move_entity(
         head_yaw: Some(rotation_degrees("head_yaw", &packet.rotation.head_yaw)?),
         on_ground: Some(packet.flags & 1 != 0),
         teleported: packet.flags & 2 != 0,
+        player_mode: None,
+        source_tick: None,
     }))
 }
 
@@ -395,6 +399,8 @@ pub(crate) fn normalize_move_entity_body(
         head_yaw: Some(head_yaw),
         on_ground: Some(flags & 1 != 0),
         teleported: flags & 2 != 0,
+        player_mode: None,
+        source_tick: None,
     }))
 }
 
@@ -420,6 +426,8 @@ pub(crate) fn normalize_move_entity_delta(
         head_yaw: packet.rot_z.map(byte_rotation_degrees),
         on_ground: Some(packet.flags.contains(DeltaMoveFlags::ON_GROUND)),
         teleported: packet.flags.contains(DeltaMoveFlags::TELEPORT),
+        player_mode: None,
+        source_tick: None,
     }))
 }
 

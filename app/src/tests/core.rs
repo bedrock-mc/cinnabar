@@ -1,4 +1,27 @@
 use super::*;
+
+#[test]
+fn remote_actor_clock_is_twenty_hertz_and_exposes_frame_fraction() {
+    let mut clock = ActorFrameClock::default();
+
+    let half_tick = clock.advance(Duration::from_millis(25));
+    assert_eq!(half_tick.ticks, 0);
+    assert_eq!(half_tick.partial_tick, 0.5);
+
+    let full_tick = clock.advance(Duration::from_millis(25));
+    assert_eq!(full_tick.ticks, 1);
+    assert_eq!(full_tick.partial_tick, 0.0);
+
+    let two_and_a_half_ticks = clock.advance(Duration::from_millis(125));
+    assert_eq!(two_and_a_half_ticks.ticks, 2);
+    assert_eq!(two_and_a_half_ticks.partial_tick, 0.5);
+
+    clock.reset();
+    let reset = clock.advance(Duration::ZERO);
+    assert_eq!(reset.ticks, 0);
+    assert_eq!(reset.partial_tick, 0.0);
+}
+
 #[test]
 fn actor_render_source_uses_only_remote_actor_pose_and_roster_skin() {
     let skin = PlayerSkin::Standard(StandardSkin {
@@ -20,9 +43,24 @@ fn actor_render_source_uses_only_remote_actor_pose_and_roster_skin() {
         pitch: 15.0,
         yaw: 45.0,
         head_yaw: 60.0,
+        previous_pose: client_world::ActorPose {
+            position: [8.0, 64.0, -3.0],
+            pitch: 10.0,
+            yaw: 40.0,
+            head_yaw: 55.0,
+        },
+        received_pose: client_world::ActorPose {
+            position: [10.0, 64.0, -3.0],
+            pitch: 15.0,
+            yaw: 45.0,
+            head_yaw: 60.0,
+        },
+        interpolation_ticks_remaining: 0,
         body_yaw: 45.0,
         on_ground: Some(true),
         teleported: false,
+        player_mode: None,
+        source_tick: None,
         metadata: Default::default(),
         attributes: Default::default(),
         int_properties: Default::default(),
@@ -40,6 +78,8 @@ fn actor_render_source_uses_only_remote_actor_pose_and_roster_skin() {
     assert_eq!(source.unique_id, 9);
     assert_eq!(source.spawn_revision, 19);
     assert_eq!(source.movement_revision, 23);
+    assert_eq!(source.previous_position, [8.0, 64.0, -3.0]);
+    assert_eq!(source.previous_yaw_degrees, 40.0);
     assert_eq!(source.position, [10.0, 64.0, -3.0]);
     assert_eq!(source.yaw_degrees, 45.0);
     assert_eq!(source.head_yaw_degrees, 60.0);
@@ -582,6 +622,7 @@ fn full_view_move_player_ingress_marker_is_exact_and_nonbinding_events_are_silen
         position: [16.5, 70.0, 0.5],
         pitch: 0.0,
         yaw: 0.0,
+        ..Default::default()
     });
     let accepted = acceptance.observe_full_view_teleport_ingress(
         &near,
@@ -601,6 +642,7 @@ fn full_view_move_player_ingress_marker_is_exact_and_nonbinding_events_are_silen
         position: [1_040.5, 93.75, 1_040.5],
         pitch: 0.0,
         yaw: 0.0,
+        ..Default::default()
     });
     let accepted = acceptance.observe_full_view_teleport_ingress(
         &binding,
@@ -640,6 +682,7 @@ fn full_view_move_player_ingress_marker_rejects_nonfinite_xz_but_preserves_y_ind
             position,
             pitch: 0.0,
             yaw: 0.0,
+            ..Default::default()
         });
         let accepted = acceptance.observe_full_view_teleport_ingress(&movement, 43, started, 0, 10);
         assert!(!accepted);
@@ -658,6 +701,7 @@ fn full_view_move_player_ingress_marker_rejects_nonfinite_xz_but_preserves_y_ind
         position: [1_040.5, f32::INFINITY, 1_040.5],
         pitch: 0.0,
         yaw: 0.0,
+        ..Default::default()
     });
     let accepted = acceptance.observe_full_view_teleport_ingress(&movement, 43, started, 0, 10);
     assert!(

@@ -839,6 +839,7 @@ fn max_block_update_batch_prepares_off_thread_and_commits_atomically_in_fifo() {
         position: [1.0, 70.0, 2.0],
         pitch: 0.0,
         yaw: 0.0,
+        ..Default::default()
     };
 
     stream.submit(1, WorldEvent::BlockUpdates(updates)).unwrap();

@@ -29,6 +29,115 @@ fn spawn(runtime_id: u64, unique_id: i64) -> ActorEvent {
     })
 }
 
+fn player_spawn(runtime_id: u64, unique_id: i64, x: f32) -> ActorEvent {
+    let ActorEvent::Spawn(mut spawn) = spawn(runtime_id, unique_id) else {
+        unreachable!();
+    };
+    spawn.kind = ActorKind::Player {
+        uuid: [runtime_id as u8; 16],
+        username: format!("player-{runtime_id}").into(),
+    };
+    spawn.position = [x, 64.0, 0.0];
+    ActorEvent::Spawn(spawn)
+}
+
+fn player_move(runtime_id: u64, x: f32, teleported: bool) -> ActorEvent {
+    ActorEvent::Move(ActorMoveEvent {
+        dimension: 0,
+        runtime_id,
+        position: [Some(x), None, None],
+        pitch: Some(0.0),
+        yaw: Some(0.0),
+        head_yaw: Some(0.0),
+        on_ground: Some(true),
+        teleported,
+        player_mode: Some(if teleported {
+            protocol::MovePlayerMode::Teleport
+        } else {
+            protocol::MovePlayerMode::Normal
+        }),
+        source_tick: Some(10),
+    })
+}
+
+#[test]
+fn remote_player_converges_to_received_position_in_three_ticks() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, player_spawn(42, -7, 0.0));
+    store.apply(1, 2, player_move(42, 9.0, false));
+
+    let actor = store.get(42).unwrap();
+    assert_eq!(actor.position[0], 0.0);
+    assert_eq!(actor.received_pose.position[0], 9.0);
+    assert_eq!(actor.interpolation_ticks_remaining, 3);
+
+    store.advance_interpolation_ticks(1);
+    assert_eq!(store.get(42).unwrap().position[0], 3.0);
+    store.advance_interpolation_ticks(1);
+    assert_eq!(store.get(42).unwrap().position[0], 6.0);
+    store.advance_interpolation_ticks(1);
+    let actor = store.get(42).unwrap();
+    assert_eq!(actor.position[0], 9.0);
+    assert_eq!(actor.interpolation_ticks_remaining, 0);
+}
+
+#[test]
+fn new_target_restarts_three_ticks_from_current_smoothed_position() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, player_spawn(42, -7, 0.0));
+    store.apply(1, 2, player_move(42, 9.0, false));
+    store.advance_interpolation_ticks(1);
+    store.apply(1, 3, player_move(42, 12.0, false));
+
+    for expected in [6.0, 9.0, 12.0] {
+        store.advance_interpolation_ticks(1);
+        assert_eq!(store.get(42).unwrap().position[0], expected);
+    }
+}
+
+#[test]
+fn multiple_packets_before_one_tick_use_only_the_latest_target() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, player_spawn(42, -7, 0.0));
+    store.apply(1, 2, player_move(42, 9.0, false));
+    store.apply(1, 3, player_move(42, 12.0, false));
+    store.advance_interpolation_ticks(1);
+
+    assert_eq!(store.get(42).unwrap().position[0], 4.0);
+}
+
+#[test]
+fn teleport_snaps_received_previous_and_current_positions() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, player_spawn(42, -7, 0.0));
+    store.apply(1, 2, player_move(42, 9.0, false));
+    store.advance_interpolation_ticks(1);
+    store.apply(1, 3, player_move(42, 100.0, true));
+
+    let actor = store.get(42).unwrap();
+    assert_eq!(actor.previous_pose.position[0], 100.0);
+    assert_eq!(actor.position[0], 100.0);
+    assert_eq!(actor.received_pose.position[0], 100.0);
+    assert_eq!(actor.interpolation_ticks_remaining, 0);
+}
+
+#[test]
+fn same_runtime_replacement_discards_pending_player_motion() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, player_spawn(42, -7, 0.0));
+    store.apply(1, 2, player_move(42, 9.0, false));
+    assert_eq!(
+        store.apply(1, 3, player_spawn(42, -8, 100.0)),
+        ActorApplyResult::Replaced
+    );
+
+    let actor = store.get(42).unwrap();
+    assert_eq!(actor.previous_pose.position[0], 100.0);
+    assert_eq!(actor.position[0], 100.0);
+    assert_eq!(actor.received_pose.position[0], 100.0);
+    assert_eq!(actor.interpolation_ticks_remaining, 0);
+}
+
 #[test]
 fn actor_lifecycle_applies_fifo_patches_and_removes_by_unique_id() {
     let mut store = ActorStore::new(11, 0);
@@ -49,6 +158,8 @@ fn actor_lifecycle_applies_fifo_patches_and_removes_by_unique_id() {
                 head_yaw: None,
                 on_ground: Some(true),
                 teleported: false,
+                player_mode: None,
+                source_tick: None,
             }),
         ),
         ActorApplyResult::Updated
@@ -130,6 +241,8 @@ fn consecutive_teleport_packets_retain_distinct_movement_revisions() {
             head_yaw: None,
             on_ground: None,
             teleported: true,
+            player_mode: None,
+            source_tick: None,
         })
     };
 

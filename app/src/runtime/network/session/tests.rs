@@ -76,9 +76,16 @@ fn foreign_player_movement_is_routed_to_the_actor_stream() {
     let movement = |runtime_id| {
         WorldEvent::MovePlayer(MovePlayerEvent {
             runtime_id,
-            position: [1.0, 64.0, 2.0],
+            // MovePlayer carries the eye position for a standing player whose
+            // spawn/render feet position is Y=64.
+            position: [1.0, 65.62, 2.0],
             pitch: 5.0,
             yaw: 90.0,
+            head_yaw: 110.0,
+            mode: protocol::MovePlayerMode::Teleport,
+            on_ground: true,
+            teleported: true,
+            source_tick: 1_234,
         })
     };
 
@@ -86,14 +93,42 @@ fn foreign_player_movement_is_routed_to_the_actor_stream() {
         sequencer.wrap(movement(42)).event,
         WorldEvent::MovePlayer(MovePlayerEvent { runtime_id: 42, .. })
     ));
-    assert!(matches!(
-        sequencer.wrap(movement(7)).event,
-        WorldEvent::Actor(protocol::ActorEvent::Move(protocol::ActorMoveEvent {
-            runtime_id: 7,
-            dimension: 0,
-            ..
-        }))
-    ));
+    let WorldEvent::Actor(protocol::ActorEvent::Move(remote)) = sequencer.wrap(movement(7)).event
+    else {
+        panic!("foreign MovePlayer was not routed to the actor stream");
+    };
+    assert_eq!(remote.runtime_id, 7);
+    assert_eq!(remote.dimension, 0);
+    assert_eq!(remote.position[0], Some(1.0));
+    assert!((remote.position[1].unwrap() - 64.0).abs() < 1e-5);
+    assert_eq!(remote.position[2], Some(2.0));
+    assert_eq!(remote.head_yaw, Some(110.0));
+    assert_eq!(remote.on_ground, Some(true));
+    assert!(remote.teleported);
+    assert_eq!(remote.player_mode, Some(protocol::MovePlayerMode::Teleport));
+    assert_eq!(remote.source_tick, Some(1_234));
+}
+
+#[test]
+fn foreign_move_player_eye_y_stays_consistent_with_spawn_feet_y() {
+    const SPAWN_FEET_Y: f32 = 64.0;
+    let mut sequencer = NetworkSequencer::new(0, 42);
+    let movement = WorldEvent::MovePlayer(MovePlayerEvent {
+        runtime_id: 7,
+        position: [
+            1.0,
+            SPAWN_FEET_Y + protocol::DEFAULT_PLAYER_HEIGHT_OFFSET,
+            2.0,
+        ],
+        ..Default::default()
+    });
+
+    let WorldEvent::Actor(protocol::ActorEvent::Move(remote)) = sequencer.wrap(movement).event
+    else {
+        panic!("foreign MovePlayer was not routed to the actor stream");
+    };
+
+    assert!((remote.position[1].unwrap() - SPAWN_FEET_Y).abs() < 1e-5);
 }
 
 #[test]

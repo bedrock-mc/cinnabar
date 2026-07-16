@@ -222,6 +222,7 @@ fn source_capture_occurs_at_move_fifo_commit_before_later_publisher_eviction() {
                 position: [1_040.5, 70.0, 1_040.5],
                 pitch: 0.0,
                 yaw: 0.0,
+                ..Default::default()
             }),
         )
         .unwrap();
@@ -776,6 +777,7 @@ fn control_effects_are_exposed_only_after_older_heavy_sequence_commits_in_fifo_o
         position: [4.0, 70.0, 5.0],
         pitch: 7.0,
         yaw: 9.0,
+        ..Default::default()
     };
     let change = ChangeDimensionEvent {
         dimension: 1,

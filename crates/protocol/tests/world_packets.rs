@@ -14,11 +14,12 @@ use valentine::bedrock::version::v1_26_30::{
     CorrectPlayerMovePredictionPacket, CorrectPlayerMovePredictionPacketPredictionType,
     GameRuleI32, GameRuleI32Type, GameRuleI32Value, GameRuleVarint, GameRuleVarintType,
     GameRuleVarintValue, GameRulesChangedPacket, LevelChunkPacket, LevelEventPacket,
-    LevelEventPacketEvent, McpePacketData, MovePlayerPacket, NetworkChunkPublisherUpdatePacket,
-    SetTimePacket, StartGamePacketDimension, SubChunkEntryWithCachingItem,
-    SubChunkEntryWithCachingItemResult, SubChunkEntryWithoutCachingItem,
-    SubChunkEntryWithoutCachingItemResult, SubchunkPacket, SubchunkPacketEntries, UpdateBlockFlags,
-    UpdateBlockPacket, UpdateSubchunkBlocksPacket, Vec2F, Vec3F, Vec3I,
+    LevelEventPacketEvent, McpePacketData, MovePlayerPacket, MovePlayerPacketMode,
+    NetworkChunkPublisherUpdatePacket, SetTimePacket, StartGamePacketDimension,
+    SubChunkEntryWithCachingItem, SubChunkEntryWithCachingItemResult,
+    SubChunkEntryWithoutCachingItem, SubChunkEntryWithoutCachingItemResult, SubchunkPacket,
+    SubchunkPacketEntries, UpdateBlockFlags, UpdateBlockPacket, UpdateSubchunkBlocksPacket, Vec2F,
+    Vec3F, Vec3I,
 };
 
 fn biome_definition(name_index: i16, biome_id: i16) -> BiomeDefinition {
@@ -308,6 +309,45 @@ fn normalizes_move_player_to_the_bounded_world_surface() {
             position: [-12.25, 65.5, 4096.75],
             pitch: -34.5,
             yaw: 271.25,
+            head_yaw: 99.0,
+            mode: protocol::MovePlayerMode::Normal,
+            on_ground: false,
+            teleported: false,
+            source_tick: 0,
+        }))
+    );
+}
+
+#[test]
+fn move_player_normalization_preserves_mode_tick_head_yaw_and_ground() {
+    let packet = MovePlayerPacket {
+        runtime_id: 73,
+        position: Vec3F {
+            x: -12.25,
+            y: 65.5,
+            z: 4096.75,
+        },
+        pitch: -34.5,
+        yaw: 271.25,
+        head_yaw: 99.0,
+        mode: MovePlayerPacketMode::Teleport,
+        on_ground: true,
+        tick: -12,
+        ..Default::default()
+    };
+
+    assert_eq!(
+        into_world_event(packet.into(), 2).unwrap(),
+        Some(WorldEvent::MovePlayer(MovePlayerEvent {
+            runtime_id: 73,
+            position: [-12.25, 65.5, 4096.75],
+            pitch: -34.5,
+            yaw: 271.25,
+            head_yaw: 99.0,
+            mode: protocol::MovePlayerMode::Teleport,
+            on_ground: true,
+            teleported: true,
+            source_tick: -12,
         }))
     );
 }
@@ -411,6 +451,11 @@ fn move_player_uses_varuint64_for_runtime_and_ridden_ids_above_u32() {
             position: [1.0, 2.0, 3.0],
             pitch: 0.0,
             yaw: 0.0,
+            head_yaw: 0.0,
+            mode: protocol::MovePlayerMode::Normal,
+            on_ground: false,
+            teleported: false,
+            source_tick: 0,
         }))
     );
 }
