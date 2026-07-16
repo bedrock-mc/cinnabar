@@ -262,9 +262,17 @@ pub(crate) fn derive_profiled_atmosphere_frame(
             .binary_search_by(|fog| fog.identifier.cmp(&profile.fog_identifier))
             .ok()
             .map(|index| &fog_profiles[index])?;
+        let default_fog = fog_profiles
+            .binary_search_by(|fog| fog.identifier.as_ref().cmp("minecraft:fog_default"))
+            .ok()
+            .map(|index| &fog_profiles[index]);
+        let distance = |medium| {
+            fog.distance(medium)
+                .or_else(|| default_fog.and_then(|fallback| fallback.distance(medium)))
+        };
         let requested = match medium {
             CameraMedium::Air
-                if weather.rain_level > 0.0 && fog.distance(FogMedium::Weather).is_some() =>
+                if weather.rain_level > 0.0 && distance(FogMedium::Weather).is_some() =>
             {
                 FogMedium::Weather
             }
@@ -272,7 +280,7 @@ pub(crate) fn derive_profiled_atmosphere_frame(
             CameraMedium::Water => FogMedium::Water,
             CameraMedium::Lava => FogMedium::Lava,
         };
-        fog.distance(requested)?.resolve(render_distance)
+        distance(requested)?.resolve(render_distance)
     });
     (
         base.with_environment_profile(profile.sky_rgb8, resolved_fog),
@@ -803,7 +811,57 @@ mod tests {
     }
 
     #[test]
-    fn active_rain_uses_the_exact_weather_fog_endpoint_when_the_profile_defines_it() {
+    fn pinned_shape_plains_air_falls_back_to_the_exact_default_fog_layer() {
+        let context = EnvironmentContext {
+            dimension: 0,
+            camera_biome_identifier: Some("minecraft:plains".into()),
+            render_distance_blocks: Some(256.0),
+        };
+        let (frame, _) = derive_profiled_atmosphere_frame(
+            WorldClock::default(),
+            WeatherState::default(),
+            0.0,
+            meshing::CameraMedium::Air,
+            &context,
+            &profiles(),
+            &fog_profiles(),
+        );
+        assert_eq!(frame.fog_start(), 235.52);
+        assert_eq!(frame.fog_end(), 256.0);
+    }
+
+    #[test]
+    fn biome_specific_medium_takes_precedence_over_the_default_fog_layer() {
+        let context = EnvironmentContext {
+            dimension: 0,
+            camera_biome_identifier: Some("minecraft:plains".into()),
+            render_distance_blocks: Some(256.0),
+        };
+        let mut fogs = fog_profiles();
+        let default_water = fogs
+            .iter_mut()
+            .find(|fog| fog.identifier.as_ref() == "minecraft:fog_default")
+            .unwrap()
+            .distances
+            .iter_mut()
+            .find(|distance| distance.medium == FogMedium::Water)
+            .unwrap();
+        default_water.end_bits = 48.0_f32.to_bits();
+
+        let (frame, _) = derive_profiled_atmosphere_frame(
+            WorldClock::default(),
+            WeatherState::default(),
+            0.0,
+            meshing::CameraMedium::Water,
+            &context,
+            &profiles(),
+            &fogs,
+        );
+        assert_eq!(frame.fog_end(), 60.0);
+    }
+
+    #[test]
+    fn active_rain_uses_the_exact_weather_fog_endpoint_from_the_default_layer() {
         let mut clock = WorldClock::default();
         let mut weather = WeatherState::default();
         replace_session(
@@ -858,15 +916,8 @@ mod tests {
 
     fn fog_profiles() -> Vec<FogProfile> {
         let mut profiles = vec![
-            fog_profile(
-                "minecraft:fog_hell",
-                FogDistanceMode::Fixed,
-                10.0,
-                96.0,
-                0x33_08_08,
-            ),
             FogProfile {
-                identifier: "minecraft:fog_plains".into(),
+                identifier: "minecraft:fog_default".into(),
                 distances: vec![
                     fog_distance(
                         FogMedium::Air,
@@ -876,13 +927,52 @@ mod tests {
                         0xAB_D2_FF,
                     ),
                     fog_distance(
+                        FogMedium::Water,
+                        FogDistanceMode::Fixed,
+                        0.0,
+                        60.0,
+                        0x44_AF_F5,
+                    ),
+                    fog_distance(
                         FogMedium::Weather,
                         FogDistanceMode::RenderRelative,
                         0.23,
                         0.7,
                         0x66_66_66,
                     ),
+                    fog_distance(
+                        FogMedium::Lava,
+                        FogDistanceMode::Fixed,
+                        0.0,
+                        0.64,
+                        0x99_1A_00,
+                    ),
+                    fog_distance(
+                        FogMedium::LavaResistance,
+                        FogDistanceMode::Fixed,
+                        2.0,
+                        4.0,
+                        0x99_1A_00,
+                    ),
                 ]
+                .into_boxed_slice(),
+            },
+            fog_profile(
+                "minecraft:fog_hell",
+                FogDistanceMode::Fixed,
+                10.0,
+                96.0,
+                0x33_08_08,
+            ),
+            FogProfile {
+                identifier: "minecraft:fog_plains".into(),
+                distances: vec![fog_distance(
+                    FogMedium::Water,
+                    FogDistanceMode::Fixed,
+                    0.0,
+                    60.0,
+                    0x44_AF_F5,
+                )]
                 .into_boxed_slice(),
             },
             fog_profile(
