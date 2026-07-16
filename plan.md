@@ -832,6 +832,19 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       run must still capture consecutive `RUST_MCBE_VISIBILITY_SNAPSHOT`
       markers spanning the symptom and identify the first nonzero adjacent loss
       before any repair is proposed.
+      **Live diagnostic-geometry attribution (2026-07-16):** every actually
+      emitted diagnostic cube quad now carries its exact raw network identity
+      and resolved protocol-1001 sequential identity through bounded meshing,
+      resident replacement/eviction, JSON, `WORLD_READY`, and revision-gated
+      live telemetry. Per-mesh/global top sets are deterministic and bounded;
+      omitted contributions remain exactly reversible under capacity churn;
+      identical remeshes do not resort or relog unchanged data. Independent
+      review and post-merge meshing/app/assets tests are green through
+      `eda5ba9`. A native BDS run then proved the dominant visible magenta
+      geometry is `minecraft:sulfur` (14658/`0x2d658dd8`) and
+      `minecraft:cinnabar` (12638/`0xbda02665`), with `minecraft:leaf_litter`
+      far behind, replacing screenshot-based family guesses with exact live
+      evidence.
       **Fixed-pose diagnostic attempt (2026-07-15):** run
       `20260715T164233Z-14908` disabled auto-fly and retained one stable render
       view generation, but the client never emitted its mutation/world-ready
@@ -1154,7 +1167,10 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     and bind groups remain immutable, and collapsed/reversed/non-finite fog ranges
     fail to finite deterministic alpha. Focused meshing/render tests, WGSL/Naga
     validation, strict Clippy, formatting, independent review, and post-merge
-    verification are green through `87e856f`; native geometry scale/density and
+    verification are green through `87e856f`. A live night run additionally
+    proved that zero daylight could still make otherwise-transparent clouds
+    pure black; clouds now share terrain's provisional `0.2` night sky-transfer
+    floor through `e7c85ea`. Native geometry scale/density and
     above/below/within/grazing visual acceptance remain open.
   - [x] Resolve the camera-eye medium directly from palette-native liquid
     contributors, including secondary waterlogged layers, and use the exact
@@ -1547,7 +1563,7 @@ and dropped-item rendering, paper-doll first-person arm/held item.
   first-person visuals, live render-pipeline creation on a hardware backend, and multi-client
   visual evidence remain open Phase 4 work.
   The complete absolute-movement origin correction, regression suite, independent review, and
-  post-merge protocol/client-world/app verification are green through `3b7eb30`; the LBSG live
+  post-merge protocol/client-world/app verification are green through `e7c85ea`; the LBSG live
   ground-contact witness remains open under 4.4.
 
 - [ ] **4.3 Data-driven Bedrock entity rigs and animation.** Ingest the pinned
@@ -1652,8 +1668,12 @@ The PR #80 API is now carried on the published `cinnabar-batch-reading` fork bra
 preserves source batch boundaries, and retains the exact 1,600-packet split ceiling. Core
 now forwards each bounded slice with `WritePacketImmediate`, pre-flushes existing buffered
 output, tests boundaries in both directions, and prevents the initial loading-screen filter
-from merging adjacent source wire batches. Unit tests and the first real BDS join/GPU-witness
-run are green for that slice. Porting the
+from merging adjacent source wire batches. A live 1.26.33.1 BDS regression then proved that
+Rust's duplicate no-ID loading-screen Start/End may occupy two adjacent local batches; the
+bounded filter now holds at most one Start through the next read, drops only the exact initial
+pair, and flushes a mismatch or EOF in its original batch before current traffic. Full core
+tests, independent review, and a successful native BDS join are green through `a6c1ffc`.
+Porting the
 remaining PR-specific slow-reader/decode-error/disconnect regressions and completing the
 join-latency/resource comparison remain open, so this final polish item is not yet complete.
 
