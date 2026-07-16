@@ -35,8 +35,8 @@ use meshing::{
     BlockClassifier, Face, Neighbourhood, PackedBiomeRecord, PackedQuad, mesh_sub_chunk,
 };
 use render::{
-    AnimationFrameSample, ChunkAnimationClock, ChunkRenderInstance, ChunkRenderQueue,
-    ChunkRenderQueueLimits, ChunkTextureAssetIdentity, ChunkUploadPriority, DebugWorldPlugin,
+    AnimationFrameSample, ChunkAnimationClock, ChunkRenderInstance, ChunkRenderPlugin,
+    ChunkRenderQueue, ChunkRenderQueueLimits, ChunkTextureAssetIdentity, ChunkUploadPriority,
     MATERIAL_UV_REFLECT_U, MATERIAL_UV_REFLECT_V, MATERIAL_UV_ROTATE_90, MATERIAL_UV_ROTATE_180,
     MATERIAL_UV_ROTATE_270, MAX_TRANSPARENT_DRAW_REFS, MAX_TRANSPARENT_VIEWS,
     PackedTransparentDrawRef, PresentedFrameAck, RenderViewCohort, TRANSPARENT_REF_BUFFER_BYTES,
@@ -1186,7 +1186,7 @@ fn rust_struct_body<'a>(source: &'a str, name: &str) -> &'a str {
 fn flowerbed_render_entity_contract(mesh: meshing::ChunkMesh) -> (u32, usize, Vec<String>, bool) {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
-        .add_plugins(DebugWorldPlugin::new(1));
+        .add_plugins(ChunkRenderPlugin::new(1));
     let entity_count_before = app.world().entities().len();
     app.world_mut()
         .resource_mut::<ChunkRenderQueue>()
@@ -1286,7 +1286,7 @@ fn cube_lighting_counts_toward_exact_queue_caps_and_survives_extraction() {
             max_items: 1,
             max_bytes: exact_bytes,
         }))
-        .add_plugins(DebugWorldPlugin::new(1));
+        .add_plugins(ChunkRenderPlugin::new(1));
     app.world_mut()
         .resource_mut::<ChunkRenderQueue>()
         .try_insert(key, mesh, ChunkUploadPriority::new(0.0))
@@ -1321,7 +1321,7 @@ fn opaque_and_model_streams_share_one_subchunk_visibility_component() {
     );
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
-        .add_plugins(DebugWorldPlugin::new(1));
+        .add_plugins(ChunkRenderPlugin::new(1));
     app.world_mut()
         .resource_mut::<ChunkRenderQueue>()
         .try_insert(key, mesh, ChunkUploadPriority::new(0.0))
@@ -1607,7 +1607,7 @@ fn rejected_mesh_is_eventually_delivered_after_the_capped_queue_drains() {
             max_items: 1,
             max_bytes: 96,
         }))
-        .add_plugins(DebugWorldPlugin::new(1));
+        .add_plugins(ChunkRenderPlugin::new(1));
 
     let rejected = {
         let mut queue = app.world_mut().resource_mut::<ChunkRenderQueue>();
@@ -1655,7 +1655,7 @@ fn upload_budget_is_nearest_first_and_queue_supports_update_remove() {
     let far = SubChunkKey::new(0, 20, 2, 20);
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
-        .add_plugins(DebugWorldPlugin::new(1));
+        .add_plugins(ChunkRenderPlugin::new(1));
 
     {
         let mut queue = app.world_mut().resource_mut::<ChunkRenderQueue>();
@@ -1969,7 +1969,7 @@ fn render_queue_counts_and_extracts_non_fallback_biome_records() {
             max_items: 1,
             max_bytes: expected_bytes,
         }))
-        .add_plugins(DebugWorldPlugin::new(1));
+        .add_plugins(ChunkRenderPlugin::new(1));
     app.world_mut()
         .resource_mut::<ChunkRenderQueue>()
         .try_insert_with_biome(
@@ -1998,7 +1998,7 @@ fn render_queue_carries_biome_tint_revision_to_the_instance() {
     let key = SubChunkKey::new(0, 0, 0, 0);
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
-        .add_plugins(DebugWorldPlugin::new(1));
+        .add_plugins(ChunkRenderPlugin::new(1));
     app.world_mut()
         .resource_mut::<ChunkRenderQueue>()
         .try_insert_with_biome_revision(

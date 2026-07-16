@@ -4087,7 +4087,7 @@ struct ChunkEntities(HashMap<SubChunkKey, Entity>);
 /// phase, sharing its depth attachment without allocating a `Mesh` or
 /// `StandardMaterial` per sub-chunk.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct DebugWorldPlugin {
+pub struct ChunkRenderPlugin {
     upload_budget: ChunkUploadBudget,
 }
 
@@ -4097,7 +4097,7 @@ pub struct DebugWorldPlugin {
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ChunkRenderApplySet;
 
-impl DebugWorldPlugin {
+impl ChunkRenderPlugin {
     #[must_use]
     pub const fn new(max_uploads_per_frame: usize) -> Self {
         Self {
@@ -4108,7 +4108,7 @@ impl DebugWorldPlugin {
     }
 }
 
-impl Plugin for DebugWorldPlugin {
+impl Plugin for ChunkRenderPlugin {
     fn build(&self, app: &mut App) {
         install_atmosphere(app);
         app.init_resource::<ChunkRenderQueue>()
@@ -14285,7 +14285,7 @@ mod tests {
                 Arc::from([BiomeTint::default()]),
                 active,
             ))
-            .add_plugins(DebugWorldPlugin::new(2));
+            .add_plugins(ChunkRenderPlugin::new(2));
         {
             let mut queue = app.world_mut().resource_mut::<ChunkRenderQueue>();
             queue
@@ -14615,7 +14615,7 @@ mod tests {
         };
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
-            .add_plugins(DebugWorldPlugin::new(1));
+            .add_plugins(ChunkRenderPlugin::new(1));
         let acknowledgements = app
             .world()
             .resource::<ChunkUploadAcknowledgements>()
@@ -14664,7 +14664,7 @@ mod tests {
         };
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
-            .add_plugins(DebugWorldPlugin::new(1));
+            .add_plugins(ChunkRenderPlugin::new(1));
         let acknowledgements = app
             .world()
             .resource::<ChunkUploadAcknowledgements>()
@@ -14752,7 +14752,7 @@ mod tests {
                 max_bytes: DEFAULT_RENDER_QUEUE_BYTES,
             }))
             .insert_resource(acknowledgements.clone())
-            .add_plugins(DebugWorldPlugin::new(1));
+            .add_plugins(ChunkRenderPlugin::new(1));
 
         {
             let mut queue = app.world_mut().resource_mut::<ChunkRenderQueue>();
@@ -14931,7 +14931,7 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .insert_resource(acknowledgements.clone())
-            .add_plugins(DebugWorldPlugin::new(2));
+            .add_plugins(ChunkRenderPlugin::new(2));
         {
             let mut queue = app.world_mut().resource_mut::<ChunkRenderQueue>();
             queue

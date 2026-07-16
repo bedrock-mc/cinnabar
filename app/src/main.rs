@@ -58,8 +58,8 @@ use network::{NetworkConfig, NetworkControlEvent, NetworkHandle, spawn_network};
 use render::{
     ActorRenderFrame, ActorRenderPlugin, ActorRenderScene, ActorRenderSource, ActorSkinPixels,
     AtmosphereFrame, AtmospherePlugin, AtmosphereTextureAssets, ChunkBiomeTints,
-    ChunkRenderApplySet, ChunkRenderInstance, ChunkRenderQueue, ChunkTextureAssets,
-    ChunkUploadAcknowledgements, ChunkUploadPriority, ChunkUploadToken, DebugWorldPlugin,
+    ChunkRenderApplySet, ChunkRenderInstance, ChunkRenderPlugin, ChunkRenderQueue,
+    ChunkTextureAssets, ChunkUploadAcknowledgements, ChunkUploadPriority, ChunkUploadToken,
     ModelWitnessEvidence, ModelWitnessManifestRecord, ModelWitnessRequest, ModelWorkloadMetrics,
     PresentedFrameAck, PresentedFrameGate, RenderViewCohort, TargetRenderExpectation,
     TransparentSortMetrics, TransparentWitnessEvidence, VisibilityDiagnostics,
@@ -2309,7 +2309,7 @@ fn run(args: args::ClientArgs) -> Result<()> {
         .add_plugins((
             ActorRenderPlugin,
             AtmospherePlugin,
-            DebugWorldPlugin::new(GPU_UPLOAD_BUDGET_PER_FRAME),
+            ChunkRenderPlugin::new(GPU_UPLOAD_BUDGET_PER_FRAME),
             FlyCameraPlugin::new(args.auto_fly),
         ))
         .add_observer(apply_added_chunk_visibility)
@@ -4041,8 +4041,8 @@ mod tests {
         SubChunkBatchEvent, SubChunkEntryEvent, SubChunkResult, WorldBootstrap, WorldEvent,
     };
     use render::{
-        ChunkBiomeTints, ChunkRenderApplySet, ChunkRenderQueue, ChunkUploadPriority,
-        DebugWorldPlugin, GraphicsAdapterMetadata, OpaqueDrawMode, PresentedFrameAck,
+        ChunkBiomeTints, ChunkRenderApplySet, ChunkRenderPlugin, ChunkRenderQueue,
+        ChunkUploadPriority, GraphicsAdapterMetadata, OpaqueDrawMode, PresentedFrameAck,
         RenderViewCohort, TargetRenderExpectation, VisibilityDiagnosticSnapshot,
         VisibilityDiagnosticsInput, VisibilityKeyDigest,
     };
@@ -4354,7 +4354,7 @@ mod tests {
         app.add_plugins(MinimalPlugins)
             .insert_resource(CaveVisibilityCache::default())
             .insert_resource(VisibilityDiagnosticsInput::new(true))
-            .add_plugins(DebugWorldPlugin::new(1))
+            .add_plugins(ChunkRenderPlugin::new(1))
             .add_observer(apply_added_chunk_visibility)
             .add_observer(remove_chunk_visibility)
             .add_systems(

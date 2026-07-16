@@ -270,7 +270,7 @@ frame and witness evidence.
 re-exports or crate-wide prelude are allowed. Internal types use `pub(crate)` only where a sibling
 subsystem has a demonstrated dependency.
 
-Rename `DebugWorldPlugin` to `ChunkRenderPlugin` as part of the workspace-wide move. Because
+Rename `ChunkRenderPlugin` to `ChunkRenderPlugin` as part of the workspace-wide move. Because
 backward compatibility is not required, consumers change atomically and no permanent alias is
 retained.
 

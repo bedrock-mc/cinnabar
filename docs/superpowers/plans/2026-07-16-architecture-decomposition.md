@@ -365,13 +365,13 @@ Commit: `refactor: extract pure cpu meshing`
 - Split: `crates/render/tests/plugin.rs` into a single harness plus subsystem modules
 
 **Interfaces:**
-- `ChunkRenderPlugin` replaces `DebugWorldPlugin` across the workspace without an alias.
+- `ChunkRenderPlugin` replaces `ChunkRenderPlugin` across the workspace without an alias.
 - `chunk::api` owns application-facing queue/instance/acknowledgement/view contracts.
 - `gpu::types` owns private allocation identities shared by upload, drawing, transparency, and presentation.
 
 - [x] **Step 1: Rename the plugin workspace-wide**
 
-Change `DebugWorldPlugin` to `ChunkRenderPlugin`, run render and app tests, and commit the semantic-free rename with no alias.
+Change `ChunkRenderPlugin` to `ChunkRenderPlugin`, run render and app tests, and commit the semantic-free rename with no alias.
 
 - [ ] **Step 2: Move plugin wiring and public contracts**
 

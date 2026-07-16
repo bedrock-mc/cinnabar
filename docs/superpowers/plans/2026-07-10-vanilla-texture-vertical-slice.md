@@ -671,7 +671,7 @@
 
 - [x] **Step 3: Implement startup selection and diagnostic fallback**
 
-  Load and validate the blob before constructing `WorldStream` and `DebugWorldPlugin`. Never read Mojang JSON/PNG files from the frame loop. The fallback uses a programmatically generated 16x16 magenta/black checker and material 0 only.
+  Load and validate the blob before constructing `WorldStream` and `ChunkRenderPlugin`. Never read Mojang JSON/PNG files from the frame loop. The fallback uses a programmatically generated 16x16 magenta/black checker and material 0 only.
 
 - [x] **Step 4: Verify the full codebase before local Mojang ingestion**
 
