@@ -590,6 +590,7 @@ fn render_queue_counts_and_extracts_non_fallback_biome_records() {
         .single(app.world())
         .unwrap();
     assert_eq!(instance.biome_record(), &biome);
+    assert_eq!(instance.generation(), 1);
 }
 
 #[test]

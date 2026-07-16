@@ -37,6 +37,27 @@ impl ChunkBiomeTintIdentity {
 /// Number of horizontal biome storages retained by one render record.
 pub const BIOME_NEIGHBOUR_SLOT_COUNT: usize = 9;
 
+/// Provisional horizontal tint-sampling radius used by the bounded renderer.
+///
+/// The data sources pin exact Bedrock biome identities and colours but do not
+/// publish the native renderer kernel. Keep this explicit until the native
+/// abrupt-boundary acceptance witness adjudicates it.
+pub const BIOME_BLEND_RADIUS: i32 = 1;
+
+/// Number of samples in the fixed radius-one horizontal tint kernel.
+pub const BIOME_BLEND_SAMPLE_COUNT: usize = BIOME_NEIGHBOUR_SLOT_COUNT;
+
+/// Exact denominator for the equal-weight provisional kernel.
+pub const BIOME_BLEND_WEIGHT_DENOMINATOR: u16 = BIOME_BLEND_SAMPLE_COUNT as u16;
+
+/// One allocation-free palette lookup contributing to a biome tint blend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BiomeBlendSample {
+    pub offset: [i8; 2],
+    pub tint_index: u32,
+    pub weight_numerator: u8,
+}
+
 /// Absolute encoded-word ceiling for one self-contained halo record.
 pub const MAX_PACKED_BIOME_RECORD_WORDS: usize =
     DESCRIPTOR_WORDS + BIOME_NEIGHBOUR_SLOT_COUNT * (1 + 2_048 + BLOCKS_PER_SUB_CHUNK);
@@ -207,21 +228,43 @@ impl PackedBiomeRecord {
         packed_payload_tint_index(payload, x, coordinate[1] as u8, z)
     }
 
-    /// Nine radius-1 box-kernel tint indices in stable Z-major order.
+    /// Exact fixed-size kernel samples in stable Z-major order.
     #[must_use]
-    pub fn blend_tint_indices(&self, coordinate: [i32; 3]) -> Option<[u32; 9]> {
-        let mut samples = [0; 9];
-        for dz in -1..=1 {
-            for dx in -1..=1 {
+    pub fn blend_samples(
+        &self,
+        coordinate: [i32; 3],
+    ) -> Option<[BiomeBlendSample; BIOME_BLEND_SAMPLE_COUNT]> {
+        let mut samples = [BiomeBlendSample {
+            offset: [0, 0],
+            tint_index: 0,
+            weight_numerator: 1,
+        }; BIOME_BLEND_SAMPLE_COUNT];
+        for dz in -BIOME_BLEND_RADIUS..=BIOME_BLEND_RADIUS {
+            for dx in -BIOME_BLEND_RADIUS..=BIOME_BLEND_RADIUS {
+                let dx = i8::try_from(dx).ok()?;
+                let dz = i8::try_from(dz).ok()?;
                 let slot = biome_neighbour_index(dx, dz)?;
-                samples[slot] = self.tint_index_at([
-                    coordinate[0] + i32::from(dx),
-                    coordinate[1],
-                    coordinate[2] + i32::from(dz),
-                ])?;
+                samples[slot] = BiomeBlendSample {
+                    offset: [dx, dz],
+                    tint_index: self.tint_index_at([
+                        coordinate[0] + i32::from(dx),
+                        coordinate[1],
+                        coordinate[2] + i32::from(dz),
+                    ])?,
+                    weight_numerator: 1,
+                };
             }
         }
         Some(samples)
+    }
+
+    /// Nine radius-1 box-kernel tint indices in stable Z-major order.
+    #[must_use]
+    pub fn blend_tint_indices(&self, coordinate: [i32; 3]) -> Option<[u32; 9]> {
+        Some(
+            self.blend_samples(coordinate)?
+                .map(|sample| sample.tint_index),
+        )
     }
 
     /// Center-local lookup retained for existing validation callers.

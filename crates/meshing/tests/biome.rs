@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use meshing::{
+    BIOME_BLEND_RADIUS, BIOME_BLEND_SAMPLE_COUNT, BIOME_BLEND_WEIGHT_DENOMINATOR,
     BIOME_NEIGHBOUR_SLOT_COUNT, MAX_PACKED_BIOME_RECORD_WORDS, PackedBiomeRecord,
     biome_neighbour_index,
 };
@@ -178,4 +179,41 @@ fn identical_neighbour_payloads_are_deduplicated_and_uniform_fast_path_is_record
     let radius_16_overworld_subchunks = 33_u64 * 33 * 24;
     assert_eq!(record.byte_len() * radius_16_overworld_subchunks, 1_359_072);
     assert_eq!(MAX_PACKED_BIOME_RECORD_WORDS, 55_316);
+}
+
+#[test]
+fn blend_samples_expose_the_exact_bounded_kernel_without_flattening() {
+    let halo = std::array::from_fn(|slot| Some(uniform_storage(slot as i32 + 1)));
+    let record = PackedBiomeRecord::from_neighbourhood(&halo, |id| id);
+
+    let samples = record.blend_samples([0, 8, 0]).unwrap();
+
+    assert_eq!(BIOME_BLEND_RADIUS, 1);
+    assert_eq!(BIOME_BLEND_SAMPLE_COUNT, 9);
+    assert_eq!(BIOME_BLEND_WEIGHT_DENOMINATOR, 9);
+    assert_eq!(
+        samples.map(|sample| sample.offset),
+        [
+            [-1, -1],
+            [0, -1],
+            [1, -1],
+            [-1, 0],
+            [0, 0],
+            [1, 0],
+            [-1, 1],
+            [0, 1],
+            [1, 1],
+        ]
+    );
+    assert_eq!(
+        samples.map(|sample| sample.tint_index),
+        [1, 2, 2, 4, 5, 5, 4, 5, 5]
+    );
+    assert_eq!(
+        samples
+            .iter()
+            .map(|sample| u16::from(sample.weight_numerator))
+            .sum::<u16>(),
+        BIOME_BLEND_WEIGHT_DENOMINATOR,
+    );
 }
