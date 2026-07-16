@@ -77,14 +77,12 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     let mut origin_writes = Vec::new();
     let mut applied_tokens = Vec::new();
     let mut successful_updates = Vec::new();
-    let mut chunk_updates = 0;
+    let mut upload_reservation = GpuUploadReservation::default();
     for &entity in &selected {
-        if chunk_updates >= budget.max_per_frame {
-            break;
-        }
         let Ok((_, instance)) = instances.get(entity) else {
             continue;
         };
+        let instance_bytes = chunk_instance_upload_byte_len(instance);
         if !validate_partitioned_model_streams(
             &instance.model_refs,
             &instance.model_lighting,
@@ -162,12 +160,6 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             bevy::log::warn!("chunk origin arena is at the adapter storage-buffer limit");
             continue;
         }
-        if instance
-            .token
-            .is_some_and(|token| !acknowledgements.try_reserve(instance.key, token))
-        {
-            continue;
-        }
         let stream_counts = GeometryStreamCounts {
             cube: required,
             cube_lighting: cube_lighting_required,
@@ -197,19 +189,56 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             }
             continue;
         }
-        let Some(plan) = allocate_for_chunk_update(
-            &mut arena,
+        let Some(projected_ranges) = plan_chunk_range_update(
+            arena.quad_len,
+            &arena.free_quads,
+            arena.geometry_stream_len,
+            &arena.free_geometry_stream_words,
+            arena.biome_len,
+            &arena.free_biomes,
             stream_counts,
             biome_required,
             old.as_ref(),
             preserve_old_geometry,
+            arena.limits,
         ) else {
-            if let Some(token) = instance.token {
-                acknowledgements.cancel(instance.key, token);
-            }
-            bevy::log::warn!("chunk quad arena is at the adapter storage-buffer limit");
             continue;
         };
+        let projected_origin_len = arena
+            .origin_len
+            .saturating_add(usize::from(old.is_none() && arena.free_origins.is_empty()));
+        let Some(projected_growth_copy_bytes) = planned_arena_growth_copy_bytes(
+            ArenaRequiredLengths {
+                quads: arena.quad_capacity,
+                geometry_stream_words: arena.geometry_stream_capacity,
+                origins: arena.origin_capacity,
+                biome_words: arena.biome_capacity,
+            },
+            ArenaRequiredLengths {
+                quads: projected_ranges.quad_len,
+                geometry_stream_words: projected_ranges.geometry_stream_len,
+                origins: projected_origin_len,
+                biome_words: projected_ranges.biome_len,
+            },
+            arena.limits,
+        ) else {
+            continue;
+        };
+        let mut next_upload_reservation = upload_reservation;
+        if !next_upload_reservation.try_reserve(
+            *budget,
+            instance_bytes,
+            projected_growth_copy_bytes,
+        ) {
+            continue;
+        }
+        if instance
+            .token
+            .is_some_and(|token| !acknowledgements.try_reserve(instance.key, token))
+        {
+            continue;
+        }
+        let plan = commit_chunk_range_plan(&mut arena, projected_ranges);
         if let Some(retirement) = retirement {
             let bytes = retirement.owned_bytes();
             assert!(arena.retirement_budget.try_reserve(1, bytes));
@@ -412,7 +441,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
                 .saturating_add(biome_record_byte_len(&instance.biome));
             applied_tokens.push((instance.key, token, uploaded_bytes));
         }
-        chunk_updates += 1;
+        upload_reservation = next_upload_reservation;
         successful_updates.push(entity);
     }
     fairness.finish_frame(&selected, &successful_updates);
@@ -468,6 +497,11 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
         ensure_geometry_stream_capacities(&mut arena, &render_device, &render_queue);
     let origin_gpu_copy_bytes = ensure_origin_capacity(&mut arena, &render_device, &render_queue);
     let biome_gpu_copy_bytes = ensure_biome_capacity(&mut arena, &render_device, &render_queue);
+    let gpu_copy_bytes = quad_gpu_copy_bytes
+        .saturating_add(stream_gpu_copy_bytes)
+        .saturating_add(origin_gpu_copy_bytes)
+        .saturating_add(biome_gpu_copy_bytes);
+    debug_assert_eq!(gpu_copy_bytes, upload_reservation.growth_copy_bytes);
     for (offset, words) in quad_writes {
         if !words.is_empty() {
             render_queue.write_buffer(
@@ -540,7 +574,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
 
     *upload_stats = account_chunk_gpu_uploads(
         *budget,
-        chunk_updates,
+        upload_reservation.items,
         quad_incremental_bytes.saturating_add(stream_incremental_bytes),
         origin_incremental_bytes,
         biome_incremental_bytes,
@@ -548,6 +582,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
         origin_gpu_copy_bytes,
         biome_gpu_copy_bytes,
     );
+    debug_assert_eq!(upload_stats.total_bytes, upload_reservation.total_bytes());
     if upload_stats.chunk_updates > upload_stats.chunk_budget {
         bevy::log::warn!(
             "chunk GPU preparation observed {} updates despite a {}-chunk upload budget",
@@ -555,6 +590,40 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             upload_stats.chunk_budget,
         );
     }
+}
+
+pub(in crate::chunk) fn chunk_instance_upload_byte_len(instance: &ChunkRenderInstance) -> u64 {
+    buffer_byte_len(instance.cube_quads.len(), PACKED_QUAD_BYTES)
+        .saturating_add(buffer_byte_len(
+            instance.cube_lighting.len(),
+            PACKED_QUAD_LIGHTING_BYTES,
+        ))
+        .saturating_add(buffer_byte_len(
+            instance.model_refs.len(),
+            PACKED_MODEL_REF_BYTES,
+        ))
+        .saturating_add(buffer_byte_len(
+            instance.model_lighting.len(),
+            PACKED_QUAD_LIGHTING_BYTES,
+        ))
+        .saturating_add(buffer_byte_len(
+            instance.model_draw_refs.len(),
+            PACKED_MODEL_DRAW_REF_BYTES,
+        ))
+        .saturating_add(buffer_byte_len(
+            instance.transparent_model_draw_refs.len(),
+            PACKED_MODEL_DRAW_REF_BYTES,
+        ))
+        .saturating_add(buffer_byte_len(
+            instance.liquid_quads.len(),
+            PACKED_LIQUID_QUAD_BYTES,
+        ))
+        .saturating_add(buffer_byte_len(
+            instance.liquid_lighting.len(),
+            PACKED_QUAD_LIGHTING_BYTES,
+        ))
+        .saturating_add(CHUNK_ORIGIN_BYTES)
+        .saturating_add(biome_record_byte_len(&instance.biome))
 }
 
 pub(in crate::chunk) fn liquid_quad_centroid(

@@ -22,10 +22,16 @@ impl ChunkRenderPlugin {
     #[must_use]
     pub const fn new(max_uploads_per_frame: usize) -> Self {
         Self {
-            upload_budget: ChunkUploadBudget {
-                max_per_frame: max_uploads_per_frame,
-            },
+            upload_budget: ChunkUploadBudget::new(
+                max_uploads_per_frame,
+                DEFAULT_RENDER_QUEUE_BYTES,
+            ),
         }
+    }
+
+    #[must_use]
+    pub const fn with_budget(upload_budget: ChunkUploadBudget) -> Self {
+        Self { upload_budget }
     }
 }
 

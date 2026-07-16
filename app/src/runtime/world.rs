@@ -18,8 +18,8 @@ use bevy::{
 use client_world::{CommittedControlEvent, WorldMeshChange, WorldStream};
 use meshing::CameraMedium;
 use render::{
-    ChunkBiomeTints, ChunkRenderQueue, ChunkUploadAcknowledgements, ChunkUploadPriority,
-    ChunkUploadToken,
+    ChunkBiomeTints, ChunkRenderQueue, ChunkUploadAcknowledgements, ChunkUploadBudget,
+    ChunkUploadPriority, ChunkUploadToken,
 };
 
 use crate::{
@@ -36,13 +36,13 @@ use crate::{
     movement::MovementTicker,
     runtime::{
         network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
+        publication::{PublicationController, PublicationFrameWork},
         shutdown::record_fatal_error,
         telemetry::bedrock_camera_rotation,
         visibility::{AppMetrics, DiagnosticQuads},
     },
 };
 
-const MESH_JOB_BUDGET_PER_FRAME: usize = 128;
 pub(crate) const SHUTDOWN_WATCHDOG_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Resource)]
@@ -261,6 +261,8 @@ pub(crate) fn drive_world_stream(
     mut biome_tints: ResMut<ChunkBiomeTints>,
     mut diagnostic_quads: ResMut<DiagnosticQuads>,
     acknowledgements: Res<ChunkUploadAcknowledgements>,
+    upload_budget: Res<ChunkUploadBudget>,
+    mut publication: ResMut<PublicationController>,
     model_witness_source: Res<ModelWitnessFileSource>,
     mut camera: Query<&mut Transform, With<FlyCamera>>,
 ) {
@@ -295,13 +297,17 @@ pub(crate) fn drive_world_stream(
     let Ok(mut camera) = camera.single_mut() else {
         return;
     };
-    let (controls, stream_fatal) = {
+    let (controls, stream_fatal, poll_report) = {
         let stream = client_world
             .stream
             .as_mut()
             .expect("stream presence was checked before camera access");
-        stream.poll(camera.translation.to_array(), MESH_JOB_BUDGET_PER_FRAME);
-        (stream.take_committed_controls(), stream.take_fatal_error())
+        let report = stream.poll(camera.translation.to_array(), upload_budget.max_per_frame);
+        (
+            stream.take_committed_controls(),
+            stream.take_fatal_error(),
+            report,
+        )
     };
     if let Some(error) = stream_fatal {
         record_fatal_error(
@@ -368,8 +374,25 @@ pub(crate) fn drive_world_stream(
         )
         .err()
     });
+    let mut published_items = 0;
+    let mut published_bytes = 0_u64;
     if let Some(stream) = client_world.stream.as_mut() {
         while let Some(change) = stream.pop_mesh_change() {
+            let change_bytes = match &change {
+                WorldMeshChange::Upsert { mesh, biome, .. } => {
+                    ChunkRenderQueue::upload_byte_len(mesh, biome)
+                }
+                WorldMeshChange::Remove { .. } => 0,
+            };
+            if !upload_budget.can_fit(published_items, published_bytes, 1, change_bytes) {
+                if stream.retry_mesh_change_front(change).is_err() {
+                    client_world.fatal_error = Some(
+                        "failed to restore a budget-deferred render update to the bounded world retry FIFO"
+                            .to_owned(),
+                    );
+                }
+                break;
+            }
             let retry = match change {
                 WorldMeshChange::Upsert {
                     key,
@@ -435,6 +458,8 @@ pub(crate) fn drive_world_stream(
                 },
             };
             let Some(retry) = retry else {
+                published_items = published_items.saturating_add(1);
+                published_bytes = published_bytes.saturating_add(change_bytes);
                 continue;
             };
             if stream.retry_mesh_change_front(retry).is_err() {
@@ -444,6 +469,20 @@ pub(crate) fn drive_world_stream(
             }
             break;
         }
+    }
+    if let Some(stream) = client_world.stream.as_ref() {
+        let stats = stream.stats();
+        let previous = publication.diagnostics().last_work;
+        publication.finish_frame(PublicationFrameWork {
+            mesh_jobs_dispatched: poll_report.mesh_jobs_dispatched,
+            mesh_changes_published: published_items,
+            mesh_bytes_published: published_bytes,
+            pending_mesh_jobs: stats.pending_mesh_jobs,
+            in_flight_mesh_jobs: stats.in_flight_mesh_jobs,
+            upload_queue_items: render_queue.retained_len(),
+            upload_queue_bytes: render_queue.pending_bytes(),
+            ..previous
+        });
     }
     if let Some(error) = send_error {
         record_fatal_error(&mut client_world.fatal_error, error);

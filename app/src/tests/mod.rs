@@ -239,6 +239,7 @@ fn binding_teleport_completion(
 
 mod core;
 mod finish;
+mod publication;
 mod teleport;
 
 use core::{complete_world_stream_decodes, overworld_biome_payload, settled_world_snapshot};

@@ -207,4 +207,27 @@ mod tests {
 
         assert_eq!(cave_visible_sub_chunks(camera, &graph), [loaded].into());
     }
+
+    #[test]
+    fn outdoor_camera_boundary_keeps_the_loaded_graph_continuously_visible() {
+        let before_boundary = SubChunkKey::new(0, 0, 4, 0);
+        let after_boundary = SubChunkKey::new(0, 1, 4, 0);
+        let support_before = SubChunkKey::new(0, 0, 3, 0);
+        let support_after = SubChunkKey::new(0, 1, 3, 0);
+        let graph = HashMap::from([
+            (before_boundary, FaceConnectivity::all()),
+            (after_boundary, FaceConnectivity::all()),
+            (support_before, FaceConnectivity::none()),
+            (support_after, FaceConnectivity::none()),
+        ]);
+
+        let before = cave_visible_sub_chunks(before_boundary, &graph);
+        let after = cave_visible_sub_chunks(after_boundary, &graph);
+
+        assert_eq!(
+            before, after,
+            "crossing an outdoor sub-chunk boundary must not hide a loaded entity for one frame"
+        );
+        assert_eq!(before, graph.keys().copied().collect());
+    }
 }

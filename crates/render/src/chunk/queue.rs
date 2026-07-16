@@ -53,6 +53,11 @@ impl ChunkRenderQueue {
         }
     }
 
+    #[must_use]
+    pub fn upload_byte_len(mesh: &ChunkMesh, biome: &PackedBiomeRecord) -> u64 {
+        mesh_byte_len(mesh).saturating_add(biome_record_byte_len(biome))
+    }
+
     pub fn try_insert(
         &mut self,
         key: SubChunkKey,
@@ -459,7 +464,8 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
     });
 
     let mut total_applications = 0;
-    let mut non_empty_uploads = 0;
+    let mut payload_applications = 0;
+    let mut total_bytes = 0;
     for (key, _, removal) in ready {
         if total_applications >= DEFAULT_RENDER_QUEUE_ITEMS {
             break;
@@ -482,7 +488,14 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
         let Some(pending) = queue.pending.get(&key) else {
             continue;
         };
-        if !pending.mesh.is_empty() && non_empty_uploads >= budget.max_per_frame {
+        let pending_bytes = if pending.mesh.is_empty() {
+            0
+        } else {
+            pending_upload_byte_len(pending)
+        };
+        if pending_bytes != 0
+            && !budget.can_fit(payload_applications, total_bytes, 1, pending_bytes)
+        {
             continue;
         }
         if pending.mesh.is_empty()
@@ -570,7 +583,10 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
             entities.0.insert(key, entity);
         }
         total_applications += 1;
-        non_empty_uploads += 1;
+        if pending_bytes != 0 {
+            payload_applications = payload_applications.saturating_add(1);
+            total_bytes = total_bytes.saturating_add(pending_bytes);
+        }
     }
 }
 

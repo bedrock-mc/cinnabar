@@ -5,9 +5,10 @@ use std::{
 
 use bevy::{
     diagnostic::{DiagnosticPath, DiagnosticsStore},
+    ecs::system::SystemParam,
     prelude::{
-        ButtonInput, EulerRot, KeyCode, Local, ParamSet, Quat, Query, Res, ResMut, Resource,
-        Single, Time, Transform, Vec3, Window, With,
+        ButtonInput, EulerRot, KeyCode, Local, Quat, Query, Res, ResMut, Resource, Single, Time,
+        Transform, Vec3, Window, With,
     },
     time::Real,
     window::{CursorOptions, PrimaryWindow},
@@ -44,6 +45,9 @@ use crate::{
     },
     runtime::{
         network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
+        publication::{
+            PublicationController, PublicationFrameWork, adaptive_publication_diagnostic_line,
+        },
         shutdown::record_fatal_error,
         visibility::{AppMetrics, CaveVisibilityCache, DiagnosticQuads},
         world::ClientWorld,
@@ -56,6 +60,14 @@ const OPAQUE_3D_GPU_DIAGNOSTIC: DiagnosticPath =
     DiagnosticPath::const_new("render/main_opaque_pass_3d/elapsed_gpu");
 const TRANSPARENT_3D_GPU_DIAGNOSTIC: DiagnosticPath =
     DiagnosticPath::const_new("render/main_transparent_pass_3d/elapsed_gpu");
+
+#[derive(SystemParam)]
+pub(crate) struct TelemetryRenderMetrics<'w> {
+    transparent_sort: Res<'w, TransparentSortMetrics>,
+    model_workload: Res<'w, ModelWorkloadMetrics>,
+    diagnostics: Res<'w, DiagnosticsStore>,
+    publication: ResMut<'w, PublicationController>,
+}
 
 pub(crate) fn camera_sub_chunk_key(dimension: i32, position: Vec3) -> SubChunkKey {
     SubChunkKey::new(
@@ -265,11 +277,7 @@ pub(crate) fn record_metrics_and_title(
     mut metrics: ResMut<AppMetrics>,
     diagnostic_quads: Res<DiagnosticQuads>,
     render_queue: Res<ChunkRenderQueue>,
-    mut render_metrics: ParamSet<(
-        Res<TransparentSortMetrics>,
-        Res<ModelWorkloadMetrics>,
-        Res<DiagnosticsStore>,
-    )>,
+    mut render_metrics: TelemetryRenderMetrics,
     transparent_witness: Res<TransparentWitnessEvidence>,
     model_witness: Res<ModelWitnessEvidence>,
     visibility_diagnostics: Res<VisibilityDiagnostics>,
@@ -289,11 +297,11 @@ pub(crate) fn record_metrics_and_title(
         sampling.runtime_metadata_emitted = true;
     }
     let gpu_sample = {
-        let diagnostics = render_metrics.p2();
+        let diagnostics = &render_metrics.diagnostics;
         pair_gpu_pass_sample(
             sampling.last_gpu_measurement_time,
-            gpu_pass_measurement(&diagnostics, &OPAQUE_3D_GPU_DIAGNOSTIC),
-            gpu_pass_measurement(&diagnostics, &TRANSPARENT_3D_GPU_DIAGNOSTIC),
+            gpu_pass_measurement(diagnostics, &OPAQUE_3D_GPU_DIAGNOSTIC),
+            gpu_pass_measurement(diagnostics, &TRANSPARENT_3D_GPU_DIAGNOSTIC),
         )
     };
     if let Some((measurement_time, sample)) = gpu_sample {
@@ -310,10 +318,34 @@ pub(crate) fn record_metrics_and_title(
         client_world.runtime_assets.missing_count(),
         diagnostic_quads.0.total(),
     );
+    let visibility_snapshot = visibility_diagnostics.snapshot();
+    if let Some(stream) = client_world.stream.as_ref() {
+        let cohort = stream
+            .committed_view_cohort()
+            .map(|target| stream.cohort_status(target));
+        let count = |digest: Option<render::VisibilityKeyDigest>| {
+            digest
+                .and_then(|digest| usize::try_from(digest.count).ok())
+                .unwrap_or(0)
+        };
+        let previous = render_metrics.publication.diagnostics().last_work;
+        render_metrics
+            .publication
+            .finish_frame(PublicationFrameWork {
+                cohort_expected: cohort.map_or(0, |status| status.expected),
+                cohort_loaded: cohort.map_or(0, |status| status.loaded_target),
+                resident_meshes: count(visibility_snapshot.resident_mesh),
+                cave_visible_meshes: count(visibility_snapshot.cave_visible),
+                frustum_visible_meshes: count(visibility_snapshot.frustum_visible_opaque),
+                submitted_meshes: count(visibility_snapshot.submitted_opaque),
+                gpu_completed_meshes: count(visibility_snapshot.gpu_completed_opaque),
+                ..previous
+            });
+    }
     sampling.visibility_elapsed += frame_time;
     if sampling.visibility_elapsed >= VISIBILITY_DIAGNOSTIC_INTERVAL {
         sampling.visibility_elapsed = Duration::ZERO;
-        let snapshot = visibility_diagnostics.snapshot();
+        let snapshot = visibility_snapshot;
         if snapshot.frame_generation != 0 {
             let marker = format!(
                 "{VISIBILITY_SNAPSHOT} frame_generation={} camera={} pose_hash={:016x} camera_frustum_hash={:016x} pose_generation={} view_generation={} draw_mode={:?} {} {} {} {} {} {} {} {} {} {} resident_overflowed={} cave_overflowed={} frustum_overflowed={} submitted_overflowed={}",
@@ -347,6 +379,10 @@ pub(crate) fn record_metrics_and_title(
             );
             let mut stdout = std::io::stdout().lock();
             write_stdout_marker(&mut stdout, &marker);
+            write_stdout_marker(
+                &mut stdout,
+                &adaptive_publication_diagnostic_line(render_metrics.publication.diagnostics()),
+            );
             if let (Some(stream), Some(graphics)) = (
                 client_world.stream.as_ref(),
                 visibility_diagnostics.graphics_adapter(),
@@ -365,9 +401,9 @@ pub(crate) fn record_metrics_and_title(
         }
     }
     let transparent_sort_snapshot =
-        TransparentSortMetricsSnapshot::from(render_metrics.p0().snapshot());
+        TransparentSortMetricsSnapshot::from(render_metrics.transparent_sort.snapshot());
     let model_workload_snapshot =
-        ModelWorkloadMetricsSnapshot::from(render_metrics.p1().snapshot());
+        ModelWorkloadMetricsSnapshot::from(render_metrics.model_workload.snapshot());
     if let Some(marker) = transparent_sort_committed_marker(
         sampling.last_marked_transparent_sort_generation,
         transparent_sort_snapshot,

@@ -5,14 +5,37 @@ pub(in crate::chunk) const DEFAULT_PRESENTED_FRAME_ACK_CAPACITY: usize = 8;
 
 /// Maximum number of non-empty new or changed sub-chunks transferred to the
 /// render world in one main-world update.
-#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Resource, ExtractResource, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ChunkUploadBudget {
     pub max_per_frame: usize,
+    pub max_bytes_per_frame: u64,
 }
 
 impl Default for ChunkUploadBudget {
     fn default() -> Self {
-        Self { max_per_frame: 32 }
+        Self::new(32, 8 * 1024 * 1024)
+    }
+}
+
+impl ChunkUploadBudget {
+    #[must_use]
+    pub const fn new(max_per_frame: usize, max_bytes_per_frame: u64) -> Self {
+        Self {
+            max_per_frame,
+            max_bytes_per_frame,
+        }
+    }
+
+    #[must_use]
+    pub const fn can_fit(
+        self,
+        used_items: usize,
+        used_bytes: u64,
+        additional_items: usize,
+        additional_bytes: u64,
+    ) -> bool {
+        used_items.saturating_add(additional_items) <= self.max_per_frame
+            && used_bytes.saturating_add(additional_bytes) <= self.max_bytes_per_frame
     }
 }
 
