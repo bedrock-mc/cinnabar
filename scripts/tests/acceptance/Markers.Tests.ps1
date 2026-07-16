@@ -296,6 +296,31 @@ $writer.Dispose()
             -WorkingDirectory $TempRoot `
             -StdoutPath (Join-Path $TempRoot 'buffered-helper.stdout.log') `
             -StderrPath (Join-Path $TempRoot 'buffered-helper.stderr.log')
+        $rakNetCapturePattern = '\$rakNetUnconnectedPong\s*=\s*\$\{function:Test-RakNetUnconnectedPong\}'
+        Assert-Equal `
+            2 `
+            ([regex]::Matches(
+                $source,
+                $rakNetCapturePattern,
+                [Text.RegularExpressions.RegexOptions]::CultureInvariant
+            ).Count) `
+            'bootstrap and normal BDS readiness paths did not each capture the decomposed RakNet helper'
+        foreach ($readinessProbeName in @('bootstrapReadinessProbe', 'bdsReadinessProbe')) {
+            $probeStartMarker = '$' + $readinessProbeName + ' = {'
+            $probeStart = $source.IndexOf($probeStartMarker, [StringComparison]::Ordinal)
+            Assert-True `
+                ($probeStart -ge 0) `
+                "$readinessProbeName declaration was missing"
+            $probeEndMarker = '}.GetNewClosure()'
+            $probeEnd = $source.IndexOf($probeEndMarker, $probeStart, [StringComparison]::Ordinal)
+            Assert-True `
+                ($probeEnd -gt $probeStart) `
+                "$readinessProbeName closure boundary was missing"
+            $probeBody = $source.Substring($probeStart, $probeEnd + $probeEndMarker.Length - $probeStart)
+            Assert-True `
+                ($probeBody.Contains('& $rakNetUnconnectedPong')) `
+                "$readinessProbeName did not invoke the captured RakNet helper before crossing function scopes"
+        }
         $rakNetUnconnectedPong = ${function:Test-RakNetUnconnectedPong}
         Assert-True ($null -ne $rakNetUnconnectedPong) 'RakNet readiness helper was not imported into the acceptance test scope'
         $readinessProbe = {

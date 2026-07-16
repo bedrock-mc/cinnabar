@@ -204,8 +204,12 @@ $script:AcceptanceExecutionPhase = {
                         -WorkingDirectory $RuntimeDirectory `
                         -StdoutPath (Join-Path $RunDirectory 'bds-bootstrap.stdout.log') `
                         -StderrPath (Join-Path $RunDirectory 'bds-bootstrap.stderr.log')
+                    $rakNetUnconnectedPong = ${function:Test-RakNetUnconnectedPong}
+                    if ($null -eq $rakNetUnconnectedPong) {
+                        throw 'RakNet readiness helper was not loaded'
+                    }
                     $bootstrapReadinessProbe = {
-                        Test-RakNetUnconnectedPong `
+                        & $rakNetUnconnectedPong `
                             -Address '127.0.0.1' `
                             -Port $bootstrapPort `
                             -TimeoutMilliseconds 500
@@ -274,8 +278,12 @@ $script:AcceptanceExecutionPhase = {
         $portV6Reservation = $null
         $bdsHandle = Start-LoggedProcess -Executable $BdsExecutable -Arguments $BdsArguments -WorkingDirectory $RuntimeDirectory -StdoutPath (Join-Path $RunDirectory 'bds.stdout.log') -StderrPath (Join-Path $RunDirectory 'bds.stderr.log')
         # BDS can buffer redirected stdout until shutdown, so also accept its protocol-level readiness signal.
+        $rakNetUnconnectedPong = ${function:Test-RakNetUnconnectedPong}
+        if ($null -eq $rakNetUnconnectedPong) {
+            throw 'RakNet readiness helper was not loaded'
+        }
         $bdsReadinessProbe = {
-            Test-RakNetUnconnectedPong `
+            & $rakNetUnconnectedPong `
                 -Address '127.0.0.1' `
                 -Port $bdsPort `
                 -TimeoutMilliseconds 500
