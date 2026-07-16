@@ -138,6 +138,11 @@ fn cloud_fragment_uses_face_lighting_weather_and_bounded_distance_fog() {
     assert!(shader.contains("atmosphere.fog_color_start.w"));
     assert!(shader.contains("atmosphere.fog_end_time.x"));
     assert!(shader.contains("distance(in.world_position, view.world_position)"));
+    assert!(shader.contains("fn bounded_cloud_fog("));
+    assert!(shader.contains("fn invalid_cloud_fog_input(value: f32) -> bool"));
+    assert!(shader.contains("return (bitcast<u32>(value) & 0x7f800000u) == 0x7f800000u;"));
+    assert!(shader.contains("if (bounded_end <= bounded_start)"));
+    assert!(shader.contains("select(0.0, 1.0, bounded_distance >= bounded_end)"));
     assert!(shader.contains("mix(cloud_colour, atmosphere.fog_color_start.rgb, fog)"));
     assert!(shader.contains("let cloud_alpha = clamp(1.0 - fog, 0.0, 1.0);"));
     assert!(shader.contains("return vec4(fogged_colour, cloud_alpha);"));

@@ -56,6 +56,30 @@ fn face_normal(face: u32) -> vec3<f32> {
     return vec3(1.0, 0.0, 0.0);
 }
 
+fn invalid_cloud_fog_input(value: f32) -> bool {
+    return (bitcast<u32>(value) & 0x7f800000u) == 0x7f800000u;
+}
+
+fn bounded_cloud_fog(world_distance: f32, fog_start: f32, fog_end: f32) -> f32 {
+    if (invalid_cloud_fog_input(world_distance)
+        || invalid_cloud_fog_input(fog_start)
+        || invalid_cloud_fog_input(fog_end)) {
+        return 1.0;
+    }
+    let bounded_distance = max(world_distance, 0.0);
+    let bounded_start = clamp(fog_start, 0.0, CLOUD_TEXTURE_WORLD_PERIOD - 1.0);
+    let bounded_end = clamp(fog_end, 0.0, CLOUD_TEXTURE_WORLD_PERIOD - 1.0);
+    if (bounded_end <= bounded_start) {
+        return select(0.0, 1.0, bounded_distance >= bounded_end);
+    }
+    let amount = clamp(
+        (bounded_distance - bounded_start) / (bounded_end - bounded_start),
+        0.0,
+        1.0,
+    );
+    return amount * amount * (3.0 - 2.0 * amount);
+}
+
 fn corner_uv(corner_index: u32) -> vec2<f32> {
     return array<vec2<f32>, 6>(
         vec2(0.0, 0.0),
@@ -148,8 +172,11 @@ fn cloud_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let cloud_colour = weather_colour * illuminance;
 
     let world_distance = distance(in.world_position, view.world_position);
-    let bounded_fog_end = min(atmosphere.fog_end_time.x, CLOUD_TEXTURE_WORLD_PERIOD - 1.0);
-    let fog = smoothstep(atmosphere.fog_color_start.w, bounded_fog_end, world_distance);
+    let fog = bounded_cloud_fog(
+        world_distance,
+        atmosphere.fog_color_start.w,
+        atmosphere.fog_end_time.x,
+    );
     let fogged_colour = mix(cloud_colour, atmosphere.fog_color_start.rgb, fog);
     let cloud_alpha = clamp(1.0 - fog, 0.0, 1.0);
     return vec4(fogged_colour, cloud_alpha);

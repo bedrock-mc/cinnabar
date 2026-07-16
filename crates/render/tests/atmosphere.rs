@@ -15,7 +15,7 @@ use bevy::{
 };
 use render::{
     AtmosphereFrame, AtmospherePlugin, ChunkRenderPlugin, cloud_directional_illuminance,
-    cloud_texture_offset, cloud_weather_colour, moon_phase_tile,
+    cloud_fog_factor, cloud_texture_offset, cloud_weather_colour, moon_phase_tile,
 };
 
 fn test_view_uniform() -> ViewUniform {
@@ -224,6 +224,24 @@ fn cloud_directional_illuminance_tracks_face_normal_sun_and_daylight() {
         cloud_directional_illuminance([f32::NAN; 3], [f32::INFINITY; 3], f32::NAN),
         0.0
     );
+}
+
+#[test]
+fn cloud_fog_factor_is_a_finite_step_for_collapsed_or_reversed_ranges() {
+    assert_eq!(cloud_fog_factor(63.999, 64.0, 64.0), 0.0);
+    assert_eq!(cloud_fog_factor(64.0, 64.0, 64.0), 1.0);
+
+    // The cloud coverage cap can place the effective end below a valid
+    // render-relative start. This becomes an explicit step at the cap.
+    assert_eq!(cloud_fog_factor(254.999, 256.0, 256.0), 0.0);
+    assert_eq!(cloud_fog_factor(255.0, 256.0, 256.0), 1.0);
+    assert_eq!(cloud_fog_factor(0.0, 1.0e30, 255.0), 0.0);
+
+    for invalid in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        assert_eq!(cloud_fog_factor(invalid, 0.0, 255.0), 1.0);
+        assert_eq!(cloud_fog_factor(0.0, invalid, 255.0), 1.0);
+        assert_eq!(cloud_fog_factor(0.0, 0.0, invalid), 1.0);
+    }
 }
 
 #[test]
