@@ -39,6 +39,7 @@ use crate::{
             NetworkConfig, NetworkHandle, publish_actor_render_frame, receive_network_events,
             spawn_network,
         },
+        publication::{PublicationController, begin_publication_frame},
         shutdown::{
             exit_on_fatal_runtime_error, exit_on_window_close_requested, finish_acceptance_run,
         },
@@ -56,8 +57,6 @@ use crate::{
         },
     },
 };
-
-const GPU_UPLOAD_BUDGET_PER_FRAME: usize = 128;
 
 use crate::acceptance::model_witness::drive_model_witness;
 
@@ -150,6 +149,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             asset_metrics,
         )))
         .insert_resource(DiagnosticQuads::default())
+        .insert_resource(PublicationController::default())
         .insert_resource(TransparentWitnessFileSource::new(
             args.transparent_witness_request,
         ))
@@ -163,11 +163,17 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .add_plugins((
             ActorRenderPlugin,
             AtmospherePlugin,
-            ChunkRenderPlugin::new(GPU_UPLOAD_BUDGET_PER_FRAME),
+            ChunkRenderPlugin::with_budget(PublicationController::default().budget()),
             FlyCameraPlugin::new(args.auto_fly),
         ))
         .add_observer(apply_added_chunk_visibility)
         .add_observer(remove_chunk_visibility)
+        .add_systems(
+            Update,
+            begin_publication_frame
+                .before(ChunkRenderApplySet)
+                .after(FlyCameraUpdateSet),
+        )
         .add_systems(
             Update,
             (
@@ -176,7 +182,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
                 exit_on_fatal_runtime_error,
                 poll_transparent_witness_request,
                 poll_model_witness_request,
-                drive_world_stream,
+                drive_world_stream.before(ChunkRenderApplySet),
                 publish_actor_render_frame,
                 update_camera_medium,
                 update_atmosphere_frame,

@@ -252,7 +252,7 @@ fn gpu_growth_plan_copies_the_old_allocation_without_a_host_shadow_upload() {
     assert_eq!(growth.gpu_copy_bytes, 64);
 
     let stats = account_chunk_gpu_uploads(
-        ChunkUploadBudget { max_per_frame: 2 },
+        ChunkUploadBudget::new(2, u64::MAX),
         2,
         40,
         32,
@@ -293,6 +293,30 @@ fn render_world_update_plan_is_capped_before_arena_mutation() {
 
     assert_eq!(selected.into_iter().take(2).count(), 2);
     assert!(allocations.is_empty());
+}
+
+#[test]
+fn upload_budget_has_a_hard_byte_cap_as_well_as_an_item_cap() {
+    let budget = ChunkUploadBudget::new(4, 1_024);
+
+    assert!(budget.can_fit(0, 0, 1, 1_024));
+    assert!(!budget.can_fit(0, 0, 1, 1_025));
+    assert!(!budget.can_fit(4, 0, 1, 1));
+}
+
+#[test]
+fn public_upload_estimate_matches_the_bounded_queue_accounting() {
+    let key = SubChunkKey::new(0, 1, 2, 3);
+    let mesh = solid_test_mesh();
+    let biome = PackedBiomeRecord::fallback();
+    let expected = ChunkRenderQueue::upload_byte_len(&mesh, &biome);
+    let mut queue = ChunkRenderQueue::default();
+
+    queue
+        .try_insert_with_biome(key, mesh, biome, ChunkUploadPriority::new(0.0))
+        .unwrap();
+
+    assert_eq!(queue.pending_bytes(), expected);
 }
 
 #[test]

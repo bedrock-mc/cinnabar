@@ -78,13 +78,15 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     let mut applied_tokens = Vec::new();
     let mut successful_updates = Vec::new();
     let mut chunk_updates = 0;
+    let mut chunk_update_bytes = 0;
     for &entity in &selected {
-        if chunk_updates >= budget.max_per_frame {
-            break;
-        }
         let Ok((_, instance)) = instances.get(entity) else {
             continue;
         };
+        let instance_bytes = chunk_instance_upload_byte_len(instance);
+        if !budget.can_fit(chunk_updates, chunk_update_bytes, 1, instance_bytes) {
+            continue;
+        }
         if !validate_partitioned_model_streams(
             &instance.model_refs,
             &instance.model_lighting,
@@ -413,6 +415,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             applied_tokens.push((instance.key, token, uploaded_bytes));
         }
         chunk_updates += 1;
+        chunk_update_bytes = chunk_update_bytes.saturating_add(instance_bytes);
         successful_updates.push(entity);
     }
     fairness.finish_frame(&selected, &successful_updates);
@@ -555,6 +558,40 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             upload_stats.chunk_budget,
         );
     }
+}
+
+pub(in crate::chunk) fn chunk_instance_upload_byte_len(instance: &ChunkRenderInstance) -> u64 {
+    buffer_byte_len(instance.cube_quads.len(), PACKED_QUAD_BYTES)
+        .saturating_add(buffer_byte_len(
+            instance.cube_lighting.len(),
+            PACKED_QUAD_LIGHTING_BYTES,
+        ))
+        .saturating_add(buffer_byte_len(
+            instance.model_refs.len(),
+            PACKED_MODEL_REF_BYTES,
+        ))
+        .saturating_add(buffer_byte_len(
+            instance.model_lighting.len(),
+            PACKED_QUAD_LIGHTING_BYTES,
+        ))
+        .saturating_add(buffer_byte_len(
+            instance.model_draw_refs.len(),
+            PACKED_MODEL_DRAW_REF_BYTES,
+        ))
+        .saturating_add(buffer_byte_len(
+            instance.transparent_model_draw_refs.len(),
+            PACKED_MODEL_DRAW_REF_BYTES,
+        ))
+        .saturating_add(buffer_byte_len(
+            instance.liquid_quads.len(),
+            PACKED_LIQUID_QUAD_BYTES,
+        ))
+        .saturating_add(buffer_byte_len(
+            instance.liquid_lighting.len(),
+            PACKED_QUAD_LIGHTING_BYTES,
+        ))
+        .saturating_add(CHUNK_ORIGIN_BYTES)
+        .saturating_add(biome_record_byte_len(&instance.biome))
 }
 
 pub(in crate::chunk) fn liquid_quad_centroid(
