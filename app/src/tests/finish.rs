@@ -920,18 +920,39 @@ fn status_title_exposes_live_input_coordinates_for_acceptance() {
 }
 
 #[test]
-fn biome_blend_marker_is_stable_and_carries_every_weighted_palette_sample() {
-    let samples = std::array::from_fn(|index| {
-        let dx = (index % 3) as i8 - 1;
-        let dz = (index / 3) as i8 - 1;
-        CameraBiomeBlendSample::new([dx, dz], Some(index as u32 + 10))
-    });
-    let diagnostic = CameraBiomeBlendDiagnostic::new([15, -64, 15], samples);
+fn biome_blend_marker_is_acceptance_only_render_committed_and_deduplicated() {
+    let disabled = AcceptanceRun::new(None, None, false, false);
+    let enabled = AcceptanceRun::new(Some(60), None, false, false);
+    assert!(!biome_blend_diagnostics_enabled(&disabled));
+    assert!(biome_blend_diagnostics_enabled(&enabled));
 
-    assert_eq!(
-        biome_blend_diagnostic_marker(diagnostic),
-        "BIOME_BLEND_SNAPSHOT block=15,-64,15 radius=1 denominator=9 samples=-1,-1:10:1;0,-1:11:1;1,-1:12:1;-1,0:13:1;0,0:14:1;1,0:15:1;-1,1:16:1;0,1:17:1;1,1:18:1",
-    );
+    let key = SubChunkKey::new(0, 4, -4, 9);
+    let tint_identity = ChunkBiomeTintIdentity::new(7, 11);
+    let record = PackedBiomeRecord::fallback();
+    let snapshot =
+        CommittedBiomeBlendSnapshot::from_record(key, 17, tint_identity, [15, 0, 15], &record)
+            .unwrap();
+    let mut last_emitted = None;
+    let marker = biome_blend_diagnostic_marker_if_changed(&mut last_emitted, snapshot)
+        .expect("first committed identity emits");
+    assert!(marker.starts_with(
+        "BIOME_BLEND_COMMITTED stage=app_committed key=0,4,-4,9 generation=17 tint_stream=7 tint_revision=11 record_hash="
+    ));
+    assert!(marker.contains(" local=15,0,15 radius=1 denominator=9 samples="));
+    assert!(marker.ends_with(
+        "-1,-1:0:1;0,-1:0:1;1,-1:0:1;-1,0:0:1;0,0:0:1;1,0:0:1;-1,1:0:1;0,1:0:1;1,1:0:1"
+    ));
+    assert!(biome_blend_diagnostic_marker_if_changed(&mut last_emitted, snapshot).is_none());
+
+    let moved =
+        CommittedBiomeBlendSnapshot::from_record(key, 17, tint_identity, [14, 0, 15], &record)
+            .unwrap();
+    assert!(biome_blend_diagnostic_marker_if_changed(&mut last_emitted, moved).is_some());
+
+    let replaced =
+        CommittedBiomeBlendSnapshot::from_record(key, 18, tint_identity, [14, 0, 15], &record)
+            .unwrap();
+    assert!(biome_blend_diagnostic_marker_if_changed(&mut last_emitted, replaced).is_some());
 }
 
 #[test]

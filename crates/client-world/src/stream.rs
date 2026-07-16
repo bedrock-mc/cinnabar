@@ -8,7 +8,6 @@ use std::{
 };
 
 use ::meshing::{
-    BIOME_BLEND_RADIUS, BIOME_BLEND_SAMPLE_COUNT, BIOME_BLEND_WEIGHT_DENOMINATOR,
     BIOME_NEIGHBOUR_SLOT_COUNT, BlockClassifier, CameraMedium, ChunkBiomeTintIdentity, ChunkMesh,
     FaceConnectivity, MeshLightSample, MeshLightSampler, PackedBiomeRecord, biome_neighbour_index,
     mesh_dependency_mask, mesh_sub_chunk_in_neighbourhood_with_lighting, sample_camera_medium,
@@ -79,75 +78,6 @@ pub const SUB_CHUNK_RESPONSE_TIMEOUT: Duration = Duration::from_secs(2);
 pub const MAX_PENDING_MESH_CHANGES: usize = 256;
 pub const MAX_IN_FLIGHT_LIGHT_JOBS: usize = 512;
 pub const LIGHT_DISPATCH_BUDGET_PER_POLL: usize = MAX_IN_FLIGHT_LIGHT_JOBS;
-
-/// One exact raw-biome contribution to the renderer's bounded tint kernel.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct CameraBiomeBlendSample {
-    offset: [i8; 2],
-    raw_biome_id: Option<u32>,
-    weight_numerator: u8,
-}
-
-impl CameraBiomeBlendSample {
-    #[must_use]
-    pub const fn new(offset: [i8; 2], raw_biome_id: Option<u32>) -> Self {
-        Self {
-            offset,
-            raw_biome_id,
-            weight_numerator: 1,
-        }
-    }
-
-    #[must_use]
-    pub const fn offset(self) -> [i8; 2] {
-        self.offset
-    }
-
-    #[must_use]
-    pub const fn raw_biome_id(self) -> Option<u32> {
-        self.raw_biome_id
-    }
-
-    #[must_use]
-    pub const fn weight_numerator(self) -> u8 {
-        self.weight_numerator
-    }
-}
-
-/// Allocation-free camera witness for one palette-native biome tint blend.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CameraBiomeBlendDiagnostic {
-    block_position: [i32; 3],
-    samples: [CameraBiomeBlendSample; BIOME_BLEND_SAMPLE_COUNT],
-}
-
-impl CameraBiomeBlendDiagnostic {
-    #[must_use]
-    pub const fn new(
-        block_position: [i32; 3],
-        samples: [CameraBiomeBlendSample; BIOME_BLEND_SAMPLE_COUNT],
-    ) -> Self {
-        Self {
-            block_position,
-            samples,
-        }
-    }
-
-    #[must_use]
-    pub const fn block_position(self) -> [i32; 3] {
-        self.block_position
-    }
-
-    #[must_use]
-    pub const fn samples(self) -> [CameraBiomeBlendSample; BIOME_BLEND_SAMPLE_COUNT] {
-        self.samples
-    }
-
-    #[must_use]
-    pub const fn weight_denominator(self) -> u16 {
-        BIOME_BLEND_WEIGHT_DENOMINATOR
-    }
-}
 const LIGHT_RESULT_CAPACITY: usize = LIGHT_DISPATCH_BUDGET_PER_POLL;
 const LIGHT_SOLVE_LIMITS: SolverLimits = SolverLimits::new(4_096, 1_000_000);
 

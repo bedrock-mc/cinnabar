@@ -16,8 +16,10 @@ use bevy::{
     window::{CursorOptions, PrimaryWindow},
     winit::{UpdateMode, WinitSettings},
 };
-use client_world::CameraBiomeBlendDiagnostic;
-use meshing::BIOME_BLEND_RADIUS;
+use meshing::{
+    BIOME_BLEND_RADIUS, BIOME_BLEND_SAMPLE_COUNT, BIOME_BLEND_WEIGHT_DENOMINATOR, BiomeBlendSample,
+    ChunkBiomeTintIdentity, PackedBiomeRecord,
+};
 use render::{
     ChunkRenderInstance, ChunkRenderQueue, ModelWitnessEvidence, ModelWitnessManifestRecord,
     ModelWorkloadMetrics, TransparentSortMetrics, TransparentWitnessEvidence,
@@ -113,6 +115,7 @@ pub(crate) struct MetricsSamplingState {
     pub(crate) visibility_elapsed: Duration,
     pub(crate) runtime_metadata_emitted: bool,
     pub(crate) diagnostic_attribution_revision: u64,
+    pub(crate) last_biome_blend_identity: Option<CommittedBiomeBlendIdentity>,
 }
 
 pub(crate) fn refresh_diagnostic_attribution(
@@ -176,31 +179,99 @@ pub(crate) fn status_title(
     )
 }
 
-pub(crate) fn biome_blend_diagnostic_marker(diagnostic: CameraBiomeBlendDiagnostic) -> String {
-    let block = diagnostic.block_position();
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CommittedBiomeBlendIdentity {
+    key: SubChunkKey,
+    generation: u64,
+    tint_identity: ChunkBiomeTintIdentity,
+    record_hash: u64,
+    local: [i32; 3],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CommittedBiomeBlendSnapshot {
+    identity: CommittedBiomeBlendIdentity,
+    samples: [BiomeBlendSample; BIOME_BLEND_SAMPLE_COUNT],
+}
+
+impl CommittedBiomeBlendSnapshot {
+    pub(crate) fn from_record(
+        key: SubChunkKey,
+        generation: u64,
+        tint_identity: ChunkBiomeTintIdentity,
+        local: [i32; 3],
+        record: &PackedBiomeRecord,
+    ) -> Option<Self> {
+        if local
+            .into_iter()
+            .any(|coordinate| !(0..16).contains(&coordinate))
+        {
+            return None;
+        }
+        Some(Self {
+            identity: CommittedBiomeBlendIdentity {
+                key,
+                generation,
+                tint_identity,
+                record_hash: packed_biome_record_hash(record),
+                local,
+            },
+            samples: record.blend_samples(local)?,
+        })
+    }
+}
+
+pub(crate) fn biome_blend_diagnostics_enabled(acceptance: &AcceptanceRun) -> bool {
+    acceptance.enabled()
+}
+
+pub(crate) fn biome_blend_diagnostic_marker_if_changed(
+    last_emitted: &mut Option<CommittedBiomeBlendIdentity>,
+    snapshot: CommittedBiomeBlendSnapshot,
+) -> Option<String> {
+    if last_emitted.as_ref() == Some(&snapshot.identity) {
+        return None;
+    }
+    *last_emitted = Some(snapshot.identity);
+    let identity = snapshot.identity;
     let mut marker = format!(
-        "BIOME_BLEND_SNAPSHOT block={},{},{} radius={} denominator={} samples=",
-        block[0],
-        block[1],
-        block[2],
+        "BIOME_BLEND_COMMITTED stage=app_committed key={},{},{},{} generation={} tint_stream={} tint_revision={} record_hash={:016x} local={},{},{} radius={} denominator={} samples=",
+        identity.key.dimension,
+        identity.key.x,
+        identity.key.y,
+        identity.key.z,
+        identity.generation,
+        identity.tint_identity.stream(),
+        identity.tint_identity.revision(),
+        identity.record_hash,
+        identity.local[0],
+        identity.local[1],
+        identity.local[2],
         BIOME_BLEND_RADIUS,
-        diagnostic.weight_denominator(),
+        BIOME_BLEND_WEIGHT_DENOMINATOR,
     );
-    for (index, sample) in diagnostic.samples().into_iter().enumerate() {
+    for (index, sample) in snapshot.samples.into_iter().enumerate() {
         if index != 0 {
             marker.push(';');
         }
-        let offset = sample.offset();
-        write!(marker, "{},{}:", offset[0], offset[1]).expect("writing to String cannot fail");
-        match sample.raw_biome_id() {
-            Some(raw_biome_id) => {
-                write!(marker, "{raw_biome_id}").expect("writing to String cannot fail");
-            }
-            None => marker.push_str("none"),
-        }
-        write!(marker, ":{}", sample.weight_numerator()).expect("writing to String cannot fail");
+        write!(
+            marker,
+            "{},{}:{}:{}",
+            sample.offset[0], sample.offset[1], sample.tint_index, sample.weight_numerator,
+        )
+        .expect("writing to String cannot fail");
     }
-    marker
+    Some(marker)
+}
+
+fn packed_biome_record_hash(record: &PackedBiomeRecord) -> u64 {
+    const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+    const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+    record.words().iter().fold(FNV_OFFSET, |hash, word| {
+        word.to_le_bytes().into_iter().fold(hash, |hash, byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(FNV_PRIME)
+        })
+    })
 }
 
 pub(crate) fn bedrock_camera_rotation(yaw_degrees: f32, pitch_degrees: f32) -> Quat {
@@ -401,13 +472,33 @@ pub(crate) fn record_metrics_and_title(
     if sampling.visibility_elapsed >= VISIBILITY_DIAGNOSTIC_INTERVAL {
         sampling.visibility_elapsed = Duration::ZERO;
         let snapshot = visibility_snapshot;
-        if let (Some(stream), Ok(camera)) = (client_world.stream.as_ref(), camera.single())
-            && let Some(diagnostic) =
-                stream.camera_biome_blend_diagnostic(camera.translation.to_array())
+        if biome_blend_diagnostics_enabled(&acceptance)
+            && let (Some(stream), Ok(camera)) = (client_world.stream.as_ref(), camera.single())
+            && camera.translation.is_finite()
         {
-            let marker = biome_blend_diagnostic_marker(diagnostic);
-            let mut stdout = std::io::stdout().lock();
-            write_stdout_marker(&mut stdout, &marker);
+            let key = camera_sub_chunk_key(stream.current_dimension(), camera.translation);
+            let block = camera.translation.floor().as_ivec3();
+            let local = [
+                block.x.rem_euclid(16),
+                block.y.rem_euclid(16),
+                block.z.rem_euclid(16),
+            ];
+            if let Some(instance) = chunks.iter().find(|instance| instance.key() == key)
+                && let Some(snapshot) = CommittedBiomeBlendSnapshot::from_record(
+                    key,
+                    instance.generation(),
+                    instance.tint_identity(),
+                    local,
+                    instance.biome_record(),
+                )
+                && let Some(marker) = biome_blend_diagnostic_marker_if_changed(
+                    &mut sampling.last_biome_blend_identity,
+                    snapshot,
+                )
+            {
+                let mut stdout = std::io::stdout().lock();
+                write_stdout_marker(&mut stdout, &marker);
+            }
         }
         if snapshot.frame_generation != 0 {
             let marker = format!(

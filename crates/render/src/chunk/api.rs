@@ -722,4 +722,9 @@ impl ChunkRenderInstance {
     pub const fn tint_identity(&self) -> ChunkBiomeTintIdentity {
         self.tint_identity
     }
+
+    #[must_use]
+    pub const fn generation(&self) -> u64 {
+        self.generation
+    }
 }
