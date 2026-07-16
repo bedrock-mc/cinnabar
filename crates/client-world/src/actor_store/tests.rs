@@ -203,7 +203,6 @@ fn absolute_network_positions_use_supported_entity_kind_offsets() {
         ("minecraft:tnt_minecart", 0.5),
         ("minecraft:command_block_minecart", 0.5),
         ("minecraft:boat", 0.375),
-        ("minecraft:chest_boat", 0.375),
     ];
 
     for (index, (identifier, offset)) in cases.into_iter().enumerate() {
@@ -219,6 +218,29 @@ fn absolute_network_positions_use_supported_entity_kind_offsets() {
         assert!(
             (store.get(runtime_id).unwrap().position[1] - 64.0).abs() < 1e-5,
             "{identifier} retained a network-space Y"
+        );
+    }
+}
+
+#[test]
+fn unknown_minecraft_suffixes_do_not_inherit_reviewed_offsets() {
+    for (index, identifier) in ["minecraft:display_boat", "minecraft:custom_minecart"]
+        .into_iter()
+        .enumerate()
+    {
+        let runtime_id = index as u64 + 40;
+        let mut store = ActorStore::new(1, 0);
+        store.apply(
+            1,
+            1,
+            entity_spawn(runtime_id, -(runtime_id as i64), identifier, Arc::from([])),
+        );
+        store.apply(1, 2, network_move(runtime_id, 64.75, true));
+
+        assert_eq!(
+            store.get(runtime_id).unwrap().position[1],
+            64.75,
+            "{identifier} inherited an offset without a reviewed mapping"
         );
     }
 }

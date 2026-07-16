@@ -146,10 +146,12 @@ impl ActorSnapshot {
                     "item" => ITEM_ACTOR_NETWORK_OFFSET,
                     "falling_block" => FALLING_BLOCK_NETWORK_OFFSET,
                     "tnt" => self.primed_tnt_network_offset(),
-                    "minecart" => MINECART_NETWORK_OFFSET,
+                    "minecart"
+                    | "hopper_minecart"
+                    | "tnt_minecart"
+                    | "chest_minecart"
+                    | "command_block_minecart" => MINECART_NETWORK_OFFSET,
                     "boat" => BOAT_NETWORK_OFFSET,
-                    _ if path.ends_with("_minecart") => MINECART_NETWORK_OFFSET,
-                    _ if path.ends_with("_boat") => BOAT_NETWORK_OFFSET,
                     _ => 0.0,
                 }
             }

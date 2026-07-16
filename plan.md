@@ -1526,8 +1526,9 @@ and dropped-item rendering, paper-doll first-person arm/held item.
   and `AddActor` remain feet-space, while `MovePlayer` and absolute actor movement are normalized
   exactly once after retained actor kind and metadata are known. Standing players use Bedrock's
   `1.62001` offset; sleeping players use `0.2` only when retained sleeping flags prove the pose;
-  retained item actors, falling blocks, and minecart families use `0.5`; boats use `0.375`; and
-  primed TNT uses half its retained bounding-box height with the vanilla `0.49` default. The
+  retained item actors, falling blocks, and the reviewed vanilla minecart identifiers use `0.5`;
+  `minecraft:boat` uses `0.375`; and primed TNT uses half its retained bounding-box height with
+  the vanilla `0.49` default. The
   separate `AddItemEntity` spawn packet still awaits ingestion. Partial/delta movement and actors
   without a reviewed offset remain unchanged. The client-world store performs
   Oomph-style three-20-Hz-tick player convergence;
