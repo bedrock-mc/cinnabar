@@ -1442,9 +1442,11 @@ and dropped-item rendering, paper-doll first-person arm/held item.
   profiles to the sparse actor store, whose cumulative retained skin bytes remain capped across
   incremental roster packets. The app excludes the local runtime ID and publishes at most 128
   runtime-ID-ordered player snapshots into a render-only two-pose history, sampling them 100 ms
-  behind `Time<Real>` with shortest-path angle interpolation. Accepted movement sequences provide
-  event identity so one teleport event snaps once across repeated publications while consecutive
-  teleport packets always snap. This path consumes no free-camera or local movement state. One
+  behind `Time<Real>` with shortest-path angle interpolation. Unique IDs plus accepted spawn
+  sequences identify actor lifetimes, so same-runtime replacements and remove/re-adds reset stale
+  history. Accepted movement sequences provide event identity so one teleport event snaps once
+  across repeated publications while consecutive teleport packets always snap. This path consumes
+  no free-camera or local movement state. One
   custom `Opaque3d` instanced draw expands a shared six-cuboid standard
   Bedrock biped vertex buffer and samples a bounded 64x64 texture array, with no `StandardMaterial`
   or per-actor Bevy mesh. Missing/unsupported/invalid skins use the documented, locally generated

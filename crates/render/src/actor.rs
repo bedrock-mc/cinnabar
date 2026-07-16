@@ -20,6 +20,8 @@ pub struct ActorSkinPixels {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ActorRenderSource {
     pub runtime_id: u64,
+    pub unique_id: i64,
+    pub spawn_revision: u64,
     pub movement_revision: u64,
     pub position: [f32; 3],
     pub pitch_degrees: f32,
@@ -94,10 +96,26 @@ struct TimedPose {
 
 #[derive(Debug, Clone)]
 struct ActorTrack {
+    identity: ActorInstanceIdentity,
     previous: TimedPose,
     current: TimedPose,
     skin: Option<ActorSkinPixels>,
     movement_revision: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ActorInstanceIdentity {
+    unique_id: i64,
+    spawn_revision: u64,
+}
+
+impl From<&ActorRenderSource> for ActorInstanceIdentity {
+    fn from(source: &ActorRenderSource) -> Self {
+        Self {
+            unique_id: source.unique_id,
+            spawn_revision: source.spawn_revision,
+        }
+    }
 }
 
 #[derive(Debug, Default, Resource)]
@@ -145,9 +163,20 @@ impl ActorRenderScene {
             .retain(|runtime_id, _| active.contains(runtime_id));
         for source in &sources {
             let pose = Pose::from(source);
+            let identity = ActorInstanceIdentity::from(source);
             match self.tracks.get_mut(&source.runtime_id) {
                 Some(track) => {
-                    if source.teleported && source.movement_revision != track.movement_revision {
+                    if track.identity != identity {
+                        let timed = TimedPose {
+                            seconds: now_seconds,
+                            pose,
+                        };
+                        track.identity = identity;
+                        track.previous = timed.clone();
+                        track.current = timed;
+                    } else if source.teleported
+                        && source.movement_revision != track.movement_revision
+                    {
                         let timed = TimedPose {
                             seconds: now_seconds,
                             pose,
@@ -172,6 +201,7 @@ impl ActorRenderScene {
                     self.tracks.insert(
                         source.runtime_id,
                         ActorTrack {
+                            identity,
                             previous: timed.clone(),
                             current: timed,
                             skin: source.skin.clone(),
@@ -422,6 +452,8 @@ mod tests {
     fn source(runtime_id: u64, x: f32, yaw_degrees: f32) -> ActorRenderSource {
         ActorRenderSource {
             runtime_id,
+            unique_id: i64::try_from(runtime_id).unwrap_or(i64::MAX),
+            spawn_revision: 1,
             movement_revision: 0,
             position: [x, 64.0, 0.0],
             pitch_degrees: 0.0,
@@ -433,7 +465,7 @@ mod tests {
     }
 
     #[test]
-    fn scene_interpolates_position_and_shortest_angles_at_a_time_delay() {
+    fn same_actor_instance_republication_preserves_delayed_interpolation_history() {
         let mut scene = ActorRenderScene::default();
         scene.update(0.0, [source(7, 0.0, 350.0)]);
         scene.update(0.1, [source(7, 10.0, 10.0)]);
@@ -442,6 +474,35 @@ mod tests {
         assert_eq!(frame.instances.len(), 1);
         assert!((frame.instances[0].position[0] - 5.0).abs() < 1e-5);
         assert!(frame.instances[0].yaw_radians.abs() < 1e-5);
+    }
+
+    #[test]
+    fn same_runtime_replacement_with_a_changed_unique_id_resets_history() {
+        let mut scene = ActorRenderScene::default();
+        scene.update(0.0, [source(7, 0.0, 0.0)]);
+        scene.update(0.1, [source(7, 10.0, 0.0)]);
+
+        let mut replacement = source(7, 100.0, 90.0);
+        replacement.unique_id = 8;
+        replacement.spawn_revision = 2;
+        let frame = scene.update(0.15, [replacement]);
+
+        assert_eq!(frame.instances[0].position[0], 100.0);
+        assert!((frame.instances[0].yaw_radians - std::f32::consts::FRAC_PI_2).abs() < 1e-5);
+    }
+
+    #[test]
+    fn same_runtime_and_unique_id_with_a_new_spawn_revision_resets_history() {
+        let mut scene = ActorRenderScene::default();
+        scene.update(0.0, [source(7, 0.0, 0.0)]);
+        scene.update(0.1, [source(7, 10.0, 0.0)]);
+
+        let mut readded = source(7, 100.0, 90.0);
+        readded.spawn_revision = 2;
+        let frame = scene.update(0.15, [readded]);
+
+        assert_eq!(frame.instances[0].position[0], 100.0);
+        assert!((frame.instances[0].yaw_radians - std::f32::consts::FRAC_PI_2).abs() < 1e-5);
     }
 
     #[test]

@@ -32,9 +32,9 @@
 
 **Files:** Modify `app/src/actor_store.rs`; test its unit module.
 
-**Interfaces:** `ActorStore::render_players(excluded_runtime_id)` yields deterministic remote player actor/profile pairs without exposing local movement state, while roster skins remain within a cumulative retained-byte cap.
+**Interfaces:** `ActorStore::render_players(excluded_runtime_id)` yields deterministic remote player actor/profile pairs carrying `(unique_id, spawn_revision)` lifetime identity without exposing local movement state, while roster skins remain within a cumulative retained-byte cap.
 
-- [x] Add tests for roster skin retention and its cumulative cap, UUID joining, local-player exclusion, stable runtime-ID order, and reset/removal.
+- [x] Add tests for roster skin retention and its cumulative cap, UUID joining, local-player exclusion, stable runtime-ID order, accepted-spawn revision identity, replacement, and reset/removal.
 - [x] Run `cargo test -p bedrock-client actor_store` and record RED.
 - [x] Implement the minimal iterator/profile changes.
 - [x] Re-run the focused app tests to GREEN.
@@ -43,9 +43,9 @@
 
 **Files:** Create `crates/render/src/actor.rs`; modify `crates/render/src/lib.rs`; test `actor.rs`.
 
-**Interfaces:** `ActorRenderScene::update(now_seconds, sources)` produces `ActorRenderFrame` with at most 128 instances, two poses per actor, 100 ms delayed interpolation, movement-event revisions, and deterministic skin layers.
+**Interfaces:** `ActorRenderScene::update(now_seconds, sources)` produces `ActorRenderFrame` with at most 128 instances, two poses per actor, 100 ms delayed interpolation, actor-lifetime identity, movement-event revisions, and deterministic skin layers.
 
-- [x] Add tests for interpolation, shortest angles, same-event teleport republication, consecutive teleport events, ordinary post-teleport movement, truncation, skin resampling, and the locally generated default.
+- [x] Add tests for interpolation, shortest angles, same-lifetime republication, same-runtime replacement, remove/re-add generation, same-event teleport republication, consecutive teleport events, ordinary post-teleport movement, truncation, skin resampling, and the locally generated default.
 - [x] Run `cargo test -p render actor::tests` and record RED.
 - [x] Implement only the bounded scene/frame logic required by those tests.
 - [x] Re-run the focused render tests to GREEN.

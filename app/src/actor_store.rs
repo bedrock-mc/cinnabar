@@ -29,6 +29,7 @@ pub(crate) enum ActorApplyResult {
 pub(crate) struct ActorSnapshot {
     pub unique_id: i64,
     pub runtime_id: u64,
+    pub spawn_revision: u64,
     pub movement_revision: u64,
     pub kind: ActorKind,
     pub position: [f32; 3],
@@ -45,11 +46,12 @@ pub(crate) struct ActorSnapshot {
     pub float_properties: HashMap<i32, f32>,
 }
 
-impl From<ActorSpawnEvent> for ActorSnapshot {
-    fn from(spawn: ActorSpawnEvent) -> Self {
+impl ActorSnapshot {
+    fn from_spawn(spawn: ActorSpawnEvent, spawn_revision: u64) -> Self {
         let mut snapshot = Self {
             unique_id: spawn.unique_id,
             runtime_id: spawn.runtime_id,
+            spawn_revision,
             movement_revision: 0,
             kind: spawn.kind,
             position: spawn.position,
@@ -70,9 +72,7 @@ impl From<ActorSpawnEvent> for ActorSnapshot {
         snapshot.apply_properties(&spawn.properties);
         snapshot
     }
-}
 
-impl ActorSnapshot {
     fn apply_metadata(&mut self, metadata: &[protocol::ActorMetadata]) -> bool {
         let mut rejected = false;
         for metadata in metadata {
@@ -248,7 +248,7 @@ impl ActorStore {
             return ActorApplyResult::StaleDimension;
         }
         match event {
-            ActorEvent::Spawn(spawn) => self.apply_spawn(spawn),
+            ActorEvent::Spawn(spawn) => self.apply_spawn(sequence, spawn),
             ActorEvent::Remove(remove) => self.remove_unique(remove.unique_id),
             ActorEvent::Move(movement) => {
                 let Some(actor) = self.actors.get_mut(&movement.runtime_id) else {
@@ -409,7 +409,7 @@ impl ActorStore {
         ActorApplyResult::Updated
     }
 
-    fn apply_spawn(&mut self, spawn: ActorSpawnEvent) -> ActorApplyResult {
+    fn apply_spawn(&mut self, sequence: u64, spawn: ActorSpawnEvent) -> ActorApplyResult {
         let replaces_runtime = self.actors.contains_key(&spawn.runtime_id);
         let replaces_unique = self.unique_to_runtime.contains_key(&spawn.unique_id);
         if self.actors.len() >= self.max_actors && !replaces_runtime && !replaces_unique {
@@ -427,7 +427,8 @@ impl ActorStore {
         }
         let runtime_id = spawn.runtime_id;
         let unique_id = spawn.unique_id;
-        self.actors.insert(runtime_id, spawn.into());
+        self.actors
+            .insert(runtime_id, ActorSnapshot::from_spawn(spawn, sequence));
         self.unique_to_runtime.insert(unique_id, runtime_id);
         if replaced {
             ActorApplyResult::Replaced
@@ -667,14 +668,35 @@ mod tests {
     fn duplicate_runtime_or_unique_ids_replace_atomically() {
         let mut store = ActorStore::new(1, 0);
         store.apply(1, 1, spawn(10, 20));
+        assert_eq!(store.get(10).unwrap().spawn_revision, 1);
         assert_eq!(store.apply(1, 2, spawn(10, 21)), ActorApplyResult::Replaced);
         assert_eq!(store.len(), 1);
+        assert_eq!(store.get(10).unwrap().spawn_revision, 2);
         assert_eq!(store.get(10).unwrap().unique_id, 21);
 
         assert_eq!(store.apply(1, 3, spawn(11, 21)), ActorApplyResult::Replaced);
         assert_eq!(store.len(), 1);
         assert!(store.get(10).is_none());
         assert_eq!(store.get(11).unwrap().unique_id, 21);
+    }
+
+    #[test]
+    fn remove_and_readd_of_the_same_actor_gets_a_new_spawn_revision() {
+        let mut store = ActorStore::new(1, 0);
+        store.apply(1, 1, spawn(10, 20));
+        store.apply(
+            1,
+            2,
+            ActorEvent::Remove(ActorRemoveEvent {
+                dimension: 0,
+                unique_id: 20,
+            }),
+        );
+        store.apply(1, 3, spawn(10, 20));
+
+        let actor = store.get(10).unwrap();
+        assert_eq!(actor.unique_id, 20);
+        assert_eq!(actor.spawn_revision, 3);
     }
 
     #[test]
