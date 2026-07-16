@@ -1296,14 +1296,21 @@ store it only under the user's temporary directory, inspect that file, and never
     remain capped at 32 and the result channel at 128. The deterministic
     regression, all 284 client unit tests (two ignored), strict Clippy,
     formatting, and CI are green.
-  - [ ] Correct the full-view cohort proof to the authoritative circular BDS
-    publisher region instead of the current 33x33 square assumption. Live
-    DX12/FIFO run `20260715T234919Z-5284` now reaches `WORLD_READY` with 7,041
-    rendered subchunks, but its far teleport settles with 937 authoritative
-    target columns and zero network/request/decode/light/mesh/upload work while
-    the proof incorrectly waits forever for 152 unsent square-corner columns
-    (`1,089 - 937`). Preserve exact source eviction and GPU-manifest evidence;
-    do not weaken this to a count-only or timeout-only success condition.
+  - [x] Correct the full-view cohort proof to the authoritative circular BDS
+    publisher region through `1fdd874`. The required radius-16 Euclidean disk
+    contains 797 columns; the enclosing 33x33 square remains an allowed
+    server-prefetch scope, so extra in-scope columns cannot replace a missing
+    required column and data outside that square still fails closed. Exact
+    source eviction and GPU-manifest evidence remain mandatory. Independent
+    verification passed all 289 client unit tests (two ignored), the 43/14/14
+    integration groups, strict Clippy, formatting, and diff checks. Live
+    DX12/FIFO run `20260716T001125Z-16608` then reached `exact=true` with all
+    797 required columns, 22,488 resident subchunks, 14,018 known-air
+    subchunks, zero source/foreign evidence, and every network, request,
+    decode, light, mesh, render-upload, and acknowledgement queue drained to
+    zero. The run still timed out after this boundary because no binding pair
+    of exact GPU-completed presented-frame acknowledgements was published;
+    presentation-gate diagnosis and the <=2-second remesh gate remain open.
 - [ ] Remove every dark rectangle/background pixel around the pinned sun and
   moon textures. The acceptance test must exercise decoded pinned pixels and
   mip/filter edges, not merely string-inspect WGSL, and must prove both bodies
