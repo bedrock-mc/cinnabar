@@ -82,6 +82,33 @@ impl WorldStream {
             local_position,
         )
     }
+    #[must_use]
+    pub fn camera_biome_id(&self, position: [f32; 3]) -> Option<u32> {
+        if !position.iter().all(|value| value.is_finite()) {
+            return None;
+        }
+        let block = position.map(floor_to_i32);
+        let key = SubChunkKey::new(
+            self.current_dimension,
+            block[0].div_euclid(16),
+            block[1].div_euclid(16),
+            block[2].div_euclid(16),
+        );
+        self.store.biome_id(
+            key,
+            block[0].rem_euclid(16) as u8,
+            block[1].rem_euclid(16) as u8,
+            block[2].rem_euclid(16) as u8,
+        )
+    }
+    #[must_use]
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "the committed stream radius is bounded to sixteen chunks"
+    )]
+    pub fn render_distance_blocks(&self) -> f32 {
+        self.active_radius_chunks().max(0).saturating_mul(16) as f32
+    }
     pub fn biome_definitions_snapshot(&self) -> Arc<[BiomeDefinitionEvent]> {
         Arc::clone(&self.biome_definitions)
     }

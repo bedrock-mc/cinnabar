@@ -164,10 +164,10 @@ fn prepare_atmosphere_textures(
 
     let sun = runtime
         .texture(AtmosphereRole::Sun)
-        .expect("validated MCBEATM1 always contains the sun texture");
+        .expect("validated MCBEATM2 always contains the sun texture");
     let moon_phases = runtime
         .texture(AtmosphereRole::MoonPhases)
-        .expect("validated MCBEATM1 always contains the moon atlas");
+        .expect("validated MCBEATM2 always contains the moon atlas");
     let (sun_texture, sun_view) =
         upload_atmosphere_texture(&render_device, &render_queue, sun, "pinned vanilla sun");
     let (moon_texture, moon_view) = upload_atmosphere_texture(
@@ -584,6 +584,8 @@ mod tests {
         let blob = encode_atmosphere_blob(&CompiledAtmosphereAssets {
             source_manifest_sha256: [0x66; 32],
             textures,
+            biome_profiles: Box::new([]),
+            fog_profiles: Box::new([]),
         })
         .unwrap();
         Arc::new(RuntimeAtmosphereAssets::decode(&blob).unwrap())

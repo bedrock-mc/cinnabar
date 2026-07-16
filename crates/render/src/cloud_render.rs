@@ -94,9 +94,9 @@ pub(crate) fn prepare_cloud_records(
 
     let cloud_texture = runtime
         .texture(AtmosphereRole::Clouds)
-        .expect("validated MCBEATM1 always contains the cloud texture");
+        .expect("validated MCBEATM2 always contains the cloud texture");
     let records = mesh_cloud_texture(cloud_texture)
-        .expect("validated MCBEATM1 cloud texture must satisfy the finite mesh contract");
+        .expect("validated MCBEATM2 cloud texture must satisfy the finite mesh contract");
     let record_count = u32::try_from(records.len()).expect("bounded cloud record count fits u32");
     let record_buffer = if records.is_empty() {
         None

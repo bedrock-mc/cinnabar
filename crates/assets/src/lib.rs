@@ -13,7 +13,9 @@ mod texture;
 
 pub use atmosphere::{
     ATMOSPHERE_BLOB_MAGIC, ATMOSPHERE_BLOB_VERSION, AtmosphereRole, AtmosphereTexture,
-    CelestialBorderTexel, CelestialTile, CompiledAtmosphereAssets, RuntimeAtmosphereAssets,
+    BiomeVisualProfile, CelestialBorderTexel, CelestialTile, CompiledAtmosphereAssets, FogDistance,
+    FogDistanceMode, FogMedium, FogProfile, MAX_ENVIRONMENT_IDENTIFIER_BYTES,
+    MAX_ENVIRONMENT_PROFILES, MAX_FOG_DISTANCES, ResolvedFog, RuntimeAtmosphereAssets,
     composite_celestial, encode_atmosphere_blob,
 };
 pub use biome::{

@@ -1,16 +1,146 @@
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::AssetError;
 
-pub const ATMOSPHERE_BLOB_MAGIC: [u8; 8] = *b"MCBEATM1";
-pub const ATMOSPHERE_BLOB_VERSION: u32 = 1;
+pub const ATMOSPHERE_BLOB_MAGIC: [u8; 8] = *b"MCBEATM2";
+pub const ATMOSPHERE_BLOB_VERSION: u32 = 2;
 const HEADER_BYTES: usize = 128;
 const DESCRIPTOR_BYTES: usize = 112;
 const HASH_BYTES: usize = 32;
 const MAX_SOURCE_BYTES: usize = 1024 * 1024;
+const MAX_ENVIRONMENT_SECTION_BYTES: usize = 1024 * 1024;
 const FORMAT_RGBA8_SRGB: u32 = 1;
 const CELESTIAL_TILE_SIZE: u32 = 32;
 const CELESTIAL_BORDER_TEXELS: usize = (4 * CELESTIAL_TILE_SIZE - 4) as usize;
+pub const MAX_ENVIRONMENT_PROFILES: usize = 1_024;
+pub const MAX_ENVIRONMENT_IDENTIFIER_BYTES: usize = 256;
+pub const MAX_FOG_DISTANCES: usize = 6;
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[repr(u8)]
+pub enum FogMedium {
+    Air = 0,
+    Water = 1,
+    Weather = 2,
+    Lava = 3,
+    LavaResistance = 4,
+    PowderSnow = 5,
+}
+
+impl FogMedium {
+    pub const ALL: [Self; MAX_FOG_DISTANCES] = [
+        Self::Air,
+        Self::Water,
+        Self::Weather,
+        Self::Lava,
+        Self::LavaResistance,
+        Self::PowderSnow,
+    ];
+
+    #[must_use]
+    pub fn from_source_name(name: &str) -> Option<Self> {
+        match name {
+            "air" => Some(Self::Air),
+            "water" => Some(Self::Water),
+            "weather" => Some(Self::Weather),
+            "lava" => Some(Self::Lava),
+            "lava_resistance" => Some(Self::LavaResistance),
+            "powder_snow" => Some(Self::PowderSnow),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[repr(u8)]
+pub enum FogDistanceMode {
+    Fixed = 0,
+    RenderRelative = 1,
+}
+
+impl FogDistanceMode {
+    #[must_use]
+    pub fn from_source_name(name: &str) -> Option<Self> {
+        match name {
+            "fixed" => Some(Self::Fixed),
+            "render" => Some(Self::RenderRelative),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FogDistance {
+    pub medium: FogMedium,
+    pub mode: FogDistanceMode,
+    pub start_bits: u32,
+    pub end_bits: u32,
+    pub rgb8: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ResolvedFog {
+    pub start: f32,
+    pub end: f32,
+    pub rgb8: u32,
+}
+
+impl FogDistance {
+    #[must_use]
+    pub fn start(self) -> f32 {
+        f32::from_bits(self.start_bits)
+    }
+
+    #[must_use]
+    pub fn end(self) -> f32 {
+        f32::from_bits(self.end_bits)
+    }
+
+    #[must_use]
+    pub fn resolve(self, render_distance_blocks: f32) -> Option<ResolvedFog> {
+        if !render_distance_blocks.is_finite() || render_distance_blocks < 0.0 {
+            return None;
+        }
+        let scale = match self.mode {
+            FogDistanceMode::Fixed => 1.0,
+            FogDistanceMode::RenderRelative => render_distance_blocks,
+        };
+        Some(ResolvedFog {
+            start: self.start() * scale,
+            end: self.end() * scale,
+            rgb8: self.rgb8,
+        })
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FogProfile {
+    pub identifier: Box<str>,
+    pub distances: Box<[FogDistance]>,
+}
+
+impl FogProfile {
+    #[must_use]
+    pub fn distance(&self, medium: FogMedium) -> Option<FogDistance> {
+        self.distances
+            .iter()
+            .find(|distance| distance.medium == medium)
+            .copied()
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct BiomeVisualProfile {
+    pub biome_identifier: Box<str>,
+    pub fog_identifier: Box<str>,
+    pub atmosphere_identifier: Box<str>,
+    pub lighting_identifier: Box<str>,
+    pub sky_rgb8: Option<u32>,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
@@ -48,6 +178,15 @@ pub struct AtmosphereTexture {
 pub struct CompiledAtmosphereAssets {
     pub source_manifest_sha256: [u8; 32],
     pub textures: Box<[AtmosphereTexture]>,
+    pub biome_profiles: Box<[BiomeVisualProfile]>,
+    pub fog_profiles: Box<[FogProfile]>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct EnvironmentSection {
+    biome_profiles: Box<[BiomeVisualProfile]>,
+    fog_profiles: Box<[FogProfile]>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -79,27 +218,33 @@ pub fn composite_celestial(
 pub struct RuntimeAtmosphereAssets {
     source_manifest_sha256: [u8; 32],
     textures: Box<[AtmosphereTexture]>,
+    biome_profiles: Box<[BiomeVisualProfile]>,
+    fog_profiles: Box<[FogProfile]>,
 }
 
 impl RuntimeAtmosphereAssets {
     pub fn decode(bytes: &[u8]) -> Result<Self, AssetError> {
         if bytes.len() < HEADER_BYTES + HASH_BYTES {
-            return Err(invalid("truncated MCBEATM1 blob"));
+            return Err(invalid("truncated MCBEATM2 blob"));
         }
         if bytes[..8] != ATMOSPHERE_BLOB_MAGIC
             || u32_at(bytes, 8)? != ATMOSPHERE_BLOB_VERSION
             || u32_at(bytes, 12)? as usize != AtmosphereRole::ALL.len()
         {
-            return Err(invalid("unsupported MCBEATM1 header"));
+            return Err(invalid("unsupported MCBEATM2 header"));
         }
         let source_manifest_sha256 = array_at::<32>(bytes, 16)?;
-        if source_manifest_sha256 == [0; 32] || bytes[80..HEADER_BYTES] != [0; 48] {
-            return Err(invalid("invalid MCBEATM1 provenance or reserved header"));
+        if source_manifest_sha256 == [0; 32] || bytes[104..HEADER_BYTES] != [0; 24] {
+            return Err(invalid("invalid MCBEATM2 provenance or reserved header"));
         }
         let descriptors_offset = usize_at(bytes, 48)?;
         let paths_offset = usize_at(bytes, 56)?;
         let payload_offset = usize_at(bytes, 64)?;
-        let payload_end = usize_at(bytes, 72)?;
+        let texture_payload_end = usize_at(bytes, 72)?;
+        let environment_offset = usize_at(bytes, 80)?;
+        let environment_end = usize_at(bytes, 88)?;
+        let biome_profile_count = u32_at(bytes, 96)? as usize;
+        let fog_profile_count = u32_at(bytes, 100)? as usize;
         let expected_paths = checked_add(
             HEADER_BYTES,
             checked_mul(
@@ -112,14 +257,19 @@ impl RuntimeAtmosphereAssets {
         if descriptors_offset != HEADER_BYTES
             || paths_offset != expected_paths
             || payload_offset < paths_offset
-            || payload_end < payload_offset
-            || bytes.len() != checked_add(payload_end, HASH_BYTES, "atmosphere hash")?
+            || texture_payload_end < payload_offset
+            || environment_offset != texture_payload_end
+            || environment_end < environment_offset
+            || environment_end - environment_offset > MAX_ENVIRONMENT_SECTION_BYTES
+            || biome_profile_count > MAX_ENVIRONMENT_PROFILES
+            || fog_profile_count > MAX_ENVIRONMENT_PROFILES
+            || bytes.len() != checked_add(environment_end, HASH_BYTES, "atmosphere hash")?
         {
-            return Err(invalid("noncanonical MCBEATM1 section layout"));
+            return Err(invalid("noncanonical MCBEATM2 section layout"));
         }
-        let digest = Sha256::digest(&bytes[..payload_end]);
-        if &bytes[payload_end..] != digest.as_slice() {
-            return Err(invalid("MCBEATM1 envelope hash mismatch"));
+        let digest = Sha256::digest(&bytes[..environment_end]);
+        if &bytes[environment_end..] != digest.as_slice() {
+            return Err(invalid("MCBEATM2 envelope hash mismatch"));
         }
 
         let specs = source_specs();
@@ -158,23 +308,23 @@ impl RuntimeAtmosphereAssets {
                 || texture_length != expected_texture_length
                 || source_sha256 == [0; 32]
             {
-                return Err(invalid("noncanonical MCBEATM1 texture descriptor"));
+                return Err(invalid("noncanonical MCBEATM2 texture descriptor"));
             }
             let path_end = checked_add(path_offset, path_length, "atmosphere path")?;
             if path_end > payload_offset
                 || bytes.get(path_offset..path_end) != Some(expected_path.as_bytes())
             {
-                return Err(invalid("unexpected MCBEATM1 source path"));
+                return Err(invalid("unexpected MCBEATM2 source path"));
             }
             let texture_end = checked_add(texture_offset, texture_length, "atmosphere pixels")?;
-            if texture_end > payload_end {
-                return Err(invalid("MCBEATM1 texture payload is out of range"));
+            if texture_end > texture_payload_end {
+                return Err(invalid("MCBEATM2 texture payload is out of range"));
             }
             let rgba8 = bytes[texture_offset..texture_end]
                 .to_vec()
                 .into_boxed_slice();
             if Sha256::digest(&rgba8).as_slice() != pixels_sha256 {
-                return Err(invalid("MCBEATM1 texture pixel hash mismatch"));
+                return Err(invalid("MCBEATM2 texture pixel hash mismatch"));
             }
             textures.push(AtmosphereTexture {
                 role,
@@ -189,12 +339,26 @@ impl RuntimeAtmosphereAssets {
             expected_path_offset = path_end;
             expected_payload_offset = texture_end;
         }
-        if expected_path_offset != payload_offset || expected_payload_offset != payload_end {
-            return Err(invalid("MCBEATM1 sections contain gaps or trailing data"));
+        if expected_path_offset != payload_offset || expected_payload_offset != texture_payload_end
+        {
+            return Err(invalid(
+                "MCBEATM2 texture sections contain gaps or trailing data",
+            ));
         }
+        let environment: EnvironmentSection =
+            serde_json::from_slice(&bytes[environment_offset..environment_end])
+                .map_err(|_| invalid("invalid MCBEATM2 environment section"))?;
+        if environment.biome_profiles.len() != biome_profile_count
+            || environment.fog_profiles.len() != fog_profile_count
+        {
+            return Err(invalid("MCBEATM2 environment counts do not match header"));
+        }
+        validate_environment_profiles(&environment.biome_profiles, &environment.fog_profiles)?;
         Ok(Self {
             source_manifest_sha256,
             textures: textures.into_boxed_slice(),
+            biome_profiles: environment.biome_profiles,
+            fog_profiles: environment.fog_profiles,
         })
     }
 
@@ -211,6 +375,32 @@ impl RuntimeAtmosphereAssets {
     #[must_use]
     pub fn texture(&self, role: AtmosphereRole) -> Option<&AtmosphereTexture> {
         self.textures.iter().find(|texture| texture.role == role)
+    }
+
+    #[must_use]
+    pub fn biome_profiles(&self) -> &[BiomeVisualProfile] {
+        &self.biome_profiles
+    }
+
+    #[must_use]
+    pub fn biome_profile(&self, identifier: &str) -> Option<&BiomeVisualProfile> {
+        self.biome_profiles
+            .binary_search_by(|profile| profile.biome_identifier.as_ref().cmp(identifier))
+            .ok()
+            .map(|index| &self.biome_profiles[index])
+    }
+
+    #[must_use]
+    pub fn fog_profiles(&self) -> &[FogProfile] {
+        &self.fog_profiles
+    }
+
+    #[must_use]
+    pub fn fog_profile(&self, identifier: &str) -> Option<&FogProfile> {
+        self.fog_profiles
+            .binary_search_by(|profile| profile.identifier.as_ref().cmp(identifier))
+            .ok()
+            .map(|index| &self.fog_profiles[index])
     }
 
     pub fn celestial_border_texels(
@@ -304,8 +494,22 @@ pub fn encode_atmosphere_blob(
     let payload_length = compiled.textures.iter().try_fold(0usize, |sum, texture| {
         checked_add(sum, texture.rgba8.len(), "atmosphere payload")
     })?;
-    let payload_end = checked_add(payload_offset, payload_length, "atmosphere payload")?;
-    let total_length = checked_add(payload_end, HASH_BYTES, "atmosphere hash")?;
+    let texture_payload_end = checked_add(payload_offset, payload_length, "atmosphere payload")?;
+    let environment = serde_json::to_vec(&EnvironmentSection {
+        biome_profiles: compiled.biome_profiles.clone(),
+        fog_profiles: compiled.fog_profiles.clone(),
+    })
+    .map_err(|_| invalid("failed to encode MCBEATM2 environment section"))?;
+    if environment.len() > MAX_ENVIRONMENT_SECTION_BYTES {
+        return Err(invalid("MCBEATM2 environment section exceeds bound"));
+    }
+    let environment_offset = texture_payload_end;
+    let environment_end = checked_add(
+        environment_offset,
+        environment.len(),
+        "atmosphere environment",
+    )?;
+    let total_length = checked_add(environment_end, HASH_BYTES, "atmosphere hash")?;
     let mut bytes = Vec::with_capacity(total_length);
     bytes.extend_from_slice(&ATMOSPHERE_BLOB_MAGIC);
     push_u32(&mut bytes, ATMOSPHERE_BLOB_VERSION);
@@ -319,10 +523,22 @@ pub fn encode_atmosphere_blob(
         descriptors_offset,
         paths_offset,
         payload_offset,
-        payload_end,
+        texture_payload_end,
+        environment_offset,
+        environment_end,
     ] {
         push_u64(&mut bytes, offset)?;
     }
+    push_u32(
+        &mut bytes,
+        u32::try_from(compiled.biome_profiles.len())
+            .map_err(|_| invalid("biome profile count overflow"))?,
+    );
+    push_u32(
+        &mut bytes,
+        u32::try_from(compiled.fog_profiles.len())
+            .map_err(|_| invalid("fog profile count overflow"))?,
+    );
     bytes.resize(HEADER_BYTES, 0);
 
     let mut path_offset = paths_offset;
@@ -352,7 +568,9 @@ pub fn encode_atmosphere_blob(
     for texture in &compiled.textures {
         bytes.extend_from_slice(&texture.rgba8);
     }
-    debug_assert_eq!(bytes.len(), payload_end);
+    debug_assert_eq!(bytes.len(), environment_offset);
+    bytes.extend_from_slice(&environment);
+    debug_assert_eq!(bytes.len(), environment_end);
     let digest = Sha256::digest(&bytes);
     bytes.extend_from_slice(&digest);
     Ok(bytes.into_boxed_slice())
@@ -401,6 +619,74 @@ fn validate_compiled(compiled: &CompiledAtmosphereAssets) -> Result<(), AssetErr
         {
             return Err(invalid("noncanonical compiled atmosphere texture"));
         }
+    }
+    validate_environment_profiles(&compiled.biome_profiles, &compiled.fog_profiles)?;
+    Ok(())
+}
+
+fn validate_environment_profiles(
+    biomes: &[BiomeVisualProfile],
+    fogs: &[FogProfile],
+) -> Result<(), AssetError> {
+    if biomes.len() > MAX_ENVIRONMENT_PROFILES || fogs.len() > MAX_ENVIRONMENT_PROFILES {
+        return Err(invalid("environment profile count exceeds bound"));
+    }
+    let mut previous_fog: Option<&str> = None;
+    for profile in fogs {
+        validate_environment_identifier(&profile.identifier)?;
+        if previous_fog.is_some_and(|previous| previous >= profile.identifier.as_ref()) {
+            return Err(invalid("fog profiles are not strictly ordered"));
+        }
+        if profile.distances.is_empty() || profile.distances.len() > MAX_FOG_DISTANCES {
+            return Err(invalid("fog profile distance count is invalid"));
+        }
+        let mut previous_medium = None;
+        for distance in &profile.distances {
+            if previous_medium.is_some_and(|previous| previous >= distance.medium) {
+                return Err(invalid("fog distances are not strictly ordered"));
+            }
+            let start = distance.start();
+            let end = distance.end();
+            if !start.is_finite()
+                || !end.is_finite()
+                || start < 0.0
+                || end < start
+                || distance.rgb8 > 0x00ff_ffff
+            {
+                return Err(invalid("fog distance is invalid"));
+            }
+            previous_medium = Some(distance.medium);
+        }
+        previous_fog = Some(&profile.identifier);
+    }
+    let mut previous_biome: Option<&str> = None;
+    for profile in biomes {
+        for identifier in [
+            profile.biome_identifier.as_ref(),
+            profile.fog_identifier.as_ref(),
+            profile.atmosphere_identifier.as_ref(),
+            profile.lighting_identifier.as_ref(),
+        ] {
+            validate_environment_identifier(identifier)?;
+        }
+        if previous_biome.is_some_and(|previous| previous >= profile.biome_identifier.as_ref()) {
+            return Err(invalid("biome profiles are not strictly ordered"));
+        }
+        if profile.sky_rgb8.is_some_and(|rgb| rgb > 0x00ff_ffff)
+            || fogs
+                .binary_search_by(|fog| fog.identifier.cmp(&profile.fog_identifier))
+                .is_err()
+        {
+            return Err(invalid("biome visual profile is invalid"));
+        }
+        previous_biome = Some(&profile.biome_identifier);
+    }
+    Ok(())
+}
+
+fn validate_environment_identifier(identifier: &str) -> Result<(), AssetError> {
+    if identifier.is_empty() || identifier.len() > MAX_ENVIRONMENT_IDENTIFIER_BYTES {
+        return Err(invalid("environment identifier length is invalid"));
     }
     Ok(())
 }
@@ -453,14 +739,114 @@ fn u32_at(bytes: &[u8], offset: usize) -> Result<u32, AssetError> {
 
 fn usize_at(bytes: &[u8], offset: usize) -> Result<usize, AssetError> {
     usize::try_from(u64::from_le_bytes(array_at(bytes, offset)?))
-        .map_err(|_| invalid("MCBEATM1 offset exceeds platform"))
+        .map_err(|_| invalid("MCBEATM2 offset exceeds platform"))
 }
 
 fn array_at<const N: usize>(bytes: &[u8], offset: usize) -> Result<[u8; N], AssetError> {
     let end = checked_add(offset, N, "atmosphere field")?;
     bytes
         .get(offset..end)
-        .ok_or_else(|| invalid("truncated MCBEATM1 field"))?
+        .ok_or_else(|| invalid("truncated MCBEATM2 field"))?
         .try_into()
-        .map_err(|_| invalid("invalid MCBEATM1 field"))
+        .map_err(|_| invalid("invalid MCBEATM2 field"))
+}
+
+#[cfg(test)]
+mod tests {
+    use sha2::{Digest, Sha256};
+
+    use super::{
+        AtmosphereTexture, BiomeVisualProfile, CompiledAtmosphereAssets, FogDistance,
+        FogDistanceMode, FogMedium, FogProfile, RuntimeAtmosphereAssets, encode_atmosphere_blob,
+        source_specs,
+    };
+
+    #[test]
+    fn environment_profiles_round_trip_through_the_hashed_envelope() {
+        let compiled = CompiledAtmosphereAssets {
+            source_manifest_sha256: [0x11; 32],
+            textures: synthetic_textures(),
+            biome_profiles: vec![BiomeVisualProfile {
+                biome_identifier: "minecraft:the_end".into(),
+                fog_identifier: "minecraft:fog_the_end".into(),
+                atmosphere_identifier: "minecraft:end_atmospherics".into(),
+                lighting_identifier: "minecraft:end_lighting".into(),
+                sky_rgb8: Some(0),
+            }]
+            .into_boxed_slice(),
+            fog_profiles: vec![FogProfile {
+                identifier: "minecraft:fog_the_end".into(),
+                distances: vec![FogDistance {
+                    medium: FogMedium::Air,
+                    mode: FogDistanceMode::RenderRelative,
+                    start_bits: 0.92_f32.to_bits(),
+                    end_bits: 1.0_f32.to_bits(),
+                    rgb8: 0x0B_08_0C,
+                }]
+                .into_boxed_slice(),
+            }]
+            .into_boxed_slice(),
+        };
+
+        let blob = encode_atmosphere_blob(&compiled).unwrap();
+        let runtime = RuntimeAtmosphereAssets::decode(&blob).unwrap();
+        assert_eq!(
+            runtime.biome_profile("minecraft:the_end"),
+            compiled.biome_profiles.first()
+        );
+        assert_eq!(
+            runtime.fog_profile("minecraft:fog_the_end"),
+            compiled.fog_profiles.first()
+        );
+        assert!(runtime.biome_profile("minecraft:missing").is_none());
+        assert!(runtime.fog_profile("minecraft:missing").is_none());
+    }
+
+    #[test]
+    fn fog_distance_resolution_honors_fixed_and_render_relative_modes_exactly() {
+        let fixed = FogDistance {
+            medium: FogMedium::Air,
+            mode: FogDistanceMode::Fixed,
+            start_bits: 10.0_f32.to_bits(),
+            end_bits: 96.0_f32.to_bits(),
+            rgb8: 0x33_08_08,
+        };
+        assert_eq!(fixed.resolve(256.0).unwrap().start, 10.0);
+        assert_eq!(fixed.resolve(256.0).unwrap().end, 96.0);
+        assert_eq!(fixed.resolve(256.0).unwrap().rgb8, 0x33_08_08);
+
+        let relative = FogDistance {
+            medium: FogMedium::Air,
+            mode: FogDistanceMode::RenderRelative,
+            start_bits: 0.92_f32.to_bits(),
+            end_bits: 1.0_f32.to_bits(),
+            rgb8: 0xAB_D2_FF,
+        };
+        let resolved = relative.resolve(256.0).unwrap();
+        assert_eq!(resolved.start, 235.52);
+        assert_eq!(resolved.end, 256.0);
+        assert_eq!(resolved.rgb8, 0xAB_D2_FF);
+        assert!(relative.resolve(f32::NAN).is_none());
+        assert!(relative.resolve(-1.0).is_none());
+    }
+
+    fn synthetic_textures() -> Box<[AtmosphereTexture]> {
+        source_specs()
+            .into_iter()
+            .map(|(role, path, width, height)| {
+                let rgba8 = vec![role as u8; (width * height * 4) as usize].into_boxed_slice();
+                AtmosphereTexture {
+                    role,
+                    source_path: path.into(),
+                    source_bytes: 1,
+                    source_sha256: [role as u8; 32],
+                    pixels_sha256: Sha256::digest(&rgba8).into(),
+                    width,
+                    height,
+                    rgba8,
+                }
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice()
+    }
 }

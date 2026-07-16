@@ -644,10 +644,10 @@ fn pinned_pack_atmosphere_sources_match_exact_provenance() {
         format!("{:x}", Sha256::digest(canonical_tracked_manifest())),
         "c6d5f56b942d703a7acd1f83b2cddb7633069e13412ad5a1c3beae666e2ec6f6"
     );
-    assert_eq!(blob.len(), 299_599);
+    assert_eq!(blob.len(), 334_088);
     assert_eq!(
         format!("{:x}", Sha256::digest(&blob)),
-        "d2f7e935744c7497741c1e54d022e676f67125c0fb006bf030b42734ba115054"
+        "2cc4de00cc2cbc7a380c1c8ffe760994f896e721cbb097eae6809cdfbb2cf4eb"
     );
     let expected = [
         (
@@ -852,6 +852,8 @@ fn synthetic_compiled() -> CompiledAtmosphereAssets {
     CompiledAtmosphereAssets {
         source_manifest_sha256: Sha256::digest(MANIFEST).into(),
         textures,
+        biome_profiles: Box::new([]),
+        fog_profiles: Box::new([]),
     }
 }
 

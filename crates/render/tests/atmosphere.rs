@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use assets::ResolvedFog;
+
 use bevy::{
     math::{Mat3, Mat4, Vec3, Vec4},
     prelude::App,
@@ -79,6 +81,45 @@ fn atmosphere_frame_is_a_uniform_compatible_six_vec4_abi() {
     assert_eq!(AtmosphereFrame::min_size().get(), 96);
     assert_eq!(encoded.len(), 96);
     assert_eq!(encoded.as_slice(), bytemuck::bytes_of(&frame));
+}
+
+#[test]
+fn exact_environment_values_replace_only_sky_and_fog_fields() {
+    let baseline = AtmosphereFrame::from_bedrock_time(18_000.0, 0.25, 0.5);
+    let applied = baseline.with_environment_profile(
+        Some(0x00_0000),
+        Some(ResolvedFog {
+            start: 235.52,
+            end: 256.0,
+            rgb8: 0x0B_08_0C,
+        }),
+    );
+
+    assert_eq!(applied.sky_zenith(), [0.0; 3]);
+    assert_eq!(applied.sky_horizon(), [0.0; 3]);
+    assert_eq!(applied.fog_start(), 235.52);
+    assert_eq!(applied.fog_end(), 256.0);
+    assert_eq!(applied.fog_color(), rgb8_to_linear(0x0B_08_0C));
+    assert_eq!(applied.sun_direction(), baseline.sun_direction());
+    assert_eq!(applied.moon_phase(), baseline.moon_phase());
+    assert_eq!(applied.day_fraction(), baseline.day_fraction());
+    assert_eq!(applied.rain_level(), baseline.rain_level());
+    assert_eq!(applied.thunder_level(), baseline.thunder_level());
+    assert_eq!(
+        applied.cloud_texture_offset(),
+        baseline.cloud_texture_offset()
+    );
+}
+
+fn rgb8_to_linear(rgb: u32) -> [f32; 3] {
+    [16, 8, 0].map(|shift| {
+        let value = ((rgb >> shift) & 0xff) as f32 / 255.0;
+        if value <= 0.040_45 {
+            value / 12.92
+        } else {
+            ((value + 0.055) / 1.055).powf(2.4)
+        }
+    })
 }
 
 #[test]

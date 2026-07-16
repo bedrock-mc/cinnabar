@@ -42,7 +42,7 @@ enum Command {
         /// Exact local-only Bedrock 1.26.33.1 clouds.png override.
         #[arg(long)]
         clouds_override: Option<PathBuf>,
-        /// Ignored/local MCBEATM1 output path.
+        /// Ignored/local MCBEATM2 output path.
         #[arg(long)]
         out: PathBuf,
         /// Ignored/local deterministic JSON provenance report path.
@@ -622,6 +622,8 @@ mod tests {
         CompiledAtmosphereAssets {
             source_manifest_sha256: [0x44; 32],
             textures,
+            biome_profiles: Box::new([]),
+            fog_profiles: Box::new([]),
         }
     }
 

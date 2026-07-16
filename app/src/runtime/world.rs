@@ -216,14 +216,35 @@ pub(crate) fn update_camera_medium(
     client_world: Res<ClientWorld>,
     camera: Query<&Transform, With<FlyCamera>>,
     mut medium: ResMut<environment::CameraMediumState>,
+    mut context: ResMut<environment::EnvironmentContext>,
 ) {
-    medium.0 = client_world
-        .stream
-        .as_ref()
-        .zip(camera.single().ok())
-        .map_or(CameraMedium::Air, |(stream, camera)| {
-            stream.camera_medium(camera.translation.to_array())
+    let Some((stream, camera)) = client_world.stream.as_ref().zip(camera.single().ok()) else {
+        medium.0 = CameraMedium::Air;
+        *context = environment::EnvironmentContext::default();
+        return;
+    };
+    let position = camera.translation.to_array();
+    medium.0 = stream.camera_medium(position);
+    let camera_biome_identifier = stream
+        .camera_biome_id(camera.translation.to_array())
+        .and_then(|raw_id| {
+            client_world
+                .runtime_assets
+                .biome_assets()
+                .rules
+                .binary_search_by_key(&raw_id, |rule| rule.id)
+                .ok()
+                .map(|index| {
+                    client_world.runtime_assets.biome_assets().rules[index]
+                        .name
+                        .clone()
+                })
         });
+    *context = environment::EnvironmentContext {
+        dimension: stream.current_dimension(),
+        camera_biome_identifier,
+        render_distance_blocks: Some(stream.render_distance_blocks()),
+    };
 }
 
 pub(crate) fn world_stream_fatal_message(error: client_world::WorldStreamFatalError) -> String {

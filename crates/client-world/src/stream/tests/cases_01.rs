@@ -525,6 +525,33 @@ fn camera_medium_samples_exposed_and_waterlogged_liquid_layers_without_flattenin
 }
 
 #[test]
+fn camera_environment_context_exposes_palette_biome_and_effective_block_radius() {
+    let mut stream = WorldStream::new_with_assets(
+        WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(RuntimeAssets::diagnostic()),
+        [0.0, -63.5, 0.0],
+        None,
+    );
+    stream.store.commit_biome_column(
+        ChunkKey::new(0, 0, 0),
+        DecodedBiomeColumn::decode(-4, 1, &[1, 84]).unwrap(),
+    );
+    stream.chunk_radius = Some(16);
+
+    assert_eq!(stream.camera_biome_id([4.5, -63.5, 4.5]), Some(42));
+    assert_eq!(stream.camera_biome_id([16.5, -63.5, 4.5]), None);
+    assert_eq!(stream.camera_biome_id([f32::NAN, -63.5, 4.5]), None);
+    assert_eq!(stream.render_distance_blocks(), 256.0);
+}
+
+#[test]
 fn block_entity_visual_diagnostics_preserve_zero_remesh_live_updates() {
     let mut stream = block_entity_visual_stream();
     let routes = [
