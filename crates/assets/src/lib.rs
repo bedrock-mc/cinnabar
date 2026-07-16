@@ -38,9 +38,13 @@ pub use compiled::{
 pub use entity::{
     CompiledEntityAssets, ENTITY_BLOB_MAGIC, ENTITY_BLOB_VERSION, EntityAssetKind,
     EntityAssetSource, EntityAssetSymbol, EntityDependency, EntityDependencyKind,
-    EntityDependencyResolution, MAX_ENTITY_ASSET_PATH_BYTES, MAX_ENTITY_ASSET_SOURCES,
+    EntityDependencyResolution, EntityGeometry, EntityGeometryBone, EntityGeometryCube,
+    EntityGeometryFaceUv, EntityGeometryFaceUvs, EntityGeometryInheritance, EntityGeometryScalar,
+    EntityGeometryUv, MAX_ENTITY_ASSET_PATH_BYTES, MAX_ENTITY_ASSET_SOURCES,
     MAX_ENTITY_ASSET_SYMBOLS, MAX_ENTITY_CATALOG_BYTES, MAX_ENTITY_DEPENDENCIES,
-    MAX_ENTITY_IDENTIFIER_BYTES, MAX_ENTITY_SOURCE_BYTES, MAX_ENTITY_TOTAL_SOURCE_BYTES,
+    MAX_ENTITY_GEOMETRIES, MAX_ENTITY_GEOMETRY_BONES, MAX_ENTITY_GEOMETRY_CUBES,
+    MAX_ENTITY_GEOMETRY_NAME_BYTES, MAX_ENTITY_GEOMETRY_SCALAR, MAX_ENTITY_IDENTIFIER_BYTES,
+    MAX_ENTITY_SOURCE_BYTES, MAX_ENTITY_TEXTURE_DIMENSION, MAX_ENTITY_TOTAL_SOURCE_BYTES,
     RuntimeEntityAssets, encode_entity_blob,
 };
 pub use error::AssetError;

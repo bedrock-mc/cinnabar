@@ -3,8 +3,8 @@ use sha2::{Digest, Sha256};
 
 use crate::AssetError;
 
-pub const ENTITY_BLOB_MAGIC: [u8; 8] = *b"MCBEENT2";
-pub const ENTITY_BLOB_VERSION: u32 = 2;
+pub const ENTITY_BLOB_MAGIC: [u8; 8] = *b"MCBEENT3";
+pub const ENTITY_BLOB_VERSION: u32 = 3;
 pub const MAX_ENTITY_ASSET_SOURCES: usize = 8_192;
 pub const MAX_ENTITY_ASSET_SYMBOLS: usize = 16_384;
 pub const MAX_ENTITY_DEPENDENCIES: usize = 512;
@@ -13,6 +13,12 @@ pub const MAX_ENTITY_IDENTIFIER_BYTES: usize = 512;
 pub const MAX_ENTITY_SOURCE_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_ENTITY_TOTAL_SOURCE_BYTES: usize = 512 * 1024 * 1024;
 pub const MAX_ENTITY_CATALOG_BYTES: usize = 8 * 1024 * 1024;
+pub const MAX_ENTITY_GEOMETRIES: usize = 4_096;
+pub const MAX_ENTITY_GEOMETRY_BONES: usize = 512;
+pub const MAX_ENTITY_GEOMETRY_CUBES: usize = 8_192;
+pub const MAX_ENTITY_GEOMETRY_NAME_BYTES: usize = 256;
+pub const MAX_ENTITY_TEXTURE_DIMENSION: u16 = 16_384;
+pub const MAX_ENTITY_GEOMETRY_SCALAR: f32 = 1_048_576.0;
 
 const HEADER_BYTES: usize = 80;
 const HASH_BYTES: usize = 32;
@@ -70,11 +76,101 @@ pub struct EntityAssetSymbol {
     pub dependencies: Box<[EntityDependency]>,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(transparent)]
+pub struct EntityGeometryScalar(u32);
+
+impl EntityGeometryScalar {
+    #[must_use]
+    pub fn new(value: f32) -> Option<Self> {
+        if !value.is_finite() || value.abs() > MAX_ENTITY_GEOMETRY_SCALAR {
+            return None;
+        }
+        Some(Self(if value == 0.0 { 0 } else { value.to_bits() }))
+    }
+
+    #[must_use]
+    pub const fn get(self) -> f32 {
+        f32::from_bits(self.0)
+    }
+
+    #[must_use]
+    pub const fn bits(self) -> u32 {
+        self.0
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EntityGeometryCube {
+    pub origin: [EntityGeometryScalar; 3],
+    pub size: [EntityGeometryScalar; 3],
+    pub pivot: [EntityGeometryScalar; 3],
+    pub rotation: [EntityGeometryScalar; 3],
+    pub uv: EntityGeometryUv,
+    pub inflate: EntityGeometryScalar,
+    pub mirror: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case", tag = "mapping", content = "value")]
+pub enum EntityGeometryUv {
+    Box([EntityGeometryScalar; 2]),
+    Faces(EntityGeometryFaceUvs),
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EntityGeometryFaceUv {
+    pub uv: [EntityGeometryScalar; 2],
+    pub uv_size: Option<[EntityGeometryScalar; 2]>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EntityGeometryFaceUvs {
+    pub north: Option<EntityGeometryFaceUv>,
+    pub south: Option<EntityGeometryFaceUv>,
+    pub east: Option<EntityGeometryFaceUv>,
+    pub west: Option<EntityGeometryFaceUv>,
+    pub up: Option<EntityGeometryFaceUv>,
+    pub down: Option<EntityGeometryFaceUv>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EntityGeometryBone {
+    pub name: Box<str>,
+    pub parent: Option<Box<str>>,
+    pub pivot: [EntityGeometryScalar; 3],
+    pub rotation: [EntityGeometryScalar; 3],
+    pub cubes: Box<[EntityGeometryCube]>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EntityGeometry {
+    pub identifier: Box<str>,
+    pub inherits: Option<EntityGeometryInheritance>,
+    pub source_index: u32,
+    pub texture_width: u16,
+    pub texture_height: u16,
+    pub bones: Box<[EntityGeometryBone]>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EntityGeometryInheritance {
+    pub identifier: Box<str>,
+    pub resolution: EntityDependencyResolution,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompiledEntityAssets {
     pub source_manifest_sha256: [u8; 32],
     pub sources: Box<[EntityAssetSource]>,
     pub symbols: Box<[EntityAssetSymbol]>,
+    pub geometries: Box<[EntityGeometry]>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -82,6 +178,7 @@ pub struct CompiledEntityAssets {
 struct EntityCatalogPayload {
     sources: Box<[EntityAssetSource]>,
     symbols: Box<[EntityAssetSymbol]>,
+    geometries: Box<[EntityGeometry]>,
 }
 
 #[derive(Clone, Debug)]
@@ -89,66 +186,73 @@ pub struct RuntimeEntityAssets {
     source_manifest_sha256: [u8; 32],
     sources: Box<[EntityAssetSource]>,
     symbols: Box<[EntityAssetSymbol]>,
+    geometries: Box<[EntityGeometry]>,
 }
 
 impl RuntimeEntityAssets {
     pub fn decode(bytes: &[u8]) -> Result<Self, AssetError> {
         if bytes.len() < HEADER_BYTES + HASH_BYTES {
-            return Err(invalid("truncated MCBEENT2 blob"));
+            return Err(invalid("truncated MCBEENT3 blob"));
         }
         if bytes[..8] != ENTITY_BLOB_MAGIC
             || u32_at(bytes, 8)? != ENTITY_BLOB_VERSION
-            || bytes[20..24] != [0; 4]
             || bytes[64..HEADER_BYTES] != [0; 16]
         {
-            return Err(invalid("unsupported MCBEENT2 header"));
+            return Err(invalid("unsupported MCBEENT3 header"));
         }
         let source_count = u32_at(bytes, 12)? as usize;
         let symbol_count = u32_at(bytes, 16)? as usize;
+        let geometry_count = u32_at(bytes, 20)? as usize;
         if source_count == 0
             || source_count > MAX_ENTITY_ASSET_SOURCES
             || symbol_count == 0
             || symbol_count > MAX_ENTITY_ASSET_SYMBOLS
+            || geometry_count > MAX_ENTITY_GEOMETRIES
         {
-            return Err(invalid("MCBEENT2 header counts exceed bounds"));
+            return Err(invalid("MCBEENT3 header counts exceed bounds"));
         }
         let source_manifest_sha256 = array_at::<32>(bytes, 24)?;
         let payload_bytes = usize::try_from(u64::from_le_bytes(array_at(bytes, 56)?))
-            .map_err(|_| invalid("MCBEENT2 payload size exceeds platform"))?;
+            .map_err(|_| invalid("MCBEENT3 payload size exceeds platform"))?;
         if payload_bytes > MAX_ENTITY_CATALOG_BYTES
             || bytes.len()
                 != HEADER_BYTES
                     .checked_add(payload_bytes)
                     .and_then(|length| length.checked_add(HASH_BYTES))
-                    .ok_or_else(|| invalid("MCBEENT2 length overflow"))?
+                    .ok_or_else(|| invalid("MCBEENT3 length overflow"))?
         {
-            return Err(invalid("noncanonical MCBEENT2 section layout"));
+            return Err(invalid("noncanonical MCBEENT3 section layout"));
         }
         let payload_end = HEADER_BYTES + payload_bytes;
         if Sha256::digest(&bytes[..payload_end]).as_slice() != &bytes[payload_end..] {
-            return Err(invalid("MCBEENT2 envelope hash mismatch"));
+            return Err(invalid("MCBEENT3 envelope hash mismatch"));
         }
         let payload: EntityCatalogPayload =
             serde_json::from_slice(&bytes[HEADER_BYTES..payload_end])
-                .map_err(|_| invalid("invalid MCBEENT2 catalog payload"))?;
-        if payload.sources.len() != source_count || payload.symbols.len() != symbol_count {
-            return Err(invalid("MCBEENT2 catalog counts do not match header"));
+                .map_err(|_| invalid("invalid MCBEENT3 catalog payload"))?;
+        if payload.sources.len() != source_count
+            || payload.symbols.len() != symbol_count
+            || payload.geometries.len() != geometry_count
+        {
+            return Err(invalid("MCBEENT3 catalog counts do not match header"));
         }
         let canonical = serde_json::to_vec(&payload)
-            .map_err(|_| invalid("failed to canonicalize MCBEENT2 catalog payload"))?;
+            .map_err(|_| invalid("failed to canonicalize MCBEENT3 catalog payload"))?;
         if canonical.as_slice() != &bytes[HEADER_BYTES..payload_end] {
-            return Err(invalid("noncanonical MCBEENT2 catalog encoding"));
+            return Err(invalid("noncanonical MCBEENT3 catalog encoding"));
         }
         let compiled = CompiledEntityAssets {
             source_manifest_sha256,
             sources: payload.sources,
             symbols: payload.symbols,
+            geometries: payload.geometries,
         };
         validate_compiled(&compiled)?;
         Ok(Self {
             source_manifest_sha256,
             sources: compiled.sources,
             symbols: compiled.symbols,
+            geometries: compiled.geometries,
         })
     }
 
@@ -168,6 +272,22 @@ impl RuntimeEntityAssets {
     }
 
     #[must_use]
+    pub fn geometries(&self) -> &[EntityGeometry] {
+        &self.geometries
+    }
+
+    #[must_use]
+    pub fn geometry_candidates(&self, identifier: &str) -> &[EntityGeometry] {
+        let start = self
+            .geometries
+            .partition_point(|geometry| geometry.identifier.as_ref() < identifier);
+        let matching = &self.geometries[start..];
+        let length =
+            matching.partition_point(|geometry| geometry.identifier.as_ref() == identifier);
+        &matching[..length]
+    }
+
+    #[must_use]
     pub fn symbol_candidates(
         &self,
         kind: EntityAssetKind,
@@ -182,33 +302,38 @@ pub fn encode_entity_blob(compiled: &CompiledEntityAssets) -> Result<Box<[u8]>, 
     let payload = serde_json::to_vec(&EntityCatalogPayload {
         sources: compiled.sources.clone(),
         symbols: compiled.symbols.clone(),
+        geometries: compiled.geometries.clone(),
     })
-    .map_err(|_| invalid("failed to encode MCBEENT2 catalog payload"))?;
+    .map_err(|_| invalid("failed to encode MCBEENT3 catalog payload"))?;
     if payload.len() > MAX_ENTITY_CATALOG_BYTES {
-        return Err(invalid("MCBEENT2 catalog payload exceeds bound"));
+        return Err(invalid("MCBEENT3 catalog payload exceeds bound"));
     }
     let total = HEADER_BYTES
         .checked_add(payload.len())
         .and_then(|length| length.checked_add(HASH_BYTES))
-        .ok_or_else(|| invalid("MCBEENT2 length overflow"))?;
+        .ok_or_else(|| invalid("MCBEENT3 length overflow"))?;
     let mut bytes = Vec::with_capacity(total);
     bytes.extend_from_slice(&ENTITY_BLOB_MAGIC);
     bytes.extend_from_slice(&ENTITY_BLOB_VERSION.to_le_bytes());
     bytes.extend_from_slice(
         &u32::try_from(compiled.sources.len())
-            .map_err(|_| invalid("MCBEENT2 source count overflow"))?
+            .map_err(|_| invalid("MCBEENT3 source count overflow"))?
             .to_le_bytes(),
     );
     bytes.extend_from_slice(
         &u32::try_from(compiled.symbols.len())
-            .map_err(|_| invalid("MCBEENT2 symbol count overflow"))?
+            .map_err(|_| invalid("MCBEENT3 symbol count overflow"))?
             .to_le_bytes(),
     );
-    bytes.extend_from_slice(&0_u32.to_le_bytes());
+    bytes.extend_from_slice(
+        &u32::try_from(compiled.geometries.len())
+            .map_err(|_| invalid("MCBEENT3 geometry count overflow"))?
+            .to_le_bytes(),
+    );
     bytes.extend_from_slice(&compiled.source_manifest_sha256);
     bytes.extend_from_slice(
         &u64::try_from(payload.len())
-            .map_err(|_| invalid("MCBEENT2 payload length overflow"))?
+            .map_err(|_| invalid("MCBEENT3 payload length overflow"))?
             .to_le_bytes(),
     );
     bytes.resize(HEADER_BYTES, 0);
@@ -284,6 +409,167 @@ fn validate_compiled(compiled: &CompiledEntityAssets) -> Result<(), AssetError> 
             previous_dependency = Some(dependency_key);
         }
         previous_symbol = Some(key);
+    }
+    validate_geometries(compiled)?;
+    Ok(())
+}
+
+fn validate_geometries(compiled: &CompiledEntityAssets) -> Result<(), AssetError> {
+    if compiled.geometries.len() > MAX_ENTITY_GEOMETRIES {
+        return Err(invalid("entity geometry count exceeds bound"));
+    }
+    let geometry_symbols = compiled
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.kind == EntityAssetKind::Geometry)
+        .collect::<Vec<_>>();
+    if geometry_symbols.len() != compiled.geometries.len() {
+        return Err(invalid(
+            "entity geometry payloads do not exactly match geometry symbols",
+        ));
+    }
+
+    let mut previous: Option<(&str, u32)> = None;
+    for (geometry, symbol) in compiled.geometries.iter().zip(geometry_symbols) {
+        validate_identifier(&geometry.identifier)?;
+        if let Some(inherits) = &geometry.inherits {
+            validate_identifier(&inherits.identifier)?;
+            let has_catalog_target = !symbol_candidates(
+                &compiled.symbols,
+                EntityAssetKind::Geometry,
+                &inherits.identifier,
+            )
+            .is_empty();
+            let resolution_agrees = match inherits.resolution {
+                EntityDependencyResolution::Catalog => has_catalog_target,
+                EntityDependencyResolution::External => !has_catalog_target,
+            };
+            if inherits.identifier == geometry.identifier || !resolution_agrees {
+                return Err(invalid("invalid entity geometry inheritance target"));
+            }
+        }
+        let key = (geometry.identifier.as_ref(), geometry.source_index);
+        if previous.is_some_and(|previous| previous >= key)
+            || key != (symbol.identifier.as_ref(), symbol.source_index)
+            || geometry.source_index as usize >= compiled.sources.len()
+            || geometry.texture_width == 0
+            || geometry.texture_width > MAX_ENTITY_TEXTURE_DIMENSION
+            || geometry.texture_height == 0
+            || geometry.texture_height > MAX_ENTITY_TEXTURE_DIMENSION
+            || geometry.bones.len() > MAX_ENTITY_GEOMETRY_BONES
+        {
+            return Err(invalid("invalid or unordered entity geometry payload"));
+        }
+        validate_geometry_bones(&geometry.bones, geometry.inherits.is_some())?;
+        previous = Some(key);
+    }
+    Ok(())
+}
+
+fn validate_geometry_bones(
+    bones: &[EntityGeometryBone],
+    allow_inherited_parent: bool,
+) -> Result<(), AssetError> {
+    let mut total_cubes = 0usize;
+    for bone in bones {
+        validate_geometry_name(&bone.name)?;
+        if let Some(parent) = &bone.parent {
+            validate_geometry_name(parent)?;
+            let invalid_parent = parent.eq_ignore_ascii_case(&bone.name)
+                || (!allow_inherited_parent
+                    && !bones
+                        .iter()
+                        .any(|candidate| candidate.name.eq_ignore_ascii_case(parent)));
+            if invalid_parent {
+                return Err(invalid("invalid entity geometry bone parent"));
+            }
+        }
+        validate_scalars(&bone.pivot)?;
+        validate_scalars(&bone.rotation)?;
+        total_cubes = total_cubes
+            .checked_add(bone.cubes.len())
+            .ok_or_else(|| invalid("entity geometry cube count overflow"))?;
+        if total_cubes > MAX_ENTITY_GEOMETRY_CUBES {
+            return Err(invalid("entity geometry cube count exceeds bound"));
+        }
+        for cube in &bone.cubes {
+            validate_scalars(&cube.origin)?;
+            validate_scalars(&cube.size)?;
+            validate_scalars(&cube.pivot)?;
+            validate_scalars(&cube.rotation)?;
+            validate_geometry_uv(&cube.uv)?;
+            validate_geometry_scalar(cube.inflate)?;
+            if cube.size.iter().any(|value| value.get() < 0.0) {
+                return Err(invalid("entity geometry cube size is negative"));
+            }
+        }
+    }
+
+    for start in 0..bones.len() {
+        let mut current = Some(start);
+        for step in 0..=bones.len() {
+            let Some(index) = current else {
+                break;
+            };
+            if step == bones.len() {
+                return Err(invalid("entity geometry bone hierarchy contains a cycle"));
+            }
+            current = bones[index].parent.as_ref().and_then(|parent| {
+                bones
+                    .iter()
+                    .position(|candidate| candidate.name.eq_ignore_ascii_case(parent))
+            });
+        }
+    }
+    Ok(())
+}
+
+fn validate_geometry_uv(uv: &EntityGeometryUv) -> Result<(), AssetError> {
+    match uv {
+        EntityGeometryUv::Box(uv) => validate_scalars(uv),
+        EntityGeometryUv::Faces(faces) => {
+            let faces = [
+                &faces.north,
+                &faces.south,
+                &faces.east,
+                &faces.west,
+                &faces.up,
+                &faces.down,
+            ];
+            if faces.iter().all(|face| face.is_none()) {
+                return Err(invalid("entity geometry per-face UV map is empty"));
+            }
+            for face in faces.into_iter().flatten() {
+                validate_scalars(&face.uv)?;
+                if let Some(uv_size) = &face.uv_size {
+                    validate_scalars(uv_size)?;
+                }
+            }
+            Ok(())
+        }
+    }
+}
+
+fn validate_geometry_name(name: &str) -> Result<(), AssetError> {
+    if name.is_empty()
+        || name.len() > MAX_ENTITY_GEOMETRY_NAME_BYTES
+        || name.chars().any(char::is_control)
+    {
+        return Err(invalid("invalid entity geometry bone name"));
+    }
+    Ok(())
+}
+
+fn validate_scalars<const N: usize>(values: &[EntityGeometryScalar; N]) -> Result<(), AssetError> {
+    for value in values {
+        validate_geometry_scalar(*value)?;
+    }
+    Ok(())
+}
+
+fn validate_geometry_scalar(value: EntityGeometryScalar) -> Result<(), AssetError> {
+    if EntityGeometryScalar::new(value.get()) != Some(value) {
+        return Err(invalid("noncanonical entity geometry scalar"));
     }
     Ok(())
 }
@@ -371,7 +657,7 @@ fn u32_at(bytes: &[u8], offset: usize) -> Result<u32, AssetError> {
 fn array_at<const N: usize>(bytes: &[u8], offset: usize) -> Result<[u8; N], AssetError> {
     bytes
         .get(offset..offset + N)
-        .ok_or_else(|| invalid("truncated MCBEENT2 field"))?
+        .ok_or_else(|| invalid("truncated MCBEENT3 field"))?
         .try_into()
-        .map_err(|_| invalid("invalid MCBEENT2 field"))
+        .map_err(|_| invalid("invalid MCBEENT3 field"))
 }

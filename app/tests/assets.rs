@@ -158,6 +158,7 @@ fn synthetic_entity_blob_with_manifest(seed: u8, source_manifest_sha256: [u8; 32
             dependencies: Box::new([]),
         }]
         .into_boxed_slice(),
+        geometries: Box::new([]),
     })
     .unwrap()
 }
@@ -937,7 +938,7 @@ fn malformed_required_entity_carrier_fails_closed_with_rebuild_command() {
     )
     .unwrap();
     let entity_path = entity_asset_path(&path);
-    fs::write(&entity_path, b"not MCBEENT2").unwrap();
+    fs::write(&entity_path, b"not MCBEENT3").unwrap();
 
     let error = load_runtime_assets(select_asset_path(Some(&path), None)).unwrap_err();
     let message = error.to_string();

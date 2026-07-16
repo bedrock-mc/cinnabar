@@ -36,7 +36,15 @@ fn synthetic_pack() -> TempDir {
     write(
         root,
         "models/entity/allay.geo.json",
-        br#"{"format_version":"1.21.0","minecraft:geometry":[{"description":{"identifier":"geometry.allay"},"bones":[]}]}"#,
+        br#"{"format_version":"1.21.0","minecraft:geometry":[{
+          "description":{"identifier":"geometry.allay","texture_width":32,"texture_height":64},
+          "bones":[
+            {"name":"root","pivot":[0,1,0],"rotation":[0,15,0],"mirror":true,"inflate":0.25,
+             "cubes":[{"origin":[-2.5,5.01,-2.5],"size":[5,5,5],"rotation":[0,0,-2.5],"uv":[0,0]}]},
+            {"name":"wing","parent":"root","pivot":[0.5,4,1],
+             "cubes":[{"origin":[0.5,-1,1],"size":[0,5,8],"uv":[16,14],"mirror":false,"inflate":-0.2}]}
+          ]
+        }]}"#,
     );
     write(
         root,
@@ -69,6 +77,18 @@ fn compiler_enumerates_entity_authority_and_dependencies_deterministically() {
     let second = compile_entity_assets(pack.path(), MANIFEST).expect("compile twice");
     assert_eq!(first, second);
     assert_eq!(first.sources.len(), 7);
+    assert_eq!(first.geometries.len(), 1);
+    let geometry = &first.geometries[0];
+    assert_eq!(geometry.identifier.as_ref(), "geometry.allay");
+    assert_eq!((geometry.texture_width, geometry.texture_height), (32, 64));
+    assert_eq!(geometry.bones.len(), 2);
+    assert_eq!(geometry.bones[1].parent.as_deref(), Some("root"));
+    assert_eq!(geometry.bones[0].rotation[1].get(), 15.0);
+    assert_eq!(geometry.bones[0].cubes[0].pivot[0].get(), 0.0);
+    assert_eq!(geometry.bones[0].cubes[0].inflate.get(), 0.25);
+    assert!(geometry.bones[0].cubes[0].mirror);
+    assert_eq!(geometry.bones[1].cubes[0].inflate.get(), -0.2);
+    assert!(!geometry.bones[1].cubes[0].mirror);
 
     let kinds = first
         .symbols
@@ -220,6 +240,58 @@ fn compiler_preserves_same_named_symbols_from_distinct_pinned_sources() {
 }
 
 #[test]
+fn compiler_preserves_same_named_geometry_payload_candidates_from_distinct_sources() {
+    let pack = synthetic_pack();
+    write(
+        pack.path(),
+        "models/entity/z_allay.compat.geo.json",
+        br#"{"format_version":"1.21.0","minecraft:geometry":[{"description":{"identifier":"geometry.allay","texture_width":16,"texture_height":16},"bones":[]}]}"#,
+    );
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    let candidates = compiled
+        .geometries
+        .iter()
+        .filter(|geometry| geometry.identifier.as_ref() == "geometry.allay")
+        .collect::<Vec<_>>();
+    assert_eq!(candidates.len(), 2);
+    assert!(candidates[0].source_index < candidates[1].source_index);
+    assert_eq!(candidates[1].texture_width, 16);
+}
+
+#[test]
+fn compiler_preserves_sparse_per_face_uvs_and_optional_uv_sizes() {
+    let pack = synthetic_pack();
+    write(
+        pack.path(),
+        "models/entity/allay.geo.json",
+        br#"{"format_version":"1.21.0","minecraft:geometry":[{"description":{"identifier":"geometry.allay","texture_width":32,"texture_height":32},"bones":[{"name":"root","cubes":[{"origin":[0,-2.5,-3],"size":[0,5,16],"uv":{"east":{"uv":[0,0],"uv_size":[5,16]}}}]}]}]}"#,
+    );
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    let uv = &compiled.geometries[0].bones[0].cubes[0].uv;
+    let assets::EntityGeometryUv::Faces(faces) = uv else {
+        panic!("expected per-face UV payload");
+    };
+    assert_eq!(faces.east.as_ref().unwrap().uv[0].get(), 0.0);
+    assert_eq!(faces.east.as_ref().unwrap().uv_size.unwrap()[1].get(), 16.0);
+    assert!(faces.west.is_none());
+}
+
+#[test]
+fn compiler_uses_bedrock_default_cube_uv() {
+    let pack = synthetic_pack();
+    write(
+        pack.path(),
+        "models/entity/allay.geo.json",
+        br#"{"format_version":"1.21.0","minecraft:geometry":[{"description":{"identifier":"geometry.allay"},"bones":[{"name":"root","cubes":[{"origin":[-3,2,-3],"size":[6,8,6]}]}]}]}"#,
+    );
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    let assets::EntityGeometryUv::Box(uv) = &compiled.geometries[0].bones[0].cubes[0].uv else {
+        panic!("expected default box UV");
+    };
+    assert_eq!([uv[0].get(), uv[1].get()], [0.0, 0.0]);
+}
+
+#[test]
 fn compiler_treats_duplicates_inside_opaque_animation_payloads_as_runtime_semantics() {
     let pack = synthetic_pack();
     write(
@@ -241,7 +313,7 @@ fn compiler_enumerates_legacy_geometry_root_identifiers() {
     write(
         pack.path(),
         "models/entity/allay.geo.json",
-        br#"{"format_version":"1.8.0","geometry.allay":{"bones":[]},"geometry.allay.compat":{"bones":[]}}"#,
+        br#"{"format_version":"1.8.0","geometry.allay":{"texturewidth":32,"textureheight":32,"bones":[]},"geometry.allay.compat":{"texturewidth":64,"textureheight":32,"bones":[]}}"#,
     );
     let compiled = compile_entity_assets(pack.path(), MANIFEST).expect("legacy geometry schema");
     for identifier in ["geometry.allay", "geometry.allay.compat"] {
@@ -249,6 +321,154 @@ fn compiler_enumerates_legacy_geometry_root_identifiers() {
             symbol.kind == EntityAssetKind::Geometry && symbol.identifier.as_ref() == identifier
         }));
     }
+    assert_eq!(compiled.geometries.len(), 2);
+    assert_eq!(compiled.geometries[0].texture_width, 32);
+    assert_eq!(compiled.geometries[1].texture_width, 64);
+}
+
+#[test]
+fn compiler_uses_bedrock_legacy_default_texture_dimensions() {
+    let pack = synthetic_pack();
+    write(
+        pack.path(),
+        "models/entity/allay.geo.json",
+        br#"{"format_version":"1.8.0","geometry.allay":{"bones":[]}}"#,
+    );
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    assert_eq!(compiled.geometries[0].texture_width, 64);
+    assert_eq!(compiled.geometries[0].texture_height, 64);
+}
+
+#[test]
+fn compiler_uses_bedrock_modern_default_texture_dimensions() {
+    let pack = synthetic_pack();
+    write(
+        pack.path(),
+        "models/entity/allay.geo.json",
+        br#"{"format_version":"1.21.0","minecraft:geometry":[{"description":{"identifier":"geometry.allay"},"bones":[]}]}"#,
+    );
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    assert_eq!(compiled.geometries[0].texture_width, 64);
+    assert_eq!(compiled.geometries[0].texture_height, 64);
+}
+
+#[test]
+fn compiler_preserves_legacy_geometry_inheritance_and_inherited_bone_parents() {
+    let pack = synthetic_pack();
+    write(
+        pack.path(),
+        "models/entity/allay.geo.json",
+        br#"{"format_version":"1.8.0","geometry.base":{"texturewidth":64,"textureheight":64,"bones":[{"name":"head"}]},"geometry.allay:geometry.base":{"texturewidth":64,"textureheight":64,"bones":[{"name":"nose","parent":"head"}]}}"#,
+    );
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    let derived = compiled
+        .geometries
+        .iter()
+        .find(|geometry| geometry.identifier.as_ref() == "geometry.allay")
+        .unwrap();
+    let inheritance = derived.inherits.as_ref().unwrap();
+    assert_eq!(inheritance.identifier.as_ref(), "geometry.base");
+    assert_eq!(inheritance.resolution, EntityDependencyResolution::Catalog);
+    assert!(compiled.symbols.iter().any(|symbol| {
+        symbol.kind == EntityAssetKind::Geometry && symbol.identifier.as_ref() == "geometry.allay"
+    }));
+    assert!(
+        !compiled
+            .symbols
+            .iter()
+            .any(|symbol| { symbol.identifier.as_ref() == "geometry.allay:geometry.base" })
+    );
+}
+
+#[test]
+fn compiler_marks_builtin_legacy_geometry_inheritance_external() {
+    let pack = synthetic_pack();
+    write(
+        pack.path(),
+        "models/entity/allay.geo.json",
+        br#"{"format_version":"1.8.0","geometry.allay:geometry.humanoid":{"bones":[]}}"#,
+    );
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    assert_eq!(
+        compiled.geometries[0].inherits.as_ref().unwrap().resolution,
+        EntityDependencyResolution::External
+    );
+}
+
+#[test]
+fn compiler_accepts_bedrock_case_insensitive_bone_parent_references() {
+    let pack = synthetic_pack();
+    write(
+        pack.path(),
+        "models/entity/allay.geo.json",
+        br#"{"format_version":"1.8.0","geometry.allay":{"bones":[{"name":"Head"},{"name":"mouth","parent":"head"}]}}"#,
+    );
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    assert_eq!(
+        compiled.geometries[0].bones[1].parent.as_deref(),
+        Some("head")
+    );
+}
+
+#[test]
+fn compiler_normalizes_official_self_parent_bones_to_roots() {
+    let pack = synthetic_pack();
+    write(
+        pack.path(),
+        "models/entity/allay.geo.json",
+        br#"{"format_version":"1.8.0","geometry.allay":{"bones":[{"name":"body","parent":"body"}]}}"#,
+    );
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    assert!(compiled.geometries[0].bones[0].parent.is_none());
+}
+
+#[test]
+fn compiler_preserves_duplicate_official_bone_generation_candidates() {
+    let pack = synthetic_pack();
+    write(
+        pack.path(),
+        "models/entity/allay.geo.json",
+        br#"{"format_version":"1.8.0","geometry.allay":{"bones":[{"name":"hat","pivot":[0,1,0]},{"name":"hat","pivot":[0,2,0]}]}}"#,
+    );
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    assert_eq!(compiled.geometries[0].bones.len(), 2);
+    assert_eq!(compiled.geometries[0].bones[0].pivot[1].get(), 1.0);
+    assert_eq!(compiled.geometries[0].bones[1].pivot[1].get(), 2.0);
+}
+
+#[test]
+fn compiler_rejects_unknown_geometry_fields_invalid_hierarchy_and_unbounded_numbers() {
+    let unknown = synthetic_pack();
+    write(
+        unknown.path(),
+        "models/entity/allay.geo.json",
+        br#"{"format_version":"1.21.0","minecraft:geometry":[{"description":{"identifier":"geometry.allay","texture_width":32,"texture_height":32},"bones":[{"name":"root","unexpected":true}]}]}"#,
+    );
+    assert!(compile_entity_assets(unknown.path(), MANIFEST).is_err());
+
+    let cycle = synthetic_pack();
+    write(
+        cycle.path(),
+        "models/entity/allay.geo.json",
+        br#"{"format_version":"1.21.0","minecraft:geometry":[{"description":{"identifier":"geometry.allay","texture_width":32,"texture_height":32},"bones":[{"name":"a","parent":"b"},{"name":"b","parent":"a"}]}]}"#,
+    );
+    assert!(compile_entity_assets(cycle.path(), MANIFEST).is_err());
+
+    let unbounded = synthetic_pack();
+    write(
+        unbounded.path(),
+        "models/entity/allay.geo.json",
+        br#"{"format_version":"1.21.0","minecraft:geometry":[{"description":{"identifier":"geometry.allay","texture_width":32,"texture_height":32},"bones":[{"name":"root","pivot":[1e100,0,0]}]}]}"#,
+    );
+    assert!(compile_entity_assets(unbounded.path(), MANIFEST).is_err());
+
+    let negative_size = synthetic_pack();
+    write(
+        negative_size.path(),
+        "models/entity/allay.geo.json",
+        br#"{"format_version":"1.21.0","minecraft:geometry":[{"description":{"identifier":"geometry.allay"},"bones":[{"name":"root","cubes":[{"origin":[0,0,0],"size":[1,-1,1]}]}]}]}"#,
+    );
+    assert!(compile_entity_assets(negative_size.path(), MANIFEST).is_err());
 }
 
 #[test]
@@ -332,9 +552,12 @@ fn assetc_entity_assets_writes_deterministic_carrier_and_report() {
     let decoded = assets::RuntimeEntityAssets::decode(&first_blob).unwrap();
     assert_eq!(decoded.sources().len(), 7);
     let report: serde_json::Value = serde_json::from_slice(&first_report).unwrap();
-    assert_eq!(report["schema"], 1);
+    assert_eq!(report["schema"], 2);
     assert_eq!(report["counts"]["sources"], 7);
     assert_eq!(report["counts"]["symbols"], decoded.symbols().len());
+    assert_eq!(report["counts"]["geometries"], 1);
+    assert_eq!(report["counts"]["bones"], 2);
+    assert_eq!(report["counts"]["cubes"], 2);
     assert_eq!(report["sources"].as_array().unwrap().len(), 7);
     assert_eq!(
         report["symbols"].as_array().unwrap().len(),

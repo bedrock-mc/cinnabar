@@ -58,7 +58,7 @@ enum Command {
         /// Tracked manifest that pins the local resource-pack source.
         #[arg(long)]
         source_manifest: PathBuf,
-        /// Ignored/local MCBEENT2 output path.
+        /// Ignored/local MCBEENT3 output path.
         #[arg(long)]
         out: PathBuf,
         /// Ignored/local deterministic JSON provenance report path.
@@ -155,6 +155,9 @@ struct EntityAssetCounts {
     sources: usize,
     symbols: usize,
     dependencies: usize,
+    geometries: usize,
+    bones: usize,
+    cubes: usize,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -308,7 +311,7 @@ fn compile_entity_assets_command(
     let compiled = compile_entity_assets(pack, &manifest_bytes)?;
     let blob = encode_entity_blob(&compiled)?;
     let report_data = EntityAssetsReport {
-        schema: 1,
+        schema: 2,
         source,
         source_manifest_sha256: hex(&compiled.source_manifest_sha256).into_boxed_str(),
         blob_sha256: format!("{:x}", Sha256::digest(&blob)).into_boxed_str(),
@@ -319,6 +322,18 @@ fn compile_entity_assets_command(
                 .symbols
                 .iter()
                 .map(|symbol| symbol.dependencies.len())
+                .sum(),
+            geometries: compiled.geometries.len(),
+            bones: compiled
+                .geometries
+                .iter()
+                .map(|geometry| geometry.bones.len())
+                .sum(),
+            cubes: compiled
+                .geometries
+                .iter()
+                .flat_map(|geometry| geometry.bones.iter())
+                .map(|bone| bone.cubes.len())
                 .sum(),
         },
         sources: &compiled.sources,
@@ -334,10 +349,13 @@ fn compile_entity_assets_command(
     write_blob_atomic(out, &blob)?;
     write_blob_atomic(report, &report_bytes)?;
     println!(
-        "compiled {} entity authority sources, {} symbols, and {} dependencies to {} and {}",
+        "compiled {} entity authority sources, {} symbols, {} dependencies, {} geometries, {} bones, and {} cubes to {} and {}",
         report_data.counts.sources,
         report_data.counts.symbols,
         report_data.counts.dependencies,
+        report_data.counts.geometries,
+        report_data.counts.bones,
+        report_data.counts.cubes,
         out.display(),
         report.display()
     );
