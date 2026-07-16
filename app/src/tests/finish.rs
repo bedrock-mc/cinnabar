@@ -956,6 +956,20 @@ fn diagnostic_telemetry_refreshes_only_after_resident_attribution_changes() {
         refresh_diagnostic_attribution(&mut revision, &tracker, &mut metrics).is_none(),
         "unchanged frames must not rebuild or re-emit diagnostic attribution"
     );
+    let unchanged_revision = tracker.revision();
+    tracker.upsert(
+        key,
+        DiagnosticGeometrySummary::from_counts([DiagnosticGeometryCount::new(
+            Some(54),
+            537_536_753,
+            6,
+        )]),
+    );
+    assert_eq!(tracker.revision(), unchanged_revision);
+    assert!(
+        refresh_diagnostic_attribution(&mut revision, &tracker, &mut metrics).is_none(),
+        "an identical remesh must not increment revision or re-emit telemetry"
+    );
     tracker.remove(key);
     let cleared = refresh_diagnostic_attribution(&mut revision, &tracker, &mut metrics)
         .expect("eviction publishes the cleared resident state");

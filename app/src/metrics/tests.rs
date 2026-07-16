@@ -1,15 +1,45 @@
 use super::{
-    AssetMetrics, ExactFullViewProof, GpuPassMeasurement, GpuPassSample, MetricsCollector,
-    MetricsReport, ModelWorkloadCountSnapshot, ModelWorkloadMetricsSnapshot,
+    AssetMetrics, DiagnosticQuadTracker, ExactFullViewProof, GpuPassMeasurement, GpuPassSample,
+    MetricsCollector, MetricsReport, ModelWorkloadCountSnapshot, ModelWorkloadMetricsSnapshot,
     PipelineMetricsSnapshot, TeleportProof, TransparentSortMetricsSnapshot,
     deterministic_manifest_hash, pair_gpu_pass_sample, percentile,
 };
+use meshing::{DiagnosticGeometryCount, DiagnosticGeometrySummary};
 use std::{fs, time::Duration};
 use world::SubChunkKey;
 
 #[test]
 fn empty_percentiles_are_zero() {
     assert_eq!(percentile(&[], 0.99), 0.0);
+}
+
+#[test]
+fn globally_folded_identity_removal_cannot_subtract_a_later_tracked_contribution() {
+    let tracked_first = SubChunkKey::new(0, 0, 0, 0);
+    let folded_first = SubChunkKey::new(0, 1, 0, 0);
+    let tracked_later = SubChunkKey::new(0, 2, 0, 0);
+    let summary = |sequential_id, quad_count| {
+        DiagnosticGeometrySummary::from_counts([DiagnosticGeometryCount::new(
+            Some(sequential_id),
+            sequential_id,
+            quad_count,
+        )])
+    };
+    let mut tracker = DiagnosticQuadTracker::with_identity_capacity(1);
+
+    tracker.upsert(tracked_first, summary(1, 1));
+    tracker.upsert(folded_first, summary(2, 5));
+    tracker.remove(tracked_first);
+    tracker.upsert(tracked_later, summary(2, 7));
+    tracker.remove(folded_first);
+
+    let snapshot = tracker.snapshot();
+    assert_eq!(snapshot.total_quad_count, 7);
+    assert_eq!(snapshot.top.len(), 1);
+    assert_eq!(snapshot.top[0].sequential_id, Some(2));
+    assert_eq!(snapshot.top[0].quad_count, 7);
+    assert_eq!(snapshot.omitted_identity_count, 0);
+    assert_eq!(snapshot.omitted_quad_count, 0);
 }
 
 #[test]
