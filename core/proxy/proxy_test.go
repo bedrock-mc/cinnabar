@@ -352,6 +352,32 @@ func TestRelayDoesNotMergeLoadingScreenStartAcrossWireBoundary(t *testing.T) {
 	}
 }
 
+func TestRelayDropsInitialLoadingScreenPairAcrossAdjacentWireBatches(t *testing.T) {
+	down := newFakeDownstream(nil)
+	up := newFakeUpstream(nil)
+	down.useBatchReads = true
+	down.batchReads <- batchResult{packets: []packet.Packet{
+		&packet.ServerBoundLoadingScreen{Type: packet.LoadingScreenTypeStart},
+	}}
+	down.batchReads <- batchResult{packets: []packet.Packet{
+		&packet.ServerBoundLoadingScreen{Type: packet.LoadingScreenTypeEnd},
+	}}
+	want := &packet.NetworkStackLatency{Timestamp: 17}
+	down.batchReads <- batchResult{packets: []packet.Packet{want}}
+	down.batchReads <- batchResult{err: io.EOF}
+
+	if err := pumpPackets(down, up, true); !errors.Is(err, io.EOF) {
+		t.Fatalf("pumpPackets() error = %v, want EOF", err)
+	}
+	batches := up.flushedBatches()
+	if got, sizes := batchSizes(batches), []int{1}; !slices.Equal(got, sizes) {
+		t.Fatalf("batch sizes = %v, want %v", got, sizes)
+	}
+	if batches[0][0] != want {
+		t.Fatalf("forwarded packet = %#v, want %#v", batches[0][0], want)
+	}
+}
+
 func TestRelayCapsUpstreamToDownstreamBatches(t *testing.T) {
 	const packetLimit = 1600
 	up := newFakeUpstream(nil)

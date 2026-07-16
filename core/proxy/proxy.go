@@ -497,7 +497,31 @@ func pumpPackets(source, destination packetSession, fromDownstream bool) (err er
 	for {
 		batch, err := source.ReadBatch()
 		if err != nil {
+			if pendingInitialStart != nil {
+				if writeErr := writePacket(pendingInitialStart); writeErr != nil {
+					return errors.Join(err, writeErr)
+				}
+				if flushErr := flushOutputBatch(); flushErr != nil {
+					return errors.Join(err, flushErr)
+				}
+			}
 			return err
+		}
+		if pendingInitialStart != nil {
+			if len(batch) != 0 && isLoadingScreen(batch[0], packet.LoadingScreenTypeEnd) {
+				pendingInitialStart = nil
+				dropInitialSpawnLoadingScreens = false
+				batch = batch[1:]
+			} else {
+				if err := writePacket(pendingInitialStart); err != nil {
+					return err
+				}
+				if err := flushOutputBatch(); err != nil {
+					return err
+				}
+				pendingInitialStart = nil
+				dropInitialSpawnLoadingScreens = false
+			}
 		}
 		for _, value := range batch {
 			// Each gophertunnel side performs its own initial spawn handshake. The
@@ -530,16 +554,9 @@ func pumpPackets(source, destination packetSession, fromDownstream bool) (err er
 				return err
 			}
 		}
-		// The loading-screen filter is intentionally restricted to one source
-		// wire batch. Carrying Start into the next read would merge two source
-		// boundaries when the following packet is not its adjacent End.
-		if pendingInitialStart != nil {
-			if err := writePacket(pendingInitialStart); err != nil {
-				return err
-			}
-			pendingInitialStart = nil
-			dropInitialSpawnLoadingScreens = false
-		}
+		// Keep one no-ID Start pending across exactly the next source batch. If
+		// that batch does not begin with the matching End, the pending packet is
+		// flushed as its own original batch before any current-batch packet.
 		if err := flushOutputBatch(); err != nil {
 			return err
 		}
