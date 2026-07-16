@@ -73,13 +73,19 @@ fn cloud_texture_validation_rejects_wrong_role_dimensions_and_byte_length() {
 }
 
 #[test]
-fn alpha_one_is_empty_and_alpha_255_emits_all_six_fixed_height_faces() {
-    assert!(
-        mesh_cloud_texture(&empty_cloud_texture())
-            .unwrap()
-            .is_empty()
-    );
+fn zero_and_sub_threshold_alpha_emit_no_drawable_records() {
+    for alpha in [0, 1, 127] {
+        assert!(
+            mesh_cloud_texture(&cloud_texture_with_alpha(alpha))
+                .unwrap()
+                .is_empty(),
+            "alpha {alpha} must not produce cloud geometry"
+        );
+    }
+}
 
+#[test]
+fn alpha_255_emits_all_six_fixed_height_faces() {
     let quads = mesh_cloud_texture(&cloud_with_occupied(&[[7, 11]])).unwrap();
     assert_eq!(
         quads.as_ref(),

@@ -78,18 +78,23 @@ fn all_six_faces_reconstruct_the_packed_fixed_height_bounds() {
 }
 
 #[test]
-fn cloud_pipeline_is_depth_writing_reversed_z_and_specializes_from_each_view() {
+fn cloud_pipeline_is_transparent_depth_aware_and_specializes_from_each_view() {
     let source = include_str!("../src/cloud_render.rs");
     assert!(source.contains("struct CloudPipelineKey"));
     assert!(source.contains("msaa: Msaa"));
     assert!(source.contains("hdr: bool"));
     assert!(source.contains("descriptor.multisample.count = key.msaa.samples()"));
     assert!(source.contains("ViewTarget::TEXTURE_FORMAT_HDR"));
-    assert!(source.contains("depth_write_enabled: true"));
+    assert!(source.contains(".add_render_command::<Transparent3d, DrawCloudCommands>()"));
+    assert!(source.contains("ViewSortedRenderPhases<Transparent3d>"));
+    assert!(source.contains("phase.add(Transparent3d {"));
+    assert!(source.contains("blend: Some(BlendState::ALPHA_BLENDING)"));
+    assert!(source.contains("depth_write_enabled: false"));
     assert!(source.contains("depth_compare: CompareFunction::GreaterEqual"));
     assert!(source.contains("CORE_3D_DEPTH_FORMAT"));
     assert!(source.contains("BufferBindingType::Storage { read_only: true }"));
     assert!(source.contains("ShaderStages::VERTEX | ShaderStages::FRAGMENT"));
+    assert!(!source.contains("BinnedRenderPhaseType::NonMesh"));
 }
 
 #[test]
@@ -105,9 +110,10 @@ fn cloud_gpu_resources_are_immutable_identity_cached_and_not_frame_rebuilt() {
 }
 
 #[test]
-fn one_non_mesh_item_draws_exact_quad_vertices_and_nine_instances() {
+fn one_sorted_item_draws_exact_quad_vertices_and_nine_instances() {
     let source = include_str!("../src/cloud_render.rs");
-    assert!(source.contains("BinnedRenderPhaseType::NonMesh"));
+    assert!(source.contains("PhaseItemExtraIndex::None"));
+    assert!(source.contains("cloud_phase_distance("));
     assert!(!source.contains("mesh::Mesh"));
     assert!(!source.contains("AssetId::<Mesh>"));
     assert!(!source.contains("StandardMaterial"));
@@ -120,15 +126,34 @@ fn one_non_mesh_item_draws_exact_quad_vertices_and_nine_instances() {
 #[test]
 fn cloud_fragment_uses_face_lighting_weather_and_bounded_distance_fog() {
     let shader = include_str!("../src/cloud.wgsl");
-    assert!(shader.contains("const SIDE_LIGHT: f32"));
-    assert!(shader.contains("const UNDERSIDE_LIGHT: f32"));
+    assert!(shader.contains("const RAIN_CLOUD_COLOUR: vec3<f32> = vec3(191.0 / 255.0);"));
+    assert!(shader.contains("const THUNDER_CLOUD_COLOUR: vec3<f32> = vec3(30.0 / 255.0);"));
+    assert!(shader.contains("const WEATHER_COLOUR_CONTRIBUTION: f32 = 0.95;"));
+    assert!(shader.contains("fn face_normal(face: u32) -> vec3<f32>"));
+    assert!(shader.contains("dot(in.normal, sun_direction)"));
+    assert!(shader.contains("atmosphere.sun_direction_daylight.xyz"));
+    assert!(shader.contains("atmosphere.sun_direction_daylight.w"));
     assert!(shader.contains("atmosphere.sky_zenith_rain.w"));
     assert!(shader.contains("atmosphere.sky_horizon_thunder.w"));
     assert!(shader.contains("atmosphere.fog_color_start.w"));
     assert!(shader.contains("atmosphere.fog_end_time.x"));
     assert!(shader.contains("distance(in.world_position, view.world_position)"));
     assert!(shader.contains("mix(cloud_colour, atmosphere.fog_color_start.rgb, fog)"));
-    assert!(shader.contains("return vec4(fogged_colour, 1.0);"));
+    assert!(shader.contains("let cloud_alpha = clamp(1.0 - fog, 0.0, 1.0);"));
+    assert!(shader.contains("return vec4(fogged_colour, cloud_alpha);"));
+    assert!(!shader.contains("const SIDE_LIGHT"));
+    assert!(!shader.contains("const UNDERSIDE_LIGHT"));
     assert!(!shader.contains("textureSample"));
     assert!(!shader.contains("sampled.a"));
+}
+
+#[test]
+fn shader_period_selection_matches_euclidean_negative_coordinate_semantics() {
+    let shader = include_str!("../src/cloud.wgsl");
+    assert!(shader.contains(
+        "floor((view.world_position.x - cloud_texture_offset) / CLOUD_TEXTURE_WORLD_PERIOD)"
+    ));
+    assert!(shader.contains("floor(view.world_position.z / CLOUD_TEXTURE_WORLD_PERIOD)"));
+    assert!(shader.contains("let instance_column = i32(instance_index % 3u) - 1;"));
+    assert!(shader.contains("let instance_row = i32(instance_index / 3u) - 1;"));
 }
