@@ -57,7 +57,7 @@
             -ExecutableName 'bedrock_server.exe'
     } 'different Go-style BDS owner marker was accepted'
 
-    $runtimeSafetyScript = Join-Path $PSScriptRoot 'acceptance.RuntimeSafety.Tests.ps1'
+    $runtimeSafetyScript = Join-Path $ProjectRoot 'scripts\tests\acceptance.RuntimeSafety.Tests.ps1'
     $previousErrorAction = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
