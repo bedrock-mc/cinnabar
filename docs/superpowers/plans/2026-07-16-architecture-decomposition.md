@@ -467,23 +467,23 @@ Commit: `refactor: extract client world pipeline`
 - All `RUST_MCBE_*` producer strings live in `acceptance::markers`.
 - A checked-in marker expectation table distinguishes parsed evidence from log-only diagnostics.
 
-- [ ] **Step 1: Add the library entry and remove path-based test includes**
+- [x] **Step 1: Add the library entry and remove path-based test includes**
 
 Move module declarations to `lib.rs`; make `main.rs` call `bedrock_client::run`. Update integration tests to import the library normally.
 
-- [ ] **Step 2: Move normal runtime systems**
+- [x] **Step 2: Move normal runtime systems**
 
 Group endpoint/shutdown, network ingress, world driving, cave visibility, and telemetry/title systems by owner. Keep Bevy schedule ordering explicit in `app.rs`.
 
-- [ ] **Step 3: Move acceptance state and marker construction**
+- [x] **Step 3: Move acceptance state and marker construction**
 
 Move trackers, proof functions, completion decisions, and marker serialization into acceptance modules. Normal runtime modules may emit typed observations but do not format acceptance markers.
 
-- [ ] **Step 4: Split app tests beside their owners**
+- [x] **Step 4: Split app tests beside their owners**
 
 Keep private state-machine tests under each acceptance/runtime child module. Cross-module application graph tests remain integration tests.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run:
 
@@ -507,22 +507,22 @@ Commit: `refactor: separate app runtime and acceptance`
 **Interfaces:**
 - `cargo run -p architecture -- check --root . --policy tools/architecture/policy.toml` validates dependency edges, forbidden dependencies, file budgets, re-export patterns, test-only public names, marker ownership, and tracked forbidden artifact patterns.
 
-- [ ] **Step 0: Close every remaining baseline size violation**
+- [x] **Step 0: Close every remaining baseline size violation**
 
 Split `crates/assets/src/runtime.rs`, `crates/asset-compiler/src/pack.rs`,
 `crates/asset-compiler/tests/pack.rs`, `tools/visualcoverage/src/lib.rs`,
 `tools/visualcoverage/tests/ratchet.rs`, and the actor store moved by Task 7. Confirm the complete
 first-party handwritten tree meets the final budgets before implementing the strict checker.
 
-- [ ] **Step 1: Write failing policy fixtures**
+- [x] **Step 1: Write failing policy fixtures**
 
 Create temporary fixture trees proving rejection of an oversized handwritten Rust file, forbidden `client-world -> bevy`, `render -> asset-compiler`, `pub use module::*`, `_for_test` public function, and duplicate `RUST_MCBE_` producer.
 
-- [ ] **Step 2: Implement deterministic policy parsing and checks**
+- [x] **Step 2: Implement deterministic policy parsing and checks**
 
 The tool reads only checked-in TOML and repository files, sorts every diagnostic, and exits nonzero on violations. It never shells out to Cargo for source-size checks; dependency validation reads workspace manifests and resolved local path dependencies.
 
-- [ ] **Step 3: Encode final budgets and explicit edges**
+- [x] **Step 3: Encode final budgets and explicit edges**
 
 Policy values:
 
@@ -539,7 +539,7 @@ third-party snapshot scope tied to its upstream ownership record, not as a handw
 exception. Marker policy reads the expectation table so log-only diagnostics are not falsely
 reported as unpaired.
 
-- [ ] **Step 4: Add the CI gate and verify**
+- [x] **Step 4: Add the CI gate and verify**
 
 Run:
 
