@@ -832,8 +832,11 @@ fn make_client_rebuilds_only_a_missing_or_stale_asset_blob() {
     for contract in [
         "LIGHT_REGISTRY ?= crates/assets/data/block-light-registry-v1001.bin",
         concat!(
-            "ASSET_COMPILER_INPUTS := Cargo.toml Cargo.lock crates/assets/Cargo.toml Makefile ",
-            "$(wildcard crates/assets/src/*.rs) $(wildcard crates/assets/src/bin/*.rs)"
+            "ASSET_COMPILER_INPUTS := Cargo.toml Cargo.lock crates/assets/Cargo.toml ",
+            "crates/asset-compiler/Cargo.toml Makefile $(wildcard crates/assets/src/*.rs) ",
+            "$(wildcard crates/assets/src/*/*.rs) $(wildcard crates/asset-compiler/src/*.rs) ",
+            "$(wildcard crates/asset-compiler/src/*/*.rs) ",
+            "$(wildcard crates/asset-compiler/src/*/*/*.rs)"
         ),
         concat!(
             "$(ASSET_BLOB): $(ASSET_COMPILER_INPUTS) $(BLOCK_REGISTRY) ",
