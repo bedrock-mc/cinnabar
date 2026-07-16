@@ -1348,6 +1348,15 @@ store it only under the user's temporary directory, inspect that file, and never
     formatting, and diff checks pass. A fresh live run must measure the new
     floor and determine whether baseline frame rate or upload scheduling is the
     next limiter.
+    **Live result (2026-07-15):** release DX12/FIFO run
+    `20260716T052758Z-9172` retained the exact 6,951-allocation cohort and zero
+    contamination, then completed the forced remesh in 8,596 ms over 67 frames
+    instead of timing out. The binding teleport remained 48,547 ms. At roughly
+    eight presented frames per second, the current 128-nonempty/256-total
+    frame-coupled budgets impose a 55-frame theoretical minimum, so adaptive
+    upload/application scheduling is now the measured next limiter. The script
+    failed only after both binding markers when its 60-second client exited
+    during the later steady-resource sample; no final resource pass is claimed.
 - [ ] Remove every dark rectangle/background pixel around the pinned sun and
   moon textures. The acceptance test must exercise decoded pinned pixels and
   mip/filter edges, not merely string-inspect WGSL, and must prove both bodies
