@@ -2,6 +2,7 @@
 
 mod actor;
 mod codec;
+mod item;
 mod login;
 mod movement;
 mod packet;
@@ -19,6 +20,12 @@ pub use actor::{
     PlayerSkin, PlayerSkinUnavailable, StandardSkin,
 };
 pub use codec::{ProtocolError, decode_batch, encode};
+pub use item::{
+    ActorActionEvent, ActorActionKind, ActorHandedness, EquipmentEvent, ItemActorEvent,
+    ItemPacketError, ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion,
+    MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS, MAX_ANIMATION_IDENTIFIER_BYTES,
+    MAX_ITEM_EXTRA_BYTES, MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack,
+};
 pub use jolyne::GameData;
 pub use login::{LoginSequence, PlaySession};
 pub use movement::{

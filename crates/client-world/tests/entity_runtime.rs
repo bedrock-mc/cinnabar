@@ -289,6 +289,7 @@ fn spawn(runtime_id: u64, unique_id: i64, velocity: [f32; 3]) -> WorldEvent {
         yaw: 0.0,
         head_yaw: 0.0,
         body_yaw: 0.0,
+        held_item: Default::default(),
         metadata: Arc::from([]),
         attributes: Arc::from([]),
         properties: Arc::from([]),

@@ -11,11 +11,14 @@ use valentine::bedrock::version::v1_26_30::{
 };
 
 use crate::{
-    ActorEvent, ActorPacketError, Packet,
+    ActorEvent, ActorPacketError, EquipmentEvent, ItemActorEvent, ItemPacketError, Packet,
     actor::{
         normalize_add_entity, normalize_add_player, normalize_move_entity,
         normalize_move_entity_delta, normalize_player_list, normalize_remove_entity,
         normalize_set_entity_data, normalize_update_attributes,
+    },
+    item::{
+        normalize_animate, normalize_animate_entity, normalize_equipment, normalize_item_registry,
     },
 };
 
@@ -389,12 +392,17 @@ pub enum WorldEvent {
     DaylightCycle(DaylightCycleUpdateEvent),
     Weather(WeatherUpdateEvent),
     Actor(ActorEvent),
+    Equipment(EquipmentEvent),
+    ItemActor(ItemActorEvent),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum WorldPacketError {
     #[error(transparent)]
     Actor(#[from] ActorPacketError),
+
+    #[error(transparent)]
+    Item(#[from] ItemPacketError),
 
     #[error("BiomeDefinitionList has {count} definitions, exceeding {max}")]
     TooManyBiomeDefinitions { count: usize, max: usize },
@@ -476,6 +484,16 @@ pub fn into_world_event(
         }
         McpePacketData::PacketPlayerList(packet) => {
             WorldEvent::Actor(normalize_player_list(*packet)?)
+        }
+        McpePacketData::PacketItemRegistry(packet) => {
+            WorldEvent::ItemActor(normalize_item_registry(packet)?)
+        }
+        McpePacketData::PacketMobEquipment(packet) => {
+            WorldEvent::Equipment(normalize_equipment(*packet)?)
+        }
+        McpePacketData::PacketAnimate(packet) => WorldEvent::ItemActor(normalize_animate(*packet)?),
+        McpePacketData::PacketAnimateEntity(packet) => {
+            WorldEvent::ItemActor(normalize_animate_entity(*packet)?)
         }
         McpePacketData::PacketBiomeDefinitionList(packet) => {
             if packet.biome_definitions.len() > MAX_BIOME_DEFINITIONS {

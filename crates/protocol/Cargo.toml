@@ -10,6 +10,7 @@ anyhow.workspace = true
 bridge = { path = "../bridge" }
 bytes.workspace = true
 futures.workspace = true
+sha2 = "0.10"
 thiserror.workspace = true
 tokio = { workspace = true, features = ["time"] }
 valentine = { git = "https://github.com/HashimTheArab/axolotl-stack.git", rev = "6cd8087fc3f0b500e41708a8afc94a0fa3291525", default-features = false, features = ["bedrock_1_26_30"] }
@@ -24,6 +25,5 @@ jsonwebtoken = "9.3"
 p384 = { version = "0.13", features = ["ecdh", "pkcs8"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
 snap = "1.1"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }

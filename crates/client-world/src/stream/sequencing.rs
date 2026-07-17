@@ -510,6 +510,9 @@ impl WorldStream {
                 let sequence = sequence.expect("sequenced actor events commit through submit");
                 let _ = self.actors.apply(self.actor_session_id, sequence, event);
             }
+            // Task 5 establishes the protocol boundary. Task 6 consumes these
+            // sequenced events into actor-lifetime item and action state.
+            WorldEvent::Equipment(_) | WorldEvent::ItemActor(_) => {}
             WorldEvent::SubChunks(_) => unreachable!("sub-chunk batches are prepared on workers"),
         }
     }
