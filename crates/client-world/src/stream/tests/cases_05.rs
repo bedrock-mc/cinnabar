@@ -951,7 +951,10 @@ fn request_mode_evicts_the_old_column_and_invalidates_its_neighbours() {
         )),
     )
     .unwrap();
-    stream.store.commit_level_chunk(key.chunk(), decoded);
+    stream
+        .store
+        .commit_level_chunk(key.chunk(), decoded)
+        .unwrap();
     stream.resident.insert(key);
     stream.mark_changed(key, Instant::now());
     assert_eq!(stream.dispatch_light_jobs([0.0; 3], 1), 1);

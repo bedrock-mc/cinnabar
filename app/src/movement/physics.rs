@@ -1,12 +1,14 @@
 use std::time::Duration;
 
-use assets::{CollisionConfidence, NetworkIdMode, RegistryRecord};
+use assets::{NetworkIdMode, RegistryRecord};
 use bevy::prelude::Resource;
 use protocol::{PLAYER_NETWORK_OFFSET, STANDING_PLAYER_EYE_HEIGHT};
 use sim::{
-    Aabb, CollisionRegistry, CollisionWorld, MovementInput, PlayerState, PredictionHistory,
-    RegistryError, SimulationError, Simulator, TICKS_PER_SECOND, Vec3,
+    Aabb, CollisionIdSpace, CollisionRegistry, CollisionRegistryIdentity, CollisionWorld,
+    MovementInput, PlayerState, PredictionHistory, RegistryError, SimulationError, Simulator,
+    TICKS_PER_SECOND, Vec3,
 };
+use thiserror::Error;
 
 const COLLISION_COORDINATE_SCALE: f64 = 1.0 / 100_000_000.0;
 const LOCAL_PHYSICS_TICK_SECONDS: f64 = 1.0 / TICKS_PER_SECOND as f64;
@@ -55,32 +57,68 @@ pub struct PhysicsCollisionRegistries {
     hashed_count: usize,
 }
 
+#[derive(Debug, Error)]
+pub enum PhysicsCollisionRegistryError {
+    #[error(transparent)]
+    Asset(#[from] assets::AssetError),
+    #[error(transparent)]
+    Registry(#[from] RegistryError),
+}
+
 impl PhysicsCollisionRegistries {
-    pub fn from_records(records: &[RegistryRecord]) -> Result<Self, RegistryError> {
-        let mut sequential = CollisionRegistry::new();
-        let mut hashed = CollisionRegistry::new();
-        let mut available_record_count = 0;
+    pub fn from_assets(
+        breg_bytes: &[u8],
+        records: &[RegistryRecord],
+        preg_bytes: &[u8],
+    ) -> Result<Self, PhysicsCollisionRegistryError> {
+        let physics = assets::read_physics_registry(preg_bytes, breg_bytes, records)?;
+        let sequential_identity = CollisionRegistryIdentity {
+            protocol: 1001,
+            id_space: CollisionIdSpace::Sequential,
+            preg_sha256: physics.sha256(),
+        };
+        let hashed_identity = CollisionRegistryIdentity {
+            id_space: CollisionIdSpace::Hashed,
+            ..sequential_identity
+        };
+        let mut sequential = CollisionRegistry::with_identity(sequential_identity);
+        let mut hashed = CollisionRegistry::with_identity(hashed_identity);
         for record in records {
-            if record.collision_seed.confidence == CollisionConfidence::None {
-                continue;
-            }
-            let boxes = record
-                .collision_seed
+            let fact = physics
+                .by_sequential_id(record.sequential_id)
+                .expect("strict PREG decoder covers every supplied BREG record");
+            let boxes = fact
                 .boxes
                 .iter()
                 .copied()
                 .map(collision_box_to_aabb)
                 .collect::<Vec<_>>();
-            sequential.register(record.sequential_id, boxes.iter().copied())?;
-            hashed.register(record.network_hash, boxes)?;
-            available_record_count += 1;
+            let register = |registry: &mut CollisionRegistry, runtime_id, boxes: Vec<Aabb>| {
+                registry.register_primitives(
+                    runtime_id,
+                    boxes,
+                    f64::from(fact.friction_q1e8) * COLLISION_COORDINATE_SCALE,
+                    f64::from(fact.horizontal_speed_q1e8) * COLLISION_COORDINATE_SCALE,
+                    f64::from(fact.vertical_speed_q1e8) * COLLISION_COORDINATE_SCALE,
+                    f64::from(fact.fluid_height_q1e8) * COLLISION_COORDINATE_SCALE,
+                    fact.flags.bits(),
+                    fact.surface_response as u8,
+                )
+            };
+            register(&mut sequential, record.sequential_id, boxes.clone())?;
+            register(&mut hashed, record.network_hash, boxes)?;
+            if record.name.as_ref() == "minecraft:air" {
+                sequential.set_air_runtime_id(record.sequential_id);
+                hashed.set_air_runtime_id(record.network_hash);
+            }
         }
+        let available_record_count = physics.len();
         Ok(Self {
             sequential,
             hashed,
             available_record_count,
-            sequential_count: available_record_count,
-            hashed_count: available_record_count,
+            sequential_count: physics.len(),
+            hashed_count: physics.len(),
         })
     }
 

@@ -1,19 +1,21 @@
 use sha2::{Digest, Sha256};
 use sim::{
-    Aabb, CollisionWorld, ConformanceError, MovementInput, PlayerState, Simulator, TickResult,
-    TraceRecord, Vec3, WorldQueryError, verify_trace_jsonl,
+    Aabb, CollisionQuery, CollisionWorld, ConformanceError, MovementInput, PlayerState, Simulator,
+    TickResult, TraceRecord, Vec3, WorldQueryError, verify_trace_jsonl,
 };
 
 struct Floor;
 
 impl CollisionWorld for Floor {
-    fn collision_boxes(&self, query: Aabb) -> Result<Vec<Aabb>, WorldQueryError> {
+    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
         let floor = Aabb::new(Vec3::new(-16.0, 0.0, -16.0), Vec3::new(16.0, 1.0, 16.0));
-        Ok(floor
-            .intersects(query)
-            .then_some(floor)
-            .into_iter()
-            .collect())
+        Ok(CollisionQuery::synthetic(
+            floor
+                .intersects(query)
+                .then_some(floor)
+                .into_iter()
+                .collect(),
+        ))
     }
 }
 

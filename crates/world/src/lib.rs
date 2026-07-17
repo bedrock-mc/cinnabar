@@ -6,6 +6,7 @@
 mod biome;
 mod block_entity;
 mod chunk;
+mod collision_revision;
 mod error;
 mod light;
 mod light_solver;
@@ -24,7 +25,7 @@ pub use block_entity::{
     RootByteCandidate,
 };
 pub use chunk::{Chunk, ChunkKey, SubChunkKey};
-pub use error::{DecodeError, MutationError};
+pub use error::{CollisionRevisionError, DecodeError, MutationError};
 pub use light::{
     LIGHT_SAMPLES_PER_SUB_CHUNK, LightChannel, LightNibbleStorage, LightStorageError, LightStore,
     LightStoreSnapshot, LightSubChunkKind, SubChunkLight,
@@ -38,6 +39,7 @@ pub use mesh_neighbourhood::{MeshDependencyMask, MeshNeighbourhood, MeshSample};
 pub use mutation::BlockUpdate;
 pub use palette::{BLOCKS_PER_SUB_CHUNK, Palette, PalettedStorage};
 pub use store::{
-    ApplyLevelChunk, ChunkStore, DecodedLevelChunk, MAX_LEVEL_SUBCHUNKS, PreparedSubChunkMutation,
+    ApplyLevelChunk, ChunkCollisionRevision, ChunkStore, DecodedLevelChunk, MAX_LEVEL_SUBCHUNKS,
+    PreparedSubChunkMutation,
 };
 pub use sub_chunk::{MAX_PALETTE_ENTRIES, MAX_STORAGE_COUNT, SubChunk};

@@ -1,18 +1,20 @@
 use sim::{
-    Aabb, CollisionWorld, MovementInput, PlayerState, PredictionError, PredictionHistory,
-    Simulator, Vec3, WorldQueryError,
+    Aabb, CollisionQuery, CollisionWorld, MovementInput, PlayerState, PredictionError,
+    PredictionHistory, Simulator, Vec3, WorldQueryError,
 };
 
 struct Floor;
 
 impl CollisionWorld for Floor {
-    fn collision_boxes(&self, query: Aabb) -> Result<Vec<Aabb>, WorldQueryError> {
+    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
         let floor = Aabb::new(Vec3::new(-64.0, 0.0, -64.0), Vec3::new(64.0, 1.0, 64.0));
-        Ok(floor
-            .intersects(query)
-            .then_some(floor)
-            .into_iter()
-            .collect())
+        Ok(CollisionQuery::synthetic(
+            floor
+                .intersects(query)
+                .then_some(floor)
+                .into_iter()
+                .collect(),
+        ))
     }
 }
 

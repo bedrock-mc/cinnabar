@@ -159,7 +159,7 @@ fn inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail() {
         DecodedLevelChunk::decode_with_biomes_and_block_entities(chunk, -4, 1, -4, 1, &valid)
             .unwrap();
     assert_eq!(decoded.bytes_consumed(), valid.len());
-    store.commit_level_chunk(chunk, decoded);
+    store.commit_level_chunk(chunk, decoded).unwrap();
     assert_eq!(
         store.sub_chunk(sub_chunk).unwrap().runtime_id(0, 0, 0, 0),
         Some(9)
@@ -207,7 +207,7 @@ fn sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically() {
         .commit_decoded_sub_chunk(key, DecodedSubChunk::decode(key, &restored).unwrap())
         .unwrap();
     assert!(store.block_entity(here).is_some());
-    assert_eq!(store.apply_all_air(key), Some(key));
+    assert_eq!(store.apply_all_air(key).unwrap(), Some(key));
     assert!(store.block_entity(here).is_none());
     assert_eq!(store.block_entity(other).unwrap().id(), Some("Other"));
 }

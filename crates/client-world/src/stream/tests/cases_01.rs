@@ -276,18 +276,21 @@ fn definition_replacement_supersedes_queued_and_in_flight_old_tints() {
         .unwrap();
 
     let key = SubChunkKey::new(0, 0, -4, 0);
-    stream.store.commit_level_chunk(
-        key.chunk(),
-        DecodedLevelChunk::decode(
-            -4,
-            1,
-            include_bytes!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../world/fixtures/uniform_non_air.bin"
-            )),
+    stream
+        .store
+        .commit_level_chunk(
+            key.chunk(),
+            DecodedLevelChunk::decode(
+                -4,
+                1,
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../world/fixtures/uniform_non_air.bin"
+                )),
+            )
+            .unwrap(),
         )
-        .unwrap(),
-    );
+        .unwrap();
     stream.store.commit_biome_column(
         key.chunk(),
         DecodedBiomeColumn::decode(-4, 1, &[1, 84]).unwrap(),

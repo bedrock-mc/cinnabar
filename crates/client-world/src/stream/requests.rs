@@ -138,7 +138,10 @@ impl WorldStream {
                 self.cancel_request_reservation(sequence);
             }
             self.loaded_columns.insert(key);
-            self.store.mark_chunk_loaded(key);
+            if self.store.mark_chunk_loaded(key).is_err() {
+                self.loaded_columns.remove(&key);
+                self.record_normalization_error(NormalizationErrorReason::BlockMutationFailure);
+            }
             return;
         }
         match request_sub_chunk_column(key.dimension, key.x, key.z, base_sub_chunk_y, count) {
@@ -171,7 +174,12 @@ impl WorldStream {
                     .collect::<PendingSubChunkColumn>();
                 if expected.is_empty() {
                     self.loaded_columns.insert(key);
-                    self.store.mark_chunk_loaded(key);
+                    if self.store.mark_chunk_loaded(key).is_err() {
+                        self.loaded_columns.remove(&key);
+                        self.record_normalization_error(
+                            NormalizationErrorReason::BlockMutationFailure,
+                        );
+                    }
                 } else {
                     self.requested_sub_chunks.insert(key, expected);
                 }

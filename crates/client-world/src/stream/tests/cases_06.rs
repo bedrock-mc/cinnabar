@@ -22,7 +22,8 @@ fn stale_mesh_completion_cannot_replace_current_revision() {
     .unwrap();
     stream
         .store
-        .commit_level_chunk(ChunkKey::new(0, 0, 0), decoded);
+        .commit_level_chunk(ChunkKey::new(0, 0, 0), decoded)
+        .unwrap();
     let source = stream.store.sub_chunk(key).unwrap();
     stream.resident.insert(key);
     let old_revision = stream.mark_dirty_exact(key, Instant::now());
@@ -79,7 +80,10 @@ fn mesh_dispatch_never_exceeds_the_bounded_worker_window() {
         )),
     )
     .unwrap();
-    stream.store.commit_level_chunk(key.chunk(), decoded);
+    stream
+        .store
+        .commit_level_chunk(key.chunk(), decoded)
+        .unwrap();
     stream.resident.insert(key);
     stream.mark_changed(key, Instant::now());
     for index in 0..super::WORK_RESULT_CAPACITY {
