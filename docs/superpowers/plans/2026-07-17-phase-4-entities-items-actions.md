@@ -347,6 +347,8 @@ git commit -m "feat: carry bounded entity rigs and item visuals"
 - Create: `crates/asset-compiler/src/entity/item.rs`
 - Create: `crates/asset-compiler/tests/entity_animation.rs`
 - Create: `crates/asset-compiler/tests/item_visuals.rs`
+- Create: `crates/assets/data/block-item-routes-v1001.json`
+- Modify: `tools/registrygen/main.go`, `tools/registrygen/main_test.go`
 - Modify: `crates/asset-compiler/src/entity.rs`
 - Modify: `crates/asset-compiler/src/entity/json.rs`
 - Modify: `crates/asset-compiler/tests/entity.rs`
@@ -359,6 +361,14 @@ git commit -m "feat: carry bounded entity rigs and item visuals"
   inventory UI.
 - Preserves source path, source SHA-256, symbol, inheritance, and every
   dependency/fallback decision in the existing compiler report.
+- Consumes a generated reviewed block-item route table. `registrygen` derives
+  it from the pinned Dragonfly `world.Items()` entries that also implement
+  `world.Block`, resolves each exact item name/metadata default block
+  name/properties against the canonical BREG1003 state set, and records the
+  Dragonfly version/module sum plus BREG SHA-256. Duplicate, missing,
+  ambiguous, noncanonical, or out-of-range routes fail generation. The entity
+  compiler may not infer BlockItem routes from identifier equality or an
+  optional pack sidecar.
 
 - [ ] **Step 1: Write failing compiler fixtures**
 
