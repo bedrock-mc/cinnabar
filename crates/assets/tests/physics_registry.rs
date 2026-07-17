@@ -11,6 +11,7 @@ use physics_registry::{
     BlockPhysicsFlags, BlockPhysicsRecord, PhysicsRegistry, SurfaceResponse, read_physics_registry,
 };
 use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 
 const BREG: &[u8] = include_bytes!("../data/block-registry-v1001.bin");
 
@@ -24,19 +25,54 @@ fn valid_preg(records: &[RegistryRecord]) -> Vec<u8> {
         bytes.extend_from_slice(&record.sequential_id.to_le_bytes());
         bytes.extend_from_slice(&record.network_hash.to_le_bytes());
         let water = record.name.as_ref() == "minecraft:water"
-            || record.name.as_ref() == "minecraft:flowing_water";
-        bytes.push(0);
-        bytes.push(if water {
-            (BlockPhysicsFlags::WATER | BlockPhysicsFlags::PASSABLE).bits()
+            || record.name.as_ref() == "minecraft:flowing_water"
+            || record.name.as_ref() == "minecraft:bubble_column";
+        let lava = record.name.as_ref() == "minecraft:lava"
+            || record.name.as_ref() == "minecraft:flowing_lava";
+        let fluid = water || lava;
+        let boxes = if fluid {
+            &[][..]
         } else {
-            BlockPhysicsFlags::PASSABLE.bits()
-        });
-        bytes.push(SurfaceResponse::None as u8);
+            record.collision_seed.boxes.as_ref()
+        };
+        let mut flags = BlockPhysicsFlags::empty();
+        if boxes.is_empty() {
+            flags |= BlockPhysicsFlags::PASSABLE;
+        }
+        if water {
+            flags |= BlockPhysicsFlags::WATER;
+        }
+        if lava {
+            flags |= BlockPhysicsFlags::LAVA;
+        }
+        let bubble = record.name.as_ref() == "minecraft:bubble_column";
+        let response = if bubble && record.canonical_state.contains("\"value\":1") {
+            SurfaceResponse::BubbleDown
+        } else if bubble {
+            SurfaceResponse::BubbleUp
+        } else {
+            SurfaceResponse::None
+        };
+        bytes.push(u8::try_from(boxes.len()).unwrap());
+        bytes.push(flags.bits());
+        bytes.push(response as u8);
         bytes.push(0);
         bytes.extend_from_slice(&60_000_000_u32.to_le_bytes());
         bytes.extend_from_slice(&100_000_000_u32.to_le_bytes());
         bytes.extend_from_slice(&100_000_000_u32.to_le_bytes());
-        bytes.extend_from_slice(&(if water { 100_000_000_i32 } else { 0 }).to_le_bytes());
+        bytes.extend_from_slice(&(if fluid { 100_000_000_i32 } else { 0 }).to_le_bytes());
+        for collision_box in boxes {
+            for coordinate in [
+                collision_box.min_x,
+                collision_box.min_y,
+                collision_box.min_z,
+                collision_box.max_x,
+                collision_box.max_y,
+                collision_box.max_z,
+            ] {
+                bytes.extend_from_slice(&coordinate.to_le_bytes());
+            }
+        }
     }
     append_digest(bytes)
 }
@@ -86,6 +122,41 @@ fn decodes_exact_breg_bound_identity_and_lookups() {
     assert_eq!(water.friction(), 0.6);
     assert_eq!(water.horizontal_speed_factor(), 1.0);
     assert_eq!(water.vertical_speed_factor(), 1.0);
+
+    let compound_identity = records
+        .iter()
+        .find(|record| record.collision_seed.boxes.len() > 1)
+        .expect("compound collision state");
+    let compound = registry
+        .by_sequential_id(compound_identity.sequential_id)
+        .unwrap();
+    assert_eq!(
+        compound.boxes.as_ref(),
+        compound_identity.collision_seed.boxes.as_ref()
+    );
+
+    let ladder_boxes = records
+        .iter()
+        .filter(|record| record.name.as_ref() == "minecraft:ladder")
+        .map(|record| {
+            let decoded = registry.by_sequential_id(record.sequential_id).unwrap();
+            assert_eq!(decoded.boxes.as_ref(), record.collision_seed.boxes.as_ref());
+            decoded.boxes.to_vec()
+        })
+        .collect::<HashSet<_>>();
+    assert!(ladder_boxes.len() >= 4, "ladder orientations collapsed");
+
+    let stone_identity = records
+        .iter()
+        .find(|record| record.name.as_ref() == "minecraft:stone")
+        .expect("ordinary full solid");
+    let stone = registry
+        .by_sequential_id(stone_identity.sequential_id)
+        .unwrap();
+    assert!(!stone.flags.contains(BlockPhysicsFlags::PASSABLE));
+    assert_eq!(stone.boxes.len(), 1);
+    assert_eq!(stone.boxes[0].min_x, 0);
+    assert_eq!(stone.boxes[0].max_x, 100_000_000);
 }
 
 #[test]

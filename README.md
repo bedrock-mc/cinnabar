@@ -182,6 +182,20 @@ protocol-1001 BREG states. Its header binds the exact BREG SHA-256 and the Rust
 decoder rejects any identity, count, enum, scalar, topology, or trailing-byte
 mismatch before publishing a registry.
 
+Generation additionally requires the exact acquired PMMP physics table
+(`c9eb2a1b7751ba874ddeb04237d2a0013121a1bf03e1d5c75a78a08bae020abd`)
+and Prismarine behavior/state/collision files
+(`12ff90b5094006b42d87ca7c296ed1bef0e1c2d6d67498aea85b6ece9408b494`,
+`c0a94f5a32597aff028918e152c76280c1823a7840fdf73cd98d7b44814ea041`,
+`72a7410456a1f5f556e8c91c07e1d1f61aea5d2fb555f2c0e33eba825247aa90`),
+plus the exact Dragonfly module version ending in `dbbd8b787946` and module
+content sum `h1:Qu7Qm7iBrLQWlZtz2KdouA4agQdhybV2abSdEN5NBRY=`. Replaced modules
+are rejected. A sorted reviewed override
+table is validated against Prismarine bounding-box/state counts and Dragonfly's
+exact registered implementation-type set before any special movement fact is
+encoded. Valid JSON with changed keys or values is rejected by source hash, and
+malformed or ambiguous bubble direction fails closed.
+
 ## Local vanilla block textures
 
 The client never downloads or embeds Mojang assets. Fetch the pinned

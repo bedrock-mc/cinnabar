@@ -385,12 +385,12 @@ func main() {
 			fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
 			os.Exit(1)
 		}
-		pmmpPhysics, propertiesErr := readPMMPLightProperties(filepath.Join(*pmmpRoot, "block_properties_table.json"))
-		if propertiesErr != nil {
-			fmt.Fprintf(os.Stderr, "registrygen: read PMMP physics properties: %v\n", propertiesErr)
+		physicsSources, sourcesErr := loadPinnedPhysicsSources(*pmmpRoot, *prismarineRoot, world.DefaultBlockRegistry)
+		if sourcesErr != nil {
+			fmt.Fprintf(os.Stderr, "registrygen: read pinned physics sources: %v\n", sourcesErr)
 			os.Exit(1)
 		}
-		physicsRecords, buildErr := buildPhysicsRecords(records, pmmpPhysics)
+		physicsRecords, buildErr := buildPhysicsRecords(records, physicsSources)
 		if buildErr != nil {
 			fmt.Fprintf(os.Stderr, "registrygen: %v\n", buildErr)
 			os.Exit(1)
