@@ -402,7 +402,7 @@ Expected: the immutable branch still points at the reviewed carrier commit, `HEA
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/remote-acceptance.ps1 -Server Lunar -Mode Diagnostic -RunId checkpoint0-lunar-attempt-01 -DurationSeconds 180 -AuthCache .local/auth/microsoft-token.json -InitialRadius 16 -PresentMode Fifo -Assets $env:RUST_MCBE_ASSETS
 ```
 
-Expected: `.local/phase2/remote/checkpoint0-lunar-attempt-01/manifest.json` proves release/FIFO identity and contains a complete `PHASE2_PUBLICATION` stage sequence. This diagnostic gate requires attributable counters and coherent identities; it records holes/stalls as findings and does not require them to be fixed.
+Expected: `.local/phase2/remote/checkpoint0-lunar-attempt-01/manifest.json` proves release/FIFO identity and contains a complete `PHASE2_PUBLICATION` stage sequence. This diagnostic gate requires attributable counters and coherent identities, including the raw publisher radius in blocks as well as its derived retention radius; it records holes/stalls as findings and does not require them to be fixed.
 
 - [ ] **Step 7: Capture canonical Zeqa only after Lunar diagnostics are complete**
 
@@ -495,13 +495,14 @@ Expected: the evidence row maps to `P2.5-NATIVE-BIOME`. The integration owner ap
 ### Task 5: Correct Only the Measured First Publication Stall
 
 **Files:**
+- Required-cohort-identity branch only: modify `crates/client-world/src/stream/model.rs`, `crates/client-world/src/stream/diagnostics.rs`, `crates/client-world/src/stream/tests/cases_03.rs`, `crates/client-world/src/stream/tests/cases_05.rs`; integration handoff adds the raw-radius witness to `app/src/runtime/phase2_evidence.rs` and the remote manifest
 - Request-order branch only: create `crates/client-world/src/stream/request_queue.rs`; modify `crates/client-world/src/stream.rs`, `crates/client-world/src/stream/model.rs`, `crates/client-world/src/stream/requests.rs`, `crates/client-world/src/stream/retries.rs`, `crates/client-world/src/stream/polling.rs`, `crates/client-world/src/stream/residency.rs`, `crates/client-world/src/stream/tests/cases_02.rs`, `crates/client-world/src/stream/tests/cases_05.rs`
 - Decode/light/mesh branch only: modify the exact owner and test row in the decision table below
 - Integration handoff only: `app/src/runtime/world.rs`, `app/src/runtime/network.rs`, `app/src/tests/finish.rs`, `crates/protocol/src/lib.rs`, `crates/protocol/src/world.rs`, `core/proxy/proxy.go`, `core/proxy/proxy_test.go`
 - Modify: `docs/phase-2-completion-report.md`
 
 **Interfaces:**
-- Produces exactly one measured correction. Request ordering is added only when checkpoint-0 evidence proves request construction/order is the first stalled stage. A protocol/core change requires a failing cross-language fixture and an integration-owned handoff.
+- Produces exactly one measured correction. Required-cohort geometry is corrected only when checkpoint-0 evidence proves the client-derived cohort contains positions the server's raw block radius excludes. Request ordering is added only when checkpoint-0 evidence instead proves ordering or starvation among actual cohort members. A protocol/core change requires a failing cross-language fixture and an integration-owned handoff.
 
 - [ ] **Step 1: Select the branch from immutable checkpoint-0 evidence**
 
@@ -513,7 +514,7 @@ if (-not $manifest.diagnostic_complete) { throw 'Lunar diagnostic sequence is in
 $manifest.first_stalled_stage
 ```
 
-Expected: exactly one of `none`, `request_order`, `transport`, `wire_contract`, `response_semantics`, `decode`, `lighting`, `meshing`, `main_apply`, `gpu_upload`, `extraction`, `submission`, or `presentation`. `none` skips this task without a behavior commit. Any missing or ambiguous value blocks work.
+Expected: exactly one of `none`, `required_cohort_identity`, `request_order`, `transport`, `wire_contract`, `response_semantics`, `decode`, `lighting`, `meshing`, `main_apply`, `gpu_upload`, `extraction`, `submission`, or `presentation`. `none` skips this task without a behavior commit. Any missing or ambiguous value blocks work.
 
 - [ ] **Step 2: Write the red regression in the selected owner only**
 
@@ -521,6 +522,7 @@ Use this exhaustive decision contract:
 
 | First stalled stage | Red regression | Allowed lane owner |
 |---|---|---|
+| `required_cohort_identity` | `crates/client-world/src/stream/tests/cases_03.rs::raw_publisher_block_radius_defines_exact_required_cohort` and `crates/client-world/src/stream/tests/cases_05.rs::request_mode_announcements_complete_exact_required_cohort` | cohort model/diagnostics; ceiling chunk radius remains retention-only |
 | `request_order` | `crates/client-world/src/stream/tests/cases_05.rs::player_and_visible_retries_precede_far_initial_prefetch_without_losing_fifo_ties` | request queue/requests/retries/residency |
 | `transport` | `app/src/tests/finish.rs::phase2_transport_pending_and_sent_ack_remain_fifo` | integration-owned app handoff |
 | `wire_contract` | `crates/protocol/tests/world_packets.rs::checkpoint0_subchunk_fixture_matches_core_bytes` and `core/proxy/proxy_test.go::TestCheckpoint0SubChunkFixture` | integration-owned protocol/core handoff |
@@ -537,6 +539,8 @@ Use this exhaustive decision contract:
 Run the selected test by its exact final path/name. Expected: FAIL with the checkpoint-0 counter transition reproduced; every preceding and succeeding stage remains healthy.
 
 - [ ] **Step 3: Implement only the selected branch**
+
+For `required_cohort_identity`, first add a behavior-neutral raw `publisher_radius_blocks` witness and rerun the Lunar diagnostic. Once the raw value and stage counts prove the classification, preserve exact block-radius geometry in `ViewCohort`: raw 120 produces 177 columns, raw 128 produces 197, and raw 256 preserves 797. Cover negative/unaligned centers, exclude the exact 20-position outer annulus introduced by rounding 120 blocks up to eight chunks, and prove 177 request-mode LevelChunk announcements complete that Lunar cohort while any actual member missing fails. Retain the ceiling chunk radius only for bounded active-retention calculations. Do not add `RequestClass` or change retry ordering in this branch.
 
 For `request_order`, use this red test and then implement stable `RequestClass` priority, squared horizontal distance within class, and FIFO sequence ties:
 
