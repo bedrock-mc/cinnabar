@@ -306,6 +306,28 @@ fn report_uses_sorted_nearest_rank_metrics() {
 }
 
 #[test]
+fn phase2_warmup_frames_are_excluded_from_the_report_histogram() {
+    let mut metrics = MetricsCollector::with_asset_metrics_window(
+        AssetMetrics::default(),
+        Duration::from_secs(30),
+        Duration::from_millis(1_200),
+    );
+    for _ in 0..30 {
+        metrics.record_frame(Duration::from_secs(1));
+    }
+    assert_eq!(metrics.frame_count(), 0);
+    for _ in 0..120 {
+        metrics.record_frame(Duration::from_millis(10));
+    }
+    metrics.record_frame(Duration::from_secs(1));
+    let report = metrics.report();
+    assert_eq!(report.frame_count, 120);
+    assert_eq!(report.p95_frame_ms, 10.0);
+    assert_eq!(report.p99_frame_ms, 10.0);
+    assert_eq!(report.max_frame_ms, 10.0);
+}
+
+#[test]
 fn render_transparent_sort_snapshot_conversion_is_exact() {
     let source = render::TransparentSortMetricsSnapshot {
         request_generation: 31,

@@ -16,13 +16,14 @@ use bevy::{
     window::{CursorOptions, PrimaryWindow},
     winit::{UpdateMode, WinitSettings},
 };
+use client_world::Phase2PresentationSnapshot;
 use meshing::{
     BIOME_BLEND_RADIUS, BIOME_BLEND_SAMPLE_COUNT, BIOME_BLEND_WEIGHT_DENOMINATOR, BiomeBlendSample,
     ChunkBiomeTintIdentity, PackedBiomeRecord,
 };
 use render::{
     ChunkRenderInstance, ChunkRenderQueue, ModelWitnessEvidence, ModelWitnessManifestRecord,
-    ModelWorkloadMetrics, TransparentSortMetrics, TransparentWitnessEvidence,
+    ModelWorkloadMetrics, RenderViewCohort, TransparentSortMetrics, TransparentWitnessEvidence,
     VisibilityDiagnostics, VisibilityDiagnosticsInput,
 };
 use sha2::{Digest, Sha256};
@@ -51,6 +52,12 @@ use crate::{
     },
     runtime::{
         network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
+        phase2_evidence::{
+            CombinedPhase2Snapshot, build_profile_identity, cohort_identity,
+            generation_manifest_identity, graphics_identity_sha256,
+            phase2_publication_line_if_changed, present_mode_identity,
+            sha256_identity_from_hex_or_text,
+        },
         publication::{
             PublicationController, PublicationFrameWork, adaptive_publication_diagnostic_line,
         },
@@ -116,6 +123,7 @@ pub(crate) struct MetricsSamplingState {
     pub(crate) runtime_metadata_emitted: bool,
     pub(crate) diagnostic_attribution_revision: u64,
     pub(crate) last_biome_blend_identity: Option<CommittedBiomeBlendIdentity>,
+    pub(crate) last_phase2_snapshot: Option<CombinedPhase2Snapshot>,
 }
 
 pub(crate) fn refresh_diagnostic_attribution(
@@ -445,6 +453,89 @@ pub(crate) fn record_metrics_and_title(
         info!("{marker}");
     }
     let visibility_snapshot = visibility_diagnostics.snapshot();
+    if let (Some(stream), Ok(camera), Some(graphics)) = (
+        client_world.stream.as_ref(),
+        camera.single(),
+        visibility_diagnostics.graphics_adapter(),
+    ) && camera.translation.is_finite()
+    {
+        let player_column =
+            camera_sub_chunk_key(stream.current_dimension(), camera.translation).chunk();
+        let publication = stream.phase2_publication_snapshot(player_column);
+        let session_generation = publication.session_generation;
+        let required_cohort_hash = publication.required_cohort_hash;
+        let stage_generation = visibility_snapshot.frame_generation;
+        let render_cohort = stream
+            .committed_view_cohort()
+            .map(|cohort| RenderViewCohort::new(cohort.dimension, cohort.center, cohort.radius));
+        let allocation_manifest = chunks
+            .iter()
+            .filter(|instance| render_cohort.is_none_or(|cohort| cohort.contains(instance.key())))
+            .map(|instance| (instance.key(), instance.generation()))
+            .collect::<Vec<_>>();
+        let allocation = generation_manifest_identity(
+            session_generation,
+            required_cohort_hash,
+            &allocation_manifest,
+        );
+        let publisher_manifest = render_cohort.map_or_else(Vec::new, |cohort| {
+            render_queue
+                .freeze_target_expectation(cohort, None, stage_generation, now)
+                .manifest
+                .to_vec()
+        });
+        let publisher_disk = generation_manifest_identity(
+            session_generation,
+            required_cohort_hash,
+            &publisher_manifest,
+        );
+        let presentation = Phase2PresentationSnapshot {
+            build_profile: build_profile_identity(runtime_config.build_profile),
+            graphics_identity_sha256: graphics_identity_sha256(&graphics),
+            requested_present_mode: present_mode_identity(&graphics.requested_present_mode),
+            effective_present_mode: present_mode_identity(&graphics.effective_present_mode),
+            assets_manifest_sha256: sha256_identity_from_hex_or_text(
+                &metrics.0.asset_metrics().blob_sha256,
+            ),
+            publisher_disk,
+            resident: cohort_identity(
+                session_generation,
+                required_cohort_hash,
+                stage_generation,
+                visibility_snapshot.resident_mesh,
+            ),
+            allocation,
+            visible: cohort_identity(
+                session_generation,
+                required_cohort_hash,
+                stage_generation,
+                visibility_snapshot.frustum_visible_opaque,
+            ),
+            submitted: cohort_identity(
+                session_generation,
+                required_cohort_hash,
+                stage_generation,
+                visibility_snapshot.submitted_opaque,
+            ),
+            gpu_presented: cohort_identity(
+                session_generation,
+                required_cohort_hash,
+                stage_generation,
+                visibility_snapshot.gpu_completed_opaque,
+            ),
+        };
+        if let Some(marker) = phase2_publication_line_if_changed(
+            &mut sampling.last_phase2_snapshot,
+            CombinedPhase2Snapshot {
+                publication,
+                presentation,
+                present_mode_proven: graphics.present_mode_proven,
+            },
+        ) {
+            let mut stdout = std::io::stdout().lock();
+            write_stdout_marker(&mut stdout, &marker);
+        }
+    }
     if let Some(stream) = client_world.stream.as_ref() {
         let cohort = stream
             .committed_view_cohort()

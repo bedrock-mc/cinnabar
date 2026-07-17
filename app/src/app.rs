@@ -199,9 +199,20 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .insert_resource(CaveVisibilityCache::default())
         .insert_resource(VisibilityDiagnosticsInput::new(diagnostics_enabled))
         .insert_resource(runtime_config)
-        .insert_resource(AppMetrics(MetricsCollector::with_asset_metrics(
-            asset_metrics,
-        )))
+        .insert_resource(AppMetrics(
+            if let Some(sample_seconds) = args.metrics_sample_seconds {
+                MetricsCollector::with_asset_metrics_window(
+                    asset_metrics,
+                    std::time::Duration::from_secs(args.metrics_warmup_seconds),
+                    std::time::Duration::from_secs(sample_seconds),
+                )
+            } else {
+                MetricsCollector::with_asset_metrics_and_warmup(
+                    asset_metrics,
+                    std::time::Duration::from_secs(args.metrics_warmup_seconds),
+                )
+            },
+        ))
         .insert_resource(DiagnosticQuads::default())
         .insert_resource(PublicationController::default())
         .insert_resource(TransparentWitnessFileSource::new(

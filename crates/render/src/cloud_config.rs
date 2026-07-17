@@ -1,28 +1,11 @@
 use std::{error::Error, fmt, fmt::Write as _, mem::size_of};
 
 use assets::AtmosphereTexture;
+pub use assets::CloudQuality;
 use meshing::{CLOUD_MASK_SIZE, MAX_CLOUD_BYTES, MAX_CLOUD_QUADS, PackedCloudQuad};
 
 const MAX_COVERAGE_MILLIBLOCKS: u32 = 16_777_216;
 const MAX_CAMERA_POSITION_MILLIBLOCKS: i64 = 64_000_000_000;
-
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-#[repr(u8)]
-pub enum CloudQuality {
-    Low,
-    Medium,
-    #[default]
-    High,
-    Ultra,
-}
-
-impl CloudQuality {
-    pub const ALL: [Self; 4] = [Self::Low, Self::Medium, Self::High, Self::Ultra];
-
-    const fn index(self) -> usize {
-        self as usize
-    }
-}
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct CloudRenderConfig {
@@ -502,7 +485,7 @@ impl CloudCalibrationReport {
 
     #[must_use]
     pub const fn record(&self, quality: CloudQuality) -> CloudCalibrationRecord {
-        self.records[quality.index()]
+        self.records[quality as usize]
     }
 }
 
@@ -518,7 +501,7 @@ impl CloudCalibrationHarness {
         view: CloudMatchingView,
     ) -> Result<(), CloudCalibrationError> {
         let quality = view.quality();
-        let slot = &mut self.matching_views[quality.index()];
+        let slot = &mut self.matching_views[quality as usize];
         if slot.is_some() {
             return Err(CloudCalibrationError::DuplicateMatchingView { quality });
         }
@@ -531,7 +514,7 @@ impl CloudCalibrationHarness {
         quality: CloudQuality,
         semantics: CloudCoverageSemantics,
     ) -> Result<(), CloudCalibrationError> {
-        let slot = &mut self.coverage_semantics[quality.index()];
+        let slot = &mut self.coverage_semantics[quality as usize];
         if slot.is_some() {
             return Err(CloudCalibrationError::DuplicateCoverageSemantics { quality });
         }
@@ -541,21 +524,21 @@ impl CloudCalibrationHarness {
 
     pub fn publish(&self) -> Result<CloudCalibrationReport, CloudCalibrationError> {
         for quality in CloudQuality::ALL {
-            if self.matching_views[quality.index()].is_none() {
+            if self.matching_views[quality as usize].is_none() {
                 return Err(CloudCalibrationError::MissingMatchingView { quality });
             }
         }
         for quality in CloudQuality::ALL {
-            if self.coverage_semantics[quality.index()].is_none() {
+            if self.coverage_semantics[quality as usize].is_none() {
                 return Err(CloudCalibrationError::UncalibratedMapping { quality });
             }
         }
 
         let records = CloudQuality::ALL.map(|quality| CloudCalibrationRecord {
             config: CloudRenderConfig::native(quality),
-            matching_view: self.matching_views[quality.index()]
+            matching_view: self.matching_views[quality as usize]
                 .expect("matching views were checked above"),
-            coverage_semantics: self.coverage_semantics[quality.index()]
+            coverage_semantics: self.coverage_semantics[quality as usize]
                 .expect("coverage semantics were checked above"),
         });
         Ok(CloudCalibrationReport { records })

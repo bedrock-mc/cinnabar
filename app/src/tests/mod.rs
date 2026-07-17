@@ -242,6 +242,7 @@ fn binding_teleport_completion(
 
 mod core;
 mod finish;
+mod phase2_evidence;
 mod publication;
 mod teleport;
 

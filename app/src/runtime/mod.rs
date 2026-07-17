@@ -1,5 +1,6 @@
 pub(crate) mod endpoint;
 pub(crate) mod network;
+pub(crate) mod phase2_evidence;
 pub(crate) mod publication;
 pub(crate) mod shutdown;
 pub(crate) mod telemetry;

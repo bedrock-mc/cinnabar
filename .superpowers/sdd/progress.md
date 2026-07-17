@@ -81,3 +81,5 @@ World publication performance Task 1: complete (integration commit 39c44e8; inde
 
 Phase 2 completion Task 1: complete (commits 5939b9b..9e5abd8, review clean).
 Phase 2 completion Task 2: complete (commits 8deca3e..6d42f8d, review clean).
+
+Phase 2 completion Task 3 integration: complete. The immutable reviewed interface carrier remains pinned at `0a5496f7dd0dddc28d7e4e9d99d5385d2e3f4bfb` and is merged without flattening. Shared client-world/assets exports, render CloudQuality de-duplication, changed-identity-only redacted `PHASE2_PUBLICATION` telemetry, exact 30-second warmup plus 120-second sample-window metrics, and create-new local-only remote/gallery/motion evidence contracts are integrated. The exact filtered Cargo gate, all three exact Pester gates, strict affected-crate Clippy, full fmt, and diff checks are green. No Lunar or Zeqa live action was run; Lunar diagnostic capture remains the next checkpoint, while the settings-overlay adapter and gallery/motion live capture adapters remain owned by their later Phase 5 and Phase 2 tasks.

@@ -5,6 +5,7 @@ mod biome;
 mod blob;
 mod compiled;
 mod entity;
+mod environment_settings;
 mod error;
 mod item;
 mod light_registry;
@@ -48,6 +49,7 @@ pub use entity::{
     MAX_ENTITY_SOURCE_BYTES, MAX_ENTITY_TEXTURE_DIMENSION, MAX_ENTITY_TOTAL_SOURCE_BYTES,
     RuntimeEntityAssets, encode_entity_blob, validate_entity_geometry_inheritance,
 };
+pub use environment_settings::{CloudQuality, EnvironmentQualitySettings, PrecipitationQuality};
 pub use error::AssetError;
 pub use item::{
     BlockVisualId, ItemActionPhase, ItemIconRef, ItemStackIdentity, ItemStackIdentityError,

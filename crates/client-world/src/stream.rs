@@ -44,6 +44,7 @@ mod cohort;
 mod connectivity;
 mod construction;
 mod decode;
+mod diagnostics;
 mod dirty;
 mod helpers;
 mod lighting;
@@ -51,6 +52,8 @@ mod meshing;
 mod model;
 mod polling;
 mod publication;
+#[path = "publication_config.rs"]
+mod publication_config;
 mod requests;
 mod residency;
 mod retries;
@@ -59,6 +62,13 @@ mod sequencing;
 use helpers::*;
 use lighting::types::*;
 use meshing::types::*;
+
+pub use diagnostics::{
+    BuildProfileIdentity, CohortManifestIdentity, Phase2PresentationSnapshot,
+    Phase2PublicationSnapshot, PresentModeIdentity, PublicationStageCounters, RequestClass,
+    StageDurations, SubChunkOutcomeCounters,
+};
+pub use publication_config::PublicationServiceConfig;
 
 /// Decode and mesh workers may each have at most this many completed results
 /// waiting for the main thread. A full channel applies backpressure to Rayon.

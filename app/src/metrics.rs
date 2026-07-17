@@ -519,6 +519,10 @@ pub fn pair_gpu_pass_sample(
 pub struct MetricsCollector {
     started: Instant,
     finished: Option<Instant>,
+    frame_warmup: Duration,
+    frame_warmup_remaining: Duration,
+    frame_sample_limit: Option<Duration>,
+    frame_sample_elapsed: Duration,
     assets: AssetMetrics,
     frame_histogram: FrameHistogram,
     opaque_gpu_histogram: FrameHistogram,
@@ -673,6 +677,10 @@ impl MetricsCollector {
         Self {
             started: Instant::now(),
             finished: None,
+            frame_warmup: Duration::ZERO,
+            frame_warmup_remaining: Duration::ZERO,
+            frame_sample_limit: None,
+            frame_sample_elapsed: Duration::ZERO,
             assets: AssetMetrics::default(),
             frame_histogram: FrameHistogram::default(),
             opaque_gpu_histogram: FrameHistogram::default(),
@@ -719,6 +727,31 @@ impl MetricsCollector {
         }
     }
 
+    #[must_use]
+    pub fn with_asset_metrics_and_warmup(assets: AssetMetrics, frame_warmup: Duration) -> Self {
+        Self {
+            assets,
+            frame_warmup,
+            frame_warmup_remaining: frame_warmup,
+            ..Self::new()
+        }
+    }
+
+    #[must_use]
+    pub fn with_asset_metrics_window(
+        assets: AssetMetrics,
+        frame_warmup: Duration,
+        frame_sample_limit: Duration,
+    ) -> Self {
+        Self {
+            assets,
+            frame_warmup,
+            frame_warmup_remaining: frame_warmup,
+            frame_sample_limit: Some(frame_sample_limit),
+            ..Self::new()
+        }
+    }
+
     pub fn record_asset_counters(
         &mut self,
         missing_mapping_count: u64,
@@ -741,12 +774,35 @@ impl MetricsCollector {
         if self.finished.is_some() {
             return;
         }
+        if !self.frame_warmup_remaining.is_zero() {
+            if duration <= self.frame_warmup_remaining {
+                self.frame_warmup_remaining = self.frame_warmup_remaining.saturating_sub(duration);
+                return;
+            }
+            let steady_duration = duration.saturating_sub(self.frame_warmup_remaining);
+            self.frame_warmup_remaining = Duration::ZERO;
+            self.frame_histogram
+                .record(steady_duration.as_secs_f64() * 1_000.0);
+            return;
+        }
+        if self
+            .frame_sample_limit
+            .is_some_and(|limit| self.frame_sample_elapsed >= limit)
+        {
+            return;
+        }
+        self.frame_sample_elapsed = self.frame_sample_elapsed.saturating_add(duration);
         self.frame_histogram
             .record(duration.as_secs_f64() * 1_000.0);
     }
 
     pub fn record_gpu_pass_sample(&mut self, time: Instant, sample: GpuPassSample) {
-        if time < self.started || self.finished.is_some() {
+        if time < self.started + self.frame_warmup
+            || self.finished.is_some()
+            || self
+                .frame_sample_limit
+                .is_some_and(|limit| time > self.started + self.frame_warmup + limit)
+        {
             return;
         }
         self.opaque_gpu_histogram.record(sample.opaque_ms);
@@ -763,6 +819,8 @@ impl MetricsCollector {
     pub fn begin_timed_session(&mut self, started: Instant) {
         self.started = started;
         self.finished = None;
+        self.frame_warmup_remaining = self.frame_warmup;
+        self.frame_sample_elapsed = Duration::ZERO;
         self.frame_histogram = FrameHistogram::default();
         self.opaque_gpu_histogram = FrameHistogram::default();
         self.transparent_gpu_histogram = FrameHistogram::default();

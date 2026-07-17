@@ -13,6 +13,8 @@ Options:
   --display-name <NAME>        Offline display name (default: RustMCBE)
   --acceptance-seconds <N>     Exit after N seconds and write metrics
   --metrics-out <PATH>         Deterministic JSON metrics output path
+  --metrics-warmup-seconds <N> Exclude the first N timed-session seconds from frame metrics
+  --metrics-sample-seconds <N> Freeze frame metrics after N post-warmup seconds
   --auto-fly                   Fly the camera automatically for acceptance
   --no-vsync                   Use immediate presentation when supported
   --frame-cap <FPS>            Cap acceptance updates to 1-1000 FPS
@@ -33,6 +35,8 @@ pub struct ClientArgs {
     pub display_name: String,
     pub acceptance_seconds: Option<u64>,
     pub metrics_out: Option<PathBuf>,
+    pub metrics_warmup_seconds: u64,
+    pub metrics_sample_seconds: Option<u64>,
     pub auto_fly: bool,
     pub no_vsync: bool,
     pub frame_cap: Option<u32>,
@@ -50,6 +54,8 @@ impl Default for ClientArgs {
             display_name: "RustMCBE".to_owned(),
             acceptance_seconds: None,
             metrics_out: None,
+            metrics_warmup_seconds: 0,
+            metrics_sample_seconds: None,
             auto_fly: false,
             no_vsync: false,
             frame_cap: None,
@@ -80,6 +86,12 @@ pub enum ArgsError {
 
     #[error("--acceptance-seconds must be a positive integer, got {0:?}")]
     InvalidAcceptanceSeconds(String),
+
+    #[error("--metrics-warmup-seconds must be a nonnegative integer, got {0:?}")]
+    InvalidMetricsWarmupSeconds(String),
+
+    #[error("--metrics-sample-seconds must be a positive integer, got {0:?}")]
+    InvalidMetricsSampleSeconds(String),
 
     #[error("--frame-cap must be an integer from 1 through 1000, got {0:?}")]
     InvalidFrameCap(String),
@@ -120,6 +132,30 @@ impl ClientArgs {
                 Some("--metrics-out") => {
                     parsed.metrics_out =
                         Some(PathBuf::from(next_value(&mut arguments, "--metrics-out")?));
+                }
+                Some("--metrics-warmup-seconds") => {
+                    let value = next_value(&mut arguments, "--metrics-warmup-seconds")?
+                        .into_string()
+                        .map_err(|_| ArgsError::InvalidUtf8 {
+                            flag: "--metrics-warmup-seconds",
+                        })?;
+                    parsed.metrics_warmup_seconds = value
+                        .parse::<u64>()
+                        .map_err(|_| ArgsError::InvalidMetricsWarmupSeconds(value.clone()))?;
+                }
+                Some("--metrics-sample-seconds") => {
+                    let value = next_value(&mut arguments, "--metrics-sample-seconds")?
+                        .into_string()
+                        .map_err(|_| ArgsError::InvalidUtf8 {
+                            flag: "--metrics-sample-seconds",
+                        })?;
+                    parsed.metrics_sample_seconds = Some(
+                        value
+                            .parse::<u64>()
+                            .ok()
+                            .filter(|&seconds| seconds != 0)
+                            .ok_or_else(|| ArgsError::InvalidMetricsSampleSeconds(value.clone()))?,
+                    );
                 }
                 Some("--transparent-witness-request") => {
                     parsed.transparent_witness_request = Some(PathBuf::from(next_value(
@@ -200,6 +236,8 @@ mod tests {
         assert_eq!(args.assets, None);
         assert_eq!(args.display_name, "RustMCBE");
         assert_eq!(args.acceptance_seconds, None);
+        assert_eq!(args.metrics_warmup_seconds, 0);
+        assert_eq!(args.metrics_sample_seconds, None);
         assert!(!args.auto_fly);
         assert!(!args.no_vsync);
         assert_eq!(args.frame_cap, None);
@@ -223,6 +261,10 @@ mod tests {
             "900",
             "--metrics-out",
             "metrics.json",
+            "--metrics-warmup-seconds",
+            "30",
+            "--metrics-sample-seconds",
+            "120",
             "--auto-fly",
             "--no-vsync",
             "--require-transparent-presentation",
@@ -239,6 +281,8 @@ mod tests {
         assert_eq!(args.display_name, "TestBot");
         assert_eq!(args.acceptance_seconds, Some(900));
         assert_eq!(args.metrics_out, Some(PathBuf::from("metrics.json")));
+        assert_eq!(args.metrics_warmup_seconds, 30);
+        assert_eq!(args.metrics_sample_seconds, Some(120));
         assert!(args.auto_fly);
         assert!(args.no_vsync);
         assert_eq!(args.frame_cap, None);
@@ -294,6 +338,8 @@ mod tests {
             "--assets",
             "--acceptance-seconds",
             "--metrics-out",
+            "--metrics-warmup-seconds",
+            "--metrics-sample-seconds",
             "--auto-fly",
             "--frame-cap",
             "--full-view-teleport-gate",
