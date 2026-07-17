@@ -38,8 +38,8 @@ struct PendingGeometry {
     identifier: Box<str>,
     inherits: Option<Box<str>>,
     source_path: Box<str>,
-    texture_width: u16,
-    texture_height: u16,
+    texture_width: Option<u16>,
+    texture_height: Option<u16>,
     bones: Box<[EntityGeometryBone]>,
 }
 
@@ -142,8 +142,13 @@ pub fn compile_entity_assets(
     if geometries.len() > MAX_ENTITY_GEOMETRIES {
         return Err(invalid("entity geometry count exceeds bound"));
     }
-    let geometries = geometries
-        .into_values()
+    let pending_geometries = geometries.into_values().collect::<Vec<_>>();
+    let local_dimensions = pending_geometries
+        .iter()
+        .map(|geometry| (geometry.texture_width, geometry.texture_height))
+        .collect::<Vec<_>>();
+    let mut geometries = pending_geometries
+        .into_iter()
         .map(|geometry| {
             let source_index = source_indices
                 .get(geometry.source_path.as_ref())
@@ -164,19 +169,52 @@ pub fn compile_entity_assets(
                         identifier,
                     }),
                 source_index,
-                texture_width: geometry.texture_width,
-                texture_height: geometry.texture_height,
+                texture_width: geometry.texture_width.unwrap_or(64),
+                texture_height: geometry.texture_height.unwrap_or(64),
                 bones: geometry.bones,
             })
         })
         .collect::<Result<Vec<_>, AssetError>>()?;
-    validate_entity_geometry_inheritance(&geometries)?;
+    let selected_parents = validate_entity_geometry_inheritance(&geometries)?;
+    for (index, geometry) in geometries.iter_mut().enumerate() {
+        geometry.texture_width = resolve_geometry_dimension(
+            index,
+            &local_dimensions,
+            &selected_parents,
+            |dimensions| dimensions.0,
+        )?;
+        geometry.texture_height = resolve_geometry_dimension(
+            index,
+            &local_dimensions,
+            &selected_parents,
+            |dimensions| dimensions.1,
+        )?;
+    }
     Ok(CompiledEntityAssets {
         source_manifest_sha256,
         sources: sources.into_boxed_slice(),
         symbols: symbols.into_boxed_slice(),
         geometries: geometries.into_boxed_slice(),
     })
+}
+
+fn resolve_geometry_dimension(
+    start: usize,
+    local_dimensions: &[(Option<u16>, Option<u16>)],
+    selected_parents: &[Option<usize>],
+    select: impl Fn((Option<u16>, Option<u16>)) -> Option<u16>,
+) -> Result<u16, AssetError> {
+    let mut current = start;
+    for _ in 0..=selected_parents.len() {
+        if let Some(dimension) = select(local_dimensions[current]) {
+            return Ok(dimension);
+        }
+        let Some(parent) = selected_parents[current] else {
+            return Ok(64);
+        };
+        current = parent;
+    }
+    Err(invalid("entity geometry dimension inheritance is cyclic"))
 }
 
 fn collect_family(
@@ -316,7 +354,11 @@ fn parse_source(
         return Ok(());
     }
 
-    let value = parse_unique_json(absolute_path, bytes)?;
+    let value = if relative_path.starts_with("models/entity/") {
+        parse_fully_unique_json(absolute_path, bytes)?
+    } else {
+        parse_unique_json(absolute_path, bytes)?
+    };
     if relative_path.starts_with("entity/") {
         validate_root_fields(
             &value,
@@ -555,20 +597,32 @@ fn parse_geometry(
     let root = value
         .as_object()
         .ok_or_else(|| invalid(format!("invalid geometry root in {}", path.display())))?;
-    if !root.contains_key("format_version") {
+    let is_modern = root.contains_key("minecraft:geometry");
+    let format_version = required_string(value, "format_version", path)?;
+    let supported_version = if is_modern {
+        matches!(
+            format_version,
+            "1.12.0" | "1.16.0" | "1.21.0" | "1.21.120" | "1.26.10"
+        )
+    } else {
+        matches!(format_version, "1.8.0" | "1.10.0")
+    };
+    if !supported_version {
         return Err(invalid(format!(
-            "missing geometry format version in {}",
+            "unsupported entity geometry format version or schema branch in {}",
             path.display()
         )));
     }
-    if let Some(geometries) = root.get("minecraft:geometry") {
+    if is_modern {
         if root.len() != 2 {
             return Err(invalid(format!(
                 "unknown modern geometry root field in {}",
                 path.display()
             )));
         }
-        let geometries = geometries
+        let geometries = root
+            .get("minecraft:geometry")
+            .ok_or_else(|| invalid("missing modern entity geometry payload"))?
             .as_array()
             .ok_or_else(|| invalid(format!("invalid geometry array in {}", path.display())))?;
         for geometry in geometries {
@@ -593,10 +647,8 @@ fn parse_geometry(
                 &["identifier"],
             )?;
             let identifier = required_string(description, "identifier", path)?;
-            let texture_width =
-                optional_texture_dimension(description, "texture_width", path)?.unwrap_or(64);
-            let texture_height =
-                optional_texture_dimension(description, "texture_height", path)?.unwrap_or(64);
+            let texture_width = optional_texture_dimension(description, "texture_width", path)?;
+            let texture_height = optional_texture_dimension(description, "texture_height", path)?;
             let bones = parse_geometry_bones(geometry.get("bones"), path)?;
             insert_symbol(
                 symbols,
@@ -661,10 +713,8 @@ fn parse_geometry(
                 ],
                 &[],
             )?;
-            let texture_width =
-                optional_texture_dimension(geometry, "texturewidth", path)?.unwrap_or(64);
-            let texture_height =
-                optional_texture_dimension(geometry, "textureheight", path)?.unwrap_or(64);
+            let texture_width = optional_texture_dimension(geometry, "texturewidth", path)?;
+            let texture_height = optional_texture_dimension(geometry, "textureheight", path)?;
             let bones = parse_geometry_bones_with_inheritance(
                 geometry.get("bones"),
                 path,
@@ -696,8 +746,8 @@ fn insert_geometry(
     identifier: &str,
     inherits: Option<&str>,
     source_path: &str,
-    texture_width: u16,
-    texture_height: u16,
+    texture_width: Option<u16>,
+    texture_height: Option<u16>,
     bones: Box<[EntityGeometryBone]>,
 ) -> Result<(), AssetError> {
     let identifier: Box<str> = identifier.into();
@@ -1243,6 +1293,22 @@ fn parse_unique_json(path: &Path, bytes: &[u8]) -> Result<Value, AssetError> {
     Ok(value)
 }
 
+fn parse_fully_unique_json(path: &Path, bytes: &[u8]) -> Result<Value, AssetError> {
+    let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes);
+    let uncommented = strip_json_comments(bytes)?;
+    let mut deserializer = serde_json::Deserializer::from_slice(&uncommented);
+    let UniqueNestedValue(value) =
+        UniqueNestedValue::deserialize(&mut deserializer).map_err(|source| AssetError::Json {
+            path: path.to_path_buf(),
+            source,
+        })?;
+    deserializer.end().map_err(|source| AssetError::Json {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    Ok(value)
+}
+
 fn strip_json_comments(bytes: &[u8]) -> Result<Vec<u8>, AssetError> {
     #[derive(Clone, Copy)]
     enum State {
@@ -1346,6 +1412,90 @@ impl<'de> de::Visitor<'de> for UniqueRootValueVisitor {
             }
         }
         Ok(UniqueRootValue(Value::Object(values)))
+    }
+}
+
+struct UniqueNestedValue(Value);
+
+impl<'de> Deserialize<'de> for UniqueNestedValue {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_any(UniqueNestedValueVisitor)
+    }
+}
+
+struct UniqueNestedValueVisitor;
+
+impl<'de> de::Visitor<'de> for UniqueNestedValueVisitor {
+    type Value = UniqueNestedValue;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("JSON without duplicate object keys")
+    }
+
+    fn visit_unit<E>(self) -> Result<Self::Value, E> {
+        Ok(UniqueNestedValue(Value::Null))
+    }
+
+    fn visit_none<E>(self) -> Result<Self::Value, E> {
+        Ok(UniqueNestedValue(Value::Null))
+    }
+
+    fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E> {
+        Ok(UniqueNestedValue(Value::Bool(value)))
+    }
+
+    fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E> {
+        Ok(UniqueNestedValue(Value::Number(value.into())))
+    }
+
+    fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E> {
+        Ok(UniqueNestedValue(Value::Number(value.into())))
+    }
+
+    fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        serde_json::Number::from_f64(value)
+            .map(Value::Number)
+            .map(UniqueNestedValue)
+            .ok_or_else(|| de::Error::custom("invalid non-finite JSON number"))
+    }
+
+    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E> {
+        Ok(UniqueNestedValue(Value::String(value.to_owned())))
+    }
+
+    fn visit_string<E>(self, value: String) -> Result<Self::Value, E> {
+        Ok(UniqueNestedValue(Value::String(value)))
+    }
+
+    fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+    where
+        A: de::SeqAccess<'de>,
+    {
+        let mut values = Vec::new();
+        while let Some(UniqueNestedValue(value)) = sequence.next_element()? {
+            values.push(value);
+        }
+        Ok(UniqueNestedValue(Value::Array(values)))
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: de::MapAccess<'de>,
+    {
+        let mut values = Map::new();
+        while let Some(key) = map.next_key::<String>()? {
+            let UniqueNestedValue(value) = map.next_value()?;
+            if values.insert(key.clone(), value).is_some() {
+                return Err(de::Error::custom(format!("duplicate JSON key `{key}`")));
+            }
+        }
+        Ok(UniqueNestedValue(Value::Object(values)))
     }
 }
 

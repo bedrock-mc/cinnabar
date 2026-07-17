@@ -392,7 +392,7 @@ fn compiler_preserves_sparse_inherited_bone_overlays() {
         pack.path(),
         "models/entity/player_armor.geo.json",
         br#"{"format_version":"1.8.0",
-          "geometry.player.armor.base":{"bones":[{"name":"head","neverRender":true}]},
+          "geometry.player.armor.base":{"texturewidth":64,"textureheight":32,"bones":[{"name":"head","neverRender":true}]},
           "geometry.player.armor1:geometry.player.armor.base":{"bones":[{"name":"head","inflate":1.0,"neverRender":false}]},
           "geometry.player.armor.helmet:geometry.player.armor1":{"bones":[{"name":"body","reset":true}]}
         }"#,
@@ -405,6 +405,7 @@ fn compiler_preserves_sparse_inherited_bone_overlays() {
         .find(|geometry| geometry.identifier.as_ref() == "geometry.player.armor1")
         .unwrap();
     let head = &armor.bones[0];
+    assert_eq!((armor.texture_width, armor.texture_height), (64, 32));
     assert_eq!(head.pivot, None);
     assert_eq!(head.rotation, None);
     assert_eq!(head.mirror, None);
@@ -419,6 +420,7 @@ fn compiler_preserves_sparse_inherited_bone_overlays() {
         .find(|geometry| geometry.identifier.as_ref() == "geometry.player.armor.helmet")
         .unwrap();
     let body = &helmet.bones[0];
+    assert_eq!((helmet.texture_width, helmet.texture_height), (64, 32));
     assert_eq!(body.pivot, None);
     assert_eq!(body.rotation, None);
     assert_eq!(body.mirror, None);
@@ -426,6 +428,34 @@ fn compiler_preserves_sparse_inherited_bone_overlays() {
     assert_eq!(body.never_render, None);
     assert_eq!(body.reset, Some(true));
     assert!(body.cubes.is_empty());
+}
+
+#[test]
+fn compiler_rejects_malformed_unsupported_and_mismatched_geometry_versions() {
+    for geometry in [
+        br#"{"format_version":1.21,"minecraft:geometry":[]}"#.as_slice(),
+        br#"{"format_version":"9.9.9","minecraft:geometry":[]}"#.as_slice(),
+        br#"{"format_version":"1.8.0","minecraft:geometry":[]}"#.as_slice(),
+        br#"{"format_version":"1.21.0","geometry.allay":{"bones":[]}}"#.as_slice(),
+    ] {
+        let pack = synthetic_pack();
+        write(pack.path(), "models/entity/allay.geo.json", geometry);
+        assert!(compile_entity_assets(pack.path(), MANIFEST).is_err());
+    }
+}
+
+#[test]
+fn compiler_rejects_duplicate_keys_in_geometry_semantic_objects() {
+    for geometry in [
+        br#"{"format_version":"1.21.0","minecraft:geometry":[{"description":{"identifier":"geometry.allay","texture_width":32,"texture_width":64},"bones":[]}]}"#.as_slice(),
+        br#"{"format_version":"1.21.0","minecraft:geometry":[{"description":{"identifier":"geometry.allay"},"bones":[{"name":"root","pivot":[0,0,0],"pivot":[1,1,1]}]}]}"#.as_slice(),
+        br#"{"format_version":"1.21.0","minecraft:geometry":[{"description":{"identifier":"geometry.allay"},"bones":[{"name":"root","cubes":[{"origin":[0,0,0],"size":[1,1,1],"inflate":0,"inflate":1}]}]}]}"#.as_slice(),
+        br#"{"format_version":"1.21.0","minecraft:geometry":[{"description":{"identifier":"geometry.allay"},"bones":[{"name":"root","cubes":[{"origin":[0,0,0],"size":[1,1,1],"uv":{"north":{"uv":[0,0],"uv":[1,1]}}}]}]}]}"#.as_slice(),
+    ] {
+        let pack = synthetic_pack();
+        write(pack.path(), "models/entity/allay.geo.json", geometry);
+        assert!(compile_entity_assets(pack.path(), MANIFEST).is_err());
+    }
 }
 
 #[test]

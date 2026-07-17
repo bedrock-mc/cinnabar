@@ -469,24 +469,18 @@ fn validate_geometries(compiled: &CompiledEntityAssets) -> Result<(), AssetError
         validate_geometry_bones(&geometry.bones, geometry.inherits.is_some())?;
         previous = Some(key);
     }
-    validate_entity_geometry_inheritance(&compiled.geometries)
-}
-
-#[derive(Clone, Copy)]
-enum SelectedGeometryParent {
-    None,
-    External,
-    Catalog(usize),
+    validate_entity_geometry_inheritance(&compiled.geometries).map(|_| ())
 }
 
 /// Validates deterministic catalog inheritance selection and inherited bone parents.
 ///
 /// External inheritance overlays are retained, but an explicit bone parent must
 /// resolve within the retained local/catalog chain; unseen external bones are
-/// never assumed to exist.
+/// never assumed to exist. Returns the selected catalog parent index for each
+/// geometry; roots and external inheritance targets return `None`.
 pub fn validate_entity_geometry_inheritance(
     geometries: &[EntityGeometry],
-) -> Result<(), AssetError> {
+) -> Result<Box<[Option<usize>]>, AssetError> {
     let parents = geometries
         .iter()
         .enumerate()
@@ -529,22 +523,22 @@ pub fn validate_entity_geometry_inheritance(
             }
         }
     }
-    Ok(())
+    Ok(parents.into_boxed_slice())
 }
 
 fn select_geometry_parent(
     geometries: &[EntityGeometry],
     geometry_index: usize,
     geometry: &EntityGeometry,
-) -> Result<SelectedGeometryParent, AssetError> {
+) -> Result<Option<usize>, AssetError> {
     let Some(inherits) = &geometry.inherits else {
-        return Ok(SelectedGeometryParent::None);
+        return Ok(None);
     };
     if inherits.identifier == geometry.identifier {
         return Err(invalid("invalid entity geometry inheritance target"));
     }
     if inherits.resolution == EntityDependencyResolution::External {
-        return Ok(SelectedGeometryParent::External);
+        return Ok(None);
     }
 
     let mut candidates = geometries
@@ -556,7 +550,7 @@ fn select_geometry_parent(
         .ok_or_else(|| invalid("missing catalog entity geometry inheritance target"))?;
     let second = candidates.next();
     if second.is_none() {
-        return Ok(SelectedGeometryParent::Catalog(first.0));
+        return Ok(Some(first.0));
     }
 
     let same_source = geometries
@@ -570,7 +564,7 @@ fn select_geometry_parent(
         .map(|(index, _)| index)
         .collect::<Vec<_>>();
     match same_source.as_slice() {
-        [index] => Ok(SelectedGeometryParent::Catalog(*index)),
+        [index] => Ok(Some(*index)),
         _ => Err(invalid(
             "ambiguous catalog entity geometry inheritance target",
         )),
@@ -578,7 +572,7 @@ fn select_geometry_parent(
 }
 
 fn selected_geometry_chain(
-    parents: &[SelectedGeometryParent],
+    parents: &[Option<usize>],
     start: usize,
 ) -> Result<Vec<usize>, AssetError> {
     let mut chain = Vec::new();
@@ -589,8 +583,8 @@ fn selected_geometry_chain(
         }
         chain.push(current);
         match parents[current] {
-            SelectedGeometryParent::None | SelectedGeometryParent::External => return Ok(chain),
-            SelectedGeometryParent::Catalog(parent) => current = parent,
+            None => return Ok(chain),
+            Some(parent) => current = parent,
         }
     }
     Err(invalid("entity geometry inheritance depth exceeds bound"))
