@@ -6,9 +6,83 @@ use protocol::{
     player_auth_input,
 };
 
+mod physics;
+pub use physics::{
+    LocalPhysicsController, LocalPhysicsFrame, MAX_LOCAL_PHYSICS_TICKS_PER_FRAME,
+    PhysicsCollisionRegistries, physics_movement_input,
+};
+
+use bevy::{
+    log::debug,
+    prelude::{
+        ButtonInput, EulerRot, KeyCode, Local, Res, ResMut, Single, Time, Transform, Vec3, Window,
+        With,
+    },
+    time::Real,
+    window::{CursorOptions, PrimaryWindow},
+};
+
+use crate::{
+    camera::{AutoFly, FlyCamera, input_is_active, movement_axes},
+    runtime::world::ClientWorld,
+};
+
 pub const MOVEMENT_TICKS_PER_SECOND: f64 = 20.0;
 const MOVEMENT_TICK_SECONDS: f64 = 1.0 / MOVEMENT_TICKS_PER_SECOND;
 pub const OUTBOX_CAPACITY: usize = 32;
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn advance_local_physics(
+    time: Res<Time<Real>>,
+    window: Single<(&Window, &CursorOptions), With<PrimaryWindow>>,
+    keys: Res<ButtonInput<KeyCode>>,
+    auto_fly: Res<AutoFly>,
+    client_world: Res<ClientWorld>,
+    collisions: Res<PhysicsCollisionRegistries>,
+    mut physics: ResMut<LocalPhysicsController>,
+    mut camera: Single<&mut Transform, With<FlyCamera>>,
+    mut previous_blocker: Local<Option<String>>,
+) {
+    if auto_fly.enabled() || !physics.is_active() {
+        return;
+    }
+    let Some(stream) = client_world.stream.as_ref() else {
+        return;
+    };
+    let (window, cursor) = window.into_inner();
+    let active = input_is_active(window, cursor);
+    let axes = if active {
+        movement_axes(&keys)
+    } else {
+        Vec3::ZERO
+    };
+    let (bevy_yaw, _, _) = camera.rotation.to_euler(EulerRot::YXZ);
+    let yaw = (180.0 - bevy_yaw.to_degrees()).rem_euclid(360.0);
+    let input = physics_movement_input(
+        [axes.x, axes.z],
+        yaw,
+        active,
+        keys.pressed(KeyCode::Space),
+        keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight),
+        keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight),
+    );
+    let world = sim::PaletteWorld::new(
+        stream.collision_store(),
+        collisions.registry(stream.network_id_mode()),
+        stream.current_dimension(),
+    );
+    let frame = physics.advance(time.delta(), input, &world);
+    let blocker = frame.blocked.as_ref().map(ToString::to_string);
+    if blocker != *previous_blocker {
+        if let Some(blocker) = blocker.as_deref() {
+            debug!(%blocker, "local physics is waiting for authoritative collision data");
+        }
+        *previous_blocker = blocker;
+    }
+    if let Some(position) = physics.render_eye_position() {
+        camera.translation = Vec3::from_array(position);
+    }
+}
 
 /// Origin of a movement sample and the authority allowed to transmit it.
 ///

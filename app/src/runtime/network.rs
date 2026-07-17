@@ -85,6 +85,7 @@ pub(crate) fn receive_network_events(
         mut clock,
         mut weather,
         mut movement,
+        mut local_physics,
         time,
     } = state;
     let controls =
@@ -145,6 +146,7 @@ pub(crate) fn receive_network_events(
                     u64::try_from(environment.initial_time).unwrap_or(0),
                     resolved.position,
                 );
+                local_physics.reanchor_network_position(resolved.position, 0, false);
                 client_world.pending_surface_spawn = resolved.surface_anchor;
                 client_world.stream = Some(stream);
             }
@@ -168,6 +170,7 @@ pub(crate) fn receive_network_events(
                 decode_error_count,
             } => {
                 movement.deactivate();
+                local_physics.deactivate();
                 error!(decode_error_count, "network session failed: {message}");
                 client_world.network_decode_errors = decode_error_count;
                 record_fatal_error(
@@ -177,6 +180,7 @@ pub(crate) fn receive_network_events(
             }
             NetworkControlEvent::Stopped { decode_error_count } => {
                 movement.deactivate();
+                local_physics.deactivate();
                 client_world.network_decode_errors = decode_error_count;
                 if client_world.fatal_error.is_none() {
                     client_world.fatal_error = Some("network session stopped unexpectedly".into());

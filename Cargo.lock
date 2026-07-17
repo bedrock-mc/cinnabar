@@ -465,6 +465,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "sim",
  "thiserror 2.0.18",
  "tokio",
  "world",

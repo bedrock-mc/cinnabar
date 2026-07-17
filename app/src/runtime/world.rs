@@ -33,7 +33,7 @@ use crate::{
     },
     camera::FlyCamera,
     environment::{self, WeatherState, WorldClock, apply_environment_control},
-    movement::MovementTicker,
+    movement::{LocalPhysicsController, MovementTicker},
     runtime::{
         network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
         publication::{PublicationController, PublicationFrameWork},
@@ -191,6 +191,7 @@ pub(crate) struct AppWorldState<'w> {
     pub(crate) clock: ResMut<'w, WorldClock>,
     pub(crate) weather: ResMut<'w, WeatherState>,
     pub(crate) movement: ResMut<'w, MovementTicker>,
+    pub(crate) local_physics: ResMut<'w, LocalPhysicsController>,
     pub(crate) time: Res<'w, Time<Real>>,
 }
 
@@ -271,6 +272,7 @@ pub(crate) fn drive_world_stream(
         mut clock,
         mut weather,
         mut movement,
+        mut local_physics,
         time,
     } = state;
     let Some(stream) = client_world.stream.as_mut() else {
@@ -325,12 +327,29 @@ pub(crate) fn drive_world_stream(
                 correction,
                 resolved,
                 ..
-            } => movement.apply_server_correction(correction.tick, resolved.position),
-            CommittedControlEvent::MovePlayer { resolved, .. } => {
-                movement.reanchor_position(resolved.position)
+            } => {
+                movement.apply_server_correction(correction.tick, resolved.position);
+                local_physics.reanchor_network_position(
+                    resolved.position,
+                    correction.tick,
+                    correction.on_ground,
+                );
+            }
+            CommittedControlEvent::MovePlayer {
+                movement: correction,
+                resolved,
+                ..
+            } => {
+                movement.reanchor_position(resolved.position);
+                local_physics.reanchor_network_position(
+                    resolved.position,
+                    u64::try_from(correction.source_tick).unwrap_or(0),
+                    correction.on_ground,
+                );
             }
             CommittedControlEvent::ChangeDimension { resolved, .. } => {
                 movement.reanchor_position(resolved.position);
+                local_physics.reanchor_network_position(resolved.position, 0, false);
             }
             CommittedControlEvent::SetTime { .. }
             | CommittedControlEvent::DaylightCycle { .. }
@@ -483,6 +502,8 @@ pub(crate) fn drive_world_stream(
     }
     if let Some(position) = resolved_surface_spawn {
         camera.translation = Vec3::from_array(position);
+        let tick = local_physics.state().map_or(0, |state| state.tick);
+        local_physics.reanchor_network_position(position, tick, true);
         client_world.pending_surface_spawn = None;
         info!(position = ?position, "resolved temporary Bedrock spawn from packed terrain");
     }

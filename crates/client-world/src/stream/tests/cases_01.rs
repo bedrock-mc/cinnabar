@@ -384,6 +384,8 @@ fn network_mode_and_runtime_assets_are_selected_once_per_stream() {
     );
 
     assert_eq!(stream.network_id_mode, NetworkIdMode::Hashed);
+    assert_eq!(stream.network_id_mode(), NetworkIdMode::Hashed);
+    assert!(std::ptr::eq(stream.collision_store(), &stream.store));
     assert_eq!(stream.classifier.air_network_id(), 0xdbf4_4120);
     assert!(Arc::ptr_eq(&stream.runtime_assets, &runtime_assets));
 }

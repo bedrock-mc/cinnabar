@@ -1,10 +1,13 @@
 use std::time::Duration;
 
 use super::{
-    MovementInputSample, MovementSendError, MovementSource, MovementTicker, OUTBOX_CAPACITY,
-    flush_player_auth_inputs,
+    LocalPhysicsController, MAX_LOCAL_PHYSICS_TICKS_PER_FRAME, MovementInputSample,
+    MovementSendError, MovementSource, MovementTicker, OUTBOX_CAPACITY, PhysicsCollisionRegistries,
+    flush_player_auth_inputs, physics_movement_input,
 };
+use assets::{CollisionConfidence, NetworkIdMode, read_registry};
 use protocol::PlayerInputFlags;
+use sim::{Aabb, CollisionWorld, MovementInput, Vec3, WorldQueryError};
 
 fn sample(position: [f32; 3]) -> MovementInputSample {
     MovementInputSample {
@@ -388,4 +391,196 @@ fn keyboard_diagonal_is_normalized_without_losing_the_raw_vector() {
     assert!((snapshot.move_vector[1] - component).abs() < 1e-6);
     assert_eq!(snapshot.raw_move_vector, [1.0, 1.0]);
     assert_eq!(snapshot.analogue_move_vector, snapshot.move_vector);
+}
+
+struct Floor;
+
+impl CollisionWorld for Floor {
+    fn collision_boxes(&self, query: Aabb) -> Result<Vec<Aabb>, WorldQueryError> {
+        let floor = Aabb::new(Vec3::new(-64.0, 0.0, -64.0), Vec3::new(64.0, 1.0, 64.0));
+        Ok(floor
+            .intersects(query)
+            .then_some(floor)
+            .into_iter()
+            .collect())
+    }
+}
+
+struct UnavailableWorld;
+
+impl CollisionWorld for UnavailableWorld {
+    fn collision_boxes(&self, _query: Aabb) -> Result<Vec<Aabb>, WorldQueryError> {
+        Err(WorldQueryError::UnknownRuntimeId {
+            runtime_id: 99,
+            block: [0, 0, 0],
+        })
+    }
+}
+
+fn forward_physics_input() -> MovementInput {
+    MovementInput {
+        forward: 1.0,
+        yaw_degrees: 180.0,
+        ..MovementInput::default()
+    }
+}
+
+#[test]
+fn local_physics_runs_exactly_twenty_fixed_ticks_and_interpolates_the_eye() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 0, true);
+
+    for _ in 0..60 {
+        let frame = physics.advance(
+            Duration::from_secs_f64(1.0 / 60.0),
+            forward_physics_input(),
+            &Floor,
+        );
+        assert!(frame.blocked.is_none());
+    }
+
+    let state = physics.state().expect("physics is anchored");
+    assert_eq!(state.tick, 20);
+    assert!(
+        state.position.z < 0.0,
+        "forward at yaw 180 faces negative Z"
+    );
+    assert_eq!(physics.history_len(), 20);
+    let eye = physics.render_eye_position().expect("interpolated eye");
+    assert!(eye.iter().all(|component| component.is_finite()));
+    assert!(eye[2] <= 0.0);
+}
+
+#[test]
+fn correction_reanchors_feet_velocity_history_and_render_interpolation() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 0, true);
+    physics.advance(Duration::from_millis(100), forward_physics_input(), &Floor);
+    assert_eq!(physics.history_len(), 2);
+
+    physics.reanchor_network_position([8.0, 71.620_01, 9.0], 150, false);
+
+    let state = physics.state().expect("corrected physics state");
+    assert_eq!(state.tick, 150);
+    assert!((state.position.y - 70.0).abs() < 1.0e-5);
+    assert_eq!(
+        state.velocity,
+        Vec3::ZERO,
+        "CorrectPlayerMovePrediction.Delta is positional error, not velocity"
+    );
+    assert!(!state.on_ground);
+    assert_eq!(physics.history_len(), 0);
+    let eye = physics.render_eye_position().expect("corrected render eye");
+    assert!((eye[1] - 71.62).abs() < 1.0e-5);
+}
+
+#[test]
+fn unavailable_collision_fails_closed_without_advancing_or_drifting_the_camera() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([4.0, 65.620_01, 6.0], 7, true);
+    let before = physics.state().unwrap().clone();
+    let before_eye = physics.render_eye_position();
+
+    let frame = physics.advance(
+        Duration::from_millis(50),
+        forward_physics_input(),
+        &UnavailableWorld,
+    );
+
+    assert!(matches!(
+        frame.blocked,
+        Some(sim::SimulationError::World(
+            WorldQueryError::UnknownRuntimeId { runtime_id: 99, .. }
+        ))
+    ));
+    assert_eq!(physics.state(), Some(&before));
+    assert_eq!(physics.render_eye_position(), before_eye);
+    assert_eq!(physics.history_len(), 0);
+}
+
+#[test]
+fn local_physics_catch_up_and_prediction_history_are_bounded() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 0, true);
+
+    let frame = physics.advance(Duration::from_secs(10), MovementInput::default(), &Floor);
+
+    assert_eq!(frame.completed_ticks, MAX_LOCAL_PHYSICS_TICKS_PER_FRAME);
+    assert_eq!(
+        frame.dropped_ticks,
+        200 - MAX_LOCAL_PHYSICS_TICKS_PER_FRAME as u64
+    );
+    assert!(physics.history_len() <= 32);
+}
+
+#[test]
+fn checked_in_registry_registers_every_available_collision_in_both_id_modes() {
+    let records = read_registry(include_bytes!(
+        "../../../crates/assets/data/block-registry-v1001.bin"
+    ))
+    .expect("checked-in BREG1003");
+    let available = records
+        .iter()
+        .filter(|record| record.collision_seed.confidence != CollisionConfidence::None)
+        .count();
+
+    let registries = PhysicsCollisionRegistries::from_records(&records)
+        .expect("checked-in collision seeds are valid");
+
+    assert_eq!(
+        registries.registered_count(NetworkIdMode::Sequential),
+        available
+    );
+    assert_eq!(
+        registries.registered_count(NetworkIdMode::Hashed),
+        available
+    );
+    assert_eq!(registries.available_record_count(), available);
+}
+
+#[test]
+fn app_axes_map_to_bedsim_strafe_forward_and_clear_when_input_is_inactive() {
+    let active = physics_movement_input([1.0, 1.0], 180.0, true, true, true, true);
+    assert_eq!(active.strafe, -1.0, "D is bedsim's negative strafe");
+    assert_eq!(active.forward, 1.0);
+    assert_eq!(active.yaw_degrees, 180.0);
+    assert!(active.jumping);
+    assert!(active.sneaking);
+    assert!(active.sprinting);
+
+    assert_eq!(
+        physics_movement_input([1.0, 1.0], 90.0, false, true, true, true),
+        MovementInput::default()
+    );
+}
+
+#[test]
+fn jump_edge_is_latched_across_render_frames_until_the_next_fixed_tick() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 0, true);
+    let jumping = MovementInput {
+        jumping: true,
+        ..MovementInput::default()
+    };
+
+    assert_eq!(
+        physics
+            .advance(Duration::from_secs_f64(1.0 / 60.0), jumping, &Floor)
+            .completed_ticks,
+        0
+    );
+    assert_eq!(
+        physics
+            .advance(Duration::from_secs_f64(1.0 / 60.0), jumping, &Floor)
+            .completed_ticks,
+        0
+    );
+    assert_eq!(
+        physics
+            .advance(Duration::from_secs_f64(1.0 / 60.0), jumping, &Floor)
+            .completed_ticks,
+        1
+    );
+
+    assert!(physics.state().unwrap().position.y > 1.0);
 }

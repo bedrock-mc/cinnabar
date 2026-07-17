@@ -80,7 +80,7 @@ forbidden_dependencies = ["asset-compiler"]
 [[crates]]
 name = "app"
 path = "app"
-allowed_dependencies = ["assets", "client-world", "meshing", "protocol", "render", "world"]
+allowed_dependencies = ["assets", "client-world", "meshing", "protocol", "render", "sim", "world"]
 forbidden_dependencies = ["asset-compiler"]
 
 [[crates]]

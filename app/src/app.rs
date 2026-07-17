@@ -39,7 +39,9 @@ use crate::{
         update_atmosphere_frame,
     },
     metrics::MetricsCollector,
-    movement::MovementTicker,
+    movement::{
+        LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries, advance_local_physics,
+    },
     runtime::{
         endpoint::{preflight_bridge_endpoint, resolve_socket_dir},
         network::{
@@ -121,6 +123,16 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let (atmosphere_runtime, atmosphere_identity) = loaded_assets.atmosphere.into_parts();
     let runtime_assets = loaded_assets.runtime;
     let asset_metrics = loaded_assets.metrics;
+    let collision_records = assets::read_registry(include_bytes!(
+        "../../crates/assets/data/block-registry-v1001.bin"
+    ))
+    .context("decode checked-in protocol-1001 collision registry")?;
+    let collision_registries = PhysicsCollisionRegistries::from_records(&collision_records)
+        .context("build protocol-1001 local physics collision registries")?;
+    eprintln!(
+        "loaded {} authoritative collision records for local physics",
+        collision_registries.available_record_count()
+    );
 
     let network = spawn_network(NetworkConfig {
         socket_dir,
@@ -174,6 +186,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .insert_resource(EnvironmentContext::default())
         .insert_resource(EnvironmentProfileRoute::default())
         .insert_resource(MovementTicker::default())
+        .insert_resource(LocalPhysicsController::default())
+        .insert_resource(collision_registries)
         .insert_resource(ActorRenderScene::default())
         .insert_resource(AtmosphereFrame::default())
         .insert_resource(AtmosphereTextureAssets::new(
@@ -223,6 +237,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
                 poll_transparent_witness_request,
                 poll_model_witness_request,
                 drive_world_stream.before(ChunkRenderApplySet),
+                advance_local_physics,
                 publish_actor_render_frame,
                 update_camera_medium,
                 update_atmosphere_frame,
