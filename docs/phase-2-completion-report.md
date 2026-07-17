@@ -1,8 +1,8 @@
-# Phase 2 Completion Report
+# Phase 2 Baseline Ownership and Dependency Map
 
-This subordinate evidence index is rooted at canonical functional base `d8e4699` and the approved amended completion specification. The Phase 2 implementation lane was clean at reviewed checkpoint `5939b9b` before this report was created.
+This planning-only subordinate index is rooted at canonical functional base `d8e4699` and the approved amended Phase 2 plan. It records requirement ownership, producing and validating plan tasks, and task order only. All evidence fields for every sub-gate are open — not recorded.
 
-## Evidence ownership
+## Requirement ownership
 
 | Sub-gate | Master requirement |
 |---|---|
@@ -10,22 +10,36 @@ This subordinate evidence index is rooted at canonical functional base `d8e4699`
 | P2-CHECKPOINT0-LUNAR; P2-CHECKPOINT0-ZEQA; P2-LUNAR-SPAWN; P2-LUNAR-REMESH; P2-ZEQA-SPAWN; P2-ZEQA-REMESH; P2-UI-PUBLICATION-PRESSURE | P2-CHUNK-PUBLICATION |
 | P2-MOTION-AB; P2-LIGHT-PARITY; P2-FOG-AIR; P2-FOG-WATER; P2-FOG-LAVA; P2-PRECIPITATION; P2-CELESTIAL; P2-CLOUD-CALIBRATION; P2-CLOUD-LIVE; P2-FINAL | P2.7-ATMOSPHERE |
 
-Every evidence row added after this ownership map must name exactly one master requirement. Biome rows use `P2.5-NATIVE-BIOME`; streaming and publication rows use `P2-CHUNK-PUBLICATION`; lighting, atmosphere, weather, celestial, cloud, and motion rows use `P2.7-ATMOSPHERE`.
+Every future evidence row names exactly one master requirement. Biome rows use `P2.5-NATIVE-BIOME`; streaming and publication rows use `P2-CHUNK-PUBLICATION`; lighting, atmosphere, weather, celestial, cloud, and motion rows use `P2.7-ATMOSPHERE`.
 
-## Pre-change baseline
+## Plan task and dependency map
 
-The following commands were reviewed at pre-change commit `5939b9b`:
+The rows below are planning records, not evidence rows.
 
-- `cargo test -p world -p meshing -p client-world -p render -p bedrock-client --locked` — Pass.
-- `cargo test -p client-world --release --locked release_full_view_known_air_lighting_completes_within_two_seconds -- --ignored --nocapture` — Pass: 26,136 current known-air subchunks, 26,136 fast-path completions, zero stale completions, 1,027 ms.
-- `cargo clippy -p world -p meshing -p client-world -p render -p bedrock-client --all-targets --locked -- -D warnings` — Pass.
-- `cargo fmt --all -- --check` — Pass.
-- `cargo run -p devtool --locked -- verify-affected --base d8e4699 --dry-run` — Pass: workspace affected verification set printed; no files changed.
+| Sub-gate | Master requirement | Producing and validating Phase 2 plan tasks | Prerequisites and order | Evidence state |
+|---|---|---|---|---|
+| P2-BIOME-KERNEL | P2.5-NATIVE-BIOME | Task 4 derives and fixes the native biome kernel; Task 13 reruns the final Biome matrix. | Tasks 1–2 establish the index and comparator, then Task 3 integrates the canonical gallery surface before Task 4. Task 13 follows Tasks 4–12. | Open — not recorded |
+| P2-BIOME-LIVE | P2.5-NATIVE-BIOME | Task 4 establishes the kernel and matching-view gallery contract; Task 13 runs the final live/native Biome matrix. | Task 4 follows the Tasks 1–3 setup. Task 13 consumes the Task 4 output after the remaining Task 5–12 work. | Open — not recorded |
+| P2-CHECKPOINT0-LUNAR | P2-CHUNK-PUBLICATION | Task 3 captures the Lunar diagnostic checkpoint. | Task 3 starts only after Task 1 creates this index and Task 2 supplies the bounded comparator/workspace setup; Task 3 first integrates the frozen diagnostics and runner, then runs Lunar before Zeqa. | Open — not recorded |
+| P2-CHECKPOINT0-ZEQA | P2-CHUNK-PUBLICATION | Task 3 captures the Zeqa diagnostic checkpoint. | Tasks 1–2 precede Task 3. Within Task 3, Zeqa follows Lunar and consumes the hashed Lunar diagnostic-completeness manifest. | Open — not recorded |
+| P2-LUNAR-SPAWN | P2-CHUNK-PUBLICATION | Task 7 runs the non-final Lunar publication candidate; Task 13 runs the final integrated Lunar validation. | Task 7 consumes Task 3 diagnostics, the Task 5 measured correction or evidence-directed no-change branch, and the Task 6 service controller. Lunar runs before Zeqa. Task 13 follows all prior Phase 2 evidence work and integrated Phase 5 settings. | Open — not recorded |
+| P2-LUNAR-REMESH | P2-CHUNK-PUBLICATION | Task 7 runs the non-final Lunar forced-remesh candidate; Task 13 runs the final integrated Lunar validation. | Task 7 follows Tasks 3, 5, and 6, with Task 5 permitted to select `none`. Lunar runs before Zeqa. Task 13 follows all prior Phase 2 evidence work and integrated Phase 5 settings. | Open — not recorded |
+| P2-ZEQA-SPAWN | P2-CHUNK-PUBLICATION | Task 7 runs the non-final Zeqa publication candidate; Task 13 runs the final integrated Zeqa validation. | Task 7 consumes Tasks 3, 5, and 6 and runs Zeqa only after the Lunar publication candidate gate. In Task 13, final Zeqa follows final Lunar and the integrated UI pressure check. | Open — not recorded |
+| P2-ZEQA-REMESH | P2-CHUNK-PUBLICATION | Task 7 runs the non-final Zeqa forced-remesh candidate; Task 13 runs the final integrated Zeqa validation. | Task 7 consumes Tasks 3, 5, and 6 and runs Zeqa only after the Lunar publication candidate gate. In Task 13, final Zeqa follows final Lunar and the integrated UI pressure check. | Open — not recorded |
+| P2-UI-PUBLICATION-PRESSURE | P2-CHUNK-PUBLICATION | Task 6 establishes the deterministic pressure/controller contract; Task 13 runs the integrated live pressure gate. | Task 6 consumes the Task 3 frozen service and quality interfaces. Task 13 requires the Task 6 integration handoff, all prior Phase 2 evidence work, and Phase 5 settings integrated through `EnvironmentQualitySettings`; its order is final Lunar, UI pressure, then final Zeqa. | Open — not recorded |
+| P2-MOTION-AB | P2.7-ATMOSPHERE | Task 12 classifies and addresses the motion artifact with paired modes; Task 13 reruns the final motion matrix from one binary. | Task 12 consumes the Task 3 paired-runner surface and follows the Task 8–11 visual tranches. Task 13 follows Tasks 4–12. | Open — not recorded |
+| P2-LIGHT-PARITY | P2.7-ATMOSPHERE | Task 8 calibrates solved lighting; Task 13 reruns the final LightingAtmosphere matrix. | Task 8 consumes the Task 2 comparator and Task 3 integrated gallery surface, after the publication candidate tranche. Task 13 follows Tasks 4–12. | Open — not recorded |
+| P2-FOG-AIR | P2.7-ATMOSPHERE | Task 8 calibrates air fog; Task 13 reruns the final LightingAtmosphere matrix. | Task 8 consumes the Task 2 comparator and Task 3 integrated gallery surface, after the publication candidate tranche. Task 13 follows Tasks 4–12. | Open — not recorded |
+| P2-FOG-WATER | P2.7-ATMOSPHERE | Task 8 calibrates water fog; Task 13 reruns the final LightingAtmosphere matrix. | Task 8 consumes the Task 2 comparator and Task 3 integrated gallery surface, after the publication candidate tranche. Task 13 follows Tasks 4–12. | Open — not recorded |
+| P2-FOG-LAVA | P2.7-ATMOSPHERE | Task 8 calibrates lava fog; Task 13 reruns the final LightingAtmosphere matrix. | Task 8 consumes the Task 2 comparator and Task 3 integrated gallery surface, after the publication candidate tranche. Task 13 follows Tasks 4–12. | Open — not recorded |
+| P2-PRECIPITATION | P2.7-ATMOSPHERE | Task 9 implements and runs the native-referenced precipitation tranche; Task 13 reruns the final Precipitation matrix. | Task 9 follows Task 8, uses the Task 3 quality-interface boundary, and requires its own integration export/startup handoff before the live gallery. Task 13 follows Tasks 4–12. | Open — not recorded |
+| P2-CELESTIAL | P2.7-ATMOSPHERE | Task 10 runs the celestial border/filter-edge tranche; Task 13 reruns the final Celestial matrix. | Task 10 follows Task 9 and consumes the Task 2 comparator plus Task 3 gallery surface. Task 13 follows Tasks 4–12. | Open — not recorded |
+| P2-CLOUD-CALIBRATION | P2.7-ATMOSPHERE | Task 11 derives the evidence-fixed native cloud configuration; Task 13 reruns the final Cloud matrix. | Task 11 follows Task 10 and consumes the Task 3 `CloudQuality` carrier, Task 2 comparator, and integrated Cloud gallery surface. Task 13 follows Tasks 4–12. | Open — not recorded |
+| P2-CLOUD-LIVE | P2.7-ATMOSPHERE | Task 11 runs the live native cloud gallery; Task 13 reruns the final Cloud matrix. | Task 11 follows its calibration work and the Cloud gallery integration handoff. Task 13 follows Tasks 4–12. | Open — not recorded |
+| P2-FINAL | P2.7-ATMOSPHERE | Task 13 alone runs the complete deterministic, local native, motion, and integrated remote matrix and prepares the final handoff for independent review. | Task 13 consumes the future artifacts from Tasks 4–12. Its integrated live portion also requires Phase 5 settings through `EnvironmentQualitySettings`; final Lunar precedes UI pressure, which precedes final Zeqa. | Open — not recorded |
 
-## Evidence row contract
+## Future evidence-row contract
 
-Each evidence row must record the sub-gate, master ID, exact command, reviewed commit, create-new run-directory manifest SHA-256, metrics SHA-256, server/native build, backend/adapter/driver, requested/effective present mode, asset identities, result, and unresolved failure.
+Task 1 records no commands, reviewed-run commits, run-directory manifest hashes, metrics hashes, server/native builds, backend/adapter/driver identities, requested/effective present modes, asset identities, results, unresolved failures, timings, counts, or outcomes.
 
-`P2-CHECKPOINT0-LUNAR`, `P2-CHECKPOINT0-ZEQA`, and Task 7 candidate rows must be classified `Non-final diagnostic`. Only Task 13 may emit a `Final candidate` handoff.
-
-No evidence rows exist yet. Rows are added only when their runs produce complete evidence; the integration-owned master ledger remains unchanged in this lane.
+When a later producing task creates a complete row, that row must include the sub-gate, its single master ID, exact command, reviewed commit, create-new run-directory manifest SHA-256, metrics SHA-256, server/native build, backend/adapter/driver, requested/effective present mode, asset identities, result, and unresolved failure. Task 3 checkpoint rows and Task 7 candidate rows remain non-final diagnostics/candidates; only Task 13 may prepare a final-candidate handoff. Until those tasks run, no evidence row exists.
