@@ -3,6 +3,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[cfg(test)]
+mod completion_plan;
 mod dependencies;
 mod markers;
 mod paths;

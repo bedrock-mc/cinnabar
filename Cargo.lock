@@ -4306,6 +4306,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "semantic-input"
+version = "0.1.0"
+
+[[package]]
 name = "semver"
 version = "1.0.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5067,6 +5071,10 @@ name = "typewit"
 version = "1.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "214ca0b2191785cbc06209b9ca1861e048e39b5ba33574b3cedd58363d5bb5f6"
+
+[[package]]
+name = "ui"
+version = "0.1.0"
 
 [[package]]
 name = "unicode-ident"

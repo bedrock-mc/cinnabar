@@ -72,6 +72,12 @@ allowed_dependencies = ["assets", "meshing", "protocol", "world"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[crates]]
+name = "semantic-input"
+path = "crates/input"
+allowed_dependencies = []
+forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+
+[[crates]]
 name = "render"
 path = "crates/render"
 allowed_dependencies = ["assets", "meshing", "world"]
@@ -87,6 +93,12 @@ forbidden_dependencies = ["asset-compiler"]
 name = "sim"
 path = "crates/sim"
 allowed_dependencies = ["world"]
+forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+
+[[crates]]
+name = "ui"
+path = "crates/ui"
+allowed_dependencies = []
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[crates]]

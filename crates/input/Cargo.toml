@@ -1,0 +1,8 @@
+[package]
+name = "semantic-input"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]

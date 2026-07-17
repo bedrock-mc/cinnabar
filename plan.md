@@ -290,7 +290,7 @@ Scope: block registry + block-state → model/texture mapping (generated export 
   widening the eight-byte quad. The existing single opaque shader now applies
   bit-8 alpha cutout with depth writes and no blending. No Mojang payload is
   tracked. The deterministic live-evidence task remains open.
-- [ ] **2.5 Biome palettes and tinting.** Decode/store biome data and apply
+- [ ] **2.5 Biome palettes and tinting.** `P2.5-NATIVE-BIOME` Decode/store biome data and apply
   grass/foliage/water tint without widening the eight-byte quad record.
   - [x] Palette-native v1001 biome storage/column decoding, including padded
     Bedrock words, `0xff` previous-storage reuse, strict malformed-input
@@ -1160,7 +1160,7 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       history), only after the applicable deterministic tests, native/GPU
       acceptance, zero-diagnostic state gate, and block-entity manifest gate
       are green.
-- [ ] **2.7 Client lighting and atmosphere.** Block/sky flood fill, baked vertex
+- [ ] **2.7 Client lighting and atmosphere.** `P2.7-ATMOSPHERE` Block/sky flood fill, baked vertex
   light and day/night, then sky, fog, and clouds; finish the Phase 2 parity and
   teleport-remesh acceptance gates.
   - [x] Normalize SetTime and rain/thunder level events into bounded,
@@ -1442,6 +1442,7 @@ store it only under the user's temporary directory, inspect that file, and never
   render submission, and present latency independently; validate the final
   release path at radius 16 with no visible stalls and full-view remesh in at
   most two seconds.
+  `P2-CHUNK-PUBLICATION`
   - [x] Eliminate unchanged-light publication churn through `39c44e8`: exact
     no-op and direct-sky-provenance-only completions preserve sampled light
     identity/generation and perform zero mesh invalidations, while genuine
@@ -1591,7 +1592,7 @@ store it only under the user's temporary directory, inspect that file, and never
     silhouette, and live gallery acceptance remain open.
   - [ ] Implement, independently review, and live-verify the finite cloud mesh.
 
-## Phase 3 — Movement and the local player
+## Phase 3 — Movement and the local player `P3-MOVEMENT`
 
 **Goal:** playable movement that servers accept. Deliverable: walk/sprint/jump/sneak/swim/
 climb on a vanilla parkour course and on Lunar-fronted servers with server-auth movement,
@@ -1636,6 +1637,8 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   enforcement are green. The controller deliberately cannot authorize network transmission:
   production remains `FreeCamera` and sends no local position updates. Enabling `Physics`
   authority requires the remaining movement strata plus live server-authoritative verification.
+
+- [ ] **3.4 Semantic controls and camera perspectives.** `P3.4-INPUT-CAMERA`
 
 ## Phase 4 — Entities and other players
 
@@ -1693,7 +1696,7 @@ and dropped-item rendering, paper-doll first-person arm/held item.
   post-merge protocol/client-world/app verification are green through `e7c85ea`; the LBSG live
   ground-contact witness remains open under 4.4.
 
-- [ ] **4.3 Data-driven Bedrock entity rigs and animation.** Ingest the pinned
+- [ ] **4.3 Data-driven Bedrock entity rigs and animation.** `P4.3-RIGS` Ingest the pinned
   vanilla resource pack's `entity`, `models/entity`, `animations`,
   `animation_controllers`, `render_controllers`, and `textures/entity` trees as
   bounded compiled assets. Evaluate only the reviewed Molang subset needed by
@@ -1726,7 +1729,7 @@ and dropped-item rendering, paper-doll first-person arm/held item.
   Animation clip payloads, the reviewed Molang/controller evaluator, runtime rig
   consumption and skeletal GPU skinning/posing, and native animated-actor evidence
   remain open.
-- [ ] **4.4 Live actor ground-contact and interpolation witness.** Join
+- [ ] **4.4 Live actor ground-contact and interpolation witness.** `P4.4-LIVE-ACTOR` Join
   `play.lbsg.net:19132` with the normal authenticated core, observe at least one
   remote player's spawn, ordinary movement, rotation, and teleport, and prove
   that AddPlayer/MovePlayer origins, three-tick convergence, frame
@@ -1734,6 +1737,8 @@ and dropped-item rendering, paper-doll first-person arm/held item.
   plane without a 1.6-block jump. Keep the visual standing eye height (`1.62`)
   distinct from Bedrock's standing-player movement network offset (`1.62001`).
   Capture bounded native visual and packet/pose evidence.
+
+- [ ] **4.5 Held items, actions, dropped items, and viewmodel.** `P4.5-ITEM-ACTIONS`
 
 ## Phase 5 — Interaction, inventory, UI
 
@@ -1746,32 +1751,68 @@ UI phases get fable-5/opus-4.8 review before merge.
 
 **Phase 5 roadmap (kept current as work lands):**
 
-- [ ] **5.1 Bedrock UI foundation.** Create `crates/ui`, ingest the pinned pack's bitmap
+- [ ] **5.1 Bedrock UI foundation.** `P5.1-UI` Create `crates/ui`, ingest the pinned pack's bitmap
   fonts/glyph metrics, implement bounded formatting-code-aware text layout, UI scaling/safe
   areas, focus/navigation, mouse/touch/controller input, and a shared retained draw pipeline.
   Prove no per-glyph mesh/material churn and exact cross-platform DPI behavior.
-- [ ] **5.2 Receive-only server text and HUD state.** Normalize bounded `Text`, title,
+- [ ] **5.2 Receive-only server text and HUD state.** `P5.2-HUD` Normalize bounded `Text`, title,
   actionbar, toast, player-status, health/hunger/armor/air, and related lifecycle packets into
   vendor-neutral stores. Render chat history, title/actionbar, and the survival HUD without
   permitting UI focus to leak movement input.
-- [ ] **5.3 Interactive chat.** Add chat focus/history/autocomplete, Bedrock formatting,
+- [ ] **5.3 Interactive chat.** `P5.3-CHAT` Add chat focus/history/autocomplete, Bedrock formatting,
   bounded UTF-8 editing and clipboard behavior, then send through the Go core with session/FIFO
   identity and spam-safe rate limits. Verify third-party server receive/send and disconnect
   behavior.
-- [ ] **5.4 Scoreboard and boss bars.** Normalize objective/display/score and boss-event
+- [ ] **5.4 Scoreboard and boss bars.** `P5.4-SCOREBOARD` Normalize objective/display/score and boss-event
   create/update/remove packets into independent bounded lifecycle stores. Render sidebar/list/
   below-name objectives, score ordering, boss health/style/count stacking, and title/actionbar
   coexistence with deterministic replacement/removal tests.
-- [ ] **5.5 Interaction, hotbar, and inventory.** Implement server-authoritative break cracks,
+- [ ] **5.5 Interaction, hotbar, and inventory.** `P5.5-INTERACTION-COMBAT-INVENTORY` Implement server-authoritative break cracks,
   placement/use, selected slot, item stack/network-ID reconciliation, creative/survival
   inventory, and chest/furnace/crafting containers with rollback on rejected stack requests.
-- [ ] **5.6 Server forms.** Implement modal/menu/custom JSON forms, validation, cancellation,
+
+Entity combat is part of this tranche and is strictly vanilla:
+
+- sample one immutable local eye/look pose, selected stack, actor snapshot,
+  and collision/world identity for each attack decision;
+- ray-test against reviewed combat bounding boxes, choose the nearest valid
+  intercept deterministically, and reject an entity when a nearer solid block
+  occludes the path;
+- apply native game-mode reach and interaction rules established by matching
+  Bedrock evidence; never add reach fluctuation, extended distance, target
+  enlargement, automatic targeting, or Lunar-specific behaviour;
+- on a valid attack, emit the protocol-1001
+  `InventoryTransaction`/`UseItemOnEntityActionAttack` contract with the exact
+  target runtime ID, selected slot/item, player position, session identity, and
+  FIFO ordering required by the server;
+- on a miss, present only the native missed-swing behaviour and do not invent a
+  target transaction;
+- keep damage, death, knockback, durability, cooldown, inventory mutation, and
+  target validity server-authoritative while allowing bounded provisional
+  swing/hit presentation where native behaviour does;
+- rate-limit only malformed, duplicated, or queue-overflowing input; do not
+  turn one physical click into an auto-clicker or impose non-native combat
+  timing.
+
+Combat fixtures cover nearest-hit ordering, overlapping boxes, inside-box
+starts, pose-dependent bounds, block occlusion, unloaded boundaries, stale or
+removed runtime IDs, server-declared non-attackable state, game-mode reach,
+miss behaviour, selected-item changes, session replacement,
+backpressure, and exact attack encoding. Local BDS and authenticated
+third-party witnesses correlate click, ray snapshot, target decision,
+transaction, server response, actor/inventory revisions, swing/hurt pose, and
+presented frame. No Lunar module is enabled, queried, or required for these
+gates.
+
+- [ ] **5.6 Server forms.** `P5.6-FORMS` Implement modal/menu/custom JSON forms, validation, cancellation,
   keyboard/controller/touch navigation, and response routing. This is the prerequisite for
   Lunar ClickUI compatibility.
-- [ ] **5.7 UI parity and performance acceptance.** Compare matching vanilla reference views at
+- [ ] **5.7 UI parity and performance acceptance.** `P5.7-PARITY-PERF` Compare matching vanilla reference views at
   supported scales/aspect ratios, test keyboard/mouse/controller/touch focus transitions, and
   prove bounded retained memory plus stable frame time with chat, scoreboard, boss bars,
   inventory, and forms active together.
+
+- [ ] **5.8 In-game menu, controls, video settings, and persistence.** `P5.8-SETTINGS`
 
 ## Phase 6 — Online product surface
 
