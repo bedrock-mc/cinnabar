@@ -387,7 +387,12 @@ worktree before its first edit:
 ```powershell
 git show-ref --verify refs/heads/completion-phase3-semantic-interface
 $semanticCommits = @(git rev-list --reverse completion-bootstrap..completion-phase3-semantic-interface)
-if ($semanticCommits.Count -ne 1) { throw 'semantic interface ref must contain exactly reviewed Task 6' }
+if ($semanticCommits.Count -lt 1) { throw 'semantic interface ref must contain reviewed Task 6 history' }
+$semanticPaths = @(git diff --name-only completion-bootstrap..completion-phase3-semantic-interface)
+$unexpectedSemanticPaths = @($semanticPaths | Where-Object { $_ -notlike 'crates/input/*' })
+if ($unexpectedSemanticPaths.Count -ne 0) {
+    throw "semantic interface ref escaped crates/input: $($unexpectedSemanticPaths -join ', ')"
+}
 git merge --no-ff completion-phase3-semantic-interface -m "merge: freeze semantic input interfaces"
 git -C ..\completion-phase5 merge --ff-only completion-integration
 ```
