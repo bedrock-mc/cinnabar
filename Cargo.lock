@@ -5075,6 +5075,9 @@ checksum = "214ca0b2191785cbc06209b9ca1861e048e39b5ba33574b3cedd58363d5bb5f6"
 [[package]]
 name = "ui"
 version = "0.1.0"
+dependencies = [
+ "semantic-input",
+]
 
 [[package]]
 name = "unicode-ident"
