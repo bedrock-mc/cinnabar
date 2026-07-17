@@ -6,6 +6,7 @@ mod blob;
 mod compiled;
 mod entity;
 mod error;
+mod item;
 mod light_registry;
 mod model;
 mod registry;
@@ -48,6 +49,10 @@ pub use entity::{
     RuntimeEntityAssets, encode_entity_blob, validate_entity_geometry_inheritance,
 };
 pub use error::AssetError;
+pub use item::{
+    BlockVisualId, ItemActionPhase, ItemIconRef, ItemStackIdentity, ItemStackIdentityError,
+    ItemVisualId, ItemVisualRoute,
+};
 pub use light_registry::{LightProperties, read_light_registry};
 pub use model::{
     ANIMATION_FLAG_BLEND, Animation, MAX_ANIMATION_FRAMES, MAX_ANIMATIONS, MAX_MODEL_QUADS,
