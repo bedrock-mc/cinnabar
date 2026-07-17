@@ -14,6 +14,8 @@ use valentine::{
     protocol::wire,
 };
 
+use crate::{ItemPacketError, NetworkItemStack, item::normalize_item};
+
 pub const MAX_ACTOR_IDENTIFIER_BYTES: usize = 256;
 pub const MAX_ACTOR_NAME_BYTES: usize = 256;
 pub const MAX_ACTOR_METADATA_ENTRIES: usize = 256;
@@ -91,6 +93,7 @@ pub struct ActorSpawnEvent {
     pub yaw: f32,
     pub head_yaw: f32,
     pub body_yaw: f32,
+    pub held_item: NetworkItemStack,
     pub metadata: Arc<[ActorMetadata]>,
     pub attributes: Arc<[ActorAttribute]>,
     pub properties: Arc<[ActorProperty]>,
@@ -200,6 +203,9 @@ pub enum ActorEvent {
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ActorPacketError {
+    #[error(transparent)]
+    Item(#[from] ItemPacketError),
+
     #[error("actor identifier has {bytes} UTF-8 bytes, exceeding {max}")]
     IdentifierTooLong { bytes: usize, max: usize },
     #[error("actor spawn contains a non-finite {field}")]
@@ -287,6 +293,7 @@ pub(crate) fn normalize_add_entity(
         yaw: packet.yaw,
         head_yaw: packet.head_yaw,
         body_yaw: packet.body_yaw,
+        held_item: NetworkItemStack::empty(),
         metadata,
         attributes,
         properties,
@@ -313,6 +320,7 @@ pub(crate) fn normalize_add_player(
     }
     let metadata = normalize_metadata(packet.metadata)?;
     let properties = normalize_properties(packet.properties)?;
+    let held_item = normalize_item(packet.held_item)?;
     Ok(ActorEvent::Spawn(ActorSpawnEvent {
         dimension,
         unique_id: packet.unique_id,
@@ -327,6 +335,7 @@ pub(crate) fn normalize_add_player(
         yaw: packet.yaw,
         head_yaw: packet.head_yaw,
         body_yaw: packet.yaw,
+        held_item,
         metadata,
         attributes: Arc::from([]),
         properties,
