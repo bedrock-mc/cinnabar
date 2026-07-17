@@ -98,7 +98,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "ui"
 path = "crates/ui"
-allowed_dependencies = ["semantic-input"]
+allowed_dependencies = ["assets", "semantic-input"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[crates]]

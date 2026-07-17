@@ -2,14 +2,9 @@ use std::sync::Arc;
 
 use assets::{CompiledFontCatalog, FontTexturePage, GlyphMetrics, encode_font_catalog};
 use sha2::{Digest, Sha256};
-pub use ui::{UiLimits, UiScale};
-
-#[path = "../src/text.rs"]
-mod text;
-
-use text::{
-    BedrockColor, MAX_GLYPHS_PER_LAYOUT, MAX_TEXT_SPANS, MAX_WRAP_LINES, TextError,
-    TextLayoutCache, TextLayoutRequest, TextStyle, parse_bedrock_text,
+use ui::{
+    BedrockColor, MAX_GLYPHS_PER_LAYOUT, MAX_TEXT_SPANS, MAX_WRAP_LINES, TextError, TextLayout,
+    TextLayoutCache, TextLayoutRequest, TextStyle, UiLimits, UiScale, parse_bedrock_text,
 };
 
 #[test]
@@ -300,7 +295,7 @@ fn layout(
     content: &str,
     scale: f32,
     width_64: u32,
-) -> Arc<text::TextLayout> {
+) -> Arc<TextLayout> {
     cache
         .layout(TextLayoutRequest {
             text: content,
