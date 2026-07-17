@@ -15,7 +15,8 @@ pub use binding::{
 pub use device::{
     ControllerFrame, DeviceFrame, FrameError, KeyboardMouseFrame, MAX_CONTROLLER_BUTTONS,
     MAX_CONTROLLERS, MAX_DISCONNECTED_CONTROLLERS, MAX_KEYBOARD_KEYS, MAX_MOUSE_BUTTONS,
-    MAX_TOUCH_CONTACTS, MAX_TOUCH_CONTROLS, TouchContact, TouchControlLayout, TouchLayoutError,
+    MAX_TOUCH_CONTACTS, MAX_TOUCH_CONTROLS, TouchAxis, TouchContact, TouchControl,
+    TouchControlKind, TouchControlLayout, TouchLayoutError,
 };
 pub use router::{MAX_LOOK_DELTA_PER_FRAME, RouterError, SemanticInputRouter};
 

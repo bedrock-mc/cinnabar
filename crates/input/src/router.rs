@@ -3,7 +3,7 @@ use core::num::NonZeroU64;
 use crate::{
     Action, ActionPhase, ActionSnapshot, AxisDirection, BindingError, ControlSettings, DeviceFrame,
     FrameError, InputChord, InputContext, InputMode, MouseAxis, PhysicalControl, ReleaseReason,
-    TouchControlLayout,
+    TouchAxis, TouchControlKind, TouchControlLayout,
 };
 
 /// Maximum Euclidean magnitude accepted for a semantic look delta.
@@ -249,8 +249,12 @@ impl SemanticInputRouter {
                 .previous_frame
                 .keyboard_mouse
                 .as_ref()
-                .map_or(self.activity_watermark, |sample| sample.activity_sequence);
-            validate_activity(previous, keyboard.activity_sequence)?;
+                .map(|sample| sample.activity_sequence);
+            validate_activity(
+                previous,
+                self.activity_watermark,
+                keyboard.activity_sequence,
+            )?;
         }
         for controller in &frame.controllers {
             let previous = self
@@ -258,8 +262,12 @@ impl SemanticInputRouter {
                 .controllers
                 .iter()
                 .find(|sample| sample.device_id == controller.device_id)
-                .map_or(self.activity_watermark, |sample| sample.activity_sequence);
-            validate_activity(previous, controller.activity_sequence)?;
+                .map(|sample| sample.activity_sequence);
+            validate_activity(
+                previous,
+                self.activity_watermark,
+                controller.activity_sequence,
+            )?;
         }
         for contact in &frame.touches {
             let previous = self
@@ -267,17 +275,16 @@ impl SemanticInputRouter {
                 .touches
                 .iter()
                 .find(|sample| sample.contact_id == contact.contact_id)
-                .map_or(self.activity_watermark, |sample| sample.activity_sequence);
-            validate_activity(previous, contact.activity_sequence)?;
+                .map(|sample| sample.activity_sequence);
+            validate_activity(previous, self.activity_watermark, contact.activity_sequence)?;
         }
         Ok(())
     }
 
     fn sample(&self, frame: &DeviceFrame, input_mode: InputMode) -> Sample {
         let controller_axes = merged_controller_axes(frame, &self.settings);
-        let touch_axes = merged_touch_axes(frame);
+        let touch_movement = merged_touch_movement(frame);
         let previous_controller_axes = merged_controller_axes(&self.previous_frame, &self.settings);
-        let previous_touch_axes = merged_touch_axes(&self.previous_frame);
         let mut strengths = [0.0_f32; Action::COUNT];
         let mut pressed = [false; Action::COUNT];
         for binding in self.settings.bindings() {
@@ -289,28 +296,17 @@ impl SemanticInputRouter {
             if self.has_more_specific_chord(binding.chord, frame) {
                 continue;
             }
-            let strength = binding_strength(
-                binding.action,
-                binding.chord,
-                frame,
-                controller_axes,
-                touch_axes.1,
-            );
+            let strength =
+                physical_strength(binding.chord, frame, controller_axes, &self.touch_layout);
             strengths[binding.action as usize] = strengths[binding.action as usize].max(strength);
             if strength > 0.0
-                && binding_strength(
-                    binding.action,
+                && physical_strength(
                     binding.chord,
                     &self.previous_frame,
                     previous_controller_axes,
-                    previous_touch_axes.1,
+                    &self.touch_layout,
                 ) == 0.0
-                && !self.edge_claimed_by_routed_context(
-                    binding.chord,
-                    frame,
-                    controller_axes,
-                    touch_axes.1,
-                )
+                && !self.edge_claimed_by_routed_context(binding.chord, frame, controller_axes)
             {
                 pressed[binding.action as usize] = true;
             }
@@ -321,7 +317,7 @@ impl SemanticInputRouter {
             strengths[Action::MoveForward as usize] - strengths[Action::MoveBackward as usize],
         ];
         if input_mode == InputMode::Touch && self.context == InputContext::Gameplay {
-            movement = touch_axes.0;
+            movement = touch_movement;
             synthesize_directions(
                 &mut strengths,
                 movement,
@@ -386,19 +382,17 @@ impl SemanticInputRouter {
         chord: InputChord,
         frame: &DeviceFrame,
         controller_axes: [f32; 8],
-        touch_look: [f32; 2],
     ) -> bool {
         let routed_context = self.pending_context.unwrap_or(self.context);
         routed_context != self.context
             && self.settings.bindings().iter().any(|candidate| {
                 candidate.context == routed_context
                     && candidate.chord == chord
-                    && binding_strength(
-                        candidate.action,
+                    && physical_strength(
                         candidate.chord,
                         frame,
                         controller_axes,
-                        touch_look,
+                        &self.touch_layout,
                     ) > 0.0
             })
     }
@@ -427,12 +421,26 @@ fn control_matches_mode(control: PhysicalControl, mode: InputMode) -> bool {
     )
 }
 
-fn validate_activity(previous: u64, actual: u64) -> Result<(), RouterError> {
-    if actual < previous {
-        Err(RouterError::NonMonotonicActivitySequence { previous, actual })
-    } else {
-        Ok(())
+fn validate_activity(
+    source_previous: Option<u64>,
+    global_watermark: u64,
+    actual: u64,
+) -> Result<(), RouterError> {
+    if let Some(previous) = source_previous {
+        if actual < previous {
+            return Err(RouterError::NonMonotonicActivitySequence { previous, actual });
+        }
+        if actual == previous {
+            return Ok(());
+        }
     }
+    if actual <= global_watermark {
+        return Err(RouterError::NonMonotonicActivitySequence {
+            previous: global_watermark,
+            actual,
+        });
+    }
+    Ok(())
 }
 
 fn frame_activity_max(frame: &DeviceFrame) -> u64 {
@@ -451,7 +459,12 @@ fn frame_activity_max(frame: &DeviceFrame) -> u64 {
         .unwrap_or(0)
 }
 
-fn physical_strength(chord: InputChord, frame: &DeviceFrame, controller_axes: [f32; 8]) -> f32 {
+fn physical_strength(
+    chord: InputChord,
+    frame: &DeviceFrame,
+    controller_axes: [f32; 8],
+    touch_layout: &TouchControlLayout,
+) -> f32 {
     match chord.control {
         PhysicalControl::KeyboardUsage(code) => {
             frame.keyboard_mouse.as_ref().map_or(0.0, |sample| {
@@ -484,31 +497,47 @@ fn physical_strength(chord: InputChord, frame: &DeviceFrame, controller_axes: [f
             controller_axes[axis as usize],
             direction == AxisDirection::Positive,
         ),
-        PhysicalControl::TouchControl(hit_id) => frame
-            .touches
-            .iter()
-            .any(|sample| sample.hit_id == Some(hit_id))
-            as u8 as f32,
+        PhysicalControl::TouchControl(hit_id) => {
+            touch_control_strength(hit_id, frame, touch_layout)
+        }
     }
 }
 
-fn binding_strength(
-    action: Action,
-    chord: InputChord,
+fn touch_control_strength(
+    hit_id: u16,
     frame: &DeviceFrame,
-    controller_axes: [f32; 8],
-    touch_look: [f32; 2],
+    touch_layout: &TouchControlLayout,
 ) -> f32 {
-    if matches!(chord.control, PhysicalControl::TouchControl(_)) {
-        return match action {
-            Action::LookUp => (-touch_look[1]).max(0.0),
-            Action::LookDown => touch_look[1].max(0.0),
-            Action::LookLeft => (-touch_look[0]).max(0.0),
-            Action::LookRight => touch_look[0].max(0.0),
-            _ => physical_strength(chord, frame, controller_axes),
-        };
+    let Some(control) = touch_layout.control(hit_id) else {
+        return 0.0;
+    };
+    match control.kind {
+        TouchControlKind::Button => frame
+            .touches
+            .iter()
+            .any(|contact| contact.hit_id == Some(hit_id)) as u8
+            as f32,
+        TouchControlKind::LookAxis(axis) => frame
+            .touches
+            .iter()
+            .filter(|contact| contact.hit_id == Some(hit_id))
+            .map(|contact| touch_axis_strength(contact.delta, axis))
+            .sum::<f32>()
+            .clamp(0.0, MAX_LOOK_DELTA_PER_FRAME),
     }
-    physical_strength(chord, frame, controller_axes)
+}
+
+fn touch_axis_strength(delta: [f32; 2], axis: TouchAxis) -> f32 {
+    let value = match axis {
+        TouchAxis::XPositive | TouchAxis::XNegative => delta[0],
+        TouchAxis::YPositive | TouchAxis::YNegative => delta[1],
+    }
+    .clamp(-1.0, 1.0)
+        * MAX_LOOK_DELTA_PER_FRAME;
+    directional_axis(
+        value,
+        matches!(axis, TouchAxis::XPositive | TouchAxis::YPositive),
+    )
 }
 
 fn mouse_axis_value(motion: [f32; 2], axis: MouseAxis) -> f32 {
@@ -563,9 +592,8 @@ fn radial_deadzone(value: [f32; 2], deadzone: f32) -> [f32; 2] {
     ]
 }
 
-fn merged_touch_axes(frame: &DeviceFrame) -> ([f32; 2], [f32; 2]) {
+fn merged_touch_movement(frame: &DeviceFrame) -> [f32; 2] {
     let mut movement = [0.0_f32; 2];
-    let mut look = [0.0_f32; 2];
     for contact in frame
         .touches
         .iter()
@@ -579,15 +607,9 @@ fn merged_touch_axes(frame: &DeviceFrame) -> ([f32; 2], [f32; 2]) {
             if candidate[0].hypot(candidate[1]) > movement[0].hypot(movement[1]) {
                 movement = candidate;
             }
-        } else if contact.position[0] >= 0.5 {
-            look[0] += contact.delta[0].clamp(-1.0, 1.0) * MAX_LOOK_DELTA_PER_FRAME;
-            look[1] += contact.delta[1].clamp(-1.0, 1.0) * MAX_LOOK_DELTA_PER_FRAME;
         }
     }
-    (
-        clamp_vector(movement, 1.0),
-        clamp_vector(look, MAX_LOOK_DELTA_PER_FRAME),
-    )
+    clamp_vector(movement, 1.0)
 }
 
 fn synthesize_directions(

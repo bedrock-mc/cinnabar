@@ -4,7 +4,8 @@ use semantic_input::{
     Action, ActionBinding, AxisDirection, BindingError, ControlSettings, ControllerFrame,
     DeviceFrame, FrameError, InputChord, InputContext, KeyboardMouseFrame, MAX_CONTROLLERS,
     MAX_LOOK_DELTA_PER_FRAME, MAX_TOUCH_CONTROLS, ModifierChord, PhysicalControl, ReleaseReason,
-    RouterError, SemanticInputRouter, TouchControlLayout, TouchLayoutError,
+    RouterError, SemanticInputRouter, TouchAxis, TouchControl, TouchControlKind,
+    TouchControlLayout, TouchLayoutError,
 };
 
 fn empty_chord(control: PhysicalControl) -> InputChord {
@@ -12,6 +13,32 @@ fn empty_chord(control: PhysicalControl) -> InputChord {
         control,
         modifiers: ModifierChord::default(),
     }
+}
+
+fn touch_button(hit_id: u16) -> TouchControl {
+    TouchControl {
+        hit_id,
+        kind: TouchControlKind::Button,
+    }
+}
+
+fn assert_global_activity_contract(seed: DeviceFrame, source: fn(u64) -> DeviceFrame) {
+    let mut router = SemanticInputRouter::default();
+    router.route(seed).unwrap();
+    router.finalize().unwrap();
+    router.route(source(1)).unwrap();
+    router.finalize().unwrap();
+    for actual in [2, 10] {
+        assert_eq!(
+            router.route(source(actual)),
+            Err(RouterError::NonMonotonicActivitySequence {
+                previous: 10,
+                actual,
+            })
+        );
+    }
+    router.route(source(11)).unwrap();
+    assert_eq!(router.finalize().unwrap().frame_sequence, 3);
 }
 
 #[test]
@@ -176,7 +203,7 @@ fn extreme_finite_touch_drag_clamps_without_non_finite_output() {
                 activity_sequence: 1,
                 position: [0.75, 0.5],
                 delta: [f32::MAX, 0.0],
-                hit_id: None,
+                hit_id: Some(semantic_input::touch::LOOK_RIGHT),
             }],
             ..DeviceFrame::default()
         })
@@ -502,18 +529,22 @@ fn disconnected_controller_samples_are_slot_bounded_and_unique() {
 #[test]
 fn touch_layout_is_bounded_nonzero_and_unique() {
     assert_eq!(
-        TouchControlLayout::new((1..=(MAX_TOUCH_CONTROLS + 1) as u16).collect()),
+        TouchControlLayout::new(
+            (1..=(MAX_TOUCH_CONTROLS + 1) as u16)
+                .map(touch_button)
+                .collect()
+        ),
         Err(TouchLayoutError::TooManyControls {
             actual: MAX_TOUCH_CONTROLS + 1,
             maximum: MAX_TOUCH_CONTROLS,
         })
     );
     assert_eq!(
-        TouchControlLayout::new(vec![0]),
+        TouchControlLayout::new(vec![touch_button(0)]),
         Err(TouchLayoutError::ZeroControlId)
     );
     assert_eq!(
-        TouchControlLayout::new(vec![41, 41]),
+        TouchControlLayout::new(vec![touch_button(41), touch_button(41)]),
         Err(TouchLayoutError::DuplicateControlId(41))
     );
 }
@@ -550,7 +581,7 @@ fn default_layout_rejects_arbitrary_touch_binding_and_frame_ids() {
 
 #[test]
 fn custom_touch_layout_is_shared_by_settings_and_frame_validation() {
-    let layout = TouchControlLayout::new(vec![55]).unwrap();
+    let layout = TouchControlLayout::new(vec![touch_button(55)]).unwrap();
     let settings = ControlSettings::new_with_touch_layout(
         vec![ActionBinding {
             action: Action::Jump,
@@ -627,7 +658,7 @@ fn removing_look_bindings_disables_look_delta_and_direction_phases() {
                 activity_sequence: 2,
                 position: [0.75, 0.75],
                 delta: [0.25, 0.0],
-                hit_id: None,
+                hit_id: Some(semantic_input::touch::LOOK_RIGHT),
             }],
             ..DeviceFrame::default()
         })
@@ -719,7 +750,7 @@ fn default_touch_drag_is_gated_by_typed_look_bindings() {
                 activity_sequence: 1,
                 position: [0.75, 0.75],
                 delta: [0.25, 0.0],
-                hit_id: None,
+                hit_id: Some(semantic_input::touch::LOOK_RIGHT),
             }],
             ..DeviceFrame::default()
         })
@@ -935,5 +966,221 @@ fn activity_sequences_cannot_move_backward_within_or_across_sources() {
             previous: 10,
             actual: 9,
         })
+    );
+}
+
+#[test]
+fn touch_look_uses_matching_typed_layout_entry_and_supports_remapping() {
+    for (action, expected_x) in [(Action::LookRight, 512.0), (Action::LookLeft, -512.0)] {
+        let layout = TouchControlLayout::new(vec![TouchControl {
+            hit_id: 55,
+            kind: TouchControlKind::LookAxis(TouchAxis::XPositive),
+        }])
+        .unwrap();
+        let settings = ControlSettings::new_with_touch_layout(
+            vec![ActionBinding {
+                action,
+                context: InputContext::Gameplay,
+                chord: empty_chord(PhysicalControl::TouchControl(55)),
+            }],
+            1.0,
+            1.0,
+            1.0,
+            false,
+            false,
+            0.1,
+            0.1,
+            &layout,
+        )
+        .unwrap();
+        let mut router =
+            SemanticInputRouter::with_settings_and_touch_layout(settings, layout).unwrap();
+        router
+            .route(DeviceFrame {
+                touches: vec![semantic_input::TouchContact {
+                    contact_id: 1,
+                    activity_sequence: 1,
+                    position: [0.75, 0.75],
+                    delta: [0.25, 0.0],
+                    hit_id: Some(55),
+                }],
+                ..DeviceFrame::default()
+            })
+            .unwrap();
+        let snapshot = router.finalize().unwrap();
+        assert_eq!(snapshot.look_delta, [expected_x, 0.0]);
+        assert!(snapshot.phases[action as usize].held);
+    }
+}
+
+#[test]
+fn unrelated_touch_drag_and_removed_touch_binding_cannot_bypass_mapping() {
+    let mut router = SemanticInputRouter::default();
+    router
+        .route(DeviceFrame {
+            touches: vec![semantic_input::TouchContact {
+                contact_id: 1,
+                activity_sequence: 1,
+                position: [0.75, 0.75],
+                delta: [0.25, 0.0],
+                hit_id: None,
+            }],
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    assert_eq!(router.finalize().unwrap().look_delta, [0.0, 0.0]);
+
+    let bindings = ControlSettings::default()
+        .bindings()
+        .iter()
+        .copied()
+        .filter(|binding| {
+            binding.chord.control
+                != PhysicalControl::TouchControl(semantic_input::touch::LOOK_RIGHT)
+        })
+        .collect();
+    let settings = ControlSettings::new(bindings, 1.0, 1.0, 1.0, false, false, 0.1, 0.1).unwrap();
+    let mut router = SemanticInputRouter::default();
+    router.replace_bindings(settings).unwrap();
+    router
+        .route(DeviceFrame {
+            touches: vec![semantic_input::TouchContact {
+                contact_id: 1,
+                activity_sequence: 1,
+                position: [0.75, 0.75],
+                delta: [0.25, 0.0],
+                hit_id: Some(semantic_input::touch::LOOK_RIGHT),
+            }],
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    assert_eq!(router.finalize().unwrap().look_delta, [0.0, 0.0]);
+}
+
+#[test]
+fn changed_source_must_advance_past_global_watermark_without_mutating_state() {
+    let mut router = SemanticInputRouter::default();
+    router
+        .route(DeviceFrame {
+            keyboard_mouse: Some(KeyboardMouseFrame {
+                activity_sequence: 10,
+                ..KeyboardMouseFrame::default()
+            }),
+            controllers: vec![ControllerFrame {
+                device_id: 7,
+                activity_sequence: 1,
+                ..ControllerFrame::default()
+            }],
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    let first = router.finalize().unwrap();
+    assert_eq!(first.input_mode, semantic_input::InputMode::KeyboardMouse);
+
+    assert_eq!(
+        router.route(DeviceFrame {
+            controllers: vec![ControllerFrame {
+                device_id: 7,
+                activity_sequence: 2,
+                ..ControllerFrame::default()
+            }],
+            ..DeviceFrame::default()
+        }),
+        Err(RouterError::NonMonotonicActivitySequence {
+            previous: 10,
+            actual: 2,
+        })
+    );
+
+    router
+        .route(DeviceFrame {
+            controllers: vec![ControllerFrame {
+                device_id: 7,
+                activity_sequence: 11,
+                ..ControllerFrame::default()
+            }],
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    let accepted = router.finalize().unwrap();
+    assert_eq!(accepted.frame_sequence, 2);
+    assert_eq!(accepted.input_mode, semantic_input::InputMode::GamePad);
+}
+
+#[test]
+fn global_watermark_rules_cover_keyboard_controller_and_touch_sources() {
+    let keyboard = |activity_sequence| DeviceFrame {
+        keyboard_mouse: Some(KeyboardMouseFrame {
+            activity_sequence,
+            ..KeyboardMouseFrame::default()
+        }),
+        ..DeviceFrame::default()
+    };
+    assert_global_activity_contract(
+        DeviceFrame {
+            keyboard_mouse: Some(KeyboardMouseFrame {
+                activity_sequence: 1,
+                ..KeyboardMouseFrame::default()
+            }),
+            controllers: vec![ControllerFrame {
+                device_id: 99,
+                activity_sequence: 10,
+                ..ControllerFrame::default()
+            }],
+            ..DeviceFrame::default()
+        },
+        keyboard,
+    );
+
+    let controller = |activity_sequence| DeviceFrame {
+        controllers: vec![ControllerFrame {
+            device_id: 7,
+            activity_sequence,
+            ..ControllerFrame::default()
+        }],
+        ..DeviceFrame::default()
+    };
+    assert_global_activity_contract(
+        DeviceFrame {
+            keyboard_mouse: Some(KeyboardMouseFrame {
+                activity_sequence: 10,
+                ..KeyboardMouseFrame::default()
+            }),
+            controllers: vec![ControllerFrame {
+                device_id: 7,
+                activity_sequence: 1,
+                ..ControllerFrame::default()
+            }],
+            ..DeviceFrame::default()
+        },
+        controller,
+    );
+
+    let touch = |activity_sequence| DeviceFrame {
+        touches: vec![semantic_input::TouchContact {
+            contact_id: 5,
+            activity_sequence,
+            position: [0.25, 0.25],
+            delta: [0.0, 0.0],
+            hit_id: None,
+        }],
+        ..DeviceFrame::default()
+    };
+    assert_global_activity_contract(
+        DeviceFrame {
+            keyboard_mouse: Some(KeyboardMouseFrame {
+                activity_sequence: 10,
+                ..KeyboardMouseFrame::default()
+            }),
+            touches: vec![semantic_input::TouchContact {
+                contact_id: 5,
+                activity_sequence: 1,
+                position: [0.25, 0.25],
+                delta: [0.0, 0.0],
+                hit_id: None,
+            }],
+            ..DeviceFrame::default()
+        },
+        touch,
     );
 }

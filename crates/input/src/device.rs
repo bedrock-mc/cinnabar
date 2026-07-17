@@ -40,7 +40,27 @@ pub struct TouchContact {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TouchControlLayout {
-    controls: Box<[u16]>,
+    controls: Box<[TouchControl]>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TouchControl {
+    pub hit_id: u16,
+    pub kind: TouchControlKind,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TouchControlKind {
+    Button,
+    LookAxis(TouchAxis),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TouchAxis {
+    XPositive,
+    XNegative,
+    YPositive,
+    YNegative,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -51,36 +71,72 @@ pub enum TouchLayoutError {
 }
 
 impl TouchControlLayout {
-    pub fn new(controls: Vec<u16>) -> Result<Self, TouchLayoutError> {
+    pub fn new(controls: Vec<TouchControl>) -> Result<Self, TouchLayoutError> {
         if controls.len() > MAX_TOUCH_CONTROLS {
             return Err(TouchLayoutError::TooManyControls {
                 actual: controls.len(),
                 maximum: MAX_TOUCH_CONTROLS,
             });
         }
-        if controls.contains(&0) {
+        if controls.iter().any(|control| control.hit_id == 0) {
             return Err(TouchLayoutError::ZeroControlId);
         }
-        if let Some(hit_id) = first_duplicate(&controls) {
-            return Err(TouchLayoutError::DuplicateControlId(hit_id));
+        if let Some(control) = controls.iter().enumerate().find_map(|(index, control)| {
+            controls[..index]
+                .iter()
+                .any(|candidate| candidate.hit_id == control.hit_id)
+                .then_some(*control)
+        }) {
+            return Err(TouchLayoutError::DuplicateControlId(control.hit_id));
         }
         Ok(Self {
             controls: controls.into_boxed_slice(),
         })
     }
 
-    pub fn controls(&self) -> &[u16] {
+    pub fn controls(&self) -> &[TouchControl] {
         &self.controls
     }
 
     pub fn contains(&self, hit_id: u16) -> bool {
-        self.controls.contains(&hit_id)
+        self.control(hit_id).is_some()
+    }
+
+    pub fn control(&self, hit_id: u16) -> Option<TouchControl> {
+        self.controls
+            .iter()
+            .copied()
+            .find(|control| control.hit_id == hit_id)
     }
 }
 
 impl Default for TouchControlLayout {
     fn default() -> Self {
-        Self::new((1..=31).collect()).expect("built-in touch controls are valid")
+        let mut controls: Vec<_> = (1..=27)
+            .map(|hit_id| TouchControl {
+                hit_id,
+                kind: TouchControlKind::Button,
+            })
+            .collect();
+        controls.extend([
+            TouchControl {
+                hit_id: crate::touch::LOOK_UP,
+                kind: TouchControlKind::LookAxis(TouchAxis::YNegative),
+            },
+            TouchControl {
+                hit_id: crate::touch::LOOK_DOWN,
+                kind: TouchControlKind::LookAxis(TouchAxis::YPositive),
+            },
+            TouchControl {
+                hit_id: crate::touch::LOOK_LEFT,
+                kind: TouchControlKind::LookAxis(TouchAxis::XNegative),
+            },
+            TouchControl {
+                hit_id: crate::touch::LOOK_RIGHT,
+                kind: TouchControlKind::LookAxis(TouchAxis::XPositive),
+            },
+        ]);
+        Self::new(controls).expect("built-in touch controls are valid")
     }
 }
 
@@ -88,6 +144,8 @@ impl Default for TouchControlLayout {
 ///
 /// Every `activity_sequence` comes from a single translator-wide monotonic
 /// change counter and retains its last value while that source is unchanged.
+/// A new or changed source must advance strictly past the global watermark;
+/// an unchanged source may retain an older stamp.
 /// Equal stamps retain the current input mode; if it is absent, ties resolve
 /// in `KeyboardMouse`, `GamePad`, then `Touch` order.
 #[derive(Clone, Debug, Default, PartialEq)]
