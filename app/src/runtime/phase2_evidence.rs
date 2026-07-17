@@ -38,6 +38,7 @@ fn combined_snapshot_json(snapshot: CombinedPhase2Snapshot) -> Value {
                 "x": publication.player_column.x,
                 "z": publication.player_column.z,
             },
+            "publisher_radius_blocks": publication.publisher_radius_blocks,
             "publisher_radius_chunks": publication.publisher_radius_chunks,
             "required_cohort_hash": format!("{:016x}", publication.required_cohort_hash),
             "required_columns": publication.required_columns,

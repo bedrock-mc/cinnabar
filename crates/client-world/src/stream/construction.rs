@@ -122,6 +122,7 @@ impl WorldStream {
                 floor_to_i32(resolved_server_position.position[1]),
                 floor_to_i32(resolved_server_position.position[2]),
             ]),
+            publisher_radius_blocks: None,
             publisher_radius_chunks: None,
             committed_view_cohort: None,
             source_columns: BTreeSet::new(),

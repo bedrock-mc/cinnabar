@@ -22,6 +22,7 @@ fn combined_snapshot() -> CombinedPhase2Snapshot {
         publication: Phase2PublicationSnapshot {
             session_generation: 7,
             player_column: ChunkKey::new(0, 4, -2),
+            publisher_radius_blocks: Some(256),
             publisher_radius_chunks: Some(16),
             required_cohort_hash: 11,
             required_columns: 1_089,
@@ -54,6 +55,7 @@ fn phase2_publication_emits_once_per_changed_combined_identity() {
     let mut previous = None;
     let first = phase2_publication_line_if_changed(&mut previous, snapshot).unwrap();
     assert!(first.starts_with("PHASE2_PUBLICATION={"));
+    assert!(first.contains("\"publisher_radius_blocks\":256"));
     assert!(first.contains("\"publisher_radius_chunks\":16"));
     assert!(first.contains("\"graphics_identity_sha256\":\"030303"));
     assert_eq!(

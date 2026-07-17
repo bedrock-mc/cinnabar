@@ -365,6 +365,7 @@ impl WorldStream {
             }
             WorldEvent::PublisherUpdate(update) => {
                 self.publisher_center = Some(update.center);
+                self.publisher_radius_blocks = Some(update.radius_blocks);
                 let cohort = ViewCohort::from_publisher(
                     self.current_dimension,
                     update.center,
@@ -394,6 +395,7 @@ impl WorldStream {
                     floor_to_i32(resolved.position[1]),
                     floor_to_i32(resolved.position[2]),
                 ]);
+                self.publisher_radius_blocks = None;
                 self.publisher_radius_chunks = None;
                 self.committed_view_cohort = None;
                 self.push_committed_control(CommittedControlEvent::ChangeDimension {

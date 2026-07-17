@@ -48,6 +48,8 @@ pub struct StageDurations {
 pub struct Phase2PublicationSnapshot {
     pub session_generation: u64,
     pub player_column: ChunkKey,
+    /// Exact raw block radius received from NetworkChunkPublisherUpdate.
+    pub publisher_radius_blocks: Option<u32>,
     pub publisher_radius_chunks: Option<i32>,
     pub required_cohort_hash: u64,
     pub required_columns: usize,
@@ -135,6 +137,7 @@ impl WorldStream {
         Phase2PublicationSnapshot {
             session_generation: self.actor_session_id,
             player_column,
+            publisher_radius_blocks: self.publisher_radius_blocks,
             publisher_radius_chunks: self.publisher_radius_chunks,
             required_cohort_hash: deterministic_chunk_key_hash(&required),
             required_columns: required.len(),
