@@ -130,11 +130,22 @@ impl ItemDisplayTransform {
 #[serde(deny_unknown_fields)]
 pub struct ItemVisualDefinition {
     pub identifier: Box<str>,
-    pub texture_source: u32,
+    /// Source containing the canonical item definition or reviewed rule.
+    pub source: u32,
+    pub route: ItemVisualDefinitionRoute,
     pub first_person: ItemDisplayTransform,
     pub third_person: ItemDisplayTransform,
     pub dropped: ItemDisplayTransform,
-    pub block_visual: Option<BlockVisualId>,
+}
+
+/// Exact bounded presentation route selected by one compiled item definition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case", tag = "route")]
+pub enum ItemVisualDefinitionRoute {
+    Sprite { texture_source: u32 },
+    BlockItem { block_visual: BlockVisualId },
+    EmptyHand,
+    Missing,
 }
 
 /// Canonical identifier alias to a dense item visual.
@@ -161,13 +172,20 @@ pub(crate) fn validate_item_visuals(
     for visual in visuals {
         validate_item_identifier(&visual.identifier)?;
         if previous_visual.is_some_and(|previous| previous >= visual.identifier.as_ref())
-            || visual.texture_source as usize >= sources
+            || visual.source as usize >= sources
             || !visual.first_person.is_canonical()
             || !visual.third_person.is_canonical()
             || !visual.dropped.is_canonical()
-            || visual
-                .block_visual
-                .is_some_and(|index| index.0 as usize >= block_visual_count)
+            || matches!(
+                visual.route,
+                ItemVisualDefinitionRoute::Sprite { texture_source }
+                    if texture_source as usize >= sources
+            )
+            || matches!(
+                visual.route,
+                ItemVisualDefinitionRoute::BlockItem { block_visual }
+                    if block_visual.0 as usize >= block_visual_count
+            )
         {
             return Err(invalid("invalid or unordered item visual"));
         }

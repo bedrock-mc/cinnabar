@@ -23,7 +23,7 @@ use entity::{
 };
 use item::{
     BlockVisualId as LeafBlockVisualId, ItemDisplayTransform, ItemVisualAlias,
-    ItemVisualDefinition, ItemVisualId as LeafItemVisualId,
+    ItemVisualDefinition, ItemVisualDefinitionRoute, ItemVisualId as LeafItemVisualId,
 };
 
 fn fixture() -> CompiledEntityAssets {
@@ -434,6 +434,8 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
         ("models/entity/allay.geo.json", 0x13),
         ("render_controllers/allay.render.json", 0x14),
         ("textures/entity/allay.png", 0x15),
+        ("textures/item_visuals.json", 0x16),
+        ("textures/items/allay_spawn_egg.png", 0x17),
     ]
     .into_iter()
     .map(|(path, digest)| entity::EntityAssetSource {
@@ -610,11 +612,13 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
         .into_boxed_slice(),
         item_visuals: vec![ItemVisualDefinition {
             identifier: "minecraft:allay_spawn_egg".into(),
-            texture_source: 5,
+            source: 6,
+            route: ItemVisualDefinitionRoute::BlockItem {
+                block_visual: LeafBlockVisualId(7),
+            },
             first_person: identity_transform(),
             third_person: identity_transform(),
             dropped: identity_transform(),
-            block_visual: Some(LeafBlockVisualId(7)),
         }]
         .into_boxed_slice(),
         item_visual_aliases: vec![ItemVisualAlias {

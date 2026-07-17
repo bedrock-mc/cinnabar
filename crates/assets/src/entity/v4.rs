@@ -2,7 +2,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     AssetError,
-    item::{ItemVisualAlias, ItemVisualDefinition, validate_item_visuals},
+    item::{
+        ItemVisualAlias, ItemVisualDefinition, ItemVisualDefinitionRoute, validate_item_visuals,
+    },
 };
 
 use super::{
@@ -393,14 +395,29 @@ pub(super) fn validate_extended_payload(compiled: &CompiledEntityAssets) -> Resu
         compiled.block_visual_count as usize,
     )?;
     for visual in &compiled.item_visuals {
-        let path = &compiled.sources[visual.texture_source as usize].path;
-        if !path.starts_with("textures/entity/")
-            || !(path.ends_with(".png") || path.ends_with(".tga"))
-        {
-            return Err(invalid("item visual source is not an entity texture"));
+        let defining_path = &compiled.sources[visual.source as usize].path;
+        if !valid_item_definition_source(defining_path) {
+            return Err(invalid("item visual defining source is not reviewed"));
+        }
+        if let ItemVisualDefinitionRoute::Sprite { texture_source } = visual.route {
+            let texture_path = &compiled.sources[texture_source as usize].path;
+            if !valid_item_raster_source(texture_path) {
+                return Err(invalid("item sprite source is not a reviewed raster"));
+            }
         }
     }
     Ok(())
+}
+
+fn valid_item_definition_source(path: &str) -> bool {
+    (path.starts_with("entity/") && path.ends_with(".json"))
+        || path == "textures/item_texture.json"
+        || path == "textures/item_visuals.json"
+}
+
+fn valid_item_raster_source(path: &str) -> bool {
+    (path.starts_with("textures/items/") || path.starts_with("textures/entity/"))
+        && (path.ends_with(".png") || path.ends_with(".tga"))
 }
 
 fn validate_animation_payload(compiled: &CompiledEntityAssets) -> Result<(), AssetError> {
