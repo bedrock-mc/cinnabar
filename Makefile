@@ -31,7 +31,7 @@ FORCE_CINNABAR_CLOUDS_OVERRIDE:
 help:
 	@echo make assets          - Download and compile the vanilla resource pack
 	@echo make atmosphere-assets - Compile pinned sun, moon, and cloud runtime assets
-	@echo make entity-assets   - Compile pinned entity animation authority metadata
+	@echo make entity-assets   - Compile pinned entity catalog and geometry payloads
 	@echo make core            - Compile and run the Go networking/auth core
 	@echo make client          - Refresh stale assets, then run the release Rust client
 	@echo make client-windows  - Run the client on Windows

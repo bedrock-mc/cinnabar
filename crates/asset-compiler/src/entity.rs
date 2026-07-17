@@ -45,7 +45,7 @@ struct PendingGeometry {
     bones: Box<[EntityGeometryBone]>,
 }
 
-/// Compiles deterministic entity animation authority metadata from the exact
+/// Compiles deterministic entity catalog and geometry payloads from the exact
 /// pinned local Bedrock resource pack. Source payloads remain local-only.
 pub fn compile_entity_assets(
     root: &Path,
