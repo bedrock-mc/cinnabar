@@ -88,9 +88,18 @@ impl UiNode {
 pub struct FocusState {
     focused: Option<UiNodeId>,
     pointer_capture: Option<UiNodeId>,
+    focusable: BTreeSet<UiNodeId>,
 }
 
 impl FocusState {
+    fn new(focusable: BTreeSet<UiNodeId>) -> Self {
+        Self {
+            focused: None,
+            pointer_capture: None,
+            focusable,
+        }
+    }
+
     pub const fn focused(&self) -> Option<UiNodeId> {
         self.focused
     }
@@ -100,6 +109,9 @@ impl FocusState {
     }
 
     pub fn set_focused(&mut self, focused: Option<UiNodeId>) -> Option<UiNodeId> {
+        if focused.is_some_and(|node| !self.focusable.contains(&node)) {
+            return None;
+        }
         if self.focused == focused {
             return None;
         }
@@ -108,6 +120,9 @@ impl FocusState {
     }
 
     pub fn capture_pointer(&mut self, node: UiNodeId) -> Result<(), UiError> {
+        if !self.focusable.contains(&node) {
+            return Err(UiError::InvalidFocusNode { node });
+        }
         if self.focused != Some(node) {
             return Err(UiError::PointerCaptureRequiresFocus { node });
         }
@@ -128,10 +143,13 @@ pub struct FocusTransition {
 
 #[derive(Clone, Debug)]
 pub struct UiFrame {
+    tree_identity: Arc<UiTreeIdentity>,
     revision: u64,
     viewport: UiRect,
     bounds: BTreeMap<UiNodeId, UiRect>,
+    effective_clips: BTreeMap<UiNodeId, UiRect>,
     focus_order: Box<[UiNodeId]>,
+    draw_order: Box<[UiNodeId]>,
 }
 
 impl UiFrame {
@@ -182,6 +200,8 @@ pub enum UiError {
     LayoutRevisionOverflow,
     MissingLayoutBounds { node: UiNodeId },
     StaleFrame { expected: u64, actual: u64 },
+    ForeignFrame,
+    InvalidFocusNode { node: UiNodeId },
     PointerCaptureRequiresFocus { node: UiNodeId },
     ClipDepthExceeded { actual: usize, limit: usize },
     VertexLimitExceeded { actual: usize, limit: usize },
@@ -201,6 +221,7 @@ impl fmt::Display for UiError {
 impl std::error::Error for UiError {}
 
 pub struct UiTree {
+    identity: Arc<UiTreeIdentity>,
     nodes: BTreeMap<UiNodeId, UiNode>,
     children: BTreeMap<UiNodeId, Vec<UiNodeId>>,
     roots: Box<[UiNodeId]>,
@@ -208,6 +229,9 @@ pub struct UiTree {
     revision: u64,
     frame: Option<UiFrame>,
 }
+
+#[derive(Debug)]
+struct UiTreeIdentity;
 
 impl UiTree {
     pub fn new(nodes: Vec<UiNode>) -> Result<Self, UiError> {
@@ -236,10 +260,14 @@ impl UiTree {
         }
         reject_parent_cycles(&by_id)?;
 
-        let focusable = by_id.values().filter(|node| node.focusable).count();
-        if focusable > UiLimits::MAX_FOCUSABLE {
+        let focusable = by_id
+            .values()
+            .filter(|node| node.focusable)
+            .map(|node| node.id)
+            .collect::<BTreeSet<_>>();
+        if focusable.len() > UiLimits::MAX_FOCUSABLE {
             return Err(UiError::FocusableLimitExceeded {
-                actual: focusable,
+                actual: focusable.len(),
                 limit: UiLimits::MAX_FOCUSABLE,
             });
         }
@@ -254,10 +282,11 @@ impl UiTree {
         }
 
         Ok(Self {
+            identity: Arc::new(UiTreeIdentity),
             nodes: by_id,
             children,
             roots: roots.into_boxed_slice(),
-            focus: FocusState::default(),
+            focus: FocusState::new(focusable),
             revision: 0,
             frame: None,
         })
@@ -295,8 +324,15 @@ impl UiTree {
             .ok_or(UiError::LayoutRevisionOverflow)?;
 
         let mut bounds = BTreeMap::new();
-        let mut pending = self.roots.iter().rev().copied().collect::<Vec<_>>();
-        while let Some(id) = pending.pop() {
+        let mut effective_clips = BTreeMap::new();
+        let mut draw_order = Vec::with_capacity(self.nodes.len());
+        let mut pending = self
+            .roots
+            .iter()
+            .rev()
+            .map(|id| (*id, content))
+            .collect::<Vec<_>>();
+        while let Some((id, clip)) = pending.pop() {
             let node = &self.nodes[&id];
             let origin = node
                 .parent
@@ -304,8 +340,15 @@ impl UiTree {
                 .map_or(content.min(), UiRect::min);
             let scaled = scale_rect(node.bounds, origin, scale.get())?;
             bounds.insert(id, scaled);
+            effective_clips.insert(id, clip);
+            draw_order.push(id);
+            let child_clip = if node.clip_children {
+                intersect(clip, scaled)
+            } else {
+                clip
+            };
             if let Some(children) = self.children.get(&id) {
-                pending.extend(children.iter().rev().copied());
+                pending.extend(children.iter().rev().map(|child| (*child, child_clip)));
             }
         }
 
@@ -326,10 +369,13 @@ impl UiTree {
             .collect::<Vec<_>>();
         focus_order.sort_unstable();
         let frame = UiFrame {
+            tree_identity: Arc::clone(&self.identity),
             revision: next_revision,
             viewport: content,
             bounds,
+            effective_clips,
             focus_order: focus_order.into_iter().map(|(_, _, _, _, id)| id).collect(),
+            draw_order: draw_order.into_boxed_slice(),
         };
         self.revision = next_revision;
         self.frame = Some(frame.clone());
@@ -341,6 +387,9 @@ impl UiTree {
         frame: &UiFrame,
         action: UiAction,
     ) -> Result<FocusTransition, UiError> {
+        if !Arc::ptr_eq(&frame.tree_identity, &self.identity) {
+            return Err(UiError::ForeignFrame);
+        }
         if frame.revision != self.revision {
             return Err(UiError::StaleFrame {
                 expected: self.revision,
@@ -362,11 +411,17 @@ impl UiTree {
             UiAction::PointerPrimary { position, phase } => match phase {
                 crate::PointerPhase::Pressed => {
                     if let Some(node) = frame
-                        .focus_order
+                        .draw_order
                         .iter()
                         .rev()
                         .copied()
-                        .find(|node| frame.bounds[node].contains(position))
+                        .filter(|node| self.nodes[node].focusable)
+                        .find(|node| {
+                            let clip = frame.effective_clips[node];
+                            !is_empty(clip)
+                                && clip.contains(position)
+                                && frame.bounds[node].contains(position)
+                        })
                     {
                         self.focus.set_focused(Some(node));
                         self.focus.capture_pointer(node)?;
@@ -509,6 +564,7 @@ impl UiTree {
         )
         .map_err(|_| UiError::InvalidSafeViewport)?;
         Ok(UiFrame {
+            tree_identity: Arc::clone(&self.identity),
             revision: self.revision,
             viewport,
             bounds: self
@@ -516,7 +572,9 @@ impl UiTree {
                 .iter()
                 .map(|(id, node)| (*id, node.bounds))
                 .collect(),
+            effective_clips: BTreeMap::new(),
             focus_order: Box::new([]),
+            draw_order: Box::new([]),
         })
     }
 

@@ -10,7 +10,7 @@ pub use ui::{
 #[path = "../src/model.rs"]
 pub mod model;
 
-use model::{FocusState, UiDrawList, UiError, UiNode, UiNodeId, UiTree, UiVertex, UiVisual};
+use model::{UiDrawList, UiError, UiNode, UiNodeId, UiTree, UiVertex, UiVisual};
 
 #[test]
 fn safe_area_scale_and_focus_order_are_deterministic() {
@@ -41,17 +41,138 @@ fn focus_change_releases_pointer_capture_and_navigation_wraps() {
             SafeArea::ZERO,
         )
         .unwrap();
-    let mut focus = FocusState::default();
-    assert_eq!(focus.set_focused(Some(node(10))), None);
-    focus.capture_pointer(node(10)).unwrap();
-    assert_eq!(focus.set_focused(Some(node(20))), Some(node(10)));
-    assert_eq!(focus.pointer_capture(), None);
+    assert_eq!(tree.focus_mut().set_focused(Some(node(10))), None);
+    tree.focus_mut().capture_pointer(node(10)).unwrap();
+    assert_eq!(tree.focus_mut().set_focused(Some(node(20))), Some(node(10)));
+    assert_eq!(tree.focus().pointer_capture(), None);
 
     tree.focus_mut().set_focused(Some(node(30)));
     let transition = tree.handle_action(&frame, UiAction::TabNext).unwrap();
     assert_eq!(transition.focused, Some(node(10)));
     let transition = tree.handle_action(&frame, UiAction::TabPrevious).unwrap();
     assert_eq!(transition.focused, Some(node(30)));
+}
+
+#[test]
+fn pointer_ignores_controls_outside_effective_clip_and_safe_viewport() {
+    let mut tree = UiTree::new(vec![
+        UiNode::new(node(1), None, rect(0.0, 0.0, 50.0, 50.0)).with_clip_children(true),
+        UiNode::new(node(2), Some(node(1)), rect(75.0, 0.0, 125.0, 50.0)).with_focusable(true),
+        UiNode::new(node(3), None, rect(175.0, 0.0, 225.0, 50.0)).with_focusable(true),
+    ])
+    .unwrap();
+    let frame = tree
+        .layout(
+            rect(0.0, 0.0, 200.0, 100.0),
+            UiScale::default(),
+            SafeArea::new(10.0, 0.0, 40.0, 0.0).unwrap(),
+        )
+        .unwrap();
+
+    for position in [[100.0, 25.0], [190.0, 25.0]] {
+        let transition = tree
+            .handle_action(
+                &frame,
+                UiAction::PointerPrimary {
+                    position: UiPoint::new(position[0], position[1]).unwrap(),
+                    phase: PointerPhase::Pressed,
+                },
+            )
+            .unwrap();
+        assert_eq!(transition.focused, None);
+        assert_eq!(tree.focus().pointer_capture(), None);
+    }
+}
+
+#[test]
+fn pointer_uses_render_order_when_navigation_order_differs() {
+    let mut tree = UiTree::new(vec![
+        UiNode::new(node(20), None, rect(0.0, 0.0, 50.0, 50.0))
+            .with_focusable(true)
+            .with_navigation_order(1)
+            .with_visual(UiVisual::Solid {
+                texture_page: 0,
+                color: [20, 0, 0, 255],
+            }),
+        UiNode::new(node(30), None, rect(0.0, 0.0, 50.0, 50.0))
+            .with_focusable(true)
+            .with_navigation_order(0)
+            .with_visual(UiVisual::Solid {
+                texture_page: 0,
+                color: [30, 0, 0, 255],
+            }),
+    ])
+    .unwrap();
+    let frame = tree
+        .layout(
+            rect(0.0, 0.0, 100.0, 100.0),
+            UiScale::default(),
+            SafeArea::ZERO,
+        )
+        .unwrap();
+    assert_eq!(frame.focus_order(), &[node(30), node(20)]);
+
+    let transition = tree
+        .handle_action(
+            &frame,
+            UiAction::PointerPrimary {
+                position: UiPoint::new(25.0, 25.0).unwrap(),
+                phase: PointerPhase::Pressed,
+            },
+        )
+        .unwrap();
+
+    assert_eq!(transition.focused, Some(node(30)));
+    assert_eq!(tree.focus().pointer_capture(), Some(node(30)));
+}
+
+#[test]
+fn same_revision_frame_from_another_tree_is_rejected() {
+    let mut first = UiTree::new(vec![
+        UiNode::new(node(1), None, rect(0.0, 0.0, 10.0, 10.0)).with_focusable(true),
+    ])
+    .unwrap();
+    let mut second = UiTree::new(vec![
+        UiNode::new(node(2), None, rect(0.0, 0.0, 10.0, 10.0)).with_focusable(true),
+    ])
+    .unwrap();
+    let foreign_frame = first
+        .layout(
+            rect(0.0, 0.0, 100.0, 100.0),
+            UiScale::default(),
+            SafeArea::ZERO,
+        )
+        .unwrap();
+    second
+        .layout(
+            rect(0.0, 0.0, 100.0, 100.0),
+            UiScale::default(),
+            SafeArea::ZERO,
+        )
+        .unwrap();
+
+    assert!(
+        second
+            .handle_action(&foreign_frame, UiAction::TabNext)
+            .is_err()
+    );
+    assert_eq!(second.focus().focused(), None);
+}
+
+#[test]
+fn invalid_or_nonfocusable_ids_cannot_enter_focus_or_capture_state() {
+    let mut tree = UiTree::new(vec![
+        UiNode::new(node(1), None, rect(0.0, 0.0, 10.0, 10.0)),
+        UiNode::new(node(2), None, rect(0.0, 0.0, 10.0, 10.0)).with_focusable(true),
+    ])
+    .unwrap();
+
+    for invalid in [node(1), node(999)] {
+        let _ = tree.focus_mut().set_focused(Some(invalid));
+        assert_eq!(tree.focus().focused(), None);
+        assert!(tree.focus_mut().capture_pointer(invalid).is_err());
+        assert_eq!(tree.focus().pointer_capture(), None);
+    }
 }
 
 #[test]
