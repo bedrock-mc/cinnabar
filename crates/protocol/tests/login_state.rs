@@ -15,8 +15,9 @@ use flate2::write::DeflateEncoder;
 use jolyne::batch::decode_batch;
 use jolyne::stream::transport::{Transport, TransportMessage, TransportRecvMessage};
 use jolyne::valentine::{
-    ChunkRadiusUpdatePacket, ClientCacheStatusPacket, ClientToServerHandshakePacket,
-    ItemRegistryPacket, ItemstatesItem, McpePacket, McpePacketData, McpePacketName,
+    Blob, ChunkRadiusUpdatePacket, ClientCacheBlobStatusPacket, ClientCacheMissResponsePacket,
+    ClientCacheStatusPacket, ClientToServerHandshakePacket, ItemRegistryPacket, ItemstatesItem,
+    LevelChunkPacket, LevelChunkPacketBlobs, McpePacket, McpePacketData, McpePacketName,
     NetworkSettingsPacket, NetworkSettingsPacketCompressionAlgorithm, PlayStatusPacket,
     PlayStatusPacketStatus, RequestChunkRadiusPacket, RequestNetworkSettingsPacket,
     ResourcePackClientResponsePacket, ResourcePackClientResponsePacketResponseStatus,
@@ -27,7 +28,7 @@ use jolyne::valentine::{
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use p384::pkcs8::{DecodePublicKey, EncodePrivateKey, EncodePublicKey};
 use p384::{PublicKey, SecretKey};
-use protocol::{BedrockSession, LoginSequence, Packet, ProtocolError, WorldEvent};
+use protocol::{BedrockSession, ClientBlobCache, LoginSequence, Packet, ProtocolError, WorldEvent};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
@@ -74,7 +75,7 @@ struct ScriptTransport {
 
 impl ScriptTransport {
     fn new(mode: CompressionMode, order: SpawnOrder, conflicting_start: bool) -> Self {
-        Self::new_with_pack_stack(mode, order, conflicting_start, false)
+        Self::new_with_options(mode, order, conflicting_start, false, false)
     }
 
     fn new_with_pack_stack(
@@ -83,12 +84,27 @@ impl ScriptTransport {
         conflicting_start: bool,
         non_empty_pack_stack: bool,
     ) -> Self {
+        Self::new_with_options(mode, order, conflicting_start, non_empty_pack_stack, false)
+    }
+
+    fn new_with_cache(mode: CompressionMode, order: SpawnOrder) -> Self {
+        Self::new_with_options(mode, order, false, false, true)
+    }
+
+    fn new_with_options(
+        mode: CompressionMode,
+        order: SpawnOrder,
+        conflicting_start: bool,
+        non_empty_pack_stack: bool,
+        cache_enabled: bool,
+    ) -> Self {
         Self {
             script: Arc::new(Mutex::new(ServerScript::new(
                 mode,
                 order,
                 conflicting_start,
                 non_empty_pack_stack,
+                cache_enabled,
             ))),
         }
     }
@@ -133,6 +149,7 @@ struct ServerScript {
     order: SpawnOrder,
     conflicting_start: bool,
     non_empty_pack_stack: bool,
+    cache_enabled: bool,
     stage: u8,
     inbound: VecDeque<Bytes>,
     crypto: Option<ScriptCrypto>,
@@ -144,12 +161,14 @@ impl ServerScript {
         order: SpawnOrder,
         conflicting_start: bool,
         non_empty_pack_stack: bool,
+        cache_enabled: bool,
     ) -> Self {
         Self {
             mode,
             order,
             conflicting_start,
             non_empty_pack_stack,
+            cache_enabled,
             stage: 0,
             inbound: VecDeque::new(),
             crypto: None,
@@ -227,10 +246,10 @@ impl ServerScript {
                     packets.as_slice(),
                     [McpePacket {
                         data: McpePacketData::PacketClientCacheStatus(ClientCacheStatusPacket {
-                            enabled: false
+                            enabled
                         }),
                         ..
-                    }]
+                    }] if *enabled == self.cache_enabled
                 ));
                 self.stage = 4;
             }
@@ -347,11 +366,48 @@ impl ServerScript {
                         }
                     ]
                 ));
-                self.enqueue_encrypted(&[McpePacket::from(SetTimePacket { time: 34_567 })]);
+                if self.cache_enabled {
+                    let payload = b"cached-column";
+                    let hash = protocol::client_blob_hash(payload);
+                    self.enqueue_encrypted(&[
+                        McpePacket::from(LevelChunkPacket {
+                            x: 9,
+                            z: -11,
+                            dimension: 0,
+                            sub_chunk_count: 0,
+                            blobs: Some(LevelChunkPacketBlobs { hashes: vec![hash] }),
+                            payload: b"tail".to_vec(),
+                            ..Default::default()
+                        }),
+                        McpePacket::from(SetTimePacket { time: 34_567 }),
+                    ]);
+                } else {
+                    self.enqueue_encrypted(&[McpePacket::from(SetTimePacket { time: 34_567 })]);
+                }
                 self.stage = 8;
             }
             8 => {
                 let packets = self.decode_encrypted_client(frame);
+                if self.cache_enabled {
+                    let hash = protocol::client_blob_hash(b"cached-column");
+                    assert!(matches!(
+                        packets.as_slice(),
+                        [McpePacket {
+                            data: McpePacketData::PacketClientCacheBlobStatus(
+                                ClientCacheBlobStatusPacket { missing, have }
+                            ),
+                            ..
+                        }] if missing == &[hash] && have.is_empty()
+                    ));
+                    self.enqueue_encrypted(&[McpePacket::from(ClientCacheMissResponsePacket {
+                        blobs: vec![Blob {
+                            hash,
+                            payload: b"cached-column".to_vec(),
+                        }],
+                    })]);
+                    self.stage = 9;
+                    return;
+                }
                 assert!(matches!(
                     packets.as_slice(),
                     [McpePacket {
@@ -638,6 +694,66 @@ async fn snappy_login_waits_for_spawn_then_radius_and_emits_encrypted_snappy_ack
 #[tokio::test]
 async fn no_compression_login_uses_the_uncompressed_batch_marker() {
     assert_success(CompressionMode::None, SpawnOrder::RadiusThenSpawn).await;
+}
+
+#[tokio::test]
+async fn encrypted_login_advertises_cache_only_when_resolver_is_installed() {
+    let transport =
+        ScriptTransport::new_with_cache(CompressionMode::Deflate, SpawnOrder::RadiusThenSpawn);
+    let (session, _) = LoginSequence::connect_transport_with_blob_cache(
+        transport,
+        "RustClient",
+        ClientBlobCache::default(),
+    )
+    .await
+    .expect("cache-enabled scripted login");
+    assert!(session.blob_cache_enabled());
+}
+
+#[tokio::test]
+async fn encrypted_play_resolves_cached_level_chunk_and_preserves_world_fifo() {
+    let transport =
+        ScriptTransport::new_with_cache(CompressionMode::Deflate, SpawnOrder::RadiusThenSpawn);
+    let (mut session, _) = LoginSequence::connect_transport_with_blob_cache(
+        transport,
+        "RustClient",
+        ClientBlobCache::default(),
+    )
+    .await
+    .expect("cache-enabled scripted login");
+
+    for expected in [
+        WorldEvent::SetTime(protocol::SetTimeEvent { time: 12_345 }),
+        WorldEvent::SetTime(protocol::SetTimeEvent { time: 23_456 }),
+        WorldEvent::ChunkRadiusUpdated(16),
+    ] {
+        assert_eq!(
+            session.recv_world_event(0).await.expect("login prelude"),
+            expected
+        );
+    }
+
+    let chunk = session
+        .recv_world_event(0)
+        .await
+        .expect("resolved cached chunk");
+    let WorldEvent::LevelChunk(chunk) = chunk else {
+        panic!("cached transaction must remain first")
+    };
+    assert_eq!((chunk.x, chunk.z), (9, -11));
+    assert_eq!(chunk.payload, b"cached-columntail");
+
+    assert_eq!(
+        session.recv_world_event(0).await.expect("FIFO SetTime"),
+        WorldEvent::SetTime(protocol::SetTimeEvent { time: 34_567 })
+    );
+    let stats = session.blob_cache_stats();
+    assert_eq!(stats.hashes_classified, 1);
+    assert_eq!(stats.misses, 1);
+    assert_eq!(stats.admitted_blobs, 1);
+    assert_eq!(stats.reconstructed_level_chunks, 1);
+    assert_eq!(stats.pending_transactions, 0);
+    assert_eq!(stats.pending_bytes, 0);
 }
 
 #[tokio::test]

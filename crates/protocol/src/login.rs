@@ -5,10 +5,13 @@ use jolyne::raw::RawPacket;
 use jolyne::stream::client::ClientHandshakeConfig;
 use jolyne::stream::transport::{BedrockTransport, Transport};
 use jolyne::stream::{BedrockStream, Client, Handshake, Play};
-use valentine::bedrock::version::v1_26_30::McpePacketName;
+use valentine::bedrock::version::v1_26_30::{McpePacketData, McpePacketName};
 
 use crate::socket_transport::SocketTransport;
-use crate::{GameData, Packet, ProtocolError, WorldEvent, into_world_event};
+use crate::{
+    BlobCacheReady, BlobCacheResolver, BlobCacheStats, ClientBlobCache, GameData, Packet,
+    ProtocolError, WorldEvent, into_world_event,
+};
 
 const MAX_DECOMPRESSED_BATCH_SIZE: usize = 16 * 1024 * 1024;
 
@@ -27,19 +30,50 @@ impl LoginSequence {
         Self::connect_transport(transport, display_name).await
     }
 
+    /// Connects with a persistent verified cache and a fresh session-owned resolver.
+    pub async fn connect_with_blob_cache(
+        socket_dir: &Path,
+        display_name: &str,
+        cache: ClientBlobCache,
+    ) -> Result<(PlaySession, GameData), ProtocolError> {
+        let transport = SocketTransport::connect(socket_dir)
+            .await
+            .map_err(ProtocolError::Bridge)?;
+        Self::connect_transport_with_blob_cache(transport, display_name, cache).await
+    }
+
     /// Generic transport seam used by deterministic protocol state tests.
     #[doc(hidden)]
     pub async fn connect_transport<T: Transport>(
         transport: T,
         display_name: &str,
     ) -> Result<(PlaySession<T>, GameData), ProtocolError> {
+        Self::connect_transport_inner(transport, display_name, None).await
+    }
+
+    /// Deterministic enabled negotiation seam used by protocol tests and live integration.
+    #[doc(hidden)]
+    pub async fn connect_transport_with_blob_cache<T: Transport>(
+        transport: T,
+        display_name: &str,
+        cache: ClientBlobCache,
+    ) -> Result<(PlaySession<T>, GameData), ProtocolError> {
+        Self::connect_transport_inner(transport, display_name, Some(cache)).await
+    }
+
+    async fn connect_transport_inner<T: Transport>(
+        transport: T,
+        display_name: &str,
+        cache: Option<ClientBlobCache>,
+    ) -> Result<(PlaySession<T>, GameData), ProtocolError> {
         let peer_addr = transport.peer_addr();
         let mut transport = BedrockTransport::new(transport);
         transport.set_max_decompressed_batch_size(Some(MAX_DECOMPRESSED_BATCH_SIZE));
         let stream: BedrockStream<Handshake, Client, T> = BedrockStream::from_transport(transport);
-        let config = ClientHandshakeConfig::random(peer_addr, display_name);
+        let config = ClientHandshakeConfig::random(peer_addr, display_name)
+            .with_client_cache_enabled(cache.is_some());
         let (stream, game_data) = stream.join(config).await?;
-        Ok((PlaySession::new(stream), game_data))
+        Ok((PlaySession::new(stream, cache), game_data))
     }
 }
 
@@ -47,24 +81,35 @@ impl LoginSequence {
 pub struct PlaySession<T: Transport = SocketTransport> {
     stream: BedrockStream<Play, Client, T>,
     decode_errors: u64,
+    blob_cache: Option<BlobCacheResolver>,
 }
 
 impl<T: Transport> PlaySession<T> {
-    fn new(stream: BedrockStream<Play, Client, T>) -> Self {
+    fn new(stream: BedrockStream<Play, Client, T>, cache: Option<ClientBlobCache>) -> Self {
         Self {
             stream,
             decode_errors: 0,
+            blob_cache: cache.map(BlobCacheResolver::new),
         }
     }
 
     /// Receives one packet, counting malformed/decompression failures.
     pub async fn recv(&mut self) -> Result<Packet, ProtocolError> {
         match self.stream.recv_packet().await {
-            Ok(packet) => Ok(packet),
+            Ok(packet) => {
+                if matches!(
+                    &packet.data,
+                    McpePacketData::PacketTransfer(_) | McpePacketData::PacketDisconnect(_)
+                ) {
+                    self.reset_blob_cache_pending();
+                }
+                Ok(packet)
+            }
             Err(error) => {
                 if is_decode_error(&error) {
                     self.decode_errors = self.decode_errors.saturating_add(1);
                 }
+                self.reset_blob_cache_pending();
                 Err(error.into())
             }
         }
@@ -75,6 +120,11 @@ impl<T: Transport> PlaySession<T> {
         &mut self,
         current_dimension: i32,
     ) -> Result<WorldEvent, ProtocolError> {
+        if self.blob_cache.is_some() {
+            return self
+                .recv_world_event_with_blob_cache(current_dimension)
+                .await;
+        }
         loop {
             let raw = match self.stream.recv_packet_raw().await {
                 Ok(raw) => raw,
@@ -112,6 +162,200 @@ impl<T: Transport> PlaySession<T> {
     /// Number of receive-side decode/decompression failures observed in play.
     pub fn decode_error_count(&self) -> u64 {
         self.decode_errors
+    }
+
+    /// Whether login advertised cache support and this session owns a resolver.
+    #[must_use]
+    pub const fn blob_cache_enabled(&self) -> bool {
+        self.blob_cache.is_some()
+    }
+
+    /// Secret-safe cache counters for acceptance evidence.
+    #[must_use]
+    pub fn blob_cache_stats(&self) -> BlobCacheStats {
+        self.blob_cache
+            .as_ref()
+            .map_or_else(BlobCacheStats::default, BlobCacheResolver::stats)
+    }
+
+    /// Drops only session-scoped transactions; verified cache entries remain shared.
+    pub fn reset_blob_cache_pending(&mut self) {
+        if let Some(resolver) = self.blob_cache.as_mut() {
+            resolver.reset_pending();
+        }
+    }
+
+    async fn recv_world_event_with_blob_cache(
+        &mut self,
+        current_dimension: i32,
+    ) -> Result<WorldEvent, ProtocolError> {
+        loop {
+            if let Some(ready) = self
+                .blob_cache
+                .as_mut()
+                .expect("enabled path owns a resolver")
+                .pop_ready()
+            {
+                let event = match ready {
+                    BlobCacheReady::Packet(packet) => {
+                        match into_world_event(packet, current_dimension) {
+                            Ok(Some(event)) => event,
+                            Ok(None) => {
+                                self.reset_blob_cache_pending();
+                                continue;
+                            }
+                            Err(error) => {
+                                self.reset_blob_cache_pending();
+                                return Err(error.into());
+                            }
+                        }
+                    }
+                    BlobCacheReady::WorldEvent(event) => event,
+                };
+                if matches!(event, WorldEvent::ChangeDimension(_)) {
+                    self.reset_blob_cache_pending();
+                }
+                return Ok(event);
+            }
+
+            let raw = match self.stream.recv_packet_raw().await {
+                Ok(raw) => raw,
+                Err(error) => return Err(self.fail_session(error)),
+            };
+            let packet_bytes = raw.inner_frame().len();
+            let packet_name = raw.id;
+
+            if matches!(
+                packet_name,
+                McpePacketName::PacketTransfer | McpePacketName::PacketDisconnect
+            ) {
+                if let Err(error) = self.stream.decode_raw_packet(raw) {
+                    return Err(self.fail_session(error));
+                }
+                let resolver = self
+                    .blob_cache
+                    .as_mut()
+                    .expect("enabled path owns a resolver");
+                reset_cache_for_immediate_boundary(resolver, packet_name);
+                continue;
+            }
+
+            if matches!(
+                packet_name,
+                McpePacketName::PacketLevelChunk
+                    | McpePacketName::PacketSubchunk
+                    | McpePacketName::PacketClientCacheMissResponse
+            ) {
+                let packet = match self.stream.decode_raw_packet(raw) {
+                    Ok(packet) => packet,
+                    Err(error) => return Err(self.fail_session(error)),
+                };
+                if let McpePacketData::PacketClientCacheMissResponse(response) = packet.data {
+                    if let Err(error) = self
+                        .blob_cache
+                        .as_mut()
+                        .expect("enabled path owns a resolver")
+                        .accept_miss_response(response)
+                    {
+                        return Err(error.into());
+                    }
+                    continue;
+                }
+
+                if is_cached_world_packet(&packet) {
+                    let status = match self
+                        .blob_cache
+                        .as_mut()
+                        .expect("enabled path owns a resolver")
+                        .accept_cached_packet(packet)
+                    {
+                        Ok(status) => status,
+                        Err(error) => return Err(error.into()),
+                    };
+                    if let Err(error) = self.send(status.into()).await {
+                        self.reset_blob_cache_pending();
+                        return Err(error);
+                    }
+                    continue;
+                }
+
+                let event = match into_world_event(packet, current_dimension) {
+                    Ok(event) => event,
+                    Err(error) => {
+                        self.reset_blob_cache_pending();
+                        return Err(error.into());
+                    }
+                };
+                if let Some(event) = event
+                    && let Err(error) = self
+                        .blob_cache
+                        .as_mut()
+                        .expect("enabled path owns a resolver")
+                        .accept_world_event(event, packet_bytes)
+                {
+                    return Err(error.into());
+                }
+                continue;
+            }
+
+            let decoded = decode_world_raw_with(raw, current_dimension, |raw| {
+                self.stream.decode_raw_packet(raw)
+            });
+            match decoded {
+                Ok(Some(event)) => {
+                    if let Err(error) = self
+                        .blob_cache
+                        .as_mut()
+                        .expect("enabled path owns a resolver")
+                        .accept_world_event(event, packet_bytes)
+                    {
+                        return Err(error.into());
+                    }
+                }
+                Ok(None) => {}
+                Err(ProtocolError::Session(error)) => return Err(self.fail_session(error)),
+                Err(error) => {
+                    self.reset_blob_cache_pending();
+                    return Err(error);
+                }
+            }
+        }
+    }
+
+    fn fail_session(&mut self, error: JolyneError) -> ProtocolError {
+        if is_decode_error(&error) {
+            self.decode_errors = self.decode_errors.saturating_add(1);
+        }
+        self.reset_blob_cache_pending();
+        ProtocolError::Session(error)
+    }
+}
+
+fn is_cached_world_packet(packet: &Packet) -> bool {
+    match &packet.data {
+        McpePacketData::PacketLevelChunk(packet) => packet.blobs.is_some(),
+        McpePacketData::PacketSubchunk(packet) => matches!(
+            packet.entries,
+            valentine::bedrock::version::v1_26_30::SubchunkPacketEntries::SubChunkEntryWithCaching(
+                _
+            )
+        ),
+        _ => false,
+    }
+}
+
+fn reset_cache_for_immediate_boundary(
+    resolver: &mut BlobCacheResolver,
+    packet: McpePacketName,
+) -> bool {
+    if matches!(
+        packet,
+        McpePacketName::PacketTransfer | McpePacketName::PacketDisconnect
+    ) {
+        resolver.reset_pending();
+        true
+    } else {
+        false
     }
 }
 
@@ -179,8 +423,9 @@ mod tests {
     use valentine::bedrock::version::v1_26_30::{
         AddEntityPacket, BiomeDefinition, BiomeDefinitionListPacket, BlockCoordinates,
         BlockEntityDataPacket, CorrectPlayerMovePredictionPacket, GameRuleI32, GameRuleI32Type,
-        GameRuleI32Value, GameRulesChangedPacket, LevelEventPacket, LevelEventPacketEvent,
-        McpePacketName, MovePlayerPacket, UpdateBlockPacket, Vec2F, Vec3F,
+        GameRuleI32Value, GameRulesChangedPacket, LevelChunkPacket, LevelChunkPacketBlobs,
+        LevelEventPacket, LevelEventPacketEvent, McpePacketName, MovePlayerPacket,
+        UpdateBlockPacket, Vec2F, Vec3F,
     };
     use valentine::protocol::wire;
 
@@ -195,6 +440,37 @@ mod tests {
         wire::write_var_u32(&mut frame, payload.len() as u32);
         frame.put_slice(&payload);
         decode_packet_raw(&mut frame.freeze()).expect("raw packet")
+    }
+
+    #[test]
+    fn transfer_resets_pending_cache_transactions_but_change_dimension_is_ordered() {
+        let cache = ClientBlobCache::default();
+        let mut resolver = BlobCacheResolver::new(cache);
+        let missing = crate::client_blob_hash(b"missing");
+        resolver
+            .accept_cached_packet(
+                LevelChunkPacket {
+                    sub_chunk_count: 0,
+                    blobs: Some(LevelChunkPacketBlobs {
+                        hashes: vec![missing],
+                    }),
+                    ..Default::default()
+                }
+                .into(),
+            )
+            .expect("pending cached column");
+
+        assert!(!reset_cache_for_immediate_boundary(
+            &mut resolver,
+            McpePacketName::PacketChangeDimension
+        ));
+        assert_eq!(resolver.stats().pending_transactions, 1);
+        assert!(reset_cache_for_immediate_boundary(
+            &mut resolver,
+            McpePacketName::PacketTransfer
+        ));
+        assert_eq!(resolver.stats().pending_transactions, 0);
+        assert_eq!(resolver.stats().pending_resets, 1);
     }
 
     #[test]

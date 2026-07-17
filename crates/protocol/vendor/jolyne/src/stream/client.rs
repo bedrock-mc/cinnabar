@@ -124,6 +124,8 @@ pub struct ClientHandshakeConfig {
     pub uuid: Uuid,
     /// Xbox Live credentials for authenticated servers (optional)
     pub xbl_credentials: Option<XblCredentials>,
+    /// Advertise the Bedrock client blob cache only when the caller installed a resolver.
+    pub client_cache_enabled: bool,
 }
 
 impl ClientHandshakeConfig {
@@ -136,6 +138,7 @@ impl ClientHandshakeConfig {
             display_name: display_name.into(),
             uuid: Uuid::new_v4(),
             xbl_credentials: None,
+            client_cache_enabled: false,
         }
     }
 
@@ -153,7 +156,15 @@ impl ClientHandshakeConfig {
             display_name: display_name.into(),
             uuid,
             xbl_credentials: Some(xbl_credentials),
+            client_cache_enabled: false,
         }
+    }
+
+    /// Binds login negotiation to the caller's installed cache resolver.
+    #[must_use]
+    pub fn with_client_cache_enabled(mut self, enabled: bool) -> Self {
+        self.client_cache_enabled = enabled;
+        self
     }
 }
 
@@ -300,7 +311,9 @@ impl<T: Transport> BedrockStream<Handshake, Client, T> {
         let secure = login.send_login(&config).await?;
 
         // 3. Encryption
-        let packs = secure.await_handshake(&key).await?;
+        let packs = secure
+            .await_handshake_with_client_cache(&key, config.client_cache_enabled)
+            .await?;
 
         // 4. Resource Packs
         let start = packs.handle_packs().await?;
@@ -405,8 +418,19 @@ fn observe_login_success_packet(
 impl<T: Transport> BedrockStream<SecurePending, Client, T> {
     #[instrument(skip_all, level = "trace")]
     pub async fn await_handshake(
+        self,
+        client_identity_key: &SecretKey,
+    ) -> Result<BedrockStream<ResourcePacks, Client, T>, JolyneError> {
+        self.await_handshake_with_client_cache(client_identity_key, false)
+            .await
+    }
+
+    /// Completes encryption and advertises cache support only for an installed resolver.
+    #[instrument(skip_all, level = "trace")]
+    pub async fn await_handshake_with_client_cache(
         mut self,
         client_identity_key: &SecretKey,
+        client_cache_enabled: bool,
     ) -> Result<BedrockStream<ResourcePacks, Client, T>, JolyneError> {
         tracing::debug!("Waiting for ServerToClientHandshake...");
         let next_raw = self.transport.recv_packet_raw().await?;
@@ -578,8 +602,13 @@ impl<T: Transport> BedrockStream<SecurePending, Client, T> {
                 }
 
                 // Send ClientCacheStatus AFTER PlayStatus - tells server we're ready for ResourcePacksInfo
-                tracing::debug!("Sending ClientCacheStatus (enabled=false)...");
-                let cache_status = ClientCacheStatusPacket { enabled: false };
+                tracing::debug!(
+                    enabled = client_cache_enabled,
+                    "Sending ClientCacheStatus..."
+                );
+                let cache_status = ClientCacheStatusPacket {
+                    enabled: client_cache_enabled,
+                };
                 self.transport
                     .send_batch(&[McpePacket::from(cache_status)])
                     .await?;
@@ -607,7 +636,9 @@ impl<T: Transport> BedrockStream<SecurePending, Client, T> {
                     .into());
                 }
                 self.transport
-                    .send_batch(&[McpePacket::from(ClientCacheStatusPacket { enabled: false })])
+                    .send_batch(&[McpePacket::from(ClientCacheStatusPacket {
+                        enabled: client_cache_enabled,
+                    })])
                     .await?;
             }
             McpePacketData::PacketDisconnect(disconnect) => {
@@ -808,6 +839,45 @@ mod tests {
                 data: McpePacketData::PacketClientCacheStatus(status),
                 ..
             }] if !status.enabled
+        ));
+    }
+
+    #[tokio::test]
+    async fn unencrypted_login_success_can_advertise_an_installed_client_cache() {
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let inbound = vec![compressed_frame(McpePacket::from(
+            crate::valentine::PlayStatusPacket {
+                status: PlayStatusPacketStatus::LoginSuccess,
+            },
+        ))];
+        let mut transport = BedrockTransport::new(ScriptedTransport::new(inbound, sent.clone()));
+        transport.set_compression(true, 0, 0);
+        let stream = BedrockStream {
+            transport,
+            state: SecurePending { config: None },
+            _role: PhantomData,
+        };
+
+        let _packs = stream
+            .await_handshake_with_client_cache(&SecretKey::random(&mut rand::thread_rng()), true)
+            .await
+            .expect("cache-enabled LoginSuccess should advance to resource packs");
+
+        let sent = sent.lock().expect("sent lock");
+        let mut frame = sent[0].buffer.clone();
+        let decoded = decode_batch(
+            &mut frame,
+            &valentine::bedrock::context::BedrockSession { shield_item_id: 0 },
+            true,
+            None,
+        )
+        .expect("decode ClientCacheStatus frame");
+        assert!(matches!(
+            decoded.as_slice(),
+            [McpePacket {
+                data: McpePacketData::PacketClientCacheStatus(status),
+                ..
+            }] if status.enabled
         ));
     }
 

@@ -43,3 +43,17 @@ The rows below are planning records, not evidence rows.
 Task 1 records no commands, reviewed-run commits, run-directory manifest hashes, metrics hashes, server/native builds, backend/adapter/driver identities, requested/effective present modes, asset identities, results, unresolved failures, timings, counts, or outcomes.
 
 When a later producing task creates a complete row, that row must include the sub-gate, its single master ID, exact command, reviewed commit, create-new run-directory manifest SHA-256, metrics SHA-256, server/native build, backend/adapter/driver, requested/effective present mode, asset identities, result, and unresolved failure. Every Task 3 checkpoint row and every Task 7 candidate row has exact status `Non-final diagnostic`. Only Task 13 may use the exact status `Final candidate`. Until those tasks run, no evidence row exists.
+
+## Task 5A deterministic client blob-cache implementation
+
+The deterministic implementation now provides an opt-in, process-persistent verified blob cache with a fresh pending resolver per Play session. It negotiates cache support only through the enabled login route, reconstructs cached LevelChunk and SubChunk packets before the stateless world normalizer, preserves world FIFO across split miss responses, and resets pending state at session, transfer, disconnect, and ordered dimension boundaries. Cache storage, individual blobs, packet hash lists, pending transactions, and retained/reconstructed bytes are bounded; miss payloads are verified with seed-zero xxHash64 before atomic admission. Aggregate counters contain no blob payloads or server secrets.
+
+Deterministic checks completed locally:
+
+- `cargo test -p protocol --locked --test blob_cache -- --nocapture` — 19 passed.
+- `cargo test -p protocol --locked --test login_state -- --nocapture` — 7 passed, including encrypted enabled negotiation and cached-world FIFO.
+- `cargo test -p jolyne --features client client_cache -- --nocapture` — 2 passed for vendored enabled/disabled negotiation.
+- `go test ./... -run ClientBlobCache -count=1` and `go vet ./...` under `core` — passed with the pinned gophertunnel/xxHash fixture.
+- `cargo clippy -p protocol -p client-world --all-targets --locked -- -D warnings` and `cargo clippy -p bedrock-client --lib --bins --locked -- -D warnings` — passed.
+
+The combined `bedrock-client --all-targets` gate remains blocked outside Task 5A by the pre-existing `app/tests/assets.rs` `CompiledEntityAssets` initializer missing newly added animation fields. No live Lunar or Zeqa evidence was run or recorded here; Task 5A remains non-final until the ordered live gate is executed independently.

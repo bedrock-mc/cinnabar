@@ -15,12 +15,28 @@ use protocol::{
 use tokio::sync::{mpsc, oneshot, watch};
 
 use super::{
-    COMMAND_CAPACITY, CONTROL_EVENT_CAPACITY, NetworkCommand, NetworkControlEvent, NetworkHandle,
-    NetworkPumpPreference, NetworkPumpWork, NetworkSequencer, NetworkSession, PacketSendError,
-    SequencedWorldEvent, WORLD_EVENT_CAPACITY, run_network_pump, send_control_event_or_cancel,
-    send_event_or_cancel, send_world_event_or_cancel, wait_for_login_or_cancel,
-    wait_for_network_work_or_cancel, wait_for_send_or_cancel,
+    COMMAND_CAPACITY, CONTROL_EVENT_CAPACITY, NetworkCommand, NetworkConfig, NetworkControlEvent,
+    NetworkHandle, NetworkPumpPreference, NetworkPumpWork, NetworkSequencer, NetworkSession,
+    PacketSendError, SequencedWorldEvent, WORLD_EVENT_CAPACITY, run_network_pump,
+    send_control_event_or_cancel, send_event_or_cancel, send_world_event_or_cancel,
+    wait_for_login_or_cancel, wait_for_network_work_or_cancel, wait_for_send_or_cancel,
 };
+
+#[test]
+fn cloned_network_configs_share_the_persistent_verified_blob_cache() {
+    let config = NetworkConfig {
+        socket_dir: std::path::PathBuf::from("core.sock"),
+        display_name: "cache-owner".to_owned(),
+        client_blob_cache: protocol::ClientBlobCache::default(),
+    };
+    let reconnect = config.clone();
+    let hash = config
+        .client_blob_cache
+        .insert(b"verified-across-session")
+        .expect("seed verified blob");
+
+    assert!(reconnect.client_blob_cache.contains(hash));
+}
 
 struct ReadyInboundSession {
     inbound: Option<WorldEvent>,
