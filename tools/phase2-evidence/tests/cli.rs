@@ -6,9 +6,11 @@ use image::codecs::png::PngEncoder;
 use image::{ColorType, ImageEncoder};
 use phase2_evidence::{
     ComparisonManifest, ComparisonRequest, Crop, EvidenceError, EvidenceKind, LabelledSample,
-    MAX_IMAGE_DIMENSION, MAX_INPUT_BYTES, Thresholds, compare,
+    MAX_CROP_IDENTITY_BYTES, MAX_IMAGE_DIMENSION, MAX_INPUT_BYTES, MAX_LABELLED_SAMPLES,
+    MAX_SAMPLE_LABEL_BYTES, Thresholds, compare, compare_files,
 };
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use tempfile::tempdir;
 
 fn rgba_png(width: u32, height: u32, pixels: &[[u8; 4]]) -> Vec<u8> {
@@ -37,6 +39,24 @@ fn manifest(width: u32, height: u32) -> ComparisonManifest {
         allow_alpha_mismatch: false,
         samples: Vec::new(),
     }
+}
+
+fn samples_at_exact_limit() -> Vec<LabelledSample> {
+    (0..MAX_LABELLED_SAMPLES)
+        .map(|index| LabelledSample {
+            label: if index == 0 {
+                "s".repeat(MAX_SAMPLE_LABEL_BYTES)
+            } else {
+                format!("sample-{index}")
+            },
+            x: 0,
+            y: 0,
+        })
+        .collect()
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
 }
 
 #[test]
@@ -212,6 +232,193 @@ fn comparison_enforces_encoded_input_dimension_and_threshold_bounds() {
 }
 
 #[test]
+fn direct_request_enforces_identity_label_and_sample_limits_before_image_decode() {
+    let png = rgba_png(1, 1, &[[0, 0, 0, 255]]);
+    let mut exact = manifest(1, 1);
+    exact.crop.identity = "c".repeat(MAX_CROP_IDENTITY_BYTES);
+    exact.samples = samples_at_exact_limit();
+    let exact_report = compare(ComparisonRequest::from_bytes(
+        EvidenceKind::Biome,
+        exact,
+        png.clone(),
+        png.clone(),
+    ))
+    .expect("exact manifest limits are accepted");
+    assert_eq!(exact_report.labelled_samples.len(), MAX_LABELLED_SAMPLES);
+
+    let mut empty_identity = manifest(1, 1);
+    empty_identity.crop.identity.clear();
+    assert!(matches!(
+        compare(ComparisonRequest::from_bytes(
+            EvidenceKind::Biome,
+            empty_identity,
+            Vec::new(),
+            Vec::new(),
+        )),
+        Err(EvidenceError::EmptyCropIdentity)
+    ));
+
+    let mut long_identity = manifest(1, 1);
+    long_identity.crop.identity = "c".repeat(MAX_CROP_IDENTITY_BYTES + 1);
+    assert!(matches!(
+        compare(ComparisonRequest::from_bytes(
+            EvidenceKind::Biome,
+            long_identity,
+            Vec::new(),
+            Vec::new(),
+        )),
+        Err(EvidenceError::CropIdentityTooLong { .. })
+    ));
+
+    let mut empty_label = manifest(1, 1);
+    empty_label.samples.push(LabelledSample {
+        label: String::new(),
+        x: 0,
+        y: 0,
+    });
+    assert!(matches!(
+        compare(ComparisonRequest::from_bytes(
+            EvidenceKind::Biome,
+            empty_label,
+            Vec::new(),
+            Vec::new(),
+        )),
+        Err(EvidenceError::EmptySampleLabel)
+    ));
+
+    let mut long_label = manifest(1, 1);
+    long_label.samples.push(LabelledSample {
+        label: "s".repeat(MAX_SAMPLE_LABEL_BYTES + 1),
+        x: 0,
+        y: 0,
+    });
+    assert!(matches!(
+        compare(ComparisonRequest::from_bytes(
+            EvidenceKind::Biome,
+            long_label,
+            Vec::new(),
+            Vec::new(),
+        )),
+        Err(EvidenceError::SampleLabelTooLong { .. })
+    ));
+
+    let mut too_many = manifest(1, 1);
+    too_many.samples = vec![
+        LabelledSample {
+            label: String::new(),
+            x: 0,
+            y: 0,
+        };
+        MAX_LABELLED_SAMPLES + 1
+    ];
+    assert!(matches!(
+        compare(ComparisonRequest::from_bytes(
+            EvidenceKind::Biome,
+            too_many,
+            Vec::new(),
+            Vec::new(),
+        )),
+        Err(EvidenceError::TooManySamples { .. })
+    ));
+}
+
+#[test]
+fn cli_enforces_identity_label_and_sample_exact_plus_one_and_empty_limits() {
+    let directory = tempdir().expect("temporary directory");
+    let native_path = directory.path().join("native.png");
+    let cinnabar_path = directory.path().join("cinnabar.png");
+    let manifest_path = directory.path().join("manifest.json");
+    fs::write(&native_path, rgba_png(1, 1, &[[0, 0, 0, 255]])).expect("write native PNG");
+    fs::write(&cinnabar_path, rgba_png(1, 1, &[[0, 0, 0, 255]])).expect("write Cinnabar PNG");
+
+    let mut exact = manifest(1, 1);
+    exact.crop.identity = "c".repeat(MAX_CROP_IDENTITY_BYTES);
+    exact.samples = samples_at_exact_limit();
+    fs::write(
+        &manifest_path,
+        serde_json::to_vec(&exact).expect("serialize exact manifest"),
+    )
+    .expect("write exact manifest");
+    let exact_output = directory.path().join("exact.json");
+    assert!(
+        run_compare(
+            EvidenceKind::Biome,
+            &manifest_path,
+            &native_path,
+            &cinnabar_path,
+            &exact_output,
+        )
+        .status
+        .success()
+    );
+
+    let invalid_manifests = [
+        {
+            let mut value = manifest(1, 1);
+            value.crop.identity.clear();
+            ("empty-identity", value, "crop identity must not be empty")
+        },
+        {
+            let mut value = manifest(1, 1);
+            value.crop.identity = "c".repeat(MAX_CROP_IDENTITY_BYTES + 1);
+            ("long-identity", value, "crop identity exceeds")
+        },
+        {
+            let mut value = manifest(1, 1);
+            value.samples.push(LabelledSample {
+                label: String::new(),
+                x: 0,
+                y: 0,
+            });
+            ("empty-label", value, "sample label must not be empty")
+        },
+        {
+            let mut value = manifest(1, 1);
+            value.samples.push(LabelledSample {
+                label: "s".repeat(MAX_SAMPLE_LABEL_BYTES + 1),
+                x: 0,
+                y: 0,
+            });
+            ("long-label", value, "sample label exceeds")
+        },
+        {
+            let mut value = manifest(1, 1);
+            value.samples = vec![
+                LabelledSample {
+                    label: String::new(),
+                    x: 0,
+                    y: 0,
+                };
+                MAX_LABELLED_SAMPLES + 1
+            ];
+            ("too-many-samples", value, "sample count exceeds")
+        },
+    ];
+    for (name, invalid, expected_error) in invalid_manifests {
+        fs::write(
+            &manifest_path,
+            serde_json::to_vec(&invalid).expect("serialize invalid manifest"),
+        )
+        .expect("write invalid manifest");
+        let output_path = directory.path().join(format!("{name}.json"));
+        let output = run_compare(
+            EvidenceKind::Biome,
+            &manifest_path,
+            &native_path,
+            &cinnabar_path,
+            &output_path,
+        );
+        assert!(!output.status.success(), "{name} unexpectedly succeeded");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains(expected_error),
+            "{name} emitted unexpected error: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(!output_path.exists(), "{name} created an output report");
+    }
+}
+
+#[test]
 fn cli_writes_a_path_free_report_and_rejects_an_output_input_alias() {
     let directory = tempdir().expect("temporary directory");
     let native_path = directory.path().join("native.png");
@@ -241,8 +448,8 @@ fn cli_writes_a_path_free_report_and_rejects_an_output_input_alias() {
         String::from_utf8_lossy(&output.stderr)
     );
     let report_bytes = fs::read(&output_path).expect("read report");
-    let report_text = String::from_utf8(report_bytes).expect("report is UTF-8");
-    let report: Value = serde_json::from_str(&report_text).expect("report is JSON");
+    let report_text = std::str::from_utf8(&report_bytes).expect("report is UTF-8");
+    let report: Value = serde_json::from_str(report_text).expect("report is JSON");
     assert_eq!(report["kind"], "celestial");
     assert_eq!(report["crop"]["identity"], "whole-frame");
     assert_eq!(report["passed"], true);
@@ -253,6 +460,22 @@ fn cli_writes_a_path_free_report_and_rejects_an_output_input_alias() {
             path.display()
         );
     }
+
+    let repeat_output_path = directory.path().join("comparison-repeat.json");
+    let repeated = run_compare(
+        EvidenceKind::Celestial,
+        &manifest_path,
+        &native_path,
+        &cinnabar_path,
+        &repeat_output_path,
+    );
+    assert!(repeated.status.success());
+    let repeated_report_bytes = fs::read(&repeat_output_path).expect("read repeated report");
+    assert_eq!(report_bytes, repeated_report_bytes);
+    assert_eq!(
+        sha256_hex(&report_bytes),
+        sha256_hex(&repeated_report_bytes)
+    );
 
     let mut strict = manifest(1, 1);
     strict.thresholds.maximum_channel_error_rgb8 = 0;
@@ -294,6 +517,7 @@ fn cli_writes_a_path_free_report_and_rejects_an_output_input_alias() {
     assert!(!alias.status.success());
 
     let hard_link_path = directory.path().join("native-hard-link.png");
+    let native_before_alias = fs::read(&native_path).expect("read native before alias check");
     fs::hard_link(&native_path, &hard_link_path).expect("create input hard link");
     let hard_link_alias = run_compare(
         EvidenceKind::Cloud,
@@ -303,6 +527,30 @@ fn cli_writes_a_path_free_report_and_rejects_an_output_input_alias() {
         &hard_link_path,
     );
     assert!(!hard_link_alias.status.success());
+    assert!(
+        String::from_utf8_lossy(&hard_link_alias.stderr)
+            .contains("output aliases the native input")
+    );
+    assert_eq!(
+        fs::read(&native_path).expect("read native after alias check"),
+        native_before_alias
+    );
+    assert_eq!(
+        fs::read(&hard_link_path).expect("read hard link after alias check"),
+        native_before_alias
+    );
+
+    let direct_alias = compare_files(
+        EvidenceKind::Cloud,
+        &manifest_path,
+        &native_path,
+        &cinnabar_path,
+        &hard_link_path,
+    );
+    assert!(matches!(
+        direct_alias,
+        Err(EvidenceError::OutputAliasesInput { role: "native" })
+    ));
 }
 
 fn run_compare(

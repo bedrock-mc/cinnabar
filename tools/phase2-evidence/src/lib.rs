@@ -12,6 +12,9 @@ use thiserror::Error;
 
 pub const MAX_INPUT_BYTES: u64 = 32 * 1024 * 1024;
 pub const MAX_IMAGE_DIMENSION: u32 = 8192;
+pub const MAX_CROP_IDENTITY_BYTES: usize = 256;
+pub const MAX_SAMPLE_LABEL_BYTES: usize = 256;
+pub const MAX_LABELLED_SAMPLES: usize = 4096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
 #[serde(rename_all = "kebab-case")]
@@ -186,6 +189,8 @@ pub enum EvidenceError {
     DimensionMismatch,
     #[error("crop identity must not be empty")]
     EmptyCropIdentity,
+    #[error("crop identity exceeds the {MAX_CROP_IDENTITY_BYTES}-byte limit ({length} bytes)")]
+    CropIdentityTooLong { length: usize },
     #[error("crop must have non-zero width and height")]
     EmptyCrop,
     #[error("crop lies outside the {role} image")]
@@ -194,6 +199,12 @@ pub enum EvidenceError {
     InvalidThreshold { name: &'static str },
     #[error("duplicate sample label {0:?}")]
     DuplicateSampleLabel(String),
+    #[error("sample label must not be empty")]
+    EmptySampleLabel,
+    #[error("sample label exceeds the {MAX_SAMPLE_LABEL_BYTES}-byte limit ({length} bytes)")]
+    SampleLabelTooLong { length: usize },
+    #[error("sample count exceeds the {MAX_LABELLED_SAMPLES}-sample limit ({count} samples)")]
+    TooManySamples { count: usize },
     #[error("sample {label:?} lies outside the comparison crop")]
     SampleOutOfBounds { label: String },
     #[error("{field} must be an identity, not an absolute path")]
@@ -209,6 +220,9 @@ pub enum EvidenceError {
 pub fn compare(request: ComparisonRequest) -> Result<ComparisonReport, EvidenceError> {
     validate_buffer_size("native PNG", request.native_png.len())?;
     validate_buffer_size("Cinnabar PNG", request.cinnabar_png.len())?;
+    if let RequestManifest::Exact(manifest) = &request.manifest {
+        validate_manifest_structure(manifest)?;
+    }
 
     let native = decode_png("native", &request.native_png)?;
     let cinnabar = decode_png("Cinnabar", &request.cinnabar_png)?;
@@ -235,7 +249,7 @@ pub fn compare(request: ComparisonRequest) -> Result<ComparisonReport, EvidenceE
             samples: Vec::new(),
         },
     };
-    validate_manifest(&manifest, native.dimensions(), cinnabar.dimensions())?;
+    validate_manifest_geometry(&manifest, native.dimensions(), cinnabar.dimensions())?;
 
     let native_hash = hash_crop(&native, &manifest.crop);
     let cinnabar_hash = hash_crop(&cinnabar, &manifest.crop);
@@ -363,20 +377,24 @@ fn decode_png(role: &'static str, bytes: &[u8]) -> Result<RgbaImage, EvidenceErr
         .map_err(|source| EvidenceError::Image { role, source })
 }
 
-fn validate_manifest(
-    manifest: &ComparisonManifest,
-    native_dimensions: (u32, u32),
-    cinnabar_dimensions: (u32, u32),
-) -> Result<(), EvidenceError> {
+fn validate_manifest_structure(manifest: &ComparisonManifest) -> Result<(), EvidenceError> {
+    if manifest.samples.len() > MAX_LABELLED_SAMPLES {
+        return Err(EvidenceError::TooManySamples {
+            count: manifest.samples.len(),
+        });
+    }
     if manifest.crop.identity.is_empty() {
         return Err(EvidenceError::EmptyCropIdentity);
+    }
+    if manifest.crop.identity.len() > MAX_CROP_IDENTITY_BYTES {
+        return Err(EvidenceError::CropIdentityTooLong {
+            length: manifest.crop.identity.len(),
+        });
     }
     reject_absolute_path_identity(&manifest.crop.identity, "crop identity")?;
     if manifest.crop.width == 0 || manifest.crop.height == 0 {
         return Err(EvidenceError::EmptyCrop);
     }
-    validate_crop(&manifest.crop, native_dimensions, "native")?;
-    validate_crop(&manifest.crop, cinnabar_dimensions, "Cinnabar")?;
     validate_finite_non_negative(
         manifest.thresholds.maximum_channel_error_linear,
         "maximum_channel_error_linear",
@@ -386,14 +404,37 @@ fn validate_manifest(
         "mean_squared_error_linear",
     )?;
 
-    let crop_right = manifest.crop.x + manifest.crop.width;
-    let crop_bottom = manifest.crop.y + manifest.crop.height;
+    for sample in &manifest.samples {
+        if sample.label.is_empty() {
+            return Err(EvidenceError::EmptySampleLabel);
+        }
+        if sample.label.len() > MAX_SAMPLE_LABEL_BYTES {
+            return Err(EvidenceError::SampleLabelTooLong {
+                length: sample.label.len(),
+            });
+        }
+        reject_absolute_path_identity(&sample.label, "sample label")?;
+    }
+
     let mut labels = HashSet::with_capacity(manifest.samples.len());
     for sample in &manifest.samples {
-        reject_absolute_path_identity(&sample.label, "sample label")?;
         if !labels.insert(sample.label.as_str()) {
             return Err(EvidenceError::DuplicateSampleLabel(sample.label.clone()));
         }
+    }
+    Ok(())
+}
+
+fn validate_manifest_geometry(
+    manifest: &ComparisonManifest,
+    native_dimensions: (u32, u32),
+    cinnabar_dimensions: (u32, u32),
+) -> Result<(), EvidenceError> {
+    validate_crop(&manifest.crop, native_dimensions, "native")?;
+    validate_crop(&manifest.crop, cinnabar_dimensions, "Cinnabar")?;
+    let crop_right = manifest.crop.x + manifest.crop.width;
+    let crop_bottom = manifest.crop.y + manifest.crop.height;
+    for sample in &manifest.samples {
         if sample.x < manifest.crop.x
             || sample.x >= crop_right
             || sample.y < manifest.crop.y
@@ -496,6 +537,12 @@ fn reject_output_alias(
     input_path: &Path,
     role: &'static str,
 ) -> Result<(), EvidenceError> {
+    match same_file::is_same_file(output_path, input_path) {
+        Ok(true) => return Err(EvidenceError::OutputAliasesInput { role }),
+        Ok(false) => {}
+        Err(source) if source.kind() == std::io::ErrorKind::NotFound => {}
+        Err(source) => return Err(EvidenceError::Read { role, source }),
+    }
     let input = canonicalize_for_alias(input_path, role)?;
     let output = canonicalize_for_alias(output_path, "output")?;
     if input == output {
