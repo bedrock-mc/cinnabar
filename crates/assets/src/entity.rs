@@ -1,10 +1,32 @@
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::AssetError;
+use crate::item::{ItemVisualAlias, ItemVisualDefinition};
+
+#[path = "entity/v4.rs"]
+mod v4;
+
+use v4::validate_extended_payload;
+#[allow(unused_imports)]
+pub use v4::{
+    CompiledMolangExpression, EntityAnimationChannel, EntityAnimationClip,
+    EntityAnimationController, EntityAnimationInterpolation, EntityAnimationKeyframe,
+    EntityAnimationLoop, EntityAnimationProperty, EntityAssetSummary, EntityControllerAnimation,
+    EntityControllerState, EntityControllerTransition, EntityRigAnimationBinding, EntityRigBinding,
+    EntityRigControllerBinding, EntityRigFallback, MAX_ENTITY_ANIMATION_CHANNELS,
+    MAX_ENTITY_ANIMATION_CLIPS, MAX_ENTITY_ANIMATION_KEYFRAMES, MAX_ENTITY_CONTROLLER_ANIMATIONS,
+    MAX_ENTITY_CONTROLLER_STATES, MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS,
+    MAX_ENTITY_RIG_ANIMATIONS, MAX_ENTITY_RIG_BINDINGS, MAX_ENTITY_RIG_CONTROLLERS,
+    MAX_MOLANG_COLLECTION_ITEMS, MAX_MOLANG_COLLECTION_ITEMS_TOTAL, MAX_MOLANG_COLLECTIONS,
+    MAX_MOLANG_EXPRESSIONS, MAX_MOLANG_OPS, MAX_MOLANG_OPS_PER_EXPRESSION, MAX_MOLANG_STACK_DEPTH,
+    MolangCollection, MolangCollectionItem, MolangOp, MolangSymbol, MolangSymbolKind,
+};
 
 pub const ENTITY_BLOB_MAGIC: [u8; 8] = *b"MCBEENT3";
-pub const ENTITY_BLOB_VERSION: u32 = 3;
+pub const ENTITY_BLOB_VERSION: u32 = 4;
 pub const MAX_ENTITY_ASSET_SOURCES: usize = 8_192;
 pub const MAX_ENTITY_ASSET_SYMBOLS: usize = 16_384;
 pub const MAX_ENTITY_DEPENDENCIES: usize = 512;
@@ -12,7 +34,7 @@ pub const MAX_ENTITY_ASSET_PATH_BYTES: usize = 512;
 pub const MAX_ENTITY_IDENTIFIER_BYTES: usize = 512;
 pub const MAX_ENTITY_SOURCE_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_ENTITY_TOTAL_SOURCE_BYTES: usize = 512 * 1024 * 1024;
-pub const MAX_ENTITY_CATALOG_BYTES: usize = 8 * 1024 * 1024;
+pub const MAX_ENTITY_CATALOG_BYTES: usize = 512 * 1024 * 1024;
 pub const MAX_ENTITY_GEOMETRIES: usize = 4_096;
 pub const MAX_ENTITY_GEOMETRY_BONES: usize = 512;
 pub const MAX_ENTITY_GEOMETRY_CUBES: usize = 8_192;
@@ -174,97 +196,206 @@ pub struct EntityGeometryInheritance {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompiledEntityAssets {
     pub source_manifest_sha256: [u8; 32],
+    pub block_visual_count: u32,
     pub sources: Box<[EntityAssetSource]>,
     pub symbols: Box<[EntityAssetSymbol]>,
     pub geometries: Box<[EntityGeometry]>,
+    pub animation_clips: Box<[EntityAnimationClip]>,
+    pub animation_channels: Box<[EntityAnimationChannel]>,
+    pub animation_keyframes: Box<[EntityAnimationKeyframe]>,
+    pub molang_symbols: Box<[MolangSymbol]>,
+    pub molang_expressions: Box<[CompiledMolangExpression]>,
+    pub molang_ops: Box<[MolangOp]>,
+    pub molang_collections: Box<[MolangCollection]>,
+    pub molang_collection_items: Box<[MolangCollectionItem]>,
+    pub controllers: Box<[EntityAnimationController]>,
+    pub controller_states: Box<[EntityControllerState]>,
+    pub controller_animations: Box<[EntityControllerAnimation]>,
+    pub controller_transitions: Box<[EntityControllerTransition]>,
+    pub rig_bindings: Box<[EntityRigBinding]>,
+    pub rig_animations: Box<[EntityRigAnimationBinding]>,
+    pub rig_controllers: Box<[EntityRigControllerBinding]>,
+    pub item_visuals: Box<[ItemVisualDefinition]>,
+    pub item_visual_aliases: Box<[ItemVisualAlias]>,
 }
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct EntityCatalogPayload {
+    block_visual_count: u32,
     sources: Box<[EntityAssetSource]>,
     symbols: Box<[EntityAssetSymbol]>,
     geometries: Box<[EntityGeometry]>,
+    animation_clips: Box<[EntityAnimationClip]>,
+    animation_channels: Box<[EntityAnimationChannel]>,
+    animation_keyframes: Box<[EntityAnimationKeyframe]>,
+    molang_symbols: Box<[MolangSymbol]>,
+    molang_expressions: Box<[CompiledMolangExpression]>,
+    molang_ops: Box<[MolangOp]>,
+    molang_collections: Box<[MolangCollection]>,
+    molang_collection_items: Box<[MolangCollectionItem]>,
+    controllers: Box<[EntityAnimationController]>,
+    controller_states: Box<[EntityControllerState]>,
+    controller_animations: Box<[EntityControllerAnimation]>,
+    controller_transitions: Box<[EntityControllerTransition]>,
+    rig_bindings: Box<[EntityRigBinding]>,
+    rig_animations: Box<[EntityRigAnimationBinding]>,
+    rig_controllers: Box<[EntityRigControllerBinding]>,
+    item_visuals: Box<[ItemVisualDefinition]>,
+    item_visual_aliases: Box<[ItemVisualAlias]>,
 }
 
 #[derive(Clone, Debug)]
 pub struct RuntimeEntityAssets {
     source_manifest_sha256: [u8; 32],
-    sources: Box<[EntityAssetSource]>,
-    symbols: Box<[EntityAssetSymbol]>,
-    geometries: Box<[EntityGeometry]>,
+    block_visual_count: u32,
+    sources: Arc<[EntityAssetSource]>,
+    symbols: Arc<[EntityAssetSymbol]>,
+    geometries: Arc<[EntityGeometry]>,
+    animation_clips: Arc<[EntityAnimationClip]>,
+    animation_channels: Arc<[EntityAnimationChannel]>,
+    animation_keyframes: Arc<[EntityAnimationKeyframe]>,
+    molang_symbols: Arc<[MolangSymbol]>,
+    molang_expressions: Arc<[CompiledMolangExpression]>,
+    molang_ops: Arc<[MolangOp]>,
+    molang_collections: Arc<[MolangCollection]>,
+    molang_collection_items: Arc<[MolangCollectionItem]>,
+    controllers: Arc<[EntityAnimationController]>,
+    controller_states: Arc<[EntityControllerState]>,
+    controller_animations: Arc<[EntityControllerAnimation]>,
+    controller_transitions: Arc<[EntityControllerTransition]>,
+    rig_bindings: Arc<[EntityRigBinding]>,
+    rig_animations: Arc<[EntityRigAnimationBinding]>,
+    rig_controllers: Arc<[EntityRigControllerBinding]>,
+    item_visuals: Arc<[ItemVisualDefinition]>,
+    item_visual_aliases: Arc<[ItemVisualAlias]>,
 }
 
 impl RuntimeEntityAssets {
     pub fn decode(bytes: &[u8]) -> Result<Self, AssetError> {
         if bytes.len() < HEADER_BYTES + HASH_BYTES {
-            return Err(invalid("truncated MCBEENT3 blob"));
+            return Err(invalid("truncated MCBEENT4 blob"));
         }
-        if bytes[..8] != ENTITY_BLOB_MAGIC
-            || u32_at(bytes, 8)? != ENTITY_BLOB_VERSION
-            || bytes[64..HEADER_BYTES] != [0; 16]
-        {
-            return Err(invalid("unsupported MCBEENT3 header"));
+        if bytes[..8] != ENTITY_BLOB_MAGIC || u32_at(bytes, 8)? != ENTITY_BLOB_VERSION {
+            return Err(invalid("unsupported MCBEENT4 header"));
         }
         let source_count = u32_at(bytes, 12)? as usize;
         let symbol_count = u32_at(bytes, 16)? as usize;
         let geometry_count = u32_at(bytes, 20)? as usize;
+        let animation_clip_count = u32_at(bytes, 64)? as usize;
+        let controller_count = u32_at(bytes, 68)? as usize;
+        let rig_binding_count = u32_at(bytes, 72)? as usize;
+        let item_visual_count = u32_at(bytes, 76)? as usize;
         if source_count == 0
             || source_count > MAX_ENTITY_ASSET_SOURCES
             || symbol_count == 0
             || symbol_count > MAX_ENTITY_ASSET_SYMBOLS
             || geometry_count > MAX_ENTITY_GEOMETRIES
+            || animation_clip_count > MAX_ENTITY_ANIMATION_CLIPS
+            || controller_count > MAX_ENTITY_CONTROLLERS
+            || rig_binding_count > MAX_ENTITY_RIG_BINDINGS
+            || item_visual_count > crate::item::MAX_ITEM_VISUALS
         {
-            return Err(invalid("MCBEENT3 header counts exceed bounds"));
+            return Err(invalid("MCBEENT4 header counts exceed bounds"));
         }
         let source_manifest_sha256 = array_at::<32>(bytes, 24)?;
         let payload_bytes = usize::try_from(u64::from_le_bytes(array_at(bytes, 56)?))
-            .map_err(|_| invalid("MCBEENT3 payload size exceeds platform"))?;
+            .map_err(|_| invalid("MCBEENT4 payload size exceeds platform"))?;
         if payload_bytes > MAX_ENTITY_CATALOG_BYTES
             || bytes.len()
                 != HEADER_BYTES
                     .checked_add(payload_bytes)
                     .and_then(|length| length.checked_add(HASH_BYTES))
-                    .ok_or_else(|| invalid("MCBEENT3 length overflow"))?
+                    .ok_or_else(|| invalid("MCBEENT4 length overflow"))?
         {
-            return Err(invalid("noncanonical MCBEENT3 section layout"));
+            return Err(invalid("noncanonical MCBEENT4 section layout"));
         }
         let payload_end = HEADER_BYTES + payload_bytes;
         if Sha256::digest(&bytes[..payload_end]).as_slice() != &bytes[payload_end..] {
-            return Err(invalid("MCBEENT3 envelope hash mismatch"));
+            return Err(invalid("MCBEENT4 envelope hash mismatch"));
+        }
+        let payload_counts = v4::payload_counts(&bytes[HEADER_BYTES..payload_end])
+            .map_err(|_| invalid("invalid MCBEENT4 catalog count preflight"))?;
+        if payload_counts
+            != [
+                source_count,
+                symbol_count,
+                geometry_count,
+                animation_clip_count,
+                controller_count,
+                rig_binding_count,
+                item_visual_count,
+            ]
+        {
+            return Err(invalid("MCBEENT4 catalog counts do not match header"));
         }
         let payload: EntityCatalogPayload =
             serde_json::from_slice(&bytes[HEADER_BYTES..payload_end])
-                .map_err(|_| invalid("invalid MCBEENT3 catalog payload"))?;
-        if payload.sources.len() != source_count
-            || payload.symbols.len() != symbol_count
-            || payload.geometries.len() != geometry_count
-        {
-            return Err(invalid("MCBEENT3 catalog counts do not match header"));
-        }
+                .map_err(|_| invalid("invalid MCBEENT4 catalog payload"))?;
         let canonical = serde_json::to_vec(&payload)
-            .map_err(|_| invalid("failed to canonicalize MCBEENT3 catalog payload"))?;
+            .map_err(|_| invalid("failed to canonicalize MCBEENT4 catalog payload"))?;
         if canonical.as_slice() != &bytes[HEADER_BYTES..payload_end] {
-            return Err(invalid("noncanonical MCBEENT3 catalog encoding"));
+            return Err(invalid("noncanonical MCBEENT4 catalog encoding"));
         }
         let compiled = CompiledEntityAssets {
             source_manifest_sha256,
+            block_visual_count: payload.block_visual_count,
             sources: payload.sources,
             symbols: payload.symbols,
             geometries: payload.geometries,
+            animation_clips: payload.animation_clips,
+            animation_channels: payload.animation_channels,
+            animation_keyframes: payload.animation_keyframes,
+            molang_symbols: payload.molang_symbols,
+            molang_expressions: payload.molang_expressions,
+            molang_ops: payload.molang_ops,
+            molang_collections: payload.molang_collections,
+            molang_collection_items: payload.molang_collection_items,
+            controllers: payload.controllers,
+            controller_states: payload.controller_states,
+            controller_animations: payload.controller_animations,
+            controller_transitions: payload.controller_transitions,
+            rig_bindings: payload.rig_bindings,
+            rig_animations: payload.rig_animations,
+            rig_controllers: payload.rig_controllers,
+            item_visuals: payload.item_visuals,
+            item_visual_aliases: payload.item_visual_aliases,
         };
         validate_compiled(&compiled)?;
         Ok(Self {
             source_manifest_sha256,
-            sources: compiled.sources,
-            symbols: compiled.symbols,
-            geometries: compiled.geometries,
+            block_visual_count: compiled.block_visual_count,
+            sources: Arc::from(compiled.sources),
+            symbols: Arc::from(compiled.symbols),
+            geometries: Arc::from(compiled.geometries),
+            animation_clips: Arc::from(compiled.animation_clips),
+            animation_channels: Arc::from(compiled.animation_channels),
+            animation_keyframes: Arc::from(compiled.animation_keyframes),
+            molang_symbols: Arc::from(compiled.molang_symbols),
+            molang_expressions: Arc::from(compiled.molang_expressions),
+            molang_ops: Arc::from(compiled.molang_ops),
+            molang_collections: Arc::from(compiled.molang_collections),
+            molang_collection_items: Arc::from(compiled.molang_collection_items),
+            controllers: Arc::from(compiled.controllers),
+            controller_states: Arc::from(compiled.controller_states),
+            controller_animations: Arc::from(compiled.controller_animations),
+            controller_transitions: Arc::from(compiled.controller_transitions),
+            rig_bindings: Arc::from(compiled.rig_bindings),
+            rig_animations: Arc::from(compiled.rig_animations),
+            rig_controllers: Arc::from(compiled.rig_controllers),
+            item_visuals: Arc::from(compiled.item_visuals),
+            item_visual_aliases: Arc::from(compiled.item_visual_aliases),
         })
     }
 
     #[must_use]
     pub const fn source_manifest_sha256(&self) -> [u8; 32] {
         self.source_manifest_sha256
+    }
+
+    #[must_use]
+    pub const fn block_visual_count(&self) -> u32 {
+        self.block_visual_count
     }
 
     #[must_use]
@@ -304,49 +435,7 @@ impl RuntimeEntityAssets {
 }
 
 pub fn encode_entity_blob(compiled: &CompiledEntityAssets) -> Result<Box<[u8]>, AssetError> {
-    validate_compiled(compiled)?;
-    let payload = serde_json::to_vec(&EntityCatalogPayload {
-        sources: compiled.sources.clone(),
-        symbols: compiled.symbols.clone(),
-        geometries: compiled.geometries.clone(),
-    })
-    .map_err(|_| invalid("failed to encode MCBEENT3 catalog payload"))?;
-    if payload.len() > MAX_ENTITY_CATALOG_BYTES {
-        return Err(invalid("MCBEENT3 catalog payload exceeds bound"));
-    }
-    let total = HEADER_BYTES
-        .checked_add(payload.len())
-        .and_then(|length| length.checked_add(HASH_BYTES))
-        .ok_or_else(|| invalid("MCBEENT3 length overflow"))?;
-    let mut bytes = Vec::with_capacity(total);
-    bytes.extend_from_slice(&ENTITY_BLOB_MAGIC);
-    bytes.extend_from_slice(&ENTITY_BLOB_VERSION.to_le_bytes());
-    bytes.extend_from_slice(
-        &u32::try_from(compiled.sources.len())
-            .map_err(|_| invalid("MCBEENT3 source count overflow"))?
-            .to_le_bytes(),
-    );
-    bytes.extend_from_slice(
-        &u32::try_from(compiled.symbols.len())
-            .map_err(|_| invalid("MCBEENT3 symbol count overflow"))?
-            .to_le_bytes(),
-    );
-    bytes.extend_from_slice(
-        &u32::try_from(compiled.geometries.len())
-            .map_err(|_| invalid("MCBEENT3 geometry count overflow"))?
-            .to_le_bytes(),
-    );
-    bytes.extend_from_slice(&compiled.source_manifest_sha256);
-    bytes.extend_from_slice(
-        &u64::try_from(payload.len())
-            .map_err(|_| invalid("MCBEENT3 payload length overflow"))?
-            .to_le_bytes(),
-    );
-    bytes.resize(HEADER_BYTES, 0);
-    bytes.extend_from_slice(&payload);
-    let digest = Sha256::digest(&bytes);
-    bytes.extend_from_slice(&digest);
-    Ok(bytes.into_boxed_slice())
+    v4::encode_compiled(compiled)
 }
 
 fn validate_compiled(compiled: &CompiledEntityAssets) -> Result<(), AssetError> {
@@ -417,6 +506,7 @@ fn validate_compiled(compiled: &CompiledEntityAssets) -> Result<(), AssetError> 
         previous_symbol = Some(key);
     }
     validate_geometries(compiled)?;
+    validate_extended_payload(compiled)?;
     Ok(())
 }
 
@@ -588,6 +678,24 @@ fn selected_geometry_chain(
         }
     }
     Err(invalid("entity geometry inheritance depth exceeds bound"))
+}
+
+pub(super) fn effective_geometry_bone_counts(
+    geometries: &[EntityGeometry],
+) -> Result<Box<[usize]>, AssetError> {
+    let parents = validate_entity_geometry_inheritance(geometries)?;
+    let mut counts = Vec::with_capacity(geometries.len());
+    for geometry_index in 0..geometries.len() {
+        let chain = selected_geometry_chain(&parents, geometry_index)?;
+        let mut names = std::collections::BTreeSet::new();
+        for index in chain {
+            for bone in &geometries[index].bones {
+                names.insert(bone.name.to_ascii_lowercase());
+            }
+        }
+        counts.push(names.len());
+    }
+    Ok(counts.into_boxed_slice())
 }
 
 fn validate_geometry_bones(
@@ -788,7 +896,7 @@ fn u32_at(bytes: &[u8], offset: usize) -> Result<u32, AssetError> {
 fn array_at<const N: usize>(bytes: &[u8], offset: usize) -> Result<[u8; N], AssetError> {
     bytes
         .get(offset..offset + N)
-        .ok_or_else(|| invalid("truncated MCBEENT3 field"))?
+        .ok_or_else(|| invalid("truncated MCBEENT4 field"))?
         .try_into()
-        .map_err(|_| invalid("invalid MCBEENT3 field"))
+        .map_err(|_| invalid("invalid MCBEENT4 field"))
 }
