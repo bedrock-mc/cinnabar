@@ -585,6 +585,60 @@ git commit -m "fix: correct measured chunk publication stall"
 
 Expected: the selected stage now progresses, no preceding/succeeding stage regresses, and the row remains `Non-final candidate`. Remove unmodified crate paths from `git add`; app/protocol/core changes, if selected, land only through the integration handoff and its full fixtures.
 
+### Task 5A: Implement bounded Bedrock client blob caching
+
+**Files:**
+- Create: `crates/protocol/src/blob_cache.rs`
+- Create: `crates/protocol/tests/blob_cache.rs`
+- Modify: `crates/protocol/src/login.rs`, `crates/protocol/src/world.rs`, `crates/protocol/src/lib.rs`, `crates/protocol/Cargo.toml`
+- Modify the vendored login seam only: `crates/protocol/vendor/jolyne/src/stream/client.rs` and its focused tests
+- Modify for live evidence only: `app/src/runtime/phase2_evidence.rs`, `scripts/acceptance/Load.ps1`, `scripts/tests/remote-acceptance.Tests.ps1`
+- Modify: `docs/phase-2-completion-report.md`
+
+**Interfaces:**
+- Produces a bounded `ClientBlobCache` and pending-transaction resolver owned by `PlaySession`. The cache may survive a reconnect in the same client process because entries are verified content-addressed blobs; pending LevelChunk/SubChunk transactions never survive a session, transfer, or dimension reset.
+- Negotiation advertises `ClientCacheStatus { enabled: true }` only when the resolver is installed. Zeqa and deterministic tests retain an explicit disabled route.
+- Uses protocol Bedrock blob IDs exactly as xxHash64 payload hashes. A mismatched, duplicate-conflicting, unsolicited, oversized, or unrequested miss response fails closed and cannot poison the cache.
+
+- [ ] **Step 1: Write cache negotiation, bounds, and reconstruction RED tests**
+
+Cover enabled/disabled login packets; stable deduplicated hit/miss lists; repeated hashes; exact byte/entry/transaction ceilings; LRU eviction that never evicts a blob pinned by a pending transaction; disconnect/dimension/transfer pending-state reset; malformed and hash-mismatched miss responses; and FIFO completion when miss responses arrive across multiple packets.
+
+For cached inline LevelChunk, require hash order to reconstruct the sub-chunk blobs followed by the biome blob and then the packet's uncached payload tail. For request-mode cached SubChunk success, reconstruct `blob || entry.payload` so block-entity NBT remains attached; `SuccessAllAir` must not request or read a blob. No event may be published until every referenced miss for that transaction is resolved.
+
+Run:
+
+```powershell
+cargo test -p protocol --locked --test blob_cache -- --nocapture
+cargo test -p protocol --locked --test login_state client_cache -- --nocapture
+```
+
+Expected: FAIL because the client currently sends `enabled=false` and rejects both cached packet families.
+
+- [ ] **Step 2: Implement bounded cache and protocol sequencing**
+
+Use checked accounting and literal ceilings for entry count, total bytes, one blob, hashes per packet, and pending transactions/bytes. Send one `ClientCacheBlobStatus` per accepted cached packet with every unique hash classified exactly once as hit or miss. Validate each miss payload before insertion, resolve every transaction referencing it, retain packet order among simultaneously completed transactions, and expose counters for hits, misses, admitted/rejected blobs, evictions, pending transactions, and reconstructed LevelChunk/SubChunk events.
+
+Do not make `into_world_event` stateful. Resolve cache packets inside `PlaySession`, then pass reconstructed ordinary packets through the existing bounded normalizer. The disabled route must remain byte-for-byte compatible with current Zeqa behavior.
+
+- [ ] **Step 3: Verify deterministic and local cross-language fixtures**
+
+Use the pinned Dragonfly/gophertunnel xxHash64 blob construction only as a fixture generator, not a runtime dependency. Cross-check at least one inline chunk and one request-mode subchunk fixture in Rust and Go, including a cache hit, a cache miss, a repeated hash, block-entity tail bytes, and an invalid hash.
+
+```powershell
+cargo test -p protocol -p client-world -p bedrock-client --locked blob_cache -- --nocapture
+Push-Location core; try { go test ./... -run ClientBlobCache -count=1; if ($LASTEXITCODE -ne 0) { throw 'core blob-cache fixture failed' }; go vet ./...; if ($LASTEXITCODE -ne 0) { throw 'core go vet failed' } } finally { Pop-Location }
+cargo clippy -p protocol -p client-world -p bedrock-client --all-targets --locked -- -D warnings
+cargo fmt --all -- --check
+git diff --check
+```
+
+- [ ] **Step 4: Prove Lunar cache behavior before Zeqa comparison**
+
+Run a create-new Lunar Diagnostic after the raw-radius witness and cohort correction. Require `client_blob_cache_enabled=true`, at least one attributable hash, exact `hits + misses = hashes_classified`, every miss resolved, zero rejected/poisoned blobs, zero pending transactions at the coherent terminal sample, and ordinary publication counters continuing from reconstructed events. Then run Zeqa and record whether the server used cache-backed or ordinary payloads; either is accepted only when its observed route completes without stale Lunar pending state.
+
+Commit deterministic implementation separately from ignored-local live evidence. Do not claim this task fixes the independently measured meshing/publication backlog.
+
 ### Task 6: Make Publication Service Elapsed-Time and Pressure Aware
 
 **Files:**

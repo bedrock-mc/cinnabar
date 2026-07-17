@@ -69,6 +69,17 @@ light metadata, light-aware meshing, GPU light consumption, world time and
 weather state, sun/moon/cloud assets, camera-medium fog, and extensive coherent
 publication diagnostics.
 
+The client currently advertises Bedrock client blob caching as disabled and
+rejects cache-backed LevelChunk and SubChunk payloads. Lunar supports this
+route while Zeqa is expected to use ordinary inline/request payloads. Phase 2
+therefore also includes a bounded content-addressed client blob cache: xxHash64
+payload verification, exact hit/miss acknowledgements, FIFO pending-transaction
+resolution, reconstruction of LevelChunk and SubChunk payloads, bounded memory,
+and session-reset semantics. Lunar must prove the enabled cache route; Zeqa
+remains the non-cache comparison. Cache support is independent of any measured
+cohort, meshing, or publication correction and cannot be used to relabel those
+stalls.
+
 The deterministic radius-16 publication workload completed in 1,369 ms, but
 the latest retained live evidence took 8,596 ms for a forced full-view remesh
 and roughly 48 seconds for the binding teleport. Phase 2 therefore remains
@@ -184,7 +195,8 @@ frozen interface and integration owner.
 ### Parallel tranche A
 
 - Phase 2 closes the 2.5 reference kernel, diagnoses live publication, fixes
-  the measured bottleneck, and advances remaining 2.7 visual defects.
+  the measured bottleneck, implements and proves the Lunar client-blob-cache
+  route, and advances remaining 2.7 visual defects.
 - Phase 3 adds authoritative collision metadata and remaining deterministic
   movement strata while network authority remains disabled. In parallel
   within that lane, it defines the semantic action snapshot and correct
