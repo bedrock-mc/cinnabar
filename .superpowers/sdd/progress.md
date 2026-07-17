@@ -86,3 +86,5 @@ Phase 2 completion Task 3 integration: complete. The immutable reviewed interfac
 
 Phase 4 completion Task 1: complete (commits 5939b9b..b816c9c, review clean).
 Minor follow-up resolved by integration commit 5ea938c: the assets item test now imports the public crate export.
+
+Phase 5 completion Task 1: complete (commits 6f9627f..8474215, review clean).
