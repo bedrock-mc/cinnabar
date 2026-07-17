@@ -159,6 +159,29 @@ sibling `.local/assets/block-data.downloads/` directory. The application never f
 startup. Pins, file hashes, source repositories, and the Prismarine license-evidence
 exception are recorded in `assets/block-data-sources.json` and `THIRD_PARTY_NOTICES.md`.
 
+The acquirer also emits `PREG1001_SOURCE_PATH` markers for the exact PMMP and
+Prismarine roots consumed by the physics compiler. Generate the ignored carrier
+against the committed BREG and commit only its lowercase SHA-256 record:
+
+```powershell
+go -C tools/registrygen run . `
+  -out ../../.local/phase3/block-registry-v1001.bin `
+  -light-out ../../.local/phase3/block-light-registry-v1001.bin `
+  -light-breg ../../crates/assets/data/block-registry-v1001.bin `
+  -physics-out ../../.local/assets/block-physics-v1001.bin `
+  -physics-sha-out ../../crates/assets/data/block-physics-v1001.sha256 `
+  -physics-breg ../../crates/assets/data/block-registry-v1001.bin `
+  -pmmp ../../.local/assets/block-data/pmmp `
+  -prismarine ../../.local/assets/block-data/prismarine `
+  -valentine-palette ../../crates/protocol/vendor/valentine/bedrock_versions/v1_26_30/src/block_palette.bin `
+  -valentine-blocks ../../crates/protocol/vendor/valentine/bedrock_versions/v1_26_30/src/blocks.rs
+```
+
+`PREG1001` contains one explicit bounded physics record for each of the 16,913
+protocol-1001 BREG states. Its header binds the exact BREG SHA-256 and the Rust
+decoder rejects any identity, count, enum, scalar, topology, or trailing-byte
+mismatch before publishing a registry.
+
 ## Local vanilla block textures
 
 The client never downloads or embeds Mojang assets. Fetch the pinned

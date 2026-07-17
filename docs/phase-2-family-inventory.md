@@ -62,6 +62,17 @@ Get-FileHash -Algorithm SHA256 `
   .local/task2/block-registry-v1001.bin
 ```
 
+## Phase 3 physics-registry derivative
+
+The Phase 3 `PREG1001` carrier is a deterministic, local-only derivative of
+this same exact `BREG1003` state order. Collision boxes retain the pinned
+Prismarine fixed-point join; ordinary and special movement facts are explicit
+for every state and reviewed against the pinned PMMP/Dragonfly catalog. The
+compiler rejects gaps, extras, duplicate identities, contradictory fluids,
+unknown responses, invalid scalars, and malformed compound boxes. Only
+`crates/assets/data/block-physics-v1001.sha256` is published; both generated
+carrier copies remain ignored under `.local`.
+
 The inventory parser decoded every bounded `BREG1003` record, grouped records
 by canonical name, and joined each name's Prismarine state-ordered collision
 shape IDs. It counted typed property domains, empty/unit/multi-box topology,

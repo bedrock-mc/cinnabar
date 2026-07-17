@@ -129,6 +129,9 @@ pub enum AssetError {
     #[error("registry has {remaining} trailing bytes")]
     TrailingRegistryBytes { remaining: usize },
 
+    #[error("invalid PREG1001 physics registry: {detail}")]
+    InvalidPhysicsRegistry { detail: Box<str> },
+
     #[error("source contains {count} texture keys, exceeding the limit of {max}")]
     TooManyTextureKeys { count: usize, max: usize },
 

@@ -75,6 +75,189 @@ func TestEncodeLREG1001BindsExactBREGAndSortsBySequentialID(t *testing.T) {
 	}
 }
 
+func TestEncodePREG1001BindsExactBREGAndCanonicalOrder(t *testing.T) {
+	records := []Record{testRecord(2, 30), testRecord(0, 10), testRecord(1, 20)}
+	for i := range records {
+		records[i].CollisionSeed = CollisionSeed{Confidence: CollisionConfidenceCollisionOnly, Boxes: []CollisionBox{{MaxX: 100_000_000, MaxY: 100_000_000, MaxZ: 100_000_000}}}
+	}
+	breg := []byte("exact BREG1003 fixture bytes")
+	properties := map[string]PMMPLightProperties{}
+	for _, record := range records {
+		properties[record.Name] = PMMPLightProperties{Friction: 0.6}
+	}
+	physics, err := buildPhysicsRecords(records, properties)
+	if err != nil {
+		t.Fatalf("build physics records: %v", err)
+	}
+	first, err := encodePhysicsRegistry(breg, physics, 3)
+	if err != nil {
+		t.Fatalf("encode physics registry: %v", err)
+	}
+	second, err := encodePhysicsRegistry(breg, physics, 3)
+	if err != nil {
+		t.Fatalf("repeat physics registry: %v", err)
+	}
+	if !bytes.Equal(first, second) {
+		t.Fatal("PREG1001 encoding is not deterministic")
+	}
+	if got := string(first[:8]); got != "PREG1001" {
+		t.Fatalf("magic = %q", got)
+	}
+	if got := binary.LittleEndian.Uint32(first[8:12]); got != registryProtocol {
+		t.Fatalf("protocol = %d", got)
+	}
+	if got := binary.LittleEndian.Uint32(first[12:16]); got != 3 {
+		t.Fatalf("record count = %d", got)
+	}
+	wantBREGHash := sha256.Sum256(breg)
+	if !bytes.Equal(first[16:48], wantBREGHash[:]) {
+		t.Fatalf("BREG digest = %x, want %x", first[16:48], wantBREGHash)
+	}
+	if got := binary.LittleEndian.Uint32(first[48:52]); got != 0 {
+		t.Fatalf("first sequential ID = %d", got)
+	}
+}
+
+func TestPREG1001ProductionCardinalityIsExactly16913(t *testing.T) {
+	records := make([]PhysicsRecord, physicsRecordCount)
+	for index := range records {
+		records[index] = PhysicsRecord{
+			SequentialID:        uint32(index),
+			NetworkHash:         uint32(index) + 1,
+			FrictionQ1E8:        defaultFrictionQ1E8,
+			HorizontalSpeedQ1E8: defaultSpeedQ1E8,
+			VerticalSpeedQ1E8:   defaultSpeedQ1E8,
+			Flags:               physicsFlagPassable,
+		}
+	}
+	encoded, err := encodePhysicsRegistry([]byte("production BREG fixture"), records, physicsRecordCount)
+	if err != nil {
+		t.Fatalf("encode production cardinality: %v", err)
+	}
+	if got := binary.LittleEndian.Uint32(encoded[12:16]); got != physicsRecordCount {
+		t.Fatalf("record count = %d, want %d", got, physicsRecordCount)
+	}
+}
+
+func TestPREG1001RejectsIncompleteOrInvalidFacts(t *testing.T) {
+	valid := []PhysicsRecord{
+		{SequentialID: 0, NetworkHash: 10, FrictionQ1E8: 60_000_000, HorizontalSpeedQ1E8: 100_000_000, VerticalSpeedQ1E8: 100_000_000, Flags: physicsFlagPassable},
+		{SequentialID: 1, NetworkHash: 20, FrictionQ1E8: 60_000_000, HorizontalSpeedQ1E8: 100_000_000, VerticalSpeedQ1E8: 100_000_000, Flags: physicsFlagWater | physicsFlagPassable, FluidHeightQ1E8: 100_000_000},
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func([]PhysicsRecord) []PhysicsRecord
+		want   string
+	}{
+		{"missing", func(records []PhysicsRecord) []PhysicsRecord { return records[:1] }, "count"},
+		{"extra", func(records []PhysicsRecord) []PhysicsRecord { return append(records, records[1]) }, "count"},
+		{"duplicate", func(records []PhysicsRecord) []PhysicsRecord { records[1].SequentialID = 0; return records }, "sequential"},
+		{"water lava", func(records []PhysicsRecord) []PhysicsRecord { records[1].Flags |= physicsFlagLava; return records }, "water and lava"},
+		{"bubble without water", func(records []PhysicsRecord) []PhysicsRecord {
+			records[0].SurfaceResponse = SurfaceBubbleUp
+			return records
+		}, "bubble"},
+		{"unknown enum", func(records []PhysicsRecord) []PhysicsRecord {
+			records[0].SurfaceResponse = SurfaceResponse(255)
+			return records
+		}, "surface response"},
+		{"unknown flags", func(records []PhysicsRecord) []PhysicsRecord {
+			records[0].Flags |= physicsFlagReserved
+			return records
+		}, "flags"},
+		{"zero friction", func(records []PhysicsRecord) []PhysicsRecord { records[0].FrictionQ1E8 = 0; return records }, "friction"},
+		{"too many boxes", func(records []PhysicsRecord) []PhysicsRecord {
+			records[0].Boxes = make([]CollisionBox, maxPhysicsBoxes+1)
+			return records
+		}, "box count"},
+		{"inverted box", func(records []PhysicsRecord) []PhysicsRecord {
+			records[0].Boxes = []CollisionBox{{MinX: 2, MaxX: 1, MaxY: 1, MaxZ: 1}}
+			return records
+		}, "box"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			copyRecords := append([]PhysicsRecord(nil), valid...)
+			_, err := encodePhysicsRegistry([]byte("breg"), test.mutate(copyRecords), 2)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestPhysicsFactsCoverSpecialMovementFamilies(t *testing.T) {
+	record := func(id uint32, name string) Record {
+		return Record{SequentialID: id, NetworkHash: id + 100, Name: name}
+	}
+	records := []Record{
+		record(0, "minecraft:air"),
+		record(1, "minecraft:ladder"),
+		record(2, "minecraft:water"),
+		record(3, "minecraft:lava"),
+		record(4, "minecraft:web"),
+		record(5, "minecraft:slime"),
+		record(6, "minecraft:red_bed"),
+		record(7, "minecraft:soul_sand"),
+		record(8, "minecraft:honey_block"),
+		record(9, "minecraft:bubble_column"),
+		record(10, "minecraft:bubble_column"),
+		record(11, "minecraft:stone"),
+	}
+	records[2].ModelState.Set(ModelStateLiquidDepth, 0)
+	records[3].ModelState.Set(ModelStateLiquidDepth, 7)
+	records[9].StateJSON = []byte(`{"drag_down":{"type":"byte","value":0}}`)
+	records[10].StateJSON = []byte(`{"drag_down":{"type":"byte","value":1}}`)
+	properties := map[string]PMMPLightProperties{}
+	for _, record := range records {
+		properties[record.Name] = PMMPLightProperties{Friction: 0.6}
+	}
+	properties["minecraft:air"] = PMMPLightProperties{Friction: 0.9}
+	properties["minecraft:slime"] = PMMPLightProperties{Friction: 0.8}
+	properties["minecraft:honey_block"] = PMMPLightProperties{Friction: 0.8}
+	physics, err := buildPhysicsRecords(records, properties)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if physics[0].Flags&physicsFlagPassable == 0 || len(physics[0].Boxes) != 0 {
+		t.Fatal("air is not explicit passable empty collision")
+	}
+	if physics[1].Flags&physicsFlagClimbable == 0 {
+		t.Fatal("ladder is not climbable")
+	}
+	if physics[2].Flags&(physicsFlagWater|physicsFlagPassable) != physicsFlagWater|physicsFlagPassable || physics[2].FluidHeightQ1E8 <= physics[3].FluidHeightQ1E8 {
+		t.Fatal("state-dependent fluids are not explicit")
+	}
+	if physics[3].Flags&physicsFlagLava == 0 || physics[4].Flags&physicsFlagCobweb == 0 {
+		t.Fatal("lava/cobweb flags missing")
+	}
+	responses := []SurfaceResponse{physics[5].SurfaceResponse, physics[6].SurfaceResponse, physics[7].SurfaceResponse, physics[8].SurfaceResponse, physics[9].SurfaceResponse, physics[10].SurfaceResponse}
+	want := []SurfaceResponse{SurfaceSlime, SurfaceBed, SurfaceSoulSand, SurfaceHoney, SurfaceBubbleUp, SurfaceBubbleDown}
+	if !reflect.DeepEqual(responses, want) {
+		t.Fatalf("responses = %v, want %v", responses, want)
+	}
+	if physics[11].FrictionQ1E8 != defaultFrictionQ1E8 || physics[11].HorizontalSpeedQ1E8 != defaultSpeedQ1E8 {
+		t.Fatal("ordinary block factors are not explicit")
+	}
+	if physics[0].FrictionQ1E8 != 90_000_000 || physics[5].FrictionQ1E8 != 80_000_000 || physics[8].FrictionQ1E8 != 80_000_000 {
+		t.Fatal("PMMP friction facts were not normalized into Q1e8")
+	}
+}
+
+func TestPhysicsJoinRejectsMissingAndInvalidPMMPFriction(t *testing.T) {
+	records := []Record{{SequentialID: 0, NetworkHash: 1, Name: "minecraft:stone"}}
+	if _, err := buildPhysicsRecords(records, nil); err == nil || !strings.Contains(err.Error(), "missing") {
+		t.Fatalf("missing source error = %v", err)
+	}
+	for _, friction := range []float64{0, -1, math.NaN(), math.Inf(1)} {
+		_, err := buildPhysicsRecords(records, map[string]PMMPLightProperties{
+			"minecraft:stone": {Friction: friction},
+		})
+		if err == nil || !strings.Contains(err.Error(), "friction") {
+			t.Fatalf("friction %v error = %v", friction, err)
+		}
+	}
+}
+
 func TestEncodeLREG1001RequiresOneBoundedBytePerBREGState(t *testing.T) {
 	valid := fixtureLightRegistry{
 		emission: map[uint32]uint8{0: 1, 1: 2},

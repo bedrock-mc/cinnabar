@@ -509,6 +509,11 @@ function Write-ResolvedSourcePaths {
             Write-Output "$($source.id) already verified: $sourceRoot"
         }
         Write-Output "SOURCE_PATH $($source.id)=$sourceRoot"
+        if ([string]$source.id -eq "pmmp-bedrock-data" -or
+            [string]$source.id -eq "prismarinejs-minecraft-data") {
+            # PREG1001 generation consumes only these hash-checked local roots.
+            Write-Output "PREG1001_SOURCE_PATH $($source.id)=$sourceRoot"
+        }
     }
 }
 
