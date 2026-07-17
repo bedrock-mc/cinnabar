@@ -468,6 +468,7 @@ dependencies = [
  "sim",
  "thiserror 2.0.18",
  "tokio",
+ "ui",
  "world",
 ]
 

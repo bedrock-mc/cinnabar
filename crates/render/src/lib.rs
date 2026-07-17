@@ -7,6 +7,8 @@ mod atmosphere_render;
 mod chunk;
 mod cloud_config;
 mod cloud_render;
+mod ui;
+mod ui_render;
 mod visibility_diagnostics;
 
 use meshing::{
@@ -56,6 +58,13 @@ pub use cloud_config::{
     CloudCoverageSemantics, CloudGeometryDiagnostic, CloudGeometryDiagnosticError,
     CloudMatchingView, CloudQuality, CloudRenderConfig,
 };
+pub use ui::{
+    MAX_UI_BATCHES, MAX_UI_DRAW_BYTES, MAX_UI_INDICES, MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_LAYERS,
+    MAX_UI_TEXTURE_SIDE, MAX_UI_VERTICES, UiRenderBatch, UiRenderInput, UiRenderReject,
+    UiRenderRejectReason, UiRenderScene, UiRenderStats, UiRenderStatsSnapshot,
+    UiRenderTextureArray, UiRenderVertex, UiScissor,
+};
+pub use ui_render::UiRenderPlugin;
 pub use visibility_diagnostics::{
     ExtractedCameraIdentity, ExtractedViewGenerations, GraphicsAdapterMetadata,
     MAX_VISIBILITY_DIAGNOSTIC_KEYS, OpaqueDrawMode, VisibilityDiagnosticSnapshot,

@@ -4,6 +4,7 @@ pub mod camera;
 mod environment;
 pub mod metrics;
 pub mod movement;
+pub mod ui_runtime;
 
 mod acceptance;
 mod app;

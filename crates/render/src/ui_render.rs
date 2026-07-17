@@ -36,9 +36,11 @@ use bevy::{
 use bytemuck::{Pod, Zeroable};
 
 use crate::ui::{
-    MAX_UI_INDICES, MAX_UI_VERTICES, UiRenderBatch, UiRenderInput, UiRenderReject,
-    UiRenderRejectReason, UiRenderScene, UiRenderStats, UiRenderVertex, UiScissor,
+    MAX_UI_INDICES, MAX_UI_VERTICES, UiRenderBatch, UiRenderRejectReason, UiRenderScene,
+    UiRenderStats, UiRenderVertex,
 };
+#[cfg(test)]
+use crate::ui::{UiRenderInput, UiRenderReject, UiScissor};
 
 const UI_SHADER_HANDLE: Handle<Shader> = uuid_handle!("7cfb904c-c8cf-4dd2-9214-7d208ce454e7");
 
@@ -560,6 +562,8 @@ impl<P: PhaseItem> RenderCommand<P> for DrawUiBatches {
     }
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UiPreparedFrame {
     pub revision: u64,
@@ -572,6 +576,8 @@ pub struct UiPreparedFrame {
     scissors: Arc<[UiScissor]>,
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 impl UiPreparedFrame {
     #[must_use]
     pub fn draw_order(&self) -> &[usize] {
@@ -584,6 +590,8 @@ impl UiPreparedFrame {
     }
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 pub struct UiRenderHarness {
     scene: UiRenderScene,
     stats: UiRenderStats,
@@ -594,6 +602,8 @@ pub struct UiRenderHarness {
     prepared: Option<UiPreparedFrame>,
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 impl UiRenderHarness {
     #[must_use]
     pub fn new() -> Self {
@@ -676,6 +686,7 @@ impl UiRenderHarness {
     }
 }
 
+#[cfg(test)]
 impl Default for UiRenderHarness {
     fn default() -> Self {
         Self::new()

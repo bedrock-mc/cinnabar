@@ -7,14 +7,14 @@ use render::{
 use ui::{DpiScale, SafeArea, UiDrawList, UiLimits, UiRect};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct UiRenderViewport {
-    pub(crate) physical_size: [u32; 2],
-    pub(crate) dpi_scale: DpiScale,
-    pub(crate) safe_area: SafeArea,
+pub struct UiRenderViewport {
+    pub physical_size: [u32; 2],
+    pub dpi_scale: DpiScale,
+    pub safe_area: SafeArea,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum UiRenderAdapterError {
+pub enum UiRenderAdapterError {
     VertexLimitExceeded,
     IndexLimitExceeded,
     BatchLimitExceeded,
@@ -32,7 +32,7 @@ impl fmt::Display for UiRenderAdapterError {
 
 impl std::error::Error for UiRenderAdapterError {}
 
-pub(crate) fn adapt_ui_draw_list(
+pub fn adapt_ui_draw_list(
     draw_list: &UiDrawList,
     textures: Arc<UiRenderTextureArray>,
     viewport: UiRenderViewport,
@@ -127,10 +127,7 @@ fn physical_scissor(
     ))
 }
 
-fn physical_safe_area(
-    safe_area: SafeArea,
-    scale: f32,
-) -> Result<[u32; 4], UiRenderAdapterError> {
+fn physical_safe_area(safe_area: SafeArea, scale: f32) -> Result<[u32; 4], UiRenderAdapterError> {
     Ok([
         scaled_ceil(safe_area.left(), scale)?,
         scaled_ceil(safe_area.top(), scale)?,
@@ -147,11 +144,7 @@ fn scaled_ceil(value: f32, scale: f32) -> Result<u32, UiRenderAdapterError> {
     scaled_u32(value, scale, f32::ceil)
 }
 
-fn scaled_u32(
-    value: f32,
-    scale: f32,
-    round: fn(f32) -> f32,
-) -> Result<u32, UiRenderAdapterError> {
+fn scaled_u32(value: f32, scale: f32, round: fn(f32) -> f32) -> Result<u32, UiRenderAdapterError> {
     let scaled = round(value * scale);
     if !scaled.is_finite() || scaled < 0.0 || scaled > u32::MAX as f32 {
         return Err(UiRenderAdapterError::CoordinateOverflow);

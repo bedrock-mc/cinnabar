@@ -18,7 +18,7 @@ use bevy::{
 use render::{
     ActorRenderPlugin, ActorRenderScene, AtmosphereFrame, AtmospherePlugin,
     AtmosphereTextureAssets, ChunkRenderApplySet, ChunkRenderPlugin, ChunkTextureAssets,
-    VisibilityDiagnosticsInput,
+    UiRenderPlugin, VisibilityDiagnosticsInput,
 };
 
 use crate::acceptance::{
@@ -230,6 +230,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             AtmospherePlugin,
             ChunkRenderPlugin::with_budget(PublicationController::default().budget()),
             FlyCameraPlugin::new(args.auto_fly),
+            UiRenderPlugin,
         ))
         .add_observer(apply_added_chunk_visibility)
         .add_observer(remove_chunk_visibility)
