@@ -89,6 +89,15 @@ impl WorldStream {
     pub fn actor(&self, runtime_id: u64) -> Option<&ActorSnapshot> {
         self.actors.get(runtime_id)
     }
+    pub fn actor_rig(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
+        self.actors.actor_rig(runtime_id)
+    }
+    pub fn actor_rigs(&self) -> Vec<ActorRigSnapshot<'_>> {
+        self.actors.actor_rigs()
+    }
+    pub const fn actor_animation_stats(&self) -> ActorAnimationStats {
+        self.actors.animation_stats()
+    }
     pub fn actor_count(&self) -> usize {
         self.actors.len()
     }

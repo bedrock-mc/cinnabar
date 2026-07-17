@@ -1,4 +1,5 @@
 use super::*;
+use crate::actor_animation::{ActorAnimationStats, ActorRigSnapshot};
 
 impl ActorStore {
     pub(crate) fn render_players(
@@ -28,6 +29,15 @@ impl ActorStore {
     }
     pub(crate) fn len(&self) -> usize {
         self.actors.len()
+    }
+    pub(crate) fn actor_rig(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
+        self.animation.get(runtime_id)
+    }
+    pub(crate) fn actor_rigs(&self) -> Vec<ActorRigSnapshot<'_>> {
+        self.animation.snapshots()
+    }
+    pub(crate) const fn animation_stats(&self) -> ActorAnimationStats {
+        self.animation.stats()
     }
     #[cfg(test)]
     pub(crate) fn is_empty(&self) -> bool {

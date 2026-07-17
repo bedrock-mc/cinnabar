@@ -1,9 +1,15 @@
+mod actor_animation;
 mod actor_store;
 mod block_entity_visuals;
 mod culling;
 mod server_position;
 mod stream;
 
+pub use actor_animation::{
+    ActorAnimationStats, ActorLifetimeId, ActorRigSnapshot, BoneTransform, EntityRigId,
+    MAX_ACTOR_ACTION_HISTORY, MAX_CONTROLLER_TRANSITIONS_PER_TICK, MAX_MOLANG_OPS_PER_ACTOR_TICK,
+    MAX_MOLANG_OPS_PER_RENDER_FRAME, MAX_MOLANG_OPS_PER_WORLD_TICK, MAX_RUNTIME_BONES_PER_RIG,
+};
 pub use actor_store::{ActorPose, ActorSnapshot, PlayerProfile};
 pub use block_entity_visuals::{
     BackingBlockIdentity, BlockEntityVisualRoute, adjudicate_block_entity_visual,

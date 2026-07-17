@@ -30,6 +30,37 @@ impl ActorStore {
         max_players: usize,
         max_player_skin_bytes: usize,
     ) -> Self {
+        Self::with_limits_and_animation(
+            session_id,
+            dimension,
+            max_actors,
+            max_players,
+            max_player_skin_bytes,
+            crate::actor_animation::ActorAnimationStore::diagnostic(),
+        )
+    }
+    pub(crate) fn new_with_entity_assets(
+        session_id: u64,
+        dimension: i32,
+        entity_assets: std::sync::Arc<assets::RuntimeEntityAssets>,
+    ) -> Self {
+        Self::with_limits_and_animation(
+            session_id,
+            dimension,
+            MAX_TRACKED_ACTORS,
+            MAX_TRACKED_PLAYERS,
+            MAX_TRACKED_PLAYER_SKIN_BYTES,
+            crate::actor_animation::ActorAnimationStore::with_assets(entity_assets),
+        )
+    }
+    fn with_limits_and_animation(
+        session_id: u64,
+        dimension: i32,
+        max_actors: usize,
+        max_players: usize,
+        max_player_skin_bytes: usize,
+        animation: crate::actor_animation::ActorAnimationStore,
+    ) -> Self {
         Self {
             session_id,
             dimension,
@@ -41,6 +72,7 @@ impl ActorStore {
             actors: HashMap::new(),
             unique_to_runtime: HashMap::new(),
             players: HashMap::new(),
+            animation,
         }
     }
     #[cfg(test)]
@@ -52,6 +84,7 @@ impl ActorStore {
         self.unique_to_runtime.clear();
         self.players.clear();
         self.retained_player_skin_bytes = 0;
+        self.animation.clear();
     }
     pub(crate) fn reset_dimension(
         &mut self,
@@ -66,6 +99,7 @@ impl ActorStore {
         self.dimension = dimension;
         self.actors.clear();
         self.unique_to_runtime.clear();
+        self.animation.clear();
         ActorApplyResult::Reset
     }
     pub(crate) fn apply(
@@ -121,6 +155,25 @@ impl ActorStore {
                 if let Some(value) = movement.on_ground {
                     actor.on_ground = Some(value);
                 }
+                let elapsed_seconds = movement
+                    .source_tick
+                    .zip(actor.source_tick)
+                    .and_then(|(current, previous)| current.checked_sub(previous))
+                    .filter(|ticks| *ticks > 0)
+                    .map_or(0.05, |ticks| ticks as f32 * 0.05);
+                let derived_velocity = if movement.teleported {
+                    [0.0; 3]
+                } else {
+                    std::array::from_fn(|axis| {
+                        (received.position[axis] - actor.received_pose.position[axis])
+                            / elapsed_seconds
+                    })
+                };
+                actor.velocity = if derived_velocity.iter().all(|value| value.is_finite()) {
+                    derived_velocity
+                } else {
+                    [0.0; 3]
+                };
                 actor.received_pose = received;
                 if movement.teleported {
                     actor.previous_pose = received;
@@ -137,14 +190,25 @@ impl ActorStore {
                 actor.teleported = movement.teleported;
                 actor.player_mode = movement.player_mode;
                 actor.source_tick = movement.source_tick;
+                if movement.teleported {
+                    self.animation.mark_reset(movement.runtime_id);
+                }
                 ActorApplyResult::Updated
             }
             ActorEvent::Metadata(update) => {
                 let Some(actor) = self.actors.get_mut(&update.runtime_id) else {
                     return ActorApplyResult::MissingActor;
                 };
+                let incompatible = update.metadata.iter().any(|metadata| {
+                    actor.metadata.get(&metadata.key).is_some_and(|previous| {
+                        std::mem::discriminant(previous) != std::mem::discriminant(&metadata.value)
+                    })
+                });
                 let rejected = actor.apply_metadata(&update.metadata)
                     | actor.apply_properties(&update.properties);
+                if incompatible {
+                    self.animation.mark_reset(update.runtime_id);
+                }
                 if rejected {
                     ActorApplyResult::CapacityRejected
                 } else {
@@ -239,13 +303,8 @@ impl ActorStore {
         }
     }
     pub(crate) fn advance_interpolation_ticks(&mut self, ticks: u32) {
-        for actor in self.actors.values_mut() {
-            let meaningful_ticks = if matches!(actor.kind, ActorKind::Player { .. }) {
-                u32::from(actor.interpolation_ticks_remaining).saturating_add(1)
-            } else {
-                1
-            };
-            for _ in 0..ticks.min(meaningful_ticks) {
+        for _ in 0..ticks {
+            for actor in self.actors.values_mut() {
                 let current = actor.current_pose();
                 actor.previous_pose = current;
                 let mut next = actor.received_pose;
@@ -262,6 +321,7 @@ impl ActorStore {
                 }
                 actor.set_current_pose(next);
             }
+            self.animation.advance_tick(&self.actors);
         }
     }
     pub(crate) fn apply_player_move(
@@ -309,10 +369,12 @@ impl ActorStore {
         let mut replaced = false;
         if let Some(previous) = self.actors.remove(&spawn.runtime_id) {
             self.unique_to_runtime.remove(&previous.unique_id);
+            self.animation.remove_runtime(previous.runtime_id);
             replaced = true;
         }
         if let Some(previous_runtime) = self.unique_to_runtime.remove(&spawn.unique_id) {
             self.actors.remove(&previous_runtime);
+            self.animation.remove_runtime(previous_runtime);
             replaced = true;
         }
         let runtime_id = spawn.runtime_id;
@@ -320,6 +382,10 @@ impl ActorStore {
         self.actors
             .insert(runtime_id, ActorSnapshot::from_spawn(spawn, sequence));
         self.unique_to_runtime.insert(unique_id, runtime_id);
+        if let Some(actor) = self.actors.get(&runtime_id) {
+            self.animation
+                .insert(self.session_id, self.dimension, actor);
+        }
         if replaced {
             ActorApplyResult::Replaced
         } else {
@@ -331,6 +397,7 @@ impl ActorStore {
             return ActorApplyResult::MissingActor;
         };
         self.actors.remove(&runtime_id);
+        self.animation.remove_runtime(runtime_id);
         ActorApplyResult::Removed
     }
 }

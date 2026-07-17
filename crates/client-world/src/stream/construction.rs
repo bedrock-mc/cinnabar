@@ -23,9 +23,42 @@ impl WorldStream {
             existing_anchor,
         )
     }
+    pub fn new_with_asset_sets(
+        bootstrap: WorldBootstrap,
+        runtime_assets: Arc<RuntimeAssets>,
+        entity_assets: Arc<RuntimeEntityAssets>,
+        current_position: [f32; 3],
+        existing_anchor: Option<[i32; 2]>,
+    ) -> Self {
+        Self::with_first_sequence_and_asset_sets(
+            bootstrap,
+            runtime_assets,
+            Some(entity_assets),
+            1,
+            current_position,
+            existing_anchor,
+        )
+    }
     pub(super) fn with_first_sequence_and_recovery(
         bootstrap: WorldBootstrap,
         runtime_assets: Arc<RuntimeAssets>,
+        first_sequence: u64,
+        current_position: [f32; 3],
+        existing_anchor: Option<[i32; 2]>,
+    ) -> Self {
+        Self::with_first_sequence_and_asset_sets(
+            bootstrap,
+            runtime_assets,
+            None,
+            first_sequence,
+            current_position,
+            existing_anchor,
+        )
+    }
+    fn with_first_sequence_and_asset_sets(
+        bootstrap: WorldBootstrap,
+        runtime_assets: Arc<RuntimeAssets>,
+        entity_assets: Option<Arc<RuntimeEntityAssets>>,
         first_sequence: u64,
         current_position: [f32; 3],
         existing_anchor: Option<[i32; 2]>,
@@ -59,10 +92,16 @@ impl WorldStream {
         let air_network_id = runtime_assets
             .air_network_id(network_id_mode)
             .unwrap_or(bootstrap.air_network_id);
+        let actors = entity_assets.map_or_else(
+            || ActorStore::new(actor_session_id, bootstrap.dimension),
+            |assets| {
+                ActorStore::new_with_entity_assets(actor_session_id, bootstrap.dimension, assets)
+            },
+        );
         Self {
             store: ChunkStore::new(),
             block_entity_visuals: BlockEntityVisualDiagnostics::default(),
-            actors: ActorStore::new(actor_session_id, bootstrap.dimension),
+            actors,
             actor_session_id,
             classifier: BlockClassifier::new(air_network_id),
             network_id_mode,
