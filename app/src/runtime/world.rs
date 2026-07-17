@@ -15,7 +15,7 @@ use bevy::{
     prelude::{MessageReader, Query, Res, ResMut, Resource, Time, Transform, Vec3, With},
     time::Real,
 };
-use client_world::{CommittedControlEvent, WorldMeshChange, WorldStream};
+use client_world::{CommittedControlEvent, CommittedUiEvent, WorldMeshChange, WorldStream};
 use meshing::CameraMedium;
 use protocol::BlobCacheStats;
 use render::{
@@ -42,6 +42,7 @@ use crate::{
         telemetry::bedrock_camera_rotation,
         visibility::{AppMetrics, DiagnosticQuads},
     },
+    ui_runtime::{SequencedBlockCrackEvent, SequencedLocalAttributes, SequencedUiEvent, UiRuntime},
 };
 
 pub(crate) const SHUTDOWN_WATCHDOG_TIMEOUT: Duration = Duration::from_secs(2);
@@ -197,6 +198,7 @@ pub(crate) struct AppWorldState<'w> {
     pub(crate) weather: ResMut<'w, WeatherState>,
     pub(crate) movement: ResMut<'w, MovementTicker>,
     pub(crate) local_physics: ResMut<'w, LocalPhysicsController>,
+    pub(crate) ui_runtime: ResMut<'w, UiRuntime>,
     pub(crate) time: Res<'w, Time<Real>>,
 }
 
@@ -278,6 +280,7 @@ pub(crate) fn drive_world_stream(
         mut weather,
         mut movement,
         mut local_physics,
+        mut ui_runtime,
         time,
     } = state;
     let Some(stream) = client_world.stream.as_mut() else {
@@ -304,7 +307,7 @@ pub(crate) fn drive_world_stream(
     let Ok(mut camera) = camera.single_mut() else {
         return;
     };
-    let (controls, stream_fatal, poll_report) = {
+    let (controls, committed_ui, stream_fatal, poll_report) = {
         let stream = client_world
             .stream
             .as_mut()
@@ -312,6 +315,7 @@ pub(crate) fn drive_world_stream(
         let report = stream.poll(camera.translation.to_array(), upload_budget.max_per_frame);
         (
             stream.take_committed_controls(),
+            stream.take_committed_ui(),
             stream.take_fatal_error(),
             report,
         )
@@ -322,6 +326,48 @@ pub(crate) fn drive_world_stream(
             world_stream_fatal_message(error),
         );
         return;
+    }
+    let local_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
+    for committed in committed_ui {
+        let result = match committed {
+            CommittedUiEvent::Ui { sequence, event } => ui_runtime
+                .apply(SequencedUiEvent {
+                    session_id: clock.session_generation(),
+                    fifo_sequence: sequence,
+                    local_millis,
+                    server_tick: None,
+                    event,
+                })
+                .map(|_| ()),
+            CommittedUiEvent::BlockCrack {
+                sequence,
+                dimension,
+                event,
+            } => ui_runtime.retain_block_crack(SequencedBlockCrackEvent {
+                session_id: clock.session_generation(),
+                fifo_sequence: sequence,
+                dimension,
+                event,
+            }),
+            CommittedUiEvent::LocalAttributes {
+                sequence,
+                server_tick,
+                attributes,
+            } => ui_runtime.apply_local_attributes(SequencedLocalAttributes {
+                session_id: clock.session_generation(),
+                fifo_sequence: sequence,
+                local_millis,
+                server_tick,
+                attributes,
+            }),
+        };
+        if let Err(error) = result {
+            record_fatal_error(
+                &mut client_world.fatal_error,
+                format!("committed UI/gameplay event rejected: {error:?}"),
+            );
+            return;
+        }
     }
     for control in controls {
         if apply_environment_control(control, &mut clock, &mut weather, time.elapsed_secs_f64()) {

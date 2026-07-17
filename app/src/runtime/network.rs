@@ -86,6 +86,7 @@ pub(crate) fn receive_network_events(
         mut weather,
         mut movement,
         mut local_physics,
+        mut ui_runtime,
         time,
     } = state;
     let controls =
@@ -110,6 +111,7 @@ pub(crate) fn receive_network_events(
                     environment,
                     time.elapsed_secs_f64(),
                 );
+                ui_runtime.begin_session(clock.session_generation());
                 if replacing_session {
                     debug!("replaced StartGame environment session");
                 }

@@ -156,6 +156,7 @@ impl WorldStream {
             requests: VecDeque::new(),
             mesh_changes: VecDeque::new(),
             committed_controls: VecDeque::new(),
+            committed_ui: VecDeque::new(),
             publisher_center: Some([
                 floor_to_i32(resolved_server_position.position[0]),
                 floor_to_i32(resolved_server_position.position[1]),
@@ -212,8 +213,11 @@ impl WorldStream {
                 capacity: OUTBOUND_REQUEST_CAPACITY,
             });
         }
-        if self.submitted.len()
-            >= MAX_ADMITTED_WORLD_EVENTS.saturating_sub(self.committed_controls.len())
+        let retained_commits = self
+            .committed_controls
+            .len()
+            .saturating_add(self.committed_ui.len());
+        if self.submitted.len() >= MAX_ADMITTED_WORLD_EVENTS.saturating_sub(retained_commits)
             || (heavy && self.heavy_sequences.len() >= MAX_ADMITTED_HEAVY_EVENTS)
         {
             return Err(WorldStreamError::AdmissionFull {
@@ -309,7 +313,8 @@ impl WorldStream {
             .saturating_sub(
                 self.submitted
                     .len()
-                    .saturating_add(self.committed_controls.len()),
+                    .saturating_add(self.committed_controls.len())
+                    .saturating_add(self.committed_ui.len()),
             )
             .min(MAX_ADMITTED_HEAVY_EVENTS.saturating_sub(self.heavy_sequences.len()))
             .min(OUTBOUND_REQUEST_CAPACITY.saturating_sub(self.requests.len()))

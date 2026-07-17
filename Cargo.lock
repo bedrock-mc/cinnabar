@@ -462,6 +462,7 @@ dependencies = [
  "protocol",
  "rayon",
  "render",
+ "semantic-input",
  "serde",
  "serde_json",
  "sha2",

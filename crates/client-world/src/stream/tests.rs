@@ -11,12 +11,13 @@ use assets::{
     TextureRef, VisualKind, encode_blob,
 };
 use protocol::{
-    ActorEvent, ActorKind, ActorMoveEvent, ActorPositionOrigin, ActorSpawnEvent,
-    BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockEntityUpdateEvent, BlockUpdateEvent,
-    ChangeDimensionEvent, DaylightCycleUpdateEvent, LevelChunkEvent, LevelChunkMode,
+    ActorAttribute, ActorAttributesUpdateEvent, ActorEvent, ActorKind, ActorMoveEvent,
+    ActorPositionOrigin, ActorSpawnEvent, BiomeDefinitionEvent, BiomeDefinitionsEvent,
+    BlockCrackAction, BlockCrackEvent, BlockEntityUpdateEvent, BlockUpdateEvent,
+    ChangeDimensionEvent, DaylightCycleUpdateEvent, HudEvent, LevelChunkEvent, LevelChunkMode,
     MovePlayerEvent, PLAYER_NETWORK_OFFSET, PlayerMovementCorrectionEvent, PublisherUpdateEvent,
     SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkResult, SubChunkUnavailable,
-    WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldEvent,
+    UiEvent, WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldEvent,
 };
 use world::{
     BlockEntityKey, BlockUpdate, ChunkKey, ChunkStore, DecodedBiomeColumn, DecodedBlockEntities,

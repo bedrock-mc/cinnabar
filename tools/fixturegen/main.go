@@ -214,6 +214,51 @@ func fixtures() []fixture {
 			},
 		},
 		{
+			name: "Text",
+			file: "text.bin",
+			pk: &packet.Text{
+				TextType:         packet.TextTypeRaw,
+				Message:          "§aFixture message",
+				XUID:             "",
+				PlatformChatID:   "",
+				NeedsTranslation: false,
+			},
+		},
+		{
+			name: "SetTitle",
+			file: "set_title.bin",
+			pk: &packet.SetTitle{
+				ActionType:       packet.TitleActionSetTitle,
+				Text:             "Fixture title",
+				FadeInDuration:   5,
+				RemainDuration:   40,
+				FadeOutDuration:  10,
+				XUID:             "",
+				PlatformOnlineID: "",
+				FilteredMessage:  "",
+			},
+		},
+		{
+			name: "BossEvent",
+			file: "boss_event.bin",
+			pk: &packet.BossEvent{
+				BossEntityUniqueID: 77,
+				EventType:          packet.BossEventShow,
+				BossBarTitle:       "Fixture boss",
+				HealthPercentage:   0.75,
+				Colour:             packet.BossEventColourRebeccaPurple,
+				Overlay:            packet.BossEventOverlayNotched10,
+			},
+		},
+		{
+			name: "ModalFormRequest",
+			file: "modal_form_request.bin",
+			pk: &packet.ModalFormRequest{
+				FormID:   91,
+				FormData: []byte(`{"type":"form","title":"Fixture"}`),
+			},
+		},
+		{
 			name: "AvailableCommands",
 			file: "available_commands.bin",
 			pk:   availableCommandsFixture(),

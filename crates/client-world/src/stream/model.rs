@@ -319,6 +319,24 @@ pub enum CommittedControlEvent {
     },
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum CommittedUiEvent {
+    Ui {
+        sequence: u64,
+        event: UiEvent,
+    },
+    BlockCrack {
+        sequence: u64,
+        dimension: i32,
+        event: BlockCrackEvent,
+    },
+    LocalAttributes {
+        sequence: u64,
+        server_tick: u64,
+        attributes: Arc<[ActorAttribute]>,
+    },
+}
+
 #[cfg(test)]
 impl WorldMeshChange {
     #[must_use]
