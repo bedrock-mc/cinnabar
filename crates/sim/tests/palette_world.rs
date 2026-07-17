@@ -390,3 +390,64 @@ fn identity_merge_is_bounded_and_rejects_mixed_registries() {
         })
     );
 }
+
+#[test]
+fn identity_limit_stops_before_polling_a_panic_sentinel() {
+    let chunks = (0..=sim::MAX_COLLISION_IDENTITY_CHUNKS)
+        .map(|x| world::ChunkCollisionRevision {
+            chunk: ChunkKey::new(0, x as i32, 0),
+            revision: x as u64 + 1,
+        })
+        .chain(std::iter::once_with(|| {
+            panic!("identity iterator over-polled")
+        }));
+    assert_eq!(
+        sim::WorldCollisionIdentity::new(registry_identity(), chunks),
+        Err(WorldQueryError::IdentityChunkLimitExceeded {
+            max: sim::MAX_COLLISION_IDENTITY_CHUNKS,
+        })
+    );
+}
+
+#[test]
+fn primitive_registration_rejects_contradictory_physics_facts() {
+    let mut registry = CollisionRegistry::with_identity(registry_identity());
+    let full = [Aabb::new(Vec3::ZERO, Vec3::ONE)];
+    let flags =
+        |values: &[sim::BlockPhysicsFlags]| values.iter().fold(0, |bits, flag| bits | flag.bits());
+    for (runtime_id, boxes, fluid_height, block_flags, response) in [
+        (
+            20,
+            &[][..],
+            1.0,
+            flags(&[sim::BlockPhysicsFlags::WATER, sim::BlockPhysicsFlags::LAVA]),
+            sim::SurfaceResponse::None as u8,
+        ),
+        (21, &[][..], 1.0, 0, sim::SurfaceResponse::None as u8),
+        (22, &[][..], 0.0, 0, sim::SurfaceResponse::BubbleUp as u8),
+        (
+            23,
+            &full[..],
+            1.0,
+            flags(&[
+                sim::BlockPhysicsFlags::WATER,
+                sim::BlockPhysicsFlags::PASSABLE,
+            ]),
+            sim::SurfaceResponse::None as u8,
+        ),
+    ] {
+        assert!(matches!(
+            registry.register_primitives(
+                runtime_id,
+                boxes.iter().copied(),
+                0.6,
+                1.0,
+                1.0,
+                fluid_height,
+                block_flags,
+                response,
+            ),
+            Err(RegistryError::ContradictoryFacts { runtime_id: rejected }) if rejected == runtime_id
+        ));
+    }
+}

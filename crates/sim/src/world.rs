@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use thiserror::Error;
 use world::{ChunkCollisionRevision, ChunkKey, ChunkStore, SubChunkKey};
@@ -35,21 +35,22 @@ impl WorldCollisionIdentity {
         registry: CollisionRegistryIdentity,
         chunks: impl IntoIterator<Item = ChunkCollisionRevision>,
     ) -> Result<Self, WorldQueryError> {
-        let chunks = chunks.into_iter().collect::<BTreeSet<_>>();
-        if chunks.len() > MAX_COLLISION_IDENTITY_CHUNKS {
-            return Err(WorldQueryError::IdentityChunkLimitExceeded {
-                max: MAX_COLLISION_IDENTITY_CHUNKS,
-            });
-        }
-        let mut by_chunk = BTreeMap::new();
+        let mut by_chunk: BTreeMap<ChunkKey, ChunkCollisionRevision> = BTreeMap::new();
         for revision in chunks {
-            if let Some(previous) = by_chunk.insert(revision.chunk, revision)
-                && previous.revision != revision.revision
-            {
-                return Err(WorldQueryError::ChunkRevisionConflict {
-                    chunk: revision.chunk,
+            if let Some(previous) = by_chunk.get(&revision.chunk) {
+                if previous.revision != revision.revision {
+                    return Err(WorldQueryError::ChunkRevisionConflict {
+                        chunk: revision.chunk,
+                    });
+                }
+                continue;
+            }
+            if by_chunk.len() == MAX_COLLISION_IDENTITY_CHUNKS {
+                return Err(WorldQueryError::IdentityChunkLimitExceeded {
+                    max: MAX_COLLISION_IDENTITY_CHUNKS,
                 });
             }
+            by_chunk.insert(revision.chunk, revision);
         }
         Ok(Self {
             registry,
@@ -226,6 +227,8 @@ pub enum RegistryError {
     InvalidFlags { runtime_id: u32, bits: u8 },
     #[error("runtime ID {runtime_id} has unknown surface response {value}")]
     InvalidSurfaceResponse { runtime_id: u32, value: u8 },
+    #[error("runtime ID {runtime_id} contains contradictory authoritative physics facts")]
+    ContradictoryFacts { runtime_id: u32 },
 }
 
 impl CollisionRegistry {
@@ -311,6 +314,13 @@ impl CollisionRegistry {
         }
         let shapes = boxes.into_iter().collect::<Vec<_>>();
         validate_shapes(runtime_id, &shapes)?;
+        validate_facts(
+            runtime_id,
+            &shapes,
+            fluid_height_blocks,
+            flags,
+            surface_response,
+        )?;
         self.blocks.insert(
             runtime_id,
             BlockPhysics {
@@ -363,6 +373,30 @@ impl CollisionRegistry {
     fn physics(&self, runtime_id: u32) -> Option<&BlockPhysics> {
         self.blocks.get(&runtime_id)
     }
+}
+
+fn validate_facts(
+    runtime_id: u32,
+    shapes: &[Aabb],
+    fluid_height: f64,
+    flags: BlockPhysicsFlags,
+    response: SurfaceResponse,
+) -> Result<(), RegistryError> {
+    let water = flags.contains(BlockPhysicsFlags::WATER);
+    let lava = flags.contains(BlockPhysicsFlags::LAVA);
+    let fluid = water || lava;
+    let bubble = matches!(
+        response,
+        SurfaceResponse::BubbleUp | SurfaceResponse::BubbleDown
+    );
+    if (water && lava)
+        || ((fluid_height > 0.0) != fluid)
+        || (bubble && !water)
+        || (flags.contains(BlockPhysicsFlags::PASSABLE) && fluid && !shapes.is_empty())
+    {
+        return Err(RegistryError::ContradictoryFacts { runtime_id });
+    }
+    Ok(())
 }
 
 fn validate_shapes(runtime_id: u32, shapes: &[Aabb]) -> Result<(), RegistryError> {

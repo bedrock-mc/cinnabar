@@ -524,10 +524,13 @@ impl ChunkStore {
             })
             .map(|mutation| mutation.key.chunk())
             .collect::<BTreeSet<_>>();
+        let allocated = self
+            .collision_revision_allocator
+            .allocate_batch(changed_columns.len())?;
         let revisions = changed_columns
             .into_iter()
-            .map(|chunk| Ok((chunk, self.collision_revision_allocator.allocate()?)))
-            .collect::<Result<HashMap<_, _>, CollisionRevisionError>>()?;
+            .zip(allocated)
+            .collect::<HashMap<_, _>>();
         let mut changed = Vec::new();
         for mutation in prepared {
             if !mutation.changed {

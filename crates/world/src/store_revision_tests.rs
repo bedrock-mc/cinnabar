@@ -17,6 +17,16 @@ fn exact_revision_ceiling_is_issued_once_and_plus_one_is_rejected() {
 }
 
 #[test]
+fn rejected_batch_does_not_consume_the_exact_ceiling() {
+    let allocator = CollisionRevisionAllocator::with_next(u64::MAX);
+    assert_eq!(
+        allocator.allocate_batch(2),
+        Err(CollisionRevisionError::Exhausted)
+    );
+    assert_eq!(allocator.allocate_batch(1).unwrap(), vec![u64::MAX]);
+}
+
+#[test]
 fn exhausted_store_rejects_load_before_mutation() {
     let allocator = Arc::new(CollisionRevisionAllocator::with_next(u64::MAX));
     let mut store = ChunkStore {
@@ -114,4 +124,82 @@ fn sub_chunk_overflow_does_not_leave_an_empty_sparse_column() {
         ))
     );
     assert!(store.chunk(chunk).is_none());
+}
+
+#[test]
+fn batch_reservation_is_atomic_and_assigns_sorted_columns() {
+    let first_chunk = ChunkKey::new(0, -1, 0);
+    let second_chunk = ChunkKey::new(0, 1, 0);
+    let first = SubChunkKey::from_chunk(first_chunk, 0);
+    let second = SubChunkKey::from_chunk(second_chunk, 0);
+    let allocator = Arc::new(CollisionRevisionAllocator::with_next(u64::MAX));
+    let mut store = ChunkStore {
+        chunks: HashMap::new(),
+        loaded_chunks: BTreeSet::from([first_chunk, second_chunk]),
+        collision_revisions: HashMap::from([
+            (
+                first_chunk,
+                ChunkCollisionRevision {
+                    chunk: first_chunk,
+                    revision: 1,
+                },
+            ),
+            (
+                second_chunk,
+                ChunkCollisionRevision {
+                    chunk: second_chunk,
+                    revision: 2,
+                },
+            ),
+        ]),
+        collision_revision_allocator: allocator,
+    };
+    let prepare = |key, id| {
+        ChunkStore::prepare_sub_chunk_blocks(key, None, &[BlockUpdate::new(0, 0, 0, 0, id)], 0)
+            .unwrap()
+    };
+    assert_eq!(
+        store.commit_prepared_block_updates(vec![prepare(second, 2), prepare(first, 1)]),
+        Err(MutationError::CollisionRevision(
+            CollisionRevisionError::Exhausted
+        ))
+    );
+    assert!(store.chunk(first_chunk).is_none());
+    assert!(store.chunk(second_chunk).is_none());
+
+    store
+        .commit_prepared_block_updates(vec![prepare(first, 1)])
+        .unwrap();
+    assert_eq!(
+        store.collision_revision(first_chunk).unwrap().revision,
+        u64::MAX
+    );
+}
+
+#[test]
+fn successful_batch_assigns_revisions_in_sorted_column_order() {
+    let first_chunk = ChunkKey::new(0, -1, 0);
+    let second_chunk = ChunkKey::new(0, 1, 0);
+    let first = SubChunkKey::from_chunk(first_chunk, 0);
+    let second = SubChunkKey::from_chunk(second_chunk, 0);
+    let mut store = ChunkStore {
+        chunks: HashMap::new(),
+        loaded_chunks: BTreeSet::from([first_chunk, second_chunk]),
+        collision_revisions: HashMap::new(),
+        collision_revision_allocator: Arc::new(CollisionRevisionAllocator::with_next(100)),
+    };
+    let prepare = |key, id| {
+        ChunkStore::prepare_sub_chunk_blocks(key, None, &[BlockUpdate::new(0, 0, 0, 0, id)], 0)
+            .unwrap()
+    };
+
+    store
+        .commit_prepared_block_updates(vec![prepare(second, 2), prepare(first, 1)])
+        .unwrap();
+
+    assert_eq!(store.collision_revision(first_chunk).unwrap().revision, 100);
+    assert_eq!(
+        store.collision_revision(second_chunk).unwrap().revision,
+        101
+    );
 }

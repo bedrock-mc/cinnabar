@@ -1,5 +1,9 @@
 use super::*;
 
+pub(super) fn chunk_commit_is_mutation_failure(error: &DecodeError) -> bool {
+    matches!(error, DecodeError::CollisionRevision(_))
+}
+
 impl WorldStream {
     pub(super) fn record_normalization_error(&mut self, reason: NormalizationErrorReason) {
         self.stats.normalization_errors = self.stats.normalization_errors.saturating_add(1);
@@ -192,9 +196,15 @@ impl WorldStream {
                                     }
                                     true
                                 }
-                                Err(_) => {
-                                    self.stats.decode_errors =
-                                        self.stats.decode_errors.saturating_add(1);
+                                Err(error) => {
+                                    if chunk_commit_is_mutation_failure(&error) {
+                                        self.record_normalization_error(
+                                            NormalizationErrorReason::BlockMutationFailure,
+                                        );
+                                    } else {
+                                        self.stats.decode_errors =
+                                            self.stats.decode_errors.saturating_add(1);
+                                    }
                                     false
                                 }
                             };
