@@ -17,6 +17,12 @@ use crate::{
         normalize_move_entity_delta, normalize_player_list, normalize_remove_entity,
         normalize_set_entity_data, normalize_update_attributes,
     },
+    ui::{
+        BlockCrackEvent, UiEvent, UiPacketError, normalize_block_crack, normalize_boss,
+        normalize_display_objective, normalize_form, normalize_health, normalize_player_status,
+        normalize_remove_objective, normalize_score, normalize_soft_enum, normalize_text,
+        normalize_title, normalize_toast,
+    },
 };
 
 /// Sequential palette state ID generated for `minecraft:air` in 1.26.30.
@@ -389,12 +395,17 @@ pub enum WorldEvent {
     DaylightCycle(DaylightCycleUpdateEvent),
     Weather(WeatherUpdateEvent),
     Actor(ActorEvent),
+    Ui(UiEvent),
+    BlockCrack(BlockCrackEvent),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum WorldPacketError {
     #[error(transparent)]
     Actor(#[from] ActorPacketError),
+
+    #[error(transparent)]
+    Ui(#[from] UiPacketError),
 
     #[error("BiomeDefinitionList has {count} definitions, exceeding {max}")]
     TooManyBiomeDefinitions { count: usize, max: usize },
@@ -453,6 +464,25 @@ pub fn into_world_event(
     current_dimension: i32,
 ) -> Result<Option<WorldEvent>, WorldPacketError> {
     let event = match packet.data {
+        McpePacketData::PacketText(packet) => WorldEvent::Ui(normalize_text(*packet)?),
+        McpePacketData::PacketSetTitle(packet) => WorldEvent::Ui(normalize_title(*packet)?),
+        McpePacketData::PacketToastRequest(packet) => WorldEvent::Ui(normalize_toast(packet)?),
+        McpePacketData::PacketSetDisplayObjective(packet) => {
+            WorldEvent::Ui(normalize_display_objective(*packet)?)
+        }
+        McpePacketData::PacketRemoveObjective(packet) => {
+            WorldEvent::Ui(normalize_remove_objective(packet)?)
+        }
+        McpePacketData::PacketSetScore(packet) => WorldEvent::Ui(normalize_score(packet)?),
+        McpePacketData::PacketBossEvent(packet) => WorldEvent::Ui(normalize_boss(*packet)?),
+        McpePacketData::PacketModalFormRequest(packet) => WorldEvent::Ui(normalize_form(packet)?),
+        McpePacketData::PacketSetHealth(packet) => WorldEvent::Ui(normalize_health(packet)),
+        McpePacketData::PacketPlayStatus(packet) => {
+            WorldEvent::Ui(normalize_player_status(packet)?)
+        }
+        McpePacketData::PacketUpdateSoftEnum(packet) => {
+            WorldEvent::Ui(normalize_soft_enum(packet)?)
+        }
         McpePacketData::PacketAddEntity(packet) => {
             WorldEvent::Actor(normalize_add_entity(*packet, current_dimension)?)
         }
@@ -691,6 +721,14 @@ pub fn into_world_event(
             WorldEvent::DaylightCycle(DaylightCycleUpdateEvent { enabled })
         }
         McpePacketData::PacketLevelEvent(packet) => {
+            if matches!(
+                packet.event,
+                LevelEventPacketEvent::BlockStartBreak
+                    | LevelEventPacketEvent::BlockStopBreak
+                    | LevelEventPacketEvent::BlockBreakSpeed
+            ) {
+                return Ok(Some(WorldEvent::BlockCrack(normalize_block_crack(packet)?)));
+            }
             let update = match packet.event {
                 LevelEventPacketEvent::StartRain => WeatherUpdateEvent {
                     channel: WeatherChannel::Rain,

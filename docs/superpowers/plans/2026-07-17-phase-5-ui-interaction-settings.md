@@ -582,9 +582,11 @@ integration checkpoint 1.
 - Extend fixture generator: `tools/fixturegen`
 
 **Interfaces:**
-- Consumes: Valentine `Text`, title/actionbar, toast/player-status, attribute,
-  objective/display/score, boss-event, modal-form, command-suggestion, and
-  block-break-progress packets/events.
+- Consumes: Valentine `Text`, title/actionbar, toast/player-status,
+  objective/display/score, boss-event, modal-form, `UpdateSoftEnum`, and
+  block-break-progress packets/events. `UpdateAttributes` remains one canonical
+  `ActorEvent`; the app fans local health/hunger values into HUD state without
+  decoding or retaining the packet twice.
 - Produces: `UiEvent`, `BlockCrackEvent`, and bounded subevents with
   dimension/session-independent packet content; app sequencing attaches
   session/FIFO identities.
@@ -636,14 +638,17 @@ pub enum BossOverlay { Progress, Notched6, Notched10, Notched12, Notched20 }
 pub struct BossStyle {
     pub color: BossColor,
     pub overlay: BossOverlay,
-    pub darken_sky: bool,
-    pub create_world_fog: bool,
+    pub darken_sky: Option<bool>,
+    pub create_world_fog: Option<bool>,
 }
 
-pub enum BlockCrackAction { Start, Progress { stage: u8 }, Stop }
+pub enum BlockCrackAction {
+    Start { progress_per_tick: u16 },
+    UpdateSpeed { progress_per_tick: u16 },
+    Stop,
+}
 pub struct BlockCrackEvent {
     pub position: [i32; 3],
-    pub actor_runtime_id: u64,
     pub action: BlockCrackAction,
 }
 ```
@@ -652,9 +657,14 @@ Copy strings into bounded `Arc<str>`, reject invalid UTF-8 at decode, preserve
 Bedrock formatting codes, validate every float as finite, and retain protocol
 IDs/actions rather than inferred UI state. Add `WorldEvent::Ui(UiEvent)` and
 `WorldEvent::BlockCrack(BlockCrackEvent)` plus explicit packet/event match
-arms; validate crack stages as `0..=9`. Normalize every boss add/update field,
-including color, overlay, sky-darkening, and fog flags; unknown required enum
-values fail closed. Unrelated packets still return `Ok(None)`.
+arms. In protocol 1001, block start/speed `LevelEvent.data` is the authoritative
+`65535 / break_ticks` progress rate and carries no actor ID or stage; validate it
+as `1..=65535` and preserve it exactly. Normalize every available boss add/update
+field, including color and overlay; this protocol's BossEvent has no sky-darkening
+or fog fields, so retain both as `None` rather than inventing values. Unknown
+required enum values fail closed. `UpdateSoftEnum` carries no request identity;
+retain its bounded named add/remove/replace delta while the local editor owns
+request revisions. Unrelated packets still return `Ok(None)`.
 
 - [ ] **Step 4: Verify and commit**
 
@@ -882,13 +892,13 @@ fn boss_updates_and_removals_do_not_leak_stale_rows() {
 }
 
 #[test]
-fn boss_style_color_overlay_and_flags_update_atomically() {
+fn boss_style_color_overlay_and_wire_availability_update_atomically() {
     let mut store = BossBarStore::default();
-    store.apply(add_styled_boss(7, BossColor::Purple, BossOverlay::Notched10, true, false)).unwrap();
+    store.apply(add_styled_boss(7, BossColor::Purple, BossOverlay::Notched10)).unwrap();
     let row = store.rows().first().unwrap();
     assert_eq!(row.style.color, BossColor::Purple);
     assert_eq!(row.style.overlay, BossOverlay::Notched10);
-    assert!(row.style.darken_sky);
+    assert_eq!(row.style.darken_sky, None);
 }
 ```
 
@@ -1418,10 +1428,13 @@ snapshots and emit stack requests through the journal; they never mutate slots
 directly.
 
 The block-crack renderer consumes only normalized
-`WorldEvent::BlockCrack(BlockCrackEvent)`. A server Start or Progress event
-replaces any local provisional stage for the same session, dimension, and
-block position; Stop removes it immediately. Stages are accepted only in
-`0..=9` and are never guessed from elapsed time. Session/world/dimension
+`WorldEvent::BlockCrack(BlockCrackEvent)`. A server Start or UpdateSpeed event
+replaces any local provisional state for the same session, dimension, and
+block position; Stop removes it immediately. The fixed-tick owner accumulates
+the exact server-authored progress rate and maps
+`min(9, accumulated_progress * 10 / 65536)` into the ten vanilla visual atlas
+stages; render frames never estimate progress from
+wall-clock time. Session/world/dimension
 replacement or a stale event clears or rejects the entry. Local target
 replacement clears only a matching provisional local crack; it never clears
 an authoritative server crack, including one produced by another actor.
@@ -1904,8 +1917,9 @@ immutable final consumer branch.
 Cycle all nine hotbar slots; replace selected stack; compare local viewmodel
 and remote held item; attack one valid actor and miss once; place a block; use
 empty hand, melee item, block item, consumable, and duration item; reject one
-stack request; start a block break and verify the exact server crack stage,
-then verify progress replacement, stop, target change, respawn, and dimension
+stack request; start a block break and verify the exact server progress rate
+and deterministic derived visual stage, then verify speed replacement, stop,
+target change, respawn, and dimension
 change clear the overlay; open survival, creative, chest, furnace, crafting, modal, menu,
 and custom form surfaces; respawn and change dimension.
 
@@ -1929,7 +1943,7 @@ controller disconnect/touch cancellation, UI-consumed actions, semantic
 release ordering, and restoration of gameplay authority. Then compare font metrics, formatting,
 HUD positions, chat, title/actionbar, scoreboard, boss bars, hotbar, inventory,
 forms, first-person hand/item, swing/use extrema and timing, third-person held
-item, authoritative block-crack stages and clearing, combat target/reach, FOV,
+item, server-rate-derived block-crack stages and clearing, combat target/reach, FOV,
 menu, controls, and focus transitions.
 
 - [ ] **Step 4: Prove performance and resource bounds**

@@ -42,6 +42,34 @@
     "sha256": "94488d2f25a50e01e1bcaa57f83200af36495605f299004b946c145d1d73d2a5"
   },
   {
+    "name": "Text",
+    "file": "text.bin",
+    "id": 9,
+    "byte_length": 29,
+    "sha256": "1416498c15383bbbb63b7035203648ae57fbcacf4ce7ea8089ad6da7caa3647d"
+  },
+  {
+    "name": "SetTitle",
+    "file": "set_title.bin",
+    "id": 88,
+    "byte_length": 25,
+    "sha256": "106484679c8f35b2a2bec9e2256abc8560c1f3de5a01210c8c3c1704f7dbdba0"
+  },
+  {
+    "name": "BossEvent",
+    "file": "boss_event.bin",
+    "id": 74,
+    "byte_length": 28,
+    "sha256": "8f1e17a077a1df621eaa1830d38c68f14fd4ce7073db63be1e458a83a4eaf5f1"
+  },
+  {
+    "name": "ModalFormRequest",
+    "file": "modal_form_request.bin",
+    "id": 100,
+    "byte_length": 39,
+    "sha256": "6969d1e79e6a639b307cd814d4a8e618e334a48f24df26fa7324a45b658a076c"
+  },
+  {
     "name": "AvailableCommands",
     "file": "available_commands.bin",
     "id": 76,
