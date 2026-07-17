@@ -82,13 +82,13 @@ documentation is `efa5400`. The agent runtime does not expose exact model/versio
 selectors, so reviews use the configured runtime default rather than claiming a particular
 model setting.
 
-The repository has 65 linked worktrees. Twenty-five worktree heads are ancestors of the
-audit base, 26 more are patch-equivalent or historical, and 14 have patch-unique commits.
-Only the following three patch-unique tranches remain genuine integration candidates:
+At audit time the repository had 65 linked worktrees. Twenty-five worktree heads were
+ancestors of the audit base, 26 more were patch-equivalent or historical, and 14 had
+patch-unique commits. The three genuine candidates and their current disposition are:
 
 | Tranche | Base -> head | Review/integration state | Next action |
 |---|---|---|---|
-| Phase 3 movement foundation | `efa5400` -> `71d38a3` (`phase3-movement-integration`) | Clean, local-only, independently approved; not merged | Integrate the exact commit, rerun affected checks, and keep production outbound movement disabled while FreeCamera is active |
+| Phase 3 movement foundation | `efa5400` -> `71d38a3` | Integrated history-preservingly as merge `e370880`; focused and full locked workspace tests, strict Clippy, formatting, and architecture enforcement are green | Keep production outbound movement disabled while FreeCamera is active; finish the remaining movement strata and live server-authoritative acceptance before enabling `Physics` transmission |
 | Phase 2.6 leaf litter | `efa5400` -> `698be1c` (`phase26-leaf-litter`) | Clean, local-only, review **needs changes**; not mergeable as-is | Replace provisional growth 4-7 geometry/UV/tint and complete texture admission from version-matched Bedrock visual authority, then re-review |
 | Phase 4 entity geometry stream | `105107d` -> `15bbfe2` (`phase43-entity-geometry-payloads`) | Clean, local-only; inheritance fixes landed after the first review | Independently re-review the complete range, then integrate only if approved |
 
@@ -99,26 +99,28 @@ Phase status at this audit:
 | Phase 2.5 biome blending | Open: the provisional 3x3 blend kernel still needs an abrupt native biome-boundary comparison and live acceptance |
 | Phase 2.6 visual coverage | Open: the authoritative production residual is 2,398 diagnostics; the leaf-litter tranche above is not counted because it is review-blocked and unmerged |
 | Phase 2.7 lighting/sky/fog/clouds | Open: the cloud evidence sub-gate is complete, but calibrated atmosphere parity, native cloud/celestial comparison, and the <=2 s teleport-remesh gate remain open |
-| Phase 3 movement | Packet/simulation foundations are complete on the authoritative branch; app input, fixed-step simulation, collision registries, camera interpolation, and reanchors are implemented only in the pending `71d38a3` tranche. Production outbound movement remains intentionally off in FreeCamera mode |
+| Phase 3 movement | Packet/simulation foundations plus app input, fixed-step simulation, collision registries, camera interpolation, and correction/session reanchors are integrated through `e370880`. Production outbound movement remains intentionally off in FreeCamera mode; remaining bedsim movement strata and live server-authoritative acceptance are still open |
 | Phase 4 actors | Actor tracking, standard-skin biped rendering, Oomph-style three-tick player convergence, and distinct per-frame render interpolation are complete. Authoritative geometry/bone/cube streaming remains pending in `15bbfe2`; animations/Molang, persona/custom geometry, legacy/outer skin layers, and remaining entity families are still open |
 
-Nine other patch-unique branch heads were audited as superseded/reimplemented and must not
-be merged: local `phase2-textures` copper work, `phase27-atmosphere-parity-fix`,
+Nine other patch-unique branch heads were audited as superseded/reimplemented and were
+deleted locally after their authoritative replacements were verified: local `phase2-textures`
+copper work, `phase27-atmosphere-parity-fix`,
 `phase2-block-entity-manifest`, `repair-mushroom-typed`, `phase27-light-core`,
 `phase27-light-scheduler`, `phase3-physics-fix-resume`, `phase26-static-signs`, and
-`transparent-model-stream`. Two more are obsolete/withdrawn and must not be merged:
-`fix/frustum-culling` and `phase26-wood-shelves`.
+`transparent-model-stream`. Two more, `fix/frustum-culling` and
+`phase26-wood-shelves`, were obsolete/withdrawn and were also deleted locally. The remote
+`github/phase2-textures` integration branch was not deleted.
 
 Five worktrees contain preserved, uncommitted work and are intentionally not cleaned by this
 audit: the root `cinnabar-work`, `external-mode-diagnostic`, `blockentity-evidence`,
 `atmosphere-black-diagnosis`, and `static-fence-gates`. Their changes are not part of the
 three integration candidates above.
 
-Prioritized continuation: (1) integrate and verify movement `71d38a3`; (2) re-review and, if
-approved, integrate entity geometry through `15bbfe2`; (3) repair leaf litter before any
-merge; (4) continue the source-backed bulk visual-rule generator, using BDS state/collision
+Prioritized continuation: (1) re-review and, if approved, integrate entity geometry through
+`15bbfe2`; (2) repair leaf litter before any merge; (3) continue the source-backed bulk
+visual-rule generator, using BDS state/collision
 data only as structural authority and version-matched native client/resource-pack evidence
-for render geometry and UVs, with ambiguous families failing closed; then (5) close the
+for render geometry and UVs, with ambiguous families failing closed; then (4) close the
 remaining Phase 2 acceptance gates in order: 2.5, 2.6, 2.7.
 
 ---
@@ -1593,11 +1595,21 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   and bounded tick-keyed correction replay. Unknown runtime IDs, unloaded chunks, invalid
   collision shapes, and failed replay queries stop prediction instead of guessing. A generator
   pinned to bedsim v0.1.3 records a checksum-bound JSONL trace, and the Rust conformance test
-  matches it at `1e-12` epsilon. This is intentionally not wired to app input or outbound
-  movement: the full runtime collision registry, remaining bedsim movement strata, expanded
-  terrain/correction traces, render interpolation, and live vanilla/Lunar verification remain
-  required before Phase 3 is complete. Freecam remains a non-authoritative mode and must be
-  network-silent.
+  matches it at `1e-12` epsilon. App integration is tracked separately in 3.3. Remaining bedsim
+  movement strata, expanded terrain/correction traces, and live vanilla/Lunar verification
+  remain required before Phase 3 is complete. Freecam remains a non-authoritative mode and
+  must be network-silent.
+
+- [x] **3.3 App-side local physics integration foundation.** App input now drives the fixed
+  20 Hz simulator against checked-in sequential and hashed collision registries; unavailable
+  collision data fails closed, render frames interpolate the simulated eye position, and
+  session/correction events reanchor or reset prediction without leaking into teleport
+  tracking. Catch-up, history, and input-edge queues remain bounded. This landed through
+  `71d38a3` and merge `e370880`; 25 focused movement tests, the complete client-world and sim
+  suites, the full locked Rust workspace, strict workspace Clippy, formatting, and architecture
+  enforcement are green. The controller deliberately cannot authorize network transmission:
+  production remains `FreeCamera` and sends no local position updates. Enabling `Physics`
+  authority requires the remaining movement strata plus live server-authoritative verification.
 
 ## Phase 4 — Entities and other players
 
