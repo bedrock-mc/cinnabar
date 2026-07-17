@@ -89,15 +89,15 @@ fn compiles_clips_controllers_molang_and_collection_selection_deterministically(
     );
     assert_eq!(first.rig_bindings.len(), 1);
     assert_eq!(first.rig_bindings[0].fallback, EntityRigFallback::Skip);
-    let selection = first.rig_bindings[0]
-        .geometry_selection
-        .expect("render collection selection must be linked to the rig");
-    let expression = first.molang_expressions[selection as usize];
+    let rig = first.rig_bindings[0];
+    assert_eq!(rig.geometry_count, 3);
+    let candidates = &first.rig_geometries[rig.first_geometry as usize
+        ..(rig.first_geometry + u32::from(rig.geometry_count)) as usize];
+    assert!(candidates[0].condition.is_none());
     assert!(
-        first.molang_ops[expression.first_op as usize
-            ..(expression.first_op + u32::from(expression.op_count)) as usize]
+        candidates[1..]
             .iter()
-            .any(|op| matches!(op, MolangOp::SelectCollection(_)))
+            .all(|candidate| candidate.condition.is_some())
     );
     assert!(first.molang_symbols.iter().any(|symbol| {
         symbol.kind == MolangSymbolKind::Query && symbol.identifier.as_ref() == "query.is_moving"
@@ -108,12 +108,7 @@ fn compiles_clips_controllers_molang_and_collection_selection_deterministically(
     }));
     assert!(first.molang_ops.contains(&MolangOp::And));
     assert!(first.molang_ops.contains(&MolangOp::Clamp));
-    assert!(
-        first
-            .molang_ops
-            .iter()
-            .any(|op| matches!(op, MolangOp::SelectCollection(_)))
-    );
+    assert!(first.molang_ops.contains(&MolangOp::Equal));
 }
 
 #[test]
@@ -335,6 +330,95 @@ fn conflicting_animation_aliases_are_resolved_inside_each_entity_environment() {
 }
 
 #[test]
+fn real_layout_animation_controllers_bind_separately_from_animation_aliases() {
+    let pack = animation_pack(false);
+    write(
+        pack.path(),
+        "entity/test.entity.json",
+        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:allay","textures":{"default":"textures/entity/test"},"geometry":{"default":"geometry.test"},"animations":{"move":"animation.test.walk"},"animation_controllers":[{"main":"controller.animation.test"}],"render_controllers":["controller.render.test"]}}}"#,
+    );
+
+    let compiled = compile_entity_assets_with_report(pack.path(), MANIFEST).unwrap();
+    assert_eq!(compiled.assets.controllers.len(), 1);
+    assert_eq!(compiled.assets.rig_bindings.len(), 1);
+    let rig = compiled.assets.rig_bindings[0];
+    assert_eq!(
+        compiled.assets.rig_geometries[rig.first_geometry as usize].controller_count,
+        1
+    );
+    let controller_symbol = compiled
+        .assets
+        .symbols
+        .iter()
+        .position(|symbol| symbol.identifier.as_ref() == "controller.animation.test")
+        .unwrap() as u32;
+    assert!(!compiled.reference_outcomes.iter().any(|outcome| matches!(
+        outcome,
+        asset_compiler::CompileReferenceOutcome::OptionalStaticFallback { symbol, .. }
+            if *symbol == controller_symbol
+    )));
+}
+
+#[test]
+fn explicit_default_geometry_wins_over_alphabetically_earlier_optional_alias() {
+    let pack = animation_pack(false);
+    write(
+        pack.path(),
+        "models/entity/test.geo.json",
+        br#"{"format_version":"1.21.0","minecraft:geometry":[{"description":{"identifier":"geometry.player"},"bones":[{"name":"player_root"}]},{"description":{"identifier":"geometry.test"},"bones":[{"name":"root"},{"name":"arm","parent":"root"}]}]}"#,
+    );
+    write(
+        pack.path(),
+        "entity/test.entity.json",
+        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","geometry":{"aaa_optional":"geometry.player","default":"geometry.test"},"animations":{"walk":"animation.test.walk"},"render_controllers":["controller.render.test"]}}}"#,
+    );
+
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    let rig = &compiled.rig_bindings[0];
+    let candidate = &compiled.rig_geometries[rig.first_geometry as usize];
+    assert_eq!(
+        compiled.geometries[candidate.geometry as usize]
+            .identifier
+            .as_ref(),
+        "geometry.test"
+    );
+}
+
+#[test]
+fn inherited_geometry_clips_use_parent_order_and_child_overlays() {
+    let pack = animation_pack(false);
+    write(
+        pack.path(),
+        "models/entity/test.geo.json",
+        br#"{"format_version":"1.8.0","geometry.base":{"bones":[{"name":"root"},{"name":"arm","parent":"root"}]},"geometry.child:geometry.base":{"bones":[{"name":"arm","parent":"root"},{"name":"wing","parent":"arm"}]}}"#,
+    );
+    write(
+        pack.path(),
+        "entity/test.entity.json",
+        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","geometry":{"default":"geometry.child"},"animations":{"move":"animation.test.walk"},"render_controllers":["controller.render.test"]}}}"#,
+    );
+    write(
+        pack.path(),
+        "animations/test.animation.json",
+        br#"{"format_version":"1.8.0","animations":{"animation.test.walk":{"bones":{"root":{"position":[1,0,0]},"arm":{"position":[2,0,0]},"wing":{"position":[3,0,0]}}}}}"#,
+    );
+
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    let candidate = compiled.rig_geometries[compiled.rig_bindings[0].first_geometry as usize];
+    let clip = &compiled.animation_clips
+        [compiled.rig_animations[candidate.first_animation as usize].clip as usize];
+    let channels = &compiled.animation_channels
+        [clip.first_channel as usize..(clip.first_channel + clip.channel_count) as usize];
+    assert_eq!(
+        channels
+            .iter()
+            .map(|channel| channel.bone)
+            .collect::<Vec<_>>(),
+        vec![1, 0, 2]
+    );
+}
+
+#[test]
 fn animation_bones_are_numbered_in_the_selected_geometry_not_global_order() {
     let pack = animation_pack(false);
     write(
@@ -363,7 +447,8 @@ fn animation_bones_are_numbered_in_the_selected_geometry_not_global_order() {
         .rig_bindings
         .iter()
         .map(|rig| {
-            let binding = &compiled.rig_animations[rig.first_animation as usize];
+            let candidate = &compiled.rig_geometries[rig.first_geometry as usize];
+            let binding = &compiled.rig_animations[candidate.first_animation as usize];
             compiled.animation_channels
                 [compiled.animation_clips[binding.clip as usize].first_channel as usize]
                 .bone
@@ -373,6 +458,67 @@ fn animation_bones_are_numbered_in_the_selected_geometry_not_global_order() {
         root_bones,
         vec![1, 0],
         "rig order is symbol-sorted; each clip must use its rig geometry's local root index"
+    );
+}
+
+#[test]
+fn selectable_geometries_own_specialized_clips_and_controllers() {
+    let pack = animation_pack(false);
+    write(
+        pack.path(),
+        "models/entity/test.geo.json",
+        br#"{"format_version":"1.21.0","minecraft:geometry":[{"description":{"identifier":"geometry.a"},"bones":[{"name":"root"},{"name":"arm"}]},{"description":{"identifier":"geometry.b"},"bones":[{"name":"arm"},{"name":"root"}]}]}"#,
+    );
+    write(
+        pack.path(),
+        "entity/test.entity.json",
+        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","geometry":{"default":"geometry.a","alternate":"geometry.b"},"animations":{"move":"animation.test.walk","attack":"animation.test.attack"},"animation_controllers":[{"main":"controller.animation.test"}],"render_controllers":["controller.render.test"]}}}"#,
+    );
+    write(
+        pack.path(),
+        "render_controllers/test.render_controllers.json",
+        br#"{"format_version":"1.8.0","render_controllers":{"controller.render.test":{"arrays":{"geometries":{"Array.test":["Geometry.default","Geometry.alternate"]}},"geometry":"Array.test[math.floor(query.modified_move_speed)]"}}}"#,
+    );
+
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    let rig = compiled.rig_bindings[0];
+    let candidates = &compiled.rig_geometries[rig.first_geometry as usize
+        ..(rig.first_geometry + u32::from(rig.geometry_count)) as usize];
+    let alternate = candidates
+        .iter()
+        .find(|candidate| {
+            compiled.geometries[candidate.geometry as usize]
+                .identifier
+                .as_ref()
+                == "geometry.b"
+        })
+        .unwrap();
+    let direct_clip = compiled.rig_animations[alternate.first_animation as usize
+        ..alternate.first_animation as usize + alternate.animation_count as usize]
+        .iter()
+        .find(|binding| {
+            compiled.molang_symbols[binding.name as usize]
+                .identifier
+                .as_ref()
+                == "move"
+        })
+        .unwrap()
+        .clip;
+    assert_eq!(
+        compiled.animation_channels
+            [compiled.animation_clips[direct_clip as usize].first_channel as usize]
+            .bone,
+        1
+    );
+    let rig_controller = compiled.rig_controllers[alternate.first_controller as usize].controller;
+    let controller = compiled.controllers[rig_controller as usize];
+    let state = compiled.controller_states[controller.first_state as usize];
+    let controller_clip = compiled.controller_animations[state.first_animation as usize].clip;
+    assert_eq!(
+        compiled.animation_channels
+            [compiled.animation_clips[controller_clip as usize].first_channel as usize]
+            .bone,
+        1
     );
 }
 

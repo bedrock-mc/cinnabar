@@ -188,6 +188,7 @@ struct EntityAssetCounts {
     controller_animations: usize,
     controller_transitions: usize,
     rig_bindings: usize,
+    rig_geometry_candidates: usize,
     rig_animations: usize,
     rig_controllers: usize,
     rig_geometry_selections: usize,
@@ -469,12 +470,13 @@ fn compile_entity_assets_command(
             controller_animations: compiled.controller_animations.len(),
             controller_transitions: compiled.controller_transitions.len(),
             rig_bindings: compiled.rig_bindings.len(),
+            rig_geometry_candidates: compiled.rig_geometries.len(),
             rig_animations: compiled.rig_animations.len(),
             rig_controllers: compiled.rig_controllers.len(),
             rig_geometry_selections: compiled
-                .rig_bindings
+                .rig_geometries
                 .iter()
-                .filter(|rig| rig.geometry_selection.is_some())
+                .filter(|candidate| candidate.condition.is_some())
                 .count(),
             item_visuals: compiled.item_visuals.len(),
             item_visual_aliases: compiled.item_visual_aliases.len(),

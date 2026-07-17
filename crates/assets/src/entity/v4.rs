@@ -9,8 +9,8 @@ use crate::{
 
 use super::{
     CompiledEntityAssets, EntityAssetKind, EntityAssetSymbol, EntityGeometryScalar,
-    RuntimeEntityAssets, effective_geometry_bone_counts, invalid, validate_compiled,
-    validate_geometry_scalar, validate_identifier, validate_scalars,
+    RuntimeEntityAssets, invalid, validate_compiled, validate_geometry_scalar, validate_identifier,
+    validate_scalars,
 };
 
 pub const MAX_ENTITY_ANIMATION_CLIPS: usize = 4_096;
@@ -29,6 +29,7 @@ pub const MAX_MOLANG_COLLECTIONS: usize = 16_384;
 pub const MAX_MOLANG_COLLECTION_ITEMS_TOTAL: usize =
     MAX_MOLANG_COLLECTIONS * MAX_MOLANG_COLLECTION_ITEMS;
 pub const MAX_ENTITY_RIG_BINDINGS: usize = 8_192;
+pub const MAX_ENTITY_RIG_GEOMETRIES: usize = 262_144;
 pub const MAX_ENTITY_RIG_ANIMATIONS: usize = 262_144;
 pub const MAX_ENTITY_RIG_CONTROLLERS: usize = 262_144;
 
@@ -38,6 +39,9 @@ pub(super) use preflight::payload_counts;
 #[path = "v4/encode.rs"]
 mod encode;
 pub(super) use encode::{encode_compiled, encode_runtime};
+#[path = "v4/rig.rs"]
+mod rig;
+use rig::validate_rig_payload;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[repr(u8)]
@@ -211,14 +215,21 @@ pub enum EntityRigFallback {
 #[serde(deny_unknown_fields)]
 pub struct EntityRigBinding {
     pub entity_symbol: u32,
-    pub geometry: u32,
     pub render_controller: u32,
-    pub geometry_selection: Option<u32>,
+    pub first_geometry: u32,
+    pub geometry_count: u16,
+    pub fallback: EntityRigFallback,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EntityRigGeometryBinding {
+    pub geometry: u32,
+    pub condition: Option<u32>,
     pub first_animation: u32,
     pub animation_count: u16,
     pub first_controller: u32,
     pub controller_count: u16,
-    pub fallback: EntityRigFallback,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -253,6 +264,7 @@ pub struct EntityAssetSummary {
     pub molang_collections: usize,
     pub molang_collection_items: usize,
     pub rig_bindings: usize,
+    pub rig_geometries: usize,
     pub rig_animations: usize,
     pub rig_controllers: usize,
     pub item_visuals: usize,
@@ -333,6 +345,11 @@ impl RuntimeEntityAssets {
     }
 
     #[must_use]
+    pub fn rig_geometries(&self) -> &[EntityRigGeometryBinding] {
+        &self.rig_geometries
+    }
+
+    #[must_use]
     pub fn rig_animations(&self) -> &[EntityRigAnimationBinding] {
         &self.rig_animations
     }
@@ -371,6 +388,7 @@ impl RuntimeEntityAssets {
             molang_collections: self.molang_collections.len(),
             molang_collection_items: self.molang_collection_items.len(),
             rig_bindings: self.rig_bindings.len(),
+            rig_geometries: self.rig_geometries.len(),
             rig_animations: self.rig_animations.len(),
             rig_controllers: self.rig_controllers.len(),
             item_visuals: self.item_visuals.len(),
@@ -812,116 +830,6 @@ fn validate_controller_state(
                 "entity controller transition index is out of range",
             ));
         }
-    }
-    Ok(())
-}
-
-fn validate_rig_payload(compiled: &CompiledEntityAssets) -> Result<(), AssetError> {
-    if compiled.rig_bindings.len() > MAX_ENTITY_RIG_BINDINGS
-        || compiled.rig_animations.len() > MAX_ENTITY_RIG_ANIMATIONS
-        || compiled.rig_controllers.len() > MAX_ENTITY_RIG_CONTROLLERS
-    {
-        return Err(invalid("entity rig binding count exceeds bound"));
-    }
-    let effective_bone_counts = effective_geometry_bone_counts(&compiled.geometries)?;
-    for binding in &compiled.rig_animations {
-        if !molang_symbol_has_kind(compiled, binding.name, &[MolangSymbolKind::Name])
-            || binding.clip as usize >= compiled.animation_clips.len()
-        {
-            return Err(invalid("entity rig animation index is out of range"));
-        }
-    }
-    for binding in &compiled.rig_controllers {
-        if !molang_symbol_has_kind(compiled, binding.name, &[MolangSymbolKind::Name])
-            || binding.controller as usize >= compiled.controllers.len()
-        {
-            return Err(invalid("entity rig controller index is out of range"));
-        }
-    }
-    for binding in &compiled.rig_bindings {
-        if !index_has_kind(
-            &compiled.symbols,
-            binding.entity_symbol,
-            EntityAssetKind::Entity,
-        ) || binding.geometry as usize >= compiled.geometries.len()
-            || !index_has_kind(
-                &compiled.symbols,
-                binding.render_controller,
-                EntityAssetKind::RenderController,
-            )
-            || binding
-                .geometry_selection
-                .is_some_and(|expression| expression as usize >= compiled.molang_expressions.len())
-            || !range_in_bounds(
-                binding.first_animation,
-                u32::from(binding.animation_count),
-                compiled.rig_animations.len(),
-            )
-            || !range_in_bounds(
-                binding.first_controller,
-                u32::from(binding.controller_count),
-                compiled.rig_controllers.len(),
-            )
-        {
-            return Err(invalid("entity rig binding index is out of range"));
-        }
-        let geometry_bones = effective_bone_counts[binding.geometry as usize];
-        let rig_animations = &compiled.rig_animations[binding.first_animation as usize
-            ..binding.first_animation as usize + binding.animation_count as usize];
-        for animation in rig_animations {
-            validate_rig_clip_bones(compiled, animation.clip, geometry_bones)?;
-        }
-        let rig_controllers = &compiled.rig_controllers[binding.first_controller as usize
-            ..binding.first_controller as usize + binding.controller_count as usize];
-        for rig_controller in rig_controllers {
-            let controller = &compiled.controllers[rig_controller.controller as usize];
-            let states = &compiled.controller_states[controller.first_state as usize
-                ..controller.first_state as usize + controller.state_count as usize];
-            for state in states {
-                let animations = &compiled.controller_animations[state.first_animation as usize
-                    ..state.first_animation as usize + state.animation_count as usize];
-                for animation in animations {
-                    validate_rig_clip_bones(compiled, animation.clip, geometry_bones)?;
-                }
-            }
-        }
-    }
-    validate_flattened_ranges(
-        compiled
-            .rig_bindings
-            .iter()
-            .map(|binding| (binding.first_animation, u32::from(binding.animation_count))),
-        compiled.rig_animations.len(),
-        "rig animation",
-    )?;
-    validate_flattened_ranges(
-        compiled.rig_bindings.iter().map(|binding| {
-            (
-                binding.first_controller,
-                u32::from(binding.controller_count),
-            )
-        }),
-        compiled.rig_controllers.len(),
-        "rig controller",
-    )?;
-    Ok(())
-}
-
-fn validate_rig_clip_bones(
-    compiled: &CompiledEntityAssets,
-    clip_index: u32,
-    geometry_bones: usize,
-) -> Result<(), AssetError> {
-    let clip = &compiled.animation_clips[clip_index as usize];
-    let channels = &compiled.animation_channels
-        [clip.first_channel as usize..clip.first_channel as usize + clip.channel_count as usize];
-    if channels
-        .iter()
-        .any(|channel| channel.bone as usize >= geometry_bones)
-    {
-        return Err(invalid(
-            "entity animation channel bone is out of range for its effective rig geometry",
-        ));
     }
     Ok(())
 }

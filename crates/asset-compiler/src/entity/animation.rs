@@ -5,17 +5,25 @@ use assets::{
     EntityAnimationKeyframe, EntityAssetKind, EntityAssetSource, EntityAssetSymbol,
     EntityControllerAnimation, EntityControllerState, EntityControllerTransition, EntityGeometry,
     EntityRigAnimationBinding, EntityRigBinding, EntityRigControllerBinding, EntityRigFallback,
+    EntityRigGeometryBinding,
 };
 use serde_json::{Map, Value};
 
 use super::{SourcePayloads, invalid, molang::MolangCompiler};
 
 mod clip;
+mod environment;
 mod outcome;
 
 use clip::{
     ClipCompileError, compile_clip_for_geometry, has_string_leaf, looks_like_expression, read_json,
     required_object, source_index,
+};
+use environment::{
+    EntityEnvironment, GeometrySelection, GeometrySelections,
+    collect as collect_entity_environments, compile_geometry_selections,
+    controller_clip_references, default_geometry, effective_bone_names, parse_aliases,
+    selection_for, unique_geometry_indices,
 };
 pub use outcome::{CompileReferenceOutcome, FallbackReason, RejectReason};
 
@@ -28,6 +36,7 @@ pub(super) struct AnimationPayload {
     pub controller_animations: Box<[EntityControllerAnimation]>,
     pub controller_transitions: Box<[EntityControllerTransition]>,
     pub rig_bindings: Box<[EntityRigBinding]>,
+    pub rig_geometries: Box<[EntityRigGeometryBinding]>,
     pub rig_animations: Box<[EntityRigAnimationBinding]>,
     pub rig_controllers: Box<[EntityRigControllerBinding]>,
     pub outcomes: Box<[CompileReferenceOutcome<u32>]>,
@@ -36,25 +45,24 @@ pub(super) struct AnimationPayload {
 #[derive(Default)]
 struct PendingController {
     owner_entity: u32,
+    geometry: u32,
     symbol: u32,
     initial_state: Box<str>,
     states: Vec<PendingState>,
 }
 
-struct EntityEnvironment {
-    entity_symbol: u32,
-    geometry: Option<u32>,
-    geometry_aliases: BTreeMap<Box<str>, Box<str>>,
-    render_controllers: Vec<Box<str>>,
-    aliases: BTreeMap<Box<str>, Box<str>>,
-}
-
 type ClipIndices = BTreeMap<(Box<str>, u32), u32>;
-type GeometrySelections = BTreeMap<(Box<str>, u32), Option<u32>>;
 
 struct RigInputs<'a> {
     clip_indices: &'a ClipIndices,
     controllers: &'a [PendingController],
+    geometry_selections: &'a GeometrySelections,
+}
+
+struct ControllerInputs<'a> {
+    symbol_indices: &'a BTreeMap<(EntityAssetKind, &'a str, u32), u32>,
+    clip_indices: &'a ClipIndices,
+    environments: &'a [EntityEnvironment],
     geometry_selections: &'a GeometrySelections,
 }
 
@@ -91,6 +99,10 @@ pub(super) fn compile(
         })
         .collect::<BTreeMap<_, _>>();
     let environments = collect_entity_environments(root, payloads, sources, symbols, geometries)?;
+    let effective_bones = effective_bone_names(geometries)?;
+    let controller_clip_references = controller_clip_references(root, payloads, sources)?;
+    let geometry_selections =
+        compile_geometry_selections(root, payloads, sources, geometries, &environments, molang)?;
 
     let mut pending_clips = Vec::new();
     for source in sources
@@ -125,13 +137,36 @@ pub(super) fn compile(
         let identifier = symbols[symbol as usize].identifier.as_ref();
         let used_geometries = environments
             .iter()
-            .filter_map(|environment| {
-                environment.geometry.filter(|_| {
-                    environment.aliases.values().any(|target| {
-                        !target.starts_with("controller.animation.")
-                            && target.as_ref() == identifier
-                    })
-                })
+            .flat_map(|environment| {
+                let referenced = environment.geometry.is_some_and(|_| {
+                    environment
+                        .animation_aliases
+                        .values()
+                        .any(|target| target.as_ref() == identifier)
+                        || environment.controller_aliases.values().any(|controller| {
+                            controller_clip_references
+                                .get(controller)
+                                .is_some_and(|references| {
+                                    references.iter().any(|reference| {
+                                        environment
+                                            .animation_aliases
+                                            .get(reference)
+                                            .map_or(reference.as_ref(), AsRef::as_ref)
+                                            == identifier
+                                    })
+                                })
+                        })
+                });
+                let mut geometries = Vec::new();
+                if referenced && let Some(default_geometry) = environment.geometry {
+                    geometries.push(default_geometry);
+                    if let Some(GeometrySelection::Supported(selectable)) =
+                        selection_for(environment, &geometry_selections)
+                    {
+                        geometries.extend(selectable.iter().map(|candidate| candidate.geometry));
+                    }
+                }
+                geometries
             })
             .collect::<std::collections::BTreeSet<_>>();
         if used_geometries.is_empty() {
@@ -163,7 +198,7 @@ pub(super) fn compile(
                 symbol,
                 source,
                 definition,
-                &geometries[geometry as usize],
+                &effective_bones[geometry as usize],
                 &mut clips,
                 &mut channels,
                 &mut keyframes,
@@ -182,15 +217,16 @@ pub(super) fn compile(
             }
         }
     }
-    let geometry_selections =
-        compile_render_collections(root, payloads, sources, geometries, &environments, molang)?;
-    let pending_controllers = compile_pending_controllers(
+    let (pending_controllers, controller_fallbacks) = compile_pending_controllers(
         root,
         payloads,
         sources,
-        &symbol_indices,
-        &clip_indices,
-        &environments,
+        ControllerInputs {
+            symbol_indices: &symbol_indices,
+            clip_indices: &clip_indices,
+            environments: &environments,
+            geometry_selections: &geometry_selections,
+        },
         molang,
     )?;
     let compiled_controller_symbols = pending_controllers
@@ -202,12 +238,19 @@ pub(super) fn compile(
         .enumerate()
         .filter(|(_, symbol)| symbol.kind == EntityAssetKind::AnimationController)
     {
+        if controller_fallbacks.contains(&(symbol as u32)) {
+            outcomes.push(CompileReferenceOutcome::OptionalStaticFallback {
+                source: definition.source_index,
+                symbol: symbol as u32,
+                reason: FallbackReason::UnsupportedOptionalExpression,
+            });
+        }
         if compiled_controller_symbols.contains(&(symbol as u32)) {
             continue;
         }
         let referenced = environments.iter().any(|environment| {
             environment
-                .aliases
+                .controller_aliases
                 .values()
                 .any(|target| target == &definition.identifier)
         });
@@ -269,6 +312,7 @@ pub(super) fn compile(
             (
                 symbols[controller.symbol as usize].identifier.clone(),
                 controller.owner_entity,
+                controller.geometry,
             )
         })
         .collect::<Vec<_>>();
@@ -334,6 +378,7 @@ pub(super) fn compile(
         controller_animations: controller_animations.into_boxed_slice(),
         controller_transitions: controller_transitions.into_boxed_slice(),
         rig_bindings: finalized_rigs.bindings,
+        rig_geometries: finalized_rigs.geometries,
         rig_animations: finalized_rigs.animations,
         rig_controllers: finalized_rigs.controllers,
         outcomes: {
@@ -341,93 +386,6 @@ pub(super) fn compile(
             outcomes.into_boxed_slice()
         },
     })
-}
-
-fn collect_entity_environments(
-    root: &Path,
-    payloads: &SourcePayloads,
-    sources: &[EntityAssetSource],
-    symbols: &[EntityAssetSymbol],
-    geometries: &[EntityGeometry],
-) -> Result<Vec<EntityEnvironment>, AssetError> {
-    let geometry_indices = unique_geometry_indices(geometries);
-    let mut environments = Vec::new();
-    for (entity_symbol, entity) in symbols
-        .iter()
-        .enumerate()
-        .filter(|(_, symbol)| symbol.kind == EntityAssetKind::Entity)
-    {
-        let source = &sources[entity.source_index as usize];
-        let value = read_json(root, payloads, source)?;
-        let description = value
-            .get("minecraft:client_entity")
-            .and_then(|value| value.get("description"))
-            .and_then(Value::as_object)
-            .ok_or_else(|| invalid("client entity description is absent"))?;
-        let geometry_aliases = description
-            .get("geometry")
-            .and_then(Value::as_object)
-            .map(|aliases| {
-                aliases
-                    .iter()
-                    .filter_map(|(alias, target)| {
-                        target
-                            .as_str()
-                            .map(|target| (alias.as_str().into(), target.into()))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        let geometry = first_string(description.get("geometry"))
-            .and_then(|identifier| geometry_indices.get(identifier).copied().flatten());
-        let render_controllers = description
-            .get("render_controllers")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|entry| match entry {
-                Value::String(identifier) => Some(identifier.as_str().into()),
-                Value::Object(condition) if condition.len() == 1 => condition
-                    .keys()
-                    .next()
-                    .map(|identifier| identifier.as_str().into()),
-                _ => None,
-            })
-            .collect();
-        let aliases = description
-            .get("animations")
-            .and_then(Value::as_object)
-            .map(|aliases| {
-                aliases
-                    .iter()
-                    .filter_map(|(alias, target)| {
-                        target
-                            .as_str()
-                            .map(|target| (alias.as_str().into(), target.into()))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        environments.push(EntityEnvironment {
-            entity_symbol: entity_symbol as u32,
-            geometry,
-            geometry_aliases,
-            render_controllers,
-            aliases,
-        });
-    }
-    Ok(environments)
-}
-
-fn unique_geometry_indices(geometries: &[EntityGeometry]) -> BTreeMap<Box<str>, Option<u32>> {
-    let mut indices = BTreeMap::new();
-    for (index, geometry) in geometries.iter().enumerate() {
-        indices
-            .entry(geometry.identifier.clone())
-            .and_modify(|value| *value = None)
-            .or_insert(Some(index as u32));
-    }
-    indices
 }
 
 fn unique_symbol_indices(
@@ -452,12 +410,17 @@ fn compile_pending_controllers(
     root: &Path,
     payloads: &SourcePayloads,
     sources: &[EntityAssetSource],
-    symbol_indices: &BTreeMap<(EntityAssetKind, &str, u32), u32>,
-    clip_indices: &ClipIndices,
-    environments: &[EntityEnvironment],
+    inputs: ControllerInputs<'_>,
     molang: &mut MolangCompiler,
-) -> Result<Vec<PendingController>, AssetError> {
+) -> Result<(Vec<PendingController>, std::collections::BTreeSet<u32>), AssetError> {
+    let ControllerInputs {
+        symbol_indices,
+        clip_indices,
+        environments,
+        geometry_selections,
+    } = inputs;
     let mut output = Vec::new();
+    let mut fallbacks = std::collections::BTreeSet::new();
     for source in sources
         .iter()
         .filter(|source| source.path.starts_with("animation_controllers/"))
@@ -477,32 +440,52 @@ fn compile_pending_controllers(
                 .ok_or_else(|| invalid("animation controller must be an object"))?;
             for environment in environments.iter().filter(|environment| {
                 environment
-                    .aliases
+                    .controller_aliases
                     .values()
                     .any(|target| target.as_ref() == identifier)
             }) {
-                let Some(geometry) = environment.geometry else {
+                let Some(default_geometry) = environment.geometry else {
                     continue;
                 };
-                let mut transaction = molang.clone();
-                if let Ok(mut controller) = compile_one_controller(
-                    symbol,
-                    environment.entity_symbol,
-                    definition,
-                    clip_indices,
-                    &environment.aliases,
-                    geometry,
-                    &mut transaction,
-                ) {
-                    controller.owner_entity = environment.entity_symbol;
-                    *molang = transaction;
-                    output.push(controller);
+                let mut geometries = std::collections::BTreeSet::from([default_geometry]);
+                if let Some(GeometrySelection::Supported(selectable)) =
+                    selection_for(environment, geometry_selections)
+                {
+                    geometries.extend(selectable.iter().map(|candidate| candidate.geometry));
+                }
+                for geometry in geometries {
+                    let mut transaction = molang.clone();
+                    match compile_one_controller(
+                        symbol,
+                        environment.entity_symbol,
+                        definition,
+                        clip_indices,
+                        &environment.animation_aliases,
+                        geometry,
+                        &mut transaction,
+                    ) {
+                        Ok(mut controller) => {
+                            controller.owner_entity = environment.entity_symbol;
+                            controller.geometry = geometry;
+                            *molang = transaction;
+                            output.push(controller);
+                        }
+                        Err(_) => {
+                            fallbacks.insert(symbol);
+                        }
+                    }
                 }
             }
         }
     }
-    output.sort_by_key(|controller| (controller.symbol, controller.owner_entity));
-    Ok(output)
+    output.sort_by_key(|controller| {
+        (
+            controller.symbol,
+            controller.owner_entity,
+            controller.geometry,
+        )
+    });
+    Ok((output, fallbacks))
 }
 
 fn compile_one_controller(
@@ -585,6 +568,7 @@ fn compile_one_controller(
         .unwrap_or_else(|| pending_states[0].name.as_ref());
     Ok(PendingController {
         owner_entity,
+        geometry,
         symbol,
         initial_state: initial_state.into(),
         states: pending_states,
@@ -604,106 +588,6 @@ fn compile_optional_expression(
     }
 }
 
-fn compile_render_collections(
-    root: &Path,
-    payloads: &SourcePayloads,
-    sources: &[EntityAssetSource],
-    geometries: &[EntityGeometry],
-    environments: &[EntityEnvironment],
-    molang: &mut MolangCompiler,
-) -> Result<GeometrySelections, AssetError> {
-    let geometry_indices = unique_geometry_indices(geometries);
-    let mut selections = BTreeMap::new();
-    for source in sources
-        .iter()
-        .filter(|source| source.path.starts_with("render_controllers/"))
-    {
-        let value = read_json(root, payloads, source)?;
-        for (controller_name, definition) in required_object(&value, "render_controllers")? {
-            let definition = definition
-                .as_object()
-                .ok_or_else(|| invalid("render controller must be an object"))?;
-            for environment in environments.iter().filter(|environment| {
-                environment.geometry.is_some()
-                    && environment
-                        .render_controllers
-                        .iter()
-                        .any(|identifier| identifier.as_ref() == controller_name)
-            }) {
-                let mut transaction = molang.clone();
-                let mut local_collections = BTreeMap::<Box<str>, Box<str>>::new();
-                if let Some(arrays) = definition.get("arrays") {
-                    let arrays = arrays
-                        .as_object()
-                        .ok_or_else(|| invalid("render-controller arrays must be an object"))?;
-                    if let Some(geometries_array) = arrays.get("geometries") {
-                        let geometries_array = geometries_array.as_object().ok_or_else(|| {
-                            invalid("render-controller arrays.geometries is invalid")
-                        })?;
-                        for (name, members) in geometries_array {
-                            let values = members
-                                .as_array()
-                                .ok_or_else(|| {
-                                    invalid("render-controller collection must be an array")
-                                })?
-                                .iter()
-                                .map(|member| {
-                                    let member = member.as_str().ok_or_else(|| {
-                                        invalid("collection member must be a name")
-                                    })?;
-                                    let identifier = member
-                                        .strip_prefix("Geometry.")
-                                        .and_then(|alias| environment.geometry_aliases.get(alias))
-                                        .map_or(member, |identifier| identifier.as_ref());
-                                    geometry_indices
-                                        .get(identifier)
-                                        .copied()
-                                        .flatten()
-                                        .map(|index| index as f32)
-                                        .ok_or_else(|| {
-                                            invalid(format!(
-                                                "unknown or ambiguous geometry collection member `{member}`"
-                                            ))
-                                        })
-                                })
-                                .collect::<Result<Vec<_>, AssetError>>()?;
-                            let scoped_name = format!(
-                                "{}#{controller_name}#{}#{name}",
-                                source.path, environment.entity_symbol
-                            );
-                            transaction.add_collection(&scoped_name, values)?;
-                            local_collections.insert(name.as_str().into(), scoped_name.into());
-                        }
-                    }
-                }
-                if let Some(geometry) = definition.get("geometry").and_then(Value::as_str)
-                    && let Some((collection, index)) = split_collection_selection(geometry)
-                    && let Some(scoped) = local_collections.get(collection)
-                {
-                    let key = (controller_name.as_str().into(), environment.entity_symbol);
-                    match transaction.compile_collection_selection(scoped, index) {
-                        Ok(expression) => {
-                            *molang = transaction;
-                            selections.insert(key, Some(expression));
-                        }
-                        Err(_) => {
-                            selections.insert(key, None);
-                        }
-                    }
-                }
-            }
-        }
-    }
-    Ok(selections)
-}
-
-fn split_collection_selection(value: &str) -> Option<(&str, &str)> {
-    let open = value.find('[')?;
-    value
-        .ends_with(']')
-        .then(|| (&value[..open], &value[open + 1..value.len() - 1]))
-}
-
 struct PendingRigPayload {
     rigs: Vec<PendingRig>,
     outcomes: Vec<CompileReferenceOutcome<u32>>,
@@ -711,16 +595,21 @@ struct PendingRigPayload {
 
 struct PendingRig {
     entity_symbol: u32,
-    geometry: u32,
     render_controller: u32,
-    geometry_selection: Option<u32>,
+    geometries: Vec<PendingRigGeometry>,
+    fallback: EntityRigFallback,
+}
+
+struct PendingRigGeometry {
+    geometry: u32,
+    condition: Option<u32>,
     animations: Vec<(Box<str>, u32)>,
     controllers: Vec<(Box<str>, Box<str>)>,
-    fallback: EntityRigFallback,
 }
 
 struct FinalRigPayload {
     bindings: Box<[EntityRigBinding]>,
+    geometries: Box<[EntityRigGeometryBinding]>,
     animations: Box<[EntityRigAnimationBinding]>,
     controllers: Box<[EntityRigControllerBinding]>,
     outcomes: Box<[CompileReferenceOutcome<u32>]>,
@@ -730,42 +619,51 @@ impl PendingRigPayload {
     fn finalize(
         self,
         name_index: &impl Fn(&str) -> Result<u32, AssetError>,
-        controller_indices: &BTreeMap<(Box<str>, u32), u32>,
+        controller_indices: &BTreeMap<(Box<str>, u32, u32), u32>,
     ) -> Result<FinalRigPayload, AssetError> {
         let mut bindings = Vec::new();
+        let mut geometries = Vec::new();
         let mut animations = Vec::new();
         let mut controllers = Vec::new();
         for rig in self.rigs {
-            let first_animation = animations.len() as u32;
-            for (name, clip) in rig.animations {
-                animations.push(EntityRigAnimationBinding {
-                    name: name_index(&name)?,
-                    clip,
-                });
-            }
-            let first_controller = controllers.len() as u32;
-            for (name, controller) in rig.controllers {
-                controllers.push(EntityRigControllerBinding {
-                    name: name_index(&name)?,
-                    controller: *controller_indices
-                        .get(&(controller, rig.entity_symbol))
-                        .ok_or_else(|| invalid("rig controller is absent"))?,
+            let first_geometry = geometries.len() as u32;
+            for candidate in rig.geometries {
+                let first_animation = animations.len() as u32;
+                for (name, clip) in candidate.animations {
+                    animations.push(EntityRigAnimationBinding {
+                        name: name_index(&name)?,
+                        clip,
+                    });
+                }
+                let first_controller = controllers.len() as u32;
+                for (name, controller) in candidate.controllers {
+                    controllers.push(EntityRigControllerBinding {
+                        name: name_index(&name)?,
+                        controller: *controller_indices
+                            .get(&(controller, rig.entity_symbol, candidate.geometry))
+                            .ok_or_else(|| invalid("rig controller is absent"))?,
+                    });
+                }
+                geometries.push(EntityRigGeometryBinding {
+                    geometry: candidate.geometry,
+                    condition: candidate.condition,
+                    first_animation,
+                    animation_count: (animations.len() as u32 - first_animation) as u16,
+                    first_controller,
+                    controller_count: (controllers.len() as u32 - first_controller) as u16,
                 });
             }
             bindings.push(EntityRigBinding {
                 entity_symbol: rig.entity_symbol,
-                geometry: rig.geometry,
                 render_controller: rig.render_controller,
-                geometry_selection: rig.geometry_selection,
-                first_animation,
-                animation_count: (animations.len() as u32 - first_animation) as u16,
-                first_controller,
-                controller_count: (controllers.len() as u32 - first_controller) as u16,
+                first_geometry,
+                geometry_count: (geometries.len() as u32 - first_geometry) as u16,
                 fallback: rig.fallback,
             });
         }
         Ok(FinalRigPayload {
             bindings: bindings.into_boxed_slice(),
+            geometries: geometries.into_boxed_slice(),
             animations: animations.into_boxed_slice(),
             controllers: controllers.into_boxed_slice(),
             outcomes: self.outcomes.into_boxed_slice(),
@@ -796,6 +694,7 @@ fn compile_rigs(
             (
                 symbols[controller.symbol as usize].identifier.as_ref(),
                 controller.owner_entity,
+                controller.geometry,
             )
         })
         .collect::<std::collections::BTreeSet<_>>();
@@ -814,7 +713,7 @@ fn compile_rigs(
             .and_then(|value| value.get("description"))
             .and_then(Value::as_object)
             .ok_or_else(|| invalid("client entity description is absent"))?;
-        let Some(geometry_name) = first_string(description.get("geometry")) else {
+        let Some(geometry_name) = default_geometry(description.get("geometry")) else {
             outcomes.push(CompileReferenceOutcome::RequiredRigRejected {
                 source: entity.source_index,
                 symbol: entity_symbol as u32,
@@ -864,41 +763,83 @@ fn compile_rigs(
             });
             continue;
         };
-        let mut animation_bindings: Vec<(Box<str>, u32)> = Vec::new();
-        let mut controller_bindings: Vec<(Box<str>, Box<str>)> = Vec::new();
         let mut rejected = false;
         let mut static_fallback = false;
-        let geometry_selection = geometry_selections
-            .get(&(render_name.into(), entity_symbol as u32))
-            .copied()
-            .flatten();
-        static_fallback |= geometry_selections
-            .get(&(render_name.into(), entity_symbol as u32))
-            .is_some_and(Option::is_none);
-        if let Some(animations) = description.get("animations").and_then(Value::as_object) {
-            for (name, target) in animations {
-                let target = target
-                    .as_str()
-                    .ok_or_else(|| invalid("entity animation binding must be a string"))?;
-                names.push(name.as_str().into());
+        let mut geometry_candidates = vec![(geometry, None)];
+        match geometry_selections.get(&(render_name.into(), entity_symbol as u32)) {
+            Some(GeometrySelection::Supported(selectable)) => geometry_candidates.extend(
+                selectable
+                    .iter()
+                    .map(|candidate| (candidate.geometry, Some(candidate.condition))),
+            ),
+            Some(GeometrySelection::Unsupported) => static_fallback = true,
+            None => {}
+        }
+        let animation_aliases = parse_aliases(description.get("animations"))?;
+        let controller_aliases = parse_aliases(description.get("animation_controllers"))?;
+        let mut pending_geometries = Vec::new();
+        for (candidate_geometry, condition) in geometry_candidates {
+            let mut animation_bindings: Vec<(Box<str>, u32)> = Vec::new();
+            let mut controller_bindings: Vec<(Box<str>, Box<str>)> = Vec::new();
+            for (name, target) in &animation_aliases {
+                names.push(name.clone());
                 if target.starts_with("controller.animation.") {
-                    if controller_symbols.get(target).is_some_and(Option::is_none) {
+                    if controller_symbols
+                        .get(target.as_ref())
+                        .is_some_and(Option::is_none)
+                    {
                         rejected = true;
-                    } else if controller_names.contains(&(target, entity_symbol as u32)) {
-                        controller_bindings.push((name.as_str().into(), target.into()));
+                    } else if controller_names.contains(&(
+                        target.as_ref(),
+                        entity_symbol as u32,
+                        candidate_geometry,
+                    )) {
+                        controller_bindings.push((name.clone(), target.clone()));
                     } else {
                         static_fallback = true;
                     }
-                } else if animation_symbols.get(target).is_some_and(Option::is_none) {
+                } else if animation_symbols
+                    .get(target.as_ref())
+                    .is_some_and(Option::is_none)
+                {
                     rejected = true;
-                } else if let Some(&clip) = clip_indices.get(&(target.into(), geometry)) {
-                    animation_bindings.push((name.as_str().into(), clip));
-                } else if animation_symbols.contains_key(target) {
+                } else if let Some(&clip) = clip_indices.get(&(target.clone(), candidate_geometry))
+                {
+                    animation_bindings.push((name.clone(), clip));
+                } else if animation_symbols.contains_key(target.as_ref()) {
                     static_fallback = true;
                 } else {
                     rejected = true;
                 }
             }
+            for (name, target) in &controller_aliases {
+                names.push(name.clone());
+                if controller_symbols
+                    .get(target.as_ref())
+                    .is_some_and(Option::is_none)
+                {
+                    rejected = true;
+                } else if controller_names.contains(&(
+                    target.as_ref(),
+                    entity_symbol as u32,
+                    candidate_geometry,
+                )) {
+                    controller_bindings.push((name.clone(), target.clone()));
+                } else if controller_symbols.contains_key(target.as_ref()) {
+                    static_fallback = true;
+                } else {
+                    rejected = true;
+                }
+            }
+            animation_bindings.sort_by(|left, right| left.0.cmp(&right.0));
+            controller_bindings.sort_by(|left, right| left.0.cmp(&right.0));
+            controller_bindings.dedup();
+            pending_geometries.push(PendingRigGeometry {
+                geometry: candidate_geometry,
+                condition,
+                animations: animation_bindings,
+                controllers: controller_bindings,
+            });
         }
         if rejected {
             outcomes.push(CompileReferenceOutcome::RequiredRigRejected {
@@ -920,8 +861,6 @@ fn compile_rigs(
             });
             continue;
         }
-        animation_bindings.sort_by(|left, right| left.0.cmp(&right.0));
-        controller_bindings.sort_by(|left, right| left.0.cmp(&right.0));
         static_fallback |= optional_condition.is_some_and(|expression| {
             super::molang::MolangCompiler::default()
                 .compile(expression)
@@ -940,25 +879,13 @@ fn compile_rigs(
         let rig_index = rigs.len() as u32;
         rigs.push(PendingRig {
             entity_symbol: entity_symbol as u32,
-            geometry,
             render_controller,
-            geometry_selection,
-            animations: animation_bindings,
-            controllers: controller_bindings,
+            geometries: pending_geometries,
             fallback,
         });
         outcomes.push(CompileReferenceOutcome::Resolved(rig_index));
     }
     Ok((PendingRigPayload { rigs, outcomes }, names))
-}
-
-fn first_string(value: Option<&Value>) -> Option<&str> {
-    match value? {
-        Value::String(value) => Some(value),
-        Value::Object(values) => values.values().find_map(Value::as_str),
-        Value::Array(values) => values.iter().find_map(Value::as_str),
-        _ => None,
-    }
 }
 
 fn first_render_controller(value: Option<&Value>) -> Option<(&str, Option<&str>)> {

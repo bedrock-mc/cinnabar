@@ -142,6 +142,7 @@ fn synthetic_entity_blob(seed: u8) -> Box<[u8]> {
 fn synthetic_entity_blob_with_manifest(seed: u8, source_manifest_sha256: [u8; 32]) -> Box<[u8]> {
     encode_entity_blob(&CompiledEntityAssets {
         source_manifest_sha256,
+        block_visual_count: 0,
         sources: vec![EntityAssetSource {
             path: "entity/allay.entity.json".into(),
             source_bytes: 1,
@@ -156,6 +157,24 @@ fn synthetic_entity_blob_with_manifest(seed: u8, source_manifest_sha256: [u8; 32
         }]
         .into_boxed_slice(),
         geometries: Box::new([]),
+        animation_clips: Box::new([]),
+        animation_channels: Box::new([]),
+        animation_keyframes: Box::new([]),
+        molang_symbols: Box::new([]),
+        molang_expressions: Box::new([]),
+        molang_ops: Box::new([]),
+        molang_collections: Box::new([]),
+        molang_collection_items: Box::new([]),
+        controllers: Box::new([]),
+        controller_states: Box::new([]),
+        controller_animations: Box::new([]),
+        controller_transitions: Box::new([]),
+        rig_bindings: Box::new([]),
+        rig_geometries: Box::new([]),
+        rig_animations: Box::new([]),
+        rig_controllers: Box::new([]),
+        item_visuals: Box::new([]),
+        item_visual_aliases: Box::new([]),
     })
     .unwrap()
 }

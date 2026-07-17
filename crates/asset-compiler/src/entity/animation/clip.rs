@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, path::Path};
 use assets::{
     AssetError, EntityAnimationChannel, EntityAnimationClip, EntityAnimationInterpolation,
     EntityAnimationKeyframe, EntityAnimationLoop, EntityAnimationProperty, EntityAssetSource,
-    EntityGeometry, EntityGeometryScalar,
+    EntityGeometryScalar,
 };
 use serde_json::{Map, Value};
 
@@ -18,16 +18,14 @@ pub(super) fn compile_clip_for_geometry(
     symbol: u32,
     source: u32,
     definition: &Map<String, Value>,
-    geometry: &EntityGeometry,
+    effective_bones: &[Box<str>],
     clips: &mut Vec<EntityAnimationClip>,
     channels: &mut Vec<EntityAnimationChannel>,
     keyframes: &mut Vec<EntityAnimationKeyframe>,
 ) -> Result<u32, ClipCompileError> {
     let mut bone_indices = BTreeMap::<Box<str>, u32>::new();
-    for (index, bone) in geometry.bones.iter().enumerate() {
-        bone_indices
-            .entry(bone.name.to_ascii_lowercase().into_boxed_str())
-            .or_insert(index as u32);
+    for (index, bone) in effective_bones.iter().enumerate() {
+        bone_indices.entry(bone.clone()).or_insert(index as u32);
     }
     let mut local_channels = Vec::new();
     let mut local_keyframes = Vec::new();

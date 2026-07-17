@@ -15,6 +15,8 @@ pub(super) const BLOCK_ITEM_ROUTES: &[u8] =
 const BLOCK_REGISTRY: &[u8] = include_bytes!("../../../assets/data/block-registry-v1001.bin");
 const ROUTE_SCHEMA: u32 = 1;
 const ROUTE_PROTOCOL: u32 = 1001;
+const DRAGONFLY_VERSION: &str = "v0.11.1-0.20260714151819-dbbd8b787946";
+const DRAGONFLY_MODULE_SUM: &str = "h1:Qu7Qm7iBrLQWlZtz2KdouA4agQdhybV2abSdEN5NBRY=";
 
 pub(super) struct ItemPayload {
     pub block_visual_count: u32,
@@ -159,18 +161,7 @@ fn parse_block_item_routes() -> Result<ReviewedRoutes, AssetError> {
             source,
         })?;
     let expected_hash = format!("{:x}", Sha256::digest(BLOCK_REGISTRY));
-    if table.schema != ROUTE_SCHEMA
-        || table.protocol != ROUTE_PROTOCOL
-        || table.canonical_block_states == 0
-        || table.breg_sha256.as_ref() != expected_hash
-        || table.dragonfly_module.as_ref() != "github.com/df-mc/dragonfly"
-        || table.dragonfly_version.is_empty()
-        || !table.dragonfly_module_sum.starts_with("h1:")
-    {
-        return Err(invalid(
-            "block item route provenance does not match reviewed inputs",
-        ));
-    }
+    validate_route_provenance(&table, &expected_hash)?;
     let mut routes = BTreeMap::new();
     for route in table.routes {
         if route.identifier.is_empty()
@@ -197,6 +188,25 @@ fn parse_block_item_routes() -> Result<ReviewedRoutes, AssetError> {
         block_visual_count: table.canonical_block_states,
         routes,
     })
+}
+
+fn validate_route_provenance(
+    table: &BlockItemRouteTable,
+    expected_hash: &str,
+) -> Result<(), AssetError> {
+    if table.schema != ROUTE_SCHEMA
+        || table.protocol != ROUTE_PROTOCOL
+        || table.canonical_block_states == 0
+        || table.breg_sha256.as_ref() != expected_hash
+        || table.dragonfly_module.as_ref() != "github.com/df-mc/dragonfly"
+        || table.dragonfly_version.as_ref() != DRAGONFLY_VERSION
+        || table.dragonfly_module_sum.as_ref() != DRAGONFLY_MODULE_SUM
+    {
+        return Err(invalid(
+            "block item route provenance does not match reviewed inputs",
+        ));
+    }
+    Ok(())
 }
 
 fn parse_texture_variants(definition: &Value) -> Result<Vec<TextureVariant>, AssetError> {
@@ -254,4 +264,21 @@ fn read_json(
         .get(source.path.as_ref())
         .ok_or_else(|| invalid("retained item source payload is absent"))?;
     parse_semantic_json(&path, bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reviewed_routes_require_the_exact_dragonfly_version_and_module_sum() {
+        let expected_hash = format!("{:x}", Sha256::digest(BLOCK_REGISTRY));
+        let mut table: BlockItemRouteTable = serde_json::from_slice(BLOCK_ITEM_ROUTES).unwrap();
+        table.dragonfly_version = "v0.11.1".into();
+        assert!(validate_route_provenance(&table, &expected_hash).is_err());
+
+        let mut table: BlockItemRouteTable = serde_json::from_slice(BLOCK_ITEM_ROUTES).unwrap();
+        table.dragonfly_module_sum = "h1:wrong".into();
+        assert!(validate_route_provenance(&table, &expected_hash).is_err());
+    }
 }

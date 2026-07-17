@@ -275,6 +275,7 @@ pub fn compile_entity_assets_with_report(
         controller_animations: animation.controller_animations,
         controller_transitions: animation.controller_transitions,
         rig_bindings: animation.rig_bindings,
+        rig_geometries: animation.rig_geometries,
         rig_animations: animation.rig_animations,
         rig_controllers: animation.rig_controllers,
         item_visuals: items.visuals,

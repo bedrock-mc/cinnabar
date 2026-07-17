@@ -189,6 +189,7 @@ fn item_carrier_fixture() -> CompiledEntityAssetsV4 {
         controller_animations: Box::new([]),
         controller_transitions: Box::new([]),
         rig_bindings: Box::new([]),
+        rig_geometries: Box::new([]),
         rig_animations: Box::new([]),
         rig_controllers: Box::new([]),
         item_visuals: vec![ItemVisualDefinition {

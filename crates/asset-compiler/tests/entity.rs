@@ -745,6 +745,7 @@ fn assetc_entity_assets_writes_deterministic_carrier_and_report() {
         "controller_animations",
         "controller_transitions",
         "rig_bindings",
+        "rig_geometry_candidates",
         "rig_animations",
         "rig_controllers",
         "rig_geometry_selections",

@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use assets::{
-    AssetError, CompiledMolangExpression, EntityGeometryScalar, MAX_MOLANG_COLLECTION_ITEMS,
-    MAX_MOLANG_EXPRESSIONS, MAX_MOLANG_OPS, MAX_MOLANG_OPS_PER_EXPRESSION, MAX_MOLANG_STACK_DEPTH,
-    MolangCollection, MolangCollectionItem, MolangOp, MolangSymbol, MolangSymbolKind,
+    AssetError, CompiledMolangExpression, EntityGeometryScalar, MAX_MOLANG_EXPRESSIONS,
+    MAX_MOLANG_OPS, MAX_MOLANG_OPS_PER_EXPRESSION, MAX_MOLANG_STACK_DEPTH, MolangCollection,
+    MolangCollectionItem, MolangOp, MolangSymbol, MolangSymbolKind,
 };
 
 use super::invalid;
@@ -14,7 +14,6 @@ const MAX_PARSE_DEPTH: usize = 32;
 #[derive(Clone, Default)]
 pub(super) struct MolangCompiler {
     expressions: Vec<Expr>,
-    collections: BTreeMap<Box<str>, Vec<f32>>,
     names: BTreeSet<Box<str>>,
 }
 
@@ -35,37 +34,6 @@ impl MolangCompiler {
         let index = self.expressions.len() as u32;
         self.expressions.push(expression);
         Ok(index)
-    }
-
-    pub fn add_collection(&mut self, name: &str, values: Vec<f32>) -> Result<(), AssetError> {
-        if values.is_empty() || values.len() > MAX_MOLANG_COLLECTION_ITEMS {
-            return Err(invalid("Molang collection member count exceeds bound"));
-        }
-        if values.iter().any(|value| scalar(*value).is_err()) {
-            return Err(invalid("Molang collection contains a non-finite value"));
-        }
-        if self.collections.insert(name.into(), values).is_some() {
-            return Err(invalid("duplicate Molang collection name"));
-        }
-        Ok(())
-    }
-
-    pub fn compile_collection_selection(
-        &mut self,
-        collection: &str,
-        index: &str,
-    ) -> Result<u32, AssetError> {
-        if !self.collections.contains_key(collection) {
-            return Err(invalid("unknown render-controller collection"));
-        }
-        if self.expressions.len() >= MAX_MOLANG_EXPRESSIONS {
-            return Err(invalid("Molang expression count exceeds bound"));
-        }
-        let index_expression = Parser::new(index)?.parse()?;
-        let expression = Expr::Collection(Box::new(index_expression), collection.into());
-        let result = self.expressions.len() as u32;
-        self.expressions.push(expression);
-        Ok(result)
     }
 
     pub fn add_name(&mut self, name: &str) -> Result<(), AssetError> {
@@ -95,18 +63,11 @@ impl MolangCompiler {
             .enumerate()
             .map(|(index, symbol)| ((symbol.kind, symbol.identifier.clone()), index as u32))
             .collect::<BTreeMap<_, _>>();
-        let collection_indices = self
-            .collections
-            .keys()
-            .enumerate()
-            .map(|(index, name)| (name.clone(), index as u32))
-            .collect::<BTreeMap<_, _>>();
-
         let mut ops = Vec::new();
         let mut expressions = Vec::with_capacity(self.expressions.len());
         for expression in self.expressions {
             let first_op = ops.len() as u32;
-            expression.emit(&indices, &collection_indices, &mut ops)?;
+            expression.emit(&indices, &mut ops)?;
             let op_count = ops.len() - first_op as usize;
             if op_count == 0 || op_count > MAX_MOLANG_OPS_PER_EXPRESSION {
                 return Err(invalid("Molang operation count exceeds bound"));
@@ -122,25 +83,12 @@ impl MolangCompiler {
             return Err(invalid("total Molang operation count exceeds bound"));
         }
 
-        let mut collections = Vec::with_capacity(self.collections.len());
-        let mut collection_items = Vec::new();
-        for values in self.collections.into_values() {
-            collections.push(MolangCollection {
-                first_item: collection_items.len() as u32,
-                item_count: values.len() as u8,
-            });
-            for value in values {
-                collection_items.push(MolangCollectionItem {
-                    value: scalar(value)?,
-                });
-            }
-        }
         Ok(MolangPayload {
             symbols: symbols.into_boxed_slice(),
             expressions: expressions.into_boxed_slice(),
             ops: ops.into_boxed_slice(),
-            collections: collections.into_boxed_slice(),
-            collection_items: collection_items.into_boxed_slice(),
+            collections: Box::new([]),
+            collection_items: Box::new([]),
         })
     }
 }
@@ -191,7 +139,6 @@ enum Expr {
     Binary(Binary, Box<Expr>, Box<Expr>),
     Ternary(Box<Expr>, Box<Expr>, Box<Expr>),
     Function(Function, Vec<Expr>),
-    Collection(Box<Expr>, Box<str>),
 }
 
 impl Expr {
@@ -200,7 +147,7 @@ impl Expr {
             Self::Symbol(kind, identifier) => {
                 symbols.insert((*kind, identifier.clone()));
             }
-            Self::Unary(_, value) | Self::Collection(value, _) => value.collect_symbols(symbols),
+            Self::Unary(_, value) => value.collect_symbols(symbols),
             Self::Binary(_, left, right) => {
                 left.collect_symbols(symbols);
                 right.collect_symbols(symbols);
@@ -222,7 +169,6 @@ impl Expr {
     fn emit(
         &self,
         symbols: &BTreeMap<(MolangSymbolKind, Box<str>), u32>,
-        collections: &BTreeMap<Box<str>, u32>,
         output: &mut Vec<MolangOp>,
     ) -> Result<(), AssetError> {
         match self {
@@ -241,15 +187,15 @@ impl Expr {
                 });
             }
             Self::Unary(operator, value) => {
-                value.emit(symbols, collections, output)?;
+                value.emit(symbols, output)?;
                 output.push(match operator {
                     Unary::Negate => MolangOp::Negate,
                     Unary::Not => MolangOp::Not,
                 });
             }
             Self::Binary(operator, left, right) => {
-                left.emit(symbols, collections, output)?;
-                right.emit(symbols, collections, output)?;
+                left.emit(symbols, output)?;
+                right.emit(symbols, output)?;
                 output.push(match operator {
                     Binary::Add => MolangOp::Add,
                     Binary::Subtract => MolangOp::Subtract,
@@ -267,24 +213,16 @@ impl Expr {
                 });
             }
             Self::Ternary(condition, yes, no) => {
-                condition.emit(symbols, collections, output)?;
-                yes.emit(symbols, collections, output)?;
-                no.emit(symbols, collections, output)?;
+                condition.emit(symbols, output)?;
+                yes.emit(symbols, output)?;
+                no.emit(symbols, output)?;
                 output.push(MolangOp::Select);
             }
             Self::Function(function, arguments) => {
                 for argument in arguments {
-                    argument.emit(symbols, collections, output)?;
+                    argument.emit(symbols, output)?;
                 }
                 output.push(function.op());
-            }
-            Self::Collection(index, collection) => {
-                index.emit(symbols, collections, output)?;
-                let collection = collections
-                    .get(collection)
-                    .copied()
-                    .ok_or_else(|| invalid("Molang collection was not interned"))?;
-                output.push(MolangOp::SelectCollection(collection));
             }
         }
         if output.len() > MAX_MOLANG_OPS {
