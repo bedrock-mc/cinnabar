@@ -17,6 +17,7 @@ use bevy::{
 };
 use client_world::{CommittedControlEvent, WorldMeshChange, WorldStream};
 use meshing::CameraMedium;
+use protocol::BlobCacheStats;
 use render::{
     ChunkBiomeTints, ChunkRenderQueue, ChunkUploadAcknowledgements, ChunkUploadBudget,
     ChunkUploadPriority, ChunkUploadToken,
@@ -53,6 +54,8 @@ pub(crate) struct ClientWorld {
     pub(crate) fatal_error: Option<String>,
     pub(crate) network_decode_errors: u64,
     pub(crate) reported_decode_errors: u64,
+    pub(crate) client_blob_cache_enabled: bool,
+    pub(crate) client_blob_cache: BlobCacheStats,
 }
 
 pub(crate) const SHUTDOWN_WATCHDOG_IDLE: u8 = 0;
@@ -181,6 +184,8 @@ impl ClientWorld {
             fatal_error: None,
             network_decode_errors: 0,
             reported_decode_errors: 0,
+            client_blob_cache_enabled: false,
+            client_blob_cache: BlobCacheStats::default(),
         }
     }
 }

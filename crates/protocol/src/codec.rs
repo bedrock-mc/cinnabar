@@ -17,6 +17,9 @@ pub enum ProtocolError {
     #[error("bridge connection failed: {0}")]
     Bridge(#[source] anyhow::Error),
 
+    #[error("client blob cache failed: {0}")]
+    BlobCache(#[from] crate::BlobCacheError),
+
     #[error("Bedrock session failed: {0}")]
     Session(#[from] jolyne::error::JolyneError),
 

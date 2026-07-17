@@ -3,6 +3,7 @@ use client_world::{
     Phase2PublicationSnapshot, PresentModeIdentity, PublicationStageCounters, StageDurations,
     SubChunkOutcomeCounters,
 };
+use protocol::BlobCacheStats;
 use world::ChunkKey;
 
 use crate::runtime::phase2_evidence::{
@@ -46,6 +47,16 @@ fn combined_snapshot() -> CombinedPhase2Snapshot {
             gpu_presented: cohort,
         },
         present_mode_proven: true,
+        client_blob_cache_enabled: true,
+        client_blob_cache: BlobCacheStats {
+            hashes_classified: 7,
+            hits: 3,
+            misses: 4,
+            admitted_blobs: 4,
+            reconstructed_level_chunks: 2,
+            reconstructed_sub_chunks: 1,
+            ..Default::default()
+        },
     }
 }
 
@@ -58,6 +69,10 @@ fn phase2_publication_emits_once_per_changed_combined_identity() {
     assert!(first.contains("\"publisher_radius_blocks\":256"));
     assert!(first.contains("\"publisher_radius_chunks\":16"));
     assert!(first.contains("\"graphics_identity_sha256\":\"030303"));
+    assert!(first.contains("\"client_blob_cache_enabled\":true"));
+    assert!(first.contains("\"hashes_classified\":7"));
+    assert!(first.contains("\"hits\":3"));
+    assert!(first.contains("\"misses\":4"));
     assert_eq!(
         phase2_publication_line_if_changed(&mut previous, snapshot),
         None

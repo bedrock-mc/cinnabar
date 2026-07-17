@@ -2,22 +2,28 @@ use std::{
     future::Future,
     path::PathBuf,
     thread::{self, JoinHandle},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use bevy::prelude::Resource;
-use protocol::{LoginSequence, Packet, WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent};
+use protocol::{
+    BlobCacheStats, ClientBlobCache, LoginSequence, Packet, WorldBootstrap,
+    WorldEnvironmentBootstrap, WorldEvent,
+};
 use tokio::sync::{mpsc, watch};
 use world::ChunkKey;
 
 pub(crate) const WORLD_EVENT_CAPACITY: usize = 32;
 const CONTROL_EVENT_CAPACITY: usize = 64;
 const COMMAND_CAPACITY: usize = 64;
+const FINAL_CONTROL_FLUSH_TIMEOUT: Duration = Duration::from_millis(250);
 
 #[derive(Debug, Clone)]
 pub struct NetworkConfig {
     pub socket_dir: PathBuf,
     pub display_name: String,
+    /// Verified blobs outlive a Play session; each login creates a fresh resolver around this cache.
+    pub client_blob_cache: ClientBlobCache,
 }
 
 #[derive(Debug)]
@@ -31,6 +37,10 @@ pub enum NetworkControlEvent {
         base_sub_chunk_y: i32,
         count: usize,
         sent_at: Instant,
+    },
+    BlobCacheTelemetry {
+        enabled: bool,
+        stats: BlobCacheStats,
     },
     Failed {
         message: String,
@@ -217,7 +227,11 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
             };
             runtime.block_on(async move {
                 let Some(login) = wait_for_login_or_cancel(
-                    LoginSequence::connect(&config.socket_dir, &config.display_name),
+                    LoginSequence::connect_with_blob_cache(
+                        &config.socket_dir,
+                        &config.display_name,
+                        config.client_blob_cache.clone(),
+                    ),
                     &mut shutdown_rx,
                 )
                 .await
@@ -289,6 +303,14 @@ trait NetworkSession: Send {
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
     fn decode_error_count(&self) -> u64;
+
+    fn blob_cache_enabled(&self) -> bool {
+        false
+    }
+
+    fn blob_cache_stats(&self) -> BlobCacheStats {
+        BlobCacheStats::default()
+    }
 }
 
 impl NetworkSession for protocol::PlaySession {
@@ -311,6 +333,14 @@ impl NetworkSession for protocol::PlaySession {
     fn decode_error_count(&self) -> u64 {
         protocol::PlaySession::decode_error_count(self)
     }
+
+    fn blob_cache_enabled(&self) -> bool {
+        protocol::PlaySession::blob_cache_enabled(self)
+    }
+
+    fn blob_cache_stats(&self) -> BlobCacheStats {
+        protocol::PlaySession::blob_cache_stats(self)
+    }
 }
 
 async fn run_network_pump<S: NetworkSession>(
@@ -323,6 +353,24 @@ async fn run_network_pump<S: NetworkSession>(
 ) {
     let mut pump_preference = NetworkPumpPreference::Inbound;
     let mut pending_world_event = None;
+    let mut last_blob_cache_stats = None;
+    if session.blob_cache_enabled() {
+        let stats = session.blob_cache_stats();
+        emit_blob_cache_telemetry(stats);
+        if !send_control_event_or_cancel(
+            &control_event_tx,
+            &mut shutdown_rx,
+            NetworkControlEvent::BlobCacheTelemetry {
+                enabled: true,
+                stats,
+            },
+        )
+        .await
+        {
+            return;
+        }
+        last_blob_cache_stats = Some(stats);
+    }
 
     loop {
         match wait_for_network_work_or_cancel(
@@ -369,6 +417,7 @@ async fn run_network_pump<S: NetworkSession>(
                             }
                         }
                         Some(Err(error)) => {
+                            send_final_blob_cache_telemetry(&session, &control_event_tx).await;
                             let _ = send_control_event_or_cancel(
                                 &control_event_tx,
                                 &mut shutdown_rx,
@@ -393,9 +442,15 @@ async fn run_network_pump<S: NetworkSession>(
             }
             NetworkPumpWork::Inbound(WorldSideWork::Capacity(Err(_))) => return,
             NetworkPumpWork::Inbound(WorldSideWork::Event(Ok(event))) => {
+                try_emit_blob_cache_telemetry(
+                    &session,
+                    &control_event_tx,
+                    &mut last_blob_cache_stats,
+                );
                 pending_world_event = Some(sequencer.wrap(event));
             }
             NetworkPumpWork::Inbound(WorldSideWork::Event(Err(error))) => {
+                send_final_blob_cache_telemetry(&session, &control_event_tx).await;
                 let _ = send_control_event_or_cancel(
                     &control_event_tx,
                     &mut shutdown_rx,
@@ -410,6 +465,7 @@ async fn run_network_pump<S: NetworkSession>(
         }
     }
 
+    send_final_blob_cache_telemetry(&session, &control_event_tx).await;
     let _ = send_control_event_or_cancel(
         &control_event_tx,
         &mut shutdown_rx,
@@ -418,6 +474,70 @@ async fn run_network_pump<S: NetworkSession>(
         },
     )
     .await;
+}
+
+fn try_emit_blob_cache_telemetry<S: NetworkSession>(
+    session: &S,
+    control_event_tx: &mpsc::Sender<NetworkControlEvent>,
+    last_stats: &mut Option<BlobCacheStats>,
+) {
+    if !session.blob_cache_enabled() {
+        return;
+    }
+    let stats = session.blob_cache_stats();
+    if *last_stats == Some(stats) {
+        return;
+    }
+    if control_event_tx
+        .try_send(NetworkControlEvent::BlobCacheTelemetry {
+            enabled: true,
+            stats,
+        })
+        .is_ok()
+    {
+        emit_blob_cache_telemetry(stats);
+        *last_stats = Some(stats);
+    }
+}
+
+async fn send_final_blob_cache_telemetry<S: NetworkSession>(
+    session: &S,
+    control_event_tx: &mpsc::Sender<NetworkControlEvent>,
+) -> bool {
+    if !session.blob_cache_enabled() {
+        return true;
+    }
+    let stats = session.blob_cache_stats();
+    emit_blob_cache_telemetry(stats);
+    matches!(
+        tokio::time::timeout(
+            FINAL_CONTROL_FLUSH_TIMEOUT,
+            control_event_tx.send(NetworkControlEvent::BlobCacheTelemetry {
+                enabled: true,
+                stats,
+            }),
+        )
+        .await,
+        Ok(Ok(()))
+    )
+}
+
+fn emit_blob_cache_telemetry(stats: BlobCacheStats) {
+    bevy::log::info!(
+        target: "bedrock_client::blob_cache",
+        hashes_classified = stats.hashes_classified,
+        hits = stats.hits,
+        misses = stats.misses,
+        admitted_blobs = stats.admitted_blobs,
+        rejected_blobs = stats.rejected_blobs,
+        evictions = stats.evictions,
+        pending_transactions = stats.pending_transactions,
+        pending_bytes = stats.pending_bytes,
+        pending_resets = stats.pending_resets,
+        reconstructed_level_chunks = stats.reconstructed_level_chunks,
+        reconstructed_sub_chunks = stats.reconstructed_sub_chunks,
+        "client blob cache counters"
+    );
 }
 
 enum WorldSideWork<'a, E> {
