@@ -139,9 +139,15 @@ pub(in crate::compiler) fn leaf_litter_material_descriptor(
         return None;
     }
     let path = pack.terrain.get_exact_singleton_plain(key)?;
+    let carried_key = "leaf_litter_carried";
+    let carried_path = pack.terrain.get_exact_singleton_plain(carried_key)?;
     if path != "textures/blocks/leaf_litter"
+        || carried_path != "textures/items/leaf_litter"
         || pack.flipbooks.iter().any(|flipbook| {
-            flipbook.atlas_tile.as_ref() == key || flipbook.texture_path.as_ref() == path
+            flipbook.atlas_tile.as_ref() == key
+                || flipbook.texture_path.as_ref() == path
+                || flipbook.atlas_tile.as_ref() == carried_key
+                || flipbook.texture_path.as_ref() == carried_path
         })
     {
         return None;
@@ -206,6 +212,10 @@ pub(in crate::compiler) fn compile_rule(
     let Some(&material) = material_by_descriptor.get(&descriptor) else {
         return Ok(CompileRuleResult::Reject);
     };
+    // Public Bedrock registries establish the 32-state product and official
+    // Mojang Java 26.2 assets establish layouts 0..3. Growth 4..7 remains a
+    // provisional feature-branch alias pending further authoritative data; see
+    // docs/evidence/phase-2-leaf-litter-reference.md. Do not integrate as exact.
     const LAYOUT_BY_GROWTH: [u32; 8] = [0, 1, 2, 3, 3, 3, 3, 3];
     let layout = LAYOUT_BY_GROWTH[state.growth as usize];
     let key = [material, layout, state.orientation];

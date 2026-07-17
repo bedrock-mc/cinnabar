@@ -290,6 +290,18 @@ fn compiler_leaf_litter_admission_is_atomic_for_registry_and_pack_evidence() {
             "[]",
         ),
         (
+            "wrong carried route",
+            r#"{"leaf_litter":{"carried_textures":"leaf_litter_carried","sound":"leaf_litter","textures":"leaf_litter"}}"#,
+            r#"{"texture_data":{"leaf_litter":{"textures":["textures/blocks/leaf_litter"]},"leaf_litter_carried":{"textures":["textures/items/wrong"]}}}"#,
+            "[]",
+        ),
+        (
+            "animated carried route",
+            r#"{"leaf_litter":{"carried_textures":"leaf_litter_carried","sound":"leaf_litter","textures":"leaf_litter"}}"#,
+            r#"{"texture_data":{"leaf_litter":{"textures":["textures/blocks/leaf_litter"]},"leaf_litter_carried":{"textures":["textures/items/leaf_litter"]}}}"#,
+            r#"[{"flipbook_texture":"textures/items/leaf_litter","atlas_tile":"leaf_litter_carried"}]"#,
+        ),
+        (
             "static terrain",
             r#"{"leaf_litter":{"carried_textures":"leaf_litter_carried","sound":"leaf_litter","textures":"leaf_litter"}}"#,
             r#"{"texture_data":{"leaf_litter":{"textures":"textures/blocks/leaf_litter"}}}"#,

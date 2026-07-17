@@ -857,6 +857,22 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       `minecraft:cinnabar` (12638/`0xbda02665`), with `minecraft:leaf_litter`
       far behind, replacing screenshot-based family guesses with exact live
       evidence.
+      **Leaf-litter exact route deferred until further authoritative data is
+      available (2026-07-16):**
+      all 32 protocol-1001 states now compile from one strict atomic registry,
+      texture, alpha, material, and tint admission contract. Official Mojang
+      Java `26.2` model assets pin the quarter/half/three-quarter/full geometry,
+      cropped UVs, 4/256 elevation, and cardinal rotations. The feature branch
+      currently maps Bedrock growth 4 through 7 to the full growth-3 footprint,
+      but independent review correctly requires stronger Bedrock render-rule
+      authority before integration. Do not spend further roadmap time on native
+      screenshot inference now. Retain the branch and finish this family last
+      when further authoritative state selectors, geometry/UV, rotation, render
+      layer, tint, animation, and occlusion data are available. No copied client
+      source, Mojang payload, or screenshot may be tracked. Focused/full
+      verification, independent review, integration, production-ratchet
+      measurement, and live Cinnabar removal remain required after that final
+      authority pass.
       **Sulfur/cinnabar exact route complete (2026-07-16):** both single-state
       minerals now compile as exact opaque full cubes for sequential and hashed
       protocol identities. Admission proves the reviewed collision, selector,
