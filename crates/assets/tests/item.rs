@@ -1,9 +1,6 @@
 use std::hash::Hash;
 
-#[path = "../src/item.rs"]
-mod item;
-
-use item::{
+use assets::{
     BlockVisualId, ItemActionPhase, ItemIconRef, ItemStackIdentity, ItemVisualId, ItemVisualRoute,
 };
 
