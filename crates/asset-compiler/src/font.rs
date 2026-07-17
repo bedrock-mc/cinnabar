@@ -385,7 +385,7 @@ struct ResolvedSource {
     candidate: PathBuf,
     root_handle: File,
     #[cfg(unix)]
-    components_below_font: Box<[Box<str>]>,
+    file_name: Box<str>,
 }
 
 fn resolve_real_source(root: &Path, relative: &str) -> Result<ResolvedSource, FontCompileError> {
@@ -396,33 +396,25 @@ fn resolve_real_source(root: &Path, relative: &str) -> Result<ResolvedSource, Fo
             path: font_root,
             source,
         })?;
-    let mut candidate = root.to_path_buf();
-    let components = relative.split('/').collect::<Vec<_>>();
-    for (index, component) in components.iter().enumerate() {
-        candidate.push(component);
-        let metadata = fs::symlink_metadata(&candidate).map_err(|source| FontCompileError::Io {
-            path: candidate.clone(),
-            source,
-        })?;
-        let is_final = index + 1 == components.len();
-        if is_link_or_reparse(&metadata)
-            || (is_final && !metadata.is_file())
-            || (!is_final && !metadata.is_dir())
-        {
-            return Err(invalid(
-                "font source path contains a symlink, reparse point, or wrong component type",
-            ));
-        }
+    #[cfg(unix)]
+    let file_name = relative
+        .strip_prefix("font/")
+        .ok_or_else(|| invalid("font source path is outside the flat font root"))?;
+    let candidate = root.join(relative);
+    let metadata = fs::symlink_metadata(&candidate).map_err(|source| FontCompileError::Io {
+        path: candidate.clone(),
+        source,
+    })?;
+    if is_link_or_reparse(&metadata) || !metadata.is_file() {
+        return Err(invalid(
+            "font source is a symlink, reparse point, or not a regular file",
+        ));
     }
     Ok(ResolvedSource {
         candidate,
         root_handle,
         #[cfg(unix)]
-        components_below_font: components
-            .into_iter()
-            .skip(1)
-            .map(Into::into)
-            .collect(),
+        file_name: file_name.into(),
     })
 }
 
@@ -492,46 +484,34 @@ fn open_source_handle(source: &ResolvedSource) -> io::Result<File> {
         os::unix::io::{AsRawFd, FromRawFd},
     };
 
-    let mut directory = source.root_handle.try_clone()?;
-    for (index, component) in source.components_below_font.iter().enumerate() {
-        let component = CString::new(component.as_bytes()).map_err(|_| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "font path component contains NUL",
-            )
-        })?;
-        let is_final = index + 1 == source.components_below_font.len();
-        let flags = unix_open_flags::NOFOLLOW
-            | unix_open_flags::CLOEXEC
-            | if is_final {
-                0
-            } else {
-                unix_open_flags::DIRECTORY
-            };
-        // SAFETY: `directory` owns a live directory descriptor, `component` is
-        // a NUL-terminated single path component, and no create flag is used.
-        let descriptor = unsafe { openat(directory.as_raw_fd(), component.as_ptr(), flags) };
-        if descriptor < 0 {
-            return Err(io::Error::last_os_error());
-        }
-        // SAFETY: a successful `openat` returns one newly owned descriptor.
-        let opened = unsafe { File::from_raw_fd(descriptor) };
-        let metadata = opened.metadata()?;
-        if (is_final && !metadata.is_file()) || (!is_final && !metadata.is_dir()) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "font source handle has the wrong component type",
-            ));
-        }
-        directory = opened;
-    }
-    if source.components_below_font.is_empty() {
-        return Err(io::Error::new(
+    let file_name = CString::new(source.file_name.as_bytes()).map_err(|_| {
+        io::Error::new(
             io::ErrorKind::InvalidInput,
-            "font source has no path below the font root",
+            "font file name contains NUL",
+        )
+    })?;
+    let flags = unix_open_flags::NOFOLLOW | unix_open_flags::CLOEXEC;
+    // SAFETY: `root_handle` owns a live directory descriptor, `file_name` is
+    // one NUL-terminated name, and no create flag is used.
+    let descriptor = unsafe {
+        openat(
+            source.root_handle.as_raw_fd(),
+            file_name.as_ptr(),
+            flags,
+        )
+    };
+    if descriptor < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: a successful `openat` returns one newly owned descriptor.
+    let file = unsafe { File::from_raw_fd(descriptor) };
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "font source handle is not a regular file",
         ));
     }
-    Ok(directory)
+    Ok(file)
 }
 
 #[cfg(unix)]
@@ -696,13 +676,15 @@ fn validate_source_path(path: &str) -> Result<(), FontCompileError> {
 }
 
 fn validate_source_path_for_extension(path: &str) -> Result<(), FontCompileError> {
+    let mut components = path.split('/');
+    let root = components.next();
+    let file_name = components.next();
     if path.is_empty()
         || path.len() > MAX_FONT_PATH_BYTES
-        || !path.starts_with("font/")
         || path.contains('\\')
-        || path
-            .split('/')
-            .any(|component| component.is_empty() || component == "." || component == "..")
+        || root != Some("font")
+        || file_name.is_none_or(|name| name.is_empty() || name == "." || name == "..")
+        || components.next().is_some()
     {
         return Err(invalid("font page path is unsafe or noncanonical"));
     }
@@ -757,54 +739,20 @@ fn invalid(detail: impl Into<Box<str>>) -> FontCompileError {
 
 #[cfg(test)]
 mod source_race_tests {
-    use std::{fs, path::Path};
+    use std::fs;
 
-    use super::{FontCompileError, read_source, resolve_real_source};
+    use super::{FontCompileError, resolve_real_source};
 
     #[test]
-    fn replacement_between_validation_and_read_cannot_escape_font_root() {
+    fn intermediate_retarget_paths_are_rejected_before_resolution() {
         let directory = tempfile::tempdir().unwrap();
-        let font = directory.path().join("font");
-        let nested = font.join("nested");
-        let outside = directory.path().join("outside");
-        fs::create_dir_all(&nested).unwrap();
-        fs::create_dir(&outside).unwrap();
-        fs::write(nested.join("page.png"), b"inside").unwrap();
-        fs::write(outside.join("page.png"), b"outside").unwrap();
+        fs::create_dir(directory.path().join("font")).unwrap();
 
-        let resolved = resolve_real_source(directory.path(), "font/nested/page.png").unwrap();
-        fs::rename(&nested, font.join("original-nested")).unwrap();
-        create_directory_link(&nested, &outside).unwrap();
-
-        let result = read_source(&resolved, 1024);
-        #[cfg(windows)]
-        assert!(matches!(
-            result,
-            Err(FontCompileError::Io { source, .. })
-                if source.kind() == std::io::ErrorKind::PermissionDenied
-        ));
-        #[cfg(unix)]
-        assert!(result.is_err());
-    }
-
-    #[cfg(unix)]
-    fn create_directory_link(link: &Path, target: &Path) -> std::io::Result<()> {
-        std::os::unix::fs::symlink(target, link)
-    }
-
-    #[cfg(windows)]
-    fn create_directory_link(link: &Path, target: &Path) -> std::io::Result<()> {
-        let status = std::process::Command::new("cmd")
-            .args(["/c", "mklink", "/J"])
-            .arg(link)
-            .arg(target)
-            .status()?;
-        if status.success() {
-            Ok(())
-        } else {
-            Err(std::io::Error::other(format!(
-                "mklink /J failed with {status}"
-            )))
+        for path in ["font/outside/page.png", "font/inside/page.png"] {
+            assert!(matches!(
+                resolve_real_source(directory.path(), path),
+                Err(FontCompileError::InvalidDescriptor { .. })
+            ));
         }
     }
 }

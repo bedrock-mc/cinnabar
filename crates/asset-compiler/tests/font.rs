@@ -157,6 +157,24 @@ fn intermediate_directory_link_cannot_escape_the_pack_root() {
     assert!(compile_fonts(directory.path()).is_err());
 }
 
+#[test]
+fn nested_normal_page_source_is_rejected_by_the_flat_font_contract() {
+    let directory = tempfile::tempdir().unwrap();
+    let font = directory.path().join("font");
+    fs::create_dir_all(font.join("nested")).unwrap();
+    write_png(&font.join("nested/page.png"), 1, 1);
+    fs::write(
+        font.join("catalog.json"),
+        descriptor_for_single_page("font/nested/page.png", 65),
+    )
+    .unwrap();
+
+    assert!(matches!(
+        compile_fonts(directory.path()),
+        Err(FontCompileError::InvalidDescriptor { .. })
+    ));
+}
+
 fn fixture_pack_with_ascii_and_unicode_pages() -> tempfile::TempDir {
     fixture_pack(
         r#"{
