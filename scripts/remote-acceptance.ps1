@@ -6,7 +6,7 @@ param(
     [Parameter(Mandatory = $true)][int]$DurationSeconds,
     [Parameter(Mandatory = $true)][string]$AuthCache,
     [Parameter(Mandatory = $true)][int]$InitialRadius,
-    [Parameter(Mandatory = $true)][ValidateSet('Fifo', 'Immediate')][string]$PresentMode,
+    [Parameter(Mandatory = $true)][ValidateSet('Fifo')][string]$PresentMode,
     [switch]$FullViewTeleportGate,
     [switch]$OpenSettingsOverlay,
     [Parameter(Mandatory = $true)][string]$Assets,
@@ -55,7 +55,6 @@ $clientArguments = @(
     '--metrics-warmup-seconds', '30'
     '--metrics-sample-seconds', '120'
 )
-if ($PresentMode -eq 'Immediate') { $clientArguments += '--no-vsync' }
 if ($FullViewTeleportGate) { $clientArguments += '--full-view-teleport-gate' }
 
 $manifest = [pscustomobject][ordered]@{

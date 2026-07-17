@@ -50,14 +50,29 @@ function New-SyntheticPhase2LunarManifest {
     param([ValidateSet('Diagnostic', 'Candidate', 'Final')][string]$Mode)
     $publication = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 197 `
         -RequestsConstructed 197 -RequestsSent 197 -ResponsesAdmitted 4096 -SubchunksCommitted 4096
+    $findings = [Collections.Generic.List[string]]::new()
+    if ($Mode -eq 'Diagnostic') { $findings.Add('world_ready_not_observed') }
     return [ordered]@{
         schema = 'rust-mcbe-phase2-remote-v1'; server = 'Lunar'; upstream = 'pvp.lunarbedrock.com:19134'; mode = $Mode; status = 'passed'
+        join_milliseconds = if ($Mode -eq 'Diagnostic') { $null } else { 1500.0 }
         initial_radius = 16; requested_present_mode = 'Fifo'; full_view_teleport_gate = ($Mode -ne 'Diagnostic')
         diagnostic_complete = ($Mode -eq 'Diagnostic'); behavior_gate_passed = ($Mode -ne 'Diagnostic')
         world_ready_observed = ($Mode -ne 'Diagnostic'); publication_snapshot_count = 2
         first_stalled_stage = if ($Mode -eq 'Diagnostic') { 'presentation' } else { 'none' }; final_publication = $publication
-        metrics_evidence = [ordered]@{ status = if ($Mode -eq 'Diagnostic') { 'unavailable' } else { 'passed' } }
-        resources_evidence = [ordered]@{ status = if ($Mode -eq 'Diagnostic') { 'unavailable' } else { 'passed' } }
+        findings = $findings
+        metrics_evidence = [ordered]@{ status = if ($Mode -eq 'Diagnostic') { 'unavailable' } else { 'passed' }; reason = if ($Mode -eq 'Diagnostic') { 'world_ready_not_observed' } else { $null } }
+        resources_evidence = [ordered]@{ status = if ($Mode -eq 'Diagnostic') { 'unavailable' } else { 'passed' }; reason = if ($Mode -eq 'Diagnostic') { 'world_ready_not_observed' } else { $null } }
+        duration_seconds = 150
+        require_effective_present_mode_proof = $true; require_release_build = $true
+        auth_cache_scope = '.local'; client_arguments = @('--synthetic')
+        performance = [ordered]@{
+            warmup_seconds = 30; steady_seconds = 120; p95_frame_ms_max = 16.6666666667
+            p99_frame_ms_max = 16.6666666667; max_frame_ms_max = 50.0; lifecycle_ms_max = 2000.0
+            resource_sample_count = 120; max_combined_rss_bytes = 681574400
+            mean_cpu_percent_max = 15.0; p95_cpu_percent_max = 15.0
+        }
+        client_shutdown_grace_seconds = 5
+        lunar_prerequisite_mode = $null; lunar_prerequisite_manifest_sha256 = $null
     }
 }
 
@@ -80,6 +95,7 @@ Describe 'Phase 2 remote acceptance runner' {
         $runId = 'pester-remote-' + [guid]::NewGuid().ToString('N')
         $runDirectory = Join-Path $ProjectRoot ".local\phase2\remote\$runId"
         $candidateRunDirectory = Join-Path $ProjectRoot ".local\phase2\remote\$runId-candidate"
+        $immediateRunDirectory = Join-Path $ProjectRoot ".local\phase2\remote\$runId-immediate"
         try {
             & $ScriptPath -Server Lunar -Mode Diagnostic -RunId $runId -DurationSeconds 150 `
                 -AuthCache '.local/auth/microsoft-token.json' -InitialRadius 16 `
@@ -109,10 +125,14 @@ Describe 'Phase 2 remote acceptance runner' {
             { & $ScriptPath -Server Lunar -Mode Diagnostic -RunId ($runId + '-auth') -DurationSeconds 150 `
                 -AuthCache '..\token.json' -InitialRadius 16 -PresentMode Fifo `
                 -Assets 'synthetic.mcbea' -ValidateOnly } | Should Throw
+            { & $ScriptPath -Server Lunar -Mode Diagnostic -RunId ($runId + '-immediate') -DurationSeconds 150 `
+                -AuthCache '.local/auth/microsoft-token.json' -InitialRadius 16 -PresentMode Immediate `
+                -Assets 'synthetic.mcbea' -ValidateOnly } | Should Throw
         }
         finally {
             Remove-Item -LiteralPath $runDirectory -Recurse -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $candidateRunDirectory -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $immediateRunDirectory -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
 
@@ -197,8 +217,13 @@ Describe 'Phase 2 remote acceptance runner' {
     It 'allows the server publisher radius to differ without hiding a cached cohort identity gap' {
         $record = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 177 `
             -RequestsConstructed 177 -RequestsSent 177 -ResponsesAdmitted 3894 -SubchunksCommitted 3894 `
-            -PublisherRadius 8
-        (Get-Phase2FirstStalledStage -PublicationRecord ([pscustomobject]$record) -WorldReadyObserved:$false) |
+            -PublisherRadiusBlocks 120 -PublisherRadius 8
+        $parsed = $record | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+        { Assert-Phase2PublicationRecord -Record $parsed -ExpectedPresentMode Fifo } |
+            Should Not Throw
+        (Get-Phase2FirstStalledStage -PublicationRecord $parsed -WorldReadyObserved:$false) |
+            Should Be 'required_cohort_identity'
+        (Get-Phase2FirstStalledStage -PublicationRecord $parsed -WorldReadyObserved:$true) |
             Should Be 'required_cohort_identity'
     }
 
@@ -329,6 +354,46 @@ Describe 'Phase 2 remote acceptance runner' {
             Should Be 'meshing'
     }
 
+    It 'rejects incoherent stage gauges and response outcomes before terminal classification' {
+        $mutations = @(
+            { param($record) $record.publication.stages.decode_jobs_dispatched = 1; $record.publication.stages.decode_jobs_completed = 2 },
+            { param($record) $record.publication.stages.light_jobs_dispatched = 1; $record.publication.stages.light_jobs_completed = 2 },
+            { param($record) $record.publication.stages.mesh_jobs_dispatched = 1; $record.publication.stages.mesh_jobs_completed = 2 },
+            { param($record) $record.publication.stages.mesh_changes_queued = 1; $record.publication.stages.mesh_changes_dequeued = 2 },
+            { param($record) $record.publication.stages.mesh_changes_queued = 100; $record.publication.stages.mesh_changes_dequeued = 0; $record.publication.stages.mesh_changes_pending = 0 },
+            { param($record) foreach ($name in @('success','all_air','unavailable','malformed','stale','timed_out')) { $record.publication.outcomes[$name] = 0 } },
+            { param($record) $record.publication.stages.responses_admitted = 4095 },
+            { param($record) $record.publication.stages.subchunks_committed = 4097 }
+        )
+        foreach ($mutation in $mutations) {
+            $record = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 197 `
+                -RequestsConstructed 197 -RequestsSent 197 -ResponsesAdmitted 4096 -SubchunksCommitted 4096
+            & $mutation $record
+            $parsed = $record | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+            { Assert-Phase2PublicationRecord -Record $parsed -ExpectedPresentMode Fifo } |
+                Should Throw
+        }
+
+        $adversarial = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 197 `
+            -RequestsConstructed 197 -RequestsSent 197 -ResponsesAdmitted 4096 -SubchunksCommitted 4096
+        foreach ($name in @('success','all_air','unavailable','malformed','stale','timed_out')) {
+            $adversarial.publication.outcomes[$name] = 0
+        }
+        $adversarial.publication.stages.mesh_changes_queued = 100
+        $adversarial.publication.stages.mesh_changes_dequeued = 0
+        $adversarial.publication.stages.mesh_changes_pending = 0
+        $parsedAdversarial = $adversarial | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+        (Get-Phase2FirstStalledStage -PublicationRecord $parsedAdversarial -WorldReadyObserved:$true) |
+            Should Not Be 'none'
+
+        $incompleteCommit = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 197 `
+            -RequestsConstructed 197 -RequestsSent 197 -ResponsesAdmitted 4096 -SubchunksCommitted 4096
+        $incompleteCommit.publication.stages.subchunks_committed = 4095
+        $parsedIncompleteCommit = $incompleteCommit | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+        (Get-Phase2FirstStalledStage -PublicationRecord $parsedIncompleteCommit -WorldReadyObserved:$true) |
+            Should Be 'response_semantics'
+    }
+
     It 'rejects missing or incoherent publication evidence as diagnostic completeness' {
         $temporary = Join-Path ([IO.Path]::GetTempPath()) ('phase2-bad-diagnostic-' + [guid]::NewGuid().ToString('N'))
         try {
@@ -405,6 +470,8 @@ Describe 'Phase 2 remote acceptance runner' {
             $immediate.final_publication.presentation.effective_present_mode = 'immediate'
             $immediate | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $immediatePath
             (Find-SyntheticPhase2LunarPrerequisite -RemoteRoot $temporary -Mode Diagnostic) | Should BeNullOrEmpty
+            { Find-Phase2CompletedLunarPrerequisite -RemoteRoot $temporary -Mode Diagnostic `
+                -ExpectedPresentMode Immediate -ExpectedInitialRadius 16 -RequireFullView:$false } | Should Throw
 
             $diagnosticPath = Join-Path $temporary 'diagnostic\manifest.json'
             New-Item -ItemType Directory -Path (Split-Path -Parent $diagnosticPath) | Out-Null
@@ -440,6 +507,72 @@ Describe 'Phase 2 remote acceptance runner' {
             $result.Path | Should Be $finalPath
             $result.Mode | Should Be 'Final'
             $result.Sha256 | Should Match '^[0-9A-F]{64}$'
+        }
+        finally {
+            Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'requires an exact completed Lunar manifest schema and exact integral numeric fields' {
+        $temporary = Join-Path ([IO.Path]::GetTempPath()) ('phase2-lunar-schema-' + [guid]::NewGuid().ToString('N'))
+        try {
+            New-Item -ItemType Directory -Path $temporary | Out-Null
+            $case = 0
+            $invalidManifests = [Collections.Generic.List[object]]::new()
+
+            $unknownRoot = New-SyntheticPhase2LunarManifest -Mode Candidate
+            $unknownRoot['access_token'] = 'must-not-pass'
+            $invalidManifests.Add($unknownRoot)
+            $unknownMetrics = New-SyntheticPhase2LunarManifest -Mode Candidate
+            $unknownMetrics.metrics_evidence['access_token'] = 'must-not-pass'
+            $invalidManifests.Add($unknownMetrics)
+            $missingResource = New-SyntheticPhase2LunarManifest -Mode Candidate
+            $missingResource.resources_evidence.Remove('reason')
+            $invalidManifests.Add($missingResource)
+            $unknownPerformance = New-SyntheticPhase2LunarManifest -Mode Candidate
+            $unknownPerformance.performance['extra'] = 1
+            $invalidManifests.Add($unknownPerformance)
+
+            $missingRoot = New-SyntheticPhase2LunarManifest -Mode Candidate
+            $missingRoot.Remove('duration_seconds')
+            $invalidManifests.Add($missingRoot)
+            $missingPerformance = New-SyntheticPhase2LunarManifest -Mode Candidate
+            $missingPerformance.performance.Remove('steady_seconds')
+            $invalidManifests.Add($missingPerformance)
+
+            $rootIntegralFields = [ordered]@{
+                initial_radius = 16; publication_snapshot_count = 2
+                duration_seconds = 150; client_shutdown_grace_seconds = 5
+            }
+            foreach ($field in $rootIntegralFields.Keys) {
+                $expected = $rootIntegralFields[$field]
+                foreach ($invalid in @($null, $true, [string]$expected, ([double]$expected + 0.5), -1, [decimal]18446744073709551616)) {
+                    $manifest = New-SyntheticPhase2LunarManifest -Mode Candidate
+                    $manifest[$field] = $invalid
+                    $invalidManifests.Add($manifest)
+                }
+            }
+            $performanceIntegralFields = [ordered]@{
+                warmup_seconds = 30; steady_seconds = 120; resource_sample_count = 120
+                max_combined_rss_bytes = 681574400
+            }
+            foreach ($field in $performanceIntegralFields.Keys) {
+                $expected = $performanceIntegralFields[$field]
+                foreach ($invalid in @($null, $true, [string]$expected, ([double]$expected + 0.5), -1, [decimal]18446744073709551616)) {
+                    $manifest = New-SyntheticPhase2LunarManifest -Mode Candidate
+                    $manifest.performance[$field] = $invalid
+                    $invalidManifests.Add($manifest)
+                }
+            }
+
+            foreach ($manifest in $invalidManifests) {
+                $root = Join-Path $temporary "case-$case"
+                New-Item -ItemType Directory -Path $root | Out-Null
+                $manifest | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $root 'manifest.json')
+                (Find-SyntheticPhase2LunarPrerequisite -RemoteRoot $root -Mode Candidate -RequireFullView) |
+                    Should BeNullOrEmpty
+                $case++
+            }
         }
         finally {
             Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue

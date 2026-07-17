@@ -241,10 +241,8 @@ function Assert-Phase2PublicationRecord {
     Assert-Phase2UnsignedInteger -Value $publication.publisher_radius_blocks -Label 'publication.publisher_radius_blocks' -Maximum 1024 -Positive
     Assert-Phase2UnsignedInteger -Value $publication.publisher_radius_chunks -Label 'publication.publisher_radius_chunks' -Maximum 64 -Positive
     $derivedRetentionRadius = [uint64][Math]::Ceiling([uint64]$publication.publisher_radius_blocks / 16.0)
-    $exactColumnCount = Get-Phase2ExactCohortColumnCount -PublisherRadiusBlocks ([uint64]$publication.publisher_radius_blocks)
-    if ([uint64]$publication.publisher_radius_chunks -ne $derivedRetentionRadius -or
-        [uint64]$publication.required_columns -ne $exactColumnCount) {
-        throw 'PHASE2_PUBLICATION raw block radius disagrees with its retention radius or exact cohort count'
+    if ([uint64]$publication.publisher_radius_chunks -ne $derivedRetentionRadius) {
+        throw 'PHASE2_PUBLICATION raw block radius disagrees with its derived retention radius'
     }
     if ($null -eq $publication.stages -or $null -eq $publication.outcomes -or
         [string]$publication.required_cohort_hash -notmatch '^[0-9a-f]{16}$' -or
@@ -276,6 +274,46 @@ function Assert-Phase2PublicationRecord {
         -Label 'PHASE2_PUBLICATION stages'
     foreach ($field in $requiredStageFields) {
         Assert-Phase2UnsignedInteger -Value $publication.stages.$field -Label "publication.stages.$field"
+    }
+    foreach ($prefix in @('decode_jobs', 'light_jobs', 'mesh_jobs')) {
+        $dispatched = [uint64]$publication.stages.("${prefix}_dispatched")
+        $completed = [uint64]$publication.stages.("${prefix}_completed")
+        $inFlight = [uint64]$publication.stages.("${prefix}_in_flight")
+        if ($completed -gt $dispatched) {
+            throw "PHASE2_PUBLICATION ${prefix}_completed exceeds ${prefix}_dispatched"
+        }
+        if ($dispatched -ne [uint64]::MaxValue -and $completed -ne [uint64]::MaxValue -and
+            $inFlight -ne ($dispatched - $completed)) {
+            throw "PHASE2_PUBLICATION ${prefix}_in_flight disagrees with unsaturated dispatch counters"
+        }
+    }
+    $constructed = [uint64]$publication.stages.requests_constructed
+    $sent = [uint64]$publication.stages.requests_sent
+    if ($sent -gt $constructed) {
+        throw 'PHASE2_PUBLICATION requests_sent exceeds requests_constructed'
+    }
+    if ($constructed -ne [uint64]::MaxValue -and $sent -ne [uint64]::MaxValue -and
+        [uint64]$publication.stages.requests_ready -ne ($constructed - $sent)) {
+        throw 'PHASE2_PUBLICATION requests_ready disagrees with unsaturated request counters'
+    }
+    $changesQueued = [uint64]$publication.stages.mesh_changes_queued
+    $changesDequeued = [uint64]$publication.stages.mesh_changes_dequeued
+    if ($changesDequeued -gt $changesQueued) {
+        throw 'PHASE2_PUBLICATION mesh_changes_dequeued exceeds mesh_changes_queued'
+    }
+    if ($changesQueued -ne [uint64]::MaxValue -and $changesDequeued -ne [uint64]::MaxValue -and
+        [uint64]$publication.stages.mesh_changes_pending -ne ($changesQueued - $changesDequeued)) {
+        throw 'PHASE2_PUBLICATION mesh_changes_pending disagrees with unsaturated change counters'
+    }
+    $outcomeTotal = [decimal]0
+    foreach ($field in @('success', 'all_air', 'unavailable', 'malformed', 'stale', 'timed_out')) {
+        $outcomeTotal += [decimal]$publication.outcomes.$field
+    }
+    $maximumCommittableOutcomes = [decimal]$publication.outcomes.success +
+        [decimal]$publication.outcomes.all_air + [decimal]$publication.outcomes.unavailable
+    if ($outcomeTotal -gt [decimal]$publication.stages.responses_admitted -or
+        [decimal]$publication.stages.subchunks_committed -gt $maximumCommittableOutcomes) {
+        throw 'PHASE2_PUBLICATION response outcomes exceed admitted or committable responses'
     }
     foreach ($timingName in @('max_queue_wait_us', 'max_worker_time_us')) {
         Assert-Phase2ExactProperties -Value $publication.$timingName -Names @('decode', 'lighting', 'meshing') `
@@ -309,10 +347,31 @@ function Get-Phase2FirstStalledStage {
     $publication = $PublicationRecord.publication
     $stages = $publication.stages
     $presentation = $PublicationRecord.presentation
+    $exactRawRadiusCount = Get-Phase2ExactCohortColumnCount `
+        -PublisherRadiusBlocks ([uint64]$publication.publisher_radius_blocks)
     $cohortComplete = [uint64]$publication.loaded_required_columns -ge [uint64]$publication.required_columns
+    $outcomeTotal = [decimal]0
+    foreach ($field in @('success', 'all_air', 'unavailable', 'malformed', 'stale', 'timed_out')) {
+        $outcomeTotal += [decimal]$publication.outcomes.$field
+    }
+    $committedOutcomeTotal = [decimal]$publication.outcomes.success + [decimal]$publication.outcomes.all_air
+    if ($outcomeTotal -ne [decimal]$stages.responses_admitted -or
+        $committedOutcomeTotal -ne [decimal]$stages.subchunks_committed) {
+        return 'response_semantics'
+    }
     if ([uint64]$publication.outcomes.malformed -gt 0 -or [uint64]$publication.outcomes.stale -gt 0 -or
         [uint64]$publication.outcomes.timed_out -gt 0 -or [uint64]$publication.outcomes.unavailable -gt 0) {
         return 'response_semantics'
+    }
+    if ([uint64]$publication.required_columns -ne $exactRawRadiusCount -and
+        [uint64]$publication.loaded_required_columns -eq $exactRawRadiusCount -and
+        [uint64]$stages.requests_constructed -eq $exactRawRadiusCount -and
+        [uint64]$stages.requests_sent -eq $exactRawRadiusCount -and
+        [uint64]$stages.requests_ready -eq 0 -and
+        [uint64]$stages.subchunks_awaiting_response -eq 0 -and
+        [uint64]$stages.responses_admitted -eq [uint64]$stages.subchunks_committed -and
+        [uint64]$stages.subchunks_committed -gt 0) {
+        return 'required_cohort_identity'
     }
     if (-not $cohortComplete -and
         [uint64]$stages.requests_constructed -eq [uint64]$publication.loaded_required_columns -and
@@ -327,11 +386,19 @@ function Get-Phase2FirstStalledStage {
     if ([uint64]$stages.requests_sent -lt [uint64]$stages.requests_constructed) { return 'transport' }
     if ([uint64]$stages.subchunks_awaiting_response -gt 0 -or
         (-not $cohortComplete -and [uint64]$stages.responses_admitted -eq 0)) { return 'response_semantics' }
-    if ([uint64]$stages.decode_jobs_queued -gt 0 -or [uint64]$stages.decode_jobs_in_flight -gt 0 -or
+    if ([uint64]$stages.decode_jobs_completed -gt [uint64]$stages.decode_jobs_dispatched -or
+        [uint64]$stages.decode_jobs_queued -gt 0 -or [uint64]$stages.decode_jobs_in_flight -gt 0 -or
         [uint64]$stages.decode_jobs_completed -lt [uint64]$stages.decode_jobs_dispatched) { return 'decode' }
-    if ([uint64]$stages.light_jobs_queued -gt 0 -or [uint64]$stages.light_jobs_in_flight -gt 0 -or
+    if ([uint64]$stages.light_jobs_completed -gt [uint64]$stages.light_jobs_dispatched -or
+        [uint64]$stages.light_jobs_queued -gt 0 -or [uint64]$stages.light_jobs_in_flight -gt 0 -or
         [uint64]$stages.light_jobs_completed -lt [uint64]$stages.light_jobs_dispatched) { return 'lighting' }
-    if ([uint64]$stages.mesh_changes_pending -gt 0 -or [uint64]$stages.mesh_jobs_queued -gt 0 -or
+    if ([uint64]$stages.mesh_changes_dequeued -gt [uint64]$stages.mesh_changes_queued -or
+        ([uint64]$stages.mesh_changes_queued -ne [uint64]::MaxValue -and
+            [uint64]$stages.mesh_changes_dequeued -ne [uint64]::MaxValue -and
+            [uint64]$stages.mesh_changes_pending -ne
+                ([uint64]$stages.mesh_changes_queued - [uint64]$stages.mesh_changes_dequeued)) -or
+        [uint64]$stages.mesh_jobs_completed -gt [uint64]$stages.mesh_jobs_dispatched -or
+        [uint64]$stages.mesh_changes_pending -gt 0 -or [uint64]$stages.mesh_jobs_queued -gt 0 -or
         [uint64]$stages.mesh_jobs_in_flight -gt 0 -or
         [uint64]$stages.mesh_jobs_completed -lt [uint64]$stages.mesh_jobs_dispatched) { return 'meshing' }
     if ([uint64]$stages.mesh_uploads_unacknowledged -gt 0) { return 'gpu_upload' }
@@ -493,34 +560,116 @@ function Find-Phase2CompletedLunarPrerequisite {
     param(
         [Parameter(Mandatory = $true)][string]$RemoteRoot,
         [Parameter(Mandatory = $true)][ValidateSet('Diagnostic', 'Candidate', 'Final')][string]$Mode,
-        [Parameter(Mandatory = $true)][ValidateSet('Fifo', 'Immediate')][string]$ExpectedPresentMode,
+        [Parameter(Mandatory = $true)][ValidateSet('Fifo')][string]$ExpectedPresentMode,
         [Parameter(Mandatory = $true)][int]$ExpectedInitialRadius,
         [Parameter(Mandatory = $true)][bool]$RequireFullView
     )
 
     $allowedStages = @('none', 'required_cohort_identity', 'request_order', 'transport', 'wire_contract', 'response_semantics',
         'decode', 'lighting', 'meshing', 'main_apply', 'gpu_upload', 'extraction', 'submission', 'presentation')
+    $manifestProperties = @(
+        'auth_cache_scope', 'behavior_gate_passed', 'client_arguments', 'client_shutdown_grace_seconds',
+        'diagnostic_complete', 'duration_seconds', 'final_publication', 'findings', 'first_stalled_stage',
+        'full_view_teleport_gate', 'initial_radius', 'join_milliseconds', 'lunar_prerequisite_manifest_sha256',
+        'lunar_prerequisite_mode', 'metrics_evidence', 'mode', 'performance', 'publication_snapshot_count',
+        'requested_present_mode', 'require_effective_present_mode_proof', 'require_release_build',
+        'resources_evidence', 'schema', 'server', 'status', 'upstream', 'world_ready_observed'
+    )
+    $performanceProperties = @(
+        'lifecycle_ms_max', 'max_combined_rss_bytes', 'max_frame_ms_max', 'mean_cpu_percent_max',
+        'p95_cpu_percent_max', 'p95_frame_ms_max', 'p99_frame_ms_max', 'resource_sample_count',
+        'steady_seconds', 'warmup_seconds'
+    )
     foreach ($file in @(Get-ChildItem -LiteralPath $RemoteRoot -Filter manifest.json -File -Recurse -ErrorAction SilentlyContinue | Sort-Object FullName)) {
         try {
             $candidate = Get-Content -Raw -LiteralPath $file.FullName | ConvertFrom-Json
+            Assert-Phase2ExactProperties -Value $candidate -Names $manifestProperties -Label 'Phase 2 remote manifest'
+            Assert-Phase2ExactProperties -Value $candidate.metrics_evidence -Names @('reason', 'status') `
+                -Label 'Phase 2 remote manifest metrics_evidence'
+            Assert-Phase2ExactProperties -Value $candidate.resources_evidence -Names @('reason', 'status') `
+                -Label 'Phase 2 remote manifest resources_evidence'
+            Assert-Phase2ExactProperties -Value $candidate.performance -Names $performanceProperties `
+                -Label 'Phase 2 remote manifest performance'
+            Assert-Phase2UnsignedInteger -Value $candidate.initial_radius -Label 'manifest.initial_radius' -Maximum 64 -Positive
+            Assert-Phase2UnsignedInteger -Value $candidate.publication_snapshot_count `
+                -Label 'manifest.publication_snapshot_count' -Maximum ([uint32]::MaxValue) -Positive
+            Assert-Phase2UnsignedInteger -Value $candidate.duration_seconds -Label 'manifest.duration_seconds' `
+                -Maximum ([uint32]::MaxValue) -Positive
+            Assert-Phase2UnsignedInteger -Value $candidate.client_shutdown_grace_seconds `
+                -Label 'manifest.client_shutdown_grace_seconds' -Maximum ([uint32]::MaxValue)
+            foreach ($field in @('warmup_seconds', 'steady_seconds', 'resource_sample_count', 'max_combined_rss_bytes')) {
+                Assert-Phase2UnsignedInteger -Value $candidate.performance.$field `
+                    -Label "manifest.performance.$field" -Positive
+            }
+            foreach ($field in @('p95_frame_ms_max', 'p99_frame_ms_max', 'max_frame_ms_max', 'lifecycle_ms_max',
+                'mean_cpu_percent_max', 'p95_cpu_percent_max')) {
+                Assert-Phase2FiniteNonnegativeNumber -Value $candidate.performance.$field `
+                    -Label "manifest.performance.$field"
+            }
+            $contract = New-Phase2PerformanceContract
+            foreach ($field in $performanceProperties) {
+                if ([decimal]$candidate.performance.$field -ne [decimal]$contract.$field) {
+                    throw "Phase 2 remote manifest performance contract changed at $field"
+                }
+            }
+            if ([uint64]$candidate.duration_seconds -lt 150 -or
+                [uint64]$candidate.client_shutdown_grace_seconds -ne 5) {
+                throw 'Phase 2 remote manifest duration or shutdown grace is invalid'
+            }
+            if ($candidate.client_arguments -isnot [System.Array] -or $candidate.findings -isnot [System.Array]) {
+                throw 'Phase 2 remote manifest arguments and findings must be JSON arrays'
+            }
+            foreach ($argument in @($candidate.client_arguments)) {
+                if ($argument -isnot [string] -or [string]::IsNullOrWhiteSpace($argument)) {
+                    throw 'Phase 2 remote manifest contains an invalid client argument'
+                }
+            }
+            foreach ($finding in @($candidate.findings)) {
+                if ($finding -isnot [string] -or [string]::IsNullOrWhiteSpace($finding)) {
+                    throw 'Phase 2 remote manifest contains an invalid finding'
+                }
+            }
             if ([string]$candidate.schema -cne 'rust-mcbe-phase2-remote-v1' -or
                 [string]$candidate.server -cne 'Lunar' -or
                 [string]$candidate.upstream -cne 'pvp.lunarbedrock.com:19134' -or
                 [string]$candidate.mode -cne $Mode -or
                 [string]$candidate.status -cne 'passed' -or
-                [int]$candidate.initial_radius -ne $ExpectedInitialRadius -or
-                [string]$candidate.requested_present_mode -cne $ExpectedPresentMode -or
+                [uint64]$candidate.initial_radius -ne [uint64]$ExpectedInitialRadius -or
+                [string]$candidate.requested_present_mode -cne 'Fifo' -or
                 $candidate.full_view_teleport_gate -isnot [bool] -or
                 [bool]$candidate.full_view_teleport_gate -ne $RequireFullView -or
                 ($Mode -cne 'Diagnostic' -and -not $RequireFullView) -or
-                [int]$candidate.publication_snapshot_count -lt 1 -or
                 $allowedStages -cnotcontains [string]$candidate.first_stalled_stage -or
                 $candidate.world_ready_observed -isnot [bool] -or
+                $candidate.require_effective_present_mode_proof -isnot [bool] -or
+                -not [bool]$candidate.require_effective_present_mode_proof -or
+                $candidate.require_release_build -isnot [bool] -or
+                -not [bool]$candidate.require_release_build -or
+                [string]$candidate.auth_cache_scope -cne '.local' -or
+                $null -ne $candidate.lunar_prerequisite_mode -or
+                $null -ne $candidate.lunar_prerequisite_manifest_sha256 -or
                 $null -eq $candidate.final_publication) {
                 continue
             }
+            if ([bool]$candidate.world_ready_observed) {
+                Assert-Phase2FiniteNonnegativeNumber -Value $candidate.join_milliseconds -Label 'manifest.join_milliseconds'
+                if ([double]$candidate.join_milliseconds -gt 2000.0) { continue }
+            }
+            elseif ($null -ne $candidate.join_milliseconds) { continue }
+            foreach ($evidenceName in @('metrics_evidence', 'resources_evidence')) {
+                $evidence = $candidate.$evidenceName
+                if ([string]$evidence.status -ceq 'passed') {
+                    if ($null -ne $evidence.reason) { throw "manifest.$evidenceName passed with a reason" }
+                }
+                elseif ([string]$evidence.status -ceq 'unavailable') {
+                    if ([string]$evidence.reason -cnotin @('world_ready_not_observed', 'diagnostic_mode_is_non_binding')) {
+                        throw "manifest.$evidenceName has an invalid unavailable reason"
+                    }
+                }
+                else { throw "manifest.$evidenceName has an invalid status" }
+            }
             Assert-Phase2PublicationRecord -Record $candidate.final_publication `
-                -ExpectedPresentMode $ExpectedPresentMode
+                -ExpectedPresentMode Fifo
             $computedStage = Get-Phase2FirstStalledStage -PublicationRecord $candidate.final_publication `
                 -WorldReadyObserved:([bool]$candidate.world_ready_observed)
             if ([string]$candidate.first_stalled_stage -cne $computedStage -or
