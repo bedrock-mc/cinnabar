@@ -456,6 +456,8 @@ impl WorldStreamNormalizationStats {
 /// Cumulative diagnostics and current bounded-work gauges.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct WorldStreamStats {
+    pub phase2_stages: PublicationStageCounters,
+    pub phase2_outcomes: SubChunkOutcomeCounters,
     pub decode_errors: u64,
     pub normalization_errors: u64,
     pub normalization_reasons: WorldStreamNormalizationStats,

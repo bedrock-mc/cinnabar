@@ -2,6 +2,11 @@ use super::*;
 
 impl WorldStream {
     pub(super) fn accept_decode_completion(&mut self, completion: DecodeCompletion) {
+        self.stats.phase2_stages.decode_jobs_completed = self
+            .stats
+            .phase2_stages
+            .decode_jobs_completed
+            .saturating_add(1);
         self.in_flight_decode_jobs = self.in_flight_decode_jobs.saturating_sub(1);
         self.stats.observe_decode_queue_wait(completion.queue_wait);
         if self.blocking_block_updates == Some(completion.sequence)
@@ -58,6 +63,11 @@ impl WorldStream {
                 break;
             };
             self.in_flight_decode_jobs += 1;
+            self.stats.phase2_stages.decode_jobs_dispatched = self
+                .stats
+                .phase2_stages
+                .decode_jobs_dispatched
+                .saturating_add(1);
             let tx = self.decode_tx.clone();
             rayon::spawn(move || {
                 let started = Instant::now();
