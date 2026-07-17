@@ -697,7 +697,7 @@ async fn no_compression_login_uses_the_uncompressed_batch_marker() {
 }
 
 #[tokio::test]
-async fn encrypted_login_advertises_cache_only_when_resolver_is_installed() {
+async fn encrypted_login_advertises_client_cache_only_when_resolver_is_installed() {
     let transport =
         ScriptTransport::new_with_cache(CompressionMode::Deflate, SpawnOrder::RadiusThenSpawn);
     let (session, _) = LoginSequence::connect_transport_with_blob_cache(
@@ -711,7 +711,7 @@ async fn encrypted_login_advertises_cache_only_when_resolver_is_installed() {
 }
 
 #[tokio::test]
-async fn encrypted_play_resolves_cached_level_chunk_and_preserves_world_fifo() {
+async fn encrypted_play_resolves_client_cached_level_chunk_and_preserves_world_fifo() {
     let transport =
         ScriptTransport::new_with_cache(CompressionMode::Deflate, SpawnOrder::RadiusThenSpawn);
     let (mut session, _) = LoginSequence::connect_transport_with_blob_cache(
