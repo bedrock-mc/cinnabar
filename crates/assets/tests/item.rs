@@ -4,6 +4,21 @@ use assets::{
     BlockVisualId, ItemActionPhase, ItemIconRef, ItemStackIdentity, ItemVisualId, ItemVisualRoute,
 };
 
+pub use assets::AssetError;
+
+#[path = "../src/entity.rs"]
+#[allow(dead_code)]
+mod entity;
+#[path = "../src/item.rs"]
+#[allow(dead_code)]
+mod item;
+
+use entity::{CompiledEntityAssets as CompiledEntityAssetsV4, RuntimeEntityAssets};
+use item::{
+    ItemDisplayScalar, ItemDisplayTransform, ItemVisualAlias, ItemVisualDefinition,
+    MAX_ITEM_IDENTIFIER_BYTES, MAX_ITEM_VISUAL_ALIASES, MAX_ITEM_VISUALS,
+};
+
 fn assert_hash<T: Hash>() {}
 
 fn nonempty_identity(metadata: u32) -> ItemStackIdentity {
@@ -126,4 +141,135 @@ fn action_phase_contract_carries_exact_tick_progress() {
         }
     );
     assert_eq!(ItemActionPhase::Cancelled, ItemActionPhase::Cancelled);
+}
+
+fn item_carrier_fixture() -> CompiledEntityAssetsV4 {
+    CompiledEntityAssetsV4 {
+        source_manifest_sha256: [0x31; 32],
+        sources: vec![
+            entity::EntityAssetSource {
+                path: "entity/item_frame.entity.json".into(),
+                source_bytes: 1,
+                source_sha256: [0x31; 32],
+            },
+            entity::EntityAssetSource {
+                path: "textures/entity/items.png".into(),
+                source_bytes: 1,
+                source_sha256: [0x32; 32],
+            },
+        ]
+        .into_boxed_slice(),
+        symbols: vec![
+            entity::EntityAssetSymbol {
+                kind: entity::EntityAssetKind::Entity,
+                identifier: "minecraft:item_frame".into(),
+                source_index: 0,
+                dependencies: Box::new([]),
+            },
+            entity::EntityAssetSymbol {
+                kind: entity::EntityAssetKind::Texture,
+                identifier: "textures/entity/items".into(),
+                source_index: 1,
+                dependencies: Box::new([]),
+            },
+        ]
+        .into_boxed_slice(),
+        geometries: Box::new([]),
+        animation_clips: Box::new([]),
+        animation_channels: Box::new([]),
+        animation_keyframes: Box::new([]),
+        molang_symbols: Box::new([]),
+        molang_expressions: Box::new([]),
+        molang_ops: Box::new([]),
+        controllers: Box::new([]),
+        controller_states: Box::new([]),
+        controller_animations: Box::new([]),
+        controller_transitions: Box::new([]),
+        rig_bindings: Box::new([]),
+        rig_animations: Box::new([]),
+        rig_controllers: Box::new([]),
+        item_visuals: vec![ItemVisualDefinition {
+            identifier: "minecraft:apple".into(),
+            texture_source: 1,
+            first_person: ItemDisplayTransform::identity(),
+            third_person: ItemDisplayTransform::identity(),
+            dropped: ItemDisplayTransform::identity(),
+            block_visual: None,
+        }]
+        .into_boxed_slice(),
+        item_visual_aliases: vec![ItemVisualAlias {
+            identifier: "minecraft:apple_alias".into(),
+            visual: item::ItemVisualId(0),
+        }]
+        .into_boxed_slice(),
+    }
+}
+
+#[test]
+fn item_carrier_round_trips_display_transforms_texture_sources_and_aliases() {
+    let mut compiled = item_carrier_fixture();
+    compiled.item_visuals[0].first_person.translation = [
+        ItemDisplayScalar::new(1.0).unwrap(),
+        ItemDisplayScalar::new(2.0).unwrap(),
+        ItemDisplayScalar::new(3.0).unwrap(),
+    ];
+    compiled.item_visuals[0].third_person.rotation[1] = ItemDisplayScalar::new(45.0).unwrap();
+    compiled.item_visuals[0].dropped.scale = [ItemDisplayScalar::new(0.5).unwrap(); 3];
+
+    let blob = entity::encode_entity_blob(&compiled).unwrap();
+    let runtime = RuntimeEntityAssets::decode(&blob).unwrap();
+    assert_eq!(runtime.item_visuals(), compiled.item_visuals.as_ref());
+    assert_eq!(
+        runtime.item_visual_aliases(),
+        compiled.item_visual_aliases.as_ref()
+    );
+    assert_eq!(runtime.item_visuals()[0].texture_source, 1);
+    assert_eq!(runtime.encode().unwrap().as_ref(), blob.as_ref());
+}
+
+#[test]
+fn item_carrier_accepts_exact_limits_and_rejects_limit_plus_one() {
+    let mut compiled = item_carrier_fixture();
+    compiled.item_visuals =
+        vec![compiled.item_visuals[0].clone(); MAX_ITEM_VISUALS].into_boxed_slice();
+    compiled.item_visual_aliases = Box::new([]);
+    assert!(compiled.validate().is_ok());
+    compiled.item_visuals =
+        vec![compiled.item_visuals[0].clone(); MAX_ITEM_VISUALS + 1].into_boxed_slice();
+    assert!(compiled.validate().is_err());
+
+    let mut compiled = item_carrier_fixture();
+    compiled.item_visual_aliases =
+        vec![compiled.item_visual_aliases[0].clone(); MAX_ITEM_VISUAL_ALIASES].into_boxed_slice();
+    assert!(compiled.validate().is_ok());
+    compiled.item_visual_aliases =
+        vec![compiled.item_visual_aliases[0].clone(); MAX_ITEM_VISUAL_ALIASES + 1]
+            .into_boxed_slice();
+    assert!(compiled.validate().is_err());
+
+    let mut compiled = item_carrier_fixture();
+    compiled.item_visuals[0].identifier = "x".repeat(MAX_ITEM_IDENTIFIER_BYTES).into_boxed_str();
+    assert!(compiled.validate().is_ok());
+    compiled.item_visuals[0].identifier =
+        "x".repeat(MAX_ITEM_IDENTIFIER_BYTES + 1).into_boxed_str();
+    assert!(compiled.validate().is_err());
+}
+
+#[test]
+fn item_carrier_rejects_nonfinite_transforms_and_out_of_range_indices() {
+    assert!(ItemDisplayScalar::new(f32::NAN).is_none());
+    assert!(ItemDisplayScalar::new(f32::INFINITY).is_none());
+    assert_eq!(ItemDisplayScalar::new(-0.0).unwrap().bits(), 0);
+
+    let mut compiled = item_carrier_fixture();
+    compiled.item_visuals[0].texture_source = 2;
+    assert!(compiled.validate().is_err());
+
+    let mut compiled = item_carrier_fixture();
+    compiled.item_visuals[0].texture_source = 0;
+    assert!(compiled.validate().is_err());
+
+    let mut compiled = item_carrier_fixture();
+    compiled.item_visual_aliases[0].visual = item::ItemVisualId(1);
+    assert!(compiled.validate().is_err());
 }

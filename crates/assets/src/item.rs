@@ -1,4 +1,13 @@
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
+
+use crate::AssetError;
+
+pub const MAX_ITEM_VISUALS: usize = 16_384;
+pub const MAX_ITEM_VISUAL_ALIASES: usize = 65_536;
+pub const MAX_ITEM_IDENTIFIER_BYTES: usize = 256;
+
+const MAX_ITEM_DISPLAY_SCALAR: f32 = 1_048_576.0;
 
 /// Immutable identity for one normalized item stack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -49,12 +58,136 @@ pub enum ItemStackIdentityError {
 }
 
 /// Dense index into the compiled item-visual catalog.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct ItemVisualId(pub u32);
 
 /// Dense index into the compiled block-visual catalog.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct BlockVisualId(pub u32);
+
+/// Canonical finite scalar retained by item display transforms.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[serde(transparent)]
+pub struct ItemDisplayScalar(u32);
+
+impl ItemDisplayScalar {
+    #[must_use]
+    pub fn new(value: f32) -> Option<Self> {
+        if !value.is_finite() || value.abs() > MAX_ITEM_DISPLAY_SCALAR {
+            return None;
+        }
+        Some(Self(if value == 0.0 { 0 } else { value.to_bits() }))
+    }
+
+    #[must_use]
+    pub const fn get(self) -> f32 {
+        f32::from_bits(self.0)
+    }
+
+    #[must_use]
+    pub const fn bits(self) -> u32 {
+        self.0
+    }
+
+    fn is_canonical(self) -> bool {
+        Self::new(self.get()) == Some(self)
+    }
+}
+
+/// Fixed first-person, third-person, or dropped-item presentation transform.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ItemDisplayTransform {
+    pub translation: [ItemDisplayScalar; 3],
+    pub rotation: [ItemDisplayScalar; 3],
+    pub scale: [ItemDisplayScalar; 3],
+}
+
+impl ItemDisplayTransform {
+    #[must_use]
+    pub const fn identity() -> Self {
+        let zero = ItemDisplayScalar(0);
+        let one = ItemDisplayScalar(1.0_f32.to_bits());
+        Self {
+            translation: [zero; 3],
+            rotation: [zero; 3],
+            scale: [one; 3],
+        }
+    }
+
+    fn is_canonical(&self) -> bool {
+        self.translation
+            .iter()
+            .chain(&self.rotation)
+            .chain(&self.scale)
+            .all(|value| value.is_canonical())
+    }
+}
+
+/// One dense item visual definition retained by the entity carrier.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ItemVisualDefinition {
+    pub identifier: Box<str>,
+    pub texture_source: u32,
+    pub first_person: ItemDisplayTransform,
+    pub third_person: ItemDisplayTransform,
+    pub dropped: ItemDisplayTransform,
+    pub block_visual: Option<BlockVisualId>,
+}
+
+/// Canonical identifier alias to a dense item visual.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ItemVisualAlias {
+    pub identifier: Box<str>,
+    pub visual: ItemVisualId,
+}
+
+pub(crate) fn validate_item_visuals(
+    visuals: &[ItemVisualDefinition],
+    aliases: &[ItemVisualAlias],
+    sources: usize,
+) -> Result<(), AssetError> {
+    if visuals.len() > MAX_ITEM_VISUALS || aliases.len() > MAX_ITEM_VISUAL_ALIASES {
+        return Err(invalid("item visual or alias count exceeds bound"));
+    }
+    for visual in visuals {
+        validate_item_identifier(&visual.identifier)?;
+        if visual.texture_source as usize >= sources
+            || !visual.first_person.is_canonical()
+            || !visual.third_person.is_canonical()
+            || !visual.dropped.is_canonical()
+        {
+            return Err(invalid("invalid item visual source or display transform"));
+        }
+    }
+    for alias in aliases {
+        validate_item_identifier(&alias.identifier)?;
+        if alias.visual.0 as usize >= visuals.len() {
+            return Err(invalid("item visual alias index is out of range"));
+        }
+    }
+    Ok(())
+}
+
+fn validate_item_identifier(identifier: &str) -> Result<(), AssetError> {
+    if identifier.is_empty()
+        || identifier.len() > MAX_ITEM_IDENTIFIER_BYTES
+        || identifier.chars().any(char::is_control)
+    {
+        return Err(invalid(
+            "item visual identifier is empty or exceeds its bound",
+        ));
+    }
+    Ok(())
+}
+
+fn invalid(detail: impl Into<Box<str>>) -> AssetError {
+    AssetError::InvalidCompiledAssets {
+        detail: detail.into(),
+    }
+}
 
 /// Immutable route from an item identity to its render representation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
