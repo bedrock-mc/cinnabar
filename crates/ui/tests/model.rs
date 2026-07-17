@@ -4,13 +4,9 @@ use assets::{CompiledFontCatalog, FontTexturePage, GlyphMetrics, encode_font_cat
 use sha2::{Digest, Sha256};
 pub use ui::{
     BedrockColor, PointerPhase, SafeArea, TextLayout, TextLayoutCache, TextLayoutRequest,
-    TextStyle, UiAction, UiLimits, UiPoint, UiRect, UiScale,
+    TextStyle, UiAction, UiDrawBatch, UiDrawList, UiError, UiLimits, UiNode, UiNodeId, UiPoint,
+    UiRect, UiScale, UiTree, UiVertex, UiVisual,
 };
-
-#[path = "../src/model.rs"]
-pub mod model;
-
-use model::{UiDrawList, UiError, UiNode, UiNodeId, UiTree, UiVertex, UiVisual};
 
 #[test]
 fn safe_area_scale_and_focus_order_are_deterministic() {
@@ -293,7 +289,7 @@ fn draw_caps_are_fixed_and_share_one_checked_byte_ceiling() {
     assert!(
         UiLimits::MAX_UI_VERTICES * std::mem::size_of::<UiVertex>()
             + UiLimits::MAX_UI_INDICES * std::mem::size_of::<u32>()
-            + UiLimits::MAX_DRAW_BATCHES * std::mem::size_of::<model::UiDrawBatch>()
+            + UiLimits::MAX_DRAW_BATCHES * std::mem::size_of::<UiDrawBatch>()
             <= UiLimits::MAX_DRAW_LIST_BYTES
     );
 }
