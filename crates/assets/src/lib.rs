@@ -11,6 +11,7 @@ mod font;
 mod item;
 mod light_registry;
 mod model;
+mod physics_registry;
 mod registry;
 mod runtime;
 mod texture;
@@ -85,6 +86,9 @@ pub use model::{
     MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
     MODEL_TEMPLATE_FLAG_WALL, ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE,
     TexturePage, TextureRef, VisualKind,
+};
+pub use physics_registry::{
+    BlockPhysicsFlags, BlockPhysicsRecord, PhysicsRegistry, SurfaceResponse, read_physics_registry,
 };
 pub use registry::{
     BlockFlags, CollisionBox, CollisionConfidence, CollisionSeed, ContributorRole, ModelFamily,

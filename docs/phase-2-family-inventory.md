@@ -62,6 +62,28 @@ Get-FileHash -Algorithm SHA256 `
   .local/task2/block-registry-v1001.bin
 ```
 
+## Phase 3 physics-registry derivative
+
+The Phase 3 `PREG1001` carrier is a deterministic, local-only derivative of
+this same exact `BREG1003` state order. Collision boxes retain the pinned
+Prismarine fixed-point join; ordinary and special movement facts are explicit
+for every state and reviewed against the pinned PMMP/Dragonfly catalog. The
+compiler rejects gaps, extras, duplicate identities, contradictory fluids,
+unknown responses, invalid scalars, and malformed compound boxes. Only
+`crates/assets/data/block-physics-v1001.sha256` is published; both generated
+carrier copies remain ignored under `.local`.
+
+The special-movement join is an explicit strictly sorted reviewed table rather
+than a permissive name switch. Production generation verifies the exact PMMP
+friction-file hash, all three exact Prismarine behavior/state/shape hashes, and
+the pinned Dragonfly build dependency. Each reviewed family is cross-checked
+against its exact canonical state count, Prismarine bounding-box class, and
+Dragonfly registered implementation-type set. This includes all 78
+`cave_vines`, `cave_vines_body_with_berries`, and
+`cave_vines_head_with_berries` states as climbable. Bubble `drag_down` is a
+required unique typed byte fact; missing, duplicate, malformed, unknown, or
+out-of-range facts abort generation.
+
 The inventory parser decoded every bounded `BREG1003` record, grouped records
 by canonical name, and joined each name's Prismarine state-ordered collision
 shape IDs. It counted typed property domains, empty/unit/multi-box topology,

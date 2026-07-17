@@ -60,6 +60,7 @@ var pmmpLightFallbackIdentifiers = []string{
 type PMMPLightProperties struct {
 	Brightness float64 `json:"brightness"`
 	Opacity    float64 `json:"opacity"`
+	Friction   float64 `json:"friction"`
 }
 
 type LightGenerationReport struct {
@@ -305,6 +306,9 @@ func main() {
 	out := flag.String("out", "", "path to write the block registry")
 	lightOut := flag.String("light-out", "", "path to write the BREG-bound block light registry")
 	lightBREG := flag.String("light-breg", "", "existing reviewed BREG1003 whose exact bytes the light registry binds")
+	physicsOut := flag.String("physics-out", "", "optional path to write the BREG-bound block physics registry")
+	physicsSHAOut := flag.String("physics-sha-out", "", "optional path to write the physics registry SHA-256")
+	physicsBREG := flag.String("physics-breg", "", "existing reviewed BREG1003 whose exact bytes the physics registry binds")
 	biomeOut := flag.String("biome-out", "", "optional path to write the biome registry")
 	pmmpRoot := flag.String("pmmp", "", "pinned PMMP BedrockData directory")
 	prismarineRoot := flag.String("prismarine", "", "pinned Prismarine minecraft-data directory")
@@ -313,6 +317,11 @@ func main() {
 	flag.Parse()
 	if *out == "" || *lightOut == "" || *lightBREG == "" {
 		fmt.Fprintln(os.Stderr, "registrygen: -out, -light-out, and -light-breg are required")
+		os.Exit(2)
+	}
+	physicsRequested := *physicsOut != "" || *physicsSHAOut != "" || *physicsBREG != ""
+	if physicsRequested && (*physicsOut == "" || *physicsBREG == "") {
+		fmt.Fprintln(os.Stderr, "registrygen: -physics-out and -physics-breg are required together")
 		os.Exit(2)
 	}
 
@@ -361,6 +370,37 @@ func main() {
 		os.Exit(1)
 	}
 	report.LightMetadata = lightReport
+	var encodedPhysics []byte
+	if physicsRequested {
+		bindingPhysicsBREG, readErr := os.ReadFile(*physicsBREG)
+		if readErr != nil {
+			fmt.Fprintf(os.Stderr, "registrygen: read physics-binding BREG: %v\n", readErr)
+			os.Exit(1)
+		}
+		if len(bindingPhysicsBREG) > 128<<20 {
+			fmt.Fprintln(os.Stderr, "registrygen: physics-binding BREG exceeds 128 MiB")
+			os.Exit(1)
+		}
+		if err := validatePhysicsBindingBREG(encoded, bindingPhysicsBREG, records); err != nil {
+			fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
+			os.Exit(1)
+		}
+		physicsSources, sourcesErr := loadPinnedPhysicsSources(*pmmpRoot, *prismarineRoot, world.DefaultBlockRegistry)
+		if sourcesErr != nil {
+			fmt.Fprintf(os.Stderr, "registrygen: read pinned physics sources: %v\n", sourcesErr)
+			os.Exit(1)
+		}
+		physicsRecords, buildErr := buildPhysicsRecords(records, physicsSources)
+		if buildErr != nil {
+			fmt.Fprintf(os.Stderr, "registrygen: %v\n", buildErr)
+			os.Exit(1)
+		}
+		encodedPhysics, err = encodePhysicsRegistry(bindingPhysicsBREG, physicsRecords, physicsRecordCount)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
+			os.Exit(1)
+		}
+	}
 	if err := os.MkdirAll(filepath.Dir(*out), 0o755); err != nil {
 		fmt.Fprintf(os.Stderr, "registrygen: create output directory: %v\n", err)
 		os.Exit(1)
@@ -376,6 +416,25 @@ func main() {
 	if err := os.WriteFile(*lightOut, encodedLights, 0o644); err != nil {
 		fmt.Fprintf(os.Stderr, "registrygen: write light output: %v\n", err)
 		os.Exit(1)
+	}
+	if physicsRequested {
+		if err := os.MkdirAll(filepath.Dir(*physicsOut), 0o755); err != nil {
+			fmt.Fprintf(os.Stderr, "registrygen: create physics output directory: %v\n", err)
+			os.Exit(1)
+		}
+		if err := os.WriteFile(*physicsOut, encodedPhysics, 0o644); err != nil {
+			fmt.Fprintf(os.Stderr, "registrygen: write physics output: %v\n", err)
+			os.Exit(1)
+		}
+		physicsDigest := sha256.Sum256(encodedPhysics)
+		shaOut := *physicsSHAOut
+		if shaOut == "" {
+			shaOut = strings.TrimSuffix(*physicsOut, filepath.Ext(*physicsOut)) + ".sha256"
+		}
+		if err := os.WriteFile(shaOut, []byte(fmt.Sprintf("%x\n", physicsDigest)), 0o644); err != nil {
+			fmt.Fprintf(os.Stderr, "registrygen: write physics checksum: %v\n", err)
+			os.Exit(1)
+		}
 	}
 	digest := sha256.Sum256(encoded)
 	shaPath := strings.TrimSuffix(*out, filepath.Ext(*out)) + ".sha256"

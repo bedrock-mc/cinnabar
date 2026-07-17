@@ -5,10 +5,13 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"image/color"
+	"maps"
 	"math"
 	"math/rand"
+	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -72,6 +75,357 @@ func TestEncodeLREG1001BindsExactBREGAndSortsBySequentialID(t *testing.T) {
 	wantDigest := sha256.Sum256(first[:51])
 	if !bytes.Equal(first[51:], wantDigest[:]) {
 		t.Fatalf("LREG digest = %x, want %x", first[51:], wantDigest)
+	}
+}
+
+func TestEncodePREG1001BindsExactBREGAndCanonicalOrder(t *testing.T) {
+	records := []Record{testRecord(2, 30), testRecord(0, 10), testRecord(1, 20)}
+	for i := range records {
+		records[i].CollisionSeed = CollisionSeed{Confidence: CollisionConfidenceCollisionOnly, Boxes: []CollisionBox{{MaxX: 100_000_000, MaxY: 100_000_000, MaxZ: 100_000_000}}}
+	}
+	breg := []byte("exact BREG1003 fixture bytes")
+	properties := map[string]PMMPLightProperties{}
+	for _, record := range records {
+		properties[record.Name] = PMMPLightProperties{Friction: 0.6}
+	}
+	physics, err := buildPhysicsRecords(records, syntheticPhysicsSources(records, properties))
+	if err != nil {
+		t.Fatalf("build physics records: %v", err)
+	}
+	first, err := encodePhysicsRegistry(breg, physics, 3)
+	if err != nil {
+		t.Fatalf("encode physics registry: %v", err)
+	}
+	second, err := encodePhysicsRegistry(breg, physics, 3)
+	if err != nil {
+		t.Fatalf("repeat physics registry: %v", err)
+	}
+	if !bytes.Equal(first, second) {
+		t.Fatal("PREG1001 encoding is not deterministic")
+	}
+	if got := string(first[:8]); got != "PREG1001" {
+		t.Fatalf("magic = %q", got)
+	}
+	if got := binary.LittleEndian.Uint32(first[8:12]); got != registryProtocol {
+		t.Fatalf("protocol = %d", got)
+	}
+	if got := binary.LittleEndian.Uint32(first[12:16]); got != 3 {
+		t.Fatalf("record count = %d", got)
+	}
+	wantBREGHash := sha256.Sum256(breg)
+	if !bytes.Equal(first[16:48], wantBREGHash[:]) {
+		t.Fatalf("BREG digest = %x, want %x", first[16:48], wantBREGHash)
+	}
+	if got := binary.LittleEndian.Uint32(first[48:52]); got != 0 {
+		t.Fatalf("first sequential ID = %d", got)
+	}
+}
+
+func TestPREG1001ProductionCardinalityIsExactly16913(t *testing.T) {
+	records := make([]PhysicsRecord, physicsRecordCount)
+	for index := range records {
+		records[index] = PhysicsRecord{
+			SequentialID:        uint32(index),
+			NetworkHash:         uint32(index) + 1,
+			FrictionQ1E8:        defaultFrictionQ1E8,
+			HorizontalSpeedQ1E8: defaultSpeedQ1E8,
+			VerticalSpeedQ1E8:   defaultSpeedQ1E8,
+			Flags:               physicsFlagPassable,
+		}
+	}
+	encoded, err := encodePhysicsRegistry([]byte("production BREG fixture"), records, physicsRecordCount)
+	if err != nil {
+		t.Fatalf("encode production cardinality: %v", err)
+	}
+	if got := binary.LittleEndian.Uint32(encoded[12:16]); got != physicsRecordCount {
+		t.Fatalf("record count = %d, want %d", got, physicsRecordCount)
+	}
+}
+
+func TestPREG1001RejectsIncompleteOrInvalidFacts(t *testing.T) {
+	valid := []PhysicsRecord{
+		{SequentialID: 0, NetworkHash: 10, FrictionQ1E8: 60_000_000, HorizontalSpeedQ1E8: 100_000_000, VerticalSpeedQ1E8: 100_000_000, Flags: physicsFlagPassable},
+		{SequentialID: 1, NetworkHash: 20, FrictionQ1E8: 60_000_000, HorizontalSpeedQ1E8: 100_000_000, VerticalSpeedQ1E8: 100_000_000, Flags: physicsFlagWater | physicsFlagPassable, FluidHeightQ1E8: 100_000_000},
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func([]PhysicsRecord) []PhysicsRecord
+		want   string
+	}{
+		{"missing", func(records []PhysicsRecord) []PhysicsRecord { return records[:1] }, "count"},
+		{"extra", func(records []PhysicsRecord) []PhysicsRecord { return append(records, records[1]) }, "count"},
+		{"duplicate", func(records []PhysicsRecord) []PhysicsRecord { records[1].SequentialID = 0; return records }, "sequential"},
+		{"water lava", func(records []PhysicsRecord) []PhysicsRecord { records[1].Flags |= physicsFlagLava; return records }, "water and lava"},
+		{"bubble without water", func(records []PhysicsRecord) []PhysicsRecord {
+			records[0].SurfaceResponse = SurfaceBubbleUp
+			return records
+		}, "bubble"},
+		{"unknown enum", func(records []PhysicsRecord) []PhysicsRecord {
+			records[0].SurfaceResponse = SurfaceResponse(255)
+			return records
+		}, "surface response"},
+		{"unknown flags", func(records []PhysicsRecord) []PhysicsRecord {
+			records[0].Flags |= physicsFlagReserved
+			return records
+		}, "flags"},
+		{"zero friction", func(records []PhysicsRecord) []PhysicsRecord { records[0].FrictionQ1E8 = 0; return records }, "friction"},
+		{"too many boxes", func(records []PhysicsRecord) []PhysicsRecord {
+			records[0].Boxes = make([]CollisionBox, maxPhysicsBoxes+1)
+			return records
+		}, "box count"},
+		{"inverted box", func(records []PhysicsRecord) []PhysicsRecord {
+			records[0].Boxes = []CollisionBox{{MinX: 2, MaxX: 1, MaxY: 1, MaxZ: 1}}
+			return records
+		}, "box"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			copyRecords := append([]PhysicsRecord(nil), valid...)
+			_, err := encodePhysicsRegistry([]byte("breg"), test.mutate(copyRecords), 2)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestPhysicsFactsCoverSpecialMovementFamilies(t *testing.T) {
+	record := func(id uint32, name string) Record {
+		return Record{SequentialID: id, NetworkHash: id + 100, Name: name}
+	}
+	records := []Record{
+		record(0, "minecraft:air"),
+		record(1, "minecraft:ladder"),
+		record(2, "minecraft:water"),
+		record(3, "minecraft:lava"),
+		record(4, "minecraft:web"),
+		record(5, "minecraft:slime"),
+		record(6, "minecraft:bed"),
+		record(7, "minecraft:soul_sand"),
+		record(8, "minecraft:honey_block"),
+		record(9, "minecraft:bubble_column"),
+		record(10, "minecraft:bubble_column"),
+		record(11, "minecraft:stone"),
+	}
+	records[2].ModelState.Set(ModelStateLiquidDepth, 0)
+	records[3].ModelState.Set(ModelStateLiquidDepth, 7)
+	records[9].StateJSON = []byte(`{"drag_down":{"type":"byte","value":0}}`)
+	records[10].StateJSON = []byte(`{"drag_down":{"type":"byte","value":1}}`)
+	properties := map[string]PMMPLightProperties{}
+	for _, record := range records {
+		properties[record.Name] = PMMPLightProperties{Friction: 0.6}
+	}
+	properties["minecraft:air"] = PMMPLightProperties{Friction: 0.9}
+	properties["minecraft:slime"] = PMMPLightProperties{Friction: 0.8}
+	properties["minecraft:honey_block"] = PMMPLightProperties{Friction: 0.8}
+	physics, err := buildPhysicsRecords(records, syntheticPhysicsSources(records, properties))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if physics[0].Flags&physicsFlagPassable == 0 || len(physics[0].Boxes) != 0 {
+		t.Fatal("air is not explicit passable empty collision")
+	}
+	if physics[1].Flags&physicsFlagClimbable == 0 {
+		t.Fatal("ladder is not climbable")
+	}
+	if physics[2].Flags&(physicsFlagWater|physicsFlagPassable) != physicsFlagWater|physicsFlagPassable || physics[2].FluidHeightQ1E8 <= physics[3].FluidHeightQ1E8 {
+		t.Fatal("state-dependent fluids are not explicit")
+	}
+	if physics[3].Flags&physicsFlagLava == 0 || physics[4].Flags&physicsFlagCobweb == 0 {
+		t.Fatal("lava/cobweb flags missing")
+	}
+	responses := []SurfaceResponse{physics[5].SurfaceResponse, physics[6].SurfaceResponse, physics[7].SurfaceResponse, physics[8].SurfaceResponse, physics[9].SurfaceResponse, physics[10].SurfaceResponse}
+	want := []SurfaceResponse{SurfaceSlime, SurfaceBed, SurfaceSoulSand, SurfaceHoney, SurfaceBubbleUp, SurfaceBubbleDown}
+	if !reflect.DeepEqual(responses, want) {
+		t.Fatalf("responses = %v, want %v", responses, want)
+	}
+	if physics[11].FrictionQ1E8 != defaultFrictionQ1E8 || physics[11].HorizontalSpeedQ1E8 != defaultSpeedQ1E8 {
+		t.Fatal("ordinary block factors are not explicit")
+	}
+	if physics[0].FrictionQ1E8 != 90_000_000 || physics[5].FrictionQ1E8 != 80_000_000 || physics[8].FrictionQ1E8 != 80_000_000 {
+		t.Fatal("PMMP friction facts were not normalized into Q1e8")
+	}
+}
+
+func TestPhysicsJoinRejectsMissingAndInvalidPMMPFriction(t *testing.T) {
+	records := []Record{{SequentialID: 0, NetworkHash: 1, Name: "minecraft:stone"}}
+	if _, err := buildPhysicsRecords(records, PhysicsSourceCatalog{}); err == nil || !strings.Contains(err.Error(), "missing") {
+		t.Fatalf("missing source error = %v", err)
+	}
+	for _, friction := range []float64{0, -1, math.NaN(), math.Inf(1)} {
+		sources := syntheticPhysicsSources(records, map[string]PMMPLightProperties{
+			"minecraft:stone": {Friction: friction},
+		})
+		_, err := buildPhysicsRecords(records, sources)
+		if err == nil || !strings.Contains(err.Error(), "friction") {
+			t.Fatalf("friction %v error = %v", friction, err)
+		}
+	}
+}
+
+func syntheticPhysicsSources(records []Record, pmmp map[string]PMMPLightProperties) PhysicsSourceCatalog {
+	prismarine := map[string]PrismarinePhysicsFact{}
+	dragonfly := map[string][]string{}
+	for _, record := range records {
+		name := strings.TrimPrefix(record.Name, "minecraft:")
+		fact := prismarine[name]
+		fact.StateCount++
+		fact.BoundingBox = "block"
+		if len(record.CollisionSeed.Boxes) == 0 {
+			fact.BoundingBox = "empty"
+		}
+		if override, ok := reviewedPhysicsOverrideFor(record.Name); ok {
+			fact.BoundingBox = override.BoundingBox
+		}
+		prismarine[name] = fact
+		dragonfly[record.Name] = []string{"fixture.Block"}
+		if override, ok := reviewedPhysicsOverrideFor(record.Name); ok {
+			dragonfly[record.Name] = strings.Split(override.DragonflyTypes, ",")
+		}
+	}
+	return PhysicsSourceCatalog{PMMP: pmmp, Prismarine: prismarine, DragonflyTypes: dragonfly}
+}
+
+func TestPinnedPhysicsSourceHashRejectsValidJSONMutation(t *testing.T) {
+	for _, test := range []struct {
+		name, original, mutated string
+	}{
+		{"PMMP", `{"minecraft:stone":{"friction":0.6}}`, `{"minecraft:stone":{"friction":0.7}}`},
+		{"Prismarine", `[{"name":"stone","boundingBox":"block","minStateId":0,"maxStateId":0}]`, `[{"name":"stone","boundingBox":"empty","minStateId":0,"maxStateId":0}]`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "physics.json")
+			original := []byte(test.original)
+			if err := os.WriteFile(path, original, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			want := fmt.Sprintf("%x", sha256.Sum256(original))
+			if err := requirePinnedPhysicsFile(path, want, test.name); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(test.mutated), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := requirePinnedPhysicsFile(path, want, test.name); err == nil || !strings.Contains(err.Error(), "SHA-256") {
+				t.Fatalf("valid-key mutation error = %v", err)
+			}
+		})
+	}
+	if err := validateDragonflyPhysicsProvenanceFields("v0.11.1-mutated", pinnedDragonflyModuleSum, false); err == nil || !strings.Contains(err.Error(), "pinned") {
+		t.Fatalf("Dragonfly version mutation error = %v", err)
+	}
+	if err := validateDragonflyPhysicsProvenanceFields(pinnedDragonflyVersion, "h1:mutated", false); err == nil || !strings.Contains(err.Error(), "sum") {
+		t.Fatalf("Dragonfly module-sum mutation error = %v", err)
+	}
+	if err := validateDragonflyPhysicsProvenanceFields(pinnedDragonflyVersion, pinnedDragonflyModuleSum, true); err == nil || !strings.Contains(err.Error(), "replacement") {
+		t.Fatalf("Dragonfly replacement mutation error = %v", err)
+	}
+}
+
+func TestPinnedPhysicsHashesMatchAcquisitionManifestAndGoModule(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "assets", "block-data-sources.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest struct {
+		Sources []struct {
+			ID    string `json:"id"`
+			Files []struct {
+				Path string `json:"install_path"`
+				SHA  string `json:"sha256"`
+			} `json:"files"`
+		} `json:"sources"`
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"pmmp-bedrock-data/block_properties_table.json":         pinnedPMMPPhysicsSHA,
+		"prismarinejs-minecraft-data/blocks.json":               pinnedPrismarineBlocksSHA,
+		"prismarinejs-minecraft-data/blockStates.json":          pinnedPrismarineStatesSHA,
+		"prismarinejs-minecraft-data/blockCollisionShapes.json": pinnedPrismarineShapesSHA,
+	}
+	seen := map[string]string{}
+	for _, source := range manifest.Sources {
+		for _, file := range source.Files {
+			key := source.ID + "/" + file.Path
+			if _, required := want[key]; required {
+				seen[key] = file.SHA
+			}
+		}
+	}
+	if !reflect.DeepEqual(seen, want) {
+		t.Fatalf("physics source manifest pins = %v, want %v", seen, want)
+	}
+	goMod, err := os.ReadFile("go.mod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(goMod, []byte("github.com/df-mc/dragonfly "+pinnedDragonflyVersion)) {
+		t.Fatalf("go.mod does not pin Dragonfly %s", pinnedDragonflyVersion)
+	}
+	goSum, err := os.ReadFile("go.sum")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(goSum, []byte("github.com/df-mc/dragonfly "+pinnedDragonflyVersion+" "+pinnedDragonflyModuleSum)) {
+		t.Fatal("go.sum does not pin the Dragonfly module content hash")
+	}
+}
+
+func TestReviewedPhysicsOverridesRejectIndependentBehaviorMutations(t *testing.T) {
+	records := make([]Record, 0, 78)
+	properties := map[string]PMMPLightProperties{}
+	for _, name := range []string{"minecraft:cave_vines", "minecraft:cave_vines_body_with_berries", "minecraft:cave_vines_head_with_berries"} {
+		properties[name] = PMMPLightProperties{Friction: 0.6}
+		for state := 0; state < 26; state++ {
+			records = append(records, Record{SequentialID: uint32(len(records)), NetworkHash: uint32(len(records) + 1), Name: name})
+		}
+	}
+	sources := syntheticPhysicsSources(records, properties)
+	physics, err := buildPhysicsRecords(records, sources)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index, record := range physics {
+		if record.Flags&physicsFlagClimbable == 0 {
+			t.Fatalf("cave-vine state %d is not climbable", index)
+		}
+	}
+
+	badPrismarine := sources
+	badPrismarine.Prismarine = maps.Clone(sources.Prismarine)
+	fact := badPrismarine.Prismarine["cave_vines"]
+	fact.BoundingBox = "block"
+	badPrismarine.Prismarine["cave_vines"] = fact
+	if _, err := buildPhysicsRecords(records, badPrismarine); err == nil || !strings.Contains(err.Error(), "Prismarine") {
+		t.Fatalf("Prismarine mutation error = %v", err)
+	}
+
+	badDragonfly := sources
+	badDragonfly.DragonflyTypes = maps.Clone(sources.DragonflyTypes)
+	delete(badDragonfly.DragonflyTypes, "minecraft:cave_vines")
+	if _, err := buildPhysicsRecords(records, badDragonfly); err == nil || !strings.Contains(err.Error(), "Dragonfly") {
+		t.Fatalf("Dragonfly mutation error = %v", err)
+	}
+}
+
+func TestBubbleDirectionFactsFailClosed(t *testing.T) {
+	record := Record{SequentialID: 0, NetworkHash: 1, Name: "minecraft:bubble_column"}
+	properties := map[string]PMMPLightProperties{record.Name: {Friction: 0.6}}
+	for _, state := range [][]byte{
+		nil,
+		[]byte(`{`),
+		[]byte(`{}`),
+		[]byte(`{"drag_down":{"type":"string","value":"sideways"}}`),
+		[]byte(`{"drag_down":{"type":"byte","value":2}}`),
+		[]byte(`{"drag_down":{"type":"byte","value":0},"unknown":{"type":"byte","value":0}}`),
+		[]byte(`{"drag_down":{"type":"byte","value":0},"drag_down":{"type":"byte","value":1}}`),
+	} {
+		record.StateJSON = state
+		sources := syntheticPhysicsSources([]Record{record}, properties)
+		if _, err := buildPhysicsRecords([]Record{record}, sources); err == nil || !strings.Contains(err.Error(), "drag_down") {
+			t.Fatalf("state %q error = %v", state, err)
+		}
 	}
 }
 
