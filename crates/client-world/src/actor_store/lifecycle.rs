@@ -44,14 +44,20 @@ impl ActorStore {
         dimension: i32,
         entity_assets: std::sync::Arc<assets::RuntimeEntityAssets>,
     ) -> Self {
-        Self::with_limits_and_animation(
+        let mut store = Self::with_limits_and_animation(
             session_id,
             dimension,
             MAX_TRACKED_ACTORS,
             MAX_TRACKED_PLAYERS,
             MAX_TRACKED_PLAYER_SKIN_BYTES,
-            crate::actor_animation::ActorAnimationStore::with_assets(entity_assets),
-        )
+            crate::actor_animation::ActorAnimationStore::with_assets(std::sync::Arc::clone(
+                &entity_assets,
+            )),
+        );
+        store.items =
+            crate::item::ItemStateStore::with_assets(std::sync::Arc::clone(&entity_assets));
+        store.actions = crate::action::RemoteActionStore::with_assets(entity_assets);
+        store
     }
     fn with_limits_and_animation(
         session_id: u64,
@@ -73,6 +79,17 @@ impl ActorStore {
             unique_to_runtime: HashMap::new(),
             players: HashMap::new(),
             animation,
+            items: crate::item::ItemStateStore::diagnostic(),
+            actions: crate::action::RemoteActionStore::diagnostic(),
+            remote_state_excluded_runtime_id: None,
+        }
+    }
+
+    pub(crate) fn exclude_remote_state_for(&mut self, runtime_id: u64) {
+        self.remote_state_excluded_runtime_id = Some(runtime_id);
+        if let Some(lifetime) = self.lifetime(runtime_id) {
+            self.items.remove(lifetime);
+            self.actions.remove(lifetime);
         }
     }
     #[cfg(test)]
@@ -85,6 +102,8 @@ impl ActorStore {
         self.players.clear();
         self.retained_player_skin_bytes = 0;
         self.animation.clear();
+        self.items.clear();
+        self.actions.clear();
     }
     pub(crate) fn reset_dimension(
         &mut self,
@@ -100,6 +119,8 @@ impl ActorStore {
         self.actors.clear();
         self.unique_to_runtime.clear();
         self.animation.clear();
+        self.items.clear_actor_state();
+        self.actions.clear();
         ActorApplyResult::Reset
     }
     pub(crate) fn apply(
@@ -192,6 +213,9 @@ impl ActorStore {
                 actor.source_tick = movement.source_tick;
                 if movement.teleported {
                     self.animation.mark_reset(movement.runtime_id);
+                    if let Some(lifetime) = self.lifetime(movement.runtime_id) {
+                        self.actions.reset_on_teleport(lifetime);
+                    }
                 }
                 ActorApplyResult::Updated
             }
@@ -322,6 +346,7 @@ impl ActorStore {
                 actor.set_current_pose(next);
             }
             self.animation.advance_tick(&self.actors);
+            self.actions.advance_tick();
         }
     }
     pub(crate) fn apply_player_move(
@@ -368,23 +393,35 @@ impl ActorStore {
 
         let mut replaced = false;
         if let Some(previous) = self.actors.remove(&spawn.runtime_id) {
+            let lifetime = self.lifetime_for(&previous);
             self.unique_to_runtime.remove(&previous.unique_id);
             self.animation.remove_runtime(previous.runtime_id);
+            self.items.remove(lifetime);
+            self.actions.remove(lifetime);
             replaced = true;
         }
         if let Some(previous_runtime) = self.unique_to_runtime.remove(&spawn.unique_id) {
-            self.actors.remove(&previous_runtime);
+            if let Some(previous) = self.actors.remove(&previous_runtime) {
+                let lifetime = self.lifetime_for(&previous);
+                self.items.remove(lifetime);
+                self.actions.remove(lifetime);
+            }
             self.animation.remove_runtime(previous_runtime);
             replaced = true;
         }
         let runtime_id = spawn.runtime_id;
         let unique_id = spawn.unique_id;
+        let held_item = spawn.held_item.clone();
         self.actors
             .insert(runtime_id, ActorSnapshot::from_spawn(spawn, sequence));
         self.unique_to_runtime.insert(unique_id, runtime_id);
         if let Some(actor) = self.actors.get(&runtime_id) {
             self.animation
                 .insert(self.session_id, self.dimension, actor);
+            if self.remote_state_excluded_runtime_id != Some(runtime_id) {
+                self.items
+                    .insert_spawn(self.lifetime_for(actor), sequence, held_item);
+            }
         }
         if replaced {
             ActorApplyResult::Replaced
@@ -396,8 +433,111 @@ impl ActorStore {
         let Some(runtime_id) = self.unique_to_runtime.remove(&unique_id) else {
             return ActorApplyResult::MissingActor;
         };
-        self.actors.remove(&runtime_id);
+        if let Some(actor) = self.actors.remove(&runtime_id) {
+            let lifetime = self.lifetime_for(&actor);
+            self.items.remove(lifetime);
+            self.actions.remove(lifetime);
+        }
         self.animation.remove_runtime(runtime_id);
         ActorApplyResult::Removed
+    }
+
+    pub(crate) fn apply_equipment(
+        &mut self,
+        session_id: u64,
+        sequence: u64,
+        event: EquipmentEvent,
+    ) -> ActorApplyResult {
+        let guard = self.guard(session_id, sequence);
+        if guard != ActorApplyResult::Updated {
+            return guard;
+        }
+        if self.remote_state_excluded_runtime_id == Some(event.actor_runtime_id) {
+            return ActorApplyResult::MissingActor;
+        }
+        let Some(lifetime) = self.lifetime(event.actor_runtime_id) else {
+            return ActorApplyResult::MissingActor;
+        };
+        if self.items.apply_equipment(lifetime, sequence, event) {
+            ActorApplyResult::Updated
+        } else {
+            ActorApplyResult::CapacityRejected
+        }
+    }
+
+    pub(crate) fn apply_item_actor(
+        &mut self,
+        session_id: u64,
+        sequence: u64,
+        event: ItemActorEvent,
+    ) -> ActorApplyResult {
+        let guard = self.guard(session_id, sequence);
+        if guard != ActorApplyResult::Updated {
+            return guard;
+        }
+        match event {
+            ItemActorEvent::Registry(registry) => {
+                if self.items.apply_registry(registry) {
+                    ActorApplyResult::Updated
+                } else {
+                    ActorApplyResult::CapacityRejected
+                }
+            }
+            ItemActorEvent::Action(action) => {
+                if action.actor_runtime_ids.len() > MAX_ACTION_EVENTS_PER_TICK {
+                    return ActorApplyResult::CapacityRejected;
+                }
+                if matches!(action.kind, protocol::ActorActionKind::Ignored { .. }) {
+                    return ActorApplyResult::MissingActor;
+                }
+                let mut seen = HashSet::with_capacity(action.actor_runtime_ids.len());
+                let mut targets = Vec::with_capacity(action.actor_runtime_ids.len());
+                for runtime_id in action.actor_runtime_ids.iter().copied() {
+                    if self.remote_state_excluded_runtime_id == Some(runtime_id)
+                        || !seen.insert(runtime_id)
+                    {
+                        continue;
+                    }
+                    let Some(actor) = self.actors.get(&runtime_id) else {
+                        continue;
+                    };
+                    let rig = self.animation.get(runtime_id).map(|snapshot| snapshot.rig);
+                    targets.push((self.lifetime_for(actor), rig));
+                }
+                if targets.is_empty() {
+                    return ActorApplyResult::MissingActor;
+                }
+                if !self.actions.can_accept(targets.len()) {
+                    return ActorApplyResult::CapacityRejected;
+                }
+                let mut accepted = false;
+                for (lifetime, rig) in targets {
+                    let source_tick = ActorSourceTick::IngressSequence(sequence);
+                    accepted |= self
+                        .actions
+                        .apply(lifetime, rig, sequence, source_tick, &action);
+                }
+                if accepted {
+                    ActorApplyResult::Updated
+                } else {
+                    ActorApplyResult::MissingActor
+                }
+            }
+        }
+    }
+
+    pub(super) fn lifetime(&self, runtime_id: u64) -> Option<ActorLifetimeId> {
+        self.actors
+            .get(&runtime_id)
+            .map(|actor| self.lifetime_for(actor))
+    }
+
+    const fn lifetime_for(&self, actor: &ActorSnapshot) -> ActorLifetimeId {
+        ActorLifetimeId {
+            session_id: self.session_id,
+            dimension: self.dimension,
+            runtime_id: actor.runtime_id,
+            spawn_revision: actor.spawn_revision,
+        }
     }
 }

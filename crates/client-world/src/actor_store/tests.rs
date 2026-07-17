@@ -784,16 +784,27 @@ fn dimension_reset_clears_actors_and_session_reset_also_clears_roster() {
         }),
     );
     assert_eq!(store.player_count(), 1);
+    assert!(store.equipment(1).is_some());
 
     assert_eq!(store.reset_dimension(1, 3, 2), ActorApplyResult::Reset);
     assert!(store.is_empty());
     assert_eq!(store.player_count(), 1);
+    assert!(store.equipment(1).is_none());
+
+    let mut replacement = spawn(2, 2);
+    let ActorEvent::Spawn(replacement_spawn) = &mut replacement else {
+        unreachable!()
+    };
+    replacement_spawn.dimension = 2;
+    assert_eq!(store.apply(1, 4, replacement), ActorApplyResult::Inserted);
+    assert!(store.equipment(2).is_some());
 
     store.begin_session(2, 0);
     assert!(store.is_empty());
     assert_eq!(store.player_count(), 0);
+    assert!(store.equipment(2).is_none());
     assert_eq!(
-        store.apply(1, 4, spawn(2, 2)),
+        store.apply(1, 5, spawn(3, 3)),
         ActorApplyResult::StaleSession
     );
 }

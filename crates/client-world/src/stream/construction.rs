@@ -92,12 +92,13 @@ impl WorldStream {
         let air_network_id = runtime_assets
             .air_network_id(network_id_mode)
             .unwrap_or(bootstrap.air_network_id);
-        let actors = entity_assets.map_or_else(
+        let mut actors = entity_assets.map_or_else(
             || ActorStore::new(actor_session_id, bootstrap.dimension),
             |assets| {
                 ActorStore::new_with_entity_assets(actor_session_id, bootstrap.dimension, assets)
             },
         );
+        actors.exclude_remote_state_for(bootstrap.local_player_runtime_id);
         Self {
             store: ChunkStore::new(),
             block_entity_visuals: BlockEntityVisualDiagnostics::default(),

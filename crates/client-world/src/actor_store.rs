@@ -1,13 +1,17 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use protocol::{
     ActorAttribute, ActorEvent, ActorKind, ActorMetadataValue, ActorMoveEvent, ActorPositionOrigin,
-    ActorProperty, ActorSpawnEvent, MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_METADATA_ENTRIES,
-    MAX_ACTOR_PROPERTIES, MAX_PLAYER_LIST_SKIN_BYTES, MovePlayerEvent, MovePlayerMode,
-    PLAYER_NETWORK_OFFSET, PlayerListEntry, PlayerSkin, PlayerSkinUnavailable,
+    ActorProperty, ActorSpawnEvent, EquipmentEvent, ItemActorEvent, MAX_ACTOR_ATTRIBUTES,
+    MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_PROPERTIES, MAX_PLAYER_LIST_SKIN_BYTES, MovePlayerEvent,
+    MovePlayerMode, PLAYER_NETWORK_OFFSET, PlayerListEntry, PlayerSkin, PlayerSkinUnavailable,
 };
 
-use crate::actor_animation::ActorAnimationStore;
+use crate::{
+    action::{ActorSourceTick, MAX_ACTION_EVENTS_PER_TICK, RemoteActionStore},
+    actor_animation::{ActorAnimationStore, ActorLifetimeId},
+    item::ItemStateStore,
+};
 
 pub(crate) const MAX_TRACKED_ACTORS: usize = 8_192;
 pub(crate) const MAX_TRACKED_PLAYERS: usize = 4_096;
@@ -267,6 +271,9 @@ pub(crate) struct ActorStore {
     unique_to_runtime: HashMap<i64, u64>,
     players: HashMap<[u8; 16], PlayerProfile>,
     animation: ActorAnimationStore,
+    items: ItemStateStore,
+    actions: RemoteActionStore,
+    remote_state_excluded_runtime_id: Option<u64>,
 }
 
 mod lifecycle;

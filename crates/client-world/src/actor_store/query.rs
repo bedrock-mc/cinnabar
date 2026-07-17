@@ -1,5 +1,6 @@
 use super::*;
 use crate::actor_animation::{ActorAnimationStats, ActorRigSnapshot};
+use crate::{ActorEquipmentSnapshot, RemoteActionSnapshot, RemoteActionStats};
 
 impl ActorStore {
     pub(crate) fn render_players(
@@ -38,6 +39,22 @@ impl ActorStore {
     }
     pub(crate) const fn animation_stats(&self) -> ActorAnimationStats {
         self.animation.stats()
+    }
+    pub(crate) fn equipment(&self, runtime_id: u64) -> Option<&ActorEquipmentSnapshot> {
+        self.items.get(self.lifetime(runtime_id)?)
+    }
+    pub(crate) fn action(&self, runtime_id: u64) -> Option<&RemoteActionSnapshot> {
+        self.actions.get(self.lifetime(runtime_id)?)
+    }
+    pub(crate) fn action_history(&self, runtime_id: u64) -> &[RemoteActionSnapshot] {
+        self.lifetime(runtime_id)
+            .map_or(&[], |lifetime| self.actions.history(lifetime))
+    }
+    pub(crate) const fn action_stats(&self) -> RemoteActionStats {
+        self.actions.stats()
+    }
+    pub(crate) fn pending_item_resolution_count(&self) -> usize {
+        self.items.pending_count()
     }
     #[cfg(test)]
     pub(crate) fn is_empty(&self) -> bool {

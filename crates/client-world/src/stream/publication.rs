@@ -101,6 +101,21 @@ impl WorldStream {
     pub const fn actor_animation_stats(&self) -> ActorAnimationStats {
         self.actors.animation_stats()
     }
+    pub fn actor_equipment(&self, runtime_id: u64) -> Option<&ActorEquipmentSnapshot> {
+        self.actors.equipment(runtime_id)
+    }
+    pub fn actor_action(&self, runtime_id: u64) -> Option<&RemoteActionSnapshot> {
+        self.actors.action(runtime_id)
+    }
+    pub fn actor_action_history(&self, runtime_id: u64) -> &[RemoteActionSnapshot] {
+        self.actors.action_history(runtime_id)
+    }
+    pub const fn actor_action_stats(&self) -> RemoteActionStats {
+        self.actors.action_stats()
+    }
+    pub fn pending_item_resolution_count(&self) -> usize {
+        self.actors.pending_item_resolution_count()
+    }
     pub fn actor_count(&self) -> usize {
         self.actors.len()
     }

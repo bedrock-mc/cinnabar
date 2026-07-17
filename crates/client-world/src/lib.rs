@@ -1,10 +1,16 @@
+mod action;
 mod actor_animation;
 mod actor_store;
 mod block_entity_visuals;
 mod culling;
+mod item;
 mod server_position;
 mod stream;
 
+pub use action::{
+    ActorEventIdentity, ActorSourceTick, MAX_ACTION_EVENTS_PER_TICK, MAX_ACTIONS_PER_ACTOR,
+    RemoteActionFallback, RemoteActionSnapshot, RemoteActionStats,
+};
 pub use actor_animation::{
     ActorAnimationStats, ActorLifetimeId, ActorRigSnapshot, BoneTransform, EntityRigId,
     MAX_ACTOR_ACTION_HISTORY, MAX_CONTROLLER_TRANSITIONS_PER_TICK, MAX_MOLANG_OPS_PER_ACTOR_TICK,
@@ -13,6 +19,10 @@ pub use actor_animation::{
 pub use actor_store::{ActorPose, ActorSnapshot, PlayerProfile};
 pub use block_entity_visuals::{
     BackingBlockIdentity, BlockEntityVisualRoute, adjudicate_block_entity_visual,
+};
+pub use item::{
+    ActorEquipmentSnapshot, CanonicalItemRegistryRecord, CanonicalItemStack,
+    MAX_ITEM_REGISTRY_RECORDS, MAX_PENDING_ITEM_RESOLUTIONS,
 };
 pub use server_position::{ResolvedServerPosition, SAFE_SERVER_HEIGHT};
 pub use stream::{
