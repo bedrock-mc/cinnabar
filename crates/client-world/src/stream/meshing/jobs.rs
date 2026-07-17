@@ -53,6 +53,11 @@ impl WorldStream {
                     generation: revision,
                     dirty_since,
                 });
+                self.stats.phase2_stages.mesh_changes_queued = self
+                    .stats
+                    .phase2_stages
+                    .mesh_changes_queued
+                    .saturating_add(1);
                 continue;
             };
             if dispatched >= worker_budget || self.in_flight.contains_key(&key) {
@@ -95,6 +100,11 @@ impl WorldStream {
                 });
             });
             self.stats.last_mesh_dispatch_at = Some(Instant::now());
+            self.stats.phase2_stages.mesh_jobs_dispatched = self
+                .stats
+                .phase2_stages
+                .mesh_jobs_dispatched
+                .saturating_add(1);
             dispatched += 1;
         }
         dispatched
@@ -204,6 +214,11 @@ impl WorldStream {
         });
     }
     pub(in crate::stream) fn accept_mesh_completion(&mut self, completion: MeshCompletion) {
+        self.stats.phase2_stages.mesh_jobs_completed = self
+            .stats
+            .phase2_stages
+            .mesh_jobs_completed
+            .saturating_add(1);
         self.stats.observe_mesh_queue_wait(completion.queue_wait);
         if self.in_flight.get(&completion.key) == Some(&completion.revision) {
             self.in_flight.remove(&completion.key);
@@ -255,5 +270,10 @@ impl WorldStream {
             generation: completion.revision,
             dirty_since: dirty.since,
         });
+        self.stats.phase2_stages.mesh_changes_queued = self
+            .stats
+            .phase2_stages
+            .mesh_changes_queued
+            .saturating_add(1);
     }
 }

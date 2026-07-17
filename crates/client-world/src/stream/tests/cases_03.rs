@@ -575,7 +575,7 @@ fn eviction_purges_unsent_requests_and_late_subchunks_cannot_resurrect_the_colum
 }
 
 #[test]
-fn valid_late_inactive_subchunk_reply_is_ignored_without_side_effects() {
+fn valid_late_inactive_subchunk_reply_records_stale_without_world_side_effects() {
     let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 1,
@@ -636,7 +636,9 @@ fn valid_late_inactive_subchunk_reply_is_ignored_without_side_effects() {
     assert_eq!(stream.deferred_retries, deferred_retries_before);
     assert_eq!(stream.deferred_retry_set, deferred_retry_set_before);
     assert_eq!(stream.requests.len(), requests_before);
-    assert_eq!(stream.stats(), stats_before);
+    let mut expected_stats = stats_before;
+    expected_stats.phase2_outcomes.stale = expected_stats.phase2_outcomes.stale.saturating_add(1);
+    assert_eq!(stream.stats(), expected_stats);
     assert_eq!(stream.stats().normalization_reasons.inactive_sub_chunks, 0);
 }
 

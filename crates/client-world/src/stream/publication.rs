@@ -2,10 +2,24 @@ use super::*;
 
 impl WorldStream {
     pub fn take_mesh_changes(&mut self) -> Vec<WorldMeshChange> {
-        self.mesh_changes.drain(..).collect()
+        let changes = self.mesh_changes.drain(..).collect::<Vec<_>>();
+        self.stats.phase2_stages.mesh_changes_dequeued = self
+            .stats
+            .phase2_stages
+            .mesh_changes_dequeued
+            .saturating_add(changes.len() as u64);
+        changes
     }
     pub fn pop_mesh_change(&mut self) -> Option<WorldMeshChange> {
-        self.mesh_changes.pop_front()
+        let change = self.mesh_changes.pop_front();
+        if change.is_some() {
+            self.stats.phase2_stages.mesh_changes_dequeued = self
+                .stats
+                .phase2_stages
+                .mesh_changes_dequeued
+                .saturating_add(1);
+        }
+        change
     }
     pub fn pending_mesh_change_count(&self) -> usize {
         self.mesh_changes.len()
@@ -53,6 +67,11 @@ impl WorldStream {
         );
         self.applied_mesh_generations.insert(key, generation);
         self.revisions.clear_if_current(key, generation);
+        self.stats.phase2_stages.mesh_uploads_acknowledged = self
+            .stats
+            .phase2_stages
+            .mesh_uploads_acknowledged
+            .saturating_add(1);
     }
     pub fn take_committed_controls(&mut self) -> Vec<CommittedControlEvent> {
         self.committed_controls.drain(..).collect()

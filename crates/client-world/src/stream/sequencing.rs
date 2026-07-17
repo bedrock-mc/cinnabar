@@ -147,10 +147,14 @@ impl WorldStream {
                         entry.position[2],
                     );
                     if !self.column_is_active(key.chunk()) {
+                        self.stats.phase2_outcomes.stale =
+                            self.stats.phase2_outcomes.stale.saturating_add(1);
                         continue;
                     }
                     let admitted = self.consume_admitted_sub_chunk_reply(key);
                     if !self.is_expected_sub_chunk(key) {
+                        self.stats.phase2_outcomes.stale =
+                            self.stats.phase2_outcomes.stale.saturating_add(1);
                         if admitted && self.consume_correlated_sub_chunk_attempt(key) {
                             continue;
                         }
@@ -163,6 +167,8 @@ impl WorldStream {
                     self.disarm_sub_chunk_deadline(key);
                     let (completed, committed) = match entry.result {
                         PreparedSubChunkResult::Decoded(Ok(decoded)) => {
+                            self.stats.phase2_outcomes.success =
+                                self.stats.phase2_outcomes.success.saturating_add(1);
                             let decoded_air = decoded.sub_chunk().has_no_storages();
                             let committed = match self.store.commit_decoded_sub_chunk(key, decoded)
                             {
@@ -190,10 +196,14 @@ impl WorldStream {
                             (true, committed)
                         }
                         PreparedSubChunkResult::Decoded(Err(_)) => {
+                            self.stats.phase2_outcomes.malformed =
+                                self.stats.phase2_outcomes.malformed.saturating_add(1);
                             self.stats.decode_errors = self.stats.decode_errors.saturating_add(1);
                             (self.retry_or_complete_sub_chunk(key), false)
                         }
                         PreparedSubChunkResult::AllAir => {
+                            self.stats.phase2_outcomes.all_air =
+                                self.stats.phase2_outcomes.all_air.saturating_add(1);
                             let changed = self.store.apply_all_air(key);
                             let became_known = self.record_known_air(key);
                             if changed.is_some() || became_known {
@@ -202,6 +212,8 @@ impl WorldStream {
                             (true, true)
                         }
                         PreparedSubChunkResult::Unavailable(unavailable) => {
+                            self.stats.phase2_outcomes.unavailable =
+                                self.stats.phase2_outcomes.unavailable.saturating_add(1);
                             self.stats.unavailable_sub_chunks =
                                 self.stats.unavailable_sub_chunks.saturating_add(1);
                             match unavailable {
@@ -229,6 +241,13 @@ impl WorldStream {
                         }
                     };
                     committed_any |= committed;
+                    if committed {
+                        self.stats.phase2_stages.subchunks_committed = self
+                            .stats
+                            .phase2_stages
+                            .subchunks_committed
+                            .saturating_add(1);
+                    }
                     if committed {
                         self.refresh_block_entity_visuals_for_sub_chunk(key);
                     }

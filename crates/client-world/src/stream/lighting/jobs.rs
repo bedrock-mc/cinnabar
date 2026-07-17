@@ -95,6 +95,11 @@ impl WorldStream {
         }
 
         let dispatched = prepared.len();
+        self.stats.phase2_stages.light_jobs_dispatched = self
+            .stats
+            .phase2_stages
+            .light_jobs_dispatched
+            .saturating_add(dispatched as u64);
         for job in prepared {
             let tx = self.light_tx.clone();
             rayon::spawn(move || {
@@ -115,6 +120,11 @@ impl WorldStream {
         dispatched
     }
     pub(in crate::stream) fn accept_light_completion(&mut self, completion: LightCompletion) {
+        self.stats.phase2_stages.light_jobs_completed = self
+            .stats
+            .phase2_stages
+            .light_jobs_completed
+            .saturating_add(1);
         self.stats.observe_light_queue_wait(completion.queue_wait);
         if self.in_flight_light.get(&completion.key) == Some(&completion.identity) {
             self.in_flight_light.remove(&completion.key);

@@ -62,6 +62,8 @@ impl WorldStream {
         count: usize,
         sent_at: Instant,
     ) {
+        self.stats.phase2_stages.requests_sent =
+            self.stats.phase2_stages.requests_sent.saturating_add(1);
         let deadline = sent_at
             .checked_add(SUB_CHUNK_RESPONSE_TIMEOUT)
             .unwrap_or(sent_at);
@@ -141,6 +143,11 @@ impl WorldStream {
         }
         match request_sub_chunk_column(key.dimension, key.x, key.z, base_sub_chunk_y, count) {
             Ok(packet) => {
+                self.stats.phase2_stages.requests_constructed = self
+                    .stats
+                    .phase2_stages
+                    .requests_constructed
+                    .saturating_add(1);
                 let request = PendingSubChunkRequest {
                     packet,
                     dimension: key.dimension,

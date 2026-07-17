@@ -1,6 +1,155 @@
 use super::*;
 
 #[test]
+fn phase2_gate_has_explicit_minimum_frame_and_burst_bounds() {
+    let config = PublicationServiceConfig::PHASE2_GATE;
+    assert_eq!(config.minimum_items_per_second, 4_096);
+    assert_eq!(config.minimum_bytes_per_second, 64 * 1024 * 1024);
+    assert_eq!(config.target_items_per_second, 8_192);
+    assert_eq!(config.target_bytes_per_second, 128 * 1024 * 1024);
+    assert_eq!(config.maximum_frame_items, 512);
+    assert_eq!(config.maximum_frame_bytes, 64 * 1024 * 1024);
+    assert_eq!(config.maximum_burst_items, 8_192);
+    assert_eq!(config.maximum_burst_bytes, 128 * 1024 * 1024);
+    assert_eq!(config.maximum_zero_byte_operations_per_frame, 256);
+    assert!(config.minimum_bytes_per_second <= config.target_bytes_per_second);
+    assert!(config.maximum_frame_bytes <= config.maximum_burst_bytes);
+}
+
+#[test]
+fn phase2_identity_carriers_are_fixed_size_and_fully_qualified() {
+    let classes = [
+        RequestClass::PlayerRetry,
+        RequestClass::PlayerInitial,
+        RequestClass::VisibleRetry,
+        RequestClass::VisibleInitial,
+        RequestClass::PrefetchRetry,
+        RequestClass::PrefetchInitial,
+    ];
+    assert_eq!(classes.len(), 6);
+    assert_eq!(std::mem::size_of::<RequestClass>(), 1);
+    assert_eq!(std::mem::size_of::<BuildProfileIdentity>(), 1);
+    assert_eq!(std::mem::size_of::<PresentModeIdentity>(), 1);
+
+    let cohort = CohortManifestIdentity {
+        session_generation: 7,
+        required_cohort_hash: 11,
+        generation_manifest_hash: 13,
+        entry_count: 17,
+    };
+    let presentation = Phase2PresentationSnapshot {
+        build_profile: BuildProfileIdentity::Release,
+        graphics_identity_sha256: [19; 32],
+        requested_present_mode: PresentModeIdentity::Fifo,
+        effective_present_mode: PresentModeIdentity::Fifo,
+        assets_manifest_sha256: [23; 32],
+        publisher_disk: cohort,
+        resident: cohort,
+        allocation: cohort,
+        visible: cohort,
+        submitted: cohort,
+        gpu_presented: cohort,
+    };
+    assert_eq!(presentation.publisher_disk.session_generation, 7);
+    assert_eq!(presentation.publisher_disk.required_cohort_hash, 11);
+    assert_eq!(presentation.graphics_identity_sha256, [19; 32]);
+    assert_eq!(presentation.assets_manifest_sha256, [23; 32]);
+}
+
+#[test]
+fn publication_snapshot_separates_every_stage_and_subchunk_outcome() {
+    let started = Instant::now();
+    let (mut stream, keys, initial) = stream_with_unsent_sub_chunks(6);
+    acknowledge_request_sent(&mut stream, &initial, started);
+
+    let decoded = world::DecodedSubChunk::decode(
+        keys[0],
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../world/fixtures/uniform_non_air.bin"
+        )),
+    )
+    .unwrap();
+    apply_sub_chunk_result(
+        &mut stream,
+        keys[0],
+        super::PreparedSubChunkResult::Decoded(Ok(decoded)),
+    );
+    apply_sub_chunk_result(&mut stream, keys[1], super::PreparedSubChunkResult::AllAir);
+    apply_sub_chunk_result(
+        &mut stream,
+        keys[2],
+        super::PreparedSubChunkResult::Unavailable(SubChunkUnavailable::Unknown(0xff)),
+    );
+
+    stream
+        .requested_sub_chunks
+        .get_mut(&keys[3].chunk())
+        .unwrap()
+        .get_mut(&keys[3].y)
+        .unwrap()
+        .retry_attempts = super::MAX_SUB_CHUNK_RETRIES;
+    let malformed = world::DecodedSubChunk::decode(keys[3], &[0xff]).unwrap_err();
+    apply_sub_chunk_result(
+        &mut stream,
+        keys[3],
+        super::PreparedSubChunkResult::Decoded(Err(malformed)),
+    );
+
+    stream
+        .requested_sub_chunks
+        .get_mut(&keys[4].chunk())
+        .unwrap()
+        .remove(&keys[4].y);
+    apply_sub_chunk_result(&mut stream, keys[4], super::PreparedSubChunkResult::AllAir);
+
+    for attempt in 1..=super::MAX_SUB_CHUNK_RETRIES {
+        let deadline = started + super::SUB_CHUNK_RESPONSE_TIMEOUT * u32::from(attempt);
+        stream.expire_sub_chunk_deadlines(deadline);
+        let retry = stream
+            .pop_next_request()
+            .expect("timeout should queue retry");
+        acknowledge_request_sent(&mut stream, &retry, deadline);
+    }
+    stream.expire_sub_chunk_deadlines(
+        started
+            + super::SUB_CHUNK_RESPONSE_TIMEOUT
+                * u32::from(super::MAX_SUB_CHUNK_RETRIES.saturating_add(1)),
+    );
+
+    stream.apply_immediate(
+        WorldEvent::PublisherUpdate(PublisherUpdateEvent {
+            center: [0, 64, 0],
+            radius_blocks: 16,
+        }),
+        None,
+    );
+
+    let snapshot = stream.phase2_publication_snapshot(keys[0].chunk());
+    assert_eq!(snapshot.session_generation, stream.actor_session_id());
+    assert_eq!(snapshot.player_column, keys[0].chunk());
+    assert_eq!(snapshot.publisher_radius_chunks, Some(1));
+    assert_eq!(snapshot.required_columns, 5);
+    assert_eq!(snapshot.loaded_required_columns, 1);
+    assert_eq!(snapshot.outcomes.success, 1);
+    assert_eq!(snapshot.outcomes.all_air, 1);
+    assert_eq!(snapshot.outcomes.unavailable, 1);
+    assert_eq!(snapshot.outcomes.malformed, 1);
+    assert_eq!(snapshot.outcomes.stale, 1);
+    assert_eq!(snapshot.outcomes.timed_out, 1);
+    assert!(snapshot.stages.requests_sent <= snapshot.stages.requests_constructed);
+    assert_eq!(snapshot.stages.subchunks_awaiting_response, 0);
+
+    let other_dimension =
+        stream.phase2_publication_snapshot(ChunkKey::new(1, keys[0].x, keys[0].z));
+    assert_eq!(other_dimension.required_columns, 0);
+    assert_ne!(
+        other_dimension.required_cohort_hash,
+        snapshot.required_cohort_hash
+    );
+}
+
+#[test]
 fn request_modes_use_vanilla_dimension_base_and_bounded_counts() {
     let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,
