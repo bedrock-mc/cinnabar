@@ -1,7 +1,7 @@
 use std::{
     fs::{File, OpenOptions},
     io::{self, Read},
-    path::{Component, Path, PathBuf},
+    path::{Component, Path},
 };
 
 use assets::{AssetError, MAX_ENTITY_SOURCE_BYTES};
@@ -108,10 +108,11 @@ fn open_source_handle(root: &Path, path: &Path) -> io::Result<File> {
 }
 
 #[cfg(windows)]
-fn windows_final_path(file: &File) -> io::Result<PathBuf> {
+fn windows_final_path(file: &File) -> io::Result<std::path::PathBuf> {
     use std::{
         ffi::OsString,
         os::windows::{ffi::OsStringExt, io::AsRawHandle},
+        path::PathBuf,
     };
 
     const MAX_FINAL_PATH_UNITS: usize = 32_768;
