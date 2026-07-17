@@ -60,6 +60,9 @@ fn bounded_stats_reject_invalid_ranges_and_clear_atomically() {
     let mut hud = HudStore::default();
     hud.set_stats(Some(health), None, None, None);
     assert_eq!(hud.health(), Some(health));
+    let nodes = hud.view_nodes(0);
+    assert_eq!(nodes[0].role, HudViewRole::Health);
+    assert_eq!(nodes[0].text.as_ref(), "19/20");
 
     hud.clear();
     assert_eq!(hud.health(), None);

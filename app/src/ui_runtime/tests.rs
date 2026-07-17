@@ -212,3 +212,32 @@ fn block_crack_handoff_is_bounded_without_dropping_existing_events() {
     );
     assert_eq!(runtime.pending_block_cracks(), &before);
 }
+
+#[test]
+fn local_actor_health_and_hunger_attributes_fan_into_hud_state() {
+    let mut runtime = UiRuntime::new(1);
+    let attributes = [
+        ("minecraft:health", 17.5, 20.0),
+        ("minecraft:player.hunger", 14.0, 20.0),
+    ]
+    .into_iter()
+    .map(|(name, current, max)| {
+        (
+            Arc::from(name),
+            protocol::ActorAttribute {
+                name: Arc::from(name),
+                min: 0.0,
+                max,
+                current,
+                default: Some(max),
+                modifiers: Arc::from([]),
+            },
+        )
+    })
+    .collect();
+
+    runtime.sync_local_attributes(&attributes);
+
+    assert_eq!(runtime.hud().health(), BoundedStat::new(1_750, 2_000));
+    assert_eq!(runtime.hud().hunger(), BoundedStat::new(1_400, 2_000));
+}

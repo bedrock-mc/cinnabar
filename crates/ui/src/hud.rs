@@ -118,6 +118,10 @@ pub enum HudPlayerStatus {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HudViewRole {
+    Health,
+    Hunger,
+    Armor,
+    Air,
     Title,
     Subtitle,
     ActionBar,
@@ -302,7 +306,21 @@ impl HudStore {
     }
 
     pub fn view_nodes(&self, now_millis: u64) -> Box<[HudViewNode]> {
-        let mut nodes = Vec::with_capacity(3 + self.toasts.len() * 2);
+        let mut nodes = Vec::with_capacity(7 + self.toasts.len() * 2);
+        for (role, value) in [
+            (HudViewRole::Health, self.health),
+            (HudViewRole::Hunger, self.hunger),
+            (HudViewRole::Armor, self.armor),
+            (HudViewRole::Air, self.air),
+        ] {
+            if let Some(value) = value {
+                nodes.push(HudViewNode {
+                    role,
+                    source_sequence: 0,
+                    text: Arc::from(format!("{}/{}", value.current(), value.maximum())),
+                });
+            }
+        }
         for (role, value) in [
             (HudViewRole::Title, self.title.as_ref()),
             (HudViewRole::Subtitle, self.subtitle.as_ref()),

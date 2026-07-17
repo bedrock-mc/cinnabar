@@ -65,7 +65,10 @@ use crate::{
             arm_shutdown_watchdog, drive_world_stream, startup_biome_tints, update_camera_medium,
         },
     },
-    ui_runtime::UiRuntime,
+    ui_runtime::{
+        UiRuntime,
+        presentation::{UiPresentationRuntime, publish_ui_runtime},
+    },
 };
 
 use crate::acceptance::model_witness::drive_model_witness;
@@ -121,6 +124,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         loaded_assets.entities.selected_path().display()
     );
     eprintln!("{}", loaded_assets.entities.startup_summary());
+    eprintln!(
+        "loaded required font assets from {}",
+        loaded_assets.fonts.selected_path().display()
+    );
+    let font_runtime = loaded_assets.fonts.into_runtime();
     let (atmosphere_runtime, atmosphere_identity) = loaded_assets.atmosphere.into_parts();
     let runtime_assets = loaded_assets.runtime;
     let asset_metrics = loaded_assets.metrics;
@@ -182,6 +190,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .insert_resource(network)
         .insert_resource(ClientWorld::new(Arc::clone(&runtime_assets)))
         .insert_resource(UiRuntime::new(0))
+        .insert_resource(
+            UiPresentationRuntime::new(font_runtime)
+                .context("prepare bounded font texture array for UI rendering")?,
+        )
         .insert_resource(WorldClock::default())
         .insert_resource(WeatherState::default())
         .insert_resource(environment::CameraMediumState::default())
@@ -251,6 +263,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
                 poll_transparent_witness_request,
                 poll_model_witness_request,
                 drive_world_stream.before(ChunkRenderApplySet),
+                publish_ui_runtime,
                 advance_local_physics,
                 publish_actor_render_frame,
                 update_camera_medium,

@@ -1,12 +1,17 @@
 //! App-owned conversion boundary between retained UI output and render POD.
 
+pub mod presentation;
 pub mod render_adapter;
 
-use std::collections::VecDeque;
+use std::{
+    collections::{HashMap, VecDeque},
+    sync::Arc,
+};
 
 use bevy::prelude::Resource;
 use protocol::{
-    BlockCrackEvent, HudEvent, PlayerStatus, TextEvent, TextKind, TitleAction, TitleEvent, UiEvent,
+    ActorAttribute, BlockCrackEvent, HudEvent, PlayerStatus, TextEvent, TextKind, TitleAction,
+    TitleEvent, UiEvent,
 };
 use semantic_input::InputContext;
 use ui::{
@@ -208,6 +213,15 @@ impl UiRuntime {
         Ok(())
     }
 
+    pub fn sync_local_attributes(&mut self, attributes: &HashMap<Arc<str>, ActorAttribute>) {
+        let health = attributes.get("minecraft:health").and_then(attribute_stat);
+        let hunger = attributes
+            .get("minecraft:player.hunger")
+            .and_then(attribute_stat);
+        self.hud
+            .set_stats(health, hunger, self.hud.armor(), self.hud.air());
+    }
+
     fn validate_identity(&self, envelope: &SequencedUiEvent) -> Result<(), UiRuntimeError> {
         if envelope.session_id != self.session_id {
             return Err(UiRuntimeError::WrongSession {
@@ -334,6 +348,25 @@ impl UiRuntime {
         }
         Ok(())
     }
+}
+
+fn attribute_stat(attribute: &ActorAttribute) -> Option<BoundedStat> {
+    if !attribute.current.is_finite()
+        || !attribute.max.is_finite()
+        || attribute.max <= 0.0
+        || attribute.current < 0.0
+        || attribute.current > attribute.max
+    {
+        return None;
+    }
+    let scale = if attribute.max <= u16::MAX as f32 / 100.0 {
+        100.0
+    } else {
+        1.0
+    };
+    let maximum = u16::try_from((attribute.max * scale).round() as u32).ok()?;
+    let current = u16::try_from((attribute.current * scale).round() as u32).ok()?;
+    BoundedStat::new(current, maximum)
 }
 
 fn map_player_status(status: PlayerStatus) -> HudPlayerStatus {

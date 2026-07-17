@@ -353,6 +353,11 @@ pub(crate) fn drive_world_stream(
             return;
         }
     }
+    if let Some(stream) = client_world.stream.as_ref()
+        && let Some(local_actor) = stream.actor(stream.local_player_runtime_id())
+    {
+        ui_runtime.sync_local_attributes(&local_actor.attributes);
+    }
     for control in controls {
         if apply_environment_control(control, &mut clock, &mut weather, time.elapsed_secs_f64()) {
             continue;

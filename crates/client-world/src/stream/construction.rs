@@ -174,8 +174,11 @@ impl WorldStream {
                 capacity: OUTBOUND_REQUEST_CAPACITY,
             });
         }
-        if self.submitted.len()
-            >= MAX_ADMITTED_WORLD_EVENTS.saturating_sub(self.committed_controls.len())
+        let retained_commits = self
+            .committed_controls
+            .len()
+            .saturating_add(self.committed_ui.len());
+        if self.submitted.len() >= MAX_ADMITTED_WORLD_EVENTS.saturating_sub(retained_commits)
             || (heavy && self.heavy_sequences.len() >= MAX_ADMITTED_HEAVY_EVENTS)
         {
             return Err(WorldStreamError::AdmissionFull {
@@ -271,7 +274,8 @@ impl WorldStream {
             .saturating_sub(
                 self.submitted
                     .len()
-                    .saturating_add(self.committed_controls.len()),
+                    .saturating_add(self.committed_controls.len())
+                    .saturating_add(self.committed_ui.len()),
             )
             .min(MAX_ADMITTED_HEAVY_EVENTS.saturating_sub(self.heavy_sequences.len()))
             .min(OUTBOUND_REQUEST_CAPACITY.saturating_sub(self.requests.len()))

@@ -6,7 +6,10 @@ use std::{
     sync::Arc,
 };
 
-use assets::{AssetError, RuntimeAssets, RuntimeAtmosphereAssets, RuntimeEntityAssets};
+use assets::{
+    AssetError, FontCatalogError, RuntimeAssets, RuntimeAtmosphereAssets, RuntimeEntityAssets,
+    RuntimeFontCatalog,
+};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -19,6 +22,14 @@ pub const ATMOSPHERE_FILENAME: &str = "vanilla-v1.mcbeatm";
 pub const ATMOSPHERE_COMPILE_COMMAND: &str = "make atmosphere-assets";
 pub const ENTITY_ASSETS_FILENAME: &str = "vanilla-v1.mcbeent";
 pub const ENTITY_ASSETS_COMPILE_COMMAND: &str = "make entity-assets";
+pub const FONT_ASSETS_FILENAME: &str = "vanilla-v1.mcbefont";
+pub const FONT_ASSETS_COMPILE_COMMAND: &str = concat!(
+    "cargo run -p asset-compiler --bin assetc -- font-assets ",
+    "--pack .local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack ",
+    "--source-manifest assets/vanilla-source.json ",
+    "--out .local/assets/compiled/vanilla-v1.mcbefont ",
+    "--report .local/assets/compiled/font-assets.json"
+);
 pub const FETCH_COMMAND: &str =
     "powershell -NoProfile -File scripts/fetch-vanilla-assets.ps1 -AcceptEula";
 pub const COMPILE_COMMAND: &str = concat!(
@@ -36,6 +47,7 @@ const CLOUD_SHADER_SOURCE: &[u8] = include_bytes!("../../crates/render/src/cloud
 const MAX_RUNTIME_BLOB_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_ATMOSPHERE_BLOB_BYTES: u64 = 512 * 1024;
 const MAX_ENTITY_ASSET_BLOB_BYTES: u64 = 8 * 1024 * 1024;
+const MAX_FONT_ASSET_BLOB_BYTES: u64 = 128 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AssetPathSource {
@@ -60,6 +72,7 @@ pub struct LoadedAssets {
     pub runtime: Arc<RuntimeAssets>,
     pub atmosphere: LoadedAtmosphereAssets,
     pub entities: LoadedEntityAssets,
+    pub fonts: LoadedFontAssets,
     pub metrics: AssetMetrics,
     pub selected_path: PathBuf,
     pub kind: LoadedAssetKind,
@@ -76,6 +89,22 @@ pub struct LoadedEntityAssets {
     runtime: Arc<RuntimeEntityAssets>,
     identity: [u8; 32],
     selected_path: PathBuf,
+}
+
+pub struct LoadedFontAssets {
+    runtime: Arc<RuntimeFontCatalog>,
+    selected_path: PathBuf,
+}
+
+impl LoadedFontAssets {
+    #[must_use]
+    pub fn selected_path(&self) -> &Path {
+        &self.selected_path
+    }
+
+    pub fn into_runtime(self) -> Arc<RuntimeFontCatalog> {
+        self.runtime
+    }
 }
 
 impl LoadedEntityAssets {
@@ -161,6 +190,7 @@ impl std::fmt::Debug for LoadedAssets {
             .field("selected_path", &self.selected_path)
             .field("atmosphere_path", &self.atmosphere.selected_path)
             .field("entity_asset_path", &self.entities.selected_path)
+            .field("font_asset_path", &self.fonts.selected_path)
             .field("kind", &self.kind)
             .field("notice", &self.notice)
             .finish_non_exhaustive()
@@ -259,6 +289,35 @@ pub enum AssetStartupError {
         actual: String,
         rebuild_command: &'static str,
     },
+
+    #[error(
+        "could not read required font asset carrier at {path}: {source}\nrebuild local font assets with: {rebuild_command}"
+    )]
+    FontAssetsRead {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+        rebuild_command: &'static str,
+    },
+
+    #[error(
+        "required font asset carrier at {path} exceeds the {max_bytes}-byte startup limit\nrebuild local font assets with: {rebuild_command}"
+    )]
+    FontAssetsTooLarge {
+        path: PathBuf,
+        max_bytes: u64,
+        rebuild_command: &'static str,
+    },
+
+    #[error(
+        "could not decode required font asset carrier at {path}: {source}\nrebuild local font assets with: {rebuild_command}"
+    )]
+    FontAssetsDecode {
+        path: PathBuf,
+        #[source]
+        source: Box<FontCatalogError>,
+        rebuild_command: &'static str,
+    },
 }
 
 #[derive(Deserialize)]
@@ -340,6 +399,11 @@ pub fn entity_asset_path(world_asset_path: &Path) -> PathBuf {
     world_asset_path.with_file_name(ENTITY_ASSETS_FILENAME)
 }
 
+#[must_use]
+pub fn font_asset_path(world_asset_path: &Path) -> PathBuf {
+    world_asset_path.with_file_name(FONT_ASSETS_FILENAME)
+}
+
 pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, AssetStartupError> {
     let source: VanillaSource = serde_json::from_str(VANILLA_SOURCE_JSON)?;
     let file = match File::open(&selection.path) {
@@ -347,7 +411,10 @@ pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, As
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             let atmosphere = load_atmosphere_assets(&selection.path)?;
             let entities = load_entity_assets(&selection.path)?;
-            return Ok(diagnostic_assets(selection, source, atmosphere, entities));
+            let fonts = load_font_assets(&selection.path)?;
+            return Ok(diagnostic_assets(
+                selection, source, atmosphere, entities, fonts,
+            ));
         }
         Err(source) => {
             return Err(AssetStartupError::Read {
@@ -397,10 +464,12 @@ pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, As
     let metrics = runtime_metrics(&runtime, source, blob_sha256);
     let atmosphere = load_atmosphere_assets(&selection.path)?;
     let entities = load_entity_assets(&selection.path)?;
+    let fonts = load_font_assets(&selection.path)?;
     Ok(LoadedAssets {
         runtime,
         atmosphere,
         entities,
+        fonts,
         metrics,
         selected_path: selection.path,
         kind: LoadedAssetKind::CompiledBlob,
@@ -466,6 +535,59 @@ fn load_entity_assets(world_asset_path: &Path) -> Result<LoadedEntityAssets, Ass
     Ok(LoadedEntityAssets {
         runtime,
         identity,
+        selected_path: path,
+    })
+}
+
+fn load_font_assets(world_asset_path: &Path) -> Result<LoadedFontAssets, AssetStartupError> {
+    let path = font_asset_path(world_asset_path);
+    let file = File::open(&path).map_err(|source| AssetStartupError::FontAssetsRead {
+        path: path.clone(),
+        source,
+        rebuild_command: FONT_ASSETS_COMPILE_COMMAND,
+    })?;
+    let length = file
+        .metadata()
+        .map_err(|source| AssetStartupError::FontAssetsRead {
+            path: path.clone(),
+            source,
+            rebuild_command: FONT_ASSETS_COMPILE_COMMAND,
+        })?
+        .len();
+    if length > MAX_FONT_ASSET_BLOB_BYTES {
+        return Err(AssetStartupError::FontAssetsTooLarge {
+            path,
+            max_bytes: MAX_FONT_ASSET_BLOB_BYTES,
+            rebuild_command: FONT_ASSETS_COMPILE_COMMAND,
+        });
+    }
+    let mut bytes = Vec::with_capacity(length as usize);
+    file.take(MAX_FONT_ASSET_BLOB_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|source| AssetStartupError::FontAssetsRead {
+            path: path.clone(),
+            source,
+            rebuild_command: FONT_ASSETS_COMPILE_COMMAND,
+        })?;
+    if bytes.len() as u64 > MAX_FONT_ASSET_BLOB_BYTES {
+        return Err(AssetStartupError::FontAssetsTooLarge {
+            path,
+            max_bytes: MAX_FONT_ASSET_BLOB_BYTES,
+            rebuild_command: FONT_ASSETS_COMPILE_COMMAND,
+        });
+    }
+    let expected_manifest_sha256 = canonical_source_manifest_sha256(VANILLA_SOURCE_JSON);
+    let runtime = Arc::new(
+        RuntimeFontCatalog::decode(&bytes, expected_manifest_sha256).map_err(|source| {
+            AssetStartupError::FontAssetsDecode {
+                path: path.clone(),
+                source: Box::new(source),
+                rebuild_command: FONT_ASSETS_COMPILE_COMMAND,
+            }
+        })?,
+    );
+    Ok(LoadedFontAssets {
+        runtime,
         selected_path: path,
     })
 }
@@ -552,6 +674,7 @@ fn diagnostic_assets(
     source: VanillaSource,
     atmosphere: LoadedAtmosphereAssets,
     entities: LoadedEntityAssets,
+    fonts: LoadedFontAssets,
 ) -> LoadedAssets {
     let runtime = Arc::new(RuntimeAssets::diagnostic());
     let metrics = runtime_metrics(&runtime, source, "diagnostic".to_owned());
@@ -564,6 +687,7 @@ fn diagnostic_assets(
         runtime,
         atmosphere,
         entities,
+        fonts,
         metrics,
         selected_path: selection.path,
         kind: LoadedAssetKind::Diagnostic,
