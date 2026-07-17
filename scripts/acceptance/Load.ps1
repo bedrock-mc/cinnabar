@@ -128,6 +128,73 @@ function Write-Phase2Json {
     [IO.File]::WriteAllText($Path, $encoded + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
 }
 
+function Assert-Phase2ExactProperties {
+    param(
+        [Parameter(Mandatory = $true)]$Value,
+        [Parameter(Mandatory = $true)][string[]]$Names,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    if ($null -eq $Value) { throw "$Label must be a JSON object" }
+    $actual = @($Value.PSObject.Properties.Name)
+    if ($actual.Count -ne $Names.Count) { throw "$Label has missing or unknown fields" }
+    foreach ($name in $actual) {
+        if ($Names -cnotcontains $name) { throw "$Label contains unknown field $name" }
+    }
+}
+
+function Assert-Phase2UnsignedInteger {
+    param(
+        $Value,
+        [Parameter(Mandatory = $true)][string]$Label,
+        [uint64]$Maximum = [uint64]::MaxValue,
+        [switch]$Positive
+    )
+
+    $integral = $Value -is [byte] -or $Value -is [uint16] -or $Value -is [uint32] -or $Value -is [uint64] -or
+        $Value -is [sbyte] -or $Value -is [int16] -or $Value -is [int32] -or $Value -is [int64]
+    if (-not $integral -or $Value -is [bool]) { throw "$Label must be an exact integral JSON number" }
+    if ([decimal]$Value -lt 0 -or [decimal]$Value -gt [decimal]$Maximum) { throw "$Label is outside its unsigned bound" }
+    if ($Positive -and [uint64]$Value -eq 0) { throw "$Label must be positive" }
+}
+
+function Assert-Phase2SignedInteger32 {
+    param($Value, [Parameter(Mandatory = $true)][string]$Label)
+    $integral = $Value -is [byte] -or $Value -is [uint16] -or $Value -is [uint32] -or
+        $Value -is [sbyte] -or $Value -is [int16] -or $Value -is [int32] -or $Value -is [int64]
+    if (-not $integral -or $Value -is [bool] -or
+        [decimal]$Value -lt [int32]::MinValue -or [decimal]$Value -gt [int32]::MaxValue) {
+        throw "$Label must be an exact signed 32-bit integral JSON number"
+    }
+}
+
+function Assert-Phase2FiniteNonnegativeNumber {
+    param($Value, [Parameter(Mandatory = $true)][string]$Label)
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -is [string]) {
+        throw "$Label must be numeric"
+    }
+    try { $number = [double]$Value } catch { throw "$Label must be numeric" }
+    if ([double]::IsNaN($number) -or [double]::IsInfinity($number) -or $number -lt 0.0) {
+        throw "$Label must be finite and nonnegative"
+    }
+}
+
+function Get-Phase2ExactCohortColumnCount {
+    param([Parameter(Mandatory = $true)][uint64]$PublisherRadiusBlocks)
+    $retention = [int][Math]::Ceiling($PublisherRadiusBlocks / 16.0)
+    $count = [uint64]0
+    for ($x = -$retention; $x -le $retention; $x++) {
+        for ($z = -$retention; $z -le $retention; $z++) {
+            $blockX = [int64]$x * 16
+            $blockZ = [int64]$z * 16
+            if (($blockX * $blockX) + ($blockZ * $blockZ) -le $PublisherRadiusBlocks * $PublisherRadiusBlocks) {
+                $count++
+            }
+        }
+    }
+    return $count
+}
+
 function Assert-Phase2PublicationRecord {
     param(
         [Parameter(Mandatory = $true)]$Record,
@@ -136,8 +203,19 @@ function Assert-Phase2PublicationRecord {
         [string]$ExpectedAssetsIdentity
     )
 
+    Assert-Phase2ExactProperties -Value $Record -Names @('presentation', 'publication') -Label 'PHASE2_PUBLICATION root'
     $presentation = $Record.presentation
     $publication = $Record.publication
+    Assert-Phase2ExactProperties -Value $presentation -Names @(
+        'allocation', 'assets_manifest_sha256', 'build_profile', 'effective_present_mode', 'gpu_presented',
+        'graphics_identity_sha256', 'present_mode_proven', 'publisher_disk', 'requested_present_mode',
+        'resident', 'submitted', 'visible'
+    ) -Label 'PHASE2_PUBLICATION presentation'
+    Assert-Phase2ExactProperties -Value $publication -Names @(
+        'loaded_required_columns', 'max_queue_wait_us', 'max_worker_time_us', 'outcomes', 'player_column',
+        'publisher_radius_blocks', 'publisher_radius_chunks', 'required_cohort_hash', 'required_columns',
+        'session_generation', 'stages'
+    ) -Label 'PHASE2_PUBLICATION publication'
     $mode = $ExpectedPresentMode.ToLowerInvariant()
     if ($null -eq $presentation -or $null -eq $publication -or
         [string]$presentation.build_profile -cne 'release' -or
@@ -157,13 +235,32 @@ function Assert-Phase2PublicationRecord {
         [string]$presentation.assets_manifest_sha256 -cne $ExpectedAssetsIdentity) {
         throw 'PHASE2_PUBLICATION assets identity changed during the diagnostic sequence'
     }
+    Assert-Phase2UnsignedInteger -Value $publication.session_generation -Label 'publication.session_generation' -Positive
+    Assert-Phase2UnsignedInteger -Value $publication.required_columns -Label 'publication.required_columns'
+    Assert-Phase2UnsignedInteger -Value $publication.loaded_required_columns -Label 'publication.loaded_required_columns'
+    Assert-Phase2UnsignedInteger -Value $publication.publisher_radius_blocks -Label 'publication.publisher_radius_blocks' -Maximum 1024 -Positive
+    Assert-Phase2UnsignedInteger -Value $publication.publisher_radius_chunks -Label 'publication.publisher_radius_chunks' -Maximum 64 -Positive
+    $derivedRetentionRadius = [uint64][Math]::Ceiling([uint64]$publication.publisher_radius_blocks / 16.0)
+    $exactColumnCount = Get-Phase2ExactCohortColumnCount -PublisherRadiusBlocks ([uint64]$publication.publisher_radius_blocks)
+    if ([uint64]$publication.publisher_radius_chunks -ne $derivedRetentionRadius -or
+        [uint64]$publication.required_columns -ne $exactColumnCount) {
+        throw 'PHASE2_PUBLICATION raw block radius disagrees with its retention radius or exact cohort count'
+    }
     if ($null -eq $publication.stages -or $null -eq $publication.outcomes -or
-        [uint64]$publication.session_generation -eq 0 -or
         [string]$publication.required_cohort_hash -notmatch '^[0-9a-f]{16}$' -or
-        [int64]$publication.required_columns -lt 0 -or
-        [int64]$publication.loaded_required_columns -lt 0 -or
-        [int64]$publication.loaded_required_columns -gt [int64]$publication.required_columns) {
+        [uint64]$publication.loaded_required_columns -gt [uint64]$publication.required_columns) {
         throw 'PHASE2_PUBLICATION lacks a coherent publication identity and bounded cohort counts'
+    }
+    Assert-Phase2ExactProperties -Value $publication.player_column -Names @('dimension', 'x', 'z') `
+        -Label 'PHASE2_PUBLICATION player_column'
+    foreach ($field in @('dimension', 'x', 'z')) {
+        Assert-Phase2SignedInteger32 -Value $publication.player_column.$field -Label "publication.player_column.$field"
+    }
+    Assert-Phase2ExactProperties -Value $publication.outcomes `
+        -Names @('all_air', 'malformed', 'stale', 'success', 'timed_out', 'unavailable') `
+        -Label 'PHASE2_PUBLICATION outcomes'
+    foreach ($field in @('all_air', 'malformed', 'stale', 'success', 'timed_out', 'unavailable')) {
+        Assert-Phase2UnsignedInteger -Value $publication.outcomes.$field -Label "publication.outcomes.$field"
     }
     $requiredStageFields = @(
         'requests_constructed', 'requests_ready', 'requests_sent', 'responses_admitted',
@@ -175,18 +272,28 @@ function Assert-Phase2PublicationRecord {
         'mesh_jobs_in_flight', 'mesh_jobs_completed', 'mesh_uploads_unacknowledged',
         'mesh_uploads_acknowledged'
     )
+    Assert-Phase2ExactProperties -Value $publication.stages -Names $requiredStageFields `
+        -Label 'PHASE2_PUBLICATION stages'
     foreach ($field in $requiredStageFields) {
-        if ($null -eq $publication.stages.PSObject.Properties[$field] -or
-            [int64]$publication.stages.$field -lt 0) {
-            throw "PHASE2_PUBLICATION lacks bounded attributable stage counter $field"
+        Assert-Phase2UnsignedInteger -Value $publication.stages.$field -Label "publication.stages.$field"
+    }
+    foreach ($timingName in @('max_queue_wait_us', 'max_worker_time_us')) {
+        Assert-Phase2ExactProperties -Value $publication.$timingName -Names @('decode', 'lighting', 'meshing') `
+            -Label "PHASE2_PUBLICATION $timingName"
+        foreach ($field in @('decode', 'lighting', 'meshing')) {
+            Assert-Phase2FiniteNonnegativeNumber -Value $publication.$timingName.$field `
+                -Label "publication.$timingName.$field"
         }
     }
     foreach ($identityName in @('publisher_disk', 'resident', 'allocation', 'visible', 'submitted', 'gpu_presented')) {
         $identity = $presentation.$identityName
-        if ($null -eq $identity -or
-            [uint64]$identity.session_generation -ne [uint64]$publication.session_generation -or
+        Assert-Phase2ExactProperties -Value $identity `
+            -Names @('entry_count', 'generation_manifest_hash', 'required_cohort_hash', 'session_generation') `
+            -Label "PHASE2_PUBLICATION presentation.$identityName"
+        Assert-Phase2UnsignedInteger -Value $identity.entry_count -Label "presentation.$identityName.entry_count"
+        Assert-Phase2UnsignedInteger -Value $identity.session_generation -Label "presentation.$identityName.session_generation" -Positive
+        if ([uint64]$identity.session_generation -ne [uint64]$publication.session_generation -or
             [string]$identity.required_cohort_hash -cne [string]$publication.required_cohort_hash -or
-            [int64]$identity.entry_count -lt 0 -or
             [string]$identity.generation_manifest_hash -notmatch '^[0-9a-f]{16}$') {
             throw "PHASE2_PUBLICATION contains incoherent $identityName identity"
         }
@@ -203,7 +310,10 @@ function Get-Phase2FirstStalledStage {
     $stages = $publication.stages
     $presentation = $PublicationRecord.presentation
     $cohortComplete = [uint64]$publication.loaded_required_columns -ge [uint64]$publication.required_columns
-    if ($cohortComplete -and $WorldReadyObserved) { return 'none' }
+    if ([uint64]$publication.outcomes.malformed -gt 0 -or [uint64]$publication.outcomes.stale -gt 0 -or
+        [uint64]$publication.outcomes.timed_out -gt 0 -or [uint64]$publication.outcomes.unavailable -gt 0) {
+        return 'response_semantics'
+    }
     if (-not $cohortComplete -and
         [uint64]$stages.requests_constructed -eq [uint64]$publication.loaded_required_columns -and
         [uint64]$stages.requests_sent -eq [uint64]$stages.requests_constructed -and
@@ -212,10 +322,11 @@ function Get-Phase2FirstStalledStage {
         [uint64]$stages.subchunks_committed -gt 0) {
         return 'required_cohort_identity'
     }
-    if (-not $cohortComplete -and
-        ([uint64]$stages.requests_constructed -eq 0 -or [uint64]$stages.requests_ready -gt 0)) { return 'request_order' }
+    if ([uint64]$stages.requests_ready -gt 0 -or
+        (-not $cohortComplete -and [uint64]$stages.requests_constructed -eq 0)) { return 'request_order' }
     if ([uint64]$stages.requests_sent -lt [uint64]$stages.requests_constructed) { return 'transport' }
-    if (-not $cohortComplete -and [uint64]$stages.responses_admitted -eq 0) { return 'response_semantics' }
+    if ([uint64]$stages.subchunks_awaiting_response -gt 0 -or
+        (-not $cohortComplete -and [uint64]$stages.responses_admitted -eq 0)) { return 'response_semantics' }
     if ([uint64]$stages.decode_jobs_queued -gt 0 -or [uint64]$stages.decode_jobs_in_flight -gt 0 -or
         [uint64]$stages.decode_jobs_completed -lt [uint64]$stages.decode_jobs_dispatched) { return 'decode' }
     if ([uint64]$stages.light_jobs_queued -gt 0 -or [uint64]$stages.light_jobs_in_flight -gt 0 -or
@@ -223,11 +334,24 @@ function Get-Phase2FirstStalledStage {
     if ([uint64]$stages.mesh_changes_pending -gt 0 -or [uint64]$stages.mesh_jobs_queued -gt 0 -or
         [uint64]$stages.mesh_jobs_in_flight -gt 0 -or
         [uint64]$stages.mesh_jobs_completed -lt [uint64]$stages.mesh_jobs_dispatched) { return 'meshing' }
-    if ([uint64]$stages.mesh_uploads_acknowledged -eq 0 -or [uint64]$stages.mesh_uploads_unacknowledged -gt 0) { return 'gpu_upload' }
-    if ([uint64]$presentation.resident.entry_count -lt [uint64]$presentation.publisher_disk.entry_count) { return 'main_apply' }
-    if ([uint64]$presentation.visible.entry_count -eq 0) { return 'extraction' }
-    if ([uint64]$presentation.submitted.entry_count -lt [uint64]$presentation.visible.entry_count) { return 'submission' }
+    if ([uint64]$stages.mesh_uploads_unacknowledged -gt 0) { return 'gpu_upload' }
     if (-not $cohortComplete) { return 'required_cohort_identity' }
+    $publisher = $presentation.publisher_disk
+    $resident = $presentation.resident
+    $allocation = $presentation.allocation
+    $visible = $presentation.visible
+    $submitted = $presentation.submitted
+    $presented = $presentation.gpu_presented
+    if ([uint64]$resident.entry_count -ne [uint64]$publisher.entry_count -or
+        [string]$resident.generation_manifest_hash -cne [string]$publisher.generation_manifest_hash) { return 'main_apply' }
+    if ([uint64]$allocation.entry_count -ne [uint64]$publisher.entry_count -or
+        [string]$allocation.generation_manifest_hash -cne [string]$publisher.generation_manifest_hash) { return 'gpu_upload' }
+    if ([uint64]$visible.entry_count -ne [uint64]$publisher.entry_count -or
+        [string]$visible.generation_manifest_hash -cne [string]$publisher.generation_manifest_hash) { return 'extraction' }
+    if ([uint64]$submitted.entry_count -ne [uint64]$visible.entry_count -or
+        [string]$submitted.generation_manifest_hash -cne [string]$visible.generation_manifest_hash) { return 'submission' }
+    if ([uint64]$presented.entry_count -ne [uint64]$submitted.entry_count -or
+        [string]$presented.generation_manifest_hash -cne [string]$submitted.generation_manifest_hash) { return 'presentation' }
     if ($WorldReadyObserved) { return 'none' }
     return 'presentation'
 }
@@ -249,6 +373,7 @@ function Get-Phase2PublicationSequenceEvidence {
     $graphicsIdentity = $null
     $assetsIdentity = $null
     $previousRecord = $null
+    $sequenceIdentity = $null
     foreach ($line in $lines) {
         $lower = $line.ToLowerInvariant()
         foreach ($forbidden in @('"path"', '"token"', '"auth"', '"payload"', '"credential"')) {
@@ -267,6 +392,28 @@ function Get-Phase2PublicationSequenceEvidence {
         if ($null -eq $graphicsIdentity) {
             $graphicsIdentity = [string]$record.presentation.graphics_identity_sha256
             $assetsIdentity = [string]$record.presentation.assets_manifest_sha256
+        }
+        $currentSequenceIdentity = [pscustomobject][ordered]@{
+            session_generation = [uint64]$record.publication.session_generation
+            required_cohort_hash = [string]$record.publication.required_cohort_hash
+            required_columns = [uint64]$record.publication.required_columns
+            dimension = [int32]$record.publication.player_column.dimension
+            player_x = [int32]$record.publication.player_column.x
+            player_z = [int32]$record.publication.player_column.z
+            publisher_radius_blocks = [uint64]$record.publication.publisher_radius_blocks
+            publisher_radius_chunks = [uint64]$record.publication.publisher_radius_chunks
+            build_profile = [string]$record.presentation.build_profile
+            requested_present_mode = [string]$record.presentation.requested_present_mode
+            effective_present_mode = [string]$record.presentation.effective_present_mode
+            present_mode_proven = [bool]$record.presentation.present_mode_proven
+            graphics_identity_sha256 = [string]$record.presentation.graphics_identity_sha256
+            assets_manifest_sha256 = [string]$record.presentation.assets_manifest_sha256
+        } | ConvertTo-Json -Compress
+        if ($null -eq $sequenceIdentity) {
+            $sequenceIdentity = $currentSequenceIdentity
+        }
+        elseif ($currentSequenceIdentity -cne $sequenceIdentity) {
+            throw 'PHASE2_PUBLICATION sequence identity changed during the diagnostic capture'
         }
         if ($null -ne $previousRecord) {
             foreach ($field in @('requests_constructed', 'requests_sent', 'responses_admitted',
@@ -345,7 +492,10 @@ function Complete-Phase2DiagnosticEvidence {
 function Find-Phase2CompletedLunarPrerequisite {
     param(
         [Parameter(Mandatory = $true)][string]$RemoteRoot,
-        [Parameter(Mandatory = $true)][ValidateSet('Diagnostic', 'Candidate', 'Final')][string]$Mode
+        [Parameter(Mandatory = $true)][ValidateSet('Diagnostic', 'Candidate', 'Final')][string]$Mode,
+        [Parameter(Mandatory = $true)][ValidateSet('Fifo', 'Immediate')][string]$ExpectedPresentMode,
+        [Parameter(Mandatory = $true)][int]$ExpectedInitialRadius,
+        [Parameter(Mandatory = $true)][bool]$RequireFullView
     )
 
     $allowedStages = @('none', 'required_cohort_identity', 'request_order', 'transport', 'wire_contract', 'response_semantics',
@@ -355,17 +505,22 @@ function Find-Phase2CompletedLunarPrerequisite {
             $candidate = Get-Content -Raw -LiteralPath $file.FullName | ConvertFrom-Json
             if ([string]$candidate.schema -cne 'rust-mcbe-phase2-remote-v1' -or
                 [string]$candidate.server -cne 'Lunar' -or
+                [string]$candidate.upstream -cne 'pvp.lunarbedrock.com:19134' -or
                 [string]$candidate.mode -cne $Mode -or
                 [string]$candidate.status -cne 'passed' -or
+                [int]$candidate.initial_radius -ne $ExpectedInitialRadius -or
+                [string]$candidate.requested_present_mode -cne $ExpectedPresentMode -or
+                $candidate.full_view_teleport_gate -isnot [bool] -or
+                [bool]$candidate.full_view_teleport_gate -ne $RequireFullView -or
+                ($Mode -cne 'Diagnostic' -and -not $RequireFullView) -or
                 [int]$candidate.publication_snapshot_count -lt 1 -or
                 $allowedStages -cnotcontains [string]$candidate.first_stalled_stage -or
                 $candidate.world_ready_observed -isnot [bool] -or
                 $null -eq $candidate.final_publication) {
                 continue
             }
-            $expectedMode = [string]$candidate.final_publication.presentation.requested_present_mode
             Assert-Phase2PublicationRecord -Record $candidate.final_publication `
-                -ExpectedPresentMode ([Globalization.CultureInfo]::InvariantCulture.TextInfo.ToTitleCase($expectedMode))
+                -ExpectedPresentMode $ExpectedPresentMode
             $computedStage = Get-Phase2FirstStalledStage -PublicationRecord $candidate.final_publication `
                 -WorldReadyObserved:([bool]$candidate.world_ready_observed)
             if ([string]$candidate.first_stalled_stage -cne $computedStage -or
@@ -397,7 +552,8 @@ function Find-Phase2CompletedLunarPrerequisite {
 
 function Find-Phase2CompletedLunarDiagnostic {
     param([Parameter(Mandatory = $true)][string]$RemoteRoot)
-    return Find-Phase2CompletedLunarPrerequisite -RemoteRoot $RemoteRoot -Mode Diagnostic
+    return Find-Phase2CompletedLunarPrerequisite -RemoteRoot $RemoteRoot -Mode Diagnostic `
+        -ExpectedPresentMode Fifo -ExpectedInitialRadius 16 -RequireFullView:$false
 }
 
 function Assert-Phase2Evidence {

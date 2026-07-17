@@ -33,8 +33,13 @@ if ($SkipClientBuild -and [string]::IsNullOrWhiteSpace($ClientExecutable)) {
 $AuthCacheFull = Resolve-Phase2ContainedPath -ProjectRoot $ProjectRoot -Path $AuthCache -Scope Local
 $lunarPrerequisite = $null
 if ($Server -eq 'Zeqa') {
+    if ($Mode -cne 'Diagnostic' -and -not $FullViewTeleportGate) {
+        throw "Zeqa $Mode requires FullViewTeleportGate and a matching Lunar prerequisite"
+    }
     $remoteRoot = Join-Path $ProjectRoot '.local\phase2\remote'
-    $lunarPrerequisite = Find-Phase2CompletedLunarPrerequisite -RemoteRoot $remoteRoot -Mode $Mode
+    $lunarPrerequisite = Find-Phase2CompletedLunarPrerequisite -RemoteRoot $remoteRoot -Mode $Mode `
+        -ExpectedPresentMode $PresentMode -ExpectedInitialRadius $InitialRadius `
+        -RequireFullView:$FullViewTeleportGate
     if ($null -eq $lunarPrerequisite) {
         throw "Zeqa $Mode is gated on a hashable completed Lunar $Mode manifest"
     }
@@ -138,7 +143,7 @@ try {
     }
     catch {
         if ($Mode -cne 'Diagnostic') { throw }
-        if ($clientHandle.Process.HasExited -or
+        if ($clientHandle.Process.HasExited -or $coreHandle.Process.HasExited -or
             -not $_.Exception.Message.StartsWith("timed out waiting for 'RUST_MCBE_WORLD_READY '", [StringComparison]::Ordinal)) {
             throw
         }

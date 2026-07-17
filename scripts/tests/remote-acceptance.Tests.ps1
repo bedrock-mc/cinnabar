@@ -9,7 +9,8 @@ function New-SyntheticPhase2Publication {
         [uint64]$RequestsSent,
         [uint64]$ResponsesAdmitted,
         [uint64]$SubchunksCommitted,
-        [Nullable[int]]$PublisherRadius = 16,
+        [object]$PublisherRadiusBlocks = 128,
+        [object]$PublisherRadius = 8,
         [uint64]$MeshJobsCompleted = 1,
         [int]$MeshJobsQueued = 0,
         [uint64]$UploadsAcknowledged = 1,
@@ -27,7 +28,10 @@ function New-SyntheticPhase2Publication {
         }
         publication = [ordered]@{
             session_generation = 1; player_column = [ordered]@{ dimension = 0; x = 1; z = 2 }
-            required_cohort_hash = $hash; required_columns = $RequiredColumns; loaded_required_columns = $LoadedColumns; publisher_radius_chunks = $PublisherRadius
+            required_cohort_hash = $hash; required_columns = $RequiredColumns; loaded_required_columns = $LoadedColumns
+            publisher_radius_blocks = $PublisherRadiusBlocks; publisher_radius_chunks = $PublisherRadius
+            max_queue_wait_us = [ordered]@{ decode = 0; lighting = 0; meshing = 0 }
+            max_worker_time_us = [ordered]@{ decode = 0; lighting = 0; meshing = 0 }
             outcomes = [ordered]@{ success = $SubchunksCommitted; all_air = 0; unavailable = 0; malformed = 0; stale = 0; timed_out = 0 }
             stages = [ordered]@{
                 requests_constructed = $RequestsConstructed; requests_ready = 0; requests_sent = $RequestsSent
@@ -47,13 +51,24 @@ function New-SyntheticPhase2LunarManifest {
     $publication = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 197 `
         -RequestsConstructed 197 -RequestsSent 197 -ResponsesAdmitted 4096 -SubchunksCommitted 4096
     return [ordered]@{
-        schema = 'rust-mcbe-phase2-remote-v1'; server = 'Lunar'; mode = $Mode; status = 'passed'
+        schema = 'rust-mcbe-phase2-remote-v1'; server = 'Lunar'; upstream = 'pvp.lunarbedrock.com:19134'; mode = $Mode; status = 'passed'
+        initial_radius = 16; requested_present_mode = 'Fifo'; full_view_teleport_gate = ($Mode -ne 'Diagnostic')
         diagnostic_complete = ($Mode -eq 'Diagnostic'); behavior_gate_passed = ($Mode -ne 'Diagnostic')
         world_ready_observed = ($Mode -ne 'Diagnostic'); publication_snapshot_count = 2
         first_stalled_stage = if ($Mode -eq 'Diagnostic') { 'presentation' } else { 'none' }; final_publication = $publication
         metrics_evidence = [ordered]@{ status = if ($Mode -eq 'Diagnostic') { 'unavailable' } else { 'passed' } }
         resources_evidence = [ordered]@{ status = if ($Mode -eq 'Diagnostic') { 'unavailable' } else { 'passed' } }
     }
+}
+
+function Find-SyntheticPhase2LunarPrerequisite {
+    param(
+        [string]$RemoteRoot,
+        [ValidateSet('Diagnostic', 'Candidate', 'Final')][string]$Mode,
+        [switch]$RequireFullView
+    )
+    return Find-Phase2CompletedLunarPrerequisite -RemoteRoot $RemoteRoot -Mode $Mode `
+        -ExpectedPresentMode Fifo -ExpectedInitialRadius 16 -RequireFullView:$RequireFullView
 }
 
 Describe 'Phase 2 remote acceptance runner' {
@@ -187,6 +202,14 @@ Describe 'Phase 2 remote acceptance runner' {
             Should Be 'required_cohort_identity'
     }
 
+    It 'does not classify a cohort identity gap across malformed response outcomes' {
+        $record = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 177 `
+            -RequestsConstructed 177 -RequestsSent 177 -ResponsesAdmitted 3894 -SubchunksCommitted 3894
+        $record.publication.outcomes.malformed = 1
+        (Get-Phase2FirstStalledStage -PublicationRecord ([pscustomobject]$record) -WorldReadyObserved:$false) |
+            Should Be 'response_semantics'
+    }
+
     It 'classifies a complete cohort with a no-ready mesh backlog as meshing' {
         $record = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 197 `
             -RequestsConstructed 197 -RequestsSent 197 -ResponsesAdmitted 4096 -SubchunksCommitted 4096 `
@@ -195,12 +218,115 @@ Describe 'Phase 2 remote acceptance runner' {
             Should Be 'meshing'
     }
 
-    It 'does not treat bounded downstream work as a stall after world ready' {
+    It 'requires empty downstream work before terminal none after world ready' {
         $record = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 197 `
             -RequestsConstructed 197 -RequestsSent 197 -ResponsesAdmitted 4096 -SubchunksCommitted 4096 `
             -MeshJobsCompleted 12 -MeshJobsQueued 4
         (Get-Phase2FirstStalledStage -PublicationRecord ([pscustomobject]$record) -WorldReadyObserved:$true) |
-            Should Be 'none'
+            Should Be 'meshing'
+    }
+
+    It 'requires the exact raw block radius schema and derived retention radius' {
+        $temporary = Join-Path ([IO.Path]::GetTempPath()) ('phase2-radius-schema-' + [guid]::NewGuid().ToString('N'))
+        try {
+            New-Item -ItemType Directory -Path $temporary | Out-Null
+            $invalidValues = @($null, $true, '128', 128.5, -1, [decimal]18446744073709551616)
+            $case = 0
+            foreach ($invalid in $invalidValues) {
+                $record = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 177 `
+                    -RequestsConstructed 177 -RequestsSent 177 -ResponsesAdmitted 3894 -SubchunksCommitted 3894 `
+                    -PublisherRadiusBlocks $invalid -PublisherRadius 8
+                $path = Join-Path $temporary ("invalid-$case.log")
+                'PHASE2_PUBLICATION=' + ($record | ConvertTo-Json -Depth 20 -Compress) | Set-Content -LiteralPath $path
+                { Get-Phase2PublicationSequenceEvidence -ClientLogPath $path -ExpectedPresentMode Fifo `
+                    -WorldReadyObserved:$false } | Should Throw
+                $case++
+            }
+
+            $missing = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 177 `
+                -RequestsConstructed 177 -RequestsSent 177 -ResponsesAdmitted 3894 -SubchunksCommitted 3894
+            $missing.publication.Remove('publisher_radius_blocks')
+            $missingPath = Join-Path $temporary 'missing.log'
+            'PHASE2_PUBLICATION=' + ($missing | ConvertTo-Json -Depth 20 -Compress) | Set-Content -LiteralPath $missingPath
+            { Get-Phase2PublicationSequenceEvidence -ClientLogPath $missingPath -ExpectedPresentMode Fifo `
+                -WorldReadyObserved:$false } | Should Throw
+
+            $wrongDerived = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 177 `
+                -RequestsConstructed 177 -RequestsSent 177 -ResponsesAdmitted 3894 -SubchunksCommitted 3894 `
+                -PublisherRadiusBlocks 120 -PublisherRadius 7
+            $wrongPath = Join-Path $temporary 'wrong-derived.log'
+            'PHASE2_PUBLICATION=' + ($wrongDerived | ConvertTo-Json -Depth 20 -Compress) | Set-Content -LiteralPath $wrongPath
+            { Get-Phase2PublicationSequenceEvidence -ClientLogPath $wrongPath -ExpectedPresentMode Fifo `
+                -WorldReadyObserved:$false } | Should Throw
+
+            foreach ($geometry in @(
+                @{ blocks = 120; chunks = 8; columns = 177 },
+                @{ blocks = 128; chunks = 8; columns = 197 },
+                @{ blocks = 256; chunks = 16; columns = 797 }
+            )) {
+                $valid = New-SyntheticPhase2Publication -RequiredColumns $geometry.columns -LoadedColumns $geometry.columns `
+                    -RequestsConstructed $geometry.columns -RequestsSent $geometry.columns `
+                    -ResponsesAdmitted 4096 -SubchunksCommitted 4096 `
+                    -PublisherRadiusBlocks $geometry.blocks -PublisherRadius $geometry.chunks
+                $parsed = $valid | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+                { Assert-Phase2PublicationRecord -Record $parsed -ExpectedPresentMode Fifo } |
+                    Should Not Throw
+            }
+        }
+        finally {
+            Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'rejects unknown fields, inexact integral fields, and mixed sequence identities' {
+        $temporary = Join-Path ([IO.Path]::GetTempPath()) ('phase2-strict-schema-' + [guid]::NewGuid().ToString('N'))
+        try {
+            New-Item -ItemType Directory -Path $temporary | Out-Null
+            $unknown = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 177 `
+                -RequestsConstructed 177 -RequestsSent 177 -ResponsesAdmitted 3894 -SubchunksCommitted 3894
+            $unknown.presentation['access_token'] = 'must-not-pass'
+            $unknownPath = Join-Path $temporary 'unknown.log'
+            'PHASE2_PUBLICATION=' + ($unknown | ConvertTo-Json -Depth 20 -Compress) | Set-Content -LiteralPath $unknownPath
+            { Get-Phase2PublicationSequenceEvidence -ClientLogPath $unknownPath -ExpectedPresentMode Fifo `
+                -WorldReadyObserved:$false } | Should Throw
+
+            foreach ($invalid in @($null, $true, '1', 1.5, -1, [decimal]18446744073709551616)) {
+                $record = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 177 `
+                    -RequestsConstructed 177 -RequestsSent 177 -ResponsesAdmitted 3894 -SubchunksCommitted 3894
+                $record.publication.stages.requests_sent = $invalid
+                $path = Join-Path $temporary ("stage-$([guid]::NewGuid().ToString('N')).log")
+                'PHASE2_PUBLICATION=' + ($record | ConvertTo-Json -Depth 20 -Compress) | Set-Content -LiteralPath $path
+                { Get-Phase2PublicationSequenceEvidence -ClientLogPath $path -ExpectedPresentMode Fifo `
+                    -WorldReadyObserved:$false } | Should Throw
+            }
+
+            $first = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 1 `
+                -RequestsConstructed 1 -RequestsSent 1 -ResponsesAdmitted 22 -SubchunksCommitted 22
+            $mixed = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 2 `
+                -RequestsConstructed 2 -RequestsSent 2 -ResponsesAdmitted 44 -SubchunksCommitted 44
+            $mixed.publication.required_cohort_hash = '2222222222222222'
+            foreach ($name in @('publisher_disk', 'resident', 'allocation', 'visible', 'submitted', 'gpu_presented')) {
+                $mixed.presentation.$name.required_cohort_hash = '2222222222222222'
+            }
+            $mixedPath = Join-Path $temporary 'mixed.log'
+            @(
+                'PHASE2_PUBLICATION=' + ($first | ConvertTo-Json -Depth 20 -Compress)
+                'PHASE2_PUBLICATION=' + ($mixed | ConvertTo-Json -Depth 20 -Compress)
+            ) | Set-Content -LiteralPath $mixedPath
+            { Get-Phase2PublicationSequenceEvidence -ClientLogPath $mixedPath -ExpectedPresentMode Fifo `
+                -WorldReadyObserved:$false } | Should Throw
+        }
+        finally {
+            Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'rejects terminal none with adversarial mesh and upload backlog' {
+        $record = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 197 `
+            -RequestsConstructed 197 -RequestsSent 197 -ResponsesAdmitted 4096 -SubchunksCommitted 4096 `
+            -MeshJobsCompleted 12 -MeshJobsQueued 400000 -UploadsAcknowledged 12 -UploadsUnacknowledged 500000
+        (Get-Phase2FirstStalledStage -PublicationRecord ([pscustomobject]$record) -WorldReadyObserved:$true) |
+            Should Be 'meshing'
     }
 
     It 'rejects missing or incoherent publication evidence as diagnostic completeness' {
@@ -253,6 +379,8 @@ Describe 'Phase 2 remote acceptance runner' {
         $source = Get-Content -Raw -LiteralPath $ScriptPath
         $source | Should Match 'Find-Phase2CompletedLunarPrerequisite\s+-RemoteRoot\s+\$remoteRoot\s+-Mode\s+\$Mode'
         $source | Should Match "if \(\`$Mode -cne 'Diagnostic'\) \{ throw \}"
+        $source | Should Match '\$clientHandle\.Process\.HasExited\s+-or\s+\$coreHandle\.Process\.HasExited'
+        $source | Should Match "if \(\`$Mode -cne 'Diagnostic' -and -not \`$FullViewTeleportGate\)"
         $source | Should Match 'Complete-Phase2DiagnosticEvidence'
         $source | Should Match "\`$manifest\.behavior_gate_passed = \(\`$Mode -cne 'Diagnostic'\)"
         $source | Should Match "\`$manifest\.world_ready_observed = \`$true"
@@ -267,32 +395,48 @@ Describe 'Phase 2 remote acceptance runner' {
             New-Item -ItemType Directory -Path (Split-Path -Parent $skeletalPath) | Out-Null
             @{ schema = 'rust-mcbe-phase2-remote-v1'; server = 'Lunar'; mode = 'Diagnostic'; status = 'passed'; diagnostic_complete = $true } |
                 ConvertTo-Json | Set-Content -LiteralPath $skeletalPath
-            (Find-Phase2CompletedLunarPrerequisite -RemoteRoot $temporary -Mode Diagnostic) | Should BeNullOrEmpty
+            (Find-SyntheticPhase2LunarPrerequisite -RemoteRoot $temporary -Mode Diagnostic) | Should BeNullOrEmpty
+
+            $immediatePath = Join-Path $temporary 'immediate\manifest.json'
+            New-Item -ItemType Directory -Path (Split-Path -Parent $immediatePath) | Out-Null
+            $immediate = New-SyntheticPhase2LunarManifest -Mode Diagnostic
+            $immediate.requested_present_mode = 'Immediate'
+            $immediate.final_publication.presentation.requested_present_mode = 'immediate'
+            $immediate.final_publication.presentation.effective_present_mode = 'immediate'
+            $immediate | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $immediatePath
+            (Find-SyntheticPhase2LunarPrerequisite -RemoteRoot $temporary -Mode Diagnostic) | Should BeNullOrEmpty
 
             $diagnosticPath = Join-Path $temporary 'diagnostic\manifest.json'
             New-Item -ItemType Directory -Path (Split-Path -Parent $diagnosticPath) | Out-Null
             New-SyntheticPhase2LunarManifest -Mode Diagnostic | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $diagnosticPath
-            (Find-Phase2CompletedLunarPrerequisite -RemoteRoot $temporary -Mode Diagnostic).Path | Should Be $diagnosticPath
-            (Find-Phase2CompletedLunarPrerequisite -RemoteRoot $temporary -Mode Candidate) | Should BeNullOrEmpty
-            (Find-Phase2CompletedLunarPrerequisite -RemoteRoot $temporary -Mode Final) | Should BeNullOrEmpty
+            (Find-SyntheticPhase2LunarPrerequisite -RemoteRoot $temporary -Mode Diagnostic).Path | Should Be $diagnosticPath
+            (Find-SyntheticPhase2LunarPrerequisite -RemoteRoot $temporary -Mode Candidate -RequireFullView) | Should BeNullOrEmpty
+            (Find-SyntheticPhase2LunarPrerequisite -RemoteRoot $temporary -Mode Final -RequireFullView) | Should BeNullOrEmpty
+
+            $noFullViewPath = Join-Path $temporary 'candidate-no-full-view\manifest.json'
+            New-Item -ItemType Directory -Path (Split-Path -Parent $noFullViewPath) | Out-Null
+            $noFullView = New-SyntheticPhase2LunarManifest -Mode Candidate
+            $noFullView.full_view_teleport_gate = $false
+            $noFullView | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $noFullViewPath
+            (Find-SyntheticPhase2LunarPrerequisite -RemoteRoot $temporary -Mode Candidate -RequireFullView) | Should BeNullOrEmpty
 
             $badCandidatePath = Join-Path $temporary 'candidate-bad\manifest.json'
             New-Item -ItemType Directory -Path (Split-Path -Parent $badCandidatePath) | Out-Null
             $badCandidate = New-SyntheticPhase2LunarManifest -Mode Candidate
             $badCandidate.first_stalled_stage = 'meshing'
             $badCandidate | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $badCandidatePath
-            (Find-Phase2CompletedLunarPrerequisite -RemoteRoot $temporary -Mode Candidate) | Should BeNullOrEmpty
+            (Find-SyntheticPhase2LunarPrerequisite -RemoteRoot $temporary -Mode Candidate -RequireFullView) | Should BeNullOrEmpty
 
             $candidatePath = Join-Path $temporary 'candidate\manifest.json'
             New-Item -ItemType Directory -Path (Split-Path -Parent $candidatePath) | Out-Null
             New-SyntheticPhase2LunarManifest -Mode Candidate | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $candidatePath
-            (Find-Phase2CompletedLunarPrerequisite -RemoteRoot $temporary -Mode Candidate).Path | Should Be $candidatePath
-            (Find-Phase2CompletedLunarPrerequisite -RemoteRoot $temporary -Mode Final) | Should BeNullOrEmpty
+            (Find-SyntheticPhase2LunarPrerequisite -RemoteRoot $temporary -Mode Candidate -RequireFullView).Path | Should Be $candidatePath
+            (Find-SyntheticPhase2LunarPrerequisite -RemoteRoot $temporary -Mode Final -RequireFullView) | Should BeNullOrEmpty
 
             $finalPath = Join-Path $temporary 'final\manifest.json'
             New-Item -ItemType Directory -Path (Split-Path -Parent $finalPath) | Out-Null
             New-SyntheticPhase2LunarManifest -Mode Final | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $finalPath
-            $result = Find-Phase2CompletedLunarPrerequisite -RemoteRoot $temporary -Mode Final
+            $result = Find-SyntheticPhase2LunarPrerequisite -RemoteRoot $temporary -Mode Final -RequireFullView
             $result.Path | Should Be $finalPath
             $result.Mode | Should Be 'Final'
             $result.Sha256 | Should Match '^[0-9A-F]{64}$'
