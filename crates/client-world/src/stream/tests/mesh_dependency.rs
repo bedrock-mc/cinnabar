@@ -210,7 +210,10 @@ fn inline_full_column_change_invalidates_registered_corner_dependency() {
         )),
     )
     .unwrap();
-    stream.store.commit_level_chunk(source.chunk(), decoded);
+    stream
+        .store
+        .commit_level_chunk(source.chunk(), decoded)
+        .unwrap();
     stream.resident.insert(source);
     stream.resident.insert(corner);
     let generation = stream.mark_dirty_exact(corner, Instant::now());
@@ -247,7 +250,10 @@ fn known_air_removal_replaces_stale_mask_and_skips_later_diagonal_change() {
         )),
     )
     .unwrap();
-    stream.store.commit_level_chunk(target.chunk(), decoded);
+    stream
+        .store
+        .commit_level_chunk(target.chunk(), decoded)
+        .unwrap();
     stream.resident.insert(target);
     let stale_generation = stream.mark_dirty_exact(target, Instant::now());
     assert!(stream.register_mesh_dependency_mask(

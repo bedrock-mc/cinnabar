@@ -2835,7 +2835,6 @@ dependencies = [
 [[package]]
 name = "jolyne"
 version = "0.1.0"
-source = "git+https://github.com/HashimTheArab/axolotl-stack.git?rev=6cd8087fc3f0b500e41708a8afc94a0fa3291525#6cd8087fc3f0b500e41708a8afc94a0fa3291525"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -3776,6 +3775,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "valentine",
+ "xxhash-rust",
 ]
 
 [[package]]
@@ -5162,20 +5162,29 @@ dependencies = [
 [[package]]
 name = "valentine"
 version = "0.1.0"
-source = "git+https://github.com/HashimTheArab/axolotl-stack.git?rev=6cd8087fc3f0b500e41708a8afc94a0fa3291525#6cd8087fc3f0b500e41708a8afc94a0fa3291525"
 dependencies = [
  "bitflags 2.13.0",
  "bytes",
  "serde",
  "uuid",
+ "valentine_bedrock_1_26_0",
  "valentine_bedrock_1_26_30",
+ "valentine_bedrock_core",
+]
+
+[[package]]
+name = "valentine_bedrock_1_26_0"
+version = "0.1.0"
+dependencies = [
+ "bitflags 2.13.0",
+ "bytes",
+ "uuid",
  "valentine_bedrock_core",
 ]
 
 [[package]]
 name = "valentine_bedrock_1_26_30"
 version = "0.1.0"
-source = "git+https://github.com/HashimTheArab/axolotl-stack.git?rev=6cd8087fc3f0b500e41708a8afc94a0fa3291525#6cd8087fc3f0b500e41708a8afc94a0fa3291525"
 dependencies = [
  "bitflags 2.13.0",
  "bytes",
@@ -5186,7 +5195,6 @@ dependencies = [
 [[package]]
 name = "valentine_bedrock_core"
 version = "0.1.0"
-source = "git+https://github.com/HashimTheArab/axolotl-stack.git?rev=6cd8087fc3f0b500e41708a8afc94a0fa3291525#6cd8087fc3f0b500e41708a8afc94a0fa3291525"
 dependencies = [
  "bytes",
  "thiserror 1.0.69",
@@ -6005,6 +6013,12 @@ name = "xkeysym"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9cc00251562a284751c9973bace760d86c0276c471b4be569fe6b068ee97a56"
+
+[[package]]
+name = "xxhash-rust"
+version = "0.8.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "985eec839aaf2a1270af8f4ebcf63cf9401cfd90f0902f97c28d9f104ffbde72"
 
 [[package]]
 name = "yoke"

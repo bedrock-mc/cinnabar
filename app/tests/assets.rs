@@ -12,17 +12,18 @@ use std::{
 use ::assets::{
     AtmosphereRole, AtmosphereTexture, BlockFlags, BlockVisual, CompiledAssets,
     CompiledAtmosphereAssets, CompiledBiomeAssets, CompiledEntityAssets, EntityAssetKind,
-    EntityAssetSource, EntityAssetSymbol, Material, ModelQuad, ModelTemplate, NO_ANIMATION,
-    NO_MODEL_TEMPLATE, NetworkIdMode, TextureArray, TextureMip, TexturePage, TextureRef,
-    VisualKind, encode_atmosphere_blob, encode_blob, encode_entity_blob,
+    EntityAssetSource, EntityAssetSymbol, FontTexturePage, GlyphMetrics, Material, ModelQuad,
+    ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode, TextureArray, TextureMip,
+    TexturePage, TextureRef, VisualKind, encode_atmosphere_blob, encode_blob, encode_entity_blob,
+    encode_font_catalog,
 };
 use bedrock_client::args::{ClientArgs, ParseOutcome};
 use bedrock_client::asset_startup::{
     ATMOSPHERE_COMPILE_COMMAND, ATMOSPHERE_FILENAME, AssetPathSource, COMPILE_COMMAND,
     DEFAULT_ASSET_PATH, ENTITY_ASSETS_COMPILE_COMMAND, ENTITY_ASSETS_FILENAME, FETCH_COMMAND,
     LoadedAssetKind, atmosphere_asset_path, atmosphere_shader_source_sha256,
-    cloud_shader_source_sha256, entity_asset_path, load_runtime_assets, select_asset_path,
-    select_asset_path_in_context,
+    cloud_shader_source_sha256, entity_asset_path, font_asset_path, load_runtime_assets,
+    select_asset_path, select_asset_path_in_context,
 };
 use bedrock_client::metrics::{DIAGNOSTIC_TOP_LIMIT, DiagnosticQuadTracker, MetricsCollector};
 use client_world::{BackingBlockIdentity, BlockEntityVisualRoute, adjudicate_block_entity_visual};
@@ -142,6 +143,7 @@ fn synthetic_entity_blob(seed: u8) -> Box<[u8]> {
 fn synthetic_entity_blob_with_manifest(seed: u8, source_manifest_sha256: [u8; 32]) -> Box<[u8]> {
     encode_entity_blob(&CompiledEntityAssets {
         source_manifest_sha256,
+        block_visual_count: 0,
         sources: vec![EntityAssetSource {
             path: "entity/allay.entity.json".into(),
             source_bytes: 1,
@@ -156,8 +158,47 @@ fn synthetic_entity_blob_with_manifest(seed: u8, source_manifest_sha256: [u8; 32
         }]
         .into_boxed_slice(),
         geometries: Box::new([]),
+        animation_clips: Box::new([]),
+        animation_channels: Box::new([]),
+        animation_keyframes: Box::new([]),
+        molang_symbols: Box::new([]),
+        molang_expressions: Box::new([]),
+        molang_ops: Box::new([]),
+        molang_collections: Box::new([]),
+        molang_collection_items: Box::new([]),
+        controllers: Box::new([]),
+        controller_states: Box::new([]),
+        controller_animations: Box::new([]),
+        controller_transitions: Box::new([]),
+        rig_bindings: Box::new([]),
+        rig_geometries: Box::new([]),
+        rig_animations: Box::new([]),
+        rig_controllers: Box::new([]),
+        item_visuals: Box::new([]),
+        item_visual_aliases: Box::new([]),
     })
     .unwrap()
+}
+
+fn synthetic_font_blob(seed: u8) -> Box<[u8]> {
+    let rgba8 = vec![seed, seed, seed, 255].into_boxed_slice();
+    let page = FontTexturePage {
+        source_path: "font/default8.png".into(),
+        source_bytes: 4,
+        source_sha256: [seed; 32],
+        pixels_sha256: Sha256::digest(&rgba8).into(),
+        width: 1,
+        height: 1,
+        rgba8,
+    };
+    let glyphs = [GlyphMetrics {
+        codepoint: '\u{fffd}',
+        page: 0,
+        uv: [0, 0, 1, 1],
+        bearing: [0, 0],
+        advance_64: 64,
+    }];
+    encode_font_catalog(canonical_vanilla_source_manifest_sha256(), &glyphs, &[page]).unwrap()
 }
 
 fn canonical_vanilla_source_manifest_sha256() -> [u8; 32] {
@@ -498,6 +539,11 @@ fn write_sibling_atmosphere(world_asset_path: &Path, seed: u8) -> PathBuf {
 fn write_sibling_entity(world_asset_path: &Path, seed: u8) -> PathBuf {
     let path = entity_asset_path(world_asset_path);
     fs::write(&path, synthetic_entity_blob(seed)).unwrap();
+    fs::write(
+        font_asset_path(world_asset_path),
+        synthetic_font_blob(seed.wrapping_add(1)),
+    )
+    .unwrap();
     path
 }
 
@@ -995,6 +1041,7 @@ fn canonical_entity_carrier_provenance_is_portable_across_checkout_line_endings(
         synthetic_entity_blob_with_manifest(0x79, canonical_vanilla_source_manifest_sha256()),
     )
     .unwrap();
+    fs::write(font_asset_path(&path), synthetic_font_blob(0x7a)).unwrap();
 
     let loaded = load_runtime_assets(select_asset_path(Some(&path), None)).unwrap();
     assert_eq!(

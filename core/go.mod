@@ -3,6 +3,7 @@ module github.com/hashimthearab/rust-mcbe/core
 go 1.26.1
 
 require (
+	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/sandertv/gophertunnel v1.57.0
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sys v0.41.0

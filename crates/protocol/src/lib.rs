@@ -1,7 +1,9 @@
 //! Bedrock 1.26.30 (protocol 1001) packet definitions and codec.
 
 mod actor;
+mod blob_cache;
 mod codec;
+mod item;
 mod login;
 mod movement;
 mod packet;
@@ -19,7 +21,19 @@ pub use actor::{
     MAX_PLAYER_LIST_SKIN_BYTES, MAX_STANDARD_SKIN_SIDE, PlayerListEntry, PlayerListUpdateEvent,
     PlayerSkin, PlayerSkinUnavailable, StandardSkin,
 };
+pub use blob_cache::{
+    BlobCacheError, BlobCacheLimits, BlobCacheReady, BlobCacheResolver, BlobCacheStats,
+    ClientBlobCache, MAX_CLIENT_BLOB_BYTES, MAX_CLIENT_BLOB_CACHE_BYTES,
+    MAX_CLIENT_BLOB_CACHE_ENTRIES, MAX_CLIENT_BLOB_HASHES_PER_PACKET,
+    MAX_CLIENT_BLOB_PENDING_BYTES, MAX_CLIENT_BLOB_PENDING_TRANSACTIONS, client_blob_hash,
+};
 pub use codec::{ProtocolError, decode_batch, encode};
+pub use item::{
+    ActorActionEvent, ActorActionKind, ActorHandedness, EquipmentEvent, ItemActorEvent,
+    ItemPacketError, ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion,
+    MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS, MAX_ANIMATION_IDENTIFIER_BYTES,
+    MAX_ITEM_EXTRA_BYTES, MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack,
+};
 pub use jolyne::GameData;
 pub use login::{LoginSequence, PlaySession};
 pub use movement::{

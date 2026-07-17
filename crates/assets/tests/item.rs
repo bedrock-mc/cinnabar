@@ -10,8 +10,9 @@ pub use assets::AssetError;
 
 use entity::{CompiledEntityAssets as CompiledEntityAssetsV4, RuntimeEntityAssets};
 use item::{
-    ItemDisplayScalar, ItemDisplayTransform, ItemVisualAlias, ItemVisualDefinition,
-    MAX_ITEM_IDENTIFIER_BYTES, MAX_ITEM_VISUAL_ALIASES, MAX_ITEM_VISUALS,
+    ItemDisplayScalar, ItemDisplayTransform, ItemTextureReference, ItemVisualAlias,
+    ItemVisualDefinition, ItemVisualDefinitionRoute, ItemVisualKey, MAX_ITEM_IDENTIFIER_BYTES,
+    MAX_ITEM_VISUAL_ALIASES, MAX_ITEM_VISUALS,
 };
 
 fn assert_hash<T: Hash>() {}
@@ -23,6 +24,13 @@ fn nonempty_identity(metadata: u32) -> ItemStackIdentity {
         stack_network_id: -1,
         count: 3,
         nbt_digest: [0x5a; 32],
+    }
+}
+
+fn visual_key(identifier: impl Into<Box<str>>) -> ItemVisualKey {
+    ItemVisualKey {
+        identifier: identifier.into(),
+        metadata: 0,
     }
 }
 
@@ -149,26 +157,23 @@ fn item_carrier_fixture() -> CompiledEntityAssetsV4 {
                 source_sha256: [0x31; 32],
             },
             entity::EntityAssetSource {
-                path: "textures/entity/items.png".into(),
+                path: "textures/item_texture.json".into(),
                 source_bytes: 1,
                 source_sha256: [0x32; 32],
             },
+            entity::EntityAssetSource {
+                path: "textures/items/apple.png".into(),
+                source_bytes: 1,
+                source_sha256: [0x33; 32],
+            },
         ]
         .into_boxed_slice(),
-        symbols: vec![
-            entity::EntityAssetSymbol {
-                kind: entity::EntityAssetKind::Entity,
-                identifier: "minecraft:item_frame".into(),
-                source_index: 0,
-                dependencies: Box::new([]),
-            },
-            entity::EntityAssetSymbol {
-                kind: entity::EntityAssetKind::Texture,
-                identifier: "textures/entity/items".into(),
-                source_index: 1,
-                dependencies: Box::new([]),
-            },
-        ]
+        symbols: vec![entity::EntityAssetSymbol {
+            kind: entity::EntityAssetKind::Entity,
+            identifier: "minecraft:item_frame".into(),
+            source_index: 0,
+            dependencies: Box::new([]),
+        }]
         .into_boxed_slice(),
         geometries: Box::new([]),
         animation_clips: Box::new([]),
@@ -184,19 +189,25 @@ fn item_carrier_fixture() -> CompiledEntityAssetsV4 {
         controller_animations: Box::new([]),
         controller_transitions: Box::new([]),
         rig_bindings: Box::new([]),
+        rig_geometries: Box::new([]),
         rig_animations: Box::new([]),
         rig_controllers: Box::new([]),
         item_visuals: vec![ItemVisualDefinition {
-            identifier: "minecraft:apple".into(),
-            texture_source: 1,
+            key: visual_key("minecraft:apple"),
+            source: 1,
+            route: ItemVisualDefinitionRoute::Sprite {
+                texture: ItemTextureReference {
+                    source: 2,
+                    variant: 0,
+                },
+            },
             first_person: ItemDisplayTransform::identity(),
             third_person: ItemDisplayTransform::identity(),
             dropped: ItemDisplayTransform::identity(),
-            block_visual: None,
         }]
         .into_boxed_slice(),
         item_visual_aliases: vec![ItemVisualAlias {
-            identifier: "minecraft:apple_alias".into(),
+            key: visual_key("minecraft:apple_alias"),
             visual: item::ItemVisualId(0),
         }]
         .into_boxed_slice(),
@@ -204,7 +215,7 @@ fn item_carrier_fixture() -> CompiledEntityAssetsV4 {
 }
 
 #[test]
-fn item_carrier_round_trips_display_transforms_texture_sources_and_aliases() {
+fn item_carrier_round_trips_typed_routes_defining_sources_and_aliases() {
     let mut compiled = item_carrier_fixture();
     compiled.item_visuals[0].first_person.translation = [
         ItemDisplayScalar::new(1.0).unwrap(),
@@ -221,7 +232,53 @@ fn item_carrier_round_trips_display_transforms_texture_sources_and_aliases() {
         runtime.item_visual_aliases(),
         compiled.item_visual_aliases.as_ref()
     );
-    assert_eq!(runtime.item_visuals()[0].texture_source, 1);
+    assert_eq!(runtime.item_visuals()[0].source, 1);
+    assert_eq!(
+        runtime.item_visuals()[0].route,
+        ItemVisualDefinitionRoute::Sprite {
+            texture: ItemTextureReference {
+                source: 2,
+                variant: 0
+            }
+        }
+    );
+    assert_eq!(runtime.encode().unwrap().as_ref(), blob.as_ref());
+    assert_eq!(
+        entity::encode_entity_blob(&compiled).unwrap().as_ref(),
+        blob.as_ref()
+    );
+}
+
+#[test]
+fn item_carrier_round_trips_all_four_exact_routes() {
+    let mut compiled = item_carrier_fixture();
+    let base = compiled.item_visuals[0].clone();
+    compiled.item_visuals = vec![
+        ItemVisualDefinition {
+            key: visual_key("minecraft:air"),
+            route: ItemVisualDefinitionRoute::EmptyHand,
+            ..base.clone()
+        },
+        base.clone(),
+        ItemVisualDefinition {
+            key: visual_key("minecraft:missing"),
+            route: ItemVisualDefinitionRoute::Missing,
+            ..base.clone()
+        },
+        ItemVisualDefinition {
+            key: visual_key("minecraft:stone"),
+            route: ItemVisualDefinitionRoute::BlockItem {
+                block_visual: BlockVisualId(0),
+            },
+            ..base
+        },
+    ]
+    .into_boxed_slice();
+    compiled.item_visual_aliases = Box::new([]);
+
+    let blob = entity::encode_entity_blob(&compiled).unwrap();
+    let runtime = RuntimeEntityAssets::decode(&blob).unwrap();
+    assert_eq!(runtime.item_visuals(), compiled.item_visuals.as_ref());
     assert_eq!(runtime.encode().unwrap().as_ref(), blob.as_ref());
 }
 
@@ -230,7 +287,7 @@ fn item_carrier_accepts_exact_limits_and_rejects_limit_plus_one() {
     let mut compiled = item_carrier_fixture();
     compiled.item_visuals = (0..MAX_ITEM_VISUALS)
         .map(|index| ItemVisualDefinition {
-            identifier: format!("minecraft:item_{index:05}").into_boxed_str(),
+            key: visual_key(format!("minecraft:item_{index:05}").into_boxed_str()),
             ..compiled.item_visuals[0].clone()
         })
         .collect();
@@ -238,7 +295,7 @@ fn item_carrier_accepts_exact_limits_and_rejects_limit_plus_one() {
     assert!(compiled.validate().is_ok());
     compiled.item_visuals = (0..=MAX_ITEM_VISUALS)
         .map(|index| ItemVisualDefinition {
-            identifier: format!("minecraft:item_{index:05}").into_boxed_str(),
+            key: visual_key(format!("minecraft:item_{index:05}").into_boxed_str()),
             ..compiled.item_visuals[0].clone()
         })
         .collect();
@@ -247,23 +304,24 @@ fn item_carrier_accepts_exact_limits_and_rejects_limit_plus_one() {
     let mut compiled = item_carrier_fixture();
     compiled.item_visual_aliases = (0..MAX_ITEM_VISUAL_ALIASES)
         .map(|index| ItemVisualAlias {
-            identifier: format!("minecraft:alias_{index:05}").into_boxed_str(),
+            key: visual_key(format!("minecraft:alias_{index:05}").into_boxed_str()),
             visual: item::ItemVisualId(0),
         })
         .collect();
     assert!(compiled.validate().is_ok());
     compiled.item_visual_aliases = (0..=MAX_ITEM_VISUAL_ALIASES)
         .map(|index| ItemVisualAlias {
-            identifier: format!("minecraft:alias_{index:05}").into_boxed_str(),
+            key: visual_key(format!("minecraft:alias_{index:05}").into_boxed_str()),
             visual: item::ItemVisualId(0),
         })
         .collect();
     assert!(compiled.validate().is_err());
 
     let mut compiled = item_carrier_fixture();
-    compiled.item_visuals[0].identifier = "x".repeat(MAX_ITEM_IDENTIFIER_BYTES).into_boxed_str();
+    compiled.item_visuals[0].key.identifier =
+        "x".repeat(MAX_ITEM_IDENTIFIER_BYTES).into_boxed_str();
     assert!(compiled.validate().is_ok());
-    compiled.item_visuals[0].identifier =
+    compiled.item_visuals[0].key.identifier =
         "x".repeat(MAX_ITEM_IDENTIFIER_BYTES + 1).into_boxed_str();
     assert!(compiled.validate().is_err());
 }
@@ -281,11 +339,11 @@ fn item_carrier_requires_sorted_unique_identifiers_and_bounded_block_routes() {
     let mut compiled = item_carrier_fixture();
     compiled.item_visual_aliases = vec![
         ItemVisualAlias {
-            identifier: "minecraft:z".into(),
+            key: visual_key("minecraft:z"),
             visual: item::ItemVisualId(0),
         },
         ItemVisualAlias {
-            identifier: "minecraft:a".into(),
+            key: visual_key("minecraft:a"),
             visual: item::ItemVisualId(0),
         },
     ]
@@ -293,16 +351,20 @@ fn item_carrier_requires_sorted_unique_identifiers_and_bounded_block_routes() {
     assert!(compiled.validate().is_err());
 
     let mut compiled = item_carrier_fixture();
-    compiled.item_visuals[0].block_visual = Some(item::BlockVisualId(0));
+    compiled.item_visuals[0].route = ItemVisualDefinitionRoute::BlockItem {
+        block_visual: item::BlockVisualId(0),
+    };
     assert!(compiled.validate().is_ok());
-    compiled.item_visuals[0].block_visual = Some(item::BlockVisualId(1));
+    compiled.item_visuals[0].route = ItemVisualDefinitionRoute::BlockItem {
+        block_visual: item::BlockVisualId(1),
+    };
     assert!(compiled.validate().is_err());
 }
 
 #[test]
 fn item_carrier_rejects_collisions_across_visual_and_alias_namespaces() {
     let mut compiled = item_carrier_fixture();
-    compiled.item_visual_aliases[0].identifier = compiled.item_visuals[0].identifier.clone();
+    compiled.item_visual_aliases[0].key = compiled.item_visuals[0].key.clone();
     assert!(compiled.validate().is_err());
 }
 
@@ -313,11 +375,34 @@ fn item_carrier_rejects_nonfinite_transforms_and_out_of_range_indices() {
     assert_eq!(ItemDisplayScalar::new(-0.0).unwrap().bits(), 0);
 
     let mut compiled = item_carrier_fixture();
-    compiled.item_visuals[0].texture_source = 2;
+    compiled.item_visuals[0].source = 3;
     assert!(compiled.validate().is_err());
 
     let mut compiled = item_carrier_fixture();
-    compiled.item_visuals[0].texture_source = 0;
+    compiled.item_visuals[0].route = ItemVisualDefinitionRoute::Sprite {
+        texture: ItemTextureReference {
+            source: 3,
+            variant: 0,
+        },
+    };
+    assert!(compiled.validate().is_err());
+
+    let mut compiled = item_carrier_fixture();
+    compiled.item_visuals[0].route = ItemVisualDefinitionRoute::Sprite {
+        texture: ItemTextureReference {
+            source: 0,
+            variant: 0,
+        },
+    };
+    assert!(compiled.validate().is_err());
+
+    let mut compiled = item_carrier_fixture();
+    compiled.item_visuals[0].route = ItemVisualDefinitionRoute::Sprite {
+        texture: ItemTextureReference {
+            source: 1,
+            variant: 0,
+        },
+    };
     assert!(compiled.validate().is_err());
 
     let mut compiled = item_carrier_fixture();

@@ -1,4 +1,4 @@
-use std::{ffi::OsStr, sync::Arc};
+use std::{ffi::OsStr, fs, path::Path, sync::Arc};
 
 use anyhow::{Context, Result, bail};
 use bevy::{
@@ -20,6 +20,7 @@ use render::{
     AtmosphereTextureAssets, ChunkRenderApplySet, ChunkRenderPlugin, ChunkTextureAssets,
     UiRenderPlugin, VisibilityDiagnosticsInput,
 };
+use sha2::{Digest, Sha256};
 
 use crate::acceptance::{
     markers::{SHUTDOWN_COMPLETED, requested_present_mode},
@@ -72,6 +73,35 @@ use crate::{
 };
 
 use crate::acceptance::model_witness::drive_model_witness;
+
+const PHYSICS_REGISTRY_PATH: &str = ".local/assets/block-physics-v1001.bin";
+const PHYSICS_REGISTRY_SHA256: &str =
+    include_str!("../../crates/assets/data/block-physics-v1001.sha256");
+const PHYSICS_REGISTRY_GENERATION_GUIDANCE: &str = "run `powershell -NoProfile \
+-ExecutionPolicy Bypass -File scripts/acquire-block-data.ps1`, then run the PREG1001 \
+`go -C tools/registrygen run .` command documented in README.md";
+
+fn read_verified_physics_registry(path: &Path, expected_sha256: &str) -> Result<Vec<u8>> {
+    let bytes = fs::read(path).with_context(|| {
+        format!(
+            "read required protocol-1001 physics registry {}; {}",
+            path.display(),
+            PHYSICS_REGISTRY_GENERATION_GUIDANCE
+        )
+    })?;
+    let actual_sha256 = format!("{:x}", Sha256::digest(&bytes));
+    let expected_sha256 = expected_sha256.trim();
+    if actual_sha256 != expected_sha256 {
+        bail!(
+            "protocol-1001 physics registry {} is stale or corrupt: expected sha256 {}, got {}; {}",
+            path.display(),
+            expected_sha256,
+            actual_sha256,
+            PHYSICS_REGISTRY_GENERATION_GUIDANCE
+        );
+    }
+    Ok(bytes)
+}
 
 pub(crate) fn preferred_render_backends(explicit: Option<&OsStr>) -> Option<Backends> {
     if explicit.is_some() {
@@ -132,12 +162,17 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let (atmosphere_runtime, atmosphere_identity) = loaded_assets.atmosphere.into_parts();
     let runtime_assets = loaded_assets.runtime;
     let asset_metrics = loaded_assets.metrics;
-    let collision_records = assets::read_registry(include_bytes!(
-        "../../crates/assets/data/block-registry-v1001.bin"
-    ))
-    .context("decode checked-in protocol-1001 collision registry")?;
-    let collision_registries = PhysicsCollisionRegistries::from_records(&collision_records)
-        .context("build protocol-1001 local physics collision registries")?;
+    let collision_breg = include_bytes!("../../crates/assets/data/block-registry-v1001.bin");
+    let collision_records = assets::read_registry(collision_breg)
+        .context("decode checked-in protocol-1001 collision registry")?;
+    let collision_preg =
+        read_verified_physics_registry(Path::new(PHYSICS_REGISTRY_PATH), PHYSICS_REGISTRY_SHA256)?;
+    let collision_registries = PhysicsCollisionRegistries::from_assets(
+        collision_breg,
+        &collision_records,
+        &collision_preg,
+    )
+    .context("decode and bind protocol-1001 PREG collision registries")?;
     eprintln!(
         "loaded {} authoritative collision records for local physics",
         collision_registries.available_record_count()
@@ -146,6 +181,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let network = spawn_network(NetworkConfig {
         socket_dir,
         display_name: args.display_name.clone(),
+        client_blob_cache: protocol::ClientBlobCache::default(),
     })
     .context("spawn Bedrock network worker")?;
     let present_mode = requested_present_mode(args.no_vsync);
@@ -295,4 +331,61 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         bail!("Bevy app exited after a fatal runtime error");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod preg_startup_tests {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use super::*;
+
+    fn temporary_path(label: &str) -> std::path::PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock must be after Unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "rust-mcbe-{label}-{}-{nonce}.bin",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn verified_physics_registry_accepts_exact_digest() {
+        let path = temporary_path("preg-valid");
+        fs::write(&path, b"PREG test carrier").expect("write fixture");
+        let expected = format!("{:x}", Sha256::digest(b"PREG test carrier"));
+
+        let result = read_verified_physics_registry(&path, &format!("{expected}\n"));
+        fs::remove_file(path).expect("remove fixture");
+
+        assert_eq!(result.expect("valid digest"), b"PREG test carrier");
+    }
+
+    #[test]
+    fn verified_physics_registry_rejects_stale_carrier_with_guidance() {
+        let path = temporary_path("preg-stale");
+        fs::write(&path, b"stale PREG test carrier").expect("write fixture");
+
+        let error = read_verified_physics_registry(&path, &"0".repeat(64))
+            .expect_err("stale digest must fail");
+        fs::remove_file(path).expect("remove fixture");
+        let message = format!("{error:#}");
+
+        assert!(message.contains("stale or corrupt"));
+        assert!(message.contains("scripts/acquire-block-data.ps1"));
+        assert!(message.contains("tools/registrygen"));
+    }
+
+    #[test]
+    fn missing_physics_registry_reports_acquisition_guidance() {
+        let path = temporary_path("preg-missing");
+        let error = read_verified_physics_registry(&path, &"0".repeat(64))
+            .expect_err("missing carrier must fail");
+        let message = format!("{error:#}");
+
+        assert!(message.contains("read required protocol-1001 physics registry"));
+        assert!(message.contains("scripts/acquire-block-data.ps1"));
+        assert!(message.contains("tools/registrygen"));
+    }
 }

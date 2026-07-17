@@ -10,8 +10,9 @@ use super::{
     MAX_ENTITY_ANIMATION_CHANNELS, MAX_ENTITY_ANIMATION_CLIPS, MAX_ENTITY_ANIMATION_KEYFRAMES,
     MAX_ENTITY_CONTROLLER_ANIMATIONS, MAX_ENTITY_CONTROLLER_STATES,
     MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS, MAX_ENTITY_RIG_ANIMATIONS,
-    MAX_ENTITY_RIG_BINDINGS, MAX_ENTITY_RIG_CONTROLLERS, MAX_MOLANG_COLLECTION_ITEMS_TOTAL,
-    MAX_MOLANG_COLLECTIONS, MAX_MOLANG_EXPRESSIONS, MAX_MOLANG_OPS,
+    MAX_ENTITY_RIG_BINDINGS, MAX_ENTITY_RIG_CONTROLLERS, MAX_ENTITY_RIG_GEOMETRIES,
+    MAX_MOLANG_COLLECTION_ITEMS_TOTAL, MAX_MOLANG_COLLECTIONS, MAX_MOLANG_EXPRESSIONS,
+    MAX_MOLANG_OPS,
 };
 
 #[derive(Deserialize)]
@@ -35,6 +36,7 @@ struct EntityCatalogCountProbe {
     controller_animations: SequenceCount,
     controller_transitions: SequenceCount,
     rig_bindings: SequenceCount,
+    rig_geometries: SequenceCount,
     rig_animations: SequenceCount,
     rig_controllers: SequenceCount,
     item_visuals: SequenceCount,
@@ -281,6 +283,7 @@ pub(crate) fn payload_counts(bytes: &[u8]) -> Result<[usize; 7], serde_json::Err
             MAX_ENTITY_CONTROLLER_TRANSITIONS,
         ),
         (counts.rig_bindings.0, MAX_ENTITY_RIG_BINDINGS),
+        (counts.rig_geometries.0, MAX_ENTITY_RIG_GEOMETRIES),
         (counts.rig_animations.0, MAX_ENTITY_RIG_ANIMATIONS),
         (counts.rig_controllers.0, MAX_ENTITY_RIG_CONTROLLERS),
         (counts.item_visuals.0, MAX_ITEM_VISUALS),

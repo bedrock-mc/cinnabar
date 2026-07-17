@@ -19,6 +19,12 @@ function New-SyntheticPhase2Publication {
     $hash = '1111111111111111'
     $identity = { param($count) [ordered]@{ entry_count = $count; generation_manifest_hash = $hash; required_cohort_hash = $hash; session_generation = 1 } }
     return [ordered]@{
+        client_blob_cache_enabled = $true
+        client_blob_cache = [ordered]@{
+            hashes_classified = 0; hits = 0; misses = 0; admitted_blobs = 0; rejected_blobs = 0
+            evictions = 0; pending_transactions = 0; pending_bytes = 0; pending_resets = 0
+            reconstructed_level_chunks = 0; reconstructed_sub_chunks = 0
+        }
         presentation = [ordered]@{
             build_profile = 'release'; requested_present_mode = 'fifo'; effective_present_mode = 'fifo'; present_mode_proven = $true
             graphics_identity_sha256 = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
@@ -50,6 +56,8 @@ function New-SyntheticPhase2LunarManifest {
     param([ValidateSet('Diagnostic', 'Candidate', 'Final')][string]$Mode)
     $publication = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 197 `
         -RequestsConstructed 197 -RequestsSent 197 -ResponsesAdmitted 4096 -SubchunksCommitted 4096
+    $publication.client_blob_cache.hashes_classified = 1
+    $publication.client_blob_cache.hits = 1
     $findings = [Collections.Generic.List[string]]::new()
     if ($Mode -eq 'Diagnostic') { $findings.Add('world_ready_not_observed') }
     return [ordered]@{
@@ -58,6 +66,7 @@ function New-SyntheticPhase2LunarManifest {
         initial_radius = 16; requested_present_mode = 'Fifo'; full_view_teleport_gate = ($Mode -ne 'Diagnostic')
         diagnostic_complete = ($Mode -eq 'Diagnostic'); behavior_gate_passed = ($Mode -ne 'Diagnostic')
         world_ready_observed = ($Mode -ne 'Diagnostic'); publication_snapshot_count = 2
+        client_blob_cache_route = 'cache_backed'
         first_stalled_stage = if ($Mode -eq 'Diagnostic') { 'presentation' } else { 'none' }; final_publication = $publication
         findings = $findings
         metrics_evidence = [ordered]@{ status = if ($Mode -eq 'Diagnostic') { 'unavailable' } else { 'passed' }; reason = if ($Mode -eq 'Diagnostic') { 'world_ready_not_observed' } else { $null } }
@@ -149,7 +158,9 @@ Describe 'Phase 2 remote acceptance runner' {
             $samples = @(1..120 | ForEach-Object { @{ elapsed_seconds = $_; combined_rss_bytes = 104857600; cpu_percent = 5.0 } })
             @{ schema = 'rust-mcbe-phase2-resources-v1'; warmup_seconds = 30; duration_seconds = 120; processor_count = 8; samples = $samples; summary = @{ sample_count = 120; max_combined_rss_bytes = 104857600; mean_cpu_percent = 5.0; p95_cpu_percent = 5.0 } } |
                 ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $resourcesPath
-            'PHASE2_PUBLICATION={"presentation":{"build_profile":"release","requested_present_mode":"fifo","effective_present_mode":"fifo","present_mode_proven":true,"graphics_identity_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","assets_manifest_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}' |
+            $publication = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 197 `
+                -RequestsConstructed 197 -RequestsSent 197 -ResponsesAdmitted 4096 -SubchunksCommitted 4096
+            'PHASE2_PUBLICATION=' + ($publication | ConvertTo-Json -Depth 20 -Compress) |
                 Set-Content -LiteralPath $logPath
             { Assert-Phase2Evidence -MetricsPath $metricsPath -ResourcesPath $resourcesPath `
                 -ClientLogPath $logPath -ExpectedPresentMode Fifo -JoinMilliseconds 1500 } | Should Not Throw
@@ -195,7 +206,7 @@ Describe 'Phase 2 remote acceptance runner' {
             $manifest = [pscustomobject][ordered]@{ mode = 'Diagnostic'; initial_radius = 16 }
 
             Complete-Phase2DiagnosticEvidence -Manifest $manifest -ClientLogPath $logPath `
-                -ExpectedPresentMode Fifo -WorldReadyObserved:$false
+                -ExpectedPresentMode Fifo -WorldReadyObserved:$false -Server Zeqa
 
             $manifest.status | Should Be 'passed'
             $manifest.diagnostic_complete | Should Be $true
@@ -225,6 +236,155 @@ Describe 'Phase 2 remote acceptance runner' {
             Should Be 'required_cohort_identity'
         (Get-Phase2FirstStalledStage -PublicationRecord $parsed -WorldReadyObserved:$true) |
             Should Be 'required_cohort_identity'
+    }
+
+    It 'accepts exact client blob cache publication fields' {
+        $record = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 177 `
+            -RequestsConstructed 177 -RequestsSent 177 -ResponsesAdmitted 3894 -SubchunksCommitted 3894
+        $record['client_blob_cache_enabled'] = $true
+        $record['client_blob_cache'] = [ordered]@{
+            hashes_classified = 7; hits = 3; misses = 4; admitted_blobs = 4
+            rejected_blobs = 0; evictions = 0; pending_transactions = 2; pending_bytes = 1024
+            pending_resets = 0; reconstructed_level_chunks = 2; reconstructed_sub_chunks = 1
+        }
+        $parsed = $record | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+
+        { Assert-Phase2PublicationRecord -Record $parsed -ExpectedPresentMode Fifo } |
+            Should Not Throw
+
+        $missing = $record | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+        $missing.PSObject.Properties.Remove('client_blob_cache_enabled')
+        { Assert-Phase2PublicationRecord -Record $missing -ExpectedPresentMode Fifo } | Should Throw
+
+        $unknown = $record | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+        $unknown.client_blob_cache | Add-Member -NotePropertyName payload -NotePropertyValue 'forbidden'
+        { Assert-Phase2PublicationRecord -Record $unknown -ExpectedPresentMode Fifo } | Should Throw
+
+        $mismatch = $record | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+        $mismatch.client_blob_cache.misses = 5
+        { Assert-Phase2PublicationRecord -Record $mismatch -ExpectedPresentMode Fifo } | Should Throw
+
+        $wrongBoolean = $record | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+        $wrongBoolean.client_blob_cache_enabled = 'true'
+        { Assert-Phase2PublicationRecord -Record $wrongBoolean -ExpectedPresentMode Fifo } | Should Throw
+
+        $negative = $record | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+        $negative.client_blob_cache.pending_bytes = -1
+        { Assert-Phase2PublicationRecord -Record $negative -ExpectedPresentMode Fifo } | Should Throw
+
+        $disabled = $record | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+        $disabled.client_blob_cache_enabled = $false
+        { Assert-Phase2PublicationRecord -Record $disabled -ExpectedPresentMode Fifo } | Should Throw
+    }
+
+    It 'enforces server-specific terminal client blob cache routes' {
+        $temporary = Join-Path ([IO.Path]::GetTempPath()) ('phase2-cache-route-' + [guid]::NewGuid().ToString('N'))
+        try {
+            New-Item -ItemType Directory -Path $temporary | Out-Null
+            $path = Join-Path $temporary 'route.log'
+            $record = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 177 `
+                -RequestsConstructed 177 -RequestsSent 177 -ResponsesAdmitted 3894 -SubchunksCommitted 3894
+            $write = {
+                param($value)
+                'PHASE2_PUBLICATION=' + ($value | ConvertTo-Json -Depth 20 -Compress) |
+                    Set-Content -LiteralPath $path
+            }
+
+            $record.client_blob_cache.hashes_classified = 7
+            $record.client_blob_cache.hits = 3
+            $record.client_blob_cache.misses = 4
+            $record.client_blob_cache.admitted_blobs = 4
+            & $write $record
+            $lunar = Get-Phase2PublicationSequenceEvidence -ClientLogPath $path `
+                -ExpectedPresentMode Fifo -WorldReadyObserved:$false -Server Lunar
+            $lunar.ClientBlobCacheRoute | Should Be 'cache_backed'
+
+            foreach ($mutation in @('disabled', 'idle', 'rejected', 'pending_transactions', 'pending_bytes')) {
+                $invalid = $record | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+                switch ($mutation) {
+                    'disabled' {
+                        $invalid.client_blob_cache_enabled = $false
+                        foreach ($field in @('hashes_classified', 'hits', 'misses', 'admitted_blobs')) {
+                            $invalid.client_blob_cache.$field = 0
+                        }
+                    }
+                    'idle' {
+                        foreach ($field in @('hashes_classified', 'hits', 'misses', 'admitted_blobs')) {
+                            $invalid.client_blob_cache.$field = 0
+                        }
+                    }
+                    'rejected' { $invalid.client_blob_cache.rejected_blobs = 1 }
+                    'pending_transactions' { $invalid.client_blob_cache.pending_transactions = 1 }
+                    'pending_bytes' { $invalid.client_blob_cache.pending_bytes = 1 }
+                }
+                & $write $invalid
+                { Get-Phase2PublicationSequenceEvidence -ClientLogPath $path `
+                    -ExpectedPresentMode Fifo -WorldReadyObserved:$false -Server Lunar } | Should Throw
+            }
+
+            $ordinary = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 177 `
+                -RequestsConstructed 177 -RequestsSent 177 -ResponsesAdmitted 3894 -SubchunksCommitted 3894
+            & $write $ordinary
+            $zeqaOrdinary = Get-Phase2PublicationSequenceEvidence -ClientLogPath $path `
+                -ExpectedPresentMode Fifo -WorldReadyObserved:$false -Server Zeqa
+            $zeqaOrdinary.ClientBlobCacheRoute | Should Be 'ordinary_payload'
+
+            & $write $record
+            $zeqaCached = Get-Phase2PublicationSequenceEvidence -ClientLogPath $path `
+                -ExpectedPresentMode Fifo -WorldReadyObserved:$false -Server Zeqa
+            $zeqaCached.ClientBlobCacheRoute | Should Be 'cache_backed'
+
+            foreach ($field in @('rejected_blobs', 'pending_transactions', 'pending_bytes')) {
+                $invalid = $ordinary | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+                $invalid.client_blob_cache.$field = 1
+                & $write $invalid
+                { Get-Phase2PublicationSequenceEvidence -ClientLogPath $path `
+                    -ExpectedPresentMode Fifo -WorldReadyObserved:$false -Server Zeqa } | Should Throw
+            }
+        }
+        finally {
+            Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'rejects client blob cache counter regression and enablement changes across a sequence' {
+        $temporary = Join-Path ([IO.Path]::GetTempPath()) ('phase2-cache-sequence-' + [guid]::NewGuid().ToString('N'))
+        try {
+            New-Item -ItemType Directory -Path $temporary | Out-Null
+            $first = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 177 `
+                -RequestsConstructed 177 -RequestsSent 177 -ResponsesAdmitted 3894 -SubchunksCommitted 3894
+            $first.client_blob_cache.hashes_classified = 7
+            $first.client_blob_cache.hits = 3
+            $first.client_blob_cache.misses = 4
+            $first.client_blob_cache.admitted_blobs = 4
+
+            $regressed = $first | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+            $regressed.client_blob_cache.hits = 2
+            $regressed.client_blob_cache.misses = 5
+            $regressionPath = Join-Path $temporary 'regression.log'
+            @(
+                'PHASE2_PUBLICATION=' + ($first | ConvertTo-Json -Depth 20 -Compress),
+                'PHASE2_PUBLICATION=' + ($regressed | ConvertTo-Json -Depth 20 -Compress)
+            ) | Set-Content -LiteralPath $regressionPath
+            { Get-Phase2PublicationSequenceEvidence -ClientLogPath $regressionPath `
+                -ExpectedPresentMode Fifo -WorldReadyObserved:$false -Server Zeqa } | Should Throw
+
+            $disabled = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 177 `
+                -RequestsConstructed 177 -RequestsSent 177 -ResponsesAdmitted 3894 -SubchunksCommitted 3894
+            $disabled.client_blob_cache_enabled = $false
+            $enablementPath = Join-Path $temporary 'enablement.log'
+            @(
+                'PHASE2_PUBLICATION=' + ((New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 177 `
+                    -RequestsConstructed 177 -RequestsSent 177 -ResponsesAdmitted 3894 -SubchunksCommitted 3894) |
+                    ConvertTo-Json -Depth 20 -Compress),
+                'PHASE2_PUBLICATION=' + ($disabled | ConvertTo-Json -Depth 20 -Compress)
+            ) | Set-Content -LiteralPath $enablementPath
+            { Get-Phase2PublicationSequenceEvidence -ClientLogPath $enablementPath `
+                -ExpectedPresentMode Fifo -WorldReadyObserved:$false -Server Zeqa } | Should Throw
+        }
+        finally {
+            Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
 
     It 'does not classify a cohort identity gap across malformed response outcomes' {
@@ -264,7 +424,7 @@ Describe 'Phase 2 remote acceptance runner' {
                 $path = Join-Path $temporary ("invalid-$case.log")
                 'PHASE2_PUBLICATION=' + ($record | ConvertTo-Json -Depth 20 -Compress) | Set-Content -LiteralPath $path
                 { Get-Phase2PublicationSequenceEvidence -ClientLogPath $path -ExpectedPresentMode Fifo `
-                    -WorldReadyObserved:$false } | Should Throw
+                    -WorldReadyObserved:$false -Server Zeqa } | Should Throw
                 $case++
             }
 
@@ -274,7 +434,7 @@ Describe 'Phase 2 remote acceptance runner' {
             $missingPath = Join-Path $temporary 'missing.log'
             'PHASE2_PUBLICATION=' + ($missing | ConvertTo-Json -Depth 20 -Compress) | Set-Content -LiteralPath $missingPath
             { Get-Phase2PublicationSequenceEvidence -ClientLogPath $missingPath -ExpectedPresentMode Fifo `
-                -WorldReadyObserved:$false } | Should Throw
+                -WorldReadyObserved:$false -Server Zeqa } | Should Throw
 
             $wrongDerived = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 177 `
                 -RequestsConstructed 177 -RequestsSent 177 -ResponsesAdmitted 3894 -SubchunksCommitted 3894 `
@@ -282,7 +442,7 @@ Describe 'Phase 2 remote acceptance runner' {
             $wrongPath = Join-Path $temporary 'wrong-derived.log'
             'PHASE2_PUBLICATION=' + ($wrongDerived | ConvertTo-Json -Depth 20 -Compress) | Set-Content -LiteralPath $wrongPath
             { Get-Phase2PublicationSequenceEvidence -ClientLogPath $wrongPath -ExpectedPresentMode Fifo `
-                -WorldReadyObserved:$false } | Should Throw
+                -WorldReadyObserved:$false -Server Zeqa } | Should Throw
 
             foreach ($geometry in @(
                 @{ blocks = 120; chunks = 8; columns = 177 },
@@ -313,7 +473,7 @@ Describe 'Phase 2 remote acceptance runner' {
             $unknownPath = Join-Path $temporary 'unknown.log'
             'PHASE2_PUBLICATION=' + ($unknown | ConvertTo-Json -Depth 20 -Compress) | Set-Content -LiteralPath $unknownPath
             { Get-Phase2PublicationSequenceEvidence -ClientLogPath $unknownPath -ExpectedPresentMode Fifo `
-                -WorldReadyObserved:$false } | Should Throw
+                -WorldReadyObserved:$false -Server Zeqa } | Should Throw
 
             foreach ($invalid in @($null, $true, '1', 1.5, -1, [decimal]18446744073709551616)) {
                 $record = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 177 `
@@ -322,7 +482,7 @@ Describe 'Phase 2 remote acceptance runner' {
                 $path = Join-Path $temporary ("stage-$([guid]::NewGuid().ToString('N')).log")
                 'PHASE2_PUBLICATION=' + ($record | ConvertTo-Json -Depth 20 -Compress) | Set-Content -LiteralPath $path
                 { Get-Phase2PublicationSequenceEvidence -ClientLogPath $path -ExpectedPresentMode Fifo `
-                    -WorldReadyObserved:$false } | Should Throw
+                    -WorldReadyObserved:$false -Server Zeqa } | Should Throw
             }
 
             $first = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 1 `
@@ -339,7 +499,7 @@ Describe 'Phase 2 remote acceptance runner' {
                 'PHASE2_PUBLICATION=' + ($mixed | ConvertTo-Json -Depth 20 -Compress)
             ) | Set-Content -LiteralPath $mixedPath
             { Get-Phase2PublicationSequenceEvidence -ClientLogPath $mixedPath -ExpectedPresentMode Fifo `
-                -WorldReadyObserved:$false } | Should Throw
+                -WorldReadyObserved:$false -Server Zeqa } | Should Throw
         }
         finally {
             Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue
@@ -401,7 +561,7 @@ Describe 'Phase 2 remote acceptance runner' {
             $emptyPath = Join-Path $temporary 'empty.log'
             Set-Content -LiteralPath $emptyPath -Value 'no publication evidence'
             { Complete-Phase2DiagnosticEvidence -Manifest ([pscustomobject]@{ mode = 'Diagnostic' }) `
-                -ClientLogPath $emptyPath -ExpectedPresentMode Fifo -WorldReadyObserved:$false } | Should Throw
+                -ClientLogPath $emptyPath -ExpectedPresentMode Fifo -WorldReadyObserved:$false -Server Zeqa } | Should Throw
 
             $logPath = Join-Path $temporary 'incoherent.log'
             $first = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 1 `
@@ -414,7 +574,7 @@ Describe 'Phase 2 remote acceptance runner' {
                 'PHASE2_PUBLICATION=' + ($last | ConvertTo-Json -Depth 20 -Compress)
             ) | Set-Content -LiteralPath $logPath
             { Complete-Phase2DiagnosticEvidence -Manifest ([pscustomobject]@{ mode = 'Diagnostic' }) `
-                -ClientLogPath $logPath -ExpectedPresentMode Fifo -WorldReadyObserved:$false } | Should Throw
+                -ClientLogPath $logPath -ExpectedPresentMode Fifo -WorldReadyObserved:$false -Server Zeqa } | Should Throw
 
             $regressionPath = Join-Path $temporary 'regression.log'
             $first.presentation.graphics_identity_sha256 = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
@@ -426,7 +586,7 @@ Describe 'Phase 2 remote acceptance runner' {
                 'PHASE2_PUBLICATION=' + ($last | ConvertTo-Json -Depth 20 -Compress)
             ) | Set-Content -LiteralPath $regressionPath
             { Complete-Phase2DiagnosticEvidence -Manifest ([pscustomobject]@{ mode = 'Diagnostic' }) `
-                -ClientLogPath $regressionPath -ExpectedPresentMode Fifo -WorldReadyObserved:$false } | Should Throw
+                -ClientLogPath $regressionPath -ExpectedPresentMode Fifo -WorldReadyObserved:$false -Server Zeqa } | Should Throw
         }
         finally {
             Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue
@@ -436,7 +596,7 @@ Describe 'Phase 2 remote acceptance runner' {
     It 'does not allow Candidate or Final to use diagnostic no-ready completion' {
         foreach ($mode in @('Candidate', 'Final')) {
             { Complete-Phase2DiagnosticEvidence -Manifest ([pscustomobject]@{ mode = $mode }) `
-                -ClientLogPath 'unused.log' -ExpectedPresentMode Fifo -WorldReadyObserved:$false } | Should Throw
+                -ClientLogPath 'unused.log' -ExpectedPresentMode Fifo -WorldReadyObserved:$false -Server Zeqa } | Should Throw
         }
     }
 

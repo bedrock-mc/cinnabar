@@ -1,6 +1,81 @@
 use super::*;
 
 #[test]
+fn local_attributes_commit_without_requiring_a_local_actor_spawn() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 42,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    let health = ActorAttribute {
+        name: Arc::from("minecraft:health"),
+        min: 0.0,
+        max: 20.0,
+        current: 17.5,
+        default: Some(20.0),
+        modifiers: Arc::from([]),
+    };
+
+    stream
+        .submit(
+            1,
+            WorldEvent::Actor(ActorEvent::Attributes(ActorAttributesUpdateEvent {
+                dimension: 0,
+                runtime_id: 42,
+                attributes: Arc::from([health.clone()]),
+                tick: 99,
+            })),
+        )
+        .unwrap();
+
+    assert!(stream.actor(42).is_none());
+    assert_eq!(
+        stream.take_committed_ui(),
+        vec![CommittedUiEvent::LocalAttributes {
+            sequence: 1,
+            server_tick: 99,
+            attributes: Arc::from([health]),
+        }]
+    );
+}
+
+#[test]
+fn stale_dimension_local_attributes_do_not_commit_to_the_hud() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 42,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+
+    stream
+        .submit(
+            1,
+            WorldEvent::Actor(ActorEvent::Attributes(ActorAttributesUpdateEvent {
+                dimension: 1,
+                runtime_id: 42,
+                attributes: Arc::from([ActorAttribute {
+                    name: Arc::from("minecraft:health"),
+                    min: 0.0,
+                    max: 20.0,
+                    current: 1.0,
+                    default: Some(20.0),
+                    modifiers: Arc::from([]),
+                }]),
+                tick: 100,
+            })),
+        )
+        .unwrap();
+
+    assert!(stream.take_committed_ui().is_empty());
+}
+
+#[test]
 fn stale_mesh_completion_cannot_replace_current_revision() {
     let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,
@@ -22,7 +97,8 @@ fn stale_mesh_completion_cannot_replace_current_revision() {
     .unwrap();
     stream
         .store
-        .commit_level_chunk(ChunkKey::new(0, 0, 0), decoded);
+        .commit_level_chunk(ChunkKey::new(0, 0, 0), decoded)
+        .unwrap();
     let source = stream.store.sub_chunk(key).unwrap();
     stream.resident.insert(key);
     let old_revision = stream.mark_dirty_exact(key, Instant::now());
@@ -79,7 +155,10 @@ fn mesh_dispatch_never_exceeds_the_bounded_worker_window() {
         )),
     )
     .unwrap();
-    stream.store.commit_level_chunk(key.chunk(), decoded);
+    stream
+        .store
+        .commit_level_chunk(key.chunk(), decoded)
+        .unwrap();
     stream.resident.insert(key);
     stream.mark_changed(key, Instant::now());
     for index in 0..super::WORK_RESULT_CAPACITY {
@@ -429,6 +508,7 @@ fn actor_ingestion_is_fifo_visible_without_dirtying_chunk_meshes() {
                 yaw: 0.0,
                 head_yaw: 0.0,
                 body_yaw: 0.0,
+                held_item: Default::default(),
                 metadata: Arc::from([]),
                 attributes: Arc::from([]),
                 properties: Arc::from([]),
@@ -471,6 +551,7 @@ fn player_spawn_move_player_and_absolute_move_share_feet_space() {
                 yaw: 0.0,
                 head_yaw: 0.0,
                 body_yaw: 0.0,
+                held_item: Default::default(),
                 metadata: Arc::from([]),
                 attributes: Arc::from([]),
                 properties: Arc::from([]),

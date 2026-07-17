@@ -9,22 +9,78 @@ use std::{
 };
 
 use protocol::{
-    ActorPositionOrigin, ChangeDimensionEvent, MovePlayerEvent, PLAYER_NETWORK_OFFSET,
-    PlayerMovementCorrectionEvent, WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent,
+    ActorPositionOrigin, BlobCacheStats, ChangeDimensionEvent, MovePlayerEvent,
+    PLAYER_NETWORK_OFFSET, PlayerMovementCorrectionEvent, WorldBootstrap,
+    WorldEnvironmentBootstrap, WorldEvent,
 };
 use tokio::sync::{mpsc, oneshot, watch};
 
 use super::{
-    COMMAND_CAPACITY, CONTROL_EVENT_CAPACITY, NetworkCommand, NetworkControlEvent, NetworkHandle,
-    NetworkPumpPreference, NetworkPumpWork, NetworkSequencer, NetworkSession, PacketSendError,
-    SequencedWorldEvent, WORLD_EVENT_CAPACITY, run_network_pump, send_control_event_or_cancel,
-    send_event_or_cancel, send_world_event_or_cancel, wait_for_login_or_cancel,
-    wait_for_network_work_or_cancel, wait_for_send_or_cancel,
+    COMMAND_CAPACITY, CONTROL_EVENT_CAPACITY, NetworkCommand, NetworkConfig, NetworkControlEvent,
+    NetworkHandle, NetworkPumpPreference, NetworkPumpWork, NetworkSequencer, NetworkSession,
+    PacketSendError, SequencedWorldEvent, WORLD_EVENT_CAPACITY, run_network_pump,
+    send_control_event_or_cancel, send_event_or_cancel, send_final_blob_cache_telemetry,
+    send_world_event_or_cancel, wait_for_login_or_cancel, wait_for_network_work_or_cancel,
+    wait_for_send_or_cancel,
 };
+
+#[test]
+fn cloned_network_configs_share_the_persistent_verified_blob_cache() {
+    let config = NetworkConfig {
+        socket_dir: std::path::PathBuf::from("core.sock"),
+        display_name: "cache-owner".to_owned(),
+        client_blob_cache: protocol::ClientBlobCache::default(),
+    };
+    let reconnect = config.clone();
+    let hash = config
+        .client_blob_cache
+        .insert(b"verified-across-session")
+        .expect("seed verified blob");
+
+    assert!(reconnect.client_blob_cache.contains(hash));
+}
 
 struct ReadyInboundSession {
     inbound: Option<WorldEvent>,
     inbound_selected: Arc<AtomicBool>,
+}
+
+struct CachedInboundSession {
+    inbound: Option<WorldEvent>,
+    stats: BlobCacheStats,
+}
+
+impl NetworkSession for CachedInboundSession {
+    type Error = std::convert::Infallible;
+
+    async fn receive_world_event(
+        &mut self,
+        _current_dimension: i32,
+    ) -> Result<WorldEvent, Self::Error> {
+        match self.inbound.take() {
+            Some(event) => {
+                self.stats.reconstructed_level_chunks += 1;
+                Ok(event)
+            }
+            None => future::pending().await,
+        }
+    }
+
+    async fn send_packet(&mut self, _packet: protocol::Packet) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn decode_error_count(&self) -> u64 {
+        0
+    }
+
+    fn blob_cache_enabled(&self) -> bool {
+        true
+    }
+
+    fn blob_cache_stats(&self) -> BlobCacheStats {
+        self.stats
+    }
 }
 
 impl NetworkSession for ReadyInboundSession {
@@ -50,6 +106,134 @@ impl NetworkSession for ReadyInboundSession {
     fn decode_error_count(&self) -> u64 {
         0
     }
+}
+
+#[tokio::test]
+async fn cache_stats_are_forwarded_after_cached_world_ingress() {
+    let initial_stats = BlobCacheStats {
+        hashes_classified: 7,
+        hits: 3,
+        misses: 4,
+        admitted_blobs: 4,
+        ..BlobCacheStats::default()
+    };
+    let updated_stats = BlobCacheStats {
+        reconstructed_level_chunks: 1,
+        ..initial_stats
+    };
+    let (control_event_tx, mut control_events) = mpsc::channel(CONTROL_EVENT_CAPACITY);
+    let (world_event_tx, _world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
+    let (_commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
+    let (shutdown, shutdown_rx) = watch::channel(false);
+    let worker = tokio::spawn(run_network_pump(
+        CachedInboundSession {
+            inbound: Some(WorldEvent::ChunkRadiusUpdated(16)),
+            stats: initial_stats,
+        },
+        NetworkSequencer::new(0, 42),
+        command_rx,
+        control_event_tx,
+        world_event_tx,
+        shutdown_rx,
+    ));
+
+    let initial = tokio::time::timeout(Duration::from_millis(100), control_events.recv())
+        .await
+        .expect("initial cache telemetry must be forwarded promptly")
+        .expect("control channel must remain open");
+    assert!(matches!(
+        initial,
+        NetworkControlEvent::BlobCacheTelemetry {
+            enabled: true,
+            stats: observed,
+        } if observed == initial_stats
+    ));
+    let updated = tokio::time::timeout(Duration::from_millis(100), control_events.recv())
+        .await
+        .expect("updated cache telemetry must follow cached ingress")
+        .expect("control channel must remain open");
+    assert!(matches!(
+        updated,
+        NetworkControlEvent::BlobCacheTelemetry {
+            enabled: true,
+            stats: observed,
+        } if observed == updated_stats
+    ));
+
+    shutdown.send_replace(true);
+    tokio::time::timeout(Duration::from_millis(100), worker)
+        .await
+        .expect("shutdown must stop the worker")
+        .unwrap();
+}
+
+#[tokio::test]
+async fn final_cache_telemetry_flushes_after_shutdown_is_already_set() {
+    let stats = BlobCacheStats {
+        hashes_classified: 5,
+        hits: 2,
+        misses: 3,
+        admitted_blobs: 3,
+        ..BlobCacheStats::default()
+    };
+    let (events, mut event_rx) = mpsc::channel(CONTROL_EVENT_CAPACITY);
+    let (world_events, _world_event_rx) = mpsc::channel(WORLD_EVENT_CAPACITY);
+    let (_commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
+    let (shutdown, shutdown_rx) = watch::channel(false);
+    let worker = tokio::spawn(run_network_pump(
+        CachedInboundSession {
+            inbound: None,
+            stats,
+        },
+        NetworkSequencer::new(0, 42),
+        command_rx,
+        events,
+        world_events,
+        shutdown_rx,
+    ));
+    let initial = event_rx.recv().await.expect("initial cache telemetry");
+    assert!(matches!(
+        initial,
+        NetworkControlEvent::BlobCacheTelemetry { stats: observed, .. } if observed == stats
+    ));
+
+    shutdown.send_replace(true);
+
+    let final_event = tokio::time::timeout(Duration::from_secs(1), event_rx.recv())
+        .await
+        .expect("final cache telemetry must ignore shutdown cancellation")
+        .expect("control channel must retain final cache telemetry");
+    assert!(matches!(
+        final_event,
+        NetworkControlEvent::BlobCacheTelemetry {
+            enabled: true,
+            stats: observed,
+        } if observed == stats
+    ));
+    worker.await.expect("network pump stops after final flush");
+}
+
+#[tokio::test]
+async fn final_cache_telemetry_flush_is_bounded_when_control_queue_stays_full() {
+    let session = CachedInboundSession {
+        inbound: None,
+        stats: BlobCacheStats::default(),
+    };
+    let (events, _event_rx) = mpsc::channel(1);
+    events
+        .send(NetworkControlEvent::Stopped {
+            decode_error_count: 0,
+        })
+        .await
+        .expect("fill control queue");
+    let delivered = tokio::time::timeout(
+        Duration::from_secs(1),
+        send_final_blob_cache_telemetry(&session, &events),
+    )
+    .await
+    .expect("final telemetry flush must have a fixed deadline");
+
+    assert!(!delivered);
 }
 
 #[test]

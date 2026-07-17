@@ -7,6 +7,8 @@ use protocol::{
     PLAYER_NETWORK_OFFSET, PlayerListEntry, PlayerSkin, PlayerSkinUnavailable,
 };
 
+use crate::actor_animation::ActorAnimationStore;
+
 pub(crate) const MAX_TRACKED_ACTORS: usize = 8_192;
 pub(crate) const MAX_TRACKED_PLAYERS: usize = 4_096;
 pub(crate) const MAX_TRACKED_PLAYER_SKIN_BYTES: usize = MAX_PLAYER_LIST_SKIN_BYTES;
@@ -264,6 +266,7 @@ pub(crate) struct ActorStore {
     actors: HashMap<u64, ActorSnapshot>,
     unique_to_runtime: HashMap<i64, u64>,
     players: HashMap<[u8; 16], PlayerProfile>,
+    animation: ActorAnimationStore,
 }
 
 mod lifecycle;

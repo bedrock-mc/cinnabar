@@ -216,30 +216,74 @@ fn block_crack_handoff_is_bounded_without_dropping_existing_events() {
 #[test]
 fn local_actor_health_and_hunger_attributes_fan_into_hud_state() {
     let mut runtime = UiRuntime::new(1);
-    let attributes = [
-        ("minecraft:health", 17.5, 20.0),
-        ("minecraft:player.hunger", 14.0, 20.0),
-    ]
-    .into_iter()
-    .map(|(name, current, max)| {
-        (
-            Arc::from(name),
-            protocol::ActorAttribute {
-                name: Arc::from(name),
+    let attributes = Arc::from(
+        [
+            ("minecraft:health", 17.5, 20.0),
+            ("minecraft:player.hunger", 14.0, 20.0),
+        ]
+        .map(|(name, current, max)| protocol::ActorAttribute {
+            name: Arc::from(name),
+            min: 0.0,
+            max,
+            current,
+            default: Some(max),
+            modifiers: Arc::from([]),
+        }),
+    );
+
+    runtime
+        .apply_local_attributes(SequencedLocalAttributes {
+            session_id: 1,
+            fifo_sequence: 1,
+            local_millis: 100,
+            server_tick: 2,
+            attributes,
+        })
+        .unwrap();
+
+    assert_eq!(
+        runtime.hud().health(),
+        BoundedStat::new_scaled(1_750, 2_000, 100)
+    );
+    assert_eq!(
+        runtime.hud().hunger(),
+        BoundedStat::new_scaled(1_400, 2_000, 100)
+    );
+    assert_eq!(runtime.hud().view_nodes(100)[0].text.as_ref(), "17.5/20");
+}
+
+#[test]
+fn partial_local_attributes_patch_without_clearing_authoritative_health() {
+    let mut runtime = UiRuntime::new(1);
+    runtime
+        .apply(envelope(
+            1,
+            1,
+            UiEvent::Hud(HudEvent::Health { health: 19 }),
+        ))
+        .unwrap();
+    runtime
+        .apply_local_attributes(SequencedLocalAttributes {
+            session_id: 1,
+            fifo_sequence: 2,
+            local_millis: 20,
+            server_tick: 1,
+            attributes: Arc::from([protocol::ActorAttribute {
+                name: Arc::from("minecraft:player.hunger"),
                 min: 0.0,
-                max,
-                current,
-                default: Some(max),
+                max: 20.0,
+                current: 12.0,
+                default: Some(20.0),
                 modifiers: Arc::from([]),
-            },
-        )
-    })
-    .collect();
+            }]),
+        })
+        .unwrap();
 
-    runtime.sync_local_attributes(&attributes);
-
-    assert_eq!(runtime.hud().health(), BoundedStat::new(1_750, 2_000));
-    assert_eq!(runtime.hud().hunger(), BoundedStat::new(1_400, 2_000));
+    assert_eq!(runtime.hud().health(), BoundedStat::new(19, 20));
+    assert_eq!(
+        runtime.hud().hunger(),
+        BoundedStat::new_scaled(1_200, 2_000, 100)
+    );
 }
 
 #[test]

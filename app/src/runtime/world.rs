@@ -17,6 +17,7 @@ use bevy::{
 };
 use client_world::{CommittedControlEvent, CommittedUiEvent, WorldMeshChange, WorldStream};
 use meshing::CameraMedium;
+use protocol::BlobCacheStats;
 use render::{
     ChunkBiomeTints, ChunkRenderQueue, ChunkUploadAcknowledgements, ChunkUploadBudget,
     ChunkUploadPriority, ChunkUploadToken,
@@ -41,7 +42,7 @@ use crate::{
         telemetry::bedrock_camera_rotation,
         visibility::{AppMetrics, DiagnosticQuads},
     },
-    ui_runtime::{SequencedBlockCrackEvent, SequencedUiEvent, UiRuntime},
+    ui_runtime::{SequencedBlockCrackEvent, SequencedLocalAttributes, SequencedUiEvent, UiRuntime},
 };
 
 pub(crate) const SHUTDOWN_WATCHDOG_TIMEOUT: Duration = Duration::from_secs(2);
@@ -54,6 +55,8 @@ pub(crate) struct ClientWorld {
     pub(crate) fatal_error: Option<String>,
     pub(crate) network_decode_errors: u64,
     pub(crate) reported_decode_errors: u64,
+    pub(crate) client_blob_cache_enabled: bool,
+    pub(crate) client_blob_cache: BlobCacheStats,
 }
 
 pub(crate) const SHUTDOWN_WATCHDOG_IDLE: u8 = 0;
@@ -182,6 +185,8 @@ impl ClientWorld {
             fatal_error: None,
             network_decode_errors: 0,
             reported_decode_errors: 0,
+            client_blob_cache_enabled: false,
+            client_blob_cache: BlobCacheStats::default(),
         }
     }
 }
@@ -344,6 +349,17 @@ pub(crate) fn drive_world_stream(
                 dimension,
                 event,
             }),
+            CommittedUiEvent::LocalAttributes {
+                sequence,
+                server_tick,
+                attributes,
+            } => ui_runtime.apply_local_attributes(SequencedLocalAttributes {
+                session_id: clock.session_generation(),
+                fifo_sequence: sequence,
+                local_millis,
+                server_tick,
+                attributes,
+            }),
         };
         if let Err(error) = result {
             record_fatal_error(
@@ -355,11 +371,9 @@ pub(crate) fn drive_world_stream(
     }
     if let Some(stream) = client_world.stream.as_ref()
         && let Some(local_actor) = stream.actor(stream.local_player_runtime_id())
+        && let protocol::ActorKind::Player { username, .. } = &local_actor.kind
     {
-        ui_runtime.sync_local_attributes(&local_actor.attributes);
-        if let protocol::ActorKind::Player { username, .. } = &local_actor.kind {
-            ui_runtime.set_chat_source_name(Arc::clone(username));
-        }
+        ui_runtime.set_chat_source_name(Arc::clone(username));
     }
     for control in controls {
         if apply_environment_control(control, &mut clock, &mut weather, time.elapsed_secs_f64()) {

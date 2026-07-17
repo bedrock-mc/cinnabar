@@ -1,8 +1,7 @@
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet},
-    fs::{self, File},
-    io::Read,
+    fs,
     path::{Path, PathBuf},
 };
 
@@ -11,16 +10,31 @@ use assets::{
     EntityDependency, EntityDependencyKind, EntityDependencyResolution, EntityGeometry,
     EntityGeometryBone, EntityGeometryInheritance, MAX_ENTITY_ASSET_SOURCES,
     MAX_ENTITY_ASSET_SYMBOLS, MAX_ENTITY_DEPENDENCIES, MAX_ENTITY_GEOMETRIES,
-    MAX_ENTITY_SOURCE_BYTES, MAX_ENTITY_TOTAL_SOURCE_BYTES, validate_entity_geometry_inheritance,
+    MAX_ENTITY_TOTAL_SOURCE_BYTES, validate_entity_geometry_inheritance,
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+mod animation;
 mod geometry;
+mod item;
 mod json;
+mod molang;
+mod source;
 
 use geometry::parse_geometry;
-use json::{parse_fully_unique_json, parse_unique_json};
+use json::{parse_fully_unique_json, parse_semantic_json, parse_unique_json};
+use source::read_bounded_source;
+
+#[allow(unused_imports)] // Integration publishes this private leaf after review.
+pub use animation::{CompileReferenceOutcome, FallbackReason, RejectReason};
+
+/// Deterministic carrier plus the attributed resolution decision for every rig.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EntityAssetCompilation {
+    pub assets: CompiledEntityAssets,
+    pub reference_outcomes: Box<[CompileReferenceOutcome<u32>]>,
+}
 
 const MAX_SOURCE_MANIFEST_BYTES: usize = 1024 * 1024;
 const MAX_ENTITY_SOURCE_DIRECTORY_DEPTH: usize = 32;
@@ -45,12 +59,23 @@ struct PendingGeometry {
     bones: Box<[EntityGeometryBone]>,
 }
 
+type SourcePayloads = BTreeMap<Box<str>, Box<[u8]>>;
+
 /// Compiles deterministic entity catalog and geometry payloads from the exact
 /// pinned local Bedrock resource pack. Source payloads remain local-only.
 pub fn compile_entity_assets(
     root: &Path,
     source_manifest: &[u8],
 ) -> Result<CompiledEntityAssets, AssetError> {
+    Ok(compile_entity_assets_with_report(root, source_manifest)?.assets)
+}
+
+/// Compiles the carrier while retaining every required-rejection and optional
+/// fallback decision for the integration-owned provenance report.
+pub fn compile_entity_assets_with_report(
+    root: &Path,
+    source_manifest: &[u8],
+) -> Result<EntityAssetCompilation, AssetError> {
     let source_manifest_sha256 = validate_source_manifest(source_manifest)?;
     let mut selected = Vec::new();
     collect_family(root, "entity", &["json"], &mut selected)?;
@@ -64,6 +89,13 @@ pub fn compile_entity_assets(
         &["json", "png", "tga"],
         &mut selected,
     )?;
+    collect_optional_family(
+        root,
+        "textures/items",
+        &["json", "png", "tga"],
+        &mut selected,
+    )?;
+    collect_optional_file(root, "textures/item_texture.json", &mut selected)?;
     selected.sort_by(|left, right| left.0.cmp(&right.0));
     if selected.is_empty() || selected.len() > MAX_ENTITY_ASSET_SOURCES {
         return Err(invalid("entity asset source count exceeds bound"));
@@ -76,10 +108,11 @@ pub fn compile_entity_assets(
 
     let mut total_source_bytes = 0usize;
     let mut sources = Vec::with_capacity(selected.len());
+    let mut source_payloads = SourcePayloads::new();
     let mut symbols = BTreeMap::<(EntityAssetKind, Box<str>, Box<str>), PendingSymbol>::new();
     let mut geometries = BTreeMap::<(Box<str>, Box<str>), PendingGeometry>::new();
     for (relative_path, absolute_path) in selected {
-        let bytes = read_bounded_source(&absolute_path)?;
+        let bytes = read_bounded_source(root, &absolute_path)?;
         total_source_bytes = total_source_bytes
             .checked_add(bytes.len())
             .ok_or_else(|| invalid("entity source-byte total overflow"))?;
@@ -100,8 +133,26 @@ pub fn compile_entity_assets(
             &mut symbols,
             &mut geometries,
         )?;
+        source_payloads.insert(relative_path, bytes.into_boxed_slice());
         debug_assert_eq!(source_index + 1, sources.len());
     }
+    let route_bytes = item::BLOCK_ITEM_ROUTES;
+    total_source_bytes = total_source_bytes
+        .checked_add(route_bytes.len())
+        .ok_or_else(|| invalid("entity source-byte total overflow"))?;
+    if total_source_bytes > MAX_ENTITY_TOTAL_SOURCE_BYTES
+        || sources.len() >= MAX_ENTITY_ASSET_SOURCES
+    {
+        return Err(invalid("entity source-byte total or count exceeds bound"));
+    }
+    let route_path: Box<str> = "registry/block-item-routes-v1001.json".into();
+    sources.push(EntityAssetSource {
+        path: route_path.clone(),
+        source_bytes: route_bytes.len() as u32,
+        source_sha256: Sha256::digest(route_bytes).into(),
+    });
+    source_payloads.insert(route_path, route_bytes.into());
+    sources.sort_by(|left, right| left.path.cmp(&right.path));
     if symbols.is_empty() || symbols.len() > MAX_ENTITY_ASSET_SYMBOLS {
         return Err(invalid("entity asset symbol count exceeds bound"));
     }
@@ -192,30 +243,101 @@ pub fn compile_entity_assets(
             |dimensions| dimensions.1,
         )?;
     }
-    Ok(CompiledEntityAssets {
+    let mut molang_compiler = molang::MolangCompiler::default();
+    let animation = animation::compile(
+        root,
+        &source_payloads,
+        &sources,
+        &symbols,
+        &geometries,
+        &mut molang_compiler,
+    )?;
+    validate_reference_coverage(&symbols, &animation)?;
+    let molang = molang_compiler.finish()?;
+    let items = item::compile(root, &source_payloads, &sources)?;
+    let reference_outcomes = animation.outcomes;
+    let assets = CompiledEntityAssets {
         source_manifest_sha256,
-        block_visual_count: 0,
+        block_visual_count: items.block_visual_count,
         sources: sources.into_boxed_slice(),
         symbols: symbols.into_boxed_slice(),
         geometries: geometries.into_boxed_slice(),
-        animation_clips: Box::new([]),
-        animation_channels: Box::new([]),
-        animation_keyframes: Box::new([]),
-        molang_symbols: Box::new([]),
-        molang_expressions: Box::new([]),
-        molang_ops: Box::new([]),
-        molang_collections: Box::new([]),
-        molang_collection_items: Box::new([]),
-        controllers: Box::new([]),
-        controller_states: Box::new([]),
-        controller_animations: Box::new([]),
-        controller_transitions: Box::new([]),
-        rig_bindings: Box::new([]),
-        rig_animations: Box::new([]),
-        rig_controllers: Box::new([]),
-        item_visuals: Box::new([]),
-        item_visual_aliases: Box::new([]),
+        animation_clips: animation.clips,
+        animation_channels: animation.channels,
+        animation_keyframes: animation.keyframes,
+        molang_symbols: molang.symbols,
+        molang_expressions: molang.expressions,
+        molang_ops: molang.ops,
+        molang_collections: molang.collections,
+        molang_collection_items: molang.collection_items,
+        controllers: animation.controllers,
+        controller_states: animation.controller_states,
+        controller_animations: animation.controller_animations,
+        controller_transitions: animation.controller_transitions,
+        rig_bindings: animation.rig_bindings,
+        rig_geometries: animation.rig_geometries,
+        rig_animations: animation.rig_animations,
+        rig_controllers: animation.rig_controllers,
+        item_visuals: items.visuals,
+        item_visual_aliases: items.aliases,
+    };
+    assets.validate()?;
+    Ok(EntityAssetCompilation {
+        assets,
+        reference_outcomes,
     })
+}
+
+fn validate_reference_coverage(
+    symbols: &[EntityAssetSymbol],
+    animation: &animation::AnimationPayload,
+) -> Result<(), AssetError> {
+    let attributed = animation
+        .outcomes
+        .iter()
+        .filter_map(|outcome| match outcome {
+            CompileReferenceOutcome::Resolved(_) => None,
+            CompileReferenceOutcome::OptionalStaticFallback { symbol, .. }
+            | CompileReferenceOutcome::RequiredRigRejected { symbol, .. } => Some(*symbol),
+        })
+        .collect::<BTreeSet<_>>();
+    let compiled_clips = animation
+        .clips
+        .iter()
+        .map(|clip| clip.symbol)
+        .collect::<BTreeSet<_>>();
+    let compiled_controllers = animation
+        .controllers
+        .iter()
+        .map(|controller| controller.symbol)
+        .collect::<BTreeSet<_>>();
+    let compiled_entities = animation
+        .rig_bindings
+        .iter()
+        .map(|rig| rig.entity_symbol)
+        .collect::<BTreeSet<_>>();
+    for (index, symbol) in symbols.iter().enumerate() {
+        let index = index as u32;
+        let covered = match symbol.kind {
+            EntityAssetKind::Animation => {
+                compiled_clips.contains(&index) || attributed.contains(&index)
+            }
+            EntityAssetKind::AnimationController => {
+                compiled_controllers.contains(&index) || attributed.contains(&index)
+            }
+            EntityAssetKind::Entity => {
+                compiled_entities.contains(&index) || attributed.contains(&index)
+            }
+            _ => true,
+        };
+        if !covered {
+            return Err(invalid(format!(
+                "unexplained entity asset loss for {:?} `{}`",
+                symbol.kind, symbol.identifier
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn resolve_geometry_dimension(
@@ -251,7 +373,49 @@ fn collect_family(
     if !metadata.is_dir() || metadata.file_type().is_symlink() {
         return Err(invalid("entity asset family root must be a real directory"));
     }
-    collect_directory(root, &absolute_root, allowed_extensions, output, 0)
+    collect_directory(root, &absolute_root, allowed_extensions, output, 0, true)
+}
+
+fn collect_optional_family(
+    root: &Path,
+    relative_root: &str,
+    allowed_extensions: &[&str],
+    output: &mut Vec<(Box<str>, PathBuf)>,
+) -> Result<(), AssetError> {
+    let absolute_root = root.join(relative_root);
+    match fs::symlink_metadata(&absolute_root) {
+        Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
+            collect_directory(root, &absolute_root, allowed_extensions, output, 0, false)
+        }
+        Ok(_) => Err(invalid(
+            "optional entity asset family must be a real directory",
+        )),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(source) => Err(AssetError::Io {
+            path: absolute_root,
+            source,
+        }),
+    }
+}
+
+fn collect_optional_file(
+    root: &Path,
+    relative_path: &str,
+    output: &mut Vec<(Box<str>, PathBuf)>,
+) -> Result<(), AssetError> {
+    let path = root.join(relative_path);
+    match fs::symlink_metadata(&path) {
+        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
+            output.push((relative_path.into(), path));
+            if output.len() > MAX_ENTITY_ASSET_SOURCES {
+                return Err(invalid("entity asset source count exceeds bound"));
+            }
+            Ok(())
+        }
+        Ok(_) => Err(invalid("optional entity asset source must be a real file")),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(source) => Err(AssetError::Io { path, source }),
+    }
 }
 
 fn collect_directory(
@@ -260,6 +424,7 @@ fn collect_directory(
     allowed_extensions: &[&str],
     output: &mut Vec<(Box<str>, PathBuf)>,
     depth: usize,
+    reject_unsupported: bool,
 ) -> Result<(), AssetError> {
     if depth > MAX_ENTITY_SOURCE_DIRECTORY_DEPTH {
         return Err(invalid("entity asset source directory depth exceeds bound"));
@@ -287,7 +452,14 @@ fn collect_directory(
             ));
         }
         if metadata.is_dir() {
-            collect_directory(root, &path, allowed_extensions, output, depth + 1)?;
+            collect_directory(
+                root,
+                &path,
+                allowed_extensions,
+                output,
+                depth + 1,
+                reject_unsupported,
+            )?;
             continue;
         }
         if !metadata.is_file() {
@@ -297,6 +469,9 @@ fn collect_directory(
         }
         let extension = path.extension().and_then(|extension| extension.to_str());
         if !extension.is_some_and(|extension| allowed_extensions.contains(&extension)) {
+            if !reject_unsupported {
+                continue;
+            }
             return Err(invalid(format!(
                 "unsupported entity asset source extension at {}",
                 path.display()
@@ -315,34 +490,6 @@ fn collect_directory(
     Ok(())
 }
 
-fn read_bounded_source(path: &Path) -> Result<Vec<u8>, AssetError> {
-    let file = File::open(path).map_err(|source| AssetError::Io {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    let length = file
-        .metadata()
-        .map_err(|source| AssetError::Io {
-            path: path.to_path_buf(),
-            source,
-        })?
-        .len();
-    if length == 0 || length > MAX_ENTITY_SOURCE_BYTES as u64 {
-        return Err(invalid("entity asset source size exceeds bound"));
-    }
-    let mut bytes = Vec::with_capacity(length as usize);
-    file.take(MAX_ENTITY_SOURCE_BYTES as u64 + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|source| AssetError::Io {
-            path: path.to_path_buf(),
-            source,
-        })?;
-    if bytes.len() > MAX_ENTITY_SOURCE_BYTES {
-        return Err(invalid("entity asset source size exceeds bound"));
-    }
-    Ok(bytes)
-}
-
 fn parse_source(
     relative_path: &str,
     absolute_path: &Path,
@@ -350,6 +497,23 @@ fn parse_source(
     symbols: &mut BTreeMap<(EntityAssetKind, Box<str>, Box<str>), PendingSymbol>,
     geometry_payloads: &mut BTreeMap<(Box<str>, Box<str>), PendingGeometry>,
 ) -> Result<(), AssetError> {
+    if relative_path == "textures/item_texture.json" {
+        parse_unique_json(absolute_path, bytes)?;
+        return Ok(());
+    }
+    if relative_path.starts_with("textures/items/") {
+        if relative_path.ends_with(".png") || relative_path.ends_with(".tga") {
+            return Ok(());
+        }
+        let value = parse_semantic_json(absolute_path, bytes)?;
+        validate_root_fields(
+            &value,
+            absolute_path,
+            &["format_version", "minecraft:texture_set"],
+            &["format_version", "minecraft:texture_set"],
+        )?;
+        return Ok(());
+    }
     if relative_path.starts_with("textures/entity/") {
         if relative_path.ends_with(".png") || relative_path.ends_with(".tga") {
             let identifier = relative_path

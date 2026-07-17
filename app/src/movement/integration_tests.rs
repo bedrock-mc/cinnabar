@@ -5,9 +5,10 @@ use super::{
     MovementSendError, MovementSource, MovementTicker, OUTBOX_CAPACITY, PhysicsCollisionRegistries,
     flush_player_auth_inputs, physics_movement_input,
 };
-use assets::{CollisionConfidence, NetworkIdMode, read_registry};
+use assets::{BlockPhysicsFlags, NetworkIdMode, RegistryRecord, read_registry};
 use protocol::PlayerInputFlags;
-use sim::{Aabb, CollisionWorld, MovementInput, Vec3, WorldQueryError};
+use sha2::{Digest, Sha256};
+use sim::{Aabb, CollisionQuery, CollisionWorld, MovementInput, Vec3, WorldQueryError};
 
 fn sample(position: [f32; 3]) -> MovementInputSample {
     MovementInputSample {
@@ -396,20 +397,22 @@ fn keyboard_diagonal_is_normalized_without_losing_the_raw_vector() {
 struct Floor;
 
 impl CollisionWorld for Floor {
-    fn collision_boxes(&self, query: Aabb) -> Result<Vec<Aabb>, WorldQueryError> {
+    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
         let floor = Aabb::new(Vec3::new(-64.0, 0.0, -64.0), Vec3::new(64.0, 1.0, 64.0));
-        Ok(floor
-            .intersects(query)
-            .then_some(floor)
-            .into_iter()
-            .collect())
+        Ok(CollisionQuery::synthetic(
+            floor
+                .intersects(query)
+                .then_some(floor)
+                .into_iter()
+                .collect(),
+        ))
     }
 }
 
 struct UnavailableWorld;
 
 impl CollisionWorld for UnavailableWorld {
-    fn collision_boxes(&self, _query: Aabb) -> Result<Vec<Aabb>, WorldQueryError> {
+    fn collision_boxes(&self, _query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
         Err(WorldQueryError::UnknownRuntimeId {
             runtime_id: 99,
             block: [0, 0, 0],
@@ -513,29 +516,79 @@ fn local_physics_catch_up_and_prediction_history_are_bounded() {
     assert!(physics.history_len() <= 32);
 }
 
-#[test]
-fn checked_in_registry_registers_every_available_collision_in_both_id_modes() {
-    let records = read_registry(include_bytes!(
-        "../../../crates/assets/data/block-registry-v1001.bin"
-    ))
-    .expect("checked-in BREG1003");
-    let available = records
-        .iter()
-        .filter(|record| record.collision_seed.confidence != CollisionConfidence::None)
-        .count();
+fn synthetic_preg(breg: &[u8], records: &[RegistryRecord]) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(b"PREG1001");
+    bytes.extend_from_slice(&1001_u32.to_le_bytes());
+    bytes.extend_from_slice(&u32::try_from(records.len()).unwrap().to_le_bytes());
+    bytes.extend_from_slice(&Sha256::digest(breg));
+    for record in records {
+        bytes.extend_from_slice(&record.sequential_id.to_le_bytes());
+        bytes.extend_from_slice(&record.network_hash.to_le_bytes());
+        bytes.push(u8::try_from(record.collision_seed.boxes.len()).unwrap());
+        bytes.push(if record.collision_seed.boxes.is_empty() {
+            BlockPhysicsFlags::PASSABLE.bits()
+        } else {
+            0
+        });
+        bytes.extend_from_slice(&[0, 0]);
+        bytes.extend_from_slice(&60_000_000_u32.to_le_bytes());
+        bytes.extend_from_slice(&100_000_000_u32.to_le_bytes());
+        bytes.extend_from_slice(&100_000_000_u32.to_le_bytes());
+        bytes.extend_from_slice(&0_i32.to_le_bytes());
+        for shape in &record.collision_seed.boxes {
+            for coordinate in [
+                shape.min_x,
+                shape.min_y,
+                shape.min_z,
+                shape.max_x,
+                shape.max_y,
+                shape.max_z,
+            ] {
+                bytes.extend_from_slice(&coordinate.to_le_bytes());
+            }
+        }
+    }
+    let digest = Sha256::digest(&bytes);
+    bytes.extend_from_slice(&digest);
+    bytes
+}
 
-    let registries = PhysicsCollisionRegistries::from_records(&records)
-        .expect("checked-in collision seeds are valid");
+#[test]
+fn checked_in_registry_registers_every_preg_fact_in_both_id_modes() {
+    let breg = include_bytes!("../../../crates/assets/data/block-registry-v1001.bin");
+    let records = read_registry(breg).expect("checked-in BREG1001");
+    let preg = synthetic_preg(breg, &records);
+
+    let registries = PhysicsCollisionRegistries::from_assets(breg, &records, &preg)
+        .expect("BREG-bound PREG facts are valid");
 
     assert_eq!(
         registries.registered_count(NetworkIdMode::Sequential),
-        available
+        records.len()
     );
     assert_eq!(
         registries.registered_count(NetworkIdMode::Hashed),
-        available
+        records.len()
     );
-    assert_eq!(registries.available_record_count(), available);
+    assert_eq!(registries.available_record_count(), records.len());
+    assert_eq!(
+        registries
+            .registry(NetworkIdMode::Sequential)
+            .identity()
+            .preg_sha256,
+        Sha256::digest(&preg).as_slice()
+    );
+    assert_ne!(
+        registries
+            .registry(NetworkIdMode::Sequential)
+            .identity()
+            .id_space,
+        registries
+            .registry(NetworkIdMode::Hashed)
+            .identity()
+            .id_space,
+    );
 }
 
 #[test]

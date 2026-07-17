@@ -77,6 +77,49 @@ fn update_block_creates_sparse_storage_and_removes_it_when_it_returns_to_air() {
 }
 
 #[test]
+fn collision_revision_changes_for_mutation_batches_but_not_final_state_noops() {
+    let mut store = ChunkStore::new();
+    let key = SubChunkKey::new(0, -3, -4, 7);
+    store.mark_chunk_loaded(key.chunk()).unwrap();
+    let loaded = store.collision_revision(key.chunk()).unwrap();
+
+    store
+        .update_block(key, update(0, 1, 2, 3, 42), AIR)
+        .unwrap();
+    let changed = store.collision_revision(key.chunk()).unwrap();
+    assert!(changed > loaded);
+
+    store
+        .update_sub_chunk_blocks(key, &[update(0, 1, 2, 3, AIR), update(0, 1, 2, 3, 42)], AIR)
+        .unwrap();
+    assert_eq!(store.collision_revision(key.chunk()), Some(changed));
+
+    store
+        .update_sub_chunk_blocks(key, &[update(0, 1, 2, 3, AIR), update(0, 4, 5, 6, 99)], AIR)
+        .unwrap();
+    assert!(store.collision_revision(key.chunk()).unwrap() > changed);
+}
+
+#[test]
+fn one_transactional_batch_allocates_one_revision_per_changed_column() {
+    let mut store = ChunkStore::new();
+    let first = SubChunkKey::new(0, 1, 0, 2);
+    let second = SubChunkKey::new(0, 1, 1, 2);
+    store.mark_chunk_loaded(first.chunk()).unwrap();
+    let before = store.collision_revision(first.chunk()).unwrap();
+    let prepared = vec![
+        ChunkStore::prepare_sub_chunk_blocks(first, None, &[update(0, 1, 2, 0, 1)], 0).unwrap(),
+        ChunkStore::prepare_sub_chunk_blocks(second, None, &[update(0, 3, 4, 0, 2)], 0).unwrap(),
+    ];
+    store.commit_prepared_block_updates(prepared).unwrap();
+    let after = store.collision_revision(first.chunk()).unwrap();
+    assert!(after > before);
+    let stable = store.collision_revision(first.chunk()).unwrap();
+    store.commit_prepared_block_updates(Vec::new()).unwrap();
+    assert_eq!(store.collision_revision(first.chunk()), Some(stable));
+}
+
+#[test]
 fn mutation_grows_from_uniform_width_zero_and_honours_high_bit_air_ids() {
     const HASHED_AIR: u32 = 0xdbf4_4120;
     let mut store = ChunkStore::new();
