@@ -2,9 +2,25 @@ use std::sync::Arc;
 
 use ui::{
     ChatAutocompleteAction, ChatAutocompleteApply, ChatAutocompleteDelta, ChatAutocompleteState,
-    ChatEditor, ChatEditorError, ChatHistory, ChatRateLimit, ChatSendError, ChatSendQueue,
-    MAX_CHAT_AUTOCOMPLETE, MAX_CHAT_AUTOCOMPLETE_BYTES, MAX_CHAT_HISTORY, MAX_CHAT_INPUT_BYTES,
+    ChatClipboard, ChatEditor, ChatEditorError, ChatHistory, ChatPasteError, ChatRateLimit,
+    ChatSendError, ChatSendQueue, MAX_CHAT_AUTOCOMPLETE, MAX_CHAT_AUTOCOMPLETE_BYTES,
+    MAX_CHAT_HISTORY, MAX_CHAT_INPUT_BYTES, UiAction,
 };
+
+#[derive(Default)]
+struct ClipboardFixture {
+    requested_maximum: Option<usize>,
+    value: Option<Arc<str>>,
+}
+
+impl ChatClipboard for ClipboardFixture {
+    type Error = ();
+
+    fn read_text_bounded(&mut self, maximum_bytes: usize) -> Result<Option<Arc<str>>, Self::Error> {
+        self.requested_maximum = Some(maximum_bytes);
+        Ok(self.value.take())
+    }
+}
 
 #[test]
 fn editor_never_splits_utf8_and_caps_clipboard_before_commit() {
@@ -38,6 +54,34 @@ fn selection_replacement_and_deletion_use_character_boundaries() {
     editor.backspace();
     assert_eq!(editor.as_str(), "one");
     assert!(editor.selection().is_none());
+}
+
+#[test]
+fn clipboard_is_bounded_by_remaining_capacity_before_read() {
+    let mut editor = ChatEditor::new(8).unwrap();
+    editor.insert("abc").unwrap();
+    let mut clipboard = ClipboardFixture {
+        value: Some(Arc::from("12345")),
+        ..ClipboardFixture::default()
+    };
+
+    editor.paste_from(&mut clipboard).unwrap();
+
+    assert_eq!(clipboard.requested_maximum, Some(5));
+    assert_eq!(editor.as_str(), "abc12345");
+
+    let mut invalid = ClipboardFixture {
+        value: Some(Arc::from("x")),
+        ..ClipboardFixture::default()
+    };
+    assert_eq!(
+        editor.paste_from(&mut invalid),
+        Err(ChatPasteError::AdapterExceededBound {
+            maximum: 0,
+            actual: 1,
+        })
+    );
+    assert_eq!(editor.as_str(), "abc12345");
 }
 
 #[test]
@@ -85,8 +129,10 @@ fn session_change_drops_old_unsent_messages_and_resets_sequence() {
 #[test]
 fn autocomplete_applies_only_current_input_and_stays_bounded() {
     let mut state = ChatAutocompleteState::default();
-    let stale = state.begin_input(3, 1, "/gi", 3).unwrap();
-    let current = state.begin_input(3, 2, "/give", 5).unwrap();
+    let stale = state.begin_input(3, 1, "/gi", 3).unwrap().unwrap();
+    let current = state.begin_input(3, 2, "/give", 5).unwrap().unwrap();
+    assert_eq!(current.input.as_ref(), "/give");
+    assert_eq!(state.begin_input(3, 2, "/give", 5).unwrap(), None);
     let update = ChatAutocompleteDelta {
         enum_name: Arc::from("commands"),
         action: ChatAutocompleteAction::Replace,
@@ -111,4 +157,52 @@ fn autocomplete_applies_only_current_input_and_stays_bounded() {
     );
     assert!(state.suggestions().len() <= MAX_CHAT_AUTOCOMPLETE);
     assert!(state.retained_bytes() <= MAX_CHAT_AUTOCOMPLETE_BYTES);
+}
+
+#[test]
+fn autocomplete_selection_is_driven_by_semantic_ui_actions() {
+    let mut state = ChatAutocompleteState::default();
+    let request = state.begin_input(7, 1, "/g", 2).unwrap().unwrap();
+    state
+        .apply(
+            request,
+            ChatAutocompleteDelta {
+                enum_name: Arc::from("commands"),
+                action: ChatAutocompleteAction::Replace,
+                suggestions: Arc::from([Arc::from("/give"), Arc::from("/gamemode")]),
+            },
+        )
+        .unwrap();
+
+    assert_eq!(state.selected_index(), Some(0));
+    assert_eq!(state.handle_action(UiAction::Navigate([0, 1])), None);
+    assert_eq!(state.selected_index(), Some(1));
+    assert_eq!(
+        state.handle_action(UiAction::Accept).as_deref(),
+        Some("/gamemode")
+    );
+    assert_eq!(state.handle_action(UiAction::TabNext), None);
+    assert_eq!(state.selected_index(), Some(0));
+}
+
+#[test]
+fn autocomplete_session_replacement_clears_request_and_suggestions() {
+    let mut state = ChatAutocompleteState::default();
+    let request = state.begin_input(7, 1, "/g", 2).unwrap().unwrap();
+    state
+        .apply(
+            request,
+            ChatAutocompleteDelta {
+                enum_name: Arc::from("commands"),
+                action: ChatAutocompleteAction::Replace,
+                suggestions: Arc::from([Arc::from("/give")]),
+            },
+        )
+        .unwrap();
+
+    state.begin_session(8);
+
+    assert!(state.active_request().is_none());
+    assert!(state.suggestions().is_empty());
+    assert!(state.begin_input(8, 1, "/help", 5).unwrap().is_some());
 }

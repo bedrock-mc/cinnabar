@@ -23,6 +23,7 @@ use crate::{
 const TEXT_CACHE_ENTRIES: usize = 1_024;
 const TEXT_CACHE_BYTES: usize = 8 * 1024 * 1024;
 const MAX_PRESENTED_CHAT_ROWS: usize = 8;
+const MAX_PRESENTED_CHAT_SUGGESTIONS: usize = 8;
 const MAX_PRESENTED_TOAST_ROWS: usize = 8;
 const MAX_PRESENTED_TEXT_BYTES: usize = 512;
 
@@ -152,6 +153,83 @@ impl UiPresentationRuntime {
                 }),
             );
             next_id = next_id.saturating_add(1);
+        }
+
+        if runtime.chat_focused() {
+            let editor = runtime.chat_editor();
+            let mut visible = String::with_capacity(editor.len_bytes().saturating_add(3));
+            visible.push_str("> ");
+            visible.push_str(&editor.as_str()[..editor.cursor_byte()]);
+            visible.push('|');
+            visible.push_str(&editor.as_str()[editor.cursor_byte()..]);
+            let layout = self
+                .layouts
+                .layout(TextLayoutRequest {
+                    text: bounded_visible_text(&visible),
+                    style: TextStyle::default(),
+                    width_64: wrap_width,
+                    scale: UiScale::default(),
+                    font: &self.font,
+                })
+                .map_err(UiPresentationError::Text)?;
+            let editor_y = (logical_height - 40.0).max(0.0);
+            nodes.push(
+                UiNode::new(
+                    UiNodeId::new(next_id),
+                    None,
+                    rect(
+                        12.0,
+                        editor_y,
+                        (12.0 + logical_width * 0.45).min(logical_width),
+                        logical_height,
+                    )?,
+                )
+                .with_visual(UiVisual::Text {
+                    layout,
+                    color: [255; 4],
+                }),
+            );
+            next_id = next_id.saturating_add(1);
+
+            for (row, suggestion) in runtime
+                .chat_suggestions()
+                .iter()
+                .take(MAX_PRESENTED_CHAT_SUGGESTIONS)
+                .enumerate()
+            {
+                let selected = runtime.chat_selected_suggestion() == Some(row);
+                let mut visible = String::with_capacity(suggestion.len().saturating_add(2));
+                visible.push_str(if selected { "> " } else { "  " });
+                visible.push_str(suggestion);
+                let layout = self
+                    .layouts
+                    .layout(TextLayoutRequest {
+                        text: bounded_visible_text(&visible),
+                        style: TextStyle::default(),
+                        width_64: wrap_width,
+                        scale: UiScale::default(),
+                        font: &self.font,
+                    })
+                    .map_err(UiPresentationError::Text)?;
+                let bottom = (editor_y - (row as f32 + 1.0) * 18.0).max(0.0);
+                nodes.push(
+                    UiNode::new(
+                        UiNodeId::new(next_id),
+                        None,
+                        rect(
+                            12.0,
+                            bottom,
+                            (12.0 + logical_width * 0.45).min(logical_width),
+                            editor_y,
+                        )?,
+                    )
+                    .with_visual(UiVisual::Text {
+                        layout,
+                        color: [220, 220, 220, 255],
+                    }),
+                );
+                next_id = next_id.saturating_add(1);
+            }
         }
 
         let mut tree = UiTree::new(nodes).map_err(UiPresentationError::Tree)?;
@@ -327,6 +405,39 @@ mod tests {
         let mut scene = UiRenderScene::default();
         scene.publish(input, &UiRenderStats::default()).unwrap();
         assert!(scene.input.is_some());
+    }
+
+    #[test]
+    fn focused_chat_editor_history_and_suggestions_are_presented() {
+        let font = fixture_font();
+        let mut presentation = UiPresentationRuntime::new(font).unwrap();
+        let mut runtime = UiRuntime::new(1);
+        let empty = presentation
+            .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
+            .unwrap();
+        runtime.open_chat();
+        runtime.insert_chat_text("/g").unwrap();
+        runtime.take_chat_autocomplete_request().unwrap();
+        runtime
+            .apply(SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: 1,
+                local_millis: 0,
+                server_tick: None,
+                event: UiEvent::ChatAutocomplete(protocol::ChatAutocompleteEvent {
+                    enum_name: Arc::from("commands"),
+                    action: protocol::ChatAutocompleteAction::Replace,
+                    suggestions: Arc::from([Arc::from("/give"), Arc::from("/gamemode")]),
+                }),
+            })
+            .unwrap();
+
+        let active = presentation
+            .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
+            .unwrap();
+
+        assert!(active.vertices.len() > empty.vertices.len());
+        assert!(active.indices.len() > empty.indices.len());
     }
 
     fn fixture_font() -> Arc<RuntimeFontCatalog> {

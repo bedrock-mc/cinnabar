@@ -35,7 +35,8 @@ use crate::{
 };
 
 pub(crate) use session::{
-    NetworkConfig, NetworkControlEvent, NetworkHandle, WORLD_EVENT_CAPACITY, spawn_network,
+    NetworkConfig, NetworkControlEvent, NetworkHandle, PacketSendError, WORLD_EVENT_CAPACITY,
+    spawn_network,
 };
 
 pub(crate) const NETWORK_INGRESS_BUDGET_PER_FRAME: usize = 32;

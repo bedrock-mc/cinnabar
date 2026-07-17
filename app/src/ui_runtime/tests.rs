@@ -1,10 +1,17 @@
 use std::sync::Arc;
 
+use bevy::{
+    input::mouse::AccumulatedMouseMotion,
+    prelude::{ButtonInput, KeyCode, MouseButton, Vec2},
+    window::{CursorGrabMode, CursorOptions},
+};
 use protocol::{
-    BlockCrackAction, BlockCrackEvent, HudEvent, TextCategory, TextEvent, TextKind, TitleAction,
-    TitleEvent, UiEvent,
+    BlockCrackAction, BlockCrackEvent, ChatAutocompleteAction as ProtocolAutocompleteAction,
+    ChatAutocompleteEvent, HudEvent, TextCategory, TextEvent, TextKind, TitleAction, TitleEvent,
+    UiEvent, chat_text_packet,
 };
 use semantic_input::{Action, DeviceFrame, InputContext, KeyboardMouseFrame, SemanticInputRouter};
+use ui::UiAction;
 
 use super::*;
 
@@ -291,7 +298,7 @@ fn accepted_chat_send_clears_editor_and_session_replacement_attributes_drops() {
     let mut runtime = UiRuntime::new(11);
     runtime.set_chat_identity(Arc::from("Player"), Arc::from("1234"));
     runtime.open_chat();
-    runtime.chat_editor_mut().insert("hello").unwrap();
+    runtime.insert_chat_text("hello").unwrap();
 
     let request = runtime.queue_chat_send(100).unwrap();
     assert_eq!(request.session, 11);
@@ -309,7 +316,7 @@ fn accepted_chat_send_clears_editor_and_session_replacement_attributes_drops() {
 fn chat_packet_build_preserves_pending_request_until_transport_ack() {
     let mut runtime = UiRuntime::new(3);
     runtime.set_chat_identity(Arc::from("Alex"), Arc::from("xuid"));
-    runtime.chat_editor_mut().insert("ordered").unwrap();
+    runtime.insert_chat_text("ordered").unwrap();
     runtime.queue_chat_send(0).unwrap();
 
     let (sequence, _packet) = runtime.front_chat_packet().unwrap().unwrap();
@@ -318,4 +325,152 @@ fn chat_packet_build_preserves_pending_request_until_transport_ack() {
     assert!(!runtime.confirm_chat_send(1));
     assert!(runtime.confirm_chat_send(sequence));
     assert!(runtime.pending_chat_sends().is_empty());
+}
+
+#[test]
+fn changed_editor_state_issues_one_complete_autocomplete_request_per_revision() {
+    let mut runtime = UiRuntime::new(5);
+    runtime.open_chat();
+
+    runtime.insert_chat_text("").unwrap();
+    assert!(runtime.take_chat_autocomplete_request().is_none());
+    runtime.insert_chat_text("/gi").unwrap();
+    let first = runtime.take_chat_autocomplete_request().unwrap();
+    assert_eq!(first.session, 5);
+    assert_eq!(first.input_revision, 1);
+    assert_eq!(first.cursor_byte, 3);
+    assert_eq!(first.input.as_ref(), "/gi");
+    assert!(runtime.take_chat_autocomplete_request().is_none());
+
+    runtime.move_chat_cursor_left();
+    let second = runtime.take_chat_autocomplete_request().unwrap();
+    assert_eq!(second.input_revision, 2);
+    assert_eq!(second.cursor_byte, 2);
+    assert_eq!(second.input.as_ref(), "/gi");
+}
+
+#[test]
+fn autocomplete_response_and_ui_action_complete_the_editor_then_clear_on_close() {
+    let mut runtime = UiRuntime::new(2);
+    runtime.open_chat();
+    runtime.insert_chat_text("/g").unwrap();
+    runtime.take_chat_autocomplete_request().unwrap();
+    runtime
+        .apply(envelope(
+            2,
+            1,
+            UiEvent::ChatAutocomplete(ChatAutocompleteEvent {
+                enum_name: Arc::from("commands"),
+                action: ProtocolAutocompleteAction::Replace,
+                suggestions: Arc::from([Arc::from("/give"), Arc::from("/gamemode")]),
+            }),
+        ))
+        .unwrap();
+
+    assert_eq!(runtime.chat_suggestions().len(), 2);
+    runtime.handle_chat_ui_action(UiAction::Navigate([0, 1]));
+    runtime.handle_chat_ui_action(UiAction::Accept);
+    assert_eq!(runtime.chat_editor().as_str(), "/gamemode");
+
+    runtime.close_chat();
+    assert!(runtime.chat_suggestions().is_empty());
+    assert!(runtime.take_chat_autocomplete_request().is_none());
+}
+
+#[test]
+fn history_navigation_replaces_the_presented_editor_text() {
+    let mut runtime = UiRuntime::new(4);
+    runtime.open_chat();
+    runtime.insert_chat_text("first").unwrap();
+    runtime.queue_chat_send(0).unwrap();
+    runtime.insert_chat_text("second").unwrap();
+    runtime.queue_chat_send(500).unwrap();
+
+    assert!(runtime.show_older_chat_history());
+    assert_eq!(runtime.chat_editor().as_str(), "second");
+    assert!(runtime.show_older_chat_history());
+    assert_eq!(runtime.chat_editor().as_str(), "first");
+    assert!(runtime.show_newer_chat_history());
+    assert_eq!(runtime.chat_editor().as_str(), "second");
+}
+
+#[test]
+fn fifo_flush_retries_backpressure_and_confirms_only_accepted_packets() {
+    let mut runtime = UiRuntime::new(9);
+    runtime.set_chat_identity(Arc::from("Alex"), Arc::from("xuid"));
+    runtime.insert_chat_text("one").unwrap();
+    runtime.queue_chat_send(0).unwrap();
+    runtime.insert_chat_text("two").unwrap();
+    runtime.queue_chat_send(500).unwrap();
+
+    let error = flush_chat_sends(&mut runtime, 8, |_packet| Err("full")).unwrap_err();
+    assert_eq!(error, ChatFlushError::Transport("full"));
+    assert_eq!(runtime.pending_chat_sends().len(), 2);
+
+    let expected = [
+        chat_text_packet("Alex", "xuid", "one").unwrap(),
+        chat_text_packet("Alex", "xuid", "two").unwrap(),
+    ];
+    let mut sent = 0usize;
+    assert_eq!(
+        flush_chat_sends(&mut runtime, 8, |packet| {
+            assert_eq!(packet, expected[sent]);
+            sent += 1;
+            Ok::<_, &str>(())
+        })
+        .unwrap(),
+        2
+    );
+    assert_eq!(sent, 2);
+    assert!(runtime.pending_chat_sends().is_empty());
+}
+
+#[test]
+fn session_replacement_clears_editor_autocomplete_and_old_outbox() {
+    let mut runtime = UiRuntime::new(1);
+    runtime.open_chat();
+    runtime.insert_chat_text("/old").unwrap();
+    runtime.queue_chat_send(0).unwrap();
+    runtime.insert_chat_text("/draft").unwrap();
+    assert!(runtime.take_chat_autocomplete_request().is_some());
+
+    runtime.begin_session(2);
+
+    assert!(!runtime.chat_focused());
+    assert!(runtime.chat_editor().as_str().is_empty());
+    assert!(runtime.chat_suggestions().is_empty());
+    assert!(runtime.pending_chat_sends().is_empty());
+    assert_eq!(runtime.dropped_unsent_chat_messages(), 1);
+}
+
+#[test]
+fn focused_chat_suppresses_production_gameplay_inputs() {
+    let mut runtime = UiRuntime::new(1);
+    runtime.open_chat();
+    let mut cursor = CursorOptions {
+        grab_mode: CursorGrabMode::Locked,
+        visible: false,
+        ..CursorOptions::default()
+    };
+    let mut keys = ButtonInput::<KeyCode>::default();
+    keys.press(KeyCode::KeyW);
+    let mut mouse_buttons = ButtonInput::<MouseButton>::default();
+    mouse_buttons.press(MouseButton::Left);
+    let mut mouse_motion = AccumulatedMouseMotion {
+        delta: Vec2::new(4.0, 2.0),
+    };
+
+    suppress_gameplay_input_for_chat(
+        &runtime,
+        &mut cursor,
+        &mut keys,
+        &mut mouse_buttons,
+        &mut mouse_motion,
+    );
+
+    assert_eq!(cursor.grab_mode, CursorGrabMode::None);
+    assert!(cursor.visible);
+    assert!(keys.get_pressed().next().is_none());
+    assert!(mouse_buttons.get_pressed().next().is_none());
+    assert_eq!(mouse_motion.delta, Vec2::ZERO);
 }

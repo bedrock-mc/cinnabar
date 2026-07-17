@@ -14,6 +14,21 @@ pub enum ChatEditorError {
     InputTooLong { maximum: usize },
 }
 
+/// Clipboard seam whose contract prevents an untrusted platform clipboard from
+/// allocating or returning more text than the editor can accept.
+pub trait ChatClipboard {
+    type Error;
+
+    fn read_text_bounded(&mut self, maximum_bytes: usize) -> Result<Option<Arc<str>>, Self::Error>;
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ChatPasteError<E> {
+    Clipboard(E),
+    AdapterExceededBound { maximum: usize, actual: usize },
+    Editor(ChatEditorError),
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ChatEditor {
     text: String,
@@ -85,6 +100,26 @@ impl ChatEditor {
         }
         self.selection_anchor = None;
         Ok(())
+    }
+
+    pub fn paste_from<C: ChatClipboard>(
+        &mut self,
+        clipboard: &mut C,
+    ) -> Result<(), ChatPasteError<C::Error>> {
+        let maximum = self.remaining_insert_capacity();
+        let Some(value) = clipboard
+            .read_text_bounded(maximum)
+            .map_err(ChatPasteError::Clipboard)?
+        else {
+            return Ok(());
+        };
+        if value.len() > maximum {
+            return Err(ChatPasteError::AdapterExceededBound {
+                maximum,
+                actual: value.len(),
+            });
+        }
+        self.insert(&value).map_err(ChatPasteError::Editor)
     }
 
     pub fn move_left(&mut self) {
@@ -166,6 +201,12 @@ impl ChatEditor {
         self.cursor = range.start;
         self.selection_anchor = None;
         true
+    }
+
+    fn remaining_insert_capacity(&self) -> usize {
+        let selected = self.selection().map_or(0, |range| range.len());
+        self.maximum_bytes
+            .saturating_sub(self.text.len().saturating_sub(selected))
     }
 }
 
@@ -395,12 +436,13 @@ pub struct ChatAutocompleteDelta {
     pub suggestions: Arc<[Arc<str>]>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ChatAutocompleteRequest {
     pub session: u64,
     pub input_revision: u64,
     pub request_id: u64,
     pub cursor_byte: u16,
+    pub input: Arc<str>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -415,14 +457,18 @@ pub enum ChatAutocompleteError {
     InvalidCursor,
     TooManySuggestions,
     SuggestionsTooLarge,
+    NonMonotonicInputRevision { previous: u64, actual: u64 },
+    ReusedInputRevision,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct ChatAutocompleteState {
+    session: Option<u64>,
     next_request_id: u64,
     active: Option<ChatAutocompleteRequest>,
     suggestions: Vec<Arc<str>>,
     retained_bytes: usize,
+    selected_index: Option<usize>,
 }
 
 impl ChatAutocompleteState {
@@ -432,12 +478,30 @@ impl ChatAutocompleteState {
         input_revision: u64,
         input: &str,
         cursor_byte: usize,
-    ) -> Result<ChatAutocompleteRequest, ChatAutocompleteError> {
+    ) -> Result<Option<ChatAutocompleteRequest>, ChatAutocompleteError> {
         if input.len() > MAX_CHAT_INPUT_BYTES {
             return Err(ChatAutocompleteError::InputTooLong);
         }
         if cursor_byte > input.len() || !input.is_char_boundary(cursor_byte) {
             return Err(ChatAutocompleteError::InvalidCursor);
+        }
+        if self.session != Some(session) {
+            self.begin_session(session);
+        }
+        if let Some(active) = &self.active {
+            if input_revision < active.input_revision {
+                return Err(ChatAutocompleteError::NonMonotonicInputRevision {
+                    previous: active.input_revision,
+                    actual: input_revision,
+                });
+            }
+            if input_revision == active.input_revision {
+                if active.input.as_ref() == input && usize::from(active.cursor_byte) == cursor_byte
+                {
+                    return Ok(None);
+                }
+                return Err(ChatAutocompleteError::ReusedInputRevision);
+            }
         }
         let request = ChatAutocompleteRequest {
             session,
@@ -445,11 +509,12 @@ impl ChatAutocompleteState {
             request_id: self.next_request_id,
             cursor_byte: u16::try_from(cursor_byte)
                 .expect("chat input maximum is bounded below u16::MAX"),
+            input: Arc::from(input),
         };
         self.next_request_id = self.next_request_id.saturating_add(1);
-        self.active = Some(request);
+        self.active = Some(request.clone());
         self.clear_suggestions();
-        Ok(request)
+        Ok(Some(request))
     }
 
     pub fn apply(
@@ -457,7 +522,7 @@ impl ChatAutocompleteState {
         request: ChatAutocompleteRequest,
         delta: ChatAutocompleteDelta,
     ) -> Result<ChatAutocompleteApply, ChatAutocompleteError> {
-        if self.active != Some(request) {
+        if self.active.as_ref() != Some(&request) {
             return Ok(ChatAutocompleteApply::IgnoredStaleInput);
         }
         if delta.suggestions.len() > MAX_CHAT_AUTOCOMPLETE {
@@ -498,6 +563,7 @@ impl ChatAutocompleteState {
         }
         self.suggestions = next;
         self.retained_bytes = retained_bytes;
+        self.selected_index = (!self.suggestions.is_empty()).then_some(0);
         Ok(ChatAutocompleteApply::Applied)
     }
 
@@ -509,6 +575,61 @@ impl ChatAutocompleteState {
         self.retained_bytes
     }
 
+    pub const fn selected_index(&self) -> Option<usize> {
+        self.selected_index
+    }
+
+    pub const fn active_request(&self) -> Option<&ChatAutocompleteRequest> {
+        self.active.as_ref()
+    }
+
+    pub fn handle_action(&mut self, action: crate::UiAction) -> Option<Arc<str>> {
+        let length = self.suggestions.len();
+        if length == 0 {
+            return None;
+        }
+        match action {
+            crate::UiAction::Navigate([_, vertical]) if vertical > 0 => {
+                let current = self.selected_index.unwrap_or(0);
+                self.selected_index = Some((current + 1) % length);
+                None
+            }
+            crate::UiAction::TabNext => {
+                let current = self.selected_index.unwrap_or(0);
+                self.selected_index = Some((current + 1) % length);
+                None
+            }
+            crate::UiAction::Navigate([_, vertical]) if vertical < 0 => {
+                let current = self.selected_index.unwrap_or(0);
+                self.selected_index = Some((current + length - 1) % length);
+                None
+            }
+            crate::UiAction::TabPrevious => {
+                let current = self.selected_index.unwrap_or(0);
+                self.selected_index = Some((current + length - 1) % length);
+                None
+            }
+            crate::UiAction::Accept
+            | crate::UiAction::PointerPrimary {
+                phase: crate::PointerPhase::Pressed,
+                ..
+            } => self
+                .selected_index
+                .and_then(|index| self.suggestions.get(index))
+                .cloned(),
+            _ => None,
+        }
+    }
+
+    pub fn begin_session(&mut self, session: u64) {
+        if self.session == Some(session) {
+            return;
+        }
+        self.session = Some(session);
+        self.next_request_id = 0;
+        self.clear();
+    }
+
     pub fn clear(&mut self) {
         self.active = None;
         self.clear_suggestions();
@@ -517,6 +638,7 @@ impl ChatAutocompleteState {
     fn clear_suggestions(&mut self) {
         self.suggestions.clear();
         self.retained_bytes = 0;
+        self.selected_index = None;
     }
 }
 
