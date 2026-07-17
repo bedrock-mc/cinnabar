@@ -124,10 +124,11 @@ their feature work isolated and unmerged; already integrated and verified Phase 
 remain in place. Continue with work that does not depend on that missing authority, in this
 order:
 
-1. **Phase 2.7 runtime and visual closure:** first eliminate the reproduced publication and
-   presentation bottlenecks: adaptive chunk application/upload scheduling toward the <=2 s
-   teleport-remesh gate, the identical-scene FIFO/Immediate visibility witness and any proven
-   void-band source, then native celestial and finite-cloud parity acceptance.
+1. **Phase 2.7 runtime and visual closure:** first run the fresh release/BDS trace for the
+   already integrated adaptive chunk application/upload scheduler, then tune the stage that
+   trace proves is still preventing the <=2 s teleport-remesh gate. Follow with the
+   identical-scene FIFO/Immediate visibility witness and any proven void-band source, then
+   native celestial and finite-cloud parity acceptance.
 2. **Phase 2.5 biome blending:** replace the provisional 3x3 boundary behavior with a bounded,
    source-backed blend and close abrupt-boundary native/live acceptance.
 3. **Phase 4.3 entity rigs and animation:** consume the integrated bounded geometry carrier,
