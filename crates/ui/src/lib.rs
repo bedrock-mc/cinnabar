@@ -10,8 +10,12 @@ mod text;
 
 pub use action::{PointerPhase, UiAction, UiLimits};
 pub use chat::{
-    ChatApplyResult, ChatMessage, ChatMessageKind, ChatStore, ChatViewNode, MAX_CHAT_MESSAGES,
-    MAX_CHAT_RETAINED_BYTES,
+    ChatApplyResult, ChatAutocompleteAction, ChatAutocompleteApply, ChatAutocompleteDelta,
+    ChatAutocompleteError, ChatAutocompleteRequest, ChatAutocompleteState, ChatClipboard,
+    ChatEditor, ChatEditorError, ChatHistory, ChatMessage, ChatMessageKind, ChatPasteError,
+    ChatRateLimit, ChatSendError, ChatSendQueue, ChatSendRequest, ChatStore, ChatViewNode,
+    MAX_CHAT_AUTOCOMPLETE, MAX_CHAT_AUTOCOMPLETE_BYTES, MAX_CHAT_HISTORY, MAX_CHAT_INPUT_BYTES,
+    MAX_CHAT_MESSAGES, MAX_CHAT_RETAINED_BYTES, MAX_PENDING_CHAT_SENDS,
 };
 pub use geometry::{DpiScale, GeometryError, SafeArea, UiPoint, UiRect, UiScale};
 pub use hud::{

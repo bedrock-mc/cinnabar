@@ -67,7 +67,7 @@ use crate::{
         },
     },
     ui_runtime::{
-        UiRuntime,
+        UiRuntime, drive_chat_keyboard_input, flush_chat_network,
         presentation::{UiPresentationRuntime, publish_ui_runtime},
     },
 };
@@ -283,6 +283,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         ))
         .add_observer(apply_added_chunk_visibility)
         .add_observer(remove_chunk_visibility)
+        .add_systems(Update, drive_chat_keyboard_input.before(FlyCameraUpdateSet))
         .add_systems(
             Update,
             begin_publication_frame
@@ -294,6 +295,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             (
                 exit_on_window_close_requested,
                 receive_network_events,
+                flush_chat_network,
                 exit_on_fatal_runtime_error,
                 poll_transparent_witness_request,
                 poll_model_witness_request,

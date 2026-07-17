@@ -5,18 +5,31 @@ pub mod render_adapter;
 
 use std::{collections::VecDeque, sync::Arc};
 
-use bevy::prelude::Resource;
+use bevy::{
+    input::{ButtonState, keyboard::KeyboardInput, mouse::AccumulatedMouseMotion},
+    prelude::{
+        ButtonInput, KeyCode, MessageReader, MouseButton, Res, ResMut, Resource, Single, Time, With,
+    },
+    time::Real,
+    window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window},
+};
 use protocol::{
-    ActorAttribute, BlockCrackEvent, HudEvent, PlayerStatus, TextEvent, TextKind, TitleAction,
-    TitleEvent, UiEvent,
+    ActorAttribute, BlockCrackEvent, ChatPacketError, HudEvent, Packet, PlayerStatus, TextEvent,
+    TextKind, TitleAction, TitleEvent, UiEvent, chat_text_packet,
 };
 use semantic_input::InputContext;
 use ui::{
-    BoundedStat, ChatApplyResult, ChatMessage, ChatMessageKind, ChatStore, HudPlayerStatus,
-    HudStore, TitleDurations, Toast,
+    BoundedStat, ChatApplyResult, ChatAutocompleteAction, ChatAutocompleteDelta,
+    ChatAutocompleteError, ChatAutocompleteRequest, ChatAutocompleteState, ChatClipboard,
+    ChatEditor, ChatEditorError, ChatHistory, ChatMessage, ChatMessageKind, ChatPasteError,
+    ChatRateLimit, ChatSendError, ChatSendQueue, ChatSendRequest, ChatStore, HudPlayerStatus,
+    HudStore, MAX_CHAT_INPUT_BYTES, TitleDurations, Toast, UiAction,
 };
 
 pub const MAX_PENDING_BLOCK_CRACK_EVENTS: usize = 1_024;
+const MAX_PENDING_CHAT_SENDS: usize = 32;
+const MAX_CHAT_SENDS_PER_WINDOW: usize = 5;
+const CHAT_RATE_WINDOW_MILLIS: u64 = 2_000;
 
 #[derive(Clone, Debug)]
 pub struct SequencedUiEvent {
@@ -62,6 +75,7 @@ pub enum UiRuntimeError {
     InvalidHealth(i32),
     InvalidLocalAttribute { field: &'static str },
     ChatRejected(ChatApplyResult),
+    ChatAutocomplete(ChatAutocompleteError),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -90,6 +104,15 @@ pub struct UiRuntime {
     chat_focused: bool,
     hud: HudStore,
     chat: ChatStore,
+    chat_editor: ChatEditor,
+    chat_history: ChatHistory,
+    chat_input_revision: u64,
+    chat_autocomplete: ChatAutocompleteState,
+    pending_chat_autocomplete_request: Option<ChatAutocompleteRequest>,
+    chat_sends: ChatSendQueue,
+    chat_source_name: Arc<str>,
+    chat_xuid: Arc<str>,
+    dropped_unsent_chat_messages: u64,
     pending_block_cracks: VecDeque<SequencedBlockCrackEvent>,
 }
 
@@ -104,6 +127,21 @@ impl UiRuntime {
             chat_focused: false,
             hud: HudStore::default(),
             chat: ChatStore::default(),
+            chat_editor: ChatEditor::new(MAX_CHAT_INPUT_BYTES)
+                .expect("the reviewed chat input bound is valid"),
+            chat_history: ChatHistory::default(),
+            chat_input_revision: 0,
+            chat_autocomplete: ChatAutocompleteState::default(),
+            pending_chat_autocomplete_request: None,
+            chat_sends: ChatSendQueue::new(
+                MAX_PENDING_CHAT_SENDS,
+                ChatRateLimit::new(MAX_CHAT_SENDS_PER_WINDOW, CHAT_RATE_WINDOW_MILLIS)
+                    .expect("the reviewed chat rate window is valid"),
+            )
+            .expect("the reviewed chat queue capacity is valid"),
+            chat_source_name: Arc::from(""),
+            chat_xuid: Arc::from(""),
+            dropped_unsent_chat_messages: 0,
             pending_block_cracks: VecDeque::with_capacity(MAX_PENDING_BLOCK_CRACK_EVENTS),
         }
     }
@@ -122,6 +160,133 @@ impl UiRuntime {
 
     pub const fn chat_focused(&self) -> bool {
         self.chat_focused
+    }
+
+    pub const fn chat_editor(&self) -> &ChatEditor {
+        &self.chat_editor
+    }
+
+    pub fn chat_suggestions(&self) -> &[Arc<str>] {
+        self.chat_autocomplete.suggestions()
+    }
+
+    pub const fn chat_selected_suggestion(&self) -> Option<usize> {
+        self.chat_autocomplete.selected_index()
+    }
+
+    pub fn take_chat_autocomplete_request(&mut self) -> Option<ChatAutocompleteRequest> {
+        self.pending_chat_autocomplete_request.take()
+    }
+
+    pub fn insert_chat_text(&mut self, value: &str) -> Result<(), ChatEditorError> {
+        let before = self.chat_editor.clone();
+        self.chat_editor.insert(value)?;
+        if self.chat_editor != before {
+            self.note_chat_editor_change();
+        }
+        Ok(())
+    }
+
+    pub fn paste_chat_text<C: ChatClipboard>(
+        &mut self,
+        clipboard: &mut C,
+    ) -> Result<(), ChatPasteError<C::Error>> {
+        let before = self.chat_editor.clone();
+        self.chat_editor.paste_from(clipboard)?;
+        if self.chat_editor != before {
+            self.note_chat_editor_change();
+        }
+        Ok(())
+    }
+
+    pub fn move_chat_cursor_left(&mut self) {
+        self.mutate_chat_editor(ChatEditor::move_left);
+    }
+
+    pub fn move_chat_cursor_right(&mut self) {
+        self.mutate_chat_editor(ChatEditor::move_right);
+    }
+
+    pub fn backspace_chat_text(&mut self) {
+        self.mutate_chat_editor(ChatEditor::backspace);
+    }
+
+    pub fn delete_chat_text(&mut self) {
+        self.mutate_chat_editor(ChatEditor::delete);
+    }
+
+    pub fn move_chat_cursor_home(&mut self, selecting: bool) {
+        self.mutate_chat_editor(|editor| editor.move_home(selecting));
+    }
+
+    pub fn move_chat_cursor_end(&mut self, selecting: bool) {
+        self.mutate_chat_editor(|editor| editor.move_end(selecting));
+    }
+
+    pub fn show_older_chat_history(&mut self) -> bool {
+        let Some(entry) = self.chat_history.older() else {
+            return false;
+        };
+        self.replace_chat_editor(&entry);
+        true
+    }
+
+    pub fn show_newer_chat_history(&mut self) -> bool {
+        let Some(entry) = self.chat_history.newer() else {
+            return false;
+        };
+        self.replace_chat_editor(&entry);
+        true
+    }
+
+    pub fn handle_chat_ui_action(&mut self, action: UiAction) -> bool {
+        let Some(suggestion) = self.chat_autocomplete.handle_action(action) else {
+            return false;
+        };
+        self.replace_chat_editor(&suggestion);
+        true
+    }
+
+    pub fn pending_chat_sends(&self) -> &VecDeque<ChatSendRequest> {
+        self.chat_sends.pending()
+    }
+
+    pub const fn dropped_unsent_chat_messages(&self) -> u64 {
+        self.dropped_unsent_chat_messages
+    }
+
+    pub fn set_chat_identity(&mut self, source_name: Arc<str>, xuid: Arc<str>) {
+        self.chat_source_name = source_name;
+        self.chat_xuid = xuid;
+    }
+
+    pub fn set_chat_source_name(&mut self, source_name: Arc<str>) {
+        self.chat_source_name = source_name;
+    }
+
+    pub fn queue_chat_send(&mut self, now_millis: u64) -> Result<ChatSendRequest, ChatSendError> {
+        let message = self.chat_editor.as_str();
+        let request = self.chat_sends.push(self.session_id, message, now_millis)?;
+        self.chat_history.push(Arc::clone(&request.message));
+        self.chat_editor.clear();
+        self.chat_autocomplete.clear();
+        self.pending_chat_autocomplete_request = None;
+        Ok(request)
+    }
+
+    pub fn front_chat_packet(&self) -> Result<Option<(u64, Packet)>, ChatPacketError> {
+        self.chat_sends
+            .pending()
+            .front()
+            .map(|request| {
+                chat_text_packet(&self.chat_source_name, &self.chat_xuid, &request.message)
+                    .map(|packet| (request.sequence, packet))
+            })
+            .transpose()
+    }
+
+    pub fn confirm_chat_send(&mut self, sequence: u64) -> bool {
+        self.chat_sends.confirm_front(sequence)
     }
 
     pub const fn pending_block_cracks(&self) -> &VecDeque<SequencedBlockCrackEvent> {
@@ -144,6 +309,15 @@ impl UiRuntime {
         self.chat_focused = false;
         self.hud.clear();
         self.chat.clear();
+        self.chat_editor.clear();
+        self.chat_history.clear_navigation();
+        self.chat_input_revision = 0;
+        self.chat_autocomplete.begin_session(session_id);
+        self.pending_chat_autocomplete_request = None;
+        let dropped = self.chat_sends.begin_session(session_id);
+        self.dropped_unsent_chat_messages = self
+            .dropped_unsent_chat_messages
+            .saturating_add(dropped as u64);
         self.pending_block_cracks.clear();
     }
 
@@ -157,6 +331,10 @@ impl UiRuntime {
 
     pub fn close_chat(&mut self) -> UiAuthorityTransition {
         self.chat_focused = false;
+        self.chat_editor.clear();
+        self.chat_history.clear_navigation();
+        self.chat_autocomplete.clear();
+        self.pending_chat_autocomplete_request = None;
         UiAuthorityTransition {
             consumes_text: false,
             requested_context: InputContext::Gameplay,
@@ -183,11 +361,33 @@ impl UiRuntime {
                 self.apply_hud(event, envelope.fifo_sequence, event_millis)?;
                 UiApplyOutcome::Applied
             }
-            UiEvent::Objective(_)
-            | UiEvent::Score(_)
-            | UiEvent::Boss(_)
-            | UiEvent::Form(_)
-            | UiEvent::ChatAutocomplete(_) => UiApplyOutcome::IgnoredByReceiveStore,
+            UiEvent::ChatAutocomplete(event) => {
+                if let Some(request) = self.chat_autocomplete.active_request().cloned() {
+                    let action = match event.action {
+                        protocol::ChatAutocompleteAction::Add => ChatAutocompleteAction::Add,
+                        protocol::ChatAutocompleteAction::Remove => ChatAutocompleteAction::Remove,
+                        protocol::ChatAutocompleteAction::Replace => {
+                            ChatAutocompleteAction::Replace
+                        }
+                    };
+                    self.chat_autocomplete
+                        .apply(
+                            request,
+                            ChatAutocompleteDelta {
+                                enum_name: event.enum_name,
+                                action,
+                                suggestions: event.suggestions,
+                            },
+                        )
+                        .map_err(UiRuntimeError::ChatAutocomplete)?;
+                    UiApplyOutcome::Applied
+                } else {
+                    UiApplyOutcome::IgnoredByReceiveStore
+                }
+            }
+            UiEvent::Objective(_) | UiEvent::Score(_) | UiEvent::Boss(_) | UiEvent::Form(_) => {
+                UiApplyOutcome::IgnoredByReceiveStore
+            }
         };
         self.last_fifo_sequence = Some(envelope.fifo_sequence);
         self.last_local_millis = Some(envelope.local_millis);
@@ -195,6 +395,40 @@ impl UiRuntime {
             self.last_server_tick = Some(server_tick);
         }
         Ok(outcome)
+    }
+
+    fn mutate_chat_editor(&mut self, mutate: impl FnOnce(&mut ChatEditor)) {
+        let before = self.chat_editor.clone();
+        mutate(&mut self.chat_editor);
+        if self.chat_editor != before {
+            self.note_chat_editor_change();
+        }
+    }
+
+    fn replace_chat_editor(&mut self, value: &str) {
+        if self.chat_editor.as_str() == value
+            && self.chat_editor.cursor_byte() == self.chat_editor.len_bytes()
+        {
+            return;
+        }
+        self.chat_editor.clear();
+        self.chat_editor
+            .insert(value)
+            .expect("history and autocomplete entries obey the chat input bound");
+        self.note_chat_editor_change();
+    }
+
+    fn note_chat_editor_change(&mut self) {
+        self.chat_input_revision = self.chat_input_revision.saturating_add(1);
+        self.pending_chat_autocomplete_request = self
+            .chat_autocomplete
+            .begin_input(
+                self.session_id,
+                self.chat_input_revision,
+                self.chat_editor.as_str(),
+                self.chat_editor.cursor_byte(),
+            )
+            .expect("the editor enforces autocomplete input and cursor bounds");
     }
 
     pub fn retain_block_crack(
@@ -394,6 +628,219 @@ impl UiRuntime {
         }
         Ok(())
     }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum ChatFlushError<E> {
+    Packet(ChatPacketError),
+    Transport(E),
+    SessionChanged { expected: u64, actual: u64 },
+}
+
+pub fn flush_chat_sends<E>(
+    runtime: &mut UiRuntime,
+    budget: usize,
+    mut send: impl FnMut(Packet) -> Result<(), E>,
+) -> Result<usize, ChatFlushError<E>> {
+    let mut sent = 0;
+    for _ in 0..budget {
+        let Some(request) = runtime.pending_chat_sends().front() else {
+            break;
+        };
+        if request.session != runtime.session_id() {
+            return Err(ChatFlushError::SessionChanged {
+                expected: runtime.session_id(),
+                actual: request.session,
+            });
+        }
+        let (sequence, packet) = runtime
+            .front_chat_packet()
+            .map_err(ChatFlushError::Packet)?
+            .expect("the pending front was observed above");
+        send(packet).map_err(ChatFlushError::Transport)?;
+        let confirmed = runtime.confirm_chat_send(sequence);
+        debug_assert!(confirmed, "only the observed FIFO front can be confirmed");
+        sent += 1;
+    }
+    Ok(sent)
+}
+
+pub(crate) fn flush_chat_network(
+    mut runtime: ResMut<UiRuntime>,
+    network: Res<crate::runtime::network::NetworkHandle>,
+    mut client_world: ResMut<crate::runtime::world::ClientWorld>,
+) {
+    match flush_chat_sends(&mut runtime, 8, |packet| network.send_packet(packet)) {
+        Ok(_)
+        | Err(ChatFlushError::Transport(crate::runtime::network::PacketSendError::Full(_))) => {}
+        Err(ChatFlushError::Transport(crate::runtime::network::PacketSendError::Closed(_))) => {
+            crate::runtime::shutdown::record_fatal_error(
+                &mut client_world.fatal_error,
+                "chat send failed because the network command channel closed".to_owned(),
+            );
+        }
+        Err(ChatFlushError::Packet(error)) => {
+            crate::runtime::shutdown::record_fatal_error(
+                &mut client_world.fatal_error,
+                format!("queued chat packet became invalid: {error}"),
+            );
+        }
+        Err(ChatFlushError::SessionChanged { expected, actual }) => {
+            crate::runtime::shutdown::record_fatal_error(
+                &mut client_world.fatal_error,
+                format!(
+                    "queued chat packet crossed a session boundary: expected {expected}, got {actual}"
+                ),
+            );
+        }
+    }
+}
+
+pub(crate) fn drive_chat_keyboard_input(
+    mut keyboard_messages: MessageReader<KeyboardInput>,
+    time: Res<Time<Real>>,
+    window: Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut mouse_buttons: ResMut<ButtonInput<MouseButton>>,
+    mut mouse_motion: ResMut<AccumulatedMouseMotion>,
+    mut runtime: ResMut<UiRuntime>,
+) {
+    let (window, mut cursor) = window.into_inner();
+    if !window.focused {
+        if runtime.chat_focused() {
+            runtime.close_chat();
+        }
+        return;
+    }
+
+    let mut consumed_gameplay = runtime.chat_focused();
+    for input in keyboard_messages.read() {
+        if input.state != ButtonState::Pressed {
+            continue;
+        }
+        if !runtime.chat_focused() {
+            match input.key_code {
+                KeyCode::KeyT => {
+                    runtime.open_chat();
+                    consumed_gameplay = true;
+                }
+                KeyCode::Slash => {
+                    runtime.open_chat();
+                    let _ = runtime.insert_chat_text("/");
+                    consumed_gameplay = true;
+                }
+                _ => {}
+            }
+            continue;
+        }
+
+        consumed_gameplay = true;
+        let selecting = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
+        match input.key_code {
+            KeyCode::Escape => {
+                runtime.close_chat();
+            }
+            KeyCode::Enter | KeyCode::NumpadEnter => {
+                if runtime.chat_suggestions().is_empty() {
+                    let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
+                    if runtime.queue_chat_send(now_millis).is_ok() {
+                        runtime.close_chat();
+                    }
+                } else {
+                    runtime.handle_chat_ui_action(UiAction::Accept);
+                }
+            }
+            KeyCode::Backspace => runtime.backspace_chat_text(),
+            KeyCode::Delete => runtime.delete_chat_text(),
+            KeyCode::ArrowLeft => {
+                if selecting {
+                    runtime.mutate_chat_editor(ChatEditor::select_left);
+                } else {
+                    runtime.move_chat_cursor_left();
+                }
+            }
+            KeyCode::ArrowRight => {
+                if selecting {
+                    runtime.mutate_chat_editor(ChatEditor::select_right);
+                } else {
+                    runtime.move_chat_cursor_right();
+                }
+            }
+            KeyCode::Home => runtime.move_chat_cursor_home(selecting),
+            KeyCode::End => runtime.move_chat_cursor_end(selecting),
+            KeyCode::ArrowUp => {
+                if runtime.chat_suggestions().is_empty() {
+                    runtime.show_older_chat_history();
+                } else {
+                    runtime.handle_chat_ui_action(UiAction::Navigate([0, -1]));
+                }
+            }
+            KeyCode::ArrowDown => {
+                if runtime.chat_suggestions().is_empty() {
+                    runtime.show_newer_chat_history();
+                } else {
+                    runtime.handle_chat_ui_action(UiAction::Navigate([0, 1]));
+                }
+            }
+            KeyCode::Tab => {
+                runtime.handle_chat_ui_action(if selecting {
+                    UiAction::TabPrevious
+                } else {
+                    UiAction::TabNext
+                });
+            }
+            _ => {
+                let modified = keys.pressed(KeyCode::ControlLeft)
+                    || keys.pressed(KeyCode::ControlRight)
+                    || keys.pressed(KeyCode::AltLeft)
+                    || keys.pressed(KeyCode::AltRight)
+                    || keys.pressed(KeyCode::SuperLeft)
+                    || keys.pressed(KeyCode::SuperRight);
+                if !modified
+                    && let Some(text) = input.text.as_deref()
+                    && !text.chars().any(char::is_control)
+                {
+                    let _ = runtime.insert_chat_text(text);
+                }
+            }
+        }
+    }
+
+    if consumed_gameplay {
+        suppress_gameplay_input_for_chat(
+            &runtime,
+            &mut cursor,
+            &mut keys,
+            &mut mouse_buttons,
+            &mut mouse_motion,
+        );
+        // A send/cancel closes chat before suppression, but that same physical
+        // key must still be consumed for the current frame.
+        if !runtime.chat_focused() {
+            cursor.grab_mode = CursorGrabMode::None;
+            cursor.visible = true;
+            keys.reset_all();
+            mouse_buttons.reset_all();
+            mouse_motion.delta = bevy::math::Vec2::ZERO;
+        }
+    }
+}
+
+pub(crate) fn suppress_gameplay_input_for_chat(
+    runtime: &UiRuntime,
+    cursor: &mut CursorOptions,
+    keys: &mut ButtonInput<KeyCode>,
+    mouse_buttons: &mut ButtonInput<MouseButton>,
+    mouse_motion: &mut AccumulatedMouseMotion,
+) {
+    if !runtime.chat_focused() {
+        return;
+    }
+    cursor.grab_mode = CursorGrabMode::None;
+    cursor.visible = true;
+    keys.reset_all();
+    mouse_buttons.reset_all();
+    mouse_motion.delta = bevy::math::Vec2::ZERO;
 }
 
 fn attribute_stat(attribute: &ActorAttribute) -> Option<BoundedStat> {
