@@ -1,7 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs::{self, File},
-    io::{Cursor, Read},
+    fs::{self, File, OpenOptions},
+    io::{self, Cursor, Read},
     path::{Path, PathBuf},
 };
 
@@ -131,8 +131,9 @@ impl MetricValue {
 pub fn compile_fonts(root: &Path) -> Result<CompiledFontCarrier, FontCompileError> {
     let font_root = root.join("font");
     require_real_directory(&font_root)?;
-    let descriptor_path = resolve_real_source(root, DESCRIPTOR_PATH)?;
-    let descriptor_bytes = read_source(&descriptor_path, MAX_FONT_SOURCE_BYTES)?;
+    let descriptor_source = resolve_real_source(root, DESCRIPTOR_PATH)?;
+    let descriptor_path = descriptor_source.candidate.clone();
+    let descriptor_bytes = read_source(&descriptor_source, MAX_FONT_SOURCE_BYTES)?;
     let descriptor = serde_json::from_slice::<Descriptor>(&descriptor_bytes)
         .map_err(|source| FontCompileError::DescriptorJson { source })?;
     if descriptor.schema != FONT_CARRIER_SCHEMA
@@ -163,11 +164,12 @@ pub fn compile_fonts(root: &Path) -> Result<CompiledFontCarrier, FontCompileErro
     let mut total_decoded_bytes = 0u64;
     let mut pages = Vec::with_capacity(descriptor.pages.len());
     for page in descriptor.pages {
-        let path = resolve_real_source(root, &page.source)?;
+        let source = resolve_real_source(root, &page.source)?;
+        let path = source.candidate.clone();
         let remaining = MAX_FONT_SOURCE_BYTES
             .checked_sub(total_source_bytes)
             .ok_or_else(|| FontCompileError::SourceTooLarge { path: path.clone() })?;
-        let bytes = read_source(&path, remaining)?;
+        let bytes = read_source(&source, remaining)?;
         total_source_bytes = total_source_bytes
             .checked_add(u64::try_from(bytes.len()).map_err(|_| {
                 FontCompileError::SourceTooLarge { path: path.clone() }
@@ -379,25 +381,21 @@ fn require_real_directory(path: &Path) -> Result<(), FontCompileError> {
     Ok(())
 }
 
-fn require_real_file(path: &Path) -> Result<(), FontCompileError> {
-    let metadata = fs::symlink_metadata(path).map_err(|source| FontCompileError::Io {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    if !metadata.is_file() || is_link_or_reparse(&metadata) {
-        return Err(invalid("font source must be a real file"));
-    }
-    Ok(())
+struct ResolvedSource {
+    candidate: PathBuf,
+    root_handle: File,
+    #[cfg(unix)]
+    components_below_font: Box<[Box<str>]>,
 }
 
-fn resolve_real_source(root: &Path, relative: &str) -> Result<PathBuf, FontCompileError> {
+fn resolve_real_source(root: &Path, relative: &str) -> Result<ResolvedSource, FontCompileError> {
     validate_source_path_for_extension(relative)?;
-    let canonical_font_root = fs::canonicalize(root.join("font")).map_err(|source| {
-        FontCompileError::Io {
-            path: root.join("font"),
+    let font_root = root.join("font");
+    let root_handle =
+        open_font_root(&font_root).map_err(|source| FontCompileError::Io {
+            path: font_root,
             source,
-        }
-    })?;
+        })?;
     let mut candidate = root.to_path_buf();
     let components = relative.split('/').collect::<Vec<_>>();
     for (index, component) in components.iter().enumerate() {
@@ -416,17 +414,16 @@ fn resolve_real_source(root: &Path, relative: &str) -> Result<PathBuf, FontCompi
             ));
         }
     }
-    let canonical_candidate =
-        fs::canonicalize(&candidate).map_err(|source| FontCompileError::Io {
-            path: candidate,
-            source,
-        })?;
-    if !canonical_candidate.starts_with(&canonical_font_root)
-        || canonical_candidate == canonical_font_root
-    {
-        return Err(invalid("font source resolves outside the font root"));
-    }
-    Ok(canonical_candidate)
+    Ok(ResolvedSource {
+        candidate,
+        root_handle,
+        #[cfg(unix)]
+        components_below_font: components
+            .into_iter()
+            .skip(1)
+            .map(Into::into)
+            .collect(),
+    })
 }
 
 #[cfg(windows)]
@@ -443,37 +440,248 @@ fn is_link_or_reparse(metadata: &fs::Metadata) -> bool {
     metadata.file_type().is_symlink()
 }
 
-fn read_source(path: &Path, limit: u64) -> Result<Vec<u8>, FontCompileError> {
-    require_real_file(path)?;
-    let file = File::open(path).map_err(|source| FontCompileError::Io {
-        path: path.to_path_buf(),
-        source,
+#[cfg(unix)]
+fn open_font_root(path: &Path) -> io::Result<File> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(unix_open_flags::NOFOLLOW | unix_open_flags::DIRECTORY)
+        .open(path)?;
+    if !file.metadata()?.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "font root handle is not a directory",
+        ));
+    }
+    Ok(file)
+}
+
+#[cfg(windows)]
+fn open_font_root(path: &Path) -> io::Result<File> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_dir() || is_link_or_reparse(&metadata) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "font root handle is a reparse point or not a directory",
+        ));
+    }
+    Ok(file)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn open_font_root(_path: &Path) -> io::Result<File> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "secure font source opening is unsupported on this platform",
+    ))
+}
+
+#[cfg(unix)]
+fn open_source_handle(source: &ResolvedSource) -> io::Result<File> {
+    use std::{
+        ffi::CString,
+        os::unix::io::{AsRawFd, FromRawFd},
+    };
+
+    let mut directory = source.root_handle.try_clone()?;
+    for (index, component) in source.components_below_font.iter().enumerate() {
+        let component = CString::new(component.as_bytes()).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "font path component contains NUL",
+            )
+        })?;
+        let is_final = index + 1 == source.components_below_font.len();
+        let flags = unix_open_flags::NOFOLLOW
+            | unix_open_flags::CLOEXEC
+            | if is_final {
+                0
+            } else {
+                unix_open_flags::DIRECTORY
+            };
+        // SAFETY: `directory` owns a live directory descriptor, `component` is
+        // a NUL-terminated single path component, and no create flag is used.
+        let descriptor = unsafe { openat(directory.as_raw_fd(), component.as_ptr(), flags) };
+        if descriptor < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: a successful `openat` returns one newly owned descriptor.
+        let opened = unsafe { File::from_raw_fd(descriptor) };
+        let metadata = opened.metadata()?;
+        if (is_final && !metadata.is_file()) || (!is_final && !metadata.is_dir()) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "font source handle has the wrong component type",
+            ));
+        }
+        directory = opened;
+    }
+    if source.components_below_font.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "font source has no path below the font root",
+        ));
+    }
+    Ok(directory)
+}
+
+#[cfg(unix)]
+unsafe extern "C" {
+    fn openat(
+        directory: std::os::raw::c_int,
+        path: *const std::os::raw::c_char,
+        flags: std::os::raw::c_int,
+    ) -> std::os::raw::c_int;
+}
+
+#[cfg(all(unix, any(target_os = "linux", target_os = "android")))]
+mod unix_open_flags {
+    pub const DIRECTORY: i32 = 0x1_0000;
+    pub const NOFOLLOW: i32 = 0x2_0000;
+    pub const CLOEXEC: i32 = 0x8_0000;
+}
+
+#[cfg(all(unix, any(target_os = "macos", target_os = "ios")))]
+mod unix_open_flags {
+    pub const DIRECTORY: i32 = 0x10_0000;
+    pub const NOFOLLOW: i32 = 0x100;
+    pub const CLOEXEC: i32 = 0x100_0000;
+}
+
+#[cfg(all(
+    unix,
+    not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "macos",
+        target_os = "ios"
+    ))
+))]
+compile_error!("secure font source opening requires reviewed openat flags for this Unix target");
+
+#[cfg(windows)]
+fn open_source_handle(source: &ResolvedSource) -> io::Result<File> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(&source.candidate)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || is_link_or_reparse(&metadata) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "font source handle is a reparse point or not a file",
+        ));
+    }
+    let root_path = windows_final_path(&source.root_handle)?;
+    let file_path = windows_final_path(&file)?;
+    if file_path == root_path || !file_path.starts_with(&root_path) {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "opened font source handle resolves outside the bound font root handle",
+        ));
+    }
+    Ok(file)
+}
+
+#[cfg(windows)]
+fn windows_final_path(file: &File) -> io::Result<PathBuf> {
+    use std::{
+        ffi::OsString,
+        os::windows::{ffi::OsStringExt, io::AsRawHandle},
+    };
+
+    const MAX_FINAL_PATH_UNITS: usize = 32_768;
+    let mut buffer = vec![0_u16; 512];
+    loop {
+        let capacity = u32::try_from(buffer.len()).map_err(|_| {
+            io::Error::new(io::ErrorKind::InvalidData, "Windows final path is too long")
+        })?;
+        // SAFETY: the file owns a live handle and the buffer exposes exactly
+        // `capacity` writable UTF-16 units for the duration of this call.
+        let written = unsafe {
+            GetFinalPathNameByHandleW(file.as_raw_handle(), buffer.as_mut_ptr(), capacity, 0)
+        };
+        if written == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let length = usize::try_from(written).map_err(|_| {
+            io::Error::new(io::ErrorKind::InvalidData, "Windows final path is too long")
+        })?;
+        if length < buffer.len() {
+            buffer.truncate(length);
+            return Ok(PathBuf::from(OsString::from_wide(&buffer)));
+        }
+        if length >= MAX_FINAL_PATH_UNITS {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Windows final path exceeds its bound",
+            ));
+        }
+        buffer.resize(length + 1, 0);
+    }
+}
+
+#[cfg(windows)]
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn GetFinalPathNameByHandleW(
+        file: std::os::windows::io::RawHandle,
+        path: *mut u16,
+        path_units: u32,
+        flags: u32,
+    ) -> u32;
+}
+
+#[cfg(not(any(unix, windows)))]
+fn open_source_handle(_source: &ResolvedSource) -> io::Result<File> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "secure font source opening is unsupported on this platform",
+    ))
+}
+
+fn read_source(source: &ResolvedSource, limit: u64) -> Result<Vec<u8>, FontCompileError> {
+    let file = open_source_handle(source).map_err(|error| FontCompileError::Io {
+        path: source.candidate.clone(),
+        source: error,
     })?;
     let length = file
         .metadata()
-        .map_err(|source| FontCompileError::Io {
-            path: path.to_path_buf(),
-            source,
+        .map_err(|error| FontCompileError::Io {
+            path: source.candidate.clone(),
+            source: error,
         })?
         .len();
     if length == 0 || length > limit {
         return Err(FontCompileError::SourceTooLarge {
-            path: path.to_path_buf(),
+            path: source.candidate.clone(),
         });
     }
     let capacity = usize::try_from(length).map_err(|_| FontCompileError::SourceTooLarge {
-        path: path.to_path_buf(),
+        path: source.candidate.clone(),
     })?;
     let mut bytes = Vec::with_capacity(capacity);
     file.take(limit.saturating_add(1))
         .read_to_end(&mut bytes)
-        .map_err(|source| FontCompileError::Io {
-            path: path.to_path_buf(),
-            source,
+        .map_err(|error| FontCompileError::Io {
+            path: source.candidate.clone(),
+            source: error,
         })?;
     if u64::try_from(bytes.len()).ok().is_none_or(|length| length > limit) {
         return Err(FontCompileError::SourceTooLarge {
-            path: path.to_path_buf(),
+            path: source.candidate.clone(),
         });
     }
     Ok(bytes)
@@ -544,5 +752,59 @@ const fn decode_hex_nibble(value: u8) -> u8 {
 fn invalid(detail: impl Into<Box<str>>) -> FontCompileError {
     FontCompileError::InvalidDescriptor {
         detail: detail.into(),
+    }
+}
+
+#[cfg(test)]
+mod source_race_tests {
+    use std::{fs, path::Path};
+
+    use super::{FontCompileError, read_source, resolve_real_source};
+
+    #[test]
+    fn replacement_between_validation_and_read_cannot_escape_font_root() {
+        let directory = tempfile::tempdir().unwrap();
+        let font = directory.path().join("font");
+        let nested = font.join("nested");
+        let outside = directory.path().join("outside");
+        fs::create_dir_all(&nested).unwrap();
+        fs::create_dir(&outside).unwrap();
+        fs::write(nested.join("page.png"), b"inside").unwrap();
+        fs::write(outside.join("page.png"), b"outside").unwrap();
+
+        let resolved = resolve_real_source(directory.path(), "font/nested/page.png").unwrap();
+        fs::rename(&nested, font.join("original-nested")).unwrap();
+        create_directory_link(&nested, &outside).unwrap();
+
+        let result = read_source(&resolved, 1024);
+        #[cfg(windows)]
+        assert!(matches!(
+            result,
+            Err(FontCompileError::Io { source, .. })
+                if source.kind() == std::io::ErrorKind::PermissionDenied
+        ));
+        #[cfg(unix)]
+        assert!(result.is_err());
+    }
+
+    #[cfg(unix)]
+    fn create_directory_link(link: &Path, target: &Path) -> std::io::Result<()> {
+        std::os::unix::fs::symlink(target, link)
+    }
+
+    #[cfg(windows)]
+    fn create_directory_link(link: &Path, target: &Path) -> std::io::Result<()> {
+        let status = std::process::Command::new("cmd")
+            .args(["/c", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .status()?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(std::io::Error::other(format!(
+                "mklink /J failed with {status}"
+            )))
+        }
     }
 }
