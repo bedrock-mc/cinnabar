@@ -41,7 +41,7 @@ use crate::{
         telemetry::bedrock_camera_rotation,
         visibility::{AppMetrics, DiagnosticQuads},
     },
-    ui_runtime::{SequencedBlockCrackEvent, SequencedUiEvent, UiRuntime},
+    ui_runtime::{SequencedBlockCrackEvent, SequencedLocalAttributes, SequencedUiEvent, UiRuntime},
 };
 
 pub(crate) const SHUTDOWN_WATCHDOG_TIMEOUT: Duration = Duration::from_secs(2);
@@ -344,6 +344,17 @@ pub(crate) fn drive_world_stream(
                 dimension,
                 event,
             }),
+            CommittedUiEvent::LocalAttributes {
+                sequence,
+                server_tick,
+                attributes,
+            } => ui_runtime.apply_local_attributes(SequencedLocalAttributes {
+                session_id: clock.session_generation(),
+                fifo_sequence: sequence,
+                local_millis,
+                server_tick,
+                attributes,
+            }),
         };
         if let Err(error) = result {
             record_fatal_error(
@@ -352,11 +363,6 @@ pub(crate) fn drive_world_stream(
             );
             return;
         }
-    }
-    if let Some(stream) = client_world.stream.as_ref()
-        && let Some(local_actor) = stream.actor(stream.local_player_runtime_id())
-    {
-        ui_runtime.sync_local_attributes(&local_actor.attributes);
     }
     for control in controls {
         if apply_environment_control(control, &mut clock, &mut weather, time.elapsed_secs_f64()) {

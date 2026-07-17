@@ -10,6 +10,7 @@ pub const DEFAULT_TITLE_FADE_OUT_TICKS: u32 = 20;
 pub struct BoundedStat {
     current: u16,
     maximum: u16,
+    scale: u16,
 }
 
 impl BoundedStat {
@@ -17,7 +18,22 @@ impl BoundedStat {
         if maximum == 0 || current > maximum {
             return None;
         }
-        Some(Self { current, maximum })
+        Some(Self {
+            current,
+            maximum,
+            scale: 1,
+        })
+    }
+
+    pub const fn new_scaled(current: u16, maximum: u16, scale: u16) -> Option<Self> {
+        if scale == 0 || maximum == 0 || current > maximum {
+            return None;
+        }
+        Some(Self {
+            current,
+            maximum,
+            scale,
+        })
     }
 
     pub const fn current(self) -> u16 {
@@ -26,6 +42,10 @@ impl BoundedStat {
 
     pub const fn maximum(self) -> u16 {
         self.maximum
+    }
+
+    pub const fn scale(self) -> u16 {
+        self.scale
     }
 }
 
@@ -317,7 +337,11 @@ impl HudStore {
                 nodes.push(HudViewNode {
                     role,
                     source_sequence: 0,
-                    text: Arc::from(format!("{}/{}", value.current(), value.maximum())),
+                    text: Arc::from(format!(
+                        "{}/{}",
+                        format_stat_value(value.current(), value.scale()),
+                        format_stat_value(value.maximum(), value.scale())
+                    )),
                 });
             }
         }
@@ -348,4 +372,18 @@ impl HudStore {
         }
         nodes.into_boxed_slice()
     }
+}
+
+fn format_stat_value(value: u16, scale: u16) -> String {
+    let whole = value / scale;
+    let remainder = value % scale;
+    if remainder == 0 {
+        return whole.to_string();
+    }
+    let width = scale.ilog10() as usize;
+    let mut fraction = format!("{remainder:0width$}");
+    while fraction.ends_with('0') {
+        fraction.pop();
+    }
+    format!("{whole}.{fraction}")
 }

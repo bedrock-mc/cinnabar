@@ -3,10 +3,7 @@
 pub mod presentation;
 pub mod render_adapter;
 
-use std::{
-    collections::{HashMap, VecDeque},
-    sync::Arc,
-};
+use std::{collections::VecDeque, sync::Arc};
 
 use bevy::prelude::Resource;
 use protocol::{
@@ -38,6 +35,15 @@ pub struct SequencedBlockCrackEvent {
     pub event: BlockCrackEvent,
 }
 
+#[derive(Clone, Debug)]
+pub struct SequencedLocalAttributes {
+    pub session_id: u64,
+    pub fifo_sequence: u64,
+    pub local_millis: u64,
+    pub server_tick: u64,
+    pub attributes: Arc<[ActorAttribute]>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum UiApplyOutcome {
     Applied,
@@ -54,6 +60,7 @@ pub enum UiRuntimeError {
     NonMonotonicServerTick { previous: u64, actual: u64 },
     InvalidTitleDurations,
     InvalidHealth(i32),
+    InvalidLocalAttribute { field: &'static str },
     ChatRejected(ChatApplyResult),
 }
 
@@ -157,7 +164,12 @@ impl UiRuntime {
     }
 
     pub fn apply(&mut self, envelope: SequencedUiEvent) -> Result<UiApplyOutcome, UiRuntimeError> {
-        self.validate_identity(&envelope)?;
+        self.validate_identity(
+            envelope.session_id,
+            envelope.fifo_sequence,
+            envelope.local_millis,
+            envelope.server_tick,
+        )?;
         let event_millis = envelope
             .server_tick
             .map_or(envelope.local_millis, |tick| tick.saturating_mul(50));
@@ -213,39 +225,73 @@ impl UiRuntime {
         Ok(())
     }
 
-    pub fn sync_local_attributes(&mut self, attributes: &HashMap<Arc<str>, ActorAttribute>) {
-        let health = attributes.get("minecraft:health").and_then(attribute_stat);
-        let hunger = attributes
-            .get("minecraft:player.hunger")
-            .and_then(attribute_stat);
+    pub fn apply_local_attributes(
+        &mut self,
+        envelope: SequencedLocalAttributes,
+    ) -> Result<(), UiRuntimeError> {
+        self.validate_identity(
+            envelope.session_id,
+            envelope.fifo_sequence,
+            envelope.local_millis,
+            Some(envelope.server_tick),
+        )?;
+        let mut health = self.hud.health();
+        let mut hunger = self.hud.hunger();
+        for attribute in envelope.attributes.iter() {
+            match attribute.name.as_ref() {
+                "minecraft:health" => {
+                    health = Some(
+                        attribute_stat(attribute)
+                            .ok_or(UiRuntimeError::InvalidLocalAttribute { field: "health" })?,
+                    );
+                }
+                "minecraft:player.hunger" => {
+                    hunger = Some(
+                        attribute_stat(attribute)
+                            .ok_or(UiRuntimeError::InvalidLocalAttribute { field: "hunger" })?,
+                    );
+                }
+                _ => {}
+            }
+        }
         self.hud
             .set_stats(health, hunger, self.hud.armor(), self.hud.air());
+        self.last_fifo_sequence = Some(envelope.fifo_sequence);
+        self.last_local_millis = Some(envelope.local_millis);
+        self.last_server_tick = Some(envelope.server_tick);
+        Ok(())
     }
 
-    fn validate_identity(&self, envelope: &SequencedUiEvent) -> Result<(), UiRuntimeError> {
-        if envelope.session_id != self.session_id {
+    fn validate_identity(
+        &self,
+        session_id: u64,
+        fifo_sequence: u64,
+        local_millis: u64,
+        server_tick: Option<u64>,
+    ) -> Result<(), UiRuntimeError> {
+        if session_id != self.session_id {
             return Err(UiRuntimeError::WrongSession {
                 expected: self.session_id,
-                actual: envelope.session_id,
+                actual: session_id,
             });
         }
         if let Some(previous) = self.last_fifo_sequence
-            && envelope.fifo_sequence <= previous
+            && fifo_sequence <= previous
         {
             return Err(UiRuntimeError::StaleFifoSequence {
                 previous,
-                actual: envelope.fifo_sequence,
+                actual: fifo_sequence,
             });
         }
         if let Some(previous) = self.last_local_millis
-            && envelope.local_millis < previous
+            && local_millis < previous
         {
             return Err(UiRuntimeError::NonMonotonicLocalTime {
                 previous,
-                actual: envelope.local_millis,
+                actual: local_millis,
             });
         }
-        if let (Some(previous), Some(actual)) = (self.last_server_tick, envelope.server_tick)
+        if let (Some(previous), Some(actual)) = (self.last_server_tick, server_tick)
             && actual < previous
         {
             return Err(UiRuntimeError::NonMonotonicServerTick { previous, actual });
@@ -366,7 +412,7 @@ fn attribute_stat(attribute: &ActorAttribute) -> Option<BoundedStat> {
     };
     let maximum = u16::try_from((attribute.max * scale).round() as u32).ok()?;
     let current = u16::try_from((attribute.current * scale).round() as u32).ok()?;
-    BoundedStat::new(current, maximum)
+    BoundedStat::new_scaled(current, maximum, scale as u16)
 }
 
 fn map_player_status(status: PlayerStatus) -> HudPlayerStatus {

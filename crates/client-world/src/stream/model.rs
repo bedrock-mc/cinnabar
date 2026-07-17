@@ -330,6 +330,11 @@ pub enum CommittedUiEvent {
         dimension: i32,
         event: BlockCrackEvent,
     },
+    LocalAttributes {
+        sequence: u64,
+        server_tick: u64,
+        attributes: Arc<[ActorAttribute]>,
+    },
 }
 
 #[cfg(test)]

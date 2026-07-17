@@ -68,3 +68,13 @@ fn bounded_stats_reject_invalid_ranges_and_clear_atomically() {
     assert_eq!(hud.health(), None);
     assert!(hud.toasts().is_empty());
 }
+
+#[test]
+fn scaled_stats_render_native_units_without_exposing_storage_scale() {
+    let mut hud = HudStore::default();
+    hud.set_stats(BoundedStat::new_scaled(1_750, 2_000, 100), None, None, None);
+
+    let nodes = hud.view_nodes(0);
+    assert_eq!(nodes[0].role, HudViewRole::Health);
+    assert_eq!(nodes[0].text.as_ref(), "17.5/20");
+}
