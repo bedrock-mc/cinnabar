@@ -2,6 +2,7 @@ use protocol::{
     BedrockSession, BlobCacheError, BlobCacheLimits, BlobCacheResolver, ClientBlobCache,
     client_blob_hash,
 };
+use std::mem::size_of;
 use std::sync::{Arc, Barrier};
 use valentine::bedrock::version::v1_26_30::{
     Blob, ClientCacheMissResponsePacket, HeightMapDataType, LevelChunkPacket,
@@ -17,7 +18,7 @@ fn limits(entries: usize, bytes: usize) -> BlobCacheLimits {
         max_blob_bytes: 64,
         max_hashes_per_packet: 8,
         max_pending_transactions: 4,
-        max_pending_bytes: 256,
+        max_pending_bytes: 16 * 1024,
     }
 }
 
@@ -60,6 +61,16 @@ fn cached_subchunk(hash: u64, tail: &[u8]) -> protocol::Packet {
                 ..Default::default()
             },
         ]),
+    }
+    .into()
+}
+
+fn cached_request_level(x: i32, hash: u64) -> protocol::Packet {
+    LevelChunkPacket {
+        x,
+        sub_chunk_count: -1,
+        blobs: Some(LevelChunkPacketBlobs { hashes: vec![hash] }),
+        ..Default::default()
     }
     .into()
 }
@@ -424,9 +435,18 @@ fn exact_hash_transaction_and_blob_bounds_fail_closed() {
 
 #[test]
 fn ready_transactions_remain_counted_and_byte_bounded_until_consumed() {
-    let mut bounded = limits(2, 16);
-    bounded.max_blob_bytes = 8;
-    bounded.max_pending_bytes = 48;
+    let mut probe_limits = limits(2, 16);
+    probe_limits.max_blob_bytes = 8;
+    let probe_cache = ClientBlobCache::with_limits(probe_limits);
+    let probe_hash = probe_cache.insert(b"12345678").expect("seed probe hit");
+    let mut probe = BlobCacheResolver::new(probe_cache);
+    probe
+        .accept_cached_packet(cached_level(vec![probe_hash, probe_hash, probe_hash], b""))
+        .expect("measure one ready transaction");
+    let ready_bytes = probe.stats().pending_bytes;
+
+    let mut bounded = probe_limits;
+    bounded.max_pending_bytes = ready_bytes * 3 - 1;
     let cache = ClientBlobCache::with_limits(bounded);
     let hash = cache.insert(b"12345678").expect("seed hit");
     let mut resolver = BlobCacheResolver::new(cache);
@@ -438,7 +458,7 @@ fn ready_transactions_remain_counted_and_byte_bounded_until_consumed() {
         .accept_cached_packet(cached_level(vec![hash, hash, hash], b""))
         .expect("second ready transaction at exact byte ceiling");
     assert_eq!(resolver.stats().pending_transactions, 2);
-    assert_eq!(resolver.stats().pending_bytes, 48);
+    assert_eq!(resolver.stats().pending_bytes, ready_bytes * 2);
 
     assert!(
         resolver
@@ -489,7 +509,7 @@ fn lunar_sized_many_small_blobs_are_not_charged_as_worst_case_blobs() {
     let mut bounded = limits(256, 4_096);
     bounded.max_blob_bytes = 2 * 1024 * 1024;
     bounded.max_hashes_per_packet = 4_096;
-    bounded.max_pending_bytes = 4_096;
+    bounded.max_pending_bytes = 16 * 1024;
     let cache = ClientBlobCache::with_limits(bounded);
     let mut hashes = Vec::new();
     let mut expected = Vec::new();
@@ -520,20 +540,45 @@ fn lunar_sized_many_small_blobs_are_not_charged_as_worst_case_blobs() {
 
 #[test]
 fn repeated_large_blob_expansion_is_rejected_before_reconstruction() {
-    let mut bounded = limits(2, 128);
-    bounded.max_pending_bytes = 80;
-    let cache = ClientBlobCache::with_limits(bounded);
-    let payload = [0x5a; 32];
-    let hash = cache.insert(&payload).expect("seed large hit");
-    let mut resolver = BlobCacheResolver::new(cache);
-
-    let error = resolver
+    let payload = [0x5a; 512];
+    let hash = client_blob_hash(&payload);
+    let mut probe_limits = limits(2, 2_048);
+    probe_limits.max_blob_bytes = 1_024;
+    let probe_cache = ClientBlobCache::with_limits(probe_limits);
+    let mut probe = BlobCacheResolver::new(probe_cache);
+    probe
         .accept_cached_packet(cached_level(vec![hash, hash, hash], b""))
-        .expect_err("96-byte repeated expansion exceeds the 80-byte ready ceiling");
+        .expect("measure retained transaction");
+    let retained_bytes = probe.stats().pending_bytes;
+    probe
+        .accept_miss_response(ClientCacheMissResponsePacket {
+            blobs: vec![Blob {
+                hash,
+                payload: payload.to_vec(),
+            }],
+        })
+        .expect("measure ready expansion");
+    let ready_bytes = probe.stats().pending_bytes;
+    assert!(ready_bytes > retained_bytes);
+
+    let mut bounded = probe_limits;
+    bounded.max_pending_bytes = ready_bytes - 1;
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::with_limits(bounded));
+    resolver
+        .accept_cached_packet(cached_level(vec![hash, hash, hash], b""))
+        .expect("retained transaction fits before expansion");
+    let error = resolver
+        .accept_miss_response(ClientCacheMissResponsePacket {
+            blobs: vec![Blob {
+                hash,
+                payload: payload.to_vec(),
+            }],
+        })
+        .expect_err("repeated expansion exceeds the exact ready ceiling");
 
     assert!(matches!(
         error,
-        protocol::BlobCacheError::TooManyPendingBytes { max: 80 }
+        protocol::BlobCacheError::TooManyPendingBytes { max } if max == ready_bytes - 1
     ));
     assert_eq!(
         resolver.stats().hashes_classified,
@@ -649,7 +694,6 @@ fn every_configured_ceiling_accepts_its_exact_boundary_and_stays_bounded_afterwa
     let mut transaction_limits = limits(8, 128);
     transaction_limits.max_hashes_per_packet = 3;
     transaction_limits.max_pending_transactions = 2;
-    transaction_limits.max_pending_bytes = 64;
     let cache = ClientBlobCache::with_limits(transaction_limits);
     let mut resolver = BlobCacheResolver::new(cache);
     let a = client_blob_hash(b"a");
@@ -659,9 +703,8 @@ fn every_configured_ceiling_accepts_its_exact_boundary_and_stays_bounded_afterwa
         .expect("exact hash boundary and first transaction");
     resolver
         .accept_cached_packet(cached_level(vec![b, b, b], b"12345678"))
-        .expect("exact transaction and 64-byte retained boundary");
+        .expect("exact transaction boundary");
     assert_eq!(resolver.stats().pending_transactions, 2);
-    assert_eq!(resolver.stats().pending_bytes, 64);
     assert!(
         resolver
             .accept_cached_packet(cached_level(vec![a, a, a], b""))
@@ -669,4 +712,204 @@ fn every_configured_ceiling_accepts_its_exact_boundary_and_stays_bounded_afterwa
     );
     assert_eq!(resolver.stats().pending_transactions, 0);
     assert_eq!(resolver.stats().pending_bytes, 0);
+
+    let probe_hash = client_blob_hash(b"pending-byte-boundary");
+    let mut probe = BlobCacheResolver::new(ClientBlobCache::with_limits(limits(2, 128)));
+    probe
+        .accept_cached_packet(cached_request_level(1, probe_hash))
+        .expect("measure exact pending byte boundary");
+    let exact_pending_bytes = probe.stats().pending_bytes;
+    let mut exact_limits = limits(2, 128);
+    exact_limits.max_pending_bytes = exact_pending_bytes;
+    BlobCacheResolver::new(ClientBlobCache::with_limits(exact_limits))
+        .accept_cached_packet(cached_request_level(1, probe_hash))
+        .expect("exact pending byte ceiling is accepted");
+    exact_limits.max_pending_bytes -= 1;
+    assert!(matches!(
+        BlobCacheResolver::new(ClientBlobCache::with_limits(exact_limits))
+            .accept_cached_packet(cached_request_level(1, probe_hash)),
+        Err(BlobCacheError::TooManyPendingBytes { .. })
+    ));
+}
+
+#[test]
+fn default_limits_accept_177_distinct_request_transactions_and_publish_fifo() {
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
+    let fixtures: Vec<_> = (0..177_u16)
+        .map(|index| {
+            let payload = index.to_le_bytes().to_vec();
+            let hash = client_blob_hash(&payload);
+            (i32::from(index), hash, payload)
+        })
+        .collect();
+
+    for (x, hash, _) in &fixtures {
+        let status = resolver
+            .accept_cached_packet(cached_request_level(*x, *hash))
+            .expect("default accepts the full Lunar request-column burst");
+        assert_eq!(status.missing, vec![*hash]);
+    }
+    assert_eq!(resolver.stats().pending_transactions, 177);
+    assert!(resolver.stats().pending_bytes > 0);
+    assert!(resolver.stats().pending_bytes <= resolver.cache().limits().max_pending_bytes);
+
+    for (_, hash, payload) in fixtures.iter().skip(1).rev() {
+        resolver
+            .accept_miss_response(ClientCacheMissResponsePacket {
+                blobs: vec![Blob {
+                    hash: *hash,
+                    payload: payload.clone(),
+                }],
+            })
+            .expect("out-of-order response remains authorized");
+        assert!(
+            resolver.pop_ready().is_none(),
+            "FIFO head is still unresolved"
+        );
+    }
+    let (_, first_hash, first_payload) = &fixtures[0];
+    resolver
+        .accept_miss_response(ClientCacheMissResponsePacket {
+            blobs: vec![Blob {
+                hash: *first_hash,
+                payload: first_payload.clone(),
+            }],
+        })
+        .expect("resolve FIFO head");
+    for (expected_x, _, _) in &fixtures {
+        let packet = pop_packet(&mut resolver, "resolved request column");
+        let McpePacketData::PacketLevelChunk(packet) = packet.data else {
+            panic!("expected LevelChunk")
+        };
+        assert_eq!(packet.x, *expected_x);
+    }
+    assert_eq!(resolver.stats().pending_transactions, 0);
+    assert_eq!(resolver.stats().pending_bytes, 0);
+}
+
+#[test]
+fn repeated_authorized_responses_remain_valid_after_the_first_populates_cache() {
+    let payload = b"shared-response";
+    let hash = client_blob_hash(payload);
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
+    for x in [1, 2] {
+        let status = resolver
+            .accept_cached_packet(cached_request_level(x, hash))
+            .expect("authorize shared miss");
+        assert_eq!(status.missing, vec![hash]);
+    }
+
+    let response = || ClientCacheMissResponsePacket {
+        blobs: vec![Blob {
+            hash,
+            payload: payload.to_vec(),
+        }],
+    };
+    resolver
+        .accept_miss_response(response())
+        .expect("first authorized response populates cache");
+    assert_eq!(resolver.stats().pending_transactions, 2);
+    let _ = pop_packet(&mut resolver, "first shared transaction");
+    let _ = pop_packet(&mut resolver, "second shared transaction");
+    assert_eq!(resolver.stats().pending_transactions, 0);
+    assert!(
+        resolver.stats().pending_bytes > 0,
+        "the still-authorized duplicate response retains independently bounded state"
+    );
+    resolver
+        .accept_miss_response(response())
+        .expect("second previously authorized identical response is accepted");
+    assert_eq!(resolver.stats().pending_bytes, 0);
+}
+
+#[test]
+fn resolver_accepts_authorized_response_after_another_resolver_fills_shared_cache() {
+    let payload = b"cross-resolver";
+    let hash = client_blob_hash(payload);
+    let cache = ClientBlobCache::default();
+    let mut first = BlobCacheResolver::new(cache.clone());
+    let mut second = BlobCacheResolver::new(cache);
+    first
+        .accept_cached_packet(cached_request_level(1, hash))
+        .expect("first authorization");
+    second
+        .accept_cached_packet(cached_request_level(2, hash))
+        .expect("second authorization");
+    let response = || ClientCacheMissResponsePacket {
+        blobs: vec![Blob {
+            hash,
+            payload: payload.to_vec(),
+        }],
+    };
+
+    first.accept_miss_response(response()).expect("first fill");
+    second
+        .accept_miss_response(response())
+        .expect("second resolver retains independent authorization");
+    let _ = pop_packet(&mut second, "second resolver transaction");
+}
+
+#[test]
+fn dropping_resolver_releases_pending_pins_for_other_resolvers() {
+    let mut bounded = limits(1, 8);
+    bounded.max_blob_bytes = 8;
+    bounded.max_pending_bytes = 4_096;
+    let cache = ClientBlobCache::with_limits(bounded);
+    let pinned = cache.insert(b"pinned").expect("seed pinned entry");
+    {
+        let mut resolver = BlobCacheResolver::new(cache.clone());
+        let missing = client_blob_hash(b"missing");
+        resolver
+            .accept_cached_packet(cached_level(vec![pinned, missing, pinned], b""))
+            .expect("pending transaction pins hit");
+    }
+
+    let replacement = cache
+        .insert(b"replace")
+        .expect("Drop releases the old resolver's pin");
+    assert!(cache.contains(replacement));
+    assert!(!cache.contains(pinned));
+}
+
+#[test]
+fn cached_subchunk_heightmaps_and_carriers_are_exactly_bounded() {
+    let entry = SubChunkEntryWithCachingItem {
+        result: SubChunkEntryWithCachingItemResult::SuccessAllAir,
+        heightmap_type: HeightMapDataType::HasData,
+        heightmap: Some([1; 256]),
+        render_heightmap_type: HeightMapDataType::HasData,
+        render_heightmap: Some([2; 256]),
+        ..Default::default()
+    };
+    let ready_bytes = size_of::<SubchunkPacket>()
+        + size_of::<valentine::bedrock::version::v1_26_30::SubChunkEntryWithoutCachingItem>();
+    let mut bounded = limits(2, 2_048);
+    bounded.max_pending_bytes = ready_bytes - 1;
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::with_limits(bounded));
+    let packet: protocol::Packet = SubchunkPacket {
+        entries: SubchunkPacketEntries::SubChunkEntryWithCaching(vec![entry]),
+        ..Default::default()
+    }
+    .into();
+
+    assert!(matches!(
+        resolver.accept_cached_packet(packet),
+        Err(BlobCacheError::TooManyPendingBytes { .. })
+    ));
+    assert!(resolver.pop_ready().is_none());
+    assert_eq!(resolver.stats().pending_transactions, 0);
+    assert_eq!(resolver.stats().pending_bytes, 0);
+}
+
+#[test]
+fn raw_cached_packet_size_participates_in_pending_admission_once() {
+    let mut bounded = limits(2, 2_048);
+    bounded.max_pending_bytes = 1_023;
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::with_limits(bounded));
+    let hash = client_blob_hash(b"missing");
+
+    assert!(matches!(
+        resolver.accept_cached_packet_with_size(cached_request_level(1, hash), 1_024),
+        Err(BlobCacheError::TooManyPendingBytes { max: 1_023 })
+    ));
 }

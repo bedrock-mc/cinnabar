@@ -267,7 +267,7 @@ impl<T: Transport> PlaySession<T> {
                         .blob_cache
                         .as_mut()
                         .expect("enabled path owns a resolver")
-                        .accept_cached_packet(packet)
+                        .accept_cached_packet_with_size(packet, packet_bytes)
                     {
                         Ok(status) => status,
                         Err(error) => return Err(error.into()),
