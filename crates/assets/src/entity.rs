@@ -17,13 +17,15 @@ pub use v4::{
     EntityAnimationLoop, EntityAnimationProperty, EntityAssetSummary, EntityControllerAnimation,
     EntityControllerState, EntityControllerTransition, EntityRigAnimationBinding, EntityRigBinding,
     EntityRigControllerBinding, EntityRigFallback, MAX_ENTITY_ANIMATION_CHANNELS,
-    MAX_ENTITY_ANIMATION_CLIPS, MAX_ENTITY_ANIMATION_KEYFRAMES, MAX_ENTITY_CONTROLLER_STATES,
-    MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS, MAX_ENTITY_RIG_BINDINGS,
-    MAX_MOLANG_COLLECTION_ITEMS, MAX_MOLANG_EXPRESSIONS, MAX_MOLANG_OPS_PER_EXPRESSION,
-    MAX_MOLANG_STACK_DEPTH, MolangOp,
+    MAX_ENTITY_ANIMATION_CLIPS, MAX_ENTITY_ANIMATION_KEYFRAMES, MAX_ENTITY_CONTROLLER_ANIMATIONS,
+    MAX_ENTITY_CONTROLLER_STATES, MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS,
+    MAX_ENTITY_RIG_ANIMATIONS, MAX_ENTITY_RIG_BINDINGS, MAX_ENTITY_RIG_CONTROLLERS,
+    MAX_MOLANG_COLLECTION_ITEMS, MAX_MOLANG_COLLECTION_ITEMS_TOTAL, MAX_MOLANG_COLLECTIONS,
+    MAX_MOLANG_EXPRESSIONS, MAX_MOLANG_OPS, MAX_MOLANG_OPS_PER_EXPRESSION, MAX_MOLANG_STACK_DEPTH,
+    MolangCollection, MolangCollectionItem, MolangOp,
 };
 
-pub const ENTITY_BLOB_MAGIC: [u8; 8] = *b"MCBEENT4";
+pub const ENTITY_BLOB_MAGIC: [u8; 8] = *b"MCBEENT3";
 pub const ENTITY_BLOB_VERSION: u32 = 4;
 pub const MAX_ENTITY_ASSET_SOURCES: usize = 8_192;
 pub const MAX_ENTITY_ASSET_SYMBOLS: usize = 16_384;
@@ -194,6 +196,7 @@ pub struct EntityGeometryInheritance {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompiledEntityAssets {
     pub source_manifest_sha256: [u8; 32],
+    pub block_visual_count: u32,
     pub sources: Box<[EntityAssetSource]>,
     pub symbols: Box<[EntityAssetSymbol]>,
     pub geometries: Box<[EntityGeometry]>,
@@ -203,6 +206,8 @@ pub struct CompiledEntityAssets {
     pub molang_symbols: Box<[Box<str>]>,
     pub molang_expressions: Box<[CompiledMolangExpression]>,
     pub molang_ops: Box<[MolangOp]>,
+    pub molang_collections: Box<[MolangCollection]>,
+    pub molang_collection_items: Box<[MolangCollectionItem]>,
     pub controllers: Box<[EntityAnimationController]>,
     pub controller_states: Box<[EntityControllerState]>,
     pub controller_animations: Box<[EntityControllerAnimation]>,
@@ -217,6 +222,7 @@ pub struct CompiledEntityAssets {
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct EntityCatalogPayload {
+    block_visual_count: u32,
     sources: Box<[EntityAssetSource]>,
     symbols: Box<[EntityAssetSymbol]>,
     geometries: Box<[EntityGeometry]>,
@@ -226,6 +232,8 @@ struct EntityCatalogPayload {
     molang_symbols: Box<[Box<str>]>,
     molang_expressions: Box<[CompiledMolangExpression]>,
     molang_ops: Box<[MolangOp]>,
+    molang_collections: Box<[MolangCollection]>,
+    molang_collection_items: Box<[MolangCollectionItem]>,
     controllers: Box<[EntityAnimationController]>,
     controller_states: Box<[EntityControllerState]>,
     controller_animations: Box<[EntityControllerAnimation]>,
@@ -240,6 +248,7 @@ struct EntityCatalogPayload {
 #[derive(Clone, Debug)]
 pub struct RuntimeEntityAssets {
     source_manifest_sha256: [u8; 32],
+    block_visual_count: u32,
     sources: Arc<[EntityAssetSource]>,
     symbols: Arc<[EntityAssetSymbol]>,
     geometries: Arc<[EntityGeometry]>,
@@ -249,6 +258,8 @@ pub struct RuntimeEntityAssets {
     molang_symbols: Arc<[Box<str>]>,
     molang_expressions: Arc<[CompiledMolangExpression]>,
     molang_ops: Arc<[MolangOp]>,
+    molang_collections: Arc<[MolangCollection]>,
+    molang_collection_items: Arc<[MolangCollectionItem]>,
     controllers: Arc<[EntityAnimationController]>,
     controller_states: Arc<[EntityControllerState]>,
     controller_animations: Arc<[EntityControllerAnimation]>,
@@ -328,6 +339,7 @@ impl RuntimeEntityAssets {
         }
         let compiled = CompiledEntityAssets {
             source_manifest_sha256,
+            block_visual_count: payload.block_visual_count,
             sources: payload.sources,
             symbols: payload.symbols,
             geometries: payload.geometries,
@@ -337,6 +349,8 @@ impl RuntimeEntityAssets {
             molang_symbols: payload.molang_symbols,
             molang_expressions: payload.molang_expressions,
             molang_ops: payload.molang_ops,
+            molang_collections: payload.molang_collections,
+            molang_collection_items: payload.molang_collection_items,
             controllers: payload.controllers,
             controller_states: payload.controller_states,
             controller_animations: payload.controller_animations,
@@ -350,6 +364,7 @@ impl RuntimeEntityAssets {
         validate_compiled(&compiled)?;
         Ok(Self {
             source_manifest_sha256,
+            block_visual_count: compiled.block_visual_count,
             sources: Arc::from(compiled.sources),
             symbols: Arc::from(compiled.symbols),
             geometries: Arc::from(compiled.geometries),
@@ -359,6 +374,8 @@ impl RuntimeEntityAssets {
             molang_symbols: Arc::from(compiled.molang_symbols),
             molang_expressions: Arc::from(compiled.molang_expressions),
             molang_ops: Arc::from(compiled.molang_ops),
+            molang_collections: Arc::from(compiled.molang_collections),
+            molang_collection_items: Arc::from(compiled.molang_collection_items),
             controllers: Arc::from(compiled.controllers),
             controller_states: Arc::from(compiled.controller_states),
             controller_animations: Arc::from(compiled.controller_animations),
@@ -374,6 +391,11 @@ impl RuntimeEntityAssets {
     #[must_use]
     pub const fn source_manifest_sha256(&self) -> [u8; 32] {
         self.source_manifest_sha256
+    }
+
+    #[must_use]
+    pub const fn block_visual_count(&self) -> u32 {
+        self.block_visual_count
     }
 
     #[must_use]
@@ -413,76 +435,7 @@ impl RuntimeEntityAssets {
 }
 
 pub fn encode_entity_blob(compiled: &CompiledEntityAssets) -> Result<Box<[u8]>, AssetError> {
-    validate_compiled(compiled)?;
-    let payload = serde_json::to_vec(&EntityCatalogPayload {
-        sources: compiled.sources.clone(),
-        symbols: compiled.symbols.clone(),
-        geometries: compiled.geometries.clone(),
-        animation_clips: compiled.animation_clips.clone(),
-        animation_channels: compiled.animation_channels.clone(),
-        animation_keyframes: compiled.animation_keyframes.clone(),
-        molang_symbols: compiled.molang_symbols.clone(),
-        molang_expressions: compiled.molang_expressions.clone(),
-        molang_ops: compiled.molang_ops.clone(),
-        controllers: compiled.controllers.clone(),
-        controller_states: compiled.controller_states.clone(),
-        controller_animations: compiled.controller_animations.clone(),
-        controller_transitions: compiled.controller_transitions.clone(),
-        rig_bindings: compiled.rig_bindings.clone(),
-        rig_animations: compiled.rig_animations.clone(),
-        rig_controllers: compiled.rig_controllers.clone(),
-        item_visuals: compiled.item_visuals.clone(),
-        item_visual_aliases: compiled.item_visual_aliases.clone(),
-    })
-    .map_err(|_| invalid("failed to encode MCBEENT4 catalog payload"))?;
-    if payload.len() > MAX_ENTITY_CATALOG_BYTES {
-        return Err(invalid("MCBEENT4 catalog payload exceeds bound"));
-    }
-    let total = HEADER_BYTES
-        .checked_add(payload.len())
-        .and_then(|length| length.checked_add(HASH_BYTES))
-        .ok_or_else(|| invalid("MCBEENT4 length overflow"))?;
-    let mut bytes = Vec::with_capacity(total);
-    bytes.extend_from_slice(&ENTITY_BLOB_MAGIC);
-    bytes.extend_from_slice(&ENTITY_BLOB_VERSION.to_le_bytes());
-    bytes.extend_from_slice(
-        &u32::try_from(compiled.sources.len())
-            .map_err(|_| invalid("MCBEENT4 source count overflow"))?
-            .to_le_bytes(),
-    );
-    bytes.extend_from_slice(
-        &u32::try_from(compiled.symbols.len())
-            .map_err(|_| invalid("MCBEENT4 symbol count overflow"))?
-            .to_le_bytes(),
-    );
-    bytes.extend_from_slice(
-        &u32::try_from(compiled.geometries.len())
-            .map_err(|_| invalid("MCBEENT4 geometry count overflow"))?
-            .to_le_bytes(),
-    );
-    bytes.extend_from_slice(&compiled.source_manifest_sha256);
-    bytes.extend_from_slice(
-        &u64::try_from(payload.len())
-            .map_err(|_| invalid("MCBEENT4 payload length overflow"))?
-            .to_le_bytes(),
-    );
-    for (count, section) in [
-        (compiled.animation_clips.len(), "animation clip"),
-        (compiled.controllers.len(), "controller"),
-        (compiled.rig_bindings.len(), "rig binding"),
-        (compiled.item_visuals.len(), "item visual"),
-    ] {
-        bytes.extend_from_slice(
-            &u32::try_from(count)
-                .map_err(|_| invalid(format!("MCBEENT4 {section} count overflow")))?
-                .to_le_bytes(),
-        );
-    }
-    debug_assert_eq!(bytes.len(), HEADER_BYTES);
-    bytes.extend_from_slice(&payload);
-    let digest = Sha256::digest(&bytes);
-    bytes.extend_from_slice(&digest);
-    Ok(bytes.into_boxed_slice())
+    v4::encode_compiled(compiled)
 }
 
 fn validate_compiled(compiled: &CompiledEntityAssets) -> Result<(), AssetError> {

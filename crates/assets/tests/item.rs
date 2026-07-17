@@ -146,6 +146,7 @@ fn action_phase_contract_carries_exact_tick_progress() {
 fn item_carrier_fixture() -> CompiledEntityAssetsV4 {
     CompiledEntityAssetsV4 {
         source_manifest_sha256: [0x31; 32],
+        block_visual_count: 1,
         sources: vec![
             entity::EntityAssetSource {
                 path: "entity/item_frame.entity.json".into(),
@@ -181,6 +182,8 @@ fn item_carrier_fixture() -> CompiledEntityAssetsV4 {
         molang_symbols: Box::new([]),
         molang_expressions: Box::new([]),
         molang_ops: Box::new([]),
+        molang_collections: Box::new([]),
+        molang_collection_items: Box::new([]),
         controllers: Box::new([]),
         controller_states: Box::new([]),
         controller_animations: Box::new([]),
@@ -230,21 +233,36 @@ fn item_carrier_round_trips_display_transforms_texture_sources_and_aliases() {
 #[test]
 fn item_carrier_accepts_exact_limits_and_rejects_limit_plus_one() {
     let mut compiled = item_carrier_fixture();
-    compiled.item_visuals =
-        vec![compiled.item_visuals[0].clone(); MAX_ITEM_VISUALS].into_boxed_slice();
+    compiled.item_visuals = (0..MAX_ITEM_VISUALS)
+        .map(|index| ItemVisualDefinition {
+            identifier: format!("minecraft:item_{index:05}").into_boxed_str(),
+            ..compiled.item_visuals[0].clone()
+        })
+        .collect();
     compiled.item_visual_aliases = Box::new([]);
     assert!(compiled.validate().is_ok());
-    compiled.item_visuals =
-        vec![compiled.item_visuals[0].clone(); MAX_ITEM_VISUALS + 1].into_boxed_slice();
+    compiled.item_visuals = (0..=MAX_ITEM_VISUALS)
+        .map(|index| ItemVisualDefinition {
+            identifier: format!("minecraft:item_{index:05}").into_boxed_str(),
+            ..compiled.item_visuals[0].clone()
+        })
+        .collect();
     assert!(compiled.validate().is_err());
 
     let mut compiled = item_carrier_fixture();
-    compiled.item_visual_aliases =
-        vec![compiled.item_visual_aliases[0].clone(); MAX_ITEM_VISUAL_ALIASES].into_boxed_slice();
+    compiled.item_visual_aliases = (0..MAX_ITEM_VISUAL_ALIASES)
+        .map(|index| ItemVisualAlias {
+            identifier: format!("minecraft:alias_{index:05}").into_boxed_str(),
+            visual: item::ItemVisualId(0),
+        })
+        .collect();
     assert!(compiled.validate().is_ok());
-    compiled.item_visual_aliases =
-        vec![compiled.item_visual_aliases[0].clone(); MAX_ITEM_VISUAL_ALIASES + 1]
-            .into_boxed_slice();
+    compiled.item_visual_aliases = (0..=MAX_ITEM_VISUAL_ALIASES)
+        .map(|index| ItemVisualAlias {
+            identifier: format!("minecraft:alias_{index:05}").into_boxed_str(),
+            visual: item::ItemVisualId(0),
+        })
+        .collect();
     assert!(compiled.validate().is_err());
 
     let mut compiled = item_carrier_fixture();
@@ -252,6 +270,37 @@ fn item_carrier_accepts_exact_limits_and_rejects_limit_plus_one() {
     assert!(compiled.validate().is_ok());
     compiled.item_visuals[0].identifier =
         "x".repeat(MAX_ITEM_IDENTIFIER_BYTES + 1).into_boxed_str();
+    assert!(compiled.validate().is_err());
+}
+
+#[test]
+fn item_carrier_requires_sorted_unique_identifiers_and_bounded_block_routes() {
+    let mut compiled = item_carrier_fixture();
+    compiled.item_visuals = vec![
+        compiled.item_visuals[0].clone(),
+        compiled.item_visuals[0].clone(),
+    ]
+    .into_boxed_slice();
+    assert!(compiled.validate().is_err());
+
+    let mut compiled = item_carrier_fixture();
+    compiled.item_visual_aliases = vec![
+        ItemVisualAlias {
+            identifier: "minecraft:z".into(),
+            visual: item::ItemVisualId(0),
+        },
+        ItemVisualAlias {
+            identifier: "minecraft:a".into(),
+            visual: item::ItemVisualId(0),
+        },
+    ]
+    .into_boxed_slice();
+    assert!(compiled.validate().is_err());
+
+    let mut compiled = item_carrier_fixture();
+    compiled.item_visuals[0].block_visual = Some(item::BlockVisualId(0));
+    assert!(compiled.validate().is_ok());
+    compiled.item_visuals[0].block_visual = Some(item::BlockVisualId(1));
     assert!(compiled.validate().is_err());
 }
 

@@ -6,6 +6,7 @@ use crate::AssetError;
 pub const MAX_ITEM_VISUALS: usize = 16_384;
 pub const MAX_ITEM_VISUAL_ALIASES: usize = 65_536;
 pub const MAX_ITEM_IDENTIFIER_BYTES: usize = 256;
+pub const MAX_BLOCK_VISUALS: usize = 65_536;
 
 const MAX_ITEM_DISPLAY_SCALAR: f32 = 1_048_576.0;
 
@@ -148,25 +149,39 @@ pub(crate) fn validate_item_visuals(
     visuals: &[ItemVisualDefinition],
     aliases: &[ItemVisualAlias],
     sources: usize,
+    block_visual_count: usize,
 ) -> Result<(), AssetError> {
-    if visuals.len() > MAX_ITEM_VISUALS || aliases.len() > MAX_ITEM_VISUAL_ALIASES {
+    if visuals.len() > MAX_ITEM_VISUALS
+        || aliases.len() > MAX_ITEM_VISUAL_ALIASES
+        || block_visual_count > MAX_BLOCK_VISUALS
+    {
         return Err(invalid("item visual or alias count exceeds bound"));
     }
+    let mut previous_visual: Option<&str> = None;
     for visual in visuals {
         validate_item_identifier(&visual.identifier)?;
-        if visual.texture_source as usize >= sources
+        if previous_visual.is_some_and(|previous| previous >= visual.identifier.as_ref())
+            || visual.texture_source as usize >= sources
             || !visual.first_person.is_canonical()
             || !visual.third_person.is_canonical()
             || !visual.dropped.is_canonical()
+            || visual
+                .block_visual
+                .is_some_and(|index| index.0 as usize >= block_visual_count)
         {
-            return Err(invalid("invalid item visual source or display transform"));
+            return Err(invalid("invalid or unordered item visual"));
         }
+        previous_visual = Some(&visual.identifier);
     }
+    let mut previous_alias: Option<&str> = None;
     for alias in aliases {
         validate_item_identifier(&alias.identifier)?;
-        if alias.visual.0 as usize >= visuals.len() {
-            return Err(invalid("item visual alias index is out of range"));
+        if previous_alias.is_some_and(|previous| previous >= alias.identifier.as_ref())
+            || alias.visual.0 as usize >= visuals.len()
+        {
+            return Err(invalid("invalid or unordered item visual alias"));
         }
+        previous_alias = Some(&alias.identifier);
     }
     Ok(())
 }

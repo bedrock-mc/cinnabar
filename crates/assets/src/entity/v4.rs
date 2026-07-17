@@ -1,4 +1,4 @@
-use serde::{Deserialize, Deserializer, Serialize, de};
+use serde::{Deserialize, Serialize};
 
 use crate::{
     AssetError,
@@ -7,8 +7,8 @@ use crate::{
 
 use super::{
     CompiledEntityAssets, EntityAssetKind, EntityAssetSymbol, EntityGeometryScalar,
-    RuntimeEntityAssets, encode_entity_blob, invalid, validate_compiled, validate_geometry_scalar,
-    validate_identifier, validate_scalars,
+    RuntimeEntityAssets, invalid, validate_compiled, validate_geometry_scalar, validate_identifier,
+    validate_scalars,
 };
 
 pub const MAX_ENTITY_ANIMATION_CLIPS: usize = 4_096;
@@ -17,92 +17,25 @@ pub const MAX_ENTITY_ANIMATION_KEYFRAMES: usize = 524_288;
 pub const MAX_ENTITY_CONTROLLERS: usize = 2_048;
 pub const MAX_ENTITY_CONTROLLER_STATES: usize = 16_384;
 pub const MAX_ENTITY_CONTROLLER_TRANSITIONS: usize = 32_768;
+pub const MAX_ENTITY_CONTROLLER_ANIMATIONS: usize = 524_288;
 pub const MAX_MOLANG_EXPRESSIONS: usize = 65_536;
 pub const MAX_MOLANG_OPS_PER_EXPRESSION: usize = 256;
+pub const MAX_MOLANG_OPS: usize = 1_048_576;
 pub const MAX_MOLANG_STACK_DEPTH: u8 = 32;
 pub const MAX_MOLANG_COLLECTION_ITEMS: usize = 32;
+pub const MAX_MOLANG_COLLECTIONS: usize = 16_384;
+pub const MAX_MOLANG_COLLECTION_ITEMS_TOTAL: usize =
+    MAX_MOLANG_COLLECTIONS * MAX_MOLANG_COLLECTION_ITEMS;
 pub const MAX_ENTITY_RIG_BINDINGS: usize = 8_192;
+pub const MAX_ENTITY_RIG_ANIMATIONS: usize = 262_144;
+pub const MAX_ENTITY_RIG_CONTROLLERS: usize = 262_144;
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct EntityCatalogCountProbe {
-    sources: SequenceCount,
-    symbols: SequenceCount,
-    geometries: SequenceCount,
-    animation_clips: SequenceCount,
-    #[serde(rename = "animation_channels")]
-    _animation_channels: de::IgnoredAny,
-    #[serde(rename = "animation_keyframes")]
-    _animation_keyframes: de::IgnoredAny,
-    #[serde(rename = "molang_symbols")]
-    _molang_symbols: de::IgnoredAny,
-    #[serde(rename = "molang_expressions")]
-    _molang_expressions: de::IgnoredAny,
-    #[serde(rename = "molang_ops")]
-    _molang_ops: de::IgnoredAny,
-    controllers: SequenceCount,
-    #[serde(rename = "controller_states")]
-    _controller_states: de::IgnoredAny,
-    #[serde(rename = "controller_animations")]
-    _controller_animations: de::IgnoredAny,
-    #[serde(rename = "controller_transitions")]
-    _controller_transitions: de::IgnoredAny,
-    rig_bindings: SequenceCount,
-    #[serde(rename = "rig_animations")]
-    _rig_animations: de::IgnoredAny,
-    #[serde(rename = "rig_controllers")]
-    _rig_controllers: de::IgnoredAny,
-    item_visuals: SequenceCount,
-    #[serde(rename = "item_visual_aliases")]
-    _item_visual_aliases: de::IgnoredAny,
-}
-
-struct SequenceCount(usize);
-
-impl<'de> Deserialize<'de> for SequenceCount {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct Visitor;
-
-        impl<'de> de::Visitor<'de> for Visitor {
-            type Value = SequenceCount;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("an entity carrier array")
-            }
-
-            fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
-            where
-                A: de::SeqAccess<'de>,
-            {
-                let mut count = 0usize;
-                while sequence.next_element::<de::IgnoredAny>()?.is_some() {
-                    count = count
-                        .checked_add(1)
-                        .ok_or_else(|| de::Error::custom("entity carrier array count overflow"))?;
-                }
-                Ok(SequenceCount(count))
-            }
-        }
-
-        deserializer.deserialize_seq(Visitor)
-    }
-}
-
-pub(super) fn payload_counts(bytes: &[u8]) -> Result<[usize; 7], serde_json::Error> {
-    let counts: EntityCatalogCountProbe = serde_json::from_slice(bytes)?;
-    Ok([
-        counts.sources.0,
-        counts.symbols.0,
-        counts.geometries.0,
-        counts.animation_clips.0,
-        counts.controllers.0,
-        counts.rig_bindings.0,
-        counts.item_visuals.0,
-    ])
-}
+#[path = "v4/preflight.rs"]
+mod preflight;
+pub(super) use preflight::payload_counts;
+#[path = "v4/encode.rs"]
+mod encode;
+pub(super) use encode::{encode_compiled, encode_runtime};
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[repr(u8)]
@@ -165,6 +98,19 @@ pub struct CompiledMolangExpression {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct MolangCollection {
+    pub first_item: u32,
+    pub item_count: u8,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct MolangCollectionItem {
+    pub value: EntityGeometryScalar,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case", tag = "op", content = "operand")]
 pub enum MolangOp {
     Push(EntityGeometryScalar),
@@ -175,8 +121,16 @@ pub enum MolangOp {
     Subtract,
     Multiply,
     Divide,
+    Modulo,
     Negate,
     Not,
+    Abs,
+    Ceil,
+    Floor,
+    Round,
+    Sqrt,
+    Sin,
+    Cos,
     And,
     Or,
     Equal,
@@ -185,7 +139,12 @@ pub enum MolangOp {
     LessEqual,
     Greater,
     GreaterEqual,
+    Min,
+    Max,
     Select,
+    Clamp,
+    Lerp,
+    SelectCollection(u32),
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -268,11 +227,19 @@ pub struct EntityAssetSummary {
     pub animation_keyframes: usize,
     pub controllers: usize,
     pub controller_states: usize,
+    pub controller_animations: usize,
     pub controller_transitions: usize,
+    pub molang_symbols: usize,
     pub molang_expressions: usize,
+    pub molang_ops: usize,
+    pub molang_collections: usize,
+    pub molang_collection_items: usize,
     pub rig_bindings: usize,
+    pub rig_animations: usize,
+    pub rig_controllers: usize,
     pub item_visuals: usize,
     pub item_visual_aliases: usize,
+    pub block_visuals: usize,
 }
 
 impl CompiledEntityAssets {
@@ -310,6 +277,16 @@ impl RuntimeEntityAssets {
     #[must_use]
     pub fn molang_ops(&self) -> &[MolangOp] {
         &self.molang_ops
+    }
+
+    #[must_use]
+    pub fn molang_collections(&self) -> &[MolangCollection] {
+        &self.molang_collections
+    }
+
+    #[must_use]
+    pub fn molang_collection_items(&self) -> &[MolangCollectionItem] {
+        &self.molang_collection_items
     }
 
     #[must_use]
@@ -368,36 +345,24 @@ impl RuntimeEntityAssets {
             animation_keyframes: self.animation_keyframes.len(),
             controllers: self.controllers.len(),
             controller_states: self.controller_states.len(),
+            controller_animations: self.controller_animations.len(),
             controller_transitions: self.controller_transitions.len(),
+            molang_symbols: self.molang_symbols.len(),
             molang_expressions: self.molang_expressions.len(),
+            molang_ops: self.molang_ops.len(),
+            molang_collections: self.molang_collections.len(),
+            molang_collection_items: self.molang_collection_items.len(),
             rig_bindings: self.rig_bindings.len(),
+            rig_animations: self.rig_animations.len(),
+            rig_controllers: self.rig_controllers.len(),
             item_visuals: self.item_visuals.len(),
             item_visual_aliases: self.item_visual_aliases.len(),
+            block_visuals: self.block_visual_count as usize,
         }
     }
 
     pub fn encode(&self) -> Result<Box<[u8]>, AssetError> {
-        encode_entity_blob(&CompiledEntityAssets {
-            source_manifest_sha256: self.source_manifest_sha256,
-            sources: self.sources.iter().cloned().collect(),
-            symbols: self.symbols.iter().cloned().collect(),
-            geometries: self.geometries.iter().cloned().collect(),
-            animation_clips: self.animation_clips.iter().copied().collect(),
-            animation_channels: self.animation_channels.iter().copied().collect(),
-            animation_keyframes: self.animation_keyframes.iter().copied().collect(),
-            molang_symbols: self.molang_symbols.iter().cloned().collect(),
-            molang_expressions: self.molang_expressions.iter().copied().collect(),
-            molang_ops: self.molang_ops.iter().copied().collect(),
-            controllers: self.controllers.iter().copied().collect(),
-            controller_states: self.controller_states.iter().copied().collect(),
-            controller_animations: self.controller_animations.iter().copied().collect(),
-            controller_transitions: self.controller_transitions.iter().copied().collect(),
-            rig_bindings: self.rig_bindings.iter().copied().collect(),
-            rig_animations: self.rig_animations.iter().copied().collect(),
-            rig_controllers: self.rig_controllers.iter().copied().collect(),
-            item_visuals: self.item_visuals.iter().cloned().collect(),
-            item_visual_aliases: self.item_visual_aliases.iter().cloned().collect(),
-        })
+        encode_runtime(self)
     }
 }
 
@@ -410,6 +375,7 @@ pub(super) fn validate_extended_payload(compiled: &CompiledEntityAssets) -> Resu
         &compiled.item_visuals,
         &compiled.item_visual_aliases,
         compiled.sources.len(),
+        compiled.block_visual_count as usize,
     )?;
     for visual in &compiled.item_visuals {
         let path = &compiled.sources[visual.texture_source as usize].path;
@@ -429,14 +395,6 @@ fn validate_animation_payload(compiled: &CompiledEntityAssets) -> Result<(), Ass
     {
         return Err(invalid("entity animation payload count exceeds bound"));
     }
-    let bone_count = compiled
-        .geometries
-        .iter()
-        .try_fold(0usize, |total, geometry| {
-            total
-                .checked_add(geometry.bones.len())
-                .ok_or_else(|| invalid("entity animation bone count overflow"))
-        })?;
     for clip in &compiled.animation_clips {
         validate_geometry_scalar(clip.length_seconds)?;
         if clip.length_seconds.get() < 0.0
@@ -453,13 +411,11 @@ fn validate_animation_payload(compiled: &CompiledEntityAssets) -> Result<(), Ass
         }
     }
     for channel in &compiled.animation_channels {
-        if channel.bone as usize >= bone_count
-            || !range_in_bounds(
-                channel.first_keyframe,
-                channel.keyframe_count,
-                compiled.animation_keyframes.len(),
-            )
-        {
+        if !range_in_bounds(
+            channel.first_keyframe,
+            channel.keyframe_count,
+            compiled.animation_keyframes.len(),
+        ) {
             return Err(invalid("entity animation channel index is out of range"));
         }
     }
@@ -470,14 +426,33 @@ fn validate_animation_payload(compiled: &CompiledEntityAssets) -> Result<(), Ass
             return Err(invalid("entity animation keyframe time is negative"));
         }
     }
+    validate_flattened_ranges(
+        compiled
+            .animation_clips
+            .iter()
+            .map(|clip| (clip.first_channel, clip.channel_count)),
+        compiled.animation_channels.len(),
+        "animation channel",
+    )?;
+    validate_flattened_ranges(
+        compiled
+            .animation_channels
+            .iter()
+            .map(|channel| (channel.first_keyframe, channel.keyframe_count)),
+        compiled.animation_keyframes.len(),
+        "animation keyframe",
+    )?;
     Ok(())
 }
 
 fn validate_molang_payload(compiled: &CompiledEntityAssets) -> Result<(), AssetError> {
     if compiled.molang_symbols.len() > MAX_MOLANG_EXPRESSIONS
         || compiled.molang_expressions.len() > MAX_MOLANG_EXPRESSIONS
+        || compiled.molang_ops.len() > MAX_MOLANG_OPS
+        || compiled.molang_collections.len() > MAX_MOLANG_COLLECTIONS
+        || compiled.molang_collection_items.len() > MAX_MOLANG_COLLECTION_ITEMS_TOTAL
     {
-        return Err(invalid("Molang symbol or expression count exceeds bound"));
+        return Err(invalid("Molang payload count exceeds bound"));
     }
     let mut previous: Option<&str> = None;
     for symbol in &compiled.molang_symbols {
@@ -502,6 +477,14 @@ fn validate_molang_payload(compiled: &CompiledEntityAssets) -> Result<(), AssetE
         let end = start + expression.op_count as usize;
         validate_molang_stack(&compiled.molang_ops[start..end], expression.max_stack)?;
     }
+    validate_flattened_ranges(
+        compiled
+            .molang_expressions
+            .iter()
+            .map(|expression| (expression.first_op, u32::from(expression.op_count))),
+        compiled.molang_ops.len(),
+        "Molang operation",
+    )?;
     for op in &compiled.molang_ops {
         match *op {
             MolangOp::Push(value) => validate_geometry_scalar(value)?,
@@ -512,12 +495,25 @@ fn validate_molang_payload(compiled: &CompiledEntityAssets) -> Result<(), AssetE
                     return Err(invalid("Molang symbol index is out of range"));
                 }
             }
+            MolangOp::SelectCollection(collection) => {
+                if collection as usize >= compiled.molang_collections.len() {
+                    return Err(invalid("Molang collection index is out of range"));
+                }
+            }
             MolangOp::Add
             | MolangOp::Subtract
             | MolangOp::Multiply
             | MolangOp::Divide
+            | MolangOp::Modulo
             | MolangOp::Negate
             | MolangOp::Not
+            | MolangOp::Abs
+            | MolangOp::Ceil
+            | MolangOp::Floor
+            | MolangOp::Round
+            | MolangOp::Sqrt
+            | MolangOp::Sin
+            | MolangOp::Cos
             | MolangOp::And
             | MolangOp::Or
             | MolangOp::Equal
@@ -526,8 +522,35 @@ fn validate_molang_payload(compiled: &CompiledEntityAssets) -> Result<(), AssetE
             | MolangOp::LessEqual
             | MolangOp::Greater
             | MolangOp::GreaterEqual
-            | MolangOp::Select => {}
+            | MolangOp::Min
+            | MolangOp::Max
+            | MolangOp::Select
+            | MolangOp::Clamp
+            | MolangOp::Lerp => {}
         }
+    }
+    for collection in &compiled.molang_collections {
+        if collection.item_count == 0
+            || collection.item_count as usize > MAX_MOLANG_COLLECTION_ITEMS
+            || !range_in_bounds(
+                collection.first_item,
+                u32::from(collection.item_count),
+                compiled.molang_collection_items.len(),
+            )
+        {
+            return Err(invalid("invalid Molang collection range"));
+        }
+    }
+    validate_flattened_ranges(
+        compiled
+            .molang_collections
+            .iter()
+            .map(|collection| (collection.first_item, u32::from(collection.item_count))),
+        compiled.molang_collection_items.len(),
+        "Molang collection item",
+    )?;
+    for item in &compiled.molang_collection_items {
+        validate_geometry_scalar(item.value)?;
     }
     Ok(())
 }
@@ -548,6 +571,7 @@ fn validate_molang_stack(ops: &[MolangOp], declared_max: u8) -> Result<(), Asset
             | MolangOp::Subtract
             | MolangOp::Multiply
             | MolangOp::Divide
+            | MolangOp::Modulo
             | MolangOp::And
             | MolangOp::Or
             | MolangOp::Equal
@@ -555,18 +579,29 @@ fn validate_molang_stack(ops: &[MolangOp], declared_max: u8) -> Result<(), Asset
             | MolangOp::Less
             | MolangOp::LessEqual
             | MolangOp::Greater
-            | MolangOp::GreaterEqual => {
+            | MolangOp::GreaterEqual
+            | MolangOp::Min
+            | MolangOp::Max => {
                 if depth < 2 {
                     return Err(invalid("Molang expression stack underflows"));
                 }
                 depth -= 1;
             }
-            MolangOp::Negate | MolangOp::Not => {
+            MolangOp::Negate
+            | MolangOp::Not
+            | MolangOp::Abs
+            | MolangOp::Ceil
+            | MolangOp::Floor
+            | MolangOp::Round
+            | MolangOp::Sqrt
+            | MolangOp::Sin
+            | MolangOp::Cos
+            | MolangOp::SelectCollection(_) => {
                 if depth < 1 {
                     return Err(invalid("Molang expression stack underflows"));
                 }
             }
-            MolangOp::Select => {
+            MolangOp::Select | MolangOp::Clamp | MolangOp::Lerp => {
                 if depth < 3 {
                     return Err(invalid("Molang expression stack underflows"));
                 }
@@ -578,12 +613,21 @@ fn validate_molang_stack(ops: &[MolangOp], declared_max: u8) -> Result<(), Asset
             return Err(invalid("Molang expression exceeds its declared stack"));
         }
     }
+    if depth != 1 {
+        return Err(invalid(
+            "Molang expression must leave exactly one stack value",
+        ));
+    }
+    if observed_max != declared_max as usize {
+        return Err(invalid("Molang expression declared stack is not exact"));
+    }
     Ok(())
 }
 
 fn validate_controller_payload(compiled: &CompiledEntityAssets) -> Result<(), AssetError> {
     if compiled.controllers.len() > MAX_ENTITY_CONTROLLERS
         || compiled.controller_states.len() > MAX_ENTITY_CONTROLLER_STATES
+        || compiled.controller_animations.len() > MAX_ENTITY_CONTROLLER_ANIMATIONS
         || compiled.controller_transitions.len() > MAX_ENTITY_CONTROLLER_TRANSITIONS
     {
         return Err(invalid("entity controller payload count exceeds bound"));
@@ -610,6 +654,30 @@ fn validate_controller_payload(compiled: &CompiledEntityAssets) -> Result<(), As
             validate_controller_state(compiled, state, controller.state_count)?;
         }
     }
+    validate_flattened_ranges(
+        compiled
+            .controllers
+            .iter()
+            .map(|controller| (controller.first_state, u32::from(controller.state_count))),
+        compiled.controller_states.len(),
+        "controller state",
+    )?;
+    validate_flattened_ranges(
+        compiled
+            .controller_states
+            .iter()
+            .map(|state| (state.first_animation, u32::from(state.animation_count))),
+        compiled.controller_animations.len(),
+        "controller animation",
+    )?;
+    validate_flattened_ranges(
+        compiled
+            .controller_states
+            .iter()
+            .map(|state| (state.first_transition, u32::from(state.transition_count))),
+        compiled.controller_transitions.len(),
+        "controller transition",
+    )?;
     Ok(())
 }
 
@@ -619,7 +687,6 @@ fn validate_controller_state(
     controller_state_count: u16,
 ) -> Result<(), AssetError> {
     if state.name as usize >= compiled.molang_symbols.len()
-        || state.animation_count as usize > MAX_MOLANG_COLLECTION_ITEMS
         || !range_in_bounds(
             state.first_animation,
             u32::from(state.animation_count),
@@ -665,7 +732,10 @@ fn validate_controller_state(
 }
 
 fn validate_rig_payload(compiled: &CompiledEntityAssets) -> Result<(), AssetError> {
-    if compiled.rig_bindings.len() > MAX_ENTITY_RIG_BINDINGS {
+    if compiled.rig_bindings.len() > MAX_ENTITY_RIG_BINDINGS
+        || compiled.rig_animations.len() > MAX_ENTITY_RIG_ANIMATIONS
+        || compiled.rig_controllers.len() > MAX_ENTITY_RIG_CONTROLLERS
+    {
         return Err(invalid("entity rig binding count exceeds bound"));
     }
     for binding in &compiled.rig_bindings {
@@ -692,6 +762,23 @@ fn validate_rig_payload(compiled: &CompiledEntityAssets) -> Result<(), AssetErro
         {
             return Err(invalid("entity rig binding index is out of range"));
         }
+        let geometry_bones = compiled.geometries[binding.geometry as usize].bones.len();
+        let rig_animations = &compiled.rig_animations[binding.first_animation as usize
+            ..binding.first_animation as usize + binding.animation_count as usize];
+        for animation in rig_animations {
+            if let Some(clip) = compiled.animation_clips.get(animation.clip as usize) {
+                let channels = &compiled.animation_channels[clip.first_channel as usize
+                    ..clip.first_channel as usize + clip.channel_count as usize];
+                if channels
+                    .iter()
+                    .any(|channel| channel.bone as usize >= geometry_bones)
+                {
+                    return Err(invalid(
+                        "entity animation channel bone is out of range for its rig geometry",
+                    ));
+                }
+            }
+        }
     }
     for binding in &compiled.rig_animations {
         if binding.name as usize >= compiled.molang_symbols.len()
@@ -706,6 +793,51 @@ fn validate_rig_payload(compiled: &CompiledEntityAssets) -> Result<(), AssetErro
         {
             return Err(invalid("entity rig controller index is out of range"));
         }
+    }
+    validate_flattened_ranges(
+        compiled
+            .rig_bindings
+            .iter()
+            .map(|binding| (binding.first_animation, u32::from(binding.animation_count))),
+        compiled.rig_animations.len(),
+        "rig animation",
+    )?;
+    validate_flattened_ranges(
+        compiled.rig_bindings.iter().map(|binding| {
+            (
+                binding.first_controller,
+                u32::from(binding.controller_count),
+            )
+        }),
+        compiled.rig_controllers.len(),
+        "rig controller",
+    )?;
+    Ok(())
+}
+
+fn validate_flattened_ranges(
+    ranges: impl IntoIterator<Item = (u32, u32)>,
+    total: usize,
+    section: &str,
+) -> Result<(), AssetError> {
+    let mut next = 0usize;
+    for (first, count) in ranges {
+        let first = first as usize;
+        let count = count as usize;
+        if first != next {
+            return Err(invalid(format!(
+                "noncanonical {section} ranges overlap or leave an orphan gap"
+            )));
+        }
+        next = next
+            .checked_add(count)
+            .ok_or_else(|| invalid(format!("{section} range overflows")))?;
+        if next > total {
+            return Err(invalid(format!("{section} range is out of bounds")));
+        }
+    }
+    if next != total {
+        return Err(invalid(format!("orphan {section} tail")));
     }
     Ok(())
 }
