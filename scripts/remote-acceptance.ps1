@@ -68,6 +68,7 @@ $manifest = [pscustomobject][ordered]@{
     world_ready_observed = $false
     join_milliseconds = $null
     publication_snapshot_count = 0
+    client_blob_cache_route = $null
     first_stalled_stage = $null
     findings = @()
     metrics_evidence = [pscustomobject][ordered]@{ status = 'pending'; reason = $null }
@@ -155,7 +156,7 @@ try {
         $coreLogsCompleted = $true
         Complete-Phase2DiagnosticEvidence -Manifest $manifest `
             -ClientLogPath (Join-Path $RunDirectory 'client.stdout.log') `
-            -ExpectedPresentMode $PresentMode -WorldReadyObserved:$false
+            -ExpectedPresentMode $PresentMode -WorldReadyObserved:$false -Server $Server
         Write-Phase2Json -Path (Join-Path $RunDirectory 'manifest.json') -Value $manifest
         $runSucceeded = $true
         Write-Output "PHASE2_RUN_DIRECTORY=$RunDirectory"
@@ -180,7 +181,7 @@ try {
         -RequireFullView:$FullViewTeleportGate
     $publicationSequence = Get-Phase2PublicationSequenceEvidence `
         -ClientLogPath (Join-Path $RunDirectory 'client.stdout.log') -ExpectedPresentMode $PresentMode `
-        -WorldReadyObserved:$true
+        -WorldReadyObserved:$true -Server $Server
     if ($Mode -cne 'Diagnostic' -and
         $publicationSequence.FirstStalledStage -cne 'none') {
         throw "binding $Mode evidence retained first stalled stage $($publicationSequence.FirstStalledStage)"
@@ -190,6 +191,7 @@ try {
     $manifest.diagnostic_complete = ($Mode -eq 'Diagnostic')
     $manifest.behavior_gate_passed = ($Mode -cne 'Diagnostic')
     $manifest.publication_snapshot_count = $publicationSequence.SnapshotCount
+    $manifest.client_blob_cache_route = $publicationSequence.ClientBlobCacheRoute
     $manifest.first_stalled_stage = $publicationSequence.FirstStalledStage
     $manifest.findings = @($publicationSequence.Findings)
     $manifest.metrics_evidence = [pscustomobject][ordered]@{ status = 'passed'; reason = $null }

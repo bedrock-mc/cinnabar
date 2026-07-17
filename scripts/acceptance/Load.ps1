@@ -453,7 +453,8 @@ function Get-Phase2PublicationSequenceEvidence {
     param(
         [Parameter(Mandatory = $true)][string]$ClientLogPath,
         [Parameter(Mandatory = $true)][ValidateSet('Fifo', 'Immediate')][string]$ExpectedPresentMode,
-        [Parameter(Mandatory = $true)][bool]$WorldReadyObserved
+        [Parameter(Mandatory = $true)][bool]$WorldReadyObserved,
+        [Parameter(Mandatory = $true)][ValidateSet('Lunar', 'Zeqa')][string]$Server
     )
 
     $lines = @(Get-Content -LiteralPath $ClientLogPath | Where-Object {
@@ -536,6 +537,18 @@ function Get-Phase2PublicationSequenceEvidence {
         $previousRecord = $record
     }
     $final = $records[$records.Count - 1]
+    $cache = $final.client_blob_cache
+    if ([uint64]$cache.rejected_blobs -ne 0 -or
+        [uint64]$cache.pending_transactions -ne 0 -or
+        [uint64]$cache.pending_bytes -ne 0) {
+        throw "PHASE2_PUBLICATION $Server terminal client blob cache state is rejected or pending"
+    }
+    if ($Server -ceq 'Lunar' -and
+        (-not [bool]$final.client_blob_cache_enabled -or [uint64]$cache.hashes_classified -eq 0)) {
+        throw 'PHASE2_PUBLICATION Lunar did not prove an enabled cache-backed route with attributable hashes'
+    }
+    $clientBlobCacheRoute = if ([bool]$final.client_blob_cache_enabled -and
+        [uint64]$cache.hashes_classified -gt 0) { 'cache_backed' } else { 'ordinary_payload' }
     $stages = $final.publication.stages
     $attributable = [uint64]$stages.requests_constructed + [uint64]$stages.responses_admitted +
         [uint64]$stages.subchunks_committed + [uint64]$stages.decode_jobs_completed +
@@ -556,6 +569,7 @@ function Get-Phase2PublicationSequenceEvidence {
         FinalPublication = $final
         FirstStalledStage = $firstStalledStage
         Findings = @($findings)
+        ClientBlobCacheRoute = $clientBlobCacheRoute
     }
 }
 
@@ -565,6 +579,7 @@ function Complete-Phase2DiagnosticEvidence {
         [Parameter(Mandatory = $true)][string]$ClientLogPath,
         [Parameter(Mandatory = $true)][ValidateSet('Fifo', 'Immediate')][string]$ExpectedPresentMode,
         [Parameter(Mandatory = $true)][bool]$WorldReadyObserved,
+        [Parameter(Mandatory = $true)][ValidateSet('Lunar', 'Zeqa')][string]$Server,
         [Nullable[double]]$JoinMilliseconds
     )
 
@@ -572,7 +587,7 @@ function Complete-Phase2DiagnosticEvidence {
         throw 'diagnostic evidence completion is valid only for Diagnostic mode'
     }
     $evidence = Get-Phase2PublicationSequenceEvidence -ClientLogPath $ClientLogPath `
-        -ExpectedPresentMode $ExpectedPresentMode -WorldReadyObserved:$WorldReadyObserved
+        -ExpectedPresentMode $ExpectedPresentMode -WorldReadyObserved:$WorldReadyObserved -Server $Server
     $findings = [Collections.Generic.List[string]]::new()
     foreach ($finding in @($evidence.Findings)) { $findings.Add($finding) }
     if (-not $WorldReadyObserved) { $findings.Insert(0, 'world_ready_not_observed') }
@@ -585,6 +600,7 @@ function Complete-Phase2DiagnosticEvidence {
     $Manifest | Add-Member -MemberType NoteProperty -Name publication_snapshot_count -Value $evidence.SnapshotCount -Force
     $Manifest | Add-Member -MemberType NoteProperty -Name first_stalled_stage -Value $evidence.FirstStalledStage -Force
     $Manifest | Add-Member -MemberType NoteProperty -Name final_publication -Value $evidence.FinalPublication -Force
+    $Manifest | Add-Member -MemberType NoteProperty -Name client_blob_cache_route -Value $evidence.ClientBlobCacheRoute -Force
     $Manifest | Add-Member -MemberType NoteProperty -Name findings -Value @($findings) -Force
     $Manifest | Add-Member -MemberType NoteProperty -Name metrics_evidence -Value ([pscustomobject][ordered]@{ status = 'unavailable'; reason = $unavailableReason }) -Force
     $Manifest | Add-Member -MemberType NoteProperty -Name resources_evidence -Value ([pscustomobject][ordered]@{ status = 'unavailable'; reason = $unavailableReason }) -Force
@@ -602,7 +618,8 @@ function Find-Phase2CompletedLunarPrerequisite {
     $allowedStages = @('none', 'required_cohort_identity', 'request_order', 'transport', 'wire_contract', 'response_semantics',
         'decode', 'lighting', 'meshing', 'main_apply', 'gpu_upload', 'extraction', 'submission', 'presentation')
     $manifestProperties = @(
-        'auth_cache_scope', 'behavior_gate_passed', 'client_arguments', 'client_shutdown_grace_seconds',
+        'auth_cache_scope', 'behavior_gate_passed', 'client_arguments', 'client_blob_cache_route',
+        'client_shutdown_grace_seconds',
         'diagnostic_complete', 'duration_seconds', 'final_publication', 'findings', 'first_stalled_stage',
         'full_view_teleport_gate', 'initial_radius', 'join_milliseconds', 'lunar_prerequisite_manifest_sha256',
         'lunar_prerequisite_mode', 'metrics_evidence', 'mode', 'performance', 'publication_snapshot_count',
@@ -670,6 +687,7 @@ function Find-Phase2CompletedLunarPrerequisite {
                 [string]$candidate.status -cne 'passed' -or
                 [uint64]$candidate.initial_radius -ne [uint64]$ExpectedInitialRadius -or
                 [string]$candidate.requested_present_mode -cne 'Fifo' -or
+                [string]$candidate.client_blob_cache_route -cne 'cache_backed' -or
                 $candidate.full_view_teleport_gate -isnot [bool] -or
                 [bool]$candidate.full_view_teleport_gate -ne $RequireFullView -or
                 ($Mode -cne 'Diagnostic' -and -not $RequireFullView) -or
@@ -704,6 +722,14 @@ function Find-Phase2CompletedLunarPrerequisite {
             }
             Assert-Phase2PublicationRecord -Record $candidate.final_publication `
                 -ExpectedPresentMode Fifo
+            $terminalCache = $candidate.final_publication.client_blob_cache
+            if (-not [bool]$candidate.final_publication.client_blob_cache_enabled -or
+                [uint64]$terminalCache.hashes_classified -eq 0 -or
+                [uint64]$terminalCache.rejected_blobs -ne 0 -or
+                [uint64]$terminalCache.pending_transactions -ne 0 -or
+                [uint64]$terminalCache.pending_bytes -ne 0) {
+                continue
+            }
             $computedStage = Get-Phase2FirstStalledStage -PublicationRecord $candidate.final_publication `
                 -WorldReadyObserved:([bool]$candidate.world_ready_observed)
             if ([string]$candidate.first_stalled_stage -cne $computedStage -or
