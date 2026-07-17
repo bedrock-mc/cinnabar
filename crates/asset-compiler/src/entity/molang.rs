@@ -11,7 +11,7 @@ use super::invalid;
 const MAX_EXPRESSION_BYTES: usize = 16 * 1024;
 const MAX_PARSE_DEPTH: usize = 32;
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct MolangCompiler {
     expressions: Vec<Expr>,
     collections: BTreeMap<Box<str>, Vec<f32>>,

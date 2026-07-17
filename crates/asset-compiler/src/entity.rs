@@ -1,8 +1,7 @@
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet},
-    fs::{self, File},
-    io::Read,
+    fs,
     path::{Path, PathBuf},
 };
 
@@ -11,7 +10,7 @@ use assets::{
     EntityDependency, EntityDependencyKind, EntityDependencyResolution, EntityGeometry,
     EntityGeometryBone, EntityGeometryInheritance, MAX_ENTITY_ASSET_SOURCES,
     MAX_ENTITY_ASSET_SYMBOLS, MAX_ENTITY_DEPENDENCIES, MAX_ENTITY_GEOMETRIES,
-    MAX_ENTITY_SOURCE_BYTES, MAX_ENTITY_TOTAL_SOURCE_BYTES, validate_entity_geometry_inheritance,
+    MAX_ENTITY_TOTAL_SOURCE_BYTES, validate_entity_geometry_inheritance,
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -21,9 +20,11 @@ mod geometry;
 mod item;
 mod json;
 mod molang;
+mod source;
 
 use geometry::parse_geometry;
 use json::{parse_fully_unique_json, parse_semantic_json, parse_unique_json};
+use source::read_bounded_source;
 
 #[allow(unused_imports)] // Integration publishes this private leaf after review.
 pub use animation::{CompileReferenceOutcome, FallbackReason, RejectReason};
@@ -57,6 +58,8 @@ struct PendingGeometry {
     texture_height: Option<u16>,
     bones: Box<[EntityGeometryBone]>,
 }
+
+type SourcePayloads = BTreeMap<Box<str>, Box<[u8]>>;
 
 /// Compiles deterministic entity catalog and geometry payloads from the exact
 /// pinned local Bedrock resource pack. Source payloads remain local-only.
@@ -93,7 +96,6 @@ pub fn compile_entity_assets_with_report(
         &mut selected,
     )?;
     collect_optional_file(root, "textures/item_texture.json", &mut selected)?;
-    collect_optional_file(root, "textures/item_visuals.json", &mut selected)?;
     selected.sort_by(|left, right| left.0.cmp(&right.0));
     if selected.is_empty() || selected.len() > MAX_ENTITY_ASSET_SOURCES {
         return Err(invalid("entity asset source count exceeds bound"));
@@ -106,10 +108,11 @@ pub fn compile_entity_assets_with_report(
 
     let mut total_source_bytes = 0usize;
     let mut sources = Vec::with_capacity(selected.len());
+    let mut source_payloads = SourcePayloads::new();
     let mut symbols = BTreeMap::<(EntityAssetKind, Box<str>, Box<str>), PendingSymbol>::new();
     let mut geometries = BTreeMap::<(Box<str>, Box<str>), PendingGeometry>::new();
     for (relative_path, absolute_path) in selected {
-        let bytes = read_bounded_source(&absolute_path)?;
+        let bytes = read_bounded_source(root, &absolute_path)?;
         total_source_bytes = total_source_bytes
             .checked_add(bytes.len())
             .ok_or_else(|| invalid("entity source-byte total overflow"))?;
@@ -130,8 +133,26 @@ pub fn compile_entity_assets_with_report(
             &mut symbols,
             &mut geometries,
         )?;
+        source_payloads.insert(relative_path, bytes.into_boxed_slice());
         debug_assert_eq!(source_index + 1, sources.len());
     }
+    let route_bytes = item::BLOCK_ITEM_ROUTES;
+    total_source_bytes = total_source_bytes
+        .checked_add(route_bytes.len())
+        .ok_or_else(|| invalid("entity source-byte total overflow"))?;
+    if total_source_bytes > MAX_ENTITY_TOTAL_SOURCE_BYTES
+        || sources.len() >= MAX_ENTITY_ASSET_SOURCES
+    {
+        return Err(invalid("entity source-byte total or count exceeds bound"));
+    }
+    let route_path: Box<str> = "registry/block-item-routes-v1001.json".into();
+    sources.push(EntityAssetSource {
+        path: route_path.clone(),
+        source_bytes: route_bytes.len() as u32,
+        source_sha256: Sha256::digest(route_bytes).into(),
+    });
+    source_payloads.insert(route_path, route_bytes.into());
+    sources.sort_by(|left, right| left.path.cmp(&right.path));
     if symbols.is_empty() || symbols.len() > MAX_ENTITY_ASSET_SYMBOLS {
         return Err(invalid("entity asset symbol count exceeds bound"));
     }
@@ -223,10 +244,17 @@ pub fn compile_entity_assets_with_report(
         )?;
     }
     let mut molang_compiler = molang::MolangCompiler::default();
-    let animation =
-        animation::compile(root, &sources, &symbols, &geometries, &mut molang_compiler)?;
+    let animation = animation::compile(
+        root,
+        &source_payloads,
+        &sources,
+        &symbols,
+        &geometries,
+        &mut molang_compiler,
+    )?;
+    validate_reference_coverage(&symbols, &animation)?;
     let molang = molang_compiler.finish()?;
-    let items = item::compile(root, &sources)?;
+    let items = item::compile(root, &source_payloads, &sources)?;
     let reference_outcomes = animation.outcomes;
     let assets = CompiledEntityAssets {
         source_manifest_sha256,
@@ -257,6 +285,58 @@ pub fn compile_entity_assets_with_report(
         assets,
         reference_outcomes,
     })
+}
+
+fn validate_reference_coverage(
+    symbols: &[EntityAssetSymbol],
+    animation: &animation::AnimationPayload,
+) -> Result<(), AssetError> {
+    let attributed = animation
+        .outcomes
+        .iter()
+        .filter_map(|outcome| match outcome {
+            CompileReferenceOutcome::Resolved(_) => None,
+            CompileReferenceOutcome::OptionalStaticFallback { symbol, .. }
+            | CompileReferenceOutcome::RequiredRigRejected { symbol, .. } => Some(*symbol),
+        })
+        .collect::<BTreeSet<_>>();
+    let compiled_clips = animation
+        .clips
+        .iter()
+        .map(|clip| clip.symbol)
+        .collect::<BTreeSet<_>>();
+    let compiled_controllers = animation
+        .controllers
+        .iter()
+        .map(|controller| controller.symbol)
+        .collect::<BTreeSet<_>>();
+    let compiled_entities = animation
+        .rig_bindings
+        .iter()
+        .map(|rig| rig.entity_symbol)
+        .collect::<BTreeSet<_>>();
+    for (index, symbol) in symbols.iter().enumerate() {
+        let index = index as u32;
+        let covered = match symbol.kind {
+            EntityAssetKind::Animation => {
+                compiled_clips.contains(&index) || attributed.contains(&index)
+            }
+            EntityAssetKind::AnimationController => {
+                compiled_controllers.contains(&index) || attributed.contains(&index)
+            }
+            EntityAssetKind::Entity => {
+                compiled_entities.contains(&index) || attributed.contains(&index)
+            }
+            _ => true,
+        };
+        if !covered {
+            return Err(invalid(format!(
+                "unexplained entity asset loss for {:?} `{}`",
+                symbol.kind, symbol.identifier
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn resolve_geometry_dimension(
@@ -409,34 +489,6 @@ fn collect_directory(
     Ok(())
 }
 
-fn read_bounded_source(path: &Path) -> Result<Vec<u8>, AssetError> {
-    let file = File::open(path).map_err(|source| AssetError::Io {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    let length = file
-        .metadata()
-        .map_err(|source| AssetError::Io {
-            path: path.to_path_buf(),
-            source,
-        })?
-        .len();
-    if length == 0 || length > MAX_ENTITY_SOURCE_BYTES as u64 {
-        return Err(invalid("entity asset source size exceeds bound"));
-    }
-    let mut bytes = Vec::with_capacity(length as usize);
-    file.take(MAX_ENTITY_SOURCE_BYTES as u64 + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|source| AssetError::Io {
-            path: path.to_path_buf(),
-            source,
-        })?;
-    if bytes.len() > MAX_ENTITY_SOURCE_BYTES {
-        return Err(invalid("entity asset source size exceeds bound"));
-    }
-    Ok(bytes)
-}
-
 fn parse_source(
     relative_path: &str,
     absolute_path: &Path,
@@ -444,9 +496,7 @@ fn parse_source(
     symbols: &mut BTreeMap<(EntityAssetKind, Box<str>, Box<str>), PendingSymbol>,
     geometry_payloads: &mut BTreeMap<(Box<str>, Box<str>), PendingGeometry>,
 ) -> Result<(), AssetError> {
-    if relative_path == "textures/item_texture.json"
-        || relative_path == "textures/item_visuals.json"
-    {
+    if relative_path == "textures/item_texture.json" {
         parse_unique_json(absolute_path, bytes)?;
         return Ok(());
     }

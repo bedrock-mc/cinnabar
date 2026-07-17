@@ -1,6 +1,6 @@
 use std::{fs, path::Path};
 
-use asset_compiler::compile_entity_assets;
+use asset_compiler::{compile_entity_assets, compile_entity_assets_with_report};
 use assets::{
     EntityAnimationInterpolation, EntityAnimationLoop, EntityAnimationProperty, EntityRigFallback,
     MolangOp, MolangSymbolKind, encode_entity_blob,
@@ -89,6 +89,16 @@ fn compiles_clips_controllers_molang_and_collection_selection_deterministically(
     );
     assert_eq!(first.rig_bindings.len(), 1);
     assert_eq!(first.rig_bindings[0].fallback, EntityRigFallback::Skip);
+    let selection = first.rig_bindings[0]
+        .geometry_selection
+        .expect("render collection selection must be linked to the rig");
+    let expression = first.molang_expressions[selection as usize];
+    assert!(
+        first.molang_ops[expression.first_op as usize
+            ..(expression.first_op + u32::from(expression.op_count)) as usize]
+            .iter()
+            .any(|op| matches!(op, MolangOp::SelectCollection(_)))
+    );
     assert!(first.molang_symbols.iter().any(|symbol| {
         symbol.kind == MolangSymbolKind::Query && symbol.identifier.as_ref() == "query.is_moving"
     }));
@@ -290,4 +300,156 @@ fn assignment_loops_return_strings_dynamic_properties_and_arbitrary_functions_ar
             "unexpected support for {expression}"
         );
     }
+}
+
+#[test]
+fn conflicting_animation_aliases_are_resolved_inside_each_entity_environment() {
+    let pack = animation_pack(false);
+    write(
+        pack.path(),
+        "entity/test.entity.json",
+        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","textures":{"default":"textures/entity/test"},"geometry":{"default":"geometry.test"},"animations":{"move":"animation.test.walk","main":"controller.animation.test"},"render_controllers":["controller.render.test"]}}}"#,
+    );
+    write(
+        pack.path(),
+        "entity/second.entity.json",
+        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:second","textures":{"default":"textures/entity/test"},"geometry":{"default":"geometry.test"},"animations":{"move":"animation.test.attack","main":"controller.animation.second"},"render_controllers":["controller.render.test"]}}}"#,
+    );
+    write(
+        pack.path(),
+        "animation_controllers/test.animation_controllers.json",
+        br#"{"format_version":"1.10.0","animation_controllers":{"controller.animation.test":{"states":{"default":{"animations":["move"]}}},"controller.animation.second":{"states":{"default":{"animations":["move"]}}}}}"#,
+    );
+
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    assert_eq!(compiled.controllers.len(), 2);
+    assert_eq!(compiled.rig_bindings.len(), 2);
+    let clip_symbols = compiled
+        .controller_animations
+        .iter()
+        .map(|binding| compiled.animation_clips[binding.clip as usize].symbol)
+        .map(|symbol| compiled.symbols[symbol as usize].identifier.as_ref())
+        .collect::<Vec<_>>();
+    assert!(clip_symbols.contains(&"animation.test.walk"));
+    assert!(clip_symbols.contains(&"animation.test.attack"));
+}
+
+#[test]
+fn animation_bones_are_numbered_in_the_selected_geometry_not_global_order() {
+    let pack = animation_pack(false);
+    write(
+        pack.path(),
+        "models/entity/test.geo.json",
+        br#"{"format_version":"1.21.0","minecraft:geometry":[{"description":{"identifier":"geometry.a"},"bones":[{"name":"root"},{"name":"arm"}]},{"description":{"identifier":"geometry.b"},"bones":[{"name":"arm"},{"name":"root"}]}]}"#,
+    );
+    write(
+        pack.path(),
+        "entity/test.entity.json",
+        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","geometry":{"default":"geometry.a"},"animations":{"move":"animation.test.walk"},"render_controllers":["controller.render.test"]}}}"#,
+    );
+    write(
+        pack.path(),
+        "entity/second.entity.json",
+        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:second","geometry":{"default":"geometry.b"},"animations":{"move":"animation.test.second"},"render_controllers":["controller.render.test"]}}}"#,
+    );
+    write(
+        pack.path(),
+        "animations/test.animation.json",
+        br#"{"format_version":"1.8.0","animations":{"animation.test.walk":{"bones":{"root":{"position":[1,0,0]}}},"animation.test.second":{"bones":{"root":{"position":[2,0,0]}}}}}"#,
+    );
+
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    let root_bones = compiled
+        .rig_bindings
+        .iter()
+        .map(|rig| {
+            let binding = &compiled.rig_animations[rig.first_animation as usize];
+            compiled.animation_channels
+                [compiled.animation_clips[binding.clip as usize].first_channel as usize]
+                .bone
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        root_bones,
+        vec![1, 0],
+        "rig order is symbol-sorted; each clip must use its rig geometry's local root index"
+    );
+}
+
+#[test]
+fn duplicate_geometry_identifiers_reject_the_ambiguous_rig_without_collapsing_sources() {
+    let pack = animation_pack(false);
+    write(
+        pack.path(),
+        "models/entity/duplicate.geo.json",
+        br#"{"format_version":"1.21.0","minecraft:geometry":[{"description":{"identifier":"geometry.test"},"bones":[{"name":"other"}]}]}"#,
+    );
+    let compiled = compile_entity_assets_with_report(pack.path(), MANIFEST).unwrap();
+    assert!(compiled.assets.rig_bindings.is_empty());
+    assert!(compiled.reference_outcomes.iter().any(|outcome| matches!(
+        outcome,
+        asset_compiler::CompileReferenceOutcome::RequiredRigRejected {
+            reason: asset_compiler::RejectReason::AmbiguousGeometryReference,
+            ..
+        }
+    )));
+}
+
+#[test]
+fn duplicate_animation_identifiers_reject_the_ambiguous_rig_without_collapsing_sources() {
+    let pack = animation_pack(false);
+    write(
+        pack.path(),
+        "animations/duplicate.animation.json",
+        br#"{"format_version":"1.8.0","animations":{"animation.test.walk":{"bones":{"root":{"position":[9,0,0]}}}}}"#,
+    );
+    let compiled = compile_entity_assets_with_report(pack.path(), MANIFEST).unwrap();
+    assert!(compiled.reference_outcomes.iter().any(|outcome| matches!(
+        outcome,
+        asset_compiler::CompileReferenceOutcome::RequiredRigRejected {
+            reason: asset_compiler::RejectReason::AmbiguousAnimationReference,
+            ..
+        }
+    )));
+}
+
+#[test]
+fn unsupported_optional_assets_are_present_in_the_attribution_ledger() {
+    let pack = animation_pack(false);
+    write(
+        pack.path(),
+        "animations/unsupported.animation.json",
+        br#"{"format_version":"1.8.0","animations":{"animation.test.unsupported":{"bones":{"root":{"rotation":["query.anim_time",0,0]}}}}}"#,
+    );
+    write(
+        pack.path(),
+        "animation_controllers/unreferenced.animation_controllers.json",
+        br#"{"format_version":"1.10.0","animation_controllers":{"controller.animation.unreferenced":{"states":{"default":{}}}}}"#,
+    );
+    let compiled = compile_entity_assets_with_report(pack.path(), MANIFEST).unwrap();
+    let unsupported_symbol = compiled
+        .assets
+        .symbols
+        .iter()
+        .position(|symbol| symbol.identifier.as_ref() == "animation.test.unsupported")
+        .unwrap() as u32;
+    assert!(compiled.reference_outcomes.iter().any(|outcome| matches!(
+        outcome,
+        asset_compiler::CompileReferenceOutcome::OptionalStaticFallback { symbol, .. }
+            if *symbol == unsupported_symbol
+    )));
+    let controller_symbol = compiled
+        .assets
+        .symbols
+        .iter()
+        .position(|symbol| symbol.identifier.as_ref() == "controller.animation.unreferenced")
+        .unwrap() as u32;
+    assert!(compiled.reference_outcomes.iter().any(|outcome| matches!(
+        outcome,
+        asset_compiler::CompileReferenceOutcome::OptionalStaticFallback {
+            symbol,
+            reason: asset_compiler::FallbackReason::UnreferencedDefinition,
+            ..
+        } if *symbol == controller_symbol
+    )));
 }
