@@ -13,8 +13,9 @@ pub use binding::{
     ModifierChord, MouseAxis, PhysicalControl,
 };
 pub use device::{
-    ControllerFrame, DeviceFrame, FrameError, KeyboardMouseFrame, MAX_CONTROLLERS,
-    MAX_TOUCH_CONTACTS, TouchContact,
+    ControllerFrame, DeviceFrame, FrameError, KeyboardMouseFrame, MAX_CONTROLLER_BUTTONS,
+    MAX_CONTROLLERS, MAX_DISCONNECTED_CONTROLLERS, MAX_KEYBOARD_KEYS, MAX_MOUSE_BUTTONS,
+    MAX_TOUCH_CONTACTS, MAX_TOUCH_CONTROLS, TouchContact, TouchControlLayout, TouchLayoutError,
 };
 pub use router::{MAX_LOOK_DELTA_PER_FRAME, RouterError, SemanticInputRouter};
 
@@ -47,4 +48,8 @@ pub mod touch {
     pub const UI_CANCEL: u16 = 25;
     pub const UI_TAB_NEXT: u16 = 26;
     pub const UI_TAB_PREVIOUS: u16 = 27;
+    pub const LOOK_UP: u16 = 28;
+    pub const LOOK_DOWN: u16 = 29;
+    pub const LOOK_LEFT: u16 = 30;
+    pub const LOOK_RIGHT: u16 = 31;
 }

@@ -3,6 +3,7 @@ use core::num::NonZeroU64;
 use crate::{
     Action, ActionPhase, ActionSnapshot, AxisDirection, BindingError, ControlSettings, DeviceFrame,
     FrameError, InputChord, InputContext, InputMode, MouseAxis, PhysicalControl, ReleaseReason,
+    TouchControlLayout,
 };
 
 /// Maximum Euclidean magnitude accepted for a semantic look delta.
@@ -15,6 +16,7 @@ pub enum RouterError {
     MissingPendingFrame,
     GameplayActionPreview(Action),
     FrameSequenceExhausted,
+    NonMonotonicActivitySequence { previous: u64, actual: u64 },
 }
 
 #[derive(Debug)]
@@ -24,11 +26,15 @@ pub struct SemanticInputRouter {
     authority_generation: NonZeroU64,
     pending_authority: Option<NonZeroU64>,
     pending: Option<DeviceFrame>,
+    pending_context: Option<InputContext>,
     pending_releases: [Option<ReleaseReason>; Action::COUNT],
     physical_down: [bool; Action::COUNT],
     frame_sequence: u64,
     input_mode: InputMode,
     input_activity_sequence: u64,
+    touch_layout: TouchControlLayout,
+    activity_watermark: u64,
+    previous_frame: DeviceFrame,
 }
 
 impl Default for SemanticInputRouter {
@@ -39,22 +45,42 @@ impl Default for SemanticInputRouter {
             authority_generation: NonZeroU64::MIN,
             pending_authority: None,
             pending: None,
+            pending_context: None,
             pending_releases: [None; Action::COUNT],
             physical_down: [false; Action::COUNT],
             frame_sequence: 0,
             input_mode: InputMode::KeyboardMouse,
             input_activity_sequence: 0,
+            touch_layout: TouchControlLayout::default(),
+            activity_watermark: 0,
+            previous_frame: DeviceFrame::default(),
         }
     }
 }
 
 impl SemanticInputRouter {
+    pub fn with_settings_and_touch_layout(
+        settings: ControlSettings,
+        touch_layout: TouchControlLayout,
+    ) -> Result<Self, BindingError> {
+        settings.validate(&touch_layout)?;
+        Ok(Self {
+            settings,
+            touch_layout,
+            ..Self::default()
+        })
+    }
+
     pub fn route(&mut self, frame: DeviceFrame) -> Result<(), RouterError> {
         if self.pending.is_some() {
             return Err(RouterError::PendingFrameAlreadyRouted);
         }
-        frame.validate().map_err(RouterError::InvalidFrame)?;
+        frame
+            .validate(&self.touch_layout)
+            .map_err(RouterError::InvalidFrame)?;
+        self.validate_activity_sequences(&frame)?;
         self.pending = Some(frame);
+        self.pending_context = Some(self.context);
         Ok(())
     }
 
@@ -71,7 +97,7 @@ impl SemanticInputRouter {
         let index = action as usize;
         let active = sample.active[index];
         Ok(ActionPhase {
-            pressed: active && !self.physical_down[index],
+            pressed: sample.pressed[index],
             held: active && !action.is_one_shot(),
             released: !active && self.physical_down[index] && !action.is_one_shot(),
         })
@@ -93,7 +119,7 @@ impl SemanticInputRouter {
     }
 
     pub fn replace_bindings(&mut self, settings: ControlSettings) -> Result<(), BindingError> {
-        settings.validate()?;
+        settings.validate(&self.touch_layout)?;
         self.queue_held_releases(ReleaseReason::BindingChanged);
         self.settings = settings;
         Ok(())
@@ -133,7 +159,11 @@ impl SemanticInputRouter {
             let persistent = !action.is_one_shot();
             let authority_release = persistent && was_down && queued_reason.is_some();
             phases[index] = ActionPhase {
-                pressed: is_down && (!was_down || authority_release),
+                pressed: if action.is_one_shot() {
+                    sample.pressed[index]
+                } else {
+                    is_down && (!was_down || authority_release)
+                },
                 held: is_down && persistent,
                 released: persistent && was_down && (!is_down || authority_release),
             };
@@ -144,9 +174,12 @@ impl SemanticInputRouter {
 
         self.physical_down = sample.active;
         self.pending_releases = [None; Action::COUNT];
+        self.pending_context = None;
         self.frame_sequence = next_sequence;
         self.input_mode = input_mode;
         self.input_activity_sequence = activity_sequence;
+        self.activity_watermark = self.activity_watermark.max(frame_activity_max(&frame));
+        self.previous_frame = frame;
         if let Some(generation) = self.pending_authority.take() {
             self.authority_generation = generation;
         }
@@ -192,23 +225,61 @@ impl SemanticInputRouter {
             .map(|sample| sample.activity_sequence)
             .max()
             .map(|sequence| (InputMode::Touch, sequence));
-        let mut selected = (self.input_mode, self.input_activity_sequence);
-        for candidate in [keyboard, gamepad, touch].into_iter().flatten() {
-            if candidate.1 > selected.1
-                || (candidate.1 == selected.1
-                    && !frame_has_mode(frame, selected.0)
-                    && frame_has_mode(frame, candidate.0))
-            {
+        let candidates = [keyboard, gamepad, touch];
+        let mut selected = candidates
+            .iter()
+            .flatten()
+            .copied()
+            .find(|candidate| candidate.0 == self.input_mode)
+            .or_else(|| candidates.iter().flatten().copied().next())
+            .unwrap_or((self.input_mode, self.input_activity_sequence));
+        // Equal global stamps retain the active mode. If it is absent, fixed
+        // KeyboardMouse -> GamePad -> Touch candidate order breaks the tie.
+        for candidate in candidates.into_iter().flatten() {
+            if candidate.1 > selected.1 {
                 selected = candidate;
             }
         }
         selected
     }
 
+    fn validate_activity_sequences(&self, frame: &DeviceFrame) -> Result<(), RouterError> {
+        if let Some(keyboard) = &frame.keyboard_mouse {
+            let previous = self
+                .previous_frame
+                .keyboard_mouse
+                .as_ref()
+                .map_or(self.activity_watermark, |sample| sample.activity_sequence);
+            validate_activity(previous, keyboard.activity_sequence)?;
+        }
+        for controller in &frame.controllers {
+            let previous = self
+                .previous_frame
+                .controllers
+                .iter()
+                .find(|sample| sample.device_id == controller.device_id)
+                .map_or(self.activity_watermark, |sample| sample.activity_sequence);
+            validate_activity(previous, controller.activity_sequence)?;
+        }
+        for contact in &frame.touches {
+            let previous = self
+                .previous_frame
+                .touches
+                .iter()
+                .find(|sample| sample.contact_id == contact.contact_id)
+                .map_or(self.activity_watermark, |sample| sample.activity_sequence);
+            validate_activity(previous, contact.activity_sequence)?;
+        }
+        Ok(())
+    }
+
     fn sample(&self, frame: &DeviceFrame, input_mode: InputMode) -> Sample {
         let controller_axes = merged_controller_axes(frame, &self.settings);
         let touch_axes = merged_touch_axes(frame);
+        let previous_controller_axes = merged_controller_axes(&self.previous_frame, &self.settings);
+        let previous_touch_axes = merged_touch_axes(&self.previous_frame);
         let mut strengths = [0.0_f32; Action::COUNT];
+        let mut pressed = [false; Action::COUNT];
         for binding in self.settings.bindings() {
             if binding.context != self.context
                 || !control_matches_mode(binding.chord.control, input_mode)
@@ -218,8 +289,31 @@ impl SemanticInputRouter {
             if self.has_more_specific_chord(binding.chord, frame) {
                 continue;
             }
-            let strength = physical_strength(binding.chord, frame, controller_axes);
+            let strength = binding_strength(
+                binding.action,
+                binding.chord,
+                frame,
+                controller_axes,
+                touch_axes.1,
+            );
             strengths[binding.action as usize] = strengths[binding.action as usize].max(strength);
+            if strength > 0.0
+                && binding_strength(
+                    binding.action,
+                    binding.chord,
+                    &self.previous_frame,
+                    previous_controller_axes,
+                    previous_touch_axes.1,
+                ) == 0.0
+                && !self.edge_claimed_by_routed_context(
+                    binding.chord,
+                    frame,
+                    controller_axes,
+                    touch_axes.1,
+                )
+            {
+                pressed[binding.action as usize] = true;
+            }
         }
 
         let mut movement = [
@@ -239,58 +333,36 @@ impl SemanticInputRouter {
         }
         movement = clamp_vector(movement, 1.0);
 
-        let mut look_delta = match input_mode {
-            InputMode::KeyboardMouse => {
-                frame.keyboard_mouse.as_ref().map_or([0.0, 0.0], |sample| {
-                    let y = if self.settings.invert_mouse_y {
-                        -sample.mouse_motion[1]
-                    } else {
-                        sample.mouse_motion[1]
-                    };
-                    [
-                        scale_look_axis(sample.mouse_motion[0], self.settings.mouse_sensitivity),
-                        scale_look_axis(y, self.settings.mouse_sensitivity),
-                    ]
-                })
-            }
-            InputMode::GamePad => {
-                let y = if self.settings.invert_gamepad_y {
-                    -controller_axes[3]
-                } else {
-                    controller_axes[3]
-                };
-                [
-                    controller_axes[2] * self.settings.gamepad_look_sensitivity,
-                    y * self.settings.gamepad_look_sensitivity,
-                ]
-            }
-            InputMode::Touch => [
-                scale_look_axis(touch_axes.1[0], self.settings.touch_look_sensitivity),
-                scale_look_axis(touch_axes.1[1], self.settings.touch_look_sensitivity),
-            ],
+        let mut raw_look = [
+            strengths[Action::LookRight as usize] - strengths[Action::LookLeft as usize],
+            strengths[Action::LookDown as usize] - strengths[Action::LookUp as usize],
+        ];
+        let (sensitivity, invert_y) = match input_mode {
+            InputMode::KeyboardMouse => (
+                self.settings.mouse_sensitivity,
+                self.settings.invert_mouse_y,
+            ),
+            InputMode::GamePad => (
+                self.settings.gamepad_look_sensitivity,
+                self.settings.invert_gamepad_y,
+            ),
+            InputMode::Touch => (self.settings.touch_look_sensitivity, false),
         };
-        look_delta = clamp_vector(look_delta, MAX_LOOK_DELTA_PER_FRAME);
-        for action in [
-            Action::LookUp,
-            Action::LookDown,
-            Action::LookLeft,
-            Action::LookRight,
-        ] {
-            strengths[action as usize] = 0.0;
+        if invert_y {
+            raw_look[1] = -raw_look[1];
+            strengths.swap(Action::LookUp as usize, Action::LookDown as usize);
         }
-        synthesize_directions(
-            &mut strengths,
-            look_delta,
-            Action::LookLeft,
-            Action::LookRight,
-            Action::LookUp,
-            Action::LookDown,
-        );
+        let mut look_delta = [
+            scale_look_axis(raw_look[0], sensitivity),
+            scale_look_axis(raw_look[1], sensitivity),
+        ];
+        look_delta = clamp_vector(look_delta, MAX_LOOK_DELTA_PER_FRAME);
         let active = strengths.map(|strength| strength > 0.0);
         Sample {
             movement,
             look_delta,
             active,
+            pressed,
         }
     }
 
@@ -308,6 +380,28 @@ impl SemanticInputRouter {
                     .is_satisfied_by(keyboard.modifiers)
         })
     }
+
+    fn edge_claimed_by_routed_context(
+        &self,
+        chord: InputChord,
+        frame: &DeviceFrame,
+        controller_axes: [f32; 8],
+        touch_look: [f32; 2],
+    ) -> bool {
+        let routed_context = self.pending_context.unwrap_or(self.context);
+        routed_context != self.context
+            && self.settings.bindings().iter().any(|candidate| {
+                candidate.context == routed_context
+                    && candidate.chord == chord
+                    && binding_strength(
+                        candidate.action,
+                        candidate.chord,
+                        frame,
+                        controller_axes,
+                        touch_look,
+                    ) > 0.0
+            })
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -315,14 +409,7 @@ struct Sample {
     movement: [f32; 2],
     look_delta: [f32; 2],
     active: [bool; Action::COUNT],
-}
-
-fn frame_has_mode(frame: &DeviceFrame, mode: InputMode) -> bool {
-    match mode {
-        InputMode::KeyboardMouse => frame.keyboard_mouse.is_some(),
-        InputMode::GamePad => !frame.controllers.is_empty(),
-        InputMode::Touch => !frame.touches.is_empty(),
-    }
+    pressed: [bool; Action::COUNT],
 }
 
 fn control_matches_mode(control: PhysicalControl, mode: InputMode) -> bool {
@@ -340,6 +427,30 @@ fn control_matches_mode(control: PhysicalControl, mode: InputMode) -> bool {
     )
 }
 
+fn validate_activity(previous: u64, actual: u64) -> Result<(), RouterError> {
+    if actual < previous {
+        Err(RouterError::NonMonotonicActivitySequence { previous, actual })
+    } else {
+        Ok(())
+    }
+}
+
+fn frame_activity_max(frame: &DeviceFrame) -> u64 {
+    frame
+        .keyboard_mouse
+        .iter()
+        .map(|sample| sample.activity_sequence)
+        .chain(
+            frame
+                .controllers
+                .iter()
+                .map(|sample| sample.activity_sequence),
+        )
+        .chain(frame.touches.iter().map(|sample| sample.activity_sequence))
+        .max()
+        .unwrap_or(0)
+}
+
 fn physical_strength(chord: InputChord, frame: &DeviceFrame, controller_axes: [f32; 8]) -> f32 {
     match chord.control {
         PhysicalControl::KeyboardUsage(code) => {
@@ -350,14 +461,19 @@ fn physical_strength(chord: InputChord, frame: &DeviceFrame, controller_axes: [f
         }
         PhysicalControl::MouseButton(button) => {
             frame.keyboard_mouse.as_ref().map_or(0.0, |sample| {
-                sample.mouse_buttons.contains(&button) as u8 as f32
+                (chord.modifiers.is_satisfied_by(sample.modifiers)
+                    && sample.mouse_buttons.contains(&button)) as u8 as f32
             })
         }
         PhysicalControl::MouseAxis(axis) => frame.keyboard_mouse.as_ref().map_or(0.0, |sample| {
-            directional_axis(
-                mouse_axis_value(sample.mouse_motion, axis),
-                axis_is_positive(axis),
-            )
+            if chord.modifiers.is_satisfied_by(sample.modifiers) {
+                directional_axis(
+                    mouse_axis_value(sample.mouse_motion, axis),
+                    axis_is_positive(axis),
+                )
+            } else {
+                0.0
+            }
         }),
         PhysicalControl::GamepadButton(button) => frame
             .controllers
@@ -374,6 +490,25 @@ fn physical_strength(chord: InputChord, frame: &DeviceFrame, controller_axes: [f
             .any(|sample| sample.hit_id == Some(hit_id))
             as u8 as f32,
     }
+}
+
+fn binding_strength(
+    action: Action,
+    chord: InputChord,
+    frame: &DeviceFrame,
+    controller_axes: [f32; 8],
+    touch_look: [f32; 2],
+) -> f32 {
+    if matches!(chord.control, PhysicalControl::TouchControl(_)) {
+        return match action {
+            Action::LookUp => (-touch_look[1]).max(0.0),
+            Action::LookDown => touch_look[1].max(0.0),
+            Action::LookLeft => (-touch_look[0]).max(0.0),
+            Action::LookRight => touch_look[0].max(0.0),
+            _ => physical_strength(chord, frame, controller_axes),
+        };
+    }
+    physical_strength(chord, frame, controller_axes)
 }
 
 fn mouse_axis_value(motion: [f32; 2], axis: MouseAxis) -> f32 {

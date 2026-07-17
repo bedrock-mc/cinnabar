@@ -1,4 +1,4 @@
-use crate::{Action, InputContext, touch};
+use crate::{Action, InputContext, TouchControlLayout, touch};
 
 pub const MAX_BINDINGS: usize = 128;
 
@@ -103,6 +103,31 @@ impl ControlSettings {
         gamepad_move_deadzone: f32,
         gamepad_look_deadzone: f32,
     ) -> Result<Self, BindingError> {
+        Self::new_with_touch_layout(
+            bindings,
+            mouse_sensitivity,
+            gamepad_look_sensitivity,
+            touch_look_sensitivity,
+            invert_mouse_y,
+            invert_gamepad_y,
+            gamepad_move_deadzone,
+            gamepad_look_deadzone,
+            &TouchControlLayout::default(),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_touch_layout(
+        bindings: Vec<ActionBinding>,
+        mouse_sensitivity: f32,
+        gamepad_look_sensitivity: f32,
+        touch_look_sensitivity: f32,
+        invert_mouse_y: bool,
+        invert_gamepad_y: bool,
+        gamepad_move_deadzone: f32,
+        gamepad_look_deadzone: f32,
+        touch_layout: &TouchControlLayout,
+    ) -> Result<Self, BindingError> {
         let settings = Self {
             bindings: bindings.into_boxed_slice(),
             mouse_sensitivity,
@@ -113,7 +138,7 @@ impl ControlSettings {
             gamepad_move_deadzone,
             gamepad_look_deadzone,
         };
-        settings.validate()?;
+        settings.validate(touch_layout)?;
         Ok(settings)
     }
 
@@ -121,7 +146,7 @@ impl ControlSettings {
         &self.bindings
     }
 
-    pub(crate) fn validate(&self) -> Result<(), BindingError> {
+    pub(crate) fn validate(&self, touch_layout: &TouchControlLayout) -> Result<(), BindingError> {
         if self.bindings.len() > MAX_BINDINGS {
             return Err(BindingError::TooManyBindings {
                 actual: self.bindings.len(),
@@ -150,7 +175,7 @@ impl ControlSettings {
             return Err(BindingError::DeadzoneOutOfRange);
         }
         for (index, binding) in self.bindings.iter().enumerate() {
-            validate_control(binding.chord.control)?;
+            validate_chord(binding.chord, touch_layout)?;
             if let Some(first) = self.bindings[..index].iter().find(|candidate| {
                 candidate.context == binding.context && candidate.chord == binding.chord
             }) {
@@ -173,14 +198,28 @@ impl Default for ControlSettings {
     }
 }
 
-fn validate_control(control: PhysicalControl) -> Result<(), BindingError> {
+fn validate_chord(
+    chord: InputChord,
+    touch_layout: &TouchControlLayout,
+) -> Result<(), BindingError> {
+    let control = chord.control;
+    if chord.modifiers != ModifierChord::default()
+        && matches!(
+            control,
+            PhysicalControl::GamepadButton(_)
+                | PhysicalControl::GamepadAxis { .. }
+                | PhysicalControl::TouchControl(_)
+        )
+    {
+        return Err(BindingError::UnknownPhysicalCode);
+    }
     let valid = match control {
         PhysicalControl::KeyboardUsage(code) => (0x04..=0xe7).contains(&code),
         PhysicalControl::MouseButton(button) => (1..=8).contains(&button),
         PhysicalControl::MouseAxis(_) => true,
         PhysicalControl::GamepadButton(button) => button <= 31,
         PhysicalControl::GamepadAxis { axis, .. } => axis <= 7,
-        PhysicalControl::TouchControl(hit_id) => hit_id != 0,
+        PhysicalControl::TouchControl(hit_id) => touch_layout.contains(hit_id),
     };
     valid.then_some(()).ok_or(BindingError::UnknownPhysicalCode)
 }
@@ -346,6 +385,10 @@ fn default_bindings() -> Vec<ActionBinding> {
         (UiCancel, touch::UI_CANCEL, UiFocused),
         (UiTabNext, touch::UI_TAB_NEXT, UiFocused),
         (UiTabPrevious, touch::UI_TAB_PREVIOUS, UiFocused),
+        (LookUp, touch::LOOK_UP, Gameplay),
+        (LookDown, touch::LOOK_DOWN, Gameplay),
+        (LookLeft, touch::LOOK_LEFT, Gameplay),
+        (LookRight, touch::LOOK_RIGHT, Gameplay),
     ] {
         bind(&mut bindings, action, context, TouchControl(hit_id));
     }
