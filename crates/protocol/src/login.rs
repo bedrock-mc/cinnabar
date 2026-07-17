@@ -436,8 +436,8 @@ mod tests {
         AddEntityPacket, BiomeDefinition, BiomeDefinitionListPacket, BlockCoordinates,
         BlockEntityDataPacket, CorrectPlayerMovePredictionPacket, GameRuleI32, GameRuleI32Type,
         GameRuleI32Value, GameRulesChangedPacket, LevelChunkPacket, LevelChunkPacketBlobs,
-        LevelEventPacket, LevelEventPacketEvent, McpePacketName, MovePlayerPacket,
-        TextPacket, TextPacketCategory, TextPacketContent, TextPacketContentJson, TextPacketType,
+        LevelEventPacket, LevelEventPacketEvent, McpePacketName, MovePlayerPacket, TextPacket,
+        TextPacketCategory, TextPacketContent, TextPacketContentJson, TextPacketType,
         UpdateBlockPacket, Vec2F, Vec3F,
     };
     use valentine::protocol::wire;
