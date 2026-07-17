@@ -131,7 +131,7 @@ impl MetricValue {
 pub fn compile_fonts(root: &Path) -> Result<CompiledFontCarrier, FontCompileError> {
     let font_root = root.join("font");
     require_real_directory(&font_root)?;
-    let descriptor_path = root.join(DESCRIPTOR_PATH);
+    let descriptor_path = resolve_real_source(root, DESCRIPTOR_PATH)?;
     let descriptor_bytes = read_source(&descriptor_path, MAX_FONT_SOURCE_BYTES)?;
     let descriptor = serde_json::from_slice::<Descriptor>(&descriptor_bytes)
         .map_err(|source| FontCompileError::DescriptorJson { source })?;
@@ -163,8 +163,7 @@ pub fn compile_fonts(root: &Path) -> Result<CompiledFontCarrier, FontCompileErro
     let mut total_decoded_bytes = 0u64;
     let mut pages = Vec::with_capacity(descriptor.pages.len());
     for page in descriptor.pages {
-        let path = root.join(page.source.as_ref());
-        require_real_file(&path)?;
+        let path = resolve_real_source(root, &page.source)?;
         let remaining = MAX_FONT_SOURCE_BYTES
             .checked_sub(total_source_bytes)
             .ok_or_else(|| FontCompileError::SourceTooLarge { path: path.clone() })?;
@@ -374,7 +373,7 @@ fn require_real_directory(path: &Path) -> Result<(), FontCompileError> {
         path: path.to_path_buf(),
         source,
     })?;
-    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+    if !metadata.is_dir() || is_link_or_reparse(&metadata) {
         return Err(invalid("font root must be a real directory"));
     }
     Ok(())
@@ -385,10 +384,63 @@ fn require_real_file(path: &Path) -> Result<(), FontCompileError> {
         path: path.to_path_buf(),
         source,
     })?;
-    if !metadata.is_file() || metadata.file_type().is_symlink() {
+    if !metadata.is_file() || is_link_or_reparse(&metadata) {
         return Err(invalid("font source must be a real file"));
     }
     Ok(())
+}
+
+fn resolve_real_source(root: &Path, relative: &str) -> Result<PathBuf, FontCompileError> {
+    validate_source_path_for_extension(relative)?;
+    let canonical_font_root = fs::canonicalize(root.join("font")).map_err(|source| {
+        FontCompileError::Io {
+            path: root.join("font"),
+            source,
+        }
+    })?;
+    let mut candidate = root.to_path_buf();
+    let components = relative.split('/').collect::<Vec<_>>();
+    for (index, component) in components.iter().enumerate() {
+        candidate.push(component);
+        let metadata = fs::symlink_metadata(&candidate).map_err(|source| FontCompileError::Io {
+            path: candidate.clone(),
+            source,
+        })?;
+        let is_final = index + 1 == components.len();
+        if is_link_or_reparse(&metadata)
+            || (is_final && !metadata.is_file())
+            || (!is_final && !metadata.is_dir())
+        {
+            return Err(invalid(
+                "font source path contains a symlink, reparse point, or wrong component type",
+            ));
+        }
+    }
+    let canonical_candidate =
+        fs::canonicalize(&candidate).map_err(|source| FontCompileError::Io {
+            path: candidate,
+            source,
+        })?;
+    if !canonical_candidate.starts_with(&canonical_font_root)
+        || canonical_candidate == canonical_font_root
+    {
+        return Err(invalid("font source resolves outside the font root"));
+    }
+    Ok(canonical_candidate)
+}
+
+#[cfg(windows)]
+fn is_link_or_reparse(metadata: &fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+    metadata.file_type().is_symlink()
+        || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+}
+
+#[cfg(not(windows))]
+fn is_link_or_reparse(metadata: &fs::Metadata) -> bool {
+    metadata.file_type().is_symlink()
 }
 
 fn read_source(path: &Path, limit: u64) -> Result<Vec<u8>, FontCompileError> {
@@ -428,10 +480,17 @@ fn read_source(path: &Path, limit: u64) -> Result<Vec<u8>, FontCompileError> {
 }
 
 fn validate_source_path(path: &str) -> Result<(), FontCompileError> {
+    validate_source_path_for_extension(path)?;
+    if !path.ends_with(".png") {
+        return Err(invalid("font page path is unsafe or noncanonical"));
+    }
+    Ok(())
+}
+
+fn validate_source_path_for_extension(path: &str) -> Result<(), FontCompileError> {
     if path.is_empty()
         || path.len() > MAX_FONT_PATH_BYTES
         || !path.starts_with("font/")
-        || !path.ends_with(".png")
         || path.contains('\\')
         || path
             .split('/')

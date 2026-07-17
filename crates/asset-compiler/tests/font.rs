@@ -139,6 +139,24 @@ fn glyph_and_page_order_do_not_change_carrier_bytes() {
     );
 }
 
+#[test]
+fn intermediate_directory_link_cannot_escape_the_pack_root() {
+    let directory = tempfile::tempdir().unwrap();
+    let font = directory.path().join("font");
+    let outside = directory.path().join("outside");
+    fs::create_dir(&font).unwrap();
+    fs::create_dir(&outside).unwrap();
+    write_png(&outside.join("escaped.png"), 1, 1);
+    create_directory_link(&font.join("nested"), &outside).unwrap();
+    fs::write(
+        font.join("catalog.json"),
+        descriptor_for_single_page("font/nested/escaped.png", 65),
+    )
+    .unwrap();
+
+    assert!(compile_fonts(directory.path()).is_err());
+}
+
 fn fixture_pack_with_ascii_and_unicode_pages() -> tempfile::TempDir {
     fixture_pack(
         r#"{
@@ -185,4 +203,25 @@ fn write_png(path: &Path, width: u32, height: u32) {
         .write_image(&pixels, width, height, ExtendedColorType::Rgba8)
         .unwrap();
     fs::write(path, encoded).unwrap();
+}
+
+#[cfg(unix)]
+fn create_directory_link(link: &Path, target: &Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(target, link)
+}
+
+#[cfg(windows)]
+fn create_directory_link(link: &Path, target: &Path) -> std::io::Result<()> {
+    let status = std::process::Command::new("cmd")
+        .args(["/c", "mklink", "/J"])
+        .arg(link)
+        .arg(target)
+        .status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(std::io::Error::other(format!(
+            "mklink /J failed with {status}"
+        )))
+    }
 }
