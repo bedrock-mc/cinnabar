@@ -1,15 +1,8 @@
-#[path = "../../assets/src/font.rs"]
-mod font_carrier;
-
-mod font_compiler {
-    use crate::font_carrier as assets;
-
-    include!("../src/font.rs");
-}
+use assets as font_carrier;
 
 use std::{fs, path::Path};
 
-use font_compiler::{FontCompileError, compile_fonts};
+use asset_compiler::{FontCompileError, compile_fonts};
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 
 const PINNED_SOURCE_SHA256: &str =

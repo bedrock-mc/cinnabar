@@ -56,15 +56,9 @@ pub enum FontCompileError {
     #[error("invalid font descriptor: {detail}")]
     InvalidDescriptor { detail: Box<str> },
     #[error("font metric {field} for U+{codepoint:04X} is non-finite")]
-    NonFiniteMetric {
-        codepoint: u32,
-        field: &'static str,
-    },
+    NonFiniteMetric { codepoint: u32, field: &'static str },
     #[error("font metric {field} for U+{codepoint:04X} is outside its carrier representation")]
-    MetricOutOfRange {
-        codepoint: u32,
-        field: &'static str,
-    },
+    MetricOutOfRange { codepoint: u32, field: &'static str },
     #[error("font page {path} is {width}x{height}, exceeding side limit {max}")]
     PageTooLarge {
         path: PathBuf,
@@ -157,8 +151,8 @@ pub fn compile_fonts(root: &Path) -> Result<CompiledFontCarrier, FontCompileErro
         }
     }
 
-    let mut total_source_bytes = u64::try_from(descriptor_bytes.len())
-        .map_err(|_| FontCompileError::SourceTooLarge {
+    let mut total_source_bytes =
+        u64::try_from(descriptor_bytes.len()).map_err(|_| FontCompileError::SourceTooLarge {
             path: descriptor_path.clone(),
         })?;
     let mut total_decoded_bytes = 0u64;
@@ -171,9 +165,10 @@ pub fn compile_fonts(root: &Path) -> Result<CompiledFontCarrier, FontCompileErro
             .ok_or_else(|| FontCompileError::SourceTooLarge { path: path.clone() })?;
         let bytes = read_source(&source, remaining)?;
         total_source_bytes = total_source_bytes
-            .checked_add(u64::try_from(bytes.len()).map_err(|_| {
-                FontCompileError::SourceTooLarge { path: path.clone() }
-            })?)
+            .checked_add(
+                u64::try_from(bytes.len())
+                    .map_err(|_| FontCompileError::SourceTooLarge { path: path.clone() })?,
+            )
             .ok_or_else(|| FontCompileError::SourceTooLarge { path: path.clone() })?;
         let dimensions = ImageReader::with_format(Cursor::new(&bytes), ImageFormat::Png)
             .into_dimensions()
@@ -363,7 +358,9 @@ fn finite_metric(
     codepoint: u32,
     field: &'static str,
 ) -> Result<f64, FontCompileError> {
-    let value = metric.value().ok_or(FontCompileError::NonFiniteMetric { codepoint, field })?;
+    let value = metric
+        .value()
+        .ok_or(FontCompileError::NonFiniteMetric { codepoint, field })?;
     if !value.is_finite() {
         return Err(FontCompileError::NonFiniteMetric { codepoint, field });
     }
@@ -391,11 +388,10 @@ struct ResolvedSource {
 fn resolve_real_source(root: &Path, relative: &str) -> Result<ResolvedSource, FontCompileError> {
     validate_source_path_for_extension(relative)?;
     let font_root = root.join("font");
-    let root_handle =
-        open_font_root(&font_root).map_err(|source| FontCompileError::Io {
-            path: font_root,
-            source,
-        })?;
+    let root_handle = open_font_root(&font_root).map_err(|source| FontCompileError::Io {
+        path: font_root,
+        source,
+    })?;
     #[cfg(unix)]
     let file_name = relative
         .strip_prefix("font/")
@@ -484,22 +480,12 @@ fn open_source_handle(source: &ResolvedSource) -> io::Result<File> {
         os::unix::io::{AsRawFd, FromRawFd},
     };
 
-    let file_name = CString::new(source.file_name.as_bytes()).map_err(|_| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "font file name contains NUL",
-        )
-    })?;
+    let file_name = CString::new(source.file_name.as_bytes())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "font file name contains NUL"))?;
     let flags = unix_open_flags::NOFOLLOW | unix_open_flags::CLOEXEC;
     // SAFETY: `root_handle` owns a live directory descriptor, `file_name` is
     // one NUL-terminated name, and no create flag is used.
-    let descriptor = unsafe {
-        openat(
-            source.root_handle.as_raw_fd(),
-            file_name.as_ptr(),
-            flags,
-        )
-    };
+    let descriptor = unsafe { openat(source.root_handle.as_raw_fd(), file_name.as_ptr(), flags) };
     if descriptor < 0 {
         return Err(io::Error::last_os_error());
     }
@@ -659,7 +645,10 @@ fn read_source(source: &ResolvedSource, limit: u64) -> Result<Vec<u8>, FontCompi
             path: source.candidate.clone(),
             source: error,
         })?;
-    if u64::try_from(bytes.len()).ok().is_none_or(|length| length > limit) {
+    if u64::try_from(bytes.len())
+        .ok()
+        .is_none_or(|length| length > limit)
+    {
         return Err(FontCompileError::SourceTooLarge {
             path: source.candidate.clone(),
         });
@@ -697,8 +686,8 @@ fn decode_runtime_sha256(value: &str) -> Option<[u8; 32]> {
     }
     let mut decoded = [0; 32];
     for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
-        decoded[index] = (decode_hex_nibble_runtime(pair[0])? << 4)
-            | decode_hex_nibble_runtime(pair[1])?;
+        decoded[index] =
+            (decode_hex_nibble_runtime(pair[0])? << 4) | decode_hex_nibble_runtime(pair[1])?;
     }
     Some(decoded)
 }

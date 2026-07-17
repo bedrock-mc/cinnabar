@@ -88,3 +88,7 @@ Phase 4 completion Task 1: complete (commits 5939b9b..b816c9c, review clean).
 Minor follow-up resolved by integration commit 5ea938c: the assets item test now imports the public crate export.
 
 Phase 5 completion Task 1: complete (commits 6f9627f..8474215, review clean).
+
+Phase 4 completion Task 2: reviewed carrier history `b7bb83c..2ddf686` merged without flattening. The shared assets root now exports the bounded v4 animation, controller, typed Molang, inherited-rig, and item-visual carrier surfaces; focused tests import only the public crate API.
+
+Phase 5 completion Task 2: reviewed font history `98801cb..8d088dd` merged without flattening. The shared assets/compiler roots export the provenance-bound `MCBEFONT1` runtime/compiler surfaces, and `assetc font-assets` binds deterministic carrier/report output to the exact tracked source-manifest bytes. Full assets plus asset-compiler all-target/all-feature tests and strict Clippy/fmt/diff gates are green. The repository-wide architecture command still reports the same pre-existing `app/src/metrics.rs` and `tools/phase2-evidence/src/lib.rs` line-limit violations reproduced unchanged at the instructed `0796dc6` integration base; this integration added no architecture-policy violation.

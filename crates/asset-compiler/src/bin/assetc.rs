@@ -5,8 +5,9 @@ use std::{
 };
 
 use asset_compiler::{
-    AnimationInventory, AtmosphereCompileOptions, compile_atmosphere_assets_with_options,
-    compile_entity_assets, compile_pack_with_biomes, inspect_animation_inventory,
+    AnimationInventory, AtmosphereCompileOptions, FontCompileError,
+    compile_atmosphere_assets_with_options, compile_entity_assets, compile_fonts,
+    compile_pack_with_biomes, inspect_animation_inventory,
 };
 use assets::{
     AssetError, AtmosphereRole, EntityAssetSource, EntityAssetSymbol, MATERIAL_FLAG_ALPHA_CUTOUT,
@@ -23,7 +24,7 @@ const MAX_SOURCE_MANIFEST_BYTES: usize = 1024 * 1024;
 #[derive(Debug, Parser)]
 #[command(
     about = "Compile verified local Bedrock resource-pack assets",
-    after_help = "Compile inputs:\n  assetc compile --pack <RESOURCE_PACK> --registry <BLOCK_REGISTRY_BIN> --light-registry <LIGHT_REGISTRY_BIN> --biome-registry <BIOME_REGISTRY_BIN> --out <IGNORED_DIR>/vanilla-v1001.mcbea\n\nAtmosphere inputs:\n  assetc atmosphere --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbeatm --report <IGNORED_DIR>/atmosphere-assets.json\n\nEntity catalog and geometry payloads:\n  assetc entity-assets --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbeent --report <IGNORED_DIR>/entity-assets.json\n\nAnimation inventory:\n  assetc animation-inventory --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --max-layers-per-page 2048 --max-pages 2 --out <IGNORED_DIR>/animation-inventory.json"
+    after_help = "Compile inputs:\n  assetc compile --pack <RESOURCE_PACK> --registry <BLOCK_REGISTRY_BIN> --light-registry <LIGHT_REGISTRY_BIN> --biome-registry <BIOME_REGISTRY_BIN> --out <IGNORED_DIR>/vanilla-v1001.mcbea\n\nAtmosphere inputs:\n  assetc atmosphere --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbeatm --report <IGNORED_DIR>/atmosphere-assets.json\n\nEntity catalog and geometry payloads:\n  assetc entity-assets --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbeent --report <IGNORED_DIR>/entity-assets.json\n\nBitmap font payloads:\n  assetc font-assets --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbefont --report <IGNORED_DIR>/font-assets.json\n\nAnimation inventory:\n  assetc animation-inventory --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --max-layers-per-page 2048 --max-pages 2 --out <IGNORED_DIR>/animation-inventory.json"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -59,6 +60,21 @@ enum Command {
         #[arg(long)]
         source_manifest: PathBuf,
         /// Ignored/local MCBEENT3 output path.
+        #[arg(long)]
+        out: PathBuf,
+        /// Ignored/local deterministic JSON provenance report path.
+        #[arg(long)]
+        report: PathBuf,
+    },
+    /// Compile bounded bitmap-font metrics and raw RGBA8 texture pages.
+    FontAssets {
+        /// Root of the pinned vanilla resource pack.
+        #[arg(long)]
+        pack: PathBuf,
+        /// Tracked manifest that pins the local resource-pack source.
+        #[arg(long)]
+        source_manifest: PathBuf,
+        /// Ignored/local MCBEFONT1 output path.
         #[arg(long)]
         out: PathBuf,
         /// Ignored/local deterministic JSON provenance report path.
@@ -160,6 +176,23 @@ struct EntityAssetCounts {
     cubes: usize,
 }
 
+#[derive(Serialize)]
+struct FontAssetsReport {
+    schema: u32,
+    source: serde_json::Value,
+    source_manifest_sha256: Box<str>,
+    carrier_sha256: Box<str>,
+    counts: FontAssetCounts,
+}
+
+#[derive(Serialize)]
+struct FontAssetCounts {
+    glyphs: usize,
+    pages: usize,
+    source_bytes: u64,
+    decoded_bytes: u64,
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     match Cli::parse().command {
         Command::Atmosphere {
@@ -185,6 +218,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             report,
         } => {
             compile_entity_assets_command(&pack, &source_manifest, &out, &report)?;
+        }
+        Command::FontAssets {
+            pack,
+            source_manifest,
+            out,
+            report,
+        } => {
+            compile_font_assets_command(&pack, &source_manifest, &out, &report)?;
         }
         Command::Compile {
             pack,
@@ -287,6 +328,60 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
         }
     }
+    Ok(())
+}
+
+fn compile_font_assets_command(
+    pack: &Path,
+    source_manifest: &Path,
+    out: &Path,
+    report: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let manifest_bytes = read_bounded_with_limit(
+        source_manifest,
+        MAX_SOURCE_MANIFEST_BYTES,
+        "source manifest",
+    )?;
+    let source =
+        serde_json::from_slice::<serde_json::Value>(&manifest_bytes).map_err(|source| {
+            AssetError::Json {
+                path: source_manifest.to_path_buf(),
+                source,
+            }
+        })?;
+    let source_manifest_sha256: [u8; 32] = Sha256::digest(&manifest_bytes).into();
+    let compiled = compile_fonts(pack)?;
+    if compiled.report.source_manifest_sha256 != source_manifest_sha256 {
+        return Err(FontCompileError::SourceManifestMismatch.into());
+    }
+    let report_data = FontAssetsReport {
+        schema: compiled.report.schema,
+        source,
+        source_manifest_sha256: hex(&compiled.report.source_manifest_sha256).into_boxed_str(),
+        carrier_sha256: hex(&compiled.report.carrier_sha256).into_boxed_str(),
+        counts: FontAssetCounts {
+            glyphs: compiled.report.glyphs,
+            pages: compiled.report.pages,
+            source_bytes: compiled.report.source_bytes,
+            decoded_bytes: compiled.report.decoded_bytes,
+        },
+    };
+    let mut report_bytes =
+        serde_json::to_vec_pretty(&report_data).map_err(|source| AssetError::Json {
+            path: report.to_path_buf(),
+            source,
+        })?;
+    report_bytes.push(b'\n');
+    validate_output_bundle(out, report)?;
+    write_blob_atomic(out, &compiled.bytes)?;
+    write_blob_atomic(report, &report_bytes)?;
+    println!(
+        "compiled {} bitmap-font glyphs across {} pages to {} and {}",
+        report_data.counts.glyphs,
+        report_data.counts.pages,
+        out.display(),
+        report.display()
+    );
     Ok(())
 }
 

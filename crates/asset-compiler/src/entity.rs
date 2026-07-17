@@ -194,9 +194,27 @@ pub fn compile_entity_assets(
     }
     Ok(CompiledEntityAssets {
         source_manifest_sha256,
+        block_visual_count: 0,
         sources: sources.into_boxed_slice(),
         symbols: symbols.into_boxed_slice(),
         geometries: geometries.into_boxed_slice(),
+        animation_clips: Box::new([]),
+        animation_channels: Box::new([]),
+        animation_keyframes: Box::new([]),
+        molang_symbols: Box::new([]),
+        molang_expressions: Box::new([]),
+        molang_ops: Box::new([]),
+        molang_collections: Box::new([]),
+        molang_collection_items: Box::new([]),
+        controllers: Box::new([]),
+        controller_states: Box::new([]),
+        controller_animations: Box::new([]),
+        controller_transitions: Box::new([]),
+        rig_bindings: Box::new([]),
+        rig_animations: Box::new([]),
+        rig_controllers: Box::new([]),
+        item_visuals: Box::new([]),
+        item_visual_aliases: Box::new([]),
     })
 }
 

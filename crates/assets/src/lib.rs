@@ -7,6 +7,7 @@ mod compiled;
 mod entity;
 mod environment_settings;
 mod error;
+mod font;
 mod item;
 mod light_registry;
 mod model;
@@ -38,22 +39,41 @@ pub use compiled::{
     MATERIAL_FLAG_WATER_TINT, MATERIAL_FLAGS_MASK, MAX_MATERIALS, MAX_TEXTURE_LAYERS, Material,
 };
 pub use entity::{
-    CompiledEntityAssets, ENTITY_BLOB_MAGIC, ENTITY_BLOB_VERSION, EntityAssetKind,
-    EntityAssetSource, EntityAssetSymbol, EntityDependency, EntityDependencyKind,
-    EntityDependencyResolution, EntityGeometry, EntityGeometryBone, EntityGeometryCube,
-    EntityGeometryFaceUv, EntityGeometryFaceUvs, EntityGeometryInheritance, EntityGeometryScalar,
-    EntityGeometryUv, MAX_ENTITY_ASSET_PATH_BYTES, MAX_ENTITY_ASSET_SOURCES,
-    MAX_ENTITY_ASSET_SYMBOLS, MAX_ENTITY_CATALOG_BYTES, MAX_ENTITY_DEPENDENCIES,
+    CompiledEntityAssets, CompiledMolangExpression, ENTITY_BLOB_MAGIC, ENTITY_BLOB_VERSION,
+    EntityAnimationChannel, EntityAnimationClip, EntityAnimationController,
+    EntityAnimationInterpolation, EntityAnimationKeyframe, EntityAnimationLoop,
+    EntityAnimationProperty, EntityAssetKind, EntityAssetSource, EntityAssetSummary,
+    EntityAssetSymbol, EntityControllerAnimation, EntityControllerState,
+    EntityControllerTransition, EntityDependency, EntityDependencyKind, EntityDependencyResolution,
+    EntityGeometry, EntityGeometryBone, EntityGeometryCube, EntityGeometryFaceUv,
+    EntityGeometryFaceUvs, EntityGeometryInheritance, EntityGeometryScalar, EntityGeometryUv,
+    EntityRigAnimationBinding, EntityRigBinding, EntityRigControllerBinding, EntityRigFallback,
+    MAX_ENTITY_ANIMATION_CHANNELS, MAX_ENTITY_ANIMATION_CLIPS, MAX_ENTITY_ANIMATION_KEYFRAMES,
+    MAX_ENTITY_ASSET_PATH_BYTES, MAX_ENTITY_ASSET_SOURCES, MAX_ENTITY_ASSET_SYMBOLS,
+    MAX_ENTITY_CATALOG_BYTES, MAX_ENTITY_CONTROLLER_ANIMATIONS, MAX_ENTITY_CONTROLLER_STATES,
+    MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS, MAX_ENTITY_DEPENDENCIES,
     MAX_ENTITY_GEOMETRIES, MAX_ENTITY_GEOMETRY_BONES, MAX_ENTITY_GEOMETRY_CUBES,
     MAX_ENTITY_GEOMETRY_NAME_BYTES, MAX_ENTITY_GEOMETRY_SCALAR, MAX_ENTITY_IDENTIFIER_BYTES,
+    MAX_ENTITY_RIG_ANIMATIONS, MAX_ENTITY_RIG_BINDINGS, MAX_ENTITY_RIG_CONTROLLERS,
     MAX_ENTITY_SOURCE_BYTES, MAX_ENTITY_TEXTURE_DIMENSION, MAX_ENTITY_TOTAL_SOURCE_BYTES,
+    MAX_MOLANG_COLLECTION_ITEMS, MAX_MOLANG_COLLECTION_ITEMS_TOTAL, MAX_MOLANG_COLLECTIONS,
+    MAX_MOLANG_EXPRESSIONS, MAX_MOLANG_OPS, MAX_MOLANG_OPS_PER_EXPRESSION, MAX_MOLANG_STACK_DEPTH,
+    MolangCollection, MolangCollectionItem, MolangOp, MolangSymbol, MolangSymbolKind,
     RuntimeEntityAssets, encode_entity_blob, validate_entity_geometry_inheritance,
 };
 pub use environment_settings::{CloudQuality, EnvironmentQualitySettings, PrecipitationQuality};
 pub use error::AssetError;
+pub use font::{
+    CompiledFontCatalog, FONT_CARRIER_MAGIC, FONT_CARRIER_SCHEMA, FontCatalogError,
+    FontCatalogIdentity, FontTexturePage, GlyphMetrics, MAX_FONT_GLYPHS, MAX_FONT_PAGE_SIDE,
+    MAX_FONT_PAGES, MAX_FONT_PATH_BYTES, MAX_FONT_SOURCE_BYTES, RuntimeFontCatalog,
+    encode_font_catalog,
+};
 pub use item::{
-    BlockVisualId, ItemActionPhase, ItemIconRef, ItemStackIdentity, ItemStackIdentityError,
-    ItemVisualId, ItemVisualRoute,
+    BlockVisualId, ItemActionPhase, ItemDisplayScalar, ItemDisplayTransform, ItemIconRef,
+    ItemStackIdentity, ItemStackIdentityError, ItemVisualAlias, ItemVisualDefinition, ItemVisualId,
+    ItemVisualRoute, MAX_BLOCK_VISUALS, MAX_ITEM_IDENTIFIER_BYTES, MAX_ITEM_VISUAL_ALIASES,
+    MAX_ITEM_VISUALS,
 };
 pub use light_registry::{LightProperties, read_light_registry};
 pub use model::{

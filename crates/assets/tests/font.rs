@@ -1,7 +1,4 @@
-#[path = "../src/font.rs"]
-mod font;
-
-use font::{
+use assets::{
     FontCatalogError, FontTexturePage, GlyphMetrics, RuntimeFontCatalog, encode_font_catalog,
 };
 use sha2::{Digest, Sha256};

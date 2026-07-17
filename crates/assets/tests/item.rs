@@ -4,14 +4,9 @@ use assets::{
     BlockVisualId, ItemActionPhase, ItemIconRef, ItemStackIdentity, ItemVisualId, ItemVisualRoute,
 };
 
+use assets as entity;
+use assets as item;
 pub use assets::AssetError;
-
-#[path = "../src/entity.rs"]
-#[allow(dead_code)]
-mod entity;
-#[path = "../src/item.rs"]
-#[allow(dead_code)]
-mod item;
 
 use entity::{CompiledEntityAssets as CompiledEntityAssetsV4, RuntimeEntityAssets};
 use item::{
