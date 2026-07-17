@@ -5,10 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"image/color"
 	"math"
 	"math/rand"
+	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -24,6 +26,78 @@ import (
 type fixtureLightRegistry struct {
 	emission map[uint32]uint8
 	filter   map[uint32]uint8
+}
+
+type fixtureBlockItem struct {
+	itemName  string
+	metadata  int16
+	blockName string
+	state     map[string]any
+}
+
+func (f fixtureBlockItem) EncodeItem() (string, int16)           { return f.itemName, f.metadata }
+func (f fixtureBlockItem) EncodeBlock() (string, map[string]any) { return f.blockName, f.state }
+func (fixtureBlockItem) Hash() (uint64, uint64)                  { return 1, 1 }
+func (fixtureBlockItem) Model() world.BlockModel                 { return nil }
+
+func TestGenerateBlockItemRoutesPreservesExactMetadataAndState(t *testing.T) {
+	state, err := canonicalTypedState([]StateProperty{{Name: "variant", Value: TypedScalar{Kind: ScalarInt, Int: 3}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	records := []bregLightIdentity{{SequentialID: 0, Name: "minecraft:air", StateJSON: []byte("{}")}, {SequentialID: 1, Name: "minecraft:test_block", StateJSON: state}}
+	breg := []byte("reviewed BREG bytes")
+	table, err := generateBlockItemRouteTable([]world.Item{fixtureBlockItem{itemName: "minecraft:test_item", metadata: -1, blockName: "minecraft:test_block", state: map[string]any{"variant": int32(3)}}}, records, breg)
+	if err != nil {
+		t.Fatalf("generate routes: %v", err)
+	}
+	if len(table.Routes) != 1 || table.Routes[0].Identifier != "minecraft:test_item" || table.Routes[0].Metadata != math.MaxUint32 || table.Routes[0].BlockVisual != 1 || !bytes.Equal(table.Routes[0].BlockState, state) {
+		t.Fatalf("unexpected exact route: %#v", table.Routes)
+	}
+	if table.BREGSHA256 != fmt.Sprintf("%x", sha256.Sum256(breg)) || table.DragonflyModuleSum == "" {
+		t.Fatalf("missing provenance: %#v", table)
+	}
+}
+
+func TestGenerateBlockItemRoutesRejectsDuplicateMissingAndAmbiguousStates(t *testing.T) {
+	item := fixtureBlockItem{itemName: "minecraft:test_item", blockName: "minecraft:test_block"}
+	record := bregLightIdentity{SequentialID: 0, Name: "minecraft:test_block", StateJSON: []byte("{}")}
+	if _, err := generateBlockItemRouteTable([]world.Item{item, item}, []bregLightIdentity{record}, []byte("breg")); err == nil {
+		t.Fatal("duplicate route accepted")
+	}
+	if _, err := generateBlockItemRouteTable([]world.Item{item}, nil, []byte("breg")); err == nil {
+		t.Fatal("missing state accepted")
+	}
+	if _, err := generateBlockItemRouteTable([]world.Item{item}, []bregLightIdentity{record, record}, []byte("breg")); err == nil {
+		t.Fatal("ambiguous state accepted")
+	}
+}
+
+func TestCheckedInBlockItemRoutesMatchPinnedGenerator(t *testing.T) {
+	breg, err := os.ReadFile("../../crates/assets/data/block-registry-v1001.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	records, err := readBREG1003LightIdentities(breg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	table, err := generateBlockItemRouteTable(world.Items(), records, breg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.MarshalIndent(table, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded = append(encoded, '\n')
+	want, err := os.ReadFile("../../crates/assets/data/block-item-routes-v1001.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(encoded, want) {
+		t.Fatal("checked-in block item routes are stale")
+	}
 }
 
 func (r fixtureLightRegistry) LightBlock(runtimeID uint32) uint8 {

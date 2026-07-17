@@ -22,8 +22,9 @@ use entity::{
     MolangSymbolKind, RuntimeEntityAssets as RuntimeEntityAssetsV4,
 };
 use item::{
-    BlockVisualId as LeafBlockVisualId, ItemDisplayTransform, ItemVisualAlias,
-    ItemVisualDefinition, ItemVisualDefinitionRoute, ItemVisualId as LeafItemVisualId,
+    BlockVisualId as LeafBlockVisualId, ItemDisplayTransform, ItemTextureReference,
+    ItemVisualAlias, ItemVisualDefinition, ItemVisualDefinitionRoute,
+    ItemVisualId as LeafItemVisualId, ItemVisualKey,
 };
 
 fn fixture() -> CompiledEntityAssets {
@@ -434,7 +435,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
         ("models/entity/allay.geo.json", 0x13),
         ("render_controllers/allay.render.json", 0x14),
         ("textures/entity/allay.png", 0x15),
-        ("textures/item_visuals.json", 0x16),
+        ("textures/item_texture.json", 0x16),
         ("textures/items/allay_spawn_egg.png", 0x17),
     ]
     .into_iter()
@@ -597,6 +598,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
             entity_symbol: 0,
             geometry: 0,
             render_controller: 4,
+            geometry_selection: None,
             first_animation: 0,
             animation_count: 1,
             first_controller: 0,
@@ -611,7 +613,10 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
         }]
         .into_boxed_slice(),
         item_visuals: vec![ItemVisualDefinition {
-            identifier: "minecraft:allay_spawn_egg".into(),
+            key: ItemVisualKey {
+                identifier: "minecraft:allay_spawn_egg".into(),
+                metadata: 0,
+            },
             source: 6,
             route: ItemVisualDefinitionRoute::BlockItem {
                 block_visual: LeafBlockVisualId(7),
@@ -622,7 +627,10 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
         }]
         .into_boxed_slice(),
         item_visual_aliases: vec![ItemVisualAlias {
-            identifier: "minecraft:allay_spawn_egg_alias".into(),
+            key: ItemVisualKey {
+                identifier: "minecraft:allay_spawn_egg_alias".into(),
+                metadata: 0,
+            },
             visual: LeafItemVisualId(0),
         }]
         .into_boxed_slice(),
@@ -967,4 +975,40 @@ fn carrier_v4_requires_exact_valid_molang_program_stack_contracts() {
     let mut dishonest_depth = exact_depth;
     dishonest_depth.molang_expressions[0].max_stack = 31;
     assert!(dishonest_depth.validate().is_err());
+}
+
+#[test]
+fn carrier_v4_round_trips_geometry_selection_metadata_and_texture_variant() {
+    let mut compiled = carrier_v4_fixture();
+    compiled.rig_bindings[0].geometry_selection = Some(0);
+    compiled.item_visuals[0].key = ItemVisualKey {
+        identifier: "minecraft:allay_spawn_egg".into(),
+        metadata: u32::MAX,
+    };
+    compiled.item_visuals[0].route = ItemVisualDefinitionRoute::Sprite {
+        texture: ItemTextureReference {
+            source: 7,
+            variant: 7,
+        },
+    };
+    compiled.item_visual_aliases[0].key = ItemVisualKey {
+        identifier: "minecraft:allay_spawn_egg_alias".into(),
+        metadata: u32::MAX,
+    };
+
+    let bytes = encode_entity_blob(&compiled).unwrap();
+    let runtime = RuntimeEntityAssetsV4::decode(&bytes).unwrap();
+    assert_eq!(runtime.rig_bindings()[0].geometry_selection, Some(0));
+    assert_eq!(runtime.item_visuals()[0].key.metadata, u32::MAX);
+    assert!(matches!(
+        runtime.item_visuals()[0].route,
+        ItemVisualDefinitionRoute::Sprite {
+            texture: ItemTextureReference {
+                source: 7,
+                variant: 7
+            }
+        }
+    ));
+    assert_eq!(runtime.item_visual_aliases()[0].key.metadata, u32::MAX);
+    assert_eq!(runtime.encode().unwrap().as_ref(), bytes.as_ref());
 }

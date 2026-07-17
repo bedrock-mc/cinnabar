@@ -213,6 +213,7 @@ pub struct EntityRigBinding {
     pub entity_symbol: u32,
     pub geometry: u32,
     pub render_controller: u32,
+    pub geometry_selection: Option<u32>,
     pub first_animation: u32,
     pub animation_count: u16,
     pub first_controller: u32,
@@ -399,8 +400,8 @@ pub(super) fn validate_extended_payload(compiled: &CompiledEntityAssets) -> Resu
         if !valid_item_definition_source(defining_path) {
             return Err(invalid("item visual defining source is not reviewed"));
         }
-        if let ItemVisualDefinitionRoute::Sprite { texture_source } = visual.route {
-            let texture_path = &compiled.sources[texture_source as usize].path;
+        if let ItemVisualDefinitionRoute::Sprite { texture } = visual.route {
+            let texture_path = &compiled.sources[texture.source as usize].path;
             if !valid_item_raster_source(texture_path) {
                 return Err(invalid("item sprite source is not a reviewed raster"));
             }
@@ -412,7 +413,7 @@ pub(super) fn validate_extended_payload(compiled: &CompiledEntityAssets) -> Resu
 fn valid_item_definition_source(path: &str) -> bool {
     (path.starts_with("entity/") && path.ends_with(".json"))
         || path == "textures/item_texture.json"
-        || path == "textures/item_visuals.json"
+        || path == "registry/block-item-routes-v1001.json"
 }
 
 fn valid_item_raster_source(path: &str) -> bool {
@@ -848,6 +849,9 @@ fn validate_rig_payload(compiled: &CompiledEntityAssets) -> Result<(), AssetErro
                 binding.render_controller,
                 EntityAssetKind::RenderController,
             )
+            || binding
+                .geometry_selection
+                .is_some_and(|expression| expression as usize >= compiled.molang_expressions.len())
             || !range_in_bounds(
                 binding.first_animation,
                 u32::from(binding.animation_count),

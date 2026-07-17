@@ -71,9 +71,9 @@ pub use font::{
 };
 pub use item::{
     BlockVisualId, ItemActionPhase, ItemDisplayScalar, ItemDisplayTransform, ItemIconRef,
-    ItemStackIdentity, ItemStackIdentityError, ItemVisualAlias, ItemVisualDefinition,
-    ItemVisualDefinitionRoute, ItemVisualId, ItemVisualRoute, MAX_BLOCK_VISUALS,
-    MAX_ITEM_IDENTIFIER_BYTES, MAX_ITEM_VISUAL_ALIASES, MAX_ITEM_VISUALS,
+    ItemStackIdentity, ItemStackIdentityError, ItemTextureReference, ItemVisualAlias,
+    ItemVisualDefinition, ItemVisualDefinitionRoute, ItemVisualId, ItemVisualKey, ItemVisualRoute,
+    MAX_BLOCK_VISUALS, MAX_ITEM_IDENTIFIER_BYTES, MAX_ITEM_VISUAL_ALIASES, MAX_ITEM_VISUALS,
 };
 pub use light_registry::{LightProperties, read_light_registry};
 pub use model::{
