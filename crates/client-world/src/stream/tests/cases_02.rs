@@ -482,18 +482,21 @@ fn request_mode_biome_arrival_dirties_diagonal_cross_chunk_blend_dependents() {
         block_network_ids_are_hashes: false,
     });
     let neighbour = SubChunkKey::new(0, 1, -4, 1);
-    stream.store.commit_level_chunk(
-        neighbour.chunk(),
-        DecodedLevelChunk::decode(
-            -4,
-            1,
-            include_bytes!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../world/fixtures/uniform_non_air.bin"
-            )),
+    stream
+        .store
+        .commit_level_chunk(
+            neighbour.chunk(),
+            DecodedLevelChunk::decode(
+                -4,
+                1,
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../world/fixtures/uniform_non_air.bin"
+                )),
+            )
+            .unwrap(),
         )
-        .unwrap(),
-    );
+        .unwrap();
     stream.resident.insert(neighbour);
     let generation = stream.mark_dirty_exact(neighbour, Instant::now());
     assert!(stream.register_mesh_dependency_mask(
@@ -535,23 +538,29 @@ fn inline_biome_replacement_dirties_diagonal_cross_chunk_blend_dependents() {
     ));
     let mut original_payload = block_payload.to_vec();
     original_payload.extend(biome_payload(0, 42));
-    stream.store.commit_level_chunk(
-        source.chunk(),
-        DecodedLevelChunk::decode_with_biomes(
-            -4,
-            1,
-            -4,
-            protocol::vanilla_dimension_range(0)
-                .unwrap()
-                .sub_chunk_count,
-            &original_payload,
+    stream
+        .store
+        .commit_level_chunk(
+            source.chunk(),
+            DecodedLevelChunk::decode_with_biomes(
+                -4,
+                1,
+                -4,
+                protocol::vanilla_dimension_range(0)
+                    .unwrap()
+                    .sub_chunk_count,
+                &original_payload,
+            )
+            .unwrap(),
         )
-        .unwrap(),
-    );
-    stream.store.commit_level_chunk(
-        diagonal.chunk(),
-        DecodedLevelChunk::decode(-4, 1, block_payload).unwrap(),
-    );
+        .unwrap();
+    stream
+        .store
+        .commit_level_chunk(
+            diagonal.chunk(),
+            DecodedLevelChunk::decode(-4, 1, block_payload).unwrap(),
+        )
+        .unwrap();
     stream.resident.extend([source, diagonal]);
     let generation = stream.mark_dirty_exact(diagonal, Instant::now());
     assert!(stream.register_mesh_dependency_mask(
@@ -594,18 +603,21 @@ fn evicting_a_diagonal_biome_only_column_dirties_the_remaining_blend_boundary() 
         block_network_ids_are_hashes: false,
     });
     let center = SubChunkKey::new(0, 0, -4, 0);
-    stream.store.commit_level_chunk(
-        center.chunk(),
-        DecodedLevelChunk::decode(
-            -4,
-            1,
-            include_bytes!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../world/fixtures/uniform_non_air.bin"
-            )),
+    stream
+        .store
+        .commit_level_chunk(
+            center.chunk(),
+            DecodedLevelChunk::decode(
+                -4,
+                1,
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../world/fixtures/uniform_non_air.bin"
+                )),
+            )
+            .unwrap(),
         )
-        .unwrap(),
-    );
+        .unwrap();
     stream.store.commit_biome_column(
         ChunkKey::new(0, 1, 1),
         DecodedBiomeColumn::decode(-4, 1, &[1, 84]).unwrap(),

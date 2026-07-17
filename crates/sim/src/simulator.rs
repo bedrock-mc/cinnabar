@@ -130,7 +130,11 @@ impl Simulator {
         }
         let grounded_at_start = next.on_ground;
         let friction = if grounded_at_start {
-            DEFAULT_AIR_FRICTION * world.block_friction(block_below(next.position)?)?
+            DEFAULT_AIR_FRICTION
+                * world
+                    .block_physics(block_below(next.position)?)?
+                    .primary()
+                    .friction
         } else {
             DEFAULT_AIR_FRICTION
         };
@@ -337,7 +341,7 @@ fn bounded_collision_boxes(
     query: Aabb,
 ) -> Result<Vec<Aabb>, WorldQueryError> {
     crate::world::validate_collision_query(query)?;
-    world.collision_boxes(query)
+    Ok(world.collision_boxes(query)?.value)
 }
 
 fn resolve_axes_reverse(start: Aabb, velocity: Vec3, colliders: &[Aabb]) -> (Aabb, Vec3) {

@@ -1,6 +1,18 @@
 use super::*;
 
 #[test]
+fn collision_revision_commit_errors_are_mutation_failures_not_decode_failures() {
+    assert!(crate::stream::sequencing::chunk_commit_is_mutation_failure(
+        &world::DecodeError::CollisionRevision(world::CollisionRevisionError::Exhausted)
+    ));
+    assert!(
+        !crate::stream::sequencing::chunk_commit_is_mutation_failure(
+            &world::DecodeError::UnsupportedVersion(42)
+        )
+    );
+}
+
+#[test]
 fn phase2_gate_has_explicit_minimum_frame_and_burst_bounds() {
     let config = PublicationServiceConfig::PHASE2_GATE;
     assert_eq!(config.minimum_items_per_second, 4_096);
@@ -951,7 +963,10 @@ fn request_mode_evicts_the_old_column_and_invalidates_its_neighbours() {
         )),
     )
     .unwrap();
-    stream.store.commit_level_chunk(key.chunk(), decoded);
+    stream
+        .store
+        .commit_level_chunk(key.chunk(), decoded)
+        .unwrap();
     stream.resident.insert(key);
     stream.mark_changed(key, Instant::now());
     assert_eq!(stream.dispatch_light_jobs([0.0; 3], 1), 1);

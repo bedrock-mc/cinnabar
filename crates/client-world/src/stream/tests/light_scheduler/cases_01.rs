@@ -318,7 +318,10 @@ fn mesh_dispatch_waits_for_every_known_light_halo_slot() {
         )),
     )
     .unwrap();
-    stream.store.commit_level_chunk(center.chunk(), decoded);
+    stream
+        .store
+        .commit_level_chunk(center.chunk(), decoded)
+        .unwrap();
     install_current_light(&mut stream, center, 0, 0, false);
     let face = SubChunkKey::new(0, 1, -4, 0);
     let edge = SubChunkKey::new(0, 1, -3, 0);
@@ -352,7 +355,10 @@ fn stale_light_value_mesh_is_requeued_but_provenance_identity_is_ignored() {
         )),
     )
     .unwrap();
-    stream.store.commit_level_chunk(center.chunk(), decoded);
+    stream
+        .store
+        .commit_level_chunk(center.chunk(), decoded)
+        .unwrap();
     install_current_light(&mut stream, center, 0, 0, false);
     install_current_light(&mut stream, corner, 4, 5, true);
     let revision = stream.mark_dirty_exact(center, Instant::now());
@@ -397,7 +403,10 @@ fn mid_flight_light_halo_load_rejects_preload_mesh_completion() {
         )),
     )
     .unwrap();
-    stream.store.commit_level_chunk(center.chunk(), decoded);
+    stream
+        .store
+        .commit_level_chunk(center.chunk(), decoded)
+        .unwrap();
     install_current_light(&mut stream, center, 0, 0, false);
     let revision = stream.mark_dirty_exact(center, Instant::now());
     assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 1);
@@ -452,7 +461,10 @@ fn mesh_dispatch_waits_for_current_light() {
         )),
     )
     .unwrap();
-    stream.store.commit_level_chunk(key.chunk(), decoded);
+    stream
+        .store
+        .commit_level_chunk(key.chunk(), decoded)
+        .unwrap();
     stream.resident.insert(key);
     stream.mark_changed(key, Instant::now());
 

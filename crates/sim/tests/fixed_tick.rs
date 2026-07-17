@@ -1,6 +1,6 @@
 use sim::{
-    Aabb, CollisionWorld, MovementInput, PlayerState, SimulationError, Simulator, TICKS_PER_SECOND,
-    Vec3, WorldQueryError,
+    Aabb, CollisionQuery, CollisionWorld, MovementInput, PlayerState, SimulationError, Simulator,
+    TICKS_PER_SECOND, Vec3, WorldQueryError,
 };
 
 #[derive(Default)]
@@ -22,16 +22,17 @@ impl StaticWorld {
 }
 
 impl CollisionWorld for StaticWorld {
-    fn collision_boxes(&self, query: Aabb) -> Result<Vec<Aabb>, WorldQueryError> {
+    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
         if let Some(error) = &self.fail {
             return Err(error.clone());
         }
-        Ok(self
-            .boxes
-            .iter()
-            .copied()
-            .filter(|aabb| aabb.intersects(query))
-            .collect())
+        Ok(CollisionQuery::synthetic(
+            self.boxes
+                .iter()
+                .copied()
+                .filter(|aabb| aabb.intersects(query))
+                .collect(),
+        ))
     }
 }
 
@@ -189,7 +190,7 @@ fn assert_state_bits_eq(actual: &PlayerState, expected: &PlayerState) {
 struct PanicWorld;
 
 impl CollisionWorld for PanicWorld {
-    fn collision_boxes(&self, _query: Aabb) -> Result<Vec<Aabb>, WorldQueryError> {
+    fn collision_boxes(&self, _query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
         panic!("invalid simulation data must be rejected before a world query")
     }
 }

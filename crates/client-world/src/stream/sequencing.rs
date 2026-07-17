@@ -1,5 +1,9 @@
 use super::*;
 
+pub(super) fn chunk_commit_is_mutation_failure(error: &DecodeError) -> bool {
+    matches!(error, DecodeError::CollisionRevision(_))
+}
+
 impl WorldStream {
     pub(super) fn record_normalization_error(&mut self, reason: NormalizationErrorReason) {
         self.stats.normalization_errors = self.stats.normalization_errors.saturating_add(1);
@@ -89,7 +93,12 @@ impl WorldStream {
                             .copied()
                             .filter(|resident| resident.chunk() == key)
                             .collect::<BTreeSet<_>>();
-                        let applied = self.store.commit_level_chunk(key, decoded);
+                        let Ok(applied) = self.store.commit_level_chunk(key, decoded) else {
+                            self.record_normalization_error(
+                                NormalizationErrorReason::BlockMutationFailure,
+                            );
+                            return;
+                        };
                         self.loaded_columns.insert(key);
                         self.purge_sub_chunk_column_state(key);
                         self.resident.retain(|resident| resident.chunk() != key);
@@ -187,9 +196,15 @@ impl WorldStream {
                                     }
                                     true
                                 }
-                                Err(_) => {
-                                    self.stats.decode_errors =
-                                        self.stats.decode_errors.saturating_add(1);
+                                Err(error) => {
+                                    if chunk_commit_is_mutation_failure(&error) {
+                                        self.record_normalization_error(
+                                            NormalizationErrorReason::BlockMutationFailure,
+                                        );
+                                    } else {
+                                        self.stats.decode_errors =
+                                            self.stats.decode_errors.saturating_add(1);
+                                    }
                                     false
                                 }
                             };
@@ -204,12 +219,21 @@ impl WorldStream {
                         PreparedSubChunkResult::AllAir => {
                             self.stats.phase2_outcomes.all_air =
                                 self.stats.phase2_outcomes.all_air.saturating_add(1);
-                            let changed = self.store.apply_all_air(key);
-                            let became_known = self.record_known_air(key);
-                            if changed.is_some() || became_known {
-                                self.mark_changed(key, Instant::now());
+                            match self.store.apply_all_air(key) {
+                                Ok(changed) => {
+                                    let became_known = self.record_known_air(key);
+                                    if changed.is_some() || became_known {
+                                        self.mark_changed(key, Instant::now());
+                                    }
+                                    (true, true)
+                                }
+                                Err(_) => {
+                                    self.record_normalization_error(
+                                        NormalizationErrorReason::BlockMutationFailure,
+                                    );
+                                    (true, false)
+                                }
                             }
-                            (true, true)
                         }
                         PreparedSubChunkResult::Unavailable(unavailable) => {
                             self.stats.phase2_outcomes.unavailable =
@@ -218,12 +242,21 @@ impl WorldStream {
                                 self.stats.unavailable_sub_chunks.saturating_add(1);
                             match unavailable {
                                 protocol::SubChunkUnavailable::YIndexOutOfBounds => {
-                                    let changed = self.store.apply_all_air(key);
-                                    let became_known = self.record_known_air(key);
-                                    if changed.is_some() || became_known {
-                                        self.mark_changed(key, Instant::now());
+                                    match self.store.apply_all_air(key) {
+                                        Ok(changed) => {
+                                            let became_known = self.record_known_air(key);
+                                            if changed.is_some() || became_known {
+                                                self.mark_changed(key, Instant::now());
+                                            }
+                                            (true, true)
+                                        }
+                                        Err(_) => {
+                                            self.record_normalization_error(
+                                                NormalizationErrorReason::BlockMutationFailure,
+                                            );
+                                            (true, false)
+                                        }
                                     }
-                                    (true, true)
                                 }
                                 protocol::SubChunkUnavailable::InvalidDimension => {
                                     self.record_normalization_error(
@@ -262,15 +295,19 @@ impl WorldStream {
             PreparedWorldEvent::BlockUpdates { result, duration } => {
                 self.stats.max_decode_duration = self.stats.max_decode_duration.max(duration);
                 match result {
-                    Ok(prepared) => {
-                        let changed = self.store.commit_prepared_block_updates(prepared);
-                        let now = Instant::now();
-                        for key in changed {
-                            self.refresh_block_entity_visuals_for_sub_chunk(key);
-                            self.sync_resident(key);
-                            self.mark_changed(key, now);
+                    Ok(prepared) => match self.store.commit_prepared_block_updates(prepared) {
+                        Ok(changed) => {
+                            let now = Instant::now();
+                            for key in changed {
+                                self.refresh_block_entity_visuals_for_sub_chunk(key);
+                                self.sync_resident(key);
+                                self.mark_changed(key, now);
+                            }
                         }
-                    }
+                        Err(_) => self.record_normalization_error(
+                            NormalizationErrorReason::BlockMutationFailure,
+                        ),
+                    },
                     Err(_) => {
                         self.record_normalization_error(
                             NormalizationErrorReason::BlockMutationFailure,
@@ -527,17 +564,22 @@ impl WorldStream {
             let end_y = range.base_sub_chunk_y.saturating_add(
                 i32::try_from(range.sub_chunk_count).expect("vanilla subchunk count fits i32"),
             );
-            let changed = (first_air_y..end_y)
-                .filter_map(|y| {
-                    let air = SubChunkKey::from_chunk(key, y);
-                    let removed = self.store.apply_request_mode_air(air).is_some();
-                    let became_known = self.record_known_air(air);
-                    if removed {
-                        self.refresh_block_entity_visuals_for_sub_chunk(air);
-                    }
-                    (removed || became_known).then_some(air)
-                })
-                .collect::<BTreeSet<_>>();
+            let mut changed = BTreeSet::new();
+            for y in first_air_y..end_y {
+                let air = SubChunkKey::from_chunk(key, y);
+                let Ok(removed) = self.store.apply_request_mode_air(air) else {
+                    self.record_normalization_error(NormalizationErrorReason::BlockMutationFailure);
+                    return;
+                };
+                let removed = removed.is_some();
+                let became_known = self.record_known_air(air);
+                if removed {
+                    self.refresh_block_entity_visuals_for_sub_chunk(air);
+                }
+                if removed || became_known {
+                    changed.insert(air);
+                }
+            }
             self.mark_changed_sources(changed, Instant::now());
         }
     }

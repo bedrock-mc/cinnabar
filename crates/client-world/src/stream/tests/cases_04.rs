@@ -62,7 +62,9 @@ fn newer_update_waits_for_older_decode_and_wins() {
     while let Some(action) = ordered.pop_next() {
         match action {
             Action::Decode(decoded) => {
-                store.commit_level_chunk(ChunkKey::new(0, 0, 0), decoded);
+                store
+                    .commit_level_chunk(ChunkKey::new(0, 0, 0), decoded)
+                    .unwrap();
             }
             Action::Update => {
                 store
@@ -197,7 +199,10 @@ fn mesh_completion_carries_current_palette_native_biome_record() {
         )),
     )
     .unwrap();
-    stream.store.commit_level_chunk(key.chunk(), decoded);
+    stream
+        .store
+        .commit_level_chunk(key.chunk(), decoded)
+        .unwrap();
     stream.store.commit_biome_column(
         key.chunk(),
         DecodedBiomeColumn::decode(-4, 1, &[1, 84]).unwrap(),
@@ -247,18 +252,21 @@ fn stale_biome_snapshot_cannot_publish_an_old_tint_record() {
         block_network_ids_are_hashes: false,
     });
     let key = SubChunkKey::new(0, 0, -4, 0);
-    stream.store.commit_level_chunk(
-        key.chunk(),
-        DecodedLevelChunk::decode(
-            -4,
-            1,
-            include_bytes!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../world/fixtures/uniform_non_air.bin"
-            )),
+    stream
+        .store
+        .commit_level_chunk(
+            key.chunk(),
+            DecodedLevelChunk::decode(
+                -4,
+                1,
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../world/fixtures/uniform_non_air.bin"
+                )),
+            )
+            .unwrap(),
         )
-        .unwrap(),
-    );
+        .unwrap();
     stream.store.commit_biome_column(
         key.chunk(),
         DecodedBiomeColumn::decode(-4, 1, &[1, 84]).unwrap(),
@@ -310,18 +318,21 @@ fn changed_neighbour_biome_cannot_publish_a_stale_cross_chunk_blend() {
         block_network_ids_are_hashes: false,
     });
     let key = SubChunkKey::new(0, 0, -4, 0);
-    stream.store.commit_level_chunk(
-        key.chunk(),
-        DecodedLevelChunk::decode(
-            -4,
-            1,
-            include_bytes!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../world/fixtures/uniform_non_air.bin"
-            )),
+    stream
+        .store
+        .commit_level_chunk(
+            key.chunk(),
+            DecodedLevelChunk::decode(
+                -4,
+                1,
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../world/fixtures/uniform_non_air.bin"
+                )),
+            )
+            .unwrap(),
         )
-        .unwrap(),
-    );
+        .unwrap();
     for (chunk, id) in [(key.chunk(), 42), (ChunkKey::new(0, 1, 0), 43)] {
         stream.store.commit_biome_column(
             chunk,
@@ -386,7 +397,8 @@ fn remesh_latency_closes_only_when_the_exact_generation_is_applied() {
     .unwrap();
     stream
         .store
-        .commit_level_chunk(ChunkKey::new(0, 0, 0), decoded);
+        .commit_level_chunk(ChunkKey::new(0, 0, 0), decoded)
+        .unwrap();
     let source = stream.store.sub_chunk(key).unwrap();
     let dirty_since = Instant::now();
     let generation = stream.revisions.mark_dirty(key, dirty_since);

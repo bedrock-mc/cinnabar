@@ -16,6 +16,8 @@ pub use simulator::{
     TickResult,
 };
 pub use world::{
-    CollisionRegistry, CollisionWorld, MAX_COLLISION_QUERY_EXTENT, PaletteWorld, RegistryError,
-    WorldQueryError,
+    BlockPhysicsFacts, BlockPhysicsFlags, BlockPhysicsSample, CollisionIdSpace, CollisionQuery,
+    CollisionRegistry, CollisionRegistryIdentity, CollisionWorld, MAX_COLLISION_IDENTITY_CHUNKS,
+    MAX_COLLISION_QUERY_EXTENT, PaletteWorld, RegistryError, SurfaceResponse,
+    WorldCollisionIdentity, WorldQueryError,
 };
