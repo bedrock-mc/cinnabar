@@ -19,8 +19,9 @@ use super::{
     COMMAND_CAPACITY, CONTROL_EVENT_CAPACITY, NetworkCommand, NetworkConfig, NetworkControlEvent,
     NetworkHandle, NetworkPumpPreference, NetworkPumpWork, NetworkSequencer, NetworkSession,
     PacketSendError, SequencedWorldEvent, WORLD_EVENT_CAPACITY, run_network_pump,
-    send_control_event_or_cancel, send_event_or_cancel, send_world_event_or_cancel,
-    wait_for_login_or_cancel, wait_for_network_work_or_cancel, wait_for_send_or_cancel,
+    send_control_event_or_cancel, send_event_or_cancel, send_final_blob_cache_telemetry,
+    send_world_event_or_cancel, wait_for_login_or_cancel, wait_for_network_work_or_cancel,
+    wait_for_send_or_cancel,
 };
 
 #[test]
@@ -164,6 +165,75 @@ async fn cache_stats_are_forwarded_after_cached_world_ingress() {
         .await
         .expect("shutdown must stop the worker")
         .unwrap();
+}
+
+#[tokio::test]
+async fn final_cache_telemetry_flushes_after_shutdown_is_already_set() {
+    let stats = BlobCacheStats {
+        hashes_classified: 5,
+        hits: 2,
+        misses: 3,
+        admitted_blobs: 3,
+        ..BlobCacheStats::default()
+    };
+    let (events, mut event_rx) = mpsc::channel(CONTROL_EVENT_CAPACITY);
+    let (world_events, _world_event_rx) = mpsc::channel(WORLD_EVENT_CAPACITY);
+    let (_commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
+    let (shutdown, shutdown_rx) = watch::channel(false);
+    let worker = tokio::spawn(run_network_pump(
+        CachedInboundSession {
+            inbound: None,
+            stats,
+        },
+        NetworkSequencer::new(0, 42),
+        command_rx,
+        events,
+        world_events,
+        shutdown_rx,
+    ));
+    let initial = event_rx.recv().await.expect("initial cache telemetry");
+    assert!(matches!(
+        initial,
+        NetworkControlEvent::BlobCacheTelemetry { stats: observed, .. } if observed == stats
+    ));
+
+    shutdown.send_replace(true);
+
+    let final_event = tokio::time::timeout(Duration::from_secs(1), event_rx.recv())
+        .await
+        .expect("final cache telemetry must ignore shutdown cancellation")
+        .expect("control channel must retain final cache telemetry");
+    assert!(matches!(
+        final_event,
+        NetworkControlEvent::BlobCacheTelemetry {
+            enabled: true,
+            stats: observed,
+        } if observed == stats
+    ));
+    worker.await.expect("network pump stops after final flush");
+}
+
+#[tokio::test]
+async fn final_cache_telemetry_flush_is_bounded_when_control_queue_stays_full() {
+    let session = CachedInboundSession {
+        inbound: None,
+        stats: BlobCacheStats::default(),
+    };
+    let (events, _event_rx) = mpsc::channel(1);
+    events
+        .send(NetworkControlEvent::Stopped {
+            decode_error_count: 0,
+        })
+        .await
+        .expect("fill control queue");
+    let delivered = tokio::time::timeout(
+        Duration::from_secs(1),
+        send_final_blob_cache_telemetry(&session, &events),
+    )
+    .await
+    .expect("final telemetry flush must have a fixed deadline");
+
+    assert!(!delivered);
 }
 
 #[test]

@@ -434,7 +434,7 @@ fn exact_hash_transaction_and_blob_bounds_fail_closed() {
 }
 
 #[test]
-fn ready_transactions_remain_counted_and_byte_bounded_until_consumed() {
+fn ready_transactions_remain_counted_and_exactly_accounted_until_consumed() {
     let mut probe_limits = limits(2, 16);
     probe_limits.max_blob_bytes = 8;
     let probe_cache = ClientBlobCache::with_limits(probe_limits);
@@ -443,10 +443,15 @@ fn ready_transactions_remain_counted_and_byte_bounded_until_consumed() {
     probe
         .accept_cached_packet(cached_level(vec![probe_hash, probe_hash, probe_hash], b""))
         .expect("measure one ready transaction");
-    let ready_bytes = probe.stats().pending_bytes;
+    let one_ready_bytes = probe.stats().pending_bytes;
+    probe
+        .accept_cached_packet(cached_level(vec![probe_hash, probe_hash, probe_hash], b""))
+        .expect("measure two ready transactions");
+    let two_ready_bytes = probe.stats().pending_bytes;
+    assert!(two_ready_bytes > one_ready_bytes);
 
     let mut bounded = probe_limits;
-    bounded.max_pending_bytes = ready_bytes * 3 - 1;
+    bounded.max_pending_transactions = 2;
     let cache = ClientBlobCache::with_limits(bounded);
     let hash = cache.insert(b"12345678").expect("seed hit");
     let mut resolver = BlobCacheResolver::new(cache);
@@ -456,9 +461,9 @@ fn ready_transactions_remain_counted_and_byte_bounded_until_consumed() {
         .expect("first ready transaction");
     resolver
         .accept_cached_packet(cached_level(vec![hash, hash, hash], b""))
-        .expect("second ready transaction at exact byte ceiling");
+        .expect("second ready transaction");
     assert_eq!(resolver.stats().pending_transactions, 2);
-    assert_eq!(resolver.stats().pending_bytes, ready_bytes * 2);
+    assert_eq!(resolver.stats().pending_bytes, two_ready_bytes);
 
     assert!(
         resolver
@@ -483,6 +488,37 @@ fn terminal_pending_counters_reach_zero_only_after_ready_is_popped() {
     let _ = pop_packet(&mut resolver, "ready packet");
     assert_eq!(resolver.stats().pending_transactions, 0);
     assert_eq!(resolver.stats().pending_bytes, 0);
+}
+
+#[test]
+fn ready_queue_high_water_capacity_remains_accounted_until_empty_compaction() {
+    let mut bounded = limits(2, 64);
+    bounded.max_pending_transactions = 16;
+    bounded.max_pending_bytes = 64 * 1024;
+    let cache = ClientBlobCache::with_limits(bounded);
+    let hash = cache.insert(b"hit").expect("seed hit");
+
+    let mut one = BlobCacheResolver::new(cache.clone());
+    one.accept_cached_packet(cached_level(vec![hash, hash, hash], b""))
+        .expect("single ready transaction");
+    let one_ready_bytes = one.stats().pending_bytes;
+
+    let mut high_water = BlobCacheResolver::new(cache);
+    for _ in 0..8 {
+        high_water
+            .accept_cached_packet(cached_level(vec![hash, hash, hash], b""))
+            .expect("grow ready queue");
+    }
+    for _ in 0..7 {
+        let _ = pop_packet(&mut high_water, "drain high-water ready transaction");
+    }
+    assert_eq!(high_water.stats().pending_transactions, 1);
+    assert!(
+        high_water.stats().pending_bytes > one_ready_bytes,
+        "the retained high-water VecDeque backing must remain charged while one item remains"
+    );
+    let _ = pop_packet(&mut high_water, "final high-water transaction");
+    assert_eq!(high_water.stats().pending_bytes, 0);
 }
 
 #[test]

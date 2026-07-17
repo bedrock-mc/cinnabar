@@ -2,7 +2,7 @@ use std::{
     future::Future,
     path::PathBuf,
     thread::{self, JoinHandle},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use bevy::prelude::Resource;
@@ -16,6 +16,7 @@ use world::ChunkKey;
 pub(crate) const WORLD_EVENT_CAPACITY: usize = 32;
 const CONTROL_EVENT_CAPACITY: usize = 64;
 const COMMAND_CAPACITY: usize = 64;
+const FINAL_CONTROL_FLUSH_TIMEOUT: Duration = Duration::from_millis(250);
 
 #[derive(Debug, Clone)]
 pub struct NetworkConfig {
@@ -416,12 +417,7 @@ async fn run_network_pump<S: NetworkSession>(
                             }
                         }
                         Some(Err(error)) => {
-                            send_final_blob_cache_telemetry(
-                                &session,
-                                &control_event_tx,
-                                &mut shutdown_rx,
-                            )
-                            .await;
+                            send_final_blob_cache_telemetry(&session, &control_event_tx).await;
                             let _ = send_control_event_or_cancel(
                                 &control_event_tx,
                                 &mut shutdown_rx,
@@ -454,8 +450,7 @@ async fn run_network_pump<S: NetworkSession>(
                 pending_world_event = Some(sequencer.wrap(event));
             }
             NetworkPumpWork::Inbound(WorldSideWork::Event(Err(error))) => {
-                send_final_blob_cache_telemetry(&session, &control_event_tx, &mut shutdown_rx)
-                    .await;
+                send_final_blob_cache_telemetry(&session, &control_event_tx).await;
                 let _ = send_control_event_or_cancel(
                     &control_event_tx,
                     &mut shutdown_rx,
@@ -470,7 +465,7 @@ async fn run_network_pump<S: NetworkSession>(
         }
     }
 
-    send_final_blob_cache_telemetry(&session, &control_event_tx, &mut shutdown_rx).await;
+    send_final_blob_cache_telemetry(&session, &control_event_tx).await;
     let _ = send_control_event_or_cancel(
         &control_event_tx,
         &mut shutdown_rx,
@@ -508,22 +503,23 @@ fn try_emit_blob_cache_telemetry<S: NetworkSession>(
 async fn send_final_blob_cache_telemetry<S: NetworkSession>(
     session: &S,
     control_event_tx: &mpsc::Sender<NetworkControlEvent>,
-    shutdown_rx: &mut watch::Receiver<bool>,
-) {
+) -> bool {
     if !session.blob_cache_enabled() {
-        return;
+        return true;
     }
     let stats = session.blob_cache_stats();
     emit_blob_cache_telemetry(stats);
-    let _ = send_control_event_or_cancel(
-        control_event_tx,
-        shutdown_rx,
-        NetworkControlEvent::BlobCacheTelemetry {
-            enabled: true,
-            stats,
-        },
+    matches!(
+        tokio::time::timeout(
+            FINAL_CONTROL_FLUSH_TIMEOUT,
+            control_event_tx.send(NetworkControlEvent::BlobCacheTelemetry {
+                enabled: true,
+                stats,
+            }),
+        )
+        .await,
+        Ok(Ok(()))
     )
-    .await;
 }
 
 fn emit_blob_cache_telemetry(stats: BlobCacheStats) {

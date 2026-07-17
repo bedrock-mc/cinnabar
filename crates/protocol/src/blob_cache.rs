@@ -258,7 +258,6 @@ pub struct BlobCacheResolver {
     pending: VecDeque<PendingTransaction>,
     ready: VecDeque<ReadyTransaction>,
     authorized_misses: Vec<(u64, usize)>,
-    authorized_miss_bytes: usize,
     stats: BlobCacheStats,
 }
 
@@ -270,7 +269,6 @@ impl BlobCacheResolver {
             pending: VecDeque::new(),
             ready: VecDeque::new(),
             authorized_misses: Vec::new(),
-            authorized_miss_bytes: 0,
             stats: BlobCacheStats::default(),
         }
     }
@@ -283,6 +281,47 @@ impl BlobCacheResolver {
     #[must_use]
     pub const fn stats(&self) -> BlobCacheStats {
         self.stats
+    }
+
+    fn retained_pending_bytes(&self) -> Result<usize, BlobCacheError> {
+        self.pending
+            .capacity()
+            .checked_mul(size_of::<PendingTransaction>())
+            .and_then(|bytes| {
+                self.ready
+                    .capacity()
+                    .checked_mul(size_of::<ReadyTransaction>())
+                    .and_then(|ready| bytes.checked_add(ready))
+            })
+            .and_then(|bytes| {
+                self.authorized_misses
+                    .capacity()
+                    .checked_mul(size_of::<(u64, usize)>())
+                    .and_then(|authorized| bytes.checked_add(authorized))
+            })
+            .and_then(|bytes| {
+                self.pending.iter().try_fold(bytes, |total, transaction| {
+                    total.checked_add(transaction.accounted_bytes)
+                })
+            })
+            .and_then(|bytes| {
+                self.ready.iter().try_fold(bytes, |total, transaction| {
+                    total.checked_add(transaction.accounted_bytes)
+                })
+            })
+            .ok_or(BlobCacheError::ByteCountOverflow)
+    }
+
+    fn refresh_pending_accounting(&mut self) -> Result<(), BlobCacheError> {
+        let pending_bytes = self.retained_pending_bytes()?;
+        self.stats.pending_bytes = pending_bytes;
+        self.stats.pending_transactions = self.pending.len().saturating_add(self.ready.len());
+        if pending_bytes > self.cache.limits.max_pending_bytes {
+            return Err(BlobCacheError::TooManyPendingBytes {
+                max: self.cache.limits.max_pending_bytes,
+            });
+        }
+        Ok(())
     }
 
     pub fn accept_cached_packet(
@@ -328,12 +367,13 @@ impl BlobCacheResolver {
                 max: self.cache.limits.max_pending_transactions,
             });
         }
-        let pending_bytes = self
+        if self
             .stats
             .pending_bytes
             .checked_add(accounted_bytes)
-            .ok_or(BlobCacheError::ByteCountOverflow)?;
-        if pending_bytes > self.cache.limits.max_pending_bytes {
+            .ok_or(BlobCacheError::ByteCountOverflow)?
+            > self.cache.limits.max_pending_bytes
+        {
             self.reset_pending();
             return Err(BlobCacheError::TooManyPendingBytes {
                 max: self.cache.limits.max_pending_bytes,
@@ -345,9 +385,14 @@ impl BlobCacheResolver {
             unique_hashes: Vec::new(),
             accounted_bytes,
         });
-        self.stats.pending_bytes = pending_bytes;
-        self.stats.pending_transactions = self.pending.len().saturating_add(self.ready.len());
-        self.drain_ready()
+        if let Err(error) = self
+            .refresh_pending_accounting()
+            .and_then(|()| self.drain_ready())
+        {
+            self.reset_pending();
+            return Err(error);
+        }
+        Ok(())
     }
 
     /// Queues an already-normalized ordinary event behind earlier cache transactions.
@@ -364,12 +409,13 @@ impl BlobCacheResolver {
                 max: self.cache.limits.max_pending_transactions,
             });
         }
-        let pending_bytes = self
+        if self
             .stats
             .pending_bytes
             .checked_add(accounted_bytes)
-            .ok_or(BlobCacheError::ByteCountOverflow)?;
-        if pending_bytes > self.cache.limits.max_pending_bytes {
+            .ok_or(BlobCacheError::ByteCountOverflow)?
+            > self.cache.limits.max_pending_bytes
+        {
             self.reset_pending();
             return Err(BlobCacheError::TooManyPendingBytes {
                 max: self.cache.limits.max_pending_bytes,
@@ -381,9 +427,14 @@ impl BlobCacheResolver {
             unique_hashes: Vec::new(),
             accounted_bytes,
         });
-        self.stats.pending_bytes = pending_bytes;
-        self.stats.pending_transactions = self.pending.len().saturating_add(self.ready.len());
-        self.drain_ready()
+        if let Err(error) = self
+            .refresh_pending_accounting()
+            .and_then(|()| self.drain_ready())
+        {
+            self.reset_pending();
+            return Err(error);
+        }
+        Ok(())
     }
 
     fn accept_cached_packet_inner(
@@ -456,14 +507,13 @@ impl BlobCacheResolver {
         let unique_hashes = stable_unique(&hashes);
         let packet_retained_bytes =
             raw_packet_bytes.map_or(packet_retained_bytes, |raw| raw.max(packet_retained_bytes));
-        let accounted_bytes = size_of::<PendingTransaction>()
-            .checked_add(packet_retained_bytes)
-            .and_then(|bytes| {
+        let accounted_bytes = packet_retained_bytes
+            .checked_add(
                 hashes
                     .capacity()
                     .checked_mul(size_of::<u64>())
-                    .and_then(|hash_bytes| bytes.checked_add(hash_bytes))
-            })
+                    .ok_or(BlobCacheError::ByteCountOverflow)?,
+            )
             .and_then(|bytes| {
                 unique_hashes
                     .capacity()
@@ -519,7 +569,12 @@ impl BlobCacheResolver {
         let Some(pending_bytes) = self
             .stats
             .pending_bytes
-            .checked_sub(self.authorized_miss_bytes)
+            .checked_sub(
+                self.authorized_misses
+                    .capacity()
+                    .checked_mul(size_of::<(u64, usize)>())
+                    .ok_or(BlobCacheError::ByteCountOverflow)?,
+            )
             .and_then(|bytes| bytes.checked_add(authorized_candidate_bytes))
             .and_then(|bytes| bytes.checked_add(accounted_bytes))
         else {
@@ -533,13 +588,13 @@ impl BlobCacheResolver {
             });
         }
         self.authorized_misses = authorized_candidate;
-        self.authorized_miss_bytes = authorized_candidate_bytes;
         self.pending.push_back(PendingTransaction {
             packet,
             hashes,
             unique_hashes,
             accounted_bytes,
         });
+        self.refresh_pending_accounting()?;
         self.stats.hashes_classified = self
             .stats
             .hashes_classified
@@ -552,8 +607,6 @@ impl BlobCacheResolver {
             .stats
             .misses
             .saturating_add(u64::try_from(missing.len()).unwrap_or(u64::MAX));
-        self.stats.pending_bytes = pending_bytes;
-        self.stats.pending_transactions = self.pending.len().saturating_add(self.ready.len());
         self.drain_ready()?;
         Ok(ClientCacheBlobStatusPacket { missing, have })
     }
@@ -654,18 +707,7 @@ impl BlobCacheResolver {
         } else {
             self.authorized_misses.shrink_to_fit();
         }
-        let authorized_miss_bytes = self
-            .authorized_misses
-            .capacity()
-            .checked_mul(size_of::<(u64, usize)>())
-            .ok_or(BlobCacheError::ByteCountOverflow)?;
-        self.stats.pending_bytes = self
-            .stats
-            .pending_bytes
-            .checked_sub(self.authorized_miss_bytes)
-            .and_then(|bytes| bytes.checked_add(authorized_miss_bytes))
-            .ok_or(BlobCacheError::ByteCountOverflow)?;
-        self.authorized_miss_bytes = authorized_miss_bytes;
+        self.refresh_pending_accounting()?;
         self.stats.admitted_blobs = self
             .stats
             .admitted_blobs
@@ -685,20 +727,20 @@ impl BlobCacheResolver {
         for transaction in self.pending.drain(..) {
             self.cache.unpin_all(&transaction.unique_hashes);
         }
-        self.ready.clear();
+        self.pending = VecDeque::new();
+        self.ready = VecDeque::new();
         self.authorized_misses = Vec::new();
-        self.authorized_miss_bytes = 0;
         self.stats.pending_transactions = 0;
         self.stats.pending_bytes = 0;
     }
 
     pub fn pop_ready(&mut self) -> Option<BlobCacheReady> {
         let ready = self.ready.pop_front()?;
-        self.stats.pending_bytes = self
-            .stats
-            .pending_bytes
-            .saturating_sub(ready.accounted_bytes);
-        self.stats.pending_transactions = self.pending.len().saturating_add(self.ready.len());
+        if self.ready.is_empty() {
+            self.ready = VecDeque::new();
+        }
+        self.refresh_pending_accounting()
+            .expect("retained ready accounting cannot overflow after a pop");
         Some(ready.value)
     }
 
@@ -709,32 +751,46 @@ impl BlobCacheResolver {
                 .iter()
                 .all(|hash| self.cache.contains(*hash))
         }) {
-            let (packet, ready_bytes, pending_bytes) = {
+            let packet = {
                 let transaction = self.pending.front().expect("front was present");
-                let ready_bytes = reconstructed_accounted_bytes(&self.cache, transaction)?;
+                let estimated_ready_bytes =
+                    reconstructed_accounted_bytes(&self.cache, transaction)?;
                 let pending_bytes = self
                     .stats
                     .pending_bytes
                     .saturating_sub(transaction.accounted_bytes)
-                    .checked_add(ready_bytes)
+                    .checked_add(estimated_ready_bytes)
                     .ok_or(BlobCacheError::ByteCountOverflow)?;
                 if pending_bytes > self.cache.limits.max_pending_bytes {
                     return Err(BlobCacheError::TooManyPendingBytes {
                         max: self.cache.limits.max_pending_bytes,
                     });
                 }
-                let packet = reconstruct(&self.cache, transaction, &mut self.stats)?;
-                (packet, ready_bytes, pending_bytes)
+                reconstruct(&self.cache, transaction, &mut self.stats)?
+            };
+            let ready_bytes = match &self.pending.front().expect("front was present").packet {
+                PendingPacket::Ordinary(_) | PendingPacket::WorldEvent(_) => {
+                    self.pending
+                        .front()
+                        .expect("front was present")
+                        .accounted_bytes
+                }
+                PendingPacket::LevelChunk(_) | PendingPacket::SubChunk(_) => {
+                    ready_value_accounted_bytes(&packet)?
+                }
             };
             let transaction = self.pending.pop_front().expect("front was present");
             self.cache.unpin_all(&transaction.unique_hashes);
+            if self.pending.is_empty() {
+                self.pending = VecDeque::new();
+            }
             self.ready.push_back(ReadyTransaction {
                 value: packet,
                 accounted_bytes: ready_bytes,
             });
-            self.stats.pending_bytes = pending_bytes;
+            self.refresh_pending_accounting()?;
         }
-        self.stats.pending_transactions = self.pending.len().saturating_add(self.ready.len());
+        self.refresh_pending_accounting()?;
         Ok(())
     }
 }
@@ -751,9 +807,8 @@ fn reconstructed_accounted_bytes(
 ) -> Result<usize, BlobCacheError> {
     match &transaction.packet {
         PendingPacket::LevelChunk(packet) => {
-            let base = size_of::<ReadyTransaction>()
-                .checked_add(size_of::<LevelChunkPacket>())
-                .and_then(|bytes| bytes.checked_add(packet.payload.len()))
+            let base = size_of::<LevelChunkPacket>()
+                .checked_add(packet.payload.len())
                 .ok_or(BlobCacheError::ByteCountOverflow)?;
             transaction.hashes.iter().try_fold(base, |bytes, hash| {
                 let blob = cache
@@ -772,7 +827,6 @@ fn reconstructed_accounted_bytes(
                 .len()
                 .checked_mul(size_of::<SubChunkEntryWithoutCachingItem>())
                 .and_then(|bytes| bytes.checked_add(size_of::<SubchunkPacket>()))
-                .and_then(|bytes| bytes.checked_add(size_of::<ReadyTransaction>()))
                 .ok_or(BlobCacheError::ByteCountOverflow)?;
             entries.iter().try_fold(base, |bytes, entry| {
                 let bytes = bytes
@@ -792,6 +846,49 @@ fn reconstructed_accounted_bytes(
         }
         PendingPacket::Ordinary(_) | PendingPacket::WorldEvent(_) => {
             Ok(transaction.accounted_bytes)
+        }
+    }
+}
+
+fn ready_value_accounted_bytes(value: &BlobCacheReady) -> Result<usize, BlobCacheError> {
+    match value {
+        BlobCacheReady::Packet(Packet {
+            data: McpePacketData::PacketLevelChunk(packet),
+            ..
+        }) => {
+            let hash_bytes = packet.blobs.as_ref().map_or(Ok(0), |blobs| {
+                blobs
+                    .hashes
+                    .capacity()
+                    .checked_mul(size_of::<u64>())
+                    .ok_or(BlobCacheError::ByteCountOverflow)
+            })?;
+            size_of::<LevelChunkPacket>()
+                .checked_add(packet.payload.capacity())
+                .and_then(|bytes| bytes.checked_add(hash_bytes))
+                .ok_or(BlobCacheError::ByteCountOverflow)
+        }
+        BlobCacheReady::Packet(Packet {
+            data: McpePacketData::PacketSubchunk(packet),
+            ..
+        }) => {
+            let SubchunkPacketEntries::SubChunkEntryWithoutCaching(entries) = &packet.entries
+            else {
+                return Err(BlobCacheError::NotCachedPacket);
+            };
+            entries
+                .capacity()
+                .checked_mul(size_of::<SubChunkEntryWithoutCachingItem>())
+                .and_then(|bytes| bytes.checked_add(size_of::<SubchunkPacket>()))
+                .and_then(|bytes| {
+                    entries.iter().try_fold(bytes, |total, entry| {
+                        total.checked_add(entry.payload.capacity())
+                    })
+                })
+                .ok_or(BlobCacheError::ByteCountOverflow)
+        }
+        BlobCacheReady::Packet(_) | BlobCacheReady::WorldEvent(_) => {
+            Err(BlobCacheError::NotCachedPacket)
         }
     }
 }
@@ -971,6 +1068,68 @@ fn reconstruct(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ready_subchunk_accounting_uses_retained_entry_and_payload_capacities() {
+        let mut payload = Vec::with_capacity(4_096);
+        payload.push(0x5a);
+        let mut entries = Vec::with_capacity(16);
+        entries.push(SubChunkEntryWithoutCachingItem {
+            payload,
+            ..Default::default()
+        });
+        let expected = size_of::<SubchunkPacket>()
+            + entries.capacity() * size_of::<SubChunkEntryWithoutCachingItem>()
+            + entries[0].payload.capacity();
+        let value = BlobCacheReady::Packet(
+            SubchunkPacket {
+                entries: SubchunkPacketEntries::SubChunkEntryWithoutCaching(entries),
+                ..Default::default()
+            }
+            .into(),
+        );
+
+        assert_eq!(ready_value_accounted_bytes(&value), Ok(expected));
+    }
+
+    #[test]
+    fn pending_queue_high_water_is_exact_and_reset_releases_backing_allocations() {
+        let cache = ClientBlobCache::default();
+        let mut resolver = BlobCacheResolver::new(cache);
+        for x in 0..8 {
+            let payload = [x as u8];
+            let hash = client_blob_hash(&payload);
+            resolver
+                .accept_cached_packet(
+                    LevelChunkPacket {
+                        x,
+                        sub_chunk_count: -1,
+                        blobs: Some(
+                            valentine::bedrock::version::v1_26_30::LevelChunkPacketBlobs {
+                                hashes: vec![hash],
+                            },
+                        ),
+                        ..Default::default()
+                    }
+                    .into(),
+                )
+                .expect("grow unresolved pending queue");
+        }
+        assert!(resolver.pending.capacity() >= 8);
+        assert_eq!(
+            resolver.stats.pending_bytes,
+            resolver
+                .retained_pending_bytes()
+                .expect("exact retained bytes")
+        );
+
+        resolver.reset_pending();
+
+        assert_eq!(resolver.pending.capacity(), 0);
+        assert_eq!(resolver.ready.capacity(), 0);
+        assert_eq!(resolver.authorized_misses.capacity(), 0);
+        assert_eq!(resolver.stats.pending_bytes, 0);
+    }
 
     #[test]
     fn classify_and_pin_is_one_cache_operation() {
