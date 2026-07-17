@@ -129,12 +129,14 @@ order:
    trace proves is still preventing the <=2 s teleport-remesh gate. Follow with the
    identical-scene FIFO/Immediate visibility witness and any proven void-band source, then
    native celestial and finite-cloud parity acceptance.
-2. **Phase 2.5 biome blending:** replace the provisional 3x3 boundary behavior with a bounded,
-   source-backed blend and close abrupt-boundary native/live acceptance.
+2. **Phase 2.5 biome blending evidence:** the bounded provisional 3x3 implementation is already
+   integrated. Measure a version-matched native abrupt biome boundary to determine its radius,
+   offsets, weights, and colour space; change the CPU/WGSL kernel only if that evidence disproves
+   it, then close matching-scene GPU/live and performance acceptance.
 3. **Phase 4.3 entity rigs and animation:** consume the integrated bounded geometry carrier,
-   land the pinned animation/controller catalog on the current architecture, implement the
-   reviewed Molang subset and shared runtime posing, and prove animated players/mobs without
-   per-actor resource churn.
+   extend the already integrated pinned animation/controller catalog with bounded animation-clip
+   payloads, implement the reviewed Molang/controller subset and shared runtime posing, and prove
+   animated players/mobs without per-actor resource churn.
 4. **Phase 4.4 actor acceptance:** close live ground contact plus the distinct three-tick
    network convergence and adjacent-frame render interpolation witness.
 5. **Phase 3 movement completion:** add the remaining simulation strata and live
