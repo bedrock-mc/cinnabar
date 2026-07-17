@@ -89,7 +89,7 @@ patch-unique commits. The three genuine candidates and their current disposition
 | Tranche | Base -> head | Review/integration state | Next action |
 |---|---|---|---|
 | Phase 3 movement foundation | `efa5400` -> `71d38a3` | Integrated history-preservingly as merge `e370880`; focused and full locked workspace tests, strict Clippy, formatting, and architecture enforcement are green | Keep production outbound movement disabled while FreeCamera is active; finish the remaining movement strata and live server-authoritative acceptance before enabling `Physics` transmission |
-| Phase 2.6 leaf litter | `efa5400` -> `698be1c` (`phase26-leaf-litter`) | Clean, local-only, review **needs changes**; not mergeable as-is | Replace provisional growth 4-7 geometry/UV/tint and complete texture admission from version-matched Bedrock visual authority, then re-review |
+| Phase 2.6 leaf litter | `efa5400` -> `698be1c` (`phase26-leaf-litter`) | Preserved on its feature branch, review **needs changes**, and deliberately unmerged | Deferred until further authoritative state-to-visual data is available; retain the branch and finish this exact family with the other residual visual-authority work last |
 | Phase 4 entity geometry carrier | `105107d` -> `4a6696b` | Integrated history-preservingly as merges `1e4ba3c` and `73b8de7` after three Important parser/inheritance findings were fixed, the complete behavior range received fresh APPROVE, and the policy-compliant module split received a separate APPROVE | Consume the bounded geometry/bone/cube payloads in runtime rigs; animation clips, Molang/controller evaluation, GPU posing, and native animated-actor evidence remain open |
 
 Phase status at this audit:
@@ -116,12 +116,35 @@ audit: the root `cinnabar-work`, `external-mode-diagnostic`, `blockentity-eviden
 `atmosphere-black-diagnosis`, and `static-fence-gates`. Their changes are not part of the
 three integration candidates above.
 
-Prioritized continuation: (1) repair leaf litter before any merge; (2) consume the entity
-geometry carrier in runtime rigs; (3) continue the source-backed bulk
-visual-rule generator, using BDS state/collision
-data only as structural authority and version-matched native client/resource-pack evidence
-for render geometry and UVs, with ambiguous families failing closed; then (4) close the
-remaining Phase 2 acceptance gates in order: 2.5, 2.6, 2.7.
+## Current execution order (2026-07-16)
+
+The exact leaf-litter route and any other residual family that lacks sufficient
+state-to-visual authority are deferred until further authoritative data is available. Keep
+their feature work isolated and unmerged; already integrated and verified Phase 2.6 families
+remain in place. Continue with work that does not depend on that missing authority, in this
+order:
+
+1. **Phase 2.7 runtime and visual closure:** first eliminate the reproduced publication and
+   presentation bottlenecks: adaptive chunk application/upload scheduling toward the <=2 s
+   teleport-remesh gate, the identical-scene FIFO/Immediate visibility witness and any proven
+   void-band source, then native celestial and finite-cloud parity acceptance.
+2. **Phase 2.5 biome blending:** replace the provisional 3x3 boundary behavior with a bounded,
+   source-backed blend and close abrupt-boundary native/live acceptance.
+3. **Phase 4.3 entity rigs and animation:** consume the integrated bounded geometry carrier,
+   land the pinned animation/controller catalog on the current architecture, implement the
+   reviewed Molang subset and shared runtime posing, and prove animated players/mobs without
+   per-actor resource churn.
+4. **Phase 4.4 actor acceptance:** close live ground contact plus the distinct three-tick
+   network convergence and adjacent-frame render interpolation witness.
+5. **Phase 3 movement completion:** add the remaining simulation strata and live
+   server-authoritative acceptance before enabling outbound movement from `Physics`; keep
+   `FreeCamera` network-silent.
+6. **Phase 5 UI:** implement the UI foundation, receive-only text/HUD, chat, scoreboard and
+   boss bars, inventory/interaction, and forms in the numbered 5.1-5.7 order.
+7. **Deferred final Phase 2.6 authority pass:** return to leaf litter and other exact residual
+   visual families only when further authoritative state selectors, geometry/UV, rotation,
+   layer, tint, animation, and occlusion data are available. Re-review, verify, integrate, and
+   measure the production diagnostic ratchet family-by-family; do not infer ambiguous mappings.
 
 ---
 
