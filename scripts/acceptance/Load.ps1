@@ -128,32 +128,276 @@ function Write-Phase2Json {
     [IO.File]::WriteAllText($Path, $encoded + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
 }
 
-function Find-Phase2CompletedLunarDiagnostic {
-    param([Parameter(Mandatory = $true)][string]$RemoteRoot)
+function Assert-Phase2PublicationRecord {
+    param(
+        [Parameter(Mandatory = $true)]$Record,
+        [Parameter(Mandatory = $true)][ValidateSet('Fifo', 'Immediate')][string]$ExpectedPresentMode,
+        [string]$ExpectedGraphicsIdentity,
+        [string]$ExpectedAssetsIdentity
+    )
 
-    foreach ($file in @(Get-ChildItem -LiteralPath $RemoteRoot -Filter manifest.json -File -Recurse -ErrorAction SilentlyContinue)) {
+    $presentation = $Record.presentation
+    $publication = $Record.publication
+    $mode = $ExpectedPresentMode.ToLowerInvariant()
+    if ($null -eq $presentation -or $null -eq $publication -or
+        [string]$presentation.build_profile -cne 'release' -or
+        [string]$presentation.requested_present_mode -cne $mode -or
+        [string]$presentation.effective_present_mode -cne $mode -or
+        $presentation.present_mode_proven -isnot [bool] -or
+        -not [bool]$presentation.present_mode_proven -or
+        [string]$presentation.graphics_identity_sha256 -notmatch '^[0-9a-f]{64}$' -or
+        [string]$presentation.assets_manifest_sha256 -notmatch '^[0-9a-f]{64}$') {
+        throw 'PHASE2_PUBLICATION did not prove release build, effective present mode, graphics identity, and asset identity'
+    }
+    if (-not [string]::IsNullOrEmpty($ExpectedGraphicsIdentity) -and
+        [string]$presentation.graphics_identity_sha256 -cne $ExpectedGraphicsIdentity) {
+        throw 'PHASE2_PUBLICATION graphics identity changed during the diagnostic sequence'
+    }
+    if (-not [string]::IsNullOrEmpty($ExpectedAssetsIdentity) -and
+        [string]$presentation.assets_manifest_sha256 -cne $ExpectedAssetsIdentity) {
+        throw 'PHASE2_PUBLICATION assets identity changed during the diagnostic sequence'
+    }
+    if ($null -eq $publication.stages -or $null -eq $publication.outcomes -or
+        [uint64]$publication.session_generation -eq 0 -or
+        [string]$publication.required_cohort_hash -notmatch '^[0-9a-f]{16}$' -or
+        [int64]$publication.required_columns -lt 0 -or
+        [int64]$publication.loaded_required_columns -lt 0 -or
+        [int64]$publication.loaded_required_columns -gt [int64]$publication.required_columns) {
+        throw 'PHASE2_PUBLICATION lacks a coherent publication identity and bounded cohort counts'
+    }
+    $requiredStageFields = @(
+        'requests_constructed', 'requests_ready', 'requests_sent', 'responses_admitted',
+        'subchunks_awaiting_response', 'subchunks_committed', 'decode_jobs_queued',
+        'decode_jobs_dispatched', 'decode_jobs_in_flight', 'decode_jobs_completed',
+        'light_jobs_queued', 'light_jobs_dispatched', 'light_jobs_in_flight',
+        'light_jobs_completed', 'mesh_changes_queued', 'mesh_changes_pending',
+        'mesh_changes_dequeued', 'mesh_jobs_queued', 'mesh_jobs_dispatched',
+        'mesh_jobs_in_flight', 'mesh_jobs_completed', 'mesh_uploads_unacknowledged',
+        'mesh_uploads_acknowledged'
+    )
+    foreach ($field in $requiredStageFields) {
+        if ($null -eq $publication.stages.PSObject.Properties[$field] -or
+            [int64]$publication.stages.$field -lt 0) {
+            throw "PHASE2_PUBLICATION lacks bounded attributable stage counter $field"
+        }
+    }
+    foreach ($identityName in @('publisher_disk', 'resident', 'allocation', 'visible', 'submitted', 'gpu_presented')) {
+        $identity = $presentation.$identityName
+        if ($null -eq $identity -or
+            [uint64]$identity.session_generation -ne [uint64]$publication.session_generation -or
+            [string]$identity.required_cohort_hash -cne [string]$publication.required_cohort_hash -or
+            [int64]$identity.entry_count -lt 0 -or
+            [string]$identity.generation_manifest_hash -notmatch '^[0-9a-f]{16}$') {
+            throw "PHASE2_PUBLICATION contains incoherent $identityName identity"
+        }
+    }
+}
+
+function Get-Phase2FirstStalledStage {
+    param(
+        [Parameter(Mandatory = $true)]$PublicationRecord,
+        [Parameter(Mandatory = $true)][bool]$WorldReadyObserved
+    )
+
+    $publication = $PublicationRecord.publication
+    $stages = $publication.stages
+    $presentation = $PublicationRecord.presentation
+    $cohortComplete = [uint64]$publication.loaded_required_columns -ge [uint64]$publication.required_columns
+    if ($cohortComplete -and $WorldReadyObserved) { return 'none' }
+    if (-not $cohortComplete -and
+        [uint64]$stages.requests_constructed -eq [uint64]$publication.loaded_required_columns -and
+        [uint64]$stages.requests_sent -eq [uint64]$stages.requests_constructed -and
+        [uint64]$stages.subchunks_awaiting_response -eq 0 -and
+        [uint64]$stages.responses_admitted -eq [uint64]$stages.subchunks_committed -and
+        [uint64]$stages.subchunks_committed -gt 0) {
+        return 'required_cohort_identity'
+    }
+    if (-not $cohortComplete -and
+        ([uint64]$stages.requests_constructed -eq 0 -or [uint64]$stages.requests_ready -gt 0)) { return 'request_order' }
+    if ([uint64]$stages.requests_sent -lt [uint64]$stages.requests_constructed) { return 'transport' }
+    if (-not $cohortComplete -and [uint64]$stages.responses_admitted -eq 0) { return 'response_semantics' }
+    if ([uint64]$stages.decode_jobs_queued -gt 0 -or [uint64]$stages.decode_jobs_in_flight -gt 0 -or
+        [uint64]$stages.decode_jobs_completed -lt [uint64]$stages.decode_jobs_dispatched) { return 'decode' }
+    if ([uint64]$stages.light_jobs_queued -gt 0 -or [uint64]$stages.light_jobs_in_flight -gt 0 -or
+        [uint64]$stages.light_jobs_completed -lt [uint64]$stages.light_jobs_dispatched) { return 'lighting' }
+    if ([uint64]$stages.mesh_changes_pending -gt 0 -or [uint64]$stages.mesh_jobs_queued -gt 0 -or
+        [uint64]$stages.mesh_jobs_in_flight -gt 0 -or
+        [uint64]$stages.mesh_jobs_completed -lt [uint64]$stages.mesh_jobs_dispatched) { return 'meshing' }
+    if ([uint64]$stages.mesh_uploads_acknowledged -eq 0 -or [uint64]$stages.mesh_uploads_unacknowledged -gt 0) { return 'gpu_upload' }
+    if ([uint64]$presentation.resident.entry_count -lt [uint64]$presentation.publisher_disk.entry_count) { return 'main_apply' }
+    if ([uint64]$presentation.visible.entry_count -eq 0) { return 'extraction' }
+    if ([uint64]$presentation.submitted.entry_count -lt [uint64]$presentation.visible.entry_count) { return 'submission' }
+    if (-not $cohortComplete) { return 'required_cohort_identity' }
+    if ($WorldReadyObserved) { return 'none' }
+    return 'presentation'
+}
+
+function Get-Phase2PublicationSequenceEvidence {
+    param(
+        [Parameter(Mandatory = $true)][string]$ClientLogPath,
+        [Parameter(Mandatory = $true)][ValidateSet('Fifo', 'Immediate')][string]$ExpectedPresentMode,
+        [Parameter(Mandatory = $true)][bool]$WorldReadyObserved
+    )
+
+    $lines = @(Get-Content -LiteralPath $ClientLogPath | Where-Object {
+        $_.StartsWith('PHASE2_PUBLICATION=', [StringComparison]::Ordinal)
+    })
+    if ($lines.Count -eq 0) {
+        throw 'client log contains no PHASE2_PUBLICATION evidence'
+    }
+    $records = [Collections.Generic.List[object]]::new()
+    $graphicsIdentity = $null
+    $assetsIdentity = $null
+    $previousRecord = $null
+    foreach ($line in $lines) {
+        $lower = $line.ToLowerInvariant()
+        foreach ($forbidden in @('"path"', '"token"', '"auth"', '"payload"', '"credential"')) {
+            if ($lower.Contains($forbidden)) {
+                throw "PHASE2_PUBLICATION leaked forbidden field $forbidden"
+            }
+        }
+        try {
+            $record = $line.Substring('PHASE2_PUBLICATION='.Length) | ConvertFrom-Json
+        }
+        catch {
+            throw 'client log contains malformed PHASE2_PUBLICATION JSON'
+        }
+        Assert-Phase2PublicationRecord -Record $record -ExpectedPresentMode $ExpectedPresentMode `
+            -ExpectedGraphicsIdentity $graphicsIdentity -ExpectedAssetsIdentity $assetsIdentity
+        if ($null -eq $graphicsIdentity) {
+            $graphicsIdentity = [string]$record.presentation.graphics_identity_sha256
+            $assetsIdentity = [string]$record.presentation.assets_manifest_sha256
+        }
+        if ($null -ne $previousRecord) {
+            foreach ($field in @('requests_constructed', 'requests_sent', 'responses_admitted',
+                'subchunks_committed', 'decode_jobs_dispatched', 'decode_jobs_completed',
+                'light_jobs_dispatched', 'light_jobs_completed', 'mesh_changes_queued',
+                'mesh_changes_dequeued', 'mesh_jobs_dispatched', 'mesh_jobs_completed',
+                'mesh_uploads_acknowledged')) {
+                if ([uint64]$record.publication.stages.$field -lt [uint64]$previousRecord.publication.stages.$field) {
+                    throw "PHASE2_PUBLICATION cumulative stage counter regressed: $field"
+                }
+            }
+            foreach ($field in @('success', 'all_air', 'unavailable', 'malformed', 'stale', 'timed_out')) {
+                if ([uint64]$record.publication.outcomes.$field -lt [uint64]$previousRecord.publication.outcomes.$field) {
+                    throw "PHASE2_PUBLICATION cumulative outcome counter regressed: $field"
+                }
+            }
+        }
+        $records.Add($record)
+        $previousRecord = $record
+    }
+    $final = $records[$records.Count - 1]
+    $stages = $final.publication.stages
+    $attributable = [uint64]$stages.requests_constructed + [uint64]$stages.responses_admitted +
+        [uint64]$stages.subchunks_committed + [uint64]$stages.decode_jobs_completed +
+        [uint64]$stages.light_jobs_completed + [uint64]$stages.mesh_jobs_completed +
+        [uint64]$stages.mesh_uploads_acknowledged
+    if ($attributable -eq 0) {
+        throw 'PHASE2_PUBLICATION sequence contains no attributable stage progress'
+    }
+    $firstStalledStage = Get-Phase2FirstStalledStage -PublicationRecord $final `
+        -WorldReadyObserved:$WorldReadyObserved
+    $findings = [Collections.Generic.List[string]]::new()
+    if ([uint64]$final.publication.loaded_required_columns -lt [uint64]$final.publication.required_columns) {
+        $findings.Add('persistent_required_column_hole')
+        $findings.Add("first_stalled_stage:$firstStalledStage")
+    }
+    return [pscustomobject][ordered]@{
+        SnapshotCount = $records.Count
+        FinalPublication = $final
+        FirstStalledStage = $firstStalledStage
+        Findings = @($findings)
+    }
+}
+
+function Complete-Phase2DiagnosticEvidence {
+    param(
+        [Parameter(Mandatory = $true)]$Manifest,
+        [Parameter(Mandatory = $true)][string]$ClientLogPath,
+        [Parameter(Mandatory = $true)][ValidateSet('Fifo', 'Immediate')][string]$ExpectedPresentMode,
+        [Parameter(Mandatory = $true)][bool]$WorldReadyObserved,
+        [Nullable[double]]$JoinMilliseconds
+    )
+
+    if ([string]$Manifest.mode -cne 'Diagnostic') {
+        throw 'diagnostic evidence completion is valid only for Diagnostic mode'
+    }
+    $evidence = Get-Phase2PublicationSequenceEvidence -ClientLogPath $ClientLogPath `
+        -ExpectedPresentMode $ExpectedPresentMode -WorldReadyObserved:$WorldReadyObserved
+    $findings = [Collections.Generic.List[string]]::new()
+    foreach ($finding in @($evidence.Findings)) { $findings.Add($finding) }
+    if (-not $WorldReadyObserved) { $findings.Insert(0, 'world_ready_not_observed') }
+    $unavailableReason = if ($WorldReadyObserved) { 'diagnostic_mode_is_non_binding' } else { 'world_ready_not_observed' }
+    $Manifest | Add-Member -MemberType NoteProperty -Name status -Value 'passed' -Force
+    $Manifest | Add-Member -MemberType NoteProperty -Name diagnostic_complete -Value $true -Force
+    $Manifest | Add-Member -MemberType NoteProperty -Name behavior_gate_passed -Value $false -Force
+    $Manifest | Add-Member -MemberType NoteProperty -Name world_ready_observed -Value $WorldReadyObserved -Force
+    $Manifest | Add-Member -MemberType NoteProperty -Name join_milliseconds -Value $(if ($WorldReadyObserved) { $JoinMilliseconds } else { $null }) -Force
+    $Manifest | Add-Member -MemberType NoteProperty -Name publication_snapshot_count -Value $evidence.SnapshotCount -Force
+    $Manifest | Add-Member -MemberType NoteProperty -Name first_stalled_stage -Value $evidence.FirstStalledStage -Force
+    $Manifest | Add-Member -MemberType NoteProperty -Name final_publication -Value $evidence.FinalPublication -Force
+    $Manifest | Add-Member -MemberType NoteProperty -Name findings -Value @($findings) -Force
+    $Manifest | Add-Member -MemberType NoteProperty -Name metrics_evidence -Value ([pscustomobject][ordered]@{ status = 'unavailable'; reason = $unavailableReason }) -Force
+    $Manifest | Add-Member -MemberType NoteProperty -Name resources_evidence -Value ([pscustomobject][ordered]@{ status = 'unavailable'; reason = $unavailableReason }) -Force
+}
+
+function Find-Phase2CompletedLunarPrerequisite {
+    param(
+        [Parameter(Mandatory = $true)][string]$RemoteRoot,
+        [Parameter(Mandatory = $true)][ValidateSet('Diagnostic', 'Candidate', 'Final')][string]$Mode
+    )
+
+    $allowedStages = @('none', 'required_cohort_identity', 'request_order', 'transport', 'wire_contract', 'response_semantics',
+        'decode', 'lighting', 'meshing', 'main_apply', 'gpu_upload', 'extraction', 'submission', 'presentation')
+    foreach ($file in @(Get-ChildItem -LiteralPath $RemoteRoot -Filter manifest.json -File -Recurse -ErrorAction SilentlyContinue | Sort-Object FullName)) {
         try {
             $candidate = Get-Content -Raw -LiteralPath $file.FullName | ConvertFrom-Json
             if ([string]$candidate.schema -cne 'rust-mcbe-phase2-remote-v1' -or
                 [string]$candidate.server -cne 'Lunar' -or
-                [string]$candidate.mode -cne 'Diagnostic' -or
+                [string]$candidate.mode -cne $Mode -or
                 [string]$candidate.status -cne 'passed' -or
-                $candidate.diagnostic_complete -isnot [bool] -or
-                -not [bool]$candidate.diagnostic_complete) {
+                [int]$candidate.publication_snapshot_count -lt 1 -or
+                $allowedStages -cnotcontains [string]$candidate.first_stalled_stage -or
+                $candidate.world_ready_observed -isnot [bool] -or
+                $null -eq $candidate.final_publication) {
+                continue
+            }
+            $expectedMode = [string]$candidate.final_publication.presentation.requested_present_mode
+            Assert-Phase2PublicationRecord -Record $candidate.final_publication `
+                -ExpectedPresentMode ([Globalization.CultureInfo]::InvariantCulture.TextInfo.ToTitleCase($expectedMode))
+            $computedStage = Get-Phase2FirstStalledStage -PublicationRecord $candidate.final_publication `
+                -WorldReadyObserved:([bool]$candidate.world_ready_observed)
+            if ([string]$candidate.first_stalled_stage -cne $computedStage -or
+                ($Mode -cne 'Diagnostic' -and $computedStage -cne 'none')) {
+                continue
+            }
+            if ($Mode -eq 'Diagnostic') {
+                if ($candidate.diagnostic_complete -isnot [bool] -or -not [bool]$candidate.diagnostic_complete -or
+                    $candidate.behavior_gate_passed -isnot [bool] -or [bool]$candidate.behavior_gate_passed -or
+                    $candidate.world_ready_observed -isnot [bool]) {
+                    continue
+                }
+            }
+            elseif ($candidate.diagnostic_complete -isnot [bool] -or [bool]$candidate.diagnostic_complete -or
+                $candidate.behavior_gate_passed -isnot [bool] -or -not [bool]$candidate.behavior_gate_passed -or
+                $candidate.world_ready_observed -isnot [bool] -or -not [bool]$candidate.world_ready_observed -or
+                [string]$candidate.metrics_evidence.status -cne 'passed' -or
+                [string]$candidate.resources_evidence.status -cne 'passed') {
                 continue
             }
             $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
-            if ($hash -notmatch '^[0-9A-F]{64}$') {
-                continue
-            }
-            return [pscustomobject][ordered]@{
-                Path = $file.FullName
-                Sha256 = $hash
-            }
+            if ($hash -notmatch '^[0-9A-F]{64}$') { continue }
+            return [pscustomobject][ordered]@{ Path = $file.FullName; Sha256 = $hash; Mode = $Mode }
         }
         catch { continue }
     }
     return $null
+}
+
+function Find-Phase2CompletedLunarDiagnostic {
+    param([Parameter(Mandatory = $true)][string]$RemoteRoot)
+    return Find-Phase2CompletedLunarPrerequisite -RemoteRoot $RemoteRoot -Mode Diagnostic
 }
 
 function Assert-Phase2Evidence {
