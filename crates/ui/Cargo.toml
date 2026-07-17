@@ -6,4 +6,6 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+assets = { path = "../assets" }
 semantic-input = { path = "../input" }
+sha2 = "0.10"
