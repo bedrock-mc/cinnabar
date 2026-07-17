@@ -6,7 +6,7 @@ param(
     [Parameter(Mandatory = $true)][int]$DurationSeconds,
     [Parameter(Mandatory = $true)][string]$AuthCache,
     [Parameter(Mandatory = $true)][int]$InitialRadius,
-    [Parameter(Mandatory = $true)][ValidateSet('Fifo', 'Immediate')][string]$PresentMode,
+    [Parameter(Mandatory = $true)][ValidateSet('Fifo')][string]$PresentMode,
     [switch]$FullViewTeleportGate,
     [switch]$OpenSettingsOverlay,
     [Parameter(Mandatory = $true)][string]$Assets,
@@ -33,10 +33,15 @@ if ($SkipClientBuild -and [string]::IsNullOrWhiteSpace($ClientExecutable)) {
 $AuthCacheFull = Resolve-Phase2ContainedPath -ProjectRoot $ProjectRoot -Path $AuthCache -Scope Local
 $lunarPrerequisite = $null
 if ($Server -eq 'Zeqa') {
+    if ($Mode -cne 'Diagnostic' -and -not $FullViewTeleportGate) {
+        throw "Zeqa $Mode requires FullViewTeleportGate and a matching Lunar prerequisite"
+    }
     $remoteRoot = Join-Path $ProjectRoot '.local\phase2\remote'
-    $lunarPrerequisite = Find-Phase2CompletedLunarDiagnostic -RemoteRoot $remoteRoot
+    $lunarPrerequisite = Find-Phase2CompletedLunarPrerequisite -RemoteRoot $remoteRoot -Mode $Mode `
+        -ExpectedPresentMode $PresentMode -ExpectedInitialRadius $InitialRadius `
+        -RequireFullView:$FullViewTeleportGate
     if ($null -eq $lunarPrerequisite) {
-        throw 'Zeqa is gated on a hashable completed Lunar diagnostic manifest'
+        throw "Zeqa $Mode is gated on a hashable completed Lunar $Mode manifest"
     }
 }
 $RunDirectory = New-Phase2RunDirectory -ProjectRoot $ProjectRoot -Kind remote -RunId $RunId
@@ -50,7 +55,6 @@ $clientArguments = @(
     '--metrics-warmup-seconds', '30'
     '--metrics-sample-seconds', '120'
 )
-if ($PresentMode -eq 'Immediate') { $clientArguments += '--no-vsync' }
 if ($FullViewTeleportGate) { $clientArguments += '--full-view-teleport-gate' }
 
 $manifest = [pscustomobject][ordered]@{
@@ -60,6 +64,14 @@ $manifest = [pscustomobject][ordered]@{
     upstream = $upstream
     mode = $Mode
     diagnostic_complete = $false
+    behavior_gate_passed = $false
+    world_ready_observed = $false
+    join_milliseconds = $null
+    publication_snapshot_count = 0
+    first_stalled_stage = $null
+    findings = @()
+    metrics_evidence = [pscustomobject][ordered]@{ status = 'pending'; reason = $null }
+    resources_evidence = [pscustomobject][ordered]@{ status = 'pending'; reason = $null }
     duration_seconds = $DurationSeconds
     initial_radius = 16
     requested_present_mode = $PresentMode
@@ -70,7 +82,8 @@ $manifest = [pscustomobject][ordered]@{
     client_arguments = @($clientArguments)
     performance = New-Phase2PerformanceContract
     client_shutdown_grace_seconds = 5
-    lunar_diagnostic_manifest_sha256 = if ($null -eq $lunarPrerequisite) { $null } else { $lunarPrerequisite.Sha256 }
+    lunar_prerequisite_mode = if ($null -eq $lunarPrerequisite) { $null } else { $lunarPrerequisite.Mode }
+    lunar_prerequisite_manifest_sha256 = if ($null -eq $lunarPrerequisite) { $null } else { $lunarPrerequisite.Sha256 }
 }
 Write-Phase2Json -Path (Join-Path $RunDirectory 'manifest.json') -Value $manifest
 
@@ -124,9 +137,33 @@ try {
     $clientHandle = Start-LoggedProcess -Executable $ClientExecutableFull -Arguments $clientArguments `
         -WorkingDirectory $ProjectRoot -StdoutPath (Join-Path $RunDirectory 'client.stdout.log') `
         -StderrPath (Join-Path $RunDirectory 'client.stderr.log')
-    $null = Wait-ProcessOutputMarker -Handle $clientHandle -Marker 'RUST_MCBE_WORLD_READY ' -TimeoutSeconds 180
+    try {
+        $null = Wait-ProcessOutputMarker -Handle $clientHandle -Marker 'RUST_MCBE_WORLD_READY ' -TimeoutSeconds 180
+    }
+    catch {
+        if ($Mode -cne 'Diagnostic') { throw }
+        if ($clientHandle.Process.HasExited -or $coreHandle.Process.HasExited -or
+            -not $_.Exception.Message.StartsWith("timed out waiting for 'RUST_MCBE_WORLD_READY '", [StringComparison]::Ordinal)) {
+            throw
+        }
+        $joinStopwatch.Stop()
+        Stop-BoundedProcess -Handle $clientHandle -Kind app
+        Complete-ProcessLogs $clientHandle
+        $clientLogsCompleted = $true
+        Stop-BoundedProcess -Handle $coreHandle -Kind core
+        Complete-ProcessLogs $coreHandle
+        $coreLogsCompleted = $true
+        Complete-Phase2DiagnosticEvidence -Manifest $manifest `
+            -ClientLogPath (Join-Path $RunDirectory 'client.stdout.log') `
+            -ExpectedPresentMode $PresentMode -WorldReadyObserved:$false
+        Write-Phase2Json -Path (Join-Path $RunDirectory 'manifest.json') -Value $manifest
+        $runSucceeded = $true
+        Write-Output "PHASE2_RUN_DIRECTORY=$RunDirectory"
+        return
+    }
     $joinStopwatch.Stop()
     $joinMilliseconds = $joinStopwatch.Elapsed.TotalMilliseconds
+    $manifest.world_ready_observed = $true
     $resourcesPath = Join-Path $RunDirectory 'resources.json'
     $null = Measure-Phase2Resources -ClientHandle $clientHandle -CoreHandle $coreHandle -OutputPath $resourcesPath
     if (-not $clientHandle.Process.WaitForExit(($DurationSeconds + 30) * 1000)) {
@@ -141,10 +178,23 @@ try {
         -ResourcesPath $resourcesPath -ClientLogPath (Join-Path $RunDirectory 'client.stdout.log') `
         -ExpectedPresentMode $PresentMode -JoinMilliseconds $joinMilliseconds `
         -RequireFullView:$FullViewTeleportGate
+    $publicationSequence = Get-Phase2PublicationSequenceEvidence `
+        -ClientLogPath (Join-Path $RunDirectory 'client.stdout.log') -ExpectedPresentMode $PresentMode `
+        -WorldReadyObserved:$true
+    if ($Mode -cne 'Diagnostic' -and
+        $publicationSequence.FirstStalledStage -cne 'none') {
+        throw "binding $Mode evidence retained first stalled stage $($publicationSequence.FirstStalledStage)"
+    }
     $manifest.status = 'passed'
-    $manifest | Add-Member -MemberType NoteProperty -Name join_milliseconds -Value $joinMilliseconds
+    $manifest.join_milliseconds = $joinMilliseconds
     $manifest.diagnostic_complete = ($Mode -eq 'Diagnostic')
-    $manifest | Add-Member -MemberType NoteProperty -Name final_publication -Value $evidence.publication
+    $manifest.behavior_gate_passed = ($Mode -cne 'Diagnostic')
+    $manifest.publication_snapshot_count = $publicationSequence.SnapshotCount
+    $manifest.first_stalled_stage = $publicationSequence.FirstStalledStage
+    $manifest.findings = @($publicationSequence.Findings)
+    $manifest.metrics_evidence = [pscustomobject][ordered]@{ status = 'passed'; reason = $null }
+    $manifest.resources_evidence = [pscustomobject][ordered]@{ status = 'passed'; reason = $null }
+    $manifest | Add-Member -MemberType NoteProperty -Name final_publication -Value $evidence.publication -Force
     Write-Phase2Json -Path (Join-Path $RunDirectory 'manifest.json') -Value $manifest
     $runSucceeded = $true
     Write-Output "PHASE2_RUN_DIRECTORY=$RunDirectory"
