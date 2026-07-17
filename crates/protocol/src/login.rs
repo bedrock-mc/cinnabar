@@ -133,7 +133,18 @@ fn decode_world_raw_with(
 ) -> Result<Option<WorldEvent>, ProtocolError> {
     if !matches!(
         raw.id,
-        McpePacketName::PacketBiomeDefinitionList
+        McpePacketName::PacketText
+            | McpePacketName::PacketPlayStatus
+            | McpePacketName::PacketSetHealth
+            | McpePacketName::PacketBossEvent
+            | McpePacketName::PacketSetTitle
+            | McpePacketName::PacketModalFormRequest
+            | McpePacketName::PacketRemoveObjective
+            | McpePacketName::PacketSetDisplayObjective
+            | McpePacketName::PacketSetScore
+            | McpePacketName::PacketToastRequest
+            | McpePacketName::PacketUpdateSoftEnum
+            | McpePacketName::PacketBiomeDefinitionList
             | McpePacketName::PacketAddPlayer
             | McpePacketName::PacketAddEntity
             | McpePacketName::PacketRemoveEntity
@@ -164,6 +175,7 @@ fn decode_world_raw_with(
                 .map_err(crate::world::WorldPacketError::from)?,
         )));
     }
+    crate::codec::validate_raw_ui_frame(raw.inner_frame())?;
     let packet = decode(raw)?;
     Ok(into_world_event(packet, current_dimension)?)
 }
@@ -180,7 +192,8 @@ mod tests {
         AddEntityPacket, BiomeDefinition, BiomeDefinitionListPacket, BlockCoordinates,
         BlockEntityDataPacket, CorrectPlayerMovePredictionPacket, GameRuleI32, GameRuleI32Type,
         GameRuleI32Value, GameRulesChangedPacket, LevelEventPacket, LevelEventPacketEvent,
-        McpePacketName, MovePlayerPacket, UpdateBlockPacket, Vec2F, Vec3F,
+        McpePacketName, MovePlayerPacket, TextPacket, TextPacketCategory, TextPacketContent,
+        TextPacketContentJson, TextPacketType, UpdateBlockPacket, Vec2F, Vec3F,
     };
     use valentine::protocol::wire;
 
@@ -199,7 +212,7 @@ mod tests {
 
     #[test]
     fn ignored_play_packet_is_not_materialized() {
-        let raw = raw_packet(McpePacketName::PacketText, &[0, 0, 0, 0x7f]);
+        let raw = raw_packet(McpePacketName::PacketNetworkSettings, &[0x7f]);
         let decoder_called = Cell::new(false);
 
         let event = decode_world_raw_with(raw, 0, |raw| {
@@ -210,6 +223,80 @@ mod tests {
 
         assert!(event.is_none());
         assert!(!decoder_called.get());
+    }
+
+    #[test]
+    fn allowlisted_ui_packet_is_validated_decoded_and_normalized() {
+        let session = BedrockSession { shield_item_id: 0 };
+        let packet: Packet = TextPacket {
+            category: TextPacketCategory::MessageOnly,
+            type_: TextPacketType::Raw,
+            content: Some(TextPacketContent::Raw(TextPacketContentJson {
+                message: "live UI".to_owned(),
+            })),
+            ..Default::default()
+        }
+        .into();
+        let mut batch = crate::encode(&packet, &session).expect("encode text");
+        batch.advance(1);
+        let raw = decode_packet_raw(&mut batch).expect("raw text");
+        let decoder_called = Cell::new(false);
+
+        let event = decode_world_raw_with(raw, 0, |raw| {
+            decoder_called.set(true);
+            raw.decode(&session)
+        })
+        .expect("decode UI event");
+
+        assert!(decoder_called.get());
+        assert!(matches!(
+            event,
+            Some(WorldEvent::Ui(crate::UiEvent::Text(_)))
+        ));
+    }
+
+    #[test]
+    fn live_ui_path_rejects_invalid_utf8_before_owned_decoder() {
+        let raw = raw_packet(McpePacketName::PacketText, &[0, 0, 0, 1, 0xff, 0, 0, 0]);
+        let decoder_called = Cell::new(false);
+
+        let error = decode_world_raw_with(raw, 0, |_| {
+            decoder_called.set(true);
+            panic!("invalid UI bytes must fail before owned decoding")
+        })
+        .expect_err("invalid UI UTF-8");
+
+        assert!(!decoder_called.get());
+        assert!(matches!(
+            error,
+            ProtocolError::Ui(crate::UiPacketError::InvalidUtf8 {
+                field: "text.message"
+            })
+        ));
+    }
+
+    #[test]
+    fn live_score_path_checks_text_bound_before_owned_decoder() {
+        let mut body = BytesMut::new();
+        body.put_u8(0);
+        wire::write_var_u32(&mut body, 1);
+        wire::write_var_u64(&mut body, 0);
+        wire::write_var_u32(&mut body, (crate::MAX_UI_TEXT_BYTES + 1) as u32);
+        body.put_bytes(b'x', crate::MAX_UI_TEXT_BYTES + 1);
+        let raw = raw_packet(McpePacketName::PacketSetScore, &body);
+        let decoder_called = Cell::new(false);
+
+        let error = decode_world_raw_with(raw, 0, |_| {
+            decoder_called.set(true);
+            panic!("oversized score text must fail before owned decoding")
+        })
+        .expect_err("oversized score text");
+
+        assert!(!decoder_called.get());
+        assert!(matches!(
+            error,
+            ProtocolError::Ui(crate::UiPacketError::TextTooLong { .. })
+        ));
     }
 
     #[test]

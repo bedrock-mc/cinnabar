@@ -114,7 +114,7 @@ pub fn decode_batch(
     Ok(packets)
 }
 
-fn validate_raw_ui_frame(frame: &Bytes) -> Result<(), ProtocolError> {
+pub(crate) fn validate_raw_ui_frame(frame: &Bytes) -> Result<(), ProtocolError> {
     let mut probe = frame.clone();
     let _declared = wire::read_var_u32(&mut probe)?;
     let header = wire::read_var_u32(&mut probe)?;
@@ -213,8 +213,7 @@ fn validate_raw_score_packet(mut payload: Bytes) -> Result<(), ProtocolError> {
     }
     for _ in 0..count {
         let _scoreboard_id = ZigZag64::decode(&mut payload, ())?;
-        let objective_name = take_varint_prefixed_string(&mut payload)?;
-        validate_raw_utf8(&objective_name, "score.objective_name")?;
+        let _objective_name = take_raw_ui_text(&mut payload, "score.objective_name")?;
         let _score = I32LE::decode(&mut payload, ())?;
         if action == 0 {
             let identity = i8::decode(&mut payload, ())?;
@@ -223,8 +222,7 @@ fn validate_raw_score_packet(mut payload: Bytes) -> Result<(), ProtocolError> {
                     let _entity_id = ZigZag64::decode(&mut payload, ())?;
                 }
                 3 => {
-                    let custom_name = take_varint_prefixed_string(&mut payload)?;
-                    validate_raw_utf8(&custom_name, "score.custom_name")?;
+                    let _custom_name = take_raw_ui_text(&mut payload, "score.custom_name")?;
                 }
                 value => {
                     return Err(UiPacketError::UnknownEnum {
