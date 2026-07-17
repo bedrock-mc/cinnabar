@@ -12,6 +12,12 @@ pub const MAX_WRAP_LINES: usize = 1_024;
 const FIXED_POINT_DENOMINATOR: i64 = 64;
 const SCALE_DENOMINATOR: i64 = 1_024;
 const REPLACEMENT_CODEPOINT: char = '\u{fffd}';
+// A std B-tree node currently holds several keys, values, and edge pointers.
+// Charging a full 4 KiB node to every retained entry deliberately overcounts
+// shared and partially occupied nodes, keeping the public byte cap conservative.
+const CONSERVATIVE_BTREE_NODE_BYTES: usize = 4_096;
+const ALLOCATOR_METADATA_BYTES: usize = 2 * size_of::<usize>();
+const CONSERVATIVE_ALLOCATION_GRANULARITY: usize = 4_096;
 
 #[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
 pub enum BedrockColor {
@@ -43,6 +49,7 @@ pub enum BedrockColor {
     MaterialDiamond,
     MaterialLapis,
     MaterialAmethyst,
+    MaterialResin,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
@@ -147,6 +154,7 @@ pub enum TextError {
     SpanLimitExceeded { actual: usize, limit: usize },
     GlyphLimitExceeded { actual: usize, limit: usize },
     WrapLineLimitExceeded { actual: usize, limit: usize },
+    VisualWidthExceeded { actual_64: u64, limit_64: u64 },
     ZeroWrapWidth,
     MissingReplacementGlyph,
     FixedPointOverflow,
@@ -180,6 +188,13 @@ impl fmt::Display for TextError {
                     "layout has {actual} lines, exceeding limit {limit}"
                 )
             }
+            Self::VisualWidthExceeded {
+                actual_64,
+                limit_64,
+            } => write!(
+                formatter,
+                "glyph visual width {actual_64}/64 exceeds wrap width {limit_64}/64"
+            ),
             Self::ZeroWrapWidth => formatter.write_str("text wrap width must be nonzero"),
             Self::MissingReplacementGlyph => {
                 formatter.write_str("font has no replacement glyph for a missing codepoint")
@@ -211,13 +226,8 @@ fn parse_bedrock_text_with_style(
     let mut spans = Vec::new();
     let mut buffer = String::new();
     let mut style = base_style;
-    let mut characters = text.chars().peekable();
+    let mut characters = NormalizedChars::new(text).peekable();
     while let Some(character) = characters.next() {
-        if character == '\r' && characters.peek() == Some(&'\n') {
-            characters.next();
-            buffer.push('\n');
-            continue;
-        }
         if character != '§' {
             buffer.push(character);
             continue;
@@ -239,9 +249,6 @@ fn parse_bedrock_text_with_style(
         match change {
             FormattingChange::Color(color) => {
                 style.color = color;
-                style.obfuscated = false;
-                style.bold = false;
-                style.italic = false;
             }
             FormattingChange::Obfuscated => style.obfuscated = true,
             FormattingChange::Bold => style.bold = true,
@@ -251,6 +258,31 @@ fn parse_bedrock_text_with_style(
     }
     push_span(&mut spans, &mut buffer, style)?;
     Ok(TextSpans(spans))
+}
+
+struct NormalizedChars<'a> {
+    characters: std::iter::Peekable<std::str::Chars<'a>>,
+}
+
+impl<'a> NormalizedChars<'a> {
+    fn new(text: &'a str) -> Self {
+        Self {
+            characters: text.chars().peekable(),
+        }
+    }
+}
+
+impl Iterator for NormalizedChars<'_> {
+    type Item = char;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let character = self.characters.next()?;
+        if character == '\r' && self.characters.peek() == Some(&'\n') {
+            self.characters.next();
+            return Some('\n');
+        }
+        Some(character)
+    }
 }
 
 fn push_span(
@@ -326,6 +358,7 @@ fn formatting_change(code: char) -> Option<FormattingChange> {
         's' => Change::Color(Color::MaterialDiamond),
         't' => Change::Color(Color::MaterialLapis),
         'u' => Change::Color(Color::MaterialAmethyst),
+        'v' => Change::Color(Color::MaterialResin),
         'k' => Change::Obfuscated,
         'l' => Change::Bold,
         'o' => Change::Italic,
@@ -389,6 +422,16 @@ impl TextLayoutCache {
             return Ok(layout);
         }
 
+        while self.entries.len() >= self.entry_cap
+            || self
+                .retained_bytes
+                .checked_add(retained_bytes)
+                .is_none_or(|bytes| bytes > self.byte_cap)
+        {
+            if !self.evict_lru() {
+                return Ok(layout);
+            }
+        }
         let new_retained_bytes = self
             .retained_bytes
             .checked_add(retained_bytes)
@@ -402,7 +445,6 @@ impl TextLayoutCache {
             },
         );
         self.retained_bytes = new_retained_bytes;
-        self.evict_to_caps();
         Ok(layout)
     }
 
@@ -426,26 +468,25 @@ impl TextLayoutCache {
         Ok(self.clock)
     }
 
-    fn evict_to_caps(&mut self) {
-        while self.entries.len() > self.entry_cap || self.retained_bytes > self.byte_cap {
-            let Some(key) = self
-                .entries
-                .iter()
-                .min_by(|(left_key, left), (right_key, right)| {
-                    (left.last_used, left.layout.id(), *left_key).cmp(&(
-                        right.last_used,
-                        right.layout.id(),
-                        *right_key,
-                    ))
-                })
-                .map(|(key, _)| key.clone())
-            else {
-                break;
-            };
-            if let Some(removed) = self.entries.remove(&key) {
-                self.retained_bytes -= removed.retained_bytes;
-            }
+    fn evict_lru(&mut self) -> bool {
+        let Some(key) = self
+            .entries
+            .iter()
+            .min_by(|(left_key, left), (right_key, right)| {
+                (left.last_used, left.layout.id(), *left_key).cmp(&(
+                    right.last_used,
+                    right.layout.id(),
+                    *right_key,
+                ))
+            })
+            .map(|(key, _)| key.clone())
+        else {
+            return false;
+        };
+        if let Some(removed) = self.entries.remove(&key) {
+            self.retained_bytes -= removed.retained_bytes;
         }
+        true
     }
 }
 
@@ -490,45 +531,91 @@ fn build_layout(
     let line_height_64 = font_line_height_64(request.font, scale_1024)?;
     let mut glyphs = Vec::with_capacity(glyph_count);
     let mut line = 0usize;
+    let mut line_start = 0usize;
+    let mut line_min_64 = 0i64;
+    let mut line_max_64 = 0i64;
     let mut x_64 = 0i64;
     let mut maximum_width_64 = 0i64;
 
     for span in spans.iter() {
         for codepoint in span.text.chars() {
             if codepoint == '\n' {
-                maximum_width_64 = maximum_width_64.max(x_64);
+                maximum_width_64 = maximum_width_64.max(finish_line(
+                    &mut glyphs,
+                    line_start,
+                    line_min_64,
+                    line_max_64,
+                )?);
                 line = next_line(line)?;
+                line_start = glyphs.len();
+                line_min_64 = 0;
+                line_max_64 = 0;
                 x_64 = 0;
                 continue;
             }
 
             let (resolved_codepoint, metrics) = resolve_glyph(request.font, codepoint)?;
             let advance_64 = scale_metric(i64::from(metrics.advance_64), scale_1024)?;
-            let proposed_end = x_64
-                .checked_add(advance_64)
-                .ok_or(TextError::FixedPointOverflow)?;
-            if x_64 != 0 && proposed_end > i64::from(request.width_64) {
-                maximum_width_64 = maximum_width_64.max(x_64);
+            let mut candidate = line_candidate(
+                metrics,
+                x_64,
+                line,
+                line_height_64,
+                scale_1024,
+                line_min_64,
+                line_max_64,
+                advance_64,
+            )?;
+            if glyphs.len() > line_start && candidate.width_64 > u64::from(request.width_64) {
+                maximum_width_64 = maximum_width_64.max(finish_line(
+                    &mut glyphs,
+                    line_start,
+                    line_min_64,
+                    line_max_64,
+                )?);
                 line = next_line(line)?;
+                line_start = glyphs.len();
+                line_min_64 = 0;
+                line_max_64 = 0;
                 x_64 = 0;
+                candidate = line_candidate(
+                    metrics,
+                    x_64,
+                    line,
+                    line_height_64,
+                    scale_1024,
+                    line_min_64,
+                    line_max_64,
+                    advance_64,
+                )?;
+            }
+            if candidate.width_64 > u64::from(request.width_64) {
+                return Err(TextError::VisualWidthExceeded {
+                    actual_64: candidate.width_64,
+                    limit_64: u64::from(request.width_64),
+                });
             }
 
-            let bounds_64 = glyph_bounds(metrics, x_64, line, line_height_64, scale_1024)?;
             glyphs.push(GlyphQuad {
                 codepoint,
                 resolved_codepoint,
                 page: metrics.page,
                 uv: metrics.uv,
-                bounds_64,
+                bounds_64: candidate.bounds_64,
                 line: u16::try_from(line).map_err(|_| TextError::FixedPointOverflow)?,
                 style: span.style,
             });
-            x_64 = x_64
-                .checked_add(advance_64)
-                .ok_or(TextError::FixedPointOverflow)?;
+            x_64 = candidate.pen_end_64;
+            line_min_64 = candidate.min_64;
+            line_max_64 = candidate.max_64;
         }
     }
-    maximum_width_64 = maximum_width_64.max(x_64);
+    maximum_width_64 = maximum_width_64.max(finish_line(
+        &mut glyphs,
+        line_start,
+        line_min_64,
+        line_max_64,
+    )?);
     let line_count = line.checked_add(1).ok_or(TextError::FixedPointOverflow)?;
     if line_count > MAX_WRAP_LINES {
         return Err(TextError::WrapLineLimitExceeded {
@@ -536,10 +623,11 @@ fn build_layout(
             limit: MAX_WRAP_LINES,
         });
     }
-    let height_64 = i64::try_from(line_count)
+    let nominal_height_64 = i64::try_from(line_count)
         .ok()
         .and_then(|count| count.checked_mul(line_height_64))
         .ok_or(TextError::FixedPointOverflow)?;
+    let height_64 = normalize_vertical_bounds(&mut glyphs, nominal_height_64)?;
 
     Ok(TextLayout {
         id,
@@ -548,6 +636,103 @@ fn build_layout(
         line_count: u16::try_from(line_count).map_err(|_| TextError::FixedPointOverflow)?,
         size_64: [checked_u32(maximum_width_64)?, checked_u32(height_64)?],
     })
+}
+
+struct LineCandidate {
+    bounds_64: [i32; 4],
+    pen_end_64: i64,
+    min_64: i64,
+    max_64: i64,
+    width_64: u64,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn line_candidate(
+    metrics: GlyphMetrics,
+    x_64: i64,
+    line: usize,
+    line_height_64: i64,
+    scale_1024: i64,
+    line_min_64: i64,
+    line_max_64: i64,
+    advance_64: i64,
+) -> Result<LineCandidate, TextError> {
+    let bounds_64 = glyph_bounds(metrics, x_64, line, line_height_64, scale_1024)?;
+    let pen_end_64 = x_64
+        .checked_add(advance_64)
+        .ok_or(TextError::FixedPointOverflow)?;
+    let min_64 = line_min_64.min(i64::from(bounds_64[0])).min(pen_end_64);
+    let max_64 = line_max_64.max(i64::from(bounds_64[2])).max(pen_end_64);
+    let width_64 = u64::try_from(
+        max_64
+            .checked_sub(min_64)
+            .ok_or(TextError::FixedPointOverflow)?,
+    )
+    .map_err(|_| TextError::FixedPointOverflow)?;
+    Ok(LineCandidate {
+        bounds_64,
+        pen_end_64,
+        min_64,
+        max_64,
+        width_64,
+    })
+}
+
+fn finish_line(
+    glyphs: &mut [GlyphQuad],
+    line_start: usize,
+    min_64: i64,
+    max_64: i64,
+) -> Result<i64, TextError> {
+    let shift_64 = min_64.checked_neg().ok_or(TextError::FixedPointOverflow)?;
+    for glyph in glyphs
+        .get_mut(line_start..)
+        .ok_or(TextError::FixedPointOverflow)?
+    {
+        glyph.bounds_64[0] = checked_i32(
+            i64::from(glyph.bounds_64[0])
+                .checked_add(shift_64)
+                .ok_or(TextError::FixedPointOverflow)?,
+        )?;
+        glyph.bounds_64[2] = checked_i32(
+            i64::from(glyph.bounds_64[2])
+                .checked_add(shift_64)
+                .ok_or(TextError::FixedPointOverflow)?,
+        )?;
+    }
+    max_64
+        .checked_sub(min_64)
+        .ok_or(TextError::FixedPointOverflow)
+}
+
+fn normalize_vertical_bounds(
+    glyphs: &mut [GlyphQuad],
+    nominal_height_64: i64,
+) -> Result<i64, TextError> {
+    let min_64 = glyphs
+        .iter()
+        .map(|glyph| i64::from(glyph.bounds_64[1]))
+        .fold(0, i64::min);
+    let max_64 = glyphs
+        .iter()
+        .map(|glyph| i64::from(glyph.bounds_64[3]))
+        .fold(nominal_height_64, i64::max);
+    let shift_64 = min_64.checked_neg().ok_or(TextError::FixedPointOverflow)?;
+    for glyph in glyphs {
+        glyph.bounds_64[1] = checked_i32(
+            i64::from(glyph.bounds_64[1])
+                .checked_add(shift_64)
+                .ok_or(TextError::FixedPointOverflow)?,
+        )?;
+        glyph.bounds_64[3] = checked_i32(
+            i64::from(glyph.bounds_64[3])
+                .checked_add(shift_64)
+                .ok_or(TextError::FixedPointOverflow)?,
+        )?;
+    }
+    max_64
+        .checked_sub(min_64)
+        .ok_or(TextError::FixedPointOverflow)
 }
 
 fn resolve_glyph(
@@ -662,14 +847,37 @@ fn checked_u32(value: i64) -> Result<u32, TextError> {
 }
 
 fn retained_layout_bytes(layout: &TextLayout) -> Result<usize, TextError> {
-    size_of::<TextLayout>()
-        .checked_add(size_of::<TextLayoutKey>())
-        .and_then(|bytes| {
-            layout
-                .glyphs
-                .len()
-                .checked_mul(size_of::<GlyphQuad>())
-                .and_then(|glyph_bytes| bytes.checked_add(glyph_bytes))
-        })
+    let glyph_bytes = layout
+        .glyphs
+        .len()
+        .checked_mul(size_of::<GlyphQuad>())
+        .ok_or(TextError::FixedPointOverflow)?;
+    let arc_allocation = conservative_allocation_bytes(
+        size_of::<TextLayout>()
+            .checked_add(2 * size_of::<usize>())
+            .ok_or(TextError::FixedPointOverflow)?,
+    )?;
+    let glyph_allocation = conservative_allocation_bytes(glyph_bytes)?;
+    [
+        arc_allocation,
+        glyph_allocation,
+        // BTreeMap duplicates the key and retains a CacheEntry value.
+        size_of::<TextLayoutKey>(),
+        size_of::<CacheEntry>(),
+        CONSERVATIVE_BTREE_NODE_BYTES,
+        // Node allocator metadata is charged separately from its full page.
+        ALLOCATOR_METADATA_BYTES,
+    ]
+    .into_iter()
+    .try_fold(0usize, |total, bytes| total.checked_add(bytes))
+    .ok_or(TextError::FixedPointOverflow)
+}
+
+fn conservative_allocation_bytes(payload_bytes: usize) -> Result<usize, TextError> {
+    payload_bytes
+        .checked_add(ALLOCATOR_METADATA_BYTES)
+        .and_then(|bytes| bytes.checked_add(CONSERVATIVE_ALLOCATION_GRANULARITY - 1))
+        .map(|bytes| bytes / CONSERVATIVE_ALLOCATION_GRANULARITY)
+        .and_then(|pages| pages.checked_mul(CONSERVATIVE_ALLOCATION_GRANULARITY))
         .ok_or(TextError::FixedPointOverflow)
 }

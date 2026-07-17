@@ -21,9 +21,63 @@ fn formatting_codes_change_style_without_emitting_glyphs() {
 }
 
 #[test]
+fn color_codes_preserve_decorations_until_reset() {
+    let spans = parse_bedrock_text("§lA§cB§oC§kD§rE", 64).unwrap();
+    assert!(spans[0].style.bold);
+    assert_eq!(spans[1].style.color, BedrockColor::Red);
+    assert!(spans[1].style.bold);
+    assert!(spans[2].style.bold && spans[2].style.italic);
+    assert!(spans[3].style.bold && spans[3].style.italic && spans[3].style.obfuscated);
+    assert_eq!(spans[4].style, TextStyle::default());
+}
+
+#[test]
+fn pinned_bedrock_color_codes_include_resin() {
+    let expected = [
+        ('0', BedrockColor::Black),
+        ('1', BedrockColor::DarkBlue),
+        ('2', BedrockColor::DarkGreen),
+        ('3', BedrockColor::DarkAqua),
+        ('4', BedrockColor::DarkRed),
+        ('5', BedrockColor::DarkPurple),
+        ('6', BedrockColor::Gold),
+        ('7', BedrockColor::Gray),
+        ('8', BedrockColor::DarkGray),
+        ('9', BedrockColor::Blue),
+        ('a', BedrockColor::Green),
+        ('b', BedrockColor::Aqua),
+        ('c', BedrockColor::Red),
+        ('d', BedrockColor::LightPurple),
+        ('e', BedrockColor::Yellow),
+        ('f', BedrockColor::White),
+        ('g', BedrockColor::MinecoinGold),
+        ('h', BedrockColor::MaterialQuartz),
+        ('i', BedrockColor::MaterialIron),
+        ('j', BedrockColor::MaterialNetherite),
+        ('m', BedrockColor::MaterialRedstone),
+        ('n', BedrockColor::MaterialCopper),
+        ('p', BedrockColor::MaterialGold),
+        ('q', BedrockColor::MaterialEmerald),
+        ('s', BedrockColor::MaterialDiamond),
+        ('t', BedrockColor::MaterialLapis),
+        ('u', BedrockColor::MaterialAmethyst),
+        ('v', BedrockColor::MaterialResin),
+    ];
+    for (code, color) in expected {
+        let text = format!("§{code}X");
+        let spans = parse_bedrock_text(&text, text.len()).unwrap();
+        assert_eq!(spans.len(), 1, "code §{code}");
+        assert_eq!(spans[0].style.color, color, "code §{code}");
+        assert_eq!(spans.plain_text(), "X", "code §{code}");
+    }
+}
+
+#[test]
 fn parser_normalizes_crlf_and_preserves_invalid_section_sequences() {
     let spans = parse_bedrock_text("A\r\nB§zC§", 64).unwrap();
     assert_eq!(spans.plain_text(), "A\nB§zC§");
+    let section_before_crlf = parse_bedrock_text("§\r\nA", 64).unwrap();
+    assert_eq!(section_before_crlf.plain_text(), "§\nA");
 
     assert!(matches!(
         parse_bedrock_text("four", 3),
@@ -64,6 +118,70 @@ fn layout_wraps_in_checked_fixed_point_and_uses_replacement_glyph() {
     assert_eq!(layout.glyphs()[2].bounds_64[0], 0);
     assert_eq!(layout.key().width_64, 128);
     assert_eq!(layout.size_64(), [128, 128]);
+}
+
+#[test]
+fn visual_overhang_drives_wrapping_and_reported_bounds() {
+    let negative = font_with_glyph(
+        [0x12; 32],
+        GlyphMetrics {
+            codepoint: 'A',
+            page: 0,
+            uv: [0, 0, 2, 1],
+            bearing: [-1, 0],
+            advance_64: 64,
+        },
+    );
+    let mut cache = TextLayoutCache::new(8, 64 * 1024);
+    let negative_layout = layout(&mut cache, &negative, "AA", 1.0, 128);
+    assert_eq!(negative_layout.line_count(), 2);
+    assert_eq!(negative_layout.size_64(), [128, 128]);
+    for glyph in negative_layout.glyphs() {
+        assert!(glyph.bounds_64[0] >= 0);
+        assert!(glyph.bounds_64[2] <= negative_layout.size_64()[0] as i32);
+    }
+
+    let positive = font_with_glyph(
+        [0x13; 32],
+        GlyphMetrics {
+            codepoint: 'A',
+            page: 0,
+            uv: [0, 0, 2, 1],
+            bearing: [1, 0],
+            advance_64: 64,
+        },
+    );
+    let positive_layout = layout(&mut cache, &positive, "A", 1.0, 192);
+    assert_eq!(positive_layout.glyphs()[0].bounds_64, [64, 0, 192, 64]);
+    assert_eq!(positive_layout.size_64(), [192, 64]);
+
+    assert!(matches!(
+        cache.layout(TextLayoutRequest {
+            text: "A",
+            style: TextStyle::default(),
+            width_64: 128,
+            scale: UiScale::default(),
+            font: &positive,
+        }),
+        Err(TextError::VisualWidthExceeded {
+            actual_64: 192,
+            limit_64: 128,
+        })
+    ));
+
+    let vertical = font_with_glyph(
+        [0x14; 32],
+        GlyphMetrics {
+            codepoint: 'A',
+            page: 0,
+            uv: [0, 0, 1, 1],
+            bearing: [0, -1],
+            advance_64: 64,
+        },
+    );
+    let vertical_layout = layout(&mut cache, &vertical, "A", 1.0, 64);
+    assert_eq!(vertical_layout.glyphs()[0].bounds_64, [0, 0, 64, 64]);
+    assert_eq!(vertical_layout.size_64(), [64, 128]);
 }
 
 #[test]
@@ -157,6 +275,23 @@ fn cache_evicts_the_least_recently_used_entry_within_both_caps() {
     assert_ne!(first_uncached.id(), second_uncached.id());
     assert!(byte_capped.is_empty());
     assert_eq!(byte_capped.retained_bytes(), 0);
+
+    let mut probe = TextLayoutCache::new(1, usize::MAX);
+    let _probe_layout = layout(&mut probe, &font, "A", 1.0, 1024);
+    let conservative_entry_bytes = probe.retained_bytes();
+    assert!(conservative_entry_bytes >= 4_096);
+
+    let mut exact_cap = TextLayoutCache::new(1, conservative_entry_bytes);
+    let exact_first = layout(&mut exact_cap, &font, "A", 1.0, 1024);
+    let exact_second = layout(&mut exact_cap, &font, "A", 1.0, 1024);
+    assert_eq!(exact_first.id(), exact_second.id());
+    assert_eq!(exact_cap.retained_bytes(), conservative_entry_bytes);
+
+    let mut below_cap = TextLayoutCache::new(1, conservative_entry_bytes - 1);
+    let below_first = layout(&mut below_cap, &font, "A", 1.0, 1024);
+    let below_second = layout(&mut below_cap, &font, "A", 1.0, 1024);
+    assert_ne!(below_first.id(), below_second.id());
+    assert_eq!(below_cap.retained_bytes(), 0);
 }
 
 fn layout(
@@ -199,5 +334,28 @@ fn font(source_manifest_sha256: [u8; 32]) -> CompiledFontCatalog {
         })
         .collect::<Vec<_>>();
     let bytes = encode_font_catalog(source_manifest_sha256, &glyphs, &[page]).unwrap();
+    CompiledFontCatalog::decode(&bytes, source_manifest_sha256).unwrap()
+}
+
+fn font_with_glyph(source_manifest_sha256: [u8; 32], glyph: GlyphMetrics) -> CompiledFontCatalog {
+    let rgba8 = vec![255; 4 * 4].into_boxed_slice();
+    let page = FontTexturePage {
+        source_path: "font/overhang.png".into(),
+        source_bytes: 16,
+        source_sha256: [0x77; 32],
+        pixels_sha256: Sha256::digest(&rgba8).into(),
+        width: 4,
+        height: 1,
+        rgba8,
+    };
+    let replacement = GlyphMetrics {
+        codepoint: '\u{fffd}',
+        page: 0,
+        uv: [2, 0, 3, 1],
+        bearing: [0, 0],
+        advance_64: 64,
+    };
+    let bytes =
+        encode_font_catalog(source_manifest_sha256, &[glyph, replacement], &[page]).unwrap();
     CompiledFontCatalog::decode(&bytes, source_manifest_sha256).unwrap()
 }
