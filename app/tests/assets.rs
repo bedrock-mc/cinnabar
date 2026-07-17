@@ -1272,6 +1272,43 @@ fn make_assets_and_client_refresh_the_entity_carrier_and_report() {
 }
 
 #[test]
+fn make_assets_and_client_refresh_the_font_carrier_and_report() {
+    let makefile = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("Makefile"),
+    )
+    .unwrap()
+    .replace("\r\n", "\n");
+
+    for contract in [
+        "FONT_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbefont",
+        "FONT_ASSET_REPORT ?= .local/assets/compiled/font-assets.json",
+        concat!(
+            "FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- ",
+            "font-assets --pack \"$(PACK_DIR)\" --source-manifest \"$(VANILLA_SOURCE_MANIFEST)\" ",
+            "--out \"$(FONT_ASSET_BLOB)\" --report \"$(FONT_ASSET_REPORT)\""
+        ),
+        "font-assets: $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT)",
+        "$(FONT_ASSET_BLOB): $(ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_MANIFEST)",
+        "$(FONT_ASSET_REPORT): $(FONT_ASSET_BLOB)",
+        "assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT) $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT)",
+        "client: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT) $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT)",
+    ] {
+        assert!(
+            makefile.contains(contract),
+            "missing font asset Makefile contract: {contract}"
+        );
+    }
+    let phony = makefile
+        .lines()
+        .find(|line| line.starts_with(".PHONY:"))
+        .unwrap();
+    assert!(phony.split_whitespace().any(|word| word == "font-assets"));
+}
+
+#[test]
 fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() {
     let make_available = match Command::new("make").arg("--version").output() {
         Ok(output) if output.status.success() => true,
