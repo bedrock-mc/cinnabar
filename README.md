@@ -177,6 +177,26 @@ go -C tools/registrygen run . `
   -valentine-blocks ../../crates/protocol/vendor/valentine/bedrock_versions/v1_26_30/src/blocks.rs
 ```
 
+### Supplementary Cloudburst snapshot
+
+An additional protocol-1001 snapshot from CloudburstMC/Data is pinned by exact commit,
+URL, byte size, and SHA-256 in `assets/cloudburst-data-sources.json`. It contains block
+properties, biome definitions, item and creative metadata, recipes, and entity metadata
+that may be used for offline validation and carrier generation. Live protocol data and
+the committed carriers remain authoritative; the client never fetches this snapshot at
+runtime.
+
+Acquire and verify it into the ignored `.local/assets/cloudburst-data/` cache:
+
+```text
+make cloudburst-data
+```
+
+On systems where PowerShell is installed as `pwsh`, use
+`make cloudburst-data POWERSHELL=pwsh`. The upstream license is unspecified at the
+pinned commit, so downloaded payloads are local-only and must not be committed or
+redistributed by this project.
+
 `PREG1001` contains one explicit bounded physics record for each of the 16,913
 protocol-1001 BREG states. Its header binds the exact BREG SHA-256 and the Rust
 decoder rejects any identity, count, enum, scalar, topology, or trailing-byte

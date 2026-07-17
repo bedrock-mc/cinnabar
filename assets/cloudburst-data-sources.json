@@ -1,0 +1,138 @@
+{
+  "schema": 1,
+  "protocol": {
+    "game_version": "1.26.30",
+    "protocol_version": 1001
+  },
+  "artifact_policy": "local-only",
+  "intended_use": "supplementary-validation-and-generation",
+  "redistribution": false,
+  "runtime_fetch": false,
+  "authority": "live-protocol-and-committed-carriers",
+  "limits": {
+    "max_sources": 1,
+    "max_files_per_source": 16,
+    "max_file_bytes": 16777216,
+    "max_total_bytes": 33554432,
+    "download_buffer_bytes": 65536,
+    "request_timeout_seconds": 60
+  },
+  "sources": [
+    {
+      "id": "cloudburstmc-data",
+      "repository": "https://github.com/CloudburstMC/Data",
+      "commit": "fb969c547236d87a17181941cd585a0eb18f7ceb",
+      "destination": "cloudburst",
+      "license_status": "upstream-unspecified",
+      "redistribution": false,
+      "provenance_note": "Pinned supplementary data snapshot. No upstream license file was observed at this commit; do not commit or redistribute downloaded payloads.",
+      "files": [
+        {
+          "upstream_path": "biome_definitions.json",
+          "install_path": "biome_definitions.json",
+          "url": "https://raw.githubusercontent.com/CloudburstMC/Data/fb969c547236d87a17181941cd585a0eb18f7ceb/biome_definitions.json",
+          "sha256": "24915ab6a287ea8f5dafea9c7a26a775e40a00b400c0bef7c38667a4b722b190",
+          "size_bytes": 9352733
+        },
+        {
+          "upstream_path": "block_attributes.json",
+          "install_path": "block_attributes.json",
+          "url": "https://raw.githubusercontent.com/CloudburstMC/Data/fb969c547236d87a17181941cd585a0eb18f7ceb/block_attributes.json",
+          "sha256": "07b80b911f05ab3b72500f2f93443e847a72cc3b9e8c99e20c5b962fe1b86fae",
+          "size_bytes": 459551
+        },
+        {
+          "upstream_path": "block_palette.nbt",
+          "install_path": "block_palette.nbt",
+          "url": "https://raw.githubusercontent.com/CloudburstMC/Data/fb969c547236d87a17181941cd585a0eb18f7ceb/block_palette.nbt",
+          "sha256": "73ef6dadfa16dd52319493c8112ecb13a020989cf04452f76ff4a8a250a29fea",
+          "size_bytes": 214766
+        },
+        {
+          "upstream_path": "block_properties.json",
+          "install_path": "block_properties.json",
+          "url": "https://raw.githubusercontent.com/CloudburstMC/Data/fb969c547236d87a17181941cd585a0eb18f7ceb/block_properties.json",
+          "sha256": "6ba1bfbb6a5824cac39baedadcc5defce845fca14aaa77a48d756106c2bcdf59",
+          "size_bytes": 13510358
+        },
+        {
+          "upstream_path": "creative_contents.dat",
+          "install_path": "creative_contents.dat",
+          "url": "https://raw.githubusercontent.com/CloudburstMC/Data/fb969c547236d87a17181941cd585a0eb18f7ceb/creative_contents.dat",
+          "sha256": "914e7107a378d8dcc8f49efa4105fd8bc75ef575a52635ca6c15cc28dfdb3273",
+          "size_bytes": 36449
+        },
+        {
+          "upstream_path": "creative_items.json",
+          "install_path": "creative_items.json",
+          "url": "https://raw.githubusercontent.com/CloudburstMC/Data/fb969c547236d87a17181941cd585a0eb18f7ceb/creative_items.json",
+          "sha256": "5fa4352e9e48cca38740b14543fb32dad481bfcb3d632c4c2122947134e306e3",
+          "size_bytes": 435725
+        },
+        {
+          "upstream_path": "entity_identifiers.dat",
+          "install_path": "entity_identifiers.dat",
+          "url": "https://raw.githubusercontent.com/CloudburstMC/Data/fb969c547236d87a17181941cd585a0eb18f7ceb/entity_identifiers.dat",
+          "sha256": "343970e4e55982a8dc0bbda7bab7b2f57a23ba80c49ed2687c39a4ac46d2a7ba",
+          "size_bytes": 8844
+        },
+        {
+          "upstream_path": "entity_properties.nbt",
+          "install_path": "entity_properties.nbt",
+          "url": "https://raw.githubusercontent.com/CloudburstMC/Data/fb969c547236d87a17181941cd585a0eb18f7ceb/entity_properties.nbt",
+          "sha256": "b8f70b32747722bc700f0999bf3bac9a3123b46abbf32b48315ffa7b6c53b3cb",
+          "size_bytes": 715
+        },
+        {
+          "upstream_path": "item_components.nbt",
+          "install_path": "item_components.nbt",
+          "url": "https://raw.githubusercontent.com/CloudburstMC/Data/fb969c547236d87a17181941cd585a0eb18f7ceb/item_components.nbt",
+          "sha256": "1c2daae594425e183ec89ae62d8d53219eec7f4fad602f84cff24b8ccf7ac8d9",
+          "size_bytes": 16481
+        },
+        {
+          "upstream_path": "item_mappings.json",
+          "install_path": "item_mappings.json",
+          "url": "https://raw.githubusercontent.com/CloudburstMC/Data/fb969c547236d87a17181941cd585a0eb18f7ceb/item_mappings.json",
+          "sha256": "bd80090ab4e6b86ad25165665d7a7ca166e8ca81fe26db023987cac082260751",
+          "size_bytes": 32280
+        },
+        {
+          "upstream_path": "legacy_block_ids.json",
+          "install_path": "legacy_block_ids.json",
+          "url": "https://raw.githubusercontent.com/CloudburstMC/Data/fb969c547236d87a17181941cd585a0eb18f7ceb/legacy_block_ids.json",
+          "sha256": "386b04d0e58d60dba4daca06d58184167af90a093c9ae2e3a2f12a9240de1e98",
+          "size_bytes": 48610
+        },
+        {
+          "upstream_path": "legacy_item_ids.json",
+          "install_path": "legacy_item_ids.json",
+          "url": "https://raw.githubusercontent.com/CloudburstMC/Data/fb969c547236d87a17181941cd585a0eb18f7ceb/legacy_item_ids.json",
+          "sha256": "e88578681b3a68fda11f43358bef35be042b2f8db3736b5d83a253860a9f7a42",
+          "size_bytes": 19710
+        },
+        {
+          "upstream_path": "recipes.json",
+          "install_path": "recipes.json",
+          "url": "https://raw.githubusercontent.com/CloudburstMC/Data/fb969c547236d87a17181941cd585a0eb18f7ceb/recipes.json",
+          "sha256": "b2bd4b39ae801237a1cf8b05650016988216986a91716d6060947cbf1be1f30e",
+          "size_bytes": 3070116
+        },
+        {
+          "upstream_path": "runtime_item_states.json",
+          "install_path": "runtime_item_states.json",
+          "url": "https://raw.githubusercontent.com/CloudburstMC/Data/fb969c547236d87a17181941cd585a0eb18f7ceb/runtime_item_states.json",
+          "sha256": "74588e0888633246e3ff274222ba221812671f4191a9c5c2d3c48998793bf20d",
+          "size_bytes": 254939
+        },
+        {
+          "upstream_path": "stripped_biome_definitions.json",
+          "install_path": "stripped_biome_definitions.json",
+          "url": "https://raw.githubusercontent.com/CloudburstMC/Data/fb969c547236d87a17181941cd585a0eb18f7ceb/stripped_biome_definitions.json",
+          "sha256": "e683c5a9ca6a01bfb1c1d5fbe176cc3fb93fdff1a95915a730be627019345e8a",
+          "size_bytes": 62289
+        }
+      ]
+    }
+  ]
+}

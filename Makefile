@@ -21,6 +21,8 @@ ENTITY_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeent
 ENTITY_ASSET_REPORT ?= .local/assets/compiled/entity-assets.json
 FONT_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbefont
 FONT_ASSET_REPORT ?= .local/assets/compiled/font-assets.json
+CLOUDBURST_DATA_MANIFEST ?= assets/cloudburst-data-sources.json
+CLOUDBURST_DATA_DIR ?= .local/assets/cloudburst-data
 CINNABAR_CLOUDS_PNG ?=
 CLOUDS_OVERRIDE_PREREQUISITE = FORCE_CINNABAR_CLOUDS_OVERRIDE
 ASSET_COMPILER_INPUTS := Cargo.toml Cargo.lock crates/assets/Cargo.toml crates/asset-compiler/Cargo.toml Makefile $(wildcard crates/assets/src/*.rs) $(wildcard crates/assets/src/*/*.rs) $(wildcard crates/asset-compiler/src/*.rs) $(wildcard crates/asset-compiler/src/*/*.rs) $(wildcard crates/asset-compiler/src/*/*/*.rs)
@@ -28,7 +30,7 @@ ATMOSPHERE_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- atm
 ENTITY_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- entity-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(ENTITY_ASSET_BLOB)" --report "$(ENTITY_ASSET_REPORT)"
 FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- font-assets --pack "$(FONT_PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(FONT_ASSET_BLOB)" --report "$(FONT_ASSET_REPORT)"
 
-.PHONY: help assets atmosphere-assets entity-assets font-assets core client client-windows client-macos client-linux client-wayland client-x11 FORCE_CINNABAR_CLOUDS_OVERRIDE
+.PHONY: help assets atmosphere-assets entity-assets font-assets cloudburst-data core client client-windows client-macos client-linux client-wayland client-x11 FORCE_CINNABAR_CLOUDS_OVERRIDE
 
 FORCE_CINNABAR_CLOUDS_OVERRIDE:
 
@@ -37,6 +39,7 @@ help:
 	@echo make atmosphere-assets - Compile pinned sun, moon, and cloud runtime assets
 	@echo make entity-assets   - Compile pinned entity catalog and geometry payloads
 	@echo make font-assets     - Compile a reviewed local bitmap font source via FONT_PACK_DIR
+	@echo make cloudburst-data - Acquire the pinned supplementary Cloudburst data snapshot
 	@echo make core            - Compile and run the Go networking/auth core
 	@echo make client          - Refresh stale assets, then run the release Rust client
 	@echo make client-windows  - Run the client on Windows
@@ -55,6 +58,9 @@ atmosphere-assets: $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT)
 entity-assets: $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT)
 
 font-assets: $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT)
+
+cloudburst-data:
+	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File scripts/acquire-block-data.ps1 -ManifestPath "$(CLOUDBURST_DATA_MANIFEST)" -DestinationRoot "$(CLOUDBURST_DATA_DIR)"
 
 $(ASSET_BLOB): $(ASSET_COMPILER_INPUTS) $(BLOCK_REGISTRY) $(LIGHT_REGISTRY) $(BIOME_REGISTRY)
 ifeq ($(OS),Windows_NT)
