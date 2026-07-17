@@ -7,8 +7,8 @@ use std::{
 };
 
 use assets::{
-    AssetError, FontCatalogError, RuntimeAssets, RuntimeAtmosphereAssets, RuntimeEntityAssets,
-    RuntimeFontCatalog,
+    AssetError, FontCatalogError, FontTexturePage, GlyphMetrics, RuntimeAssets,
+    RuntimeAtmosphereAssets, RuntimeEntityAssets, RuntimeFontCatalog, encode_font_catalog,
 };
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -23,13 +23,7 @@ pub const ATMOSPHERE_COMPILE_COMMAND: &str = "make atmosphere-assets";
 pub const ENTITY_ASSETS_FILENAME: &str = "vanilla-v1.mcbeent";
 pub const ENTITY_ASSETS_COMPILE_COMMAND: &str = "make entity-assets";
 pub const FONT_ASSETS_FILENAME: &str = "vanilla-v1.mcbefont";
-pub const FONT_ASSETS_COMPILE_COMMAND: &str = concat!(
-    "cargo run -p asset-compiler --bin assetc -- font-assets ",
-    "--pack .local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack ",
-    "--source-manifest assets/vanilla-source.json ",
-    "--out .local/assets/compiled/vanilla-v1.mcbefont ",
-    "--report .local/assets/compiled/font-assets.json"
-);
+pub const FONT_ASSETS_COMPILE_COMMAND: &str = "make font-assets FONT_PACK_DIR=<reviewed-font-pack>";
 pub const FETCH_COMMAND: &str =
     "powershell -NoProfile -File scripts/fetch-vanilla-assets.ps1 -AcceptEula";
 pub const COMPILE_COMMAND: &str = concat!(
@@ -94,12 +88,18 @@ pub struct LoadedEntityAssets {
 pub struct LoadedFontAssets {
     runtime: Arc<RuntimeFontCatalog>,
     selected_path: PathBuf,
+    diagnostic: bool,
 }
 
 impl LoadedFontAssets {
     #[must_use]
     pub fn selected_path(&self) -> &Path {
         &self.selected_path
+    }
+
+    #[must_use]
+    pub const fn is_diagnostic(&self) -> bool {
+        self.diagnostic
     }
 
     pub fn into_runtime(self) -> Arc<RuntimeFontCatalog> {
@@ -541,11 +541,19 @@ fn load_entity_assets(world_asset_path: &Path) -> Result<LoadedEntityAssets, Ass
 
 fn load_font_assets(world_asset_path: &Path) -> Result<LoadedFontAssets, AssetStartupError> {
     let path = font_asset_path(world_asset_path);
-    let file = File::open(&path).map_err(|source| AssetStartupError::FontAssetsRead {
-        path: path.clone(),
-        source,
-        rebuild_command: FONT_ASSETS_COMPILE_COMMAND,
-    })?;
+    let file = match File::open(&path) {
+        Ok(file) => file,
+        Err(source) if source.kind() == io::ErrorKind::NotFound => {
+            return diagnostic_font_assets(path);
+        }
+        Err(source) => {
+            return Err(AssetStartupError::FontAssetsRead {
+                path,
+                source,
+                rebuild_command: FONT_ASSETS_COMPILE_COMMAND,
+            });
+        }
+    };
     let length = file
         .metadata()
         .map_err(|source| AssetStartupError::FontAssetsRead {
@@ -589,6 +597,47 @@ fn load_font_assets(world_asset_path: &Path) -> Result<LoadedFontAssets, AssetSt
     Ok(LoadedFontAssets {
         runtime,
         selected_path: path,
+        diagnostic: false,
+    })
+}
+
+fn diagnostic_font_assets(path: PathBuf) -> Result<LoadedFontAssets, AssetStartupError> {
+    const DIAGNOSTIC_MANIFEST: [u8; 32] = [0xd1; 32];
+    let rgba8 = vec![255, 255, 255, 255].into_boxed_slice();
+    let page = FontTexturePage {
+        source_path: "font/builtin-diagnostic.png".into(),
+        source_bytes: 4,
+        source_sha256: Sha256::digest(&rgba8).into(),
+        pixels_sha256: Sha256::digest(&rgba8).into(),
+        width: 1,
+        height: 1,
+        rgba8,
+    };
+    let glyph = GlyphMetrics {
+        codepoint: '\u{fffd}',
+        page: 0,
+        uv: [0, 0, 1, 1],
+        bearing: [0, 0],
+        advance_64: 64,
+    };
+    let bytes = encode_font_catalog(DIAGNOSTIC_MANIFEST, &[glyph], &[page]).map_err(|source| {
+        AssetStartupError::FontAssetsDecode {
+            path: path.clone(),
+            source: Box::new(source),
+            rebuild_command: FONT_ASSETS_COMPILE_COMMAND,
+        }
+    })?;
+    let runtime = RuntimeFontCatalog::decode(&bytes, DIAGNOSTIC_MANIFEST).map_err(|source| {
+        AssetStartupError::FontAssetsDecode {
+            path: path.clone(),
+            source: Box::new(source),
+            rebuild_command: FONT_ASSETS_COMPILE_COMMAND,
+        }
+    })?;
+    Ok(LoadedFontAssets {
+        runtime: Arc::new(runtime),
+        selected_path: path,
+        diagnostic: true,
     })
 }
 

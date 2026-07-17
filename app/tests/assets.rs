@@ -21,9 +21,9 @@ use bedrock_client::args::{ClientArgs, ParseOutcome};
 use bedrock_client::asset_startup::{
     ATMOSPHERE_COMPILE_COMMAND, ATMOSPHERE_FILENAME, AssetPathSource, COMPILE_COMMAND,
     DEFAULT_ASSET_PATH, ENTITY_ASSETS_COMPILE_COMMAND, ENTITY_ASSETS_FILENAME, FETCH_COMMAND,
-    LoadedAssetKind, atmosphere_asset_path, atmosphere_shader_source_sha256,
-    cloud_shader_source_sha256, entity_asset_path, font_asset_path, load_runtime_assets,
-    select_asset_path, select_asset_path_in_context,
+    FONT_ASSETS_COMPILE_COMMAND, FONT_ASSETS_FILENAME, LoadedAssetKind, atmosphere_asset_path,
+    atmosphere_shader_source_sha256, cloud_shader_source_sha256, entity_asset_path,
+    font_asset_path, load_runtime_assets, select_asset_path, select_asset_path_in_context,
 };
 use bedrock_client::metrics::{DIAGNOSTIC_TOP_LIMIT, DiagnosticQuadTracker, MetricsCollector};
 use client_world::{BackingBlockIdentity, BlockEntityVisualRoute, adjudicate_block_entity_visual};
@@ -942,6 +942,11 @@ fn documented_commands_target_only_ignored_local_asset_paths() {
     assert_eq!(ATMOSPHERE_COMPILE_COMMAND, "make atmosphere-assets");
     assert_eq!(ENTITY_ASSETS_FILENAME, "vanilla-v1.mcbeent");
     assert_eq!(ENTITY_ASSETS_COMPILE_COMMAND, "make entity-assets");
+    assert_eq!(FONT_ASSETS_FILENAME, "vanilla-v1.mcbefont");
+    assert_eq!(
+        FONT_ASSETS_COMPILE_COMMAND,
+        "make font-assets FONT_PACK_DIR=<reviewed-font-pack>"
+    );
     assert_eq!(
         atmosphere_asset_path(Path::new(DEFAULT_ASSET_PATH)),
         PathBuf::from(".local/assets/compiled/vanilla-v1.mcbeatm")
@@ -1048,6 +1053,24 @@ fn canonical_entity_carrier_provenance_is_portable_across_checkout_line_endings(
         loaded.entities.runtime().source_manifest_sha256(),
         canonical_vanilla_source_manifest_sha256()
     );
+    fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn missing_font_carrier_uses_the_bounded_builtin_diagnostic_font() {
+    let directory = temporary_directory("missing-font-assets");
+    let path = directory.join("custom-world.mcbea");
+    fs::write(&path, synthetic_blob()).unwrap();
+    fs::write(
+        atmosphere_asset_path(&path),
+        synthetic_atmosphere_blob(0x7b),
+    )
+    .unwrap();
+    fs::write(entity_asset_path(&path), synthetic_entity_blob(0x7c)).unwrap();
+
+    let loaded = load_runtime_assets(select_asset_path(Some(&path), None)).unwrap();
+    assert!(loaded.fonts.is_diagnostic());
+    assert_eq!(loaded.fonts.selected_path(), font_asset_path(&path));
     fs::remove_dir_all(directory).unwrap();
 }
 
@@ -1272,7 +1295,7 @@ fn make_assets_and_client_refresh_the_entity_carrier_and_report() {
 }
 
 #[test]
-fn make_assets_and_client_refresh_the_font_carrier_and_report() {
+fn make_exposes_explicit_font_compilation_without_blocking_default_launch() {
     let makefile = fs::read_to_string(
         Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
@@ -1285,16 +1308,17 @@ fn make_assets_and_client_refresh_the_font_carrier_and_report() {
     for contract in [
         "FONT_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbefont",
         "FONT_ASSET_REPORT ?= .local/assets/compiled/font-assets.json",
+        "FONT_PACK_DIR ?= .local/assets/font-source",
         concat!(
             "FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- ",
-            "font-assets --pack \"$(PACK_DIR)\" --source-manifest \"$(VANILLA_SOURCE_MANIFEST)\" ",
+            "font-assets --pack \"$(FONT_PACK_DIR)\" --source-manifest \"$(VANILLA_SOURCE_MANIFEST)\" ",
             "--out \"$(FONT_ASSET_BLOB)\" --report \"$(FONT_ASSET_REPORT)\""
         ),
         "font-assets: $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT)",
         "$(FONT_ASSET_BLOB): $(ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_MANIFEST)",
         "$(FONT_ASSET_REPORT): $(FONT_ASSET_BLOB)",
-        "assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT) $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT)",
-        "client: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT) $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT)",
+        "assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT)",
+        "client: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT)",
     ] {
         assert!(
             makefile.contains(contract),
@@ -1306,6 +1330,13 @@ fn make_assets_and_client_refresh_the_font_carrier_and_report() {
         .find(|line| line.starts_with(".PHONY:"))
         .unwrap();
     assert!(phony.split_whitespace().any(|word| word == "font-assets"));
+    for default_target in ["assets:", "client:"] {
+        let line = makefile
+            .lines()
+            .find(|line| line.starts_with(default_target))
+            .unwrap();
+        assert!(!line.contains("FONT_ASSET"));
+    }
 }
 
 #[test]
