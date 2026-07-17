@@ -15,6 +15,87 @@ fn write(root: &Path, relative: &str, bytes: &[u8]) {
     fs::write(path, bytes).unwrap();
 }
 
+fn selectable_geometry_pack(index: &str, members: &[&str]) -> TempDir {
+    let pack = animation_pack(false);
+    write(
+        pack.path(),
+        "models/entity/test.geo.json",
+        br#"{"format_version":"1.21.0","minecraft:geometry":[{"description":{"identifier":"geometry.a"},"bones":[{"name":"root"},{"name":"arm"}]},{"description":{"identifier":"geometry.b"},"bones":[{"name":"arm"},{"name":"root"}]}]}"#,
+    );
+    write(
+        pack.path(),
+        "entity/test.entity.json",
+        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","geometry":{"default":"geometry.a","alternate":"geometry.b"},"animations":{"move":"animation.test.walk"},"render_controllers":["controller.render.test"]}}}"#,
+    );
+    let controller = serde_json::json!({
+        "format_version": "1.8.0",
+        "render_controllers": {
+            "controller.render.test": {
+                "arrays": {"geometries": {"Array.test": members}},
+                "geometry": format!("Array.test[{index}]")
+            }
+        }
+    });
+    write(
+        pack.path(),
+        "render_controllers/test.render_controllers.json",
+        &serde_json::to_vec(&controller).unwrap(),
+    );
+    pack
+}
+
+fn evaluate_selection_expression(
+    compiled: &assets::CompiledEntityAssets,
+    expression: u32,
+    query_value: f32,
+) -> f32 {
+    let expression = compiled.molang_expressions[expression as usize];
+    let operations = &compiled.molang_ops[expression.first_op as usize
+        ..(expression.first_op + u32::from(expression.op_count)) as usize];
+    let mut stack = Vec::<f32>::new();
+    for operation in operations {
+        match operation {
+            MolangOp::Push(value) => stack.push(value.get()),
+            MolangOp::LoadQuery(_) => stack.push(query_value),
+            MolangOp::Floor => {
+                let value = stack.pop().unwrap();
+                stack.push(value.floor());
+            }
+            MolangOp::Clamp => {
+                let maximum = stack.pop().unwrap();
+                let minimum = stack.pop().unwrap();
+                let value = stack.pop().unwrap();
+                stack.push(value.clamp(minimum, maximum));
+            }
+            MolangOp::Equal => {
+                let right = stack.pop().unwrap();
+                let left = stack.pop().unwrap();
+                stack.push(f32::from(left == right));
+            }
+            operation => panic!("unexpected constant selection operation: {operation:?}"),
+        }
+    }
+    assert_eq!(stack.len(), 1);
+    stack[0]
+}
+
+fn selected_geometry(index: f32, members: &[&str]) -> Box<str> {
+    let pack = selectable_geometry_pack("query.modified_move_speed", members);
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    let rig = compiled.rig_bindings[0];
+    let candidates = &compiled.rig_geometries[rig.first_geometry as usize
+        ..(rig.first_geometry + u32::from(rig.geometry_count)) as usize];
+    let selected = candidates[1..]
+        .iter()
+        .find(|candidate| {
+            evaluate_selection_expression(&compiled, candidate.condition.unwrap(), index) != 0.0
+        })
+        .unwrap_or(&candidates[0]);
+    compiled.geometries[selected.geometry as usize]
+        .identifier
+        .clone()
+}
+
 fn animation_pack(reverse: bool) -> TempDir {
     let temporary = tempfile::tempdir().unwrap();
     let files: [(&str, &[u8]); 7] = [
@@ -109,6 +190,65 @@ fn compiles_clips_controllers_molang_and_collection_selection_deterministically(
     assert!(first.molang_ops.contains(&MolangOp::And));
     assert!(first.molang_ops.contains(&MolangOp::Clamp));
     assert!(first.molang_ops.contains(&MolangOp::Equal));
+}
+
+#[test]
+fn geometry_collection_rejects_more_than_thirty_two_members() {
+    let members = vec!["Geometry.default"; 33];
+    let pack = selectable_geometry_pack("query.modified_move_speed", &members);
+    let error = compile_entity_assets(pack.path(), MANIFEST).unwrap_err();
+    assert!(error.to_string().contains("collection member count"));
+}
+
+#[test]
+fn geometry_collection_clamps_negative_indices_before_selection() {
+    assert_eq!(
+        selected_geometry(-0.25, &["Geometry.alternate", "Geometry.default"]).as_ref(),
+        "geometry.b"
+    );
+}
+
+#[test]
+fn geometry_collection_clamps_oversized_indices_before_selection() {
+    assert_eq!(
+        selected_geometry(99.0, &["Geometry.default", "Geometry.alternate"]).as_ref(),
+        "geometry.b"
+    );
+}
+
+#[test]
+fn geometry_collection_floors_fractional_indices_before_selection() {
+    assert_eq!(
+        selected_geometry(0.75, &["Geometry.alternate", "Geometry.default"]).as_ref(),
+        "geometry.b"
+    );
+}
+
+#[test]
+fn absent_named_geometry_collection_is_an_attributed_static_fallback() {
+    let pack = selectable_geometry_pack("0", &["Geometry.default"]);
+    write(
+        pack.path(),
+        "render_controllers/test.render_controllers.json",
+        br#"{"format_version":"1.8.0","render_controllers":{"controller.render.test":{"geometry":"Array.absent[0]"}}}"#,
+    );
+    let compiled = compile_entity_assets_with_report(pack.path(), MANIFEST).unwrap();
+    assert_eq!(compiled.assets.rig_bindings.len(), 1);
+    assert_eq!(
+        compiled.assets.rig_bindings[0].fallback,
+        EntityRigFallback::GeometryOnly
+    );
+    let entity_symbol = compiled
+        .assets
+        .symbols
+        .iter()
+        .position(|symbol| symbol.identifier.as_ref() == "minecraft:test")
+        .unwrap() as u32;
+    assert!(compiled.reference_outcomes.iter().any(|outcome| matches!(
+        outcome,
+        asset_compiler::CompileReferenceOutcome::OptionalStaticFallback { symbol, .. }
+            if *symbol == entity_symbol
+    )));
 }
 
 #[test]

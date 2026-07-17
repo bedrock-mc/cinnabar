@@ -5,7 +5,7 @@ use std::{
 
 use assets::{
     AssetError, EntityAssetKind, EntityAssetSource, EntityAssetSymbol, EntityGeometry,
-    validate_entity_geometry_inheritance,
+    MAX_MOLANG_COLLECTION_ITEMS, validate_entity_geometry_inheritance,
 };
 use serde_json::{Map, Value};
 
@@ -151,11 +151,15 @@ pub(super) fn compile_geometry_selections(
                             invalid("render-controller arrays.geometries is invalid")
                         })?;
                         for (name, members) in geometries_array {
+                            let members = members.as_array().ok_or_else(|| {
+                                invalid("render-controller collection must be an array")
+                            })?;
+                            if members.is_empty() || members.len() > MAX_MOLANG_COLLECTION_ITEMS {
+                                return Err(invalid(
+                                    "render geometry collection member count exceeds bound",
+                                ));
+                            }
                             let values = members
-                                .as_array()
-                                .ok_or_else(|| {
-                                    invalid("render-controller collection must be an array")
-                                })?
                                 .iter()
                                 .map(|member| {
                                     let member = member.as_str().ok_or_else(|| {
@@ -183,15 +187,21 @@ pub(super) fn compile_geometry_selections(
                 }
                 if let Some(geometry) = definition.get("geometry").and_then(Value::as_str)
                     && let Some((collection, index)) = split_collection_selection(geometry)
-                    && let Some(candidates) = local_collections.get(collection)
                 {
                     let key = (controller_name.as_str().into(), environment.entity_symbol);
+                    let Some(candidates) = local_collections.get(collection) else {
+                        selections.insert(key, GeometrySelection::Unsupported);
+                        continue;
+                    };
+                    let maximum = candidates.len() - 1;
                     let compiled = candidates
                         .iter()
                         .enumerate()
                         .map(|(candidate_index, geometry)| {
                             transaction
-                                .compile(&format!("({index}) == {candidate_index}"))
+                                .compile(&format!(
+                                    "math.clamp(math.floor(({index})), 0, {maximum}) == {candidate_index}"
+                                ))
                                 .map(|condition| SelectableGeometry {
                                     geometry: *geometry,
                                     condition,
