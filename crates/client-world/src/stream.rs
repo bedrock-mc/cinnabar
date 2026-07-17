@@ -12,7 +12,9 @@ use ::meshing::{
     FaceConnectivity, MeshLightSample, MeshLightSampler, PackedBiomeRecord, biome_neighbour_index,
     mesh_dependency_mask, mesh_sub_chunk_in_neighbourhood_with_lighting, sample_camera_medium,
 };
-use assets::{LiveBiomeDefinition, NetworkIdMode, ResolvedBiomeTints, RuntimeAssets};
+use assets::{
+    LiveBiomeDefinition, NetworkIdMode, ResolvedBiomeTints, RuntimeAssets, RuntimeEntityAssets,
+};
 use crossbeam_channel::{Receiver, Sender, bounded};
 use protocol::{
     BiomeDefinitionEvent, BlockEntityUpdateEvent, BlockUpdateEvent, ChangeDimensionEvent,
@@ -33,6 +35,7 @@ use world::{
     solve_light,
 };
 
+use super::actor_animation::{ActorAnimationStats, ActorRigSnapshot};
 use super::actor_store::{ActorSnapshot, ActorStore, PlayerProfile};
 use super::block_entity_visuals::{
     BackingBlockIdentity, BlockEntityVisualDiagnostics, adjudicate_block_entity_visual,
