@@ -165,6 +165,10 @@ pub(crate) fn receive_network_events(
                     );
                 }
             }
+            NetworkControlEvent::BlobCacheTelemetry { enabled, stats } => {
+                client_world.client_blob_cache_enabled = enabled;
+                client_world.client_blob_cache = stats;
+            }
             NetworkControlEvent::Failed {
                 message,
                 decode_error_count,

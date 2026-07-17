@@ -37,6 +37,10 @@ pub enum NetworkControlEvent {
         count: usize,
         sent_at: Instant,
     },
+    BlobCacheTelemetry {
+        enabled: bool,
+        stats: BlobCacheStats,
+    },
     Failed {
         message: String,
         decode_error_count: u64,
@@ -299,6 +303,10 @@ trait NetworkSession: Send {
 
     fn decode_error_count(&self) -> u64;
 
+    fn blob_cache_enabled(&self) -> bool {
+        false
+    }
+
     fn blob_cache_stats(&self) -> BlobCacheStats {
         BlobCacheStats::default()
     }
@@ -325,6 +333,10 @@ impl NetworkSession for protocol::PlaySession {
         protocol::PlaySession::decode_error_count(self)
     }
 
+    fn blob_cache_enabled(&self) -> bool {
+        protocol::PlaySession::blob_cache_enabled(self)
+    }
+
     fn blob_cache_stats(&self) -> BlobCacheStats {
         protocol::PlaySession::blob_cache_stats(self)
     }
@@ -340,6 +352,24 @@ async fn run_network_pump<S: NetworkSession>(
 ) {
     let mut pump_preference = NetworkPumpPreference::Inbound;
     let mut pending_world_event = None;
+    let mut last_blob_cache_stats = None;
+    if session.blob_cache_enabled() {
+        let stats = session.blob_cache_stats();
+        emit_blob_cache_telemetry(stats);
+        if !send_control_event_or_cancel(
+            &control_event_tx,
+            &mut shutdown_rx,
+            NetworkControlEvent::BlobCacheTelemetry {
+                enabled: true,
+                stats,
+            },
+        )
+        .await
+        {
+            return;
+        }
+        last_blob_cache_stats = Some(stats);
+    }
 
     loop {
         match wait_for_network_work_or_cancel(
@@ -386,7 +416,12 @@ async fn run_network_pump<S: NetworkSession>(
                             }
                         }
                         Some(Err(error)) => {
-                            emit_blob_cache_telemetry(session.blob_cache_stats());
+                            send_final_blob_cache_telemetry(
+                                &session,
+                                &control_event_tx,
+                                &mut shutdown_rx,
+                            )
+                            .await;
                             let _ = send_control_event_or_cancel(
                                 &control_event_tx,
                                 &mut shutdown_rx,
@@ -411,10 +446,16 @@ async fn run_network_pump<S: NetworkSession>(
             }
             NetworkPumpWork::Inbound(WorldSideWork::Capacity(Err(_))) => return,
             NetworkPumpWork::Inbound(WorldSideWork::Event(Ok(event))) => {
+                try_emit_blob_cache_telemetry(
+                    &session,
+                    &control_event_tx,
+                    &mut last_blob_cache_stats,
+                );
                 pending_world_event = Some(sequencer.wrap(event));
             }
             NetworkPumpWork::Inbound(WorldSideWork::Event(Err(error))) => {
-                emit_blob_cache_telemetry(session.blob_cache_stats());
+                send_final_blob_cache_telemetry(&session, &control_event_tx, &mut shutdown_rx)
+                    .await;
                 let _ = send_control_event_or_cancel(
                     &control_event_tx,
                     &mut shutdown_rx,
@@ -429,12 +470,57 @@ async fn run_network_pump<S: NetworkSession>(
         }
     }
 
-    emit_blob_cache_telemetry(session.blob_cache_stats());
+    send_final_blob_cache_telemetry(&session, &control_event_tx, &mut shutdown_rx).await;
     let _ = send_control_event_or_cancel(
         &control_event_tx,
         &mut shutdown_rx,
         NetworkControlEvent::Stopped {
             decode_error_count: session.decode_error_count(),
+        },
+    )
+    .await;
+}
+
+fn try_emit_blob_cache_telemetry<S: NetworkSession>(
+    session: &S,
+    control_event_tx: &mpsc::Sender<NetworkControlEvent>,
+    last_stats: &mut Option<BlobCacheStats>,
+) {
+    if !session.blob_cache_enabled() {
+        return;
+    }
+    let stats = session.blob_cache_stats();
+    if *last_stats == Some(stats) {
+        return;
+    }
+    if control_event_tx
+        .try_send(NetworkControlEvent::BlobCacheTelemetry {
+            enabled: true,
+            stats,
+        })
+        .is_ok()
+    {
+        emit_blob_cache_telemetry(stats);
+        *last_stats = Some(stats);
+    }
+}
+
+async fn send_final_blob_cache_telemetry<S: NetworkSession>(
+    session: &S,
+    control_event_tx: &mpsc::Sender<NetworkControlEvent>,
+    shutdown_rx: &mut watch::Receiver<bool>,
+) {
+    if !session.blob_cache_enabled() {
+        return;
+    }
+    let stats = session.blob_cache_stats();
+    emit_blob_cache_telemetry(stats);
+    let _ = send_control_event_or_cancel(
+        control_event_tx,
+        shutdown_rx,
+        NetworkControlEvent::BlobCacheTelemetry {
+            enabled: true,
+            stats,
         },
     )
     .await;

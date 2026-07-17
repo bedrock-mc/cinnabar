@@ -9,8 +9,9 @@ use std::{
 };
 
 use protocol::{
-    ActorPositionOrigin, ChangeDimensionEvent, MovePlayerEvent, PLAYER_NETWORK_OFFSET,
-    PlayerMovementCorrectionEvent, WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent,
+    ActorPositionOrigin, BlobCacheStats, ChangeDimensionEvent, MovePlayerEvent,
+    PLAYER_NETWORK_OFFSET, PlayerMovementCorrectionEvent, WorldBootstrap,
+    WorldEnvironmentBootstrap, WorldEvent,
 };
 use tokio::sync::{mpsc, oneshot, watch};
 
@@ -43,6 +44,44 @@ struct ReadyInboundSession {
     inbound_selected: Arc<AtomicBool>,
 }
 
+struct CachedInboundSession {
+    inbound: Option<WorldEvent>,
+    stats: BlobCacheStats,
+}
+
+impl NetworkSession for CachedInboundSession {
+    type Error = std::convert::Infallible;
+
+    async fn receive_world_event(
+        &mut self,
+        _current_dimension: i32,
+    ) -> Result<WorldEvent, Self::Error> {
+        match self.inbound.take() {
+            Some(event) => {
+                self.stats.reconstructed_level_chunks += 1;
+                Ok(event)
+            }
+            None => future::pending().await,
+        }
+    }
+
+    async fn send_packet(&mut self, _packet: protocol::Packet) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn decode_error_count(&self) -> u64 {
+        0
+    }
+
+    fn blob_cache_enabled(&self) -> bool {
+        true
+    }
+
+    fn blob_cache_stats(&self) -> BlobCacheStats {
+        self.stats
+    }
+}
+
 impl NetworkSession for ReadyInboundSession {
     type Error = std::convert::Infallible;
 
@@ -66,6 +105,65 @@ impl NetworkSession for ReadyInboundSession {
     fn decode_error_count(&self) -> u64 {
         0
     }
+}
+
+#[tokio::test]
+async fn cache_stats_are_forwarded_after_cached_world_ingress() {
+    let initial_stats = BlobCacheStats {
+        hashes_classified: 7,
+        hits: 3,
+        misses: 4,
+        admitted_blobs: 4,
+        ..BlobCacheStats::default()
+    };
+    let updated_stats = BlobCacheStats {
+        reconstructed_level_chunks: 1,
+        ..initial_stats
+    };
+    let (control_event_tx, mut control_events) = mpsc::channel(CONTROL_EVENT_CAPACITY);
+    let (world_event_tx, _world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
+    let (_commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
+    let (shutdown, shutdown_rx) = watch::channel(false);
+    let worker = tokio::spawn(run_network_pump(
+        CachedInboundSession {
+            inbound: Some(WorldEvent::ChunkRadiusUpdated(16)),
+            stats: initial_stats,
+        },
+        NetworkSequencer::new(0, 42),
+        command_rx,
+        control_event_tx,
+        world_event_tx,
+        shutdown_rx,
+    ));
+
+    let initial = tokio::time::timeout(Duration::from_millis(100), control_events.recv())
+        .await
+        .expect("initial cache telemetry must be forwarded promptly")
+        .expect("control channel must remain open");
+    assert!(matches!(
+        initial,
+        NetworkControlEvent::BlobCacheTelemetry {
+            enabled: true,
+            stats: observed,
+        } if observed == initial_stats
+    ));
+    let updated = tokio::time::timeout(Duration::from_millis(100), control_events.recv())
+        .await
+        .expect("updated cache telemetry must follow cached ingress")
+        .expect("control channel must remain open");
+    assert!(matches!(
+        updated,
+        NetworkControlEvent::BlobCacheTelemetry {
+            enabled: true,
+            stats: observed,
+        } if observed == updated_stats
+    ));
+
+    shutdown.send_replace(true);
+    tokio::time::timeout(Duration::from_millis(100), worker)
+        .await
+        .expect("shutdown must stop the worker")
+        .unwrap();
 }
 
 #[test]

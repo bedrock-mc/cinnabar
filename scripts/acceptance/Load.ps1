@@ -203,7 +203,33 @@ function Assert-Phase2PublicationRecord {
         [string]$ExpectedAssetsIdentity
     )
 
-    Assert-Phase2ExactProperties -Value $Record -Names @('presentation', 'publication') -Label 'PHASE2_PUBLICATION root'
+    Assert-Phase2ExactProperties -Value $Record `
+        -Names @('client_blob_cache', 'client_blob_cache_enabled', 'presentation', 'publication') `
+        -Label 'PHASE2_PUBLICATION root'
+    if ($Record.client_blob_cache_enabled -isnot [bool]) {
+        throw 'PHASE2_PUBLICATION client_blob_cache_enabled must be a Boolean'
+    }
+    $cache = $Record.client_blob_cache
+    $requiredCacheFields = @(
+        'admitted_blobs', 'evictions', 'hashes_classified', 'hits', 'misses', 'pending_bytes',
+        'pending_resets', 'pending_transactions', 'reconstructed_level_chunks',
+        'reconstructed_sub_chunks', 'rejected_blobs'
+    )
+    Assert-Phase2ExactProperties -Value $cache -Names $requiredCacheFields `
+        -Label 'PHASE2_PUBLICATION client_blob_cache'
+    foreach ($field in $requiredCacheFields) {
+        Assert-Phase2UnsignedInteger -Value $cache.$field -Label "client_blob_cache.$field"
+    }
+    if ([decimal]$cache.hits + [decimal]$cache.misses -ne [decimal]$cache.hashes_classified) {
+        throw 'PHASE2_PUBLICATION client blob cache hit and miss totals disagree with hashes_classified'
+    }
+    if (-not [bool]$Record.client_blob_cache_enabled) {
+        foreach ($field in $requiredCacheFields) {
+            if ([uint64]$cache.$field -ne 0) {
+                throw 'PHASE2_PUBLICATION disabled client blob cache contains nonzero counters'
+            }
+        }
+    }
     $presentation = $Record.presentation
     $publication = $Record.publication
     Assert-Phase2ExactProperties -Value $presentation -Names @(
@@ -475,6 +501,7 @@ function Get-Phase2PublicationSequenceEvidence {
             present_mode_proven = [bool]$record.presentation.present_mode_proven
             graphics_identity_sha256 = [string]$record.presentation.graphics_identity_sha256
             assets_manifest_sha256 = [string]$record.presentation.assets_manifest_sha256
+            client_blob_cache_enabled = [bool]$record.client_blob_cache_enabled
         } | ConvertTo-Json -Compress
         if ($null -eq $sequenceIdentity) {
             $sequenceIdentity = $currentSequenceIdentity
@@ -495,6 +522,13 @@ function Get-Phase2PublicationSequenceEvidence {
             foreach ($field in @('success', 'all_air', 'unavailable', 'malformed', 'stale', 'timed_out')) {
                 if ([uint64]$record.publication.outcomes.$field -lt [uint64]$previousRecord.publication.outcomes.$field) {
                     throw "PHASE2_PUBLICATION cumulative outcome counter regressed: $field"
+                }
+            }
+            foreach ($field in @('hashes_classified', 'hits', 'misses', 'admitted_blobs',
+                'rejected_blobs', 'evictions', 'pending_resets', 'reconstructed_level_chunks',
+                'reconstructed_sub_chunks')) {
+                if ([uint64]$record.client_blob_cache.$field -lt [uint64]$previousRecord.client_blob_cache.$field) {
+                    throw "PHASE2_PUBLICATION cumulative client blob cache counter regressed: $field"
                 }
             }
         }
@@ -791,6 +825,7 @@ function Assert-Phase2Evidence {
         throw 'client log contains no PHASE2_PUBLICATION evidence'
     }
     $publication = $publicationLines[-1].Substring('PHASE2_PUBLICATION='.Length) | ConvertFrom-Json
+    Assert-Phase2PublicationRecord -Record $publication -ExpectedPresentMode $ExpectedPresentMode
     $presentation = $publication.presentation
     if ([string]$presentation.build_profile -cne 'release' -or
         [string]$presentation.requested_present_mode -cne $ExpectedPresentMode.ToLowerInvariant() -or

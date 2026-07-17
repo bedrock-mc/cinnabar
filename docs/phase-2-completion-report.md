@@ -48,10 +48,14 @@ When a later producing task creates a complete row, that row must include the su
 
 The deterministic implementation now provides an opt-in, process-persistent verified blob cache with a fresh pending resolver per Play session. It negotiates cache support only through the enabled login route, reconstructs cached LevelChunk and SubChunk packets before the stateless world normalizer, preserves world FIFO across split miss responses, and resets pending state at session, transfer, disconnect, and ordered dimension boundaries. Cache storage, individual blobs, packet hash lists, pending transactions, and retained/reconstructed bytes are bounded; miss payloads are verified with seed-zero xxHash64 before atomic admission. Aggregate counters contain no blob payloads or server secrets.
 
+The cache publication surface is part of the strict `PHASE2_PUBLICATION` schema. The app forwards live Play-session enablement and aggregate counters into `ClientWorld`, publishes only secret-safe totals, and emits a final control snapshot before network failure or ordinary stop. The acceptance parser requires the exact cache schema, exact Boolean enablement, unsigned integral counters, `hits + misses = hashes_classified`, zero counters while disabled, stable enablement, and non-regressing cumulative counters across a diagnostic sequence.
+
 Deterministic checks completed locally:
 
-- `cargo test -p protocol --locked --test blob_cache -- --nocapture` — 19 passed.
+- `cargo test -p protocol --locked --test blob_cache -- --nocapture` — 25 passed.
 - `cargo test -p protocol --locked --test login_state -- --nocapture` — 7 passed, including encrypted enabled negotiation and cached-world FIFO.
+- `cargo test -p bedrock-client --lib --locked` — 200 passed, including live cache-stat forwarding and exact publication serialization.
+- `Invoke-Pester scripts/tests/remote-acceptance.Tests.ps1` under Windows PowerShell — 18 passed, including exact cache schema and sequence validation.
 - `cargo test -p jolyne --features client client_cache -- --nocapture` — 2 passed for vendored enabled/disabled negotiation.
 - `go test ./... -run ClientBlobCache -count=1` and `go vet ./...` under `core` — passed with the pinned gophertunnel/xxHash fixture.
 - `cargo clippy -p protocol -p client-world --all-targets --locked -- -D warnings` and `cargo clippy -p bedrock-client --lib --bins --locked -- -D warnings` — passed.

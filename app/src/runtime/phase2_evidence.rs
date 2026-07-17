@@ -3,6 +3,7 @@ use client_world::{
     Phase2PublicationSnapshot, PresentModeIdentity, PublicationStageCounters, StageDurations,
     SubChunkOutcomeCounters,
 };
+use protocol::BlobCacheStats;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -11,6 +12,8 @@ pub(crate) struct CombinedPhase2Snapshot {
     pub(crate) publication: Phase2PublicationSnapshot,
     pub(crate) presentation: Phase2PresentationSnapshot,
     pub(crate) present_mode_proven: bool,
+    pub(crate) client_blob_cache_enabled: bool,
+    pub(crate) client_blob_cache: BlobCacheStats,
 }
 
 pub(crate) fn phase2_publication_line_if_changed(
@@ -31,6 +34,8 @@ fn combined_snapshot_json(snapshot: CombinedPhase2Snapshot) -> Value {
     let publication = snapshot.publication;
     let presentation = snapshot.presentation;
     json!({
+        "client_blob_cache_enabled": snapshot.client_blob_cache_enabled,
+        "client_blob_cache": blob_cache_json(snapshot.client_blob_cache),
         "publication": {
             "session_generation": publication.session_generation,
             "player_column": {
@@ -61,6 +66,22 @@ fn combined_snapshot_json(snapshot: CombinedPhase2Snapshot) -> Value {
             "submitted": cohort_json(presentation.submitted),
             "gpu_presented": cohort_json(presentation.gpu_presented),
         }
+    })
+}
+
+fn blob_cache_json(stats: BlobCacheStats) -> Value {
+    json!({
+        "hashes_classified": stats.hashes_classified,
+        "hits": stats.hits,
+        "misses": stats.misses,
+        "admitted_blobs": stats.admitted_blobs,
+        "rejected_blobs": stats.rejected_blobs,
+        "evictions": stats.evictions,
+        "pending_transactions": stats.pending_transactions,
+        "pending_bytes": stats.pending_bytes,
+        "pending_resets": stats.pending_resets,
+        "reconstructed_level_chunks": stats.reconstructed_level_chunks,
+        "reconstructed_sub_chunks": stats.reconstructed_sub_chunks,
     })
 }
 

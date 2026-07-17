@@ -530,6 +530,8 @@ pub(crate) fn record_metrics_and_title(
                 publication,
                 presentation,
                 present_mode_proven: graphics.present_mode_proven,
+                client_blob_cache_enabled: client_world.client_blob_cache_enabled,
+                client_blob_cache: client_world.client_blob_cache,
             },
         ) {
             let mut stdout = std::io::stdout().lock();
