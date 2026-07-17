@@ -447,7 +447,7 @@ async fn run_network_pump<S: NetworkSession>(
                     &control_event_tx,
                     &mut last_blob_cache_stats,
                 );
-                pending_world_event = Some(sequencer.wrap(event));
+                pending_world_event = Some(sequencer.wrap(*event));
             }
             NetworkPumpWork::Inbound(WorldSideWork::Event(Err(error))) => {
                 send_final_blob_cache_telemetry(&session, &control_event_tx).await;
@@ -541,7 +541,7 @@ fn emit_blob_cache_telemetry(stats: BlobCacheStats) {
 }
 
 enum WorldSideWork<'a, E> {
-    Event(Result<WorldEvent, E>),
+    Event(Result<Box<WorldEvent>, E>),
     Capacity(Result<mpsc::Permit<'a, SequencedWorldEvent>, mpsc::error::SendError<()>>),
 }
 
@@ -554,7 +554,12 @@ async fn wait_for_world_side_work<'a, S: NetworkSession>(
     if has_pending_world_event {
         WorldSideWork::Capacity(world_event_tx.reserve().await)
     } else {
-        WorldSideWork::Event(session.receive_world_event(current_dimension).await)
+        WorldSideWork::Event(
+            session
+                .receive_world_event(current_dimension)
+                .await
+                .map(Box::new),
+        )
     }
 }
 
