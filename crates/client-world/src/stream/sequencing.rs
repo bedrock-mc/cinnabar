@@ -473,6 +473,7 @@ impl WorldStream {
                 let sequence = sequence.expect("sequenced actor events commit through submit");
                 if let ActorEvent::Attributes(update) = &event
                     && update.runtime_id == self.local_player_runtime_id
+                    && update.dimension == self.current_dimension
                 {
                     self.push_committed_ui(CommittedUiEvent::LocalAttributes {
                         sequence,
