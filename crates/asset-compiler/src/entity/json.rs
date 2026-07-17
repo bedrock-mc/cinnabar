@@ -38,6 +38,12 @@ pub(super) fn parse_fully_unique_json(path: &Path, bytes: &[u8]) -> Result<Value
     Ok(value)
 }
 
+/// Parses payloads whose nested maps now have runtime meaning. Once a family
+/// is compiled, duplicate nested keys are ambiguous rather than opaque.
+pub(super) fn parse_semantic_json(path: &Path, bytes: &[u8]) -> Result<Value, AssetError> {
+    parse_fully_unique_json(path, bytes)
+}
+
 fn strip_json_comments(bytes: &[u8]) -> Result<Vec<u8>, AssetError> {
     #[derive(Clone, Copy)]
     enum State {

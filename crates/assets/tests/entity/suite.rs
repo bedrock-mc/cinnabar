@@ -14,16 +14,17 @@ use entity::{
     EntityAnimationInterpolation, EntityAnimationKeyframe, EntityAnimationLoop,
     EntityAnimationProperty, EntityControllerAnimation, EntityControllerState,
     EntityControllerTransition, EntityRigAnimationBinding, EntityRigBinding,
-    EntityRigControllerBinding, EntityRigFallback, MAX_ENTITY_ANIMATION_CHANNELS,
-    MAX_ENTITY_ANIMATION_CLIPS, MAX_ENTITY_ANIMATION_KEYFRAMES, MAX_ENTITY_CONTROLLER_STATES,
-    MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS, MAX_ENTITY_RIG_BINDINGS,
-    MAX_MOLANG_COLLECTION_ITEMS, MAX_MOLANG_EXPRESSIONS, MAX_MOLANG_OPS_PER_EXPRESSION,
-    MAX_MOLANG_STACK_DEPTH, MolangCollection, MolangCollectionItem, MolangOp, MolangSymbol,
-    MolangSymbolKind, RuntimeEntityAssets as RuntimeEntityAssetsV4,
+    EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
+    MAX_ENTITY_ANIMATION_CHANNELS, MAX_ENTITY_ANIMATION_CLIPS, MAX_ENTITY_ANIMATION_KEYFRAMES,
+    MAX_ENTITY_CONTROLLER_STATES, MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS,
+    MAX_ENTITY_RIG_BINDINGS, MAX_MOLANG_COLLECTION_ITEMS, MAX_MOLANG_EXPRESSIONS,
+    MAX_MOLANG_OPS_PER_EXPRESSION, MAX_MOLANG_STACK_DEPTH, MolangCollection, MolangCollectionItem,
+    MolangOp, MolangSymbol, MolangSymbolKind, RuntimeEntityAssets as RuntimeEntityAssetsV4,
 };
 use item::{
-    BlockVisualId as LeafBlockVisualId, ItemDisplayTransform, ItemVisualAlias,
-    ItemVisualDefinition, ItemVisualId as LeafItemVisualId,
+    BlockVisualId as LeafBlockVisualId, ItemDisplayTransform, ItemTextureReference,
+    ItemVisualAlias, ItemVisualDefinition, ItemVisualDefinitionRoute,
+    ItemVisualId as LeafItemVisualId, ItemVisualKey,
 };
 
 fn fixture() -> CompiledEntityAssets {
@@ -70,6 +71,7 @@ fn fixture() -> CompiledEntityAssets {
         controller_animations: Box::new([]),
         controller_transitions: Box::new([]),
         rig_bindings: Box::new([]),
+        rig_geometries: Box::new([]),
         rig_animations: Box::new([]),
         rig_controllers: Box::new([]),
         item_visuals: Box::new([]),
@@ -434,6 +436,8 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
         ("models/entity/allay.geo.json", 0x13),
         ("render_controllers/allay.render.json", 0x14),
         ("textures/entity/allay.png", 0x15),
+        ("textures/item_texture.json", 0x16),
+        ("textures/items/allay_spawn_egg.png", 0x17),
     ]
     .into_iter()
     .map(|(path, digest)| entity::EntityAssetSource {
@@ -593,13 +597,19 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
         .into_boxed_slice(),
         rig_bindings: vec![EntityRigBinding {
             entity_symbol: 0,
-            geometry: 0,
             render_controller: 4,
+            first_geometry: 0,
+            geometry_count: 1,
+            fallback: EntityRigFallback::GeometryOnly,
+        }]
+        .into_boxed_slice(),
+        rig_geometries: vec![EntityRigGeometryBinding {
+            geometry: 0,
+            condition: None,
             first_animation: 0,
             animation_count: 1,
             first_controller: 0,
             controller_count: 1,
-            fallback: EntityRigFallback::GeometryOnly,
         }]
         .into_boxed_slice(),
         rig_animations: vec![EntityRigAnimationBinding { name: 0, clip: 0 }].into_boxed_slice(),
@@ -609,16 +619,24 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
         }]
         .into_boxed_slice(),
         item_visuals: vec![ItemVisualDefinition {
-            identifier: "minecraft:allay_spawn_egg".into(),
-            texture_source: 5,
+            key: ItemVisualKey {
+                identifier: "minecraft:allay_spawn_egg".into(),
+                metadata: 0,
+            },
+            source: 6,
+            route: ItemVisualDefinitionRoute::BlockItem {
+                block_visual: LeafBlockVisualId(7),
+            },
             first_person: identity_transform(),
             third_person: identity_transform(),
             dropped: identity_transform(),
-            block_visual: Some(LeafBlockVisualId(7)),
         }]
         .into_boxed_slice(),
         item_visual_aliases: vec![ItemVisualAlias {
-            identifier: "minecraft:allay_spawn_egg_alias".into(),
+            key: ItemVisualKey {
+                identifier: "minecraft:allay_spawn_egg_alias".into(),
+                metadata: 0,
+            },
             visual: LeafItemVisualId(0),
         }]
         .into_boxed_slice(),
@@ -842,12 +860,20 @@ fn carrier_v4_enforces_molang_and_rig_bounds_and_all_indices() {
     assert!(compiled.validate().is_err());
 
     let mut compiled = carrier_v4_fixture();
-    compiled.rig_bindings = (0..MAX_ENTITY_RIG_BINDINGS)
-        .map(|index| EntityRigBinding {
+    compiled.rig_geometries = (0..MAX_ENTITY_RIG_BINDINGS)
+        .map(|index| EntityRigGeometryBinding {
+            geometry: 0,
+            condition: None,
             first_animation: u32::from(index != 0),
             animation_count: u16::from(index == 0),
             first_controller: u32::from(index != 0),
             controller_count: u16::from(index == 0),
+        })
+        .collect();
+    compiled.rig_bindings = (0..MAX_ENTITY_RIG_BINDINGS)
+        .map(|index| EntityRigBinding {
+            first_geometry: index as u32,
+            geometry_count: 1,
             ..compiled.rig_bindings[0]
         })
         .collect();
@@ -857,7 +883,7 @@ fn carrier_v4_enforces_molang_and_rig_bounds_and_all_indices() {
     assert!(compiled.validate().is_err());
 
     let mut compiled = carrier_v4_fixture();
-    compiled.rig_bindings[0].geometry = u32::MAX;
+    compiled.rig_geometries[0].geometry = u32::MAX;
     assert!(compiled.validate().is_err());
     let mut compiled = carrier_v4_fixture();
     compiled.controller_transitions[0].condition = u32::MAX;
@@ -963,4 +989,61 @@ fn carrier_v4_requires_exact_valid_molang_program_stack_contracts() {
     let mut dishonest_depth = exact_depth;
     dishonest_depth.molang_expressions[0].max_stack = 31;
     assert!(dishonest_depth.validate().is_err());
+}
+
+#[test]
+fn carrier_v4_round_trips_selectable_geometry_metadata_and_texture_variant() {
+    let mut compiled = carrier_v4_fixture();
+    compiled.molang_ops = vec![
+        MolangOp::Push(entity::EntityGeometryScalar::new(0.0).unwrap()),
+        MolangOp::Push(entity::EntityGeometryScalar::new(0.0).unwrap()),
+        MolangOp::Equal,
+    ]
+    .into_boxed_slice();
+    compiled.molang_expressions[0].op_count = 3;
+    compiled.molang_expressions[0].max_stack = 2;
+    compiled.rig_bindings[0].geometry_count = 2;
+    compiled.rig_geometries = vec![
+        compiled.rig_geometries[0],
+        EntityRigGeometryBinding {
+            geometry: 0,
+            condition: Some(0),
+            first_animation: 1,
+            animation_count: 0,
+            first_controller: 1,
+            controller_count: 0,
+        },
+    ]
+    .into_boxed_slice();
+    compiled.item_visuals[0].key = ItemVisualKey {
+        identifier: "minecraft:allay_spawn_egg".into(),
+        metadata: u32::MAX,
+    };
+    compiled.item_visuals[0].route = ItemVisualDefinitionRoute::Sprite {
+        texture: ItemTextureReference {
+            source: 7,
+            variant: 7,
+        },
+    };
+    compiled.item_visual_aliases[0].key = ItemVisualKey {
+        identifier: "minecraft:allay_spawn_egg_alias".into(),
+        metadata: u32::MAX,
+    };
+
+    let bytes = encode_entity_blob(&compiled).unwrap();
+    let runtime = RuntimeEntityAssetsV4::decode(&bytes).unwrap();
+    assert_eq!(runtime.rig_bindings()[0].geometry_count, 2);
+    assert_eq!(runtime.rig_geometries()[1].condition, Some(0));
+    assert_eq!(runtime.item_visuals()[0].key.metadata, u32::MAX);
+    assert!(matches!(
+        runtime.item_visuals()[0].route,
+        ItemVisualDefinitionRoute::Sprite {
+            texture: ItemTextureReference {
+                source: 7,
+                variant: 7
+            }
+        }
+    ));
+    assert_eq!(runtime.item_visual_aliases()[0].key.metadata, u32::MAX);
+    assert_eq!(runtime.encode().unwrap().as_ref(), bytes.as_ref());
 }

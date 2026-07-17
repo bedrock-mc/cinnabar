@@ -30,17 +30,21 @@ fn carrier_v4_rejects_every_extended_cross_index_relationship() {
     assert_mutation_rejected(|c| c.controller_transitions[0].target_state = u16::MAX);
     assert_mutation_rejected(|c| c.controller_transitions[0].condition = u32::MAX);
     assert_mutation_rejected(|c| c.rig_bindings[0].entity_symbol = 1);
-    assert_mutation_rejected(|c| c.rig_bindings[0].geometry = u32::MAX);
+    assert_mutation_rejected(|c| c.rig_geometries[0].geometry = u32::MAX);
     assert_mutation_rejected(|c| c.rig_bindings[0].render_controller = 0);
-    assert_mutation_rejected(|c| c.rig_bindings[0].first_animation = u32::MAX);
-    assert_mutation_rejected(|c| c.rig_bindings[0].first_controller = u32::MAX);
+    assert_mutation_rejected(|c| c.rig_bindings[0].first_geometry = u32::MAX);
+    assert_mutation_rejected(|c| c.rig_geometries[0].condition = Some(u32::MAX));
+    assert_mutation_rejected(|c| c.rig_geometries[0].first_animation = u32::MAX);
+    assert_mutation_rejected(|c| c.rig_geometries[0].first_controller = u32::MAX);
     assert_mutation_rejected(|c| c.rig_animations[0].name = u32::MAX);
     assert_mutation_rejected(|c| c.rig_animations[0].clip = u32::MAX);
     assert_mutation_rejected(|c| c.rig_controllers[0].name = u32::MAX);
     assert_mutation_rejected(|c| c.rig_controllers[0].controller = u32::MAX);
-    assert_mutation_rejected(|c| c.item_visuals[0].texture_source = u32::MAX);
+    assert_mutation_rejected(|c| c.item_visuals[0].source = u32::MAX);
     assert_mutation_rejected(|c| {
-        c.item_visuals[0].block_visual = Some(item::BlockVisualId(c.block_visual_count));
+        c.item_visuals[0].route = item::ItemVisualDefinitionRoute::BlockItem {
+            block_visual: item::BlockVisualId(c.block_visual_count),
+        };
     });
     assert_mutation_rejected(|c| c.item_visual_aliases[0].visual = item::ItemVisualId(u32::MAX));
 }
@@ -70,7 +74,7 @@ fn inherited_rig_fixture() -> entity::CompiledEntityAssets {
     compiled.animation_clips[0].symbol += 1;
     compiled.controllers[0].symbol += 1;
     compiled.rig_bindings[0].render_controller += 1;
-    compiled.rig_bindings[0].geometry = 1;
+    compiled.rig_geometries[0].geometry = 1;
     compiled.geometries = vec![parent_geometry, child_geometry].into_boxed_slice();
     compiled
 }
@@ -95,9 +99,51 @@ fn carrier_v4_uses_effective_inherited_bones_for_rig_channels() {
 fn carrier_v4_validates_controller_reachable_clips_for_the_selected_rig() {
     let mut compiled = carrier_v4_fixture();
     compiled.geometries[0].bones = Box::new([]);
-    compiled.rig_bindings[0].animation_count = 0;
-    compiled.rig_bindings[0].first_controller = 0;
+    compiled.rig_geometries[0].animation_count = 0;
+    compiled.rig_geometries[0].first_controller = 0;
     compiled.rig_animations = Box::new([]);
+    assert!(compiled.validate().is_err());
+}
+
+#[test]
+fn carrier_v4_validates_controller_clips_for_every_selectable_geometry_candidate() {
+    let mut compiled = inherited_rig_fixture();
+    compiled.geometries[1].inherits = None;
+    compiled.geometries[1].bones = Box::new([]);
+    compiled.rig_geometries[0].geometry = 0;
+    compiled.rig_bindings[0].geometry_count = 2;
+    compiled.rig_geometries = vec![
+        compiled.rig_geometries[0],
+        entity::EntityRigGeometryBinding {
+            geometry: 1,
+            condition: Some(0),
+            first_animation: 1,
+            animation_count: 0,
+            first_controller: 1,
+            controller_count: 1,
+        },
+    ]
+    .into_boxed_slice();
+    compiled.rig_controllers = vec![compiled.rig_controllers[0]; 2].into_boxed_slice();
+    assert!(compiled.validate().is_err());
+}
+
+#[test]
+fn selectable_geometry_conditions_must_be_boolean_not_raw_numeric_indices() {
+    let mut compiled = carrier_v4_fixture();
+    compiled.rig_bindings[0].geometry_count = 2;
+    compiled.rig_geometries = vec![
+        compiled.rig_geometries[0],
+        entity::EntityRigGeometryBinding {
+            geometry: 0,
+            condition: Some(0),
+            first_animation: 1,
+            animation_count: 0,
+            first_controller: 1,
+            controller_count: 0,
+        },
+    ]
+    .into_boxed_slice();
     assert!(compiled.validate().is_err());
 }
 
@@ -262,6 +308,7 @@ fn carrier_v4_summary_reports_every_retained_extended_section() {
     assert_eq!(summary.molang_collections, 1);
     assert_eq!(summary.molang_collection_items, 1);
     assert_eq!(summary.controller_animations, 1);
+    assert_eq!(summary.rig_geometries, 1);
     assert_eq!(summary.rig_animations, 1);
     assert_eq!(summary.rig_controllers, 1);
     assert_eq!(summary.block_visuals, 8);
@@ -276,6 +323,26 @@ fn carrier_v4_preflights_every_retained_array_before_typed_allocation() {
         serde_json::Value::Null;
         entity::MAX_ENTITY_ANIMATION_CHANNELS
             + 1
+    ]);
+    let payload = serde_json::to_vec(&payload).unwrap();
+    let mut excessive = blob[..80].to_vec();
+    excessive[56..64].copy_from_slice(&(payload.len() as u64).to_le_bytes());
+    excessive.extend_from_slice(&payload);
+    let digest = Sha256::digest(&excessive);
+    excessive.extend_from_slice(&digest);
+
+    let error = RuntimeEntityAssets::decode(&excessive).unwrap_err();
+    assert!(error.to_string().contains("count preflight"));
+}
+
+#[test]
+fn carrier_v4_preflights_selectable_geometry_candidates_before_typed_allocation() {
+    let blob = entity::encode_entity_blob(&carrier_v4_fixture()).unwrap();
+    let mut payload: serde_json::Value =
+        serde_json::from_slice(&blob[80..blob.len() - 32]).unwrap();
+    payload["rig_geometries"] = serde_json::Value::Array(vec![
+        serde_json::Value::Null;
+        entity::MAX_ENTITY_RIG_GEOMETRIES + 1
     ]);
     let payload = serde_json::to_vec(&payload).unwrap();
     let mut excessive = blob[..80].to_vec();

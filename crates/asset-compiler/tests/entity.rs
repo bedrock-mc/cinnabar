@@ -76,7 +76,7 @@ fn compiler_enumerates_entity_authority_and_dependencies_deterministically() {
     let first = compile_entity_assets(pack.path(), MANIFEST).expect("compile entity catalog");
     let second = compile_entity_assets(pack.path(), MANIFEST).expect("compile twice");
     assert_eq!(first, second);
-    assert_eq!(first.sources.len(), 7);
+    assert_eq!(first.sources.len(), 8);
     assert_eq!(first.geometries.len(), 1);
     let geometry = &first.geometries[0];
     assert_eq!(geometry.identifier.as_ref(), "geometry.allay");
@@ -652,6 +652,25 @@ fn compiler_rejects_unbounded_entity_source_directory_depth() {
 }
 
 #[test]
+fn compiler_rejects_intermediate_directory_links_and_oversized_sources() {
+    let linked = synthetic_pack();
+    let outside = tempfile::tempdir().unwrap();
+    fs::create_dir_all(outside.path().join("nested")).unwrap();
+    fs::write(outside.path().join("nested/escaped.png"), b"escaped").unwrap();
+    let link = linked.path().join("textures").join("entity").join("linked");
+    create_directory_link(&link, &outside.path().join("nested")).unwrap();
+    assert!(compile_entity_assets(linked.path(), MANIFEST).is_err());
+
+    let oversized = synthetic_pack();
+    fs::write(
+        oversized.path().join("textures/entity/oversized.png"),
+        vec![0_u8; assets::MAX_ENTITY_SOURCE_BYTES + 1],
+    )
+    .unwrap();
+    assert!(compile_entity_assets(oversized.path(), MANIFEST).is_err());
+}
+
+#[test]
 fn compiler_rejects_modified_manifest_and_unsupported_texture_payloads() {
     let pack = synthetic_pack();
     let modified = String::from_utf8(MANIFEST.to_vec())
@@ -704,15 +723,47 @@ fn assetc_entity_assets_writes_deterministic_carrier_and_report() {
     assert_eq!(fs::read(&report).unwrap(), first_report);
 
     let decoded = assets::RuntimeEntityAssets::decode(&first_blob).unwrap();
-    assert_eq!(decoded.sources().len(), 7);
+    assert_eq!(decoded.sources().len(), 8);
     let report: serde_json::Value = serde_json::from_slice(&first_report).unwrap();
-    assert_eq!(report["schema"], 2);
-    assert_eq!(report["counts"]["sources"], 7);
+    assert_eq!(report["schema"], 4);
+    assert_eq!(report["counts"]["sources"], 8);
     assert_eq!(report["counts"]["symbols"], decoded.symbols().len());
     assert_eq!(report["counts"]["geometries"], 1);
     assert_eq!(report["counts"]["bones"], 2);
     assert_eq!(report["counts"]["cubes"], 2);
-    assert_eq!(report["sources"].as_array().unwrap().len(), 7);
+    for count in [
+        "animation_clips",
+        "animation_channels",
+        "animation_keyframes",
+        "molang_symbols",
+        "molang_expressions",
+        "molang_ops",
+        "molang_collections",
+        "molang_collection_items",
+        "controllers",
+        "controller_states",
+        "controller_animations",
+        "controller_transitions",
+        "rig_bindings",
+        "rig_geometry_candidates",
+        "rig_animations",
+        "rig_controllers",
+        "rig_geometry_selections",
+        "item_visuals",
+        "item_visual_aliases",
+        "item_sprite_routes",
+        "item_block_routes",
+        "item_empty_hand_routes",
+        "item_missing_routes",
+        "block_visuals",
+    ] {
+        assert!(
+            report["counts"][count].is_number(),
+            "missing v4 count {count}"
+        );
+    }
+    assert!(report["reference_outcomes"].is_array());
+    assert_eq!(report["sources"].as_array().unwrap().len(), 8);
     assert_eq!(
         report["symbols"].as_array().unwrap().len(),
         decoded.symbols().len()
@@ -723,4 +774,25 @@ fn assetc_entity_assets_writes_deterministic_carrier_and_report() {
             .contains(&pack.path().display().to_string()),
         "deterministic report must not leak a machine-specific canonical path"
     );
+}
+
+#[cfg(unix)]
+fn create_directory_link(link: &Path, target: &Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(target, link)
+}
+
+#[cfg(windows)]
+fn create_directory_link(link: &Path, target: &Path) -> std::io::Result<()> {
+    let status = Command::new("cmd")
+        .args(["/c", "mklink", "/J"])
+        .arg(link)
+        .arg(target)
+        .status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(std::io::Error::other(format!(
+            "mklink /J failed with {status}"
+        )))
+    }
 }

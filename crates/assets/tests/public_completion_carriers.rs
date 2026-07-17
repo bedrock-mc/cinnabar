@@ -3,19 +3,19 @@ use assets::{
     EntityAnimationController, EntityAnimationInterpolation, EntityAnimationKeyframe,
     EntityAnimationLoop, EntityAnimationProperty, EntityAssetSummary, EntityControllerAnimation,
     EntityControllerState, EntityControllerTransition, EntityRigAnimationBinding, EntityRigBinding,
-    EntityRigControllerBinding, EntityRigFallback, FONT_CARRIER_MAGIC, FONT_CARRIER_SCHEMA,
-    FontCatalogError, FontCatalogIdentity, FontTexturePage, GlyphMetrics, ItemDisplayScalar,
-    ItemDisplayTransform, ItemVisualAlias, ItemVisualDefinition, MAX_BLOCK_VISUALS,
-    MAX_ENTITY_ANIMATION_CHANNELS, MAX_ENTITY_ANIMATION_CLIPS, MAX_ENTITY_ANIMATION_KEYFRAMES,
-    MAX_ENTITY_CONTROLLER_ANIMATIONS, MAX_ENTITY_CONTROLLER_STATES,
+    EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding, FONT_CARRIER_MAGIC,
+    FONT_CARRIER_SCHEMA, FontCatalogError, FontCatalogIdentity, FontTexturePage, GlyphMetrics,
+    ItemDisplayScalar, ItemDisplayTransform, ItemVisualAlias, ItemVisualDefinition,
+    MAX_BLOCK_VISUALS, MAX_ENTITY_ANIMATION_CHANNELS, MAX_ENTITY_ANIMATION_CLIPS,
+    MAX_ENTITY_ANIMATION_KEYFRAMES, MAX_ENTITY_CONTROLLER_ANIMATIONS, MAX_ENTITY_CONTROLLER_STATES,
     MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS, MAX_ENTITY_RIG_ANIMATIONS,
-    MAX_ENTITY_RIG_BINDINGS, MAX_ENTITY_RIG_CONTROLLERS, MAX_FONT_GLYPHS, MAX_FONT_PAGE_SIDE,
-    MAX_FONT_PAGES, MAX_FONT_PATH_BYTES, MAX_FONT_SOURCE_BYTES, MAX_ITEM_IDENTIFIER_BYTES,
-    MAX_ITEM_VISUAL_ALIASES, MAX_ITEM_VISUALS, MAX_MOLANG_COLLECTION_ITEMS,
-    MAX_MOLANG_COLLECTION_ITEMS_TOTAL, MAX_MOLANG_COLLECTIONS, MAX_MOLANG_EXPRESSIONS,
-    MAX_MOLANG_OPS, MAX_MOLANG_OPS_PER_EXPRESSION, MAX_MOLANG_STACK_DEPTH, MolangCollection,
-    MolangCollectionItem, MolangOp, MolangSymbol, MolangSymbolKind, RuntimeFontCatalog,
-    encode_font_catalog,
+    MAX_ENTITY_RIG_BINDINGS, MAX_ENTITY_RIG_CONTROLLERS, MAX_ENTITY_RIG_GEOMETRIES,
+    MAX_FONT_GLYPHS, MAX_FONT_PAGE_SIDE, MAX_FONT_PAGES, MAX_FONT_PATH_BYTES,
+    MAX_FONT_SOURCE_BYTES, MAX_ITEM_IDENTIFIER_BYTES, MAX_ITEM_VISUAL_ALIASES, MAX_ITEM_VISUALS,
+    MAX_MOLANG_COLLECTION_ITEMS, MAX_MOLANG_COLLECTION_ITEMS_TOTAL, MAX_MOLANG_COLLECTIONS,
+    MAX_MOLANG_EXPRESSIONS, MAX_MOLANG_OPS, MAX_MOLANG_OPS_PER_EXPRESSION, MAX_MOLANG_STACK_DEPTH,
+    MolangCollection, MolangCollectionItem, MolangOp, MolangSymbol, MolangSymbolKind,
+    RuntimeFontCatalog, encode_font_catalog,
 };
 
 fn assert_public_type<T>() {}
@@ -38,6 +38,7 @@ fn completion_carriers_are_available_only_through_the_assets_public_api() {
     assert_public_type::<EntityRigBinding>();
     assert_public_type::<EntityRigControllerBinding>();
     assert_public_type::<EntityRigFallback>();
+    assert_public_type::<EntityRigGeometryBinding>();
     assert_public_type::<MolangCollection>();
     assert_public_type::<MolangCollectionItem>();
     assert_public_type::<MolangOp>();
@@ -78,6 +79,7 @@ fn completion_carriers_are_available_only_through_the_assets_public_api() {
         MAX_MOLANG_COLLECTION_ITEMS,
         MAX_MOLANG_COLLECTION_ITEMS_TOTAL,
         MAX_ENTITY_RIG_BINDINGS,
+        MAX_ENTITY_RIG_GEOMETRIES,
         MAX_ENTITY_RIG_ANIMATIONS,
         MAX_ENTITY_RIG_CONTROLLERS,
         MAX_ITEM_VISUALS,

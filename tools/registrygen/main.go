@@ -18,6 +18,7 @@ import (
 
 	"github.com/df-mc/dragonfly/server/block"
 	"github.com/df-mc/dragonfly/server/block/model"
+	_ "github.com/df-mc/dragonfly/server/item"
 	"github.com/df-mc/dragonfly/server/world"
 	_ "github.com/df-mc/dragonfly/server/world/biome"
 	"github.com/sandertv/gophertunnel/minecraft/nbt"
@@ -28,6 +29,9 @@ const (
 	lightRegistryHeader = "LREG1001"
 	biomeRegistryHeader = "BIOREG01"
 	registryProtocol    = 1001
+	dragonflyModule     = "github.com/df-mc/dragonfly"
+	dragonflyVersion    = "v0.11.1-0.20260714151819-dbbd8b787946"
+	dragonflyModuleSum  = "h1:Qu7Qm7iBrLQWlZtz2KdouA4agQdhybV2abSdEN5NBRY="
 
 	flagAir              uint8 = 1 << 0
 	flagCubeGeometry     uint8 = 1 << 1
@@ -46,6 +50,25 @@ const (
 	maxBiomeRecordCount = 1_024
 	maxBiomeNameBytes   = 256
 )
+
+type BlockItemRoute struct {
+	Identifier  string          `json:"identifier"`
+	Metadata    uint32          `json:"metadata"`
+	BlockName   string          `json:"block_name"`
+	BlockState  json.RawMessage `json:"block_state"`
+	BlockVisual uint32          `json:"block_visual"`
+}
+
+type BlockItemRouteTable struct {
+	Schema               uint32           `json:"schema"`
+	Protocol             uint32           `json:"protocol"`
+	CanonicalBlockStates uint32           `json:"canonical_block_states"`
+	DragonflyModule      string           `json:"dragonfly_module"`
+	DragonflyVersion     string           `json:"dragonfly_version"`
+	DragonflyModuleSum   string           `json:"dragonfly_module_sum"`
+	BREGSHA256           string           `json:"breg_sha256"`
+	Routes               []BlockItemRoute `json:"routes"`
+}
 
 type lightRegistry interface {
 	LightBlock(runtimeID uint32) uint8
@@ -314,7 +337,20 @@ func main() {
 	prismarineRoot := flag.String("prismarine", "", "pinned Prismarine minecraft-data directory")
 	valentinePalette := flag.String("valentine-palette", "", "pinned Valentine block_palette.bin")
 	valentineBlocks := flag.String("valentine-blocks", "", "pinned Valentine generated blocks.rs")
+	blockItemOut := flag.String("block-item-out", "", "optional reviewed block-item route JSON output")
+	blockItemBREG := flag.String("block-item-breg", "", "existing reviewed BREG1003 used for block-item routes")
 	flag.Parse()
+	if *blockItemOut != "" || *blockItemBREG != "" {
+		if *blockItemOut == "" || *blockItemBREG == "" || *out != "" || *lightOut != "" {
+			fmt.Fprintln(os.Stderr, "registrygen: -block-item-out and -block-item-breg must be supplied together in standalone mode")
+			os.Exit(2)
+		}
+		if err := writeBlockItemRouteTable(*blockItemOut, *blockItemBREG); err != nil {
+			fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if *out == "" || *lightOut == "" || *lightBREG == "" {
 		fmt.Fprintln(os.Stderr, "registrygen: -out, -light-out, and -light-breg are required")
 		os.Exit(2)
@@ -478,6 +514,94 @@ func main() {
 		fmt.Fprintf(os.Stderr, "registrygen: write biome output: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func writeBlockItemRouteTable(output, bregPath string) error {
+	breg, err := os.ReadFile(bregPath)
+	if err != nil {
+		return fmt.Errorf("read block-item BREG: %w", err)
+	}
+	if len(breg) > 128<<20 {
+		return errors.New("block-item BREG exceeds 128 MiB")
+	}
+	records, err := readBREG1003LightIdentities(breg)
+	if err != nil {
+		return err
+	}
+	table, err := generateBlockItemRouteTable(world.Items(), records, breg)
+	if err != nil {
+		return err
+	}
+	encoded, err := json.MarshalIndent(table, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode block-item routes: %w", err)
+	}
+	encoded = append(encoded, '\n')
+	if err := os.MkdirAll(filepath.Dir(output), 0o755); err != nil {
+		return fmt.Errorf("create block-item output directory: %w", err)
+	}
+	if err := os.WriteFile(output, encoded, 0o644); err != nil {
+		return fmt.Errorf("write block-item routes: %w", err)
+	}
+	return nil
+}
+
+func generateBlockItemRouteTable(items []world.Item, records []bregLightIdentity, breg []byte) (BlockItemRouteTable, error) {
+	index := make(map[string][]bregLightIdentity, len(records))
+	for _, record := range records {
+		if record.SequentialID >= uint32(len(records)) {
+			return BlockItemRouteTable{}, fmt.Errorf("block visual %d is out of range", record.SequentialID)
+		}
+		key := canonicalRecordKey(record.Name, record.StateJSON)
+		index[key] = append(index[key], record)
+	}
+	routes := make([]BlockItemRoute, 0, len(items))
+	seen := make(map[string]struct{}, len(items))
+	for _, candidate := range items {
+		value, ok := candidate.(world.Block)
+		if !ok {
+			continue
+		}
+		identifier, metadata := candidate.EncodeItem()
+		if identifier == "" || canonicalBlockName(identifier) != identifier || !strings.HasPrefix(identifier, "minecraft:") {
+			return BlockItemRouteTable{}, fmt.Errorf("noncanonical block item identifier %q", identifier)
+		}
+		metadata32 := uint32(int32(metadata))
+		itemKey := fmt.Sprintf("%s\x00%d", identifier, metadata32)
+		if _, exists := seen[itemKey]; exists {
+			return BlockItemRouteTable{}, fmt.Errorf("duplicate block item route %s metadata %d", identifier, metadata32)
+		}
+		seen[itemKey] = struct{}{}
+		blockName, properties := value.EncodeBlock()
+		typed, err := typedProperties(properties)
+		if err != nil {
+			return BlockItemRouteTable{}, fmt.Errorf("block item %s metadata %d: %w", identifier, metadata32, err)
+		}
+		state, err := canonicalTypedState(typed)
+		if err != nil {
+			return BlockItemRouteTable{}, fmt.Errorf("block item %s metadata %d: %w", identifier, metadata32, err)
+		}
+		matches := index[canonicalRecordKey(blockName, state)]
+		if len(matches) != 1 {
+			return BlockItemRouteTable{}, fmt.Errorf("block item %s metadata %d resolves to %d canonical states", identifier, metadata32, len(matches))
+		}
+		routes = append(routes, BlockItemRoute{
+			Identifier: identifier, Metadata: metadata32, BlockName: blockName,
+			BlockState: append(json.RawMessage(nil), state...), BlockVisual: matches[0].SequentialID,
+		})
+	}
+	sort.Slice(routes, func(i, j int) bool {
+		if routes[i].Identifier != routes[j].Identifier {
+			return routes[i].Identifier < routes[j].Identifier
+		}
+		return routes[i].Metadata < routes[j].Metadata
+	})
+	digest := sha256.Sum256(breg)
+	return BlockItemRouteTable{
+		Schema: 1, Protocol: registryProtocol, CanonicalBlockStates: uint32(len(records)),
+		DragonflyModule: dragonflyModule, DragonflyVersion: dragonflyVersion,
+		DragonflyModuleSum: dragonflyModuleSum, BREGSHA256: fmt.Sprintf("%x", digest), Routes: routes,
+	}, nil
 }
 
 func collectBiomes(biomes []world.Biome) ([]BiomeRecord, error) {

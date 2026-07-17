@@ -5,14 +5,14 @@ use std::{
 };
 
 use asset_compiler::{
-    AnimationInventory, AtmosphereCompileOptions, FontCompileError,
-    compile_atmosphere_assets_with_options, compile_entity_assets, compile_fonts,
+    AnimationInventory, AtmosphereCompileOptions, CompileReferenceOutcome, FontCompileError,
+    compile_atmosphere_assets_with_options, compile_entity_assets_with_report, compile_fonts,
     compile_pack_with_biomes, inspect_animation_inventory,
 };
 use assets::{
-    AssetError, AtmosphereRole, EntityAssetSource, EntityAssetSymbol, MATERIAL_FLAG_ALPHA_CUTOUT,
-    encode_atmosphere_blob, encode_blob, encode_entity_blob, read_biome_registry,
-    read_light_registry, read_registry, write_blob_atomic,
+    AssetError, AtmosphereRole, EntityAssetSource, EntityAssetSymbol, ItemVisualDefinitionRoute,
+    MATERIAL_FLAG_ALPHA_CUTOUT, encode_atmosphere_blob, encode_blob, encode_entity_blob,
+    read_biome_registry, read_light_registry, read_registry, write_blob_atomic,
 };
 use clap::{Parser, Subcommand};
 use serde::Serialize;
@@ -164,6 +164,7 @@ struct EntityAssetsReport<'a> {
     counts: EntityAssetCounts,
     sources: &'a [EntityAssetSource],
     symbols: &'a [EntityAssetSymbol],
+    reference_outcomes: &'a [CompileReferenceOutcome<u32>],
 }
 
 #[derive(Serialize)]
@@ -174,6 +175,30 @@ struct EntityAssetCounts {
     geometries: usize,
     bones: usize,
     cubes: usize,
+    animation_clips: usize,
+    animation_channels: usize,
+    animation_keyframes: usize,
+    molang_symbols: usize,
+    molang_expressions: usize,
+    molang_ops: usize,
+    molang_collections: usize,
+    molang_collection_items: usize,
+    controllers: usize,
+    controller_states: usize,
+    controller_animations: usize,
+    controller_transitions: usize,
+    rig_bindings: usize,
+    rig_geometry_candidates: usize,
+    rig_animations: usize,
+    rig_controllers: usize,
+    rig_geometry_selections: usize,
+    item_visuals: usize,
+    item_visual_aliases: usize,
+    item_sprite_routes: usize,
+    item_block_routes: usize,
+    item_empty_hand_routes: usize,
+    item_missing_routes: usize,
+    block_visuals: usize,
 }
 
 #[derive(Serialize)]
@@ -403,10 +428,12 @@ fn compile_entity_assets_command(
                 source,
             }
         })?;
-    let compiled = compile_entity_assets(pack, &manifest_bytes)?;
-    let blob = encode_entity_blob(&compiled)?;
+    let mut compilation = compile_entity_assets_with_report(pack, &manifest_bytes)?;
+    compilation.reference_outcomes.sort_by_key(outcome_sort_key);
+    let compiled = &compilation.assets;
+    let blob = encode_entity_blob(compiled)?;
     let report_data = EntityAssetsReport {
-        schema: 2,
+        schema: 4,
         source,
         source_manifest_sha256: hex(&compiled.source_manifest_sha256).into_boxed_str(),
         blob_sha256: format!("{:x}", Sha256::digest(&blob)).into_boxed_str(),
@@ -430,9 +457,56 @@ fn compile_entity_assets_command(
                 .flat_map(|geometry| geometry.bones.iter())
                 .map(|bone| bone.cubes.len())
                 .sum(),
+            animation_clips: compiled.animation_clips.len(),
+            animation_channels: compiled.animation_channels.len(),
+            animation_keyframes: compiled.animation_keyframes.len(),
+            molang_symbols: compiled.molang_symbols.len(),
+            molang_expressions: compiled.molang_expressions.len(),
+            molang_ops: compiled.molang_ops.len(),
+            molang_collections: compiled.molang_collections.len(),
+            molang_collection_items: compiled.molang_collection_items.len(),
+            controllers: compiled.controllers.len(),
+            controller_states: compiled.controller_states.len(),
+            controller_animations: compiled.controller_animations.len(),
+            controller_transitions: compiled.controller_transitions.len(),
+            rig_bindings: compiled.rig_bindings.len(),
+            rig_geometry_candidates: compiled.rig_geometries.len(),
+            rig_animations: compiled.rig_animations.len(),
+            rig_controllers: compiled.rig_controllers.len(),
+            rig_geometry_selections: compiled
+                .rig_geometries
+                .iter()
+                .filter(|candidate| candidate.condition.is_some())
+                .count(),
+            item_visuals: compiled.item_visuals.len(),
+            item_visual_aliases: compiled.item_visual_aliases.len(),
+            item_sprite_routes: compiled
+                .item_visuals
+                .iter()
+                .filter(|visual| matches!(visual.route, ItemVisualDefinitionRoute::Sprite { .. }))
+                .count(),
+            item_block_routes: compiled
+                .item_visuals
+                .iter()
+                .filter(|visual| {
+                    matches!(visual.route, ItemVisualDefinitionRoute::BlockItem { .. })
+                })
+                .count(),
+            item_empty_hand_routes: compiled
+                .item_visuals
+                .iter()
+                .filter(|visual| matches!(visual.route, ItemVisualDefinitionRoute::EmptyHand))
+                .count(),
+            item_missing_routes: compiled
+                .item_visuals
+                .iter()
+                .filter(|visual| matches!(visual.route, ItemVisualDefinitionRoute::Missing))
+                .count(),
+            block_visuals: compiled.block_visual_count as usize,
         },
         sources: &compiled.sources,
         symbols: &compiled.symbols,
+        reference_outcomes: &compilation.reference_outcomes,
     };
     let mut report_bytes =
         serde_json::to_vec_pretty(&report_data).map_err(|source| AssetError::Json {
@@ -455,6 +529,22 @@ fn compile_entity_assets_command(
         report.display()
     );
     Ok(())
+}
+
+fn outcome_sort_key(outcome: &CompileReferenceOutcome<u32>) -> (u32, u32, u8, u8) {
+    match outcome {
+        CompileReferenceOutcome::Resolved(index) => (u32::MAX, *index, 0, 0),
+        CompileReferenceOutcome::OptionalStaticFallback {
+            source,
+            symbol,
+            reason,
+        } => (*source, *symbol, 1, *reason as u8),
+        CompileReferenceOutcome::RequiredRigRejected {
+            source,
+            symbol,
+            reason,
+        } => (*source, *symbol, 2, *reason as u8),
+    }
 }
 
 fn compile_atmosphere_command<F>(

@@ -66,6 +66,22 @@ pub struct ItemVisualId(pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct BlockVisualId(pub u32);
 
+/// Exact canonical lookup key for one item metadata variant.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ItemVisualKey {
+    pub identifier: Box<str>,
+    pub metadata: u32,
+}
+
+/// Exact retained reference to one variant in `textures/item_texture.json`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ItemTextureReference {
+    pub source: u32,
+    pub variant: u32,
+}
+
 /// Canonical finite scalar retained by item display transforms.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
 #[serde(transparent)]
@@ -129,19 +145,30 @@ impl ItemDisplayTransform {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ItemVisualDefinition {
-    pub identifier: Box<str>,
-    pub texture_source: u32,
+    pub key: ItemVisualKey,
+    /// Source containing the canonical item definition or reviewed rule.
+    pub source: u32,
+    pub route: ItemVisualDefinitionRoute,
     pub first_person: ItemDisplayTransform,
     pub third_person: ItemDisplayTransform,
     pub dropped: ItemDisplayTransform,
-    pub block_visual: Option<BlockVisualId>,
+}
+
+/// Exact bounded presentation route selected by one compiled item definition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case", tag = "route")]
+pub enum ItemVisualDefinitionRoute {
+    Sprite { texture: ItemTextureReference },
+    BlockItem { block_visual: BlockVisualId },
+    EmptyHand,
+    Missing,
 }
 
 /// Canonical identifier alias to a dense item visual.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ItemVisualAlias {
-    pub identifier: Box<str>,
+    pub key: ItemVisualKey,
     pub visual: ItemVisualId,
 }
 
@@ -157,36 +184,41 @@ pub(crate) fn validate_item_visuals(
     {
         return Err(invalid("item visual or alias count exceeds bound"));
     }
-    let mut previous_visual: Option<&str> = None;
+    let mut previous_visual: Option<&ItemVisualKey> = None;
     for visual in visuals {
-        validate_item_identifier(&visual.identifier)?;
-        if previous_visual.is_some_and(|previous| previous >= visual.identifier.as_ref())
-            || visual.texture_source as usize >= sources
+        validate_item_identifier(&visual.key.identifier)?;
+        if previous_visual.is_some_and(|previous| previous >= &visual.key)
+            || visual.source as usize >= sources
             || !visual.first_person.is_canonical()
             || !visual.third_person.is_canonical()
             || !visual.dropped.is_canonical()
-            || visual
-                .block_visual
-                .is_some_and(|index| index.0 as usize >= block_visual_count)
+            || matches!(
+                visual.route,
+                ItemVisualDefinitionRoute::Sprite { texture }
+                    if texture.source as usize >= sources
+            )
+            || matches!(
+                visual.route,
+                ItemVisualDefinitionRoute::BlockItem { block_visual }
+                    if block_visual.0 as usize >= block_visual_count
+            )
         {
             return Err(invalid("invalid or unordered item visual"));
         }
-        previous_visual = Some(&visual.identifier);
+        previous_visual = Some(&visual.key);
     }
-    let mut previous_alias: Option<&str> = None;
+    let mut previous_alias: Option<&ItemVisualKey> = None;
     for alias in aliases {
-        validate_item_identifier(&alias.identifier)?;
-        if previous_alias.is_some_and(|previous| previous >= alias.identifier.as_ref())
+        validate_item_identifier(&alias.key.identifier)?;
+        if previous_alias.is_some_and(|previous| previous >= &alias.key)
             || alias.visual.0 as usize >= visuals.len()
             || visuals
-                .binary_search_by(|visual| {
-                    visual.identifier.as_ref().cmp(alias.identifier.as_ref())
-                })
+                .binary_search_by(|visual| visual.key.cmp(&alias.key))
                 .is_ok()
         {
             return Err(invalid("invalid or unordered item visual alias"));
         }
-        previous_alias = Some(&alias.identifier);
+        previous_alias = Some(&alias.key);
     }
     Ok(())
 }
