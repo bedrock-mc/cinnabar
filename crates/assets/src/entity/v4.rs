@@ -7,8 +7,8 @@ use crate::{
 
 use super::{
     CompiledEntityAssets, EntityAssetKind, EntityAssetSymbol, EntityGeometryScalar,
-    RuntimeEntityAssets, invalid, validate_compiled, validate_geometry_scalar, validate_identifier,
-    validate_scalars,
+    RuntimeEntityAssets, effective_geometry_bone_counts, invalid, validate_compiled,
+    validate_geometry_scalar, validate_identifier, validate_scalars,
 };
 
 pub const MAX_ENTITY_ANIMATION_CLIPS: usize = 4_096;
@@ -97,6 +97,22 @@ pub struct CompiledMolangExpression {
     pub max_stack: u8,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[repr(u8)]
+pub enum MolangSymbolKind {
+    Name = 0,
+    Query = 1,
+    Variable = 2,
+    Temporary = 3,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct MolangSymbol {
+    pub kind: MolangSymbolKind,
+    pub identifier: Box<str>,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct MolangCollection {
@@ -116,7 +132,6 @@ pub enum MolangOp {
     Push(EntityGeometryScalar),
     LoadQuery(u32),
     LoadVariable(u32),
-    StoreVariable(u32),
     Add,
     Subtract,
     Multiply,
@@ -265,7 +280,7 @@ impl RuntimeEntityAssets {
     }
 
     #[must_use]
-    pub fn molang_symbols(&self) -> &[Box<str>] {
+    pub fn molang_symbols(&self) -> &[MolangSymbol] {
         &self.molang_symbols
     }
 
@@ -454,13 +469,14 @@ fn validate_molang_payload(compiled: &CompiledEntityAssets) -> Result<(), AssetE
     {
         return Err(invalid("Molang payload count exceeds bound"));
     }
-    let mut previous: Option<&str> = None;
+    let mut previous: Option<(MolangSymbolKind, &str)> = None;
     for symbol in &compiled.molang_symbols {
-        validate_identifier(symbol)?;
-        if previous.is_some_and(|value| value >= symbol.as_ref()) {
+        validate_molang_symbol(symbol)?;
+        let key = (symbol.kind, symbol.identifier.as_ref());
+        if previous.is_some_and(|value| value >= key) {
             return Err(invalid("Molang symbols are not strictly ordered"));
         }
-        previous = Some(symbol);
+        previous = Some(key);
     }
     for expression in &compiled.molang_expressions {
         if expression.op_count as usize > MAX_MOLANG_OPS_PER_EXPRESSION
@@ -488,11 +504,18 @@ fn validate_molang_payload(compiled: &CompiledEntityAssets) -> Result<(), AssetE
     for op in &compiled.molang_ops {
         match *op {
             MolangOp::Push(value) => validate_geometry_scalar(value)?,
-            MolangOp::LoadQuery(symbol)
-            | MolangOp::LoadVariable(symbol)
-            | MolangOp::StoreVariable(symbol) => {
-                if symbol as usize >= compiled.molang_symbols.len() {
-                    return Err(invalid("Molang symbol index is out of range"));
+            MolangOp::LoadQuery(symbol) => {
+                if !molang_symbol_has_kind(compiled, symbol, &[MolangSymbolKind::Query]) {
+                    return Err(invalid("Molang query symbol kind is invalid"));
+                }
+            }
+            MolangOp::LoadVariable(symbol) => {
+                if !molang_symbol_has_kind(
+                    compiled,
+                    symbol,
+                    &[MolangSymbolKind::Variable, MolangSymbolKind::Temporary],
+                ) {
+                    return Err(invalid("Molang variable symbol kind is invalid"));
                 }
             }
             MolangOp::SelectCollection(collection) => {
@@ -555,18 +578,62 @@ fn validate_molang_payload(compiled: &CompiledEntityAssets) -> Result<(), AssetE
     Ok(())
 }
 
+fn validate_molang_symbol(symbol: &MolangSymbol) -> Result<(), AssetError> {
+    validate_identifier(&symbol.identifier)?;
+    let valid = match symbol.kind {
+        MolangSymbolKind::Name => !["query.", "variable.", "temp."]
+            .iter()
+            .any(|prefix| symbol.identifier.starts_with(prefix)),
+        MolangSymbolKind::Query => matches!(
+            symbol.identifier.as_ref(),
+            "query.anim_time"
+                | "query.life_time"
+                | "query.modified_move_speed"
+                | "query.ground_speed"
+                | "query.is_on_ground"
+                | "query.is_moving"
+                | "query.is_sprinting"
+                | "query.is_sneaking"
+                | "query.is_sleeping"
+                | "query.body_y_rotation"
+                | "query.head_y_rotation"
+                | "query.target_x_rotation"
+        ),
+        MolangSymbolKind::Variable => valid_molang_slot(&symbol.identifier, "variable."),
+        MolangSymbolKind::Temporary => valid_molang_slot(&symbol.identifier, "temp."),
+    };
+    if !valid {
+        return Err(invalid("Molang symbol is outside the reviewed namespace"));
+    }
+    Ok(())
+}
+
+fn valid_molang_slot(identifier: &str, prefix: &str) -> bool {
+    identifier.strip_prefix(prefix).is_some_and(|slot| {
+        !slot.is_empty()
+            && slot
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+    })
+}
+
+fn molang_symbol_has_kind(
+    compiled: &CompiledEntityAssets,
+    index: u32,
+    permitted: &[MolangSymbolKind],
+) -> bool {
+    compiled
+        .molang_symbols
+        .get(index as usize)
+        .is_some_and(|symbol| permitted.contains(&symbol.kind))
+}
+
 fn validate_molang_stack(ops: &[MolangOp], declared_max: u8) -> Result<(), AssetError> {
     let mut depth = 0usize;
     let mut observed_max = 0usize;
     for op in ops {
         match op {
             MolangOp::Push(_) | MolangOp::LoadQuery(_) | MolangOp::LoadVariable(_) => depth += 1,
-            MolangOp::StoreVariable(_) => {
-                if depth < 1 {
-                    return Err(invalid("Molang expression stack underflows"));
-                }
-                depth -= 1;
-            }
             MolangOp::Add
             | MolangOp::Subtract
             | MolangOp::Multiply
@@ -686,7 +753,7 @@ fn validate_controller_state(
     state: &EntityControllerState,
     controller_state_count: u16,
 ) -> Result<(), AssetError> {
-    if state.name as usize >= compiled.molang_symbols.len()
+    if !molang_symbol_has_kind(compiled, state.name, &[MolangSymbolKind::Name])
         || !range_in_bounds(
             state.first_animation,
             u32::from(state.animation_count),
@@ -738,6 +805,21 @@ fn validate_rig_payload(compiled: &CompiledEntityAssets) -> Result<(), AssetErro
     {
         return Err(invalid("entity rig binding count exceeds bound"));
     }
+    let effective_bone_counts = effective_geometry_bone_counts(&compiled.geometries)?;
+    for binding in &compiled.rig_animations {
+        if !molang_symbol_has_kind(compiled, binding.name, &[MolangSymbolKind::Name])
+            || binding.clip as usize >= compiled.animation_clips.len()
+        {
+            return Err(invalid("entity rig animation index is out of range"));
+        }
+    }
+    for binding in &compiled.rig_controllers {
+        if !molang_symbol_has_kind(compiled, binding.name, &[MolangSymbolKind::Name])
+            || binding.controller as usize >= compiled.controllers.len()
+        {
+            return Err(invalid("entity rig controller index is out of range"));
+        }
+    }
     for binding in &compiled.rig_bindings {
         if !index_has_kind(
             &compiled.symbols,
@@ -762,36 +844,25 @@ fn validate_rig_payload(compiled: &CompiledEntityAssets) -> Result<(), AssetErro
         {
             return Err(invalid("entity rig binding index is out of range"));
         }
-        let geometry_bones = compiled.geometries[binding.geometry as usize].bones.len();
+        let geometry_bones = effective_bone_counts[binding.geometry as usize];
         let rig_animations = &compiled.rig_animations[binding.first_animation as usize
             ..binding.first_animation as usize + binding.animation_count as usize];
         for animation in rig_animations {
-            if let Some(clip) = compiled.animation_clips.get(animation.clip as usize) {
-                let channels = &compiled.animation_channels[clip.first_channel as usize
-                    ..clip.first_channel as usize + clip.channel_count as usize];
-                if channels
-                    .iter()
-                    .any(|channel| channel.bone as usize >= geometry_bones)
-                {
-                    return Err(invalid(
-                        "entity animation channel bone is out of range for its rig geometry",
-                    ));
+            validate_rig_clip_bones(compiled, animation.clip, geometry_bones)?;
+        }
+        let rig_controllers = &compiled.rig_controllers[binding.first_controller as usize
+            ..binding.first_controller as usize + binding.controller_count as usize];
+        for rig_controller in rig_controllers {
+            let controller = &compiled.controllers[rig_controller.controller as usize];
+            let states = &compiled.controller_states[controller.first_state as usize
+                ..controller.first_state as usize + controller.state_count as usize];
+            for state in states {
+                let animations = &compiled.controller_animations[state.first_animation as usize
+                    ..state.first_animation as usize + state.animation_count as usize];
+                for animation in animations {
+                    validate_rig_clip_bones(compiled, animation.clip, geometry_bones)?;
                 }
             }
-        }
-    }
-    for binding in &compiled.rig_animations {
-        if binding.name as usize >= compiled.molang_symbols.len()
-            || binding.clip as usize >= compiled.animation_clips.len()
-        {
-            return Err(invalid("entity rig animation index is out of range"));
-        }
-    }
-    for binding in &compiled.rig_controllers {
-        if binding.name as usize >= compiled.molang_symbols.len()
-            || binding.controller as usize >= compiled.controllers.len()
-        {
-            return Err(invalid("entity rig controller index is out of range"));
         }
     }
     validate_flattened_ranges(
@@ -812,6 +883,25 @@ fn validate_rig_payload(compiled: &CompiledEntityAssets) -> Result<(), AssetErro
         compiled.rig_controllers.len(),
         "rig controller",
     )?;
+    Ok(())
+}
+
+fn validate_rig_clip_bones(
+    compiled: &CompiledEntityAssets,
+    clip_index: u32,
+    geometry_bones: usize,
+) -> Result<(), AssetError> {
+    let clip = &compiled.animation_clips[clip_index as usize];
+    let channels = &compiled.animation_channels
+        [clip.first_channel as usize..clip.first_channel as usize + clip.channel_count as usize];
+    if channels
+        .iter()
+        .any(|channel| channel.bone as usize >= geometry_bones)
+    {
+        return Err(invalid(
+            "entity animation channel bone is out of range for its effective rig geometry",
+        ));
+    }
     Ok(())
 }
 

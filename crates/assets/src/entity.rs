@@ -22,7 +22,7 @@ pub use v4::{
     MAX_ENTITY_RIG_ANIMATIONS, MAX_ENTITY_RIG_BINDINGS, MAX_ENTITY_RIG_CONTROLLERS,
     MAX_MOLANG_COLLECTION_ITEMS, MAX_MOLANG_COLLECTION_ITEMS_TOTAL, MAX_MOLANG_COLLECTIONS,
     MAX_MOLANG_EXPRESSIONS, MAX_MOLANG_OPS, MAX_MOLANG_OPS_PER_EXPRESSION, MAX_MOLANG_STACK_DEPTH,
-    MolangCollection, MolangCollectionItem, MolangOp,
+    MolangCollection, MolangCollectionItem, MolangOp, MolangSymbol, MolangSymbolKind,
 };
 
 pub const ENTITY_BLOB_MAGIC: [u8; 8] = *b"MCBEENT3";
@@ -203,7 +203,7 @@ pub struct CompiledEntityAssets {
     pub animation_clips: Box<[EntityAnimationClip]>,
     pub animation_channels: Box<[EntityAnimationChannel]>,
     pub animation_keyframes: Box<[EntityAnimationKeyframe]>,
-    pub molang_symbols: Box<[Box<str>]>,
+    pub molang_symbols: Box<[MolangSymbol]>,
     pub molang_expressions: Box<[CompiledMolangExpression]>,
     pub molang_ops: Box<[MolangOp]>,
     pub molang_collections: Box<[MolangCollection]>,
@@ -229,7 +229,7 @@ struct EntityCatalogPayload {
     animation_clips: Box<[EntityAnimationClip]>,
     animation_channels: Box<[EntityAnimationChannel]>,
     animation_keyframes: Box<[EntityAnimationKeyframe]>,
-    molang_symbols: Box<[Box<str>]>,
+    molang_symbols: Box<[MolangSymbol]>,
     molang_expressions: Box<[CompiledMolangExpression]>,
     molang_ops: Box<[MolangOp]>,
     molang_collections: Box<[MolangCollection]>,
@@ -255,7 +255,7 @@ pub struct RuntimeEntityAssets {
     animation_clips: Arc<[EntityAnimationClip]>,
     animation_channels: Arc<[EntityAnimationChannel]>,
     animation_keyframes: Arc<[EntityAnimationKeyframe]>,
-    molang_symbols: Arc<[Box<str>]>,
+    molang_symbols: Arc<[MolangSymbol]>,
     molang_expressions: Arc<[CompiledMolangExpression]>,
     molang_ops: Arc<[MolangOp]>,
     molang_collections: Arc<[MolangCollection]>,
@@ -678,6 +678,24 @@ fn selected_geometry_chain(
         }
     }
     Err(invalid("entity geometry inheritance depth exceeds bound"))
+}
+
+pub(super) fn effective_geometry_bone_counts(
+    geometries: &[EntityGeometry],
+) -> Result<Box<[usize]>, AssetError> {
+    let parents = validate_entity_geometry_inheritance(geometries)?;
+    let mut counts = Vec::with_capacity(geometries.len());
+    for geometry_index in 0..geometries.len() {
+        let chain = selected_geometry_chain(&parents, geometry_index)?;
+        let mut names = std::collections::BTreeSet::new();
+        for index in chain {
+            for bone in &geometries[index].bones {
+                names.insert(bone.name.to_ascii_lowercase());
+            }
+        }
+        counts.push(names.len());
+    }
+    Ok(counts.into_boxed_slice())
 }
 
 fn validate_geometry_bones(

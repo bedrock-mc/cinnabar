@@ -178,6 +178,11 @@ pub(crate) fn validate_item_visuals(
         validate_item_identifier(&alias.identifier)?;
         if previous_alias.is_some_and(|previous| previous >= alias.identifier.as_ref())
             || alias.visual.0 as usize >= visuals.len()
+            || visuals
+                .binary_search_by(|visual| {
+                    visual.identifier.as_ref().cmp(alias.identifier.as_ref())
+                })
+                .is_ok()
         {
             return Err(invalid("invalid or unordered item visual alias"));
         }

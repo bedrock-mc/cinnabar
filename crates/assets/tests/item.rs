@@ -305,6 +305,13 @@ fn item_carrier_requires_sorted_unique_identifiers_and_bounded_block_routes() {
 }
 
 #[test]
+fn item_carrier_rejects_collisions_across_visual_and_alias_namespaces() {
+    let mut compiled = item_carrier_fixture();
+    compiled.item_visual_aliases[0].identifier = compiled.item_visuals[0].identifier.clone();
+    assert!(compiled.validate().is_err());
+}
+
+#[test]
 fn item_carrier_rejects_nonfinite_transforms_and_out_of_range_indices() {
     assert!(ItemDisplayScalar::new(f32::NAN).is_none());
     assert!(ItemDisplayScalar::new(f32::INFINITY).is_none());

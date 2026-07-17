@@ -15,7 +15,7 @@ use super::{
     CompiledMolangExpression, EntityAnimationChannel, EntityAnimationClip,
     EntityAnimationController, EntityAnimationKeyframe, EntityControllerAnimation,
     EntityControllerState, EntityControllerTransition, EntityRigAnimationBinding, EntityRigBinding,
-    EntityRigControllerBinding, MolangCollection, MolangCollectionItem, MolangOp,
+    EntityRigControllerBinding, MolangCollection, MolangCollectionItem, MolangOp, MolangSymbol,
 };
 
 #[derive(Serialize)]
@@ -28,7 +28,7 @@ struct EntityCatalogPayloadRef<'a> {
     animation_clips: &'a [EntityAnimationClip],
     animation_channels: &'a [EntityAnimationChannel],
     animation_keyframes: &'a [EntityAnimationKeyframe],
-    molang_symbols: &'a [Box<str>],
+    molang_symbols: &'a [MolangSymbol],
     molang_expressions: &'a [CompiledMolangExpression],
     molang_ops: &'a [MolangOp],
     molang_collections: &'a [MolangCollection],

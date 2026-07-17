@@ -18,8 +18,8 @@ use entity::{
     MAX_ENTITY_ANIMATION_CLIPS, MAX_ENTITY_ANIMATION_KEYFRAMES, MAX_ENTITY_CONTROLLER_STATES,
     MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS, MAX_ENTITY_RIG_BINDINGS,
     MAX_MOLANG_COLLECTION_ITEMS, MAX_MOLANG_EXPRESSIONS, MAX_MOLANG_OPS_PER_EXPRESSION,
-    MAX_MOLANG_STACK_DEPTH, MolangCollection, MolangCollectionItem, MolangOp,
-    RuntimeEntityAssets as RuntimeEntityAssetsV4,
+    MAX_MOLANG_STACK_DEPTH, MolangCollection, MolangCollectionItem, MolangOp, MolangSymbol,
+    MolangSymbolKind, RuntimeEntityAssets as RuntimeEntityAssetsV4,
 };
 use item::{
     BlockVisualId as LeafBlockVisualId, ItemDisplayTransform, ItemVisualAlias,
@@ -526,7 +526,25 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
             interpolation: EntityAnimationInterpolation::Linear,
         }]
         .into_boxed_slice(),
-        molang_symbols: vec!["default".into()].into_boxed_slice(),
+        molang_symbols: vec![
+            MolangSymbol {
+                kind: MolangSymbolKind::Name,
+                identifier: "default".into(),
+            },
+            MolangSymbol {
+                kind: MolangSymbolKind::Query,
+                identifier: "query.anim_time".into(),
+            },
+            MolangSymbol {
+                kind: MolangSymbolKind::Variable,
+                identifier: "variable.speed".into(),
+            },
+            MolangSymbol {
+                kind: MolangSymbolKind::Temporary,
+                identifier: "temp.scratch".into(),
+            },
+        ]
+        .into_boxed_slice(),
         molang_expressions: vec![CompiledMolangExpression {
             first_op: 0,
             op_count: 1,
@@ -918,11 +936,10 @@ fn carrier_v4_requires_exact_valid_molang_program_stack_contracts() {
     zero.molang_ops = Box::new([]);
     assert!(zero.validate().is_err());
 
-    let mut final_zero = carrier_v4_fixture();
-    final_zero.molang_ops =
-        vec![final_zero.molang_ops[0], MolangOp::StoreVariable(0)].into_boxed_slice();
-    final_zero.molang_expressions[0].op_count = 2;
-    assert!(final_zero.validate().is_err());
+    let mut underflow = carrier_v4_fixture();
+    underflow.molang_ops = vec![MolangOp::Add].into_boxed_slice();
+    underflow.molang_expressions[0].max_stack = 0;
+    assert!(underflow.validate().is_err());
 
     let mut final_two = carrier_v4_fixture();
     final_two.molang_ops = vec![final_two.molang_ops[0]; 2].into_boxed_slice();

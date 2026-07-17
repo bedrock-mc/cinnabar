@@ -1,7 +1,7 @@
 use sha2::{Digest, Sha256};
 
 use super::{entity, item, suite::carrier_v4_fixture};
-use entity::{MolangOp, RuntimeEntityAssets};
+use entity::{MolangOp, MolangSymbol, MolangSymbolKind, RuntimeEntityAssets};
 
 fn assert_mutation_rejected(mutate: impl FnOnce(&mut entity::CompiledEntityAssets)) {
     let mut compiled = carrier_v4_fixture();
@@ -48,6 +48,131 @@ fn carrier_v4_rejects_every_extended_cross_index_relationship() {
 #[test]
 fn carrier_v4_validates_channel_bones_against_the_selected_rig_geometry() {
     assert_mutation_rejected(|c| c.geometries[0].bones = Box::new([]));
+}
+
+fn inherited_rig_fixture() -> entity::CompiledEntityAssets {
+    let mut compiled = carrier_v4_fixture();
+    let child_geometry = compiled.geometries[0].clone();
+    let mut parent_geometry = child_geometry.clone();
+    parent_geometry.identifier = "geometry.aaa_parent".into();
+    let mut child_geometry = child_geometry;
+    child_geometry.inherits = Some(entity::EntityGeometryInheritance {
+        identifier: parent_geometry.identifier.clone(),
+        resolution: entity::EntityDependencyResolution::Catalog,
+    });
+
+    let child_symbol = compiled.symbols[1].clone();
+    let mut parent_symbol = child_symbol.clone();
+    parent_symbol.identifier = parent_geometry.identifier.clone();
+    let mut symbols = compiled.symbols.to_vec();
+    symbols.insert(1, parent_symbol);
+    compiled.symbols = symbols.into_boxed_slice();
+    compiled.animation_clips[0].symbol += 1;
+    compiled.controllers[0].symbol += 1;
+    compiled.rig_bindings[0].render_controller += 1;
+    compiled.rig_bindings[0].geometry = 1;
+    compiled.geometries = vec![parent_geometry, child_geometry].into_boxed_slice();
+    compiled
+}
+
+#[test]
+fn carrier_v4_uses_effective_inherited_bones_for_rig_channels() {
+    let mut compiled = inherited_rig_fixture();
+    compiled.geometries[1].bones = Box::new([]);
+    assert!(compiled.validate().is_ok());
+
+    let mut compiled = inherited_rig_fixture();
+    compiled.geometries[1].bones = vec![
+        compiled.geometries[0].bones[0].clone(),
+        compiled.geometries[0].bones[0].clone(),
+    ]
+    .into_boxed_slice();
+    compiled.animation_channels[0].bone = 1;
+    assert!(compiled.validate().is_err());
+}
+
+#[test]
+fn carrier_v4_validates_controller_reachable_clips_for_the_selected_rig() {
+    let mut compiled = carrier_v4_fixture();
+    compiled.geometries[0].bones = Box::new([]);
+    compiled.rig_bindings[0].animation_count = 0;
+    compiled.rig_bindings[0].first_controller = 0;
+    compiled.rig_animations = Box::new([]);
+    assert!(compiled.validate().is_err());
+}
+
+fn typed_molang_fixture() -> entity::CompiledEntityAssets {
+    let mut compiled = carrier_v4_fixture();
+    compiled.molang_symbols = vec![
+        MolangSymbol {
+            kind: MolangSymbolKind::Name,
+            identifier: "default".into(),
+        },
+        MolangSymbol {
+            kind: MolangSymbolKind::Query,
+            identifier: "query.anim_time".into(),
+        },
+        MolangSymbol {
+            kind: MolangSymbolKind::Variable,
+            identifier: "variable.speed".into(),
+        },
+        MolangSymbol {
+            kind: MolangSymbolKind::Temporary,
+            identifier: "temp.scratch".into(),
+        },
+    ]
+    .into_boxed_slice();
+    compiled
+}
+
+#[test]
+fn carrier_v4_types_query_variable_and_temporary_symbol_references() {
+    let mut compiled = typed_molang_fixture();
+    compiled.molang_ops[0] = MolangOp::LoadQuery(1);
+    assert!(compiled.validate().is_ok());
+    compiled.molang_ops[0] = MolangOp::LoadQuery(2);
+    assert!(compiled.validate().is_err());
+
+    let mut compiled = typed_molang_fixture();
+    compiled.molang_ops[0] = MolangOp::LoadVariable(2);
+    assert!(compiled.validate().is_ok());
+    compiled.molang_ops[0] = MolangOp::LoadVariable(3);
+    assert!(compiled.validate().is_ok());
+    compiled.molang_ops[0] = MolangOp::LoadVariable(1);
+    assert!(compiled.validate().is_err());
+    compiled.molang_ops[0] = MolangOp::LoadVariable(0);
+    assert!(compiled.validate().is_err());
+}
+
+#[test]
+fn carrier_v4_rejects_unlisted_queries_and_assignment_opcodes() {
+    for query in [
+        "query.anim_time",
+        "query.life_time",
+        "query.modified_move_speed",
+        "query.ground_speed",
+        "query.is_on_ground",
+        "query.is_moving",
+        "query.is_sprinting",
+        "query.is_sneaking",
+        "query.is_sleeping",
+        "query.body_y_rotation",
+        "query.head_y_rotation",
+        "query.target_x_rotation",
+    ] {
+        let mut compiled = typed_molang_fixture();
+        compiled.molang_symbols[1].identifier = query.into();
+        compiled.molang_ops[0] = MolangOp::LoadQuery(1);
+        assert!(compiled.validate().is_ok(), "reviewed query {query}");
+    }
+
+    let mut compiled = typed_molang_fixture();
+    compiled.molang_symbols[1].identifier = "query.unreviewed".into();
+    compiled.molang_ops[0] = MolangOp::LoadQuery(1);
+    assert!(compiled.validate().is_err());
+
+    let encoded = r#"{"op":"store_variable","operand":2}"#;
+    assert!(serde_json::from_str::<MolangOp>(encoded).is_err());
 }
 
 #[test]
@@ -132,7 +257,7 @@ fn carrier_v4_rejects_each_new_total_ceiling_plus_one() {
 fn carrier_v4_summary_reports_every_retained_extended_section() {
     let blob = entity::encode_entity_blob(&carrier_v4_fixture()).unwrap();
     let summary = RuntimeEntityAssets::decode(&blob).unwrap().summary();
-    assert_eq!(summary.molang_symbols, 1);
+    assert_eq!(summary.molang_symbols, 4);
     assert_eq!(summary.molang_ops, 1);
     assert_eq!(summary.molang_collections, 1);
     assert_eq!(summary.molang_collection_items, 1);
