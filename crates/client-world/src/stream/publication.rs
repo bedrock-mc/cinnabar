@@ -76,6 +76,9 @@ impl WorldStream {
     pub fn take_committed_controls(&mut self) -> Vec<CommittedControlEvent> {
         self.committed_controls.drain(..).collect()
     }
+    pub fn take_committed_ui(&mut self) -> Vec<CommittedUiEvent> {
+        self.committed_ui.drain(..).collect()
+    }
     pub fn take_fatal_error(&mut self) -> Option<WorldStreamFatalError> {
         self.fatal_error.take()
     }

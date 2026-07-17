@@ -473,6 +473,18 @@ impl WorldStream {
                 let sequence = sequence.expect("sequenced actor events commit through submit");
                 let _ = self.actors.apply(self.actor_session_id, sequence, event);
             }
+            WorldEvent::Ui(event) => {
+                let sequence = sequence.expect("sequenced UI events commit through submit");
+                self.push_committed_ui(CommittedUiEvent::Ui { sequence, event });
+            }
+            WorldEvent::BlockCrack(event) => {
+                let sequence = sequence.expect("sequenced block cracks commit through submit");
+                self.push_committed_ui(CommittedUiEvent::BlockCrack {
+                    sequence,
+                    dimension: self.current_dimension,
+                    event,
+                });
+            }
             WorldEvent::SubChunks(_) => unreachable!("sub-chunk batches are prepared on workers"),
         }
     }
@@ -547,5 +559,12 @@ impl WorldStream {
             "control admission invariant exceeded bounded commit-delta capacity"
         );
         self.committed_controls.push_back(event);
+    }
+    pub(super) fn push_committed_ui(&mut self, event: CommittedUiEvent) {
+        assert!(
+            self.committed_ui.len() < COMMITTED_UI_CAPACITY,
+            "UI admission invariant exceeded bounded commit-delta capacity"
+        );
+        self.committed_ui.push_back(event);
     }
 }

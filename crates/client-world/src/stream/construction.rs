@@ -117,6 +117,7 @@ impl WorldStream {
             requests: VecDeque::new(),
             mesh_changes: VecDeque::new(),
             committed_controls: VecDeque::new(),
+            committed_ui: VecDeque::new(),
             publisher_center: Some([
                 floor_to_i32(resolved_server_position.position[0]),
                 floor_to_i32(resolved_server_position.position[1]),

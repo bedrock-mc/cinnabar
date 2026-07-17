@@ -65,6 +65,7 @@ use crate::{
             arm_shutdown_watchdog, drive_world_stream, startup_biome_tints, update_camera_medium,
         },
     },
+    ui_runtime::UiRuntime,
 };
 
 use crate::acceptance::model_witness::drive_model_witness;
@@ -180,6 +181,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .insert_resource(shutdown_watchdog.clone())
         .insert_resource(network)
         .insert_resource(ClientWorld::new(Arc::clone(&runtime_assets)))
+        .insert_resource(UiRuntime::new(0))
         .insert_resource(WorldClock::default())
         .insert_resource(WeatherState::default())
         .insert_resource(environment::CameraMediumState::default())

@@ -15,11 +15,11 @@ use ::meshing::{
 use assets::{LiveBiomeDefinition, NetworkIdMode, ResolvedBiomeTints, RuntimeAssets};
 use crossbeam_channel::{Receiver, Sender, bounded};
 use protocol::{
-    BiomeDefinitionEvent, BlockEntityUpdateEvent, BlockUpdateEvent, ChangeDimensionEvent,
-    DaylightCycleUpdateEvent, LevelChunkEvent, LevelChunkMode, MovePlayerEvent, Packet,
-    PlayerMovementCorrectionEvent, SetTimeEvent, SubChunkBatchEvent, SubChunkResult,
-    WeatherUpdateEvent, WorldBootstrap, WorldEvent, request_sub_chunk_column,
-    vanilla_dimension_range,
+    BiomeDefinitionEvent, BlockCrackEvent, BlockEntityUpdateEvent, BlockUpdateEvent,
+    ChangeDimensionEvent, DaylightCycleUpdateEvent, LevelChunkEvent, LevelChunkMode,
+    MovePlayerEvent, Packet, PlayerMovementCorrectionEvent, SetTimeEvent, SubChunkBatchEvent,
+    SubChunkResult, UiEvent, WeatherUpdateEvent, WorldBootstrap, WorldEvent,
+    request_sub_chunk_column, vanilla_dimension_range,
 };
 use thiserror::Error;
 use world::{
@@ -81,6 +81,7 @@ pub const PHASE0_MAX_VIEW_RADIUS_CHUNKS: i32 = 16;
 static NEXT_BIOME_TINT_STREAM_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_ACTOR_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 pub const COMMITTED_CONTROL_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;
+pub const COMMITTED_UI_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;
 pub const OUTBOUND_REQUEST_CAPACITY: usize = 64;
 pub const DEFERRED_RETRY_CAPACITY: usize = 64;
 pub const MAX_SUB_CHUNK_RETRIES: u8 = 2;
@@ -99,9 +100,9 @@ use model::{
     split_block_update,
 };
 pub use model::{
-    CommittedControlEvent, ForcedRemeshManifest, ForcedRemeshManifestState, PendingSubChunkRequest,
-    ViewCohort, ViewCohortStatus, WorldMeshChange, WorldStreamError, WorldStreamFatalError,
-    WorldStreamNormalizationStats, WorldStreamPoll, WorldStreamStats,
+    CommittedControlEvent, CommittedUiEvent, ForcedRemeshManifest, ForcedRemeshManifestState,
+    PendingSubChunkRequest, ViewCohort, ViewCohortStatus, WorldMeshChange, WorldStreamError,
+    WorldStreamFatalError, WorldStreamNormalizationStats, WorldStreamPoll, WorldStreamStats,
 };
 
 /// Ordered Bedrock world ingestion and bounded background meshing.
@@ -163,6 +164,7 @@ pub struct WorldStream {
     requests: VecDeque<OutboundRequestSlot>,
     mesh_changes: VecDeque<WorldMeshChange>,
     committed_controls: VecDeque<CommittedControlEvent>,
+    committed_ui: VecDeque<CommittedUiEvent>,
     publisher_center: Option<[i32; 3]>,
     publisher_radius_blocks: Option<u32>,
     publisher_radius_chunks: Option<i32>,
