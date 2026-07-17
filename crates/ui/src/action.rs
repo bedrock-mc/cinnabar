@@ -76,4 +76,8 @@ impl UiLimits {
     pub const MAX_TEXT_BYTES: usize = 16_384;
     pub const MAX_FOCUSABLE: usize = 4_096;
     pub const MAX_CLIP_DEPTH: usize = 32;
+    pub const MAX_UI_VERTICES: usize = 262_144;
+    pub const MAX_UI_INDICES: usize = 393_216;
+    pub const MAX_DRAW_BATCHES: usize = 8_192;
+    pub const MAX_DRAW_LIST_BYTES: usize = 16 * 1024 * 1024;
 }
