@@ -157,6 +157,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         },
     };
     let shutdown_watchdog = ShutdownWatchdog::process(SHUTDOWN_WATCHDOG_TIMEOUT);
+    let mut ui_runtime = UiRuntime::new(0);
+    ui_runtime.set_chat_identity(Arc::from(args.display_name.as_str()), Arc::from(""));
 
     let mut app = App::new();
     app.add_plugins(
@@ -189,7 +191,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .insert_resource(shutdown_watchdog.clone())
         .insert_resource(network)
         .insert_resource(ClientWorld::new(Arc::clone(&runtime_assets)))
-        .insert_resource(UiRuntime::new(0))
+        .insert_resource(ui_runtime)
         .insert_resource(
             UiPresentationRuntime::new(font_runtime)
                 .context("prepare bounded font texture array for UI rendering")?,

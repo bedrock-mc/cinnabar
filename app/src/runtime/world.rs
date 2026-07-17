@@ -357,6 +357,9 @@ pub(crate) fn drive_world_stream(
         && let Some(local_actor) = stream.actor(stream.local_player_runtime_id())
     {
         ui_runtime.sync_local_attributes(&local_actor.attributes);
+        if let protocol::ActorKind::Player { username, .. } = &local_actor.kind {
+            ui_runtime.set_chat_source_name(Arc::clone(username));
+        }
     }
     for control in controls {
         if apply_environment_control(control, &mut clock, &mut weather, time.elapsed_secs_f64()) {

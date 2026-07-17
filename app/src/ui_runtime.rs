@@ -10,16 +10,20 @@ use std::{
 
 use bevy::prelude::Resource;
 use protocol::{
-    ActorAttribute, BlockCrackEvent, HudEvent, PlayerStatus, TextEvent, TextKind, TitleAction,
-    TitleEvent, UiEvent,
+    ActorAttribute, BlockCrackEvent, ChatPacketError, HudEvent, Packet, PlayerStatus, TextEvent,
+    TextKind, TitleAction, TitleEvent, UiEvent, chat_text_packet,
 };
 use semantic_input::InputContext;
 use ui::{
-    BoundedStat, ChatApplyResult, ChatMessage, ChatMessageKind, ChatStore, HudPlayerStatus,
-    HudStore, TitleDurations, Toast,
+    BoundedStat, ChatApplyResult, ChatEditor, ChatHistory, ChatMessage, ChatMessageKind,
+    ChatRateLimit, ChatSendError, ChatSendQueue, ChatSendRequest, ChatStore, HudPlayerStatus,
+    HudStore, MAX_CHAT_INPUT_BYTES, TitleDurations, Toast,
 };
 
 pub const MAX_PENDING_BLOCK_CRACK_EVENTS: usize = 1_024;
+const MAX_PENDING_CHAT_SENDS: usize = 32;
+const MAX_CHAT_SENDS_PER_WINDOW: usize = 5;
+const CHAT_RATE_WINDOW_MILLIS: u64 = 2_000;
 
 #[derive(Clone, Debug)]
 pub struct SequencedUiEvent {
@@ -83,6 +87,12 @@ pub struct UiRuntime {
     chat_focused: bool,
     hud: HudStore,
     chat: ChatStore,
+    chat_editor: ChatEditor,
+    chat_history: ChatHistory,
+    chat_sends: ChatSendQueue,
+    chat_source_name: Arc<str>,
+    chat_xuid: Arc<str>,
+    dropped_unsent_chat_messages: u64,
     pending_block_cracks: VecDeque<SequencedBlockCrackEvent>,
 }
 
@@ -97,6 +107,18 @@ impl UiRuntime {
             chat_focused: false,
             hud: HudStore::default(),
             chat: ChatStore::default(),
+            chat_editor: ChatEditor::new(MAX_CHAT_INPUT_BYTES)
+                .expect("the reviewed chat input bound is valid"),
+            chat_history: ChatHistory::default(),
+            chat_sends: ChatSendQueue::new(
+                MAX_PENDING_CHAT_SENDS,
+                ChatRateLimit::new(MAX_CHAT_SENDS_PER_WINDOW, CHAT_RATE_WINDOW_MILLIS)
+                    .expect("the reviewed chat rate window is valid"),
+            )
+            .expect("the reviewed chat queue capacity is valid"),
+            chat_source_name: Arc::from(""),
+            chat_xuid: Arc::from(""),
+            dropped_unsent_chat_messages: 0,
             pending_block_cracks: VecDeque::with_capacity(MAX_PENDING_BLOCK_CRACK_EVENTS),
         }
     }
@@ -115,6 +137,54 @@ impl UiRuntime {
 
     pub const fn chat_focused(&self) -> bool {
         self.chat_focused
+    }
+
+    pub const fn chat_editor(&self) -> &ChatEditor {
+        &self.chat_editor
+    }
+
+    pub fn chat_editor_mut(&mut self) -> &mut ChatEditor {
+        &mut self.chat_editor
+    }
+
+    pub fn pending_chat_sends(&self) -> &VecDeque<ChatSendRequest> {
+        self.chat_sends.pending()
+    }
+
+    pub const fn dropped_unsent_chat_messages(&self) -> u64 {
+        self.dropped_unsent_chat_messages
+    }
+
+    pub fn set_chat_identity(&mut self, source_name: Arc<str>, xuid: Arc<str>) {
+        self.chat_source_name = source_name;
+        self.chat_xuid = xuid;
+    }
+
+    pub fn set_chat_source_name(&mut self, source_name: Arc<str>) {
+        self.chat_source_name = source_name;
+    }
+
+    pub fn queue_chat_send(&mut self, now_millis: u64) -> Result<ChatSendRequest, ChatSendError> {
+        let message = self.chat_editor.as_str();
+        let request = self.chat_sends.push(self.session_id, message, now_millis)?;
+        self.chat_history.push(Arc::clone(&request.message));
+        self.chat_editor.clear();
+        Ok(request)
+    }
+
+    pub fn front_chat_packet(&self) -> Result<Option<(u64, Packet)>, ChatPacketError> {
+        self.chat_sends
+            .pending()
+            .front()
+            .map(|request| {
+                chat_text_packet(&self.chat_source_name, &self.chat_xuid, &request.message)
+                    .map(|packet| (request.sequence, packet))
+            })
+            .transpose()
+    }
+
+    pub fn confirm_chat_send(&mut self, sequence: u64) -> bool {
+        self.chat_sends.confirm_front(sequence)
     }
 
     pub const fn pending_block_cracks(&self) -> &VecDeque<SequencedBlockCrackEvent> {
@@ -137,6 +207,12 @@ impl UiRuntime {
         self.chat_focused = false;
         self.hud.clear();
         self.chat.clear();
+        self.chat_editor.clear();
+        self.chat_history.clear_navigation();
+        let dropped = self.chat_sends.begin_session(session_id);
+        self.dropped_unsent_chat_messages = self
+            .dropped_unsent_chat_messages
+            .saturating_add(dropped as u64);
         self.pending_block_cracks.clear();
     }
 
@@ -150,6 +226,7 @@ impl UiRuntime {
 
     pub fn close_chat(&mut self) -> UiAuthorityTransition {
         self.chat_focused = false;
+        self.chat_editor.clear();
         UiAuthorityTransition {
             consumes_text: false,
             requested_context: InputContext::Gameplay,

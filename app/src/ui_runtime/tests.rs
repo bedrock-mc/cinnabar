@@ -241,3 +241,37 @@ fn local_actor_health_and_hunger_attributes_fan_into_hud_state() {
     assert_eq!(runtime.hud().health(), BoundedStat::new(1_750, 2_000));
     assert_eq!(runtime.hud().hunger(), BoundedStat::new(1_400, 2_000));
 }
+
+#[test]
+fn accepted_chat_send_clears_editor_and_session_replacement_attributes_drops() {
+    let mut runtime = UiRuntime::new(11);
+    runtime.set_chat_identity(Arc::from("Player"), Arc::from("1234"));
+    runtime.open_chat();
+    runtime.chat_editor_mut().insert("hello").unwrap();
+
+    let request = runtime.queue_chat_send(100).unwrap();
+    assert_eq!(request.session, 11);
+    assert_eq!(request.sequence, 0);
+    assert_eq!(request.message.as_ref(), "hello");
+    assert!(runtime.chat_editor().as_str().is_empty());
+    assert_eq!(runtime.pending_chat_sends().len(), 1);
+
+    runtime.begin_session(12);
+    assert!(runtime.pending_chat_sends().is_empty());
+    assert_eq!(runtime.dropped_unsent_chat_messages(), 1);
+}
+
+#[test]
+fn chat_packet_build_preserves_pending_request_until_transport_ack() {
+    let mut runtime = UiRuntime::new(3);
+    runtime.set_chat_identity(Arc::from("Alex"), Arc::from("xuid"));
+    runtime.chat_editor_mut().insert("ordered").unwrap();
+    runtime.queue_chat_send(0).unwrap();
+
+    let (sequence, _packet) = runtime.front_chat_packet().unwrap().unwrap();
+    assert_eq!(sequence, 0);
+    assert_eq!(runtime.pending_chat_sends().len(), 1);
+    assert!(!runtime.confirm_chat_send(1));
+    assert!(runtime.confirm_chat_send(sequence));
+    assert!(runtime.pending_chat_sends().is_empty());
+}
