@@ -9,8 +9,8 @@ use valentine::bedrock::version::v1_26_30::{
     SetHealthPacket, SetScorePacket, SetScorePacketAction, SetScorePacketEntriesItemContent,
     SetScorePacketEntriesItemContentEntityUniqueId, SetScorePacketEntriesItemContentEntryType,
     SetTitlePacket, SetTitlePacketType, TextPacket, TextPacketCategory, TextPacketContent,
-    TextPacketContentView, TextPacketType, ToastRequestPacket, UpdateSoftEnumPacket,
-    UpdateSoftEnumPacketActionType,
+    TextPacketContentAnnouncement, TextPacketContentView, TextPacketType, ToastRequestPacket,
+    UpdateSoftEnumPacket, UpdateSoftEnumPacketActionType,
 };
 
 pub const MAX_UI_TEXT_BYTES: usize = 16_384;
@@ -20,6 +20,59 @@ pub const MAX_CHAT_AUTOCOMPLETE_BYTES: usize = 65_536;
 pub const MAX_SCORE_ENTRIES_PER_PACKET: usize = 8_192;
 pub const MAX_BOSS_EVENTS: usize = 64;
 pub const MAX_FORM_JSON_BYTES: usize = 1_048_576;
+pub const MAX_OUTBOUND_CHAT_BYTES: usize = 512;
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum ChatPacketError {
+    #[error("chat message must not be empty")]
+    EmptyMessage,
+    #[error("chat message has {bytes} bytes, exceeding {max}")]
+    MessageTooLong { bytes: usize, max: usize },
+    #[error("chat identity field {field} has {bytes} bytes, exceeding {max}")]
+    IdentityTooLong {
+        field: &'static str,
+        bytes: usize,
+        max: usize,
+    },
+}
+
+pub fn chat_text_packet(
+    source_name: &str,
+    xuid: &str,
+    message: &str,
+) -> Result<crate::Packet, ChatPacketError> {
+    if message.is_empty() {
+        return Err(ChatPacketError::EmptyMessage);
+    }
+    if message.len() > MAX_OUTBOUND_CHAT_BYTES {
+        return Err(ChatPacketError::MessageTooLong {
+            bytes: message.len(),
+            max: MAX_OUTBOUND_CHAT_BYTES,
+        });
+    }
+    for (field, value) in [("source_name", source_name), ("xuid", xuid)] {
+        if value.len() > MAX_UI_TEXT_BYTES {
+            return Err(ChatPacketError::IdentityTooLong {
+                field,
+                bytes: value.len(),
+                max: MAX_UI_TEXT_BYTES,
+            });
+        }
+    }
+    Ok(TextPacket {
+        needs_translation: false,
+        category: TextPacketCategory::Authored,
+        type_: TextPacketType::Chat,
+        content: Some(TextPacketContent::Chat(TextPacketContentAnnouncement {
+            source_name: source_name.to_owned(),
+            message: message.to_owned(),
+        })),
+        xuid: xuid.to_owned(),
+        platform_chat_id: String::new(),
+        filtered_message: None,
+    }
+    .into())
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum UiEvent {
