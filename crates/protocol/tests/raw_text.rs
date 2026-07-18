@@ -142,6 +142,61 @@ fn malformed_legacy_rawtext_envelope_fails_closed() {
 }
 
 #[test]
+fn escaped_legacy_rawtext_key_is_classified_semantically() {
+    let UiEvent::RawText(event) =
+        normalize_raw(r#"{"raw\u0074ext":[{"text":"Escaped key"}]}"#.to_owned()).unwrap()
+    else {
+        panic!("escaped rawtext key must retain typed semantics")
+    };
+
+    assert_eq!(event.text.message.as_ref(), "Escaped key");
+    assert!(!event.text.message.contains("rawtext"));
+}
+
+#[test]
+fn later_rawtext_member_fails_closed_instead_of_leaking_json() {
+    for value in [
+        r#"{"metadata":true,"rawtext":[{"text":"later"}]}"#,
+        r#"{"metadata":true,"raw\u0074ext":[{"text":"escaped later"}]}"#,
+        r#"{"metadata":true,"rawtext":[{"text":"unterminated}]}"#,
+        r#"{"metadata":true,"rawtext":[{"text":"ok"}],"extra":false}"#,
+        r#"{"rawtext":[{"text":"ok"}],"extra":"unterminated}"#,
+    ] {
+        assert!(
+            matches!(
+                normalize_raw(value.to_owned()),
+                Err(UiPacketError::InvalidRawText)
+            ),
+            "rawtext intent leaked as ordinary JSON: {value}"
+        );
+    }
+}
+
+#[test]
+fn duplicate_rawtext_members_fail_closed() {
+    assert!(matches!(
+        normalize_raw(
+            r#"{"rawtext":[{"text":"first"}],"raw\u0074ext":[{"text":"second"}]}"#.to_owned()
+        ),
+        Err(UiPacketError::InvalidRawText)
+    ));
+}
+
+#[test]
+fn unrelated_json_with_similar_or_escaped_keys_remains_literal() {
+    for value in [
+        r#"{"raw\u0074extish":[{"text":"ordinary"}]}"#,
+        r#"{"metadata":{"label":"rawtext"}}"#,
+        r#"{"status":"unterminated}"#,
+    ] {
+        let UiEvent::Text(event) = normalize_raw(value.to_owned()).unwrap() else {
+            panic!("unrelated JSON must remain ordinary text: {value}")
+        };
+        assert_eq!(event.message.as_ref(), value);
+    }
+}
+
+#[test]
 fn raw_text_preserves_nested_translation_and_unresolved_components_without_guessing() {
     let document = parse_raw_text(
         r#"{"rawtext":[{"text":"\u00a76Round "},{"rawtext":[{"text":"one"}]},{"translate":"chat.type.text","with":["Alice",{"rawtext":[{"text":"hello"}]}]},{"score":{"name":"*","objective":"kills"}},{"selector":"@a"}]}"#,
