@@ -154,10 +154,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         loaded_assets.entities.selected_path().display()
     );
     eprintln!("{}", loaded_assets.entities.startup_summary());
-    eprintln!(
-        "loaded required font assets from {}",
-        loaded_assets.fonts.selected_path().display()
-    );
+    eprintln!("{}", loaded_assets.fonts.startup_summary());
     let font_runtime = loaded_assets.fonts.into_runtime();
     let (atmosphere_runtime, atmosphere_identity) = loaded_assets.atmosphere.into_parts();
     let runtime_assets = loaded_assets.runtime;

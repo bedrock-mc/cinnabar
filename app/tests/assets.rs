@@ -21,9 +21,11 @@ use bedrock_client::args::{ClientArgs, ParseOutcome};
 use bedrock_client::asset_startup::{
     ATMOSPHERE_COMPILE_COMMAND, ATMOSPHERE_FILENAME, AssetPathSource, COMPILE_COMMAND,
     DEFAULT_ASSET_PATH, ENTITY_ASSETS_COMPILE_COMMAND, ENTITY_ASSETS_FILENAME, FETCH_COMMAND,
-    FONT_ASSETS_COMPILE_COMMAND, FONT_ASSETS_FILENAME, LoadedAssetKind, atmosphere_asset_path,
+    FONT_ASSETS_COMPILE_COMMAND, FONT_ASSETS_FILENAME, LOCAL_FONT_ASSETS_COMPILE_COMMAND,
+    LOCAL_FONT_ASSETS_FILENAME, LoadedAssetKind, atmosphere_asset_path,
     atmosphere_shader_source_sha256, cloud_shader_source_sha256, entity_asset_path,
-    font_asset_path, load_runtime_assets, select_asset_path, select_asset_path_in_context,
+    font_asset_path, load_runtime_assets, local_font_asset_path, select_asset_path,
+    select_asset_path_in_context,
 };
 use bedrock_client::metrics::{DIAGNOSTIC_TOP_LIMIT, DiagnosticQuadTracker, MetricsCollector};
 use client_world::{BackingBlockIdentity, BlockEntityVisualRoute, adjudicate_block_entity_visual};
@@ -181,6 +183,10 @@ fn synthetic_entity_blob_with_manifest(seed: u8, source_manifest_sha256: [u8; 32
 }
 
 fn synthetic_font_blob(seed: u8) -> Box<[u8]> {
+    synthetic_font_blob_with_manifest(seed, canonical_ui_font_source_manifest_sha256())
+}
+
+fn synthetic_font_blob_with_manifest(seed: u8, manifest_sha256: [u8; 32]) -> Box<[u8]> {
     let rgba8 = vec![seed, seed, seed, 255].into_boxed_slice();
     let page = FontTexturePage {
         source_path: "font/default8.png".into(),
@@ -198,7 +204,7 @@ fn synthetic_font_blob(seed: u8) -> Box<[u8]> {
         bearing: [0, 0],
         advance_64: 64,
     }];
-    encode_font_catalog(canonical_ui_font_source_manifest_sha256(), &glyphs, &[page]).unwrap()
+    encode_font_catalog(manifest_sha256, &glyphs, &[page]).unwrap()
 }
 
 fn canonical_vanilla_source_manifest_sha256() -> [u8; 32] {
@@ -949,6 +955,11 @@ fn documented_commands_target_only_ignored_local_asset_paths() {
     assert_eq!(ENTITY_ASSETS_COMPILE_COMMAND, "make entity-assets");
     assert_eq!(FONT_ASSETS_FILENAME, "ui-inter-v1.mcbefont");
     assert_eq!(FONT_ASSETS_COMPILE_COMMAND, "make font-assets");
+    assert_eq!(LOCAL_FONT_ASSETS_FILENAME, "vanilla-v1.mcbefont");
+    assert_eq!(
+        LOCAL_FONT_ASSETS_COMPILE_COMMAND,
+        "make font-assets-local FONT_PACK_DIR=<reviewed-font-pack>"
+    );
     assert_eq!(
         atmosphere_asset_path(Path::new(DEFAULT_ASSET_PATH)),
         PathBuf::from(".local/assets/compiled/vanilla-v1.mcbeatm")
@@ -956,6 +967,14 @@ fn documented_commands_target_only_ignored_local_asset_paths() {
     assert_eq!(
         entity_asset_path(Path::new(DEFAULT_ASSET_PATH)),
         PathBuf::from(".local/assets/compiled/vanilla-v1.mcbeent")
+    );
+    assert_eq!(
+        font_asset_path(Path::new(DEFAULT_ASSET_PATH)),
+        PathBuf::from(".local/assets/compiled/ui-inter-v1.mcbefont")
+    );
+    assert_eq!(
+        local_font_asset_path(Path::new(DEFAULT_ASSET_PATH)),
+        PathBuf::from(".local/assets/compiled/vanilla-v1.mcbefont")
     );
 }
 
@@ -1073,6 +1092,38 @@ fn missing_font_carrier_uses_the_bounded_builtin_diagnostic_font() {
     let loaded = load_runtime_assets(select_asset_path(Some(&path), None)).unwrap();
     assert!(loaded.fonts.is_diagnostic());
     assert_eq!(loaded.fonts.selected_path(), font_asset_path(&path));
+    let summary = loaded.fonts.startup_summary();
+    assert!(summary.contains("using bounded diagnostic font fallback"));
+    assert!(!summary.contains("loaded required font assets"));
+    fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn explicit_local_font_carrier_takes_precedence_without_replacing_inter() {
+    let directory = temporary_directory("local-font-precedence");
+    let path = directory.join("custom-world.mcbea");
+    fs::write(&path, synthetic_blob()).unwrap();
+    fs::write(
+        atmosphere_asset_path(&path),
+        synthetic_atmosphere_blob(0x7d),
+    )
+    .unwrap();
+    fs::write(entity_asset_path(&path), synthetic_entity_blob(0x7e)).unwrap();
+    let inter_path = font_asset_path(&path);
+    fs::write(&inter_path, synthetic_font_blob(0x7f)).unwrap();
+    let local_path = path.with_file_name("vanilla-v1.mcbefont");
+    fs::write(
+        &local_path,
+        synthetic_font_blob_with_manifest(0x80, canonical_vanilla_source_manifest_sha256()),
+    )
+    .unwrap();
+
+    let loaded = load_runtime_assets(select_asset_path(Some(&path), None)).unwrap();
+    assert_eq!(loaded.fonts.selected_path(), local_path);
+    assert!(
+        inter_path.is_file(),
+        "the Inter fallback must remain intact"
+    );
     fs::remove_dir_all(directory).unwrap();
 }
 
@@ -1128,6 +1179,13 @@ fn startup_hands_the_single_decoded_atmosphere_identity_to_the_renderer() {
         1,
         "the required MCBEATM2 runtime must move into render exactly once"
     );
+}
+
+#[test]
+fn startup_log_uses_the_font_selection_summary_instead_of_claiming_diagnostic_is_required() {
+    let source = include_str!("../src/app.rs");
+    assert!(source.contains("loaded_assets.fonts.startup_summary()"));
+    assert!(!source.contains("\"loaded required font assets from {}\""));
 }
 
 #[test]
@@ -1298,14 +1356,20 @@ fn make_assets_and_client_refresh_the_entity_carrier_and_report() {
 
 #[test]
 fn make_builds_the_pinned_open_font_for_default_launch() {
-    let makefile = fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .unwrap()
-            .join("Makefile"),
-    )
-    .unwrap()
-    .replace("\r\n", "\n");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let makefile = fs::read_to_string(root.join("Makefile"))
+        .unwrap()
+        .replace("\r\n", "\n");
+    let attributes = fs::read_to_string(root.join(".gitattributes"))
+        .unwrap()
+        .replace("\r\n", "\n");
+
+    assert!(
+        attributes
+            .lines()
+            .any(|line| line == "assets/ui-font-source.json text eol=lf"),
+        "the hashed UI-font manifest must retain LF bytes in fresh Windows checkouts"
+    );
 
     for contract in [
         "UI_FONT_SOURCE_MANIFEST ?= assets/ui-font-source.json",
@@ -1313,6 +1377,8 @@ fn make_builds_the_pinned_open_font_for_default_launch() {
         "UI_FONT_SOURCE ?= $(UI_FONT_DIR)/Inter.ttf",
         "FONT_ASSET_BLOB ?= .local/assets/compiled/ui-inter-v1.mcbefont",
         "FONT_ASSET_REPORT ?= .local/assets/compiled/ui-inter-font-assets.json",
+        "LOCAL_FONT_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbefont",
+        "LOCAL_FONT_ASSET_REPORT ?= .local/assets/compiled/font-assets.json",
         "FONT_PACK_DIR ?= .local/assets/font-source",
         concat!(
             "FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- outline-font-assets ",
@@ -1321,7 +1387,8 @@ fn make_builds_the_pinned_open_font_for_default_launch() {
         ),
         concat!(
             "LOCAL_FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- font-assets ",
-            "--pack \"$(FONT_PACK_DIR)\" --source-manifest \"$(VANILLA_SOURCE_MANIFEST)\" "
+            "--pack \"$(FONT_PACK_DIR)\" --source-manifest \"$(VANILLA_SOURCE_MANIFEST)\" ",
+            "--out \"$(LOCAL_FONT_ASSET_BLOB)\" --report \"$(LOCAL_FONT_ASSET_REPORT)\""
         ),
         "font-assets: $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT)",
         "font-assets-local:",
