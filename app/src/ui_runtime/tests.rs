@@ -730,10 +730,11 @@ fn gameplay_touch_targets_cover_movement_jump_use_look_and_release_transitions()
     reconcile_gameplay_touch_targets(
         &mut targets,
         &[
-            GameplayTouchSample::new(1, [0.25, 0.25], [0.0, 0.0]),
+            GameplayTouchSample::new(1, [0.25, 0.75], [0.0, 0.0]),
             GameplayTouchSample::new(2, [0.75, 0.75], [0.0, 0.0]),
             GameplayTouchSample::new(3, [0.90, 0.75], [0.0, 0.0]),
             GameplayTouchSample::new(4, [0.70, 0.40], [0.08, 0.01]),
+            GameplayTouchSample::new(5, [0.25, 0.25], [0.0, 0.0]),
         ],
     );
 
@@ -742,6 +743,8 @@ fn gameplay_touch_targets_cover_movement_jump_use_look_and_release_transitions()
     assert_eq!(targets.target(2), Some(semantic_input::touch::JUMP));
     assert_eq!(targets.target(3), Some(semantic_input::touch::USE));
     assert_eq!(targets.target(4), Some(semantic_input::touch::LOOK_RIGHT));
+    assert!(!targets.is_movement(5));
+    assert_eq!(targets.target(5), None);
 
     reconcile_gameplay_touch_targets(
         &mut targets,

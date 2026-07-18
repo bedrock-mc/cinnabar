@@ -122,6 +122,23 @@ impl PredictionHistory {
         simulator: &Simulator,
         world: &impl CollisionWorld,
     ) -> Result<ReplayResult, PredictionError> {
+        self.rewind_and_replay_traced(current, corrected, simulator, world)
+            .map(|(result, _)| result)
+    }
+
+    /// Rewinds like [`Self::rewind_and_replay`] and also returns the fresh
+    /// immutable result of every replayed tick in ascending tick order.
+    ///
+    /// Callers that retain outbound predictions use this trace to prove that
+    /// replacement samples were evaluated against the exact same collision
+    /// identity as the samples they replace. Failure remains transactional.
+    pub fn rewind_and_replay_traced(
+        &mut self,
+        current: &mut PlayerState,
+        corrected: PlayerState,
+        simulator: &Simulator,
+        world: &impl CollisionWorld,
+    ) -> Result<(ReplayResult, Vec<TickResult>), PredictionError> {
         validate_player_state(&corrected)?;
         let Some(index) = self
             .frames
@@ -138,18 +155,23 @@ impl PredictionHistory {
         let mut candidate = self.clone();
         candidate.frames[index].state = corrected.clone();
         let mut replayed_state = corrected;
+        let mut ticks = Vec::with_capacity(candidate.frames.len() - index - 1);
         for frame_index in (index + 1)..candidate.frames.len() {
             let input = candidate.frames[frame_index].input;
-            simulator.tick(&mut replayed_state, input, world)?;
+            let tick = simulator.tick(&mut replayed_state, input, world)?;
             candidate.frames[frame_index].state = replayed_state.clone();
+            ticks.push(tick);
         }
         let replayed_ticks = candidate.frames.len() - index - 1;
         let corrected_tick = candidate.frames[index].state.tick;
         *current = replayed_state;
         *self = candidate;
-        Ok(ReplayResult {
-            corrected_tick,
-            replayed_ticks,
-        })
+        Ok((
+            ReplayResult {
+                corrected_tick,
+                replayed_ticks,
+            },
+            ticks,
+        ))
     }
 }

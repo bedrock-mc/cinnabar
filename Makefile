@@ -7,6 +7,7 @@ POWERSHELL ?= powershell
 SOCKET_DIR ?= .local/run-zeqa
 AUTH_CACHE ?= .local/auth/microsoft-token.json
 NO_VSYNC ?= 0
+RUST_MCBE_BUILD_COMMIT ?= $(shell git rev-parse HEAD)
 
 PACK_DIR ?= .local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack
 FONT_PACK_DIR ?= .local/assets/font-source
@@ -128,7 +129,7 @@ core:
 	$(GO) run ./core/cmd/bedrock-core -socket-dir "$(SOCKET_DIR)" -upstream "$(UPSTREAM)" -auth-cache "$(AUTH_CACHE)"
 
 client: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT) $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT) physics-assets
-	$(CARGO) run --release -p bedrock-client --locked -- --socket-dir "$(SOCKET_DIR)" $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
+	RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) run --release -p bedrock-client --locked -- --socket-dir "$(SOCKET_DIR)" $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
 
 client-windows client-macos client-linux: client
 

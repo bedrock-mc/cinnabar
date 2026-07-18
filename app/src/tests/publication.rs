@@ -7,19 +7,22 @@ use bevy::{
 use render::ChunkUploadBudget;
 
 use crate::app::{
-    ClientFrameSet, configure_client_frame_schedule, configure_client_production_frame_systems,
+    ClientFrameSet, configure_acceptance_finish_system, configure_client_frame_schedule,
+    configure_client_production_frame_systems,
 };
 use crate::local_player::{
     publish_interaction_origin, publish_local_player_frame, resolve_camera_pose,
 };
 use crate::movement::advance_local_physics;
 use crate::runtime::network::{publish_actor_render_frame, receive_network_events};
+use crate::runtime::phase3_evidence::emit_phase3_evidence;
 use crate::runtime::publication::{
     PublicationController, PublicationControllerConfig, PublicationFrameWork,
     adaptive_publication_diagnostic_line,
 };
+use crate::runtime::shutdown::finish_acceptance_run;
 use crate::runtime::telemetry::send_player_auth_inputs;
-use crate::runtime::world::drive_world_stream;
+use crate::runtime::world::{drive_world_stream, reconcile_world_stream_before_physics};
 use crate::semantic_controls::{
     collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
     synchronize_semantic_input_authority,
@@ -135,6 +138,19 @@ fn production_client_systems_are_members_of_the_eleven_behavioral_sets() {
         "send_player_auth_inputs",
         ClientFrameSet::NetworkSend,
     );
+    assert!(
+        graph.dependency().graph().contains_edge(
+            system_node(graph, emit_phase3_evidence, "emit_phase3_evidence"),
+            system_node(graph, send_player_auth_inputs, "send_player_auth_inputs"),
+        ),
+        "the exact build/session/PREG/BREG identity marker must precede every candidate packet",
+    );
+    assert_system_in_stage(
+        graph,
+        emit_phase3_evidence,
+        "emit_phase3_evidence",
+        ClientFrameSet::NetworkSend,
+    );
 
     assert!(
         graph.dependency().graph().contains_edge(
@@ -157,6 +173,38 @@ fn production_client_systems_are_members_of_the_eleven_behavioral_sets() {
             stage_node(graph, ClientFrameSet::Physics),
         ),
         "correction/session/dimension ingress must invalidate state before Physics and Interaction"
+    );
+    assert!(
+        graph.dependency().graph().contains_edge(
+            system_node(
+                graph,
+                reconcile_world_stream_before_physics,
+                "reconcile_world_stream_before_physics",
+            ),
+            stage_node(graph, ClientFrameSet::Physics),
+        ),
+        "committed correction and dimension reconciliation must finish before Physics",
+    );
+}
+
+#[test]
+fn acceptance_terminal_runs_after_the_authoritative_network_send_stage() {
+    let mut app = App::new();
+    configure_client_frame_schedule(&mut app);
+    configure_client_production_frame_systems(&mut app);
+    configure_acceptance_finish_system(&mut app);
+
+    let schedules = app.world().resource::<Schedules>();
+    let graph = schedules
+        .get(Update)
+        .expect("production Update schedule")
+        .graph();
+    assert!(
+        graph.dependency().graph().contains_edge(
+            stage_node(graph, ClientFrameSet::NetworkSend),
+            system_node(graph, finish_acceptance_run, "finish_acceptance_run"),
+        ),
+        "the terminal evidence marker must sample the outbox only after the final send attempt",
     );
 }
 
