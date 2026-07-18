@@ -13,6 +13,12 @@ FONT_PACK_DIR ?= .local/assets/font-source
 BLOCK_REGISTRY ?= crates/assets/data/block-registry-v1001.bin
 LIGHT_REGISTRY ?= crates/assets/data/block-light-registry-v1001.bin
 BIOME_REGISTRY ?= crates/assets/data/biome-registry-v1001.bin
+BLOCK_DATA_MANIFEST ?= assets/block-data-sources.json
+BLOCK_DATA_DIR ?= .local/assets/block-data
+BLOCK_DATA_SENTINEL ?= $(BLOCK_DATA_DIR)/pmmp/protocol_info.json
+PHYSICS_REGISTRY ?= .local/assets/block-physics-v1001.bin
+PHYSICS_REGISTRY_SHA256 ?= crates/assets/data/block-physics-v1001.sha256
+PHYSICS_BUILD_DIR ?= .local/phase3
 VANILLA_SOURCE_MANIFEST ?= assets/vanilla-source.json
 ASSET_BLOB ?= .local/assets/compiled/vanilla-v1001.mcbea
 ATMOSPHERE_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeatm
@@ -24,11 +30,18 @@ FONT_ASSET_REPORT ?= .local/assets/compiled/font-assets.json
 CINNABAR_CLOUDS_PNG ?=
 CLOUDS_OVERRIDE_PREREQUISITE = FORCE_CINNABAR_CLOUDS_OVERRIDE
 ASSET_COMPILER_INPUTS := Cargo.toml Cargo.lock crates/assets/Cargo.toml crates/asset-compiler/Cargo.toml Makefile $(wildcard crates/assets/src/*.rs) $(wildcard crates/assets/src/*/*.rs) $(wildcard crates/asset-compiler/src/*.rs) $(wildcard crates/asset-compiler/src/*/*.rs) $(wildcard crates/asset-compiler/src/*/*/*.rs)
+REGISTRYGEN_INPUTS := tools/registrygen/go.mod tools/registrygen/go.sum $(wildcard tools/registrygen/*.go)
+BLOCK_DATA_FETCH_INPUTS := $(BLOCK_DATA_MANIFEST) tools/registrygen/go.mod tools/registrygen/go.sum $(wildcard tools/registrygen/cmd/datafetch/*.go)
+VALENTINE_PALETTE := crates/protocol/vendor/valentine/bedrock_versions/v1_26_30/src/block_palette.bin
+VALENTINE_BLOCKS := crates/protocol/vendor/valentine/bedrock_versions/v1_26_30/src/blocks.rs
+BLOCK_DATA_FETCH = $(GO) -C tools/registrygen run ./cmd/datafetch -manifest "$(abspath $(BLOCK_DATA_MANIFEST))" -out "$(abspath $(BLOCK_DATA_DIR))"
+PHYSICS_REGISTRY_CHECK = $(GO) -C tools/registrygen run ./cmd/hashcheck -file "$(abspath $(PHYSICS_REGISTRY))" -sha256-file "$(abspath $(PHYSICS_REGISTRY_SHA256))"
+PHYSICS_REGISTRY_COMPILE = $(GO) -C tools/registrygen run . -out "$(abspath $(PHYSICS_BUILD_DIR))/block-registry-v1001.bin" -light-out "$(abspath $(PHYSICS_BUILD_DIR))/block-light-registry-v1001.bin" -light-breg "$(abspath $(BLOCK_REGISTRY))" -physics-out "$(abspath $(PHYSICS_REGISTRY))" -physics-sha-out "$(abspath $(PHYSICS_BUILD_DIR))/block-physics-v1001.sha256" -physics-breg "$(abspath $(BLOCK_REGISTRY))" -pmmp "$(abspath $(BLOCK_DATA_DIR))/pmmp" -prismarine "$(abspath $(BLOCK_DATA_DIR))/prismarine" -valentine-palette "$(abspath $(VALENTINE_PALETTE))" -valentine-blocks "$(abspath $(VALENTINE_BLOCKS))"
 ATMOSPHERE_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- atmosphere --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" $(if $(strip $(CINNABAR_CLOUDS_PNG)),--clouds-override "$(CINNABAR_CLOUDS_PNG)") --out "$(ATMOSPHERE_BLOB)" --report "$(ATMOSPHERE_REPORT)"
 ENTITY_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- entity-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(ENTITY_ASSET_BLOB)" --report "$(ENTITY_ASSET_REPORT)"
 FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- font-assets --pack "$(FONT_PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(FONT_ASSET_BLOB)" --report "$(FONT_ASSET_REPORT)"
 
-.PHONY: help assets atmosphere-assets entity-assets font-assets core client client-windows client-macos client-linux client-wayland client-x11 FORCE_CINNABAR_CLOUDS_OVERRIDE
+.PHONY: help assets atmosphere-assets entity-assets font-assets physics-assets core client client-windows client-macos client-linux client-wayland client-x11 FORCE_CINNABAR_CLOUDS_OVERRIDE
 
 FORCE_CINNABAR_CLOUDS_OVERRIDE:
 
@@ -37,6 +50,7 @@ help:
 	@echo make atmosphere-assets - Compile pinned sun, moon, and cloud runtime assets
 	@echo make entity-assets   - Compile pinned entity catalog and geometry payloads
 	@echo make font-assets     - Compile a reviewed local bitmap font source via FONT_PACK_DIR
+	@echo make physics-assets  - Acquire pinned block data and compile the protocol-1001 physics registry
 	@echo make core            - Compile and run the Go networking/auth core
 	@echo make client          - Refresh stale assets, then run the release Rust client
 	@echo make client-windows  - Run the client on Windows
@@ -55,6 +69,15 @@ atmosphere-assets: $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT)
 entity-assets: $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT)
 
 font-assets: $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT)
+
+physics-assets: $(PHYSICS_REGISTRY)
+	$(PHYSICS_REGISTRY_CHECK) || ( $(PHYSICS_REGISTRY_COMPILE) && $(PHYSICS_REGISTRY_CHECK) )
+
+$(BLOCK_DATA_SENTINEL): $(BLOCK_DATA_FETCH_INPUTS)
+	$(BLOCK_DATA_FETCH)
+
+$(PHYSICS_REGISTRY): $(BLOCK_DATA_SENTINEL) $(REGISTRYGEN_INPUTS) $(BLOCK_REGISTRY) $(LIGHT_REGISTRY) $(VALENTINE_PALETTE) $(VALENTINE_BLOCKS)
+	$(PHYSICS_REGISTRY_COMPILE)
 
 $(ASSET_BLOB): $(ASSET_COMPILER_INPUTS) $(BLOCK_REGISTRY) $(LIGHT_REGISTRY) $(BIOME_REGISTRY)
 ifeq ($(OS),Windows_NT)
@@ -87,7 +110,7 @@ core:
 	@echo bedrock-core: build starting package=./core/cmd/bedrock-core
 	$(GO) run ./core/cmd/bedrock-core -socket-dir "$(SOCKET_DIR)" -upstream "$(UPSTREAM)" -auth-cache "$(AUTH_CACHE)"
 
-client: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT)
+client: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT) physics-assets
 	$(CARGO) run --release -p bedrock-client --locked -- --socket-dir "$(SOCKET_DIR)" $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
 
 client-windows client-macos client-linux: client

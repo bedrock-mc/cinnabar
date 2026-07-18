@@ -77,9 +77,8 @@ use crate::acceptance::model_witness::drive_model_witness;
 const PHYSICS_REGISTRY_PATH: &str = ".local/assets/block-physics-v1001.bin";
 const PHYSICS_REGISTRY_SHA256: &str =
     include_str!("../../crates/assets/data/block-physics-v1001.sha256");
-const PHYSICS_REGISTRY_GENERATION_GUIDANCE: &str = "run `powershell -NoProfile \
--ExecutionPolicy Bypass -File scripts/acquire-block-data.ps1`, then run the PREG1001 \
-`go -C tools/registrygen run .` command documented in README.md";
+const PHYSICS_REGISTRY_GENERATION_GUIDANCE: &str =
+    "run `make physics-assets` (normal `make client` does this automatically)";
 
 fn read_verified_physics_registry(path: &Path, expected_sha256: &str) -> Result<Vec<u8>> {
     let bytes = fs::read(path).with_context(|| {
@@ -371,8 +370,8 @@ mod preg_startup_tests {
         let message = format!("{error:#}");
 
         assert!(message.contains("stale or corrupt"));
-        assert!(message.contains("scripts/acquire-block-data.ps1"));
-        assert!(message.contains("tools/registrygen"));
+        assert!(message.contains("make physics-assets"));
+        assert!(message.contains("make client"));
     }
 
     #[test]
@@ -383,7 +382,7 @@ mod preg_startup_tests {
         let message = format!("{error:#}");
 
         assert!(message.contains("read required protocol-1001 physics registry"));
-        assert!(message.contains("scripts/acquire-block-data.ps1"));
-        assert!(message.contains("tools/registrygen"));
+        assert!(message.contains("make physics-assets"));
+        assert!(message.contains("make client"));
     }
 }
