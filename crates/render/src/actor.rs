@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use bevy::{
     math::{Mat4, Vec3, Vec4},
@@ -23,7 +23,7 @@ pub use rig::{
     ActorRigFrameBuilder, ActorRigGeometry, ActorRigGeometryError, ActorRigGeometrySpan,
     ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission,
     ActorRigVertex, EntityRigId, MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_RIG_VERTICES,
-    MAX_RENDER_BONES_PER_ACTOR, RenderBoneTransform,
+    MAX_RENDER_BONES_PER_ACTOR, RenderBoneTransform, actor_rig_submission_is_visible,
 };
 
 pub const MAX_RENDERED_PLAYERS: usize = 128;
@@ -319,12 +319,14 @@ impl ActorRenderScene {
         skins_rgba8: Arc<[u8]>,
     ) -> &ActorRenderFrame {
         let rig = self.rig_builder.build(partial_tick, view, submissions);
-        let expected_skin_bytes = rig.instances.len().saturating_mul(STANDARD_SKIN_BYTES);
+        let skin_payload_is_aligned = skins_rgba8.len().is_multiple_of(STANDARD_SKIN_BYTES);
+        let skin_layer_count = skins_rgba8.len() / STANDARD_SKIN_BYTES;
         let invalid_skin_layer = rig
             .instances
             .iter()
-            .any(|instance| instance.texture_layer as usize >= rig.instances.len());
-        if skins_rgba8.len() != expected_skin_bytes || invalid_skin_layer {
+            .any(|instance| instance.texture_layer as usize >= skin_layer_count);
+        if !skin_payload_is_aligned || skin_layer_count > MAX_RENDERED_PLAYERS || invalid_skin_layer
+        {
             let rejects = rig.rejects;
             self.frame.rig = ActorRigRenderFrame {
                 geometry_revision: rig.geometry_revision,
@@ -442,18 +444,28 @@ fn quaternion_from_euler_degrees(rotation: [f32; 3]) -> [f32; 4] {
 }
 
 fn normalize_skin(skin: Option<&ActorSkinPixels>) -> Vec<u8> {
-    let Some(skin) = skin else {
-        return generated_default_skin();
-    };
+    skin.and_then(normalize_actor_skin)
+        .unwrap_or_else(default_actor_skin_rgba8)
+        .to_vec()
+}
+
+#[must_use]
+pub fn default_actor_skin_rgba8() -> Arc<[u8]> {
+    static DEFAULT_SKIN: OnceLock<Arc<[u8]>> = OnceLock::new();
+    Arc::clone(DEFAULT_SKIN.get_or_init(|| generated_default_skin().into()))
+}
+
+#[must_use]
+pub fn normalize_actor_skin(skin: &ActorSkinPixels) -> Option<Arc<[u8]>> {
     if skin.width != skin.height || !matches!(skin.width, 64 | 128 | 256) {
-        return generated_default_skin();
+        return None;
     }
     let side = usize::try_from(skin.width).expect("bounded standard skin side");
     if skin.rgba8.len() != side * side * 4 {
-        return generated_default_skin();
+        return None;
     }
     if side == STANDARD_SKIN_SIDE {
-        return skin.rgba8.to_vec();
+        return Some(Arc::clone(&skin.rgba8));
     }
     let mut normalized = vec![0; STANDARD_SKIN_BYTES];
     for y in 0..STANDARD_SKIN_SIDE {
@@ -465,7 +477,7 @@ fn normalize_skin(skin: Option<&ActorSkinPixels>) -> Vec<u8> {
             normalized[target..target + 4].copy_from_slice(&skin.rgba8[source..source + 4]);
         }
     }
-    normalized
+    Some(normalized.into())
 }
 
 fn generated_default_skin() -> Vec<u8> {
