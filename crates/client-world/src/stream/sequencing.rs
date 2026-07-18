@@ -521,7 +521,7 @@ impl WorldStream {
                     });
                 }
                 let movement = match &event {
-                    ActorEvent::Move(movement) => Some(movement.clone()),
+                    ActorEvent::Move(movement) => Some(*movement),
                     _ => None,
                 };
                 let result = self.actors.apply(self.actor_session_id, sequence, event);
