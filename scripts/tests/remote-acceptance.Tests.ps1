@@ -52,6 +52,30 @@ function New-SyntheticPhase2Publication {
     }
 }
 
+function New-SyntheticPhase2PublisherInitialization {
+    param(
+        [string]$RenderGenerationManifestHash = '00000000000000e1'
+    )
+
+    $record = New-SyntheticPhase2Publication -RequiredColumns 0 -LoadedColumns 0 `
+        -RequestsConstructed 0 -RequestsSent 0 -ResponsesAdmitted 0 -SubchunksCommitted 0 `
+        -PublisherRadiusBlocks $null -PublisherRadius $null -MeshJobsCompleted 0 `
+        -UploadsAcknowledged 0
+    $emptyManifestHash = 'cbf29ce484222325'
+    $record.publication.required_cohort_hash = $emptyManifestHash
+    foreach ($name in @('publisher_disk', 'resident', 'allocation', 'visible', 'submitted', 'gpu_presented')) {
+        $record.presentation.$name.required_cohort_hash = $emptyManifestHash
+        $record.presentation.$name.entry_count = 0
+    }
+    foreach ($name in @('publisher_disk', 'allocation')) {
+        $record.presentation.$name.generation_manifest_hash = $emptyManifestHash
+    }
+    foreach ($name in @('resident', 'visible', 'submitted', 'gpu_presented')) {
+        $record.presentation.$name.generation_manifest_hash = $RenderGenerationManifestHash
+    }
+    return $record
+}
+
 function New-SyntheticPhase2LunarManifest {
     param([ValidateSet('Diagnostic', 'Candidate', 'Final')][string]$Mode)
     $publication = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 197 `
@@ -225,32 +249,127 @@ Describe 'Phase 2 remote acceptance runner' {
         }
     }
 
-    It 'accepts coherent leading publisher initialization snapshots with paired JSON null radii' {
+    It 'accepts multiple coherent leading publisher initialization snapshots with evolving empty render generations' {
         $temporary = Join-Path ([IO.Path]::GetTempPath()) ('phase2-publisher-initialization-' + [guid]::NewGuid().ToString('N'))
         try {
             New-Item -ItemType Directory -Path $temporary | Out-Null
             $logPath = Join-Path $temporary 'client.log'
-            $initializing = New-SyntheticPhase2Publication -RequiredColumns 0 -LoadedColumns 0 `
-                -RequestsConstructed 0 -RequestsSent 0 -ResponsesAdmitted 0 -SubchunksCommitted 0 `
-                -PublisherRadiusBlocks $null -PublisherRadius $null -MeshJobsCompleted 0 -UploadsAcknowledged 0
-            $initializing.publication.required_cohort_hash = 'cbf29ce484222325'
-            foreach ($name in @('publisher_disk', 'resident', 'allocation', 'visible', 'submitted', 'gpu_presented')) {
-                $initializing.presentation.$name.required_cohort_hash = 'cbf29ce484222325'
-                $initializing.presentation.$name.generation_manifest_hash = 'cbf29ce484222325'
-            }
+            $initializing = New-SyntheticPhase2PublisherInitialization
+            $stillInitializing = New-SyntheticPhase2PublisherInitialization `
+                -RenderGenerationManifestHash '00000000000000e3'
             $initialized = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 177 `
                 -RequestsConstructed 177 -RequestsSent 177 -ResponsesAdmitted 3894 -SubchunksCommitted 3894
             @(
                 'PHASE2_PUBLICATION=' + ($initializing | ConvertTo-Json -Depth 20 -Compress)
+                'PHASE2_PUBLICATION=' + ($stillInitializing | ConvertTo-Json -Depth 20 -Compress)
                 'PHASE2_PUBLICATION=' + ($initialized | ConvertTo-Json -Depth 20 -Compress)
             ) | Set-Content -LiteralPath $logPath
 
             $evidence = Get-Phase2PublicationSequenceEvidence -ClientLogPath $logPath `
                 -ExpectedPresentMode Fifo -WorldReadyObserved:$false -Server Zeqa
 
-            $evidence.SnapshotCount | Should Be 2
+            $evidence.SnapshotCount | Should Be 3
             $evidence.FinalPublication.publication.publisher_radius_blocks | Should Be 128
             $evidence.FinalPublication.publication.publisher_radius_chunks | Should Be 8
+        }
+        finally {
+            Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'rejects unsafe publisher initialization state and attribution changes' {
+        $temporary = Join-Path ([IO.Path]::GetTempPath()) ('phase2-publisher-initialization-rejection-' + [guid]::NewGuid().ToString('N'))
+        try {
+            New-Item -ItemType Directory -Path $temporary | Out-Null
+            $initialized = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 177 `
+                -RequestsConstructed 177 -RequestsSent 177 -ResponsesAdmitted 3894 -SubchunksCommitted 3894
+            $writeAndReject = {
+                param([string]$Name, [object[]]$Records)
+                $path = Join-Path $temporary ($Name + '.log')
+                @($Records | ForEach-Object {
+                    'PHASE2_PUBLICATION=' + ($_ | ConvertTo-Json -Depth 20 -Compress)
+                }) | Set-Content -LiteralPath $path
+                { Get-Phase2PublicationSequenceEvidence -ClientLogPath $path `
+                    -ExpectedPresentMode Fifo -WorldReadyObserved:$false -Server Zeqa } |
+                    Should Throw
+            }
+
+            $blocksNull = New-SyntheticPhase2PublisherInitialization
+            $blocksNull.publication.publisher_radius_chunks = 8
+            & $writeAndReject 'blocks-null-only' @($blocksNull, $initialized)
+
+            $chunksNull = New-SyntheticPhase2PublisherInitialization
+            $chunksNull.publication.publisher_radius_blocks = 128
+            & $writeAndReject 'chunks-null-only' @($chunksNull, $initialized)
+
+            $nonemptyCohort = New-SyntheticPhase2PublisherInitialization
+            $nonemptyCohort.publication.required_columns = 1
+            & $writeAndReject 'nonempty-cohort' @($nonemptyCohort, $initialized)
+
+            $stageProgress = New-SyntheticPhase2PublisherInitialization
+            $stageProgress.publication.stages.requests_constructed = 1
+            $stageProgress.publication.stages.requests_ready = 1
+            & $writeAndReject 'stage-progress' @($stageProgress, $initialized)
+
+            $outcomeProgress = New-SyntheticPhase2PublisherInitialization
+            $outcomeProgress.publication.stages.responses_admitted = 1
+            $outcomeProgress.publication.outcomes.malformed = 1
+            & $writeAndReject 'outcome-progress' @($outcomeProgress, $initialized)
+
+            $presentedEntry = New-SyntheticPhase2PublisherInitialization
+            $presentedEntry.presentation.visible.entry_count = 1
+            & $writeAndReject 'presented-entry' @($presentedEntry, $initialized)
+
+            $timedWork = New-SyntheticPhase2PublisherInitialization
+            $timedWork.publication.max_queue_wait_us.decode = 1
+            & $writeAndReject 'queue-timing' @($timedWork, $initialized)
+
+            $workerTiming = New-SyntheticPhase2PublisherInitialization
+            $workerTiming.publication.max_worker_time_us.meshing = 1
+            & $writeAndReject 'worker-timing' @($workerTiming, $initialized)
+
+            $noncanonicalCohort = New-SyntheticPhase2PublisherInitialization
+            $noncanonicalCohort.publication.required_cohort_hash = 'deadbeefdeadbeef'
+            foreach ($name in @('publisher_disk', 'resident', 'allocation', 'visible', 'submitted', 'gpu_presented')) {
+                $noncanonicalCohort.presentation.$name.required_cohort_hash = 'deadbeefdeadbeef'
+            }
+            & $writeAndReject 'noncanonical-cohort' @($noncanonicalCohort, $initialized)
+
+            $noncanonicalManifest = New-SyntheticPhase2PublisherInitialization
+            $noncanonicalManifest.presentation.publisher_disk.generation_manifest_hash = 'feedfacefeedface'
+            & $writeAndReject 'noncanonical-empty-manifest' @($noncanonicalManifest, $initialized)
+
+            $replacementSession = New-SyntheticPhase2PublisherInitialization
+            $replacementSession.publication.session_generation = 2
+            foreach ($name in @('publisher_disk', 'resident', 'allocation', 'visible', 'submitted', 'gpu_presented')) {
+                $replacementSession.presentation.$name.session_generation = 2
+            }
+            & $writeAndReject 'session-replacement' @(
+                (New-SyntheticPhase2PublisherInitialization), $replacementSession, $initialized
+            )
+
+            $cacheDisabled = New-SyntheticPhase2PublisherInitialization
+            $cacheDisabled.client_blob_cache_enabled = $false
+            & $writeAndReject 'cache-enablement-change' @($cacheDisabled, $initialized)
+
+            foreach ($presentationChange in @('build', 'requested_mode', 'effective_mode', 'proof', 'graphics', 'assets')) {
+                $changed = New-SyntheticPhase2PublisherInitialization
+                switch ($presentationChange) {
+                    'build' { $changed.presentation.build_profile = 'debug' }
+                    'requested_mode' { $changed.presentation.requested_present_mode = 'immediate' }
+                    'effective_mode' { $changed.presentation.effective_present_mode = 'immediate' }
+                    'proof' { $changed.presentation.present_mode_proven = $false }
+                    'graphics' { $changed.presentation.graphics_identity_sha256 = 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc' }
+                    'assets' { $changed.presentation.assets_manifest_sha256 = 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd' }
+                }
+                & $writeAndReject ("presentation-$presentationChange") @(
+                    (New-SyntheticPhase2PublisherInitialization), $changed, $initialized
+                )
+            }
+
+            & $writeAndReject 'null-after-initialized' @(
+                $initialized, (New-SyntheticPhase2PublisherInitialization)
+            )
         }
         finally {
             Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue
