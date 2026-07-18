@@ -1,8 +1,10 @@
 //! App-owned conversion boundary between retained UI output and render POD.
 
+mod hud_adapter;
 pub mod inventory_router;
 pub mod presentation;
 pub mod render_adapter;
+mod scoreboard_adapter;
 
 use std::{collections::VecDeque, sync::Arc};
 
@@ -24,15 +26,15 @@ use bevy::{
 use protocol::{
     ActorAttribute, BlockCrackEvent, ChatAutocompleteCatalog, ChatAutocompleteCatalogError,
     ChatPacketError, EquipmentEvent, HudEvent, InventoryAuthority, InventoryEvent, Packet,
-    PlayerStatus, TextEvent, TextKind, TitleAction, TitleEvent, UiEvent, chat_text_packet,
+    TextEvent, TextKind, TitleAction, TitleEvent, UiEvent, chat_text_packet,
 };
 use semantic_input::InputContext;
 use ui::{
-    BoundedStat, ChatApplyResult, ChatAutocompleteError, ChatAutocompleteRequest,
+    BossBarStore, BoundedStat, ChatApplyResult, ChatAutocompleteError, ChatAutocompleteRequest,
     ChatAutocompleteResponse, ChatAutocompleteState, ChatClipboard, ChatEditor, ChatEditorError,
     ChatHistory, ChatMessage, ChatMessageKind, ChatPasteError, ChatRateLimit, ChatSendError,
-    ChatSendQueue, ChatSendRequest, ChatStore, HudPlayerStatus, HudStore, MAX_CHAT_INPUT_BYTES,
-    PointerPhase, TitleDurations, Toast, UiAction, UiPoint,
+    ChatSendQueue, ChatSendRequest, ChatStore, HudStore, MAX_CHAT_INPUT_BYTES, PointerPhase,
+    RetainedUiSequenceError, ScoreboardStore, TitleDurations, Toast, UiAction, UiPoint,
 };
 
 use self::inventory_router::{EquipmentRoute, InventoryEquipmentRouter, InventoryRouterError};
@@ -129,6 +131,7 @@ pub enum UiRuntimeError {
     ChatRejected(ChatApplyResult),
     ChatAutocomplete(ChatAutocompleteError),
     ChatAutocompleteCatalog(ChatAutocompleteCatalogError),
+    RetainedUiSequence(RetainedUiSequenceError),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -157,6 +160,8 @@ pub struct UiRuntime {
     chat_focused: bool,
     hud: HudStore,
     chat: ChatStore,
+    scoreboards: ScoreboardStore,
+    boss_bars: BossBarStore,
     chat_editor: ChatEditor,
     chat_history: ChatHistory,
     chat_input_revision: u64,
@@ -187,6 +192,8 @@ impl UiRuntime {
             chat_focused: false,
             hud: HudStore::default(),
             chat: ChatStore::default(),
+            scoreboards: ScoreboardStore::default(),
+            boss_bars: BossBarStore::default(),
             chat_editor: ChatEditor::new(MAX_CHAT_INPUT_BYTES)
                 .expect("the reviewed chat input bound is valid"),
             chat_history: ChatHistory::default(),
@@ -304,6 +311,14 @@ impl UiRuntime {
 
     pub const fn chat(&self) -> &ChatStore {
         &self.chat
+    }
+
+    pub const fn scoreboards(&self) -> &ScoreboardStore {
+        &self.scoreboards
+    }
+
+    pub const fn boss_bars(&self) -> &BossBarStore {
+        &self.boss_bars
     }
 
     pub const fn chat_focused(&self) -> bool {
@@ -547,6 +562,8 @@ impl UiRuntime {
         self.chat_focused = false;
         self.hud.clear();
         self.chat.clear();
+        self.scoreboards.clear();
+        self.boss_bars.clear();
         self.chat_editor.clear();
         self.chat_history.clear_navigation();
         self.chat_input_revision = 0;
@@ -612,9 +629,22 @@ impl UiRuntime {
                     .map_err(UiRuntimeError::ChatAutocompleteCatalog)?;
                 UiApplyOutcome::Applied
             }
-            UiEvent::Objective(_) | UiEvent::Score(_) | UiEvent::Boss(_) | UiEvent::Form(_) => {
-                UiApplyOutcome::IgnoredByReceiveStore
-            }
+            UiEvent::Objective(event) => scoreboard_adapter::apply_outcome(
+                self.scoreboards
+                    .apply(envelope.fifo_sequence, scoreboard_adapter::objective(event))
+                    .map_err(UiRuntimeError::RetainedUiSequence)?,
+            ),
+            UiEvent::Score(event) => scoreboard_adapter::apply_outcome(
+                self.scoreboards
+                    .apply(envelope.fifo_sequence, scoreboard_adapter::score(event))
+                    .map_err(UiRuntimeError::RetainedUiSequence)?,
+            ),
+            UiEvent::Boss(event) => scoreboard_adapter::apply_outcome(
+                self.boss_bars
+                    .apply(envelope.fifo_sequence, scoreboard_adapter::boss(event))
+                    .map_err(UiRuntimeError::RetainedUiSequence)?,
+            ),
+            UiEvent::Form(_) => UiApplyOutcome::IgnoredByReceiveStore,
         };
         self.last_fifo_sequence = Some(envelope.fifo_sequence);
         self.last_local_millis = Some(envelope.local_millis);
@@ -702,13 +732,13 @@ impl UiRuntime {
             match attribute.name.as_ref() {
                 "minecraft:health" => {
                     health = Some(
-                        attribute_stat(attribute)
+                        hud_adapter::attribute_stat(attribute)
                             .ok_or(UiRuntimeError::InvalidLocalAttribute { field: "health" })?,
                     );
                 }
                 "minecraft:player.hunger" => {
                     hunger = Some(
-                        attribute_stat(attribute)
+                        hud_adapter::attribute_stat(attribute)
                             .ok_or(UiRuntimeError::InvalidLocalAttribute { field: "hunger" })?,
                     );
                 }
@@ -850,7 +880,8 @@ impl UiRuntime {
                 self.hud.set_health(BoundedStat::new(health, maximum));
             }
             HudEvent::PlayerStatus(status) => {
-                self.hud.set_player_status(map_player_status(status));
+                self.hud
+                    .set_player_status(hud_adapter::player_status(status));
             }
         }
         Ok(())
@@ -1215,40 +1246,6 @@ pub(crate) fn suppress_gameplay_input_for_chat(
     keys.reset_all();
     mouse_buttons.reset_all();
     mouse_motion.delta = bevy::math::Vec2::ZERO;
-}
-
-fn attribute_stat(attribute: &ActorAttribute) -> Option<BoundedStat> {
-    if !attribute.current.is_finite()
-        || !attribute.max.is_finite()
-        || attribute.max <= 0.0
-        || attribute.current < 0.0
-        || attribute.current > attribute.max
-    {
-        return None;
-    }
-    let scale = if attribute.max <= u16::MAX as f32 / 100.0 {
-        100.0
-    } else {
-        1.0
-    };
-    let maximum = u16::try_from((attribute.max * scale).round() as u32).ok()?;
-    let current = u16::try_from((attribute.current * scale).round() as u32).ok()?;
-    BoundedStat::new_scaled(current, maximum, scale as u16)
-}
-
-fn map_player_status(status: PlayerStatus) -> HudPlayerStatus {
-    match status {
-        PlayerStatus::LoginSuccess => HudPlayerStatus::LoginSuccess,
-        PlayerStatus::FailedClient => HudPlayerStatus::FailedClient,
-        PlayerStatus::FailedSpawn => HudPlayerStatus::FailedSpawn,
-        PlayerStatus::PlayerSpawn => HudPlayerStatus::PlayerSpawn,
-        PlayerStatus::FailedInvalidTenant => HudPlayerStatus::FailedInvalidTenant,
-        PlayerStatus::FailedVanillaEducation => HudPlayerStatus::FailedVanillaEducation,
-        PlayerStatus::FailedEducationVanilla => HudPlayerStatus::FailedEducationVanilla,
-        PlayerStatus::FailedServerFull => HudPlayerStatus::FailedServerFull,
-        PlayerStatus::FailedEditorVanillaMismatch => HudPlayerStatus::FailedEditorVanillaMismatch,
-        PlayerStatus::FailedVanillaEditorMismatch => HudPlayerStatus::FailedVanillaEditorMismatch,
-    }
 }
 
 #[cfg(test)]
