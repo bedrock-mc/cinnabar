@@ -3,6 +3,16 @@ use crate::actor_animation::{ActorAnimationStats, ActorRigSnapshot};
 use crate::{ActorEquipmentSnapshot, RemoteActionSnapshot, RemoteActionStats};
 
 impl ActorStore {
+    pub(crate) fn player_profile(&self, runtime_id: u64) -> Option<&PlayerProfile> {
+        let actor = self.actors.get(&runtime_id)?;
+        let ActorKind::Player { uuid, .. } = &actor.kind else {
+            return None;
+        };
+        self.players
+            .get(uuid)
+            .filter(|profile| profile.unique_id == actor.unique_id)
+    }
+
     pub(crate) fn render_players(
         &self,
         excluded_runtime_id: Option<u64>,
@@ -12,13 +22,10 @@ impl ActorStore {
             .values()
             .filter(|actor| Some(actor.runtime_id) != excluded_runtime_id)
             .filter_map(|actor| {
-                let ActorKind::Player { uuid, .. } = &actor.kind else {
+                let ActorKind::Player { .. } = &actor.kind else {
                     return None;
                 };
-                let profile = self
-                    .players
-                    .get(uuid)
-                    .filter(|profile| profile.unique_id == actor.unique_id);
+                let profile = self.player_profile(actor.runtime_id);
                 Some((actor, profile))
             })
             .collect::<Vec<_>>();

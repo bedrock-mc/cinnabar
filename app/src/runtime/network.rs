@@ -39,6 +39,7 @@ use crate::{
     movement::{MovementSource, PhysicsAuthorityGate},
     presentation::actors::{
         actor_rig_presentation, local_diagnostic_presentation, select_actor_presentations_for_view,
+        update_actor_rig_scene,
     },
     runtime::{
         phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceEventKind},
@@ -754,18 +755,13 @@ pub(crate) fn publish_actor_render_frame(
         .as_ref()
         .map(|stream| {
             let local_runtime_id = stream.local_player_runtime_id();
-            let profiles = stream
-                .render_players()
-                .into_iter()
-                .map(|(actor, profile)| (actor.runtime_id, profile))
-                .collect::<std::collections::BTreeMap<_, _>>();
             let mut remotes = Vec::new();
             let mut canonical_local = None;
             for rig in stream.actor_rigs() {
                 let Some(actor) = stream.actor(rig.actor.runtime_id) else {
                     continue;
                 };
-                let profile = profiles.get(&rig.actor.runtime_id).copied().flatten();
+                let profile = stream.actor_player_profile(rig.actor.runtime_id);
                 let Some(presentation) =
                     actor_rig_presentation(&rig, actor, profile, step.partial_tick)
                 else {
@@ -819,14 +815,7 @@ pub(crate) fn publish_actor_render_frame(
         remotes,
         cull_view,
     );
-    *frame = scene
-        .update_rigs(
-            step.partial_tick,
-            cull_view,
-            batch.submissions,
-            batch.skins_rgba8,
-        )
-        .clone();
+    *frame = update_actor_rig_scene(&mut scene, step.partial_tick, batch).clone();
 }
 
 pub(crate) mod session;

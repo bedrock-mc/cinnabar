@@ -1,20 +1,21 @@
 use std::sync::Arc;
 
 use assets::EntityRigFallback;
+use bevy::math::{Mat4, Vec3};
 use client_world::{
     ActorLifetimeId, ActorPose, ActorRigSnapshot, ActorSnapshot, BoneTransform, EntityRigId,
     PlayerProfile,
 };
 use protocol::{ActorKind, PlayerSkin, StandardSkin};
 use render::{
-    ActorRenderIdentity, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission,
-    EntityRigId as RenderEntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform,
-    STANDARD_SKIN_BYTES,
+    ActorCullView, ActorRenderIdentity, ActorRenderScene, ActorRigRenderInput, ActorRigRoute,
+    ActorRigSubmission, EntityRigId as RenderEntityRigId, MAX_RENDERED_PLAYERS,
+    RenderBoneTransform, STANDARD_SKIN_BYTES,
 };
 
 use crate::presentation::actors::{
     ActorRigPresentation, actor_rig_presentation, local_diagnostic_presentation,
-    select_actor_presentations,
+    select_actor_presentations, select_actor_presentations_for_view, update_actor_rig_scene,
 };
 
 fn model_bone(translation: [f32; 3]) -> BoneTransform {
@@ -164,6 +165,13 @@ fn actor_snapshot_conversion_preserves_identity_pose_and_model_space_units() {
     );
     assert_eq!(converted.submission.world_from_actor[0][3], 3.0);
     assert_eq!(converted.submission.route, ActorRigRoute::StaticFallback);
+    assert!(
+        converted
+            .skin_rgba8
+            .as_ref()
+            .is_some_and(|skin| skin.iter().all(|byte| *byte == 7)),
+        "the selected non-default roster skin survives conversion",
+    );
 }
 
 #[test]
@@ -232,4 +240,23 @@ fn identical_skin_families_share_one_bounded_texture_layer() {
             .iter()
             .all(|entry| entry.texture_layer == 0)
     );
+}
+
+#[test]
+fn visible_local_is_reserved_even_when_the_world_frustum_excludes_its_body() {
+    let mut local = local_diagnostic_presentation(7, 0, 7, 5, [0.0, 64.0, 0.0], 0.0, 0.0)
+        .expect("finite local carrier converts");
+    local.submission.world_from_actor[0][3] = 500.0;
+    let view = ActorCullView {
+        clip_from_world: Mat4::from_scale(Vec3::splat(0.001)),
+        camera_position: Vec3::new(0.0, 65.0, 0.0),
+        max_distance: 192.0,
+    };
+
+    let batch = select_actor_presentations_for_view(7, true, Some(local), [], Some(view));
+    let mut scene = ActorRenderScene::default();
+    let frame = update_actor_rig_scene(&mut scene, 0.5, batch);
+
+    assert_eq!(frame.rig.instances.len(), 1);
+    assert_eq!(frame.rig.manifest[0].identity.runtime_id, 7);
 }
