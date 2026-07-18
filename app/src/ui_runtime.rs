@@ -21,9 +21,9 @@ use std::{collections::VecDeque, sync::Arc};
 
 use bevy::prelude::Resource;
 use protocol::{
-    BlockCrackEvent, ChatAutocompleteCatalog, ChatAutocompleteCatalogError, ChatPacketError,
-    EquipmentEvent, HudEvent, InventoryAuthority, InventoryEvent, Packet, TextEvent, TextKind,
-    TitleAction, TitleEvent, UiEvent, chat_text_packet,
+    ActorAttribute, BlockCrackEvent, ChatAutocompleteCatalog, ChatAutocompleteCatalogError,
+    ChatPacketError, EquipmentEvent, HudEvent, InventoryAuthority, InventoryEvent, Packet,
+    TextEvent, TextKind, TitleAction, TitleEvent, UiEvent, chat_text_packet,
 };
 use semantic_input::InputContext;
 use ui::{
@@ -619,6 +619,14 @@ impl UiRuntime {
             }
             UiEvent::RawText(event) => {
                 self.apply_text(event.text, envelope.fifo_sequence, event_millis)?
+            }
+            UiEvent::Title(event)
+                if event
+                    .document
+                    .as_ref()
+                    .is_some_and(|document| document.has_unresolved_components()) =>
+            {
+                UiApplyOutcome::IgnoredUnresolvedRawText
             }
             UiEvent::Title(event) => {
                 self.apply_title(event, envelope.fifo_sequence, event_millis)?;

@@ -12,7 +12,7 @@ use protocol::{
     ChatAutocompleteEvent, HudEvent, ObjectiveEvent, ScoreAction as ProtocolScoreAction,
     ScoreEntry as ProtocolScoreEntry, ScoreEvent, ScoreIdentity as ProtocolScoreIdentity,
     TextCategory, TextEvent, TextKind, TitleAction, TitleEvent, UiEvent, WorldEvent,
-    chat_text_packet, decode_batch, into_world_event,
+    chat_text_packet, decode_batch, into_world_event, parse_raw_text,
 };
 use semantic_input::{Action, DeviceFrame, InputContext, KeyboardMouseFrame, SemanticInputRouter};
 use ui::{ChatClipboard, PointerPhase, UiAction, UiPoint};
@@ -79,10 +79,85 @@ fn unresolved_raw_text_is_not_presented_as_a_complete_literal_message() {
     assert!(runtime.chat().messages().is_empty());
 }
 
+fn title_object(action: TitleAction, json: &str) -> UiEvent {
+    let document = parse_raw_text(json).unwrap();
+    UiEvent::Title(TitleEvent {
+        action,
+        text: Arc::from(document.literal_text()),
+        document: Some(document),
+        fade_in_ticks: 10,
+        stay_ticks: 70,
+        fade_out_ticks: 20,
+        xuid: Arc::from(""),
+        platform_online_id: Arc::from(""),
+        filtered_message: Arc::from(""),
+    })
+}
+
+#[test]
+fn literal_title_object_actions_apply_human_text_without_json_leakage() {
+    let json = r#"{"rawtext":[{"text":"Human title"}]}"#;
+    let mut runtime = UiRuntime::new(1);
+
+    runtime
+        .apply(envelope(
+            1,
+            1,
+            title_object(TitleAction::SetTitleJson, json),
+        ))
+        .unwrap();
+    runtime
+        .apply(envelope(
+            1,
+            2,
+            title_object(TitleAction::SetSubtitleJson, json),
+        ))
+        .unwrap();
+    runtime
+        .apply(envelope(
+            1,
+            3,
+            title_object(TitleAction::ActionBarJson, json),
+        ))
+        .unwrap();
+
+    for presented in [
+        runtime.hud().title().unwrap(),
+        runtime.hud().subtitle().unwrap(),
+        runtime.hud().actionbar().unwrap(),
+    ] {
+        assert_eq!(presented.text.as_ref(), "Human title");
+        assert!(!presented.text.contains("rawtext"));
+        assert!(!presented.text.contains('{'));
+    }
+}
+
+#[test]
+fn unresolved_title_object_actions_never_partially_mutate_hud() {
+    let json = r#"{"rawtext":[{"text":"partial"},{"translate":"key"}]}"#;
+    for action in [
+        TitleAction::SetTitleJson,
+        TitleAction::SetSubtitleJson,
+        TitleAction::ActionBarJson,
+    ] {
+        let mut runtime = UiRuntime::new(1);
+        assert_eq!(
+            runtime
+                .apply(envelope(1, 1, title_object(action, json)))
+                .unwrap(),
+            UiApplyOutcome::IgnoredUnresolvedRawText
+        );
+        assert!(runtime.hud().title().is_none());
+        assert!(runtime.hud().subtitle().is_none());
+        assert!(runtime.hud().actionbar().is_none());
+    }
+}
+
 fn title(message: &str) -> UiEvent {
     UiEvent::Title(TitleEvent {
         action: TitleAction::SetTitle,
         text: Arc::from(message),
+        document: None,
         fade_in_ticks: 10,
         stay_ticks: 70,
         fade_out_ticks: 20,

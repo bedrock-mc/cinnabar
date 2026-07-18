@@ -72,7 +72,7 @@ pub fn parse_raw_text(value: &str) -> Result<Arc<RawTextDocument>, UiPacketError
     let wire =
         serde_json::from_str::<WireDocument>(value).map_err(|_| UiPacketError::InvalidRawText)?;
     let mut budget = ParseBudget::default();
-    let components = convert_document(wire, 1, true, &mut budget)?;
+    let components = convert_document(wire, 1, true, true, &mut budget)?;
     Ok(Arc::new(RawTextDocument {
         components: Arc::from(components),
         literal_text: Arc::from(budget.output),
@@ -132,6 +132,7 @@ fn convert_document(
     wire: WireDocument,
     depth: usize,
     emit_literal: bool,
+    count_object: bool,
     budget: &mut ParseBudget,
 ) -> Result<Vec<RawTextComponent>, UiPacketError> {
     if depth > MAX_RAW_TEXT_DEPTH {
@@ -140,7 +141,9 @@ fn convert_document(
             max: MAX_RAW_TEXT_DEPTH,
         });
     }
-    budget.node()?;
+    if count_object {
+        budget.node()?;
+    }
     budget.node()?;
     wire.rawtext
         .into_iter()
@@ -188,9 +191,15 @@ fn convert_component(
             budget.node()?;
             Ok(RawTextComponent::Selector(Arc::from(selector)))
         }
-        WireComponent::Sequence(document) => Ok(RawTextComponent::Sequence(Arc::from(
-            convert_document(document, depth.saturating_add(1), emit_literal, budget)?,
-        ))),
+        WireComponent::Sequence(document) => {
+            Ok(RawTextComponent::Sequence(Arc::from(convert_document(
+                document,
+                depth.saturating_add(1),
+                emit_literal,
+                false,
+                budget,
+            )?)))
+        }
     }
 }
 
@@ -228,7 +237,7 @@ fn convert_with(
         WireWith::Document(document) => {
             budget.component()?;
             Ok(vec![RawTextComponent::Sequence(Arc::from(
-                convert_document(document, depth, false, budget)?,
+                convert_document(document, depth, false, true, budget)?,
             ))])
         }
     }

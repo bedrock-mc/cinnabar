@@ -3,10 +3,12 @@ use std::sync::Arc;
 use protocol::{
     BedrockSession, MAX_RAW_TEXT_COMPONENTS, MAX_RAW_TEXT_DEPTH, MAX_RAW_TEXT_INPUT_BYTES,
     MAX_RAW_TEXT_NODES, MAX_RAW_TEXT_OUTPUT_BYTES, RawTextComponent, RawTextResolution, TextKind,
-    UiEvent, UiPacketError, WorldEvent, decode_batch, into_world_event, parse_raw_text,
+    TitleAction, UiEvent, UiPacketError, WorldEvent, decode_batch, into_world_event,
+    parse_raw_text,
 };
 use valentine::bedrock::version::v1_26_30::{
-    TextPacket, TextPacketCategory, TextPacketContent, TextPacketContentJson, TextPacketType,
+    SetTitlePacket, SetTitlePacketType, TextPacket, TextPacketCategory, TextPacketContent,
+    TextPacketContentJson, TextPacketType,
 };
 
 const OBJECT_FIXTURE: &[u8] = include_bytes!("../fixtures/text_object_rawtext.bin");
@@ -45,6 +47,23 @@ fn decode_fixture(bytes: &'static [u8]) -> protocol::RawTextEvent {
     match into_world_event(packets.pop().unwrap(), 0).unwrap() {
         Some(WorldEvent::Ui(UiEvent::RawText(event))) => event,
         other => panic!("expected text fixture, got {other:?}"),
+    }
+}
+
+fn normalize_title_object(
+    action: SetTitlePacketType,
+    message: &str,
+) -> Result<protocol::TitleEvent, UiPacketError> {
+    let packet = SetTitlePacket {
+        type_: action,
+        text: message.to_owned(),
+        ..Default::default()
+    };
+    match into_world_event(packet.into(), 0) {
+        Ok(Some(WorldEvent::Ui(UiEvent::Title(event)))) => Ok(event),
+        Ok(other) => panic!("expected normalized title event, got {other:?}"),
+        Err(protocol::WorldPacketError::Ui(error)) => Err(error),
+        Err(other) => panic!("unexpected world error: {other}"),
     }
 }
 
@@ -234,6 +253,17 @@ fn raw_text_with_document_obeys_the_exact_node_boundary() {
 }
 
 #[test]
+fn nested_sequence_objects_are_counted_once_at_the_component_boundary() {
+    let sequences = std::iter::repeat_n(r#"{"rawtext":[]}"#, MAX_RAW_TEXT_COMPONENTS)
+        .collect::<Vec<_>>()
+        .join(",");
+    let document = parse_raw_text(&format!(r#"{{"rawtext":[{sequences}]}}"#)).unwrap();
+
+    assert_eq!(document.components().len(), MAX_RAW_TEXT_COMPONENTS);
+    assert_eq!(document.resolution(), RawTextResolution::LiteralOnly);
+}
+
+#[test]
 fn raw_text_rejects_explicit_null_translation_arguments() {
     assert!(matches!(
         parse_raw_text(r#"{"rawtext":[{"translate":"key","with":null}]}"#),
@@ -257,5 +287,59 @@ fn json_packet_translation_remains_typed_and_never_becomes_source_json() {
     assert!(matches!(
         &event.document.components()[0],
         RawTextComponent::Translate { key, .. } if key.as_ref() == "multiplayer.player.joined"
+    ));
+}
+
+#[test]
+fn protocol_1001_title_object_actions_retain_typed_raw_text_without_json_leakage() {
+    for (wire, expected) in [
+        (SetTitlePacketType::SetTitleJson, TitleAction::SetTitleJson),
+        (
+            SetTitlePacketType::SetSubtitleJson,
+            TitleAction::SetSubtitleJson,
+        ),
+        (
+            SetTitlePacketType::ActionBarMessageJson,
+            TitleAction::ActionBarJson,
+        ),
+    ] {
+        let literal =
+            normalize_title_object(wire, r#"{"rawtext":[{"text":"Human title"}]}"#).unwrap();
+        assert_eq!(literal.action, expected);
+        assert_eq!(literal.text.as_ref(), "Human title");
+        assert!(!literal.text.contains("rawtext"));
+        assert_eq!(
+            literal
+                .document
+                .as_ref()
+                .expect("object action retains RawText")
+                .resolution(),
+            RawTextResolution::LiteralOnly
+        );
+
+        let unresolved = normalize_title_object(
+            wire,
+            r#"{"rawtext":[{"text":"Human title"},{"selector":"@a"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(unresolved.action, expected);
+        assert_eq!(unresolved.text.as_ref(), "Human title");
+        assert!(!unresolved.text.contains("rawtext"));
+        let document = unresolved
+            .document
+            .as_ref()
+            .expect("object action retains RawText");
+        assert_eq!(document.resolution(), RawTextResolution::RequiresResolver);
+    }
+}
+
+#[test]
+fn malformed_title_object_raw_text_fails_closed() {
+    assert!(matches!(
+        normalize_title_object(
+            SetTitlePacketType::SetTitleJson,
+            r#"{"rawtext":[{"text":"ok","selector":"@a"}]}"#,
+        ),
+        Err(UiPacketError::InvalidRawText)
     ));
 }
