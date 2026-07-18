@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, time::Duration};
+use std::collections::VecDeque;
 
 use bevy::prelude::Resource;
 use protocol::{
@@ -6,11 +6,15 @@ use protocol::{
     player_auth_input,
 };
 
+mod authority;
 mod physics;
+pub use authority::{PhysicsAuthorityFault, PhysicsAuthorityGate};
 pub use physics::{
     LocalPhysicsController, LocalPhysicsFrame, MAX_LOCAL_PHYSICS_TICKS_PER_FRAME,
-    PhysicsCollisionRegistries, physics_movement_input,
+    PhysicsCollisionRegistries, PhysicsCorrectionMode, PhysicsCorrectionOutcome,
+    PhysicsMovementSample, PhysicsSampleContext, physics_movement_input,
 };
+use sim::{CollisionWorld, WorldCollisionIdentity};
 
 use bevy::{
     log::debug,
@@ -24,8 +28,6 @@ use crate::{
     semantic_controls::SemanticInputSnapshot,
 };
 
-pub const MOVEMENT_TICKS_PER_SECOND: f64 = 20.0;
-const MOVEMENT_TICK_SECONDS: f64 = 1.0 / MOVEMENT_TICKS_PER_SECOND;
 pub const OUTBOX_CAPACITY: usize = 32;
 
 #[allow(clippy::too_many_arguments)]
@@ -36,6 +38,7 @@ pub(crate) fn advance_local_physics(
     client_world: Res<ClientWorld>,
     collisions: Res<PhysicsCollisionRegistries>,
     mut physics: ResMut<LocalPhysicsController>,
+    mut movement_ticker: ResMut<MovementTicker>,
     mut view: ResMut<LocalViewPose>,
     mut previous_blocker: Local<Option<String>>,
 ) {
@@ -45,9 +48,17 @@ pub(crate) fn advance_local_physics(
     let Some(stream) = client_world.stream.as_ref() else {
         return;
     };
-    let active = input.snapshot().is_some();
+    let semantic = input.snapshot();
+    let active = semantic.is_some();
+    let input_mode = semantic.map_or(PlayerInputMode::Mouse, |snapshot| {
+        match snapshot.input_mode {
+            semantic_input::InputMode::KeyboardMouse => PlayerInputMode::Mouse,
+            semantic_input::InputMode::GamePad => PlayerInputMode::GamePad,
+            semantic_input::InputMode::Touch => PlayerInputMode::Touch,
+        }
+    });
     let movement = input.movement();
-    let (bevy_yaw, _, _) = view.rotation().to_euler(EulerRot::YXZ);
+    let (bevy_yaw, bevy_pitch, _) = view.rotation().to_euler(EulerRot::YXZ);
     let yaw = (180.0 - bevy_yaw.to_degrees()).rem_euclid(360.0);
     let input = physics_movement_input(
         movement,
@@ -62,13 +73,37 @@ pub(crate) fn advance_local_physics(
         collisions.registry(stream.network_id_mode()),
         stream.current_dimension(),
     );
-    let frame = physics.advance(time.delta(), input, &world);
+    let frame = physics.advance_with_context(
+        time.delta(),
+        input,
+        PhysicsSampleContext {
+            pitch: -bevy_pitch.to_degrees(),
+            head_yaw: yaw,
+            camera_orientation: (view.rotation() * Vec3::NEG_Z).to_array(),
+            input_mode,
+        },
+        &world,
+    );
     let blocker = frame.blocked.as_ref().map(ToString::to_string);
     if blocker != *previous_blocker {
         if let Some(blocker) = blocker.as_deref() {
             debug!(%blocker, "local physics is waiting for authoritative collision data");
         }
         *previous_blocker = blocker;
+    }
+    if frame.dropped_ticks != 0 && movement_ticker.physics_is_authorized() {
+        movement_ticker.record_physics_fault(PhysicsAuthorityFault::PhysicsTickOverflow {
+            dropped: frame.dropped_ticks,
+        });
+        physics.deactivate();
+        return;
+    }
+    for sample in frame.samples {
+        if let Err(fault) = movement_ticker.enqueue_completed_physics(sample) {
+            debug!(?fault, "candidate Physics movement authority failed closed");
+            physics.deactivate();
+            return;
+        }
     }
     if let Some(position) = physics.render_eye_position() {
         view.set_eye_translation(Vec3::from_array(position));
@@ -89,6 +124,28 @@ pub enum MovementSource {
     Physics,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum MovementOutboxReconciliation {
+    #[default]
+    NotAuthoritative,
+    Drained,
+    BudgetDeferred,
+    TransportRestored,
+    FullRestored,
+}
+
+impl MovementOutboxReconciliation {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::NotAuthoritative => "NotAuthoritative",
+            Self::Drained => "Drained",
+            Self::BudgetDeferred => "BudgetDeferred",
+            Self::TransportRestored => "TransportRestored",
+            Self::FullRestored => "FullRestored",
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum MovementSendError<E> {
     Encode(PlayerAuthInputError),
@@ -96,18 +153,33 @@ pub enum MovementSendError<E> {
     RestoreOverflow,
 }
 
-/// App input sampled at a deterministic Bedrock movement tick boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PhysicsAuthorityFaultRecord {
+    pub session_generation: u64,
+    pub fault: PhysicsAuthorityFault,
+    pub next_tick: u64,
+    pub pending_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct QueuedPhysicsSample {
+    session_generation: u64,
+    snapshot: PlayerAuthInputSnapshot,
+    world_identity: WorldCollisionIdentity,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct MovementInputSample {
-    pub position: [f32; 3],
-    pub move_vector: [f32; 2],
-    pub pitch: f32,
-    pub yaw: f32,
-    pub head_yaw: f32,
-    pub camera_orientation: [f32; 3],
-    pub jumping: bool,
-    pub sneaking: bool,
-    pub sprinting: bool,
+pub(crate) struct PhysicsTickEvidence {
+    pub(crate) session_generation: u64,
+    pub(crate) tick: u64,
+    pub(crate) input_mode: PlayerInputMode,
+    pub(crate) movement: [f32; 2],
+    pub(crate) jump_held: bool,
+    pub(crate) grounded_before_tick: bool,
+    pub(crate) grounded_after_tick: bool,
+    pub(crate) jump_started: bool,
+    pub(crate) jump_repeated: bool,
+    pub(crate) jump_released: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -117,8 +189,8 @@ struct HeldInput {
     sprinting: bool,
 }
 
-impl From<MovementInputSample> for HeldInput {
-    fn from(sample: MovementInputSample) -> Self {
+impl From<&PhysicsMovementSample> for HeldInput {
+    fn from(sample: &PhysicsMovementSample) -> Self {
         Self {
             jumping: sample.jumping,
             sneaking: sample.sneaking,
@@ -127,22 +199,26 @@ impl From<MovementInputSample> for HeldInput {
     }
 }
 
-/// Deterministic 20 Hz snapshot producer with a bounded retry FIFO.
+/// Bounded retry FIFO for completed, fixed-tick physics samples.
 ///
-/// It intentionally does not simulate movement. Phase 3's bedsim port will
-/// provide the position and delta through the same [`MovementInputSample`]
-/// seam. Free-camera samples are never queued or transmitted.
-#[derive(Resource, Debug)]
+/// There is intentionally no render-frame interpolation/enqueue path here:
+/// only a completed simulator tick carrying immutable collision identity may
+/// become a `PlayerAuthInput` candidate.
+#[derive(Resource, Debug, Clone)]
 pub struct MovementTicker {
     session_active: bool,
     source: MovementSource,
     session_generation: u64,
     next_tick: u64,
-    accumulated_seconds: f64,
     previous_position: [f32; 3],
     previous_input: HeldInput,
-    outbox: VecDeque<PlayerAuthInputSnapshot>,
+    outbox: VecDeque<QueuedPhysicsSample>,
+    tick_evidence: VecDeque<PhysicsTickEvidence>,
     dropped_tick_count: u64,
+    sent_free_camera_packet_count: u64,
+    sent_physics_packet_count: u64,
+    outbox_reconciliation: MovementOutboxReconciliation,
+    pending_fault: Option<PhysicsAuthorityFaultRecord>,
 }
 
 impl Default for MovementTicker {
@@ -152,11 +228,15 @@ impl Default for MovementTicker {
             source: MovementSource::default(),
             session_generation: 0,
             next_tick: 0,
-            accumulated_seconds: 0.0,
             previous_position: [0.0; 3],
             previous_input: HeldInput::default(),
             outbox: VecDeque::with_capacity(OUTBOX_CAPACITY),
+            tick_evidence: VecDeque::with_capacity(OUTBOX_CAPACITY),
             dropped_tick_count: 0,
+            sent_free_camera_packet_count: 0,
+            sent_physics_packet_count: 0,
+            outbox_reconciliation: MovementOutboxReconciliation::NotAuthoritative,
+            pending_fault: None,
         }
     }
 }
@@ -171,17 +251,21 @@ impl MovementTicker {
         self.session_active = true;
         self.session_generation = session_generation;
         self.next_tick = initial_server_tick.saturating_add(1);
-        self.accumulated_seconds = 0.0;
         self.previous_position = initial_position;
         self.previous_input = HeldInput::default();
         self.outbox.clear();
+        self.tick_evidence.clear();
         self.dropped_tick_count = 0;
+        self.sent_free_camera_packet_count = 0;
+        self.sent_physics_packet_count = 0;
+        self.outbox_reconciliation = MovementOutboxReconciliation::NotAuthoritative;
+        self.pending_fault = None;
     }
 
     pub fn deactivate(&mut self) {
         self.session_active = false;
-        self.accumulated_seconds = 0.0;
         self.outbox.clear();
+        self.outbox_reconciliation = MovementOutboxReconciliation::NotAuthoritative;
         self.previous_input = HeldInput::default();
     }
 
@@ -196,61 +280,99 @@ impl MovementTicker {
             return;
         }
         self.source = source;
-        self.accumulated_seconds = 0.0;
+        self.previous_input = HeldInput::default();
+        self.outbox.clear();
+        self.outbox_reconciliation = match source {
+            MovementSource::Physics => MovementOutboxReconciliation::Drained,
+            MovementSource::FreeCamera => MovementOutboxReconciliation::NotAuthoritative,
+        };
+    }
+
+    pub fn snap_non_authoritative_anchor(&mut self, tick: u64, position: [f32; 3]) {
+        if !self.session_active {
+            return;
+        }
+        self.next_tick = tick.saturating_add(1);
+        self.previous_position = position;
         self.previous_input = HeldInput::default();
         self.outbox.clear();
     }
 
-    pub fn apply_server_correction(&mut self, tick: u64, position: [f32; 3]) {
-        if !self.session_active {
-            return;
-        }
-        self.next_tick = self.next_tick.max(tick.saturating_add(1));
-        self.reanchor_position(position);
-    }
-
-    pub fn reanchor_position(&mut self, position: [f32; 3]) {
-        if !self.session_active {
-            return;
-        }
-        self.accumulated_seconds = 0.0;
-        self.previous_position = position;
-        self.outbox.clear();
-    }
-
-    pub fn advance(
+    pub fn enqueue_completed_physics(
         &mut self,
-        source: MovementSource,
-        elapsed: Duration,
-        sample: MovementInputSample,
-    ) {
-        if !self.can_transmit(source) {
-            return;
+        completed: PhysicsMovementSample,
+    ) -> Result<(), PhysicsAuthorityFault> {
+        if !self.physics_is_authorized() {
+            return Err(PhysicsAuthorityFault::Unauthorized);
         }
-        self.accumulated_seconds += elapsed.as_secs_f64();
-        let due = ((self.accumulated_seconds + f64::EPSILON) / MOVEMENT_TICK_SECONDS).floor();
-        let due = due.clamp(0.0, u64::MAX as f64) as u64;
-        self.accumulated_seconds -= due as f64 * MOVEMENT_TICK_SECONDS;
-        let frame_start = self.previous_position;
-        for tick_index in 1..=due {
-            // A render frame may cover multiple Bedrock ticks. With only the
-            // frame endpoints available, distribute its position change
-            // uniformly so every emitted tick has a coherent position/delta
-            // history. Rotation, movement axes, and held buttons intentionally
-            // use the latest sample for all due ticks; edge flags still occur
-            // only on the first tick through `previous_input`.
-            let mut tick_sample = sample;
-            tick_sample.position = if tick_index == due {
-                sample.position
-            } else {
-                interpolate_position(frame_start, sample.position, tick_index, due)
+        if completed.tick != self.next_tick {
+            let fault = PhysicsAuthorityFault::TickMismatch {
+                expected: self.next_tick,
+                actual: completed.tick,
             };
-            let snapshot = self.snapshot(tick_sample);
-            self.enqueue(snapshot);
+            self.fail_physics_authority(fault);
+            return Err(fault);
         }
+        if self.outbox.len() == OUTBOX_CAPACITY {
+            let fault = PhysicsAuthorityFault::OutboxOverflow;
+            self.fail_physics_authority(fault);
+            return Err(fault);
+        }
+        if self.tick_evidence.len() == OUTBOX_CAPACITY {
+            let fault = PhysicsAuthorityFault::OutboxOverflow;
+            self.fail_physics_authority(fault);
+            return Err(fault);
+        }
+        if !completed.position.into_iter().all(f32::is_finite)
+            || !completed.move_vector.into_iter().all(f32::is_finite)
+            || !completed.camera_orientation.into_iter().all(f32::is_finite)
+            || ![completed.pitch, completed.yaw, completed.head_yaw]
+                .into_iter()
+                .all(f32::is_finite)
+        {
+            let fault = PhysicsAuthorityFault::InvalidCompletedSample;
+            self.fail_physics_authority(fault);
+            return Err(fault);
+        }
+        let snapshot = self.snapshot(&completed);
+        let jump_started = snapshot.flags.bits() & PlayerInputFlags::START_JUMPING.bits() != 0
+            || completed.jump_repeated;
+        self.tick_evidence.push_back(PhysicsTickEvidence {
+            session_generation: self.session_generation,
+            tick: snapshot.tick,
+            input_mode: snapshot.input_mode,
+            movement: snapshot.move_vector,
+            jump_held: snapshot.flags.bits() & PlayerInputFlags::JUMP_DOWN.bits() != 0,
+            grounded_before_tick: completed.grounded_before_tick,
+            grounded_after_tick: completed.grounded_after_tick,
+            jump_started,
+            jump_repeated: completed.jump_repeated,
+            jump_released: snapshot.flags.bits() & PlayerInputFlags::JUMP_RELEASED_RAW.bits() != 0,
+        });
+        self.outbox.push_back(QueuedPhysicsSample {
+            session_generation: self.session_generation,
+            snapshot,
+            world_identity: completed.world_identity,
+        });
+        Ok(())
     }
 
-    fn snapshot(&mut self, sample: MovementInputSample) -> PlayerAuthInputSnapshot {
+    fn fail_physics_authority(&mut self, fault: PhysicsAuthorityFault) {
+        if self.pending_fault.is_none() {
+            self.pending_fault = Some(PhysicsAuthorityFaultRecord {
+                session_generation: self.session_generation,
+                fault,
+                next_tick: self.next_tick,
+                pending_count: self.outbox.len(),
+            });
+        }
+        self.source = MovementSource::FreeCamera;
+        self.outbox.clear();
+        self.outbox_reconciliation = MovementOutboxReconciliation::NotAuthoritative;
+        self.previous_input = HeldInput::default();
+    }
+
+    fn snapshot(&mut self, sample: &PhysicsMovementSample) -> PlayerAuthInputSnapshot {
         let current_input = HeldInput::from(sample);
         let move_vector = normalize_move_vector(sample.move_vector);
         let snapshot = PlayerAuthInputSnapshot {
@@ -265,7 +387,7 @@ impl MovementTicker {
             head_yaw: sample.head_yaw,
             camera_orientation: sample.camera_orientation,
             flags: input_flags(sample, self.previous_input),
-            input_mode: PlayerInputMode::Mouse,
+            input_mode: sample.input_mode,
         };
         self.next_tick = self.next_tick.saturating_add(1);
         self.previous_position = sample.position;
@@ -273,71 +395,246 @@ impl MovementTicker {
         snapshot
     }
 
-    fn enqueue(&mut self, snapshot: PlayerAuthInputSnapshot) {
-        if self.outbox.len() == OUTBOX_CAPACITY {
-            self.outbox.pop_front();
-            self.dropped_tick_count = self.dropped_tick_count.saturating_add(1);
-        }
-        self.outbox.push_back(snapshot);
-    }
-
-    const fn can_transmit(&self, sample_source: MovementSource) -> bool {
-        self.physics_is_authorized() && matches!(sample_source, MovementSource::Physics)
-    }
-
-    const fn physics_is_authorized(&self) -> bool {
+    pub(crate) const fn physics_is_authorized(&self) -> bool {
         self.session_active && matches!(self.source, MovementSource::Physics)
     }
 
     #[must_use]
-    pub fn pop_pending(&mut self) -> Option<PlayerAuthInputSnapshot> {
+    fn pop_pending(&mut self) -> Option<QueuedPhysicsSample> {
         self.outbox.pop_front()
     }
 
-    pub fn retry_front(
-        &mut self,
-        snapshot: PlayerAuthInputSnapshot,
-    ) -> Result<(), PlayerAuthInputSnapshot> {
+    fn retry_front(&mut self, sample: QueuedPhysicsSample) -> Result<(), Box<QueuedPhysicsSample>> {
         if !self.physics_is_authorized() || self.outbox.len() == OUTBOX_CAPACITY {
-            return Err(snapshot);
+            return Err(Box::new(sample));
         }
-        self.outbox.push_front(snapshot);
+        self.outbox.push_front(sample);
         Ok(())
     }
 
     #[must_use]
     #[cfg(test)]
     #[allow(dead_code)]
-    pub fn peek_pending(&self) -> Option<&PlayerAuthInputSnapshot> {
+    fn peek_pending(&self) -> Option<&QueuedPhysicsSample> {
         self.outbox.front()
     }
 
     #[must_use]
     #[cfg(test)]
     pub fn pending_snapshots(&self) -> Vec<PlayerAuthInputSnapshot> {
-        self.outbox.iter().copied().collect()
+        self.outbox.iter().map(|sample| sample.snapshot).collect()
     }
 
     #[must_use]
     #[cfg(test)]
-    #[allow(dead_code)]
+    fn pending_samples(&self) -> Vec<QueuedPhysicsSample> {
+        self.outbox.iter().cloned().collect()
+    }
+
+    #[must_use]
     pub fn pending_count(&self) -> usize {
         self.outbox.len()
     }
 
     #[must_use]
-    #[cfg(test)]
-    #[allow(dead_code)]
+    pub(crate) fn take_tick_evidence(&mut self) -> Vec<PhysicsTickEvidence> {
+        self.tick_evidence.drain(..).collect()
+    }
+
+    #[must_use]
     pub const fn session_generation(&self) -> u64 {
         self.session_generation
     }
 
     #[must_use]
-    #[cfg(test)]
-    #[allow(dead_code)]
+    pub const fn source(&self) -> MovementSource {
+        self.source
+    }
+
+    #[must_use]
     pub const fn dropped_tick_count(&self) -> u64 {
         self.dropped_tick_count
     }
+
+    #[must_use]
+    pub const fn sent_free_camera_packet_count(&self) -> u64 {
+        self.sent_free_camera_packet_count
+    }
+
+    #[must_use]
+    pub const fn sent_physics_packet_count(&self) -> u64 {
+        self.sent_physics_packet_count
+    }
+
+    #[must_use]
+    pub(crate) const fn outbox_reconciliation(&self) -> MovementOutboxReconciliation {
+        self.outbox_reconciliation
+    }
+
+    pub(crate) fn note_full_restore(&mut self) {
+        debug_assert_eq!(
+            self.outbox_reconciliation,
+            MovementOutboxReconciliation::TransportRestored
+        );
+        self.outbox_reconciliation = MovementOutboxReconciliation::FullRestored;
+    }
+
+    #[must_use]
+    #[cfg(test)]
+    pub const fn next_tick(&self) -> u64 {
+        self.next_tick
+    }
+
+    #[must_use]
+    pub fn take_authority_fault(&mut self) -> Option<PhysicsAuthorityFaultRecord> {
+        self.pending_fault.take()
+    }
+
+    #[must_use]
+    pub(crate) const fn pending_authority_fault(&self) -> Option<PhysicsAuthorityFaultRecord> {
+        self.pending_fault
+    }
+
+    pub(crate) fn record_physics_fault(&mut self, fault: PhysicsAuthorityFault) {
+        self.fail_physics_authority(fault);
+    }
+
+    fn apply_correction_plan(
+        &mut self,
+        plan: &physics::PhysicsCorrectionPlan,
+    ) -> Result<(), PhysicsAuthorityFault> {
+        if !self.physics_is_authorized() {
+            return Err(PhysicsAuthorityFault::Unauthorized);
+        }
+        match plan.outcome {
+            PhysicsCorrectionOutcome::Snapped { .. } => {
+                self.next_tick = plan.final_tick.saturating_add(1);
+                self.previous_position = plan.final_position;
+                self.previous_input = HeldInput::default();
+                self.outbox.clear();
+                Ok(())
+            }
+            PhysicsCorrectionOutcome::Replayed { .. } => {
+                let expected_next = plan.final_tick.saturating_add(1);
+                if self.next_tick != expected_next {
+                    return Err(PhysicsAuthorityFault::PendingTickMismatch {
+                        expected: expected_next,
+                        actual: self.next_tick,
+                    });
+                }
+                if plan.replayed_samples.len() > OUTBOX_CAPACITY {
+                    return Err(PhysicsAuthorityFault::OutboxOverflow);
+                }
+                for pair in plan.replayed_samples.windows(2) {
+                    let expected = pair[0].tick.saturating_add(1);
+                    if pair[1].tick != expected {
+                        return Err(PhysicsAuthorityFault::PendingTickMismatch {
+                            expected,
+                            actual: pair[1].tick,
+                        });
+                    }
+                }
+
+                let mut replacement = VecDeque::with_capacity(self.outbox.len());
+                for mut pending in self.outbox.drain(..) {
+                    if pending.session_generation != self.session_generation {
+                        return Err(PhysicsAuthorityFault::PendingSessionMismatch {
+                            expected: self.session_generation,
+                            actual: pending.session_generation,
+                        });
+                    }
+                    let tick = pending.snapshot.tick;
+                    if tick <= plan.corrected_tick {
+                        continue;
+                    }
+                    let Some(replayed) = plan
+                        .replayed_samples
+                        .iter()
+                        .find(|sample| sample.tick == tick)
+                    else {
+                        return Err(PhysicsAuthorityFault::PendingTickMismatch {
+                            expected: tick,
+                            actual: plan.final_tick,
+                        });
+                    };
+                    if pending.world_identity != replayed.world_identity {
+                        return Err(PhysicsAuthorityFault::PendingWorldIdentityMismatch { tick });
+                    }
+                    let previous_position = if tick == plan.corrected_tick.saturating_add(1) {
+                        plan.corrected_position
+                    } else {
+                        let expected_previous = tick.saturating_sub(1);
+                        let Some(previous) = plan
+                            .replayed_samples
+                            .iter()
+                            .find(|sample| sample.tick == expected_previous)
+                        else {
+                            return Err(PhysicsAuthorityFault::PendingTickMismatch {
+                                expected: expected_previous,
+                                actual: tick,
+                            });
+                        };
+                        previous.position
+                    };
+                    pending.snapshot.position = replayed.position;
+                    pending.snapshot.delta = subtract(replayed.position, previous_position);
+                    replacement.push_back(pending);
+                }
+                self.outbox = replacement;
+                self.previous_position = plan.final_position;
+                Ok(())
+            }
+        }
+    }
+}
+
+pub fn reconcile_candidate_physics_correction(
+    ticker: &mut MovementTicker,
+    physics: &mut LocalPhysicsController,
+    network_position: [f32; 3],
+    tick: u64,
+    on_ground: bool,
+    mode: PhysicsCorrectionMode,
+    world: &impl CollisionWorld,
+) -> Result<PhysicsCorrectionOutcome, PhysicsAuthorityFault> {
+    if !ticker.physics_is_authorized() {
+        return Err(PhysicsAuthorityFault::Unauthorized);
+    }
+    let aligned_tick = match mode {
+        PhysicsCorrectionMode::ReplayIfRetained => tick,
+        PhysicsCorrectionMode::Snap => ticker
+            .next_tick
+            .max(tick.saturating_add(1))
+            .saturating_sub(1),
+    };
+    let mut candidate_physics = physics.clone();
+    let mut candidate_ticker = ticker.clone();
+    let plan = candidate_physics
+        .apply_correction(network_position, aligned_tick, on_ground, mode, world)
+        .map_err(|error| match error {
+            physics::PhysicsCorrectionError::InvalidAnchor
+            | physics::PhysicsCorrectionError::ReplayFailed => {
+                PhysicsAuthorityFault::CorrectionReplayFailed
+            }
+            physics::PhysicsCorrectionError::NotRetained { tick } => {
+                PhysicsAuthorityFault::CorrectionNotRetained { tick }
+            }
+            physics::PhysicsCorrectionError::WorldIdentityMismatch { tick } => {
+                PhysicsAuthorityFault::ReplayWorldIdentityMismatch { tick }
+            }
+        });
+    let result = plan.and_then(|plan| {
+        candidate_ticker.apply_correction_plan(&plan)?;
+        let outcome = plan.outcome;
+        *physics = candidate_physics;
+        *ticker = candidate_ticker;
+        Ok(outcome)
+    });
+    if let Err(fault) = result {
+        ticker.fail_physics_authority(fault);
+        physics.deactivate();
+    }
+    result
 }
 
 pub fn flush_player_auth_inputs<E>(
@@ -346,27 +643,44 @@ pub fn flush_player_auth_inputs<E>(
     mut send: impl FnMut(Packet) -> Result<(), E>,
 ) -> Result<usize, MovementSendError<E>> {
     if !ticker.physics_is_authorized() {
+        ticker.outbox_reconciliation = MovementOutboxReconciliation::NotAuthoritative;
         return Ok(0);
     }
 
     let mut sent = 0;
     for _ in 0..budget {
-        let Some(snapshot) = ticker.pop_pending() else {
+        let Some(sample) = ticker.pop_pending() else {
             break;
         };
-        let packet = player_auth_input(snapshot).map_err(MovementSendError::Encode)?;
+        let packet = player_auth_input(sample.snapshot).map_err(MovementSendError::Encode)?;
         if let Err(error) = send(packet) {
             ticker
-                .retry_front(snapshot)
+                .retry_front(sample)
                 .map_err(|_| MovementSendError::RestoreOverflow)?;
+            ticker.outbox_reconciliation = MovementOutboxReconciliation::TransportRestored;
             return Err(MovementSendError::Transport(error));
+        }
+        match ticker.source {
+            MovementSource::Physics => {
+                ticker.sent_physics_packet_count =
+                    ticker.sent_physics_packet_count.saturating_add(1);
+            }
+            MovementSource::FreeCamera => {
+                ticker.sent_free_camera_packet_count =
+                    ticker.sent_free_camera_packet_count.saturating_add(1);
+            }
         }
         sent += 1;
     }
+    ticker.outbox_reconciliation = if ticker.outbox.is_empty() {
+        MovementOutboxReconciliation::Drained
+    } else {
+        MovementOutboxReconciliation::BudgetDeferred
+    };
     Ok(sent)
 }
 
-fn input_flags(sample: MovementInputSample, previous: HeldInput) -> PlayerInputFlags {
+fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -> PlayerInputFlags {
     let mut flags = PlayerInputFlags::NONE;
     if sample.move_vector[1] > 0.0 {
         flags |= PlayerInputFlags::UP;
@@ -414,19 +728,6 @@ fn subtract(lhs: [f32; 3], rhs: [f32; 3]) -> [f32; 3] {
     [lhs[0] - rhs[0], lhs[1] - rhs[1], lhs[2] - rhs[2]]
 }
 
-fn interpolate_position(
-    start: [f32; 3],
-    end: [f32; 3],
-    numerator: u64,
-    denominator: u64,
-) -> [f32; 3] {
-    debug_assert!(denominator > 0);
-    let fraction = numerator as f64 / denominator as f64;
-    std::array::from_fn(|axis| {
-        (f64::from(start[axis]) + f64::from(end[axis] - start[axis]) * fraction) as f32
-    })
-}
-
 fn normalize_move_vector(vector: [f32; 2]) -> [f32; 2] {
     let length_squared = vector[0].mul_add(vector[0], vector[1] * vector[1]);
     if length_squared > 1.0 {
@@ -446,10 +747,9 @@ mod tests {
         let mut ticker = MovementTicker::default();
         ticker.reset(1, 10, [0.0; 3]);
         ticker.set_source(MovementSource::Physics);
-        ticker.advance(
-            MovementSource::Physics,
-            Duration::from_millis(50),
-            MovementInputSample {
+        ticker
+            .enqueue_completed_physics(PhysicsMovementSample {
+                tick: 11,
                 position: [1.0, 2.0, 3.0],
                 move_vector: [0.0; 2],
                 pitch: 0.0,
@@ -459,8 +759,21 @@ mod tests {
                 jumping: false,
                 sneaking: false,
                 sprinting: false,
-            },
-        );
+                input_mode: PlayerInputMode::Mouse,
+                grounded_before_tick: false,
+                grounded_after_tick: false,
+                jump_repeated: false,
+                world_identity: WorldCollisionIdentity::new(
+                    sim::CollisionRegistryIdentity {
+                        protocol: 1001,
+                        id_space: sim::CollisionIdSpace::Sequential,
+                        preg_sha256: [1; 32],
+                    },
+                    [],
+                )
+                .unwrap(),
+            })
+            .unwrap();
         assert_eq!(ticker.outbox.len(), 1);
 
         // Simulate stale state surviving a future refactor so the flush guard
@@ -475,6 +788,7 @@ mod tests {
 
         assert_eq!(flushed, 0);
         assert_eq!(sent_packets, 0);
+        assert_eq!(ticker.sent_free_camera_packet_count(), 0);
         assert_eq!(ticker.outbox.len(), 1);
     }
 }

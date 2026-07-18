@@ -260,7 +260,7 @@ $script:AcceptanceExecutionPhase = {
         $metadata['app_command'] = $AppCommand
         $metadata | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $RunDirectory 'metadata.json') -Encoding UTF8
         if (-not $SkipClientBuild) {
-            Invoke-CheckedBuild -Executable 'cargo' -Arguments @('build', '--release', '-p', 'bedrock-client', '--locked') -LogPath (Join-Path $RunDirectory 'build-app.log') -WorkingDirectory $ProjectRoot
+            $savedBuildCommit = $env:RUST_MCBE_BUILD_COMMIT; $env:RUST_MCBE_BUILD_COMMIT = $repoCommit; try { Invoke-CheckedBuild -Executable 'cargo' -Arguments @('build', '--release', '-p', 'bedrock-client', '--locked') -LogPath (Join-Path $RunDirectory 'build-app.log') -WorkingDirectory $ProjectRoot } finally { $env:RUST_MCBE_BUILD_COMMIT = $savedBuildCommit }
         }
         if (-not (Test-Path -LiteralPath $AppExecutable -PathType Leaf)) {
             throw "client executable was not available after build selection: $AppExecutable"

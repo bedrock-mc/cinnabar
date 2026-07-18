@@ -46,13 +46,17 @@ use crate::{
     },
     metrics::MetricsCollector,
     movement::{
-        LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries, advance_local_physics,
+        LocalPhysicsController, MovementTicker, PhysicsAuthorityGate, PhysicsCollisionRegistries,
+        advance_local_physics,
     },
     runtime::{
         endpoint::{preflight_bridge_endpoint, resolve_socket_dir},
         network::{
             NetworkConfig, NetworkHandle, publish_actor_render_frame, receive_network_events,
             spawn_network,
+        },
+        phase3_evidence::{
+            Phase3EvidenceEmitter, Phase3EvidenceIdentitySource, emit_phase3_evidence,
         },
         publication::{PublicationController, begin_publication_frame},
         shutdown::{
@@ -67,8 +71,9 @@ use crate::{
             refresh_cave_visibility, remove_chunk_visibility,
         },
         world::{
-            ClientWorld, SHUTDOWN_WATCHDOG_TIMEOUT, ShutdownWatchdog, app_exit_code,
-            arm_shutdown_watchdog, drive_world_stream, startup_biome_tints, update_camera_medium,
+            ClientWorld, SHUTDOWN_WATCHDOG_TIMEOUT, ShutdownWatchdog, WorldStreamFramePoll,
+            app_exit_code, arm_shutdown_watchdog, drive_world_stream,
+            reconcile_world_stream_before_physics, startup_biome_tints, update_camera_medium,
         },
     },
     semantic_controls::{
@@ -126,71 +131,89 @@ pub(crate) fn configure_client_frame_schedule(app: &mut App) {
 }
 
 pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
+    app.init_resource::<WorldStreamFramePoll>()
+        .init_resource::<Phase3EvidenceEmitter>()
+        .add_systems(
+            Update,
+            (drive_gameplay_touch_targets, collect_raw_input)
+                .chain()
+                .in_set(ClientFrameSet::RawInput),
+        )
+        .add_systems(
+            Update,
+            route_semantic_input.in_set(ClientFrameSet::SemanticSample),
+        )
+        .add_systems(
+            Update,
+            (
+                drive_chat_ui_actions,
+                drive_chat_keyboard_input,
+                synchronize_semantic_input_authority,
+            )
+                .chain()
+                .in_set(ClientFrameSet::UiAuthority),
+        )
+        .add_systems(
+            Update,
+            finalize_semantic_input_after_ui_authority.in_set(ClientFrameSet::SemanticFinalize),
+        )
+        .add_systems(
+            Update,
+            (
+                receive_network_events,
+                reconcile_world_stream_before_physics,
+            )
+                .chain()
+                .before(ClientFrameSet::Physics),
+        )
+        .add_systems(
+            Update,
+            advance_local_physics
+                .in_set(LocalPlayerFrameSet::Physics)
+                .in_set(ClientFrameSet::Physics),
+        )
+        .add_systems(
+            Update,
+            resolve_camera_pose
+                .in_set(LocalPlayerFrameSet::Camera)
+                .in_set(ClientFrameSet::Camera),
+        )
+        .add_systems(
+            Update,
+            (publish_local_player_frame, publish_interaction_origin)
+                .chain()
+                .in_set(LocalPlayerFrameSet::Interaction)
+                .in_set(ClientFrameSet::Interaction),
+        )
+        .add_systems(
+            Update,
+            drive_world_stream
+                .after(receive_network_events)
+                .before(ChunkRenderApplySet)
+                .in_set(ClientFrameSet::WorldPublication),
+        )
+        .add_systems(
+            Update,
+            publish_actor_render_frame.in_set(ClientFrameSet::ActorPublication),
+        )
+        .add_systems(
+            Update,
+            publish_ui_runtime.in_set(ClientFrameSet::UiPublication),
+        )
+        .add_systems(
+            Update,
+            (emit_phase3_evidence, send_player_auth_inputs)
+                .chain()
+                .in_set(ClientFrameSet::NetworkSend),
+        );
+}
+
+pub(crate) fn configure_acceptance_finish_system(app: &mut App) {
     app.add_systems(
         Update,
-        (drive_gameplay_touch_targets, collect_raw_input)
-            .chain()
-            .in_set(ClientFrameSet::RawInput),
-    )
-    .add_systems(
-        Update,
-        route_semantic_input.in_set(ClientFrameSet::SemanticSample),
-    )
-    .add_systems(
-        Update,
-        (
-            drive_chat_ui_actions,
-            drive_chat_keyboard_input,
-            synchronize_semantic_input_authority,
-        )
-            .chain()
-            .in_set(ClientFrameSet::UiAuthority),
-    )
-    .add_systems(
-        Update,
-        finalize_semantic_input_after_ui_authority.in_set(ClientFrameSet::SemanticFinalize),
-    )
-    .add_systems(
-        Update,
-        receive_network_events.before(ClientFrameSet::Physics),
-    )
-    .add_systems(
-        Update,
-        advance_local_physics
-            .in_set(LocalPlayerFrameSet::Physics)
-            .in_set(ClientFrameSet::Physics),
-    )
-    .add_systems(
-        Update,
-        resolve_camera_pose
-            .in_set(LocalPlayerFrameSet::Camera)
-            .in_set(ClientFrameSet::Camera),
-    )
-    .add_systems(
-        Update,
-        (publish_local_player_frame, publish_interaction_origin)
-            .chain()
-            .in_set(LocalPlayerFrameSet::Interaction)
-            .in_set(ClientFrameSet::Interaction),
-    )
-    .add_systems(
-        Update,
-        drive_world_stream
-            .after(receive_network_events)
-            .before(ChunkRenderApplySet)
-            .in_set(ClientFrameSet::WorldPublication),
-    )
-    .add_systems(
-        Update,
-        publish_actor_render_frame.in_set(ClientFrameSet::ActorPublication),
-    )
-    .add_systems(
-        Update,
-        publish_ui_runtime.in_set(ClientFrameSet::UiPublication),
-    )
-    .add_systems(
-        Update,
-        send_player_auth_inputs.in_set(ClientFrameSet::NetworkSend),
+        finish_acceptance_run
+            .after(ClientFrameSet::NetworkSend)
+            .after(record_metrics_and_title),
     );
 }
 
@@ -287,6 +310,17 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         "loaded {} authoritative collision records for local physics",
         collision_registries.available_record_count()
     );
+    let phase3_identity_source = args
+        .phase3_evidence_target
+        .map(|target| {
+            Phase3EvidenceIdentitySource::from_build(
+                target,
+                args.phase3_candidate_physics,
+                &collision_registries,
+            )
+        })
+        .transpose()
+        .context("bind Phase 3 evidence to this exact build and collision registry")?;
 
     let network = spawn_network(NetworkConfig {
         session_generation: 1,
@@ -348,6 +382,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .insert_resource(EnvironmentContext::default())
         .insert_resource(EnvironmentProfileRoute::default())
         .insert_resource(MovementTicker::default())
+        .insert_resource(if args.phase3_candidate_physics {
+            PhysicsAuthorityGate::CandidateEvidence
+        } else {
+            PhysicsAuthorityGate::ProductionDisabled
+        })
         .insert_resource(LocalPhysicsController::default())
         .insert_resource(collision_registries)
         .insert_resource(ActorRenderScene::default())
@@ -398,6 +437,9 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             FlyCameraPlugin::new(args.auto_fly),
             UiRenderPlugin,
         ));
+    if let Some(identity) = phase3_identity_source {
+        app.insert_resource(identity);
+    }
     configure_client_production_frame_systems(&mut app);
     app.add_observer(apply_added_chunk_visibility)
         .add_observer(remove_chunk_visibility)
@@ -434,12 +476,12 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
                 emit_world_ready,
                 drive_model_witness,
                 record_metrics_and_title,
-                finish_acceptance_run,
             )
                 .chain()
                 .after(FlyCameraUpdateSet),
         )
         .add_systems(Last, arm_shutdown_watchdog);
+    configure_acceptance_finish_system(&mut app);
 
     let exit = app.run();
     shutdown_watchdog.complete();

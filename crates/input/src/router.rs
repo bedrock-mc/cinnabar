@@ -599,10 +599,10 @@ fn merged_touch_movement(frame: &DeviceFrame) -> [f32; 2] {
         .iter()
         .filter(|contact| contact.hit_id.is_none())
     {
-        if contact.position[0] <= 0.5 && contact.position[1] <= 0.5 {
+        if contact.position[0] <= 0.5 && contact.position[1] >= 0.5 {
             let candidate = [
                 (contact.position[0] - 0.25) * 4.0,
-                (contact.position[1] - 0.25) * 4.0,
+                (0.75 - contact.position[1]) * 4.0,
             ];
             if candidate[0].hypot(candidate[1]) > movement[0].hypot(movement[1]) {
                 movement = candidate;

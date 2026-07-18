@@ -77,6 +77,37 @@ fn correction_replaces_post_tick_state_and_replays_every_later_input() {
 }
 
 #[test]
+fn traced_replay_returns_each_fresh_tick_result_in_order() {
+    let simulator = Simulator::default();
+    let mut state = initial_state();
+    let mut history = PredictionHistory::new(8).unwrap();
+    for _ in 0..3 {
+        history
+            .predict(&mut state, forward(), &simulator, &Floor)
+            .unwrap();
+    }
+
+    let mut corrected = history.state_at(1).unwrap().clone();
+    corrected.position.x = 0.25;
+    let (replay, ticks) = history
+        .rewind_and_replay_traced(&mut state, corrected, &simulator, &Floor)
+        .unwrap();
+
+    assert_eq!(replay.corrected_tick, 1);
+    assert_eq!(replay.replayed_ticks, 2);
+    assert_eq!(
+        ticks.iter().map(|tick| tick.tick).collect::<Vec<_>>(),
+        [2, 3]
+    );
+    assert!(
+        ticks
+            .iter()
+            .all(|tick| tick.world_identity == ticks[0].world_identity)
+    );
+    assert_eq!(ticks.last().unwrap().position, state.position);
+}
+
+#[test]
 fn correction_older_than_retained_history_is_rejected_transactionally() {
     let simulator = Simulator::default();
     let mut state = initial_state();

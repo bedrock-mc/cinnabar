@@ -330,6 +330,28 @@ impl InteractionOriginSnapshot {
     pub const fn outbound_ray(&self) -> Option<&FrozenInteractionOrigin> {
         self.0.as_ref()
     }
+
+    #[must_use]
+    pub fn outbound_ray_for_authority(
+        &self,
+        session_generation: u64,
+        fifo_sequence: u64,
+        physics_tick: u64,
+        pose_generation: u64,
+        world_collision_identity: &WorldCollisionIdentity,
+    ) -> Option<&FrozenInteractionOrigin> {
+        self.0.as_ref().filter(|ray| {
+            ray.session_generation == session_generation
+                && ray.fifo_sequence == fifo_sequence
+                && ray.physics_tick == physics_tick
+                && ray.pose_generation == pose_generation
+                && &ray.world_collision_identity == world_collision_identity
+        })
+    }
+
+    pub fn invalidate(&mut self) {
+        self.0 = None;
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

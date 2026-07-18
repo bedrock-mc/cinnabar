@@ -11,7 +11,6 @@ use bevy::{
     prelude::{
         EulerRot, Local, Quat, Query, Res, ResMut, Resource, Time, Transform, Vec3, Window, With,
     },
-    time::Real,
     window::{CursorOptions, PrimaryWindow},
     winit::{UpdateMode, WinitSettings},
 };
@@ -41,15 +40,11 @@ use crate::{
         mutation::write_stdout_marker,
     },
     camera::{self, FlyCamera},
-    local_player::InteractionOriginSnapshot,
     metrics::{
         DiagnosticQuadTracker, GpuPassMeasurement, MetricsCollector, ModelWorkloadMetricsSnapshot,
         PipelineMetricsSnapshot, TransparentSortMetricsSnapshot, pair_gpu_pass_sample,
     },
-    movement::{
-        MovementInputSample, MovementSendError, MovementSource, MovementTicker,
-        flush_player_auth_inputs,
-    },
+    movement::{MovementSendError, MovementTicker, flush_player_auth_inputs},
     runtime::{
         network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
         phase2_evidence::{
@@ -65,7 +60,6 @@ use crate::{
         visibility::{AppMetrics, CaveVisibilityCache, DiagnosticQuads},
         world::ClientWorld,
     },
-    semantic_controls::SemanticInputSnapshot,
 };
 
 const TITLE_REFRESH_INTERVAL: Duration = Duration::from_millis(250);
@@ -293,45 +287,19 @@ pub(crate) fn bedrock_camera_rotation(yaw_degrees: f32, pitch_degrees: f32) -> Q
 }
 
 pub(crate) fn send_player_auth_inputs(
-    time: Res<Time<Real>>,
-    input: Res<SemanticInputSnapshot>,
-    interaction: Res<InteractionOriginSnapshot>,
     network: Res<NetworkHandle>,
     mut movement: ResMut<MovementTicker>,
     mut client_world: ResMut<ClientWorld>,
 ) {
-    let Some(interaction) = interaction.outbound_ray() else {
-        return;
-    };
-    let movement_axes = input.movement();
-    let forward = interaction.direction();
-    let bevy_yaw = (-forward.x).atan2(-forward.z);
-    let bevy_pitch = forward.y.clamp(-1.0, 1.0).asin();
-    movement.advance(
-        MovementSource::FreeCamera,
-        time.delta(),
-        MovementInputSample {
-            position: interaction.origin().to_array(),
-            move_vector: movement_axes,
-            pitch: -bevy_pitch.to_degrees(),
-            yaw: (180.0 - bevy_yaw.to_degrees()).rem_euclid(360.0),
-            head_yaw: (180.0 - bevy_yaw.to_degrees()).rem_euclid(360.0),
-            camera_orientation: forward.to_array(),
-            jumping: input.phase(semantic_input::Action::Jump).held,
-            sneaking: input.phase(semantic_input::Action::Sneak).held,
-            sprinting: input.phase(semantic_input::Action::Sprint).held,
-        },
-    );
-
     let result =
         flush_player_auth_inputs(&mut movement, OUTBOUND_SEND_BUDGET_PER_FRAME, |packet| {
             network.send_packet(packet)
         });
     match result {
-        Ok(_)
-        | Err(MovementSendError::Transport(
+        Ok(_) => {}
+        Err(MovementSendError::Transport(
             crate::runtime::network::session::PacketSendError::Full(_),
-        )) => {}
+        )) => movement.note_full_restore(),
         Err(MovementSendError::Encode(error)) => {
             movement.deactivate();
             record_fatal_error(

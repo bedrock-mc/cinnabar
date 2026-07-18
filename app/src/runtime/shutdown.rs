@@ -1,6 +1,7 @@
 use std::time::Instant;
 
 use bevy::{
+    ecs::system::SystemParam,
     log::error,
     prelude::{AppExit, MessageReader, MessageWriter, Res, ResMut},
     window::WindowCloseRequested,
@@ -9,9 +10,14 @@ use render::TransparentSortMetrics;
 
 use crate::metrics::TransparentSortMetricsSnapshot;
 use crate::{
-    acceptance::{AcceptanceExitDecision, AcceptanceRun, TRANSPARENT_PRESENTATION_EXIT_GRACE},
+    acceptance::{
+        AcceptanceExitDecision, AcceptanceRun, TRANSPARENT_PRESENTATION_EXIT_GRACE,
+        mutation::write_stdout_marker,
+    },
+    movement::MovementTicker,
     runtime::{
         network::NetworkHandle,
+        phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceIdentitySource},
         visibility::AppMetrics,
         world::{ClientWorld, ShutdownWatchdog, begin_bounded_shutdown},
     },
@@ -63,11 +69,19 @@ pub(crate) fn exit_on_fatal_runtime_error(
     exit.write(exit_status);
 }
 
+#[derive(SystemParam)]
+pub(crate) struct Phase3TerminalEvidence<'w> {
+    movement: Res<'w, MovementTicker>,
+    identity_source: Option<Res<'w, Phase3EvidenceIdentitySource>>,
+    evidence: ResMut<'w, Phase3EvidenceEmitter>,
+}
+
 pub(crate) fn finish_acceptance_run(
     mut acceptance: ResMut<AcceptanceRun>,
     client_world: Res<ClientWorld>,
     mut metrics: ResMut<AppMetrics>,
     transparent_sort: Res<TransparentSortMetrics>,
+    mut phase3: Phase3TerminalEvidence,
     mut network: ResMut<NetworkHandle>,
     mut exit: MessageWriter<AppExit>,
 ) {
@@ -89,6 +103,22 @@ pub(crate) fn finish_acceptance_run(
     }
 
     acceptance.finished = true;
+    if let Some(identity_source) = phase3.identity_source.as_deref()
+        && let Ok(identity) = identity_source.for_session(phase3.movement.session_generation())
+    {
+        let markers = phase3.evidence.observe_terminal(
+            identity,
+            phase3.movement.source(),
+            phase3.movement.sent_physics_packet_count(),
+            phase3.movement.sent_free_camera_packet_count(),
+            phase3.movement.pending_count(),
+            phase3.movement.outbox_reconciliation(),
+        );
+        let mut stdout = std::io::stdout().lock();
+        for marker in markers {
+            write_stdout_marker(&mut stdout, &marker);
+        }
+    }
     metrics
         .0
         .record_transparent_sort_snapshot(transparent_snapshot);

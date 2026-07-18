@@ -7,6 +7,7 @@ use crate::runtime::telemetry::AcceptanceRuntimeConfig;
 
 pub(crate) const ACCEPTANCE_RUNTIME_METADATA: &str = "RUST_MCBE_ACCEPTANCE_RUNTIME_METADATA";
 pub(crate) const ASSETS: &str = "RUST_MCBE_ASSETS";
+pub(crate) const BUILD_COMMIT: &str = "RUST_MCBE_BUILD_COMMIT";
 pub(crate) const CAMERA_COMMITTED: &str = "RUST_MCBE_CAMERA_COMMITTED";
 pub(crate) const ERROR_COUNTERS: &str = "RUST_MCBE_ERROR_COUNTERS";
 pub(crate) const FORCED_FULL_VIEW_REMESH_SETTLED: &str =
@@ -15,6 +16,17 @@ pub(crate) const GALLERY_ANCHOR_READY: &str = "RUST_MCBE_GALLERY_ANCHOR_READY";
 pub(crate) const MODEL_WITNESS_COMPLETE: &str = "RUST_MCBE_MODEL_WITNESS_COMPLETE";
 pub(crate) const MOVE_PLAYER_INGRESS: &str = "RUST_MCBE_MOVE_PLAYER_INGRESS";
 pub(crate) const MUTATION_COORDINATE: &str = "RUST_MCBE_MUTATION_COORDINATE";
+pub(crate) const PHASE3_EVENT: &str = "RUST_MCBE_PHASE3_EVENT";
+pub(crate) const PHASE3_FRAME: &str = "RUST_MCBE_PHASE3_FRAME";
+pub(crate) const PHASE3_IDENTITY: &str = "RUST_MCBE_PHASE3_IDENTITY";
+pub(crate) const PHASE3_TERMINAL: &str = "RUST_MCBE_PHASE3_TERMINAL";
+pub(crate) const PHASE3_VIOLATION: &str = "RUST_MCBE_PHASE3_VIOLATION";
+pub(crate) const PHASE3_CORE_PROCESS_ID: &str = "RUST_MCBE_PHASE3_CORE_PROCESS_ID";
+pub(crate) const PHASE3_CORE_SHA256: &str = "RUST_MCBE_PHASE3_CORE_SHA256";
+pub(crate) const PHASE3_BRIDGE_ENDPOINT: &str = "RUST_MCBE_PHASE3_BRIDGE_ENDPOINT";
+pub(crate) const PHASE3_ENDPOINT: &str = "RUST_MCBE_PHASE3_ENDPOINT";
+pub(crate) const PHASE3_RUN_ID: &str = "RUST_MCBE_PHASE3_RUN_ID";
+pub(crate) const SOURCE_DIRTY: &str = "RUST_MCBE_SOURCE_DIRTY";
 pub(crate) const SHUTDOWN_COMPLETED: &str = "RUST_MCBE_SHUTDOWN_COMPLETED";
 pub(crate) const SHUTDOWN_WATCHDOG_ARMED_MARKER: &str = "RUST_MCBE_SHUTDOWN_WATCHDOG_ARMED";
 pub(crate) const SHUTDOWN_WATCHDOG_FIRED_MARKER: &str = "RUST_MCBE_SHUTDOWN_WATCHDOG_FIRED";
@@ -53,6 +65,11 @@ pub(crate) const EXPECTATIONS: &[(&str, MarkerContract)] = &[
     (MODEL_WITNESS_COMPLETE, MarkerContract::ParsedEvidence),
     (MOVE_PLAYER_INGRESS, MarkerContract::ParsedEvidence),
     (MUTATION_COORDINATE, MarkerContract::ParsedEvidence),
+    (PHASE3_EVENT, MarkerContract::ParsedEvidence),
+    (PHASE3_FRAME, MarkerContract::ParsedEvidence),
+    (PHASE3_IDENTITY, MarkerContract::ParsedEvidence),
+    (PHASE3_TERMINAL, MarkerContract::ParsedEvidence),
+    (PHASE3_VIOLATION, MarkerContract::ParsedEvidence),
     (SHUTDOWN_COMPLETED, MarkerContract::LogOnlyDiagnostic),
     (
         SHUTDOWN_WATCHDOG_ARMED_MARKER,
@@ -209,7 +226,7 @@ mod tests {
             .map(|(name, _)| *name)
             .collect::<BTreeSet<_>>();
         assert_eq!(names.len(), EXPECTATIONS.len());
-        assert_eq!(names.len(), 23);
+        assert_eq!(names.len(), 28);
         let protocol_prefix = concat!("RUST_", "MCBE_");
         assert!(names.iter().all(|name| name.starts_with(protocol_prefix)));
     }

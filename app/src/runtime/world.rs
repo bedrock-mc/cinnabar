@@ -15,7 +15,9 @@ use bevy::{
     prelude::{MessageReader, Query, Res, ResMut, Resource, Time, Transform, Vec3, With},
     time::Real,
 };
-use client_world::{CommittedControlEvent, CommittedUiEvent, WorldMeshChange, WorldStream};
+use client_world::{
+    CommittedControlEvent, CommittedUiEvent, WorldMeshChange, WorldStream, WorldStreamPoll,
+};
 use meshing::CameraMedium;
 use protocol::BlobCacheStats;
 use render::{
@@ -34,10 +36,16 @@ use crate::{
     },
     camera::{CameraSettingsAuthority, FlyCamera},
     environment::{self, WeatherState, WorldClock, apply_environment_control},
-    local_player::LocalViewPose,
-    movement::{LocalPhysicsController, MovementTicker},
+    local_player::{
+        InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameReset, LocalViewPose,
+    },
+    movement::{
+        LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries, PhysicsCorrectionMode,
+        reconcile_candidate_physics_correction,
+    },
     runtime::{
         network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME, acceptance_surface_anchor},
+        phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceEventKind},
         publication::{PublicationController, PublicationFrameWork},
         shutdown::record_fatal_error,
         telemetry::bedrock_camera_rotation,
@@ -47,6 +55,14 @@ use crate::{
 };
 
 pub(crate) const SHUTDOWN_WATCHDOG_TIMEOUT: Duration = Duration::from_secs(2);
+
+fn position_distance(from: [f32; 3], to: [f32; 3]) -> f32 {
+    let delta = Vec3::from_array(to) - Vec3::from_array(from);
+    delta.length()
+}
+
+#[derive(Resource, Debug, Default)]
+pub(crate) struct WorldStreamFramePoll(pub(crate) WorldStreamPoll);
 
 #[derive(Resource)]
 pub(crate) struct ClientWorld {
@@ -199,6 +215,7 @@ pub(crate) struct AppWorldState<'w> {
     pub(crate) weather: ResMut<'w, WeatherState>,
     pub(crate) movement: ResMut<'w, MovementTicker>,
     pub(crate) local_physics: ResMut<'w, LocalPhysicsController>,
+    pub(crate) collisions: Res<'w, PhysicsCollisionRegistries>,
     pub(crate) ui_runtime: ResMut<'w, UiRuntime>,
     pub(crate) time: Res<'w, Time<Real>>,
 }
@@ -272,6 +289,193 @@ pub(crate) fn mesh_change_has_publication_permit(change: &WorldMeshChange) -> bo
 }
 
 #[allow(clippy::too_many_arguments)]
+pub(crate) fn reconcile_world_stream_before_physics(
+    state: AppWorldState,
+    mut acceptance: ResMut<AcceptanceRun>,
+    upload_budget: Res<ChunkUploadBudget>,
+    model_witness_source: Res<ModelWitnessFileSource>,
+    mut camera_settings: ResMut<CameraSettingsAuthority>,
+    mut view: ResMut<LocalViewPose>,
+    mut local_frame: ResMut<LocalPlayerFrameCarrier>,
+    mut interaction: ResMut<InteractionOriginSnapshot>,
+    mut phase3_evidence: ResMut<Phase3EvidenceEmitter>,
+    mut frame_poll: ResMut<WorldStreamFramePoll>,
+) {
+    let AppWorldState {
+        mut client_world,
+        mut clock,
+        mut weather,
+        mut movement,
+        mut local_physics,
+        collisions,
+        time,
+        ..
+    } = state;
+    let ClientWorld {
+        stream,
+        pending_surface_spawn,
+        fatal_error,
+        ..
+    } = &mut *client_world;
+    let Some(stream) = stream.as_mut() else {
+        frame_poll.0 = WorldStreamPoll::default();
+        local_frame.reset(LocalPlayerFrameReset::Session);
+        interaction.invalidate();
+        return;
+    };
+    frame_poll.0 = stream.poll(
+        view.eye_translation().to_array(),
+        upload_budget.max_per_frame,
+    );
+    let controls = stream.take_committed_controls();
+    if let Some(error) = stream.take_fatal_error() {
+        movement.deactivate();
+        local_physics.deactivate();
+        local_frame.reset(LocalPlayerFrameReset::Session);
+        interaction.invalidate();
+        record_fatal_error(fatal_error, world_stream_fatal_message(error));
+        return;
+    }
+
+    for control in controls {
+        if apply_environment_control(control, &mut clock, &mut weather, time.elapsed_secs_f64()) {
+            continue;
+        }
+        let _ = refresh_mutation_anchor_from_committed_control(&mut acceptance, &control);
+        let reset = match &control {
+            CommittedControlEvent::PlayerMovementCorrection {
+                correction,
+                resolved,
+                ..
+            } => {
+                if movement.physics_is_authorized() {
+                    let world = sim::PaletteWorld::new(
+                        stream.collision_store(),
+                        collisions.registry(stream.network_id_mode()),
+                        stream.current_dimension(),
+                    );
+                    let previous = local_physics
+                        .network_position()
+                        .unwrap_or(resolved.position);
+                    if let Ok(outcome) = reconcile_candidate_physics_correction(
+                        &mut movement,
+                        &mut local_physics,
+                        resolved.position,
+                        correction.tick,
+                        correction.on_ground,
+                        PhysicsCorrectionMode::ReplayIfRetained,
+                        &world,
+                    ) {
+                        phase3_evidence.note_correction(
+                            outcome,
+                            position_distance(previous, resolved.position),
+                        );
+                    }
+                } else {
+                    movement.snap_non_authoritative_anchor(correction.tick, resolved.position);
+                    local_physics.reanchor_network_position(
+                        resolved.position,
+                        correction.tick,
+                        correction.on_ground,
+                    );
+                }
+                LocalPlayerFrameReset::Correction
+            }
+            CommittedControlEvent::MovePlayer {
+                movement: correction,
+                resolved,
+                ..
+            } => {
+                let tick = u64::try_from(correction.source_tick).unwrap_or(0);
+                if movement.physics_is_authorized() {
+                    let world = sim::PaletteWorld::new(
+                        stream.collision_store(),
+                        collisions.registry(stream.network_id_mode()),
+                        stream.current_dimension(),
+                    );
+                    let previous = local_physics
+                        .network_position()
+                        .unwrap_or(resolved.position);
+                    if let Ok(outcome) = reconcile_candidate_physics_correction(
+                        &mut movement,
+                        &mut local_physics,
+                        resolved.position,
+                        tick,
+                        correction.on_ground,
+                        PhysicsCorrectionMode::Snap,
+                        &world,
+                    ) {
+                        phase3_evidence.note_correction(
+                            outcome,
+                            position_distance(previous, resolved.position),
+                        );
+                    }
+                } else {
+                    movement.snap_non_authoritative_anchor(tick, resolved.position);
+                    local_physics.reanchor_network_position(
+                        resolved.position,
+                        tick,
+                        correction.on_ground,
+                    );
+                }
+                LocalPlayerFrameReset::Correction
+            }
+            CommittedControlEvent::ChangeDimension { resolved, .. } => {
+                phase3_evidence.note_event(Phase3EvidenceEventKind::Dimension);
+                if movement.physics_is_authorized() {
+                    let world = sim::PaletteWorld::new(
+                        stream.collision_store(),
+                        collisions.registry(stream.network_id_mode()),
+                        stream.current_dimension(),
+                    );
+                    let previous = local_physics
+                        .network_position()
+                        .unwrap_or(resolved.position);
+                    if let Ok(outcome) = reconcile_candidate_physics_correction(
+                        &mut movement,
+                        &mut local_physics,
+                        resolved.position,
+                        0,
+                        false,
+                        PhysicsCorrectionMode::Snap,
+                        &world,
+                    ) {
+                        phase3_evidence.note_correction(
+                            outcome,
+                            position_distance(previous, resolved.position),
+                        );
+                    }
+                } else {
+                    movement.snap_non_authoritative_anchor(0, resolved.position);
+                    local_physics.reanchor_network_position(resolved.position, 0, false);
+                }
+                LocalPlayerFrameReset::Dimension
+            }
+            CommittedControlEvent::SetTime { .. }
+            | CommittedControlEvent::DaylightCycle { .. }
+            | CommittedControlEvent::Weather { .. } => {
+                unreachable!("environment-only controls return before spatial reconciliation")
+            }
+        };
+        local_frame.reset(reset);
+        interaction.invalidate();
+        let _ = acceptance.observe_committed_full_view_control(&control);
+        let camera_marker =
+            model_gallery_camera_committed_marker(model_witness_source.configured(), &control);
+        apply_committed_control(
+            control,
+            &mut view,
+            &mut camera_settings,
+            pending_surface_spawn,
+        );
+        if let Some(marker) = camera_marker {
+            let mut stdout = std::io::stdout().lock();
+            write_stdout_marker(&mut stdout, &marker);
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_world_stream(
     network: Res<NetworkHandle>,
     state: AppWorldState,
@@ -283,18 +487,16 @@ pub(crate) fn drive_world_stream(
     acknowledgements: Res<ChunkUploadAcknowledgements>,
     upload_budget: Res<ChunkUploadBudget>,
     mut publication: ResMut<PublicationController>,
-    model_witness_source: Res<ModelWitnessFileSource>,
-    mut camera_settings: ResMut<CameraSettingsAuthority>,
     mut view: ResMut<LocalViewPose>,
+    mut frame_poll: ResMut<WorldStreamFramePoll>,
 ) {
     let AppWorldState {
         mut client_world,
-        mut clock,
-        mut weather,
-        mut movement,
+        clock,
         mut local_physics,
         mut ui_runtime,
         time,
+        ..
     } = state;
     let Some(stream) = client_world.stream.as_mut() else {
         return;
@@ -321,29 +523,8 @@ pub(crate) fn drive_world_stream(
             acknowledgement.applied_at,
         );
     }
-    let (controls, committed_ui, stream_fatal, poll_report) = {
-        let stream = client_world
-            .stream
-            .as_mut()
-            .expect("stream presence was checked before camera access");
-        let report = stream.poll(
-            view.eye_translation().to_array(),
-            upload_budget.max_per_frame,
-        );
-        (
-            stream.take_committed_controls(),
-            stream.take_committed_ui(),
-            stream.take_fatal_error(),
-            report,
-        )
-    };
-    if let Some(error) = stream_fatal {
-        record_fatal_error(
-            &mut client_world.fatal_error,
-            world_stream_fatal_message(error),
-        );
-        return;
-    }
+    let committed_ui = stream.take_committed_ui();
+    let poll_report = std::mem::take(&mut frame_poll.0);
     let local_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     for committed in committed_ui {
         let result = match committed {
@@ -384,58 +565,6 @@ pub(crate) fn drive_world_stream(
                 format!("committed UI/gameplay event rejected: {error:?}"),
             );
             return;
-        }
-    }
-    for control in controls {
-        if apply_environment_control(control, &mut clock, &mut weather, time.elapsed_secs_f64()) {
-            continue;
-        }
-        let _ = refresh_mutation_anchor_from_committed_control(&mut acceptance, &control);
-        match &control {
-            CommittedControlEvent::PlayerMovementCorrection {
-                correction,
-                resolved,
-                ..
-            } => {
-                movement.apply_server_correction(correction.tick, resolved.position);
-                local_physics.reanchor_network_position(
-                    resolved.position,
-                    correction.tick,
-                    correction.on_ground,
-                );
-            }
-            CommittedControlEvent::MovePlayer {
-                movement: correction,
-                resolved,
-                ..
-            } => {
-                movement.reanchor_position(resolved.position);
-                local_physics.reanchor_network_position(
-                    resolved.position,
-                    u64::try_from(correction.source_tick).unwrap_or(0),
-                    correction.on_ground,
-                );
-            }
-            CommittedControlEvent::ChangeDimension { resolved, .. } => {
-                movement.reanchor_position(resolved.position);
-                local_physics.reanchor_network_position(resolved.position, 0, false);
-            }
-            CommittedControlEvent::SetTime { .. }
-            | CommittedControlEvent::DaylightCycle { .. }
-            | CommittedControlEvent::Weather { .. } => {}
-        }
-        let _ = acceptance.observe_committed_full_view_control(&control);
-        let camera_marker =
-            model_gallery_camera_committed_marker(model_witness_source.configured(), &control);
-        apply_committed_control(
-            control,
-            &mut view,
-            &mut camera_settings,
-            &mut client_world.pending_surface_spawn,
-        );
-        if let Some(marker) = camera_marker {
-            let mut stdout = std::io::stdout().lock();
-            write_stdout_marker(&mut stdout, &marker);
         }
     }
     let camera_position = view.eye_translation();

@@ -8,7 +8,7 @@ use super::UiRuntime;
 use crate::semantic_controls::SemanticTouchTargets;
 
 const MOVEMENT_MAX_X: f32 = 0.5;
-const MOVEMENT_MAX_Y: f32 = 0.5;
+const MOVEMENT_MIN_Y: f32 = 0.5;
 const ACTION_MIN_Y: f32 = 0.68;
 const JUMP_MIN_X: f32 = 0.68;
 const USE_MIN_X: f32 = 0.84;
@@ -49,7 +49,7 @@ pub(crate) fn reconcile_gameplay_touch_targets(
         }
 
         let [x, y] = sample.position;
-        if x <= MOVEMENT_MAX_X && y <= MOVEMENT_MAX_Y {
+        if x <= MOVEMENT_MAX_X && y >= MOVEMENT_MIN_Y {
             targets.set_movement(sample.contact_id);
         } else if y >= ACTION_MIN_Y && (JUMP_MIN_X..USE_MIN_X).contains(&x) {
             targets.set(sample.contact_id, semantic_input::touch::JUMP);

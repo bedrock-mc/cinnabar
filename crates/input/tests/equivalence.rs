@@ -90,3 +90,27 @@ fn radial_deadzone_preserves_direction_and_remaps_magnitude() {
     assert!((movement[0] / movement[1] - 0.75).abs() < 0.000_1);
     assert!(movement[0].hypot(movement[1]) < 0.5);
 }
+
+#[test]
+fn lower_left_touch_movement_maps_screen_up_to_positive_forward() {
+    let route = |position| {
+        let mut router = SemanticInputRouter::default();
+        router
+            .route(DeviceFrame {
+                touches: vec![TouchContact {
+                    contact_id: 1,
+                    activity_sequence: 1,
+                    position,
+                    delta: [0.0, 0.0],
+                    hit_id: None,
+                }],
+                ..DeviceFrame::default()
+            })
+            .unwrap();
+        router.finalize().unwrap().movement
+    };
+
+    assert_eq!(route([0.25, 0.625]), [0.0, 0.5]);
+    assert_eq!(route([0.25, 0.875]), [0.0, -0.5]);
+    assert_eq!(route([0.25, 0.25]), [0.0, 0.0]);
+}

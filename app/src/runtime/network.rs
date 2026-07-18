@@ -26,15 +26,17 @@ use crate::{
             write_move_player_ingress_before_source_capture, write_stdout_marker,
         },
     },
-    camera::{CameraSettingsAuthority, FlyCamera},
+    camera::{AutoFly, CameraSettingsAuthority, FlyCamera},
     environment::replace_session,
     local_player::{
-        FrozenLocalAvatarVisibility, LocalAvatarPresentation, LocalAvatarVisibilityCarrier,
-        LocalPlayerFrameCarrier, LocalViewPose, reset_local_player_session,
+        FrozenLocalAvatarVisibility, InteractionOriginSnapshot, LocalAvatarPresentation,
+        LocalAvatarVisibilityCarrier, LocalPlayerFrameCarrier, LocalPlayerFrameReset,
+        LocalViewPose, reset_local_player_session,
     },
-    movement::MovementSource,
+    movement::{MovementSource, PhysicsAuthorityGate},
     runtime::{
         publication::PublicationController,
+        phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceEventKind},
         shutdown::record_fatal_error,
         visibility::AppMetrics,
         world::{AppWorldState, ClientWorld},
@@ -61,6 +63,11 @@ pub(crate) struct NetworkLocalPlayerState<'w> {
     view: ResMut<'w, LocalViewPose>,
     avatar: ResMut<'w, LocalAvatarPresentation>,
     settings: ResMut<'w, CameraSettingsAuthority>,
+    frame: ResMut<'w, LocalPlayerFrameCarrier>,
+    interaction: ResMut<'w, InteractionOriginSnapshot>,
+    evidence: ResMut<'w, Phase3EvidenceEmitter>,
+    authority: Res<'w, PhysicsAuthorityGate>,
+    auto_fly: Res<'w, AutoFly>,
 }
 
 #[derive(SystemParam)]
@@ -204,6 +211,11 @@ pub(crate) fn receive_network_events(
         mut view,
         mut avatar,
         mut settings,
+        mut frame,
+        mut interaction,
+        mut evidence,
+        authority: physics_authority,
+        auto_fly,
     } = local_player;
     let AppWorldState {
         mut client_world,
@@ -211,6 +223,7 @@ pub(crate) fn receive_network_events(
         mut weather,
         mut movement,
         mut local_physics,
+        collisions,
         mut ui_runtime,
         time,
     } = state;
@@ -240,6 +253,9 @@ pub(crate) fn receive_network_events(
                     continue;
                 }
                 acknowledgements.clear();
+                frame.reset(LocalPlayerFrameReset::Session);
+                interaction.invalidate();
+                evidence.note_event(Phase3EvidenceEventKind::Session);
                 info!(
                     runtime_id = bootstrap.local_player_runtime_id,
                     position = ?bootstrap.player_position,
@@ -294,15 +310,21 @@ pub(crate) fn receive_network_events(
                     &mut view,
                     &mut avatar,
                 );
-                // StartGame always restores the safe non-authoritative source;
-                // local prediction cannot implicitly authorize transmission.
                 movement.set_source(MovementSource::FreeCamera);
-                movement.reset(
-                    clock.session_generation(),
-                    u64::try_from(environment.initial_time).unwrap_or(0),
-                    resolved.position,
-                );
-                local_physics.reanchor_network_position(resolved.position, 0, false);
+                let initial_tick = u64::try_from(environment.initial_time).unwrap_or(0);
+                movement.reset(clock.session_generation(), initial_tick, resolved.position);
+                local_physics.reanchor_network_position(resolved.position, initial_tick, false);
+                match physics_authority.authorize(auto_fly.enabled(), collisions.is_complete()) {
+                    Ok(source) => movement.set_source(source),
+                    Err(fault) => {
+                        movement.set_source(MovementSource::FreeCamera);
+                        local_physics.deactivate();
+                        record_fatal_error(
+                            &mut client_world.fatal_error,
+                            format!("candidate Physics authority failed closed: {fault:?}"),
+                        );
+                    }
+                }
                 client_world.pending_surface_spawn = resolved.surface_anchor;
                 client_world.stream = Some(stream);
                 let routed = match publish_equipment_identity(
@@ -391,6 +413,8 @@ pub(crate) fn receive_network_events(
                 movement.deactivate();
                 local_physics.deactivate();
                 avatar.clear();
+                frame.reset(LocalPlayerFrameReset::Session);
+                interaction.invalidate();
                 error!(decode_error_count, "network session failed: {message}");
                 client_world.network_decode_errors = decode_error_count;
                 record_fatal_error(
@@ -402,6 +426,8 @@ pub(crate) fn receive_network_events(
                 movement.deactivate();
                 local_physics.deactivate();
                 avatar.clear();
+                frame.reset(LocalPlayerFrameReset::Session);
+                interaction.invalidate();
                 client_world.network_decode_errors = decode_error_count;
                 if client_world.fatal_error.is_none() {
                     client_world.fatal_error = Some("network session stopped unexpectedly".into());

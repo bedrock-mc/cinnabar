@@ -25,8 +25,40 @@ Options:
                                Poll an ignored-local exact transparent witness request
   --model-witness-request <PATH>
                                Poll an ignored-local exact packed-model witness request
+  --phase3-evidence-target <TARGET>
+                               Bind Phase 3 evidence to Bds, Lunar, Zeqa, or Lbsg
+  --phase3-candidate-physics  Request fail-closed candidate Physics authority for Phase 3 evidence
   -h, --help                   Print this help
 ";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Phase3Target {
+    Bds,
+    Lunar,
+    Zeqa,
+    Lbsg,
+}
+
+impl Phase3Target {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Bds => "Bds",
+            Self::Lunar => "Lunar",
+            Self::Zeqa => "Zeqa",
+            Self::Lbsg => "Lbsg",
+        }
+    }
+
+    fn parse(value: String) -> Result<Self, ArgsError> {
+        match value.as_str() {
+            "Bds" => Ok(Self::Bds),
+            "Lunar" => Ok(Self::Lunar),
+            "Zeqa" => Ok(Self::Zeqa),
+            "Lbsg" => Ok(Self::Lbsg),
+            _ => Err(ArgsError::InvalidPhase3Target(value)),
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientArgs {
@@ -44,6 +76,8 @@ pub struct ClientArgs {
     pub require_transparent_presentation: bool,
     pub transparent_witness_request: Option<PathBuf>,
     pub model_witness_request: Option<PathBuf>,
+    pub phase3_evidence_target: Option<Phase3Target>,
+    pub phase3_candidate_physics: bool,
 }
 
 impl Default for ClientArgs {
@@ -63,6 +97,8 @@ impl Default for ClientArgs {
             require_transparent_presentation: false,
             transparent_witness_request: None,
             model_witness_request: None,
+            phase3_evidence_target: None,
+            phase3_candidate_physics: false,
         }
     }
 }
@@ -98,6 +134,17 @@ pub enum ArgsError {
 
     #[error("--display-name cannot be empty")]
     EmptyDisplayName,
+
+    #[error("--phase3-evidence-target must be one of Bds, Lunar, Zeqa, or Lbsg, got {0:?}")]
+    InvalidPhase3Target(String),
+
+    #[error("--phase3-candidate-physics requires an attributable --phase3-evidence-target run")]
+    Phase3CandidateRequiresEvidence,
+
+    #[error(
+        "--phase3-evidence-target requires --acceptance-seconds and --metrics-out for attributable evidence"
+    )]
+    Phase3EvidenceRequiresAttributableRun,
 }
 
 impl ClientArgs {
@@ -123,6 +170,7 @@ impl ClientArgs {
                 Some("--require-transparent-presentation") => {
                     parsed.require_transparent_presentation = true;
                 }
+                Some("--phase3-candidate-physics") => parsed.phase3_candidate_physics = true,
                 Some("--socket-dir") => {
                     parsed.socket_dir = PathBuf::from(next_value(&mut arguments, "--socket-dir")?);
                 }
@@ -169,6 +217,14 @@ impl ClientArgs {
                         "--model-witness-request",
                     )?));
                 }
+                Some("--phase3-evidence-target") => {
+                    let value = next_value(&mut arguments, "--phase3-evidence-target")?
+                        .into_string()
+                        .map_err(|_| ArgsError::InvalidUtf8 {
+                            flag: "--phase3-evidence-target",
+                        })?;
+                    parsed.phase3_evidence_target = Some(Phase3Target::parse(value)?);
+                }
                 Some("--display-name") => {
                     let value = next_value(&mut arguments, "--display-name")?
                         .into_string()
@@ -211,6 +267,14 @@ impl ClientArgs {
                 _ => return Err(ArgsError::Unknown(argument)),
             }
         }
+        if parsed.phase3_candidate_physics && parsed.phase3_evidence_target.is_none() {
+            return Err(ArgsError::Phase3CandidateRequiresEvidence);
+        }
+        if parsed.phase3_evidence_target.is_some()
+            && (parsed.acceptance_seconds.is_none() || parsed.metrics_out.is_none())
+        {
+            return Err(ArgsError::Phase3EvidenceRequiresAttributableRun);
+        }
         Ok(ParseOutcome::Run(Box::new(parsed)))
     }
 }
@@ -245,6 +309,8 @@ mod tests {
         assert!(!args.require_transparent_presentation);
         assert_eq!(args.transparent_witness_request, None);
         assert_eq!(args.model_witness_request, None);
+        assert_eq!(args.phase3_evidence_target, None);
+        assert!(!args.phase3_candidate_physics);
     }
 
     #[test]
@@ -272,6 +338,9 @@ mod tests {
             "run/transparent-witness-request.json",
             "--model-witness-request",
             "run/model-witness-request.json",
+            "--phase3-evidence-target",
+            "Zeqa",
+            "--phase3-candidate-physics",
         ])
         .unwrap() else {
             panic!("expected run args")
@@ -296,6 +365,8 @@ mod tests {
             args.model_witness_request,
             Some(PathBuf::from("run/model-witness-request.json"))
         );
+        assert_eq!(args.phase3_evidence_target, Some(super::Phase3Target::Zeqa));
+        assert!(args.phase3_candidate_physics);
     }
 
     #[test]
@@ -370,6 +441,19 @@ mod tests {
         assert!(matches!(
             ClientArgs::parse_from(["client", "--unknown"]),
             Err(ArgsError::Unknown(_))
+        ));
+        assert!(matches!(
+            ClientArgs::parse_from([
+                "client",
+                "--acceptance-seconds",
+                "30",
+                "--phase3-candidate-physics"
+            ]),
+            Err(ArgsError::Phase3CandidateRequiresEvidence)
+        ));
+        assert!(matches!(
+            ClientArgs::parse_from(["client", "--phase3-evidence-target", "Unknown"]),
+            Err(ArgsError::InvalidPhase3Target(_))
         ));
     }
 }

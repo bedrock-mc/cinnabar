@@ -168,6 +168,36 @@ producer = "app/src/acceptance/markers.rs"
 consumer = "scripts/acceptance/Orchestration/Execute.ps1"
 
 [[markers]]
+literal = "RUST_MCBE_PHASE3_EVENT"
+kind = "parsed"
+producer = "app/src/acceptance/markers.rs"
+consumer = "scripts/acceptance/Phase3.ps1"
+
+[[markers]]
+literal = "RUST_MCBE_PHASE3_FRAME"
+kind = "parsed"
+producer = "app/src/acceptance/markers.rs"
+consumer = "scripts/acceptance/Phase3.ps1"
+
+[[markers]]
+literal = "RUST_MCBE_PHASE3_IDENTITY"
+kind = "parsed"
+producer = "app/src/acceptance/markers.rs"
+consumer = "scripts/acceptance/Phase3.ps1"
+
+[[markers]]
+literal = "RUST_MCBE_PHASE3_TERMINAL"
+kind = "parsed"
+producer = "app/src/acceptance/markers.rs"
+consumer = "scripts/acceptance/Phase3.ps1"
+
+[[markers]]
+literal = "RUST_MCBE_PHASE3_VIOLATION"
+kind = "parsed"
+producer = "app/src/acceptance/markers.rs"
+consumer = "scripts/acceptance/Phase3.ps1"
+
+[[markers]]
 literal = "RUST_MCBE_TARGET_MUTATION_ARMED"
 kind = "parsed"
 producer = "app/src/acceptance/markers.rs"
@@ -208,6 +238,48 @@ literal = "RUST_MCBE_ASSETS"
 kind = "environment_variable"
 producer = "app/src/acceptance/markers.rs"
 consumer = "app/src/asset_startup.rs"
+
+[[markers]]
+literal = "RUST_MCBE_BUILD_COMMIT"
+kind = "environment_variable"
+producer = "app/src/acceptance/markers.rs"
+consumer = "app/src/runtime/phase3_evidence.rs"
+
+[[markers]]
+literal = "RUST_MCBE_SOURCE_DIRTY"
+kind = "environment_variable"
+producer = "app/src/acceptance/markers.rs"
+consumer = "app/src/runtime/phase3_evidence.rs"
+
+[[markers]]
+literal = "RUST_MCBE_PHASE3_RUN_ID"
+kind = "environment_variable"
+producer = "app/src/acceptance/markers.rs"
+consumer = "app/src/runtime/phase3_evidence.rs"
+
+[[markers]]
+literal = "RUST_MCBE_PHASE3_ENDPOINT"
+kind = "environment_variable"
+producer = "app/src/acceptance/markers.rs"
+consumer = "app/src/runtime/phase3_evidence.rs"
+
+[[markers]]
+literal = "RUST_MCBE_PHASE3_CORE_SHA256"
+kind = "environment_variable"
+producer = "app/src/acceptance/markers.rs"
+consumer = "app/src/runtime/phase3_evidence.rs"
+
+[[markers]]
+literal = "RUST_MCBE_PHASE3_CORE_PROCESS_ID"
+kind = "environment_variable"
+producer = "app/src/acceptance/markers.rs"
+consumer = "app/src/runtime/phase3_evidence.rs"
+
+[[markers]]
+literal = "RUST_MCBE_PHASE3_BRIDGE_ENDPOINT"
+kind = "environment_variable"
+producer = "app/src/acceptance/markers.rs"
+consumer = "app/src/runtime/phase3_evidence.rs"
 
 [[markers]]
 literal = "RUST_MCBE_ERROR_COUNTERS"
