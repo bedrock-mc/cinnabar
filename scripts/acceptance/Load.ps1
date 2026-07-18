@@ -377,9 +377,13 @@ function Assert-Phase2PublicationRecord {
         }
     }
     if ($publisherUninitialized) {
+        $emptyManifestHash = 'cbf29ce484222325'
         if ([uint64]$publication.required_columns -ne 0 -or
             [uint64]$publication.loaded_required_columns -ne 0) {
             throw 'PHASE2_PUBLICATION uninitialized publisher contains a nonempty cohort'
+        }
+        if ([string]$publication.required_cohort_hash -cne $emptyManifestHash) {
+            throw 'PHASE2_PUBLICATION uninitialized publisher contains a noncanonical empty cohort identity'
         }
         foreach ($field in $requiredStageFields) {
             if ([uint64]$publication.stages.$field -ne 0) {
@@ -391,9 +395,21 @@ function Assert-Phase2PublicationRecord {
                 throw 'PHASE2_PUBLICATION uninitialized publisher contains response outcomes'
             }
         }
+        foreach ($timingName in @('max_queue_wait_us', 'max_worker_time_us')) {
+            foreach ($field in @('decode', 'lighting', 'meshing')) {
+                if ([decimal]$publication.$timingName.$field -ne 0) {
+                    throw 'PHASE2_PUBLICATION uninitialized publisher contains stage timing'
+                }
+            }
+        }
         foreach ($identityName in @('publisher_disk', 'resident', 'allocation', 'visible', 'submitted', 'gpu_presented')) {
             if ([uint64]$presentation.$identityName.entry_count -ne 0) {
                 throw 'PHASE2_PUBLICATION uninitialized publisher contains presented entries'
+            }
+        }
+        foreach ($identityName in @('publisher_disk', 'allocation')) {
+            if ([string]$presentation.$identityName.generation_manifest_hash -cne $emptyManifestHash) {
+                throw 'PHASE2_PUBLICATION uninitialized publisher contains a noncanonical empty manifest identity'
             }
         }
     }
@@ -503,6 +519,7 @@ function Get-Phase2PublicationSequenceEvidence {
     $assetsIdentity = $null
     $previousRecord = $null
     $sequenceIdentity = $null
+    $stableSequenceIdentity = $null
     $publisherInitialized = $false
     foreach ($line in $lines) {
         $lower = $line.ToLowerInvariant()
@@ -528,6 +545,22 @@ function Get-Phase2PublicationSequenceEvidence {
         if ($null -eq $graphicsIdentity) {
             $graphicsIdentity = [string]$record.presentation.graphics_identity_sha256
             $assetsIdentity = [string]$record.presentation.assets_manifest_sha256
+        }
+        $currentStableSequenceIdentity = [pscustomobject][ordered]@{
+            session_generation = [uint64]$record.publication.session_generation
+            build_profile = [string]$record.presentation.build_profile
+            requested_present_mode = [string]$record.presentation.requested_present_mode
+            effective_present_mode = [string]$record.presentation.effective_present_mode
+            present_mode_proven = [bool]$record.presentation.present_mode_proven
+            graphics_identity_sha256 = [string]$record.presentation.graphics_identity_sha256
+            assets_manifest_sha256 = [string]$record.presentation.assets_manifest_sha256
+            client_blob_cache_enabled = [bool]$record.client_blob_cache_enabled
+        } | ConvertTo-Json -Compress
+        if ($null -eq $stableSequenceIdentity) {
+            $stableSequenceIdentity = $currentStableSequenceIdentity
+        }
+        elseif ($currentStableSequenceIdentity -cne $stableSequenceIdentity) {
+            throw 'PHASE2_PUBLICATION stable sequence attribution changed during the diagnostic capture'
         }
         if (-not $publisherUninitialized) {
             $publisherInitialized = $true
