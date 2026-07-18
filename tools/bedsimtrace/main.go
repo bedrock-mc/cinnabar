@@ -1,5 +1,5 @@
-// Command bedsimtrace emits the canonical pinned-bedsim JSONL walk/jump
-// fixture consumed by crates/sim. Standard output contains JSONL only.
+// Command bedsimtrace emits canonical pinned-bedsim JSONL fixtures consumed by
+// crates/sim. Standard output contains JSONL only.
 package main
 
 import (
@@ -79,14 +79,29 @@ type traceRecord struct {
 }
 
 func main() {
-	if err := writeTrace(os.Stdout); err != nil {
+	write := writeTrace
+	if len(os.Args) == 2 && os.Args[1] == "--terrain" {
+		write = writeTerrainTrace
+	} else if len(os.Args) != 1 {
+		fmt.Fprintln(os.Stderr, "usage: bedsimtrace [--terrain]")
+		os.Exit(2)
+	}
+	if err := write(os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "encode trace: %v\n", err)
 		os.Exit(1)
 	}
 }
 
 func writeTrace(output io.Writer) error {
-	state := bedsim.MovementState{
+	return writeScriptTrace(output, basicScript())
+}
+
+func writeTerrainTrace(output io.Writer) error {
+	return writeScriptTrace(output, terrainScript())
+}
+
+func initialState() bedsim.MovementState {
+	return bedsim.MovementState{
 		Pos:                     mgl64.Vec3{0, 1, 0},
 		Size:                    mgl64.Vec3{0.6, 1.8, 1},
 		Gravity:                 bedsim.NormalGravity,
@@ -103,20 +118,65 @@ func writeTrace(output io.Writer) error {
 		GameMode:                packet.GameTypeSurvival,
 		TeleportCompletionTicks: 0,
 	}
-	simulator := bedsim.Simulator{
+}
+
+func newSimulator() bedsim.Simulator {
+	return bedsim.Simulator{
 		World: floorWorld{},
 		Options: bedsim.SimulationOptions{
 			SprintTiming:               bedsim.SprintTimingModern,
 			IgnoreClientStepTiebreaker: true,
 		},
 	}
-	script := []movementInput{
+}
+
+func basicScript() []movementInput {
+	return []movementInput{
 		{Forward: 1},
 		{Forward: 1},
 		{Forward: 1, Jumping: true, JumpPressed: true, Sprinting: true},
 		{Forward: 1, Jumping: true, Sprinting: true},
 		{Forward: 1},
 	}
+}
+
+func terrainScript() []movementInput {
+	return []movementInput{
+		{Forward: 1},
+		{Forward: 1},
+		{Forward: 1, Strafe: 1},
+		{Forward: 1, Strafe: -1},
+		{Forward: 1, Jumping: true, JumpPressed: true, Sprinting: true},
+		{Forward: 1, Jumping: true, Sprinting: true},
+		{Forward: 1, Sprinting: true},
+		{Strafe: 1, Sneaking: true},
+		{Strafe: -1, Sneaking: true},
+		{Forward: 1, Sneaking: true},
+		{Forward: -1, Sneaking: true},
+		{Jumping: true},
+		{Sneaking: true},
+		{},
+		{Forward: 1},
+		{Forward: 1},
+		{Forward: 1, Jumping: true},
+		{},
+	}
+}
+
+func terrainScriptNames() []string {
+	return []string{
+		"flat_walk", "diagonal", "sprint_jump", "slab_step", "stair_step",
+		"sneak_north", "sneak_south", "sneak_east", "sneak_west", "head_collision",
+		"ladder_ascend", "ladder_descend", "ladder_hold", "water_enter", "water_swim",
+		"water_exit", "lava", "cobweb", "slime_bounce", "slime_sneak",
+		"bed_bounce", "soul_sand", "honey", "scaffolding", "bubble_up",
+		"bubble_down", "unloaded_boundary",
+	}
+}
+
+func writeScriptTrace(output io.Writer, script []movementInput) error {
+	state := initialState()
+	simulator := newSimulator()
 	encoder := json.NewEncoder(output)
 	encoder.SetEscapeHTML(false)
 	for index, input := range script {

@@ -1,0 +1,10 @@
+{
+  "module": "github.com/oomph-ac/bedsim",
+  "version": "v0.1.3",
+  "source_commit": "5be9149df14e30c0ab14f9e01d51dd2acfee5230",
+  "module_sum": "h1:tWZ7O48DL/SaWIY+0zz0hFln+DXN4vfatqKr8zTHVo8=",
+  "generator": "tools/bedsimtrace --terrain",
+  "generator_source_sha256": "b33f547704ae9f143e489bd6bbc915f21055c9ea6deb2f418805f092bfffac2d",
+  "script_sha256": "cab0fd15c28f73efe38b9f166f52e2c78fe624e73746206aaa3898523456ffc2",
+  "sha256": "65401b6aad8cc6f8a33c6e201106d73be2f34ea847535c7c11b3ebbf99855ece"
+}

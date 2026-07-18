@@ -64,6 +64,8 @@ fn trace_mismatch_names_the_one_based_line_tick_and_field() {
             movement: Vec3::ZERO,
             collisions: Default::default(),
             on_ground: true,
+            environment: Default::default(),
+            world_identity: CollisionQuery::synthetic(()).identity,
         },
     };
     let jsonl = format!("{}\n", serde_json::to_string(&record).unwrap());
@@ -175,5 +177,43 @@ fn pinned_trace_provenance_binds_module_commit_sum_generator_and_exact_bytes() {
     assert_eq!(
         format!("{:x}", Sha256::digest(trace)),
         provenance["sha256"].as_str().unwrap()
+    );
+}
+
+#[test]
+fn terrain_trace_matches_complete_pinned_ticks_and_binds_provenance() {
+    let trace = include_str!("../fixtures/bedsim-v0.1.3-terrain.jsonl");
+    let replayed = verify_trace_jsonl(
+        trace,
+        initial_state(),
+        &Simulator::default(),
+        &Floor,
+        1.0e-12,
+    )
+    .unwrap();
+    assert_eq!(replayed.tick, 18);
+
+    let provenance: serde_json::Value = serde_json::from_str(include_str!(
+        "../fixtures/bedsim-v0.1.3-terrain.provenance.json"
+    ))
+    .unwrap();
+    assert_eq!(provenance["module"], "github.com/oomph-ac/bedsim");
+    assert_eq!(provenance["version"], "v0.1.3");
+    assert_eq!(
+        provenance["source_commit"],
+        "5be9149df14e30c0ab14f9e01d51dd2acfee5230"
+    );
+    assert_eq!(
+        format!("{:x}", Sha256::digest(trace.as_bytes())),
+        provenance["sha256"].as_str().unwrap()
+    );
+    let generator = include_str!("../../../tools/bedsimtrace/main.go").replace("\r\n", "\n");
+    assert_eq!(
+        format!("{:x}", Sha256::digest(generator.as_bytes())),
+        provenance["generator_source_sha256"].as_str().unwrap()
+    );
+    assert_eq!(
+        provenance["script_sha256"],
+        "cab0fd15c28f73efe38b9f166f52e2c78fe624e73746206aaa3898523456ffc2"
     );
 }

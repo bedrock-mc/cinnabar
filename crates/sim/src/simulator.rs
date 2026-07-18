@@ -1,10 +1,22 @@
-use serde::{Deserialize, Serialize};
-use thiserror::Error;
+mod collision;
+mod environment;
+mod input;
+mod state;
 
 use crate::{
-    Aabb, CollisionWorld, Vec3, WorldQueryError,
+    CollisionWorld, Vec3,
     math::{minecraft_cos, minecraft_sin},
 };
+use collision::{clip_sneak_edge, resolve_motion};
+use environment::sample;
+
+pub use environment::MAX_BLOCK_SAMPLES_PER_TICK;
+pub use input::MovementInput;
+pub use state::{AxisCollisions, MovementEnvironment, PlayerState, SimulationError, TickResult};
+
+pub(crate) fn validate_player_state(state: &PlayerState) -> Result<(), SimulationError> {
+    state::validate(state)
+}
 
 pub const TICKS_PER_SECOND: u32 = 20;
 const DEFAULT_JUMP_HEIGHT: f64 = 0.42;
@@ -22,74 +34,6 @@ const SPRINT_JUMP_IMPULSE: f64 = 0.2;
 const JUMP_DELAY_TICKS: u8 = 10;
 const COLLISION_EPSILON: f64 = 1.0e-5;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct MovementInput {
-    pub strafe: f64,
-    pub forward: f64,
-    pub yaw_degrees: f64,
-    pub jumping: bool,
-    pub jump_pressed: bool,
-    pub sprinting: bool,
-    pub sneaking: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PlayerState {
-    pub tick: u64,
-    pub position: Vec3,
-    pub velocity: Vec3,
-    pub movement: Vec3,
-    pub on_ground: bool,
-    pub jump_delay: u8,
-}
-
-impl PlayerState {
-    #[must_use]
-    pub const fn new(position: Vec3) -> Self {
-        Self {
-            tick: 0,
-            position,
-            velocity: Vec3::ZERO,
-            movement: Vec3::ZERO,
-            on_ground: false,
-            jump_delay: 0,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct AxisCollisions {
-    pub x: bool,
-    pub y: bool,
-    pub z: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct TickResult {
-    pub tick: u64,
-    pub position: Vec3,
-    pub velocity: Vec3,
-    pub movement: Vec3,
-    pub collisions: AxisCollisions,
-    pub on_ground: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub enum SimulationError {
-    #[error("player state field {field} is not finite")]
-    NonFiniteState { field: &'static str },
-    #[error("movement input field {field} is not finite")]
-    NonFiniteInput { field: &'static str },
-    #[error(transparent)]
-    World(#[from] WorldQueryError),
-    #[error("movement tick overflow")]
-    TickOverflow,
-}
-
 #[derive(Debug, Clone, Copy)]
 pub struct Simulator {
     movement_speed: f64,
@@ -104,18 +48,15 @@ impl Default for Simulator {
 }
 
 impl Simulator {
-    /// Advances exactly one 20 Hz Bedrock movement tick.
-    ///
-    /// The update is transactional: query failure or tick overflow leaves the
-    /// caller's state byte-for-byte unchanged.
+    /// Advances exactly one 20 Hz Bedrock movement tick transactionally.
     pub fn tick(
         &self,
         state: &mut PlayerState,
         input: MovementInput,
         world: &impl CollisionWorld,
     ) -> Result<TickResult, SimulationError> {
-        validate_player_state(state)?;
-        validate_movement_input(input)?;
+        state::validate(state)?;
+        input::validate(input)?;
         let mut next = state.clone();
         next.tick = next
             .tick
@@ -129,12 +70,9 @@ impl Simulator {
             next.jump_delay = 0;
         }
         let grounded_at_start = next.on_ground;
+        let sampled = sample(world, next.position, next.velocity)?;
         let friction = if grounded_at_start {
-            DEFAULT_AIR_FRICTION
-                * world
-                    .block_physics(block_below(next.position)?)?
-                    .primary()
-                    .friction
+            DEFAULT_AIR_FRICTION * sampled.friction
         } else {
             DEFAULT_AIR_FRICTION
         };
@@ -145,7 +83,11 @@ impl Simulator {
                 } else {
                     1.0
                 };
-            speed * (0.162_771_36 / (friction * friction * friction))
+            speed
+                * sampled.movement.horizontal_speed_factor
+                * (0.162_771_36 / (friction * friction * friction))
+        } else if sampled.movement.in_water || sampled.movement.in_lava {
+            DEFAULT_AIR_SPEED * sampled.movement.horizontal_speed_factor
         } else if input.sprinting {
             SPRINT_AIR_SPEED
         } else {
@@ -157,12 +99,10 @@ impl Simulator {
         } else {
             1.0
         };
-        let strafe = input.strafe.clamp(-max_input, max_input) * INPUT_IMPULSE_MULTIPLIER;
-        let forward = input.forward.clamp(-max_input, max_input) * INPUT_IMPULSE_MULTIPLIER;
         apply_relative_movement(
             &mut next.velocity,
-            strafe,
-            forward,
+            input.strafe.clamp(-max_input, max_input) * INPUT_IMPULSE_MULTIPLIER,
+            input.forward.clamp(-max_input, max_input) * INPUT_IMPULSE_MULTIPLIER,
             input.yaw_degrees,
             relative_speed,
         );
@@ -177,7 +117,41 @@ impl Simulator {
             }
         }
 
+        if sampled.movement.on_climbable || sampled.movement.in_scaffolding {
+            next.velocity.y = next.velocity.y.max(-0.2);
+            if input.jumping {
+                next.velocity.y = 0.2;
+            } else if input.sneaking && next.velocity.y < 0.0 {
+                next.velocity.y = 0.0;
+            }
+        }
+        if sampled.movement.in_water || sampled.movement.in_lava {
+            if input.jumping {
+                next.velocity.y += 0.04;
+            }
+            next.velocity.y *= sampled.movement.vertical_speed_factor;
+        }
+        if sampled.movement.in_cobweb {
+            next.velocity.x *= 0.25;
+            next.velocity.y *= 0.05;
+            next.velocity.z *= 0.25;
+        } else if sampled.movement.in_powder_snow {
+            next.velocity.x *= sampled.movement.horizontal_speed_factor;
+            next.velocity.y *= sampled.movement.vertical_speed_factor;
+            next.velocity.z *= sampled.movement.horizontal_speed_factor;
+        }
+        let mut identity = sampled.identity;
+        if input.sneaking && grounded_at_start && next.velocity.y <= 0.0 {
+            let (clipped, edge_identity) = clip_sneak_edge(world, next.position, next.velocity)?;
+            next.velocity = clipped;
+            if let Some(edge_identity) = edge_identity {
+                identity = identity.merge(&edge_identity)?;
+            }
+        }
+
+        let pre_collision_velocity = next.velocity;
         let motion = resolve_motion(world, next.position, next.velocity, grounded_at_start)?;
+        identity = identity.merge(&motion.identity)?;
         next.position += motion.resolved;
         next.movement = motion.resolved;
         next.on_ground = (motion.collisions.y && next.velocity.y < 0.0)
@@ -189,15 +163,41 @@ impl Simulator {
             next.velocity.x = 0.0;
         }
         if motion.collisions.y {
-            next.velocity.y = 0.0;
+            next.velocity.y = match sampled.movement.surface_response {
+                crate::SurfaceResponse::Slime
+                    if !grounded_at_start && !input.sneaking && pre_collision_velocity.y < 0.0 =>
+                {
+                    -pre_collision_velocity.y
+                }
+                crate::SurfaceResponse::Bed
+                    if !grounded_at_start && pre_collision_velocity.y < 0.0 =>
+                {
+                    (-0.66 * pre_collision_velocity.y).min(1.0)
+                }
+                _ => 0.0,
+            };
         }
         if motion.collisions.z {
             next.velocity.z = 0.0;
         }
 
-        next.velocity.y = (next.velocity.y - NORMAL_GRAVITY) * NORMAL_GRAVITY_MULTIPLIER;
-        next.velocity.x *= friction;
-        next.velocity.z *= friction;
+        if sampled.movement.in_cobweb {
+            next.velocity = Vec3::ZERO;
+        } else if sampled.movement.in_water || sampled.movement.in_lava {
+            let drag = if sampled.movement.in_lava { 0.5 } else { 0.8 };
+            next.velocity.x *= drag;
+            next.velocity.y = (next.velocity.y - 0.02) * drag;
+            next.velocity.z *= drag;
+        } else {
+            next.velocity.y = (next.velocity.y - NORMAL_GRAVITY) * NORMAL_GRAVITY_MULTIPLIER;
+            next.velocity.x *= friction;
+            next.velocity.z *= friction;
+        }
+        match sampled.movement.surface_response {
+            crate::SurfaceResponse::BubbleUp => next.velocity.y = next.velocity.y.max(0.1),
+            crate::SurfaceResponse::BubbleDown => next.velocity.y = next.velocity.y.min(-0.1),
+            _ => {}
+        }
         next.jump_delay = next.jump_delay.saturating_sub(1);
 
         let result = TickResult {
@@ -207,65 +207,12 @@ impl Simulator {
             movement: next.movement,
             collisions: motion.collisions,
             on_ground: next.on_ground,
+            environment: sampled.movement,
+            world_identity: identity,
         };
         *state = next;
         Ok(result)
     }
-}
-
-pub(crate) fn validate_player_state(state: &PlayerState) -> Result<(), SimulationError> {
-    for (field, value) in [
-        ("position", state.position),
-        ("velocity", state.velocity),
-        ("movement", state.movement),
-    ] {
-        if !value.is_finite() {
-            return Err(SimulationError::NonFiniteState { field });
-        }
-    }
-    let min_position = f64::from(i32::MIN) + 2.0;
-    let max_position = f64::from(i32::MAX) - 2.0;
-    if [state.position.x, state.position.y, state.position.z]
-        .into_iter()
-        .any(|value| value < min_position || value > max_position)
-    {
-        return Err(WorldQueryError::CoordinateOutOfRange.into());
-    }
-    let max_sweep_component = crate::world::MAX_COLLISION_QUERY_EXTENT - crate::PLAYER_HEIGHT;
-    if [state.velocity.x, state.velocity.y, state.velocity.z]
-        .into_iter()
-        .any(|value| value.abs() > max_sweep_component)
-    {
-        return Err(WorldQueryError::QueryExtentExceeded.into());
-    }
-    Ok(())
-}
-
-fn validate_movement_input(input: MovementInput) -> Result<(), SimulationError> {
-    for (field, value) in [
-        ("strafe", input.strafe),
-        ("forward", input.forward),
-        ("yaw_degrees", input.yaw_degrees),
-    ] {
-        if !value.is_finite() {
-            return Err(SimulationError::NonFiniteInput { field });
-        }
-    }
-    Ok(())
-}
-
-fn block_below(position: Vec3) -> Result<[i32; 3], WorldQueryError> {
-    let values = [
-        position.x.floor(),
-        (position.y - 0.5).floor(),
-        position.z.floor(),
-    ];
-    if values.into_iter().any(|value| {
-        !value.is_finite() || value < f64::from(i32::MIN) || value > f64::from(i32::MAX)
-    }) {
-        return Err(WorldQueryError::CoordinateOutOfRange);
-    }
-    Ok(values.map(|value| value as i32))
 }
 
 fn apply_relative_movement(
@@ -287,101 +234,4 @@ fn apply_relative_movement(
     let cos = minecraft_cos(yaw);
     velocity.x += strafe * cos - forward * sin;
     velocity.z += forward * cos + strafe * sin;
-}
-
-#[derive(Debug, Clone, Copy)]
-struct ResolvedMotion {
-    resolved: Vec3,
-    collisions: AxisCollisions,
-}
-
-fn resolve_motion(
-    world: &impl CollisionWorld,
-    position: Vec3,
-    velocity: Vec3,
-    was_on_ground: bool,
-) -> Result<ResolvedMotion, WorldQueryError> {
-    let start = Aabb::player_at(position);
-    let colliders = bounded_collision_boxes(world, start.swept(velocity))?;
-    let (normal_box, normal) = resolve_axes_reverse(start, velocity, &colliders);
-    let normal_horizontal_collision = normal.x != velocity.x || normal.z != velocity.z;
-    let normal_y_collision = normal.y != velocity.y;
-    let on_ground = was_on_ground || (normal_y_collision && velocity.y < 0.0);
-
-    let resolved_box = if on_ground && normal_horizontal_collision {
-        let (step_box, step) = resolve_step(start, velocity, &colliders);
-        let step_blocked = !bounded_collision_boxes(world, step_box)?.is_empty();
-        if !step_blocked && step.horizontal_length_squared() > normal.horizontal_length_squared() {
-            step_box
-        } else {
-            normal_box
-        }
-    } else {
-        normal_box
-    };
-
-    let end_position = Vec3::new(
-        (resolved_box.min.x + resolved_box.max.x) * 0.5,
-        resolved_box.min.y,
-        (resolved_box.min.z + resolved_box.max.z) * 0.5,
-    );
-    let resolved = end_position - position;
-    Ok(ResolvedMotion {
-        resolved,
-        collisions: AxisCollisions {
-            x: (velocity.x - resolved.x).abs() >= COLLISION_EPSILON,
-            y: (velocity.y - resolved.y).abs() >= COLLISION_EPSILON,
-            z: (velocity.z - resolved.z).abs() >= COLLISION_EPSILON,
-        },
-    })
-}
-
-fn bounded_collision_boxes(
-    world: &impl CollisionWorld,
-    query: Aabb,
-) -> Result<Vec<Aabb>, WorldQueryError> {
-    crate::world::validate_collision_query(query)?;
-    Ok(world.collision_boxes(query)?.value)
-}
-
-fn resolve_axes_reverse(start: Aabb, velocity: Vec3, colliders: &[Aabb]) -> (Aabb, Vec3) {
-    let mut current = start;
-    let mut resolved = Vec3::ZERO;
-    for axis in [1, 0, 2] {
-        let mut axis_velocity = Vec3::ZERO;
-        axis_velocity[axis] = velocity[axis];
-        for collider in colliders.iter().rev().copied() {
-            axis_velocity = current.clip_against(collider, axis_velocity);
-        }
-        current = current.translated(axis_velocity);
-        resolved += axis_velocity;
-    }
-    (current, resolved)
-}
-
-fn resolve_step(start: Aabb, velocity: Vec3, colliders: &[Aabb]) -> (Aabb, Vec3) {
-    let mut current = start;
-    let mut up = Vec3::new(0.0, STEP_HEIGHT, 0.0);
-    for collider in colliders.iter().copied() {
-        up = current.clip_against(collider, up);
-    }
-    current = current.translated(up);
-
-    let mut horizontal = Vec3::ZERO;
-    for axis in [0, 2] {
-        let mut axis_velocity = Vec3::ZERO;
-        axis_velocity[axis] = velocity[axis];
-        for collider in colliders.iter().copied() {
-            axis_velocity = current.clip_against(collider, axis_velocity);
-        }
-        current = current.translated(axis_velocity);
-        horizontal += axis_velocity;
-    }
-
-    let mut down = up * -1.0;
-    for collider in colliders.iter().copied() {
-        down = current.clip_against(collider, down);
-    }
-    current = current.translated(down);
-    (current, horizontal + up + down)
 }

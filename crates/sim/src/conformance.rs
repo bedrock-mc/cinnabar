@@ -10,7 +10,7 @@ const MAX_TRACE_RECORDS: usize = 1_000_000;
 
 /// One canonical bedsim input/output record. Each JSONL line is exactly one
 /// 20 Hz movement tick.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TraceRecord {
     pub input: MovementInput,
@@ -167,6 +167,11 @@ fn compare_tick(
         ("collisions.y", expected.collisions.y != actual.collisions.y),
         ("collisions.z", expected.collisions.z != actual.collisions.z),
         ("on_ground", expected.on_ground != actual.on_ground),
+        ("environment", expected.environment != actual.environment),
+        (
+            "world_identity",
+            expected.world_identity != actual.world_identity,
+        ),
     ] {
         if differs {
             return Err(ConformanceError::DiscreteMismatch {
