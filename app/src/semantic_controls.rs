@@ -8,7 +8,10 @@ use semantic_input::{
 };
 
 mod physical;
-pub(crate) use physical::finalize_semantic_input;
+pub(crate) use physical::{
+    PendingDeviceFrame, SemanticRouteState, collect_raw_input,
+    finalize_semantic_input_after_ui_authority, route_semantic_input,
+};
 
 use crate::{
     runtime::world::ClientWorld, settings_runtime::RuntimeSettings, ui_runtime::UiRuntime,
@@ -81,8 +84,13 @@ struct SemanticInputAuthorityIdentity {
 impl SemanticInputRuntime {
     pub fn route_and_finalize(
         &mut self,
-        mut frame: DeviceFrame,
+        frame: DeviceFrame,
     ) -> Result<ActionSnapshot, RouterError> {
+        self.route_device_frame(frame)?;
+        self.finalize_routed_input()
+    }
+
+    pub(crate) fn route_device_frame(&mut self, mut frame: DeviceFrame) -> Result<(), RouterError> {
         for previous in &self.previous.controllers {
             if !frame
                 .controllers
@@ -99,9 +107,12 @@ impl SemanticInputRuntime {
             .truncate(semantic_input::MAX_DISCONNECTED_CONTROLLERS);
         self.stamp_activity(&mut frame);
         self.router.route(frame.clone())?;
-        let snapshot = self.router.finalize()?;
         self.previous = frame;
-        Ok(snapshot)
+        Ok(())
+    }
+
+    pub(crate) fn finalize_routed_input(&mut self) -> Result<ActionSnapshot, RouterError> {
+        self.router.finalize()
     }
 
     pub fn set_context(&mut self, context: InputContext) {
@@ -218,12 +229,23 @@ fn touch_physical_eq(left: &TouchContact, right: &TouchContact) -> bool {
     left.position == right.position && left.delta == right.delta && left.hit_id == right.hit_id
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SemanticTouchTarget {
+    Movement,
+    Control(u16),
+}
+
 #[derive(Resource, Debug, Default)]
-pub struct SemanticTouchTargets(HashMap<u64, u16>);
+pub struct SemanticTouchTargets(HashMap<u64, SemanticTouchTarget>);
 
 impl SemanticTouchTargets {
     pub fn set(&mut self, contact_id: u64, hit_id: u16) {
-        self.0.insert(contact_id, hit_id);
+        self.0
+            .insert(contact_id, SemanticTouchTarget::Control(hit_id));
+    }
+
+    pub(crate) fn set_movement(&mut self, contact_id: u64) {
+        self.0.insert(contact_id, SemanticTouchTarget::Movement);
     }
 
     pub fn clear(&mut self, contact_id: u64) {
@@ -240,7 +262,16 @@ impl SemanticTouchTargets {
 
     #[must_use]
     pub fn target(&self, contact_id: u64) -> Option<u16> {
-        self.0.get(&contact_id).copied()
+        match self.0.get(&contact_id) {
+            Some(SemanticTouchTarget::Control(hit_id)) => Some(*hit_id),
+            Some(SemanticTouchTarget::Movement) | None => None,
+        }
+    }
+
+    #[must_use]
+    #[cfg(test)]
+    pub(crate) fn is_movement(&self, contact_id: u64) -> bool {
+        self.0.get(&contact_id) == Some(&SemanticTouchTarget::Movement)
     }
 
     pub fn release_all(&mut self) {

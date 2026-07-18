@@ -951,3 +951,40 @@ fn provided_suggestion_hit_selects_the_matching_scrolled_row() {
     ));
     assert_eq!(runtime.chat_editor().as_str(), "/s4");
 }
+
+#[test]
+fn gameplay_touch_targets_cover_movement_jump_use_look_and_release_transitions() {
+    use crate::semantic_controls::SemanticTouchTargets;
+    use crate::ui_runtime::gameplay_touch::{
+        GameplayTouchSample, reconcile_gameplay_touch_targets,
+    };
+
+    let mut targets = SemanticTouchTargets::default();
+    reconcile_gameplay_touch_targets(
+        &mut targets,
+        &[
+            GameplayTouchSample::new(1, [0.25, 0.25], [0.0, 0.0]),
+            GameplayTouchSample::new(2, [0.75, 0.75], [0.0, 0.0]),
+            GameplayTouchSample::new(3, [0.90, 0.75], [0.0, 0.0]),
+            GameplayTouchSample::new(4, [0.70, 0.40], [0.08, 0.01]),
+        ],
+    );
+
+    assert!(targets.is_movement(1));
+    assert_eq!(targets.target(1), None);
+    assert_eq!(targets.target(2), Some(semantic_input::touch::JUMP));
+    assert_eq!(targets.target(3), Some(semantic_input::touch::USE));
+    assert_eq!(targets.target(4), Some(semantic_input::touch::LOOK_RIGHT));
+
+    reconcile_gameplay_touch_targets(
+        &mut targets,
+        &[GameplayTouchSample::new(4, [0.62, 0.40], [-0.08, 0.01])],
+    );
+    assert!(!targets.is_movement(1));
+    assert_eq!(targets.target(2), None);
+    assert_eq!(targets.target(3), None);
+    assert_eq!(targets.target(4), Some(semantic_input::touch::LOOK_LEFT));
+
+    reconcile_gameplay_touch_targets(&mut targets, &[]);
+    assert_eq!(targets.target(4), None);
+}

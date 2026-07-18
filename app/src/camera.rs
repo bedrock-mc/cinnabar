@@ -17,8 +17,8 @@ use crate::local_player::{
     LocalPlayerFrameCarrier, LocalViewPose,
 };
 use crate::semantic_controls::{
-    SemanticInputRuntime, SemanticInputSnapshot, SemanticTouchTargets, finalize_semantic_input,
-    synchronize_semantic_input_authority,
+    PendingDeviceFrame, SemanticInputRuntime, SemanticInputSnapshot, SemanticRouteState,
+    SemanticTouchTargets,
 };
 use crate::settings_runtime::RuntimeSettings;
 
@@ -370,19 +370,16 @@ impl Plugin for FlyCameraPlugin {
             .init_resource::<LocalAvatarVisibilityCarrier>()
             .init_resource::<SemanticInputRuntime>()
             .init_resource::<SemanticInputSnapshot>()
+            .init_resource::<PendingDeviceFrame>()
+            .init_resource::<SemanticRouteState>()
             .init_resource::<SemanticTouchTargets>()
             .init_resource::<RuntimeSettings>()
             .add_systems(Startup, spawn_fly_camera)
-            .add_systems(
+            .configure_sets(
                 Update,
-                (
-                    synchronize_semantic_input_authority
-                        .in_set(ClientFrameSet::UiAuthority)
-                        .after(crate::ui_runtime::drive_chat_keyboard_input),
-                    finalize_semantic_input.in_set(ClientFrameSet::SemanticFinalize),
-                )
-                    .chain()
-                    .before(FlyCameraUpdateSet),
+                FlyCameraUpdateSet
+                    .after(ClientFrameSet::SemanticFinalize)
+                    .before(ClientFrameSet::Physics),
             )
             .add_systems(
                 Update,

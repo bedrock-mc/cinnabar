@@ -41,7 +41,7 @@ use crate::{
         mutation::write_stdout_marker,
     },
     camera::{self, FlyCamera},
-    local_player::{InteractionOriginSnapshot, LocalViewPose},
+    local_player::InteractionOriginSnapshot,
     metrics::{
         DiagnosticQuadTracker, GpuPassMeasurement, MetricsCollector, ModelWorkloadMetricsSnapshot,
         PipelineMetricsSnapshot, TransparentSortMetricsSnapshot, pair_gpu_pass_sample,
@@ -295,16 +295,18 @@ pub(crate) fn bedrock_camera_rotation(yaw_degrees: f32, pitch_degrees: f32) -> Q
 pub(crate) fn send_player_auth_inputs(
     time: Res<Time<Real>>,
     input: Res<SemanticInputSnapshot>,
-    view: Res<LocalViewPose>,
     interaction: Res<InteractionOriginSnapshot>,
     network: Res<NetworkHandle>,
     mut movement: ResMut<MovementTicker>,
     mut client_world: ResMut<ClientWorld>,
 ) {
+    let Some(interaction) = interaction.outbound_ray() else {
+        return;
+    };
     let movement_axes = input.movement();
-    let subject_rotation = view.rotation();
-    let (bevy_yaw, bevy_pitch, _) = subject_rotation.to_euler(EulerRot::YXZ);
     let forward = interaction.direction();
+    let bevy_yaw = (-forward.x).atan2(-forward.z);
+    let bevy_pitch = forward.y.clamp(-1.0, 1.0).asin();
     movement.advance(
         MovementSource::FreeCamera,
         time.delta(),

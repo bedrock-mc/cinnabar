@@ -2,6 +2,7 @@
 
 mod hud_adapter;
 mod interaction;
+pub(crate) mod gameplay_touch;
 pub mod inventory_router;
 pub mod presentation;
 pub mod render_adapter;

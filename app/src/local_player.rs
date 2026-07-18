@@ -251,43 +251,84 @@ impl CameraPose {
     }
 }
 
-/// Frame-frozen eye ray used by interaction and outbound movement sampling.
-#[derive(Resource, Debug, Clone, Copy, PartialEq)]
-pub struct InteractionOriginSnapshot {
-    frame_sequence: u64,
+/// One immutable eye ray and its complete simulation/publication identity.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FrozenInteractionOrigin {
+    session_generation: u64,
+    fifo_sequence: u64,
+    physics_tick: u64,
+    pose_generation: u64,
+    perspective: PerspectiveMode,
+    world_collision_identity: WorldCollisionIdentity,
     origin: Vec3,
     direction: Vec3,
 }
 
-impl Default for InteractionOriginSnapshot {
-    fn default() -> Self {
-        Self::from_local_view(0, LocalViewPose::default())
-    }
-}
-
-impl InteractionOriginSnapshot {
+impl FrozenInteractionOrigin {
     #[must_use]
-    pub fn from_local_view(frame_sequence: u64, view: LocalViewPose) -> Self {
-        Self {
-            frame_sequence,
-            origin: view.eye_translation(),
-            direction: (view.rotation() * Vec3::NEG_Z).normalize_or_zero(),
-        }
+    pub const fn session_generation(&self) -> u64 {
+        self.session_generation
     }
 
     #[must_use]
-    pub const fn frame_sequence(self) -> u64 {
-        self.frame_sequence
+    pub const fn fifo_sequence(&self) -> u64 {
+        self.fifo_sequence
     }
 
     #[must_use]
-    pub const fn origin(self) -> Vec3 {
+    pub const fn physics_tick(&self) -> u64 {
+        self.physics_tick
+    }
+
+    #[must_use]
+    pub const fn pose_generation(&self) -> u64 {
+        self.pose_generation
+    }
+
+    #[must_use]
+    pub const fn perspective(&self) -> PerspectiveMode {
+        self.perspective
+    }
+
+    #[must_use]
+    pub const fn world_collision_identity(&self) -> &WorldCollisionIdentity {
+        &self.world_collision_identity
+    }
+
+    #[must_use]
+    pub const fn origin(&self) -> Vec3 {
         self.origin
     }
 
     #[must_use]
-    pub const fn direction(self) -> Vec3 {
+    pub const fn direction(&self) -> Vec3 {
         self.direction
+    }
+}
+
+/// Frame-frozen interaction/outbound ray. Absence is authoritative after a
+/// correction, session replacement, dimension replacement, or unavailable
+/// completed physics frame.
+#[derive(Resource, Debug, Default, Clone, PartialEq)]
+pub struct InteractionOriginSnapshot(Option<FrozenInteractionOrigin>);
+
+impl InteractionOriginSnapshot {
+    pub fn publish_from_local_player_frame(&mut self, carrier: &LocalPlayerFrameCarrier) {
+        self.0 = carrier.snapshot().map(|frame| FrozenInteractionOrigin {
+            session_generation: frame.session_generation(),
+            fifo_sequence: frame.fifo_sequence(),
+            physics_tick: frame.physics_tick(),
+            pose_generation: frame.pose_generation(),
+            perspective: frame.perspective(),
+            world_collision_identity: frame.world_collision_identity().clone(),
+            origin: frame.eye(),
+            direction: frame.direction(),
+        });
+    }
+
+    #[must_use]
+    pub const fn outbound_ray(&self) -> Option<&FrozenInteractionOrigin> {
+        self.0.as_ref()
     }
 }
 
@@ -435,11 +476,10 @@ pub(crate) fn resolve_camera_pose(
 }
 
 pub(crate) fn publish_interaction_origin(
-    view: Res<LocalViewPose>,
+    carrier: Res<LocalPlayerFrameCarrier>,
     mut snapshot: ResMut<InteractionOriginSnapshot>,
 ) {
-    let sequence = snapshot.frame_sequence.wrapping_add(1);
-    *snapshot = InteractionOriginSnapshot::from_local_view(sequence, *view);
+    snapshot.publish_from_local_player_frame(&carrier);
 }
 
 pub(crate) fn publish_local_player_frame(

@@ -71,8 +71,13 @@ use crate::{
             arm_shutdown_watchdog, drive_world_stream, startup_biome_tints, update_camera_medium,
         },
     },
+    semantic_controls::{
+        collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
+        synchronize_semantic_input_authority,
+    },
     ui_runtime::{
         UiRuntime, drive_chat_keyboard_input, drive_chat_ui_actions, flush_chat_network,
+        gameplay_touch::drive_gameplay_touch_targets,
         presentation::{UiPresentationRuntime, publish_ui_runtime},
     },
 };
@@ -117,6 +122,75 @@ pub(crate) fn configure_client_frame_schedule(app: &mut App) {
             ClientFrameSet::NetworkSend,
         )
             .chain(),
+    );
+}
+
+pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
+    app.add_systems(
+        Update,
+        (drive_gameplay_touch_targets, collect_raw_input)
+            .chain()
+            .in_set(ClientFrameSet::RawInput),
+    )
+    .add_systems(
+        Update,
+        route_semantic_input.in_set(ClientFrameSet::SemanticSample),
+    )
+    .add_systems(
+        Update,
+        (
+            drive_chat_ui_actions,
+            drive_chat_keyboard_input,
+            synchronize_semantic_input_authority,
+        )
+            .chain()
+            .in_set(ClientFrameSet::UiAuthority),
+    )
+    .add_systems(
+        Update,
+        finalize_semantic_input_after_ui_authority.in_set(ClientFrameSet::SemanticFinalize),
+    )
+    .add_systems(
+        Update,
+        receive_network_events.before(ClientFrameSet::Physics),
+    )
+    .add_systems(
+        Update,
+        advance_local_physics
+            .in_set(LocalPlayerFrameSet::Physics)
+            .in_set(ClientFrameSet::Physics),
+    )
+    .add_systems(
+        Update,
+        resolve_camera_pose
+            .in_set(LocalPlayerFrameSet::Camera)
+            .in_set(ClientFrameSet::Camera),
+    )
+    .add_systems(
+        Update,
+        (publish_local_player_frame, publish_interaction_origin)
+            .chain()
+            .in_set(LocalPlayerFrameSet::Interaction)
+            .in_set(ClientFrameSet::Interaction),
+    )
+    .add_systems(
+        Update,
+        drive_world_stream
+            .after(receive_network_events)
+            .before(ChunkRenderApplySet)
+            .in_set(ClientFrameSet::WorldPublication),
+    )
+    .add_systems(
+        Update,
+        publish_actor_render_frame.in_set(ClientFrameSet::ActorPublication),
+    )
+    .add_systems(
+        Update,
+        publish_ui_runtime.in_set(ClientFrameSet::UiPublication),
+    )
+    .add_systems(
+        Update,
+        send_player_auth_inputs.in_set(ClientFrameSet::NetworkSend),
     );
 }
 
@@ -323,8 +397,9 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             ),
             FlyCameraPlugin::new(args.auto_fly),
             UiRenderPlugin,
-        ))
-        .add_observer(apply_added_chunk_visibility)
+        ));
+    configure_client_production_frame_systems(&mut app);
+    app.add_observer(apply_added_chunk_visibility)
         .add_observer(remove_chunk_visibility)
         .configure_sets(
             Update,
@@ -338,13 +413,6 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         )
         .add_systems(
             Update,
-            (drive_chat_ui_actions, drive_chat_keyboard_input)
-                .chain()
-                .in_set(ClientFrameSet::UiAuthority)
-                .before(FlyCameraUpdateSet),
-        )
-        .add_systems(
-            Update,
             begin_publication_frame
                 .before(receive_network_events)
                 .before(drive_world_stream)
@@ -355,27 +423,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             Update,
             (
                 exit_on_window_close_requested,
-                receive_network_events,
                 flush_chat_network,
                 exit_on_fatal_runtime_error,
                 poll_transparent_witness_request,
                 poll_model_witness_request,
-                drive_world_stream.before(ChunkRenderApplySet),
-                publish_ui_runtime,
-                (
-                    advance_local_physics
-                        .in_set(LocalPlayerFrameSet::Physics)
-                        .in_set(ClientFrameSet::Physics),
-                    resolve_camera_pose
-                        .in_set(LocalPlayerFrameSet::Camera)
-                        .in_set(ClientFrameSet::Camera),
-                    publish_interaction_origin
-                        .in_set(LocalPlayerFrameSet::Interaction)
-                        .in_set(ClientFrameSet::Interaction),
-                    publish_local_player_frame.in_set(ClientFrameSet::Interaction),
-                )
-                    .chain(),
-                publish_actor_render_frame.in_set(ClientFrameSet::ActorPublication),
                 update_camera_medium,
                 update_atmosphere_frame,
                 refresh_cave_visibility,
@@ -388,10 +439,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
                 .chain()
                 .after(FlyCameraUpdateSet),
         )
-        .add_systems(
-            Last,
-            (send_player_auth_inputs, arm_shutdown_watchdog).chain(),
-        );
+        .add_systems(Last, arm_shutdown_watchdog);
 
     let exit = app.run();
     shutdown_watchdog.complete();

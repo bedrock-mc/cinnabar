@@ -5,7 +5,9 @@ use bevy::{
         mouse::AccumulatedMouseMotion,
         touch::Touches,
     },
-    prelude::{ButtonInput, KeyCode, MouseButton, Query, Res, ResMut, Single, Window, With},
+    prelude::{
+        ButtonInput, KeyCode, MouseButton, Query, Res, ResMut, Resource, Single, Window, With,
+    },
     window::{CursorOptions, PrimaryWindow},
 };
 use semantic_input::{
@@ -14,6 +16,14 @@ use semantic_input::{
 
 use super::{SemanticInputRuntime, SemanticInputSnapshot, SemanticTouchTargets};
 use crate::camera::input_is_active;
+
+#[derive(Resource, Debug, Default)]
+pub(crate) struct PendingDeviceFrame(Option<DeviceFrame>);
+
+#[derive(Resource, Debug, Default)]
+pub(crate) struct SemanticRouteState {
+    routed: bool,
+}
 
 #[derive(SystemParam)]
 pub(crate) struct SemanticPhysicalInputs<'w, 's> {
@@ -26,13 +36,35 @@ pub(crate) struct SemanticPhysicalInputs<'w, 's> {
     touch_targets: ResMut<'w, SemanticTouchTargets>,
 }
 
-pub(crate) fn finalize_semantic_input(
+pub(crate) fn collect_raw_input(
     inputs: SemanticPhysicalInputs,
+    mut pending: ResMut<PendingDeviceFrame>,
+) {
+    pending.0 = Some(translate_device_frame(inputs));
+}
+
+pub(crate) fn route_semantic_input(
+    mut pending: ResMut<PendingDeviceFrame>,
     mut runtime: ResMut<SemanticInputRuntime>,
+    mut route: ResMut<SemanticRouteState>,
+) {
+    route.routed = pending
+        .0
+        .take()
+        .is_some_and(|frame| runtime.route_device_frame(frame).is_ok());
+}
+
+pub(crate) fn finalize_semantic_input_after_ui_authority(
+    mut runtime: ResMut<SemanticInputRuntime>,
+    mut route: ResMut<SemanticRouteState>,
     mut published: ResMut<SemanticInputSnapshot>,
 ) {
-    let frame = translate_device_frame(inputs);
-    match runtime.route_and_finalize(frame) {
+    let routed = std::mem::take(&mut route.routed);
+    if !routed {
+        published.clear();
+        return;
+    }
+    match runtime.finalize_routed_input() {
         Ok(snapshot) => published.replace(snapshot),
         Err(_) => published.clear(),
     }
