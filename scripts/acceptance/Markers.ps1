@@ -63,6 +63,61 @@ function Assert-StableTransparentWitnessEvidence {
     return $Second
 }
 
+function Stop-ProtocolMetadataProcessTree {
+    param([Parameter(Mandatory = $true)][Diagnostics.Process]$Process)
+
+    if (-not $Process.HasExited -and [Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
+        $treeKill = [Diagnostics.Process]::new()
+        try {
+            $treeKill.StartInfo.FileName = 'taskkill.exe'
+            $treeKill.StartInfo.Arguments = "/PID $([int]$Process.Id) /T /F"
+            $treeKill.StartInfo.UseShellExecute = $false
+            $treeKill.StartInfo.CreateNoWindow = $true
+            if (-not $treeKill.Start()) {
+                throw 'could not start exact Cargo process-tree termination'
+            }
+            if (-not $treeKill.WaitForExit(10000)) {
+                try { $treeKill.Kill() } catch { }
+                throw 'exact Cargo process-tree termination timed out'
+            }
+            $treeKill.WaitForExit()
+            if ($treeKill.ExitCode -ne 0 -and -not $Process.HasExited) {
+                throw "exact Cargo process-tree termination failed with exit code $($treeKill.ExitCode)"
+            }
+        }
+        catch {
+            if (-not $Process.HasExited) {
+                try { $Process.Kill() } catch {
+                    throw "could not terminate timed-out Cargo process: $($_.Exception.Message)"
+                }
+            }
+        }
+        finally {
+            $treeKill.Dispose()
+        }
+    }
+    elseif (-not $Process.HasExited) {
+        try { $Process.Kill() } catch {
+            throw "could not terminate timed-out Cargo process: $($_.Exception.Message)"
+        }
+    }
+
+    if (-not $Process.WaitForExit(10000)) {
+        throw 'timed-out Cargo process did not exit within 10 seconds of termination'
+    }
+}
+
+function Wait-ProtocolMetadataCopyTasks {
+    param(
+        [Parameter(Mandatory = $true)][Threading.Tasks.Task[]]$Tasks,
+        [Parameter(Mandatory = $true)][ValidateRange(1, [int]::MaxValue)][int]$TimeoutMilliseconds
+    )
+
+    if (-not [Threading.Tasks.Task]::WaitAll($Tasks, $TimeoutMilliseconds)) {
+        throw "Cargo metadata output streams did not drain within $TimeoutMilliseconds milliseconds"
+    }
+}
+
 function Assert-ProtocolDependencyProvenance {
     param(
         [Parameter(Mandatory = $true)][string]$ProjectRoot,
@@ -105,9 +160,9 @@ function Assert-ProtocolDependencyProvenance {
         $metadataStdoutCopy = $metadataProcess.StandardOutput.BaseStream.CopyToAsync($metadataStdoutStream)
         $metadataStderrCopy = $metadataProcess.StandardError.BaseStream.CopyToAsync($metadataStderrStream)
         if (-not $metadataProcess.WaitForExit(120000)) {
-            try { $metadataProcess.Kill() } catch { }
-            $metadataProcess.WaitForExit()
-            [Threading.Tasks.Task]::WaitAll([Threading.Tasks.Task[]]@($metadataStdoutCopy, $metadataStderrCopy))
+            Stop-ProtocolMetadataProcessTree -Process $metadataProcess
+            Wait-ProtocolMetadataCopyTasks `
+                -Tasks @($metadataStdoutCopy, $metadataStderrCopy) -TimeoutMilliseconds 10000
             throw 'cargo metadata timed out after 120 seconds'
         }
         $metadataProcess.WaitForExit()

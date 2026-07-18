@@ -41,6 +41,17 @@ function Assert-TestProtocolDependencyProvenance {
 
 $null = Assert-TestProtocolDependencyProvenance -Root $ProjectRoot
 
+$markersSource = Get-Content -Raw -LiteralPath (Join-Path $ProjectRoot 'scripts\acceptance\Markers.ps1')
+$treeKillStart = $markersSource.IndexOf('function Stop-ProtocolMetadataProcessTree {', [StringComparison]::Ordinal)
+$treeKillEnd = $markersSource.IndexOf('function Wait-ProtocolMetadataCopyTasks {', $treeKillStart, [StringComparison]::Ordinal)
+Assert-True ($treeKillStart -ge 0 -and $treeKillEnd -gt $treeKillStart) 'protocol provenance has no bounded process-tree termination helper'
+$treeKillSource = $markersSource.Substring($treeKillStart, $treeKillEnd - $treeKillStart)
+Assert-True ($treeKillSource.Contains("'taskkill.exe'")) 'Windows protocol timeout does not use the process-tree terminator'
+Assert-True ($treeKillSource.Contains('"/PID $([int]$Process.Id) /T /F"')) 'Windows protocol timeout does not target the exact Cargo PID tree'
+Assert-True ($treeKillSource.Contains('$Process.Kill()')) 'protocol timeout has no direct-process termination fallback'
+Assert-True ($treeKillSource.Contains('$Process.WaitForExit(10000)')) 'protocol timeout termination wait is not bounded'
+Assert-True ($markersSource.Contains('-Tasks @($metadataStdoutCopy, $metadataStderrCopy) -TimeoutMilliseconds 10000')) 'protocol timeout output drain is not bounded'
+
 New-Item -ItemType Directory -Path $TempRoot -Force | Out-Null
 $oversizedMetadata = Join-Path $TempRoot 'oversized cargo metadata.json'
 [IO.File]::WriteAllBytes($oversizedMetadata, [byte[]](0..32))
