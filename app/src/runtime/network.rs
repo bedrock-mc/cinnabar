@@ -234,12 +234,6 @@ pub(crate) fn receive_network_events(
                 if replacing_session {
                     debug!("replaced StartGame environment session");
                 }
-                if acceptance.enabled() {
-                    acceptance.set_mutation_surface_anchor([
-                        bootstrap.world_spawn_position[0],
-                        bootstrap.world_spawn_position[2],
-                    ]);
-                }
                 let current = cameras
                     .single()
                     .map(|camera| camera.translation.to_array())
@@ -255,6 +249,10 @@ pub(crate) fn receive_network_events(
                     client_world.pending_surface_spawn,
                 );
                 let resolved = stream.resolved_server_position();
+                if acceptance.enabled() {
+                    acceptance
+                        .set_mutation_surface_anchor(acceptance_surface_anchor(resolved.position));
+                }
                 if let Ok(mut camera) = cameras.single_mut() {
                     camera.translation = Vec3::from_array(resolved.position);
                 }
@@ -476,6 +474,10 @@ pub(crate) fn receive_network_events(
             client_world.fatal_error = Some(format!("world FIFO rejected data: {error}"));
         }
     }
+}
+
+pub(crate) fn acceptance_surface_anchor(position: [f32; 3]) -> [i32; 2] {
+    [position[0].floor() as i32, position[2].floor() as i32]
 }
 
 pub(crate) fn drain_network_controls<T>(

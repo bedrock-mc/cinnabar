@@ -7,10 +7,9 @@ use render::{PresentedFrameAck, TargetRenderExpectation};
 use world::SubChunkKey;
 
 use super::{
-    PHASE0_REQUESTED_RADIUS_CHUNKS,
     markers::{MOVE_PLAYER_INGRESS, MUTATION_COORDINATE, TARGET_MUTATION_ARMED, WORLD_READY},
     teleport::presented_ack_matches,
-    world_ready::WorldReadySnapshot,
+    world_ready::{WorldReadySnapshot, authoritative_publisher_radius},
 };
 
 const MUTATION_X_OFFSET_BLOCKS: i32 = 4;
@@ -270,9 +269,11 @@ pub(crate) fn target_mutation_armed_marker(
 
 pub(crate) fn world_ready_markers(snapshot: WorldReadySnapshot) -> Option<[String; 2]> {
     let coordinate = snapshot.mutation_coordinate?;
-    if snapshot.received_radius_chunks != Some(PHASE0_REQUESTED_RADIUS_CHUNKS)
-        || snapshot.publisher_radius_chunks != Some(PHASE0_REQUESTED_RADIUS_CHUNKS)
-        || snapshot.rendered_sub_chunks == 0
+    let publisher_radius = authoritative_publisher_radius(
+        snapshot.received_radius_chunks,
+        snapshot.publisher_radius_chunks,
+    )?;
+    if snapshot.rendered_sub_chunks == 0
         || snapshot.resident_sub_chunks == 0
         || snapshot.visible_sub_chunks == 0
         || !snapshot.mutation_target_rendered
@@ -289,7 +290,7 @@ pub(crate) fn world_ready_markers(snapshot: WorldReadySnapshot) -> Option<[Strin
         ),
         format!(
             "{WORLD_READY} radius={} rendered={} resident={} visible={}",
-            PHASE0_REQUESTED_RADIUS_CHUNKS,
+            publisher_radius,
             snapshot.rendered_sub_chunks,
             snapshot.resident_sub_chunks,
             snapshot.visible_sub_chunks,

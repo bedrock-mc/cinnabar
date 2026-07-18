@@ -118,6 +118,31 @@ fn full_view_teleport_arms_only_with_a_fifo_committed_source_cohort() {
 }
 
 #[test]
+fn full_view_teleport_preserves_the_servers_authoritative_source_radius() {
+    let started = Instant::now();
+    let movement = protocol::MovePlayerEvent {
+        runtime_id: 1,
+        position: [1_040.5, 70.0, 1_040.5],
+        pitch: 0.0,
+        yaw: 0.0,
+        ..Default::default()
+    };
+    let source = ViewCohort {
+        radius: 8,
+        ..SOURCE_COHORT
+    };
+    let mut tracker = FullViewTeleportTracker::new(true);
+    tracker.set_source_mutation_coordinate([0, 58, 0]);
+    tracker.begin_world_ready([0.5, 70.0, 0.5], 1);
+
+    assert!(tracker.observe_ingress(&WorldEvent::MovePlayer(movement), 1, started, 0, 10,));
+    assert!(tracker.commit_move(1, movement, Some(source)));
+    let pending = tracker.pending.as_ref().expect("teleport should arm");
+    assert_eq!(pending.source.radius, 8);
+    assert_eq!(pending.target.radius, 8);
+}
+
+#[test]
 fn movement_correction_never_arms_full_view_teleport_tracking() {
     let started = Instant::now();
     let correction = protocol::PlayerMovementCorrectionEvent {

@@ -292,14 +292,38 @@ fn deterministic_mutation_coordinate_is_visible_above_the_surface_anchor() {
 }
 
 #[test]
+fn remote_acceptance_anchors_the_mutation_to_the_live_player_not_world_spawn() {
+    assert_eq!(
+        acceptance_surface_anchor([-1351.25, 92.62, 1647.75]),
+        [-1352, 1647]
+    );
+}
+
+#[test]
+fn mutation_look_target_centers_the_block_before_world_ready_visibility_sampling() {
+    assert_eq!(
+        mutation_look_target(Some([14, 71, -6])),
+        Some(Vec3::new(14.5, 71.5, -5.5))
+    );
+    assert_eq!(mutation_look_target(None), None);
+}
+
+#[test]
+fn acceptance_orients_a_normal_camera_toward_the_mutation_before_readiness() {
+    let mut camera = Transform::from_xyz(10.5, 73.0, -5.5);
+    assert!(orient_mutation_camera(&mut camera, Some([14, 71, -6])));
+    let forward = camera.rotation * Vec3::NEG_Z;
+    let expected = (Vec3::new(14.5, 71.5, -5.5) - camera.translation).normalize();
+    assert!(forward.abs_diff_eq(expected, 0.0001));
+}
+
+#[test]
 fn world_ready_markers_require_radius_rendering_and_include_the_exact_coordinate() {
     let mut snapshot = settled_world_snapshot();
     snapshot.received_radius_chunks = Some(15);
     assert_eq!(world_ready_markers(snapshot), None);
     snapshot.received_radius_chunks = Some(16);
-    snapshot.publisher_radius_chunks = Some(15);
-    assert_eq!(world_ready_markers(snapshot), None);
-    snapshot.publisher_radius_chunks = Some(16);
+    snapshot.publisher_radius_chunks = Some(8);
     snapshot.rendered_sub_chunks = 0;
     assert_eq!(world_ready_markers(snapshot), None);
     snapshot.rendered_sub_chunks = 2;
@@ -307,9 +331,35 @@ fn world_ready_markers_require_radius_rendering_and_include_the_exact_coordinate
         world_ready_markers(snapshot),
         Some([
             format!("{MUTATION_COORDINATE}=14,71,-6"),
-            format!("{WORLD_READY} radius=16 rendered=2 resident=3 visible=1"),
+            format!("{WORLD_READY} radius=8 rendered=2 resident=3 visible=1"),
         ])
     );
+
+    snapshot.publisher_radius_chunks = Some(17);
+    assert_eq!(world_ready_markers(snapshot), None);
+}
+
+#[test]
+fn teleport_readiness_accepts_the_servers_smaller_authoritative_publisher_disk() {
+    let mut snapshot = settled_teleport_snapshot();
+    snapshot.publisher_radius_chunks = Some(8);
+    assert!(snapshot.is_binding_ready());
+
+    snapshot.publisher_radius_chunks = Some(17);
+    assert!(!snapshot.is_binding_ready());
+}
+
+#[test]
+fn readiness_accepts_a_server_capped_radius_acknowledgement() {
+    let mut snapshot = settled_world_snapshot();
+    snapshot.received_radius_chunks = Some(8);
+    snapshot.publisher_radius_chunks = Some(8);
+    assert!(world_ready_markers(snapshot).is_some());
+
+    let mut teleport = settled_teleport_snapshot();
+    teleport.received_radius_chunks = Some(8);
+    teleport.publisher_radius_chunks = Some(8);
+    assert!(teleport.is_binding_ready());
 }
 
 #[test]

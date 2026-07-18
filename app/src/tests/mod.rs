@@ -49,7 +49,8 @@ use crate::acceptance::{
     },
     world_ready::{
         GalleryAnchorEmitter, SubChunkTimeoutProgress, WORLD_READY_QUIET_INTERVAL,
-        WorldReadySettler, WorldReadySnapshot, WorldReadyWork,
+        WorldReadySettler, WorldReadySnapshot, WorldReadyWork, mutation_look_target,
+        orient_mutation_camera,
     },
 };
 use crate::metrics::{DiagnosticQuadTracker, MetricsCollector, TransparentSortMetricsSnapshot};
@@ -61,7 +62,8 @@ use crate::runtime::{
     },
     network::{
         ActorFrameClock, NETWORK_INGRESS_BUDGET_PER_FRAME, OUTBOUND_SEND_BUDGET_PER_FRAME,
-        actor_render_source, drain_network_controls, drain_network_ingress,
+        acceptance_surface_anchor, actor_render_source, drain_network_controls,
+        drain_network_ingress,
     },
     shutdown::{
         exit_on_window_close_requested, fatal_runtime_exit, record_fatal_error, window_close_exit,

@@ -2,13 +2,13 @@ use std::{io::Write, time::Instant};
 
 use bevy::{
     log::error,
-    prelude::{Res, ResMut, Vec3},
+    prelude::{Query, Res, ResMut, Transform, Vec3, With},
 };
 use render::{ChunkRenderQueue, ChunkUploadAcknowledgements, PresentedFrameGate};
 use world::SubChunkKey;
 
 use super::{
-    AcceptanceRun,
+    AcceptanceRun, PHASE0_REQUESTED_RADIUS_CHUNKS,
     markers::GALLERY_ANCHOR_READY,
     model_witness::ModelWitnessFileSource,
     mutation::{world_ready_markers, write_stdout_marker},
@@ -30,6 +30,42 @@ use crate::{
 
 pub(crate) const WORLD_READY_QUIET_INTERVAL: std::time::Duration =
     std::time::Duration::from_secs(2);
+
+#[must_use]
+pub(crate) fn authoritative_publisher_radius(
+    received_radius_chunks: Option<i32>,
+    publisher_radius_chunks: Option<i32>,
+) -> Option<i32> {
+    let received = received_radius_chunks?;
+    let publisher = publisher_radius_chunks?;
+    (received > 0
+        && received <= PHASE0_REQUESTED_RADIUS_CHUNKS
+        && publisher > 0
+        && publisher <= received)
+        .then_some(publisher)
+}
+
+#[must_use]
+pub(crate) fn mutation_look_target(coordinate: Option<[i32; 3]>) -> Option<Vec3> {
+    coordinate.map(|coordinate| {
+        Vec3::new(
+            coordinate[0] as f32 + 0.5,
+            coordinate[1] as f32 + 0.5,
+            coordinate[2] as f32 + 0.5,
+        )
+    })
+}
+
+pub(crate) fn orient_mutation_camera(
+    transform: &mut Transform,
+    coordinate: Option<[i32; 3]>,
+) -> bool {
+    let Some(target) = mutation_look_target(coordinate) else {
+        return false;
+    };
+    transform.rotation = camera::look_at_target(transform.translation, target);
+    true
+}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct WorldReadyWork {
@@ -149,6 +185,7 @@ pub(crate) fn emit_world_ready(
     mut acceptance: ResMut<AcceptanceRun>,
     mut auto_fly: ResMut<camera::AutoFly>,
     mut metrics: ResMut<AppMetrics>,
+    mut cameras: Query<&mut Transform, With<camera::FlyCamera>>,
 ) {
     let missing_mapping_count = client_world.runtime_assets.missing_count();
     let Some(stream) = client_world.stream.as_mut() else {
@@ -386,6 +423,12 @@ pub(crate) fn emit_world_ready(
         return;
     }
     let mutation_coordinate = acceptance.mutation_coordinate();
+    if let Some(target) = mutation_look_target(mutation_coordinate) {
+        auto_fly.set_look_target(target);
+    }
+    if let Ok(mut transform) = cameras.single_mut() {
+        orient_mutation_camera(&mut transform, mutation_coordinate);
+    }
     let mutation_target = mutation_coordinate.map(|coordinate| {
         SubChunkKey::new(
             stream.current_dimension(),
@@ -428,14 +471,6 @@ pub(crate) fn emit_world_ready(
         .0
         .asset_metrics()
         .world_ready_marker(snapshot.resident_sub_chunks, snapshot.visible_sub_chunks);
-    let coordinate = snapshot
-        .mutation_coordinate
-        .expect("world-ready markers require a mutation coordinate");
-    auto_fly.set_look_target(Vec3::new(
-        coordinate[0] as f32 + 0.5,
-        coordinate[1] as f32 + 0.5,
-        coordinate[2] as f32 + 0.5,
-    ));
     let mut stdout = std::io::stdout().lock();
     for marker in markers {
         let _ = writeln!(stdout, "{marker}");

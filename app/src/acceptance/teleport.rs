@@ -12,7 +12,7 @@ use super::{
     PHASE0_REQUESTED_RADIUS_CHUNKS,
     markers::{TELEPORT_COHORT, TELEPORT_GLOBAL_STAGE_DIAGNOSTIC},
     proofs::{horizontal_chunk, optional_duration_milliseconds, optional_milliseconds_token},
-    world_ready::{SubChunkTimeoutProgress, WorldReadyWork},
+    world_ready::{SubChunkTimeoutProgress, WorldReadyWork, authoritative_publisher_radius},
 };
 
 const TELEPORT_COHORT_PROGRESS_INTERVAL: Duration = Duration::from_secs(1);
@@ -36,8 +36,8 @@ pub(crate) struct TeleportReadySnapshot {
 
 impl TeleportReadySnapshot {
     pub(crate) fn is_binding_ready(self) -> bool {
-        self.received_radius_chunks == Some(PHASE0_REQUESTED_RADIUS_CHUNKS)
-            && self.publisher_radius_chunks == Some(PHASE0_REQUESTED_RADIUS_CHUNKS)
+        authoritative_publisher_radius(self.received_radius_chunks, self.publisher_radius_chunks)
+            .is_some()
             && self.cohort.is_some_and(ViewCohortStatus::is_exact)
             && self.work.is_empty()
     }
@@ -310,15 +310,15 @@ impl FullViewTeleportTracker {
         if !far_enough {
             return false;
         }
-        let Some(source) =
-            source_cohort.filter(|source| source.radius == PHASE0_REQUESTED_RADIUS_CHUNKS)
+        let Some(source) = source_cohort
+            .filter(|source| source.radius > 0 && source.radius <= PHASE0_REQUESTED_RADIUS_CHUNKS)
         else {
             return false;
         };
         let target = ViewCohort {
             dimension: source.dimension,
             center: target_center,
-            radius: PHASE0_REQUESTED_RADIUS_CHUNKS,
+            radius: source.radius,
         };
         if source == target {
             return false;
