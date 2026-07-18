@@ -227,3 +227,37 @@ fn skin_layer_outside_the_bounded_texture_array_fails_the_frame_closed() {
     assert!(frame.skins_rgba8.is_empty());
     assert_eq!(frame.rig.rejects.invalid_geometry, 1);
 }
+
+#[test]
+fn multiple_drawable_actors_can_share_one_validated_skin_layer() {
+    let mut scene = ActorRenderScene::default();
+
+    let frame = scene.update_rigs(
+        0.5,
+        None,
+        [diagnostic_submission(1, 1), diagnostic_submission(2, 1)],
+        Arc::from(vec![255_u8; STANDARD_SKIN_BYTES]),
+    );
+
+    assert_eq!(frame.rig.instances.len(), 2);
+    assert_eq!(frame.skins_rgba8.len(), STANDARD_SKIN_BYTES);
+    assert!(
+        frame
+            .rig
+            .instances
+            .iter()
+            .all(|actor| actor.texture_layer == 0)
+    );
+}
+
+#[test]
+fn exact_spawn_identity_does_not_require_a_movement_packet() {
+    let mut builder = ActorRigFrameBuilder::new([geometry()]).unwrap();
+    let mut actor = submission(1, 1);
+    actor.input.identity.movement_revision = 0;
+
+    let frame = builder.build(0.5, None, [actor]);
+
+    assert_eq!(frame.instances.len(), 1);
+    assert_eq!(frame.rejects.invalid_identity, 0);
+}
