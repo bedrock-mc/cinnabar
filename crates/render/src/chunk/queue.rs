@@ -295,6 +295,7 @@ impl ChunkRenderQueue {
         TargetRenderExpectation {
             cohort,
             source_cohort,
+            target_columns: None,
             target_keys: None,
             manifest: Arc::from(manifest),
             view_generation,
@@ -327,11 +328,11 @@ impl ChunkRenderQueue {
                 columns.contains(&key.chunk()).then_some((key, generation))
             })
             .collect::<Vec<_>>();
-        let target_keys = manifest.iter().map(|(key, _)| *key).collect::<Vec<_>>();
         Some(TargetRenderExpectation {
             cohort,
             source_cohort,
-            target_keys: Some(Arc::from(target_keys)),
+            target_columns: Some(Arc::from(columns.into_iter().collect::<Vec<_>>())),
+            target_keys: None,
             manifest: Arc::from(manifest),
             view_generation,
             render_ready_at,
@@ -369,6 +370,7 @@ impl ChunkRenderQueue {
         Some(TargetRenderExpectation {
             cohort,
             source_cohort,
+            target_columns: None,
             target_keys: Some(Arc::from(keys.iter().copied().collect::<Vec<_>>())),
             manifest: Arc::from(manifest),
             view_generation,
