@@ -419,6 +419,8 @@ fn decode_world_raw_with(
             | McpePacketName::PacketSetEntityData
             | McpePacketName::PacketUpdateAttributes
             | McpePacketName::PacketPlayerList
+            | McpePacketName::PacketUpdatePlayerGameType
+            | McpePacketName::PacketSetDefaultGameType
             | McpePacketName::PacketItemRegistry
             | McpePacketName::PacketMobEquipment
             | McpePacketName::PacketInventoryContent
@@ -1193,6 +1195,7 @@ mod tests {
                 head_yaw: Some(180.0),
                 on_ground: Some(true),
                 teleported: true,
+                snap: true,
                 player_mode: None,
                 source_tick: None,
             }))

@@ -333,6 +333,7 @@ fn foreign_player_movement_is_routed_to_the_actor_stream() {
     assert_eq!(remote.head_yaw, Some(110.0));
     assert_eq!(remote.on_ground, Some(true));
     assert!(remote.teleported);
+    assert!(remote.snap);
     assert_eq!(remote.player_mode, Some(protocol::MovePlayerMode::Teleport));
     assert_eq!(remote.source_tick, Some(1_234));
 }
@@ -354,6 +355,7 @@ fn foreign_move_player_retains_network_origin_for_actor_store_normalization() {
 
     assert!((remote.position[1].unwrap() - (SPAWN_FEET_Y + PLAYER_NETWORK_OFFSET)).abs() < 1e-5);
     assert_eq!(remote.position_origin, ActorPositionOrigin::NetworkOffset);
+    assert!(!remote.snap);
 }
 
 #[test]
@@ -637,6 +639,7 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
             world: bootstrap,
             environment,
             inventory: InventoryEvent::Authority(InventoryAuthority::Server),
+            default_game_mode: protocol::ActorGameMode::Survival,
         },
         NetworkControlEvent::Failed {
             message: "failure".to_owned(),
@@ -670,6 +673,7 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
             world,
             environment: value,
             inventory: InventoryEvent::Authority(InventoryAuthority::Server),
+            default_game_mode: protocol::ActorGameMode::Survival,
         }) if world == bootstrap && value == environment
     ));
     assert!(matches!(

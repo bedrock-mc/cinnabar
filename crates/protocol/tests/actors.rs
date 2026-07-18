@@ -1,6 +1,7 @@
 use protocol::{
-    ActorEvent, ActorGameMode, ActorKind, ActorMetadataValue, ActorPositionOrigin, ActorProperty,
-    PlayerListEntry, PlayerSkin, PlayerSkinUnavailable, StandardSkin, WorldEvent, into_world_event,
+    ActorEvent, ActorGameMode, ActorKind, ActorMetadataValue, ActorPacketError,
+    ActorPositionOrigin, ActorProperty, PlayerListEntry, PlayerSkin, PlayerSkinUnavailable,
+    StandardSkin, WorldEvent, WorldPacketError, into_world_event,
 };
 use valentine::bedrock::version::v1_26_30::{
     AddEntityPacket, AddPlayerPacket, DeltaMoveFlags, EntityProperties, EntityPropertiesFloatsItem,
@@ -8,8 +9,8 @@ use valentine::bedrock::version::v1_26_30::{
     MetadataDictionaryItemType, MetadataDictionaryItemValue, MetadataDictionaryItemValueDefault,
     MoveEntityDeltaPacket, MoveEntityPacket, PlayerAttributesItem, PlayerListPacket, PlayerRecords,
     PlayerRecordsRecordsItem, PlayerRecordsRecordsItemAdd, PlayerRecordsRecordsItemRemove,
-    PlayerRecordsType, RemoveEntityPacket, Rotation, SetEntityDataPacket, Skin, SkinImage,
-    UpdateAttributesPacket, Vec3F,
+    PlayerRecordsType, RemoveEntityPacket, Rotation, SetDefaultGameTypePacket, SetEntityDataPacket,
+    Skin, SkinImage, UpdateAttributesPacket, UpdatePlayerGameTypePacket, Vec3F,
 };
 
 #[test]
@@ -107,6 +108,55 @@ fn add_player_and_remove_entity_preserve_both_actor_id_domains() {
 }
 
 #[test]
+fn player_game_mode_authority_is_not_silently_dropped() {
+    let packet = UpdatePlayerGameTypePacket {
+        gamemode: GameMode::Spectator,
+        player_unique_id: -9,
+        tick: 27,
+    }
+    .into();
+
+    let Some(WorldEvent::Actor(ActorEvent::GameMode(update))) =
+        into_world_event(packet, 2).expect("normalize player game-mode authority")
+    else {
+        panic!("UpdatePlayerGameType must enter the actor FIFO")
+    };
+    assert_eq!(update.unique_id, -9);
+    assert_eq!(update.game_mode, ActorGameMode::Spectator);
+    assert_eq!(update.tick, 27);
+}
+
+#[test]
+fn default_game_mode_authority_is_not_silently_dropped() {
+    let packet = SetDefaultGameTypePacket {
+        gamemode: GameMode::Spectator,
+    }
+    .into();
+
+    let Some(WorldEvent::Actor(ActorEvent::DefaultGameMode(update))) =
+        into_world_event(packet, 2).expect("normalize default game-mode authority")
+    else {
+        panic!("SetDefaultGameType must enter the actor FIFO")
+    };
+    assert_eq!(update.game_mode, ActorGameMode::Spectator);
+}
+
+#[test]
+fn negative_player_game_mode_tick_is_rejected() {
+    let packet = UpdatePlayerGameTypePacket {
+        gamemode: GameMode::Creative,
+        player_unique_id: -9,
+        tick: -1,
+    }
+    .into();
+
+    assert_eq!(
+        into_world_event(packet, 2),
+        Err(WorldPacketError::Actor(ActorPacketError::NegativeTick(-1)))
+    );
+}
+
+#[test]
 fn absolute_and_delta_actor_moves_normalize_to_partial_transform_updates() {
     let absolute = MoveEntityPacket {
         runtime_entity_id: 55,
@@ -149,6 +199,7 @@ fn absolute_and_delta_actor_moves_normalize_to_partial_transform_updates() {
     assert_eq!(absolute.head_yaw, Some(180.0));
     assert_eq!(absolute.on_ground, Some(true));
     assert!(absolute.teleported);
+    assert!(absolute.snap);
 
     let Some(WorldEvent::Actor(ActorEvent::Move(delta))) =
         into_world_event(delta, 0).expect("normalize delta move")
@@ -165,6 +216,30 @@ fn absolute_and_delta_actor_moves_normalize_to_partial_transform_updates() {
     assert_eq!(delta.pitch, None);
     assert_eq!(delta.on_ground, Some(true));
     assert!(!delta.teleported);
+    assert!(!delta.snap);
+}
+
+#[test]
+fn force_move_delta_uses_the_existing_snap_path() {
+    let packet = MoveEntityDeltaPacket {
+        runtime_entity_id: 55,
+        flags: DeltaMoveFlags::HAS_X | DeltaMoveFlags::FORCE_MOVE,
+        x: Some(7.5),
+        ..Default::default()
+    }
+    .into();
+
+    let Some(WorldEvent::Actor(ActorEvent::Move(movement))) =
+        into_world_event(packet, 0).expect("normalize forced actor move")
+    else {
+        panic!("expected forced actor move")
+    };
+
+    assert!(
+        movement.snap,
+        "FORCE_MOVE must snap instead of starting three-tick interpolation"
+    );
+    assert!(!movement.teleported, "FORCE_MOVE is not TELEPORT authority");
 }
 
 #[test]

@@ -17,13 +17,54 @@ use client_world::{
     WorldStream,
 };
 use protocol::{
-    ActorEvent, ActorKind, ActorMetadata, ActorMetadataUpdateEvent, ActorMetadataValue,
-    ActorMoveEvent, ActorPositionOrigin, ActorSpawnEvent, ChangeDimensionEvent, WorldBootstrap,
-    WorldEvent,
+    ActorEvent, ActorGameMode, ActorKind, ActorMetadata, ActorMetadataUpdateEvent,
+    ActorMetadataValue, ActorMoveEvent, ActorPositionOrigin, ActorSpawnEvent, ChangeDimensionEvent,
+    WorldBootstrap, WorldEvent,
 };
 
 fn scalar(value: f32) -> EntityGeometryScalar {
     EntityGeometryScalar::new(value).unwrap()
+}
+
+#[test]
+fn start_game_default_resolves_fallback_player_visibility_before_first_spawn() {
+    let mut stream = WorldStream::new_with_assets_and_actor_default(
+        bootstrap(),
+        Arc::new(RuntimeAssets::diagnostic()),
+        [0.0, 64.0, 0.0],
+        None,
+        ActorGameMode::Spectator,
+    );
+    stream
+        .submit(
+            1,
+            WorldEvent::Actor(ActorEvent::Spawn(ActorSpawnEvent {
+                dimension: 0,
+                unique_id: -7,
+                runtime_id: 42,
+                kind: ActorKind::Player {
+                    uuid: [7; 16],
+                    username: "spectator".into(),
+                },
+                game_mode: Some(ActorGameMode::Fallback),
+                position: [0.0, 64.0, 0.0],
+                velocity: [0.0; 3],
+                pitch: 0.0,
+                yaw: 0.0,
+                head_yaw: 0.0,
+                body_yaw: 0.0,
+                held_item: Default::default(),
+                metadata: Arc::from([]),
+                attributes: Arc::from([]),
+                properties: Arc::from([]),
+            })),
+        )
+        .unwrap();
+
+    let actor = stream.actor(42).unwrap();
+    assert_eq!(actor.game_mode, Some(ActorGameMode::Fallback));
+    assert_eq!(actor.resolved_game_mode, Some(ActorGameMode::Spectator));
+    assert!(!actor.is_render_eligible());
 }
 
 fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
@@ -373,6 +414,7 @@ fn teleport_incompatible_metadata_and_replacement_reset_both_palettes() {
                 head_yaw: None,
                 on_ground: Some(true),
                 teleported: true,
+                snap: true,
                 player_mode: None,
                 source_tick: Some(2),
             })),
@@ -562,6 +604,7 @@ fn movement_updates_velocity_queries_and_teleport_restarts_clip_time() {
                 head_yaw: None,
                 on_ground: Some(true),
                 teleported: false,
+                snap: false,
                 player_mode: None,
                 source_tick: Some(2),
             })),
@@ -586,6 +629,7 @@ fn movement_updates_velocity_queries_and_teleport_restarts_clip_time() {
                 head_yaw: None,
                 on_ground: Some(true),
                 teleported: true,
+                snap: true,
                 player_mode: None,
                 source_tick: Some(3),
             })),

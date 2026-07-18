@@ -7,8 +7,8 @@ use std::{
 
 use bevy::prelude::Resource;
 use protocol::{
-    BlobCacheStats, ClientBlobCache, InventoryEvent, LoginSequence, Packet, WorldBootstrap,
-    WorldEnvironmentBootstrap, WorldEvent, normalize_authority,
+    ActorGameMode, BlobCacheStats, ClientBlobCache, InventoryEvent, LoginSequence, Packet,
+    WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent, normalize_authority,
 };
 use tokio::sync::{mpsc, watch};
 use world::ChunkKey;
@@ -34,6 +34,7 @@ pub enum NetworkControlEvent {
         world: WorldBootstrap,
         environment: WorldEnvironmentBootstrap,
         inventory: InventoryEvent,
+        default_game_mode: ActorGameMode,
     },
     SubChunkRequestSent {
         chunk: ChunkKey,
@@ -292,6 +293,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                 let bootstrap = WorldBootstrap::from_game_data(&game_data);
                 let environment = WorldEnvironmentBootstrap::from_game_data(&game_data);
                 let inventory = start_game_inventory_authority(&game_data);
+                let default_game_mode = game_data.start_game.world_gamemode.into();
                 if !send_control_event_or_cancel(
                     &control_event_tx,
                     &mut shutdown_rx,
@@ -300,6 +302,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                         world: bootstrap,
                         environment,
                         inventory,
+                        default_game_mode,
                     },
                 )
                 .await
@@ -800,6 +803,7 @@ impl NetworkSequencer {
                     head_yaw: Some(movement.head_yaw),
                     on_ground: Some(movement.on_ground),
                     teleported: movement.teleported,
+                    snap: movement.teleported,
                     player_mode: Some(movement.mode),
                     source_tick: Some(movement.source_tick),
                 }))

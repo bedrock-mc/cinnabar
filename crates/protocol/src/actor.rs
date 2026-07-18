@@ -9,7 +9,8 @@ use valentine::{
         GameMode, MetadataDictionary, MetadataDictionaryItemKey, MetadataDictionaryItemValue,
         MetadataDictionaryItemValueDefault, MoveEntityDeltaPacket, MoveEntityPacket,
         PlayerAttributes, PlayerListPacket, PlayerRecordsRecordsItem, PlayerRecordsType,
-        RemoveEntityPacket, SetEntityDataPacket, UpdateAttributesPacket,
+        RemoveEntityPacket, SetDefaultGameTypePacket, SetEntityDataPacket, UpdateAttributesPacket,
+        UpdatePlayerGameTypePacket,
     },
     protocol::wire,
 };
@@ -53,6 +54,15 @@ impl ActorGameMode {
             self,
             Self::SurvivalSpectator | Self::CreativeSpectator | Self::Spectator
         )
+    }
+
+    #[must_use]
+    pub const fn resolve_fallback(self, default: Self) -> Self {
+        match (self, default) {
+            (Self::Fallback, Self::Fallback | Self::Unknown(_)) => Self::Fallback,
+            (Self::Fallback, resolved) => resolved,
+            (resolved, _) => resolved,
+        }
     }
 }
 
@@ -153,7 +163,10 @@ pub struct ActorMoveEvent {
     pub yaw: Option<f32>,
     pub head_yaw: Option<f32>,
     pub on_ground: Option<bool>,
+    /// The packet carries Bedrock's teleport authority.
     pub teleported: bool,
+    /// The retained pose must update without interpolation.
+    pub snap: bool,
     pub player_mode: Option<crate::MovePlayerMode>,
     pub source_tick: Option<i64>,
 }
@@ -187,6 +200,18 @@ pub struct ActorAttributesUpdateEvent {
     pub runtime_id: u64,
     pub attributes: Arc<[ActorAttribute]>,
     pub tick: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ActorGameModeUpdateEvent {
+    pub unique_id: i64,
+    pub game_mode: ActorGameMode,
+    pub tick: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DefaultActorGameModeEvent {
+    pub game_mode: ActorGameMode,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -236,6 +261,8 @@ pub enum ActorEvent {
     Move(ActorMoveEvent),
     Metadata(ActorMetadataUpdateEvent),
     Attributes(ActorAttributesUpdateEvent),
+    GameMode(ActorGameModeUpdateEvent),
+    DefaultGameMode(DefaultActorGameModeEvent),
     PlayerList(PlayerListUpdateEvent),
 }
 
@@ -399,6 +426,7 @@ pub(crate) fn normalize_move_entity(
     ] {
         validate_finite(field, value)?;
     }
+    let teleported = packet.flags & 2 != 0;
     Ok(ActorEvent::Move(ActorMoveEvent {
         dimension,
         runtime_id: packet.runtime_entity_id as u64,
@@ -412,7 +440,8 @@ pub(crate) fn normalize_move_entity(
         yaw: Some(rotation_degrees("yaw", &packet.rotation.yaw)?),
         head_yaw: Some(rotation_degrees("head_yaw", &packet.rotation.head_yaw)?),
         on_ground: Some(packet.flags & 1 != 0),
-        teleported: packet.flags & 2 != 0,
+        teleported,
+        snap: teleported,
         player_mode: None,
         source_tick: None,
     }))
@@ -451,6 +480,7 @@ pub(crate) fn normalize_move_entity_body(
     let yaw = byte_rotation_degrees(body.get_u8());
     let head_yaw = byte_rotation_degrees(body.get_u8());
 
+    let teleported = flags & 2 != 0;
     Ok(ActorEvent::Move(ActorMoveEvent {
         dimension,
         runtime_id,
@@ -460,7 +490,8 @@ pub(crate) fn normalize_move_entity_body(
         yaw: Some(yaw),
         head_yaw: Some(head_yaw),
         on_ground: Some(flags & 1 != 0),
-        teleported: flags & 2 != 0,
+        teleported,
+        snap: teleported,
         player_mode: None,
         source_tick: None,
     }))
@@ -489,9 +520,30 @@ pub(crate) fn normalize_move_entity_delta(
         head_yaw: packet.rot_z.map(byte_rotation_degrees),
         on_ground: Some(packet.flags.contains(DeltaMoveFlags::ON_GROUND)),
         teleported: packet.flags.contains(DeltaMoveFlags::TELEPORT),
+        snap: packet
+            .flags
+            .intersects(DeltaMoveFlags::TELEPORT | DeltaMoveFlags::FORCE_MOVE),
         player_mode: None,
         source_tick: None,
     }))
+}
+
+pub(crate) fn normalize_update_player_game_type(
+    packet: UpdatePlayerGameTypePacket,
+) -> Result<ActorEvent, ActorPacketError> {
+    let tick =
+        u64::try_from(packet.tick).map_err(|_| ActorPacketError::NegativeTick(packet.tick))?;
+    Ok(ActorEvent::GameMode(ActorGameModeUpdateEvent {
+        unique_id: packet.player_unique_id,
+        game_mode: packet.gamemode.into(),
+        tick,
+    }))
+}
+
+pub(crate) fn normalize_set_default_game_type(packet: SetDefaultGameTypePacket) -> ActorEvent {
+    ActorEvent::DefaultGameMode(DefaultActorGameModeEvent {
+        game_mode: packet.gamemode.into(),
+    })
 }
 
 pub(crate) fn normalize_set_entity_data(
