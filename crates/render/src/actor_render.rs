@@ -11,7 +11,7 @@ use bevy::{
     ecs::{
         change_detection::Tick,
         query::ROQueryItem,
-        system::{SystemParamItem, lifetimeless::Read, lifetimeless::SRes},
+        system::{SystemParam, SystemParamItem, lifetimeless::Read, lifetimeless::SRes},
     },
     prelude::*,
     render::{
@@ -28,10 +28,10 @@ use bevy::{
             BufferDescriptor, BufferId, BufferInitDescriptor, BufferSize, BufferUsages, Canonical,
             ColorTargetState, ColorWrites, CommandEncoderDescriptor, CompareFunction,
             DepthStencilState, Extent3d, FilterMode, FragmentState, PipelineCache, PollType,
-            RenderPipeline, RenderPipelineDescriptor,
-            Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages, ShaderType, Specializer,
-            SpecializerKey, Texture, TextureDataOrder, TextureDescriptor, TextureDimension,
-            TextureFormat, TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor,
+            RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType,
+            SamplerDescriptor, ShaderStages, ShaderType, Specializer, SpecializerKey, Texture,
+            TextureDataOrder, TextureDescriptor, TextureDimension, TextureFormat,
+            TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor,
             TextureViewDimension, Variants, VertexState,
         },
         renderer::{RenderDevice, RenderQueue},
@@ -504,29 +504,43 @@ fn prepare_actor_bind_group(
     gpu.view_buffer_id = Some(view_buffer.id());
 }
 
+#[derive(SystemParam)]
+struct QueueActorParams<'w, 's> {
+    pipeline_cache: Res<'w, PipelineCache>,
+    pipeline: ResMut<'w, ActorPipeline>,
+    gpu: Res<'w, ActorGpu>,
+    phases: ResMut<'w, ViewBinnedRenderPhases<Opaque3d>>,
+    draw_functions: Res<'w, DrawFunctions<Opaque3d>>,
+    views: Query<
+        'w,
+        's,
+        (
+            Entity,
+            &'static MainEntity,
+            &'static ExtractedView,
+            &'static Msaa,
+        ),
+    >,
+    draw_tracker: Res<'w, ActorDrawTracker>,
+}
+
 fn queue_actors(
-    pipeline_cache: Res<PipelineCache>,
-    mut pipeline: ResMut<ActorPipeline>,
-    gpu: Res<ActorGpu>,
-    mut phases: ResMut<ViewBinnedRenderPhases<Opaque3d>>,
-    draw_functions: Res<DrawFunctions<Opaque3d>>,
-    views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
-    draw_tracker: Res<ActorDrawTracker>,
+    mut params: QueueActorParams<'_, '_>,
     mut next_tick: Local<Tick>,
     mut next_draw_generation: Local<u64>,
 ) {
-    draw_tracker.clear();
-    if gpu.instance_count == 0 || gpu.bind_group.is_none() {
+    params.draw_tracker.clear();
+    if params.gpu.instance_count == 0 || params.gpu.bind_group.is_none() {
         return;
     }
-    let draw_function = draw_functions.read().id::<DrawActorCommands>();
+    let draw_function = params.draw_functions.read().id::<DrawActorCommands>();
     let mut queued = false;
-    for (view_entity, main_entity, view, msaa) in &views {
-        let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
+    for (view_entity, main_entity, view, msaa) in &params.views {
+        let Some(phase) = params.phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
-        let Ok(pipeline_id) = pipeline.variants.specialize(
-            &pipeline_cache,
+        let Ok(pipeline_id) = params.pipeline.variants.specialize(
+            &params.pipeline_cache,
             ActorPipelineKey {
                 msaa: *msaa,
                 hdr: view.hdr,
@@ -560,10 +574,10 @@ fn queue_actors(
             return;
         };
         *next_draw_generation = draw_generation;
-        let _ = draw_tracker.begin(ActorDrawFrame {
-            frame_generation: gpu.frame_generation,
+        let _ = params.draw_tracker.begin(ActorDrawFrame {
+            frame_generation: params.gpu.frame_generation,
             draw_generation,
-            manifest: std::sync::Arc::clone(&gpu.manifest),
+            manifest: std::sync::Arc::clone(&params.gpu.manifest),
         });
     }
 }

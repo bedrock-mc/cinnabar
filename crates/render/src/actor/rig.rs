@@ -403,8 +403,8 @@ impl ActorRigFrameBuilder {
                 continue;
             }
             let diagnostic = submission.route == ActorRigRoute::Diagnostic;
-            if (!diagnostic && !submission.input.identity.is_exact())
-                || (!diagnostic && submission.input.completed_tick == 0)
+            if (!submission.input.identity.is_exact() || submission.input.completed_tick == 0)
+                && !diagnostic
                 || submission.input.reset_generation == 0
             {
                 rejects.invalid_identity = rejects.invalid_identity.saturating_add(1);
