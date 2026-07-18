@@ -105,6 +105,7 @@ fn live_block_entity_updates_decode_off_thread_and_commit_in_fifo() {
     });
     stream.submit(1, inline_air_event(0)).unwrap();
     complete_pending_decode_jobs(&mut stream);
+    let collision_generation = stream.collision_world_generation();
 
     let position = [1, -63, 2];
     let key = BlockEntityKey::new(0, position[0], position[1], position[2]);
@@ -131,6 +132,11 @@ fn live_block_entity_updates_decode_off_thread_and_commit_in_fifo() {
     assert!(stream.take_committed_controls().is_empty());
     complete_pending_decode_jobs(&mut stream);
     assert_eq!(stream.store.block_entity(key).unwrap().id(), Some("Chest"));
+    assert_eq!(
+        stream.collision_world_generation(),
+        collision_generation,
+        "block-entity-only commits must not invalidate collision witnesses"
+    );
     assert!(matches!(
         stream.take_committed_controls().as_slice(),
         [super::CommittedControlEvent::MovePlayer { sequence: 3, .. }]

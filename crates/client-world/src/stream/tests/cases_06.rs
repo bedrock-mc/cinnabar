@@ -667,7 +667,7 @@ fn actor_move_commit_witness_binds_generation_before_later_fifo_world_mutation()
     let mut stream = actor_commit_witness_stream();
     let key = SubChunkKey::new(0, 0, 4, 0);
     stream.loaded_columns.insert(key.chunk());
-    stream.store.apply_all_air(key).unwrap();
+    assert!(stream.mark_collision_chunk_loaded(key.chunk()).unwrap());
     stream.record_known_air(key);
     stream.mark_changed(key, Instant::now());
     let committed_generation = stream.collision_world_generation();
@@ -697,6 +697,65 @@ fn actor_move_commit_witness_binds_generation_before_later_fifo_world_mutation()
         stream.collision_world_generation() > commits[0].collision_world_generation,
         "later block mutation must make the retained movement generation stale"
     );
+}
+
+#[test]
+fn actor_move_commit_witness_generation_changes_when_supporting_column_is_evicted() {
+    let mut stream = actor_commit_witness_stream();
+    let key = SubChunkKey::new(0, 0, 4, 0);
+    stream.loaded_columns.insert(key.chunk());
+    assert!(stream.mark_collision_chunk_loaded(key.chunk()).unwrap());
+    stream.record_known_air(key);
+    let committed_generation = stream.collision_world_generation();
+
+    stream.submit(2, actor_commit_witness_move(1.25)).unwrap();
+    stream.submit(1, actor_commit_witness_spawn()).unwrap();
+    stream
+        .submit(
+            3,
+            WorldEvent::PublisherUpdate(PublisherUpdateEvent {
+                center: [1_600, 64, 0],
+                radius_blocks: 0,
+            }),
+        )
+        .unwrap();
+
+    assert!(!stream.collision_store().is_chunk_loaded(key.chunk()));
+    let commits = stream.take_committed_actor_moves();
+    assert_eq!(commits.len(), 1);
+    assert_eq!(
+        commits[0].collision_world_generation, committed_generation,
+        "movement must retain the generation before supporting-column eviction"
+    );
+    assert!(
+        stream.collision_world_generation() > commits[0].collision_world_generation,
+        "collision-store eviction must invalidate next-frame actor sampling"
+    );
+}
+
+#[test]
+fn collision_world_generation_excludes_biomes_and_saturates_at_its_bound() {
+    let mut stream = actor_commit_witness_stream();
+    let chunk = ChunkKey::new(0, 0, 0);
+    assert!(stream.mark_collision_chunk_loaded(chunk).unwrap());
+    let collision_generation = stream.collision_world_generation();
+
+    stream
+        .store
+        .commit_biome_column(chunk, DecodedBiomeColumn::decode(-4, 1, &[1, 84]).unwrap());
+    assert_eq!(
+        stream.collision_world_generation(),
+        collision_generation,
+        "biome-only commits must not invalidate collision witnesses"
+    );
+
+    stream.collision_world_generation = u64::MAX;
+    assert!(
+        stream
+            .mark_collision_chunk_loaded(ChunkKey::new(0, 1, 0))
+            .unwrap()
+    );
+    assert_eq!(stream.collision_world_generation(), u64::MAX);
 }
 
 #[test]

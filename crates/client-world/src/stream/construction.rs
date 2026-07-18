@@ -137,6 +137,7 @@ impl WorldStream {
             light_rx,
             mesh_tx,
             mesh_rx,
+            collision_world_generation: 0,
             next_block_generation: 0,
             block_generations: HashMap::new(),
             light_store: LightStore::default(),
