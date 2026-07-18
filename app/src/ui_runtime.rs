@@ -109,6 +109,8 @@ pub struct SequencedInventoryEvent {
 pub enum UiApplyOutcome {
     Applied,
     IgnoredByReceiveStore,
+    // The typed document requires localization, scoreboard, or selector state that is not wired.
+    IgnoredUnresolvedRawText,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -595,6 +597,9 @@ impl UiRuntime {
             .map_or(envelope.local_millis, |tick| tick.saturating_mul(50));
         let outcome = match envelope.event {
             UiEvent::Text(event) => self.apply_text(event, envelope.fifo_sequence, event_millis)?,
+            UiEvent::RawText(event) if event.document.has_unresolved_components() => {
+                UiApplyOutcome::IgnoredUnresolvedRawText
+            }
             UiEvent::RawText(event) => {
                 self.apply_text(event.text, envelope.fifo_sequence, event_millis)?
             }
