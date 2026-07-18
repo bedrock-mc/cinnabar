@@ -23,6 +23,18 @@ impl WorldStream {
             existing_anchor,
         )
     }
+    pub fn new_with_assets_and_actor_default(
+        bootstrap: WorldBootstrap,
+        runtime_assets: Arc<RuntimeAssets>,
+        current_position: [f32; 3],
+        existing_anchor: Option<[i32; 2]>,
+        default_game_mode: protocol::ActorGameMode,
+    ) -> Self {
+        let mut stream =
+            Self::new_with_assets(bootstrap, runtime_assets, current_position, existing_anchor);
+        stream.actors.set_default_game_mode(default_game_mode);
+        stream
+    }
     pub fn new_with_asset_sets(
         bootstrap: WorldBootstrap,
         runtime_assets: Arc<RuntimeAssets>,

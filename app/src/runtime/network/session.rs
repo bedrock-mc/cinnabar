@@ -7,7 +7,7 @@ use std::{
 
 use bevy::prelude::Resource;
 use protocol::{
-    BlobCacheStats, ClientBlobCache, LoginSequence, Packet, WorldBootstrap,
+    ActorGameMode, BlobCacheStats, ClientBlobCache, LoginSequence, Packet, WorldBootstrap,
     WorldEnvironmentBootstrap, WorldEvent,
 };
 use tokio::sync::{mpsc, watch};
@@ -31,6 +31,7 @@ pub enum NetworkControlEvent {
     Bootstrap {
         world: WorldBootstrap,
         environment: WorldEnvironmentBootstrap,
+        default_game_mode: ActorGameMode,
     },
     SubChunkRequestSent {
         chunk: ChunkKey,
@@ -286,12 +287,14 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                 };
                 let bootstrap = WorldBootstrap::from_game_data(&game_data);
                 let environment = WorldEnvironmentBootstrap::from_game_data(&game_data);
+                let default_game_mode = game_data.start_game.world_gamemode.into();
                 if !send_control_event_or_cancel(
                     &control_event_tx,
                     &mut shutdown_rx,
                     NetworkControlEvent::Bootstrap {
                         world: bootstrap,
                         environment,
+                        default_game_mode,
                     },
                 )
                 .await
@@ -779,6 +782,7 @@ impl NetworkSequencer {
                     head_yaw: Some(movement.head_yaw),
                     on_ground: Some(movement.on_ground),
                     teleported: movement.teleported,
+                    snap: movement.teleported,
                     player_mode: Some(movement.mode),
                     source_tick: Some(movement.source_tick),
                 }))

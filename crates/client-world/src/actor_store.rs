@@ -65,7 +65,12 @@ pub struct ActorSnapshot {
     pub spawn_revision: u64,
     pub movement_revision: u64,
     pub kind: ActorKind,
+    /// Raw per-player game mode retained from AddPlayer or UpdatePlayerGameType.
     pub game_mode: Option<ActorGameMode>,
+    /// Effective mode after resolving `Fallback` against world authority.
+    pub resolved_game_mode: Option<ActorGameMode>,
+    /// Source tick of the latest UpdatePlayerGameType, when present.
+    pub game_mode_tick: Option<u64>,
     pub position: [f32; 3],
     pub velocity: [f32; 3],
     pub pitch: f32,
@@ -86,7 +91,11 @@ pub struct ActorSnapshot {
 }
 
 impl ActorSnapshot {
-    fn from_spawn(spawn: ActorSpawnEvent, spawn_revision: u64) -> Self {
+    fn from_spawn(
+        spawn: ActorSpawnEvent,
+        spawn_revision: u64,
+        default_game_mode: ActorGameMode,
+    ) -> Self {
         let pose = ActorPose {
             position: spawn.position,
             pitch: spawn.pitch,
@@ -100,6 +109,10 @@ impl ActorSnapshot {
             movement_revision: 0,
             kind: spawn.kind,
             game_mode: spawn.game_mode,
+            resolved_game_mode: spawn
+                .game_mode
+                .map(|game_mode| game_mode.resolve_fallback(default_game_mode)),
+            game_mode_tick: None,
             position: spawn.position,
             velocity: spawn.velocity,
             pitch: spawn.pitch,
@@ -181,7 +194,9 @@ impl ActorSnapshot {
 
     #[must_use]
     pub fn is_render_eligible(&self) -> bool {
-        !self.game_mode.is_some_and(ActorGameMode::is_spectator)
+        !self
+            .resolved_game_mode
+            .is_some_and(ActorGameMode::is_spectator)
             && !self
                 .metadata
                 .get(&ENTITY_FLAGS_METADATA_KEY)
@@ -287,6 +302,7 @@ pub(crate) struct ActorStore {
     max_players: usize,
     max_player_skin_bytes: usize,
     retained_player_skin_bytes: usize,
+    default_game_mode: ActorGameMode,
     actors: HashMap<u64, ActorSnapshot>,
     unique_to_runtime: HashMap<i64, u64>,
     players: HashMap<[u8; 16], PlayerProfile>,
@@ -313,6 +329,7 @@ fn event_dimension(event: &ActorEvent) -> Option<i32> {
         ActorEvent::Move(event) => Some(event.dimension),
         ActorEvent::Metadata(event) => Some(event.dimension),
         ActorEvent::Attributes(event) => Some(event.dimension),
+        ActorEvent::GameMode(_) | ActorEvent::DefaultGameMode(_) => None,
         ActorEvent::PlayerList(_) => None,
     }
 }

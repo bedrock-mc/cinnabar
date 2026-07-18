@@ -15,7 +15,8 @@ use crate::{
     actor::{
         normalize_add_entity, normalize_add_player, normalize_move_entity,
         normalize_move_entity_delta, normalize_player_list, normalize_remove_entity,
-        normalize_set_entity_data, normalize_update_attributes,
+        normalize_set_default_game_type, normalize_set_entity_data, normalize_update_attributes,
+        normalize_update_player_game_type,
     },
     item::{
         normalize_animate, normalize_animate_entity, normalize_equipment, normalize_item_registry,
@@ -514,6 +515,12 @@ pub fn into_world_event(
         }
         McpePacketData::PacketPlayerList(packet) => {
             WorldEvent::Actor(normalize_player_list(*packet)?)
+        }
+        McpePacketData::PacketUpdatePlayerGameType(packet) => {
+            WorldEvent::Actor(normalize_update_player_game_type(packet)?)
+        }
+        McpePacketData::PacketSetDefaultGameType(packet) => {
+            WorldEvent::Actor(normalize_set_default_game_type(packet))
         }
         McpePacketData::PacketItemRegistry(packet) => {
             WorldEvent::ItemActor(normalize_item_registry(packet)?)
