@@ -17,6 +17,7 @@ use self::{
 use crate::metrics::TransparentSortMetricsSnapshot;
 
 mod exit;
+pub(crate) mod actor_witness;
 pub(crate) mod markers;
 pub(crate) mod model_witness;
 pub(crate) mod mutation;
@@ -27,6 +28,8 @@ pub(crate) mod transparent_witness;
 pub(crate) mod world_ready;
 
 pub(crate) use exit::AcceptanceExitDecision;
+#[cfg(test)]
+mod actor_witness_tests;
 
 pub(crate) const PHASE0_REQUESTED_RADIUS_CHUNKS: i32 = 16;
 pub(crate) const TRANSPARENT_PRESENTATION_EXIT_GRACE: Duration = Duration::from_secs(2);

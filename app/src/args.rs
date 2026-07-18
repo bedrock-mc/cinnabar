@@ -25,6 +25,8 @@ Options:
                                Poll an ignored-local exact transparent witness request
   --model-witness-request <PATH>
                                Poll an ignored-local exact packed-model witness request
+  --actor-witness-request <PATH>
+                               Poll an ignored-local exact actor witness request
   -h, --help                   Print this help
 ";
 
@@ -44,6 +46,7 @@ pub struct ClientArgs {
     pub require_transparent_presentation: bool,
     pub transparent_witness_request: Option<PathBuf>,
     pub model_witness_request: Option<PathBuf>,
+    pub actor_witness_request: Option<PathBuf>,
 }
 
 impl Default for ClientArgs {
@@ -63,6 +66,7 @@ impl Default for ClientArgs {
             require_transparent_presentation: false,
             transparent_witness_request: None,
             model_witness_request: None,
+            actor_witness_request: None,
         }
     }
 }
@@ -169,6 +173,12 @@ impl ClientArgs {
                         "--model-witness-request",
                     )?));
                 }
+                Some("--actor-witness-request") => {
+                    parsed.actor_witness_request = Some(PathBuf::from(next_value(
+                        &mut arguments,
+                        "--actor-witness-request",
+                    )?));
+                }
                 Some("--display-name") => {
                     let value = next_value(&mut arguments, "--display-name")?
                         .into_string()
@@ -245,6 +255,7 @@ mod tests {
         assert!(!args.require_transparent_presentation);
         assert_eq!(args.transparent_witness_request, None);
         assert_eq!(args.model_witness_request, None);
+        assert_eq!(args.actor_witness_request, None);
     }
 
     #[test]
@@ -272,6 +283,8 @@ mod tests {
             "run/transparent-witness-request.json",
             "--model-witness-request",
             "run/model-witness-request.json",
+            "--actor-witness-request",
+            "run/actor-witness-request.json",
         ])
         .unwrap() else {
             panic!("expected run args")
@@ -295,6 +308,10 @@ mod tests {
         assert_eq!(
             args.model_witness_request,
             Some(PathBuf::from("run/model-witness-request.json"))
+        );
+        assert_eq!(
+            args.actor_witness_request,
+            Some(PathBuf::from("run/actor-witness-request.json"))
         );
     }
 

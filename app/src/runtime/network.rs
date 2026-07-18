@@ -5,6 +5,7 @@ use std::{
 
 use bevy::{
     camera::Projection,
+    ecs::system::SystemParam,
     log::{debug, error, info, warn},
     prelude::{Local, Query, Res, ResMut, Time, Transform, Vec3, With},
     time::Real,
@@ -53,6 +54,15 @@ const _: () = assert!(NETWORK_INGRESS_BUDGET_PER_FRAME == client_world::MAX_ADMI
 
 pub(crate) const fn actor_pose_witness_has_capacity(emitted: usize) -> bool {
     emitted < MAX_ACTOR_POSE_WITNESS_RECORDS_PER_SESSION
+}
+
+#[derive(SystemParam)]
+pub(crate) struct NetworkIngressState<'w, 's> {
+    acceptance: ResMut<'w, AcceptanceRun>,
+    metrics: Res<'w, AppMetrics>,
+    acknowledgements: Res<'w, ChunkUploadAcknowledgements>,
+    model_witness_source: Res<'w, ModelWitnessFileSource>,
+    cameras: Query<'w, 's, &'static mut Transform, With<FlyCamera>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -173,13 +183,16 @@ fn consume_equipment_route(
 pub(crate) fn receive_network_events(
     mut network: ResMut<NetworkHandle>,
     state: AppWorldState,
-    mut acceptance: ResMut<AcceptanceRun>,
-    metrics: Res<AppMetrics>,
-    acknowledgements: Res<ChunkUploadAcknowledgements>,
-    model_witness_source: Res<ModelWitnessFileSource>,
+    ingress: NetworkIngressState,
     mut actor_pose_witness_count: Local<usize>,
-    mut cameras: Query<&mut Transform, With<FlyCamera>>,
 ) {
+    let NetworkIngressState {
+        mut acceptance,
+        metrics,
+        acknowledgements,
+        model_witness_source,
+        mut cameras,
+    } = ingress;
     let AppWorldState {
         mut client_world,
         mut clock,
@@ -453,7 +466,7 @@ pub(crate) fn receive_network_events(
         {
             match &sequenced.event {
                 protocol::WorldEvent::Actor(protocol::ActorEvent::Move(movement)) => {
-                    Some(movement.clone())
+                    Some(*movement)
                 }
                 _ => None,
             }
