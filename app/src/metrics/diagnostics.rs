@@ -59,7 +59,7 @@ fn protocol_1001_catalog() -> &'static [DiagnosticCatalogEntry] {
     static CATALOG: OnceLock<Box<[DiagnosticCatalogEntry]>> = OnceLock::new();
     CATALOG.get_or_init(|| {
         let records = assets::read_registry(include_bytes!(
-            "../../crates/assets/data/block-registry-v1001.bin"
+            "../../../crates/assets/data/block-registry-v1001.bin"
         ))
         .expect("checked-in protocol-1001 registry must remain valid");
         records
