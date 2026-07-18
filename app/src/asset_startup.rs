@@ -24,6 +24,9 @@ pub const ENTITY_ASSETS_FILENAME: &str = "vanilla-v1.mcbeent";
 pub const ENTITY_ASSETS_COMPILE_COMMAND: &str = "make entity-assets";
 pub const FONT_ASSETS_FILENAME: &str = "ui-inter-v1.mcbefont";
 pub const FONT_ASSETS_COMPILE_COMMAND: &str = "make font-assets";
+pub const LOCAL_FONT_ASSETS_FILENAME: &str = "vanilla-v1.mcbefont";
+pub const LOCAL_FONT_ASSETS_COMPILE_COMMAND: &str =
+    "make font-assets-local FONT_PACK_DIR=<reviewed-font-pack>";
 pub const FETCH_COMMAND: &str =
     "powershell -NoProfile -File scripts/fetch-vanilla-assets.ps1 -AcceptEula";
 pub const COMPILE_COMMAND: &str = concat!(
@@ -101,6 +104,21 @@ impl LoadedFontAssets {
     #[must_use]
     pub const fn is_diagnostic(&self) -> bool {
         self.diagnostic
+    }
+
+    #[must_use]
+    pub fn startup_summary(&self) -> String {
+        if self.diagnostic {
+            return format!(
+                "font asset carrier was not found at {}; using bounded diagnostic font fallback; build the reviewed Inter carrier with: {}",
+                self.selected_path.display(),
+                FONT_ASSETS_COMPILE_COMMAND
+            );
+        }
+        format!(
+            "loaded required font assets from {}",
+            self.selected_path.display()
+        )
     }
 
     pub fn into_runtime(self) -> Arc<RuntimeFontCatalog> {
@@ -405,6 +423,11 @@ pub fn font_asset_path(world_asset_path: &Path) -> PathBuf {
     world_asset_path.with_file_name(FONT_ASSETS_FILENAME)
 }
 
+#[must_use]
+pub fn local_font_asset_path(world_asset_path: &Path) -> PathBuf {
+    world_asset_path.with_file_name(LOCAL_FONT_ASSETS_FILENAME)
+}
+
 pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, AssetStartupError> {
     let source: VanillaSource = serde_json::from_str(VANILLA_SOURCE_JSON)?;
     let file = match File::open(&selection.path) {
@@ -541,17 +564,36 @@ fn load_entity_assets(world_asset_path: &Path) -> Result<LoadedEntityAssets, Ass
 }
 
 fn load_font_assets(world_asset_path: &Path) -> Result<LoadedFontAssets, AssetStartupError> {
-    let path = font_asset_path(world_asset_path);
-    let file = match File::open(&path) {
-        Ok(file) => file,
+    let local_path = local_font_asset_path(world_asset_path);
+    let (path, file, source_manifest, rebuild_command) = match File::open(&local_path) {
+        Ok(file) => (
+            local_path,
+            file,
+            VANILLA_SOURCE_JSON,
+            LOCAL_FONT_ASSETS_COMPILE_COMMAND,
+        ),
         Err(source) if source.kind() == io::ErrorKind::NotFound => {
-            return diagnostic_font_assets(path);
+            let path = font_asset_path(world_asset_path);
+            let file = match File::open(&path) {
+                Ok(file) => file,
+                Err(source) if source.kind() == io::ErrorKind::NotFound => {
+                    return diagnostic_font_assets(path);
+                }
+                Err(source) => {
+                    return Err(AssetStartupError::FontAssetsRead {
+                        path,
+                        source,
+                        rebuild_command: FONT_ASSETS_COMPILE_COMMAND,
+                    });
+                }
+            };
+            (path, file, UI_FONT_SOURCE_JSON, FONT_ASSETS_COMPILE_COMMAND)
         }
         Err(source) => {
             return Err(AssetStartupError::FontAssetsRead {
-                path,
+                path: local_path,
                 source,
-                rebuild_command: FONT_ASSETS_COMPILE_COMMAND,
+                rebuild_command: LOCAL_FONT_ASSETS_COMPILE_COMMAND,
             });
         }
     };
@@ -560,14 +602,14 @@ fn load_font_assets(world_asset_path: &Path) -> Result<LoadedFontAssets, AssetSt
         .map_err(|source| AssetStartupError::FontAssetsRead {
             path: path.clone(),
             source,
-            rebuild_command: FONT_ASSETS_COMPILE_COMMAND,
+            rebuild_command,
         })?
         .len();
     if length > MAX_FONT_ASSET_BLOB_BYTES {
         return Err(AssetStartupError::FontAssetsTooLarge {
             path,
             max_bytes: MAX_FONT_ASSET_BLOB_BYTES,
-            rebuild_command: FONT_ASSETS_COMPILE_COMMAND,
+            rebuild_command,
         });
     }
     let mut bytes = Vec::with_capacity(length as usize);
@@ -576,35 +618,24 @@ fn load_font_assets(world_asset_path: &Path) -> Result<LoadedFontAssets, AssetSt
         .map_err(|source| AssetStartupError::FontAssetsRead {
             path: path.clone(),
             source,
-            rebuild_command: FONT_ASSETS_COMPILE_COMMAND,
+            rebuild_command,
         })?;
     if bytes.len() as u64 > MAX_FONT_ASSET_BLOB_BYTES {
         return Err(AssetStartupError::FontAssetsTooLarge {
             path,
             max_bytes: MAX_FONT_ASSET_BLOB_BYTES,
-            rebuild_command: FONT_ASSETS_COMPILE_COMMAND,
+            rebuild_command,
         });
     }
-    let expected_manifest_sha256 = canonical_source_manifest_sha256(UI_FONT_SOURCE_JSON);
-    let runtime = match RuntimeFontCatalog::decode(&bytes, expected_manifest_sha256) {
-        Ok(runtime) => runtime,
-        Err(FontCatalogError::SourceManifestMismatch) => RuntimeFontCatalog::decode(
-            &bytes,
-            canonical_source_manifest_sha256(VANILLA_SOURCE_JSON),
-        )
-        .map_err(|source| AssetStartupError::FontAssetsDecode {
-            path: path.clone(),
-            source: Box::new(source),
-            rebuild_command: FONT_ASSETS_COMPILE_COMMAND,
-        })?,
-        Err(source) => {
-            return Err(AssetStartupError::FontAssetsDecode {
+    let expected_manifest_sha256 = canonical_source_manifest_sha256(source_manifest);
+    let runtime =
+        RuntimeFontCatalog::decode(&bytes, expected_manifest_sha256).map_err(|source| {
+            AssetStartupError::FontAssetsDecode {
                 path: path.clone(),
                 source: Box::new(source),
-                rebuild_command: FONT_ASSETS_COMPILE_COMMAND,
-            });
-        }
-    };
+                rebuild_command,
+            }
+        })?;
     Ok(LoadedFontAssets {
         runtime: Arc::new(runtime),
         selected_path: path,

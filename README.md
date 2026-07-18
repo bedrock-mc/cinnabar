@@ -209,16 +209,18 @@ is committed. Run the font step alone with:
 make font-assets
 ```
 
-An owned, reviewed local Bedrock bitmap-font pack can replace the generated Inter
-carrier without downloading or redistributing Mojangles:
+An owned, reviewed local Bedrock bitmap-font pack can take precedence over the
+generated Inter carrier without downloading or redistributing Mojangles:
 
 ```text
 make font-assets-local FONT_PACK_DIR=/path/to/reviewed/resource_pack
 ```
 
 The local pack must contain the bounded `font/catalog.json` descriptor and referenced
-PNG pages expected by the compiler. Normal builds never fetch Mojangles or another
-unlicensed Minecraft font mirror.
+PNG pages expected by the compiler. This command writes the distinct ignored
+`vanilla-v1.mcbefont` carrier; startup prefers that validated local carrier while
+leaving `ui-inter-v1.mcbefont` intact as the fallback. Normal builds never fetch
+Mojangles or another unlicensed Minecraft font mirror.
 
 ## Local vanilla block textures
 

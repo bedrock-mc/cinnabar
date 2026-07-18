@@ -397,7 +397,7 @@ fn compile_font_assets_command(
                 source,
             }
         })?;
-    let source_manifest_sha256: [u8; 32] = Sha256::digest(&manifest_bytes).into();
+    let source_manifest_sha256 = canonical_source_manifest_sha256(&manifest_bytes);
     let compiled = compile_fonts(pack)?;
     if compiled.report.source_manifest_sha256 != source_manifest_sha256 {
         return Err(FontCompileError::SourceManifestMismatch.into());
@@ -430,12 +430,27 @@ fn compile_outline_font_assets_command(
     let atlas_side = required_u32(raster, "atlas_side")?;
     let replacement = char::from_u32(required_u32(raster, "replacement_codepoint")?)
         .ok_or("font replacement_codepoint is not a Unicode scalar")?;
-    let source_manifest_sha256: [u8; 32] = Sha256::digest(&manifest_bytes).into();
+    let expected_font_size = source
+        .get("font_size_bytes")
+        .and_then(serde_json::Value::as_u64)
+        .ok_or("font source manifest has invalid font_size_bytes")?;
+    let expected_font_sha256 = source
+        .get("font_sha256")
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .ok_or("font source manifest has invalid font_sha256")?;
+    let source_manifest_sha256 = canonical_source_manifest_sha256(&manifest_bytes);
     let font_bytes = read_bounded_with_limit(
         font,
         usize::try_from(MAX_FONT_SOURCE_BYTES).expect("font source bound fits usize"),
         "outline font",
     )?;
+    if font_bytes.len() as u64 != expected_font_size {
+        return Err("outline font size does not match the source manifest".into());
+    }
+    if format!("{:x}", Sha256::digest(&font_bytes)) != expected_font_sha256.to_ascii_lowercase() {
+        return Err("outline font SHA-256 does not match the source manifest".into());
+    }
     let compiled = compile_outline_font(
         font,
         &font_bytes,
@@ -455,6 +470,28 @@ fn required_u32(value: &serde_json::Value, field: &str) -> Result<u32, Box<dyn s
         .and_then(serde_json::Value::as_u64)
         .and_then(|value| u32::try_from(value).ok())
         .ok_or_else(|| format!("font rasterization field '{field}' is invalid").into())
+}
+
+fn canonical_source_manifest_sha256(source: &[u8]) -> [u8; 32] {
+    if !source.contains(&b'\r') {
+        return Sha256::digest(source).into();
+    }
+    let mut canonical = Vec::with_capacity(source.len());
+    let mut index = 0;
+    while index < source.len() {
+        match source[index] {
+            b'\r' if source.get(index + 1) == Some(&b'\n') => {
+                canonical.push(b'\n');
+                index += 2;
+            }
+            b'\r' | b'\n' => return Sha256::digest(source).into(),
+            byte => {
+                canonical.push(byte);
+                index += 1;
+            }
+        }
+    }
+    Sha256::digest(canonical).into()
 }
 
 fn write_compiled_font_assets(
@@ -902,7 +939,21 @@ mod tests {
     use clap::Parser;
     use sha2::{Digest, Sha256};
 
-    use super::{Cli, Command, compile_atmosphere_command};
+    use super::{Cli, Command, canonical_source_manifest_sha256, compile_atmosphere_command};
+
+    #[test]
+    fn outline_manifest_identity_is_portable_across_checkout_line_endings() {
+        let lf = include_bytes!("../../../../assets/ui-font-source.json");
+        assert!(!lf.contains(&b'\r'));
+        let crlf = String::from_utf8(lf.to_vec())
+            .unwrap()
+            .replace('\n', "\r\n");
+
+        assert_eq!(
+            canonical_source_manifest_sha256(lf),
+            canonical_source_manifest_sha256(crlf.as_bytes())
+        );
+    }
 
     #[test]
     fn synthetic_cli_override_builds_canonical_path_only_report() {
