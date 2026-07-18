@@ -140,6 +140,7 @@ pub struct WorldStream {
     mesh_tx: Sender<MeshCompletion>,
     mesh_rx: Receiver<MeshCompletion>,
     collision_world_generation: u64,
+    collision_world_generation_exhausted: bool,
     next_block_generation: u64,
     block_generations: HashMap<SubChunkKey, u64>,
     light_store: LightStore,

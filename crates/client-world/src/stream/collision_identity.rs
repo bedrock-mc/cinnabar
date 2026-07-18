@@ -25,6 +25,12 @@ impl WorldStream {
     }
 
     pub(super) fn bump_collision_world_generation(&mut self) {
-        self.collision_world_generation = self.collision_world_generation.saturating_add(1);
+        if self.collision_world_generation_exhausted {
+            return;
+        }
+        match self.collision_world_generation.checked_add(1) {
+            Some(generation) => self.collision_world_generation = generation,
+            None => self.collision_world_generation_exhausted = true,
+        }
     }
 }

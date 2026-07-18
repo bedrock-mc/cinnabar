@@ -191,7 +191,7 @@ fn committed_capture_fixture() -> (
             source_tick: Some(27),
         }),
     };
-    let capture = capture_committed_actor_ground_contact(&request, &commit, 11, &Floor)
+    let capture = capture_committed_actor_ground_contact(&request, &commit, Some(11), &Floor)
         .unwrap()
         .expect("exact requested lifetime and generation are captured");
     (request, commit, capture)
@@ -232,16 +232,22 @@ fn committed_actor_capture_requires_exact_identity_and_samples_received_feet() {
     assert_eq!(capture.feet_error_micros, 0);
     assert!(capture.within_requested_error);
     assert!(
-        capture_committed_actor_ground_contact(&request, &commit, 12, &UnavailableWorld)
+        capture_committed_actor_ground_contact(&request, &commit, Some(12), &UnavailableWorld)
             .unwrap()
             .is_none(),
         "later world generation must reject before collision sampling"
+    );
+    assert!(
+        capture_committed_actor_ground_contact(&request, &commit, None, &UnavailableWorld)
+            .unwrap()
+            .is_none(),
+        "exhausted collision identity must reject before collision sampling"
     );
 
     let mut wrong_session = request;
     wrong_session.session = 8;
     assert!(
-        capture_committed_actor_ground_contact(&wrong_session, &commit, 11, &Floor)
+        capture_committed_actor_ground_contact(&wrong_session, &commit, Some(11), &Floor)
             .unwrap()
             .is_none()
     );

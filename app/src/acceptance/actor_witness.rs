@@ -241,10 +241,10 @@ pub(crate) struct CommittedActorGroundContact {
 pub(crate) fn capture_committed_actor_ground_contact(
     request: &ActorWitnessRequest,
     commit: &CommittedActorMove,
-    current_collision_world_generation: u64,
+    current_collision_world_generation: Option<u64>,
     world: &impl CollisionWorld,
 ) -> Result<Option<CommittedActorGroundContact>, ActorGroundContactError> {
-    if commit.collision_world_generation != current_collision_world_generation
+    if Some(commit.collision_world_generation) != current_collision_world_generation
         || commit.session_id != request.session
         || commit.dimension != request.dimension
     {
@@ -424,7 +424,7 @@ pub(crate) fn poll_and_capture_actor_ground_contacts(
         collisions.registry(stream.network_id_mode()),
         stream.current_dimension(),
     );
-    let current_collision_world_generation = stream.collision_world_generation();
+    let current_collision_world_generation = stream.collision_world_generation_identity();
     for commit in commits {
         match capture_committed_actor_ground_contact(
             &request,
