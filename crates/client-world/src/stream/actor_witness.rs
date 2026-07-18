@@ -22,6 +22,7 @@ pub struct CommittedActorMove {
     pub session_id: u64,
     pub dimension: i32,
     pub sequence: u64,
+    pub collision_world_generation: u64,
     pub movement: ActorMoveEvent,
     pub applied: Option<CommittedActorPose>,
 }
@@ -66,6 +67,7 @@ impl WorldStream {
             session_id: self.actor_session_id,
             dimension: movement.dimension,
             sequence,
+            collision_world_generation: self.next_block_generation,
             movement,
             applied,
         });
@@ -88,5 +90,10 @@ impl WorldStream {
     #[must_use]
     pub const fn actor_move_commit_dropped_count(&self) -> u64 {
         self.actor_move_commit_dropped_count
+    }
+
+    #[must_use]
+    pub const fn collision_world_generation(&self) -> u64 {
+        self.next_block_generation
     }
 }
