@@ -27,7 +27,9 @@ $ErrorActionPreference = 'Stop'
 $AcceptanceParameters = @{} + $PSBoundParameters
 
 $PinnedGophertunnelCommit = 'bbe6cfdeed39713c2b20103a1294e609d5841615'
-$PinnedValentineCommit = '6cd8087fc3f0b500e41708a8afc94a0fa3291525'
+$PinnedValentineForkCommit = '6cd8087fc3f0b500e41708a8afc94a0fa3291525'
+$PinnedValentineUpstreamCommit = '6f6806e821a579c183c44d786f76d9b358a2b825'
+$PinnedValentineLicenseSha256 = '62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184'
 $PinnedAssetSourceTag = 'v1.26.30.32-preview'
 $PinnedAssetSourceSha256 = '12d5cddc03acd507e9e0bd412f2e94d34d0a1a855758af7a9eef61b03630ad7c'
 $LeafStateSuffix = '["persistent_bit"=true,"update_bit"=false]'

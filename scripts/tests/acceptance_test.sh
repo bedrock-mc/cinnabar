@@ -154,7 +154,10 @@ grep -Fq 'metrics["publisher_radius_chunks"] == 16' "$script"
 grep -Fq 'metrics["frame_count"] > 0' "$script"
 grep -Fq 'math.isfinite(metrics["p99_frame_ms"])' "$script"
 grep -Fq "pinned_gophertunnel_commit='9948b1729395d2e819fce28e079d4a7bfc67716c'" "$script"
-grep -Fq "pinned_valentine_commit='6f6806e821a579c183c44d786f76d9b358a2b825'" "$script"
+grep -Fq "pinned_valentine_fork_commit='6cd8087fc3f0b500e41708a8afc94a0fa3291525'" "$script"
+grep -Fq "pinned_valentine_upstream_commit='6f6806e821a579c183c44d786f76d9b358a2b825'" "$script"
+grep -Fq "pinned_valentine_license_sha256='62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184'" "$script"
+grep -Fq '"protocol_dependency_resolution": "vendored-path"' "$script"
 metadata_line=$(grep -n '^write_metadata preparing$' "$script" | cut -d: -f1)
 build_line=$(grep -n 'cargo build --release' "$script" | tail -1 | cut -d: -f1)
 [[ -n $metadata_line && -n $build_line && $metadata_line -lt $build_line ]]

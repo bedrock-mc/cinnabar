@@ -121,7 +121,11 @@ $script:AcceptanceValidationPhase = {
     }
     
     $ProjectRoot = (Resolve-Path (Join-Path $script:AcceptanceEntryRoot '..')).Path
-    $null = Assert-ProtocolDependencyProvenance -ProjectRoot $ProjectRoot -ExpectedRevision $PinnedValentineCommit
+    $null = Assert-ProtocolDependencyProvenance `
+        -ProjectRoot $ProjectRoot `
+        -ExpectedForkRevision $PinnedValentineForkCommit `
+        -ExpectedUpstreamRevision $PinnedValentineUpstreamCommit `
+        -ExpectedLicenseSha256 $PinnedValentineLicenseSha256
     $BlockRegistryPath = Join-Path $ProjectRoot 'crates\assets\data\block-registry-v1001.bin'
     $CrossCropCoverage = if ($isCrossCropGallery) {
         Get-CrossCropCoverageEvidence -RegistryPath $BlockRegistryPath -AssetsPath $Assets

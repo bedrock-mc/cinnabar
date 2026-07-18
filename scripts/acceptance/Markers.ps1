@@ -66,24 +66,85 @@ function Assert-StableTransparentWitnessEvidence {
 function Assert-ProtocolDependencyProvenance {
     param(
         [Parameter(Mandatory = $true)][string]$ProjectRoot,
-        [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedRevision
+        [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedForkRevision,
+        [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedUpstreamRevision,
+        [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedLicenseSha256
     )
 
     $manifestPath = Join-Path $ProjectRoot 'crates\protocol\Cargo.toml'
     $lockPath = Join-Path $ProjectRoot 'Cargo.lock'
-    $manifest = Get-Content -Raw -LiteralPath $manifestPath
-    $lock = Get-Content -Raw -LiteralPath $lockPath
-    foreach ($dependency in @('valentine', 'jolyne')) {
-        $pattern = '(?m)^' + [regex]::Escape($dependency) + '\s*=\s*\{[^\r\n]*\brev\s*=\s*"' + [regex]::Escape($ExpectedRevision) + '"[^\r\n]*\}\r?$'
-        if ($manifest -notmatch $pattern) {
-            throw "protocol dependency provenance drifted: $dependency is not pinned to $ExpectedRevision"
+    $upstreamPath = Join-Path $ProjectRoot 'crates\protocol\vendor\UPSTREAM.md'
+    $licensePath = Join-Path $ProjectRoot 'crates\protocol\vendor\LICENSE'
+    foreach ($requiredPath in @($manifestPath, $lockPath, $upstreamPath, $licensePath)) {
+        if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
+            throw "protocol dependency provenance input is missing: $requiredPath"
         }
     }
-    $source = "git+https://github.com/HashimTheArab/axolotl-stack.git?rev=$ExpectedRevision#$ExpectedRevision"
-    if ([regex]::Matches($lock, [regex]::Escape($source)).Count -ne 4) {
-        throw "Cargo.lock does not resolve the compiled Valentine fork revision $ExpectedRevision"
+
+    $manifest = Get-Content -Raw -LiteralPath $manifestPath
+    $lock = Get-Content -Raw -LiteralPath $lockPath
+    $upstream = Get-Content -Raw -LiteralPath $upstreamPath
+    $expectedDependencies = [ordered]@{
+        valentine = 'valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_30"] }'
+        jolyne = 'jolyne = { path = "vendor/jolyne", default-features = false, features = ["client"] }'
     }
-    return $ExpectedRevision
+    foreach ($dependency in $expectedDependencies.Keys) {
+        $declaration = [string]$expectedDependencies[$dependency]
+        if ([regex]::Matches($manifest, '(?m)^' + [regex]::Escape($declaration) + '\r?$').Count -ne 1) {
+            throw "protocol dependency provenance drifted: $dependency does not use its exact vendored path declaration"
+        }
+        $vendoredManifest = Join-Path $ProjectRoot "crates\protocol\vendor\$dependency\Cargo.toml"
+        if (-not (Test-Path -LiteralPath $vendoredManifest -PathType Leaf)) {
+            throw "protocol dependency provenance drifted: $dependency vendored path has no Cargo.toml"
+        }
+    }
+
+    $forkLine = "- Reviewed fork revision: ``$ExpectedForkRevision``"
+    if ([regex]::Matches($upstream, '(?m)^' + [regex]::Escape($forkLine) + '\r?$').Count -ne 1) {
+        throw "protocol dependency provenance drifted: vendored fork revision is not $ExpectedForkRevision"
+    }
+    $upstreamLine = "- Upstream snapshot revision: ``$ExpectedUpstreamRevision``"
+    if ([regex]::Matches($upstream, '(?m)^' + [regex]::Escape($upstreamLine) + '\r?$').Count -ne 1) {
+        throw "protocol dependency provenance drifted: upstream revision is not $ExpectedUpstreamRevision"
+    }
+    $licenseLine = "- Retained license: MIT at ``crates/protocol/vendor/LICENSE`` (normalized SHA-256 ``$ExpectedLicenseSha256``)"
+    if ([regex]::Matches($upstream, '(?m)^' + [regex]::Escape($licenseLine) + '\r?$').Count -ne 1) {
+        throw 'protocol dependency provenance drifted: retained license metadata is missing or ambiguous'
+    }
+
+    $licenseText = [IO.File]::ReadAllText($licensePath).Replace("`r`n", "`n").Replace("`r", "`n")
+    $licenseBytes = [Text.UTF8Encoding]::new($false).GetBytes($licenseText)
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try {
+        $licenseSha256 = ([BitConverter]::ToString($sha256.ComputeHash($licenseBytes))).Replace('-', '').ToLowerInvariant()
+    }
+    finally {
+        $sha256.Dispose()
+    }
+    if ($licenseSha256 -cne $ExpectedLicenseSha256) {
+        throw "protocol dependency retained license SHA-256 drifted: expected $ExpectedLicenseSha256, got $licenseSha256"
+    }
+
+    $resolvedLocalPackages = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $packageBlocks = [regex]::Matches($lock, '(?ms)^\[\[package\]\]\r?\n(?<body>.*?)(?=^\[\[package\]\]|\z)')
+    foreach ($packageBlock in $packageBlocks) {
+        $body = $packageBlock.Groups['body'].Value
+        $nameMatch = [regex]::Match($body, '(?m)^name\s*=\s*"(?<name>[^"]+)"\r?$')
+        if (-not $nameMatch.Success) { continue }
+        $name = $nameMatch.Groups['name'].Value
+        if ($name -eq 'jolyne' -or $name.StartsWith('valentine', [StringComparison]::Ordinal)) {
+            $null = $resolvedLocalPackages.Add($name)
+            if ($body -match '(?m)^source\s*=') {
+                throw "Cargo.lock local package $name has a source entry"
+            }
+        }
+    }
+    foreach ($dependency in @('valentine', 'jolyne')) {
+        if (-not $resolvedLocalPackages.Contains($dependency)) {
+            throw "Cargo.lock does not contain local package $dependency"
+        }
+    }
+    return $ExpectedForkRevision
 }
 
 function ConvertFrom-GalleryAnchorReadyMarker {

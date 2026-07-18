@@ -2,7 +2,9 @@
 set -euo pipefail
 
 pinned_gophertunnel_commit='9948b1729395d2e819fce28e079d4a7bfc67716c'
-pinned_valentine_commit='6f6806e821a579c183c44d786f76d9b358a2b825'
+pinned_valentine_fork_commit='6cd8087fc3f0b500e41708a8afc94a0fa3291525'
+pinned_valentine_upstream_commit='6f6806e821a579c183c44d786f76d9b358a2b825'
+pinned_valentine_license_sha256='62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184'
 
 usage() {
     cat >&2 <<'EOF'
@@ -610,7 +612,9 @@ write_metadata() {
     export RUST_MCBE_META_STARTED="$run_started_utc"
     export RUST_MCBE_META_REPO_COMMIT="$repo_commit"
     export RUST_MCBE_META_GOPHERTUNNEL="$pinned_gophertunnel_commit"
-    export RUST_MCBE_META_VALENTINE="$pinned_valentine_commit"
+    export RUST_MCBE_META_VALENTINE_FORK="$pinned_valentine_fork_commit"
+    export RUST_MCBE_META_VALENTINE_UPSTREAM="$pinned_valentine_upstream_commit"
+    export RUST_MCBE_META_VALENTINE_LICENSE="$pinned_valentine_license_sha256"
     export RUST_MCBE_META_BDS_HASH="$bds_hash"
     export RUST_MCBE_META_BDS_COMMAND="$(format_command "${bds_command[@]}")"
     export RUST_MCBE_META_CORE_COMMAND="$(format_command "${core_command[@]}")"
@@ -630,7 +634,9 @@ keys = {
     "started_utc": "RUST_MCBE_META_STARTED",
     "repo_commit": "RUST_MCBE_META_REPO_COMMIT",
     "pinned_gophertunnel_commit": "RUST_MCBE_META_GOPHERTUNNEL",
-    "pinned_valentine_commit": "RUST_MCBE_META_VALENTINE",
+    "pinned_valentine_fork_commit": "RUST_MCBE_META_VALENTINE_FORK",
+    "pinned_valentine_upstream_commit": "RUST_MCBE_META_VALENTINE_UPSTREAM",
+    "pinned_valentine_license_sha256": "RUST_MCBE_META_VALENTINE_LICENSE",
     "bds_sha256": "RUST_MCBE_META_BDS_HASH",
     "bds_command": "RUST_MCBE_META_BDS_COMMAND",
     "core_command": "RUST_MCBE_META_CORE_COMMAND",
@@ -643,6 +649,7 @@ keys = {
 }
 metadata = {name: os.environ[source] for name, source in keys.items()}
 metadata.update({
+    "protocol_dependency_resolution": "vendored-path",
     "duration_seconds": int(os.environ["RUST_MCBE_META_DURATION"]),
     "build_app_command": "cargo build --release -p bedrock-client --locked",
     "build_profile": "release",

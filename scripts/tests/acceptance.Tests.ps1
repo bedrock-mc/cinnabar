@@ -18,6 +18,7 @@ $testFailure = $null
 $tempRootCleanupFailure = $null
 
 try {
+    . (Join-Path $PSScriptRoot 'acceptance\ProtocolDependencies.Tests.ps1')
     . (Join-Path $PSScriptRoot 'acceptance\Paths.Tests.ps1')
     . (Join-Path $PSScriptRoot 'acceptance\Galleries.Tests.ps1')
     . (Join-Path $PSScriptRoot 'acceptance\Orchestration.Tests.ps1')

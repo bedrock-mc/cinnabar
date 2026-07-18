@@ -1,0 +1,90 @@
+$expectedForkRevision = '6cd8087fc3f0b500e41708a8afc94a0fa3291525'
+$expectedUpstreamRevision = '6f6806e821a579c183c44d786f76d9b358a2b825'
+$expectedLicenseSha256 = '62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184'
+
+. (Join-Path $ProjectRoot 'scripts\acceptance\Markers.ps1')
+
+function Copy-ProtocolDependencyProvenanceFixture {
+    param(
+        [Parameter(Mandatory = $true)][string]$SourceRoot,
+        [Parameter(Mandatory = $true)][string]$DestinationRoot
+    )
+
+    $protocolRoot = Join-Path $DestinationRoot 'crates\protocol'
+    $vendorRoot = Join-Path $protocolRoot 'vendor'
+    New-Item -ItemType Directory -Path (Join-Path $vendorRoot 'valentine') -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $vendorRoot 'jolyne') -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $SourceRoot 'crates\protocol\Cargo.toml') -Destination $protocolRoot
+    Copy-Item -LiteralPath (Join-Path $SourceRoot 'Cargo.lock') -Destination $DestinationRoot
+    Copy-Item -LiteralPath (Join-Path $SourceRoot 'crates\protocol\vendor\UPSTREAM.md') -Destination $vendorRoot
+    Copy-Item -LiteralPath (Join-Path $SourceRoot 'crates\protocol\vendor\LICENSE') -Destination $vendorRoot
+    Copy-Item -LiteralPath (Join-Path $SourceRoot 'crates\protocol\vendor\valentine\Cargo.toml') `
+        -Destination (Join-Path $vendorRoot 'valentine')
+    Copy-Item -LiteralPath (Join-Path $SourceRoot 'crates\protocol\vendor\jolyne\Cargo.toml') `
+        -Destination (Join-Path $vendorRoot 'jolyne')
+}
+
+function Assert-TestProtocolDependencyProvenance {
+    param([Parameter(Mandatory = $true)][string]$Root)
+
+    Assert-ProtocolDependencyProvenance `
+        -ProjectRoot $Root `
+        -ExpectedForkRevision $expectedForkRevision `
+        -ExpectedUpstreamRevision $expectedUpstreamRevision `
+        -ExpectedLicenseSha256 $expectedLicenseSha256
+}
+
+$null = Assert-TestProtocolDependencyProvenance -Root $ProjectRoot
+
+$fixtureRoot = Join-Path $TempRoot 'protocol dependency provenance'
+Copy-ProtocolDependencyProvenanceFixture -SourceRoot $ProjectRoot -DestinationRoot $fixtureRoot
+$null = Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
+
+$manifestPath = Join-Path $fixtureRoot 'crates\protocol\Cargo.toml'
+$canonicalManifest = Get-Content -Raw -LiteralPath $manifestPath
+Set-Content -LiteralPath $manifestPath -NoNewline -Value `
+    $canonicalManifest.Replace('path = "vendor/valentine"', 'path = "..\outside\valentine"')
+Assert-ThrowsLike {
+    Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
+} '*valentine*vendored path*' 'protocol provenance accepted a drifted Valentine path declaration'
+Set-Content -LiteralPath $manifestPath -NoNewline -Value $canonicalManifest
+
+$upstreamPath = Join-Path $fixtureRoot 'crates\protocol\vendor\UPSTREAM.md'
+$canonicalUpstream = Get-Content -Raw -LiteralPath $upstreamPath
+Set-Content -LiteralPath $upstreamPath -NoNewline -Value `
+    $canonicalUpstream.Replace($expectedForkRevision, ('0' * 40))
+Assert-ThrowsLike {
+    Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
+} '*fork revision*' 'protocol provenance accepted drifted vendored fork metadata'
+Set-Content -LiteralPath $upstreamPath -NoNewline -Value `
+    $canonicalUpstream.Replace($expectedUpstreamRevision, ('1' * 40))
+Assert-ThrowsLike {
+    Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
+} '*upstream revision*' 'protocol provenance accepted drifted upstream merge metadata'
+Set-Content -LiteralPath $upstreamPath -NoNewline -Value $canonicalUpstream
+
+$licensePath = Join-Path $fixtureRoot 'crates\protocol\vendor\LICENSE'
+$canonicalLicense = Get-Content -Raw -LiteralPath $licensePath
+Set-Content -LiteralPath $licensePath -NoNewline -Value ($canonicalLicense + 'drift')
+Assert-ThrowsLike {
+    Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
+} '*license*SHA-256*' 'protocol provenance accepted a drifted retained license'
+Set-Content -LiteralPath $licensePath -NoNewline -Value $canonicalLicense
+
+$lockPath = Join-Path $fixtureRoot 'Cargo.lock'
+$canonicalLock = Get-Content -Raw -LiteralPath $lockPath
+$driftedLock = $canonicalLock.Replace(
+    "name = `"valentine`"`r`nversion = `"0.1.0`"",
+    "name = `"valentine`"`r`nversion = `"0.1.0`"`r`nsource = `"git+https://github.com/HashimTheArab/axolotl-stack.git?rev=$expectedForkRevision#$expectedForkRevision`""
+)
+if ($driftedLock -ceq $canonicalLock) {
+    $driftedLock = $canonicalLock.Replace(
+        "name = `"valentine`"`nversion = `"0.1.0`"",
+        "name = `"valentine`"`nversion = `"0.1.0`"`nsource = `"git+https://github.com/HashimTheArab/axolotl-stack.git?rev=$expectedForkRevision#$expectedForkRevision`""
+    )
+}
+Assert-True ($driftedLock -cne $canonicalLock) 'lock drift fixture did not mutate Valentine resolution'
+Set-Content -LiteralPath $lockPath -NoNewline -Value $driftedLock
+Assert-ThrowsLike {
+    Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
+} '*Cargo.lock*local package*source*' 'protocol provenance accepted a Git source for a local package'
