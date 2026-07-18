@@ -463,7 +463,7 @@ func requireRealDirectory(path string) error {
 	if err != nil {
 		return err
 	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+	if !info.IsDir() || isRedirectingDirectory(info) {
 		return fmt.Errorf("directory is a symlink, junction, or non-directory: %s", abs)
 	}
 	resolved, err := filepath.EvalSymlinks(abs)
@@ -474,11 +474,7 @@ func requireRealDirectory(path string) error {
 	if err != nil {
 		return err
 	}
-	equal := filepath.Clean(abs) == filepath.Clean(resolved)
-	if runtime.GOOS == "windows" {
-		equal = strings.EqualFold(filepath.Clean(abs), filepath.Clean(resolved))
-	}
-	if !equal {
+	if !sameResolvedDirectoryPath(abs, resolved) {
 		return fmt.Errorf("directory resolves through a symlink or junction: %s", abs)
 	}
 	return nil
