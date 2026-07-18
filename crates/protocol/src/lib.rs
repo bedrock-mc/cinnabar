@@ -44,11 +44,12 @@ pub use packet::Packet;
 pub use socket_transport::SocketTransport;
 pub use ui::{
     BlockCrackAction, BlockCrackEvent, BossAction, BossColor, BossEvent, BossOverlay, BossStyle,
-    ChatAutocompleteAction, ChatAutocompleteEvent, FormRequestEvent, HudEvent, MAX_BOSS_EVENTS,
-    MAX_CHAT_AUTOCOMPLETE, MAX_CHAT_AUTOCOMPLETE_BYTES, MAX_CHAT_PARAMETERS, MAX_FORM_JSON_BYTES,
-    MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES, ObjectiveEvent, PlayerStatus, ScoreAction,
-    ScoreEntry, ScoreEvent, ScoreIdentity, TextCategory, TextEvent, TextKind, TitleAction,
-    TitleEvent, UiEvent, UiPacketError,
+    ChatAutocompleteAction, ChatAutocompleteCatalog, ChatAutocompleteCatalogError,
+    ChatAutocompleteCompletion, ChatAutocompleteEvent, ChatPacketError, FormRequestEvent, HudEvent,
+    MAX_BOSS_EVENTS, MAX_CHAT_AUTOCOMPLETE, MAX_CHAT_AUTOCOMPLETE_BYTES, MAX_CHAT_PARAMETERS,
+    MAX_FORM_JSON_BYTES, MAX_OUTBOUND_CHAT_BYTES, MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES,
+    ObjectiveEvent, PlayerStatus, ScoreAction, ScoreEntry, ScoreEvent, ScoreIdentity, TextCategory,
+    TextEvent, TextKind, TitleAction, TitleEvent, UiEvent, UiPacketError, chat_text_packet,
 };
 pub use valentine::bedrock::context::BedrockSession;
 pub use valentine::bedrock::version::v1_26_30::{GAME_VERSION, PROTOCOL_VERSION};

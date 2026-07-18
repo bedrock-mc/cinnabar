@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use ui::{
-    ChatAutocompleteAction, ChatAutocompleteApply, ChatAutocompleteDelta, ChatAutocompleteState,
-    ChatClipboard, ChatEditor, ChatEditorError, ChatHistory, ChatPasteError, ChatRateLimit,
-    ChatSendError, ChatSendQueue, MAX_CHAT_AUTOCOMPLETE, MAX_CHAT_AUTOCOMPLETE_BYTES,
-    MAX_CHAT_HISTORY, MAX_CHAT_INPUT_BYTES, UiAction,
+    ChatAutocompleteAction, ChatAutocompleteApply, ChatAutocompleteDelta, ChatAutocompleteResponse,
+    ChatAutocompleteState, ChatClipboard, ChatEditor, ChatEditorError, ChatHistory, ChatPasteError,
+    ChatRateLimit, ChatSendError, ChatSendQueue, MAX_CHAT_AUTOCOMPLETE,
+    MAX_CHAT_AUTOCOMPLETE_BYTES, MAX_CHAT_HISTORY, MAX_CHAT_INPUT_BYTES, UiAction,
 };
 
 #[derive(Default)]
@@ -205,4 +205,30 @@ fn autocomplete_session_replacement_clears_request_and_suggestions() {
     assert!(state.active_request().is_none());
     assert!(state.suggestions().is_empty());
     assert!(state.begin_input(8, 1, "/help", 5).unwrap().is_some());
+}
+
+#[test]
+fn autocomplete_response_requires_exact_request_and_input_revision() {
+    let mut state = ChatAutocompleteState::default();
+    let request = state.begin_input(7, 4, "/g", 2).unwrap().unwrap();
+    let response = ChatAutocompleteResponse {
+        session: request.session,
+        input_revision: request.input_revision,
+        request_id: request.request_id,
+        catalog_revision: 9,
+        suggestions: Arc::from([Arc::from("/give")]),
+    };
+    let mut stale = response.clone();
+    stale.request_id += 1;
+
+    assert_eq!(
+        state.apply_response(stale).unwrap(),
+        ChatAutocompleteApply::IgnoredStaleInput
+    );
+    assert!(state.suggestions().is_empty());
+    assert_eq!(
+        state.apply_response(response).unwrap(),
+        ChatAutocompleteApply::Applied
+    );
+    assert_eq!(state.suggestions(), [Arc::from("/give")]);
 }

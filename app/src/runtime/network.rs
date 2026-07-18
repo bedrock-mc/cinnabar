@@ -5,7 +5,7 @@ use std::{
 
 use bevy::{
     camera::Projection,
-    log::{debug, error, info},
+    log::{debug, error, info, warn},
     prelude::{Local, Query, Res, ResMut, Time, Transform, Vec3, With},
     time::Real,
 };
@@ -165,6 +165,28 @@ pub(crate) fn receive_network_events(
                         base_sub_chunk_y,
                         count,
                         sent_at,
+                    );
+                }
+            }
+            NetworkControlEvent::ChatPacketSent { session, sequence } => {
+                if !ui_runtime.acknowledge_chat_send(session, sequence) {
+                    warn!(
+                        session,
+                        sequence, "ignored unrelated chat send acknowledgement"
+                    );
+                }
+            }
+            NetworkControlEvent::ChatPacketSendFailed {
+                session,
+                sequence,
+                message,
+            } => {
+                if ui_runtime.fail_chat_send(session, sequence) {
+                    error!(session, sequence, "chat packet send failed: {message}");
+                } else {
+                    warn!(
+                        session,
+                        sequence, "ignored unrelated chat send failure: {message}"
                     );
                 }
             }

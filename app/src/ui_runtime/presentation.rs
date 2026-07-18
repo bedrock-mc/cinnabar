@@ -1,4 +1,4 @@
-use std::{fmt, sync::Arc};
+use std::{fmt, ops::Range, sync::Arc};
 
 use assets::RuntimeFontCatalog;
 use bevy::{
@@ -191,13 +191,19 @@ impl UiPresentationRuntime {
             );
             next_id = next_id.saturating_add(1);
 
-            for (row, suggestion) in runtime
+            let visible = visible_suggestion_range(
+                runtime.chat_suggestions().len(),
+                runtime.chat_selected_suggestion(),
+            );
+            for (row, (index, suggestion)) in runtime
                 .chat_suggestions()
                 .iter()
-                .take(MAX_PRESENTED_CHAT_SUGGESTIONS)
+                .enumerate()
+                .skip(visible.start)
+                .take(visible.len())
                 .enumerate()
             {
-                let selected = runtime.chat_selected_suggestion() == Some(row);
+                let selected = runtime.chat_selected_suggestion() == Some(index);
                 let mut visible = String::with_capacity(suggestion.len().saturating_add(2));
                 visible.push_str(if selected { "> " } else { "  " });
                 visible.push_str(suggestion);
@@ -249,6 +255,38 @@ impl UiPresentationRuntime {
         )
         .map_err(UiPresentationError::Adapter)
     }
+}
+
+pub(super) fn visible_suggestion_range(total: usize, selected: Option<usize>) -> Range<usize> {
+    let selected = selected.unwrap_or(0).min(total.saturating_sub(1));
+    let end = total.min(
+        selected
+            .saturating_add(1)
+            .max(MAX_PRESENTED_CHAT_SUGGESTIONS),
+    );
+    end.saturating_sub(MAX_PRESENTED_CHAT_SUGGESTIONS)..end
+}
+
+pub(super) fn hit_test_chat_suggestion(
+    position: ui::UiPoint,
+    logical_size: [f32; 2],
+    total: usize,
+    selected: Option<usize>,
+) -> Option<usize> {
+    if position.x() < 12.0 || position.x() > 12.0 + logical_size[0] * 0.45 {
+        return None;
+    }
+    let editor_y = (logical_size[1] - 40.0).max(0.0);
+    let distance = editor_y - position.y();
+    if !(0.0..MAX_PRESENTED_CHAT_SUGGESTIONS as f32 * 18.0).contains(&distance) {
+        return None;
+    }
+    let visible_row = (distance / 18.0).floor() as usize;
+    let visible = visible_suggestion_range(total, selected);
+    visible
+        .start
+        .checked_add(visible_row)
+        .filter(|index| *index < visible.end)
 }
 
 pub(crate) fn publish_ui_runtime(
@@ -438,6 +476,13 @@ mod tests {
 
         assert!(active.vertices.len() > empty.vertices.len());
         assert!(active.indices.len() > empty.indices.len());
+    }
+
+    #[test]
+    fn suggestion_window_keeps_the_selected_row_visible() {
+        assert_eq!(visible_suggestion_range(20, Some(12)), 5..13);
+        assert_eq!(visible_suggestion_range(20, Some(19)), 12..20);
+        assert_eq!(visible_suggestion_range(3, Some(2)), 0..3);
     }
 
     fn fixture_font() -> Arc<RuntimeFontCatalog> {

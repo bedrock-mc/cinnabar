@@ -38,6 +38,15 @@ pub enum NetworkControlEvent {
         count: usize,
         sent_at: Instant,
     },
+    ChatPacketSent {
+        session: u64,
+        sequence: u64,
+    },
+    ChatPacketSendFailed {
+        session: u64,
+        sequence: u64,
+        message: String,
+    },
     BlobCacheTelemetry {
         enabled: bool,
         stats: BlobCacheStats,
@@ -62,6 +71,7 @@ enum NetworkCommand {
     Send {
         packet: Packet,
         sub_chunk: Option<SubChunkRequestSend>,
+        chat: Option<ChatPacketSend>,
     },
 }
 
@@ -70,6 +80,12 @@ struct SubChunkRequestSend {
     chunk: ChunkKey,
     base_sub_chunk_y: i32,
     count: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ChatPacketSend {
+    session: u64,
+    sequence: u64,
 }
 
 #[derive(Debug)]
@@ -136,7 +152,16 @@ impl NetworkHandle {
     }
 
     pub fn send_packet(&self, packet: Packet) -> Result<(), PacketSendError> {
-        self.send_packet_with_confirmation(packet, None)
+        self.send_packet_with_confirmation(packet, None, None)
+    }
+
+    pub fn send_chat_packet(
+        &self,
+        session: u64,
+        sequence: u64,
+        packet: Packet,
+    ) -> Result<(), PacketSendError> {
+        self.send_packet_with_confirmation(packet, None, Some(ChatPacketSend { session, sequence }))
     }
 
     pub fn send_sub_chunk_request(
@@ -153,6 +178,7 @@ impl NetworkHandle {
                 base_sub_chunk_y,
                 count,
             }),
+            None,
         )
     }
 
@@ -160,9 +186,14 @@ impl NetworkHandle {
         &self,
         packet: Packet,
         sub_chunk: Option<SubChunkRequestSend>,
+        chat: Option<ChatPacketSend>,
     ) -> Result<(), PacketSendError> {
         self.commands
-            .try_send(NetworkCommand::Send { packet, sub_chunk })
+            .try_send(NetworkCommand::Send {
+                packet,
+                sub_chunk,
+                chat,
+            })
             .map_err(|error| match error {
                 mpsc::error::TrySendError::Full(NetworkCommand::Send { packet, .. }) => {
                     PacketSendError::Full(packet)
@@ -388,7 +419,11 @@ async fn run_network_pump<S: NetworkSession>(
         {
             NetworkPumpWork::Shutdown => break,
             NetworkPumpWork::Command(command) => match command {
-                Some(NetworkCommand::Send { packet, sub_chunk }) => {
+                Some(NetworkCommand::Send {
+                    packet,
+                    sub_chunk,
+                    chat,
+                }) => {
                     match wait_for_send_or_cancel(session.send_packet(packet), &mut shutdown_rx)
                         .await
                     {
@@ -415,8 +450,33 @@ async fn run_network_pump<S: NetworkSession>(
                                     return;
                                 }
                             }
+                            if let Some(chat) = chat
+                                && !send_control_event_or_cancel(
+                                    &control_event_tx,
+                                    &mut shutdown_rx,
+                                    NetworkControlEvent::ChatPacketSent {
+                                        session: chat.session,
+                                        sequence: chat.sequence,
+                                    },
+                                )
+                                .await
+                            {
+                                return;
+                            }
                         }
                         Some(Err(error)) => {
+                            if let Some(chat) = chat {
+                                let _ = send_control_event_or_cancel(
+                                    &control_event_tx,
+                                    &mut shutdown_rx,
+                                    NetworkControlEvent::ChatPacketSendFailed {
+                                        session: chat.session,
+                                        sequence: chat.sequence,
+                                        message: error.to_string(),
+                                    },
+                                )
+                                .await;
+                            }
                             send_final_blob_cache_telemetry(&session, &control_event_tx).await;
                             let _ = send_control_event_or_cancel(
                                 &control_event_tx,
