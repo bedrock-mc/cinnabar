@@ -1,3 +1,10 @@
+use std::mem::size_of;
+
+use crate::actor::{
+    ActorDrawFrame, ActorGpuInstance, ActorPresentationGate, ActorRenderFrame,
+    ActorRigGeometrySpan, ActorRigVertex, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE,
+    gpu::ActorDrawTracker,
+};
 use bevy::{
     asset::{AssetId, load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey},
@@ -6,7 +13,6 @@ use bevy::{
         query::ROQueryItem,
         system::{SystemParamItem, lifetimeless::Read, lifetimeless::SRes},
     },
-    mesh::VertexBufferLayout,
     prelude::*,
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
@@ -19,12 +25,13 @@ use bevy::{
         render_resource::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
             BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBindingType,
-            BufferId, BufferInitDescriptor, BufferSize, BufferUsages, Canonical, ColorTargetState,
-            ColorWrites, CompareFunction, DepthStencilState, Extent3d, FilterMode, FragmentState,
-            PipelineCache, RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType,
-            SamplerDescriptor, ShaderStages, ShaderType, Specializer, SpecializerKey, Texture,
-            TextureDataOrder, TextureDescriptor, TextureDimension, TextureFormat,
-            TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor,
+            BufferDescriptor, BufferId, BufferInitDescriptor, BufferSize, BufferUsages, Canonical,
+            ColorTargetState, ColorWrites, CommandEncoderDescriptor, CompareFunction,
+            DepthStencilState, Extent3d, Face as CullFace, FilterMode, FragmentState,
+            PipelineCache, PollType, PrimitiveState, RenderPipeline, RenderPipelineDescriptor,
+            Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages, ShaderType, Specializer,
+            SpecializerKey, Texture, TextureDataOrder, TextureDescriptor, TextureDimension,
+            TextureFormat, TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor,
             TextureViewDimension, Variants, VertexAttribute, VertexFormat, VertexState,
             VertexStepMode,
         },
@@ -32,12 +39,6 @@ use bevy::{
         sync_world::MainEntity,
         view::{ExtractedView, ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms},
     },
-};
-use bytemuck::{Pod, Zeroable};
-
-use crate::actor::{
-    ActorRenderFrame, ActorVertex, STANDARD_BIPED_VERTEX_COUNT, STANDARD_SKIN_BYTES,
-    STANDARD_SKIN_SIDE, standard_biped_vertices,
 };
 
 const ACTOR_SHADER_HANDLE: Handle<Shader> = uuid_handle!("09d34708-6fd4-4c65-b27e-ce22f172cc73");
@@ -61,7 +62,8 @@ impl Plugin for ActorRenderPlugin {
 struct ActorRenderInstalled;
 
 fn install_actor_render(app: &mut App) {
-    app.init_resource::<ActorRenderFrame>();
+    app.init_resource::<ActorRenderFrame>()
+        .init_resource::<ActorPresentationGate>();
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
     };
@@ -71,11 +73,14 @@ fn install_actor_render(app: &mut App) {
     {
         return;
     }
+    let presentation_gate = app.world().resource::<ActorPresentationGate>().clone();
     app.add_plugins(ExtractResourcePlugin::<ActorRenderFrame>::default());
     load_internal_asset!(app, ACTOR_SHADER_HANDLE, "actor.wgsl", Shader::from_wgsl);
     app.sub_app_mut(RenderApp)
         .insert_resource(ActorRenderInstalled)
+        .insert_resource(presentation_gate)
         .init_resource::<ActorPipeline>()
+        .init_resource::<ActorDrawTracker>()
         .add_render_command::<Opaque3d, DrawActorCommands>()
         .add_systems(RenderStartup, init_actor_gpu)
         .add_systems(
@@ -84,39 +89,34 @@ fn install_actor_render(app: &mut App) {
                 prepare_actor_resources.in_set(RenderSystems::PrepareResources),
                 prepare_actor_bind_group.in_set(RenderSystems::PrepareBindGroups),
                 queue_actors.in_set(RenderSystems::Queue),
+                submit_actor_presented_frame
+                    .in_set(RenderSystems::Render)
+                    .after(bevy::render::renderer::render_system),
             ),
         );
 }
 
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-struct GpuActorInstance {
-    position_yaw: [f32; 4],
-    look_skin: [f32; 4],
-}
-
 #[derive(Resource)]
 struct ActorGpu {
-    vertex_buffer: Buffer,
-    instance_buffer: Option<Buffer>,
+    instance_buffer: Buffer,
+    previous_bone_buffer: Buffer,
+    current_bone_buffer: Buffer,
+    geometry_vertex_buffer: Option<Buffer>,
+    geometry_span_buffer: Option<Buffer>,
     instance_count: u32,
+    maximum_vertex_count: u32,
     skin_texture: Option<Texture>,
     skin_view: Option<TextureView>,
     sampler: Sampler,
     bind_group: Option<BindGroup>,
-    instance_revision: u64,
+    frame_generation: u64,
+    geometry_revision: u64,
     skin_revision: u64,
     view_buffer_id: Option<BufferId>,
+    manifest: std::sync::Arc<[crate::actor::ActorDrawManifestEntry]>,
 }
 
 fn init_actor_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
-    let vertices = standard_biped_vertices();
-    debug_assert_eq!(vertices.len(), STANDARD_BIPED_VERTEX_COUNT);
-    let vertex_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
-        label: Some("shared standard Bedrock biped vertices"),
-        contents: bytemuck::cast_slice::<ActorVertex, u8>(&vertices),
-        usage: BufferUsages::VERTEX,
-    });
     let sampler = render_device.create_sampler(&SamplerDescriptor {
         label: Some("nearest standard player skin sampler"),
         address_mode_u: AddressMode::ClampToEdge,
@@ -128,16 +128,37 @@ fn init_actor_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         ..default()
     });
     commands.insert_resource(ActorGpu {
-        vertex_buffer,
-        instance_buffer: None,
+        instance_buffer: render_device.create_buffer(&BufferDescriptor {
+            label: Some("bounded shared actor instance arena"),
+            size: (crate::actor::MAX_RENDERED_PLAYERS * size_of::<ActorGpuInstance>()) as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        }),
+        previous_bone_buffer: render_device.create_buffer(&BufferDescriptor {
+            label: Some("bounded shared actor previous-bone arena"),
+            size: (crate::actor::MAX_ACTOR_BONE_ARENA_BYTES / 2) as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        }),
+        current_bone_buffer: render_device.create_buffer(&BufferDescriptor {
+            label: Some("bounded shared actor current-bone arena"),
+            size: (crate::actor::MAX_ACTOR_BONE_ARENA_BYTES / 2) as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        }),
+        geometry_vertex_buffer: None,
+        geometry_span_buffer: None,
         instance_count: 0,
+        maximum_vertex_count: 0,
         skin_texture: None,
         skin_view: None,
         sampler,
         bind_group: None,
-        instance_revision: u64::MAX,
+        frame_generation: u64::MAX,
+        geometry_revision: u64::MAX,
         skin_revision: u64::MAX,
         view_buffer_id: None,
+        manifest: std::sync::Arc::from([]),
     });
 }
 
@@ -147,39 +168,72 @@ fn prepare_actor_resources(
     render_queue: Res<RenderQueue>,
     mut gpu: ResMut<ActorGpu>,
 ) {
-    if gpu.instance_revision != frame.instance_revision {
-        let instances = frame
-            .instances
-            .iter()
-            .map(|instance| GpuActorInstance {
-                position_yaw: [
-                    instance.position[0],
-                    instance.position[1],
-                    instance.position[2],
-                    instance.yaw_radians,
-                ],
-                look_skin: [
-                    instance.pitch_radians,
-                    instance.head_yaw_radians,
-                    instance.skin_layer as f32,
-                    0.0,
-                ],
-            })
-            .collect::<Vec<_>>();
-        gpu.instance_buffer = (!instances.is_empty()).then(|| {
-            render_device.create_buffer_with_data(&BufferInitDescriptor {
-                label: Some("bounded interpolated actor instances"),
-                contents: bytemuck::cast_slice::<GpuActorInstance, u8>(&instances),
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-            })
-        });
-        gpu.instance_count = u32::try_from(instances.len()).expect("bounded actor count");
-        gpu.instance_revision = frame.instance_revision;
+    let rig = &frame.rig;
+    if gpu.geometry_revision != rig.geometry_revision {
+        if rig.geometry_vertices.is_empty() || rig.geometry_spans.is_empty() {
+            gpu.geometry_vertex_buffer = None;
+            gpu.geometry_span_buffer = None;
+        } else {
+            gpu.geometry_vertex_buffer = Some(render_device.create_buffer_with_data(
+                &BufferInitDescriptor {
+                    label: Some("shared immutable actor rig vertices"),
+                    contents: bytemuck::cast_slice::<ActorRigVertex, u8>(&rig.geometry_vertices),
+                    usage: BufferUsages::STORAGE,
+                },
+            ));
+            gpu.geometry_span_buffer = Some(render_device.create_buffer_with_data(
+                &BufferInitDescriptor {
+                    label: Some("shared immutable actor rig geometry spans"),
+                    contents: bytemuck::cast_slice::<ActorRigGeometrySpan, u8>(&rig.geometry_spans),
+                    usage: BufferUsages::STORAGE,
+                },
+            ));
+        }
+        gpu.geometry_revision = rig.geometry_revision;
         gpu.bind_group = None;
     }
+    if gpu.frame_generation != rig.frame_generation {
+        let valid = !rig.instances.is_empty()
+            && rig.instances.len() <= crate::actor::MAX_RENDERED_PLAYERS
+            && rig.previous_bones.len() == rig.current_bones.len()
+            && rig.previous_bones.len()
+                <= crate::actor::MAX_RENDERED_PLAYERS * crate::actor::MAX_RENDER_BONES_PER_ACTOR
+            && rig.manifest.len() == rig.instances.len()
+            && rig.maximum_vertex_count != 0;
+        if valid {
+            render_queue.write_buffer(
+                &gpu.instance_buffer,
+                0,
+                bytemuck::cast_slice::<ActorGpuInstance, u8>(&rig.instances),
+            );
+            render_queue.write_buffer(
+                &gpu.previous_bone_buffer,
+                0,
+                bytemuck::cast_slice::<[[f32; 4]; 3], u8>(&rig.previous_bones),
+            );
+            render_queue.write_buffer(
+                &gpu.current_bone_buffer,
+                0,
+                bytemuck::cast_slice::<[[f32; 4]; 3], u8>(&rig.current_bones),
+            );
+            gpu.instance_count = rig.instances.len() as u32;
+            gpu.maximum_vertex_count = rig.maximum_vertex_count;
+            gpu.manifest = std::sync::Arc::clone(&rig.manifest);
+        } else {
+            gpu.instance_count = 0;
+            gpu.maximum_vertex_count = 0;
+            gpu.manifest = std::sync::Arc::from([]);
+        }
+        gpu.frame_generation = rig.frame_generation;
+    }
     if gpu.skin_revision != frame.skin_revision {
-        let layer_count = u32::try_from(frame.instances.len()).expect("bounded skin layer count");
-        let expected = frame.instances.len().saturating_mul(STANDARD_SKIN_BYTES);
+        let layer_count =
+            u32::try_from(frame.rig.instances.len()).expect("bounded skin layer count");
+        let expected = frame
+            .rig
+            .instances
+            .len()
+            .saturating_mul(STANDARD_SKIN_BYTES);
         if layer_count == 0 || frame.skins_rgba8.len() != expected {
             gpu.skin_texture = None;
             gpu.skin_view = None;
@@ -256,12 +310,52 @@ fn actor_bind_group_layout() -> BindGroupLayoutDescriptor {
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Storage { read_only: true },
                     has_dynamic_offset: false,
-                    min_binding_size: BufferSize::new(size_of::<GpuActorInstance>() as u64),
+                    min_binding_size: BufferSize::new(size_of::<ActorGpuInstance>() as u64),
                 },
                 count: None,
             },
             BindGroupLayoutEntry {
                 binding: 2,
+                visibility: ShaderStages::VERTEX,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: BufferSize::new(size_of::<ActorRigVertex>() as u64),
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 3,
+                visibility: ShaderStages::VERTEX,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: BufferSize::new(size_of::<ActorRigGeometrySpan>() as u64),
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 4,
+                visibility: ShaderStages::VERTEX,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: BufferSize::new(size_of::<[[f32; 4]; 3]>() as u64),
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 5,
+                visibility: ShaderStages::VERTEX,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: BufferSize::new(size_of::<[[f32; 4]; 3]>() as u64),
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 6,
                 visibility: ShaderStages::FRAGMENT,
                 ty: BindingType::Texture {
                     sample_type: TextureSampleType::Float { filterable: true },
@@ -271,7 +365,7 @@ fn actor_bind_group_layout() -> BindGroupLayoutDescriptor {
                 count: None,
             },
             BindGroupLayoutEntry {
-                binding: 3,
+                binding: 7,
                 visibility: ShaderStages::FRAGMENT,
                 ty: BindingType::Sampler(SamplerBindingType::Filtering),
                 count: None,
@@ -289,27 +383,7 @@ fn actor_pipeline_descriptor(
         vertex: VertexState {
             shader: ACTOR_SHADER_HANDLE,
             entry_point: Some("actor_vertex".into()),
-            buffers: vec![VertexBufferLayout {
-                array_stride: size_of::<ActorVertex>() as u64,
-                step_mode: VertexStepMode::Vertex,
-                attributes: vec![
-                    VertexAttribute {
-                        format: VertexFormat::Float32x3,
-                        offset: 0,
-                        shader_location: 0,
-                    },
-                    VertexAttribute {
-                        format: VertexFormat::Float32x2,
-                        offset: 12,
-                        shader_location: 1,
-                    },
-                    VertexAttribute {
-                        format: VertexFormat::Uint32,
-                        offset: 20,
-                        shader_location: 2,
-                    },
-                ],
-            }],
+            buffers: vec![],
             ..default()
         },
         fragment: Some(FragmentState {
@@ -371,7 +445,11 @@ fn prepare_actor_bind_group(
         gpu.bind_group = None;
         return;
     };
-    let Some(instance_buffer) = gpu.instance_buffer.as_ref() else {
+    let Some(geometry_vertex_buffer) = gpu.geometry_vertex_buffer.as_ref() else {
+        gpu.bind_group = None;
+        return;
+    };
+    let Some(geometry_span_buffer) = gpu.geometry_span_buffer.as_ref() else {
         gpu.bind_group = None;
         return;
     };
@@ -396,14 +474,30 @@ fn prepare_actor_bind_group(
             },
             BindGroupEntry {
                 binding: 1,
-                resource: instance_buffer.as_entire_binding(),
+                resource: gpu.instance_buffer.as_entire_binding(),
             },
             BindGroupEntry {
                 binding: 2,
-                resource: BindingResource::TextureView(skin_view),
+                resource: geometry_vertex_buffer.as_entire_binding(),
             },
             BindGroupEntry {
                 binding: 3,
+                resource: geometry_span_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 4,
+                resource: gpu.previous_bone_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 5,
+                resource: gpu.current_bone_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 6,
+                resource: BindingResource::TextureView(skin_view),
+            },
+            BindGroupEntry {
+                binding: 7,
                 resource: BindingResource::Sampler(&gpu.sampler),
             },
         ],
@@ -418,12 +512,16 @@ fn queue_actors(
     mut phases: ResMut<ViewBinnedRenderPhases<Opaque3d>>,
     draw_functions: Res<DrawFunctions<Opaque3d>>,
     views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
+    draw_tracker: Res<ActorDrawTracker>,
     mut next_tick: Local<Tick>,
+    mut next_draw_generation: Local<u64>,
 ) {
+    draw_tracker.clear();
     if gpu.instance_count == 0 || gpu.bind_group.is_none() {
         return;
     }
     let draw_function = draw_functions.read().id::<DrawActorCommands>();
+    let mut queued = false;
     for (view_entity, main_entity, view, msaa) in &views {
         let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
             continue;
@@ -456,6 +554,18 @@ fn queue_actors(
             BinnedRenderPhaseType::NonMesh,
             *next_tick,
         );
+        queued = true;
+    }
+    if queued {
+        let Some(draw_generation) = next_draw_generation.checked_add(1) else {
+            return;
+        };
+        *next_draw_generation = draw_generation;
+        let _ = draw_tracker.begin(ActorDrawFrame {
+            frame_generation: gpu.frame_generation,
+            draw_generation,
+            manifest: std::sync::Arc::clone(&gpu.manifest),
+        });
     }
 }
 
@@ -486,7 +596,7 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetActorBindGroup<I> {
 struct DrawActors;
 
 impl<P: PhaseItem> RenderCommand<P> for DrawActors {
-    type Param = SRes<ActorGpu>;
+    type Param = (SRes<ActorGpu>, SRes<ActorDrawTracker>);
     type ViewQuery = ();
     type ItemQuery = ();
 
@@ -494,14 +604,45 @@ impl<P: PhaseItem> RenderCommand<P> for DrawActors {
         _item: &P,
         _view: ROQueryItem<'w, '_, Self::ViewQuery>,
         _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
-        gpu: SystemParamItem<'w, '_, Self::Param>,
+        params: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
+        let (gpu, tracker) = params;
         let gpu = gpu.into_inner();
-        pass.set_vertex_buffer(0, gpu.vertex_buffer.slice(..));
-        pass.draw(0..STANDARD_BIPED_VERTEX_COUNT as u32, 0..gpu.instance_count);
+        pass.draw(0..gpu.maximum_vertex_count, 0..gpu.instance_count);
+        tracker.into_inner().record_draw();
         RenderCommandResult::Success
     }
+}
+
+fn submit_actor_presented_frame(
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+    tracker: Res<ActorDrawTracker>,
+    gate: Res<ActorPresentationGate>,
+) {
+    let Some(draw) = tracker.take_drawn() else {
+        if let Err(error) = render_device.poll(PollType::Poll) {
+            bevy::log::warn!(
+                ?error,
+                "could not nonblockingly poll actor presentation fence"
+            );
+        }
+        return;
+    };
+    let Some(token) = gate.try_reserve_callback(draw) else {
+        return;
+    };
+    let present_returned_at = std::time::Instant::now();
+    let encoder = render_device.create_command_encoder(&CommandEncoderDescriptor {
+        label: Some("actor presented-frame completion sentinel"),
+    });
+    let command_buffer = encoder.finish();
+    let callback_gate = gate.clone();
+    command_buffer.on_submitted_work_done(move || {
+        callback_gate.publish_reserved(token, present_returned_at, std::time::Instant::now());
+    });
+    render_queue.submit([command_buffer]);
 }
 
 #[cfg(test)]
@@ -578,11 +719,15 @@ mod tests {
         };
 
         let layout = actor_bind_group_layout();
-        assert_eq!(layout.entries.len(), 4);
+        assert_eq!(layout.entries.len(), 8);
         assert_eq!(layout.entries[0].visibility, ShaderStages::VERTEX);
         assert_eq!(layout.entries[1].visibility, ShaderStages::VERTEX);
-        assert_eq!(layout.entries[2].visibility, ShaderStages::FRAGMENT);
-        assert_eq!(layout.entries[3].visibility, ShaderStages::FRAGMENT);
+        assert_eq!(layout.entries[2].visibility, ShaderStages::VERTEX);
+        assert_eq!(layout.entries[3].visibility, ShaderStages::VERTEX);
+        assert_eq!(layout.entries[4].visibility, ShaderStages::VERTEX);
+        assert_eq!(layout.entries[5].visibility, ShaderStages::VERTEX);
+        assert_eq!(layout.entries[6].visibility, ShaderStages::FRAGMENT);
+        assert_eq!(layout.entries[7].visibility, ShaderStages::FRAGMENT);
 
         let mut descriptor = actor_pipeline_descriptor(layout.clone());
         ActorPipelineSpecializer
