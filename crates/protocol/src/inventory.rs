@@ -11,9 +11,10 @@ use valentine::bedrock::{
         ItemExtraDataWithBlockingTick, ItemExtraDataWithoutBlockingTick,
         ItemExtraDataWithoutBlockingTickNbt, ItemNew, ItemNewExtra, ItemNewStackId,
         ItemStackResponsePacket, ItemStackResponsesItemStatus, ItemV4, ItemV4NetIdVariantType,
-        PlayerHotbarPacket, WindowId, WindowIdVarint, WindowType,
+        McpePacketName, PlayerHotbarPacket, WindowId, WindowIdVarint, WindowType,
     },
 };
+use valentine::protocol::wire;
 
 use crate::item::NetworkItemStack;
 
@@ -191,6 +192,8 @@ pub enum InventoryPacketError {
     DigestMismatch,
     #[error("empty item has contradictory retained fields")]
     ContradictoryEmptyItem,
+    #[error("inventory packet has malformed or truncated canonical wire data")]
+    MalformedWire,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -458,6 +461,162 @@ pub fn validate_item_nbt_size(bytes: usize) -> Result<(), InventoryPacketError> 
         });
     }
     Ok(())
+}
+
+pub(crate) fn validate_raw_inventory_packet(
+    raw: &jolyne::raw::RawPacket,
+) -> Result<(), InventoryPacketError> {
+    let mut body = raw.body().clone();
+    match raw.id {
+        McpePacketName::PacketInventoryContent => {
+            read_var_i32(&mut body)?;
+            let count = read_count(&mut body)?;
+            validate_slot_count(count)?;
+            for _ in 0..count {
+                scan_item_v4(&mut body)?;
+            }
+            scan_full_container(&mut body)?;
+            scan_item_v4(&mut body)?;
+        }
+        McpePacketName::PacketInventorySlot => {
+            read_var_i32(&mut body)?;
+            read_var_i32(&mut body)?;
+            if read_presence(&mut body)? {
+                scan_full_container(&mut body)?;
+            }
+            if read_presence(&mut body)? {
+                scan_item_new(&mut body)?;
+            }
+            scan_item_new(&mut body)?;
+        }
+        McpePacketName::PacketItemStackResponse => scan_stack_responses(&mut body)?,
+        _ => {}
+    }
+    Ok(())
+}
+
+fn scan_stack_responses(body: &mut Bytes) -> Result<(), InventoryPacketError> {
+    let response_count = read_count(body)?;
+    if response_count > MAX_STACK_RESPONSES {
+        return Err(InventoryPacketError::TooManyResponses {
+            count: response_count,
+            max: MAX_STACK_RESPONSES,
+        });
+    }
+    for _ in 0..response_count {
+        let status = take_u8(body)?;
+        read_var_i32(body)?;
+        if status != 0 {
+            continue;
+        }
+        let container_count = read_count(body)?;
+        if container_count > MAX_RESPONSE_CONTAINERS {
+            return Err(InventoryPacketError::TooManyResponseContainers {
+                count: container_count,
+                max: MAX_RESPONSE_CONTAINERS,
+            });
+        }
+        for _ in 0..container_count {
+            scan_full_container(body)?;
+            let slot_count = read_count(body)?;
+            if slot_count > MAX_CONTAINER_SLOTS {
+                return Err(InventoryPacketError::TooManyResponseSlots {
+                    count: slot_count,
+                    max: MAX_CONTAINER_SLOTS,
+                });
+            }
+            for _ in 0..slot_count {
+                take_bytes(body, 3)?;
+                read_var_i32(body)?;
+                scan_response_name(body)?;
+                scan_response_name(body)?;
+                read_var_i32(body)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn scan_response_name(body: &mut Bytes) -> Result<(), InventoryPacketError> {
+    let length = read_count(body)?;
+    if length > MAX_RESPONSE_NAME_BYTES {
+        return Err(InventoryPacketError::ResponseNameTooLong {
+            bytes: length,
+            max: MAX_RESPONSE_NAME_BYTES,
+        });
+    }
+    take_bytes(body, length)
+}
+
+fn scan_item_v4(body: &mut Bytes) -> Result<(), InventoryPacketError> {
+    take_bytes(body, 4)?;
+    read_var_i32(body)?;
+    if read_presence(body)? {
+        read_var_i32(body)?;
+        read_var_i32(body)?;
+    }
+    read_var_i32(body)?;
+    scan_item_extra(body)
+}
+
+fn scan_item_new(body: &mut Bytes) -> Result<(), InventoryPacketError> {
+    take_bytes(body, 4)?;
+    read_var_i32(body)?;
+    if read_presence(body)? {
+        read_var_i32(body)?;
+        read_var_i32(body)?;
+    }
+    read_var_i32(body)?;
+    scan_item_extra(body)
+}
+
+fn scan_item_extra(body: &mut Bytes) -> Result<(), InventoryPacketError> {
+    let bytes = read_count(body)?;
+    if bytes > MAX_ITEM_EXTRA_BYTES {
+        return Err(InventoryPacketError::ItemExtraTooLarge {
+            bytes,
+            max: MAX_ITEM_EXTRA_BYTES,
+        });
+    }
+    take_bytes(body, bytes)
+}
+
+fn scan_full_container(body: &mut Bytes) -> Result<(), InventoryPacketError> {
+    take_u8(body)?;
+    if read_presence(body)? {
+        take_bytes(body, 4)?;
+    }
+    Ok(())
+}
+
+fn read_presence(body: &mut Bytes) -> Result<bool, InventoryPacketError> {
+    Ok(take_u8(body)? != 0)
+}
+
+fn take_u8(body: &mut Bytes) -> Result<u8, InventoryPacketError> {
+    if !body.has_remaining() {
+        return Err(InventoryPacketError::MalformedWire);
+    }
+    Ok(body.get_u8())
+}
+
+fn take_bytes(body: &mut Bytes, bytes: usize) -> Result<(), InventoryPacketError> {
+    if body.remaining() < bytes {
+        return Err(InventoryPacketError::MalformedWire);
+    }
+    body.advance(bytes);
+    Ok(())
+}
+
+fn read_count(body: &mut Bytes) -> Result<usize, InventoryPacketError> {
+    let value = read_var_i32(body)?;
+    usize::try_from(value).map_err(|_| InventoryPacketError::MalformedWire)
+}
+
+fn read_var_i32(body: &mut Bytes) -> Result<i32, InventoryPacketError> {
+    wire::read_var_u32(body)
+        .map(|value| i32::from_ne_bytes(value.to_ne_bytes()))
+        .map_err(|_| InventoryPacketError::MalformedWire)
 }
 
 fn validate_slot_count(count: usize) -> Result<(), InventoryPacketError> {
@@ -740,4 +899,39 @@ fn validate_response_name(value: &str) -> Result<(), InventoryPacketError> {
         });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn verified_network_stack_is_consumed_into_vendor_item_without_exposing_inner_stack() {
+        let packet = InventorySlotPacket {
+            window_id: WindowIdVarint::Inventory,
+            slot: 0,
+            container: None,
+            storage_item: None,
+            item: ItemNew {
+                network_id: 7,
+                count: 4,
+                metadata: 3,
+                stack_id: Some(ItemNewStackId { empty: 0, id: 13 }),
+                block_runtime_id: 92,
+                extra: ItemNewExtra::Default(ItemExtraDataWithoutBlockingTick::default()),
+            },
+        };
+        let InventoryEvent::Slot(event) = normalize_slot(packet).unwrap() else {
+            panic!("expected slot event")
+        };
+        let expected_digest = event.stack.nbt_digest;
+        let verified = VerifiedNetworkItemStack::try_new(event.stack, expected_digest).unwrap();
+        let vendor = verified.into_vendor_item(0).unwrap();
+        assert_eq!(vendor.network_id, 7);
+        assert_eq!(vendor.count, 4);
+        assert_eq!(vendor.metadata, 3);
+        assert_eq!(vendor.stack_id.unwrap().id, 13);
+        assert_eq!(vendor.block_runtime_id, 92);
+        assert!(matches!(vendor.extra, ItemNewExtra::Default(_)));
+    }
 }

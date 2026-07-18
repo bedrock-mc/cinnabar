@@ -11,11 +11,16 @@ use valentine::bedrock::version::v1_26_30::{
 };
 
 use crate::{
-    ActorEvent, ActorPacketError, EquipmentEvent, ItemActorEvent, ItemPacketError, Packet,
+    ActorEvent, ActorPacketError, EquipmentEvent, InventoryEvent, InventoryPacketError,
+    ItemActorEvent, ItemPacketError, Packet,
     actor::{
         normalize_add_entity, normalize_add_player, normalize_move_entity,
         normalize_move_entity_delta, normalize_player_list, normalize_remove_entity,
         normalize_set_entity_data, normalize_update_attributes,
+    },
+    inventory::{
+        normalize_container_close, normalize_container_data, normalize_container_open,
+        normalize_content, normalize_hotbar, normalize_response, normalize_slot,
     },
     item::{
         normalize_animate, normalize_animate_entity, normalize_equipment, normalize_item_registry,
@@ -401,6 +406,7 @@ pub enum WorldEvent {
     Ui(UiEvent),
     BlockCrack(BlockCrackEvent),
     Equipment(EquipmentEvent),
+    Inventory(InventoryEvent),
     ItemActor(ItemActorEvent),
 }
 
@@ -414,6 +420,9 @@ pub enum WorldPacketError {
 
     #[error(transparent)]
     Item(#[from] ItemPacketError),
+
+    #[error(transparent)]
+    Inventory(#[from] InventoryPacketError),
 
     #[error("BiomeDefinitionList has {count} definitions, exceeding {max}")]
     TooManyBiomeDefinitions { count: usize, max: usize },
@@ -520,6 +529,27 @@ pub fn into_world_event(
         }
         McpePacketData::PacketMobEquipment(packet) => {
             WorldEvent::Equipment(normalize_equipment(*packet)?)
+        }
+        McpePacketData::PacketInventoryContent(packet) => {
+            WorldEvent::Inventory(normalize_content(*packet)?)
+        }
+        McpePacketData::PacketInventorySlot(packet) => {
+            WorldEvent::Inventory(normalize_slot(*packet)?)
+        }
+        McpePacketData::PacketPlayerHotbar(packet) => {
+            WorldEvent::Inventory(normalize_hotbar(packet)?)
+        }
+        McpePacketData::PacketItemStackResponse(packet) => {
+            WorldEvent::Inventory(normalize_response(packet)?)
+        }
+        McpePacketData::PacketContainerOpen(packet) => {
+            WorldEvent::Inventory(normalize_container_open(*packet)?)
+        }
+        McpePacketData::PacketContainerClose(packet) => {
+            WorldEvent::Inventory(normalize_container_close(packet)?)
+        }
+        McpePacketData::PacketContainerSetData(packet) => {
+            WorldEvent::Inventory(normalize_container_data(packet)?)
         }
         McpePacketData::PacketAnimate(packet) => WorldEvent::ItemActor(normalize_animate(*packet)?),
         McpePacketData::PacketAnimateEntity(packet) => {

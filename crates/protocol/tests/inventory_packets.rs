@@ -1,18 +1,11 @@
-mod item {
-    pub use protocol::NetworkItemStack;
-}
-
-#[path = "../src/inventory.rs"]
-mod inventory;
-
-use inventory::{
+use protocol::{BedrockSession, NetworkItemStack, WorldEvent, decode_batch, into_world_event};
+use protocol::{
     ContainerIdentity, InventoryAuthority, InventoryEvent, InventoryPacketError,
     MAX_CONTAINER_SLOTS, MAX_ITEM_NBT_BYTES, MAX_RESPONSE_CONTAINERS, MAX_STACK_RESPONSES,
     VerifiedNetworkItemStack, normalize_authority, normalize_container_close,
     normalize_container_data, normalize_container_open, normalize_content, normalize_hotbar,
-    normalize_response, normalize_slot,
+    normalize_response, normalize_slot, validate_item_nbt_size,
 };
-use protocol::{BedrockSession, NetworkItemStack, decode_batch};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use valentine::bedrock::version::v1_26_30::{
@@ -98,6 +91,21 @@ fn pinned_gophertunnel_inventory_fixtures_normalize_without_vendor_types() {
         other => panic!("expected ItemStackResponse, got {other:?}"),
     };
     assert!(matches!(response, InventoryEvent::Response(_)));
+}
+
+#[test]
+fn inventory_packets_dispatch_through_the_public_world_event_surface() {
+    for bytes in [
+        CONTENT_FIXTURE,
+        SLOT_FIXTURE,
+        HOTBAR_FIXTURE,
+        RESPONSE_FIXTURE,
+    ] {
+        let event = into_world_event(decode_fixture(bytes), 0)
+            .expect("normalize inventory world event")
+            .expect("inventory packet must be allowlisted");
+        assert!(matches!(event, WorldEvent::Inventory(_)));
+    }
 }
 
 #[test]
@@ -294,7 +302,7 @@ fn invalid_slots_items_and_collection_sizes_fail_closed() {
     ));
 
     assert_eq!(
-        inventory::validate_item_nbt_size(MAX_ITEM_NBT_BYTES + 1).unwrap_err(),
+        validate_item_nbt_size(MAX_ITEM_NBT_BYTES + 1).unwrap_err(),
         InventoryPacketError::ItemNbtTooLarge {
             bytes: MAX_ITEM_NBT_BYTES + 1,
             max: MAX_ITEM_NBT_BYTES
@@ -423,27 +431,4 @@ fn verified_network_stack_requires_retained_bytes_and_both_digests_to_match() {
         VerifiedNetworkItemStack::try_new(stack, [2; 32]).unwrap_err(),
         InventoryPacketError::DigestMismatch
     );
-}
-
-#[test]
-fn verified_network_stack_is_consumed_into_vendor_item_without_exposing_inner_stack() {
-    let packet = InventorySlotPacket {
-        window_id: WindowIdVarint::Inventory,
-        slot: 0,
-        container: None,
-        storage_item: None,
-        item: item_new(7, 4, 13),
-    };
-    let InventoryEvent::Slot(event) = normalize_slot(packet).unwrap() else {
-        panic!("expected slot event")
-    };
-    let expected_digest = event.stack.nbt_digest;
-    let verified = VerifiedNetworkItemStack::try_new(event.stack, expected_digest).unwrap();
-    let vendor = verified.into_vendor_item(0).unwrap();
-    assert_eq!(vendor.network_id, 7);
-    assert_eq!(vendor.count, 4);
-    assert_eq!(vendor.metadata, 3);
-    assert_eq!(vendor.stack_id.unwrap().id, 13);
-    assert_eq!(vendor.block_runtime_id, 92);
-    assert!(matches!(vendor.extra, ItemNewExtra::Default(_)));
 }

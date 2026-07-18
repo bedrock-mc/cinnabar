@@ -1,5 +1,6 @@
 //! App-owned conversion boundary between retained UI output and render POD.
 
+pub mod inventory_router;
 pub mod presentation;
 pub mod render_adapter;
 
@@ -22,8 +23,8 @@ use bevy::{
 };
 use protocol::{
     ActorAttribute, BlockCrackEvent, ChatAutocompleteCatalog, ChatAutocompleteCatalogError,
-    ChatPacketError, HudEvent, Packet, PlayerStatus, TextEvent, TextKind, TitleAction, TitleEvent,
-    UiEvent, chat_text_packet,
+    ChatPacketError, EquipmentEvent, HudEvent, InventoryAuthority, Packet, PlayerStatus, TextEvent,
+    TextKind, TitleAction, TitleEvent, UiEvent, chat_text_packet,
 };
 use semantic_input::InputContext;
 use ui::{
@@ -33,6 +34,8 @@ use ui::{
     ChatSendQueue, ChatSendRequest, ChatStore, HudPlayerStatus, HudStore, MAX_CHAT_INPUT_BYTES,
     PointerPhase, TitleDurations, Toast, UiAction, UiPoint,
 };
+
+use self::inventory_router::{EquipmentRoute, InventoryEquipmentRouter, InventoryRouterError};
 
 pub const MAX_PENDING_BLOCK_CRACK_EVENTS: usize = 1_024;
 const MAX_PENDING_CHAT_SENDS: usize = 32;
@@ -88,6 +91,13 @@ pub struct SequencedLocalAttributes {
     pub local_millis: u64,
     pub server_tick: u64,
     pub attributes: Arc<[ActorAttribute]>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SequencedLocalEquipment {
+    pub session_id: u64,
+    pub fifo_sequence: u64,
+    pub event: EquipmentEvent,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -150,6 +160,9 @@ pub struct UiRuntime {
     chat_xuid: Arc<str>,
     dropped_unsent_chat_messages: u64,
     pending_block_cracks: VecDeque<SequencedBlockCrackEvent>,
+    inventory_authority: Option<InventoryAuthority>,
+    equipment_router: InventoryEquipmentRouter,
+    local_selected_equipment: Option<SequencedLocalEquipment>,
 }
 
 impl UiRuntime {
@@ -181,11 +194,57 @@ impl UiRuntime {
             chat_xuid: Arc::from(""),
             dropped_unsent_chat_messages: 0,
             pending_block_cracks: VecDeque::with_capacity(MAX_PENDING_BLOCK_CRACK_EVENTS),
+            inventory_authority: None,
+            equipment_router: InventoryEquipmentRouter::new(session_id),
+            local_selected_equipment: None,
         }
     }
 
     pub const fn session_id(&self) -> u64 {
         self.session_id
+    }
+
+    pub const fn inventory_authority(&self) -> Option<InventoryAuthority> {
+        self.inventory_authority
+    }
+
+    pub const fn local_selected_equipment(&self) -> Option<&SequencedLocalEquipment> {
+        self.local_selected_equipment.as_ref()
+    }
+
+    pub(crate) fn publish_inventory_authority(&mut self, authority: InventoryAuthority) {
+        self.inventory_authority = Some(authority);
+    }
+
+    pub(crate) fn publish_local_runtime_id(
+        &mut self,
+        session_id: u64,
+        runtime_id: u64,
+    ) -> Result<Vec<EquipmentRoute>, InventoryRouterError> {
+        self.equipment_router
+            .publish_local_runtime_id(session_id, runtime_id)
+    }
+
+    pub(crate) fn route_equipment(
+        &mut self,
+        session_id: u64,
+        fifo_sequence: u64,
+        event: EquipmentEvent,
+    ) -> Result<inventory_router::EquipmentRouteResult, InventoryRouterError> {
+        self.equipment_router
+            .route(session_id, fifo_sequence, event)
+    }
+
+    pub(crate) fn retain_local_selected_equipment(
+        &mut self,
+        fifo_sequence: u64,
+        event: EquipmentEvent,
+    ) {
+        self.local_selected_equipment = Some(SequencedLocalEquipment {
+            session_id: self.session_id,
+            fifo_sequence,
+            event,
+        });
     }
 
     pub const fn hud(&self) -> &HudStore {
@@ -449,6 +508,9 @@ impl UiRuntime {
             .dropped_unsent_chat_messages
             .saturating_add(dropped as u64);
         self.pending_block_cracks.clear();
+        self.inventory_authority = None;
+        self.equipment_router.begin_session(session_id);
+        self.local_selected_equipment = None;
     }
 
     pub fn open_chat(&mut self) -> UiAuthorityTransition {

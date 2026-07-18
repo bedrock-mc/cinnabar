@@ -7,8 +7,8 @@ use std::{
 
 use bevy::prelude::Resource;
 use protocol::{
-    BlobCacheStats, ClientBlobCache, LoginSequence, Packet, WorldBootstrap,
-    WorldEnvironmentBootstrap, WorldEvent,
+    BlobCacheStats, ClientBlobCache, InventoryEvent, LoginSequence, Packet, WorldBootstrap,
+    WorldEnvironmentBootstrap, WorldEvent, normalize_authority,
 };
 use tokio::sync::{mpsc, watch};
 use world::ChunkKey;
@@ -31,6 +31,7 @@ pub enum NetworkControlEvent {
     Bootstrap {
         world: WorldBootstrap,
         environment: WorldEnvironmentBootstrap,
+        inventory: InventoryEvent,
     },
     SubChunkRequestSent {
         chunk: ChunkKey,
@@ -286,12 +287,14 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                 };
                 let bootstrap = WorldBootstrap::from_game_data(&game_data);
                 let environment = WorldEnvironmentBootstrap::from_game_data(&game_data);
+                let inventory = start_game_inventory_authority(&game_data);
                 if !send_control_event_or_cancel(
                     &control_event_tx,
                     &mut shutdown_rx,
                     NetworkControlEvent::Bootstrap {
                         world: bootstrap,
                         environment,
+                        inventory,
                     },
                 )
                 .await
@@ -318,6 +321,10 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
         shutdown,
         thread: Some(thread),
     })
+}
+
+fn start_game_inventory_authority(game_data: &protocol::GameData) -> InventoryEvent {
+    normalize_authority(game_data.start_game.server_authoritative_inventory)
 }
 
 trait NetworkSession: Send {

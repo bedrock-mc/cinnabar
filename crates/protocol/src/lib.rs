@@ -3,6 +3,7 @@
 mod actor;
 mod blob_cache;
 mod codec;
+mod inventory;
 mod item;
 mod login;
 mod movement;
@@ -28,6 +29,16 @@ pub use blob_cache::{
     MAX_CLIENT_BLOB_PENDING_BYTES, MAX_CLIENT_BLOB_PENDING_TRANSACTIONS, client_blob_hash,
 };
 pub use codec::{ProtocolError, decode_batch, encode};
+pub use inventory::{
+    ContainerCloseEvent, ContainerDataEvent, ContainerIdentity, ContainerOpenEvent,
+    InventoryAuthority, InventoryContentEvent, InventoryEvent, InventoryPacketError,
+    InventorySlotEvent, ItemStackResponseEvent, MAX_CONTAINER_SLOTS, MAX_ITEM_NBT_BYTES,
+    MAX_RESPONSE_CONTAINERS, MAX_RESPONSE_NAME_BYTES, MAX_STACK_RESPONSES, SelectedSlotEvent,
+    SlotIdentity, StackResponse, StackResponseContainer, StackResponseSlot, StackResponseStatus,
+    VerifiedNetworkItemStack, normalize_authority, normalize_container_close,
+    normalize_container_data, normalize_container_open, normalize_content, normalize_hotbar,
+    normalize_response, normalize_slot, validate_item_nbt_size,
+};
 pub use item::{
     ActorActionEvent, ActorActionKind, ActorHandedness, EquipmentEvent, ItemActorEvent,
     ItemPacketError, ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion,

@@ -421,6 +421,13 @@ fn decode_world_raw_with(
             | McpePacketName::PacketPlayerList
             | McpePacketName::PacketItemRegistry
             | McpePacketName::PacketMobEquipment
+            | McpePacketName::PacketInventoryContent
+            | McpePacketName::PacketInventorySlot
+            | McpePacketName::PacketPlayerHotbar
+            | McpePacketName::PacketItemStackResponse
+            | McpePacketName::PacketContainerOpen
+            | McpePacketName::PacketContainerClose
+            | McpePacketName::PacketContainerSetData
             | McpePacketName::PacketAnimate
             | McpePacketName::PacketAnimateEntity
             | McpePacketName::PacketLevelChunk
@@ -445,6 +452,8 @@ fn decode_world_raw_with(
                 .map_err(crate::world::WorldPacketError::from)?,
         )));
     }
+    crate::inventory::validate_raw_inventory_packet(&raw)
+        .map_err(crate::world::WorldPacketError::from)?;
     crate::codec::validate_raw_ui_frame(raw.inner_frame())?;
     if raw.id == McpePacketName::PacketMobEquipment
         && let Some(equipment) = decode_empty_mob_equipment(&raw)?
@@ -664,6 +673,168 @@ mod tests {
             error,
             ProtocolError::Ui(crate::UiPacketError::TextTooLong { .. })
         ));
+    }
+
+    #[test]
+    fn live_inventory_content_checks_slot_count_before_owned_decoder() {
+        let mut body = BytesMut::new();
+        wire::write_var_u32(&mut body, 0);
+        wire::write_var_u32(&mut body, (crate::MAX_CONTAINER_SLOTS + 1) as u32);
+        let raw = raw_packet(McpePacketName::PacketInventoryContent, &body);
+        let decoder_called = Cell::new(false);
+
+        let error = decode_world_raw_with(raw, 0, |_| {
+            decoder_called.set(true);
+            panic!("oversized inventory content must fail before owned decoding")
+        })
+        .expect_err("oversized inventory content");
+
+        assert!(!decoder_called.get());
+        assert!(matches!(
+            error,
+            ProtocolError::World(crate::WorldPacketError::Inventory(
+                crate::InventoryPacketError::TooManySlots { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn live_stack_response_checks_nested_counts_before_owned_decoder() {
+        let cases = [
+            (
+                raw_packet(
+                    McpePacketName::PacketItemStackResponse,
+                    &varint_body((crate::MAX_STACK_RESPONSES + 1) as u32),
+                ),
+                "responses",
+            ),
+            (
+                raw_packet(
+                    McpePacketName::PacketItemStackResponse,
+                    &accepted_response_prefix((crate::MAX_RESPONSE_CONTAINERS + 1) as u32),
+                ),
+                "containers",
+            ),
+            (
+                raw_packet(
+                    McpePacketName::PacketItemStackResponse,
+                    &accepted_response_with_slot_count((crate::MAX_CONTAINER_SLOTS + 1) as u32),
+                ),
+                "slots",
+            ),
+        ];
+
+        for (raw, label) in cases {
+            let decoder_called = Cell::new(false);
+            let error = decode_world_raw_with(raw, 0, |_| {
+                decoder_called.set(true);
+                panic!("oversized {label} must fail before owned decoding")
+            })
+            .expect_err(label);
+            assert!(!decoder_called.get(), "owned decoder ran for {label}");
+            assert!(
+                matches!(
+                    error,
+                    ProtocolError::World(crate::WorldPacketError::Inventory(_))
+                ),
+                "unexpected {label} error: {error:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn live_inventory_items_check_extra_length_before_owned_decoder() {
+        let mut content = BytesMut::new();
+        wire::write_var_u32(&mut content, 0);
+        wire::write_var_u32(&mut content, 1);
+        append_item_v4_prefix(&mut content, (crate::MAX_ITEM_EXTRA_BYTES + 1) as u32);
+
+        let mut slot = BytesMut::new();
+        wire::write_var_u32(&mut slot, 0);
+        wire::write_var_u32(&mut slot, 0);
+        slot.put_u8(0);
+        slot.put_u8(0);
+        append_item_new_prefix(&mut slot, (crate::MAX_ITEM_EXTRA_BYTES + 1) as u32);
+
+        for (id, body) in [
+            (McpePacketName::PacketInventoryContent, content),
+            (McpePacketName::PacketInventorySlot, slot),
+        ] {
+            let raw = raw_packet(id, &body);
+            let decoder_called = Cell::new(false);
+            let error = decode_world_raw_with(raw, 0, |_| {
+                decoder_called.set(true);
+                panic!("oversized item extra must fail before owned decoding")
+            })
+            .expect_err("oversized item extra");
+            assert!(!decoder_called.get());
+            assert!(matches!(
+                error,
+                ProtocolError::World(crate::WorldPacketError::Inventory(
+                    crate::InventoryPacketError::ItemExtraTooLarge { .. }
+                ))
+            ));
+        }
+    }
+
+    #[test]
+    fn canonical_inventory_fixtures_pass_raw_gate_and_owned_normalization() {
+        let session = BedrockSession { shield_item_id: 0 };
+        for fixture in [
+            &include_bytes!("../fixtures/inventory_content.bin")[..],
+            &include_bytes!("../fixtures/inventory_slot.bin")[..],
+            &include_bytes!("../fixtures/player_hotbar.bin")[..],
+            &include_bytes!("../fixtures/item_stack_response.bin")[..],
+        ] {
+            let mut batch = Bytes::copy_from_slice(fixture);
+            assert_eq!(batch.get_u8(), 0xfe);
+            let raw = decode_packet_raw(&mut batch).expect("raw inventory fixture");
+            let event = decode_world_raw_with(raw, 0, |raw| raw.decode(&session))
+                .expect("canonical inventory fixture")
+                .expect("inventory world event");
+            assert!(matches!(event, WorldEvent::Inventory(_)));
+        }
+    }
+
+    fn varint_body(value: u32) -> BytesMut {
+        let mut body = BytesMut::new();
+        wire::write_var_u32(&mut body, value);
+        body
+    }
+
+    fn accepted_response_prefix(container_count: u32) -> BytesMut {
+        let mut body = BytesMut::new();
+        wire::write_var_u32(&mut body, 1);
+        body.put_u8(0);
+        wire::write_var_u32(&mut body, 0);
+        wire::write_var_u32(&mut body, container_count);
+        body
+    }
+
+    fn accepted_response_with_slot_count(slot_count: u32) -> BytesMut {
+        let mut body = accepted_response_prefix(1);
+        body.put_u8(0);
+        body.put_u8(0);
+        wire::write_var_u32(&mut body, slot_count);
+        body
+    }
+
+    fn append_item_v4_prefix(body: &mut BytesMut, extra_length: u32) {
+        body.put_i16_le(1);
+        body.put_u16_le(1);
+        wire::write_var_u32(body, 0);
+        body.put_u8(0);
+        wire::write_var_u32(body, 0);
+        wire::write_var_u32(body, extra_length);
+    }
+
+    fn append_item_new_prefix(body: &mut BytesMut, extra_length: u32) {
+        body.put_i16_le(1);
+        body.put_u16_le(1);
+        wire::write_var_u32(body, 0);
+        body.put_u8(0);
+        wire::write_var_u32(body, 0);
+        wire::write_var_u32(body, extra_length);
     }
 
     #[test]

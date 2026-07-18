@@ -538,6 +538,11 @@ impl WorldStream {
                     .actors
                     .apply_equipment(self.actor_session_id, sequence, event);
             }
+            WorldEvent::Inventory(_) => {
+                // Inventory normalization lands in Task 10. Task 11's app-owned
+                // authoritative store consumes this event, so WorldStream
+                // deliberately owns no duplicate inventory state.
+            }
             WorldEvent::ItemActor(event) => {
                 let sequence = sequence.expect("sequenced item/actor events commit through submit");
                 let _ = self

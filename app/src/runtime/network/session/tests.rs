@@ -9,8 +9,8 @@ use std::{
 };
 
 use protocol::{
-    ActorPositionOrigin, BlobCacheStats, ChangeDimensionEvent, MovePlayerEvent,
-    PLAYER_NETWORK_OFFSET, PlayerMovementCorrectionEvent, WorldBootstrap,
+    ActorPositionOrigin, BlobCacheStats, ChangeDimensionEvent, InventoryAuthority, InventoryEvent,
+    MovePlayerEvent, PLAYER_NETWORK_OFFSET, PlayerMovementCorrectionEvent, WorldBootstrap,
     WorldEnvironmentBootstrap, WorldEvent,
 };
 use tokio::sync::{mpsc, oneshot, watch};
@@ -20,8 +20,8 @@ use super::{
     NetworkHandle, NetworkPumpPreference, NetworkPumpWork, NetworkSequencer, NetworkSession,
     PacketSendError, SequencedWorldEvent, WORLD_EVENT_CAPACITY, run_network_pump,
     send_control_event_or_cancel, send_event_or_cancel, send_final_blob_cache_telemetry,
-    send_world_event_or_cancel, wait_for_login_or_cancel, wait_for_network_work_or_cancel,
-    wait_for_send_or_cancel,
+    send_world_event_or_cancel, start_game_inventory_authority, wait_for_login_or_cancel,
+    wait_for_network_work_or_cancel, wait_for_send_or_cancel,
 };
 
 #[test]
@@ -38,6 +38,26 @@ fn cloned_network_configs_share_the_persistent_verified_blob_cache() {
         .expect("seed verified blob");
 
     assert!(reconnect.client_blob_cache.contains(hash));
+}
+
+#[test]
+fn start_game_inventory_authority_is_fanned_out_as_a_normalized_event() {
+    let mut game_data = protocol::GameData {
+        start_game: Default::default(),
+        item_registry: Default::default(),
+        biome_definitions: None,
+        entity_identifiers: None,
+        creative_content: None,
+    };
+    assert_eq!(
+        start_game_inventory_authority(&game_data),
+        InventoryEvent::Authority(InventoryAuthority::Client)
+    );
+    game_data.start_game.server_authoritative_inventory = true;
+    assert_eq!(
+        start_game_inventory_authority(&game_data),
+        InventoryEvent::Authority(InventoryAuthority::Server)
+    );
 }
 
 struct ReadyInboundSession {
@@ -610,6 +630,7 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
         NetworkControlEvent::Bootstrap {
             world: bootstrap,
             environment,
+            inventory: InventoryEvent::Authority(InventoryAuthority::Server),
         },
         NetworkControlEvent::Failed {
             message: "failure".to_owned(),
@@ -637,8 +658,11 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
     assert_eq!(world_event_rx.len(), 1);
     assert!(matches!(
         control_event_rx.try_recv(),
-        Ok(NetworkControlEvent::Bootstrap { world, environment: value })
-            if world == bootstrap && value == environment
+        Ok(NetworkControlEvent::Bootstrap {
+            world,
+            environment: value,
+            inventory: InventoryEvent::Authority(InventoryAuthority::Server),
+        }) if world == bootstrap && value == environment
     ));
     assert!(matches!(
         control_event_rx.try_recv(),

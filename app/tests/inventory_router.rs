@@ -1,7 +1,4 @@
-#[path = "../src/ui_runtime/inventory_router.rs"]
-mod inventory_router;
-
-use inventory_router::{
+use bedrock_client::ui_runtime::inventory_router::{
     EquipmentRoute, EquipmentRouteResult, InventoryEquipmentRouter, InventoryRouterError,
     MAX_PRE_IDENTITY_EQUIPMENT,
 };
