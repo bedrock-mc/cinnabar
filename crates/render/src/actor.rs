@@ -7,6 +7,25 @@ use bevy::{
 };
 use bytemuck::{Pod, Zeroable};
 
+#[path = "actor/geometry.rs"]
+mod geometry;
+#[path = "actor/gpu.rs"]
+pub(crate) mod gpu;
+#[path = "actor/rig.rs"]
+mod rig;
+
+pub use gpu::{
+    ActorDrawFrame, ActorPresentationGate, ActorPresentedFrameAck,
+    MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS,
+};
+pub use rig::{
+    ACTOR_BONE_MATRIX_BYTES, ActorDrawManifestEntry, ActorGpuInstance, ActorRenderIdentity,
+    ActorRigFrameBuilder, ActorRigGeometry, ActorRigGeometryError, ActorRigGeometrySpan,
+    ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission,
+    ActorRigVertex, EntityRigId, MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_RIG_VERTICES,
+    MAX_RENDER_BONES_PER_ACTOR, RenderBoneTransform,
+};
+
 pub const MAX_RENDERED_PLAYERS: usize = 128;
 pub const MAX_ACTOR_RENDER_DISTANCE_BLOCKS: f32 = 192.0;
 pub const STANDARD_SKIN_SIDE: usize = 64;
@@ -78,6 +97,7 @@ pub struct ActorRenderFrame {
     pub skins_rgba8: Arc<[u8]>,
     pub instance_revision: u64,
     pub skin_revision: u64,
+    pub rig: ActorRigRenderFrame,
 }
 
 impl Default for ActorRenderFrame {
@@ -87,6 +107,7 @@ impl Default for ActorRenderFrame {
             skins_rgba8: Arc::from([]),
             instance_revision: 0,
             skin_revision: 0,
+            rig: ActorRigRenderFrame::default(),
         }
     }
 }
@@ -117,12 +138,42 @@ impl Pose {
     }
 }
 
-#[derive(Debug, Default, Resource)]
+#[derive(Debug, Resource)]
 pub struct ActorRenderScene {
     frame: ActorRenderFrame,
+    rig_builder: ActorRigFrameBuilder,
+}
+
+impl Default for ActorRenderScene {
+    fn default() -> Self {
+        Self {
+            frame: ActorRenderFrame::default(),
+            rig_builder: ActorRigFrameBuilder::new([])
+                .expect("authored diagnostic actor geometry is valid"),
+        }
+    }
 }
 
 impl ActorRenderScene {
+    pub fn with_runtime_entity_assets(
+        assets: &assets::RuntimeEntityAssets,
+    ) -> Result<Self, ActorRigGeometryError> {
+        Ok(Self {
+            frame: ActorRenderFrame::default(),
+            rig_builder: ActorRigFrameBuilder::from_runtime_assets(assets)?,
+        })
+    }
+
+    pub fn replace_runtime_entity_assets(
+        &mut self,
+        assets: &assets::RuntimeEntityAssets,
+    ) -> Result<(), ActorRigGeometryError> {
+        let replacement = ActorRigFrameBuilder::from_runtime_assets(assets)?;
+        self.rig_builder = replacement;
+        self.frame = ActorRenderFrame::default();
+        Ok(())
+    }
+
     pub fn reset(&mut self) {
         if !self.frame.instances.is_empty() {
             self.frame.instance_revision = self.frame.instance_revision.wrapping_add(1);
@@ -132,6 +183,7 @@ impl ActorRenderScene {
             self.frame.skin_revision = self.frame.skin_revision.wrapping_add(1);
             self.frame.skins_rgba8 = Arc::from([]);
         }
+        self.frame.rig = self.rig_builder.build(0.0, None, []);
     }
 
     pub fn update(
@@ -163,6 +215,7 @@ impl ActorRenderScene {
 
         let mut instances = Vec::with_capacity(visible.len());
         let mut skins = Vec::with_capacity(visible.len() * STANDARD_SKIN_BYTES);
+        let mut rig_submissions = Vec::with_capacity(visible.len());
         for (source, pose) in visible {
             let skin_layer = u32::try_from(instances.len()).expect("bounded actor layer count");
             instances.push(ActorRenderInstance {
@@ -172,6 +225,53 @@ impl ActorRenderScene {
                 yaw_radians: wrap_degrees(pose.yaw_degrees).to_radians(),
                 head_yaw_radians: wrap_degrees(pose.head_yaw_degrees).to_radians(),
                 skin_layer,
+            });
+            let head_rotation = quaternion_from_euler_degrees([
+                wrap_degrees(pose.pitch_degrees),
+                wrap_degrees(pose.head_yaw_degrees - pose.yaw_degrees),
+                0.0,
+            ]);
+            let pivots = [
+                [0.0, 1.5, 0.0],
+                [0.0, 1.5, 0.0],
+                [-0.3125, 1.375, 0.0],
+                [-0.11875, 0.75, 0.0],
+                [0.3125, 1.375, 0.0],
+                [0.11875, 0.75, 0.0],
+            ];
+            let bones = pivots.map(|pivot| RenderBoneTransform {
+                rotation: [0.0, 0.0, 0.0, 1.0],
+                translation_scale: [pivot[0], pivot[1], pivot[2], 1.0],
+            });
+            let mut posed_bones = bones;
+            posed_bones[0].rotation = head_rotation;
+            let yaw = wrap_degrees(pose.yaw_degrees).to_radians();
+            let (sine, cosine) = yaw.sin_cos();
+            rig_submissions.push(ActorRigSubmission {
+                input: ActorRigRenderInput {
+                    identity: ActorRenderIdentity {
+                        session_id: 0,
+                        dimension: 0,
+                        runtime_id: source.runtime_id,
+                        spawn_revision: source.spawn_revision,
+                        ingress_sequence: source.movement_revision,
+                        source_tick: None,
+                        movement_revision: source.movement_revision,
+                        pose_generation: source.movement_revision,
+                    },
+                    rig: EntityRigId(u32::MAX),
+                    previous_bones: Arc::from(posed_bones),
+                    current_bones: Arc::from(posed_bones),
+                    completed_tick: source.movement_revision,
+                    reset_generation: source.spawn_revision.max(1),
+                },
+                world_from_actor: [
+                    [cosine, 0.0, sine, pose.position[0]],
+                    [0.0, 1.0, 0.0, pose.position[1]],
+                    [-sine, 0.0, cosine, pose.position[2]],
+                ],
+                texture_layer: skin_layer,
+                route: ActorRigRoute::Diagnostic,
             });
             skins.extend_from_slice(&normalize_skin(source.skin.as_ref()));
         }
@@ -184,6 +284,68 @@ impl ActorRenderScene {
             self.frame.skin_revision = self.frame.skin_revision.wrapping_add(1);
             self.frame.skins_rgba8 = Arc::from(skins);
         }
+        self.frame.rig = self.rig_builder.build(1.0, None, rig_submissions);
+        &self.frame
+    }
+
+    pub fn update_rigs(
+        &mut self,
+        partial_tick: f32,
+        view: Option<ActorCullView>,
+        submissions: impl IntoIterator<Item = ActorRigSubmission>,
+        skins_rgba8: Arc<[u8]>,
+    ) -> &ActorRenderFrame {
+        let rig = self.rig_builder.build(partial_tick, view, submissions);
+        let expected_skin_bytes = rig.instances.len().saturating_mul(STANDARD_SKIN_BYTES);
+        let invalid_skin_layer = rig
+            .instances
+            .iter()
+            .any(|instance| instance.texture_layer as usize >= rig.instances.len());
+        if skins_rgba8.len() != expected_skin_bytes || invalid_skin_layer {
+            let rejects = rig.rejects;
+            self.frame.rig = ActorRigRenderFrame {
+                geometry_revision: rig.geometry_revision,
+                geometry_vertices: rig.geometry_vertices,
+                geometry_spans: rig.geometry_spans,
+                frame_generation: rig.frame_generation,
+                rejects: ActorRigRejects {
+                    invalid_geometry: rejects.invalid_geometry.saturating_add(1),
+                    ..rejects
+                },
+                ..ActorRigRenderFrame::default()
+            };
+            self.frame.instances = Arc::from([]);
+            self.frame.skins_rgba8 = Arc::from([]);
+            self.frame.instance_revision = self.frame.instance_revision.wrapping_add(1);
+            self.frame.skin_revision = self.frame.skin_revision.wrapping_add(1);
+            return &self.frame;
+        }
+        let compatibility_instances = rig
+            .instances
+            .iter()
+            .zip(rig.manifest.iter())
+            .map(|(instance, manifest)| ActorRenderInstance {
+                runtime_id: manifest.identity.runtime_id,
+                position: [
+                    instance.world_from_actor[0][3],
+                    instance.world_from_actor[1][3],
+                    instance.world_from_actor[2][3],
+                ],
+                pitch_radians: 0.0,
+                yaw_radians: 0.0,
+                head_yaw_radians: 0.0,
+                skin_layer: instance.texture_layer,
+            })
+            .collect::<Vec<_>>();
+        if self.frame.instances.as_ref() != compatibility_instances.as_slice() {
+            self.frame.instance_revision = self.frame.instance_revision.wrapping_add(1);
+            self.frame.instances = Arc::from(compatibility_instances);
+        }
+        if self.frame.skins_rgba8 != skins_rgba8 {
+            self.frame.skin_revision = self.frame.skin_revision.wrapping_add(1);
+            self.frame.skins_rgba8 = skins_rgba8;
+        }
+        self.frame.rig = rig;
         &self.frame
     }
 
@@ -241,6 +403,19 @@ fn lerp_degrees(start: f32, end: f32, alpha: f32) -> f32 {
 
 fn wrap_degrees(degrees: f32) -> f32 {
     (degrees + 180.0).rem_euclid(360.0) - 180.0
+}
+
+fn quaternion_from_euler_degrees(rotation: [f32; 3]) -> [f32; 4] {
+    let [x, y, z] = rotation.map(|value| value.to_radians() * 0.5);
+    let (sx, cx) = x.sin_cos();
+    let (sy, cy) = y.sin_cos();
+    let (sz, cz) = z.sin_cos();
+    [
+        sx * cy * cz - cx * sy * sz,
+        cx * sy * cz + sx * cy * sz,
+        cx * cy * sz - sx * sy * cz,
+        cx * cy * cz + sx * sy * sz,
+    ]
 }
 
 fn normalize_skin(skin: Option<&ActorSkinPixels>) -> Vec<u8> {
