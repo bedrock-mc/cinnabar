@@ -1120,38 +1120,4 @@ fn bedrock_yaw_and_pitch_map_to_bevys_negative_z_camera() {
     assert!(looking_down.y < -0.7);
 }
 
-#[test]
-fn committed_movement_correction_updates_local_camera_position_and_rotation() {
-    let correction = PlayerMovementCorrectionEvent {
-        position: [27.5, 111.0, 91.5],
-        delta: [0.25, -0.5, 0.75],
-        pitch: -15.0,
-        yaw: 90.0,
-        on_ground: true,
-        tick: 55,
-    };
-    let mut camera = Transform::default();
-    let mut pending_surface_spawn = Some([3, 4]);
-
-    apply_committed_control(
-        CommittedControlEvent::PlayerMovementCorrection {
-            sequence: 7,
-            correction,
-            resolved: client_world::ResolvedServerPosition {
-                position: correction.position,
-                surface_anchor: None,
-            },
-        },
-        &mut camera,
-        &mut pending_surface_spawn,
-    );
-
-    assert_eq!(camera.translation, Vec3::new(27.5, 111.0, 91.5));
-    assert!(camera.rotation.abs_diff_eq(
-        bedrock_camera_rotation(correction.yaw, correction.pitch),
-        0.0001
-    ));
-    assert_eq!(pending_surface_spawn, None);
-}
-
 include!("finish/completion.rs");

@@ -255,8 +255,8 @@ fn binding_teleport_completion(
         .unwrap()
 }
 
-mod cohort_epoch;
 mod camera;
+mod cohort_epoch;
 mod core;
 mod finish;
 mod inventory;

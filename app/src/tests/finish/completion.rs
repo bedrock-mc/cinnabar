@@ -109,17 +109,23 @@ fn start_game_anchor_tracks_fifo_move_correction_and_dimension_before_surface_re
             surface_anchor: None,
         },
     };
-    let mut camera = Transform::default();
+    let mut view = crate::local_player::LocalViewPose::default();
+    let mut camera_settings = crate::camera::CameraSettingsAuthority::default();
     let mut pending_surface_spawn = None;
     for control in [correction_control, move_control, dimension_control] {
         assert!(refresh_mutation_anchor_from_committed_control(
             &mut acceptance,
             &control,
         ));
-        apply_committed_control(control, &mut camera, &mut pending_surface_spawn);
+        apply_committed_control(
+            control,
+            &mut view,
+            &mut camera_settings,
+            &mut pending_surface_spawn,
+        );
     }
     assert_eq!(acceptance.mutation_surface_anchor(), Some([240, -18]));
-    assert_eq!(camera.translation, Vec3::from_array(change.position));
+    assert_eq!(view.eye_translation(), Vec3::from_array(change.position));
 
     let coordinate = deterministic_mutation_coordinate([240.75, 80.62, -17.25], [240, -18]);
     acceptance.set_mutation_coordinate(coordinate);
