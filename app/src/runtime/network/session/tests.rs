@@ -50,6 +50,27 @@ struct CachedInboundSession {
     stats: BlobCacheStats,
 }
 
+struct FailingSendSession;
+
+impl NetworkSession for FailingSendSession {
+    type Error = &'static str;
+
+    async fn receive_world_event(
+        &mut self,
+        _current_dimension: i32,
+    ) -> Result<WorldEvent, Self::Error> {
+        future::pending().await
+    }
+
+    async fn send_packet(&mut self, _packet: protocol::Packet) -> Result<(), Self::Error> {
+        Err("socket write failed")
+    }
+
+    fn decode_error_count(&self) -> u64 {
+        0
+    }
+}
+
 impl NetworkSession for CachedInboundSession {
     type Error = std::convert::Infallible;
 
@@ -409,6 +430,85 @@ async fn saturated_world_event_channel_does_not_block_request_sent_control_event
 }
 
 #[tokio::test]
+async fn chat_send_receipt_is_emitted_only_after_the_session_send_completes() {
+    let (world_event_tx, _world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
+    let (commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
+    commands
+        .try_send(NetworkCommand::Send {
+            packet: test_packet(),
+            sub_chunk: None,
+            chat: Some(super::ChatPacketSend {
+                session: 7,
+                sequence: 11,
+            }),
+        })
+        .unwrap();
+    let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
+    let (shutdown, shutdown_rx) = watch::channel(false);
+    let worker = tokio::spawn(run_network_pump(
+        ReadyInboundSession {
+            inbound: None,
+            inbound_selected: Arc::new(AtomicBool::new(false)),
+        },
+        NetworkSequencer::new(0, 42),
+        command_rx,
+        control_event_tx,
+        world_event_tx,
+        shutdown_rx,
+    ));
+
+    assert!(matches!(
+        tokio::time::timeout(Duration::from_millis(100), controls.recv()).await,
+        Ok(Some(NetworkControlEvent::ChatPacketSent {
+            session: 7,
+            sequence: 11,
+        }))
+    ));
+    shutdown.send_replace(true);
+    worker.await.unwrap();
+}
+
+#[tokio::test]
+async fn chat_send_failure_identifies_the_exact_outbox_item() {
+    let (world_event_tx, _world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
+    let (commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
+    commands
+        .try_send(NetworkCommand::Send {
+            packet: test_packet(),
+            sub_chunk: None,
+            chat: Some(super::ChatPacketSend {
+                session: 8,
+                sequence: 12,
+            }),
+        })
+        .unwrap();
+    let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
+    let (_shutdown, shutdown_rx) = watch::channel(false);
+    run_network_pump(
+        FailingSendSession,
+        NetworkSequencer::new(0, 42),
+        command_rx,
+        control_event_tx,
+        world_event_tx,
+        shutdown_rx,
+    )
+    .await;
+
+    assert!(matches!(
+        controls.recv().await,
+        Some(NetworkControlEvent::ChatPacketSendFailed {
+            session: 8,
+            sequence: 12,
+            ref message,
+        }) if message == "socket write failed"
+    ));
+    assert!(matches!(
+        controls.recv().await,
+        Some(NetworkControlEvent::Failed { .. })
+    ));
+}
+
+#[tokio::test]
 async fn single_worker_acks_ready_command_while_ready_inbound_waits_on_full_world_fifo() {
     let (world_event_tx, world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
     for sequence in 1..=WORLD_EVENT_CAPACITY as u64 {
@@ -433,6 +533,7 @@ async fn single_worker_acks_ready_command_while_ready_inbound_waits_on_full_worl
                     base_sub_chunk_y: -4,
                     count: 1,
                 }),
+                chat: None,
             })
             .unwrap();
     }
@@ -698,6 +799,7 @@ fn saturated_command_queue_preserves_packet_and_shutdown_does_not_join_on_ui_thr
             .try_send(NetworkCommand::Send {
                 packet: test_packet(),
                 sub_chunk: None,
+                chat: None,
             })
             .unwrap();
     }

@@ -1,4 +1,9 @@
-use protocol::{ChatPacketError, chat_text_packet};
+use std::sync::Arc;
+
+use protocol::{
+    ChatAutocompleteAction, ChatAutocompleteCatalog, ChatAutocompleteEvent, ChatPacketError,
+    chat_text_packet,
+};
 use valentine::bedrock::version::v1_26_30::{
     McpePacketData, TextPacketCategory, TextPacketContent, TextPacketType,
 };
@@ -32,4 +37,37 @@ fn outbound_chat_rejects_empty_and_oversized_fields() {
         chat_text_packet("player", "", &"x".repeat(513)),
         Err(ChatPacketError::MessageTooLong { .. })
     ));
+}
+
+#[test]
+fn autocomplete_catalog_is_revisioned_and_queries_an_immutable_snapshot() {
+    let mut catalog = ChatAutocompleteCatalog::default();
+    let revision = catalog
+        .apply(ChatAutocompleteEvent {
+            enum_name: Arc::from("commands"),
+            action: ChatAutocompleteAction::Replace,
+            suggestions: Arc::from([Arc::from("/give"), Arc::from("/gamerule")]),
+        })
+        .unwrap();
+
+    let completion = catalog.complete("/gi", 3).unwrap();
+
+    assert_eq!(completion.catalog_revision, revision);
+    assert_eq!(completion.suggestions.as_ref(), [Arc::from("/give")]);
+}
+
+#[test]
+fn unrelated_soft_enum_updates_do_not_pretend_to_be_editor_responses() {
+    let mut catalog = ChatAutocompleteCatalog::default();
+    catalog
+        .apply(ChatAutocompleteEvent {
+            enum_name: Arc::from("colors"),
+            action: ChatAutocompleteAction::Replace,
+            suggestions: Arc::from([Arc::from("green")]),
+        })
+        .unwrap();
+
+    let completion = catalog.complete("/gi", 3).unwrap();
+
+    assert!(completion.suggestions.is_empty());
 }

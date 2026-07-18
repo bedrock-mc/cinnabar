@@ -7,6 +7,7 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
+arboard = { version = "3", default-features = false }
 assets = { path = "../crates/assets" }
 bevy = { workspace = true, default-features = false, features = [
     "bevy_anti_alias",

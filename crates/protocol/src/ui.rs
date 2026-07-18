@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 use thiserror::Error;
 use valentine::bedrock::borrowed::BorrowedStr;
@@ -281,6 +281,125 @@ pub enum ChatAutocompleteAction {
     Add,
     Remove,
     Replace,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChatAutocompleteCompletion {
+    pub catalog_revision: u64,
+    pub suggestions: Arc<[Arc<str>]>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum ChatAutocompleteCatalogError {
+    #[error("autocomplete input or cursor is invalid")]
+    InvalidInput,
+    #[error("autocomplete catalog has {count} suggestions, exceeding {max}")]
+    TooManySuggestions { count: usize, max: usize },
+    #[error("autocomplete catalog retains {bytes} bytes, exceeding {max}")]
+    SuggestionsTooLarge { bytes: usize, max: usize },
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ChatAutocompleteCatalog {
+    revision: u64,
+    enums: BTreeMap<Arc<str>, Vec<Arc<str>>>,
+}
+
+impl ChatAutocompleteCatalog {
+    pub fn apply(
+        &mut self,
+        event: ChatAutocompleteEvent,
+    ) -> Result<u64, ChatAutocompleteCatalogError> {
+        let mut values = self
+            .enums
+            .get(&event.enum_name)
+            .cloned()
+            .unwrap_or_default();
+        match event.action {
+            ChatAutocompleteAction::Add => {
+                for suggestion in event.suggestions.iter() {
+                    if !values.contains(suggestion) {
+                        values.push(Arc::clone(suggestion));
+                    }
+                }
+            }
+            ChatAutocompleteAction::Remove => {
+                values.retain(|value| !event.suggestions.contains(value));
+            }
+            ChatAutocompleteAction::Replace => {
+                values.clear();
+                for suggestion in event.suggestions.iter() {
+                    if !values.contains(suggestion) {
+                        values.push(Arc::clone(suggestion));
+                    }
+                }
+            }
+        }
+        let mut next = self.enums.clone();
+        if values.is_empty() {
+            next.remove(&event.enum_name);
+        } else {
+            next.insert(event.enum_name, values);
+        }
+        let count = next.values().map(Vec::len).sum::<usize>();
+        if count > MAX_CHAT_AUTOCOMPLETE {
+            return Err(ChatAutocompleteCatalogError::TooManySuggestions {
+                count,
+                max: MAX_CHAT_AUTOCOMPLETE,
+            });
+        }
+        let bytes = next
+            .iter()
+            .map(|(name, values)| {
+                name.len() + values.iter().map(|value| value.len()).sum::<usize>()
+            })
+            .sum::<usize>();
+        if bytes > MAX_CHAT_AUTOCOMPLETE_BYTES {
+            return Err(ChatAutocompleteCatalogError::SuggestionsTooLarge {
+                bytes,
+                max: MAX_CHAT_AUTOCOMPLETE_BYTES,
+            });
+        }
+        self.enums = next;
+        self.revision = self.revision.saturating_add(1);
+        Ok(self.revision)
+    }
+
+    pub fn complete(
+        &self,
+        input: &str,
+        cursor_byte: usize,
+    ) -> Result<ChatAutocompleteCompletion, ChatAutocompleteCatalogError> {
+        if input.len() > MAX_OUTBOUND_CHAT_BYTES
+            || cursor_byte > input.len()
+            || !input.is_char_boundary(cursor_byte)
+        {
+            return Err(ChatAutocompleteCatalogError::InvalidInput);
+        }
+        let prefix = input[..cursor_byte]
+            .rsplit_once(char::is_whitespace)
+            .map_or(&input[..cursor_byte], |(_, prefix)| prefix);
+        let mut suggestions = Vec::new();
+        for suggestion in self
+            .enums
+            .values()
+            .flatten()
+            .filter(|suggestion| suggestion.starts_with(prefix))
+        {
+            if !suggestions.contains(suggestion) {
+                suggestions.push(Arc::clone(suggestion));
+            }
+        }
+        suggestions.truncate(MAX_CHAT_AUTOCOMPLETE);
+        Ok(ChatAutocompleteCompletion {
+            catalog_revision: self.revision,
+            suggestions: Arc::from(suggestions),
+        })
+    }
+
+    pub const fn revision(&self) -> u64 {
+        self.revision
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

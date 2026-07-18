@@ -445,6 +445,15 @@ pub struct ChatAutocompleteRequest {
     pub input: Arc<str>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ChatAutocompleteResponse {
+    pub session: u64,
+    pub input_revision: u64,
+    pub request_id: u64,
+    pub catalog_revision: u64,
+    pub suggestions: Arc<[Arc<str>]>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ChatAutocompleteApply {
     Applied,
@@ -469,6 +478,7 @@ pub struct ChatAutocompleteState {
     suggestions: Vec<Arc<str>>,
     retained_bytes: usize,
     selected_index: Option<usize>,
+    applied_response: Option<(u64, u64)>,
 }
 
 impl ChatAutocompleteState {
@@ -513,6 +523,7 @@ impl ChatAutocompleteState {
         };
         self.next_request_id = self.next_request_id.saturating_add(1);
         self.active = Some(request.clone());
+        self.applied_response = None;
         self.clear_suggestions();
         Ok(Some(request))
     }
@@ -571,6 +582,36 @@ impl ChatAutocompleteState {
         &self.suggestions
     }
 
+    pub fn apply_response(
+        &mut self,
+        response: ChatAutocompleteResponse,
+    ) -> Result<ChatAutocompleteApply, ChatAutocompleteError> {
+        let Some(active) = self.active.as_ref() else {
+            return Ok(ChatAutocompleteApply::IgnoredStaleInput);
+        };
+        if active.session != response.session
+            || active.input_revision != response.input_revision
+            || active.request_id != response.request_id
+            || self.applied_response == Some((response.request_id, response.catalog_revision))
+        {
+            return Ok(ChatAutocompleteApply::IgnoredStaleInput);
+        }
+        let request = active.clone();
+        let catalog_revision = response.catalog_revision;
+        let applied = self.apply(
+            request,
+            ChatAutocompleteDelta {
+                enum_name: Arc::from("catalog"),
+                action: ChatAutocompleteAction::Replace,
+                suggestions: response.suggestions,
+            },
+        )?;
+        if applied == ChatAutocompleteApply::Applied {
+            self.applied_response = Some((response.request_id, catalog_revision));
+        }
+        Ok(applied)
+    }
+
     pub const fn retained_bytes(&self) -> usize {
         self.retained_bytes
     }
@@ -581,6 +622,20 @@ impl ChatAutocompleteState {
 
     pub const fn active_request(&self) -> Option<&ChatAutocompleteRequest> {
         self.active.as_ref()
+    }
+
+    pub fn select_index(&mut self, index: usize) -> bool {
+        if index >= self.suggestions.len() {
+            return false;
+        }
+        self.selected_index = Some(index);
+        true
+    }
+
+    pub fn selected_suggestion(&self) -> Option<Arc<str>> {
+        self.selected_index
+            .and_then(|index| self.suggestions.get(index))
+            .cloned()
     }
 
     pub fn handle_action(&mut self, action: crate::UiAction) -> Option<Arc<str>> {
@@ -613,10 +668,7 @@ impl ChatAutocompleteState {
             | crate::UiAction::PointerPrimary {
                 phase: crate::PointerPhase::Pressed,
                 ..
-            } => self
-                .selected_index
-                .and_then(|index| self.suggestions.get(index))
-                .cloned(),
+            } => self.selected_suggestion(),
             _ => None,
         }
     }
@@ -632,6 +684,7 @@ impl ChatAutocompleteState {
 
     pub fn clear(&mut self) {
         self.active = None;
+        self.applied_response = None;
         self.clear_suggestions();
     }
 
