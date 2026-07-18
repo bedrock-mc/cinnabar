@@ -11175,18 +11175,23 @@ impl crate::bedrock::codec::BedrockSized for ItemNew {
         size += crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
             self.block_runtime_id,
         ));
-        size += match &self.extra {
-            ItemNewExtra::ShieldItemId(_v) => {
-                let _len = crate::bedrock::codec::BedrockSized::encoded_size(_v);
-                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                    _len as i32,
-                )) + _len
-            }
-            ItemNewExtra::Default(_v) => {
-                let _len = crate::bedrock::codec::BedrockSized::encoded_size(_v);
-                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                    _len as i32,
-                )) + _len
+        size += if self.network_id == 0 {
+            // Air/empty item: only a zero-length extra blob is written.
+            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(0))
+        } else {
+            match &self.extra {
+                ItemNewExtra::ShieldItemId(_v) => {
+                    let _len = crate::bedrock::codec::BedrockSized::encoded_size(_v);
+                    crate::bedrock::codec::BedrockSized::encoded_size(
+                        &crate::bedrock::codec::VarInt(_len as i32),
+                    ) + _len
+                }
+                ItemNewExtra::Default(_v) => {
+                    let _len = crate::bedrock::codec::BedrockSized::encoded_size(_v);
+                    crate::bedrock::codec::BedrockSized::encoded_size(
+                        &crate::bedrock::codec::VarInt(_len as i32),
+                    ) + _len
+                }
             }
         };
         size
@@ -11205,6 +11210,11 @@ impl crate::bedrock::codec::BedrockCodec for ItemNew {
             v.encode(buf)?;
         }
         crate::bedrock::codec::VarInt(self.block_runtime_id).encode(buf)?;
+        if self.network_id == 0 {
+            // Air/empty item: emit a zero-length extra blob and stop, matching gophertunnel.
+            crate::bedrock::codec::VarInt(0).encode(buf)?;
+            return Ok(());
+        }
         match &self.extra {
             ItemNewExtra::ShieldItemId(v) => {
                 let len = crate::bedrock::codec::BedrockSized::encoded_size(v);
@@ -11248,65 +11258,45 @@ impl crate::bedrock::codec::BedrockCodec for ItemNew {
                 (),
             )?
             .0;
-        let extra = match network_id {
-            x if i32::from(x) == args.shield_item_id => ItemNewExtra::ShieldItemId({
-                let len_raw = (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?
-                        .0) as i64;
-                if len_raw < 0 {
-                    return Err(crate::bedrock::error::DecodeError::NegativeLength {
-                        value: len_raw,
-                    });
-                }
-                let len = len_raw as usize;
-                if buf.remaining() < len {
-                    return Err(crate::bedrock::error::DecodeError::ArrayLengthExceeded {
-                        declared: len,
-                        available: buf.remaining(),
-                    });
-                }
-                let mut slice = bytes::Buf::take(&mut *buf, len);
-                let value = {
-                    let buf = &mut slice;
-                    <ItemExtraDataWithBlockingTick as crate::bedrock::codec::BedrockCodec>::decode(
+        let extra = {
+            let len_raw = (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
                         (),
                     )?
-                };
-                let _ = slice.remaining();
-                value
-            }),
-            _ => ItemNewExtra::Default({
-                let len_raw = (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?
-                        .0) as i64;
-                if len_raw < 0 {
-                    return Err(crate::bedrock::error::DecodeError::NegativeLength {
-                        value: len_raw,
-                    });
-                }
-                let len = len_raw as usize;
-                if buf.remaining() < len {
-                    return Err(crate::bedrock::error::DecodeError::ArrayLengthExceeded {
-                        declared: len,
-                        available: buf.remaining(),
-                    });
-                }
+                    .0) as i64;
+            if len_raw < 0 {
+                return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
+            }
+            let len = len_raw as usize;
+            if buf.remaining() < len {
+                return Err(crate::bedrock::error::DecodeError::ArrayLengthExceeded {
+                    declared: len,
+                    available: buf.remaining(),
+                });
+            }
+            if len == 0 {
+                // An empty extra blob carries no NBT/can-place/can-break data. Gophertunnel's
+                // ItemInstanceNew reader returns here without decoding; mirror that rather than
+                // reading a 2-byte discriminant from an empty buffer. Air (and other empty)
+                // items always land here, since they carry a zero-length extra blob.
+                ItemNewExtra::Default(ItemExtraDataWithoutBlockingTick::default())
+            } else {
                 let mut slice = bytes::Buf::take(&mut *buf, len);
                 let value = {
                     let buf = &mut slice;
-                    <ItemExtraDataWithoutBlockingTick as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?
+                    if i32::from(network_id) == args.shield_item_id {
+                        ItemNewExtra::ShieldItemId(
+                            <ItemExtraDataWithBlockingTick as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
+                        )
+                    } else {
+                        ItemNewExtra::Default(
+                            <ItemExtraDataWithoutBlockingTick as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
+                        )
+                    }
                 };
                 let _ = slice.remaining();
                 value
-            }),
+            }
         };
         Ok(Self {
             network_id,

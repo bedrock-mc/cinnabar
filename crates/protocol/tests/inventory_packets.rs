@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use valentine::bedrock::version::v1_26_30::{
     ContainerClosePacket, ContainerOpenPacket, ContainerSetDataPacket, ContainerSlotType,
-    FullContainerName, InventoryContentPacket, InventorySlotPacket,
+    FullContainerName, InventoryContentPacket, InventorySlotPacket, InventorySlotPacketArgs,
     ItemExtraDataWithoutBlockingTick, ItemNew, ItemNewExtra, ItemStackResponsePacket,
     ItemStackResponsesItem, ItemStackResponsesItemContent,
     ItemStackResponsesItemContentContainersItem,
@@ -431,4 +431,38 @@ fn verified_network_stack_requires_retained_bytes_and_both_digests_to_match() {
         VerifiedNetworkItemStack::try_new(stack, [2; 32]).unwrap_err(),
         InventoryPacketError::DigestMismatch
     );
+}
+
+// Regression: an InventorySlot whose items carry a zero-length "extra" blob (air / empty
+// items) must decode rather than fail. Gophertunnel's ItemInstanceNew reader returns without
+// parsing when the extra blob is empty; valentine previously always read a 2-byte discriminant
+// from the empty sub-buffer, producing "unexpected end of buffer: needed 2 bytes, had 0" on a
+// real Lifeboat/sm3 join. shield_item_id is 0 here, so air items (network_id 0) also match the
+// shield branch — the guard must fire before that check.
+#[test]
+fn inventory_slot_with_empty_extra_items_decodes_and_round_trips() {
+    use valentine::bedrock::codec::BedrockCodec;
+
+    // Exact 22-byte InventorySlot body observed on the wire.
+    let body: [u8; 22] = [
+        0x7c, 0x00, 0x01, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ];
+
+    let mut buf: &[u8] = &body;
+    let packet =
+        InventorySlotPacket::decode(&mut buf, InventorySlotPacketArgs { shield_item_id: 0 })
+            .expect("empty-extra items must decode instead of erroring");
+    assert!(buf.is_empty(), "entire body consumed, no trailing bytes");
+
+    let storage = packet.storage_item.as_ref().expect("storage item present");
+    assert_eq!(storage.network_id, 0, "storage item is air");
+    assert!(matches!(storage.extra, ItemNewExtra::Default(_)));
+    assert_eq!(packet.item.network_id, 0, "new item is air");
+    assert!(matches!(packet.item.extra, ItemNewExtra::Default(_)));
+
+    // Air items re-encode to a zero-length extra blob, reproducing the original bytes exactly.
+    let mut out = Vec::new();
+    packet.encode(&mut out).expect("re-encode");
+    assert_eq!(out, body, "round-trips back to the original wire bytes");
 }
