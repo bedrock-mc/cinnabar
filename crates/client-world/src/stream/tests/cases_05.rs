@@ -223,6 +223,62 @@ fn request_modes_use_vanilla_dimension_base_and_bounded_counts() {
 }
 
 #[test]
+fn publication_distinguishes_ready_from_transport_pending_requests() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    let chunk = ChunkKey::new(0, 2, -3);
+    stream
+        .submit(
+            1,
+            WorldEvent::LevelChunk(LevelChunkEvent {
+                dimension: chunk.dimension,
+                x: chunk.x,
+                z: chunk.z,
+                mode: LevelChunkMode::LimitedRequests { highest: u16::MAX },
+                payload: biome_payload(0, 1),
+            }),
+        )
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+
+    let ready = stream.phase2_publication_snapshot(chunk).stages;
+    assert_eq!(ready.requests_constructed, 1);
+    assert_eq!(ready.requests_ready, 1);
+    assert_eq!(ready.requests_transport_pending, 0);
+    assert_eq!(ready.requests_sent, 0);
+
+    let request = stream.pop_next_request().unwrap();
+    stream.record_sub_chunk_request_transport_pending(
+        request.chunk,
+        request.base_sub_chunk_y,
+        request.count,
+    );
+    let pending = stream.phase2_publication_snapshot(chunk).stages;
+    assert_eq!(pending.requests_constructed, 1);
+    assert_eq!(pending.requests_ready, 0);
+    assert_eq!(pending.requests_transport_pending, 1);
+    assert_eq!(pending.requests_sent, 0);
+
+    stream.acknowledge_sub_chunk_request_sent(
+        request.chunk,
+        request.base_sub_chunk_y,
+        request.count,
+        Instant::now(),
+    );
+    let sent = stream.phase2_publication_snapshot(chunk).stages;
+    assert_eq!(sent.requests_constructed, 1);
+    assert_eq!(sent.requests_ready, 0);
+    assert_eq!(sent.requests_transport_pending, 0);
+    assert_eq!(sent.requests_sent, 1);
+}
+
+#[test]
 fn outbound_request_fifo_has_a_hard_admission_capacity() {
     let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,

@@ -16,6 +16,7 @@ pub struct PublicationStageCounters {
     pub mesh_changes_dequeued: u64,
     pub mesh_uploads_acknowledged: u64,
     pub requests_ready: usize,
+    pub requests_transport_pending: usize,
     pub subchunks_awaiting_response: usize,
     pub decode_jobs_queued: usize,
     pub decode_jobs_in_flight: usize,
@@ -124,6 +125,7 @@ impl WorldStream {
             .map_or_else(BTreeSet::new, ViewCohort::expected_columns);
         let mut stages = self.stats.phase2_stages;
         stages.requests_ready = self.pending_request_count();
+        stages.requests_transport_pending = self.transport_pending_requests;
         stages.subchunks_awaiting_response = self.sub_chunk_deadlines.len();
         stages.decode_jobs_queued = self.pending_decode.len();
         stages.decode_jobs_in_flight = self.in_flight_decode_jobs;

@@ -7,6 +7,7 @@ function New-SyntheticPhase2Publication {
         [int]$LoadedColumns,
         [uint64]$RequestsConstructed,
         [uint64]$RequestsSent,
+        [uint64]$RequestsTransportPending = 0,
         [uint64]$ResponsesAdmitted,
         [uint64]$SubchunksCommitted,
         [object]$PublisherRadiusBlocks = 128,
@@ -40,7 +41,8 @@ function New-SyntheticPhase2Publication {
             max_worker_time_us = [ordered]@{ decode = 0; lighting = 0; meshing = 0 }
             outcomes = [ordered]@{ success = $SubchunksCommitted; all_air = 0; unavailable = 0; malformed = 0; stale = 0; timed_out = 0 }
             stages = [ordered]@{
-                requests_constructed = $RequestsConstructed; requests_ready = 0; requests_sent = $RequestsSent
+                requests_constructed = $RequestsConstructed; requests_ready = 0
+                requests_transport_pending = $RequestsTransportPending; requests_sent = $RequestsSent
                 responses_admitted = $ResponsesAdmitted; subchunks_awaiting_response = 0; subchunks_committed = $SubchunksCommitted
                 decode_jobs_queued = 0; decode_jobs_dispatched = $SubchunksCommitted; decode_jobs_in_flight = 0; decode_jobs_completed = $SubchunksCommitted
                 light_jobs_queued = 0; light_jobs_dispatched = $SubchunksCommitted; light_jobs_in_flight = 0; light_jobs_completed = $SubchunksCommitted
@@ -512,6 +514,23 @@ Describe 'Phase 2 remote acceptance runner' {
             -MeshJobsCompleted 12 -MeshJobsQueued 400000 -UploadsAcknowledged 12 -UploadsUnacknowledged 500000
         (Get-Phase2FirstStalledStage -PublicationRecord ([pscustomobject]$record) -WorldReadyObserved:$true) |
             Should Be 'meshing'
+    }
+
+    It 'accepts coherent transport-pending requests and rejects an incoherent handoff gauge' {
+        $record = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 4 `
+            -RequestsConstructed 4 -RequestsSent 0 -RequestsTransportPending 4 `
+            -ResponsesAdmitted 0 -SubchunksCommitted 0
+        $parsed = $record | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+
+        { Assert-Phase2PublicationRecord -Record $parsed -ExpectedPresentMode Fifo } |
+            Should Not Throw
+        (Get-Phase2FirstStalledStage -PublicationRecord $parsed -WorldReadyObserved:$false) |
+            Should Be 'transport'
+
+        $record.publication.stages.requests_transport_pending = 3
+        $incoherent = $record | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+        { Assert-Phase2PublicationRecord -Record $incoherent -ExpectedPresentMode Fifo } |
+            Should Throw
     }
 
     It 'rejects incoherent stage gauges and response outcomes before terminal classification' {

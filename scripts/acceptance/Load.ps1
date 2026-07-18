@@ -287,7 +287,8 @@ function Assert-Phase2PublicationRecord {
         Assert-Phase2UnsignedInteger -Value $publication.outcomes.$field -Label "publication.outcomes.$field"
     }
     $requiredStageFields = @(
-        'requests_constructed', 'requests_ready', 'requests_sent', 'responses_admitted',
+        'requests_constructed', 'requests_ready', 'requests_transport_pending', 'requests_sent',
+        'responses_admitted',
         'subchunks_awaiting_response', 'subchunks_committed', 'decode_jobs_queued',
         'decode_jobs_dispatched', 'decode_jobs_in_flight', 'decode_jobs_completed',
         'light_jobs_queued', 'light_jobs_dispatched', 'light_jobs_in_flight',
@@ -318,9 +319,12 @@ function Assert-Phase2PublicationRecord {
     if ($sent -gt $constructed) {
         throw 'PHASE2_PUBLICATION requests_sent exceeds requests_constructed'
     }
+    $ready = [uint64]$publication.stages.requests_ready
+    $transportPending = [uint64]$publication.stages.requests_transport_pending
     if ($constructed -ne [uint64]::MaxValue -and $sent -ne [uint64]::MaxValue -and
-        [uint64]$publication.stages.requests_ready -ne ($constructed - $sent)) {
-        throw 'PHASE2_PUBLICATION requests_ready disagrees with unsaturated request counters'
+        $ready -ne [uint64]::MaxValue -and $transportPending -ne [uint64]::MaxValue -and
+        ([decimal]$ready + [decimal]$transportPending) -ne ([decimal]$constructed - [decimal]$sent)) {
+        throw 'PHASE2_PUBLICATION ready and transport-pending gauges disagree with unsaturated request counters'
     }
     $changesQueued = [uint64]$publication.stages.mesh_changes_queued
     $changesDequeued = [uint64]$publication.stages.mesh_changes_dequeued

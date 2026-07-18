@@ -89,6 +89,7 @@ fn blob_cache_json(stats: BlobCacheStats) -> Value {
 fn stage_counters_json(stages: PublicationStageCounters) -> Value {
     json!({
         "requests_constructed": stages.requests_constructed,
+        "requests_transport_pending": stages.requests_transport_pending,
         "requests_sent": stages.requests_sent,
         "responses_admitted": stages.responses_admitted,
         "decode_jobs_dispatched": stages.decode_jobs_dispatched,

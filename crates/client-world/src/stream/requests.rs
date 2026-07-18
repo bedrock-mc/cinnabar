@@ -41,6 +41,7 @@ impl WorldStream {
         base_sub_chunk_y: i32,
         count: usize,
     ) {
+        self.transport_pending_requests = self.transport_pending_requests.saturating_add(1);
         for offset in 0..count {
             let y = base_sub_chunk_y.saturating_add(offset as i32);
             if let Some(pending) = self
@@ -62,6 +63,7 @@ impl WorldStream {
         count: usize,
         sent_at: Instant,
     ) {
+        self.transport_pending_requests = self.transport_pending_requests.saturating_sub(1);
         self.stats.phase2_stages.requests_sent =
             self.stats.phase2_stages.requests_sent.saturating_add(1);
         let deadline = sent_at

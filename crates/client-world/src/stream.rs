@@ -166,6 +166,7 @@ pub struct WorldStream {
     connectivity: HashMap<SubChunkKey, FaceConnectivity>,
     connectivity_generation: u64,
     requests: VecDeque<OutboundRequestSlot>,
+    transport_pending_requests: usize,
     mesh_changes: VecDeque<WorldMeshChange>,
     committed_controls: VecDeque<CommittedControlEvent>,
     committed_ui: VecDeque<CommittedUiEvent>,
