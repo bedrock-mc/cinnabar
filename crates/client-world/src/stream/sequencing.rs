@@ -618,7 +618,7 @@ impl WorldStream {
             }
         };
         let (biomes, block_entities) = decoded;
-        if self.store.biome_column_matches(key, &biomes) {
+        if count == 0 || self.store.biome_column_matches(key, &biomes) {
             self.loaded_columns.remove(&key);
             self.request_collision_failures.remove(&key);
             self.purge_sub_chunk_column_state(key);
