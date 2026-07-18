@@ -41,6 +41,21 @@ fn normalize_json(
     }
 }
 
+fn normalize_raw(message: String) -> Result<UiEvent, UiPacketError> {
+    let packet = TextPacket {
+        category: TextPacketCategory::MessageOnly,
+        type_: TextPacketType::Raw,
+        content: Some(TextPacketContent::Raw(TextPacketContentJson { message })),
+        ..Default::default()
+    };
+    match into_world_event(packet.into(), 0) {
+        Ok(Some(WorldEvent::Ui(event))) => Ok(event),
+        Ok(other) => panic!("expected normalized UI event, got {other:?}"),
+        Err(protocol::WorldPacketError::Ui(error)) => Err(error),
+        Err(other) => panic!("unexpected world error: {other}"),
+    }
+}
+
 fn decode_fixture(bytes: &'static [u8]) -> protocol::RawTextEvent {
     let mut packets = decode_batch(bytes.into(), &BedrockSession { shield_item_id: 0 }).unwrap();
     assert_eq!(packets.len(), 1);
@@ -92,6 +107,38 @@ fn protocol_1001_object_text_fixtures_emit_human_text_without_json_leakage() {
         announcement.document.resolution(),
         RawTextResolution::LiteralOnly
     );
+}
+
+#[test]
+fn legacy_raw_packet_with_exact_rawtext_envelope_emits_human_text() {
+    let event =
+        normalize_raw(r#"  { "rawtext" : [{"text":"Transferring to SM3"}]}  "#.to_owned()).unwrap();
+    let UiEvent::RawText(event) = event else {
+        panic!("expected legacy RawText envelope to retain typed semantics")
+    };
+
+    assert_eq!(event.text.kind, TextKind::Raw);
+    assert_eq!(event.text.message.as_ref(), "Transferring to SM3");
+    assert!(!event.text.message.contains("rawtext"));
+    assert_eq!(event.document.resolution(), RawTextResolution::LiteralOnly);
+}
+
+#[test]
+fn ordinary_raw_json_text_is_not_reclassified_as_rawtext() {
+    let UiEvent::Text(event) = normalize_raw(r#"{"status":"ok"}"#.to_owned()).unwrap() else {
+        panic!("ordinary JSON text must remain an ordinary raw message")
+    };
+
+    assert_eq!(event.kind, TextKind::Raw);
+    assert_eq!(event.message.as_ref(), r#"{"status":"ok"}"#);
+}
+
+#[test]
+fn malformed_legacy_rawtext_envelope_fails_closed() {
+    assert!(matches!(
+        normalize_raw(r#"{"rawtext":[{"text":"unterminated}]}"#.to_owned()),
+        Err(UiPacketError::InvalidRawText)
+    ));
 }
 
 #[test]

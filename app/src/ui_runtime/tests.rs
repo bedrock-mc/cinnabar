@@ -9,10 +9,11 @@ use protocol::{
     BedrockSession, BlockCrackAction, BlockCrackEvent, BossAction as ProtocolBossAction,
     BossColor as ProtocolBossColor, BossEvent, BossOverlay as ProtocolBossOverlay,
     BossStyle as ProtocolBossStyle, ChatAutocompleteAction as ProtocolAutocompleteAction,
-    ChatAutocompleteEvent, HudEvent, ObjectiveEvent, ScoreAction as ProtocolScoreAction,
-    ScoreEntry as ProtocolScoreEntry, ScoreEvent, ScoreIdentity as ProtocolScoreIdentity,
-    TextCategory, TextEvent, TextKind, TitleAction, TitleEvent, UiEvent, WorldEvent,
-    chat_text_packet, decode_batch, into_world_event, parse_raw_text,
+    ChatAutocompleteEvent, HudEvent, ObjectiveEvent, RawTextEvent,
+    ScoreAction as ProtocolScoreAction, ScoreEntry as ProtocolScoreEntry, ScoreEvent,
+    ScoreIdentity as ProtocolScoreIdentity, TextCategory, TextEvent, TextKind, TitleAction,
+    TitleEvent, UiEvent, WorldEvent, chat_text_packet, decode_batch, into_world_event,
+    parse_raw_text,
 };
 use semantic_input::{Action, DeviceFrame, InputContext, KeyboardMouseFrame, SemanticInputRouter};
 use ui::{ChatClipboard, PointerPhase, UiAction, UiPoint};
@@ -79,6 +80,60 @@ fn unresolved_raw_text_is_not_presented_as_a_complete_literal_message() {
     assert!(runtime.chat().messages().is_empty());
 }
 
+fn literal_raw_text(kind: TextKind, json: &str) -> UiEvent {
+    let document = parse_raw_text(json).unwrap();
+    UiEvent::RawText(RawTextEvent {
+        text: TextEvent {
+            category: TextCategory::MessageOnly,
+            kind,
+            needs_translation: false,
+            source: None,
+            message: Arc::from(document.literal_text()),
+            parameters: Arc::from([]),
+            xuid: Arc::from(""),
+            platform_chat_id: Arc::from(""),
+            filtered_message: None,
+        },
+        document,
+    })
+}
+
+#[test]
+fn typed_rawtext_routes_by_packet_surface_without_cross_presenting() {
+    let mut runtime = UiRuntime::new(1);
+
+    runtime
+        .apply(envelope(
+            1,
+            1,
+            literal_raw_text(
+                TextKind::Raw,
+                r#"{"rawtext":[{"text":"Transfer accepted"}]}"#,
+            ),
+        ))
+        .unwrap();
+    runtime
+        .apply(envelope(
+            1,
+            2,
+            literal_raw_text(TextKind::Tip, r#"{"rawtext":[{"text":"Action prompt"}]}"#),
+        ))
+        .unwrap();
+
+    assert_eq!(runtime.chat().messages().len(), 1);
+    assert_eq!(
+        runtime.chat().messages()[0].message.as_ref(),
+        "Transfer accepted"
+    );
+    assert_eq!(
+        runtime.hud().actionbar().unwrap().text.as_ref(),
+        "Action prompt"
+    );
+    assert!(runtime.hud().title().is_none());
+    assert!(runtime.scoreboards().sidebar().is_none());
+    assert!(runtime.boss_bars().stacked().is_empty());
+}
+
 fn title_object(action: TitleAction, json: &str) -> UiEvent {
     let document = parse_raw_text(json).unwrap();
     UiEvent::Title(TitleEvent {
@@ -130,6 +185,9 @@ fn literal_title_object_actions_apply_human_text_without_json_leakage() {
         assert!(!presented.text.contains("rawtext"));
         assert!(!presented.text.contains('{'));
     }
+    assert!(runtime.chat().messages().is_empty());
+    assert!(runtime.scoreboards().sidebar().is_none());
+    assert!(runtime.boss_bars().stacked().is_empty());
 }
 
 #[test]
@@ -292,6 +350,9 @@ fn protocol_scoreboard_and_boss_events_route_into_ui_owned_state() {
     assert_eq!(bosses.len(), 1);
     assert_eq!(bosses[0].target_entity_id, 44);
     assert_eq!(bosses[0].style.color, ui::BossColor::Green);
+    assert!(runtime.chat().messages().is_empty());
+    assert!(runtime.hud().title().is_none());
+    assert!(runtime.hud().actionbar().is_none());
 
     let before_scoreboard = runtime.scoreboards().sidebar();
     let before_bosses = runtime.boss_bars().stacked();

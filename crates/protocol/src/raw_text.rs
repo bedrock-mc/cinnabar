@@ -84,6 +84,40 @@ pub fn parse_raw_text(value: &str) -> Result<Arc<RawTextDocument>, UiPacketError
     }))
 }
 
+pub(crate) fn parse_raw_text_envelope(
+    value: &str,
+) -> Result<Option<Arc<RawTextDocument>>, UiPacketError> {
+    if !has_raw_text_object_prefix(value) {
+        return Ok(None);
+    }
+    parse_raw_text(value).map(Some)
+}
+
+fn has_raw_text_object_prefix(value: &str) -> bool {
+    let mut bytes = value.bytes().peekable();
+    skip_json_whitespace(&mut bytes);
+    if bytes.next() != Some(b'{') {
+        return false;
+    }
+    skip_json_whitespace(&mut bytes);
+    for expected in b"\"rawtext\"" {
+        if bytes.next() != Some(*expected) {
+            return false;
+        }
+    }
+    skip_json_whitespace(&mut bytes);
+    bytes.next() == Some(b':')
+}
+
+fn skip_json_whitespace(bytes: &mut std::iter::Peekable<impl Iterator<Item = u8>>) {
+    while bytes
+        .peek()
+        .is_some_and(|byte| matches!(byte, b' ' | b'\t' | b'\r' | b'\n'))
+    {
+        bytes.next();
+    }
+}
+
 #[derive(Default)]
 struct ParseBudget {
     nodes: usize,
