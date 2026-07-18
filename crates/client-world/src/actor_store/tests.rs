@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
 use protocol::{
-    ActorAttribute, ActorAttributesUpdateEvent, ActorEvent, ActorGameMode, ActorKind,
-    ActorMetadata, ActorMetadataUpdateEvent, ActorMetadataValue, ActorMoveEvent,
-    ActorPositionOrigin, ActorProperty, ActorRemoveEvent, ActorSpawnEvent, PLAYER_NETWORK_OFFSET,
-    PlayerListEntry, PlayerListUpdateEvent, PlayerSkin, PlayerSkinUnavailable, StandardSkin,
+    ActorAttribute, ActorAttributesUpdateEvent, ActorEvent, ActorGameMode,
+    ActorGameModeUpdateEvent, ActorKind, ActorMetadata, ActorMetadataUpdateEvent,
+    ActorMetadataValue, ActorMoveEvent, ActorPositionOrigin, ActorProperty, ActorRemoveEvent,
+    ActorSpawnEvent, DefaultActorGameModeEvent, PLAYER_NETWORK_OFFSET, PlayerListEntry,
+    PlayerListUpdateEvent, PlayerSkin, PlayerSkinUnavailable, StandardSkin,
 };
 
 use super::{ActorApplyResult, ActorStore};
@@ -144,6 +145,138 @@ fn all_add_player_spectator_modes_are_not_render_eligible() {
     }
 }
 
+#[test]
+fn game_mode_updates_target_unique_identity_and_transition_visibility() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, player_spawn(42, -7, 0.0));
+
+    assert_eq!(
+        store.apply(
+            1,
+            2,
+            ActorEvent::GameMode(ActorGameModeUpdateEvent {
+                unique_id: -7,
+                game_mode: ActorGameMode::Spectator,
+                tick: 20,
+            }),
+        ),
+        ActorApplyResult::Updated
+    );
+    let actor = store.get(42).unwrap();
+    assert_eq!(actor.game_mode, Some(ActorGameMode::Spectator));
+    assert_eq!(actor.resolved_game_mode, Some(ActorGameMode::Spectator));
+    assert_eq!(actor.game_mode_tick, Some(20));
+    assert!(!actor.is_render_eligible());
+
+    assert_eq!(
+        store.apply(
+            1,
+            3,
+            ActorEvent::GameMode(ActorGameModeUpdateEvent {
+                unique_id: 42,
+                game_mode: ActorGameMode::Creative,
+                tick: 21,
+            }),
+        ),
+        ActorApplyResult::MissingActor,
+        "a runtime ID must not be accepted as the packet's unique-ID authority"
+    );
+    assert!(!store.get(42).unwrap().is_render_eligible());
+
+    assert_eq!(
+        store.apply(
+            1,
+            4,
+            ActorEvent::GameMode(ActorGameModeUpdateEvent {
+                unique_id: -7,
+                game_mode: ActorGameMode::Creative,
+                tick: 22,
+            }),
+        ),
+        ActorApplyResult::Updated
+    );
+    let actor = store.get(42).unwrap();
+    assert_eq!(actor.game_mode, Some(ActorGameMode::Creative));
+    assert_eq!(actor.resolved_game_mode, Some(ActorGameMode::Creative));
+    assert_eq!(actor.game_mode_tick, Some(22));
+    assert!(actor.is_render_eligible());
+
+    assert_eq!(
+        store.apply(1, 5, player_spawn(99, -7, 1.0)),
+        ActorApplyResult::Replaced
+    );
+    assert_eq!(
+        store.apply(
+            1,
+            6,
+            ActorEvent::GameMode(ActorGameModeUpdateEvent {
+                unique_id: -7,
+                game_mode: ActorGameMode::Spectator,
+                tick: 23,
+            }),
+        ),
+        ActorApplyResult::Updated
+    );
+    assert!(store.get(42).is_none());
+    let replacement = store.get(99).unwrap();
+    assert_eq!(replacement.game_mode_tick, Some(23));
+    assert!(!replacement.is_render_eligible());
+}
+
+#[test]
+fn fallback_visibility_tracks_authoritative_default_without_losing_raw_mode() {
+    let mut store = ActorStore::new(1, 0);
+    let ActorEvent::Spawn(mut fallback) = player_spawn(42, -7, 0.0) else {
+        unreachable!();
+    };
+    fallback.game_mode = Some(ActorGameMode::Fallback);
+    store.apply(1, 1, ActorEvent::Spawn(fallback));
+    store.apply(1, 2, player_spawn(43, -8, 0.0));
+    assert!(store.get(42).unwrap().is_render_eligible());
+
+    assert_eq!(
+        store.apply(
+            1,
+            3,
+            ActorEvent::DefaultGameMode(DefaultActorGameModeEvent {
+                game_mode: ActorGameMode::Spectator,
+            }),
+        ),
+        ActorApplyResult::Updated
+    );
+    assert_eq!(
+        store.get(42).unwrap().game_mode,
+        Some(ActorGameMode::Fallback),
+        "fallback resolution must not erase packet attribution"
+    );
+    assert!(!store.get(42).unwrap().is_render_eligible());
+    assert!(
+        store.get(43).unwrap().is_render_eligible(),
+        "an explicit survival player must not inherit the world default"
+    );
+
+    store.apply(
+        1,
+        4,
+        ActorEvent::DefaultGameMode(DefaultActorGameModeEvent {
+            game_mode: ActorGameMode::Creative,
+        }),
+    );
+    assert!(store.get(42).unwrap().is_render_eligible());
+
+    store.begin_session(2, 0);
+    let ActorEvent::Spawn(mut fallback) = player_spawn(44, -9, 0.0) else {
+        unreachable!();
+    };
+    fallback.game_mode = Some(ActorGameMode::Fallback);
+    store.apply(2, 1, ActorEvent::Spawn(fallback));
+    assert_eq!(
+        store.get(44).unwrap().resolved_game_mode,
+        Some(ActorGameMode::Survival),
+        "the previous session's default must not leak into a replacement session"
+    );
+}
+
 fn entity_spawn(
     runtime_id: u64,
     unique_id: i64,
@@ -172,6 +305,7 @@ fn network_move(runtime_id: u64, y: f32, teleported: bool) -> ActorEvent {
         head_yaw: None,
         on_ground: Some(true),
         teleported,
+        snap: teleported,
         player_mode: None,
         source_tick: None,
     })
@@ -188,6 +322,7 @@ fn player_move(runtime_id: u64, x: f32, teleported: bool) -> ActorEvent {
         head_yaw: Some(0.0),
         on_ground: Some(true),
         teleported,
+        snap: teleported,
         player_mode: Some(if teleported {
             protocol::MovePlayerMode::Teleport
         } else {
@@ -215,6 +350,7 @@ fn player_network_position_is_normalized_to_spawn_feet_space() {
             head_yaw: None,
             on_ground: Some(true),
             teleported: false,
+            snap: false,
             player_mode: None,
             source_tick: None,
         }),
@@ -288,6 +424,7 @@ fn spawn_and_partial_positions_never_apply_network_offsets() {
             head_yaw: None,
             on_ground: Some(true),
             teleported: true,
+            snap: true,
             player_mode: None,
             source_tick: None,
         }),
@@ -397,6 +534,7 @@ fn partial_move_actor_delta_network_position_stays_in_feet_space_during_interpol
             head_yaw: None,
             on_ground: Some(true),
             teleported: false,
+            snap: false,
             player_mode: None,
             source_tick: None,
         }),
@@ -435,6 +573,7 @@ fn non_player_network_position_is_unchanged_without_entity_offset_metadata() {
             head_yaw: None,
             on_ground: Some(true),
             teleported: true,
+            snap: true,
             player_mode: None,
             source_tick: None,
         }),
@@ -460,6 +599,7 @@ fn move_actor_delta_network_teleport_snaps_to_feet_space() {
             head_yaw: None,
             on_ground: Some(true),
             teleported: true,
+            snap: true,
             player_mode: None,
             source_tick: None,
         }),
@@ -470,6 +610,38 @@ fn move_actor_delta_network_teleport_snaps_to_feet_space() {
     assert_eq!(actor.position, [3.0, 100.0, 4.0]);
     assert_eq!(actor.received_pose.position, [3.0, 100.0, 4.0]);
     assert_eq!(actor.interpolation_ticks_remaining, 0);
+}
+
+#[test]
+fn forced_actor_move_snaps_without_teleport_attribution() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, player_spawn(42, -7, 0.0));
+    store.apply(
+        1,
+        2,
+        ActorEvent::Move(ActorMoveEvent {
+            dimension: 0,
+            runtime_id: 42,
+            position: [Some(100.0), Some(72.0), Some(-4.0)],
+            position_origin: ActorPositionOrigin::Feet,
+            pitch: Some(10.0),
+            yaw: Some(20.0),
+            head_yaw: Some(30.0),
+            on_ground: Some(true),
+            teleported: false,
+            snap: true,
+            player_mode: None,
+            source_tick: Some(10),
+        }),
+    );
+
+    let actor = store.get(42).unwrap();
+    assert_eq!(actor.position, [100.0, 72.0, -4.0]);
+    assert_eq!(actor.previous_pose, actor.received_pose);
+    assert_eq!(actor.previous_pose, actor.current_pose());
+    assert_eq!(actor.interpolation_ticks_remaining, 0);
+    assert_eq!(actor.velocity, [0.0; 3]);
+    assert!(!actor.teleported);
 }
 
 #[test]
@@ -571,6 +743,7 @@ fn actor_lifecycle_applies_fifo_patches_and_removes_by_unique_id() {
                 head_yaw: None,
                 on_ground: Some(true),
                 teleported: false,
+                snap: false,
                 player_mode: None,
                 source_tick: None,
             }),
@@ -655,6 +828,7 @@ fn consecutive_teleport_packets_retain_distinct_movement_revisions() {
             head_yaw: None,
             on_ground: None,
             teleported: true,
+            snap: true,
             player_mode: None,
             source_tick: None,
         })

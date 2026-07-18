@@ -419,6 +419,8 @@ fn decode_world_raw_with(
             | McpePacketName::PacketSetEntityData
             | McpePacketName::PacketUpdateAttributes
             | McpePacketName::PacketPlayerList
+            | McpePacketName::PacketUpdatePlayerGameType
+            | McpePacketName::PacketSetDefaultGameType
             | McpePacketName::PacketItemRegistry
             | McpePacketName::PacketMobEquipment
             | McpePacketName::PacketInventoryContent

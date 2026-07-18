@@ -40,6 +40,16 @@ fn remote_actor_clock_is_twenty_hertz_and_exposes_frame_fraction() {
 }
 
 #[test]
+fn actor_pose_witness_budget_is_exactly_bounded_per_session() {
+    assert!(actor_pose_witness_has_capacity(
+        MAX_ACTOR_POSE_WITNESS_RECORDS_PER_SESSION - 1
+    ));
+    assert!(!actor_pose_witness_has_capacity(
+        MAX_ACTOR_POSE_WITNESS_RECORDS_PER_SESSION
+    ));
+}
+
+#[test]
 fn actor_render_source_uses_only_remote_actor_pose_and_roster_skin() {
     let skin = PlayerSkin::Standard(StandardSkin {
         width: 64,
@@ -56,6 +66,8 @@ fn actor_render_source_uses_only_remote_actor_pose_and_roster_skin() {
             username: "remote".into(),
         },
         game_mode: Some(protocol::ActorGameMode::Survival),
+        resolved_game_mode: Some(protocol::ActorGameMode::Survival),
+        game_mode_tick: None,
         position: [10.0, 64.0, -3.0],
         velocity: [0.0; 3],
         pitch: 15.0,
@@ -110,7 +122,52 @@ fn actor_render_source_uses_only_remote_actor_pose_and_roster_skin() {
     assert!(!actor_render_source(&actor, Some(&profile)).render_eligible);
     actor.metadata.clear();
     actor.game_mode = Some(protocol::ActorGameMode::Spectator);
+    actor.resolved_game_mode = Some(protocol::ActorGameMode::Spectator);
     assert!(!actor_render_source(&actor, Some(&profile)).render_eligible);
+}
+
+#[test]
+fn forced_snap_pose_reaches_render_without_teleport_attribution_or_interpolation() {
+    let pose = client_world::ActorPose {
+        position: [32.0, 70.0, -18.0],
+        pitch: 5.0,
+        yaw: 90.0,
+        head_yaw: 95.0,
+    };
+    let actor = client_world::ActorSnapshot {
+        unique_id: -9,
+        runtime_id: 81,
+        spawn_revision: 1,
+        movement_revision: 2,
+        kind: ActorKind::Player {
+            uuid: [9; 16],
+            username: "remote".into(),
+        },
+        game_mode: Some(protocol::ActorGameMode::Survival),
+        resolved_game_mode: Some(protocol::ActorGameMode::Survival),
+        game_mode_tick: None,
+        position: pose.position,
+        velocity: [0.0; 3],
+        pitch: pose.pitch,
+        yaw: pose.yaw,
+        head_yaw: pose.head_yaw,
+        previous_pose: pose,
+        received_pose: pose,
+        interpolation_ticks_remaining: 0,
+        body_yaw: pose.yaw,
+        on_ground: Some(true),
+        teleported: false,
+        player_mode: None,
+        source_tick: Some(40),
+        metadata: Default::default(),
+        attributes: Default::default(),
+        int_properties: Default::default(),
+        float_properties: Default::default(),
+    };
+
+    let source = actor_render_source(&actor, None);
+    assert_eq!(source.previous_position, source.position);
+    assert_eq!(source.previous_yaw_degrees, source.yaw_degrees);
 }
 
 #[test]

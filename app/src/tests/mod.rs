@@ -61,8 +61,10 @@ use crate::runtime::{
         resolve_socket_dir_from,
     },
     network::{
-        ActorFrameClock, NETWORK_INGRESS_BUDGET_PER_FRAME, OUTBOUND_SEND_BUDGET_PER_FRAME,
-        acceptance_surface_anchor, actor_render_source, drain_network_controls,
+        ActorFrameClock, MAX_ACTOR_POSE_WITNESS_RECORDS_PER_SESSION,
+        NETWORK_INGRESS_BUDGET_PER_FRAME, OUTBOUND_SEND_BUDGET_PER_FRAME,
+        acceptance_surface_anchor, actor_pose_witness_has_capacity, actor_render_source,
+        drain_network_controls,
         drain_network_ingress,
     },
     shutdown::{

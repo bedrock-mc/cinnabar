@@ -75,6 +75,7 @@ impl ActorStore {
             max_players,
             max_player_skin_bytes,
             retained_player_skin_bytes: 0,
+            default_game_mode: ActorGameMode::Survival,
             actors: HashMap::new(),
             unique_to_runtime: HashMap::new(),
             players: HashMap::new(),
@@ -92,11 +93,20 @@ impl ActorStore {
             self.actions.remove(lifetime);
         }
     }
+    pub(crate) fn set_default_game_mode(&mut self, game_mode: ActorGameMode) {
+        self.default_game_mode = game_mode;
+        for actor in self.actors.values_mut() {
+            actor.resolved_game_mode = actor
+                .game_mode
+                .map(|raw| raw.resolve_fallback(self.default_game_mode));
+        }
+    }
     #[cfg(test)]
     pub(crate) fn begin_session(&mut self, session_id: u64, dimension: i32) {
         self.session_id = session_id;
         self.dimension = dimension;
         self.latest_sequence = 0;
+        self.default_game_mode = ActorGameMode::Survival;
         self.actors.clear();
         self.unique_to_runtime.clear();
         self.players.clear();
@@ -182,7 +192,7 @@ impl ActorStore {
                     .and_then(|(current, previous)| current.checked_sub(previous))
                     .filter(|ticks| *ticks > 0)
                     .map_or(0.05, |ticks| ticks as f32 * 0.05);
-                let derived_velocity = if movement.teleported {
+                let derived_velocity = if movement.snap {
                     [0.0; 3]
                 } else {
                     std::array::from_fn(|axis| {
@@ -196,7 +206,7 @@ impl ActorStore {
                     [0.0; 3]
                 };
                 actor.received_pose = received;
-                if movement.teleported {
+                if movement.snap {
                     actor.previous_pose = received;
                     actor.set_current_pose(received);
                     actor.interpolation_ticks_remaining = 0;
@@ -248,6 +258,27 @@ impl ActorStore {
                 } else {
                     ActorApplyResult::Updated
                 }
+            }
+            ActorEvent::GameMode(update) => {
+                let Some(runtime_id) = self.unique_to_runtime.get(&update.unique_id).copied()
+                else {
+                    return ActorApplyResult::MissingActor;
+                };
+                let Some(actor) = self.actors.get_mut(&runtime_id) else {
+                    return ActorApplyResult::MissingActor;
+                };
+                if !matches!(actor.kind, ActorKind::Player { .. }) {
+                    return ActorApplyResult::MissingActor;
+                }
+                actor.game_mode = Some(update.game_mode);
+                actor.resolved_game_mode =
+                    Some(update.game_mode.resolve_fallback(self.default_game_mode));
+                actor.game_mode_tick = Some(update.tick);
+                ActorApplyResult::Updated
+            }
+            ActorEvent::DefaultGameMode(update) => {
+                self.set_default_game_mode(update.game_mode);
+                ActorApplyResult::Updated
             }
             ActorEvent::PlayerList(update) => {
                 let mut capacity_rejected = false;
@@ -369,6 +400,7 @@ impl ActorStore {
                 head_yaw: Some(movement.head_yaw),
                 on_ground: Some(movement.on_ground),
                 teleported: movement.teleported,
+                snap: movement.teleported,
                 player_mode: Some(movement.mode),
                 source_tick: Some(movement.source_tick),
             }),
@@ -412,8 +444,10 @@ impl ActorStore {
         let runtime_id = spawn.runtime_id;
         let unique_id = spawn.unique_id;
         let held_item = spawn.held_item.clone();
-        self.actors
-            .insert(runtime_id, ActorSnapshot::from_spawn(spawn, sequence));
+        self.actors.insert(
+            runtime_id,
+            ActorSnapshot::from_spawn(spawn, sequence, self.default_game_mode),
+        );
         self.unique_to_runtime.insert(unique_id, runtime_id);
         if let Some(actor) = self.actors.get(&runtime_id) {
             self.animation

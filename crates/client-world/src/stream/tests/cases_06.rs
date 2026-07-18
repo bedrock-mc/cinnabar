@@ -658,6 +658,7 @@ fn player_spawn_move_player_and_absolute_move_share_feet_space() {
                 head_yaw: None,
                 on_ground: Some(true),
                 teleported: true,
+                snap: true,
                 player_mode: None,
                 source_tick: None,
             })),

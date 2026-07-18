@@ -4,7 +4,8 @@ use anyhow::{Context, Result, ensure};
 #[cfg(test)]
 use bevy::prelude::{App, Update};
 use bevy::prelude::{Local, Res, ResMut, Resource};
-use client_world::WorldStream;
+use client_world::{ActorSnapshot, WorldStream};
+use protocol::{ActorMoveEvent, ActorPositionOrigin};
 use render::{
     ChunkRenderQueue, ModelWitnessEvidence, ModelWitnessRequest, PresentedFrameGate,
     TargetRenderExpectation,
@@ -14,11 +15,52 @@ use sha2::{Digest, Sha256};
 use std::time::Instant;
 use world::SubChunkKey;
 
+use super::markers::ACTOR_POSE_WITNESS;
 use super::teleport::render_view_cohort;
 use crate::runtime::world::ClientWorld;
 
 pub(crate) const MODEL_WITNESS_SCHEMA: &str = "rust-mcbe-model-witness-v1";
 pub(crate) const WITNESS_POLL_INTERVAL: Duration = Duration::from_millis(250);
+
+pub(crate) fn actor_pose_witness_marker(
+    sequence: u64,
+    movement: &ActorMoveEvent,
+    actor: Option<&ActorSnapshot>,
+) -> String {
+    let origin = match movement.position_origin {
+        ActorPositionOrigin::Feet => "feet",
+        ActorPositionOrigin::NetworkOffset => "network_offset",
+    };
+    let store = actor.map(|actor| {
+        serde_json::json!({
+            "unique_id": actor.unique_id,
+            "movement_revision": actor.movement_revision,
+            "applied": actor.movement_revision == sequence,
+            "position": actor.position,
+            "previous_position": actor.previous_pose.position,
+            "received_position": actor.received_pose.position,
+            "interpolation_ticks_remaining": actor.interpolation_ticks_remaining,
+            "on_ground": actor.on_ground,
+            "source_tick": actor.source_tick,
+        })
+    });
+    format!(
+        "{ACTOR_POSE_WITNESS}={}",
+        serde_json::json!({
+            "sequence": sequence,
+            "runtime_id": movement.runtime_id,
+            "packet": {
+                "position": movement.position,
+                "origin": origin,
+                "teleported": movement.teleported,
+                "snap": movement.snap,
+                "on_ground": movement.on_ground,
+                "source_tick": movement.source_tick,
+            },
+            "store": store,
+        })
+    )
+}
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -173,6 +215,8 @@ pub fn poll_model_witness_request(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use client_world::ActorPose;
+    use protocol::{ActorGameMode, ActorKind};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     pub(crate) fn request_json(revision: u64, sub_chunks: &[ModelWitnessSubChunk]) -> Vec<u8> {
@@ -196,6 +240,76 @@ mod tests {
             "sub_chunks": sub_chunks,
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn actor_pose_witness_pairs_packet_origin_with_applied_store_pose() {
+        let pose = ActorPose {
+            position: [4.0, 63.2, -8.0],
+            pitch: 10.0,
+            yaw: 20.0,
+            head_yaw: 30.0,
+        };
+        let actor = ActorSnapshot {
+            unique_id: -7,
+            runtime_id: 42,
+            spawn_revision: 1,
+            movement_revision: 9,
+            kind: ActorKind::Player {
+                uuid: [7; 16],
+                username: "witness".into(),
+            },
+            game_mode: Some(ActorGameMode::Survival),
+            resolved_game_mode: Some(ActorGameMode::Survival),
+            game_mode_tick: None,
+            position: pose.position,
+            velocity: [0.0; 3],
+            pitch: pose.pitch,
+            yaw: pose.yaw,
+            head_yaw: pose.head_yaw,
+            previous_pose: pose,
+            received_pose: pose,
+            interpolation_ticks_remaining: 0,
+            body_yaw: pose.yaw,
+            on_ground: Some(true),
+            teleported: false,
+            player_mode: None,
+            source_tick: Some(120),
+            metadata: Default::default(),
+            attributes: Default::default(),
+            int_properties: Default::default(),
+            float_properties: Default::default(),
+        };
+        let movement = ActorMoveEvent {
+            dimension: 0,
+            runtime_id: 42,
+            position: [Some(4.0), Some(65.0), Some(-8.0)],
+            position_origin: ActorPositionOrigin::NetworkOffset,
+            pitch: Some(10.0),
+            yaw: Some(20.0),
+            head_yaw: Some(30.0),
+            on_ground: Some(true),
+            teleported: false,
+            snap: true,
+            player_mode: None,
+            source_tick: Some(120),
+        };
+
+        let marker = actor_pose_witness_marker(9, &movement, Some(&actor));
+        let (_, payload) = marker.split_once('=').unwrap();
+        let payload: serde_json::Value = serde_json::from_str(payload).unwrap();
+        assert_eq!(payload["packet"]["origin"], "network_offset");
+        assert_eq!(payload["packet"]["position"][1], 65.0);
+        assert_eq!(payload["packet"]["snap"], true);
+        assert_eq!(payload["packet"]["teleported"], false);
+        assert!((payload["store"]["position"][1].as_f64().unwrap() - 63.2).abs() < 1e-5);
+        assert_eq!(payload["store"]["movement_revision"], 9);
+        assert_eq!(payload["store"]["applied"], true);
+
+        let missing = actor_pose_witness_marker(10, &movement, None);
+        let (_, payload) = missing.split_once('=').unwrap();
+        let payload: serde_json::Value = serde_json::from_str(payload).unwrap();
+        assert!(payload["store"].is_null());
     }
 
     #[test]

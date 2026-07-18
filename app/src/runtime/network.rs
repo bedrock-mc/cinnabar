@@ -19,7 +19,7 @@ use render::{
 use crate::{
     acceptance::{
         AcceptanceRun,
-        model_witness::ModelWitnessFileSource,
+        model_witness::{ModelWitnessFileSource, actor_pose_witness_marker},
         mutation::{
             accepted_move_player_ingress_marker, move_player_ingress_marker,
             write_move_player_ingress_before_source_capture, write_stdout_marker,
@@ -46,9 +46,14 @@ pub(crate) use session::{
 
 pub(crate) const NETWORK_INGRESS_BUDGET_PER_FRAME: usize = 32;
 pub(crate) const OUTBOUND_SEND_BUDGET_PER_FRAME: usize = 16;
+pub(crate) const MAX_ACTOR_POSE_WITNESS_RECORDS_PER_SESSION: usize = 4_096;
 const ACTOR_TICK_NANOS: u128 = 50_000_000;
 const _: () = assert!(WORLD_EVENT_CAPACITY >= NETWORK_INGRESS_BUDGET_PER_FRAME);
 const _: () = assert!(NETWORK_INGRESS_BUDGET_PER_FRAME == client_world::MAX_ADMITTED_HEAVY_EVENTS);
+
+pub(crate) const fn actor_pose_witness_has_capacity(emitted: usize) -> bool {
+    emitted < MAX_ACTOR_POSE_WITNESS_RECORDS_PER_SESSION
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct ActorFrameStep {
@@ -172,6 +177,7 @@ pub(crate) fn receive_network_events(
     metrics: Res<AppMetrics>,
     acknowledgements: Res<ChunkUploadAcknowledgements>,
     model_witness_source: Res<ModelWitnessFileSource>,
+    mut actor_pose_witness_count: Local<usize>,
     mut cameras: Query<&mut Transform, With<FlyCamera>>,
 ) {
     let AppWorldState {
@@ -192,6 +198,7 @@ pub(crate) fn receive_network_events(
                 world: bootstrap,
                 environment,
                 inventory,
+                default_game_mode,
             } => {
                 if !bootstrap_session_generation_is_expected(
                     ui_runtime.session_id(),
@@ -209,6 +216,7 @@ pub(crate) fn receive_network_events(
                     continue;
                 }
                 acknowledgements.clear();
+                *actor_pose_witness_count = 0;
                 info!(
                     runtime_id = bootstrap.local_player_runtime_id,
                     position = ?bootstrap.player_position,
@@ -242,11 +250,12 @@ pub(crate) fn receive_network_events(
                         SAFE_SERVER_HEIGHT,
                         bootstrap.world_spawn_position[2] as f32 + 0.5,
                     ]);
-                let stream = WorldStream::new_with_assets(
+                let stream = WorldStream::new_with_assets_and_actor_default(
                     bootstrap,
                     Arc::clone(&client_world.runtime_assets),
                     current,
                     client_world.pending_surface_spawn,
+                    default_game_mode,
                 );
                 let resolved = stream.resolved_server_position();
                 if acceptance.enabled() {
@@ -439,6 +448,18 @@ pub(crate) fn receive_network_events(
             sequenced
         };
         let observed_at = Instant::now();
+        let actor_move_witness = if model_witness_source.configured()
+            && actor_pose_witness_has_capacity(*actor_pose_witness_count)
+        {
+            match &sequenced.event {
+                protocol::WorldEvent::Actor(protocol::ActorEvent::Move(movement)) => {
+                    Some(movement.clone())
+                }
+                _ => None,
+            }
+        } else {
+            None
+        };
         if model_witness_source.configured()
             && let protocol::WorldEvent::MovePlayer(movement) = &sequenced.event
             && let Some(marker) = move_player_ingress_marker(sequenced.sequence, movement.position)
@@ -470,8 +491,22 @@ pub(crate) fn receive_network_events(
                 stream.schedule_source_capture(sequenced.sequence);
             }
         }
-        if let Err(error) = stream.submit(sequenced.sequence, sequenced.event) {
-            client_world.fatal_error = Some(format!("world FIFO rejected data: {error}"));
+        match stream.submit(sequenced.sequence, sequenced.event) {
+            Err(error) => {
+                client_world.fatal_error = Some(format!("world FIFO rejected data: {error}"));
+            }
+            Ok(()) => {
+                if let Some(movement) = actor_move_witness {
+                    let marker = actor_pose_witness_marker(
+                        sequenced.sequence,
+                        &movement,
+                        stream.actor(movement.runtime_id),
+                    );
+                    let mut stdout = std::io::stdout().lock();
+                    write_stdout_marker(&mut stdout, &marker);
+                    *actor_pose_witness_count = (*actor_pose_witness_count).saturating_add(1);
+                }
+            }
         }
     }
 }
