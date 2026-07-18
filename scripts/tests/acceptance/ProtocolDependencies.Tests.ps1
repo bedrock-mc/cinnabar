@@ -4,6 +4,16 @@ $expectedLicenseSha256 = '62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55
 
 . (Join-Path $ProjectRoot 'scripts\acceptance\Markers.ps1')
 
+$PinnedValentineForkCommit = $expectedForkRevision
+$PinnedValentineUpstreamCommit = $expectedUpstreamRevision
+$PinnedValentineLicenseSha256 = $expectedLicenseSha256
+$protocolMetadata = Get-ProtocolDependencyProvenanceMetadata
+Assert-Equal 4 $protocolMetadata.Count 'protocol provenance metadata added or omitted a field'
+Assert-Equal 'vendored-path' $protocolMetadata.protocol_dependency_resolution 'protocol dependency resolution metadata drifted'
+Assert-Equal $expectedForkRevision $protocolMetadata.pinned_valentine_fork_commit 'reviewed fork metadata drifted'
+Assert-Equal $expectedUpstreamRevision $protocolMetadata.pinned_valentine_upstream_commit 'upstream snapshot metadata drifted'
+Assert-Equal $expectedLicenseSha256 $protocolMetadata.pinned_valentine_license_sha256 'retained license metadata drifted'
+
 function Copy-ProtocolDependencyProvenanceFixture {
     param(
         [Parameter(Mandatory = $true)][string]$SourceRoot,
