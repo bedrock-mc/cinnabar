@@ -262,7 +262,7 @@ function Assert-Phase2CacheBoundaryConsistency {
     param(
         [Parameter(Mandatory = $true)][ValidateSet('Lunar', 'Zeqa')][string]$Server,
         [Parameter(Mandatory = $true)][string]$ClientBlobCacheRoute,
-        [Parameter(Mandatory = $true)]$BoundaryEvidence
+        [Parameter(Mandatory = $true)][AllowNull()]$BoundaryEvidence
     )
 
     if ($Server -cne 'Lunar') { return }
@@ -765,6 +765,7 @@ function Complete-Phase2DiagnosticEvidence {
     if ([string]$Manifest.mode -cne 'Diagnostic') {
         throw 'diagnostic evidence completion is valid only for Diagnostic mode'
     }
+    $cacheBoundary = $null
     if (-not [string]::IsNullOrWhiteSpace($CoreLogPath)) {
         $cacheBoundary = Get-Phase2CacheBoundaryEvidence -CoreLogPath $CoreLogPath
         $Manifest | Add-Member -MemberType NoteProperty -Name cache_boundary_evidence `
@@ -772,6 +773,8 @@ function Complete-Phase2DiagnosticEvidence {
     }
     $evidence = Get-Phase2PublicationSequenceEvidence -ClientLogPath $ClientLogPath `
         -ExpectedPresentMode $ExpectedPresentMode -WorldReadyObserved:$WorldReadyObserved -Server $Server
+    Assert-Phase2CacheBoundaryConsistency -Server $Server `
+        -ClientBlobCacheRoute $evidence.ClientBlobCacheRoute -BoundaryEvidence $cacheBoundary
     $findings = [Collections.Generic.List[string]]::new()
     foreach ($finding in @($evidence.Findings)) { $findings.Add($finding) }
     if (-not $WorldReadyObserved) { $findings.Insert(0, 'world_ready_not_observed') }

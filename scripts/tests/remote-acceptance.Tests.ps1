@@ -604,6 +604,8 @@ Describe 'Phase 2 remote acceptance runner' {
             $corePath = Join-Path $temporary 'core.stderr.log'
             $record = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 177 `
                 -RequestsConstructed 177 -RequestsSent 177 -ResponsesAdmitted 3894 -SubchunksCommitted 3894
+            $record.client_blob_cache.hashes_classified = 1
+            $record.client_blob_cache.hits = 1
             'PHASE2_PUBLICATION=' + ($record | ConvertTo-Json -Depth 20 -Compress) |
                 Set-Content -LiteralPath $clientPath
             'time=sentinel level=INFO msg=PHASE2_CACHE_BOUNDARY upstream_status_seen=true upstream_status_enabled=true cached_level_chunks=0 ordinary_level_chunks=177 cached_sub_chunks=0 ordinary_sub_chunks=3894' |
