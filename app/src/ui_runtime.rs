@@ -1,6 +1,7 @@
 //! App-owned conversion boundary between retained UI output and render POD.
 
 mod chat_input;
+pub(crate) mod gameplay_touch;
 pub mod inventory_router;
 pub mod presentation;
 pub mod render_adapter;

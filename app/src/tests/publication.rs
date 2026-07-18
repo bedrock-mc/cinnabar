@@ -1,90 +1,210 @@
 use std::time::Duration;
 
-use bevy::prelude::{App, IntoScheduleConfigs, ResMut, Resource, Update};
+use bevy::{
+    ecs::schedule::{IntoSystemSet, NodeId, ScheduleGraph, Schedules, SystemSet},
+    prelude::{App, Update},
+};
 use render::ChunkUploadBudget;
 
-use crate::app::{ClientFrameSet, configure_client_frame_schedule};
+use crate::app::{
+    ClientFrameSet, configure_client_frame_schedule, configure_client_production_frame_systems,
+};
+use crate::local_player::{
+    publish_interaction_origin, publish_local_player_frame, resolve_camera_pose,
+};
+use crate::movement::advance_local_physics;
+use crate::runtime::network::{publish_actor_render_frame, receive_network_events};
 use crate::runtime::publication::{
     PublicationController, PublicationControllerConfig, PublicationFrameWork,
     adaptive_publication_diagnostic_line,
 };
-
-#[derive(Resource, Default)]
-struct ObservedClientFrameOrder(Vec<ClientFrameSet>);
+use crate::runtime::telemetry::send_player_auth_inputs;
+use crate::runtime::world::drive_world_stream;
+use crate::semantic_controls::{
+    collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
+    synchronize_semantic_input_authority,
+};
+use crate::ui_runtime::presentation::publish_ui_runtime;
 
 #[test]
-fn client_frame_schedule_executes_every_behavioral_barrier_in_contract_order() {
+fn production_client_systems_are_members_of_the_eleven_behavioral_sets() {
     let mut app = App::new();
-    app.init_resource::<ObservedClientFrameOrder>();
     configure_client_frame_schedule(&mut app);
-    app.add_systems(
-        Update,
-        (
-            (|mut order: ResMut<ObservedClientFrameOrder>| {
-                order.0.push(ClientFrameSet::RawInput);
-            })
-            .in_set(ClientFrameSet::RawInput),
-            (|mut order: ResMut<ObservedClientFrameOrder>| {
-                order.0.push(ClientFrameSet::SemanticSample);
-            })
-            .in_set(ClientFrameSet::SemanticSample),
-            (|mut order: ResMut<ObservedClientFrameOrder>| {
-                order.0.push(ClientFrameSet::UiAuthority);
-            })
-            .in_set(ClientFrameSet::UiAuthority),
-            (|mut order: ResMut<ObservedClientFrameOrder>| {
-                order.0.push(ClientFrameSet::SemanticFinalize);
-            })
-            .in_set(ClientFrameSet::SemanticFinalize),
-            (|mut order: ResMut<ObservedClientFrameOrder>| {
-                order.0.push(ClientFrameSet::Physics);
-            })
-            .in_set(ClientFrameSet::Physics),
-            (|mut order: ResMut<ObservedClientFrameOrder>| {
-                order.0.push(ClientFrameSet::Camera);
-            })
-            .in_set(ClientFrameSet::Camera),
-            (|mut order: ResMut<ObservedClientFrameOrder>| {
-                order.0.push(ClientFrameSet::Interaction);
-            })
-            .in_set(ClientFrameSet::Interaction),
-            (|mut order: ResMut<ObservedClientFrameOrder>| {
-                order.0.push(ClientFrameSet::WorldPublication);
-            })
-            .in_set(ClientFrameSet::WorldPublication),
-            (|mut order: ResMut<ObservedClientFrameOrder>| {
-                order.0.push(ClientFrameSet::ActorPublication);
-            })
-            .in_set(ClientFrameSet::ActorPublication),
-            (|mut order: ResMut<ObservedClientFrameOrder>| {
-                order.0.push(ClientFrameSet::UiPublication);
-            })
-            .in_set(ClientFrameSet::UiPublication),
-            (|mut order: ResMut<ObservedClientFrameOrder>| {
-                order.0.push(ClientFrameSet::NetworkSend);
-            })
-            .in_set(ClientFrameSet::NetworkSend),
+    configure_client_production_frame_systems(&mut app);
+
+    let schedules = app.world().resource::<Schedules>();
+    let graph = schedules
+        .get(Update)
+        .expect("production Update schedule")
+        .graph();
+    let stages = [
+        ClientFrameSet::RawInput,
+        ClientFrameSet::SemanticSample,
+        ClientFrameSet::UiAuthority,
+        ClientFrameSet::SemanticFinalize,
+        ClientFrameSet::Physics,
+        ClientFrameSet::Camera,
+        ClientFrameSet::Interaction,
+        ClientFrameSet::WorldPublication,
+        ClientFrameSet::ActorPublication,
+        ClientFrameSet::UiPublication,
+        ClientFrameSet::NetworkSend,
+    ];
+
+    for adjacent in stages.windows(2) {
+        assert!(
+            graph.dependency().graph().contains_edge(
+                stage_node(graph, adjacent[0]),
+                stage_node(graph, adjacent[1]),
+            ),
+            "{:?} must execute directly before {:?}",
+            adjacent[0],
+            adjacent[1]
+        );
+    }
+
+    assert_system_in_stage(
+        graph,
+        collect_raw_input,
+        "collect_raw_input",
+        ClientFrameSet::RawInput,
+    );
+    assert_system_in_stage(
+        graph,
+        route_semantic_input,
+        "route_semantic_input",
+        ClientFrameSet::SemanticSample,
+    );
+    assert_system_in_stage(
+        graph,
+        synchronize_semantic_input_authority,
+        "synchronize_semantic_input_authority",
+        ClientFrameSet::UiAuthority,
+    );
+    assert_system_in_stage(
+        graph,
+        finalize_semantic_input_after_ui_authority,
+        "finalize_semantic_input_after_ui_authority",
+        ClientFrameSet::SemanticFinalize,
+    );
+    assert_system_in_stage(
+        graph,
+        advance_local_physics,
+        "advance_local_physics",
+        ClientFrameSet::Physics,
+    );
+    assert_system_in_stage(
+        graph,
+        resolve_camera_pose,
+        "resolve_camera_pose",
+        ClientFrameSet::Camera,
+    );
+    assert_system_in_stage(
+        graph,
+        publish_local_player_frame,
+        "publish_local_player_frame",
+        ClientFrameSet::Interaction,
+    );
+    assert_system_in_stage(
+        graph,
+        publish_interaction_origin,
+        "publish_interaction_origin",
+        ClientFrameSet::Interaction,
+    );
+    assert_system_in_stage(
+        graph,
+        drive_world_stream,
+        "drive_world_stream",
+        ClientFrameSet::WorldPublication,
+    );
+    assert_system_in_stage(
+        graph,
+        publish_actor_render_frame,
+        "publish_actor_render_frame",
+        ClientFrameSet::ActorPublication,
+    );
+    assert_system_in_stage(
+        graph,
+        publish_ui_runtime,
+        "publish_ui_runtime",
+        ClientFrameSet::UiPublication,
+    );
+    assert_system_in_stage(
+        graph,
+        send_player_auth_inputs,
+        "send_player_auth_inputs",
+        ClientFrameSet::NetworkSend,
+    );
+
+    assert!(
+        graph.dependency().graph().contains_edge(
+            system_node(
+                graph,
+                publish_local_player_frame,
+                "publish_local_player_frame"
+            ),
+            system_node(
+                graph,
+                publish_interaction_origin,
+                "publish_interaction_origin"
+            ),
         ),
+        "the atomic local-player frame must publish before its interaction consumer"
     );
-
-    app.update();
-
-    assert_eq!(
-        app.world().resource::<ObservedClientFrameOrder>().0,
-        [
-            ClientFrameSet::RawInput,
-            ClientFrameSet::SemanticSample,
-            ClientFrameSet::UiAuthority,
-            ClientFrameSet::SemanticFinalize,
-            ClientFrameSet::Physics,
-            ClientFrameSet::Camera,
-            ClientFrameSet::Interaction,
-            ClientFrameSet::WorldPublication,
-            ClientFrameSet::ActorPublication,
-            ClientFrameSet::UiPublication,
-            ClientFrameSet::NetworkSend,
-        ]
+    assert!(
+        graph.dependency().graph().contains_edge(
+            system_node(graph, receive_network_events, "receive_network_events"),
+            stage_node(graph, ClientFrameSet::Physics),
+        ),
+        "correction/session/dimension ingress must invalidate state before Physics and Interaction"
     );
+}
+
+fn stage_node(graph: &ScheduleGraph, stage: ClientFrameSet) -> NodeId {
+    let key = graph
+        .system_sets
+        .get_key(stage.intern())
+        .unwrap_or_else(|| panic!("missing production stage {stage:?}"));
+    NodeId::Set(key)
+}
+
+fn assert_system_in_stage<M>(
+    graph: &ScheduleGraph,
+    system: impl IntoSystemSet<M>,
+    label: &str,
+    stage: ClientFrameSet,
+) {
+    assert!(
+        graph
+            .hierarchy()
+            .graph()
+            .contains_edge(stage_node(graph, stage), system_node(graph, system, label)),
+        "production system {label} is not a member of {stage:?}"
+    );
+}
+
+fn system_node<M>(graph: &ScheduleGraph, system: impl IntoSystemSet<M>, label: &str) -> NodeId {
+    let type_set = graph
+        .system_sets
+        .get_key(system.into_system_set().intern())
+        .unwrap_or_else(|| panic!("missing production system type set {label}"));
+    let parent = NodeId::Set(type_set);
+    let mut matches = graph.systems.iter().filter_map(|(key, _, _)| {
+        let child = NodeId::System(key);
+        graph
+            .hierarchy()
+            .graph()
+            .contains_edge(parent, child)
+            .then_some(child)
+    });
+    let node = matches
+        .next()
+        .unwrap_or_else(|| panic!("missing production system {label}"));
+    assert!(
+        matches.next().is_none(),
+        "production system {label} is registered more than once"
+    );
+    node
 }
 
 fn test_config() -> PublicationControllerConfig {
@@ -221,7 +341,14 @@ fn application_wires_controller_before_world_handoff_and_render_apply() {
         .expect("publication frame registration is bounded")
         .0;
     assert!(publication_frame.contains(".before(ChunkRenderApplySet)"));
-    assert!(source.contains("drive_world_stream.before(ChunkRenderApplySet)"));
+    let world_publication = source[source
+        .rfind("drive_world_stream")
+        .expect("world publication system is registered")..]
+        .split_once(".add_systems(")
+        .expect("world publication registration is bounded")
+        .0;
+    assert!(world_publication.contains(".after(receive_network_events)"));
+    assert!(world_publication.contains(".before(ChunkRenderApplySet)"));
 }
 
 #[test]

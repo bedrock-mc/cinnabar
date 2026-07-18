@@ -1,10 +1,14 @@
 use std::time::Duration;
 
+use crate::app::{ClientFrameSet, configure_client_frame_schedule};
 use crate::camera::{
     self, AutoFly, CameraSettingsAuthority, CameraSettingsError, FlyCamera, FlyCameraPlugin,
     PITCH_LIMIT,
 };
 use crate::local_player::LocalViewPose;
+use crate::semantic_controls::{
+    collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
+};
 use crate::settings_runtime::RuntimeSettings;
 use bevy::{
     anti_alias::fxaa::Fxaa,
@@ -570,8 +574,17 @@ fn settings_authority_rejects_stale_and_invalid_fov_updates_atomically() {
 #[test]
 fn captured_f5_cycles_perspective_without_moving_the_local_view() {
     let mut app = App::new();
+    configure_client_frame_schedule(&mut app);
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::default());
+    app.add_systems(
+        Update,
+        (
+            collect_raw_input.in_set(ClientFrameSet::RawInput),
+            route_semantic_input.in_set(ClientFrameSet::SemanticSample),
+            finalize_semantic_input_after_ui_authority.in_set(ClientFrameSet::SemanticFinalize),
+        ),
+    );
     app.world_mut().spawn((
         Window {
             focused: true,

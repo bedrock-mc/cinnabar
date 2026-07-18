@@ -187,47 +187,54 @@ fn committed_correction_offsets_only_the_third_person_view() {
 }
 
 #[test]
-fn interaction_origin_is_the_local_eye_pose_not_the_offset_camera_pose() {
-    let view = LocalViewPose::new(
-        Vec3::new(8.0, 72.62, -4.0),
-        Quat::from_euler(bevy::math::EulerRot::YXZ, 0.8, -0.25, 0.0),
-    );
-    let camera = CameraPose::new(perspective_pose(
-        view.eye_translation(),
-        view.rotation(),
-        semantic_input::PerspectiveMode::ThirdPersonBack,
-    ));
-
-    let interaction = InteractionOriginSnapshot::from_local_view(7, view);
-
-    assert_eq!(interaction.frame_sequence(), 7);
-    assert_eq!(interaction.origin(), view.eye_translation());
-    assert!(
-        interaction
-            .direction()
-            .abs_diff_eq(view.rotation() * Vec3::NEG_Z, 1.0e-6)
-    );
-    assert_ne!(interaction.origin(), camera.transform().translation);
-
+fn interaction_origin_consumes_and_invalidates_with_the_atomic_local_player_frame() {
     for perspective in [
         semantic_input::PerspectiveMode::FirstPerson,
         semantic_input::PerspectiveMode::ThirdPersonBack,
         semantic_input::PerspectiveMode::ThirdPersonFront,
     ] {
-        let camera = CameraPose::new(perspective_pose(
-            view.eye_translation(),
-            view.rotation(),
-            perspective,
-        ));
-        let interaction = InteractionOriginSnapshot::from_local_view(7, view);
-        assert_eq!(interaction.origin(), view.eye_translation());
-        assert!(
-            interaction
-                .direction()
-                .abs_diff_eq(view.rotation() * Vec3::NEG_Z, 1.0e-6)
+        let sample = frozen_local_player_sample_for(perspective);
+        let mut frame = LocalPlayerFrameCarrier::default();
+        frame.publish(sample.clone()).unwrap();
+        let frozen = frame.snapshot().unwrap();
+        let camera = CameraPose::new(sample.pose);
+        let mut interaction = InteractionOriginSnapshot::default();
+
+        assert!(interaction.outbound_ray().is_none());
+        interaction.publish_from_local_player_frame(&frame);
+
+        let outbound = interaction
+            .outbound_ray()
+            .expect("one atomic interaction/outbound ray");
+        assert_eq!(outbound.session_generation(), frozen.session_generation());
+        assert_eq!(outbound.fifo_sequence(), frozen.fifo_sequence());
+        assert_eq!(outbound.physics_tick(), frozen.physics_tick());
+        assert_eq!(outbound.pose_generation(), frozen.pose_generation());
+        assert_eq!(outbound.perspective(), frozen.perspective());
+        assert_eq!(
+            outbound.world_collision_identity(),
+            frozen.world_collision_identity()
         );
+        assert_eq!(outbound.origin(), frozen.eye());
+        assert!(outbound.direction().abs_diff_eq(frozen.direction(), 1.0e-6));
         if perspective != semantic_input::PerspectiveMode::FirstPerson {
-            assert_ne!(interaction.origin(), camera.transform().translation);
+            assert_ne!(outbound.origin(), camera.transform().translation);
+        }
+
+        for reset in [
+            LocalPlayerFrameReset::Correction,
+            LocalPlayerFrameReset::Session,
+            LocalPlayerFrameReset::Dimension,
+        ] {
+            frame.reset(reset);
+            interaction.publish_from_local_player_frame(&frame);
+            assert!(
+                interaction.outbound_ray().is_none(),
+                "{reset:?} must invalidate the interaction/outbound ray"
+            );
+            frame.publish(sample.clone()).unwrap();
+            interaction.publish_from_local_player_frame(&frame);
+            assert!(interaction.outbound_ray().is_some());
         }
     }
 }
