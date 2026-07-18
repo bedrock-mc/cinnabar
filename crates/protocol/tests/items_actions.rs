@@ -419,31 +419,19 @@ fn registry_preserves_signed_ids_and_rejects_duplicate_and_oversized_records() {
 }
 
 #[test]
-fn equipment_rejects_invalid_runtime_slots_window_and_stack() {
+fn equipment_rejects_invalid_runtime_and_stack_but_retains_unusual_slots() {
     let valid_item = ItemNew {
         network_id: 5,
         count: 1,
         ..Default::default()
     };
+    // A zero runtime id and a semantically invalid item still disconnect: those
+    // are genuine protocol violations.
     for packet in [
         MobEquipmentPacket {
             runtime_entity_id: 0,
             item: valid_item.clone(),
             slot: 0,
-            selected_slot: 0,
-            window_id: WindowId::Inventory,
-        },
-        MobEquipmentPacket {
-            runtime_entity_id: 42,
-            item: valid_item.clone(),
-            slot: 0,
-            selected_slot: 9,
-            window_id: WindowId::Inventory,
-        },
-        MobEquipmentPacket {
-            runtime_entity_id: 42,
-            item: valid_item.clone(),
-            slot: 1,
             selected_slot: 0,
             window_id: WindowId::Inventory,
         },
@@ -462,6 +450,24 @@ fn equipment_rejects_invalid_runtime_slots_window_and_stack() {
         },
     ] {
         assert!(into_world_event(packet.into(), 0).is_err());
+    }
+
+    // Non-hotbar and mismatched slots are common on custom servers; the client
+    // never reads them, so they are retained verbatim instead of disconnecting.
+    for (slot, selected_slot) in [(0, 9), (1, 0), (255, 255)] {
+        let packet = MobEquipmentPacket {
+            runtime_entity_id: 42,
+            item: valid_item.clone(),
+            slot,
+            selected_slot,
+            window_id: WindowId::Inventory,
+        };
+        let WorldEvent::Equipment(event) = into_world_event(packet.into(), 0).unwrap().unwrap()
+        else {
+            panic!("expected retained equipment")
+        };
+        assert_eq!(event.selected_slot, selected_slot);
+        assert_eq!(event.inventory_slot, i32::from(slot));
     }
 
     let signed_window = MobEquipmentPacket {

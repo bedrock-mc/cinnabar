@@ -234,6 +234,79 @@ fn metadata_properties_and_attributes_are_normalized_without_generated_types() {
 }
 
 #[test]
+fn unmodelable_metadata_and_attributes_are_skipped_not_fatal() {
+    // A metadata entry the client cannot model (empty value) is dropped, and
+    // the surrounding well-formed entry is still retained.
+    let set_data = SetEntityDataPacket {
+        runtime_entity_id: 55,
+        metadata: vec![
+            MetadataDictionaryItem {
+                key: MetadataDictionaryItemKey::Nametag,
+                type_: MetadataDictionaryItemType::String,
+                value: MetadataDictionaryItemValue::Default(Box::new(None)),
+            },
+            MetadataDictionaryItem {
+                key: MetadataDictionaryItemKey::Nametag,
+                type_: MetadataDictionaryItemType::String,
+                value: MetadataDictionaryItemValue::Default(Box::new(Some(
+                    MetadataDictionaryItemValueDefault::String("Beeatrice".to_owned()),
+                ))),
+            },
+        ],
+        properties: EntityProperties::default(),
+        tick: 10,
+    }
+    .into();
+    let Some(WorldEvent::Actor(ActorEvent::Metadata(update))) =
+        into_world_event(set_data, 0).expect("metadata leniency is not fatal")
+    else {
+        panic!("expected metadata update")
+    };
+    assert_eq!(update.metadata.len(), 1);
+    assert_eq!(
+        update.metadata[0].value,
+        ActorMetadataValue::String("Beeatrice".into())
+    );
+
+    // A non-finite attribute (servers send INFINITY for "unbounded") is dropped
+    // while the finite attribute survives.
+    let attributes = UpdateAttributesPacket {
+        runtime_entity_id: 55,
+        attributes: vec![
+            PlayerAttributesItem {
+                min: 0.0,
+                max: f32::INFINITY,
+                current: 1.0,
+                default_min: 0.0,
+                default_max: 0.0,
+                default: 0.0,
+                name: "minecraft:luck".to_owned(),
+                modifiers: vec![],
+            },
+            PlayerAttributesItem {
+                min: 0.0,
+                max: 20.0,
+                current: 17.5,
+                default_min: 0.0,
+                default_max: 20.0,
+                default: 20.0,
+                name: "minecraft:health".to_owned(),
+                modifiers: vec![],
+            },
+        ],
+        tick: 11,
+    }
+    .into();
+    let Some(WorldEvent::Actor(ActorEvent::Attributes(update))) =
+        into_world_event(attributes, 0).expect("attribute leniency is not fatal")
+    else {
+        panic!("expected attribute update")
+    };
+    assert_eq!(update.attributes.len(), 1);
+    assert_eq!(update.attributes[0].name.as_ref(), "minecraft:health");
+}
+
+#[test]
 fn player_list_add_and_remove_normalize_to_fifo_roster_deltas() {
     let uuid = Default::default();
     let add = PlayerListPacket {

@@ -1,5 +1,13 @@
 # Repository agent instructions
 
+## Remote server data: be lenient, not strict
+
+Inbound server data is untrusted and imperfect. Malformed *wire* (truncation,
+bad lengths, decode failures) is fatal. A semantically odd but well-formed
+packet (unexpected slot, sentinel id, non-finite float, unknown metadata key,
+custom world height) is not: skip that packet/field, log/count it, keep the
+session alive. Never disconnect over data the client doesn't even use.
+
 ## Bevy client screenshots on Windows
 
 - Use native Computer Use/WGC as the primary path for Cinnabar window inspection and input testing.

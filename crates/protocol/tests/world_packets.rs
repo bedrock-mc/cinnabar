@@ -2,10 +2,10 @@ use bytes::{Buf, BytesMut};
 use protocol::{
     BiomeDefinitionEvent, BiomeDefinitionsEvent, DaylightCycleUpdateEvent, DimensionRange,
     GameData, HASHED_AIR_NETWORK_ID, LevelChunkMode, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES,
-    MovePlayerEvent, PlayerMovementCorrectionEvent, SEQUENTIAL_AIR_NETWORK_ID, SetTimeEvent,
-    SubChunkResult, WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldEnvironmentBootstrap,
-    WorldEvent, WorldPacketError, air_network_id, into_world_event, request_sub_chunk_column,
-    vanilla_dimension_range,
+    MAX_SUB_CHUNK_REQUESTS, MovePlayerEvent, PlayerMovementCorrectionEvent,
+    SEQUENTIAL_AIR_NETWORK_ID, SetTimeEvent, SubChunkResult, WeatherChannel, WeatherUpdateEvent,
+    WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent, WorldPacketError, air_network_id,
+    into_world_event, request_sub_chunk_column, vanilla_dimension_range,
 };
 use valentine::bedrock::codec::{BedrockCodec, BedrockSized};
 use valentine::bedrock::version::v1_26_30::{
@@ -583,17 +583,34 @@ fn rejects_malformed_or_cached_level_chunks() {
         Err(WorldPacketError::CachedChunksUnsupported)
     );
 
+    // A world taller than vanilla overworld is accepted: custom servers send
+    // standard dimension ids with taller columns. Only the absolute protocol
+    // bound is enforced.
     let taller_than_overworld = LevelChunkPacket {
         dimension: 0,
         sub_chunk_count: 25,
+        payload: vec![0; 3],
+        ..Default::default()
+    };
+    let WorldEvent::LevelChunk(event) = into_world_event(taller_than_overworld.into(), 0)
+        .unwrap()
+        .unwrap()
+    else {
+        panic!("expected LevelChunk event")
+    };
+    assert_eq!(event.mode, LevelChunkMode::Inline { count: 25 });
+
+    let over_protocol_bound = LevelChunkPacket {
+        dimension: 0,
+        sub_chunk_count: (MAX_SUB_CHUNK_REQUESTS + 1) as i32,
         ..Default::default()
     };
     assert_eq!(
-        into_world_event(taller_than_overworld.into(), 0),
+        into_world_event(over_protocol_bound.into(), 0),
         Err(WorldPacketError::InlineSubChunkCountExceedsDimension {
             dimension: 0,
-            count: 25,
-            max: 24,
+            count: MAX_SUB_CHUNK_REQUESTS + 1,
+            max: MAX_SUB_CHUNK_REQUESTS,
         })
     );
 }

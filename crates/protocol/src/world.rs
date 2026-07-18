@@ -580,13 +580,14 @@ pub fn into_world_event(
             let mode = match packet.sub_chunk_count {
                 count if count >= 0 => {
                     let count = count as usize;
-                    let max = vanilla_dimension_range(packet.dimension)
-                        .map_or(MAX_SUB_CHUNK_REQUESTS, |range| range.sub_chunk_count);
-                    if count > max {
+                    // Bound by the absolute protocol maximum, not the vanilla
+                    // dimension height: custom servers advertise standard
+                    // dimension ids with taller-than-vanilla world columns.
+                    if count > MAX_SUB_CHUNK_REQUESTS {
                         return Err(WorldPacketError::InlineSubChunkCountExceedsDimension {
                             dimension: packet.dimension,
                             count,
-                            max,
+                            max: MAX_SUB_CHUNK_REQUESTS,
                         });
                     }
                     LevelChunkMode::Inline { count }

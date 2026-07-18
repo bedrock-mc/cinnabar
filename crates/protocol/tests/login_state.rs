@@ -382,7 +382,16 @@ impl ServerScript {
                         McpePacket::from(SetTimePacket { time: 34_567 }),
                     ]);
                 } else {
-                    self.enqueue_encrypted(&[McpePacket::from(SetTimePacket { time: 34_567 })]);
+                    // A malformed world packet (invalid sub-chunk count) must be
+                    // skipped, not disconnect the session; the following SetTime
+                    // still arrives in order.
+                    self.enqueue_encrypted(&[
+                        McpePacket::from(LevelChunkPacket {
+                            sub_chunk_count: -3,
+                            ..Default::default()
+                        }),
+                        McpePacket::from(SetTimePacket { time: 34_567 }),
+                    ]);
                 }
                 self.stage = 8;
             }
@@ -663,6 +672,9 @@ async fn assert_success(mode: CompressionMode, order: SpawnOrder) {
         post_spawn_time,
         WorldEvent::SetTime(protocol::SetTimeEvent { time: 34_567 })
     );
+    // The preceding malformed chunk was skipped, not fatal: the session stayed
+    // alive and counted one skip.
+    assert_eq!(session.world_skip_count(), 1);
 
     let mut invalid = Packet::from(ClientCacheStatusPacket { enabled: true });
     invalid.header.id = McpePacketName::PacketPlayStatus;

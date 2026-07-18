@@ -153,10 +153,6 @@ pub enum ItemPacketError {
     ItemEncodingFailed,
     #[error("actor runtime ID {0} is invalid")]
     InvalidRuntimeId(i64),
-    #[error("selected hotbar slot {0} is outside 0..9")]
-    InvalidSelectedSlot(u8),
-    #[error("inventory slot {inventory} contradicts selected slot {selected}")]
-    ContradictorySlots { inventory: u8, selected: u8 },
     #[error("animation target count {count} is outside 1..={max}")]
     InvalidAnimationTargetCount { count: usize, max: usize },
     #[error("animation target runtime ID {0} occurs more than once")]
@@ -440,15 +436,9 @@ fn normalize_equipment_parts(
     selected_slot: u8,
     window: WindowId,
 ) -> Result<EquipmentEvent, ItemPacketError> {
-    if selected_slot >= 9 {
-        return Err(ItemPacketError::InvalidSelectedSlot(selected_slot));
-    }
-    if inventory_slot != selected_slot {
-        return Err(ItemPacketError::ContradictorySlots {
-            inventory: inventory_slot,
-            selected: selected_slot,
-        });
-    }
+    // Handedness comes from the window, not the slot. Servers send non-hotbar
+    // or sentinel slot values (e.g. 0xFF) that the client never reads, so the
+    // raw slots are retained verbatim rather than rejected.
     let (window_id, handedness) = window_id(window);
     Ok(EquipmentEvent {
         actor_runtime_id,

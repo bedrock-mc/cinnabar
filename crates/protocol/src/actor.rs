@@ -224,10 +224,6 @@ pub enum ActorPacketError {
     },
     #[error("actor field {field} is non-finite")]
     NonFiniteField { field: &'static str },
-    #[error("actor metadata entry has no value")]
-    MissingMetadataValue,
-    #[error("actor metadata NBT has {bytes} bytes, exceeding {max}")]
-    MetadataNbtTooLong { bytes: usize, max: usize },
     #[error("actor move rotation {field} has {count} bytes; expected exactly one")]
     InvalidRotationBytes { field: &'static str, count: usize },
     #[error("absolute actor move has an invalid runtime ID varuint")]
@@ -593,18 +589,19 @@ fn normalize_entity_attributes(
     attributes: EntityAttributes,
 ) -> Result<Arc<[ActorAttribute]>, ActorPacketError> {
     check_count("attributes", attributes.len(), MAX_ACTOR_ATTRIBUTES)?;
-    attributes
+    // Skip individual malformed attributes (over-long name, non-finite bound —
+    // servers send INFINITY for "unbounded") rather than dropping the actor.
+    let normalized = attributes
         .into_iter()
-        .map(|attribute| {
-            validate_text("attribute.name", &attribute.name, MAX_ACTOR_NAME_BYTES)?;
-            for (field, value) in [
-                ("attribute.min", attribute.min),
-                ("attribute.max", attribute.max),
-                ("attribute.current", attribute.value),
-            ] {
-                validate_finite(field, value)?;
+        .filter_map(|attribute| {
+            if attribute.name.len() > MAX_ACTOR_NAME_BYTES
+                || [attribute.min, attribute.max, attribute.value]
+                    .iter()
+                    .any(|value| !value.is_finite())
+            {
+                return None;
             }
-            Ok(ActorAttribute {
+            Some(ActorAttribute {
                 name: Arc::from(attribute.name),
                 min: attribute.min,
                 max: attribute.max,
@@ -613,41 +610,43 @@ fn normalize_entity_attributes(
                 modifiers: Arc::from([]),
             })
         })
-        .collect::<Result<Vec<_>, _>>()
-        .map(Arc::from)
+        .collect::<Vec<_>>();
+    Ok(Arc::from(normalized))
 }
 
 fn normalize_player_attributes(
     attributes: PlayerAttributes,
 ) -> Result<Arc<[ActorAttribute]>, ActorPacketError> {
     check_count("attributes", attributes.len(), MAX_ACTOR_ATTRIBUTES)?;
-    attributes
+    let normalized = attributes
         .into_iter()
-        .map(|attribute| {
-            validate_text("attribute.name", &attribute.name, MAX_ACTOR_NAME_BYTES)?;
-            check_count(
-                "attribute.modifiers",
-                attribute.modifiers.len(),
-                MAX_ACTOR_ATTRIBUTE_MODIFIERS,
-            )?;
-            for (field, value) in [
-                ("attribute.min", attribute.min),
-                ("attribute.max", attribute.max),
-                ("attribute.current", attribute.current),
-                ("attribute.default_min", attribute.default_min),
-                ("attribute.default_max", attribute.default_max),
-                ("attribute.default", attribute.default),
-            ] {
-                validate_finite(field, value)?;
+        .filter_map(|attribute| {
+            if attribute.name.len() > MAX_ACTOR_NAME_BYTES
+                || attribute.modifiers.len() > MAX_ACTOR_ATTRIBUTE_MODIFIERS
+                || [
+                    attribute.min,
+                    attribute.max,
+                    attribute.current,
+                    attribute.default_min,
+                    attribute.default_max,
+                    attribute.default,
+                ]
+                .iter()
+                .any(|value| !value.is_finite())
+            {
+                return None;
             }
             let modifiers = attribute
                 .modifiers
                 .into_iter()
-                .map(|modifier| {
-                    validate_text("modifier.id", &modifier.id, MAX_ACTOR_NAME_BYTES)?;
-                    validate_text("modifier.name", &modifier.name, MAX_ACTOR_NAME_BYTES)?;
-                    validate_finite("modifier.amount", modifier.amount)?;
-                    Ok(ActorAttributeModifier {
+                .filter_map(|modifier| {
+                    if modifier.id.len() > MAX_ACTOR_NAME_BYTES
+                        || modifier.name.len() > MAX_ACTOR_NAME_BYTES
+                        || !modifier.amount.is_finite()
+                    {
+                        return None;
+                    }
+                    Some(ActorAttributeModifier {
                         id: Arc::from(modifier.id),
                         name: Arc::from(modifier.name),
                         amount: modifier.amount,
@@ -656,8 +655,8 @@ fn normalize_player_attributes(
                         serializable: modifier.serializable,
                     })
                 })
-                .collect::<Result<Vec<_>, ActorPacketError>>()?;
-            Ok(ActorAttribute {
+                .collect::<Vec<_>>();
+            Some(ActorAttribute {
                 name: Arc::from(attribute.name),
                 min: attribute.min,
                 max: attribute.max,
@@ -666,8 +665,8 @@ fn normalize_player_attributes(
                 modifiers: Arc::from(modifiers),
             })
         })
-        .collect::<Result<Vec<_>, _>>()
-        .map(Arc::from)
+        .collect::<Vec<_>>();
+    Ok(Arc::from(normalized))
 }
 
 fn normalize_properties(
@@ -689,7 +688,10 @@ fn normalize_properties(
             }),
     );
     for property in properties.floats {
-        validate_finite("property.float", property.value)?;
+        // Skip a non-finite custom property value rather than dropping the actor.
+        if !property.value.is_finite() {
+            continue;
+        }
         normalized.push(ActorProperty::Float {
             index: property.index,
             value: property.value,
@@ -702,10 +704,13 @@ fn normalize_metadata(
     metadata: MetadataDictionary,
 ) -> Result<Arc<[ActorMetadata]>, ActorPacketError> {
     check_count("metadata", metadata.len(), MAX_ACTOR_METADATA_ENTRIES)?;
-    metadata
+    // Skip individual entries the client cannot model (unknown/newer value
+    // types, non-finite floats, oversized payloads) rather than dropping the
+    // whole actor. The client renders the entity from the entries it does know.
+    let entries = metadata
         .into_iter()
-        .map(|entry| {
-            let key = metadata_key_id(&entry.key)?;
+        .filter_map(|entry| {
+            let key = metadata_key_id(&entry.key).ok()?;
             let value = match entry.value {
                 MetadataDictionaryItemValue::Flags(value) => {
                     ActorMetadataValue::Flags(value.bits())
@@ -714,10 +719,9 @@ fn normalize_metadata(
                     ActorMetadataValue::FlagsExtended(value.bits())
                 }
                 MetadataDictionaryItemValue::SeatCameraRelaxDistanceSmoothing(value)
-                | MetadataDictionaryItemValue::SeatThirdPersonCameraRadius(value) => {
-                    validate_finite("metadata.float", value)?;
-                    ActorMetadataValue::Float(value)
-                }
+                | MetadataDictionaryItemValue::SeatThirdPersonCameraRadius(value) => value
+                    .is_finite()
+                    .then_some(ActorMetadataValue::Float(value))?,
                 MetadataDictionaryItemValue::Default(value) => match *value {
                     Some(MetadataDictionaryItemValueDefault::Byte(value)) => {
                         ActorMetadataValue::Byte(value)
@@ -728,20 +732,18 @@ fn normalize_metadata(
                     Some(MetadataDictionaryItemValueDefault::Int(value)) => {
                         ActorMetadataValue::Int(value)
                     }
-                    Some(MetadataDictionaryItemValueDefault::Float(value)) => {
-                        validate_finite("metadata.float", value)?;
-                        ActorMetadataValue::Float(value)
-                    }
+                    Some(MetadataDictionaryItemValueDefault::Float(value)) => value
+                        .is_finite()
+                        .then_some(ActorMetadataValue::Float(value))?,
                     Some(MetadataDictionaryItemValueDefault::String(value)) => {
-                        validate_text("metadata.string", &value, MAX_ACTOR_METADATA_STRING_BYTES)?;
+                        if value.len() > MAX_ACTOR_METADATA_STRING_BYTES {
+                            return None;
+                        }
                         ActorMetadataValue::String(Arc::from(value))
                     }
                     Some(MetadataDictionaryItemValueDefault::Compound(value)) => {
                         if value.0.len() > MAX_ACTOR_METADATA_NBT_BYTES {
-                            return Err(ActorPacketError::MetadataNbtTooLong {
-                                bytes: value.0.len(),
-                                max: MAX_ACTOR_METADATA_NBT_BYTES,
-                            });
+                            return None;
                         }
                         ActorMetadataValue::Compound(Arc::from(value.0.to_vec()))
                     }
@@ -752,18 +754,18 @@ fn normalize_metadata(
                         ActorMetadataValue::Long(value)
                     }
                     Some(MetadataDictionaryItemValueDefault::Vec3F(value)) => {
-                        for component in [value.x, value.y, value.z] {
-                            validate_finite("metadata.vector", component)?;
+                        if [value.x, value.y, value.z].iter().any(|c| !c.is_finite()) {
+                            return None;
                         }
                         ActorMetadataValue::Vector([value.x, value.y, value.z])
                     }
-                    None => return Err(ActorPacketError::MissingMetadataValue),
+                    None => return None,
                 },
             };
-            Ok(ActorMetadata { key, value })
+            Some(ActorMetadata { key, value })
         })
-        .collect::<Result<Vec<_>, _>>()
-        .map(Arc::from)
+        .collect::<Vec<_>>();
+    Ok(Arc::from(entries))
 }
 
 fn metadata_key_id(key: &MetadataDictionaryItemKey) -> Result<i32, ActorPacketError> {

@@ -86,6 +86,7 @@ impl LoginSequence {
 pub struct PlaySession<T: Transport = SocketTransport> {
     stream: BedrockStream<Play, Client, T>,
     decode_errors: u64,
+    world_skips: u64,
     blob_cache: Option<BlobCacheResolver>,
 }
 
@@ -94,8 +95,27 @@ impl<T: Transport> PlaySession<T> {
         Self {
             stream,
             decode_errors: 0,
+            world_skips: 0,
             blob_cache: cache.map(BlobCacheResolver::new),
         }
+    }
+
+    /// Skips a well-formed but semantically unusable world packet instead of
+    /// tearing down the session, counting it for observability. Genuine wire
+    /// decode/transport errors stay fatal and are returned unchanged.
+    fn skip_or_fail_world(&mut self, error: ProtocolError) -> Result<(), ProtocolError> {
+        if matches!(error, ProtocolError::World(_)) {
+            self.world_skips = self.world_skips.saturating_add(1);
+            self.reset_blob_cache_pending();
+            Ok(())
+        } else {
+            Err(error)
+        }
+    }
+
+    /// Count of world packets skipped because normalization rejected them.
+    pub fn world_skip_count(&self) -> u64 {
+        self.world_skips
     }
 
     /// Receives one packet, counting malformed/decompression failures.
@@ -152,7 +172,7 @@ impl<T: Transport> PlaySession<T> {
                     }
                     return Err(ProtocolError::Session(error));
                 }
-                Err(error) => return Err(error),
+                Err(error) => self.skip_or_fail_world(error)?,
             }
         }
     }
@@ -210,8 +230,8 @@ impl<T: Transport> PlaySession<T> {
                                 continue;
                             }
                             Err(error) => {
-                                self.reset_blob_cache_pending();
-                                return Err(error.into());
+                                self.skip_or_fail_world(error.into())?;
+                                continue;
                             }
                         }
                     }
@@ -287,8 +307,8 @@ impl<T: Transport> PlaySession<T> {
                 let event = match into_world_event(packet, current_dimension) {
                     Ok(event) => event,
                     Err(error) => {
-                        self.reset_blob_cache_pending();
-                        return Err(error.into());
+                        self.skip_or_fail_world(error.into())?;
+                        continue;
                     }
                 };
                 if let Some(event) = event
@@ -319,10 +339,7 @@ impl<T: Transport> PlaySession<T> {
                 }
                 Ok(None) => {}
                 Err(ProtocolError::Session(error)) => return Err(self.fail_session(error)),
-                Err(error) => {
-                    self.reset_blob_cache_pending();
-                    return Err(error);
-                }
+                Err(error) => self.skip_or_fail_world(error)?,
             }
         }
     }
