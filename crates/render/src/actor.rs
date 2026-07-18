@@ -36,6 +36,7 @@ pub struct ActorRenderSource {
     pub yaw_degrees: f32,
     pub head_yaw_degrees: f32,
     pub teleported: bool,
+    pub render_eligible: bool,
     pub skin: Option<ActorSkinPixels>,
 }
 
@@ -146,6 +147,7 @@ impl ActorRenderScene {
         };
         let mut sources = sources
             .into_iter()
+            .filter(|source| source.render_eligible)
             .filter(ActorRenderSource::is_finite)
             .collect::<Vec<_>>();
         sources.sort_unstable_by_key(|source| source.runtime_id);
@@ -436,6 +438,7 @@ mod tests {
             yaw_degrees,
             head_yaw_degrees: yaw_degrees,
             teleported: false,
+            render_eligible: true,
             skin: None,
         }
     }
@@ -559,6 +562,42 @@ mod tests {
             .collect::<Vec<_>>();
         sources.push(tick_source(999, 0.0, 0.0, 0.0, 0.0));
         let mut scene = ActorRenderScene::default();
+        let frame = scene.update(1.0, Some(broad_view(192.0)), sources);
+
+        assert_eq!(frame.instances.len(), 1);
+        assert_eq!(frame.instances[0].runtime_id, 999);
+    }
+
+    #[test]
+    fn render_ineligible_actor_is_rejected_when_camera_is_inside_its_aabb() {
+        let mut hidden = source(7, 0.0, 0.0);
+        hidden.render_eligible = false;
+        let mut scene = ActorRenderScene::default();
+
+        let frame = scene.update(1.0, Some(broad_view(192.0)), [hidden, source(8, 0.0, 0.0)]);
+
+        assert_eq!(
+            frame
+                .instances
+                .iter()
+                .map(|actor| actor.runtime_id)
+                .collect::<Vec<_>>(),
+            vec![8]
+        );
+    }
+
+    #[test]
+    fn render_ineligible_actors_do_not_consume_the_visible_actor_cap() {
+        let mut sources = (0..u64::try_from(MAX_RENDERED_PLAYERS).unwrap())
+            .map(|id| {
+                let mut actor = source(id, 0.0, 0.0);
+                actor.render_eligible = false;
+                actor
+            })
+            .collect::<Vec<_>>();
+        sources.push(source(999, 0.0, 0.0));
+        let mut scene = ActorRenderScene::default();
+
         let frame = scene.update(1.0, Some(broad_view(192.0)), sources);
 
         assert_eq!(frame.instances.len(), 1);

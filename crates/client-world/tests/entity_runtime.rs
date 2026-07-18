@@ -283,6 +283,7 @@ fn spawn(runtime_id: u64, unique_id: i64, velocity: [f32; 3]) -> WorldEvent {
         kind: ActorKind::Entity {
             identifier: "minecraft:bee".into(),
         },
+        game_mode: None,
         position: [0.0, 64.0, 0.0],
         velocity,
         pitch: 0.0,

@@ -1212,6 +1212,7 @@ mod tests {
             kind: ActorKind::Entity {
                 identifier: "minecraft:test".into(),
             },
+            game_mode: None,
             position: [0.0; 3],
             velocity: [0.0; 3],
             pitch: 0.0,
