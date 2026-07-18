@@ -3,7 +3,6 @@ function Get-AcceptanceLibraryPaths {
 
     $root = Join-Path (Split-Path -Parent $EntryPath) 'acceptance'
     return @(
-        'Phase2Publication.ps1',
         'Common.ps1',
         'RuntimePaths.ps1',
         'Process.ps1',
@@ -179,6 +178,8 @@ function Assert-Phase2FiniteNonnegativeNumber {
         throw "$Label must be finite and nonnegative"
     }
 }
+
+. (Join-Path $PSScriptRoot 'Phase2Publication.ps1')
 
 function Get-Phase2PublicationSequenceEvidence {
     param(
@@ -746,5 +747,3 @@ function Measure-Phase2Resources {
     Write-Phase2Json -Path $OutputPath -Value $document
     return $document
 }
-
-. (Join-Path $PSScriptRoot 'Phase2Publication.ps1')

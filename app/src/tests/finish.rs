@@ -1,5 +1,3 @@
-mod completion;
-
 use super::*;
 #[test]
 fn forced_remesh_starts_only_after_binding_teleport_completion() {
@@ -1155,3 +1153,5 @@ fn committed_movement_correction_updates_local_camera_position_and_rotation() {
     ));
     assert_eq!(pending_surface_spawn, None);
 }
+
+include!("finish/completion.rs");
