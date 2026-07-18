@@ -200,7 +200,8 @@ function Assert-Phase2PublicationRecord {
         [Parameter(Mandatory = $true)]$Record,
         [Parameter(Mandatory = $true)][ValidateSet('Fifo', 'Immediate')][string]$ExpectedPresentMode,
         [string]$ExpectedGraphicsIdentity,
-        [string]$ExpectedAssetsIdentity
+        [string]$ExpectedAssetsIdentity,
+        [switch]$AllowUninitializedPublisher
     )
 
     Assert-Phase2ExactProperties -Value $Record `
@@ -264,11 +265,20 @@ function Assert-Phase2PublicationRecord {
     Assert-Phase2UnsignedInteger -Value $publication.session_generation -Label 'publication.session_generation' -Positive
     Assert-Phase2UnsignedInteger -Value $publication.required_columns -Label 'publication.required_columns'
     Assert-Phase2UnsignedInteger -Value $publication.loaded_required_columns -Label 'publication.loaded_required_columns'
-    Assert-Phase2UnsignedInteger -Value $publication.publisher_radius_blocks -Label 'publication.publisher_radius_blocks' -Maximum 1024 -Positive
-    Assert-Phase2UnsignedInteger -Value $publication.publisher_radius_chunks -Label 'publication.publisher_radius_chunks' -Maximum 64 -Positive
-    $derivedRetentionRadius = [uint64][Math]::Ceiling([uint64]$publication.publisher_radius_blocks / 16.0)
-    if ([uint64]$publication.publisher_radius_chunks -ne $derivedRetentionRadius) {
-        throw 'PHASE2_PUBLICATION raw block radius disagrees with its derived retention radius'
+    $publisherUninitialized = $null -eq $publication.publisher_radius_blocks -and
+        $null -eq $publication.publisher_radius_chunks
+    if ($publisherUninitialized) {
+        if (-not $AllowUninitializedPublisher) {
+            throw 'publication.publisher_radius_blocks must be an exact integral JSON number'
+        }
+    }
+    else {
+        Assert-Phase2UnsignedInteger -Value $publication.publisher_radius_blocks -Label 'publication.publisher_radius_blocks' -Maximum 1024 -Positive
+        Assert-Phase2UnsignedInteger -Value $publication.publisher_radius_chunks -Label 'publication.publisher_radius_chunks' -Maximum 64 -Positive
+        $derivedRetentionRadius = [uint64][Math]::Ceiling([uint64]$publication.publisher_radius_blocks / 16.0)
+        if ([uint64]$publication.publisher_radius_chunks -ne $derivedRetentionRadius) {
+            throw 'PHASE2_PUBLICATION raw block radius disagrees with its derived retention radius'
+        }
     }
     if ($null -eq $publication.stages -or $null -eq $publication.outcomes -or
         [string]$publication.required_cohort_hash -notmatch '^[0-9a-f]{16}$' -or
@@ -360,6 +370,27 @@ function Assert-Phase2PublicationRecord {
             [string]$identity.required_cohort_hash -cne [string]$publication.required_cohort_hash -or
             [string]$identity.generation_manifest_hash -notmatch '^[0-9a-f]{16}$') {
             throw "PHASE2_PUBLICATION contains incoherent $identityName identity"
+        }
+    }
+    if ($publisherUninitialized) {
+        if ([uint64]$publication.required_columns -ne 0 -or
+            [uint64]$publication.loaded_required_columns -ne 0) {
+            throw 'PHASE2_PUBLICATION uninitialized publisher contains a nonempty cohort'
+        }
+        foreach ($field in $requiredStageFields) {
+            if ([uint64]$publication.stages.$field -ne 0) {
+                throw 'PHASE2_PUBLICATION uninitialized publisher contains stage progress'
+            }
+        }
+        foreach ($field in @('success', 'all_air', 'unavailable', 'malformed', 'stale', 'timed_out')) {
+            if ([uint64]$publication.outcomes.$field -ne 0) {
+                throw 'PHASE2_PUBLICATION uninitialized publisher contains response outcomes'
+            }
+        }
+        foreach ($identityName in @('publisher_disk', 'resident', 'allocation', 'visible', 'submitted', 'gpu_presented')) {
+            if ([uint64]$presentation.$identityName.entry_count -ne 0) {
+                throw 'PHASE2_PUBLICATION uninitialized publisher contains presented entries'
+            }
         }
     }
 }
@@ -468,6 +499,7 @@ function Get-Phase2PublicationSequenceEvidence {
     $assetsIdentity = $null
     $previousRecord = $null
     $sequenceIdentity = $null
+    $publisherInitialized = $false
     foreach ($line in $lines) {
         $lower = $line.ToLowerInvariant()
         foreach ($forbidden in @('"path"', '"token"', '"auth"', '"payload"', '"credential"')) {
@@ -481,34 +513,43 @@ function Get-Phase2PublicationSequenceEvidence {
         catch {
             throw 'client log contains malformed PHASE2_PUBLICATION JSON'
         }
+        $publisherUninitialized = $null -eq $record.publication.publisher_radius_blocks -and
+            $null -eq $record.publication.publisher_radius_chunks
+        if ($publisherUninitialized -and $publisherInitialized) {
+            throw 'PHASE2_PUBLICATION publisher became uninitialized during the diagnostic capture'
+        }
         Assert-Phase2PublicationRecord -Record $record -ExpectedPresentMode $ExpectedPresentMode `
-            -ExpectedGraphicsIdentity $graphicsIdentity -ExpectedAssetsIdentity $assetsIdentity
+            -ExpectedGraphicsIdentity $graphicsIdentity -ExpectedAssetsIdentity $assetsIdentity `
+            -AllowUninitializedPublisher:$publisherUninitialized
         if ($null -eq $graphicsIdentity) {
             $graphicsIdentity = [string]$record.presentation.graphics_identity_sha256
             $assetsIdentity = [string]$record.presentation.assets_manifest_sha256
         }
-        $currentSequenceIdentity = [pscustomobject][ordered]@{
-            session_generation = [uint64]$record.publication.session_generation
-            required_cohort_hash = [string]$record.publication.required_cohort_hash
-            required_columns = [uint64]$record.publication.required_columns
-            dimension = [int32]$record.publication.player_column.dimension
-            player_x = [int32]$record.publication.player_column.x
-            player_z = [int32]$record.publication.player_column.z
-            publisher_radius_blocks = [uint64]$record.publication.publisher_radius_blocks
-            publisher_radius_chunks = [uint64]$record.publication.publisher_radius_chunks
-            build_profile = [string]$record.presentation.build_profile
-            requested_present_mode = [string]$record.presentation.requested_present_mode
-            effective_present_mode = [string]$record.presentation.effective_present_mode
-            present_mode_proven = [bool]$record.presentation.present_mode_proven
-            graphics_identity_sha256 = [string]$record.presentation.graphics_identity_sha256
-            assets_manifest_sha256 = [string]$record.presentation.assets_manifest_sha256
-            client_blob_cache_enabled = [bool]$record.client_blob_cache_enabled
-        } | ConvertTo-Json -Compress
-        if ($null -eq $sequenceIdentity) {
-            $sequenceIdentity = $currentSequenceIdentity
-        }
-        elseif ($currentSequenceIdentity -cne $sequenceIdentity) {
-            throw 'PHASE2_PUBLICATION sequence identity changed during the diagnostic capture'
+        if (-not $publisherUninitialized) {
+            $publisherInitialized = $true
+            $currentSequenceIdentity = [pscustomobject][ordered]@{
+                session_generation = [uint64]$record.publication.session_generation
+                required_cohort_hash = [string]$record.publication.required_cohort_hash
+                required_columns = [uint64]$record.publication.required_columns
+                dimension = [int32]$record.publication.player_column.dimension
+                player_x = [int32]$record.publication.player_column.x
+                player_z = [int32]$record.publication.player_column.z
+                publisher_radius_blocks = [uint64]$record.publication.publisher_radius_blocks
+                publisher_radius_chunks = [uint64]$record.publication.publisher_radius_chunks
+                build_profile = [string]$record.presentation.build_profile
+                requested_present_mode = [string]$record.presentation.requested_present_mode
+                effective_present_mode = [string]$record.presentation.effective_present_mode
+                present_mode_proven = [bool]$record.presentation.present_mode_proven
+                graphics_identity_sha256 = [string]$record.presentation.graphics_identity_sha256
+                assets_manifest_sha256 = [string]$record.presentation.assets_manifest_sha256
+                client_blob_cache_enabled = [bool]$record.client_blob_cache_enabled
+            } | ConvertTo-Json -Compress
+            if ($null -eq $sequenceIdentity) {
+                $sequenceIdentity = $currentSequenceIdentity
+            }
+            elseif ($currentSequenceIdentity -cne $sequenceIdentity) {
+                throw 'PHASE2_PUBLICATION sequence identity changed during the diagnostic capture'
+            }
         }
         if ($null -ne $previousRecord) {
             foreach ($field in @('requests_constructed', 'requests_sent', 'responses_admitted',

@@ -225,6 +225,38 @@ Describe 'Phase 2 remote acceptance runner' {
         }
     }
 
+    It 'accepts coherent leading publisher initialization snapshots with paired JSON null radii' {
+        $temporary = Join-Path ([IO.Path]::GetTempPath()) ('phase2-publisher-initialization-' + [guid]::NewGuid().ToString('N'))
+        try {
+            New-Item -ItemType Directory -Path $temporary | Out-Null
+            $logPath = Join-Path $temporary 'client.log'
+            $initializing = New-SyntheticPhase2Publication -RequiredColumns 0 -LoadedColumns 0 `
+                -RequestsConstructed 0 -RequestsSent 0 -ResponsesAdmitted 0 -SubchunksCommitted 0 `
+                -PublisherRadiusBlocks $null -PublisherRadius $null -MeshJobsCompleted 0 -UploadsAcknowledged 0
+            $initializing.publication.required_cohort_hash = 'cbf29ce484222325'
+            foreach ($name in @('publisher_disk', 'resident', 'allocation', 'visible', 'submitted', 'gpu_presented')) {
+                $initializing.presentation.$name.required_cohort_hash = 'cbf29ce484222325'
+                $initializing.presentation.$name.generation_manifest_hash = 'cbf29ce484222325'
+            }
+            $initialized = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 177 `
+                -RequestsConstructed 177 -RequestsSent 177 -ResponsesAdmitted 3894 -SubchunksCommitted 3894
+            @(
+                'PHASE2_PUBLICATION=' + ($initializing | ConvertTo-Json -Depth 20 -Compress)
+                'PHASE2_PUBLICATION=' + ($initialized | ConvertTo-Json -Depth 20 -Compress)
+            ) | Set-Content -LiteralPath $logPath
+
+            $evidence = Get-Phase2PublicationSequenceEvidence -ClientLogPath $logPath `
+                -ExpectedPresentMode Fifo -WorldReadyObserved:$false -Server Zeqa
+
+            $evidence.SnapshotCount | Should Be 2
+            $evidence.FinalPublication.publication.publisher_radius_blocks | Should Be 128
+            $evidence.FinalPublication.publication.publisher_radius_chunks | Should Be 8
+        }
+        finally {
+            Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
     It 'allows the server publisher radius to differ without hiding a cached cohort identity gap' {
         $record = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 177 `
             -RequestsConstructed 177 -RequestsSent 177 -ResponsesAdmitted 3894 -SubchunksCommitted 3894 `
