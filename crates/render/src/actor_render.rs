@@ -20,13 +20,13 @@ use bevy::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
             BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBindingType,
             BufferId, BufferInitDescriptor, BufferSize, BufferUsages, Canonical, ColorTargetState,
-            ColorWrites, CompareFunction, DepthStencilState, Extent3d, FilterMode, FragmentState,
-            PipelineCache, RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType,
-            SamplerDescriptor, ShaderStages, ShaderType, Specializer, SpecializerKey, Texture,
-            TextureDataOrder, TextureDescriptor, TextureDimension, TextureFormat,
-            TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor,
-            TextureViewDimension, Variants, VertexAttribute, VertexFormat, VertexState,
-            VertexStepMode,
+            ColorWrites, CompareFunction, DepthStencilState, Extent3d, Face as CullFace,
+            FilterMode, FragmentState, PipelineCache, PrimitiveState, RenderPipeline,
+            RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages,
+            ShaderType, Specializer, SpecializerKey, Texture, TextureDataOrder, TextureDescriptor,
+            TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView,
+            TextureViewDescriptor, TextureViewDimension, Variants, VertexAttribute, VertexFormat,
+            VertexState, VertexStepMode,
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
@@ -322,6 +322,10 @@ fn actor_pipeline_descriptor(
             })],
             ..default()
         }),
+        primitive: PrimitiveState {
+            cull_mode: Some(CullFace::Back),
+            ..default()
+        },
         depth_stencil: Some(DepthStencilState {
             format: CORE_3D_DEPTH_FORMAT,
             depth_write_enabled: true,
@@ -573,7 +577,7 @@ mod tests {
     fn pipeline_descriptor_specializes_and_noop_backend_accepts_the_binding_layout() {
         use bevy::prelude::Msaa;
         use bevy::render::{
-            render_resource::{ShaderStages, Specializer},
+            render_resource::{Face as CullFace, ShaderStages, Specializer},
             view::ViewTarget,
         };
 
@@ -585,6 +589,7 @@ mod tests {
         assert_eq!(layout.entries[3].visibility, ShaderStages::FRAGMENT);
 
         let mut descriptor = actor_pipeline_descriptor(layout.clone());
+        assert_eq!(descriptor.primitive.cull_mode, Some(CullFace::Back));
         ActorPipelineSpecializer
             .specialize(
                 ActorPipelineKey {

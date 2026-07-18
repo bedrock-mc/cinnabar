@@ -360,35 +360,46 @@ fn append_cuboid(vertices: &mut Vec<ActorVertex>, cuboid: Cuboid, part: u32) {
         (
             [[x1, y0, z0], [x1, y0, z1], [x1, y1, z1], [x1, y1, z0]],
             [u, v + dz, dz, dy],
+            true,
         ),
         (
             [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]],
             [u + dz, v + dz, dx, dy],
+            false,
         ),
         (
             [[x0, y0, z1], [x0, y0, z0], [x0, y1, z0], [x0, y1, z1]],
             [u + dz + dx, v + dz, dz, dy],
+            true,
         ),
         (
             [[x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0]],
             [u + dz + dx + dz, v + dz, dx, dy],
+            false,
         ),
         (
             [[x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0]],
             [u + dz, v, dx, dz],
+            false,
         ),
         (
             [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]],
             [u + dz + dx, v, dx, dz],
+            false,
         ),
     ];
-    for (positions, [face_u, face_v, face_width, face_height]) in faces {
+    for (positions, [face_u, face_v, face_width, face_height], reverse_winding) in faces {
         let u0 = face_u / 64.0;
         let v0 = face_v / 64.0;
         let u1 = (face_u + face_width) / 64.0;
         let v1 = (face_v + face_height) / 64.0;
         let uvs = [[u0, v1], [u1, v1], [u1, v0], [u0, v0]];
-        for index in [0, 1, 2, 0, 2, 3] {
+        let indices = if reverse_winding {
+            [0, 2, 1, 0, 3, 2]
+        } else {
+            [0, 1, 2, 0, 2, 3]
+        };
+        for index in indices {
             vertices.push(ActorVertex {
                 position: positions[index],
                 uv: uvs[index],
@@ -638,5 +649,43 @@ mod tests {
             .map(|vertex| vertex.position[1])
             .fold(f32::NEG_INFINITY, f32::max);
         assert_eq!([min_y, max_y], [0.0, 2.0]);
+    }
+
+    #[test]
+    fn standard_biped_faces_have_outward_consistent_winding() {
+        let vertices = standard_biped_vertices();
+        for cuboid in vertices.chunks_exact(6 * 6) {
+            let min = cuboid
+                .iter()
+                .fold(Vec3::splat(f32::INFINITY), |min, vertex| {
+                    min.min(Vec3::from_array(vertex.position))
+                });
+            let max = cuboid
+                .iter()
+                .fold(Vec3::splat(f32::NEG_INFINITY), |max, vertex| {
+                    max.max(Vec3::from_array(vertex.position))
+                });
+            let center = (min + max) * 0.5;
+
+            for face in cuboid.chunks_exact(6) {
+                let face_center = face
+                    .iter()
+                    .map(|vertex| Vec3::from_array(vertex.position))
+                    .sum::<Vec3>()
+                    / face.len() as f32;
+                for triangle in face.chunks_exact(3) {
+                    let first = Vec3::from_array(triangle[0].position);
+                    let second = Vec3::from_array(triangle[1].position);
+                    let third = Vec3::from_array(triangle[2].position);
+                    let normal = (second - first).cross(third - first);
+
+                    assert!(
+                        normal.dot(face_center - center) > 0.0,
+                        "part {} has an inward or degenerate face: {face:?}",
+                        face[0].part
+                    );
+                }
+            }
+        }
     }
 }
