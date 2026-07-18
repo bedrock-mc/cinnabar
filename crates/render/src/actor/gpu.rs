@@ -28,7 +28,14 @@ impl ActorDrawFrame {
             && self.manifest.iter().enumerate().all(|(index, entry)| {
                 entry.identity.is_exact()
                     && entry.completed_tick != 0
+                    && entry.identity.pose_generation == entry.completed_tick
+                    && entry.identity.ingress_sequence
+                        == entry
+                            .identity
+                            .spawn_revision
+                            .max(entry.identity.movement_revision)
                     && entry.reset_generation != 0
+                    && entry.has_exact_presented_root()
                     && matches!(
                         entry.route,
                         super::ActorRigRoute::Compiled | super::ActorRigRoute::StaticFallback
@@ -67,7 +74,8 @@ impl ActorPresentedFrameAck {
         self.is_exact()
             && next.is_exact()
             && self.frame_sequence.checked_add(1) == Some(next.frame_sequence)
-            && self.draw_generation < next.draw_generation
+            && self.frame_generation.checked_add(1) == Some(next.frame_generation)
+            && self.draw_generation.checked_add(1) == Some(next.draw_generation)
             && self.gpu_completed_at <= next.gpu_completed_at
     }
 }
@@ -246,7 +254,7 @@ mod tests {
                     ingress_sequence: 4,
                     source_tick: Some(5),
                     movement_revision: 4,
-                    pose_generation: 6,
+                    pose_generation: 7,
                 },
                 rig: EntityRigId(0),
                 completed_tick: 7,
@@ -256,6 +264,8 @@ mod tests {
                 previous_bone_base: 0,
                 current_bone_base: 0,
                 bone_count: 1,
+                feet_position_bits: [1.0_f32.to_bits(), 64.0_f32.to_bits(), 2.0_f32.to_bits()],
+                partial_tick_bits: 0.5_f32.to_bits(),
             }]),
         }
     }
@@ -288,6 +298,34 @@ mod tests {
             vec![1, 2]
         );
         assert!(acknowledgements[0].forms_consecutive_pair_with(&acknowledgements[1]));
+    }
+
+    #[test]
+    fn presented_pair_rejects_skipped_actor_draw_and_frame_generations() {
+        let gate = ActorPresentationGate::default();
+        let first = gate.try_reserve_callback(draw(1)).unwrap();
+        let skipped = gate.try_reserve_callback(draw(3)).unwrap();
+        let now = Instant::now();
+        gate.publish_reserved(first, now, now + Duration::from_millis(1));
+        gate.publish_reserved(skipped, now, now + Duration::from_millis(2));
+
+        let acknowledgements = gate.drain();
+        assert_eq!(acknowledgements.len(), 2);
+        assert!(
+            !acknowledgements[0].forms_consecutive_pair_with(&acknowledgements[1]),
+            "reserved callback sequence alone cannot prove adjacent rendered actor frames"
+        );
+    }
+
+    #[test]
+    fn draw_contract_rejects_nonfinite_feet_and_out_of_range_partial_tick() {
+        let mut nonfinite = draw(1);
+        Arc::make_mut(&mut nonfinite.manifest)[0].feet_position_bits[1] = f32::NAN.to_bits();
+        assert!(!nonfinite.is_exact());
+
+        let mut out_of_range = draw(1);
+        Arc::make_mut(&mut out_of_range.manifest)[0].partial_tick_bits = 1.01_f32.to_bits();
+        assert!(!out_of_range.is_exact());
     }
 
     #[test]

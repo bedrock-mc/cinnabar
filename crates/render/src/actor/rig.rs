@@ -231,6 +231,31 @@ pub struct ActorDrawManifestEntry {
     pub previous_bone_base: u32,
     pub current_bone_base: u32,
     pub bone_count: u32,
+    /// Bit-exact world-space actor root. Remote player roots are canonical feet positions.
+    pub feet_position_bits: [u32; 3],
+    /// Bit-exact render interpolation fraction used for this submitted actor pose.
+    pub partial_tick_bits: u32,
+}
+
+impl ActorDrawManifestEntry {
+    #[must_use]
+    pub fn feet_position(&self) -> [f32; 3] {
+        self.feet_position_bits.map(f32::from_bits)
+    }
+
+    #[must_use]
+    pub fn partial_tick(&self) -> f32 {
+        f32::from_bits(self.partial_tick_bits)
+    }
+
+    #[must_use]
+    pub fn has_exact_presented_root(&self) -> bool {
+        let feet = self.feet_position();
+        let partial_tick = self.partial_tick();
+        feet.iter().all(|value| value.is_finite())
+            && partial_tick.is_finite()
+            && (0.0..=1.0).contains(&partial_tick)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -527,6 +552,12 @@ impl ActorRigFrameBuilder {
                 previous_bone_base,
                 current_bone_base,
                 bone_count: previous.len() as u32,
+                feet_position_bits: [
+                    submission.world_from_actor[0][3].to_bits(),
+                    submission.world_from_actor[1][3].to_bits(),
+                    submission.world_from_actor[2][3].to_bits(),
+                ],
+                partial_tick_bits: partial_tick.to_bits(),
             });
         }
 
