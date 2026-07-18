@@ -21,6 +21,14 @@ use crate::{
     ui_runtime::render_adapter::adapt_ui_draw_list,
 };
 
+mod retained_hud;
+
+use retained_hud::{
+    BOSS_PROGRESS_HEIGHT, PresentedBossBar, PresentedScoreboard, PresentedScoreboardCache,
+    SCOREBOARD_NAME_WIDTH, SCOREBOARD_TEXT_HEIGHT, SCOREBOARD_TITLE_WIDTH, SCOREBOARD_WIDTH,
+    project_boss_bars,
+};
+
 const TEXT_CACHE_ENTRIES: usize = 1_024;
 const TEXT_CACHE_BYTES: usize = 8 * 1024 * 1024;
 const MAX_PRESENTED_CHAT_ROWS: usize = 8;
@@ -54,6 +62,7 @@ pub struct UiPresentationRuntime {
     solid_texture_page: u16,
     layouts: TextLayoutCache,
     revision: u64,
+    scoreboard: PresentedScoreboardCache,
     chat_hit_logical_size: Option<[f32; 2]>,
     chat_suggestion_hits: Vec<(usize, UiRect)>,
 }
@@ -67,6 +76,7 @@ impl UiPresentationRuntime {
             solid_texture_page,
             layouts: TextLayoutCache::new(TEXT_CACHE_ENTRIES, TEXT_CACHE_BYTES),
             revision: 0,
+            scoreboard: PresentedScoreboardCache::default(),
             chat_hit_logical_size: None,
             chat_suggestion_hits: Vec::with_capacity(MAX_PRESENTED_CHAT_SUGGESTIONS),
         })
@@ -147,6 +157,27 @@ impl UiPresentationRuntime {
             );
             next_id = next_id.saturating_add(1);
         }
+
+        if let Some(scoreboard) = self.scoreboard.refresh(runtime.scoreboards()) {
+            append_scoreboard_nodes(
+                &mut nodes,
+                &mut next_id,
+                &mut self.layouts,
+                &self.font,
+                self.solid_texture_page,
+                logical_width,
+                logical_height,
+                scoreboard,
+            )?;
+        }
+        append_boss_nodes(
+            &mut nodes,
+            &mut next_id,
+            &mut self.layouts,
+            &self.font,
+            self.solid_texture_page,
+            project_boss_bars(runtime.boss_bars(), logical_width, logical_height),
+        )?;
 
         let chat_focused = runtime.chat_focused();
         let visible_suggestions = if chat_focused {
@@ -386,6 +417,240 @@ impl UiPresentationRuntime {
         self.chat_suggestion_hits = chat_suggestion_hits;
         Ok(input)
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn append_scoreboard_nodes(
+    nodes: &mut Vec<UiNode>,
+    next_id: &mut u32,
+    layouts: &mut TextLayoutCache,
+    font: &RuntimeFontCatalog,
+    solid_texture_page: u16,
+    viewport_width: f32,
+    viewport_height: f32,
+    scoreboard: &PresentedScoreboard,
+) -> Result<(), UiPresentationError> {
+    let height = SCOREBOARD_TEXT_HEIGHT * (scoreboard.rows.len().saturating_add(1)) as f32;
+    if viewport_width < SCOREBOARD_WIDTH || viewport_height < height || height <= 0.0 {
+        return Ok(());
+    }
+    let left = viewport_width - SCOREBOARD_WIDTH;
+    let top = (viewport_height - height) * 0.5;
+    let right = viewport_width;
+    let bottom = top + height;
+    nodes.push(
+        UiNode::new(take_node_id(next_id), None, rect(left, top, right, bottom)?).with_visual(
+            UiVisual::Solid {
+                texture_page: solid_texture_page,
+                color: [0, 0, 0, 128],
+            },
+        ),
+    );
+    nodes.push(
+        UiNode::new(
+            take_node_id(next_id),
+            None,
+            rect(left + 2.0, top, right - 2.0, top + SCOREBOARD_TEXT_HEIGHT)?,
+        )
+        .with_visual(UiVisual::Solid {
+            texture_page: solid_texture_page,
+            color: [0, 0, 0, 160],
+        }),
+    );
+    let title = layouts
+        .layout(TextLayoutRequest {
+            text: bounded_visible_text(&scoreboard.title),
+            style: TextStyle::default(),
+            width_64: (SCOREBOARD_TITLE_WIDTH * 64.0) as u32,
+            scale: UiScale::default(),
+            font,
+        })
+        .map_err(UiPresentationError::Text)?;
+    let title_width = title.size_64()[0] as f32 / 64.0;
+    let title_left = left + ((SCOREBOARD_WIDTH - title_width) * 0.5).max(2.0);
+    append_clipped_text_node(
+        nodes,
+        next_id,
+        [left + 2.0, top, right - 2.0, top + SCOREBOARD_TEXT_HEIGHT],
+        [
+            title_left,
+            top,
+            (title_left + title_width).min(right - 2.0),
+            top + SCOREBOARD_TEXT_HEIGHT,
+        ],
+        title,
+        [255; 4],
+    )?;
+    for (index, row) in scoreboard.rows.iter().enumerate() {
+        let row_top = top + SCOREBOARD_TEXT_HEIGHT * (index.saturating_add(1)) as f32;
+        let row_bottom = row_top + SCOREBOARD_TEXT_HEIGHT;
+        let label = layouts
+            .layout(TextLayoutRequest {
+                text: bounded_visible_text(&row.label),
+                style: TextStyle::default(),
+                width_64: (SCOREBOARD_NAME_WIDTH * 64.0) as u32,
+                scale: UiScale::default(),
+                font,
+            })
+            .map_err(UiPresentationError::Text)?;
+        let label_bounds = [
+            left + 2.0,
+            row_top,
+            left + 2.0 + SCOREBOARD_NAME_WIDTH,
+            row_bottom,
+        ];
+        append_clipped_text_node(nodes, next_id, label_bounds, label_bounds, label, [255; 4])?;
+        let score = layouts
+            .layout(TextLayoutRequest {
+                text: &row.score,
+                style: TextStyle::default(),
+                width_64: (SCOREBOARD_WIDTH * 64.0) as u32,
+                scale: UiScale::default(),
+                font,
+            })
+            .map_err(UiPresentationError::Text)?;
+        let score_width = score.size_64()[0] as f32 / 64.0;
+        let score_left = (right - 2.0 - score_width).max(left + SCOREBOARD_NAME_WIDTH + 12.0);
+        append_clipped_text_node(
+            nodes,
+            next_id,
+            [
+                left + SCOREBOARD_NAME_WIDTH + 12.0,
+                row_top,
+                right - 2.0,
+                row_bottom,
+            ],
+            [score_left, row_top, right - 2.0, row_bottom],
+            score,
+            [255, 0, 0, 255],
+        )?;
+    }
+    Ok(())
+}
+
+fn append_boss_nodes(
+    nodes: &mut Vec<UiNode>,
+    next_id: &mut u32,
+    layouts: &mut TextLayoutCache,
+    font: &RuntimeFontCatalog,
+    solid_texture_page: u16,
+    bars: Vec<PresentedBossBar>,
+) -> Result<(), UiPresentationError> {
+    for bar in bars {
+        let title = layouts
+            .layout(TextLayoutRequest {
+                text: bounded_visible_text(&bar.title),
+                style: TextStyle::default(),
+                width_64: ((bar.panel[2] - bar.panel[0]) * 64.0) as u32,
+                scale: UiScale::default(),
+                font,
+            })
+            .map_err(UiPresentationError::Text)?;
+        let title_width = title.size_64()[0] as f32 / 64.0;
+        let title_left = bar.panel[0] + ((bar.panel[2] - bar.panel[0] - title_width) * 0.5);
+        append_clipped_text_node(
+            nodes,
+            next_id,
+            [bar.panel[0], bar.panel[1], bar.panel[2], bar.progress[1]],
+            [
+                title_left.max(bar.panel[0]),
+                bar.panel[1],
+                (title_left + title_width).min(bar.panel[2]),
+                bar.progress[1],
+            ],
+            title,
+            [255; 4],
+        )?;
+        nodes.push(solid_node(
+            take_node_id(next_id),
+            bar.progress,
+            solid_texture_page,
+            [32, 32, 32, 255],
+        )?);
+        if bar.fill[2] > bar.fill[0] {
+            nodes.push(solid_node(
+                take_node_id(next_id),
+                bar.fill,
+                solid_texture_page,
+                bar.color,
+            )?);
+        }
+        for notch_x in bar.notch_x {
+            nodes.push(solid_node(
+                take_node_id(next_id),
+                [
+                    notch_x - 0.5,
+                    bar.progress[1],
+                    notch_x + 0.5,
+                    bar.progress[1] + BOSS_PROGRESS_HEIGHT,
+                ],
+                solid_texture_page,
+                [16, 16, 16, 255],
+            )?);
+        }
+    }
+    Ok(())
+}
+
+fn solid_node(
+    id: UiNodeId,
+    bounds: [f32; 4],
+    texture_page: u16,
+    color: [u8; 4],
+) -> Result<UiNode, UiPresentationError> {
+    Ok(
+        UiNode::new(id, None, rect(bounds[0], bounds[1], bounds[2], bounds[3])?).with_visual(
+            UiVisual::Solid {
+                texture_page,
+                color,
+            },
+        ),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn append_clipped_text_node(
+    nodes: &mut Vec<UiNode>,
+    next_id: &mut u32,
+    clip_bounds: [f32; 4],
+    text_bounds: [f32; 4],
+    layout: Arc<ui::TextLayout>,
+    color: [u8; 4],
+) -> Result<(), UiPresentationError> {
+    let clip_id = take_node_id(next_id);
+    nodes.push(
+        UiNode::new(
+            clip_id,
+            None,
+            rect(
+                clip_bounds[0],
+                clip_bounds[1],
+                clip_bounds[2],
+                clip_bounds[3],
+            )?,
+        )
+        .with_clip_children(true),
+    );
+    nodes.push(
+        UiNode::new(
+            take_node_id(next_id),
+            Some(clip_id),
+            rect(
+                text_bounds[0] - clip_bounds[0],
+                text_bounds[1] - clip_bounds[1],
+                text_bounds[2] - clip_bounds[0],
+                text_bounds[3] - clip_bounds[1],
+            )?,
+        )
+        .with_visual(UiVisual::Text { layout, color }),
+    );
+    Ok(())
+}
+
+fn take_node_id(next_id: &mut u32) -> UiNodeId {
+    let id = UiNodeId::new(*next_id);
+    *next_id = next_id.saturating_add(1);
+    id
 }
 
 pub(super) fn visible_suggestion_range(total: usize, selected: Option<usize>) -> Range<usize> {

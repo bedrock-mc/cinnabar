@@ -1,9 +1,17 @@
 use assets::{FontTexturePage, GlyphMetrics, RuntimeFontCatalog, encode_font_catalog};
-use protocol::{HudEvent, TextCategory, TextEvent, TextKind, UiEvent};
+use protocol::{
+    BossAction as ProtocolBossAction, BossColor as ProtocolBossColor, BossEvent,
+    BossOverlay as ProtocolBossOverlay, BossStyle as ProtocolBossStyle, HudEvent, ObjectiveEvent,
+    ScoreAction as ProtocolScoreAction, ScoreEntry as ProtocolScoreEntry, ScoreEvent,
+    ScoreIdentity as ProtocolScoreIdentity, TextCategory, TextEvent, TextKind, TitleAction,
+    TitleEvent, UiEvent,
+};
 use sha2::{Digest, Sha256};
 
 use super::*;
 use crate::ui_runtime::SequencedUiEvent;
+
+mod retained_hud_tests;
 
 #[test]
 fn retained_hud_publishes_through_tree_adapter_and_render_scene() {
@@ -507,6 +515,95 @@ fn chat_event(message: &str) -> UiEvent {
         platform_chat_id: Arc::from(""),
         filtered_message: None,
     })
+}
+
+fn title_event(action: TitleAction, text: &str) -> UiEvent {
+    UiEvent::Title(TitleEvent {
+        action,
+        text: Arc::from(text),
+        document: None,
+        fade_in_ticks: 0,
+        stay_ticks: 200,
+        fade_out_ticks: 0,
+        xuid: Arc::from(""),
+        platform_online_id: Arc::from(""),
+        filtered_message: Arc::from(""),
+    })
+}
+
+fn boss_event(
+    action: ProtocolBossAction,
+    target_entity_id: i64,
+    title: &str,
+    progress: f32,
+    color: ProtocolBossColor,
+    overlay: ProtocolBossOverlay,
+) -> UiEvent {
+    UiEvent::Boss(BossEvent {
+        target_entity_id,
+        player_id: 1,
+        action,
+        title: Arc::from(title),
+        filtered_title: Arc::from(""),
+        progress,
+        style: ProtocolBossStyle {
+            color,
+            overlay,
+            darken_sky: None,
+            create_world_fog: None,
+        },
+    })
+}
+
+fn bounds_for_color(input: &render::UiRenderInput, color: [u8; 4]) -> Option<[f32; 4]> {
+    let mut matching = input
+        .vertices
+        .iter()
+        .filter(|vertex| vertex.color == color)
+        .peekable();
+    matching.peek()?;
+    Some(matching.fold(
+        [
+            f32::INFINITY,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::NEG_INFINITY,
+        ],
+        |[left, top, right, bottom], vertex| {
+            [
+                left.min(vertex.position[0]),
+                top.min(vertex.position[1]),
+                right.max(vertex.position[0]),
+                bottom.max(vertex.position[1]),
+            ]
+        },
+    ))
+}
+
+fn horizontal_bounds_for_color(input: &render::UiRenderInput, color: [u8; 4]) -> Option<[f32; 2]> {
+    bounds_for_color(input, color).map(|[left, _, right, _]| [left, right])
+}
+
+fn assert_title_and_actionbar_geometry(input: &render::UiRenderInput) {
+    let white = input
+        .vertices
+        .iter()
+        .filter(|vertex| vertex.color == [255; 4])
+        .collect::<Vec<_>>();
+    assert!(
+        white.iter().any(|vertex| {
+            (240.0..=600.0).contains(&vertex.position[0])
+                && (180.0..=204.0).contains(&vertex.position[1])
+        }),
+        "title geometry disappeared while retained overlays changed",
+    );
+    assert!(
+        white.iter().any(|vertex| {
+            (280.0..=640.0).contains(&vertex.position[0])
+                && (510.0..=534.0).contains(&vertex.position[1])
+        }),
+        "actionbar geometry disappeared while retained overlays changed",
+    );
 }
 
 fn vertical_bounds(vertices: &[render::UiRenderVertex]) -> (f32, f32) {
