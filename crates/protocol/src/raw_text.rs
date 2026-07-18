@@ -1,6 +1,9 @@
-use std::sync::Arc;
+use std::{cell::Cell, sync::Arc};
 
-use serde::{Deserialize, Deserializer};
+use serde::{
+    Deserialize, Deserializer,
+    de::{DeserializeSeed, IgnoredAny, MapAccess, Visitor},
+};
 
 use crate::ui::UiPacketError;
 
@@ -87,34 +90,71 @@ pub fn parse_raw_text(value: &str) -> Result<Arc<RawTextDocument>, UiPacketError
 pub(crate) fn parse_raw_text_envelope(
     value: &str,
 ) -> Result<Option<Arc<RawTextDocument>>, UiPacketError> {
-    if !has_raw_text_object_prefix(value) {
+    // Packet validation and `bounded_text` reject oversized UI strings. Avoid doing an
+    // additional semantic JSON pass over input outside that shared protocol bound.
+    if value.len() > MAX_RAW_TEXT_INPUT_BYTES || !starts_with_json_object(value) {
         return Ok(None);
     }
-    parse_raw_text(value).map(Some)
+
+    let has_raw_text_member = Cell::new(false);
+    let mut deserializer = serde_json::Deserializer::from_str(value);
+    let _probe_result = RawTextEnvelopeProbe {
+        has_raw_text_member: &has_raw_text_member,
+    }
+    .deserialize(&mut deserializer)
+    .and_then(|()| deserializer.end());
+
+    if has_raw_text_member.get() {
+        // Reparse with the strict schema so duplicate/unknown members, malformed values,
+        // and all rawtext resource limits fail closed instead of becoming visible JSON.
+        return parse_raw_text(value).map(Some);
+    }
+
+    // Malformed JSON without a semantically decoded top-level `rawtext` member is still
+    // ordinary user/server text and must be preserved byte-for-byte.
+    Ok(None)
 }
 
-fn has_raw_text_object_prefix(value: &str) -> bool {
-    let mut bytes = value.bytes().peekable();
-    skip_json_whitespace(&mut bytes);
-    if bytes.next() != Some(b'{') {
-        return false;
-    }
-    skip_json_whitespace(&mut bytes);
-    for expected in b"\"rawtext\"" {
-        if bytes.next() != Some(*expected) {
-            return false;
-        }
-    }
-    skip_json_whitespace(&mut bytes);
-    bytes.next() == Some(b':')
+fn starts_with_json_object(value: &str) -> bool {
+    value
+        .bytes()
+        .find(|byte| !matches!(byte, b' ' | b'\t' | b'\r' | b'\n'))
+        == Some(b'{')
 }
 
-fn skip_json_whitespace(bytes: &mut std::iter::Peekable<impl Iterator<Item = u8>>) {
-    while bytes
-        .peek()
-        .is_some_and(|byte| matches!(byte, b' ' | b'\t' | b'\r' | b'\n'))
+struct RawTextEnvelopeProbe<'a> {
+    has_raw_text_member: &'a Cell<bool>,
+}
+
+impl<'de> DeserializeSeed<'de> for RawTextEnvelopeProbe<'_> {
+    type Value = ();
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: Deserializer<'de>,
     {
-        bytes.next();
+        deserializer.deserialize_map(self)
+    }
+}
+
+impl<'de> Visitor<'de> for RawTextEnvelopeProbe<'_> {
+    type Value = ();
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("a top-level JSON object")
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        while let Some(key) = map.next_key::<String>()? {
+            if key == "rawtext" {
+                self.has_raw_text_member.set(true);
+            }
+            map.next_value::<IgnoredAny>()?;
+        }
+        Ok(())
     }
 }
 
