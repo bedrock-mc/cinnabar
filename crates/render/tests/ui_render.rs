@@ -8,13 +8,13 @@ use std::sync::Arc;
 use bevy::{
     app::SubApp,
     asset::Assets,
-    core_pipeline::core_3d::Transparent3d,
+    core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Transparent3d},
     ecs::{schedule::Schedule, system::RunSystemOnce},
     prelude::{App, Shader},
     render::{
         ExtractSchedule, Render, RenderApp, RenderStartup,
         render_phase::DrawFunctions,
-        render_resource::BlendFactor,
+        render_resource::{BlendFactor, CompareFunction},
         renderer::{RenderDevice, RenderQueue, WgpuWrapper},
     },
 };
@@ -60,11 +60,20 @@ fn shader_parses_and_declares_premultiplied_texture_sampling() {
 }
 
 #[test]
-fn pipeline_is_one_depth_free_premultiplied_overlay_family() {
+fn pipeline_is_one_depth_neutral_premultiplied_overlay_family() {
     let layout = ui_bind_group_layout();
     assert_eq!(layout.entries.len(), 3);
     let descriptor = ui_pipeline_descriptor(layout);
-    assert!(descriptor.depth_stencil.is_none());
+    // The overlay is queued into Transparent3d, whose pass carries a depth
+    // attachment, so the pipeline must declare a matching depth-stencil state.
+    // It stays depth-neutral: never writes depth and always passes the test.
+    let depth = descriptor
+        .depth_stencil
+        .as_ref()
+        .expect("overlay must declare a depth-stencil state for the Transparent3d pass");
+    assert_eq!(depth.format, CORE_3D_DEPTH_FORMAT);
+    assert!(!depth.depth_write_enabled);
+    assert_eq!(depth.depth_compare, CompareFunction::Always);
     let blend = descriptor.fragment.unwrap().targets[0]
         .as_ref()
         .unwrap()

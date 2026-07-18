@@ -151,8 +151,6 @@ pub enum ItemPacketError {
     InvalidItemNbt,
     #[error("failed to encode validated item data")]
     ItemEncodingFailed,
-    #[error("item packet does not have one exact canonical wire representation")]
-    NonCanonicalItemWire,
     #[error("actor runtime ID {0} is invalid")]
     InvalidRuntimeId(i64),
     #[error("selected hotbar slot {0} is outside 0..9")]
