@@ -3,6 +3,7 @@ use thiserror::Error;
 
 use std::collections::BTreeSet;
 
+use sha2::{Digest, Sha256};
 use world::{ChunkCollisionRevision, ChunkKey};
 
 use crate::{
@@ -23,36 +24,74 @@ pub struct TraceRecord {
     pub expected: TickResult,
 }
 
-/// A one-tick conformance scenario whose collision geometry, movement facts,
-/// and immutable identity are all part of the pinned evidence.
+/// Historical bedsim output that predates environmental/PREG evidence. It is
+/// intentionally accepted only by `verify_legacy_trace_jsonl`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ScenarioTraceRecord {
+pub struct LegacyTraceRecord {
+    pub input: MovementInput,
+    pub expected: LegacyTickResult,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LegacyTickResult {
+    pub tick: u64,
+    pub position: Vec3,
+    pub velocity: Vec3,
+    pub movement: Vec3,
+    pub collisions: crate::AxisCollisions,
+    pub on_ground: bool,
+}
+
+/// A multi-tick evidence script. Only bedsim-observed steps are conformance
+/// claims. Unsupported scripts are retained as an explicit coverage ledger.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScenarioScript {
     pub scenario: Box<str>,
-    pub world: ScenarioWorld,
+    pub evidence: ScenarioEvidence,
     pub initial: PlayerState,
+    pub steps: Box<[ScenarioStep]>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ScenarioEvidence {
+    /// Numeric movement/collision fields came from bedsim; the empty
+    /// environment and content identity come from the canonical world manifest.
+    BedsimObservedWithManifestContext,
+    UnsupportedNonConformance {
+        reason: Box<str>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScenarioStep {
+    pub world: ScenarioWorld,
     pub input: MovementInput,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected: Option<TickResult>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub expected_error: Option<ScenarioExpectedError>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ScenarioWorld {
     pub name: Box<str>,
+    pub origin: [i32; 3],
+    pub revision: u64,
     pub boxes: Box<[Aabb]>,
     pub physics: BlockPhysicsFacts,
-    pub identity_seed: u8,
     #[serde(default)]
     pub unloaded: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ScenarioExpectedError {
-    UnloadedBoundary,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScenarioAudit {
+    pub scripts: usize,
+    pub observed_steps: usize,
+    pub unsupported_scripts: usize,
 }
 
 #[derive(Debug, Error)]
@@ -106,12 +145,10 @@ pub enum ConformanceError {
     ScenarioCoverage,
     #[error("scenario trace line {line} has an invalid world: {reason}")]
     InvalidScenarioWorld { line: usize, reason: &'static str },
-    #[error("scenario trace line {line} must contain exactly one of expected or expected_error")]
-    InvalidScenarioOutcome { line: usize },
-    #[error("scenario trace line {line} expected a different simulation error")]
-    ErrorMismatch { line: usize },
-    #[error("scenario trace line {line} mutated state on failure")]
-    StateMutatedOnFailure { line: usize },
+    #[error("scenario trace line {line} has invalid evidence/expected fields")]
+    InvalidScenarioEvidence { line: usize },
+    #[error("scenario trace includes {count} explicitly unsupported non-conformance scripts")]
+    UnsupportedEvidence { count: usize },
 }
 
 const REQUIRED_TERRAIN_SCENARIOS: [&str; 27] = [
@@ -145,19 +182,59 @@ const REQUIRED_TERRAIN_SCENARIOS: [&str; 27] = [
 ];
 
 impl ScenarioWorld {
-    fn identity(&self, collision: bool) -> WorldCollisionIdentity {
+    fn identity(&self) -> WorldCollisionIdentity {
         WorldCollisionIdentity::new(
             CollisionRegistryIdentity {
                 protocol: 1001,
                 id_space: CollisionIdSpace::Sequential,
-                preg_sha256: [self.identity_seed; 32],
+                preg_sha256: self.content_digest(),
             },
             [ChunkCollisionRevision {
-                chunk: ChunkKey::new(0, i32::from(collision), 0),
-                revision: u64::from(self.identity_seed) + u64::from(collision),
+                chunk: ChunkKey::new(0, self.origin[0] >> 4, self.origin[2] >> 4),
+                revision: self.revision,
             }],
         )
         .expect("one scenario identity chunk is bounded")
+    }
+
+    fn content_digest(&self) -> [u8; 32] {
+        let mut hash = Sha256::new();
+        hash.update(b"sim-scenario-world-v1\0");
+        for coordinate in self.origin {
+            hash.update(coordinate.to_le_bytes());
+        }
+        hash.update(self.revision.to_le_bytes());
+        hash.update(
+            u32::try_from(self.boxes.len())
+                .unwrap_or(u32::MAX)
+                .to_le_bytes(),
+        );
+        for shape in &self.boxes {
+            for value in [
+                shape.min.x,
+                shape.min.y,
+                shape.min.z,
+                shape.max.x,
+                shape.max.y,
+                shape.max.z,
+            ] {
+                hash.update(value.to_bits().to_le_bytes());
+            }
+        }
+        for value in [
+            self.physics.friction,
+            self.physics.horizontal_speed_factor,
+            self.physics.vertical_speed_factor,
+            self.physics.fluid_height_blocks,
+        ] {
+            hash.update(value.to_bits().to_le_bytes());
+        }
+        hash.update([
+            self.physics.flags.bits(),
+            self.physics.surface_response as u8,
+        ]);
+        hash.update([u8::from(self.unloaded)]);
+        hash.finalize().into()
     }
 
     fn validate(&self, line: usize) -> Result<(), ConformanceError> {
@@ -222,7 +299,7 @@ impl CollisionWorld for ScenarioWorld {
                 .copied()
                 .filter(|shape| shape.intersects(query))
                 .collect(),
-            identity: self.identity(true),
+            identity: self.identity(),
         })
     }
 
@@ -232,17 +309,18 @@ impl CollisionWorld for ScenarioWorld {
         }
         Ok(BlockPhysicsSample {
             layers: Box::new([self.physics]),
-            identity: self.identity(false),
+            identity: self.identity(),
         })
     }
 }
 
-/// Replays all required Task 3 strata from their declared, bounded worlds.
-pub fn verify_scenario_trace_jsonl(
+/// Audits all Task 3 scripts while replaying only evidence actually observed
+/// from the pinned bedsim module.
+pub fn audit_scenario_trace_jsonl(
     jsonl: &str,
     simulator: &Simulator,
     epsilon: f64,
-) -> Result<usize, ConformanceError> {
+) -> Result<ScenarioAudit, ConformanceError> {
     if !epsilon.is_finite() || epsilon < 0.0 {
         return Err(ConformanceError::InvalidEpsilon);
     }
@@ -253,8 +331,9 @@ pub fn verify_scenario_trace_jsonl(
         .into_iter()
         .collect::<BTreeSet<_>>();
     let mut scenarios = BTreeSet::new();
-    let mut worlds = BTreeSet::new();
     let mut records = 0;
+    let mut observed_steps = 0;
+    let mut unsupported_scripts = 0;
     for (index, raw_line) in jsonl.split_terminator('\n').enumerate() {
         let line = index + 1;
         records += 1;
@@ -271,54 +350,51 @@ pub fn verify_scenario_trace_jsonl(
                 max: MAX_TRACE_LINE_BYTES,
             });
         }
-        let record: ScenarioTraceRecord = serde_json::from_str(raw_line)
+        let record: ScenarioScript = serde_json::from_str(raw_line)
             .map_err(|source| ConformanceError::Json { line, source })?;
-        record.world.validate(line)?;
-        if !scenarios.insert(record.scenario.to_string())
-            || !worlds.insert(record.world.name.to_string())
-        {
+        if !scenarios.insert(record.scenario.to_string()) || record.steps.len() < 2 {
             return Err(ConformanceError::ScenarioCoverage);
         }
-        match (record.expected, record.expected_error) {
-            (Some(expected), None) => {
-                if expected.tick
-                    != record
-                        .initial
-                        .tick
-                        .checked_add(1)
-                        .ok_or(ConformanceError::TickSequence {
+        let mut state = record.initial;
+        match record.evidence {
+            ScenarioEvidence::BedsimObservedWithManifestContext => {
+                for step in record.steps {
+                    step.world.validate(line)?;
+                    let expected = step
+                        .expected
+                        .ok_or(ConformanceError::InvalidScenarioEvidence { line })?;
+                    let expected_tick =
+                        state
+                            .tick
+                            .checked_add(1)
+                            .ok_or(ConformanceError::TickSequence {
+                                line,
+                                expected: u64::MAX,
+                                actual: expected.tick,
+                            })?;
+                    if expected.tick != expected_tick {
+                        return Err(ConformanceError::TickSequence {
                             line,
-                            expected: u64::MAX,
+                            expected: expected_tick,
                             actual: expected.tick,
-                        })?
-                {
-                    return Err(ConformanceError::TickSequence {
-                        line,
-                        expected: record.initial.tick.saturating_add(1),
-                        actual: expected.tick,
-                    });
-                }
-                let mut state = record.initial;
-                let actual = simulator
-                    .tick(&mut state, record.input, &record.world)
-                    .map_err(|source| ConformanceError::Simulation { line, source })?;
-                compare_tick(line, expected, actual, epsilon)?;
-            }
-            (None, Some(ScenarioExpectedError::UnloadedBoundary)) => {
-                let mut state = record.initial;
-                let before = state.clone();
-                if !matches!(
-                    simulator.tick(&mut state, record.input, &record.world),
-                    Err(SimulationError::World(WorldQueryError::UnloadedChunk(key)))
-                        if key == ChunkKey::new(0, 2, 3)
-                ) {
-                    return Err(ConformanceError::ErrorMismatch { line });
-                }
-                if state != before {
-                    return Err(ConformanceError::StateMutatedOnFailure { line });
+                        });
+                    }
+                    let actual = simulator
+                        .tick(&mut state, step.input, &step.world)
+                        .map_err(|source| ConformanceError::Simulation { line, source })?;
+                    compare_tick(line, expected, actual, epsilon)?;
+                    observed_steps += 1;
                 }
             }
-            _ => return Err(ConformanceError::InvalidScenarioOutcome { line }),
+            ScenarioEvidence::UnsupportedNonConformance { reason } => {
+                if reason.is_empty() || record.steps.iter().any(|step| step.expected.is_some()) {
+                    return Err(ConformanceError::InvalidScenarioEvidence { line });
+                }
+                for step in record.steps {
+                    step.world.validate(line)?;
+                }
+                unsupported_scripts += 1;
+            }
         }
     }
     if scenarios
@@ -329,7 +405,28 @@ pub fn verify_scenario_trace_jsonl(
     {
         return Err(ConformanceError::ScenarioCoverage);
     }
-    Ok(records)
+    Ok(ScenarioAudit {
+        scripts: records,
+        observed_steps,
+        unsupported_scripts,
+    })
+}
+
+/// Requires every script to be backed by pinned bedsim observations. This is
+/// deliberately stricter than the audit and currently rejects the Phase 3
+/// ledger while unsupported environmental strata remain.
+pub fn verify_scenario_trace_jsonl(
+    jsonl: &str,
+    simulator: &Simulator,
+    epsilon: f64,
+) -> Result<ScenarioAudit, ConformanceError> {
+    let audit = audit_scenario_trace_jsonl(jsonl, simulator, epsilon)?;
+    if audit.unsupported_scripts != 0 {
+        return Err(ConformanceError::UnsupportedEvidence {
+            count: audit.unsupported_scripts,
+        });
+    }
+    Ok(audit)
 }
 
 /// Parses and replays a canonical pinned-bedsim JSONL trace.
@@ -391,6 +488,114 @@ pub fn verify_trace_jsonl(
             .tick(&mut state, record.input, world)
             .map_err(|source| ConformanceError::Simulation { line, source })?;
         compare_tick(line, record.expected, actual, epsilon)?;
+    }
+    if records == 0 {
+        return Err(ConformanceError::EmptyTrace);
+    }
+    Ok(state)
+}
+
+/// Replays the historical numeric-only bedsim fixture without promoting it to
+/// environmental or identity conformance evidence.
+pub fn verify_legacy_trace_jsonl(
+    jsonl: &str,
+    mut state: PlayerState,
+    simulator: &Simulator,
+    world: &impl CollisionWorld,
+    epsilon: f64,
+) -> Result<PlayerState, ConformanceError> {
+    if !epsilon.is_finite() || epsilon < 0.0 {
+        return Err(ConformanceError::InvalidEpsilon);
+    }
+    if jsonl.is_empty() {
+        return Err(ConformanceError::EmptyTrace);
+    }
+    let mut records = 0_usize;
+    for (index, raw_line) in jsonl.split_terminator('\n').enumerate() {
+        let line = index + 1;
+        records += 1;
+        if records > MAX_TRACE_RECORDS {
+            return Err(ConformanceError::TooManyRecords {
+                max: MAX_TRACE_RECORDS,
+            });
+        }
+        let raw_line = raw_line.strip_suffix('\r').unwrap_or(raw_line);
+        if raw_line.is_empty() {
+            return Err(ConformanceError::BlankLine { line });
+        }
+        if raw_line.len() > MAX_TRACE_LINE_BYTES {
+            return Err(ConformanceError::LineTooLong {
+                line,
+                max: MAX_TRACE_LINE_BYTES,
+            });
+        }
+        let record: LegacyTraceRecord = serde_json::from_str(raw_line)
+            .map_err(|source| ConformanceError::Json { line, source })?;
+        let expected_tick = state
+            .tick
+            .checked_add(1)
+            .ok_or(ConformanceError::TickSequence {
+                line,
+                expected: u64::MAX,
+                actual: record.expected.tick,
+            })?;
+        if record.expected.tick != expected_tick {
+            return Err(ConformanceError::TickSequence {
+                line,
+                expected: expected_tick,
+                actual: record.expected.tick,
+            });
+        }
+        let actual = simulator
+            .tick(&mut state, record.input, world)
+            .map_err(|source| ConformanceError::Simulation { line, source })?;
+        compare_vec(
+            line,
+            record.expected.tick,
+            "position",
+            record.expected.position,
+            actual.position,
+            epsilon,
+        )?;
+        compare_vec(
+            line,
+            record.expected.tick,
+            "velocity",
+            record.expected.velocity,
+            actual.velocity,
+            epsilon,
+        )?;
+        compare_vec(
+            line,
+            record.expected.tick,
+            "movement",
+            record.expected.movement,
+            actual.movement,
+            epsilon,
+        )?;
+        for (field, differs) in [
+            (
+                "collisions.x",
+                record.expected.collisions.x != actual.collisions.x,
+            ),
+            (
+                "collisions.y",
+                record.expected.collisions.y != actual.collisions.y,
+            ),
+            (
+                "collisions.z",
+                record.expected.collisions.z != actual.collisions.z,
+            ),
+            ("on_ground", record.expected.on_ground != actual.on_ground),
+        ] {
+            if differs {
+                return Err(ConformanceError::DiscreteMismatch {
+                    line,
+                    tick: record.expected.tick,
+                    field,
+                });
+            }
+        }
     }
     if records == 0 {
         return Err(ConformanceError::EmptyTrace);

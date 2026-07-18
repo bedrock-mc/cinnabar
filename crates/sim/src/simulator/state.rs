@@ -1,10 +1,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::{
-    CollisionIdSpace, CollisionRegistryIdentity, SurfaceResponse, Vec3, WorldCollisionIdentity,
-    WorldQueryError,
-};
+use crate::{SurfaceResponse, Vec3, WorldCollisionIdentity, WorldQueryError};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -78,22 +75,8 @@ pub struct TickResult {
     pub movement: Vec3,
     pub collisions: AxisCollisions,
     pub on_ground: bool,
-    #[serde(default)]
     pub environment: MovementEnvironment,
-    #[serde(default = "synthetic_world_identity")]
     pub world_identity: WorldCollisionIdentity,
-}
-
-fn synthetic_world_identity() -> WorldCollisionIdentity {
-    WorldCollisionIdentity::new(
-        CollisionRegistryIdentity {
-            protocol: 1001,
-            id_space: CollisionIdSpace::Sequential,
-            preg_sha256: [0; 32],
-        },
-        [],
-    )
-    .expect("empty synthetic tick identity is bounded")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]

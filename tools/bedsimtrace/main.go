@@ -3,6 +3,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -160,20 +162,30 @@ type blockPhysics struct {
 }
 
 type scenarioWorld struct {
-	Name         string       `json:"name"`
-	Boxes        []aabb       `json:"boxes"`
-	Physics      blockPhysics `json:"physics"`
-	IdentitySeed uint8        `json:"identity_seed"`
-	Unloaded     bool         `json:"unloaded"`
+	Name     string       `json:"name"`
+	Origin   [3]int32     `json:"origin"`
+	Revision uint64       `json:"revision"`
+	Boxes    []aabb       `json:"boxes"`
+	Physics  blockPhysics `json:"physics"`
+	Unloaded bool         `json:"unloaded"`
 }
 
-type scenarioRecord struct {
-	Scenario      string        `json:"scenario"`
-	World         scenarioWorld `json:"world"`
-	Initial       playerState   `json:"initial"`
-	Input         movementInput `json:"input"`
-	Expected      *tickResult   `json:"expected,omitempty"`
-	ExpectedError string        `json:"expected_error,omitempty"`
+type scenarioEvidence struct {
+	Status string `json:"status"`
+	Reason string `json:"reason,omitempty"`
+}
+
+type scenarioStep struct {
+	World    scenarioWorld `json:"world"`
+	Input    movementInput `json:"input"`
+	Expected *tickResult   `json:"expected,omitempty"`
+}
+
+type scenarioScript struct {
+	Scenario string           `json:"scenario"`
+	Evidence scenarioEvidence `json:"evidence"`
+	Initial  playerState      `json:"initial"`
+	Steps    []scenarioStep   `json:"steps"`
 }
 
 type traceRecord struct {
@@ -211,7 +223,7 @@ func writeTrace(output io.Writer) error {
 func writeTerrainTrace(output io.Writer) error {
 	encoder := json.NewEncoder(output)
 	encoder.SetEscapeHTML(false)
-	for _, scenario := range terrainScenarios() {
+	for _, scenario := range terrainScripts() {
 		if err := encoder.Encode(scenario); err != nil {
 			return err
 		}
@@ -272,20 +284,22 @@ func basicScript() []movementInput {
 }
 
 func terrainScriptNames() []string {
-	scenarios := terrainScenarios()
-	names := make([]string, len(scenarios))
-	for index, scenario := range scenarios {
-		names[index] = scenario.Scenario
+	scripts := terrainScripts()
+	names := make([]string, len(scripts))
+	for index, script := range scripts {
+		names[index] = script.Scenario
 	}
 	return names
 }
 
-func terrainScriptManifest() []scenarioRecord {
-	scenarios := terrainScenarios()
-	for index := range scenarios {
-		scenarios[index].Expected = nil
+func terrainScriptManifest() []scenarioScript {
+	scripts := terrainScripts()
+	for scriptIndex := range scripts {
+		for stepIndex := range scripts[scriptIndex].Steps {
+			scripts[scriptIndex].Steps[stepIndex].Expected = nil
+		}
 	}
-	return scenarios
+	return scripts
 }
 
 const (
@@ -296,220 +310,195 @@ const (
 	flagScaffolding = uint8(1 << 5)
 )
 
-func terrainScenarios() []scenarioRecord {
-	floor := []aabb{{Min: vec3{-16, 0, -16}, Max: vec3{16, 1, 16}}}
-	ledge := []aabb{{Min: vec3{-0.5, 0, -0.5}, Max: vec3{0.5, 1, 0.5}}}
-	physics := blockPhysics{Friction: 0.6, HorizontalSpeedFactor: 1, VerticalSpeedFactor: 1, SurfaceResponse: "none"}
-	grounded := playerState{Position: vec3{0, 1, 0}, OnGround: true}
-	airborne := playerState{Position: vec3{0.5, 1, 0.5}}
-	makeScenario := func(name string, boxes []aabb, facts blockPhysics, initial playerState, input movementInput) scenarioRecord {
+func terrainScripts() []scenarioScript {
+	floorBoxes := []aabb{{Min: vec3{-16, 0, -16}, Max: vec3{16, 1, 16}}}
+	ledgeBoxes := []aabb{{Min: vec3{-0.5, 0, -0.5}, Max: vec3{0.5, 1, 0.5}}}
+	ordinary := blockPhysics{Friction: 0.6, HorizontalSpeedFactor: 1, VerticalSpeedFactor: 1, SurfaceResponse: "none"}
+	world := func(name string, boxes []aabb, facts blockPhysics, revision uint64) scenarioWorld {
 		if boxes == nil {
 			boxes = []aabb{}
 		}
-		seed := uint8(len(name) + len(boxes)*17)
-		record := scenarioRecord{Scenario: name, World: scenarioWorld{Name: name + "_world", Boxes: boxes, Physics: facts, IdentitySeed: seed}, Initial: initial, Input: input}
-		result := referenceTick(record)
-		if name == "slab_step" || name == "stair_step" {
-			// Phase 3 deliberately corrects bedsim v0.1.3's loss of grounded
-			// state after a successful step; the full-state golden pins that fix.
-			result.OnGround = true
-		}
-		record.Expected = &result
-		return record
+		return scenarioWorld{Name: name, Origin: [3]int32{0, 0, 0}, Revision: revision, Boxes: boxes, Physics: facts}
 	}
-	scenarios := []scenarioRecord{
-		makeScenario("flat_walk", floor, physics, grounded, movementInput{Forward: 1}),
-		makeScenario("diagonal", floor, physics, grounded, movementInput{Forward: 1, Strafe: 1}),
-		makeScenario("sprint_jump", floor, physics, grounded, movementInput{Forward: 1, Jumping: true, JumpPressed: true, Sprinting: true}),
+	grounded := playerState{Position: vec3{0, 1, 0}, OnGround: true}
+	scripts := []scenarioScript{
+		observedScript("flat_walk", world("flat_walk_world", floorBoxes, ordinary, 1), grounded, []movementInput{{Forward: 1}, {Forward: 1}}),
+		observedScript("diagonal", world("diagonal_world", floorBoxes, ordinary, 2), grounded, []movementInput{{Forward: 1, Strafe: 1}, {Forward: 1, Strafe: 1}}),
+		observedScript("sprint_jump", world("sprint_jump_world", floorBoxes, ordinary, 3), grounded, []movementInput{{Forward: 1, Jumping: true, JumpPressed: true, Sprinting: true}, {Forward: 1, Sprinting: true}}),
 	}
-	slab := append(append([]aabb{}, floor...), aabb{Min: vec3{-0.5, 1, 0.7}, Max: vec3{0.5, 1.5, 1.7}})
-	stepState := grounded
-	stepState.Position = vec3{0, 1, 0.4}
-	stepState.Velocity.Z = 0.5
-	scenarios = append(scenarios,
-		makeScenario("slab_step", slab, physics, stepState, movementInput{}),
-		makeScenario("stair_step", append(slab, aabb{Min: vec3{-0.2, 1.5, 1.1}, Max: vec3{0.2, 2, 1.5}}), physics, stepState, movementInput{}),
-	)
-	for _, edge := range []struct {
+	for index, edge := range []struct {
 		name     string
 		velocity vec3
 	}{
-		{"sneak_north", vec3{0, 0, 0.8}}, {"sneak_south", vec3{0, 0, -0.8}},
-		{"sneak_east", vec3{0.8, 0, 0}}, {"sneak_west", vec3{-0.8, 0, 0}},
+		{"sneak_north", vec3{0, 0, 0.8}},
+		{"sneak_south", vec3{0, 0, -0.8}},
+		{"sneak_east", vec3{0.8, 0, 0}},
+		{"sneak_west", vec3{-0.8, 0, 0}},
 	} {
 		state := grounded
 		state.Velocity = edge.velocity
-		scenarios = append(scenarios, makeScenario(edge.name, ledge, physics, state, movementInput{Sneaking: true}))
+		scripts = append(scripts, observedScript(edge.name, world(edge.name+"_world", ledgeBoxes, ordinary, uint64(4+index)), state, []movementInput{{Sneaking: true}, {Sneaking: true}}))
 	}
-	headWorld := append(append([]aabb{}, floor...), aabb{Min: vec3{-1, 3, -1}, Max: vec3{1, 3.2, 1}})
+	headBoxes := append(append([]aabb{}, floorBoxes...), aabb{Min: vec3{-1, 3, -1}, Max: vec3{1, 3.2, 1}})
 	headState := grounded
 	headState.Position = vec3{0, 1, -0.5}
 	headState.Velocity.Y = 0.8
-	scenarios = append(scenarios, makeScenario("head_collision", headWorld, physics, headState, movementInput{}))
-	climb := physics
+	scripts = append(scripts, observedScript("head_collision", world("head_collision_world", headBoxes, ordinary, 8), headState, []movementInput{{}, {}}))
+
+	unsupported := func(name, reason string, initial playerState, worlds []scenarioWorld, inputs []movementInput) {
+		steps := make([]scenarioStep, len(worlds))
+		for index := range worlds {
+			steps[index] = scenarioStep{World: worlds[index], Input: inputs[index]}
+		}
+		scripts = append(scripts, scenarioScript{
+			Scenario: name,
+			Evidence: scenarioEvidence{Status: "unsupported_non_conformance", Reason: reason},
+			Initial:  initial,
+			Steps:    steps,
+		})
+	}
+	stepState := grounded
+	stepState.Position = vec3{0, 1, 0.4}
+	stepState.Velocity.Z = 0.5
+	slab := append(append([]aabb{}, floorBoxes...), aabb{Min: vec3{-0.5, 1, 0.7}, Max: vec3{0.5, 1.5, 1.7}})
+	stair := append(append([]aabb{}, slab...), aabb{Min: vec3{-0.2, 1.5, 1.1}, Max: vec3{0.2, 2, 1.5}})
+	unsupported("slab_step", "bedsim v0.1.3 loses grounded state after the deliberate Phase 3 step correction", stepState, []scenarioWorld{world("slab_step_0", slab, ordinary, 9), world("slab_step_1", slab, ordinary, 9)}, []movementInput{{}, {}})
+	unsupported("stair_step", "bedsim v0.1.3 loses grounded state after the deliberate Phase 3 step correction", stepState, []scenarioWorld{world("stair_step_0", stair, ordinary, 10), world("stair_step_1", stair, ordinary, 10)}, []movementInput{{}, {}})
+
+	airborne := playerState{Position: vec3{0.5, 1, 0.5}}
+	climb := ordinary
 	climb.Flags = flagClimbable
-	climbDown := airborne
-	climbDown.Velocity.Y = -1
-	scenarios = append(scenarios,
-		makeScenario("ladder_ascend", nil, climb, airborne, movementInput{Jumping: true}),
-		makeScenario("ladder_descend", nil, climb, climbDown, movementInput{}),
-		makeScenario("ladder_hold", nil, climb, climbDown, movementInput{Sneaking: true}),
-	)
-	water := physics
-	water.Flags, water.FluidHeightBlocks, water.VerticalSpeedFactor = flagWater, 1, 1
+	descend := airborne
+	descend.Velocity.Y = -1
+	unsupported("ladder_ascend", "generator has no authoritative PREG-to-bedsim environment query", airborne, []scenarioWorld{world("ladder_ascend_0", nil, climb, 11), world("ladder_ascend_1", nil, climb, 11)}, []movementInput{{Jumping: true}, {Jumping: true}})
+	unsupported("ladder_descend", "generator has no authoritative PREG-to-bedsim environment query", descend, []scenarioWorld{world("ladder_descend_0", nil, climb, 12), world("ladder_descend_1", nil, climb, 12)}, []movementInput{{}, {}})
+	unsupported("ladder_hold", "generator has no authoritative PREG-to-bedsim environment query", descend, []scenarioWorld{world("ladder_hold_0", nil, climb, 13), world("ladder_hold_1", nil, climb, 13)}, []movementInput{{Sneaking: true}, {Sneaking: true}})
+
+	water := ordinary
+	water.Flags, water.FluidHeightBlocks = flagWater, 1
 	fluidState := playerState{Position: vec3{0.5, 0.1, 0.5}, Velocity: vec3{0.4, -0.3, 0.2}}
-	scenarios = append(scenarios,
-		makeScenario("water_enter", nil, water, fluidState, movementInput{}),
-		makeScenario("water_swim", nil, water, fluidState, movementInput{Forward: 1, Jumping: true}),
-		makeScenario("water_exit", nil, physics, playerState{Position: vec3{0.5, 2, 0.5}, Velocity: vec3{0.2, 0.1, 0.1}}, movementInput{}),
-	)
+	unsupported("water_enter", "bedsim v0.1.3 exposes no fluid environment oracle", fluidState, []scenarioWorld{world("water_enter_air", nil, ordinary, 14), world("water_enter_water", nil, water, 15)}, []movementInput{{}, {}})
+	unsupported("water_swim", "bedsim v0.1.3 exposes no fluid environment oracle", fluidState, []scenarioWorld{world("water_swim_0", nil, water, 16), world("water_swim_1", nil, water, 16), world("water_swim_2", nil, water, 16)}, []movementInput{{Jumping: true}, {Forward: 1, Jumping: true}, {Forward: 1}})
+	unsupported("water_exit", "bedsim v0.1.3 exposes no fluid environment oracle", fluidState, []scenarioWorld{world("water_exit_water", nil, water, 17), world("water_exit_air", nil, ordinary, 18)}, []movementInput{{Jumping: true}, {}})
 	lava := water
 	lava.Flags = flagLava
-	scenarios = append(scenarios, makeScenario("lava", nil, lava, fluidState, movementInput{Forward: 1, Jumping: true}))
-	cobweb := physics
+	unsupported("lava", "bedsim v0.1.3 exposes no fluid environment oracle", fluidState, []scenarioWorld{world("lava_0", nil, lava, 19), world("lava_1", nil, lava, 19)}, []movementInput{{Jumping: true}, {Forward: 1}})
+	cobweb := ordinary
 	cobweb.Flags = flagCobweb
 	cobwebState := airborne
 	cobwebState.Velocity = vec3{0.8, -0.8, 0.8}
-	scenarios = append(scenarios, makeScenario("cobweb", nil, cobweb, cobwebState, movementInput{}))
-	bounceState := playerState{Position: vec3{0, 1.2, 0}, Velocity: vec3{0, -0.7, 0}}
-	for _, surface := range []struct {
+	unsupported("cobweb", "generator has no authoritative PREG-to-bedsim environment query", cobwebState, []scenarioWorld{world("cobweb_0", nil, cobweb, 20), world("cobweb_1", nil, cobweb, 20)}, []movementInput{{}, {}})
+
+	bounce := playerState{Position: vec3{0, 1.2, 0}, Velocity: vec3{0, -0.7, 0}}
+	for revision, surface := range []struct {
 		name, response string
 		input          movementInput
 	}{
-		{"slime_bounce", "slime", movementInput{}}, {"slime_sneak", "slime", movementInput{Sneaking: true}}, {"bed_bounce", "bed", movementInput{}},
+		{"slime_bounce", "slime", movementInput{}},
+		{"slime_sneak", "slime", movementInput{Sneaking: true}},
+		{"bed_bounce", "bed", movementInput{}},
 	} {
-		facts := physics
+		facts := ordinary
 		facts.SurfaceResponse = surface.response
-		scenarios = append(scenarios, makeScenario(surface.name, floor, facts, bounceState, surface.input))
+		unsupported(surface.name, "generator has no authoritative PREG-to-bedsim environment query", bounce, []scenarioWorld{world(surface.name+"_0", floorBoxes, facts, uint64(21+revision)), world(surface.name+"_1", floorBoxes, facts, uint64(21+revision))}, []movementInput{surface.input, surface.input})
 	}
-	for _, surface := range []struct{ name, response string }{{"soul_sand", "soul_sand"}, {"honey", "honey"}} {
-		facts := physics
+	for revision, surface := range []struct{ name, response string }{{"soul_sand", "soul_sand"}, {"honey", "honey"}} {
+		facts := ordinary
 		facts.HorizontalSpeedFactor, facts.SurfaceResponse = 0.4, surface.response
-		scenarios = append(scenarios, makeScenario(surface.name, floor, facts, grounded, movementInput{Forward: 1}))
+		unsupported(surface.name, "generator has no authoritative PREG-to-bedsim environment query", grounded, []scenarioWorld{world(surface.name+"_0", floorBoxes, facts, uint64(24+revision)), world(surface.name+"_1", floorBoxes, facts, uint64(24+revision))}, []movementInput{{Forward: 1}, {Forward: 1}})
 	}
-	scaffolding := physics
+	scaffolding := ordinary
 	scaffolding.Flags = flagScaffolding
-	scenarios = append(scenarios, makeScenario("scaffolding", nil, scaffolding, airborne, movementInput{Jumping: true}))
-	for _, bubble := range []struct{ name, response string }{{"bubble_up", "bubble_up"}, {"bubble_down", "bubble_down"}} {
+	unsupported("scaffolding", "generator has no authoritative PREG-to-bedsim environment query", airborne, []scenarioWorld{world("scaffolding_0", nil, scaffolding, 26), world("scaffolding_1", nil, scaffolding, 26)}, []movementInput{{Jumping: true}, {}})
+	for revision, bubble := range []struct{ name, response string }{{"bubble_up", "bubble_up"}, {"bubble_down", "bubble_down"}} {
 		facts := water
 		facts.SurfaceResponse = bubble.response
-		state := playerState{Position: vec3{0.5, 0.1, 0.5}}
-		scenarios = append(scenarios, makeScenario(bubble.name, nil, facts, state, movementInput{}))
+		unsupported(bubble.name, "bedsim v0.1.3 exposes no bubble-column environment oracle", playerState{Position: vec3{0.5, 0.1, 0.5}}, []scenarioWorld{world(bubble.name+"_0", nil, facts, uint64(27+revision)), world(bubble.name+"_1", nil, facts, uint64(27+revision))}, []movementInput{{}, {}})
 	}
-	scenarios = append(scenarios, scenarioRecord{
-		Scenario:      "unloaded_boundary",
-		World:         scenarioWorld{Name: "unloaded_boundary_world", Boxes: []aabb{}, Physics: physics, IdentitySeed: 255, Unloaded: true},
-		Initial:       grounded,
-		ExpectedError: "unloaded_boundary",
-	})
-	return scenarios
+	unloaded := world("unloaded_boundary_unloaded", floorBoxes, ordinary, 30)
+	unloaded.Unloaded = true
+	unsupported("unloaded_boundary", "bedsim world API reports load state but the Rust error contract is not a bedsim TickResult", grounded, []scenarioWorld{world("unloaded_boundary_loaded", floorBoxes, ordinary, 29), unloaded}, []movementInput{{Forward: 1}, {Forward: 1}})
+	return scripts
 }
 
-func referenceTick(record scenarioRecord) tickResult {
-	if record.World.Physics.Flags != 0 || record.World.Physics.SurfaceResponse != "none" || record.World.Physics.HorizontalSpeedFactor != 1 {
-		return referenceEnvironmentTick(record)
-	}
-	state := toBedsimState(record.Initial)
-	simulator := newScenarioSimulator(record.World)
-	result := simulator.Simulate(&state, toBedsimInput(state, record.Input))
-	return tickResult{
-		Tick: record.Initial.Tick + 1, Position: fromVec3(result.Position), Velocity: fromVec3(result.Velocity), Movement: fromVec3(result.Movement),
-		Collisions: collisions{X: result.CollideX, Y: result.CollideY, Z: result.CollideZ}, OnGround: result.OnGround,
-		Environment: environment(record.World.Physics), WorldIdentity: identity(record.World.IdentitySeed),
-	}
-}
-
-func referenceEnvironmentTick(record scenarioRecord) tickResult {
-	facts, input, state := record.World.Physics, record.Input, record.Initial
-	env := environment(facts)
-	velocity := state.Velocity
-	grounded := state.OnGround
-	friction := 0.91
-	if grounded {
-		friction *= facts.Friction
-	}
-	if input.Forward != 0 || input.Strafe != 0 {
-		speed := 0.02 * facts.HorizontalSpeedFactor
-		if grounded {
-			speed = 0.1 * facts.HorizontalSpeedFactor * (0.16277136 / (friction * friction * friction))
-		} else if input.Sprinting {
-			speed = 0.026 * facts.HorizontalSpeedFactor
+func observedScript(name string, world scenarioWorld, initial playerState, inputs []movementInput) scenarioScript {
+	state := toBedsimState(initial)
+	simulator := newScenarioSimulator(world)
+	steps := make([]scenarioStep, 0, len(inputs))
+	for index, input := range inputs {
+		before := state
+		result := simulator.Simulate(&state, toBedsimInput(before, input))
+		expected := tickResult{
+			Tick:          uint64(index) + initial.Tick + 1,
+			Position:      fromVec3(result.Position),
+			Velocity:      fromVec3(result.Velocity),
+			Movement:      fromVec3(result.Movement),
+			Collisions:    collisions{X: result.CollideX, Y: result.CollideY, Z: result.CollideZ},
+			OnGround:      result.OnGround,
+			Environment:   environment(world.Physics),
+			WorldIdentity: identity(world),
 		}
-		force := speed / math.Max(1, math.Hypot(input.Strafe*0.98, input.Forward*0.98))
-		velocity.X += input.Strafe * 0.98 * force
-		velocity.Z += input.Forward * 0.98 * force
+		steps = append(steps, scenarioStep{World: world, Input: input, Expected: &expected})
 	}
-	if env.OnClimbable || env.InScaffolding {
-		velocity.Y = math.Max(velocity.Y, -0.2)
-		if input.Jumping {
-			velocity.Y = 0.2
-		} else if input.Sneaking && velocity.Y < 0 {
-			velocity.Y = 0
-		}
-	}
-	if env.InWater || env.InLava {
-		if input.Jumping {
-			velocity.Y += 0.04
-		}
-		velocity.Y *= facts.VerticalSpeedFactor
-	}
-	if env.InCobweb {
-		velocity.X, velocity.Y, velocity.Z = velocity.X*0.25, velocity.Y*0.05, velocity.Z*0.25
-	}
-	movement := velocity
-	position := vec3{state.Position.X + movement.X, state.Position.Y + movement.Y, state.Position.Z + movement.Z}
-	collidedY := false
-	if len(record.World.Boxes) != 0 && position.Y < 1 {
-		movement.Y, position.Y, collidedY = 1-state.Position.Y, 1, true
-	}
-	if collidedY {
-		switch facts.SurfaceResponse {
-		case "slime":
-			if !grounded && !input.Sneaking && velocity.Y < 0 {
-				velocity.Y = -velocity.Y
-			} else {
-				velocity.Y = 0
-			}
-		case "bed":
-			if !grounded && velocity.Y < 0 {
-				velocity.Y = math.Min(-0.66*velocity.Y, 1)
-			} else {
-				velocity.Y = 0
-			}
-		default:
-			velocity.Y = 0
-		}
-	}
-	if env.InCobweb {
-		velocity = vec3{}
-	} else if env.InWater || env.InLava {
-		drag := 0.8
-		if env.InLava {
-			drag = 0.5
-		}
-		velocity.X, velocity.Y, velocity.Z = velocity.X*drag, (velocity.Y-0.02)*drag, velocity.Z*drag
-	} else {
-		velocity.X, velocity.Y, velocity.Z = velocity.X*friction, (velocity.Y-0.08)*0.98, velocity.Z*friction
-	}
-	if facts.SurfaceResponse == "bubble_up" {
-		velocity.Y = math.Max(velocity.Y, 0.1)
-	}
-	if facts.SurfaceResponse == "bubble_down" {
-		velocity.Y = math.Min(velocity.Y, -0.1)
-	}
-	return tickResult{Tick: state.Tick + 1, Position: position, Velocity: velocity, Movement: movement, Collisions: collisions{Y: collidedY}, OnGround: collidedY || (grounded && math.Abs(movement.Y) <= 1e-5), Environment: env, WorldIdentity: identity(record.World.IdentitySeed)}
+	return scenarioScript{Scenario: name, Evidence: scenarioEvidence{Status: "bedsim_observed_with_manifest_context"}, Initial: initial, Steps: steps}
 }
 
 func environment(facts blockPhysics) movementEnvironment {
 	return movementEnvironment{OnClimbable: facts.Flags&flagClimbable != 0, InWater: facts.Flags&flagWater != 0, InLava: facts.Flags&flagLava != 0, InCobweb: facts.Flags&flagCobweb != 0, InScaffolding: facts.Flags&flagScaffolding != 0, HorizontalSpeedFactor: facts.HorizontalSpeedFactor, VerticalSpeedFactor: facts.VerticalSpeedFactor, SurfaceResponse: facts.SurfaceResponse}
 }
 
-func identity(seed uint8) worldIdentity {
-	var hash [32]uint8
-	for index := range hash {
-		hash[index] = seed
+func identity(world scenarioWorld) worldIdentity {
+	hash := sha256.New()
+	hash.Write([]byte("sim-scenario-world-v1\x00"))
+	var scratch [8]byte
+	for _, coordinate := range world.Origin {
+		binary.LittleEndian.PutUint32(scratch[:4], uint32(coordinate))
+		hash.Write(scratch[:4])
 	}
-	return worldIdentity{Protocol: 1001, IDSpace: "sequential", PregSHA256: hash, Chunks: []identityChunk{{Dimension: 0, X: 0, Z: 0, Revision: uint64(seed)}, {Dimension: 0, X: 1, Z: 0, Revision: uint64(seed) + 1}}}
+	binary.LittleEndian.PutUint64(scratch[:], world.Revision)
+	hash.Write(scratch[:])
+	binary.LittleEndian.PutUint32(scratch[:4], uint32(len(world.Boxes)))
+	hash.Write(scratch[:4])
+	for _, box := range world.Boxes {
+		for _, value := range []float64{box.Min.X, box.Min.Y, box.Min.Z, box.Max.X, box.Max.Y, box.Max.Z} {
+			binary.LittleEndian.PutUint64(scratch[:], math.Float64bits(value))
+			hash.Write(scratch[:])
+		}
+	}
+	for _, value := range []float64{world.Physics.Friction, world.Physics.HorizontalSpeedFactor, world.Physics.VerticalSpeedFactor, world.Physics.FluidHeightBlocks} {
+		binary.LittleEndian.PutUint64(scratch[:], math.Float64bits(value))
+		hash.Write(scratch[:])
+	}
+	hash.Write([]byte{world.Physics.Flags, surfaceCode(world.Physics.SurfaceResponse)})
+	if world.Unloaded {
+		hash.Write([]byte{1})
+	} else {
+		hash.Write([]byte{0})
+	}
+	var digest [32]uint8
+	copy(digest[:], hash.Sum(nil))
+	return worldIdentity{Protocol: 1001, IDSpace: "sequential", PregSHA256: digest, Chunks: []identityChunk{{Dimension: 0, X: world.Origin[0] >> 4, Z: world.Origin[2] >> 4, Revision: world.Revision}}}
+}
+
+func surfaceCode(response string) uint8 {
+	switch response {
+	case "none":
+		return 0
+	case "slime":
+		return 1
+	case "bed":
+		return 2
+	case "honey":
+		return 3
+	case "soul_sand":
+		return 4
+	case "bubble_up":
+		return 5
+	case "bubble_down":
+		return 6
+	default:
+		panic("unbounded surface response")
+	}
 }
 
 func writeScriptTrace(output io.Writer, script []movementInput) error {

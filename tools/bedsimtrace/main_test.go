@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -25,7 +26,14 @@ func TestBedsimInputEmitsStopSprintingOnTrueToFalseEdge(t *testing.T) {
 
 func TestTerrainProvenanceBindsGeneratorScriptAndOutput(t *testing.T) {
 	type provenance struct {
+		Module                string `json:"module"`
+		Version               string `json:"version"`
+		SourceCommit          string `json:"source_commit"`
+		ModuleSum             string `json:"module_sum"`
+		GeneratorCommand      string `json:"generator_command"`
 		GeneratorSourceSHA256 string `json:"generator_source_sha256"`
+		GoModSHA256           string `json:"go_mod_sha256"`
+		GoSumSHA256           string `json:"go_sum_sha256"`
 		ScriptSHA256          string `json:"script_sha256"`
 		SHA256                string `json:"sha256"`
 	}
@@ -37,7 +45,12 @@ func TestTerrainProvenanceBindsGeneratorScriptAndOutput(t *testing.T) {
 	if err := json.Unmarshal(bytes, &got); err != nil {
 		t.Fatal(err)
 	}
+	if got.Module != "github.com/oomph-ac/bedsim" || got.Version != "v0.1.3" || got.SourceCommit != "5be9149df14e30c0ab14f9e01d51dd2acfee5230" || got.ModuleSum != "h1:tWZ7O48DL/SaWIY+0zz0hFln+DXN4vfatqKr8zTHVo8=" || got.GeneratorCommand != "GOWORK=off go run . --terrain" {
+		t.Fatalf("incomplete pinned module provenance: %#v", got)
+	}
 	assertFileHash(t, "main.go", got.GeneratorSourceSHA256)
+	assertFileHash(t, "go.mod", got.GoModSHA256)
+	assertFileHash(t, "go.sum", got.GoSumSHA256)
 	script, err := json.Marshal(terrainScriptManifest())
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +67,7 @@ func assertFileHash(t *testing.T, path, want string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if path == "main.go" {
+	if path == "main.go" || path == "go.mod" || path == "go.sum" {
 		bytes = []byte(strings.ReplaceAll(string(bytes), "\r\n", "\n"))
 	}
 	if got := hashBytes(bytes); got != want {
@@ -108,49 +121,75 @@ func TestTerrainScriptsCoverEveryTaskThreeStratum(t *testing.T) {
 	if len(got) != len(want) {
 		t.Fatalf("terrain script count = %d, want %d: %v", len(got), len(want), got)
 	}
-	for index := range want {
-		if got[index] != want[index] {
-			t.Fatalf("terrain script %d = %q, want %q", index, got[index], want[index])
+	seen := map[string]bool{}
+	for _, name := range got {
+		seen[name] = true
+	}
+	for _, name := range want {
+		if !seen[name] {
+			t.Fatalf("terrain script %q missing from %v", name, got)
 		}
 	}
 }
 
-func TestTerrainFixtureContainsDistinctWorldBoundCompleteScenarios(t *testing.T) {
+func TestTerrainFixtureSeparatesObservedConformanceFromUnsupportedScripts(t *testing.T) {
 	var output bytes.Buffer
 	if err := writeTerrainTrace(&output); err != nil {
 		t.Fatal(err)
 	}
 	seenScenarios := map[string]struct{}{}
-	seenWorlds := map[string]struct{}{}
 	decoder := json.NewDecoder(&output)
 	for decoder.More() {
-		var record map[string]any
-		if err := decoder.Decode(&record); err != nil {
+		var script scenarioScript
+		if err := decoder.Decode(&script); err != nil {
 			t.Fatal(err)
 		}
-		scenario, scenarioOK := record["scenario"].(string)
-		world, worldOK := record["world"].(map[string]any)
-		worldName, worldNameOK := world["name"].(string)
-		expected, expectedOK := record["expected"].(map[string]any)
-		environmentOK, identityOK := false, false
-		if expectedOK {
-			_, environmentOK = expected["environment"].(map[string]any)
-			_, identityOK = expected["world_identity"].(map[string]any)
+		if len(script.Steps) < 2 {
+			t.Fatalf("%s is not a multi-tick script", script.Scenario)
 		}
-		_, errorOK := record["expected_error"].(string)
-		if !scenarioOK || !worldOK || !worldNameOK || !(expectedOK && environmentOK && identityOK || errorOK) {
-			t.Fatalf("incomplete scenario record: %#v", record)
+		if _, duplicate := seenScenarios[script.Scenario]; duplicate {
+			t.Fatalf("duplicate scenario %q", script.Scenario)
 		}
-		if _, duplicate := seenScenarios[scenario]; duplicate {
-			t.Fatalf("duplicate scenario %q", scenario)
+		seenScenarios[script.Scenario] = struct{}{}
+		for _, step := range script.Steps {
+			if script.Evidence.Status == "bedsim_observed_with_manifest_context" {
+				if step.Expected == nil {
+					t.Fatalf("observed %s step lacks complete result", script.Scenario)
+				}
+			} else if script.Evidence.Status != "unsupported_non_conformance" || script.Evidence.Reason == "" || step.Expected != nil {
+				t.Fatalf("unsupported evidence was presented as conformance: %#v", script)
+			}
 		}
-		if _, duplicate := seenWorlds[worldName]; duplicate {
-			t.Fatalf("duplicate world %q", worldName)
-		}
-		seenScenarios[scenario] = struct{}{}
-		seenWorlds[worldName] = struct{}{}
 	}
 	if len(seenScenarios) != len(terrainScriptNames()) {
 		t.Fatalf("scenario count = %d, want %d", len(seenScenarios), len(terrainScriptNames()))
+	}
+}
+
+func TestWaterScriptsEncodeActualEnvironmentTransitionsWithoutExpectedGoldens(t *testing.T) {
+	for _, script := range terrainScripts() {
+		if script.Scenario == "water_enter" {
+			if script.Evidence.Status != "unsupported_non_conformance" || script.Steps[0].World.Physics.Flags&flagWater != 0 || script.Steps[1].World.Physics.Flags&flagWater == 0 {
+				t.Fatalf("water enter transition is not explicit: %#v", script)
+			}
+			return
+		}
+	}
+	t.Fatal("water_enter script missing")
+}
+
+func TestWorldIdentityBindsGeometryPhysicsCoordinatesAndRevision(t *testing.T) {
+	base := terrainScripts()[0].Steps[0].World
+	want := identity(base)
+	mutations := []scenarioWorld{base, base, base, base}
+	mutations[0].Boxes = append([]aabb{}, base.Boxes...)
+	mutations[0].Boxes[0].Max.X++
+	mutations[1].Physics.Friction = 0.7
+	mutations[2].Origin[0] = 16
+	mutations[3].Revision++
+	for index, mutation := range mutations {
+		if got := identity(mutation); reflect.DeepEqual(got, want) {
+			t.Fatalf("identity mutation %d was not bound", index)
+		}
 	}
 }

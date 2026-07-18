@@ -1,8 +1,8 @@
 use sha2::{Digest, Sha256};
 use sim::{
     Aabb, CollisionQuery, CollisionWorld, ConformanceError, MovementInput, PlayerState, Simulator,
-    TickResult, TraceRecord, Vec3, WorldQueryError, verify_scenario_trace_jsonl,
-    verify_trace_jsonl,
+    TickResult, TraceRecord, Vec3, WorldQueryError, audit_scenario_trace_jsonl,
+    verify_legacy_trace_jsonl, verify_scenario_trace_jsonl, verify_trace_jsonl,
 };
 
 struct Floor;
@@ -144,8 +144,26 @@ fn nested_unknown_fields_are_rejected_recursively() {
 }
 
 #[test]
+fn complete_trace_schema_requires_environment_and_world_identity() {
+    let input = MovementInput::default();
+    let mut state = initial_state();
+    let expected = Simulator::default()
+        .tick(&mut state, input, &Floor)
+        .unwrap();
+    let canonical = serde_json::to_value(TraceRecord { input, expected }).unwrap();
+    for field in ["environment", "world_identity"] {
+        let mut incomplete = canonical.clone();
+        incomplete["expected"]
+            .as_object_mut()
+            .unwrap()
+            .remove(field);
+        assert!(serde_json::from_value::<TraceRecord>(incomplete).is_err());
+    }
+}
+
+#[test]
 fn pinned_bedsim_v0_1_3_walk_sprint_jump_trace_matches() {
-    let replayed = verify_trace_jsonl(
+    let replayed = verify_legacy_trace_jsonl(
         include_str!("../fixtures/bedsim-v0.1.3-basic.jsonl"),
         initial_state(),
         &Simulator::default(),
@@ -185,12 +203,16 @@ fn pinned_trace_provenance_binds_module_commit_sum_generator_and_exact_bytes() {
 }
 
 #[test]
-fn terrain_trace_matches_complete_pinned_ticks_and_binds_provenance() {
+fn terrain_trace_audits_observed_ticks_without_claiming_unsupported_conformance() {
     let trace = include_str!("../fixtures/bedsim-v0.1.3-terrain.jsonl");
-    assert_eq!(
-        verify_scenario_trace_jsonl(trace, &Simulator::default(), 1.0e-12).unwrap(),
-        27
-    );
+    let audit = audit_scenario_trace_jsonl(trace, &Simulator::default(), 1.0e-12).unwrap();
+    assert_eq!(audit.scripts, 27);
+    assert_eq!(audit.observed_steps, 16);
+    assert_eq!(audit.unsupported_scripts, 19);
+    assert!(matches!(
+        verify_scenario_trace_jsonl(trace, &Simulator::default(), 1.0e-12),
+        Err(ConformanceError::UnsupportedEvidence { count: 19 })
+    ));
 
     let provenance: serde_json::Value = serde_json::from_str(include_str!(
         "../fixtures/bedsim-v0.1.3-terrain.provenance.json"
@@ -203,6 +225,14 @@ fn terrain_trace_matches_complete_pinned_ticks_and_binds_provenance() {
         "5be9149df14e30c0ab14f9e01d51dd2acfee5230"
     );
     assert_eq!(
+        provenance["module_sum"],
+        "h1:tWZ7O48DL/SaWIY+0zz0hFln+DXN4vfatqKr8zTHVo8="
+    );
+    assert_eq!(
+        provenance["generator_command"],
+        "GOWORK=off go run . --terrain"
+    );
+    assert_eq!(
         format!("{:x}", Sha256::digest(trace.as_bytes())),
         provenance["sha256"].as_str().unwrap()
     );
@@ -212,19 +242,34 @@ fn terrain_trace_matches_complete_pinned_ticks_and_binds_provenance() {
         provenance["generator_source_sha256"].as_str().unwrap()
     );
     assert_eq!(
-        provenance["script_sha256"],
-        "4ef08cd755a0f8e9480b621c9498790692e29b923196fc7b708049f7e94385d8"
+        format!(
+            "{:x}",
+            Sha256::digest(include_str!("../../../tools/bedsimtrace/go.mod").replace("\r\n", "\n"))
+        ),
+        provenance["go_mod_sha256"]
+    );
+    assert_eq!(
+        format!(
+            "{:x}",
+            Sha256::digest(include_str!("../../../tools/bedsimtrace/go.sum").replace("\r\n", "\n"))
+        ),
+        provenance["go_sum_sha256"]
+    );
+    assert!(
+        provenance["script_sha256"]
+            .as_str()
+            .is_some_and(|hash| hash.len() == 64)
     );
 }
 
 #[test]
-fn terrain_scenario_verifier_detects_environment_and_world_identity_mutations() {
+fn terrain_scenario_audit_detects_environment_and_content_identity_mutations() {
     let trace = include_str!("../fixtures/bedsim-v0.1.3-terrain.jsonl");
     let mut records = trace
         .lines()
         .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
         .collect::<Vec<_>>();
-    records[0]["expected"]["environment"]["in_water"] = serde_json::Value::Bool(true);
+    records[0]["steps"][0]["expected"]["environment"]["in_water"] = serde_json::Value::Bool(true);
     let mutated = records
         .iter()
         .map(serde_json::Value::to_string)
@@ -232,29 +277,51 @@ fn terrain_scenario_verifier_detects_environment_and_world_identity_mutations() 
         .join("\n")
         + "\n";
     assert!(matches!(
-        verify_scenario_trace_jsonl(&mutated, &Simulator::default(), 1.0e-12),
+        audit_scenario_trace_jsonl(&mutated, &Simulator::default(), 1.0e-12),
         Err(ConformanceError::DiscreteMismatch {
             field: "environment",
             ..
         })
     ));
 
-    let mut records = trace
-        .lines()
-        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
-        .collect::<Vec<_>>();
-    records[0]["expected"]["world_identity"]["preg_sha256"][0] = serde_json::Value::from(255);
-    let mutated = records
-        .iter()
-        .map(serde_json::Value::to_string)
-        .collect::<Vec<_>>()
-        .join("\n")
-        + "\n";
-    assert!(matches!(
-        verify_scenario_trace_jsonl(&mutated, &Simulator::default(), 1.0e-12),
-        Err(ConformanceError::DiscreteMismatch {
-            field: "world_identity",
-            ..
-        })
-    ));
+    for path in [
+        &["boxes", "0", "max", "x"][..],
+        &["physics", "fluid_height_blocks"][..],
+        &["origin", "0"][..],
+        &["revision"][..],
+    ] {
+        let mut records = trace
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        let mut target = &mut records[0]["steps"][0]["world"];
+        for segment in path {
+            target = if let Ok(index) = segment.parse::<usize>() {
+                &mut target[index]
+            } else {
+                &mut target[*segment]
+            };
+        }
+        *target = if matches!(path[0], "origin" | "revision") {
+            serde_json::Value::from(target.as_i64().unwrap() + 1)
+        } else {
+            serde_json::Value::from(target.as_f64().unwrap() + 1.0)
+        };
+        let mutated = records
+            .iter()
+            .map(serde_json::Value::to_string)
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n";
+        assert!(
+            matches!(
+                audit_scenario_trace_jsonl(&mutated, &Simulator::default(), 1.0e-12),
+                Err(ConformanceError::DiscreteMismatch {
+                    field: "world_identity",
+                    ..
+                })
+            ),
+            "identity did not bind {path:?}"
+        );
+    }
 }
