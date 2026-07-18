@@ -379,6 +379,95 @@ fn remote_player_converges_to_received_position_in_three_ticks() {
 }
 
 #[test]
+fn interpolation_witness_links_all_three_tick_stages_to_one_movement_revision() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, player_spawn(42, -7, 0.0));
+    store.apply(1, 2, player_move(42, 9.0, false));
+    store.advance_interpolation_ticks(3);
+
+    let witness = store
+        .get(42)
+        .unwrap()
+        .interpolation_witness
+        .as_ref()
+        .expect("player movement retains its bounded interpolation witness");
+    assert_eq!(witness.movement_revision, 2);
+    assert!(!witness.teleported);
+    assert_eq!(witness.on_ground, Some(true));
+    assert_eq!(witness.source_tick, Some(10));
+    assert_eq!(witness.samples.len(), 4);
+    let samples = witness.samples.iter().flatten().collect::<Vec<_>>();
+    assert_eq!(
+        samples
+            .iter()
+            .map(|sample| sample.ticks_remaining)
+            .collect::<Vec<_>>(),
+        vec![3, 2, 1, 0]
+    );
+    assert_eq!(
+        samples
+            .iter()
+            .map(|sample| sample.current_pose.position[0])
+            .collect::<Vec<_>>(),
+        vec![0.0, 3.0, 6.0, 9.0]
+    );
+    assert_eq!(
+        samples
+            .iter()
+            .map(|sample| sample.previous_pose.position[0])
+            .collect::<Vec<_>>(),
+        vec![0.0, 0.0, 3.0, 6.0]
+    );
+    assert!(
+        samples
+            .iter()
+            .all(|sample| sample.received_pose.position[0] == 9.0)
+    );
+}
+
+#[test]
+fn interpolation_witness_never_combines_revisions_and_retains_teleport_snap() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, player_spawn(42, -7, 0.0));
+    store.apply(1, 2, player_move(42, 9.0, false));
+    store.advance_interpolation_ticks(1);
+    store.apply(1, 3, player_move(42, 12.0, false));
+
+    let witness = store
+        .get(42)
+        .unwrap()
+        .interpolation_witness
+        .as_ref()
+        .unwrap();
+    assert_eq!(witness.movement_revision, 3);
+    assert_eq!(
+        witness
+            .samples
+            .iter()
+            .flatten()
+            .map(|sample| sample.ticks_remaining)
+            .collect::<Vec<_>>(),
+        vec![3]
+    );
+
+    store.apply(1, 4, player_move(42, 100.0, true));
+    let witness = store
+        .get(42)
+        .unwrap()
+        .interpolation_witness
+        .as_ref()
+        .unwrap();
+    assert_eq!(witness.movement_revision, 4);
+    assert!(witness.teleported);
+    let samples = witness.samples.iter().flatten().collect::<Vec<_>>();
+    assert_eq!(samples.len(), 1);
+    assert_eq!(samples[0].ticks_remaining, 0);
+    assert_eq!(samples[0].previous_pose.position[0], 100.0);
+    assert_eq!(samples[0].current_pose.position[0], 100.0);
+    assert_eq!(samples[0].received_pose.position[0], 100.0);
+}
+
+#[test]
 fn new_target_restarts_three_ticks_from_current_smoothed_position() {
     let mut store = ActorStore::new(1, 0);
     store.apply(1, 1, player_spawn(42, -7, 0.0));

@@ -46,6 +46,8 @@ pub(crate) enum ActorApplyResult {
 }
 
 pub(crate) const PLAYER_POSITION_INTERPOLATION_TICKS: u8 = 3;
+pub const ACTOR_INTERPOLATION_WITNESS_SAMPLE_COUNT: usize =
+    PLAYER_POSITION_INTERPOLATION_TICKS as usize + 1;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ActorPose {
@@ -53,6 +55,24 @@ pub struct ActorPose {
     pub pitch: f32,
     pub yaw: f32,
     pub head_yaw: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ActorInterpolationWitnessSample {
+    pub ticks_remaining: u8,
+    pub previous_pose: ActorPose,
+    pub current_pose: ActorPose,
+    pub received_pose: ActorPose,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ActorInterpolationWitness {
+    pub movement_revision: u64,
+    pub teleported: bool,
+    pub on_ground: Option<bool>,
+    pub source_tick: Option<i64>,
+    pub samples:
+        [Option<ActorInterpolationWitnessSample>; ACTOR_INTERPOLATION_WITNESS_SAMPLE_COUNT],
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -70,6 +90,7 @@ pub struct ActorSnapshot {
     pub previous_pose: ActorPose,
     pub received_pose: ActorPose,
     pub interpolation_ticks_remaining: u8,
+    pub interpolation_witness: Option<ActorInterpolationWitness>,
     pub body_yaw: f32,
     pub on_ground: Option<bool>,
     pub teleported: bool,
@@ -103,6 +124,7 @@ impl ActorSnapshot {
             previous_pose: pose,
             received_pose: pose,
             interpolation_ticks_remaining: 0,
+            interpolation_witness: None,
             body_yaw: spawn.body_yaw,
             on_ground: None,
             teleported: false,
@@ -126,6 +148,37 @@ impl ActorSnapshot {
             yaw: self.yaw,
             head_yaw: self.head_yaw,
         }
+    }
+
+    fn begin_interpolation_witness(&mut self) {
+        self.interpolation_witness = Some(ActorInterpolationWitness {
+            movement_revision: self.movement_revision,
+            teleported: self.teleported,
+            on_ground: self.on_ground,
+            source_tick: self.source_tick,
+            samples: [None; ACTOR_INTERPOLATION_WITNESS_SAMPLE_COUNT],
+        });
+        self.record_interpolation_witness_sample();
+    }
+
+    fn record_interpolation_witness_sample(&mut self) {
+        let current_pose = self.current_pose();
+        let Some(witness) = self.interpolation_witness.as_mut() else {
+            return;
+        };
+        if witness.movement_revision != self.movement_revision
+            || self.interpolation_ticks_remaining > PLAYER_POSITION_INTERPOLATION_TICKS
+        {
+            return;
+        }
+        let index =
+            usize::from(PLAYER_POSITION_INTERPOLATION_TICKS - self.interpolation_ticks_remaining);
+        witness.samples[index] = Some(ActorInterpolationWitnessSample {
+            ticks_remaining: self.interpolation_ticks_remaining,
+            previous_pose: self.previous_pose,
+            current_pose,
+            received_pose: self.received_pose,
+        });
     }
 
     fn set_current_pose(&mut self, pose: ActorPose) {
