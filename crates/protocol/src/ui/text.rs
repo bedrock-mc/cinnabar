@@ -130,7 +130,12 @@ pub(crate) fn normalize_text(packet: TextPacket) -> Result<UiEvent, UiPacketErro
         Some(TextPacketContent::Raw(value))
         | Some(TextPacketContent::System(value))
         | Some(TextPacketContent::Tip(value)) => {
-            (None, bounded_text(value.message)?, None, Arc::from([]))
+            let document = crate::raw_text::parse_raw_text_envelope(&value.message)?;
+            let message = match &document {
+                Some(document) => Arc::from(document.literal_text()),
+                None => bounded_text(value.message)?,
+            };
+            (None, message, document, Arc::from([]))
         }
         Some(TextPacketContent::JukeboxPopup(value))
         | Some(TextPacketContent::Popup(value))
