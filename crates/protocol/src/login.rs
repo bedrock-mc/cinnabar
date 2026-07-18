@@ -2,13 +2,12 @@ use std::path::Path;
 
 use bytes::Buf;
 use jolyne::error::JolyneError;
-use jolyne::raw::{RawPacket, decode_packet_raw};
+use jolyne::raw::RawPacket;
 use jolyne::stream::client::ClientHandshakeConfig;
 use jolyne::stream::transport::{BedrockTransport, Transport};
 use jolyne::stream::{BedrockStream, Client, Handshake, Play};
 use valentine::bedrock::{
     codec::BedrockCodec,
-    context::BedrockSession,
     version::v1_26_30::{McpePacketData, McpePacketName, WindowId},
 };
 use valentine::protocol::wire;
@@ -141,8 +140,7 @@ impl<T: Transport> PlaySession<T> {
                     return Err(error.into());
                 }
             };
-            let shield_item_id = self.stream.packet_args().shield_item_id;
-            let decoded = decode_world_raw_with(raw, current_dimension, shield_item_id, |raw| {
+            let decoded = decode_world_raw_with(raw, current_dimension, |raw| {
                 self.stream.decode_raw_packet(raw)
             });
             match decoded {
@@ -305,8 +303,7 @@ impl<T: Transport> PlaySession<T> {
                 continue;
             }
 
-            let shield_item_id = self.stream.packet_args().shield_item_id;
-            let decoded = decode_world_raw_with(raw, current_dimension, shield_item_id, |raw| {
+            let decoded = decode_world_raw_with(raw, current_dimension, |raw| {
                 self.stream.decode_raw_packet(raw)
             });
             match decoded {
@@ -381,7 +378,6 @@ fn is_decode_error(error: &JolyneError) -> bool {
 fn decode_world_raw_with(
     raw: RawPacket,
     current_dimension: i32,
-    shield_item_id: i32,
     decode: impl FnOnce(RawPacket) -> Result<Packet, JolyneError>,
 ) -> Result<Option<WorldEvent>, ProtocolError> {
     if !matches!(
@@ -438,32 +434,8 @@ fn decode_world_raw_with(
     {
         return Ok(Some(WorldEvent::Equipment(equipment)));
     }
-    let raw_body = raw.body().clone();
     let packet = decode(raw)?;
-    if matches!(
-        &packet.data,
-        valentine::bedrock::version::v1_26_30::McpePacketData::PacketAddPlayer(_)
-            | valentine::bedrock::version::v1_26_30::McpePacketData::PacketMobEquipment(_)
-    ) {
-        validate_canonical_item_wire(&raw_body, &packet, shield_item_id)?;
-    }
     Ok(into_world_event(packet, current_dimension)?)
-}
-
-fn validate_canonical_item_wire(
-    raw_body: &bytes::Bytes,
-    packet: &Packet,
-    shield_item_id: i32,
-) -> Result<(), ProtocolError> {
-    let mut encoded = crate::encode(packet, &BedrockSession { shield_item_id })?;
-    encoded.advance(1);
-    let canonical = decode_packet_raw(&mut encoded)?;
-    if canonical.body() != raw_body {
-        return Err(ProtocolError::World(crate::world::WorldPacketError::Item(
-            crate::ItemPacketError::NonCanonicalItemWire,
-        )));
-    }
-    Ok(())
 }
 
 fn decode_empty_mob_equipment(
@@ -536,6 +508,7 @@ mod tests {
     use bytes::{Buf, BufMut, Bytes, BytesMut};
     use jolyne::raw::decode_packet_raw;
     use valentine::bedrock::codec::Nbt;
+    use valentine::bedrock::context::BedrockSession;
     use valentine::bedrock::version::v1_26_30::{
         AddEntityPacket, AddPlayerPacket, AnimateEntityPacket, AnimatePacket,
         AnimatePacketActionId, BiomeDefinition, BiomeDefinitionListPacket, BlockCoordinates,
@@ -592,7 +565,7 @@ mod tests {
         let raw = raw_packet(McpePacketName::PacketNetworkSettings, &[0x7f]);
         let decoder_called = Cell::new(false);
 
-        let event = decode_world_raw_with(raw, 0, 0, |raw| {
+        let event = decode_world_raw_with(raw, 0, |raw| {
             decoder_called.set(true);
             raw.decode(&BedrockSession { shield_item_id: 0 })
         })
@@ -619,7 +592,7 @@ mod tests {
         let raw = decode_packet_raw(&mut batch).expect("raw text");
         let decoder_called = Cell::new(false);
 
-        let event = decode_world_raw_with(raw, 0, 0, |raw| {
+        let event = decode_world_raw_with(raw, 0, |raw| {
             decoder_called.set(true);
             raw.decode(&session)
         })
@@ -637,7 +610,7 @@ mod tests {
         let raw = raw_packet(McpePacketName::PacketText, &[0, 0, 0, 1, 0xff, 0, 0, 0]);
         let decoder_called = Cell::new(false);
 
-        let error = decode_world_raw_with(raw, 0, 0, |_| {
+        let error = decode_world_raw_with(raw, 0, |_| {
             decoder_called.set(true);
             panic!("invalid UI bytes must fail before owned decoding")
         })
@@ -663,7 +636,7 @@ mod tests {
         let raw = raw_packet(McpePacketName::PacketSetScore, &body);
         let decoder_called = Cell::new(false);
 
-        let error = decode_world_raw_with(raw, 0, 0, |_| {
+        let error = decode_world_raw_with(raw, 0, |_| {
             decoder_called.set(true);
             panic!("oversized score text must fail before owned decoding")
         })
@@ -690,7 +663,7 @@ mod tests {
         batch.advance(1);
         let raw = decode_packet_raw(&mut batch).expect("raw update");
 
-        let event = decode_world_raw_with(raw, 2, 0, |raw| raw.decode(&session))
+        let event = decode_world_raw_with(raw, 2, |raw| raw.decode(&session))
             .expect("decode world update")
             .expect("world event");
 
@@ -715,7 +688,7 @@ mod tests {
         batch.advance(1);
         let raw = decode_packet_raw(&mut batch).expect("raw block entity update");
 
-        let event = decode_world_raw_with(raw, 2, 0, |raw| raw.decode(&session))
+        let event = decode_world_raw_with(raw, 2, |raw| raw.decode(&session))
             .expect("decode block entity update")
             .expect("world event");
 
@@ -743,7 +716,7 @@ mod tests {
         let raw = decode_packet_raw(&mut batch).expect("raw weather event");
         let decoder_called = Cell::new(false);
 
-        let event = decode_world_raw_with(raw, 0, 0, |raw| {
+        let event = decode_world_raw_with(raw, 0, |raw| {
             decoder_called.set(true);
             raw.decode(&session)
         })
@@ -776,7 +749,7 @@ mod tests {
         let raw = decode_packet_raw(&mut batch).expect("raw gamerule event");
         let decoder_called = Cell::new(false);
 
-        let event = decode_world_raw_with(raw, 0, 0, |raw| {
+        let event = decode_world_raw_with(raw, 0, |raw| {
             decoder_called.set(true);
             raw.decode(&session)
         })
@@ -811,7 +784,7 @@ mod tests {
         let raw = decode_packet_raw(&mut batch).expect("raw move player");
         let decoder_called = Cell::new(false);
 
-        let event = decode_world_raw_with(raw, 0, 0, |raw| {
+        let event = decode_world_raw_with(raw, 0, |raw| {
             decoder_called.set(true);
             raw.decode(&session)
         })
@@ -849,7 +822,7 @@ mod tests {
         batch.advance(1);
         let raw = decode_packet_raw(&mut batch).expect("raw add entity");
 
-        let event = decode_world_raw_with(raw, 2, 0, |raw| raw.decode(&session))
+        let event = decode_world_raw_with(raw, 2, |raw| raw.decode(&session))
             .expect("decode actor event");
 
         assert!(matches!(
@@ -900,7 +873,7 @@ mod tests {
             let mut batch = crate::encode(&packet, &session).expect("encode item/action packet");
             batch.advance(1);
             let raw = decode_packet_raw(&mut batch).expect("raw item/action packet");
-            let event = decode_world_raw_with(raw, 0, 0, |raw| raw.decode(&session))
+            let event = decode_world_raw_with(raw, 0, |raw| raw.decode(&session))
                 .expect("decode item/action event");
             assert!(event.is_some());
         }
@@ -921,7 +894,7 @@ mod tests {
         body.put_i8(0);
         let raw = raw_packet(McpePacketName::PacketMobEquipment, &body);
 
-        let event = decode_world_raw_with(raw, 0, 0, |raw| {
+        let event = decode_world_raw_with(raw, 0, |raw| {
             raw.decode(&BedrockSession { shield_item_id: 0 })
         })
         .expect("decode empty equipment")
@@ -949,40 +922,52 @@ mod tests {
         raw_packet(McpePacketName::PacketMobEquipment, &body)
     }
 
+    fn raw_zero_count_mob_equipment() -> RawPacket {
+        // A non-air network id (5) paired with a zero stack count is not a valid
+        // item: it is neither the empty stack nor a real one.
+        let mut body = BytesMut::new();
+        wire::write_var_u64(&mut body, 42);
+        body.put_i16_le(5);
+        body.put_u16_le(0);
+        wire::write_var_u32(&mut body, 0);
+        body.put_u8(0);
+        wire::write_var_u32(&mut body, 0);
+        let extra = [0u8; 10]; // no NBT, no can-place-on/can-destroy entries
+        wire::write_var_u32(&mut body, extra.len() as u32);
+        body.put_slice(&extra);
+        body.put_u8(0);
+        body.put_u8(0);
+        body.put_i8(0);
+        raw_packet(McpePacketName::PacketMobEquipment, &body)
+    }
+
     #[test]
-    fn item_wire_bytes_are_exact_or_rejected_before_retention() {
+    fn valid_equipment_is_retained_and_invalid_items_are_rejected() {
+        // Byte-exact wire canonicalization was intentionally removed: the client
+        // only renders retained items, so faithful round-tripping is unnecessary
+        // and rejected legitimate servers. Semantic validation is what guards
+        // retention now.
         let session = BedrockSession { shield_item_id: 0 };
         let valid_extra = [0; 10];
-        let valid = decode_world_raw_with(raw_nonempty_mob_equipment(&valid_extra), 0, 0, |raw| {
+        let valid = decode_world_raw_with(raw_nonempty_mob_equipment(&valid_extra), 0, |raw| {
             raw.decode(&session)
         })
-        .expect("canonical equipment wire");
+        .expect("valid equipment wire");
         assert!(matches!(valid, Some(WorldEvent::Equipment(_))));
 
-        let mut trailing = valid_extra.to_vec();
-        trailing.push(0xff);
-        let invalid_utf8 = [
-            0, 0, // no NBT
-            1, 0, 0, 0, // one can-place-on entry
-            1, 0,    // one-byte ShortString
-            0xff, // invalid UTF-8
-            0, 0, 0, 0, // no can-destroy entries
-        ];
-        for extra in [&trailing[..], &invalid_utf8[..]] {
-            let error = decode_world_raw_with(raw_nonempty_mob_equipment(extra), 0, 0, |raw| {
-                raw.decode(&session)
-            })
-            .expect_err("noncanonical item wire");
-            assert!(
-                matches!(
-                    &error,
-                    ProtocolError::World(crate::WorldPacketError::Item(
-                        crate::ItemPacketError::NonCanonicalItemWire
-                    )) | ProtocolError::Session(JolyneError::PacketTrailingBytes { .. })
-                ),
-                "unexpected error: {error:?}"
-            );
-        }
+        let error = decode_world_raw_with(raw_zero_count_mob_equipment(), 0, |raw| {
+            raw.decode(&session)
+        })
+        .expect_err("zero-count item is semantically invalid");
+        assert!(
+            matches!(
+                &error,
+                ProtocolError::World(crate::WorldPacketError::Item(
+                    crate::ItemPacketError::InvalidItemCount
+                ))
+            ),
+            "unexpected error: {error:?}"
+        );
     }
 
     #[test]
@@ -1000,7 +985,7 @@ mod tests {
         let raw = raw_packet(McpePacketName::PacketMoveEntity, &body);
         let decoder_called = Cell::new(false);
 
-        let event = decode_world_raw_with(raw, 2, 0, |_| {
+        let event = decode_world_raw_with(raw, 2, |_| {
             decoder_called.set(true);
             panic!("absolute actor movement must bypass Valentine's incompatible Rotation shape")
         })
@@ -1041,7 +1026,7 @@ mod tests {
             (&[valid.as_ref(), &[0xff]].concat(), 17_usize),
         ] {
             let raw = raw_packet(McpePacketName::PacketMoveEntity, body);
-            let error = decode_world_raw_with(raw, 0, 0, |_| {
+            let error = decode_world_raw_with(raw, 0, |_| {
                 panic!("malformed absolute actor movement must bypass Valentine")
             })
             .expect_err("malformed absolute actor move");
@@ -1082,7 +1067,7 @@ mod tests {
         let raw = decode_packet_raw(&mut batch).expect("raw movement correction");
         let decoder_called = Cell::new(false);
 
-        let event = decode_world_raw_with(raw, 0, 0, |raw| {
+        let event = decode_world_raw_with(raw, 0, |raw| {
             decoder_called.set(true);
             raw.decode(&session)
         })
@@ -1124,7 +1109,7 @@ mod tests {
         let raw = decode_packet_raw(&mut batch).expect("raw biome definitions");
         let decoder_called = Cell::new(false);
 
-        let event = decode_world_raw_with(raw, 0, 0, |raw| {
+        let event = decode_world_raw_with(raw, 0, |raw| {
             decoder_called.set(true);
             raw.decode(&session)
         })

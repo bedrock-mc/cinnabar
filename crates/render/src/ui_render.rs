@@ -2,7 +2,7 @@ use std::{mem::size_of, sync::Arc};
 
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
-    core_pipeline::core_3d::Transparent3d,
+    core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Transparent3d},
     ecs::{
         query::ROQueryItem,
         system::{SystemParamItem, lifetimeless::SRes},
@@ -21,7 +21,8 @@ use bevy::{
             BindGroupLayoutEntry, BindingResource, BindingType, BlendComponent, BlendFactor,
             BlendOperation, BlendState, Buffer, BufferBindingType, BufferDescriptor,
             BufferInitDescriptor, BufferSize, BufferUsages, Canonical, ColorTargetState,
-            ColorWrites, Extent3d, FilterMode, FragmentState, PipelineCache, RenderPipeline,
+            ColorWrites, CompareFunction, DepthStencilState, Extent3d, FilterMode, FragmentState,
+            PipelineCache, RenderPipeline,
             RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages,
             Specializer, SpecializerKey, Texture, TextureDataOrder, TextureDescriptor,
             TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView,
@@ -399,7 +400,18 @@ pub(crate) fn ui_pipeline_descriptor(
             })],
             ..default()
         }),
-        depth_stencil: None,
+        // Queued into Transparent3d, whose pass carries a Depth32Float
+        // depth attachment, so the pipeline must declare a matching
+        // depth-stencil state. The overlay ignores scene depth entirely
+        // (the shader emits z=0.0, the reverse-Z far plane) and never writes
+        // depth, so it always draws on top without disturbing the buffer.
+        depth_stencil: Some(DepthStencilState {
+            format: CORE_3D_DEPTH_FORMAT,
+            depth_write_enabled: false,
+            depth_compare: CompareFunction::Always,
+            stencil: default(),
+            bias: default(),
+        }),
         ..default()
     }
 }
