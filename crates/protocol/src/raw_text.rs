@@ -98,13 +98,15 @@ pub(crate) fn parse_raw_text_envelope(
 
     let has_raw_text_member = Cell::new(false);
     let mut deserializer = serde_json::Deserializer::from_str(value);
-    let _probe_result = RawTextEnvelopeProbe {
+    let probe_result = RawTextEnvelopeProbe {
         has_raw_text_member: &has_raw_text_member,
     }
     .deserialize(&mut deserializer)
     .and_then(|()| deserializer.end());
 
-    if has_raw_text_member.get() {
+    let has_raw_text_intent = has_raw_text_member.get()
+        || (probe_result.is_err() && has_top_level_raw_text_member_fallback(value));
+    if has_raw_text_intent {
         // Reparse with the strict schema so duplicate/unknown members, malformed values,
         // and all rawtext resource limits fail closed instead of becoming visible JSON.
         return parse_raw_text(value).map(Some);
@@ -120,6 +122,110 @@ fn starts_with_json_object(value: &str) -> bool {
         .bytes()
         .find(|byte| !matches!(byte, b' ' | b'\t' | b'\r' | b'\n'))
         == Some(b'{')
+}
+
+/// Recovers top-level member boundaries after the semantic probe stops on malformed input.
+///
+/// This is deliberately not a permissive JSON parser. It only decodes strings in object-key
+/// position and structurally skips preceding values. The packet byte limit bounds its scan and
+/// nesting stack; unterminated strings or mismatched containers stop classification.
+fn has_top_level_raw_text_member_fallback(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    let Some(mut cursor) = bytes.iter().position(|byte| !is_json_whitespace(*byte)) else {
+        return false;
+    };
+    if bytes[cursor] != b'{' {
+        return false;
+    }
+    cursor += 1;
+
+    loop {
+        skip_json_whitespace(bytes, &mut cursor);
+        if cursor >= bytes.len() || bytes[cursor] == b'}' || bytes[cursor] != b'"' {
+            return false;
+        }
+
+        let key_start = cursor;
+        let Some(key_end) = json_string_end(bytes, key_start) else {
+            return false;
+        };
+        cursor = key_end;
+        skip_json_whitespace(bytes, &mut cursor);
+        if cursor >= bytes.len() || bytes[cursor] != b':' {
+            return false;
+        }
+
+        let is_raw_text_key = serde_json::from_str::<String>(&value[key_start..key_end])
+            .is_ok_and(|key| key == "rawtext");
+        if is_raw_text_key {
+            return true;
+        }
+
+        cursor += 1;
+        let Some((boundary, delimiter)) = top_level_member_boundary(bytes, cursor) else {
+            return false;
+        };
+        if delimiter == b'}' {
+            return false;
+        }
+        cursor = boundary + 1;
+    }
+}
+
+fn top_level_member_boundary(bytes: &[u8], mut cursor: usize) -> Option<(usize, u8)> {
+    let mut closing_delimiters = Vec::new();
+    while cursor < bytes.len() {
+        match bytes[cursor] {
+            b'"' => cursor = json_string_end(bytes, cursor)?,
+            b'{' => {
+                closing_delimiters.push(b'}');
+                cursor += 1;
+            }
+            b'[' => {
+                closing_delimiters.push(b']');
+                cursor += 1;
+            }
+            b'}' | b']' if closing_delimiters.last() == Some(&bytes[cursor]) => {
+                closing_delimiters.pop();
+                cursor += 1;
+            }
+            b',' | b'}' if closing_delimiters.is_empty() => {
+                return Some((cursor, bytes[cursor]));
+            }
+            b'}' | b']' => return None,
+            _ => cursor += 1,
+        }
+    }
+    None
+}
+
+fn json_string_end(bytes: &[u8], start: usize) -> Option<usize> {
+    if bytes.get(start) != Some(&b'"') {
+        return None;
+    }
+    let mut cursor = start + 1;
+    while cursor < bytes.len() {
+        match bytes[cursor] {
+            b'"' => return Some(cursor + 1),
+            b'\\' => cursor = cursor.checked_add(2)?,
+            0x00..=0x1f => return None,
+            _ => cursor += 1,
+        }
+    }
+    None
+}
+
+fn skip_json_whitespace(bytes: &[u8], cursor: &mut usize) {
+    while bytes
+        .get(*cursor)
+        .is_some_and(|byte| is_json_whitespace(*byte))
+    {
+        *cursor += 1;
+    }
+}
+
+fn is_json_whitespace(byte: u8) -> bool {
+    matches!(byte, b' ' | b'\t' | b'\r' | b'\n')
 }
 
 struct RawTextEnvelopeProbe<'a> {

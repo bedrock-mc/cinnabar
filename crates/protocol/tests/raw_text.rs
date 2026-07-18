@@ -173,6 +173,22 @@ fn later_rawtext_member_fails_closed_instead_of_leaking_json() {
 }
 
 #[test]
+fn malformed_earlier_member_cannot_hide_later_rawtext_intent() {
+    for value in [
+        r#"{"metadata":truX,"rawtext":[{"text":"later"}]}"#,
+        r#"{"metadata":truX,"raw\u0074ext":[{"text":"escaped later"}]}"#,
+    ] {
+        assert!(
+            matches!(
+                normalize_raw(value.to_owned()),
+                Err(UiPacketError::InvalidRawText)
+            ),
+            "rawtext intent after malformed syntax leaked as ordinary JSON: {value}"
+        );
+    }
+}
+
+#[test]
 fn duplicate_rawtext_members_fail_closed() {
     assert!(matches!(
         normalize_raw(
@@ -188,6 +204,10 @@ fn unrelated_json_with_similar_or_escaped_keys_remains_literal() {
         r#"{"raw\u0074extish":[{"text":"ordinary"}]}"#,
         r#"{"metadata":{"label":"rawtext"}}"#,
         r#"{"status":"unterminated}"#,
+        r#"{"metadata":truX,"note":"rawtext"}"#,
+        r#"{"metadata":truX,"note":"\"rawtext\":[]"}"#,
+        r#"{"metadata":truX,"nested":{"rawtext":[]}}"#,
+        r#"{"metadata":truX,"nested":[{"raw\u0074ext":[]}]}"#,
     ] {
         let UiEvent::Text(event) = normalize_raw(value.to_owned()).unwrap() else {
             panic!("unrelated JSON must remain ordinary text: {value}")
