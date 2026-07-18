@@ -10,12 +10,16 @@ use bevy::{
     prelude::{Local, Query, Res, ResMut, Time, Transform, With},
     time::Real,
 };
-use client_world::{ActorSnapshot, PlayerProfile, SAFE_SERVER_HEIGHT, WorldStream};
+#[cfg(test)]
+use client_world::{ActorSnapshot, PlayerProfile};
+use client_world::{SAFE_SERVER_HEIGHT, WorldStream};
 use protocol::WorldEvent;
 use render::{
-    ActorCullView, ActorRenderFrame, ActorRenderScene, ActorRenderSource, ActorSkinPixels,
-    ChunkUploadAcknowledgements, MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
+    ActorCullView, ActorRenderFrame, ActorRenderScene, ChunkUploadAcknowledgements,
+    MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
 };
+#[cfg(test)]
+use render::{ActorRenderSource, ActorSkinPixels};
 
 use crate::{
     acceptance::{
@@ -29,11 +33,13 @@ use crate::{
     camera::{AutoFly, CameraSettingsAuthority, FlyCamera},
     environment::replace_session,
     local_player::{
-        FrozenLocalAvatarVisibility, InteractionOriginSnapshot, LocalAvatarPresentation,
-        LocalAvatarVisibilityCarrier, LocalPlayerFrameCarrier, LocalPlayerFrameReset,
-        LocalViewPose, reset_local_player_session,
+        InteractionOriginSnapshot, LocalAvatarPresentation, LocalAvatarVisibilityCarrier,
+        LocalPlayerFrameCarrier, LocalPlayerFrameReset, LocalViewPose, reset_local_player_session,
     },
     movement::{MovementSource, PhysicsAuthorityGate},
+    presentation::actors::{
+        actor_rig_presentation, local_diagnostic_presentation, select_actor_presentations_for_view,
+    },
     runtime::{
         phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceEventKind},
         publication::PublicationController,
@@ -46,6 +52,9 @@ use crate::{
         inventory_router::{EquipmentRoute, EquipmentRouteResult, InventoryRouterError},
     },
 };
+
+#[cfg(test)]
+use crate::local_player::FrozenLocalAvatarVisibility;
 
 pub(crate) use session::{
     NetworkConfig, NetworkControlEvent, NetworkHandle, PacketSendError, WORLD_EVENT_CAPACITY,
@@ -290,12 +299,22 @@ pub(crate) fn receive_network_events(
                         bootstrap.world_spawn_position[2] as f32 + 0.5,
                     ]
                 };
-                let mut stream = WorldStream::new_with_assets(
-                    bootstrap,
-                    Arc::clone(&client_world.runtime_assets),
-                    current,
-                    client_world.pending_surface_spawn,
-                );
+                let mut stream = if let Some(entity_assets) = client_world.entity_assets.as_ref() {
+                    WorldStream::new_with_asset_sets(
+                        bootstrap,
+                        Arc::clone(&client_world.runtime_assets),
+                        Arc::clone(entity_assets),
+                        current,
+                        client_world.pending_surface_spawn,
+                    )
+                } else {
+                    WorldStream::new_with_assets(
+                        bootstrap,
+                        Arc::clone(&client_world.runtime_assets),
+                        current,
+                        client_world.pending_surface_spawn,
+                    )
+                };
                 stream.set_publication_allowance(publication.allowance());
                 let resolved = stream.resolved_server_position();
                 if acceptance.enabled() {
@@ -561,6 +580,7 @@ pub(crate) fn drain_network_ingress<T>(
         .collect()
 }
 
+#[cfg(test)]
 pub(crate) fn actor_render_source(
     actor: &ActorSnapshot,
     profile: Option<&PlayerProfile>,
@@ -591,6 +611,7 @@ pub(crate) fn actor_render_source(
     }
 }
 
+#[cfg(test)]
 pub(crate) fn update_actor_render_scene<'a>(
     scene: &'a mut ActorRenderScene,
     partial_tick: f32,
@@ -655,17 +676,6 @@ pub(crate) fn publish_actor_render_frame(
     if let Some(stream) = client_world.stream.as_mut() {
         stream.advance_actor_interpolation_ticks(step.ticks);
     }
-    let sources = client_world
-        .stream
-        .as_ref()
-        .map(|stream| {
-            stream
-                .render_players()
-                .into_iter()
-                .map(|(actor, profile)| actor_render_source(actor, profile))
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
     if let Some(local_frame) = local_frame.snapshot() {
         avatar.publish_visibility(local_frame, &mut local_visibility);
     } else {
@@ -679,14 +689,84 @@ pub(crate) fn publish_actor_render_frame(
             camera_position: transform.translation,
             max_distance: MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
         });
-    *frame = update_actor_render_scene(
-        &mut scene,
-        step.partial_tick,
+    let (local_runtime_id, actor_session_id, dimension, remotes, canonical_local) = client_world
+        .stream
+        .as_ref()
+        .map(|stream| {
+            let local_runtime_id = stream.local_player_runtime_id();
+            let profiles = stream
+                .render_players()
+                .into_iter()
+                .map(|(actor, profile)| (actor.runtime_id, profile))
+                .collect::<std::collections::BTreeMap<_, _>>();
+            let mut remotes = Vec::new();
+            let mut canonical_local = None;
+            for rig in stream.actor_rigs() {
+                let Some(actor) = stream.actor(rig.actor.runtime_id) else {
+                    continue;
+                };
+                let profile = profiles.get(&rig.actor.runtime_id).copied().flatten();
+                let Some(presentation) =
+                    actor_rig_presentation(&rig, actor, profile, step.partial_tick)
+                else {
+                    continue;
+                };
+                if rig.actor.runtime_id == local_runtime_id {
+                    canonical_local = Some(presentation);
+                } else {
+                    remotes.push(presentation);
+                }
+            }
+            (
+                local_runtime_id,
+                stream.actor_session_id(),
+                stream.current_dimension(),
+                remotes,
+                canonical_local,
+            )
+        })
+        .unwrap_or((0, 0, 0, Vec::new(), None));
+    let (local_visible, local) = local_visibility
+        .snapshot()
+        .map_or((false, None), |visibility| {
+            let (yaw, pitch, _) = visibility.rotation().to_euler(bevy::math::EulerRot::YXZ);
+            let yaw_degrees = (180.0 - yaw.to_degrees()).rem_euclid(360.0);
+            let pitch_degrees = -pitch.to_degrees();
+            let mut position = visibility.eye();
+            position.y -= crate::local_player::LOCAL_AVATAR_EYE_HEIGHT_BLOCKS;
+            let diagnostic = local_diagnostic_presentation(
+                actor_session_id,
+                dimension,
+                visibility.runtime_id(),
+                visibility.pose_generation(),
+                position.to_array(),
+                yaw_degrees,
+                pitch_degrees,
+            );
+            let local = match canonical_local {
+                Some(mut canonical) => diagnostic.map(|diagnostic| {
+                    canonical.submission.world_from_actor = diagnostic.submission.world_from_actor;
+                    canonical
+                }),
+                None => diagnostic,
+            };
+            (visibility.visible(), local)
+        });
+    let batch = select_actor_presentations_for_view(
+        local_runtime_id,
+        local_visible,
+        local,
+        remotes,
         cull_view,
-        sources,
-        local_visibility.snapshot(),
-    )
-    .clone();
+    );
+    *frame = scene
+        .update_rigs(
+            step.partial_tick,
+            cull_view,
+            batch.submissions,
+            batch.skins_rgba8,
+        )
+        .clone();
 }
 
 pub(crate) mod session;
