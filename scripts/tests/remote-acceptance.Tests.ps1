@@ -20,8 +20,8 @@ function New-SyntheticPhase2Publication {
         [int]$UploadsUnacknowledged = 0
     )
     $hash = '1111111111111111'
-    $identity = { param($count) [ordered]@{
-        entry_count = $count; generation_manifest_hash = $hash; publisher_epoch = $PublisherEpoch
+    $identity = { param($count, $domain) [ordered]@{
+        entry_count = $count; generation_manifest_hash = $hash; manifest_domain = $domain; publisher_epoch = $PublisherEpoch
         required_cohort_count = $RequiredColumns; required_cohort_hash = $hash; session_generation = 1
     } }
     return [ordered]@{
@@ -33,10 +33,11 @@ function New-SyntheticPhase2Publication {
         }
         presentation = [ordered]@{
             build_profile = 'release'; requested_present_mode = 'fifo'; effective_present_mode = 'fifo'; present_mode_proven = $true
+            visible_subset_of_resident = $true
             graphics_identity_sha256 = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
             assets_manifest_sha256 = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
-            publisher_disk = & $identity $LoadedColumns; resident = & $identity $LoadedColumns; allocation = & $identity $LoadedColumns
-            visible = & $identity $LoadedColumns; submitted = & $identity $LoadedColumns; gpu_presented = & $identity $LoadedColumns
+            publisher_disk = & $identity $LoadedColumns 'key_generation'; resident = & $identity $LoadedColumns 'key'; allocation = & $identity $LoadedColumns 'key_generation'
+            visible = & $identity $LoadedColumns 'key'; submitted = & $identity $LoadedColumns 'key'; gpu_presented = & $identity $LoadedColumns 'key'
         }
         publication = [ordered]@{
             session_generation = 1; player_column = [ordered]@{ dimension = 0; x = 1; z = 2 }
@@ -432,6 +433,39 @@ Describe 'Phase 2 remote acceptance runner' {
             -RequiredCohortStable:$false
         (Get-Phase2FirstStalledStage -PublicationRecord $record -WorldReadyObserved:$true) |
             Should Be 'required_cohort_identity'
+    }
+
+    It 'accepts an exact frustum subset without comparing key hashes to generation hashes' {
+        $record = New-SyntheticPhase2Publication -RequiredColumns 2 -LoadedColumns 2 `
+            -RequestsConstructed 2 -RequestsSent 2 -ResponsesAdmitted 2 -SubchunksCommitted 2
+        $record.presentation.publisher_disk.generation_manifest_hash = 'aaaaaaaaaaaaaaaa'
+        $record.presentation.allocation.generation_manifest_hash = 'aaaaaaaaaaaaaaaa'
+        $record.presentation.resident.generation_manifest_hash = 'bbbbbbbbbbbbbbbb'
+        foreach ($name in @('visible', 'submitted', 'gpu_presented')) {
+            $record.presentation.$name.entry_count = 1
+            $record.presentation.$name.generation_manifest_hash = 'cccccccccccccccc'
+        }
+
+        (Get-Phase2FirstStalledStage -PublicationRecord $record -WorldReadyObserved:$true) |
+            Should Be 'none'
+    }
+
+    It 'rejects manifest hashes mislabeled as a cross-stage domain' {
+        $record = New-SyntheticPhase2Publication -RequiredColumns 1 -LoadedColumns 1 `
+            -RequestsConstructed 1 -RequestsSent 1 -ResponsesAdmitted 1 -SubchunksCommitted 1
+        $record.presentation.visible.manifest_domain = 'key_generation'
+
+        { Assert-Phase2PublicationRecord -Record $record -ExpectedPresentMode Fifo } |
+            Should Throw
+    }
+
+    It 'rejects a frustum set that is not a proved resident subset' {
+        $record = New-SyntheticPhase2Publication -RequiredColumns 1 -LoadedColumns 1 `
+            -RequestsConstructed 1 -RequestsSent 1 -ResponsesAdmitted 1 -SubchunksCommitted 1
+        $record.presentation.visible_subset_of_resident = $false
+
+        (Get-Phase2FirstStalledStage -PublicationRecord $record -WorldReadyObserved:$true) |
+            Should Be 'extraction'
     }
 
     It 'segments cohort monotonicity across publisher and dimension epoch resets' {

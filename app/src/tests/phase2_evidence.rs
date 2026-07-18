@@ -7,10 +7,10 @@ use protocol::BlobCacheStats;
 use world::ChunkKey;
 
 use crate::runtime::phase2_evidence::{
-    CombinedPhase2Snapshot, cohort_identity, generation_manifest_identity,
-    graphics_identity_sha256, phase2_publication_line_if_changed, sha256_identity_from_hex_or_text,
+    CombinedPhase2Snapshot, generation_manifest_identity, graphics_identity_sha256,
+    key_manifest_identity, phase2_publication_line_if_changed, sha256_identity_from_hex_or_text,
 };
-use render::VisibilityKeyDigest;
+use render::{VisibilityDiagnosticsInput, VisibilityKeyDigest};
 
 fn combined_snapshot() -> CombinedPhase2Snapshot {
     let cohort = CohortManifestIdentity {
@@ -43,6 +43,7 @@ fn combined_snapshot() -> CombinedPhase2Snapshot {
             requested_present_mode: PresentModeIdentity::Fifo,
             effective_present_mode: PresentModeIdentity::Fifo,
             assets_manifest_sha256: [5; 32],
+            visible_subset_of_resident: true,
             publisher_disk: cohort,
             resident: cohort,
             allocation: cohort,
@@ -114,12 +115,11 @@ fn phase2_identity_helpers_preserve_exact_hashes_and_mark_missing_digests() {
     assert_ne!(sha256_identity_from_hex_or_text("diagnostic"), [0; 32]);
 
     assert_eq!(
-        cohort_identity(
+        key_manifest_identity(
             7,
             9,
             1_089,
             11,
-            19,
             Some(VisibilityKeyDigest { count: 3, hash: 5 }),
         ),
         CohortManifestIdentity {
@@ -127,13 +127,79 @@ fn phase2_identity_helpers_preserve_exact_hashes_and_mark_missing_digests() {
             publisher_epoch: 9,
             required_cohort_count: 1_089,
             required_cohort_hash: 11,
-            generation_manifest_hash: 19 ^ 5,
+            generation_manifest_hash: 5,
             entry_count: 3,
         }
     );
     assert_eq!(
-        cohort_identity(7, 9, 1_089, 11, 19, None).generation_manifest_hash,
+        key_manifest_identity(7, 9, 1_089, 11, None).generation_manifest_hash,
         0
+    );
+}
+
+#[test]
+fn phase2_publication_labels_comparable_manifest_hash_domains() {
+    let mut previous = None;
+    let line = phase2_publication_line_if_changed(&mut previous, combined_snapshot()).unwrap();
+    assert!(line.contains("\"manifest_domain\":\"key_generation\""));
+    assert!(line.contains("\"manifest_domain\":\"key\""));
+    assert!(line.contains("\"visible_subset_of_resident\":true"));
+}
+
+#[test]
+fn phase2_key_manifest_identity_does_not_change_with_observation_frame() {
+    let key = world::SubChunkKey::new(0, 1, 2, 3);
+    let mut diagnostics = VisibilityDiagnosticsInput::new(true);
+    diagnostics.advance([key], [key]);
+    let first = key_manifest_identity(7, 9, 1_089, 11, diagnostics.resident_mesh());
+    diagnostics.advance([key], [key]);
+    let second = key_manifest_identity(7, 9, 1_089, 11, diagnostics.resident_mesh());
+    assert_eq!(
+        first, second,
+        "an unchanged semantic key manifest must not churn solely because a render frame advanced",
+    );
+
+    let mut snapshot = combined_snapshot();
+    snapshot.presentation.resident = first;
+    snapshot.presentation.visible = first;
+    snapshot.presentation.submitted = first;
+    snapshot.presentation.gpu_presented = first;
+    let mut previous = None;
+    assert!(phase2_publication_line_if_changed(&mut previous, snapshot).is_some());
+
+    snapshot.presentation.resident = second;
+    snapshot.presentation.visible = second;
+    snapshot.presentation.submitted = second;
+    snapshot.presentation.gpu_presented = second;
+    assert_eq!(
+        phase2_publication_line_if_changed(&mut previous, snapshot),
+        None,
+        "an observation-only frame must not emit or flush a duplicate marker",
+    );
+
+    let changed_key = world::SubChunkKey::new(0, 2, 2, 3);
+    diagnostics.advance([key, changed_key], [key]);
+    snapshot.presentation.resident =
+        key_manifest_identity(7, 9, 1_089, 11, diagnostics.resident_mesh());
+    assert!(
+        phase2_publication_line_if_changed(&mut previous, snapshot).is_some(),
+        "a semantic resident-manifest change must emit one updated marker",
+    );
+}
+
+#[test]
+fn phase2_frame_metrics_observe_the_real_clock() {
+    let source = include_str!("../runtime/telemetry.rs");
+    let function = source
+        .split_once("pub(crate) fn record_metrics_and_title(")
+        .expect("record_metrics_and_title definition")
+        .1
+        .split_once(") {")
+        .expect("record_metrics_and_title signature")
+        .0;
+    assert!(
+        function.contains("time: Res<Time<Real>>"),
+        "frame metrics must use unclamped wall-clock frame deltas, not Bevy's virtual clock",
     );
 }
 

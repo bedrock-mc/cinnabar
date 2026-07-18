@@ -148,7 +148,7 @@ function Assert-Phase2PublicationRecord {
     Assert-Phase2ExactProperties -Value $presentation -Names @(
         'allocation', 'assets_manifest_sha256', 'build_profile', 'effective_present_mode', 'gpu_presented',
         'graphics_identity_sha256', 'present_mode_proven', 'publisher_disk', 'requested_present_mode',
-        'resident', 'submitted', 'visible'
+        'resident', 'submitted', 'visible', 'visible_subset_of_resident'
     ) -Label 'PHASE2_PUBLICATION presentation'
     Assert-Phase2ExactProperties -Value $publication -Names @(
         'loaded_required_columns', 'max_queue_wait_us', 'max_worker_time_us', 'outcomes', 'player_column',
@@ -165,6 +165,9 @@ function Assert-Phase2PublicationRecord {
         [string]$presentation.graphics_identity_sha256 -notmatch '^[0-9a-f]{64}$' -or
         [string]$presentation.assets_manifest_sha256 -notmatch '^[0-9a-f]{64}$') {
         throw 'PHASE2_PUBLICATION did not prove release build, effective present mode, graphics identity, and asset identity'
+    }
+    if ($presentation.visible_subset_of_resident -isnot [bool]) {
+        throw 'PHASE2_PUBLICATION visible_subset_of_resident must be a Boolean'
     }
     if (-not [string]::IsNullOrEmpty($ExpectedGraphicsIdentity) -and
         [string]$presentation.graphics_identity_sha256 -cne $ExpectedGraphicsIdentity) {
@@ -282,7 +285,7 @@ function Assert-Phase2PublicationRecord {
     foreach ($identityName in @('publisher_disk', 'resident', 'allocation', 'visible', 'submitted', 'gpu_presented')) {
         $identity = $presentation.$identityName
         Assert-Phase2ExactProperties -Value $identity `
-            -Names @('entry_count', 'generation_manifest_hash', 'publisher_epoch', 'required_cohort_count',
+            -Names @('entry_count', 'generation_manifest_hash', 'manifest_domain', 'publisher_epoch', 'required_cohort_count',
                 'required_cohort_hash', 'session_generation') `
             -Label "PHASE2_PUBLICATION presentation.$identityName"
         Assert-Phase2UnsignedInteger -Value $identity.entry_count -Label "presentation.$identityName.entry_count"
@@ -295,6 +298,15 @@ function Assert-Phase2PublicationRecord {
             [string]$identity.required_cohort_hash -cne [string]$publication.required_cohort_hash -or
             [string]$identity.generation_manifest_hash -notmatch '^[0-9a-f]{16}$') {
             throw "PHASE2_PUBLICATION contains incoherent $identityName identity"
+        }
+        $expectedManifestDomain = if ($identityName -in @('publisher_disk', 'allocation')) {
+            'key_generation'
+        }
+        else {
+            'key'
+        }
+        if ([string]$identity.manifest_domain -cne $expectedManifestDomain) {
+            throw "PHASE2_PUBLICATION contains incoherent $identityName manifest domain"
         }
     }
     if ($publisherUninitialized) {
@@ -402,12 +414,14 @@ function Get-Phase2FirstStalledStage {
     $visible = $presentation.visible
     $submitted = $presentation.submitted
     $presented = $presentation.gpu_presented
-    if ([uint64]$resident.entry_count -ne [uint64]$publisher.entry_count -or
-        [string]$resident.generation_manifest_hash -cne [string]$publisher.generation_manifest_hash) { return 'main_apply' }
+    # Publisher/allocation identities contain exact key+generation manifests.
+    # Resident/visible/submitted/presented identities contain render key sets.
+    # Their hashes are therefore comparable only within their own domains.
+    if ([uint64]$resident.entry_count -ne [uint64]$publisher.entry_count) { return 'main_apply' }
     if ([uint64]$allocation.entry_count -ne [uint64]$publisher.entry_count -or
         [string]$allocation.generation_manifest_hash -cne [string]$publisher.generation_manifest_hash) { return 'gpu_upload' }
-    if ([uint64]$visible.entry_count -ne [uint64]$publisher.entry_count -or
-        [string]$visible.generation_manifest_hash -cne [string]$publisher.generation_manifest_hash) { return 'extraction' }
+    if (-not [bool]$presentation.visible_subset_of_resident -or
+        [uint64]$visible.entry_count -gt [uint64]$resident.entry_count) { return 'extraction' }
     if ([uint64]$submitted.entry_count -ne [uint64]$visible.entry_count -or
         [string]$submitted.generation_manifest_hash -cne [string]$visible.generation_manifest_hash) { return 'submission' }
     if ([uint64]$presented.entry_count -ne [uint64]$submitted.entry_count -or

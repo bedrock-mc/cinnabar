@@ -62,12 +62,13 @@ fn combined_snapshot_json(snapshot: CombinedPhase2Snapshot) -> Value {
             "effective_present_mode": present_mode_name(presentation.effective_present_mode),
             "present_mode_proven": snapshot.present_mode_proven,
             "assets_manifest_sha256": lower_hex(&presentation.assets_manifest_sha256),
-            "publisher_disk": cohort_json(presentation.publisher_disk),
-            "resident": cohort_json(presentation.resident),
-            "allocation": cohort_json(presentation.allocation),
-            "visible": cohort_json(presentation.visible),
-            "submitted": cohort_json(presentation.submitted),
-            "gpu_presented": cohort_json(presentation.gpu_presented),
+            "visible_subset_of_resident": presentation.visible_subset_of_resident,
+            "publisher_disk": cohort_json(presentation.publisher_disk, ManifestDomain::KeyGeneration),
+            "resident": cohort_json(presentation.resident, ManifestDomain::Key),
+            "allocation": cohort_json(presentation.allocation, ManifestDomain::KeyGeneration),
+            "visible": cohort_json(presentation.visible, ManifestDomain::Key),
+            "submitted": cohort_json(presentation.submitted, ManifestDomain::Key),
+            "gpu_presented": cohort_json(presentation.gpu_presented, ManifestDomain::Key),
         }
     })
 }
@@ -140,12 +141,28 @@ fn duration_micros(duration: std::time::Duration) -> u64 {
     u64::try_from(duration.as_micros()).unwrap_or(u64::MAX)
 }
 
-fn cohort_json(identity: CohortManifestIdentity) -> Value {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ManifestDomain {
+    Key,
+    KeyGeneration,
+}
+
+impl ManifestDomain {
+    const fn name(self) -> &'static str {
+        match self {
+            Self::Key => "key",
+            Self::KeyGeneration => "key_generation",
+        }
+    }
+}
+
+fn cohort_json(identity: CohortManifestIdentity, domain: ManifestDomain) -> Value {
     json!({
         "session_generation": identity.session_generation,
         "publisher_epoch": identity.publisher_epoch,
         "required_cohort_count": identity.required_cohort_count,
         "required_cohort_hash": format!("{:016x}", identity.required_cohort_hash),
+        "manifest_domain": domain.name(),
         "generation_manifest_hash": format!("{:016x}", identity.generation_manifest_hash),
         "entry_count": identity.entry_count,
     })
@@ -169,12 +186,11 @@ pub(crate) fn present_mode_identity(mode: &str) -> PresentModeIdentity {
     }
 }
 
-pub(crate) fn cohort_identity(
+pub(crate) fn key_manifest_identity(
     session_generation: u64,
     publisher_epoch: u64,
     required_cohort_count: usize,
     required_cohort_hash: u64,
-    stage_generation: u64,
     digest: Option<render::VisibilityKeyDigest>,
 ) -> CohortManifestIdentity {
     digest.map_or(
@@ -191,7 +207,7 @@ pub(crate) fn cohort_identity(
             publisher_epoch,
             required_cohort_count,
             required_cohort_hash,
-            generation_manifest_hash: stage_generation ^ digest.hash,
+            generation_manifest_hash: digest.hash,
             entry_count: usize::try_from(digest.count).unwrap_or(usize::MAX),
         },
     )

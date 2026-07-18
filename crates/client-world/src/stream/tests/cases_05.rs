@@ -57,6 +57,7 @@ fn phase2_identity_carriers_are_fixed_size_and_fully_qualified() {
         requested_present_mode: PresentModeIdentity::Fifo,
         effective_present_mode: PresentModeIdentity::Fifo,
         assets_manifest_sha256: [23; 32],
+        visible_subset_of_resident: true,
         publisher_disk: cohort,
         resident: cohort,
         allocation: cohort,

@@ -48,10 +48,9 @@ use crate::{
     runtime::{
         network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
         phase2_evidence::{
-            CombinedPhase2Snapshot, build_profile_identity, cohort_identity,
-            generation_manifest_identity, graphics_identity_sha256,
-            phase2_publication_line_if_changed, present_mode_identity,
-            sha256_identity_from_hex_or_text,
+            CombinedPhase2Snapshot, build_profile_identity, generation_manifest_identity,
+            graphics_identity_sha256, key_manifest_identity, phase2_publication_line_if_changed,
+            present_mode_identity, sha256_identity_from_hex_or_text,
         },
         publication::{
             PublicationController, PublicationFrameWork, adaptive_publication_diagnostic_line,
@@ -361,7 +360,7 @@ pub(crate) fn model_witness_manifest_hash(records: &[ModelWitnessManifestRecord]
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn record_metrics_and_title(
-    time: Res<Time>,
+    time: Res<Time<Real>>,
     mut client_world: ResMut<ClientWorld>,
     acceptance: Res<AcceptanceRun>,
     cache: Res<CaveVisibilityCache>,
@@ -473,38 +472,37 @@ pub(crate) fn record_metrics_and_title(
             assets_manifest_sha256: sha256_identity_from_hex_or_text(
                 &metrics.0.asset_metrics().blob_sha256,
             ),
+            visible_subset_of_resident: visibility_snapshot
+                .resident_to_frustum
+                .is_some_and(|delta| delta.extra.count == 0),
             publisher_disk,
-            resident: cohort_identity(
+            resident: key_manifest_identity(
                 session_generation,
                 publisher_epoch,
                 required_cohort_count,
                 required_cohort_hash,
-                stage_generation,
                 visibility_snapshot.resident_mesh,
             ),
             allocation,
-            visible: cohort_identity(
+            visible: key_manifest_identity(
                 session_generation,
                 publisher_epoch,
                 required_cohort_count,
                 required_cohort_hash,
-                stage_generation,
                 visibility_snapshot.frustum_visible_opaque,
             ),
-            submitted: cohort_identity(
+            submitted: key_manifest_identity(
                 session_generation,
                 publisher_epoch,
                 required_cohort_count,
                 required_cohort_hash,
-                stage_generation,
                 visibility_snapshot.submitted_opaque,
             ),
-            gpu_presented: cohort_identity(
+            gpu_presented: key_manifest_identity(
                 session_generation,
                 publisher_epoch,
                 required_cohort_count,
                 required_cohort_hash,
-                stage_generation,
                 visibility_snapshot.gpu_completed_opaque,
             ),
         };

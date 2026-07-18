@@ -109,6 +109,7 @@ pub struct Phase2PresentationSnapshot {
     pub requested_present_mode: PresentModeIdentity,
     pub effective_present_mode: PresentModeIdentity,
     pub assets_manifest_sha256: [u8; 32],
+    pub visible_subset_of_resident: bool,
     pub publisher_disk: CohortManifestIdentity,
     pub resident: CohortManifestIdentity,
     pub allocation: CohortManifestIdentity,
