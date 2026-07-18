@@ -22,8 +22,8 @@ pub const ATMOSPHERE_FILENAME: &str = "vanilla-v1.mcbeatm";
 pub const ATMOSPHERE_COMPILE_COMMAND: &str = "make atmosphere-assets";
 pub const ENTITY_ASSETS_FILENAME: &str = "vanilla-v1.mcbeent";
 pub const ENTITY_ASSETS_COMPILE_COMMAND: &str = "make entity-assets";
-pub const FONT_ASSETS_FILENAME: &str = "vanilla-v1.mcbefont";
-pub const FONT_ASSETS_COMPILE_COMMAND: &str = "make font-assets FONT_PACK_DIR=<reviewed-font-pack>";
+pub const FONT_ASSETS_FILENAME: &str = "ui-inter-v1.mcbefont";
+pub const FONT_ASSETS_COMPILE_COMMAND: &str = "make font-assets";
 pub const FETCH_COMMAND: &str =
     "powershell -NoProfile -File scripts/fetch-vanilla-assets.ps1 -AcceptEula";
 pub const COMPILE_COMMAND: &str = concat!(
@@ -36,6 +36,7 @@ pub const COMPILE_COMMAND: &str = concat!(
 );
 
 const VANILLA_SOURCE_JSON: &str = include_str!("../../assets/vanilla-source.json");
+const UI_FONT_SOURCE_JSON: &str = include_str!("../../assets/ui-font-source.json");
 const ATMOSPHERE_SHADER_SOURCE: &[u8] = include_bytes!("../../crates/render/src/atmosphere.wgsl");
 const CLOUD_SHADER_SOURCE: &[u8] = include_bytes!("../../crates/render/src/cloud.wgsl");
 const MAX_RUNTIME_BLOB_BYTES: u64 = 16 * 1024 * 1024;
@@ -584,18 +585,28 @@ fn load_font_assets(world_asset_path: &Path) -> Result<LoadedFontAssets, AssetSt
             rebuild_command: FONT_ASSETS_COMPILE_COMMAND,
         });
     }
-    let expected_manifest_sha256 = canonical_source_manifest_sha256(VANILLA_SOURCE_JSON);
-    let runtime = Arc::new(
-        RuntimeFontCatalog::decode(&bytes, expected_manifest_sha256).map_err(|source| {
-            AssetStartupError::FontAssetsDecode {
+    let expected_manifest_sha256 = canonical_source_manifest_sha256(UI_FONT_SOURCE_JSON);
+    let runtime = match RuntimeFontCatalog::decode(&bytes, expected_manifest_sha256) {
+        Ok(runtime) => runtime,
+        Err(FontCatalogError::SourceManifestMismatch) => RuntimeFontCatalog::decode(
+            &bytes,
+            canonical_source_manifest_sha256(VANILLA_SOURCE_JSON),
+        )
+        .map_err(|source| AssetStartupError::FontAssetsDecode {
+            path: path.clone(),
+            source: Box::new(source),
+            rebuild_command: FONT_ASSETS_COMPILE_COMMAND,
+        })?,
+        Err(source) => {
+            return Err(AssetStartupError::FontAssetsDecode {
                 path: path.clone(),
                 source: Box::new(source),
                 rebuild_command: FONT_ASSETS_COMPILE_COMMAND,
-            }
-        })?,
-    );
+            });
+        }
+    };
     Ok(LoadedFontAssets {
-        runtime,
+        runtime: Arc::new(runtime),
         selected_path: path,
         diagnostic: false,
     })

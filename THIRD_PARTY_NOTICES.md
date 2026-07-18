@@ -6,6 +6,16 @@ under the ignored `.local/assets/block-data/` directory, and the verified
 download cache stays in the ignored sibling `.local/assets/block-data.downloads/`
 directory. This notice is checked in and is not rewritten by the acquisition script.
 
+## Inter
+
+- Source: https://github.com/rsms/inter
+- Distribution: https://github.com/google/fonts/tree/389b770410cc0b7c21c85673bfa2077420fe7f65/ofl/inter
+- Commit: `389b770410cc0b7c21c85673bfa2077420fe7f65`
+- License: OFL-1.1
+- Upstream license SHA-256:
+  `5b9321a4298cfeb6b34354164a1c3afc3db114569984c502b9b35d988fd58c57`
+- Full license: `assets/licenses/Inter-OFL-1.1.txt`
+
 ## PMMP BedrockData
 
 - Source: https://github.com/pmmp/BedrockData

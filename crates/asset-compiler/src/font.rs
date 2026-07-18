@@ -15,6 +15,10 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
+mod outline;
+
+pub use outline::{OutlineFontConfig, compile_outline_font};
+
 const DESCRIPTOR_PATH: &str = "font/catalog.json";
 const PINNED_SOURCE_MANIFEST_SHA256: [u8; 32] =
     decode_sha256(b"c6d5f56b942d703a7acd1f83b2cddb7633069e13412ad5a1c3beae666e2ec6f6");
@@ -74,6 +78,10 @@ pub enum FontCompileError {
     },
     #[error("duplicate semantic glyph U+{codepoint:04X}")]
     DuplicateGlyph { codepoint: u32 },
+    #[error("outline font {path} is invalid: {detail}")]
+    OutlineFont { path: PathBuf, detail: Box<str> },
+    #[error("outline font atlas cannot fit the reviewed glyph set within {side}x{side}")]
+    OutlineAtlasFull { side: u32 },
     #[error(transparent)]
     Carrier(#[from] FontCatalogError),
 }

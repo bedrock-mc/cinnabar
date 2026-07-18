@@ -10,6 +10,9 @@ NO_VSYNC ?= 0
 
 PACK_DIR ?= .local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack
 FONT_PACK_DIR ?= .local/assets/font-source
+UI_FONT_SOURCE_MANIFEST ?= assets/ui-font-source.json
+UI_FONT_DIR ?= .local/assets/ui-font/389b770410cc0b7c21c85673bfa2077420fe7f65
+UI_FONT_SOURCE ?= $(UI_FONT_DIR)/Inter.ttf
 BLOCK_REGISTRY ?= crates/assets/data/block-registry-v1001.bin
 LIGHT_REGISTRY ?= crates/assets/data/block-light-registry-v1001.bin
 BIOME_REGISTRY ?= crates/assets/data/biome-registry-v1001.bin
@@ -25,8 +28,10 @@ ATMOSPHERE_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeatm
 ATMOSPHERE_REPORT ?= .local/assets/compiled/atmosphere-assets.json
 ENTITY_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeent
 ENTITY_ASSET_REPORT ?= .local/assets/compiled/entity-assets.json
-FONT_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbefont
-FONT_ASSET_REPORT ?= .local/assets/compiled/font-assets.json
+FONT_ASSET_BLOB ?= .local/assets/compiled/ui-inter-v1.mcbefont
+FONT_ASSET_REPORT ?= .local/assets/compiled/ui-inter-font-assets.json
+LOCAL_FONT_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbefont
+LOCAL_FONT_ASSET_REPORT ?= .local/assets/compiled/font-assets.json
 CINNABAR_CLOUDS_PNG ?=
 CLOUDS_OVERRIDE_PREREQUISITE = FORCE_CINNABAR_CLOUDS_OVERRIDE
 ASSET_COMPILER_INPUTS := Cargo.toml Cargo.lock crates/assets/Cargo.toml crates/asset-compiler/Cargo.toml Makefile $(wildcard crates/assets/src/*.rs) $(wildcard crates/assets/src/*/*.rs) $(wildcard crates/asset-compiler/src/*.rs) $(wildcard crates/asset-compiler/src/*/*.rs) $(wildcard crates/asset-compiler/src/*/*/*.rs)
@@ -39,9 +44,10 @@ PHYSICS_REGISTRY_CHECK = $(GO) -C tools/registrygen run ./cmd/hashcheck -file "$
 PHYSICS_REGISTRY_COMPILE = $(GO) -C tools/registrygen run . -out "$(abspath $(PHYSICS_BUILD_DIR))/block-registry-v1001.bin" -light-out "$(abspath $(PHYSICS_BUILD_DIR))/block-light-registry-v1001.bin" -light-breg "$(abspath $(BLOCK_REGISTRY))" -physics-out "$(abspath $(PHYSICS_REGISTRY))" -physics-sha-out "$(abspath $(PHYSICS_BUILD_DIR))/block-physics-v1001.sha256" -physics-breg "$(abspath $(BLOCK_REGISTRY))" -pmmp "$(abspath $(BLOCK_DATA_DIR))/pmmp" -prismarine "$(abspath $(BLOCK_DATA_DIR))/prismarine" -valentine-palette "$(abspath $(VALENTINE_PALETTE))" -valentine-blocks "$(abspath $(VALENTINE_BLOCKS))"
 ATMOSPHERE_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- atmosphere --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" $(if $(strip $(CINNABAR_CLOUDS_PNG)),--clouds-override "$(CINNABAR_CLOUDS_PNG)") --out "$(ATMOSPHERE_BLOB)" --report "$(ATMOSPHERE_REPORT)"
 ENTITY_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- entity-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(ENTITY_ASSET_BLOB)" --report "$(ENTITY_ASSET_REPORT)"
-FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- font-assets --pack "$(FONT_PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(FONT_ASSET_BLOB)" --report "$(FONT_ASSET_REPORT)"
+FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- outline-font-assets --font "$(UI_FONT_SOURCE)" --source-manifest "$(UI_FONT_SOURCE_MANIFEST)" --out "$(FONT_ASSET_BLOB)" --report "$(FONT_ASSET_REPORT)"
+LOCAL_FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- font-assets --pack "$(FONT_PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(LOCAL_FONT_ASSET_BLOB)" --report "$(LOCAL_FONT_ASSET_REPORT)"
 
-.PHONY: help assets atmosphere-assets entity-assets font-assets physics-assets core client client-windows client-macos client-linux client-wayland client-x11 FORCE_CINNABAR_CLOUDS_OVERRIDE
+.PHONY: help assets atmosphere-assets entity-assets font-assets font-assets-local physics-assets core client client-windows client-macos client-linux client-wayland client-x11 FORCE_CINNABAR_CLOUDS_OVERRIDE
 
 FORCE_CINNABAR_CLOUDS_OVERRIDE:
 
@@ -49,7 +55,8 @@ help:
 	@echo make assets          - Download and compile the vanilla resource pack
 	@echo make atmosphere-assets - Compile pinned sun, moon, and cloud runtime assets
 	@echo make entity-assets   - Compile pinned entity catalog and geometry payloads
-	@echo make font-assets     - Compile a reviewed local bitmap font source via FONT_PACK_DIR
+	@echo make font-assets     - Fetch and compile the pinned open-licensed Inter UI font
+	@echo make font-assets-local - Compile a reviewed local bitmap font source via FONT_PACK_DIR
 	@echo make physics-assets  - Acquire pinned block data and compile the protocol-1001 physics registry
 	@echo make core            - Compile and run the Go networking/auth core
 	@echo make client          - Refresh stale assets, then run the release Rust client
@@ -62,13 +69,23 @@ help:
 	@echo Override optional settings with SOCKET_DIR=..., AUTH_CACHE=..., and NO_VSYNC=1
 	@echo Set CINNABAR_CLOUDS_PNG to the exact local-only Bedrock 1.26.33.1 clouds.png
 
-assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT)
+assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT) $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT)
 
 atmosphere-assets: $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT)
 
 entity-assets: $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT)
 
 font-assets: $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT)
+
+font-assets-local:
+	$(LOCAL_FONT_ASSET_COMPILE)
+
+$(UI_FONT_SOURCE): $(UI_FONT_SOURCE_MANIFEST)
+ifeq ($(OS),Windows_NT)
+	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File scripts/fetch-ui-font.ps1
+else
+	bash scripts/fetch-ui-font.sh
+endif
 
 physics-assets: $(PHYSICS_REGISTRY)
 	$(PHYSICS_REGISTRY_CHECK) || ( $(PHYSICS_REGISTRY_COMPILE) && $(PHYSICS_REGISTRY_CHECK) )
@@ -99,7 +116,7 @@ $(ENTITY_ASSET_BLOB): $(ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_MA
 $(ENTITY_ASSET_REPORT): $(ENTITY_ASSET_BLOB)
 	@if [ ! -f "$@" ] || [ "$@" -ot "$<" ]; then $(ENTITY_ASSET_COMPILE); fi
 
-$(FONT_ASSET_BLOB): $(ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_MANIFEST)
+$(FONT_ASSET_BLOB): $(ASSET_COMPILER_INPUTS) $(UI_FONT_SOURCE_MANIFEST) $(UI_FONT_SOURCE)
 	$(FONT_ASSET_COMPILE)
 
 $(FONT_ASSET_REPORT): $(FONT_ASSET_BLOB)
@@ -110,7 +127,7 @@ core:
 	@echo bedrock-core: build starting package=./core/cmd/bedrock-core
 	$(GO) run ./core/cmd/bedrock-core -socket-dir "$(SOCKET_DIR)" -upstream "$(UPSTREAM)" -auth-cache "$(AUTH_CACHE)"
 
-client: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT) physics-assets
+client: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT) $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT) physics-assets
 	$(CARGO) run --release -p bedrock-client --locked -- --socket-dir "$(SOCKET_DIR)" $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
 
 client-windows client-macos client-linux: client

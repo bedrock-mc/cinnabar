@@ -8,6 +8,7 @@ publish = false
 [dependencies]
 assets = { path = "../assets" }
 clap = { version = "4", features = ["derive"] }
+fontdue = { version = "0.9.3", default-features = false, features = ["std"] }
 image = { version = "0.25", default-features = false, features = ["png", "tga"] }
 same-file = "1"
 serde = { version = "1", features = ["derive"] }
