@@ -68,12 +68,6 @@ jolyne_text = jolyne_decoy.read_text(encoding="utf-8")
 jolyne_text = jolyne_text.replace('path = "../valentine"', 'path = "../valentine-decoy"', 1)
 jolyne_decoy.write_text(jolyne_text, encoding="utf-8")
 text = path.read_text(encoding="utf-8")
-decoys = '''description = """
-[dependencies]
-valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_30"] }
-jolyne = { path = "vendor/jolyne", default-features = false, features = ["client"] }
-"""'''
-text = text.replace("publish = false", "publish = false\n" + decoys, 1)
 text = text.replace(
     'valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_30"] }',
     '"valentine" = { path = "vendor/valentine-decoy", default-features = false, features = ["bedrock_1_26_30"] }',
@@ -84,6 +78,12 @@ text = text.replace(
     '"jolyne" = { path = "vendor/jolyne-decoy", default-features = false, features = ["client"] }',
     1,
 )
+decoys = '''description = """
+[dependencies]
+valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_30"] }
+jolyne = { path = "vendor/jolyne", default-features = false, features = ["client"] }
+"""'''
+text = text.replace("publish = false", "publish = false\n" + decoys, 1)
 path.write_text(text, encoding="utf-8")
 PY
 if assert_protocol_dependency_provenance "$protocol_fixture" >/dev/null 2>&1; then
