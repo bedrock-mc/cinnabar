@@ -46,7 +46,7 @@ fn actor_render_source_uses_only_remote_actor_pose_and_roster_skin() {
         height: 64,
         rgba8: vec![23; 64 * 64 * 4].into(),
     });
-    let actor = client_world::ActorSnapshot {
+    let mut actor = client_world::ActorSnapshot {
         unique_id: 9,
         runtime_id: 77,
         spawn_revision: 19,
@@ -55,6 +55,7 @@ fn actor_render_source_uses_only_remote_actor_pose_and_roster_skin() {
             uuid: [7; 16],
             username: "remote".into(),
         },
+        game_mode: Some(protocol::ActorGameMode::Survival),
         position: [10.0, 64.0, -3.0],
         velocity: [0.0; 3],
         pitch: 15.0,
@@ -95,12 +96,21 @@ fn actor_render_source_uses_only_remote_actor_pose_and_roster_skin() {
     assert_eq!(source.unique_id, 9);
     assert_eq!(source.spawn_revision, 19);
     assert_eq!(source.movement_revision, 23);
+    assert!(source.render_eligible);
     assert_eq!(source.previous_position, [8.0, 64.0, -3.0]);
     assert_eq!(source.previous_yaw_degrees, 40.0);
     assert_eq!(source.position, [10.0, 64.0, -3.0]);
     assert_eq!(source.yaw_degrees, 45.0);
     assert_eq!(source.head_yaw_degrees, 60.0);
     assert_eq!(source.skin.unwrap().rgba8.as_ref(), &[23; 64 * 64 * 4]);
+
+    actor
+        .metadata
+        .insert(0, protocol::ActorMetadataValue::Flags(1 << 5));
+    assert!(!actor_render_source(&actor, Some(&profile)).render_eligible);
+    actor.metadata.clear();
+    actor.game_mode = Some(protocol::ActorGameMode::Spectator);
+    assert!(!actor_render_source(&actor, Some(&profile)).render_eligible);
 }
 
 #[test]

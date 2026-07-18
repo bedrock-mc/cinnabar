@@ -1,10 +1,10 @@
 use protocol::{
-    ActorEvent, ActorKind, ActorMetadataValue, ActorPositionOrigin, ActorProperty, PlayerListEntry,
-    PlayerSkin, PlayerSkinUnavailable, StandardSkin, WorldEvent, into_world_event,
+    ActorEvent, ActorGameMode, ActorKind, ActorMetadataValue, ActorPositionOrigin, ActorProperty,
+    PlayerListEntry, PlayerSkin, PlayerSkinUnavailable, StandardSkin, WorldEvent, into_world_event,
 };
 use valentine::bedrock::version::v1_26_30::{
     AddEntityPacket, AddPlayerPacket, DeltaMoveFlags, EntityProperties, EntityPropertiesFloatsItem,
-    EntityPropertiesIntsItem, MetadataDictionaryItem, MetadataDictionaryItemKey,
+    EntityPropertiesIntsItem, GameMode, MetadataDictionaryItem, MetadataDictionaryItemKey,
     MetadataDictionaryItemType, MetadataDictionaryItemValue, MetadataDictionaryItemValueDefault,
     MoveEntityDeltaPacket, MoveEntityPacket, PlayerAttributesItem, PlayerListPacket, PlayerRecords,
     PlayerRecordsRecordsItem, PlayerRecordsRecordsItemAdd, PlayerRecordsRecordsItemRemove,
@@ -75,6 +75,7 @@ fn add_player_and_remove_entity_preserve_both_actor_id_domains() {
             y: 2.0,
             z: 3.0,
         },
+        gamemode: GameMode::Spectator,
         ..Default::default()
     }
     .into();
@@ -87,6 +88,7 @@ fn add_player_and_remove_entity_preserve_both_actor_id_domains() {
     };
     assert_eq!(spawn.unique_id, -9);
     assert_eq!(spawn.runtime_id, 55);
+    assert_eq!(spawn.game_mode, Some(ActorGameMode::Spectator));
     assert_eq!(
         spawn.kind,
         ActorKind::Player {
@@ -154,7 +156,11 @@ fn absolute_and_delta_actor_moves_normalize_to_partial_transform_updates() {
         panic!("expected delta actor move")
     };
     assert_eq!(delta.position, [Some(7.5), Some(8.25), None]);
-    assert_eq!(delta.position_origin, ActorPositionOrigin::Feet);
+    assert_eq!(
+        delta.position_origin,
+        ActorPositionOrigin::NetworkOffset,
+        "modern MoveActorDelta coordinates remain in Bedrock network position space"
+    );
     assert_eq!(delta.yaw, Some(270.0));
     assert_eq!(delta.pitch, None);
     assert_eq!(delta.on_ground, Some(true));
