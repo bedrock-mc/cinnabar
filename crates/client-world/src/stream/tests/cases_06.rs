@@ -663,6 +663,43 @@ fn actor_move_commit_witness_resets_on_dimension_and_session_replacement() {
 }
 
 #[test]
+fn actor_move_commit_witness_binds_generation_before_later_fifo_world_mutation() {
+    let mut stream = actor_commit_witness_stream();
+    let key = SubChunkKey::new(0, 0, 4, 0);
+    stream.loaded_columns.insert(key.chunk());
+    stream.store.apply_all_air(key).unwrap();
+    stream.record_known_air(key);
+    stream.mark_changed(key, Instant::now());
+    let committed_generation = stream.collision_world_generation();
+
+    stream.submit(2, actor_commit_witness_move(1.25)).unwrap();
+    stream.submit(1, actor_commit_witness_spawn()).unwrap();
+    stream
+        .submit(
+            3,
+            WorldEvent::BlockUpdates(vec![BlockUpdateEvent {
+                dimension: 0,
+                position: [1, 64, 2],
+                layer: 0,
+                network_id: 1,
+            }]),
+        )
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+
+    let commits = stream.take_committed_actor_moves();
+    assert_eq!(commits.len(), 1);
+    assert_eq!(
+        commits[0].collision_world_generation, committed_generation,
+        "movement must retain the world generation at FIFO commit"
+    );
+    assert!(
+        stream.collision_world_generation() > commits[0].collision_world_generation,
+        "later block mutation must make the retained movement generation stale"
+    );
+}
+
+#[test]
 fn player_spawn_move_player_and_absolute_move_share_feet_space() {
     let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,

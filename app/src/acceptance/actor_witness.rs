@@ -221,6 +221,7 @@ pub(crate) fn sample_actor_ground_contact(
 pub(crate) struct CommittedActorGroundContact {
     pub(crate) request_sha256: [u8; 32],
     pub(crate) sequence: u64,
+    pub(crate) collision_world_generation: u64,
     pub(crate) lifetime: ActorLifetimeId,
     pub(crate) movement_revision: u64,
     pub(crate) previous_pose: ActorPose,
@@ -240,9 +241,13 @@ pub(crate) struct CommittedActorGroundContact {
 pub(crate) fn capture_committed_actor_ground_contact(
     request: &ActorWitnessRequest,
     commit: &CommittedActorMove,
+    current_collision_world_generation: u64,
     world: &impl CollisionWorld,
 ) -> Result<Option<CommittedActorGroundContact>, ActorGroundContactError> {
-    if commit.session_id != request.session || commit.dimension != request.dimension {
+    if commit.collision_world_generation != current_collision_world_generation
+        || commit.session_id != request.session
+        || commit.dimension != request.dimension
+    {
         return Ok(None);
     }
     let Some(applied) = commit.applied.as_ref() else {
@@ -265,6 +270,7 @@ pub(crate) fn capture_committed_actor_ground_contact(
     Ok(Some(CommittedActorGroundContact {
         request_sha256: request.request_sha256,
         sequence: commit.sequence,
+        collision_world_generation: commit.collision_world_generation,
         lifetime: applied.lifetime,
         movement_revision: applied.movement_revision,
         previous_pose: applied.previous_pose,
@@ -288,7 +294,7 @@ pub(crate) struct ActorWitnessFileSource {
     next_poll: Instant,
     request: Option<ActorWitnessRequest>,
     last_error: Option<String>,
-    session: Option<u64>,
+    lifecycle: Option<(u64, i32)>,
     captures: VecDeque<CommittedActorGroundContact>,
     dropped_capture_count: u64,
 }
@@ -300,7 +306,7 @@ impl ActorWitnessFileSource {
             next_poll: Instant::now(),
             request: None,
             last_error: None,
-            session: None,
+            lifecycle: None,
             captures: VecDeque::new(),
             dropped_capture_count: 0,
         }
@@ -336,19 +342,35 @@ impl ActorWitnessFileSource {
         }
     }
 
-    fn reset_session(&mut self, session: u64) {
-        if self.session == Some(session) {
+    pub(crate) fn observe_lifecycle(&mut self, session: u64, dimension: i32) {
+        let lifecycle = (session, dimension);
+        if self.lifecycle == Some(lifecycle) {
             return;
         }
-        self.session = Some(session);
+        self.lifecycle = Some(lifecycle);
         self.captures.clear();
         self.dropped_capture_count = 0;
     }
 
-    fn record(&mut self, capture: CommittedActorGroundContact) {
+    pub(crate) fn try_record(&mut self, capture: CommittedActorGroundContact) -> bool {
+        if self.pending_capture_count() == MAX_ACTOR_GROUND_CAPTURES {
+            self.dropped_capture_count = self.dropped_capture_count.saturating_add(1);
+            let dropped_capture_count = self.dropped_capture_count();
+            warn!(
+                dropped_capture_count,
+                "actor ground-contact capture queue is full"
+            );
+            return false;
+        }
+        self.captures.push_back(capture);
+        let capture = self
+            .captures
+            .back()
+            .expect("admitted actor ground-contact capture is retained");
         debug!(
             request_sha256_prefix = ?&capture.request_sha256[..4],
             sequence = capture.sequence,
+            collision_world_generation = capture.collision_world_generation,
             session = capture.lifetime.session_id,
             dimension = capture.lifetime.dimension,
             runtime_id = capture.lifetime.runtime_id,
@@ -369,15 +391,17 @@ impl ActorWitnessFileSource {
             required_consecutive_presented_frames = capture.required_consecutive_presented_frames,
             "captured committed actor ground contact"
         );
-        if self.captures.len() == MAX_ACTOR_GROUND_CAPTURES {
-            self.dropped_capture_count = self.dropped_capture_count.saturating_add(1);
-            warn!(
-                dropped_capture_count = self.dropped_capture_count,
-                "actor ground-contact capture queue is full"
-            );
-            return;
-        }
-        self.captures.push_back(capture);
+        true
+    }
+
+    #[must_use]
+    pub(crate) fn pending_capture_count(&self) -> usize {
+        self.captures.len()
+    }
+
+    #[must_use]
+    pub(crate) const fn dropped_capture_count(&self) -> u64 {
+        self.dropped_capture_count
     }
 }
 
@@ -390,7 +414,7 @@ pub(crate) fn poll_and_capture_actor_ground_contacts(
     let Some(stream) = client_world.stream.as_mut() else {
         return;
     };
-    source.reset_session(stream.actor_session_id());
+    source.observe_lifecycle(stream.actor_session_id(), stream.current_dimension());
     let commits = stream.take_committed_actor_moves();
     let Some(request) = source.request.clone() else {
         return;
@@ -400,9 +424,17 @@ pub(crate) fn poll_and_capture_actor_ground_contacts(
         collisions.registry(stream.network_id_mode()),
         stream.current_dimension(),
     );
+    let current_collision_world_generation = stream.collision_world_generation();
     for commit in commits {
-        match capture_committed_actor_ground_contact(&request, &commit, &world) {
-            Ok(Some(capture)) => source.record(capture),
+        match capture_committed_actor_ground_contact(
+            &request,
+            &commit,
+            current_collision_world_generation,
+            &world,
+        ) {
+            Ok(Some(capture)) => {
+                let _ = source.try_record(capture);
+            }
             Ok(None) => {}
             Err(error) => {
                 debug!(%error, sequence = commit.sequence, "actor ground contact unavailable")

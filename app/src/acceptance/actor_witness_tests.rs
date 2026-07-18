@@ -7,8 +7,10 @@ use client_world::{ActorLifetimeId, ActorPose, CommittedActorMove, CommittedActo
 use protocol::{ActorMoveEvent, ActorPositionOrigin};
 
 use super::actor_witness::{
-    MAX_ACTOR_WITNESS_REQUEST_BYTES, capture_committed_actor_ground_contact,
-    decode_actor_witness_request, read_actor_witness_request, sample_actor_ground_contact,
+    ActorWitnessFileSource, ActorWitnessRequest, CommittedActorGroundContact,
+    MAX_ACTOR_GROUND_CAPTURES, MAX_ACTOR_WITNESS_REQUEST_BYTES,
+    capture_committed_actor_ground_contact, decode_actor_witness_request,
+    read_actor_witness_request, sample_actor_ground_contact,
 };
 
 const SCHEMA: &str = "rust-mcbe-actor-witness-v1";
@@ -134,28 +136,11 @@ impl CollisionWorld for MalformedWorld {
     }
 }
 
-#[test]
-fn actor_ground_contact_uses_collision_plane_and_fails_closed_when_unavailable() {
-    let sample = sample_actor_ground_contact(&Floor, [1.25, 64.0, -2.5]).unwrap();
-    assert_eq!(sample.ground_plane_y, 64.0);
-    assert_eq!(sample.feet_error_micros, 0);
-    assert_eq!(sample.collision_identity.registry.protocol, 1001);
-
-    assert!(sample_actor_ground_contact(&UnavailableWorld, [1.25, 64.0, -2.5]).is_err());
-}
-
-#[test]
-fn actor_ground_contact_rejects_zero_and_inverted_collision_extents() {
-    let zero_height = Aabb::new(Vec3::new(-16.0, 64.0, -16.0), Vec3::new(16.0, 64.0, 16.0));
-    let inverted_height = Aabb::new(Vec3::new(-16.0, 65.0, -16.0), Vec3::new(16.0, 64.0, 16.0));
-
-    for shape in [zero_height, inverted_height] {
-        assert!(sample_actor_ground_contact(&MalformedWorld(shape), [1.25, 64.0, -2.5]).is_err());
-    }
-}
-
-#[test]
-fn committed_actor_capture_requires_exact_identity_and_samples_received_feet() {
+fn committed_capture_fixture() -> (
+    ActorWitnessRequest,
+    CommittedActorMove,
+    CommittedActorGroundContact,
+) {
     let selector = ActorSelector {
         runtime_id: 42,
         spawn_revision: 3,
@@ -188,6 +173,7 @@ fn committed_actor_capture_requires_exact_identity_and_samples_received_feet() {
         session_id: 7,
         dimension: -1,
         sequence: 9,
+        collision_world_generation: 11,
         movement,
         applied: Some(CommittedActorPose {
             lifetime: ActorLifetimeId {
@@ -205,12 +191,38 @@ fn committed_actor_capture_requires_exact_identity_and_samples_received_feet() {
             source_tick: Some(27),
         }),
     };
-
-    let capture = capture_committed_actor_ground_contact(&request, &commit, &Floor)
+    let capture = capture_committed_actor_ground_contact(&request, &commit, 11, &Floor)
         .unwrap()
-        .expect("exact requested lifetime is captured");
+        .expect("exact requested lifetime and generation are captured");
+    (request, commit, capture)
+}
+
+#[test]
+fn actor_ground_contact_uses_collision_plane_and_fails_closed_when_unavailable() {
+    let sample = sample_actor_ground_contact(&Floor, [1.25, 64.0, -2.5]).unwrap();
+    assert_eq!(sample.ground_plane_y, 64.0);
+    assert_eq!(sample.feet_error_micros, 0);
+    assert_eq!(sample.collision_identity.registry.protocol, 1001);
+
+    assert!(sample_actor_ground_contact(&UnavailableWorld, [1.25, 64.0, -2.5]).is_err());
+}
+
+#[test]
+fn actor_ground_contact_rejects_zero_and_inverted_collision_extents() {
+    let zero_height = Aabb::new(Vec3::new(-16.0, 64.0, -16.0), Vec3::new(16.0, 64.0, 16.0));
+    let inverted_height = Aabb::new(Vec3::new(-16.0, 65.0, -16.0), Vec3::new(16.0, 64.0, 16.0));
+
+    for shape in [zero_height, inverted_height] {
+        assert!(sample_actor_ground_contact(&MalformedWorld(shape), [1.25, 64.0, -2.5]).is_err());
+    }
+}
+
+#[test]
+fn committed_actor_capture_requires_exact_identity_and_samples_received_feet() {
+    let (request, commit, capture) = committed_capture_fixture();
     assert_eq!(capture.request_sha256, request.request_sha256);
     assert_eq!(capture.sequence, 9);
+    assert_eq!(capture.collision_world_generation, 11);
     assert_eq!(capture.lifetime, commit.applied.as_ref().unwrap().lifetime);
     assert_eq!(capture.movement_revision, 9);
     assert_eq!(capture.source_tick, Some(27));
@@ -219,12 +231,49 @@ fn committed_actor_capture_requires_exact_identity_and_samples_received_feet() {
     assert_eq!(capture.ground_plane_y, 64.0);
     assert_eq!(capture.feet_error_micros, 0);
     assert!(capture.within_requested_error);
+    assert!(
+        capture_committed_actor_ground_contact(&request, &commit, 12, &UnavailableWorld)
+            .unwrap()
+            .is_none(),
+        "later world generation must reject before collision sampling"
+    );
 
     let mut wrong_session = request;
     wrong_session.session = 8;
     assert!(
-        capture_committed_actor_ground_contact(&wrong_session, &commit, &Floor)
+        capture_committed_actor_ground_contact(&wrong_session, &commit, 11, &Floor)
             .unwrap()
             .is_none()
     );
+}
+
+#[test]
+fn actor_witness_capture_lifecycle_resets_on_dimension_and_session() {
+    let (_, _, capture) = committed_capture_fixture();
+    let mut source = ActorWitnessFileSource::new(None);
+    source.observe_lifecycle(7, -1);
+    assert!(source.try_record(capture.clone()));
+    assert_eq!(source.pending_capture_count(), 1);
+
+    source.observe_lifecycle(7, 0);
+    assert_eq!(source.pending_capture_count(), 0);
+    assert!(source.try_record(capture.clone()));
+
+    source.observe_lifecycle(8, 0);
+    assert_eq!(source.pending_capture_count(), 0);
+    assert_eq!(source.dropped_capture_count(), 0);
+}
+
+#[test]
+fn actor_witness_capture_reports_success_only_after_capacity_admission() {
+    let (_, _, capture) = committed_capture_fixture();
+    let mut source = ActorWitnessFileSource::new(None);
+    source.observe_lifecycle(7, -1);
+
+    for _ in 0..MAX_ACTOR_GROUND_CAPTURES {
+        assert!(source.try_record(capture.clone()));
+    }
+    assert!(!source.try_record(capture));
+    assert_eq!(source.pending_capture_count(), MAX_ACTOR_GROUND_CAPTURES);
+    assert_eq!(source.dropped_capture_count(), 1);
 }
