@@ -44,7 +44,7 @@ impl BlobCacheResolver {
         self.stats
     }
 
-    fn retained_pending_bytes(&self) -> Result<usize, BlobCacheError> {
+    pub(super) fn retained_pending_bytes(&self) -> Result<usize, BlobCacheError> {
         self.pending
             .capacity()
             .checked_mul(size_of::<PendingTransaction>())
