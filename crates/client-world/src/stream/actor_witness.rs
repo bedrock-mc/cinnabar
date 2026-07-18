@@ -67,7 +67,7 @@ impl WorldStream {
             session_id: self.actor_session_id,
             dimension: movement.dimension,
             sequence,
-            collision_world_generation: self.next_block_generation,
+            collision_world_generation: self.collision_world_generation,
             movement,
             applied,
         });
@@ -94,6 +94,6 @@ impl WorldStream {
 
     #[must_use]
     pub const fn collision_world_generation(&self) -> u64 {
-        self.next_block_generation
+        self.collision_world_generation
     }
 }

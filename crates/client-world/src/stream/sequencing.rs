@@ -93,12 +93,14 @@ impl WorldStream {
                             .copied()
                             .filter(|resident| resident.chunk() == key)
                             .collect::<BTreeSet<_>>();
+                        let previous_collision_revision = self.store.collision_revision(key);
                         let Ok(applied) = self.store.commit_level_chunk(key, decoded) else {
                             self.record_normalization_error(
                                 NormalizationErrorReason::BlockMutationFailure,
                             );
                             return;
                         };
+                        self.observe_collision_revision_change(key, previous_collision_revision);
                         self.loaded_columns.insert(key);
                         self.purge_sub_chunk_column_state(key);
                         self.resident.retain(|resident| resident.chunk() != key);
@@ -180,9 +182,15 @@ impl WorldStream {
                             self.stats.phase2_outcomes.success =
                                 self.stats.phase2_outcomes.success.saturating_add(1);
                             let decoded_air = decoded.sub_chunk().has_no_storages();
+                            let previous_collision_revision =
+                                self.store.collision_revision(key.chunk());
                             let committed = match self.store.commit_decoded_sub_chunk(key, decoded)
                             {
                                 Ok(Some(changed)) => {
+                                    self.observe_collision_revision_change(
+                                        key.chunk(),
+                                        previous_collision_revision,
+                                    );
                                     if decoded_air {
                                         self.record_known_air(changed);
                                     } else {
@@ -192,6 +200,10 @@ impl WorldStream {
                                     true
                                 }
                                 Ok(None) => {
+                                    self.observe_collision_revision_change(
+                                        key.chunk(),
+                                        previous_collision_revision,
+                                    );
                                     if decoded_air && self.record_known_air(key) {
                                         self.mark_changed(key, Instant::now());
                                     }
@@ -220,8 +232,14 @@ impl WorldStream {
                         PreparedSubChunkResult::AllAir => {
                             self.stats.phase2_outcomes.all_air =
                                 self.stats.phase2_outcomes.all_air.saturating_add(1);
+                            let previous_collision_revision =
+                                self.store.collision_revision(key.chunk());
                             match self.store.apply_all_air(key) {
                                 Ok(changed) => {
+                                    self.observe_collision_revision_change(
+                                        key.chunk(),
+                                        previous_collision_revision,
+                                    );
                                     let became_known = self.record_known_air(key);
                                     if changed.is_some() || became_known {
                                         self.mark_changed(key, Instant::now());
@@ -243,8 +261,14 @@ impl WorldStream {
                                 self.stats.unavailable_sub_chunks.saturating_add(1);
                             match unavailable {
                                 protocol::SubChunkUnavailable::YIndexOutOfBounds => {
+                                    let previous_collision_revision =
+                                        self.store.collision_revision(key.chunk());
                                     match self.store.apply_all_air(key) {
                                         Ok(changed) => {
+                                            self.observe_collision_revision_change(
+                                                key.chunk(),
+                                                previous_collision_revision,
+                                            );
                                             let became_known = self.record_known_air(key);
                                             if changed.is_some() || became_known {
                                                 self.mark_changed(key, Instant::now());
@@ -298,6 +322,12 @@ impl WorldStream {
                 match result {
                     Ok(prepared) => match self.store.commit_prepared_block_updates(prepared) {
                         Ok(changed) => {
+                            if changed
+                                .iter()
+                                .any(|key| self.store.is_chunk_loaded(key.chunk()))
+                            {
+                                self.bump_collision_world_generation();
+                            }
                             let now = Instant::now();
                             for key in changed {
                                 self.refresh_block_entity_visuals_for_sub_chunk(key);
@@ -626,10 +656,12 @@ impl WorldStream {
             let mut changed = BTreeSet::new();
             for y in first_air_y..end_y {
                 let air = SubChunkKey::from_chunk(key, y);
+                let previous_collision_revision = self.store.collision_revision(key);
                 let Ok(removed) = self.store.apply_request_mode_air(air) else {
                     self.record_normalization_error(NormalizationErrorReason::BlockMutationFailure);
                     return;
                 };
+                self.observe_collision_revision_change(key, previous_collision_revision);
                 let removed = removed.is_some();
                 let became_known = self.record_known_air(air);
                 if removed {

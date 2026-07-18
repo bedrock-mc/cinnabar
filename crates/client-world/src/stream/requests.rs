@@ -140,7 +140,7 @@ impl WorldStream {
                 self.cancel_request_reservation(sequence);
             }
             self.loaded_columns.insert(key);
-            if self.store.mark_chunk_loaded(key).is_err() {
+            if self.mark_collision_chunk_loaded(key).is_err() {
                 self.loaded_columns.remove(&key);
                 self.record_normalization_error(NormalizationErrorReason::BlockMutationFailure);
             }
@@ -176,7 +176,7 @@ impl WorldStream {
                     .collect::<PendingSubChunkColumn>();
                 if expected.is_empty() {
                     self.loaded_columns.insert(key);
-                    if self.store.mark_chunk_loaded(key).is_err() {
+                    if self.mark_collision_chunk_loaded(key).is_err() {
                         self.loaded_columns.remove(&key);
                         self.record_normalization_error(
                             NormalizationErrorReason::BlockMutationFailure,

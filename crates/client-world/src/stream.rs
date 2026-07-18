@@ -46,6 +46,7 @@ use super::{ActorEquipmentSnapshot, RemoteActionSnapshot, RemoteActionStats};
 mod actor_witness;
 mod block_entities;
 mod cohort;
+mod collision_identity;
 mod connectivity;
 mod construction;
 mod decode;
@@ -139,6 +140,7 @@ pub struct WorldStream {
     light_rx: Receiver<LightCompletion>,
     mesh_tx: Sender<MeshCompletion>,
     mesh_rx: Receiver<MeshCompletion>,
+    collision_world_generation: u64,
     next_block_generation: u64,
     block_generations: HashMap<SubChunkKey, u64>,
     light_store: LightStore,

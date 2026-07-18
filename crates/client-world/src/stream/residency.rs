@@ -47,7 +47,9 @@ impl WorldStream {
             .flat_map(SubChunkKey::biome_mesh_dependents)
             .collect::<BTreeSet<_>>();
         changed.extend(biome_sources);
+        let previous_collision_revision = self.store.collision_revision(key);
         changed.extend(self.store.evict_chunk(key));
+        self.observe_collision_revision_change(key, previous_collision_revision);
         self.resident.retain(|resident| resident.chunk() != key);
         self.known_air.retain(|resident| resident.chunk() != key);
         self.applied_mesh_generations
