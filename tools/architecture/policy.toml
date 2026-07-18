@@ -86,7 +86,7 @@ forbidden_dependencies = ["asset-compiler"]
 [[crates]]
 name = "app"
 path = "app"
-allowed_dependencies = ["assets", "client-world", "meshing", "protocol", "render", "sim", "ui", "world"]
+allowed_dependencies = ["assets", "client-world", "meshing", "protocol", "render", "semantic-input", "sim", "ui", "world"]
 forbidden_dependencies = ["asset-compiler"]
 
 [[crates]]
@@ -118,6 +118,12 @@ name = "devtool"
 path = "tools/devtool"
 allowed_dependencies = []
 forbidden_dependencies = ["bevy", "wgpu"]
+
+[[crates]]
+name = "phase2-evidence"
+path = "tools/phase2-evidence"
+allowed_dependencies = []
+forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[markers]]
 literal = "RUST_MCBE_ACCEPTANCE_RUNTIME_METADATA"
