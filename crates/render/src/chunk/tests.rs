@@ -23,6 +23,7 @@ fn target_expectation(
     TargetRenderExpectation {
         cohort: RenderViewCohort::new(0, [65, 65], 16),
         source_cohort: Some(RenderViewCohort::new(0, [0, 0], 16)),
+        target_keys: None,
         manifest: Arc::from(manifest.into_iter().collect::<Vec<_>>()),
         view_generation: 1,
         render_ready_at: now,

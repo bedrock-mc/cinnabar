@@ -295,10 +295,47 @@ impl ChunkRenderQueue {
         TargetRenderExpectation {
             cohort,
             source_cohort,
+            target_keys: None,
             manifest: Arc::from(manifest),
             view_generation,
             render_ready_at,
         }
+    }
+
+    /// Freezes render generations only for actually announced required columns.
+    #[must_use]
+    pub fn freeze_target_expectation_for_columns(
+        &self,
+        cohort: RenderViewCohort,
+        source_cohort: Option<RenderViewCohort>,
+        columns: impl IntoIterator<Item = world::ChunkKey>,
+        view_generation: u64,
+        render_ready_at: Instant,
+    ) -> Option<TargetRenderExpectation> {
+        let columns = columns.into_iter().collect::<BTreeSet<_>>();
+        if columns.is_empty()
+            || columns
+                .iter()
+                .any(|column| !cohort.contains(SubChunkKey::from_chunk(*column, 0)))
+        {
+            return None;
+        }
+        let manifest = self
+            .render_manifest
+            .iter()
+            .filter_map(|(&key, &generation)| {
+                columns.contains(&key.chunk()).then_some((key, generation))
+            })
+            .collect::<Vec<_>>();
+        let target_keys = manifest.iter().map(|(key, _)| *key).collect::<Vec<_>>();
+        Some(TargetRenderExpectation {
+            cohort,
+            source_cohort,
+            target_keys: Some(Arc::from(target_keys)),
+            manifest: Arc::from(manifest),
+            view_generation,
+            render_ready_at,
+        })
     }
 
     /// Freezes only the requested target keys for model-witness evidence.
@@ -320,7 +357,8 @@ impl ChunkRenderQueue {
             return None;
         }
         let manifest = keys
-            .into_iter()
+            .iter()
+            .copied()
             .filter_map(|key| {
                 self.render_manifest
                     .get(&key)
@@ -331,6 +369,7 @@ impl ChunkRenderQueue {
         Some(TargetRenderExpectation {
             cohort,
             source_cohort,
+            target_keys: Some(Arc::from(keys.iter().copied().collect::<Vec<_>>())),
             manifest: Arc::from(manifest),
             view_generation,
             render_ready_at,

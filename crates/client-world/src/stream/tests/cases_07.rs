@@ -318,3 +318,33 @@ fn announcements_outside_clamped_retention_do_not_expand_required_epoch() {
         1
     );
 }
+
+#[test]
+fn publisher_epoch_overflow_fails_closed_without_reusing_an_identity() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    let old = super::ViewCohort::from_publisher(0, [0, 64, 0], 128);
+    stream.publisher_epoch = u64::MAX;
+    stream.committed_view_cohort = Some(old);
+    stream.required_columns.insert(ChunkKey::new(0, 0, 0));
+
+    stream
+        .submit(
+            1,
+            WorldEvent::PublisherUpdate(PublisherUpdateEvent {
+                center: [16, 64, 0],
+                radius_blocks: 128,
+            }),
+        )
+        .unwrap();
+
+    assert_eq!(stream.publisher_epoch, u64::MAX);
+    assert_eq!(stream.committed_view_cohort(), None);
+    assert!(stream.required_columns.is_empty());
+}

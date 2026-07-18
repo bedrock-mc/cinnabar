@@ -152,13 +152,17 @@ impl FrameProbe {
                 .copied()
                 .collect::<BTreeSet<_>>()
         });
-        let is_scoped_instance = |key: SubChunkKey| {
-            model_target_keys
-                .as_ref()
-                .is_none_or(|target_keys| target_keys.contains(&key))
-        };
+        let expectation_target_keys = expectation
+            .target_keys
+            .as_ref()
+            .map(|keys| keys.iter().copied().collect::<BTreeSet<_>>());
+        let target_keys = model_target_keys
+            .as_ref()
+            .or(expectation_target_keys.as_ref());
+        let is_scoped_instance =
+            |key: SubChunkKey| target_keys.is_none_or(|target_keys| target_keys.contains(&key));
         let is_target = |key: SubChunkKey| {
-            model_target_keys.as_ref().map_or_else(
+            target_keys.map_or_else(
                 || expectation.cohort.contains(key),
                 |target_keys| target_keys.contains(&key),
             )
@@ -227,10 +231,7 @@ impl FrameProbe {
                 continue;
             };
             if instance.key != allocation.key || instance.generation != allocation.generation {
-                if model_target_keys.is_none()
-                    || is_target(instance.key)
-                    || is_target(allocation.key)
-                {
+                if target_keys.is_none() || is_target(instance.key) || is_target(allocation.key) {
                     stale_entities.insert(allocation.entity);
                 }
                 continue;

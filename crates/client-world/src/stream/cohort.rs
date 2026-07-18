@@ -2,6 +2,12 @@ use super::diagnostics::deterministic_chunk_key_hash;
 use super::*;
 
 impl WorldStream {
+    /// Unique request-mode columns announced in the current publisher epoch.
+    #[must_use]
+    pub fn required_columns(&self) -> &BTreeSet<ChunkKey> {
+        &self.required_columns
+    }
+
     pub fn loaded_column_count(&self) -> usize {
         self.loaded_columns.len()
     }
