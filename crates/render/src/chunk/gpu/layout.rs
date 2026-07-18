@@ -153,7 +153,12 @@ impl GpuUploadReservation {
             incremental_bytes: self.incremental_bytes.saturating_add(incremental_bytes),
             growth_copy_bytes: self.growth_copy_bytes.max(projected_growth_copy_bytes),
         };
-        if next.items > budget.max_per_frame || next.total_bytes() > budget.max_bytes_per_frame {
+        let first_growth_crossing = self.items == 0
+            && incremental_bytes <= budget.max_bytes_per_frame
+            && projected_growth_copy_bytes > 0;
+        if next.items > budget.max_per_frame
+            || (next.total_bytes() > budget.max_bytes_per_frame && !first_growth_crossing)
+        {
             return false;
         }
         *self = next;

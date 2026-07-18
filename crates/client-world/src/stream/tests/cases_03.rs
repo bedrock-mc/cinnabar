@@ -8,16 +8,16 @@ fn publisher_required_disk_is_distinct_from_square_prefetch_scope() {
         radius: 1,
     };
 
-    assert_eq!(cohort.expected_columns().len(), 5);
+    assert_eq!(cohort.expected_columns().len(), 1);
     assert!(
         cohort
             .expected_columns()
-            .contains(&ChunkKey::new(0, 11, -10))
+            .contains(&ChunkKey::new(0, 10, -10))
     );
     assert!(
         !cohort
             .expected_columns()
-            .contains(&ChunkKey::new(0, 11, -9))
+            .contains(&ChunkKey::new(0, 11, -10))
     );
     assert!(cohort.contains_column(0, [11, -9]));
     assert!(!cohort.contains_column(0, [12, -10]));
@@ -42,6 +42,18 @@ fn publisher_block_position_and_radius_use_euclidean_chunk_conversion() {
 }
 
 #[test]
+fn publisher_block_radius_uses_the_fully_retained_chunk_disk() {
+    let cohort = super::ViewCohort::from_publisher(0, [-1350, 104, 1634], 128);
+
+    assert_eq!(cohort.expected_columns().len(), 177);
+    assert!(
+        cohort
+            .expected_columns()
+            .contains(&ChunkKey::new(0, -85, 102))
+    );
+}
+
+#[test]
 fn in_scope_prefetch_columns_do_not_prevent_exact_cohort_readiness() {
     let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,
@@ -62,8 +74,8 @@ fn in_scope_prefetch_columns_do_not_prevent_exact_cohort_readiness() {
 
     let status = stream.cohort_status(target);
 
-    assert_eq!(status.expected, 5);
-    assert_eq!(status.loaded_target, 5);
+    assert_eq!(status.expected, 1);
+    assert_eq!(status.loaded_target, 1);
     assert_eq!(status.missing_target, 0);
     assert_eq!(status.foreign_loaded, 0);
     assert!(status.is_exact());
@@ -86,13 +98,13 @@ fn in_scope_prefetch_cannot_replace_a_missing_required_column() {
     };
     stream.committed_view_cohort = Some(target);
     stream.loaded_columns = target.expected_columns();
-    stream.loaded_columns.remove(&ChunkKey::new(0, 1, 0));
+    stream.loaded_columns.remove(&ChunkKey::new(0, 0, 0));
     stream.loaded_columns.insert(ChunkKey::new(0, 1, 1));
 
     let status = stream.cohort_status(target);
 
     assert_eq!(stream.loaded_columns.len(), status.expected);
-    assert_eq!(status.loaded_target, 4);
+    assert_eq!(status.loaded_target, 0);
     assert_eq!(status.missing_target, 1);
     assert_eq!(status.foreign_loaded, 0);
     assert!(!status.is_exact());

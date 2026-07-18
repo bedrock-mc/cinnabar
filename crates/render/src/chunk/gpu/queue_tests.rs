@@ -271,18 +271,27 @@ fn gpu_growth_plan_copies_the_old_allocation_without_a_host_shadow_upload() {
 }
 
 #[test]
-fn arena_growth_copy_bytes_are_reserved_before_an_update_is_admitted() {
+fn a_first_arena_growth_can_cross_the_combined_byte_cap_but_remains_accounted() {
     let budget = ChunkUploadBudget::new(1, 103);
     let mut reservation = GpuUploadReservation::default();
 
-    assert!(!reservation.try_reserve(budget, 40, 64));
-    assert_eq!(reservation, GpuUploadReservation::default());
-
-    assert!(reservation.try_reserve(ChunkUploadBudget::new(1, 104), 40, 64));
+    assert!(reservation.try_reserve(budget, 40, 64));
     assert_eq!(reservation.items, 1);
     assert_eq!(reservation.incremental_bytes, 40);
     assert_eq!(reservation.growth_copy_bytes, 64);
     assert_eq!(reservation.total_bytes(), 104);
+}
+
+#[test]
+fn one_growth_copy_can_cross_the_frame_cap_to_prevent_a_permanent_arena_stall() {
+    let budget = ChunkUploadBudget::new(8, 4 * 1024 * 1024);
+    let mut reservation = GpuUploadReservation::default();
+
+    assert!(reservation.try_reserve(budget, 64 * 1024, 8 * 1024 * 1024));
+    assert_eq!(reservation.items, 1);
+    assert_eq!(reservation.incremental_bytes, 64 * 1024);
+    assert_eq!(reservation.growth_copy_bytes, 8 * 1024 * 1024);
+    assert!(!reservation.try_reserve(budget, 1, 0));
 }
 
 #[test]

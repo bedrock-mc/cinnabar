@@ -18,9 +18,10 @@ pub(super) struct CorrelatedSubChunkAttempts {
 
 /// One horizontal publisher view, expressed in chunk columns.
 ///
-/// The radius defines a required Euclidean disk. The enclosing Chebyshev square
-/// remains the allowed retention scope so server-side prefetch does not become
-/// false foreign-world evidence.
+/// The radius defines a required Euclidean disk over chunk centres, inset by
+/// half a chunk from the publisher's outer block radius. The enclosing
+/// Chebyshev square remains the allowed retention scope so server-side prefetch
+/// does not become false foreign-world evidence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ViewCohort {
     pub dimension: i32,
@@ -53,10 +54,17 @@ impl ViewCohort {
             .flat_map(|x_offset| {
                 (-radius..=radius)
                     .filter(move |z_offset| {
-                        let x = i64::from(x_offset).unsigned_abs();
-                        let z = i64::from(*z_offset).unsigned_abs();
-                        let radius = u64::try_from(radius).unwrap_or_default();
-                        x * x + z * z <= radius * radius
+                        if radius == 0 {
+                            return x_offset == 0 && *z_offset == 0;
+                        }
+                        let x = i64::from(x_offset).unsigned_abs().saturating_mul(2);
+                        let z = i64::from(*z_offset).unsigned_abs().saturating_mul(2);
+                        let diameter = u64::try_from(radius)
+                            .unwrap_or_default()
+                            .saturating_mul(2)
+                            .saturating_sub(1);
+                        x.saturating_mul(x) + z.saturating_mul(z)
+                            <= diameter.saturating_mul(diameter)
                     })
                     .map(move |z_offset| {
                         ChunkKey::new(

@@ -883,7 +883,7 @@ fn equal_loaded_count_with_missing_target_and_source_replacement_is_not_exact() 
         }
         .expected_columns()
         .len(),
-        797
+        749
     );
     stream
         .submit(
@@ -908,8 +908,8 @@ fn equal_loaded_count_with_missing_target_and_source_replacement_is_not_exact() 
 
     let status = stream.cohort_status(target);
 
-    assert_eq!(status.expected, 5);
-    assert_eq!(status.loaded_target, 4);
+    assert_eq!(status.expected, 1);
+    assert_eq!(status.loaded_target, 0);
     assert_eq!(status.missing_target, 1);
     assert_eq!(status.foreign_loaded, 1);
     assert_eq!(status.source_leftover, 1);

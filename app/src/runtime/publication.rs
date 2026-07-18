@@ -31,8 +31,13 @@ impl Default for PublicationControllerConfig {
             target_frame_time: Duration::from_millis(25),
             recovery_frame_time: Duration::from_millis(19),
             recovery_streak_frames: 120,
-            minimum: ChunkUploadBudget::new(2, MEBIBYTE),
-            initial: ChunkUploadBudget::new(8, 4 * MEBIBYTE),
+            // Keep initial-world convergence independent from a slow baseline
+            // frame rate. Dropping below this floor made a 6-8 FPS client
+            // publish only two zero-byte removals per frame, which starved
+            // real spawn meshes for several minutes and prevented the
+            // adaptive controller from ever observing a recoverable frame.
+            minimum: ChunkUploadBudget::new(8, 4 * MEBIBYTE),
+            initial: ChunkUploadBudget::new(16, 4 * MEBIBYTE),
             maximum: ChunkUploadBudget::new(128, 64 * MEBIBYTE),
             additive_items: 1,
             additive_bytes: 256 * KIBIBYTE,

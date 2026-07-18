@@ -177,7 +177,7 @@ fn deterministic_streaming_trace_bounds_frame_spikes_against_fixed_128() {
         "publication_trace before_fixed128_frames={fixed_frames} before_peak_ms={fixed_peak_ms} after_adaptive_frames={adaptive_frames} after_peak_ms={adaptive_peak_ms}"
     );
     assert_eq!((fixed_frames, fixed_peak_ms), (8, 260));
-    assert_eq!((adaptive_frames, adaptive_peak_ms), (128, 20));
+    assert_eq!((adaptive_frames, adaptive_peak_ms), (113, 36));
 }
 
 #[test]
@@ -223,4 +223,19 @@ fn genuine_stalls_decrease_immediately_then_60hz_frames_recover_conservatively()
     assert_eq!(controller.budget().max_per_frame, reduced.max_per_frame + 1);
     assert_eq!(controller.diagnostics().multiplicative_decreases, 1);
     assert_eq!(controller.diagnostics().additive_increases, 1);
+}
+
+#[test]
+fn default_controller_retains_spawn_convergence_floor_during_sustained_slow_frames() {
+    let mut controller = PublicationController::default();
+
+    for _ in 0..240 {
+        controller.begin_frame(Duration::from_millis(150));
+    }
+
+    assert_eq!(
+        controller.budget(),
+        ChunkUploadBudget::new(8, 4 * 1024 * 1024),
+        "a slow baseline must not collapse initial-world publication below the convergence floor"
+    );
 }
