@@ -805,28 +805,186 @@ fn actor_move_commit_witness_generation_changes_when_supporting_column_is_evicte
 }
 
 #[test]
-fn collision_world_generation_excludes_biomes_and_saturates_at_its_bound() {
+fn fifo_inline_biome_only_replacement_preserves_collision_identity() {
     let mut stream = actor_commit_witness_stream();
-    let chunk = ChunkKey::new(0, 0, 0);
-    assert!(stream.mark_collision_chunk_loaded(chunk).unwrap());
+    let block_payload = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../world/fixtures/uniform_non_air.bin"
+    ));
+    let inline = |biome_id| {
+        let mut payload = block_payload.to_vec();
+        payload.extend(biome_payload(0, biome_id));
+        WorldEvent::LevelChunk(LevelChunkEvent {
+            dimension: 0,
+            x: 0,
+            z: 0,
+            mode: LevelChunkMode::Inline { count: 1 },
+            payload,
+        })
+    };
+
+    stream.submit(1, inline(42)).unwrap();
+    complete_pending_decode_jobs(&mut stream);
     let collision_generation = stream.collision_world_generation();
 
-    stream
-        .store
-        .commit_biome_column(chunk, DecodedBiomeColumn::decode(-4, 1, &[1, 84]).unwrap());
+    stream.submit(2, inline(43)).unwrap();
+    complete_pending_decode_jobs(&mut stream);
+
     assert_eq!(
         stream.collision_world_generation(),
         collision_generation,
-        "biome-only commits must not invalidate collision witnesses"
+        "a FIFO inline biome-only replacement must preserve collision identity"
+    );
+    assert_eq!(
+        stream
+            .store
+            .biome_id(SubChunkKey::new(0, 0, -4, 0), 0, 0, 0),
+        Some(43)
+    );
+}
+
+#[test]
+fn fifo_request_mode_biome_replacement_and_loaded_replay_preserve_collision_identity() {
+    let mut stream = actor_commit_witness_stream();
+
+    stream
+        .submit(
+            1,
+            request_level_chunk_event(0, 0, 0, LevelChunkMode::LimitedRequests { highest: 0 }, 84),
+        )
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    let collision_generation = stream.collision_world_generation();
+
+    stream
+        .submit(
+            2,
+            request_level_chunk_event(0, 0, 0, LevelChunkMode::LimitedRequests { highest: 0 }, 85),
+        )
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    assert_eq!(
+        stream.collision_world_generation(),
+        collision_generation,
+        "a FIFO request-mode biome-only replacement must preserve collision identity"
+    );
+    assert_eq!(
+        stream
+            .store
+            .biome_id(SubChunkKey::new(0, 0, -4, 0), 0, 0, 0),
+        Some(85)
     );
 
+    stream
+        .submit(
+            3,
+            request_level_chunk_event(0, 0, 0, LevelChunkMode::LimitedRequests { highest: 0 }, 85),
+        )
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    assert_eq!(
+        stream.collision_world_generation(),
+        collision_generation,
+        "an idempotent loaded request-mode replay must not mint collision identity"
+    );
+}
+
+#[test]
+fn fifo_same_value_block_update_preserves_collision_identity() {
+    let mut stream = actor_commit_witness_stream();
+    let mut payload = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../world/fixtures/uniform_non_air.bin"
+    ))
+    .to_vec();
+    payload.extend(biome_payload(0, 42));
+    stream
+        .submit(
+            1,
+            WorldEvent::LevelChunk(LevelChunkEvent {
+                dimension: 0,
+                x: 0,
+                z: 0,
+                mode: LevelChunkMode::Inline { count: 1 },
+                payload,
+            }),
+        )
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    let collision_generation = stream.collision_world_generation();
+
+    stream
+        .submit(
+            2,
+            WorldEvent::BlockUpdates(vec![BlockUpdateEvent {
+                dimension: 0,
+                position: [0, -64, 0],
+                layer: 0,
+                network_id: 42,
+            }]),
+        )
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+
+    assert_eq!(
+        stream.collision_world_generation(),
+        collision_generation,
+        "a FIFO same-value block update must not mint collision identity"
+    );
+}
+
+#[test]
+fn collision_world_generation_exhaustion_is_permanent_across_evict_and_reload() {
+    let mut stream = actor_commit_witness_stream();
+    let key = SubChunkKey::new(0, 0, 4, 0);
+    stream.loaded_columns.insert(key.chunk());
+    assert!(stream.mark_collision_chunk_loaded(key.chunk()).unwrap());
+    stream.record_known_air(key);
+    stream.submit(1, actor_commit_witness_spawn()).unwrap();
+
     stream.collision_world_generation = u64::MAX;
+    assert_eq!(stream.collision_world_generation_identity(), Some(u64::MAX));
+    stream.submit(2, actor_commit_witness_move(1.25)).unwrap();
     assert!(
         stream
-            .mark_collision_chunk_loaded(ChunkKey::new(0, 1, 0))
-            .unwrap()
+            .submit(
+                3,
+                WorldEvent::PublisherUpdate(PublisherUpdateEvent {
+                    center: [1_600, 64, 0],
+                    radius_blocks: 0,
+                }),
+            )
+            .is_ok()
     );
     assert_eq!(stream.collision_world_generation(), u64::MAX);
+    assert_eq!(stream.collision_world_generation_identity(), None);
+    let stale = stream.take_committed_actor_moves();
+    assert_eq!(stale.len(), 1);
+    assert_eq!(stale[0].collision_world_generation, u64::MAX);
+
+    stream
+        .submit(
+            4,
+            WorldEvent::PublisherUpdate(PublisherUpdateEvent {
+                center: [0, 64, 0],
+                radius_blocks: 0,
+            }),
+        )
+        .unwrap();
+    stream.submit(5, inline_air_event(0)).unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    assert_eq!(stream.collision_world_generation(), u64::MAX);
+    assert_eq!(
+        stream.collision_world_generation_identity(),
+        None,
+        "reloading collision data must not revive exhausted identity space"
+    );
+
+    stream.submit(6, actor_commit_witness_move(1.5)).unwrap();
+    let fresh = stream.take_committed_actor_moves();
+    assert_eq!(fresh.len(), 1);
+    assert_eq!(fresh[0].collision_world_generation, u64::MAX);
+    assert_eq!(stream.collision_world_generation_identity(), None);
 }
 
 #[test]

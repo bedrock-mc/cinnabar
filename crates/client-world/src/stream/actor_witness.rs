@@ -96,4 +96,14 @@ impl WorldStream {
     pub const fn collision_world_generation(&self) -> u64 {
         self.collision_world_generation
     }
+
+    /// Returns the current collision identity while its generation space remains unique.
+    #[must_use]
+    pub const fn collision_world_generation_identity(&self) -> Option<u64> {
+        if self.collision_world_generation_exhausted {
+            None
+        } else {
+            Some(self.collision_world_generation)
+        }
+    }
 }
