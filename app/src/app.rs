@@ -49,6 +49,7 @@ use crate::{
         LocalPhysicsController, MovementTicker, PhysicsAuthorityGate, PhysicsCollisionRegistries,
         advance_local_physics,
     },
+    present_mode::{PresentModeRuntime, apply_runtime_vsync_setting},
     runtime::{
         endpoint::{preflight_bridge_endpoint, resolve_socket_dir},
         network::{
@@ -330,6 +331,13 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     })
     .context("spawn Bedrock network worker")?;
     let present_mode = requested_present_mode(args.no_vsync);
+    let diagnostics_enabled = args.acceptance_seconds.is_some() || args.metrics_out.is_some();
+    let present_mode_runtime = PresentModeRuntime::from_startup(
+        args.force_vsync,
+        args.no_vsync,
+        diagnostics_enabled,
+    );
+    let present_mode_policy = present_mode_runtime.policy();
     let runtime_config = AcceptanceRuntimeConfig {
         build_profile: if cfg!(debug_assertions) {
             "debug"
@@ -362,13 +370,14 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             .disable::<TerminalCtrlCHandlerPlugin>(),
     );
     app.add_plugins(FxaaPlugin);
-    let diagnostics_enabled = args.acceptance_seconds.is_some() || args.metrics_out.is_some();
+    app.add_plugins(render::Dx12PresentModePolicyPlugin::new(present_mode_policy));
     if diagnostics_enabled {
         app.add_plugins(RenderDiagnosticsPlugin);
     }
     app.insert_resource(frame_limited_winit_settings(args.frame_cap))
         .insert_resource(ClearColor(Color::srgb(0.46, 0.70, 0.92)))
         .insert_resource(shutdown_watchdog.clone())
+        .insert_resource(present_mode_runtime)
         .insert_resource(network)
         .insert_resource(ClientWorld::new(Arc::clone(&runtime_assets)))
         .insert_resource(UiRuntime::new(0))
@@ -476,6 +485,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
                 emit_world_ready,
                 drive_model_witness,
                 record_metrics_and_title,
+                apply_runtime_vsync_setting,
             )
                 .chain()
                 .after(FlyCameraUpdateSet),
