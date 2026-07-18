@@ -6,8 +6,11 @@ use bevy::{
     window::{CursorGrabMode, CursorOptions},
 };
 use protocol::{
-    BedrockSession, BlockCrackAction, BlockCrackEvent,
-    ChatAutocompleteAction as ProtocolAutocompleteAction, ChatAutocompleteEvent, HudEvent,
+    BedrockSession, BlockCrackAction, BlockCrackEvent, BossAction as ProtocolBossAction,
+    BossColor as ProtocolBossColor, BossEvent, BossOverlay as ProtocolBossOverlay,
+    BossStyle as ProtocolBossStyle, ChatAutocompleteAction as ProtocolAutocompleteAction,
+    ChatAutocompleteEvent, HudEvent, ObjectiveEvent, ScoreAction as ProtocolScoreAction,
+    ScoreEntry as ProtocolScoreEntry, ScoreEvent, ScoreIdentity as ProtocolScoreIdentity,
     TextCategory, TextEvent, TextKind, TitleAction, TitleEvent, UiEvent, WorldEvent,
     chat_text_packet, decode_batch, into_world_event,
 };
@@ -104,13 +107,131 @@ fn session_replacement_clears_receive_side_ui_atomically() {
             }),
         ))
         .unwrap();
+    runtime
+        .apply(envelope(
+            1,
+            4,
+            UiEvent::Objective(ObjectiveEvent::Display {
+                display_slot: Arc::from("sidebar"),
+                objective_name: Arc::from("kills"),
+                display_name: Arc::from("Kills"),
+                criteria_name: Arc::from("dummy"),
+                sort_order: 1,
+            }),
+        ))
+        .unwrap();
+    runtime
+        .apply(envelope(
+            1,
+            5,
+            UiEvent::Boss(BossEvent {
+                target_entity_id: 99,
+                player_id: 7,
+                action: ProtocolBossAction::Show,
+                title: Arc::from("Old boss"),
+                filtered_title: Arc::from(""),
+                progress: 0.5,
+                style: ProtocolBossStyle {
+                    color: ProtocolBossColor::Red,
+                    overlay: ProtocolBossOverlay::Notched10,
+                    darken_sky: None,
+                    create_world_fog: None,
+                },
+            }),
+        ))
+        .unwrap();
+
+    assert!(runtime.hud().title().is_some());
+    assert_eq!(runtime.boss_bars().stacked().len(), 1);
 
     runtime.begin_session(2);
 
     assert!(runtime.chat().messages().is_empty());
     assert!(runtime.hud().title().is_none());
     assert!(runtime.hud().toasts().is_empty());
+    assert!(runtime.scoreboards().sidebar().is_none());
+    assert!(runtime.boss_bars().stacked().is_empty());
     assert_eq!(runtime.session_id(), 2);
+}
+
+#[test]
+fn protocol_scoreboard_and_boss_events_route_into_ui_owned_state() {
+    let mut runtime = UiRuntime::new(3);
+    assert_eq!(
+        runtime
+            .apply(envelope(
+                3,
+                1,
+                UiEvent::Objective(ObjectiveEvent::Display {
+                    display_slot: Arc::from("sidebar"),
+                    objective_name: Arc::from("wins"),
+                    display_name: Arc::from("Wins"),
+                    criteria_name: Arc::from("dummy"),
+                    sort_order: 1,
+                }),
+            ))
+            .unwrap(),
+        UiApplyOutcome::Applied
+    );
+    runtime
+        .apply(envelope(
+            3,
+            2,
+            UiEvent::Score(ScoreEvent {
+                action: ProtocolScoreAction::Change,
+                entries: Arc::from([ProtocolScoreEntry {
+                    scoreboard_id: 8,
+                    objective_name: Arc::from("wins"),
+                    score: 12,
+                    identity: ProtocolScoreIdentity::FakePlayer(Arc::from("player")),
+                }]),
+            }),
+        ))
+        .unwrap();
+    runtime
+        .apply(envelope(
+            3,
+            3,
+            UiEvent::Boss(BossEvent {
+                target_entity_id: 44,
+                player_id: 3,
+                action: ProtocolBossAction::Show,
+                title: Arc::from("Boss"),
+                filtered_title: Arc::from(""),
+                progress: 0.25,
+                style: ProtocolBossStyle {
+                    color: ProtocolBossColor::Green,
+                    overlay: ProtocolBossOverlay::Progress,
+                    darken_sky: Some(false),
+                    create_world_fog: Some(true),
+                },
+            }),
+        ))
+        .unwrap();
+
+    let sidebar = runtime.scoreboards().sidebar().unwrap();
+    assert_eq!(sidebar.rows.len(), 1);
+    assert_eq!(sidebar.rows[0].identity.entry_id, 8);
+    assert_eq!(sidebar.rows[0].score, 12);
+    let bosses = runtime.boss_bars().stacked();
+    assert_eq!(bosses.len(), 1);
+    assert_eq!(bosses[0].target_entity_id, 44);
+    assert_eq!(bosses[0].style.color, ui::BossColor::Green);
+
+    let before_scoreboard = runtime.scoreboards().sidebar();
+    let before_bosses = runtime.boss_bars().stacked();
+    assert!(matches!(
+        runtime.apply(envelope(
+            3,
+            3,
+            UiEvent::Objective(ObjectiveEvent::Remove {
+                objective_name: Arc::from("wins"),
+            })
+        )),
+        Err(UiRuntimeError::StaleFifoSequence { .. })
+    ));
+    assert_eq!(runtime.scoreboards().sidebar(), before_scoreboard);
+    assert_eq!(runtime.boss_bars().stacked(), before_bosses);
 }
 
 #[test]
