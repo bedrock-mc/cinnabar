@@ -269,3 +269,11 @@ unless the request authorizes changes.
 
 - Do not push or describe any UI, HUD, text, graphics, shader, or rendering change as ready without a real rendered-frame visual acceptance pass on the target platform, resolution, and DPI/scale. Unit tests, snapshots, draw-list checks, GPU adapter tests, lint, and code review are necessary but are not substitutes for seeing the final output.
 - The visual pass must explicitly check legibility, geometry, clipping, depth/layering, scaling, colors, and the relevant live input/focus behavior. Record the tested platform and visible result. If the target-platform pass cannot be performed, keep the change local and state that it is not cleared to push.
+
+## Strict vanilla Bedrock compliance
+
+- The default product target is version-matched vanilla Bedrock parity, not merely a functional approximation. This applies to player-facing UI/HUD, rendering, controls, camera, movement and physics, animation, interaction/combat, inventory, audio, protocol behavior, timing, and server-authoritative reconciliation.
+- Establish each parity contract from an identified authoritative vanilla Bedrock reference. Do not substitute Java Edition behavior, a custom aesthetic, remembered behavior, or an implementation convenience unless the user explicitly approves that exact deviation and it is recorded as such in the relevant plan/evidence.
+- A player-facing tranche is not complete until its relevant states have been compared against vanilla on matching platform conditions, including resolution, DPI/scale, FOV/camera, input/focus state, and server authority where applicable. For visual work, inspect the real rendered result side by side or against reproducible native captures; geometry-only tests and a legibility pass do not establish fidelity.
+- A scaffold or provisional approximation may be committed only when it is clearly labeled incomplete in the durable plan and user-facing status. It must not close a phase checkbox, satisfy a vanilla acceptance gate, or be described as ready/final.
+- When live or native evidence reveals a vanilla mismatch, reopen the affected item, record the mismatch, add a focused regression or reproducible witness where possible, and correct it before phase closure. Do not rationalize a visible or behavioral divergence as acceptable merely because tests pass.
