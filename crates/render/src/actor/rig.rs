@@ -770,7 +770,7 @@ fn affine_matrix(transform: RenderBoneTransform, bind_pivot: [f32; 3]) -> Option
     ];
     let rotated_pivot =
         rows.map(|row| row[0] * bind_pivot[0] + row[1] * bind_pivot[1] + row[2] * bind_pivot[2]);
-    let translation =
+    let translation: [f32; 3] =
         std::array::from_fn(|axis| transform.translation_scale[axis] - rotated_pivot[axis]);
     Some(std::array::from_fn(|axis| {
         [

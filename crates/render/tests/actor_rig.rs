@@ -57,6 +57,14 @@ fn submission(runtime_id: u64, spawn_revision: u64) -> ActorRigSubmission {
     }
 }
 
+fn diagnostic_submission(runtime_id: u64, spawn_revision: u64) -> ActorRigSubmission {
+    ActorRigSubmission {
+        input: input(runtime_id, spawn_revision, 6),
+        route: ActorRigRoute::Diagnostic,
+        ..submission(runtime_id, spawn_revision)
+    }
+}
+
 #[test]
 fn shader_layouts_are_exact_and_the_dual_pose_arena_is_bounded() {
     assert_eq!(size_of::<RenderBoneTransform>(), 32);
@@ -192,8 +200,7 @@ fn missing_geometry_uses_only_an_explicit_fallback_or_no_draw_route() {
     let mut builder = ActorRigFrameBuilder::new([]).unwrap();
     let mut compiled = submission(1, 1);
     compiled.route = ActorRigRoute::Compiled;
-    let mut fallback = submission(2, 1);
-    fallback.route = ActorRigRoute::Diagnostic;
+    let fallback = diagnostic_submission(2, 1);
 
     let frame = builder.build(0.5, None, [compiled, fallback]);
 
@@ -206,8 +213,7 @@ fn missing_geometry_uses_only_an_explicit_fallback_or_no_draw_route() {
 #[test]
 fn skin_layer_outside_the_bounded_texture_array_fails_the_frame_closed() {
     let mut scene = ActorRenderScene::default();
-    let mut actor = submission(1, 1);
-    actor.route = ActorRigRoute::Diagnostic;
+    let mut actor = diagnostic_submission(1, 1);
     actor.texture_layer = 1;
 
     let frame = scene.update_rigs(
