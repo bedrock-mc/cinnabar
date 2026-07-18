@@ -37,6 +37,5 @@ pub use stream::{
     PublicationServiceConfig, PublicationStageCounters, PublisherViewGeometry, RequestClass,
     SUB_CHUNK_RESPONSE_TIMEOUT, StageDurations, SubChunkOutcomeCounters, ViewCohort,
     ViewCohortStatus, WORK_RESULT_CAPACITY, WorldMeshChange, WorldStream, WorldStreamError,
-    WorldStreamFatalError,
-    WorldStreamNormalizationStats, WorldStreamPoll, WorldStreamStats,
+    WorldStreamFatalError, WorldStreamNormalizationStats, WorldStreamPoll, WorldStreamStats,
 };

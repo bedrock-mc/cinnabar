@@ -16,8 +16,8 @@ use self::{
 };
 use crate::metrics::TransparentSortMetricsSnapshot;
 
-mod exit;
 pub(crate) mod actor_witness;
+mod exit;
 pub(crate) mod markers;
 pub(crate) mod model_witness;
 pub(crate) mod mutation;
