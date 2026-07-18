@@ -154,6 +154,7 @@ fn spawn(runtime_id: u64, unique_id: i64, held_item: NetworkItemStack) -> WorldE
             uuid: [runtime_id as u8; 16],
             username: format!("player-{runtime_id}").into(),
         },
+        game_mode: Some(protocol::ActorGameMode::Survival),
         position: [0.0, 64.0, 0.0],
         velocity: [0.0; 3],
         pitch: 0.0,

@@ -6,7 +6,7 @@ use valentine::{
     bedrock::codec::{BedrockCodec, VarInt},
     bedrock::version::v1_26_30::{
         AddEntityPacket, AddPlayerPacket, DeltaMoveFlags, EntityAttributes, EntityProperties,
-        MetadataDictionary, MetadataDictionaryItemKey, MetadataDictionaryItemValue,
+        GameMode, MetadataDictionary, MetadataDictionaryItemKey, MetadataDictionaryItemValue,
         MetadataDictionaryItemValueDefault, MoveEntityDeltaPacket, MoveEntityPacket,
         PlayerAttributes, PlayerListPacket, PlayerRecordsRecordsItem, PlayerRecordsType,
         RemoveEntityPacket, SetEntityDataPacket, UpdateAttributesPacket,
@@ -32,6 +32,43 @@ pub const MAX_PLAYER_LIST_SKIN_BYTES: usize = 64 * 1024 * 1024;
 pub enum ActorKind {
     Player { uuid: [u8; 16], username: Arc<str> },
     Entity { identifier: Arc<str> },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActorGameMode {
+    Survival,
+    Creative,
+    Adventure,
+    SurvivalSpectator,
+    CreativeSpectator,
+    Fallback,
+    Spectator,
+    Unknown(i32),
+}
+
+impl ActorGameMode {
+    #[must_use]
+    pub const fn is_spectator(self) -> bool {
+        matches!(
+            self,
+            Self::SurvivalSpectator | Self::CreativeSpectator | Self::Spectator
+        )
+    }
+}
+
+impl From<GameMode> for ActorGameMode {
+    fn from(value: GameMode) -> Self {
+        match value {
+            GameMode::Survival => Self::Survival,
+            GameMode::Creative => Self::Creative,
+            GameMode::Adventure => Self::Adventure,
+            GameMode::SurvivalSpectator => Self::SurvivalSpectator,
+            GameMode::CreativeSpectator => Self::CreativeSpectator,
+            GameMode::Fallback => Self::Fallback,
+            GameMode::Spectator => Self::Spectator,
+            GameMode::Unknown(value) => Self::Unknown(value),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -87,6 +124,7 @@ pub struct ActorSpawnEvent {
     pub unique_id: i64,
     pub runtime_id: u64,
     pub kind: ActorKind,
+    pub game_mode: Option<ActorGameMode>,
     pub position: [f32; 3],
     pub velocity: [f32; 3],
     pub pitch: f32,
@@ -283,6 +321,7 @@ pub(crate) fn normalize_add_entity(
         kind: ActorKind::Entity {
             identifier: Arc::from(packet.entity_type),
         },
+        game_mode: None,
         position: [packet.position.x, packet.position.y, packet.position.z],
         velocity: [packet.velocity.x, packet.velocity.y, packet.velocity.z],
         pitch: packet.pitch,
@@ -325,6 +364,7 @@ pub(crate) fn normalize_add_player(
             uuid: *packet.uuid.as_bytes(),
             username: Arc::from(packet.username),
         },
+        game_mode: Some(packet.gamemode.into()),
         position: [packet.position.x, packet.position.y, packet.position.z],
         velocity: [packet.velocity.x, packet.velocity.y, packet.velocity.z],
         pitch: packet.pitch,
@@ -443,7 +483,7 @@ pub(crate) fn normalize_move_entity_delta(
         dimension,
         runtime_id: packet.runtime_entity_id as u64,
         position: [packet.x, packet.y, packet.z],
-        position_origin: ActorPositionOrigin::Feet,
+        position_origin: ActorPositionOrigin::NetworkOffset,
         pitch: packet.rot_x.map(byte_rotation_degrees),
         yaw: packet.rot_y.map(byte_rotation_degrees),
         head_yaw: packet.rot_z.map(byte_rotation_degrees),

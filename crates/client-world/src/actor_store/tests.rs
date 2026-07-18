@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use protocol::{
-    ActorAttribute, ActorAttributesUpdateEvent, ActorEvent, ActorKind, ActorMetadata,
-    ActorMetadataUpdateEvent, ActorMetadataValue, ActorMoveEvent, ActorPositionOrigin,
-    ActorProperty, ActorRemoveEvent, ActorSpawnEvent, PLAYER_NETWORK_OFFSET, PlayerListEntry,
-    PlayerListUpdateEvent, PlayerSkin, PlayerSkinUnavailable, StandardSkin,
+    ActorAttribute, ActorAttributesUpdateEvent, ActorEvent, ActorGameMode, ActorKind,
+    ActorMetadata, ActorMetadataUpdateEvent, ActorMetadataValue, ActorMoveEvent,
+    ActorPositionOrigin, ActorProperty, ActorRemoveEvent, ActorSpawnEvent, PLAYER_NETWORK_OFFSET,
+    PlayerListEntry, PlayerListUpdateEvent, PlayerSkin, PlayerSkinUnavailable, StandardSkin,
 };
 
 use super::{ActorApplyResult, ActorStore};
@@ -17,6 +17,7 @@ fn spawn(runtime_id: u64, unique_id: i64) -> ActorEvent {
         kind: ActorKind::Entity {
             identifier: "minecraft:bee".into(),
         },
+        game_mode: None,
         position: [1.0, 2.0, 3.0],
         velocity: [0.0; 3],
         pitch: 0.0,
@@ -38,8 +39,109 @@ fn player_spawn(runtime_id: u64, unique_id: i64, x: f32) -> ActorEvent {
         uuid: [runtime_id as u8; 16],
         username: format!("player-{runtime_id}").into(),
     };
+    spawn.game_mode = Some(ActorGameMode::Survival);
     spawn.position = [x, 64.0, 0.0];
     ActorEvent::Spawn(spawn)
+}
+
+#[test]
+fn actor_snapshot_retains_add_player_game_mode() {
+    let mut store = ActorStore::new(1, 0);
+    let ActorEvent::Spawn(mut spawn) = player_spawn(42, -7, 0.0) else {
+        unreachable!();
+    };
+    spawn.game_mode = Some(ActorGameMode::Creative);
+    store.apply(1, 1, ActorEvent::Spawn(spawn));
+
+    assert_eq!(
+        store.get(42).expect("stored player").game_mode,
+        Some(ActorGameMode::Creative)
+    );
+}
+
+#[test]
+fn player_invisibility_is_bound_to_the_typed_flags_metadata_bit() {
+    const ENTITY_FLAGS_KEY: i32 = 0;
+    const INVISIBLE_BIT: u64 = 1 << 5;
+
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, player_spawn(42, -7, 0.0));
+    assert!(store.get(42).unwrap().is_render_eligible());
+
+    store.apply(
+        1,
+        2,
+        ActorEvent::Metadata(ActorMetadataUpdateEvent {
+            dimension: 0,
+            runtime_id: 42,
+            metadata: Arc::from([ActorMetadata {
+                key: ENTITY_FLAGS_KEY,
+                value: ActorMetadataValue::Flags(INVISIBLE_BIT),
+            }]),
+            properties: Arc::from([]),
+            tick: 2,
+        }),
+    );
+    assert!(!store.get(42).unwrap().is_render_eligible());
+
+    store.apply(
+        1,
+        3,
+        ActorEvent::Metadata(ActorMetadataUpdateEvent {
+            dimension: 0,
+            runtime_id: 42,
+            metadata: Arc::from([ActorMetadata {
+                key: ENTITY_FLAGS_KEY,
+                value: ActorMetadataValue::Flags(0),
+            }]),
+            properties: Arc::from([]),
+            tick: 3,
+        }),
+    );
+    assert!(store.get(42).unwrap().is_render_eligible());
+
+    store.apply(
+        1,
+        4,
+        ActorEvent::Metadata(ActorMetadataUpdateEvent {
+            dimension: 0,
+            runtime_id: 42,
+            metadata: Arc::from([ActorMetadata {
+                key: ENTITY_FLAGS_KEY,
+                value: ActorMetadataValue::Byte(INVISIBLE_BIT as i8),
+            }]),
+            properties: Arc::from([]),
+            tick: 4,
+        }),
+    );
+    assert!(
+        store.get(42).unwrap().is_render_eligible(),
+        "the numeric value must not escape the bounded Flags metadata type"
+    );
+}
+
+#[test]
+fn all_add_player_spectator_modes_are_not_render_eligible() {
+    for (index, game_mode) in [
+        ActorGameMode::SurvivalSpectator,
+        ActorGameMode::CreativeSpectator,
+        ActorGameMode::Spectator,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut store = ActorStore::new(1, 0);
+        let ActorEvent::Spawn(mut spawn) = player_spawn(42, -7, 0.0) else {
+            unreachable!();
+        };
+        spawn.game_mode = Some(game_mode);
+        store.apply(1, 1, ActorEvent::Spawn(spawn));
+
+        assert!(
+            !store.get(42).unwrap().is_render_eligible(),
+            "spectator mode {index} remained render eligible"
+        );
+    }
 }
 
 fn entity_spawn(
@@ -279,7 +381,7 @@ fn primed_tnt_without_height_uses_the_vanilla_default_offset() {
 }
 
 #[test]
-fn player_delta_y_is_not_shifted_like_a_network_position() {
+fn partial_move_actor_delta_network_position_stays_in_feet_space_during_interpolation() {
     let mut store = ActorStore::new(1, 0);
     store.apply(1, 1, player_spawn(42, -7, 0.0));
     store.apply(
@@ -288,19 +390,32 @@ fn player_delta_y_is_not_shifted_like_a_network_position() {
         ActorEvent::Move(ActorMoveEvent {
             dimension: 0,
             runtime_id: 42,
-            position: [None, Some(64.5), None],
-            position_origin: ActorPositionOrigin::Feet,
+            position: [None, Some(65.620_01), Some(4.0)],
+            position_origin: ActorPositionOrigin::NetworkOffset,
             pitch: None,
             yaw: None,
             head_yaw: None,
-            on_ground: Some(false),
-            teleported: true,
+            on_ground: Some(true),
+            teleported: false,
             player_mode: None,
             source_tick: None,
         }),
     );
 
-    assert_eq!(store.get(42).expect("stored player").position[1], 64.5);
+    let actor = store.get(42).expect("stored player");
+    assert_eq!(actor.position, [0.0, 64.0, 0.0]);
+    assert!((actor.received_pose.position[1] - 64.0).abs() < 1e-5);
+    assert_eq!(actor.received_pose.position[0], 0.0);
+    assert_eq!(actor.received_pose.position[2], 4.0);
+    assert_eq!(
+        actor.interpolation_ticks_remaining,
+        super::PLAYER_POSITION_INTERPOLATION_TICKS
+    );
+
+    store.advance_interpolation_ticks(u32::from(super::PLAYER_POSITION_INTERPOLATION_TICKS));
+    let actor = store.get(42).expect("interpolated player");
+    assert!((actor.position[1] - 64.0).abs() < 1e-5);
+    assert_eq!(actor.position[2], 4.0);
 }
 
 #[test]
@@ -329,7 +444,7 @@ fn non_player_network_position_is_unchanged_without_entity_offset_metadata() {
 }
 
 #[test]
-fn player_network_teleport_snaps_to_feet_space() {
+fn move_actor_delta_network_teleport_snaps_to_feet_space() {
     let mut store = ActorStore::new(1, 0);
     store.apply(1, 1, player_spawn(42, -7, 0.0));
     store.apply(

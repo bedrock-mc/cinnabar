@@ -1,10 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
 use protocol::{
-    ActorAttribute, ActorEvent, ActorKind, ActorMetadataValue, ActorMoveEvent, ActorPositionOrigin,
-    ActorProperty, ActorSpawnEvent, EquipmentEvent, ItemActorEvent, MAX_ACTOR_ATTRIBUTES,
-    MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_PROPERTIES, MAX_PLAYER_LIST_SKIN_BYTES, MovePlayerEvent,
-    MovePlayerMode, PLAYER_NETWORK_OFFSET, PlayerListEntry, PlayerSkin, PlayerSkinUnavailable,
+    ActorAttribute, ActorEvent, ActorGameMode, ActorKind, ActorMetadataValue, ActorMoveEvent,
+    ActorPositionOrigin, ActorProperty, ActorSpawnEvent, EquipmentEvent, ItemActorEvent,
+    MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_PROPERTIES,
+    MAX_PLAYER_LIST_SKIN_BYTES, MovePlayerEvent, MovePlayerMode, PLAYER_NETWORK_OFFSET,
+    PlayerListEntry, PlayerSkin, PlayerSkinUnavailable,
 };
 
 use crate::{
@@ -18,11 +19,13 @@ pub(crate) const MAX_TRACKED_PLAYERS: usize = 4_096;
 pub(crate) const MAX_TRACKED_PLAYER_SKIN_BYTES: usize = MAX_PLAYER_LIST_SKIN_BYTES;
 
 // Protocol 1001 metadata keys retained verbatim by ActorSnapshot.
+const ENTITY_FLAGS_METADATA_KEY: i32 = 0;
 const PLAYER_FLAGS_METADATA_KEY: i32 = 26;
 const BOUNDING_BOX_HEIGHT_METADATA_KEY: i32 = 54;
 const EXTENDED_FLAGS_METADATA_KEY: i32 = 92;
 const PLAYER_FLAGS_SLEEPING: u8 = 1 << 1;
 const EXTENDED_FLAGS_SLEEPING: u64 = 1 << 11;
+const ENTITY_FLAGS_INVISIBLE: u64 = 1 << 5;
 
 const SLEEPING_PLAYER_NETWORK_OFFSET: f32 = 0.2;
 const ITEM_ACTOR_NETWORK_OFFSET: f32 = 0.5;
@@ -62,6 +65,7 @@ pub struct ActorSnapshot {
     pub spawn_revision: u64,
     pub movement_revision: u64,
     pub kind: ActorKind,
+    pub game_mode: Option<ActorGameMode>,
     pub position: [f32; 3],
     pub velocity: [f32; 3],
     pub pitch: f32,
@@ -95,6 +99,7 @@ impl ActorSnapshot {
             spawn_revision,
             movement_revision: 0,
             kind: spawn.kind,
+            game_mode: spawn.game_mode,
             position: spawn.position,
             velocity: spawn.velocity,
             pitch: spawn.pitch,
@@ -172,6 +177,21 @@ impl ActorSnapshot {
             |value| matches!(value, ActorMetadataValue::FlagsExtended(flags) if flags & EXTENDED_FLAGS_SLEEPING != 0),
         );
         player_flags || extended_flags
+    }
+
+    #[must_use]
+    pub fn is_render_eligible(&self) -> bool {
+        !self.game_mode.is_some_and(ActorGameMode::is_spectator)
+            && !self
+                .metadata
+                .get(&ENTITY_FLAGS_METADATA_KEY)
+                .is_some_and(|value| {
+                    matches!(
+                        value,
+                        ActorMetadataValue::Flags(flags)
+                            if flags & ENTITY_FLAGS_INVISIBLE != 0
+                    )
+                })
     }
 
     fn primed_tnt_network_offset(&self) -> f32 {

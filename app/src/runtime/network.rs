@@ -312,6 +312,7 @@ pub(crate) fn actor_render_source(
         yaw_degrees: actor.yaw,
         head_yaw_degrees: actor.head_yaw,
         teleported: actor.teleported,
+        render_eligible: actor.is_render_eligible(),
         skin,
     }
 }
