@@ -265,17 +265,25 @@ function Assert-Phase2CacheBoundaryConsistency {
         [Parameter(Mandatory = $true)][AllowNull()]$BoundaryEvidence
     )
 
-    if ($Server -cne 'Lunar') { return }
     $cachedRoutes = [uint64]$BoundaryEvidence.cached_level_chunks +
         [uint64]$BoundaryEvidence.cached_sub_chunks
-    if ($ClientBlobCacheRoute -cne 'cache_backed' -or
-        [string]$BoundaryEvidence.classification -cne 'cache_backed' -or
-        $BoundaryEvidence.upstream_status_seen -isnot [bool] -or
-        -not [bool]$BoundaryEvidence.upstream_status_seen -or
-        $BoundaryEvidence.upstream_status_enabled -isnot [bool] -or
-        -not [bool]$BoundaryEvidence.upstream_status_enabled -or
-        $cachedRoutes -eq 0) {
+    $boundaryCacheBacked = [string]$BoundaryEvidence.classification -ceq 'cache_backed' -and
+        $BoundaryEvidence.upstream_status_seen -is [bool] -and
+        [bool]$BoundaryEvidence.upstream_status_seen -and
+        $BoundaryEvidence.upstream_status_enabled -is [bool] -and
+        [bool]$BoundaryEvidence.upstream_status_enabled -and
+        $cachedRoutes -gt 0
+    if ($Server -ceq 'Lunar' -and
+        ($ClientBlobCacheRoute -cne 'cache_backed' -or -not $boundaryCacheBacked)) {
         throw 'Lunar acceptance requires coherent cache-backed publication and independent boundary evidence'
+    }
+    if ($Server -ceq 'Zeqa') {
+        if ($ClientBlobCacheRoute -cnotin @('cache_backed', 'ordinary_payload')) {
+            throw 'Zeqa acceptance contains an unknown client blob cache route'
+        }
+        if (($ClientBlobCacheRoute -ceq 'cache_backed') -ne $boundaryCacheBacked) {
+            throw 'Zeqa acceptance client and independent cache boundary routes disagree'
+        }
     }
 }
 
@@ -285,7 +293,8 @@ function Assert-Phase2PublicationRecord {
         [Parameter(Mandatory = $true)][ValidateSet('Fifo', 'Immediate')][string]$ExpectedPresentMode,
         [string]$ExpectedGraphicsIdentity,
         [string]$ExpectedAssetsIdentity,
-        [switch]$AllowUninitializedPublisher
+        [switch]$AllowUninitializedPublisher,
+        [switch]$AllowResettingPublisher
     )
 
     Assert-Phase2ExactProperties -Value $Record `
@@ -471,8 +480,7 @@ function Assert-Phase2PublicationRecord {
     }
     if ($publisherUninitialized) {
         $emptyManifestHash = 'cbf29ce484222325'
-        if ([uint64]$publication.publisher_epoch -ne 0 -or
-            [bool]$publication.required_cohort_stable -or
+        if ([bool]$publication.required_cohort_stable -or
             [uint64]$publication.required_columns -ne 0 -or
             [uint64]$publication.loaded_required_columns -ne 0) {
             throw 'PHASE2_PUBLICATION uninitialized publisher contains a nonempty cohort'
@@ -480,20 +488,22 @@ function Assert-Phase2PublicationRecord {
         if ([string]$publication.required_cohort_hash -cne $emptyManifestHash) {
             throw 'PHASE2_PUBLICATION uninitialized publisher contains a noncanonical empty cohort identity'
         }
-        foreach ($field in $requiredStageFields) {
-            if ([uint64]$publication.stages.$field -ne 0) {
-                throw 'PHASE2_PUBLICATION uninitialized publisher contains stage progress'
+        if (-not $AllowResettingPublisher) {
+            foreach ($field in $requiredStageFields) {
+                if ([uint64]$publication.stages.$field -ne 0) {
+                    throw 'PHASE2_PUBLICATION uninitialized publisher contains stage progress'
+                }
             }
-        }
-        foreach ($field in @('success', 'all_air', 'unavailable', 'malformed', 'stale', 'timed_out')) {
-            if ([uint64]$publication.outcomes.$field -ne 0) {
-                throw 'PHASE2_PUBLICATION uninitialized publisher contains response outcomes'
+            foreach ($field in @('success', 'all_air', 'unavailable', 'malformed', 'stale', 'timed_out')) {
+                if ([uint64]$publication.outcomes.$field -ne 0) {
+                    throw 'PHASE2_PUBLICATION uninitialized publisher contains response outcomes'
+                }
             }
-        }
-        foreach ($timingName in @('max_queue_wait_us', 'max_worker_time_us')) {
-            foreach ($field in @('decode', 'lighting', 'meshing')) {
-                if ([decimal]$publication.$timingName.$field -ne 0) {
-                    throw 'PHASE2_PUBLICATION uninitialized publisher contains stage timing'
+            foreach ($timingName in @('max_queue_wait_us', 'max_worker_time_us')) {
+                foreach ($field in @('decode', 'lighting', 'meshing')) {
+                    if ([decimal]$publication.$timingName.$field -ne 0) {
+                        throw 'PHASE2_PUBLICATION uninitialized publisher contains stage timing'
+                    }
                 }
             }
         }
@@ -608,6 +618,9 @@ function Get-Phase2PublicationSequenceEvidence {
     $sequenceIdentity = $null
     $stableSequenceIdentity = $null
     $publisherInitialized = $false
+    [uint64]$lastPublisherEpoch = 0
+    $lastInitializedRecord = $null
+    $pendingDimensionReset = $false
     foreach ($line in $lines) {
         $lower = $line.ToLowerInvariant()
         foreach ($forbidden in @('"path"', '"token"', '"auth"', '"payload"', '"credential"')) {
@@ -623,12 +636,10 @@ function Get-Phase2PublicationSequenceEvidence {
         }
         $publisherUninitialized = $null -eq $record.publication.publisher_radius_blocks -and
             $null -eq $record.publication.publisher_radius_chunks
-        if ($publisherUninitialized -and $publisherInitialized) {
-            throw 'PHASE2_PUBLICATION publisher became uninitialized during the diagnostic capture'
-        }
+        $publisherResetting = $publisherUninitialized -and $publisherInitialized
         Assert-Phase2PublicationRecord -Record $record -ExpectedPresentMode $ExpectedPresentMode `
             -ExpectedGraphicsIdentity $graphicsIdentity -ExpectedAssetsIdentity $assetsIdentity `
-            -AllowUninitializedPublisher:$publisherUninitialized
+            -AllowUninitializedPublisher:$publisherUninitialized -AllowResettingPublisher:$publisherResetting
         if ($null -eq $graphicsIdentity) {
             $graphicsIdentity = [string]$record.presentation.graphics_identity_sha256
             $assetsIdentity = [string]$record.presentation.assets_manifest_sha256
@@ -649,11 +660,27 @@ function Get-Phase2PublicationSequenceEvidence {
         elseif ($currentStableSequenceIdentity -cne $stableSequenceIdentity) {
             throw 'PHASE2_PUBLICATION stable sequence attribution changed during the diagnostic capture'
         }
-        if (-not $publisherUninitialized) {
-            $publisherInitialized = $true
+        if ($publisherUninitialized) {
+            if (-not $publisherInitialized) {
+                if ([uint64]$record.publication.publisher_epoch -ne 0) {
+                    throw 'PHASE2_PUBLICATION initial uninitialized publisher has a nonzero epoch'
+                }
+            }
+            else {
+                if ([uint64]$record.publication.publisher_epoch -ne $lastPublisherEpoch -or
+                    [int32]$record.publication.player_column.dimension -eq
+                        [int32]$lastInitializedRecord.publication.player_column.dimension) {
+                    throw 'PHASE2_PUBLICATION uninitialized publisher is not attributable to a dimension reset'
+                }
+                $pendingDimensionReset = $true
+                $sequenceIdentity = $null
+            }
+        }
+        else {
+            $currentEpoch = [uint64]$record.publication.publisher_epoch
             $currentSequenceIdentity = [pscustomobject][ordered]@{
                 session_generation = [uint64]$record.publication.session_generation
-                publisher_epoch = [uint64]$record.publication.publisher_epoch
+                publisher_epoch = $currentEpoch
                 dimension = [int32]$record.publication.player_column.dimension
                 publisher_radius_blocks = [uint64]$record.publication.publisher_radius_blocks
                 publisher_radius_chunks = [uint64]$record.publication.publisher_radius_chunks
@@ -665,21 +692,32 @@ function Get-Phase2PublicationSequenceEvidence {
                 assets_manifest_sha256 = [string]$record.presentation.assets_manifest_sha256
                 client_blob_cache_enabled = [bool]$record.client_blob_cache_enabled
             } | ConvertTo-Json -Compress
-            if ($null -eq $sequenceIdentity) {
+            if (-not $publisherInitialized -or $currentEpoch -gt $lastPublisherEpoch) {
                 $sequenceIdentity = $currentSequenceIdentity
+                $lastPublisherEpoch = $currentEpoch
+                $pendingDimensionReset = $false
             }
-            elseif ($currentSequenceIdentity -cne $sequenceIdentity) {
+            elseif ($currentEpoch -lt $lastPublisherEpoch -or $pendingDimensionReset -or
+                $currentSequenceIdentity -cne $sequenceIdentity) {
                 throw 'PHASE2_PUBLICATION sequence identity changed during the diagnostic capture'
             }
+            $publisherInitialized = $true
+            $lastInitializedRecord = $record
         }
         if ($null -ne $previousRecord) {
-            $previousRequired = [uint64]$previousRecord.publication.required_columns
-            $currentRequired = [uint64]$record.publication.required_columns
-            if ($currentRequired -lt $previousRequired -or
-                ($currentRequired -eq $previousRequired -and
-                    [string]$record.publication.required_cohort_hash -cne
-                        [string]$previousRecord.publication.required_cohort_hash)) {
-                throw 'PHASE2_PUBLICATION publisher-epoch cohort membership regressed or changed without growth'
+            $previousUninitialized = $null -eq $previousRecord.publication.publisher_radius_blocks -and
+                $null -eq $previousRecord.publication.publisher_radius_chunks
+            if (-not $publisherUninitialized -and -not $previousUninitialized -and
+                [uint64]$record.publication.publisher_epoch -eq
+                    [uint64]$previousRecord.publication.publisher_epoch) {
+                $previousRequired = [uint64]$previousRecord.publication.required_columns
+                $currentRequired = [uint64]$record.publication.required_columns
+                if ($currentRequired -lt $previousRequired -or
+                    ($currentRequired -eq $previousRequired -and
+                        [string]$record.publication.required_cohort_hash -cne
+                            [string]$previousRecord.publication.required_cohort_hash)) {
+                    throw 'PHASE2_PUBLICATION publisher-epoch cohort membership regressed or changed without growth'
+                }
             }
             foreach ($field in @('requests_constructed', 'requests_sent', 'responses_admitted',
                 'subchunks_committed', 'decode_jobs_dispatched', 'decode_jobs_completed',

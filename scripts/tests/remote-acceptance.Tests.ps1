@@ -434,6 +434,52 @@ Describe 'Phase 2 remote acceptance runner' {
             Should Be 'required_cohort_identity'
     }
 
+    It 'segments cohort monotonicity across publisher and dimension epoch resets' {
+        $temporary = Join-Path ([IO.Path]::GetTempPath()) ('phase2-epoch-reset-' + [guid]::NewGuid().ToString('N'))
+        try {
+            New-Item -ItemType Directory -Path $temporary | Out-Null
+            $path = Join-Path $temporary 'client.log'
+            $first = New-SyntheticPhase2Publication -RequiredColumns 2 -LoadedColumns 2 `
+                -RequestsConstructed 2 -RequestsSent 2 -ResponsesAdmitted 2 -SubchunksCommitted 2 `
+                -PublisherEpoch 1
+            $moved = New-SyntheticPhase2Publication -RequiredColumns 1 -LoadedColumns 1 `
+                -RequestsConstructed 3 -RequestsSent 3 -ResponsesAdmitted 3 -SubchunksCommitted 3 `
+                -PublisherEpoch 2
+
+            $dimensionReset = $moved | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+            $dimensionReset.publication.player_column.dimension = 1
+            $dimensionReset.publication.publisher_radius_blocks = $null
+            $dimensionReset.publication.publisher_radius_chunks = $null
+            $dimensionReset.publication.required_columns = 0
+            $dimensionReset.publication.loaded_required_columns = 0
+            $dimensionReset.publication.required_cohort_hash = 'cbf29ce484222325'
+            $dimensionReset.publication.required_cohort_stable = $false
+            foreach ($name in @('publisher_disk', 'resident', 'allocation', 'visible', 'submitted', 'gpu_presented')) {
+                $dimensionReset.presentation.$name.entry_count = 0
+                $dimensionReset.presentation.$name.required_cohort_count = 0
+                $dimensionReset.presentation.$name.required_cohort_hash = 'cbf29ce484222325'
+                $dimensionReset.presentation.$name.generation_manifest_hash = 'cbf29ce484222325'
+            }
+
+            $newDimension = New-SyntheticPhase2Publication -RequiredColumns 1 -LoadedColumns 1 `
+                -RequestsConstructed 4 -RequestsSent 4 -ResponsesAdmitted 4 -SubchunksCommitted 4 `
+                -PublisherEpoch 3
+            $newDimension.publication.player_column.dimension = 1
+            @(
+                foreach ($record in @($first, $moved, $dimensionReset, $newDimension)) {
+                    'PHASE2_PUBLICATION=' + ($record | ConvertTo-Json -Depth 20 -Compress)
+                }
+            ) | Set-Content -LiteralPath $path
+
+            { Get-Phase2PublicationSequenceEvidence -ClientLogPath $path `
+                -ExpectedPresentMode Fifo -WorldReadyObserved:$false -Server Zeqa } |
+                Should Not Throw
+        }
+        finally {
+            Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
     It 'allows the server publisher radius to differ without hiding a cached cohort identity gap' {
         $record = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 177 `
             -RequestsConstructed 177 -RequestsSent 177 -ResponsesAdmitted 3894 -SubchunksCommitted 3894 `
@@ -637,7 +683,7 @@ Describe 'Phase 2 remote acceptance runner' {
             Should Throw
 
         { Assert-Phase2CacheBoundaryConsistency -Server Zeqa `
-            -ClientBlobCacheRoute ordinary -BoundaryEvidence $ordinaryBoundary } |
+            -ClientBlobCacheRoute ordinary_payload -BoundaryEvidence $ordinaryBoundary } |
             Should Not Throw
 
         $cacheBackedBoundary = $ordinaryBoundary.PSObject.Copy()
@@ -645,6 +691,21 @@ Describe 'Phase 2 remote acceptance runner' {
         $cacheBackedBoundary.cached_level_chunks = [uint64]1
         { Assert-Phase2CacheBoundaryConsistency -Server Lunar `
             -ClientBlobCacheRoute cache_backed -BoundaryEvidence $cacheBackedBoundary } |
+            Should Not Throw
+
+        { Assert-Phase2CacheBoundaryConsistency -Server Zeqa `
+            -ClientBlobCacheRoute cache_backed -BoundaryEvidence $ordinaryBoundary } |
+            Should Throw
+        { Assert-Phase2CacheBoundaryConsistency -Server Zeqa `
+            -ClientBlobCacheRoute ordinary_payload -BoundaryEvidence $cacheBackedBoundary } |
+            Should Throw
+
+        $negotiationBoundary = $ordinaryBoundary.PSObject.Copy()
+        $negotiationBoundary.classification = 'negotiation_failure'
+        $negotiationBoundary.upstream_status_seen = $false
+        $negotiationBoundary.upstream_status_enabled = $false
+        { Assert-Phase2CacheBoundaryConsistency -Server Zeqa `
+            -ClientBlobCacheRoute ordinary_payload -BoundaryEvidence $negotiationBoundary } |
             Should Not Throw
     }
 
