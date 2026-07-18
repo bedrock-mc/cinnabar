@@ -196,6 +196,29 @@ exact registered implementation-type set before any special movement fact is
 encoded. Valid JSON with changed keys or values is rejected by source hash, and
 malformed or ambiguous bubble direction fails closed.
 
+## UI font assets
+
+`make client` automatically downloads the pinned OFL-1.1 Inter source and license,
+verifies their exact sizes and SHA-256 hashes, rasterizes a deterministic 32-pixel
+UI atlas, and builds the ignored `ui-inter-v1.mcbefont` carrier. The source cache
+stays below `.local/assets/ui-font/`; neither the outline font nor generated carrier
+is committed. Run the font step alone with:
+
+```text
+make font-assets
+```
+
+An owned, reviewed local Bedrock bitmap-font pack can replace the generated Inter
+carrier without downloading or redistributing Mojangles:
+
+```text
+make font-assets-local FONT_PACK_DIR=/path/to/reviewed/resource_pack
+```
+
+The local pack must contain the bounded `font/catalog.json` descriptor and referenced
+PNG pages expected by the compiler. Normal builds never fetch Mojangles or another
+unlicensed Minecraft font mirror.
+
 ## Local vanilla block textures
 
 The client never downloads or embeds Mojang assets. Fetch the pinned

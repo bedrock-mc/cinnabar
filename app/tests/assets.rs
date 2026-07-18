@@ -198,11 +198,16 @@ fn synthetic_font_blob(seed: u8) -> Box<[u8]> {
         bearing: [0, 0],
         advance_64: 64,
     }];
-    encode_font_catalog(canonical_vanilla_source_manifest_sha256(), &glyphs, &[page]).unwrap()
+    encode_font_catalog(canonical_ui_font_source_manifest_sha256(), &glyphs, &[page]).unwrap()
 }
 
 fn canonical_vanilla_source_manifest_sha256() -> [u8; 32] {
     let source = include_str!("../../assets/vanilla-source.json").replace("\r\n", "\n");
+    Sha256::digest(source.as_bytes()).into()
+}
+
+fn canonical_ui_font_source_manifest_sha256() -> [u8; 32] {
+    let source = include_str!("../../assets/ui-font-source.json").replace("\r\n", "\n");
     Sha256::digest(source.as_bytes()).into()
 }
 
@@ -942,11 +947,8 @@ fn documented_commands_target_only_ignored_local_asset_paths() {
     assert_eq!(ATMOSPHERE_COMPILE_COMMAND, "make atmosphere-assets");
     assert_eq!(ENTITY_ASSETS_FILENAME, "vanilla-v1.mcbeent");
     assert_eq!(ENTITY_ASSETS_COMPILE_COMMAND, "make entity-assets");
-    assert_eq!(FONT_ASSETS_FILENAME, "vanilla-v1.mcbefont");
-    assert_eq!(
-        FONT_ASSETS_COMPILE_COMMAND,
-        "make font-assets FONT_PACK_DIR=<reviewed-font-pack>"
-    );
+    assert_eq!(FONT_ASSETS_FILENAME, "ui-inter-v1.mcbefont");
+    assert_eq!(FONT_ASSETS_COMPILE_COMMAND, "make font-assets");
     assert_eq!(
         atmosphere_asset_path(Path::new(DEFAULT_ASSET_PATH)),
         PathBuf::from(".local/assets/compiled/vanilla-v1.mcbeatm")
@@ -1295,7 +1297,7 @@ fn make_assets_and_client_refresh_the_entity_carrier_and_report() {
 }
 
 #[test]
-fn make_exposes_explicit_font_compilation_without_blocking_default_launch() {
+fn make_builds_the_pinned_open_font_for_default_launch() {
     let makefile = fs::read_to_string(
         Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
@@ -1306,19 +1308,28 @@ fn make_exposes_explicit_font_compilation_without_blocking_default_launch() {
     .replace("\r\n", "\n");
 
     for contract in [
-        "FONT_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbefont",
-        "FONT_ASSET_REPORT ?= .local/assets/compiled/font-assets.json",
+        "UI_FONT_SOURCE_MANIFEST ?= assets/ui-font-source.json",
+        "UI_FONT_DIR ?= .local/assets/ui-font/389b770410cc0b7c21c85673bfa2077420fe7f65",
+        "UI_FONT_SOURCE ?= $(UI_FONT_DIR)/Inter.ttf",
+        "FONT_ASSET_BLOB ?= .local/assets/compiled/ui-inter-v1.mcbefont",
+        "FONT_ASSET_REPORT ?= .local/assets/compiled/ui-inter-font-assets.json",
         "FONT_PACK_DIR ?= .local/assets/font-source",
         concat!(
-            "FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- ",
-            "font-assets --pack \"$(FONT_PACK_DIR)\" --source-manifest \"$(VANILLA_SOURCE_MANIFEST)\" ",
+            "FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- outline-font-assets ",
+            "--font \"$(UI_FONT_SOURCE)\" --source-manifest \"$(UI_FONT_SOURCE_MANIFEST)\" ",
             "--out \"$(FONT_ASSET_BLOB)\" --report \"$(FONT_ASSET_REPORT)\""
         ),
+        concat!(
+            "LOCAL_FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- font-assets ",
+            "--pack \"$(FONT_PACK_DIR)\" --source-manifest \"$(VANILLA_SOURCE_MANIFEST)\" "
+        ),
         "font-assets: $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT)",
-        "$(FONT_ASSET_BLOB): $(ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_MANIFEST)",
+        "font-assets-local:",
+        "$(UI_FONT_SOURCE): $(UI_FONT_SOURCE_MANIFEST)",
+        "$(FONT_ASSET_BLOB): $(ASSET_COMPILER_INPUTS) $(UI_FONT_SOURCE_MANIFEST) $(UI_FONT_SOURCE)",
         "$(FONT_ASSET_REPORT): $(FONT_ASSET_BLOB)",
-        "assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT)",
-        "client: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT)",
+        "assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT) $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT)",
+        "client: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT) $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT)",
     ] {
         assert!(
             makefile.contains(contract),
@@ -1330,12 +1341,17 @@ fn make_exposes_explicit_font_compilation_without_blocking_default_launch() {
         .find(|line| line.starts_with(".PHONY:"))
         .unwrap();
     assert!(phony.split_whitespace().any(|word| word == "font-assets"));
+    assert!(
+        phony
+            .split_whitespace()
+            .any(|word| word == "font-assets-local")
+    );
     for default_target in ["assets:", "client:"] {
         let line = makefile
             .lines()
             .find(|line| line.starts_with(default_target))
             .unwrap();
-        assert!(!line.contains("FONT_ASSET"));
+        assert!(line.contains("FONT_ASSET"));
     }
 }
 

@@ -6,13 +6,13 @@ use std::{
 
 use asset_compiler::{
     AnimationInventory, AtmosphereCompileOptions, CompileReferenceOutcome, FontCompileError,
-    compile_atmosphere_assets_with_options, compile_entity_assets_with_report, compile_fonts,
-    compile_pack_with_biomes, inspect_animation_inventory,
+    OutlineFontConfig, compile_atmosphere_assets_with_options, compile_entity_assets_with_report,
+    compile_fonts, compile_outline_font, compile_pack_with_biomes, inspect_animation_inventory,
 };
 use assets::{
     AssetError, AtmosphereRole, EntityAssetSource, EntityAssetSymbol, ItemVisualDefinitionRoute,
-    MATERIAL_FLAG_ALPHA_CUTOUT, encode_atmosphere_blob, encode_blob, encode_entity_blob,
-    read_biome_registry, read_light_registry, read_registry, write_blob_atomic,
+    MATERIAL_FLAG_ALPHA_CUTOUT, MAX_FONT_SOURCE_BYTES, encode_atmosphere_blob, encode_blob,
+    encode_entity_blob, read_biome_registry, read_light_registry, read_registry, write_blob_atomic,
 };
 use clap::{Parser, Subcommand};
 use serde::Serialize;
@@ -72,6 +72,21 @@ enum Command {
         #[arg(long)]
         pack: PathBuf,
         /// Tracked manifest that pins the local resource-pack source.
+        #[arg(long)]
+        source_manifest: PathBuf,
+        /// Ignored/local MCBEFONT1 output path.
+        #[arg(long)]
+        out: PathBuf,
+        /// Ignored/local deterministic JSON provenance report path.
+        #[arg(long)]
+        report: PathBuf,
+    },
+    /// Rasterize a pinned open-licensed outline font into a bounded bitmap carrier.
+    OutlineFontAssets {
+        /// Exact hash-verified local TTF/OTF source.
+        #[arg(long)]
+        font: PathBuf,
+        /// Tracked manifest pinning font URL, hash, license, and raster settings.
         #[arg(long)]
         source_manifest: PathBuf,
         /// Ignored/local MCBEFONT1 output path.
@@ -252,6 +267,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         } => {
             compile_font_assets_command(&pack, &source_manifest, &out, &report)?;
         }
+        Command::OutlineFontAssets {
+            font,
+            source_manifest,
+            out,
+            report,
+        } => {
+            compile_outline_font_assets_command(&font, &source_manifest, &out, &report)?;
+        }
         Command::Compile {
             pack,
             registry,
@@ -376,6 +399,71 @@ fn compile_font_assets_command(
         })?;
     let source_manifest_sha256: [u8; 32] = Sha256::digest(&manifest_bytes).into();
     let compiled = compile_fonts(pack)?;
+    if compiled.report.source_manifest_sha256 != source_manifest_sha256 {
+        return Err(FontCompileError::SourceManifestMismatch.into());
+    }
+    write_compiled_font_assets(source, source_manifest_sha256, compiled, out, report)
+}
+
+fn compile_outline_font_assets_command(
+    font: &Path,
+    source_manifest: &Path,
+    out: &Path,
+    report: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let manifest_bytes = read_bounded_with_limit(
+        source_manifest,
+        MAX_SOURCE_MANIFEST_BYTES,
+        "source manifest",
+    )?;
+    let source =
+        serde_json::from_slice::<serde_json::Value>(&manifest_bytes).map_err(|source| {
+            AssetError::Json {
+                path: source_manifest.to_path_buf(),
+                source,
+            }
+        })?;
+    let raster = source
+        .get("rasterization")
+        .ok_or("font source manifest is missing rasterization")?;
+    let pixel_height = required_u32(raster, "pixel_height")?;
+    let atlas_side = required_u32(raster, "atlas_side")?;
+    let replacement = char::from_u32(required_u32(raster, "replacement_codepoint")?)
+        .ok_or("font replacement_codepoint is not a Unicode scalar")?;
+    let source_manifest_sha256: [u8; 32] = Sha256::digest(&manifest_bytes).into();
+    let font_bytes = read_bounded_with_limit(
+        font,
+        usize::try_from(MAX_FONT_SOURCE_BYTES).expect("font source bound fits usize"),
+        "outline font",
+    )?;
+    let compiled = compile_outline_font(
+        font,
+        &font_bytes,
+        source_manifest_sha256,
+        OutlineFontConfig {
+            pixel_height,
+            atlas_side,
+            replacement_codepoint: replacement,
+        },
+    )?;
+    write_compiled_font_assets(source, source_manifest_sha256, compiled, out, report)
+}
+
+fn required_u32(value: &serde_json::Value, field: &str) -> Result<u32, Box<dyn std::error::Error>> {
+    value
+        .get(field)
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|value| u32::try_from(value).ok())
+        .ok_or_else(|| format!("font rasterization field '{field}' is invalid").into())
+}
+
+fn write_compiled_font_assets(
+    source: serde_json::Value,
+    source_manifest_sha256: [u8; 32],
+    compiled: asset_compiler::CompiledFontCarrier,
+    out: &Path,
+    report: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
     if compiled.report.source_manifest_sha256 != source_manifest_sha256 {
         return Err(FontCompileError::SourceManifestMismatch.into());
     }
