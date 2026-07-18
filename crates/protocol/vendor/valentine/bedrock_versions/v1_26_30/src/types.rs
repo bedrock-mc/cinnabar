@@ -11259,11 +11259,12 @@ impl crate::bedrock::codec::BedrockCodec for ItemNew {
             )?
             .0;
         let extra = {
-            let len_raw = (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
-                        buf,
-                        (),
-                    )?
-                    .0) as i64;
+            let len_raw =
+                (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?
+                .0) as i64;
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
