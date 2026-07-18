@@ -154,6 +154,53 @@ fn raw_text_input_depth_component_and_output_limits_are_explicit() {
 }
 
 #[test]
+fn raw_text_with_document_counts_every_retained_component() {
+    let arguments = |count| {
+        std::iter::repeat_n(r#"{"translate":"key","with":{"rawtext":[]}}"#, count)
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+
+    let exact = parse_raw_text(&format!(
+        r#"{{"rawtext":[{}]}}"#,
+        arguments(MAX_RAW_TEXT_COMPONENTS / 2)
+    ))
+    .unwrap();
+    assert_eq!(exact.components().len(), MAX_RAW_TEXT_COMPONENTS / 2);
+
+    assert!(matches!(
+        parse_raw_text(&format!(
+            r#"{{"rawtext":[{}]}}"#,
+            arguments(MAX_RAW_TEXT_COMPONENTS / 2 + 1)
+        )),
+        Err(UiPacketError::RawTextComponentLimitExceeded {
+            count,
+            max: MAX_RAW_TEXT_COMPONENTS,
+        }) if count == MAX_RAW_TEXT_COMPONENTS + 1
+    ));
+}
+
+#[test]
+fn raw_text_with_document_obeys_the_exact_node_boundary() {
+    let scores = std::iter::repeat_n(r#"{"score":{"name":"*","objective":"kills"}}"#, 190)
+        .collect::<Vec<_>>()
+        .join(",");
+    let value = format!(
+        r#"{{"rawtext":[{scores},{{"translate":"key","with":{{"rawtext":[]}}}},{{"selector":"@a"}}]}}"#
+    );
+
+    parse_raw_text(&value).unwrap();
+}
+
+#[test]
+fn raw_text_rejects_explicit_null_translation_arguments() {
+    assert!(matches!(
+        parse_raw_text(r#"{"rawtext":[{"translate":"key","with":null}]}"#),
+        Err(UiPacketError::InvalidRawText)
+    ));
+}
+
+#[test]
 fn json_packet_translation_remains_typed_and_never_becomes_source_json() {
     let event = normalize_json(
         TextPacketType::Json,

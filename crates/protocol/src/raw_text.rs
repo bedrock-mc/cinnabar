@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 
 use crate::ui::UiPacketError;
 
@@ -180,24 +180,29 @@ fn convert_with(
             max: MAX_RAW_TEXT_DEPTH,
         });
     }
-    budget.node()?;
     match wire {
-        WireWith::List(arguments) => arguments
-            .into_iter()
-            .map(|argument| match argument {
-                WireArgument::Text(value) => {
-                    budget.component()?;
-                    budget.node()?;
-                    Ok(RawTextComponent::Text(Arc::from(value)))
-                }
-                WireArgument::Component(component) => {
-                    convert_component(component, depth, false, budget)
-                }
-            })
-            .collect(),
-        WireWith::Document(document) => Ok(vec![RawTextComponent::Sequence(Arc::from(
-            convert_document(document, depth, false, budget)?,
-        ))]),
+        WireWith::List(arguments) => {
+            budget.node()?;
+            arguments
+                .into_iter()
+                .map(|argument| match argument {
+                    WireArgument::Text(value) => {
+                        budget.component()?;
+                        budget.node()?;
+                        Ok(RawTextComponent::Text(Arc::from(value)))
+                    }
+                    WireArgument::Component(component) => {
+                        convert_component(component, depth, false, budget)
+                    }
+                })
+                .collect()
+        }
+        WireWith::Document(document) => {
+            budget.component()?;
+            Ok(vec![RawTextComponent::Sequence(Arc::from(
+                convert_document(document, depth, false, budget)?,
+            ))])
+        }
     }
 }
 
@@ -227,8 +232,15 @@ struct WireText {
 #[serde(deny_unknown_fields)]
 struct WireTranslate {
     translate: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_with")]
     with: Option<WireWith>,
+}
+
+fn deserialize_optional_with<'de, D>(deserializer: D) -> Result<Option<WireWith>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    WireWith::deserialize(deserializer).map(Some)
 }
 
 #[derive(Deserialize)]
