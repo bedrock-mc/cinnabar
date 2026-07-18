@@ -9,6 +9,9 @@ use assets::{BlockPhysicsFlags, NetworkIdMode, RegistryRecord, read_registry};
 use protocol::PlayerInputFlags;
 use sha2::{Digest, Sha256};
 use sim::{Aabb, CollisionQuery, CollisionWorld, MovementInput, Vec3, WorldQueryError};
+use ui::UserSettings;
+
+use crate::camera::CameraSettingsAuthority;
 
 fn sample(position: [f32; 3]) -> MovementInputSample {
     MovementInputSample {
@@ -454,6 +457,69 @@ fn local_physics_runs_exactly_twenty_fixed_ticks_and_interpolates_the_eye() {
     assert!(eye[2] <= 0.0);
 }
 
+fn physics_after_one_second(frame_rate: u32) -> LocalPhysicsController {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 0, true);
+    let mut elapsed = Duration::ZERO;
+    for frame in 0..frame_rate {
+        let delta = if frame + 1 == frame_rate {
+            Duration::from_secs(1) - elapsed
+        } else {
+            Duration::from_secs_f64(1.0 / f64::from(frame_rate))
+        };
+        elapsed += delta;
+        let result = physics.advance(delta, forward_physics_input(), &Floor);
+        assert!(result.blocked.is_none());
+    }
+    physics
+}
+
+#[test]
+fn local_physics_and_interpolation_are_equivalent_at_30_60_and_144_hz() {
+    let at_30 = physics_after_one_second(30);
+    let at_60 = physics_after_one_second(60);
+    let at_144 = physics_after_one_second(144);
+
+    assert_eq!(at_30.state(), at_60.state());
+    assert_eq!(at_60.state(), at_144.state());
+    assert_eq!(at_30.history_len(), 20);
+    assert_eq!(at_60.history_len(), 20);
+    assert_eq!(at_144.history_len(), 20);
+    let eye_30 = at_30.render_eye_position().unwrap();
+    let eye_60 = at_60.render_eye_position().unwrap();
+    let eye_144 = at_144.render_eye_position().unwrap();
+    for axis in 0..3 {
+        assert!((eye_30[axis] - eye_60[axis]).abs() < 1.0e-5);
+        assert!((eye_60[axis] - eye_144[axis]).abs() < 1.0e-5);
+    }
+}
+
+#[test]
+fn perspective_changes_leave_physics_history_and_outbox_unchanged() {
+    let physics = physics_after_one_second(60);
+    let expected_state = physics.state().unwrap().clone();
+    let expected_history_len = physics.history_len();
+
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
+    ticker.set_source(MovementSource::Physics);
+    ticker.advance(
+        MovementSource::Physics,
+        Duration::from_millis(100),
+        sample([0.0, 2.620_01, -1.0]),
+    );
+    let expected_outbox = ticker.pending_snapshots();
+
+    let mut camera = CameraSettingsAuthority::default();
+    let mut settings = UserSettings::default();
+    settings.gameplay.default_perspective = semantic_input::PerspectiveMode::ThirdPersonFront;
+    camera.replace(1, &settings).unwrap();
+
+    assert_eq!(physics.state(), Some(&expected_state));
+    assert_eq!(physics.history_len(), expected_history_len);
+    assert_eq!(ticker.pending_snapshots(), expected_outbox);
+}
+
 #[test]
 fn correction_reanchors_feet_velocity_history_and_render_interpolation() {
     let mut physics = LocalPhysicsController::default();
@@ -636,4 +702,31 @@ fn jump_edge_is_latched_across_render_frames_until_the_next_fixed_tick() {
     );
 
     assert!(physics.state().unwrap().position.y > 1.0);
+}
+
+#[test]
+fn holding_jump_repeats_only_after_the_player_lands() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 0, true);
+    let jumping = MovementInput {
+        jumping: true,
+        ..MovementInput::default()
+    };
+    let mut takeoffs = 0;
+    let mut was_grounded = true;
+
+    for _ in 0..80 {
+        let frame = physics.advance(Duration::from_millis(50), jumping, &Floor);
+        assert!(frame.blocked.is_none());
+        let grounded = physics.state().unwrap().on_ground;
+        if was_grounded && !grounded {
+            takeoffs += 1;
+        }
+        was_grounded = grounded;
+    }
+
+    assert!(
+        takeoffs >= 2,
+        "a continuously held jump should take off again after landing"
+    );
 }

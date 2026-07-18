@@ -14,17 +14,14 @@ pub use physics::{
 
 use bevy::{
     log::debug,
-    prelude::{
-        ButtonInput, EulerRot, KeyCode, Local, Res, ResMut, Single, Time, Transform, Vec3, Window,
-        With,
-    },
+    prelude::{EulerRot, Local, Res, ResMut, Time, Vec3},
     time::Real,
-    window::{CursorOptions, PrimaryWindow},
 };
+use semantic_input::Action;
 
 use crate::{
-    camera::{AutoFly, FlyCamera, input_is_active, movement_axes},
-    runtime::world::ClientWorld,
+    camera::AutoFly, local_player::LocalViewPose, runtime::world::ClientWorld,
+    semantic_controls::SemanticInputSnapshot,
 };
 
 pub const MOVEMENT_TICKS_PER_SECOND: f64 = 20.0;
@@ -34,13 +31,12 @@ pub const OUTBOX_CAPACITY: usize = 32;
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn advance_local_physics(
     time: Res<Time<Real>>,
-    window: Single<(&Window, &CursorOptions), With<PrimaryWindow>>,
-    keys: Res<ButtonInput<KeyCode>>,
+    input: Res<SemanticInputSnapshot>,
     auto_fly: Res<AutoFly>,
     client_world: Res<ClientWorld>,
     collisions: Res<PhysicsCollisionRegistries>,
     mut physics: ResMut<LocalPhysicsController>,
-    mut camera: Single<&mut Transform, With<FlyCamera>>,
+    mut view: ResMut<LocalViewPose>,
     mut previous_blocker: Local<Option<String>>,
 ) {
     if auto_fly.enabled() || !physics.is_active() {
@@ -49,22 +45,17 @@ pub(crate) fn advance_local_physics(
     let Some(stream) = client_world.stream.as_ref() else {
         return;
     };
-    let (window, cursor) = window.into_inner();
-    let active = input_is_active(window, cursor);
-    let axes = if active {
-        movement_axes(&keys)
-    } else {
-        Vec3::ZERO
-    };
-    let (bevy_yaw, _, _) = camera.rotation.to_euler(EulerRot::YXZ);
+    let active = input.snapshot().is_some();
+    let movement = input.movement();
+    let (bevy_yaw, _, _) = view.rotation().to_euler(EulerRot::YXZ);
     let yaw = (180.0 - bevy_yaw.to_degrees()).rem_euclid(360.0);
     let input = physics_movement_input(
-        [axes.x, axes.z],
+        movement,
         yaw,
         active,
-        keys.pressed(KeyCode::Space),
-        keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight),
-        keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight),
+        input.phase(Action::Jump).held,
+        input.phase(Action::Sneak).held,
+        input.phase(Action::Sprint).held,
     );
     let world = sim::PaletteWorld::new(
         stream.collision_store(),
@@ -80,15 +71,16 @@ pub(crate) fn advance_local_physics(
         *previous_blocker = blocker;
     }
     if let Some(position) = physics.render_eye_position() {
-        camera.translation = Vec3::from_array(position);
+        view.set_eye_translation(Vec3::from_array(position));
     }
 }
 
 /// Origin of a movement sample and the authority allowed to transmit it.
 ///
-/// The app currently has only an independent fly camera, so the safe default
-/// is deliberately non-authoritative. Phase 3's physics simulation must opt in
-/// explicitly before its samples may enter the outbound scheduler.
+/// The safe production default is deliberately non-authoritative. Local
+/// prediction and perspective changes cannot opt in implicitly; Phase 3's
+/// physics authority must be enabled explicitly before samples may enter the
+/// outbound scheduler.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum MovementSource {
     #[default]
@@ -197,7 +189,8 @@ impl MovementTicker {
     ///
     /// Changing authority always discards queued/history state so samples from
     /// the prior source cannot cross the boundary. The production app leaves
-    /// this at [`MovementSource::FreeCamera`] until real physics exists.
+    /// this at [`MovementSource::FreeCamera`] until the server-authoritative
+    /// gate is explicitly enabled.
     pub fn set_source(&mut self, source: MovementSource) {
         if self.source == source {
             return;
@@ -317,6 +310,12 @@ impl MovementTicker {
     #[allow(dead_code)]
     pub fn peek_pending(&self) -> Option<&PlayerAuthInputSnapshot> {
         self.outbox.front()
+    }
+
+    #[must_use]
+    #[cfg(test)]
+    pub fn pending_snapshots(&self) -> Vec<PlayerAuthInputSnapshot> {
+        self.outbox.iter().copied().collect()
     }
 
     #[must_use]

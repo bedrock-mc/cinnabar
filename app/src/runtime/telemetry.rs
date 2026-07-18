@@ -9,8 +9,7 @@ use bevy::{
     ecs::system::SystemParam,
     log::info,
     prelude::{
-        ButtonInput, EulerRot, KeyCode, Local, Quat, Query, Res, ResMut, Resource, Single, Time,
-        Transform, Vec3, Window, With,
+        EulerRot, Local, Quat, Query, Res, ResMut, Resource, Time, Transform, Vec3, Window, With,
     },
     time::Real,
     window::{CursorOptions, PrimaryWindow},
@@ -41,7 +40,8 @@ use crate::{
         },
         mutation::write_stdout_marker,
     },
-    camera::{self, FlyCamera, input_is_active, movement_axes},
+    camera::{self, FlyCamera},
+    local_player::{InteractionOriginSnapshot, LocalViewPose},
     metrics::{
         DiagnosticQuadTracker, GpuPassMeasurement, MetricsCollector, ModelWorkloadMetricsSnapshot,
         PipelineMetricsSnapshot, TransparentSortMetricsSnapshot, pair_gpu_pass_sample,
@@ -65,6 +65,7 @@ use crate::{
         visibility::{AppMetrics, CaveVisibilityCache, DiagnosticQuads},
         world::ClientWorld,
     },
+    semantic_controls::SemanticInputSnapshot,
 };
 
 const TITLE_REFRESH_INTERVAL: Duration = Duration::from_millis(250);
@@ -293,37 +294,30 @@ pub(crate) fn bedrock_camera_rotation(yaw_degrees: f32, pitch_degrees: f32) -> Q
 
 pub(crate) fn send_player_auth_inputs(
     time: Res<Time<Real>>,
-    window: Single<(&Window, &CursorOptions), With<PrimaryWindow>>,
-    keys: Res<ButtonInput<KeyCode>>,
-    camera: Single<&Transform, With<FlyCamera>>,
+    input: Res<SemanticInputSnapshot>,
+    view: Res<LocalViewPose>,
+    interaction: Res<InteractionOriginSnapshot>,
     network: Res<NetworkHandle>,
     mut movement: ResMut<MovementTicker>,
     mut client_world: ResMut<ClientWorld>,
 ) {
-    let (window, cursor) = window.into_inner();
-    let active = input_is_active(window, cursor);
-    let axes = if active {
-        movement_axes(&keys)
-    } else {
-        Vec3::ZERO
-    };
-    let (bevy_yaw, bevy_pitch, _) = camera.rotation.to_euler(EulerRot::YXZ);
-    let forward = camera.forward().as_vec3();
+    let movement_axes = input.movement();
+    let subject_rotation = view.rotation();
+    let (bevy_yaw, bevy_pitch, _) = subject_rotation.to_euler(EulerRot::YXZ);
+    let forward = interaction.direction();
     movement.advance(
         MovementSource::FreeCamera,
         time.delta(),
         MovementInputSample {
-            position: camera.translation.to_array(),
-            move_vector: [axes.x, axes.z],
+            position: interaction.origin().to_array(),
+            move_vector: movement_axes,
             pitch: -bevy_pitch.to_degrees(),
             yaw: (180.0 - bevy_yaw.to_degrees()).rem_euclid(360.0),
             head_yaw: (180.0 - bevy_yaw.to_degrees()).rem_euclid(360.0),
             camera_orientation: forward.to_array(),
-            jumping: active && keys.pressed(KeyCode::Space),
-            sneaking: active
-                && (keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight)),
-            sprinting: active
-                && (keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight)),
+            jumping: input.phase(semantic_input::Action::Jump).held,
+            sneaking: input.phase(semantic_input::Action::Sneak).held,
+            sprinting: input.phase(semantic_input::Action::Sprint).held,
         },
     );
 

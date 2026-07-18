@@ -617,6 +617,43 @@ fn production_world_handoff_fails_closed_without_a_linear_publication_permit() {
 }
 
 #[test]
+fn local_player_pipeline_orders_physics_camera_and_interaction_and_has_one_camera_writer() {
+    let app_source = include_str!("../app.rs");
+    assert!(app_source.contains("LocalPlayerFrameSet::Physics"));
+    assert!(app_source.contains("LocalPlayerFrameSet::Camera"));
+    assert!(app_source.contains("LocalPlayerFrameSet::Interaction"));
+
+    let production_sources = [
+        include_str!("../camera.rs"),
+        include_str!("../movement.rs"),
+        include_str!("../runtime/network.rs"),
+        include_str!("../runtime/world.rs"),
+        include_str!("../local_player.rs"),
+    ];
+    assert_eq!(
+        production_sources
+            .iter()
+            .map(|source| source.matches("&mut Transform").count())
+            .sum::<usize>(),
+        1,
+        "only the CameraPose publication system may mutate the camera Transform"
+    );
+
+    let local_player = include_str!("../local_player.rs");
+    let resolver = local_player
+        .split_once("pub(crate) fn resolve_camera_pose")
+        .expect("camera resolver exists")
+        .1
+        .split_once("pub(crate) fn publish_interaction_origin")
+        .expect("camera resolver has a bounded body")
+        .0;
+    assert!(
+        resolver.contains("collision_safe_perspective_pose("),
+        "the sole production camera writer must use the swept collision solver"
+    );
+}
+
+#[test]
 fn fifo_jitter_accrues_wall_clock_service_without_frame_count_bias() {
     let config = PublicationServiceConfig::PHASE2_GATE;
     let mut controller = PublicationController::default();

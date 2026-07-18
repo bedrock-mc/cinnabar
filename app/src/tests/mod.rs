@@ -256,6 +256,7 @@ fn binding_teleport_completion(
 }
 
 mod cohort_epoch;
+mod camera;
 mod core;
 mod finish;
 mod inventory;

@@ -40,6 +40,7 @@ use crate::{
         self, EnvironmentContext, EnvironmentProfileRoute, WeatherState, WorldClock,
         update_atmosphere_frame,
     },
+    local_player::{LocalPlayerFrameSet, publish_interaction_origin, resolve_camera_pose},
     metrics::MetricsCollector,
     movement::{
         LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries, advance_local_physics,
@@ -286,6 +287,16 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         ))
         .add_observer(apply_added_chunk_visibility)
         .add_observer(remove_chunk_visibility)
+        .configure_sets(
+            Update,
+            (
+                LocalPlayerFrameSet::Physics,
+                LocalPlayerFrameSet::Camera,
+                LocalPlayerFrameSet::Interaction,
+            )
+                .chain()
+                .after(FlyCameraUpdateSet),
+        )
         .add_systems(
             Update,
             (drive_chat_ui_actions, drive_chat_keyboard_input)
@@ -311,7 +322,9 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
                 poll_model_witness_request,
                 drive_world_stream.before(ChunkRenderApplySet),
                 publish_ui_runtime,
-                advance_local_physics,
+                advance_local_physics.in_set(LocalPlayerFrameSet::Physics),
+                resolve_camera_pose.in_set(LocalPlayerFrameSet::Camera),
+                publish_interaction_origin.in_set(LocalPlayerFrameSet::Interaction),
                 publish_actor_render_frame,
                 update_camera_medium,
                 update_atmosphere_frame,

@@ -32,8 +32,9 @@ use crate::{
         model_witness::ModelWitnessFileSource,
         mutation::{deterministic_mutation_coordinate, write_stdout_marker},
     },
-    camera::FlyCamera,
+    camera::{CameraSettingsAuthority, FlyCamera},
     environment::{self, WeatherState, WorldClock, apply_environment_control},
+    local_player::LocalViewPose,
     movement::{LocalPhysicsController, MovementTicker},
     runtime::{
         network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME, acceptance_surface_anchor},
@@ -283,7 +284,8 @@ pub(crate) fn drive_world_stream(
     upload_budget: Res<ChunkUploadBudget>,
     mut publication: ResMut<PublicationController>,
     model_witness_source: Res<ModelWitnessFileSource>,
-    mut camera: Query<&mut Transform, With<FlyCamera>>,
+    mut camera_settings: ResMut<CameraSettingsAuthority>,
+    mut view: ResMut<LocalViewPose>,
 ) {
     let AppWorldState {
         mut client_world,
@@ -319,15 +321,15 @@ pub(crate) fn drive_world_stream(
             acknowledgement.applied_at,
         );
     }
-    let Ok(mut camera) = camera.single_mut() else {
-        return;
-    };
     let (controls, committed_ui, stream_fatal, poll_report) = {
         let stream = client_world
             .stream
             .as_mut()
             .expect("stream presence was checked before camera access");
-        let report = stream.poll(camera.translation.to_array(), upload_budget.max_per_frame);
+        let report = stream.poll(
+            view.eye_translation().to_array(),
+            upload_budget.max_per_frame,
+        );
         (
             stream.take_committed_controls(),
             stream.take_committed_ui(),
@@ -427,7 +429,8 @@ pub(crate) fn drive_world_stream(
             model_gallery_camera_committed_marker(model_witness_source.configured(), &control);
         apply_committed_control(
             control,
-            &mut camera,
+            &mut view,
+            &mut camera_settings,
             &mut client_world.pending_surface_spawn,
         );
         if let Some(marker) = camera_marker {
@@ -435,7 +438,7 @@ pub(crate) fn drive_world_stream(
             write_stdout_marker(&mut stdout, &marker);
         }
     }
-    let camera_position = camera.translation;
+    let camera_position = view.eye_translation();
     let resolved_surface_spawn = client_world.pending_surface_spawn.and_then(|anchor| {
         client_world
             .stream
@@ -594,7 +597,7 @@ pub(crate) fn drive_world_stream(
         record_fatal_error(&mut client_world.fatal_error, error);
     }
     if let Some(position) = resolved_surface_spawn {
-        camera.translation = Vec3::from_array(position);
+        view.set_eye_translation(Vec3::from_array(position));
         let tick = local_physics.state().map_or(0, |state| state.tick);
         local_physics.reanchor_network_position(position, tick, true);
         client_world.pending_surface_spawn = None;
@@ -670,7 +673,8 @@ pub(crate) fn flush_sub_chunk_requests(
 
 pub(crate) fn apply_committed_control(
     control: CommittedControlEvent,
-    camera: &mut Transform,
+    view: &mut LocalViewPose,
+    camera_settings: &mut CameraSettingsAuthority,
     pending_surface_spawn: &mut Option<[i32; 2]>,
 ) {
     let resolved = match control {
@@ -683,7 +687,7 @@ pub(crate) fn apply_committed_control(
                 "applying committed local MovePlayer"
             );
             if movement.yaw.is_finite() && movement.pitch.is_finite() {
-                camera.rotation = bedrock_camera_rotation(movement.yaw, movement.pitch);
+                view.set_rotation(bedrock_camera_rotation(movement.yaw, movement.pitch));
             }
             resolved
         }
@@ -697,17 +701,17 @@ pub(crate) fn apply_committed_control(
                 position = ?correction.position,
                 "applying committed server-authoritative movement correction"
             );
-            if correction.yaw.is_finite() && correction.pitch.is_finite() {
-                camera.rotation = bedrock_camera_rotation(correction.yaw, correction.pitch);
-            }
             resolved
         }
-        CommittedControlEvent::ChangeDimension { resolved, .. } => resolved,
+        CommittedControlEvent::ChangeDimension { resolved, .. } => {
+            camera_settings.reset_perspective();
+            resolved
+        }
         CommittedControlEvent::SetTime { .. }
         | CommittedControlEvent::DaylightCycle { .. }
         | CommittedControlEvent::Weather { .. } => return,
     };
-    camera.translation = Vec3::from_array(resolved.position);
+    view.set_eye_translation(Vec3::from_array(resolved.position));
     *pending_surface_spawn = resolved.surface_anchor;
 }
 
