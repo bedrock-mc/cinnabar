@@ -106,9 +106,22 @@ fn render_backpressure_retry_preserves_change_order_for_eventual_delivery() {
             generation: 2,
             dirty_since: Instant::now(),
         });
+    stream.stats.phase2_stages.mesh_changes_queued = 2;
 
     let blocked = stream.pop_mesh_change().unwrap();
     stream.retry_mesh_change_front(blocked).unwrap();
+
+    let stages = stream
+        .phase2_publication_snapshot(ChunkKey::new(0, 0, 0))
+        .stages;
+    assert_eq!(stages.mesh_changes_queued, 3);
+    assert_eq!(stages.mesh_changes_dequeued, 1);
+    assert_eq!(stages.mesh_changes_pending, 2);
+    assert_eq!(
+        stages.mesh_changes_queued - stages.mesh_changes_dequeued,
+        stages.mesh_changes_pending as u64,
+        "retry must preserve the cumulative queue accounting invariant"
+    );
 
     assert_eq!(stream.pop_mesh_change().unwrap().key(), first);
     assert_eq!(stream.pop_mesh_change().unwrap().key(), second);

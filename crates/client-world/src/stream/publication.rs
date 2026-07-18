@@ -41,6 +41,11 @@ impl WorldStream {
             return Err(change);
         }
         self.mesh_changes.push_front(change);
+        self.stats.phase2_stages.mesh_changes_queued = self
+            .stats
+            .phase2_stages
+            .mesh_changes_queued
+            .saturating_add(1);
         Ok(())
     }
     pub fn acknowledge_mesh_upload(
