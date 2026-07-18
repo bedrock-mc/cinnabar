@@ -7,12 +7,14 @@ use std::{
 use asset_compiler::{
     AnimationInventory, AtmosphereCompileOptions, CompileReferenceOutcome, FontCompileError,
     OutlineFontConfig, compile_atmosphere_assets_with_options, compile_entity_assets_with_report,
-    compile_fonts, compile_outline_font, compile_pack_with_biomes, inspect_animation_inventory,
+    compile_fonts, compile_hud_assets, compile_outline_font, compile_pack_with_biomes,
+    inspect_animation_inventory,
 };
 use assets::{
-    AssetError, AtmosphereRole, EntityAssetSource, EntityAssetSymbol, ItemVisualDefinitionRoute,
-    MATERIAL_FLAG_ALPHA_CUTOUT, MAX_FONT_SOURCE_BYTES, encode_atmosphere_blob, encode_blob,
-    encode_entity_blob, read_biome_registry, read_light_registry, read_registry, write_blob_atomic,
+    AssetError, AtmosphereRole, EntityAssetSource, EntityAssetSymbol, HudTexture,
+    ItemVisualDefinitionRoute, MATERIAL_FLAG_ALPHA_CUTOUT, MAX_FONT_SOURCE_BYTES,
+    encode_atmosphere_blob, encode_blob, encode_entity_blob, read_biome_registry,
+    read_light_registry, read_registry, write_blob_atomic,
 };
 use clap::{Parser, Subcommand};
 use serde::Serialize;
@@ -24,7 +26,7 @@ const MAX_SOURCE_MANIFEST_BYTES: usize = 1024 * 1024;
 #[derive(Debug, Parser)]
 #[command(
     about = "Compile verified local Bedrock resource-pack assets",
-    after_help = "Compile inputs:\n  assetc compile --pack <RESOURCE_PACK> --registry <BLOCK_REGISTRY_BIN> --light-registry <LIGHT_REGISTRY_BIN> --biome-registry <BIOME_REGISTRY_BIN> --out <IGNORED_DIR>/vanilla-v1001.mcbea\n\nAtmosphere inputs:\n  assetc atmosphere --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbeatm --report <IGNORED_DIR>/atmosphere-assets.json\n\nEntity catalog and geometry payloads:\n  assetc entity-assets --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbeent --report <IGNORED_DIR>/entity-assets.json\n\nBitmap font payloads:\n  assetc font-assets --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbefont --report <IGNORED_DIR>/font-assets.json\n\nAnimation inventory:\n  assetc animation-inventory --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --max-layers-per-page 2048 --max-pages 2 --out <IGNORED_DIR>/animation-inventory.json"
+    after_help = "Compile inputs:\n  assetc compile --pack <RESOURCE_PACK> --registry <BLOCK_REGISTRY_BIN> --light-registry <LIGHT_REGISTRY_BIN> --biome-registry <BIOME_REGISTRY_BIN> --out <IGNORED_DIR>/vanilla-v1001.mcbea\n\nAtmosphere inputs:\n  assetc atmosphere --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbeatm --report <IGNORED_DIR>/atmosphere-assets.json\n\nEntity catalog and geometry payloads:\n  assetc entity-assets --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbeent --report <IGNORED_DIR>/entity-assets.json\n\nBitmap font payloads:\n  assetc font-assets --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbefont --report <IGNORED_DIR>/font-assets.json\n\nHUD texture payloads:\n  assetc hud-assets --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbehud --report <IGNORED_DIR>/hud-assets.json\n\nAnimation inventory:\n  assetc animation-inventory --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --max-layers-per-page 2048 --max-pages 2 --out <IGNORED_DIR>/animation-inventory.json"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -75,6 +77,21 @@ enum Command {
         #[arg(long)]
         source_manifest: PathBuf,
         /// Ignored/local MCBEFONT1 output path.
+        #[arg(long)]
+        out: PathBuf,
+        /// Ignored/local deterministic JSON provenance report path.
+        #[arg(long)]
+        report: PathBuf,
+    },
+    /// Compile exact pinned vanilla HUD heart textures.
+    HudAssets {
+        /// Root of the pinned vanilla resource pack.
+        #[arg(long)]
+        pack: PathBuf,
+        /// Tracked manifest that pins the local resource-pack source.
+        #[arg(long)]
+        source_manifest: PathBuf,
+        /// Ignored/local MCBEHUD1 output path.
         #[arg(long)]
         out: PathBuf,
         /// Ignored/local deterministic JSON provenance report path.
@@ -233,6 +250,26 @@ struct FontAssetCounts {
     decoded_bytes: u64,
 }
 
+#[derive(Serialize)]
+struct HudAssetsReport<'a> {
+    schema: u32,
+    source: serde_json::Value,
+    source_manifest_sha256: Box<str>,
+    carrier_sha256: Box<str>,
+    textures: Vec<HudTextureReport<'a>>,
+}
+
+#[derive(Serialize)]
+struct HudTextureReport<'a> {
+    role: Box<str>,
+    source_path: &'a str,
+    width: u32,
+    height: u32,
+    source_bytes: u32,
+    source_sha256: Box<str>,
+    pixels_sha256: Box<str>,
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     match Cli::parse().command {
         Command::Atmosphere {
@@ -266,6 +303,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             report,
         } => {
             compile_font_assets_command(&pack, &source_manifest, &out, &report)?;
+        }
+        Command::HudAssets {
+            pack,
+            source_manifest,
+            out,
+            report,
+        } => {
+            compile_hud_assets_command(&pack, &source_manifest, &out, &report)?;
         }
         Command::OutlineFontAssets {
             font,
@@ -403,6 +448,70 @@ fn compile_font_assets_command(
         return Err(FontCompileError::SourceManifestMismatch.into());
     }
     write_compiled_font_assets(source, source_manifest_sha256, compiled, out, report)
+}
+
+fn compile_hud_assets_command(
+    pack: &Path,
+    source_manifest: &Path,
+    out: &Path,
+    report: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let manifest_bytes = read_bounded_with_limit(
+        source_manifest,
+        MAX_SOURCE_MANIFEST_BYTES,
+        "source manifest",
+    )?;
+    let source = serde_json::from_slice::<serde_json::Value>(&manifest_bytes).map_err(|source| {
+        AssetError::Json {
+            path: source_manifest.to_path_buf(),
+            source,
+        }
+    })?;
+    let compiled = compile_hud_assets(pack, &manifest_bytes)?;
+    let carrier_sha256 = compiled
+        .bytes
+        .get(compiled.bytes.len().saturating_sub(32)..)
+        .and_then(|value| <[u8; 32]>::try_from(value).ok())
+        .ok_or("encoded HUD carrier lacks its SHA-256")?;
+    let report_data = HudAssetsReport {
+        schema: 1,
+        source,
+        source_manifest_sha256: hex(&compiled.source_manifest_sha256).into_boxed_str(),
+        carrier_sha256: hex(&carrier_sha256).into_boxed_str(),
+        textures: compiled
+            .textures
+            .iter()
+            .map(hud_texture_report)
+            .collect(),
+    };
+    let mut report_bytes =
+        serde_json::to_vec_pretty(&report_data).map_err(|source| AssetError::Json {
+            path: report.to_path_buf(),
+            source,
+        })?;
+    report_bytes.push(b'\n');
+    validate_output_bundle(out, report)?;
+    write_blob_atomic(out, &compiled.bytes)?;
+    write_blob_atomic(report, &report_bytes)?;
+    println!(
+        "compiled {} pinned HUD textures to {} and {}",
+        compiled.textures.len(),
+        out.display(),
+        report.display()
+    );
+    Ok(())
+}
+
+fn hud_texture_report(texture: &HudTexture) -> HudTextureReport<'_> {
+    HudTextureReport {
+        role: format!("{:?}", texture.role).to_lowercase().into_boxed_str(),
+        source_path: &texture.source_path,
+        width: texture.width,
+        height: texture.height,
+        source_bytes: texture.source_bytes,
+        source_sha256: hex(&texture.source_sha256).into_boxed_str(),
+        pixels_sha256: hex(&texture.pixels_sha256).into_boxed_str(),
+    }
 }
 
 fn compile_outline_font_assets_command(

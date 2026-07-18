@@ -8,6 +8,7 @@ mod entity;
 mod environment_settings;
 mod error;
 mod font;
+mod hud;
 mod item;
 mod light_registry;
 mod model;
@@ -70,6 +71,10 @@ pub use font::{
     FontCatalogIdentity, FontTexturePage, GlyphMetrics, MAX_FONT_GLYPHS, MAX_FONT_PAGE_SIDE,
     MAX_FONT_PAGES, MAX_FONT_PATH_BYTES, MAX_FONT_SOURCE_BYTES, RuntimeFontCatalog,
     encode_font_catalog,
+};
+pub use hud::{
+    HUD_CARRIER_MAGIC, HUD_CARRIER_SCHEMA, HudCatalogError, HudCatalogIdentity, HudTexture,
+    HudTextureRole, MAX_HUD_CARRIER_BYTES, RuntimeHudCatalog, encode_hud_catalog,
 };
 pub use item::{
     BlockVisualId, ItemActionPhase, ItemDisplayScalar, ItemDisplayTransform, ItemIconRef,

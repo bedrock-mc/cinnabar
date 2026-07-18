@@ -1,6 +1,6 @@
 use std::{fmt, ops::Range, sync::Arc};
 
-use assets::RuntimeFontCatalog;
+use assets::{RuntimeFontCatalog, RuntimeHudCatalog};
 use bevy::{
     prelude::{Query, Res, ResMut, Resource, Time, With},
     time::Real,
@@ -10,6 +10,7 @@ use render::{
     MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_LAYERS, UiRenderInput, UiRenderScene, UiRenderStats,
     UiRenderTextureArray,
 };
+use sha2::{Digest, Sha256};
 use ui::{
     DpiScale, HudViewRole, SafeArea, TextLayoutCache, TextLayoutRequest, TextStyle, UiNode,
     UiNodeId, UiPoint, UiRect, UiScale, UiTree, UiVisual,
@@ -28,6 +29,10 @@ const MAX_PRESENTED_CHAT_SUGGESTIONS: usize = 8;
 const MAX_PRESENTED_TOAST_ROWS: usize = 8;
 const MAX_PRESENTED_TEXT_BYTES: usize = 512;
 const CHAT_TEXT_SCALE: f32 = 0.5;
+const VANILLA_HEART_SIZE: f32 = 9.0;
+const VANILLA_HEART_SLOTS: usize = 10;
+const VANILLA_CENTERED_HUD_WIDTH: f32 = 180.0;
+const VANILLA_HEART_OFFSET: [f32; 2] = [-1.0, -40.0];
 
 #[derive(Debug)]
 pub enum UiPresentationError {
@@ -52,19 +57,32 @@ pub struct UiPresentationRuntime {
     font: Arc<RuntimeFontCatalog>,
     textures: Arc<UiRenderTextureArray>,
     solid_texture_page: u16,
+    hud_texture_pages: HudTexturePages,
     layouts: TextLayoutCache,
     revision: u64,
     chat_hit_logical_size: Option<[f32; 2]>,
     chat_suggestion_hits: Vec<(usize, UiRect)>,
 }
 
+#[derive(Clone, Copy)]
+struct HudTexturePages {
+    heart_background: u16,
+    heart_full: u16,
+    heart_half: u16,
+}
+
 impl UiPresentationRuntime {
-    pub fn new(font: Arc<RuntimeFontCatalog>) -> Result<Self, UiPresentationError> {
-        let (textures, solid_texture_page) = font_texture_array(&font)?;
+    pub fn new(
+        font: Arc<RuntimeFontCatalog>,
+        hud: Arc<RuntimeHudCatalog>,
+    ) -> Result<Self, UiPresentationError> {
+        let (textures, solid_texture_page, hud_texture_pages) =
+            ui_texture_array(&font, &hud)?;
         Ok(Self {
             font,
             textures: Arc::new(textures),
             solid_texture_page,
+            hud_texture_pages,
             layouts: TextLayoutCache::new(TEXT_CACHE_ENTRIES, TEXT_CACHE_BYTES),
             revision: 0,
             chat_hit_logical_size: None,
@@ -105,9 +123,26 @@ impl UiPresentationRuntime {
         let mut nodes = Vec::new();
         let mut next_id = 1u32;
 
+        if let Some(health) = runtime.hud().health()
+            && health.maximum() == 20
+            && health.scale() == 1
+        {
+            append_vanilla_hearts(
+                &mut nodes,
+                &mut next_id,
+                health.current(),
+                logical_width,
+                logical_height,
+                self.hud_texture_pages,
+            )?;
+        }
+
         let hud_nodes = runtime.hud().view_nodes(now_millis);
         let mut toast_rows = 0usize;
         for node in hud_nodes.iter() {
+            if node.role == HudViewRole::Health {
+                continue;
+            }
             if matches!(
                 node.role,
                 HudViewRole::ToastTitle | HudViewRole::ToastMessage
@@ -438,9 +473,10 @@ pub(crate) fn publish_ui_runtime(
     }
 }
 
-fn font_texture_array(
+fn ui_texture_array(
     font: &RuntimeFontCatalog,
-) -> Result<(UiRenderTextureArray, u16), UiPresentationError> {
+    hud: &RuntimeHudCatalog,
+) -> Result<(UiRenderTextureArray, u16, HudTexturePages), UiPresentationError> {
     let width = font
         .pages()
         .iter()
@@ -460,8 +496,11 @@ fn font_texture_array(
     }
     let solid_texture_page =
         u16::try_from(font_layers).map_err(|_| UiPresentationError::InvalidFontTexture)?;
-    let layers = font_layers
+    let hud_start = font_layers
         .checked_add(1)
+        .ok_or(UiPresentationError::InvalidFontTexture)?;
+    let layers = hud_start
+        .checked_add(3)
         .ok_or(UiPresentationError::InvalidFontTexture)?;
     let layer_bytes = usize::try_from(width)
         .ok()
@@ -486,16 +525,87 @@ fn font_texture_array(
     }
     let solid_start = usize::from(solid_texture_page) * layer_bytes;
     rgba8[solid_start..solid_start + layer_bytes].fill(255);
+    for (index, texture) in hud.textures().iter().enumerate() {
+        let layer = usize::try_from(hud_start)
+            .ok()
+            .and_then(|start| start.checked_add(index))
+            .ok_or(UiPresentationError::InvalidFontTexture)?;
+        for row in 0..texture.height as usize {
+            let source_start = row * texture.width as usize * 4;
+            let source_end = source_start + texture.width as usize * 4;
+            let target_start = layer * layer_bytes + row * width as usize * 4;
+            rgba8[target_start..target_start + texture.width as usize * 4]
+                .copy_from_slice(&texture.rgba8[source_start..source_end]);
+        }
+    }
+    let mut identity_hasher = Sha256::new();
+    identity_hasher.update(font.identity().carrier_sha256);
+    identity_hasher.update(hud.identity().carrier_sha256);
+    let identity = identity_hasher.finalize().into();
+    let heart_background = u16::try_from(hud_start)
+        .map_err(|_| UiPresentationError::InvalidFontTexture)?;
+    let heart_full = heart_background
+        .checked_add(1)
+        .ok_or(UiPresentationError::InvalidFontTexture)?;
+    let heart_half = heart_full
+        .checked_add(1)
+        .ok_or(UiPresentationError::InvalidFontTexture)?;
     Ok((
         UiRenderTextureArray {
-            identity: font.identity().carrier_sha256,
+            identity,
             width,
             height,
             layers,
             rgba8: rgba8.into(),
         },
         solid_texture_page,
+        HudTexturePages {
+            heart_background,
+            heart_full,
+            heart_half,
+        },
     ))
+}
+
+fn append_vanilla_hearts(
+    nodes: &mut Vec<UiNode>,
+    next_id: &mut u32,
+    health: u16,
+    logical_width: f32,
+    logical_height: f32,
+    pages: HudTexturePages,
+) -> Result<(), UiPresentationError> {
+    let left = ((logical_width - VANILLA_CENTERED_HUD_WIDTH) * 0.5
+        + VANILLA_HEART_OFFSET[0])
+        .max(0.0);
+    let top = (logical_height + VANILLA_HEART_OFFSET[1]).max(0.0);
+    for slot in 0..VANILLA_HEART_SLOTS {
+        let x = left + slot as f32 * VANILLA_HEART_SIZE;
+        let bounds = rect(x, top, x + VANILLA_HEART_SIZE, top + VANILLA_HEART_SIZE)?;
+        nodes.push(
+            UiNode::new(UiNodeId::new(*next_id), None, bounds).with_visual(UiVisual::Image {
+                texture_page: pages.heart_background,
+                uv: [0, 0, 9, 9],
+                color: [255, 255, 255, 166],
+            }),
+        );
+        *next_id = next_id.saturating_add(1);
+        let remaining = health.saturating_sub(u16::try_from(slot * 2).unwrap());
+        let page = match remaining {
+            0 => continue,
+            1 => pages.heart_half,
+            _ => pages.heart_full,
+        };
+        nodes.push(
+            UiNode::new(UiNodeId::new(*next_id), None, bounds).with_visual(UiVisual::Image {
+                texture_page: page,
+                uv: [0, 0, 9, 9],
+                color: [255; 4],
+            }),
+        );
+        *next_id = next_id.saturating_add(1);
+    }
+    Ok(())
 }
 
 fn bounded_visible_text(value: &str) -> &str {

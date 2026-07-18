@@ -1,4 +1,7 @@
-use assets::{FontTexturePage, GlyphMetrics, RuntimeFontCatalog, encode_font_catalog};
+use assets::{
+    FontTexturePage, GlyphMetrics, HudTexture, HudTextureRole, RuntimeFontCatalog,
+    RuntimeHudCatalog, encode_font_catalog, encode_hud_catalog,
+};
 use protocol::{HudEvent, TextCategory, TextEvent, TextKind, UiEvent};
 use sha2::{Digest, Sha256};
 
@@ -8,7 +11,7 @@ use crate::ui_runtime::SequencedUiEvent;
 #[test]
 fn retained_hud_publishes_through_tree_adapter_and_render_scene() {
     let font = fixture_font();
-    let mut presentation = UiPresentationRuntime::new(font).unwrap();
+    let mut presentation = UiPresentationRuntime::new(font, fixture_hud()).unwrap();
     let mut runtime = UiRuntime::new(1);
     runtime
         .apply(SequencedUiEvent {
@@ -35,7 +38,7 @@ fn retained_hud_publishes_through_tree_adapter_and_render_scene() {
 fn focused_chat_editor_history_and_suggestions_are_presented() {
     let font = fixture_font();
     let font_page_count = u32::try_from(font.pages().len()).unwrap();
-    let mut presentation = UiPresentationRuntime::new(font).unwrap();
+    let mut presentation = UiPresentationRuntime::new(font, fixture_hud()).unwrap();
     let mut runtime = UiRuntime::new(1);
     let empty = presentation
         .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
@@ -94,7 +97,7 @@ fn focused_chat_editor_history_and_suggestions_are_presented() {
 fn focused_chat_editor_uses_a_dedicated_solid_panel_layer() {
     let font = fixture_font();
     let font_page_count = u32::try_from(font.pages().len()).unwrap();
-    let mut presentation = UiPresentationRuntime::new(font).unwrap();
+    let mut presentation = UiPresentationRuntime::new(font, fixture_hud()).unwrap();
     let mut runtime = UiRuntime::new(1);
     runtime.open_chat();
     runtime.insert_chat_text("hello").unwrap();
@@ -156,7 +159,7 @@ fn focused_chat_editor_uses_a_dedicated_solid_panel_layer() {
 fn focused_chat_uses_compact_java_style_text_and_does_not_dim_the_hud() {
     let font = fixture_font();
     let solid_page = u32::try_from(font.pages().len()).unwrap();
-    let mut presentation = UiPresentationRuntime::new(font).unwrap();
+    let mut presentation = UiPresentationRuntime::new(font, fixture_hud()).unwrap();
     let mut runtime = UiRuntime::new(1);
     runtime
         .apply(SequencedUiEvent {
@@ -201,7 +204,7 @@ fn focused_chat_uses_compact_java_style_text_and_does_not_dim_the_hud() {
 #[test]
 fn wrapped_chat_messages_reserve_their_full_visual_height() {
     let font = fixture_font();
-    let mut presentation = UiPresentationRuntime::new(font).unwrap();
+    let mut presentation = UiPresentationRuntime::new(font, fixture_hud()).unwrap();
     let mut runtime = UiRuntime::new(1);
     let first = "a".repeat(70);
     let second = "b".repeat(70);
@@ -240,7 +243,7 @@ fn wrapped_chat_messages_reserve_their_full_visual_height() {
 fn chat_surface_uses_bounded_width_across_resize_and_dpi() {
     let font = fixture_font();
     let solid_page = u32::try_from(font.pages().len()).unwrap();
-    let mut presentation = UiPresentationRuntime::new(font).unwrap();
+    let mut presentation = UiPresentationRuntime::new(font, fixture_hud()).unwrap();
     let mut runtime = UiRuntime::new(1);
     runtime.open_chat();
 
@@ -269,7 +272,7 @@ fn chat_surface_uses_bounded_width_across_resize_and_dpi() {
 #[test]
 fn focused_chat_editor_does_not_overlap_bottom_hud_text() {
     let font = fixture_font();
-    let mut presentation = UiPresentationRuntime::new(font).unwrap();
+    let mut presentation = UiPresentationRuntime::new(font, fixture_hud()).unwrap();
     let mut runtime = UiRuntime::new(1);
     runtime
         .apply(SequencedUiEvent {
@@ -306,7 +309,7 @@ fn focused_chat_editor_does_not_overlap_bottom_hud_text() {
 #[test]
 fn autocomplete_rows_reserve_actual_text_height_above_editor_and_history() {
     let font = fixture_font();
-    let mut presentation = UiPresentationRuntime::new(font).unwrap();
+    let mut presentation = UiPresentationRuntime::new(font, fixture_hud()).unwrap();
     let mut runtime = UiRuntime::new(1);
     let history = "history ".repeat(12);
     runtime
@@ -373,7 +376,7 @@ fn autocomplete_rows_reserve_actual_text_height_above_editor_and_history() {
 #[test]
 fn oversized_latest_chat_message_keeps_a_bounded_visible_portion() {
     let font = fixture_font();
-    let mut presentation = UiPresentationRuntime::new(font).unwrap();
+    let mut presentation = UiPresentationRuntime::new(font, fixture_hud()).unwrap();
     let mut runtime = UiRuntime::new(1);
     runtime
         .apply(SequencedUiEvent {
@@ -402,7 +405,7 @@ fn oversized_latest_chat_message_keeps_a_bounded_visible_portion() {
 fn maximum_page_font_is_rejected_before_appending_the_solid_layer() {
     let font = fixture_font_with_page_count(MAX_UI_TEXTURE_LAYERS as usize);
     assert!(matches!(
-        UiPresentationRuntime::new(font),
+        UiPresentationRuntime::new(font, fixture_hud()),
         Err(UiPresentationError::InvalidFontTexture)
     ));
 }
@@ -417,7 +420,7 @@ fn suggestion_window_keeps_the_selected_row_visible() {
 #[test]
 fn suggestion_hit_testing_uses_the_exact_rendered_rows_and_width_cap() {
     let font = fixture_font();
-    let mut presentation = UiPresentationRuntime::new(font).unwrap();
+    let mut presentation = UiPresentationRuntime::new(font, fixture_hud()).unwrap();
     let mut runtime = UiRuntime::new(1);
     runtime.open_chat();
     runtime
@@ -566,4 +569,24 @@ fn fixture_font() -> Arc<RuntimeFontCatalog> {
     let manifest = [7; 32];
     let bytes = encode_font_catalog(manifest, &glyphs, &[page]).unwrap();
     Arc::new(RuntimeFontCatalog::decode(&bytes, manifest).unwrap())
+}
+
+fn fixture_hud() -> Arc<RuntimeHudCatalog> {
+    let textures = HudTextureRole::ALL.map(|role| {
+        let value = role as u8 + 1;
+        let rgba8 = vec![value; 9 * 9 * 4].into_boxed_slice();
+        HudTexture {
+            role,
+            source_path: role.source_path().into(),
+            source_bytes: 100,
+            source_sha256: [value; 32],
+            pixels_sha256: Sha256::digest(&rgba8).into(),
+            width: 9,
+            height: 9,
+            rgba8,
+        }
+    });
+    let manifest = [8; 32];
+    let bytes = encode_hud_catalog(manifest, &textures).unwrap();
+    Arc::new(RuntimeHudCatalog::decode(&bytes, manifest).unwrap())
 }

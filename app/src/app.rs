@@ -292,6 +292,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     eprintln!("{}", loaded_assets.entities.startup_summary());
     eprintln!("{}", loaded_assets.fonts.startup_summary());
     let font_runtime = loaded_assets.fonts.into_runtime();
+    eprintln!(
+        "loaded required HUD assets from {}",
+        loaded_assets.hud.selected_path().display()
+    );
+    let hud_runtime = loaded_assets.hud.into_runtime();
     let (atmosphere_runtime, atmosphere_identity) = loaded_assets.atmosphere.into_parts();
     let runtime_assets = loaded_assets.runtime;
     let asset_metrics = loaded_assets.metrics;
@@ -373,8 +378,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .insert_resource(ClientWorld::new(Arc::clone(&runtime_assets)))
         .insert_resource(UiRuntime::new(0))
         .insert_resource(
-            UiPresentationRuntime::new(font_runtime)
-                .context("prepare bounded font texture array for UI rendering")?,
+            UiPresentationRuntime::new(font_runtime, hud_runtime)
+                .context("prepare bounded font and HUD texture array for UI rendering")?,
         )
         .insert_resource(WorldClock::default())
         .insert_resource(WeatherState::default())

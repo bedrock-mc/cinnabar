@@ -231,6 +231,33 @@ fn draw_list_uses_stable_tree_order_intersected_clips_and_no_empty_batches() {
 }
 
 #[test]
+fn image_visual_emits_exact_texture_uvs() {
+    let mut tree = UiTree::new(vec![
+        UiNode::new(node(1), None, rect(10.0, 20.0, 19.0, 29.0)).with_visual(
+            UiVisual::Image {
+                texture_page: 3,
+                uv: [0, 0, 9, 9],
+                color: [255; 4],
+            },
+        ),
+    ])
+    .unwrap();
+    tree.layout(
+        rect(0.0, 0.0, 100.0, 100.0),
+        UiScale::default(),
+        SafeArea::ZERO,
+    )
+    .unwrap();
+
+    let draw = tree.build_draw_list().unwrap();
+    assert_eq!(draw.batches[0].texture_page, 3);
+    assert_eq!(
+        draw.vertices.iter().map(|vertex| vertex.uv).collect::<Vec<_>>(),
+        [[0, 0], [9, 0], [9, 9], [0, 9]]
+    );
+}
+
+#[test]
 fn cached_text_layout_emits_glyph_quads_by_texture_page() {
     let layout = text_layout();
     let mut tree = UiTree::new(vec![

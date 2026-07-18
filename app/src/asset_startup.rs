@@ -7,8 +7,9 @@ use std::{
 };
 
 use assets::{
-    AssetError, FontCatalogError, FontTexturePage, GlyphMetrics, RuntimeAssets,
-    RuntimeAtmosphereAssets, RuntimeEntityAssets, RuntimeFontCatalog, encode_font_catalog,
+    AssetError, FontCatalogError, FontTexturePage, GlyphMetrics, HudCatalogError, RuntimeAssets,
+    RuntimeAtmosphereAssets, RuntimeEntityAssets, RuntimeFontCatalog, RuntimeHudCatalog,
+    encode_font_catalog,
 };
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -27,6 +28,8 @@ pub const FONT_ASSETS_COMPILE_COMMAND: &str = "make font-assets";
 pub const LOCAL_FONT_ASSETS_FILENAME: &str = "vanilla-v1.mcbefont";
 pub const LOCAL_FONT_ASSETS_COMPILE_COMMAND: &str =
     "make font-assets-local FONT_PACK_DIR=<reviewed-font-pack>";
+pub const HUD_ASSETS_FILENAME: &str = "vanilla-v1.mcbehud";
+pub const HUD_ASSETS_COMPILE_COMMAND: &str = "make hud-assets";
 pub const FETCH_COMMAND: &str =
     "powershell -NoProfile -File scripts/fetch-vanilla-assets.ps1 -AcceptEula";
 pub const COMPILE_COMMAND: &str = concat!(
@@ -46,6 +49,7 @@ const MAX_RUNTIME_BLOB_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_ATMOSPHERE_BLOB_BYTES: u64 = 512 * 1024;
 const MAX_ENTITY_ASSET_BLOB_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_FONT_ASSET_BLOB_BYTES: u64 = 128 * 1024 * 1024;
+const MAX_HUD_ASSET_BLOB_BYTES: u64 = 64 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AssetPathSource {
@@ -71,6 +75,7 @@ pub struct LoadedAssets {
     pub atmosphere: LoadedAtmosphereAssets,
     pub entities: LoadedEntityAssets,
     pub fonts: LoadedFontAssets,
+    pub hud: LoadedHudAssets,
     pub metrics: AssetMetrics,
     pub selected_path: PathBuf,
     pub kind: LoadedAssetKind,
@@ -93,6 +98,22 @@ pub struct LoadedFontAssets {
     runtime: Arc<RuntimeFontCatalog>,
     selected_path: PathBuf,
     diagnostic: bool,
+}
+
+pub struct LoadedHudAssets {
+    runtime: Arc<RuntimeHudCatalog>,
+    selected_path: PathBuf,
+}
+
+impl LoadedHudAssets {
+    #[must_use]
+    pub fn selected_path(&self) -> &Path {
+        &self.selected_path
+    }
+
+    pub fn into_runtime(self) -> Arc<RuntimeHudCatalog> {
+        self.runtime
+    }
 }
 
 impl LoadedFontAssets {
@@ -210,6 +231,7 @@ impl std::fmt::Debug for LoadedAssets {
             .field("atmosphere_path", &self.atmosphere.selected_path)
             .field("entity_asset_path", &self.entities.selected_path)
             .field("font_asset_path", &self.fonts.selected_path)
+            .field("hud_asset_path", &self.hud.selected_path)
             .field("kind", &self.kind)
             .field("notice", &self.notice)
             .finish_non_exhaustive()
@@ -337,6 +359,35 @@ pub enum AssetStartupError {
         source: Box<FontCatalogError>,
         rebuild_command: &'static str,
     },
+
+    #[error(
+        "could not read required HUD asset carrier at {path}: {source}\nrebuild local HUD assets with: {rebuild_command}"
+    )]
+    HudAssetsRead {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+        rebuild_command: &'static str,
+    },
+
+    #[error(
+        "required HUD asset carrier at {path} exceeds the {max_bytes}-byte startup limit\nrebuild local HUD assets with: {rebuild_command}"
+    )]
+    HudAssetsTooLarge {
+        path: PathBuf,
+        max_bytes: u64,
+        rebuild_command: &'static str,
+    },
+
+    #[error(
+        "could not decode required HUD asset carrier at {path}: {source}\nrebuild local HUD assets with: {rebuild_command}"
+    )]
+    HudAssetsDecode {
+        path: PathBuf,
+        #[source]
+        source: Box<HudCatalogError>,
+        rebuild_command: &'static str,
+    },
 }
 
 #[derive(Deserialize)]
@@ -428,6 +479,11 @@ pub fn local_font_asset_path(world_asset_path: &Path) -> PathBuf {
     world_asset_path.with_file_name(LOCAL_FONT_ASSETS_FILENAME)
 }
 
+#[must_use]
+pub fn hud_asset_path(world_asset_path: &Path) -> PathBuf {
+    world_asset_path.with_file_name(HUD_ASSETS_FILENAME)
+}
+
 pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, AssetStartupError> {
     let source: VanillaSource = serde_json::from_str(VANILLA_SOURCE_JSON)?;
     let file = match File::open(&selection.path) {
@@ -436,8 +492,9 @@ pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, As
             let atmosphere = load_atmosphere_assets(&selection.path)?;
             let entities = load_entity_assets(&selection.path)?;
             let fonts = load_font_assets(&selection.path)?;
+            let hud = load_hud_assets(&selection.path)?;
             return Ok(diagnostic_assets(
-                selection, source, atmosphere, entities, fonts,
+                selection, source, atmosphere, entities, fonts, hud,
             ));
         }
         Err(source) => {
@@ -489,11 +546,13 @@ pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, As
     let atmosphere = load_atmosphere_assets(&selection.path)?;
     let entities = load_entity_assets(&selection.path)?;
     let fonts = load_font_assets(&selection.path)?;
+    let hud = load_hud_assets(&selection.path)?;
     Ok(LoadedAssets {
         runtime,
         atmosphere,
         entities,
         fonts,
+        hud,
         metrics,
         selected_path: selection.path,
         kind: LoadedAssetKind::CompiledBlob,
@@ -643,6 +702,59 @@ fn load_font_assets(world_asset_path: &Path) -> Result<LoadedFontAssets, AssetSt
     })
 }
 
+fn load_hud_assets(world_asset_path: &Path) -> Result<LoadedHudAssets, AssetStartupError> {
+    let path = hud_asset_path(world_asset_path);
+    let file = File::open(&path).map_err(|source| AssetStartupError::HudAssetsRead {
+        path: path.clone(),
+        source,
+        rebuild_command: HUD_ASSETS_COMPILE_COMMAND,
+    })?;
+    let length = file
+        .metadata()
+        .map_err(|source| AssetStartupError::HudAssetsRead {
+            path: path.clone(),
+            source,
+            rebuild_command: HUD_ASSETS_COMPILE_COMMAND,
+        })?
+        .len();
+    if length > MAX_HUD_ASSET_BLOB_BYTES {
+        return Err(AssetStartupError::HudAssetsTooLarge {
+            path,
+            max_bytes: MAX_HUD_ASSET_BLOB_BYTES,
+            rebuild_command: HUD_ASSETS_COMPILE_COMMAND,
+        });
+    }
+    let mut bytes = Vec::with_capacity(length as usize);
+    file.take(MAX_HUD_ASSET_BLOB_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|source| AssetStartupError::HudAssetsRead {
+            path: path.clone(),
+            source,
+            rebuild_command: HUD_ASSETS_COMPILE_COMMAND,
+        })?;
+    if bytes.len() as u64 > MAX_HUD_ASSET_BLOB_BYTES {
+        return Err(AssetStartupError::HudAssetsTooLarge {
+            path,
+            max_bytes: MAX_HUD_ASSET_BLOB_BYTES,
+            rebuild_command: HUD_ASSETS_COMPILE_COMMAND,
+        });
+    }
+    let expected_manifest_sha256 = canonical_source_manifest_sha256(VANILLA_SOURCE_JSON);
+    let runtime = Arc::new(
+        RuntimeHudCatalog::decode(&bytes, expected_manifest_sha256).map_err(|source| {
+            AssetStartupError::HudAssetsDecode {
+                path: path.clone(),
+                source: Box::new(source),
+                rebuild_command: HUD_ASSETS_COMPILE_COMMAND,
+            }
+        })?,
+    );
+    Ok(LoadedHudAssets {
+        runtime,
+        selected_path: path,
+    })
+}
+
 fn diagnostic_font_assets(path: PathBuf) -> Result<LoadedFontAssets, AssetStartupError> {
     const DIAGNOSTIC_MANIFEST: [u8; 32] = [0xd1; 32];
     let rgba8 = vec![255, 255, 255, 255].into_boxed_slice();
@@ -766,6 +878,7 @@ fn diagnostic_assets(
     atmosphere: LoadedAtmosphereAssets,
     entities: LoadedEntityAssets,
     fonts: LoadedFontAssets,
+    hud: LoadedHudAssets,
 ) -> LoadedAssets {
     let runtime = Arc::new(RuntimeAssets::diagnostic());
     let metrics = runtime_metrics(&runtime, source, "diagnostic".to_owned());
@@ -779,6 +892,7 @@ fn diagnostic_assets(
         atmosphere,
         entities,
         fonts,
+        hud,
         metrics,
         selected_path: selection.path,
         kind: LoadedAssetKind::Diagnostic,
