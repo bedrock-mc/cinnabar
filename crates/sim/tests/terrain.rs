@@ -168,6 +168,17 @@ fn compound_slab_step_and_head_collision_use_exact_shapes() {
         .unwrap();
     assert_eq!(stepped.movement.y, 0.5);
     assert!((stepped.movement.z - 0.4001).abs() <= 1.0e-12);
+    assert!(stepped.on_ground);
+    assert!(state.on_ground);
+    assert!((stepped.velocity.y + 0.0784).abs() <= 1.0e-12);
+    assert!((state.velocity.y + 0.0784).abs() <= 1.0e-12);
+
+    let settled = Simulator::default()
+        .tick(&mut state, MovementInput::default(), &world)
+        .unwrap();
+    assert!(settled.on_ground);
+    assert_eq!(settled.movement.y, 0.0);
+    assert!((settled.velocity.y + 0.0784).abs() <= 1.0e-12);
 
     let mut jumping = grounded(Vec3::new(0.0, 1.0, -0.5));
     jumping.velocity.y = 0.8;
@@ -200,40 +211,45 @@ fn query_failure_is_transactional_and_sampling_is_bounded() {
 #[test]
 fn adversarial_finite_inputs_fail_without_mutation_and_large_sweeps_stop_before_sampling() {
     let simulator = Simulator::default();
-    for (position, velocity, input) in [
-        (
-            Vec3::new(0.0, 1.0, 0.0),
-            Vec3::new(0.25, -0.25, 0.25),
-            MovementInput {
-                strafe: -1.0,
-                forward: 1.0,
-                yaw_degrees: 359.0,
-                ..MovementInput::default()
-            },
-        ),
-        (
-            Vec3::new(-15.5, 2.0, 15.5),
-            Vec3::new(-0.5, 0.5, -0.5),
-            MovementInput {
-                strafe: 1.0,
-                forward: -1.0,
-                yaw_degrees: -720.0,
-                ..MovementInput::default()
-            },
-        ),
+    for position in [
+        Vec3::new(0.0, 1.0, 0.0),
+        Vec3::new(-15.5, 2.0, 15.5),
+        Vec3::new(31.25, -3.0, -31.25),
     ] {
-        let world = TerrainWorld {
-            fail_after: Some(0),
-            ..TerrainWorld::default()
-        };
-        let mut state = PlayerState::new(position);
-        state.velocity = velocity;
-        let before = state.clone();
-        assert!(matches!(
-            simulator.tick(&mut state, input, &world),
-            Err(sim::SimulationError::World(_))
-        ));
-        assert_eq!(state, before);
+        for velocity in [
+            Vec3::ZERO,
+            Vec3::new(0.25, -0.25, 0.25),
+            Vec3::new(-0.5, 0.5, -0.5),
+        ] {
+            for (strafe, forward) in [(-1.0, 1.0), (0.0, 0.0), (1.0, -1.0)] {
+                for yaw_degrees in [-720.0, 0.0, 359.0] {
+                    let world = TerrainWorld {
+                        fail_after: Some(0),
+                        ..TerrainWorld::default()
+                    };
+                    let mut state = PlayerState::new(position);
+                    state.velocity = velocity;
+                    let before = state.clone();
+                    let before_bytes = serde_json::to_vec(&before).unwrap();
+                    let input = MovementInput {
+                        strafe,
+                        forward,
+                        yaw_degrees,
+                        jumping: true,
+                        jump_pressed: true,
+                        sprinting: true,
+                        sneaking: true,
+                    };
+                    assert!(matches!(
+                        simulator.tick(&mut state, input, &world),
+                        Err(sim::SimulationError::World(_))
+                    ));
+                    assert_eq!(serde_json::to_vec(&state).unwrap(), before_bytes);
+                    assert_eq!(state, before);
+                    assert_eq!(world.queries.get(), 1);
+                }
+            }
+        }
     }
 
     let world = TerrainWorld::default();

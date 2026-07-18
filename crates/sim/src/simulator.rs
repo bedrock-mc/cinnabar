@@ -154,11 +154,15 @@ impl Simulator {
         identity = identity.merge(&motion.identity)?;
         next.position += motion.resolved;
         next.movement = motion.resolved;
-        next.on_ground = (motion.collisions.y && next.velocity.y < 0.0)
+        next.on_ground = motion.stepped
+            || (motion.collisions.y && next.velocity.y < 0.0)
             || (grounded_at_start
                 && !motion.collisions.y
                 && next.velocity.y.abs() <= COLLISION_EPSILON);
         next.velocity = motion.resolved;
+        if motion.stepped {
+            next.velocity.y = 0.0;
+        }
         if motion.collisions.x {
             next.velocity.x = 0.0;
         }

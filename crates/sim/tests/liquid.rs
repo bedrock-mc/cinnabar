@@ -8,6 +8,40 @@ struct FluidWorld {
     facts: BlockPhysicsFacts,
 }
 
+struct DryBubbleBoundary;
+
+impl CollisionWorld for DryBubbleBoundary {
+    fn collision_boxes(&self, _query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        Ok(CollisionQuery::synthetic(Vec::new()))
+    }
+
+    fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
+        let facts = if block[1] == 0 {
+            BlockPhysicsFacts {
+                friction: 0.6,
+                horizontal_speed_factor: 1.0,
+                vertical_speed_factor: 1.0,
+                fluid_height_blocks: 1.0,
+                flags: BlockPhysicsFlags::WATER,
+                surface_response: SurfaceResponse::BubbleUp,
+            }
+        } else {
+            BlockPhysicsFacts {
+                friction: 0.6,
+                horizontal_speed_factor: 1.0,
+                vertical_speed_factor: 1.0,
+                fluid_height_blocks: 0.0,
+                flags: BlockPhysicsFlags::default(),
+                surface_response: SurfaceResponse::None,
+            }
+        };
+        Ok(BlockPhysicsSample {
+            layers: Box::new([facts]),
+            identity: CollisionQuery::synthetic(()).identity,
+        })
+    }
+}
+
 impl CollisionWorld for FluidWorld {
     fn collision_boxes(&self, _query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
         Ok(CollisionQuery::synthetic(Vec::new()))
@@ -122,4 +156,15 @@ fn bubble_columns_apply_bounded_directional_vertical_response() {
         assert!(state.velocity.y * direction > 0.0);
         assert!(state.velocity.y.abs() <= 0.4);
     }
+}
+
+#[test]
+fn dry_bubble_support_boundary_does_not_apply_a_column_response() {
+    let mut state = PlayerState::new(Vec3::new(0.5, 1.0, 0.5));
+    let tick = Simulator::default()
+        .tick(&mut state, MovementInput::default(), &DryBubbleBoundary)
+        .unwrap();
+    assert!(!tick.environment.in_water);
+    assert_eq!(tick.environment.surface_response, SurfaceResponse::None);
+    assert!(tick.velocity.y < 0.0);
 }

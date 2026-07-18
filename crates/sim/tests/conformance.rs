@@ -1,7 +1,8 @@
 use sha2::{Digest, Sha256};
 use sim::{
     Aabb, CollisionQuery, CollisionWorld, ConformanceError, MovementInput, PlayerState, Simulator,
-    TickResult, TraceRecord, Vec3, WorldQueryError, verify_trace_jsonl,
+    TickResult, TraceRecord, Vec3, WorldQueryError, verify_scenario_trace_jsonl,
+    verify_trace_jsonl,
 };
 
 struct Floor;
@@ -37,6 +38,9 @@ fn canonical_jsonl_round_trips_and_replays_one_record_per_tick() {
         .unwrap();
     let record = TraceRecord { input, expected };
     let jsonl = format!("{}\n", serde_json::to_string(&record).unwrap());
+    let encoded: serde_json::Value = serde_json::from_str(jsonl.trim()).unwrap();
+    assert!(encoded["expected"].get("environment").is_some());
+    assert!(encoded["expected"].get("world_identity").is_some());
 
     let replayed = verify_trace_jsonl(
         &jsonl,
@@ -183,15 +187,10 @@ fn pinned_trace_provenance_binds_module_commit_sum_generator_and_exact_bytes() {
 #[test]
 fn terrain_trace_matches_complete_pinned_ticks_and_binds_provenance() {
     let trace = include_str!("../fixtures/bedsim-v0.1.3-terrain.jsonl");
-    let replayed = verify_trace_jsonl(
-        trace,
-        initial_state(),
-        &Simulator::default(),
-        &Floor,
-        1.0e-12,
-    )
-    .unwrap();
-    assert_eq!(replayed.tick, 18);
+    assert_eq!(
+        verify_scenario_trace_jsonl(trace, &Simulator::default(), 1.0e-12).unwrap(),
+        27
+    );
 
     let provenance: serde_json::Value = serde_json::from_str(include_str!(
         "../fixtures/bedsim-v0.1.3-terrain.provenance.json"
@@ -214,6 +213,48 @@ fn terrain_trace_matches_complete_pinned_ticks_and_binds_provenance() {
     );
     assert_eq!(
         provenance["script_sha256"],
-        "cab0fd15c28f73efe38b9f166f52e2c78fe624e73746206aaa3898523456ffc2"
+        "4ef08cd755a0f8e9480b621c9498790692e29b923196fc7b708049f7e94385d8"
     );
+}
+
+#[test]
+fn terrain_scenario_verifier_detects_environment_and_world_identity_mutations() {
+    let trace = include_str!("../fixtures/bedsim-v0.1.3-terrain.jsonl");
+    let mut records = trace
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    records[0]["expected"]["environment"]["in_water"] = serde_json::Value::Bool(true);
+    let mutated = records
+        .iter()
+        .map(serde_json::Value::to_string)
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
+    assert!(matches!(
+        verify_scenario_trace_jsonl(&mutated, &Simulator::default(), 1.0e-12),
+        Err(ConformanceError::DiscreteMismatch {
+            field: "environment",
+            ..
+        })
+    ));
+
+    let mut records = trace
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    records[0]["expected"]["world_identity"]["preg_sha256"][0] = serde_json::Value::from(255);
+    let mutated = records
+        .iter()
+        .map(serde_json::Value::to_string)
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
+    assert!(matches!(
+        verify_scenario_trace_jsonl(&mutated, &Simulator::default(), 1.0e-12),
+        Err(ConformanceError::DiscreteMismatch {
+            field: "world_identity",
+            ..
+        })
+    ));
 }

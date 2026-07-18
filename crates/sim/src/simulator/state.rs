@@ -39,7 +39,8 @@ pub struct AxisCollisions {
     pub z: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MovementEnvironment {
     pub on_climbable: bool,
     pub in_water: bool,
@@ -77,9 +78,9 @@ pub struct TickResult {
     pub movement: Vec3,
     pub collisions: AxisCollisions,
     pub on_ground: bool,
-    #[serde(skip, default)]
+    #[serde(default)]
     pub environment: MovementEnvironment,
-    #[serde(skip, default = "synthetic_world_identity")]
+    #[serde(default = "synthetic_world_identity")]
     pub world_identity: WorldCollisionIdentity,
 }
 

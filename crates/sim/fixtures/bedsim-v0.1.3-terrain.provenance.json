@@ -4,7 +4,7 @@
   "source_commit": "5be9149df14e30c0ab14f9e01d51dd2acfee5230",
   "module_sum": "h1:tWZ7O48DL/SaWIY+0zz0hFln+DXN4vfatqKr8zTHVo8=",
   "generator": "tools/bedsimtrace --terrain",
-  "generator_source_sha256": "b33f547704ae9f143e489bd6bbc915f21055c9ea6deb2f418805f092bfffac2d",
-  "script_sha256": "cab0fd15c28f73efe38b9f166f52e2c78fe624e73746206aaa3898523456ffc2",
-  "sha256": "65401b6aad8cc6f8a33c6e201106d73be2f34ea847535c7c11b3ebbf99855ece"
+  "generator_source_sha256": "a312382d1d378df8f71d78b449c8b76844b10248673005b6ad43dd542cfd875d",
+  "script_sha256": "4ef08cd755a0f8e9480b621c9498790692e29b923196fc7b708049f7e94385d8",
+  "sha256": "aa9f56d5fbbfaf3eca2493e95c873e0b270f47570432ccc60d3b470f231dd0c9"
 }

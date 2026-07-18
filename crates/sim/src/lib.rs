@@ -8,7 +8,10 @@ mod simulator;
 mod world;
 
 pub use aabb::{Aabb, PLAYER_HEIGHT, PLAYER_HORIZONTAL_EPSILON, PLAYER_WIDTH};
-pub use conformance::{ConformanceError, TraceRecord, verify_trace_jsonl};
+pub use conformance::{
+    ConformanceError, ScenarioExpectedError, ScenarioTraceRecord, ScenarioWorld, TraceRecord,
+    verify_scenario_trace_jsonl, verify_trace_jsonl,
+};
 pub use math::Vec3;
 pub use prediction::{PredictionError, PredictionHistory, ReplayResult};
 pub use simulator::{

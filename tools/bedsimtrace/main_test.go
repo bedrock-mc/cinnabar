@@ -38,10 +38,7 @@ func TestTerrainProvenanceBindsGeneratorScriptAndOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertFileHash(t, "main.go", got.GeneratorSourceSHA256)
-	script, err := json.Marshal(struct {
-		Names  []string        `json:"names"`
-		Inputs []movementInput `json:"inputs"`
-	}{Names: terrainScriptNames(), Inputs: terrainScript()})
+	script, err := json.Marshal(terrainScriptManifest())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,5 +112,45 @@ func TestTerrainScriptsCoverEveryTaskThreeStratum(t *testing.T) {
 		if got[index] != want[index] {
 			t.Fatalf("terrain script %d = %q, want %q", index, got[index], want[index])
 		}
+	}
+}
+
+func TestTerrainFixtureContainsDistinctWorldBoundCompleteScenarios(t *testing.T) {
+	var output bytes.Buffer
+	if err := writeTerrainTrace(&output); err != nil {
+		t.Fatal(err)
+	}
+	seenScenarios := map[string]struct{}{}
+	seenWorlds := map[string]struct{}{}
+	decoder := json.NewDecoder(&output)
+	for decoder.More() {
+		var record map[string]any
+		if err := decoder.Decode(&record); err != nil {
+			t.Fatal(err)
+		}
+		scenario, scenarioOK := record["scenario"].(string)
+		world, worldOK := record["world"].(map[string]any)
+		worldName, worldNameOK := world["name"].(string)
+		expected, expectedOK := record["expected"].(map[string]any)
+		environmentOK, identityOK := false, false
+		if expectedOK {
+			_, environmentOK = expected["environment"].(map[string]any)
+			_, identityOK = expected["world_identity"].(map[string]any)
+		}
+		_, errorOK := record["expected_error"].(string)
+		if !scenarioOK || !worldOK || !worldNameOK || !(expectedOK && environmentOK && identityOK || errorOK) {
+			t.Fatalf("incomplete scenario record: %#v", record)
+		}
+		if _, duplicate := seenScenarios[scenario]; duplicate {
+			t.Fatalf("duplicate scenario %q", scenario)
+		}
+		if _, duplicate := seenWorlds[worldName]; duplicate {
+			t.Fatalf("duplicate world %q", worldName)
+		}
+		seenScenarios[scenario] = struct{}{}
+		seenWorlds[worldName] = struct{}{}
+	}
+	if len(seenScenarios) != len(terrainScriptNames()) {
+		t.Fatalf("scenario count = %d, want %d", len(seenScenarios), len(terrainScriptNames()))
 	}
 }

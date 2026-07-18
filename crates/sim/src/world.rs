@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 use thiserror::Error;
 use world::{ChunkCollisionRevision, ChunkKey, ChunkStore, SubChunkKey};
 
@@ -11,7 +12,8 @@ pub const MAX_COLLISION_QUERY_EXTENT: f64 = 128.0;
 /// Maximum number of distinct columns retained by one immutable query identity.
 pub const MAX_COLLISION_IDENTITY_CHUNKS: usize = 128;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum CollisionIdSpace {
     Sequential,
     Hashed,
@@ -28,6 +30,71 @@ pub struct CollisionRegistryIdentity {
 pub struct WorldCollisionIdentity {
     pub registry: CollisionRegistryIdentity,
     pub chunks: Box<[ChunkCollisionRevision]>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WorldIdentityWire {
+    protocol: u32,
+    id_space: CollisionIdSpace,
+    preg_sha256: [u8; 32],
+    chunks: Vec<ChunkRevisionWire>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ChunkRevisionWire {
+    dimension: i32,
+    x: i32,
+    z: i32,
+    revision: u64,
+}
+
+impl Serialize for WorldCollisionIdentity {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        WorldIdentityWire {
+            protocol: self.registry.protocol,
+            id_space: self.registry.id_space,
+            preg_sha256: self.registry.preg_sha256,
+            chunks: self
+                .chunks
+                .iter()
+                .map(|revision| ChunkRevisionWire {
+                    dimension: revision.chunk.dimension,
+                    x: revision.chunk.x,
+                    z: revision.chunk.z,
+                    revision: revision.revision,
+                })
+                .collect(),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for WorldCollisionIdentity {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = WorldIdentityWire::deserialize(deserializer)?;
+        Self::new(
+            CollisionRegistryIdentity {
+                protocol: wire.protocol,
+                id_space: wire.id_space,
+                preg_sha256: wire.preg_sha256,
+            },
+            wire.chunks
+                .into_iter()
+                .map(|revision| ChunkCollisionRevision {
+                    chunk: ChunkKey::new(revision.dimension, revision.x, revision.z),
+                    revision: revision.revision,
+                }),
+        )
+        .map_err(D::Error::custom)
+    }
 }
 
 impl WorldCollisionIdentity {
@@ -94,7 +161,8 @@ impl<T> CollisionQuery<T> {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct BlockPhysicsFlags(u8);
 
 impl BlockPhysicsFlags {
@@ -127,7 +195,8 @@ impl BlockPhysicsFlags {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 #[repr(u8)]
 pub enum SurfaceResponse {
     #[default]
@@ -156,7 +225,8 @@ impl SurfaceResponse {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BlockPhysicsFacts {
     pub friction: f64,
     pub horizontal_speed_factor: f64,

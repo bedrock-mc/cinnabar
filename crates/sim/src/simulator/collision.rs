@@ -7,6 +7,7 @@ pub(super) struct ResolvedMotion {
     pub resolved: Vec3,
     pub collisions: AxisCollisions,
     pub identity: WorldCollisionIdentity,
+    pub stepped: bool,
 }
 
 pub(super) fn resolve_motion(
@@ -23,18 +24,18 @@ pub(super) fn resolve_motion(
     let normal_y_collision = normal.y != velocity.y;
     let on_ground = was_on_ground || (normal_y_collision && velocity.y < 0.0);
 
-    let resolved_box = if on_ground && normal_horizontal_collision {
+    let (resolved_box, stepped) = if on_ground && normal_horizontal_collision {
         let (step_box, step) = resolve_step(start, velocity, &colliders.value);
         let step_query = bounded_collision_boxes(world, step_box)?;
         identity = identity.merge(&step_query.identity)?;
         let step_blocked = !step_query.value.is_empty();
         if !step_blocked && step.horizontal_length_squared() > normal.horizontal_length_squared() {
-            step_box
+            (step_box, true)
         } else {
-            normal_box
+            (normal_box, false)
         }
     } else {
-        normal_box
+        (normal_box, false)
     };
 
     let end_position = Vec3::new(
@@ -51,6 +52,7 @@ pub(super) fn resolve_motion(
             z: (velocity.z - resolved.z).abs() >= COLLISION_EPSILON,
         },
         identity,
+        stepped,
     })
 }
 

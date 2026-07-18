@@ -53,13 +53,14 @@ pub(super) fn sample(
         });
         if block == support {
             friction = sample.primary().friction;
-            movement.surface_response = sample.primary().surface_response;
+            movement.surface_response = active_surface_response(sample.primary(), player, block);
         }
         for facts in &sample.layers {
+            let active_response = active_surface_response(facts, player, block);
             if movement.surface_response == SurfaceResponse::None
-                && facts.surface_response != SurfaceResponse::None
+                && active_response != SurfaceResponse::None
             {
-                movement.surface_response = facts.surface_response;
+                movement.surface_response = active_response;
             }
             movement.horizontal_speed_factor = movement
                 .horizontal_speed_factor
@@ -83,6 +84,23 @@ pub(super) fn sample(
         friction,
         identity,
     })
+}
+
+fn active_surface_response(
+    facts: &crate::BlockPhysicsFacts,
+    player: Aabb,
+    block: [i32; 3],
+) -> SurfaceResponse {
+    if matches!(
+        facts.surface_response,
+        SurfaceResponse::BubbleUp | SurfaceResponse::BubbleDown
+    ) && !(facts.flags.contains(BlockPhysicsFlags::WATER)
+        && fluid_intersects(player, block, facts.fluid_height_blocks))
+    {
+        SurfaceResponse::None
+    } else {
+        facts.surface_response
+    }
 }
 
 fn fluid_intersects(player: Aabb, block: [i32; 3], height: f64) -> bool {
