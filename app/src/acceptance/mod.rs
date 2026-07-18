@@ -16,6 +16,7 @@ use self::{
 };
 use crate::metrics::TransparentSortMetricsSnapshot;
 
+mod exit;
 pub(crate) mod markers;
 pub(crate) mod model_witness;
 pub(crate) mod mutation;
@@ -24,6 +25,8 @@ pub(crate) mod remesh;
 pub(crate) mod teleport;
 pub(crate) mod transparent_witness;
 pub(crate) mod world_ready;
+
+pub(crate) use exit::AcceptanceExitDecision;
 
 pub(crate) const PHASE0_REQUESTED_RADIUS_CHUNKS: i32 = 16;
 pub(crate) const TRANSPARENT_PRESENTATION_EXIT_GRACE: Duration = Duration::from_secs(2);
@@ -44,21 +47,6 @@ pub(crate) struct AcceptanceRun {
     pub(crate) world_ready: bool,
     pub(crate) require_transparent_presentation: bool,
     pub(crate) finished: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum AcceptanceExitDecision {
-    Continue,
-    WaitForTransparentPresentation,
-    Complete,
-    Fatal,
-    TransparentPresentationTimedOut,
-}
-
-impl AcceptanceExitDecision {
-    pub(crate) const fn is_error(self) -> bool {
-        matches!(self, Self::Fatal | Self::TransparentPresentationTimedOut)
-    }
 }
 
 impl AcceptanceRun {
