@@ -966,6 +966,11 @@ fn render_players_join_roster_skins_and_sort_by_runtime_id() {
     );
     assert_eq!(players[0].1.map(|profile| &profile.skin), Some(&skin));
     assert!(players[1].1.is_none());
+    assert_eq!(
+        store.player_profile(10).map(|profile| &profile.skin),
+        Some(&skin),
+        "the exact roster profile remains addressable even when remote publication excludes it",
+    );
 
     let remote_players = store.render_players(Some(10));
     assert_eq!(remote_players.len(), 1);
