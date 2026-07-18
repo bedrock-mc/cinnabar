@@ -8,6 +8,7 @@ mod item;
 mod login;
 mod movement;
 mod packet;
+mod raw_text;
 mod socket_transport;
 mod ui;
 mod world;
@@ -52,6 +53,10 @@ pub use movement::{
     player_auth_input,
 };
 pub use packet::Packet;
+pub use raw_text::{
+    MAX_RAW_TEXT_COMPONENTS, MAX_RAW_TEXT_DEPTH, MAX_RAW_TEXT_INPUT_BYTES, MAX_RAW_TEXT_NODES,
+    MAX_RAW_TEXT_OUTPUT_BYTES, RawTextComponent, RawTextDocument, parse_raw_text,
+};
 pub use socket_transport::SocketTransport;
 pub use ui::{
     BlockCrackAction, BlockCrackEvent, BossAction, BossColor, BossEvent, BossOverlay, BossStyle,
@@ -59,8 +64,9 @@ pub use ui::{
     ChatAutocompleteCompletion, ChatAutocompleteEvent, ChatPacketError, FormRequestEvent, HudEvent,
     MAX_BOSS_EVENTS, MAX_CHAT_AUTOCOMPLETE, MAX_CHAT_AUTOCOMPLETE_BYTES, MAX_CHAT_PARAMETERS,
     MAX_FORM_JSON_BYTES, MAX_OUTBOUND_CHAT_BYTES, MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES,
-    ObjectiveEvent, PlayerStatus, ScoreAction, ScoreEntry, ScoreEvent, ScoreIdentity, TextCategory,
-    TextEvent, TextKind, TitleAction, TitleEvent, UiEvent, UiPacketError, chat_text_packet,
+    ObjectiveEvent, PlayerStatus, RawTextEvent, ScoreAction, ScoreEntry, ScoreEvent, ScoreIdentity,
+    TextCategory, TextEvent, TextKind, TitleAction, TitleEvent, UiEvent, UiPacketError,
+    chat_text_packet,
 };
 pub use valentine::bedrock::context::BedrockSession;
 pub use valentine::bedrock::version::v1_26_30::{GAME_VERSION, PROTOCOL_VERSION};
