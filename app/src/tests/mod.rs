@@ -77,25 +77,34 @@ use crate::runtime::{
     visibility::{CaveVisibilityCache, apply_added_chunk_visibility, remove_chunk_visibility},
     world::{
         ShutdownWatchdog, apply_committed_control, arm_shutdown_watchdog, flush_sub_chunk_requests,
-        model_gallery_camera_committed_marker, startup_biome_tints, synchronize_biome_tints,
-        world_stream_fatal_message,
+        model_gallery_camera_committed_marker, refresh_mutation_anchor_from_committed_control,
+        startup_biome_tints, synchronize_biome_tints, world_stream_fatal_message,
     },
 };
 use client_world::{
-    CommittedControlEvent, ForcedRemeshManifest, ForcedRemeshManifestState, ViewCohort,
-    ViewCohortStatus, WorldMeshChange, WorldStream, WorldStreamFatalError, WorldStreamStats,
+    CommittedControlEvent, ForcedRemeshManifest, ForcedRemeshManifestState, PublisherViewGeometry,
+    ViewCohort, ViewCohortStatus, WorldMeshChange, WorldStream, WorldStreamFatalError,
+    WorldStreamStats,
 };
 
 const DESTINATION_COHORT: ViewCohort = ViewCohort {
     dimension: 0,
     center: [65, 65],
     radius: 16,
+    publisher_geometry: Some(PublisherViewGeometry {
+        center_blocks: [1_040, 1_040],
+        radius_blocks: 256,
+    }),
 };
 
 const SOURCE_COHORT: ViewCohort = ViewCohort {
     dimension: 0,
     center: [0, 0],
     radius: 16,
+    publisher_geometry: Some(PublisherViewGeometry {
+        center_blocks: [0, 0],
+        radius_blocks: 256,
+    }),
 };
 
 fn exact_destination_status() -> ViewCohortStatus {
@@ -103,6 +112,7 @@ fn exact_destination_status() -> ViewCohortStatus {
         target: DESTINATION_COHORT,
         committed: Some(DESTINATION_COHORT),
         expected: 797,
+        required_hash: 0x9abc,
         loaded_target: 797,
         missing_target: 0,
         foreign_loaded: 0,

@@ -611,6 +611,7 @@ pub(super) fn settled_world_snapshot() -> WorldReadySnapshot {
         mutation_coordinate: Some([14, 71, -6]),
         received_radius_chunks: Some(16),
         publisher_radius_chunks: Some(16),
+        cohort: Some(exact_destination_status()),
         rendered_sub_chunks: 2,
         resident_sub_chunks: 3,
         visible_sub_chunks: 1,

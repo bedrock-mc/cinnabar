@@ -8,7 +8,6 @@ use client_world::ViewCohortStatus;
 use render::{PresentedFrameAck, RenderViewCohort, TargetRenderExpectation};
 use world::SubChunkKey;
 
-use super::PHASE0_REQUESTED_RADIUS_CHUNKS;
 use super::teleport::{
     FullViewTeleportCompletion, TeleportReadySnapshot, presented_ack_matches, render_view_cohort,
 };
@@ -111,10 +110,7 @@ impl FullViewRemeshTracker {
             return None;
         }
         let pending = self.pending.as_ref()?;
-        if snapshot.received_radius_chunks != Some(PHASE0_REQUESTED_RADIUS_CHUNKS)
-            || snapshot.publisher_radius_chunks != Some(PHASE0_REQUESTED_RADIUS_CHUNKS)
-            || snapshot.cohort != Some(pending.cohort)
-        {
+        if snapshot.cohort != Some(pending.cohort) {
             self.invalidate();
             return None;
         }

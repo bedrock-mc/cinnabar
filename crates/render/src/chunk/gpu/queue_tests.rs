@@ -275,7 +275,7 @@ fn a_first_arena_growth_can_cross_the_combined_byte_cap_but_remains_accounted() 
     let budget = ChunkUploadBudget::new(1, 103);
     let mut reservation = GpuUploadReservation::default();
 
-    assert!(reservation.try_reserve(budget, 40, 64));
+    assert!(reservation.try_reserve(budget, 40, 64, 64));
     assert_eq!(reservation.items, 1);
     assert_eq!(reservation.incremental_bytes, 40);
     assert_eq!(reservation.growth_copy_bytes, 64);
@@ -287,11 +287,54 @@ fn one_growth_copy_can_cross_the_frame_cap_to_prevent_a_permanent_arena_stall() 
     let budget = ChunkUploadBudget::new(8, 4 * 1024 * 1024);
     let mut reservation = GpuUploadReservation::default();
 
-    assert!(reservation.try_reserve(budget, 64 * 1024, 8 * 1024 * 1024));
+    assert!(reservation.try_reserve(budget, 64 * 1024, 8 * 1024 * 1024, 8 * 1024 * 1024,));
     assert_eq!(reservation.items, 1);
     assert_eq!(reservation.incremental_bytes, 64 * 1024);
     assert_eq!(reservation.growth_copy_bytes, 8 * 1024 * 1024);
-    assert!(!reservation.try_reserve(budget, 1, 0));
+    assert!(!reservation.try_reserve(budget, 1, 0, 8 * 1024 * 1024));
+}
+
+#[test]
+fn adapter_bounded_arena_growth_cannot_bypass_its_dedicated_ceiling() {
+    let budget = ChunkUploadBudget::new(8, 1);
+    let mut reservation = GpuUploadReservation::default();
+    let limits = ArenaLimits {
+        max_quad_items: 1024,
+        max_geometry_stream_words: 2048,
+        max_origin_items: 128,
+        max_biome_words: 512,
+    };
+    let ceiling = arena_growth_copy_ceiling(limits);
+
+    assert!(!reservation.try_reserve(budget, 1, ceiling.saturating_add(1), ceiling));
+    assert_eq!(reservation, GpuUploadReservation::default());
+}
+
+#[test]
+fn every_legal_whole_arena_growth_fits_the_adapter_bounded_ceiling() {
+    let limits = ArenaLimits {
+        max_quad_items: 32,
+        max_geometry_stream_words: 32,
+        max_origin_items: 32,
+        max_biome_words: 32,
+    };
+    let capacities = ArenaRequiredLengths {
+        quads: 16,
+        geometry_stream_words: 16,
+        origins: 16,
+        biome_words: 16,
+    };
+    let required = ArenaRequiredLengths {
+        quads: 32,
+        geometry_stream_words: 32,
+        origins: 32,
+        biome_words: 32,
+    };
+
+    assert!(
+        planned_arena_growth_copy_bytes(capacities, required, limits).unwrap()
+            <= arena_growth_copy_ceiling(limits)
+    );
 }
 
 #[test]

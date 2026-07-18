@@ -9,7 +9,7 @@ use world::SubChunkKey;
 use super::{
     markers::{MOVE_PLAYER_INGRESS, MUTATION_COORDINATE, TARGET_MUTATION_ARMED, WORLD_READY},
     teleport::presented_ack_matches,
-    world_ready::{WorldReadySnapshot, authoritative_publisher_radius},
+    world_ready::{WorldReadySnapshot, authoritative_received_radius},
 };
 
 const MUTATION_X_OFFSET_BLOCKS: i32 = 4;
@@ -269,10 +269,8 @@ pub(crate) fn target_mutation_armed_marker(
 
 pub(crate) fn world_ready_markers(snapshot: WorldReadySnapshot) -> Option<[String; 2]> {
     let coordinate = snapshot.mutation_coordinate?;
-    let publisher_radius = authoritative_publisher_radius(
-        snapshot.received_radius_chunks,
-        snapshot.publisher_radius_chunks,
-    )?;
+    authoritative_received_radius(snapshot.received_radius_chunks)?;
+    let cohort = snapshot.cohort.filter(|status| status.is_exact())?;
     if snapshot.rendered_sub_chunks == 0
         || snapshot.resident_sub_chunks == 0
         || snapshot.visible_sub_chunks == 0
@@ -290,7 +288,7 @@ pub(crate) fn world_ready_markers(snapshot: WorldReadySnapshot) -> Option<[Strin
         ),
         format!(
             "{WORLD_READY} radius={} rendered={} resident={} visible={}",
-            publisher_radius,
+            cohort.target.radius,
             snapshot.rendered_sub_chunks,
             snapshot.resident_sub_chunks,
             snapshot.visible_sub_chunks,

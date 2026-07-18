@@ -320,7 +320,7 @@ fn acceptance_orients_a_normal_camera_toward_the_mutation_before_readiness() {
 #[test]
 fn world_ready_markers_require_radius_rendering_and_include_the_exact_coordinate() {
     let mut snapshot = settled_world_snapshot();
-    snapshot.received_radius_chunks = Some(15);
+    snapshot.received_radius_chunks = Some(17);
     assert_eq!(world_ready_markers(snapshot), None);
     snapshot.received_radius_chunks = Some(16);
     snapshot.publisher_radius_chunks = Some(8);
@@ -331,11 +331,46 @@ fn world_ready_markers_require_radius_rendering_and_include_the_exact_coordinate
         world_ready_markers(snapshot),
         Some([
             format!("{MUTATION_COORDINATE}=14,71,-6"),
-            format!("{WORLD_READY} radius=8 rendered=2 resident=3 visible=1"),
+            format!("{WORLD_READY} radius=16 rendered=2 resident=3 visible=1"),
         ])
     );
 
     snapshot.publisher_radius_chunks = Some(17);
+    assert!(world_ready_markers(snapshot).is_some());
+
+    snapshot.cohort = None;
+    assert_eq!(world_ready_markers(snapshot), None);
+}
+
+#[test]
+fn world_ready_binds_to_all_177_members_of_a_raw_120_publisher_cohort() {
+    let target = ViewCohort::from_publisher(0, [-1350, 80, 1634], 120);
+    let mut status = ViewCohortStatus {
+        target,
+        committed: Some(target),
+        expected: 177,
+        required_hash: 0x120,
+        loaded_target: 177,
+        missing_target: 0,
+        foreign_loaded: 0,
+        foreign_requested: 0,
+        foreign_resident: 0,
+        source_leftover: 0,
+        resident_count: 3,
+        resident_hash: 1,
+        known_air_count: 0,
+        known_air_hash: 0,
+    };
+    let mut snapshot = settled_world_snapshot();
+    snapshot.received_radius_chunks = Some(16);
+    snapshot.publisher_radius_chunks = Some(8);
+    snapshot.cohort = Some(status);
+
+    assert!(world_ready_markers(snapshot).is_some());
+
+    status.loaded_target = 176;
+    status.missing_target = 1;
+    snapshot.cohort = Some(status);
     assert_eq!(world_ready_markers(snapshot), None);
 }
 
@@ -346,6 +381,9 @@ fn teleport_readiness_accepts_the_servers_smaller_authoritative_publisher_disk()
     assert!(snapshot.is_binding_ready());
 
     snapshot.publisher_radius_chunks = Some(17);
+    assert!(snapshot.is_binding_ready());
+
+    snapshot.cohort.as_mut().unwrap().missing_target = 1;
     assert!(!snapshot.is_binding_ready());
 }
 
@@ -1113,6 +1151,176 @@ fn committed_movement_correction_updates_local_camera_position_and_rotation() {
         0.0001
     ));
     assert_eq!(pending_surface_spawn, None);
+}
+
+#[test]
+fn world_ready_requires_two_exact_gpu_presented_frames_bound_to_the_raw_cohort() {
+    let started = Instant::now();
+    let snapshot = settled_world_snapshot();
+    let key = SubChunkKey::new(0, 64, 65, 65);
+    let mut proposed = proposed_render_expectation(started, [(key, 7)]);
+    proposed.source_cohort = None;
+    let mut settler = WorldReadySettler::default();
+
+    let expectation = settler
+        .reconcile_presentation(snapshot, proposed.clone(), started)
+        .expect("exact raw cohort should arm a downstream presentation gate");
+    assert!(!settler.has_stable_presentation(snapshot));
+    assert!(!settler.observe_presented_frame(presented_acknowledgement(
+        &expectation,
+        10,
+        Duration::from_millis(1),
+        Duration::from_millis(2),
+    )));
+    assert!(settler.observe_presented_frame(presented_acknowledgement(
+        &expectation,
+        11,
+        Duration::from_millis(3),
+        Duration::from_millis(4),
+    )));
+    assert!(settler.has_stable_presentation(snapshot));
+    assert!(settler.observe_presented_frame(presented_acknowledgement(
+        &expectation,
+        12,
+        Duration::from_millis(5),
+        Duration::from_millis(6),
+    )));
+    let mut invalid = presented_acknowledgement(
+        &expectation,
+        13,
+        Duration::from_millis(7),
+        Duration::from_millis(8),
+    );
+    invalid.foreign_instances = 1;
+    assert!(!settler.observe_presented_frame(invalid));
+    assert!(!settler.has_stable_presentation(snapshot));
+    assert!(!settler.observe_presented_frame(presented_acknowledgement(
+        &expectation,
+        14,
+        Duration::from_millis(9),
+        Duration::from_millis(10),
+    )));
+    assert!(settler.observe_presented_frame(presented_acknowledgement(
+        &expectation,
+        15,
+        Duration::from_millis(11),
+        Duration::from_millis(12),
+    )));
+
+    let mut changed = snapshot;
+    changed.cohort.as_mut().unwrap().required_hash ^= 1;
+    assert!(
+        settler
+            .reconcile_presentation(changed, proposed, started + Duration::from_secs(1))
+            .is_some()
+    );
+    assert!(!settler.has_stable_presentation(changed));
+}
+
+#[test]
+fn mutation_completion_revalidates_the_frozen_raw_publisher_cohort() {
+    let coordinate = [14, 71, -6];
+    let key = SubChunkKey::new(0, 0, 4, -1);
+    let mut acceptance = AcceptanceRun::new(Some(900), None, false, false);
+    acceptance.set_mutation_coordinate(coordinate);
+    let observed = Instant::now() + Duration::from_millis(1);
+    let frozen = exact_destination_status();
+    assert!(acceptance.bind_mutation_cohort(frozen));
+    acceptance.observe_mutation(
+        &WorldEvent::BlockUpdates(vec![BlockUpdateEvent {
+            dimension: 0,
+            position: coordinate,
+            layer: 0,
+            network_id: 7,
+        }]),
+        observed,
+    );
+
+    let mut changed = frozen;
+    changed.required_hash ^= 1;
+    assert_eq!(
+        acceptance.acknowledge_mutation(key, 1, observed, observed, Some(changed)),
+        None
+    );
+    assert_eq!(
+        acceptance.acknowledge_mutation(key, 1, observed, observed, Some(frozen)),
+        Some(Duration::ZERO)
+    );
+}
+
+#[test]
+fn start_game_anchor_tracks_fifo_move_correction_and_dimension_before_surface_resolution() {
+    let correction = PlayerMovementCorrectionEvent {
+        position: [-1351.25, 92.62, 1647.75],
+        delta: [0.0; 3],
+        pitch: 0.0,
+        yaw: 0.0,
+        on_ground: false,
+        tick: 55,
+    };
+    let correction_control = CommittedControlEvent::PlayerMovementCorrection {
+        sequence: 7,
+        correction,
+        resolved: client_world::ResolvedServerPosition {
+            position: correction.position,
+            surface_anchor: None,
+        },
+    };
+    let mut acceptance = AcceptanceRun::new(Some(900), None, false, false);
+    // This is the StartGame bootstrap anchor; production must not freeze it
+    // while later FIFO-authoritative controls are still committing.
+    acceptance.set_mutation_surface_anchor([0, 0]);
+    let movement = protocol::MovePlayerEvent {
+        runtime_id: 1,
+        position: [-1340.25, 94.0, 1659.75],
+        ..Default::default()
+    };
+    let move_control = CommittedControlEvent::MovePlayer {
+        sequence: 8,
+        movement,
+        resolved: client_world::ResolvedServerPosition {
+            position: movement.position,
+            surface_anchor: None,
+        },
+        source_cohort: None,
+    };
+    let change = protocol::ChangeDimensionEvent {
+        dimension: 1,
+        position: [240.75, 82.0, -17.25],
+    };
+    let dimension_control = CommittedControlEvent::ChangeDimension {
+        change,
+        resolved: client_world::ResolvedServerPosition {
+            position: change.position,
+            surface_anchor: None,
+        },
+    };
+    let mut camera = Transform::default();
+    let mut pending_surface_spawn = None;
+    for control in [correction_control, move_control, dimension_control] {
+        assert!(refresh_mutation_anchor_from_committed_control(
+            &mut acceptance,
+            &control,
+        ));
+        apply_committed_control(control, &mut camera, &mut pending_surface_spawn);
+    }
+    assert_eq!(acceptance.mutation_surface_anchor(), Some([240, -18]));
+    assert_eq!(camera.translation, Vec3::from_array(change.position));
+
+    let coordinate = deterministic_mutation_coordinate([240.75, 80.62, -17.25], [240, -18]);
+    acceptance.set_mutation_coordinate(coordinate);
+    assert!(!refresh_mutation_anchor_from_committed_control(
+        &mut acceptance,
+        &CommittedControlEvent::PlayerMovementCorrection {
+            sequence: 10,
+            correction,
+            resolved: client_world::ResolvedServerPosition {
+                position: correction.position,
+                surface_anchor: None,
+            },
+        },
+    ));
+    assert_eq!(acceptance.source_mutation_coordinate(), Some(coordinate));
 }
 
 #[test]

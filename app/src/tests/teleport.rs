@@ -127,10 +127,7 @@ fn full_view_teleport_preserves_the_servers_authoritative_source_radius() {
         yaw: 0.0,
         ..Default::default()
     };
-    let source = ViewCohort {
-        radius: 8,
-        ..SOURCE_COHORT
-    };
+    let source = ViewCohort::from_publisher(0, [0, 70, 0], 120);
     let mut tracker = FullViewTeleportTracker::new(true);
     tracker.set_source_mutation_coordinate([0, 58, 0]);
     tracker.begin_world_ready([0.5, 70.0, 0.5], 1);
@@ -140,6 +137,13 @@ fn full_view_teleport_preserves_the_servers_authoritative_source_radius() {
     let pending = tracker.pending.as_ref().expect("teleport should arm");
     assert_eq!(pending.source.radius, 8);
     assert_eq!(pending.target.radius, 8);
+    assert_eq!(
+        pending.target.publisher_geometry,
+        Some(client_world::PublisherViewGeometry {
+            center_blocks: [1_040, 1_040],
+            radius_blocks: 120,
+        })
+    );
 }
 
 #[test]

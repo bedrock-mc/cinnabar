@@ -142,7 +142,7 @@ fn publication_snapshot_separates_every_stage_and_subchunk_outcome() {
     assert_eq!(snapshot.player_column, keys[0].chunk());
     assert_eq!(snapshot.publisher_radius_blocks, Some(16));
     assert_eq!(snapshot.publisher_radius_chunks, Some(1));
-    assert_eq!(snapshot.required_columns, 1);
+    assert_eq!(snapshot.required_columns, 5);
     assert_eq!(snapshot.loaded_required_columns, 1);
     assert_eq!(snapshot.outcomes.success, 1);
     assert_eq!(snapshot.outcomes.all_air, 1);

@@ -234,6 +234,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             *budget,
             instance_bytes,
             projected_growth_copy_bytes,
+            arena_growth_copy_ceiling(arena.limits),
         ) {
             continue;
         }

@@ -105,8 +105,9 @@ use model::{
 };
 pub use model::{
     CommittedControlEvent, CommittedUiEvent, ForcedRemeshManifest, ForcedRemeshManifestState,
-    PendingSubChunkRequest, ViewCohort, ViewCohortStatus, WorldMeshChange, WorldStreamError,
-    WorldStreamFatalError, WorldStreamNormalizationStats, WorldStreamPoll, WorldStreamStats,
+    PendingSubChunkRequest, PublisherViewGeometry, ViewCohort, ViewCohortStatus, WorldMeshChange,
+    WorldStreamError, WorldStreamFatalError, WorldStreamNormalizationStats, WorldStreamPoll,
+    WorldStreamStats,
 };
 
 /// Ordered Bedrock world ingestion and bounded background meshing.

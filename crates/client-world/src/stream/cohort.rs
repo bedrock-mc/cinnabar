@@ -1,3 +1,4 @@
+use super::diagnostics::deterministic_chunk_key_hash;
 use super::*;
 
 impl WorldStream {
@@ -44,6 +45,7 @@ impl WorldStream {
             target,
             committed: self.committed_view_cohort,
             expected: expected_columns.len(),
+            required_hash: deterministic_chunk_key_hash(&expected_columns),
             loaded_target,
             missing_target,
             foreign_loaded,

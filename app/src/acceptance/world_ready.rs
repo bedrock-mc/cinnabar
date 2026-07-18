@@ -4,7 +4,11 @@ use bevy::{
     log::error,
     prelude::{Query, Res, ResMut, Transform, Vec3, With},
 };
-use render::{ChunkRenderQueue, ChunkUploadAcknowledgements, PresentedFrameGate};
+use client_world::ViewCohortStatus;
+use render::{
+    ChunkRenderQueue, ChunkUploadAcknowledgements, PresentedFrameAck, PresentedFrameGate,
+    TargetRenderExpectation,
+};
 use world::SubChunkKey;
 
 use super::{
@@ -16,7 +20,8 @@ use super::{
         forced_remesh_proof, forced_remesh_settled_marker, teleport_proof, teleport_settled_marker,
     },
     teleport::{
-        TeleportReadySnapshot, render_view_cohort, teleport_global_stage_diagnostic_marker,
+        TeleportReadySnapshot, presented_ack_matches, render_view_cohort,
+        teleport_global_stage_diagnostic_marker,
     },
 };
 use crate::{
@@ -32,17 +37,9 @@ pub(crate) const WORLD_READY_QUIET_INTERVAL: std::time::Duration =
     std::time::Duration::from_secs(2);
 
 #[must_use]
-pub(crate) fn authoritative_publisher_radius(
-    received_radius_chunks: Option<i32>,
-    publisher_radius_chunks: Option<i32>,
-) -> Option<i32> {
+pub(crate) fn authoritative_received_radius(received_radius_chunks: Option<i32>) -> Option<i32> {
     let received = received_radius_chunks?;
-    let publisher = publisher_radius_chunks?;
-    (received > 0
-        && received <= PHASE0_REQUESTED_RADIUS_CHUNKS
-        && publisher > 0
-        && publisher <= received)
-        .then_some(publisher)
+    (received > 0 && received <= PHASE0_REQUESTED_RADIUS_CHUNKS).then_some(received)
 }
 
 #[must_use]
@@ -108,6 +105,7 @@ pub(crate) struct WorldReadySnapshot {
     pub(crate) mutation_coordinate: Option<[i32; 3]>,
     pub(crate) received_radius_chunks: Option<i32>,
     pub(crate) publisher_radius_chunks: Option<i32>,
+    pub(crate) cohort: Option<ViewCohortStatus>,
     pub(crate) rendered_sub_chunks: usize,
     pub(crate) resident_sub_chunks: usize,
     pub(crate) visible_sub_chunks: usize,
@@ -120,9 +118,76 @@ pub(crate) struct WorldReadySnapshot {
 #[derive(Debug, Default)]
 pub(crate) struct WorldReadySettler {
     pub(crate) candidate: Option<(WorldReadySnapshot, Instant)>,
+    pub(crate) presentation: Option<WorldReadyPresentationCandidate>,
+    pub(crate) next_view_generation: u64,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct WorldReadyPresentationCandidate {
+    pub(crate) snapshot: WorldReadySnapshot,
+    pub(crate) expectation: TargetRenderExpectation,
+    pub(crate) first_frame: Option<PresentedFrameAck>,
+    pub(crate) stable: bool,
 }
 
 impl WorldReadySettler {
+    pub(crate) fn reconcile_presentation(
+        &mut self,
+        snapshot: WorldReadySnapshot,
+        mut proposed: TargetRenderExpectation,
+        now: Instant,
+    ) -> Option<TargetRenderExpectation> {
+        if world_ready_markers(snapshot).is_none() || proposed.manifest.is_empty() {
+            self.presentation = None;
+            return None;
+        }
+        if let Some(candidate) = &self.presentation
+            && candidate.snapshot == snapshot
+            && candidate.expectation.cohort == proposed.cohort
+            && candidate.expectation.source_cohort == proposed.source_cohort
+            && candidate.expectation.manifest == proposed.manifest
+        {
+            return Some(candidate.expectation.clone());
+        }
+        self.next_view_generation = self.next_view_generation.wrapping_add(1).max(1);
+        proposed.view_generation = self.next_view_generation;
+        proposed.render_ready_at = now;
+        self.presentation = Some(WorldReadyPresentationCandidate {
+            snapshot,
+            expectation: proposed.clone(),
+            first_frame: None,
+            stable: false,
+        });
+        Some(proposed)
+    }
+
+    pub(crate) fn observe_presented_frame(&mut self, acknowledgement: PresentedFrameAck) -> bool {
+        let Some(candidate) = &mut self.presentation else {
+            return false;
+        };
+        if !presented_ack_matches(
+            candidate.expectation.render_ready_at,
+            &candidate.expectation,
+            &acknowledgement,
+        ) {
+            candidate.first_frame = None;
+            candidate.stable = false;
+            return false;
+        }
+        let first = candidate.first_frame.take();
+        candidate.stable = first
+            .as_ref()
+            .is_some_and(|first| first.forms_stable_exact_pair_with(&acknowledgement));
+        candidate.first_frame = Some(acknowledgement);
+        candidate.stable
+    }
+
+    pub(crate) fn has_stable_presentation(&self, snapshot: WorldReadySnapshot) -> bool {
+        self.presentation
+            .as_ref()
+            .is_some_and(|candidate| candidate.snapshot == snapshot && candidate.stable)
+    }
+
     pub(crate) fn observe(
         &mut self,
         snapshot: WorldReadySnapshot,
@@ -370,6 +435,10 @@ pub(crate) fn emit_world_ready(
                     error!("forced remesh completed without deterministic mutation coordinates");
                     return;
                 };
+                if !acceptance.bind_mutation_cohort(cohort) {
+                    error!("could not bind target mutation to the exact raw publisher cohort");
+                    return;
+                }
                 if !acceptance.retarget_mutation(target, completion.stable_frame.gpu_completed_at) {
                     error!(
                         ?target,
@@ -401,8 +470,11 @@ pub(crate) fn emit_world_ready(
                 });
         if let Some((target, source)) = completed_remesh_target {
             let proposed = render_queue.freeze_target_expectation(target, source, 0, observed_at);
-            let expectation =
-                acceptance.reconcile_mutation_presented_expectation(proposed, observed_at);
+            let expectation = acceptance.reconcile_mutation_presented_expectation(
+                proposed,
+                snapshot.cohort,
+                observed_at,
+            );
             if let Some(expectation) = expectation {
                 presented_frames.set_expectation(expectation);
                 if let Some(latency) =
@@ -441,6 +513,9 @@ pub(crate) fn emit_world_ready(
         mutation_coordinate,
         received_radius_chunks: stats.received_radius_chunks,
         publisher_radius_chunks: stats.publisher_radius_chunks,
+        cohort: stream
+            .committed_view_cohort()
+            .map(|target| stream.cohort_status(target)),
         rendered_sub_chunks: cache.rendered.len(),
         resident_sub_chunks: stats.resident_sub_chunks,
         visible_sub_chunks: cache.visible_rendered,
@@ -451,6 +526,24 @@ pub(crate) fn emit_world_ready(
         work,
     };
     let ready_at = Instant::now();
+    let proposed = snapshot.cohort.map(|status| {
+        render_queue.freeze_target_expectation(render_view_cohort(status.target), None, 0, ready_at)
+    });
+    let expectation = proposed.and_then(|proposed| {
+        acceptance
+            .world_ready_settler
+            .reconcile_presentation(snapshot, proposed, ready_at)
+    });
+    if let Some(expectation) = expectation {
+        presented_frames.set_expectation(expectation);
+    } else {
+        presented_frames.clear();
+    }
+    for acknowledgement in presented_frames.drain() {
+        let _ = acceptance
+            .world_ready_settler
+            .observe_presented_frame(acknowledgement);
+    }
     if let Some(marker) = acceptance
         .gallery_anchor
         .observe(model_witness_source.configured(), snapshot)
@@ -461,6 +554,13 @@ pub(crate) fn emit_world_ready(
     let Some(markers) = acceptance.world_ready_settler.observe(snapshot, ready_at) else {
         return;
     };
+    if !acceptance
+        .world_ready_settler
+        .has_stable_presentation(snapshot)
+    {
+        return;
+    }
+    presented_frames.clear();
     metrics
         .0
         .record_asset_counters(missing_mapping_count, diagnostic_quads.0.total());
@@ -479,6 +579,14 @@ pub(crate) fn emit_world_ready(
     let _ = stdout.flush();
     stream.begin_timed_session();
     metrics.0.begin_timed_session(ready_at);
+    let Some(cohort) = snapshot.cohort else {
+        error!("world-ready markers emitted without an exact raw publisher cohort");
+        return;
+    };
+    if !acceptance.bind_mutation_cohort(cohort) {
+        error!("world-ready markers emitted with an inexact raw publisher cohort");
+        return;
+    }
     acceptance.begin_world_ready(
         ready_at,
         stream.resolved_server_position().position,

@@ -12,7 +12,7 @@ use super::{
     PHASE0_REQUESTED_RADIUS_CHUNKS,
     markers::{TELEPORT_COHORT, TELEPORT_GLOBAL_STAGE_DIAGNOSTIC},
     proofs::{horizontal_chunk, optional_duration_milliseconds, optional_milliseconds_token},
-    world_ready::{SubChunkTimeoutProgress, WorldReadyWork, authoritative_publisher_radius},
+    world_ready::{SubChunkTimeoutProgress, WorldReadyWork, authoritative_received_radius},
 };
 
 const TELEPORT_COHORT_PROGRESS_INTERVAL: Duration = Duration::from_secs(1);
@@ -36,8 +36,7 @@ pub(crate) struct TeleportReadySnapshot {
 
 impl TeleportReadySnapshot {
     pub(crate) fn is_binding_ready(self) -> bool {
-        authoritative_publisher_radius(self.received_radius_chunks, self.publisher_radius_chunks)
-            .is_some()
+        authoritative_received_radius(self.received_radius_chunks).is_some()
             && self.cohort.is_some_and(ViewCohortStatus::is_exact)
             && self.work.is_empty()
     }
@@ -315,11 +314,25 @@ impl FullViewTeleportTracker {
         else {
             return false;
         };
-        let target = ViewCohort {
-            dimension: source.dimension,
-            center: target_center,
-            radius: source.radius,
-        };
+        let target = source.publisher_geometry.map_or(
+            ViewCohort {
+                dimension: source.dimension,
+                center: target_center,
+                radius: source.radius,
+                publisher_geometry: None,
+            },
+            |geometry| {
+                ViewCohort::from_publisher(
+                    source.dimension,
+                    [
+                        movement.position[0].floor() as i32,
+                        movement.position[1].floor() as i32,
+                        movement.position[2].floor() as i32,
+                    ],
+                    geometry.radius_blocks,
+                )
+            },
+        );
         if source == target {
             return false;
         }
@@ -360,10 +373,16 @@ impl FullViewTeleportTracker {
     ) -> bool {
         self.next_test_sequence = self.next_test_sequence.saturating_add(1);
         let sequence = self.next_test_sequence;
-        let source = self.origin_chunk.map(|center| ViewCohort {
-            dimension: current_dimension,
-            center,
-            radius: PHASE0_REQUESTED_RADIUS_CHUNKS,
+        let source = self.origin_chunk.map(|center| {
+            ViewCohort::from_publisher(
+                current_dimension,
+                [
+                    center[0].saturating_mul(16),
+                    0,
+                    center[1].saturating_mul(16),
+                ],
+                (PHASE0_REQUESTED_RADIUS_CHUNKS as u32).saturating_mul(16),
+            )
         });
         let capture = self.observe_ingress(
             event,

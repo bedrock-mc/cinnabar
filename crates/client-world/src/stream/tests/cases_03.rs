@@ -6,18 +6,19 @@ fn publisher_required_disk_is_distinct_from_square_prefetch_scope() {
         dimension: 0,
         center: [10, -10],
         radius: 1,
+        publisher_geometry: None,
     };
 
-    assert_eq!(cohort.expected_columns().len(), 1);
+    assert_eq!(cohort.expected_columns().len(), 5);
     assert!(
         cohort
             .expected_columns()
-            .contains(&ChunkKey::new(0, 10, -10))
+            .contains(&ChunkKey::new(0, 11, -10))
     );
     assert!(
         !cohort
             .expected_columns()
-            .contains(&ChunkKey::new(0, 11, -10))
+            .contains(&ChunkKey::new(0, 11, -9))
     );
     assert!(cohort.contains_column(0, [11, -9]));
     assert!(!cohort.contains_column(0, [12, -10]));
@@ -43,14 +44,125 @@ fn publisher_block_position_and_radius_use_euclidean_chunk_conversion() {
 
 #[test]
 fn publisher_block_radius_uses_the_fully_retained_chunk_disk() {
-    let cohort = super::ViewCohort::from_publisher(0, [-1350, 104, 1634], 128);
+    let radius_120 = super::ViewCohort::from_publisher(0, [-1350, 104, 1634], 120);
+    let radius_128 = super::ViewCohort::from_publisher(0, [-1350, 104, 1634], 128);
+    let radius_256 = super::ViewCohort::from_publisher(0, [-1350, 104, 1634], 256);
 
-    assert_eq!(cohort.expected_columns().len(), 177);
-    assert!(
-        cohort
-            .expected_columns()
-            .contains(&ChunkKey::new(0, -85, 102))
+    assert_eq!(radius_120.expected_columns().len(), 177);
+    assert_eq!(radius_128.expected_columns().len(), 197);
+    assert_eq!(radius_256.expected_columns().len(), 797);
+    assert_eq!(radius_120.center, [-85, 102]);
+    assert_eq!(radius_120.radius, 8);
+    assert_eq!(
+        radius_120.publisher_geometry,
+        Some(super::PublisherViewGeometry {
+            center_blocks: [-1350, 1634],
+            radius_blocks: 120,
+        })
     );
+    assert!(
+        radius_128
+            .expected_columns()
+            .contains(&ChunkKey::new(0, -77, 102))
+    );
+    assert!(
+        !radius_120
+            .expected_columns()
+            .contains(&ChunkKey::new(0, -77, 102))
+    );
+
+    let rounded_outer_annulus = radius_128
+        .expected_columns()
+        .difference(&radius_120.expected_columns())
+        .copied()
+        .collect::<BTreeSet<_>>();
+    assert_eq!(rounded_outer_annulus.len(), 20);
+}
+
+#[test]
+fn request_mode_announcements_complete_the_exact_raw_publisher_cohort() {
+    const PUBLISHER_CENTER: [i32; 3] = [-1350, 104, 1634];
+    const PUBLISHER_RADIUS_BLOCKS: u32 = 120;
+
+    let target = super::ViewCohort::from_publisher(0, PUBLISHER_CENTER, PUBLISHER_RADIUS_BLOCKS);
+    let required = target.expected_columns();
+    assert_eq!(required.len(), 177);
+
+    let new_stream = || {
+        WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        })
+    };
+    let announce_columns = |stream: &mut WorldStream, columns: &[ChunkKey]| {
+        stream
+            .submit(
+                1,
+                WorldEvent::PublisherUpdate(PublisherUpdateEvent {
+                    center: PUBLISHER_CENTER,
+                    radius_blocks: PUBLISHER_RADIUS_BLOCKS,
+                }),
+            )
+            .unwrap();
+        for (index, column) in columns.iter().enumerate() {
+            stream
+                .submit(
+                    index as u64 + 2,
+                    request_level_chunk_event(
+                        column.dimension,
+                        column.x,
+                        column.z,
+                        LevelChunkMode::LimitedRequests { highest: 0 },
+                        1,
+                    ),
+                )
+                .unwrap();
+            if (index + 1) % super::MAX_ADMITTED_HEAVY_EVENTS == 0 {
+                complete_pending_decode_jobs(stream);
+            }
+        }
+        complete_pending_decode_jobs(stream);
+    };
+
+    let required_columns = required.iter().copied().collect::<Vec<_>>();
+    let mut complete = new_stream();
+    announce_columns(&mut complete, &required_columns);
+    let complete_status = complete.cohort_status(target);
+    assert_eq!(complete.committed_view_cohort(), Some(target));
+    assert_eq!(complete_status.expected, 177);
+    assert_eq!(complete_status.loaded_target, 177);
+    assert!(complete_status.is_exact());
+
+    let missing = *required.last().expect("raw-radius cohort is non-empty");
+    let retained_prefetch = ChunkKey::new(
+        target.dimension,
+        target.center[0] + target.radius,
+        target.center[1] + target.radius,
+    );
+    assert!(!required.contains(&retained_prefetch));
+    assert!(target.contains_column(
+        retained_prefetch.dimension,
+        [retained_prefetch.x, retained_prefetch.z]
+    ));
+    let mut incomplete_columns = required
+        .iter()
+        .copied()
+        .filter(|column| *column != missing)
+        .collect::<Vec<_>>();
+    incomplete_columns.push(retained_prefetch);
+
+    let mut incomplete = new_stream();
+    announce_columns(&mut incomplete, &incomplete_columns);
+    let incomplete_status = incomplete.cohort_status(target);
+    assert_eq!(incomplete.loaded_column_count(), 177);
+    assert_eq!(incomplete_status.loaded_target, 176);
+    assert_eq!(incomplete_status.missing_target, 1);
+    assert_eq!(incomplete_status.foreign_loaded, 0);
+    assert!(!incomplete_status.is_exact());
 }
 
 #[test]
@@ -63,19 +175,15 @@ fn in_scope_prefetch_columns_do_not_prevent_exact_cohort_readiness() {
         air_network_id: 12_530,
         block_network_ids_are_hashes: false,
     });
-    let target = super::ViewCohort {
-        dimension: 0,
-        center: [0, 0],
-        radius: 1,
-    };
+    let target = super::ViewCohort::from_publisher(0, [0, 64, 0], 16);
     stream.committed_view_cohort = Some(target);
     stream.loaded_columns = target.expected_columns();
     stream.loaded_columns.insert(ChunkKey::new(0, 1, 1));
 
     let status = stream.cohort_status(target);
 
-    assert_eq!(status.expected, 1);
-    assert_eq!(status.loaded_target, 1);
+    assert_eq!(status.expected, 5);
+    assert_eq!(status.loaded_target, 5);
     assert_eq!(status.missing_target, 0);
     assert_eq!(status.foreign_loaded, 0);
     assert!(status.is_exact());
@@ -91,20 +199,16 @@ fn in_scope_prefetch_cannot_replace_a_missing_required_column() {
         air_network_id: 12_530,
         block_network_ids_are_hashes: false,
     });
-    let target = super::ViewCohort {
-        dimension: 0,
-        center: [0, 0],
-        radius: 1,
-    };
+    let target = super::ViewCohort::from_publisher(0, [0, 64, 0], 16);
     stream.committed_view_cohort = Some(target);
     stream.loaded_columns = target.expected_columns();
-    stream.loaded_columns.remove(&ChunkKey::new(0, 0, 0));
+    stream.loaded_columns.remove(&ChunkKey::new(0, 1, 0));
     stream.loaded_columns.insert(ChunkKey::new(0, 1, 1));
 
     let status = stream.cohort_status(target);
 
     assert_eq!(stream.loaded_columns.len(), status.expected);
-    assert_eq!(status.loaded_target, 0);
+    assert_eq!(status.loaded_target, 4);
     assert_eq!(status.missing_target, 1);
     assert_eq!(status.foreign_loaded, 0);
     assert!(!status.is_exact());
@@ -124,6 +228,7 @@ fn columns_outside_square_prefetch_scope_prevent_exact_cohort_readiness() {
         dimension: 0,
         center: [0, 0],
         radius: 1,
+        publisher_geometry: None,
     };
     stream.committed_view_cohort = Some(target);
     stream.loaded_columns = target.expected_columns();
@@ -149,6 +254,10 @@ fn publisher_cohort_is_exposed_only_after_fifo_commit() {
         dimension: 0,
         center: [100, 0],
         radius: 16,
+        publisher_geometry: Some(super::PublisherViewGeometry {
+            center_blocks: [1_600, 0],
+            radius_blocks: 256,
+        }),
     };
 
     stream.submit(1, inline_air_event(0)).unwrap();
@@ -183,6 +292,10 @@ fn publisher_cohort_accessor_is_exposed_only_after_fifo_commit() {
         dimension: 0,
         center: [100, 0],
         radius: 16,
+        publisher_geometry: Some(super::PublisherViewGeometry {
+            center_blocks: [1_600, 0],
+            radius_blocks: 256,
+        }),
     };
 
     assert_eq!(stream.committed_view_cohort(), None);
@@ -221,6 +334,10 @@ fn source_capture_occurs_at_move_fifo_commit_before_later_publisher_eviction() {
         dimension: 0,
         center: [0, 0],
         radius: 16,
+        publisher_geometry: Some(super::PublisherViewGeometry {
+            center_blocks: [0, 0],
+            radius_blocks: 256,
+        }),
     };
     stream.loaded_columns.insert(source);
     stream.chunk_radius = Some(16);
@@ -283,6 +400,7 @@ fn publisher_cohort_preserves_over_max_radius_while_runtime_scope_clamps() {
         dimension: 0,
         center: [0, 0],
         radius: 16,
+        publisher_geometry: None,
     };
 
     stream
@@ -301,6 +419,10 @@ fn publisher_cohort_preserves_over_max_radius_while_runtime_scope_clamps() {
             dimension: 0,
             center: [0, 0],
             radius: 17,
+            publisher_geometry: Some(super::PublisherViewGeometry {
+                center_blocks: [0, 0],
+                radius_blocks: 272,
+            }),
         })
     );
     assert_eq!(stream.stats().publisher_radius_chunks, Some(16));
@@ -320,6 +442,7 @@ fn equal_resident_and_known_air_counts_with_key_replacement_change_identity_hash
         dimension: 0,
         center: [0, 0],
         radius: 1,
+        publisher_geometry: None,
     };
     stream
         .submit(

@@ -16,17 +16,30 @@ pub(super) struct CorrelatedSubChunkAttempts {
     pub(super) confirmed_attempts: u8,
 }
 
-/// One horizontal publisher view, expressed in chunk columns.
+/// Exact block-space identity for a server publisher view.
 ///
-/// The radius defines a required Euclidean disk over chunk centres, inset by
-/// half a chunk from the publisher's outer block radius. The enclosing
-/// Chebyshev square remains the allowed retention scope so server-side prefetch
-/// does not become false foreign-world evidence.
+/// The containing chunk and ceiling chunk radius remain on [`ViewCohort`] for
+/// bounded retention. This identity preserves values that would otherwise be
+/// lost when an unaligned block centre or radius is converted to chunks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PublisherViewGeometry {
+    pub center_blocks: [i32; 2],
+    pub radius_blocks: u32,
+}
+
+/// One horizontal view cohort with separate required and retention geometry.
+///
+/// `center` and `radius` define the enclosing Chebyshev retention square in
+/// chunk columns. Publisher-created cohorts additionally retain their exact
+/// block-space identity; their required columns are the Euclidean disk whose
+/// chunk-to-chunk spacing is sixteen blocks. Manually constructed cohorts keep
+/// the legacy Euclidean chunk-radius disk.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ViewCohort {
     pub dimension: i32,
     pub center: [i32; 2],
     pub radius: i32,
+    pub publisher_geometry: Option<PublisherViewGeometry>,
 }
 
 impl ViewCohort {
@@ -37,6 +50,10 @@ impl ViewCohort {
             dimension,
             center: [center[0].div_euclid(16), center[2].div_euclid(16)],
             radius: i32::try_from(chunks).unwrap_or(i32::MAX),
+            publisher_geometry: Some(PublisherViewGeometry {
+                center_blocks: [center[0], center[2]],
+                radius_blocks,
+            }),
         }
     }
 
@@ -50,21 +67,27 @@ impl ViewCohort {
     #[must_use]
     pub fn expected_columns(self) -> BTreeSet<ChunkKey> {
         let radius = self.radius.max(0);
+        let radius_blocks = self.publisher_geometry.map_or_else(
+            || u64::try_from(radius).unwrap_or_default(),
+            |geometry| u64::from(geometry.radius_blocks),
+        );
+        let chunk_stride = if self.publisher_geometry.is_some() {
+            16
+        } else {
+            1
+        };
         (-radius..=radius)
             .flat_map(|x_offset| {
                 (-radius..=radius)
                     .filter(move |z_offset| {
-                        if radius == 0 {
-                            return x_offset == 0 && *z_offset == 0;
-                        }
-                        let x = i64::from(x_offset).unsigned_abs().saturating_mul(2);
-                        let z = i64::from(*z_offset).unsigned_abs().saturating_mul(2);
-                        let diameter = u64::try_from(radius)
-                            .unwrap_or_default()
-                            .saturating_mul(2)
-                            .saturating_sub(1);
-                        x.saturating_mul(x) + z.saturating_mul(z)
-                            <= diameter.saturating_mul(diameter)
+                        let x = i64::from(x_offset)
+                            .unsigned_abs()
+                            .saturating_mul(chunk_stride);
+                        let z = i64::from(*z_offset)
+                            .unsigned_abs()
+                            .saturating_mul(chunk_stride);
+                        x.saturating_mul(x).saturating_add(z.saturating_mul(z))
+                            <= radius_blocks.saturating_mul(radius_blocks)
                     })
                     .map(move |z_offset| {
                         ChunkKey::new(
@@ -84,6 +107,7 @@ pub struct ViewCohortStatus {
     pub target: ViewCohort,
     pub committed: Option<ViewCohort>,
     pub expected: usize,
+    pub required_hash: u64,
     pub loaded_target: usize,
     pub missing_target: usize,
     pub foreign_loaded: usize,

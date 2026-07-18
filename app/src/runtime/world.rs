@@ -36,7 +36,7 @@ use crate::{
     environment::{self, WeatherState, WorldClock, apply_environment_control},
     movement::{LocalPhysicsController, MovementTicker},
     runtime::{
-        network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
+        network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME, acceptance_surface_anchor},
         publication::{PublicationController, PublicationFrameWork},
         shutdown::record_fatal_error,
         telemetry::bedrock_camera_rotation,
@@ -289,11 +289,15 @@ pub(crate) fn drive_world_stream(
     synchronize_biome_tints(stream, &mut biome_tints);
     for acknowledgement in acknowledgements.drain() {
         render_queue.record_gpu_upload_bytes(acknowledgement.uploaded_bytes);
+        let mutation_cohort = stream
+            .committed_view_cohort()
+            .map(|target| stream.cohort_status(target));
         if let Some(latency) = acceptance.acknowledge_mutation(
             acknowledgement.key,
             acknowledgement.token.generation,
             acknowledgement.token.dirty_since,
             acknowledgement.applied_at,
+            mutation_cohort,
         ) {
             metrics.0.record_mutation_to_visible(latency);
         }
@@ -373,6 +377,7 @@ pub(crate) fn drive_world_stream(
         if apply_environment_control(control, &mut clock, &mut weather, time.elapsed_secs_f64()) {
             continue;
         }
+        let _ = refresh_mutation_anchor_from_committed_control(&mut acceptance, &control);
         match &control {
             CommittedControlEvent::PlayerMovementCorrection {
                 correction,
@@ -667,6 +672,21 @@ pub(crate) fn apply_committed_control(
     };
     camera.translation = Vec3::from_array(resolved.position);
     *pending_surface_spawn = resolved.surface_anchor;
+}
+
+pub(crate) fn refresh_mutation_anchor_from_committed_control(
+    acceptance: &mut AcceptanceRun,
+    control: &CommittedControlEvent,
+) -> bool {
+    let resolved = match control {
+        CommittedControlEvent::MovePlayer { resolved, .. }
+        | CommittedControlEvent::PlayerMovementCorrection { resolved, .. }
+        | CommittedControlEvent::ChangeDimension { resolved, .. } => resolved,
+        CommittedControlEvent::SetTime { .. }
+        | CommittedControlEvent::DaylightCycle { .. }
+        | CommittedControlEvent::Weather { .. } => return false,
+    };
+    acceptance.refresh_mutation_surface_anchor(acceptance_surface_anchor(resolved.position))
 }
 
 pub(crate) fn model_gallery_camera_committed_marker(

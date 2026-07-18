@@ -147,6 +147,7 @@ impl GpuUploadReservation {
         budget: ChunkUploadBudget,
         incremental_bytes: u64,
         projected_growth_copy_bytes: u64,
+        growth_copy_ceiling: u64,
     ) -> bool {
         let next = Self {
             items: self.items.saturating_add(1),
@@ -155,7 +156,8 @@ impl GpuUploadReservation {
         };
         let first_growth_crossing = self.items == 0
             && incremental_bytes <= budget.max_bytes_per_frame
-            && projected_growth_copy_bytes > 0;
+            && projected_growth_copy_bytes > 0
+            && projected_growth_copy_bytes <= growth_copy_ceiling;
         if next.items > budget.max_per_frame
             || (next.total_bytes() > budget.max_bytes_per_frame && !first_growth_crossing)
         {
@@ -169,6 +171,19 @@ impl GpuUploadReservation {
         self.incremental_bytes
             .saturating_add(self.growth_copy_bytes)
     }
+}
+
+/// A finite upper bound for one atomic whole-arena growth copy on this
+/// adapter. Every legal growth plan fits this allowance, so it cannot starve
+/// behind the smaller adaptive incremental-upload budget.
+pub(in crate::chunk) fn arena_growth_copy_ceiling(limits: ArenaLimits) -> u64 {
+    buffer_byte_len(limits.max_quad_items, PACKED_QUAD_BYTES)
+        .saturating_add(buffer_byte_len(
+            limits.max_geometry_stream_words,
+            GEOMETRY_STREAM_WORD_BYTES,
+        ))
+        .saturating_add(buffer_byte_len(limits.max_origin_items, CHUNK_ORIGIN_BYTES))
+        .saturating_add(buffer_byte_len(limits.max_biome_words, BIOME_WORD_BYTES))
 }
 
 pub(in crate::chunk) fn planned_arena_growth_copy_bytes(

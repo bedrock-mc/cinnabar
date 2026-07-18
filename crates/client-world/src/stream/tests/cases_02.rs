@@ -870,20 +870,17 @@ fn equal_loaded_count_with_missing_target_and_source_replacement_is_not_exact() 
         air_network_id: 12_530,
         block_network_ids_are_hashes: false,
     });
-    let target = super::ViewCohort {
-        dimension: 0,
-        center: [10, 10],
-        radius: 1,
-    };
+    let target = super::ViewCohort::from_publisher(0, [160, 64, 160], 16);
     assert_eq!(
         super::ViewCohort {
             dimension: 0,
             center: [0, 0],
             radius: 16,
+            publisher_geometry: None,
         }
         .expected_columns()
         .len(),
-        749
+        797
     );
     stream
         .submit(
@@ -908,8 +905,8 @@ fn equal_loaded_count_with_missing_target_and_source_replacement_is_not_exact() 
 
     let status = stream.cohort_status(target);
 
-    assert_eq!(status.expected, 1);
-    assert_eq!(status.loaded_target, 0);
+    assert_eq!(status.expected, 5);
+    assert_eq!(status.loaded_target, 4);
     assert_eq!(status.missing_target, 1);
     assert_eq!(status.foreign_loaded, 1);
     assert_eq!(status.source_leftover, 1);

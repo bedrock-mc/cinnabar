@@ -4,7 +4,7 @@ use std::{
 };
 
 use bevy::prelude::Resource;
-use client_world::CommittedControlEvent;
+use client_world::{CommittedControlEvent, ViewCohortStatus};
 use render::{PresentedFrameAck, TargetRenderExpectation};
 use world::SubChunkKey;
 
@@ -36,6 +36,7 @@ pub(crate) struct AcceptanceRun {
     pub(crate) mutation_surface_anchor: Option<[i32; 2]>,
     pub(crate) source_mutation_coordinate: Option<[i32; 3]>,
     pub(crate) mutation: Option<MutationTracker>,
+    pub(crate) mutation_cohort: Option<ViewCohortStatus>,
     pub(crate) gallery_anchor: GalleryAnchorEmitter,
     pub(crate) world_ready_settler: WorldReadySettler,
     pub(crate) full_view_teleport: FullViewTeleportTracker,
@@ -74,6 +75,7 @@ impl AcceptanceRun {
             mutation_surface_anchor: None,
             source_mutation_coordinate: None,
             mutation: None,
+            mutation_cohort: None,
             gallery_anchor: GalleryAnchorEmitter::default(),
             world_ready_settler: WorldReadySettler::default(),
             full_view_teleport: FullViewTeleportTracker::new(full_view_teleport_gate),
@@ -143,6 +145,14 @@ impl AcceptanceRun {
         self.mutation_surface_anchor
     }
 
+    pub(crate) fn refresh_mutation_surface_anchor(&mut self, anchor: [i32; 2]) -> bool {
+        if self.mutation_surface_anchor.is_none() || self.source_mutation_coordinate.is_some() {
+            return false;
+        }
+        self.mutation_surface_anchor = Some(anchor);
+        true
+    }
+
     pub(crate) fn set_mutation_coordinate(&mut self, coordinate: [i32; 3]) {
         self.mutation_surface_anchor = None;
         self.source_mutation_coordinate = Some(coordinate);
@@ -155,6 +165,23 @@ impl AcceptanceRun {
 
     pub(crate) fn source_mutation_coordinate(&self) -> Option<[i32; 3]> {
         self.source_mutation_coordinate
+    }
+
+    pub(crate) fn bind_mutation_cohort(&mut self, status: ViewCohortStatus) -> bool {
+        if !status.is_exact() {
+            return false;
+        }
+        self.mutation_cohort = Some(status);
+        true
+    }
+
+    fn mutation_cohort_matches(&self, status: ViewCohortStatus) -> bool {
+        status.is_exact()
+            && self.mutation_cohort.is_some_and(|frozen| {
+                frozen.target == status.target
+                    && frozen.expected == status.expected
+                    && frozen.required_hash == status.required_hash
+            })
     }
 
     pub(crate) fn retarget_mutation(&mut self, coordinate: [i32; 3], armed_at: Instant) -> bool {
@@ -223,7 +250,11 @@ impl AcceptanceRun {
         generation: u64,
         dirty_since: Instant,
         applied_at: Instant,
+        cohort: Option<ViewCohortStatus>,
     ) -> Option<Duration> {
+        if !cohort.is_some_and(|status| self.mutation_cohort_matches(status)) {
+            return None;
+        }
         let requires_presented_frame = self.full_view_teleport.enabled;
         self.mutation.as_mut().and_then(|mutation| {
             mutation.acknowledge_upload(
@@ -252,8 +283,12 @@ impl AcceptanceRun {
     pub(crate) fn reconcile_mutation_presented_expectation(
         &mut self,
         proposed: TargetRenderExpectation,
+        cohort: Option<ViewCohortStatus>,
         now: Instant,
     ) -> Option<TargetRenderExpectation> {
+        if !cohort.is_some_and(|status| self.mutation_cohort_matches(status)) {
+            return None;
+        }
         let minimum_view_generation = self.full_view_remesh.completed.as_ref()?.view_generation;
         self.mutation.as_mut()?.reconcile_presented_expectation(
             proposed,

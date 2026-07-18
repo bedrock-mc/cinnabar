@@ -33,8 +33,8 @@ pub use stream::{
     MAX_IN_FLIGHT_DECODE_JOBS, MAX_IN_FLIGHT_LIGHT_JOBS, MAX_PENDING_MESH_CHANGES,
     MAX_SUB_CHUNK_RETRIES, OUTBOUND_REQUEST_CAPACITY, PHASE0_MAX_VIEW_RADIUS_CHUNKS,
     PendingSubChunkRequest, Phase2PresentationSnapshot, Phase2PublicationSnapshot,
-    PresentModeIdentity, PublicationServiceConfig, PublicationStageCounters, RequestClass,
-    SUB_CHUNK_RESPONSE_TIMEOUT, StageDurations, SubChunkOutcomeCounters, ViewCohort,
+    PresentModeIdentity, PublicationServiceConfig, PublicationStageCounters, PublisherViewGeometry,
+    RequestClass, SUB_CHUNK_RESPONSE_TIMEOUT, StageDurations, SubChunkOutcomeCounters, ViewCohort,
     ViewCohortStatus, WORK_RESULT_CAPACITY, WorldMeshChange, WorldStream, WorldStreamError,
     WorldStreamFatalError, WorldStreamNormalizationStats, WorldStreamPoll, WorldStreamStats,
 };

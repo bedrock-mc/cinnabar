@@ -143,9 +143,9 @@ use gpu::bind_groups::{
 use gpu::layout::{
     ArenaGrowthError, ArenaGrowthPlan, ArenaRequiredLengths, GeometryStreamCounts,
     GeometryStreamLayout, GpuUploadReservation, SHARED_GEOMETRY_ALIGNMENT_WORDS,
-    account_chunk_gpu_uploads, buffer_byte_len, checked_align_up, copy_gpu_buffer,
-    ensure_biome_capacity, ensure_geometry_stream_capacities, ensure_origin_capacity,
-    ensure_quad_capacity, ensure_stream_capacity, plan_arena_growth,
+    account_chunk_gpu_uploads, arena_growth_copy_ceiling, buffer_byte_len, checked_align_up,
+    copy_gpu_buffer, ensure_biome_capacity, ensure_geometry_stream_capacities,
+    ensure_origin_capacity, ensure_quad_capacity, ensure_stream_capacity, plan_arena_growth,
     planned_arena_growth_copy_bytes, transparent_geometry_update_requires_cow,
     write_stream_records,
 };
