@@ -49,16 +49,18 @@ impl std::error::Error for UiPresentationError {}
 pub struct UiPresentationRuntime {
     font: Arc<RuntimeFontCatalog>,
     textures: Arc<UiRenderTextureArray>,
+    solid_texture_page: u16,
     layouts: TextLayoutCache,
     revision: u64,
 }
 
 impl UiPresentationRuntime {
     pub fn new(font: Arc<RuntimeFontCatalog>) -> Result<Self, UiPresentationError> {
-        let textures = Arc::new(font_texture_array(&font)?);
+        let (textures, solid_texture_page) = font_texture_array(&font)?;
         Ok(Self {
             font,
-            textures,
+            textures: Arc::new(textures),
+            solid_texture_page,
             layouts: TextLayoutCache::new(TEXT_CACHE_ENTRIES, TEXT_CACHE_BYTES),
             revision: 0,
         })
@@ -156,6 +158,27 @@ impl UiPresentationRuntime {
         }
 
         if runtime.chat_focused() {
+            let visible_suggestions = visible_suggestion_range(
+                runtime.chat_suggestions().len(),
+                runtime.chat_selected_suggestion(),
+            );
+            let editor_y = (logical_height - 40.0).max(0.0);
+            let panel_top = (editor_y - visible_suggestions.len() as f32 * 18.0 - 4.0).max(0.0);
+            let panel_right = (16.0 + logical_width * 0.45).min(logical_width);
+            let panel_bottom = (logical_height - 4.0).max(panel_top);
+            nodes.push(
+                UiNode::new(
+                    UiNodeId::new(next_id),
+                    None,
+                    rect(8.0, panel_top, panel_right, panel_bottom)?,
+                )
+                .with_visual(UiVisual::Solid {
+                    texture_page: self.solid_texture_page,
+                    color: [0, 0, 0, 176],
+                }),
+            );
+            next_id = next_id.saturating_add(1);
+
             let editor = runtime.chat_editor();
             let mut visible = String::with_capacity(editor.len_bytes().saturating_add(3));
             visible.push_str("> ");
@@ -172,7 +195,6 @@ impl UiPresentationRuntime {
                     font: &self.font,
                 })
                 .map_err(UiPresentationError::Text)?;
-            let editor_y = (logical_height - 40.0).max(0.0);
             nodes.push(
                 UiNode::new(
                     UiNodeId::new(next_id),
@@ -191,16 +213,12 @@ impl UiPresentationRuntime {
             );
             next_id = next_id.saturating_add(1);
 
-            let visible = visible_suggestion_range(
-                runtime.chat_suggestions().len(),
-                runtime.chat_selected_suggestion(),
-            );
             for (row, (index, suggestion)) in runtime
                 .chat_suggestions()
                 .iter()
                 .enumerate()
-                .skip(visible.start)
-                .take(visible.len())
+                .skip(visible_suggestions.start)
+                .take(visible_suggestions.len())
                 .enumerate()
             {
                 let selected = runtime.chat_selected_suggestion() == Some(index);
@@ -331,7 +349,7 @@ pub(crate) fn publish_ui_runtime(
 
 fn font_texture_array(
     font: &RuntimeFontCatalog,
-) -> Result<UiRenderTextureArray, UiPresentationError> {
+) -> Result<(UiRenderTextureArray, u16), UiPresentationError> {
     let width = font
         .pages()
         .iter()
@@ -344,8 +362,13 @@ fn font_texture_array(
         .map(|page| page.height)
         .max()
         .ok_or(UiPresentationError::InvalidFontTexture)?;
-    let layers =
+    let font_layers =
         u32::try_from(font.pages().len()).map_err(|_| UiPresentationError::InvalidFontTexture)?;
+    let solid_texture_page =
+        u16::try_from(font_layers).map_err(|_| UiPresentationError::InvalidFontTexture)?;
+    let layers = font_layers
+        .checked_add(1)
+        .ok_or(UiPresentationError::InvalidFontTexture)?;
     let layer_bytes = usize::try_from(width)
         .ok()
         .and_then(|width| width.checked_mul(height as usize))
@@ -367,13 +390,18 @@ fn font_texture_array(
                 .copy_from_slice(&page.rgba8[source_start..source_end]);
         }
     }
-    Ok(UiRenderTextureArray {
-        identity: font.identity().carrier_sha256,
-        width,
-        height,
-        layers,
-        rgba8: rgba8.into(),
-    })
+    let solid_start = usize::from(solid_texture_page) * layer_bytes;
+    rgba8[solid_start..solid_start + layer_bytes].fill(255);
+    Ok((
+        UiRenderTextureArray {
+            identity: font.identity().carrier_sha256,
+            width,
+            height,
+            layers,
+            rgba8: rgba8.into(),
+        },
+        solid_texture_page,
+    ))
 }
 
 fn bounded_visible_text(value: &str) -> &str {
@@ -476,6 +504,54 @@ mod tests {
 
         assert!(active.vertices.len() > empty.vertices.len());
         assert!(active.indices.len() > empty.indices.len());
+    }
+
+    #[test]
+    fn focused_chat_editor_uses_a_dedicated_solid_panel_layer() {
+        let font = fixture_font();
+        let font_page_count = u32::try_from(font.pages().len()).unwrap();
+        let mut presentation = UiPresentationRuntime::new(font).unwrap();
+        let mut runtime = UiRuntime::new(1);
+        runtime.open_chat();
+        runtime.insert_chat_text("hello").unwrap();
+
+        let active = presentation
+            .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
+            .unwrap();
+
+        assert_eq!(active.textures.layers, font_page_count + 1);
+        let panel_batch = active
+            .batches
+            .iter()
+            .find(|batch| batch.texture_page == font_page_count)
+            .expect("focused chat must draw through the dedicated solid panel layer");
+        let panel_indices = &active.indices[panel_batch.first_index as usize
+            ..(panel_batch.first_index + panel_batch.index_count) as usize];
+        let panel_vertices = panel_indices
+            .iter()
+            .map(|index| active.vertices[*index as usize])
+            .collect::<Vec<_>>();
+        assert!(panel_vertices.iter().any(|vertex| vertex.color[3] >= 128));
+        assert!(
+            panel_vertices
+                .iter()
+                .any(|vertex| vertex.position[0] <= 8.0)
+        );
+        assert!(
+            panel_vertices
+                .iter()
+                .any(|vertex| vertex.position[0] >= 370.0)
+        );
+        assert!(
+            panel_vertices
+                .iter()
+                .any(|vertex| vertex.position[1] <= 556.0)
+        );
+        assert!(
+            panel_vertices
+                .iter()
+                .any(|vertex| vertex.position[1] >= 592.0)
+        );
     }
 
     #[test]
