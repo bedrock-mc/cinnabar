@@ -426,6 +426,31 @@ fn interpolation_witness_links_all_three_tick_stages_to_one_movement_revision() 
 }
 
 #[test]
+fn completed_interpolation_witness_survives_later_world_ticks() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, player_spawn(42, -7, 0.0));
+    store.apply(1, 2, player_move(42, 9.0, false));
+    store.advance_interpolation_ticks(6);
+
+    let witness = store
+        .get(42)
+        .unwrap()
+        .interpolation_witness
+        .as_ref()
+        .expect("completed interpolation history remains available to a later frame");
+    let samples = witness.samples.iter().flatten().collect::<Vec<_>>();
+    assert_eq!(
+        samples
+            .iter()
+            .map(|sample| sample.ticks_remaining)
+            .collect::<Vec<_>>(),
+        vec![3, 2, 1, 0]
+    );
+    assert_eq!(samples[3].previous_pose.position[0], 6.0);
+    assert_eq!(samples[3].current_pose.position[0], 9.0);
+}
+
+#[test]
 fn interpolation_witness_never_combines_revisions_and_retains_teleport_snap() {
     let mut store = ActorStore::new(1, 0);
     store.apply(1, 1, player_spawn(42, -7, 0.0));

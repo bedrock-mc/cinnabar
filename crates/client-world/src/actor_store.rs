@@ -173,12 +173,14 @@ impl ActorSnapshot {
         }
         let index =
             usize::from(PLAYER_POSITION_INTERPOLATION_TICKS - self.interpolation_ticks_remaining);
-        witness.samples[index] = Some(ActorInterpolationWitnessSample {
-            ticks_remaining: self.interpolation_ticks_remaining,
-            previous_pose: self.previous_pose,
-            current_pose,
-            received_pose: self.received_pose,
-        });
+        if witness.samples[index].is_none() {
+            witness.samples[index] = Some(ActorInterpolationWitnessSample {
+                ticks_remaining: self.interpolation_ticks_remaining,
+                previous_pose: self.previous_pose,
+                current_pose,
+                received_pose: self.received_pose,
+            });
+        }
     }
 
     fn set_current_pose(&mut self, pose: ActorPose) {
