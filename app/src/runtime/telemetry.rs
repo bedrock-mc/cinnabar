@@ -11,6 +11,7 @@ use bevy::{
     prelude::{
         EulerRot, Local, Quat, Query, Res, ResMut, Resource, Time, Transform, Vec3, Window, With,
     },
+    time::Real,
     window::{CursorOptions, PrimaryWindow},
     winit::{UpdateMode, WinitSettings},
 };
