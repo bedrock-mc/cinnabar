@@ -29,6 +29,7 @@ use crate::acceptance::{
 use crate::{
     acceptance::{
         AcceptanceRun,
+        actor_witness::{ActorWitnessFileSource, poll_and_capture_actor_ground_contacts},
         model_witness::{ModelWitnessFileSource, poll_model_witness_request},
         transparent_witness::{TransparentWitnessFileSource, poll_transparent_witness_request},
     },
@@ -266,6 +267,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             args.transparent_witness_request,
         ))
         .insert_resource(ModelWitnessFileSource::new(args.model_witness_request))
+        .insert_resource(ActorWitnessFileSource::new(args.actor_witness_request))
         .insert_resource(AcceptanceRun::new(
             args.acceptance_seconds,
             args.metrics_out,
@@ -298,6 +300,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             (
                 exit_on_window_close_requested,
                 receive_network_events,
+                poll_and_capture_actor_ground_contacts,
                 flush_chat_network,
                 exit_on_fatal_runtime_error,
                 poll_transparent_witness_request,
