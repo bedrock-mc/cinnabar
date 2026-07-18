@@ -7,7 +7,8 @@ use bevy::{
     window::{PrimaryWindow, Window},
 };
 use render::{
-    MAX_UI_TEXTURE_BYTES, UiRenderInput, UiRenderScene, UiRenderStats, UiRenderTextureArray,
+    MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_LAYERS, UiRenderInput, UiRenderScene, UiRenderStats,
+    UiRenderTextureArray,
 };
 use ui::{
     DpiScale, HudViewRole, SafeArea, TextLayoutCache, TextLayoutRequest, TextStyle, UiNode,
@@ -77,6 +78,11 @@ impl UiPresentationRuntime {
         let logical_height = physical_size[1] as f32 / dpi_scale.get();
         let viewport = rect(0.0, 0.0, logical_width, logical_height)?;
         let wrap_width = ((logical_width * 0.45).clamp(1.0, 640.0) * 64.0) as u32;
+        let chat_content_width = wrap_width as f32 / 64.0;
+        let chat_left = 12.0_f32.min(logical_width);
+        let chat_right = (chat_left + chat_content_width)
+            .min(logical_width)
+            .max(chat_left);
         let mut nodes = Vec::new();
         let mut next_id = 1u32;
 
@@ -123,9 +129,47 @@ impl UiPresentationRuntime {
             next_id = next_id.saturating_add(1);
         }
 
+        let chat_focused = runtime.chat_focused();
+        let visible_suggestions = if chat_focused {
+            visible_suggestion_range(
+                runtime.chat_suggestions().len(),
+                runtime.chat_selected_suggestion(),
+            )
+        } else {
+            0..0
+        };
+        let editor_y = (logical_height - 40.0).max(0.0);
+        let chat_region_top = (logical_height - 220.0).max(0.0);
+        if chat_focused {
+            let panel_left = 8.0_f32.min(logical_width);
+            let panel_right = (panel_left + chat_content_width + 8.0)
+                .min(logical_width)
+                .max(panel_left);
+            let panel_bottom = (logical_height - 4.0).max(chat_region_top);
+            nodes.push(
+                UiNode::new(
+                    UiNodeId::new(next_id),
+                    None,
+                    rect(panel_left, chat_region_top, panel_right, panel_bottom)?,
+                )
+                .with_visual(UiVisual::Solid {
+                    texture_page: self.solid_texture_page,
+                    color: [0, 0, 0, 176],
+                }),
+            );
+            next_id = next_id.saturating_add(1);
+        }
+
         let chat = runtime.chat().view_nodes();
         let first = chat.len().saturating_sub(MAX_PRESENTED_CHAT_ROWS);
-        for (row, node) in chat[first..].iter().enumerate() {
+        let chat_bottom = if chat_focused {
+            (editor_y - 4.0).max(chat_region_top)
+        } else {
+            (logical_height - 72.0).max(chat_region_top)
+        };
+        let mut chat_cursor = chat_bottom;
+        let mut visible_chat = Vec::new();
+        for node in chat[first..].iter().rev() {
             let text = bounded_visible_text(&node.text);
             let layout = self
                 .layouts
@@ -137,17 +181,20 @@ impl UiPresentationRuntime {
                     font: &self.font,
                 })
                 .map_err(UiPresentationError::Text)?;
-            let y = (logical_height - 220.0 + row as f32 * 20.0).max(0.0);
+            let layout_height = layout.size_64()[1] as f32 / 64.0;
+            if layout_height > chat_cursor - chat_region_top {
+                break;
+            }
+            let y = chat_cursor - layout_height;
+            visible_chat.push((layout, y, chat_cursor));
+            chat_cursor = (y - 4.0).max(chat_region_top);
+        }
+        for (layout, y, bottom) in visible_chat.into_iter().rev() {
             nodes.push(
                 UiNode::new(
                     UiNodeId::new(next_id),
                     None,
-                    rect(
-                        12.0,
-                        y,
-                        (12.0 + logical_width * 0.45).min(logical_width),
-                        logical_height,
-                    )?,
+                    rect(chat_left, y, chat_right, bottom)?,
                 )
                 .with_visual(UiVisual::Text {
                     layout,
@@ -157,28 +204,7 @@ impl UiPresentationRuntime {
             next_id = next_id.saturating_add(1);
         }
 
-        if runtime.chat_focused() {
-            let visible_suggestions = visible_suggestion_range(
-                runtime.chat_suggestions().len(),
-                runtime.chat_selected_suggestion(),
-            );
-            let editor_y = (logical_height - 40.0).max(0.0);
-            let panel_top = (editor_y - visible_suggestions.len() as f32 * 18.0 - 4.0).max(0.0);
-            let panel_right = (16.0 + logical_width * 0.45).min(logical_width);
-            let panel_bottom = (logical_height - 4.0).max(panel_top);
-            nodes.push(
-                UiNode::new(
-                    UiNodeId::new(next_id),
-                    None,
-                    rect(8.0, panel_top, panel_right, panel_bottom)?,
-                )
-                .with_visual(UiVisual::Solid {
-                    texture_page: self.solid_texture_page,
-                    color: [0, 0, 0, 176],
-                }),
-            );
-            next_id = next_id.saturating_add(1);
-
+        if chat_focused {
             let editor = runtime.chat_editor();
             let mut visible = String::with_capacity(editor.len_bytes().saturating_add(3));
             visible.push_str("> ");
@@ -200,10 +226,10 @@ impl UiPresentationRuntime {
                     UiNodeId::new(next_id),
                     None,
                     rect(
-                        12.0,
+                        chat_left,
                         editor_y,
-                        (12.0 + logical_width * 0.45).min(logical_width),
-                        logical_height,
+                        chat_right,
+                        logical_height.max(editor_y),
                     )?,
                 )
                 .with_visual(UiVisual::Text {
@@ -240,12 +266,7 @@ impl UiPresentationRuntime {
                     UiNode::new(
                         UiNodeId::new(next_id),
                         None,
-                        rect(
-                            12.0,
-                            bottom,
-                            (12.0 + logical_width * 0.45).min(logical_width),
-                            editor_y,
-                        )?,
+                        rect(chat_left, bottom, chat_right, editor_y.max(bottom))?,
                     )
                     .with_visual(UiVisual::Text {
                         layout,
@@ -364,6 +385,9 @@ fn font_texture_array(
         .ok_or(UiPresentationError::InvalidFontTexture)?;
     let font_layers =
         u32::try_from(font.pages().len()).map_err(|_| UiPresentationError::InvalidFontTexture)?;
+    if font_layers >= MAX_UI_TEXTURE_LAYERS {
+        return Err(UiPresentationError::InvalidFontTexture);
+    }
     let solid_texture_page =
         u16::try_from(font_layers).map_err(|_| UiPresentationError::InvalidFontTexture)?;
     let layers = font_layers
@@ -441,7 +465,7 @@ fn rect(left: f32, top: f32, right: f32, bottom: f32) -> Result<UiRect, UiPresen
 #[cfg(test)]
 mod tests {
     use assets::{FontTexturePage, GlyphMetrics, RuntimeFontCatalog, encode_font_catalog};
-    use protocol::{HudEvent, UiEvent};
+    use protocol::{HudEvent, TextCategory, TextEvent, TextKind, UiEvent};
     use sha2::{Digest, Sha256};
 
     use super::*;
@@ -476,10 +500,26 @@ mod tests {
     #[test]
     fn focused_chat_editor_history_and_suggestions_are_presented() {
         let font = fixture_font();
+        let font_page_count = u32::try_from(font.pages().len()).unwrap();
         let mut presentation = UiPresentationRuntime::new(font).unwrap();
         let mut runtime = UiRuntime::new(1);
         let empty = presentation
             .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
+            .unwrap();
+        assert!(
+            empty
+                .batches
+                .iter()
+                .all(|batch| batch.texture_page != font_page_count)
+        );
+        runtime
+            .apply(SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: 1,
+                local_millis: 0,
+                server_tick: None,
+                event: chat_event(&"history ".repeat(12)),
+            })
             .unwrap();
         runtime.open_chat();
         runtime.insert_chat_text("/g").unwrap();
@@ -487,13 +527,17 @@ mod tests {
         runtime
             .apply(SequencedUiEvent {
                 session_id: 1,
-                fifo_sequence: 1,
+                fifo_sequence: 2,
                 local_millis: 0,
                 server_tick: None,
                 event: UiEvent::ChatAutocomplete(protocol::ChatAutocompleteEvent {
                     enum_name: Arc::from("commands"),
                     action: protocol::ChatAutocompleteAction::Replace,
-                    suggestions: Arc::from([Arc::from("/give"), Arc::from("/gamemode")]),
+                    suggestions: Arc::from(
+                        (0..MAX_PRESENTED_CHAT_SUGGESTIONS)
+                            .map(|index| Arc::from(format!("/give-{index}")))
+                            .collect::<Vec<_>>(),
+                    ),
                 }),
             })
             .unwrap();
@@ -504,6 +548,11 @@ mod tests {
 
         assert!(active.vertices.len() > empty.vertices.len());
         assert!(active.indices.len() > empty.indices.len());
+        assert_eq!(
+            active.batches.first().map(|batch| batch.texture_page),
+            Some(font_page_count),
+            "the translucent surface must draw behind history and suggestion text"
+        );
     }
 
     #[test]
@@ -531,6 +580,20 @@ mod tests {
             .iter()
             .map(|index| active.vertices[*index as usize])
             .collect::<Vec<_>>();
+        let layer_bytes = active.textures.width as usize
+            * active.textures.height as usize
+            * std::mem::size_of::<[u8; 4]>();
+        let solid_start = font_page_count as usize * layer_bytes;
+        assert!(
+            active.textures.rgba8[solid_start..solid_start + layer_bytes]
+                .iter()
+                .all(|byte| *byte == 255)
+        );
+        assert!(
+            panel_vertices
+                .iter()
+                .all(|vertex| vertex.color == [0, 0, 0, 176])
+        );
         assert!(panel_vertices.iter().any(|vertex| vertex.color[3] >= 128));
         assert!(
             panel_vertices
@@ -555,29 +618,149 @@ mod tests {
     }
 
     #[test]
+    fn wrapped_chat_messages_reserve_their_full_visual_height() {
+        let font = fixture_font();
+        let mut presentation = UiPresentationRuntime::new(font).unwrap();
+        let mut runtime = UiRuntime::new(1);
+        let first = "a".repeat(70);
+        let second = "b".repeat(70);
+        for (fifo_sequence, message) in [(1, first.as_str()), (2, second.as_str())] {
+            runtime
+                .apply(SequencedUiEvent {
+                    session_id: 1,
+                    fifo_sequence,
+                    local_millis: 0,
+                    server_tick: None,
+                    event: chat_event(message),
+                })
+                .unwrap();
+        }
+
+        let active = presentation
+            .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
+            .unwrap();
+        let first_vertex_count = first.chars().count() * 4;
+        let first_bottom = active.vertices[..first_vertex_count]
+            .iter()
+            .map(|vertex| vertex.position[1])
+            .fold(f32::NEG_INFINITY, f32::max);
+        let second_top = active.vertices[first_vertex_count..]
+            .iter()
+            .map(|vertex| vertex.position[1])
+            .fold(f32::INFINITY, f32::min);
+
+        assert!(
+            first_bottom <= second_top,
+            "wrapped chat rows overlap: first bottom {first_bottom}, second top {second_top}"
+        );
+    }
+
+    #[test]
+    fn chat_surface_uses_bounded_width_across_resize_and_dpi() {
+        let font = fixture_font();
+        let solid_page = u32::try_from(font.pages().len()).unwrap();
+        let mut presentation = UiPresentationRuntime::new(font).unwrap();
+        let mut runtime = UiRuntime::new(1);
+        runtime.open_chat();
+
+        for (physical_size, dpi, maximum_panel_right) in [
+            ([3_840, 1_080], 1.0, 656.0),
+            ([1_600, 1_200], 2.0, 752.0),
+            ([320, 200], 1.0, 320.0),
+        ] {
+            let active = presentation
+                .build(&runtime, 0, physical_size, DpiScale::new(dpi).unwrap())
+                .unwrap();
+            let panel = active
+                .batches
+                .iter()
+                .find(|batch| batch.texture_page == solid_page)
+                .unwrap();
+            let right = active.indices
+                [panel.first_index as usize..(panel.first_index + panel.index_count) as usize]
+                .iter()
+                .map(|index| active.vertices[*index as usize].position[0])
+                .fold(f32::NEG_INFINITY, f32::max);
+            assert!(right <= maximum_panel_right, "panel right edge was {right}");
+        }
+    }
+
+    #[test]
+    fn maximum_page_font_is_rejected_before_appending_the_solid_layer() {
+        let font = fixture_font_with_page_count(MAX_UI_TEXTURE_LAYERS as usize);
+        assert!(matches!(
+            UiPresentationRuntime::new(font),
+            Err(UiPresentationError::InvalidFontTexture)
+        ));
+    }
+
+    #[test]
     fn suggestion_window_keeps_the_selected_row_visible() {
         assert_eq!(visible_suggestion_range(20, Some(12)), 5..13);
         assert_eq!(visible_suggestion_range(20, Some(19)), 12..20);
         assert_eq!(visible_suggestion_range(3, Some(2)), 0..3);
     }
 
+    fn chat_event(message: &str) -> UiEvent {
+        UiEvent::Text(TextEvent {
+            category: TextCategory::MessageOnly,
+            kind: TextKind::Chat,
+            needs_translation: false,
+            source: None,
+            message: Arc::from(message),
+            parameters: Arc::from([]),
+            xuid: Arc::from(""),
+            platform_chat_id: Arc::from(""),
+            filtered_message: None,
+        })
+    }
+
+    fn fixture_font_with_page_count(page_count: usize) -> Arc<RuntimeFontCatalog> {
+        let pages = (0..page_count)
+            .map(|index| {
+                let pixels = vec![index as u8, (index >> 8) as u8, 255, 255].into_boxed_slice();
+                let mut source_sha256 = [1; 32];
+                source_sha256[..8].copy_from_slice(&(index as u64).to_le_bytes());
+                FontTexturePage {
+                    source_path: format!("font/page-{index:03}.png").into(),
+                    source_bytes: 4,
+                    source_sha256,
+                    pixels_sha256: Sha256::digest(&pixels).into(),
+                    width: 1,
+                    height: 1,
+                    rgba8: pixels,
+                }
+            })
+            .collect::<Vec<_>>();
+        let glyph = GlyphMetrics {
+            codepoint: '\u{fffd}',
+            page: 0,
+            uv: [0, 0, 1, 1],
+            bearing: [0, 0],
+            advance_64: 64,
+        };
+        let manifest = [9; 32];
+        let bytes = encode_font_catalog(manifest, &[glyph], &pages).unwrap();
+        Arc::new(RuntimeFontCatalog::decode(&bytes, manifest).unwrap())
+    }
+
     fn fixture_font() -> Arc<RuntimeFontCatalog> {
-        let pixels = vec![255; 4].into_boxed_slice();
+        let pixels = vec![255; 16 * 24 * 4].into_boxed_slice();
         let page = FontTexturePage {
             source_path: "font/page.png".into(),
-            source_bytes: 4,
+            source_bytes: pixels.len() as u32,
             source_sha256: [1; 32],
             pixels_sha256: Sha256::digest(&pixels).into(),
-            width: 1,
-            height: 1,
+            width: 16,
+            height: 24,
             rgba8: pixels,
         };
         let glyphs = ['/', '0', '2', '\u{fffd}'].map(|codepoint| GlyphMetrics {
             codepoint,
             page: 0,
-            uv: [0, 0, 1, 1],
+            uv: [0, 0, 16, 24],
             bearing: [0, 0],
-            advance_64: 64,
+            advance_64: 512,
         });
         let manifest = [7; 32];
         let bytes = encode_font_catalog(manifest, &glyphs, &[page]).unwrap();
