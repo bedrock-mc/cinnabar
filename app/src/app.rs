@@ -15,6 +15,7 @@ use bevy::{
     },
     window::WindowPlugin,
 };
+use client_world::PublicationServiceConfig;
 use render::{
     ActorRenderPlugin, ActorRenderScene, AtmosphereFrame, AtmospherePlugin,
     AtmosphereTextureAssets, ChunkRenderApplySet, ChunkRenderPlugin, ChunkTextureAssets,
@@ -261,7 +262,9 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             },
         ))
         .insert_resource(DiagnosticQuads::default())
-        .insert_resource(PublicationController::default())
+        .insert_resource(PublicationController::new(
+            PublicationServiceConfig::PHASE2_GATE,
+        ))
         .insert_resource(TransparentWitnessFileSource::new(
             args.transparent_witness_request,
         ))
@@ -275,7 +278,9 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .add_plugins((
             ActorRenderPlugin,
             AtmospherePlugin,
-            ChunkRenderPlugin::with_budget(PublicationController::default().budget()),
+            ChunkRenderPlugin::with_budget(
+                PublicationController::new(PublicationServiceConfig::PHASE2_GATE).budget(),
+            ),
             FlyCameraPlugin::new(args.auto_fly),
             UiRenderPlugin,
         ))
@@ -290,6 +295,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .add_systems(
             Update,
             begin_publication_frame
+                .before(receive_network_events)
+                .before(drive_world_stream)
                 .before(ChunkRenderApplySet)
                 .after(FlyCameraUpdateSet),
         )

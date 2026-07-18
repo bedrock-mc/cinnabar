@@ -40,6 +40,7 @@ impl Plugin for ChunkRenderPlugin {
         install_atmosphere(app);
         app.init_resource::<ChunkRenderQueue>()
             .init_resource::<ChunkUploadAcknowledgements>()
+            .init_resource::<ChunkGpuRemovalQueue>()
             .init_resource::<PresentedFrameGate>()
             .init_resource::<VisibilityDiagnosticsInput>()
             .init_resource::<VisibilityDiagnostics>()

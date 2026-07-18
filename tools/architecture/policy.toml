@@ -80,7 +80,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "render"
 path = "crates/render"
-allowed_dependencies = ["assets", "meshing", "world"]
+allowed_dependencies = ["assets", "client-world", "meshing", "world"]
 forbidden_dependencies = ["asset-compiler"]
 
 [[crates]]

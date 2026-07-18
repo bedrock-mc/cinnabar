@@ -26,9 +26,15 @@ impl WorldStream {
             report.mesh_results += 1;
             self.accept_mesh_completion(completion);
         }
+        let live_publication_items = self
+            .publication_allowance
+            .as_ref()
+            .map_or(max_mesh_jobs, PublicationAllowance::frame_remaining_items);
         report.mesh_jobs_dispatched = self.dispatch_mesh_jobs(
             camera_position,
-            max_mesh_jobs.min(MAX_PENDING_MESH_CHANGES.saturating_sub(self.mesh_changes.len())),
+            max_mesh_jobs
+                .min(live_publication_items)
+                .min(MAX_PENDING_MESH_CHANGES.saturating_sub(self.mesh_changes.len())),
         );
         report
     }

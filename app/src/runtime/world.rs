@@ -259,6 +259,17 @@ pub(crate) fn world_stream_fatal_message(error: client_world::WorldStreamFatalEr
     format!("world stream fatal: {error}")
 }
 
+const MISSING_PUBLICATION_PERMIT_ERROR: &str =
+    "world stream produced a render update without the required publication permit";
+
+pub(crate) fn mesh_change_has_publication_permit(change: &WorldMeshChange) -> bool {
+    match change {
+        WorldMeshChange::Upsert { permit, .. } | WorldMeshChange::Remove { permit, .. } => {
+            permit.is_some()
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_world_stream(
     network: Res<NetworkHandle>,
@@ -449,25 +460,32 @@ pub(crate) fn drive_world_stream(
         )
         .err()
     });
-    let mut published_items = 0;
+    let mut published_items = 0_usize;
+    let mut published_payload_items = 0_usize;
     let mut published_bytes = 0_u64;
+    let mut published_zero_byte_operations = 0_usize;
     if let Some(stream) = client_world.stream.as_mut() {
         while let Some(change) = stream.pop_mesh_change() {
+            if !mesh_change_has_publication_permit(&change) {
+                let restored = stream.retry_mesh_change_front(change).is_ok();
+                record_fatal_error(
+                    &mut client_world.fatal_error,
+                    if restored {
+                        MISSING_PUBLICATION_PERMIT_ERROR.to_owned()
+                    } else {
+                        format!(
+                            "{MISSING_PUBLICATION_PERMIT_ERROR}; failed to restore the rejected update to the bounded world retry FIFO"
+                        )
+                    },
+                );
+                break;
+            }
             let change_bytes = match &change {
                 WorldMeshChange::Upsert { mesh, biome, .. } => {
                     ChunkRenderQueue::upload_byte_len(mesh, biome)
                 }
                 WorldMeshChange::Remove { .. } => 0,
             };
-            if !upload_budget.can_fit(published_items, published_bytes, 1, change_bytes) {
-                if stream.retry_mesh_change_front(change).is_err() {
-                    client_world.fatal_error = Some(
-                        "failed to restore a budget-deferred render update to the bounded world retry FIFO"
-                            .to_owned(),
-                    );
-                }
-                break;
-            }
             let retry = match change {
                 WorldMeshChange::Upsert {
                     key,
@@ -476,9 +494,12 @@ pub(crate) fn drive_world_stream(
                     tint_identity,
                     generation,
                     dirty_since,
+                    permit,
                 } => {
                     let diagnostic_geometry = mesh.diagnostic_geometry().clone();
-                    match render_queue.try_update_tracked_with_biome_identity(
+                    let publication_permit =
+                        permit.expect("publication permit was validated before render handoff");
+                    match render_queue.try_update_tracked_with_biome_identity_permitted(
                         key,
                         mesh,
                         biome,
@@ -488,18 +509,20 @@ pub(crate) fn drive_world_stream(
                             generation,
                             dirty_since,
                         },
+                        publication_permit,
                     ) {
                         Ok(()) => {
                             diagnostic_quads.0.upsert(key, diagnostic_geometry);
                             None
                         }
-                        Err((mesh, biome)) => Some(WorldMeshChange::Upsert {
+                        Err((mesh, biome, permit)) => Some(WorldMeshChange::Upsert {
                             key,
                             mesh,
                             biome,
                             tint_identity,
                             generation,
                             dirty_since,
+                            permit: Some(permit),
                         }),
                     }
                 }
@@ -507,28 +530,41 @@ pub(crate) fn drive_world_stream(
                     key,
                     generation,
                     dirty_since,
-                } => match render_queue.try_remove_tracked(
-                    key,
-                    ChunkUploadPriority::from_camera(key, camera_position),
-                    ChunkUploadToken {
-                        generation,
-                        dirty_since,
-                    },
-                ) {
-                    Ok(()) => {
-                        diagnostic_quads.0.remove(key);
-                        None
-                    }
-                    Err(key) => Some(WorldMeshChange::Remove {
+                    permit,
+                } => {
+                    let publication_permit =
+                        permit.expect("publication permit was validated before render handoff");
+                    match render_queue.try_remove_tracked_permitted(
                         key,
-                        generation,
-                        dirty_since,
-                    }),
-                },
+                        ChunkUploadPriority::from_camera(key, camera_position),
+                        ChunkUploadToken {
+                            generation,
+                            dirty_since,
+                        },
+                        publication_permit,
+                    ) {
+                        Ok(()) => {
+                            diagnostic_quads.0.remove(key);
+                            None
+                        }
+                        Err((key, permit)) => Some(WorldMeshChange::Remove {
+                            key,
+                            generation,
+                            dirty_since,
+                            permit: Some(permit),
+                        }),
+                    }
+                }
             };
             let Some(retry) = retry else {
                 published_items = published_items.saturating_add(1);
-                published_bytes = published_bytes.saturating_add(change_bytes);
+                if change_bytes == 0 {
+                    published_zero_byte_operations =
+                        published_zero_byte_operations.saturating_add(1);
+                } else {
+                    published_payload_items = published_payload_items.saturating_add(1);
+                    published_bytes = published_bytes.saturating_add(change_bytes);
+                }
                 continue;
             };
             if stream.retry_mesh_change_front(retry).is_err() {
@@ -545,6 +581,7 @@ pub(crate) fn drive_world_stream(
         publication.finish_frame(PublicationFrameWork {
             mesh_jobs_dispatched: poll_report.mesh_jobs_dispatched,
             mesh_changes_published: published_items,
+            mesh_payloads_published: published_payload_items,
             mesh_bytes_published: published_bytes,
             pending_mesh_jobs: stats.pending_mesh_jobs,
             in_flight_mesh_jobs: stats.in_flight_mesh_jobs,

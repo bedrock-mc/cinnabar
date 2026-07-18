@@ -25,6 +25,14 @@ pub(in crate::chunk) fn record_gpu_completed_transparent_generation(
 pub(in crate::chunk) struct TransparentPresentationFence(Arc<Mutex<Option<u64>>>);
 
 impl TransparentPresentationFence {
+    #[cfg(feature = "publication-test-support")]
+    pub(in crate::chunk) fn is_in_flight(&self) -> bool {
+        self.0
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .is_some()
+    }
+
     pub(in crate::chunk) fn try_reserve(&self, generation: u64) -> bool {
         let mut in_flight = self.0.lock().unwrap_or_else(|poison| poison.into_inner());
         if generation == 0 || in_flight.is_some() {
@@ -58,6 +66,15 @@ pub(in crate::chunk) struct TransparentRetirementFenceState {
 pub(in crate::chunk) struct TransparentRetirementFence(Arc<Mutex<TransparentRetirementFenceState>>);
 
 impl TransparentRetirementFence {
+    #[cfg(feature = "publication-test-support")]
+    pub(in crate::chunk) fn is_in_flight(&self) -> bool {
+        self.0
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .in_flight
+            .is_some()
+    }
+
     pub(in crate::chunk) fn try_reserve(&self) -> Option<u64> {
         let mut state = self.0.lock().unwrap_or_else(|poison| poison.into_inner());
         if state.in_flight.is_some() {

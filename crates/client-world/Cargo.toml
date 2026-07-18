@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[features]
+publication-test-support = []
+
 [dependencies]
 assets = { path = "../assets" }
 crossbeam-channel = "0.5"

@@ -37,3 +37,7 @@ world = { path = "../crates/world" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 bevy = { workspace = true, default-features = false, features = ["wayland", "x11"] }
+
+[dev-dependencies]
+client-world = { path = "../crates/client-world", features = ["publication-test-support"] }
+render = { path = "../crates/render", features = ["publication-test-support"] }

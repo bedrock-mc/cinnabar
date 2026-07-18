@@ -271,27 +271,21 @@ fn gpu_growth_plan_copies_the_old_allocation_without_a_host_shadow_upload() {
 }
 
 #[test]
-fn a_first_arena_growth_can_cross_the_combined_byte_cap_but_remains_accounted() {
+fn whole_arena_growth_never_bypasses_the_literal_frame_byte_cap() {
     let budget = ChunkUploadBudget::new(1, 103);
     let mut reservation = GpuUploadReservation::default();
 
-    assert!(reservation.try_reserve(budget, 40, 64, 64));
-    assert_eq!(reservation.items, 1);
-    assert_eq!(reservation.incremental_bytes, 40);
-    assert_eq!(reservation.growth_copy_bytes, 64);
-    assert_eq!(reservation.total_bytes(), 104);
+    assert!(!reservation.try_reserve(budget, 40, 64, 64));
+    assert_eq!(reservation, GpuUploadReservation::default());
 }
 
 #[test]
-fn one_growth_copy_can_cross_the_frame_cap_to_prevent_a_permanent_arena_stall() {
+fn one_growth_copy_defers_until_the_frame_has_sufficient_literal_byte_authority() {
     let budget = ChunkUploadBudget::new(8, 4 * 1024 * 1024);
     let mut reservation = GpuUploadReservation::default();
 
-    assert!(reservation.try_reserve(budget, 64 * 1024, 8 * 1024 * 1024, 8 * 1024 * 1024,));
-    assert_eq!(reservation.items, 1);
-    assert_eq!(reservation.incremental_bytes, 64 * 1024);
-    assert_eq!(reservation.growth_copy_bytes, 8 * 1024 * 1024);
-    assert!(!reservation.try_reserve(budget, 1, 0, 8 * 1024 * 1024));
+    assert!(!reservation.try_reserve(budget, 64 * 1024, 8 * 1024 * 1024, 8 * 1024 * 1024,));
+    assert_eq!(reservation, GpuUploadReservation::default());
 }
 
 #[test]
@@ -716,6 +710,8 @@ fn one_upload_budget_still_applies_later_zero_byte_changes() {
 #[test]
 fn zero_byte_applications_never_exceed_the_retained_queue_hard_cap() {
     let total = DEFAULT_RENDER_QUEUE_ITEMS + 44;
+    let maximum_zero_byte_operations =
+        PublicationServiceConfig::PHASE2_GATE.maximum_zero_byte_operations_per_frame;
     let now = Instant::now();
     let acknowledgements = ChunkUploadAcknowledgements::default();
     let mut app = App::new();
@@ -750,8 +746,8 @@ fn zero_byte_applications_never_exceed_the_retained_queue_hard_cap() {
         .into_iter()
         .map(|acknowledgement| (acknowledgement.key, acknowledgement.token))
         .collect::<BTreeMap<_, _>>();
-    assert_eq!(applied.len(), DEFAULT_RENDER_QUEUE_ITEMS);
-    for index in 0..DEFAULT_RENDER_QUEUE_ITEMS {
+    assert_eq!(applied.len(), maximum_zero_byte_operations);
+    for index in 0..maximum_zero_byte_operations {
         assert_eq!(
             applied.get(&SubChunkKey::new(0, index as i32, 0, 0)),
             Some(&ChunkUploadToken {
@@ -762,7 +758,7 @@ fn zero_byte_applications_never_exceed_the_retained_queue_hard_cap() {
     }
     assert_eq!(
         app.world().resource::<ChunkRenderQueue>().retained_len(),
-        total - DEFAULT_RENDER_QUEUE_ITEMS
+        total - maximum_zero_byte_operations
     );
 }
 

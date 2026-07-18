@@ -291,11 +291,13 @@ pub enum WorldMeshChange {
         tint_identity: ChunkBiomeTintIdentity,
         generation: u64,
         dirty_since: Instant,
+        permit: Option<PublicationPermit>,
     },
     Remove {
         key: SubChunkKey,
         generation: u64,
         dirty_since: Instant,
+        permit: Option<PublicationPermit>,
     },
 }
 

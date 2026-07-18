@@ -1,6 +1,10 @@
 use super::*;
 
 impl WorldStream {
+    pub fn set_publication_allowance(&mut self, allowance: PublicationAllowance) {
+        self.publication_allowance = Some(allowance);
+    }
+
     pub fn take_mesh_changes(&mut self) -> Vec<WorldMeshChange> {
         let changes = self.mesh_changes.drain(..).collect::<Vec<_>>();
         self.stats.phase2_stages.mesh_changes_dequeued = self

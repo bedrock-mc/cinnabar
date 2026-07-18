@@ -1,7 +1,8 @@
 use crate::chunk::*;
 
-pub(in crate::chunk) const DEFAULT_ACKNOWLEDGEMENT_CAPACITY: usize = 256;
+pub(in crate::chunk) const DEFAULT_ACKNOWLEDGEMENT_CAPACITY: usize = 512;
 pub(in crate::chunk) const DEFAULT_PRESENTED_FRAME_ACK_CAPACITY: usize = 8;
+pub(in crate::chunk) const DEFAULT_ZERO_BYTE_OPERATIONS_PER_FRAME: usize = 256;
 
 /// Maximum number of non-empty new or changed sub-chunks transferred to the
 /// render world in one main-world update.
@@ -9,6 +10,7 @@ pub(in crate::chunk) const DEFAULT_PRESENTED_FRAME_ACK_CAPACITY: usize = 8;
 pub struct ChunkUploadBudget {
     pub max_per_frame: usize,
     pub max_bytes_per_frame: u64,
+    pub max_zero_byte_operations_per_frame: usize,
 }
 
 impl Default for ChunkUploadBudget {
@@ -23,7 +25,17 @@ impl ChunkUploadBudget {
         Self {
             max_per_frame,
             max_bytes_per_frame,
+            max_zero_byte_operations_per_frame: DEFAULT_ZERO_BYTE_OPERATIONS_PER_FRAME,
         }
+    }
+
+    #[must_use]
+    pub const fn with_zero_byte_operations_per_frame(
+        mut self,
+        max_zero_byte_operations_per_frame: usize,
+    ) -> Self {
+        self.max_zero_byte_operations_per_frame = max_zero_byte_operations_per_frame;
+        self
     }
 
     #[must_use]
@@ -36,6 +48,11 @@ impl ChunkUploadBudget {
     ) -> bool {
         used_items.saturating_add(additional_items) <= self.max_per_frame
             && used_bytes.saturating_add(additional_bytes) <= self.max_bytes_per_frame
+    }
+
+    #[must_use]
+    pub const fn can_fit_zero_byte_operation(self, used_operations: usize) -> bool {
+        used_operations < self.max_zero_byte_operations_per_frame
     }
 }
 
@@ -81,11 +98,173 @@ pub(in crate::chunk) struct PendingUpload {
     pub(in crate::chunk) priority: ChunkUploadPriority,
     pub(in crate::chunk) generation: u64,
     pub(in crate::chunk) token: Option<ChunkUploadToken>,
+    pub(in crate::chunk) publication_permit: Option<PublicationPermit>,
 }
 
 pub(in crate::chunk) struct PendingRemoval {
     pub(in crate::chunk) priority: ChunkUploadPriority,
     pub(in crate::chunk) token: Option<ChunkUploadToken>,
+    pub(in crate::chunk) publication_permit: Option<PublicationPermit>,
+}
+
+#[derive(Clone)]
+pub(in crate::chunk) struct PublicationPermitSlot {
+    inner: Arc<Mutex<Option<PublicationPermit>>>,
+}
+
+impl PublicationPermitSlot {
+    pub(in crate::chunk) fn new(permit: PublicationPermit) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(Some(permit))),
+        }
+    }
+
+    pub(in crate::chunk) fn take(&self) -> Option<PublicationPermit> {
+        self.inner
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .take()
+    }
+
+    pub(in crate::chunk) fn restore(
+        &self,
+        permit: PublicationPermit,
+    ) -> Result<(), PublicationPermit> {
+        let mut slot = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        if slot.is_some() {
+            return Err(permit);
+        }
+        *slot = Some(permit);
+        Ok(())
+    }
+
+    pub(in crate::chunk) fn stage(&self) -> Option<PublicationPermitStage> {
+        self.inner
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .as_ref()
+            .and_then(PublicationPermit::stage)
+    }
+
+    pub(in crate::chunk) fn bytes(&self) -> Option<u64> {
+        self.inner
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .as_ref()
+            .and_then(PublicationPermit::bytes)
+    }
+
+    pub(in crate::chunk) fn is_zero_byte(&self) -> bool {
+        self.inner
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .as_ref()
+            .is_some_and(PublicationPermit::is_zero_byte)
+    }
+}
+
+pub(in crate::chunk) struct PendingGpuRemoval {
+    pub(in crate::chunk) key: SubChunkKey,
+    pub(in crate::chunk) token: Option<ChunkUploadToken>,
+    pub(in crate::chunk) permit: PublicationPermit,
+}
+
+#[derive(Resource, ExtractResource, Clone)]
+pub(in crate::chunk) struct ChunkGpuRemovalQueue {
+    inner: Arc<Mutex<VecDeque<PendingGpuRemoval>>>,
+    capacity: usize,
+}
+
+impl Default for ChunkGpuRemovalQueue {
+    fn default() -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(VecDeque::new())),
+            capacity: DEFAULT_ZERO_BYTE_OPERATIONS_PER_FRAME,
+        }
+    }
+}
+
+impl ChunkGpuRemovalQueue {
+    #[cfg(any(test, feature = "publication-test-support"))]
+    pub(in crate::chunk) fn pending_len(&self) -> usize {
+        self.inner
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .len()
+    }
+
+    pub(in crate::chunk) fn has_capacity_for(&self, key: SubChunkKey) -> bool {
+        let pending = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        pending.len() < self.capacity || pending.iter().any(|removal| removal.key == key)
+    }
+
+    pub(in crate::chunk) fn cancel(&self, key: SubChunkKey) {
+        let removed = {
+            let mut pending = self
+                .inner
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner());
+            pending
+                .iter()
+                .position(|removal| removal.key == key)
+                .and_then(|index| pending.remove(index))
+        };
+        drop(removed);
+    }
+
+    pub(in crate::chunk) fn push(
+        &self,
+        removal: PendingGpuRemoval,
+    ) -> Result<(), PendingGpuRemoval> {
+        let mut pending = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        if let Some(index) = pending.iter().position(|queued| queued.key == removal.key) {
+            let superseded = pending
+                .remove(index)
+                .expect("the matching removal index remains present");
+            pending.push_back(removal);
+            drop(pending);
+            drop(superseded);
+            return Ok(());
+        }
+        if pending.len() >= self.capacity {
+            return Err(removal);
+        }
+        pending.push_back(removal);
+        Ok(())
+    }
+
+    pub(in crate::chunk) fn take_ready(
+        &self,
+        limit: usize,
+        mut ready: impl FnMut(SubChunkKey) -> bool,
+    ) -> Vec<PendingGpuRemoval> {
+        let mut pending = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let mut completed = Vec::new();
+        let retained = pending.len();
+        for _ in 0..retained {
+            let Some(removal) = pending.pop_front() else {
+                break;
+            };
+            if completed.len() < limit && ready(removal.key) {
+                completed.push(removal);
+            } else {
+                pending.push_back(removal);
+            }
+        }
+        completed
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -656,6 +835,7 @@ pub struct ChunkRenderInstance {
     pub(in crate::chunk) tint_identity: ChunkBiomeTintIdentity,
     pub(in crate::chunk) generation: u64,
     pub(in crate::chunk) token: Option<ChunkUploadToken>,
+    pub(in crate::chunk) publication_permit: Option<PublicationPermitSlot>,
     pub(in crate::chunk) origin: [i32; 3],
 }
 

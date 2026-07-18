@@ -142,6 +142,36 @@ pub(in crate::chunk) struct GpuUploadReservation {
 }
 
 impl GpuUploadReservation {
+    pub(in crate::chunk) fn try_reserve_permitted(
+        &mut self,
+        incremental_bytes: u64,
+        projected_growth_copy_bytes: u64,
+        growth_copy_ceiling: u64,
+    ) -> bool {
+        if projected_growth_copy_bytes > growth_copy_ceiling {
+            return false;
+        }
+        let Some(items) = self.items.checked_add(1) else {
+            return false;
+        };
+        let Some(incremental_bytes) = self.incremental_bytes.checked_add(incremental_bytes) else {
+            return false;
+        };
+        let next = Self {
+            items,
+            incremental_bytes,
+            growth_copy_bytes: self.growth_copy_bytes.max(projected_growth_copy_bytes),
+        };
+        let limits = PublicationServiceConfig::PHASE2_GATE;
+        if next.items > limits.maximum_frame_items
+            || next.total_bytes() > limits.maximum_frame_bytes
+        {
+            return false;
+        }
+        *self = next;
+        true
+    }
+
     pub(in crate::chunk) fn try_reserve(
         &mut self,
         budget: ChunkUploadBudget,
@@ -149,18 +179,21 @@ impl GpuUploadReservation {
         projected_growth_copy_bytes: u64,
         growth_copy_ceiling: u64,
     ) -> bool {
+        if projected_growth_copy_bytes > growth_copy_ceiling {
+            return false;
+        }
+        let Some(items) = self.items.checked_add(1) else {
+            return false;
+        };
+        let Some(incremental_bytes) = self.incremental_bytes.checked_add(incremental_bytes) else {
+            return false;
+        };
         let next = Self {
-            items: self.items.saturating_add(1),
-            incremental_bytes: self.incremental_bytes.saturating_add(incremental_bytes),
+            items,
+            incremental_bytes,
             growth_copy_bytes: self.growth_copy_bytes.max(projected_growth_copy_bytes),
         };
-        let first_growth_crossing = self.items == 0
-            && incremental_bytes <= budget.max_bytes_per_frame
-            && projected_growth_copy_bytes > 0
-            && projected_growth_copy_bytes <= growth_copy_ceiling;
-        if next.items > budget.max_per_frame
-            || (next.total_bytes() > budget.max_bytes_per_frame && !first_growth_crossing)
-        {
+        if next.items > budget.max_per_frame || next.total_bytes() > budget.max_bytes_per_frame {
             return false;
         }
         *self = next;

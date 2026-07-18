@@ -197,6 +197,43 @@ fn mesh_removals_are_not_blocked_by_a_full_worker_window() {
 }
 
 #[test]
+fn removal_waits_for_source_authority_and_carries_its_zero_byte_permit() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    let allowance = super::PublicationAllowance::new(super::PublicationServiceConfig::PHASE2_GATE);
+    allowance.begin_frame(1, 0, 0, 0);
+    stream.set_publication_allowance(allowance.clone());
+    let removed = SubChunkKey::new(0, 0, -4, 0);
+    stream.mark_dirty_exact(removed, Instant::now());
+
+    assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 0);
+    assert!(stream.take_mesh_changes().is_empty());
+
+    allowance.begin_frame(2, 0, 0, 1);
+    assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 0);
+    let mut changes = stream.take_mesh_changes();
+    assert_eq!(changes.len(), 1);
+    let super::WorldMeshChange::Remove {
+        permit: Some(permit),
+        ..
+    } = changes.pop().unwrap()
+    else {
+        panic!("expected one permitted removal")
+    };
+    assert_eq!(
+        permit.stage(),
+        Some(super::PublicationPermitStage::MeshReady)
+    );
+    assert!(permit.retire());
+}
+
+#[test]
 fn removal_heavy_mesh_work_prioritizes_real_meshes_and_respects_poll_budget() {
     let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,

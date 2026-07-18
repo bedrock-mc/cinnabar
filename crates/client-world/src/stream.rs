@@ -10,7 +10,8 @@ use std::{
 use ::meshing::{
     BIOME_NEIGHBOUR_SLOT_COUNT, BlockClassifier, CameraMedium, ChunkBiomeTintIdentity, ChunkMesh,
     FaceConnectivity, MeshLightSample, MeshLightSampler, PackedBiomeRecord, biome_neighbour_index,
-    mesh_dependency_mask, mesh_sub_chunk_in_neighbourhood_with_lighting, sample_camera_medium,
+    chunk_publication_byte_len, mesh_dependency_mask,
+    mesh_sub_chunk_in_neighbourhood_with_lighting, sample_camera_medium,
 };
 use assets::{
     LiveBiomeDefinition, NetworkIdMode, ResolvedBiomeTints, RuntimeAssets, RuntimeEntityAssets,
@@ -58,6 +59,8 @@ mod polling;
 mod publication;
 #[path = "publication_config.rs"]
 mod publication_config;
+#[cfg(feature = "publication-test-support")]
+mod publication_test_support;
 mod requests;
 mod residency;
 mod retries;
@@ -72,11 +75,15 @@ pub use diagnostics::{
     Phase2PublicationSnapshot, PresentModeIdentity, PublicationStageCounters, RequestClass,
     StageDurations, SubChunkOutcomeCounters,
 };
-pub use publication_config::PublicationServiceConfig;
+pub use publication_config::{
+    PublicationAllowance, PublicationPermit, PublicationPermitStage, PublicationServiceConfig,
+};
+#[cfg(feature = "publication-test-support")]
+pub use publication_test_support::{PublicationFixtureIdentity, PublicationFixtureSnapshot};
 
 /// Decode and mesh workers may each have at most this many completed results
 /// waiting for the main thread. A full channel applies backpressure to Rayon.
-pub const WORK_RESULT_CAPACITY: usize = 128;
+pub const WORK_RESULT_CAPACITY: usize = 512;
 pub const MAX_ADMITTED_WORLD_EVENTS: usize = 64;
 pub const MAX_ADMITTED_HEAVY_EVENTS: usize = 32;
 pub const MAX_IN_FLIGHT_DECODE_JOBS: usize = MAX_ADMITTED_HEAVY_EVENTS;
@@ -90,7 +97,7 @@ pub const OUTBOUND_REQUEST_CAPACITY: usize = 64;
 pub const DEFERRED_RETRY_CAPACITY: usize = 64;
 pub const MAX_SUB_CHUNK_RETRIES: u8 = 2;
 pub const SUB_CHUNK_RESPONSE_TIMEOUT: Duration = Duration::from_secs(2);
-pub const MAX_PENDING_MESH_CHANGES: usize = 256;
+pub const MAX_PENDING_MESH_CHANGES: usize = 512;
 pub const MAX_IN_FLIGHT_LIGHT_JOBS: usize = 512;
 pub const LIGHT_DISPATCH_BUDGET_PER_POLL: usize = MAX_IN_FLIGHT_LIGHT_JOBS;
 const LIGHT_RESULT_CAPACITY: usize = LIGHT_DISPATCH_BUDGET_PER_POLL;
@@ -168,6 +175,7 @@ pub struct WorldStream {
     connectivity_generation: u64,
     requests: VecDeque<OutboundRequestSlot>,
     transport_pending_requests: usize,
+    publication_allowance: Option<PublicationAllowance>,
     mesh_changes: VecDeque<WorldMeshChange>,
     committed_controls: VecDeque<CommittedControlEvent>,
     committed_ui: VecDeque<CommittedUiEvent>,

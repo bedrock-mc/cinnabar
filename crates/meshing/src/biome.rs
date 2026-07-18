@@ -9,6 +9,21 @@ const PALETTE_LEN_MASK: u32 = 0x1fff;
 const DESCRIPTOR_MAGIC: u32 = 0x4249_4f31;
 const DESCRIPTOR_WORDS: usize = 2 + BIOME_NEIGHBOUR_SLOT_COUNT;
 const NO_UNIFORM_TINT: u32 = u32::MAX;
+const FALLBACK_WORDS: [u32; 13] = [
+    DESCRIPTOR_MAGIC,
+    0,
+    0,
+    0,
+    0,
+    0,
+    DESCRIPTOR_WORDS as u32,
+    0,
+    0,
+    0,
+    0,
+    1 << PALETTE_LEN_SHIFT,
+    0,
+];
 
 /// Immutable identity for the biome tint table referenced by packed records.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -165,12 +180,14 @@ impl PackedBiomeRecord {
     /// Uniform fallback record referencing tint-table entry zero.
     #[must_use]
     pub fn fallback() -> Self {
-        let mut words = vec![DESCRIPTOR_MAGIC, 0];
-        words.extend([0, 0, 0, 0, DESCRIPTOR_WORDS as u32, 0, 0, 0, 0]);
-        words.extend([1 << PALETTE_LEN_SHIFT, 0]);
         Self {
-            words: words.into(),
+            words: Arc::from(FALLBACK_WORDS),
         }
+    }
+
+    #[must_use]
+    pub fn is_fallback(&self) -> bool {
+        self.words.as_ref() == FALLBACK_WORDS
     }
 
     /// Exact storage-buffer words: descriptor then deduplicated packed records.

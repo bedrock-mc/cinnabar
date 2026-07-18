@@ -53,6 +53,11 @@ pub use chunk::{
     plan_texture_mip_uploads, plan_texture_page_bindings, select_animation_frames,
     texture_asset_needs_rebuild, validate_transparent_sort_ref_count,
 };
+#[cfg(feature = "publication-test-support")]
+pub use chunk::{
+    PublicationRenderTerminalSnapshot, publication_noop_render_plugin,
+    publication_render_terminal_snapshot, settle_publication_noop_frame,
+};
 pub use cloud_config::{
     CloudCalibrationError, CloudCalibrationHarness, CloudCalibrationRecord, CloudCalibrationReport,
     CloudCoverageSemantics, CloudGeometryDiagnostic, CloudGeometryDiagnosticError,

@@ -60,7 +60,8 @@ use bevy::{
         },
     },
 };
-use meshing::{ChunkBiomeTintIdentity, Face};
+use client_world::{PublicationPermit, PublicationPermitStage, PublicationServiceConfig};
+use meshing::{ChunkBiomeTintIdentity, Face, chunk_publication_byte_len};
 use world::SubChunkKey;
 
 use crate::{
@@ -83,6 +84,8 @@ mod gpu;
 mod pipeline;
 mod plugin;
 mod presentation;
+#[cfg(feature = "publication-test-support")]
+mod publication_test_support;
 mod queue;
 mod textures;
 mod transparent;
@@ -97,10 +100,11 @@ use constants::{
 
 #[allow(unused_imports)]
 use api::{
-    AcknowledgementSlot, AcknowledgementState, CompletedFrameProbe,
+    AcknowledgementSlot, AcknowledgementState, ChunkGpuRemovalQueue, CompletedFrameProbe,
     DEFAULT_ACKNOWLEDGEMENT_CAPACITY, DEFAULT_PRESENTED_FRAME_ACK_CAPACITY,
-    FrameCompletionEvidence, ModelWitnessFrameEvaluation, PendingRemoval, PendingUpload,
-    PresentedFrameGateState, evaluate_model_witness_frame,
+    DEFAULT_ZERO_BYTE_OPERATIONS_PER_FRAME, FrameCompletionEvidence, ModelWitnessFrameEvaluation,
+    PendingGpuRemoval, PendingRemoval, PendingUpload, PresentedFrameGateState,
+    PublicationPermitSlot, evaluate_model_witness_frame,
 };
 pub use api::{
     ChunkRenderInstance, ChunkUploadAcknowledgement, ChunkUploadAcknowledgements,
@@ -167,9 +171,10 @@ use gpu::types::{
 #[allow(unused_imports)]
 use gpu::upload::{
     absolutize_liquid_lighting_indices, absolutize_model_lighting_bases,
-    absolutize_partitioned_model_draw_refs, liquid_quad_centroid, packed_lighting_records,
-    packed_stream_range_matches, prepare_gpu_chunks, transparent_allocation_matches,
-    transparent_model_allocation_matches, validate_partitioned_model_streams,
+    absolutize_partitioned_model_draw_refs, chunk_instance_upload_byte_len, liquid_quad_centroid,
+    packed_lighting_records, packed_stream_range_matches, prepare_gpu_chunks,
+    transparent_allocation_matches, transparent_model_allocation_matches,
+    validate_partitioned_model_streams,
 };
 #[allow(unused_imports)]
 use pipeline::commands::{
@@ -211,12 +216,17 @@ pub use presentation::transparent_witness::{
 };
 #[allow(unused_imports)]
 use presentation::transparent_witness::{TransparentWitnessEvidenceState, TransparentWitnessToken};
+#[cfg(feature = "publication-test-support")]
+pub use publication_test_support::{
+    PublicationRenderTerminalSnapshot, publication_noop_render_plugin,
+    publication_render_terminal_snapshot, settle_publication_noop_frame,
+};
 pub use queue::{ChunkRenderQueue, ChunkRenderQueueLimits};
 #[allow(unused_imports)]
 use queue::{
     DEFAULT_RENDER_QUEUE_BYTES, DEFAULT_RENDER_QUEUE_ITEMS, apply_chunk_render_queue,
-    biome_record_byte_len, biome_record_is_fallback, chunk_origin, mesh_byte_len,
-    pending_upload_byte_len, update_chunk_animation_clock,
+    biome_record_byte_len, biome_record_is_fallback, chunk_origin, pending_upload_byte_len,
+    update_chunk_animation_clock,
 };
 #[allow(unused_imports)]
 use textures::{ANIMATION_TICK_MODULUS, ANIMATION_TICKS_PER_SECOND};

@@ -338,6 +338,7 @@ fn transparent_refs_require_exact_instance_identity_and_aligned_stream_ranges() 
         tint_identity: tint,
         generation: 6,
         token: None,
+        publication_permit: None,
         origin: [16, 32, 48],
     };
     let allocation = GpuChunkAllocation {
@@ -410,6 +411,7 @@ fn transparent_model_refs_require_the_exact_gpu_generation_and_stream_ranges() {
         tint_identity: ChunkBiomeTintIdentity::new(4, 5),
         generation: 6,
         token: None,
+        publication_permit: None,
         origin: [16, 32, 48],
     };
     let allocation = GpuChunkAllocation {

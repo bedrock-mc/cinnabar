@@ -7,6 +7,7 @@ pub(in crate::chunk) fn install_chunk_extraction(app: &mut App) {
         ExtractResourcePlugin::<ChunkAnimationClock>::default(),
         ExtractResourcePlugin::<ChunkBiomeTints>::default(),
         ExtractResourcePlugin::<ChunkUploadBudget>::default(),
+        ExtractResourcePlugin::<ChunkGpuRemovalQueue>::default(),
         ExtractResourcePlugin::<TransparentWitnessRequest>::default(),
         ExtractResourcePlugin::<ModelWitnessRequest>::default(),
         ExtractResourcePlugin::<VisibilityDiagnosticsInput>::default(),

@@ -98,6 +98,7 @@ fn render_backpressure_retry_preserves_change_order_for_eventual_delivery() {
             key: first,
             generation: 1,
             dirty_since: Instant::now(),
+            permit: None,
         });
     stream
         .mesh_changes
@@ -105,6 +106,7 @@ fn render_backpressure_retry_preserves_change_order_for_eventual_delivery() {
             key: second,
             generation: 2,
             dirty_since: Instant::now(),
+            permit: None,
         });
     stream.stats.phase2_stages.mesh_changes_queued = 2;
 
@@ -156,6 +158,7 @@ fn render_publication_retry_and_eviction_preserve_diagnostic_identity_summary() 
             tint_identity: stream.biome_tint_identity(),
             generation: 1,
             dirty_since: Instant::now(),
+            permit: None,
         });
 
     let blocked = stream.pop_mesh_change().unwrap();
@@ -174,6 +177,7 @@ fn render_publication_retry_and_eviction_preserve_diagnostic_identity_summary() 
             key,
             generation: 2,
             dirty_since: Instant::now(),
+            permit: None,
         });
     assert!(matches!(
         stream.pop_mesh_change(),
@@ -654,7 +658,7 @@ fn forced_remesh_returns_exact_resident_generation_manifest() {
     assert!(stream.take_mesh_changes().iter().any(|change| {
         matches!(
             change,
-            super::WorldMeshChange::Remove { key, generation, dirty_since }
+            super::WorldMeshChange::Remove { key, generation, dirty_since, .. }
                 if *key == known_air
                     && manifest.entries.contains(&(*key, *generation))
                     && *dirty_since == started

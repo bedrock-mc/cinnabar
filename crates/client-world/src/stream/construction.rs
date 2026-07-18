@@ -156,6 +156,7 @@ impl WorldStream {
             connectivity_generation: 0,
             requests: VecDeque::new(),
             transport_pending_requests: 0,
+            publication_allowance: None,
             mesh_changes: VecDeque::new(),
             committed_controls: VecDeque::new(),
             committed_ui: VecDeque::new(),

@@ -29,6 +29,7 @@ use crate::{
     environment::replace_session,
     movement::MovementSource,
     runtime::{
+        publication::PublicationController,
         shutdown::record_fatal_error,
         visibility::AppMetrics,
         world::{AppWorldState, ClientWorld},
@@ -165,6 +166,10 @@ fn consume_equipment_route(
     }
 }
 
+// These resources have distinct Bevy access modes and lifetimes; keeping them
+// explicit lets the scheduler validate conflicts while bootstrap wires the
+// shared publication allowance into each newly created world stream.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn receive_network_events(
     mut network: ResMut<NetworkHandle>,
     state: AppWorldState,
@@ -172,6 +177,7 @@ pub(crate) fn receive_network_events(
     metrics: Res<AppMetrics>,
     acknowledgements: Res<ChunkUploadAcknowledgements>,
     model_witness_source: Res<ModelWitnessFileSource>,
+    publication: Res<PublicationController>,
     mut cameras: Query<&mut Transform, With<FlyCamera>>,
 ) {
     let AppWorldState {
@@ -242,12 +248,13 @@ pub(crate) fn receive_network_events(
                         SAFE_SERVER_HEIGHT,
                         bootstrap.world_spawn_position[2] as f32 + 0.5,
                     ]);
-                let stream = WorldStream::new_with_assets(
+                let mut stream = WorldStream::new_with_assets(
                     bootstrap,
                     Arc::clone(&client_world.runtime_assets),
                     current,
                     client_world.pending_surface_spawn,
                 );
+                stream.set_publication_allowance(publication.allowance());
                 let resolved = stream.resolved_server_position();
                 if acceptance.enabled() {
                     acceptance

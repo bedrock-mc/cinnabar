@@ -279,6 +279,7 @@ fn aligned_shared_geometry_is_transparent_validator_eligible() {
         tint_identity: tint,
         generation: 9,
         token: None,
+        publication_permit: None,
         origin: [0; 3],
     };
     let allocation = GpuChunkAllocation {

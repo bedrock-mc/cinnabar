@@ -1,6 +1,6 @@
 use crate::chunk::*;
 
-pub(in crate::chunk) const DEFAULT_RENDER_QUEUE_ITEMS: usize = 256;
+pub(in crate::chunk) const DEFAULT_RENDER_QUEUE_ITEMS: usize = 512;
 pub(in crate::chunk) const DEFAULT_RENDER_QUEUE_BYTES: u64 = 64 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,7 +55,7 @@ impl ChunkRenderQueue {
 
     #[must_use]
     pub fn upload_byte_len(mesh: &ChunkMesh, biome: &PackedBiomeRecord) -> u64 {
-        mesh_byte_len(mesh).saturating_add(biome_record_byte_len(biome))
+        chunk_publication_byte_len(mesh, biome)
     }
 
     pub fn try_insert(
@@ -221,6 +221,57 @@ impl ChunkRenderQueue {
         self.try_enqueue(key, mesh, biome, tint_identity, priority, Some(token))
     }
 
+    // The rejection path deliberately returns every owned input, including the
+    // linear permit, so callers can retry without losing either work or authority.
+    #[allow(clippy::too_many_arguments, clippy::result_large_err)]
+    pub fn try_update_tracked_with_biome_identity_permitted(
+        &mut self,
+        key: SubChunkKey,
+        mesh: ChunkMesh,
+        biome: PackedBiomeRecord,
+        tint_identity: ChunkBiomeTintIdentity,
+        priority: ChunkUploadPriority,
+        token: ChunkUploadToken,
+        publication_permit: PublicationPermit,
+    ) -> Result<(), (ChunkMesh, PackedBiomeRecord, PublicationPermit)> {
+        let expected_bytes = chunk_publication_byte_len(&mesh, &biome);
+        let permit_matches = publication_permit.bytes() == Some(expected_bytes)
+            && publication_permit.is_zero_byte() == (expected_bytes == 0);
+        if !permit_matches {
+            return Err((mesh, biome, publication_permit));
+        }
+        let old_bytes = self.pending.get(&key).map_or(0, pending_upload_byte_len);
+        let replaces_existing = self.pending.contains_key(&key) || self.removals.contains_key(&key);
+        let next_items = self.retained_len() + usize::from(!replaces_existing);
+        let next_bytes = self
+            .pending_bytes
+            .saturating_sub(old_bytes)
+            .saturating_add(expected_bytes);
+        if next_items > self.limits.max_items || next_bytes > self.limits.max_bytes {
+            return Err((mesh, biome, publication_permit));
+        }
+        let publication_permit = match publication_permit.into_handoff() {
+            Ok(permit) => permit,
+            Err(permit) => return Err((mesh, biome, permit)),
+        };
+        self.try_enqueue_inner(
+            key,
+            mesh,
+            biome,
+            tint_identity,
+            priority,
+            Some(token),
+            Some(publication_permit),
+        )
+        .map_err(|(mesh, biome)| {
+            unreachable!(
+                "capacity was checked before linear permit transfer: {} {}",
+                mesh.is_empty(),
+                biome.byte_len()
+            )
+        })
+    }
+
     pub fn try_remove(&mut self, key: SubChunkKey) -> Result<(), SubChunkKey> {
         self.try_remove_inner(key, ChunkUploadPriority::new(0.0), None)
     }
@@ -234,11 +285,43 @@ impl ChunkRenderQueue {
         self.try_remove_inner(key, priority, Some(token))
     }
 
+    pub fn try_remove_tracked_permitted(
+        &mut self,
+        key: SubChunkKey,
+        priority: ChunkUploadPriority,
+        token: ChunkUploadToken,
+        publication_permit: PublicationPermit,
+    ) -> Result<(), (SubChunkKey, PublicationPermit)> {
+        if !publication_permit.is_zero_byte() || publication_permit.bytes() != Some(0) {
+            return Err((key, publication_permit));
+        }
+        let replaces_existing = self.pending.contains_key(&key) || self.removals.contains_key(&key);
+        if !replaces_existing && self.retained_len() >= self.limits.max_items {
+            return Err((key, publication_permit));
+        }
+        let publication_permit = match publication_permit.into_handoff() {
+            Ok(permit) => permit,
+            Err(permit) => return Err((key, permit)),
+        };
+        self.try_remove_inner_permitted(key, priority, Some(token), Some(publication_permit))
+            .map_err(|key| unreachable!("capacity was checked before permit transfer: {key:?}"))
+    }
+
     pub(in crate::chunk) fn try_remove_inner(
         &mut self,
         key: SubChunkKey,
         priority: ChunkUploadPriority,
         token: Option<ChunkUploadToken>,
+    ) -> Result<(), SubChunkKey> {
+        self.try_remove_inner_permitted(key, priority, token, None)
+    }
+
+    fn try_remove_inner_permitted(
+        &mut self,
+        key: SubChunkKey,
+        priority: ChunkUploadPriority,
+        token: Option<ChunkUploadToken>,
+        publication_permit: Option<PublicationPermit>,
     ) -> Result<(), SubChunkKey> {
         let replaces_existing = self.pending.contains_key(&key) || self.removals.contains_key(&key);
         if !replaces_existing && self.retained_len() >= self.limits.max_items {
@@ -248,9 +331,23 @@ impl ChunkRenderQueue {
             self.pending_bytes = self
                 .pending_bytes
                 .saturating_sub(pending_upload_byte_len(&pending));
+            if let Some(permit) = pending.publication_permit {
+                let _ = permit.retire();
+            }
         }
-        self.removals
-            .insert(key, PendingRemoval { priority, token });
+        if let Some(pending) = self.removals.remove(&key)
+            && let Some(permit) = pending.publication_permit
+        {
+            let _ = permit.retire();
+        }
+        self.removals.insert(
+            key,
+            PendingRemoval {
+                priority,
+                token,
+                publication_permit,
+            },
+        );
         self.render_manifest.remove(&key);
         Ok(())
     }
@@ -387,6 +484,20 @@ impl ChunkRenderQueue {
         priority: ChunkUploadPriority,
         token: Option<ChunkUploadToken>,
     ) -> Result<(), (ChunkMesh, PackedBiomeRecord)> {
+        self.try_enqueue_inner(key, mesh, biome, tint_identity, priority, token, None)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn try_enqueue_inner(
+        &mut self,
+        key: SubChunkKey,
+        mesh: ChunkMesh,
+        biome: PackedBiomeRecord,
+        tint_identity: ChunkBiomeTintIdentity,
+        priority: ChunkUploadPriority,
+        token: Option<ChunkUploadToken>,
+        publication_permit: Option<PublicationPermit>,
+    ) -> Result<(), (ChunkMesh, PackedBiomeRecord)> {
         let old_bytes = self.pending.get(&key).map_or(0, pending_upload_byte_len);
         let replaces_existing = self.pending.contains_key(&key) || self.removals.contains_key(&key);
         let next_items = self
@@ -395,12 +506,20 @@ impl ChunkRenderQueue {
         let next_bytes = self
             .pending_bytes
             .saturating_sub(old_bytes)
-            .saturating_add(mesh_byte_len(&mesh))
-            .saturating_add(biome_record_byte_len(&biome));
+            .saturating_add(chunk_publication_byte_len(&mesh, &biome));
         if next_items > self.limits.max_items || next_bytes > self.limits.max_bytes {
             return Err((mesh, biome));
         }
-        self.removals.remove(&key);
+        if let Some(pending) = self.removals.remove(&key)
+            && let Some(permit) = pending.publication_permit
+        {
+            let _ = permit.retire();
+        }
+        if let Some(previous) = self.pending.remove(&key)
+            && let Some(permit) = previous.publication_permit
+        {
+            let _ = permit.retire();
+        }
         self.next_generation = self.next_generation.wrapping_add(1).max(1);
         let generation = token.map_or(self.next_generation, |token| token.generation);
         if mesh.is_empty() {
@@ -418,46 +537,15 @@ impl ChunkRenderQueue {
                 priority,
                 generation,
                 token,
+                publication_permit,
             },
         );
         Ok(())
     }
 }
 
-pub(in crate::chunk) fn mesh_byte_len(mesh: &ChunkMesh) -> u64 {
-    buffer_byte_len(mesh.cube_quads().len(), PACKED_QUAD_BYTES)
-        .saturating_add(buffer_byte_len(
-            mesh.cube_lighting().len(),
-            PACKED_QUAD_LIGHTING_BYTES,
-        ))
-        .saturating_add(buffer_byte_len(
-            mesh.model_refs().len(),
-            PACKED_MODEL_REF_BYTES,
-        ))
-        .saturating_add(buffer_byte_len(
-            mesh.model_lighting().len(),
-            PACKED_QUAD_LIGHTING_BYTES,
-        ))
-        .saturating_add(buffer_byte_len(
-            mesh.model_draw_refs().len(),
-            PACKED_MODEL_DRAW_REF_BYTES,
-        ))
-        .saturating_add(buffer_byte_len(
-            mesh.transparent_model_draw_refs().len(),
-            PACKED_MODEL_DRAW_REF_BYTES,
-        ))
-        .saturating_add(buffer_byte_len(
-            mesh.liquid_quads().len(),
-            PACKED_LIQUID_QUAD_BYTES,
-        ))
-        .saturating_add(buffer_byte_len(
-            mesh.liquid_lighting().len(),
-            PACKED_QUAD_LIGHTING_BYTES,
-        ))
-}
-
 pub(in crate::chunk) fn biome_record_is_fallback(record: &PackedBiomeRecord) -> bool {
-    record.words() == FALLBACK_BIOME_RECORD
+    record.is_fallback()
 }
 
 pub(in crate::chunk) fn biome_record_byte_len(record: &PackedBiomeRecord) -> u64 {
@@ -469,7 +557,7 @@ pub(in crate::chunk) fn biome_record_byte_len(record: &PackedBiomeRecord) -> u64
 }
 
 pub(in crate::chunk) fn pending_upload_byte_len(pending: &PendingUpload) -> u64 {
-    mesh_byte_len(&pending.mesh).saturating_add(biome_record_byte_len(&pending.biome))
+    chunk_publication_byte_len(&pending.mesh, &pending.biome)
 }
 
 pub(in crate::chunk) fn update_chunk_animation_clock(
@@ -485,8 +573,13 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
     mut queue: ResMut<ChunkRenderQueue>,
     budget: Res<ChunkUploadBudget>,
     mut entities: ResMut<ChunkEntities>,
+    existing_instances: Query<&ChunkRenderInstance>,
+    gpu_removals: Res<ChunkGpuRemovalQueue>,
     acknowledgements: Res<ChunkUploadAcknowledgements>,
 ) {
+    let maximum_zero_byte_operations = budget
+        .max_zero_byte_operations_per_frame
+        .min(PublicationServiceConfig::PHASE2_GATE.maximum_zero_byte_operations_per_frame);
     let mut ready = queue
         .pending
         .iter()
@@ -504,26 +597,54 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
             .then_with(|| left_key.cmp(right_key))
     });
 
-    let mut total_applications = 0;
     let mut payload_applications = 0;
     let mut total_bytes = 0;
+    let mut zero_byte_applications = 0;
     for (key, _, removal) in ready {
-        if total_applications >= DEFAULT_RENDER_QUEUE_ITEMS {
-            break;
-        }
         if removal {
-            let token = queue.removals.get(&key).and_then(|pending| pending.token);
-            if token.is_some_and(|token| !acknowledgements.try_reserve(key, token)) {
+            let permitted = queue
+                .removals
+                .get(&key)
+                .is_some_and(|pending| pending.publication_permit.is_some());
+            if zero_byte_applications >= maximum_zero_byte_operations
+                || (permitted && !gpu_removals.has_capacity_for(key))
+            {
                 continue;
             }
-            queue.removals.remove(&key);
+            let token = queue.removals.get(&key).and_then(|pending| pending.token);
+            if !permitted && token.is_some_and(|token| !acknowledgements.try_reserve(key, token)) {
+                continue;
+            }
+            let Some(pending) = queue.removals.remove(&key) else {
+                continue;
+            };
+            let render_permit = pending
+                .publication_permit
+                .map(PublicationPermit::into_render_entity)
+                .transpose();
+            let render_permit = match render_permit {
+                Ok(permit) => permit,
+                Err(permit) => {
+                    drop(permit);
+                    continue;
+                }
+            };
             if let Some(entity) = entities.0.remove(&key) {
+                if let Ok(instance) = existing_instances.get(entity)
+                    && let Some(slot) = &instance.publication_permit
+                {
+                    drop(slot.take());
+                }
                 commands.entity(entity).despawn();
             }
-            if let Some(token) = token {
+            if let Some(permit) = render_permit {
+                gpu_removals
+                    .push(PendingGpuRemoval { key, token, permit })
+                    .unwrap_or_else(|_| unreachable!("removal mailbox capacity was checked"));
+            } else if let Some(token) = token {
                 acknowledgements.complete(key, token, Instant::now());
             }
-            total_applications += 1;
+            zero_byte_applications = zero_byte_applications.saturating_add(1);
             continue;
         }
         let Some(pending) = queue.pending.get(&key) else {
@@ -534,15 +655,19 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
         } else {
             pending_upload_byte_len(pending)
         };
-        if pending_bytes != 0
+        if pending.publication_permit.is_none()
+            && pending_bytes != 0
             && !budget.can_fit(payload_applications, total_bytes, 1, pending_bytes)
         {
             continue;
         }
         if pending.mesh.is_empty()
-            && pending
-                .token
-                .is_some_and(|token| !acknowledgements.try_reserve(key, token))
+            && ((zero_byte_applications >= maximum_zero_byte_operations
+                || (pending.publication_permit.is_some() && !gpu_removals.has_capacity_for(key)))
+                || pending.token.is_some_and(|token| {
+                    pending.publication_permit.is_none()
+                        && !acknowledgements.try_reserve(key, token)
+                }))
         {
             continue;
         }
@@ -552,14 +677,39 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
         queue.pending_bytes = queue
             .pending_bytes
             .saturating_sub(pending_upload_byte_len(&pending));
+        let render_permit = pending
+            .publication_permit
+            .map(PublicationPermit::into_render_entity)
+            .transpose();
+        let render_permit = match render_permit {
+            Ok(permit) => permit,
+            Err(permit) => {
+                drop(permit);
+                continue;
+            }
+        };
+        gpu_removals.cancel(key);
         if pending.mesh.is_empty() {
             if let Some(entity) = entities.0.remove(&key) {
+                if let Ok(instance) = existing_instances.get(entity)
+                    && let Some(slot) = &instance.publication_permit
+                {
+                    drop(slot.take());
+                }
                 commands.entity(entity).despawn();
             }
-            if let Some(token) = pending.token {
+            if let Some(permit) = render_permit {
+                gpu_removals
+                    .push(PendingGpuRemoval {
+                        key,
+                        token: pending.token,
+                        permit,
+                    })
+                    .unwrap_or_else(|_| unreachable!("removal mailbox capacity was checked"));
+            } else if let Some(token) = pending.token {
                 acknowledgements.complete(key, token, Instant::now());
             }
-            total_applications += 1;
+            zero_byte_applications = zero_byte_applications.saturating_add(1);
             continue;
         }
 
@@ -605,9 +755,15 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
             tint_identity: pending.tint_identity,
             generation: pending.generation,
             token: pending.token,
+            publication_permit: render_permit.map(PublicationPermitSlot::new),
             origin,
         };
         if let Some(&entity) = entities.0.get(&key) {
+            if let Ok(existing) = existing_instances.get(entity)
+                && let Some(slot) = &existing.publication_permit
+            {
+                drop(slot.take());
+            }
             commands.entity(entity).insert(instance);
         } else {
             let entity = commands
@@ -623,7 +779,6 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
                 .id();
             entities.0.insert(key, entity);
         }
-        total_applications += 1;
         if pending_bytes != 0 {
             payload_applications = payload_applications.saturating_add(1);
             total_bytes = total_bytes.saturating_add(pending_bytes);

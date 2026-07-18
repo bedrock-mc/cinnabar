@@ -156,6 +156,8 @@ fn retirement_test_allocation() -> ArenaAllocation {
 mod gpu;
 #[path = "gpu/model_tests.rs"]
 mod gpu_models;
+#[path = "gpu/publication_tests.rs"]
+mod gpu_publication;
 #[path = "gpu/queue_tests.rs"]
 mod gpu_queue;
 #[path = "presentation/tests.rs"]

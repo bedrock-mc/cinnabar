@@ -9,6 +9,7 @@ mod connectivity;
 mod contributors;
 pub mod lighting;
 pub mod liquid;
+mod publication;
 mod types;
 
 const SIDE: usize = 16;
@@ -35,6 +36,7 @@ pub use lighting::{
     bake_template_lighting_with_sampler, mesh_dependency_mask,
 };
 pub use liquid::{CameraMedium, LiquidLevel, sample_camera_medium};
+pub use publication::{CHUNK_PUBLICATION_ORIGIN_BYTES, chunk_publication_byte_len};
 pub use types::{
     ChunkMesh, ChunkMeshStreamError, ChunkMeshStreams, DiagnosticGeometryCount,
     DiagnosticGeometrySummary, Face, FaceConnectivity, MAX_DIAGNOSTIC_IDENTITIES_PER_MESH,

@@ -41,6 +41,15 @@ impl WorldStream {
                 if removals_queued >= budget {
                     continue;
                 }
+                let permit = match &self.publication_allowance {
+                    Some(allowance) => {
+                        let Some(permit) = allowance.try_admit_zero_byte() else {
+                            continue;
+                        };
+                        Some(permit)
+                    }
+                    None => None,
+                };
                 self.pending_mesh.remove(&key);
                 if self.known_air.contains(&key) {
                     self.set_connectivity(key, Some(FaceConnectivity::all()));
@@ -58,6 +67,7 @@ impl WorldStream {
                     key,
                     generation: revision,
                     dirty_since,
+                    permit,
                 });
                 self.stats.phase2_stages.mesh_changes_queued = self
                     .stats
@@ -260,6 +270,24 @@ impl WorldStream {
             .revisions
             .dirty(completion.key)
             .expect("current mesh completion has a dirty revision");
+        let publication_bytes = chunk_publication_byte_len(&completion.mesh, &completion.biome);
+        let permit = match &self.publication_allowance {
+            Some(allowance) if publication_bytes == 0 => {
+                let Some(permit) = allowance.try_admit_zero_byte() else {
+                    self.requeue_current_mesh_completion(completion.key, completion.revision);
+                    return;
+                };
+                Some(permit)
+            }
+            Some(allowance) => {
+                let Some(permit) = allowance.try_admit_payload(publication_bytes) else {
+                    self.requeue_current_mesh_completion(completion.key, completion.revision);
+                    return;
+                };
+                Some(permit)
+            }
+            None => None,
+        };
         self.set_connectivity(completion.key, Some(completion.mesh.connectivity()));
         if self.resident.contains(&completion.key) {
             let registered = self.register_mesh_dependency_mask(
@@ -276,6 +304,7 @@ impl WorldStream {
             tint_identity: completion.tint_identity,
             generation: completion.revision,
             dirty_since: dirty.since,
+            permit,
         });
         self.stats.phase2_stages.mesh_changes_queued = self
             .stats

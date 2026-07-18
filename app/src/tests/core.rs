@@ -472,6 +472,7 @@ fn client_world_publication_contract_crosses_the_app_boundary() {
                         key,
                         generation,
                         dirty_since,
+                        ..
                     } => (key, generation, dirty_since),
                 };
                 stream.acknowledge_mesh_upload(changed, generation, dirty_since, Instant::now());

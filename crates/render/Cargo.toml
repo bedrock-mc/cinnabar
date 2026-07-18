@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[features]
+publication-test-support = ["wgpu/noop"]
+
 [dependencies]
 assets = { path = "../assets" }
 bevy = { workspace = true, default-features = false, features = [
@@ -21,6 +24,7 @@ bevy = { workspace = true, default-features = false, features = [
     "std",
 ] }
 bytemuck = { version = "1", features = ["derive"] }
+client-world = { path = "../client-world" }
 meshing = { path = "../meshing" }
 rayon.workspace = true
 world = { path = "../world" }
