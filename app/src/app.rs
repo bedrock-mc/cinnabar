@@ -5,8 +5,8 @@ use bevy::{
     anti_alias::{AntiAliasPlugin, fxaa::FxaaPlugin},
     app::TerminalCtrlCHandlerPlugin,
     prelude::{
-        App, ClearColor, Color, DefaultPlugins, IntoScheduleConfigs, Last, PluginGroup, Update,
-        Window, default,
+        App, ClearColor, Color, DefaultPlugins, IntoScheduleConfigs, Last, PluginGroup, SystemSet,
+        Update, Window, default,
     },
     render::{
         RenderPlugin,
@@ -40,7 +40,10 @@ use crate::{
         self, EnvironmentContext, EnvironmentProfileRoute, WeatherState, WorldClock,
         update_atmosphere_frame,
     },
-    local_player::{LocalPlayerFrameSet, publish_interaction_origin, resolve_camera_pose},
+    local_player::{
+        LocalPlayerFrameSet, publish_interaction_origin, publish_local_player_frame,
+        resolve_camera_pose,
+    },
     metrics::MetricsCollector,
     movement::{
         LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries, advance_local_physics,
@@ -81,6 +84,41 @@ const PHYSICS_REGISTRY_SHA256: &str =
     include_str!("../../crates/assets/data/block-physics-v1001.sha256");
 const PHYSICS_REGISTRY_GENERATION_GUIDANCE: &str =
     "run `make physics-assets` (normal `make client` does this automatically)";
+
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum ClientFrameSet {
+    RawInput,
+    SemanticSample,
+    UiAuthority,
+    SemanticFinalize,
+    Physics,
+    Camera,
+    Interaction,
+    WorldPublication,
+    ActorPublication,
+    UiPublication,
+    NetworkSend,
+}
+
+pub(crate) fn configure_client_frame_schedule(app: &mut App) {
+    app.configure_sets(
+        Update,
+        (
+            ClientFrameSet::RawInput,
+            ClientFrameSet::SemanticSample,
+            ClientFrameSet::UiAuthority,
+            ClientFrameSet::SemanticFinalize,
+            ClientFrameSet::Physics,
+            ClientFrameSet::Camera,
+            ClientFrameSet::Interaction,
+            ClientFrameSet::WorldPublication,
+            ClientFrameSet::ActorPublication,
+            ClientFrameSet::UiPublication,
+            ClientFrameSet::NetworkSend,
+        )
+            .chain(),
+    );
+}
 
 fn read_verified_physics_registry(path: &Path, expected_sha256: &str) -> Result<Vec<u8>> {
     let bytes = fs::read(path).with_context(|| {
@@ -194,6 +232,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let shutdown_watchdog = ShutdownWatchdog::process(SHUTDOWN_WATCHDOG_TIMEOUT);
 
     let mut app = App::new();
+    configure_client_frame_schedule(&mut app);
     app.add_plugins(
         DefaultPlugins
             .set(WindowPlugin {
@@ -301,6 +340,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             Update,
             (drive_chat_ui_actions, drive_chat_keyboard_input)
                 .chain()
+                .in_set(ClientFrameSet::UiAuthority)
                 .before(FlyCameraUpdateSet),
         )
         .add_systems(
@@ -322,10 +362,20 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
                 poll_model_witness_request,
                 drive_world_stream.before(ChunkRenderApplySet),
                 publish_ui_runtime,
-                advance_local_physics.in_set(LocalPlayerFrameSet::Physics),
-                resolve_camera_pose.in_set(LocalPlayerFrameSet::Camera),
-                publish_interaction_origin.in_set(LocalPlayerFrameSet::Interaction),
-                publish_actor_render_frame,
+                (
+                    advance_local_physics
+                        .in_set(LocalPlayerFrameSet::Physics)
+                        .in_set(ClientFrameSet::Physics),
+                    resolve_camera_pose
+                        .in_set(LocalPlayerFrameSet::Camera)
+                        .in_set(ClientFrameSet::Camera),
+                    publish_interaction_origin
+                        .in_set(LocalPlayerFrameSet::Interaction)
+                        .in_set(ClientFrameSet::Interaction),
+                    publish_local_player_frame.in_set(ClientFrameSet::Interaction),
+                )
+                    .chain(),
+                publish_actor_render_frame.in_set(ClientFrameSet::ActorPublication),
                 update_camera_medium,
                 update_atmosphere_frame,
                 refresh_cave_visibility,

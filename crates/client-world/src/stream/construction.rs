@@ -1,6 +1,11 @@
 use super::*;
 
 impl WorldStream {
+    #[must_use]
+    pub const fn committed_sequence(&self) -> u64 {
+        self.ordered.next_sequence().saturating_sub(1)
+    }
+
     pub fn new(bootstrap: WorldBootstrap) -> Self {
         Self::new_with_assets(
             bootstrap,

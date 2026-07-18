@@ -1,13 +1,18 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, num::NonZeroU64};
 
-use bevy::prelude::Resource;
+use bevy::prelude::{Res, ResMut, Resource};
 use semantic_input::{
-    Action, ActionPhase, ActionSnapshot, ControllerFrame, DeviceFrame, KeyboardMouseFrame,
-    RouterError, SemanticInputRouter, TouchContact,
+    Action, ActionPhase, ActionSnapshot, BindingError, ControlSettings, ControllerFrame,
+    DeviceFrame, InputContext, KeyboardMouseFrame, ReleaseReason, RouterError, SemanticInputRouter,
+    TouchContact,
 };
 
 mod physical;
 pub(crate) use physical::finalize_semantic_input;
+
+use crate::{
+    runtime::world::ClientWorld, settings_runtime::RuntimeSettings, ui_runtime::UiRuntime,
+};
 
 #[derive(Resource, Debug, Default, Clone)]
 pub struct SemanticInputSnapshot(Option<ActionSnapshot>);
@@ -53,6 +58,24 @@ pub struct SemanticInputRuntime {
     router: SemanticInputRouter,
     previous: DeviceFrame,
     activity_sequence: u64,
+    authority: Option<SemanticInputAuthorityIdentity>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SemanticInputAuthorityFrame {
+    pub context: InputContext,
+    pub controls_generation: u64,
+    pub controls: ControlSettings,
+    pub session_generation: NonZeroU64,
+    pub dimension: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SemanticInputAuthorityIdentity {
+    context: InputContext,
+    controls_generation: u64,
+    session_generation: NonZeroU64,
+    dimension: i32,
 }
 
 impl SemanticInputRuntime {
@@ -60,11 +83,76 @@ impl SemanticInputRuntime {
         &mut self,
         mut frame: DeviceFrame,
     ) -> Result<ActionSnapshot, RouterError> {
+        for previous in &self.previous.controllers {
+            if !frame
+                .controllers
+                .iter()
+                .any(|current| current.device_id == previous.device_id)
+            {
+                frame.disconnected_controllers.push(previous.device_id);
+            }
+        }
+        frame.disconnected_controllers.sort_unstable();
+        frame.disconnected_controllers.dedup();
+        frame
+            .disconnected_controllers
+            .truncate(semantic_input::MAX_DISCONNECTED_CONTROLLERS);
         self.stamp_activity(&mut frame);
         self.router.route(frame.clone())?;
         let snapshot = self.router.finalize()?;
         self.previous = frame;
         Ok(snapshot)
+    }
+
+    pub fn set_context(&mut self, context: InputContext) {
+        self.router.set_context(context);
+    }
+
+    pub fn replace_bindings(&mut self, settings: ControlSettings) -> Result<(), BindingError> {
+        self.router.replace_bindings(settings)
+    }
+
+    pub fn replace_authority(&mut self, generation: NonZeroU64) {
+        self.router.replace_authority(generation);
+    }
+
+    pub fn release_all(&mut self, reason: ReleaseReason) {
+        self.router.release_all(reason);
+    }
+
+    pub fn synchronize_authority(
+        &mut self,
+        frame: SemanticInputAuthorityFrame,
+    ) -> Result<(), BindingError> {
+        let identity = SemanticInputAuthorityIdentity {
+            context: frame.context,
+            controls_generation: frame.controls_generation,
+            session_generation: frame.session_generation,
+            dimension: frame.dimension,
+        };
+        let previous = self.authority;
+        if previous
+            .is_none_or(|previous| previous.controls_generation != identity.controls_generation)
+        {
+            self.replace_bindings(frame.controls)?;
+        }
+        if previous.is_none_or(|previous| previous.context != identity.context) {
+            self.set_context(identity.context);
+        }
+        if previous
+            .is_none_or(|previous| previous.session_generation != identity.session_generation)
+        {
+            self.replace_authority(identity.session_generation);
+        }
+        if previous
+            .is_some_and(|previous| previous.session_generation != identity.session_generation)
+        {
+            self.release_all(ReleaseReason::SessionReplaced);
+        } else if previous.is_some_and(|previous| previous.dimension != identity.dimension) {
+            self.release_all(ReleaseReason::DimensionReplaced);
+        }
+        self.authority = Some(identity);
+        Ok(())
     }
 
     fn next_activity(&mut self) -> u64 {
@@ -140,5 +228,55 @@ impl SemanticTouchTargets {
 
     pub fn clear(&mut self, contact_id: u64) {
         self.0.remove(&contact_id);
+    }
+
+    pub fn retain_active_contacts(&mut self, contacts: impl IntoIterator<Item = u64>) {
+        let mut contacts = contacts.into_iter().collect::<Vec<_>>();
+        contacts.sort_unstable();
+        contacts.dedup();
+        self.0
+            .retain(|contact_id, _| contacts.binary_search(contact_id).is_ok());
+    }
+
+    #[must_use]
+    pub fn target(&self, contact_id: u64) -> Option<u16> {
+        self.0.get(&contact_id).copied()
+    }
+
+    pub fn release_all(&mut self) {
+        self.0.clear();
+    }
+}
+
+pub(crate) fn synchronize_semantic_input_authority(
+    mut runtime: ResMut<SemanticInputRuntime>,
+    ui: Option<Res<UiRuntime>>,
+    settings: Res<RuntimeSettings>,
+    client_world: Option<Res<ClientWorld>>,
+) {
+    let Some(ui) = ui.filter(|ui| ui.session_id() != 0) else {
+        return;
+    };
+    let (controls_generation, user_settings) = settings.user_settings_update();
+    let dimension = client_world
+        .as_deref()
+        .and_then(|world| world.stream.as_ref())
+        .map_or(0, client_world::WorldStream::current_dimension);
+    let context = if ui.chat_focused() {
+        InputContext::UiFocused
+    } else {
+        InputContext::Gameplay
+    };
+    let Some(session_generation) = NonZeroU64::new(ui.session_id()) else {
+        return;
+    };
+    if let Err(error) = runtime.synchronize_authority(SemanticInputAuthorityFrame {
+        context,
+        controls_generation,
+        controls: user_settings.controls.clone(),
+        session_generation,
+        dimension,
+    }) {
+        bevy::log::warn!(?error, "rejected semantic input authority replacement");
     }
 }

@@ -51,10 +51,100 @@ fn third_person_boom_sweeps_a_radius_point_and_stops_before_solid_geometry() {
         &world,
     );
 
-    assert!(
-        pose.translation
-            .abs_diff_eq(Vec3::new(0.0, 2.0, 1.8), 1.0e-5)
-    );
+    assert!(pose.translation.abs_diff_eq(
+        Vec3::new(
+            0.0,
+            2.0,
+            1.8 - camera::THIRD_PERSON_COLLISION_EPSILON_BLOCKS,
+        ),
+        1.0e-5,
+    ));
+}
+
+#[test]
+fn third_person_boom_handles_compound_wall_corner_ceiling_floor_transitions_before_hit() {
+    let subject = Vec3::new(0.0, 2.0, 0.0);
+    let diagonal = std::f32::consts::FRAC_1_SQRT_2;
+    let cases = [
+        (
+            "wall",
+            Quat::IDENTITY,
+            vec![Aabb::new(
+                SimVec3::new(-1.0, 1.0, 2.0),
+                SimVec3::new(1.0, 3.0, 3.0),
+            )],
+            1.8,
+        ),
+        (
+            "corner",
+            Quat::from_rotation_y(std::f32::consts::FRAC_PI_4),
+            vec![
+                Aabb::new(SimVec3::new(1.5, 1.0, -1.0), SimVec3::new(2.0, 3.0, 4.0)),
+                Aabb::new(SimVec3::new(-1.0, 1.0, 1.5), SimVec3::new(4.0, 3.0, 2.0)),
+            ],
+            1.3 / diagonal,
+        ),
+        (
+            "ceiling",
+            Quat::from_rotation_x(-std::f32::consts::FRAC_PI_4),
+            vec![Aabb::new(
+                SimVec3::new(-1.0, 4.0, -1.0),
+                SimVec3::new(1.0, 4.5, 5.0),
+            )],
+            1.8 / diagonal,
+        ),
+        (
+            "floor",
+            Quat::from_rotation_x(std::f32::consts::FRAC_PI_4),
+            vec![Aabb::new(
+                SimVec3::new(-1.0, 0.5, -1.0),
+                SimVec3::new(1.0, 1.0, 5.0),
+            )],
+            0.8 / diagonal,
+        ),
+    ];
+
+    for (label, rotation, boxes, contact_distance) in cases {
+        let blocked_world = CameraCollisionFixture {
+            boxes,
+            unavailable: false,
+        };
+        let blocked = camera::collision_safe_perspective_pose(
+            subject,
+            rotation,
+            PerspectiveMode::ThirdPersonBack,
+            &blocked_world,
+        );
+        let blocked_distance = blocked.translation.distance(subject);
+        let expected = contact_distance - camera::THIRD_PERSON_COLLISION_EPSILON_BLOCKS;
+        assert!(
+            (blocked_distance - expected).abs() <= 1.0e-4,
+            "{label} boom distance {blocked_distance} did not stop at pre-hit {expected}",
+        );
+
+        let clear = camera::collision_safe_perspective_pose(
+            subject,
+            rotation,
+            PerspectiveMode::ThirdPersonBack,
+            &CameraCollisionFixture::default(),
+        );
+        assert!(
+            (clear.translation.distance(subject) - camera::THIRD_PERSON_RADIUS_BLOCKS).abs()
+                <= 1.0e-5,
+            "{label} boom did not restore after collision space cleared",
+        );
+        let blocked_again = camera::collision_safe_perspective_pose(
+            subject,
+            rotation,
+            PerspectiveMode::ThirdPersonBack,
+            &blocked_world,
+        );
+        assert!(
+            blocked_again
+                .translation
+                .abs_diff_eq(blocked.translation, 1.0e-5)
+        );
+    }
 }
 
 #[test]
