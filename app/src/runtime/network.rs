@@ -5,8 +5,9 @@ use std::{
 
 use bevy::{
     camera::Projection,
+    ecs::system::SystemParam,
     log::{debug, error, info, warn},
-    prelude::{Local, Query, Res, ResMut, Time, Transform, Vec3, With},
+    prelude::{Local, Query, Res, ResMut, Time, Transform, With},
     time::Real,
 };
 use client_world::{ActorSnapshot, PlayerProfile, SAFE_SERVER_HEIGHT, WorldStream};
@@ -25,8 +26,9 @@ use crate::{
             write_move_player_ingress_before_source_capture, write_stdout_marker,
         },
     },
-    camera::FlyCamera,
+    camera::{CameraSettingsAuthority, FlyCamera},
     environment::replace_session,
+    local_player::{LocalAvatarPresentation, LocalViewPose, reset_local_player_session},
     movement::MovementSource,
     runtime::{
         shutdown::record_fatal_error,
@@ -49,6 +51,21 @@ pub(crate) const OUTBOUND_SEND_BUDGET_PER_FRAME: usize = 16;
 const ACTOR_TICK_NANOS: u128 = 50_000_000;
 const _: () = assert!(WORLD_EVENT_CAPACITY >= NETWORK_INGRESS_BUDGET_PER_FRAME);
 const _: () = assert!(NETWORK_INGRESS_BUDGET_PER_FRAME == client_world::MAX_ADMITTED_HEAVY_EVENTS);
+
+#[derive(SystemParam)]
+pub(crate) struct NetworkLocalPlayerState<'w> {
+    view: ResMut<'w, LocalViewPose>,
+    avatar: ResMut<'w, LocalAvatarPresentation>,
+    settings: ResMut<'w, CameraSettingsAuthority>,
+}
+
+#[derive(SystemParam)]
+pub(crate) struct ActorPresentationState<'w, 's> {
+    view: Res<'w, LocalViewPose>,
+    avatar: ResMut<'w, LocalAvatarPresentation>,
+    settings: Res<'w, CameraSettingsAuthority>,
+    camera: Query<'w, 's, (&'static Transform, &'static Projection), With<FlyCamera>>,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct ActorFrameStep {
@@ -172,8 +189,13 @@ pub(crate) fn receive_network_events(
     metrics: Res<AppMetrics>,
     acknowledgements: Res<ChunkUploadAcknowledgements>,
     model_witness_source: Res<ModelWitnessFileSource>,
-    mut cameras: Query<&mut Transform, With<FlyCamera>>,
+    local_player: NetworkLocalPlayerState,
 ) {
+    let NetworkLocalPlayerState {
+        mut view,
+        mut avatar,
+        mut settings,
+    } = local_player;
     let AppWorldState {
         mut client_world,
         mut clock,
@@ -240,14 +262,15 @@ pub(crate) fn receive_network_events(
                         bootstrap.world_spawn_position[2],
                     ]);
                 }
-                let current = cameras
-                    .single()
-                    .map(|camera| camera.translation.to_array())
-                    .unwrap_or([
+                let current = if view.eye_translation().is_finite() {
+                    view.eye_translation().to_array()
+                } else {
+                    [
                         bootstrap.world_spawn_position[0] as f32 + 0.5,
                         SAFE_SERVER_HEIGHT,
                         bootstrap.world_spawn_position[2] as f32 + 0.5,
-                    ]);
+                    ]
+                };
                 let stream = WorldStream::new_with_assets(
                     bootstrap,
                     Arc::clone(&client_world.runtime_assets),
@@ -255,12 +278,16 @@ pub(crate) fn receive_network_events(
                     client_world.pending_surface_spawn,
                 );
                 let resolved = stream.resolved_server_position();
-                if let Ok(mut camera) = cameras.single_mut() {
-                    camera.translation = Vec3::from_array(resolved.position);
-                }
-                // StartGame initializes movement timing, but the current app
-                // still has only an independent fly camera. A future physics
-                // system must explicitly replace this non-authoritative source.
+                reset_local_player_session(
+                    session_generation,
+                    bootstrap.local_player_runtime_id,
+                    resolved.position,
+                    &mut settings,
+                    &mut view,
+                    &mut avatar,
+                );
+                // StartGame always restores the safe non-authoritative source;
+                // local prediction cannot implicitly authorize transmission.
                 movement.set_source(MovementSource::FreeCamera);
                 movement.reset(
                     clock.session_generation(),
@@ -355,6 +382,7 @@ pub(crate) fn receive_network_events(
             } => {
                 movement.deactivate();
                 local_physics.deactivate();
+                avatar.clear();
                 error!(decode_error_count, "network session failed: {message}");
                 client_world.network_decode_errors = decode_error_count;
                 record_fatal_error(
@@ -365,6 +393,7 @@ pub(crate) fn receive_network_events(
             NetworkControlEvent::Stopped { decode_error_count } => {
                 movement.deactivate();
                 local_physics.deactivate();
+                avatar.clear();
                 client_world.network_decode_errors = decode_error_count;
                 if client_world.fatal_error.is_none() {
                     client_world.fatal_error = Some("network session stopped unexpectedly".into());
@@ -531,8 +560,14 @@ pub(crate) fn publish_actor_render_frame(
     mut frame: ResMut<ActorRenderFrame>,
     mut published_session: Local<Option<u64>>,
     mut actor_clock: Local<ActorFrameClock>,
-    camera: Query<(&Transform, &Projection), With<FlyCamera>>,
+    presentation: ActorPresentationState,
 ) {
+    let ActorPresentationState {
+        view,
+        mut avatar,
+        settings,
+        camera,
+    } = presentation;
     let session_id = client_world
         .stream
         .as_ref()
@@ -546,7 +581,7 @@ pub(crate) fn publish_actor_render_frame(
     if let Some(stream) = client_world.stream.as_mut() {
         stream.advance_actor_interpolation_ticks(step.ticks);
     }
-    let sources = client_world
+    let mut sources = client_world
         .stream
         .as_ref()
         .map(|stream| {
@@ -557,6 +592,7 @@ pub(crate) fn publish_actor_render_frame(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
+    avatar.reconcile_sources(settings.perspective(), *view, &mut sources);
     let cull_view = camera
         .single()
         .ok()

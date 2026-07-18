@@ -275,6 +275,12 @@ impl LocalPhysicsController {
         };
 
         for tick_index in 0..allowed {
+            // Bedrock auto-jump semantics treat a held jump as a fresh request
+            // once the player is grounded again. Preserve the render-frame edge
+            // latch for taps shorter than one fixed tick, but never inject the
+            // repeated edge while airborne or during the jump-delay window.
+            input.jump_pressed = self.jump_edge_pending
+                || (input.jumping && state.on_ground && state.jump_delay == 0);
             let before = state.position;
             match self.history.predict(state, input, &self.simulator, world) {
                 Ok(_) => {

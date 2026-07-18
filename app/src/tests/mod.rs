@@ -240,6 +240,7 @@ fn binding_teleport_completion(
         .unwrap()
 }
 
+mod camera;
 mod core;
 mod finish;
 mod inventory;
