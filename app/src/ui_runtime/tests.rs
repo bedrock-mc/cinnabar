@@ -6,9 +6,10 @@ use bevy::{
     window::{CursorGrabMode, CursorOptions},
 };
 use protocol::{
-    BlockCrackAction, BlockCrackEvent, ChatAutocompleteAction as ProtocolAutocompleteAction,
-    ChatAutocompleteEvent, HudEvent, TextCategory, TextEvent, TextKind, TitleAction, TitleEvent,
-    UiEvent, chat_text_packet,
+    BedrockSession, BlockCrackAction, BlockCrackEvent,
+    ChatAutocompleteAction as ProtocolAutocompleteAction, ChatAutocompleteEvent, HudEvent,
+    TextCategory, TextEvent, TextKind, TitleAction, TitleEvent, UiEvent, WorldEvent,
+    chat_text_packet, decode_batch, into_world_event,
 };
 use semantic_input::{Action, DeviceFrame, InputContext, KeyboardMouseFrame, SemanticInputRouter};
 use ui::{ChatClipboard, PointerPhase, UiAction, UiPoint};
@@ -37,6 +38,24 @@ fn text(message: &str) -> UiEvent {
         platform_chat_id: Arc::from(""),
         filtered_message: None,
     })
+}
+
+#[test]
+fn protocol_1001_raw_text_reaches_chat_store_as_human_text_not_json() {
+    const FIXTURE: &[u8] =
+        include_bytes!("../../../crates/protocol/fixtures/text_object_rawtext.bin");
+    let mut packets = decode_batch(FIXTURE.into(), &BedrockSession { shield_item_id: 0 }).unwrap();
+    let event = match into_world_event(packets.pop().unwrap(), 0).unwrap() {
+        Some(WorldEvent::Ui(event @ UiEvent::RawText(_))) => event,
+        other => panic!("expected RawText UI event, got {other:?}"),
+    };
+    let mut runtime = UiRuntime::new(1);
+    runtime.apply(envelope(1, 1, event)).unwrap();
+
+    let message = runtime.chat().messages().back().unwrap();
+    assert_eq!(message.message.as_ref(), "\u{a7}aLBSG human chat");
+    assert!(!message.message.contains('{'));
+    assert!(!message.message.contains("rawtext"));
 }
 
 fn title(message: &str) -> UiEvent {

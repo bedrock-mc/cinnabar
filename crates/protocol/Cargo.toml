@@ -10,6 +10,8 @@ anyhow.workspace = true
 bridge = { path = "../bridge" }
 bytes.workspace = true
 futures.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 sha2 = "0.10"
 thiserror.workspace = true
 tokio = { workspace = true, features = ["time"] }
@@ -24,7 +26,5 @@ ctr = "0.9"
 flate2 = "1"
 jsonwebtoken = "9.3"
 p384 = { version = "0.13", features = ["ecdh", "pkcs8"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
 snap = "1.1"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }

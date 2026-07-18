@@ -54,6 +54,9 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 		"PlayerAuthInput",
 		"AddActor",
 		"Text",
+		"TextObjectRawText",
+		"TextObjectWhisperRawText",
+		"TextObjectAnnouncementRawText",
 		"SetTitle",
 		"BossEvent",
 		"ModalFormRequest",
@@ -66,7 +69,7 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 		"PlayerHotBar",
 		"ItemStackResponse",
 	}
-	wantIDs := []uint32{143, 11, 58, 19, 144, 13, 9, 88, 74, 100, 76, 76, 52, 122, 49, 50, 48, 148}
+	wantIDs := []uint32{143, 11, 58, 19, 144, 13, 9, 9, 9, 9, 88, 74, 100, 76, 76, 52, 122, 49, 50, 48, 148}
 	wantHeaders := [][]byte{
 		{0x8f, 0x49},
 		{0x8b, 0x48},
@@ -74,6 +77,9 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 		{0x93, 0x48},
 		{0x90, 0x49},
 		{0x8d, 0x48},
+		{0x89, 0x48},
+		{0x89, 0x48},
+		{0x89, 0x48},
 		{0x89, 0x48},
 		{0xd8, 0x48},
 		{0xca, 0x48},

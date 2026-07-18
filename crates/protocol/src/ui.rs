@@ -77,6 +77,7 @@ pub fn chat_text_packet(
 #[derive(Debug, Clone, PartialEq)]
 pub enum UiEvent {
     Text(TextEvent),
+    RawText(RawTextEvent),
     Title(TitleEvent),
     Hud(HudEvent),
     Objective(ObjectiveEvent),
@@ -120,6 +121,12 @@ pub struct TextEvent {
     pub xuid: Arc<str>,
     pub platform_chat_id: Arc<str>,
     pub filtered_message: Option<Arc<str>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RawTextEvent {
+    pub text: TextEvent,
+    pub document: Arc<crate::RawTextDocument>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -419,6 +426,18 @@ pub struct BlockCrackEvent {
 pub enum UiPacketError {
     #[error("UI text is {bytes} bytes, exceeding the {max}-byte limit")]
     TextTooLong { bytes: usize, max: usize },
+    #[error("RawText input is {bytes} bytes, exceeding the {max}-byte limit")]
+    RawTextInputTooLarge { bytes: usize, max: usize },
+    #[error("RawText JSON is malformed, ambiguous, or contains unsupported fields")]
+    InvalidRawText,
+    #[error("RawText has {count} nodes, exceeding the {max}-node limit")]
+    RawTextNodeLimitExceeded { count: usize, max: usize },
+    #[error("RawText depth {depth} exceeds the maximum depth {max}")]
+    RawTextDepthExceeded { depth: usize, max: usize },
+    #[error("RawText has {count} components, exceeding the {max}-component limit")]
+    RawTextComponentLimitExceeded { count: usize, max: usize },
+    #[error("RawText literal output is {bytes} bytes, exceeding the {max}-byte limit")]
+    RawTextOutputTooLarge { bytes: usize, max: usize },
     #[error("chat packet has {count} parameters, exceeding the {max}-parameter limit")]
     TooManyChatParameters { count: usize, max: usize },
     #[error("score packet has {count} entries, exceeding the {max}-entry limit")]
@@ -495,21 +514,30 @@ pub(crate) fn normalize_text(packet: TextPacket) -> Result<UiEvent, UiPacketErro
             });
         }
     };
-    let (source, message, parameters) = match packet.content {
+    let (source, message, raw_text, parameters) = match packet.content {
         Some(TextPacketContent::Announcement(value))
         | Some(TextPacketContent::Chat(value))
         | Some(TextPacketContent::Whisper(value)) => (
             Some(bounded_text(value.source_name)?),
             bounded_text(value.message)?,
+            None,
             Arc::from([]),
         ),
         Some(TextPacketContent::Json(value))
         | Some(TextPacketContent::JsonAnnouncement(value))
-        | Some(TextPacketContent::JsonWhisper(value))
-        | Some(TextPacketContent::Raw(value))
+        | Some(TextPacketContent::JsonWhisper(value)) => {
+            let document = crate::parse_raw_text(&value.message)?;
+            (
+                None,
+                Arc::from(document.literal_text()),
+                Some(document),
+                Arc::from([]),
+            )
+        }
+        Some(TextPacketContent::Raw(value))
         | Some(TextPacketContent::System(value))
         | Some(TextPacketContent::Tip(value)) => {
-            (None, bounded_text(value.message)?, Arc::from([]))
+            (None, bounded_text(value.message)?, None, Arc::from([]))
         }
         Some(TextPacketContent::JukeboxPopup(value))
         | Some(TextPacketContent::Popup(value))
@@ -525,11 +553,16 @@ pub(crate) fn normalize_text(packet: TextPacket) -> Result<UiEvent, UiPacketErro
                 .into_iter()
                 .map(bounded_text)
                 .collect::<Result<Vec<_>, _>>()?;
-            (None, bounded_text(value.message)?, Arc::from(parameters))
+            (
+                None,
+                bounded_text(value.message)?,
+                None,
+                Arc::from(parameters),
+            )
         }
-        None => (None, Arc::from(""), Arc::from([])),
+        None => (None, Arc::from(""), None, Arc::from([])),
     };
-    Ok(UiEvent::Text(TextEvent {
+    let event = TextEvent {
         category,
         kind,
         needs_translation: packet.needs_translation,
@@ -539,7 +572,14 @@ pub(crate) fn normalize_text(packet: TextPacket) -> Result<UiEvent, UiPacketErro
         xuid: bounded_text(packet.xuid)?,
         platform_chat_id: bounded_text(packet.platform_chat_id)?,
         filtered_message: packet.filtered_message.map(bounded_text).transpose()?,
-    }))
+    };
+    Ok(match raw_text {
+        Some(document) => UiEvent::RawText(RawTextEvent {
+            text: event,
+            document,
+        }),
+        None => UiEvent::Text(event),
+    })
 }
 
 pub(crate) fn normalize_title(packet: SetTitlePacket) -> Result<UiEvent, UiPacketError> {
