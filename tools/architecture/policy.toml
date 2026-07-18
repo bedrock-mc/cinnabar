@@ -132,6 +132,11 @@ producer = "app/src/acceptance/markers.rs"
 consumer = "scripts/acceptance/Markers.ps1"
 
 [[markers]]
+literal = "RUST_MCBE_ACTOR_POSE_WITNESS"
+kind = "log_only"
+producer = "app/src/acceptance/markers.rs"
+
+[[markers]]
 literal = "RUST_MCBE_CAMERA_COMMITTED"
 kind = "parsed"
 producer = "app/src/acceptance/markers.rs"
