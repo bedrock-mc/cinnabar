@@ -12,13 +12,18 @@ function New-SyntheticPhase2Publication {
         [uint64]$SubchunksCommitted,
         [object]$PublisherRadiusBlocks = 128,
         [object]$PublisherRadius = 8,
+        [uint64]$PublisherEpoch = 1,
+        [bool]$RequiredCohortStable = $true,
         [uint64]$MeshJobsCompleted = 1,
         [int]$MeshJobsQueued = 0,
         [uint64]$UploadsAcknowledged = 1,
         [int]$UploadsUnacknowledged = 0
     )
     $hash = '1111111111111111'
-    $identity = { param($count) [ordered]@{ entry_count = $count; generation_manifest_hash = $hash; required_cohort_hash = $hash; session_generation = 1 } }
+    $identity = { param($count) [ordered]@{
+        entry_count = $count; generation_manifest_hash = $hash; publisher_epoch = $PublisherEpoch
+        required_cohort_count = $RequiredColumns; required_cohort_hash = $hash; session_generation = 1
+    } }
     return [ordered]@{
         client_blob_cache_enabled = $true
         client_blob_cache = [ordered]@{
@@ -35,7 +40,8 @@ function New-SyntheticPhase2Publication {
         }
         publication = [ordered]@{
             session_generation = 1; player_column = [ordered]@{ dimension = 0; x = 1; z = 2 }
-            required_cohort_hash = $hash; required_columns = $RequiredColumns; loaded_required_columns = $LoadedColumns
+            publisher_epoch = $PublisherEpoch; required_cohort_hash = $hash; required_columns = $RequiredColumns
+            loaded_required_columns = $LoadedColumns; required_cohort_stable = $RequiredCohortStable
             publisher_radius_blocks = $PublisherRadiusBlocks; publisher_radius_chunks = $PublisherRadius
             max_queue_wait_us = [ordered]@{ decode = 0; lighting = 0; meshing = 0 }
             max_worker_time_us = [ordered]@{ decode = 0; lighting = 0; meshing = 0 }
@@ -65,8 +71,12 @@ function New-SyntheticPhase2PublisherInitialization {
         -UploadsAcknowledged 0
     $emptyManifestHash = 'cbf29ce484222325'
     $record.publication.required_cohort_hash = $emptyManifestHash
+    $record.publication.publisher_epoch = 0
+    $record.publication.required_cohort_stable = $false
     foreach ($name in @('publisher_disk', 'resident', 'allocation', 'visible', 'submitted', 'gpu_presented')) {
         $record.presentation.$name.required_cohort_hash = $emptyManifestHash
+        $record.presentation.$name.publisher_epoch = 0
+        $record.presentation.$name.required_cohort_count = 0
         $record.presentation.$name.entry_count = 0
     }
     foreach ($name in @('publisher_disk', 'allocation')) {
@@ -380,6 +390,48 @@ Describe 'Phase 2 remote acceptance runner' {
         finally {
             Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue
         }
+    }
+
+    It 'binds evolving publisher-epoch membership to every presentation identity' {
+        $temporary = Join-Path ([IO.Path]::GetTempPath()) ('phase2-publisher-epoch-' + [guid]::NewGuid().ToString('N'))
+        try {
+            New-Item -ItemType Directory -Path $temporary | Out-Null
+            $path = Join-Path $temporary 'client.log'
+            $first = New-SyntheticPhase2Publication -RequiredColumns 1 -LoadedColumns 1 `
+                -RequestsConstructed 1 -RequestsSent 1 -ResponsesAdmitted 1 -SubchunksCommitted 1
+            $expanded = New-SyntheticPhase2Publication -RequiredColumns 2 -LoadedColumns 2 `
+                -RequestsConstructed 2 -RequestsSent 2 -ResponsesAdmitted 2 -SubchunksCommitted 2
+            $expanded.publication.required_cohort_hash = '2222222222222222'
+            foreach ($name in @('publisher_disk', 'resident', 'allocation', 'visible', 'submitted', 'gpu_presented')) {
+                $expanded.presentation.$name.required_cohort_count = 2
+                $expanded.presentation.$name.required_cohort_hash = '2222222222222222'
+            }
+            @($first, $expanded) | ForEach-Object {
+                'PHASE2_PUBLICATION=' + ($_ | ConvertTo-Json -Depth 20 -Compress)
+            } | Set-Content -LiteralPath $path
+
+            { Get-Phase2PublicationSequenceEvidence -ClientLogPath $path `
+                -ExpectedPresentMode Fifo -WorldReadyObserved:$false -Server Zeqa } |
+                Should Not Throw
+
+            $expanded.presentation.gpu_presented.publisher_epoch = 2
+            'PHASE2_PUBLICATION=' + ($expanded | ConvertTo-Json -Depth 20 -Compress) |
+                Set-Content -LiteralPath $path
+            { Get-Phase2PublicationSequenceEvidence -ClientLogPath $path `
+                -ExpectedPresentMode Fifo -WorldReadyObserved:$false -Server Zeqa } |
+                Should Throw
+        }
+        finally {
+            Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'does not report terminal readiness before the required cohort is stable' {
+        $record = New-SyntheticPhase2Publication -RequiredColumns 1 -LoadedColumns 1 `
+            -RequestsConstructed 1 -RequestsSent 1 -ResponsesAdmitted 1 -SubchunksCommitted 1 `
+            -RequiredCohortStable:$false
+        (Get-Phase2FirstStalledStage -PublicationRecord $record -WorldReadyObserved:$true) |
+            Should Be 'required_cohort_identity'
     }
 
     It 'allows the server publisher radius to differ without hiding a cached cohort identity gap' {

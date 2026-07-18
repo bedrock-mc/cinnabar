@@ -279,22 +279,6 @@ function Assert-Phase2CacheBoundaryConsistency {
     }
 }
 
-function Get-Phase2ExactCohortColumnCount {
-    param([Parameter(Mandatory = $true)][uint64]$PublisherRadiusBlocks)
-    $retention = [int][Math]::Ceiling($PublisherRadiusBlocks / 16.0)
-    $count = [uint64]0
-    for ($x = -$retention; $x -le $retention; $x++) {
-        for ($z = -$retention; $z -le $retention; $z++) {
-            $blockX = [int64]$x * 16
-            $blockZ = [int64]$z * 16
-            if (($blockX * $blockX) + ($blockZ * $blockZ) -le $PublisherRadiusBlocks * $PublisherRadiusBlocks) {
-                $count++
-            }
-        }
-    }
-    return $count
-}
-
 function Assert-Phase2PublicationRecord {
     param(
         [Parameter(Mandatory = $true)]$Record,
@@ -340,8 +324,8 @@ function Assert-Phase2PublicationRecord {
     ) -Label 'PHASE2_PUBLICATION presentation'
     Assert-Phase2ExactProperties -Value $publication -Names @(
         'loaded_required_columns', 'max_queue_wait_us', 'max_worker_time_us', 'outcomes', 'player_column',
-        'publisher_radius_blocks', 'publisher_radius_chunks', 'required_cohort_hash', 'required_columns',
-        'session_generation', 'stages'
+        'publisher_epoch', 'publisher_radius_blocks', 'publisher_radius_chunks', 'required_cohort_hash',
+        'required_cohort_stable', 'required_columns', 'session_generation', 'stages'
     ) -Label 'PHASE2_PUBLICATION publication'
     $mode = $ExpectedPresentMode.ToLowerInvariant()
     if ($null -eq $presentation -or $null -eq $publication -or
@@ -363,8 +347,12 @@ function Assert-Phase2PublicationRecord {
         throw 'PHASE2_PUBLICATION assets identity changed during the diagnostic sequence'
     }
     Assert-Phase2UnsignedInteger -Value $publication.session_generation -Label 'publication.session_generation' -Positive
+    Assert-Phase2UnsignedInteger -Value $publication.publisher_epoch -Label 'publication.publisher_epoch'
     Assert-Phase2UnsignedInteger -Value $publication.required_columns -Label 'publication.required_columns'
     Assert-Phase2UnsignedInteger -Value $publication.loaded_required_columns -Label 'publication.loaded_required_columns'
+    if ($publication.required_cohort_stable -isnot [bool]) {
+        throw 'publication.required_cohort_stable must be a Boolean'
+    }
     $publisherUninitialized = $null -eq $publication.publisher_radius_blocks -and
         $null -eq $publication.publisher_radius_chunks
     if ($publisherUninitialized) {
@@ -466,11 +454,16 @@ function Assert-Phase2PublicationRecord {
     foreach ($identityName in @('publisher_disk', 'resident', 'allocation', 'visible', 'submitted', 'gpu_presented')) {
         $identity = $presentation.$identityName
         Assert-Phase2ExactProperties -Value $identity `
-            -Names @('entry_count', 'generation_manifest_hash', 'required_cohort_hash', 'session_generation') `
+            -Names @('entry_count', 'generation_manifest_hash', 'publisher_epoch', 'required_cohort_count',
+                'required_cohort_hash', 'session_generation') `
             -Label "PHASE2_PUBLICATION presentation.$identityName"
         Assert-Phase2UnsignedInteger -Value $identity.entry_count -Label "presentation.$identityName.entry_count"
         Assert-Phase2UnsignedInteger -Value $identity.session_generation -Label "presentation.$identityName.session_generation" -Positive
+        Assert-Phase2UnsignedInteger -Value $identity.publisher_epoch -Label "presentation.$identityName.publisher_epoch"
+        Assert-Phase2UnsignedInteger -Value $identity.required_cohort_count -Label "presentation.$identityName.required_cohort_count"
         if ([uint64]$identity.session_generation -ne [uint64]$publication.session_generation -or
+            [uint64]$identity.publisher_epoch -ne [uint64]$publication.publisher_epoch -or
+            [uint64]$identity.required_cohort_count -ne [uint64]$publication.required_columns -or
             [string]$identity.required_cohort_hash -cne [string]$publication.required_cohort_hash -or
             [string]$identity.generation_manifest_hash -notmatch '^[0-9a-f]{16}$') {
             throw "PHASE2_PUBLICATION contains incoherent $identityName identity"
@@ -478,7 +471,9 @@ function Assert-Phase2PublicationRecord {
     }
     if ($publisherUninitialized) {
         $emptyManifestHash = 'cbf29ce484222325'
-        if ([uint64]$publication.required_columns -ne 0 -or
+        if ([uint64]$publication.publisher_epoch -ne 0 -or
+            [bool]$publication.required_cohort_stable -or
+            [uint64]$publication.required_columns -ne 0 -or
             [uint64]$publication.loaded_required_columns -ne 0) {
             throw 'PHASE2_PUBLICATION uninitialized publisher contains a nonempty cohort'
         }
@@ -513,6 +508,9 @@ function Assert-Phase2PublicationRecord {
             }
         }
     }
+    elseif ([uint64]$publication.publisher_epoch -eq 0) {
+        throw 'PHASE2_PUBLICATION initialized publisher has no publisher epoch'
+    }
 }
 
 function Get-Phase2FirstStalledStage {
@@ -524,8 +522,6 @@ function Get-Phase2FirstStalledStage {
     $publication = $PublicationRecord.publication
     $stages = $publication.stages
     $presentation = $PublicationRecord.presentation
-    $exactRawRadiusCount = Get-Phase2ExactCohortColumnCount `
-        -PublisherRadiusBlocks ([uint64]$publication.publisher_radius_blocks)
     $cohortComplete = [uint64]$publication.loaded_required_columns -ge [uint64]$publication.required_columns
     $outcomeTotal = [decimal]0
     foreach ($field in @('success', 'all_air', 'unavailable', 'malformed', 'stale', 'timed_out')) {
@@ -539,16 +535,6 @@ function Get-Phase2FirstStalledStage {
     if ([uint64]$publication.outcomes.malformed -gt 0 -or [uint64]$publication.outcomes.stale -gt 0 -or
         [uint64]$publication.outcomes.timed_out -gt 0 -or [uint64]$publication.outcomes.unavailable -gt 0) {
         return 'response_semantics'
-    }
-    if ([uint64]$publication.required_columns -ne $exactRawRadiusCount -and
-        [uint64]$publication.loaded_required_columns -eq $exactRawRadiusCount -and
-        [uint64]$stages.requests_constructed -eq $exactRawRadiusCount -and
-        [uint64]$stages.requests_sent -eq $exactRawRadiusCount -and
-        [uint64]$stages.requests_ready -eq 0 -and
-        [uint64]$stages.subchunks_awaiting_response -eq 0 -and
-        [uint64]$stages.responses_admitted -eq [uint64]$stages.subchunks_committed -and
-        [uint64]$stages.subchunks_committed -gt 0) {
-        return 'required_cohort_identity'
     }
     if (-not $cohortComplete -and
         [uint64]$stages.requests_constructed -eq [uint64]$publication.loaded_required_columns -and
@@ -580,6 +566,7 @@ function Get-Phase2FirstStalledStage {
         [uint64]$stages.mesh_jobs_completed -lt [uint64]$stages.mesh_jobs_dispatched) { return 'meshing' }
     if ([uint64]$stages.mesh_uploads_unacknowledged -gt 0) { return 'gpu_upload' }
     if (-not $cohortComplete) { return 'required_cohort_identity' }
+    if (-not [bool]$publication.required_cohort_stable) { return 'required_cohort_identity' }
     $publisher = $presentation.publisher_disk
     $resident = $presentation.resident
     $allocation = $presentation.allocation
@@ -666,11 +653,8 @@ function Get-Phase2PublicationSequenceEvidence {
             $publisherInitialized = $true
             $currentSequenceIdentity = [pscustomobject][ordered]@{
                 session_generation = [uint64]$record.publication.session_generation
-                required_cohort_hash = [string]$record.publication.required_cohort_hash
-                required_columns = [uint64]$record.publication.required_columns
+                publisher_epoch = [uint64]$record.publication.publisher_epoch
                 dimension = [int32]$record.publication.player_column.dimension
-                player_x = [int32]$record.publication.player_column.x
-                player_z = [int32]$record.publication.player_column.z
                 publisher_radius_blocks = [uint64]$record.publication.publisher_radius_blocks
                 publisher_radius_chunks = [uint64]$record.publication.publisher_radius_chunks
                 build_profile = [string]$record.presentation.build_profile
@@ -689,6 +673,14 @@ function Get-Phase2PublicationSequenceEvidence {
             }
         }
         if ($null -ne $previousRecord) {
+            $previousRequired = [uint64]$previousRecord.publication.required_columns
+            $currentRequired = [uint64]$record.publication.required_columns
+            if ($currentRequired -lt $previousRequired -or
+                ($currentRequired -eq $previousRequired -and
+                    [string]$record.publication.required_cohort_hash -cne
+                        [string]$previousRecord.publication.required_cohort_hash)) {
+                throw 'PHASE2_PUBLICATION publisher-epoch cohort membership regressed or changed without growth'
+            }
             foreach ($field in @('requests_constructed', 'requests_sent', 'responses_admitted',
                 'subchunks_committed', 'decode_jobs_dispatched', 'decode_jobs_completed',
                 'light_jobs_dispatched', 'light_jobs_completed', 'mesh_changes_queued',
