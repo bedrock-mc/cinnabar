@@ -156,16 +156,35 @@ impl FrameProbe {
             .target_keys
             .as_ref()
             .map(|keys| keys.iter().copied().collect::<BTreeSet<_>>());
-        let target_keys = model_target_keys
+        let target_columns = expectation
+            .target_columns
             .as_ref()
-            .or(expectation_target_keys.as_ref());
+            .map(|columns| columns.iter().copied().collect::<BTreeSet<_>>());
+        debug_assert!(expectation_target_keys.is_none() || target_columns.is_none());
+        let target_keys = if target_columns.is_some() {
+            None
+        } else {
+            expectation_target_keys
+                .as_ref()
+                .or(model_target_keys.as_ref())
+        };
         let is_scoped_instance =
             |key: SubChunkKey| target_keys.is_none_or(|target_keys| target_keys.contains(&key));
         let is_target = |key: SubChunkKey| {
             target_keys.map_or_else(
-                || expectation.cohort.contains(key),
+                || {
+                    target_columns.as_ref().map_or_else(
+                        || expectation.cohort.contains(key),
+                        |target_columns| target_columns.contains(&key.chunk()),
+                    )
+                },
                 |target_keys| target_keys.contains(&key),
             )
+        };
+        let is_model_target = |key: SubChunkKey| {
+            model_target_keys
+                .as_ref()
+                .is_some_and(|target_keys| target_keys.contains(&key))
         };
         let expected = expectation
             .manifest
@@ -243,7 +262,7 @@ impl FrameProbe {
             let identity = (allocation.key, allocation.generation);
             let mask = expected_streams_by_identity.entry(identity).or_default();
             *mask = *mask | expected_streams;
-            if is_target(allocation.key) {
+            if is_model_target(allocation.key) {
                 let model = model_allocations
                     .entry(identity)
                     .or_insert((ChunkStreamMask::default(), 0));
