@@ -88,10 +88,29 @@ function Assert-ProtocolDependencyProvenance {
         valentine = 'valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_30"] }'
         jolyne = 'jolyne = { path = "vendor/jolyne", default-features = false, features = ["client"] }'
     }
+    $dependencyCounts = @{}
     foreach ($dependency in $expectedDependencies.Keys) {
-        $declaration = [string]$expectedDependencies[$dependency]
-        if ([regex]::Matches($manifest, '(?m)^' + [regex]::Escape($declaration) + '\r?$').Count -ne 1) {
+        $dependencyCounts[$dependency] = 0
+    }
+    $manifestSection = ''
+    foreach ($line in $manifest -split "`r?`n") {
+        if ($line -match '^\s*(?<section>\[[^\]]+\])\s*(?:#.*)?$') {
+            $manifestSection = $Matches.section
+            continue
+        }
+        if ($line -notmatch '^\s*(?<dependency>valentine|jolyne)\s*=') { continue }
+        $dependency = $Matches.dependency
+        $dependencyCounts[$dependency] = [int]$dependencyCounts[$dependency] + 1
+        if ($manifestSection -cne '[dependencies]') {
+            throw "protocol dependency provenance drifted: $dependency is declared outside the active [dependencies] table"
+        }
+        if ($line.Trim() -cne [string]$expectedDependencies[$dependency]) {
             throw "protocol dependency provenance drifted: $dependency does not use its exact vendored path declaration"
+        }
+    }
+    foreach ($dependency in $expectedDependencies.Keys) {
+        if ([int]$dependencyCounts[$dependency] -ne 1) {
+            throw "protocol dependency provenance drifted: $dependency must appear exactly once in the active [dependencies] table"
         }
         $vendoredManifest = Join-Path $ProjectRoot "crates\protocol\vendor\$dependency\Cargo.toml"
         if (-not (Test-Path -LiteralPath $vendoredManifest -PathType Leaf)) {
@@ -134,8 +153,9 @@ function Assert-ProtocolDependencyProvenance {
         $name = $nameMatch.Groups['name'].Value
         if ($name -eq 'jolyne' -or $name.StartsWith('valentine', [StringComparison]::Ordinal)) {
             $null = $resolvedLocalPackages.Add($name)
-            if ($body -match '(?m)^source\s*=') {
-                throw "Cargo.lock local package $name has a source entry"
+            $resolutionKey = [regex]::Match($body, '(?m)^\s*(?<key>source|checksum)\s*=')
+            if ($resolutionKey.Success) {
+                throw "Cargo.lock local package $name has a $($resolutionKey.Groups['key'].Value) entry"
             }
         }
     }

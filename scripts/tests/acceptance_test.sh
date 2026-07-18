@@ -49,6 +49,46 @@ export RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY=1
 # shellcheck source=/dev/null
 source "$script"
 unset RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY
+
+protocol_fixture="$temp_root/protocol-provenance"
+mkdir -p "$protocol_fixture/crates/protocol/vendor/valentine" "$protocol_fixture/crates/protocol/vendor/jolyne"
+cp "$project_root/crates/protocol/Cargo.toml" "$protocol_fixture/crates/protocol/Cargo.toml"
+cp "$project_root/Cargo.lock" "$protocol_fixture/Cargo.lock"
+cp "$project_root/crates/protocol/vendor/UPSTREAM.md" "$protocol_fixture/crates/protocol/vendor/UPSTREAM.md"
+cp "$project_root/crates/protocol/vendor/LICENSE" "$protocol_fixture/crates/protocol/vendor/LICENSE"
+cp "$project_root/crates/protocol/vendor/valentine/Cargo.toml" "$protocol_fixture/crates/protocol/vendor/valentine/Cargo.toml"
+cp "$project_root/crates/protocol/vendor/jolyne/Cargo.toml" "$protocol_fixture/crates/protocol/vendor/jolyne/Cargo.toml"
+assert_protocol_dependency_provenance "$protocol_fixture"
+
+cp "$protocol_fixture/crates/protocol/Cargo.toml" "$protocol_fixture/protocol.Cargo.toml.clean"
+cat >>"$protocol_fixture/crates/protocol/Cargo.toml" <<'EOF'
+
+[target.'cfg(unix)'.dependencies]
+valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_30"] }
+EOF
+if assert_protocol_dependency_provenance "$protocol_fixture" >/dev/null 2>&1; then
+    echo 'Bash protocol provenance accepted an additional target-table declaration' >&2
+    exit 1
+fi
+cp "$protocol_fixture/protocol.Cargo.toml.clean" "$protocol_fixture/crates/protocol/Cargo.toml"
+
+cp "$protocol_fixture/Cargo.lock" "$protocol_fixture/Cargo.lock.clean"
+python3 - "$protocol_fixture/Cargo.lock" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+needle = 'name = "jolyne"\nversion = "0.1.0"'
+replacement = needle + '\n   checksum = "' + ('2' * 64) + '"'
+if needle not in text:
+    raise SystemExit('Bash checksum fixture did not find Jolyne lock package')
+path.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
+PY
+if assert_protocol_dependency_provenance "$protocol_fixture" >/dev/null 2>&1; then
+    echo 'Bash protocol provenance accepted a whitespace-prefixed local checksum' >&2
+    exit 1
+fi
+cp "$protocol_fixture/Cargo.lock.clean" "$protocol_fixture/Cargo.lock"
+
 publication_log="$temp_root/publication-snapshots.log"
 publication_output="$temp_root/publication-snapshot.json"
 publication_row='{"accepted_light_jobs":18446744073709551615,"noop_light_jobs":2,"value_changed_light_jobs":3,"provenance_only_light_jobs":5,"light_mesh_invalidations":7,"stale_light_jobs":11,"stale_mesh_jobs":13,"queued_decode_jobs":17,"in_flight_decode_jobs":19,"pending_light_jobs":23,"in_flight_light_jobs":29,"pending_mesh_jobs":31,"in_flight_mesh_jobs":37,"max_decode_queue_wait_ms":41.0,"max_light_queue_wait_ms":43.0,"max_mesh_queue_wait_ms":47.0,"max_decode_worker_ms":53.0,"max_light_worker_ms":59.0,"max_mesh_worker_ms":61.0,"upload_queue_items":67,"upload_queue_bytes":71,"gpu_upload_bytes":73,"frame_generation":79,"pose_generation":83,"view_generation":89,"draw_mode":"Direct","build_profile":"release","requested_present_mode":"Fifo","effective_present_mode":"Fifo","present_mode_proven":true,"backend":"Dx12","adapter":"Test Adapter","driver":"test-driver","driver_info":"1.2.3"}'

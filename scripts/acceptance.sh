@@ -56,6 +56,102 @@ sha256_file() {
     fi
 }
 
+assert_protocol_dependency_provenance() {
+    local root=$1
+    python3 - "$root" \
+        "$pinned_valentine_fork_commit" \
+        "$pinned_valentine_upstream_commit" \
+        "$pinned_valentine_license_sha256" <<'PY'
+import hashlib
+import pathlib
+import re
+import sys
+
+root = pathlib.Path(sys.argv[1])
+fork_revision, upstream_revision, license_sha256 = sys.argv[2:5]
+manifest_path = root / "crates/protocol/Cargo.toml"
+lock_path = root / "Cargo.lock"
+upstream_path = root / "crates/protocol/vendor/UPSTREAM.md"
+license_path = root / "crates/protocol/vendor/LICENSE"
+required_paths = [manifest_path, lock_path, upstream_path, license_path]
+for path in required_paths:
+    if not path.is_file():
+        raise SystemExit(f"protocol dependency provenance input is missing: {path}")
+
+expected_dependencies = {
+    "valentine": 'valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_30"] }',
+    "jolyne": 'jolyne = { path = "vendor/jolyne", default-features = false, features = ["client"] }',
+}
+counts = {name: 0 for name in expected_dependencies}
+section = ""
+manifest = manifest_path.read_text(encoding="utf-8-sig")
+for line in manifest.splitlines():
+    header = re.fullmatch(r"\s*(\[[^\]]+\])\s*(?:#.*)?", line)
+    if header:
+        section = header.group(1)
+        continue
+    declaration = re.match(r"\s*(valentine|jolyne)\s*=", line)
+    if not declaration:
+        continue
+    dependency = declaration.group(1)
+    counts[dependency] += 1
+    if section != "[dependencies]":
+        raise SystemExit(
+            f"protocol dependency provenance drifted: {dependency} is declared outside the active [dependencies] table"
+        )
+    if line.strip() != expected_dependencies[dependency]:
+        raise SystemExit(
+            f"protocol dependency provenance drifted: {dependency} does not use its exact vendored path declaration"
+        )
+for dependency, count in counts.items():
+    if count != 1:
+        raise SystemExit(
+            f"protocol dependency provenance drifted: {dependency} must appear exactly once in the active [dependencies] table"
+        )
+    vendored_manifest = root / f"crates/protocol/vendor/{dependency}/Cargo.toml"
+    if not vendored_manifest.is_file():
+        raise SystemExit(
+            f"protocol dependency provenance drifted: {dependency} vendored path has no Cargo.toml"
+        )
+
+upstream = upstream_path.read_text(encoding="utf-8-sig")
+metadata_lines = [
+    f"- Reviewed fork revision: `{fork_revision}`",
+    f"- Upstream snapshot revision: `{upstream_revision}`",
+    f"- Retained license: MIT at `crates/protocol/vendor/LICENSE` (normalized SHA-256 `{license_sha256}`)",
+]
+for line in metadata_lines:
+    if upstream.splitlines().count(line) != 1:
+        raise SystemExit(f"protocol dependency provenance metadata is missing or ambiguous: {line}")
+
+license_text = license_path.read_text(encoding="utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
+actual_license_sha256 = hashlib.sha256(license_text.encode("utf-8")).hexdigest()
+if actual_license_sha256 != license_sha256:
+    raise SystemExit(
+        f"protocol dependency retained license SHA-256 drifted: expected {license_sha256}, got {actual_license_sha256}"
+    )
+
+resolved = set()
+lock = lock_path.read_text(encoding="utf-8-sig")
+for block in re.split(r"(?m)^\s*\[\[package\]\]\s*$", lock)[1:]:
+    name_match = re.search(r'(?m)^\s*name\s*=\s*"([^"]+)"\s*$', block)
+    if not name_match:
+        continue
+    name = name_match.group(1)
+    if name != "jolyne" and not name.startswith("valentine"):
+        continue
+    resolved.add(name)
+    resolution_key = re.search(r"(?m)^\s*(source|checksum)\s*=", block)
+    if resolution_key:
+        raise SystemExit(
+            f"Cargo.lock local package {name} has a {resolution_key.group(1)} entry"
+        )
+for dependency in ("valentine", "jolyne"):
+    if dependency not in resolved:
+        raise SystemExit(f"Cargo.lock does not contain local package {dependency}")
+PY
+}
+
 wait_for_marker() {
     local log=$1 marker=$2 timeout=$3 pid=$4
     local deadline=$(( $(date +%s) + timeout ))
@@ -390,6 +486,7 @@ if [[ -n $upstream ]]; then
 fi
 
 project_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+assert_protocol_dependency_provenance "$project_root" || die 'protocol dependency provenance validation failed'
 metrics_out=$(absolute_path "$metrics_out")
 exe_suffix=''
 bds_executable_name="bedrock_server$exe_suffix"

@@ -49,6 +49,29 @@ Assert-ThrowsLike {
 } '*valentine*vendored path*' 'protocol provenance accepted a drifted Valentine path declaration'
 Set-Content -LiteralPath $manifestPath -NoNewline -Value $canonicalManifest
 
+Set-Content -LiteralPath $manifestPath -NoNewline -Value ($canonicalManifest + @'
+
+[target.'cfg(unix)'.dependencies]
+valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_30"] }
+'@)
+Assert-ThrowsLike {
+    Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
+} '*valentine*outside the active*dependencies*' 'protocol provenance accepted an additional target-table Valentine declaration'
+
+$inactiveDecoy = $canonicalManifest.Replace(
+    'valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_30"] }',
+    '# active Valentine declaration removed'
+) + @'
+
+[target.'cfg(unix)'.dependencies]
+valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_30"] }
+'@
+Set-Content -LiteralPath $manifestPath -NoNewline -Value $inactiveDecoy
+Assert-ThrowsLike {
+    Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
+} '*valentine*outside the active*dependencies*' 'protocol provenance accepted an inactive target-table Valentine decoy'
+Set-Content -LiteralPath $manifestPath -NoNewline -Value $canonicalManifest
+
 $upstreamPath = Join-Path $fixtureRoot 'crates\protocol\vendor\UPSTREAM.md'
 $canonicalUpstream = Get-Content -Raw -LiteralPath $upstreamPath
 Set-Content -LiteralPath $upstreamPath -NoNewline -Value `
@@ -75,12 +98,12 @@ $lockPath = Join-Path $fixtureRoot 'Cargo.lock'
 $canonicalLock = Get-Content -Raw -LiteralPath $lockPath
 $driftedLock = $canonicalLock.Replace(
     "name = `"valentine`"`r`nversion = `"0.1.0`"",
-    "name = `"valentine`"`r`nversion = `"0.1.0`"`r`nsource = `"git+https://github.com/HashimTheArab/axolotl-stack.git?rev=$expectedForkRevision#$expectedForkRevision`""
+    "name = `"valentine`"`r`nversion = `"0.1.0`"`r`n   source   = `"git+https://github.com/HashimTheArab/axolotl-stack.git?rev=$expectedForkRevision#$expectedForkRevision`""
 )
 if ($driftedLock -ceq $canonicalLock) {
     $driftedLock = $canonicalLock.Replace(
         "name = `"valentine`"`nversion = `"0.1.0`"",
-        "name = `"valentine`"`nversion = `"0.1.0`"`nsource = `"git+https://github.com/HashimTheArab/axolotl-stack.git?rev=$expectedForkRevision#$expectedForkRevision`""
+        "name = `"valentine`"`nversion = `"0.1.0`"`n   source   = `"git+https://github.com/HashimTheArab/axolotl-stack.git?rev=$expectedForkRevision#$expectedForkRevision`""
     )
 }
 Assert-True ($driftedLock -cne $canonicalLock) 'lock drift fixture did not mutate Valentine resolution'
@@ -88,3 +111,20 @@ Set-Content -LiteralPath $lockPath -NoNewline -Value $driftedLock
 Assert-ThrowsLike {
     Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
 } '*Cargo.lock*local package*source*' 'protocol provenance accepted a Git source for a local package'
+Set-Content -LiteralPath $lockPath -NoNewline -Value $canonicalLock
+
+$driftedLock = $canonicalLock.Replace(
+    "name = `"jolyne`"`r`nversion = `"0.1.0`"",
+    "name = `"jolyne`"`r`nversion = `"0.1.0`"`r`n`tchecksum = `"$('2' * 64)`""
+)
+if ($driftedLock -ceq $canonicalLock) {
+    $driftedLock = $canonicalLock.Replace(
+        "name = `"jolyne`"`nversion = `"0.1.0`"",
+        "name = `"jolyne`"`nversion = `"0.1.0`"`n`tchecksum = `"$('2' * 64)`""
+    )
+}
+Assert-True ($driftedLock -cne $canonicalLock) 'checksum drift fixture did not mutate Jolyne resolution'
+Set-Content -LiteralPath $lockPath -NoNewline -Value $driftedLock
+Assert-ThrowsLike {
+    Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
+} '*Cargo.lock*local package*checksum*' 'protocol provenance accepted a checksum for a local package'
