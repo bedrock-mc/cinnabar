@@ -23,14 +23,32 @@ import (
 )
 
 type dialerTestDownstream struct {
-	identity login.IdentityData
-	client   login.ClientData
-	protocol minecraft.Protocol
+	identity           login.IdentityData
+	client             login.ClientData
+	protocol           minecraft.Protocol
+	clientCacheEnabled bool
 }
 
 func (d dialerTestDownstream) IdentityData() login.IdentityData { return d.identity }
 func (d dialerTestDownstream) ClientData() login.ClientData     { return d.client }
 func (d dialerTestDownstream) Proto() minecraft.Protocol        { return d.protocol }
+func (d dialerTestDownstream) ClientCacheEnabled() bool         { return d.clientCacheEnabled }
+
+func TestNewUpstreamDialerPreservesClientCacheCapability(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("enabled=%t", enabled), func(t *testing.T) {
+			downstream := dialerTestDownstream{
+				protocol:           minecraft.DefaultProtocol,
+				clientCacheEnabled: enabled,
+			}
+
+			dialer := newUpstreamDialer(downstream, nil)
+			if dialer.EnableClientCache != enabled {
+				t.Fatalf("EnableClientCache = %t, want downstream capability %t", dialer.EnableClientCache, enabled)
+			}
+		})
+	}
+}
 
 func TestNewUpstreamDialerOfflinePreservesIdentity(t *testing.T) {
 	downstream := dialerTestDownstream{
@@ -795,11 +813,11 @@ func TestConnectUpstreamReportsOrderedConnectionState(t *testing.T) {
 	)
 }
 
-func TestReportLocalClientAcceptedIncludesSocketDirectory(t *testing.T) {
+func TestReportLocalClientAcceptedIncludesCapabilities(t *testing.T) {
 	var output lockedBuffer
 	logger := slog.New(slog.NewTextHandler(&output, nil))
-	reportLocalClientAccepted(logger, "run/socket")
-	if got := output.String(); !strings.Contains(got, "msg=\"local client accepted\" socket_dir=run/socket") {
+	reportLocalClientAccepted(logger, "run/socket", true)
+	if got := output.String(); !strings.Contains(got, "msg=\"local client accepted\" socket_dir=run/socket client_blob_cache=true") {
 		t.Fatalf("local client output = %q", got)
 	}
 }

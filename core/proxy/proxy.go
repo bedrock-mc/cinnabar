@@ -100,7 +100,7 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 				cleanupErr := cleanupHandoffConnection(result.conn)
 				return errors.Join(fmt.Errorf("proxy: accepted unexpected connection type %T", result.conn), cleanupErr)
 			}
-			reportLocalClientAccepted(logger, cfg.SocketDir)
+			reportLocalClientAccepted(logger, cfg.SocketDir, downstream.ClientCacheEnabled())
 			sessions.Add(1)
 			go func() {
 				defer sessions.Done()
@@ -171,8 +171,12 @@ func callConnectionLifecycle(operation string, call func() error) (err error) {
 	return call()
 }
 
-func reportLocalClientAccepted(logger *slog.Logger, socketDir string) {
-	logger.Info("local client accepted", "socket_dir", socketDir)
+func reportLocalClientAccepted(logger *slog.Logger, socketDir string, clientCacheEnabled bool) {
+	logger.Info(
+		"local client accepted",
+		"socket_dir", socketDir,
+		"client_blob_cache", clientCacheEnabled,
+	)
 }
 
 func reportListenerReady(logger *slog.Logger, socketDir string) {
@@ -273,12 +277,14 @@ type dialerDownstream interface {
 	IdentityData() login.IdentityData
 	ClientData() login.ClientData
 	Proto() minecraft.Protocol
+	ClientCacheEnabled() bool
 }
 
 func newUpstreamDialer(downstream dialerDownstream, tokenSource oauth2.TokenSource) minecraft.Dialer {
 	dialer := minecraft.Dialer{
 		ClientData:         downstream.ClientData(),
 		EnableBatchReading: true,
+		EnableClientCache:  downstream.ClientCacheEnabled(),
 		ErrorLog:           slog.Default().With("component", "upstream-dialer"),
 		Protocol:           downstream.Proto(),
 		TokenSource:        tokenSource,
