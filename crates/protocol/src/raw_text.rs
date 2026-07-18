@@ -14,6 +14,7 @@ pub const MAX_RAW_TEXT_OUTPUT_BYTES: usize = 8_192;
 pub struct RawTextDocument {
     components: Arc<[RawTextComponent]>,
     literal_text: Arc<str>,
+    resolution: RawTextResolution,
 }
 
 impl RawTextDocument {
@@ -26,6 +27,24 @@ impl RawTextDocument {
     pub fn literal_text(&self) -> &str {
         &self.literal_text
     }
+
+    #[must_use]
+    pub const fn resolution(&self) -> RawTextResolution {
+        self.resolution
+    }
+
+    #[must_use]
+    pub const fn has_unresolved_components(&self) -> bool {
+        matches!(self.resolution, RawTextResolution::RequiresResolver)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RawTextResolution {
+    /// Every retained component is literal text and can be displayed without external state.
+    LiteralOnly,
+    /// Translation, scoreboard, or selector state must be resolved by an authoritative catalog.
+    RequiresResolver,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -57,6 +76,11 @@ pub fn parse_raw_text(value: &str) -> Result<Arc<RawTextDocument>, UiPacketError
     Ok(Arc::new(RawTextDocument {
         components: Arc::from(components),
         literal_text: Arc::from(budget.output),
+        resolution: if budget.has_unresolved_components {
+            RawTextResolution::RequiresResolver
+        } else {
+            RawTextResolution::LiteralOnly
+        },
     }))
 }
 
@@ -65,6 +89,7 @@ struct ParseBudget {
     nodes: usize,
     components: usize,
     output: String,
+    has_unresolved_components: bool,
 }
 
 impl ParseBudget {
@@ -140,6 +165,7 @@ fn convert_component(
             Ok(RawTextComponent::Text(Arc::from(text)))
         }
         WireComponent::Translate(WireTranslate { translate, with }) => {
+            budget.has_unresolved_components = true;
             budget.node()?;
             let with = convert_with(with, depth.saturating_add(1), budget)?;
             Ok(RawTextComponent::Translate {
@@ -148,6 +174,7 @@ fn convert_component(
             })
         }
         WireComponent::Score(WireScoreComponent { score }) => {
+            budget.has_unresolved_components = true;
             budget.node()?;
             budget.node()?;
             budget.node()?;
@@ -157,6 +184,7 @@ fn convert_component(
             })
         }
         WireComponent::Selector(WireSelector { selector }) => {
+            budget.has_unresolved_components = true;
             budget.node()?;
             Ok(RawTextComponent::Selector(Arc::from(selector)))
         }

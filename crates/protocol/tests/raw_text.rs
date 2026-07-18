@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use protocol::{
     BedrockSession, MAX_RAW_TEXT_COMPONENTS, MAX_RAW_TEXT_DEPTH, MAX_RAW_TEXT_INPUT_BYTES,
-    MAX_RAW_TEXT_NODES, MAX_RAW_TEXT_OUTPUT_BYTES, RawTextComponent, TextKind, UiEvent,
-    UiPacketError, WorldEvent, decode_batch, into_world_event, parse_raw_text,
+    MAX_RAW_TEXT_NODES, MAX_RAW_TEXT_OUTPUT_BYTES, RawTextComponent, RawTextResolution, TextKind,
+    UiEvent, UiPacketError, WorldEvent, decode_batch, into_world_event, parse_raw_text,
 };
 use valentine::bedrock::version::v1_26_30::{
     TextPacket, TextPacketCategory, TextPacketContent, TextPacketContentJson, TextPacketType,
@@ -53,15 +53,26 @@ fn protocol_1001_object_text_fixtures_emit_human_text_without_json_leakage() {
     let object = decode_fixture(OBJECT_FIXTURE);
     assert_eq!(object.text.kind, TextKind::Json);
     assert_eq!(object.text.message.as_ref(), "\u{a7}aLBSG human chat");
+    assert_eq!(object.document.resolution(), RawTextResolution::LiteralOnly);
+    assert!(!object.document.has_unresolved_components());
 
     let whisper = decode_fixture(WHISPER_FIXTURE);
     assert_eq!(whisper.text.kind, TextKind::JsonWhisper);
     assert_eq!(whisper.text.message.as_ref(), "private ");
     assert!(!whisper.text.message.contains("rawtext"));
+    assert_eq!(
+        whisper.document.resolution(),
+        RawTextResolution::RequiresResolver
+    );
+    assert!(whisper.document.has_unresolved_components());
 
     let announcement = decode_fixture(ANNOUNCEMENT_FIXTURE);
     assert_eq!(announcement.text.kind, TextKind::JsonAnnouncement);
     assert_eq!(announcement.text.message.as_ref(), "Announcement");
+    assert_eq!(
+        announcement.document.resolution(),
+        RawTextResolution::LiteralOnly
+    );
 }
 
 #[test]
@@ -72,6 +83,8 @@ fn raw_text_preserves_nested_translation_and_unresolved_components_without_guess
     .unwrap();
 
     assert_eq!(document.literal_text(), "\u{a7}6Round one");
+    assert_eq!(document.resolution(), RawTextResolution::RequiresResolver);
+    assert!(document.has_unresolved_components());
     assert_eq!(document.components().len(), 5);
     let RawTextComponent::Translate { key, with } = &document.components()[2] else {
         panic!("expected typed translation component")
@@ -106,6 +119,21 @@ fn malformed_ambiguous_and_unknown_raw_text_fail_closed() {
 
 #[test]
 fn raw_text_input_depth_component_and_output_limits_are_explicit() {
+    let minimal = r#"{"rawtext":[]}"#;
+    let exact_input = format!(
+        "{minimal}{}",
+        " ".repeat(MAX_RAW_TEXT_INPUT_BYTES - minimal.len())
+    );
+    assert_eq!(exact_input.len(), MAX_RAW_TEXT_INPUT_BYTES);
+    parse_raw_text(&exact_input).unwrap();
+    assert!(matches!(
+        parse_raw_text(&(exact_input + " ")),
+        Err(UiPacketError::RawTextInputTooLarge {
+            bytes,
+            max: MAX_RAW_TEXT_INPUT_BYTES,
+        }) if bytes == MAX_RAW_TEXT_INPUT_BYTES + 1
+    ));
+
     let oversized = format!(
         "{{\"rawtext\":[{{\"text\":\"{}\"}}]}}",
         "x".repeat(MAX_RAW_TEXT_INPUT_BYTES)
@@ -116,12 +144,17 @@ fn raw_text_input_depth_component_and_output_limits_are_explicit() {
     ));
 
     let mut nested = r#"{"rawtext":[{"text":"leaf"}]}"#.to_owned();
-    for _ in 0..=MAX_RAW_TEXT_DEPTH {
+    for _ in 1..MAX_RAW_TEXT_DEPTH {
         nested = format!(r#"{{"rawtext":[{nested}]}}"#);
     }
+    parse_raw_text(&nested).unwrap();
+    nested = format!(r#"{{"rawtext":[{nested}]}}"#);
     assert!(matches!(
         parse_raw_text(&nested),
-        Err(UiPacketError::RawTextDepthExceeded { .. })
+        Err(UiPacketError::RawTextDepthExceeded {
+            depth,
+            max: MAX_RAW_TEXT_DEPTH,
+        }) if depth == MAX_RAW_TEXT_DEPTH + 1
     ));
 
     let components = std::iter::repeat_n(r#"{"text":"x"}"#, MAX_RAW_TEXT_COMPONENTS + 1)
@@ -143,6 +176,14 @@ fn raw_text_input_depth_component_and_output_limits_are_explicit() {
         Err(UiPacketError::RawTextNodeLimitExceeded { .. })
     ));
 
+    let exact_output = format!(
+        "{{\"rawtext\":[{{\"text\":\"{}\"}}]}}",
+        "x".repeat(MAX_RAW_TEXT_OUTPUT_BYTES)
+    );
+    assert_eq!(
+        parse_raw_text(&exact_output).unwrap().literal_text().len(),
+        MAX_RAW_TEXT_OUTPUT_BYTES
+    );
     let output = format!(
         "{{\"rawtext\":[{{\"text\":\"{}\"}}]}}",
         "x".repeat(MAX_RAW_TEXT_OUTPUT_BYTES + 1)
@@ -208,6 +249,11 @@ fn json_packet_translation_remains_typed_and_never_becomes_source_json() {
     )
     .unwrap();
     assert_eq!(event.text.message, Arc::<str>::from(""));
+    assert_eq!(
+        event.document.resolution(),
+        RawTextResolution::RequiresResolver
+    );
+    assert!(event.document.has_unresolved_components());
     assert!(matches!(
         &event.document.components()[0],
         RawTextComponent::Translate { key, .. } if key.as_ref() == "multiplayer.player.joined"

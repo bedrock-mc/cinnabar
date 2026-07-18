@@ -58,6 +58,24 @@ fn protocol_1001_raw_text_reaches_chat_store_as_human_text_not_json() {
     assert!(!message.message.contains("rawtext"));
 }
 
+#[test]
+fn unresolved_raw_text_is_not_presented_as_a_complete_literal_message() {
+    const FIXTURE: &[u8] =
+        include_bytes!("../../../crates/protocol/fixtures/text_object_whisper_rawtext.bin");
+    let mut packets = decode_batch(FIXTURE.into(), &BedrockSession { shield_item_id: 0 }).unwrap();
+    let event = match into_world_event(packets.pop().unwrap(), 0).unwrap() {
+        Some(WorldEvent::Ui(event @ UiEvent::RawText(_))) => event,
+        other => panic!("expected RawText UI event, got {other:?}"),
+    };
+    let mut runtime = UiRuntime::new(1);
+
+    assert_eq!(
+        runtime.apply(envelope(1, 1, event)).unwrap(),
+        UiApplyOutcome::IgnoredUnresolvedRawText
+    );
+    assert!(runtime.chat().messages().is_empty());
+}
+
 fn title(message: &str) -> UiEvent {
     UiEvent::Title(TitleEvent {
         action: TitleAction::SetTitle,
