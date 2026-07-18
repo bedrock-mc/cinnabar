@@ -49,6 +49,27 @@
     "sha256": "1416498c15383bbbb63b7035203648ae57fbcacf4ce7ea8089ad6da7caa3647d"
   },
   {
+    "name": "TextObjectRawText",
+    "file": "text_object_rawtext.bin",
+    "id": 9,
+    "byte_length": 80,
+    "sha256": "783f73009252c7c89b330d63b64f01ef6ad9ae6ef34c496175de248f63675ec4"
+  },
+  {
+    "name": "TextObjectWhisperRawText",
+    "file": "text_object_whisper_rawtext.bin",
+    "id": 9,
+    "byte_length": 123,
+    "sha256": "c8015a164c7ac7a051c3d03583cb77b08bcee1d977e3890cd59d48a83d32add8"
+  },
+  {
+    "name": "TextObjectAnnouncementRawText",
+    "file": "text_object_announcement_rawtext.bin",
+    "id": 9,
+    "byte_length": 48,
+    "sha256": "5d3cc91cf467934789ba22f40250aedede00887e4c7377dacbd4b9410d7cd6fa"
+  },
+  {
     "name": "SetTitle",
     "file": "set_title.bin",
     "id": 88,

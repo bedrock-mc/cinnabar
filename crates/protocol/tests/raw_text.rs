@@ -1,0 +1,168 @@
+use std::sync::Arc;
+
+use protocol::{
+    BedrockSession, MAX_RAW_TEXT_COMPONENTS, MAX_RAW_TEXT_DEPTH, MAX_RAW_TEXT_INPUT_BYTES,
+    MAX_RAW_TEXT_NODES, MAX_RAW_TEXT_OUTPUT_BYTES, RawTextComponent, TextKind, UiEvent,
+    UiPacketError, WorldEvent, decode_batch, into_world_event, parse_raw_text,
+};
+use valentine::bedrock::version::v1_26_30::{
+    TextPacket, TextPacketCategory, TextPacketContent, TextPacketContentJson, TextPacketType,
+};
+
+const OBJECT_FIXTURE: &[u8] = include_bytes!("../fixtures/text_object_rawtext.bin");
+const WHISPER_FIXTURE: &[u8] = include_bytes!("../fixtures/text_object_whisper_rawtext.bin");
+const ANNOUNCEMENT_FIXTURE: &[u8] =
+    include_bytes!("../fixtures/text_object_announcement_rawtext.bin");
+
+fn normalize_json(
+    kind: TextPacketType,
+    message: String,
+) -> Result<protocol::RawTextEvent, UiPacketError> {
+    let content = TextPacketContentJson { message };
+    let content = match kind {
+        TextPacketType::Json => TextPacketContent::Json(content),
+        TextPacketType::JsonWhisper => TextPacketContent::JsonWhisper(content),
+        TextPacketType::JsonAnnouncement => TextPacketContent::JsonAnnouncement(content),
+        _ => panic!("test helper accepts only object text packet kinds"),
+    };
+    let packet = TextPacket {
+        category: TextPacketCategory::MessageOnly,
+        type_: kind,
+        content: Some(content),
+        ..Default::default()
+    };
+    match into_world_event(packet.into(), 0) {
+        Ok(Some(WorldEvent::Ui(UiEvent::RawText(event)))) => Ok(event),
+        Ok(other) => panic!("expected normalized text event, got {other:?}"),
+        Err(protocol::WorldPacketError::Ui(error)) => Err(error),
+        Err(other) => panic!("unexpected world error: {other}"),
+    }
+}
+
+fn decode_fixture(bytes: &'static [u8]) -> protocol::RawTextEvent {
+    let mut packets = decode_batch(bytes.into(), &BedrockSession { shield_item_id: 0 }).unwrap();
+    assert_eq!(packets.len(), 1);
+    match into_world_event(packets.pop().unwrap(), 0).unwrap() {
+        Some(WorldEvent::Ui(UiEvent::RawText(event))) => event,
+        other => panic!("expected text fixture, got {other:?}"),
+    }
+}
+
+#[test]
+fn protocol_1001_object_text_fixtures_emit_human_text_without_json_leakage() {
+    let object = decode_fixture(OBJECT_FIXTURE);
+    assert_eq!(object.text.kind, TextKind::Json);
+    assert_eq!(object.text.message.as_ref(), "\u{a7}aLBSG human chat");
+
+    let whisper = decode_fixture(WHISPER_FIXTURE);
+    assert_eq!(whisper.text.kind, TextKind::JsonWhisper);
+    assert_eq!(whisper.text.message.as_ref(), "private ");
+    assert!(!whisper.text.message.contains("rawtext"));
+
+    let announcement = decode_fixture(ANNOUNCEMENT_FIXTURE);
+    assert_eq!(announcement.text.kind, TextKind::JsonAnnouncement);
+    assert_eq!(announcement.text.message.as_ref(), "Announcement");
+}
+
+#[test]
+fn raw_text_preserves_nested_translation_and_unresolved_components_without_guessing() {
+    let document = parse_raw_text(
+        r#"{"rawtext":[{"text":"\u00a76Round "},{"rawtext":[{"text":"one"}]},{"translate":"chat.type.text","with":["Alice",{"rawtext":[{"text":"hello"}]}]},{"score":{"name":"*","objective":"kills"}},{"selector":"@a"}]}"#,
+    )
+    .unwrap();
+
+    assert_eq!(document.literal_text(), "\u{a7}6Round one");
+    assert_eq!(document.components().len(), 5);
+    let RawTextComponent::Translate { key, with } = &document.components()[2] else {
+        panic!("expected typed translation component")
+    };
+    assert_eq!(key.as_ref(), "chat.type.text");
+    assert_eq!(with.len(), 2);
+    assert!(matches!(&with[0], RawTextComponent::Text(value) if value.as_ref() == "Alice"));
+    assert!(
+        matches!(&with[1], RawTextComponent::Sequence(values) if matches!(&values[0], RawTextComponent::Text(value) if value.as_ref() == "hello"))
+    );
+    assert!(
+        matches!(&document.components()[3], RawTextComponent::Score { name, objective } if name.as_ref() == "*" && objective.as_ref() == "kills")
+    );
+    assert!(
+        matches!(&document.components()[4], RawTextComponent::Selector(value) if value.as_ref() == "@a")
+    );
+}
+
+#[test]
+fn malformed_ambiguous_and_unknown_raw_text_fail_closed() {
+    for value in [
+        r#"{"rawtext":[{"text":"unterminated}]}"#,
+        r#"{"rawtext":[{"text":"ok","selector":"@a"}]}"#,
+        r#"{"rawtext":[{"text":"ok","clickEvent":{"action":"run_command"}}]}"#,
+        r#"{"rawtext":[42]}"#,
+        r#"{"rawtext":"not-an-array"}"#,
+    ] {
+        assert!(parse_raw_text(value).is_err(), "accepted {value}");
+        assert!(normalize_json(TextPacketType::Json, value.to_owned()).is_err());
+    }
+}
+
+#[test]
+fn raw_text_input_depth_component_and_output_limits_are_explicit() {
+    let oversized = format!(
+        "{{\"rawtext\":[{{\"text\":\"{}\"}}]}}",
+        "x".repeat(MAX_RAW_TEXT_INPUT_BYTES)
+    );
+    assert!(matches!(
+        parse_raw_text(&oversized),
+        Err(UiPacketError::RawTextInputTooLarge { .. })
+    ));
+
+    let mut nested = r#"{"rawtext":[{"text":"leaf"}]}"#.to_owned();
+    for _ in 0..=MAX_RAW_TEXT_DEPTH {
+        nested = format!(r#"{{"rawtext":[{nested}]}}"#);
+    }
+    assert!(matches!(
+        parse_raw_text(&nested),
+        Err(UiPacketError::RawTextDepthExceeded { .. })
+    ));
+
+    let components = std::iter::repeat_n(r#"{"text":"x"}"#, MAX_RAW_TEXT_COMPONENTS + 1)
+        .collect::<Vec<_>>()
+        .join(",");
+    assert!(matches!(
+        parse_raw_text(&format!(r#"{{"rawtext":[{components}]}}"#)),
+        Err(UiPacketError::RawTextComponentLimitExceeded { .. })
+    ));
+
+    let scores = std::iter::repeat_n(
+        r#"{"score":{"name":"*","objective":"kills"}}"#,
+        MAX_RAW_TEXT_NODES / 4 + 1,
+    )
+    .collect::<Vec<_>>()
+    .join(",");
+    assert!(matches!(
+        parse_raw_text(&format!(r#"{{"rawtext":[{scores}]}}"#)),
+        Err(UiPacketError::RawTextNodeLimitExceeded { .. })
+    ));
+
+    let output = format!(
+        "{{\"rawtext\":[{{\"text\":\"{}\"}}]}}",
+        "x".repeat(MAX_RAW_TEXT_OUTPUT_BYTES + 1)
+    );
+    assert!(matches!(
+        parse_raw_text(&output),
+        Err(UiPacketError::RawTextOutputTooLarge { .. })
+    ));
+}
+
+#[test]
+fn json_packet_translation_remains_typed_and_never_becomes_source_json() {
+    let event = normalize_json(
+        TextPacketType::Json,
+        r#"{"rawtext":[{"translate":"multiplayer.player.joined","with":["Alice"]}]}"#.to_owned(),
+    )
+    .unwrap();
+    assert_eq!(event.text.message, Arc::<str>::from(""));
+    assert!(matches!(
+        &event.document.components()[0],
+        RawTextComponent::Translate { key, .. } if key.as_ref() == "multiplayer.player.joined"
+    ));
+}

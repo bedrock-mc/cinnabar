@@ -595,6 +595,9 @@ impl UiRuntime {
             .map_or(envelope.local_millis, |tick| tick.saturating_mul(50));
         let outcome = match envelope.event {
             UiEvent::Text(event) => self.apply_text(event, envelope.fifo_sequence, event_millis)?,
+            UiEvent::RawText(event) => {
+                self.apply_text(event.text, envelope.fifo_sequence, event_millis)?
+            }
             UiEvent::Title(event) => {
                 self.apply_title(event, envelope.fifo_sequence, event_millis)?;
                 UiApplyOutcome::Applied
