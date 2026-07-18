@@ -91,6 +91,13 @@ impl WorldStream {
     }
     pub(super) fn mark_light_mesh_dependents(&mut self, source: SubChunkKey, now: Instant) {
         for dependent in source.mesh_neighbourhood_dependents() {
+            if self.resident.contains(&dependent) && self.store.sub_chunk(dependent).is_some() {
+                self.mark_dirty_exact(dependent, now);
+            }
+        }
+    }
+    pub(super) fn mark_mesh_neighbourhood_dirty(&mut self, source: SubChunkKey, now: Instant) {
+        for dependent in source.mesh_neighbourhood_dependents() {
             self.mark_dirty_exact(dependent, now);
         }
     }

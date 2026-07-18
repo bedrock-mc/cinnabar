@@ -55,7 +55,7 @@ impl WorldStream {
             || self.light_ownership.contains_key(&key)
             || self.direct_sky.contains_key(&key);
         if invalidates_mesh_halo {
-            self.mark_light_mesh_dependents(key, Instant::now());
+            self.mark_mesh_neighbourhood_dirty(key, Instant::now());
         }
         self.block_generations.remove(&key);
         self.light_store.remove(key);

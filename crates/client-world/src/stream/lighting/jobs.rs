@@ -30,7 +30,7 @@ impl WorldStream {
         });
 
         let mut prepared = Vec::with_capacity(solve_budget);
-        let mut selected_initial_air = HashSet::new();
+        let mut selected = HashSet::new();
         for (_, key, revision, queued_at) in candidates {
             if prepared.len() >= solve_budget {
                 break;
@@ -45,22 +45,16 @@ impl WorldStream {
             let Some(block_generation) = self.block_generations.get(&key).copied() else {
                 continue;
             };
-            let initial_known_air =
-                self.known_air.contains(&key) && self.light_store.light(key).is_none();
-            if initial_known_air
-                && key
-                    .mesh_dependents()
-                    .filter(|candidate| *candidate != key)
-                    .any(|neighbour| {
-                        selected_initial_air.contains(&neighbour)
-                            || self
-                                .in_flight_light
-                                .get(&neighbour)
-                                .is_some_and(|identity| {
-                                    identity.previous_light_generation.is_none()
-                                        && self.known_air.contains(&neighbour)
-                                })
-                    })
+            let initial_unsolved = !self.light_ownership.contains_key(&key);
+            if initial_unsolved {
+                debug_assert!(self.light_store.light(key).is_some());
+            }
+            if key
+                .mesh_dependents()
+                .filter(|candidate| *candidate != key)
+                .any(|neighbour| {
+                    selected.contains(&neighbour) || self.in_flight_light.contains_key(&neighbour)
+                })
             {
                 continue;
             }
@@ -89,9 +83,7 @@ impl WorldStream {
                 bounds,
                 queued_at,
             });
-            if initial_known_air {
-                selected_initial_air.insert(key);
-            }
+            selected.insert(key);
         }
 
         let dispatched = prepared.len();

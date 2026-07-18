@@ -273,7 +273,7 @@ fn known_air_removal_replaces_stale_mask_and_skips_later_diagonal_change() {
         "transitioning to known air must clear the stale non-empty mask"
     );
     let empty_generation = stream.revisions.dirty(target).unwrap().revision;
-    stream.dispatch_mesh_jobs([24.0, -56.0, 8.0], 0);
+    stream.dispatch_mesh_jobs([24.0, -56.0, 8.0], 1);
     assert_eq!(
         stream.mesh_dependency_mask(target),
         Some((empty_generation, MeshDependencyMask::default())),

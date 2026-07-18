@@ -75,7 +75,7 @@ fn overworld_initial_sky_work_waits_for_the_current_upper_subchunk() {
 fn deterministic_solver_failure_terminalizes_only_that_generation() {
     let mut stream = lit_stream(1);
     let failed = SubChunkKey::new(1, 0, 0, 0);
-    let waiter = SubChunkKey::new(1, 1, 0, 0);
+    let waiter = SubChunkKey::new(1, 2, 0, 0);
     stream.record_known_air(failed);
     stream.record_known_air(waiter);
     stream.mark_light_changed_sources([failed, waiter]);
@@ -144,8 +144,8 @@ fn redirtying_a_dependency_preserves_targets_waiting_for_it() {
 }
 
 #[test]
-fn adjacent_concurrent_completions_converge_in_both_acceptance_orders() {
-    for reverse in [false, true] {
+fn adjacent_light_jobs_converge_from_either_camera_priority() {
+    for camera in [[0.0, 8.0, 8.0], [32.0, 8.0, 8.0]] {
         let mut stream = lit_stream(1);
         let emitter = SubChunkKey::new(1, 0, 0, 0);
         let air = SubChunkKey::new(1, 1, 0, 0);
@@ -156,24 +156,8 @@ fn adjacent_concurrent_completions_converge_in_both_acceptance_orders() {
         stream.resident.insert(emitter);
         stream.record_known_air(air);
         stream.mark_light_changed_sources([emitter, air]);
-        assert_eq!(stream.dispatch_light_jobs([16.0, 8.0, 8.0], 2), 2);
-
-        let mut completions = (0..2)
-            .map(|_| {
-                stream
-                    .light_rx
-                    .recv_timeout(Duration::from_secs(2))
-                    .unwrap()
-            })
-            .collect::<Vec<_>>();
-        completions.sort_by_key(|completion| completion.key);
-        if reverse {
-            completions.reverse();
-        }
-        for completion in completions {
-            stream.accept_light_completion(completion);
-        }
-        settle_light(&mut stream, [16.0, 8.0, 8.0]);
+        assert_eq!(stream.dispatch_light_jobs(camera, 2), 1);
+        settle_light(&mut stream, camera);
 
         assert_eq!(
             stream
@@ -190,7 +174,60 @@ fn adjacent_concurrent_completions_converge_in_both_acceptance_orders() {
 }
 
 #[test]
-fn mid_flight_block_replacement_rejects_both_adjacent_old_completions() {
+fn face_adjacent_initial_light_jobs_are_dispatched_independently() {
+    let mut stream = lit_stream(1);
+    let left = SubChunkKey::new(1, 0, 0, 0);
+    let right = SubChunkKey::new(1, 1, 0, 0);
+    stream.record_known_air(left);
+    stream.record_known_air(right);
+    stream.mark_light_changed_sources([left, right]);
+
+    assert!(stream.light_store.light(left).is_some());
+    assert!(stream.light_store.light(right).is_some());
+    assert!(!stream.light_ownership.contains_key(&left));
+    assert!(!stream.light_ownership.contains_key(&right));
+    assert_eq!(stream.dispatch_light_jobs([16.0, 8.0, 8.0], 2), 1);
+    assert_eq!(stream.in_flight_light.len(), 1);
+}
+
+#[test]
+fn adjacent_initial_emitter_and_air_converge_without_stale_completions() {
+    let mut stream = lit_stream(1);
+    let emitter = SubChunkKey::new(1, 0, 0, 0);
+    let air = SubChunkKey::new(1, 1, 0, 0);
+    stream
+        .store
+        .commit_sub_chunk(emitter, super::uniform_sub_chunk(1))
+        .unwrap();
+    stream.resident.insert(emitter);
+    stream.record_known_air(air);
+    stream.mark_light_changed_sources([emitter, air]);
+
+    let mut completions = 0_usize;
+    while !stream.pending_light.is_empty() || !stream.in_flight_light.is_empty() {
+        stream.dispatch_light_jobs([16.0, 8.0, 8.0], usize::MAX);
+        let completion = stream
+            .light_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("adjacent initial light convergence");
+        stream.accept_light_completion(completion);
+        completions += 1;
+        assert!(completions <= 3, "adjacent light convergence churned");
+    }
+
+    assert_eq!(stream.stats().stale_light_jobs, 0);
+    assert_eq!(
+        stream
+            .light_store
+            .light(air)
+            .unwrap()
+            .get(LightChannel::Block, 0, 0, 0),
+        Some(14)
+    );
+}
+
+#[test]
+fn mid_flight_block_replacement_rejects_old_completion_and_preserves_adjacent_pending() {
     let mut stream = lit_stream(1);
     let changed = SubChunkKey::new(1, 0, 0, 0);
     let neighbour = SubChunkKey::new(1, 1, 0, 0);
@@ -201,27 +238,20 @@ fn mid_flight_block_replacement_rejects_both_adjacent_old_completions() {
     stream.resident.insert(changed);
     stream.record_known_air(neighbour);
     stream.mark_light_changed_sources([changed, neighbour]);
-    assert_eq!(stream.dispatch_light_jobs([16.0, 8.0, 8.0], 2), 2);
-    let mut completions = (0..2)
-        .map(|_| {
-            stream
-                .light_rx
-                .recv_timeout(Duration::from_secs(2))
-                .unwrap()
-        })
-        .collect::<Vec<_>>();
+    assert_eq!(stream.dispatch_light_jobs([16.0, 8.0, 8.0], 2), 1);
+    let completion = stream
+        .light_rx
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap();
 
     stream
         .store
         .commit_sub_chunk(changed, super::uniform_sub_chunk(2))
         .unwrap();
     stream.mark_changed(changed, Instant::now());
-    completions.sort_by_key(|completion| std::cmp::Reverse(completion.key));
-    for completion in completions {
-        stream.accept_light_completion(completion);
-    }
+    stream.accept_light_completion(completion);
 
-    assert_eq!(stream.stats().stale_light_jobs, 2);
+    assert_eq!(stream.stats().stale_light_jobs, 1);
     assert!(!stream.light_ownership.contains_key(&changed));
     assert!(!stream.light_ownership.contains_key(&neighbour));
     assert!(stream.pending_light.contains_key(&changed));
@@ -239,20 +269,14 @@ fn mid_flight_eviction_cannot_restore_source_or_strand_neighbour_waiters() {
     stream.record_known_air(evicted);
     stream.record_known_air(neighbour);
     stream.mark_light_changed_sources([evicted, neighbour]);
-    assert_eq!(stream.dispatch_light_jobs([16.0, 8.0, 8.0], 2), 2);
-    let completions = (0..2)
-        .map(|_| {
-            stream
-                .light_rx
-                .recv_timeout(Duration::from_secs(2))
-                .unwrap()
-        })
-        .collect::<Vec<_>>();
+    assert_eq!(stream.dispatch_light_jobs([16.0, 8.0, 8.0], 2), 1);
+    let completion = stream
+        .light_rx
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap();
 
     stream.evict_column(evicted.chunk());
-    for completion in completions.into_iter().rev() {
-        stream.accept_light_completion(completion);
-    }
+    stream.accept_light_completion(completion);
     settle_light(&mut stream, [24.0, 8.0, 8.0]);
 
     assert_eq!(

@@ -197,6 +197,77 @@ fn mesh_removals_are_not_blocked_by_a_full_worker_window() {
 }
 
 #[test]
+fn removal_heavy_mesh_work_prioritizes_real_meshes_and_respects_poll_budget() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    let real = SubChunkKey::new(0, 100, -4, 0);
+    let decoded = DecodedLevelChunk::decode(
+        real.y,
+        1,
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../world/fixtures/uniform_non_air.bin"
+        )),
+    )
+    .unwrap();
+    stream
+        .store
+        .commit_level_chunk(real.chunk(), decoded)
+        .unwrap();
+    stream.resident.insert(real);
+    let block_generation = 7;
+    let light_revision = 11;
+    stream.block_generations.insert(real, block_generation);
+    stream
+        .light_store
+        .insert_resident(real, SubChunkLight::dark(light_revision));
+    stream.light_ownership.insert(
+        real,
+        LightOwnership {
+            block_generation,
+            light_revision,
+        },
+    );
+    stream.direct_sky.insert(
+        real,
+        StoredDirectSky {
+            light_revision,
+            mask: Arc::new(DirectSkyMask::Uniform(false)),
+        },
+    );
+    let real_revision = stream.mark_dirty_exact(real, Instant::now());
+
+    let removals = (-4..=4)
+        .flat_map(|x| (-4..=4).flat_map(move |y| (-4..=4).map(move |z| (x, y, z))))
+        .take(super::MAX_PENDING_MESH_CHANGES)
+        .map(|(x, y, z)| SubChunkKey::new(0, x, y, z))
+        .collect::<Vec<_>>();
+    for key in &removals {
+        stream.mark_dirty_exact(*key, Instant::now());
+    }
+
+    assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 2), 1);
+    assert_eq!(stream.in_flight.get(&real).copied(), Some(real_revision));
+    assert!(stream.pending_mesh_change_count() <= 2);
+    assert_eq!(
+        stream
+            .pending_mesh
+            .keys()
+            .filter(|key| removals.contains(key))
+            .count(),
+        removals
+            .len()
+            .saturating_sub(stream.pending_mesh_change_count())
+    );
+}
+
+#[test]
 fn final_block_removal_latency_waits_for_exact_applied_acknowledgement() {
     let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,
@@ -219,7 +290,7 @@ fn final_block_removal_latency_waits_for_exact_applied_acknowledgement() {
     stream.mark_dirty_exact(key, dirty_since);
     let generation = stream.revisions.dirty(key).unwrap().revision;
 
-    stream.dispatch_mesh_jobs([0.0; 3], 0);
+    stream.dispatch_mesh_jobs([0.0; 3], 1);
 
     assert_eq!(stream.stats().max_remesh_latency, std::time::Duration::ZERO);
     assert!(

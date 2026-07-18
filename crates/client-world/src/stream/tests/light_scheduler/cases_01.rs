@@ -424,12 +424,16 @@ fn mid_flight_light_halo_load_rejects_preload_mesh_completion() {
 }
 
 #[test]
-fn light_change_invalidation_covers_center_faces_edges_and_corners_once() {
-    let mut stream = stream();
+fn light_change_invalidation_only_dirties_renderable_dependents_once() {
+    let mut stream = lit_stream(0);
     let source = SubChunkKey::new(0, 4, 5, 6);
-    let expected = source
-        .mesh_neighbourhood_dependents()
-        .collect::<BTreeSet<_>>();
+    stream
+        .store
+        .commit_sub_chunk(source, super::uniform_sub_chunk(1))
+        .unwrap();
+    stream.resident.insert(source);
+    let known_air = SubChunkKey::new(0, 5, 5, 6);
+    stream.record_known_air(known_air);
     let first = Instant::now();
 
     stream.mark_light_mesh_dependents(source, first);
@@ -437,9 +441,9 @@ fn light_change_invalidation_covers_center_faces_edges_and_corners_once() {
 
     assert_eq!(
         stream.pending_mesh.keys().copied().collect::<BTreeSet<_>>(),
-        expected
+        BTreeSet::from([source])
     );
-    assert_eq!(stream.pending_mesh.len(), 27);
+    assert!(!stream.pending_mesh.contains_key(&known_air));
     assert!(
         stream
             .pending_mesh
@@ -571,8 +575,8 @@ fn changed_light_levels_dirty_a_renderable_mesh_generation() {
     stream.mark_changed(target, Instant::now());
     complete_one_light(&mut stream, [-8.0, 8.0, 8.0]);
     assert_eq!(stream.dispatch_light_jobs([8.0, 8.0, 8.0], 1), 1);
-    stream.pending_mesh.remove(&target);
-    stream.revisions.entries.remove(&target);
+    stream.pending_mesh.clear();
+    stream.revisions.entries.clear();
     let previous_light = Arc::clone(stream.light_store.light(target).unwrap());
     stream.stats.accepted_light_jobs = 0;
     stream.stats.noop_light_jobs = 0;
@@ -600,19 +604,14 @@ fn changed_light_levels_dirty_a_renderable_mesh_generation() {
     ));
     assert!(stream.pending_mesh.contains_key(&target));
     assert!(stream.revisions.dirty(target).is_some());
-    for dependent in target.mesh_neighbourhood_dependents() {
-        assert!(
-            stream.pending_mesh.contains_key(&dependent),
-            "changed light must invalidate halo dependent {dependent:?}"
-        );
-    }
     assert_eq!(
         target
             .mesh_neighbourhood_dependents()
             .filter(|dependent| stream.pending_mesh.contains_key(dependent))
             .count(),
-        27
+        2
     );
+    assert!(stream.pending_mesh.contains_key(&emitter));
     assert_eq!(stream.stats().accepted_light_jobs, 1);
     assert_eq!(stream.stats().noop_light_jobs, 0);
     assert_eq!(stream.stats().value_changed_light_jobs, 1);
@@ -874,15 +873,15 @@ fn light_jobs_are_nearest_first_deduplicated_and_worker_bounded() {
     assert_eq!(stream.pending_light.len(), keys.len());
     assert_ne!(stream.pending_light[&keys[5]].revision, latest);
 
-    assert_eq!(stream.dispatch_light_jobs([8.0, 8.0, 8.0], usize::MAX), 6);
-    assert_eq!(stream.in_flight_light.len(), keys.len());
+    assert_eq!(stream.dispatch_light_jobs([8.0, 8.0, 8.0], usize::MAX), 3);
+    assert_eq!(stream.in_flight_light.len(), 3);
     assert_eq!(
         stream
             .in_flight_light
             .keys()
             .copied()
             .collect::<BTreeSet<_>>(),
-        keys.iter().copied().collect()
+        [keys[0], keys[2], keys[4]].into_iter().collect()
     );
 }
 
@@ -894,7 +893,7 @@ fn one_completion_releases_one_independent_worker_slot() {
     let keys = (-radius..=radius)
         .flat_map(|x| (-radius..=radius).map(move |z| (x, z)))
         .filter(|(x, z)| (x + z).rem_euclid(2) == 0)
-        .flat_map(|(x, z)| (0..2).map(move |y| SubChunkKey::new(1, x, y, z)))
+        .map(|(x, z)| SubChunkKey::new(1, x, 0, z))
         .take(capacity + 1)
         .collect::<Vec<_>>();
     assert_eq!(keys.len(), capacity + 1);

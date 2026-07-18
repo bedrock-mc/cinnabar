@@ -12,6 +12,7 @@ impl WorldStream {
             .iter()
             .map(|(&key, &pending)| {
                 (
+                    self.store.sub_chunk(key).is_none(),
                     distance_squared(key, camera_position),
                     key,
                     pending.revision,
@@ -22,12 +23,14 @@ impl WorldStream {
             .collect::<Vec<_>>();
         candidates.sort_by(|left, right| {
             left.0
-                .total_cmp(&right.0)
-                .then_with(|| left.1.cmp(&right.1))
+                .cmp(&right.0)
+                .then_with(|| left.1.total_cmp(&right.1))
+                .then_with(|| left.2.cmp(&right.2))
         });
 
         let mut dispatched = 0;
-        for (_, key, revision, dirty_since, queued_at) in candidates {
+        let mut removals_queued = 0;
+        for (_, _, key, revision, dirty_since, queued_at) in candidates {
             if self.mesh_changes.len() >= MAX_PENDING_MESH_CHANGES {
                 break;
             }
@@ -35,6 +38,9 @@ impl WorldStream {
                 continue;
             }
             let Some(center) = self.store.sub_chunk(key) else {
+                if removals_queued >= budget {
+                    continue;
+                }
                 self.pending_mesh.remove(&key);
                 if self.known_air.contains(&key) {
                     self.set_connectivity(key, Some(FaceConnectivity::all()));
@@ -58,6 +64,7 @@ impl WorldStream {
                     .phase2_stages
                     .mesh_changes_queued
                     .saturating_add(1);
+                removals_queued += 1;
                 continue;
             };
             if dispatched >= worker_budget || self.in_flight.contains_key(&key) {
