@@ -139,25 +139,50 @@ impl ActorRenderScene {
         view: Option<ActorCullView>,
         sources: impl IntoIterator<Item = ActorRenderSource>,
     ) -> &ActorRenderFrame {
+        self.update_with_local(partial_tick, view, sources, None)
+    }
+
+    pub fn update_with_local(
+        &mut self,
+        partial_tick: f32,
+        view: Option<ActorCullView>,
+        sources: impl IntoIterator<Item = ActorRenderSource>,
+        local: Option<ActorRenderSource>,
+    ) -> &ActorRenderFrame {
         let partial_tick = if partial_tick.is_finite() {
             partial_tick.clamp(0.0, 1.0)
         } else {
             0.0
         };
+        let local = local.filter(ActorRenderSource::is_finite);
         let mut sources = sources
             .into_iter()
             .filter(ActorRenderSource::is_finite)
+            .filter(|source| {
+                local
+                    .as_ref()
+                    .is_none_or(|local| source.runtime_id != local.runtime_id)
+            })
             .collect::<Vec<_>>();
         sources.sort_unstable_by_key(|source| source.runtime_id);
         sources.dedup_by_key(|source| source.runtime_id);
-        let visible = sources
+        let remote_capacity = if local.is_some() {
+            MAX_RENDERED_PLAYERS.saturating_sub(1)
+        } else {
+            MAX_RENDERED_PLAYERS
+        };
+        let mut visible = sources
             .into_iter()
             .filter_map(|source| {
                 let pose = Pose::sample(&source, partial_tick);
                 actor_is_visible(&pose, view).then_some((source, pose))
             })
-            .take(MAX_RENDERED_PLAYERS)
+            .take(remote_capacity)
             .collect::<Vec<_>>();
+        if let Some(local) = local {
+            let pose = Pose::sample(&local, partial_tick);
+            visible.push((local, pose));
+        }
 
         let mut instances = Vec::with_capacity(visible.len());
         let mut skins = Vec::with_capacity(visible.len() * STANDARD_SKIN_BYTES);

@@ -11,11 +11,14 @@ use semantic_input::{Action, PerspectiveMode};
 use sim::{Aabb, CollisionWorld, Vec3 as SimVec3};
 use ui::UserSettings;
 
+use crate::app::ClientFrameSet;
 use crate::local_player::{
-    CameraPose, InteractionOriginSnapshot, LocalAvatarPresentation, LocalViewPose,
+    CameraPose, InteractionOriginSnapshot, LocalAvatarPresentation, LocalAvatarVisibilityCarrier,
+    LocalPlayerFrameCarrier, LocalViewPose,
 };
 use crate::semantic_controls::{
     SemanticInputRuntime, SemanticInputSnapshot, SemanticTouchTargets, finalize_semantic_input,
+    synchronize_semantic_input_authority,
 };
 use crate::settings_runtime::RuntimeSettings;
 
@@ -24,6 +27,8 @@ pub const DEFAULT_HORIZONTAL_FOV_RADIANS: f32 = 90.0_f32.to_radians();
 /// Radius declared by the pinned `minecraft:camera_orbit` vanilla presets.
 pub const THIRD_PERSON_RADIUS_BLOCKS: f32 = 4.0;
 pub const THIRD_PERSON_COLLISION_RADIUS_BLOCKS: f32 = 0.2;
+pub const THIRD_PERSON_COLLISION_EPSILON_BLOCKS: f32 = 0.001;
+const _: () = assert!(THIRD_PERSON_COLLISION_EPSILON_BLOCKS > 0.0);
 const MIN_FOV_RADIANS: f32 = PI / 180.0;
 const MAX_FOV_RADIANS: f32 = PI - MIN_FOV_RADIANS;
 const DEFAULT_ASPECT_RATIO: f32 = 16.0 / 9.0;
@@ -230,7 +235,12 @@ pub fn collision_safe_perspective_pose(
         .into_iter()
         .filter_map(|collision| segment_entry_fraction(origin, sweep, collision.grown(radius)))
         .fold(1.0_f64, f64::min);
-    pose.translation = subject_translation + delta * fraction as f32;
+    if fraction < 1.0 {
+        let hit_distance = f64::from(delta.length()) * fraction;
+        let safe_distance =
+            (hit_distance - f64::from(THIRD_PERSON_COLLISION_EPSILON_BLOCKS)).max(0.0);
+        pose.translation = subject_translation + delta.normalize_or_zero() * safe_distance as f32;
+    }
     pose
 }
 
@@ -355,13 +365,25 @@ impl Plugin for FlyCameraPlugin {
             .init_resource::<LocalViewPose>()
             .init_resource::<CameraPose>()
             .init_resource::<InteractionOriginSnapshot>()
+            .init_resource::<LocalPlayerFrameCarrier>()
             .init_resource::<LocalAvatarPresentation>()
+            .init_resource::<LocalAvatarVisibilityCarrier>()
             .init_resource::<SemanticInputRuntime>()
             .init_resource::<SemanticInputSnapshot>()
             .init_resource::<SemanticTouchTargets>()
             .init_resource::<RuntimeSettings>()
             .add_systems(Startup, spawn_fly_camera)
-            .add_systems(Update, finalize_semantic_input.before(FlyCameraUpdateSet))
+            .add_systems(
+                Update,
+                (
+                    synchronize_semantic_input_authority
+                        .in_set(ClientFrameSet::UiAuthority)
+                        .after(crate::ui_runtime::drive_chat_keyboard_input),
+                    finalize_semantic_input.in_set(ClientFrameSet::SemanticFinalize),
+                )
+                    .chain()
+                    .before(FlyCameraUpdateSet),
+            )
             .add_systems(
                 Update,
                 (

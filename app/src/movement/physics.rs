@@ -6,7 +6,7 @@ use protocol::{PLAYER_NETWORK_OFFSET, STANDING_PLAYER_EYE_HEIGHT};
 use sim::{
     Aabb, CollisionIdSpace, CollisionRegistry, CollisionRegistryIdentity, CollisionWorld,
     MovementInput, PlayerState, PredictionHistory, RegistryError, SimulationError, Simulator,
-    TICKS_PER_SECOND, Vec3,
+    TICKS_PER_SECOND, Vec3, WorldCollisionIdentity,
 };
 use thiserror::Error;
 
@@ -182,6 +182,7 @@ pub struct LocalPhysicsController {
     previous_jump_held: bool,
     jump_edge_pending: bool,
     dropped_tick_count: u64,
+    last_world_identity: Option<WorldCollisionIdentity>,
 }
 
 impl Default for LocalPhysicsController {
@@ -196,6 +197,7 @@ impl Default for LocalPhysicsController {
             previous_jump_held: false,
             jump_edge_pending: false,
             dropped_tick_count: 0,
+            last_world_identity: None,
         }
     }
 }
@@ -211,6 +213,7 @@ impl LocalPhysicsController {
         self.accumulated_seconds = 0.0;
         self.previous_jump_held = false;
         self.jump_edge_pending = false;
+        self.last_world_identity = None;
         self.history = PredictionHistory::new(LOCAL_PHYSICS_HISTORY_CAPACITY)
             .expect("local physics history capacity is non-zero");
     }
@@ -244,6 +247,7 @@ impl LocalPhysicsController {
         self.previous_jump_held = false;
         self.jump_edge_pending = false;
         self.dropped_tick_count = 0;
+        self.last_world_identity = None;
         self.history = PredictionHistory::new(LOCAL_PHYSICS_HISTORY_CAPACITY)
             .expect("local physics history capacity is non-zero");
     }
@@ -283,8 +287,9 @@ impl LocalPhysicsController {
                 || (input.jumping && state.on_ground && state.jump_delay == 0);
             let before = state.position;
             match self.history.predict(state, input, &self.simulator, world) {
-                Ok(_) => {
+                Ok(result) => {
                     self.previous_position = before;
+                    self.last_world_identity = Some(result.world_identity);
                     frame.completed_ticks += 1;
                     self.jump_edge_pending = false;
                     input.jump_pressed = false;
@@ -338,5 +343,10 @@ impl LocalPhysicsController {
     #[must_use]
     pub const fn dropped_tick_count(&self) -> u64 {
         self.dropped_tick_count
+    }
+
+    #[must_use]
+    pub const fn last_world_identity(&self) -> Option<&WorldCollisionIdentity> {
+        self.last_world_identity.as_ref()
     }
 }

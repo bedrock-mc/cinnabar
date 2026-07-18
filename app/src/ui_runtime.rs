@@ -1,22 +1,20 @@
 //! App-owned conversion boundary between retained UI output and render POD.
 
+mod chat_input;
 pub mod inventory_router;
 pub mod presentation;
 pub mod render_adapter;
+
+pub(crate) use chat_input::drive_chat_ui_actions;
 
 use std::{collections::VecDeque, sync::Arc};
 
 use bevy::{
     input::{
-        ButtonState,
-        gamepad::{Gamepad, GamepadButton},
-        keyboard::KeyboardInput,
-        mouse::AccumulatedMouseMotion,
-        touch::Touches,
+        ButtonState, gamepad::GamepadButton, keyboard::KeyboardInput, mouse::AccumulatedMouseMotion,
     },
     prelude::{
-        ButtonInput, KeyCode, MessageReader, MouseButton, Query, Res, ResMut, Resource, Single,
-        Time, With,
+        ButtonInput, KeyCode, MessageReader, MouseButton, Res, ResMut, Resource, Single, Time, With,
     },
     time::Real,
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window},
@@ -32,7 +30,7 @@ use ui::{
     ChatAutocompleteResponse, ChatAutocompleteState, ChatClipboard, ChatEditor, ChatEditorError,
     ChatHistory, ChatMessage, ChatMessageKind, ChatPasteError, ChatRateLimit, ChatSendError,
     ChatSendQueue, ChatSendRequest, ChatStore, HudPlayerStatus, HudStore, MAX_CHAT_INPUT_BYTES,
-    PointerPhase, TitleDurations, Toast, UiAction, UiPoint,
+    TitleDurations, Toast, UiAction,
 };
 
 use self::inventory_router::{EquipmentRoute, InventoryEquipmentRouter, InventoryRouterError};
@@ -928,70 +926,6 @@ pub(crate) fn flush_chat_network(
                     "queued chat packet crossed a session boundary: expected {expected}, got {actual}"
                 ),
             );
-        }
-    }
-}
-
-pub(crate) fn drive_chat_ui_actions(
-    time: Res<Time<Real>>,
-    window: Single<&Window, With<PrimaryWindow>>,
-    mouse_buttons: Res<ButtonInput<MouseButton>>,
-    touches: Res<Touches>,
-    gamepads: Query<&Gamepad>,
-    presentation: Res<presentation::UiPresentationRuntime>,
-    mut runtime: ResMut<UiRuntime>,
-) {
-    if !runtime.chat_focused() || !window.focused {
-        return;
-    }
-    let logical_size = [window.width(), window.height()];
-    let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
-
-    if mouse_buttons.just_pressed(MouseButton::Left)
-        && let Some(position) = window.cursor_position()
-        && let Ok(position) = UiPoint::new(position.x, position.y)
-    {
-        dispatch_chat_ui_action(
-            &mut runtime,
-            UiAction::PointerPrimary {
-                position,
-                phase: PointerPhase::Pressed,
-            },
-            presentation.hit_test_chat_suggestion(position, logical_size),
-            now_millis,
-        );
-    }
-    for touch in touches.iter_just_pressed() {
-        let position = touch.position();
-        if let Ok(position) = UiPoint::new(position.x, position.y) {
-            dispatch_chat_ui_action(
-                &mut runtime,
-                UiAction::PointerPrimary {
-                    position,
-                    phase: PointerPhase::Pressed,
-                },
-                presentation.hit_test_chat_suggestion(position, logical_size),
-                now_millis,
-            );
-        }
-    }
-    for gamepad in &gamepads {
-        for button in [
-            GamepadButton::DPadUp,
-            GamepadButton::DPadDown,
-            GamepadButton::South,
-            GamepadButton::East,
-            GamepadButton::RightTrigger,
-            GamepadButton::LeftTrigger,
-        ] {
-            if gamepad.just_pressed(button) {
-                dispatch_chat_ui_action(
-                    &mut runtime,
-                    gamepad_chat_action(button).expect("the mapped button list is exhaustive"),
-                    None,
-                    now_millis,
-                );
-            }
         }
     }
 }

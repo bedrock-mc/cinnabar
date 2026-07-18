@@ -1,11 +1,91 @@
 use std::time::Duration;
 
+use bevy::prelude::{App, IntoScheduleConfigs, ResMut, Resource, Update};
 use render::ChunkUploadBudget;
 
+use crate::app::{ClientFrameSet, configure_client_frame_schedule};
 use crate::runtime::publication::{
     PublicationController, PublicationControllerConfig, PublicationFrameWork,
     adaptive_publication_diagnostic_line,
 };
+
+#[derive(Resource, Default)]
+struct ObservedClientFrameOrder(Vec<ClientFrameSet>);
+
+#[test]
+fn client_frame_schedule_executes_every_behavioral_barrier_in_contract_order() {
+    let mut app = App::new();
+    app.init_resource::<ObservedClientFrameOrder>();
+    configure_client_frame_schedule(&mut app);
+    app.add_systems(
+        Update,
+        (
+            (|mut order: ResMut<ObservedClientFrameOrder>| {
+                order.0.push(ClientFrameSet::RawInput);
+            })
+            .in_set(ClientFrameSet::RawInput),
+            (|mut order: ResMut<ObservedClientFrameOrder>| {
+                order.0.push(ClientFrameSet::SemanticSample);
+            })
+            .in_set(ClientFrameSet::SemanticSample),
+            (|mut order: ResMut<ObservedClientFrameOrder>| {
+                order.0.push(ClientFrameSet::UiAuthority);
+            })
+            .in_set(ClientFrameSet::UiAuthority),
+            (|mut order: ResMut<ObservedClientFrameOrder>| {
+                order.0.push(ClientFrameSet::SemanticFinalize);
+            })
+            .in_set(ClientFrameSet::SemanticFinalize),
+            (|mut order: ResMut<ObservedClientFrameOrder>| {
+                order.0.push(ClientFrameSet::Physics);
+            })
+            .in_set(ClientFrameSet::Physics),
+            (|mut order: ResMut<ObservedClientFrameOrder>| {
+                order.0.push(ClientFrameSet::Camera);
+            })
+            .in_set(ClientFrameSet::Camera),
+            (|mut order: ResMut<ObservedClientFrameOrder>| {
+                order.0.push(ClientFrameSet::Interaction);
+            })
+            .in_set(ClientFrameSet::Interaction),
+            (|mut order: ResMut<ObservedClientFrameOrder>| {
+                order.0.push(ClientFrameSet::WorldPublication);
+            })
+            .in_set(ClientFrameSet::WorldPublication),
+            (|mut order: ResMut<ObservedClientFrameOrder>| {
+                order.0.push(ClientFrameSet::ActorPublication);
+            })
+            .in_set(ClientFrameSet::ActorPublication),
+            (|mut order: ResMut<ObservedClientFrameOrder>| {
+                order.0.push(ClientFrameSet::UiPublication);
+            })
+            .in_set(ClientFrameSet::UiPublication),
+            (|mut order: ResMut<ObservedClientFrameOrder>| {
+                order.0.push(ClientFrameSet::NetworkSend);
+            })
+            .in_set(ClientFrameSet::NetworkSend),
+        ),
+    );
+
+    app.update();
+
+    assert_eq!(
+        app.world().resource::<ObservedClientFrameOrder>().0,
+        [
+            ClientFrameSet::RawInput,
+            ClientFrameSet::SemanticSample,
+            ClientFrameSet::UiAuthority,
+            ClientFrameSet::SemanticFinalize,
+            ClientFrameSet::Physics,
+            ClientFrameSet::Camera,
+            ClientFrameSet::Interaction,
+            ClientFrameSet::WorldPublication,
+            ClientFrameSet::ActorPublication,
+            ClientFrameSet::UiPublication,
+            ClientFrameSet::NetworkSend,
+        ]
+    );
+}
 
 fn test_config() -> PublicationControllerConfig {
     PublicationControllerConfig {

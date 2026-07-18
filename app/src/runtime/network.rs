@@ -28,7 +28,10 @@ use crate::{
     },
     camera::{CameraSettingsAuthority, FlyCamera},
     environment::replace_session,
-    local_player::{LocalAvatarPresentation, LocalViewPose, reset_local_player_session},
+    local_player::{
+        FrozenLocalAvatarVisibility, LocalAvatarPresentation, LocalAvatarVisibilityCarrier,
+        LocalPlayerFrameCarrier, LocalViewPose, reset_local_player_session,
+    },
     movement::MovementSource,
     runtime::{
         shutdown::record_fatal_error,
@@ -61,9 +64,9 @@ pub(crate) struct NetworkLocalPlayerState<'w> {
 
 #[derive(SystemParam)]
 pub(crate) struct ActorPresentationState<'w, 's> {
-    view: Res<'w, LocalViewPose>,
-    avatar: ResMut<'w, LocalAvatarPresentation>,
-    settings: Res<'w, CameraSettingsAuthority>,
+    avatar: Res<'w, LocalAvatarPresentation>,
+    local_frame: Res<'w, LocalPlayerFrameCarrier>,
+    local_visibility: ResMut<'w, LocalAvatarVisibilityCarrier>,
     camera: Query<'w, 's, (&'static Transform, &'static Projection), With<FlyCamera>>,
 }
 
@@ -553,6 +556,42 @@ pub(crate) fn actor_render_source(
     }
 }
 
+pub(crate) fn update_actor_render_scene<'a>(
+    scene: &'a mut ActorRenderScene,
+    partial_tick: f32,
+    cull_view: Option<ActorCullView>,
+    mut remote_sources: Vec<ActorRenderSource>,
+    local: Option<&FrozenLocalAvatarVisibility>,
+) -> &'a ActorRenderFrame {
+    if let Some(local) = local {
+        remote_sources.retain(|source| source.runtime_id != local.runtime_id());
+    }
+    let local = local.filter(|local| local.visible()).map(|local| {
+        let (yaw, pitch, _) = local.rotation().to_euler(bevy::math::EulerRot::YXZ);
+        let yaw_degrees = (180.0 - yaw.to_degrees()).rem_euclid(360.0);
+        let pitch_degrees = -pitch.to_degrees();
+        let mut position = local.eye();
+        position.y -= crate::local_player::LOCAL_AVATAR_EYE_HEIGHT_BLOCKS;
+        ActorRenderSource {
+            runtime_id: local.runtime_id(),
+            unique_id: i64::try_from(local.runtime_id()).unwrap_or(i64::MAX),
+            spawn_revision: local.session_generation(),
+            movement_revision: local.pose_generation(),
+            previous_position: position.to_array(),
+            previous_pitch_degrees: pitch_degrees,
+            previous_yaw_degrees: yaw_degrees,
+            previous_head_yaw_degrees: yaw_degrees,
+            position: position.to_array(),
+            pitch_degrees,
+            yaw_degrees,
+            head_yaw_degrees: yaw_degrees,
+            teleported: false,
+            skin: None,
+        }
+    });
+    scene.update_with_local(partial_tick, cull_view, remote_sources, local)
+}
+
 pub(crate) fn publish_actor_render_frame(
     mut client_world: ResMut<ClientWorld>,
     time: Res<Time<Real>>,
@@ -563,9 +602,9 @@ pub(crate) fn publish_actor_render_frame(
     presentation: ActorPresentationState,
 ) {
     let ActorPresentationState {
-        view,
-        mut avatar,
-        settings,
+        avatar,
+        local_frame,
+        mut local_visibility,
         camera,
     } = presentation;
     let session_id = client_world
@@ -581,7 +620,7 @@ pub(crate) fn publish_actor_render_frame(
     if let Some(stream) = client_world.stream.as_mut() {
         stream.advance_actor_interpolation_ticks(step.ticks);
     }
-    let mut sources = client_world
+    let sources = client_world
         .stream
         .as_ref()
         .map(|stream| {
@@ -592,7 +631,11 @@ pub(crate) fn publish_actor_render_frame(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    avatar.reconcile_sources(settings.perspective(), *view, &mut sources);
+    if let Some(local_frame) = local_frame.snapshot() {
+        avatar.publish_visibility(local_frame, &mut local_visibility);
+    } else {
+        local_visibility.clear();
+    }
     let cull_view = camera
         .single()
         .ok()
@@ -601,7 +644,14 @@ pub(crate) fn publish_actor_render_frame(
             camera_position: transform.translation,
             max_distance: MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
         });
-    *frame = scene.update(step.partial_tick, cull_view, sources).clone();
+    *frame = update_actor_render_scene(
+        &mut scene,
+        step.partial_tick,
+        cull_view,
+        sources,
+        local_visibility.snapshot(),
+    )
+    .clone();
 }
 
 pub(crate) mod session;

@@ -1,13 +1,14 @@
 use bevy::prelude::{Quat, Res, ResMut, Resource, Single, SystemSet, Transform, Vec3, With};
-use render::{ActorRenderSource, MAX_RENDERED_PLAYERS};
 use semantic_input::PerspectiveMode;
+use sim::WorldCollisionIdentity;
 
 use crate::{
     camera::{
         CameraSettingsAuthority, FlyCamera, collision_safe_perspective_pose, perspective_pose,
         unavailable_world_perspective_pose,
     },
-    movement::PhysicsCollisionRegistries,
+    environment::WorldClock,
+    movement::{LocalPhysicsController, PhysicsCollisionRegistries},
     runtime::world::ClientWorld,
 };
 
@@ -18,6 +19,156 @@ pub enum LocalPlayerFrameSet {
     Physics,
     Camera,
     Interaction,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LocalPlayerFrameReset {
+    Correction,
+    Session,
+    Dimension,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LocalPlayerFrameError {
+    NonFinitePose,
+    NonFiniteEye,
+    InvalidRotation,
+    PoseGenerationExhausted,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LocalPlayerFrameSample {
+    pub session_generation: u64,
+    pub fifo_sequence: u64,
+    pub physics_tick: u64,
+    pub perspective: PerspectiveMode,
+    pub world_collision_identity: WorldCollisionIdentity,
+    pub pose: Transform,
+    pub eye: Vec3,
+    pub rotation: Quat,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FrozenLocalPlayerFrame {
+    session_generation: u64,
+    fifo_sequence: u64,
+    physics_tick: u64,
+    pose_generation: u64,
+    perspective: PerspectiveMode,
+    world_collision_identity: WorldCollisionIdentity,
+    pose: Transform,
+    eye: Vec3,
+    rotation: Quat,
+    direction: Vec3,
+}
+
+impl FrozenLocalPlayerFrame {
+    #[must_use]
+    pub const fn session_generation(&self) -> u64 {
+        self.session_generation
+    }
+
+    #[must_use]
+    pub const fn fifo_sequence(&self) -> u64 {
+        self.fifo_sequence
+    }
+
+    #[must_use]
+    pub const fn physics_tick(&self) -> u64 {
+        self.physics_tick
+    }
+
+    #[must_use]
+    pub const fn pose_generation(&self) -> u64 {
+        self.pose_generation
+    }
+
+    #[must_use]
+    pub const fn perspective(&self) -> PerspectiveMode {
+        self.perspective
+    }
+
+    #[must_use]
+    pub const fn world_collision_identity(&self) -> &WorldCollisionIdentity {
+        &self.world_collision_identity
+    }
+
+    #[must_use]
+    pub const fn pose(&self) -> &Transform {
+        &self.pose
+    }
+
+    #[must_use]
+    pub const fn eye(&self) -> Vec3 {
+        self.eye
+    }
+
+    #[must_use]
+    pub const fn rotation(&self) -> Quat {
+        self.rotation
+    }
+
+    #[must_use]
+    pub const fn direction(&self) -> Vec3 {
+        self.direction
+    }
+}
+
+/// One frame-frozen handoff consumed by camera, interaction, publication, and
+/// network sampling. A successful publish replaces the complete identity and
+/// pose atomically; malformed samples leave the prior frame untouched.
+#[derive(Resource, Debug, Default, Clone, PartialEq)]
+pub struct LocalPlayerFrameCarrier {
+    pose_generation: u64,
+    snapshot: Option<FrozenLocalPlayerFrame>,
+}
+
+impl LocalPlayerFrameCarrier {
+    pub fn publish(&mut self, sample: LocalPlayerFrameSample) -> Result<(), LocalPlayerFrameError> {
+        if !sample.pose.translation.is_finite()
+            || !sample.pose.rotation.is_finite()
+            || !sample.pose.scale.is_finite()
+        {
+            return Err(LocalPlayerFrameError::NonFinitePose);
+        }
+        if !sample.eye.is_finite() {
+            return Err(LocalPlayerFrameError::NonFiniteEye);
+        }
+        if !sample.rotation.is_finite() || sample.rotation.length_squared() <= f32::EPSILON {
+            return Err(LocalPlayerFrameError::InvalidRotation);
+        }
+        let pose_generation = self
+            .pose_generation
+            .checked_add(1)
+            .ok_or(LocalPlayerFrameError::PoseGenerationExhausted)?;
+        let rotation = sample.rotation.normalize();
+        let snapshot = FrozenLocalPlayerFrame {
+            session_generation: sample.session_generation,
+            fifo_sequence: sample.fifo_sequence,
+            physics_tick: sample.physics_tick,
+            pose_generation,
+            perspective: sample.perspective,
+            world_collision_identity: sample.world_collision_identity,
+            pose: sample.pose,
+            eye: sample.eye,
+            rotation,
+            direction: (rotation * Vec3::NEG_Z).normalize_or_zero(),
+        };
+        self.pose_generation = pose_generation;
+        self.snapshot = Some(snapshot);
+        Ok(())
+    }
+
+    pub fn reset(&mut self, _reason: LocalPlayerFrameReset) {
+        if self.snapshot.take().is_some() {
+            self.pose_generation = self.pose_generation.saturating_add(1);
+        }
+    }
+
+    #[must_use]
+    pub const fn snapshot(&self) -> Option<&FrozenLocalPlayerFrame> {
+        self.snapshot.as_ref()
+    }
 }
 
 /// Authoritative local eye position and view orientation.
@@ -140,68 +291,104 @@ impl InteractionOriginSnapshot {
     }
 }
 
-/// Session-scoped local body publication. It removes every duplicate local
-/// runtime ID before optionally adding exactly one third-person source.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FrozenLocalAvatarVisibility {
+    session_generation: u64,
+    runtime_id: u64,
+    pose_generation: u64,
+    visible: bool,
+    eye: Vec3,
+    rotation: Quat,
+}
+
+impl FrozenLocalAvatarVisibility {
+    #[must_use]
+    pub const fn session_generation(self) -> u64 {
+        self.session_generation
+    }
+
+    #[must_use]
+    pub const fn runtime_id(self) -> u64 {
+        self.runtime_id
+    }
+
+    #[must_use]
+    pub const fn pose_generation(self) -> u64 {
+        self.pose_generation
+    }
+
+    #[must_use]
+    pub const fn visible(self) -> bool {
+        self.visible
+    }
+
+    #[must_use]
+    pub const fn eye(self) -> Vec3 {
+        self.eye
+    }
+
+    #[must_use]
+    pub const fn rotation(self) -> Quat {
+        self.rotation
+    }
+}
+
+#[derive(Resource, Debug, Default, Clone, PartialEq)]
+pub struct LocalAvatarVisibilityCarrier(Option<FrozenLocalAvatarVisibility>);
+
+impl LocalAvatarVisibilityCarrier {
+    #[must_use]
+    pub const fn snapshot(&self) -> Option<&FrozenLocalAvatarVisibility> {
+        self.0.as_ref()
+    }
+
+    fn replace(&mut self, snapshot: FrozenLocalAvatarVisibility) {
+        self.0 = Some(snapshot);
+    }
+
+    pub fn clear(&mut self) {
+        self.0 = None;
+    }
+}
+
+/// Session-scoped local body identity. Phase 3 publishes only a frozen
+/// visibility/pose handoff; the Phase 4 render arena owns culling and capacity.
 #[derive(Resource, Debug, Default)]
 pub struct LocalAvatarPresentation {
     session_generation: u64,
     runtime_id: Option<u64>,
-    retired_runtime_id: Option<u64>,
-    movement_revision: u64,
 }
 
 impl LocalAvatarPresentation {
     pub fn begin_session(&mut self, session_generation: u64, runtime_id: u64) {
-        self.retired_runtime_id = self.runtime_id;
         self.session_generation = session_generation;
         self.runtime_id = (runtime_id != 0).then_some(runtime_id);
-        self.movement_revision = 0;
     }
 
     pub fn clear(&mut self) {
         *self = Self::default();
     }
 
-    pub fn reconcile_sources(
-        &mut self,
-        perspective: PerspectiveMode,
-        view: LocalViewPose,
-        sources: &mut Vec<ActorRenderSource>,
+    pub fn publish_visibility(
+        &self,
+        frame: &FrozenLocalPlayerFrame,
+        carrier: &mut LocalAvatarVisibilityCarrier,
     ) {
-        if let Some(retired_runtime_id) = self.retired_runtime_id.take() {
-            sources.retain(|source| source.runtime_id != retired_runtime_id);
-        }
         let Some(runtime_id) = self.runtime_id else {
+            carrier.clear();
             return;
         };
-        sources.retain(|source| source.runtime_id != runtime_id);
-        if perspective == PerspectiveMode::FirstPerson {
+        if frame.session_generation() != self.session_generation {
+            carrier.clear();
             return;
         }
-        sources.sort_unstable_by_key(|source| source.runtime_id);
-        sources.dedup_by_key(|source| source.runtime_id);
-        sources.truncate(MAX_RENDERED_PLAYERS.saturating_sub(1));
-        self.movement_revision = self.movement_revision.wrapping_add(1);
-        let (yaw, pitch, _) = view.rotation().to_euler(bevy::math::EulerRot::YXZ);
-        let yaw_degrees = (180.0 - yaw.to_degrees()).rem_euclid(360.0);
-        let pitch_degrees = -pitch.to_degrees();
-        let mut position = view.eye_translation();
-        position.y -= LOCAL_AVATAR_EYE_HEIGHT_BLOCKS;
-        sources.push(ActorRenderSource {
+        carrier.replace(FrozenLocalAvatarVisibility {
+            session_generation: self.session_generation,
             runtime_id,
-            unique_id: i64::try_from(runtime_id).unwrap_or(i64::MAX),
-            spawn_revision: self.session_generation,
-            movement_revision: self.movement_revision,
-            previous_position: position.to_array(),
-            previous_pitch_degrees: pitch_degrees,
-            previous_yaw_degrees: yaw_degrees,
-            previous_head_yaw_degrees: yaw_degrees,
-            position: position.to_array(),
-            pitch_degrees,
-            yaw_degrees,
-            head_yaw_degrees: yaw_degrees,
-            teleported: false,
-            skin: None,
+            pose_generation: frame.pose_generation(),
+            visible: frame.perspective() != PerspectiveMode::FirstPerson,
+            eye: frame.eye(),
+            rotation: frame.rotation(),
         });
     }
 }
@@ -253,4 +440,38 @@ pub(crate) fn publish_interaction_origin(
 ) {
     let sequence = snapshot.frame_sequence.wrapping_add(1);
     *snapshot = InteractionOriginSnapshot::from_local_view(sequence, *view);
+}
+
+pub(crate) fn publish_local_player_frame(
+    client_world: Res<ClientWorld>,
+    clock: Res<WorldClock>,
+    local_physics: Res<LocalPhysicsController>,
+    settings: Res<CameraSettingsAuthority>,
+    view: Res<LocalViewPose>,
+    camera: Res<CameraPose>,
+    mut carrier: ResMut<LocalPlayerFrameCarrier>,
+) {
+    let Some(stream) = client_world.stream.as_ref() else {
+        carrier.reset(LocalPlayerFrameReset::Session);
+        return;
+    };
+    let (Some(state), Some(world_collision_identity)) =
+        (local_physics.state(), local_physics.last_world_identity())
+    else {
+        carrier.reset(LocalPlayerFrameReset::Correction);
+        return;
+    };
+    let sample = LocalPlayerFrameSample {
+        session_generation: clock.session_generation(),
+        fifo_sequence: stream.committed_sequence(),
+        physics_tick: state.tick,
+        perspective: settings.perspective(),
+        world_collision_identity: world_collision_identity.clone(),
+        pose: *camera.transform(),
+        eye: view.eye_translation(),
+        rotation: view.rotation(),
+    };
+    if carrier.publish(sample).is_err() {
+        carrier.reset(LocalPlayerFrameReset::Correction);
+    }
 }

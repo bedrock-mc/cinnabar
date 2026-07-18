@@ -23,7 +23,7 @@ pub(crate) struct SemanticPhysicalInputs<'w, 's> {
     mouse_motion: Res<'w, AccumulatedMouseMotion>,
     gamepads: Query<'w, 's, (Entity, &'static Gamepad)>,
     touches: Res<'w, Touches>,
-    touch_targets: Res<'w, SemanticTouchTargets>,
+    touch_targets: ResMut<'w, SemanticTouchTargets>,
 }
 
 pub(crate) fn finalize_semantic_input(
@@ -46,10 +46,11 @@ fn translate_device_frame(inputs: SemanticPhysicalInputs) -> DeviceFrame {
         mouse_motion,
         gamepads,
         touches,
-        touch_targets,
+        mut touch_targets,
     } = inputs;
     let (window, cursor) = window.into_inner();
     if !input_is_active(window, cursor) {
+        touch_targets.release_all();
         return DeviceFrame {
             keyboard_mouse: Some(KeyboardMouseFrame::default()),
             window_focus_lost: !window.focused,
@@ -100,6 +101,7 @@ fn translate_device_frame(inputs: SemanticPhysicalInputs) -> DeviceFrame {
     controllers.sort_by_key(|controller| controller.device_id);
     let width = window.width().max(1.0);
     let height = window.height().max(1.0);
+    touch_targets.retain_active_contacts(touches.iter().map(|touch| touch.id()));
     let mut contacts = touches
         .iter()
         .map(|touch| TouchContact {
@@ -110,7 +112,7 @@ fn translate_device_frame(inputs: SemanticPhysicalInputs) -> DeviceFrame {
                 (touch.position().y / height).clamp(0.0, 1.0),
             ],
             delta: [touch.delta().x / width, touch.delta().y / height],
-            hit_id: touch_targets.0.get(&touch.id()).copied(),
+            hit_id: touch_targets.target(touch.id()),
         })
         .collect::<Vec<_>>();
     contacts.sort_by_key(|touch| touch.contact_id);
