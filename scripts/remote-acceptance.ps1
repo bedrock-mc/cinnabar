@@ -190,6 +190,9 @@ try {
         $publicationSequence.FirstStalledStage -cne 'none') {
         throw "binding $Mode evidence retained first stalled stage $($publicationSequence.FirstStalledStage)"
     }
+    Assert-Phase2CacheBoundaryConsistency -Server $Server `
+        -ClientBlobCacheRoute $publicationSequence.ClientBlobCacheRoute `
+        -BoundaryEvidence $manifest.cache_boundary_evidence
     $manifest.status = 'passed'
     $manifest.join_milliseconds = $joinMilliseconds
     $manifest.diagnostic_complete = ($Mode -eq 'Diagnostic')

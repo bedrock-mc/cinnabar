@@ -551,6 +551,9 @@ Describe 'Phase 2 remote acceptance runner' {
             @($valid, $valid) | Set-Content -LiteralPath $path
             { Get-Phase2CacheBoundaryEvidence -CoreLogPath $path } | Should Throw
 
+            ($valid + ' ' + $valid) | Set-Content -LiteralPath $path
+            { Get-Phase2CacheBoundaryEvidence -CoreLogPath $path } | Should Throw
+
             ($valid + ' extra_field=1') | Set-Content -LiteralPath $path
             { Get-Phase2CacheBoundaryEvidence -CoreLogPath $path } | Should Throw
 
@@ -565,6 +568,32 @@ Describe 'Phase 2 remote acceptance runner' {
         finally {
             Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue
         }
+    }
+
+    It 'rejects Lunar publication and independent cache boundary contradictions' {
+        $ordinaryBoundary = [pscustomobject][ordered]@{
+            classification = 'server_ordinary_despite_cache_capability'
+            upstream_status_seen = $true
+            upstream_status_enabled = $true
+            cached_level_chunks = [uint64]0
+            ordinary_level_chunks = [uint64]177
+            cached_sub_chunks = [uint64]0
+            ordinary_sub_chunks = [uint64]3894
+        }
+        { Assert-Phase2CacheBoundaryConsistency -Server Lunar `
+            -ClientBlobCacheRoute cache_backed -BoundaryEvidence $ordinaryBoundary } |
+            Should Throw
+
+        { Assert-Phase2CacheBoundaryConsistency -Server Zeqa `
+            -ClientBlobCacheRoute ordinary -BoundaryEvidence $ordinaryBoundary } |
+            Should Not Throw
+
+        $cacheBackedBoundary = $ordinaryBoundary.PSObject.Copy()
+        $cacheBackedBoundary.classification = 'cache_backed'
+        $cacheBackedBoundary.cached_level_chunks = [uint64]1
+        { Assert-Phase2CacheBoundaryConsistency -Server Lunar `
+            -ClientBlobCacheRoute cache_backed -BoundaryEvidence $cacheBackedBoundary } |
+            Should Not Throw
     }
 
     It 'records ordinary Lunar boundary evidence before retaining the cache-backed gate' {

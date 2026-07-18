@@ -185,9 +185,20 @@ function Get-Phase2CacheBoundaryEvidence {
     if (-not (Test-Path -LiteralPath $CoreLogPath -PathType Leaf)) {
         throw 'PHASE2_CACHE_BOUNDARY core log is missing'
     }
+    $content = Get-Content -LiteralPath $CoreLogPath -Raw
+    $markerPattern = '(?:^|\s)msg=PHASE2_CACHE_BOUNDARY(?:\s|$)'
+    $markerCount = [regex]::Matches(
+        [string]$content,
+        $markerPattern,
+        [Text.RegularExpressions.RegexOptions]::CultureInvariant -bor
+            [Text.RegularExpressions.RegexOptions]::Multiline
+    ).Count
+    if ($markerCount -ne 1) {
+        throw 'PHASE2_CACHE_BOUNDARY requires exactly one summary marker'
+    }
     $lines = @(
         Get-Content -LiteralPath $CoreLogPath |
-            Where-Object { $_ -match '(?:^|\s)msg=PHASE2_CACHE_BOUNDARY(?:\s|$)' }
+            Where-Object { $_ -match $markerPattern }
     )
     if ($lines.Count -ne 1) {
         throw 'PHASE2_CACHE_BOUNDARY requires exactly one summary marker'
@@ -244,6 +255,27 @@ function Get-Phase2CacheBoundaryEvidence {
         ordinary_level_chunks = $ordinaryLevel
         cached_sub_chunks = $cachedSub
         ordinary_sub_chunks = $ordinarySub
+    }
+}
+
+function Assert-Phase2CacheBoundaryConsistency {
+    param(
+        [Parameter(Mandatory = $true)][ValidateSet('Lunar', 'Zeqa')][string]$Server,
+        [Parameter(Mandatory = $true)][string]$ClientBlobCacheRoute,
+        [Parameter(Mandatory = $true)]$BoundaryEvidence
+    )
+
+    if ($Server -cne 'Lunar') { return }
+    $cachedRoutes = [uint64]$BoundaryEvidence.cached_level_chunks +
+        [uint64]$BoundaryEvidence.cached_sub_chunks
+    if ($ClientBlobCacheRoute -cne 'cache_backed' -or
+        [string]$BoundaryEvidence.classification -cne 'cache_backed' -or
+        $BoundaryEvidence.upstream_status_seen -isnot [bool] -or
+        -not [bool]$BoundaryEvidence.upstream_status_seen -or
+        $BoundaryEvidence.upstream_status_enabled -isnot [bool] -or
+        -not [bool]$BoundaryEvidence.upstream_status_enabled -or
+        $cachedRoutes -eq 0) {
+        throw 'Lunar acceptance requires coherent cache-backed publication and independent boundary evidence'
     }
 }
 
