@@ -209,8 +209,8 @@ fn absolute_and_delta_actor_moves_normalize_to_partial_transform_updates() {
     assert_eq!(delta.position, [Some(7.5), Some(8.25), None]);
     assert_eq!(
         delta.position_origin,
-        ActorPositionOrigin::NetworkOffset,
-        "modern MoveActorDelta coordinates remain in Bedrock network position space"
+        ActorPositionOrigin::Feet,
+        "MoveActorDelta coordinates retain their existing feet-space contract"
     );
     assert_eq!(delta.yaw, Some(270.0));
     assert_eq!(delta.pitch, None);

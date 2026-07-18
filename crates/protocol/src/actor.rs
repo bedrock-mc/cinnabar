@@ -514,7 +514,7 @@ pub(crate) fn normalize_move_entity_delta(
         dimension,
         runtime_id: packet.runtime_entity_id as u64,
         position: [packet.x, packet.y, packet.z],
-        position_origin: ActorPositionOrigin::NetworkOffset,
+        position_origin: ActorPositionOrigin::Feet,
         pitch: packet.rot_x.map(byte_rotation_degrees),
         yaw: packet.rot_y.map(byte_rotation_degrees),
         head_yaw: packet.rot_z.map(byte_rotation_degrees),
