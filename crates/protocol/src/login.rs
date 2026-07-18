@@ -822,8 +822,8 @@ mod tests {
         batch.advance(1);
         let raw = decode_packet_raw(&mut batch).expect("raw add entity");
 
-        let event = decode_world_raw_with(raw, 2, |raw| raw.decode(&session))
-            .expect("decode actor event");
+        let event =
+            decode_world_raw_with(raw, 2, |raw| raw.decode(&session)).expect("decode actor event");
 
         assert!(matches!(
             event,
