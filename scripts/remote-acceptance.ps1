@@ -69,6 +69,7 @@ $manifest = [pscustomobject][ordered]@{
     join_milliseconds = $null
     publication_snapshot_count = 0
     client_blob_cache_route = $null
+    cache_boundary_evidence = $null
     first_stalled_stage = $null
     findings = @()
     metrics_evidence = [pscustomobject][ordered]@{ status = 'pending'; reason = $null }
@@ -156,6 +157,7 @@ try {
         $coreLogsCompleted = $true
         Complete-Phase2DiagnosticEvidence -Manifest $manifest `
             -ClientLogPath (Join-Path $RunDirectory 'client.stdout.log') `
+            -CoreLogPath (Join-Path $RunDirectory 'core.stderr.log') `
             -ExpectedPresentMode $PresentMode -WorldReadyObserved:$false -Server $Server
         Write-Phase2Json -Path (Join-Path $RunDirectory 'manifest.json') -Value $manifest
         $runSucceeded = $true
@@ -175,6 +177,8 @@ try {
     $clientLogsCompleted = $true
     Complete-ProcessLogs $coreHandle
     $coreLogsCompleted = $true
+    $manifest.cache_boundary_evidence = Get-Phase2CacheBoundaryEvidence `
+        -CoreLogPath (Join-Path $RunDirectory 'core.stderr.log')
     $evidence = Assert-Phase2Evidence -MetricsPath (Join-Path $RunDirectory 'metrics.json') `
         -ResourcesPath $resourcesPath -ClientLogPath (Join-Path $RunDirectory 'client.stdout.log') `
         -ExpectedPresentMode $PresentMode -JoinMilliseconds $joinMilliseconds `

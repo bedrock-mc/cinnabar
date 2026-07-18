@@ -188,12 +188,14 @@ func reportListenerReady(logger *slog.Logger, socketDir string) {
 }
 
 func handleConnection(ctx context.Context, downstream *minecraft.Conn, upstreamAddress string, tokenSource oauth2.TokenSource, logger *slog.Logger) error {
-	dialer := newUpstreamDialer(downstream, tokenSource)
-	return dialAndServe(ctx, downstream, func(ctx context.Context) (upstreamSession, error) {
+	cacheTelemetry := new(cacheBoundaryTelemetry)
+	defer cacheTelemetry.report(logger)
+	dialer := newUpstreamDialerWithCacheTelemetry(downstream, tokenSource, cacheTelemetry)
+	return dialAndServeWithCacheTelemetry(ctx, downstream, func(ctx context.Context) (upstreamSession, error) {
 		return connectUpstream(ctx, upstreamAddress, authenticationMode(tokenSource), logger, func(ctx context.Context, address string) (upstreamSession, error) {
 			return dialer.DialContextNetwork(ctx, minecraft.RakNet{}, address)
 		})
-	})
+	}, cacheTelemetry)
 }
 
 func authenticationMode(tokenSource oauth2.TokenSource) string {
@@ -281,6 +283,14 @@ type dialerDownstream interface {
 }
 
 func newUpstreamDialer(downstream dialerDownstream, tokenSource oauth2.TokenSource) minecraft.Dialer {
+	return newUpstreamDialerWithCacheTelemetry(downstream, tokenSource, nil)
+}
+
+func newUpstreamDialerWithCacheTelemetry(
+	downstream dialerDownstream,
+	tokenSource oauth2.TokenSource,
+	cacheTelemetry *cacheBoundaryTelemetry,
+) minecraft.Dialer {
 	dialer := minecraft.Dialer{
 		ClientData:         downstream.ClientData(),
 		EnableBatchReading: true,
@@ -288,6 +298,9 @@ func newUpstreamDialer(downstream dialerDownstream, tokenSource oauth2.TokenSour
 		ErrorLog:           slog.Default().With("component", "upstream-dialer"),
 		Protocol:           downstream.Proto(),
 		TokenSource:        tokenSource,
+	}
+	if cacheTelemetry != nil {
+		dialer.PacketFunc = cacheTelemetry.observeUpstreamPacket
 	}
 	if tokenSource == nil {
 		identity := downstream.IdentityData()
@@ -300,6 +313,15 @@ func newUpstreamDialer(downstream dialerDownstream, tokenSource oauth2.TokenSour
 }
 
 func dialAndServe(ctx context.Context, downstream downstreamSession, dial func(context.Context) (upstreamSession, error)) error {
+	return dialAndServeWithCacheTelemetry(ctx, downstream, dial, nil)
+}
+
+func dialAndServeWithCacheTelemetry(
+	ctx context.Context,
+	downstream downstreamSession,
+	dial func(context.Context) (upstreamSession, error),
+	cacheTelemetry *cacheBoundaryTelemetry,
+) error {
 	type result struct {
 		upstream upstreamSession
 		err      error
@@ -325,7 +347,7 @@ func dialAndServe(ctx context.Context, downstream downstreamSession, dial func(c
 		if result.err != nil {
 			return finishDialFailure(downstream, result.err)
 		}
-		return serveConnections(ctx, downstream, result.upstream)
+		return serveConnectionsWithCacheTelemetry(ctx, downstream, result.upstream, cacheTelemetry)
 	}
 }
 
@@ -353,6 +375,15 @@ type upstreamSession interface {
 }
 
 func serveConnections(ctx context.Context, downstream downstreamSession, upstream upstreamSession) (err error) {
+	return serveConnectionsWithCacheTelemetry(ctx, downstream, upstream, nil)
+}
+
+func serveConnectionsWithCacheTelemetry(
+	ctx context.Context,
+	downstream downstreamSession,
+	upstream upstreamSession,
+	cacheTelemetry *cacheBoundaryTelemetry,
+) (err error) {
 	defer func() {
 		err = errors.Join(err, shutdownSession(downstream), shutdownSession(upstream))
 	}()
@@ -360,7 +391,7 @@ func serveConnections(ctx context.Context, downstream downstreamSession, upstrea
 	if err := spawnBarrier(ctx, downstream, upstream); err != nil {
 		return err
 	}
-	return relayPackets(ctx, downstream, upstream)
+	return relayPacketsWithCacheTelemetry(ctx, downstream, upstream, cacheTelemetry)
 }
 
 func spawnBarrier(ctx context.Context, downstream downstreamSession, upstream upstreamSession) error {
@@ -411,16 +442,24 @@ func spawnBarrier(ctx context.Context, downstream downstreamSession, upstream up
 }
 
 func relayPackets(ctx context.Context, downstream, upstream packetSession) error {
+	return relayPacketsWithCacheTelemetry(ctx, downstream, upstream, nil)
+}
+
+func relayPacketsWithCacheTelemetry(
+	ctx context.Context,
+	downstream, upstream packetSession,
+	cacheTelemetry *cacheBoundaryTelemetry,
+) error {
 	type result struct {
 		direction string
 		err       error
 	}
 	results := make(chan result, 2)
 	go func() {
-		results <- result{"downstream to upstream", pumpPackets(downstream, upstream, true)}
+		results <- result{"downstream to upstream", pumpPacketsWithCacheTelemetry(downstream, upstream, true, cacheTelemetry)}
 	}()
 	go func() {
-		results <- result{"upstream to downstream", pumpPackets(upstream, downstream, false)}
+		results <- result{"upstream to downstream", pumpPacketsWithCacheTelemetry(upstream, downstream, false, cacheTelemetry)}
 	}()
 
 	var first result
@@ -474,6 +513,14 @@ func shutdownSession(session packetSession) error {
 }
 
 func pumpPackets(source, destination packetSession, fromDownstream bool) (err error) {
+	return pumpPacketsWithCacheTelemetry(source, destination, fromDownstream, nil)
+}
+
+func pumpPacketsWithCacheTelemetry(
+	source, destination packetSession,
+	fromDownstream bool,
+	cacheTelemetry *cacheBoundaryTelemetry,
+) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = fmt.Errorf("panic while relaying packets: %v", recovered)
@@ -530,6 +577,9 @@ func pumpPackets(source, destination packetSession, fromDownstream bool) (err er
 			}
 		}
 		for _, value := range batch {
+			if !fromDownstream && cacheTelemetry != nil {
+				cacheTelemetry.observeRelayPacket(value)
+			}
 			// Each gophertunnel side performs its own initial spawn handshake. The
 			// downstream listener defers ServerBoundLoadingScreen packets because it
 			// does not handle them internally; forwarding those two acknowledgements

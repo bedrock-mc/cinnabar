@@ -179,6 +179,74 @@ function Assert-Phase2FiniteNonnegativeNumber {
     }
 }
 
+function Get-Phase2CacheBoundaryEvidence {
+    param([Parameter(Mandatory = $true)][string]$CoreLogPath)
+
+    if (-not (Test-Path -LiteralPath $CoreLogPath -PathType Leaf)) {
+        throw 'PHASE2_CACHE_BOUNDARY core log is missing'
+    }
+    $lines = @(
+        Get-Content -LiteralPath $CoreLogPath |
+            Where-Object { $_ -match '(?:^|\s)msg=PHASE2_CACHE_BOUNDARY(?:\s|$)' }
+    )
+    if ($lines.Count -ne 1) {
+        throw 'PHASE2_CACHE_BOUNDARY requires exactly one summary marker'
+    }
+    $pattern = '^(?:.*\s)?msg=PHASE2_CACHE_BOUNDARY ' +
+        'upstream_status_seen=(true|false) upstream_status_enabled=(true|false) ' +
+        'cached_level_chunks=([0-9]+) ordinary_level_chunks=([0-9]+) ' +
+        'cached_sub_chunks=([0-9]+) ordinary_sub_chunks=([0-9]+)$'
+    $match = [regex]::Match([string]$lines[0], $pattern, [Text.RegularExpressions.RegexOptions]::CultureInvariant)
+    if (-not $match.Success) {
+        throw 'PHASE2_CACHE_BOUNDARY summary marker is malformed'
+    }
+    $seen = $match.Groups[1].Value -ceq 'true'
+    $enabled = $match.Groups[2].Value -ceq 'true'
+    $values = [Collections.Generic.List[uint64]]::new()
+    for ($index = 3; $index -le 6; $index++) {
+        [uint64]$value = 0
+        if (-not [uint64]::TryParse(
+            $match.Groups[$index].Value,
+            [Globalization.NumberStyles]::None,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [ref]$value
+        )) {
+            throw 'PHASE2_CACHE_BOUNDARY counter is outside its unsigned bound'
+        }
+        $values.Add($value)
+    }
+    $cachedLevel = $values[0]
+    $ordinaryLevel = $values[1]
+    $cachedSub = $values[2]
+    $ordinarySub = $values[3]
+    $cachedPackets = [decimal]$cachedLevel + [decimal]$cachedSub
+    $ordinaryPackets = [decimal]$ordinaryLevel + [decimal]$ordinarySub
+    if ((-not $seen -and $enabled) -or (-not $enabled -and $cachedPackets -ne 0)) {
+        throw 'PHASE2_CACHE_BOUNDARY status and packet routes are incoherent'
+    }
+    $classification = if (-not $seen -or -not $enabled) {
+        'negotiation_failure'
+    }
+    elseif ($cachedPackets -ne 0) {
+        'cache_backed'
+    }
+    elseif ($ordinaryPackets -ne 0) {
+        'server_ordinary_despite_cache_capability'
+    }
+    else {
+        throw 'PHASE2_CACHE_BOUNDARY contains no attributable world packet route'
+    }
+    return [pscustomobject][ordered]@{
+        classification = $classification
+        upstream_status_seen = $seen
+        upstream_status_enabled = $enabled
+        cached_level_chunks = $cachedLevel
+        ordinary_level_chunks = $ordinaryLevel
+        cached_sub_chunks = $cachedSub
+        ordinary_sub_chunks = $ordinarySub
+    }
+}
+
 function Get-Phase2ExactCohortColumnCount {
     param([Parameter(Mandatory = $true)][uint64]$PublisherRadiusBlocks)
     $retention = [int][Math]::Ceiling($PublisherRadiusBlocks / 16.0)
@@ -655,6 +723,7 @@ function Complete-Phase2DiagnosticEvidence {
     param(
         [Parameter(Mandatory = $true)]$Manifest,
         [Parameter(Mandatory = $true)][string]$ClientLogPath,
+        [string]$CoreLogPath,
         [Parameter(Mandatory = $true)][ValidateSet('Fifo', 'Immediate')][string]$ExpectedPresentMode,
         [Parameter(Mandatory = $true)][bool]$WorldReadyObserved,
         [Parameter(Mandatory = $true)][ValidateSet('Lunar', 'Zeqa')][string]$Server,
@@ -663,6 +732,11 @@ function Complete-Phase2DiagnosticEvidence {
 
     if ([string]$Manifest.mode -cne 'Diagnostic') {
         throw 'diagnostic evidence completion is valid only for Diagnostic mode'
+    }
+    if (-not [string]::IsNullOrWhiteSpace($CoreLogPath)) {
+        $cacheBoundary = Get-Phase2CacheBoundaryEvidence -CoreLogPath $CoreLogPath
+        $Manifest | Add-Member -MemberType NoteProperty -Name cache_boundary_evidence `
+            -Value $cacheBoundary -Force
     }
     $evidence = Get-Phase2PublicationSequenceEvidence -ClientLogPath $ClientLogPath `
         -ExpectedPresentMode $ExpectedPresentMode -WorldReadyObserved:$WorldReadyObserved -Server $Server
@@ -696,7 +770,7 @@ function Find-Phase2CompletedLunarPrerequisite {
     $allowedStages = @('none', 'required_cohort_identity', 'request_order', 'transport', 'wire_contract', 'response_semantics',
         'decode', 'lighting', 'meshing', 'main_apply', 'gpu_upload', 'extraction', 'submission', 'presentation')
     $manifestProperties = @(
-        'auth_cache_scope', 'behavior_gate_passed', 'client_arguments', 'client_blob_cache_route',
+        'auth_cache_scope', 'behavior_gate_passed', 'cache_boundary_evidence', 'client_arguments', 'client_blob_cache_route',
         'client_shutdown_grace_seconds',
         'diagnostic_complete', 'duration_seconds', 'final_publication', 'findings', 'first_stalled_stage',
         'full_view_teleport_gate', 'initial_radius', 'join_milliseconds', 'lunar_prerequisite_manifest_sha256',
@@ -717,6 +791,10 @@ function Find-Phase2CompletedLunarPrerequisite {
                 -Label 'Phase 2 remote manifest metrics_evidence'
             Assert-Phase2ExactProperties -Value $candidate.resources_evidence -Names @('reason', 'status') `
                 -Label 'Phase 2 remote manifest resources_evidence'
+            Assert-Phase2ExactProperties -Value $candidate.cache_boundary_evidence -Names @(
+                'cached_level_chunks', 'cached_sub_chunks', 'classification', 'ordinary_level_chunks',
+                'ordinary_sub_chunks', 'upstream_status_enabled', 'upstream_status_seen'
+            ) -Label 'Phase 2 remote manifest cache_boundary_evidence'
             Assert-Phase2ExactProperties -Value $candidate.performance -Names $performanceProperties `
                 -Label 'Phase 2 remote manifest performance'
             Assert-Phase2UnsignedInteger -Value $candidate.initial_radius -Label 'manifest.initial_radius' -Maximum 64 -Positive
@@ -726,6 +804,10 @@ function Find-Phase2CompletedLunarPrerequisite {
                 -Maximum ([uint32]::MaxValue) -Positive
             Assert-Phase2UnsignedInteger -Value $candidate.client_shutdown_grace_seconds `
                 -Label 'manifest.client_shutdown_grace_seconds' -Maximum ([uint32]::MaxValue)
+            foreach ($field in @('cached_level_chunks', 'ordinary_level_chunks', 'cached_sub_chunks', 'ordinary_sub_chunks')) {
+                Assert-Phase2UnsignedInteger -Value $candidate.cache_boundary_evidence.$field `
+                    -Label "manifest.cache_boundary_evidence.$field"
+            }
             foreach ($field in @('warmup_seconds', 'steady_seconds', 'resource_sample_count', 'max_combined_rss_bytes')) {
                 Assert-Phase2UnsignedInteger -Value $candidate.performance.$field `
                     -Label "manifest.performance.$field" -Positive
@@ -766,6 +848,13 @@ function Find-Phase2CompletedLunarPrerequisite {
                 [uint64]$candidate.initial_radius -ne [uint64]$ExpectedInitialRadius -or
                 [string]$candidate.requested_present_mode -cne 'Fifo' -or
                 [string]$candidate.client_blob_cache_route -cne 'cache_backed' -or
+                [string]$candidate.cache_boundary_evidence.classification -cne 'cache_backed' -or
+                $candidate.cache_boundary_evidence.upstream_status_seen -isnot [bool] -or
+                -not [bool]$candidate.cache_boundary_evidence.upstream_status_seen -or
+                $candidate.cache_boundary_evidence.upstream_status_enabled -isnot [bool] -or
+                -not [bool]$candidate.cache_boundary_evidence.upstream_status_enabled -or
+                ([uint64]$candidate.cache_boundary_evidence.cached_level_chunks +
+                    [uint64]$candidate.cache_boundary_evidence.cached_sub_chunks) -eq 0 -or
                 $candidate.full_view_teleport_gate -isnot [bool] -or
                 [bool]$candidate.full_view_teleport_gate -ne $RequireFullView -or
                 ($Mode -cne 'Diagnostic' -and -not $RequireFullView) -or

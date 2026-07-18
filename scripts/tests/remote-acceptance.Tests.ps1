@@ -93,6 +93,10 @@ function New-SyntheticPhase2LunarManifest {
         diagnostic_complete = ($Mode -eq 'Diagnostic'); behavior_gate_passed = ($Mode -ne 'Diagnostic')
         world_ready_observed = ($Mode -ne 'Diagnostic'); publication_snapshot_count = 2
         client_blob_cache_route = 'cache_backed'
+        cache_boundary_evidence = [ordered]@{
+            classification = 'cache_backed'; upstream_status_seen = $true; upstream_status_enabled = $true
+            cached_level_chunks = 1; ordinary_level_chunks = 0; cached_sub_chunks = 1; ordinary_sub_chunks = 0
+        }
         first_stalled_stage = if ($Mode -eq 'Diagnostic') { 'presentation' } else { 'none' }; final_publication = $publication
         findings = $findings
         metrics_evidence = [ordered]@{ status = if ($Mode -eq 'Diagnostic') { 'unavailable' } else { 'passed' }; reason = if ($Mode -eq 'Diagnostic') { 'world_ready_not_observed' } else { $null } }
@@ -494,6 +498,97 @@ Describe 'Phase 2 remote acceptance runner' {
                 { Get-Phase2PublicationSequenceEvidence -ClientLogPath $path `
                     -ExpectedPresentMode Fifo -WorldReadyObserved:$false -Server Zeqa } | Should Throw
             }
+        }
+        finally {
+            Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'classifies cache boundary negotiation, ordinary server, and cache-backed routes' {
+        $temporary = Join-Path ([IO.Path]::GetTempPath()) ('phase2-cache-boundary-' + [guid]::NewGuid().ToString('N'))
+        try {
+            New-Item -ItemType Directory -Path $temporary | Out-Null
+            $path = Join-Path $temporary 'core.stderr.log'
+            $write = {
+                param(
+                    [bool]$Seen,
+                    [bool]$Enabled,
+                    [uint64]$CachedLevel,
+                    [uint64]$OrdinaryLevel,
+                    [uint64]$CachedSub,
+                    [uint64]$OrdinarySub
+                )
+                "time=sentinel level=INFO msg=PHASE2_CACHE_BOUNDARY upstream_status_seen=$($Seen.ToString().ToLowerInvariant()) upstream_status_enabled=$($Enabled.ToString().ToLowerInvariant()) cached_level_chunks=$CachedLevel ordinary_level_chunks=$OrdinaryLevel cached_sub_chunks=$CachedSub ordinary_sub_chunks=$OrdinarySub" |
+                    Set-Content -LiteralPath $path
+            }
+
+            & $write $false $false 0 0 0 0
+            (Get-Phase2CacheBoundaryEvidence -CoreLogPath $path).Classification |
+                Should Be 'negotiation_failure'
+
+            & $write $true $true 0 177 0 3894
+            (Get-Phase2CacheBoundaryEvidence -CoreLogPath $path).Classification |
+                Should Be 'server_ordinary_despite_cache_capability'
+
+            & $write $true $true 3 174 29 3865
+            (Get-Phase2CacheBoundaryEvidence -CoreLogPath $path).Classification |
+                Should Be 'cache_backed'
+        }
+        finally {
+            Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'rejects missing duplicate malformed and incoherent cache boundary evidence' {
+        $temporary = Join-Path ([IO.Path]::GetTempPath()) ('phase2-cache-boundary-invalid-' + [guid]::NewGuid().ToString('N'))
+        try {
+            New-Item -ItemType Directory -Path $temporary | Out-Null
+            $path = Join-Path $temporary 'core.stderr.log'
+            Set-Content -LiteralPath $path -Value 'no cache boundary marker'
+            { Get-Phase2CacheBoundaryEvidence -CoreLogPath $path } | Should Throw
+
+            $valid = 'time=sentinel level=INFO msg=PHASE2_CACHE_BOUNDARY upstream_status_seen=true upstream_status_enabled=true cached_level_chunks=0 ordinary_level_chunks=1 cached_sub_chunks=0 ordinary_sub_chunks=1'
+            @($valid, $valid) | Set-Content -LiteralPath $path
+            { Get-Phase2CacheBoundaryEvidence -CoreLogPath $path } | Should Throw
+
+            ($valid + ' extra_field=1') | Set-Content -LiteralPath $path
+            { Get-Phase2CacheBoundaryEvidence -CoreLogPath $path } | Should Throw
+
+            $valid.Replace('upstream_status_seen=true', 'upstream_status_seen=false') |
+                Set-Content -LiteralPath $path
+            { Get-Phase2CacheBoundaryEvidence -CoreLogPath $path } | Should Throw
+
+            'time=sentinel level=INFO msg=PHASE2_CACHE_BOUNDARY upstream_status_seen=true upstream_status_enabled=true cached_level_chunks=0 ordinary_level_chunks=0 cached_sub_chunks=0 ordinary_sub_chunks=0' |
+                Set-Content -LiteralPath $path
+            { Get-Phase2CacheBoundaryEvidence -CoreLogPath $path } | Should Throw
+        }
+        finally {
+            Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'records ordinary Lunar boundary evidence before retaining the cache-backed gate' {
+        $temporary = Join-Path ([IO.Path]::GetTempPath()) ('phase2-cache-boundary-manifest-' + [guid]::NewGuid().ToString('N'))
+        try {
+            New-Item -ItemType Directory -Path $temporary | Out-Null
+            $clientPath = Join-Path $temporary 'client.log'
+            $corePath = Join-Path $temporary 'core.stderr.log'
+            $record = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 177 `
+                -RequestsConstructed 177 -RequestsSent 177 -ResponsesAdmitted 3894 -SubchunksCommitted 3894
+            'PHASE2_PUBLICATION=' + ($record | ConvertTo-Json -Depth 20 -Compress) |
+                Set-Content -LiteralPath $clientPath
+            'time=sentinel level=INFO msg=PHASE2_CACHE_BOUNDARY upstream_status_seen=true upstream_status_enabled=true cached_level_chunks=0 ordinary_level_chunks=177 cached_sub_chunks=0 ordinary_sub_chunks=3894' |
+                Set-Content -LiteralPath $corePath
+            $manifest = [pscustomobject][ordered]@{ mode = 'Diagnostic'; initial_radius = 16 }
+
+            { Complete-Phase2DiagnosticEvidence -Manifest $manifest -ClientLogPath $clientPath `
+                -CoreLogPath $corePath -ExpectedPresentMode Fifo -WorldReadyObserved:$false `
+                -Server Lunar } | Should Throw
+
+            $manifest.cache_boundary_evidence.classification |
+                Should Be 'server_ordinary_despite_cache_capability'
+            $manifest.cache_boundary_evidence.ordinary_sub_chunks | Should Be 3894
+            (@($manifest.PSObject.Properties.Name) -contains 'final_publication') | Should Be $false
         }
         finally {
             Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue
