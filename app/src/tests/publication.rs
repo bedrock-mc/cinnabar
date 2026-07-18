@@ -155,8 +155,16 @@ fn production_client_systems_are_members_of_the_eleven_behavioral_sets() {
 
     assert!(
         graph.dependency().graph().contains_edge(
-            system_node(graph, publish_local_player_frame, "publish_local_player_frame"),
-            system_node(graph, publish_interaction_origin, "publish_interaction_origin"),
+            system_node(
+                graph,
+                publish_local_player_frame,
+                "publish_local_player_frame"
+            ),
+            system_node(
+                graph,
+                publish_interaction_origin,
+                "publish_interaction_origin"
+            ),
         ),
         "the atomic local-player frame must publish before its interaction consumer"
     );
@@ -837,8 +845,15 @@ fn application_wires_controller_before_world_handoff_and_render_apply() {
         .expect("publication frame registration is bounded")
         .0;
     assert!(publication_frame.contains(".before(ChunkRenderApplySet)"));
-    let world_publication = source[source
-        .rfind("drive_world_stream")
+    let production_schedule = source
+        .split_once("pub(crate) fn configure_client_production_frame_systems")
+        .expect("production frame systems are configured")
+        .1
+        .split_once("pub(crate) fn configure_acceptance_finish_system")
+        .expect("production frame-system configuration has a bounded body")
+        .0;
+    let world_publication = production_schedule[production_schedule
+        .find("drive_world_stream")
         .expect("world publication system is registered")..]
         .split_once(".add_systems(")
         .expect("world publication registration is bounded")

@@ -35,8 +35,8 @@ use crate::{
     },
     movement::{MovementSource, PhysicsAuthorityGate},
     runtime::{
-        publication::PublicationController,
         phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceEventKind},
+        publication::PublicationController,
         shutdown::record_fatal_error,
         visibility::AppMetrics,
         world::{AppWorldState, ClientWorld},

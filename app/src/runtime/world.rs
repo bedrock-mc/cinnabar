@@ -485,7 +485,6 @@ pub(crate) fn drive_world_stream(
     mut biome_tints: ResMut<ChunkBiomeTints>,
     mut diagnostic_quads: ResMut<DiagnosticQuads>,
     acknowledgements: Res<ChunkUploadAcknowledgements>,
-    upload_budget: Res<ChunkUploadBudget>,
     mut publication: ResMut<PublicationController>,
     mut view: ResMut<LocalViewPose>,
     mut frame_poll: ResMut<WorldStreamFramePoll>,
