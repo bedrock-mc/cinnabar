@@ -81,40 +81,124 @@ function Assert-ProtocolDependencyProvenance {
         }
     }
 
-    $manifest = Get-Content -Raw -LiteralPath $manifestPath
     $lock = Get-Content -Raw -LiteralPath $lockPath
     $upstream = Get-Content -Raw -LiteralPath $upstreamPath
+    $metadataStdoutPath = [IO.Path]::GetTempFileName()
+    $metadataStderrPath = [IO.Path]::GetTempFileName()
+    $metadataProcess = $null
+    $metadataStdoutStream = $null
+    $metadataStderrStream = $null
+    try {
+        $metadataProcess = [Diagnostics.Process]::new()
+        $metadataProcess.StartInfo.FileName = 'cargo'
+        $metadataProcess.StartInfo.Arguments = 'metadata --locked --offline --no-deps --format-version 1 --manifest-path crates/protocol/Cargo.toml'
+        $metadataProcess.StartInfo.WorkingDirectory = [IO.Path]::GetFullPath($ProjectRoot)
+        $metadataProcess.StartInfo.UseShellExecute = $false
+        $metadataProcess.StartInfo.CreateNoWindow = $true
+        $metadataProcess.StartInfo.RedirectStandardOutput = $true
+        $metadataProcess.StartInfo.RedirectStandardError = $true
+        $metadataStdoutStream = [IO.File]::Open($metadataStdoutPath, [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::Read)
+        $metadataStderrStream = [IO.File]::Open($metadataStderrPath, [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::Read)
+        if (-not $metadataProcess.Start()) {
+            throw 'could not start cargo metadata for protocol provenance'
+        }
+        $metadataStdoutCopy = $metadataProcess.StandardOutput.BaseStream.CopyToAsync($metadataStdoutStream)
+        $metadataStderrCopy = $metadataProcess.StandardError.BaseStream.CopyToAsync($metadataStderrStream)
+        if (-not $metadataProcess.WaitForExit(120000)) {
+            try { $metadataProcess.Kill() } catch { }
+            $metadataProcess.WaitForExit()
+            [Threading.Tasks.Task]::WaitAll([Threading.Tasks.Task[]]@($metadataStdoutCopy, $metadataStderrCopy))
+            throw 'cargo metadata timed out after 120 seconds'
+        }
+        $metadataProcess.WaitForExit()
+        [Threading.Tasks.Task]::WaitAll([Threading.Tasks.Task[]]@($metadataStdoutCopy, $metadataStderrCopy))
+        $metadataStdoutStream.Flush()
+        $metadataStderrStream.Flush()
+        $metadataStdoutStream.Dispose()
+        $metadataStdoutStream = $null
+        $metadataStderrStream.Dispose()
+        $metadataStderrStream = $null
+        $metadataJson = Read-BoundedProtocolMetadataFile `
+            -Path $metadataStdoutPath -MaximumBytes 4194304 -Label 'stdout'
+        $metadataError = Read-BoundedProtocolMetadataFile `
+            -Path $metadataStderrPath -MaximumBytes 262144 -Label 'stderr'
+        if ($metadataProcess.ExitCode -ne 0) {
+            throw "cargo metadata failed for protocol provenance: $($metadataError.Trim())"
+        }
+    }
+    finally {
+        if ($null -ne $metadataStdoutStream) { $metadataStdoutStream.Dispose() }
+        if ($null -ne $metadataStderrStream) { $metadataStderrStream.Dispose() }
+        if ($null -ne $metadataProcess) { $metadataProcess.Dispose() }
+        Remove-Item -LiteralPath $metadataStdoutPath, $metadataStderrPath -Force -ErrorAction SilentlyContinue
+    }
+    try {
+        $metadata = $metadataJson | ConvertFrom-Json
+    }
+    catch {
+        throw "cargo metadata returned invalid JSON for protocol provenance: $($_.Exception.Message)"
+    }
+    $canonicalManifestPath = (Resolve-Path -LiteralPath $manifestPath).ProviderPath
+    $pathComparison = if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
+        [StringComparison]::OrdinalIgnoreCase
+    }
+    else {
+        [StringComparison]::Ordinal
+    }
+    $protocolPackages = @($metadata.packages | Where-Object {
+        $_.PSObject.Properties.Name -contains 'manifest_path' -and
+        [string]::Equals(
+            [IO.Path]::GetFullPath([string]$_.manifest_path),
+            $canonicalManifestPath,
+            $pathComparison
+        )
+    })
+    if ($protocolPackages.Count -ne 1) {
+        throw "cargo metadata must contain exactly one canonical protocol package, found $($protocolPackages.Count)"
+    }
+    $protocolPackage = $protocolPackages[0]
     $expectedDependencies = [ordered]@{
-        valentine = 'valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_30"] }'
-        jolyne = 'jolyne = { path = "vendor/jolyne", default-features = false, features = ["client"] }'
+        valentine = @('bedrock_1_26_30')
+        jolyne = @('client')
     }
-    $dependencyCounts = @{}
-    foreach ($dependency in $expectedDependencies.Keys) {
-        $dependencyCounts[$dependency] = 0
-    }
-    $manifestSection = ''
-    foreach ($line in $manifest -split "`r?`n") {
-        if ($line -match '^\s*(?<section>\[[^\]]+\])\s*(?:#.*)?$') {
-            $manifestSection = $Matches.section
-            continue
+    foreach ($dependencyName in $expectedDependencies.Keys) {
+        $matches = @($protocolPackage.dependencies | Where-Object {
+            ([string]$_.name -ceq $dependencyName) -or ([string]$_.rename -ceq $dependencyName)
+        })
+        if ($matches.Count -ne 1) {
+            throw "protocol dependency provenance drifted: $dependencyName must resolve exactly once from the canonical protocol manifest"
         }
-        if ($line -notmatch '^\s*(?<dependency>valentine|jolyne)\s*=') { continue }
-        $dependency = $Matches.dependency
-        $dependencyCounts[$dependency] = [int]$dependencyCounts[$dependency] + 1
-        if ($manifestSection -cne '[dependencies]') {
-            throw "protocol dependency provenance drifted: $dependency is declared outside the active [dependencies] table"
+        $dependency = $matches[0]
+        foreach ($field in @('name', 'source', 'kind', 'rename', 'optional', 'uses_default_features', 'features', 'target', 'path')) {
+            if ($dependency.PSObject.Properties.Name -cnotcontains $field) {
+                throw "cargo metadata dependency $dependencyName is missing $field"
+            }
         }
-        if ($line.Trim() -cne [string]$expectedDependencies[$dependency]) {
-            throw "protocol dependency provenance drifted: $dependency does not use its exact vendored path declaration"
+        if ([string]$dependency.name -cne $dependencyName -or $null -ne $dependency.rename) {
+            throw "protocol dependency provenance drifted: $dependencyName must not be renamed"
         }
-    }
-    foreach ($dependency in $expectedDependencies.Keys) {
-        if ([int]$dependencyCounts[$dependency] -ne 1) {
-            throw "protocol dependency provenance drifted: $dependency must appear exactly once in the active [dependencies] table"
+        if ($null -ne $dependency.source -or $null -ne $dependency.kind -or $null -ne $dependency.target -or
+            $dependency.optional -isnot [bool] -or [bool]$dependency.optional -or
+            $dependency.uses_default_features -isnot [bool] -or [bool]$dependency.uses_default_features) {
+            throw "protocol dependency provenance drifted: $dependencyName must be one normal non-target non-optional local dependency with default features disabled"
         }
-        $vendoredManifest = Join-Path $ProjectRoot "crates\protocol\vendor\$dependency\Cargo.toml"
+        $vendoredManifest = Join-Path $ProjectRoot "crates\protocol\vendor\$dependencyName\Cargo.toml"
         if (-not (Test-Path -LiteralPath $vendoredManifest -PathType Leaf)) {
-            throw "protocol dependency provenance drifted: $dependency vendored path has no Cargo.toml"
+            throw "protocol dependency provenance drifted: $dependencyName vendored path has no Cargo.toml"
+        }
+        $expectedPath = (Resolve-Path -LiteralPath (Split-Path -Parent $vendoredManifest)).ProviderPath
+        if ($null -eq $dependency.path -or -not [string]::Equals(
+            [IO.Path]::GetFullPath([string]$dependency.path),
+            $expectedPath,
+            $pathComparison
+        )) {
+            throw "protocol dependency provenance drifted: $dependencyName does not resolve to its canonical vendored path"
+        }
+        $expectedFeatures = @($expectedDependencies[$dependencyName])
+        $actualFeatures = @($dependency.features)
+        if ($actualFeatures.Count -ne $expectedFeatures.Count -or
+            @($actualFeatures | Where-Object { $expectedFeatures -cnotcontains [string]$_ }).Count -ne 0) {
+            throw "protocol dependency provenance drifted: $dependencyName resolved feature set is not exact"
         }
     }
 
@@ -165,6 +249,19 @@ function Assert-ProtocolDependencyProvenance {
         }
     }
     return $ExpectedForkRevision
+}
+
+function Read-BoundedProtocolMetadataFile {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][ValidateRange(1, [long]::MaxValue)][long]$MaximumBytes,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+    $file = Get-Item -LiteralPath $Path
+    if ($file.Length -gt $MaximumBytes) {
+        throw "cargo metadata $Label exceeds the $MaximumBytes-byte provenance bound"
+    }
+    return [IO.File]::ReadAllText($file.FullName)
 }
 
 function Get-ProtocolDependencyProvenanceMetadata {

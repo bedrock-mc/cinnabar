@@ -20,18 +20,13 @@ function Copy-ProtocolDependencyProvenanceFixture {
         [Parameter(Mandatory = $true)][string]$DestinationRoot
     )
 
-    $protocolRoot = Join-Path $DestinationRoot 'crates\protocol'
-    $vendorRoot = Join-Path $protocolRoot 'vendor'
-    New-Item -ItemType Directory -Path (Join-Path $vendorRoot 'valentine') -Force | Out-Null
-    New-Item -ItemType Directory -Path (Join-Path $vendorRoot 'jolyne') -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $SourceRoot 'crates\protocol\Cargo.toml') -Destination $protocolRoot
+    New-Item -ItemType Directory -Path $DestinationRoot -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $SourceRoot 'Cargo.toml') -Destination $DestinationRoot
     Copy-Item -LiteralPath (Join-Path $SourceRoot 'Cargo.lock') -Destination $DestinationRoot
-    Copy-Item -LiteralPath (Join-Path $SourceRoot 'crates\protocol\vendor\UPSTREAM.md') -Destination $vendorRoot
-    Copy-Item -LiteralPath (Join-Path $SourceRoot 'crates\protocol\vendor\LICENSE') -Destination $vendorRoot
-    Copy-Item -LiteralPath (Join-Path $SourceRoot 'crates\protocol\vendor\valentine\Cargo.toml') `
-        -Destination (Join-Path $vendorRoot 'valentine')
-    Copy-Item -LiteralPath (Join-Path $SourceRoot 'crates\protocol\vendor\jolyne\Cargo.toml') `
-        -Destination (Join-Path $vendorRoot 'jolyne')
+    foreach ($workspaceDirectory in @('app', 'crates', 'tools')) {
+        Copy-Item -LiteralPath (Join-Path $SourceRoot $workspaceDirectory) `
+            -Destination $DestinationRoot -Recurse
+    }
 }
 
 function Assert-TestProtocolDependencyProvenance {
@@ -46,6 +41,13 @@ function Assert-TestProtocolDependencyProvenance {
 
 $null = Assert-TestProtocolDependencyProvenance -Root $ProjectRoot
 
+New-Item -ItemType Directory -Path $TempRoot -Force | Out-Null
+$oversizedMetadata = Join-Path $TempRoot 'oversized cargo metadata.json'
+[IO.File]::WriteAllBytes($oversizedMetadata, [byte[]](0..32))
+Assert-ThrowsLike {
+    Read-BoundedProtocolMetadataFile -Path $oversizedMetadata -MaximumBytes 32 -Label 'test output'
+} '*exceeds*32-byte*bound*' 'protocol provenance accepted oversized Cargo metadata output'
+
 $fixtureRoot = Join-Path $TempRoot 'protocol dependency provenance'
 Copy-ProtocolDependencyProvenanceFixture -SourceRoot $ProjectRoot -DestinationRoot $fixtureRoot
 $null = Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
@@ -56,7 +58,39 @@ Set-Content -LiteralPath $manifestPath -NoNewline -Value `
     $canonicalManifest.Replace('path = "vendor/valentine"', 'path = "..\outside\valentine"')
 Assert-ThrowsLike {
     Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
-} '*valentine*vendored path*' 'protocol provenance accepted a drifted Valentine path declaration'
+} '*cargo metadata*' 'protocol provenance accepted a drifted Valentine path declaration'
+Set-Content -LiteralPath $manifestPath -NoNewline -Value $canonicalManifest
+
+$vendorRoot = Join-Path $fixtureRoot 'crates\protocol\vendor'
+Copy-Item -LiteralPath (Join-Path $vendorRoot 'valentine') `
+    -Destination (Join-Path $vendorRoot 'valentine-decoy') -Recurse
+Copy-Item -LiteralPath (Join-Path $vendorRoot 'jolyne') `
+    -Destination (Join-Path $vendorRoot 'jolyne-decoy') -Recurse
+$jolyneDecoyManifest = Join-Path $vendorRoot 'jolyne-decoy\Cargo.toml'
+$jolyneDecoy = (Get-Content -Raw -LiteralPath $jolyneDecoyManifest).Replace(
+    'path = "../valentine"',
+    'path = "../valentine-decoy"'
+)
+Set-Content -LiteralPath $jolyneDecoyManifest -NoNewline -Value $jolyneDecoy
+$canonicalStringDecoys = @'
+[dependencies]
+valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_30"] }
+jolyne = { path = "vendor/jolyne", default-features = false, features = ["client"] }
+'@
+$quotedWrongPaths = $canonicalManifest.Replace(
+    'publish = false',
+    "publish = false`ndescription = `"`"`"`n$canonicalStringDecoys`n`"`"`""
+).Replace(
+    'valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_30"] }',
+    '"valentine" = { path = "vendor/valentine-decoy", default-features = false, features = ["bedrock_1_26_30"] }'
+).Replace(
+    'jolyne = { path = "vendor/jolyne", default-features = false, features = ["client"] }',
+    '"jolyne" = { path = "vendor/jolyne-decoy", default-features = false, features = ["client"] }'
+)
+Set-Content -LiteralPath $manifestPath -NoNewline -Value $quotedWrongPaths
+Assert-ThrowsLike {
+    Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
+} '*vendored path*' 'protocol provenance accepted canonical declarations inside a multiline string while quoted real keys resolved wrong paths'
 Set-Content -LiteralPath $manifestPath -NoNewline -Value $canonicalManifest
 
 Set-Content -LiteralPath $manifestPath -NoNewline -Value ($canonicalManifest + @'
@@ -66,7 +100,7 @@ valentine = { path = "vendor/valentine", default-features = false, features = ["
 '@)
 Assert-ThrowsLike {
     Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
-} '*valentine*outside the active*dependencies*' 'protocol provenance accepted an additional target-table Valentine declaration'
+} '*valentine*exactly once*' 'protocol provenance accepted an additional target-table Valentine declaration'
 
 $inactiveDecoy = $canonicalManifest.Replace(
     'valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_30"] }',
@@ -79,7 +113,7 @@ valentine = { path = "vendor/valentine", default-features = false, features = ["
 Set-Content -LiteralPath $manifestPath -NoNewline -Value $inactiveDecoy
 Assert-ThrowsLike {
     Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
-} '*valentine*outside the active*dependencies*' 'protocol provenance accepted an inactive target-table Valentine decoy'
+} '*valentine*normal non-target*' 'protocol provenance accepted an inactive target-table Valentine decoy'
 Set-Content -LiteralPath $manifestPath -NoNewline -Value $canonicalManifest
 
 $upstreamPath = Join-Path $fixtureRoot 'crates\protocol\vendor\UPSTREAM.md'

@@ -63,9 +63,12 @@ assert_protocol_dependency_provenance() {
         "$pinned_valentine_upstream_commit" \
         "$pinned_valentine_license_sha256" <<'PY'
 import hashlib
+import json
 import pathlib
 import re
+import subprocess
 import sys
+import tempfile
 
 root = pathlib.Path(sys.argv[1])
 fork_revision, upstream_revision, license_sha256 = sys.argv[2:5]
@@ -78,40 +81,111 @@ for path in required_paths:
     if not path.is_file():
         raise SystemExit(f"protocol dependency provenance input is missing: {path}")
 
+def read_bounded_output(stream, label, maximum_bytes):
+    length = stream.tell()
+    if length > maximum_bytes:
+        raise SystemExit(
+            f"cargo metadata {label} exceeds the {maximum_bytes}-byte provenance bound"
+        )
+    stream.seek(0)
+    try:
+        return stream.read().decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise SystemExit(f"cargo metadata {label} is not UTF-8: {error}") from error
+
+
+with tempfile.TemporaryFile() as metadata_stdout, tempfile.TemporaryFile() as metadata_stderr:
+    try:
+        metadata_result = subprocess.run(
+            [
+                "cargo", "metadata", "--locked", "--offline", "--no-deps",
+                "--format-version", "1", "--manifest-path", "crates/protocol/Cargo.toml",
+            ],
+            cwd=root,
+            stdout=metadata_stdout,
+            stderr=metadata_stderr,
+            timeout=120,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise SystemExit("cargo metadata timed out after 120 seconds") from error
+    metadata_json = read_bounded_output(metadata_stdout, "stdout", 4 * 1024 * 1024)
+    metadata_error = read_bounded_output(metadata_stderr, "stderr", 256 * 1024)
+if metadata_result.returncode != 0:
+    raise SystemExit(
+        "cargo metadata failed for protocol provenance: " + metadata_error.strip()
+    )
+try:
+    metadata = json.loads(metadata_json)
+except (TypeError, ValueError) as error:
+    raise SystemExit(f"cargo metadata returned invalid JSON for protocol provenance: {error}") from error
+
+canonical_manifest = manifest_path.resolve(strict=True)
+protocol_packages = [
+    package
+    for package in metadata.get("packages", [])
+    if pathlib.Path(package.get("manifest_path", "")).resolve() == canonical_manifest
+]
+if len(protocol_packages) != 1:
+    raise SystemExit(
+        f"cargo metadata must contain exactly one canonical protocol package, found {len(protocol_packages)}"
+    )
 expected_dependencies = {
-    "valentine": 'valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_30"] }',
-    "jolyne": 'jolyne = { path = "vendor/jolyne", default-features = false, features = ["client"] }',
+    "valentine": ["bedrock_1_26_30"],
+    "jolyne": ["client"],
 }
-counts = {name: 0 for name in expected_dependencies}
-section = ""
-manifest = manifest_path.read_text(encoding="utf-8-sig")
-for line in manifest.splitlines():
-    header = re.fullmatch(r"\s*(\[[^\]]+\])\s*(?:#.*)?", line)
-    if header:
-        section = header.group(1)
-        continue
-    declaration = re.match(r"\s*(valentine|jolyne)\s*=", line)
-    if not declaration:
-        continue
-    dependency = declaration.group(1)
-    counts[dependency] += 1
-    if section != "[dependencies]":
+for dependency_name, expected_features in expected_dependencies.items():
+    matches = [
+        dependency
+        for dependency in protocol_packages[0].get("dependencies", [])
+        if dependency.get("name") == dependency_name or dependency.get("rename") == dependency_name
+    ]
+    if len(matches) != 1:
         raise SystemExit(
-            f"protocol dependency provenance drifted: {dependency} is declared outside the active [dependencies] table"
+            f"protocol dependency provenance drifted: {dependency_name} must resolve exactly once from the canonical protocol manifest"
         )
-    if line.strip() != expected_dependencies[dependency]:
+    dependency = matches[0]
+    required_fields = {
+        "name", "source", "kind", "rename", "optional", "uses_default_features",
+        "features", "target", "path",
+    }
+    missing = sorted(required_fields.difference(dependency))
+    if missing:
         raise SystemExit(
-            f"protocol dependency provenance drifted: {dependency} does not use its exact vendored path declaration"
+            f"cargo metadata dependency {dependency_name} is missing {', '.join(missing)}"
         )
-for dependency, count in counts.items():
-    if count != 1:
+    if dependency["name"] != dependency_name or dependency["rename"] is not None:
         raise SystemExit(
-            f"protocol dependency provenance drifted: {dependency} must appear exactly once in the active [dependencies] table"
+            f"protocol dependency provenance drifted: {dependency_name} must not be renamed"
         )
-    vendored_manifest = root / f"crates/protocol/vendor/{dependency}/Cargo.toml"
+    if (
+        dependency["source"] is not None
+        or dependency["kind"] is not None
+        or dependency["target"] is not None
+        or dependency["optional"] is not False
+        or dependency["uses_default_features"] is not False
+    ):
+        raise SystemExit(
+            f"protocol dependency provenance drifted: {dependency_name} must be one normal non-target non-optional local dependency with default features disabled"
+        )
+    vendored_manifest = root / f"crates/protocol/vendor/{dependency_name}/Cargo.toml"
     if not vendored_manifest.is_file():
         raise SystemExit(
-            f"protocol dependency provenance drifted: {dependency} vendored path has no Cargo.toml"
+            f"protocol dependency provenance drifted: {dependency_name} vendored path has no Cargo.toml"
+        )
+    dependency_path = dependency["path"]
+    if dependency_path is None or pathlib.Path(dependency_path).resolve() != vendored_manifest.parent.resolve():
+        raise SystemExit(
+            f"protocol dependency provenance drifted: {dependency_name} does not resolve to its canonical vendored path"
+        )
+    actual_features = dependency["features"]
+    if (
+        not isinstance(actual_features, list)
+        or len(actual_features) != len(expected_features)
+        or set(actual_features) != set(expected_features)
+    ):
+        raise SystemExit(
+            f"protocol dependency provenance drifted: {dependency_name} resolved feature set is not exact"
         )
 
 upstream = upstream_path.read_text(encoding="utf-8-sig")
