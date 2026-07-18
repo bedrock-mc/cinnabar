@@ -878,7 +878,7 @@ fn equal_loaded_count_with_missing_target_and_source_replacement_is_not_exact() 
             radius: 16,
             publisher_geometry: None,
         }
-        .expected_columns()
+        .classifier_columns()
         .len(),
         797
     );
@@ -891,7 +891,12 @@ fn equal_loaded_count_with_missing_target_and_source_replacement_is_not_exact() 
             }),
         )
         .unwrap();
-    let target_columns = target.expected_columns();
+    let target_columns = super::ViewCohort {
+        publisher_geometry: None,
+        ..target
+    }
+    .classifier_columns();
+    stream.required_columns = target_columns.clone();
     let missing = *target_columns.last().unwrap();
     let source = ChunkKey::new(0, 0, 0);
     stream.loaded_columns.insert(source);

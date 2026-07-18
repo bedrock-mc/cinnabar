@@ -463,6 +463,8 @@ pub(crate) fn record_metrics_and_title(
             camera_sub_chunk_key(stream.current_dimension(), camera.translation).chunk();
         let publication = stream.phase2_publication_snapshot(player_column);
         let session_generation = publication.session_generation;
+        let publisher_epoch = publication.publisher_epoch;
+        let required_cohort_count = publication.required_columns;
         let required_cohort_hash = publication.required_cohort_hash;
         let stage_generation = visibility_snapshot.frame_generation;
         let render_cohort = stream
@@ -475,6 +477,8 @@ pub(crate) fn record_metrics_and_title(
             .collect::<Vec<_>>();
         let allocation = generation_manifest_identity(
             session_generation,
+            publisher_epoch,
+            required_cohort_count,
             required_cohort_hash,
             &allocation_manifest,
         );
@@ -486,6 +490,8 @@ pub(crate) fn record_metrics_and_title(
         });
         let publisher_disk = generation_manifest_identity(
             session_generation,
+            publisher_epoch,
+            required_cohort_count,
             required_cohort_hash,
             &publisher_manifest,
         );
@@ -500,6 +506,8 @@ pub(crate) fn record_metrics_and_title(
             publisher_disk,
             resident: cohort_identity(
                 session_generation,
+                publisher_epoch,
+                required_cohort_count,
                 required_cohort_hash,
                 stage_generation,
                 visibility_snapshot.resident_mesh,
@@ -507,18 +515,24 @@ pub(crate) fn record_metrics_and_title(
             allocation,
             visible: cohort_identity(
                 session_generation,
+                publisher_epoch,
+                required_cohort_count,
                 required_cohort_hash,
                 stage_generation,
                 visibility_snapshot.frustum_visible_opaque,
             ),
             submitted: cohort_identity(
                 session_generation,
+                publisher_epoch,
+                required_cohort_count,
                 required_cohort_hash,
                 stage_generation,
                 visibility_snapshot.submitted_opaque,
             ),
             gpu_presented: cohort_identity(
                 session_generation,
+                publisher_epoch,
+                required_cohort_count,
                 required_cohort_hash,
                 stage_generation,
                 visibility_snapshot.gpu_completed_opaque,

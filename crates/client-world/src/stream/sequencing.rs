@@ -136,6 +136,7 @@ impl WorldStream {
                 duration,
             } => {
                 self.stats.max_decode_duration = self.stats.max_decode_duration.max(duration);
+                self.record_required_level_chunk(&event);
                 match decoded {
                     Ok(decoded) => self.apply_request_level_chunk(event, decoded, sequence),
                     Err(_) => self.stats.decode_errors = self.stats.decode_errors.saturating_add(1),
@@ -411,6 +412,10 @@ impl WorldStream {
                 );
                 self.publisher_radius_chunks =
                     Some(cohort.radius.min(PHASE0_MAX_VIEW_RADIUS_CHUNKS));
+                if self.committed_view_cohort != Some(cohort) {
+                    self.publisher_epoch = self.publisher_epoch.wrapping_add(1).max(1);
+                    self.required_columns.clear();
+                }
                 self.committed_view_cohort = Some(cohort);
                 self.evict_outside_active_radius();
             }
@@ -436,6 +441,7 @@ impl WorldStream {
                 self.publisher_radius_blocks = None;
                 self.publisher_radius_chunks = None;
                 self.committed_view_cohort = None;
+                self.required_columns.clear();
                 self.push_committed_control(CommittedControlEvent::ChangeDimension {
                     change,
                     resolved,
@@ -621,6 +627,16 @@ impl WorldStream {
                 }
             }
             self.mark_changed_sources(changed, Instant::now());
+        }
+    }
+
+    fn record_required_level_chunk(&mut self, event: &LevelChunkEvent) {
+        let Some(cohort) = self.committed_view_cohort else {
+            return;
+        };
+        let key = ChunkKey::new(event.dimension, event.x, event.z);
+        if cohort.contains_column(key.dimension, [key.x, key.z]) && self.column_is_active(key) {
+            self.required_columns.insert(key);
         }
     }
     pub(super) fn push_committed_control(&mut self, event: CommittedControlEvent) {

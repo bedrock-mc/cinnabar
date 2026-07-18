@@ -48,6 +48,7 @@ pub struct StageDurations {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Phase2PublicationSnapshot {
     pub session_generation: u64,
+    pub publisher_epoch: u64,
     pub player_column: ChunkKey,
     /// Exact raw block radius received from NetworkChunkPublisherUpdate.
     pub publisher_radius_blocks: Option<u32>,
@@ -55,6 +56,7 @@ pub struct Phase2PublicationSnapshot {
     pub required_cohort_hash: u64,
     pub required_columns: usize,
     pub loaded_required_columns: usize,
+    pub required_cohort_stable: bool,
     pub stages: PublicationStageCounters,
     pub outcomes: SubChunkOutcomeCounters,
     pub max_queue_wait: StageDurations,
@@ -64,6 +66,8 @@ pub struct Phase2PublicationSnapshot {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CohortManifestIdentity {
     pub session_generation: u64,
+    pub publisher_epoch: u64,
+    pub required_cohort_count: usize,
     pub required_cohort_hash: u64,
     pub generation_manifest_hash: u64,
     pub entry_count: usize,
@@ -122,7 +126,7 @@ impl WorldStream {
         let required = self
             .committed_view_cohort
             .filter(|cohort| cohort.dimension == player_column.dimension)
-            .map_or_else(BTreeSet::new, ViewCohort::expected_columns);
+            .map_or_else(BTreeSet::new, |_| self.required_columns.clone());
         let mut stages = self.stats.phase2_stages;
         stages.requests_ready = self.pending_request_count();
         stages.requests_transport_pending = self.transport_pending_requests;
@@ -138,12 +142,30 @@ impl WorldStream {
 
         Phase2PublicationSnapshot {
             session_generation: self.actor_session_id,
+            publisher_epoch: self.publisher_epoch,
             player_column,
             publisher_radius_blocks: self.publisher_radius_blocks,
             publisher_radius_chunks: self.publisher_radius_chunks,
             required_cohort_hash: deterministic_chunk_key_hash(&required),
             required_columns: required.len(),
             loaded_required_columns: self.loaded_columns.intersection(&required).count(),
+            required_cohort_stable: !required.is_empty()
+                && self.submitted.is_empty()
+                && self.pending_decode.is_empty()
+                && self.in_flight_decode_jobs == 0
+                && self.decode_rx.is_empty()
+                && self.requests.is_empty()
+                && self.transport_pending_requests == 0
+                && self.requested_sub_chunks.is_empty()
+                && self.deferred_retries.is_empty()
+                && self.pending_light.is_empty()
+                && self.in_flight_light.is_empty()
+                && self.light_rx.is_empty()
+                && self.pending_mesh.is_empty()
+                && self.in_flight.is_empty()
+                && self.mesh_rx.is_empty()
+                && self.mesh_changes.is_empty()
+                && self.revisions.entries.is_empty(),
             stages,
             outcomes: self.stats.phase2_outcomes,
             max_queue_wait: StageDurations {
