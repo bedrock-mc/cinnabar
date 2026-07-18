@@ -144,24 +144,25 @@ env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET cargo run --release -p bedrock-client -
 ## Local protocol-1001 block data
 
 The generated block catalog uses pinned, non-Mojang metadata from PMMP BedrockData and
-PrismarineJS minecraft-data. Acquire and hash-check those inputs, plus the applicable
-upstream license evidence, into the ignored local cache:
+PrismarineJS minecraft-data. A normal `make client` automatically acquires, hash-checks,
+and compiles the required protocol-1001 physics registry. To prepare it without launching
+the client, run:
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/acquire-block-data.ps1
+```text
+make physics-assets
 ```
 
 The command validates Bedrock `1.26.30` / protocol `1001` and atomically publishes the
 resolved inputs below `.local/assets/block-data/pmmp` and
 `.local/assets/block-data/prismarine`. Axolotl and Dragonfly license evidence is retained
 below `.local/assets/block-data/licenses`; the bounded verified download cache stays in the
-sibling `.local/assets/block-data.downloads/` directory. The application never fetches these inputs at
-startup. Pins, file hashes, source repositories, and the Prismarine license-evidence
+sibling `.local/assets/block-data.downloads/` directory. The application itself never
+fetches these inputs at runtime; the Make prerequisite does. Pins, file hashes, source
+repositories, and the Prismarine license-evidence
 exception are recorded in `assets/block-data-sources.json` and `THIRD_PARTY_NOTICES.md`.
 
-The acquirer also emits `PREG1001_SOURCE_PATH` markers for the exact PMMP and
-Prismarine roots consumed by the physics compiler. Generate the ignored carrier
-against the committed BREG and commit only its lowercase SHA-256 record:
+The cross-platform Go acquirer emits the exact PMMP and Prismarine roots consumed by the
+physics compiler. The equivalent low-level generation command is:
 
 ```powershell
 go -C tools/registrygen run . `
@@ -169,7 +170,7 @@ go -C tools/registrygen run . `
   -light-out ../../.local/phase3/block-light-registry-v1001.bin `
   -light-breg ../../crates/assets/data/block-registry-v1001.bin `
   -physics-out ../../.local/assets/block-physics-v1001.bin `
-  -physics-sha-out ../../crates/assets/data/block-physics-v1001.sha256 `
+  -physics-sha-out ../../.local/phase3/block-physics-v1001.sha256 `
   -physics-breg ../../crates/assets/data/block-registry-v1001.bin `
   -pmmp ../../.local/assets/block-data/pmmp `
   -prismarine ../../.local/assets/block-data/prismarine `
