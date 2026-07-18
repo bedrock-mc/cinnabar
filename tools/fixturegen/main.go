@@ -297,6 +297,83 @@ func fixtures() []fixture {
 			wireAuthority: "hashimthearab/gophertunnel",
 			wireCommit:    "9948b1729395d2e819fce28e079d4a7bfc67716c",
 		},
+		{
+			name: "InventoryContent",
+			file: "inventory_content.bin",
+			pk: &packet.InventoryContent{
+				WindowID: 0,
+				Content:  []protocol.ItemInstance{inventoryItem(5, 2, 11)},
+				Container: protocol.FullContainerName{
+					ContainerID:        12,
+					DynamicContainerID: protocol.Option(uint32(7)),
+				},
+			},
+		},
+		{
+			name: "InventorySlot",
+			file: "inventory_slot.bin",
+			pk: &packet.InventorySlot{
+				WindowID: 0,
+				Slot:     4,
+				Container: protocol.Option(protocol.FullContainerName{
+					ContainerID: 29,
+				}),
+				NewItem: inventoryItem(6, 3, 12),
+			},
+		},
+		{
+			name: "PlayerHotBar",
+			file: "player_hotbar.bin",
+			pk: &packet.PlayerHotBar{
+				SelectedHotBarSlot: 4,
+				WindowID:           0,
+				SelectHotBarSlot:   true,
+			},
+		},
+		{
+			name: "ItemStackResponse",
+			file: "item_stack_response.bin",
+			pk: &packet.ItemStackResponse{
+				Responses: []protocol.ItemStackResponse{
+					{
+						Status:    0,
+						RequestID: 44,
+						ContainerInfo: []protocol.StackResponseContainerInfo{
+							{
+								Container: protocol.FullContainerName{ContainerID: 28},
+								SlotInfo: []protocol.StackResponseSlotInfo{
+									{
+										Slot:                 2,
+										HotbarSlot:           2,
+										Count:                5,
+										StackNetworkID:       13,
+										CustomName:           "Fixture item",
+										FilteredCustomName:   "Fixture item",
+										DurabilityCorrection: -3,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func inventoryItem(networkID int32, count uint16, stackNetworkID int32) protocol.ItemInstance {
+	return protocol.ItemInstance{
+		StackNetworkID: stackNetworkID,
+		Stack: protocol.ItemStack{
+			ItemType: protocol.ItemType{
+				NetworkID:     networkID,
+				MetadataValue: 3,
+			},
+			BlockRuntimeID: 91,
+			Count:          count,
+			NBTData:        map[string]any{"fixture": int32(1)},
+			HasNetworkID:   true,
+		},
 	}
 }
 

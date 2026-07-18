@@ -98,5 +98,33 @@
     "sha256": "a1a626d9b27cd943bc38fbbc356a09ea711ddb26acad72e284dd8dfaff94fbd4",
     "wire_authority": "hashimthearab/gophertunnel",
     "wire_commit": "9948b1729395d2e819fce28e079d4a7bfc67716c"
+  },
+  {
+    "name": "InventoryContent",
+    "file": "inventory_content.bin",
+    "id": 49,
+    "byte_length": 59,
+    "sha256": "7d6580d5b03af31e680c36bc2f2a507d0eac2e56d044d7299e096163a8e6b403"
+  },
+  {
+    "name": "InventorySlot",
+    "file": "inventory_slot.bin",
+    "id": 50,
+    "byte_length": 49,
+    "sha256": "4c8e403d45e7863ccd59eea258d7baea2cf049734fc15cf2180554a67acb72e9"
+  },
+  {
+    "name": "PlayerHotBar",
+    "file": "player_hotbar.bin",
+    "id": 48,
+    "byte_length": 7,
+    "sha256": "67fe723027547cf23f12a97d2e20731cf222670417c11406099fc86077a86f52"
+  },
+  {
+    "name": "ItemStackResponse",
+    "file": "item_stack_response.bin",
+    "id": 148,
+    "byte_length": 42,
+    "sha256": "936ec148613ea0055d7352af4ef40a7a7df839afa17051725e55141e9185a4ec"
   }
 ]
