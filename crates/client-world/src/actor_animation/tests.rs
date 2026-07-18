@@ -24,6 +24,7 @@ fn actor_with_metadata(metadata: HashMap<i32, ActorMetadataValue>) -> ActorSnaps
         previous_pose: pose,
         received_pose: pose,
         interpolation_ticks_remaining: 0,
+        interpolation_witness: None,
         body_yaw: 0.0,
         on_ground: Some(false),
         teleported: false,

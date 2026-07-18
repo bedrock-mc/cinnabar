@@ -73,6 +73,7 @@ fn actor_render_source_uses_only_remote_actor_pose_and_roster_skin() {
             head_yaw: 60.0,
         },
         interpolation_ticks_remaining: 0,
+        interpolation_witness: None,
         body_yaw: 45.0,
         on_ground: Some(true),
         teleported: false,
