@@ -618,6 +618,63 @@ fn captured_f5_cycles_perspective_without_moving_the_local_view() {
 }
 
 #[test]
+fn captured_f5_tap_between_frames_still_cycles_perspective_once() {
+    let mut app = App::new();
+    configure_client_frame_schedule(&mut app);
+    app.init_resource::<Time>()
+        .add_plugins(FlyCameraPlugin::default());
+    app.add_systems(
+        Update,
+        (
+            collect_raw_input.in_set(ClientFrameSet::RawInput),
+            route_semantic_input.in_set(ClientFrameSet::SemanticSample),
+            finalize_semantic_input_after_ui_authority.in_set(ClientFrameSet::SemanticFinalize),
+        ),
+    );
+    app.world_mut().spawn((
+        Window {
+            focused: true,
+            ..default()
+        },
+        CursorOptions {
+            grab_mode: CursorGrabMode::Locked,
+            visible: false,
+            ..default()
+        },
+        PrimaryWindow,
+    ));
+    app.update();
+
+    {
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.press(KeyCode::F5);
+        keys.release(KeyCode::F5);
+    }
+    app.update();
+    assert_eq!(
+        app.world()
+            .resource::<CameraSettingsAuthority>()
+            .perspective(),
+        PerspectiveMode::ThirdPersonBack
+    );
+
+    // Production's input lifecycle clears transient press/release flags at the
+    // next frame boundary. This focused app injects ButtonInput directly, so
+    // reproduce that boundary explicitly before proving the tap cannot repeat.
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .clear();
+    app.update();
+    assert_eq!(
+        app.world()
+            .resource::<CameraSettingsAuthority>()
+            .perspective(),
+        PerspectiveMode::ThirdPersonBack,
+        "the synthetic one-frame tap must not repeat"
+    );
+}
+
+#[test]
 fn replacing_user_settings_updates_the_live_projection() {
     let mut app = App::new();
     app.init_resource::<Time>()
