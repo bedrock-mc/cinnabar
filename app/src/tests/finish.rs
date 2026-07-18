@@ -829,6 +829,7 @@ fn zero_world_admission_still_drains_control_ack_and_leaves_world_fifo_untouched
     let (world_sender, mut world_receiver) = tokio::sync::mpsc::channel(1);
     world_sender
         .try_send(SequencedWorldEvent {
+            session_generation: 7,
             sequence: 1,
             event: WorldEvent::ChunkRadiusUpdated(16),
         })
@@ -850,6 +851,7 @@ fn zero_world_admission_still_drains_control_ack_and_leaves_world_fifo_untouched
     assert!(matches!(
         world_receiver.try_recv(),
         Ok(SequencedWorldEvent {
+            session_generation: 7,
             sequence: 1,
             event: WorldEvent::ChunkRadiusUpdated(16),
         })

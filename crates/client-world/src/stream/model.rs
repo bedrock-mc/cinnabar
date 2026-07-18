@@ -622,6 +622,7 @@ pub(super) enum PreparedWorldEvent {
         duration: Duration,
     },
     Immediate(WorldEvent),
+    CommitOnly,
     NormalizationFailure,
 }
 

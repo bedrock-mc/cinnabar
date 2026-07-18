@@ -34,7 +34,7 @@ use crate::{
         world::{AppWorldState, ClientWorld},
     },
     ui_runtime::{
-        UiRuntime,
+        UiRuntime, UiRuntimeError,
         inventory_router::{EquipmentRoute, EquipmentRouteResult, InventoryRouterError},
     },
 };
@@ -80,7 +80,7 @@ impl ActorFrameClock {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum EquipmentIngress {
     Buffered,
-    LocalSelected,
+    CommitOnly { fifo_sequence: u64 },
     ActorPresentation(Box<session::SequencedWorldEvent>),
 }
 
@@ -92,7 +92,7 @@ pub(crate) fn publish_equipment_identity(
     let routes = runtime
         .publish_local_runtime_id(session_id, runtime_id)?
         .into_iter()
-        .map(|route| consume_equipment_route(runtime, route))
+        .map(|route| consume_equipment_route(runtime, session_id, route))
         .collect();
     Ok(routes)
 }
@@ -101,29 +101,64 @@ pub(crate) fn route_equipment_ingress(
     runtime: &mut UiRuntime,
     sequenced: session::SequencedWorldEvent,
 ) -> Result<EquipmentIngress, InventoryRouterError> {
-    let session_id = runtime.session_id();
+    let session_id = sequenced.session_generation;
     let WorldEvent::Equipment(event) = sequenced.event else {
         unreachable!("equipment routing accepts only equipment world events")
     };
     match runtime.route_equipment(session_id, sequenced.sequence, event)? {
         EquipmentRouteResult::Buffered => Ok(EquipmentIngress::Buffered),
-        EquipmentRouteResult::Routed(route) => Ok(consume_equipment_route(runtime, route)),
+        EquipmentRouteResult::Routed(route) => {
+            Ok(consume_equipment_route(runtime, session_id, route))
+        }
     }
 }
 
-fn consume_equipment_route(runtime: &mut UiRuntime, route: EquipmentRoute) -> EquipmentIngress {
+pub(crate) fn route_inventory_ingress(
+    runtime: &mut UiRuntime,
+    sequenced: session::SequencedWorldEvent,
+) -> Result<u64, UiRuntimeError> {
+    let session::SequencedWorldEvent {
+        session_generation,
+        sequence,
+        event: WorldEvent::Inventory(event),
+    } = sequenced
+    else {
+        unreachable!("inventory routing accepts only inventory world events")
+    };
+    runtime.enqueue_inventory_event(session_generation, sequence, event)?;
+    Ok(sequence)
+}
+
+pub(crate) const fn bootstrap_session_generation_is_expected(
+    ui_session_generation: u64,
+    world_session_generation: u64,
+    incoming_session_generation: u64,
+) -> bool {
+    ui_session_generation == world_session_generation
+        && matches!(
+            world_session_generation.checked_add(1),
+            Some(expected) if expected == incoming_session_generation
+        )
+}
+
+fn consume_equipment_route(
+    runtime: &mut UiRuntime,
+    session_generation: u64,
+    route: EquipmentRoute,
+) -> EquipmentIngress {
     match route {
         EquipmentRoute::LocalSelected {
             fifo_sequence,
             event,
         } => {
             runtime.retain_local_selected_equipment(fifo_sequence, event);
-            EquipmentIngress::LocalSelected
+            EquipmentIngress::CommitOnly { fifo_sequence }
         }
         EquipmentRoute::ActorPresentation {
             fifo_sequence,
             event,
         } => EquipmentIngress::ActorPresentation(Box::new(session::SequencedWorldEvent {
+            session_generation,
             sequence: fifo_sequence,
             event: WorldEvent::Equipment(event),
         })),
@@ -153,10 +188,26 @@ pub(crate) fn receive_network_events(
     for control in controls {
         match control {
             NetworkControlEvent::Bootstrap {
+                session_generation,
                 world: bootstrap,
                 environment,
                 inventory,
             } => {
+                if !bootstrap_session_generation_is_expected(
+                    ui_runtime.session_id(),
+                    clock.session_generation(),
+                    session_generation,
+                ) {
+                    record_fatal_error(
+                        &mut client_world.fatal_error,
+                        format!(
+                            "unexpected StartGame session generation: UI {}, world {}, incoming {session_generation}",
+                            ui_runtime.session_id(),
+                            clock.session_generation()
+                        ),
+                    );
+                    continue;
+                }
                 acknowledgements.clear();
                 info!(
                     runtime_id = bootstrap.local_player_runtime_id,
@@ -171,7 +222,7 @@ pub(crate) fn receive_network_events(
                     environment,
                     time.elapsed_secs_f64(),
                 );
-                ui_runtime.begin_session(clock.session_generation());
+                ui_runtime.begin_session(session_generation);
                 let protocol::InventoryEvent::Authority(authority) = inventory else {
                     record_fatal_error(
                         &mut client_world.fatal_error,
@@ -221,7 +272,7 @@ pub(crate) fn receive_network_events(
                 client_world.stream = Some(stream);
                 let routed = match publish_equipment_identity(
                     &mut ui_runtime,
-                    clock.session_generation(),
+                    session_generation,
                     bootstrap.local_player_runtime_id,
                 ) {
                     Ok(routed) => routed,
@@ -234,17 +285,26 @@ pub(crate) fn receive_network_events(
                     }
                 };
                 for route in routed {
-                    if let EquipmentIngress::ActorPresentation(sequenced) = route {
-                        let sequenced = *sequenced;
-                        if let Some(stream) = client_world.stream.as_mut()
-                            && let Err(error) = stream.submit(sequenced.sequence, sequenced.event)
-                        {
-                            record_fatal_error(
-                                &mut client_world.fatal_error,
-                                format!("world FIFO rejected buffered equipment: {error}"),
-                            );
-                            break;
+                    let result = match route {
+                        EquipmentIngress::ActorPresentation(sequenced) => {
+                            let sequenced = *sequenced;
+                            client_world
+                                .stream
+                                .as_mut()
+                                .map(|stream| stream.submit(sequenced.sequence, sequenced.event))
                         }
+                        EquipmentIngress::CommitOnly { fifo_sequence } => client_world
+                            .stream
+                            .as_mut()
+                            .map(|stream| stream.commit(fifo_sequence)),
+                        EquipmentIngress::Buffered => None,
+                    };
+                    if let Some(Err(error)) = result {
+                        record_fatal_error(
+                            &mut client_world.fatal_error,
+                            format!("world FIFO rejected buffered equipment: {error}"),
+                        );
+                        break;
                     }
                 }
             }
@@ -322,10 +382,35 @@ pub(crate) fn receive_network_events(
         NETWORK_INGRESS_BUDGET_PER_FRAME.min(admission_capacity),
     );
     for sequenced in events {
+        if sequenced.session_generation != ui_runtime.session_id() {
+            record_fatal_error(
+                &mut client_world.fatal_error,
+                format!(
+                    "world ingress crossed a session boundary: expected {}, got {}",
+                    ui_runtime.session_id(),
+                    sequenced.session_generation
+                ),
+            );
+            continue;
+        }
+        let Some(stream) = client_world.stream.as_mut() else {
+            client_world.fatal_error =
+                Some("received world data before StartGame bootstrap".to_owned());
+            continue;
+        };
         let sequenced = if matches!(&sequenced.event, WorldEvent::Equipment(_)) {
             match route_equipment_ingress(&mut ui_runtime, sequenced) {
                 Ok(EquipmentIngress::ActorPresentation(sequenced)) => *sequenced,
-                Ok(EquipmentIngress::Buffered | EquipmentIngress::LocalSelected) => continue,
+                Ok(EquipmentIngress::CommitOnly { fifo_sequence }) => {
+                    if let Err(error) = stream.commit(fifo_sequence) {
+                        record_fatal_error(
+                            &mut client_world.fatal_error,
+                            format!("world FIFO rejected local equipment commit: {error}"),
+                        );
+                    }
+                    continue;
+                }
+                Ok(EquipmentIngress::Buffered) => continue,
                 Err(error) => {
                     record_fatal_error(
                         &mut client_world.fatal_error,
@@ -334,13 +419,26 @@ pub(crate) fn receive_network_events(
                     continue;
                 }
             }
+        } else if matches!(&sequenced.event, WorldEvent::Inventory(_)) {
+            let commit_sequence = match route_inventory_ingress(&mut ui_runtime, sequenced) {
+                Ok(sequence) => sequence,
+                Err(error) => {
+                    record_fatal_error(
+                        &mut client_world.fatal_error,
+                        format!("inventory ingress rejected: {error:?}"),
+                    );
+                    continue;
+                }
+            };
+            if let Err(error) = stream.commit(commit_sequence) {
+                record_fatal_error(
+                    &mut client_world.fatal_error,
+                    format!("world FIFO rejected inventory commit: {error}"),
+                );
+            }
+            continue;
         } else {
             sequenced
-        };
-        let Some(stream) = client_world.stream.as_mut() else {
-            client_world.fatal_error =
-                Some("received world data before StartGame bootstrap".to_owned());
-            continue;
         };
         let observed_at = Instant::now();
         if model_witness_source.configured()

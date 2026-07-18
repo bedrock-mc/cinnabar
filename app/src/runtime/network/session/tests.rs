@@ -27,6 +27,7 @@ use super::{
 #[test]
 fn cloned_network_configs_share_the_persistent_verified_blob_cache() {
     let config = NetworkConfig {
+        session_generation: 7,
         socket_dir: std::path::PathBuf::from("core.sock"),
         display_name: "cache-owner".to_owned(),
         client_blob_cache: protocol::ClientBlobCache::default(),
@@ -171,7 +172,7 @@ async fn cache_stats_are_forwarded_after_cached_world_ingress() {
             inbound: Some(WorldEvent::ChunkRadiusUpdated(16)),
             stats: initial_stats,
         },
-        NetworkSequencer::new(0, 42),
+        NetworkSequencer::new(7, 0, 42),
         command_rx,
         control_event_tx,
         world_event_tx,
@@ -226,7 +227,7 @@ async fn final_cache_telemetry_flushes_after_shutdown_is_already_set() {
             inbound: None,
             stats,
         },
-        NetworkSequencer::new(0, 42),
+        NetworkSequencer::new(7, 0, 42),
         command_rx,
         events,
         world_events,
@@ -279,8 +280,9 @@ async fn final_cache_telemetry_flush_is_bounded_when_control_queue_stays_full() 
 
 #[test]
 fn sequence_is_fifo_and_dimension_changes_apply_to_following_packets() {
-    let mut sequencer = NetworkSequencer::new(2, 42);
+    let mut sequencer = NetworkSequencer::new(7, 2, 42);
     let first = sequencer.wrap(WorldEvent::ChunkRadiusUpdated(16));
+    assert_eq!(first.session_generation, 7);
     assert_eq!(first.sequence, 1);
     assert_eq!(sequencer.current_dimension(), 2);
 
@@ -297,7 +299,7 @@ fn sequence_is_fifo_and_dimension_changes_apply_to_following_packets() {
 
 #[test]
 fn foreign_player_movement_is_routed_to_the_actor_stream() {
-    let mut sequencer = NetworkSequencer::new(0, 42);
+    let mut sequencer = NetworkSequencer::new(7, 0, 42);
     let movement = |runtime_id| {
         WorldEvent::MovePlayer(MovePlayerEvent {
             runtime_id,
@@ -338,7 +340,7 @@ fn foreign_player_movement_is_routed_to_the_actor_stream() {
 #[test]
 fn foreign_move_player_retains_network_origin_for_actor_store_normalization() {
     const SPAWN_FEET_Y: f32 = 64.0;
-    let mut sequencer = NetworkSequencer::new(0, 42);
+    let mut sequencer = NetworkSequencer::new(7, 0, 42);
     let movement = WorldEvent::MovePlayer(MovePlayerEvent {
         runtime_id: 7,
         position: [1.0, SPAWN_FEET_Y + PLAYER_NETWORK_OFFSET, 2.0],
@@ -356,7 +358,7 @@ fn foreign_move_player_retains_network_origin_for_actor_store_normalization() {
 
 #[test]
 fn server_authoritative_correction_bypasses_foreign_player_runtime_filter() {
-    let mut sequencer = NetworkSequencer::new(0, 42);
+    let mut sequencer = NetworkSequencer::new(7, 0, 42);
     let correction = WorldEvent::PlayerMovementCorrection(PlayerMovementCorrectionEvent {
         position: [27.5, 111.0, 91.5],
         delta: [0.0; 3],
@@ -409,6 +411,7 @@ async fn saturated_world_event_channel_does_not_block_request_sent_control_event
     let (world_events, mut world_event_rx) = mpsc::channel(1);
     world_events
         .try_send(SequencedWorldEvent {
+            session_generation: 7,
             sequence: 1,
             event: WorldEvent::ChunkRadiusUpdated(16),
         })
@@ -443,6 +446,7 @@ async fn saturated_world_event_channel_does_not_block_request_sent_control_event
     assert!(matches!(
         world_event_rx.try_recv(),
         Ok(SequencedWorldEvent {
+            session_generation: 7,
             sequence: 1,
             event: WorldEvent::ChunkRadiusUpdated(16),
         })
@@ -470,7 +474,7 @@ async fn chat_send_receipt_is_emitted_only_after_the_session_send_completes() {
             inbound: None,
             inbound_selected: Arc::new(AtomicBool::new(false)),
         },
-        NetworkSequencer::new(0, 42),
+        NetworkSequencer::new(7, 0, 42),
         command_rx,
         control_event_tx,
         world_event_tx,
@@ -506,7 +510,7 @@ async fn chat_send_failure_identifies_the_exact_outbox_item() {
     let (_shutdown, shutdown_rx) = watch::channel(false);
     run_network_pump(
         FailingSendSession,
-        NetworkSequencer::new(0, 42),
+        NetworkSequencer::new(7, 0, 42),
         command_rx,
         control_event_tx,
         world_event_tx,
@@ -534,6 +538,7 @@ async fn single_worker_acks_ready_command_while_ready_inbound_waits_on_full_worl
     for sequence in 1..=WORLD_EVENT_CAPACITY as u64 {
         world_event_tx
             .try_send(SequencedWorldEvent {
+                session_generation: 7,
                 sequence,
                 event: WorldEvent::ChunkRadiusUpdated(sequence as i32),
             })
@@ -567,7 +572,7 @@ async fn single_worker_acks_ready_command_while_ready_inbound_waits_on_full_worl
             inbound: Some(WorldEvent::ChunkRadiusUpdated(99)),
             inbound_selected: Arc::clone(&inbound_selected),
         },
-        NetworkSequencer::new(0, 42),
+        NetworkSequencer::new(7, 0, 42),
         command_rx,
         control_event_tx,
         world_event_tx,
@@ -628,6 +633,7 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
 
     for event in [
         NetworkControlEvent::Bootstrap {
+            session_generation: 7,
             world: bootstrap,
             environment,
             inventory: InventoryEvent::Authority(InventoryAuthority::Server),
@@ -647,6 +653,7 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
             &world_events,
             &mut shutdown_rx,
             SequencedWorldEvent {
+                session_generation: 7,
                 sequence: 9,
                 event: WorldEvent::ChunkRadiusUpdated(16),
             },
@@ -659,6 +666,7 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
     assert!(matches!(
         control_event_rx.try_recv(),
         Ok(NetworkControlEvent::Bootstrap {
+            session_generation: 7,
             world,
             environment: value,
             inventory: InventoryEvent::Authority(InventoryAuthority::Server),
@@ -680,6 +688,7 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
     assert!(matches!(
         world_event_rx.try_recv(),
         Ok(SequencedWorldEvent {
+            session_generation: 7,
             sequence: 9,
             event: WorldEvent::ChunkRadiusUpdated(16),
         })
@@ -875,6 +884,7 @@ fn network_pending_counts_include_ingress_and_outbound_queues() {
     assert_eq!(handle.pending_event_count(), 1);
     world_event_tx
         .try_send(SequencedWorldEvent {
+            session_generation: 7,
             sequence: 1,
             event: WorldEvent::ChunkRadiusUpdated(16),
         })

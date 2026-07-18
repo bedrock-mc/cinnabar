@@ -180,6 +180,41 @@ impl WorldStream {
             job,
         });
     }
+    /// Commits an app-owned event's position in the shared network FIFO
+    /// without duplicating that event in world-owned state.
+    pub fn commit(&mut self, sequence: u64) -> Result<(), WorldStreamError> {
+        if sequence < self.ordered.next_sequence() || self.submitted.contains(&sequence) {
+            return Err(SequenceError::DuplicateOrPast {
+                sequence,
+                next: self.ordered.next_sequence(),
+            }
+            .into());
+        }
+        let retained_commits = self
+            .committed_controls
+            .len()
+            .saturating_add(self.committed_ui.len());
+        if self.submitted.len() >= MAX_ADMITTED_WORLD_EVENTS.saturating_sub(retained_commits) {
+            return Err(WorldStreamError::AdmissionFull {
+                sequence,
+                admitted: self.submitted.len(),
+                capacity: MAX_ADMITTED_WORLD_EVENTS,
+                heavy_admitted: self.heavy_sequences.len(),
+                heavy_capacity: MAX_ADMITTED_HEAVY_EVENTS,
+            });
+        }
+        self.submitted.insert(sequence);
+        if let Err(error) = self
+            .ordered
+            .insert(sequence, PreparedWorldEvent::CommitOnly)
+        {
+            self.submitted.remove(&sequence);
+            return Err(error.into());
+        }
+        self.apply_ready();
+        Ok(())
+    }
+
     pub fn submit(&mut self, sequence: u64, event: WorldEvent) -> Result<(), WorldStreamError> {
         if sequence < self.ordered.next_sequence() || self.submitted.contains(&sequence) {
             return Err(SequenceError::DuplicateOrPast {

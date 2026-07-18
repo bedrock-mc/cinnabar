@@ -347,6 +347,7 @@ impl WorldStream {
                 }
             }
             PreparedWorldEvent::Immediate(event) => self.apply_immediate(event, sequence),
+            PreparedWorldEvent::CommitOnly => {}
             PreparedWorldEvent::NormalizationFailure => {
                 self.record_normalization_error(NormalizationErrorReason::EmptySubChunkBatch);
             }

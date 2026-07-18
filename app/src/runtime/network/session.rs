@@ -20,6 +20,7 @@ const FINAL_CONTROL_FLUSH_TIMEOUT: Duration = Duration::from_millis(250);
 
 #[derive(Debug, Clone)]
 pub struct NetworkConfig {
+    pub session_generation: u64,
     pub socket_dir: PathBuf,
     pub display_name: String,
     /// Verified blobs outlive a Play session; each login creates a fresh resolver around this cache.
@@ -29,6 +30,7 @@ pub struct NetworkConfig {
 #[derive(Debug)]
 pub enum NetworkControlEvent {
     Bootstrap {
+        session_generation: u64,
         world: WorldBootstrap,
         environment: WorldEnvironmentBootstrap,
         inventory: InventoryEvent,
@@ -63,6 +65,7 @@ pub enum NetworkControlEvent {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SequencedWorldEvent {
+    pub session_generation: u64,
     pub sequence: u64,
     pub event: WorldEvent,
 }
@@ -236,6 +239,7 @@ impl Drop for NetworkHandle {
 }
 
 pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Error> {
+    let session_generation = config.session_generation;
     let (control_event_tx, control_events) = mpsc::channel(CONTROL_EVENT_CAPACITY);
     let (world_event_tx, world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
     let (commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
@@ -292,6 +296,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                     &control_event_tx,
                     &mut shutdown_rx,
                     NetworkControlEvent::Bootstrap {
+                        session_generation,
                         world: bootstrap,
                         environment,
                         inventory,
@@ -301,8 +306,11 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                 {
                     return;
                 }
-                let sequencer =
-                    NetworkSequencer::new(bootstrap.dimension, bootstrap.local_player_runtime_id);
+                let sequencer = NetworkSequencer::new(
+                    session_generation,
+                    bootstrap.dimension,
+                    bootstrap.local_player_runtime_id,
+                );
                 run_network_pump(
                     session,
                     sequencer,
@@ -753,14 +761,20 @@ async fn send_event_or_cancel<T>(
 
 #[derive(Debug, Clone, Copy)]
 struct NetworkSequencer {
+    session_generation: u64,
     next_sequence: u64,
     current_dimension: i32,
     local_player_runtime_id: u64,
 }
 
 impl NetworkSequencer {
-    const fn new(current_dimension: i32, local_player_runtime_id: u64) -> Self {
+    const fn new(
+        session_generation: u64,
+        current_dimension: i32,
+        local_player_runtime_id: u64,
+    ) -> Self {
         Self {
+            session_generation,
             next_sequence: 1,
             current_dimension,
             local_player_runtime_id,
@@ -797,7 +811,11 @@ impl NetworkSequencer {
         if let WorldEvent::ChangeDimension(change) = &event {
             self.current_dimension = change.dimension;
         }
-        SequencedWorldEvent { sequence, event }
+        SequencedWorldEvent {
+            session_generation: self.session_generation,
+            sequence,
+            event,
+        }
     }
 }
 

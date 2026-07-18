@@ -175,6 +175,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     );
 
     let network = spawn_network(NetworkConfig {
+        session_generation: 1,
         socket_dir,
         display_name: args.display_name.clone(),
         client_blob_cache: protocol::ClientBlobCache::default(),

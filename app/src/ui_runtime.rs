@@ -23,8 +23,8 @@ use bevy::{
 };
 use protocol::{
     ActorAttribute, BlockCrackEvent, ChatAutocompleteCatalog, ChatAutocompleteCatalogError,
-    ChatPacketError, EquipmentEvent, HudEvent, InventoryAuthority, Packet, PlayerStatus, TextEvent,
-    TextKind, TitleAction, TitleEvent, UiEvent, chat_text_packet,
+    ChatPacketError, EquipmentEvent, HudEvent, InventoryAuthority, InventoryEvent, Packet,
+    PlayerStatus, TextEvent, TextKind, TitleAction, TitleEvent, UiEvent, chat_text_packet,
 };
 use semantic_input::InputContext;
 use ui::{
@@ -38,6 +38,7 @@ use ui::{
 use self::inventory_router::{EquipmentRoute, InventoryEquipmentRouter, InventoryRouterError};
 
 pub const MAX_PENDING_BLOCK_CRACK_EVENTS: usize = 1_024;
+pub const MAX_PENDING_INVENTORY_EVENTS: usize = 1_024;
 const MAX_PENDING_CHAT_SENDS: usize = 32;
 const MAX_CHAT_SENDS_PER_WINDOW: usize = 5;
 const CHAT_RATE_WINDOW_MILLIS: u64 = 2_000;
@@ -100,6 +101,13 @@ pub struct SequencedLocalEquipment {
     pub event: EquipmentEvent,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SequencedInventoryEvent {
+    pub session_generation: u64,
+    pub fifo_sequence: u64,
+    pub event: InventoryEvent,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum UiApplyOutcome {
     Applied,
@@ -112,6 +120,7 @@ pub enum UiRuntimeError {
     StaleFifoSequence { previous: u64, actual: u64 },
     StaleBlockCrackSequence { previous: u64, actual: u64 },
     BlockCrackQueueFull { maximum: usize },
+    InventoryQueueFull { maximum: usize },
     NonMonotonicLocalTime { previous: u64, actual: u64 },
     NonMonotonicServerTick { previous: u64, actual: u64 },
     InvalidTitleDurations,
@@ -161,6 +170,8 @@ pub struct UiRuntime {
     dropped_unsent_chat_messages: u64,
     pending_block_cracks: VecDeque<SequencedBlockCrackEvent>,
     inventory_authority: Option<InventoryAuthority>,
+    last_inventory_sequence: Option<u64>,
+    pending_inventory: VecDeque<SequencedInventoryEvent>,
     equipment_router: InventoryEquipmentRouter,
     local_selected_equipment: Option<SequencedLocalEquipment>,
 }
@@ -195,6 +206,8 @@ impl UiRuntime {
             dropped_unsent_chat_messages: 0,
             pending_block_cracks: VecDeque::with_capacity(MAX_PENDING_BLOCK_CRACK_EVENTS),
             inventory_authority: None,
+            last_inventory_sequence: None,
+            pending_inventory: VecDeque::with_capacity(MAX_PENDING_INVENTORY_EVENTS),
             equipment_router: InventoryEquipmentRouter::new(session_id),
             local_selected_equipment: None,
         }
@@ -214,6 +227,44 @@ impl UiRuntime {
 
     pub(crate) fn publish_inventory_authority(&mut self, authority: InventoryAuthority) {
         self.inventory_authority = Some(authority);
+    }
+
+    pub(crate) fn enqueue_inventory_event(
+        &mut self,
+        session_generation: u64,
+        fifo_sequence: u64,
+        event: InventoryEvent,
+    ) -> Result<(), UiRuntimeError> {
+        if session_generation != self.session_id {
+            return Err(UiRuntimeError::WrongSession {
+                expected: self.session_id,
+                actual: session_generation,
+            });
+        }
+        if let Some(previous) = self.last_inventory_sequence
+            && fifo_sequence <= previous
+        {
+            return Err(UiRuntimeError::StaleFifoSequence {
+                previous,
+                actual: fifo_sequence,
+            });
+        }
+        if self.pending_inventory.len() >= MAX_PENDING_INVENTORY_EVENTS {
+            return Err(UiRuntimeError::InventoryQueueFull {
+                maximum: MAX_PENDING_INVENTORY_EVENTS,
+            });
+        }
+        self.pending_inventory.push_back(SequencedInventoryEvent {
+            session_generation,
+            fifo_sequence,
+            event,
+        });
+        self.last_inventory_sequence = Some(fifo_sequence);
+        Ok(())
+    }
+
+    pub fn pop_inventory_event(&mut self) -> Option<SequencedInventoryEvent> {
+        self.pending_inventory.pop_front()
     }
 
     pub(crate) fn publish_local_runtime_id(
@@ -509,6 +560,8 @@ impl UiRuntime {
             .saturating_add(dropped as u64);
         self.pending_block_cracks.clear();
         self.inventory_authority = None;
+        self.last_inventory_sequence = None;
+        self.pending_inventory.clear();
         self.equipment_router.begin_session(session_id);
         self.local_selected_equipment = None;
     }
