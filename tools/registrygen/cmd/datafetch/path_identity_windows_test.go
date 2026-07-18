@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -13,18 +14,30 @@ func TestRequireRealDirectoryAcceptsEquivalentShortPath(t *testing.T) {
 	if err := os.Mkdir(longPath, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	command := `for %I in ("` + longPath + `") do @echo %~sI`
-	output, err := exec.Command("cmd.exe", "/d", "/c", command).Output()
-	if err != nil {
-		t.Fatalf("resolve short path: %v", err)
-	}
-	shortPath := strings.TrimSpace(string(output))
+	shortPath := windowsShortPath(t, longPath)
 	if shortPath == "" || strings.EqualFold(shortPath, longPath) || !strings.Contains(shortPath, "~") {
 		t.Skip("8.3 short path aliases are unavailable on this volume")
 	}
 	if err := requireRealDirectory(shortPath); err != nil {
 		t.Fatalf("equivalent short path was rejected: %v", err)
 	}
+}
+
+func windowsShortPath(t *testing.T, path string) string {
+	t.Helper()
+	longPath, err := syscall.UTF16PtrFromString(path)
+	if err != nil {
+		t.Fatalf("encode long path: %v", err)
+	}
+	buffer := make([]uint16, 32_768)
+	written, err := syscall.GetShortPathName(longPath, &buffer[0], uint32(len(buffer)))
+	if err != nil {
+		t.Fatalf("resolve short path: %v", err)
+	}
+	if written == 0 || written >= uint32(len(buffer)) {
+		t.Fatalf("resolve short path returned invalid length %d", written)
+	}
+	return syscall.UTF16ToString(buffer[:written])
 }
 
 func TestRequireRealDirectoryAcceptsVolumeRoot(t *testing.T) {
