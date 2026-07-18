@@ -13,10 +13,6 @@ $script:AcceptanceExecutionPhase = {
             started_utc = [DateTime]::UtcNow.ToString('o')
             repo_commit = $repoCommit
             pinned_gophertunnel_commit = $PinnedGophertunnelCommit
-            protocol_dependency_resolution = 'vendored-path'
-            pinned_valentine_fork_commit = $PinnedValentineForkCommit
-            pinned_valentine_upstream_commit = $PinnedValentineUpstreamCommit
-            pinned_valentine_license_sha256 = $PinnedValentineLicenseSha256
             bds_source = $BdsDir
             bds_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $BdsSourceExecutable).Hash.ToLowerInvariant()
             duration_seconds = $DurationSeconds
@@ -40,6 +36,7 @@ $script:AcceptanceExecutionPhase = {
             gpu = Get-OptionalCimValue 'Win32_VideoController' 'Name'
             display = Get-OptionalCimValue 'Win32_VideoController' 'VideoModeDescription'
         }
+        $metadata += (Get-ProtocolDependencyProvenanceMetadata)
         if ($null -ne $sourceWorldIdentity) {
             $metadata['source_world_identity'] = $sourceWorldIdentity
         }

@@ -167,6 +167,15 @@ function Assert-ProtocolDependencyProvenance {
     return $ExpectedForkRevision
 }
 
+function Get-ProtocolDependencyProvenanceMetadata {
+    return [ordered]@{
+        protocol_dependency_resolution = 'vendored-path'
+        pinned_valentine_fork_commit = $PinnedValentineForkCommit
+        pinned_valentine_upstream_commit = $PinnedValentineUpstreamCommit
+        pinned_valentine_license_sha256 = $PinnedValentineLicenseSha256
+    }
+}
+
 function ConvertFrom-GalleryAnchorReadyMarker {
     param([Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Line)
 
