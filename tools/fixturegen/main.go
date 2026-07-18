@@ -225,6 +225,39 @@ func fixtures() []fixture {
 			},
 		},
 		{
+			name: "TextObjectRawText",
+			file: "text_object_rawtext.bin",
+			pk: &packet.Text{
+				TextType:         packet.TextTypeObject,
+				Message:          `{"rawtext":[{"text":"\u00a7aLBSG "},{"rawtext":[{"text":"human chat"}]}]}`,
+				XUID:             "",
+				PlatformChatID:   "",
+				NeedsTranslation: false,
+			},
+		},
+		{
+			name: "TextObjectWhisperRawText",
+			file: "text_object_whisper_rawtext.bin",
+			pk: &packet.Text{
+				TextType:         packet.TextTypeObjectWhisper,
+				Message:          `{"rawtext":[{"text":"private "},{"translate":"chat.type.text","with":["Alice",{"rawtext":[{"text":"hello"}]}]}]}`,
+				XUID:             "",
+				PlatformChatID:   "",
+				NeedsTranslation: false,
+			},
+		},
+		{
+			name: "TextObjectAnnouncementRawText",
+			file: "text_object_announcement_rawtext.bin",
+			pk: &packet.Text{
+				TextType:         packet.TextTypeObjectAnnouncement,
+				Message:          `{"rawtext":[{"text":"Announcement"}]}`,
+				XUID:             "",
+				PlatformChatID:   "",
+				NeedsTranslation: false,
+			},
+		},
+		{
 			name: "SetTitle",
 			file: "set_title.bin",
 			pk: &packet.SetTitle{
