@@ -4,9 +4,10 @@ use assets::EntityRigFallback;
 use client_world::{ActorRigSnapshot, ActorSnapshot, PlayerProfile};
 use protocol::{ActorKind, PlayerSkin};
 use render::{
-    ActorCullView, ActorRenderIdentity, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission,
-    ActorSkinPixels, EntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform,
-    actor_rig_submission_is_visible, default_actor_skin_rgba8, normalize_actor_skin,
+    ActorCullView, ActorRenderFrame, ActorRenderIdentity, ActorRenderScene, ActorRigRenderInput,
+    ActorRigRoute, ActorRigSubmission, ActorSkinPixels, EntityRigId, MAX_RENDERED_PLAYERS,
+    RenderBoneTransform, actor_rig_submission_is_visible, default_actor_skin_rgba8,
+    normalize_actor_skin,
 };
 
 #[derive(Clone, Debug)]
@@ -19,6 +20,18 @@ pub(crate) struct ActorRigPresentation {
 pub(crate) struct ActorPresentationBatch {
     pub(crate) submissions: Vec<ActorRigSubmission>,
     pub(crate) skins_rgba8: Arc<[u8]>,
+}
+
+pub(crate) fn update_actor_rig_scene(
+    scene: &mut ActorRenderScene,
+    partial_tick: f32,
+    batch: ActorPresentationBatch,
+) -> &ActorRenderFrame {
+    // The app adapter has already applied the renderer's exact culling helper
+    // to remotes before enforcing capacity. Passing no second cull view keeps
+    // Phase 3's visible local reservation unconditional in both third-person
+    // modes while the render-owned builder still validates every other field.
+    scene.update_rigs(partial_tick, None, batch.submissions, batch.skins_rgba8)
 }
 
 pub(crate) fn actor_rig_presentation(
@@ -192,9 +205,7 @@ pub(crate) fn select_actor_presentations_for_view(
         .filter(|local| local.submission.input.identity.runtime_id == local_runtime_id);
     let mut selected = Vec::with_capacity(MAX_RENDERED_PLAYERS);
     let mut drawable_count = 0usize;
-    if let Some(local) = local
-        && actor_rig_submission_is_visible(&local.submission, view)
-    {
+    if let Some(local) = local {
         drawable_count = 1;
         selected.push(local);
     }
