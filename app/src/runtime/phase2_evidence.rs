@@ -38,6 +38,7 @@ fn combined_snapshot_json(snapshot: CombinedPhase2Snapshot) -> Value {
         "client_blob_cache": blob_cache_json(snapshot.client_blob_cache),
         "publication": {
             "session_generation": publication.session_generation,
+            "publisher_epoch": publication.publisher_epoch,
             "player_column": {
                 "dimension": publication.player_column.dimension,
                 "x": publication.player_column.x,
@@ -48,6 +49,7 @@ fn combined_snapshot_json(snapshot: CombinedPhase2Snapshot) -> Value {
             "required_cohort_hash": format!("{:016x}", publication.required_cohort_hash),
             "required_columns": publication.required_columns,
             "loaded_required_columns": publication.loaded_required_columns,
+            "required_cohort_stable": publication.required_cohort_stable,
             "stages": stage_counters_json(publication.stages),
             "outcomes": outcomes_json(publication.outcomes),
             "max_queue_wait_us": durations_json(publication.max_queue_wait),
@@ -141,6 +143,8 @@ fn duration_micros(duration: std::time::Duration) -> u64 {
 fn cohort_json(identity: CohortManifestIdentity) -> Value {
     json!({
         "session_generation": identity.session_generation,
+        "publisher_epoch": identity.publisher_epoch,
+        "required_cohort_count": identity.required_cohort_count,
         "required_cohort_hash": format!("{:016x}", identity.required_cohort_hash),
         "generation_manifest_hash": format!("{:016x}", identity.generation_manifest_hash),
         "entry_count": identity.entry_count,
@@ -167,6 +171,8 @@ pub(crate) fn present_mode_identity(mode: &str) -> PresentModeIdentity {
 
 pub(crate) fn cohort_identity(
     session_generation: u64,
+    publisher_epoch: u64,
+    required_cohort_count: usize,
     required_cohort_hash: u64,
     stage_generation: u64,
     digest: Option<render::VisibilityKeyDigest>,
@@ -174,12 +180,16 @@ pub(crate) fn cohort_identity(
     digest.map_or(
         CohortManifestIdentity {
             session_generation,
+            publisher_epoch,
+            required_cohort_count,
             required_cohort_hash,
             generation_manifest_hash: 0,
             entry_count: 0,
         },
         |digest| CohortManifestIdentity {
             session_generation,
+            publisher_epoch,
+            required_cohort_count,
             required_cohort_hash,
             generation_manifest_hash: stage_generation ^ digest.hash,
             entry_count: usize::try_from(digest.count).unwrap_or(usize::MAX),
@@ -189,11 +199,15 @@ pub(crate) fn cohort_identity(
 
 pub(crate) fn generation_manifest_identity(
     session_generation: u64,
+    publisher_epoch: u64,
+    required_cohort_count: usize,
     required_cohort_hash: u64,
     manifest: &[(world::SubChunkKey, u64)],
 ) -> CohortManifestIdentity {
     CohortManifestIdentity {
         session_generation,
+        publisher_epoch,
+        required_cohort_count,
         required_cohort_hash,
         generation_manifest_hash: crate::metrics::deterministic_manifest_hash(manifest),
         entry_count: manifest.len(),

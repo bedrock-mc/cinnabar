@@ -111,6 +111,7 @@ fn exact_destination_status() -> ViewCohortStatus {
     ViewCohortStatus {
         target: DESTINATION_COHORT,
         committed: Some(DESTINATION_COHORT),
+        publisher_epoch: 1,
         expected: 797,
         required_hash: 0x9abc,
         loaded_target: 797,
@@ -252,6 +253,7 @@ fn binding_teleport_completion(
         .unwrap()
 }
 
+mod cohort_epoch;
 mod core;
 mod finish;
 mod inventory;

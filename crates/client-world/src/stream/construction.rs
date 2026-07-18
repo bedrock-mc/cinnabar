@@ -167,6 +167,8 @@ impl WorldStream {
             publisher_radius_blocks: None,
             publisher_radius_chunks: None,
             committed_view_cohort: None,
+            publisher_epoch: 0,
+            required_columns: BTreeSet::new(),
             source_columns: BTreeSet::new(),
             source_capture_sequence: None,
             chunk_radius: None,

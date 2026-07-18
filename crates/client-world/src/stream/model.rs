@@ -16,7 +16,7 @@ pub(super) struct CorrelatedSubChunkAttempts {
     pub(super) confirmed_attempts: u8,
 }
 
-/// Exact block-space identity for a server publisher view.
+/// Raw block-space witness for a server publisher view.
 ///
 /// The containing chunk and ceiling chunk radius remain on [`ViewCohort`] for
 /// bounded retention. This identity preserves values that would otherwise be
@@ -30,10 +30,10 @@ pub struct PublisherViewGeometry {
 /// One horizontal view cohort with separate required and retention geometry.
 ///
 /// `center` and `radius` define the enclosing Chebyshev retention square in
-/// chunk columns. Publisher-created cohorts additionally retain their exact
-/// block-space identity; their required columns are the Euclidean disk whose
-/// chunk-to-chunk spacing is sixteen blocks. Manually constructed cohorts keep
-/// the legacy Euclidean chunk-radius disk.
+/// chunk columns. Publisher-created cohorts additionally retain the raw wire
+/// witness, but the protocol does not define an enumerable universal column
+/// set from that witness. Required membership is recorded separately from
+/// unique request-mode `LevelChunk` announcements in the publisher epoch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ViewCohort {
     pub dimension: i32,
@@ -64,30 +64,28 @@ impl ViewCohort {
             && i64::from(column[1]).abs_diff(i64::from(self.center[1])) <= self.radius.max(0) as u64
     }
 
+    /// Returns a static diagnostic classifier, never publisher readiness.
+    ///
+    /// Manually constructed cohorts use the legacy Euclidean chunk disk.
+    /// Publisher witnesses use Dragonfly's attributable `distance < r - 0.5`
+    /// policy; other servers may announce a different set.
     #[must_use]
-    pub fn expected_columns(self) -> BTreeSet<ChunkKey> {
+    pub fn classifier_columns(self) -> BTreeSet<ChunkKey> {
         let radius = self.radius.max(0);
-        let radius_blocks = self.publisher_geometry.map_or_else(
-            || u64::try_from(radius).unwrap_or_default(),
-            |geometry| u64::from(geometry.radius_blocks),
+        let doubled_limit = self.publisher_geometry.map_or_else(
+            || i64::from(radius).saturating_mul(2),
+            |_| i64::from(radius).saturating_mul(2).saturating_sub(1),
         );
-        let chunk_stride = if self.publisher_geometry.is_some() {
-            16
-        } else {
-            1
-        };
         (-radius..=radius)
             .flat_map(|x_offset| {
                 (-radius..=radius)
                     .filter(move |z_offset| {
-                        let x = i64::from(x_offset)
-                            .unsigned_abs()
-                            .saturating_mul(chunk_stride);
-                        let z = i64::from(*z_offset)
-                            .unsigned_abs()
-                            .saturating_mul(chunk_stride);
+                        let x = i64::from(x_offset).unsigned_abs().saturating_mul(2);
+                        let z = i64::from(*z_offset).unsigned_abs().saturating_mul(2);
                         x.saturating_mul(x).saturating_add(z.saturating_mul(z))
-                            <= radius_blocks.saturating_mul(radius_blocks)
+                            <= doubled_limit
+                                .unsigned_abs()
+                                .saturating_mul(doubled_limit.unsigned_abs())
                     })
                     .map(move |z_offset| {
                         ChunkKey::new(
@@ -106,6 +104,7 @@ impl ViewCohort {
 pub struct ViewCohortStatus {
     pub target: ViewCohort,
     pub committed: Option<ViewCohort>,
+    pub publisher_epoch: u64,
     pub expected: usize,
     pub required_hash: u64,
     pub loaded_target: usize,
@@ -124,6 +123,7 @@ impl ViewCohortStatus {
     #[must_use]
     pub fn is_exact(self) -> bool {
         self.committed == Some(self.target)
+            && self.expected != 0
             && self.loaded_target == self.expected
             && self.missing_target == 0
             && self.foreign_loaded == 0

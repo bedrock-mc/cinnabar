@@ -45,6 +45,8 @@ fn phase2_identity_carriers_are_fixed_size_and_fully_qualified() {
 
     let cohort = CohortManifestIdentity {
         session_generation: 7,
+        publisher_epoch: 9,
+        required_cohort_count: 17,
         required_cohort_hash: 11,
         generation_manifest_hash: 13,
         entry_count: 17,
@@ -63,6 +65,8 @@ fn phase2_identity_carriers_are_fixed_size_and_fully_qualified() {
         gpu_presented: cohort,
     };
     assert_eq!(presentation.publisher_disk.session_generation, 7);
+    assert_eq!(presentation.publisher_disk.publisher_epoch, 9);
+    assert_eq!(presentation.publisher_disk.required_cohort_count, 17);
     assert_eq!(presentation.publisher_disk.required_cohort_hash, 11);
     assert_eq!(presentation.graphics_identity_sha256, [19; 32]);
     assert_eq!(presentation.assets_manifest_sha256, [23; 32]);
@@ -136,14 +140,24 @@ fn publication_snapshot_separates_every_stage_and_subchunk_outcome() {
         }),
         None,
     );
+    let publisher = stream
+        .committed_view_cohort
+        .expect("publisher update commits a cohort");
+    stream.required_columns = super::ViewCohort {
+        publisher_geometry: None,
+        ..publisher
+    }
+    .classifier_columns();
 
     let snapshot = stream.phase2_publication_snapshot(keys[0].chunk());
     assert_eq!(snapshot.session_generation, stream.actor_session_id());
     assert_eq!(snapshot.player_column, keys[0].chunk());
     assert_eq!(snapshot.publisher_radius_blocks, Some(16));
     assert_eq!(snapshot.publisher_radius_chunks, Some(1));
+    assert_eq!(snapshot.publisher_epoch, 1);
     assert_eq!(snapshot.required_columns, 5);
     assert_eq!(snapshot.loaded_required_columns, 1);
+    assert!(!snapshot.required_cohort_stable);
     assert_eq!(snapshot.outcomes.success, 1);
     assert_eq!(snapshot.outcomes.all_air, 1);
     assert_eq!(snapshot.outcomes.unavailable, 1);

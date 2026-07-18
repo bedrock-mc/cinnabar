@@ -179,6 +179,7 @@ impl AcceptanceRun {
         status.is_exact()
             && self.mutation_cohort.is_some_and(|frozen| {
                 frozen.target == status.target
+                    && frozen.publisher_epoch == status.publisher_epoch
                     && frozen.expected == status.expected
                     && frozen.required_hash == status.required_hash
             })

@@ -12,7 +12,15 @@ impl WorldStream {
         self.source_capture_sequence = Some(sequence);
     }
     pub fn cohort_status(&self, target: ViewCohort) -> ViewCohortStatus {
-        let expected_columns = target.expected_columns();
+        let expected_columns = if self.committed_view_cohort == Some(target) {
+            if target.publisher_geometry.is_some() {
+                self.required_columns.clone()
+            } else {
+                target.classifier_columns()
+            }
+        } else {
+            BTreeSet::new()
+        };
         let loaded_target = self.loaded_columns.intersection(&expected_columns).count();
         let missing_target = expected_columns.difference(&self.loaded_columns).count();
         let foreign_loaded = self
@@ -44,6 +52,7 @@ impl WorldStream {
         ViewCohortStatus {
             target,
             committed: self.committed_view_cohort,
+            publisher_epoch: self.publisher_epoch,
             expected: expected_columns.len(),
             required_hash: deterministic_chunk_key_hash(&expected_columns),
             loaded_target,

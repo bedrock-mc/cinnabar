@@ -15,6 +15,8 @@ use render::VisibilityKeyDigest;
 fn combined_snapshot() -> CombinedPhase2Snapshot {
     let cohort = CohortManifestIdentity {
         session_generation: 7,
+        publisher_epoch: 9,
+        required_cohort_count: 1_089,
         required_cohort_hash: 11,
         generation_manifest_hash: 13,
         entry_count: 17,
@@ -22,12 +24,14 @@ fn combined_snapshot() -> CombinedPhase2Snapshot {
     CombinedPhase2Snapshot {
         publication: Phase2PublicationSnapshot {
             session_generation: 7,
+            publisher_epoch: 9,
             player_column: ChunkKey::new(0, 4, -2),
             publisher_radius_blocks: Some(256),
             publisher_radius_chunks: Some(16),
             required_cohort_hash: 11,
             required_columns: 1_089,
             loaded_required_columns: 1_089,
+            required_cohort_stable: true,
             stages: PublicationStageCounters::default(),
             outcomes: SubChunkOutcomeCounters::default(),
             max_queue_wait: StageDurations::default(),
@@ -68,6 +72,8 @@ fn phase2_publication_emits_once_per_changed_combined_identity() {
     assert!(first.starts_with("PHASE2_PUBLICATION={"));
     assert!(first.contains("\"publisher_radius_blocks\":256"));
     assert!(first.contains("\"publisher_radius_chunks\":16"));
+    assert!(first.contains("\"publisher_epoch\":9"));
+    assert!(first.contains("\"required_cohort_stable\":true"));
     assert!(first.contains("\"graphics_identity_sha256\":\"030303"));
     assert!(first.contains("\"client_blob_cache_enabled\":true"));
     assert!(first.contains("\"hashes_classified\":7"));
@@ -108,15 +114,27 @@ fn phase2_identity_helpers_preserve_exact_hashes_and_mark_missing_digests() {
     assert_ne!(sha256_identity_from_hex_or_text("diagnostic"), [0; 32]);
 
     assert_eq!(
-        cohort_identity(7, 11, 19, Some(VisibilityKeyDigest { count: 3, hash: 5 })),
+        cohort_identity(
+            7,
+            9,
+            1_089,
+            11,
+            19,
+            Some(VisibilityKeyDigest { count: 3, hash: 5 }),
+        ),
         CohortManifestIdentity {
             session_generation: 7,
+            publisher_epoch: 9,
+            required_cohort_count: 1_089,
             required_cohort_hash: 11,
             generation_manifest_hash: 19 ^ 5,
             entry_count: 3,
         }
     );
-    assert_eq!(cohort_identity(7, 11, 19, None).generation_manifest_hash, 0);
+    assert_eq!(
+        cohort_identity(7, 9, 1_089, 11, 19, None).generation_manifest_hash,
+        0
+    );
 }
 
 #[test]
@@ -140,7 +158,7 @@ fn phase2_generation_manifest_identity_is_order_independent() {
     let first = (world::SubChunkKey::new(0, 1, 2, 3), 7);
     let second = (world::SubChunkKey::new(0, -4, 5, 6), 9);
     assert_eq!(
-        generation_manifest_identity(11, 13, &[first, second]),
-        generation_manifest_identity(11, 13, &[second, first])
+        generation_manifest_identity(11, 12, 749, 13, &[first, second]),
+        generation_manifest_identity(11, 12, 749, 13, &[second, first])
     );
 }
