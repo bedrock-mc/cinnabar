@@ -35,14 +35,15 @@ use world::{
     solve_light,
 };
 
-use super::actor_animation::{ActorAnimationStats, ActorRigSnapshot};
-use super::actor_store::{ActorSnapshot, ActorStore, PlayerProfile};
+use super::actor_animation::{ActorAnimationStats, ActorLifetimeId, ActorRigSnapshot};
+use super::actor_store::{ActorApplyResult, ActorPose, ActorSnapshot, ActorStore, PlayerProfile};
 use super::block_entity_visuals::{
     BackingBlockIdentity, BlockEntityVisualDiagnostics, adjudicate_block_entity_visual,
 };
 use super::server_position::{ResolvedServerPosition, resolve_server_position};
 use super::{ActorEquipmentSnapshot, RemoteActionSnapshot, RemoteActionStats};
 
+mod actor_witness;
 mod block_entities;
 mod cohort;
 mod connectivity;
@@ -67,6 +68,7 @@ use helpers::*;
 use lighting::types::*;
 use meshing::types::*;
 
+pub use actor_witness::{COMMITTED_ACTOR_MOVE_CAPACITY, CommittedActorMove, CommittedActorPose};
 pub use diagnostics::{
     BuildProfileIdentity, CohortManifestIdentity, Phase2PresentationSnapshot,
     Phase2PublicationSnapshot, PresentModeIdentity, PublicationStageCounters, RequestClass,
@@ -171,6 +173,8 @@ pub struct WorldStream {
     mesh_changes: VecDeque<WorldMeshChange>,
     committed_controls: VecDeque<CommittedControlEvent>,
     committed_ui: VecDeque<CommittedUiEvent>,
+    committed_actor_moves: VecDeque<CommittedActorMove>,
+    actor_move_commit_dropped_count: u64,
     publisher_center: Option<[i32; 3]>,
     publisher_radius_blocks: Option<u32>,
     publisher_radius_chunks: Option<i32>,

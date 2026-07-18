@@ -427,6 +427,7 @@ impl WorldStream {
             WorldEvent::ChangeDimension(change) => {
                 self.evict_all_resident();
                 self.block_entity_visuals.clear();
+                self.reset_committed_actor_moves();
                 let sequence = sequence.expect("sequenced dimension changes commit through submit");
                 let _ =
                     self.actors
@@ -530,7 +531,14 @@ impl WorldStream {
                         attributes: Arc::clone(&update.attributes),
                     });
                 }
-                let _ = self.actors.apply(self.actor_session_id, sequence, event);
+                let movement = match &event {
+                    ActorEvent::Move(movement) => Some(movement.clone()),
+                    _ => None,
+                };
+                let result = self.actors.apply(self.actor_session_id, sequence, event);
+                if let Some(movement) = movement {
+                    self.record_committed_actor_move(sequence, movement, result);
+                }
             }
             WorldEvent::Ui(event) => {
                 let sequence = sequence.expect("sequenced UI events commit through submit");

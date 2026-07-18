@@ -596,6 +596,143 @@ fn actor_ingestion_is_fifo_visible_without_dirtying_chunk_meshes() {
     assert_eq!(after.in_flight_mesh_jobs, before.in_flight_mesh_jobs);
 }
 
+fn actor_commit_witness_stream() -> WorldStream {
+    WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    })
+}
+
+fn actor_commit_witness_spawn() -> WorldEvent {
+    WorldEvent::Actor(ActorEvent::Spawn(ActorSpawnEvent {
+        dimension: 0,
+        unique_id: 7,
+        runtime_id: 8,
+        kind: ActorKind::Player {
+            uuid: [8; 16],
+            username: "Alex".into(),
+        },
+        game_mode: Some(protocol::ActorGameMode::Survival),
+        position: [1.0, 64.0, 2.0],
+        velocity: [0.0; 3],
+        pitch: 0.0,
+        yaw: 0.0,
+        head_yaw: 0.0,
+        body_yaw: 0.0,
+        held_item: Default::default(),
+        metadata: Arc::from([]),
+        attributes: Arc::from([]),
+        properties: Arc::from([]),
+    }))
+}
+
+fn actor_commit_witness_move(x: f32) -> WorldEvent {
+    WorldEvent::Actor(ActorEvent::Move(ActorMoveEvent {
+        dimension: 0,
+        runtime_id: 8,
+        position: [Some(x), Some(64.0 + PLAYER_NETWORK_OFFSET), Some(2.0)],
+        position_origin: ActorPositionOrigin::NetworkOffset,
+        pitch: Some(5.0),
+        yaw: Some(90.0),
+        head_yaw: Some(100.0),
+        on_ground: Some(true),
+        teleported: false,
+        snap: false,
+        player_mode: None,
+        source_tick: Some(27),
+    }))
+}
+
+#[test]
+fn actor_move_commit_witness_waits_for_the_shared_fifo_gap_to_close() {
+    let mut stream = actor_commit_witness_stream();
+    let session_id = stream.actor_session_id();
+
+    stream.submit(2, actor_commit_witness_move(4.0)).unwrap();
+    assert!(stream.take_committed_actor_moves().is_empty());
+
+    stream.submit(1, actor_commit_witness_spawn()).unwrap();
+    let commits = stream.take_committed_actor_moves();
+    assert_eq!(commits.len(), 1);
+    let commit = &commits[0];
+    assert_eq!(commit.session_id, session_id);
+    assert_eq!(commit.dimension, 0);
+    assert_eq!(commit.sequence, 2);
+    assert_eq!(commit.movement.runtime_id, 8);
+    assert_eq!(
+        commit.movement.position_origin,
+        ActorPositionOrigin::NetworkOffset
+    );
+    assert_eq!(commit.movement.on_ground, Some(true));
+    assert_eq!(commit.movement.source_tick, Some(27));
+
+    let applied = commit
+        .applied
+        .as_ref()
+        .expect("movement applied after spawn");
+    assert_eq!(applied.lifetime.session_id, session_id);
+    assert_eq!(applied.lifetime.dimension, 0);
+    assert_eq!(applied.lifetime.runtime_id, 8);
+    assert_eq!(applied.lifetime.spawn_revision, 1);
+    assert_eq!(applied.movement_revision, 2);
+    assert_eq!(applied.previous_pose.position, [1.0, 64.0, 2.0]);
+    assert_eq!(applied.current_pose.position, [1.0, 64.0, 2.0]);
+    assert_eq!(applied.received_pose.position, [4.0, 64.0, 2.0]);
+    assert_eq!(applied.interpolation_ticks_remaining, 3);
+    assert_eq!(applied.on_ground, Some(true));
+    assert_eq!(applied.source_tick, Some(27));
+}
+
+#[test]
+fn actor_move_commit_witness_capacity_is_exact_and_counts_rejection() {
+    let mut stream = actor_commit_witness_stream();
+    stream.submit(1, actor_commit_witness_spawn()).unwrap();
+
+    for offset in 0..=super::COMMITTED_ACTOR_MOVE_CAPACITY {
+        let sequence = u64::try_from(offset).unwrap() + 2;
+        stream
+            .submit(sequence, actor_commit_witness_move(sequence as f32))
+            .unwrap();
+    }
+
+    let commits = stream.take_committed_actor_moves();
+    assert_eq!(commits.len(), super::COMMITTED_ACTOR_MOVE_CAPACITY);
+    assert_eq!(commits.first().unwrap().sequence, 2);
+    assert_eq!(
+        commits.last().unwrap().sequence,
+        u64::try_from(super::COMMITTED_ACTOR_MOVE_CAPACITY).unwrap() + 1
+    );
+    assert_eq!(stream.actor_move_commit_dropped_count(), 1);
+}
+
+#[test]
+fn actor_move_commit_witness_resets_on_dimension_and_session_replacement() {
+    let mut stream = actor_commit_witness_stream();
+    stream.submit(1, actor_commit_witness_spawn()).unwrap();
+    stream.submit(2, actor_commit_witness_move(4.0)).unwrap();
+    assert_eq!(stream.pending_actor_move_commit_count(), 1);
+
+    stream
+        .submit(
+            3,
+            WorldEvent::ChangeDimension(ChangeDimensionEvent {
+                dimension: 1,
+                position: [0.0, 80.0, 0.0],
+            }),
+        )
+        .unwrap();
+    assert_eq!(stream.pending_actor_move_commit_count(), 0);
+    assert_eq!(stream.actor_move_commit_dropped_count(), 0);
+
+    let replacement = actor_commit_witness_stream();
+    assert_eq!(replacement.pending_actor_move_commit_count(), 0);
+    assert_eq!(replacement.actor_move_commit_dropped_count(), 0);
+}
+
 #[test]
 fn player_spawn_move_player_and_absolute_move_share_feet_space() {
     let mut stream = WorldStream::new(WorldBootstrap {
