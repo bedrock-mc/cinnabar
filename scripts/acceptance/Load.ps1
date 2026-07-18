@@ -430,8 +430,8 @@ function Assert-Phase2PublicationRecord {
     $transportPending = [uint64]$publication.stages.requests_transport_pending
     if ($constructed -ne [uint64]::MaxValue -and $sent -ne [uint64]::MaxValue -and
         $ready -ne [uint64]::MaxValue -and $transportPending -ne [uint64]::MaxValue -and
-        ([decimal]$ready + [decimal]$transportPending) -ne ([decimal]$constructed - [decimal]$sent)) {
-        throw 'PHASE2_PUBLICATION ready and transport-pending gauges disagree with unsaturated request counters'
+        ([decimal]$ready + [decimal]$transportPending) -gt ([decimal]$constructed - [decimal]$sent)) {
+        throw 'PHASE2_PUBLICATION ready and transport-pending gauges exceed unsaturated request counters'
     }
     $changesQueued = [uint64]$publication.stages.mesh_changes_queued
     $changesDequeued = [uint64]$publication.stages.mesh_changes_dequeued

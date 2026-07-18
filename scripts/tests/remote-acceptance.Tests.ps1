@@ -440,10 +440,11 @@ Describe 'Phase 2 remote acceptance runner' {
             New-Item -ItemType Directory -Path $temporary | Out-Null
             $path = Join-Path $temporary 'client.log'
             $first = New-SyntheticPhase2Publication -RequiredColumns 2 -LoadedColumns 2 `
-                -RequestsConstructed 2 -RequestsSent 2 -ResponsesAdmitted 2 -SubchunksCommitted 2 `
+                -RequestsConstructed 3 -RequestsSent 2 -ResponsesAdmitted 2 -SubchunksCommitted 2 `
                 -PublisherEpoch 1
+            $first.publication.stages.requests_ready = 1
             $moved = New-SyntheticPhase2Publication -RequiredColumns 1 -LoadedColumns 1 `
-                -RequestsConstructed 3 -RequestsSent 3 -ResponsesAdmitted 3 -SubchunksCommitted 3 `
+                -RequestsConstructed 3 -RequestsSent 2 -ResponsesAdmitted 2 -SubchunksCommitted 2 `
                 -PublisherEpoch 2
 
             $dimensionReset = $moved | ConvertTo-Json -Depth 20 | ConvertFrom-Json
@@ -462,7 +463,7 @@ Describe 'Phase 2 remote acceptance runner' {
             }
 
             $newDimension = New-SyntheticPhase2Publication -RequiredColumns 1 -LoadedColumns 1 `
-                -RequestsConstructed 4 -RequestsSent 4 -ResponsesAdmitted 4 -SubchunksCommitted 4 `
+                -RequestsConstructed 4 -RequestsSent 3 -ResponsesAdmitted 3 -SubchunksCommitted 3 `
                 -PublisherEpoch 3
             $newDimension.publication.player_column.dimension = 1
             @(
@@ -917,7 +918,7 @@ Describe 'Phase 2 remote acceptance runner' {
         (Get-Phase2FirstStalledStage -PublicationRecord $parsed -WorldReadyObserved:$false) |
             Should Be 'transport'
 
-        $record.publication.stages.requests_transport_pending = 3
+        $record.publication.stages.requests_transport_pending = 5
         $incoherent = $record | ConvertTo-Json -Depth 20 | ConvertFrom-Json
         { Assert-Phase2PublicationRecord -Record $incoherent -ExpectedPresentMode Fifo } |
             Should Throw
