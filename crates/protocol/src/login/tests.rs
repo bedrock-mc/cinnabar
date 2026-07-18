@@ -252,10 +252,10 @@ fn live_inventory_items_check_extra_length_before_owned_decoder() {
 fn canonical_inventory_fixtures_pass_raw_gate_and_owned_normalization() {
     let session = BedrockSession { shield_item_id: 0 };
     for fixture in [
-        &include_bytes!("../fixtures/inventory_content.bin")[..],
-        &include_bytes!("../fixtures/inventory_slot.bin")[..],
-        &include_bytes!("../fixtures/player_hotbar.bin")[..],
-        &include_bytes!("../fixtures/item_stack_response.bin")[..],
+        &include_bytes!("../../fixtures/inventory_content.bin")[..],
+        &include_bytes!("../../fixtures/inventory_slot.bin")[..],
+        &include_bytes!("../../fixtures/player_hotbar.bin")[..],
+        &include_bytes!("../../fixtures/item_stack_response.bin")[..],
     ] {
         let mut batch = Bytes::copy_from_slice(fixture);
         assert_eq!(batch.get_u8(), 0xfe);
