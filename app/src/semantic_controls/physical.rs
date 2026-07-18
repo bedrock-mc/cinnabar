@@ -92,9 +92,11 @@ fn translate_device_frame(inputs: SemanticPhysicalInputs) -> DeviceFrame {
 
     let mut keyboard_keys = keys
         .get_pressed()
+        .chain(keys.get_just_pressed())
         .filter_map(|key| keyboard_usage(*key))
         .collect::<Vec<_>>();
     keyboard_keys.sort_unstable();
+    keyboard_keys.dedup();
     let mut buttons = mouse_buttons
         .get_pressed()
         .filter_map(|button| mouse_button_code(*button))
