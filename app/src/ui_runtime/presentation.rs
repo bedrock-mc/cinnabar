@@ -138,8 +138,72 @@ impl UiPresentationRuntime {
         } else {
             0..0
         };
-        let editor_y = (logical_height - 40.0).max(0.0);
-        let chat_region_top = (logical_height - 220.0).max(0.0);
+        let mut editor_layout = None;
+        let mut suggestion_layouts = Vec::new();
+        if chat_focused {
+            let editor = runtime.chat_editor();
+            let mut visible = String::with_capacity(editor.len_bytes().saturating_add(3));
+            visible.push_str("> ");
+            visible.push_str(&editor.as_str()[..editor.cursor_byte()]);
+            visible.push('|');
+            visible.push_str(&editor.as_str()[editor.cursor_byte()..]);
+            editor_layout = Some(
+                self.layouts
+                    .layout(TextLayoutRequest {
+                        text: bounded_visible_text(&visible),
+                        style: TextStyle::default(),
+                        width_64: wrap_width,
+                        scale: UiScale::default(),
+                        font: &self.font,
+                    })
+                    .map_err(UiPresentationError::Text)?,
+            );
+
+            for (index, suggestion) in runtime
+                .chat_suggestions()
+                .iter()
+                .enumerate()
+                .skip(visible_suggestions.start)
+                .take(visible_suggestions.len())
+            {
+                let selected = runtime.chat_selected_suggestion() == Some(index);
+                let mut visible = String::with_capacity(suggestion.len().saturating_add(2));
+                visible.push_str(if selected { "> " } else { "  " });
+                visible.push_str(suggestion);
+                let layout = self
+                    .layouts
+                    .layout(TextLayoutRequest {
+                        text: bounded_visible_text(&visible),
+                        style: TextStyle::default(),
+                        width_64: wrap_width,
+                        scale: UiScale::default(),
+                        font: &self.font,
+                    })
+                    .map_err(UiPresentationError::Text)?;
+                suggestion_layouts.push((layout, [220, 220, 220, 255]));
+            }
+        }
+        let suggestion_reserved_height = suggestion_layouts
+            .iter()
+            .map(|(layout, _)| layout.size_64()[1] as f32 / 64.0 + 4.0)
+            .sum::<f32>();
+        let chat_region_top = (logical_height - 220.0 - suggestion_reserved_height).max(0.0);
+        let bottom_hud_top = (logical_height - 42.0).max(chat_region_top);
+        let editor_bottom = (bottom_hud_top - 2.0).max(chat_region_top);
+        let editor_y = editor_layout.as_ref().map_or(editor_bottom, |layout| {
+            (editor_bottom - layout.size_64()[1] as f32 / 64.0).max(chat_region_top)
+        });
+        let mut suggestion_cursor = (editor_y - 4.0).max(chat_region_top);
+        let mut positioned_suggestions = Vec::new();
+        for (layout, color) in suggestion_layouts {
+            let layout_height = layout.size_64()[1] as f32 / 64.0;
+            if layout_height > suggestion_cursor - chat_region_top {
+                break;
+            }
+            let y = suggestion_cursor - layout_height;
+            positioned_suggestions.push((layout, y, suggestion_cursor, color));
+            suggestion_cursor = (y - 4.0).max(chat_region_top);
+        }
         if chat_focused {
             let panel_left = 8.0_f32.min(logical_width);
             let panel_right = (panel_left + chat_content_width + 8.0)
@@ -163,7 +227,7 @@ impl UiPresentationRuntime {
         let chat = runtime.chat().view_nodes();
         let first = chat.len().saturating_sub(MAX_PRESENTED_CHAT_ROWS);
         let chat_bottom = if chat_focused {
-            (editor_y - 4.0).max(chat_region_top)
+            suggestion_cursor
         } else {
             (logical_height - 72.0).max(chat_region_top)
         };
@@ -183,6 +247,41 @@ impl UiPresentationRuntime {
                 .map_err(UiPresentationError::Text)?;
             let layout_height = layout.size_64()[1] as f32 / 64.0;
             if layout_height > chat_cursor - chat_region_top {
+                if visible_chat.is_empty() {
+                    let available_height = chat_cursor - chat_region_top;
+                    let boundaries = text
+                        .char_indices()
+                        .map(|(index, _)| index)
+                        .skip(1)
+                        .chain(std::iter::once(text.len()))
+                        .collect::<Vec<_>>();
+                    let mut low = 0usize;
+                    let mut high = boundaries.len();
+                    let mut best = None;
+                    while low < high {
+                        let middle = low + (high - low) / 2;
+                        let candidate = self
+                            .layouts
+                            .layout(TextLayoutRequest {
+                                text: &text[..boundaries[middle]],
+                                style: TextStyle::default(),
+                                width_64: wrap_width,
+                                scale: UiScale::default(),
+                                font: &self.font,
+                            })
+                            .map_err(UiPresentationError::Text)?;
+                        let candidate_height = candidate.size_64()[1] as f32 / 64.0;
+                        if candidate_height <= available_height {
+                            best = Some((candidate, candidate_height));
+                            low = middle.saturating_add(1);
+                        } else {
+                            high = middle;
+                        }
+                    }
+                    if let Some((layout, height)) = best {
+                        visible_chat.push((layout, chat_cursor - height, chat_cursor));
+                    }
+                }
                 break;
             }
             let y = chat_cursor - layout_height;
@@ -205,32 +304,12 @@ impl UiPresentationRuntime {
         }
 
         if chat_focused {
-            let editor = runtime.chat_editor();
-            let mut visible = String::with_capacity(editor.len_bytes().saturating_add(3));
-            visible.push_str("> ");
-            visible.push_str(&editor.as_str()[..editor.cursor_byte()]);
-            visible.push('|');
-            visible.push_str(&editor.as_str()[editor.cursor_byte()..]);
-            let layout = self
-                .layouts
-                .layout(TextLayoutRequest {
-                    text: bounded_visible_text(&visible),
-                    style: TextStyle::default(),
-                    width_64: wrap_width,
-                    scale: UiScale::default(),
-                    font: &self.font,
-                })
-                .map_err(UiPresentationError::Text)?;
+            let layout = editor_layout.expect("focused chat prepared an editor layout");
             nodes.push(
                 UiNode::new(
                     UiNodeId::new(next_id),
                     None,
-                    rect(
-                        chat_left,
-                        editor_y,
-                        chat_right,
-                        logical_height.max(editor_y),
-                    )?,
+                    rect(chat_left, editor_y, chat_right, editor_bottom)?,
                 )
                 .with_visual(UiVisual::Text {
                     layout,
@@ -239,39 +318,14 @@ impl UiPresentationRuntime {
             );
             next_id = next_id.saturating_add(1);
 
-            for (row, (index, suggestion)) in runtime
-                .chat_suggestions()
-                .iter()
-                .enumerate()
-                .skip(visible_suggestions.start)
-                .take(visible_suggestions.len())
-                .enumerate()
-            {
-                let selected = runtime.chat_selected_suggestion() == Some(index);
-                let mut visible = String::with_capacity(suggestion.len().saturating_add(2));
-                visible.push_str(if selected { "> " } else { "  " });
-                visible.push_str(suggestion);
-                let layout = self
-                    .layouts
-                    .layout(TextLayoutRequest {
-                        text: bounded_visible_text(&visible),
-                        style: TextStyle::default(),
-                        width_64: wrap_width,
-                        scale: UiScale::default(),
-                        font: &self.font,
-                    })
-                    .map_err(UiPresentationError::Text)?;
-                let bottom = (editor_y - (row as f32 + 1.0) * 18.0).max(0.0);
+            for (layout, y, bottom, color) in positioned_suggestions {
                 nodes.push(
                     UiNode::new(
                         UiNodeId::new(next_id),
                         None,
-                        rect(chat_left, bottom, chat_right, editor_y.max(bottom))?,
+                        rect(chat_left, y, chat_right, bottom)?,
                     )
-                    .with_visual(UiVisual::Text {
-                        layout,
-                        color: [220, 220, 220, 255],
-                    }),
+                    .with_visual(UiVisual::Text { layout, color }),
                 );
                 next_id = next_id.saturating_add(1);
             }
@@ -523,7 +577,7 @@ mod tests {
             .unwrap();
         runtime.open_chat();
         runtime.insert_chat_text("/g").unwrap();
-        runtime.take_chat_autocomplete_request().unwrap();
+        let autocomplete_request = runtime.take_chat_autocomplete_request().unwrap();
         runtime
             .apply(SequencedUiEvent {
                 session_id: 1,
@@ -541,6 +595,7 @@ mod tests {
                 }),
             })
             .unwrap();
+        assert!(runtime.complete_chat_autocomplete(autocomplete_request));
 
         let active = presentation
             .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
@@ -686,6 +741,138 @@ mod tests {
     }
 
     #[test]
+    fn focused_chat_editor_does_not_overlap_bottom_hud_text() {
+        let font = fixture_font();
+        let mut presentation = UiPresentationRuntime::new(font).unwrap();
+        let mut runtime = UiRuntime::new(1);
+        runtime
+            .apply(SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: 1,
+                local_millis: 0,
+                server_tick: None,
+                event: UiEvent::Hud(HudEvent::Health { health: 20 }),
+            })
+            .unwrap();
+        runtime.open_chat();
+
+        let active = presentation
+            .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
+            .unwrap();
+        let hud_vertices = &active.vertices[.."20/20".chars().count() * 4];
+        let editor_vertex_count = "> |".chars().count() * 4;
+        let editor_vertices = &active.vertices[active.vertices.len() - editor_vertex_count..];
+        let hud_top = hud_vertices
+            .iter()
+            .map(|vertex| vertex.position[1])
+            .fold(f32::INFINITY, f32::min);
+        let editor_bottom = editor_vertices
+            .iter()
+            .map(|vertex| vertex.position[1])
+            .fold(f32::NEG_INFINITY, f32::max);
+
+        assert!(
+            editor_bottom <= hud_top,
+            "chat editor overlaps HUD: editor bottom {editor_bottom}, HUD top {hud_top}"
+        );
+    }
+
+    #[test]
+    fn autocomplete_rows_reserve_actual_text_height_above_editor_and_history() {
+        let font = fixture_font();
+        let mut presentation = UiPresentationRuntime::new(font).unwrap();
+        let mut runtime = UiRuntime::new(1);
+        let history = "history ".repeat(12);
+        runtime
+            .apply(SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: 1,
+                local_millis: 0,
+                server_tick: None,
+                event: chat_event(&history),
+            })
+            .unwrap();
+        runtime.open_chat();
+        runtime.insert_chat_text("/g").unwrap();
+        let autocomplete_request = runtime.take_chat_autocomplete_request().unwrap();
+        runtime
+            .apply(SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: 2,
+                local_millis: 0,
+                server_tick: None,
+                event: UiEvent::ChatAutocomplete(protocol::ChatAutocompleteEvent {
+                    enum_name: Arc::from("commands"),
+                    action: protocol::ChatAutocompleteAction::Replace,
+                    suggestions: Arc::from(
+                        (0..MAX_PRESENTED_CHAT_SUGGESTIONS)
+                            .map(|index| Arc::from(format!("/give-{index}")))
+                            .collect::<Vec<_>>(),
+                    ),
+                }),
+            })
+            .unwrap();
+        assert!(runtime.complete_chat_autocomplete(autocomplete_request));
+
+        let active = presentation
+            .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
+            .unwrap();
+        let panel_vertices = 4;
+        let history_vertices = history.chars().count() * 4;
+        let editor_vertices = "> /g|".chars().count() * 4;
+        let suggestion_vertices = "> /give-0".chars().count() * 4;
+        let history_bounds =
+            vertical_bounds(&active.vertices[panel_vertices..panel_vertices + history_vertices]);
+        let editor_start = panel_vertices + history_vertices;
+        let editor_bounds =
+            vertical_bounds(&active.vertices[editor_start..editor_start + editor_vertices]);
+        let first_suggestion_start = editor_start + editor_vertices;
+        let first_suggestion_bounds = vertical_bounds(
+            &active.vertices[first_suggestion_start..first_suggestion_start + suggestion_vertices],
+        );
+        let second_suggestion_bounds = vertical_bounds(
+            &active.vertices[first_suggestion_start + suggestion_vertices
+                ..first_suggestion_start + suggestion_vertices * 2],
+        );
+
+        assert!(first_suggestion_bounds.1 <= editor_bounds.0);
+        assert!(second_suggestion_bounds.1 <= first_suggestion_bounds.0);
+        let topmost_start =
+            first_suggestion_start + suggestion_vertices * (MAX_PRESENTED_CHAT_SUGGESTIONS - 1);
+        let topmost_bounds =
+            vertical_bounds(&active.vertices[topmost_start..topmost_start + suggestion_vertices]);
+        assert!(history_bounds.1 <= topmost_bounds.0);
+    }
+
+    #[test]
+    fn oversized_latest_chat_message_keeps_a_bounded_visible_portion() {
+        let font = fixture_font();
+        let mut presentation = UiPresentationRuntime::new(font).unwrap();
+        let mut runtime = UiRuntime::new(1);
+        runtime
+            .apply(SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: 1,
+                local_millis: 0,
+                server_tick: None,
+                event: chat_event(&"latest ".repeat(60)),
+            })
+            .unwrap();
+
+        let active = presentation
+            .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
+            .unwrap();
+        assert!(!active.vertices.is_empty());
+        assert!(
+            active
+                .vertices
+                .iter()
+                .all(|vertex| vertex.position[1] >= 380.0 && vertex.position[1] <= 528.0),
+            "oversized message escaped bounded presentation region"
+        );
+    }
+
+    #[test]
     fn maximum_page_font_is_rejected_before_appending_the_solid_layer() {
         let font = fixture_font_with_page_count(MAX_UI_TEXTURE_LAYERS as usize);
         assert!(matches!(
@@ -713,6 +900,13 @@ mod tests {
             platform_chat_id: Arc::from(""),
             filtered_message: None,
         })
+    }
+
+    fn vertical_bounds(vertices: &[render::UiRenderVertex]) -> (f32, f32) {
+        vertices.iter().fold(
+            (f32::INFINITY, f32::NEG_INFINITY),
+            |(top, bottom), vertex| (top.min(vertex.position[1]), bottom.max(vertex.position[1])),
+        )
     }
 
     fn fixture_font_with_page_count(page_count: usize) -> Arc<RuntimeFontCatalog> {
