@@ -133,6 +133,9 @@ impl RenderViewCohort {
 pub struct TargetRenderExpectation {
     pub cohort: RenderViewCohort,
     pub source_cohort: Option<RenderViewCohort>,
+    /// Optional exact target scope. Keys outside it are retained presentation,
+    /// never required, source, or foreign proof for this expectation.
+    pub target_keys: Option<Arc<[SubChunkKey]>>,
     pub manifest: Arc<[(SubChunkKey, u64)]>,
     pub view_generation: u64,
     pub render_ready_at: Instant,

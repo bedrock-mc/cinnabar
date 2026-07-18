@@ -15,12 +15,13 @@ use super::{
     AcceptanceRun, PHASE0_REQUESTED_RADIUS_CHUNKS,
     markers::GALLERY_ANCHOR_READY,
     model_witness::ModelWitnessFileSource,
-    mutation::{world_ready_markers, write_stdout_marker},
+    mutation::{MutationTracker, world_ready_markers, write_stdout_marker},
     proofs::{
         forced_remesh_proof, forced_remesh_settled_marker, teleport_proof, teleport_settled_marker,
     },
+    remesh::FullViewRemeshTracker,
     teleport::{
-        TeleportReadySnapshot, presented_ack_matches, render_view_cohort,
+        FullViewTeleportTracker, TeleportReadySnapshot, presented_ack_matches, render_view_cohort,
         teleport_global_stage_diagnostic_marker,
     },
 };
@@ -35,6 +36,44 @@ use crate::{
 
 pub(crate) const WORLD_READY_QUIET_INTERVAL: std::time::Duration =
     std::time::Duration::from_secs(2);
+
+impl AcceptanceRun {
+    pub(crate) fn revoke_world_ready_if_cohort_changed(
+        &mut self,
+        current: Option<ViewCohortStatus>,
+    ) -> bool {
+        let Some((frozen, current)) = self.mutation_cohort.zip(current) else {
+            return false;
+        };
+        if !self.world_ready
+            || frozen.target != current.target
+            || frozen.publisher_epoch != current.publisher_epoch
+            || (current.is_exact()
+                && frozen.expected == current.expected
+                && frozen.required_hash == current.required_hash)
+        {
+            return false;
+        }
+        self.world_ready = false;
+        self.deadline = None;
+        self.mutation_cohort = None;
+        self.world_ready_settler = WorldReadySettler::default();
+        self.full_view_remesh = FullViewRemeshTracker::default();
+        let teleport_enabled = self.full_view_teleport.enabled;
+        let source_mutation_coordinate = self.source_mutation_coordinate;
+        self.full_view_teleport = FullViewTeleportTracker::new(teleport_enabled);
+        if let Some(coordinate) = source_mutation_coordinate {
+            self.full_view_teleport
+                .set_source_mutation_coordinate(coordinate);
+        }
+        self.mutation = if teleport_enabled {
+            None
+        } else {
+            source_mutation_coordinate.map(MutationTracker::new)
+        };
+        true
+    }
+}
 
 #[must_use]
 pub(crate) fn authoritative_received_radius(received_radius_chunks: Option<i32>) -> Option<i32> {
@@ -283,6 +322,14 @@ pub(crate) fn emit_world_ready(
         pending_gpu_acknowledgements: usize::from(!acknowledgements.is_empty()),
         unacknowledged_meshes: stream.unacknowledged_mesh_count(),
     };
+    let committed_cohort = stream
+        .committed_view_cohort()
+        .map(|target| stream.cohort_status(target));
+    if acceptance.revoke_world_ready_if_cohort_changed(committed_cohort) {
+        presented_frames.clear();
+        return;
+    }
+    let required_columns = stream.required_columns().clone();
     if acceptance.world_ready {
         let cohort = acceptance
             .full_view_teleport
@@ -309,15 +356,18 @@ pub(crate) fn emit_world_ready(
         let frame_count = metrics.0.frame_count();
         acceptance.full_view_teleport.note_frame(frame_count);
         let teleport = if let Some(pending) = acceptance.full_view_teleport.pending.as_ref() {
-            let proposed = render_queue.freeze_target_expectation(
+            let proposed = render_queue.freeze_target_expectation_for_columns(
                 render_view_cohort(pending.target),
                 Some(render_view_cohort(pending.source)),
+                required_columns.iter().copied(),
                 0,
                 observed_at,
             );
-            let expectation = acceptance
-                .full_view_teleport
-                .reconcile_presented_expectation(snapshot, proposed, observed_at);
+            let expectation = proposed.and_then(|proposed| {
+                acceptance
+                    .full_view_teleport
+                    .reconcile_presented_expectation(snapshot, proposed, observed_at)
+            });
             if let Some(expectation) = expectation {
                 presented_frames.set_expectation(expectation);
             } else {
@@ -396,8 +446,14 @@ pub(crate) fn emit_world_ready(
                 )
             });
             let proposed = if manifest_state == client_world::ForcedRemeshManifestState::Complete {
-                proposal_target.map(|(target, source)| {
-                    render_queue.freeze_target_expectation(target, source, 0, observed_at)
+                proposal_target.and_then(|(target, source)| {
+                    render_queue.freeze_target_expectation_for_columns(
+                        target,
+                        source,
+                        required_columns.iter().copied(),
+                        0,
+                        observed_at,
+                    )
                 })
             } else {
                 None
@@ -469,12 +525,21 @@ pub(crate) fn emit_world_ready(
                     )
                 });
         if let Some((target, source)) = completed_remesh_target {
-            let proposed = render_queue.freeze_target_expectation(target, source, 0, observed_at);
-            let expectation = acceptance.reconcile_mutation_presented_expectation(
-                proposed,
-                snapshot.cohort,
-                observed_at,
-            );
+            let expectation = render_queue
+                .freeze_target_expectation_for_columns(
+                    target,
+                    source,
+                    required_columns.iter().copied(),
+                    0,
+                    observed_at,
+                )
+                .and_then(|proposed| {
+                    acceptance.reconcile_mutation_presented_expectation(
+                        proposed,
+                        snapshot.cohort,
+                        observed_at,
+                    )
+                });
             if let Some(expectation) = expectation {
                 presented_frames.set_expectation(expectation);
                 if let Some(latency) =
@@ -526,8 +591,14 @@ pub(crate) fn emit_world_ready(
         work,
     };
     let ready_at = Instant::now();
-    let proposed = snapshot.cohort.map(|status| {
-        render_queue.freeze_target_expectation(render_view_cohort(status.target), None, 0, ready_at)
+    let proposed = snapshot.cohort.and_then(|status| {
+        render_queue.freeze_target_expectation_for_columns(
+            render_view_cohort(status.target),
+            None,
+            required_columns.iter().copied(),
+            0,
+            ready_at,
+        )
     });
     let expectation = proposed.and_then(|proposed| {
         acceptance

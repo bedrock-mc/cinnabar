@@ -185,6 +185,7 @@ fn proposed_render_expectation(
             SOURCE_COHORT.center,
             SOURCE_COHORT.radius,
         )),
+        target_keys: None,
         manifest: Arc::from(manifest.into_iter().collect::<Vec<_>>()),
         view_generation: 0,
         render_ready_at,

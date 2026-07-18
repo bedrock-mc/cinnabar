@@ -413,8 +413,13 @@ impl WorldStream {
                 self.publisher_radius_chunks =
                     Some(cohort.radius.min(PHASE0_MAX_VIEW_RADIUS_CHUNKS));
                 if self.committed_view_cohort != Some(cohort) {
-                    self.publisher_epoch = self.publisher_epoch.wrapping_add(1).max(1);
                     self.required_columns.clear();
+                    let Some(next_epoch) = self.publisher_epoch.checked_add(1) else {
+                        self.committed_view_cohort = None;
+                        self.evict_outside_active_radius();
+                        return;
+                    };
+                    self.publisher_epoch = next_epoch;
                 }
                 self.committed_view_cohort = Some(cohort);
                 self.evict_outside_active_radius();

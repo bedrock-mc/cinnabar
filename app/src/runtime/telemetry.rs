@@ -470,9 +470,10 @@ pub(crate) fn record_metrics_and_title(
         let render_cohort = stream
             .committed_view_cohort()
             .map(|cohort| RenderViewCohort::new(cohort.dimension, cohort.center, cohort.radius));
+        let required_columns = stream.required_columns();
         let allocation_manifest = chunks
             .iter()
-            .filter(|instance| render_cohort.is_none_or(|cohort| cohort.contains(instance.key())))
+            .filter(|instance| required_columns.contains(&instance.key().chunk()))
             .map(|instance| (instance.key(), instance.generation()))
             .collect::<Vec<_>>();
         let allocation = generation_manifest_identity(
@@ -484,9 +485,14 @@ pub(crate) fn record_metrics_and_title(
         );
         let publisher_manifest = render_cohort.map_or_else(Vec::new, |cohort| {
             render_queue
-                .freeze_target_expectation(cohort, None, stage_generation, now)
-                .manifest
-                .to_vec()
+                .freeze_target_expectation_for_columns(
+                    cohort,
+                    None,
+                    required_columns.iter().copied(),
+                    stage_generation,
+                    now,
+                )
+                .map_or_else(Vec::new, |expectation| expectation.manifest.to_vec())
         });
         let publisher_disk = generation_manifest_identity(
             session_generation,

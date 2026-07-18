@@ -541,6 +541,7 @@ impl FullViewTeleportTracker {
         let proposed = TargetRenderExpectation {
             cohort: render_view_cohort(pending.target),
             source_cohort: Some(render_view_cohort(pending.source)),
+            target_keys: None,
             manifest: Arc::from([(
                 SubChunkKey::new(
                     pending.target.dimension,
