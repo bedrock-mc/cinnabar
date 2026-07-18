@@ -639,7 +639,7 @@ fn accept_and_cancel_actions_close_chat_and_restore_gameplay_authority() {
     assert!(dispatch_chat_ui_action(
         &mut runtime,
         UiAction::Accept,
-        [800.0, 600.0],
+        None,
         0,
     ));
     assert!(!runtime.chat_focused());
@@ -649,7 +649,7 @@ fn accept_and_cancel_actions_close_chat_and_restore_gameplay_authority() {
     assert!(dispatch_chat_ui_action(
         &mut runtime,
         UiAction::Cancel,
-        [800.0, 600.0],
+        None,
         1,
     ));
     assert!(!runtime.chat_focused());
@@ -685,7 +685,7 @@ fn closing_chat_immediately_regrabs_and_hides_the_gameplay_cursor() {
 }
 
 #[test]
-fn pointer_hit_testing_selects_the_actual_row_in_a_scrolled_suggestion_window() {
+fn provided_suggestion_hit_selects_the_matching_scrolled_row() {
     let mut runtime = UiRuntime::new(1);
     runtime.open_chat();
     runtime
@@ -709,13 +709,12 @@ fn pointer_hit_testing_selects_the_actual_row_in_a_scrolled_suggestion_window() 
     }
     assert_eq!(runtime.chat_selected_suggestion(), Some(10));
 
-    // Selected row 10 scrolls the 8-row window to 3..11. Visible row 1 is /s4.
-    assert!(runtime.handle_chat_ui_action_in_viewport(
+    assert!(runtime.handle_chat_ui_action_with_suggestion_hit(
         UiAction::PointerPrimary {
             position: UiPoint::new(20.0, 533.0).unwrap(),
             phase: PointerPhase::Pressed,
         },
-        [800.0, 600.0],
+        Some(4),
     ));
     assert_eq!(runtime.chat_editor().as_str(), "/s4");
 }

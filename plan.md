@@ -1751,6 +1751,14 @@ UI phases get fable-5/opus-4.8 review before merge.
 
 **Phase 5 roadmap (kept current as work lands):**
 
+**Approved chat presentation exception (2026-07-17):** chat may use a compact
+Java Edition-style bottom-left presentation instead of the vanilla Bedrock chat
+screen. This exception applies only to chat layout; the HUD, hotbar, menus,
+inventory, forms, controls, and all behavior remain strict vanilla Bedrock
+targets. The current text/panel renderer is an incomplete scaffold until
+server/resource-pack font glyphs, the complete HUD, and native/live comparison
+gates below are green.
+
 - [ ] **5.1 Bedrock UI foundation.** `P5.1-UI` Create `crates/ui`, ingest the pinned pack's bitmap
   fonts/glyph metrics, implement bounded formatting-code-aware text layout, UI scaling/safe
   areas, focus/navigation, mouse/touch/controller input, and a shared retained draw pipeline.

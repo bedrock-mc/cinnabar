@@ -315,22 +315,17 @@ impl UiRuntime {
         true
     }
 
-    pub fn handle_chat_ui_action_in_viewport(
+    pub fn handle_chat_ui_action_with_suggestion_hit(
         &mut self,
         action: UiAction,
-        logical_size: [f32; 2],
+        suggestion_hit: Option<usize>,
     ) -> bool {
         if let UiAction::PointerPrimary {
-            position,
+            position: _,
             phase: ui::PointerPhase::Pressed,
         } = action
         {
-            let Some(index) = presentation::hit_test_chat_suggestion(
-                position,
-                logical_size,
-                self.chat_suggestions().len(),
-                self.chat_selected_suggestion(),
-            ) else {
+            let Some(index) = suggestion_hit else {
                 return false;
             };
             if !self.chat_autocomplete.select_index(index) {
@@ -828,6 +823,7 @@ pub(crate) fn drive_chat_ui_actions(
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     touches: Res<Touches>,
     gamepads: Query<&Gamepad>,
+    presentation: Res<presentation::UiPresentationRuntime>,
     mut runtime: ResMut<UiRuntime>,
 ) {
     if !runtime.chat_focused() || !window.focused {
@@ -846,7 +842,7 @@ pub(crate) fn drive_chat_ui_actions(
                 position,
                 phase: PointerPhase::Pressed,
             },
-            logical_size,
+            presentation.hit_test_chat_suggestion(position, logical_size),
             now_millis,
         );
     }
@@ -859,7 +855,7 @@ pub(crate) fn drive_chat_ui_actions(
                     position,
                     phase: PointerPhase::Pressed,
                 },
-                logical_size,
+                presentation.hit_test_chat_suggestion(position, logical_size),
                 now_millis,
             );
         }
@@ -877,7 +873,7 @@ pub(crate) fn drive_chat_ui_actions(
                 dispatch_chat_ui_action(
                     &mut runtime,
                     gamepad_chat_action(button).expect("the mapped button list is exhaustive"),
-                    logical_size,
+                    None,
                     now_millis,
                 );
             }
@@ -900,7 +896,7 @@ pub(crate) const fn gamepad_chat_action(button: GamepadButton) -> Option<UiActio
 pub(crate) fn dispatch_chat_ui_action(
     runtime: &mut UiRuntime,
     action: UiAction,
-    logical_size: [f32; 2],
+    suggestion_hit: Option<usize>,
     now_millis: u64,
 ) -> bool {
     match action {
@@ -915,7 +911,7 @@ pub(crate) fn dispatch_chat_ui_action(
             runtime.close_chat();
             true
         }
-        _ => runtime.handle_chat_ui_action_in_viewport(action, logical_size),
+        _ => runtime.handle_chat_ui_action_with_suggestion_hit(action, suggestion_hit),
     }
 }
 
