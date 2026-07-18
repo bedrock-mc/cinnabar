@@ -26,15 +26,16 @@ pub use item::{
 };
 pub use server_position::{ResolvedServerPosition, SAFE_SERVER_HEIGHT};
 pub use stream::{
-    BuildProfileIdentity, COMMITTED_CONTROL_CAPACITY, CohortManifestIdentity,
-    CommittedControlEvent, CommittedUiEvent, DECODE_DISPATCH_BUDGET_PER_POLL,
-    DEFERRED_RETRY_CAPACITY, ForcedRemeshManifest, ForcedRemeshManifestState,
-    LIGHT_DISPATCH_BUDGET_PER_POLL, MAX_ADMITTED_HEAVY_EVENTS, MAX_ADMITTED_WORLD_EVENTS,
-    MAX_IN_FLIGHT_DECODE_JOBS, MAX_IN_FLIGHT_LIGHT_JOBS, MAX_PENDING_MESH_CHANGES,
-    MAX_SUB_CHUNK_RETRIES, OUTBOUND_REQUEST_CAPACITY, PHASE0_MAX_VIEW_RADIUS_CHUNKS,
-    PendingSubChunkRequest, Phase2PresentationSnapshot, Phase2PublicationSnapshot,
-    PresentModeIdentity, PublicationServiceConfig, PublicationStageCounters, RequestClass,
-    SUB_CHUNK_RESPONSE_TIMEOUT, StageDurations, SubChunkOutcomeCounters, ViewCohort,
-    ViewCohortStatus, WORK_RESULT_CAPACITY, WorldMeshChange, WorldStream, WorldStreamError,
-    WorldStreamFatalError, WorldStreamNormalizationStats, WorldStreamPoll, WorldStreamStats,
+    BuildProfileIdentity, COMMITTED_ACTOR_MOVE_CAPACITY, COMMITTED_CONTROL_CAPACITY,
+    CohortManifestIdentity, CommittedActorMove, CommittedActorPose, CommittedControlEvent,
+    CommittedUiEvent, DECODE_DISPATCH_BUDGET_PER_POLL, DEFERRED_RETRY_CAPACITY,
+    ForcedRemeshManifest, ForcedRemeshManifestState, LIGHT_DISPATCH_BUDGET_PER_POLL,
+    MAX_ADMITTED_HEAVY_EVENTS, MAX_ADMITTED_WORLD_EVENTS, MAX_IN_FLIGHT_DECODE_JOBS,
+    MAX_IN_FLIGHT_LIGHT_JOBS, MAX_PENDING_MESH_CHANGES, MAX_SUB_CHUNK_RETRIES,
+    OUTBOUND_REQUEST_CAPACITY, PHASE0_MAX_VIEW_RADIUS_CHUNKS, PendingSubChunkRequest,
+    Phase2PresentationSnapshot, Phase2PublicationSnapshot, PresentModeIdentity,
+    PublicationServiceConfig, PublicationStageCounters, RequestClass, SUB_CHUNK_RESPONSE_TIMEOUT,
+    StageDurations, SubChunkOutcomeCounters, ViewCohort, ViewCohortStatus, WORK_RESULT_CAPACITY,
+    WorldMeshChange, WorldStream, WorldStreamError, WorldStreamFatalError,
+    WorldStreamNormalizationStats, WorldStreamPoll, WorldStreamStats,
 };
