@@ -372,6 +372,10 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
         ),
         producer_assignment("FONT_ASSET_COMPILE", "font", &log, &[&font, &font_report]),
         producer_assignment("HUD_ASSET_COMPILE", "hud", &log, &[&hud, &hud_report]),
+        format!(
+            "PHYSICS_REGISTRY_COMPILE=echo generated > \"{}\"",
+            make_path(&physics)
+        ),
         format!("PHYSICS_REGISTRY_CHECK=echo physics >> \"{}\"", make_path(&log)),
         format!("CLIENT_RUN=echo launch >> \"{}\"", make_path(&log)),
     ];
