@@ -26,9 +26,7 @@ mod chat;
 mod retained_hud;
 
 use chat::visible_suggestion_range;
-#[cfg(test)]
-use retained_hud::SCOREBOARD_TEXT_HEIGHT;
-use retained_hud::{PresentedScoreboardCache, project_boss_bars};
+use retained_hud::{PresentedScoreboardCache, ScoreboardOpacityAuthority, project_boss_bars};
 
 const TEXT_CACHE_ENTRIES: usize = 1_024;
 const TEXT_CACHE_BYTES: usize = 8 * 1024 * 1024;
@@ -69,6 +67,7 @@ pub struct UiPresentationRuntime {
     layouts: TextLayoutCache,
     revision: u64,
     scoreboard: PresentedScoreboardCache,
+    scoreboard_opacity: Option<ScoreboardOpacityAuthority>,
     chat_hit_logical_size: Option<[f32; 2]>,
     chat_suggestion_hits: Vec<(usize, UiRect)>,
 }
@@ -103,23 +102,20 @@ impl UiPresentationRuntime {
             layouts: TextLayoutCache::new(TEXT_CACHE_ENTRIES, TEXT_CACHE_BYTES),
             revision: 0,
             scoreboard: PresentedScoreboardCache::default(),
+            scoreboard_opacity: None,
             chat_hit_logical_size: None,
             chat_suggestion_hits: Vec::with_capacity(MAX_PRESENTED_CHAT_SUGGESTIONS),
         })
     }
 
-    pub(super) fn hit_test_chat_suggestion(
-        &self,
-        position: UiPoint,
-        logical_size: [f32; 2],
-    ) -> Option<usize> {
-        let expected = self.chat_hit_logical_size?;
-        if expected.map(f32::to_bits) != logical_size.map(f32::to_bits) {
-            return None;
-        }
-        self.chat_suggestion_hits
-            .iter()
-            .find_map(|(index, bounds)| bounds.contains(position).then_some(*index))
+    #[allow(
+        dead_code,
+        reason = "enabled only after native evidence binds both scoreboard alpha values"
+    )]
+    pub(crate) fn set_native_scoreboard_opacity(&mut self, body: u8, title: u8) {
+        self.scoreboard_opacity = Some(ScoreboardOpacityAuthority::from_native_alpha_bytes(
+            body, title,
+        ));
     }
 
     pub fn build(
@@ -149,6 +145,14 @@ impl UiPresentationRuntime {
                 logical_width,
                 logical_height,
                 hud_textures,
+            )?;
+            retained_hud::append_boss_nodes(
+                &mut nodes,
+                &mut next_id,
+                &mut self.layouts,
+                &self.font,
+                hud_textures,
+                project_boss_bars(runtime.boss_bars(), logical_width, logical_height),
             )?;
         }
 
@@ -201,7 +205,9 @@ impl UiPresentationRuntime {
             next_id = next_id.saturating_add(1);
         }
 
-        if let Some(scoreboard) = self.scoreboard.refresh(runtime.scoreboards()) {
+        if let Some(opacity) = self.scoreboard_opacity
+            && let Some(scoreboard) = self.scoreboard.refresh(runtime.scoreboards())
+        {
             retained_hud::append_scoreboard_nodes(
                 &mut nodes,
                 &mut next_id,
@@ -211,16 +217,9 @@ impl UiPresentationRuntime {
                 logical_width,
                 logical_height,
                 scoreboard,
+                opacity,
             )?;
         }
-        retained_hud::append_boss_nodes(
-            &mut nodes,
-            &mut next_id,
-            &mut self.layouts,
-            &self.font,
-            self.solid_texture_page,
-            project_boss_bars(runtime.boss_bars(), logical_width, logical_height),
-        )?;
 
         let chat_focused = runtime.chat_focused();
         let visible_suggestions = if chat_focused {

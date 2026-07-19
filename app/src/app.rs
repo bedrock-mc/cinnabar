@@ -311,6 +311,9 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         UiPresentationRuntime::new(font_runtime)
     }
     .context("prepare bounded font and HUD texture array for UI rendering")?;
+    eprintln!(
+        "scoreboard sidebar background remains hidden until native #objective_background_opacity and #scoreboard_objective_background_opacity authority is supplied"
+    );
     let (atmosphere_runtime, atmosphere_identity) = loaded_assets.atmosphere.into_parts();
     let runtime_assets = loaded_assets.runtime;
     let asset_metrics = loaded_assets.metrics;

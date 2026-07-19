@@ -1,9 +1,11 @@
-use assets::{HudTexture, HudTextureRole, RuntimeHudCatalog, encode_hud_catalog};
+use assets::{
+    HUD_SOURCE_MANIFEST_SHA256, HudTexture, HudTextureRole, RuntimeHudCatalog, encode_hud_catalog,
+};
 use sha2::{Digest, Sha256};
 
 #[test]
 fn hud_carrier_round_trips_all_required_survival_roles_with_provenance() {
-    let manifest = [0x42; 32];
+    let manifest = HUD_SOURCE_MANIFEST_SHA256;
     let textures = HudTextureRole::ALL
         .into_iter()
         .map(|role| fixture_texture(role, role as u8))
@@ -25,7 +27,7 @@ fn hud_carrier_round_trips_all_required_survival_roles_with_provenance() {
 
 #[test]
 fn hud_carrier_rejects_corruption_missing_roles_and_wrong_dimensions() {
-    let manifest = [0x42; 32];
+    let manifest = HUD_SOURCE_MANIFEST_SHA256;
     let textures = HudTextureRole::ALL
         .into_iter()
         .map(|role| fixture_texture(role, role as u8))
@@ -40,6 +42,15 @@ fn hud_carrier_rejects_corruption_missing_roles_and_wrong_dimensions() {
     let mut wrong_size = textures;
     wrong_size[HudTextureRole::HeartFull as usize].width = 8;
     assert!(encode_hud_catalog(manifest, &wrong_size).is_err());
+}
+
+#[test]
+fn hud_carrier_rejects_unreviewed_source_identity() {
+    let textures = HudTextureRole::ALL
+        .into_iter()
+        .map(|role| fixture_texture(role, role as u8))
+        .collect::<Vec<_>>();
+    assert!(encode_hud_catalog([0x42; 32], &textures).is_err());
 }
 
 fn fixture_texture(role: HudTextureRole, value: u8) -> HudTexture {
