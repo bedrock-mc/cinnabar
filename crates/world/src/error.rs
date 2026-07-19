@@ -69,6 +69,9 @@ pub enum DecodeError {
     #[error("level chunk has {count} sub-chunks, exceeding the client limit of {max}")]
     TooManySubChunks { count: usize, max: usize },
 
+    #[error("biome column has {count} storages, exceeding the client limit of {max}")]
+    TooManyBiomeStorages { count: usize, max: usize },
+
     #[error("sub-chunk Y index overflow for first index {first} and offset {offset}")]
     SubChunkYOverflow { first: i32, offset: usize },
 }
