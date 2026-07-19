@@ -92,15 +92,15 @@ pub fn chat_text_packet(
 
 /// Builds the vanilla outbound packet for a chat-editor submission.
 ///
-/// Slash-prefixed input is normally a command request. `/transfer` retains the
-/// authored chat shape required by compatible Bedrock transfer proxies.
+/// Slash-prefixed input is a vanilla command request. Other input retains the
+/// authored chat packet shape used by [`chat_text_packet`].
 pub fn chat_input_packet(
     source_name: &str,
     xuid: &str,
     message: &str,
 ) -> Result<crate::Packet, ChatPacketError> {
     validate_outbound_chat(source_name, xuid, message)?;
-    if !message.starts_with('/') || is_transfer_command(message) {
+    if !message.starts_with('/') {
         return chat_text_packet(source_name, xuid, message);
     }
 
@@ -116,18 +116,6 @@ pub fn chat_input_packet(
         version: "latest".to_owned(),
     }
     .into())
-}
-
-fn is_transfer_command(message: &str) -> bool {
-    const TOKEN: &str = "/transfer";
-    let Some(prefix) = message.get(..TOKEN.len()) else {
-        return false;
-    };
-    if !prefix.eq_ignore_ascii_case(TOKEN) {
-        return false;
-    }
-    let remainder = &message.as_bytes()[TOKEN.len()..];
-    remainder.is_empty() || remainder[0].is_ascii_whitespace()
 }
 
 #[derive(Debug, Clone, PartialEq)]

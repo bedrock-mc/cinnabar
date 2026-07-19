@@ -52,12 +52,12 @@ func TestNewUpstreamDialerPreservesClientCacheCapability(t *testing.T) {
 	}
 }
 
-func TestProtocol1001RustCommandFixtureDecodesAsLunarPlayerRequest(t *testing.T) {
+func TestProtocol1001RustFastTransferFixtureDecodesAsVanillaPlayerRequest(t *testing.T) {
 	// Body bytes are shared with crates/protocol/tests/chat_send.rs. Decoding
 	// them here prevents a self-round-trip from hiding a Rust/Go bridge
 	// disagreement in CommandOrigin or UUID byte order.
 	body := []byte{
-		0x08, '/', 'k', 'i', 'l', 'l', ' ', '@', 's',
+		0x0d, '/', 't', 'r', 'a', 'n', 's', 'f', 'e', 'r', ' ', 's', 'm', '3',
 		0x06, 'p', 'l', 'a', 'y', 'e', 'r',
 		0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x00,
 		0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88,
@@ -69,8 +69,8 @@ func TestProtocol1001RustCommandFixtureDecodesAsLunarPlayerRequest(t *testing.T)
 	request := new(packet.CommandRequest)
 	request.Marshal(minecraft.DefaultProtocol.NewReader(bytes.NewBuffer(body), 0, true))
 
-	if request.CommandLine != "/kill @s" {
-		t.Fatalf("CommandLine = %q, want /kill @s", request.CommandLine)
+	if request.CommandLine != "/transfer sm3" {
+		t.Fatalf("CommandLine = %q, want /transfer sm3", request.CommandLine)
 	}
 	if request.CommandOrigin.Origin != protocol.CommandOriginPlayer {
 		t.Fatalf("origin = %d, want player", request.CommandOrigin.Origin)

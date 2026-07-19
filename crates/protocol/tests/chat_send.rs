@@ -70,9 +70,9 @@ fn slash_input_round_trips_as_vanilla_player_command_request() {
 }
 
 #[test]
-fn slash_input_matches_the_gophertunnel_lunar_wire_fixture() {
+fn exact_fast_transfer_matches_the_gophertunnel_command_fixture() {
     let session = BedrockSession { shield_item_id: 0 };
-    let mut built = chat_input_packet("RustMCBE", "1234", "/kill @s").unwrap();
+    let mut built = chat_input_packet("RustMCBE", "1234", "/transfer sm3").unwrap();
     let McpePacketData::PacketCommandRequest(packet) = &mut built.data else {
         panic!("expected command request packet")
     };
@@ -80,10 +80,10 @@ fn slash_input_matches_the_gophertunnel_lunar_wire_fixture() {
 
     let encoded = encode(&built, &session).expect("encode command request");
     let expected = [
-        0xfe, 0x32, 0x4d, 0x08, b'/', b'k', b'i', b'l', b'l', b' ', b'@', b's', 0x06, b'p', b'l',
-        b'a', b'y', b'e', b'r', 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0xff, 0xee, 0xdd,
-        0xcc, 0xbb, 0xaa, 0x99, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x06, b'l', b'a', b't', b'e', b's', b't',
+        0xfe, 0x37, 0x4d, 0x0d, b'/', b't', b'r', b'a', b'n', b's', b'f', b'e', b'r', b' ', b's',
+        b'm', b'3', 0x06, b'p', b'l', b'a', b'y', b'e', b'r', 0x77, 0x66, 0x55, 0x44, 0x33, 0x22,
+        0x11, 0x00, 0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x06, b'l', b'a', b't', b'e', b's', b't',
     ];
     assert_eq!(encoded.as_ref(), expected);
 }
@@ -103,7 +103,7 @@ fn command_requests_receive_fresh_origin_uuids() {
 }
 
 #[test]
-fn transfer_command_token_uses_the_authored_text_compatibility_path() {
+fn every_transfer_command_spelling_uses_vanilla_command_request() {
     for input in [
         "/transfer",
         "/transfer sm3",
@@ -111,16 +111,27 @@ fn transfer_command_token_uses_the_authored_text_compatibility_path() {
         "/TrAnSfEr\tsm3",
     ] {
         let packet = chat_input_packet("RustMCBE", "1234", input).unwrap();
-        let McpePacketData::PacketText(packet) = packet.data else {
-            panic!("{input:?} must use authored Text")
+        let McpePacketData::PacketCommandRequest(packet) = packet.data else {
+            panic!("{input:?} must use CommandRequest")
         };
-        assert_eq!(packet.category, TextPacketCategory::Authored);
-        assert_eq!(packet.type_, TextPacketType::Chat);
-        let Some(TextPacketContent::Chat(content)) = packet.content else {
-            panic!("expected authored chat content")
-        };
-        assert_eq!(content.message, input);
+        assert_eq!(packet.command, input);
+        assert_eq!(packet.origin.type_, "player");
+        assert!(!packet.internal);
+        assert_eq!(packet.version, "latest");
     }
+}
+
+#[test]
+fn exact_fast_transfer_uses_vanilla_command_request() {
+    let packet = chat_input_packet("RustMCBE", "1234", "/transfer sm3").unwrap();
+    let McpePacketData::PacketCommandRequest(packet) = packet.data else {
+        panic!("exact fast transfer must use CommandRequest")
+    };
+    assert_eq!(packet.command, "/transfer sm3");
+    assert_eq!(packet.origin.type_, "player");
+    assert!(!packet.origin.uuid.is_nil());
+    assert!(!packet.internal);
+    assert_eq!(packet.version, "latest");
 }
 
 #[test]

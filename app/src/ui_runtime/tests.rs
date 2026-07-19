@@ -900,7 +900,11 @@ fn fast_transfer_action_is_exact_and_carries_session_ordinal_identity() {
     runtime.queue_chat_send(0).unwrap();
 
     let mut observed = None;
-    flush_chat_sends(&mut runtime, 1, |session, sequence, action, _packet| {
+    flush_chat_sends(&mut runtime, 1, |session, sequence, action, packet| {
+        assert_eq!(
+            packet.header.id as u32, 77,
+            "expected CommandRequest packet ID"
+        );
         observed = action.map(|action| action.marker(session, sequence, 1_000_000));
         Ok::<_, &str>(())
     })
