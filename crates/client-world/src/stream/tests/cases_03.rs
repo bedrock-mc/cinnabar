@@ -393,8 +393,10 @@ fn only_disjoint_local_teleports_may_provisionally_rebase_publisher_retention() 
         let resident = SubChunkKey::new(0, 0, -4, 0);
         let requested = SubChunkKey::new(0, 1, -4, 0);
         let deadline = Instant::now() + super::SUB_CHUNK_RESPONSE_TIMEOUT;
-        let mut pending = super::PendingSubChunk::default();
-        pending.response_deadline = Some(deadline);
+        let pending = super::PendingSubChunk {
+            response_deadline: Some(deadline),
+            ..Default::default()
+        };
         stream.loaded_columns.insert(resident.chunk());
         stream.resident.insert(resident);
         stream
