@@ -2,10 +2,17 @@
 
 Branch: `performance-dx12-present-mode`
 
-Base: `origin/phase2-textures` at `d026417`
+Component base: `origin/phase2-textures` at `d026417`
 
-Status: locally implemented and verified; not pushed, merged, independently
-re-reviewed after the final fixes, or native-accepted.
+Combined integration base: `origin/phase2-textures` at `bf068bc`
+
+Combined candidate: `f0f27eb` on `fix/fast-transfer-local-chunks`
+
+Status: component implementation `5e01528` is pushed to
+`performance-dx12-present-mode`, independently approved, merged into the
+combined candidate, and covered by the combined all-target/all-feature test
+gate. Native acceptance and authoritative `phase2-textures` integration remain
+pending.
 
 ## Evidence and intended policy
 
@@ -66,9 +73,8 @@ precedence, pending-to-proven lifecycle identity and one-shot proof, bounded
 eventual surface-probe retry, runtime setting transitions, missing-window retry,
 and two consecutive automatic applications with no second `Window` change.
 
-## Remaining native/review gates
+## Remaining native/integration gates
 
-- Obtain a fresh independent review of the final production behavior and tests.
 - Integrate on the stable canonical path, build release, and repeat Lunar
   `pvp.lunarbedrock.com:19134`, then Zeqa
   `zeqa.net:19132`, confirming effective mode, frame pacing, chunk readiness,

@@ -1,6 +1,13 @@
 # Phase 2.7 fast-transfer local chunk handoff
 
-Status: implementation and local verification complete; independent review and native LBSG `/transfer sm3` validation remain integration-owned.
+Combined integration base: `origin/phase2-textures` at `bf068bc`.
+
+Combined candidate: `f0f27eb` on `fix/fast-transfer-local-chunks`.
+
+Status: implementation, component review, combined post-integration review,
+and the combined all-target/all-feature test gate are complete. Native LBSG
+`/transfer sm3` validation and authoritative `phase2-textures` integration
+remain pending.
 
 ## Scope and commits
 
