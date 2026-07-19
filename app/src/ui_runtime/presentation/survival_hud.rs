@@ -82,7 +82,8 @@ pub(super) fn append(
     let scale = geometry.logical_texture_scale;
     let outer_left = geometry.hotbar_outer_left;
     let inner_left = outer_left + scale;
-    if let Some(health) = runtime.hud().health()
+    if runtime.survival_stats_visible()
+        && let Some(health) = runtime.hud().health()
         && let Some(half_units) = standard_survival_half_units(health)
     {
         append_icon_row(
@@ -98,7 +99,8 @@ pub(super) fn append(
             scale,
         )?;
     }
-    if let Some(hunger) = runtime.hud().hunger()
+    if runtime.survival_stats_visible()
+        && let Some(hunger) = runtime.hud().hunger()
         && let Some(half_units) = standard_survival_half_units(hunger)
     {
         append_icon_row(
@@ -114,7 +116,8 @@ pub(super) fn append(
             scale,
         )?;
     }
-    if let Some(armor) = runtime.hud().armor()
+    if runtime.survival_stats_visible()
+        && let Some(armor) = runtime.hud().armor()
         && armor.current() > 0
         && let Some(half_units) = standard_survival_half_units(armor)
     {
@@ -131,7 +134,8 @@ pub(super) fn append(
             scale,
         )?;
     }
-    if let Some(air) = runtime.hud().air()
+    if runtime.survival_stats_visible()
+        && let Some(air) = runtime.hud().air()
         && air.current() < air.maximum()
     {
         let filled = u32::from(air.current())
@@ -159,10 +163,10 @@ pub(super) fn append(
         }
     }
 
-    if let Some(equipment) = runtime.local_selected_equipment() {
+    if let Some(selected) = runtime.selected_hotbar_slot() {
         let hotbar_y = (height - 23.0 * scale).max(0.0);
         let roles = HOTBAR_ROLES;
-        let selected = usize::from(equipment.event.selected_slot);
+        let selected = usize::from(selected);
         if selected >= roles.len() {
             return Ok(());
         }

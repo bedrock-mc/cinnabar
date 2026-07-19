@@ -25,7 +25,7 @@ use bevy::prelude::Resource;
 use protocol::{
     ActorAttribute, BlockCrackEvent, ChatAutocompleteCatalog, ChatAutocompleteCatalogError,
     ChatPacketError, CommandOutputEvent, EquipmentEvent, HudEvent, InventoryAuthority,
-    InventoryEvent, Packet, TextEvent, TextKind, TitleAction, TitleEvent, UiEvent,
+    InventoryEvent, Packet, PlayerGameMode, TextEvent, TextKind, TitleAction, TitleEvent, UiEvent,
     chat_input_packet,
 };
 use semantic_input::InputContext;
@@ -177,6 +177,7 @@ pub struct UiRuntime {
     dropped_unsent_chat_messages: u64,
     pending_block_cracks: VecDeque<SequencedBlockCrackEvent>,
     inventory_authority: Option<InventoryAuthority>,
+    player_game_mode: Option<PlayerGameMode>,
     last_inventory_sequence: Option<u64>,
     pending_inventory: VecDeque<SequencedInventoryEvent>,
     equipment_router: InventoryEquipmentRouter,
@@ -215,6 +216,7 @@ impl UiRuntime {
             dropped_unsent_chat_messages: 0,
             pending_block_cracks: VecDeque::with_capacity(MAX_PENDING_BLOCK_CRACK_EVENTS),
             inventory_authority: None,
+            player_game_mode: None,
             last_inventory_sequence: None,
             pending_inventory: VecDeque::with_capacity(MAX_PENDING_INVENTORY_EVENTS),
             equipment_router: InventoryEquipmentRouter::new(session_id),
@@ -236,6 +238,39 @@ impl UiRuntime {
 
     pub(crate) fn publish_inventory_authority(&mut self, authority: InventoryAuthority) {
         self.inventory_authority = Some(authority);
+    }
+
+    pub(crate) fn publish_player_game_mode(&mut self, game_mode: PlayerGameMode) {
+        self.player_game_mode = Some(game_mode);
+        if game_mode.shows_survival_stats() {
+            self.hud.set_stats(
+                BoundedStat::new(20, 20),
+                BoundedStat::new(20, 20),
+                self.hud.armor(),
+                self.hud.air(),
+            );
+        } else {
+            self.hud
+                .set_stats(None, None, self.hud.armor(), self.hud.air());
+        }
+    }
+
+    pub(crate) const fn survival_stats_visible(&self) -> bool {
+        match self.player_game_mode {
+            Some(game_mode) => game_mode.shows_survival_stats(),
+            None => true,
+        }
+    }
+
+    pub(crate) fn selected_hotbar_slot(&self) -> Option<u8> {
+        self.local_selected_equipment
+            .as_ref()
+            .map(|equipment| equipment.event.selected_slot)
+            .or_else(|| {
+                self.player_game_mode
+                    .filter(|game_mode| game_mode.shows_hotbar())
+                    .map(|_| 0)
+            })
     }
 
     pub(crate) fn enqueue_inventory_event(
@@ -579,6 +614,7 @@ impl UiRuntime {
             .saturating_add(dropped as u64);
         self.pending_block_cracks.clear();
         self.inventory_authority = None;
+        self.player_game_mode = None;
         self.last_inventory_sequence = None;
         self.pending_inventory.clear();
         self.equipment_router.begin_session(session_id);

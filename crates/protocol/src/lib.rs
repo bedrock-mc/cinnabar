@@ -76,7 +76,7 @@ pub use world::{
     BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockEntityUpdateEvent, BlockUpdateEvent,
     ChangeDimensionEvent, DaylightCycleUpdateEvent, DimensionRange, HASHED_AIR_NETWORK_ID,
     LevelChunkEvent, LevelChunkMode, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES, MAX_BLOCK_LAYERS,
-    MAX_SUB_CHUNK_REQUESTS, MovePlayerEvent, MovePlayerMode, PLAYER_NETWORK_OFFSET,
+    MAX_SUB_CHUNK_REQUESTS, MovePlayerEvent, MovePlayerMode, PLAYER_NETWORK_OFFSET, PlayerGameMode,
     PlayerMovementCorrectionEvent, PublisherUpdateEvent, SEQUENTIAL_AIR_NETWORK_ID,
     STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent,
     SubChunkResult, SubChunkUnavailable, WeatherChannel, WeatherUpdateEvent, WorldBootstrap,
