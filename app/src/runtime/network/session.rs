@@ -72,6 +72,20 @@ pub struct SequencedWorldEvent {
     pub event: WorldEvent,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+// The FIFO is strictly bounded to WORLD_EVENT_CAPACITY. Keeping the event
+// inline avoids adding one heap allocation to every normal world packet just
+// to accommodate the rare, small transfer barrier variant.
+#[allow(clippy::large_enum_variant)]
+pub enum WorldIngress {
+    Event(SequencedWorldEvent),
+    FastTransferBarrier {
+        session_generation: u64,
+        sequence: u64,
+        action_sequence: u64,
+    },
+}
+
 #[derive(Debug)]
 enum NetworkCommand {
     Send {
@@ -129,7 +143,7 @@ impl PacketSendError {
 #[derive(Resource)]
 pub struct NetworkHandle {
     control_events: mpsc::Receiver<NetworkControlEvent>,
-    world_events: mpsc::Receiver<SequencedWorldEvent>,
+    world_events: mpsc::Receiver<WorldIngress>,
     commands: mpsc::Sender<NetworkCommand>,
     shutdown: watch::Sender<bool>,
     thread: Option<JoinHandle<()>>,
@@ -140,7 +154,7 @@ impl NetworkHandle {
         &mut self.control_events
     }
 
-    pub fn world_events_mut(&mut self) -> &mut mpsc::Receiver<SequencedWorldEvent> {
+    pub fn world_events_mut(&mut self) -> &mut mpsc::Receiver<WorldIngress> {
         &mut self.world_events
     }
 
@@ -426,7 +440,7 @@ async fn run_network_pump<S: NetworkSession>(
     mut sequencer: NetworkSequencer,
     mut command_rx: mpsc::Receiver<NetworkCommand>,
     control_event_tx: mpsc::Sender<NetworkControlEvent>,
-    world_event_tx: mpsc::Sender<SequencedWorldEvent>,
+    world_event_tx: mpsc::Sender<WorldIngress>,
     mut shutdown_rx: watch::Receiver<bool>,
 ) {
     let mut pump_preference = NetworkPumpPreference::Inbound;
@@ -517,6 +531,26 @@ async fn run_network_pump<S: NetworkSession>(
                                     return;
                                 }
                             }
+                            if let Some(chat) =
+                                chat.filter(|chat| chat.fast_transfer_action.is_some())
+                            {
+                                if let Some(pending) = pending_world_event.take()
+                                    && !send_event_or_cancel(
+                                        &world_event_tx,
+                                        &mut shutdown_rx,
+                                        WorldIngress::Event(pending),
+                                    )
+                                    .await
+                                {
+                                    return;
+                                }
+                                let barrier = sequencer.wrap_fast_transfer_barrier(chat.sequence);
+                                if !send_event_or_cancel(&world_event_tx, &mut shutdown_rx, barrier)
+                                    .await
+                                {
+                                    return;
+                                }
+                            }
                             if let Some(chat) = chat
                                 && !send_control_event_or_cancel(
                                     &control_event_tx,
@@ -564,11 +598,11 @@ async fn run_network_pump<S: NetworkSession>(
                 None => break,
             },
             NetworkPumpWork::Inbound(WorldSideWork::Capacity(Ok(permit))) => {
-                permit.send(
+                permit.send(WorldIngress::Event(
                     pending_world_event
                         .take()
                         .expect("world capacity is reserved only for a pending event"),
-                );
+                ));
             }
             NetworkPumpWork::Inbound(WorldSideWork::Capacity(Err(_))) => return,
             NetworkPumpWork::Inbound(WorldSideWork::Event(Ok(event))) => {
@@ -692,13 +726,13 @@ fn emit_packet_id_trace<S: NetworkSession>(session: &mut S) {
 
 enum WorldSideWork<'a, E> {
     Event(Result<Box<WorldEvent>, E>),
-    Capacity(Result<mpsc::Permit<'a, SequencedWorldEvent>, mpsc::error::SendError<()>>),
+    Capacity(Result<mpsc::Permit<'a, WorldIngress>, mpsc::error::SendError<()>>),
 }
 
 async fn wait_for_world_side_work<'a, S: NetworkSession>(
     session: &mut S,
     current_dimension: i32,
-    world_event_tx: &'a mpsc::Sender<SequencedWorldEvent>,
+    world_event_tx: &'a mpsc::Sender<WorldIngress>,
     has_pending_world_event: bool,
 ) -> WorldSideWork<'a, S::Error> {
     if has_pending_world_event {
@@ -812,11 +846,11 @@ async fn send_control_event_or_cancel(
 
 #[cfg(test)]
 async fn send_world_event_or_cancel(
-    events: &mpsc::Sender<SequencedWorldEvent>,
+    events: &mpsc::Sender<WorldIngress>,
     shutdown: &mut watch::Receiver<bool>,
     event: SequencedWorldEvent,
 ) -> bool {
-    send_event_or_cancel(events, shutdown, event).await
+    send_event_or_cancel(events, shutdown, WorldIngress::Event(event)).await
 }
 
 async fn send_event_or_cancel<T>(
@@ -853,6 +887,16 @@ impl NetworkSequencer {
             next_sequence: 1,
             current_dimension,
             local_player_runtime_id,
+        }
+    }
+
+    fn wrap_fast_transfer_barrier(&mut self, action_sequence: u64) -> WorldIngress {
+        let sequence = self.next_sequence;
+        self.next_sequence = self.next_sequence.saturating_add(1);
+        WorldIngress::FastTransferBarrier {
+            session_generation: self.session_generation,
+            sequence,
+            action_sequence,
         }
     }
 

@@ -49,6 +49,10 @@ impl WorldStream {
         sequence: Option<u64>,
     ) {
         match event {
+            PreparedWorldEvent::SameLocationReset => {
+                let sequence = sequence.expect("fast-transfer resets commit through submit");
+                self.apply_same_location_reset(sequence);
+            }
             PreparedWorldEvent::InlineLevelChunk {
                 event,
                 decoded,

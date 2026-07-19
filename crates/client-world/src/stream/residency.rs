@@ -12,7 +12,91 @@ impl WorldStream {
             return;
         }
 
+        self.arm_local_reset(center);
+    }
+
+    pub(super) fn apply_same_location_reset(&mut self, sequence: u64) {
+        let center = self
+            .publisher_center
+            .unwrap_or_else(|| self.resolved_server_position.position.map(floor_to_i32));
+        let mut removal_keys = self
+            .applied_mesh_generations
+            .keys()
+            .copied()
+            .collect::<BTreeSet<_>>();
+        removal_keys.extend(self.revisions.entries.keys().copied());
+        removal_keys.extend(self.pending_mesh.keys().copied());
+        removal_keys.extend(self.in_flight.keys().copied());
+        removal_keys.extend(self.mesh_changes.iter().map(|change| match change {
+            WorldMeshChange::Upsert { key, .. } | WorldMeshChange::Remove { key, .. } => *key,
+        }));
+
+        // Disconnect old workers before clearing their identities. Their
+        // completions may still be produced, but can no longer enter this
+        // stream after the reset barrier commits.
+        let (mesh_tx, mesh_rx) = bounded(WORK_RESULT_CAPACITY);
+        self.mesh_tx = mesh_tx;
+        self.mesh_rx = mesh_rx;
+
         self.evict_all_resident();
+        self.store = ChunkStore::new();
+        self.block_entity_visuals.clear();
+        self.resident.clear();
+        self.known_air.clear();
+        self.loaded_columns.clear();
+        self.connectivity.clear();
+        self.bump_connectivity_generation();
+
+        self.requests = RequestQueue::default();
+        self.requested_sub_chunks.clear();
+        self.request_collision_failures.clear();
+        self.sub_chunk_deadlines.clear();
+        self.correlated_sub_chunk_attempts.clear();
+        self.admitted_sub_chunk_replies.clear();
+        self.deferred_retries.clear();
+        self.deferred_retry_set.clear();
+        self.transport_pending_requests = 0;
+
+        self.block_generations.clear();
+        self.light_store = LightStore::default();
+        self.light_ownership.clear();
+        self.direct_sky.clear();
+        self.light_failures.clear();
+        self.light_revisions.entries.clear();
+        self.pending_light.clear();
+        self.in_flight_light.clear();
+        self.light_waiters.clear();
+        self.fatal_light_failure = false;
+        let (light_tx, light_rx) = bounded(LIGHT_RESULT_CAPACITY);
+        self.light_tx = light_tx;
+        self.light_rx = light_rx;
+
+        self.pending_mesh.clear();
+        self.in_flight.clear();
+        self.revisions.entries.clear();
+        self.applied_mesh_generations.clear();
+        self.mesh_dependency_masks.clear();
+        self.mesh_changes.clear();
+        // Publish fresh, monotonically newer removals for old renderer keys.
+        // If replacement data reaches a key first, its still-newer revision
+        // supersedes the removal without allowing stale geometry to return.
+        let now = Instant::now();
+        for key in removal_keys {
+            self.mark_dirty_exact(key, now);
+        }
+
+        self.source_columns.clear();
+        self.source_capture_sequence = None;
+        let _ =
+            self.actors
+                .reset_dimension(self.actor_session_id, sequence, self.current_dimension);
+        self.pending_same_location_reset = false;
+        self.arm_local_reset(center);
+    }
+
+    fn arm_local_reset(&mut self, center: [i32; 3]) {
+        self.evict_all_resident();
+        self.transport_pending_requests = 0;
         self.publisher_center = Some(center);
         self.committed_view_cohort = None;
         self.required_columns.clear();
@@ -92,8 +176,10 @@ impl WorldStream {
             .iter()
             .map(|key| key.chunk())
             .collect::<BTreeSet<_>>();
+        columns.extend(self.known_air.iter().map(|key| key.chunk()));
         columns.extend(self.loaded_columns.iter().copied());
         columns.extend(self.requested_sub_chunks.keys().copied());
+        columns.extend(self.request_collision_failures.iter().copied());
         for column in columns {
             self.evict_column(column);
         }

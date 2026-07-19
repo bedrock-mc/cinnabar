@@ -1,4 +1,5 @@
 use std::{
+    collections::VecDeque,
     future,
     sync::{
         Arc, Mutex,
@@ -18,7 +19,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use super::{
     COMMAND_CAPACITY, CONTROL_EVENT_CAPACITY, NetworkCommand, NetworkConfig, NetworkControlEvent,
     NetworkHandle, NetworkPumpPreference, NetworkPumpWork, NetworkSequencer, NetworkSession,
-    PacketSendError, SequencedWorldEvent, WORLD_EVENT_CAPACITY, run_network_pump,
+    PacketSendError, SequencedWorldEvent, WORLD_EVENT_CAPACITY, WorldIngress, run_network_pump,
     send_control_event_or_cancel, send_event_or_cancel, send_final_blob_cache_telemetry,
     send_world_event_or_cancel, start_game_inventory_authority, wait_for_login_or_cancel,
     wait_for_network_work_or_cancel, wait_for_send_or_cancel,
@@ -69,6 +70,10 @@ struct ReadyInboundSession {
 struct CachedInboundSession {
     inbound: Option<WorldEvent>,
     stats: BlobCacheStats,
+}
+
+struct QueuedInboundSession {
+    inbound: VecDeque<WorldEvent>,
 }
 
 struct FailingSendSession;
@@ -169,6 +174,28 @@ impl NetworkSession for ReadyInboundSession {
                 self.inbound_selected.store(true, Ordering::SeqCst);
                 Ok(event)
             }
+            None => future::pending().await,
+        }
+    }
+
+    async fn send_packet(&mut self, _packet: protocol::Packet) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn decode_error_count(&self) -> u64 {
+        0
+    }
+}
+
+impl NetworkSession for QueuedInboundSession {
+    type Error = std::convert::Infallible;
+
+    async fn receive_world_event(
+        &mut self,
+        _current_dimension: i32,
+    ) -> Result<WorldEvent, Self::Error> {
+        match self.inbound.pop_front() {
+            Some(event) => Ok(event),
             None => future::pending().await,
         }
     }
@@ -526,6 +553,112 @@ async fn chat_send_receipt_is_emitted_only_after_the_session_send_completes() {
 }
 
 #[tokio::test]
+async fn successful_fast_transfer_flushes_old_ingress_then_enqueues_barrier() {
+    let (world_event_tx, mut world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
+    let (commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
+    commands
+        .try_send(NetworkCommand::Send {
+            packet: test_packet(),
+            sub_chunk: None,
+            chat: Some(super::ChatPacketSend {
+                session: 7,
+                sequence: 11,
+                fast_transfer_action: Some(crate::ui_runtime::FastTransferAction::TransferSm3),
+            }),
+        })
+        .unwrap();
+    let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
+    let (shutdown, shutdown_rx) = watch::channel(false);
+    let worker = tokio::spawn(run_network_pump(
+        QueuedInboundSession {
+            inbound: VecDeque::from([
+                WorldEvent::ChunkRadiusUpdated(16),
+                WorldEvent::ChunkRadiusUpdated(8),
+            ]),
+        },
+        NetworkSequencer::new(7, 0, 42),
+        command_rx,
+        control_event_tx,
+        world_event_tx,
+        shutdown_rx,
+    ));
+
+    assert!(matches!(
+        tokio::time::timeout(Duration::from_millis(100), world_events.recv()).await,
+        Ok(Some(WorldIngress::Event(SequencedWorldEvent {
+            session_generation: 7,
+            sequence: 1,
+            event: WorldEvent::ChunkRadiusUpdated(16),
+        })))
+    ));
+    assert!(matches!(
+        tokio::time::timeout(Duration::from_millis(100), world_events.recv()).await,
+        Ok(Some(WorldIngress::FastTransferBarrier {
+            session_generation: 7,
+            sequence: 2,
+            action_sequence: 11,
+        }))
+    ));
+    assert!(matches!(
+        tokio::time::timeout(Duration::from_millis(100), world_events.recv()).await,
+        Ok(Some(WorldIngress::Event(SequencedWorldEvent {
+            session_generation: 7,
+            sequence: 3,
+            event: WorldEvent::ChunkRadiusUpdated(8),
+        })))
+    ));
+    assert!(matches!(
+        tokio::time::timeout(Duration::from_millis(100), controls.recv()).await,
+        Ok(Some(NetworkControlEvent::ChatPacketSent {
+            session: 7,
+            sequence: 11,
+        }))
+    ));
+    shutdown.send_replace(true);
+    worker.await.unwrap();
+}
+
+#[tokio::test]
+async fn failed_fast_transfer_never_arms_a_reset() {
+    let (world_event_tx, mut world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
+    let (commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
+    commands
+        .try_send(NetworkCommand::Send {
+            packet: test_packet(),
+            sub_chunk: None,
+            chat: Some(super::ChatPacketSend {
+                session: 8,
+                sequence: 12,
+                fast_transfer_action: Some(crate::ui_runtime::FastTransferAction::TransferSm3),
+            }),
+        })
+        .unwrap();
+    let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
+    let (_shutdown, shutdown_rx) = watch::channel(false);
+
+    run_network_pump(
+        FailingSendSession,
+        NetworkSequencer::new(7, 0, 42),
+        command_rx,
+        control_event_tx,
+        world_event_tx,
+        shutdown_rx,
+    )
+    .await;
+
+    let events = std::iter::from_fn(|| controls.try_recv().ok()).collect::<Vec<_>>();
+    assert!(world_events.try_recv().is_err());
+    assert!(events.iter().any(|event| matches!(
+        event,
+        NetworkControlEvent::ChatPacketSendFailed {
+            session: 8,
+            sequence: 12,
+            ..
+        }
+    )));
+}
+
+#[tokio::test]
 async fn chat_send_failure_identifies_the_exact_outbox_item() {
     let (world_event_tx, _world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
     let (commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
@@ -605,11 +738,11 @@ async fn single_worker_acks_ready_command_while_ready_inbound_waits_on_full_worl
     let (world_event_tx, world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
     for sequence in 1..=WORLD_EVENT_CAPACITY as u64 {
         world_event_tx
-            .try_send(SequencedWorldEvent {
+            .try_send(WorldIngress::Event(SequencedWorldEvent {
                 session_generation: 7,
                 sequence,
                 event: WorldEvent::ChunkRadiusUpdated(sequence as i32),
-            })
+            }))
             .unwrap();
     }
     // Model zero main-thread admission by retaining the full receiver without
@@ -755,11 +888,11 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
     ));
     assert!(matches!(
         world_event_rx.try_recv(),
-        Ok(SequencedWorldEvent {
+        Ok(WorldIngress::Event(SequencedWorldEvent {
             session_generation: 7,
             sequence: 9,
             event: WorldEvent::ChunkRadiusUpdated(16),
-        })
+        }))
     ));
 }
 
@@ -951,11 +1084,11 @@ fn network_pending_counts_include_ingress_and_outbound_queues() {
         .unwrap();
     assert_eq!(handle.pending_event_count(), 1);
     world_event_tx
-        .try_send(SequencedWorldEvent {
+        .try_send(WorldIngress::Event(SequencedWorldEvent {
             session_generation: 7,
             sequence: 1,
             event: WorldEvent::ChunkRadiusUpdated(16),
-        })
+        }))
         .unwrap();
     assert_eq!(handle.pending_event_count(), 2);
     handle.control_events_mut().try_recv().unwrap();

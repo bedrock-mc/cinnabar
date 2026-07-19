@@ -948,6 +948,50 @@ fn zero_world_admission_still_drains_control_ack_and_leaves_world_fifo_untouched
 }
 
 #[test]
+fn world_ingress_drain_stops_at_transfer_barrier_without_consuming_replacement_events() {
+    let (sender, mut receiver) = tokio::sync::mpsc::channel(4);
+    sender
+        .try_send(WorldIngress::Event(SequencedWorldEvent {
+            session_generation: 7,
+            sequence: 1,
+            event: WorldEvent::ChunkRadiusUpdated(16),
+        }))
+        .unwrap();
+    sender
+        .try_send(WorldIngress::FastTransferBarrier {
+            session_generation: 7,
+            sequence: 2,
+            action_sequence: 11,
+        })
+        .unwrap();
+    sender
+        .try_send(WorldIngress::Event(SequencedWorldEvent {
+            session_generation: 7,
+            sequence: 3,
+            event: WorldEvent::ChunkRadiusUpdated(8),
+        }))
+        .unwrap();
+
+    let drained = drain_world_ingress_until_barrier(&mut receiver, 4);
+
+    assert!(matches!(
+        drained.as_slice(),
+        [
+            WorldIngress::Event(SequencedWorldEvent { sequence: 1, .. }),
+            WorldIngress::FastTransferBarrier { sequence: 2, .. }
+        ]
+    ));
+    assert!(matches!(
+        receiver.try_recv(),
+        Ok(WorldIngress::Event(SequencedWorldEvent {
+            sequence: 3,
+            event: WorldEvent::ChunkRadiusUpdated(8),
+            ..
+        }))
+    ));
+}
+
+#[test]
 fn control_ingress_is_bounded_to_outbound_budget_and_preserves_fifo() {
     assert_eq!(OUTBOUND_SEND_BUDGET_PER_FRAME, 16);
     let (sender, mut receiver) = tokio::sync::mpsc::channel(OUTBOUND_SEND_BUDGET_PER_FRAME + 2);

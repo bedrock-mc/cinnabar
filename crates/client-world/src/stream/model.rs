@@ -656,6 +656,7 @@ pub(super) enum PreparedWorldEvent {
         duration: Duration,
     },
     Immediate(WorldEvent),
+    SameLocationReset,
     CommitOnly,
     NormalizationFailure,
 }
