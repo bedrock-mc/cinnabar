@@ -12,6 +12,7 @@ pub mod ui_runtime;
 
 mod acceptance;
 mod app;
+mod presentation;
 mod runtime;
 
 pub use app::run;
