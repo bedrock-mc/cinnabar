@@ -29,7 +29,6 @@ mod survival_hud;
 use chat::visible_suggestion_range;
 use retained_hud::{
     PresentedScoreboardCache, ScoreboardOpacityAuthority, ScoreboardOwnerNameAuthority,
-    project_boss_bars,
 };
 
 const TEXT_CACHE_ENTRIES: usize = 1_024;
@@ -132,22 +131,16 @@ impl UiPresentationRuntime {
         let mut nodes = Vec::new();
         let mut next_id = 1u32;
 
-        if let Some(hud_textures) = self.hud_textures.as_ref() {
-            if let Some(geometry) = measured_survival_geometry {
-                survival_hud::append(
-                    &mut nodes,
-                    &mut next_id,
-                    runtime,
-                    logical_height,
-                    hud_textures,
-                    geometry,
-                )?;
-            }
-            retained_hud::append_boss_nodes(
+        if let Some(hud_textures) = self.hud_textures.as_ref()
+            && let Some(geometry) = measured_survival_geometry
+        {
+            survival_hud::append(
                 &mut nodes,
                 &mut next_id,
+                runtime,
+                logical_height,
                 hud_textures,
-                project_boss_bars(runtime.boss_bars(), logical_width, logical_height),
+                geometry,
             )?;
         }
 

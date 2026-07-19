@@ -3,15 +3,13 @@ use std::{
     sync::Arc,
 };
 
-use assets::{HudTextureRole, RuntimeFontCatalog};
+use assets::RuntimeFontCatalog;
 use ui::{
-    BossBarStore, BossColor, DisplaySlot, ScoreOwner, ScoreboardStore, TextLayoutCache,
-    TextLayoutRequest, TextStyle, UiNode, UiNodeId, UiScale, UiVisual,
+    DisplaySlot, ScoreOwner, ScoreboardStore, TextLayoutCache, TextLayoutRequest, TextStyle,
+    UiNode, UiNodeId, UiScale, UiVisual,
 };
 
-use super::{
-    HudTexturePages, UiPresentationError, UiPresentationRuntime, bounded_visible_text, rect,
-};
+use super::{UiPresentationError, UiPresentationRuntime, bounded_visible_text, rect};
 
 // Exact classic-profile contracts from the hash-pinned 1.26.3301.0 ui/scoreboards.json.
 pub(super) const SCOREBOARD_MAIN_HORIZONTAL_EXPANSION: f32 = 4.0;
@@ -25,14 +23,6 @@ pub(super) const MAX_PRESENTED_SCOREBOARD_ROWS: usize = 15;
 pub(super) const MAX_PRESENTED_PLAYER_LIST_ROWS: usize = protocol::MAX_PLAYER_LIST_RECORDS;
 pub(super) const MAX_PRESENTED_BELOW_NAME_ROWS: usize = ui::MAX_SCORES;
 
-// Exact classic-profile contracts from the hash-pinned 1.26.3301.0 ui/hud_screen.json and
-// ui/ui_common.json. The bar images are carried from that same reviewed source identity.
-pub(super) const BOSS_PANEL_WIDTH: f32 = 182.0;
-pub(super) const BOSS_PANEL_HEIGHT: f32 = 20.0;
-pub(super) const BOSS_PROGRESS_HEIGHT: f32 = 5.0;
-pub(super) const BOSS_PROGRESS_TOP: f32 = 10.0;
-pub(super) const BOSS_STACK_TOP: f32 = 2.0;
-pub(super) const BOSS_STACK_VIEWPORT_FRACTION: f32 = 0.30;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum ScoreboardPresentationScope {
     HudSidebar,
@@ -198,14 +188,6 @@ impl ScoreboardOwnerNameAuthority {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub(super) struct PresentedBossBar {
-    pub(super) panel: [f32; 4],
-    pub(super) progress: [f32; 4],
-    pub(super) fill: [f32; 4],
-    pub(super) color: [u8; 4],
-}
-
 pub(super) fn project_scoreboard_for_scope(
     store: &ScoreboardStore,
     scope: ScoreboardPresentationScope,
@@ -289,67 +271,6 @@ pub(super) fn project_below_name_scores(
             })
             .collect(),
     })
-}
-
-pub(super) fn project_boss_bars(
-    store: &BossBarStore,
-    viewport_width: f32,
-    viewport_height: f32,
-) -> Vec<PresentedBossBar> {
-    if !viewport_width.is_finite()
-        || !viewport_height.is_finite()
-        || viewport_width < BOSS_PANEL_WIDTH
-        || viewport_height <= BOSS_STACK_TOP
-    {
-        return Vec::new();
-    }
-    let available_height = (viewport_height * BOSS_STACK_VIEWPORT_FRACTION - BOSS_STACK_TOP)
-        .clamp(0.0, viewport_height);
-    let capacity = (available_height / BOSS_PANEL_HEIGHT).floor() as usize;
-    if capacity == 0 {
-        return Vec::new();
-    }
-    let left = (viewport_width - BOSS_PANEL_WIDTH) * 0.5;
-    store
-        .stacked()
-        .into_iter()
-        .take(capacity)
-        .enumerate()
-        .map(|(index, bar)| {
-            let top = BOSS_STACK_TOP + index as f32 * BOSS_PANEL_HEIGHT;
-            let progress_top = top + BOSS_PROGRESS_TOP;
-            let health = bar.health.clamp(0.0, 1.0);
-            PresentedBossBar {
-                panel: [left, top, left + BOSS_PANEL_WIDTH, top + BOSS_PANEL_HEIGHT],
-                progress: [
-                    left,
-                    progress_top,
-                    left + BOSS_PANEL_WIDTH,
-                    progress_top + BOSS_PROGRESS_HEIGHT,
-                ],
-                fill: [
-                    left,
-                    progress_top,
-                    left + BOSS_PANEL_WIDTH * health,
-                    progress_top + BOSS_PROGRESS_HEIGHT,
-                ],
-                color: boss_color(bar.style.color),
-            }
-        })
-        .collect()
-}
-
-const fn boss_color(color: BossColor) -> [u8; 4] {
-    match color {
-        BossColor::Pink => [255, 85, 255, 255],
-        BossColor::Blue => [85, 85, 255, 255],
-        BossColor::Red => [255, 85, 85, 255],
-        BossColor::Green => [85, 255, 85, 255],
-        BossColor::Yellow => [255, 255, 85, 255],
-        BossColor::Purple => [170, 0, 170, 255],
-        BossColor::RebeccaPurple => [102, 51, 153, 255],
-        BossColor::White => [255, 255, 255, 255],
-    }
 }
 
 struct PreparedScoreboardRow {
@@ -476,59 +397,6 @@ pub(super) fn append_scoreboard_nodes(
             row.score,
             [255, 0, 0, 255],
         )?;
-    }
-    Ok(())
-}
-
-pub(super) fn append_boss_nodes(
-    nodes: &mut Vec<UiNode>,
-    next_id: &mut u32,
-    textures: &HudTexturePages,
-    bars: Vec<PresentedBossBar>,
-) -> Result<(), UiPresentationError> {
-    for bar in bars {
-        let empty = textures.sprite(HudTextureRole::BossProgressEmpty);
-        nodes.push(
-            UiNode::new(
-                take_node_id(next_id),
-                None,
-                rect(
-                    bar.progress[0],
-                    bar.progress[1],
-                    bar.progress[2],
-                    bar.progress[3],
-                )?,
-            )
-            .with_visual(UiVisual::Sprite {
-                texture_page: textures.page,
-                uv: empty.uv,
-                color: [255; 4],
-            }),
-        );
-        if bar.fill[2] > bar.fill[0] {
-            let clip_id = take_node_id(next_id);
-            nodes.push(
-                UiNode::new(
-                    clip_id,
-                    None,
-                    rect(bar.fill[0], bar.fill[1], bar.fill[2], bar.fill[3])?,
-                )
-                .with_clip_children(true),
-            );
-            let filled = textures.sprite(HudTextureRole::BossProgressFilled);
-            nodes.push(
-                UiNode::new(
-                    take_node_id(next_id),
-                    Some(clip_id),
-                    rect(0.0, 0.0, BOSS_PANEL_WIDTH, BOSS_PROGRESS_HEIGHT)?,
-                )
-                .with_visual(UiVisual::Sprite {
-                    texture_page: textures.page,
-                    uv: filled.uv,
-                    color: bar.color,
-                }),
-            );
-        }
     }
     Ok(())
 }
