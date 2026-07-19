@@ -12,6 +12,8 @@ use bevy::{
     time::Real,
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window},
 };
+
+use crate::acceptance::markers::FAST_TRANSFER_ACTION;
 use protocol::{ChatPacketError, Packet};
 use ui::{ChatClipboard, ChatEditor, PointerPhase, UiAction, UiPoint};
 
@@ -44,7 +46,7 @@ impl FastTransferAction {
             Self::TransferSm3 => "/transfer sm3",
         };
         format!(
-            "RUST_MCBE_FAST_TRANSFER_ACTION={}",
+            "{FAST_TRANSFER_ACTION}={}",
             serde_json::json!({
                 "schema": "rust-mcbe-fast-transfer-action-v1",
                 "kind": "command_sent",

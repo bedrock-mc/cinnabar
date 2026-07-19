@@ -70,6 +70,25 @@ fn slash_input_round_trips_as_vanilla_player_command_request() {
 }
 
 #[test]
+fn slash_input_matches_the_gophertunnel_lunar_wire_fixture() {
+    let session = BedrockSession { shield_item_id: 0 };
+    let mut built = chat_input_packet("RustMCBE", "1234", "/transfer sm3").unwrap();
+    let McpePacketData::PacketCommandRequest(packet) = &mut built.data else {
+        panic!("expected command request packet")
+    };
+    packet.origin.uuid = uuid::Uuid::parse_str("00112233-4455-6677-8899-aabbccddeeff").unwrap();
+
+    let encoded = encode(&built, &session).expect("encode command request");
+    let expected = [
+        0xfe, 0x37, 0x4d, 0x0d, b'/', b't', b'r', b'a', b'n', b's', b'f', b'e', b'r', b' ', b's',
+        b'm', b'3', 0x06, b'p', b'l', b'a', b'y', b'e', b'r', 0x77, 0x66, 0x55, 0x44, 0x33, 0x22,
+        0x11, 0x00, 0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x06, b'l', b'a', b't', b'e', b's', b't',
+    ];
+    assert_eq!(encoded.as_ref(), expected);
+}
+
+#[test]
 fn command_requests_receive_fresh_origin_uuids() {
     let first = chat_input_packet("RustMCBE", "1234", "/transfer sm3").unwrap();
     let second = chat_input_packet("RustMCBE", "1234", "/transfer sm3").unwrap();

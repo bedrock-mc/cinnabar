@@ -88,6 +88,64 @@ pub struct PlaySession<T: Transport = SocketTransport> {
     decode_errors: u64,
     world_skips: u64,
     blob_cache: Option<BlobCacheResolver>,
+    packet_id_trace: PacketIdTraceState,
+}
+
+const MAX_PACKET_ID_TRACE_ENTRIES: usize = 256;
+const PACKET_ID_TRACE_DURATION: std::time::Duration = std::time::Duration::from_secs(30);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PacketIdTraceSnapshot {
+    pub packet_ids: Box<[u32]>,
+    pub overflow: u64,
+    pub timed_out: bool,
+}
+
+#[derive(Default)]
+struct PacketIdTraceState {
+    started_at: Option<std::time::Instant>,
+    packet_ids: Vec<u32>,
+    recorded: usize,
+    overflow: u64,
+    timed_out: bool,
+}
+
+impl PacketIdTraceState {
+    fn begin(&mut self) {
+        self.started_at = Some(std::time::Instant::now());
+        self.packet_ids.clear();
+        self.recorded = 0;
+        self.overflow = 0;
+        self.timed_out = false;
+    }
+
+    fn observe(&mut self, packet: McpePacketName) {
+        let Some(started_at) = self.started_at else {
+            return;
+        };
+        if started_at.elapsed() >= PACKET_ID_TRACE_DURATION {
+            self.started_at = None;
+            self.timed_out = true;
+            return;
+        }
+        if self.recorded < MAX_PACKET_ID_TRACE_ENTRIES {
+            self.packet_ids.push(packet as u32);
+            self.recorded += 1;
+        } else {
+            self.overflow = self.overflow.saturating_add(1);
+        }
+    }
+
+    fn drain(&mut self) -> Option<PacketIdTraceSnapshot> {
+        if self.packet_ids.is_empty() && self.overflow == 0 && !self.timed_out {
+            return None;
+        }
+        Some(PacketIdTraceSnapshot {
+            packet_ids: std::mem::take(&mut self.packet_ids).into_boxed_slice(),
+            overflow: std::mem::take(&mut self.overflow),
+            timed_out: std::mem::take(&mut self.timed_out),
+        })
+    }
 }
 
 impl<T: Transport> PlaySession<T> {
@@ -97,6 +155,7 @@ impl<T: Transport> PlaySession<T> {
             decode_errors: 0,
             world_skips: 0,
             blob_cache: cache.map(BlobCacheResolver::new),
+            packet_id_trace: PacketIdTraceState::default(),
         }
     }
 
@@ -160,6 +219,7 @@ impl<T: Transport> PlaySession<T> {
                     return Err(error.into());
                 }
             };
+            self.packet_id_trace.observe(raw.id);
             let decoded = decode_world_raw_with(raw, current_dimension, |raw| {
                 self.stream.decode_raw_packet(raw)
             });
@@ -182,6 +242,16 @@ impl<T: Transport> PlaySession<T> {
         crate::codec::validate_packet(&packet)?;
         self.stream.send_packet(packet).await?;
         Ok(())
+    }
+
+    /// Starts a bounded, secret-safe packet-ID trace for native acceptance.
+    pub fn begin_packet_id_trace(&mut self) {
+        self.packet_id_trace.begin();
+    }
+
+    /// Drains packet IDs observed since the last drain without packet payloads.
+    pub fn drain_packet_id_trace(&mut self) -> Option<PacketIdTraceSnapshot> {
+        self.packet_id_trace.drain()
     }
 
     /// Number of receive-side decode/decompression failures observed in play.
@@ -247,6 +317,7 @@ impl<T: Transport> PlaySession<T> {
                 Ok(raw) => raw,
                 Err(error) => return Err(self.fail_session(error)),
             };
+            self.packet_id_trace.observe(raw.id);
             let packet_bytes = raw.inner_frame().len();
             let packet_name = raw.id;
 
@@ -400,6 +471,7 @@ fn decode_world_raw_with(
     if !matches!(
         raw.id,
         McpePacketName::PacketText
+            | McpePacketName::PacketCommandOutput
             | McpePacketName::PacketPlayStatus
             | McpePacketName::PacketSetHealth
             | McpePacketName::PacketBossEvent

@@ -4,10 +4,10 @@ use thiserror::Error;
 use valentine::bedrock::borrowed::BorrowedStr;
 use valentine::bedrock::version::v1_26_30::{
     BorrowedMcpePacketData, BossEventPacket, BossEventPacketColor, BossEventPacketOverlay,
-    BossEventPacketType, CommandOrigin, CommandRequestPacket, LevelEventPacket,
-    LevelEventPacketEvent, ModalFormRequestPacket, PlayStatusPacket, PlayStatusPacketStatus,
-    RemoveObjectivePacket, SetDisplayObjectivePacket, SetHealthPacket, SetScorePacket,
-    SetScorePacketAction, SetScorePacketEntriesItemContent,
+    BossEventPacketType, CommandOrigin, CommandOutputPacket, CommandRequestPacket,
+    LevelEventPacket, LevelEventPacketEvent, ModalFormRequestPacket, PlayStatusPacket,
+    PlayStatusPacketStatus, RemoveObjectivePacket, SetDisplayObjectivePacket, SetHealthPacket,
+    SetScorePacket, SetScorePacketAction, SetScorePacketEntriesItemContent,
     SetScorePacketEntriesItemContentEntityUniqueId, SetScorePacketEntriesItemContentEntryType,
     TextPacket, TextPacketCategory, TextPacketContent, TextPacketContentAnnouncement,
     TextPacketContentView, TextPacketType, ToastRequestPacket, UpdateSoftEnumPacket,
@@ -21,6 +21,7 @@ pub(crate) use text::{normalize_text, normalize_title};
 
 pub const MAX_UI_TEXT_BYTES: usize = 16_384;
 pub const MAX_CHAT_PARAMETERS: usize = 128;
+pub const MAX_COMMAND_OUTPUT_MESSAGES: usize = 128;
 pub const MAX_CHAT_AUTOCOMPLETE: usize = 256;
 pub const MAX_CHAT_AUTOCOMPLETE_BYTES: usize = 65_536;
 pub const MAX_SCORE_ENTRIES_PER_PACKET: usize = 8_192;
@@ -120,6 +121,7 @@ pub fn chat_input_packet(
 #[derive(Debug, Clone, PartialEq)]
 pub enum UiEvent {
     Text(TextEvent),
+    CommandOutput(CommandOutputEvent),
     RawText(RawTextEvent),
     Title(TitleEvent),
     Hud(HudEvent),
@@ -128,6 +130,21 @@ pub enum UiEvent {
     Boss(BossEvent),
     Form(FormRequestEvent),
     ChatAutocomplete(ChatAutocompleteEvent),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandOutputMessage {
+    pub message_id: Arc<str>,
+    pub success: bool,
+    pub parameters: Arc<[Arc<str>]>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandOutputEvent {
+    pub output_type: Arc<str>,
+    pub success_count: u32,
+    pub messages: Arc<[CommandOutputMessage]>,
+    pub data: Option<Arc<str>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -416,6 +433,8 @@ pub enum UiPacketError {
     RawTextOutputTooLarge { bytes: usize, max: usize },
     #[error("chat packet has {count} parameters, exceeding the {max}-parameter limit")]
     TooManyChatParameters { count: usize, max: usize },
+    #[error("command output has {count} messages, exceeding the {max}-message limit")]
+    TooManyCommandOutputMessages { count: usize, max: usize },
     #[error("score packet has {count} entries, exceeding the {max}-entry limit")]
     TooManyScores { count: usize, max: usize },
     #[error("form JSON is {bytes} bytes, exceeding the {max}-byte limit")]
@@ -456,6 +475,46 @@ fn bounded_form(value: String) -> Result<Arc<str>, UiPacketError> {
         });
     }
     Ok(Arc::from(value))
+}
+
+pub(crate) fn normalize_command_output(
+    packet: CommandOutputPacket,
+) -> Result<UiEvent, UiPacketError> {
+    if packet.output.len() > MAX_COMMAND_OUTPUT_MESSAGES {
+        return Err(UiPacketError::TooManyCommandOutputMessages {
+            count: packet.output.len(),
+            max: MAX_COMMAND_OUTPUT_MESSAGES,
+        });
+    }
+    let messages = packet
+        .output
+        .into_iter()
+        .map(|message| {
+            if message.parameters.len() > MAX_CHAT_PARAMETERS {
+                return Err(UiPacketError::TooManyChatParameters {
+                    count: message.parameters.len(),
+                    max: MAX_CHAT_PARAMETERS,
+                });
+            }
+            Ok(CommandOutputMessage {
+                message_id: bounded_text(message.message_id)?,
+                success: message.success,
+                parameters: Arc::from(
+                    message
+                        .parameters
+                        .into_iter()
+                        .map(bounded_text)
+                        .collect::<Result<Vec<_>, _>>()?,
+                ),
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(UiEvent::CommandOutput(CommandOutputEvent {
+        output_type: bounded_text(packet.output_type)?,
+        success_count: packet.success_count,
+        messages: Arc::from(messages),
+        data: packet.data.map(bounded_text).transpose()?,
+    }))
 }
 
 pub(crate) fn normalize_toast(packet: ToastRequestPacket) -> Result<UiEvent, UiPacketError> {

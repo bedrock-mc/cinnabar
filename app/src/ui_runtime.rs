@@ -24,8 +24,9 @@ use std::{collections::VecDeque, sync::Arc};
 use bevy::prelude::Resource;
 use protocol::{
     ActorAttribute, BlockCrackEvent, ChatAutocompleteCatalog, ChatAutocompleteCatalogError,
-    ChatPacketError, EquipmentEvent, HudEvent, InventoryAuthority, InventoryEvent, Packet,
-    TextEvent, TextKind, TitleAction, TitleEvent, UiEvent, chat_input_packet,
+    ChatPacketError, CommandOutputEvent, EquipmentEvent, HudEvent, InventoryAuthority,
+    InventoryEvent, Packet, TextEvent, TextKind, TitleAction, TitleEvent, UiEvent,
+    chat_input_packet,
 };
 use semantic_input::InputContext;
 use ui::{
@@ -616,6 +617,9 @@ impl UiRuntime {
             .map_or(envelope.local_millis, |tick| tick.saturating_mul(50));
         let outcome = match envelope.event {
             UiEvent::Text(event) => self.apply_text(event, envelope.fifo_sequence, event_millis)?,
+            UiEvent::CommandOutput(event) => {
+                self.apply_command_output(event, envelope.fifo_sequence, event_millis)?
+            }
             UiEvent::RawText(event) if event.document.has_unresolved_components() => {
                 UiApplyOutcome::IgnoredUnresolvedRawText
             }
@@ -835,6 +839,30 @@ impl UiRuntime {
             message: event.message,
             parameters: event.parameters,
         }) {
+            ChatApplyResult::Applied { .. } => Ok(UiApplyOutcome::Applied),
+            result => Err(UiRuntimeError::ChatRejected(result)),
+        }
+    }
+
+    fn apply_command_output(
+        &mut self,
+        event: CommandOutputEvent,
+        fifo_sequence: u64,
+        event_millis: u64,
+    ) -> Result<UiApplyOutcome, UiRuntimeError> {
+        let messages = event
+            .messages
+            .iter()
+            .map(|message| ChatMessage {
+                fifo_sequence,
+                received_millis: event_millis,
+                kind: ChatMessageKind::Translation,
+                source: None,
+                message: Arc::clone(&message.message_id),
+                parameters: Arc::clone(&message.parameters),
+            })
+            .collect();
+        match self.chat.push_batch(messages) {
             ChatApplyResult::Applied { .. } => Ok(UiApplyOutcome::Applied),
             result => Err(UiRuntimeError::ChatRejected(result)),
         }

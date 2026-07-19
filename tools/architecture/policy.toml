@@ -144,6 +144,12 @@ producer = "app/src/acceptance/markers.rs"
 consumer = "scripts/acceptance/Proofs.ps1"
 
 [[markers]]
+literal = "RUST_MCBE_FAST_TRANSFER_ACTION"
+kind = "parsed"
+producer = "app/src/acceptance/markers.rs"
+consumer = "scripts/acceptance/FastTransferWitnessValidation.ps1"
+
+[[markers]]
 literal = "RUST_MCBE_GALLERY_ANCHOR_READY"
 kind = "parsed"
 producer = "app/src/acceptance/markers.rs"
@@ -172,6 +178,12 @@ literal = "RUST_MCBE_PHASE3_EVENT"
 kind = "parsed"
 producer = "app/src/acceptance/markers.rs"
 consumer = "scripts/acceptance/Phase3.ps1"
+
+[[markers]]
+literal = "RUST_MCBE_PHASE2_TIMING"
+kind = "parsed"
+producer = "app/src/acceptance/markers.rs"
+consumer = "scripts/acceptance/FastTransferWitnessValidation.ps1"
 
 [[markers]]
 literal = "RUST_MCBE_PHASE3_FRAME"
@@ -283,6 +295,11 @@ consumer = "app/src/runtime/phase3_evidence.rs"
 
 [[markers]]
 literal = "RUST_MCBE_ERROR_COUNTERS"
+kind = "log_only"
+producer = "app/src/acceptance/markers.rs"
+
+[[markers]]
+literal = "RUST_MCBE_FAST_TRANSFER_PACKET_TRACE"
 kind = "log_only"
 producer = "app/src/acceptance/markers.rs"
 

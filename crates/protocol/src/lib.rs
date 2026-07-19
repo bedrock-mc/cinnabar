@@ -47,7 +47,7 @@ pub use item::{
     MAX_ITEM_EXTRA_BYTES, MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack,
 };
 pub use jolyne::GameData;
-pub use login::{LoginSequence, PlaySession};
+pub use login::{LoginSequence, PacketIdTraceSnapshot, PlaySession};
 pub use movement::{
     PlayerAuthInputError, PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode,
     player_auth_input,
@@ -62,8 +62,9 @@ pub use socket_transport::SocketTransport;
 pub use ui::{
     BlockCrackAction, BlockCrackEvent, BossAction, BossColor, BossEvent, BossOverlay, BossStyle,
     ChatAutocompleteAction, ChatAutocompleteCatalog, ChatAutocompleteCatalogError,
-    ChatAutocompleteCompletion, ChatAutocompleteEvent, ChatPacketError, FormRequestEvent, HudEvent,
-    MAX_BOSS_EVENTS, MAX_CHAT_AUTOCOMPLETE, MAX_CHAT_AUTOCOMPLETE_BYTES, MAX_CHAT_PARAMETERS,
+    ChatAutocompleteCompletion, ChatAutocompleteEvent, ChatPacketError, CommandOutputEvent,
+    CommandOutputMessage, FormRequestEvent, HudEvent, MAX_BOSS_EVENTS, MAX_CHAT_AUTOCOMPLETE,
+    MAX_CHAT_AUTOCOMPLETE_BYTES, MAX_CHAT_PARAMETERS, MAX_COMMAND_OUTPUT_MESSAGES,
     MAX_FORM_JSON_BYTES, MAX_OUTBOUND_CHAT_BYTES, MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES,
     ObjectiveEvent, PlayerStatus, RawTextEvent, ScoreAction, ScoreEntry, ScoreEvent, ScoreIdentity,
     TextCategory, TextEvent, TextKind, TitleAction, TitleEvent, UiEvent, UiPacketError,

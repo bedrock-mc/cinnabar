@@ -9,8 +9,8 @@ use protocol::{
     BedrockSession, BlockCrackAction, BlockCrackEvent, BossAction as ProtocolBossAction,
     BossColor as ProtocolBossColor, BossEvent, BossOverlay as ProtocolBossOverlay,
     BossStyle as ProtocolBossStyle, ChatAutocompleteAction as ProtocolAutocompleteAction,
-    ChatAutocompleteEvent, HudEvent, ObjectiveEvent, RawTextEvent,
-    ScoreAction as ProtocolScoreAction, ScoreEntry as ProtocolScoreEntry, ScoreEvent,
+    ChatAutocompleteEvent, CommandOutputEvent, CommandOutputMessage, HudEvent, ObjectiveEvent,
+    RawTextEvent, ScoreAction as ProtocolScoreAction, ScoreEntry as ProtocolScoreEntry, ScoreEvent,
     ScoreIdentity as ProtocolScoreIdentity, TextCategory, TextEvent, TextKind, TitleAction,
     TitleEvent, UiEvent, WorldEvent, chat_text_packet, decode_batch, into_world_event,
     parse_raw_text,
@@ -60,6 +60,47 @@ fn protocol_1001_raw_text_reaches_chat_store_as_human_text_not_json() {
     assert_eq!(message.message.as_ref(), "\u{a7}aLBSG human chat");
     assert!(!message.message.contains('{'));
     assert!(!message.message.contains("rawtext"));
+}
+
+#[test]
+fn command_output_rows_from_one_packet_reach_chat_in_order() {
+    let mut runtime = UiRuntime::new(1);
+    runtime
+        .apply(envelope(
+            1,
+            1,
+            UiEvent::CommandOutput(CommandOutputEvent {
+                output_type: Arc::from("all_output"),
+                success_count: 1,
+                messages: Arc::from([
+                    CommandOutputMessage {
+                        message_id: Arc::from("commands.transfer.started"),
+                        success: true,
+                        parameters: Arc::from([Arc::from("sm3")]),
+                    },
+                    CommandOutputMessage {
+                        message_id: Arc::from("commands.transfer.finished"),
+                        success: true,
+                        parameters: Arc::from([]),
+                    },
+                ]),
+                data: None,
+            }),
+        ))
+        .unwrap();
+
+    assert_eq!(runtime.chat().messages().len(), 2);
+    assert_eq!(runtime.chat().messages()[0].fifo_sequence, 1);
+    assert_eq!(
+        runtime.chat().messages()[0].message.as_ref(),
+        "commands.transfer.started"
+    );
+    assert_eq!(runtime.chat().messages()[1].fifo_sequence, 1);
+    assert_eq!(
+        runtime.chat().messages()[1].message.as_ref(),
+        "commands.transfer.finished"
+    );
+    runtime.apply(envelope(1, 2, text("later"))).unwrap();
 }
 
 #[test]

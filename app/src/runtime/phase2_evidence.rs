@@ -8,6 +8,8 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use world::ChunkKey;
 
+use crate::acceptance::markers::PHASE2_TIMING;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct PlayerColumnPresentationEvidence {
     pub(crate) column: ChunkKey,
@@ -47,7 +49,7 @@ pub(crate) fn phase2_publication_timing_line(
     observed_unix_ms: u64,
 ) -> String {
     format!(
-        "RUST_MCBE_PHASE2_TIMING={}",
+        "{PHASE2_TIMING}={}",
         json!({
             "schema": "rust-mcbe-phase2-timing-v1",
             "observed_unix_ms": observed_unix_ms,

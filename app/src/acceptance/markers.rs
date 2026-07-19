@@ -10,6 +10,8 @@ pub(crate) const ASSETS: &str = "RUST_MCBE_ASSETS";
 pub(crate) const BUILD_COMMIT: &str = "RUST_MCBE_BUILD_COMMIT";
 pub(crate) const CAMERA_COMMITTED: &str = "RUST_MCBE_CAMERA_COMMITTED";
 pub(crate) const ERROR_COUNTERS: &str = "RUST_MCBE_ERROR_COUNTERS";
+pub(crate) const FAST_TRANSFER_ACTION: &str = "RUST_MCBE_FAST_TRANSFER_ACTION";
+pub(crate) const FAST_TRANSFER_PACKET_TRACE: &str = "RUST_MCBE_FAST_TRANSFER_PACKET_TRACE";
 pub(crate) const FORCED_FULL_VIEW_REMESH_SETTLED: &str =
     "RUST_MCBE_FORCED_FULL_VIEW_REMESH_SETTLED";
 pub(crate) const GALLERY_ANCHOR_READY: &str = "RUST_MCBE_GALLERY_ANCHOR_READY";
@@ -21,6 +23,7 @@ pub(crate) const PHASE3_FRAME: &str = "RUST_MCBE_PHASE3_FRAME";
 pub(crate) const PHASE3_IDENTITY: &str = "RUST_MCBE_PHASE3_IDENTITY";
 pub(crate) const PHASE3_TERMINAL: &str = "RUST_MCBE_PHASE3_TERMINAL";
 pub(crate) const PHASE3_VIOLATION: &str = "RUST_MCBE_PHASE3_VIOLATION";
+pub(crate) const PHASE2_TIMING: &str = "RUST_MCBE_PHASE2_TIMING";
 pub(crate) const PHASE3_CORE_PROCESS_ID: &str = "RUST_MCBE_PHASE3_CORE_PROCESS_ID";
 pub(crate) const PHASE3_CORE_SHA256: &str = "RUST_MCBE_PHASE3_CORE_SHA256";
 pub(crate) const PHASE3_BRIDGE_ENDPOINT: &str = "RUST_MCBE_PHASE3_BRIDGE_ENDPOINT";
@@ -57,6 +60,11 @@ pub(crate) const EXPECTATIONS: &[(&str, MarkerContract)] = &[
     (ASSETS, MarkerContract::EnvironmentVariable),
     (CAMERA_COMMITTED, MarkerContract::ParsedEvidence),
     (ERROR_COUNTERS, MarkerContract::LogOnlyDiagnostic),
+    (FAST_TRANSFER_ACTION, MarkerContract::ParsedEvidence),
+    (
+        FAST_TRANSFER_PACKET_TRACE,
+        MarkerContract::LogOnlyDiagnostic,
+    ),
     (
         FORCED_FULL_VIEW_REMESH_SETTLED,
         MarkerContract::ParsedEvidence,
@@ -65,6 +73,7 @@ pub(crate) const EXPECTATIONS: &[(&str, MarkerContract)] = &[
     (MODEL_WITNESS_COMPLETE, MarkerContract::ParsedEvidence),
     (MOVE_PLAYER_INGRESS, MarkerContract::ParsedEvidence),
     (MUTATION_COORDINATE, MarkerContract::ParsedEvidence),
+    (PHASE2_TIMING, MarkerContract::ParsedEvidence),
     (PHASE3_EVENT, MarkerContract::ParsedEvidence),
     (PHASE3_FRAME, MarkerContract::ParsedEvidence),
     (PHASE3_IDENTITY, MarkerContract::ParsedEvidence),
@@ -226,7 +235,7 @@ mod tests {
             .map(|(name, _)| *name)
             .collect::<BTreeSet<_>>();
         assert_eq!(names.len(), EXPECTATIONS.len());
-        assert_eq!(names.len(), 28);
+        assert_eq!(names.len(), 31);
         let protocol_prefix = concat!("RUST_", "MCBE_");
         assert!(names.iter().all(|name| name.starts_with(protocol_prefix)));
     }

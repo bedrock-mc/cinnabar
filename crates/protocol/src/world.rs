@@ -482,6 +482,9 @@ pub fn into_world_event(
 ) -> Result<Option<WorldEvent>, WorldPacketError> {
     let event = match packet.data {
         McpePacketData::PacketText(packet) => WorldEvent::Ui(normalize_text(*packet)?),
+        McpePacketData::PacketCommandOutput(packet) => {
+            WorldEvent::Ui(crate::ui::normalize_command_output(*packet)?)
+        }
         McpePacketData::PacketSetTitle(packet) => WorldEvent::Ui(normalize_title(*packet)?),
         McpePacketData::PacketToastRequest(packet) => WorldEvent::Ui(normalize_toast(packet)?),
         McpePacketData::PacketSetDisplayObjective(packet) => {

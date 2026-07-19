@@ -6,11 +6,12 @@ use protocol::{
 };
 use valentine::bedrock::version::v1_26_30::{
     BossEventPacket, BossEventPacketColor, BossEventPacketOverlay, BossEventPacketType,
-    LevelEventPacket, LevelEventPacketEvent, McpePacketName, ModalFormRequestPacket,
-    PlayStatusPacket, PlayStatusPacketStatus, SetHealthPacket, SetScorePacket,
-    SetScorePacketAction, SetScorePacketEntriesItem, SetTitlePacket, SetTitlePacketType,
-    TextPacket, TextPacketCategory, TextPacketContent, TextPacketContentJson, TextPacketType,
-    UpdateSoftEnumPacket, UpdateSoftEnumPacketActionType, Vec3F,
+    CommandOutputPacket, CommandOutputPacketOutputItem, LevelEventPacket, LevelEventPacketEvent,
+    McpePacketName, ModalFormRequestPacket, PlayStatusPacket, PlayStatusPacketStatus,
+    SetHealthPacket, SetScorePacket, SetScorePacketAction, SetScorePacketEntriesItem,
+    SetTitlePacket, SetTitlePacketType, TextPacket, TextPacketCategory, TextPacketContent,
+    TextPacketContentJson, TextPacketType, UpdateSoftEnumPacket, UpdateSoftEnumPacketActionType,
+    Vec3F,
 };
 use valentine::protocol::wire;
 
@@ -122,6 +123,33 @@ fn representative_ui_packets_normalize_without_vendor_types() {
             .collect::<Vec<&str>>(),
         ["give", "gamerule"]
     );
+}
+
+#[test]
+fn command_output_is_bounded_and_normalized_for_chat_presentation() {
+    let packet = CommandOutputPacket {
+        output_type: "all_output".to_owned(),
+        success_count: 1,
+        output: vec![CommandOutputPacketOutputItem {
+            message_id: "commands.generic.success".to_owned(),
+            success: true,
+            parameters: vec!["sm3".to_owned()],
+        }],
+        data: Some("transfer accepted".to_owned()),
+        ..Default::default()
+    };
+    let UiEvent::CommandOutput(output) = ui(packet).unwrap() else {
+        panic!("expected command output event")
+    };
+    assert_eq!(output.output_type.as_ref(), "all_output");
+    assert_eq!(output.success_count, 1);
+    assert_eq!(output.messages.len(), 1);
+    assert_eq!(
+        output.messages[0].message_id.as_ref(),
+        "commands.generic.success"
+    );
+    assert_eq!(output.messages[0].parameters[0].as_ref(), "sm3");
+    assert_eq!(output.data.as_deref(), Some("transfer accepted"));
 }
 
 #[test]

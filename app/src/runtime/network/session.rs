@@ -7,8 +7,8 @@ use std::{
 
 use bevy::prelude::Resource;
 use protocol::{
-    BlobCacheStats, ClientBlobCache, InventoryEvent, LoginSequence, Packet, WorldBootstrap,
-    WorldEnvironmentBootstrap, WorldEvent, normalize_authority,
+    BlobCacheStats, ClientBlobCache, InventoryEvent, LoginSequence, Packet, PacketIdTraceSnapshot,
+    WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent, normalize_authority,
 };
 use tokio::sync::{mpsc, watch};
 use world::ChunkKey;
@@ -369,6 +369,12 @@ trait NetworkSession: Send {
     fn blob_cache_stats(&self) -> BlobCacheStats {
         BlobCacheStats::default()
     }
+
+    fn begin_packet_id_trace(&mut self) {}
+
+    fn drain_packet_id_trace(&mut self) -> Option<PacketIdTraceSnapshot> {
+        None
+    }
 }
 
 impl NetworkSession for protocol::PlaySession {
@@ -398,6 +404,14 @@ impl NetworkSession for protocol::PlaySession {
 
     fn blob_cache_stats(&self) -> BlobCacheStats {
         protocol::PlaySession::blob_cache_stats(self)
+    }
+
+    fn begin_packet_id_trace(&mut self) {
+        protocol::PlaySession::begin_packet_id_trace(self);
+    }
+
+    fn drain_packet_id_trace(&mut self) -> Option<PacketIdTraceSnapshot> {
+        protocol::PlaySession::drain_packet_id_trace(self)
     }
 }
 
@@ -460,6 +474,9 @@ async fn run_network_pump<S: NetworkSession>(
                             }
                         }
                         Some(Ok(())) => {
+                            if chat.is_some_and(|chat| chat.fast_transfer_action.is_some()) {
+                                session.begin_packet_id_trace();
+                            }
                             if let Some(marker) = chat.and_then(|chat| {
                                 chat.fast_transfer_action.map(|action| {
                                     let sent_unix_ms = std::time::SystemTime::now()
@@ -542,6 +559,7 @@ async fn run_network_pump<S: NetworkSession>(
             }
             NetworkPumpWork::Inbound(WorldSideWork::Capacity(Err(_))) => return,
             NetworkPumpWork::Inbound(WorldSideWork::Event(Ok(event))) => {
+                emit_packet_id_trace(&mut session);
                 try_emit_blob_cache_telemetry(
                     &session,
                     &control_event_tx,
@@ -637,6 +655,25 @@ fn emit_blob_cache_telemetry(stats: BlobCacheStats) {
         reconstructed_level_chunks = stats.reconstructed_level_chunks,
         reconstructed_sub_chunks = stats.reconstructed_sub_chunks,
         "client blob cache counters"
+    );
+}
+
+fn emit_packet_id_trace<S: NetworkSession>(session: &mut S) {
+    let Some(trace) = session.drain_packet_id_trace() else {
+        return;
+    };
+    let marker = serde_json::json!({
+        "schema": "rust-mcbe-fast-transfer-packet-trace-v1",
+        "packet_ids": trace.packet_ids,
+        "overflow": trace.overflow,
+        "timed_out": trace.timed_out,
+    });
+    write_stdout_marker(
+        &mut std::io::stdout().lock(),
+        &format!(
+            "{}={marker}",
+            crate::acceptance::markers::FAST_TRANSFER_PACKET_TRACE
+        ),
     );
 }
 

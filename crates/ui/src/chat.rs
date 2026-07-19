@@ -795,6 +795,44 @@ impl ChatStore {
         ChatApplyResult::Applied { evicted }
     }
 
+    /// Atomically retains all rows produced by one server packet. Rows share
+    /// the packet's FIFO sequence, while later packets must still advance it.
+    pub fn push_batch(&mut self, messages: Vec<ChatMessage>) -> ChatApplyResult {
+        let Some(sequence) = messages.first().map(|message| message.fifo_sequence) else {
+            return ChatApplyResult::Applied { evicted: 0 };
+        };
+        if self.last_sequence.is_some_and(|last| sequence <= last)
+            || messages
+                .iter()
+                .any(|message| message.fifo_sequence != sequence)
+        {
+            return ChatApplyResult::RejectedStaleSequence;
+        }
+        let Some(message_bytes) = messages.iter().try_fold(0usize, |total, message| {
+            total.checked_add(message.retained_bytes())
+        }) else {
+            return ChatApplyResult::RejectedTooLarge;
+        };
+        if messages.len() > MAX_CHAT_MESSAGES || message_bytes > MAX_CHAT_RETAINED_BYTES {
+            return ChatApplyResult::RejectedTooLarge;
+        }
+
+        let mut evicted = 0;
+        while self.messages.len() + messages.len() > MAX_CHAT_MESSAGES
+            || self.retained_bytes + message_bytes > MAX_CHAT_RETAINED_BYTES
+        {
+            let Some(removed) = self.messages.pop_front() else {
+                break;
+            };
+            self.retained_bytes = self.retained_bytes.saturating_sub(removed.retained_bytes());
+            evicted += 1;
+        }
+        self.retained_bytes += message_bytes;
+        self.last_sequence = Some(sequence);
+        self.messages.extend(messages);
+        ChatApplyResult::Applied { evicted }
+    }
+
     /// Produces stable, read-only rows without exposing the mutable store to draw code.
     pub fn view_nodes(&self) -> Box<[ChatViewNode]> {
         self.messages
