@@ -25,6 +25,7 @@ impl From<&PendingSubChunkRequest> for RequestIdentity {
 struct RequestPriority {
     sequence: u64,
     retry: bool,
+    transport_retry: bool,
     bypasses: u8,
 }
 
@@ -80,6 +81,7 @@ impl RequestQueue {
             RequestPriority {
                 sequence,
                 retry: false,
+                transport_retry: false,
                 bypasses: 0,
             },
         );
@@ -91,6 +93,7 @@ impl RequestQueue {
         let priority = RequestPriority {
             sequence: self.allocate_sequence(),
             retry,
+            transport_retry: false,
             bypasses: 0,
         };
         self.priorities.insert(identity, priority);
@@ -99,14 +102,16 @@ impl RequestQueue {
 
     pub(super) fn retry_front(&mut self, request: PendingSubChunkRequest) {
         let identity = RequestIdentity::from(&request);
-        let priority = self
+        let mut priority = self
             .popped
             .remove(&identity)
             .unwrap_or_else(|| RequestPriority {
                 sequence: self.allocate_sequence(),
                 retry: false,
+                transport_retry: true,
                 bypasses: 0,
             });
+        priority.transport_retry = true;
         self.priorities.insert(identity, priority);
         self.slots.push_front(OutboundRequestSlot::Ready(request));
     }
@@ -138,6 +143,11 @@ impl RequestQueue {
             return None;
         }
 
+        let transport_retry = candidates
+            .iter()
+            .filter(|(_, identity)| self.priorities[identity].transport_retry)
+            .min_by_key(|(_, identity)| self.priorities[identity].sequence)
+            .copied();
         let starved = candidates
             .iter()
             .filter(|(_, identity)| {
@@ -147,7 +157,7 @@ impl RequestQueue {
             })
             .min_by_key(|(_, identity)| self.priorities[identity].sequence)
             .copied();
-        let selected = starved.unwrap_or_else(|| {
+        let selected = transport_retry.or(starved).unwrap_or_else(|| {
             candidates
                 .iter()
                 .min_by_key(|(index, identity)| {
@@ -182,6 +192,16 @@ impl RequestQueue {
             .priorities
             .remove(&selected.1)
             .expect("selected request has priority metadata");
+        if self.popped.len() >= OUTBOUND_REQUEST_CAPACITY
+            && !self.popped.contains_key(&selected.1)
+            && let Some(oldest) = self
+                .popped
+                .iter()
+                .min_by_key(|(_, priority)| priority.sequence)
+                .map(|(identity, _)| *identity)
+        {
+            self.popped.remove(&oldest);
+        }
         self.popped.insert(selected.1, priority);
         match self.slots.remove(selected.0) {
             Some(OutboundRequestSlot::Ready(request)) => Some(request),
@@ -248,6 +268,7 @@ impl RequestQueue {
                     RequestPriority {
                         sequence,
                         retry: false,
+                        transport_retry: false,
                         bypasses: 0,
                     },
                 );
@@ -367,5 +388,33 @@ mod tests {
                 .chunk,
             prefetch
         );
+    }
+
+    #[test]
+    fn unsent_transport_retry_precedes_new_higher_class_work() {
+        let player = ChunkKey::new(0, 0, 0);
+        let unsent = ChunkKey::new(0, 8, 0);
+        let mut queue = RequestQueue::default();
+        queue.retry_front(request(unsent, -4));
+        queue.push_ready(request(player, -4), true);
+
+        assert_eq!(
+            queue
+                .pop_next(Some(player), &BTreeSet::new())
+                .unwrap()
+                .chunk,
+            unsent
+        );
+    }
+
+    #[test]
+    fn unconfirmed_popped_identity_retention_is_hard_bounded() {
+        let mut queue = RequestQueue::default();
+        for x in 0..i32::try_from(OUTBOUND_REQUEST_CAPACITY + 8).unwrap() {
+            queue.push_ready(request(ChunkKey::new(0, x, 0), -4), false);
+            queue.pop_next(None, &BTreeSet::new()).unwrap();
+        }
+
+        assert_eq!(queue.popped.len(), OUTBOUND_REQUEST_CAPACITY);
     }
 }
