@@ -372,6 +372,8 @@ trait NetworkSession: Send {
 
     fn begin_packet_id_trace(&mut self) {}
 
+    fn cancel_packet_id_trace(&mut self) {}
+
     fn drain_packet_id_trace(&mut self) -> Option<PacketIdTraceSnapshot> {
         None
     }
@@ -408,6 +410,10 @@ impl NetworkSession for protocol::PlaySession {
 
     fn begin_packet_id_trace(&mut self) {
         protocol::PlaySession::begin_packet_id_trace(self);
+    }
+
+    fn cancel_packet_id_trace(&mut self) {
+        protocol::PlaySession::cancel_packet_id_trace(self);
     }
 
     fn drain_packet_id_trace(&mut self) -> Option<PacketIdTraceSnapshot> {
@@ -465,18 +471,22 @@ async fn run_network_pump<S: NetworkSession>(
                     sub_chunk,
                     chat,
                 }) => {
+                    let trace_armed = chat.is_some_and(|chat| chat.fast_transfer_action.is_some());
+                    if trace_armed {
+                        session.begin_packet_id_trace();
+                    }
                     match wait_for_send_or_cancel(session.send_packet(packet), &mut shutdown_rx)
                         .await
                     {
                         None => {
+                            if trace_armed {
+                                session.cancel_packet_id_trace();
+                            }
                             if *shutdown_rx.borrow() {
                                 break;
                             }
                         }
                         Some(Ok(())) => {
-                            if chat.is_some_and(|chat| chat.fast_transfer_action.is_some()) {
-                                session.begin_packet_id_trace();
-                            }
                             if let Some(marker) = chat.and_then(|chat| {
                                 chat.fast_transfer_action.map(|action| {
                                     let sent_unix_ms = std::time::SystemTime::now()
@@ -522,6 +532,9 @@ async fn run_network_pump<S: NetworkSession>(
                             }
                         }
                         Some(Err(error)) => {
+                            if trace_armed {
+                                session.cancel_packet_id_trace();
+                            }
                             if let Some(chat) = chat {
                                 let _ = send_control_event_or_cancel(
                                     &control_event_tx,

@@ -3,29 +3,62 @@ use std::cell::Cell;
 use super::*;
 
 #[test]
-fn packet_id_trace_is_bounded_payload_free_and_times_out() {
+fn packet_id_trace_incremental_drains_are_lifetime_bounded_with_one_terminal_overflow() {
     let mut trace = PacketIdTraceState::default();
     trace.begin();
-    for _ in 0..=MAX_PACKET_ID_TRACE_ENTRIES {
+    trace.observe(McpePacketName::PacketStartGame);
+    let first = trace
+        .drain()
+        .expect("first observed ID is drained promptly");
+    assert_eq!(
+        first.packet_ids.as_ref(),
+        &[McpePacketName::PacketStartGame as u32]
+    );
+    assert_eq!(first.overflow, 0);
+    assert!(!first.timed_out);
+
+    for _ in 1..MAX_PACKET_ID_TRACE_ENTRIES {
         trace.observe(McpePacketName::PacketStartGame);
     }
-    let first = trace.drain().expect("observed IDs are drainable");
-    assert_eq!(first.packet_ids.len(), MAX_PACKET_ID_TRACE_ENTRIES);
+    let remainder = trace.drain().expect("remaining bounded IDs are drainable");
+    assert_eq!(remainder.packet_ids.len(), MAX_PACKET_ID_TRACE_ENTRIES - 1);
     assert!(
-        first
+        remainder
             .packet_ids
             .iter()
             .all(|id| *id == McpePacketName::PacketStartGame as u32)
     );
-    assert_eq!(first.overflow, 1);
-    assert!(!first.timed_out);
+    assert_eq!(remainder.overflow, 0);
+    assert!(!remainder.timed_out);
+
+    for _ in 0..7 {
+        trace.observe(McpePacketName::PacketCommandOutput);
+    }
+    assert!(
+        trace.drain().is_none(),
+        "overflow alone must not emit marker spam"
+    );
 
     trace.started_at = Some(std::time::Instant::now() - PACKET_ID_TRACE_DURATION);
     trace.observe(McpePacketName::PacketCommandOutput);
     let terminal = trace.drain().expect("timeout is reported once");
     assert!(terminal.packet_ids.is_empty());
-    assert_eq!(terminal.overflow, 0);
+    assert_eq!(terminal.overflow, 7);
     assert!(terminal.timed_out);
+    assert!(trace.drain().is_none());
+}
+
+#[test]
+fn packet_id_trace_cancel_discards_arm_and_all_pending_evidence() {
+    let mut trace = PacketIdTraceState::default();
+    trace.begin();
+    trace.observe(McpePacketName::PacketStartGame);
+    trace.cancel();
+
+    assert!(trace.started_at.is_none());
+    assert_eq!(trace.recorded, 0);
+    assert_eq!(trace.overflow, 0);
+    assert!(!trace.timed_out);
     assert!(trace.drain().is_none());
 }
 use crate::WorldEvent;

@@ -136,13 +136,22 @@ impl PacketIdTraceState {
         }
     }
 
+    fn cancel(&mut self) {
+        *self = Self::default();
+    }
+
     fn drain(&mut self) -> Option<PacketIdTraceSnapshot> {
-        if self.packet_ids.is_empty() && self.overflow == 0 && !self.timed_out {
+        if self.packet_ids.is_empty() && !self.timed_out {
             return None;
         }
+        let overflow = if self.timed_out {
+            std::mem::take(&mut self.overflow)
+        } else {
+            0
+        };
         Some(PacketIdTraceSnapshot {
             packet_ids: std::mem::take(&mut self.packet_ids).into_boxed_slice(),
-            overflow: std::mem::take(&mut self.overflow),
+            overflow,
             timed_out: std::mem::take(&mut self.timed_out),
         })
     }
@@ -247,6 +256,11 @@ impl<T: Transport> PlaySession<T> {
     /// Starts a bounded, secret-safe packet-ID trace for native acceptance.
     pub fn begin_packet_id_trace(&mut self) {
         self.packet_id_trace.begin();
+    }
+
+    /// Cancels an armed trace when the triggering packet was not sent.
+    pub fn cancel_packet_id_trace(&mut self) {
+        self.packet_id_trace.cancel();
     }
 
     /// Drains packet IDs observed since the last drain without packet payloads.

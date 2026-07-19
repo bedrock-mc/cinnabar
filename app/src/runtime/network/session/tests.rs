@@ -1,7 +1,7 @@
 use std::{
     future,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
     thread,
@@ -72,6 +72,38 @@ struct CachedInboundSession {
 }
 
 struct FailingSendSession;
+
+struct TraceOrderingFailSession {
+    calls: Arc<Mutex<Vec<&'static str>>>,
+}
+
+impl NetworkSession for TraceOrderingFailSession {
+    type Error = &'static str;
+
+    async fn receive_world_event(
+        &mut self,
+        _current_dimension: i32,
+    ) -> Result<WorldEvent, Self::Error> {
+        future::pending().await
+    }
+
+    async fn send_packet(&mut self, _packet: protocol::Packet) -> Result<(), Self::Error> {
+        self.calls.lock().unwrap().push("send");
+        Err("socket write failed")
+    }
+
+    fn decode_error_count(&self) -> u64 {
+        0
+    }
+
+    fn begin_packet_id_trace(&mut self) {
+        self.calls.lock().unwrap().push("begin");
+    }
+
+    fn cancel_packet_id_trace(&mut self) {
+        self.calls.lock().unwrap().push("cancel");
+    }
+}
 
 impl NetworkSession for FailingSendSession {
     type Error = &'static str;
@@ -532,6 +564,40 @@ async fn chat_send_failure_identifies_the_exact_outbox_item() {
         controls.recv().await,
         Some(NetworkControlEvent::Failed { .. })
     ));
+}
+
+#[tokio::test]
+async fn fast_transfer_trace_arms_before_send_and_cancels_after_send_failure() {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let (world_event_tx, _world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
+    let (commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
+    commands
+        .try_send(NetworkCommand::Send {
+            packet: test_packet(),
+            sub_chunk: None,
+            chat: Some(super::ChatPacketSend {
+                session: 8,
+                sequence: 12,
+                fast_transfer_action: Some(crate::ui_runtime::FastTransferAction::TransferSm3),
+            }),
+        })
+        .unwrap();
+    let (control_event_tx, _controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
+    let (_shutdown, shutdown_rx) = watch::channel(false);
+
+    run_network_pump(
+        TraceOrderingFailSession {
+            calls: Arc::clone(&calls),
+        },
+        NetworkSequencer::new(7, 0, 42),
+        command_rx,
+        control_event_tx,
+        world_event_tx,
+        shutdown_rx,
+    )
+    .await;
+
+    assert_eq!(*calls.lock().unwrap(), ["begin", "send", "cancel"]);
 }
 
 #[tokio::test]
