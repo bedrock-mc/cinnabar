@@ -4,9 +4,10 @@ use thiserror::Error;
 use valentine::bedrock::borrowed::BorrowedStr;
 use valentine::bedrock::version::v1_26_30::{
     BorrowedMcpePacketData, BossEventPacket, BossEventPacketColor, BossEventPacketOverlay,
-    BossEventPacketType, LevelEventPacket, LevelEventPacketEvent, ModalFormRequestPacket,
-    PlayStatusPacket, PlayStatusPacketStatus, RemoveObjectivePacket, SetDisplayObjectivePacket,
-    SetHealthPacket, SetScorePacket, SetScorePacketAction, SetScorePacketEntriesItemContent,
+    BossEventPacketType, CommandOrigin, CommandRequestPacket, LevelEventPacket,
+    LevelEventPacketEvent, ModalFormRequestPacket, PlayStatusPacket, PlayStatusPacketStatus,
+    RemoveObjectivePacket, SetDisplayObjectivePacket, SetHealthPacket, SetScorePacket,
+    SetScorePacketAction, SetScorePacketEntriesItemContent,
     SetScorePacketEntriesItemContentEntityUniqueId, SetScorePacketEntriesItemContentEntryType,
     TextPacket, TextPacketCategory, TextPacketContent, TextPacketContentAnnouncement,
     TextPacketContentView, TextPacketType, ToastRequestPacket, UpdateSoftEnumPacket,
@@ -41,11 +42,11 @@ pub enum ChatPacketError {
     },
 }
 
-pub fn chat_text_packet(
+fn validate_outbound_chat(
     source_name: &str,
     xuid: &str,
     message: &str,
-) -> Result<crate::Packet, ChatPacketError> {
+) -> Result<(), ChatPacketError> {
     if message.is_empty() {
         return Err(ChatPacketError::EmptyMessage);
     }
@@ -64,6 +65,15 @@ pub fn chat_text_packet(
             });
         }
     }
+    Ok(())
+}
+
+pub fn chat_text_packet(
+    source_name: &str,
+    xuid: &str,
+    message: &str,
+) -> Result<crate::Packet, ChatPacketError> {
+    validate_outbound_chat(source_name, xuid, message)?;
     Ok(TextPacket {
         needs_translation: false,
         category: TextPacketCategory::Authored,
@@ -75,6 +85,34 @@ pub fn chat_text_packet(
         xuid: xuid.to_owned(),
         platform_chat_id: String::new(),
         filtered_message: None,
+    }
+    .into())
+}
+
+/// Builds the vanilla outbound packet for a chat-editor submission.
+///
+/// Slash-prefixed input is a command request. Other input retains the authored
+/// chat packet shape used by [`chat_text_packet`].
+pub fn chat_input_packet(
+    source_name: &str,
+    xuid: &str,
+    message: &str,
+) -> Result<crate::Packet, ChatPacketError> {
+    validate_outbound_chat(source_name, xuid, message)?;
+    if !message.starts_with('/') {
+        return chat_text_packet(source_name, xuid, message);
+    }
+
+    Ok(CommandRequestPacket {
+        command: message.to_owned(),
+        origin: CommandOrigin {
+            type_: "player".to_owned(),
+            uuid: uuid::Uuid::new_v4(),
+            request_id: String::new(),
+            player_entity_id: 0,
+        },
+        internal: false,
+        version: "latest".to_owned(),
     }
     .into())
 }

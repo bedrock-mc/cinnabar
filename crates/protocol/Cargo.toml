@@ -15,6 +15,7 @@ serde_json = "1"
 sha2 = "0.10"
 thiserror.workspace = true
 tokio = { workspace = true, features = ["time"] }
+uuid.workspace = true
 xxhash-rust = { version = "0.8.15", features = ["xxh64"] }
 valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_30"] }
 jolyne = { path = "vendor/jolyne", default-features = false, features = ["client"] }

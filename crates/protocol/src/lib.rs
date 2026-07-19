@@ -67,7 +67,7 @@ pub use ui::{
     MAX_FORM_JSON_BYTES, MAX_OUTBOUND_CHAT_BYTES, MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES,
     ObjectiveEvent, PlayerStatus, RawTextEvent, ScoreAction, ScoreEntry, ScoreEvent, ScoreIdentity,
     TextCategory, TextEvent, TextKind, TitleAction, TitleEvent, UiEvent, UiPacketError,
-    chat_text_packet,
+    chat_input_packet, chat_text_packet,
 };
 pub use valentine::bedrock::context::BedrockSession;
 pub use valentine::bedrock::version::v1_26_30::{GAME_VERSION, PROTOCOL_VERSION};

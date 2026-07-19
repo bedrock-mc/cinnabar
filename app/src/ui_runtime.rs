@@ -24,7 +24,7 @@ use bevy::prelude::Resource;
 use protocol::{
     ActorAttribute, BlockCrackEvent, ChatAutocompleteCatalog, ChatAutocompleteCatalogError,
     ChatPacketError, EquipmentEvent, HudEvent, InventoryAuthority, InventoryEvent, Packet,
-    TextEvent, TextKind, TitleAction, TitleEvent, UiEvent, chat_text_packet,
+    TextEvent, TextKind, TitleAction, TitleEvent, UiEvent, chat_input_packet,
 };
 use semantic_input::InputContext;
 use ui::{
@@ -497,7 +497,7 @@ impl UiRuntime {
             .pending()
             .front()
             .map(|request| {
-                chat_text_packet(&self.chat_source_name, &self.chat_xuid, &request.message)
+                chat_input_packet(&self.chat_source_name, &self.chat_xuid, &request.message)
                     .map(|packet| (request.sequence, packet))
             })
             .transpose()

@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
 use protocol::{
-    ChatAutocompleteAction, ChatAutocompleteCatalog, ChatAutocompleteEvent, ChatPacketError,
-    chat_text_packet,
+    BedrockSession, ChatAutocompleteAction, ChatAutocompleteCatalog, ChatAutocompleteEvent,
+    ChatPacketError, chat_input_packet, chat_text_packet, decode_batch, encode,
 };
 use valentine::bedrock::version::v1_26_30::{
-    McpePacketData, TextPacketCategory, TextPacketContent, TextPacketType,
+    McpePacketData, McpePacketName, TextPacketCategory, TextPacketContent, TextPacketType,
 };
 
 #[test]
@@ -37,6 +37,68 @@ fn outbound_chat_rejects_empty_and_oversized_fields() {
         chat_text_packet("player", "", &"x".repeat(513)),
         Err(ChatPacketError::MessageTooLong { .. })
     ));
+    assert!(matches!(
+        chat_input_packet(&"x".repeat(16_385), "", "/transfer sm3"),
+        Err(ChatPacketError::IdentityTooLong {
+            field: "source_name",
+            ..
+        })
+    ));
+}
+
+#[test]
+fn slash_input_round_trips_as_vanilla_player_command_request() {
+    let session = BedrockSession { shield_item_id: 0 };
+    let built = chat_input_packet("RustMCBE", "1234", "/transfer sm3").unwrap();
+
+    assert_eq!(built.header.id, McpePacketName::PacketCommandRequest);
+    let encoded = encode(&built, &session).expect("encode command request");
+    let mut decoded = decode_batch(encoded, &session).expect("decode command request");
+    assert_eq!(decoded.len(), 1);
+    let packet = decoded.pop().unwrap();
+    assert_eq!(packet.header.id, McpePacketName::PacketCommandRequest);
+    let McpePacketData::PacketCommandRequest(packet) = packet.data else {
+        panic!("expected command request packet")
+    };
+    assert_eq!(packet.command, "/transfer sm3");
+    assert_eq!(packet.origin.type_, "player");
+    assert!(!packet.origin.uuid.is_nil());
+    assert!(packet.origin.request_id.is_empty());
+    assert_eq!(packet.origin.player_entity_id, 0);
+    assert!(!packet.internal);
+    assert_eq!(packet.version, "latest");
+}
+
+#[test]
+fn command_requests_receive_fresh_origin_uuids() {
+    let first = chat_input_packet("RustMCBE", "1234", "/transfer sm3").unwrap();
+    let second = chat_input_packet("RustMCBE", "1234", "/transfer sm3").unwrap();
+    let McpePacketData::PacketCommandRequest(first) = first.data else {
+        panic!("expected first command request packet")
+    };
+    let McpePacketData::PacketCommandRequest(second) = second.data else {
+        panic!("expected second command request packet")
+    };
+
+    assert_ne!(first.origin.uuid, second.origin.uuid);
+}
+
+#[test]
+fn ordinary_chat_input_remains_an_authored_text_packet() {
+    let packet = chat_input_packet("RustMCBE", "1234", "hello server").unwrap();
+    let text_packet = chat_text_packet("RustMCBE", "1234", "hello server").unwrap();
+
+    assert_eq!(packet.header.id, McpePacketName::PacketText);
+    assert_eq!(packet, text_packet);
+    let McpePacketData::PacketText(packet) = packet.data else {
+        panic!("expected text packet")
+    };
+    let Some(TextPacketContent::Chat(content)) = packet.content else {
+        panic!("expected authored chat content")
+    };
+    assert_eq!(content.source_name, "RustMCBE");
+    assert_eq!(content.message, "hello server");
+    assert_eq!(packet.xuid, "1234");
 }
 
 #[test]

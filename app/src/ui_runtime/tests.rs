@@ -621,6 +621,20 @@ fn chat_packet_build_preserves_pending_request_until_transport_ack() {
     assert!(runtime.pending_chat_sends().is_empty());
 }
 
+#[test]
+fn slash_chat_submission_uses_command_transport_without_consuming_the_request() {
+    let mut runtime = UiRuntime::new(3);
+    runtime.set_chat_identity(Arc::from("Alex"), Arc::from("xuid"));
+    runtime.insert_chat_text("/transfer sm3").unwrap();
+    runtime.queue_chat_send(0).unwrap();
+
+    let (sequence, packet) = runtime.front_chat_packet().unwrap().unwrap();
+
+    assert_eq!(sequence, 0);
+    assert_eq!(packet.header.id as u32, 77);
+    assert_eq!(runtime.pending_chat_sends().len(), 1);
+}
+
 struct ClipboardFixture(Option<Arc<str>>);
 
 impl ChatClipboard for ClipboardFixture {
