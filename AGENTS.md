@@ -72,16 +72,44 @@ unless the request authorizes changes.
 
 ### Model and reasoning defaults
 
-- When the runtime exposes model and reasoning controls, use GPT-5.6 with
-  medium reasoning for both implementation and review; select `solve` only
-  when that is the runtime's actual control name. If those controls are not
-  exposed, use the configured runtime default, record that explicit selection
-  was unavailable, and continue. Never claim a model selection the runtime did
-  not expose.
+- Treat model routing as a quality and throughput decision, not a fixed price
+  ranking. The user's OpenAI subscription has generous limits, so correctness
+  and verified completion outrank list price. When choices conflict for work
+  that ships, prioritize correctness, then design/API/code quality, then
+  latency and quota pressure.
+
+| Agent role | Default model | Reasoning | Use and limits |
+| --- | --- | --- | --- |
+| Root coordinator and integrator | `gpt-5.6-sol` | `medium` | Own decomposition, architectural consistency, synthesis, integration, and the final completion decision. |
+| Implementation writer | `gpt-5.6-sol` | `medium` | Use for all production code, behavior changes, refactors, tests tied to changed behavior, and fixes that may ship. Run at most two isolated writers concurrently. |
+| Independent reviewer | `gpt-5.6-sol` | `high` | Use after implementation for architecture, correctness, protocol, concurrency, performance, security, and player-visible review. `medium` is sufficient for routine low-risk review. |
+| Read-only explorer | `gpt-5.6-luna` | `high` | Use for repository mapping, targeted research, dependency tracing, test/log triage, and other bounded read-only investigations. Return concise evidence to a Sol agent; do not make shipping edits or give final approval. |
+| Mechanical read-only worker | `gpt-5.6-luna` | `medium` | Use for inventories, classification, extraction, and repetitive scans with an explicit output schema. Escalate on ambiguity. |
+| Evaluation-only alternative | `gpt-5.6-terra` | task-specific | Terra is not a default. Use it only in a controlled repository bakeoff that shows a material wall-clock, quota, or completion-rate advantage over Luna at the same acceptance bar. |
+
+- The normal starting topology is one Sol-medium coordinator, zero to two
+  isolated Sol-medium writers, zero to two Luna read-only workers, and one
+  fresh Sol-high reviewer after the writing tranche. Do not spawn every slot
+  merely because it is available.
+- These are defaults, not ceilings. If a worker misses the contract, produces
+  weak evidence, or fails validation, rerun or redo the work with Sol or a
+  higher supported reasoning effort without asking. Escalation is cheaper than
+  integrating mediocre work.
 - Escalate above medium only for genuinely architectural, unsafe, protocol-
-  ambiguous, concurrency-sensitive, or cross-cutting decisions. Do not spend
-  high reasoning effort on mechanical edits, formatting, or routine test
-  updates.
+  ambiguous, concurrency-sensitive, cross-cutting, or difficult review work.
+  Do not spend high reasoning effort on formatting or routine mechanical edits.
+- For UI, HUD, copy, public APIs, and other player/developer-facing work, use
+  Sol and enforce the applicable visual or API acceptance bar; a model choice
+  never substitutes for rendering, testing, or independent review.
+- Benchmark model routes on representative Cinnabar tasks. Generic intelligence
+  charts and provider positioning are inputs, not proof of coding-agent
+  reliability, latency, tool use, or long-horizon completion in this repository.
+- When the runtime exposes model and reasoning controls, use the exact model and
+  effort above; select `solve` only when that is the runtime's actual control
+  name. If controls are unavailable, use the configured runtime default, record
+  that explicit selection was unavailable, and continue. Never claim a model
+  selection the runtime did not expose, and do not build a proxy/wrapper agent
+  solely to disguise one model as another.
 - Dispatch only as many subagents as there are bounded, dependency-independent,
   non-overlapping lanes. Never assign multiple implementers the same tranche
   speculatively. Keep the root agent available to coordinate, inspect results,
