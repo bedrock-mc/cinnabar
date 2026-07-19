@@ -16,7 +16,7 @@ use crate::ui_runtime::SequencedUiEvent;
 mod retained_hud_tests;
 
 #[test]
-fn unmeasured_survival_custom_renderer_fails_closed() {
+fn pinned_survival_hud_authority_renders_at_normal_inner_viewport() {
     let font = fixture_font();
     let mut presentation = UiPresentationRuntime::with_hud(font, fixture_hud()).unwrap();
     let mut runtime = UiRuntime::new(1);
@@ -31,11 +31,11 @@ fn unmeasured_survival_custom_renderer_fails_closed() {
         .unwrap();
 
     let input = presentation
-        .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
+        .build(&runtime, 0, [1280, 720], DpiScale::new(1.5).unwrap())
         .unwrap();
-    assert!(input.vertices.is_empty());
-    assert!(input.indices.is_empty());
-    assert!(input.batches.is_empty());
+    assert_eq!(input.vertices.len(), 20 * 4);
+    assert_eq!(input.indices.len(), 20 * 6);
+    assert_eq!(input.batches.len(), 1);
     let mut scene = UiRenderScene::default();
     scene.publish(input, &UiRenderStats::default()).unwrap();
     assert!(scene.input.is_some());
@@ -80,13 +80,13 @@ fn selected_hotbar_slot_uses_local_authority_and_exact_pack_sprite_geometry() {
     );
 
     let active = presentation
-        .build(&runtime, 0, [3433, 1385], DpiScale::new(1.5).unwrap())
+        .build(&runtime, 0, [1280, 720], DpiScale::new(1.5).unwrap())
         .unwrap();
     assert_eq!(active.vertices.len(), 12 * 4);
     assert_eq!(active.batches.len(), 1);
     let selected = &active.vertices[11 * 4..12 * 4];
     let (top, bottom) = vertical_bounds(selected);
-    assert_eq!([top, bottom], [1310.0, 1382.0]);
+    assert_eq!([top, bottom], [645.0, 717.0]);
     let left = selected
         .iter()
         .map(|vertex| vertex.position[0])
@@ -95,7 +95,42 @@ fn selected_hotbar_slot_uses_local_authority_and_exact_pack_sprite_geometry() {
         .iter()
         .map(|vertex| vertex.position[0])
         .fold(f32::NEG_INFINITY, f32::max);
-    assert_eq!([left, right], [1437.0, 1509.0]);
+    assert_eq!([left, right], [361.0, 433.0]);
+}
+
+#[test]
+fn hotbar_remains_bottom_centered_across_inner_viewport_sizes() {
+    for physical_size in [[1280, 720], [2560, 1344]] {
+        let mut presentation =
+            UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
+        let mut runtime = UiRuntime::new(1);
+        runtime.retain_local_selected_equipment(
+            7,
+            protocol::EquipmentEvent {
+                actor_runtime_id: 42,
+                stack: protocol::NetworkItemStack::empty(),
+                inventory_slot: 0,
+                selected_slot: 0,
+                window_id: 0,
+                handedness: None,
+            },
+        );
+
+        let active = presentation
+            .build(&runtime, 0, physical_size, DpiScale::new(1.5).unwrap())
+            .unwrap();
+        let hotbar = &active.vertices[..11 * 4];
+        let left = hotbar
+            .iter()
+            .map(|vertex| vertex.position[0])
+            .fold(f32::INFINITY, f32::min);
+        let right = hotbar
+            .iter()
+            .map(|vertex| vertex.position[0])
+            .fold(f32::NEG_INFINITY, f32::max);
+        assert!(((right - left) - 546.0).abs() <= 0.001);
+        assert!((((left + right) * 0.5) - physical_size[0] as f32 * 0.5).abs() <= 0.001);
+    }
 }
 
 #[test]
@@ -350,7 +385,7 @@ fn focused_chat_editor_does_not_overlap_survival_hud_sprites() {
     runtime.open_chat();
 
     let active = presentation
-        .build(&runtime, 0, [3433, 1385], DpiScale::new(1.5).unwrap())
+        .build(&runtime, 0, [1280, 720], DpiScale::new(1.5).unwrap())
         .unwrap();
     let hud_vertices = &active.vertices[..20 * 4];
     let editor_vertex_count = "> |".chars().count() * 4;
