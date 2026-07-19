@@ -5,20 +5,28 @@ use std::sync::{
 
 use bevy::{
     app::{App, Plugin},
+    prelude::Resource,
+    render::RenderApp,
+    window::PresentMode,
+};
+#[cfg(target_os = "windows")]
+use bevy::{
     ecs::{entity::Entity, schedule::SystemSet, system::Local},
-    prelude::{IntoScheduleConfigs, Res, Resource},
+    prelude::{IntoScheduleConfigs, Res},
     render::{
-        Render, RenderApp, RenderSystems,
+        Render, RenderSystems,
         renderer::{RenderAdapter, RenderInstance},
         view::window::{ExtractedWindows, create_surfaces},
     },
-    window::PresentMode,
 };
 
 const AFFECTED_DX12_ADAPTER: &str = "Radeon RX 570 Series";
 const AFFECTED_DX12_DRIVER: &str = "31.0.21924.61";
+#[cfg(any(target_os = "windows", test))]
 const INITIAL_PROBE_RETRY_FRAMES: u16 = 4;
+#[cfg(any(target_os = "windows", test))]
 const MAX_PROBE_RETRY_FRAMES: u16 = 60;
+#[cfg(any(target_os = "windows", test))]
 const MAX_BACKOFF_FAILURES: u8 = 5;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -137,7 +145,9 @@ impl Plugin for Dx12PresentModePolicyPlugin {
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
-        render_app.insert_resource(self.policy.clone()).add_systems(
+        render_app.insert_resource(self.policy.clone());
+        #[cfg(target_os = "windows")]
+        render_app.add_systems(
             Render,
             apply_dx12_present_mode_policy
                 .in_set(PresentModePolicySet)
@@ -147,9 +157,11 @@ impl Plugin for Dx12PresentModePolicyPlugin {
     }
 }
 
+#[cfg(target_os = "windows")]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, SystemSet)]
 pub(crate) struct PresentModePolicySet;
 
+#[cfg(target_os = "windows")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct CachedResolution {
     window: Entity,
@@ -158,6 +170,7 @@ struct CachedResolution {
     remedy: PresentModeRemedy,
 }
 
+#[cfg(any(target_os = "windows", test))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 enum AutoRemedyLifecycleState {
     #[default]
@@ -170,6 +183,7 @@ enum AutoRemedyLifecycleState {
     },
 }
 
+#[cfg(any(target_os = "windows", test))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum AutoRemedyLifecycleEvent {
     None,
@@ -177,11 +191,13 @@ enum AutoRemedyLifecycleEvent {
     EffectiveProven,
 }
 
+#[cfg(any(target_os = "windows", test))]
 #[derive(Debug, Default)]
 struct AutoRemedyLifecycle {
     state: AutoRemedyLifecycleState,
 }
 
+#[cfg(any(target_os = "windows", test))]
 impl AutoRemedyLifecycle {
     fn observe_extraction(
         &mut self,
@@ -255,6 +271,7 @@ impl AutoRemedyLifecycle {
     }
 }
 
+#[cfg(any(target_os = "windows", test))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct SurfaceProbeKey {
     window: u64,
@@ -262,6 +279,7 @@ struct SurfaceProbeKey {
     requested: PresentMode,
 }
 
+#[cfg(any(target_os = "windows", test))]
 #[derive(Debug, Default)]
 struct SurfaceProbeRetry {
     key: Option<SurfaceProbeKey>,
@@ -269,6 +287,7 @@ struct SurfaceProbeRetry {
     cooldown_frames: u16,
 }
 
+#[cfg(any(target_os = "windows", test))]
 impl SurfaceProbeRetry {
     fn should_attempt(&mut self, key: SurfaceProbeKey) -> bool {
         if self.key != Some(key) {
@@ -300,19 +319,21 @@ impl SurfaceProbeRetry {
             .min(MAX_PROBE_RETRY_FRAMES);
     }
 
+    #[cfg(target_os = "windows")]
     fn record_success(&mut self, key: SurfaceProbeKey) {
         self.key = Some(key);
         self.consecutive_failures = 0;
         self.cooldown_frames = 0;
     }
 
+    #[cfg(target_os = "windows")]
     fn reset(&mut self) {
         *self = Self::default();
     }
 }
 
+#[cfg(target_os = "windows")]
 fn apply_dx12_present_mode_policy(
-    #[cfg(any(target_os = "macos", target_os = "ios"))] _marker: bevy::ecs::system::NonSendMarker,
     windows: Res<ExtractedWindows>,
     render_instance: Res<RenderInstance>,
     render_adapter: Res<RenderAdapter>,
@@ -321,102 +342,81 @@ fn apply_dx12_present_mode_policy(
     mut lifecycle: Local<AutoRemedyLifecycle>,
     mut probe_retry: Local<SurfaceProbeRetry>,
 ) {
-    #[cfg(not(target_os = "windows"))]
+    let preference = policy.preference();
+    let Some(window_id) = windows.primary else {
+        policy.publish_remedy(PresentModeRemedy::KeepRequested);
+        *cached = None;
+        lifecycle.reset();
+        probe_retry.reset();
+        return;
+    };
+    let Some(window) = windows.windows.get(&window_id) else {
+        policy.publish_remedy(PresentModeRemedy::KeepRequested);
+        *cached = None;
+        lifecycle.reset();
+        probe_retry.reset();
+        return;
+    };
+    let requested = window.present_mode;
+    let window_identity = window_id.to_bits();
+    if lifecycle.observe_extraction(window_identity, preference, requested)
+        == AutoRemedyLifecycleEvent::EffectiveProven
     {
-        let _ = (
-            &windows,
-            &render_instance,
-            &render_adapter,
-            &policy,
-            &mut cached,
-            &mut lifecycle,
-            &mut probe_retry,
+        bevy::log::warn!(
+            "present_mode_policy preference=Auto startup_requested=Fifo requested=Immediate recommended=Immediate effective=Immediate state=proven adapter=\"{AFFECTED_DX12_ADAPTER}\" driver=\"{AFFECTED_DX12_DRIVER}\""
         );
     }
-
-    #[cfg(target_os = "windows")]
-    {
-        let preference = policy.preference();
-        let Some(window_id) = windows.primary else {
-            policy.publish_remedy(PresentModeRemedy::KeepRequested);
-            *cached = None;
-            lifecycle.reset();
-            probe_retry.reset();
+    let key_matches = cached.as_ref().is_some_and(|resolution| {
+        resolution.window == window_id
+            && resolution.preference == preference
+            && resolution.requested == requested
+    });
+    if !key_matches {
+        policy.publish_remedy(PresentModeRemedy::KeepRequested);
+        *cached = None;
+        let probe_key = SurfaceProbeKey {
+            window: window_identity,
+            preference,
+            requested,
+        };
+        if !probe_retry.should_attempt(probe_key) {
+            return;
+        }
+        let surface_target = wgpu::SurfaceTargetUnsafe::RawHandle {
+            raw_display_handle: window.handle.get_display_handle(),
+            raw_window_handle: window.handle.get_window_handle(),
+        };
+        // SAFETY: The render-world extracted window owns valid handles and this
+        // system is constrained to Bevy's main-thread render surface schedule.
+        let Ok(surface) = (unsafe { render_instance.create_surface_unsafe(surface_target) }) else {
+            probe_retry.record_failure(probe_key);
             return;
         };
-        let Some(window) = windows.windows.get(&window_id) else {
-            policy.publish_remedy(PresentModeRemedy::KeepRequested);
-            *cached = None;
-            lifecycle.reset();
-            probe_retry.reset();
-            return;
+        probe_retry.record_success(probe_key);
+        let capabilities = surface.get_capabilities(&render_adapter);
+        let adapter_info = render_adapter.get_info();
+        let resolution = CachedResolution {
+            window: window_id,
+            preference,
+            requested,
+            remedy: resolve_dx12_present_mode_remedy(
+                preference,
+                adapter_info.backend,
+                &adapter_info.name,
+                &adapter_info.driver,
+                requested,
+                &capabilities.present_modes,
+            ),
         };
-        let requested = window.present_mode;
-        let window_identity = window_id.to_bits();
-        if lifecycle.observe_extraction(window_identity, preference, requested)
-            == AutoRemedyLifecycleEvent::EffectiveProven
+        policy.publish_remedy(resolution.remedy);
+        if lifecycle.observe_resolution(window_identity, preference, requested, resolution.remedy)
+            == AutoRemedyLifecycleEvent::RecommendationPending
         {
             bevy::log::warn!(
-                "present_mode_policy preference=Auto startup_requested=Fifo requested=Immediate recommended=Immediate effective=Immediate state=proven adapter=\"{AFFECTED_DX12_ADAPTER}\" driver=\"{AFFECTED_DX12_DRIVER}\""
+                "present_mode_policy preference=Auto startup_requested=Fifo requested=Fifo recommended=Immediate state=pending adapter=\"{AFFECTED_DX12_ADAPTER}\" driver=\"{AFFECTED_DX12_DRIVER}\"; use --vsync to force FIFO"
             );
         }
-        let key_matches = cached.as_ref().is_some_and(|resolution| {
-            resolution.window == window_id
-                && resolution.preference == preference
-                && resolution.requested == requested
-        });
-        if !key_matches {
-            policy.publish_remedy(PresentModeRemedy::KeepRequested);
-            *cached = None;
-            let probe_key = SurfaceProbeKey {
-                window: window_identity,
-                preference,
-                requested,
-            };
-            if !probe_retry.should_attempt(probe_key) {
-                return;
-            }
-            let surface_target = wgpu::SurfaceTargetUnsafe::RawHandle {
-                raw_display_handle: window.handle.get_display_handle(),
-                raw_window_handle: window.handle.get_window_handle(),
-            };
-            // SAFETY: The render-world extracted window owns valid handles and this
-            // system is constrained to Bevy's main-thread render surface schedule.
-            let Ok(surface) = (unsafe { render_instance.create_surface_unsafe(surface_target) })
-            else {
-                probe_retry.record_failure(probe_key);
-                return;
-            };
-            probe_retry.record_success(probe_key);
-            let capabilities = surface.get_capabilities(&render_adapter);
-            let adapter_info = render_adapter.get_info();
-            let resolution = CachedResolution {
-                window: window_id,
-                preference,
-                requested,
-                remedy: resolve_dx12_present_mode_remedy(
-                    preference,
-                    adapter_info.backend,
-                    &adapter_info.name,
-                    &adapter_info.driver,
-                    requested,
-                    &capabilities.present_modes,
-                ),
-            };
-            policy.publish_remedy(resolution.remedy);
-            if lifecycle.observe_resolution(
-                window_identity,
-                preference,
-                requested,
-                resolution.remedy,
-            ) == AutoRemedyLifecycleEvent::RecommendationPending
-            {
-                bevy::log::warn!(
-                    "present_mode_policy preference=Auto startup_requested=Fifo requested=Fifo recommended=Immediate state=pending adapter=\"{AFFECTED_DX12_ADAPTER}\" driver=\"{AFFECTED_DX12_DRIVER}\"; use --vsync to force FIFO"
-                );
-            }
-            *cached = Some(resolution);
-        }
+        *cached = Some(resolution);
     }
 }
 
