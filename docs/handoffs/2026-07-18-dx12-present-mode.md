@@ -32,15 +32,25 @@ primary window exists and the setting is applied. The render metadata probe is
 ordered after policy resolution; main-world adoption is ordered before metrics
 and title publication.
 
-The exact Auto match emits one deterministic structured warning containing
-`preference=Auto`, startup/requested FIFO, recommended/effective Immediate, and
-the exact adapter and driver. Attributable acceptance and metrics runs remain
-locked to FIFO unless `--no-vsync` is explicitly supplied, so the automatic
-remedy cannot relabel formal FIFO evidence. Explicit `--vsync` also locks FIFO.
+The exact Auto match first emits a deterministic structured `state=pending`
+warning containing `preference=Auto`, startup/requested FIFO, recommended
+Immediate, and the exact adapter and driver. It does not claim an effective
+mode. Only a later extraction that observes Immediate on the same primary
+window advances the pure lifecycle to `state=proven` and emits
+`effective=Immediate`; that proof is one-shot. A different window, unchanged
+FIFO extraction, or an explicit preference cannot prove the pending remedy.
+
+A failed temporary surface probe clears the shared recommendation and uses a
+capped 4/8/16/32/60-frame retry backoff. Retries continue indefinitely at the
+60-frame cap, while a changed window/preference/request key retries immediately.
+Attributable acceptance and metrics runs remain locked to FIFO unless
+`--no-vsync` is explicitly supplied, so the automatic remedy cannot relabel
+formal FIFO evidence. Explicit `--vsync` also locks FIFO.
 
 ## Local verification
 
 - `cargo test --locked -p render --test present_mode_policy -- --nocapture`
+- `cargo test --locked -p render present_mode -- --nocapture`
 - `cargo test --locked -p render --test plugin -- contracts::graphics_runtime_metadata_waits_for_extracted_diagnostics_before_surface_probe --nocapture`
 - `cargo test --locked -p bedrock-client present_mode -- --nocapture`
 - `cargo test --locked -p bedrock-client args::tests -- --nocapture`
@@ -50,10 +60,11 @@ remedy cannot relabel formal FIFO evidence. Explicit `--vsync` also locks FIFO.
 - `cargo run -p architecture --locked -- check --root . --policy tools/architecture/policy.toml`
 - `git diff --check`
 
-All listed local checks passed before the final documentation update. The
-present-mode focused tests cover the exact driver/capability boundary, explicit
-preference precedence, runtime setting transitions, missing-window retry, and
-two consecutive automatic applications with no second `Window` change.
+All listed local checks passed after the final-review fix. The present-mode
+focused tests cover the exact driver/capability boundary, explicit preference
+precedence, pending-to-proven lifecycle identity and one-shot proof, bounded
+eventual surface-probe retry, runtime setting transitions, missing-window retry,
+and two consecutive automatic applications with no second `Window` change.
 
 ## Remaining native/review gates
 
