@@ -113,7 +113,7 @@ impl LoadedHudAssets {
     #[must_use]
     pub fn startup_summary(&self) -> String {
         format!(
-            "loaded local vanilla HUD assets from {} (source_manifest_sha256={})",
+            "loaded pinned official Mojang sample HUD assets from {} (source_manifest_sha256={})",
             self.selected_path.display(),
             format_sha256(self.runtime.source_manifest_sha256())
         )
@@ -122,6 +122,13 @@ impl LoadedHudAssets {
     pub fn into_runtime(self) -> Arc<RuntimeHudCatalog> {
         self.runtime
     }
+}
+
+#[must_use]
+pub fn hud_assets_missing_notice() -> String {
+    format!(
+        "pinned official Mojang sample HUD carrier is unavailable; survival HUD sprites remain hidden. Repair only this carrier with `{HUD_ASSETS_COMPILE_COMMAND}`, or refresh every required carrier with `make assets`."
+    )
 }
 
 impl LoadedFontAssets {

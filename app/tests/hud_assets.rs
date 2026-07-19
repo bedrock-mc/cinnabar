@@ -1,7 +1,9 @@
 use std::{fs, path::PathBuf};
 
 use assets::{HUD_SOURCE_MANIFEST_SHA256, HudTexture, HudTextureRole, encode_hud_catalog};
-use bedrock_client::asset_startup::{HUD_ASSETS_COMPILE_COMMAND, hud_asset_path, load_hud_assets};
+use bedrock_client::asset_startup::{
+    HUD_ASSETS_COMPILE_COMMAND, hud_asset_path, hud_assets_missing_notice, load_hud_assets,
+};
 use sha2::{Digest, Sha256};
 
 fn temporary_directory(label: &str) -> PathBuf {
@@ -55,6 +57,24 @@ fn hud_recovery_uses_the_automatic_official_sample_target() {
 }
 
 #[test]
+fn missing_hud_notice_identifies_the_official_sample_and_automatic_repairs() {
+    let notice = hud_assets_missing_notice();
+    assert!(notice.contains("pinned official Mojang sample HUD carrier"));
+    assert!(notice.contains("make hud-assets"));
+    assert!(notice.contains("make assets"));
+    for stale_claim in [
+        "installed/owned Bedrock client",
+        "bedrock-samples pack does not contain",
+        "Export resource_packs/vanilla",
+    ] {
+        assert!(
+            !notice.contains(stale_claim),
+            "stale claim returned: {stale_claim}"
+        );
+    }
+}
+
+#[test]
 fn valid_sibling_hud_carrier_loads_with_provenance() {
     let directory = temporary_directory("valid");
     let world_assets = directory.join("vanilla-v1001.mcbea");
@@ -70,6 +90,11 @@ fn valid_sibling_hud_carrier_loads_with_provenance() {
         loaded
             .startup_summary()
             .contains(&hud_path.display().to_string())
+    );
+    assert!(
+        loaded
+            .startup_summary()
+            .contains("pinned official Mojang sample HUD assets")
     );
 
     fs::remove_dir_all(directory).unwrap();

@@ -296,14 +296,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     eprintln!("{}", loaded_assets.fonts.startup_summary());
     let entity_runtime = Arc::clone(loaded_assets.entities.runtime());
     let hud_assets = load_hud_assets(&loaded_assets.selected_path)
-        .context("load optional local vanilla HUD assets")?;
+        .context("load pinned official Mojang sample HUD carrier")?;
     if let Some(hud_assets) = hud_assets.as_ref() {
         eprintln!("{}", hud_assets.startup_summary());
     } else {
-        eprintln!(
-            "local vanilla HUD assets are unavailable; survival HUD sprites remain hidden. Export resource_packs/vanilla from a locally installed/owned Bedrock client (the official bedrock-samples pack does not contain the required base textures/ui sprites), then build them with: {}",
-            crate::asset_startup::HUD_ASSETS_COMPILE_COMMAND
-        );
+        eprintln!("{}", crate::asset_startup::hud_assets_missing_notice());
     }
     let font_runtime = loaded_assets.fonts.into_runtime();
     let ui_presentation = if let Some(hud_assets) = hud_assets {
