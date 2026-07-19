@@ -291,6 +291,22 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                 };
                 let bootstrap = WorldBootstrap::from_game_data(&game_data);
                 let environment = WorldEnvironmentBootstrap::from_game_data(&game_data);
+                // TIME_DIAG: temporary boundary instrumentation for the LBSG
+                // dark-sky investigation. Reveals whether the server locked the
+                // daylight cycle and what time-of-day inputs StartGame carried.
+                bevy::log::info!(
+                    target: "cinnabar::timediag",
+                    current_tick = game_data.start_game.current_tick,
+                    day_cycle_stop_time = game_data.start_game.day_cycle_stop_time,
+                    has_dodaylightcycle_rule = game_data
+                        .start_game
+                        .gamerules
+                        .iter()
+                        .any(|rule| rule.name.eq_ignore_ascii_case("dodaylightcycle")),
+                    resolved_daylight_cycle_enabled = environment.daylight_cycle_enabled,
+                    gamerule_count = game_data.start_game.gamerules.len(),
+                    "TIME_DIAG StartGame time inputs"
+                );
                 let inventory = start_game_inventory_authority(&game_data);
                 if !send_control_event_or_cancel(
                     &control_event_tx,

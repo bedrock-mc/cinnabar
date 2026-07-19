@@ -159,12 +159,16 @@ pub(crate) fn apply_environment_control(
 ) -> bool {
     match control {
         CommittedControlEvent::SetTime { sequence, update } => {
+            // TIME_DIAG: temporary LBSG dark-sky instrumentation.
+            bevy::log::info!(target: "cinnabar::timediag", time = update.time, "TIME_DIAG SetTime");
             clock.server_time = Some(f64::from(update.time));
             clock.server_time_anchor_seconds = Some(finite_nonnegative(elapsed_seconds));
             clock.last_update_sequence = Some(sequence);
             true
         }
         CommittedControlEvent::DaylightCycle { sequence, update } => {
+            // TIME_DIAG: temporary LBSG dark-sky instrumentation.
+            bevy::log::info!(target: "cinnabar::timediag", enabled = update.enabled, "TIME_DIAG DaylightCycle");
             let elapsed_seconds = finite_nonnegative(elapsed_seconds);
             let current_time = visual_world_time(*clock, elapsed_seconds);
             clock.server_time = Some(current_time);
