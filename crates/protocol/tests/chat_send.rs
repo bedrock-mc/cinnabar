@@ -49,7 +49,7 @@ fn outbound_chat_rejects_empty_and_oversized_fields() {
 #[test]
 fn slash_input_round_trips_as_vanilla_player_command_request() {
     let session = BedrockSession { shield_item_id: 0 };
-    let built = chat_input_packet("RustMCBE", "1234", "/transfer sm3").unwrap();
+    let built = chat_input_packet("RustMCBE", "1234", "/kill @s").unwrap();
 
     assert_eq!(built.header.id, McpePacketName::PacketCommandRequest);
     let encoded = encode(&built, &session).expect("encode command request");
@@ -60,7 +60,7 @@ fn slash_input_round_trips_as_vanilla_player_command_request() {
     let McpePacketData::PacketCommandRequest(packet) = packet.data else {
         panic!("expected command request packet")
     };
-    assert_eq!(packet.command, "/transfer sm3");
+    assert_eq!(packet.command, "/kill @s");
     assert_eq!(packet.origin.type_, "player");
     assert!(!packet.origin.uuid.is_nil());
     assert!(packet.origin.request_id.is_empty());
@@ -72,7 +72,7 @@ fn slash_input_round_trips_as_vanilla_player_command_request() {
 #[test]
 fn slash_input_matches_the_gophertunnel_lunar_wire_fixture() {
     let session = BedrockSession { shield_item_id: 0 };
-    let mut built = chat_input_packet("RustMCBE", "1234", "/transfer sm3").unwrap();
+    let mut built = chat_input_packet("RustMCBE", "1234", "/kill @s").unwrap();
     let McpePacketData::PacketCommandRequest(packet) = &mut built.data else {
         panic!("expected command request packet")
     };
@@ -80,18 +80,18 @@ fn slash_input_matches_the_gophertunnel_lunar_wire_fixture() {
 
     let encoded = encode(&built, &session).expect("encode command request");
     let expected = [
-        0xfe, 0x37, 0x4d, 0x0d, b'/', b't', b'r', b'a', b'n', b's', b'f', b'e', b'r', b' ', b's',
-        b'm', b'3', 0x06, b'p', b'l', b'a', b'y', b'e', b'r', 0x77, 0x66, 0x55, 0x44, 0x33, 0x22,
-        0x11, 0x00, 0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x06, b'l', b'a', b't', b'e', b's', b't',
+        0xfe, 0x32, 0x4d, 0x08, b'/', b'k', b'i', b'l', b'l', b' ', b'@', b's', 0x06, b'p', b'l',
+        b'a', b'y', b'e', b'r', 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0xff, 0xee, 0xdd,
+        0xcc, 0xbb, 0xaa, 0x99, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x06, b'l', b'a', b't', b'e', b's', b't',
     ];
     assert_eq!(encoded.as_ref(), expected);
 }
 
 #[test]
 fn command_requests_receive_fresh_origin_uuids() {
-    let first = chat_input_packet("RustMCBE", "1234", "/transfer sm3").unwrap();
-    let second = chat_input_packet("RustMCBE", "1234", "/transfer sm3").unwrap();
+    let first = chat_input_packet("RustMCBE", "1234", "/kill @s").unwrap();
+    let second = chat_input_packet("RustMCBE", "1234", "/kill @s").unwrap();
     let McpePacketData::PacketCommandRequest(first) = first.data else {
         panic!("expected first command request packet")
     };
@@ -100,6 +100,36 @@ fn command_requests_receive_fresh_origin_uuids() {
     };
 
     assert_ne!(first.origin.uuid, second.origin.uuid);
+}
+
+#[test]
+fn transfer_command_token_uses_the_authored_text_compatibility_path() {
+    for input in [
+        "/transfer",
+        "/transfer sm3",
+        "/TRANSFER sm3",
+        "/TrAnSfEr\tsm3",
+    ] {
+        let packet = chat_input_packet("RustMCBE", "1234", input).unwrap();
+        let McpePacketData::PacketText(packet) = packet.data else {
+            panic!("{input:?} must use authored Text")
+        };
+        assert_eq!(packet.category, TextPacketCategory::Authored);
+        assert_eq!(packet.type_, TextPacketType::Chat);
+        let Some(TextPacketContent::Chat(content)) = packet.content else {
+            panic!("expected authored chat content")
+        };
+        assert_eq!(content.message, input);
+    }
+}
+
+#[test]
+fn transfer_near_miss_remains_a_vanilla_command_request() {
+    let packet = chat_input_packet("RustMCBE", "1234", "/transferred sm3").unwrap();
+    let McpePacketData::PacketCommandRequest(packet) = packet.data else {
+        panic!("near-miss command must remain CommandRequest")
+    };
+    assert_eq!(packet.command, "/transferred sm3");
 }
 
 #[test]

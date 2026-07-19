@@ -666,7 +666,7 @@ fn chat_packet_build_preserves_pending_request_until_transport_ack() {
 fn slash_chat_submission_uses_command_transport_without_consuming_the_request() {
     let mut runtime = UiRuntime::new(3);
     runtime.set_chat_identity(Arc::from("Alex"), Arc::from("xuid"));
-    runtime.insert_chat_text("/transfer sm3").unwrap();
+    runtime.insert_chat_text("/kill @s").unwrap();
     runtime.queue_chat_send(0).unwrap();
 
     let (sequence, packet) = runtime.front_chat_packet().unwrap().unwrap();
