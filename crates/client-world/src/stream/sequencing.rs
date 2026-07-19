@@ -422,6 +422,7 @@ impl WorldStream {
                     let Some(next_epoch) = self.publisher_epoch.checked_add(1) else {
                         self.committed_view_cohort = None;
                         self.provisional_publisher_rebase = false;
+                        self.required_columns.clear();
                         self.evict_outside_active_radius();
                         return;
                     };

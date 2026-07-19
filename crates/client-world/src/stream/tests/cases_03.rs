@@ -422,6 +422,55 @@ fn only_disjoint_local_teleports_may_provisionally_rebase_publisher_retention() 
 }
 
 #[test]
+fn provisional_publisher_epoch_overflow_clears_retained_destination_membership() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.5, 70.0, 0.5],
+        world_spawn_position: [0, 70, 0],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    stream.publisher_epoch = u64::MAX;
+    stream.committed_view_cohort = Some(super::ViewCohort {
+        dimension: 0,
+        center: [0, 0],
+        radius: 8,
+        publisher_geometry: None,
+    });
+    stream.publisher_radius_chunks = Some(8);
+    stream
+        .submit(
+            1,
+            WorldEvent::MovePlayer(MovePlayerEvent {
+                runtime_id: 1,
+                position: [1_040.5, 70.0, 1_040.5],
+                mode: MovePlayerMode::Teleport,
+                teleported: true,
+                ..Default::default()
+            }),
+        )
+        .unwrap();
+    let destination = ChunkKey::new(0, 65, 65);
+    stream.required_columns.insert(destination);
+
+    stream
+        .submit(
+            2,
+            WorldEvent::PublisherUpdate(PublisherUpdateEvent {
+                center: [1_040, 70, 1_040],
+                radius_blocks: 128,
+            }),
+        )
+        .unwrap();
+
+    assert_eq!(stream.publisher_epoch, u64::MAX);
+    assert_eq!(stream.committed_view_cohort(), None);
+    assert!(!stream.provisional_publisher_rebase);
+    assert!(stream.required_columns.is_empty());
+}
+
+#[test]
 fn publisher_cohort_preserves_over_max_radius_while_runtime_scope_clamps() {
     let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,
