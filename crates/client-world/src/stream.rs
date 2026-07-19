@@ -73,8 +73,9 @@ use meshing::types::*;
 use request_queue::RequestQueue;
 
 pub use diagnostics::{
-    BuildProfileIdentity, CohortManifestIdentity, Phase2PresentationSnapshot,
-    Phase2PublicationSnapshot, PresentModeIdentity, PublicationStageCounters, RequestClass,
+    BuildProfileIdentity, CohortManifestIdentity, MAX_LOCAL_RESET_DISPATCH_EVIDENCE,
+    Phase2PresentationSnapshot, Phase2PublicationSnapshot, PresentModeIdentity,
+    PublicationStageCounters, RequestClass, RequestClassDepth, RequestQueueEvidence,
     StageDurations, SubChunkOutcomeCounters,
 };
 pub use publication_config::{
@@ -187,6 +188,12 @@ pub struct WorldStream {
     publisher_radius_chunks: Option<i32>,
     committed_view_cohort: Option<ViewCohort>,
     provisional_publisher_rebase: bool,
+    local_resets_armed: u64,
+    local_resets_consumed: u64,
+    local_reset_dispatch_count: u8,
+    local_reset_dispatch_total: u64,
+    local_reset_dispatch_active: bool,
+    local_reset_dispatch_classes: [Option<RequestClass>; MAX_LOCAL_RESET_DISPATCH_EVIDENCE],
     publisher_epoch: u64,
     required_columns: BTreeSet<ChunkKey>,
     source_columns: BTreeSet<ChunkKey>,

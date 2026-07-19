@@ -110,6 +110,7 @@ function Assert-Phase2PublicationRecord {
     param(
         [Parameter(Mandatory = $true)]$Record,
         [Parameter(Mandatory = $true)][ValidateSet('Fifo', 'Immediate')][string]$ExpectedPresentMode,
+        [ValidateSet('debug', 'release')][string]$ExpectedBuildProfile = 'release',
         [string]$ExpectedGraphicsIdentity,
         [string]$ExpectedAssetsIdentity,
         [switch]$AllowUninitializedPublisher,
@@ -148,23 +149,25 @@ function Assert-Phase2PublicationRecord {
     Assert-Phase2ExactProperties -Value $presentation -Names @(
         'allocation', 'assets_manifest_sha256', 'build_profile', 'effective_present_mode', 'gpu_presented',
         'graphics_identity_sha256', 'present_mode_proven', 'publisher_disk', 'requested_present_mode',
-        'resident', 'submitted', 'visible', 'visible_subset_of_resident'
+        'resident', 'submitted', 'visible', 'visible_subset_of_resident', 'player_column'
     ) -Label 'PHASE2_PUBLICATION presentation'
     Assert-Phase2ExactProperties -Value $publication -Names @(
-        'loaded_required_columns', 'max_queue_wait_us', 'max_worker_time_us', 'outcomes', 'player_column',
-        'publisher_epoch', 'publisher_radius_blocks', 'publisher_radius_chunks', 'required_cohort_hash',
-        'required_cohort_stable', 'required_columns', 'session_generation', 'stages'
+        'inactive_level_chunks', 'loaded_required_columns', 'local_reset', 'max_queue_wait_us',
+        'max_worker_time_us', 'outcomes', 'player_column', 'player_column_loaded',
+        'player_column_required', 'publisher_center', 'publisher_epoch', 'publisher_radius_blocks',
+        'publisher_radius_chunks', 'request_queue', 'required_cohort_hash', 'required_cohort_stable',
+        'required_columns', 'session_generation', 'stages'
     ) -Label 'PHASE2_PUBLICATION publication'
     $mode = $ExpectedPresentMode.ToLowerInvariant()
     if ($null -eq $presentation -or $null -eq $publication -or
-        [string]$presentation.build_profile -cne 'release' -or
+        [string]$presentation.build_profile -cne $ExpectedBuildProfile -or
         [string]$presentation.requested_present_mode -cne $mode -or
         [string]$presentation.effective_present_mode -cne $mode -or
         $presentation.present_mode_proven -isnot [bool] -or
         -not [bool]$presentation.present_mode_proven -or
         [string]$presentation.graphics_identity_sha256 -notmatch '^[0-9a-f]{64}$' -or
         [string]$presentation.assets_manifest_sha256 -notmatch '^[0-9a-f]{64}$') {
-        throw 'PHASE2_PUBLICATION did not prove release build, effective present mode, graphics identity, and asset identity'
+        throw 'PHASE2_PUBLICATION did not prove expected build, effective present mode, graphics identity, and asset identity'
     }
     if ($presentation.visible_subset_of_resident -isnot [bool]) {
         throw 'PHASE2_PUBLICATION visible_subset_of_resident must be a Boolean'
@@ -181,6 +184,10 @@ function Assert-Phase2PublicationRecord {
     Assert-Phase2UnsignedInteger -Value $publication.publisher_epoch -Label 'publication.publisher_epoch'
     Assert-Phase2UnsignedInteger -Value $publication.required_columns -Label 'publication.required_columns'
     Assert-Phase2UnsignedInteger -Value $publication.loaded_required_columns -Label 'publication.loaded_required_columns'
+    Assert-Phase2UnsignedInteger -Value $publication.inactive_level_chunks -Label 'publication.inactive_level_chunks'
+    foreach ($field in @('player_column_required', 'player_column_loaded')) {
+        if ($publication.$field -isnot [bool]) { throw "publication.$field must be a Boolean" }
+    }
     if ($publication.required_cohort_stable -isnot [bool]) {
         throw 'publication.required_cohort_stable must be a Boolean'
     }
@@ -208,6 +215,121 @@ function Assert-Phase2PublicationRecord {
         -Label 'PHASE2_PUBLICATION player_column'
     foreach ($field in @('dimension', 'x', 'z')) {
         Assert-Phase2SignedInteger32 -Value $publication.player_column.$field -Label "publication.player_column.$field"
+    }
+    if ($null -ne $publication.publisher_center) {
+        if (@($publication.publisher_center).Count -ne 3) {
+            throw 'publication.publisher_center must contain exactly three coordinates'
+        }
+        for ($index = 0; $index -lt 3; $index++) {
+            Assert-Phase2SignedInteger32 -Value $publication.publisher_center[$index] `
+                -Label "publication.publisher_center[$index]"
+        }
+    }
+    elseif (-not $publisherUninitialized) {
+        throw 'publication.publisher_center is missing for an initialized publisher'
+    }
+    $localReset = $publication.local_reset
+    Assert-Phase2ExactProperties -Value $localReset -Names @(
+        'armed', 'armed_count', 'consumed_count', 'dispatch_classes', 'dispatch_count',
+        'dispatch_total', 'dispatch_trace_overflowed'
+    ) -Label 'PHASE2_PUBLICATION publication.local_reset'
+    if ($localReset.armed -isnot [bool] -or $localReset.dispatch_trace_overflowed -isnot [bool]) {
+        throw 'publication.local_reset Boolean evidence is malformed'
+    }
+    foreach ($field in @('armed_count', 'consumed_count', 'dispatch_count', 'dispatch_total')) {
+        Assert-Phase2UnsignedInteger -Value $localReset.$field -Label "publication.local_reset.$field"
+    }
+    $dispatchClasses = @($localReset.dispatch_classes)
+    if ($dispatchClasses.Count -ne [uint64]$localReset.dispatch_count -or
+        [uint64]$localReset.dispatch_count -gt 16 -or
+        [uint64]$localReset.dispatch_total -lt [uint64]$localReset.dispatch_count -or
+        [bool]$localReset.dispatch_trace_overflowed -ne
+            ([uint64]$localReset.dispatch_total -gt [uint64]$localReset.dispatch_count) -or
+        [uint64]$localReset.consumed_count -gt [uint64]$localReset.armed_count) {
+        throw 'publication.local_reset counters or bounded trace are incoherent'
+    }
+    $requestClasses = @('player_retry', 'player_initial', 'visible_retry', 'visible_initial', 'prefetch_retry', 'prefetch_initial')
+    foreach ($class in $dispatchClasses) {
+        if ([string]$class -cnotin $requestClasses) { throw 'publication.local_reset contains an unknown dispatch class' }
+    }
+    $queue = $publication.request_queue
+    Assert-Phase2ExactProperties -Value $queue -Names @(
+        'class_depths', 'next_class', 'next_is_starved', 'next_is_transport_retry',
+        'ready_blocked_by_reservation', 'reservations'
+    ) -Label 'PHASE2_PUBLICATION publication.request_queue'
+    if ($queue.next_is_starved -isnot [bool] -or $queue.next_is_transport_retry -isnot [bool]) {
+        throw 'publication.request_queue selection reasons must be Boolean'
+    }
+    foreach ($field in @('ready_blocked_by_reservation', 'reservations')) {
+        Assert-Phase2UnsignedInteger -Value $queue.$field -Label "publication.request_queue.$field"
+    }
+    $depths = @($queue.class_depths)
+    if ($depths.Count -ne $requestClasses.Count) { throw 'publication.request_queue class depth count is not exact' }
+    for ($index = 0; $index -lt $requestClasses.Count; $index++) {
+        Assert-Phase2ExactProperties -Value $depths[$index] -Names @('class', 'eligible', 'ready') `
+            -Label "publication.request_queue.class_depths[$index]"
+        if ([string]$depths[$index].class -cne $requestClasses[$index]) {
+            throw 'publication.request_queue priority order changed'
+        }
+        foreach ($field in @('eligible', 'ready')) {
+            Assert-Phase2UnsignedInteger -Value $depths[$index].$field `
+                -Label "publication.request_queue.class_depths[$index].$field"
+        }
+        if ([uint64]$depths[$index].eligible -gt [uint64]$depths[$index].ready) {
+            throw 'publication.request_queue eligible depth exceeds ready depth'
+        }
+    }
+    if ($null -ne $queue.next_class -and [string]$queue.next_class -cnotin $requestClasses) {
+        throw 'publication.request_queue next class is unknown'
+    }
+    [decimal]$readyDepth = 0
+    [decimal]$eligibleDepth = 0
+    foreach ($depth in $depths) {
+        $readyDepth += [decimal]$depth.ready
+        $eligibleDepth += [decimal]$depth.eligible
+    }
+    if ($readyDepth -ne [decimal]$publication.stages.requests_ready -or
+        ($readyDepth - $eligibleDepth) -ne [decimal]$queue.ready_blocked_by_reservation) {
+        throw 'publication.request_queue depth sums disagree with publication stage gauges'
+    }
+    if (($eligibleDepth -eq 0 -and $null -ne $queue.next_class) -or
+        ($eligibleDepth -gt 0 -and $null -eq $queue.next_class) -or
+        ([bool]$queue.next_is_starved -and [bool]$queue.next_is_transport_retry)) {
+        throw 'publication.request_queue next selection is incoherent with eligible work'
+    }
+    if ($null -ne $queue.next_class) {
+        $selectedDepth = @($depths | Where-Object { [string]$_.class -ceq [string]$queue.next_class })[0]
+        if ([uint64]$selectedDepth.eligible -eq 0) {
+            throw 'publication.request_queue selected class has no eligible work'
+        }
+    }
+    $presentedPlayer = $presentation.player_column
+    Assert-Phase2ExactProperties -Value $presentedPlayer -Names @(
+        'allocated_subchunks', 'dimension', 'gpu_presented_subchunks', 'resident_subchunks',
+        'submitted_subchunks', 'visible_subchunks', 'x', 'z'
+    ) -Label 'PHASE2_PUBLICATION presentation.player_column'
+    foreach ($field in @('dimension', 'x', 'z')) {
+        Assert-Phase2SignedInteger32 -Value $presentedPlayer.$field -Label "presentation.player_column.$field"
+        if ([int32]$presentedPlayer.$field -ne [int32]$publication.player_column.$field) {
+            throw 'PHASE2_PUBLICATION publication and presentation player columns disagree'
+        }
+    }
+    Assert-Phase2UnsignedInteger -Value $presentedPlayer.allocated_subchunks `
+        -Label 'presentation.player_column.allocated_subchunks'
+    foreach ($field in @('resident_subchunks', 'visible_subchunks', 'submitted_subchunks', 'gpu_presented_subchunks')) {
+        if ($null -ne $presentedPlayer.$field) {
+            Assert-Phase2UnsignedInteger -Value $presentedPlayer.$field -Label "presentation.player_column.$field"
+        }
+    }
+    if (($null -ne $presentedPlayer.visible_subchunks -and
+            [uint64]$presentedPlayer.visible_subchunks -gt [uint64]$presentedPlayer.resident_subchunks) -or
+        ($null -ne $presentedPlayer.submitted_subchunks -and
+            $null -ne $presentedPlayer.visible_subchunks -and
+            [uint64]$presentedPlayer.submitted_subchunks -gt [uint64]$presentedPlayer.visible_subchunks) -or
+        ($null -ne $presentedPlayer.gpu_presented_subchunks -and
+            $null -ne $presentedPlayer.submitted_subchunks -and
+            [uint64]$presentedPlayer.gpu_presented_subchunks -gt [uint64]$presentedPlayer.submitted_subchunks)) {
+        throw 'presentation.player_column stage counts violate resident/visible/submitted/GPU ordering'
     }
     Assert-Phase2ExactProperties -Value $publication.outcomes `
         -Names @('all_air', 'malformed', 'stale', 'success', 'timed_out', 'unavailable') `

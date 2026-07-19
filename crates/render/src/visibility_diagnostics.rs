@@ -10,7 +10,7 @@ use bevy::{
     prelude::{Entity, Resource},
     render::extract_resource::ExtractResource,
 };
-use world::SubChunkKey;
+use world::{ChunkKey, SubChunkKey};
 
 pub const MAX_VISIBILITY_DIAGNOSTIC_KEYS: usize = 65_536;
 
@@ -78,6 +78,13 @@ impl VisibilityKeySet {
     const fn overflowed(&self) -> bool {
         self.overflowed
     }
+
+    fn column_count(&self, column: Option<ChunkKey>) -> Option<u32> {
+        let column = column?;
+        (!self.overflowed)
+            .then(|| self.keys.iter().filter(|key| key.chunk() == column).count())
+            .and_then(|count| u32::try_from(count).ok())
+    }
 }
 
 fn hash_sub_chunk_key(key: SubChunkKey) -> u64 {
@@ -104,6 +111,7 @@ fn hash_sub_chunk_key(key: SubChunkKey) -> u64 {
 pub struct VisibilityDiagnosticsInput {
     enabled: bool,
     frame_generation: u64,
+    witness_column: Option<ChunkKey>,
     resident_mesh: VisibilityKeySet,
     cave_visible: VisibilityKeySet,
 }
@@ -114,6 +122,7 @@ impl VisibilityDiagnosticsInput {
         Self {
             enabled,
             frame_generation: 0,
+            witness_column: None,
             resident_mesh: VisibilityKeySet {
                 keys: BTreeSet::new(),
                 overflowed: false,
@@ -138,6 +147,10 @@ impl VisibilityDiagnosticsInput {
     #[must_use]
     pub fn cave_visible(&self) -> Option<VisibilityKeyDigest> {
         self.cave_visible.digest()
+    }
+
+    pub fn set_witness_column(&mut self, column: Option<ChunkKey>) {
+        self.witness_column = column;
     }
 
     pub fn advance(
@@ -216,6 +229,11 @@ pub struct VisibilityDiagnosticSnapshot {
     pub camera: ExtractedCameraIdentity,
     pub pose_generation: u64,
     pub view_generation: u64,
+    pub witness_column: Option<ChunkKey>,
+    pub resident_witness_subchunks: Option<u32>,
+    pub frustum_witness_subchunks: Option<u32>,
+    pub submitted_witness_subchunks: Option<u32>,
+    pub gpu_completed_witness_subchunks: Option<u32>,
     pub resident_mesh: Option<VisibilityKeyDigest>,
     pub cave_visible: Option<VisibilityKeyDigest>,
     pub frustum_visible_opaque: Option<VisibilityKeyDigest>,
@@ -328,11 +346,17 @@ impl VisibilityFrameProbe {
 
     pub(crate) fn complete(self) -> VisibilityDiagnosticSnapshot {
         let submitted_opaque = self.submitted.digest();
+        let witness_column = self.input.witness_column;
         VisibilityDiagnosticSnapshot {
             frame_generation: self.input.frame_generation,
             camera: self.camera,
             pose_generation: self.generations.pose,
             view_generation: self.generations.view,
+            witness_column,
+            resident_witness_subchunks: self.input.resident_mesh.column_count(witness_column),
+            frustum_witness_subchunks: self.frustum_visible_opaque.column_count(witness_column),
+            submitted_witness_subchunks: self.submitted.column_count(witness_column),
+            gpu_completed_witness_subchunks: None,
             resident_mesh: self.input.resident_mesh.digest(),
             cave_visible: self.input.cave_visible.digest(),
             frustum_visible_opaque: self.frustum_visible_opaque.digest(),
@@ -362,6 +386,7 @@ impl VisibilityDiagnosticSnapshot {
     #[must_use]
     pub(crate) fn gpu_completed(mut self) -> Self {
         self.gpu_completed_opaque = self.submitted_opaque;
+        self.gpu_completed_witness_subchunks = self.submitted_witness_subchunks;
         self.submitted_to_gpu_completed =
             self.submitted_opaque.map(|_| VisibilityKeyDelta::default());
         self
@@ -678,6 +703,38 @@ mod tests {
         );
         assert_eq!(direct_snapshot.draw_mode, OpaqueDrawMode::Direct);
         assert_eq!(mdi_snapshot.draw_mode, OpaqueDrawMode::MultiDrawIndirect);
+    }
+
+    #[test]
+    fn player_column_witness_tracks_exact_stage_membership() {
+        let column = ChunkKey::new(0, 3, 7);
+        let resident = [
+            SubChunkKey::new(0, 3, -4, 7),
+            SubChunkKey::new(0, 3, -3, 7),
+            SubChunkKey::new(0, 4, -4, 7),
+        ];
+        let mut input = VisibilityDiagnosticsInput::new(true);
+        input.set_witness_column(Some(column));
+        input.advance(resident, resident);
+        let mut probe = VisibilityFrameProbe::begin(
+            input,
+            camera(10, 20),
+            ExtractedViewGenerations::new(1, 1),
+            OpaqueDrawMode::Direct,
+            [resident[0], resident[2]],
+            8,
+        );
+        assert!(probe.record_direct(resident[0]));
+
+        let submitted = probe.complete();
+        assert_eq!(submitted.witness_column, Some(column));
+        assert_eq!(submitted.resident_witness_subchunks, Some(2));
+        assert_eq!(submitted.frustum_witness_subchunks, Some(1));
+        assert_eq!(submitted.submitted_witness_subchunks, Some(1));
+        assert_eq!(submitted.gpu_completed_witness_subchunks, None);
+
+        let presented = submitted.gpu_completed();
+        assert_eq!(presented.gpu_completed_witness_subchunks, Some(1));
     }
 
     #[test]

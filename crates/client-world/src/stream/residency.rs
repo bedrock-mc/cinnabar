@@ -17,6 +17,11 @@ impl WorldStream {
         self.committed_view_cohort = None;
         self.required_columns.clear();
         self.provisional_publisher_rebase = true;
+        self.local_resets_armed = self.local_resets_armed.saturating_add(1);
+        self.local_reset_dispatch_count = 0;
+        self.local_reset_dispatch_total = 0;
+        self.local_reset_dispatch_active = true;
+        self.local_reset_dispatch_classes = [None; MAX_LOCAL_RESET_DISPATCH_EVIDENCE];
     }
 
     pub(super) fn sync_resident(&mut self, key: SubChunkKey) {

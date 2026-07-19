@@ -185,8 +185,10 @@ function Get-Phase2PublicationSequenceEvidence {
     param(
         [Parameter(Mandatory = $true)][string]$ClientLogPath,
         [Parameter(Mandatory = $true)][ValidateSet('Fifo', 'Immediate')][string]$ExpectedPresentMode,
+        [ValidateSet('debug', 'release')][string]$ExpectedBuildProfile = 'release',
         [Parameter(Mandatory = $true)][bool]$WorldReadyObserved,
-        [Parameter(Mandatory = $true)][ValidateSet('Lunar', 'Zeqa')][string]$Server
+        [Parameter(Mandatory = $true)][ValidateSet('Lbsg', 'Lunar', 'Zeqa')][string]$Server,
+        [switch]$RequireCompleteLocalResetDispatchTrace
     )
 
     $lines = @(Get-Content -LiteralPath $ClientLogPath | Where-Object {
@@ -205,6 +207,8 @@ function Get-Phase2PublicationSequenceEvidence {
     [uint64]$lastPublisherEpoch = 0
     $lastInitializedRecord = $null
     $pendingDimensionReset = $false
+    $pendingLocalResetArmedCount = $null
+    $resetCyclesObserved = 0
     foreach ($line in $lines) {
         $lower = $line.ToLowerInvariant()
         foreach ($forbidden in @('"path"', '"token"', '"auth"', '"payload"', '"credential"')) {
@@ -222,8 +226,13 @@ function Get-Phase2PublicationSequenceEvidence {
             $null -eq $record.publication.publisher_radius_chunks
         $publisherResetting = $publisherUninitialized -and $publisherInitialized
         Assert-Phase2PublicationRecord -Record $record -ExpectedPresentMode $ExpectedPresentMode `
+            -ExpectedBuildProfile $ExpectedBuildProfile `
             -ExpectedGraphicsIdentity $graphicsIdentity -ExpectedAssetsIdentity $assetsIdentity `
             -AllowUninitializedPublisher:$publisherUninitialized -AllowResettingPublisher:$publisherResetting
+        if ($RequireCompleteLocalResetDispatchTrace -and
+            [bool]$record.publication.local_reset.dispatch_trace_overflowed) {
+            throw 'PHASE2_PUBLICATION focused local reset dispatch trace overflowed its exact bound'
+        }
         if ($null -eq $graphicsIdentity) {
             $graphicsIdentity = [string]$record.presentation.graphics_identity_sha256
             $assetsIdentity = [string]$record.presentation.assets_manifest_sha256
@@ -296,12 +305,63 @@ function Get-Phase2PublicationSequenceEvidence {
                     [uint64]$previousRecord.publication.publisher_epoch) {
                 $previousRequired = [uint64]$previousRecord.publication.required_columns
                 $currentRequired = [uint64]$record.publication.required_columns
-                if ($currentRequired -lt $previousRequired -or
+                $provenLocalResetArm = $currentRequired -eq 0 -and
+                    [uint64]$record.publication.loaded_required_columns -eq 0 -and
+                    -not [bool]$record.publication.required_cohort_stable -and
+                    [bool]$record.publication.local_reset.armed -and
+                    [uint64]$record.publication.local_reset.armed_count -eq
+                        ([uint64]$previousRecord.publication.local_reset.armed_count + 1) -and
+                    [uint64]$record.publication.local_reset.consumed_count -eq
+                        [uint64]$previousRecord.publication.local_reset.consumed_count
+                if ($currentRequired -lt $previousRequired -and -not $provenLocalResetArm) {
+                    throw 'PHASE2_PUBLICATION publisher-epoch cohort membership regressed without a proven local reset arm'
+                }
+                if ($provenLocalResetArm) {
+                    $pendingLocalResetArmedCount = [uint64]$record.publication.local_reset.armed_count
+                    $resetCyclesObserved++
+                }
+                elseif (
                     ($currentRequired -eq $previousRequired -and
                         [string]$record.publication.required_cohort_hash -cne
                             [string]$previousRecord.publication.required_cohort_hash)) {
                     throw 'PHASE2_PUBLICATION publisher-epoch cohort membership regressed or changed without growth'
                 }
+            }
+            $sameDimension = [int32]$record.publication.player_column.dimension -eq
+                [int32]$previousRecord.publication.player_column.dimension
+            if ($sameDimension) {
+                foreach ($field in @('armed_count', 'consumed_count')) {
+                    if ([uint64]$record.publication.local_reset.$field -lt
+                        [uint64]$previousRecord.publication.local_reset.$field) {
+                        throw "PHASE2_PUBLICATION cumulative local reset counter regressed: $field"
+                    }
+                }
+            }
+            if ($null -ne $pendingLocalResetArmedCount -and
+                [uint64]$record.publication.publisher_epoch -gt
+                    [uint64]$previousRecord.publication.publisher_epoch) {
+                if ([bool]$record.publication.local_reset.armed -or
+                    [uint64]$record.publication.local_reset.armed_count -ne
+                        [uint64]$pendingLocalResetArmedCount -or
+                    [uint64]$record.publication.local_reset.consumed_count -ne
+                        [uint64]$pendingLocalResetArmedCount) {
+                    throw 'PHASE2_PUBLICATION armed local reset was not consumed by the next publisher epoch'
+                }
+                $pendingLocalResetArmedCount = $null
+            }
+            elseif ($sameDimension -and
+                [uint64]$record.publication.publisher_epoch -gt
+                    [uint64]$previousRecord.publication.publisher_epoch -and
+                [uint64]$record.publication.local_reset.armed_count -gt
+                    [uint64]$previousRecord.publication.local_reset.armed_count) {
+                if ([uint64]$record.publication.local_reset.armed_count -ne
+                        ([uint64]$previousRecord.publication.local_reset.armed_count + 1) -or
+                    [uint64]$record.publication.local_reset.consumed_count -ne
+                        ([uint64]$previousRecord.publication.local_reset.consumed_count + 1) -or
+                    [bool]$record.publication.local_reset.armed) {
+                    throw 'PHASE2_PUBLICATION unobserved local reset arm lacks a persistent consumed counter proof'
+                }
+                $resetCyclesObserved++
             }
             foreach ($field in @('requests_constructed', 'requests_sent', 'responses_admitted',
                 'subchunks_committed', 'decode_jobs_dispatched', 'decode_jobs_completed',
@@ -329,6 +389,11 @@ function Get-Phase2PublicationSequenceEvidence {
         $previousRecord = $record
     }
     $final = $records[$records.Count - 1]
+    if ($null -ne $pendingLocalResetArmedCount -or
+        [bool]$final.publication.local_reset.armed -or
+        ($resetCyclesObserved -gt 0 -and -not [bool]$final.publication.required_cohort_stable)) {
+        throw 'PHASE2_PUBLICATION local reset sequence did not reach a consumed stable publisher epoch'
+    }
     $cache = $final.client_blob_cache
     if ([uint64]$cache.rejected_blobs -ne 0 -or
         [uint64]$cache.pending_transactions -ne 0 -or
@@ -363,6 +428,69 @@ function Get-Phase2PublicationSequenceEvidence {
         Findings = @($findings)
         ClientBlobCacheRoute = $clientBlobCacheRoute
     }
+}
+
+function Get-Phase2LocalResetSequenceEvidence {
+    param(
+        [Parameter(Mandatory = $true)][string]$ClientLogPath,
+        [Parameter(Mandatory = $true)][ValidateSet('Fifo', 'Immediate')][string]$ExpectedPresentMode,
+        [ValidateSet('debug', 'release')][string]$ExpectedBuildProfile = 'debug',
+        [Parameter(Mandatory = $true)][bool]$WorldReadyObserved,
+        [Parameter(Mandatory = $true)][ValidateSet('Lbsg', 'Lunar', 'Zeqa')][string]$Server
+    )
+    if (-not $WorldReadyObserved) {
+        throw 'PHASE2_PUBLICATION focused Lifeboat witness requires world-ready observation'
+    }
+    $evidence = Get-Phase2PublicationSequenceEvidence -ClientLogPath $ClientLogPath `
+        -ExpectedPresentMode $ExpectedPresentMode -ExpectedBuildProfile $ExpectedBuildProfile `
+        -WorldReadyObserved:$WorldReadyObserved -Server $Server `
+        -RequireCompleteLocalResetDispatchTrace
+    if ([string]$evidence.FirstStalledStage -cne 'none') {
+        throw "PHASE2_PUBLICATION focused Lifeboat terminal stage is stalled: $($evidence.FirstStalledStage)"
+    }
+    $records = @(Get-Content -LiteralPath $ClientLogPath | Where-Object {
+        $_.StartsWith('PHASE2_PUBLICATION=', [StringComparison]::Ordinal)
+    } | ForEach-Object {
+        $_.Substring('PHASE2_PUBLICATION='.Length) | ConvertFrom-Json
+    })
+    $first = $records[0]
+    $final = $records[$records.Count - 1]
+    if ([uint64]$final.publication.local_reset.armed_count -ne
+            ([uint64]$first.publication.local_reset.armed_count + 1) -or
+        [uint64]$final.publication.local_reset.consumed_count -ne
+            ([uint64]$first.publication.local_reset.consumed_count + 1)) {
+        throw 'PHASE2_PUBLICATION focused Lifeboat witness requires exactly one reset arm and consume cycle'
+    }
+    $firstColumn = $first.publication.player_column
+    $finalColumn = $final.publication.player_column
+    $columnChanged = [int32]$firstColumn.dimension -ne [int32]$finalColumn.dimension -or
+        [int32]$firstColumn.x -ne [int32]$finalColumn.x -or
+        [int32]$firstColumn.z -ne [int32]$finalColumn.z
+    $centerChanged = (@($first.publication.publisher_center) -join ',') -cne
+        (@($final.publication.publisher_center) -join ',')
+    if (-not $columnChanged -or -not $centerChanged) {
+        throw 'PHASE2_PUBLICATION focused Lifeboat witness did not change player column and publisher center'
+    }
+    if (-not [bool]$final.publication.player_column_required -or
+        -not [bool]$final.publication.player_column_loaded -or
+        [uint64]$final.publication.inactive_level_chunks -ne [uint64]$first.publication.inactive_level_chunks -or
+        [uint64]$final.publication.outcomes.timed_out -ne [uint64]$first.publication.outcomes.timed_out) {
+        throw 'PHASE2_PUBLICATION focused Lifeboat terminal player residency or zero-error deltas failed'
+    }
+    $player = $final.presentation.player_column
+    foreach ($field in @('resident_subchunks', 'allocated_subchunks', 'submitted_subchunks', 'gpu_presented_subchunks')) {
+        if ($null -eq $player.$field -or [uint64]$player.$field -eq 0) {
+            throw "PHASE2_PUBLICATION focused Lifeboat terminal player $field is not positive"
+        }
+    }
+    $dispatches = @($final.publication.local_reset.dispatch_classes)
+    if ([uint64]$final.publication.local_reset.dispatch_total -eq 0 -or
+        [bool]$final.publication.local_reset.dispatch_trace_overflowed -or
+        $dispatches.Count -eq 0 -or
+        [string]$dispatches[0] -cnotin @('player_initial', 'player_retry')) {
+        throw 'PHASE2_PUBLICATION focused Lifeboat first successful dispatch is not player-class'
+    }
+    return $evidence
 }
 
 function Complete-Phase2DiagnosticEvidence {

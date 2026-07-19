@@ -13,6 +13,10 @@ function New-SyntheticPhase2Publication {
         [object]$PublisherRadiusBlocks = 128,
         [object]$PublisherRadius = 8,
         [uint64]$PublisherEpoch = 1,
+        [ValidateSet('debug', 'release')][string]$BuildProfile = 'release',
+        [uint64]$LocalResetsArmed = 0,
+        [uint64]$LocalResetsConsumed = 0,
+        [bool]$LocalResetArmed = $false,
         [bool]$RequiredCohortStable = $true,
         [uint64]$MeshJobsCompleted = 1,
         [int]$MeshJobsQueued = 0,
@@ -32,17 +36,41 @@ function New-SyntheticPhase2Publication {
             reconstructed_level_chunks = 0; reconstructed_sub_chunks = 0
         }
         presentation = [ordered]@{
-            build_profile = 'release'; requested_present_mode = 'fifo'; effective_present_mode = 'fifo'; present_mode_proven = $true
+            build_profile = $BuildProfile; requested_present_mode = 'fifo'; effective_present_mode = 'fifo'; present_mode_proven = $true
             visible_subset_of_resident = $true
             graphics_identity_sha256 = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
             assets_manifest_sha256 = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
             publisher_disk = & $identity $LoadedColumns 'key_generation'; resident = & $identity $LoadedColumns 'key'; allocation = & $identity $LoadedColumns 'key_generation'
             visible = & $identity $LoadedColumns 'key'; submitted = & $identity $LoadedColumns 'key'; gpu_presented = & $identity $LoadedColumns 'key'
+            player_column = [ordered]@{
+                dimension = 0; x = 1; z = 2; resident_subchunks = 1; allocated_subchunks = 1
+                visible_subchunks = 1; submitted_subchunks = 1; gpu_presented_subchunks = 1
+            }
         }
         publication = [ordered]@{
             session_generation = 1; player_column = [ordered]@{ dimension = 0; x = 1; z = 2 }
+            publisher_center = @(16, 64, 32)
             publisher_epoch = $PublisherEpoch; required_cohort_hash = $hash; required_columns = $RequiredColumns
             loaded_required_columns = $LoadedColumns; required_cohort_stable = $RequiredCohortStable
+            player_column_required = ($RequiredColumns -gt 0); player_column_loaded = ($LoadedColumns -gt 0)
+            inactive_level_chunks = 0
+            local_reset = [ordered]@{
+                armed = $LocalResetArmed; armed_count = $LocalResetsArmed
+                consumed_count = $LocalResetsConsumed; dispatch_classes = @()
+                dispatch_count = 0; dispatch_total = 0; dispatch_trace_overflowed = $false
+            }
+            request_queue = [ordered]@{
+                class_depths = @(
+                    [ordered]@{ class = 'player_retry'; ready = 0; eligible = 0 },
+                    [ordered]@{ class = 'player_initial'; ready = 0; eligible = 0 },
+                    [ordered]@{ class = 'visible_retry'; ready = 0; eligible = 0 },
+                    [ordered]@{ class = 'visible_initial'; ready = 0; eligible = 0 },
+                    [ordered]@{ class = 'prefetch_retry'; ready = 0; eligible = 0 },
+                    [ordered]@{ class = 'prefetch_initial'; ready = 0; eligible = 0 }
+                )
+                reservations = 0; ready_blocked_by_reservation = 0; next_class = $null
+                next_is_transport_retry = $false; next_is_starved = $false
+            }
             publisher_radius_blocks = $PublisherRadiusBlocks; publisher_radius_chunks = $PublisherRadius
             max_queue_wait_us = [ordered]@{ decode = 0; lighting = 0; meshing = 0 }
             max_worker_time_us = [ordered]@{ decode = 0; lighting = 0; meshing = 0 }
@@ -61,6 +89,114 @@ function New-SyntheticPhase2Publication {
     }
 }
 
+Describe 'Phase 2 local reset publication evidence' {
+    BeforeEach {
+        . (Join-Path $ProjectRoot 'scripts\acceptance\Load.ps1')
+    }
+
+    It 'accepts only an armed clear followed by a consumed newer stable epoch' {
+        $path = Join-Path ([IO.Path]::GetTempPath()) ('phase2-local-reset-' + [guid]::NewGuid().ToString('N') + '.log')
+        try {
+            $before = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 197 `
+                -RequestsConstructed 197 -RequestsSent 197 -ResponsesAdmitted 197 -SubchunksCommitted 197 `
+                -BuildProfile debug
+            $armed = New-SyntheticPhase2Publication -RequiredColumns 0 -LoadedColumns 0 `
+                -RequestsConstructed 197 -RequestsSent 197 -ResponsesAdmitted 197 -SubchunksCommitted 197 `
+                -RequiredCohortStable:$false -LocalResetsArmed 1 -LocalResetArmed:$true `
+                -BuildProfile debug
+            $armed.publication.player_column.x = 65
+            $armed.presentation.player_column.x = 65
+            $armed.publication.publisher_center = @(1040, 70, 1040)
+            $armed.publication.local_reset.dispatch_classes = @('player_initial')
+            $armed.publication.local_reset.dispatch_count = 1
+            $armed.publication.local_reset.dispatch_total = 1
+            $after = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 197 `
+                -RequestsConstructed 197 -RequestsSent 197 -ResponsesAdmitted 197 -SubchunksCommitted 197 `
+                -PublisherEpoch 2 -LocalResetsArmed 1 -LocalResetsConsumed 1 -BuildProfile debug
+            $after.publication.player_column.x = 65
+            $after.presentation.player_column.x = 65
+            $after.publication.publisher_center = @(1040, 70, 1040)
+            $after.publication.local_reset.dispatch_classes = @('player_initial')
+            $after.publication.local_reset.dispatch_count = 1
+            $after.publication.local_reset.dispatch_total = 1
+            @($before, $armed, $after) | ForEach-Object {
+                'PHASE2_PUBLICATION=' + ($_ | ConvertTo-Json -Depth 20 -Compress)
+            } | Set-Content -LiteralPath $path
+
+            { Get-Phase2LocalResetSequenceEvidence -ClientLogPath $path `
+                -ExpectedPresentMode Fifo -ExpectedBuildProfile debug `
+                -WorldReadyObserved:$true -Server Lbsg } | Should Not Throw
+
+            { Get-Phase2LocalResetSequenceEvidence -ClientLogPath $path `
+                -ExpectedPresentMode Fifo -ExpectedBuildProfile debug `
+                -WorldReadyObserved:$false -Server Lbsg } | Should Throw
+
+            $prefetchFirst = $after | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+            $prefetchFirst.publication.local_reset.dispatch_classes = @('prefetch_initial', 'player_initial')
+            $prefetchFirst.publication.local_reset.dispatch_count = 2
+            $prefetchFirst.publication.local_reset.dispatch_total = 2
+            @($before, $armed, $prefetchFirst) | ForEach-Object {
+                'PHASE2_PUBLICATION=' + ($_ | ConvertTo-Json -Depth 20 -Compress)
+            } | Set-Content -LiteralPath $path
+            { Get-Phase2LocalResetSequenceEvidence -ClientLogPath $path `
+                -ExpectedPresentMode Fifo -ExpectedBuildProfile debug `
+                -WorldReadyObserved:$true -Server Lbsg } | Should Throw
+
+            $presentationStalled = $after | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+            $presentationStalled.presentation.gpu_presented.entry_count = 0
+            @($before, $armed, $presentationStalled) | ForEach-Object {
+                'PHASE2_PUBLICATION=' + ($_ | ConvertTo-Json -Depth 20 -Compress)
+            } | Set-Content -LiteralPath $path
+            { Get-Phase2LocalResetSequenceEvidence -ClientLogPath $path `
+                -ExpectedPresentMode Fifo -ExpectedBuildProfile debug `
+                -WorldReadyObserved:$true -Server Lbsg } | Should Throw
+
+            $armed.publication.local_reset.armed_count = 0
+            @($before, $armed, $after) | ForEach-Object {
+                'PHASE2_PUBLICATION=' + ($_ | ConvertTo-Json -Depth 20 -Compress)
+            } | Set-Content -LiteralPath $path
+            { Get-Phase2LocalResetSequenceEvidence -ClientLogPath $path `
+                -ExpectedPresentMode Fifo -ExpectedBuildProfile debug `
+                -WorldReadyObserved:$true -Server Lbsg } | Should Throw
+
+            'PHASE2_PUBLICATION=' + ($before | ConvertTo-Json -Depth 20 -Compress) |
+                Set-Content -LiteralPath $path
+            { Get-Phase2LocalResetSequenceEvidence -ClientLogPath $path `
+                -ExpectedPresentMode Fifo -ExpectedBuildProfile debug `
+                -WorldReadyObserved:$true -Server Lbsg } | Should Throw
+
+            $jump = $after | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+            $jump.publication.local_reset.armed_count = 5
+            $jump.publication.local_reset.consumed_count = 5
+            @($before, $jump) | ForEach-Object {
+                'PHASE2_PUBLICATION=' + ($_ | ConvertTo-Json -Depth 20 -Compress)
+            } | Set-Content -LiteralPath $path
+            { Get-Phase2LocalResetSequenceEvidence -ClientLogPath $path `
+                -ExpectedPresentMode Fifo -ExpectedBuildProfile debug `
+                -WorldReadyObserved:$true -Server Lbsg } | Should Throw
+        }
+        finally { Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'fails closed when the focused successful-send trace overflows' {
+        $path = Join-Path ([IO.Path]::GetTempPath()) ('phase2-local-reset-overflow-' + [guid]::NewGuid().ToString('N') + '.log')
+        try {
+            $record = New-SyntheticPhase2Publication -RequiredColumns 1 -LoadedColumns 1 `
+                -RequestsConstructed 17 -RequestsSent 17 -ResponsesAdmitted 17 -SubchunksCommitted 17 `
+                -PublisherEpoch 2 -LocalResetsArmed 1 -LocalResetsConsumed 1 -BuildProfile debug
+            $record.publication.local_reset.dispatch_classes = @(1..16 | ForEach-Object { 'player_initial' })
+            $record.publication.local_reset.dispatch_count = 16
+            $record.publication.local_reset.dispatch_total = 17
+            $record.publication.local_reset.dispatch_trace_overflowed = $true
+            'PHASE2_PUBLICATION=' + ($record | ConvertTo-Json -Depth 20 -Compress) | Set-Content -LiteralPath $path
+            { Get-Phase2LocalResetSequenceEvidence -ClientLogPath $path `
+                -ExpectedPresentMode Fifo -ExpectedBuildProfile debug `
+                -WorldReadyObserved:$true -Server Lbsg } | Should Throw
+        }
+        finally { Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue }
+    }
+}
+
 function New-SyntheticPhase2PublisherInitialization {
     param(
         [string]$RenderGenerationManifestHash = '00000000000000e1'
@@ -72,6 +208,13 @@ function New-SyntheticPhase2PublisherInitialization {
         -UploadsAcknowledged 0
     $emptyManifestHash = 'cbf29ce484222325'
     $record.publication.required_cohort_hash = $emptyManifestHash
+    $record.publication.publisher_center = $null
+    $record.publication.player_column_required = $false
+    $record.publication.player_column_loaded = $false
+    foreach ($field in @('resident_subchunks', 'visible_subchunks', 'submitted_subchunks', 'gpu_presented_subchunks')) {
+        $record.presentation.player_column.$field = $null
+    }
+    $record.presentation.player_column.allocated_subchunks = 0
     $record.publication.publisher_epoch = 0
     $record.publication.required_cohort_stable = $false
     foreach ($name in @('publisher_disk', 'resident', 'allocation', 'visible', 'submitted', 'gpu_presented')) {
@@ -326,6 +469,9 @@ Describe 'Phase 2 remote acceptance runner' {
             $stageProgress = New-SyntheticPhase2PublisherInitialization
             $stageProgress.publication.stages.requests_constructed = 1
             $stageProgress.publication.stages.requests_ready = 1
+            $stageProgress.publication.request_queue.class_depths[5].ready = 1
+            $stageProgress.publication.request_queue.class_depths[5].eligible = 1
+            $stageProgress.publication.request_queue.next_class = 'prefetch_initial'
             & $writeAndReject 'stage-progress' @($stageProgress, $initialized)
 
             $outcomeProgress = New-SyntheticPhase2PublisherInitialization
@@ -446,18 +592,30 @@ Describe 'Phase 2 remote acceptance runner' {
                 -RequestsConstructed 3 -RequestsSent 2 -ResponsesAdmitted 2 -SubchunksCommitted 2 `
                 -PublisherEpoch 1
             $first.publication.stages.requests_ready = 1
+            $first.publication.request_queue.class_depths[5].ready = 1
+            $first.publication.request_queue.class_depths[5].eligible = 1
+            $first.publication.request_queue.next_class = 'prefetch_initial'
             $moved = New-SyntheticPhase2Publication -RequiredColumns 1 -LoadedColumns 1 `
                 -RequestsConstructed 3 -RequestsSent 2 -ResponsesAdmitted 2 -SubchunksCommitted 2 `
                 -PublisherEpoch 2
 
             $dimensionReset = $moved | ConvertTo-Json -Depth 20 | ConvertFrom-Json
             $dimensionReset.publication.player_column.dimension = 1
+            $dimensionReset.presentation.player_column.dimension = 1
+            $dimensionReset.publication.publisher_center = $null
             $dimensionReset.publication.publisher_radius_blocks = $null
             $dimensionReset.publication.publisher_radius_chunks = $null
             $dimensionReset.publication.required_columns = 0
             $dimensionReset.publication.loaded_required_columns = 0
             $dimensionReset.publication.required_cohort_hash = 'cbf29ce484222325'
             $dimensionReset.publication.required_cohort_stable = $false
+            $dimensionReset.publication.player_column_required = $false
+            $dimensionReset.publication.player_column_loaded = $false
+            $dimensionReset.presentation.player_column.resident_subchunks = $null
+            $dimensionReset.presentation.player_column.allocated_subchunks = 0
+            $dimensionReset.presentation.player_column.visible_subchunks = $null
+            $dimensionReset.presentation.player_column.submitted_subchunks = $null
+            $dimensionReset.presentation.player_column.gpu_presented_subchunks = $null
             foreach ($name in @('publisher_disk', 'resident', 'allocation', 'visible', 'submitted', 'gpu_presented')) {
                 $dimensionReset.presentation.$name.entry_count = 0
                 $dimensionReset.presentation.$name.required_cohort_count = 0
@@ -469,6 +627,7 @@ Describe 'Phase 2 remote acceptance runner' {
                 -RequestsConstructed 4 -RequestsSent 3 -ResponsesAdmitted 3 -SubchunksCommitted 3 `
                 -PublisherEpoch 3
             $newDimension.publication.player_column.dimension = 1
+            $newDimension.presentation.player_column.dimension = 1
             @(
                 foreach ($record in @($first, $moved, $dimensionReset, $newDimension)) {
                     'PHASE2_PUBLICATION=' + ($record | ConvertTo-Json -Depth 20 -Compress)

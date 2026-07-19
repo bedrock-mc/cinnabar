@@ -41,6 +41,7 @@ use crate::{
         mutation::write_stdout_marker,
     },
     camera::{self, FlyCamera},
+    local_player::LocalPlayerFrameCarrier,
     metrics::{
         DiagnosticQuadTracker, GpuPassMeasurement, MetricsCollector, ModelWorkloadMetricsSnapshot,
         PipelineMetricsSnapshot, TransparentSortMetricsSnapshot, pair_gpu_pass_sample,
@@ -49,9 +50,10 @@ use crate::{
     runtime::{
         network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
         phase2_evidence::{
-            CombinedPhase2Snapshot, build_profile_identity, generation_manifest_identity,
-            graphics_identity_sha256, key_manifest_identity, phase2_publication_line_if_changed,
-            present_mode_identity, sha256_identity_from_hex_or_text,
+            CombinedPhase2Snapshot, PlayerColumnPresentationEvidence, build_profile_identity,
+            generation_manifest_identity, graphics_identity_sha256, key_manifest_identity,
+            phase2_publication_line_if_changed, present_mode_identity,
+            sha256_identity_from_hex_or_text,
         },
         publication::{
             PublicationController, PublicationFrameWork, adaptive_publication_diagnostic_line,
@@ -75,6 +77,7 @@ pub(crate) struct TelemetryRenderMetrics<'w> {
     model_workload: Res<'w, ModelWorkloadMetrics>,
     diagnostics: Res<'w, DiagnosticsStore>,
     publication: ResMut<'w, PublicationController>,
+    local_player: Res<'w, LocalPlayerFrameCarrier>,
 }
 
 pub(crate) fn camera_sub_chunk_key(dimension: i32, position: Vec3) -> SubChunkKey {
@@ -84,6 +87,12 @@ pub(crate) fn camera_sub_chunk_key(dimension: i32, position: Vec3) -> SubChunkKe
         (position.y.floor() as i32).div_euclid(16),
         (position.z.floor() as i32).div_euclid(16),
     )
+}
+
+pub(crate) fn local_subject_column(dimension: i32, position: Vec3) -> Option<world::ChunkKey> {
+    position
+        .is_finite()
+        .then(|| camera_sub_chunk_key(dimension, position).chunk())
 }
 
 pub(crate) fn frame_limited_winit_settings(frame_cap: Option<u32>) -> WinitSettings {
@@ -329,11 +338,18 @@ pub(crate) fn send_player_auth_inputs(
 pub(crate) fn update_visibility_diagnostics(
     cache: Res<CaveVisibilityCache>,
     chunks: Query<&ChunkRenderInstance>,
+    local_player: Res<LocalPlayerFrameCarrier>,
+    client_world: Res<ClientWorld>,
     mut diagnostics: ResMut<VisibilityDiagnosticsInput>,
 ) {
     if !diagnostics.enabled() {
         return;
     }
+    let witness_column = client_world.stream.as_ref().and_then(|stream| {
+        let eye = local_player.snapshot()?.eye();
+        local_subject_column(stream.current_dimension(), eye)
+    });
+    diagnostics.set_witness_column(witness_column);
     let resident_mesh = chunks.iter().map(ChunkRenderInstance::key);
     let cave_visible = chunks
         .iter()
@@ -417,14 +433,14 @@ pub(crate) fn record_metrics_and_title(
         info!("{marker}");
     }
     let visibility_snapshot = visibility_diagnostics.snapshot();
-    if let (Some(stream), Ok(camera), Some(graphics)) = (
+    if let (Some(stream), Some(local_frame), Some(graphics)) = (
         client_world.stream.as_ref(),
-        camera.single(),
+        render_metrics.local_player.snapshot(),
         visibility_diagnostics.graphics_adapter(),
-    ) && camera.translation.is_finite()
+    ) && local_frame.eye().is_finite()
     {
-        let player_column =
-            camera_sub_chunk_key(stream.current_dimension(), camera.translation).chunk();
+        let player_column = local_subject_column(stream.current_dimension(), local_frame.eye())
+            .expect("finite local-player eyes have a subject column");
         let publication = stream.phase2_publication_snapshot(player_column);
         let session_generation = publication.session_generation;
         let publisher_epoch = publication.publisher_epoch;
@@ -507,11 +523,35 @@ pub(crate) fn record_metrics_and_title(
                 visibility_snapshot.gpu_completed_opaque,
             ),
         };
+        let exact_visibility_witness = visibility_snapshot.witness_column == Some(player_column);
+        let player_column_presentation = PlayerColumnPresentationEvidence {
+            column: player_column,
+            resident_subchunks: exact_visibility_witness
+                .then_some(visibility_snapshot.resident_witness_subchunks)
+                .flatten(),
+            allocated_subchunks: u32::try_from(
+                chunks
+                    .iter()
+                    .filter(|instance| instance.key().chunk() == player_column)
+                    .count(),
+            )
+            .unwrap_or(u32::MAX),
+            visible_subchunks: exact_visibility_witness
+                .then_some(visibility_snapshot.frustum_witness_subchunks)
+                .flatten(),
+            submitted_subchunks: exact_visibility_witness
+                .then_some(visibility_snapshot.submitted_witness_subchunks)
+                .flatten(),
+            gpu_presented_subchunks: exact_visibility_witness
+                .then_some(visibility_snapshot.gpu_completed_witness_subchunks)
+                .flatten(),
+        };
         if let Some(marker) = phase2_publication_line_if_changed(
             &mut sampling.last_phase2_snapshot,
             CombinedPhase2Snapshot {
                 publication,
                 presentation,
+                player_column_presentation,
                 present_mode_proven: graphics.present_mode_proven,
                 client_blob_cache_enabled: client_world.client_blob_cache_enabled,
                 client_blob_cache: client_world.client_blob_cache,

@@ -36,6 +36,7 @@ pub(super) struct RequestQueue {
     popped: HashMap<RequestIdentity, RequestPriority>,
     reservations: HashMap<u64, u64>,
     next_sequence: u64,
+    last_popped_class: Option<RequestClass>,
 }
 
 impl std::ops::Deref for RequestQueue {
@@ -53,6 +54,93 @@ impl std::ops::DerefMut for RequestQueue {
 }
 
 impl RequestQueue {
+    pub(super) const fn last_popped_class(&self) -> Option<RequestClass> {
+        self.last_popped_class
+    }
+
+    pub(super) fn evidence(
+        &self,
+        player_chunk: Option<ChunkKey>,
+        required_columns: &BTreeSet<ChunkKey>,
+    ) -> RequestQueueEvidence {
+        #[derive(Clone, Copy)]
+        struct Candidate {
+            class: RequestClass,
+            sequence: u64,
+            distance: u128,
+            transport_retry: bool,
+            starved: bool,
+        }
+
+        let barrier = self
+            .slots
+            .iter()
+            .position(|slot| matches!(slot, OutboundRequestSlot::Reserved(_)))
+            .unwrap_or(self.slots.len());
+        let mut evidence = RequestQueueEvidence {
+            reservations: self
+                .slots
+                .iter()
+                .filter(|slot| matches!(slot, OutboundRequestSlot::Reserved(_)))
+                .count(),
+            ..Default::default()
+        };
+        let mut candidates = Vec::with_capacity(OUTBOUND_REQUEST_CAPACITY);
+        for (index, slot) in self.slots.iter().enumerate() {
+            let OutboundRequestSlot::Ready(request) = slot else {
+                continue;
+            };
+            let identity = RequestIdentity::from(request);
+            let priority = self.priorities.get(&identity);
+            let class = request_class(
+                priority.is_some_and(|priority| priority.retry),
+                request.chunk,
+                player_chunk,
+                required_columns,
+            );
+            evidence.class_depths[class.index()].ready += 1;
+            if index < barrier {
+                evidence.class_depths[class.index()].eligible += 1;
+                candidates.push(Candidate {
+                    class,
+                    sequence: priority.map_or(u64::MAX, |priority| priority.sequence),
+                    distance: horizontal_distance_squared(request.chunk, player_chunk),
+                    transport_retry: priority.is_some_and(|priority| priority.transport_retry),
+                    starved: priority
+                        .is_some_and(|priority| priority.bypasses >= MAX_PRIORITY_BYPASSES),
+                });
+            } else {
+                evidence.ready_blocked_by_reservation += 1;
+            }
+        }
+
+        let transport_retry = candidates
+            .iter()
+            .filter(|candidate| candidate.transport_retry)
+            .min_by_key(|candidate| candidate.sequence);
+        let starved = candidates
+            .iter()
+            .filter(|candidate| candidate.starved)
+            .min_by_key(|candidate| candidate.sequence);
+        let (next, transport_selected, starved_selected) = if let Some(next) = transport_retry {
+            (Some(next), true, false)
+        } else if let Some(next) = starved {
+            (Some(next), false, true)
+        } else {
+            (
+                candidates.iter().min_by_key(|candidate| {
+                    (candidate.class, candidate.distance, candidate.sequence)
+                }),
+                false,
+                false,
+            )
+        };
+        evidence.next_class = next.map(|candidate| candidate.class);
+        evidence.next_is_transport_retry = transport_selected;
+        evidence.next_is_starved = starved_selected;
+        evidence
+    }
+
     pub(super) fn reserve(&mut self, world_sequence: u64) {
         let queue_sequence = self.allocate_sequence();
         self.reservations.insert(world_sequence, queue_sequence);
@@ -192,6 +280,15 @@ impl RequestQueue {
             .priorities
             .remove(&selected.1)
             .expect("selected request has priority metadata");
+        let selected_class = match &self.slots[selected.0] {
+            OutboundRequestSlot::Ready(request) => request_class(
+                priority.retry,
+                request.chunk,
+                player_chunk,
+                required_columns,
+            ),
+            OutboundRequestSlot::Reserved(_) => unreachable!(),
+        };
         if self.popped.len() >= OUTBOUND_REQUEST_CAPACITY
             && !self.popped.contains_key(&selected.1)
             && let Some(oldest) = self
@@ -203,6 +300,7 @@ impl RequestQueue {
             self.popped.remove(&oldest);
         }
         self.popped.insert(selected.1, priority);
+        self.last_popped_class = Some(selected_class);
         match self.slots.remove(selected.0) {
             Some(OutboundRequestSlot::Ready(request)) => Some(request),
             Some(OutboundRequestSlot::Reserved(_)) | None => unreachable!(),
@@ -416,5 +514,46 @@ mod tests {
         }
 
         assert_eq!(queue.popped.len(), OUTBOUND_REQUEST_CAPACITY);
+    }
+
+    #[test]
+    fn evidence_reports_fixed_priority_depths_barriers_and_actual_next_reason() {
+        let player = ChunkKey::new(0, 0, 0);
+        let visible = ChunkKey::new(0, 2, 0);
+        let prefetch = ChunkKey::new(0, 8, 0);
+        let required = BTreeSet::from([player, visible]);
+        let mut queue = RequestQueue::default();
+        queue.push_ready(request(prefetch, -4), false);
+        queue.reserve(7);
+        queue.push_ready(request(player, -4), true);
+        queue.push_ready(request(visible, -4), false);
+
+        let evidence = queue.evidence(Some(player), &required);
+
+        assert_eq!(
+            evidence
+                .class_depths
+                .map(|depth| (depth.class, depth.ready, depth.eligible)),
+            [
+                (RequestClass::PlayerRetry, 1, 0),
+                (RequestClass::PlayerInitial, 0, 0),
+                (RequestClass::VisibleRetry, 0, 0),
+                (RequestClass::VisibleInitial, 1, 0),
+                (RequestClass::PrefetchRetry, 0, 0),
+                (RequestClass::PrefetchInitial, 1, 1),
+            ]
+        );
+        assert_eq!(evidence.reservations, 1);
+        assert_eq!(evidence.ready_blocked_by_reservation, 2);
+        assert_eq!(evidence.next_class, Some(RequestClass::PrefetchInitial));
+        assert!(!evidence.next_is_transport_retry);
+        assert!(!evidence.next_is_starved);
+
+        let unsent = queue.pop_next(Some(player), &required).unwrap();
+        queue.retry_front(unsent);
+        let retry = queue.evidence(Some(player), &required);
+        assert_eq!(retry.next_class, Some(RequestClass::PrefetchInitial));
+        assert!(retry.next_is_transport_retry);
+        assert!(!retry.next_is_starved);
     }
 }

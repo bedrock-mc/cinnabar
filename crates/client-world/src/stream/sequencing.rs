@@ -403,6 +403,7 @@ impl WorldStream {
                 self.evict_outside_active_radius();
             }
             WorldEvent::PublisherUpdate(update) => {
+                let consumes_local_reset = self.provisional_publisher_rebase;
                 self.publisher_center = Some(update.center);
                 self.publisher_radius_blocks = Some(update.radius_blocks);
                 let cohort = ViewCohort::from_publisher(
@@ -440,6 +441,9 @@ impl WorldStream {
                     self.publisher_epoch = next_epoch;
                 }
                 self.committed_view_cohort = Some(cohort);
+                if consumes_local_reset {
+                    self.local_resets_consumed = self.local_resets_consumed.saturating_add(1);
+                }
                 self.provisional_publisher_rebase = false;
                 self.evict_outside_active_radius();
             }
@@ -466,6 +470,12 @@ impl WorldStream {
                 self.publisher_radius_chunks = None;
                 self.committed_view_cohort = None;
                 self.provisional_publisher_rebase = false;
+                self.local_resets_armed = 0;
+                self.local_resets_consumed = 0;
+                self.local_reset_dispatch_count = 0;
+                self.local_reset_dispatch_total = 0;
+                self.local_reset_dispatch_active = false;
+                self.local_reset_dispatch_classes = [None; MAX_LOCAL_RESET_DISPATCH_EVIDENCE];
                 self.required_columns.clear();
                 self.push_committed_control(CommittedControlEvent::ChangeDimension {
                     change,

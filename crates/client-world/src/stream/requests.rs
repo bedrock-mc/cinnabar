@@ -16,6 +16,28 @@ impl WorldStream {
         self.requests
             .pop_next(self.last_request_player_chunk, &self.required_columns)
     }
+
+    fn record_local_reset_dispatch(&mut self) {
+        if !self.local_reset_dispatch_active {
+            return;
+        }
+        let Some(class) = self.requests.last_popped_class() else {
+            return;
+        };
+        self.local_reset_dispatch_total = self.local_reset_dispatch_total.saturating_add(1);
+        if matches!(
+            class,
+            RequestClass::PlayerInitial | RequestClass::PlayerRetry
+        ) {
+            self.local_reset_dispatch_active = false;
+        }
+        if usize::from(self.local_reset_dispatch_count) >= MAX_LOCAL_RESET_DISPATCH_EVIDENCE {
+            return;
+        }
+        let index = usize::from(self.local_reset_dispatch_count);
+        self.local_reset_dispatch_classes[index] = Some(class);
+        self.local_reset_dispatch_count = self.local_reset_dispatch_count.saturating_add(1);
+    }
     pub fn retry_request_front(
         &mut self,
         request: PendingSubChunkRequest,
@@ -32,6 +54,7 @@ impl WorldStream {
         base_sub_chunk_y: i32,
         count: usize,
     ) {
+        self.record_local_reset_dispatch();
         self.transport_pending_requests = self.transport_pending_requests.saturating_add(1);
         self.requests
             .confirm_popped_identity(chunk, base_sub_chunk_y, count);

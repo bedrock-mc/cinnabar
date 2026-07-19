@@ -1,5 +1,7 @@
 use super::*;
 
+pub const MAX_LOCAL_RESET_DISPATCH_EVIDENCE: usize = 16;
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PublicationStageCounters {
     pub requests_constructed: u64,
@@ -49,6 +51,7 @@ pub struct StageDurations {
 pub struct Phase2PublicationSnapshot {
     pub session_generation: u64,
     pub publisher_epoch: u64,
+    pub publisher_center: Option<[i32; 3]>,
     pub player_column: ChunkKey,
     /// Exact raw block radius received from NetworkChunkPublisherUpdate.
     pub publisher_radius_blocks: Option<u32>,
@@ -56,7 +59,18 @@ pub struct Phase2PublicationSnapshot {
     pub required_cohort_hash: u64,
     pub required_columns: usize,
     pub loaded_required_columns: usize,
+    pub player_column_required: bool,
+    pub player_column_loaded: bool,
     pub required_cohort_stable: bool,
+    pub inactive_level_chunks: u64,
+    pub local_reset_armed: bool,
+    pub local_resets_armed: u64,
+    pub local_resets_consumed: u64,
+    pub local_reset_dispatch_count: u8,
+    pub local_reset_dispatch_total: u64,
+    pub local_reset_dispatch_trace_overflowed: bool,
+    pub local_reset_dispatch_classes: [Option<RequestClass>; MAX_LOCAL_RESET_DISPATCH_EVIDENCE],
+    pub request_queue: RequestQueueEvidence,
     pub stages: PublicationStageCounters,
     pub outcomes: SubChunkOutcomeCounters,
     pub max_queue_wait: StageDurations,
@@ -82,6 +96,55 @@ pub enum RequestClass {
     VisibleInitial,
     PrefetchRetry,
     PrefetchInitial,
+}
+
+impl RequestClass {
+    pub const ORDERED: [Self; 6] = [
+        Self::PlayerRetry,
+        Self::PlayerInitial,
+        Self::VisibleRetry,
+        Self::VisibleInitial,
+        Self::PrefetchRetry,
+        Self::PrefetchInitial,
+    ];
+
+    pub const fn index(self) -> usize {
+        self as usize
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RequestClassDepth {
+    pub class: RequestClass,
+    pub ready: usize,
+    pub eligible: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RequestQueueEvidence {
+    pub class_depths: [RequestClassDepth; 6],
+    pub reservations: usize,
+    pub ready_blocked_by_reservation: usize,
+    pub next_class: Option<RequestClass>,
+    pub next_is_transport_retry: bool,
+    pub next_is_starved: bool,
+}
+
+impl Default for RequestQueueEvidence {
+    fn default() -> Self {
+        Self {
+            class_depths: RequestClass::ORDERED.map(|class| RequestClassDepth {
+                class,
+                ready: 0,
+                eligible: 0,
+            }),
+            reservations: 0,
+            ready_blocked_by_reservation: 0,
+            next_class: None,
+            next_is_transport_retry: false,
+            next_is_starved: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -140,16 +203,22 @@ impl WorldStream {
         stages.mesh_jobs_in_flight = self.in_flight.len();
         stages.mesh_changes_pending = self.mesh_changes.len();
         stages.mesh_uploads_unacknowledged = self.revisions.entries.len();
+        let request_queue = self
+            .requests
+            .evidence(self.last_request_player_chunk, &self.required_columns);
 
         Phase2PublicationSnapshot {
             session_generation: self.actor_session_id,
             publisher_epoch: self.publisher_epoch,
+            publisher_center: self.publisher_center,
             player_column,
             publisher_radius_blocks: self.publisher_radius_blocks,
             publisher_radius_chunks: self.publisher_radius_chunks,
             required_cohort_hash: deterministic_chunk_key_hash(&required),
             required_columns: required.len(),
             loaded_required_columns: self.loaded_columns.intersection(&required).count(),
+            player_column_required: required.contains(&player_column),
+            player_column_loaded: self.loaded_columns.contains(&player_column),
             required_cohort_stable: !required.is_empty()
                 && self.submitted.is_empty()
                 && self.pending_decode.is_empty()
@@ -167,6 +236,16 @@ impl WorldStream {
                 && self.mesh_rx.is_empty()
                 && self.mesh_changes.is_empty()
                 && self.revisions.entries.is_empty(),
+            inactive_level_chunks: self.stats.normalization_reasons.inactive_level_chunks,
+            local_reset_armed: self.provisional_publisher_rebase,
+            local_resets_armed: self.local_resets_armed,
+            local_resets_consumed: self.local_resets_consumed,
+            local_reset_dispatch_count: self.local_reset_dispatch_count,
+            local_reset_dispatch_total: self.local_reset_dispatch_total,
+            local_reset_dispatch_trace_overflowed: self.local_reset_dispatch_total
+                > u64::from(self.local_reset_dispatch_count),
+            local_reset_dispatch_classes: self.local_reset_dispatch_classes,
+            request_queue,
             stages,
             outcomes: self.stats.phase2_outcomes,
             max_queue_wait: StageDurations {

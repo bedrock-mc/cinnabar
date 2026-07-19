@@ -1,16 +1,28 @@
 use client_world::{
     BuildProfileIdentity, CohortManifestIdentity, Phase2PresentationSnapshot,
-    Phase2PublicationSnapshot, PresentModeIdentity, PublicationStageCounters, StageDurations,
-    SubChunkOutcomeCounters,
+    Phase2PublicationSnapshot, PresentModeIdentity, PublicationStageCounters, RequestClass,
+    RequestQueueEvidence, StageDurations, SubChunkOutcomeCounters,
 };
 use protocol::BlobCacheStats;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use world::ChunkKey;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PlayerColumnPresentationEvidence {
+    pub(crate) column: ChunkKey,
+    pub(crate) resident_subchunks: Option<u32>,
+    pub(crate) allocated_subchunks: u32,
+    pub(crate) visible_subchunks: Option<u32>,
+    pub(crate) submitted_subchunks: Option<u32>,
+    pub(crate) gpu_presented_subchunks: Option<u32>,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CombinedPhase2Snapshot {
     pub(crate) publication: Phase2PublicationSnapshot,
     pub(crate) presentation: Phase2PresentationSnapshot,
+    pub(crate) player_column_presentation: PlayerColumnPresentationEvidence,
     pub(crate) present_mode_proven: bool,
     pub(crate) client_blob_cache_enabled: bool,
     pub(crate) client_blob_cache: BlobCacheStats,
@@ -33,12 +45,14 @@ pub(crate) fn phase2_publication_line_if_changed(
 fn combined_snapshot_json(snapshot: CombinedPhase2Snapshot) -> Value {
     let publication = snapshot.publication;
     let presentation = snapshot.presentation;
+    let player_column = snapshot.player_column_presentation;
     json!({
         "client_blob_cache_enabled": snapshot.client_blob_cache_enabled,
         "client_blob_cache": blob_cache_json(snapshot.client_blob_cache),
         "publication": {
             "session_generation": publication.session_generation,
             "publisher_epoch": publication.publisher_epoch,
+            "publisher_center": publication.publisher_center,
             "player_column": {
                 "dimension": publication.player_column.dimension,
                 "x": publication.player_column.x,
@@ -49,7 +63,24 @@ fn combined_snapshot_json(snapshot: CombinedPhase2Snapshot) -> Value {
             "required_cohort_hash": format!("{:016x}", publication.required_cohort_hash),
             "required_columns": publication.required_columns,
             "loaded_required_columns": publication.loaded_required_columns,
+            "player_column_required": publication.player_column_required,
+            "player_column_loaded": publication.player_column_loaded,
             "required_cohort_stable": publication.required_cohort_stable,
+            "inactive_level_chunks": publication.inactive_level_chunks,
+            "local_reset": {
+                "armed": publication.local_reset_armed,
+                "armed_count": publication.local_resets_armed,
+                "consumed_count": publication.local_resets_consumed,
+                "dispatch_classes": publication.local_reset_dispatch_classes
+                    .iter()
+                    .take(usize::from(publication.local_reset_dispatch_count))
+                    .filter_map(|class| class.map(request_class_name))
+                    .collect::<Vec<_>>(),
+                "dispatch_count": publication.local_reset_dispatch_count,
+                "dispatch_total": publication.local_reset_dispatch_total,
+                "dispatch_trace_overflowed": publication.local_reset_dispatch_trace_overflowed,
+            },
+            "request_queue": request_queue_json(publication.request_queue),
             "stages": stage_counters_json(publication.stages),
             "outcomes": outcomes_json(publication.outcomes),
             "max_queue_wait_us": durations_json(publication.max_queue_wait),
@@ -69,8 +100,44 @@ fn combined_snapshot_json(snapshot: CombinedPhase2Snapshot) -> Value {
             "visible": cohort_json(presentation.visible, ManifestDomain::Key),
             "submitted": cohort_json(presentation.submitted, ManifestDomain::Key),
             "gpu_presented": cohort_json(presentation.gpu_presented, ManifestDomain::Key),
+            "player_column": {
+                "dimension": player_column.column.dimension,
+                "x": player_column.column.x,
+                "z": player_column.column.z,
+                "resident_subchunks": player_column.resident_subchunks,
+                "allocated_subchunks": player_column.allocated_subchunks,
+                "visible_subchunks": player_column.visible_subchunks,
+                "submitted_subchunks": player_column.submitted_subchunks,
+                "gpu_presented_subchunks": player_column.gpu_presented_subchunks,
+            },
         }
     })
+}
+
+fn request_queue_json(queue: RequestQueueEvidence) -> Value {
+    json!({
+        "class_depths": queue.class_depths.map(|depth| json!({
+            "class": request_class_name(depth.class),
+            "ready": depth.ready,
+            "eligible": depth.eligible,
+        })),
+        "reservations": queue.reservations,
+        "ready_blocked_by_reservation": queue.ready_blocked_by_reservation,
+        "next_class": queue.next_class.map(request_class_name),
+        "next_is_transport_retry": queue.next_is_transport_retry,
+        "next_is_starved": queue.next_is_starved,
+    })
+}
+
+const fn request_class_name(class: RequestClass) -> &'static str {
+    match class {
+        RequestClass::PlayerRetry => "player_retry",
+        RequestClass::PlayerInitial => "player_initial",
+        RequestClass::VisibleRetry => "visible_retry",
+        RequestClass::VisibleInitial => "visible_initial",
+        RequestClass::PrefetchRetry => "prefetch_retry",
+        RequestClass::PrefetchInitial => "prefetch_initial",
+    }
 }
 
 fn blob_cache_json(stats: BlobCacheStats) -> Value {

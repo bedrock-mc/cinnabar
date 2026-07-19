@@ -1,16 +1,19 @@
 use client_world::{
     BuildProfileIdentity, CohortManifestIdentity, Phase2PresentationSnapshot,
-    Phase2PublicationSnapshot, PresentModeIdentity, PublicationStageCounters, StageDurations,
-    SubChunkOutcomeCounters,
+    Phase2PublicationSnapshot, PresentModeIdentity, PublicationStageCounters, RequestClass,
+    RequestClassDepth, RequestQueueEvidence, StageDurations, SubChunkOutcomeCounters,
 };
 use protocol::BlobCacheStats;
 use world::ChunkKey;
 
 use crate::runtime::phase2_evidence::{
-    CombinedPhase2Snapshot, generation_manifest_identity, graphics_identity_sha256,
-    key_manifest_identity, phase2_publication_line_if_changed, sha256_identity_from_hex_or_text,
+    CombinedPhase2Snapshot, PlayerColumnPresentationEvidence, generation_manifest_identity,
+    graphics_identity_sha256, key_manifest_identity, phase2_publication_line_if_changed,
+    sha256_identity_from_hex_or_text,
 };
 use render::{VisibilityDiagnosticsInput, VisibilityKeyDigest};
+
+use crate::runtime::telemetry::local_subject_column;
 
 fn combined_snapshot() -> CombinedPhase2Snapshot {
     let cohort = CohortManifestIdentity {
@@ -25,13 +28,80 @@ fn combined_snapshot() -> CombinedPhase2Snapshot {
         publication: Phase2PublicationSnapshot {
             session_generation: 7,
             publisher_epoch: 9,
+            publisher_center: Some([64, 70, -32]),
             player_column: ChunkKey::new(0, 4, -2),
             publisher_radius_blocks: Some(256),
             publisher_radius_chunks: Some(16),
             required_cohort_hash: 11,
             required_columns: 1_089,
             loaded_required_columns: 1_089,
+            player_column_required: true,
+            player_column_loaded: true,
             required_cohort_stable: true,
+            inactive_level_chunks: 0,
+            local_reset_armed: false,
+            local_resets_armed: 1,
+            local_resets_consumed: 1,
+            local_reset_dispatch_count: 2,
+            local_reset_dispatch_total: 2,
+            local_reset_dispatch_trace_overflowed: false,
+            local_reset_dispatch_classes: [
+                Some(RequestClass::PlayerRetry),
+                Some(RequestClass::VisibleInitial),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ],
+            request_queue: RequestQueueEvidence {
+                class_depths: [
+                    RequestClassDepth {
+                        class: RequestClass::PlayerRetry,
+                        ready: 1,
+                        eligible: 1,
+                    },
+                    RequestClassDepth {
+                        class: RequestClass::PlayerInitial,
+                        ready: 0,
+                        eligible: 0,
+                    },
+                    RequestClassDepth {
+                        class: RequestClass::VisibleRetry,
+                        ready: 2,
+                        eligible: 2,
+                    },
+                    RequestClassDepth {
+                        class: RequestClass::VisibleInitial,
+                        ready: 0,
+                        eligible: 0,
+                    },
+                    RequestClassDepth {
+                        class: RequestClass::PrefetchRetry,
+                        ready: 0,
+                        eligible: 0,
+                    },
+                    RequestClassDepth {
+                        class: RequestClass::PrefetchInitial,
+                        ready: 3,
+                        eligible: 0,
+                    },
+                ],
+                reservations: 1,
+                ready_blocked_by_reservation: 3,
+                next_class: Some(RequestClass::PlayerRetry),
+                next_is_transport_retry: false,
+                next_is_starved: false,
+            },
             stages: PublicationStageCounters::default(),
             outcomes: SubChunkOutcomeCounters::default(),
             max_queue_wait: StageDurations::default(),
@@ -51,6 +121,14 @@ fn combined_snapshot() -> CombinedPhase2Snapshot {
             submitted: cohort,
             gpu_presented: cohort,
         },
+        player_column_presentation: PlayerColumnPresentationEvidence {
+            column: ChunkKey::new(0, 4, -2),
+            resident_subchunks: Some(16),
+            allocated_subchunks: 16,
+            visible_subchunks: Some(8),
+            submitted_subchunks: Some(8),
+            gpu_presented_subchunks: Some(8),
+        },
         present_mode_proven: true,
         client_blob_cache_enabled: true,
         client_blob_cache: BlobCacheStats {
@@ -66,6 +144,39 @@ fn combined_snapshot() -> CombinedPhase2Snapshot {
 }
 
 #[test]
+fn player_column_witness_uses_subject_not_third_person_camera_boom() {
+    let subject_eye = bevy::prelude::Vec3::new(15.9, 70.0, 0.0);
+    let third_person_camera = bevy::prelude::Vec3::new(16.1, 70.0, 0.0);
+
+    assert_eq!(
+        local_subject_column(0, subject_eye),
+        Some(ChunkKey::new(0, 0, 0))
+    );
+    assert_eq!(
+        local_subject_column(0, third_person_camera),
+        Some(ChunkKey::new(0, 1, 0))
+    );
+}
+
+#[test]
+fn serialized_phase2_path_reads_the_frozen_local_subject_column() {
+    let source = include_str!("../runtime/telemetry.rs");
+    let record = source
+        .split("pub(crate) fn record_metrics_and_title")
+        .nth(1)
+        .expect("record_metrics_and_title source")
+        .split("\n    if let Some(stream) = client_world.stream.as_ref() {")
+        .next()
+        .expect("record_metrics_and_title body");
+
+    assert!(record.contains("render_metrics.local_player.snapshot()"));
+    assert!(record.contains("local_subject_column(stream.current_dimension(), local_frame.eye())"));
+    assert!(
+        !record.contains("camera_sub_chunk_key(stream.current_dimension(), camera.translation)")
+    );
+}
+
+#[test]
 fn phase2_publication_emits_once_per_changed_combined_identity() {
     let snapshot = combined_snapshot();
     let mut previous = None;
@@ -74,9 +185,22 @@ fn phase2_publication_emits_once_per_changed_combined_identity() {
     assert!(first.contains("\"publisher_radius_blocks\":256"));
     assert!(first.contains("\"publisher_radius_chunks\":16"));
     assert!(first.contains("\"publisher_epoch\":9"));
+    assert!(first.contains("\"publisher_center\":[64,70,-32]"));
+    assert!(first.contains("\"player_column_required\":true"));
+    assert!(first.contains("\"player_column_loaded\":true"));
+    assert!(first.contains("\"armed_count\":1"));
+    assert!(first.contains("\"consumed_count\":1"));
+    assert!(first.contains("\"dispatch_classes\":[\"player_retry\",\"visible_initial\"]"));
+    assert!(first.contains("\"dispatch_total\":2"));
+    assert!(first.contains("\"dispatch_trace_overflowed\":false"));
+    assert!(first.contains("\"class\":\"player_retry\",\"eligible\":1,\"ready\":1"));
+    assert!(first.contains("\"next_class\":\"player_retry\""));
     assert!(first.contains("\"required_cohort_stable\":true"));
     assert!(first.contains("\"graphics_identity_sha256\":\"030303"));
     assert!(first.contains("\"client_blob_cache_enabled\":true"));
+    assert!(first.contains("\"resident_subchunks\":16"));
+    assert!(first.contains("\"allocated_subchunks\":16"));
+    assert!(first.contains("\"gpu_presented_subchunks\":8"));
     assert!(first.contains("\"hashes_classified\":7"));
     assert!(first.contains("\"hits\":3"));
     assert!(first.contains("\"misses\":4"));
