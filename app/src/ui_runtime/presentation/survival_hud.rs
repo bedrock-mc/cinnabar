@@ -20,11 +20,11 @@ const HOTBAR_ROLES: [HudTextureRole; 9] = [
     HudTextureRole::Hotbar8,
 ];
 
-/// Responsive geometry from the pinned protocol-1001 HUD carrier and owned-client GUI profile.
+/// Responsive geometry from the pinned protocol-1001 official sample HUD authority.
 ///
 /// The pack's `hud_screen.json` anchors the 182x22 hotbar to `bottom_middle`; its start cap,
-/// nine slots, and end cap supply that source width. The owned Windows profile establishes a
-/// logical texture scale of two. Neither authority depends on a particular window resolution.
+/// nine slots, and end cap supply that source width. The pinned official sample classic profile
+/// establishes a logical texture scale of two. Neither authority depends on window resolution.
 #[derive(Clone, Copy)]
 pub(super) struct ResponsiveSurvivalHudGeometry {
     logical_texture_scale: f32,

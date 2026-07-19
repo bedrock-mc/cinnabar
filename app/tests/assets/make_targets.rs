@@ -19,7 +19,7 @@ fn make_client_rebuilds_only_a_missing_or_stale_asset_blob() {
             "$(wildcard crates/asset-compiler/src/*/*/*.rs)"
         ),
         concat!(
-            "$(ASSET_BLOB): $(ASSET_COMPILER_INPUTS) $(BLOCK_REGISTRY) ",
+            "$(ASSET_BLOB): $(PACK_SENTINEL) $(ASSET_COMPILER_INPUTS) $(BLOCK_REGISTRY) ",
             "$(LIGHT_REGISTRY) $(BIOME_REGISTRY)"
         ),
         "assets: $(ASSET_BLOB)",
@@ -241,6 +241,11 @@ fn make_builds_the_pinned_official_hud_carrier_for_default_launch() {
 
     for contract in [
         "HUD_PACK_DIR ?= $(PACK_DIR)",
+        "PACK_SENTINEL ?= $(PACK_DIR)/blocks.json",
+        "VANILLA_FETCH_INPUTS := scripts/fetch-vanilla-assets.ps1 scripts/fetch-vanilla-assets.sh",
+        "vanilla-assets: $(PACK_SENTINEL)",
+        "$(PACK_SENTINEL): $(VANILLA_SOURCE_MANIFEST) | $(VANILLA_FETCH_INPUTS)",
+        "$(ASSET_BLOB): $(PACK_SENTINEL) $(ASSET_COMPILER_INPUTS)",
         "HUD_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbehud",
         "HUD_ASSET_REPORT ?= .local/assets/compiled/hud-assets.json",
         "HUD_SOURCE_MANIFEST ?= assets/hud-source-v1001.json",
@@ -266,6 +271,47 @@ fn make_builds_the_pinned_official_hud_carrier_for_default_launch() {
         assert!(line.contains("$(HUD_ASSET_BLOB)"));
         assert!(line.contains("$(HUD_ASSET_REPORT)"));
     }
+}
+
+#[test]
+fn make_vanilla_pack_sentinel_reacquires_only_when_missing() {
+    let make_available = match Command::new("make").arg("--version").output() {
+        Ok(output) if output.status.success() => true,
+        Ok(_) | Err(_) => false,
+    };
+    if !make_available {
+        eprintln!("skipping executable vanilla-pack Makefile test: `make` is unavailable");
+        return;
+    }
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let temporary = temporary_directory("make-vanilla-pack-sentinel");
+    let pack = temporary.join("resource_pack");
+    let sentinel = pack.join("blocks.json");
+    let invocations = temporary.join("fetch-invocations.log");
+    fs::create_dir_all(&pack).unwrap();
+    let producer = format!(
+        "echo invocation >> \"{}\" && echo pack > \"{}\"",
+        make_path(&invocations),
+        make_path(&sentinel)
+    );
+    let assignments = [
+        format!("PACK_DIR={}", make_path(&pack)),
+        format!("PACK_SENTINEL={}", make_path(&sentinel)),
+        format!("VANILLA_ASSET_FETCH={producer}"),
+        "VANILLA_FETCH_INPUTS=".to_owned(),
+    ];
+
+    run_make_vanilla_assets(root, &assignments);
+    assert_eq!(fs::read_to_string(&invocations).unwrap().lines().count(), 1);
+    run_make_vanilla_assets(root, &assignments);
+    assert_eq!(fs::read_to_string(&invocations).unwrap().lines().count(), 1);
+
+    fs::remove_file(&sentinel).unwrap();
+    run_make_vanilla_assets(root, &assignments);
+    assert_eq!(fs::read_to_string(&invocations).unwrap().lines().count(), 2);
+
+    fs::remove_dir_all(temporary).unwrap();
 }
 
 #[test]
@@ -385,6 +431,21 @@ fn run_make_atmosphere(root: &Path, assignments: &[String]) {
     assert!(
         output.status.success(),
         "make atmosphere-assets failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn run_make_vanilla_assets(root: &Path, assignments: &[String]) {
+    let output = Command::new("make")
+        .current_dir(root)
+        .args(["-f", "Makefile", "vanilla-assets"])
+        .args(assignments)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "make vanilla-assets failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );

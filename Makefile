@@ -10,6 +10,7 @@ NO_VSYNC ?= 0
 RUST_MCBE_BUILD_COMMIT ?= $(shell git rev-parse HEAD)
 
 PACK_DIR ?= .local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack
+PACK_SENTINEL ?= $(PACK_DIR)/blocks.json
 FONT_PACK_DIR ?= .local/assets/font-source
 HUD_PACK_DIR ?= $(PACK_DIR)
 UI_FONT_SOURCE_MANIFEST ?= assets/ui-font-source.json
@@ -40,6 +41,7 @@ HUD_SOURCE_MANIFEST ?= assets/hud-source-v1001.json
 CINNABAR_CLOUDS_PNG ?=
 CLOUDS_OVERRIDE_PREREQUISITE = FORCE_CINNABAR_CLOUDS_OVERRIDE
 ASSET_COMPILER_INPUTS := Cargo.toml Cargo.lock crates/assets/Cargo.toml crates/asset-compiler/Cargo.toml Makefile $(wildcard crates/assets/src/*.rs) $(wildcard crates/assets/src/*/*.rs) $(wildcard crates/asset-compiler/src/*.rs) $(wildcard crates/asset-compiler/src/*/*.rs) $(wildcard crates/asset-compiler/src/*/*/*.rs)
+VANILLA_FETCH_INPUTS := scripts/fetch-vanilla-assets.ps1 scripts/fetch-vanilla-assets.sh
 REGISTRYGEN_INPUTS := tools/registrygen/go.mod tools/registrygen/go.sum $(wildcard tools/registrygen/*.go)
 BLOCK_DATA_FETCH_INPUTS := $(BLOCK_DATA_MANIFEST) tools/registrygen/go.mod tools/registrygen/go.sum $(wildcard tools/registrygen/cmd/datafetch/*.go)
 VALENTINE_PALETTE := crates/protocol/vendor/valentine/bedrock_versions/v1_26_30/src/block_palette.bin
@@ -53,11 +55,18 @@ FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- out
 LOCAL_FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- font-assets --pack "$(FONT_PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(LOCAL_FONT_ASSET_BLOB)" --report "$(LOCAL_FONT_ASSET_REPORT)"
 HUD_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- hud-assets --pack "$(HUD_PACK_DIR)" --source-manifest "$(HUD_SOURCE_MANIFEST)" --out "$(HUD_ASSET_BLOB)" --report "$(HUD_ASSET_REPORT)"
 
-.PHONY: help assets atmosphere-assets entity-assets font-assets font-assets-local hud-assets hud-assets-local physics-assets core client client-windows client-macos client-linux client-wayland client-x11 FORCE_CINNABAR_CLOUDS_OVERRIDE
+ifeq ($(OS),Windows_NT)
+VANILLA_ASSET_FETCH = $(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File scripts/fetch-vanilla-assets.ps1 -AcceptEula
+else
+VANILLA_ASSET_FETCH = bash scripts/fetch-vanilla-assets.sh --accept-eula
+endif
+
+.PHONY: help vanilla-assets assets atmosphere-assets entity-assets font-assets font-assets-local hud-assets hud-assets-local physics-assets core client client-windows client-macos client-linux client-wayland client-x11 FORCE_CINNABAR_CLOUDS_OVERRIDE
 
 FORCE_CINNABAR_CLOUDS_OVERRIDE:
 
 help:
+	@echo make vanilla-assets  - Acquire the pinned official Mojang sample resource pack
 	@echo make assets          - Download and compile the vanilla resource pack
 	@echo make atmosphere-assets - Compile pinned sun, moon, and cloud runtime assets
 	@echo make entity-assets   - Compile pinned entity catalog and geometry payloads
@@ -76,6 +85,8 @@ help:
 	@echo UPSTREAM=host:port is required for make core
 	@echo Override optional settings with SOCKET_DIR=..., AUTH_CACHE=..., and NO_VSYNC=1
 	@echo Set CINNABAR_CLOUDS_PNG to the exact local-only Bedrock 1.26.33.1 clouds.png
+
+vanilla-assets: $(PACK_SENTINEL)
 
 assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT) $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT) $(HUD_ASSET_BLOB) $(HUD_ASSET_REPORT)
 
@@ -109,12 +120,10 @@ $(BLOCK_DATA_SENTINEL): $(BLOCK_DATA_FETCH_INPUTS)
 $(PHYSICS_REGISTRY): $(BLOCK_DATA_SENTINEL) $(REGISTRYGEN_INPUTS) $(BLOCK_REGISTRY) $(LIGHT_REGISTRY) $(VALENTINE_PALETTE) $(VALENTINE_BLOCKS)
 	$(PHYSICS_REGISTRY_COMPILE)
 
-$(ASSET_BLOB): $(ASSET_COMPILER_INPUTS) $(BLOCK_REGISTRY) $(LIGHT_REGISTRY) $(BIOME_REGISTRY)
-ifeq ($(OS),Windows_NT)
-	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File scripts/fetch-vanilla-assets.ps1 -AcceptEula
-else
-	bash scripts/fetch-vanilla-assets.sh --accept-eula
-endif
+$(PACK_SENTINEL): $(VANILLA_SOURCE_MANIFEST) | $(VANILLA_FETCH_INPUTS)
+	$(VANILLA_ASSET_FETCH)
+
+$(ASSET_BLOB): $(PACK_SENTINEL) $(ASSET_COMPILER_INPUTS) $(BLOCK_REGISTRY) $(LIGHT_REGISTRY) $(BIOME_REGISTRY)
 	$(CARGO) run --locked -p asset-compiler --bin assetc -- compile --pack "$(PACK_DIR)" --registry "$(BLOCK_REGISTRY)" --light-registry "$(LIGHT_REGISTRY)" --biome-registry "$(BIOME_REGISTRY)" --out "$(ASSET_BLOB)"
 
 $(ATMOSPHERE_BLOB): $(ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_MANIFEST) $(CLOUDS_OVERRIDE_PREREQUISITE)

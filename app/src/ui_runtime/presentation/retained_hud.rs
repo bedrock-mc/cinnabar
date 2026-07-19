@@ -11,7 +11,7 @@ use ui::{
 
 use super::{UiPresentationError, UiPresentationRuntime, bounded_visible_text, rect};
 
-// Exact classic-profile contracts from the hash-pinned 1.26.3301.0 ui/scoreboards.json.
+// Exact classic-profile contracts from the hash-pinned official sample ui/scoreboards.json.
 pub(super) const SCOREBOARD_MAIN_HORIZONTAL_EXPANSION: f32 = 4.0;
 pub(super) const SCOREBOARD_TEXT_HEIGHT: f32 = 10.0;
 pub(super) const SCOREBOARD_TITLE_BACKGROUND_HEIGHT: f32 = 9.0;

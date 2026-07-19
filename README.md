@@ -244,6 +244,11 @@ closed at startup. The PNGs, downloaded archive, and generated carrier remain
 ignored local data; no Mojang image is embedded in this repository and no
 third-party asset mirror is used.
 
+All sample-pack consumers share the `make vanilla-assets` acquisition sentinel.
+If the extracted cache is cleaned while compiled carriers remain, the next HUD,
+world, atmosphere, entity, assets, or client build reacquires the official pack;
+an intact cache does not rerun the fetch step.
+
 An explicitly selected pack can be checked against the same immutable manifest:
 
 ```text
