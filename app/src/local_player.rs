@@ -455,10 +455,9 @@ impl LocalAvatarPresentation {
         });
     }
 
-    /// Publishes the local body from camera/view authority when a completed
-    /// physics frame is unavailable. Rendering perspective is not movement or
-    /// interaction authority: a fail-closed Physics lane must not make the
-    /// third-person body disappear while the session view remains valid.
+    /// Publishes the local body from a current subject pose selected by the
+    /// caller. Rendering perspective is not movement or interaction authority;
+    /// callers must not pass a boomed third-person camera translation here.
     pub fn publish_view_visibility(
         &self,
         perspective: PerspectiveMode,

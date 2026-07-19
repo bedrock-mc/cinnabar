@@ -24,7 +24,7 @@ use crate::presentation::actors::{
     local_diagnostic_presentation, select_actor_presentations, select_actor_presentations_for_view,
     update_actor_rig_scene,
 };
-use crate::runtime::network::publish_local_actor_visibility;
+use crate::runtime::network::{authoritative_local_actor_eye, publish_local_actor_visibility};
 
 fn model_bone(translation: [f32; 3]) -> BoneTransform {
     BoneTransform {
@@ -390,7 +390,7 @@ fn third_person_local_fallback_reaches_the_render_manifest_without_a_physics_fra
 }
 
 #[test]
-fn f5_local_avatar_uses_the_live_camera_subject_across_rear_and_front_transitions() {
+fn f5_local_avatar_uses_authoritative_subject_when_view_eye_is_boomed() {
     let subject_eye = Vec3::new(64.0, 70.62, -512.0);
     let subject_rotation = Quat::from_rotation_y(90.0_f32.to_radians());
     let stale_eye = subject_eye + Vec3::Z * 8.0;
@@ -430,10 +430,14 @@ fn f5_local_avatar_uses_the_live_camera_subject_across_rear_and_front_transition
         PerspectiveMode::ThirdPersonBack,
         PerspectiveMode::ThirdPersonFront,
     ] {
+        let camera = crate::camera::perspective_pose(subject_eye, subject_rotation, perspective);
+        assert_ne!(camera.translation, subject_eye);
+        let authoritative_eye =
+            authoritative_local_actor_eye(Some(subject_eye.to_array()), Some(stale_eye.to_array()));
         publish_local_actor_visibility(
             &avatar,
             perspective,
-            subject_eye,
+            authoritative_eye,
             subject_rotation,
             &mut visibility,
         );
@@ -459,7 +463,6 @@ fn f5_local_avatar_uses_the_live_camera_subject_across_rear_and_front_transition
             world_from_actor[1][3] + 1.0,
             world_from_actor[2][3],
         );
-        let camera = crate::camera::perspective_pose(subject_eye, subject_rotation, perspective);
         let clip_from_world =
             Mat4::perspective_infinite_reverse_rh(70.0_f32.to_radians(), 16.0 / 9.0, 0.1)
                 * camera.to_matrix().inverse();
@@ -471,9 +474,15 @@ fn f5_local_avatar_uses_the_live_camera_subject_across_rear_and_front_transition
     publish_local_actor_visibility(
         &avatar,
         PerspectiveMode::FirstPerson,
-        subject_eye,
+        Some(subject_eye),
         subject_rotation,
         &mut visibility,
     );
     assert!(!visibility.snapshot().unwrap().visible());
+
+    assert_eq!(
+        authoritative_local_actor_eye(None, Some(subject_eye.to_array())),
+        Some(subject_eye)
+    );
+    assert_eq!(authoritative_local_actor_eye(None, None), None);
 }
