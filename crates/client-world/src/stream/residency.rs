@@ -1,6 +1,24 @@
 use super::*;
 
 impl WorldStream {
+    pub(super) fn provisionally_rebase_for_local_teleport(&mut self, position: [f32; 3]) {
+        let center = position.map(floor_to_i32);
+        let destination = ChunkKey::new(
+            self.current_dimension,
+            center[0].div_euclid(16),
+            center[2].div_euclid(16),
+        );
+        if self.column_is_active(destination) {
+            return;
+        }
+
+        self.evict_all_resident();
+        self.publisher_center = Some(center);
+        self.committed_view_cohort = None;
+        self.required_columns.clear();
+        self.provisional_publisher_rebase = true;
+    }
+
     pub(super) fn sync_resident(&mut self, key: SubChunkKey) {
         if self.store.sub_chunk(key).is_some() {
             self.resident.insert(key);

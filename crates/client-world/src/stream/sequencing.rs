@@ -413,15 +413,22 @@ impl WorldStream {
                 self.publisher_radius_chunks =
                     Some(cohort.radius.min(PHASE0_MAX_VIEW_RADIUS_CHUNKS));
                 if self.committed_view_cohort != Some(cohort) {
-                    self.required_columns.clear();
+                    if self.provisional_publisher_rebase {
+                        self.required_columns
+                            .retain(|key| cohort.contains_column(key.dimension, [key.x, key.z]));
+                    } else {
+                        self.required_columns.clear();
+                    }
                     let Some(next_epoch) = self.publisher_epoch.checked_add(1) else {
                         self.committed_view_cohort = None;
+                        self.provisional_publisher_rebase = false;
                         self.evict_outside_active_radius();
                         return;
                     };
                     self.publisher_epoch = next_epoch;
                 }
                 self.committed_view_cohort = Some(cohort);
+                self.provisional_publisher_rebase = false;
                 self.evict_outside_active_radius();
             }
             WorldEvent::ChangeDimension(change) => {
@@ -446,6 +453,7 @@ impl WorldStream {
                 self.publisher_radius_blocks = None;
                 self.publisher_radius_chunks = None;
                 self.committed_view_cohort = None;
+                self.provisional_publisher_rebase = false;
                 self.required_columns.clear();
                 self.push_committed_control(CommittedControlEvent::ChangeDimension {
                     change,
@@ -474,6 +482,9 @@ impl WorldStream {
                     self.resolved_server_position.surface_anchor,
                 );
                 self.resolved_server_position = resolved;
+                if movement.mode.is_teleport() {
+                    self.provisionally_rebase_for_local_teleport(resolved.position);
+                }
                 self.push_committed_control(CommittedControlEvent::MovePlayer {
                     sequence,
                     movement,
@@ -636,11 +647,13 @@ impl WorldStream {
     }
 
     fn record_required_level_chunk(&mut self, event: &LevelChunkEvent) {
-        let Some(cohort) = self.committed_view_cohort else {
-            return;
-        };
         let key = ChunkKey::new(event.dimension, event.x, event.z);
-        if cohort.contains_column(key.dimension, [key.x, key.z]) && self.column_is_active(key) {
+        let belongs_to_authoritative_cohort = self
+            .committed_view_cohort
+            .is_some_and(|cohort| cohort.contains_column(key.dimension, [key.x, key.z]));
+        if (belongs_to_authoritative_cohort || self.provisional_publisher_rebase)
+            && self.column_is_active(key)
+        {
             self.required_columns.insert(key);
         }
     }

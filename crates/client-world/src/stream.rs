@@ -183,6 +183,7 @@ pub struct WorldStream {
     publisher_radius_blocks: Option<u32>,
     publisher_radius_chunks: Option<i32>,
     committed_view_cohort: Option<ViewCohort>,
+    provisional_publisher_rebase: bool,
     publisher_epoch: u64,
     required_columns: BTreeSet<ChunkKey>,
     source_columns: BTreeSet<ChunkKey>,
