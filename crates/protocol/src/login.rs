@@ -454,7 +454,7 @@ fn decode_world_raw_with(
     }
     crate::inventory::validate_raw_inventory_packet(&raw)
         .map_err(crate::world::WorldPacketError::from)?;
-    crate::codec::validate_raw_ui_frame(raw.inner_frame())?;
+    crate::codec::validate_raw_ui_frame(raw.inner_frame()).map_err(demote_ui_semantic_rejection)?;
     if raw.id == McpePacketName::PacketMobEquipment
         && let Some(equipment) = decode_empty_mob_equipment(&raw)?
     {
@@ -462,6 +462,19 @@ fn decode_world_raw_with(
     }
     let packet = decode(raw)?;
     Ok(into_world_event(packet, current_dimension)?)
+}
+
+/// Reclassifies the raw UI pre-validator's semantic rejections as skippable
+/// world packets so a well-formed-but-odd UI packet (unknown text/score/soft-enum
+/// discriminant, over-budget text/score/autocomplete counts) is skipped and
+/// counted rather than tearing down the session. Genuine wire failures the same
+/// validator can raise -- truncated varints, negative lengths, trailing bytes --
+/// stay fatal, matching the sibling inventory pre-validator above.
+fn demote_ui_semantic_rejection(error: ProtocolError) -> ProtocolError {
+    match error {
+        ProtocolError::Ui(ui) => ProtocolError::World(crate::world::WorldPacketError::Ui(ui)),
+        other => other,
+    }
 }
 
 fn decode_empty_mob_equipment(

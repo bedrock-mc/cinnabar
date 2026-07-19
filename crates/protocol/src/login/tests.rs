@@ -116,9 +116,11 @@ fn live_ui_path_rejects_invalid_utf8_before_owned_decoder() {
     assert!(!decoder_called.get());
     assert!(matches!(
         error,
-        ProtocolError::Ui(crate::UiPacketError::InvalidUtf8 {
-            field: "text.message"
-        })
+        ProtocolError::World(crate::WorldPacketError::Ui(
+            crate::UiPacketError::InvalidUtf8 {
+                field: "text.message"
+            }
+        ))
     ));
 }
 
@@ -142,8 +144,41 @@ fn live_score_path_checks_text_bound_before_owned_decoder() {
     assert!(!decoder_called.get());
     assert!(matches!(
         error,
-        ProtocolError::Ui(crate::UiPacketError::TextTooLong { .. })
+        ProtocolError::World(crate::WorldPacketError::Ui(
+            crate::UiPacketError::TextTooLong { .. }
+        ))
     ));
+}
+
+#[test]
+fn live_ui_semantic_rejection_is_skippable_world_error() {
+    // A well-formed Text packet whose category byte is outside the known set is
+    // semantically odd, not malformed wire. The leniency contract requires it
+    // to be routed as a skippable world packet (so `skip_or_fail_world` keeps
+    // the session alive), never as a fatal error that disconnects the client.
+    // Body: needs_translation=false (0x00), category=3 (unknown, > 2).
+    let raw = raw_packet(McpePacketName::PacketText, &[0x00, 0x03]);
+    let decoder_called = Cell::new(false);
+
+    let error = decode_world_raw_with(raw, 0, |_| {
+        decoder_called.set(true);
+        panic!("unknown UI category must fail before owned decoding")
+    })
+    .expect_err("unknown text category");
+
+    assert!(!decoder_called.get());
+    assert!(
+        matches!(
+            error,
+            ProtocolError::World(crate::WorldPacketError::Ui(
+                crate::UiPacketError::UnknownEnum {
+                    kind: "text category",
+                    value: 3,
+                }
+            ))
+        ),
+        "unexpected error: {error:?}"
+    );
 }
 
 #[test]
