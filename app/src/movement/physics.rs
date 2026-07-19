@@ -271,6 +271,7 @@ pub struct LocalPhysicsController {
     state: Option<PlayerState>,
     previous_position: Vec3,
     accumulated_seconds: f64,
+    discard_next_elapsed: bool,
     previous_jump_held: bool,
     jump_edge_pending: bool,
     dropped_tick_count: u64,
@@ -287,6 +288,7 @@ impl Default for LocalPhysicsController {
             state: None,
             previous_position: Vec3::ZERO,
             accumulated_seconds: 0.0,
+            discard_next_elapsed: false,
             previous_jump_held: false,
             jump_edge_pending: false,
             dropped_tick_count: 0,
@@ -305,6 +307,7 @@ impl LocalPhysicsController {
     pub fn deactivate(&mut self) {
         self.state = None;
         self.accumulated_seconds = 0.0;
+        self.discard_next_elapsed = false;
         self.previous_jump_held = false;
         self.jump_edge_pending = false;
         self.last_world_identity = None;
@@ -339,6 +342,7 @@ impl LocalPhysicsController {
         self.state = Some(state);
         self.previous_position = feet;
         self.accumulated_seconds = 0.0;
+        self.discard_next_elapsed = false;
         self.previous_jump_held = false;
         self.jump_edge_pending = false;
         self.dropped_tick_count = 0;
@@ -346,6 +350,24 @@ impl LocalPhysicsController {
         self.sample_history.clear();
         self.history = PredictionHistory::new(LOCAL_PHYSICS_HISTORY_CAPACITY)
             .expect("local physics history capacity is non-zero");
+    }
+
+    /// Reanchors prediction while discarding the render-frame delta that
+    /// elapsed before the new server anchor was installed.
+    ///
+    /// Runtime network reconciliation runs before physics in a frame. Applying
+    /// that frame's entire delta to a newly installed state would incorrectly
+    /// simulate startup, transfer, or correction time after the anchor and can
+    /// produce a false fixed-tick overflow. Only the immediately following
+    /// advance is discarded; subsequent overload remains observable.
+    pub fn reanchor_network_position_before_advance(
+        &mut self,
+        network_position: [f32; 3],
+        tick: u64,
+        on_ground: bool,
+    ) {
+        self.reanchor_network_position(network_position, tick, on_ground);
+        self.discard_next_elapsed = self.is_active();
     }
 
     pub fn advance(
@@ -372,6 +394,11 @@ impl LocalPhysicsController {
         }
         self.previous_jump_held = input.jumping;
         input.jump_pressed = self.jump_edge_pending;
+
+        if self.discard_next_elapsed {
+            self.discard_next_elapsed = false;
+            return LocalPhysicsFrame::default();
+        }
 
         self.accumulated_seconds += elapsed.as_secs_f64();
         let due = ((self.accumulated_seconds + f64::EPSILON) / LOCAL_PHYSICS_TICK_SECONDS)
@@ -473,7 +500,7 @@ impl LocalPhysicsController {
             return Err(PhysicsCorrectionError::InvalidAnchor);
         }
         if matches!(mode, PhysicsCorrectionMode::Snap) {
-            self.reanchor_network_position(network_position, tick, on_ground);
+            self.reanchor_network_position_before_advance(network_position, tick, on_ground);
             return Ok(PhysicsCorrectionPlan {
                 outcome: PhysicsCorrectionOutcome::Snapped { tick },
                 corrected_tick: tick,

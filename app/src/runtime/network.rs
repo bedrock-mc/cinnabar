@@ -313,7 +313,11 @@ pub(crate) fn receive_network_events(
                 movement.set_source(MovementSource::FreeCamera);
                 let initial_tick = u64::try_from(environment.initial_time).unwrap_or(0);
                 movement.reset(clock.session_generation(), initial_tick, resolved.position);
-                local_physics.reanchor_network_position(resolved.position, initial_tick, false);
+                local_physics.reanchor_network_position_before_advance(
+                    resolved.position,
+                    initial_tick,
+                    false,
+                );
                 match physics_authority.authorize(auto_fly.enabled(), collisions.is_complete()) {
                     Ok(source) => movement.set_source(source),
                     Err(fault) => {

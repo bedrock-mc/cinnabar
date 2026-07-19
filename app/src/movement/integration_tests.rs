@@ -988,6 +988,28 @@ fn local_physics_catch_up_and_prediction_history_are_bounded() {
     assert!(physics.history_len() <= 32);
 }
 
+#[test]
+fn frame_boundary_reanchor_discards_only_pre_anchor_elapsed() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position_before_advance([0.0, 2.620_01, 0.0], 0, true);
+
+    let startup = physics.advance(Duration::from_secs(10), MovementInput::default(), &Floor);
+    assert_eq!(startup.completed_ticks, 0);
+    assert_eq!(startup.dropped_ticks, 0);
+    assert!(startup.samples.is_empty());
+    assert_eq!(physics.state().expect("anchored state").tick, 0);
+
+    let overloaded = physics.advance(Duration::from_secs(10), MovementInput::default(), &Floor);
+    assert_eq!(
+        overloaded.completed_ticks,
+        MAX_LOCAL_PHYSICS_TICKS_PER_FRAME
+    );
+    assert_eq!(
+        overloaded.dropped_ticks,
+        200 - MAX_LOCAL_PHYSICS_TICKS_PER_FRAME as u64
+    );
+}
+
 fn synthetic_preg(breg: &[u8], records: &[RegistryRecord]) -> Vec<u8> {
     let mut bytes = Vec::new();
     bytes.extend_from_slice(b"PREG1001");

@@ -373,7 +373,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
                     }
                 } else {
                     movement.snap_non_authoritative_anchor(correction.tick, resolved.position);
-                    local_physics.reanchor_network_position(
+                    local_physics.reanchor_network_position_before_advance(
                         resolved.position,
                         correction.tick,
                         correction.on_ground,
@@ -412,7 +412,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
                     }
                 } else {
                     movement.snap_non_authoritative_anchor(tick, resolved.position);
-                    local_physics.reanchor_network_position(
+                    local_physics.reanchor_network_position_before_advance(
                         resolved.position,
                         tick,
                         correction.on_ground,
@@ -447,7 +447,11 @@ pub(crate) fn reconcile_world_stream_before_physics(
                     }
                 } else {
                     movement.snap_non_authoritative_anchor(0, resolved.position);
-                    local_physics.reanchor_network_position(resolved.position, 0, false);
+                    local_physics.reanchor_network_position_before_advance(
+                        resolved.position,
+                        0,
+                        false,
+                    );
                 }
                 LocalPlayerFrameReset::Dimension
             }
@@ -727,6 +731,8 @@ pub(crate) fn drive_world_stream(
     if let Some(position) = resolved_surface_spawn {
         view.set_eye_translation(Vec3::from_array(position));
         let tick = local_physics.state().map_or(0, |state| state.tick);
+        // World publication runs after local physics. The next frame's delta
+        // starts after this anchor, so it must remain eligible for simulation.
         local_physics.reanchor_network_position(position, tick, true);
         client_world.pending_surface_spawn = None;
         info!(position = ?position, "resolved temporary Bedrock spawn from packed terrain");
