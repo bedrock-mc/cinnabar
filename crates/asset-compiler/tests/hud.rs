@@ -18,8 +18,11 @@ fn tracked_hud_manifest_is_the_reviewed_protocol_1001_identity() {
     );
     let text = std::str::from_utf8(SOURCE_MANIFEST).unwrap();
     for evidence in [
-        "Microsoft.MinecraftUWP",
-        "1.26.3301.0",
+        "v1.26.30.32-preview",
+        "020f1cf4b2baef78e635d4ce7498eb16a429dcbb",
+        "bedrock-samples-v1.26.30.32-preview-full.zip",
+        "12d5cddc03acd507e9e0bd412f2e94d34d0a1a855758af7a9eef61b03630ad7c",
+        "https://github.com/Mojang/bedrock-samples/releases/download/",
         "\"protocol\": 1001",
         "ui/scoreboards.json",
         "ui/hud_screen.json",
@@ -50,7 +53,8 @@ fn modified_or_custom_hud_manifest_is_rejected_before_pack_ingestion() {
 #[test]
 fn stale_or_custom_pack_is_rejected_against_the_reviewed_source_inventory() {
     let directory = tempfile::tempdir().unwrap();
-    fs::write(directory.path().join("manifest.json"), b"{}").unwrap();
+    let manifest = directory.path().join("manifest.json");
+    fs::write(&manifest, b"not the pinned Mojang sample manifest").unwrap();
 
     let error = compile_hud_assets(directory.path(), SOURCE_MANIFEST).unwrap_err();
 
@@ -58,14 +62,14 @@ fn stale_or_custom_pack_is_rejected_against_the_reviewed_source_inventory() {
     assert!(
         error
             .to_string()
-            .contains("does not match Microsoft.MinecraftUWP 1.26.3301.0")
+            .contains("does not match Mojang bedrock-samples v1.26.30.32-preview")
     );
 }
 
 #[test]
-#[ignore = "requires PINNED_BEDROCK_HUD_PACK pointing at the owned 1.26.3301.0 vanilla pack"]
-fn exact_owned_client_pack_compiles_all_reviewed_hud_sources() {
-    let pack = PathBuf::from(std::env::var_os("PINNED_BEDROCK_HUD_PACK").unwrap());
+#[ignore = "requires PINNED_BEDROCK_SAMPLES_PACK pointing at the pinned full sample resource_pack"]
+fn exact_official_sample_pack_compiles_all_reviewed_hud_sources() {
+    let pack = PathBuf::from(std::env::var_os("PINNED_BEDROCK_SAMPLES_PACK").unwrap());
     let compiled = compile_hud_assets(&pack, SOURCE_MANIFEST).unwrap();
     let runtime = RuntimeHudCatalog::decode(&compiled.bytes).unwrap();
 

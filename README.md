@@ -222,25 +222,34 @@ PNG pages expected by the compiler. This command writes the distinct ignored
 leaving `ui-inter-v1.mcbefont` intact as the fallback. Normal builds never fetch
 Mojangles or another unlicensed Minecraft font mirror.
 
-## Local vanilla HUD sprites
+## Vanilla HUD sprites
 
-The survival HUD uses exact sprites from the reviewed
-`Microsoft.MinecraftUWP 1.26.3301.0` (`protocol 1001`, x64) vanilla resource
-pack exported from a locally installed/owned Bedrock client. The tracked
-non-copyright [`assets/hud-source-v1001.json`](assets/hud-source-v1001.json)
-pins every required source byte count and SHA-256; wrong-version, custom, or
-stale packs fail closed at compilation and carriers with any other source
-identity fail closed at startup. The
-official `bedrock-samples` resource pack does not contain these base-game UI
-sprites. The PNGs and generated carrier remain ignored local data; no Mojang
-image is embedded in this repository and no third-party asset mirror is used.
-Build the carrier from the exported pack's `resource_packs/vanilla` directory:
+The survival HUD uses exact sprites from Mojang's pinned official
+`bedrock-samples-v1.26.30.32-preview-full.zip` release. A normal `make assets`
+or `make client` downloads and verifies that archive through the same EULA-gated
+vanilla asset acquisition step used by world assets, then automatically writes
+the ignored `.local/assets/compiled/vanilla-v1.mcbehud` carrier and
+`hud-assets.json` provenance report. Run only that step with:
 
 ```text
-make hud-assets-local HUD_PACK_DIR=/path/to/resource_packs/vanilla
+make hud-assets
 ```
 
-This writes `.local/assets/compiled/vanilla-v1.mcbehud` and a provenance report.
+The tracked non-copyright
+[`assets/hud-source-v1001.json`](assets/hud-source-v1001.json) pins the official
+release tag, commit, archive URL and hash, plus every required PNG byte count,
+SHA-256, and decoded dimension. Wrong-version, custom, missing, or stale inputs
+fail closed at compilation, and carriers with any other source identity fail
+closed at startup. The PNGs, downloaded archive, and generated carrier remain
+ignored local data; no Mojang image is embedded in this repository and no
+third-party asset mirror is used.
+
+An explicitly selected pack can be checked against the same immutable manifest:
+
+```text
+make hud-assets-local HUD_PACK_DIR=/path/to/matching/resource_pack
+```
+
 The source root must contain these exact PNG paths:
 
 ```text
@@ -261,17 +270,16 @@ textures/ui/empty_progress_bar.png
 textures/ui/filled_progress_bar.png
 ```
 
-The pin also verifies `manifest.json`, `ui/scoreboards.json`,
-`ui/hud_screen.json`, `ui/ui_common.json`, and `ui/_global_variables.json`.
-On a default Windows installation the reviewed input is:
+The pin also verifies the same official sample release's `manifest.json`,
+`ui/scoreboards.json`, `ui/hud_screen.json`, `ui/ui_common.json`, and
+`ui/_global_variables.json`, which retain the UI authority used by the HUD
+layout implementation.
 
-```text
-C:\Program Files\WindowsApps\Microsoft.MinecraftUWP_1.26.3301.0_x64__8wekyb3d8bbwe\data\resource_packs\vanilla
-```
-
-When the carrier is absent, authoritative survival stats remain retained but
-their presentation is hidden; the client does not substitute numeric or guessed
-art.
+The base Mojangles bitmap font is not present in this sample pack, so this does
+not change the open-licensed Inter default or the optional local bitmap-font
+override described above. When the HUD carrier is absent, authoritative
+survival stats remain retained but their presentation is hidden; the client
+does not substitute numeric or guessed art.
 
 The pinned scoreboard definition supplies content-driven width, right-middle
 placement, text colors, row geometry, and title geometry. Its two background

@@ -50,6 +50,11 @@ fn absent_hud_carrier_is_optional_and_does_not_invent_fallback_art() {
 }
 
 #[test]
+fn hud_recovery_uses_the_automatic_official_sample_target() {
+    assert_eq!(HUD_ASSETS_COMPILE_COMMAND, "make hud-assets");
+}
+
+#[test]
 fn valid_sibling_hud_carrier_loads_with_provenance() {
     let directory = temporary_directory("valid");
     let world_assets = directory.join("vanilla-v1001.mcbea");

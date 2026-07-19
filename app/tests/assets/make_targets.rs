@@ -233,6 +233,42 @@ fn make_builds_the_pinned_open_font_for_default_launch() {
 }
 
 #[test]
+fn make_builds_the_pinned_official_hud_carrier_for_default_launch() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let makefile = fs::read_to_string(root.join("Makefile"))
+        .unwrap()
+        .replace("\r\n", "\n");
+
+    for contract in [
+        "HUD_PACK_DIR ?= $(PACK_DIR)",
+        "HUD_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbehud",
+        "HUD_ASSET_REPORT ?= .local/assets/compiled/hud-assets.json",
+        "HUD_SOURCE_MANIFEST ?= assets/hud-source-v1001.json",
+        concat!(
+            "HUD_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- hud-assets ",
+            "--pack \"$(HUD_PACK_DIR)\" --source-manifest \"$(HUD_SOURCE_MANIFEST)\" ",
+            "--out \"$(HUD_ASSET_BLOB)\" --report \"$(HUD_ASSET_REPORT)\""
+        ),
+        "hud-assets: $(HUD_ASSET_BLOB) $(HUD_ASSET_REPORT)",
+        "$(HUD_ASSET_BLOB): $(ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(HUD_SOURCE_MANIFEST)",
+        "$(HUD_ASSET_REPORT): $(HUD_ASSET_BLOB)",
+    ] {
+        assert!(
+            makefile.contains(contract),
+            "missing HUD Makefile contract: {contract}"
+        );
+    }
+    for default_target in ["assets:", "client:"] {
+        let line = makefile
+            .lines()
+            .find(|line| line.starts_with(default_target))
+            .unwrap();
+        assert!(line.contains("$(HUD_ASSET_BLOB)"));
+        assert!(line.contains("$(HUD_ASSET_REPORT)"));
+    }
+}
+
+#[test]
 fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() {
     let make_available = match Command::new("make").arg("--version").output() {
         Ok(output) if output.status.success() => true,

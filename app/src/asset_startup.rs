@@ -29,8 +29,7 @@ pub const LOCAL_FONT_ASSETS_FILENAME: &str = "vanilla-v1.mcbefont";
 pub const LOCAL_FONT_ASSETS_COMPILE_COMMAND: &str =
     "make font-assets-local FONT_PACK_DIR=<reviewed-font-pack>";
 pub const HUD_ASSETS_FILENAME: &str = "vanilla-v1.mcbehud";
-pub const HUD_ASSETS_COMPILE_COMMAND: &str =
-    "make hud-assets-local HUD_PACK_DIR=<vanilla-client-resource-pack>";
+pub const HUD_ASSETS_COMPILE_COMMAND: &str = "make hud-assets";
 pub const FETCH_COMMAND: &str =
     "powershell -NoProfile -File scripts/fetch-vanilla-assets.ps1 -AcceptEula";
 pub const COMPILE_COMMAND: &str = concat!(

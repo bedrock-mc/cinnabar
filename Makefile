@@ -11,7 +11,7 @@ RUST_MCBE_BUILD_COMMIT ?= $(shell git rev-parse HEAD)
 
 PACK_DIR ?= .local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack
 FONT_PACK_DIR ?= .local/assets/font-source
-HUD_PACK_DIR ?=
+HUD_PACK_DIR ?= $(PACK_DIR)
 UI_FONT_SOURCE_MANIFEST ?= assets/ui-font-source.json
 UI_FONT_DIR ?= .local/assets/ui-font/389b770410cc0b7c21c85673bfa2077420fe7f65
 UI_FONT_SOURCE ?= $(UI_FONT_DIR)/Inter.ttf
@@ -53,7 +53,7 @@ FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- out
 LOCAL_FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- font-assets --pack "$(FONT_PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(LOCAL_FONT_ASSET_BLOB)" --report "$(LOCAL_FONT_ASSET_REPORT)"
 HUD_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- hud-assets --pack "$(HUD_PACK_DIR)" --source-manifest "$(HUD_SOURCE_MANIFEST)" --out "$(HUD_ASSET_BLOB)" --report "$(HUD_ASSET_REPORT)"
 
-.PHONY: help assets atmosphere-assets entity-assets font-assets font-assets-local hud-assets-local physics-assets core client client-windows client-macos client-linux client-wayland client-x11 FORCE_CINNABAR_CLOUDS_OVERRIDE
+.PHONY: help assets atmosphere-assets entity-assets font-assets font-assets-local hud-assets hud-assets-local physics-assets core client client-windows client-macos client-linux client-wayland client-x11 FORCE_CINNABAR_CLOUDS_OVERRIDE
 
 FORCE_CINNABAR_CLOUDS_OVERRIDE:
 
@@ -63,7 +63,8 @@ help:
 	@echo make entity-assets   - Compile pinned entity catalog and geometry payloads
 	@echo make font-assets     - Fetch and compile the pinned open-licensed Inter UI font
 	@echo make font-assets-local - Compile a reviewed local bitmap font source via FONT_PACK_DIR
-	@echo make hud-assets-local - Compile exact HUD sprites from an owned vanilla client pack via HUD_PACK_DIR
+	@echo make hud-assets      - Compile pinned HUD sprites from the official Mojang sample pack
+	@echo make hud-assets-local - Compile from an explicitly selected matching pack via HUD_PACK_DIR
 	@echo make physics-assets  - Acquire pinned block data and compile the protocol-1001 physics registry
 	@echo make core            - Compile and run the Go networking/auth core
 	@echo make client          - Refresh stale assets, then run the release Rust client
@@ -76,7 +77,7 @@ help:
 	@echo Override optional settings with SOCKET_DIR=..., AUTH_CACHE=..., and NO_VSYNC=1
 	@echo Set CINNABAR_CLOUDS_PNG to the exact local-only Bedrock 1.26.33.1 clouds.png
 
-assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT) $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT)
+assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT) $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT) $(HUD_ASSET_BLOB) $(HUD_ASSET_REPORT)
 
 atmosphere-assets: $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT)
 
@@ -87,8 +88,9 @@ font-assets: $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT)
 font-assets-local:
 	$(LOCAL_FONT_ASSET_COMPILE)
 
+hud-assets: $(HUD_ASSET_BLOB) $(HUD_ASSET_REPORT)
+
 hud-assets-local:
-	$(if $(strip $(HUD_PACK_DIR)),,$(error HUD_PACK_DIR is required; point it at an owned vanilla client resource pack))
 	$(HUD_ASSET_COMPILE)
 
 $(UI_FONT_SOURCE): $(UI_FONT_SOURCE_MANIFEST)
@@ -133,12 +135,18 @@ $(FONT_ASSET_BLOB): $(ASSET_COMPILER_INPUTS) $(UI_FONT_SOURCE_MANIFEST) $(UI_FON
 $(FONT_ASSET_REPORT): $(FONT_ASSET_BLOB)
 	@if [ ! -f "$@" ] || [ "$@" -ot "$<" ]; then $(FONT_ASSET_COMPILE); fi
 
+$(HUD_ASSET_BLOB): $(ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(HUD_SOURCE_MANIFEST)
+	$(HUD_ASSET_COMPILE)
+
+$(HUD_ASSET_REPORT): $(HUD_ASSET_BLOB)
+	@if [ ! -f "$@" ] || [ "$@" -ot "$<" ]; then $(HUD_ASSET_COMPILE); fi
+
 core:
 	$(if $(strip $(UPSTREAM)),,$(error UPSTREAM is required; run make core UPSTREAM=host:port))
 	@echo bedrock-core: build starting package=./core/cmd/bedrock-core
 	$(GO) run ./core/cmd/bedrock-core -socket-dir "$(SOCKET_DIR)" -upstream "$(UPSTREAM)" -auth-cache "$(AUTH_CACHE)"
 
-client: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT) $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT) physics-assets
+client: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT) $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT) $(HUD_ASSET_BLOB) $(HUD_ASSET_REPORT) physics-assets
 	RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) run --release -p bedrock-client --locked -- --socket-dir "$(SOCKET_DIR)" $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
 
 client-windows client-macos client-linux: client

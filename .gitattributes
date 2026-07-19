@@ -2,6 +2,7 @@ crates/world/fixtures/manifest.json text eol=lf
 crates/sim/fixtures/*.jsonl text eol=lf
 assets/vanilla-source.json text eol=lf
 assets/ui-font-source.json text eol=lf
+assets/hud-source-v1001.json text eol=lf
 assets/licenses/Inter-OFL-1.1.txt text eol=lf whitespace=-blank-at-eol
 assets/block-entity-renderers-v*.json text eol=lf
 crates/assets/data/block-entities-v*.json text eol=lf

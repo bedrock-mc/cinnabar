@@ -13,13 +13,15 @@ const MAX_SOURCE_MANIFEST_BYTES: usize = 64 * 1024;
 const MAX_SOURCE_BYTES: usize = 1024 * 1024;
 const MAX_TOTAL_SOURCE_BYTES: usize = 2 * 1024 * 1024;
 const MAX_PROVENANCE_SOURCES: usize = 64;
-const PINNED_PACKAGE_NAME: &str = "Microsoft.MinecraftUWP";
-const PINNED_PACKAGE_VERSION: &str = "1.26.3301.0";
-const PINNED_PACKAGE_ARCHITECTURE: &str = "x64";
-const PINNED_PUBLISHER_ID: &str = "8wekyb3d8bbwe";
+const PINNED_TAG: &str = "v1.26.30.32-preview";
+const PINNED_COMMIT: &str = "020f1cf4b2baef78e635d4ce7498eb16a429dcbb";
+const PINNED_ARCHIVE: &str = "bedrock-samples-v1.26.30.32-preview-full.zip";
+const PINNED_URL: &str = "https://github.com/Mojang/bedrock-samples/releases/download/v1.26.30.32-preview/bedrock-samples-v1.26.30.32-preview-full.zip";
+const PINNED_ARCHIVE_SHA256: &str =
+    "12d5cddc03acd507e9e0bd412f2e94d34d0a1a855758af7a9eef61b03630ad7c";
 const PINNED_PROTOCOL: u32 = 1001;
-const PINNED_PACK_RELATIVE_PATH: &str = "data/resource_packs/vanilla";
-const PINNED_ARTIFACT_POLICY: &str = "local-owned-client-input-only";
+const PINNED_PACK_RELATIVE_PATH: &str = "resource_pack";
+const PINNED_ARTIFACT_POLICY: &str = "official-mojang-download-local-only";
 
 #[derive(Debug)]
 pub struct CompiledHudCarrier {
@@ -40,10 +42,11 @@ pub struct HudCompileReport {
 #[serde(deny_unknown_fields)]
 struct SourceManifest {
     schema: u32,
-    package_name: Box<str>,
-    package_version: Box<str>,
-    package_architecture: Box<str>,
-    publisher_id: Box<str>,
+    tag: Box<str>,
+    commit: Box<str>,
+    archive: Box<str>,
+    url: Box<str>,
+    archive_sha256: Box<str>,
     protocol: u32,
     pack_relative_path: Box<str>,
     artifact_policy: Box<str>,
@@ -74,7 +77,7 @@ pub enum HudCompileError {
     },
     #[error("reviewed HUD source {path} exceeds the {maximum}-byte bound")]
     SourceTooLarge { path: Box<Path>, maximum: usize },
-    #[error("reviewed HUD source {path} does not match Microsoft.MinecraftUWP 1.26.3301.0")]
+    #[error("reviewed HUD source {path} does not match Mojang bedrock-samples v1.26.30.32-preview")]
     SourceIdentity { path: Box<Path> },
     #[error("required HUD texture {path} is not a bounded PNG: {detail}")]
     TextureDecode { path: Box<Path>, detail: Box<str> },
@@ -217,17 +220,18 @@ pub fn compile_hud_assets(
 
 fn validate_manifest_contract(manifest: &SourceManifest) -> Result<(), HudCompileError> {
     if manifest.schema != 1
-        || manifest.package_name.as_ref() != PINNED_PACKAGE_NAME
-        || manifest.package_version.as_ref() != PINNED_PACKAGE_VERSION
-        || manifest.package_architecture.as_ref() != PINNED_PACKAGE_ARCHITECTURE
-        || manifest.publisher_id.as_ref() != PINNED_PUBLISHER_ID
+        || manifest.tag.as_ref() != PINNED_TAG
+        || manifest.commit.as_ref() != PINNED_COMMIT
+        || manifest.archive.as_ref() != PINNED_ARCHIVE
+        || manifest.url.as_ref() != PINNED_URL
+        || manifest.archive_sha256.as_ref() != PINNED_ARCHIVE_SHA256
         || manifest.protocol != PINNED_PROTOCOL
         || manifest.pack_relative_path.as_ref() != PINNED_PACK_RELATIVE_PATH
         || manifest.artifact_policy.as_ref() != PINNED_ARTIFACT_POLICY
         || manifest.sources.len() > MAX_PROVENANCE_SOURCES
     {
         return Err(HudCompileError::SourceManifestIdentity {
-            detail: "reviewed package or protocol contract mismatch".into(),
+            detail: "reviewed sample release or protocol contract mismatch".into(),
         });
     }
     Ok(())
