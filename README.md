@@ -224,8 +224,13 @@ Mojangles or another unlicensed Minecraft font mirror.
 
 ## Local vanilla HUD sprites
 
-The survival HUD uses exact sprites from a user-owned vanilla Bedrock client
-resource pack exported from a locally installed/owned Bedrock client. The
+The survival HUD uses exact sprites from the reviewed
+`Microsoft.MinecraftUWP 1.26.3301.0` (`protocol 1001`, x64) vanilla resource
+pack exported from a locally installed/owned Bedrock client. The tracked
+non-copyright [`assets/hud-source-v1001.json`](assets/hud-source-v1001.json)
+pins every required source byte count and SHA-256; wrong-version, custom, or
+stale packs fail closed at compilation and carriers with any other source
+identity fail closed at startup. The
 official `bedrock-samples` resource pack does not contain these base-game UI
 sprites. The PNGs and generated carrier remain ignored local data; no Mojang
 image is embedded in this repository and no third-party asset mirror is used.
@@ -252,11 +257,28 @@ textures/ui/bubble.png
 textures/ui/bubble_empty.png
 textures/ui/hotbar_0.png through textures/ui/hotbar_8.png
 textures/ui/selected_hotbar_slot.png
+textures/ui/empty_progress_bar.png
+textures/ui/filled_progress_bar.png
+```
+
+The pin also verifies `manifest.json`, `ui/scoreboards.json`,
+`ui/hud_screen.json`, `ui/ui_common.json`, and `ui/_global_variables.json`.
+On a default Windows installation the reviewed input is:
+
+```text
+C:\Program Files\WindowsApps\Microsoft.MinecraftUWP_1.26.3301.0_x64__8wekyb3d8bbwe\data\resource_packs\vanilla
 ```
 
 When the carrier is absent, authoritative survival stats remain retained but
 their presentation is hidden; the client does not substitute numeric or guessed
 art.
+
+The pinned scoreboard definition supplies content-driven width, right-middle
+placement, text colors, row geometry, and title geometry. Its two background
+alphas are engine bindings (`#objective_background_opacity` and
+`#scoreboard_objective_background_opacity`), not constants in the pack. The
+sidebar therefore remains fail-closed until both values are supplied by native
+runtime evidence; the adjacent HUD text-opacity option is not substituted.
 
 ## Local vanilla block textures
 

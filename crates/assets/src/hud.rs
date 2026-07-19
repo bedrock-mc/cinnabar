@@ -2,7 +2,11 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 pub const HUD_CARRIER_MAGIC: [u8; 8] = *b"MCBEHUD1";
-pub const HUD_CARRIER_VERSION: u32 = 1;
+pub const HUD_CARRIER_VERSION: u32 = 2;
+pub const HUD_SOURCE_MANIFEST_SHA256: [u8; 32] = [
+    0x61, 0x30, 0xf4, 0x1e, 0xaa, 0x45, 0x26, 0xdc, 0x41, 0x62, 0x9b, 0x91, 0x89, 0x71, 0x72, 0xb0,
+    0x13, 0xa3, 0xb7, 0x9d, 0x5a, 0x93, 0xb0, 0xd0, 0x86, 0xc9, 0xb6, 0xf5, 0xb2, 0xc2, 0x05, 0x00,
+];
 pub const MAX_HUD_TEXTURE_BYTES: usize = 4 * 1024 * 1024;
 const HEADER_BYTES: usize = 80;
 const DESCRIPTOR_BYTES: usize = 96;
@@ -34,10 +38,12 @@ pub enum HudTextureRole {
     Hotbar7 = 18,
     Hotbar8 = 19,
     SelectedHotbarSlot = 20,
+    BossProgressEmpty = 21,
+    BossProgressFilled = 22,
 }
 
 impl HudTextureRole {
-    pub const ALL: [Self; 21] = [
+    pub const ALL: [Self; 23] = [
         Self::HeartBackground,
         Self::HeartFull,
         Self::HeartHalf,
@@ -59,6 +65,8 @@ impl HudTextureRole {
         Self::Hotbar7,
         Self::Hotbar8,
         Self::SelectedHotbarSlot,
+        Self::BossProgressEmpty,
+        Self::BossProgressFilled,
     ];
 
     #[must_use]
@@ -85,6 +93,8 @@ impl HudTextureRole {
             Self::Hotbar7 => "textures/ui/hotbar_7.png",
             Self::Hotbar8 => "textures/ui/hotbar_8.png",
             Self::SelectedHotbarSlot => "textures/ui/selected_hotbar_slot.png",
+            Self::BossProgressEmpty => "textures/ui/empty_progress_bar.png",
+            Self::BossProgressFilled => "textures/ui/filled_progress_bar.png",
         }
     }
 
@@ -112,6 +122,7 @@ impl HudTextureRole {
             | Self::Hotbar7
             | Self::Hotbar8 => [20, 22],
             Self::SelectedHotbarSlot => [24, 24],
+            Self::BossProgressEmpty | Self::BossProgressFilled => [13, 5],
         }
     }
 
@@ -154,7 +165,7 @@ impl RuntimeHudCatalog {
         let payload_offset = read_usize(bytes, 56)?;
         let payload_end = read_usize(bytes, 64)?;
         if count != HudTextureRole::ALL.len()
-            || source_manifest_sha256 == [0; 32]
+            || source_manifest_sha256 != HUD_SOURCE_MANIFEST_SHA256
             || bytes[72..HEADER_BYTES] != [0; 8]
             || descriptors_offset != HEADER_BYTES
             || payload_offset
@@ -264,7 +275,12 @@ pub fn encode_hud_catalog(
     source_manifest_sha256: [u8; 32],
     textures: &[HudTexture],
 ) -> Result<Vec<u8>, HudCatalogError> {
-    if source_manifest_sha256 == [0; 32] || textures.len() != HudTextureRole::ALL.len() {
+    if source_manifest_sha256 != HUD_SOURCE_MANIFEST_SHA256 {
+        return Err(HudCatalogError::Invalid(
+            "unreviewed HUD source manifest identity",
+        ));
+    }
+    if textures.len() != HudTextureRole::ALL.len() {
         return Err(HudCatalogError::Invalid("incomplete HUD texture catalog"));
     }
     let payload_offset = HEADER_BYTES

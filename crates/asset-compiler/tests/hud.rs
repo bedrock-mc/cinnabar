@@ -1,78 +1,91 @@
-use std::fs;
-use std::process::Command;
+use std::{fs, path::PathBuf, process::Command};
 
 use asset_compiler::compile_hud_assets;
-use assets::{HudTextureRole, RuntimeHudCatalog};
-use image::{ImageBuffer, Rgba};
+use assets::{HUD_SOURCE_MANIFEST_SHA256, HudTextureRole, RuntimeHudCatalog};
+use sha2::{Digest, Sha256};
+
+const SOURCE_MANIFEST: &[u8] = include_bytes!("../../../assets/hud-source-v1001.json");
 
 #[test]
-fn compiles_the_fixed_survival_hud_sprite_inventory() {
-    let directory = tempfile::tempdir().unwrap();
-    let pack = directory.path();
-    fs::write(
-        pack.join("manifest.json"),
-        br#"{"format_version":2,"header":{"name":"fixture","uuid":"00000000-0000-0000-0000-000000000001","version":[1,26,33]},"modules":[]}"#,
-    )
-    .unwrap();
-    for role in HudTextureRole::ALL {
-        let path = pack.join(role.source_path());
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        let [width, height] = role.expected_size();
-        ImageBuffer::from_pixel(width, height, Rgba([role as u8, 2, 3, 255]))
-            .save(path)
-            .unwrap();
+fn tracked_hud_manifest_is_the_reviewed_protocol_1001_identity() {
+    let canonical = SOURCE_MANIFEST
+        .split(|byte| *byte == b'\r')
+        .flat_map(|part| part.iter().copied())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        <[u8; 32]>::from(Sha256::digest(&canonical)),
+        HUD_SOURCE_MANIFEST_SHA256
+    );
+    let text = std::str::from_utf8(SOURCE_MANIFEST).unwrap();
+    for evidence in [
+        "Microsoft.MinecraftUWP",
+        "1.26.3301.0",
+        "\"protocol\": 1001",
+        "ui/scoreboards.json",
+        "ui/hud_screen.json",
+        "textures/ui/heart.png",
+        "textures/ui/filled_progress_bar.png",
+    ] {
+        assert!(text.contains(evidence), "missing evidence {evidence}");
     }
-
-    let compiled = compile_hud_assets(pack).unwrap();
-    let runtime = RuntimeHudCatalog::decode(&compiled.bytes).unwrap();
-
-    assert_eq!(compiled.report.textures, HudTextureRole::ALL.len());
-    assert_eq!(
-        compiled.report.decoded_bytes,
-        HudTextureRole::ALL
-            .into_iter()
-            .map(|role| {
-                let [width, height] = role.expected_size();
-                width as usize * height as usize * 4
-            })
-            .sum::<usize>()
-    );
-    assert_eq!(runtime.textures().len(), HudTextureRole::ALL.len());
-    assert_eq!(
-        &runtime.texture(HudTextureRole::HeartFull).rgba8[..4],
-        &[HudTextureRole::HeartFull as u8, 2, 3, 255]
-    );
 }
 
 #[test]
-fn missing_required_native_sprite_is_rejected() {
+fn modified_or_custom_hud_manifest_is_rejected_before_pack_ingestion() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut modified = SOURCE_MANIFEST.to_vec();
+    let index = modified.iter().position(|byte| *byte == b'1').unwrap();
+    modified[index] = b'2';
+
+    let error = compile_hud_assets(directory.path(), &modified).unwrap_err();
+
+    assert!(
+        error
+            .to_string()
+            .contains("reviewed protocol-1001 identity")
+    );
+    assert!(!error.to_string().contains("could not be read"));
+}
+
+#[test]
+fn stale_or_custom_pack_is_rejected_against_the_reviewed_source_inventory() {
     let directory = tempfile::tempdir().unwrap();
     fs::write(directory.path().join("manifest.json"), b"{}").unwrap();
-    let error = compile_hud_assets(directory.path()).unwrap_err();
-    assert!(error.to_string().contains("heart_background.png"));
-}
 
-#[test]
-fn malformed_pack_manifest_is_rejected_before_texture_ingestion() {
-    let directory = tempfile::tempdir().unwrap();
-    fs::write(directory.path().join("manifest.json"), b"not json").unwrap();
-
-    let error = compile_hud_assets(directory.path()).unwrap_err();
+    let error = compile_hud_assets(directory.path(), SOURCE_MANIFEST).unwrap_err();
 
     assert!(error.to_string().contains("manifest.json"));
-    assert!(error.to_string().contains("valid JSON"));
-    assert!(!error.to_string().contains("heart_background.png"));
+    assert!(
+        error
+            .to_string()
+            .contains("does not match Microsoft.MinecraftUWP 1.26.3301.0")
+    );
 }
 
 #[test]
-fn hud_assets_cli_is_public_and_documents_local_only_output() {
+#[ignore = "requires PINNED_BEDROCK_HUD_PACK pointing at the owned 1.26.3301.0 vanilla pack"]
+fn exact_owned_client_pack_compiles_all_reviewed_hud_sources() {
+    let pack = PathBuf::from(std::env::var_os("PINNED_BEDROCK_HUD_PACK").unwrap());
+    let compiled = compile_hud_assets(&pack, SOURCE_MANIFEST).unwrap();
+    let runtime = RuntimeHudCatalog::decode(&compiled.bytes).unwrap();
+
+    assert_eq!(
+        compiled.report.source_manifest_sha256,
+        HUD_SOURCE_MANIFEST_SHA256
+    );
+    assert_eq!(compiled.report.textures, HudTextureRole::ALL.len());
+    assert_eq!(runtime.textures().len(), HudTextureRole::ALL.len());
+}
+
+#[test]
+fn hud_assets_cli_requires_the_reviewed_source_manifest() {
     let output = Command::new(env!("CARGO_BIN_EXE_assetc"))
         .args(["hud-assets", "--help"])
         .output()
         .unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
-    for flag in ["--pack", "--out", "--report"] {
+    for flag in ["--pack", "--source-manifest", "--out", "--report"] {
         assert!(stdout.contains(flag), "missing {flag} from:\n{stdout}");
     }
 }

@@ -6,8 +6,7 @@ use protocol::{
     BossAction as ProtocolBossAction, BossColor as ProtocolBossColor, BossEvent,
     BossOverlay as ProtocolBossOverlay, BossStyle as ProtocolBossStyle, HudEvent, ObjectiveEvent,
     ScoreAction as ProtocolScoreAction, ScoreEntry as ProtocolScoreEntry, ScoreEvent,
-    ScoreIdentity as ProtocolScoreIdentity, TextCategory, TextEvent, TextKind, TitleAction,
-    TitleEvent, UiEvent,
+    ScoreIdentity as ProtocolScoreIdentity, TextCategory, TextEvent, TextKind, UiEvent,
 };
 use sha2::{Digest, Sha256};
 
@@ -563,20 +562,6 @@ fn suggestion_hit_testing_uses_the_exact_rendered_rows_and_width_cap() {
     );
 }
 
-fn title_event(action: TitleAction, text: &str) -> UiEvent {
-    UiEvent::Title(TitleEvent {
-        action,
-        text: Arc::from(text),
-        document: None,
-        fade_in_ticks: 0,
-        stay_ticks: 200,
-        fade_out_ticks: 0,
-        xuid: Arc::from(""),
-        platform_online_id: Arc::from(""),
-        filtered_message: Arc::from(""),
-    })
-}
-
 fn boss_event(
     action: ProtocolBossAction,
     target_entity_id: i64,
@@ -624,32 +609,6 @@ fn bounds_for_color(input: &render::UiRenderInput, color: [u8; 4]) -> Option<[f3
             ]
         },
     ))
-}
-
-fn horizontal_bounds_for_color(input: &render::UiRenderInput, color: [u8; 4]) -> Option<[f32; 2]> {
-    bounds_for_color(input, color).map(|[left, _, right, _]| [left, right])
-}
-
-fn assert_title_and_actionbar_geometry(input: &render::UiRenderInput) {
-    let white = input
-        .vertices
-        .iter()
-        .filter(|vertex| vertex.color == [255; 4])
-        .collect::<Vec<_>>();
-    assert!(
-        white.iter().any(|vertex| {
-            (240.0..=600.0).contains(&vertex.position[0])
-                && (180.0..=204.0).contains(&vertex.position[1])
-        }),
-        "title geometry disappeared while retained overlays changed",
-    );
-    assert!(
-        white.iter().any(|vertex| {
-            (280.0..=640.0).contains(&vertex.position[0])
-                && (510.0..=534.0).contains(&vertex.position[1])
-        }),
-        "actionbar geometry disappeared while retained overlays changed",
-    );
 }
 
 fn chat_event(message: &str) -> UiEvent {
@@ -744,7 +703,7 @@ fn fixture_hud() -> Arc<RuntimeHudCatalog> {
             }
         })
         .collect::<Vec<_>>();
-    let manifest = [0x81; 32];
+    let manifest = assets::HUD_SOURCE_MANIFEST_SHA256;
     let bytes = encode_hud_catalog(manifest, &textures).unwrap();
     Arc::new(RuntimeHudCatalog::decode(&bytes).unwrap())
 }

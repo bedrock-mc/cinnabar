@@ -36,6 +36,7 @@ LOCAL_FONT_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbefont
 LOCAL_FONT_ASSET_REPORT ?= .local/assets/compiled/font-assets.json
 HUD_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbehud
 HUD_ASSET_REPORT ?= .local/assets/compiled/hud-assets.json
+HUD_SOURCE_MANIFEST ?= assets/hud-source-v1001.json
 CINNABAR_CLOUDS_PNG ?=
 CLOUDS_OVERRIDE_PREREQUISITE = FORCE_CINNABAR_CLOUDS_OVERRIDE
 ASSET_COMPILER_INPUTS := Cargo.toml Cargo.lock crates/assets/Cargo.toml crates/asset-compiler/Cargo.toml Makefile $(wildcard crates/assets/src/*.rs) $(wildcard crates/assets/src/*/*.rs) $(wildcard crates/asset-compiler/src/*.rs) $(wildcard crates/asset-compiler/src/*/*.rs) $(wildcard crates/asset-compiler/src/*/*/*.rs)
@@ -50,7 +51,7 @@ ATMOSPHERE_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- atm
 ENTITY_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- entity-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(ENTITY_ASSET_BLOB)" --report "$(ENTITY_ASSET_REPORT)"
 FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- outline-font-assets --font "$(UI_FONT_SOURCE)" --source-manifest "$(UI_FONT_SOURCE_MANIFEST)" --out "$(FONT_ASSET_BLOB)" --report "$(FONT_ASSET_REPORT)"
 LOCAL_FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- font-assets --pack "$(FONT_PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(LOCAL_FONT_ASSET_BLOB)" --report "$(LOCAL_FONT_ASSET_REPORT)"
-HUD_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- hud-assets --pack "$(HUD_PACK_DIR)" --out "$(HUD_ASSET_BLOB)" --report "$(HUD_ASSET_REPORT)"
+HUD_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- hud-assets --pack "$(HUD_PACK_DIR)" --source-manifest "$(HUD_SOURCE_MANIFEST)" --out "$(HUD_ASSET_BLOB)" --report "$(HUD_ASSET_REPORT)"
 
 .PHONY: help assets atmosphere-assets entity-assets font-assets font-assets-local hud-assets-local physics-assets core client client-windows client-macos client-linux client-wayland client-x11 FORCE_CINNABAR_CLOUDS_OVERRIDE
 

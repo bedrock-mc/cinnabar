@@ -1,6 +1,6 @@
 use std::{fs, path::PathBuf};
 
-use assets::{HudTexture, HudTextureRole, encode_hud_catalog};
+use assets::{HUD_SOURCE_MANIFEST_SHA256, HudTexture, HudTextureRole, encode_hud_catalog};
 use bedrock_client::asset_startup::{HUD_ASSETS_COMPILE_COMMAND, hud_asset_path, load_hud_assets};
 use sha2::{Digest, Sha256};
 
@@ -34,7 +34,7 @@ fn fixture_carrier() -> Box<[u8]> {
             }
         })
         .collect::<Vec<_>>();
-    encode_hud_catalog([0x42; 32], &textures)
+    encode_hud_catalog(HUD_SOURCE_MANIFEST_SHA256, &textures)
         .unwrap()
         .into_boxed_slice()
 }
@@ -57,7 +57,10 @@ fn valid_sibling_hud_carrier_loads_with_provenance() {
     fs::write(&hud_path, fixture_carrier()).unwrap();
 
     let loaded = load_hud_assets(&world_assets).unwrap().unwrap();
-    assert_eq!(loaded.runtime().source_manifest_sha256(), [0x42; 32]);
+    assert_eq!(
+        loaded.runtime().source_manifest_sha256(),
+        HUD_SOURCE_MANIFEST_SHA256
+    );
     assert!(
         loaded
             .startup_summary()
@@ -79,6 +82,28 @@ fn malformed_hud_carrier_fails_closed_with_rebuild_command() {
     };
     assert!(error.contains(HUD_ASSETS_COMPILE_COMMAND));
     assert!(error.contains("invalid HUD texture carrier"));
+
+    fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn stale_source_identity_carrier_is_rejected_at_startup() {
+    let directory = temporary_directory("stale-source");
+    let world_assets = directory.join("vanilla-v1001.mcbea");
+    let mut carrier = fixture_carrier().into_vec();
+    carrier[16..48].fill(0x42);
+    let payload_end =
+        usize::try_from(u64::from_le_bytes(carrier[64..72].try_into().unwrap())).unwrap();
+    let envelope_hash = Sha256::digest(&carrier[..payload_end]);
+    carrier[payload_end..].copy_from_slice(&envelope_hash);
+    fs::write(hud_asset_path(&world_assets), carrier).unwrap();
+
+    let error = match load_hud_assets(&world_assets) {
+        Ok(_) => panic!("stale HUD source identity unexpectedly loaded"),
+        Err(error) => error.to_string(),
+    };
+    assert!(error.contains("noncanonical HUD carrier layout"));
+    assert!(error.contains(HUD_ASSETS_COMPILE_COMMAND));
 
     fs::remove_dir_all(directory).unwrap();
 }

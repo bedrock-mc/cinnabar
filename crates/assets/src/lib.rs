@@ -73,8 +73,8 @@ pub use font::{
     encode_font_catalog,
 };
 pub use hud::{
-    HUD_CARRIER_MAGIC, HUD_CARRIER_VERSION, HudCatalogError, HudTexture, HudTextureRole,
-    MAX_HUD_TEXTURE_BYTES, RuntimeHudCatalog, encode_hud_catalog,
+    HUD_CARRIER_MAGIC, HUD_CARRIER_VERSION, HUD_SOURCE_MANIFEST_SHA256, HudCatalogError,
+    HudTexture, HudTextureRole, MAX_HUD_TEXTURE_BYTES, RuntimeHudCatalog, encode_hud_catalog,
 };
 pub use item::{
     BlockVisualId, ItemActionPhase, ItemDisplayScalar, ItemDisplayTransform, ItemIconRef,

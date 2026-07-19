@@ -1,22 +1,25 @@
 use std::sync::Arc;
 
-use assets::RuntimeFontCatalog;
+use assets::{HudTextureRole, RuntimeFontCatalog};
 use ui::{
-    BossBarStore, BossColor, BossOverlay, DisplaySlot, ScoreOwner, ScoreboardStore,
-    TextLayoutCache, TextLayoutRequest, TextStyle, UiNode, UiNodeId, UiScale, UiVisual,
+    BossBarStore, BossColor, DisplaySlot, ScoreOwner, ScoreboardStore, TextLayoutCache,
+    TextLayoutRequest, TextStyle, UiNode, UiNodeId, UiScale, UiVisual,
 };
 
-use super::{UiPresentationError, bounded_visible_text, rect};
+use super::{HudTexturePages, UiPresentationError, bounded_visible_text, rect};
 
-// These bounds keep the first retained renderer deterministic and allocation-bounded. They are
-// provisional presentation values, not protocol-1001 vanilla evidence. Geometry, textures,
-// opacity, and palette remain subject to the pinned native Phase 5 visual acceptance gate.
-pub(super) const SCOREBOARD_WIDTH: f32 = 174.0;
+// Exact classic-profile contracts from the hash-pinned 1.26.3301.0 ui/scoreboards.json.
+pub(super) const SCOREBOARD_MAIN_HORIZONTAL_EXPANSION: f32 = 4.0;
 pub(super) const SCOREBOARD_TEXT_HEIGHT: f32 = 10.0;
+pub(super) const SCOREBOARD_TITLE_BACKGROUND_HEIGHT: f32 = 9.0;
 pub(super) const SCOREBOARD_TITLE_WIDTH: f32 = 170.0;
 pub(super) const SCOREBOARD_NAME_WIDTH: f32 = 100.0;
+pub(super) const SCOREBOARD_LIST_OFFSET: f32 = 10.0;
+pub(super) const SCOREBOARD_HORIZONTAL_PADDING: f32 = 10.0;
 pub(super) const MAX_PRESENTED_SCOREBOARD_ROWS: usize = 15;
 
+// Exact classic-profile contracts from the hash-pinned 1.26.3301.0 ui/hud_screen.json and
+// ui/ui_common.json. The bar images are carried from that same reviewed source identity.
 pub(super) const BOSS_PANEL_WIDTH: f32 = 182.0;
 pub(super) const BOSS_PANEL_HEIGHT: f32 = 20.0;
 pub(super) const BOSS_PROGRESS_HEIGHT: f32 = 5.0;
@@ -42,6 +45,19 @@ pub(super) struct PresentedScoreboardCache {
     projection: Option<PresentedScoreboard>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ScoreboardOpacityAuthority {
+    body: u8,
+    title: u8,
+}
+
+impl ScoreboardOpacityAuthority {
+    #[must_use]
+    pub(super) const fn from_native_alpha_bytes(body: u8, title: u8) -> Self {
+        Self { body, title }
+    }
+}
+
 impl PresentedScoreboardCache {
     pub(super) fn refresh(&mut self, store: &ScoreboardStore) -> Option<&PresentedScoreboard> {
         let revision = store.revision();
@@ -60,7 +76,6 @@ pub(super) struct PresentedBossBar {
     pub(super) progress: [f32; 4],
     pub(super) fill: [f32; 4],
     pub(super) color: [u8; 4],
-    pub(super) notch_x: Vec<f32>,
 }
 
 pub(super) fn project_scoreboard_sidebar(store: &ScoreboardStore) -> Option<PresentedScoreboard> {
@@ -116,10 +131,6 @@ pub(super) fn project_boss_bars(
             let top = BOSS_STACK_TOP + index as f32 * BOSS_PANEL_HEIGHT;
             let progress_top = top + BOSS_PROGRESS_TOP;
             let health = bar.health.clamp(0.0, 1.0);
-            let segments = overlay_segments(bar.style.overlay);
-            let notch_x = (1..segments)
-                .map(|segment| left + BOSS_PANEL_WIDTH * segment as f32 / segments as f32)
-                .collect();
             PresentedBossBar {
                 title: if bar.filtered_title.is_empty() {
                     bar.title
@@ -140,20 +151,9 @@ pub(super) fn project_boss_bars(
                     progress_top + BOSS_PROGRESS_HEIGHT,
                 ],
                 color: boss_color(bar.style.color),
-                notch_x,
             }
         })
         .collect()
-}
-
-const fn overlay_segments(overlay: BossOverlay) -> usize {
-    match overlay {
-        BossOverlay::Progress => 1,
-        BossOverlay::Notched6 => 6,
-        BossOverlay::Notched10 => 10,
-        BossOverlay::Notched12 => 12,
-        BossOverlay::Notched20 => 20,
-    }
 }
 
 const fn boss_color(color: BossColor) -> [u8; 4] {
@@ -169,6 +169,13 @@ const fn boss_color(color: BossColor) -> [u8; 4] {
     }
 }
 
+struct PreparedScoreboardRow {
+    label: Arc<ui::TextLayout>,
+    score: Arc<ui::TextLayout>,
+    label_width: f32,
+    score_width: f32,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn append_scoreboard_nodes(
     nodes: &mut Vec<UiNode>,
@@ -179,34 +186,8 @@ pub(super) fn append_scoreboard_nodes(
     viewport_width: f32,
     viewport_height: f32,
     scoreboard: &PresentedScoreboard,
+    opacity: ScoreboardOpacityAuthority,
 ) -> Result<(), UiPresentationError> {
-    let height = SCOREBOARD_TEXT_HEIGHT * (scoreboard.rows.len().saturating_add(1)) as f32;
-    if viewport_width < SCOREBOARD_WIDTH || viewport_height < height || height <= 0.0 {
-        return Ok(());
-    }
-    let left = viewport_width - SCOREBOARD_WIDTH;
-    let top = (viewport_height - height) * 0.5;
-    let right = viewport_width;
-    let bottom = top + height;
-    nodes.push(
-        UiNode::new(take_node_id(next_id), None, rect(left, top, right, bottom)?).with_visual(
-            UiVisual::Solid {
-                texture_page: solid_texture_page,
-                color: [0, 0, 0, 128],
-            },
-        ),
-    );
-    nodes.push(
-        UiNode::new(
-            take_node_id(next_id),
-            None,
-            rect(left + 2.0, top, right - 2.0, top + SCOREBOARD_TEXT_HEIGHT)?,
-        )
-        .with_visual(UiVisual::Solid {
-            texture_page: solid_texture_page,
-            color: [0, 0, 0, 160],
-        }),
-    );
     let title = layouts
         .layout(TextLayoutRequest {
             text: bounded_visible_text(&scoreboard.title),
@@ -217,23 +198,9 @@ pub(super) fn append_scoreboard_nodes(
         })
         .map_err(UiPresentationError::Text)?;
     let title_width = title.size_64()[0] as f32 / 64.0;
-    let title_left = left + ((SCOREBOARD_WIDTH - title_width) * 0.5).max(2.0);
-    append_clipped_text_node(
-        nodes,
-        next_id,
-        [left + 2.0, top, right - 2.0, top + SCOREBOARD_TEXT_HEIGHT],
-        [
-            title_left,
-            top,
-            (title_left + title_width).min(right - 2.0),
-            top + SCOREBOARD_TEXT_HEIGHT,
-        ],
-        title,
-        [255; 4],
-    )?;
-    for (index, row) in scoreboard.rows.iter().enumerate() {
-        let row_top = top + SCOREBOARD_TEXT_HEIGHT * (index.saturating_add(1)) as f32;
-        let row_bottom = row_top + SCOREBOARD_TEXT_HEIGHT;
+    let mut content_width = title_width;
+    let mut rows = Vec::with_capacity(scoreboard.rows.len());
+    for row in &scoreboard.rows {
         let label = layouts
             .layout(TextLayoutRequest {
                 text: bounded_visible_text(&row.label),
@@ -243,35 +210,87 @@ pub(super) fn append_scoreboard_nodes(
                 font,
             })
             .map_err(UiPresentationError::Text)?;
-        let label_bounds = [
-            left + 2.0,
-            row_top,
-            left + 2.0 + SCOREBOARD_NAME_WIDTH,
-            row_bottom,
-        ];
-        append_clipped_text_node(nodes, next_id, label_bounds, label_bounds, label, [255; 4])?;
         let score = layouts
             .layout(TextLayoutRequest {
                 text: &row.score,
                 style: TextStyle::default(),
-                width_64: (SCOREBOARD_WIDTH * 64.0) as u32,
+                width_64: (SCOREBOARD_TITLE_WIDTH * 64.0) as u32,
                 scale: UiScale::default(),
                 font,
             })
             .map_err(UiPresentationError::Text)?;
+        let label_width = label.size_64()[0] as f32 / 64.0;
         let score_width = score.size_64()[0] as f32 / 64.0;
-        let score_left = (right - 2.0 - score_width).max(left + SCOREBOARD_NAME_WIDTH + 12.0);
+        content_width =
+            content_width.max(label_width + SCOREBOARD_HORIZONTAL_PADDING + score_width);
+        rows.push(PreparedScoreboardRow {
+            label,
+            score,
+            label_width,
+            score_width,
+        });
+    }
+    let width = content_width + SCOREBOARD_MAIN_HORIZONTAL_EXPANSION;
+    let height = SCOREBOARD_LIST_OFFSET + SCOREBOARD_TEXT_HEIGHT * rows.len() as f32;
+    if width <= 0.0 || viewport_width < width || viewport_height < height {
+        return Ok(());
+    }
+    let left = viewport_width - width;
+    let top = (viewport_height - height) * 0.5;
+    let right = viewport_width;
+    nodes.push(solid_node(
+        take_node_id(next_id),
+        [left, top, right, top + height],
+        solid_texture_page,
+        [0, 0, 0, opacity.body],
+    )?);
+    nodes.push(solid_node(
+        take_node_id(next_id),
+        [left, top, right, top + SCOREBOARD_TITLE_BACKGROUND_HEIGHT],
+        solid_texture_page,
+        [0, 0, 0, opacity.title],
+    )?);
+    let title_left = left + (width - title_width) * 0.5;
+    append_clipped_text_node(
+        nodes,
+        next_id,
+        [left, top, right, top + SCOREBOARD_TEXT_HEIGHT],
+        [
+            title_left,
+            top,
+            title_left + title_width,
+            top + SCOREBOARD_TEXT_HEIGHT,
+        ],
+        title,
+        [255; 4],
+    )?;
+    for (index, row) in rows.into_iter().enumerate() {
+        let row_top = top + SCOREBOARD_LIST_OFFSET + SCOREBOARD_TEXT_HEIGHT * index as f32;
+        let row_bottom = row_top + SCOREBOARD_TEXT_HEIGHT;
         append_clipped_text_node(
             nodes,
             next_id,
+            [left + 2.0, row_top, right - 2.0, row_bottom],
             [
-                left + SCOREBOARD_NAME_WIDTH + 12.0,
+                left + 2.0,
+                row_top,
+                left + 2.0 + row.label_width,
+                row_bottom,
+            ],
+            row.label,
+            [255; 4],
+        )?;
+        append_clipped_text_node(
+            nodes,
+            next_id,
+            [left + 2.0, row_top, right - 2.0, row_bottom],
+            [
+                right - 2.0 - row.score_width,
                 row_top,
                 right - 2.0,
                 row_bottom,
             ],
-            [score_left, row_top, right - 2.0, row_bottom],
-            score,
+            row.score,
             [255, 0, 0, 255],
         )?;
     }
@@ -283,7 +302,7 @@ pub(super) fn append_boss_nodes(
     next_id: &mut u32,
     layouts: &mut TextLayoutCache,
     font: &RuntimeFontCatalog,
-    solid_texture_page: u16,
+    textures: &HudTexturePages,
     bars: Vec<PresentedBossBar>,
 ) -> Result<(), UiPresentationError> {
     for bar in bars {
@@ -311,32 +330,47 @@ pub(super) fn append_boss_nodes(
             title,
             [255; 4],
         )?;
-        nodes.push(solid_node(
-            take_node_id(next_id),
-            bar.progress,
-            solid_texture_page,
-            [32, 32, 32, 255],
-        )?);
-        if bar.fill[2] > bar.fill[0] {
-            nodes.push(solid_node(
+        let empty = textures.sprite(HudTextureRole::BossProgressEmpty);
+        nodes.push(
+            UiNode::new(
                 take_node_id(next_id),
-                bar.fill,
-                solid_texture_page,
-                bar.color,
-            )?);
-        }
-        for notch_x in bar.notch_x {
-            nodes.push(solid_node(
-                take_node_id(next_id),
-                [
-                    notch_x - 0.5,
+                None,
+                rect(
+                    bar.progress[0],
                     bar.progress[1],
-                    notch_x + 0.5,
-                    bar.progress[1] + BOSS_PROGRESS_HEIGHT,
-                ],
-                solid_texture_page,
-                [16, 16, 16, 255],
-            )?);
+                    bar.progress[2],
+                    bar.progress[3],
+                )?,
+            )
+            .with_visual(UiVisual::Sprite {
+                texture_page: textures.page,
+                uv: empty.uv,
+                color: [255; 4],
+            }),
+        );
+        if bar.fill[2] > bar.fill[0] {
+            let clip_id = take_node_id(next_id);
+            nodes.push(
+                UiNode::new(
+                    clip_id,
+                    None,
+                    rect(bar.fill[0], bar.fill[1], bar.fill[2], bar.fill[3])?,
+                )
+                .with_clip_children(true),
+            );
+            let filled = textures.sprite(HudTextureRole::BossProgressFilled);
+            nodes.push(
+                UiNode::new(
+                    take_node_id(next_id),
+                    Some(clip_id),
+                    rect(0.0, 0.0, BOSS_PANEL_WIDTH, BOSS_PROGRESS_HEIGHT)?,
+                )
+                .with_visual(UiVisual::Sprite {
+                    texture_page: textures.page,
+                    uv: filled.uv,
+                    color: bar.color,
+                }),
+            );
         }
     }
     Ok(())
