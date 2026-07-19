@@ -454,6 +454,58 @@ impl LocalAvatarPresentation {
             rotation: frame.rotation(),
         });
     }
+
+    /// Publishes the local body from camera/view authority when a completed
+    /// physics frame is unavailable. Rendering perspective is not movement or
+    /// interaction authority: a fail-closed Physics lane must not make the
+    /// third-person body disappear while the session view remains valid.
+    pub fn publish_view_visibility(
+        &self,
+        perspective: PerspectiveMode,
+        eye: Vec3,
+        rotation: Quat,
+        carrier: &mut LocalAvatarVisibilityCarrier,
+    ) {
+        let Some(runtime_id) = self.runtime_id else {
+            carrier.clear();
+            return;
+        };
+        let rotation_length_squared = rotation.length_squared();
+        if self.session_generation == 0
+            || !eye.is_finite()
+            || !rotation.is_finite()
+            || !rotation_length_squared.is_finite()
+            || rotation_length_squared <= f32::EPSILON
+        {
+            carrier.clear();
+            return;
+        }
+        let visible = perspective != PerspectiveMode::FirstPerson;
+        let rotation = rotation.normalize();
+        let prior = carrier.snapshot().filter(|snapshot| {
+            snapshot.session_generation == self.session_generation
+                && snapshot.runtime_id == runtime_id
+        });
+        if prior.is_some_and(|snapshot| {
+            snapshot.visible == visible && snapshot.eye == eye && snapshot.rotation == rotation
+        }) {
+            return;
+        }
+        let pose_generation =
+            prior.map_or(Some(1), |snapshot| snapshot.pose_generation.checked_add(1));
+        let Some(pose_generation) = pose_generation else {
+            carrier.clear();
+            return;
+        };
+        carrier.replace(FrozenLocalAvatarVisibility {
+            session_generation: self.session_generation,
+            runtime_id,
+            pose_generation,
+            visible,
+            eye,
+            rotation,
+        });
+    }
 }
 
 pub fn reset_local_player_session(
