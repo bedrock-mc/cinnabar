@@ -568,6 +568,7 @@ fn append_cuboid(vertices: &mut Vec<ActorVertex>, cuboid: Cuboid, part: u32) {
     let [x1, y1, z1] = cuboid.max;
     let [u, v] = cuboid.uv_origin;
     let [dx, dy, dz] = cuboid.dimensions;
+    let center = Vec3::new((x0 + x1) * 0.5, (y0 + y1) * 0.5, (z0 + z1) * 0.5);
     let faces = [
         (
             [[x1, y0, z0], [x1, y0, z1], [x1, y1, z1], [x1, y1, z0]],
@@ -600,7 +601,20 @@ fn append_cuboid(vertices: &mut Vec<ActorVertex>, cuboid: Cuboid, part: u32) {
         let u1 = (face_u + face_width) / 64.0;
         let v1 = (face_v + face_height) / 64.0;
         let uvs = [[u0, v1], [u1, v1], [u1, v0], [u0, v0]];
-        for index in [0, 1, 2, 0, 2, 3] {
+        // The source quads use face-local corner orders. Normalize every face
+        // to outward winding because the production actor pipeline back-face
+        // culls the authored local-player fallback.
+        let first = Vec3::from_array(positions[0]);
+        let second = Vec3::from_array(positions[1]);
+        let third = Vec3::from_array(positions[2]);
+        let centroid = (first + second + third) / 3.0;
+        let outward = (second - first).cross(third - first).dot(centroid - center) > 0.0;
+        let indices = if outward {
+            [0, 1, 2, 0, 2, 3]
+        } else {
+            [0, 2, 1, 0, 3, 2]
+        };
+        for index in indices {
             vertices.push(ActorVertex {
                 position: positions[index],
                 uv: uvs[index],
@@ -850,5 +864,32 @@ mod tests {
             .map(|vertex| vertex.position[1])
             .fold(f32::NEG_INFINITY, f32::max);
         assert_eq!([min_y, max_y], [0.0, 2.0]);
+    }
+
+    #[test]
+    fn standard_biped_exterior_is_front_facing_for_back_face_culling() {
+        let vertices = standard_biped_vertices();
+        let part_centers = [
+            Vec3::new(0.0, 1.75, 0.0),
+            Vec3::new(0.0, 1.125, 0.0),
+            Vec3::new(-0.375, 1.125, 0.0),
+            Vec3::new(0.375, 1.125, 0.0),
+            Vec3::new(-0.125, 0.375, 0.0),
+            Vec3::new(0.125, 0.375, 0.0),
+        ];
+
+        for triangle in vertices.chunks_exact(3) {
+            let part = triangle[0].part as usize;
+            assert!(triangle.iter().all(|vertex| vertex.part as usize == part));
+            let first = Vec3::from_array(triangle[0].position);
+            let second = Vec3::from_array(triangle[1].position);
+            let third = Vec3::from_array(triangle[2].position);
+            let normal = (second - first).cross(third - first);
+            let centroid = (first + second + third) / 3.0;
+            assert!(
+                normal.dot(centroid - part_centers[part]) > 0.0,
+                "part {part} triangle {triangle:?} must face the cuboid exterior"
+            );
+        }
     }
 }
