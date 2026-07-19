@@ -23,7 +23,8 @@ fn make_client_rebuilds_only_a_missing_or_stale_asset_blob() {
             "$(LIGHT_REGISTRY) $(BIOME_REGISTRY)"
         ),
         "assets: $(ASSET_BLOB)",
-        "client: $(ASSET_BLOB)",
+        "client: assets physics-assets",
+        "\t$(CLIENT_RUN)",
         "--light-registry \"$(LIGHT_REGISTRY)\"",
     ] {
         assert!(
@@ -86,7 +87,6 @@ fn make_assets_and_client_refresh_the_atmosphere_blob_and_report() {
         "\t$(ATMOSPHERE_COMPILE)",
         "atmosphere-assets: $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT)",
         "assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT)",
-        "client: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT)",
         "--source-manifest \"$(VANILLA_SOURCE_MANIFEST)\"",
         "$(if $(strip $(CINNABAR_CLOUDS_PNG)),--clouds-override \"$(CINNABAR_CLOUDS_PNG)\")",
         "--out \"$(ATMOSPHERE_BLOB)\" --report \"$(ATMOSPHERE_REPORT)\"",
@@ -145,7 +145,6 @@ fn make_assets_and_client_refresh_the_entity_carrier_and_report() {
         "$(ENTITY_ASSET_BLOB): $(ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_MANIFEST)",
         "$(ENTITY_ASSET_REPORT): $(ENTITY_ASSET_BLOB)",
         "assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT)",
-        "client: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT)",
     ] {
         assert!(
             makefile.contains(contract),
@@ -206,7 +205,6 @@ fn make_builds_the_pinned_open_font_for_default_launch() {
         "$(FONT_ASSET_BLOB): $(ASSET_COMPILER_INPUTS) $(UI_FONT_SOURCE_MANIFEST) $(UI_FONT_SOURCE)",
         "$(FONT_ASSET_REPORT): $(FONT_ASSET_BLOB)",
         "assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT) $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT)",
-        "client: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT) $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT)",
     ] {
         assert!(
             makefile.contains(contract),
@@ -223,13 +221,8 @@ fn make_builds_the_pinned_open_font_for_default_launch() {
             .split_whitespace()
             .any(|word| word == "font-assets-local")
     );
-    for default_target in ["assets:", "client:"] {
-        let line = makefile
-            .lines()
-            .find(|line| line.starts_with(default_target))
-            .unwrap();
-        assert!(line.contains("FONT_ASSET"));
-    }
+    let assets = makefile.lines().find(|line| line.starts_with("assets:")).unwrap();
+    assert!(assets.contains("FONT_ASSET"));
 }
 
 #[test]
@@ -263,14 +256,9 @@ fn make_builds_the_pinned_official_hud_carrier_for_default_launch() {
             "missing HUD Makefile contract: {contract}"
         );
     }
-    for default_target in ["assets:", "client:"] {
-        let line = makefile
-            .lines()
-            .find(|line| line.starts_with(default_target))
-            .unwrap();
-        assert!(line.contains("$(HUD_ASSET_BLOB)"));
-        assert!(line.contains("$(HUD_ASSET_REPORT)"));
-    }
+    let assets = makefile.lines().find(|line| line.starts_with("assets:")).unwrap();
+    assert!(assets.contains("$(HUD_ASSET_BLOB)"));
+    assert!(assets.contains("$(HUD_ASSET_REPORT)"));
 }
 
 #[test]
@@ -310,6 +298,100 @@ fn make_vanilla_pack_sentinel_reacquires_only_when_missing() {
     fs::remove_file(&sentinel).unwrap();
     run_make_vanilla_assets(root, &assignments);
     assert_eq!(fs::read_to_string(&invocations).unwrap().lines().count(), 2);
+
+    fs::remove_dir_all(temporary).unwrap();
+}
+
+#[test]
+fn make_client_acquires_compiles_all_assets_then_launches() {
+    let make_available = matches!(
+        Command::new("make").arg("--version").output(),
+        Ok(output) if output.status.success()
+    );
+    if !make_available {
+        eprintln!("skipping executable client dependency-order test: `make` is unavailable");
+        return;
+    }
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let temporary = temporary_directory("make-client-assets-order");
+    let pack = temporary.join("resource_pack");
+    let sentinel = pack.join("blocks.json");
+    let log = temporary.join("order.log");
+    fs::create_dir_all(&pack).unwrap();
+
+    let block = fixture_file(&temporary, "block.bin");
+    let light = fixture_file(&temporary, "light.bin");
+    let biome = fixture_file(&temporary, "biome.bin");
+    let font_source = fixture_file(&temporary, "font.ttf");
+    let font_manifest = fixture_file(&temporary, "font-source.json");
+    let physics = fixture_file(&temporary, "physics.bin");
+    let world = temporary.join("world.mcbea");
+    let atmosphere = temporary.join("atmosphere.mcbeatm");
+    let atmosphere_report = temporary.join("atmosphere.json");
+    let entity = temporary.join("entity.mcbeent");
+    let entity_report = temporary.join("entity.json");
+    let font = temporary.join("font.mcbefont");
+    let font_report = temporary.join("font.json");
+    let hud = temporary.join("hud.mcbehud");
+    let hud_report = temporary.join("hud.json");
+
+    let assignments = [
+        "ASSET_COMPILER_INPUTS=".to_owned(),
+        "VANILLA_FETCH_INPUTS=".to_owned(),
+        format!("PACK_DIR={}", make_path(&pack)),
+        format!("PACK_SENTINEL={}", make_path(&sentinel)),
+        format!("BLOCK_REGISTRY={}", make_path(&block)),
+        format!("LIGHT_REGISTRY={}", make_path(&light)),
+        format!("BIOME_REGISTRY={}", make_path(&biome)),
+        format!("ASSET_BLOB={}", make_path(&world)),
+        format!("ATMOSPHERE_BLOB={}", make_path(&atmosphere)),
+        format!("ATMOSPHERE_REPORT={}", make_path(&atmosphere_report)),
+        format!("ENTITY_ASSET_BLOB={}", make_path(&entity)),
+        format!("ENTITY_ASSET_REPORT={}", make_path(&entity_report)),
+        format!("UI_FONT_SOURCE={}", make_path(&font_source)),
+        format!("UI_FONT_SOURCE_MANIFEST={}", make_path(&font_manifest)),
+        format!("FONT_ASSET_BLOB={}", make_path(&font)),
+        format!("FONT_ASSET_REPORT={}", make_path(&font_report)),
+        format!("HUD_ASSET_BLOB={}", make_path(&hud)),
+        format!("HUD_ASSET_REPORT={}", make_path(&hud_report)),
+        format!("PHYSICS_REGISTRY={}", make_path(&physics)),
+        producer_assignment("VANILLA_ASSET_FETCH", "acquire", &log, &[&sentinel]),
+        producer_assignment("WORLD_ASSET_COMPILE", "world", &log, &[&world]),
+        producer_assignment(
+            "ATMOSPHERE_COMPILE",
+            "atmosphere",
+            &log,
+            &[&atmosphere, &atmosphere_report],
+        ),
+        producer_assignment(
+            "ENTITY_ASSET_COMPILE",
+            "entity",
+            &log,
+            &[&entity, &entity_report],
+        ),
+        producer_assignment("FONT_ASSET_COMPILE", "font", &log, &[&font, &font_report]),
+        producer_assignment("HUD_ASSET_COMPILE", "hud", &log, &[&hud, &hud_report]),
+        format!("PHYSICS_REGISTRY_CHECK=echo physics >> \"{}\"", make_path(&log)),
+        format!("CLIENT_RUN=echo launch >> \"{}\"", make_path(&log)),
+    ];
+
+    let output = Command::new("make")
+        .current_dir(root)
+        .args(["-f", "Makefile", "client"])
+        .args(assignments)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "make client failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&log).unwrap().lines().collect::<Vec<_>>(),
+        ["acquire", "world", "atmosphere", "entity", "font", "hud", "physics", "launch"]
+    );
 
     fs::remove_dir_all(temporary).unwrap();
 }
@@ -453,4 +535,18 @@ fn run_make_vanilla_assets(root: &Path, assignments: &[String]) {
 
 fn make_path(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
+}
+
+fn fixture_file(directory: &Path, name: &str) -> PathBuf {
+    let path = directory.join(name);
+    fs::write(&path, b"fixture").unwrap();
+    path
+}
+
+fn producer_assignment(variable: &str, label: &str, log: &Path, outputs: &[&Path]) -> String {
+    let mut command = format!("{variable}=echo {label} >> \"{}\"", make_path(log));
+    for output in outputs {
+        command.push_str(&format!(" && echo generated > \"{}\"", make_path(output)));
+    }
+    command
 }

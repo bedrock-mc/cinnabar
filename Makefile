@@ -49,11 +49,13 @@ VALENTINE_BLOCKS := crates/protocol/vendor/valentine/bedrock_versions/v1_26_30/s
 BLOCK_DATA_FETCH = $(GO) -C tools/registrygen run ./cmd/datafetch -manifest "$(abspath $(BLOCK_DATA_MANIFEST))" -out "$(abspath $(BLOCK_DATA_DIR))"
 PHYSICS_REGISTRY_CHECK = $(GO) -C tools/registrygen run ./cmd/hashcheck -file "$(abspath $(PHYSICS_REGISTRY))" -sha256-file "$(abspath $(PHYSICS_REGISTRY_SHA256))"
 PHYSICS_REGISTRY_COMPILE = $(GO) -C tools/registrygen run . -out "$(abspath $(PHYSICS_BUILD_DIR))/block-registry-v1001.bin" -light-out "$(abspath $(PHYSICS_BUILD_DIR))/block-light-registry-v1001.bin" -light-breg "$(abspath $(BLOCK_REGISTRY))" -physics-out "$(abspath $(PHYSICS_REGISTRY))" -physics-sha-out "$(abspath $(PHYSICS_BUILD_DIR))/block-physics-v1001.sha256" -physics-breg "$(abspath $(BLOCK_REGISTRY))" -pmmp "$(abspath $(BLOCK_DATA_DIR))/pmmp" -prismarine "$(abspath $(BLOCK_DATA_DIR))/prismarine" -valentine-palette "$(abspath $(VALENTINE_PALETTE))" -valentine-blocks "$(abspath $(VALENTINE_BLOCKS))"
+WORLD_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- compile --pack "$(PACK_DIR)" --registry "$(BLOCK_REGISTRY)" --light-registry "$(LIGHT_REGISTRY)" --biome-registry "$(BIOME_REGISTRY)" --out "$(ASSET_BLOB)"
 ATMOSPHERE_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- atmosphere --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" $(if $(strip $(CINNABAR_CLOUDS_PNG)),--clouds-override "$(CINNABAR_CLOUDS_PNG)") --out "$(ATMOSPHERE_BLOB)" --report "$(ATMOSPHERE_REPORT)"
 ENTITY_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- entity-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(ENTITY_ASSET_BLOB)" --report "$(ENTITY_ASSET_REPORT)"
 FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- outline-font-assets --font "$(UI_FONT_SOURCE)" --source-manifest "$(UI_FONT_SOURCE_MANIFEST)" --out "$(FONT_ASSET_BLOB)" --report "$(FONT_ASSET_REPORT)"
 LOCAL_FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- font-assets --pack "$(FONT_PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(LOCAL_FONT_ASSET_BLOB)" --report "$(LOCAL_FONT_ASSET_REPORT)"
 HUD_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- hud-assets --pack "$(HUD_PACK_DIR)" --source-manifest "$(HUD_SOURCE_MANIFEST)" --out "$(HUD_ASSET_BLOB)" --report "$(HUD_ASSET_REPORT)"
+CLIENT_RUN = RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) run --release -p bedrock-client --locked -- --socket-dir "$(SOCKET_DIR)" $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
 
 ifeq ($(OS),Windows_NT)
 VANILLA_ASSET_FETCH = $(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File scripts/fetch-vanilla-assets.ps1 -AcceptEula
@@ -124,7 +126,7 @@ $(PACK_SENTINEL): $(VANILLA_SOURCE_MANIFEST) | $(VANILLA_FETCH_INPUTS)
 	$(VANILLA_ASSET_FETCH)
 
 $(ASSET_BLOB): $(PACK_SENTINEL) $(ASSET_COMPILER_INPUTS) $(BLOCK_REGISTRY) $(LIGHT_REGISTRY) $(BIOME_REGISTRY)
-	$(CARGO) run --locked -p asset-compiler --bin assetc -- compile --pack "$(PACK_DIR)" --registry "$(BLOCK_REGISTRY)" --light-registry "$(LIGHT_REGISTRY)" --biome-registry "$(BIOME_REGISTRY)" --out "$(ASSET_BLOB)"
+	$(WORLD_ASSET_COMPILE)
 
 $(ATMOSPHERE_BLOB): $(ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_MANIFEST) $(CLOUDS_OVERRIDE_PREREQUISITE)
 	$(ATMOSPHERE_COMPILE)
@@ -155,8 +157,8 @@ core:
 	@echo bedrock-core: build starting package=./core/cmd/bedrock-core
 	$(GO) run ./core/cmd/bedrock-core -socket-dir "$(SOCKET_DIR)" -upstream "$(UPSTREAM)" -auth-cache "$(AUTH_CACHE)"
 
-client: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT) $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT) $(HUD_ASSET_BLOB) $(HUD_ASSET_REPORT) physics-assets
-	RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) run --release -p bedrock-client --locked -- --socket-dir "$(SOCKET_DIR)" $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
+client: assets physics-assets
+	$(CLIENT_RUN)
 
 client-windows client-macos client-linux: client
 
