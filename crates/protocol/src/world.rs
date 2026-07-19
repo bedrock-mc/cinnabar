@@ -67,7 +67,17 @@ pub enum PlayerGameMode {
 impl PlayerGameMode {
     #[must_use]
     pub fn from_game_data(game_data: &GameData) -> Self {
-        match game_data.start_game.player_gamemode {
+        let start_game = &game_data.start_game;
+        Self::from_game_modes(start_game.player_gamemode, start_game.world_gamemode)
+    }
+
+    fn from_game_modes(player: GameMode, world: GameMode) -> Self {
+        let effective = if player == GameMode::Fallback {
+            world
+        } else {
+            player
+        };
+        match effective {
             GameMode::Survival => Self::Survival,
             GameMode::Creative => Self::Creative,
             GameMode::Adventure => Self::Adventure,
@@ -86,6 +96,27 @@ impl PlayerGameMode {
     #[must_use]
     pub const fn shows_survival_stats(self) -> bool {
         matches!(self, Self::Survival | Self::Adventure)
+    }
+}
+
+#[cfg(test)]
+mod player_game_mode_tests {
+    use super::{GameMode, PlayerGameMode};
+
+    #[test]
+    fn start_game_fallback_uses_the_authoritative_world_mode() {
+        assert_eq!(
+            PlayerGameMode::from_game_modes(GameMode::Fallback, GameMode::Creative),
+            PlayerGameMode::Creative
+        );
+        assert_eq!(
+            PlayerGameMode::from_game_modes(GameMode::Fallback, GameMode::Survival),
+            PlayerGameMode::Survival
+        );
+        assert_eq!(
+            PlayerGameMode::from_game_modes(GameMode::Unknown(77), GameMode::Creative),
+            PlayerGameMode::Unknown
+        );
     }
 }
 
