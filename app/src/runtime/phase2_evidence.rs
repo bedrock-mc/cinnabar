@@ -42,6 +42,20 @@ pub(crate) fn phase2_publication_line_if_changed(
     ))
 }
 
+pub(crate) fn phase2_publication_timing_line(
+    publication_line: &str,
+    observed_unix_ms: u64,
+) -> String {
+    format!(
+        "RUST_MCBE_PHASE2_TIMING={}",
+        json!({
+            "schema": "rust-mcbe-phase2-timing-v1",
+            "observed_unix_ms": observed_unix_ms,
+            "publication_sha256": format!("{:x}", Sha256::digest(publication_line.as_bytes())),
+        })
+    )
+}
+
 fn combined_snapshot_json(snapshot: CombinedPhase2Snapshot) -> Value {
     let publication = snapshot.publication;
     let presentation = snapshot.presentation;

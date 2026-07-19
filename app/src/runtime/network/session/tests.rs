@@ -464,6 +464,7 @@ async fn chat_send_receipt_is_emitted_only_after_the_session_send_completes() {
             chat: Some(super::ChatPacketSend {
                 session: 7,
                 sequence: 11,
+                fast_transfer_action: None,
             }),
         })
         .unwrap();
@@ -503,6 +504,7 @@ async fn chat_send_failure_identifies_the_exact_outbox_item() {
             chat: Some(super::ChatPacketSend {
                 session: 8,
                 sequence: 12,
+                fast_transfer_action: None,
             }),
         })
         .unwrap();

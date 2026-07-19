@@ -4,12 +4,13 @@ use client_world::{
     RequestClassDepth, RequestQueueEvidence, StageDurations, SubChunkOutcomeCounters,
 };
 use protocol::BlobCacheStats;
+use sha2::{Digest, Sha256};
 use world::ChunkKey;
 
 use crate::runtime::phase2_evidence::{
     CombinedPhase2Snapshot, PlayerColumnPresentationEvidence, generation_manifest_identity,
     graphics_identity_sha256, key_manifest_identity, phase2_publication_line_if_changed,
-    sha256_identity_from_hex_or_text,
+    phase2_publication_timing_line, sha256_identity_from_hex_or_text,
 };
 use render::{VisibilityDiagnosticsInput, VisibilityKeyDigest};
 
@@ -141,6 +142,19 @@ fn combined_snapshot() -> CombinedPhase2Snapshot {
             ..Default::default()
         },
     }
+}
+
+#[test]
+fn phase2_publication_timing_binds_exact_line_hash_and_unix_millis() {
+    let publication = "PHASE2_PUBLICATION={\"publication\":{}}";
+    let marker = phase2_publication_timing_line(publication, 1_000_123);
+    let expected_hash = format!("{:x}", Sha256::digest(publication.as_bytes()));
+    assert_eq!(
+        marker,
+        format!(
+            "RUST_MCBE_PHASE2_TIMING={{\"observed_unix_ms\":1000123,\"publication_sha256\":\"{expected_hash}\",\"schema\":\"rust-mcbe-phase2-timing-v1\"}}"
+        )
+    );
 }
 
 #[test]

@@ -166,12 +166,14 @@ struct QueuedPhysicsSample {
     session_generation: u64,
     snapshot: PlayerAuthInputSnapshot,
     world_identity: WorldCollisionIdentity,
+    evidence: PhysicsTickEvidence,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct PhysicsTickEvidence {
     pub(crate) session_generation: u64,
     pub(crate) tick: u64,
+    pub(crate) network_position: [f32; 3],
     pub(crate) input_mode: PlayerInputMode,
     pub(crate) movement: [f32; 2],
     pub(crate) jump_held: bool,
@@ -318,11 +320,6 @@ impl MovementTicker {
             self.fail_physics_authority(fault);
             return Err(fault);
         }
-        if self.tick_evidence.len() == OUTBOX_CAPACITY {
-            let fault = PhysicsAuthorityFault::OutboxOverflow;
-            self.fail_physics_authority(fault);
-            return Err(fault);
-        }
         if !completed.position.into_iter().all(f32::is_finite)
             || !completed.move_vector.into_iter().all(f32::is_finite)
             || !completed.camera_orientation.into_iter().all(f32::is_finite)
@@ -337,9 +334,10 @@ impl MovementTicker {
         let snapshot = self.snapshot(&completed);
         let jump_started = snapshot.flags.bits() & PlayerInputFlags::START_JUMPING.bits() != 0
             || completed.jump_repeated;
-        self.tick_evidence.push_back(PhysicsTickEvidence {
+        let evidence = PhysicsTickEvidence {
             session_generation: self.session_generation,
             tick: snapshot.tick,
+            network_position: snapshot.position,
             input_mode: snapshot.input_mode,
             movement: snapshot.move_vector,
             jump_held: snapshot.flags.bits() & PlayerInputFlags::JUMP_DOWN.bits() != 0,
@@ -348,11 +346,12 @@ impl MovementTicker {
             jump_started,
             jump_repeated: completed.jump_repeated,
             jump_released: snapshot.flags.bits() & PlayerInputFlags::JUMP_RELEASED_RAW.bits() != 0,
-        });
+        };
         self.outbox.push_back(QueuedPhysicsSample {
             session_generation: self.session_generation,
             snapshot,
             world_identity: completed.world_identity,
+            evidence,
         });
         Ok(())
     }
@@ -649,6 +648,10 @@ pub fn flush_player_auth_inputs<E>(
 
     let mut sent = 0;
     for _ in 0..budget {
+        if ticker.tick_evidence.len() == OUTBOX_CAPACITY {
+            ticker.fail_physics_authority(PhysicsAuthorityFault::OutboxOverflow);
+            break;
+        }
         let Some(sample) = ticker.pop_pending() else {
             break;
         };
@@ -664,6 +667,9 @@ pub fn flush_player_auth_inputs<E>(
             MovementSource::Physics => {
                 ticker.sent_physics_packet_count =
                     ticker.sent_physics_packet_count.saturating_add(1);
+                let mut evidence = sample.evidence;
+                evidence.network_position = sample.snapshot.position;
+                ticker.tick_evidence.push_back(evidence);
             }
             MovementSource::FreeCamera => {
                 ticker.sent_free_camera_packet_count =
@@ -672,11 +678,13 @@ pub fn flush_player_auth_inputs<E>(
         }
         sent += 1;
     }
-    ticker.outbox_reconciliation = if ticker.outbox.is_empty() {
-        MovementOutboxReconciliation::Drained
-    } else {
-        MovementOutboxReconciliation::BudgetDeferred
-    };
+    if ticker.physics_is_authorized() {
+        ticker.outbox_reconciliation = if ticker.outbox.is_empty() {
+            MovementOutboxReconciliation::Drained
+        } else {
+            MovementOutboxReconciliation::BudgetDeferred
+        };
+    }
     Ok(sent)
 }
 

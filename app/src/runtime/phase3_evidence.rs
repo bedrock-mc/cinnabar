@@ -340,6 +340,7 @@ pub(crate) struct Phase3EvidenceFrame {
     pub(crate) physics_tick: u64,
     pub(crate) pose_generation: u64,
     pub(crate) dimension: i32,
+    pub(crate) network_position: [f32; 3],
     pub(crate) input_mode: InputMode,
     pub(crate) perspective: PerspectiveMode,
     pub(crate) camera_blocked: bool,
@@ -363,6 +364,7 @@ impl Phase3EvidenceFrame {
     fn is_valid(self) -> bool {
         self.session_generation != 0
             && self.pose_generation != 0
+            && self.network_position.into_iter().all(f32::is_finite)
             && self
                 .movement
                 .into_iter()
@@ -387,12 +389,13 @@ impl Phase3EvidenceFrame {
         format!(
             "{PHASE3_FRAME}={}",
             serde_json::json!({
-                "schema": "rust-mcbe-phase3-frame-v1",
+                "schema": "rust-mcbe-phase3-frame-v2",
                 "session_generation": self.session_generation,
                 "fifo_sequence": self.fifo_sequence,
                 "physics_tick": self.physics_tick,
                 "pose_generation": self.pose_generation,
                 "dimension": self.dimension,
+                "network_position": self.network_position,
                 "input_mode": input_mode_name(self.input_mode),
                 "perspective": perspective_name(self.perspective),
                 "camera_blocked": self.camera_blocked,
@@ -681,6 +684,7 @@ impl Phase3EvidenceEmitter {
             markers.extend(self.observe(Phase3EvidenceFrame {
                 session_generation: tick.session_generation,
                 physics_tick: tick.tick,
+                network_position: tick.network_position,
                 input_mode: protocol_input_mode(tick.input_mode),
                 movement: tick.movement,
                 jump_held: tick.jump_held,
@@ -733,6 +737,10 @@ impl Phase3EvidenceEmitter {
         let session_generation = identity.session_generation;
         let candidate_physics = identity.candidate_physics;
         let mut markers = self.observe_identity(identity);
+        if !self.pending_corrections.is_empty() {
+            self.pending_corrections.clear();
+            self.record_violation("terminal_pending_correction");
+        }
         let source_name = match source {
             MovementSource::Physics => "Physics",
             MovementSource::FreeCamera => "FreeCamera",
@@ -830,6 +838,7 @@ pub(crate) fn emit_phase3_evidence(
             physics_tick: frame.physics_tick(),
             pose_generation: frame.pose_generation(),
             dimension: stream.current_dimension(),
+            network_position: frame.eye().to_array(),
             input_mode: input.input_mode,
             perspective: frame.perspective(),
             camera_blocked,

@@ -19,7 +19,7 @@ function New-Phase3LaunchPlan {
         [Parameter(Mandatory = $true)][string]$SocketDirectory,
         [Parameter(Mandatory = $true)][string]$MetricsPath,
         [Parameter(Mandatory = $true)][ValidateRange(1, [int]::MaxValue)][int]$DurationSeconds,
-        [Parameter(Mandatory = $true)][ValidateSet('CandidatePhysics', 'FreeCameraSilence')]
+        [Parameter(Mandatory = $true)][ValidateSet('CandidatePhysics', 'FastTransferWitness', 'FreeCameraSilence')]
         [string]$Scenario,
         [string]$AuthCache,
         [string]$Assets
@@ -33,6 +33,17 @@ function New-Phase3LaunchPlan {
     if ($remote -and $DurationSeconds -lt 300) {
         throw "Phase 3 $Target requires at least 300 seconds of live evidence"
     }
+    if ($Scenario -ceq 'FastTransferWitness') {
+        if ($Target -cne 'Lbsg' -or $Endpoint -cne 'play.lbsg.net:19132') {
+            throw 'FastTransferWitness is fixed to the authenticated LBSG endpoint'
+        }
+        if ($DurationSeconds -lt 600) {
+            throw 'FastTransferWitness requires at least 600 seconds for interactive transfer, screenshots, and movement'
+        }
+        if ([string]::IsNullOrWhiteSpace($Assets)) {
+            throw 'FastTransferWitness requires the compiled vanilla asset carrier'
+        }
+    }
     $coreArguments = @('-socket-dir', $SocketDirectory, '-upstream', $Endpoint)
     if ($remote) { $coreArguments += @('-auth-cache', $AuthCache) }
     $appArguments = @(
@@ -41,7 +52,9 @@ function New-Phase3LaunchPlan {
         '--metrics-out', $MetricsPath,
         '--phase3-evidence-target', $Target
     )
-    if ($Scenario -ceq 'CandidatePhysics') { $appArguments += '--phase3-candidate-physics' }
+    if ($Scenario -cin @('CandidatePhysics', 'FastTransferWitness')) {
+        $appArguments += '--phase3-candidate-physics'
+    }
     else { $appArguments += '--auto-fly' }
     if (-not [string]::IsNullOrWhiteSpace($Assets)) { $appArguments += @('--assets', $Assets) }
     return [pscustomobject][ordered]@{
@@ -56,11 +69,87 @@ function New-Phase3LaunchPlan {
 
 function Assert-Phase3CleanTrackedSource {
     param([Parameter(Mandatory = $true)][string]$ProjectRoot)
-    $lines = @(& git -C $ProjectRoot status --porcelain --untracked-files=no)
+    $lines = @(& git -C $ProjectRoot status --porcelain --untracked-files=normal)
     if ($LASTEXITCODE -ne 0) { throw 'failed to inspect Phase 3 source provenance' }
     if ($lines.Count -ne 0) {
-        throw 'Phase 3 candidate evidence refuses a dirty tracked source tree; commit reviewed changes first'
+        throw 'Phase 3 candidate evidence refuses a dirty source tree; commit reviewed changes first'
     }
+}
+
+function Assert-Phase3ExactCleanHead {
+    param(
+        [Parameter(Mandatory = $true)][string]$ProjectRoot,
+        [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedCommit
+    )
+    Assert-Phase3CleanTrackedSource -ProjectRoot $ProjectRoot
+    $actual = (& git -C $ProjectRoot rev-parse HEAD).Trim()
+    if ($LASTEXITCODE -ne 0 -or $actual -cne $ExpectedCommit) {
+        throw "Phase 3 source HEAD changed: expected=$ExpectedCommit actual=$actual"
+    }
+}
+
+function Resolve-Phase3ContainedPath {
+    param(
+        [Parameter(Mandatory = $true)][string]$ProjectRoot,
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][ValidateSet('Local', 'Acceptance')][string]$Scope,
+        [switch]$RequireLeaf
+    )
+    $scopeRelative = if ($Scope -ceq 'Acceptance') { '.local\acceptance' } else { '.local' }
+    $scopeRoot = [IO.Path]::GetFullPath((Join-Path $ProjectRoot $scopeRelative))
+    $candidate = if ([IO.Path]::IsPathRooted($Path)) {
+        [IO.Path]::GetFullPath($Path)
+    }
+    else {
+        [IO.Path]::GetFullPath((Join-Path $ProjectRoot $Path))
+    }
+    $comparison = if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
+        [StringComparison]::OrdinalIgnoreCase
+    }
+    else { [StringComparison]::Ordinal }
+    $prefix = $scopeRoot.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar) +
+        [IO.Path]::DirectorySeparatorChar
+    if (-not $candidate.StartsWith($prefix, $comparison)) {
+        throw "Phase 3 $Scope path escapes its contained root: $candidate"
+    }
+    $scopeCursor = [IO.Path]::GetFullPath($ProjectRoot)
+    $scopePaths = [Collections.Generic.List[string]]::new()
+    $scopePaths.Add($scopeCursor)
+    foreach ($segment in $scopeRelative.Split(@('\', '/'), [StringSplitOptions]::RemoveEmptyEntries)) {
+        $scopeCursor = Join-Path $scopeCursor $segment
+        $scopePaths.Add($scopeCursor)
+    }
+    foreach ($existingScopePath in $scopePaths) {
+        if (Test-Path -LiteralPath $existingScopePath) {
+            $scopeItem = Get-Item -LiteralPath $existingScopePath -Force
+            if (($scopeItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "Phase 3 contained scope crosses a reparse point: $existingScopePath"
+            }
+        }
+    }
+    $cursor = $scopeRoot
+    foreach ($segment in $candidate.Substring($prefix.Length).Split(
+        @([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar),
+        [StringSplitOptions]::RemoveEmptyEntries
+    )) {
+        $cursor = Join-Path $cursor $segment
+        if (Test-Path -LiteralPath $cursor) {
+            $item = Get-Item -LiteralPath $cursor -Force
+            if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "Phase 3 contained path crosses a reparse point: $cursor"
+            }
+        }
+    }
+    if ($RequireLeaf) {
+        if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+            throw "Phase 3 required contained file does not exist: $candidate"
+        }
+        $leaf = Get-Item -LiteralPath $candidate -Force
+        if (($leaf.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Phase 3 required contained file is a reparse point: $candidate"
+        }
+    }
+    return $candidate
 }
 
 function Initialize-Phase3RunDirectory {

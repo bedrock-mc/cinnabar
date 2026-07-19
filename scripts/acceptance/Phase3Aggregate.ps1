@@ -14,8 +14,8 @@ function Write-Phase3FinalAggregate {
     $metadata = Get-Content -Raw -LiteralPath $RunMetadataPath | ConvertFrom-Json
     $metadataFields = @(
         'schema', 'run_id', 'target', 'endpoint', 'bridge_endpoint', 'build_commit', 'source_dirty',
-        'core_sha256', 'app_sha256', 'core_process_id', 'app_process_id', 'app_exit_code', 'core_exit_code',
-        'core_terminated_by_launcher', 'timed_out', 'duration_seconds', 'scenario'
+        'core_sha256', 'app_sha256', 'assets_sha256', 'core_process_id', 'app_process_id', 'app_exit_code', 'core_exit_code',
+        'core_terminated_by_launcher', 'timed_out', 'duration_seconds', 'scenario', 'screenshot_slots'
     )
     Assert-ExactProperties $metadata $metadataFields 'run metadata'
     if ([string]$metadata.schema -cne 'rust-mcbe-phase3-run-v1') {
@@ -54,6 +54,13 @@ function Write-Phase3FinalAggregate {
     }
     if ($metadata.app_sha256 -isnot [string] -or [string]$metadata.app_sha256 -cnotmatch '^[0-9a-f]{64}$') {
         throw 'run metadata app_sha256 is invalid'
+    }
+    if ($null -ne $metadata.assets_sha256 -and
+        ($metadata.assets_sha256 -isnot [string] -or [string]$metadata.assets_sha256 -cnotmatch '^[0-9a-f]{64}$')) {
+        throw 'run metadata assets_sha256 is invalid'
+    }
+    if ($metadata.screenshot_slots -isnot [System.Array]) {
+        throw 'run metadata screenshot_slots must be one JSON array'
     }
     if ($null -ne $metadata.core_exit_code) {
         Assert-Integer $metadata.core_exit_code 'run metadata.core_exit_code' ([int]::MinValue) ([int]::MaxValue)

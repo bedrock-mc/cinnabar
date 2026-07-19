@@ -75,7 +75,7 @@ $identityProperties = @(
 )
 $frameProperties = @(
     'schema', 'session_generation', 'fifo_sequence', 'physics_tick', 'pose_generation',
-    'dimension', 'input_mode', 'perspective', 'camera_blocked', 'camera_fallback',
+    'dimension', 'network_position', 'input_mode', 'perspective', 'camera_blocked', 'camera_fallback',
     'local_avatar_visible', 'movement', 'look_delta', 'jump_held', 'outbound_authorized',
     'outbox_depth', 'outbox_drops', 'free_camera_packet_count', 'grounded_before_tick',
     'grounded_after_tick', 'jump_started', 'jump_repeated', 'jump_released'
@@ -186,6 +186,16 @@ function Assert-Vector2 {
         throw "$Label must contain exactly two numbers"
     }
     for ($index = 0; $index -lt 2; $index++) {
+        Assert-Number $Value[$index] "$Label[$index]" $Minimum $Maximum
+    }
+}
+
+function Assert-Vector3 {
+    param($Value, [string]$Label, [double]$Minimum, [double]$Maximum)
+    if ($Value -isnot [System.Array] -or @($Value).Count -ne 3) {
+        throw "$Label must contain exactly three numbers"
+    }
+    for ($index = 0; $index -lt 3; $index++) {
         Assert-Number $Value[$index] "$Label[$index]" $Minimum $Maximum
     }
 }
@@ -497,7 +507,7 @@ $frames = [Collections.Generic.List[object]]::new()
 for ($index = 0; $index -lt $frameJson.Count; $index++) {
     $label = "frame[$index]"
     $frame = ConvertFrom-ExactMarkerJson $frameJson[$index] $frameProperties $label
-    if ([string]$frame.schema -cne 'rust-mcbe-phase3-frame-v1') { throw "$label schema is unsupported" }
+    if ([string]$frame.schema -cne 'rust-mcbe-phase3-frame-v2') { throw "$label schema is unsupported" }
     Assert-Integer $frame.session_generation "$label.session_generation" 1 ([decimal][uint64]::MaxValue)
     if ([uint64]$frame.session_generation -ne [uint64]$identity.session_generation) {
         throw "$label session does not match the aggregate identity"
@@ -506,6 +516,7 @@ for ($index = 0; $index -lt $frameJson.Count; $index++) {
     Assert-Integer $frame.physics_tick "$label.physics_tick" 0 ([decimal][uint64]::MaxValue)
     Assert-Integer $frame.pose_generation "$label.pose_generation" 1 ([decimal][uint64]::MaxValue)
     Assert-Integer $frame.dimension "$label.dimension" ([int32]::MinValue) ([int32]::MaxValue)
+    Assert-Vector3 $frame.network_position "$label.network_position" -100000000.0 100000000.0
     if ($frame.input_mode -isnot [string] -or
         [string]$frame.input_mode -cnotin @('KeyboardMouse', 'GamePad', 'Touch')) {
         throw "$label.input_mode is unsupported"

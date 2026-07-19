@@ -337,6 +337,7 @@ fn phase3_evidence_is_production_shaped_exact_bounded_and_dimension_correlated()
         physics_tick,
         pose_generation,
         dimension,
+        network_position: [8.0 + physics_tick as f32, 72.62, -4.0],
         input_mode: semantic_input::InputMode::Touch,
         perspective: semantic_input::PerspectiveMode::ThirdPersonFront,
         camera_blocked: false,
@@ -396,10 +397,14 @@ fn phase3_evidence_is_production_shaped_exact_bounded_and_dimension_correlated()
     assert!(first[0].starts_with("RUST_MCBE_PHASE3_FRAME="));
     let json: serde_json::Value =
         serde_json::from_str(first[0].strip_prefix("RUST_MCBE_PHASE3_FRAME=").unwrap()).unwrap();
-    assert_eq!(json.as_object().unwrap().len(), 23);
-    assert_eq!(json["schema"], "rust-mcbe-phase3-frame-v1");
+    assert_eq!(json.as_object().unwrap().len(), 24);
+    assert_eq!(json["schema"], "rust-mcbe-phase3-frame-v2");
     assert_eq!(json["physics_tick"], 41);
     assert_eq!(json["dimension"], 0);
+    assert_eq!(
+        json["network_position"],
+        serde_json::json!([49.0_f32, 72.62_f32, -4.0_f32])
+    );
 
     let duplicate = evidence.observe(frame(41, 102, 0));
     assert_eq!(duplicate.len(), 1);
@@ -433,6 +438,7 @@ fn phase3_evidence_emits_one_frame_for_every_completed_catch_up_tick() {
         physics_tick: 0,
         pose_generation: 101,
         dimension: 0,
+        network_position: [8.0, 72.62, -4.0],
         input_mode: semantic_input::InputMode::KeyboardMouse,
         perspective: semantic_input::PerspectiveMode::FirstPerson,
         camera_blocked: false,
@@ -454,6 +460,7 @@ fn phase3_evidence_emits_one_frame_for_every_completed_catch_up_tick() {
     let ticks = [101, 102, 103].map(|tick| PhysicsTickEvidence {
         session_generation: 7,
         tick,
+        network_position: [8.0, 72.62, tick as f32],
         input_mode: protocol::PlayerInputMode::GamePad,
         movement: [0.0, 1.0],
         jump_held: true,
@@ -500,6 +507,7 @@ fn phase3_correction_evidence_records_only_bounded_successful_replay_and_snap_ou
         physics_tick: 44,
         pose_generation: 101,
         dimension: 0,
+        network_position: [8.0, 72.62, -4.0],
         input_mode: semantic_input::InputMode::KeyboardMouse,
         perspective: semantic_input::PerspectiveMode::FirstPerson,
         camera_blocked: false,
@@ -583,6 +591,7 @@ fn phase3_evidence_fails_closed_on_invalid_or_unauthorized_frames() {
         physics_tick: 1,
         pose_generation: 1,
         dimension: 0,
+        network_position: [8.0, 72.62, -4.0],
         input_mode: semantic_input::InputMode::KeyboardMouse,
         perspective: semantic_input::PerspectiveMode::FirstPerson,
         camera_blocked: false,
@@ -607,6 +616,11 @@ fn phase3_evidence_fails_closed_on_invalid_or_unauthorized_frames() {
     assert!(violation[0].starts_with("RUST_MCBE_PHASE3_VIOLATION="));
 
     for frame in [
+        Phase3EvidenceFrame {
+            movement: [0.0; 2],
+            network_position: [f32::NAN, 72.62, -4.0],
+            ..invalid
+        },
         Phase3EvidenceFrame {
             movement: [0.0; 2],
             outbound_authorized: false,
@@ -638,6 +652,7 @@ fn phase3_invalid_correction_and_non_monotonic_tick_emit_durable_violations() {
         physics_tick: tick,
         pose_generation: tick + 1,
         dimension: 0,
+        network_position: [8.0, 72.62, tick as f32],
         input_mode: semantic_input::InputMode::KeyboardMouse,
         perspective: semantic_input::PerspectiveMode::FirstPerson,
         camera_blocked: false,
@@ -758,6 +773,46 @@ fn phase3_terminal_binds_candidate_and_free_camera_packet_silence() {
 }
 
 #[test]
+fn phase3_terminal_fails_closed_when_a_correction_has_no_following_frame() {
+    let identity = Phase3EvidenceIdentity::new(
+        "0123456789abcdef0123456789abcdef01234567",
+        crate::args::Phase3Target::Bds,
+        7,
+        [0x11; 32],
+        [0x22; 32],
+        true,
+    )
+    .unwrap();
+    let mut evidence = Phase3EvidenceEmitter::default();
+    evidence.note_correction(PhysicsCorrectionOutcome::Snapped { tick: 44 }, 1.25);
+
+    let markers = evidence.observe_terminal(
+        identity,
+        MovementSource::Physics,
+        3,
+        0,
+        0,
+        MovementOutboxReconciliation::Drained,
+    );
+
+    assert!(markers.iter().any(|marker| {
+        marker.starts_with("RUST_MCBE_PHASE3_VIOLATION=")
+            && marker.contains("terminal_pending_correction")
+    }));
+    assert!(
+        markers
+            .iter()
+            .all(|marker| !marker.starts_with("RUST_MCBE_PHASE3_EVENT="))
+    );
+    assert!(
+        markers
+            .last()
+            .unwrap()
+            .starts_with("RUST_MCBE_PHASE3_TERMINAL=")
+    );
+}
+
+#[test]
 fn phase3_authority_fault_evidence_survives_deauthorization_and_is_bounded() {
     let fault = |next_tick| PhysicsAuthorityFaultRecord {
         session_generation: 7,
@@ -792,6 +847,7 @@ fn phase3_evidence_producer_stays_bounded_after_record_limits() {
         physics_tick,
         pose_generation: physics_tick + 1,
         dimension: 0,
+        network_position: [8.0, 72.62, physics_tick as f32],
         input_mode: semantic_input::InputMode::KeyboardMouse,
         perspective: semantic_input::PerspectiveMode::FirstPerson,
         camera_blocked: false,

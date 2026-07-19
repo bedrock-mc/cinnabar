@@ -8,6 +8,7 @@ pub mod presentation;
 pub mod render_adapter;
 mod scoreboard_adapter;
 
+pub use interaction::FastTransferAction;
 pub use interaction::{ChatFlushError, flush_chat_sends};
 #[cfg(test)]
 use interaction::{

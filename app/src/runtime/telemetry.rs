@@ -559,6 +559,17 @@ pub(crate) fn record_metrics_and_title(
         ) {
             let mut stdout = std::io::stdout().lock();
             write_stdout_marker(&mut stdout, &marker);
+            let observed_unix_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| u64::try_from(duration.as_millis()).unwrap_or(u64::MAX))
+                .unwrap_or(0);
+            write_stdout_marker(
+                &mut stdout,
+                &crate::runtime::phase2_evidence::phase2_publication_timing_line(
+                    &marker,
+                    observed_unix_ms,
+                ),
+            );
         }
     }
     if let Some(stream) = client_world.stream.as_ref() {

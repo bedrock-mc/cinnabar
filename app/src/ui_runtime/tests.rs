@@ -794,8 +794,10 @@ fn fifo_flush_retries_backpressure_and_confirms_only_accepted_packets() {
     runtime.insert_chat_text("two").unwrap();
     runtime.queue_chat_send(500).unwrap();
 
-    let error =
-        flush_chat_sends(&mut runtime, 8, |_session, _sequence, _packet| Err("full")).unwrap_err();
+    let error = flush_chat_sends(&mut runtime, 8, |_session, _sequence, _action, _packet| {
+        Err("full")
+    })
+    .unwrap_err();
     assert_eq!(error, ChatFlushError::Transport("full"));
     assert_eq!(runtime.pending_chat_sends().len(), 2);
 
@@ -805,9 +807,10 @@ fn fifo_flush_retries_backpressure_and_confirms_only_accepted_packets() {
     ];
     let mut sent = 0usize;
     assert_eq!(
-        flush_chat_sends(&mut runtime, 8, |session, sequence, packet| {
+        flush_chat_sends(&mut runtime, 8, |session, sequence, action, packet| {
             assert_eq!(session, 9);
             assert_eq!(sequence, sent as u64);
+            assert_eq!(action, None);
             assert_eq!(packet, expected[sent]);
             sent += 1;
             Ok::<_, &str>(())
@@ -822,7 +825,7 @@ fn fifo_flush_retries_backpressure_and_confirms_only_accepted_packets() {
         flush_chat_sends(
             &mut runtime,
             8,
-            |_session, _sequence, _packet| -> Result<(), &str> {
+            |_session, _sequence, _action, _packet| -> Result<(), &str> {
                 panic!("an in-flight chat packet cannot be enqueued twice")
             }
         )
@@ -833,8 +836,9 @@ fn fifo_flush_retries_backpressure_and_confirms_only_accepted_packets() {
     assert!(runtime.acknowledge_chat_send(9, 0));
 
     assert_eq!(
-        flush_chat_sends(&mut runtime, 8, |session, sequence, packet| {
+        flush_chat_sends(&mut runtime, 8, |session, sequence, action, packet| {
             assert_eq!((session, sequence), (9, 1));
+            assert_eq!(action, None);
             assert_eq!(packet, expected[1]);
             sent += 1;
             Ok::<_, &str>(())
@@ -845,6 +849,27 @@ fn fifo_flush_retries_backpressure_and_confirms_only_accepted_packets() {
     assert_eq!(sent, 2);
     assert!(runtime.acknowledge_chat_send(9, 1));
     assert!(runtime.pending_chat_sends().is_empty());
+}
+
+#[test]
+fn fast_transfer_action_is_exact_and_carries_session_ordinal_identity() {
+    let mut runtime = UiRuntime::new(7);
+    runtime.set_chat_identity(Arc::from("Alex"), Arc::from("xuid"));
+    runtime.insert_chat_text("/transfer sm3").unwrap();
+    runtime.queue_chat_send(0).unwrap();
+
+    let mut observed = None;
+    flush_chat_sends(&mut runtime, 1, |session, sequence, action, _packet| {
+        observed = action.map(|action| action.marker(session, sequence, 1_000_000));
+        Ok::<_, &str>(())
+    })
+    .unwrap();
+    assert_eq!(
+        observed.as_deref(),
+        Some(
+            "RUST_MCBE_FAST_TRANSFER_ACTION={\"action_ordinal\":0,\"command\":\"/transfer sm3\",\"kind\":\"command_sent\",\"schema\":\"rust-mcbe-fast-transfer-action-v1\",\"sent_unix_ms\":1000000,\"session_generation\":7}"
+        )
+    );
 }
 
 #[test]

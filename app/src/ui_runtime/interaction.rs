@@ -24,10 +24,43 @@ pub enum ChatFlushError<E> {
     SessionChanged { expected: u64, actual: u64 },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FastTransferAction {
+    TransferSm3,
+}
+
+impl FastTransferAction {
+    fn classify(message: &str) -> Option<Self> {
+        (message == "/transfer sm3").then_some(Self::TransferSm3)
+    }
+
+    pub(crate) fn marker(
+        self,
+        session_generation: u64,
+        action_ordinal: u64,
+        sent_unix_ms: u64,
+    ) -> String {
+        let command = match self {
+            Self::TransferSm3 => "/transfer sm3",
+        };
+        format!(
+            "RUST_MCBE_FAST_TRANSFER_ACTION={}",
+            serde_json::json!({
+                "schema": "rust-mcbe-fast-transfer-action-v1",
+                "kind": "command_sent",
+                "session_generation": session_generation,
+                "action_ordinal": action_ordinal,
+                "command": command,
+                "sent_unix_ms": sent_unix_ms,
+            })
+        )
+    }
+}
+
 pub fn flush_chat_sends<E>(
     runtime: &mut UiRuntime,
     budget: usize,
-    mut send: impl FnMut(u64, u64, Packet) -> Result<(), E>,
+    mut send: impl FnMut(u64, u64, Option<FastTransferAction>, Packet) -> Result<(), E>,
 ) -> Result<usize, ChatFlushError<E>> {
     if budget == 0 || runtime.in_flight_chat_send().is_some() {
         return Ok(0);
@@ -47,7 +80,13 @@ pub fn flush_chat_sends<E>(
             .front_chat_packet()
             .map_err(ChatFlushError::Packet)?
             .expect("the pending front was observed above");
-        send(request.session, sequence, packet).map_err(ChatFlushError::Transport)?;
+        send(
+            request.session,
+            sequence,
+            FastTransferAction::classify(&request.message),
+            packet,
+        )
+        .map_err(ChatFlushError::Transport)?;
         let enqueued = runtime.mark_chat_send_enqueued(request.session, sequence);
         debug_assert!(
             enqueued,
@@ -64,8 +103,8 @@ pub(crate) fn flush_chat_network(
     mut client_world: ResMut<crate::runtime::world::ClientWorld>,
 ) {
     runtime.service_pending_chat_autocomplete();
-    match flush_chat_sends(&mut runtime, 8, |session, sequence, packet| {
-        network.send_chat_packet(session, sequence, packet)
+    match flush_chat_sends(&mut runtime, 8, |session, sequence, action, packet| {
+        network.send_chat_packet(session, sequence, action, packet)
     }) {
         Ok(_)
         | Err(ChatFlushError::Transport(crate::runtime::network::PacketSendError::Full(_))) => {}

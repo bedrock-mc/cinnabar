@@ -36,9 +36,10 @@ Describe 'Phase 3 production marker evidence validation' {
         }
         $script:Frames = @(
             [ordered]@{
-                schema = 'rust-mcbe-phase3-frame-v1'; session_generation = 7; fifo_sequence = 40
+                schema = 'rust-mcbe-phase3-frame-v2'; session_generation = 7; fifo_sequence = 40
                 physics_tick = 41; pose_generation = 101; dimension = 0; input_mode = 'KeyboardMouse'
                 perspective = 'FirstPerson'; movement = @(0.0, 1.0); look_delta = @(0.0, 0.0)
+                network_position = @(0.0, 72.62, 0.0)
                 camera_blocked = $false; camera_fallback = $false; local_avatar_visible = $false
                 jump_held = $true; outbound_authorized = $true; outbox_depth = 1; outbox_drops = 0
                 free_camera_packet_count = 0
@@ -46,9 +47,10 @@ Describe 'Phase 3 production marker evidence validation' {
                 jump_started = $true; jump_repeated = $false; jump_released = $false
             },
             [ordered]@{
-                schema = 'rust-mcbe-phase3-frame-v1'; session_generation = 7; fifo_sequence = 41
+                schema = 'rust-mcbe-phase3-frame-v2'; session_generation = 7; fifo_sequence = 41
                 physics_tick = 42; pose_generation = 102; dimension = 0; input_mode = 'GamePad'
                 perspective = 'ThirdPersonBack'; movement = @(0.0, 1.0); look_delta = @(0.5, -0.25)
+                network_position = @(0.0, 72.62, 0.25)
                 camera_blocked = $true; camera_fallback = $false; local_avatar_visible = $true
                 jump_held = $true; outbound_authorized = $true; outbox_depth = 2; outbox_drops = 0
                 free_camera_packet_count = 0
@@ -56,9 +58,10 @@ Describe 'Phase 3 production marker evidence validation' {
                 jump_started = $true; jump_repeated = $true; jump_released = $false
             },
             [ordered]@{
-                schema = 'rust-mcbe-phase3-frame-v1'; session_generation = 7; fifo_sequence = 42
+                schema = 'rust-mcbe-phase3-frame-v2'; session_generation = 7; fifo_sequence = 42
                 physics_tick = 43; pose_generation = 103; dimension = 1; input_mode = 'Touch'
                 perspective = 'ThirdPersonFront'; movement = @(-0.25, 0.75); look_delta = @(-0.5, 0.25)
+                network_position = @(64.0, 80.62, 64.0)
                 camera_blocked = $false; camera_fallback = $true; local_avatar_visible = $true
                 jump_held = $false; outbound_authorized = $true; outbox_depth = 0; outbox_drops = 0
                 free_camera_packet_count = 0
@@ -66,9 +69,10 @@ Describe 'Phase 3 production marker evidence validation' {
                 jump_started = $false; jump_repeated = $false; jump_released = $true
             },
             [ordered]@{
-                schema = 'rust-mcbe-phase3-frame-v1'; session_generation = 7; fifo_sequence = 43
+                schema = 'rust-mcbe-phase3-frame-v2'; session_generation = 7; fifo_sequence = 43
                 physics_tick = 44; pose_generation = 104; dimension = 1; input_mode = 'Touch'
                 perspective = 'FirstPerson'; movement = @(0.0, 0.5); look_delta = @(0.0, 0.0)
+                network_position = @(64.0, 80.62, 64.25)
                 camera_blocked = $false; camera_fallback = $false; local_avatar_visible = $false
                 jump_held = $false; outbound_authorized = $true; outbox_depth = 0; outbox_drops = 0
                 free_camera_packet_count = 0
@@ -76,9 +80,10 @@ Describe 'Phase 3 production marker evidence validation' {
                 jump_started = $false; jump_repeated = $false; jump_released = $false
             },
             [ordered]@{
-                schema = 'rust-mcbe-phase3-frame-v1'; session_generation = 7; fifo_sequence = 44
+                schema = 'rust-mcbe-phase3-frame-v2'; session_generation = 7; fifo_sequence = 44
                 physics_tick = 45; pose_generation = 105; dimension = 1; input_mode = 'KeyboardMouse'
                 perspective = 'FirstPerson'; movement = @(0.5, 0.5); look_delta = @(0.0, 0.0)
+                network_position = @(64.5, 80.62, 64.75)
                 camera_blocked = $false; camera_fallback = $false; local_avatar_visible = $false
                 jump_held = $false; outbound_authorized = $true; outbox_depth = 0; outbox_drops = 0
                 free_camera_packet_count = 0
@@ -139,10 +144,10 @@ Describe 'Phase 3 production marker evidence validation' {
             schema = 'rust-mcbe-phase3-run-v1'; run_id = $script:RunId; target = 'Bds'
             endpoint = $script:Endpoint; build_commit = $script:BuildCommit; source_dirty = $false
             bridge_endpoint = $script:BridgeEndpoint
-            core_sha256 = $script:CoreSha256; app_sha256 = $script:AppSha256
+            core_sha256 = $script:CoreSha256; app_sha256 = $script:AppSha256; assets_sha256 = $null
             core_process_id = 41; app_process_id = 42; app_exit_code = 0; core_exit_code = $null
             core_terminated_by_launcher = $true; timed_out = $false; duration_seconds = 60
-            scenario = 'CandidatePhysics'
+            scenario = 'CandidatePhysics'; screenshot_slots = @()
         }
         $script:Metrics = [ordered]@{
             session_seconds = 60.0; frame_count = 3600; p50_frame_ms = 16.0; p95_frame_ms = 18.0
@@ -320,9 +325,26 @@ Describe 'Phase 3 production marker evidence validation' {
         $launcher | Should Match 'target\\debug\\bedrock-client'
         $launcher | Should Not Match "'build', '--release'"
         $launcher | Should Match "'build', '--locked', '-p', 'bedrock-client'"
-        $launcher | Should Match 'Resolve-Phase2ContainedPath'
+        $launcher | Should Match 'Resolve-Phase3ContainedPath'
         $launcher | Should Match '-AuthCache \$authCacheFull'
         $launcher | Should Match '-ScenarioManifestPath \$scenarioManifestPath'
+    }
+
+    It 'rejects an untracked source file when proving a clean candidate HEAD' {
+        $repository = Join-Path $script:TempRoot 'untracked-source-repository'
+        New-Item -ItemType Directory -Path $repository | Out-Null
+        & git -C $repository init --quiet
+        if ($LASTEXITCODE -ne 0) { throw 'failed to initialize test repository' }
+        & git -C $repository config user.email 'phase3-test@example.invalid'
+        & git -C $repository config user.name 'Phase 3 Test'
+        Set-Content -LiteralPath (Join-Path $repository 'tracked.txt') -Value tracked
+        & git -C $repository add tracked.txt
+        & git -C $repository commit --quiet -m initial
+        if ($LASTEXITCODE -ne 0) { throw 'failed to commit test repository' }
+
+        { Assert-Phase3CleanTrackedSource -ProjectRoot $repository } | Should Not Throw
+        Set-Content -LiteralPath (Join-Path $repository 'build.rs') -Value 'fn main() {}'
+        { Assert-Phase3CleanTrackedSource -ProjectRoot $repository } | Should Throw
     }
 
     It 'creates a missing Phase 3 run directory' {
@@ -696,6 +718,11 @@ Describe 'Phase 3 production marker evidence validation' {
     It 'rejects a string-coerced number field as the only changed condition' {
         $script:Frames[1].movement = @('0.0', 1.0)
         (Invoke-Validator (Write-MarkerLog 'type-number.log')).ExitCode | Should Not Be 0
+    }
+
+    It 'rejects a string-coerced network position as the only changed condition' {
+        $script:Frames[1].network_position = @('0.0', 72.62, 0.25)
+        (Invoke-Validator (Write-MarkerLog 'type-network-position.log')).ExitCode | Should Not Be 0
     }
 
     It 'rejects a string-coerced boolean field as the only changed condition' {

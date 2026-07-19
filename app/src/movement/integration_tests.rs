@@ -454,7 +454,7 @@ fn completed_physics_ticks_enqueue_exact_positions_ticks_modes_and_edges() {
 }
 
 #[test]
-fn multi_tick_catch_up_exposes_every_completed_tick_to_evidence_before_send() {
+fn multi_tick_catch_up_exposes_only_successfully_sent_ticks_to_evidence() {
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
     let frame = physics.advance_with_context(
@@ -475,6 +475,11 @@ fn multi_tick_catch_up_exposes_every_completed_tick_to_evidence_before_send() {
         ticker.enqueue_completed_physics(sample).unwrap();
     }
 
+    assert!(ticker.take_tick_evidence().is_empty());
+    assert_eq!(
+        flush_player_auth_inputs(&mut ticker, 8, |_packet| Ok::<_, &str>(())),
+        Ok(3)
+    );
     let evidence = ticker.take_tick_evidence();
     assert_eq!(
         evidence
@@ -507,16 +512,10 @@ fn catch_up_evidence_cursor_does_not_repeat_restored_full_retry_ticks() {
     for sample in catch_up.samples {
         ticker.enqueue_completed_physics(sample).unwrap();
     }
-    assert_eq!(
-        ticker
-            .take_tick_evidence()
-            .iter()
-            .map(|sample| sample.tick)
-            .collect::<Vec<_>>(),
-        [101, 102, 103]
-    );
+    assert!(ticker.take_tick_evidence().is_empty());
     let full = flush_player_auth_inputs(&mut ticker, 8, |_packet| Err("full")).unwrap_err();
     assert!(matches!(full, MovementSendError::Transport("full")));
+    assert!(ticker.take_tick_evidence().is_empty());
 
     let next = physics.advance_with_context(
         Duration::from_millis(50),
@@ -530,12 +529,16 @@ fn catch_up_evidence_cursor_does_not_repeat_restored_full_retry_ticks() {
         .unwrap();
 
     assert_eq!(
+        flush_player_auth_inputs(&mut ticker, 8, |_packet| Ok::<_, &str>(())),
+        Ok(4)
+    );
+    assert_eq!(
         ticker
             .take_tick_evidence()
             .iter()
             .map(|sample| sample.tick)
             .collect::<Vec<_>>(),
-        [104]
+        [101, 102, 103, 104]
     );
     assert!(ticker.take_tick_evidence().is_empty());
 }

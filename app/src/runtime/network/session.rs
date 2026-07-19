@@ -13,6 +13,8 @@ use protocol::{
 use tokio::sync::{mpsc, watch};
 use world::ChunkKey;
 
+use crate::{acceptance::mutation::write_stdout_marker, ui_runtime::FastTransferAction};
+
 pub(crate) const WORLD_EVENT_CAPACITY: usize = 32;
 const CONTROL_EVENT_CAPACITY: usize = 64;
 const COMMAND_CAPACITY: usize = 64;
@@ -90,6 +92,7 @@ struct SubChunkRequestSend {
 struct ChatPacketSend {
     session: u64,
     sequence: u64,
+    fast_transfer_action: Option<FastTransferAction>,
 }
 
 #[derive(Debug)]
@@ -163,9 +166,18 @@ impl NetworkHandle {
         &self,
         session: u64,
         sequence: u64,
+        fast_transfer_action: Option<FastTransferAction>,
         packet: Packet,
     ) -> Result<(), PacketSendError> {
-        self.send_packet_with_confirmation(packet, None, Some(ChatPacketSend { session, sequence }))
+        self.send_packet_with_confirmation(
+            packet,
+            None,
+            Some(ChatPacketSend {
+                session,
+                sequence,
+                fast_transfer_action,
+            }),
+        )
     }
 
     pub fn send_sub_chunk_request(
@@ -448,6 +460,19 @@ async fn run_network_pump<S: NetworkSession>(
                             }
                         }
                         Some(Ok(())) => {
+                            if let Some(marker) = chat.and_then(|chat| {
+                                chat.fast_transfer_action.map(|action| {
+                                    let sent_unix_ms = std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .map(|duration| {
+                                            u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+                                        })
+                                        .unwrap_or(0);
+                                    action.marker(chat.session, chat.sequence, sent_unix_ms)
+                                })
+                            }) {
+                                write_stdout_marker(&mut std::io::stdout().lock(), &marker);
+                            }
                             if let Some(sub_chunk) = sub_chunk {
                                 let sent_at = Instant::now();
                                 if !send_control_event_or_cancel(
