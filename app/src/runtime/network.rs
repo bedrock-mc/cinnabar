@@ -36,7 +36,7 @@ use crate::{
         InteractionOriginSnapshot, LocalAvatarPresentation, LocalAvatarVisibilityCarrier,
         LocalPlayerFrameCarrier, LocalPlayerFrameReset, LocalViewPose, reset_local_player_session,
     },
-    movement::{MovementSource, PhysicsAuthorityGate},
+    movement::{LocalPhysicsController, MovementSource, PhysicsAuthorityGate},
     presentation::actors::{
         actor_rig_presentation, local_actor_presentation_for_visibility,
         local_diagnostic_presentation, select_actor_presentations_for_view, update_actor_rig_scene,
@@ -86,6 +86,7 @@ pub(crate) struct ActorPresentationState<'w, 's> {
     local_visibility: ResMut<'w, LocalAvatarVisibilityCarrier>,
     settings: Res<'w, CameraSettingsAuthority>,
     view: Res<'w, LocalViewPose>,
+    local_physics: Res<'w, LocalPhysicsController>,
     witness: Res<'w, ActorRuntimeWitness>,
     camera: Query<'w, 's, (&'static Transform, &'static Projection), With<FlyCamera>>,
 }
@@ -99,14 +100,28 @@ pub(crate) struct ActorFrameStep {
 pub(crate) fn publish_local_actor_visibility(
     avatar: &LocalAvatarPresentation,
     perspective: semantic_input::PerspectiveMode,
-    eye: bevy::prelude::Vec3,
+    authoritative_subject_eye: Option<bevy::prelude::Vec3>,
     rotation: bevy::prelude::Quat,
     carrier: &mut LocalAvatarVisibilityCarrier,
 ) {
-    // The camera boom and the local body must share one live subject pose.
-    // LocalPlayerFrameCarrier is an immutable interaction/network sample and
-    // can legitimately lag the view across correction and perspective frames.
-    avatar.publish_view_visibility(perspective, eye, rotation, carrier);
+    // LocalViewPose may contain the collision-resolved, boomed camera eye in
+    // third person. The body instead follows the live physics/server subject;
+    // the frozen interaction frame can legitimately lag both authorities.
+    let Some(subject_eye) = authoritative_subject_eye else {
+        carrier.clear();
+        return;
+    };
+    avatar.publish_view_visibility(perspective, subject_eye, rotation, carrier);
+}
+
+pub(crate) fn authoritative_local_actor_eye(
+    predicted_eye: Option<[f32; 3]>,
+    resolved_server_network_position: Option<[f32; 3]>,
+) -> Option<bevy::prelude::Vec3> {
+    predicted_eye
+        .or(resolved_server_network_position)
+        .map(bevy::prelude::Vec3::from_array)
+        .filter(|eye| eye.is_finite())
 }
 
 #[derive(Debug, Default)]
@@ -738,6 +753,7 @@ pub(crate) fn publish_actor_render_frame(
         mut local_visibility,
         settings,
         view,
+        local_physics,
         witness,
         camera,
     } = presentation;
@@ -754,10 +770,17 @@ pub(crate) fn publish_actor_render_frame(
     if let Some(stream) = client_world.stream.as_mut() {
         stream.advance_actor_interpolation_ticks(step.ticks);
     }
+    let authoritative_subject_eye = authoritative_local_actor_eye(
+        local_physics.render_eye_position(),
+        client_world
+            .stream
+            .as_ref()
+            .map(|stream| stream.resolved_server_position().position),
+    );
     publish_local_actor_visibility(
         &avatar,
         settings.perspective(),
-        view.eye_translation(),
+        authoritative_subject_eye,
         view.rotation(),
         &mut local_visibility,
     );
