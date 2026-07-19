@@ -1774,6 +1774,20 @@ targets. The current text/panel renderer is an incomplete scaffold until
 server/resource-pack font glyphs, the complete HUD, and native/live comparison
 gates below are green.
 
+**Bounded native HUD tranche (2026-07-19):** the protocol-1001 carrier and
+retained presentation now provide provenance-pinned health, hunger, armor, air,
+hotbar, selected-slot, chat, and scoreboard data paths. Survival geometry is
+bottom-centered across the tested Windows window sizes, uses the pinned
+`hud_screen.json` cap alpha, and fails closed when the carrier is absent or the
+viewport cannot contain the fixed-scale bar. This does not complete Phase 5:
+automatic vanilla GUI-scale selection is still unimplemented (the owned
+Windows classic profile remains pinned to logical scale 2), nonstandard
+attribute maxima remain hidden until stacked/compressed-row authority is
+implemented, held item stacks are not drawn in the hotbar, and scoreboard/boss
+surfaces remain fail-closed until their full native authority is owned. The
+normal/maximized native WGC comparison and live third-party checks remain part
+of the 5.7 gate.
+
 - [ ] **5.1 Bedrock UI foundation.** `P5.1-UI` Create `crates/ui`, ingest the pinned pack's bitmap
   fonts/glyph metrics, implement bounded formatting-code-aware text layout, UI scaling/safe
   areas, focus/navigation, mouse/touch/controller input, and a shared retained draw pipeline.
