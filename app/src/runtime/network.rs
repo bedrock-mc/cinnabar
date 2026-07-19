@@ -85,6 +85,8 @@ pub(crate) struct ActorPresentationState<'w, 's> {
     avatar: Res<'w, LocalAvatarPresentation>,
     local_frame: Res<'w, LocalPlayerFrameCarrier>,
     local_visibility: ResMut<'w, LocalAvatarVisibilityCarrier>,
+    settings: Res<'w, CameraSettingsAuthority>,
+    view: Res<'w, LocalViewPose>,
     camera: Query<'w, 's, (&'static Transform, &'static Projection), With<FlyCamera>>,
 }
 
@@ -722,6 +724,8 @@ pub(crate) fn publish_actor_render_frame(
         avatar,
         local_frame,
         mut local_visibility,
+        settings,
+        view,
         camera,
     } = presentation;
     let session_id = client_world
@@ -740,7 +744,12 @@ pub(crate) fn publish_actor_render_frame(
     if let Some(local_frame) = local_frame.snapshot() {
         avatar.publish_visibility(local_frame, &mut local_visibility);
     } else {
-        local_visibility.clear();
+        avatar.publish_view_visibility(
+            settings.perspective(),
+            view.eye_translation(),
+            view.rotation(),
+            &mut local_visibility,
+        );
     }
     let cull_view = camera
         .single()

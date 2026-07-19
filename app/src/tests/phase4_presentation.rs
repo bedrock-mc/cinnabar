@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use assets::EntityRigFallback;
-use bevy::math::{Mat4, Vec3};
+use bevy::math::{Mat4, Quat, Vec3};
 use client_world::{
     ActorLifetimeId, ActorPose, ActorRigSnapshot, ActorSnapshot, BoneTransform, EntityRigId,
     PlayerProfile,
@@ -14,6 +14,10 @@ use render::{
 };
 use semantic_input::PerspectiveMode;
 
+use crate::local_player::{
+    LocalAvatarPresentation, LocalAvatarVisibilityCarrier, LocalPlayerFrameCarrier,
+};
+use crate::movement::{MovementSource, PhysicsAuthorityGate};
 use crate::presentation::actors::{
     ActorRigPresentation, actor_rig_presentation, local_actor_presentation_for_visibility,
     local_diagnostic_presentation, select_actor_presentations, select_actor_presentations_for_view,
@@ -308,4 +312,77 @@ fn visible_local_is_reserved_even_when_the_world_frustum_excludes_its_body() {
 
     assert_eq!(frame.rig.instances.len(), 1);
     assert_eq!(frame.rig.manifest[0].identity.runtime_id, 7);
+}
+
+#[test]
+fn third_person_local_fallback_reaches_the_render_manifest_without_a_physics_frame() {
+    assert_eq!(
+        PhysicsAuthorityGate::ProductionDisabled.authorize(false, true),
+        Ok(MovementSource::FreeCamera)
+    );
+    let local_frame = LocalPlayerFrameCarrier::default();
+    assert!(local_frame.snapshot().is_none());
+
+    let mut no_identity = LocalAvatarPresentation::default();
+    no_identity.begin_session(7, 0);
+    let mut visibility = LocalAvatarVisibilityCarrier::default();
+    no_identity.publish_view_visibility(
+        PerspectiveMode::ThirdPersonBack,
+        Vec3::new(3.0, 65.62, -2.0),
+        Quat::IDENTITY,
+        &mut visibility,
+    );
+    assert!(visibility.snapshot().is_none());
+
+    let mut avatar = LocalAvatarPresentation::default();
+    avatar.begin_session(7, 42);
+    for (perspective, expected_draws) in [
+        (PerspectiveMode::FirstPerson, 0),
+        (PerspectiveMode::ThirdPersonBack, 1),
+        (PerspectiveMode::ThirdPersonFront, 1),
+    ] {
+        avatar.publish_view_visibility(
+            perspective,
+            Vec3::new(3.0, 65.62, -2.0),
+            Quat::IDENTITY,
+            &mut visibility,
+        );
+        let snapshot = visibility
+            .snapshot()
+            .copied()
+            .expect("valid session view publishes without Physics authority");
+        assert_eq!(snapshot.visible(), expected_draws != 0);
+
+        let mut position = snapshot.eye();
+        position.y -= crate::local_player::LOCAL_AVATAR_EYE_HEIGHT_BLOCKS;
+        let local = local_diagnostic_presentation(
+            9,
+            0,
+            snapshot.runtime_id(),
+            snapshot.pose_generation(),
+            position.to_array(),
+            0.0,
+            0.0,
+        )
+        .expect("view-backed local visibility converts to a diagnostic rig");
+        let batch = select_actor_presentations(42, snapshot.visible(), Some(local), []);
+        let mut scene = ActorRenderScene::default();
+        let frame = update_actor_rig_scene(&mut scene, 0.5, batch);
+
+        assert_eq!(frame.rig.instances.len(), expected_draws);
+        assert_eq!(frame.rig.manifest.len(), expected_draws);
+        if expected_draws != 0 {
+            assert_eq!(frame.rig.manifest[0].identity.runtime_id, 42);
+            assert_eq!(frame.rig.manifest[0].route, ActorRigRoute::Diagnostic);
+            assert_eq!(frame.skins_rgba8.len(), STANDARD_SKIN_BYTES);
+        }
+    }
+
+    avatar.publish_view_visibility(
+        PerspectiveMode::ThirdPersonBack,
+        Vec3::NAN,
+        Quat::IDENTITY,
+        &mut visibility,
+    );
+    assert!(visibility.snapshot().is_none());
 }
