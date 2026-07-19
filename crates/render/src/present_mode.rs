@@ -5,13 +5,14 @@ use std::sync::{
 
 use bevy::{
     app::{App, Plugin},
+    ecs::schedule::SystemSet,
     prelude::Resource,
     render::RenderApp,
     window::PresentMode,
 };
 #[cfg(target_os = "windows")]
 use bevy::{
-    ecs::{entity::Entity, schedule::SystemSet, system::Local},
+    ecs::{entity::Entity, system::Local},
     prelude::{IntoScheduleConfigs, Res},
     render::{
         Render, RenderSystems,
@@ -157,7 +158,6 @@ impl Plugin for Dx12PresentModePolicyPlugin {
     }
 }
 
-#[cfg(target_os = "windows")]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, SystemSet)]
 pub(crate) struct PresentModePolicySet;
 
