@@ -9,6 +9,7 @@ use protocol::{
     ScoreIdentity as ProtocolScoreIdentity, TextCategory, TextEvent, TextKind, UiEvent,
 };
 use sha2::{Digest, Sha256};
+use ui::BoundedStat;
 
 use super::*;
 use crate::ui_runtime::SequencedUiEvent;
@@ -84,6 +85,16 @@ fn selected_hotbar_slot_uses_local_authority_and_exact_pack_sprite_geometry() {
         .unwrap();
     assert_eq!(active.vertices.len(), 12 * 4);
     assert_eq!(active.batches.len(), 1);
+    assert!(
+        active.vertices[..4]
+            .iter()
+            .all(|vertex| vertex.color == [255, 255, 255, 166])
+    );
+    assert!(
+        active.vertices[10 * 4..11 * 4]
+            .iter()
+            .all(|vertex| vertex.color == [255, 255, 255, 166])
+    );
     let selected = &active.vertices[11 * 4..12 * 4];
     let (top, bottom) = vertical_bounds(selected);
     assert_eq!([top, bottom], [645.0, 717.0]);
@@ -96,6 +107,44 @@ fn selected_hotbar_slot_uses_local_authority_and_exact_pack_sprite_geometry() {
         .map(|vertex| vertex.position[0])
         .fold(f32::NEG_INFINITY, f32::max);
     assert_eq!([left, right], [361.0, 433.0]);
+}
+
+#[test]
+fn fixed_scale_hotbar_fails_closed_before_it_can_overflow_a_narrow_viewport() {
+    let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
+    let mut runtime = UiRuntime::new(1);
+    runtime.retain_local_selected_equipment(
+        7,
+        protocol::EquipmentEvent {
+            actor_runtime_id: 42,
+            stack: protocol::NetworkItemStack::empty(),
+            inventory_slot: 0,
+            selected_slot: 0,
+            window_id: 0,
+            handedness: None,
+        },
+    );
+
+    let input = presentation
+        .build(&runtime, 0, [320, 720], DpiScale::new(1.0).unwrap())
+        .unwrap();
+    assert!(input.vertices.is_empty());
+    assert!(input.indices.is_empty());
+    assert!(input.batches.is_empty());
+}
+
+#[test]
+fn nonstandard_health_maximum_fails_closed_until_vanilla_row_authority_is_owned() {
+    let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
+    let mut runtime = UiRuntime::new(1);
+    runtime.hud.set_health(BoundedStat::new(30, 30));
+
+    let input = presentation
+        .build(&runtime, 0, [1280, 720], DpiScale::new(1.5).unwrap())
+        .unwrap();
+    assert!(input.vertices.is_empty());
+    assert!(input.indices.is_empty());
+    assert!(input.batches.is_empty());
 }
 
 #[test]
