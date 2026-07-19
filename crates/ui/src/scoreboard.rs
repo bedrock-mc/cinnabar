@@ -168,6 +168,7 @@ struct StoredScore {
 
 #[derive(Clone, Debug, Default)]
 pub struct ScoreboardStore {
+    revision: u64,
     last_sequence: Option<u64>,
     objectives: BTreeMap<Arc<str>, ObjectiveState>,
     slots: BTreeMap<DisplaySlot, Arc<str>>,
@@ -178,7 +179,13 @@ pub struct ScoreboardStore {
 
 impl ScoreboardStore {
     pub fn clear(&mut self) {
+        let revision = self.revision.saturating_add(1);
         *self = Self::default();
+        self.revision = revision;
+    }
+
+    pub const fn revision(&self) -> u64 {
+        self.revision
     }
 
     pub fn objective_count(&self) -> usize {
@@ -231,6 +238,9 @@ impl ScoreboardStore {
             ScoreboardEvent::Scores { action, entries } => self.apply_scores(action, &entries),
         };
         self.last_sequence = Some(sequence);
+        if result == RetainedUiApply::Applied {
+            self.revision = self.revision.saturating_add(1);
+        }
         Ok(result)
     }
 
@@ -247,14 +257,50 @@ impl ScoreboardStore {
     }
 
     pub fn projection(&self, slot: DisplaySlot) -> Option<ScoreboardProjection> {
+        self.projection_bounded(slot, MAX_SCORES, |_| true)
+    }
+
+    pub fn projection_bounded(
+        &self,
+        slot: DisplaySlot,
+        maximum_rows: usize,
+        mut include: impl FnMut(&ScoreOwner) -> bool,
+    ) -> Option<ScoreboardProjection> {
         let objective_name = self.slots.get(&slot)?;
         let objective = self.objectives.get(objective_name)?;
         if matches!(objective.sort_order, ScoreSortOrder::Unsupported(_)) {
             return None;
         }
-        let mut rows = objective
+        let maximum_rows = maximum_rows.min(MAX_SCORES);
+        let mut selected =
+            Vec::<(&i64, &StoredScore)>::with_capacity(maximum_rows.min(objective.scores.len()));
+        for (entry_id, score) in objective
             .scores
             .iter()
+            .filter(|(_, score)| include(&score.owner))
+        {
+            let position = selected
+                .binary_search_by(|candidate| {
+                    let (selected_id, selected_score) = *candidate;
+                    compare_scores(
+                        objective.sort_order,
+                        *selected_id,
+                        selected_score,
+                        *entry_id,
+                        score,
+                    )
+                })
+                .unwrap_or_else(|position| position);
+            if position >= maximum_rows {
+                continue;
+            }
+            if selected.len() == maximum_rows {
+                selected.pop();
+            }
+            selected.insert(position, (entry_id, score));
+        }
+        let rows = selected
+            .into_iter()
             .map(|(entry_id, score)| ScoreRow {
                 identity: ScoreIdentity {
                     objective_name: Arc::clone(objective_name),
@@ -263,15 +309,7 @@ impl ScoreboardStore {
                 score: score.score,
                 owner: score.owner.clone(),
             })
-            .collect::<Vec<_>>();
-        rows.sort_by(|left, right| {
-            let score_order = match objective.sort_order {
-                ScoreSortOrder::Ascending => left.score.cmp(&right.score),
-                ScoreSortOrder::Descending => right.score.cmp(&left.score),
-                ScoreSortOrder::Unsupported(_) => Ordering::Equal,
-            };
-            score_order.then_with(|| left.identity.entry_id.cmp(&right.identity.entry_id))
-        });
+            .collect();
         Some(ScoreboardProjection {
             slot,
             objective_name: Arc::clone(objective_name),
@@ -496,6 +534,21 @@ impl ScoreboardStore {
         self.retained_text_bytes = next_text_bytes;
         RetainedUiApply::Applied
     }
+}
+
+fn compare_scores(
+    sort_order: ScoreSortOrder,
+    left_id: i64,
+    left: &StoredScore,
+    right_id: i64,
+    right: &StoredScore,
+) -> Ordering {
+    let score_order = match sort_order {
+        ScoreSortOrder::Ascending => left.score.cmp(&right.score),
+        ScoreSortOrder::Descending => right.score.cmp(&left.score),
+        ScoreSortOrder::Unsupported(_) => Ordering::Equal,
+    };
+    score_order.then_with(|| left_id.cmp(&right_id))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
