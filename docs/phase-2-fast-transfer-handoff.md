@@ -7,6 +7,7 @@ Status: implementation and local verification complete; independent review and n
 - `a7d8a90` — provisionally rebase publisher retention for a genuine local `MovePlayer::Teleport` whose destination is outside the active scope. Purge the old resident/request/retry/deadline cohort, accept destination request-mode `LevelChunk` work before `NetworkChunkPublisherUpdate`, and retain only compatible destination work when the authoritative publisher update arrives.
 - `9aae607`, `e654431`, `e176b9a`, `81a0e69` — fail closed on publisher-epoch exhaustion, intersect provisional membership with the authoritative clamped active scope, cover late transport acknowledgement and negative movement boundaries, and keep tests within repository architecture limits.
 - `0ab5be1` — stable bounded `RequestClass` scheduling: `PlayerRetry`, `PlayerInitial`, `VisibleRetry`, `VisibleInitial`, `PrefetchRetry`, `PrefetchInitial`; squared horizontal distance within a class; original queue sequence for ties and unsent transport restoration; bounded aging after 16 bypasses.
+- `c4ed5a9` — retain absolute resend precedence for an unsent transport retry and hard-bound unconfirmed popped ordering metadata to the 64-slot outbound ceiling.
 
 The request player column is derived only from the last finite camera position supplied to `WorldStream::poll`. A non-finite poll does not replace it. Reservations continue to block later ready work until their FIFO event is prepared. Semantic retries preserve their exact chunk/Y/count, retry-attempt, transport-pending, sent-ack, and timeout ownership.
 
@@ -21,7 +22,7 @@ The request player column is derived only from the last finite camera position s
 
 ## Verification
 
-- `cargo test -p client-world --locked` — passed (229 passed, 1 ignored, plus 11 entity-runtime and 14 item-action integration tests).
+- `cargo test -p client-world --locked` — passed (231 passed, 1 ignored, plus 11 entity-runtime and 14 item-action integration tests).
 - `cargo clippy -p client-world --locked --all-targets -- -D warnings` — passed.
 - `cargo run -p architecture --locked -- check --root . --policy tools/architecture/policy.toml` — passed.
 - `cargo fmt --all -- --check` and `git diff --check` — passed.
