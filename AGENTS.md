@@ -85,12 +85,13 @@ unless the request authorizes changes.
 | Independent reviewer | `gpt-5.6-sol` | `high` | Use after implementation for architecture, correctness, protocol, concurrency, performance, security, and player-visible review. `medium` is sufficient for routine low-risk review. |
 | Read-only explorer | `gpt-5.6-luna` | `high` | Use for repository mapping, targeted research, dependency tracing, test/log triage, and other bounded read-only investigations. Return concise evidence to a Sol agent; do not make shipping edits or give final approval. |
 | Mechanical read-only worker | `gpt-5.6-luna` | `medium` | Use for inventories, classification, extraction, and repetitive scans with an explicit output schema. Escalate on ambiguity. |
-| Evaluation-only alternative | `gpt-5.6-terra` | task-specific | Terra is not a default. Use it only in a controlled repository bakeoff that shows a material wall-clock, quota, or completion-rate advantage over Luna at the same acceptance bar. |
 
 - The normal starting topology is one Sol-medium coordinator, zero to two
   isolated Sol-medium writers, zero to two Luna read-only workers, and one
   fresh Sol-high reviewer after the writing tranche. Do not spawn every slot
   merely because it is available.
+- Do not route work to `gpt-5.6-terra`. If Luna misses the acceptance bar,
+  escalate directly to Sol instead of adding a middle tier.
 - These are defaults, not ceilings. If a worker misses the contract, produces
   weak evidence, or fails validation, rerun or redo the work with Sol or a
   higher supported reasoning effort without asking. Escalation is cheaper than
