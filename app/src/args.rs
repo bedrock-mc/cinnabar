@@ -16,6 +16,7 @@ Options:
   --metrics-warmup-seconds <N> Exclude the first N timed-session seconds from frame metrics
   --metrics-sample-seconds <N> Freeze frame metrics after N post-warmup seconds
   --auto-fly                   Fly the camera automatically for acceptance
+  --vsync                      Force FIFO presentation and disable driver workarounds
   --no-vsync                   Use immediate presentation when supported
   --frame-cap <FPS>            Cap acceptance updates to 1-1000 FPS
   --full-view-teleport-gate    Measure a dedicated no-overlap teleport
@@ -70,6 +71,7 @@ pub struct ClientArgs {
     pub metrics_warmup_seconds: u64,
     pub metrics_sample_seconds: Option<u64>,
     pub auto_fly: bool,
+    pub force_vsync: bool,
     pub no_vsync: bool,
     pub frame_cap: Option<u32>,
     pub full_view_teleport_gate: bool,
@@ -91,6 +93,7 @@ impl Default for ClientArgs {
             metrics_warmup_seconds: 0,
             metrics_sample_seconds: None,
             auto_fly: false,
+            force_vsync: false,
             no_vsync: false,
             frame_cap: None,
             full_view_teleport_gate: false,
@@ -135,6 +138,9 @@ pub enum ArgsError {
     #[error("--display-name cannot be empty")]
     EmptyDisplayName,
 
+    #[error("--vsync and --no-vsync cannot be used together")]
+    ConflictingVsyncFlags,
+
     #[error("--phase3-evidence-target must be one of Bds, Lunar, Zeqa, or Lbsg, got {0:?}")]
     InvalidPhase3Target(String),
 
@@ -165,6 +171,7 @@ impl ClientArgs {
             match argument.to_str() {
                 Some("-h" | "--help") => return Ok(ParseOutcome::Help),
                 Some("--auto-fly") => parsed.auto_fly = true,
+                Some("--vsync") => parsed.force_vsync = true,
                 Some("--no-vsync") => parsed.no_vsync = true,
                 Some("--full-view-teleport-gate") => parsed.full_view_teleport_gate = true,
                 Some("--require-transparent-presentation") => {
@@ -270,6 +277,9 @@ impl ClientArgs {
         if parsed.phase3_candidate_physics && parsed.phase3_evidence_target.is_none() {
             return Err(ArgsError::Phase3CandidateRequiresEvidence);
         }
+        if parsed.force_vsync && parsed.no_vsync {
+            return Err(ArgsError::ConflictingVsyncFlags);
+        }
         if parsed.phase3_evidence_target.is_some()
             && (parsed.acceptance_seconds.is_none() || parsed.metrics_out.is_none())
         {
@@ -303,6 +313,7 @@ mod tests {
         assert_eq!(args.metrics_warmup_seconds, 0);
         assert_eq!(args.metrics_sample_seconds, None);
         assert!(!args.auto_fly);
+        assert!(!args.force_vsync);
         assert!(!args.no_vsync);
         assert_eq!(args.frame_cap, None);
         assert!(!args.full_view_teleport_gate);
@@ -399,6 +410,15 @@ mod tests {
     }
 
     #[test]
+    fn parses_explicit_vsync_override() {
+        let ParseOutcome::Run(args) = ClientArgs::parse_from(["client", "--vsync"]).unwrap() else {
+            panic!("expected run args")
+        };
+        assert!(args.force_vsync);
+        assert!(!args.no_vsync);
+    }
+
+    #[test]
     fn help_documents_all_acceptance_flags() {
         assert_eq!(
             ClientArgs::parse_from(["client", "--help"]).unwrap(),
@@ -412,6 +432,8 @@ mod tests {
             "--metrics-warmup-seconds",
             "--metrics-sample-seconds",
             "--auto-fly",
+            "--vsync",
+            "--no-vsync",
             "--frame-cap",
             "--full-view-teleport-gate",
             "--require-transparent-presentation",
@@ -429,6 +451,10 @@ mod tests {
             Err(ArgsError::MissingValue {
                 flag: "--socket-dir"
             })
+        ));
+        assert!(matches!(
+            ClientArgs::parse_from(["client", "--vsync", "--no-vsync"]),
+            Err(ArgsError::ConflictingVsyncFlags)
         ));
         assert!(matches!(
             ClientArgs::parse_from(["client", "--acceptance-seconds", "0"]),

@@ -14,9 +14,9 @@ fn graphics_runtime_metadata_waits_for_extracted_diagnostics_before_surface_prob
     let source = CHUNK_RENDERER_SOURCE.replace("\r\n", "\n");
     assert!(
         source.contains(
-            "publish_graphics_runtime_metadata\n                        .after(RenderSystems::ExtractCommands)\n                        .before(bevy::render::view::window::create_surfaces)"
+            "publish_graphics_runtime_metadata\n                        .after(RenderSystems::ExtractCommands)\n                        .after(crate::present_mode::PresentModePolicySet)\n                        .before(bevy::render::view::window::create_surfaces)"
         ),
-        "the metadata probe consumes an ExtractResource and must run after deferred extraction commands but before Bevy creates the surface"
+        "the metadata probe must wait for extracted diagnostics and present-mode policy resolution before Bevy creates the surface"
     );
 }
 

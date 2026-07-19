@@ -7,6 +7,7 @@ mod atmosphere_render;
 mod chunk;
 mod cloud_config;
 mod cloud_render;
+mod present_mode;
 mod ui;
 mod ui_render;
 mod visibility_diagnostics;
@@ -68,6 +69,10 @@ pub use cloud_config::{
     CloudCalibrationError, CloudCalibrationHarness, CloudCalibrationRecord, CloudCalibrationReport,
     CloudCoverageSemantics, CloudGeometryDiagnostic, CloudGeometryDiagnosticError,
     CloudMatchingView, CloudQuality, CloudRenderConfig,
+};
+pub use present_mode::{
+    Dx12PresentModePolicy, Dx12PresentModePolicyPlugin, PresentModePreference, PresentModeRemedy,
+    resolve_dx12_present_mode_remedy,
 };
 pub use ui::{
     MAX_UI_BATCHES, MAX_UI_DRAW_BYTES, MAX_UI_INDICES, MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_LAYERS,

@@ -5,6 +5,7 @@ mod environment;
 pub mod local_player;
 pub mod metrics;
 pub mod movement;
+mod present_mode;
 pub mod semantic_controls;
 pub mod settings_runtime;
 pub mod ui_runtime;
