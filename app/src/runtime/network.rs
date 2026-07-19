@@ -15,8 +15,8 @@ use client_world::{ActorSnapshot, PlayerProfile};
 use client_world::{SAFE_SERVER_HEIGHT, WorldStream};
 use protocol::WorldEvent;
 use render::{
-    ActorCullView, ActorRenderFrame, ActorRenderScene, ChunkUploadAcknowledgements,
-    MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
+    ActorCullView, ActorMainWitness, ActorRenderFrame, ActorRenderScene, ActorRuntimeWitness,
+    ChunkUploadAcknowledgements, MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
 };
 #[cfg(test)]
 use render::{ActorRenderSource, ActorSkinPixels};
@@ -87,6 +87,7 @@ pub(crate) struct ActorPresentationState<'w, 's> {
     local_visibility: ResMut<'w, LocalAvatarVisibilityCarrier>,
     settings: Res<'w, CameraSettingsAuthority>,
     view: Res<'w, LocalViewPose>,
+    witness: Res<'w, ActorRuntimeWitness>,
     camera: Query<'w, 's, (&'static Transform, &'static Projection), With<FlyCamera>>,
 }
 
@@ -726,6 +727,7 @@ pub(crate) fn publish_actor_render_frame(
         mut local_visibility,
         settings,
         view,
+        witness,
         camera,
     } = presentation;
     let session_id = client_world
@@ -791,34 +793,33 @@ pub(crate) fn publish_actor_render_frame(
             )
         })
         .unwrap_or((0, 0, 0, Vec::new(), None));
-    let (local_visible, local) = local_visibility
-        .snapshot()
-        .map_or((false, None), |visibility| {
-            if visibility.runtime_id() != local_runtime_id {
-                return (false, None);
-            }
-            let (yaw, pitch, _) = visibility.rotation().to_euler(bevy::math::EulerRot::YXZ);
-            let yaw_degrees = (180.0 - yaw.to_degrees()).rem_euclid(360.0);
-            let pitch_degrees = -pitch.to_degrees();
-            let mut position = visibility.eye();
-            position.y -= crate::local_player::LOCAL_AVATAR_EYE_HEIGHT_BLOCKS;
-            let diagnostic = local_diagnostic_presentation(
-                actor_session_id,
-                dimension,
-                visibility.runtime_id(),
-                visibility.pose_generation(),
-                position.to_array(),
-                yaw_degrees,
-                pitch_degrees,
-            );
-            let local = local_actor_presentation_for_visibility(
-                local_runtime_id,
-                visibility.runtime_id(),
-                canonical_local,
-                diagnostic,
-            );
-            (visibility.visible(), local)
-        });
+    let visibility_snapshot = local_visibility.snapshot().copied();
+    let (local_visible, local) = visibility_snapshot.map_or((false, None), |visibility| {
+        if visibility.runtime_id() != local_runtime_id {
+            return (false, None);
+        }
+        let (yaw, pitch, _) = visibility.rotation().to_euler(bevy::math::EulerRot::YXZ);
+        let yaw_degrees = (180.0 - yaw.to_degrees()).rem_euclid(360.0);
+        let pitch_degrees = -pitch.to_degrees();
+        let mut position = visibility.eye();
+        position.y -= crate::local_player::LOCAL_AVATAR_EYE_HEIGHT_BLOCKS;
+        let diagnostic = local_diagnostic_presentation(
+            actor_session_id,
+            dimension,
+            visibility.runtime_id(),
+            visibility.pose_generation(),
+            position.to_array(),
+            yaw_degrees,
+            pitch_degrees,
+        );
+        let local = local_actor_presentation_for_visibility(
+            local_runtime_id,
+            visibility.runtime_id(),
+            canonical_local,
+            diagnostic,
+        );
+        (visibility.visible(), local)
+    });
     let batch = select_actor_presentations_for_view(
         local_runtime_id,
         local_visible,
@@ -826,7 +827,25 @@ pub(crate) fn publish_actor_render_frame(
         remotes,
         cull_view,
     );
+    let selected_count = batch.submissions.len();
     *frame = update_actor_rig_scene(&mut scene, step.partial_tick, batch).clone();
+    witness.observe_main(ActorMainWitness {
+        local_snapshot: visibility_snapshot.is_some(),
+        local_visible,
+        expected_runtime_id: local_runtime_id,
+        visibility_runtime_id: visibility_snapshot.map_or(0, |snapshot| snapshot.runtime_id()),
+        selected_count,
+        local_route: frame
+            .rig
+            .manifest
+            .iter()
+            .find(|entry| entry.identity.runtime_id == local_runtime_id)
+            .map(|entry| entry.route),
+        frame_instances: frame.rig.instances.len(),
+        frame_manifest: frame.rig.manifest.len(),
+        skin_bytes: frame.skins_rgba8.len(),
+        rejects: frame.rig.rejects,
+    });
 }
 
 pub(crate) mod session;

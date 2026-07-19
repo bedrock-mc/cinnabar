@@ -19,16 +19,17 @@ use meshing::{
 
 pub use actor::{
     ACTOR_BONE_MATRIX_BYTES, ActorCullView, ActorDrawFrame, ActorDrawManifestEntry,
-    ActorGpuInstance, ActorPresentationGate, ActorPresentedFrameAck, ActorRenderFrame,
-    ActorRenderIdentity, ActorRenderInstance, ActorRenderScene, ActorRenderSource,
-    ActorRigFrameBuilder, ActorRigGeometry, ActorRigGeometryError, ActorRigGeometrySpan,
-    ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission,
-    ActorRigVertex, ActorSkinPixels, DEFAULT_SKIN_PROVENANCE, EntityRigId,
-    MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS,
-    MAX_ACTOR_RENDER_DISTANCE_BLOCKS, MAX_ACTOR_RIG_VERTICES, MAX_RENDER_BONES_PER_ACTOR,
-    MAX_RENDERED_PLAYERS, RenderBoneTransform, STANDARD_BIPED_VERTEX_COUNT, STANDARD_SKIN_BYTES,
-    STANDARD_SKIN_SIDE, actor_rig_submission_is_visible, default_actor_skin_rgba8,
-    normalize_actor_skin, standard_biped_vertices,
+    ActorGpuInstance, ActorMainWitness, ActorPresentationGate, ActorPresentedFrameAck,
+    ActorRenderFrame, ActorRenderIdentity, ActorRenderInstance, ActorRenderScene,
+    ActorRenderSource, ActorRigFrameBuilder, ActorRigGeometry, ActorRigGeometryError,
+    ActorRigGeometrySpan, ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute,
+    ActorRigSubmission, ActorRigVertex, ActorRuntimeWitness, ActorSkinPixels,
+    DEFAULT_SKIN_PROVENANCE, EntityRigId, MAX_ACTOR_BONE_ARENA_BYTES,
+    MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS, MAX_ACTOR_RENDER_DISTANCE_BLOCKS, MAX_ACTOR_RIG_VERTICES,
+    MAX_RENDER_BONES_PER_ACTOR, MAX_RENDERED_PLAYERS, RenderBoneTransform,
+    STANDARD_BIPED_VERTEX_COUNT, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE,
+    actor_rig_submission_is_visible, default_actor_skin_rgba8, normalize_actor_skin,
+    standard_biped_vertices,
 };
 pub use actor_render::ActorRenderPlugin;
 pub use atmosphere::{
