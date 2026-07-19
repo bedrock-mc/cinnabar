@@ -294,6 +294,14 @@ impl<T: Transport> PlaySession<T> {
         }
     }
 
+    /// Arms a one-shot selective transaction rotation for the next raw
+    /// LevelChunk/SubChunk candidate. Verified blobs and ready work survive.
+    pub fn rotate_blob_cache_pending_for_fast_transfer(&mut self) {
+        if let Some(resolver) = self.blob_cache.as_mut() {
+            resolver.arm_fast_transfer_rotation();
+        }
+    }
+
     async fn recv_world_event_with_blob_cache(
         &mut self,
         current_dimension: i32,
@@ -360,6 +368,12 @@ impl<T: Transport> PlaySession<T> {
                     Ok(packet) => packet,
                     Err(error) => return Err(self.fail_session(error)),
                 };
+                rotate_blob_cache_for_decoded_candidate(
+                    self.blob_cache
+                        .as_mut()
+                        .expect("enabled path owns a resolver"),
+                    &packet,
+                )?;
                 if let McpePacketData::PacketClientCacheMissResponse(response) = packet.data {
                     if let Err(error) = self
                         .blob_cache
@@ -435,6 +449,20 @@ impl<T: Transport> PlaySession<T> {
         }
         self.reset_blob_cache_pending();
         ProtocolError::Session(error)
+    }
+}
+
+fn rotate_blob_cache_for_decoded_candidate(
+    resolver: &mut BlobCacheResolver,
+    packet: &Packet,
+) -> Result<bool, crate::BlobCacheError> {
+    if matches!(
+        &packet.data,
+        McpePacketData::PacketLevelChunk(_) | McpePacketData::PacketSubchunk(_)
+    ) {
+        resolver.rotate_pending_for_fast_transfer_candidate()
+    } else {
+        Ok(false)
     }
 }
 

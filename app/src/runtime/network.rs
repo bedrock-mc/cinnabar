@@ -440,22 +440,14 @@ pub(crate) fn receive_network_events(
         }
     }
 
-    let reset_pending = client_world
-        .stream
-        .as_ref()
-        .is_some_and(WorldStream::has_pending_same_location_reset);
     let admission_capacity = client_world.stream.as_ref().map_or(
         NETWORK_INGRESS_BUDGET_PER_FRAME,
         WorldStream::remaining_admission_capacity,
     );
-    let events = if reset_pending {
-        Vec::new()
-    } else {
-        drain_world_ingress_until_barrier(
-            network.world_events_mut(),
-            NETWORK_INGRESS_BUDGET_PER_FRAME.min(admission_capacity),
-        )
-    };
+    let events = drain_world_ingress_until_barrier(
+        network.world_events_mut(),
+        NETWORK_INGRESS_BUDGET_PER_FRAME.min(admission_capacity),
+    );
     for ingress in events {
         let sequenced = match ingress {
             session::WorldIngress::Event(sequenced) => sequenced,
@@ -481,16 +473,16 @@ pub(crate) fn receive_network_events(
                     );
                     continue;
                 };
-                if let Err(error) = stream.submit_same_location_reset(sequence) {
+                if let Err(error) = stream.commit(sequence) {
                     record_fatal_error(
                         &mut client_world.fatal_error,
-                        format!("fast-transfer barrier was rejected: {error}"),
+                        format!("fast-transfer FIFO marker was rejected: {error}"),
                     );
                     continue;
                 }
                 info!(
                     session_generation,
-                    action_sequence, sequence, "submitted same-location fast-transfer barrier"
+                    action_sequence, sequence, "committed fast-transfer FIFO marker"
                 );
                 continue;
             }

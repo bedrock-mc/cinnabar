@@ -113,6 +113,7 @@ use model::{
     QueuedDecodeJob, RetrySchedule, RevisionTracker, SequenceBuffer, SequenceError, queue_wait,
     split_block_update,
 };
+
 pub use model::{
     CommittedControlEvent, CommittedUiEvent, ForcedRemeshManifest, ForcedRemeshManifestState,
     PendingSubChunkRequest, PublisherViewGeometry, ViewCohort, ViewCohortStatus, WorldMeshChange,
@@ -183,7 +184,6 @@ pub struct WorldStream {
     mesh_changes: VecDeque<WorldMeshChange>,
     committed_controls: VecDeque<CommittedControlEvent>,
     committed_ui: VecDeque<CommittedUiEvent>,
-    pending_same_location_reset: bool,
     publisher_center: Option<[i32; 3]>,
     publisher_radius_blocks: Option<u32>,
     publisher_radius_chunks: Option<i32>,

@@ -388,6 +388,8 @@ trait NetworkSession: Send {
 
     fn cancel_packet_id_trace(&mut self) {}
 
+    fn rotate_blob_cache_pending_for_fast_transfer(&mut self) {}
+
     fn drain_packet_id_trace(&mut self) -> Option<PacketIdTraceSnapshot> {
         None
     }
@@ -428,6 +430,10 @@ impl NetworkSession for protocol::PlaySession {
 
     fn cancel_packet_id_trace(&mut self) {
         protocol::PlaySession::cancel_packet_id_trace(self);
+    }
+
+    fn rotate_blob_cache_pending_for_fast_transfer(&mut self) {
+        protocol::PlaySession::rotate_blob_cache_pending_for_fast_transfer(self);
     }
 
     fn drain_packet_id_trace(&mut self) -> Option<PacketIdTraceSnapshot> {
@@ -501,6 +507,9 @@ async fn run_network_pump<S: NetworkSession>(
                             }
                         }
                         Some(Ok(())) => {
+                            if trace_armed {
+                                session.rotate_blob_cache_pending_for_fast_transfer();
+                            }
                             if let Some(marker) = chat.and_then(|chat| {
                                 chat.fast_transfer_action.map(|action| {
                                     let sent_unix_ms = std::time::SystemTime::now()

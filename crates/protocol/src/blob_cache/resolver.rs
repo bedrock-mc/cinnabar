@@ -30,6 +30,8 @@ impl BlobCacheResolver {
             pending: VecDeque::new(),
             ready: VecDeque::new(),
             authorized_misses: Vec::new(),
+            retired_authorized_misses: Vec::new(),
+            fast_transfer_rotation_armed: false,
             stats: BlobCacheStats::default(),
         }
     }
@@ -42,6 +44,68 @@ impl BlobCacheResolver {
     #[must_use]
     pub const fn stats(&self) -> BlobCacheStats {
         self.stats
+    }
+
+    /// Arms one bounded, one-shot fast-transfer rotation. No transaction is
+    /// changed until a later data-bearing chunk candidate is observed.
+    pub fn arm_fast_transfer_rotation(&mut self) {
+        self.fast_transfer_rotation_armed = true;
+    }
+
+    /// Selectively retires unresolved cached transactions that precede a new
+    /// chunk candidate while preserving ready and ordinary FIFO work.
+    pub fn rotate_pending_for_fast_transfer_candidate(&mut self) -> Result<bool, BlobCacheError> {
+        if !std::mem::take(&mut self.fast_transfer_rotation_armed) {
+            return Ok(false);
+        }
+
+        let mut retained = VecDeque::with_capacity(self.pending.len());
+        self.retired_authorized_misses
+            .try_reserve(self.authorized_misses.len())
+            .map_err(|_| BlobCacheError::ByteCountOverflow)?;
+        let mut retired = std::mem::take(&mut self.retired_authorized_misses);
+        let mut removed = false;
+        while let Some(transaction) = self.pending.pop_front() {
+            let cached = matches!(
+                transaction.packet,
+                PendingPacket::LevelChunk(_) | PendingPacket::SubChunk(_)
+            );
+            let unresolved = cached
+                && transaction
+                    .unique_hashes
+                    .iter()
+                    .any(|hash| !self.cache.contains(*hash));
+            if !unresolved {
+                retained.push_back(transaction);
+                continue;
+            }
+
+            removed = true;
+            for hash in transaction
+                .unique_hashes
+                .iter()
+                .copied()
+                .filter(|hash| !self.cache.contains(*hash))
+            {
+                if decrement_authorization(&mut self.authorized_misses, hash) {
+                    increment_authorization(&mut retired, hash)?;
+                }
+            }
+            self.cache.unpin_all(&transaction.unique_hashes);
+        }
+        self.pending = retained;
+        if self.authorized_misses.is_empty() {
+            self.authorized_misses = Vec::new();
+        } else {
+            self.authorized_misses.shrink_to_fit();
+        }
+        self.retired_authorized_misses = retired;
+        if removed {
+            self.stats.pending_resets = self.stats.pending_resets.saturating_add(1);
+        }
+        self.refresh_pending_accounting()?;
+        self.drain_ready()?;
+        Ok(removed)
     }
 
     pub(super) fn retained_pending_bytes(&self) -> Result<usize, BlobCacheError> {
@@ -59,6 +123,12 @@ impl BlobCacheResolver {
                     .capacity()
                     .checked_mul(size_of::<(u64, usize)>())
                     .and_then(|authorized| bytes.checked_add(authorized))
+            })
+            .and_then(|bytes| {
+                self.retired_authorized_misses
+                    .capacity()
+                    .checked_mul(size_of::<(u64, usize)>())
+                    .and_then(|retired| bytes.checked_add(retired))
             })
             .and_then(|bytes| {
                 self.pending.iter().try_fold(bytes, |total, transaction| {
@@ -414,6 +484,12 @@ impl BlobCacheResolver {
                 .iter()
                 .find(|(hash, _)| *hash == blob.hash)
                 .map_or(0, |(_, count)| *count)
+                .saturating_add(
+                    self.retired_authorized_misses
+                        .iter()
+                        .find(|(hash, _)| *hash == blob.hash)
+                        .map_or(0, |(_, count)| *count),
+                )
                 == 0
             {
                 return Err(BlobCacheError::UnsolicitedBlob(blob.hash));
@@ -452,21 +528,20 @@ impl BlobCacheResolver {
             evictions
         };
         for (hash, _) in &unique {
-            if let Some(index) = self
-                .authorized_misses
-                .iter()
-                .position(|(candidate, _)| candidate == hash)
-            {
-                self.authorized_misses[index].1 = self.authorized_misses[index].1.saturating_sub(1);
-                if self.authorized_misses[index].1 == 0 {
-                    self.authorized_misses.remove(index);
-                }
+            if !decrement_authorization(&mut self.authorized_misses, *hash) {
+                let consumed = decrement_authorization(&mut self.retired_authorized_misses, *hash);
+                debug_assert!(consumed, "validated miss response retained authorization");
             }
         }
         if self.authorized_misses.is_empty() {
             self.authorized_misses = Vec::new();
         } else {
             self.authorized_misses.shrink_to_fit();
+        }
+        if self.retired_authorized_misses.is_empty() {
+            self.retired_authorized_misses = Vec::new();
+        } else {
+            self.retired_authorized_misses.shrink_to_fit();
         }
         self.refresh_pending_accounting()?;
         self.stats.admitted_blobs = self
@@ -481,7 +556,10 @@ impl BlobCacheResolver {
     }
 
     pub fn reset_pending(&mut self) {
-        if !self.pending.is_empty() || !self.ready.is_empty() || !self.authorized_misses.is_empty()
+        if !self.pending.is_empty()
+            || !self.ready.is_empty()
+            || !self.authorized_misses.is_empty()
+            || !self.retired_authorized_misses.is_empty()
         {
             self.stats.pending_resets = self.stats.pending_resets.saturating_add(1);
         }
@@ -491,6 +569,8 @@ impl BlobCacheResolver {
         self.pending = VecDeque::new();
         self.ready = VecDeque::new();
         self.authorized_misses = Vec::new();
+        self.retired_authorized_misses = Vec::new();
+        self.fast_transfer_rotation_armed = false;
         self.stats.pending_transactions = 0;
         self.stats.pending_bytes = 0;
     }
@@ -609,6 +689,37 @@ fn reconstructed_accounted_bytes(
             Ok(transaction.accounted_bytes)
         }
     }
+}
+
+fn decrement_authorization(authorizations: &mut Vec<(u64, usize)>, hash: u64) -> bool {
+    let Some(index) = authorizations
+        .iter()
+        .position(|(candidate, count)| *candidate == hash && *count > 0)
+    else {
+        return false;
+    };
+    authorizations[index].1 -= 1;
+    if authorizations[index].1 == 0 {
+        authorizations.remove(index);
+    }
+    true
+}
+
+fn increment_authorization(
+    authorizations: &mut Vec<(u64, usize)>,
+    hash: u64,
+) -> Result<(), BlobCacheError> {
+    if let Some((_, count)) = authorizations
+        .iter_mut()
+        .find(|(candidate, _)| *candidate == hash)
+    {
+        *count = count
+            .checked_add(1)
+            .ok_or(BlobCacheError::ByteCountOverflow)?;
+    } else {
+        authorizations.push((hash, 1));
+    }
+    Ok(())
 }
 
 fn stable_unique(hashes: &[u64]) -> Vec<u64> {

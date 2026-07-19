@@ -3,7 +3,7 @@ use std::{
     future,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     thread,
     time::{Duration, Instant},
@@ -74,6 +74,7 @@ struct CachedInboundSession {
 
 struct QueuedInboundSession {
     inbound: VecDeque<WorldEvent>,
+    rotations: Arc<AtomicUsize>,
 }
 
 struct FailingSendSession;
@@ -107,6 +108,10 @@ impl NetworkSession for TraceOrderingFailSession {
 
     fn cancel_packet_id_trace(&mut self) {
         self.calls.lock().unwrap().push("cancel");
+    }
+
+    fn rotate_blob_cache_pending_for_fast_transfer(&mut self) {
+        self.calls.lock().unwrap().push("rotate");
     }
 }
 
@@ -206,6 +211,10 @@ impl NetworkSession for QueuedInboundSession {
 
     fn decode_error_count(&self) -> u64 {
         0
+    }
+
+    fn rotate_blob_cache_pending_for_fast_transfer(&mut self) {
+        self.rotations.fetch_add(1, Ordering::SeqCst);
     }
 }
 
@@ -553,7 +562,7 @@ async fn chat_send_receipt_is_emitted_only_after_the_session_send_completes() {
 }
 
 #[tokio::test]
-async fn successful_fast_transfer_flushes_old_ingress_then_enqueues_barrier() {
+async fn successful_fast_transfer_flushes_decoded_pending_ingress_then_enqueues_marker() {
     let (world_event_tx, mut world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
     let (commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
     commands
@@ -569,12 +578,14 @@ async fn successful_fast_transfer_flushes_old_ingress_then_enqueues_barrier() {
         .unwrap();
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
     let (shutdown, shutdown_rx) = watch::channel(false);
+    let rotations = Arc::new(AtomicUsize::new(0));
     let worker = tokio::spawn(run_network_pump(
         QueuedInboundSession {
             inbound: VecDeque::from([
                 WorldEvent::ChunkRadiusUpdated(16),
                 WorldEvent::ChunkRadiusUpdated(8),
             ]),
+            rotations: Arc::clone(&rotations),
         },
         NetworkSequencer::new(7, 0, 42),
         command_rx,
@@ -614,6 +625,7 @@ async fn successful_fast_transfer_flushes_old_ingress_then_enqueues_barrier() {
             sequence: 11,
         }))
     ));
+    assert_eq!(rotations.load(Ordering::SeqCst), 1);
     shutdown.send_replace(true);
     worker.await.unwrap();
 }
@@ -656,6 +668,48 @@ async fn failed_fast_transfer_never_arms_a_reset() {
             ..
         }
     )));
+}
+
+#[tokio::test]
+async fn successful_non_transfer_chat_does_not_arm_blob_rotation() {
+    let (world_event_tx, _world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
+    let (commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
+    commands
+        .try_send(NetworkCommand::Send {
+            packet: test_packet(),
+            sub_chunk: None,
+            chat: Some(super::ChatPacketSend {
+                session: 7,
+                sequence: 11,
+                fast_transfer_action: None,
+            }),
+        })
+        .unwrap();
+    let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
+    let (shutdown, shutdown_rx) = watch::channel(false);
+    let rotations = Arc::new(AtomicUsize::new(0));
+    let worker = tokio::spawn(run_network_pump(
+        QueuedInboundSession {
+            inbound: VecDeque::new(),
+            rotations: Arc::clone(&rotations),
+        },
+        NetworkSequencer::new(7, 0, 42),
+        command_rx,
+        control_event_tx,
+        world_event_tx,
+        shutdown_rx,
+    ));
+
+    assert!(matches!(
+        tokio::time::timeout(Duration::from_millis(100), controls.recv()).await,
+        Ok(Some(NetworkControlEvent::ChatPacketSent {
+            session: 7,
+            sequence: 11,
+        }))
+    ));
+    assert_eq!(rotations.load(Ordering::SeqCst), 0);
+    shutdown.send_replace(true);
+    worker.await.unwrap();
 }
 
 #[tokio::test]

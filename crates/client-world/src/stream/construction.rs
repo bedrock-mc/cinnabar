@@ -166,7 +166,6 @@ impl WorldStream {
             mesh_changes: VecDeque::new(),
             committed_controls: VecDeque::new(),
             committed_ui: VecDeque::new(),
-            pending_same_location_reset: false,
             publisher_center: Some([
                 floor_to_i32(resolved_server_position.position[0]),
                 floor_to_i32(resolved_server_position.position[1]),
@@ -231,45 +230,6 @@ impl WorldStream {
         }
         self.apply_ready();
         Ok(())
-    }
-
-    pub fn submit_same_location_reset(&mut self, sequence: u64) -> Result<(), WorldStreamError> {
-        if sequence < self.ordered.next_sequence() || self.submitted.contains(&sequence) {
-            return Err(SequenceError::DuplicateOrPast {
-                sequence,
-                next: self.ordered.next_sequence(),
-            }
-            .into());
-        }
-        let retained_commits = self
-            .committed_controls
-            .len()
-            .saturating_add(self.committed_ui.len());
-        if self.submitted.len() >= MAX_ADMITTED_WORLD_EVENTS.saturating_sub(retained_commits) {
-            return Err(WorldStreamError::AdmissionFull {
-                sequence,
-                admitted: self.submitted.len(),
-                capacity: MAX_ADMITTED_WORLD_EVENTS,
-                heavy_admitted: self.heavy_sequences.len(),
-                heavy_capacity: MAX_ADMITTED_HEAVY_EVENTS,
-            });
-        }
-        self.submitted.insert(sequence);
-        if let Err(error) = self
-            .ordered
-            .insert(sequence, PreparedWorldEvent::SameLocationReset)
-        {
-            self.submitted.remove(&sequence);
-            return Err(error.into());
-        }
-        self.pending_same_location_reset = true;
-        self.apply_ready();
-        Ok(())
-    }
-
-    #[must_use]
-    pub const fn has_pending_same_location_reset(&self) -> bool {
-        self.pending_same_location_reset
     }
 
     pub fn submit(&mut self, sequence: u64, event: WorldEvent) -> Result<(), WorldStreamError> {

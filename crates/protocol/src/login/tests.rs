@@ -72,8 +72,8 @@ use valentine::bedrock::version::v1_26_30::{
     CorrectPlayerMovePredictionPacket, GameRuleI32, GameRuleI32Type, GameRuleI32Value,
     GameRulesChangedPacket, ItemNew, ItemRegistryPacket, LevelChunkPacket, LevelChunkPacketBlobs,
     LevelEventPacket, LevelEventPacketEvent, McpePacketName, MobEquipmentPacket, MovePlayerPacket,
-    TextPacket, TextPacketCategory, TextPacketContent, TextPacketContentJson, TextPacketType,
-    UpdateBlockPacket, Vec2F, Vec3F, WindowId,
+    SetTimePacket, TextPacket, TextPacketCategory, TextPacketContent, TextPacketContentJson,
+    TextPacketType, UpdateBlockPacket, Vec2F, Vec3F, WindowId,
 };
 
 fn raw_packet(id: McpePacketName, body: &[u8]) -> jolyne::raw::RawPacket {
@@ -115,6 +115,53 @@ fn transfer_resets_pending_cache_transactions_but_change_dimension_is_ordered() 
     ));
     assert_eq!(resolver.stats().pending_transactions, 0);
     assert_eq!(resolver.stats().pending_resets, 1);
+}
+
+#[test]
+fn fast_transfer_arm_is_consumed_only_after_a_chunk_candidate_decodes() {
+    let missing = crate::client_blob_hash(b"old-backend-missing");
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
+    resolver
+        .accept_cached_packet(
+            LevelChunkPacket {
+                sub_chunk_count: 0,
+                blobs: Some(LevelChunkPacketBlobs {
+                    hashes: vec![missing],
+                }),
+                ..Default::default()
+            }
+            .into(),
+        )
+        .expect("old unresolved transaction");
+    resolver.arm_fast_transfer_rotation();
+
+    let session = BedrockSession { shield_item_id: 0 };
+    let malformed = raw_packet(McpePacketName::PacketLevelChunk, &[0xff]);
+    assert!(malformed.decode(&session).is_err());
+    assert_eq!(resolver.stats().pending_transactions, 1);
+
+    let ordinary: crate::Packet = SetTimePacket { time: 7 }.into();
+    assert!(
+        !rotate_blob_cache_for_decoded_candidate(&mut resolver, &ordinary)
+            .expect("ordinary decoded packet is not a candidate")
+    );
+    assert_eq!(resolver.stats().pending_transactions, 1);
+
+    let candidate: crate::Packet = LevelChunkPacket {
+        sub_chunk_count: 0,
+        blobs: None,
+        ..Default::default()
+    }
+    .into();
+    assert!(
+        rotate_blob_cache_for_decoded_candidate(&mut resolver, &candidate)
+            .expect("successfully decoded candidate consumes the arm")
+    );
+    assert_eq!(resolver.stats().pending_transactions, 0);
+    assert!(
+        !rotate_blob_cache_for_decoded_candidate(&mut resolver, &candidate)
+            .expect("arm is one-shot")
+    );
 }
 
 #[test]

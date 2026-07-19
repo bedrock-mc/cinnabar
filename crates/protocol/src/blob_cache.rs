@@ -239,6 +239,8 @@ pub struct BlobCacheResolver {
     pending: VecDeque<PendingTransaction>,
     ready: VecDeque<ReadyTransaction>,
     authorized_misses: Vec<(u64, usize)>,
+    retired_authorized_misses: Vec<(u64, usize)>,
+    fast_transfer_rotation_armed: bool,
     stats: BlobCacheStats,
 }
 
