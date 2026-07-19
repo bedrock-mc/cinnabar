@@ -16,6 +16,7 @@ use semantic_input::PerspectiveMode;
 
 use crate::local_player::{
     LocalAvatarPresentation, LocalAvatarVisibilityCarrier, LocalPlayerFrameCarrier,
+    LocalPlayerFrameSample,
 };
 use crate::movement::{MovementSource, PhysicsAuthorityGate};
 use crate::presentation::actors::{
@@ -23,6 +24,7 @@ use crate::presentation::actors::{
     local_diagnostic_presentation, select_actor_presentations, select_actor_presentations_for_view,
     update_actor_rig_scene,
 };
+use crate::runtime::network::publish_local_actor_visibility;
 
 fn model_bone(translation: [f32; 3]) -> BoneTransform {
     BoneTransform {
@@ -385,4 +387,93 @@ fn third_person_local_fallback_reaches_the_render_manifest_without_a_physics_fra
         &mut visibility,
     );
     assert!(visibility.snapshot().is_none());
+}
+
+#[test]
+fn f5_local_avatar_uses_the_live_camera_subject_across_rear_and_front_transitions() {
+    let subject_eye = Vec3::new(64.0, 70.62, -512.0);
+    let subject_rotation = Quat::from_rotation_y(90.0_f32.to_radians());
+    let stale_eye = subject_eye + Vec3::Z * 8.0;
+    let mut stale_frame = LocalPlayerFrameCarrier::default();
+    let collision_identity = sim::WorldCollisionIdentity::new(
+        sim::CollisionRegistryIdentity {
+            protocol: 1001,
+            id_space: sim::CollisionIdSpace::Sequential,
+            preg_sha256: [0x5a; 32],
+        },
+        [world::ChunkCollisionRevision {
+            chunk: world::ChunkKey::new(0, 4, -32),
+            revision: 9,
+        }],
+    )
+    .unwrap();
+    let stale_sample = LocalPlayerFrameSample {
+        session_generation: 7,
+        fifo_sequence: 41,
+        physics_tick: 900,
+        perspective: PerspectiveMode::ThirdPersonBack,
+        world_collision_identity: collision_identity,
+        pose: crate::camera::perspective_pose(
+            stale_eye,
+            subject_rotation,
+            PerspectiveMode::ThirdPersonBack,
+        ),
+        eye: stale_eye,
+        rotation: subject_rotation,
+    };
+    stale_frame.publish(stale_sample).unwrap();
+
+    let mut avatar = LocalAvatarPresentation::default();
+    avatar.begin_session(7, 42);
+    let mut visibility = LocalAvatarVisibilityCarrier::default();
+    for perspective in [
+        PerspectiveMode::ThirdPersonBack,
+        PerspectiveMode::ThirdPersonFront,
+    ] {
+        publish_local_actor_visibility(
+            &avatar,
+            perspective,
+            subject_eye,
+            subject_rotation,
+            &mut visibility,
+        );
+        let snapshot = visibility.snapshot().copied().unwrap();
+        assert_eq!(snapshot.eye(), subject_eye);
+        assert!(snapshot.visible());
+
+        let mut feet = snapshot.eye();
+        feet.y -= crate::local_player::LOCAL_AVATAR_EYE_HEIGHT_BLOCKS;
+        let local = local_diagnostic_presentation(
+            7,
+            0,
+            snapshot.runtime_id(),
+            snapshot.pose_generation(),
+            feet.to_array(),
+            90.0,
+            0.0,
+        )
+        .unwrap();
+        let world_from_actor = local.submission.world_from_actor;
+        let body_center = Vec3::new(
+            world_from_actor[0][3],
+            world_from_actor[1][3] + 1.0,
+            world_from_actor[2][3],
+        );
+        let camera = crate::camera::perspective_pose(subject_eye, subject_rotation, perspective);
+        let clip_from_world =
+            Mat4::perspective_infinite_reverse_rh(70.0_f32.to_radians(), 16.0 / 9.0, 0.1)
+                * camera.to_matrix().inverse();
+        let projected_center = clip_from_world * body_center.extend(1.0);
+        assert!(projected_center.w > 0.0);
+        assert!((projected_center.x / projected_center.w).abs() < 1.0e-5);
+    }
+
+    publish_local_actor_visibility(
+        &avatar,
+        PerspectiveMode::FirstPerson,
+        subject_eye,
+        subject_rotation,
+        &mut visibility,
+    );
+    assert!(!visibility.snapshot().unwrap().visible());
 }
