@@ -3,6 +3,22 @@ use crate::actor_animation::{ActorAnimationStats, ActorRigSnapshot};
 use crate::{ActorEquipmentSnapshot, RemoteActionSnapshot, RemoteActionStats};
 
 impl ActorStore {
+    pub(crate) fn actor_display_name(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
+        let runtime_id = self.unique_to_runtime.get(&unique_id)?;
+        let actor = self.actors.get(runtime_id)?;
+        let name = match &actor.kind {
+            ActorKind::Player { username, .. } => std::sync::Arc::clone(username),
+            ActorKind::Entity { .. } => {
+                let ActorMetadataValue::String(name) = actor.metadata.get(&NAMETAG_METADATA_KEY)?
+                else {
+                    return None;
+                };
+                std::sync::Arc::clone(name)
+            }
+        };
+        (!name.is_empty()).then_some(name)
+    }
+
     pub(crate) fn render_players(
         &self,
         excluded_runtime_id: Option<u64>,

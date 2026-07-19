@@ -95,6 +95,9 @@ impl WorldStream {
         self.actors
             .render_players(Some(self.local_player_runtime_id))
     }
+    pub fn actor_display_name(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
+        self.actors.actor_display_name(unique_id)
+    }
     pub fn advance_actor_interpolation_ticks(&mut self, ticks: u32) {
         self.actors.advance_interpolation_ticks(ticks);
     }

@@ -34,6 +34,8 @@
     { "path": "textures/ui/hotbar_7.png", "bytes": 669, "sha256": "04f75fe23c685ace3800750d5a6bbfeeb596a619246519b12b025b531133cf18", "width": 20, "height": 22 },
     { "path": "textures/ui/hotbar_8.png", "bytes": 641, "sha256": "78784c2185a246daf49a42cb7e7b57dadab235d02f02505e9dbf215a1984fa6c", "width": 20, "height": 22 },
     { "path": "textures/ui/selected_hotbar_slot.png", "bytes": 623, "sha256": "2322d7bcd5897e324ff56d0df840aa9ff027160a6cd58c90633cfb9331676286", "width": 24, "height": 24 },
+    { "path": "textures/ui/hotbar_start_cap.png", "bytes": 77, "sha256": "eabedfb5da1e9546a2634be0e07600187ebf8ebd40d61fcf0d38b95493f988b7", "width": 1, "height": 22 },
+    { "path": "textures/ui/hotbar_end_cap.png", "bytes": 77, "sha256": "eabedfb5da1e9546a2634be0e07600187ebf8ebd40d61fcf0d38b95493f988b7", "width": 1, "height": 22 },
     { "path": "textures/ui/empty_progress_bar.png", "bytes": 162, "sha256": "747ece8f4372304e3a8e90101db00b1e6a65289dc2bed7e48cc2bf549b803894", "width": 13, "height": 5 },
     { "path": "textures/ui/filled_progress_bar.png", "bytes": 184, "sha256": "c2c57b072ae406d89986240cc2e36ee5bc971724e0c56d836373b34f3c7e237a", "width": 13, "height": 5 }
   ]
