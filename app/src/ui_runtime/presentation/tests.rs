@@ -17,6 +17,40 @@ use crate::ui_runtime::SequencedUiEvent;
 mod retained_hud_tests;
 
 #[test]
+fn start_game_survival_authority_presents_standard_stats_and_empty_hotbar_immediately() {
+    let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
+    let mut runtime = UiRuntime::new(1);
+    runtime.publish_player_game_mode(protocol::PlayerGameMode::Survival);
+
+    let input = presentation
+        .build(&runtime, 0, [1280, 720], DpiScale::new(1.5).unwrap())
+        .unwrap();
+    assert_eq!(input.vertices.len(), 52 * 4);
+    assert_eq!(input.indices.len(), 52 * 6);
+    assert_eq!(input.batches.len(), 1);
+}
+
+#[test]
+fn start_game_creative_and_spectator_authority_gate_native_hud_surfaces() {
+    for (game_mode, expected_sprites) in [
+        (protocol::PlayerGameMode::Creative, 12),
+        (protocol::PlayerGameMode::Spectator, 0),
+        (protocol::PlayerGameMode::Unknown, 0),
+    ] {
+        let mut presentation =
+            UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
+        let mut runtime = UiRuntime::new(1);
+        runtime.publish_player_game_mode(game_mode);
+
+        let input = presentation
+            .build(&runtime, 0, [1280, 720], DpiScale::new(1.5).unwrap())
+            .unwrap();
+        assert_eq!(input.vertices.len(), expected_sprites * 4);
+        assert_eq!(input.indices.len(), expected_sprites * 6);
+    }
+}
+
+#[test]
 fn pinned_survival_hud_authority_renders_at_normal_inner_viewport() {
     let font = fixture_font();
     let mut presentation = UiPresentationRuntime::with_hud(font, fixture_hud()).unwrap();

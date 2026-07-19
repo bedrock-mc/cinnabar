@@ -8,7 +8,7 @@ use std::{
 use bevy::prelude::Resource;
 use protocol::{
     BlobCacheStats, ClientBlobCache, InventoryEvent, LoginSequence, Packet, PacketIdTraceSnapshot,
-    WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent, normalize_authority,
+    PlayerGameMode, WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent, normalize_authority,
 };
 use tokio::sync::{mpsc, watch};
 use world::ChunkKey;
@@ -36,6 +36,7 @@ pub enum NetworkControlEvent {
         world: WorldBootstrap,
         environment: WorldEnvironmentBootstrap,
         inventory: InventoryEvent,
+        player_game_mode: PlayerGameMode,
     },
     SubChunkRequestSent {
         chunk: ChunkKey,
@@ -318,6 +319,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                 let bootstrap = WorldBootstrap::from_game_data(&game_data);
                 let environment = WorldEnvironmentBootstrap::from_game_data(&game_data);
                 let inventory = start_game_inventory_authority(&game_data);
+                let player_game_mode = PlayerGameMode::from_game_data(&game_data);
                 if !send_control_event_or_cancel(
                     &control_event_tx,
                     &mut shutdown_rx,
@@ -326,6 +328,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                         world: bootstrap,
                         environment,
                         inventory,
+                        player_game_mode,
                     },
                 )
                 .await
