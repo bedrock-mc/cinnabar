@@ -2,6 +2,13 @@ use super::*;
 
 impl WorldStream {
     pub fn poll(&mut self, camera_position: [f32; 3], max_mesh_jobs: usize) -> WorldStreamPoll {
+        if camera_position.iter().all(|value| value.is_finite()) {
+            self.last_request_player_chunk = Some(ChunkKey::new(
+                self.current_dimension,
+                floor_to_i32(camera_position[0]).div_euclid(16),
+                floor_to_i32(camera_position[2]).div_euclid(16),
+            ));
+        }
         let mut report = WorldStreamPoll::default();
         while let Ok(completion) = self.decode_rx.try_recv() {
             report.decoded_results += 1;

@@ -61,6 +61,7 @@ mod publication;
 mod publication_config;
 #[cfg(feature = "publication-test-support")]
 mod publication_test_support;
+mod request_queue;
 mod requests;
 mod residency;
 mod retries;
@@ -69,6 +70,7 @@ mod sequencing;
 use helpers::*;
 use lighting::types::*;
 use meshing::types::*;
+use request_queue::RequestQueue;
 
 pub use diagnostics::{
     BuildProfileIdentity, CohortManifestIdentity, Phase2PresentationSnapshot,
@@ -173,8 +175,9 @@ pub struct WorldStream {
     deferred_retry_set: HashSet<SubChunkKey>,
     connectivity: HashMap<SubChunkKey, FaceConnectivity>,
     connectivity_generation: u64,
-    requests: VecDeque<OutboundRequestSlot>,
+    requests: RequestQueue,
     transport_pending_requests: usize,
+    last_request_player_chunk: Option<ChunkKey>,
     publication_allowance: Option<PublicationAllowance>,
     mesh_changes: VecDeque<WorldMeshChange>,
     committed_controls: VecDeque<CommittedControlEvent>,

@@ -3,26 +3,18 @@ use super::*;
 impl WorldStream {
     pub fn take_requests(&mut self) -> Vec<PendingSubChunkRequest> {
         let mut ready = Vec::new();
-        let mut reserved = VecDeque::new();
-        while let Some(slot) = self.requests.pop_front() {
-            match slot {
-                OutboundRequestSlot::Reserved(sequence) => {
-                    reserved.push_back(OutboundRequestSlot::Reserved(sequence));
-                }
-                OutboundRequestSlot::Ready(request) => ready.push(request),
-            }
+        while let Some(request) = self
+            .requests
+            .pop_next(self.last_request_player_chunk, &self.required_columns)
+        {
+            self.requests.confirm_popped(&request);
+            ready.push(request);
         }
-        self.requests = reserved;
         ready
     }
     pub fn pop_next_request(&mut self) -> Option<PendingSubChunkRequest> {
-        if !matches!(self.requests.front(), Some(OutboundRequestSlot::Ready(_))) {
-            return None;
-        }
-        match self.requests.pop_front() {
-            Some(OutboundRequestSlot::Ready(request)) => Some(request),
-            Some(OutboundRequestSlot::Reserved(_)) | None => None,
-        }
+        self.requests
+            .pop_next(self.last_request_player_chunk, &self.required_columns)
     }
     pub fn retry_request_front(
         &mut self,
@@ -31,8 +23,7 @@ impl WorldStream {
         if self.requests.len() >= OUTBOUND_REQUEST_CAPACITY {
             return Err(Box::new(request));
         }
-        self.requests
-            .push_front(OutboundRequestSlot::Ready(request));
+        self.requests.retry_front(request);
         Ok(())
     }
     pub fn record_sub_chunk_request_transport_pending(
@@ -42,6 +33,8 @@ impl WorldStream {
         count: usize,
     ) {
         self.transport_pending_requests = self.transport_pending_requests.saturating_add(1);
+        self.requests
+            .confirm_popped_identity(chunk, base_sub_chunk_y, count);
         for offset in 0..count {
             let y = base_sub_chunk_y.saturating_add(offset as i32);
             if let Some(pending) = self
@@ -160,7 +153,7 @@ impl WorldStream {
                     base_sub_chunk_y,
                     count,
                 };
-                if !self.place_outbound_request(sequence, request) {
+                if !self.place_outbound_request(sequence, request, false) {
                     self.record_normalization_error(
                         NormalizationErrorReason::OutboundRequestPlacementFailure,
                     );
@@ -195,24 +188,18 @@ impl WorldStream {
         &mut self,
         sequence: Option<u64>,
         request: PendingSubChunkRequest,
+        retry: bool,
     ) -> bool {
-        if let Some(sequence) = sequence
-            && let Some(slot) = self.requests.iter_mut().find(|slot| {
-                matches!(slot, OutboundRequestSlot::Reserved(reserved) if *reserved == sequence)
-            })
-        {
-            *slot = OutboundRequestSlot::Ready(request);
-            return true;
+        if let Some(sequence) = sequence {
+            return self.requests.replace_reservation(sequence, request);
         }
         if self.requests.len() >= OUTBOUND_REQUEST_CAPACITY {
             return false;
         }
-        self.requests.push_back(OutboundRequestSlot::Ready(request));
+        self.requests.push_ready(request, retry);
         true
     }
     pub(super) fn cancel_request_reservation(&mut self, sequence: u64) {
-        self.requests.retain(|slot| {
-            !matches!(slot, OutboundRequestSlot::Reserved(reserved) if *reserved == sequence)
-        });
+        self.requests.cancel_reservation(sequence);
     }
 }

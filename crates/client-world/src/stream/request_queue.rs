@@ -1,0 +1,371 @@
+use super::*;
+
+const MAX_PRIORITY_BYPASSES: u8 = 16;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct RequestIdentity {
+    dimension: i32,
+    chunk: ChunkKey,
+    base_sub_chunk_y: i32,
+    count: usize,
+}
+
+impl From<&PendingSubChunkRequest> for RequestIdentity {
+    fn from(request: &PendingSubChunkRequest) -> Self {
+        Self {
+            dimension: request.dimension,
+            chunk: request.chunk,
+            base_sub_chunk_y: request.base_sub_chunk_y,
+            count: request.count,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RequestPriority {
+    sequence: u64,
+    retry: bool,
+    bypasses: u8,
+}
+
+#[derive(Default)]
+pub(super) struct RequestQueue {
+    slots: VecDeque<OutboundRequestSlot>,
+    priorities: HashMap<RequestIdentity, RequestPriority>,
+    popped: HashMap<RequestIdentity, RequestPriority>,
+    reservations: HashMap<u64, u64>,
+    next_sequence: u64,
+}
+
+impl std::ops::Deref for RequestQueue {
+    type Target = VecDeque<OutboundRequestSlot>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.slots
+    }
+}
+
+impl std::ops::DerefMut for RequestQueue {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.slots
+    }
+}
+
+impl RequestQueue {
+    pub(super) fn reserve(&mut self, world_sequence: u64) {
+        let queue_sequence = self.allocate_sequence();
+        self.reservations.insert(world_sequence, queue_sequence);
+        self.slots
+            .push_back(OutboundRequestSlot::Reserved(world_sequence));
+    }
+
+    pub(super) fn replace_reservation(
+        &mut self,
+        world_sequence: u64,
+        request: PendingSubChunkRequest,
+    ) -> bool {
+        let Some(index) = self.slots.iter().position(|slot| {
+            matches!(slot, OutboundRequestSlot::Reserved(reserved) if *reserved == world_sequence)
+        }) else {
+            return false;
+        };
+        let sequence = self
+            .reservations
+            .remove(&world_sequence)
+            .unwrap_or_else(|| self.allocate_sequence());
+        let identity = RequestIdentity::from(&request);
+        self.slots[index] = OutboundRequestSlot::Ready(request);
+        self.priorities.insert(
+            identity,
+            RequestPriority {
+                sequence,
+                retry: false,
+                bypasses: 0,
+            },
+        );
+        true
+    }
+
+    pub(super) fn push_ready(&mut self, request: PendingSubChunkRequest, retry: bool) {
+        let identity = RequestIdentity::from(&request);
+        let priority = RequestPriority {
+            sequence: self.allocate_sequence(),
+            retry,
+            bypasses: 0,
+        };
+        self.priorities.insert(identity, priority);
+        self.slots.push_back(OutboundRequestSlot::Ready(request));
+    }
+
+    pub(super) fn retry_front(&mut self, request: PendingSubChunkRequest) {
+        let identity = RequestIdentity::from(&request);
+        let priority = self
+            .popped
+            .remove(&identity)
+            .unwrap_or_else(|| RequestPriority {
+                sequence: self.allocate_sequence(),
+                retry: false,
+                bypasses: 0,
+            });
+        self.priorities.insert(identity, priority);
+        self.slots.push_front(OutboundRequestSlot::Ready(request));
+    }
+
+    pub(super) fn pop_next(
+        &mut self,
+        player_chunk: Option<ChunkKey>,
+        required_columns: &BTreeSet<ChunkKey>,
+    ) -> Option<PendingSubChunkRequest> {
+        self.synchronize_priorities();
+        let barrier = self
+            .slots
+            .iter()
+            .position(|slot| matches!(slot, OutboundRequestSlot::Reserved(_)))
+            .unwrap_or(self.slots.len());
+        let candidates = self
+            .slots
+            .iter()
+            .take(barrier)
+            .enumerate()
+            .filter_map(|(index, slot)| match slot {
+                OutboundRequestSlot::Ready(request) => {
+                    Some((index, RequestIdentity::from(request)))
+                }
+                OutboundRequestSlot::Reserved(_) => None,
+            })
+            .collect::<Vec<_>>();
+        if candidates.is_empty() {
+            return None;
+        }
+
+        let starved = candidates
+            .iter()
+            .filter(|(_, identity)| {
+                self.priorities
+                    .get(identity)
+                    .is_some_and(|priority| priority.bypasses >= MAX_PRIORITY_BYPASSES)
+            })
+            .min_by_key(|(_, identity)| self.priorities[identity].sequence)
+            .copied();
+        let selected = starved.unwrap_or_else(|| {
+            candidates
+                .iter()
+                .min_by_key(|(index, identity)| {
+                    let request = match &self.slots[*index] {
+                        OutboundRequestSlot::Ready(request) => request,
+                        OutboundRequestSlot::Reserved(_) => unreachable!(),
+                    };
+                    let priority = self.priorities[identity];
+                    (
+                        request_class(
+                            priority.retry,
+                            request.chunk,
+                            player_chunk,
+                            required_columns,
+                        ),
+                        horizontal_distance_squared(request.chunk, player_chunk),
+                        priority.sequence,
+                    )
+                })
+                .copied()
+                .expect("non-empty request candidates have a minimum")
+        });
+
+        for (_, identity) in &candidates {
+            if *identity != selected.1
+                && let Some(priority) = self.priorities.get_mut(identity)
+            {
+                priority.bypasses = priority.bypasses.saturating_add(1);
+            }
+        }
+        let priority = self
+            .priorities
+            .remove(&selected.1)
+            .expect("selected request has priority metadata");
+        self.popped.insert(selected.1, priority);
+        match self.slots.remove(selected.0) {
+            Some(OutboundRequestSlot::Ready(request)) => Some(request),
+            Some(OutboundRequestSlot::Reserved(_)) | None => unreachable!(),
+        }
+    }
+
+    pub(super) fn confirm_popped(&mut self, request: &PendingSubChunkRequest) {
+        self.popped.remove(&RequestIdentity::from(request));
+    }
+
+    pub(super) fn confirm_popped_identity(
+        &mut self,
+        chunk: ChunkKey,
+        base_sub_chunk_y: i32,
+        count: usize,
+    ) {
+        self.popped.retain(|identity, _| {
+            identity.chunk != chunk
+                || identity.base_sub_chunk_y != base_sub_chunk_y
+                || identity.count != count
+        });
+    }
+
+    pub(super) fn cancel_reservation(&mut self, world_sequence: u64) {
+        self.reservations.remove(&world_sequence);
+        self.slots.retain(|slot| {
+            !matches!(slot, OutboundRequestSlot::Reserved(reserved) if *reserved == world_sequence)
+        });
+    }
+
+    pub(super) fn forget_column(&mut self, chunk: ChunkKey) {
+        self.priorities
+            .retain(|identity, _| identity.chunk != chunk);
+        self.popped.retain(|identity, _| identity.chunk != chunk);
+    }
+
+    fn allocate_sequence(&mut self) -> u64 {
+        let sequence = self.next_sequence;
+        self.next_sequence = self
+            .next_sequence
+            .checked_add(1)
+            .expect("outbound request sequence space exhausted");
+        sequence
+    }
+
+    fn synchronize_priorities(&mut self) {
+        let ready = self
+            .slots
+            .iter()
+            .filter_map(|slot| match slot {
+                OutboundRequestSlot::Ready(request) => Some(RequestIdentity::from(request)),
+                OutboundRequestSlot::Reserved(_) => None,
+            })
+            .collect::<Vec<_>>();
+        let live = ready.iter().copied().collect::<HashSet<_>>();
+        self.priorities
+            .retain(|identity, _| live.contains(identity));
+        for identity in ready {
+            if !self.priorities.contains_key(&identity) {
+                let sequence = self.allocate_sequence();
+                self.priorities.insert(
+                    identity,
+                    RequestPriority {
+                        sequence,
+                        retry: false,
+                        bypasses: 0,
+                    },
+                );
+            }
+        }
+    }
+}
+
+fn request_class(
+    retry: bool,
+    chunk: ChunkKey,
+    player_chunk: Option<ChunkKey>,
+    required_columns: &BTreeSet<ChunkKey>,
+) -> RequestClass {
+    if player_chunk == Some(chunk) {
+        if retry {
+            RequestClass::PlayerRetry
+        } else {
+            RequestClass::PlayerInitial
+        }
+    } else if required_columns.contains(&chunk) {
+        if retry {
+            RequestClass::VisibleRetry
+        } else {
+            RequestClass::VisibleInitial
+        }
+    } else if retry {
+        RequestClass::PrefetchRetry
+    } else {
+        RequestClass::PrefetchInitial
+    }
+}
+
+fn horizontal_distance_squared(chunk: ChunkKey, player_chunk: Option<ChunkKey>) -> u128 {
+    let Some(player) = player_chunk.filter(|player| player.dimension == chunk.dimension) else {
+        return 0;
+    };
+    let dx = i128::from(chunk.x) - i128::from(player.x);
+    let dz = i128::from(chunk.z) - i128::from(player.z);
+    dx.unsigned_abs()
+        .pow(2)
+        .saturating_add(dz.unsigned_abs().pow(2))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn request(chunk: ChunkKey, y: i32) -> PendingSubChunkRequest {
+        PendingSubChunkRequest {
+            packet: request_sub_chunk_column(chunk.dimension, chunk.x, chunk.z, y, 1).unwrap(),
+            dimension: chunk.dimension,
+            chunk,
+            base_sub_chunk_y: y,
+            count: 1,
+        }
+    }
+
+    #[test]
+    fn continuous_prefetch_cannot_starve_exact_retry() {
+        let player = ChunkKey::new(0, 0, 0);
+        let mut queue = RequestQueue::default();
+        for x in 1..=32 {
+            queue.push_ready(request(ChunkKey::new(0, x, 0), -4), false);
+        }
+        queue.push_ready(request(player, -4), true);
+
+        assert_eq!(
+            queue
+                .pop_next(Some(player), &BTreeSet::new())
+                .unwrap()
+                .chunk,
+            player
+        );
+    }
+
+    #[test]
+    fn bounded_aging_eventually_services_prefetch_under_continuous_player_work() {
+        let player = ChunkKey::new(0, 0, 0);
+        let prefetch = ChunkKey::new(0, 8, 0);
+        let mut queue = RequestQueue::default();
+        queue.push_ready(request(prefetch, -4), false);
+        for y in 0..=i32::from(MAX_PRIORITY_BYPASSES) {
+            queue.push_ready(request(player, y), true);
+        }
+
+        let mut served_prefetch = false;
+        for _ in 0..=MAX_PRIORITY_BYPASSES {
+            served_prefetch |= queue
+                .pop_next(Some(player), &BTreeSet::new())
+                .is_some_and(|request| request.chunk == prefetch);
+        }
+        assert!(served_prefetch);
+    }
+
+    #[test]
+    fn unresolved_reservation_blocks_later_ready_work_without_losing_identity() {
+        let player = ChunkKey::new(0, 0, 0);
+        let prefetch = ChunkKey::new(0, 8, 0);
+        let mut queue = RequestQueue::default();
+        queue.reserve(7);
+        queue.push_ready(request(player, -4), true);
+
+        assert!(queue.pop_next(Some(player), &BTreeSet::new()).is_none());
+        assert!(queue.replace_reservation(7, request(prefetch, -4)));
+        assert_eq!(
+            queue
+                .pop_next(Some(player), &BTreeSet::new())
+                .unwrap()
+                .chunk,
+            player
+        );
+        assert_eq!(
+            queue
+                .pop_next(Some(player), &BTreeSet::new())
+                .unwrap()
+                .chunk,
+            prefetch
+        );
+    }
+}

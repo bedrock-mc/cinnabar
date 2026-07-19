@@ -172,6 +172,7 @@ impl WorldStream {
                 base_sub_chunk_y: key.y,
                 count: 1,
             },
+            true,
         )
     }
     pub(super) fn try_schedule_exact_retry(&mut self, key: SubChunkKey) -> RetrySchedule {
@@ -313,6 +314,7 @@ impl WorldStream {
             OutboundRequestSlot::Reserved(_) => true,
             OutboundRequestSlot::Ready(request) => request.chunk != chunk,
         });
+        self.requests.forget_column(chunk);
         self.deferred_retries
             .retain(|sub_chunk| sub_chunk.chunk() != chunk);
         self.deferred_retry_set

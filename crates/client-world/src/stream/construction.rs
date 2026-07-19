@@ -159,8 +159,9 @@ impl WorldStream {
             deferred_retry_set: HashSet::new(),
             connectivity: HashMap::new(),
             connectivity_generation: 0,
-            requests: VecDeque::new(),
+            requests: RequestQueue::default(),
             transport_pending_requests: 0,
+            last_request_player_chunk: None,
             publication_allowance: None,
             mesh_changes: VecDeque::new(),
             committed_controls: VecDeque::new(),
@@ -279,8 +280,7 @@ impl WorldStream {
             self.heavy_sequences.insert(sequence);
         }
         if creates_request {
-            self.requests
-                .push_back(OutboundRequestSlot::Reserved(sequence));
+            self.requests.reserve(sequence);
         }
 
         match event {

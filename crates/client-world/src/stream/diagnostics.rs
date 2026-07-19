@@ -73,7 +73,7 @@ pub struct CohortManifestIdentity {
     pub entry_count: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u8)]
 pub enum RequestClass {
     PlayerRetry,
