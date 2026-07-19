@@ -127,7 +127,7 @@ impl LoadedHudAssets {
 #[must_use]
 pub fn hud_assets_missing_notice() -> String {
     format!(
-        "pinned official Mojang sample HUD carrier is unavailable; survival HUD sprites remain hidden. Repair only this carrier with `{HUD_ASSETS_COMPILE_COMMAND}`, or refresh every required carrier with `make assets`."
+        "pinned official Mojang sample HUD carrier is unavailable; the survival HUD cannot render, so the client will not start. Build only this carrier with `{HUD_ASSETS_COMPILE_COMMAND}`, or refresh every required carrier with `make assets`."
     )
 }
 
@@ -402,6 +402,9 @@ pub enum AssetStartupError {
         source: HudCatalogError,
         rebuild_command: &'static str,
     },
+
+    #[error("{notice}")]
+    HudAssetsMissing { notice: String },
 }
 
 #[derive(Deserialize)]
@@ -553,6 +556,19 @@ pub fn load_hud_assets(
         runtime: Arc::new(runtime),
         selected_path: path,
     }))
+}
+
+/// Loads the pinned HUD carrier, failing closed when it is absent.
+///
+/// The renderer treats the native survival HUD as required art. A missing carrier is a fatal
+/// startup error rather than a silent degrade: without it the survival HUD would be invisible
+/// with no on-screen indication of why. Malformed or stale carriers already fail through
+/// [`load_hud_assets`]; this wrapper additionally rejects the absent case with the shared
+/// [`hud_assets_missing_notice`] guidance.
+pub fn require_hud_assets(world_asset_path: &Path) -> Result<LoadedHudAssets, AssetStartupError> {
+    load_hud_assets(world_asset_path)?.ok_or_else(|| AssetStartupError::HudAssetsMissing {
+        notice: hud_assets_missing_notice(),
+    })
 }
 
 pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, AssetStartupError> {

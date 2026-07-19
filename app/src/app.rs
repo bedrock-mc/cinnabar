@@ -35,7 +35,8 @@ use crate::{
     },
     args,
     asset_startup::{
-        LoadedAssetKind, load_hud_assets, load_runtime_assets, select_asset_path_from_environment,
+        LoadedAssetKind, load_runtime_assets, require_hud_assets,
+        select_asset_path_from_environment,
     },
     camera::{FlyCameraPlugin, FlyCameraUpdateSet},
     environment::{
@@ -295,20 +296,12 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     eprintln!("{}", loaded_assets.entities.startup_summary());
     eprintln!("{}", loaded_assets.fonts.startup_summary());
     let entity_runtime = Arc::clone(loaded_assets.entities.runtime());
-    let hud_assets = load_hud_assets(&loaded_assets.selected_path)
+    let hud_assets = require_hud_assets(&loaded_assets.selected_path)
         .context("load pinned official Mojang sample HUD carrier")?;
-    if let Some(hud_assets) = hud_assets.as_ref() {
-        eprintln!("{}", hud_assets.startup_summary());
-    } else {
-        eprintln!("{}", crate::asset_startup::hud_assets_missing_notice());
-    }
+    eprintln!("{}", hud_assets.startup_summary());
     let font_runtime = loaded_assets.fonts.into_runtime();
-    let ui_presentation = if let Some(hud_assets) = hud_assets {
-        UiPresentationRuntime::with_hud(font_runtime, hud_assets.into_runtime())
-    } else {
-        UiPresentationRuntime::new(font_runtime)
-    }
-    .context("prepare bounded font and HUD texture array for UI rendering")?;
+    let ui_presentation = UiPresentationRuntime::with_hud(font_runtime, hud_assets.into_runtime())
+        .context("prepare bounded font and HUD texture array for UI rendering")?;
     eprintln!(
         "scoreboard sidebar background remains hidden until native #objective_background_opacity and #scoreboard_objective_background_opacity authority is supplied"
     );

@@ -3,6 +3,7 @@ use std::{fs, path::PathBuf};
 use assets::{HUD_SOURCE_MANIFEST_SHA256, HudTexture, HudTextureRole, encode_hud_catalog};
 use bedrock_client::asset_startup::{
     HUD_ASSETS_COMPILE_COMMAND, hud_asset_path, hud_assets_missing_notice, load_hud_assets,
+    require_hud_assets,
 };
 use sha2::{Digest, Sha256};
 
@@ -54,6 +55,24 @@ fn absent_hud_carrier_is_optional_and_does_not_invent_fallback_art() {
 #[test]
 fn hud_recovery_uses_the_automatic_official_sample_target() {
     assert_eq!(HUD_ASSETS_COMPILE_COMMAND, "make hud-assets");
+}
+
+#[test]
+fn absent_hud_carrier_fails_startup_closed_with_official_sample_notice() {
+    let directory = temporary_directory("absent-required");
+    let world_assets = directory.join("vanilla-v1001.mcbea");
+
+    let error = match require_hud_assets(&world_assets) {
+        Ok(_) => panic!("absent HUD carrier unexpectedly satisfied the required startup contract"),
+        Err(error) => error.to_string(),
+    };
+    // The fatal error is the single shared notice, so startup guidance never drifts from it.
+    assert_eq!(error, hud_assets_missing_notice());
+    assert!(error.contains("client will not start"));
+    assert!(error.contains(HUD_ASSETS_COMPILE_COMMAND));
+    assert!(error.contains("make assets"));
+
+    fs::remove_dir_all(directory).unwrap();
 }
 
 #[test]
