@@ -1,11 +1,9 @@
 use super::super::retained_hud::{
-    BOSS_PANEL_HEIGHT, BOSS_PANEL_WIDTH, BOSS_PROGRESS_HEIGHT, BOSS_PROGRESS_TOP,
-    BOSS_STACK_VIEWPORT_FRACTION, MAX_PRESENTED_BELOW_NAME_ROWS, MAX_PRESENTED_PLAYER_LIST_ROWS,
-    MAX_PRESENTED_SCOREBOARD_ROWS, SCOREBOARD_HORIZONTAL_PADDING, SCOREBOARD_LIST_OFFSET,
-    SCOREBOARD_MAIN_HORIZONTAL_EXPANSION, SCOREBOARD_NAME_WIDTH, SCOREBOARD_TEXT_HEIGHT,
-    SCOREBOARD_TITLE_BACKGROUND_HEIGHT, SCOREBOARD_TITLE_WIDTH, ScoreboardPresentationScope,
-    project_below_name_scores, project_boss_bars, project_scoreboard_for_scope,
-    required_sidebar_owner_ids,
+    MAX_PRESENTED_BELOW_NAME_ROWS, MAX_PRESENTED_PLAYER_LIST_ROWS, MAX_PRESENTED_SCOREBOARD_ROWS,
+    SCOREBOARD_HORIZONTAL_PADDING, SCOREBOARD_LIST_OFFSET, SCOREBOARD_MAIN_HORIZONTAL_EXPANSION,
+    SCOREBOARD_NAME_WIDTH, SCOREBOARD_TEXT_HEIGHT, SCOREBOARD_TITLE_BACKGROUND_HEIGHT,
+    SCOREBOARD_TITLE_WIDTH, ScoreboardPresentationScope, project_below_name_scores,
+    project_scoreboard_for_scope, required_sidebar_owner_ids,
 };
 use super::*;
 use ui::ScoreOwner;
@@ -172,13 +170,7 @@ fn production_sidebar_resolves_player_entity_and_fake_rows_from_owned_actor_auth
 }
 
 #[test]
-fn boss_contract_uses_exact_pack_geometry_and_ignores_non_bedrock_notch_overlay_art() {
-    assert_eq!(BOSS_PANEL_WIDTH, 182.0);
-    assert_eq!(BOSS_PANEL_HEIGHT, 20.0);
-    assert_eq!(BOSS_PROGRESS_HEIGHT, 5.0);
-    assert_eq!(BOSS_PROGRESS_TOP, 10.0);
-    assert_eq!(BOSS_STACK_VIEWPORT_FRACTION, 0.30);
-
+fn boss_presentation_fails_closed_entirely_without_exact_title_shadow_authority() {
     let mut runtime = UiRuntime::new(1);
     runtime
         .apply(SequencedUiEvent {
@@ -197,19 +189,15 @@ fn boss_contract_uses_exact_pack_geometry_and_ignores_non_bedrock_notch_overlay_
         })
         .unwrap();
 
-    let bars = project_boss_bars(runtime.boss_bars(), 800.0, 600.0);
-    assert_eq!(bars.len(), 1);
-    assert_eq!(bars[0].panel, [309.0, 2.0, 491.0, 22.0]);
-    assert_eq!(bars[0].progress, [309.0, 12.0, 491.0, 17.0]);
-    assert_eq!(bars[0].fill, [309.0, 12.0, 400.0, 17.0]);
+    assert_eq!(runtime.boss_bars().stacked().len(), 1);
 
     let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
     let input = presentation
         .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
         .unwrap();
-    assert!(input.batches.iter().all(|batch| batch.texture_page != 0));
-    assert!(bounds_for_color(&input, [170, 0, 170, 255]).is_some());
-    assert!(bounds_for_color(&input, [16, 16, 16, 255]).is_none());
+    assert!(input.vertices.is_empty());
+    assert!(input.indices.is_empty());
+    assert!(input.batches.is_empty());
 }
 
 fn install_mixed_scoreboard_slot(
