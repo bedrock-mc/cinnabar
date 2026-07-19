@@ -138,6 +138,7 @@ impl Plugin for ChunkRenderPlugin {
                 (
                     publish_graphics_runtime_metadata
                         .after(RenderSystems::ExtractCommands)
+                        .after(crate::present_mode::PresentModePolicySet)
                         .before(bevy::render::view::window::create_surfaces),
                     queue_chunks.in_set(RenderSystems::Queue),
                     queue_transparent_chunks.in_set(RenderSystems::Queue),

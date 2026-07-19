@@ -4,8 +4,8 @@ Branch: `performance-dx12-present-mode`
 
 Base: `origin/phase2-textures` at `d026417`
 
-Status: incomplete work-in-progress checkpoint; policy tests are green, final app
-integration verification is not complete.
+Status: locally implemented and verified; not pushed, merged, independently
+re-reviewed after the final fixes, or native-accepted.
 
 ## Evidence and intended policy
 
@@ -24,16 +24,44 @@ The implementation is deliberately exact-match only:
 - runtime video-setting changes replace Auto rather than being silently
   overridden.
 
-The render decision is cached and propagated through an atomic preference. Four
-focused policy tests passed: exact match, mismatch fallback, explicit preference,
-and shared update behavior.
+The render world caches the capability decision and publishes a shared remedy.
+The main world applies that remedy to the authoritative `Window` once, so the
+next extraction remains Immediate and does not reconfigure the surface every
+frame. A pending runtime settings generation is consumed only after a unique
+primary window exists and the setting is applied. The render metadata probe is
+ordered after policy resolution; main-world adoption is ordered before metrics
+and title publication.
 
-## Remaining work
+The exact Auto match emits one deterministic structured warning containing
+`preference=Auto`, startup/requested FIFO, recommended/effective Immediate, and
+the exact adapter and driver. Attributable acceptance and metrics runs remain
+locked to FIFO unless `--no-vsync` is explicitly supplied, so the automatic
+remedy cannot relabel formal FIFO evidence. Explicit `--vsync` also locks FIFO.
 
-- Finish/repair app integration compilation and tests.
-- Run strict Clippy, formatting, architecture, and independent review.
-- Build release and repeat Lunar `pvp.lunarbedrock.com:19134`, then Zeqa
+## Local verification
+
+- `cargo test --locked -p render --test present_mode_policy -- --nocapture`
+- `cargo test --locked -p render --test plugin -- contracts::graphics_runtime_metadata_waits_for_extracted_diagnostics_before_surface_probe --nocapture`
+- `cargo test --locked -p bedrock-client present_mode -- --nocapture`
+- `cargo test --locked -p bedrock-client args::tests -- --nocapture`
+- `cargo test --locked -p render -p bedrock-client --all-targets --all-features`
+- `cargo clippy --locked -p render -p bedrock-client --all-targets --all-features -- -D warnings`
+- `cargo fmt --all -- --check`
+- `cargo run -p architecture --locked -- check --root . --policy tools/architecture/policy.toml`
+- `git diff --check`
+
+All listed local checks passed before the final documentation update. The
+present-mode focused tests cover the exact driver/capability boundary, explicit
+preference precedence, runtime setting transitions, missing-window retry, and
+two consecutive automatic applications with no second `Window` change.
+
+## Remaining native/review gates
+
+- Obtain a fresh independent review of the final production behavior and tests.
+- Integrate on the stable canonical path, build release, and repeat Lunar
+  `pvp.lunarbedrock.com:19134`, then Zeqa
   `zeqa.net:19132`, confirming effective mode, frame pacing, chunk readiness,
   input latency, and no regression for explicit vsync.
+- Validate normal Auto interactively. Use explicit `--no-vsync` only as the
+  attributable performance control; formal FIFO evidence remains separate.
 - Do not generalize the driver match without new measured evidence.
-

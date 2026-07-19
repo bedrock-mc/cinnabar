@@ -410,6 +410,15 @@ mod tests {
     }
 
     #[test]
+    fn parses_explicit_vsync_override() {
+        let ParseOutcome::Run(args) = ClientArgs::parse_from(["client", "--vsync"]).unwrap() else {
+            panic!("expected run args")
+        };
+        assert!(args.force_vsync);
+        assert!(!args.no_vsync);
+    }
+
+    #[test]
     fn help_documents_all_acceptance_flags() {
         assert_eq!(
             ClientArgs::parse_from(["client", "--help"]).unwrap(),
@@ -424,6 +433,7 @@ mod tests {
             "--metrics-sample-seconds",
             "--auto-fly",
             "--vsync",
+            "--no-vsync",
             "--frame-cap",
             "--full-view-teleport-gate",
             "--require-transparent-presentation",

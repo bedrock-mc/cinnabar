@@ -5,8 +5,8 @@ use std::sync::{
 
 use bevy::{
     app::{App, Plugin},
-    ecs::{entity::Entity, system::Local},
-    prelude::{IntoScheduleConfigs, Res, ResMut, Resource},
+    ecs::{entity::Entity, schedule::SystemSet, system::Local},
+    prelude::{IntoScheduleConfigs, Res, Resource},
     render::{
         Render, RenderApp, RenderSystems,
         renderer::{RenderAdapter, RenderInstance},
@@ -38,14 +38,26 @@ impl PresentModePreference {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
 pub enum PresentModeRemedy {
-    KeepRequested,
-    UseImmediate,
+    KeepRequested = 0,
+    UseImmediate = 1,
+}
+
+impl PresentModeRemedy {
+    fn from_u8(value: u8) -> Self {
+        if value == Self::UseImmediate as u8 {
+            Self::UseImmediate
+        } else {
+            Self::KeepRequested
+        }
+    }
 }
 
 #[derive(Resource, Clone, Debug)]
 pub struct Dx12PresentModePolicy {
     preference: Arc<AtomicU8>,
+    remedy: Arc<AtomicU8>,
 }
 
 impl Default for Dx12PresentModePolicy {
@@ -59,16 +71,27 @@ impl Dx12PresentModePolicy {
     pub fn new(preference: PresentModePreference) -> Self {
         Self {
             preference: Arc::new(AtomicU8::new(preference as u8)),
+            remedy: Arc::new(AtomicU8::new(PresentModeRemedy::KeepRequested as u8)),
         }
     }
 
     pub fn set_preference(&self, preference: PresentModePreference) {
         self.preference.store(preference as u8, Ordering::Release);
+        self.publish_remedy(PresentModeRemedy::KeepRequested);
     }
 
     #[must_use]
     pub fn preference(&self) -> PresentModePreference {
         PresentModePreference::from_u8(self.preference.load(Ordering::Acquire))
+    }
+
+    pub fn publish_remedy(&self, remedy: PresentModeRemedy) {
+        self.remedy.store(remedy as u8, Ordering::Release);
+    }
+
+    #[must_use]
+    pub fn remedy(&self) -> PresentModeRemedy {
+        PresentModeRemedy::from_u8(self.remedy.load(Ordering::Acquire))
     }
 }
 
@@ -111,16 +134,18 @@ impl Plugin for Dx12PresentModePolicyPlugin {
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
-        render_app
-            .insert_resource(self.policy.clone())
-            .add_systems(
-                Render,
-                apply_dx12_present_mode_policy
-                    .after(RenderSystems::ExtractCommands)
-                    .before(create_surfaces),
-            );
+        render_app.insert_resource(self.policy.clone()).add_systems(
+            Render,
+            apply_dx12_present_mode_policy
+                .in_set(PresentModePolicySet)
+                .after(RenderSystems::ExtractCommands)
+                .before(create_surfaces),
+        );
     }
 }
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, SystemSet)]
+pub(crate) struct PresentModePolicySet;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct CachedResolution {
@@ -132,7 +157,7 @@ struct CachedResolution {
 
 fn apply_dx12_present_mode_policy(
     #[cfg(any(target_os = "macos", target_os = "ios"))] _marker: bevy::ecs::system::NonSendMarker,
-    mut windows: ResMut<ExtractedWindows>,
+    windows: Res<ExtractedWindows>,
     render_instance: Res<RenderInstance>,
     render_adapter: Res<RenderAdapter>,
     policy: Res<Dx12PresentModePolicy>,
@@ -142,23 +167,26 @@ fn apply_dx12_present_mode_policy(
     #[cfg(not(target_os = "windows"))]
     {
         let _ = (
-            &mut windows,
+            &windows,
             &render_instance,
             &render_adapter,
             &policy,
             &mut cached,
             &mut logged,
         );
-        return;
     }
 
     #[cfg(target_os = "windows")]
     {
         let preference = policy.preference();
         let Some(window_id) = windows.primary else {
+            policy.publish_remedy(PresentModeRemedy::KeepRequested);
+            *cached = None;
             return;
         };
-        let Some(window) = windows.windows.get_mut(&window_id) else {
+        let Some(window) = windows.windows.get(&window_id) else {
+            policy.publish_remedy(PresentModeRemedy::KeepRequested);
+            *cached = None;
             return;
         };
         let requested = window.present_mode;
@@ -168,6 +196,8 @@ fn apply_dx12_present_mode_policy(
                 && resolution.requested == requested
         });
         if !key_matches {
+            policy.publish_remedy(PresentModeRemedy::KeepRequested);
+            *cached = None;
             let surface_target = wgpu::SurfaceTargetUnsafe::RawHandle {
                 raw_display_handle: window.handle.get_display_handle(),
                 raw_window_handle: window.handle.get_window_handle(),
@@ -180,7 +210,7 @@ fn apply_dx12_present_mode_policy(
             };
             let capabilities = surface.get_capabilities(&render_adapter);
             let adapter_info = render_adapter.get_info();
-            *cached = Some(CachedResolution {
+            let resolution = CachedResolution {
                 window: window_id,
                 preference,
                 requested,
@@ -192,19 +222,19 @@ fn apply_dx12_present_mode_policy(
                     requested,
                     &capabilities.present_modes,
                 ),
-            });
+            };
+            policy.publish_remedy(resolution.remedy);
+            *cached = Some(resolution);
         }
-        if cached.as_ref().is_some_and(|resolution| {
-            resolution.remedy == PresentModeRemedy::UseImmediate
-        }) {
-            window.present_mode_changed |= window.present_mode != PresentMode::Immediate;
-            window.present_mode = PresentMode::Immediate;
-            if !*logged {
-                bevy::log::warn!(
-                    "using Immediate presentation for the measured RX 570 DX12 FIFO driver defect; use --vsync to force FIFO"
-                );
-                *logged = true;
-            }
+        if cached
+            .as_ref()
+            .is_some_and(|resolution| resolution.remedy == PresentModeRemedy::UseImmediate)
+            && !*logged
+        {
+            bevy::log::warn!(
+                "present_mode_policy preference=Auto startup_requested=Fifo requested=Fifo recommended=Immediate effective=Immediate adapter=\"{AFFECTED_DX12_ADAPTER}\" driver=\"{AFFECTED_DX12_DRIVER}\"; use --vsync to force FIFO"
+            );
+            *logged = true;
         }
     }
 }

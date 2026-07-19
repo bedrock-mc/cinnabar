@@ -332,11 +332,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .context("spawn Bedrock network worker")?;
     let present_mode = requested_present_mode(args.no_vsync);
     let diagnostics_enabled = args.acceptance_seconds.is_some() || args.metrics_out.is_some();
-    let present_mode_runtime = PresentModeRuntime::from_startup(
-        args.force_vsync,
-        args.no_vsync,
-        diagnostics_enabled,
-    );
+    let present_mode_runtime =
+        PresentModeRuntime::from_startup(args.force_vsync, args.no_vsync, diagnostics_enabled);
     let present_mode_policy = present_mode_runtime.policy();
     let runtime_config = AcceptanceRuntimeConfig {
         build_profile: if cfg!(debug_assertions) {
@@ -370,7 +367,9 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             .disable::<TerminalCtrlCHandlerPlugin>(),
     );
     app.add_plugins(FxaaPlugin);
-    app.add_plugins(render::Dx12PresentModePolicyPlugin::new(present_mode_policy));
+    app.add_plugins(render::Dx12PresentModePolicyPlugin::new(
+        present_mode_policy,
+    ));
     if diagnostics_enabled {
         app.add_plugins(RenderDiagnosticsPlugin);
     }
@@ -484,8 +483,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
                 update_visibility_diagnostics.after(ChunkRenderApplySet),
                 emit_world_ready,
                 drive_model_witness,
-                record_metrics_and_title,
                 apply_runtime_vsync_setting,
+                record_metrics_and_title,
             )
                 .chain()
                 .after(FlyCameraUpdateSet),
