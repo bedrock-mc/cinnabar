@@ -12,8 +12,8 @@ use render::{
 };
 use sha2::{Digest, Sha256};
 use ui::{
-    BoundedStat, DpiScale, HudViewRole, SafeArea, TextLayoutCache, TextLayoutRequest, TextStyle,
-    UiNode, UiNodeId, UiPoint, UiRect, UiScale, UiTree, UiVisual,
+    DpiScale, HudViewRole, SafeArea, TextLayoutCache, TextLayoutRequest, TextStyle, UiNode,
+    UiNodeId, UiPoint, UiRect, UiScale, UiTree, UiVisual,
 };
 
 use super::{UiRuntime, render_adapter::UiRenderViewport};
@@ -24,9 +24,13 @@ use crate::{
 
 mod chat;
 mod retained_hud;
+mod survival_hud;
 
 use chat::visible_suggestion_range;
-use retained_hud::{PresentedScoreboardCache, ScoreboardOpacityAuthority, project_boss_bars};
+use retained_hud::{
+    PresentedScoreboardCache, ScoreboardOpacityAuthority, ScoreboardOwnerNameAuthority,
+    project_boss_bars,
+};
 
 const TEXT_CACHE_ENTRIES: usize = 1_024;
 const TEXT_CACHE_BYTES: usize = 8 * 1024 * 1024;
@@ -37,8 +41,6 @@ const MAX_PRESENTED_TEXT_BYTES: usize = 512;
 const CHAT_TEXT_SCALE: f32 = 0.5;
 const VANILLA_HUD_ATLAS_SIDE: u32 = 128;
 const HUD_ATLAS_GUTTER: u32 = 1;
-const VANILLA_SURVIVAL_POINTS: u16 = 20;
-const VANILLA_HUD_BACKGROUND_ALPHA: u8 = 166;
 
 #[derive(Debug)]
 pub enum UiPresentationError {
@@ -67,6 +69,7 @@ pub struct UiPresentationRuntime {
     layouts: TextLayoutCache,
     revision: u64,
     scoreboard: PresentedScoreboardCache,
+    scoreboard_owner_names: ScoreboardOwnerNameAuthority,
     scoreboard_opacity: Option<ScoreboardOpacityAuthority>,
     chat_hit_logical_size: Option<[f32; 2]>,
     chat_suggestion_hits: Vec<(usize, UiRect)>,
@@ -102,20 +105,11 @@ impl UiPresentationRuntime {
             layouts: TextLayoutCache::new(TEXT_CACHE_ENTRIES, TEXT_CACHE_BYTES),
             revision: 0,
             scoreboard: PresentedScoreboardCache::default(),
+            scoreboard_owner_names: ScoreboardOwnerNameAuthority::default(),
             scoreboard_opacity: None,
             chat_hit_logical_size: None,
             chat_suggestion_hits: Vec::with_capacity(MAX_PRESENTED_CHAT_SUGGESTIONS),
         })
-    }
-
-    #[allow(
-        dead_code,
-        reason = "enabled only after native evidence binds both scoreboard alpha values"
-    )]
-    pub(crate) fn set_native_scoreboard_opacity(&mut self, body: u8, title: u8) {
-        self.scoreboard_opacity = Some(ScoreboardOpacityAuthority::from_native_alpha_bytes(
-            body, title,
-        ));
     }
 
     pub fn build(
@@ -127,6 +121,7 @@ impl UiPresentationRuntime {
     ) -> Result<UiRenderInput, UiPresentationError> {
         let logical_width = physical_size[0] as f32 / dpi_scale.get();
         let logical_height = physical_size[1] as f32 / dpi_scale.get();
+        let measured_survival_geometry = survival_hud::measured_geometry(physical_size, dpi_scale);
         let viewport = rect(0.0, 0.0, logical_width, logical_height)?;
         let wrap_width = ((logical_width * 0.45).clamp(1.0, 640.0) * 64.0) as u32;
         let chat_content_width = wrap_width as f32 / 64.0;
@@ -138,19 +133,19 @@ impl UiPresentationRuntime {
         let mut next_id = 1u32;
 
         if let Some(hud_textures) = self.hud_textures.as_ref() {
-            append_survival_hud(
-                &mut nodes,
-                &mut next_id,
-                runtime,
-                logical_width,
-                logical_height,
-                hud_textures,
-            )?;
+            if let Some(geometry) = measured_survival_geometry {
+                survival_hud::append(
+                    &mut nodes,
+                    &mut next_id,
+                    runtime,
+                    logical_height,
+                    hud_textures,
+                    geometry,
+                )?;
+            }
             retained_hud::append_boss_nodes(
                 &mut nodes,
                 &mut next_id,
-                &mut self.layouts,
-                &self.font,
                 hud_textures,
                 project_boss_bars(runtime.boss_bars(), logical_width, logical_height),
             )?;
@@ -206,7 +201,9 @@ impl UiPresentationRuntime {
         }
 
         if let Some(opacity) = self.scoreboard_opacity
-            && let Some(scoreboard) = self.scoreboard.refresh(runtime.scoreboards())
+            && let Some(scoreboard) = self
+                .scoreboard
+                .refresh(runtime.scoreboards(), &self.scoreboard_owner_names)
         {
             retained_hud::append_scoreboard_nodes(
                 &mut nodes,
@@ -280,7 +277,10 @@ impl UiPresentationRuntime {
             .map(|(_, layout, _)| layout.size_64()[1] as f32 / 64.0 + 4.0)
             .sum::<f32>();
         let chat_region_top = (logical_height - 220.0 - suggestion_reserved_height).max(0.0);
-        let bottom_hud_top = (logical_height - 42.0).max(chat_region_top);
+        let bottom_hud_top = measured_survival_geometry.map_or_else(
+            || (logical_height - 42.0).max(chat_region_top),
+            |geometry| geometry.bottom_row_top(logical_height).max(chat_region_top),
+        );
         let editor_bottom = (bottom_hud_top - 2.0).max(chat_region_top);
         let editor_y = editor_layout.as_ref().map_or(editor_bottom, |layout| {
             (editor_bottom - layout.size_64()[1] as f32 / 64.0).max(chat_region_top)
@@ -486,6 +486,8 @@ pub(crate) fn publish_ui_runtime(
     };
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.hud.expire(now_millis);
+    presentation
+        .refresh_scoreboard_owner_names(runtime.scoreboards(), client_world.stream.as_ref());
     let input = match presentation.build(&runtime, now_millis, physical_size, dpi_scale) {
         Ok(input) => input,
         Err(error) => {
@@ -499,210 +501,6 @@ pub(crate) fn publish_ui_runtime(
             UiPresentationError::Render(error).to_string(),
         );
     }
-}
-
-fn append_survival_hud(
-    nodes: &mut Vec<UiNode>,
-    next_id: &mut u32,
-    runtime: &UiRuntime,
-    width: f32,
-    height: f32,
-    textures: &HudTexturePages,
-) -> Result<(), UiPresentationError> {
-    let left = ((width - 180.0) * 0.5).max(0.0);
-    if let Some(health) = runtime.hud().health()
-        && let Some(half_units) = standard_survival_half_units(health)
-    {
-        append_icon_row(
-            nodes,
-            next_id,
-            textures,
-            [left - 1.0, (height - 40.0).max(0.0)],
-            false,
-            half_units,
-            HudTextureRole::HeartBackground,
-            HudTextureRole::HeartFull,
-            HudTextureRole::HeartHalf,
-        )?;
-    }
-    if let Some(hunger) = runtime.hud().hunger()
-        && let Some(half_units) = standard_survival_half_units(hunger)
-    {
-        append_icon_row(
-            nodes,
-            next_id,
-            textures,
-            [left + 180.0 - 9.0, (height - 40.0).max(0.0)],
-            true,
-            half_units,
-            HudTextureRole::HungerBackground,
-            HudTextureRole::HungerFull,
-            HudTextureRole::HungerHalf,
-        )?;
-    }
-    if let Some(armor) = runtime.hud().armor()
-        && armor.current() > 0
-        && let Some(half_units) = standard_survival_half_units(armor)
-    {
-        append_icon_row(
-            nodes,
-            next_id,
-            textures,
-            [left - 1.0, (height - 50.0).max(0.0)],
-            false,
-            half_units,
-            HudTextureRole::ArmorEmpty,
-            HudTextureRole::ArmorFull,
-            HudTextureRole::ArmorHalf,
-        )?;
-    }
-    if let Some(air) = runtime.hud().air()
-        && air.current() < air.maximum()
-    {
-        let filled = u32::from(air.current())
-            .saturating_mul(10)
-            .div_ceil(u32::from(air.maximum()))
-            .min(10) as usize;
-        for index in 0..10 {
-            let role = if index < filled {
-                HudTextureRole::BubbleFull
-            } else {
-                HudTextureRole::BubbleEmpty
-            };
-            append_sprite(
-                nodes,
-                next_id,
-                textures,
-                role,
-                [
-                    left + 180.0 - 9.0 - index as f32 * 9.0,
-                    (height - 50.0).max(0.0),
-                ],
-                [255; 4],
-            )?;
-        }
-    }
-
-    if let Some(equipment) = runtime.local_selected_equipment() {
-        let hotbar_y = (height - 22.0).max(0.0);
-        let roles = [
-            HudTextureRole::Hotbar0,
-            HudTextureRole::Hotbar1,
-            HudTextureRole::Hotbar2,
-            HudTextureRole::Hotbar3,
-            HudTextureRole::Hotbar4,
-            HudTextureRole::Hotbar5,
-            HudTextureRole::Hotbar6,
-            HudTextureRole::Hotbar7,
-            HudTextureRole::Hotbar8,
-        ];
-        let selected = usize::from(equipment.event.selected_slot);
-        if selected >= roles.len() {
-            return Ok(());
-        }
-        for (index, role) in roles.into_iter().enumerate() {
-            append_sprite(
-                nodes,
-                next_id,
-                textures,
-                role,
-                [left + index as f32 * 20.0, hotbar_y],
-                [255; 4],
-            )?;
-        }
-        append_sprite(
-            nodes,
-            next_id,
-            textures,
-            HudTextureRole::SelectedHotbarSlot,
-            [
-                left + selected as f32 * 20.0 - 2.0,
-                (height - 23.0).max(0.0),
-            ],
-            [255; 4],
-        )?;
-    }
-    Ok(())
-}
-
-#[allow(clippy::too_many_arguments)]
-fn append_icon_row(
-    nodes: &mut Vec<UiNode>,
-    next_id: &mut u32,
-    textures: &HudTexturePages,
-    origin: [f32; 2],
-    reverse: bool,
-    half_units: u16,
-    background: HudTextureRole,
-    full: HudTextureRole,
-    half: HudTextureRole,
-) -> Result<(), UiPresentationError> {
-    for index in 0..10 {
-        let direction = if reverse { -1.0 } else { 1.0 };
-        let position = [origin[0] + direction * index as f32 * 9.0, origin[1]];
-        append_sprite(
-            nodes,
-            next_id,
-            textures,
-            background,
-            position,
-            [255, 255, 255, VANILLA_HUD_BACKGROUND_ALPHA],
-        )?;
-        let remaining = half_units.saturating_sub(index as u16 * 2);
-        let foreground = if remaining >= 2 {
-            Some(full)
-        } else if remaining == 1 {
-            Some(half)
-        } else {
-            None
-        };
-        if let Some(role) = foreground {
-            append_sprite(nodes, next_id, textures, role, position, [255; 4])?;
-        }
-    }
-    Ok(())
-}
-
-fn append_sprite(
-    nodes: &mut Vec<UiNode>,
-    next_id: &mut u32,
-    textures: &HudTexturePages,
-    role: HudTextureRole,
-    position: [f32; 2],
-    color: [u8; 4],
-) -> Result<(), UiPresentationError> {
-    let sprite = textures.sprite(role);
-    let size = [f32::from(sprite.size[0]), f32::from(sprite.size[1])];
-    nodes.push(
-        UiNode::new(
-            UiNodeId::new(*next_id),
-            None,
-            rect(
-                position[0],
-                position[1],
-                position[0] + size[0],
-                position[1] + size[1],
-            )?,
-        )
-        .with_visual(UiVisual::Sprite {
-            texture_page: textures.page,
-            uv: sprite.uv,
-            color,
-        }),
-    );
-    *next_id = (*next_id).saturating_add(1);
-    Ok(())
-}
-
-fn standard_survival_half_units(stat: BoundedStat) -> Option<u16> {
-    let maximum = u32::from(stat.maximum());
-    let scale = u32::from(stat.scale());
-    if maximum != u32::from(VANILLA_SURVIVAL_POINTS) * scale {
-        return None;
-    }
-    u16::try_from(u32::from(stat.current()).div_ceil(scale))
-        .ok()
-        .map(|value| value.min(VANILLA_SURVIVAL_POINTS))
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

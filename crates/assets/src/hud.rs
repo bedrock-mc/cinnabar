@@ -2,10 +2,10 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 pub const HUD_CARRIER_MAGIC: [u8; 8] = *b"MCBEHUD1";
-pub const HUD_CARRIER_VERSION: u32 = 2;
+pub const HUD_CARRIER_VERSION: u32 = 3;
 pub const HUD_SOURCE_MANIFEST_SHA256: [u8; 32] = [
-    0x61, 0x30, 0xf4, 0x1e, 0xaa, 0x45, 0x26, 0xdc, 0x41, 0x62, 0x9b, 0x91, 0x89, 0x71, 0x72, 0xb0,
-    0x13, 0xa3, 0xb7, 0x9d, 0x5a, 0x93, 0xb0, 0xd0, 0x86, 0xc9, 0xb6, 0xf5, 0xb2, 0xc2, 0x05, 0x00,
+    0xcb, 0x68, 0x45, 0x76, 0xd2, 0xf0, 0xb9, 0x23, 0xcb, 0xfe, 0x59, 0x74, 0x44, 0x11, 0x29, 0x8d,
+    0xb1, 0xf4, 0x0a, 0x83, 0x55, 0xb5, 0x90, 0x8e, 0x7c, 0x0f, 0x13, 0x60, 0x49, 0x7a, 0x4b, 0x20,
 ];
 pub const MAX_HUD_TEXTURE_BYTES: usize = 4 * 1024 * 1024;
 const HEADER_BYTES: usize = 80;
@@ -38,12 +38,14 @@ pub enum HudTextureRole {
     Hotbar7 = 18,
     Hotbar8 = 19,
     SelectedHotbarSlot = 20,
-    BossProgressEmpty = 21,
-    BossProgressFilled = 22,
+    HotbarStartCap = 21,
+    HotbarEndCap = 22,
+    BossProgressEmpty = 23,
+    BossProgressFilled = 24,
 }
 
 impl HudTextureRole {
-    pub const ALL: [Self; 23] = [
+    pub const ALL: [Self; 25] = [
         Self::HeartBackground,
         Self::HeartFull,
         Self::HeartHalf,
@@ -65,6 +67,8 @@ impl HudTextureRole {
         Self::Hotbar7,
         Self::Hotbar8,
         Self::SelectedHotbarSlot,
+        Self::HotbarStartCap,
+        Self::HotbarEndCap,
         Self::BossProgressEmpty,
         Self::BossProgressFilled,
     ];
@@ -93,6 +97,8 @@ impl HudTextureRole {
             Self::Hotbar7 => "textures/ui/hotbar_7.png",
             Self::Hotbar8 => "textures/ui/hotbar_8.png",
             Self::SelectedHotbarSlot => "textures/ui/selected_hotbar_slot.png",
+            Self::HotbarStartCap => "textures/ui/hotbar_start_cap.png",
+            Self::HotbarEndCap => "textures/ui/hotbar_end_cap.png",
             Self::BossProgressEmpty => "textures/ui/empty_progress_bar.png",
             Self::BossProgressFilled => "textures/ui/filled_progress_bar.png",
         }
@@ -122,6 +128,7 @@ impl HudTextureRole {
             | Self::Hotbar7
             | Self::Hotbar8 => [20, 22],
             Self::SelectedHotbarSlot => [24, 24],
+            Self::HotbarStartCap | Self::HotbarEndCap => [1, 22],
             Self::BossProgressEmpty | Self::BossProgressFilled => [13, 5],
         }
     }

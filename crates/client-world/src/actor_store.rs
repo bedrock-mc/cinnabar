@@ -19,6 +19,7 @@ pub(crate) const MAX_TRACKED_PLAYER_SKIN_BYTES: usize = MAX_PLAYER_LIST_SKIN_BYT
 
 // Protocol 1001 metadata keys retained verbatim by ActorSnapshot.
 const PLAYER_FLAGS_METADATA_KEY: i32 = 26;
+const NAMETAG_METADATA_KEY: i32 = 4;
 const BOUNDING_BOX_HEIGHT_METADATA_KEY: i32 = 54;
 const EXTENDED_FLAGS_METADATA_KEY: i32 = 92;
 const PLAYER_FLAGS_SLEEPING: u8 = 1 << 1;

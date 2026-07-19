@@ -16,7 +16,7 @@ use crate::ui_runtime::SequencedUiEvent;
 mod retained_hud_tests;
 
 #[test]
-fn retained_hud_publishes_through_tree_adapter_and_render_scene() {
+fn unmeasured_survival_custom_renderer_fails_closed() {
     let font = fixture_font();
     let mut presentation = UiPresentationRuntime::with_hud(font, fixture_hud()).unwrap();
     let mut runtime = UiRuntime::new(1);
@@ -33,9 +33,9 @@ fn retained_hud_publishes_through_tree_adapter_and_render_scene() {
     let input = presentation
         .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
         .unwrap();
-    assert_eq!(input.vertices.len(), 20 * 4);
-    assert!(!input.indices.is_empty());
-    assert!(!input.batches.is_empty());
+    assert!(input.vertices.is_empty());
+    assert!(input.indices.is_empty());
+    assert!(input.batches.is_empty());
     let mut scene = UiRenderScene::default();
     scene.publish(input, &UiRenderStats::default()).unwrap();
     assert!(scene.input.is_some());
@@ -72,21 +72,21 @@ fn selected_hotbar_slot_uses_local_authority_and_exact_pack_sprite_geometry() {
         protocol::EquipmentEvent {
             actor_runtime_id: 42,
             stack: protocol::NetworkItemStack::empty(),
-            inventory_slot: 4,
-            selected_slot: 4,
+            inventory_slot: 0,
+            selected_slot: 0,
             window_id: 0,
             handedness: None,
         },
     );
 
     let active = presentation
-        .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
+        .build(&runtime, 0, [3433, 1385], DpiScale::new(1.5).unwrap())
         .unwrap();
-    assert_eq!(active.vertices.len(), 10 * 4);
+    assert_eq!(active.vertices.len(), 12 * 4);
     assert_eq!(active.batches.len(), 1);
-    let selected = &active.vertices[9 * 4..10 * 4];
+    let selected = &active.vertices[11 * 4..12 * 4];
     let (top, bottom) = vertical_bounds(selected);
-    assert_eq!([top, bottom], [577.0, 601.0]);
+    assert_eq!([top, bottom], [1310.0, 1382.0]);
     let left = selected
         .iter()
         .map(|vertex| vertex.position[0])
@@ -95,7 +95,7 @@ fn selected_hotbar_slot_uses_local_authority_and_exact_pack_sprite_geometry() {
         .iter()
         .map(|vertex| vertex.position[0])
         .fold(f32::NEG_INFINITY, f32::max);
-    assert_eq!([left, right], [388.0, 412.0]);
+    assert_eq!([left, right], [1437.0, 1509.0]);
 }
 
 #[test]
@@ -350,7 +350,7 @@ fn focused_chat_editor_does_not_overlap_survival_hud_sprites() {
     runtime.open_chat();
 
     let active = presentation
-        .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
+        .build(&runtime, 0, [3433, 1385], DpiScale::new(1.5).unwrap())
         .unwrap();
     let hud_vertices = &active.vertices[..20 * 4];
     let editor_vertex_count = "> |".chars().count() * 4;

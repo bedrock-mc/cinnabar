@@ -96,6 +96,39 @@ fn player_move(runtime_id: u64, x: f32, teleported: bool) -> ActorEvent {
 }
 
 #[test]
+fn actor_display_names_use_player_username_and_entity_nametag_authority() {
+    let mut store = ActorStore::new(1, 0);
+    assert_eq!(
+        store.apply(1, 1, player_spawn(7, 70, 0.0)),
+        ActorApplyResult::Inserted
+    );
+    assert_eq!(
+        store.apply(
+            1,
+            2,
+            entity_spawn(
+                8,
+                80,
+                "minecraft:bee",
+                Arc::from([ActorMetadata {
+                    key: 4,
+                    value: ActorMetadataValue::String(Arc::from("Beeatrice")),
+                }]),
+            ),
+        ),
+        ActorApplyResult::Inserted
+    );
+    assert_eq!(
+        store.apply(1, 3, entity_spawn(9, 90, "minecraft:bee", Arc::from([]))),
+        ActorApplyResult::Inserted
+    );
+
+    assert_eq!(store.actor_display_name(70), Some(Arc::from("player-7")));
+    assert_eq!(store.actor_display_name(80), Some(Arc::from("Beeatrice")));
+    assert_eq!(store.actor_display_name(90), None);
+}
+
+#[test]
 fn player_network_position_is_normalized_to_spawn_feet_space() {
     assert_eq!(PLAYER_NETWORK_OFFSET, 1.62001);
     let mut store = ActorStore::new(1, 0);
