@@ -120,7 +120,10 @@ impl UiPresentationRuntime {
     ) -> Result<UiRenderInput, UiPresentationError> {
         let logical_width = physical_size[0] as f32 / dpi_scale.get();
         let logical_height = physical_size[1] as f32 / dpi_scale.get();
-        let measured_survival_geometry = survival_hud::measured_geometry(physical_size, dpi_scale);
+        let responsive_survival_geometry = self
+            .hud_textures
+            .as_ref()
+            .and_then(|textures| survival_hud::responsive_geometry(logical_width, textures));
         let viewport = rect(0.0, 0.0, logical_width, logical_height)?;
         let wrap_width = ((logical_width * 0.45).clamp(1.0, 640.0) * 64.0) as u32;
         let chat_content_width = wrap_width as f32 / 64.0;
@@ -132,7 +135,7 @@ impl UiPresentationRuntime {
         let mut next_id = 1u32;
 
         if let Some(hud_textures) = self.hud_textures.as_ref()
-            && let Some(geometry) = measured_survival_geometry
+            && let Some(geometry) = responsive_survival_geometry
         {
             survival_hud::append(
                 &mut nodes,
@@ -270,7 +273,7 @@ impl UiPresentationRuntime {
             .map(|(_, layout, _)| layout.size_64()[1] as f32 / 64.0 + 4.0)
             .sum::<f32>();
         let chat_region_top = (logical_height - 220.0 - suggestion_reserved_height).max(0.0);
-        let bottom_hud_top = measured_survival_geometry.map_or_else(
+        let bottom_hud_top = responsive_survival_geometry.map_or_else(
             || (logical_height - 42.0).max(chat_region_top),
             |geometry| geometry.bottom_row_top(logical_height).max(chat_region_top),
         );

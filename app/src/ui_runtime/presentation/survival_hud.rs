@@ -1,34 +1,68 @@
 use assets::HudTextureRole;
-use ui::{BoundedStat, DpiScale, UiNode, UiNodeId, UiVisual};
+use ui::{BoundedStat, UiNode, UiNodeId, UiVisual};
 
 use super::{HudTexturePages, UiPresentationError, UiRuntime, rect};
 
 const VANILLA_SURVIVAL_POINTS: u16 = 20;
+const PINNED_CLASSIC_GUI_LOGICAL_SCALE: f32 = 2.0;
+const HOTBAR_ROLES: [HudTextureRole; 9] = [
+    HudTextureRole::Hotbar0,
+    HudTextureRole::Hotbar1,
+    HudTextureRole::Hotbar2,
+    HudTextureRole::Hotbar3,
+    HudTextureRole::Hotbar4,
+    HudTextureRole::Hotbar5,
+    HudTextureRole::Hotbar6,
+    HudTextureRole::Hotbar7,
+    HudTextureRole::Hotbar8,
+];
 
-/// Geometry measured from the owned protocol-1001 client at the exact witnessed viewport.
-/// Other viewport/settings combinations fail closed until independently measured.
+/// Responsive geometry from the pinned protocol-1001 HUD carrier and owned-client GUI profile.
+///
+/// The pack's `hud_screen.json` anchors the 182x22 hotbar to `bottom_middle`; its start cap,
+/// nine slots, and end cap supply that source width. The owned Windows profile establishes a
+/// logical texture scale of two. Neither authority depends on a particular window resolution.
 #[derive(Clone, Copy)]
-pub(super) struct MeasuredSurvivalHudGeometry {
+pub(super) struct ResponsiveSurvivalHudGeometry {
     logical_texture_scale: f32,
     hotbar_outer_left: f32,
 }
 
-impl MeasuredSurvivalHudGeometry {
+impl ResponsiveSurvivalHudGeometry {
     pub(super) fn bottom_row_top(self, logical_height: f32) -> f32 {
         logical_height - 40.0 * self.logical_texture_scale
     }
 }
 
-pub(super) fn measured_geometry(
-    physical_size: [u32; 2],
-    dpi_scale: DpiScale,
-) -> Option<MeasuredSurvivalHudGeometry> {
-    (physical_size == [3433, 1385] && dpi_scale.get().to_bits() == 1.5_f32.to_bits()).then_some(
-        MeasuredSurvivalHudGeometry {
-            logical_texture_scale: 2.0,
-            hotbar_outer_left: 962.0,
-        },
-    )
+pub(super) fn responsive_geometry(
+    logical_width: f32,
+    textures: &HudTexturePages,
+) -> Option<ResponsiveSurvivalHudGeometry> {
+    if !logical_width.is_finite() || logical_width <= 0.0 {
+        return None;
+    }
+
+    let start = textures.sprite(HudTextureRole::HotbarStartCap).size;
+    let end = textures.sprite(HudTextureRole::HotbarEndCap).size;
+    let selected = textures.sprite(HudTextureRole::SelectedHotbarSlot).size;
+    if start != [1, 22] || end != [1, 22] || selected != [24, 24] {
+        return None;
+    }
+    let mut source_width = start[0];
+    for role in HOTBAR_ROLES {
+        let slot = textures.sprite(role).size;
+        if slot != [20, 22] {
+            return None;
+        }
+        source_width = source_width.checked_add(slot[0])?;
+    }
+    source_width = source_width.checked_add(end[0])?;
+
+    let logical_outer_width = f32::from(source_width) * PINNED_CLASSIC_GUI_LOGICAL_SCALE;
+    Some(ResponsiveSurvivalHudGeometry {
+        logical_texture_scale: PINNED_CLASSIC_GUI_LOGICAL_SCALE,
+        hotbar_outer_left: (logical_width - logical_outer_width) * 0.5,
+    })
 }
 
 pub(super) fn append(
@@ -37,7 +71,7 @@ pub(super) fn append(
     runtime: &UiRuntime,
     height: f32,
     textures: &HudTexturePages,
-    geometry: MeasuredSurvivalHudGeometry,
+    geometry: ResponsiveSurvivalHudGeometry,
 ) -> Result<(), UiPresentationError> {
     let scale = geometry.logical_texture_scale;
     let outer_left = geometry.hotbar_outer_left;
@@ -121,17 +155,7 @@ pub(super) fn append(
 
     if let Some(equipment) = runtime.local_selected_equipment() {
         let hotbar_y = (height - 23.0 * scale).max(0.0);
-        let roles = [
-            HudTextureRole::Hotbar0,
-            HudTextureRole::Hotbar1,
-            HudTextureRole::Hotbar2,
-            HudTextureRole::Hotbar3,
-            HudTextureRole::Hotbar4,
-            HudTextureRole::Hotbar5,
-            HudTextureRole::Hotbar6,
-            HudTextureRole::Hotbar7,
-            HudTextureRole::Hotbar8,
-        ];
+        let roles = HOTBAR_ROLES;
         let selected = usize::from(equipment.event.selected_slot);
         if selected >= roles.len() {
             return Ok(());
