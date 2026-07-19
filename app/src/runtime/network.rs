@@ -83,7 +83,6 @@ pub(crate) struct NetworkLocalPlayerState<'w> {
 #[derive(SystemParam)]
 pub(crate) struct ActorPresentationState<'w, 's> {
     avatar: Res<'w, LocalAvatarPresentation>,
-    local_frame: Res<'w, LocalPlayerFrameCarrier>,
     local_visibility: ResMut<'w, LocalAvatarVisibilityCarrier>,
     settings: Res<'w, CameraSettingsAuthority>,
     view: Res<'w, LocalViewPose>,
@@ -95,6 +94,19 @@ pub(crate) struct ActorPresentationState<'w, 's> {
 pub(crate) struct ActorFrameStep {
     pub(crate) ticks: u32,
     pub(crate) partial_tick: f32,
+}
+
+pub(crate) fn publish_local_actor_visibility(
+    avatar: &LocalAvatarPresentation,
+    perspective: semantic_input::PerspectiveMode,
+    eye: bevy::prelude::Vec3,
+    rotation: bevy::prelude::Quat,
+    carrier: &mut LocalAvatarVisibilityCarrier,
+) {
+    // The camera boom and the local body must share one live subject pose.
+    // LocalPlayerFrameCarrier is an immutable interaction/network sample and
+    // can legitimately lag the view across correction and perspective frames.
+    avatar.publish_view_visibility(perspective, eye, rotation, carrier);
 }
 
 #[derive(Debug, Default)]
@@ -723,7 +735,6 @@ pub(crate) fn publish_actor_render_frame(
 ) {
     let ActorPresentationState {
         avatar,
-        local_frame,
         mut local_visibility,
         settings,
         view,
@@ -743,16 +754,13 @@ pub(crate) fn publish_actor_render_frame(
     if let Some(stream) = client_world.stream.as_mut() {
         stream.advance_actor_interpolation_ticks(step.ticks);
     }
-    if let Some(local_frame) = local_frame.snapshot() {
-        avatar.publish_visibility(local_frame, &mut local_visibility);
-    } else {
-        avatar.publish_view_visibility(
-            settings.perspective(),
-            view.eye_translation(),
-            view.rotation(),
-            &mut local_visibility,
-        );
-    }
+    publish_local_actor_visibility(
+        &avatar,
+        settings.perspective(),
+        view.eye_translation(),
+        view.rotation(),
+        &mut local_visibility,
+    );
     let cull_view = camera
         .single()
         .ok()
