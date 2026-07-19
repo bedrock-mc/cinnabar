@@ -222,6 +222,42 @@ PNG pages expected by the compiler. This command writes the distinct ignored
 leaving `ui-inter-v1.mcbefont` intact as the fallback. Normal builds never fetch
 Mojangles or another unlicensed Minecraft font mirror.
 
+## Local vanilla HUD sprites
+
+The survival HUD uses exact sprites from a user-owned vanilla Bedrock client
+resource pack exported from a locally installed/owned Bedrock client. The
+official `bedrock-samples` resource pack does not contain these base-game UI
+sprites. The PNGs and generated carrier remain ignored local data; no Mojang
+image is embedded in this repository and no third-party asset mirror is used.
+Build the carrier from the exported pack's `resource_packs/vanilla` directory:
+
+```text
+make hud-assets-local HUD_PACK_DIR=/path/to/resource_packs/vanilla
+```
+
+This writes `.local/assets/compiled/vanilla-v1.mcbehud` and a provenance report.
+The source root must contain these exact PNG paths:
+
+```text
+textures/ui/heart_background.png
+textures/ui/heart.png
+textures/ui/heart_half.png
+textures/ui/hunger_background.png
+textures/ui/hunger_full.png
+textures/ui/hunger_half.png
+textures/ui/armor_empty.png
+textures/ui/armor_full.png
+textures/ui/armor_half.png
+textures/ui/bubble.png
+textures/ui/bubble_empty.png
+textures/ui/hotbar_0.png through textures/ui/hotbar_8.png
+textures/ui/selected_hotbar_slot.png
+```
+
+When the carrier is absent, authoritative survival stats remain retained but
+their presentation is hidden; the client does not substitute numeric or guessed
+art.
+
 ## Local vanilla block textures
 
 The client never downloads or embeds Mojang assets. Fetch the pinned

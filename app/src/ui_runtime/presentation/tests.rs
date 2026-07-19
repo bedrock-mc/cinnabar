@@ -1,14 +1,25 @@
-use assets::{FontTexturePage, GlyphMetrics, RuntimeFontCatalog, encode_font_catalog};
-use protocol::{HudEvent, TextCategory, TextEvent, TextKind, UiEvent};
+use assets::{
+    FontTexturePage, GlyphMetrics, HudTexture, HudTextureRole, RuntimeFontCatalog,
+    RuntimeHudCatalog, encode_font_catalog, encode_hud_catalog,
+};
+use protocol::{
+    BossAction as ProtocolBossAction, BossColor as ProtocolBossColor, BossEvent,
+    BossOverlay as ProtocolBossOverlay, BossStyle as ProtocolBossStyle, HudEvent, ObjectiveEvent,
+    ScoreAction as ProtocolScoreAction, ScoreEntry as ProtocolScoreEntry, ScoreEvent,
+    ScoreIdentity as ProtocolScoreIdentity, TextCategory, TextEvent, TextKind, TitleAction,
+    TitleEvent, UiEvent,
+};
 use sha2::{Digest, Sha256};
 
 use super::*;
 use crate::ui_runtime::SequencedUiEvent;
 
+mod retained_hud_tests;
+
 #[test]
 fn retained_hud_publishes_through_tree_adapter_and_render_scene() {
     let font = fixture_font();
-    let mut presentation = UiPresentationRuntime::new(font).unwrap();
+    let mut presentation = UiPresentationRuntime::with_hud(font, fixture_hud()).unwrap();
     let mut runtime = UiRuntime::new(1);
     runtime
         .apply(SequencedUiEvent {
@@ -23,12 +34,69 @@ fn retained_hud_publishes_through_tree_adapter_and_render_scene() {
     let input = presentation
         .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
         .unwrap();
-    assert!(!input.vertices.is_empty());
+    assert_eq!(input.vertices.len(), 20 * 4);
     assert!(!input.indices.is_empty());
     assert!(!input.batches.is_empty());
     let mut scene = UiRenderScene::default();
     scene.publish(input, &UiRenderStats::default()).unwrap();
     assert!(scene.input.is_some());
+}
+
+#[test]
+fn missing_local_hud_carrier_never_falls_back_to_numeric_corner_text() {
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let mut runtime = UiRuntime::new(1);
+    runtime
+        .apply(SequencedUiEvent {
+            session_id: 1,
+            fifo_sequence: 1,
+            local_millis: 0,
+            server_tick: None,
+            event: UiEvent::Hud(HudEvent::Health { health: 20 }),
+        })
+        .unwrap();
+
+    let input = presentation
+        .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
+        .unwrap();
+    assert!(input.vertices.is_empty());
+    assert!(input.indices.is_empty());
+    assert!(input.batches.is_empty());
+}
+
+#[test]
+fn selected_hotbar_slot_uses_local_authority_and_exact_pack_sprite_geometry() {
+    let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
+    let mut runtime = UiRuntime::new(1);
+    runtime.retain_local_selected_equipment(
+        7,
+        protocol::EquipmentEvent {
+            actor_runtime_id: 42,
+            stack: protocol::NetworkItemStack::empty(),
+            inventory_slot: 4,
+            selected_slot: 4,
+            window_id: 0,
+            handedness: None,
+        },
+    );
+
+    let active = presentation
+        .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
+        .unwrap();
+    assert_eq!(active.vertices.len(), 10 * 4);
+    assert_eq!(active.batches.len(), 1);
+    let selected = &active.vertices[9 * 4..10 * 4];
+    let (top, bottom) = vertical_bounds(selected);
+    assert_eq!([top, bottom], [577.0, 601.0]);
+    let left = selected
+        .iter()
+        .map(|vertex| vertex.position[0])
+        .fold(f32::INFINITY, f32::min);
+    let right = selected
+        .iter()
+        .map(|vertex| vertex.position[0])
+        .fold(f32::NEG_INFINITY, f32::max);
+    assert_eq!([left, right], [388.0, 412.0]);
 }
 
 #[test]
@@ -267,9 +335,9 @@ fn chat_surface_uses_bounded_width_across_resize_and_dpi() {
 }
 
 #[test]
-fn focused_chat_editor_does_not_overlap_bottom_hud_text() {
+fn focused_chat_editor_does_not_overlap_survival_hud_sprites() {
     let font = fixture_font();
-    let mut presentation = UiPresentationRuntime::new(font).unwrap();
+    let mut presentation = UiPresentationRuntime::with_hud(font, fixture_hud()).unwrap();
     let mut runtime = UiRuntime::new(1);
     runtime
         .apply(SequencedUiEvent {
@@ -285,7 +353,7 @@ fn focused_chat_editor_does_not_overlap_bottom_hud_text() {
     let active = presentation
         .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
         .unwrap();
-    let hud_vertices = &active.vertices[.."20/20".chars().count() * 4];
+    let hud_vertices = &active.vertices[..20 * 4];
     let editor_vertex_count = "> |".chars().count() * 4;
     let editor_vertices = &active.vertices[active.vertices.len() - editor_vertex_count..];
     let hud_top = hud_vertices
@@ -299,7 +367,7 @@ fn focused_chat_editor_does_not_overlap_bottom_hud_text() {
 
     assert!(
         editor_bottom <= hud_top,
-        "chat editor overlaps HUD: editor bottom {editor_bottom}, HUD top {hud_top}"
+        "chat editor overlaps survival HUD: editor bottom {editor_bottom}, HUD top {hud_top}"
     );
 }
 
@@ -495,6 +563,95 @@ fn suggestion_hit_testing_uses_the_exact_rendered_rows_and_width_cap() {
     );
 }
 
+fn title_event(action: TitleAction, text: &str) -> UiEvent {
+    UiEvent::Title(TitleEvent {
+        action,
+        text: Arc::from(text),
+        document: None,
+        fade_in_ticks: 0,
+        stay_ticks: 200,
+        fade_out_ticks: 0,
+        xuid: Arc::from(""),
+        platform_online_id: Arc::from(""),
+        filtered_message: Arc::from(""),
+    })
+}
+
+fn boss_event(
+    action: ProtocolBossAction,
+    target_entity_id: i64,
+    title: &str,
+    progress: f32,
+    color: ProtocolBossColor,
+    overlay: ProtocolBossOverlay,
+) -> UiEvent {
+    UiEvent::Boss(BossEvent {
+        target_entity_id,
+        player_id: 1,
+        action,
+        title: Arc::from(title),
+        filtered_title: Arc::from(""),
+        progress,
+        style: ProtocolBossStyle {
+            color,
+            overlay,
+            darken_sky: None,
+            create_world_fog: None,
+        },
+    })
+}
+
+fn bounds_for_color(input: &render::UiRenderInput, color: [u8; 4]) -> Option<[f32; 4]> {
+    let mut matching = input
+        .vertices
+        .iter()
+        .filter(|vertex| vertex.color == color)
+        .peekable();
+    matching.peek()?;
+    Some(matching.fold(
+        [
+            f32::INFINITY,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::NEG_INFINITY,
+        ],
+        |[left, top, right, bottom], vertex| {
+            [
+                left.min(vertex.position[0]),
+                top.min(vertex.position[1]),
+                right.max(vertex.position[0]),
+                bottom.max(vertex.position[1]),
+            ]
+        },
+    ))
+}
+
+fn horizontal_bounds_for_color(input: &render::UiRenderInput, color: [u8; 4]) -> Option<[f32; 2]> {
+    bounds_for_color(input, color).map(|[left, _, right, _]| [left, right])
+}
+
+fn assert_title_and_actionbar_geometry(input: &render::UiRenderInput) {
+    let white = input
+        .vertices
+        .iter()
+        .filter(|vertex| vertex.color == [255; 4])
+        .collect::<Vec<_>>();
+    assert!(
+        white.iter().any(|vertex| {
+            (240.0..=600.0).contains(&vertex.position[0])
+                && (180.0..=204.0).contains(&vertex.position[1])
+        }),
+        "title geometry disappeared while retained overlays changed",
+    );
+    assert!(
+        white.iter().any(|vertex| {
+            (280.0..=640.0).contains(&vertex.position[0])
+                && (510.0..=534.0).contains(&vertex.position[1])
+        }),
+        "actionbar geometry disappeared while retained overlays changed",
+    );
+}
+
 fn chat_event(message: &str) -> UiEvent {
     UiEvent::Text(TextEvent {
         category: TextCategory::MessageOnly,
@@ -566,4 +723,28 @@ fn fixture_font() -> Arc<RuntimeFontCatalog> {
     let manifest = [7; 32];
     let bytes = encode_font_catalog(manifest, &glyphs, &[page]).unwrap();
     Arc::new(RuntimeFontCatalog::decode(&bytes, manifest).unwrap())
+}
+
+fn fixture_hud() -> Arc<RuntimeHudCatalog> {
+    let textures = HudTextureRole::ALL
+        .into_iter()
+        .map(|role| {
+            let [width, height] = role.expected_size();
+            let rgba8 = [role as u8, 2, 3, 255]
+                .repeat(width as usize * height as usize)
+                .into_boxed_slice();
+            HudTexture {
+                role,
+                source_bytes: rgba8.len() as u32,
+                source_sha256: Sha256::digest(&rgba8).into(),
+                pixels_sha256: Sha256::digest(&rgba8).into(),
+                width,
+                height,
+                rgba8,
+            }
+        })
+        .collect::<Vec<_>>();
+    let manifest = [0x81; 32];
+    let bytes = encode_hud_catalog(manifest, &textures).unwrap();
+    Arc::new(RuntimeHudCatalog::decode(&bytes).unwrap())
 }
