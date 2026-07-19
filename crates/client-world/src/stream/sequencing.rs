@@ -414,8 +414,19 @@ impl WorldStream {
                     Some(cohort.radius.min(PHASE0_MAX_VIEW_RADIUS_CHUNKS));
                 if self.committed_view_cohort != Some(cohort) {
                     if self.provisional_publisher_rebase {
-                        self.required_columns
-                            .retain(|key| cohort.contains_column(key.dimension, [key.x, key.z]));
+                        let active_radius = u64::try_from(self.active_radius_chunks()).unwrap_or(0);
+                        let active_center = [
+                            update.center[0].div_euclid(16),
+                            update.center[2].div_euclid(16),
+                        ];
+                        self.required_columns.retain(|key| {
+                            cohort.contains_column(key.dimension, [key.x, key.z])
+                                && key.dimension == self.current_dimension
+                                && i64::from(key.x).abs_diff(i64::from(active_center[0]))
+                                    <= active_radius
+                                && i64::from(key.z).abs_diff(i64::from(active_center[1]))
+                                    <= active_radius
+                        });
                     } else {
                         self.required_columns.clear();
                     }

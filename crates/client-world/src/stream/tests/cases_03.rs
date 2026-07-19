@@ -390,6 +390,17 @@ fn only_disjoint_local_teleports_may_provisionally_rebase_publisher_retention() 
         });
         stream.chunk_radius = Some(8);
         stream.publisher_radius_chunks = Some(8);
+        let resident = SubChunkKey::new(0, 0, -4, 0);
+        let requested = SubChunkKey::new(0, 1, -4, 0);
+        let deadline = Instant::now() + super::SUB_CHUNK_RESPONSE_TIMEOUT;
+        let mut pending = super::PendingSubChunk::default();
+        pending.response_deadline = Some(deadline);
+        stream.loaded_columns.insert(resident.chunk());
+        stream.resident.insert(resident);
+        stream
+            .requested_sub_chunks
+            .insert(requested.chunk(), BTreeMap::from([(requested.y, pending)]));
+        stream.sub_chunk_deadlines.insert((deadline, requested));
         stream
     }
 
@@ -416,9 +427,66 @@ fn only_disjoint_local_teleports_may_provisionally_rebase_publisher_retention() 
         },
     ] {
         let mut stream = stream_at_origin();
+        let tracked_before = stream.tracked_columns();
+        let deadlines_before = stream.sub_chunk_deadlines.clone();
         stream.submit(1, WorldEvent::MovePlayer(movement)).unwrap();
         assert_eq!(stream.publisher_center, Some([0, 70, 0]));
+        assert_eq!(stream.tracked_columns(), tracked_before);
+        assert_eq!(stream.sub_chunk_deadlines, deadlines_before);
     }
+}
+
+#[test]
+fn transport_ack_after_disjoint_teleport_cannot_restore_purged_origin_work() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.5, 70.0, 0.5],
+        world_spawn_position: [0, 70, 0],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    stream
+        .submit(
+            1,
+            request_level_chunk_event(0, 0, 0, LevelChunkMode::LimitedRequests { highest: 1 }, 1),
+        )
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    let request = stream.pop_next_request().unwrap();
+    stream.record_sub_chunk_request_transport_pending(
+        request.chunk,
+        request.base_sub_chunk_y,
+        request.count,
+    );
+    assert_eq!(stream.transport_pending_requests, 1);
+
+    stream
+        .submit(
+            2,
+            WorldEvent::MovePlayer(MovePlayerEvent {
+                runtime_id: 1,
+                position: [1_040.5, 70.0, 1_040.5],
+                mode: MovePlayerMode::Teleport,
+                teleported: true,
+                ..Default::default()
+            }),
+        )
+        .unwrap();
+    assert!(!stream.tracked_columns().contains(&request.chunk));
+    assert!(stream.sub_chunk_deadlines.is_empty());
+
+    stream.acknowledge_sub_chunk_request_sent(
+        request.chunk,
+        request.base_sub_chunk_y,
+        request.count,
+        Instant::now(),
+    );
+
+    assert_eq!(stream.transport_pending_requests, 0);
+    assert!(stream.sub_chunk_deadlines.is_empty());
+    assert!(!stream.tracked_columns().contains(&request.chunk));
+    assert_eq!(stream.outstanding_sub_chunk_count(), 0);
 }
 
 #[test]
@@ -468,6 +536,56 @@ fn provisional_publisher_epoch_overflow_clears_retained_destination_membership()
     assert_eq!(stream.committed_view_cohort(), None);
     assert!(!stream.provisional_publisher_rebase);
     assert!(stream.required_columns.is_empty());
+}
+
+#[test]
+fn provisional_publisher_update_retains_only_destination_work_in_clamped_active_scope() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.5, 70.0, 0.5],
+        world_spawn_position: [0, 70, 0],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    stream.chunk_radius = Some(2);
+    stream.publisher_radius_chunks = Some(2);
+    stream.committed_view_cohort = Some(super::ViewCohort {
+        dimension: 0,
+        center: [0, 0],
+        radius: 2,
+        publisher_geometry: None,
+    });
+    stream
+        .submit(
+            1,
+            WorldEvent::MovePlayer(MovePlayerEvent {
+                runtime_id: 1,
+                position: [1_040.5, 70.0, 1_040.5],
+                mode: MovePlayerMode::Teleport,
+                teleported: true,
+                ..Default::default()
+            }),
+        )
+        .unwrap();
+    let active = ChunkKey::new(0, 66, 65);
+    let publisher_only = ChunkKey::new(0, 69, 65);
+    stream.required_columns = BTreeSet::from([active, publisher_only]);
+    stream.loaded_columns = stream.required_columns.clone();
+
+    stream
+        .submit(
+            2,
+            WorldEvent::PublisherUpdate(PublisherUpdateEvent {
+                center: [1_040, 70, 1_040],
+                radius_blocks: 128,
+            }),
+        )
+        .unwrap();
+
+    assert_eq!(stream.required_columns, BTreeSet::from([active]));
+    assert!(stream.tracked_columns().contains(&active));
+    assert!(!stream.tracked_columns().contains(&publisher_only));
 }
 
 #[test]
