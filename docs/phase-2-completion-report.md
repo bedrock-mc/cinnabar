@@ -60,4 +60,4 @@ Deterministic checks completed locally:
 - `go test ./... -run ClientBlobCache -count=1` and `go vet ./...` under `core` — passed with the pinned gophertunnel/xxHash fixture.
 - `cargo clippy -p protocol -p client-world --all-targets --locked -- -D warnings` and `cargo clippy -p bedrock-client --lib --bins --locked -- -D warnings` — passed.
 
-The combined `bedrock-client --all-targets` gate remains blocked outside Task 5A by the pre-existing `app/tests/assets.rs` `CompiledEntityAssets` initializer missing newly added animation fields. No live Lunar or Zeqa evidence was run or recorded here; Task 5A remains non-final until the ordered live gate is executed independently.
+The former `bedrock-client --all-targets` blocker in `app/tests/assets.rs` is resolved: the `CompiledEntityAssets` initializer now includes the animation, Molang, controller, and rig fields. Canonical CI run `29671070071` at `2fc7a33` passes the full workspace test and strict all-target Clippy gates on Linux and Windows. No live Lunar or Zeqa evidence was run or recorded here; Task 5A remains non-final until the ordered live gate is executed independently.

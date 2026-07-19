@@ -1479,6 +1479,15 @@ store it only under the user's temporary directory, inspect that file, and never
     Clippy/formatting, and three independent reviews are green. This closes only
     deterministic Task 3 Steps 1–3; the release BDS join/teleport,
     presentation, RSS, settled-CPU, and visible-stall gate remains open.
+  - [x] Ship the bounded publication, same-connection fast-transfer recovery,
+    and player-near request-priority implementation on canonical
+    `phase2-textures` through `2fc7a33`. The combined history includes bounded
+    publication at `dedbef1`, local reset and request-ordering work from
+    `a7d8a90` through `c4ed5a9`, integration at `f0f27eb`, vanilla slash
+    `CommandRequest` encoding at `be32657`, and final cross-platform CI repairs.
+    Canonical CI run `29671070071` is green. This is an implementation-only
+    milestone: the binding LBSG same-connection reset witness, ordered
+    Lunar/Zeqa native evidence, and the master <=2-second live gate remain open.
   - [x] Remove the frame-coupled four-decode throttle through `2b16368`.
     The 2026-07-15 opt-in live trace proved that all 4,912 admitted jobs
     completed (3,988 SubChunk jobs at about 0.02 ms each), while 1,218 frames

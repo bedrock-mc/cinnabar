@@ -4,15 +4,16 @@ Branch: `performance-dx12-present-mode`
 
 Component base: `origin/phase2-textures` at `d026417`
 
-Combined integration base: `origin/phase2-textures` at `bf068bc`
-
-Combined candidate: `f0f27eb` on `fix/fast-transfer-local-chunks`
+Canonical integration: `origin/phase2-textures` at `2fc7a33`
 
 Status: component implementation `5e01528` is pushed to
-`performance-dx12-present-mode`, independently approved, merged into the
-combined candidate, and covered by the combined all-target/all-feature test
-gate. Native acceptance and authoritative `phase2-textures` integration remain
-pending.
+`performance-dx12-present-mode`, independently approved, merged through the
+combined candidate, and shipped on canonical `phase2-textures`. Repairs through
+`2fc7a33` preserve the cross-platform policy resource and schedule ordering
+while compiling the surface probe only on Windows. Canonical CI run
+`29671070071` is green overall: Linux and Windows passed the full workspace,
+strict Clippy, acceptance, and Go gates, while macOS passed physics bootstrap
+and carrier verification. Native acceptance remains pending.
 
 ## Evidence and intended policy
 
@@ -73,9 +74,9 @@ precedence, pending-to-proven lifecycle identity and one-shot proof, bounded
 eventual surface-probe retry, runtime setting transitions, missing-window retry,
 and two consecutive automatic applications with no second `Window` change.
 
-## Remaining native/integration gates
+## Remaining native gates
 
-- Integrate on the stable canonical path, build release, and repeat Lunar
+- Build the stable canonical path and repeat Lunar
   `pvp.lunarbedrock.com:19134`, then Zeqa
   `zeqa.net:19132`, confirming effective mode, frame pacing, chunk readiness,
   input latency, and no regression for explicit vsync.

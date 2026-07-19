@@ -1,13 +1,15 @@
 # Phase 2.7 fast-transfer local chunk handoff
 
-Combined integration base: `origin/phase2-textures` at `bf068bc`.
+Canonical integration: `origin/phase2-textures` at `2fc7a33`.
 
-Combined candidate: `f0f27eb` on `fix/fast-transfer-local-chunks`.
+The former `fix/fast-transfer-local-chunks` branch is byte-identical to that
+canonical head. The combined implementation entered through `f0f27eb`; later
+repairs through `2fc7a33` add proven presentation metadata, vanilla slash
+`CommandRequest` encoding, and cross-platform CI gating.
 
-Status: implementation, component review, combined post-integration review,
-and the combined all-target/all-feature test gate are complete. Native LBSG
-`/transfer sm3` validation and authoritative `phase2-textures` integration
-remain pending.
+Status: implementation, integration, independent review, and canonical CI are
+complete. Native LBSG `/transfer sm3` validation remains open and is the only
+fast-transfer closeout gate described by this handoff.
 
 ## Scope and commits
 
@@ -34,7 +36,12 @@ The request player column is derived only from the last finite camera position s
 - `cargo run -p architecture --locked -- check --root . --policy tools/architecture/policy.toml` — passed.
 - `cargo fmt --all -- --check` and `git diff --check` — passed.
 
-## Integration/native follow-up
+Canonical CI run `29671070071` at `2fc7a33` is green overall. Linux and
+Windows passed full workspace tests, strict all-target Clippy, their acceptance
+checks, and Go tests/vet; macOS passed physics bootstrap and carrier
+verification.
+
+## Native closeout follow-up
 
 Build and run the exact reviewed head against `play.lbsg.net:19132`, enter a world, execute `/transfer sm3`, and prove the destination player column plus nearby spawn columns become resident/presented without an `InactiveLevelChunk` increase or movement lock. Capture publisher epoch/center, required/loaded columns, request class depths/order, stale/timeout counters, world-ready time, and a native screenshot. Then repeat the ordinary movement/small-teleport controls.
 
